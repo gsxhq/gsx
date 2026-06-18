@@ -75,6 +75,38 @@ func scanToBlockBrace(src string, from int) (int, bool) {
 	}
 }
 
+// scanToCaseColon returns the index of the ':' that ends a switch case list,
+// scanning Go tokens from offset `from` and returning the first ':' at
+// paren/bracket/brace depth 0. ok is false if no such ':' is found.
+func scanToCaseColon(src string, from int) (int, bool) {
+	fset := token.NewFileSet()
+	file := fset.AddFile("", fset.Base(), len(src))
+	var s scanner.Scanner
+	s.Init(file, []byte(src), func(token.Position, string) {}, scanner.ScanComments)
+
+	depth := 0
+	for {
+		pos, tok, _ := s.Scan()
+		if tok == token.EOF {
+			return 0, false
+		}
+		off := fset.Position(pos).Offset
+		if off < from {
+			continue
+		}
+		switch tok {
+		case token.LPAREN, token.LBRACK, token.LBRACE:
+			depth++
+		case token.RPAREN, token.RBRACK, token.RBRACE:
+			depth--
+		case token.COLON:
+			if depth == 0 {
+				return off, true
+			}
+		}
+	}
+}
+
 // parenEnd returns the index of the `)` matching the `(` at src[open].
 func parenEnd(src string, open int) (int, bool) {
 	fset := token.NewFileSet()

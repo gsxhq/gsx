@@ -495,3 +495,57 @@ func TestParseForWithGoBlockInside(t *testing.T) {
 		t.Fatalf("expected a GoBlock inside the for body, got %#v", n.Body)
 	}
 }
+
+func TestParseSwitch(t *testing.T) {
+	src := `{ switch kind {
+		case "warning":
+			<span>warn</span>
+		case "error":
+			<span>err</span>
+		default:
+			<span>info</span>
+		} }`
+	p := testParser(src)
+	node, _, err := p.parseBraceNode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, ok := node.(*ast.SwitchMarkup)
+	if !ok {
+		t.Fatalf("got %T, want *ast.SwitchMarkup", node)
+	}
+	if n.Tag != "kind" {
+		t.Fatalf("Tag = %q", n.Tag)
+	}
+	if len(n.Cases) != 3 {
+		t.Fatalf("got %d cases, want 3: %#v", len(n.Cases), n.Cases)
+	}
+	if n.Cases[0].List != `"warning"` || n.Cases[0].Default {
+		t.Fatalf("case0 = %#v", n.Cases[0])
+	}
+	if !n.Cases[2].Default || n.Cases[2].List != "" {
+		t.Fatalf("case2 (default) = %#v", n.Cases[2])
+	}
+	if n.Cases[1].Body[0].(*ast.Element).Tag != "span" {
+		t.Fatalf("case1 body = %#v", n.Cases[1].Body)
+	}
+}
+
+func TestParseSwitchTagless(t *testing.T) {
+	src := `{ switch {
+		case x > 0:
+			<a/>
+		} }`
+	p := testParser(src)
+	node, _, err := p.parseBraceNode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := node.(*ast.SwitchMarkup)
+	if n.Tag != "" {
+		t.Fatalf("Tag = %q, want empty", n.Tag)
+	}
+	if n.Cases[0].List != "x > 0" {
+		t.Fatalf("case list = %q", n.Cases[0].List)
+	}
+}
