@@ -1,0 +1,4 @@
+/.remember/
+*.x.go
+/tmp/
+.DS_Store
