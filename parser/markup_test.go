@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gsxhq/gsx/internal/ast"
+	"github.com/gsxhq/gsx/ast"
 )
 
 func TestParseInterp(t *testing.T) {

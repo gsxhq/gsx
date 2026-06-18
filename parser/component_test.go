@@ -3,7 +3,7 @@ package parser
 import (
 	"testing"
 
-	"github.com/gsxhq/gsx/internal/ast"
+	"github.com/gsxhq/gsx/ast"
 )
 
 func TestParseComponentSimple(t *testing.T) {

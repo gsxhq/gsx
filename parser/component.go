@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gsxhq/gsx/internal/ast"
+	"github.com/gsxhq/gsx/ast"
 )
 
 // parseComponent parses a `component [recv] Name[(params)] { body }`.

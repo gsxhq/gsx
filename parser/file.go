@@ -7,7 +7,7 @@ import (
 	"go/token"
 	"strings"
 
-	"github.com/gsxhq/gsx/internal/ast"
+	"github.com/gsxhq/gsx/ast"
 )
 
 // Parse parses a full .gsx source file.
