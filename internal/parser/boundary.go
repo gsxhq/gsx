@@ -37,3 +37,32 @@ func goExprEnd(src string, open int) (int, bool) {
 		}
 	}
 }
+
+// parenEnd returns the index of the `)` matching the `(` at src[open].
+func parenEnd(src string, open int) (int, bool) {
+	fset := token.NewFileSet()
+	file := fset.AddFile("", fset.Base(), len(src))
+	var s scanner.Scanner
+	s.Init(file, []byte(src), nil, scanner.ScanComments)
+
+	depth := 0
+	for {
+		pos, tok, _ := s.Scan()
+		if tok == token.EOF {
+			return 0, false
+		}
+		off := fset.Position(pos).Offset
+		if off < open {
+			continue
+		}
+		switch tok {
+		case token.LPAREN, token.LBRACE, token.LBRACK:
+			depth++
+		case token.RPAREN, token.RBRACE, token.RBRACK:
+			depth--
+			if depth == 0 && tok == token.RPAREN {
+				return off, true
+			}
+		}
+	}
+}

@@ -26,3 +26,23 @@ func TestGoExprEnd(t *testing.T) {
 		}
 	}
 }
+
+func TestParenEnd(t *testing.T) {
+	cases := []struct {
+		src   string
+		open  int
+		close int
+		ok    bool
+	}{
+		{`(p UsersPage)`, 0, 12, true},
+		{`(a string, b func(int) int)`, 0, 26, true}, // nested parens
+		{`( ")" )`, 0, 6, true},                        // paren in string
+		{`(unbalanced`, 0, 0, false},
+	}
+	for _, c := range cases {
+		got, ok := parenEnd(c.src, c.open)
+		if ok != c.ok || (ok && got != c.close) {
+			t.Errorf("parenEnd(%q) = (%d,%v), want (%d,%v)", c.src, got, ok, c.close, c.ok)
+		}
+	}
+}
