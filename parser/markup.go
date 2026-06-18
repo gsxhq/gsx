@@ -481,73 +481,16 @@ func (p *parser) parseAttrs() ([]ast.Attr, error) {
 		if p.peek() == '>' || p.at("/>") {
 			return attrs, nil
 		}
-		// skip tag-interior // or /* */ comments
 		if sk, err := p.skipTagComment(); err != nil {
 			return nil, err
 		} else if sk {
 			continue
 		}
-		// {...expr} spread — tolerant of whitespace after `{` and around `...`
-		// (e.g. `{ ...attrs }`). In attribute position a `{ }` is always a spread.
-		if p.peek() == '{' {
-			attrStart := p.i
-			attrStartPos := p.posAt(attrStart)
-			end, ok := goExprEnd(p.src, p.i)
-			if !ok {
-				return nil, fmt.Errorf("unterminated `{` in attributes")
-			}
-			inner := strings.TrimSpace(p.src[p.i+1 : end])
-			if !strings.HasPrefix(inner, "...") {
-				curPos := p.file.Position(attrStartPos)
-				return nil, fmt.Errorf("%d:%d: expected `...` spread inside `{ }` attribute",
-					curPos.Line, curPos.Column)
-			}
-			expr := strings.TrimSpace(strings.TrimPrefix(inner, "..."))
-			p.i = end + 1
-			sa := &ast.SpreadAttr{Expr: expr}
-			ast.SetSpan(sa, attrStartPos, p.posAt(p.i))
-			attrs = append(attrs, sa)
-			continue
+		a, err := p.parseSingleAttr()
+		if err != nil {
+			return nil, err
 		}
-		// attribute name
-		attrStart := p.i
-		attrStartPos := p.posAt(attrStart)
-		for !p.eof() && isAttrNameByte(p.src[p.i]) {
-			p.i++
-		}
-		if p.i == attrStart {
-			curPos := p.file.Position(p.pos())
-			return nil, fmt.Errorf("%d:%d: expected attribute name, got %q",
-				curPos.Line, curPos.Column, string(p.peek()))
-		}
-		name := p.src[attrStart:p.i]
-		switch {
-		case p.at(`="`):
-			p.i += 2
-			vs := p.i
-			for !p.eof() && p.src[p.i] != '"' {
-				p.i++
-			}
-			if p.eof() {
-				return nil, fmt.Errorf("unterminated attribute string for %q", name)
-			}
-			val := p.src[vs:p.i]
-			p.i++ // past closing quote
-			sa := &ast.StaticAttr{Name: name, Value: val}
-			ast.SetSpan(sa, attrStartPos, p.posAt(p.i))
-			attrs = append(attrs, sa)
-		case p.peek() == '=' && p.i+1 < len(p.src) && p.src[p.i+1] == '{':
-			p.i++ // past '='
-			if a, err := p.parseAttrBraceValue(name, attrStartPos); err != nil {
-				return nil, err
-			} else {
-				attrs = append(attrs, a)
-			}
-		default:
-			ba := &ast.BoolAttr{Name: name}
-			ast.SetSpan(ba, attrStartPos, p.posAt(p.i))
-			attrs = append(attrs, ba)
-		}
+		attrs = append(attrs, a)
 	}
 }
 

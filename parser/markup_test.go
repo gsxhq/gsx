@@ -549,3 +549,64 @@ func TestParseSwitchTagless(t *testing.T) {
 		t.Fatalf("case list = %q", n.Cases[0].List)
 	}
 }
+
+func TestParseCondAttr(t *testing.T) {
+	// One-off conditional attribute on a tag.
+	p := testParser(`<input { if id != "" { id={id} } }/>`)
+	node, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := node.(*ast.Element)
+	if len(el.Attrs) != 1 {
+		t.Fatalf("got %d attrs, want 1: %#v", len(el.Attrs), el.Attrs)
+	}
+	ca, ok := el.Attrs[0].(*ast.CondAttr)
+	if !ok {
+		t.Fatalf("attr0 = %T, want *ast.CondAttr", el.Attrs[0])
+	}
+	if ca.Cond != `id != ""` {
+		t.Fatalf("Cond = %q", ca.Cond)
+	}
+	if len(ca.Then) != 1 {
+		t.Fatalf("Then = %#v", ca.Then)
+	}
+	ea, ok := ca.Then[0].(*ast.ExprAttr)
+	if !ok || ea.Name != "id" || ea.Expr != "id" {
+		t.Fatalf("Then[0] = %#v", ca.Then[0])
+	}
+}
+
+func TestParseCondAttrBool(t *testing.T) {
+	p := testParser(`<input { if required { required } }/>`)
+	node, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ca := node.(*ast.Element).Attrs[0].(*ast.CondAttr)
+	if _, ok := ca.Then[0].(*ast.BoolAttr); !ok {
+		t.Fatalf("Then[0] = %T, want *ast.BoolAttr", ca.Then[0])
+	}
+}
+
+func TestParseCondAttrWithOtherAttrs(t *testing.T) {
+	// Conditional attr composes with normal attrs and a spread on one element.
+	p := testParser(`<button type="button" { if on { disabled } } {...rest}>x</button>`)
+	node, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := node.(*ast.Element)
+	if len(el.Attrs) != 3 {
+		t.Fatalf("got %d attrs, want 3: %#v", len(el.Attrs), el.Attrs)
+	}
+	if _, ok := el.Attrs[0].(*ast.StaticAttr); !ok {
+		t.Fatalf("attr0 = %T", el.Attrs[0])
+	}
+	if _, ok := el.Attrs[1].(*ast.CondAttr); !ok {
+		t.Fatalf("attr1 = %T", el.Attrs[1])
+	}
+	if _, ok := el.Attrs[2].(*ast.SpreadAttr); !ok {
+		t.Fatalf("attr2 = %T", el.Attrs[2])
+	}
+}
