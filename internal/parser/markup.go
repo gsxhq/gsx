@@ -131,5 +131,60 @@ func startsTag(b byte) bool {
 	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b == '>' || b == '/'
 }
 
+func isTagNameByte(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' ||
+		b >= '0' && b <= '9' || b == '-' || b == '.'
+}
+
+func (p *parser) parseElement() (ast.Node, error) {
+	pos := p.pos()
+	if p.peek() != '<' {
+		return nil, fmt.Errorf("%d:%d: expected '<'", pos.Line, pos.Column)
+	}
+	p.i++ // past '<'
+
+	// Fragment: <>…</>
+	if p.peek() == '>' {
+		p.i++ // past '>'
+		children, err := p.parseChildren("")
+		if err != nil {
+			return nil, err
+		}
+		return &ast.Fragment{Children: children, Pos: pos}, nil
+	}
+
+	start := p.i
+	for !p.eof() && isTagNameByte(p.src[p.i]) {
+		p.i++
+	}
+	tag := p.src[start:p.i]
+	if tag == "" {
+		return nil, fmt.Errorf("%d:%d: expected tag name", pos.Line, pos.Column)
+	}
+
+	attrs, err := p.parseAttrs()
+	if err != nil {
+		return nil, err
+	}
+
+	if p.at("/>") {
+		p.i += 2
+		return &ast.Element{Tag: tag, Void: true, Attrs: attrs, Pos: pos}, nil
+	}
+	if p.peek() != '>' {
+		return nil, fmt.Errorf("%d:%d: expected '>' or '/>' in <%s>", p.pos().Line, p.pos().Column, tag)
+	}
+	p.i++ // past '>'
+
+	children, err := p.parseChildren(tag)
+	if err != nil {
+		return nil, err
+	}
+	return &ast.Element{Tag: tag, Attrs: attrs, Children: children, Pos: pos}, nil
+}
+
 // parseNodesUntilEOF is added in Task 8; temporary stub for now.
 func (p *parser) parseNodesUntilEOF() ([]ast.Node, error) { return nil, nil }
+
+// parseChildren is added in Task 8; temporary stub for now.
+func (p *parser) parseChildren(closeTag string) ([]ast.Node, error) { return nil, nil }

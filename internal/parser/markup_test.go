@@ -71,4 +71,28 @@ func TestParseAttrs(t *testing.T) {
 	}
 }
 
+func TestParseSelfClosing(t *testing.T) {
+	p := newParser(`<img src="x.png"/>`)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := n.(*ast.Element)
+	if el.Tag != "img" || !el.Void || len(el.Attrs) != 1 {
+		t.Fatalf("got %#v", el)
+	}
+}
+
+func TestParseDottedComponentTag(t *testing.T) {
+	p := newParser(`<ui.Button variant="primary"></ui.Button>`)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := n.(*ast.Element)
+	if el.Tag != "ui.Button" || el.Void || len(el.Attrs) != 1 {
+		t.Fatalf("got %#v", el)
+	}
+}
+
 var _ = ast.Text{}
