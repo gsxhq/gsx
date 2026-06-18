@@ -15,11 +15,12 @@ func Parse(src string) (*ast.File, error) {
 	f := &ast.File{}
 
 	// Find the package clause and its name with go/scanner.
-	pkgName, pkgEnd, err := scanPackage(src)
+	pkgName, pkgPos, pkgEnd, err := scanPackage(src)
 	if err != nil {
 		return nil, err
 	}
 	f.Package = pkgName
+	f.PkgPos = pkgPos
 
 	// Locate top-level `component` keyword offsets.
 	offsets := topLevelComponentOffsets(src)
@@ -47,7 +48,7 @@ func Parse(src string) (*ast.File, error) {
 	return f, nil
 }
 
-func scanPackage(src string) (name string, end int, err error) {
+func scanPackage(src string) (name string, pos token.Position, end int, err error) {
 	fset := token.NewFileSet()
 	file := fset.AddFile("", fset.Base(), len(src))
 	var s scanner.Scanner
@@ -55,16 +56,16 @@ func scanPackage(src string) (name string, end int, err error) {
 	for {
 		_, tok, lit := s.Scan()
 		if tok == token.EOF {
-			return "", 0, fmt.Errorf("missing package clause")
+			return "", token.Position{}, 0, fmt.Errorf("missing package clause")
 		}
 		if tok == token.PACKAGE {
-			pos, tok2, lit2 := s.Scan()
+			namePos, tok2, lit2 := s.Scan()
 			if tok2 != token.IDENT {
-				return "", 0, fmt.Errorf("malformed package clause")
+				return "", token.Position{}, 0, fmt.Errorf("malformed package clause")
 			}
-			off := fset.Position(pos).Offset
+			p := fset.Position(namePos)
 			_ = lit
-			return lit2, off + len(lit2), nil
+			return lit2, p, p.Offset + len(lit2), nil
 		}
 	}
 }

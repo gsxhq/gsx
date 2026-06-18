@@ -190,6 +190,7 @@ func (p *parser) parseChildren(closeTag string) ([]ast.Node, error) {
 			return nil, fmt.Errorf("unexpected EOF, expected </%s>", closeTag)
 		}
 		if p.at("</") {
+			mmPos := p.pos()
 			// consume close tag
 			p.i += 2
 			start := p.i
@@ -204,7 +205,7 @@ func (p *parser) parseChildren(closeTag string) ([]ast.Node, error) {
 			p.i++ // past '>'
 			if got != closeTag {
 				return nil, fmt.Errorf("%d:%d: mismatched close tag </%s>, expected </%s>",
-					p.pos().Line, p.pos().Column, got, closeTag)
+					mmPos.Line, mmPos.Column, got, closeTag)
 			}
 			return nodes, nil
 		}

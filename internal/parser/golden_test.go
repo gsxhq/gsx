@@ -52,6 +52,9 @@ func TestGoldenCore(t *testing.T) {
 	if card.Params != "title string, featured bool" {
 		t.Fatalf("card params = %q", card.Params)
 	}
+	if len(card.Body) == 0 {
+		t.Fatalf("card body empty")
+	}
 	section := card.Body[0].(*ast.Element)
 	if section.Tag != "section" {
 		t.Fatalf("card root = %#v", section)
@@ -66,7 +69,7 @@ func TestGoldenCore(t *testing.T) {
 		case *ast.Element:
 			if v.Tag == "h2" {
 				sawH2 = true
-				if _, ok := v.Children[0].(*ast.Interp); !ok {
+				if iv, ok := v.Children[0].(*ast.Interp); !ok || iv.Expr != "title" {
 					t.Fatalf("h2 child = %#v", v.Children[0])
 				}
 			}

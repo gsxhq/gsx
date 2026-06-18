@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/gsxhq/gsx/internal/ast"
@@ -130,6 +131,17 @@ func TestParseMarkupAttr(t *testing.T) {
 	}
 	if ma.Value[0].(*ast.Element).Tag != "h1" {
 		t.Fatalf("markup attr value = %#v", ma.Value[0])
+	}
+}
+
+func TestParseChildrenMismatch(t *testing.T) {
+	p := newParser(`<div>hi</span>`)
+	_, err := p.parseElement()
+	if err == nil {
+		t.Fatalf("expected mismatched-close-tag error, got nil")
+	}
+	if !strings.Contains(err.Error(), "mismatched close tag") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
