@@ -56,18 +56,24 @@ func (p *parser) parseAttrs() ([]ast.Attr, error) {
 		if p.peek() == '>' || p.at("/>") {
 			return attrs, nil
 		}
-		// {...expr} spread
-		if p.at("{...") {
+		// {...expr} spread — tolerant of whitespace after `{` and around `...`
+		// (e.g. `{ ...attrs }`). In attribute position a `{ }` is always a spread.
+		if p.peek() == '{' {
 			attrStart := p.i
 			attrStartPos := p.posAt(attrStart)
 			end, ok := goExprEnd(p.src, p.i)
 			if !ok {
-				return nil, fmt.Errorf("unterminated spread `{...`")
+				return nil, fmt.Errorf("unterminated `{` in attributes")
 			}
 			inner := strings.TrimSpace(p.src[p.i+1 : end])
-			inner = strings.TrimSpace(strings.TrimPrefix(inner, "..."))
+			if !strings.HasPrefix(inner, "...") {
+				curPos := p.file.Position(attrStartPos)
+				return nil, fmt.Errorf("%d:%d: expected `...` spread inside `{ }` attribute",
+					curPos.Line, curPos.Column)
+			}
+			expr := strings.TrimSpace(strings.TrimPrefix(inner, "..."))
 			p.i = end + 1
-			sa := &ast.SpreadAttr{Expr: inner}
+			sa := &ast.SpreadAttr{Expr: expr}
 			ast.SetSpan(sa, attrStartPos, p.posAt(p.i))
 			attrs = append(attrs, sa)
 			continue

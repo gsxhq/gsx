@@ -145,4 +145,22 @@ func TestParseChildrenMismatch(t *testing.T) {
 	}
 }
 
+func TestParseSpreadWhitespace(t *testing.T) {
+	// {...expr}, { ...expr }, and {...  expr  } must all parse as one spread.
+	for _, src := range []string{`{...rest}>`, `{ ...rest }>`, `{...  rest  }>`} {
+		p := testParser(src)
+		attrs, err := p.parseAttrs()
+		if err != nil {
+			t.Fatalf("%q: %v", src, err)
+		}
+		if len(attrs) != 1 {
+			t.Fatalf("%q: got %d attrs: %#v", src, len(attrs), attrs)
+		}
+		sa, ok := attrs[0].(*ast.SpreadAttr)
+		if !ok || sa.Expr != "rest" {
+			t.Fatalf("%q: got %#v", src, attrs[0])
+		}
+	}
+}
+
 var _ = ast.Text{}
