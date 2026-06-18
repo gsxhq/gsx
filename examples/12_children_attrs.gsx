@@ -45,7 +45,7 @@ component Toolbar() {
 component Field(label string) {
 	<div class="field">
 		<label>{label}</label>
-		<input class="control" {...attrs}/>   // caller's name/value/hx-* land on <input>, not <div>
+		<input class="control" {...attrs}/>{/* caller's name/value/hx-* land on <input>, not <div> */}
 	</div>
 }
 

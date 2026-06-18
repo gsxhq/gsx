@@ -9,4 +9,4 @@
 09_realworld_form_htmx.gsx: 38:4: expected `...` spread inside `{ }` attribute
 10_realworld_layout_email.gsx: 30:3: expected tag name
 11_struct_methods.gsx: 81:32: expected `...` spread inside `{ }` attribute
-12_children_attrs.gsx: unexpected EOF, expected </input>
+12_children_attrs.gsx: 54:78: unterminated `{`
