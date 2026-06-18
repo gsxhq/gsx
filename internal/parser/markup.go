@@ -183,8 +183,73 @@ func (p *parser) parseElement() (ast.Node, error) {
 	return &ast.Element{Tag: tag, Attrs: attrs, Children: children, Pos: pos}, nil
 }
 
-// parseNodesUntilEOF is added in Task 8; temporary stub for now.
-func (p *parser) parseNodesUntilEOF() ([]ast.Node, error) { return nil, nil }
+func (p *parser) parseChildren(closeTag string) ([]ast.Node, error) {
+	var nodes []ast.Node
+	for {
+		if p.eof() {
+			return nil, fmt.Errorf("unexpected EOF, expected </%s>", closeTag)
+		}
+		if p.at("</") {
+			// consume close tag
+			p.i += 2
+			start := p.i
+			for !p.eof() && isTagNameByte(p.src[p.i]) {
+				p.i++
+			}
+			got := p.src[start:p.i]
+			p.skipSpace()
+			if p.peek() != '>' {
+				return nil, fmt.Errorf("%d:%d: malformed close tag", p.pos().Line, p.pos().Column)
+			}
+			p.i++ // past '>'
+			if got != closeTag {
+				return nil, fmt.Errorf("%d:%d: mismatched close tag </%s>, expected </%s>",
+					p.pos().Line, p.pos().Column, got, closeTag)
+			}
+			return nodes, nil
+		}
+		if p.peek() == '<' {
+			el, err := p.parseElement()
+			if err != nil {
+				return nil, err
+			}
+			nodes = append(nodes, el)
+			continue
+		}
+		if p.peek() == '{' {
+			in, err := p.parseInterp()
+			if err != nil {
+				return nil, err
+			}
+			nodes = append(nodes, in)
+			continue
+		}
+		nodes = append(nodes, p.parseText())
+	}
+}
 
-// parseChildren is added in Task 8; temporary stub for now.
-func (p *parser) parseChildren(closeTag string) ([]ast.Node, error) { return nil, nil }
+func (p *parser) parseNodesUntilEOF() ([]ast.Node, error) {
+	var nodes []ast.Node
+	for {
+		p.skipSpace()
+		if p.eof() {
+			return nodes, nil
+		}
+		switch {
+		case p.peek() == '<':
+			el, err := p.parseElement()
+			if err != nil {
+				return nil, err
+			}
+			nodes = append(nodes, el)
+		case p.peek() == '{':
+			in, err := p.parseInterp()
+			if err != nil {
+				return nil, err
+			}
+			nodes = append(nodes, in)
+		default:
+			nodes = append(nodes, p.parseText())
+		}
+	}
+}

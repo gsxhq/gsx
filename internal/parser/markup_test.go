@@ -95,4 +95,42 @@ func TestParseDottedComponentTag(t *testing.T) {
 	}
 }
 
+func TestParseChildrenNested(t *testing.T) {
+	p := newParser(`<div class="card"><h2>{title}</h2>text</div>`)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	div := n.(*ast.Element)
+	if len(div.Children) != 2 {
+		t.Fatalf("got %d children: %#v", len(div.Children), div.Children)
+	}
+	h2 := div.Children[0].(*ast.Element)
+	if h2.Tag != "h2" {
+		t.Fatalf("child0 = %#v", h2)
+	}
+	if _, ok := h2.Children[0].(*ast.Interp); !ok {
+		t.Fatalf("h2 child = %#v", h2.Children[0])
+	}
+	if txt := div.Children[1].(*ast.Text); txt.Value != "text" {
+		t.Fatalf("child1 = %#v", div.Children[1])
+	}
+}
+
+func TestParseMarkupAttr(t *testing.T) {
+	p := newParser(`<Panel header={ <h1>Hi</h1> }></Panel>`)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := n.(*ast.Element)
+	ma := el.Attrs[0].(*ast.MarkupAttr)
+	if ma.Name != "header" || len(ma.Value) != 1 {
+		t.Fatalf("got %#v", ma)
+	}
+	if ma.Value[0].(*ast.Element).Tag != "h1" {
+		t.Fatalf("markup attr value = %#v", ma.Value[0])
+	}
+}
+
 var _ = ast.Text{}
