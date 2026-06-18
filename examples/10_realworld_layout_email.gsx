@@ -1,4 +1,4 @@
-// 10_realworld_layout_email.gox — app-shell layout with slots, and an email
+// 10_realworld_layout_email.gsx — app-shell layout with slots, and an email
 //
 // Real-world patterns:
 //   - a Layout component wrapping page content via implicit {children}, plus a
@@ -9,7 +9,7 @@
 //
 // Demonstrates:
 //   - component X(inline params) { … } — no return type, no `return` (emission)
-//   - implicit {children} (referencing it adds a Children gox.Node field)
+//   - implicit {children} (referencing it adds a Children gsx.Node field)
 //   - the composable `class` attribute: a comma list of contributions, each a
 //     string / `"classes": cond` conditional / etc., flattened + merged (no wrapper call)
 //   - nested loops over grouped data, type-safe URLs
@@ -21,10 +21,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/goxhq/gox/examples/structpages"
+	"github.com/gsxhq/gsx/examples/structpages"
 )
 
-// References `children` -> a Children gox.Node field. Page content binds there.
+// References `children` -> a Children gsx.Node field. Page content binds there.
 component Layout(title string) {
 	<>
 		<!DOCTYPE html>
@@ -57,7 +57,7 @@ type NavItem struct {
 	Active      bool
 }
 
-// References `children` -> Children gox.Node field. The active-link classes use
+// References `children` -> Children gsx.Node field. The active-link classes use
 // the composable `class` list: contributions split at depth 0, a `"classes": cond`
 // entry emits its classes only when its condition holds, then the whole list is merged.
 component AppShell() {
@@ -87,7 +87,7 @@ component AppShell() {
 	</div>
 }
 
-// An HTML email — inline styles everywhere, sanitized download URL. Same gox.
+// An HTML email — inline styles everywhere, sanitized download URL. Same gsx.
 component ExportReadyEmail(userName string, appURL string, downloadToken string, recordCount int) {
 	<html>
 		<head><meta charset="UTF-8"/></head>

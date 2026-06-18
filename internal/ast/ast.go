@@ -1,9 +1,9 @@
-// Package ast defines the gox syntax tree produced by the parser.
+// Package ast defines the gsx syntax tree produced by the parser.
 package ast
 
 import "go/token"
 
-// File is a parsed .gox file.
+// File is a parsed .gsx file.
 type File struct {
 	Package string
 	PkgPos  token.Position

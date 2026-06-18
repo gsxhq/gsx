@@ -1,4 +1,4 @@
-// 12_children_attrs.gox — children placement & attribute fallthrough, by example
+// 12_children_attrs.gsx — children placement & attribute fallthrough, by example
 //
 // Rules demonstrated:
 //   1. Attribute FALLTHROUGH (Vue-style): undeclared attributes auto-apply to the
@@ -8,7 +8,7 @@
 //   2. Explicit {...attrs}: reference it to place pass-through attrs yourself (e.g.
 //      on a NON-root element). TOUCHING `attrs` AT ALL (spread OR method call)
 //      disables auto-fallthrough — you take over placement (cf. Vue inheritAttrs).
-//   5. `attrs` is a rich built-in gox.Attrs: split/read/merge it directly. gox
+//   5. `attrs` is a rich built-in gsx.Attrs: split/read/merge it directly. gsx
 //      SHIPS these utilities so nobody hand-rolls classFromAttrs/hasAttr.
 //   3. Ambiguous root (fragment / multiple roots): auto-fallthrough has no target,
 //      so passing undeclared attrs without an explicit {...attrs} is a COMPILE
@@ -18,7 +18,7 @@
 
 package examples
 
-import "github.com/goxhq/gox"
+import "github.com/gsxhq/gsx"
 
 // ── 1. Auto-fallthrough: the common case ─────────────────────────────────────
 // Button declares only `variant`. The caller's class/data-*/hx-*/@click are
@@ -71,16 +71,16 @@ component Stack() {
 
 // ── 4. Children misplacement is a compile error ──────────────────────────────
 // Spinner never places {children}. Passing children would silently drop content,
-// so gox rejects it at compile time.
+// so gsx rejects it at compile time.
 component Spinner(size string) {
 	<svg class={ "animate-spin", size } viewBox="0 0 24 24"></svg>
 }
 // <Spinner size="h-5 w-5">oops</Spinner>  ->  COMPILE ERROR:
 //   "Spinner does not accept children (its body never places {children})"
 
-// ── 5. Splitting the attrs bag — gox SHIPS the utilities ─────────────────────
+// ── 5. Splitting the attrs bag — gsx SHIPS the utilities ─────────────────────
 // When auto-fallthrough isn't enough (route different attrs to different
-// elements), `attrs` is a rich built-in gox.Attrs. This is the templ
+// elements), `attrs` is a rich built-in gsx.Attrs. This is the templ
 // `classFromAttrs` pattern (one-learning/ui/common_components.templ) — but the
 // helpers are provided, not hand-written. `class` stays on the wrapper; the rest
 // go to the <input>. (Touching `attrs` here disables auto-fallthrough.)
@@ -92,7 +92,7 @@ component LabeledInput(label string) {
 	</div>
 }
 
-// Built-in gox.Attrs methods (these REPLACE hand-rolled helpers like
+// Built-in gsx.Attrs methods (these REPLACE hand-rolled helpers like
 // classFromAttrs / hasAttr / extractAttr):
 //   attrs.Class()            -> merged class string (string / []string / class value)
 //   attrs.Has(key) bool      -> presence            (replaces hasAttr)

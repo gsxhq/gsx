@@ -1,4 +1,4 @@
-// 06_corner_cases.gox — the hard parsing cases the generator MUST get right
+// 06_corner_cases.gsx — the hard parsing cases the generator MUST get right
 //
 // These are deliberately adversarial. Each block notes what the parser must do.
 // All markup-producing declarations are `component`s (emission body: the markup
@@ -15,7 +15,7 @@ package examples
 import (
 	"fmt"
 
-	"github.com/goxhq/gox"
+	"github.com/gsxhq/gsx"
 )
 
 // CASE 1: comparison operators are NOT markup. `a < b && c > d` is a bool expr.
@@ -46,14 +46,14 @@ component StringsWithMarkup() {
 component NestedBraces() {
 	<div
 		data-map={ fmt.Sprint(map[string]int{"a": 1, "b": 2}) }
-		style={ gox.JSON(map[string]any{"color": "red", "n": 10}) }
+		style={ gsx.JSON(map[string]any{"color": "red", "n": 10}) }
 	></div>
 }
 
 // CASE 4: an inline-component / markup attribute value distinguished from a Go
 // expression. `child={ <div/> }` is markup; `value={ f() }` is a Go expression.
 type WrapperProps struct {
-	Child gox.Node
+	Child gsx.Node
 	Value string
 }
 

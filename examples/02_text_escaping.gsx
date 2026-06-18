@@ -1,14 +1,14 @@
-// 02_text_escaping.gox — automatic context-aware escaping
+// 02_text_escaping.gsx — automatic context-aware escaping
 //
-// gox escapes by CONTEXT automatically (like html/template), determined at codegen
-// from where the value sits. You write the value; gox picks the right escaper.
+// gsx escapes by CONTEXT automatically (like html/template), determined at codegen
+// from where the value sits. You write the value; gsx picks the right escaper.
 // Helpers are OPT-OUTS for trusted values, never required for safety.
 //
 // Demonstrates:
 //   - { expr } in text         -> auto HTML-escaped
 //   - { expr } in an attribute -> auto attribute-escaped
 //   - href/src/action/…        -> auto URL-sanitized (no templ.URL-style wrapper!)
-//   - opt-outs: gox.Raw (trusted HTML), gox.SafeURL (trusted URL)
+//   - opt-outs: gsx.Raw (trusted HTML), gsx.SafeURL (trusted URL)
 //   - HTML entities pass through literally
 //
 // Corner cases: a string literal containing '<' must NOT be parsed as markup
@@ -19,31 +19,31 @@ package examples
 import (
 	"fmt"
 
-	"github.com/goxhq/gox"
+	"github.com/gsxhq/gsx"
 )
 
 // Interpolation is auto-escaped: if name is `<script>`, it renders escaped.
 component Greeting(name string, count int) {
 	<p>
 		Hello, {name}! You have {fmt.Sprint(count)} new messages.
-		gox allows {"strings"} to be included in sentences &nbsp; with entities.
+		gsx allows {"strings"} to be included in sentences &nbsp; with entities.
 	</p>
 }
 
-// gox.Raw injects trusted HTML without escaping (e.g. sanitized rich text).
+// gsx.Raw injects trusted HTML without escaping (e.g. sanitized rich text).
 component Article(bodyHTML string) {
 	<article class="prose">
-		{gox.Raw(bodyHTML)}
+		{gsx.Raw(bodyHTML)}
 	</article>
 }
 
 // URL attributes are sanitized AUTOMATICALLY by context (e.g. a javascript: URL is
-// neutralised) — no wrapper needed. gox.SafeURL is the explicit OPT-OUT for a URL
+// neutralised) — no wrapper needed. gsx.SafeURL is the explicit OPT-OUT for a URL
 // you already trust (e.g. from a type-safe router).
 component Links(userURL, trustedURL string) {
 	<div>
 		<a href={userURL}>user-supplied link</a>            // auto-sanitized
-		<a href={gox.SafeURL(trustedURL)}>trusted link</a>  // opt out of sanitizing
+		<a href={gsx.SafeURL(trustedURL)}>trusted link</a>  // opt out of sanitizing
 		// A string literal containing '<' is a Go expression, never markup:
 		<span title={"comparisons like a < b are safe here"}>tooltip</span>
 	</div>
@@ -53,7 +53,7 @@ component Links(userURL, trustedURL string) {
 component DataAttrs(entityType string) {
 	<input
 		x-bind="searchInput"
-		hx-vals={gox.JSON(map[string]string{"entity_type": entityType})}
+		hx-vals={gsx.JSON(map[string]string{"entity_type": entityType})}
 		data-note={"text with \"quotes\" and <tags> stays literal"}
 	/>
 }

@@ -1,4 +1,4 @@
-// 09_realworld_form_htmx.gox — forms, HTMX, type-safe URLs & native `?` errors
+// 09_realworld_form_htmx.gsx — forms, HTMX, type-safe URLs & native `?` errors
 //
 // Real-world pattern (both projects): a form composed of Field sub-components
 // with conditional error display, HTMX-driven submission with smart targeting,
@@ -18,11 +18,11 @@ package examples
 import (
 	"context"
 
-	"github.com/goxhq/gox/examples/structpages"
+	"github.com/gsxhq/gsx/examples/structpages"
 )
 
 // Inline params become FieldProps{Name, Label, Value, Error, Required}. The body
-// references `attrs`, so an Attrs gox.Attrs field is added implicitly: undeclared
+// references `attrs`, so an Attrs gsx.Attrs field is added implicitly: undeclared
 // call-site attributes (hx-*, Alpine, …) collect there and forward to <input>.
 component Field(name string, label string, value string, error string, required bool) {
 	<div class="space-y-1" id={name + "-group"}>
@@ -48,7 +48,7 @@ component Field(name string, label string, value string, error string, required 
 
 // A form using type-safe route generation. structpages.URLFor returns
 // (string, error); the `?` marker unwraps it inline and propagates the error as
-// this component's implicit error return — no explicit (gox.Node, error) needed.
+// this component's implicit error return — no explicit (gsx.Node, error) needed.
 component CreateUserForm() {
 	<form
 		hx-post={ structpages.URLFor(ctx, CreateUser{})? }

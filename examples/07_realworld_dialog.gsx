@@ -1,4 +1,4 @@
-// 07_realworld_dialog.gox — compound Dialog component family (from his-project)
+// 07_realworld_dialog.gsx — compound Dialog component family (from his-project)
 //
 // Real-world pattern: a design-system Dialog split into Content/Header/Body/
 // Footer/Banner sub-components, each a `component` with inline params + children.
@@ -7,7 +7,7 @@
 //   - component X(inline params) { … }  — templ-style decl, emission body
 //     (NO return type, NO `return`; the markup IS the result)
 //   - inline params -> generated XProps; `class` param threads a caller override
-//   - implicit {children} (referencing it adds a Children gox.Node field)
+//   - implicit {children} (referencing it adds a Children gsx.Node field)
 //   - the special composable `class` attribute: a comma-list of contributions
 //     (strings, `"cls": cond` conditionals, the caller's `class`) — the configured class merger
 //     resolves conflicting Tailwind utilities; no twmerge.Merge wrapper needed
@@ -17,7 +17,7 @@
 package dialog
 
 import (
-	"github.com/goxhq/gox/examples/icon"
+	"github.com/gsxhq/gsx/examples/icon"
 )
 
 type Variant int
@@ -30,7 +30,7 @@ const (
 )
 
 // Inline params become ContentProps{Open, HideCloseButton, Class}. The body
-// references `children`, so a Children gox.Node field is added implicitly.
+// references `children`, so a Children gsx.Node field is added implicitly.
 // `class` (the caller override) is listed last in the class list so it wins.
 component Content(open bool, hideCloseButton bool, class string) {
 	<dialog

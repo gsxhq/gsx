@@ -1,13 +1,13 @@
-// 04_components.gox — the `component` declaration, inline params, slots
+// 04_components.gsx — the `component` declaration, inline params, slots
 //
 // Demonstrates:
 //   - component X(inline params) { … }  — templ-style decl, JSX-style body
 //   - NO return type, NO `return` keyword (emission body)
-//   - inline params -> generated XProps (gox owns the field names)
-//   - implicit {children}  (referencing it adds a Children gox.Node field)
-//   - implicit {attrs} / rest collection (referencing it adds Attrs gox.Attrs)
+//   - inline params -> generated XProps (gsx owns the field names)
+//   - implicit {children}  (referencing it adds a Children gsx.Node field)
+//   - implicit {attrs} / rest collection (referencing it adds Attrs gsx.Attrs)
 //   - components that reference NEITHER -> extra children/attrs are skipped
-//   - named slots = ordinary gox.Node params, passed as attributes
+//   - named slots = ordinary gsx.Node params, passed as attributes
 //   - zero-param components, composition, cross-package <ui.Button/>
 //
 // Mapping reminder (no symbol resolver — generated code is plain Go):
@@ -17,12 +17,12 @@
 package examples
 
 import (
-	"github.com/goxhq/gox"
-	"github.com/goxhq/gox/examples/ui"
+	"github.com/gsxhq/gsx"
+	"github.com/gsxhq/gsx/examples/ui"
 )
 
 // Inline params become CardProps{Title, Featured}. The body references
-// `children`, so a Children gox.Node field is added implicitly.
+// `children`, so a Children gsx.Node field is added implicitly.
 component Card(title string, featured bool) {
 	<section class={ "card", "card-featured": featured }>
 		<h2>{title}</h2>
@@ -33,7 +33,7 @@ component Card(title string, featured bool) {
 
 // Single root, no `{...attrs}` written: undeclared call-site attributes
 // (class, data-*, hx-*) AUTO-FALL-THROUGH to the <div>; `class` merges. (See
-// 12_children_attrs.gox for fallthrough, override, and the ambiguity rules.)
+// 12_children_attrs.gsx for fallthrough, override, and the ambiguity rules.)
 component Box(padded bool) {
 	<div class={ "box", "p-4": padded }>
 		{children}
@@ -46,9 +46,9 @@ component Spinner(size string) {
 	<svg class={ "animate-spin", size } viewBox="0 0 24 24"></svg>
 }
 
-// Named slots are plain gox.Node params, passed as attributes. `children` is
+// Named slots are plain gsx.Node params, passed as attributes. `children` is
 // still implicit alongside them.
-component Panel(header gox.Node, footer gox.Node) {
+component Panel(header gsx.Node, footer gsx.Node) {
 	<div class="panel">
 		<div class="panel-head">{header}</div>
 		<div class="panel-body">{children}</div>

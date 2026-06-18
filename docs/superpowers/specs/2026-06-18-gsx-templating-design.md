@@ -1,51 +1,51 @@
-# gox — Templating Language Design
+# gsx — Templating Language Design
 
 **Date:** 2026-06-18
 **Status:** Approved (design); runtime model decided — lazy streaming,
 `templ.Component`-compatible (§10)
-**Module:** `github.com/goxhq/gox`
+**Module:** `github.com/gsxhq/gsx`
 
 ## Summary
 
-gox is a templating language for Go with code generation. It pairs a **templ-style
+gsx is a templating language for Go with code generation. It pairs a **templ-style
 declaration** (`component X(…) { … }`) with a **JSX-style markup body** (HTML-like
-tags, Capitalized component tags, `{ }` interpolation). Source files (`.gox`) hold
+tags, Capitalized component tags, `{ }` interpolation). Source files (`.gsx`) hold
 ordinary Go (imports, types, `func`s) plus `component` declarations; a generator
 lowers each `component` to plain Go in a generated `.x.go` file that the Go
 compiler type-checks and builds.
 
-gox is **templating only** — no router, handler, or HTTP machinery. It is a way to
+gsx is **templating only** — no router, handler, or HTTP machinery. It is a way to
 write HTML as a first-class, composable Go value.
 
 ### Mnemonic / vocabulary
 
-- **`Node`** — the universal renderable. The Go type `gox.Node` is an **interface
+- **`Node`** — the universal renderable. The Go type `gsx.Node` is an **interface
   with the identical method set to `templ.Component`**:
   `Render(ctx context.Context, w io.Writer) error`. A node renders **elements**,
   **text**, **fragments**, **raw** HTML. Because the method set matches, a
-  `gox.Node` is accepted anywhere a `templ.Component` is expected (structpages and
+  `gsx.Node` is accepted anywhere a `templ.Component` is expected (structpages and
   other templ-ecosystem tools) — **without importing templ** (§10).
 - **`Element`** — what a node renders for a concrete HTML element (tag + attributes
   + children). Produced by lowercase/hyphenated tags: `<div>`, `<el-dialog>`.
 - **`Component`** — a function `Props → Node`, declared with `component`, invoked
   with a Capitalized or dotted tag: `<Card>`, `<ui.Button>`, `<p.Content>`. It
-  lowers to `func X(Props) gox.Node` returning a render closure.
+  lowers to `func X(Props) gsx.Node` returning a render closure.
 
 ### Relationship to templ, and the lessons borrowed
 
-gox is informed by, but shares no code with, an experimental templ branch that
+gsx is informed by, but shares no code with, an experimental templ branch that
 tried to add JSX-like inline components. Lessons carried over:
 
 1. **Symbol resolution is the tar pit.** Mapping attributes onto *positional*
    parameters and resolving whether a lowercase tag is a component drove templ to
    a ~5,000-line `symbolresolver` on `go/packages` + overlays, hitting overlay
-   module-boundary bugs (golang/go#71075, #71098) and perf cliffs. gox avoids this
+   module-boundary bugs (golang/go#71075, #71098) and perf cliffs. gsx avoids this
    whole class of work: the `component` keyword identifies templates, casing
-   decides component-vs-element, and gox **generates every component's props
+   decides component-vs-element, and gsx **generates every component's props
    struct so it always owns the field names** (§3) — generated code is plain Go
    the compiler checks.
 2. **Find Go boundaries, don't re-parse Go.** templ's `goexpression` locates where
-   a Go span ends rather than re-implementing a Go parser. gox does the same for
+   a Go span ends rather than re-implementing a Go parser. gsx does the same for
    embedded expressions and hands the rest to the real `go/parser` (§9).
 3. **Markup-vs-Go-expression detection is subtle.** `{ <div/> }` (markup) vs
    `{ a < b }` (Go) is resolved positionally — the Babel rule (§9).
@@ -59,35 +59,35 @@ tried to add JSX-like inline components. Lessons carried over:
   it buys tidier markup.
 - **Lean on the Go compiler.** Generated code is plain Go; prop names, types, and
   field correctness are validated by the compiler.
-- **Type-aware where it pays; resolution-free where it doesn't.** gox **is a real
+- **Type-aware where it pays; resolution-free where it doesn't.** gsx **is a real
   compiler** — it runs the Go type checker over the package and uses resolved types
   to render *values* precisely (interpolation and attribute values — §5), so
   `{ count }` (an `int`) needs no `strconv`. This applies the templ-fork's resolver
   know-how (single `packages.Load`, module grouping, `LoadSyntax`) where it adds
-  power. But gox never *depends* on resolution for **structural** decisions:
+  power. But gsx never *depends* on resolution for **structural** decisions:
   component identity is **casing**, props binding is generated **`XProps`** +
   compiler check. Identity/props stay robust and resolution-independent; type
   resolution is layered on for value rendering.
 - **Built-in behaviors are syntax, not runtime calls — the runtime stays
-  implicit.** Where gox has a built-in behavior (escaping, class composition,
-  conditional classes, attribute spreading), it is expressed in gox *syntax* and
-  lowered to an implicit runtime; the author does not call helpers like `gox.KV`.
+  implicit.** Where gsx has a built-in behavior (escaping, class composition,
+  conditional classes, attribute spreading), it is expressed in gsx *syntax* and
+  lowered to an implicit runtime; the author does not call helpers like `gsx.KV`.
   This is the deliberate departure from templ, which surfaces `templ.KV`,
   `templ.URL`, `templ.Classes`, etc. and so makes templates "Go with HTML bolted
   on." A `component` body may freely contain Go expressions and (via `{{ }}`)
-  statements — but gox's own behaviors do not require runtime calls. Runtime
+  statements — but gsx's own behaviors do not require runtime calls. Runtime
   functions appear in source **only when they are obviously explicit intent** —
-  trusted-value opt-outs (`gox.Raw`, `gox.SafeURL`, `gox.SafeCSS`, `gox.SafeJS`)
-  and explicit encoders (`gox.JSON`).
+  trusted-value opt-outs (`gsx.Raw`, `gsx.SafeURL`, `gsx.SafeCSS`, `gsx.SafeJS`)
+  and explicit encoders (`gsx.JSON`).
 
 ## 1. File & Package Model
 
-- Source extension **`.gox`**; generated output **`.x.go`**, written beside it.
-- A `.gox` file is ordinary Go — `package`, imports, `type`/`const`/`var`, `func` —
+- Source extension **`.gsx`**; generated output **`.x.go`**, written beside it.
+- A `.gsx` file is ordinary Go — `package`, imports, `type`/`const`/`var`, `func` —
   **plus** `component` declarations. Everything that is not a `component` is plain
   Go, carried through verbatim. Each `component` is lowered.
-- The `.gox` file is **not** compiled by Go; only the generated `.x.go` is.
-- Once generated, a `.gox` participates in its package normally; a `.gox` and a
+- The `.gsx` file is **not** compiled by Go; only the generated `.x.go` is.
+- Once generated, a `.gsx` participates in its package normally; a `.gsx` and a
   hand-written `.go` in the same directory share the package.
 
 ## 2. Elements vs. Components
@@ -142,10 +142,10 @@ type CardProps struct {
     Title    string
     Featured bool
 }
-func Card(p CardProps) gox.Node { return gox.Func(func(ctx, w) error { … }) }
+func Card(p CardProps) gsx.Node { return gsx.Func(func(ctx, w) error { … }) }
 ```
 
-The returned `gox.Node` is a render closure (`Render(ctx, w) error`); errors stream
+The returned `gsx.Node` is a render closure (`Render(ctx, w) error`); errors stream
 out of `Render` (see §5, §10, and the codegen walkthrough). There is no
 construction-time `error` return — the function itself does not fail; rendering
 does.
@@ -154,27 +154,27 @@ does.
   **first-letter-upper**: `title` → `Title`; an already-uppercase attribute is
   verbatim (`URL` → `URL`). Chosen over *strict-equal* (which would force
   PascalCase attributes, fighting the HTML/JSX feel). The default is
-  **resolution-free** — gox transforms and emits `XProps{Title: …}`; the Go
+  **resolution-free** — gsx transforms and emits `XProps{Title: …}`; the Go
   compiler validates the field. Go **initialisms** (`id`→`Id`, `url`→`Url`) are the
   known friction; write the uppercase form (`<Card ID="x"/>`) or install a mapper
   extension. The mapping rule is an **extension point** (§11): a case-insensitive /
   initialism-aware mapper (`id`→`ID`, using the resolved field set) or a
   kebab/snake→Pascal mapper can replace the default. Smarter mappers are opt-in so
   the default stays resolution-free and robust.
-- **gox owns the generated field names**, so binding is deterministic and stays
+- **gsx owns the generated field names**, so binding is deterministic and stays
   resolution-free **even cross-package**: `<ui.Button variant="x"/>` →
   `ui.Button(ui.ButtonProps{Variant: "x"})` via the generated `XProps`.
 - **`ctx` is ambient — never declared.** Every component body has an implicit
   `ctx context.Context` in scope (the render `ctx`), exactly like templ. You do
   **not** declare it as a parameter; just use `ctx`. It is never an attribute and
   never passed at a call site: `<p.Content/>` just works.
-- A plain `func … gox.Node` remains a manual escape hatch (explicit `return`); but
+- A plain `func … gsx.Node` remains a manual escape hatch (explicit `return`); but
   `<X/>` tags resolve to `component` declarations.
 
 ### Two organizational styles (both supported)
 
 Both appear in the real codebases and serve different jobs (see the
-**component-styles** doc, `2026-06-18-gox-component-styles.md`):
+**component-styles** doc, `2026-06-18-gsx-component-styles.md`):
 
 - **Function components in a package** — reusable component libraries (`ds/*`).
   One package per family; each part is a `component` function; props come from
@@ -193,7 +193,7 @@ function; `x` is a local var → method.
 ### Bring-your-own props struct
 
 When a component's single parameter is an **existing named struct type** (e.g. a
-protobuf/sqlc-generated type), gox uses *that type* as the props — it generates
+protobuf/sqlc-generated type), gsx uses *that type* as the props — it generates
 nothing, avoiding duplication. Fields are referenced qualified (`u.Name`):
 
 ```go
@@ -206,15 +206,15 @@ component UserCard(u pb.User) {        // pb.User IS the props; no UserCardProps
 
 Disambiguation: a **single** param of an existing named struct → bring-your-own
 (qualified refs); inline scalars / multiple params → generated `XProps` (bare
-refs). Caveat: implicit `children`/`attrs` only auto-add fields to a struct gox
-generates — a bring-your-own struct must already declare `Children gox.Node` /
-`Attrs gox.Attrs` if the body uses them.
+refs). Caveat: implicit `children`/`attrs` only auto-add fields to a struct gsx
+generates — a bring-your-own struct must already declare `Children gsx.Node` /
+`Attrs gsx.Attrs` if the body uses them.
 
-### `children` and `attrs` (see also `examples/12_children_attrs.gox`)
+### `children` and `attrs` (see also `examples/12_children_attrs.gsx`)
 
 **`children` — explicit placement.** Reference `{children}` where nested markup
 should go (every framework requires this — there is no sensible default position).
-Referencing it adds a `Children gox.Node` field. Passing children to a component
+Referencing it adds a `Children gsx.Node` field. Passing children to a component
 that **never places `{children}`** is a **compile error** (the content would
 vanish) — not silently dropped.
 
@@ -224,10 +224,10 @@ component Card(title string) {
 }
 ```
 
-Named slots are ordinary `gox.Node` params, placed explicitly:
+Named slots are ordinary `gsx.Node` params, placed explicitly:
 
 ```go
-component Panel(header gox.Node, footer gox.Node) {
+component Panel(header gsx.Node, footer gsx.Node) {
     <div class="panel"><div class="head">{header}</div>{children}<div class="foot">{footer}</div></div>
 }
 // <Panel header={ <h1>Title</h1> }>…</Panel>
@@ -251,7 +251,7 @@ fixes templ's missing rest-attrs:
 The prop-vs-fallthrough split is decided by the component's declared params, which
 the **type-aware compiler knows** (even cross-package).
 
-**`attrs` is a rich built-in `gox.Attrs`, not an opaque bag** — gox ships the
+**`attrs` is a rich built-in `gsx.Attrs`, not an opaque bag** — gsx ships the
 utilities so nobody hand-rolls `classFromAttrs`/`hasAttr`/`extractAttr`:
 `attrs.Class()` (merged class string), `attrs.Has(key)`, `attrs.Get(key)`,
 `attrs.Without(keys…)`, `attrs.Take(key) (value, rest)`, `attrs.Merge(other)`,
@@ -269,7 +269,7 @@ no special destructuring syntax; Go multi-return covers it.
 ### Boolean attributes are type-driven
 
 No `?=` operator. A `name={ expr }` whose value is **bool-typed** gets
-boolean-attribute semantics — bare when `true`, omitted when `false`. gox knows the
+boolean-attribute semantics — bare when `true`, omitted when `false`. gsx knows the
 value's type at compile time (§"type-aware", Principles), so it emits boolean-attr
 code directly; a string-typed value emits an ordinary escaped attribute.
 
@@ -288,7 +288,7 @@ code directly; a string-typed value emits an ordinary escaped attribute.
 ### `class` and `style` are composable (built-in syntax, no runtime calls)
 
 `class` and `style` are **special composable attributes**. Their `{ }` value is a
-**comma-separated list** of contributions (a gox grammar extension, not a single Go
+**comma-separated list** of contributions (a gsx grammar extension, not a single Go
 expression). Conditional contributions use the **`"classes": cond` sugar**
 (clsx / `map[string]bool` style) — *not* a runtime helper:
 
@@ -305,8 +305,8 @@ expression). Conditional contributions use the **`"classes": cond` sugar**
   **`<classes-expr> : <cond-expr>`** conditional (the classes are emitted when the
   bool `cond` is true). Commas and the `:` split at bracket depth 0, so a Go
   expression containing `:` or `,` inside brackets is one contribution.
-- There is **no `gox.KV` / `gox.Classes` in source** — this is the built-in
-  conditional-class behavior expressed as syntax; gox lowers it to an implicit
+- There is **no `gsx.KV` / `gsx.Classes` in source** — this is the built-in
+  conditional-class behavior expressed as syntax; gsx lowers it to an implicit
   runtime.
 - Contributions are flattened, empties dropped, joined (space for `class`, `;` for
   `style`), then run through a **pluggable merger** — default dedupe/join; install a
@@ -340,7 +340,7 @@ value there (`return <div/>`, `x := <div/>`), and you call it from markup via
 
 Three brace forms inside a component body, by leading token:
 
-- **`{ expr }` — interpolation, type-aware.** gox resolves `expr`'s Go type and
+- **`{ expr }` — interpolation, type-aware.** gsx resolves `expr`'s Go type and
   renders it accordingly — no manual conversions for common types:
 
   | resolved type | rendering |
@@ -348,10 +348,10 @@ Three brace forms inside a component body, by leading token:
   | `string`, `[]byte` | HTML-escaped text |
   | numerics (`int`, `float64`, …) | formatted, then text |
   | `bool` | `true`/`false` text (in an attribute → boolean-attr semantics, §4) |
-  | `gox.Node` (anything with `Render(ctx,w) error`) | rendered inline |
-  | `[]gox.Node` | each rendered in order |
+  | `gsx.Node` (anything with `Render(ctx,w) error`) | rendered inline |
+  | `[]gsx.Node` | each rendered in order |
   | `fmt.Stringer` | `.String()`, then HTML-escaped |
-  | `gox.Raw` / `gox.SafeURL` / … | per their opt-out semantics |
+  | `gsx.Raw` / `gsx.SafeURL` / … | per their opt-out semantics |
   | anything else | **compile-time error** (clear message) |
 
   Because the type is known at compile time, the generator emits the precise
@@ -395,18 +395,18 @@ ignored or panicked. (`?` only lacks a return path inside a hand-written plain
 
 - **Fragments:** `<>…</>` groups siblings without a wrapper.
 - **Escaping — automatic and context-aware (safe by default).** Like Go's
-  `html/template`, gox chooses the escaper from the *context* of each interpolation,
+  `html/template`, gsx chooses the escaper from the *context* of each interpolation,
   determined at codegen from the value's position. The author never wraps a value
   for safety; helpers exist only to **opt out** when a value is trusted:
   | Context | Determined by | Default | Opt-out |
   |---------|---------------|---------|---------|
-  | HTML text | element body | HTML-escape | `gox.Raw(s)` |
+  | HTML text | element body | HTML-escape | `gsx.Raw(s)` |
   | HTML attribute | `name={ … }` | attribute-escape | — |
-  | URL attribute | `href`/`src`/`action`/`formaction`/`poster`/`cite`/`srcset`/… | sanitize scheme (neutralise `javascript:` etc.) | `gox.SafeURL(s)` |
-  | CSS | `style` / `<style>` body | CSS-escape | `gox.SafeCSS(s)` |
-  | JS | `on*` handlers / `<script>` body | JS-escape | `gox.SafeJS(s)` |
-  There is no `gox.URL(...)` wrapper — sanitizing is the default for URL attributes;
-  `gox.SafeURL` is the trusted opt-out. The generator knows the attribute name and
+  | URL attribute | `href`/`src`/`action`/`formaction`/`poster`/`cite`/`srcset`/… | sanitize scheme (neutralise `javascript:` etc.) | `gsx.SafeURL(s)` |
+  | CSS | `style` / `<style>` body | CSS-escape | `gsx.SafeCSS(s)` |
+  | JS | `on*` handlers / `<script>` body | JS-escape | `gsx.SafeJS(s)` |
+  There is no `gsx.URL(...)` wrapper — sanitizing is the default for URL attributes;
+  `gsx.SafeURL` is the trusted opt-out. The generator knows the attribute name and
   element, so it picks the escaper with no type resolution.
 - **Comments:** HTML comments `<!-- … -->` pass through.
 - **Raw-text elements:** `<script>`/`<style>` bodies are raw text, not markup;
@@ -417,7 +417,7 @@ ignored or panicked. (`?` only lacks a return path inside a hand-written plain
 
 ### Explicit spread — `{...expr}`
 
-- **On an element:** `expr` is `gox.Attrs`, merged into the element's attributes at
+- **On an element:** `expr` is `gsx.Attrs`, merged into the element's attributes at
   runtime. No resolution.
   ```go
   <div class="card" {...attrs} id={id}>…</div>
@@ -432,7 +432,7 @@ ignored or panicked. (`?` only lacks a return path inside a hand-written plain
 
 Covered in §3: undeclared call-site attributes **automatically fall through** to the
 component's single root element (no `{...attrs}` needed); `class`/`style` merge.
-Reference `attrs` (spread or a `gox.Attrs` method) to take over placement; an
+Reference `attrs` (spread or a `gsx.Attrs` method) to take over placement; an
 ambiguous root with undeclared attrs and no explicit `{...attrs}` is a compile
 error.
 
@@ -444,14 +444,14 @@ merger); other keys last-wins; bool attrs render when true.
 ## 7. Worked Example
 
 ```go
-// views/page.gox
+// views/page.gsx
 package views
 
 import (
     "context"
 
-    "github.com/goxhq/gox"
-    "github.com/goxhq/gox/examples/ui"
+    "github.com/gsxhq/gsx"
+    "github.com/gsxhq/gsx/examples/ui"
 )
 
 component Card(title string, featured bool) {
@@ -484,7 +484,7 @@ pipeline:
 1. **Scan** the file for `component` declarations (brace-balanced bodies).
    Everything outside is plain Go.
 2. **Plain Go** (imports, `func`s, types) → parsed by the real **`go/parser`**.
-3. **Each `component` body** → gox's markup parser. Markup islands are found via
+3. **Each `component` body** → gsx's markup parser. Markup islands are found via
    the **Babel rule**: inside `{ … }`, a `<` starts markup only in
    expression-start position followed by a tag-name letter / `/` / `>`; otherwise
    `<` is a Go operator. Embedded Go expressions are delimited with a
@@ -498,7 +498,7 @@ where it yields tidier syntax (per the principles); we do not shy away from it.
 
 ## 10. Runtime Model — Lazy Streaming, `templ.Component`-compatible
 
-**Decided.** `gox.Node` is an interface whose method set is **identical to
+**Decided.** `gsx.Node` is an interface whose method set is **identical to
 `templ.Component`**:
 
 ```go
@@ -507,22 +507,22 @@ type Node interface {
 }
 ```
 
-- A `component` lowers to `func X(Props) gox.Node` returning a **render closure**
-  (`gox.Func(func(ctx, w) error { … })`) that writes HTML straight to `w`.
+- A `component` lowers to `func X(Props) gsx.Node` returning a **render closure**
+  (`gsx.Func(func(ctx, w) error { … })`) that writes HTML straight to `w`.
   Streaming, near-zero allocation (no per-node tree).
 - **Ecosystem interop is the deciding reason.** Because the method set matches
-  `templ.Component`, gox output is accepted anywhere a `templ.Component` is
-  expected — **structpages** and other templ-ecosystem tools work with gox
-  generation **without gox importing templ** (structural interface satisfaction).
-  gox keeps its **own** interface — no `templ` alias, no `templ` dependency.
+  `templ.Component`, gsx output is accepted anywhere a `templ.Component` is
+  expected — **structpages** and other templ-ecosystem tools work with gsx
+  generation **without gsx importing templ** (structural interface satisfaction).
+  gsx keeps its **own** interface — no `templ` alias, no `templ` dependency.
 - **Errors stream out of `Render`** and are never ignored or panicked; `?` lowers
   to `return err` inside `Render` (§5).
-- Generated code uses an error-threading writer (`gox.W(w)`) and built-in runtime
+- Generated code uses an error-threading writer (`gsx.W(w)`) and built-in runtime
   calls (`gw.Class`/`gw.URL`/`gw.Text`/`gw.Spread`/`gw.Node`); source stays sugar.
 
 The eager node-tree (vdom) alternative was rejected: it would not be
 `templ.Component`-compatible and would allocate a node per element. See the
-**codegen walkthrough** (`2026-06-18-gox-codegen-walkthrough.md`) for hand-written
+**codegen walkthrough** (`2026-06-18-gsx-codegen-walkthrough.md`) for hand-written
 generated code validating this model.
 
 ## 11. Extensions — direction only; API deliberately deferred
@@ -533,14 +533,14 @@ constraining. The shape is best discovered from the implementation, not guessed.
 
 What is settled is the **direction**:
 
-- gox does **not** bake in framework-specific behavior (e.g. Tailwind class
+- gsx does **not** bake in framework-specific behavior (e.g. Tailwind class
   merging). Such things are **external libraries**.
 - The preferred integration is **compile-time transformation** over runtime
   function calls — a compile-time hook can statically merge, optimize, and validate
   in ways a runtime call cannot. (e.g. a class merger statically merges constant
   class parts and emits a runtime call only for the dynamic remainder.)
 
-**North-star for discovering the API (the dogfooding principle):** implement gox's
+**North-star for discovering the API (the dogfooding principle):** implement gsx's
 *own* built-ins — class composition, context-aware escaping, attribute handling,
 the default **attribute→field name mapper** (§3) — **as transformations over a
 shared internal compile pipeline**. Once the core is built that way, the public
@@ -554,17 +554,17 @@ parser/compiler/runtime exist.
 
 ## Out of Scope (this spec)
 
-- The exact `gox.Writer` helper surface (§10 fixes the model; method
+- The exact `gsx.Writer` helper surface (§10 fixes the model; method
   naming/shape is an implementation detail).
-- Routing, HTTP handlers, request/response — gox is templating only.
+- Routing, HTTP handlers, request/response — gsx is templating only.
 - Hot reload / watch mode, editor/LSP tooling, formatter.
 
 ## Open Questions
 
-- Concrete `gox.Attrs` representation (ordered map vs. slice of pairs). `gox.Node`
+- Concrete `gsx.Attrs` representation (ordered map vs. slice of pairs). `gsx.Node`
   is settled (§10).
 - **Extension model (§11) — direction set, API deferred by decision** until
-  parser/compiler/runtime exist; to be discovered by implementing gox's own
+  parser/compiler/runtime exist; to be discovered by implementing gsx's own
   built-ins as transformations (dogfooding), not designed up front.
 - Exact escaper implementations per context (§5 table fixes the *contexts* and
   opt-outs; the precise JS/CSS escaping algorithms are an implementation detail).

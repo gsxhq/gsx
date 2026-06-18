@@ -1,12 +1,12 @@
-// 11_struct_methods.gox — method components for PAGE COMPOSITION (Style B)
+// 11_struct_methods.gsx — method components for PAGE COMPOSITION (Style B)
 //
 // Method components are for app page composition + partial rendering (structpages),
 // NOT for reusable component libraries. Reusable families (Card, Dialog, Table…)
-// are PACKAGES of function components (Style A) — see 07_realworld_dialog.gox
+// are PACKAGES of function components (Style A) — see 07_realworld_dialog.gsx
 // (`package dialog`) and the component-styles design doc.
 //
 // Declared `component (recv T) Name(params) { … }`, invoked via a dotted tag whose
-// left identifier is a local var/receiver: <p.Content/>. gox tells <p.Content/>
+// left identifier is a local var/receiver: <p.Content/>. gsx tells <p.Content/>
 // (method) from <ui.Button/> (package) by parsed scope — `p` is a local var, `ui`
 // is an import. Key points:
 //   - the RECEIVER STRUCT IS THE PAGE DATA (p.Field, built once in Go)
@@ -17,8 +17,8 @@
 package examples
 
 import (
-	"github.com/goxhq/gox/examples/structpages"
-	"github.com/goxhq/gox/examples/ui"
+	"github.com/gsxhq/gsx/examples/structpages"
+	"github.com/gsxhq/gsx/examples/ui"
 )
 
 // The page struct carries the route-scoped data — it IS the props.

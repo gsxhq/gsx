@@ -1,4 +1,4 @@
-# gox — Two component styles, side by side
+# gsx — Two component styles, side by side
 
 **Date:** 2026-06-18
 **Status:** Design exploration — deciding whether to support both styles
@@ -20,7 +20,7 @@ declared param.
 
 ## Reusable component → Style A is the natural fit
 
-The `ds/card` family in gox (compare to the real `card.templ`):
+The `ds/card` family in gsx (compare to the real `card.templ`):
 
 ```go
 package card
@@ -135,7 +135,7 @@ structpages page pattern.
 ## Props model per style
 
 - **Style A (function):** inline params → generated `<Name>Props` struct + `func
-  Name(NameProps) gox.Node`. Attributes build the props at the call site. Optionals
+  Name(NameProps) gsx.Node`. Attributes build the props at the call site. Optionals
   (zero value), spread, cross-package determinism. Matches `ds/*`.
 - **Style B (method):** the **receiver struct is the props** — its fields are the
   page data, set once in Go (by the route handler/structpages), not via
@@ -176,6 +176,6 @@ struct for methods. No correctness is sacrificed for the flexibility.
 - Spec §3: `ctx` is ambient (not a declared/auto-wired param); document the two
   styles and their props models; drop the `<Receiver><Method>Props` generation
   (method params map by name; the receiver is the props).
-- Rewrite `examples/11_struct_methods.gox`: keep the page-composition examples,
+- Rewrite `examples/11_struct_methods.gsx`: keep the page-composition examples,
   remove the component-family-as-struct cases (Menu, receiver polymorphism) —
   those belong in packages (Style A).

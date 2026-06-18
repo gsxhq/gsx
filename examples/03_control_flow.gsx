@@ -1,4 +1,4 @@
-// 03_control_flow.gox — if / for / switch, fragments & the {{ }} escape hatch
+// 03_control_flow.gsx — if / for / switch, fragments & the {{ }} escape hatch
 //
 // Demonstrates:
 //   - component X(…) { … } emission body — markup IS the result, no `return`
@@ -24,7 +24,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/goxhq/gox"
+	"github.com/gsxhq/gsx"
 )
 
 type Item struct {
@@ -89,7 +89,7 @@ component Toasts(messages []string) {
 // propagating err as this component's (implicit) error return. No pre-computing
 // URLs up front, no manual `if err != nil { return … }`. Because the body uses
 // `?`, this component is generated with an error return.
-component RemoveFilterLink(page gox.Node, paramName string) {
+component RemoveFilterLink(page gsx.Node, paramName string) {
 	<a class="filter">
 		<span
 			hx-get={ routeURL(ctx, page, map[string]string{paramName: ""})? }
@@ -102,7 +102,7 @@ component RemoveFilterLink(page gox.Node, paramName string) {
 // you need to inspect/transform the value or branch on the error before
 // rendering, rather than straight-line propagation. `?` is the tidy default;
 // {{ }} is the explicit form when you need the extra statements.
-component RemoveFilterLinkExplicit(page gox.Node, paramName string) {
+component RemoveFilterLinkExplicit(page gsx.Node, paramName string) {
 	<a class="filter">
 		{{
 			removeURL, err := routeURL(ctx, page, map[string]string{paramName: ""})
@@ -128,7 +128,7 @@ component UserChip(email, fullName string) {
 }
 
 // STRONG USE CASE: loop-local computation that doesn't fit a single expression.
-component Mentions(page gox.Node, emails []string) {
+component Mentions(page gsx.Node, emails []string) {
 	<div class="mentions">
 		{ for i, email := range emails {
 			{{ search := buildSearch(emails, i) }}
@@ -140,6 +140,6 @@ component Mentions(page gox.Node, emails []string) {
 // Helpers (ordinary Go, would live in a normal .go file).
 func getInitials(name string) string            { return name[:1] }
 func buildSearch(emails []string, i int) string { return emails[i] }
-func routeURL(ctx context.Context, page gox.Node, q map[string]string) (string, error) {
+func routeURL(ctx context.Context, page gsx.Node, q map[string]string) (string, error) {
 	return "/x", nil
 }

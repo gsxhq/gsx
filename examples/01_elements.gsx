@@ -1,4 +1,4 @@
-// 01_elements.gox — basic HTML elements & attributes
+// 01_elements.gsx — basic HTML elements & attributes
 //
 // Demonstrates:
 //   - component X(params) { … } — templ-style decl, emission body (markup IS
@@ -13,7 +13,7 @@
 
 package examples
 
-import "github.com/goxhq/gox"
+import "github.com/gsxhq/gsx"
 
 // A full HTML document. DOCTYPE and comments pass through verbatim.
 component Document(title string) {

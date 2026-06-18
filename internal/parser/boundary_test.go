@@ -11,12 +11,12 @@ func TestGoExprEnd(t *testing.T) {
 		ok    bool
 	}{
 		{`{x}`, 0, 2, true},
-		{`{ a < b && c > d }`, 0, 17, true},
-		{`{ m[string]int{"a": 1} }`, 0, 23, true},     // nested braces
-		{`{ "string with } brace" }`, 0, 24, true},     // brace in string
-		{"{ `raw } string` }", 0, 17, true},            // brace in raw string
-		{`{ '}' }`, 0, 6, true},                         // brace in rune literal
-		{`{ a /* } */ b }`, 0, 14, true},               // brace in comment
+		{`{ a < b && c > d }`, 0, 17, true},     // comparison ops, not markup
+		{`{ m[string]int{"a": 1} }`, 0, 23, true}, // nested braces
+		{`{ "string with } brace" }`, 0, 24, true}, // brace in string
+		{"{ `raw } string` }", 0, 17, true},        // brace in raw string
+		{`{ '}' }`, 0, 6, true},                     // brace in rune literal
+		{`{ a /* } */ b }`, 0, 14, true},            // brace in comment
 		{`{ unbalanced`, 0, 0, false},
 	}
 	for _, c := range cases {

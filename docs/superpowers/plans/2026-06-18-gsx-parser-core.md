@@ -1,17 +1,17 @@
-# gox Parser (Core) Implementation Plan
+# gsx Parser (Core) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Parse a `.gox` source file's structure and the core markup grammar into an AST.
+**Goal:** Parse a `.gsx` source file's structure and the core markup grammar into an AST.
 
-**Architecture:** A `.gox` file is ordinary Go plus `component` declarations whose bodies contain JSX-like markup. The parser scans the top level with Go's own scanner (`go/scanner`), copies non-`component` Go as opaque source chunks, and hands each `component` body to a hand-written recursive-descent markup parser. Embedded Go expressions inside `{ … }` have their *boundaries* found with `go/scanner` (we never re-implement Go); markup-vs-Go inside `{ … }` is decided positionally (the Babel rule). Output is an AST in package `internal/ast`.
+**Architecture:** A `.gsx` file is ordinary Go plus `component` declarations whose bodies contain JSX-like markup. The parser scans the top level with Go's own scanner (`go/scanner`), copies non-`component` Go as opaque source chunks, and hands each `component` body to a hand-written recursive-descent markup parser. Embedded Go expressions inside `{ … }` have their *boundaries* found with `go/scanner` (we never re-implement Go); markup-vs-Go inside `{ … }` is decided positionally (the Babel rule). Output is an AST in package `internal/ast`.
 
 **Tech Stack:** Go 1.26, standard library only — `go/scanner`, `go/token` (no third-party deps).
 
 ## Global Constraints
 
 - Go version floor: **go 1.26.1** (from `go.mod`).
-- Module path: **`github.com/goxhq/gox`**.
+- Module path: **`github.com/gsxhq/gsx`**.
 - No third-party dependencies in the parser — standard library only.
 - Parser packages live under `internal/` (unexported API): `internal/ast`, `internal/parser`.
 - **Scope of THIS plan (core grammar):** package clause, import blocks, opaque Go chunks, `component` declarations (with optional receiver and params), and markup nodes: elements, fragments, text, `{ expr }` and `{ expr? }` interpolation, attributes (static `name="v"`, expression `name={e}` / `name={e?}`, boolean bare `name`, spread `{...e}`, markup-valued `name={ <…/> }`), nested elements, and component tags (Capitalized / dotted).
@@ -86,12 +86,12 @@ Expected: FAIL — build error, `undefined: Decl` etc.
 
 ```go
 // internal/ast/ast.go
-// Package ast defines the gox syntax tree produced by the parser.
+// Package ast defines the gsx syntax tree produced by the parser.
 package ast
 
 import "go/token"
 
-// File is a parsed .gox file.
+// File is a parsed .gsx file.
 type File struct {
 	Package string
 	PkgPos  token.Position
@@ -204,7 +204,7 @@ Expected: PASS
 
 ```bash
 git add internal/ast/
-git commit -m "feat(ast): gox syntax tree node types"
+git commit -m "feat(ast): gsx syntax tree node types"
 ```
 
 ---
@@ -548,7 +548,7 @@ package parser
 import (
 	"testing"
 
-	"github.com/goxhq/gox/internal/ast"
+	"github.com/gsxhq/gsx/internal/ast"
 )
 
 func TestParseInterp(t *testing.T) {
@@ -605,7 +605,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/goxhq/gox/internal/ast"
+	"github.com/gsxhq/gsx/internal/ast"
 )
 
 // parseInterp parses `{ expr }` or `{ expr? }`. Cursor must be at '{'.
@@ -1145,7 +1145,7 @@ package parser
 import (
 	"testing"
 
-	"github.com/goxhq/gox/internal/ast"
+	"github.com/gsxhq/gsx/internal/ast"
 )
 
 func TestParseComponentSimple(t *testing.T) {
@@ -1198,7 +1198,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/goxhq/gox/internal/ast"
+	"github.com/gsxhq/gsx/internal/ast"
 )
 
 // parseComponent parses a `component [recv] Name[(params)] { body }`.
@@ -1308,13 +1308,13 @@ package parser
 import (
 	"testing"
 
-	"github.com/goxhq/gox/internal/ast"
+	"github.com/gsxhq/gsx/internal/ast"
 )
 
 func TestParseFile(t *testing.T) {
 	src := `package views
 
-import "github.com/goxhq/gox"
+import "github.com/gsxhq/gsx"
 
 type Item struct{ Name string }
 
@@ -1371,10 +1371,10 @@ import (
 	"go/token"
 	"strings"
 
-	"github.com/goxhq/gox/internal/ast"
+	"github.com/gsxhq/gsx/internal/ast"
 )
 
-// Parse parses a full .gox source file.
+// Parse parses a full .gsx source file.
 func Parse(src string) (*ast.File, error) {
 	f := &ast.File{}
 
@@ -1489,8 +1489,8 @@ git commit -m "feat(parser): file-level parse (package, Go chunks, components)"
 
 **Interfaces:**
 - Consumes: `Parse`, `ast`.
-- Produces: an end-to-end assertion that a representative `.gox` source (a trimmed,
-  core-grammar-only version of `examples/04_components.gox`) parses into the expected
+- Produces: an end-to-end assertion that a representative `.gsx` source (a trimmed,
+  core-grammar-only version of `examples/04_components.gsx`) parses into the expected
   shape. No new production code — this is the acceptance gate for the core parser.
 
 - [ ] **Step 1: Write the failing test**
@@ -1502,12 +1502,12 @@ package parser
 import (
 	"testing"
 
-	"github.com/goxhq/gox/internal/ast"
+	"github.com/gsxhq/gsx/internal/ast"
 )
 
 const goldenSrc = `package examples
 
-import "github.com/goxhq/gox"
+import "github.com/gsxhq/gsx"
 
 component Card(title string, featured bool) {
 	<section class="card">
@@ -1516,7 +1516,7 @@ component Card(title string, featured bool) {
 	</section>
 }
 
-component Panel(header gox.Node) {
+component Panel(header gsx.Node) {
 	<div class="panel">
 		<div class="head">{header}</div>
 		{children}
@@ -1622,6 +1622,6 @@ git commit -m "test(parser): golden integration over core-grammar example"
 
 ## Next plans (after this)
 1. **Parser Part 2** — control flow, `{{ }}`, in-tag conditional attrs, class comma/colon grammar.
-2. **Runtime** — `gox.Node`/`Func`/`Writer`/`Attrs`, escaping, class merge.
+2. **Runtime** — `gsx.Node`/`Func`/`Writer`/`Attrs`, escaping, class merge.
 3. **Type-check + Codegen** — AST → `.x.go`, targeting the runtime.
-4. **CLI/driver** — `gox generate ./...`.
+4. **CLI/driver** — `gsx generate ./...`.

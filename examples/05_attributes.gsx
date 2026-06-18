@@ -1,13 +1,13 @@
-// 05_attributes.gox — the full attribute system
+// 05_attributes.gsx — the full attribute system
 //
 // Demonstrates:
 //   - dynamic attrs:        name={ expr }
 //   - boolean attrs:        bare `open`, and type-driven `disabled={ cond }`
 //   - conditional attrs:    in-tag { if … } statements (form 1)
 //   - spread attrs:         {...attrs} on elements (form 2)  — and the two combined
-//   - implicit rest:        referencing `attrs` adds an `Attrs gox.Attrs` field;
+//   - implicit rest:        referencing `attrs` adds an `Attrs gsx.Attrs` field;
 //                           undeclared call-site attrs collect into it
-//   - implicit children:    referencing `children` adds a `Children gox.Node` field
+//   - implicit children:    referencing `children` adds a `Children gsx.Node` field
 //   - class composition:    the composable `class={ a, b, … }` comma-list + `"cls": cond` sugar
 //   - special attr names:   data-*, aria-*, @click, :class, hx-on::click, x-data, _
 //
@@ -22,8 +22,8 @@
 package examples
 
 // Inline params become ButtonProps{ID, Class, Variant, Disabled}. The body
-// references `attrs` (so an Attrs gox.Attrs field is added — undeclared call-site
-// attributes collect there) and `children` (so a Children gox.Node field is added).
+// references `attrs` (so an Attrs gsx.Attrs field is added — undeclared call-site
+// attributes collect there) and `children` (so a Children gsx.Node field is added).
 component Button(id string, class string, variant string, disabled bool) {
 	<button
 		type="button"

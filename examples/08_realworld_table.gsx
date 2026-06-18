@@ -1,4 +1,4 @@
-// 08_realworld_table.gox — data table with column metadata, loops & selection
+// 08_realworld_table.gsx — data table with column metadata, loops & selection
 //
 // Real-world pattern (both projects): a DataGrid driven by a []Column metadata
 // slice, with sticky headers, per-row checkbox selection wired to Alpine state,
@@ -7,7 +7,7 @@
 // Demonstrates:
 //   - component X(inline params) { … }  — templ-style decl, emission body
 //     (NO return type, NO `return`; the markup IS the result)
-//   - inline params -> generated XProps (gox owns the field names)
+//   - inline params -> generated XProps (gsx owns the field names)
 //   - loops { for … } producing both headers and rows; conditional columns
 //   - the composable `class` attribute: a comma-list of contributions
 //     (strings + `"cls": cond` conditionals) flattened, joined, then run through the
