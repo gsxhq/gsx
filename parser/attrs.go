@@ -2,10 +2,96 @@ package parser
 
 import (
 	"fmt"
+	"go/scanner"
+	"go/token"
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
 )
+
+// splitComposed splits the inner source of a `class={ … }` / `style={ … }`
+// value into contributions. Contributions are separated by commas at
+// bracket/brace/paren depth 0; within a contribution a depth-0 ':' separates an
+// `expr : cond` conditional from its condition. A trailing comma yields no empty
+// part.
+func splitComposed(src string) ([]ast.ClassPart, error) {
+	fset := token.NewFileSet()
+	file := fset.AddFile("", fset.Base(), len(src))
+	var s scanner.Scanner
+	s.Init(file, []byte(src), func(token.Position, string) {}, scanner.ScanComments)
+
+	var commas, colons []int
+	depth := 0
+	for {
+		pos, tok, _ := s.Scan()
+		if tok == token.EOF {
+			break
+		}
+		off := fset.Position(pos).Offset
+		switch tok {
+		case token.LPAREN, token.LBRACK, token.LBRACE:
+			depth++
+		case token.RPAREN, token.RBRACK, token.RBRACE:
+			depth--
+		case token.COMMA:
+			if depth == 0 {
+				commas = append(commas, off)
+			}
+		case token.COLON:
+			if depth == 0 {
+				colons = append(colons, off)
+			}
+		}
+	}
+
+	// Segment boundaries: [-1] + commas + [len]. Each segment is (start, end).
+	bounds := make([]int, 0, len(commas)+2)
+	bounds = append(bounds, -1)
+	bounds = append(bounds, commas...)
+	bounds = append(bounds, len(src))
+
+	var parts []ast.ClassPart
+	for k := 0; k+1 < len(bounds); k++ {
+		segStart := bounds[k] + 1
+		segEnd := bounds[k+1]
+		if strings.TrimSpace(src[segStart:segEnd]) == "" {
+			continue // empty segment (e.g. trailing comma)
+		}
+		colon := -1
+		for _, c := range colons {
+			if c > segStart && c < segEnd {
+				colon = c
+				break
+			}
+		}
+		if colon >= 0 {
+			parts = append(parts, ast.ClassPart{
+				Expr: strings.TrimSpace(src[segStart:colon]),
+				Cond: strings.TrimSpace(src[colon+1 : segEnd]),
+			})
+		} else {
+			parts = append(parts, ast.ClassPart{Expr: strings.TrimSpace(src[segStart:segEnd])})
+		}
+	}
+	return parts, nil
+}
+
+// parseComposedAttr parses a `class={ … }` / `style={ … }` composable
+// contribution list. Cursor must be at the '{' of the value.
+func (p *parser) parseComposedAttr(name string, startPos token.Pos) (ast.Attr, error) {
+	end, ok := goExprEnd(p.src, p.i)
+	if !ok {
+		return nil, fmt.Errorf("unterminated `{` in %s value", name)
+	}
+	parts, err := splitComposed(p.src[p.i+1 : end])
+	if err != nil {
+		return nil, err
+	}
+	p.i = end + 1
+	n := &ast.ClassAttr{Name: name, Parts: parts}
+	ast.SetSpan(n, startPos, p.posAt(p.i))
+	return n, nil
+}
 
 // parseSpreadAttr parses `{ ...expr }` at the cursor (which must be at '{'),
 // tolerant of whitespace after '{' and around '...'. In attribute position a
@@ -66,6 +152,9 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 		return sa, nil
 	case p.peek() == '=' && p.i+1 < len(p.src) && p.src[p.i+1] == '{':
 		p.i++ // past '='
+		if name == "class" || name == "style" {
+			return p.parseComposedAttr(name, attrStartPos)
+		}
 		return p.parseAttrBraceValue(name, attrStartPos)
 	default:
 		ba := &ast.BoolAttr{Name: name}

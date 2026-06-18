@@ -2,6 +2,7 @@ package parser
 
 import (
 	"go/token"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -608,5 +609,77 @@ func TestParseCondAttrWithOtherAttrs(t *testing.T) {
 	}
 	if _, ok := el.Attrs[2].(*ast.SpreadAttr); !ok {
 		t.Fatalf("attr2 = %T", el.Attrs[2])
+	}
+}
+
+func TestParseComposedClass(t *testing.T) {
+	src := `<a class={
+		"group flex gap-x-3",
+		variantClass(v),
+		"bg-active": isActive,
+		"text-muted": !isActive,
+		class,
+	}></a>`
+	p := testParser(src)
+	node, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := node.(*ast.Element)
+	ca, ok := el.Attrs[0].(*ast.ClassAttr)
+	if !ok {
+		t.Fatalf("attr0 = %T, want *ast.ClassAttr", el.Attrs[0])
+	}
+	if ca.Name != "class" {
+		t.Fatalf("Name = %q", ca.Name)
+	}
+	want := []ast.ClassPart{
+		{Expr: `"group flex gap-x-3"`},
+		{Expr: `variantClass(v)`},
+		{Expr: `"bg-active"`, Cond: "isActive"},
+		{Expr: `"text-muted"`, Cond: "!isActive"},
+		{Expr: `class`},
+	}
+	if !reflect.DeepEqual(ca.Parts, want) {
+		t.Fatalf("Parts:\n got %#v\nwant %#v", ca.Parts, want)
+	}
+}
+
+func TestParseComposedStyleSingle(t *testing.T) {
+	// style={ … } with one part; no trailing comma.
+	p := testParser(`<div style={ "color: red" }></div>`)
+	node, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ca := node.(*ast.Element).Attrs[0].(*ast.ClassAttr)
+	if ca.Name != "style" || len(ca.Parts) != 1 || ca.Parts[0].Expr != `"color: red"` {
+		t.Fatalf("got %#v", ca.Parts)
+	}
+}
+
+func TestComposedColonInsideBracketsIsOneExpr(t *testing.T) {
+	// A ':' inside a Go index/slice expr must NOT split expr:cond.
+	p := testParser(`<a class={ m[k], s[1:2] }></a>`)
+	node, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ca := node.(*ast.Element).Attrs[0].(*ast.ClassAttr)
+	want := []ast.ClassPart{{Expr: "m[k]"}, {Expr: "s[1:2]"}}
+	if !reflect.DeepEqual(ca.Parts, want) {
+		t.Fatalf("Parts = %#v, want %#v", ca.Parts, want)
+	}
+}
+
+func TestNonClassBraceStaysExprAttr(t *testing.T) {
+	// A non-class/style attribute with a brace value is still an ExprAttr.
+	p := testParser(`<input value={x}/>`)
+	node, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := node.(*ast.Element).Attrs[0].(*ast.ExprAttr); !ok {
+		t.Fatalf("attr0 = %T, want *ast.ExprAttr", node.(*ast.Element).Attrs[0])
 	}
 }
