@@ -42,4 +42,33 @@ func TestParseText(t *testing.T) {
 	}
 }
 
+func TestParseAttrs(t *testing.T) {
+	p := newParser(`class="card" id={x} disabled {...rest} data-y={z?}>`)
+	attrs, err := p.parseAttrs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(attrs) != 5 {
+		t.Fatalf("got %d attrs: %#v", len(attrs), attrs)
+	}
+	if a, ok := attrs[0].(*ast.StaticAttr); !ok || a.Name != "class" || a.Value != "card" {
+		t.Fatalf("attr0 = %#v", attrs[0])
+	}
+	if a, ok := attrs[1].(*ast.ExprAttr); !ok || a.Name != "id" || a.Expr != "x" {
+		t.Fatalf("attr1 = %#v", attrs[1])
+	}
+	if a, ok := attrs[2].(*ast.BoolAttr); !ok || a.Name != "disabled" {
+		t.Fatalf("attr2 = %#v", attrs[2])
+	}
+	if a, ok := attrs[3].(*ast.SpreadAttr); !ok || a.Expr != "rest" {
+		t.Fatalf("attr3 = %#v", attrs[3])
+	}
+	if a, ok := attrs[4].(*ast.ExprAttr); !ok || a.Name != "data-y" || !a.Try {
+		t.Fatalf("attr4 = %#v", attrs[4])
+	}
+	if p.peek() != '>' {
+		t.Fatalf("cursor at %q", p.src[p.i:])
+	}
+}
+
 var _ = ast.Text{}
