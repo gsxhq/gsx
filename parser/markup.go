@@ -152,6 +152,147 @@ func (p *parser) parseGoBlock() (*ast.GoBlock, error) {
 	return n, nil
 }
 
+// isIdentByte reports whether b can be part of a Go identifier.
+func isIdentByte(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' ||
+		b >= '0' && b <= '9' || b == '_'
+}
+
+// atWord reports whether the source at the cursor is exactly the word w,
+// not followed by an identifier character (so `else` matches but `elsewhere`
+// does not).
+func (p *parser) atWord(w string) bool {
+	if !p.at(w) {
+		return false
+	}
+	next := p.i + len(w)
+	return next >= len(p.src) || !isIdentByte(p.src[next])
+}
+
+// braceKeyword returns the leading control-flow keyword ("if", "for", "switch")
+// inside the `{ … }` at the cursor (which must be at '{'), or "" if the first
+// token is not one of those keywords. It does not move the cursor.
+func (p *parser) braceKeyword() string {
+	j := p.i + 1
+	for j < len(p.src) && (p.src[j] == ' ' || p.src[j] == '\t' || p.src[j] == '\n' || p.src[j] == '\r') {
+		j++
+	}
+	start := j
+	for j < len(p.src) && p.src[j] >= 'a' && p.src[j] <= 'z' {
+		j++
+	}
+	kw := p.src[start:j]
+	switch kw {
+	case "if", "for", "switch":
+		if j < len(p.src) && isIdentByte(p.src[j]) {
+			return ""
+		}
+		return kw
+	}
+	return ""
+}
+
+// parseControlBody parses a markup sequence forming a control-flow body. The
+// cursor must be just past the opening '{'. It parses children until the
+// matching '}' at this level, consumes that '}', and returns the children.
+func (p *parser) parseControlBody() ([]ast.Markup, error) {
+	var nodes []ast.Markup
+	for {
+		p.skipSpace()
+		if p.eof() {
+			cp := p.file.Position(p.pos())
+			return nil, fmt.Errorf("%d:%d: unterminated control-flow body, expected `}`", cp.Line, cp.Column)
+		}
+		switch {
+		case p.peek() == '}':
+			p.i++ // consume the closing brace
+			return nodes, nil
+		case p.peek() == '<':
+			el, err := p.parseElement()
+			if err != nil {
+				return nil, err
+			}
+			nodes = append(nodes, el)
+		case p.peek() == '{':
+			node, skipped, err := p.parseBraceNode()
+			if err != nil {
+				return nil, err
+			}
+			if !skipped {
+				nodes = append(nodes, node)
+			}
+		default:
+			nodes = append(nodes, p.parseTextCtx(true))
+		}
+	}
+}
+
+// parseIfMarkup parses `{ if … { … } [else …] }`. Cursor at '{'; the caller has
+// verified the leading keyword is "if".
+func (p *parser) parseIfMarkup() (ast.Markup, error) {
+	startPos := p.posAt(p.i)
+	p.i++ // past outer '{'
+	p.skipSpace()
+	n, err := p.parseIfTail()
+	if err != nil {
+		return nil, err
+	}
+	p.skipSpace()
+	if p.peek() != '}' {
+		cp := p.file.Position(p.pos())
+		return nil, fmt.Errorf("%d:%d: expected `}` to close `{ if … }`", cp.Line, cp.Column)
+	}
+	p.i++ // past outer '}'
+	ast.SetSpan(n, startPos, p.posAt(p.i))
+	return n, nil
+}
+
+// parseIfTail parses `if Cond { Then } [else if … | else { Else }]`, with the
+// cursor at the `if` keyword. It is recursive: an `else if` builds a nested
+// IfMarkup in Else.
+func (p *parser) parseIfTail() (*ast.IfMarkup, error) {
+	kwPos := p.posAt(p.i)
+	p.i += 2 // past 'if'
+	condStart := p.i
+	braceOff, ok := scanToBlockBrace(p.src, p.i)
+	if !ok {
+		cp := p.file.Position(p.posAt(p.i))
+		return nil, fmt.Errorf("%d:%d: expected `{` after `if` condition", cp.Line, cp.Column)
+	}
+	cond := strings.TrimSpace(p.src[condStart:braceOff])
+	p.i = braceOff + 1 // past body '{'
+	body, err := p.parseControlBody()
+	if err != nil {
+		return nil, err
+	}
+	n := &ast.IfMarkup{Cond: cond, Then: body}
+	p.skipSpace()
+	if p.atWord("else") {
+		p.i += len("else")
+		p.skipSpace()
+		switch {
+		case p.peek() == '{':
+			p.i++ // past '{'
+			elseBody, err := p.parseControlBody()
+			if err != nil {
+				return nil, err
+			}
+			n.Else = elseBody
+		case p.atWord("if"):
+			elseIf, err := p.parseIfTail()
+			if err != nil {
+				return nil, err
+			}
+			n.Else = []ast.Markup{elseIf}
+		default:
+			cp := p.file.Position(p.pos())
+			return nil, fmt.Errorf("%d:%d: expected `{` or `if` after `else`", cp.Line, cp.Column)
+		}
+	}
+	ast.SetSpan(n, kwPos, p.posAt(p.i))
+	return n, nil
+}
+
 // parseBraceNode dispatches a `{`-leading construct in a child/markup context.
 // Cursor must be at '{'. It returns (node, false, nil) for a GoBlock, control
 // flow, or interpolation; (nil, true, nil) when a comment-only `{ }` was
@@ -166,6 +307,11 @@ func (p *parser) parseBraceNode() (ast.Markup, bool, error) {
 		return nil, false, err
 	} else if sk {
 		return nil, true, nil
+	}
+	switch p.braceKeyword() {
+	case "if":
+		n, err := p.parseIfMarkup()
+		return n, false, err
 	}
 	in, err := p.parseInterp()
 	return in, false, err

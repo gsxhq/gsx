@@ -302,6 +302,87 @@ func TestUnterminatedTagBlockComment(t *testing.T) {
 	}
 }
 
+func TestParseIfSimple(t *testing.T) {
+	p := testParser(`{ if ok { <b>yes</b> } }`)
+	node, _, err := p.parseBraceNode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, ok := node.(*ast.IfMarkup)
+	if !ok {
+		t.Fatalf("got %T, want *ast.IfMarkup", node)
+	}
+	if n.Cond != "ok" {
+		t.Fatalf("Cond = %q", n.Cond)
+	}
+	if len(n.Then) != 1 || n.Then[0].(*ast.Element).Tag != "b" {
+		t.Fatalf("Then = %#v", n.Then)
+	}
+	if n.Else != nil {
+		t.Fatalf("Else should be nil, got %#v", n.Else)
+	}
+}
+
+func TestParseIfElse(t *testing.T) {
+	p := testParser(`{ if a { <b>1</b> } else { <i>2</i> } }`)
+	node, _, err := p.parseBraceNode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := node.(*ast.IfMarkup)
+	if len(n.Else) != 1 || n.Else[0].(*ast.Element).Tag != "i" {
+		t.Fatalf("Else = %#v", n.Else)
+	}
+}
+
+func TestParseIfElseIfChain(t *testing.T) {
+	p := testParser(`{ if a { <x/> } else if b { <y/> } else { <z/> } }`)
+	node, _, err := p.parseBraceNode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := node.(*ast.IfMarkup)
+	if n.Cond != "a" {
+		t.Fatalf("Cond = %q", n.Cond)
+	}
+	if len(n.Else) != 1 {
+		t.Fatalf("expected else-if chain, Else = %#v", n.Else)
+	}
+	elseIf, ok := n.Else[0].(*ast.IfMarkup)
+	if !ok {
+		t.Fatalf("Else[0] = %T, want *ast.IfMarkup", n.Else[0])
+	}
+	if elseIf.Cond != "b" {
+		t.Fatalf("else-if Cond = %q", elseIf.Cond)
+	}
+	if len(elseIf.Else) != 1 || elseIf.Else[0].(*ast.Element).Tag != "z" {
+		t.Fatalf("final else = %#v", elseIf.Else)
+	}
+}
+
+func TestParseIfWithInterpAndText(t *testing.T) {
+	p := testParser(`{ if it.Active { <strong>{it.Name}</strong> } else { {it.Name} } }`)
+	node, _, err := p.parseBraceNode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := node.(*ast.IfMarkup)
+	strong := n.Then[0].(*ast.Element)
+	if strong.Children[0].(*ast.Interp).Expr != "it.Name" {
+		t.Fatalf("then interp = %#v", strong.Children[0])
+	}
+	// else body has whitespace text + interp; find the interp
+	var elseInterp *ast.Interp
+	for _, m := range n.Else {
+		if in, ok := m.(*ast.Interp); ok {
+			elseInterp = in
+		}
+	}
+	if elseInterp == nil || elseInterp.Expr != "it.Name" {
+		t.Fatalf("else interp = %#v", n.Else)
+	}
+}
+
 var _ = ast.Text{}
 
 func TestParseGoBlock(t *testing.T) {
