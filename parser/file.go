@@ -38,6 +38,14 @@ func ParseFile(fset *token.FileSet, filename string, src any, mode Mode) (*ast.F
 	}
 
 	file := fset.AddFile(filename, fset.Base(), len(srcBytes))
+	// Register line offsets so that file.Position can resolve line/column correctly.
+	// go/scanner does this automatically when scanning; our markup parser does not,
+	// so we register all newlines here before any parsing begins.
+	for i, b := range srcBytes {
+		if b == '\n' {
+			file.AddLine(i + 1)
+		}
+	}
 	srcStr := string(srcBytes)
 
 	pkgName, pkgPos, pkgEnd, err := scanPackage(file, srcBytes)
