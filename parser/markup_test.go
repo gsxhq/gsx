@@ -163,4 +163,67 @@ func TestParseSpreadWhitespace(t *testing.T) {
 	}
 }
 
+func TestTagTrailingLineComment(t *testing.T) {
+	// `<div id={x} // trailing\n class="y">` → div with exactly two attrs (ExprAttr id, StaticAttr class)
+	p := testParser("<div id={x} // trailing\n class=\"y\"></div>")
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := n.(*ast.Element)
+	if len(el.Attrs) != 2 {
+		t.Fatalf("got %d attrs, want 2: %#v", len(el.Attrs), el.Attrs)
+	}
+	if a, ok := el.Attrs[0].(*ast.ExprAttr); !ok || a.Name != "id" || a.Expr != "x" {
+		t.Fatalf("attr0 = %#v, want ExprAttr{id, x}", el.Attrs[0])
+	}
+	if a, ok := el.Attrs[1].(*ast.StaticAttr); !ok || a.Name != "class" || a.Value != "y" {
+		t.Fatalf("attr1 = %#v, want StaticAttr{class, y}", el.Attrs[1])
+	}
+}
+
+func TestTagOwnLineComment(t *testing.T) {
+	// `<div\n // own line\n id={x}>` → div with one attr id
+	p := testParser("<div\n // own line\n id={x}></div>")
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := n.(*ast.Element)
+	if len(el.Attrs) != 1 {
+		t.Fatalf("got %d attrs, want 1: %#v", len(el.Attrs), el.Attrs)
+	}
+	if a, ok := el.Attrs[0].(*ast.ExprAttr); !ok || a.Name != "id" || a.Expr != "x" {
+		t.Fatalf("attr0 = %#v, want ExprAttr{id, x}", el.Attrs[0])
+	}
+}
+
+func TestTagBlockComment(t *testing.T) {
+	// `<div /* note */ id={x}>` → div with one attr id
+	p := testParser("<div /* note */ id={x}></div>")
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := n.(*ast.Element)
+	if len(el.Attrs) != 1 {
+		t.Fatalf("got %d attrs, want 1: %#v", len(el.Attrs), el.Attrs)
+	}
+	if a, ok := el.Attrs[0].(*ast.ExprAttr); !ok || a.Name != "id" || a.Expr != "x" {
+		t.Fatalf("attr0 = %#v, want ExprAttr{id, x}", el.Attrs[0])
+	}
+}
+
+func TestUnterminatedTagBlockComment(t *testing.T) {
+	// `<div /* oops>` → parseElement returns an error mentioning "unterminated block comment"
+	p := testParser("<div /* oops>")
+	_, err := p.parseElement()
+	if err == nil {
+		t.Fatal("expected error for unterminated block comment, got nil")
+	}
+	if !strings.Contains(err.Error(), "unterminated block comment") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 var _ = ast.Text{}

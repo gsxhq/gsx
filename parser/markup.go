@@ -46,6 +46,36 @@ func isAttrNameByte(b byte) bool {
 		b >= '0' && b <= '9' || b == '_' || b == ':' || b == '@' || b == '.' || b == '-'
 }
 
+// skipTagComment skips one // or /* */ comment in tag-interior position.
+// Returns (true, nil) if a comment was consumed, (false, nil) if not at a comment,
+// or (false, error) for an unterminated block comment.
+func (p *parser) skipTagComment() (bool, error) {
+	if p.at("/*") {
+		start := p.i
+		p.i += 2 // past '/*'
+		for !p.eof() {
+			if p.at("*/") {
+				p.i += 2 // past '*/'
+				return true, nil
+			}
+			p.i++
+		}
+		// unterminated
+		startPos := p.posAt(start)
+		resolvedPos := p.file.Position(startPos)
+		return false, fmt.Errorf("%d:%d: unterminated block comment", resolvedPos.Line, resolvedPos.Column)
+	}
+	if p.at("//") {
+		p.i += 2 // past '//'
+		for !p.eof() && p.src[p.i] != '\n' {
+			p.i++
+		}
+		// leave '\n' in place so skipSpace() sees it
+		return true, nil
+	}
+	return false, nil
+}
+
 func (p *parser) parseAttrs() ([]ast.Attr, error) {
 	var attrs []ast.Attr
 	for {
@@ -55,6 +85,12 @@ func (p *parser) parseAttrs() ([]ast.Attr, error) {
 		}
 		if p.peek() == '>' || p.at("/>") {
 			return attrs, nil
+		}
+		// skip tag-interior // or /* */ comments
+		if sk, err := p.skipTagComment(); err != nil {
+			return nil, err
+		} else if sk {
+			continue
 		}
 		// {...expr} spread — tolerant of whitespace after `{` and around `...`
 		// (e.g. `{ ...attrs }`). In attribute position a `{ }` is always a spread.
