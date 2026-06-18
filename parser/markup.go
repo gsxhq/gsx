@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"go/scanner"
 	"go/token"
 	"strings"
 
@@ -74,6 +75,46 @@ func (p *parser) skipTagComment() (bool, error) {
 		return true, nil
 	}
 	return false, nil
+}
+
+// commentOnly reports whether src contains only Go comments (no real expression tokens).
+// A {/* … */} or {// … \n} whose body passes this check can be silently dropped.
+func commentOnly(src string) bool {
+	fset := token.NewFileSet()
+	file := fset.AddFile("", fset.Base(), len(src))
+	var s scanner.Scanner
+	s.Init(file, []byte(src), nil, scanner.ScanComments)
+	for {
+		_, tok, _ := s.Scan()
+		switch tok {
+		case token.EOF:
+			return true
+		case token.COMMENT, token.SEMICOLON:
+			// allowed — comments and auto-inserted semicolons are fine
+		default:
+			return false
+		}
+	}
+}
+
+// skipBracedComment checks whether the `{…}` at the current cursor is comment-only.
+// If so, it advances past the closing `}` and returns (true, nil).
+// Otherwise it returns (false, nil) without moving the cursor.
+// Unterminated `{` is not an error here — parseInterp handles that.
+func (p *parser) skipBracedComment() (bool, error) {
+	if p.peek() != '{' {
+		return false, nil
+	}
+	end, ok := goExprEnd(p.src, p.i)
+	if !ok {
+		return false, nil
+	}
+	inner := p.src[p.i+1 : end]
+	if !commentOnly(inner) {
+		return false, nil
+	}
+	p.i = end + 1
+	return true, nil
 }
 
 func (p *parser) parseAttrs() ([]ast.Attr, error) {
@@ -293,6 +334,11 @@ func (p *parser) parseChildren(closeTag string) ([]ast.Markup, error) {
 			continue
 		}
 		if p.peek() == '{' {
+			if sk, err := p.skipBracedComment(); err != nil {
+				return nil, err
+			} else if sk {
+				continue
+			}
 			in, err := p.parseInterp()
 			if err != nil {
 				return nil, err
@@ -319,6 +365,11 @@ func (p *parser) parseNodesUntilEOF() ([]ast.Markup, error) {
 			}
 			nodes = append(nodes, el)
 		case p.peek() == '{':
+			if sk, err := p.skipBracedComment(); err != nil {
+				return nil, err
+			} else if sk {
+				continue
+			}
 			in, err := p.parseInterp()
 			if err != nil {
 				return nil, err

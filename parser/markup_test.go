@@ -214,6 +214,71 @@ func TestTagBlockComment(t *testing.T) {
 	}
 }
 
+func TestContentIsLiteral(t *testing.T) {
+	// CRITICAL: text between > and < or { is verbatim; // and /* */ are NOT stripped.
+	src := `<a>http://example.com // and /* this */ stay literal</a>`
+	p := testParser(src)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := n.(*ast.Element)
+	if len(el.Children) != 1 {
+		t.Fatalf("got %d children, want 1: %#v", len(el.Children), el.Children)
+	}
+	txt, ok := el.Children[0].(*ast.Text)
+	if !ok {
+		t.Fatalf("child is %T, want *ast.Text", el.Children[0])
+	}
+	want := "http://example.com // and /* this */ stay literal"
+	if txt.Value != want {
+		t.Fatalf("text value = %q, want %q", txt.Value, want)
+	}
+}
+
+func TestBracedContentComment(t *testing.T) {
+	// {/* comment with <tags> and a } brace */} is skipped; "keep" remains as Text.
+	// goExprEnd handles the } inside the comment (scanner-aware).
+	src := `<div>{/* a content comment with <tags> and a } brace */}keep</div>`
+	p := testParser(src)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := n.(*ast.Element)
+	if len(el.Children) != 1 {
+		t.Fatalf("got %d children, want 1: %#v", len(el.Children), el.Children)
+	}
+	txt, ok := el.Children[0].(*ast.Text)
+	if !ok {
+		t.Fatalf("child is %T, want *ast.Text", el.Children[0])
+	}
+	if txt.Value != "keep" {
+		t.Fatalf("text value = %q, want %q", txt.Value, "keep")
+	}
+}
+
+func TestBracedLineComment(t *testing.T) {
+	// {// line comment\n} is skipped; "x" remains as Text.
+	src := "<div>{// just a line comment\n}x</div>"
+	p := testParser(src)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := n.(*ast.Element)
+	if len(el.Children) != 1 {
+		t.Fatalf("got %d children, want 1: %#v", len(el.Children), el.Children)
+	}
+	txt, ok := el.Children[0].(*ast.Text)
+	if !ok {
+		t.Fatalf("child is %T, want *ast.Text", el.Children[0])
+	}
+	if txt.Value != "x" {
+		t.Fatalf("text value = %q, want %q", txt.Value, "x")
+	}
+}
+
 func TestUnterminatedTagBlockComment(t *testing.T) {
 	// `<div /* oops>` → parseElement returns an error mentioning "unterminated block comment"
 	p := testParser("<div /* oops>")
