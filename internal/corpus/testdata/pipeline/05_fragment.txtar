@@ -1,0 +1,14 @@
+# fragment with multiple children
+-- input.gsx --
+package p
+
+component List() { <><li>a</li><li>b</li></> }
+-- ast.golden --
+File package=p
+  Component name=List recv="" params=""
+    Fragment
+      Element tag=li void=false
+        Text value="a"
+      Element tag=li void=false
+        Text value="b"
+-- diagnostics.golden --

@@ -1,0 +1,12 @@
+01_elements.gsx: 21:3: expected tag name
+02_text_escaping.gsx: 47:35: expected tag name
+03_control_flow.gsx: ok
+04_components.gsx: 77:72: unterminated `{`
+05_attributes.gsx: 31:3: expected `...` spread inside `{ }` attribute
+06_corner_cases.gsx: 84:19: expected tag name
+07_realworld_dialog.gsx: ok
+08_realworld_table.gsx: ok
+09_realworld_form_htmx.gsx: 38:4: expected `...` spread inside `{ }` attribute
+10_realworld_layout_email.gsx: 30:3: expected tag name
+11_struct_methods.gsx: 81:32: expected `...` spread inside `{ }` attribute
+12_children_attrs.gsx: 54:78: unterminated `{`

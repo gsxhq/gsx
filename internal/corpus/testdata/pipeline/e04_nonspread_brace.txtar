@@ -1,0 +1,8 @@
+# error: brace attribute that is not a spread
+-- input.gsx --
+package p
+
+component X() { <div { x }>text</div> }
+-- ast.golden --
+-- diagnostics.golden --
+3:22: expected `...` spread inside `{ }` attribute

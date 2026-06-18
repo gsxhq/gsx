@@ -1,0 +1,8 @@
+# error: attribute name starting with = is invalid
+-- input.gsx --
+package p
+
+component X() { <div =oops> }
+-- ast.golden --
+-- diagnostics.golden --
+3:22: expected attribute name, got "="

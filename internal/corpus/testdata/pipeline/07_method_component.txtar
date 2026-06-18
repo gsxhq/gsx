@@ -1,0 +1,18 @@
+# method receiver component plus usage of method-tag (<p.Body/>)
+-- input.gsx --
+package p
+
+type Page struct{}
+
+component (p Page) Body() { <main>x</main> }
+
+component Shell(p Page) { <p.Body/> }
+-- ast.golden --
+File package=p
+  GoChunk len=22
+  Component name=Body recv="(p Page)" params=""
+    Element tag=main void=false
+      Text value="x"
+  Component name=Shell recv="" params="p Page"
+    Element tag=p.Body void=true
+-- diagnostics.golden --

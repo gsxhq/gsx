@@ -1,0 +1,14 @@
+# element, static attr, void self-close, nested, text
+-- input.gsx --
+package p
+
+component X() { <section class="card"><h2>hello</h2><br/></section> }
+-- ast.golden --
+File package=p
+  Component name=X recv="" params=""
+    Element tag=section void=false
+      StaticAttr name=class value="card"
+      Element tag=h2 void=false
+        Text value="hello"
+      Element tag=br void=true
+-- diagnostics.golden --
