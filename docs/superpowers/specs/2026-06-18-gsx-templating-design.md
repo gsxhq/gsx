@@ -408,7 +408,11 @@ ignored or panicked. (`?` only lacks a return path inside a hand-written plain
   There is no `gsx.URL(...)` wrapper — sanitizing is the default for URL attributes;
   `gsx.SafeURL` is the trusted opt-out. The generator knows the attribute name and
   element, so it picks the escaper with no type resolution.
-- **Comments:** HTML comments `<!-- … -->` pass through.
+- **Comments:** Three forms, by position:
+  - **Tag-interior** (inside `<tag … >`/`/>`): `// … ` (line, to end-of-line) and `/* … */` (block) are stripped — no AST node, no output.  An unterminated `/* … ` is a parse error.
+  - **Element content** (between `>` and `</` or `{`): always **literal text**.  `//`, `/* */`, and URLs render verbatim — nothing is stripped.
+  - **Content-position comment** (in child position): wrap in braces → `{/* … */}` or `{// …\n}`.  A `{ … }` whose body is *comment-only* (no real Go tokens) is stripped — produces no node.  A `{ … }` with any real token is a normal interpolation.
+  - `<!-- … -->` HTML comments pass through to the output (later: parsed, not yet emitted).
 - **Raw-text elements:** `<script>`/`<style>` bodies are raw text, not markup;
   `{ expr }` interpolation is still available, escaped for the JS/CSS context
   (exact rules: open question).
