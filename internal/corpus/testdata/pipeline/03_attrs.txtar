@@ -1,0 +1,14 @@
+# static attr, expr attr, bool attr, spread attr
+-- input.gsx --
+package p
+
+component Input(id string, rest map[string]string) { <input type="text" id={id} disabled {...rest} /> }
+-- ast.golden --
+File package=p
+  Component name=Input recv="" params="id string, rest map[string]string"
+    Element tag=input void=true
+      StaticAttr name=type value="text"
+      ExprAttr name=id expr="id" try=false
+      BoolAttr name=disabled
+      SpreadAttr expr="rest"
+-- diagnostics.golden --

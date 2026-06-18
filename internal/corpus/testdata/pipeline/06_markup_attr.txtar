@@ -1,0 +1,18 @@
+# markup-valued attribute (MarkupAttr); Panel component accepts header as gsx.Node type
+-- input.gsx --
+package p
+
+component Panel(header interface{}) { <div>{header}</div> }
+
+component Demo() { <Panel header={<h1>Hi</h1>}></Panel> }
+-- ast.golden --
+File package=p
+  Component name=Panel recv="" params="header interface{}"
+    Element tag=div void=false
+      Interp expr="header" try=false
+  Component name=Demo recv="" params=""
+    Element tag=Panel void=false
+      MarkupAttr name=header
+        Element tag=h1 void=false
+          Text value="Hi"
+-- diagnostics.golden --

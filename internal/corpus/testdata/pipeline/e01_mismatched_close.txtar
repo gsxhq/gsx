@@ -1,0 +1,8 @@
+# error: mismatched close tag
+-- input.gsx --
+package p
+
+component X() { <div>hi</span> }
+-- ast.golden --
+-- diagnostics.golden --
+3:24: mismatched close tag </span>, expected </div>

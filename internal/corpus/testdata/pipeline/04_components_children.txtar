@@ -1,0 +1,18 @@
+# component tag with children, plus component declaration in same file
+-- input.gsx --
+package p
+
+component Card(title string) { <div>{children}</div> }
+
+component Page() { <Card title="x"><b>kid</b></Card> }
+-- ast.golden --
+File package=p
+  Component name=Card recv="" params="title string"
+    Element tag=div void=false
+      Interp expr="children" try=false
+  Component name=Page recv="" params=""
+    Element tag=Card void=false
+      StaticAttr name=title value="x"
+      Element tag=b void=false
+        Text value="kid"
+-- diagnostics.golden --

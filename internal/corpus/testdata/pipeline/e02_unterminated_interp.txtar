@@ -1,0 +1,8 @@
+# error: unterminated { in child content causes unterminated component body
+-- input.gsx --
+package p
+
+component X() { <p>{ x </p> }
+-- ast.golden --
+-- diagnostics.golden --
+3:15: unterminated component body
