@@ -205,25 +205,61 @@ This spec fixes `//line` as a **binding convention**; `gsx generate` implements 
 Every front-end is a thin shell over a shared core (the Go toolchain's model, and the
 gsx design's §11 dogfooding principle applied to tooling).
 
-### Package layout
+### Package layout: public AST/parser, internal everything-else
+
+The AST + parser are a **public, ecosystem-facing API** — the model the entire Go
+tooling ecosystem (including `golang.org/x/tools/go/analysis`) is built to consume.
+Everything else is internal and free to churn.
 
 ```
+github.com/gsxhq/gsx/ast       PUBLIC, stable  — node types (promoted from internal)
+github.com/gsxhq/gsx/parser    PUBLIC, stable  — ParseFile(fset, name, src) (*ast.File, error)
+github.com/gsxhq/gsx           PUBLIC          — runtime: Node, Func, Attrs, Raw/SafeURL, gw helpers
+github.com/gsxhq/gsx/analysis  PLANNED (deferred) — go/analysis bridge (gsx AST + go/types)
+
 cmd/gsx/main.go     entry; registers commands, dispatches
 internal/cli        Command interface, dispatch, global flags, exit codes
-internal/ast        (exists)
-internal/parser     (exists)
 internal/analyzer   semantic + type-aware pass (go/packages, go/types)
 internal/gen        codegen → .x.go + //line directives
 internal/printer    canonical formatter (fmt)
 internal/diag       Diagnostic, codes, severity, human + JSON rendering
-gsx (root pkg)      runtime: Node, Func, Attrs, Raw/SafeURL, gw helpers
 ```
 
-### The contract
+### Why public AST: don't repeat templ's re-parsing tax
 
-Every core stage returns `([]diag.Diagnostic, result)` rather than ad-hoc `error`s:
+templ never exposed a consumable AST, so external tools that need the *template's own
+structure* must re-parse `.templ` by hand (the structpages linter's `templscan`
+re-runs `go/parser` on extracted snippets). That tax — and the grammar drift it
+invites — is exactly what gsx avoids. An external linter or extension, in a separate
+module, consumes gsx like the Go standard library:
 
-- parser → AST + diagnostics
+```go
+import (
+    "go/token"
+    "github.com/gsxhq/gsx/ast"
+    "github.com/gsxhq/gsx/parser"
+)
+fset := token.NewFileSet()
+f, err := parser.ParseFile(fset, "card.gsx", src, 0)
+ast.Inspect(f, func(n ast.Node) bool { /* walk components, attrs, interpolations */ })
+```
+
+**Reuse `go/token` (FileSet/Pos), do not invent `gsx/token`.** This is the key interop
+move: gsx positions live in the *same* `*token.FileSet` as the generated Go, so a
+single analyzer can hold the gsx markup AST **and** `go/types` info and map between them
+in one position space — something templscan could not do.
+
+`parser.ParseFile` is signature-compatible with `go/parser.ParseFile`. The public AST
+is a stability contract (go/ast-style); during v0 it may still evolve, which we will
+signal in release notes.
+
+### The contract (internal stages)
+
+Each internal core stage returns `([]diag.Diagnostic, result)` rather than ad-hoc
+`error`s:
+
+- parser → AST + diagnostics (public API also offers the `go/parser`-style `error`
+  form for std-lib parity; the diagnostic form is what front-ends consume)
 - analyzer → resolved type info + diagnostics
 - printer → formatted bytes + diagnostics
 - gen → `.x.go` bytes + source map + diagnostics
@@ -232,11 +268,18 @@ Because every stage speaks the same diagnostic vocabulary, **every front-end ren
 results identically** (§2) and adding a command is genuinely just writing a shell that
 calls core stages and hands their diagnostics to the renderer.
 
-### Decision: core stays `internal/` for now
+### Dogfooding proof + the go/analysis bridge
 
-Every front-end — including `lsp` — lives in this module, so `internal/` suffices and
-preserves freedom to refactor the core. A public `go/parser`-style API is **deferred**
-(not refused) until something outside the module needs programmatic access.
+1. **`gsx vet` is built on the public `ast` + `parser`** (the internal `analyzer` layers
+   `go/types` on top). If gsx's own linter cannot ride the public API, the API is not
+   good enough — the same dogfooding principle as §11's built-ins-as-transforms.
+2. **`gsx/analysis` (planned, deferred):** loads a gsx package = parse `.gsx` → public
+   AST **plus** load generated `.x.go` → `go/types`, and hands a gsx-aware analyzer both,
+   the way the structpages analyzer gets `PageTree` + types together. This is where
+   extension/lint authors plug in. The §11 in-process markup-AST transforms consume the
+   *same* public `ast` package, so external linters and in-process extensions share one
+   tree. The adapter's surface is deferred until `vet` and the first extension exist to
+   validate it.
 
 ## 4. Config, `go:generate`, Self-documentation
 
@@ -286,7 +329,9 @@ This skeleton unblocks, in rough dependency order:
 - The Vite plugin / Go package / starter-template internals (Vite spec).
 - The tree-sitter grammar and LSP feature set (LSP spec).
 - The §11 extension API (deferred by the language design until core exists).
-- A public (non-`internal`) core API.
+- The `gsx/analysis` go/analysis adapter surface (planned; designed once `vet` and the
+  first extension exist to validate it). The public `gsx/ast` + `gsx/parser` API *is*
+  in scope here (§3).
 
 ## Open Questions
 
