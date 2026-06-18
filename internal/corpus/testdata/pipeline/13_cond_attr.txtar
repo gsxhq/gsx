@@ -1,0 +1,19 @@
+gsx pipeline: in-tag { if … } conditional attribute composed with a spread.
+
+-- input.gsx --
+package examples
+
+component Button(id string) {
+	<button { if id != "" { id={id} } } {...attrs}>x</button>
+}
+
+-- diagnostics.golden --
+-- ast.golden --
+File package=examples
+  Component name=Button recv="" params="id string"
+    Element tag=button void=false
+      CondAttr cond="id != \"\""
+        then:
+          ExprAttr name=id expr="id" try=false
+      SpreadAttr expr="attrs"
+      Text value="x"

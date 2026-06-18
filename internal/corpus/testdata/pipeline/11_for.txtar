@@ -1,0 +1,23 @@
+gsx pipeline: { for … } control flow with interpolation.
+
+-- input.gsx --
+package examples
+
+component List(rows []string) {
+	<ul>
+		{ for _, r := range rows {
+			<li>{r}</li>
+		} }
+	</ul>
+}
+
+-- diagnostics.golden --
+-- ast.golden --
+File package=examples
+  Component name=List recv="" params="rows []string"
+    Element tag=ul void=false
+      Text value="\n\t\t"
+      ForMarkup clause="_, r := range rows"
+        Element tag=li void=false
+          Interp expr="r" try=false
+      Text value="\n\t"

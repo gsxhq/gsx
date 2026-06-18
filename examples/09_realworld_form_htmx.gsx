@@ -34,7 +34,6 @@ component Field(name string, label string, value string, error string, required 
 			id={name}
 			name={name}
 			value={value}
-			// conditional attribute + type-driven boolean + spread, all together
 			{ if error != "" { aria-invalid="true" } }
 			required={required}
 			class="w-full rounded-md border px-3 py-2"
@@ -57,8 +56,8 @@ component CreateUserForm() {
 		hx-on::after-request="if(event.detail.successful) this.reset()"
 		class="space-y-4"
 	>
-		// hx-get/hx-trigger/hx-target are undeclared on Field -> they implicitly
-		// collect into Field's Attrs (implicit rest) and forward to its <input>.
+		{/* hx-get/hx-trigger/hx-target are undeclared on Field -> they implicitly
+		collect into Field's Attrs (implicit rest) and forward to its <input>. */}
 		<Field
 			name="email"
 			label="Email"

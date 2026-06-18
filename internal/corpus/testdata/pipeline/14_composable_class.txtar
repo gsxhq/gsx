@@ -1,0 +1,23 @@
+gsx pipeline: composable class list with conditional contributions.
+
+-- input.gsx --
+package examples
+
+component Link(active bool, class string) {
+	<a class={
+		"flex gap-2",
+		"bg-active": active,
+		class,
+	}>link</a>
+}
+
+-- diagnostics.golden --
+-- ast.golden --
+File package=examples
+  Component name=Link recv="" params="active bool, class string"
+    Element tag=a void=false
+      ClassAttr name=class
+        ClassPart expr="\"flex gap-2\"" cond=""
+        ClassPart expr="\"bg-active\"" cond="active"
+        ClassPart expr="class" cond=""
+      Text value="link"

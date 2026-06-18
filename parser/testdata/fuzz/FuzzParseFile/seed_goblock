@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package p\ncomponent C(name string) {\n\t<div>{{ n := f(name) }}<button { if n != \"\" { disabled } } class={ \"x\", \"y\": n != \"\" }>{n}</button></div>\n}")

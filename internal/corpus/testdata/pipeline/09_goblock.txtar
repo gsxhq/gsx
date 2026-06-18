@@ -1,0 +1,23 @@
+gsx pipeline: {{ }} Go-statement block between markup siblings.
+
+-- input.gsx --
+package examples
+
+component Chip(name string) {
+	<div>
+		{{ initials := f(name) }}
+		<span>{initials}</span>
+	</div>
+}
+
+-- diagnostics.golden --
+-- ast.golden --
+File package=examples
+  Component name=Chip recv="" params="name string"
+    Element tag=div void=false
+      Text value="\n\t\t"
+      GoBlock code="initials := f(name)"
+      Text value="\n\t\t"
+      Element tag=span void=false
+        Interp expr="initials" try=false
+      Text value="\n\t"
