@@ -56,6 +56,20 @@ func SetSpan(n Node, start, end token.Pos) {
 		v.span = s
 	case *MarkupAttr:
 		v.span = s
+	case *GoBlock:
+		v.span = s
+	case *IfMarkup:
+		v.span = s
+	case *ForMarkup:
+		v.span = s
+	case *SwitchMarkup:
+		v.span = s
+	case *CaseClause:
+		v.span = s
+	case *CondAttr:
+		v.span = s
+	case *ClassAttr:
+		v.span = s
 	}
 }
 
@@ -183,6 +197,84 @@ type MarkupAttr struct {
 
 func (*MarkupAttr) attrNode() {}
 
+// GoBlock is `{{ stmt }}` — a Go-statement escape hatch in a component body.
+// Code is the trimmed Go source between the `{{` and `}}` delimiters.
+type GoBlock struct {
+	span
+	Code string
+}
+
+func (*GoBlock) markupNode() {}
+
+// IfMarkup is `{ if Cond { Then } [else if … | else { Else }] }`.
+// An `else if` is stored as Else = []Markup{<*IfMarkup>} (go/ast style); a plain
+// `else` puts its body in Else; no else clause leaves Else nil.
+type IfMarkup struct {
+	span
+	Cond string
+	Then []Markup
+	Else []Markup
+}
+
+func (*IfMarkup) markupNode() {}
+
+// ForMarkup is `{ for Clause { Body } }`. Clause is the raw Go for/range clause.
+type ForMarkup struct {
+	span
+	Clause string
+	Body   []Markup
+}
+
+func (*ForMarkup) markupNode() {}
+
+// SwitchMarkup is `{ switch Tag { Cases } }`. Tag is "" for a tagless switch.
+type SwitchMarkup struct {
+	span
+	Tag   string
+	Cases []*CaseClause
+}
+
+func (*SwitchMarkup) markupNode() {}
+
+// CaseClause is one `case List:` or `default:` arm of a SwitchMarkup. It is a
+// Node (for Inspect and positions) but is neither Markup nor Attr. List is the
+// raw Go case expression(s); Default is true for the `default:` arm (List == "").
+type CaseClause struct {
+	span
+	List    string
+	Default bool
+	Body    []Markup
+}
+
+// CondAttr is an in-tag `{ if Cond { Then } [else …] }` conditional attribute.
+// Then and Else are attribute lists; an `else if` is Else = []Attr{<*CondAttr>}.
+type CondAttr struct {
+	span
+	Cond string
+	Then []Attr
+	Else []Attr
+}
+
+func (*CondAttr) attrNode() {}
+
+// ClassPart is one contribution in a composable class/style list: an
+// unconditional Expr, or Expr emitted when Cond is true. Cond == "" → always.
+// It is a plain value, not a Node.
+type ClassPart struct {
+	Expr string
+	Cond string
+}
+
+// ClassAttr is `class={ … }` / `style={ … }` — a composable contribution list.
+// Name is "class" or "style".
+type ClassAttr struct {
+	span
+	Name  string
+	Parts []ClassPart
+}
+
+func (*ClassAttr) attrNode() {}
+
 // Inspect traverses the AST in depth-first order, calling f for each node.
 // If f returns false, Inspect does not recurse into that node's children.
 // After recursing into children, Inspect calls f(nil) for go/ast parity.
@@ -192,6 +284,11 @@ func (*MarkupAttr) attrNode() {}
 //   - *Element: each Attr, then each Child
 //   - *Fragment: each Child
 //   - *MarkupAttr: each Value markup node
+//   - *IfMarkup: each Then and Else markup node
+//   - *ForMarkup: each Body markup node
+//   - *SwitchMarkup: each CaseClause
+//   - *CaseClause: each Body markup node
+//   - *CondAttr: each Then and Else attr node
 //   - all other nodes: leaves (no children)
 func Inspect(node Node, f func(Node) bool) {
 	if !f(node) {
@@ -221,7 +318,33 @@ func Inspect(node Node, f func(Node) bool) {
 		for _, m := range n.Value {
 			Inspect(m, f)
 		}
-		// GoChunk, Text, Interp, StaticAttr, ExprAttr, BoolAttr, SpreadAttr: leaves
+	case *IfMarkup:
+		for _, m := range n.Then {
+			Inspect(m, f)
+		}
+		for _, m := range n.Else {
+			Inspect(m, f)
+		}
+	case *ForMarkup:
+		for _, m := range n.Body {
+			Inspect(m, f)
+		}
+	case *SwitchMarkup:
+		for _, c := range n.Cases {
+			Inspect(c, f)
+		}
+	case *CaseClause:
+		for _, m := range n.Body {
+			Inspect(m, f)
+		}
+	case *CondAttr:
+		for _, a := range n.Then {
+			Inspect(a, f)
+		}
+		for _, a := range n.Else {
+			Inspect(a, f)
+		}
+		// GoBlock, ClassAttr: leaves (ClassParts are not Nodes)
 	}
 	f(nil)
 }
