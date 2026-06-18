@@ -13,7 +13,7 @@
 - Go version floor: **go 1.26.1** (from `go.mod`).
 - Module path: **`github.com/gsxhq/gsx`**.
 - No third-party dependencies in the parser — standard library only.
-- Parser packages live under `internal/` (unexported API): `internal/ast`, `internal/parser`.
+- AST and parser packages are **public top-level packages** (exported API): `github.com/gsxhq/gsx/ast` and `github.com/gsxhq/gsx/parser`. They are NOT under `internal/`. See CLI skeleton design §3 ("Core ↔ Front-end Boundary").
 - **Scope of THIS plan (core grammar):** package clause, import blocks, opaque Go chunks, `component` declarations (with optional receiver and params), and markup nodes: elements, fragments, text, `{ expr }` and `{ expr? }` interpolation, attributes (static `name="v"`, expression `name={e}` / `name={e?}`, boolean bare `name`, spread `{...e}`, markup-valued `name={ <…/> }`), nested elements, and component tags (Capitalized / dotted).
 - **Deferred to "Parser Part 2" (NOT this plan):** control flow `{ if|for|switch … { … } }`, the `{{ … }}` Go-statement block, in-tag conditional attributes `{ if … { attr } }`, the composable `class={ a, "x": cond }` comma/colon grammar, and any semantic analysis (type resolution, escaping, codegen). The parser only produces syntax; semantics belong to later subsystems.
 - TDD: every task writes a failing test first, then the minimal code to pass. Commit after each task.
