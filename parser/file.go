@@ -48,7 +48,7 @@ func ParseFile(fset *token.FileSet, filename string, src any, mode Mode) (*ast.F
 	}
 	srcStr := string(srcBytes)
 
-	pkgName, pkgPos, pkgEnd, err := scanPackage(file, srcBytes)
+	pkgName, pkgKwPos, pkgEnd, err := scanPackage(file, srcBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -56,9 +56,9 @@ func ParseFile(fset *token.FileSet, filename string, src any, mode Mode) (*ast.F
 	offsets := topLevelComponentOffsets(srcBytes)
 
 	f := &ast.File{
-		Span:    ast.Span{Start: pkgPos, Finish: file.Pos(len(srcBytes))},
 		Package: pkgName,
 	}
+	ast.SetSpan(f, pkgKwPos, file.Pos(len(srcBytes)))
 
 	cursor := pkgEnd
 	p := newParser(file, srcStr)
@@ -69,10 +69,9 @@ func ParseFile(fset *token.FileSet, filename string, src any, mode Mode) (*ast.F
 		if chunk := strings.TrimSpace(srcStr[cursor:off]); chunk != "" {
 			chunkStart := file.Pos(cursor)
 			chunkEnd := file.Pos(off)
-			f.Decls = append(f.Decls, &ast.GoChunk{
-				Span: ast.Span{Start: chunkStart, Finish: chunkEnd},
-				Src:  srcStr[cursor:off],
-			})
+			gc := &ast.GoChunk{Src: srcStr[cursor:off]}
+			ast.SetSpan(gc, chunkStart, chunkEnd)
+			f.Decls = append(f.Decls, gc)
 		}
 		p.i = off
 		c, err := p.parseComponent()
@@ -85,35 +84,36 @@ func ParseFile(fset *token.FileSet, filename string, src any, mode Mode) (*ast.F
 	if tail := strings.TrimSpace(srcStr[cursor:]); tail != "" {
 		chunkStart := file.Pos(cursor)
 		chunkEnd := file.Pos(len(srcStr))
-		f.Decls = append(f.Decls, &ast.GoChunk{
-			Span: ast.Span{Start: chunkStart, Finish: chunkEnd},
-			Src:  srcStr[cursor:],
-		})
+		gc := &ast.GoChunk{Src: srcStr[cursor:]}
+		ast.SetSpan(gc, chunkStart, chunkEnd)
+		f.Decls = append(f.Decls, gc)
 	}
 	return f, nil
 }
 
 // scanPackage finds the package clause. Returns the package name, position of the
-// package name token (as token.Pos in the given file), and byte offset after the name.
-func scanPackage(file *token.File, src []byte) (name string, pos token.Pos, end int, err error) {
+// `package` keyword token (as token.Pos in the given file), and byte offset after
+// the package name (used to advance the cursor past the package clause).
+func scanPackage(file *token.File, src []byte) (name string, kwPos token.Pos, end int, err error) {
 	localFset := token.NewFileSet()
 	localFile := localFset.AddFile("", localFset.Base(), len(src))
 	var s scanner.Scanner
 	s.Init(localFile, src, nil, 0)
 	for {
-		_, tok, lit := s.Scan()
+		pos, tok, lit := s.Scan()
 		if tok == token.EOF {
 			return "", token.NoPos, 0, fmt.Errorf("missing package clause")
 		}
 		if tok == token.PACKAGE {
+			kwOff := localFset.Position(pos).Offset
+			mappedKwPos := file.Pos(kwOff)
+			_ = lit
 			namePos, tok2, lit2 := s.Scan()
 			if tok2 != token.IDENT {
 				return "", token.NoPos, 0, fmt.Errorf("malformed package clause")
 			}
-			off := localFset.Position(namePos).Offset
-			_ = lit
-			// Map offset into our file
-			return lit2, file.Pos(off), off + len(lit2), nil
+			nameOff := localFset.Position(namePos).Offset
+			return lit2, mappedKwPos, nameOff + len(lit2), nil
 		}
 	}
 }

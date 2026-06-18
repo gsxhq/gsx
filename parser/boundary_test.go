@@ -1,4 +1,4 @@
-// internal/parser/boundary_test.go
+// parser/boundary_test.go
 package parser
 
 import "testing"

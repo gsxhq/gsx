@@ -76,6 +76,6 @@ func (p *parser) parseComponent() (*ast.Component, error) {
 		return nil, err
 	}
 	c.Body = nodes
-	c.Span = ast.Span{Start: startPos, Finish: p.posAt(p.i)}
+	ast.SetSpan(c, startPos, p.posAt(p.i))
 	return c, nil
 }

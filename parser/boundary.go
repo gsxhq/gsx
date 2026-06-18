@@ -1,4 +1,4 @@
-// internal/parser/boundary.go
+// parser/boundary.go
 package parser
 
 import (

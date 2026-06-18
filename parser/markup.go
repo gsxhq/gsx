@@ -24,7 +24,9 @@ func (p *parser) parseInterp() (*ast.Interp, error) {
 		inner = strings.TrimSpace(strings.TrimSuffix(inner, "?"))
 	}
 	p.i = end + 1
-	return &ast.Interp{Span: ast.Span{Start: startPos, Finish: p.posAt(p.i)}, Expr: inner, Try: try}, nil
+	n := &ast.Interp{Expr: inner, Try: try}
+	ast.SetSpan(n, startPos, p.posAt(p.i))
+	return n, nil
 }
 
 // parseText consumes literal text up to the next '<' or '{' (or EOF).
@@ -34,7 +36,9 @@ func (p *parser) parseText() *ast.Text {
 	for !p.eof() && p.src[p.i] != '<' && p.src[p.i] != '{' {
 		p.i++
 	}
-	return &ast.Text{Span: ast.Span{Start: startPos, Finish: p.posAt(p.i)}, Value: p.src[start:p.i]}
+	n := &ast.Text{Value: p.src[start:p.i]}
+	ast.SetSpan(n, startPos, p.posAt(p.i))
+	return n
 }
 
 func isAttrNameByte(b byte) bool {
@@ -63,7 +67,9 @@ func (p *parser) parseAttrs() ([]ast.Attr, error) {
 			inner := strings.TrimSpace(p.src[p.i+1 : end])
 			inner = strings.TrimSpace(strings.TrimPrefix(inner, "..."))
 			p.i = end + 1
-			attrs = append(attrs, &ast.SpreadAttr{Span: ast.Span{Start: attrStartPos, Finish: p.posAt(p.i)}, Expr: inner})
+			sa := &ast.SpreadAttr{Expr: inner}
+			ast.SetSpan(sa, attrStartPos, p.posAt(p.i))
+			attrs = append(attrs, sa)
 			continue
 		}
 		// attribute name
@@ -90,7 +96,9 @@ func (p *parser) parseAttrs() ([]ast.Attr, error) {
 			}
 			val := p.src[vs:p.i]
 			p.i++ // past closing quote
-			attrs = append(attrs, &ast.StaticAttr{Span: ast.Span{Start: attrStartPos, Finish: p.posAt(p.i)}, Name: name, Value: val})
+			sa := &ast.StaticAttr{Name: name, Value: val}
+			ast.SetSpan(sa, attrStartPos, p.posAt(p.i))
+			attrs = append(attrs, sa)
 		case p.peek() == '=' && p.i+1 < len(p.src) && p.src[p.i+1] == '{':
 			p.i++ // past '='
 			if a, err := p.parseAttrBraceValue(name, attrStartPos); err != nil {
@@ -99,7 +107,9 @@ func (p *parser) parseAttrs() ([]ast.Attr, error) {
 				attrs = append(attrs, a)
 			}
 		default:
-			attrs = append(attrs, &ast.BoolAttr{Span: ast.Span{Start: attrStartPos, Finish: p.posAt(p.i)}, Name: name})
+			ba := &ast.BoolAttr{Name: name}
+			ast.SetSpan(ba, attrStartPos, p.posAt(p.i))
+			attrs = append(attrs, ba)
 		}
 	}
 }
@@ -126,13 +136,17 @@ func (p *parser) parseAttrBraceValue(name string, attrStartPos token.Pos) (ast.A
 			return nil, err
 		}
 		p.i = end + 1
-		return &ast.MarkupAttr{Span: ast.Span{Start: attrStartPos, Finish: p.posAt(p.i)}, Name: name, Value: nodes}, nil
+		ma := &ast.MarkupAttr{Name: name, Value: nodes}
+		ast.SetSpan(ma, attrStartPos, p.posAt(p.i))
+		return ma, nil
 	}
 	in, err := p.parseInterp()
 	if err != nil {
 		return nil, err
 	}
-	return &ast.ExprAttr{Span: ast.Span{Start: attrStartPos, Finish: in.Span.Finish}, Name: name, Expr: in.Expr, Try: in.Try}, nil
+	ea := &ast.ExprAttr{Name: name, Expr: in.Expr, Try: in.Try}
+	ast.SetSpan(ea, attrStartPos, in.End())
+	return ea, nil
 }
 
 // startsTag reports whether b can begin a tag name (letter) or a fragment close.
@@ -161,7 +175,9 @@ func (p *parser) parseElement() (ast.Markup, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &ast.Fragment{Span: ast.Span{Start: startPos, Finish: p.posAt(p.i)}, Children: children}, nil
+		fr := &ast.Fragment{Children: children}
+		ast.SetSpan(fr, startPos, p.posAt(p.i))
+		return fr, nil
 	}
 
 	tagStart := p.i
@@ -180,7 +196,9 @@ func (p *parser) parseElement() (ast.Markup, error) {
 
 	if p.at("/>") {
 		p.i += 2
-		return &ast.Element{Span: ast.Span{Start: startPos, Finish: p.posAt(p.i)}, Tag: tag, Void: true, Attrs: attrs}, nil
+		el := &ast.Element{Tag: tag, Void: true, Attrs: attrs}
+		ast.SetSpan(el, startPos, p.posAt(p.i))
+		return el, nil
 	}
 	if p.peek() != '>' {
 		cp := p.file.Position(p.pos())
@@ -192,7 +210,9 @@ func (p *parser) parseElement() (ast.Markup, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ast.Element{Span: ast.Span{Start: startPos, Finish: p.posAt(p.i)}, Tag: tag, Attrs: attrs, Children: children}, nil
+	el := &ast.Element{Tag: tag, Attrs: attrs, Children: children}
+	ast.SetSpan(el, startPos, p.posAt(p.i))
+	return el, nil
 }
 
 func (p *parser) parseChildren(closeTag string) ([]ast.Markup, error) {

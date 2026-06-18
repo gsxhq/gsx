@@ -7,7 +7,9 @@ import (
 )
 
 func TestSpanImplementsNode(t *testing.T) {
-	s := Span{Start: token.Pos(1), Finish: token.Pos(5)}
+	var s span
+	s.start = token.Pos(1)
+	s.end = token.Pos(5)
 	if s.Pos() != 1 {
 		t.Fatalf("Pos() = %v, want 1", s.Pos())
 	}
@@ -47,31 +49,29 @@ func TestNodesImplementInterfaces(t *testing.T) {
 	var _ Attr = (*SpreadAttr)(nil)
 	var _ Attr = (*MarkupAttr)(nil)
 
+	text := &Text{Value: "hi"}
+	SetSpan(text, 25, 27)
+
+	el := &Element{Tag: "div", Children: []Markup{text}}
+	SetSpan(el, 20, 80)
+
+	comp := &Component{Name: "Card", Body: []Markup{el}}
+	SetSpan(comp, 10, 90)
+
 	f := File{
-		Span:    Span{Start: 1, Finish: 100},
 		Package: "views",
-		Decls: []Decl{
-			&Component{
-				Span: Span{Start: 10, Finish: 90},
-				Name: "Card",
-				Body: []Markup{
-					&Element{
-						Span:     Span{Start: 20, Finish: 80},
-						Tag:      "div",
-						Children: []Markup{&Text{Span: Span{Start: 25, Finish: 27}, Value: "hi"}},
-					},
-				},
-			},
-		},
+		Decls:   []Decl{comp},
 	}
-	comp := f.Decls[0].(*Component)
-	if comp.Name != "Card" {
-		t.Fatalf("unexpected name: %s", comp.Name)
+	SetSpan(&f, 1, 100)
+
+	c := f.Decls[0].(*Component)
+	if c.Name != "Card" {
+		t.Fatalf("unexpected name: %s", c.Name)
 	}
-	if comp.Pos() != 10 {
-		t.Fatalf("Pos() = %v, want 10", comp.Pos())
+	if c.Pos() != 10 {
+		t.Fatalf("Pos() = %v, want 10", c.Pos())
 	}
-	if comp.End() != 90 {
-		t.Fatalf("End() = %v, want 90", comp.End())
+	if c.End() != 90 {
+		t.Fatalf("End() = %v, want 90", c.End())
 	}
 }
