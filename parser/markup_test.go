@@ -8,7 +8,7 @@ import (
 )
 
 func TestParseInterp(t *testing.T) {
-	p := newParser(`{ user.Name }rest`)
+	p := testParser(`{ user.Name }rest`)
 	n, err := p.parseInterp()
 	if err != nil {
 		t.Fatal(err)
@@ -22,7 +22,7 @@ func TestParseInterp(t *testing.T) {
 }
 
 func TestParseInterpTry(t *testing.T) {
-	p := newParser(`{ route.URL(ctx)? }`)
+	p := testParser(`{ route.URL(ctx)? }`)
 	n, err := p.parseInterp()
 	if err != nil {
 		t.Fatal(err)
@@ -33,7 +33,7 @@ func TestParseInterpTry(t *testing.T) {
 }
 
 func TestParseText(t *testing.T) {
-	p := newParser("hello world<div>")
+	p := testParser("hello world<div>")
 	n := p.parseText()
 	if n.Value != "hello world" {
 		t.Fatalf("got %q", n.Value)
@@ -44,7 +44,7 @@ func TestParseText(t *testing.T) {
 }
 
 func TestParseAttrs(t *testing.T) {
-	p := newParser(`class="card" id={x} disabled {...rest} data-y={z?}>`)
+	p := testParser(`class="card" id={x} disabled {...rest} data-y={z?}>`)
 	attrs, err := p.parseAttrs()
 	if err != nil {
 		t.Fatal(err)
@@ -73,7 +73,7 @@ func TestParseAttrs(t *testing.T) {
 }
 
 func TestParseSelfClosing(t *testing.T) {
-	p := newParser(`<img src="x.png"/>`)
+	p := testParser(`<img src="x.png"/>`)
 	n, err := p.parseElement()
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +85,7 @@ func TestParseSelfClosing(t *testing.T) {
 }
 
 func TestParseDottedComponentTag(t *testing.T) {
-	p := newParser(`<ui.Button variant="primary"></ui.Button>`)
+	p := testParser(`<ui.Button variant="primary"></ui.Button>`)
 	n, err := p.parseElement()
 	if err != nil {
 		t.Fatal(err)
@@ -97,7 +97,7 @@ func TestParseDottedComponentTag(t *testing.T) {
 }
 
 func TestParseChildrenNested(t *testing.T) {
-	p := newParser(`<div class="card"><h2>{title}</h2>text</div>`)
+	p := testParser(`<div class="card"><h2>{title}</h2>text</div>`)
 	n, err := p.parseElement()
 	if err != nil {
 		t.Fatal(err)
@@ -119,7 +119,7 @@ func TestParseChildrenNested(t *testing.T) {
 }
 
 func TestParseMarkupAttr(t *testing.T) {
-	p := newParser(`<Panel header={ <h1>Hi</h1> }></Panel>`)
+	p := testParser(`<Panel header={ <h1>Hi</h1> }></Panel>`)
 	n, err := p.parseElement()
 	if err != nil {
 		t.Fatal(err)
@@ -135,7 +135,7 @@ func TestParseMarkupAttr(t *testing.T) {
 }
 
 func TestParseChildrenMismatch(t *testing.T) {
-	p := newParser(`<div>hi</span>`)
+	p := testParser(`<div>hi</span>`)
 	_, err := p.parseElement()
 	if err == nil {
 		t.Fatalf("expected mismatched-close-tag error, got nil")

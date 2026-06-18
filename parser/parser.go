@@ -6,11 +6,22 @@ import (
 )
 
 type parser struct {
-	src string
-	i   int // byte cursor
+	file *token.File
+	src  string
+	base int // absolute byte offset of src[0] in file
+	i    int // byte cursor within src
 }
 
-func newParser(src string) *parser { return &parser{src: src} }
+// newParser creates a parser for src at absolute offset 0 in file.
+func newParser(file *token.File, src string) *parser {
+	return &parser{file: file, src: src, base: 0}
+}
+
+// newSub creates a parser for a sub-slice of the parent's source.
+// base is the absolute byte offset within file where sub starts.
+func newSub(file *token.File, src string, base int) *parser {
+	return &parser{file: file, src: src, base: base}
+}
 
 func (p *parser) eof() bool { return p.i >= len(p.src) }
 
@@ -36,16 +47,12 @@ func (p *parser) skipSpace() {
 	}
 }
 
-// pos returns a 1-based line/column for the current cursor.
-func (p *parser) pos() token.Position {
-	line, col := 1, 1
-	for j := 0; j < p.i && j < len(p.src); j++ {
-		if p.src[j] == '\n' {
-			line++
-			col = 1
-		} else {
-			col++
-		}
-	}
-	return token.Position{Line: line, Column: col, Offset: p.i}
+// pos returns the token.Pos of the current cursor position.
+func (p *parser) pos() token.Pos {
+	return p.file.Pos(p.base + p.i)
+}
+
+// posAt returns the token.Pos for a specific byte offset within p.src.
+func (p *parser) posAt(off int) token.Pos {
+	return p.file.Pos(p.base + off)
 }

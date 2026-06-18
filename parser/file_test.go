@@ -1,7 +1,8 @@
-// internal/parser/file_test.go
+// parser/file_test.go
 package parser
 
 import (
+	"go/token"
 	"testing"
 
 	"github.com/gsxhq/gsx/ast"
@@ -24,7 +25,8 @@ component Spinner() {
 	<svg></svg>
 }
 `
-	f, err := Parse(src)
+	fset := token.NewFileSet()
+	f, err := ParseFile(fset, "test.gsx", src, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

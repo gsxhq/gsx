@@ -1,7 +1,8 @@
-// internal/parser/golden_test.go
+// parser/golden_test.go
 package parser
 
 import (
+	"go/token"
 	"testing"
 
 	"github.com/gsxhq/gsx/ast"
@@ -27,7 +28,8 @@ component Panel(header gsx.Node) {
 `
 
 func TestGoldenCore(t *testing.T) {
-	f, err := Parse(goldenSrc)
+	fset := token.NewFileSet()
+	f, err := ParseFile(fset, "test.gsx", goldenSrc, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -10,7 +10,7 @@ func TestParseComponentSimple(t *testing.T) {
 	src := `component Card(title string) {
 		<section class="card">{title}</section>
 	}`
-	p := newParser(src)
+	p := testParser(src)
 	c, err := p.parseComponent()
 	if err != nil {
 		t.Fatal(err)
@@ -30,7 +30,7 @@ func TestParseComponentMethod(t *testing.T) {
 	src := `component (p UsersPage) Content() {
 		<div>{p.Title}</div>
 	}`
-	p := newParser(src)
+	p := testParser(src)
 	c, err := p.parseComponent()
 	if err != nil {
 		t.Fatal(err)

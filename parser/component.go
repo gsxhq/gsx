@@ -10,19 +10,22 @@ import (
 // parseComponent parses a `component [recv] Name[(params)] { body }`.
 // Cursor must be at the start of the `component` keyword.
 func (p *parser) parseComponent() (*ast.Component, error) {
-	pos := p.pos()
+	start := p.i
+	startPos := p.posAt(start)
+	curPos := p.file.Position(startPos)
 	if !p.at("component") {
-		return nil, fmt.Errorf("%d:%d: expected `component`", pos.Line, pos.Column)
+		return nil, fmt.Errorf("%d:%d: expected `component`", curPos.Line, curPos.Column)
 	}
 	p.i += len("component")
-	c := &ast.Component{Pos: pos}
+	c := &ast.Component{}
 
 	p.skipSpace()
 	// optional receiver
 	if p.peek() == '(' {
 		end, ok := parenEnd(p.src, p.i)
 		if !ok {
-			return nil, fmt.Errorf("%d:%d: unterminated receiver", p.pos().Line, p.pos().Column)
+			cp := p.file.Position(p.pos())
+			return nil, fmt.Errorf("%d:%d: unterminated receiver", cp.Line, cp.Column)
 		}
 		c.Recv = p.src[p.i : end+1]
 		p.i = end + 1
@@ -30,13 +33,14 @@ func (p *parser) parseComponent() (*ast.Component, error) {
 	}
 
 	// name
-	start := p.i
+	nameStart := p.i
 	for !p.eof() && isTagNameByte(p.src[p.i]) && p.src[p.i] != '.' && p.src[p.i] != '-' {
 		p.i++
 	}
-	c.Name = p.src[start:p.i]
+	c.Name = p.src[nameStart:p.i]
 	if c.Name == "" {
-		return nil, fmt.Errorf("%d:%d: expected component name", p.pos().Line, p.pos().Column)
+		cp := p.file.Position(p.pos())
+		return nil, fmt.Errorf("%d:%d: expected component name", cp.Line, cp.Column)
 	}
 
 	p.skipSpace()
@@ -44,7 +48,8 @@ func (p *parser) parseComponent() (*ast.Component, error) {
 	if p.peek() == '(' {
 		end, ok := parenEnd(p.src, p.i)
 		if !ok {
-			return nil, fmt.Errorf("%d:%d: unterminated params", p.pos().Line, p.pos().Column)
+			cp := p.file.Position(p.pos())
+			return nil, fmt.Errorf("%d:%d: unterminated params", cp.Line, cp.Column)
 		}
 		c.Params = strings.TrimSpace(p.src[p.i+1 : end])
 		p.i = end + 1
@@ -52,20 +57,25 @@ func (p *parser) parseComponent() (*ast.Component, error) {
 
 	p.skipSpace()
 	if p.peek() != '{' {
-		return nil, fmt.Errorf("%d:%d: expected `{` to open component body", p.pos().Line, p.pos().Column)
+		cp := p.file.Position(p.pos())
+		return nil, fmt.Errorf("%d:%d: expected `{` to open component body", cp.Line, cp.Column)
 	}
 	end, ok := goExprEnd(p.src, p.i)
 	if !ok {
-		return nil, fmt.Errorf("%d:%d: unterminated component body", p.pos().Line, p.pos().Column)
+		cp := p.file.Position(p.pos())
+		return nil, fmt.Errorf("%d:%d: unterminated component body", cp.Line, cp.Column)
 	}
-	body := p.src[p.i+1 : end]
+	bodyStart := p.i + 1
+	body := p.src[bodyStart:end]
+	subBase := p.base + bodyStart
 	p.i = end + 1
 
-	sub := newParser(body)
+	sub := newSub(p.file, body, subBase)
 	nodes, err := sub.parseNodesUntilEOF()
 	if err != nil {
 		return nil, err
 	}
 	c.Body = nodes
+	c.Span = ast.Span{Start: startPos, Finish: p.posAt(p.i)}
 	return c, nil
 }

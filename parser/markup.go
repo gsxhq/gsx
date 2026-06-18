@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"go/token"
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
@@ -9,10 +10,12 @@ import (
 
 // parseInterp parses `{ expr }` or `{ expr? }`. Cursor must be at '{'.
 func (p *parser) parseInterp() (*ast.Interp, error) {
-	pos := p.pos()
+	start := p.i
+	startPos := p.posAt(start)
+	resolvedPos := p.file.Position(startPos)
 	end, ok := goExprEnd(p.src, p.i)
 	if !ok {
-		return nil, fmt.Errorf("%d:%d: unterminated `{`", pos.Line, pos.Column)
+		return nil, fmt.Errorf("%d:%d: unterminated `{`", resolvedPos.Line, resolvedPos.Column)
 	}
 	inner := strings.TrimSpace(p.src[p.i+1 : end])
 	try := false
@@ -21,17 +24,17 @@ func (p *parser) parseInterp() (*ast.Interp, error) {
 		inner = strings.TrimSpace(strings.TrimSuffix(inner, "?"))
 	}
 	p.i = end + 1
-	return &ast.Interp{Expr: inner, Try: try, Pos: pos}, nil
+	return &ast.Interp{Span: ast.Span{Start: startPos, Finish: p.posAt(p.i)}, Expr: inner, Try: try}, nil
 }
 
 // parseText consumes literal text up to the next '<' or '{' (or EOF).
 func (p *parser) parseText() *ast.Text {
-	pos := p.pos()
 	start := p.i
+	startPos := p.posAt(start)
 	for !p.eof() && p.src[p.i] != '<' && p.src[p.i] != '{' {
 		p.i++
 	}
-	return &ast.Text{Value: p.src[start:p.i], Pos: pos}
+	return &ast.Text{Span: ast.Span{Start: startPos, Finish: p.posAt(p.i)}, Value: p.src[start:p.i]}
 }
 
 func isAttrNameByte(b byte) bool {
@@ -51,6 +54,8 @@ func (p *parser) parseAttrs() ([]ast.Attr, error) {
 		}
 		// {...expr} spread
 		if p.at("{...") {
+			attrStart := p.i
+			attrStartPos := p.posAt(attrStart)
 			end, ok := goExprEnd(p.src, p.i)
 			if !ok {
 				return nil, fmt.Errorf("unterminated spread `{...`")
@@ -58,19 +63,21 @@ func (p *parser) parseAttrs() ([]ast.Attr, error) {
 			inner := strings.TrimSpace(p.src[p.i+1 : end])
 			inner = strings.TrimSpace(strings.TrimPrefix(inner, "..."))
 			p.i = end + 1
-			attrs = append(attrs, &ast.SpreadAttr{Expr: inner})
+			attrs = append(attrs, &ast.SpreadAttr{Span: ast.Span{Start: attrStartPos, Finish: p.posAt(p.i)}, Expr: inner})
 			continue
 		}
 		// attribute name
-		start := p.i
+		attrStart := p.i
+		attrStartPos := p.posAt(attrStart)
 		for !p.eof() && isAttrNameByte(p.src[p.i]) {
 			p.i++
 		}
-		if p.i == start {
+		if p.i == attrStart {
+			curPos := p.file.Position(p.pos())
 			return nil, fmt.Errorf("%d:%d: expected attribute name, got %q",
-				p.pos().Line, p.pos().Column, string(p.peek()))
+				curPos.Line, curPos.Column, string(p.peek()))
 		}
-		name := p.src[start:p.i]
+		name := p.src[attrStart:p.i]
 		switch {
 		case p.at(`="`):
 			p.i += 2
@@ -83,23 +90,23 @@ func (p *parser) parseAttrs() ([]ast.Attr, error) {
 			}
 			val := p.src[vs:p.i]
 			p.i++ // past closing quote
-			attrs = append(attrs, &ast.StaticAttr{Name: name, Value: val})
+			attrs = append(attrs, &ast.StaticAttr{Span: ast.Span{Start: attrStartPos, Finish: p.posAt(p.i)}, Name: name, Value: val})
 		case p.peek() == '=' && p.i+1 < len(p.src) && p.src[p.i+1] == '{':
 			p.i++ // past '='
-			if a, err := p.parseAttrBraceValue(name); err != nil {
+			if a, err := p.parseAttrBraceValue(name, attrStartPos); err != nil {
 				return nil, err
 			} else {
 				attrs = append(attrs, a)
 			}
 		default:
-			attrs = append(attrs, &ast.BoolAttr{Name: name})
+			attrs = append(attrs, &ast.BoolAttr{Span: ast.Span{Start: attrStartPos, Finish: p.posAt(p.i)}, Name: name})
 		}
 	}
 }
 
 // parseAttrBraceValue parses the `{…}` after `name=`: either markup (Babel rule)
 // → MarkupAttr, or a Go expression (optionally `?`) → ExprAttr. Cursor at '{'.
-func (p *parser) parseAttrBraceValue(name string) (ast.Attr, error) {
+func (p *parser) parseAttrBraceValue(name string, attrStartPos token.Pos) (ast.Attr, error) {
 	// Babel rule: first non-space inside the braces starting markup?
 	j := p.i + 1
 	for j < len(p.src) && (p.src[j] == ' ' || p.src[j] == '\t' || p.src[j] == '\n' || p.src[j] == '\r') {
@@ -110,20 +117,22 @@ func (p *parser) parseAttrBraceValue(name string) (ast.Attr, error) {
 		if !ok {
 			return nil, fmt.Errorf("unterminated markup attribute %q", name)
 		}
-		inner := p.src[p.i+1 : end]
-		sub := newParser(inner)
+		innerStart := p.i + 1
+		inner := p.src[innerStart:end]
+		subBase := p.base + innerStart
+		sub := newSub(p.file, inner, subBase)
 		nodes, err := sub.parseNodesUntilEOF()
 		if err != nil {
 			return nil, err
 		}
 		p.i = end + 1
-		return &ast.MarkupAttr{Name: name, Value: nodes}, nil
+		return &ast.MarkupAttr{Span: ast.Span{Start: attrStartPos, Finish: p.posAt(p.i)}, Name: name, Value: nodes}, nil
 	}
 	in, err := p.parseInterp()
 	if err != nil {
 		return nil, err
 	}
-	return &ast.ExprAttr{Name: name, Expr: in.Expr, Try: in.Try}, nil
+	return &ast.ExprAttr{Span: ast.Span{Start: attrStartPos, Finish: in.Span.Finish}, Name: name, Expr: in.Expr, Try: in.Try}, nil
 }
 
 // startsTag reports whether b can begin a tag name (letter) or a fragment close.
@@ -136,10 +145,12 @@ func isTagNameByte(b byte) bool {
 		b >= '0' && b <= '9' || b == '-' || b == '.'
 }
 
-func (p *parser) parseElement() (ast.Node, error) {
-	pos := p.pos()
+func (p *parser) parseElement() (ast.Markup, error) {
+	start := p.i
+	startPos := p.posAt(start)
+	resolvedPos := p.file.Position(startPos)
 	if p.peek() != '<' {
-		return nil, fmt.Errorf("%d:%d: expected '<'", pos.Line, pos.Column)
+		return nil, fmt.Errorf("%d:%d: expected '<'", resolvedPos.Line, resolvedPos.Column)
 	}
 	p.i++ // past '<'
 
@@ -150,16 +161,16 @@ func (p *parser) parseElement() (ast.Node, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &ast.Fragment{Children: children, Pos: pos}, nil
+		return &ast.Fragment{Span: ast.Span{Start: startPos, Finish: p.posAt(p.i)}, Children: children}, nil
 	}
 
-	start := p.i
+	tagStart := p.i
 	for !p.eof() && isTagNameByte(p.src[p.i]) {
 		p.i++
 	}
-	tag := p.src[start:p.i]
+	tag := p.src[tagStart:p.i]
 	if tag == "" {
-		return nil, fmt.Errorf("%d:%d: expected tag name", pos.Line, pos.Column)
+		return nil, fmt.Errorf("%d:%d: expected tag name", resolvedPos.Line, resolvedPos.Column)
 	}
 
 	attrs, err := p.parseAttrs()
@@ -169,10 +180,11 @@ func (p *parser) parseElement() (ast.Node, error) {
 
 	if p.at("/>") {
 		p.i += 2
-		return &ast.Element{Tag: tag, Void: true, Attrs: attrs, Pos: pos}, nil
+		return &ast.Element{Span: ast.Span{Start: startPos, Finish: p.posAt(p.i)}, Tag: tag, Void: true, Attrs: attrs}, nil
 	}
 	if p.peek() != '>' {
-		return nil, fmt.Errorf("%d:%d: expected '>' or '/>' in <%s>", p.pos().Line, p.pos().Column, tag)
+		cp := p.file.Position(p.pos())
+		return nil, fmt.Errorf("%d:%d: expected '>' or '/>' in <%s>", cp.Line, cp.Column, tag)
 	}
 	p.i++ // past '>'
 
@@ -180,17 +192,17 @@ func (p *parser) parseElement() (ast.Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ast.Element{Tag: tag, Attrs: attrs, Children: children, Pos: pos}, nil
+	return &ast.Element{Span: ast.Span{Start: startPos, Finish: p.posAt(p.i)}, Tag: tag, Attrs: attrs, Children: children}, nil
 }
 
-func (p *parser) parseChildren(closeTag string) ([]ast.Node, error) {
-	var nodes []ast.Node
+func (p *parser) parseChildren(closeTag string) ([]ast.Markup, error) {
+	var nodes []ast.Markup
 	for {
 		if p.eof() {
 			return nil, fmt.Errorf("unexpected EOF, expected </%s>", closeTag)
 		}
 		if p.at("</") {
-			mmPos := p.pos()
+			mmPos := p.file.Position(p.pos())
 			// consume close tag
 			p.i += 2
 			start := p.i
@@ -200,7 +212,8 @@ func (p *parser) parseChildren(closeTag string) ([]ast.Node, error) {
 			got := p.src[start:p.i]
 			p.skipSpace()
 			if p.peek() != '>' {
-				return nil, fmt.Errorf("%d:%d: malformed close tag", p.pos().Line, p.pos().Column)
+				cp := p.file.Position(p.pos())
+				return nil, fmt.Errorf("%d:%d: malformed close tag", cp.Line, cp.Column)
 			}
 			p.i++ // past '>'
 			if got != closeTag {
@@ -229,8 +242,8 @@ func (p *parser) parseChildren(closeTag string) ([]ast.Node, error) {
 	}
 }
 
-func (p *parser) parseNodesUntilEOF() ([]ast.Node, error) {
-	var nodes []ast.Node
+func (p *parser) parseNodesUntilEOF() ([]ast.Markup, error) {
+	var nodes []ast.Markup
 	for {
 		p.skipSpace()
 		if p.eof() {
