@@ -32,7 +32,7 @@ component Button(variant string) {
 
 component Toolbar() {
 	<div>
-		// class -> merges to "btn btn-primary w-full"; data-test/hx-post/@click -> <button>
+		{/* class -> merges to "btn btn-primary w-full"; data-test/hx-post/@click -> <button> */}
 		<Button variant="primary" class="w-full" data-test="save" hx-post="/save" @click="go()">
 			Save
 		</Button>
