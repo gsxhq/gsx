@@ -446,3 +446,52 @@ component C() {
 		t.Fatal("no GoBlock found in component body children")
 	}
 }
+
+func TestParseForRange(t *testing.T) {
+	p := testParser(`{ for i, it := range items { <li>{it.Name}</li> } }`)
+	node, _, err := p.parseBraceNode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, ok := node.(*ast.ForMarkup)
+	if !ok {
+		t.Fatalf("got %T, want *ast.ForMarkup", node)
+	}
+	if n.Clause != "i, it := range items" {
+		t.Fatalf("Clause = %q", n.Clause)
+	}
+	li := n.Body[0].(*ast.Element)
+	if li.Tag != "li" {
+		t.Fatalf("body = %#v", n.Body)
+	}
+}
+
+func TestParseForCStyle(t *testing.T) {
+	p := testParser(`{ for i := 0; i < n; i++ { <x/> } }`)
+	node, _, err := p.parseBraceNode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := node.(*ast.ForMarkup)
+	if n.Clause != "i := 0; i < n; i++" {
+		t.Fatalf("Clause = %q", n.Clause)
+	}
+}
+
+func TestParseForWithGoBlockInside(t *testing.T) {
+	p := testParser(`{ for i := range xs { {{ v := g(i) }}<a>{v}</a> } }`)
+	node, _, err := p.parseBraceNode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := node.(*ast.ForMarkup)
+	var sawGoBlock bool
+	for _, m := range n.Body {
+		if _, ok := m.(*ast.GoBlock); ok {
+			sawGoBlock = true
+		}
+	}
+	if !sawGoBlock {
+		t.Fatalf("expected a GoBlock inside the for body, got %#v", n.Body)
+	}
+}

@@ -227,6 +227,36 @@ func (p *parser) parseControlBody() ([]ast.Markup, error) {
 	}
 }
 
+// parseForMarkup parses `{ for Clause { Body } }`. Cursor at '{'; the caller has
+// verified the leading keyword is "for".
+func (p *parser) parseForMarkup() (ast.Markup, error) {
+	startPos := p.posAt(p.i)
+	p.i++ // past '{'
+	p.skipSpace()
+	p.i += len("for")
+	clauseStart := p.i
+	braceOff, ok := scanToBlockBrace(p.src, p.i)
+	if !ok {
+		cp := p.file.Position(p.posAt(p.i))
+		return nil, fmt.Errorf("%d:%d: expected `{` after `for` clause", cp.Line, cp.Column)
+	}
+	clause := strings.TrimSpace(p.src[clauseStart:braceOff])
+	p.i = braceOff + 1 // past body '{'
+	body, err := p.parseControlBody()
+	if err != nil {
+		return nil, err
+	}
+	p.skipSpace()
+	if p.peek() != '}' {
+		cp := p.file.Position(p.pos())
+		return nil, fmt.Errorf("%d:%d: expected `}` to close `{ for … }`", cp.Line, cp.Column)
+	}
+	p.i++ // past outer '}'
+	n := &ast.ForMarkup{Clause: clause, Body: body}
+	ast.SetSpan(n, startPos, p.posAt(p.i))
+	return n, nil
+}
+
 // parseIfMarkup parses `{ if … { … } [else …] }`. Cursor at '{'; the caller has
 // verified the leading keyword is "if".
 func (p *parser) parseIfMarkup() (ast.Markup, error) {
@@ -311,6 +341,9 @@ func (p *parser) parseBraceNode() (ast.Markup, bool, error) {
 	switch p.braceKeyword() {
 	case "if":
 		n, err := p.parseIfMarkup()
+		return n, false, err
+	case "for":
+		n, err := p.parseForMarkup()
 		return n, false, err
 	}
 	in, err := p.parseInterp()
