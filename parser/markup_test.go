@@ -1,11 +1,22 @@
 package parser
 
 import (
+	"go/token"
 	"strings"
 	"testing"
 
 	"github.com/gsxhq/gsx/ast"
 )
+
+// parseStringT parses a full .gsx source string and fails the test on error.
+func parseStringT(t *testing.T, src string) *ast.File {
+	t.Helper()
+	file, err := ParseFile(token.NewFileSet(), "test.gsx", src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return file
+}
 
 func TestParseInterp(t *testing.T) {
 	p := testParser(`{ user.Name }rest`)
@@ -292,3 +303,65 @@ func TestUnterminatedTagBlockComment(t *testing.T) {
 }
 
 var _ = ast.Text{}
+
+func TestParseGoBlock(t *testing.T) {
+	// {{ … }} at child level becomes a GoBlock with trimmed Code; trailing text remains.
+	p := testParser("{{ x := f() }}rest<")
+	node, skipped, err := p.parseBraceNode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if skipped {
+		t.Fatal("GoBlock should not be skipped")
+	}
+	gb, ok := node.(*ast.GoBlock)
+	if !ok {
+		t.Fatalf("got %T, want *ast.GoBlock", node)
+	}
+	if gb.Code != "x := f()" {
+		t.Fatalf("Code = %q, want %q", gb.Code, "x := f()")
+	}
+	if p.src[p.i:] != "rest<" {
+		t.Fatalf("cursor at %q, want %q", p.src[p.i:], "rest<")
+	}
+}
+
+func TestParseGoBlockNestedBraces(t *testing.T) {
+	// Inner Go braces (composite literal, if-block) must not end the {{ }} early.
+	p := testParser("{{ if err != nil { return err }; m := map[string]int{} }}")
+	node, _, err := p.parseBraceNode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gb := node.(*ast.GoBlock)
+	want := "if err != nil { return err }; m := map[string]int{}"
+	if gb.Code != want {
+		t.Fatalf("Code = %q, want %q", gb.Code, want)
+	}
+}
+
+func TestGoBlockInComponentBody(t *testing.T) {
+	// End-to-end: a {{ }} between markup siblings in a component body.
+	src := `package p
+component C() {
+	<div>
+		{{ initials := f(name) }}
+		<span>{initials}</span>
+	</div>
+}`
+	file := parseStringT(t, src)
+	comp := file.Decls[0].(*ast.Component)
+	div := comp.Body[0].(*ast.Element)
+	var sawGoBlock bool
+	for _, c := range div.Children {
+		if gb, ok := c.(*ast.GoBlock); ok {
+			sawGoBlock = true
+			if gb.Code != "initials := f(name)" {
+				t.Fatalf("Code = %q", gb.Code)
+			}
+		}
+	}
+	if !sawGoBlock {
+		t.Fatal("no GoBlock found in component body children")
+	}
+}

@@ -30,16 +30,27 @@ func (p *parser) parseInterp() (*ast.Interp, error) {
 	return n, nil
 }
 
-// parseText consumes literal text up to the next '<' or '{' (or EOF).
-func (p *parser) parseText() *ast.Text {
+// parseTextCtx consumes literal text up to the next '<' or '{' (or EOF). When
+// inBlock is true (inside a control-flow body) it also stops at '}', which
+// terminates the enclosing block.
+func (p *parser) parseTextCtx(inBlock bool) *ast.Text {
 	start := p.i
 	startPos := p.posAt(start)
-	for !p.eof() && p.src[p.i] != '<' && p.src[p.i] != '{' {
+	for !p.eof() {
+		b := p.src[p.i]
+		if b == '<' || b == '{' || (inBlock && b == '}') {
+			break
+		}
 		p.i++
 	}
 	n := &ast.Text{Value: p.src[start:p.i]}
 	ast.SetSpan(n, startPos, p.posAt(p.i))
 	return n
+}
+
+// parseText consumes literal text up to the next '<' or '{' (or EOF).
+func (p *parser) parseText() *ast.Text {
+	return p.parseTextCtx(false)
 }
 
 func isAttrNameByte(b byte) bool {
@@ -115,6 +126,49 @@ func (p *parser) skipBracedComment() (bool, error) {
 	}
 	p.i = end + 1
 	return true, nil
+}
+
+// parseGoBlock parses `{{ stmt }}`. Cursor must be at the first '{' of `{{`.
+// It captures the Go statement source between the doubled braces. Nested Go
+// braces are handled by go/scanner brace-matching.
+func (p *parser) parseGoBlock() (*ast.GoBlock, error) {
+	startPos := p.posAt(p.i)
+	cp := p.file.Position(startPos)
+	outerEnd, ok := goExprEnd(p.src, p.i)
+	if !ok {
+		return nil, fmt.Errorf("%d:%d: unterminated `{{`", cp.Line, cp.Column)
+	}
+	innerEnd, ok := goExprEnd(p.src, p.i+1)
+	if !ok || innerEnd >= outerEnd {
+		return nil, fmt.Errorf("%d:%d: malformed `{{ }}` block", cp.Line, cp.Column)
+	}
+	if strings.TrimSpace(p.src[innerEnd+1:outerEnd]) != "" {
+		return nil, fmt.Errorf("%d:%d: malformed `{{ }}` block", cp.Line, cp.Column)
+	}
+	code := strings.TrimSpace(p.src[p.i+2 : innerEnd])
+	p.i = outerEnd + 1
+	n := &ast.GoBlock{Code: code}
+	ast.SetSpan(n, startPos, p.posAt(p.i))
+	return n, nil
+}
+
+// parseBraceNode dispatches a `{`-leading construct in a child/markup context.
+// Cursor must be at '{'. It returns (node, false, nil) for a GoBlock, control
+// flow, or interpolation; (nil, true, nil) when a comment-only `{ }` was
+// skipped; or (nil, false, err) on error. Control-flow cases are wired in
+// Tasks 3–5.
+func (p *parser) parseBraceNode() (ast.Markup, bool, error) {
+	if p.at("{{") {
+		gb, err := p.parseGoBlock()
+		return gb, false, err
+	}
+	if sk, err := p.skipBracedComment(); err != nil {
+		return nil, false, err
+	} else if sk {
+		return nil, true, nil
+	}
+	in, err := p.parseInterp()
+	return in, false, err
 }
 
 func (p *parser) parseAttrs() ([]ast.Attr, error) {
@@ -334,16 +388,14 @@ func (p *parser) parseChildren(closeTag string) ([]ast.Markup, error) {
 			continue
 		}
 		if p.peek() == '{' {
-			if sk, err := p.skipBracedComment(); err != nil {
-				return nil, err
-			} else if sk {
-				continue
-			}
-			in, err := p.parseInterp()
+			node, skipped, err := p.parseBraceNode()
 			if err != nil {
 				return nil, err
 			}
-			nodes = append(nodes, in)
+			if skipped {
+				continue
+			}
+			nodes = append(nodes, node)
 			continue
 		}
 		nodes = append(nodes, p.parseText())
@@ -365,16 +417,14 @@ func (p *parser) parseNodesUntilEOF() ([]ast.Markup, error) {
 			}
 			nodes = append(nodes, el)
 		case p.peek() == '{':
-			if sk, err := p.skipBracedComment(); err != nil {
-				return nil, err
-			} else if sk {
-				continue
-			}
-			in, err := p.parseInterp()
+			node, skipped, err := p.parseBraceNode()
 			if err != nil {
 				return nil, err
 			}
-			nodes = append(nodes, in)
+			if skipped {
+				continue
+			}
+			nodes = append(nodes, node)
 		default:
 			nodes = append(nodes, p.parseText())
 		}
