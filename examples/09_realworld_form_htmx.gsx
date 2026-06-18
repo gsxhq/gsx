@@ -34,6 +34,7 @@ component Field(name string, label string, value string, error string, required 
 			id={name}
 			name={name}
 			value={value}
+			// conditional attribute + type-driven boolean + spread, all together
 			{ if error != "" { aria-invalid="true" } }
 			required={required}
 			class="w-full rounded-md border px-3 py-2"
