@@ -221,7 +221,7 @@ func Inspect(node Node, f func(Node) bool) {
 		for _, m := range n.Value {
 			Inspect(m, f)
 		}
-	// GoChunk, Text, Interp, StaticAttr, ExprAttr, BoolAttr, SpreadAttr: leaves
+		// GoChunk, Text, Interp, StaticAttr, ExprAttr, BoolAttr, SpreadAttr: leaves
 	}
 	f(nil)
 }
