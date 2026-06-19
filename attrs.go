@@ -9,6 +9,13 @@ import (
 
 // Attrs is an attribute bag (spread / implicit rest). Values are bool (boolean
 // attribute), string, []string, or anything fmt can format.
+//
+// Security contract: keys are HTML attribute NAMES emitted (after a validity
+// check, see Spread) without entity-encoding — they must come from generated
+// code or trusted developer input, never from untrusted strings. Values are
+// HTML-attribute-escaped but NOT URL-sanitized: a URL-typed attribute (href,
+// src, action, formaction, …) carrying an untrusted value must be written with
+// gw.URL, not passed through Spread.
 type Attrs map[string]any
 
 // Has reports whether key is present.
@@ -67,6 +74,12 @@ func (a Attrs) Class() string {
 // Spread renders the bag deterministically (keys sorted). bool values use
 // boolean-attribute semantics; everything else is written as key="value" with
 // attribute escaping. ctx is reserved for forward-compatibility.
+//
+// A key that is not a structurally valid HTML attribute name (empty, or
+// containing whitespace or any of " ' < > = / or a control byte) is SKIPPED
+// rather than emitted — such a name cannot be entity-encoded while staying a
+// valid name, so emitting it verbatim would allow tag breakout. Values are
+// attribute-escaped but NOT URL-sanitized (see Attrs).
 func (gw *Writer) Spread(ctx context.Context, a Attrs) {
 	if gw.err != nil || len(a) == 0 {
 		return
@@ -77,6 +90,9 @@ func (gw *Writer) Spread(ctx context.Context, a Attrs) {
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
+		if !validAttrName(k) {
+			continue // unsafe/invalid attribute name — drop it
+		}
 		if b, ok := a[k].(bool); ok {
 			gw.BoolAttr(k, b)
 			continue
@@ -87,6 +103,27 @@ func (gw *Writer) Spread(ctx context.Context, a Attrs) {
 		gw.AttrValue(toStr(a[k]))
 		gw.writeStr(`"`)
 	}
+}
+
+// validAttrName reports whether k is a structurally safe HTML attribute name:
+// non-empty and free of whitespace, control bytes, and the characters that could
+// break out of the tag or the name (" ' < > = / &). Names like "hx-on::click",
+// ":class", "@click.away", "data-x", and "_" pass.
+func validAttrName(k string) bool {
+	if k == "" {
+		return false
+	}
+	for i := 0; i < len(k); i++ {
+		c := k[i]
+		if c <= ' ' || c == 0x7f { // whitespace or control byte
+			return false
+		}
+		switch c {
+		case '"', '\'', '<', '>', '=', '/', '&':
+			return false
+		}
+	}
+	return true
 }
 
 // toStr renders an attribute/class value to a string.

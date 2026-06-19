@@ -72,3 +72,24 @@ func TestSpreadEmpty(t *testing.T) {
 		t.Fatalf("got %q", b.String())
 	}
 }
+
+func TestSpreadSkipsUnsafeKeysKeepsSpecialNames(t *testing.T) {
+	var b strings.Builder
+	W(&b).Spread(context.Background(), Attrs{
+		// unsafe keys — must be dropped (tag/name breakout otherwise):
+		`"><script>`:      "x",
+		"x onmouseover=y": "z",
+		"a/b":             "q",
+		"":                "e",
+		// legitimate special-char attribute names — must be kept:
+		"hx-on::click": "go()",
+		":class":       "c",
+		"@click.away":  "d",
+		"data-id":      "1",
+	})
+	// only the legitimate names survive, sorted: :class, @click.away, data-id, hx-on::click
+	want := ` :class="c" @click.away="d" data-id="1" hx-on::click="go()"`
+	if b.String() != want {
+		t.Fatalf("got  %q\nwant %q", b.String(), want)
+	}
+}
