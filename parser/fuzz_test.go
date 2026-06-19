@@ -18,6 +18,11 @@ func FuzzParseFile(f *testing.F) {
 	f.Add([]byte("package p\ncomponent X() { <input type=\"text\" id={id} disabled {...rest} /> }"))
 	f.Add([]byte("package p\ncomponent X() { <Panel header={<h1>Hi</h1>}></Panel> }"))
 	f.Add([]byte("package p\ntype T struct{}\ncomponent (t T) M() { <main>x</main> }"))
+	// pipeline operator `|>` (interp + attribute, valid and malformed)
+	f.Add([]byte("package p\ncomponent X() { <p>{ name |> upper |> truncate(20) }</p> }"))
+	f.Add([]byte("package p\ncomponent X() { <a href={ u |> absolute()? }>x</a> }"))
+	f.Add([]byte("package p\ncomponent X() { <p>{ a |> }</p> }"))
+	f.Add([]byte("package p\ncomponent X() { <p>{ x |>|> y }</p> }"))
 
 	f.Fuzz(func(t *testing.T, src []byte) {
 		fset := token.NewFileSet()

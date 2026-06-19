@@ -2,6 +2,7 @@ package parser
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/gsxhq/gsx/ast"
@@ -124,4 +125,38 @@ func TestParsePipeEdges(t *testing.T) {
 	if err != nil || seed != "" || try || stages != nil {
 		t.Fatalf("empty: seed=%q try=%v stages=%#v err=%v", seed, try, stages, err)
 	}
+}
+
+// FuzzSplitPipe asserts splitPipe never panics and is lossless: re-joining the
+// segments with the "|>" delimiter reconstructs the input exactly (each split
+// removes exactly the 2-byte operator). This catches any byte-offset bug.
+func FuzzSplitPipe(f *testing.F) {
+	for _, s := range []string{
+		"", "name", "a |> b", "a |> b |> c(1)", "x |> truncate(20)",
+		"join(a |> b)", `"a |> b"`, "a |>|> b", "a |>= b", "|>", "a|>b",
+		"ünïcödé |> upper", "`raw |> x`", "a |>",
+	} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		segs := splitPipe(s) // MUST NOT PANIC
+		if got := strings.Join(segs, "|>"); got != s {
+			t.Fatalf("roundtrip broken: splitPipe(%q) = %#v, Join = %q", s, segs, got)
+		}
+	})
+}
+
+// FuzzParsePipe asserts parsePipe never panics for any input; malformed
+// pipelines must return an error rather than crash.
+func FuzzParsePipe(f *testing.F) {
+	for _, s := range []string{
+		"", "name", "name? |> upper", "a |> b |> c(1)",
+		"validate()? |> x", "a |>|> b", "f( |> g", "items |> join(a |> b)",
+		"|> upper", "x |> .y", "x |> 1",
+	} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		_, _, _, _ = parsePipe(s) // MUST NOT PANIC; malformed → error
+	})
 }
