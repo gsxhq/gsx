@@ -17,6 +17,12 @@ import (
 // immediately followed by a `GTR` token (`>`) with no gap; `||`, `|=`, and `| >`
 // never match.
 func splitPipe(src string) []string {
+	// Fast path: no `|>` substring anywhere → no pipeline. Avoids a scanner pass
+	// on the common plain-interpolation case. Safe because a real `|>` operator
+	// necessarily contains the substring `|>`; this only skips when it is absent.
+	if !strings.Contains(src, "|>") {
+		return []string{src}
+	}
 	fset := token.NewFileSet()
 	file := fset.AddFile("", fset.Base(), len(src))
 	var s scanner.Scanner
@@ -63,7 +69,7 @@ func isStageName(s string) bool {
 	if s == "" {
 		return false
 	}
-	for _, part := range strings.Split(s, ".") {
+	for part := range strings.SplitSeq(s, ".") {
 		if part == "" {
 			return false
 		}
