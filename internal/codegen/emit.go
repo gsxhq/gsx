@@ -99,6 +99,9 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[*ast.Interp]ty
 	if err != nil {
 		return err
 	}
+	if err := checkReservedParams(params); err != nil {
+		return err
+	}
 
 	// Props struct (field types are syntactic — straight from the param list).
 	fmt.Fprintf(b, "type %sProps struct {\n", c.Name)
@@ -108,22 +111,25 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[*ast.Interp]ty
 	fmt.Fprintf(b, "}\n\n")
 
 	// Render func. Bind each USED param to a same-named local so interpolation
-	// expressions can be emitted verbatim.
-	fmt.Fprintf(b, "func %s(p %sProps) gsx.Node {\n", c.Name, c.Name)
-	b.WriteString("\treturn gsx.Func(func(ctx context.Context, w io.Writer) error {\n")
+	// expressions can be emitted verbatim. The props param, io.Writer closure
+	// param, and gsx.Writer local use the reserved _gsx* namespace so a user
+	// param named p/w/gw cannot collide with them. ctx stays ambient (user
+	// interpolation exprs may reference it).
+	fmt.Fprintf(b, "func %s(_gsxp %sProps) gsx.Node {\n", c.Name, c.Name)
+	b.WriteString("\treturn gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {\n")
 	used := usedParams(c, params)
 	for _, p := range params {
 		if used[p.name] {
-			fmt.Fprintf(b, "\t\t%s := p.%s\n", p.name, fieldName(p.name))
+			fmt.Fprintf(b, "\t\t%s := _gsxp.%s\n", p.name, fieldName(p.name))
 		}
 	}
-	b.WriteString("\t\tgw := gsx.W(w)\n")
+	b.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
 	for _, m := range c.Body {
 		if err := genNode(b, m, resolved, imports, fset); err != nil {
 			return err
 		}
 	}
-	b.WriteString("\t\treturn gw.Err()\n")
+	b.WriteString("\t\treturn _gsxgw.Err()\n")
 	b.WriteString("\t})\n}\n\n")
 	return nil
 }
@@ -204,27 +210,27 @@ func emitLine(b *bytes.Buffer, fset *token.FileSet, pos token.Pos) {
 func emitRender(b *bytes.Buffer, expr string, t types.Type, imports map[string]bool) error {
 	switch classify(t) {
 	case catString:
-		fmt.Fprintf(b, "\t\tgw.Text(string(%s))\n", expr)
+		fmt.Fprintf(b, "\t\t_gsxgw.Text(string(%s))\n", expr)
 	case catBytes:
-		fmt.Fprintf(b, "\t\tgw.Text(string(%s))\n", expr)
+		fmt.Fprintf(b, "\t\t_gsxgw.Text(string(%s))\n", expr)
 	case catInt:
 		imports["strconv"] = true
-		fmt.Fprintf(b, "\t\tgw.Text(strconv.FormatInt(int64(%s), 10))\n", expr)
+		fmt.Fprintf(b, "\t\t_gsxgw.Text(strconv.FormatInt(int64(%s), 10))\n", expr)
 	case catUint:
 		imports["strconv"] = true
-		fmt.Fprintf(b, "\t\tgw.Text(strconv.FormatUint(uint64(%s), 10))\n", expr)
+		fmt.Fprintf(b, "\t\t_gsxgw.Text(strconv.FormatUint(uint64(%s), 10))\n", expr)
 	case catFloat:
 		imports["strconv"] = true
-		fmt.Fprintf(b, "\t\tgw.Text(strconv.FormatFloat(float64(%s), 'g', -1, 64))\n", expr)
+		fmt.Fprintf(b, "\t\t_gsxgw.Text(strconv.FormatFloat(float64(%s), 'g', -1, 64))\n", expr)
 	case catBool:
 		imports["strconv"] = true
-		fmt.Fprintf(b, "\t\tgw.Text(strconv.FormatBool(bool(%s)))\n", expr)
+		fmt.Fprintf(b, "\t\t_gsxgw.Text(strconv.FormatBool(bool(%s)))\n", expr)
 	case catStringer:
-		fmt.Fprintf(b, "\t\tgw.Text((%s).String())\n", expr)
+		fmt.Fprintf(b, "\t\t_gsxgw.Text((%s).String())\n", expr)
 	case catNode:
-		fmt.Fprintf(b, "\t\tgw.Node(ctx, %s)\n", expr)
+		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s)\n", expr)
 	case catNodeSlice:
-		fmt.Fprintf(b, "\t\tfor _, _gsxn := range %s {\n\t\t\tgw.Node(ctx, _gsxn)\n\t\t}\n", expr)
+		fmt.Fprintf(b, "\t\tfor _, _gsxn := range %s {\n\t\t\t_gsxgw.Node(ctx, _gsxn)\n\t\t}\n", expr)
 	default:
 		return fmt.Errorf("codegen: interpolation %q has type %s; not a renderable type", expr, t)
 	}
@@ -232,7 +238,7 @@ func emitRender(b *bytes.Buffer, expr string, t types.Type, imports map[string]b
 }
 
 func emitS(b *bytes.Buffer, s string) {
-	fmt.Fprintf(b, "\t\tgw.S(%s)\n", strconv.Quote(s))
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(s))
 }
 
 // isComponentTag reports whether a tag names a component (uppercase first letter
@@ -256,6 +262,6 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element) error {
 	if len(el.Children) > 0 {
 		return fmt.Errorf("codegen spike: child-component children not supported yet (<%s>)", el.Tag)
 	}
-	fmt.Fprintf(b, "\t\tgw.Node(ctx, %s(%sProps{}))\n", el.Tag, el.Tag)
+	fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s(%sProps{}))\n", el.Tag, el.Tag)
 	return nil
 }

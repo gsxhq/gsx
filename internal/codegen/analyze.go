@@ -8,6 +8,7 @@ import (
 	"go/scanner"
 	"go/token"
 	"go/types"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -42,7 +43,15 @@ func resolveTypesPkg(dir string, files map[string]*gsxast.File) (map[*gsxast.Int
 		pkgName = f.Package
 		break
 	}
-	overlay[filepath.Join(dir, "gsxshared.x.go")] = []byte("package " + pkgName + "\n\nfunc _gsxuse(...any) {}\n")
+	// Pick an overlay filename that does NOT exist on disk in dir, so a real
+	// gsxshared.x.go (or our own per-file <base>.x.go overlays) is never
+	// clobbered. The file is overlay-only (never written to disk); it just needs
+	// a free path within the package dir.
+	sharedPath, err := freeOverlayPath(dir, "gsxshared", ".x.go", overlay)
+	if err != nil {
+		return nil, err
+	}
+	overlay[sharedPath] = []byte("package " + pkgName + "\n\nfunc _gsxuse(...any) {}\n")
 
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
@@ -73,6 +82,32 @@ func resolveTypesPkg(dir string, files map[string]*gsxast.File) (map[*gsxast.Int
 		harvest(f, comps, pkg.TypesInfo, out)
 	}
 	return out, nil
+}
+
+// freeOverlayPath returns a path in dir of the form
+// base+suffix, base+"1"+suffix, base+"2"+suffix, … — the first one that exists
+// neither on disk nor already in the overlay map. The returned file is used as
+// an overlay-only key, so it merely needs to be a free path within the package
+// dir (avoiding both real source files and our own per-.gsx overlays).
+func freeOverlayPath(dir, base, suffix string, overlay map[string][]byte) (string, error) {
+	for i := 0; ; i++ {
+		name := base
+		if i > 0 {
+			name = fmt.Sprintf("%s%d", base, i)
+		}
+		p := filepath.Join(dir, name+suffix)
+		if _, taken := overlay[p]; taken {
+			continue
+		}
+		_, err := os.Stat(p)
+		if os.IsNotExist(err) {
+			return p, nil
+		}
+		if err != nil {
+			return "", fmt.Errorf("codegen: probing overlay path %s: %w", p, err)
+		}
+		// exists on disk — try the next candidate
+	}
 }
 
 // buildSkeleton synthesizes a Go file standing in for the gsx file during type
@@ -131,16 +166,21 @@ func buildSkeleton(file *gsxast.File) (string, []*gsxast.Component, error) {
 		if err != nil {
 			return "", nil, err
 		}
+		if err := checkReservedParams(params); err != nil {
+			return "", nil, err
+		}
 		fmt.Fprintf(&sb, "type %sProps struct {\n", c.Name)
 		for _, p := range params {
 			fmt.Fprintf(&sb, "\t%s %s\n", fieldName(p.name), p.typ)
 		}
 		sb.WriteString("}\n")
-		fmt.Fprintf(&sb, "func %s(p %sProps) _gsxrt.Node {\n", c.Name, c.Name)
+		// Use the same reserved props-param name as the emitted code (_gsxp) so a
+		// user param named `p` does not collide in the skeleton either.
+		fmt.Fprintf(&sb, "func %s(_gsxp %sProps) _gsxrt.Node {\n", c.Name, c.Name)
 		used := usedParams(c, params)
 		for _, p := range params {
 			if used[p.name] {
-				fmt.Fprintf(&sb, "\t%s := p.%s\n\t_ = %s\n", p.name, fieldName(p.name), p.name)
+				fmt.Fprintf(&sb, "\t%s := _gsxp.%s\n\t_ = %s\n", p.name, fieldName(p.name), p.name)
 			}
 		}
 		emitProbes(&sb, c.Body)
@@ -292,15 +332,14 @@ func implementsStringer(t types.Type) bool {
 		sig.Results().At(0).Type().String() == "string"
 }
 
+// lookupMethod returns the method `name` in t's VALUE method set, or nil. It
+// deliberately does NOT probe the pointer method set: classify uses this to
+// decide whether to emit `gw.Node(ctx, expr)` / `(expr).String()`, both of which
+// pass the value BY VALUE — Go does not auto-address an interface/method-value
+// argument, so a pointer-receiver method is not callable there. A value type
+// whose pointer (but not value) implements Render must be passed as `*T`.
 func lookupMethod(t types.Type, name string) *types.Func {
 	ms := types.NewMethodSet(t)
-	if sel := ms.Lookup(nil, name); sel != nil {
-		if fn, ok := sel.Obj().(*types.Func); ok {
-			return fn
-		}
-	}
-	// also try the pointer method set (value may be addressable at the call site)
-	ms = types.NewMethodSet(types.NewPointer(t))
 	if sel := ms.Lookup(nil, name); sel != nil {
 		if fn, ok := sel.Obj().(*types.Func); ok {
 			return fn
@@ -396,6 +435,24 @@ func parseParams(src string) ([]param, error) {
 		}
 	}
 	return out, nil
+}
+
+// checkReservedParams rejects param names that would collide with the ambient
+// closure context or the generator's reserved identifier namespace. The
+// generated render closure exposes `ctx` (ambient — user interpolation exprs may
+// reference it) and binds its internal machinery (props param, io.Writer, the
+// gsx.Writer local, unwrap temps) under the `_gsx` prefix; a user param sharing
+// either would produce non-compiling Go.
+func checkReservedParams(params []param) error {
+	for _, p := range params {
+		if p.name == "ctx" {
+			return fmt.Errorf("codegen: param name %q is reserved (ambient context)", p.name)
+		}
+		if strings.HasPrefix(p.name, "_gsx") {
+			return fmt.Errorf("codegen: param name %q uses the reserved _gsx prefix", p.name)
+		}
+	}
+	return nil
 }
 
 // importSpec is one parsed import hoisted from a pass-through Go chunk: an
