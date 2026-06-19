@@ -28,13 +28,20 @@ import (
 	"github.com/gsxhq/gsx/ast"
 )
 
-// Generate produces formatted .x.go source for a parsed gsx file.
+// Generate produces formatted .x.go source for a parsed gsx file, resolving
+// interpolation types from a self-contained probe (the file's own GoChunks).
+// For cross-file / cross-component resolution use GeneratePackage.
 func Generate(file *ast.File) ([]byte, error) {
 	resolved, err := resolveTypes(file)
 	if err != nil {
 		return nil, err
 	}
+	return generateFile(file, resolved)
+}
 
+// generateFile emits the .x.go for a parsed gsx file given already-resolved
+// interpolation types.
+func generateFile(file *ast.File, resolved map[*ast.Interp]types.Type) ([]byte, error) {
 	imports := map[string]bool{
 		"context":              true,
 		"io":                   true,
@@ -126,6 +133,9 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[*ast.Interp]types.Type,
 	case *ast.Text:
 		emitS(b, t.Value)
 	case *ast.Element:
+		if isComponentTag(t.Tag) {
+			return genChildComponent(b, t)
+		}
 		if len(t.Attrs) > 0 {
 			return fmt.Errorf("codegen spike: element attributes not supported yet (<%s>)", t.Tag)
 		}
@@ -194,6 +204,31 @@ func classify(t types.Type) category {
 
 func emitS(b *bytes.Buffer, s string) {
 	fmt.Fprintf(b, "\t\tgw.S(%s)\n", strconv.Quote(s))
+}
+
+// isComponentTag reports whether a tag names a component (uppercase first letter
+// or dotted, e.g. ui.Button) rather than an HTML element.
+func isComponentTag(tag string) bool {
+	if tag == "" {
+		return false
+	}
+	if strings.Contains(tag, ".") {
+		return true
+	}
+	return tag[0] >= 'A' && tag[0] <= 'Z'
+}
+
+// genChildComponent lowers a child-component element to a gw.Node render call.
+// SPIKE: no props (attributes) or children on the child yet.
+func genChildComponent(b *bytes.Buffer, el *ast.Element) error {
+	if len(el.Attrs) > 0 {
+		return fmt.Errorf("codegen spike: child-component props (attributes) not supported yet (<%s>)", el.Tag)
+	}
+	if len(el.Children) > 0 {
+		return fmt.Errorf("codegen spike: child-component children not supported yet (<%s>)", el.Tag)
+	}
+	fmt.Fprintf(b, "\t\tgw.Node(ctx, %s(%sProps{}))\n", el.Tag, el.Tag)
+	return nil
 }
 
 // resolveTypes type-checks a synthesized probe file (the package's GoChunks plus
@@ -271,7 +306,9 @@ func collectInterps(nodes []ast.Markup, out *[]*ast.Interp) {
 		case *ast.Interp:
 			*out = append(*out, t)
 		case *ast.Element:
-			collectInterps(t.Children, out)
+			if !isComponentTag(t.Tag) {
+				collectInterps(t.Children, out)
+			}
 		}
 	}
 }
