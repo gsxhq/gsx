@@ -169,3 +169,21 @@ func nodeLabel(n *html.Node) string {
 	}
 	return fmt.Sprintf("node(type=%d)", n.Type)
 }
+
+// TestRenderFieldAccess proves go/types resolves a struct field-access
+// interpolation (user.Name string, user.Age int) end-to-end.
+func TestRenderFieldAccess(t *testing.T) {
+	src := `package examples
+
+type User struct {
+	Name string
+	Age  int
+}
+
+component Profile(user User) {
+	<p>{user.Name} is {user.Age}</p>
+}
+`
+	got := renderGSX(t, src, `Profile(ProfileProps{User: User{Name: "Alice", Age: 30}})`)
+	assertHTMLEqual(t, got, "<p>Alice is 30</p>")
+}

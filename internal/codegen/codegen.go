@@ -1,13 +1,13 @@
 // Package codegen lowers a parsed gsx AST to Go source (.x.go) targeting the
 // gsx runtime.
 //
-// SPIKE SCOPE (deliberately minimal — see docs plan): one or more components
-// with inline params, static markup, and BARE-PARAMETER interpolation whose type
-// is read syntactically from the param list (string -> gw.Text, int -> formatted
-// -> gw.Text). Anything beyond a bare param (field access, calls, package funcs),
-// attributes, control flow, methods, `?`, child components, etc. returns a clear
-// "not yet" error — that boundary is exactly what this spike exists to surface
-// (it is where go/types must eventually enter).
+// SPIKE SCOPE (deliberately growing — see docs): components with inline params,
+// pass-through Go (GoChunks: types/helpers), static markup, and interpolation
+// whose expression type is resolved by go/types in the component's scope. Used
+// params are bound to same-named locals so interpolation expressions emit
+// VERBATIM (e.g. {user.Name} -> gw.Text(user.Name) after `user := p.User`).
+// Still unsupported (clear errors): attributes, control flow, methods, `?`,
+// child components, and any render type beyond string/int.
 package codegen
 
 import (
@@ -15,9 +15,12 @@ import (
 	"fmt"
 	goast "go/ast"
 	"go/format"
+	"go/importer"
 	"go/parser"
 	"go/printer"
+	"go/scanner"
 	"go/token"
+	"go/types"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,6 +30,11 @@ import (
 
 // Generate produces formatted .x.go source for a parsed gsx file.
 func Generate(file *ast.File) ([]byte, error) {
+	resolved, err := resolveTypes(file)
+	if err != nil {
+		return nil, err
+	}
+
 	imports := map[string]bool{
 		"context":              true,
 		"io":                   true,
@@ -34,13 +42,14 @@ func Generate(file *ast.File) ([]byte, error) {
 	}
 	var body bytes.Buffer
 	for _, d := range file.Decls {
-		comp, ok := d.(*ast.Component)
-		if !ok {
-			// SPIKE: pass-through Go (imports, helpers) not handled yet.
-			continue
-		}
-		if err := genComponent(&body, comp, imports); err != nil {
-			return nil, err
+		switch v := d.(type) {
+		case *ast.GoChunk:
+			body.WriteString(strings.TrimSpace(v.Src))
+			body.WriteString("\n\n")
+		case *ast.Component:
+			if err := genComponent(&body, v, resolved, imports); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -75,7 +84,7 @@ func writeImports(b *bytes.Buffer, imports map[string]bool) {
 	b.WriteString(")\n\n")
 }
 
-func genComponent(b *bytes.Buffer, c *ast.Component, imports map[string]bool) error {
+func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[*ast.Interp]types.Type, imports map[string]bool) error {
 	if c.Recv != "" {
 		return fmt.Errorf("codegen spike: method components not supported yet (%s)", c.Name)
 	}
@@ -84,20 +93,26 @@ func genComponent(b *bytes.Buffer, c *ast.Component, imports map[string]bool) er
 		return err
 	}
 
-	// Props struct.
+	// Props struct (field types are syntactic — straight from the param list).
 	fmt.Fprintf(b, "type %sProps struct {\n", c.Name)
 	for _, p := range params {
 		fmt.Fprintf(b, "\t%s %s\n", fieldName(p.name), p.typ)
 	}
 	fmt.Fprintf(b, "}\n\n")
 
-	// Render func.
+	// Render func. Bind each USED param to a same-named local so interpolation
+	// expressions can be emitted verbatim.
 	fmt.Fprintf(b, "func %s(p %sProps) gsx.Node {\n", c.Name, c.Name)
 	b.WriteString("\treturn gsx.Func(func(ctx context.Context, w io.Writer) error {\n")
+	used := usedParams(c, params)
+	for _, p := range params {
+		if used[p.name] {
+			fmt.Fprintf(b, "\t\t%s := p.%s\n", p.name, fieldName(p.name))
+		}
+	}
 	b.WriteString("\t\tgw := gsx.W(w)\n")
-	pm := paramTypes(params)
 	for _, m := range c.Body {
-		if err := genNode(b, m, pm, imports); err != nil {
+		if err := genNode(b, m, resolved, imports); err != nil {
 			return err
 		}
 	}
@@ -106,7 +121,7 @@ func genComponent(b *bytes.Buffer, c *ast.Component, imports map[string]bool) er
 	return nil
 }
 
-func genNode(b *bytes.Buffer, n ast.Markup, pm map[string]string, imports map[string]bool) error {
+func genNode(b *bytes.Buffer, n ast.Markup, resolved map[*ast.Interp]types.Type, imports map[string]bool) error {
 	switch t := n.(type) {
 	case *ast.Text:
 		emitS(b, t.Value)
@@ -120,52 +135,189 @@ func genNode(b *bytes.Buffer, n ast.Markup, pm map[string]string, imports map[st
 		}
 		emitS(b, "<"+t.Tag+">")
 		for _, c := range t.Children {
-			if err := genNode(b, c, pm, imports); err != nil {
+			if err := genNode(b, c, resolved, imports); err != nil {
 				return err
 			}
 		}
 		emitS(b, "</"+t.Tag+">")
 	case *ast.Interp:
-		return genInterp(b, t, pm, imports)
+		return genInterp(b, t, resolved, imports)
 	default:
 		return fmt.Errorf("codegen spike: unsupported markup node %T", n)
 	}
 	return nil
 }
 
-// genInterp resolves an interpolation's type and emits the matching writer call.
-// SPIKE: only a bare component parameter is resolvable (type from the param
-// list). Anything else is the go/types boundary.
-func genInterp(b *bytes.Buffer, n *ast.Interp, pm map[string]string, imports map[string]bool) error {
+// genInterp emits the type-aware writer call for an interpolation. The type comes
+// from the go/types resolution pass; the expression is emitted verbatim (params
+// are in scope as locals).
+func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[*ast.Interp]types.Type, imports map[string]bool) error {
 	if n.Try {
 		return fmt.Errorf("codegen spike: `?` try-marker not supported yet")
 	}
-	expr := strings.TrimSpace(n.Expr)
-	typ, ok := pm[expr]
-	if !ok {
-		return fmt.Errorf("codegen spike: interpolation %q is not a bare component parameter; "+
-			"resolving its type needs go/types (not yet implemented) — this is the boundary the spike surfaces", expr)
+	t, ok := resolved[n]
+	if !ok || t == nil {
+		return fmt.Errorf("codegen spike: could not resolve type of interpolation %q", n.Expr)
 	}
-	field := "p." + fieldName(expr)
-	switch typ {
-	case "string":
-		fmt.Fprintf(b, "\t\tgw.Text(%s)\n", field)
-	case "int":
+	expr := strings.TrimSpace(n.Expr)
+	switch classify(t) {
+	case catString:
+		fmt.Fprintf(b, "\t\tgw.Text(%s)\n", expr)
+	case catInt:
 		imports["strconv"] = true
-		fmt.Fprintf(b, "\t\tgw.Text(strconv.Itoa(%s))\n", field)
+		fmt.Fprintf(b, "\t\tgw.Text(strconv.Itoa(%s))\n", expr)
 	default:
-		return fmt.Errorf("codegen spike: interpolation of type %q not supported yet (only string, int)", typ)
+		return fmt.Errorf("codegen spike: interpolation %q has type %s; only string/int supported yet", expr, t)
 	}
 	return nil
+}
+
+type category int
+
+const (
+	catUnsupported category = iota
+	catString
+	catInt
+)
+
+func classify(t types.Type) category {
+	if b, ok := t.Underlying().(*types.Basic); ok {
+		switch {
+		case b.Info()&types.IsString != 0:
+			return catString
+		case b.Info()&types.IsInteger != 0:
+			return catInt
+		}
+	}
+	return catUnsupported
 }
 
 func emitS(b *bytes.Buffer, s string) {
 	fmt.Fprintf(b, "\t\tgw.S(%s)\n", strconv.Quote(s))
 }
 
+// resolveTypes type-checks a synthesized probe file (the package's GoChunks plus
+// one function per component carrying the component's typed params, with each
+// interpolation expression placed as `_ = (expr)`) and returns the resolved Go
+// type of every interpolation, keyed by the *ast.Interp node.
+func resolveTypes(file *ast.File) (map[*ast.Interp]types.Type, error) {
+	var comps []*ast.Component
+	for _, d := range file.Decls {
+		if c, ok := d.(*ast.Component); ok {
+			comps = append(comps, c)
+		}
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "package %s\n", file.Package)
+	for _, d := range file.Decls {
+		if gc, ok := d.(*ast.GoChunk); ok {
+			sb.WriteString(gc.Src)
+			sb.WriteByte('\n')
+		}
+	}
+	for i, c := range comps {
+		fmt.Fprintf(&sb, "func _gsxprobe%d(%s) {\n", i, c.Params)
+		for _, in := range componentInterps(c) {
+			fmt.Fprintf(&sb, "\t_ = (%s)\n", strings.TrimSpace(in.Expr))
+		}
+		sb.WriteString("}\n")
+	}
+
+	fset := token.NewFileSet()
+	pf, err := parser.ParseFile(fset, "probe.go", sb.String(), 0)
+	if err != nil {
+		return nil, fmt.Errorf("codegen: probe parse failed: %w", err)
+	}
+	info := &types.Info{Types: make(map[goast.Expr]types.TypeAndValue)}
+	conf := types.Config{Importer: importer.Default()}
+	if _, err := conf.Check(file.Package, fset, []*goast.File{pf}, info); err != nil {
+		return nil, fmt.Errorf("codegen: type resolution failed: %w", err)
+	}
+
+	out := make(map[*ast.Interp]types.Type)
+	ci := 0
+	for _, decl := range pf.Decls {
+		fd, ok := decl.(*goast.FuncDecl)
+		if !ok || !strings.HasPrefix(fd.Name.Name, "_gsxprobe") {
+			continue
+		}
+		interps := componentInterps(comps[ci])
+		ci++
+		k := 0
+		for _, stmt := range fd.Body.List {
+			as, ok := stmt.(*goast.AssignStmt)
+			if !ok || len(as.Rhs) != 1 || k >= len(interps) {
+				continue
+			}
+			out[interps[k]] = info.Types[as.Rhs[0]].Type
+			k++
+		}
+	}
+	return out, nil
+}
+
+func componentInterps(c *ast.Component) []*ast.Interp {
+	var out []*ast.Interp
+	collectInterps(c.Body, &out)
+	return out
+}
+
+// collectInterps gathers interpolation nodes in source (depth-first) order — the
+// same order genNode emits them, so the probe and the emission stay aligned.
+func collectInterps(nodes []ast.Markup, out *[]*ast.Interp) {
+	for _, n := range nodes {
+		switch t := n.(type) {
+		case *ast.Interp:
+			*out = append(*out, t)
+		case *ast.Element:
+			collectInterps(t.Children, out)
+		}
+	}
+}
+
+// usedParams reports which params are referenced (in value position) by any
+// interpolation, so only those are bound to locals.
+func usedParams(c *ast.Component, params []param) map[string]bool {
+	refs := map[string]bool{}
+	for _, in := range componentInterps(c) {
+		for id := range valueIdents(in.Expr) {
+			refs[id] = true
+		}
+	}
+	used := make(map[string]bool, len(params))
+	for _, p := range params {
+		used[p.name] = refs[p.name]
+	}
+	return used
+}
+
+// valueIdents returns the identifiers used in value position in a Go expression
+// (i.e. excluding selector fields after a '.'). Token-based, so it is precise
+// without building/walking a full AST.
+func valueIdents(exprSrc string) map[string]bool {
+	out := map[string]bool{}
+	fset := token.NewFileSet()
+	f := fset.AddFile("", fset.Base(), len(exprSrc))
+	var s scanner.Scanner
+	s.Init(f, []byte(exprSrc), nil, 0)
+	prevPeriod := false
+	for {
+		_, tok, lit := s.Scan()
+		if tok == token.EOF {
+			break
+		}
+		if tok == token.IDENT && !prevPeriod {
+			out[lit] = true
+		}
+		prevPeriod = tok == token.PERIOD
+	}
+	return out
+}
+
 type param struct{ name, typ string }
 
-// parseParams parses an inline param list ("name string, count int") into
+// parseParams parses an inline param list ("name string, user User") into
 // (name, Go-type) pairs by reusing go/parser on a synthesized function.
 func parseParams(src string) ([]param, error) {
 	src = strings.TrimSpace(src)
@@ -190,14 +342,6 @@ func parseParams(src string) ([]param, error) {
 		}
 	}
 	return out, nil
-}
-
-func paramTypes(params []param) map[string]string {
-	m := make(map[string]string, len(params))
-	for _, p := range params {
-		m[p.name] = p.typ
-	}
-	return m
 }
 
 // fieldName maps a param name to its props struct field (first letter upper).
