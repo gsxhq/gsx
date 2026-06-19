@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"fmt"
 	"go/format"
+	"go/token"
 	"go/types"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,7 +16,7 @@ import (
 
 // generateFile emits the .x.go for a parsed gsx file given already-resolved
 // interpolation types.
-func generateFile(file *ast.File, resolved map[*ast.Interp]types.Type) ([]byte, error) {
+func generateFile(file *ast.File, resolved map[*ast.Interp]types.Type, fset *token.FileSet) ([]byte, error) {
 	interpTemp = 0
 	imports := map[string]bool{
 		"context":              true,
@@ -45,7 +47,7 @@ func generateFile(file *ast.File, resolved map[*ast.Interp]types.Type) ([]byte, 
 				body.WriteString("\n\n")
 			}
 		case *ast.Component:
-			if err := genComponent(&body, v, resolved, imports); err != nil {
+			if err := genComponent(&body, v, resolved, imports, fset); err != nil {
 				return nil, err
 			}
 		}
@@ -86,7 +88,7 @@ func writeImports(b *bytes.Buffer, imports map[string]bool, aliased []importSpec
 	b.WriteString(")\n\n")
 }
 
-func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[*ast.Interp]types.Type, imports map[string]bool) error {
+func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[*ast.Interp]types.Type, imports map[string]bool, fset *token.FileSet) error {
 	if c.Recv != "" {
 		return fmt.Errorf("codegen spike: method components not supported yet (%s)", c.Name)
 	}
@@ -114,7 +116,7 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[*ast.Interp]ty
 	}
 	b.WriteString("\t\tgw := gsx.W(w)\n")
 	for _, m := range c.Body {
-		if err := genNode(b, m, resolved, imports); err != nil {
+		if err := genNode(b, m, resolved, imports, fset); err != nil {
 			return err
 		}
 	}
@@ -123,11 +125,12 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[*ast.Interp]ty
 	return nil
 }
 
-func genNode(b *bytes.Buffer, n ast.Markup, resolved map[*ast.Interp]types.Type, imports map[string]bool) error {
+func genNode(b *bytes.Buffer, n ast.Markup, resolved map[*ast.Interp]types.Type, imports map[string]bool, fset *token.FileSet) error {
 	switch t := n.(type) {
 	case *ast.Text:
 		emitS(b, t.Value)
 	case *ast.Element:
+		emitLine(b, fset, t.Pos())
 		if isComponentTag(t.Tag) {
 			return genChildComponent(b, t)
 		}
@@ -140,13 +143,13 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[*ast.Interp]types.Type,
 		}
 		emitS(b, "<"+t.Tag+">")
 		for _, c := range t.Children {
-			if err := genNode(b, c, resolved, imports); err != nil {
+			if err := genNode(b, c, resolved, imports, fset); err != nil {
 				return err
 			}
 		}
 		emitS(b, "</"+t.Tag+">")
 	case *ast.Interp:
-		return genInterp(b, t, resolved, imports)
+		return genInterp(b, t, resolved, imports, fset)
 	default:
 		return fmt.Errorf("codegen spike: unsupported markup node %T", n)
 	}
@@ -156,7 +159,8 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[*ast.Interp]types.Type,
 // genInterp emits the type-aware writer call for an interpolation. The type comes
 // from the go/types resolution pass; the expression is emitted verbatim (params
 // are in scope as locals).
-func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[*ast.Interp]types.Type, imports map[string]bool) error {
+func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[*ast.Interp]types.Type, imports map[string]bool, fset *token.FileSet) error {
+	emitLine(b, fset, n.Pos())
 	if n.Try {
 		return fmt.Errorf("codegen spike: `?` try-marker not supported yet")
 	}
@@ -181,6 +185,16 @@ func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[*ast.Interp]types.Ty
 // interpTemp gives unique unwrap temp names within a generated file. It is reset
 // at the start of generateFile.
 var interpTemp int
+
+// emitLine writes a //line directive mapping subsequent output to the gsx node's
+// source position, so Go compiler errors point at the .gsx file. The directive
+// must begin at column 1; it is written at the start of a line (the preceding
+// writes always end in "\n") with no leading indentation. go/format special-cases
+// //line comments and preserves them verbatim.
+func emitLine(b *bytes.Buffer, fset *token.FileSet, pos token.Pos) {
+	p := fset.Position(pos)
+	fmt.Fprintf(b, "//line %s:%d:%d\n", filepath.Base(p.Filename), p.Line, p.Column)
+}
 
 // emitRender writes the type-aware writer call for a single renderable value
 // named by expr (a verbatim expression or a temp identifier) and its type t.

@@ -4,6 +4,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -65,6 +66,26 @@ component Greeting(name string, count int) {
 	}
 	got := renderPackage(t, files, `p.Greeting(p.GreetingProps{Name: "World", Count: 3})`)
 	assertHTMLEqual(t, got, "<p>Hello, World! You have 3 messages.</p>")
+}
+
+func TestLineDirectives(t *testing.T) {
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module gsxl\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pkgDir := filepath.Join(tmp, "genpkg")
+	os.MkdirAll(pkgDir, 0o755)
+	writeFile(t, pkgDir, "views.gsx", "package views\n\ncomponent Greeting(name string) {\n\t<p>{name}</p>\n}\n")
+	gen, err := GeneratePackage(pkgDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got string
+	for _, src := range gen {
+		got = string(src)
+	}
+	if !strings.Contains(got, "//line views.gsx:") {
+		t.Fatalf("expected //line directives in generated source:\n%s", got)
+	}
 }
 
 func writeFile(t *testing.T, dir, name, content string) {

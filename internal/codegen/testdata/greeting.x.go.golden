@@ -20,10 +20,13 @@ func Greeting(p GreetingProps) gsx.Node {
 		name := p.Name
 		count := p.Count
 		gw := gsx.W(w)
+//line views.gsx:4:2
 		gw.S("<p>")
 		gw.S("Hello, ")
+//line views.gsx:4:12
 		gw.Text(name)
 		gw.S("! You have ")
+//line views.gsx:4:29
 		gw.Text(strconv.FormatInt(int64(count), 10))
 		gw.S(" messages.")
 		gw.S("</p>")

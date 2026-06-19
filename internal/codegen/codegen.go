@@ -31,13 +31,14 @@ func GeneratePackage(dir string) (map[string][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	fset := token.NewFileSet()
 	files := map[string]*gsxast.File{}
 	for _, m := range matches {
 		src, err := os.ReadFile(m)
 		if err != nil {
 			return nil, err
 		}
-		f, err := gsxparser.ParseFile(token.NewFileSet(), m, src, 0)
+		f, err := gsxparser.ParseFile(fset, m, src, 0)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", m, err)
 		}
@@ -51,7 +52,7 @@ func GeneratePackage(dir string) (map[string][]byte, error) {
 
 	out := map[string][]byte{}
 	for path, file := range files {
-		gen, err := generateFile(file, resolved)
+		gen, err := generateFile(file, resolved, fset)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
