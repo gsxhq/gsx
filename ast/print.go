@@ -97,6 +97,90 @@ func fprintNode(w io.Writer, node Node, depth int) error {
 				return err
 			}
 		}
+	case *GoBlock:
+		if _, err := fmt.Fprintf(w, "%sGoBlock code=%q\n", indent, n.Code); err != nil {
+			return err
+		}
+	case *IfMarkup:
+		if _, err := fmt.Fprintf(w, "%sIfMarkup cond=%q\n", indent, n.Cond); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(w, "%s  then:\n", indent); err != nil {
+			return err
+		}
+		for _, c := range n.Then {
+			if err := fprintNode(w, c, depth+2); err != nil {
+				return err
+			}
+		}
+		if n.Else != nil {
+			if _, err := fmt.Fprintf(w, "%s  else:\n", indent); err != nil {
+				return err
+			}
+			for _, c := range n.Else {
+				if err := fprintNode(w, c, depth+2); err != nil {
+					return err
+				}
+			}
+		}
+	case *ForMarkup:
+		if _, err := fmt.Fprintf(w, "%sForMarkup clause=%q\n", indent, n.Clause); err != nil {
+			return err
+		}
+		for _, c := range n.Body {
+			if err := fprintNode(w, c, depth+1); err != nil {
+				return err
+			}
+		}
+	case *SwitchMarkup:
+		if _, err := fmt.Fprintf(w, "%sSwitchMarkup tag=%q\n", indent, n.Tag); err != nil {
+			return err
+		}
+		for _, cc := range n.Cases {
+			if err := fprintNode(w, cc, depth+1); err != nil {
+				return err
+			}
+		}
+	case *CaseClause:
+		if _, err := fmt.Fprintf(w, "%sCaseClause list=%q default=%v\n", indent, n.List, n.Default); err != nil {
+			return err
+		}
+		for _, c := range n.Body {
+			if err := fprintNode(w, c, depth+1); err != nil {
+				return err
+			}
+		}
+	case *CondAttr:
+		if _, err := fmt.Fprintf(w, "%sCondAttr cond=%q\n", indent, n.Cond); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(w, "%s  then:\n", indent); err != nil {
+			return err
+		}
+		for _, a := range n.Then {
+			if err := fprintNode(w, a, depth+2); err != nil {
+				return err
+			}
+		}
+		if n.Else != nil {
+			if _, err := fmt.Fprintf(w, "%s  else:\n", indent); err != nil {
+				return err
+			}
+			for _, a := range n.Else {
+				if err := fprintNode(w, a, depth+2); err != nil {
+					return err
+				}
+			}
+		}
+	case *ClassAttr:
+		if _, err := fmt.Fprintf(w, "%sClassAttr name=%s\n", indent, n.Name); err != nil {
+			return err
+		}
+		for _, part := range n.Parts {
+			if _, err := fmt.Fprintf(w, "%s  ClassPart expr=%q cond=%q\n", indent, part.Expr, part.Cond); err != nil {
+				return err
+			}
+		}
 	default:
 		if _, err := fmt.Fprintf(w, "%s<unknown node %T>\n", indent, node); err != nil {
 			return err

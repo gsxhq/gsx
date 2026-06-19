@@ -51,7 +51,7 @@ component Field(label string) {
 
 component LoginForm() {
 	<form>
-		// label -> prop; name/required/hx-get are placed on the inner <input> via {...attrs}
+		{/* label -> prop; name/required/hx-get are placed on the inner <input> via {...attrs} */}
 		<Field label="Email" name="email" required hx-get="/check-email"/>
 	</form>
 }

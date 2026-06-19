@@ -3,6 +3,7 @@ package ast_test
 import (
 	"bytes"
 	"go/token"
+	"strings"
 	"testing"
 
 	"github.com/gsxhq/gsx/ast"
@@ -36,5 +37,55 @@ func TestFprintGolden(t *testing.T) {
 		"      Interp expr=\"name\" try=false\n"
 	if got != want {
 		t.Errorf("Fprint output mismatch.\nGot:\n%s\nWant:\n%s", got, want)
+	}
+}
+
+func TestFprintPart2(t *testing.T) {
+	tree := &ast.Component{Name: "X", Body: []ast.Markup{
+		&ast.GoBlock{Code: "n := 1"},
+		&ast.IfMarkup{Cond: "a > 0",
+			Then: []ast.Markup{&ast.Text{Value: "yes"}},
+			Else: []ast.Markup{&ast.Interp{Expr: "fallback"}}},
+		&ast.ForMarkup{Clause: "_, r := range rows", Body: []ast.Markup{&ast.Element{Tag: "li"}}},
+		&ast.SwitchMarkup{Tag: "k", Cases: []*ast.CaseClause{
+			{List: `"warn"`, Body: []ast.Markup{&ast.Element{Tag: "span"}}},
+			{Default: true, Body: []ast.Markup{&ast.Text{Value: "info"}}},
+		}},
+		&ast.Element{Tag: "div", Attrs: []ast.Attr{
+			&ast.CondAttr{Cond: `id != ""`, Then: []ast.Attr{&ast.BoolAttr{Name: "hidden"}}},
+			&ast.ClassAttr{Name: "class", Parts: []ast.ClassPart{
+				{Expr: `"btn"`},
+				{Expr: `"on"`, Cond: "active"},
+			}},
+		}},
+	}}
+	var b strings.Builder
+	if err := ast.Fprint(&b, tree); err != nil {
+		t.Fatal(err)
+	}
+	want := `Component name=X recv="" params=""
+  GoBlock code="n := 1"
+  IfMarkup cond="a > 0"
+    then:
+      Text value="yes"
+    else:
+      Interp expr="fallback" try=false
+  ForMarkup clause="_, r := range rows"
+    Element tag=li void=false
+  SwitchMarkup tag="k"
+    CaseClause list="\"warn\"" default=false
+      Element tag=span void=false
+    CaseClause list="" default=true
+      Text value="info"
+  Element tag=div void=false
+    CondAttr cond="id != \"\""
+      then:
+        BoolAttr name=hidden
+    ClassAttr name=class
+      ClassPart expr="\"btn\"" cond=""
+      ClassPart expr="\"on\"" cond="active"
+`
+	if b.String() != want {
+		t.Fatalf("Fprint mismatch:\n--- got ---\n%s\n--- want ---\n%s", b.String(), want)
 	}
 }

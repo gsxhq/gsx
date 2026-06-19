@@ -1,0 +1,30 @@
+gsx pipeline: { switch … } with case and default arms.
+
+-- input.gsx --
+package examples
+
+component Badge(kind string) {
+	<span>
+		{ switch kind {
+		case "warn":
+			<b>warn</b>
+		default:
+			<b>info</b>
+		} }
+	</span>
+}
+
+-- diagnostics.golden --
+-- ast.golden --
+File package=examples
+  Component name=Badge recv="" params="kind string"
+    Element tag=span void=false
+      Text value="\n\t\t"
+      SwitchMarkup tag="kind"
+        CaseClause list="\"warn\"" default=false
+          Element tag=b void=false
+            Text value="warn"
+        CaseClause list="" default=true
+          Element tag=b void=false
+            Text value="info"
+      Text value="\n\t"

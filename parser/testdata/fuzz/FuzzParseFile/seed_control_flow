@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package p\ncomponent C(xs []int, k string) {\n\t<ul>{ for _, x := range xs { <li>{ if x > 0 { <b>{x}</b> } else { zero } }</li> } }</ul>\n\t<span>{ switch k { case \"a\": <i>a</i> default: <i>z</i> } }</span>\n}")

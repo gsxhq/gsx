@@ -1,0 +1,36 @@
+gsx pipeline: { if / else if / else } control flow.
+
+-- input.gsx --
+package examples
+
+component Status(ok bool, warn bool) {
+	<header>
+		{ if ok {
+			<h2>OK</h2>
+		} else if warn {
+			<h2>Warn</h2>
+		} else {
+			<h2>Fail</h2>
+		} }
+	</header>
+}
+
+-- diagnostics.golden --
+-- ast.golden --
+File package=examples
+  Component name=Status recv="" params="ok bool, warn bool"
+    Element tag=header void=false
+      Text value="\n\t\t"
+      IfMarkup cond="ok"
+        then:
+          Element tag=h2 void=false
+            Text value="OK"
+        else:
+          IfMarkup cond="warn"
+            then:
+              Element tag=h2 void=false
+                Text value="Warn"
+            else:
+              Element tag=h2 void=false
+                Text value="Fail"
+      Text value="\n\t"

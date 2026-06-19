@@ -62,19 +62,19 @@ component Dashboard(items []Item) {
 	{{ heading := "Reports" }}
 	<main>
 		<Panel header={ <h1>{heading}</h1> } footer={ <small>v2</small> }>
-			// nested markup -> the Panel's Children
+			{/* nested markup -> the Panel's Children */}
 			<Card title="Recent" featured>
 				<ul>
 					{ for _, it := range items { <li>{it.Name}</li> } }
 				</ul>
 			</Card>
 
-			// Box collects class/data-* into its Attrs and forwards them
+			{/* Box collects class/data-* into its Attrs and forwards them */}
 			<Box padded class="mt-4" data-test="recent">
 				<Spinner size="h-5 w-5"/>
 			</Box>
 
-			// cross-package component: <ui.Button/> -> ui.Button(ui.ButtonProps{…})
+			{/* cross-package component: <ui.Button/> -> ui.Button(ui.ButtonProps{…}) */}
 			<ui.Button variant="primary" size="lg">Save</ui.Button>
 		</Panel>
 	</main>

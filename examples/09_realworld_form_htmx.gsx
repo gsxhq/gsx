@@ -57,8 +57,8 @@ component CreateUserForm() {
 		hx-on::after-request="if(event.detail.successful) this.reset()"
 		class="space-y-4"
 	>
-		// hx-get/hx-trigger/hx-target are undeclared on Field -> they implicitly
-		// collect into Field's Attrs (implicit rest) and forward to its <input>.
+		{/* hx-get/hx-trigger/hx-target are undeclared on Field -> they implicitly
+		collect into Field's Attrs (implicit rest) and forward to its <input>. */}
 		<Field
 			name="email"
 			label="Email"
