@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package p\ncomponent X() {\n\t<>\n\t\t<!DOCTYPE html>\n\t\t<!-- keep <div> {x} inert -->\n\t\t<style>.a { color: red } a < b</style>\n\t\t<script nonce={n}>if (a < b) { go(\"</span>\"); } // raw</script>\n\t</>\n}")
