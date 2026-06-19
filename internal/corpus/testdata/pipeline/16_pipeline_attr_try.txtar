@@ -1,0 +1,13 @@
+gsx pipeline: attribute value with a failable filter stage.
+-- input.gsx --
+package examples
+
+component C(u string) { <a href={ u |> absolute()? }>x</a> }
+-- diagnostics.golden --
+-- ast.golden --
+File package=examples
+  Component name=C recv="" params="u string"
+    Element tag=a void=false
+      ExprAttr name=href expr="u" try=false
+        PipeStage name=absolute args="" hasArgs=true try=true
+      Text value="x"

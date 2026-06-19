@@ -1,0 +1,8 @@
+gsx pipeline: an empty stage (trailing |> with no filter) is an error.
+-- input.gsx --
+package examples
+
+component C(name string) { <p>{ name |> }</p> }
+-- diagnostics.golden --
+3:31: empty pipeline stage
+-- ast.golden --

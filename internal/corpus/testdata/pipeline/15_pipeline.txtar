@@ -1,0 +1,13 @@
+gsx pipeline: interpolation with bare + parameterized filters.
+-- input.gsx --
+package examples
+
+component C(name string) { <p>{ name |> upper |> truncate(20) }</p> }
+-- diagnostics.golden --
+-- ast.golden --
+File package=examples
+  Component name=C recv="" params="name string"
+    Element tag=p void=false
+      Interp expr="name" try=false
+        PipeStage name=upper args="" hasArgs=false try=false
+        PipeStage name=truncate args="20" hasArgs=true try=false
