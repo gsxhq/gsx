@@ -88,6 +88,35 @@ func TestPart2NodesImplementInterfaces(t *testing.T) {
 	var _ Node = (*CaseClause)(nil)
 }
 
+func TestHTMLMarkupNodes(t *testing.T) {
+	var _ Markup = (*Doctype)(nil)
+	var _ Markup = (*HTMLComment)(nil)
+
+	for _, n := range []Node{&Doctype{}, &HTMLComment{}} {
+		SetSpan(n, token.Pos(10), token.Pos(20))
+		if n.Pos() != token.Pos(10) || n.End() != token.Pos(20) {
+			t.Fatalf("%T: SetSpan not applied: pos=%d end=%d", n, n.Pos(), n.End())
+		}
+	}
+
+	// Doctype and HTMLComment are leaves: Inspect visits them but not "into" them.
+	tree := &Element{Tag: "html", Children: []Markup{
+		&Doctype{Text: "<!DOCTYPE html>"},
+		&HTMLComment{Text: " hi "},
+	}}
+	var kinds []string
+	Inspect(tree, func(n Node) bool {
+		if n != nil {
+			kinds = append(kinds, fmt.Sprintf("%T", n))
+		}
+		return true
+	})
+	want := []string{"*ast.Element", "*ast.Doctype", "*ast.HTMLComment"}
+	if !reflect.DeepEqual(kinds, want) {
+		t.Fatalf("Inspect order:\n got %v\nwant %v", kinds, want)
+	}
+}
+
 func TestSetSpanPart2(t *testing.T) {
 	nodes := []Node{
 		&GoBlock{}, &IfMarkup{}, &ForMarkup{}, &SwitchMarkup{}, &CaseClause{}, &CondAttr{}, &ClassAttr{},

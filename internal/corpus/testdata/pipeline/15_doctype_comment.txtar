@@ -1,0 +1,32 @@
+# DOCTYPE and HTML comments are preserved verbatim as markup nodes
+-- input.gsx --
+package p
+
+component Doc() {
+	<>
+		<!DOCTYPE html>
+		<!-- keep this comment -->
+		<html>
+			<!-- <div> looks like markup but is inert -->
+			<body>hi</body>
+		</html>
+	</>
+}
+-- diagnostics.golden --
+-- ast.golden --
+File package=p
+  Component name=Doc recv="" params=""
+    Fragment
+      Text value="\n\t\t"
+      Doctype text="<!DOCTYPE html>"
+      Text value="\n\t\t"
+      HTMLComment text=" keep this comment "
+      Text value="\n\t\t"
+      Element tag=html void=false
+        Text value="\n\t\t\t"
+        HTMLComment text=" <div> looks like markup but is inert "
+        Text value="\n\t\t\t"
+        Element tag=body void=false
+          Text value="hi"
+        Text value="\n\t\t"
+      Text value="\n\t"

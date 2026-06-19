@@ -790,3 +790,205 @@ func TestParseAttrPipeline(t *testing.T) {
 		t.Fatalf("ExprAttr pipeline not parsed: %#v", ea)
 	}
 }
+
+// --- DOCTYPE -----------------------------------------------------------------
+
+func TestParseDoctype(t *testing.T) {
+	p := testParser(`<!DOCTYPE html>rest`)
+	node, err := p.parseElement()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	d, ok := node.(*ast.Doctype)
+	if !ok {
+		t.Fatalf("got %T, want *ast.Doctype", node)
+	}
+	if d.Text != "<!DOCTYPE html>" {
+		t.Fatalf("Text = %q", d.Text)
+	}
+	if p.src[p.i:] != "rest" {
+		t.Fatalf("cursor at %q", p.src[p.i:])
+	}
+}
+
+func TestParseDoctypeCaseInsensitive(t *testing.T) {
+	p := testParser(`<!doctype HTML>`)
+	node, err := p.parseElement()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	d, ok := node.(*ast.Doctype)
+	if !ok {
+		t.Fatalf("got %T, want *ast.Doctype", node)
+	}
+	if d.Text != "<!doctype HTML>" {
+		t.Fatalf("Text = %q", d.Text)
+	}
+}
+
+func TestParseDoctypeUnterminated(t *testing.T) {
+	p := testParser(`<!DOCTYPE html`)
+	_, err := p.parseElement()
+	if err == nil {
+		t.Fatal("expected error for unterminated DOCTYPE")
+	}
+	if !strings.Contains(err.Error(), "unterminated") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+// --- HTML comments -----------------------------------------------------------
+
+func TestParseHTMLComment(t *testing.T) {
+	p := testParser(`<!-- keep me -->rest`)
+	node, err := p.parseElement()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	c, ok := node.(*ast.HTMLComment)
+	if !ok {
+		t.Fatalf("got %T, want *ast.HTMLComment", node)
+	}
+	if c.Text != " keep me " {
+		t.Fatalf("Text = %q", c.Text)
+	}
+	if p.src[p.i:] != "rest" {
+		t.Fatalf("cursor at %q", p.src[p.i:])
+	}
+}
+
+func TestParseHTMLCommentWithMarkupLikeBody(t *testing.T) {
+	p := testParser(`<!-- <div> {x} not parsed -->`)
+	node, err := p.parseElement()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	c := node.(*ast.HTMLComment)
+	if c.Text != " <div> {x} not parsed " {
+		t.Fatalf("Text = %q", c.Text)
+	}
+}
+
+func TestParseHTMLCommentUnterminated(t *testing.T) {
+	p := testParser(`<!-- never closed`)
+	_, err := p.parseElement()
+	if err == nil {
+		t.Fatal("expected error for unterminated comment")
+	}
+	if !strings.Contains(err.Error(), "unterminated") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestParseBangUnknown(t *testing.T) {
+	p := testParser(`<!bogus>`)
+	_, err := p.parseElement()
+	if err == nil {
+		t.Fatal("expected error for `<!` followed by unknown")
+	}
+}
+
+// --- raw-text elements -------------------------------------------------------
+
+func TestParseScriptRaw(t *testing.T) {
+	p := testParser(`<script>const a = {x: 1}; if (a < b) {} // <div></script>after`)
+	node, err := p.parseElement()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	el := node.(*ast.Element)
+	if el.Tag != "script" {
+		t.Fatalf("Tag = %q", el.Tag)
+	}
+	if len(el.Children) != 1 {
+		t.Fatalf("children = %#v", el.Children)
+	}
+	txt := el.Children[0].(*ast.Text)
+	if txt.Value != `const a = {x: 1}; if (a < b) {} // <div>` {
+		t.Fatalf("raw = %q", txt.Value)
+	}
+	if p.src[p.i:] != "after" {
+		t.Fatalf("cursor at %q", p.src[p.i:])
+	}
+}
+
+func TestParseStyleRaw(t *testing.T) {
+	p := testParser(`<style>.a { color: red } .b > .c {}</style>`)
+	node, err := p.parseElement()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	el := node.(*ast.Element)
+	if el.Tag != "style" {
+		t.Fatalf("Tag = %q", el.Tag)
+	}
+	txt := el.Children[0].(*ast.Text)
+	if txt.Value != ".a { color: red } .b > .c {}" {
+		t.Fatalf("raw = %q", txt.Value)
+	}
+}
+
+func TestParseScriptCaseInsensitiveClose(t *testing.T) {
+	p := testParser(`<SCRIPT>raw</SCRIPT>`)
+	node, err := p.parseElement()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	el := node.(*ast.Element)
+	if el.Children[0].(*ast.Text).Value != "raw" {
+		t.Fatalf("raw = %q", el.Children[0])
+	}
+}
+
+func TestParseScriptWithAttr(t *testing.T) {
+	p := testParser(`<script nonce={n}>var x = 1;</script>`)
+	node, err := p.parseElement()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	el := node.(*ast.Element)
+	if len(el.Attrs) != 1 {
+		t.Fatalf("attrs = %#v", el.Attrs)
+	}
+	if el.Children[0].(*ast.Text).Value != "var x = 1;" {
+		t.Fatalf("raw = %q", el.Children[0])
+	}
+}
+
+func TestParseScriptSelfClosing(t *testing.T) {
+	p := testParser(`<script src="x.js"/>after`)
+	node, err := p.parseElement()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	el := node.(*ast.Element)
+	if !el.Void || len(el.Children) != 0 {
+		t.Fatalf("got %#v", el)
+	}
+	if p.src[p.i:] != "after" {
+		t.Fatalf("cursor at %q", p.src[p.i:])
+	}
+}
+
+func TestParseScriptUnterminated(t *testing.T) {
+	p := testParser(`<script>never closed`)
+	_, err := p.parseElement()
+	if err == nil {
+		t.Fatal("expected error for unterminated raw element")
+	}
+	if !strings.Contains(err.Error(), "unterminated") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestParseScriptEmpty(t *testing.T) {
+	p := testParser(`<script></script>`)
+	node, err := p.parseElement()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	el := node.(*ast.Element)
+	if len(el.Children) != 0 {
+		t.Fatalf("children = %#v", el.Children)
+	}
+}

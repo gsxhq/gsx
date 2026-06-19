@@ -44,6 +44,10 @@ func SetSpan(n Node, start, end token.Pos) {
 		v.span = s
 	case *Text:
 		v.span = s
+	case *Doctype:
+		v.span = s
+	case *HTMLComment:
+		v.span = s
 	case *Interp:
 		v.span = s
 	case *StaticAttr:
@@ -145,6 +149,27 @@ type Text struct {
 }
 
 func (*Text) markupNode() {}
+
+// Doctype is an HTML `<!DOCTYPE …>` declaration. Text holds the full source
+// including the `<!` and `>` delimiters (e.g. "<!DOCTYPE html>"); it renders
+// verbatim.
+type Doctype struct {
+	span
+	Text string
+}
+
+func (*Doctype) markupNode() {}
+
+// HTMLComment is an HTML `<!-- … -->` comment. Text holds the inner text between
+// the `<!--` and `-->` delimiters; unlike source-only `{/* */}` comments, HTML
+// comments are PRESERVED and render verbatim (they can be meaningful, e.g. htmx
+// or conditional comments).
+type HTMLComment struct {
+	span
+	Text string
+}
+
+func (*HTMLComment) markupNode() {}
 
 // Interp is `{ expr }` (Try=false) or `{ expr? }` (Try=true). When Stages is
 // non-empty, Expr is the pipeline seed and Stages are applied left-to-right
