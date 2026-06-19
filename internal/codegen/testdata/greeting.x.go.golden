@@ -15,21 +15,21 @@ type GreetingProps struct {
 	Count int
 }
 
-func Greeting(p GreetingProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, w io.Writer) error {
-		name := p.Name
-		count := p.Count
-		gw := gsx.W(w)
+func Greeting(_gsxp GreetingProps) gsx.Node {
+	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+		name := _gsxp.Name
+		count := _gsxp.Count
+		_gsxgw := gsx.W(_gsxw)
 //line views.gsx:4:2
-		gw.S("<p>")
-		gw.S("Hello, ")
+		_gsxgw.S("<p>")
+		_gsxgw.S("Hello, ")
 //line views.gsx:4:12
-		gw.Text(string(name))
-		gw.S("! You have ")
+		_gsxgw.Text(string(name))
+		_gsxgw.S("! You have ")
 //line views.gsx:4:29
-		gw.Text(strconv.FormatInt(int64(count), 10))
-		gw.S(" messages.")
-		gw.S("</p>")
-		return gw.Err()
+		_gsxgw.Text(strconv.FormatInt(int64(count), 10))
+		_gsxgw.S(" messages.")
+		_gsxgw.S("</p>")
+		return _gsxgw.Err()
 	})
 }

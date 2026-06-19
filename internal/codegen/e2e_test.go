@@ -188,6 +188,185 @@ func main() {
 	return string(out)
 }
 
+// generatePackageErr writes files into a temp-module package and runs
+// GeneratePackage, returning its error (or nil). It is for tests that assert a
+// clean CODEGEN error (no compile/render), so it does not need -short skipping.
+func generatePackageErr(t *testing.T, files map[string]string) error {
+	t.Helper()
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module gsxgenerr\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pkgDir := filepath.Join(tmp, "genpkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for n, c := range files {
+		writeFile(t, pkgDir, n, c)
+	}
+	_, err := GeneratePackage(pkgDir)
+	return err
+}
+
+// TestRenderParamNameCollision proves params named after the generator's
+// internal machinery (gw/w/p) no longer collide with it: the machinery moved to
+// the _gsx* namespace, so these params bind and render verbatim.
+func TestRenderParamNameCollision(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Collide(gw string, w string, p string) {
+	<p>{gw}|{w}|{p}</p>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Collide(p.CollideProps{Gw: "G", W: "W", P: "P"})`)
+	assertHTMLEqual(t, got, "<p>G|W|P</p>")
+}
+
+// TestReservedParamCtx proves a param named exactly `ctx` (ambient context) is
+// rejected with a clean codegen error.
+func TestReservedParamCtx(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Bad(ctx string) {
+	<p>{ctx}</p>
+}
+`,
+	}
+	err := generatePackageErr(t, files)
+	if err == nil {
+		t.Fatal("expected error for param named ctx, got nil")
+	}
+	if !strings.Contains(err.Error(), "reserved") || !strings.Contains(err.Error(), "ctx") {
+		t.Fatalf("expected clean reserved-name error, got: %v", err)
+	}
+}
+
+// TestReservedParamGsxPrefix proves a param using the reserved _gsx prefix is
+// rejected with a clean codegen error.
+func TestReservedParamGsxPrefix(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Bad(_gsxfoo string) {
+	<p>{_gsxfoo}</p>
+}
+`,
+	}
+	err := generatePackageErr(t, files)
+	if err == nil {
+		t.Fatal("expected error for param using _gsx prefix, got nil")
+	}
+	if !strings.Contains(err.Error(), "_gsx") || !strings.Contains(err.Error(), "prefix") {
+		t.Fatalf("expected clean reserved-prefix error, got: %v", err)
+	}
+}
+
+// TestReservedParamEmittedImport proves a param named after a package the
+// emitter references in the closure body (gsx, strconv) is rejected cleanly,
+// rather than producing non-compiling generated code via local-binding shadowing.
+func TestReservedParamEmittedImport(t *testing.T) {
+	for _, name := range []string{"gsx", "strconv"} {
+		files := map[string]string{
+			"views.gsx": "package views\n\ncomponent Bad(" + name + " string, n int) {\n\t<p>{" + name + "}{n}</p>\n}\n",
+		}
+		err := generatePackageErr(t, files)
+		if err == nil {
+			t.Fatalf("param %q: expected reserved-name error, got nil", name)
+		}
+		if !strings.Contains(err.Error(), "reserved") {
+			t.Fatalf("param %q: expected clean reserved-name error, got: %v", name, err)
+		}
+	}
+}
+
+// TestRenderPointerNode proves a *Widget param whose POINTER implements Render
+// (pointer-receiver) classifies as catNode and renders via gw.Node(ctx, ptr),
+// since *Widget's value method set has Render.
+func TestRenderPointerNode(t *testing.T) {
+	files := map[string]string{
+		"widget.go": `package views
+
+import (
+	"context"
+	"io"
+)
+
+type Widget struct{ Label string }
+
+func (w *Widget) Render(ctx context.Context, out io.Writer) error {
+	_, err := io.WriteString(out, "<b>"+w.Label+"</b>")
+	return err
+}
+`,
+		"views.gsx": `package views
+
+component Show(widget *Widget) {
+	<div>{widget}</div>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Show(p.ShowProps{Widget: &p.Widget{Label: "hi"}})`)
+	assertHTMLEqual(t, got, "<div><b>hi</b></div>")
+}
+
+// TestValueNodePointerReceiverCleanError proves a Widget VALUE param whose only
+// Render is pointer-receiver is NOT mis-classified as catNode (its value method
+// set lacks Render): it falls through to a clean "not a renderable type" codegen
+// error rather than producing non-compiling generated code.
+func TestValueNodePointerReceiverCleanError(t *testing.T) {
+	files := map[string]string{
+		"widget.go": `package views
+
+import (
+	"context"
+	"io"
+)
+
+type Widget struct{ Label string }
+
+func (w *Widget) Render(ctx context.Context, out io.Writer) error {
+	_, err := io.WriteString(out, "<b>"+w.Label+"</b>")
+	return err
+}
+`,
+		"views.gsx": `package views
+
+component Show(widget Widget) {
+	<div>{widget}</div>
+}
+`,
+	}
+	err := generatePackageErr(t, files)
+	if err == nil {
+		t.Fatal("expected clean error for value param with pointer-receiver Render, got nil")
+	}
+	if !strings.Contains(err.Error(), "not a renderable type") {
+		t.Fatalf("expected clean 'not a renderable type' error, got: %v", err)
+	}
+}
+
+// TestRenderRealGsxsharedFile proves a real gsxshared.x.go on disk is not
+// clobbered by the _gsxuse probe overlay: the generator picks a free overlay
+// filename, so UserHelper (declared in the real file) resolves and renders.
+func TestRenderRealGsxsharedFile(t *testing.T) {
+	files := map[string]string{
+		"gsxshared.x.go": `package views
+
+func UserHelper() string { return "real" }
+`,
+		"views.gsx": `package views
+
+component Greet() {
+	<p>{UserHelper()}</p>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Greet(p.GreetProps{})`)
+	assertHTMLEqual(t, got, "<p>real</p>")
+}
+
 // TestProbeAcceptsMultiValueExpr is a forward check that the probe type-checks a
 // (T, error) interpolation expression (multi-value), which the old `_ = (expr)`
 // probe could not. Full unwrap rendering lands in Task 3; here we only assert
