@@ -1,0 +1,26 @@
+# raw-text elements: <script>/<style> bodies kept verbatim (no markup/interp)
+-- input.gsx --
+package p
+
+component Page() {
+	<head>
+		<style>.box { color: red } a < b</style>
+		<script nonce={n}>
+			const cfg = { ok: true };
+			if (a < b) { go("</span>"); } // not a real close
+		</script>
+	</head>
+}
+-- diagnostics.golden --
+-- ast.golden --
+File package=p
+  Component name=Page recv="" params=""
+    Element tag=head void=false
+      Text value="\n\t\t"
+      Element tag=style void=false
+        Text value=".box { color: red } a < b"
+      Text value="\n\t\t"
+      Element tag=script void=false
+        ExprAttr name=nonce expr="n" try=false
+        Text value="\n\t\t\tconst cfg = { ok: true };\n\t\t\tif (a < b) { go(\"</span>\"); } // not a real close\n\t\t"
+      Text value="\n\t"

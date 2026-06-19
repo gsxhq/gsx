@@ -89,3 +89,24 @@ func TestFprintPart2(t *testing.T) {
 		t.Fatalf("Fprint mismatch:\n--- got ---\n%s\n--- want ---\n%s", b.String(), want)
 	}
 }
+
+func TestFprintHTMLNodes(t *testing.T) {
+	tree := &ast.Fragment{Children: []ast.Markup{
+		&ast.Doctype{Text: "<!DOCTYPE html>"},
+		&ast.HTMLComment{Text: " keep "},
+		&ast.Element{Tag: "script", Children: []ast.Markup{&ast.Text{Value: "var x=1;"}}},
+	}}
+	var b strings.Builder
+	if err := ast.Fprint(&b, tree); err != nil {
+		t.Fatal(err)
+	}
+	want := `Fragment
+  Doctype text="<!DOCTYPE html>"
+  HTMLComment text=" keep "
+  Element tag=script void=false
+    Text value="var x=1;"
+`
+	if b.String() != want {
+		t.Fatalf("Fprint mismatch:\n--- got ---\n%s\n--- want ---\n%s", b.String(), want)
+	}
+}

@@ -68,6 +68,14 @@ func fprintNode(w io.Writer, node Node, depth int) error {
 		if _, err := fmt.Fprintf(w, "%sText value=%q\n", indent, n.Value); err != nil {
 			return err
 		}
+	case *Doctype:
+		if _, err := fmt.Fprintf(w, "%sDoctype text=%q\n", indent, n.Text); err != nil {
+			return err
+		}
+	case *HTMLComment:
+		if _, err := fmt.Fprintf(w, "%sHTMLComment text=%q\n", indent, n.Text); err != nil {
+			return err
+		}
 	case *Interp:
 		if _, err := fmt.Fprintf(w, "%sInterp expr=%q try=%v\n", indent, n.Expr, n.Try); err != nil {
 			return err
