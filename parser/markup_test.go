@@ -710,3 +710,48 @@ func TestNonClassBraceStaysExprAttr(t *testing.T) {
 		t.Fatalf("attr0 = %T, want *ast.ExprAttr", node.(*ast.Element).Attrs[0])
 	}
 }
+
+func TestParseForRangeSliceLiteral(t *testing.T) {
+	// I2: ranging over a bare composite literal — the literal's '{' must NOT be
+	// taken as the body brace.
+	p := testParser(`{ for _, v := range []int{1, 2} { <a>{v}</a> } }`)
+	node, _, err := p.parseBraceNode()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	n, ok := node.(*ast.ForMarkup)
+	if !ok {
+		t.Fatalf("got %T, want *ast.ForMarkup", node)
+	}
+	if n.Clause != "_, v := range []int{1, 2}" {
+		t.Fatalf("Clause = %q", n.Clause)
+	}
+	if n.Body[0].(*ast.Element).Tag != "a" {
+		t.Fatalf("body = %#v", n.Body)
+	}
+}
+
+func TestParseForRangeMapLiteral(t *testing.T) {
+	p := testParser(`{ for k := range map[string]int{"a": 1} { <i>{k}</i> } }`)
+	node, _, err := p.parseBraceNode()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	n := node.(*ast.ForMarkup)
+	if n.Clause != `k := range map[string]int{"a": 1}` {
+		t.Fatalf("Clause = %q", n.Clause)
+	}
+}
+
+func TestParseIfParenComposite(t *testing.T) {
+	// Paren-wrapped composite in an if condition still resolves to the body brace.
+	p := testParser(`{ if (struct{ Ok bool }{Ok: true}).Ok { <y/> } }`)
+	node, _, err := p.parseBraceNode()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	n := node.(*ast.IfMarkup)
+	if n.Then[0].(*ast.Element).Tag != "y" {
+		t.Fatalf("then = %#v", n.Then)
+	}
+}
