@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package p\ncomponent A(n int) { <p>Today's items: {n} — don't {{ x := f() }}<b class={x}>{x}</b></p> }\ncomponent B() { <ul>{ for _, v := range []int{1,2} { <li>it's {v}</li> } }</ul> }")
