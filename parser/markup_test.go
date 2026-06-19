@@ -146,6 +146,33 @@ func TestParseMarkupAttr(t *testing.T) {
 	}
 }
 
+func TestMarkupAttrWithApostrophe(t *testing.T) {
+	// C1: apostrophe inside a markup-attribute value must parse.
+	p := testParser(`<Panel header={ <h1>Today's news</h1> }></Panel>`)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	el := n.(*ast.Element)
+	ma, ok := el.Attrs[0].(*ast.MarkupAttr)
+	if !ok {
+		t.Fatalf("attr0 = %T, want *ast.MarkupAttr", el.Attrs[0])
+	}
+	h1 := ma.Value[0].(*ast.Element)
+	if h1.Tag != "h1" {
+		t.Fatalf("markup attr value = %#v", ma.Value)
+	}
+	var txt *ast.Text
+	for _, c := range h1.Children {
+		if t2, ok := c.(*ast.Text); ok {
+			txt = t2
+		}
+	}
+	if txt == nil || !strings.Contains(txt.Value, "Today's") {
+		t.Fatalf("h1 children = %#v, want text containing apostrophe", h1.Children)
+	}
+}
+
 func TestParseChildrenMismatch(t *testing.T) {
 	p := testParser(`<div>hi</span>`)
 	_, err := p.parseElement()

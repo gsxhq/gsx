@@ -512,19 +512,11 @@ func (p *parser) parseAttrBraceValue(name string, attrStartPos token.Pos) (ast.A
 		j++
 	}
 	if j < len(p.src) && p.src[j] == '<' && j+1 < len(p.src) && startsTag(p.src[j+1]) {
-		end, ok := goExprEnd(p.src, p.i) // markup is brace-balanced too
-		if !ok {
-			return nil, fmt.Errorf("unterminated markup attribute %q", name)
-		}
-		innerStart := p.i + 1
-		inner := p.src[innerStart:end]
-		subBase := p.base + innerStart
-		sub := newSub(p.file, inner, subBase)
-		nodes, err := sub.parseNodesUntilEOF()
+		p.i++ // past '{'
+		nodes, err := p.parseMarkupUntilClose("markup attribute")
 		if err != nil {
 			return nil, err
 		}
-		p.i = end + 1
 		ma := &ast.MarkupAttr{Name: name, Value: nodes}
 		ast.SetSpan(ma, attrStartPos, p.posAt(p.i))
 		return ma, nil
@@ -651,34 +643,5 @@ func (p *parser) parseChildren(closeTag string) ([]ast.Markup, error) {
 			continue
 		}
 		nodes = append(nodes, p.parseText())
-	}
-}
-
-func (p *parser) parseNodesUntilEOF() ([]ast.Markup, error) {
-	var nodes []ast.Markup
-	for {
-		p.skipSpace()
-		if p.eof() {
-			return nodes, nil
-		}
-		switch {
-		case p.peek() == '<':
-			el, err := p.parseElement()
-			if err != nil {
-				return nil, err
-			}
-			nodes = append(nodes, el)
-		case p.peek() == '{':
-			node, skipped, err := p.parseBraceNode()
-			if err != nil {
-				return nil, err
-			}
-			if skipped {
-				continue
-			}
-			nodes = append(nodes, node)
-		default:
-			nodes = append(nodes, p.parseText())
-		}
 	}
 }
