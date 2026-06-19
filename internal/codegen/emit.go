@@ -20,25 +20,27 @@ func generateFile(file *ast.File, resolved map[*ast.Interp]types.Type) ([]byte, 
 		"io":                   true,
 		"github.com/gsxhq/gsx": true,
 	}
-	// Import GoChunks are folded into the import region (they must precede all
-	// other declarations); everything else flows into the body. Aliased / dot /
-	// blank imports are kept verbatim; plain imports merge into the import set so
-	// they dedupe against the runtime imports the generator already needs.
+	// Each GoChunk is split: its imports are folded into the import region (they
+	// must precede all other declarations) and its non-import remainder flows
+	// into the body. A single chunk may carry both — e.g. an import followed by
+	// type/func decls. Aliased / dot / blank imports are kept verbatim; plain
+	// imports merge into the import set so they dedupe against the runtime imports
+	// the generator already needs.
 	var aliased []importSpec
 	var body bytes.Buffer
 	for _, d := range file.Decls {
 		switch v := d.(type) {
 		case *ast.GoChunk:
-			if specs := importSpecsOf(v.Src); specs != nil {
-				for _, s := range specs {
-					if s.name == "" {
-						imports[s.path] = true
-					} else {
-						aliased = append(aliased, s)
-					}
+			specs, rest := splitChunk(v.Src)
+			for _, s := range specs {
+				if s.name == "" {
+					imports[s.path] = true
+				} else {
+					aliased = append(aliased, s)
 				}
-			} else {
-				body.WriteString(strings.TrimSpace(v.Src))
+			}
+			if rest != "" {
+				body.WriteString(rest)
 				body.WriteString("\n\n")
 			}
 		case *ast.Component:

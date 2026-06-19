@@ -248,6 +248,51 @@ component Demo(s string, n int, f float64, ok bool, node gsx.Node, price Money) 
 	assertHTMLEqual(t, got, `<div>hi|7|3.5|true|<b>x</b>|$9</div>`)
 }
 
+// TestRenderMixedChunk proves a single GoChunk that mixes an import with
+// trailing type/func declarations is NOT misclassified as a pure-import chunk:
+// the import is hoisted, AND the trailing decls survive into the body and are
+// usable by the component. Regression for the ImportsOnly classification bug.
+func TestRenderMixedChunk(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+import "fmt"
+
+type Money int
+
+func (m Money) String() string { return fmt.Sprintf("$%d", int(m)) }
+
+func label() string { return "price:" }
+
+component Receipt(price Money) {
+	<p>{label()}{price}</p>
+}
+`,
+	}
+	// label() returns string; Money is a fmt.Stringer -> "$9". Both the helper
+	// func and the Money type live in the same chunk as the `import "fmt"`.
+	got := renderPackage(t, files, `p.Receipt(p.ReceiptProps{Price: p.Money(9)})`)
+	assertHTMLEqual(t, got, `<p>price:$9</p>`)
+}
+
+// TestRenderNodeSlice exercises catNodeSlice: a []gsx.Node param interpolated as
+// {items} must emit a for-loop that renders each node in order.
+func TestRenderNodeSlice(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+import "github.com/gsxhq/gsx"
+
+component List(items []gsx.Node) {
+	<ul>{items}</ul>
+}
+`,
+	}
+	got := renderPackage(t, files,
+		`p.List(p.ListProps{Items: []gsx.Node{gsx.Raw("<li>a</li>"), gsx.Raw("<li>b</li>")}})`)
+	assertHTMLEqual(t, got, `<ul><li>a</li><li>b</li></ul>`)
+}
+
 // TestRenderCrossFileAndComponent proves go/packages + Overlay resolves a type
 // defined in a sibling .go file (User) AND a cross-component call (<Footer/>).
 func TestRenderCrossFileAndComponent(t *testing.T) {

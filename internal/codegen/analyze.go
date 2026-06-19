@@ -76,23 +76,35 @@ func buildSkeleton(file *gsxast.File) (string, []*gsxast.Component, error) {
 		}
 	}
 
+	// Split every GoChunk into its imports (hoisted ahead of all declarations)
+	// and its non-import body (emitted after the synthesized _gsxuse func). A
+	// single chunk may carry both — e.g. an import followed by type/func decls.
+	var imports []importSpec
+	var bodies []string
+	for _, d := range file.Decls {
+		if gc, ok := d.(*gsxast.GoChunk); ok {
+			imps, body := splitChunk(gc.Src)
+			imports = append(imports, imps...)
+			if body != "" {
+				bodies = append(bodies, body)
+			}
+		}
+	}
+
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "package %s\n", file.Package)
 	sb.WriteString("import _gsxrt \"github.com/gsxhq/gsx\"\n")
-	// Import GoChunks must precede every other declaration, so hoist them ahead
-	// of the synthesized _gsxuse func and the rest of the pass-through Go.
-	for _, d := range file.Decls {
-		if gc, ok := d.(*gsxast.GoChunk); ok && isImportChunk(gc.Src) {
-			sb.WriteString(gc.Src)
-			sb.WriteByte('\n')
+	for _, imp := range imports {
+		if imp.name != "" {
+			fmt.Fprintf(&sb, "import %s %q\n", imp.name, imp.path)
+		} else {
+			fmt.Fprintf(&sb, "import %q\n", imp.path)
 		}
 	}
 	sb.WriteString("func _gsxuse(...any) {}\n")
-	for _, d := range file.Decls {
-		if gc, ok := d.(*gsxast.GoChunk); ok && !isImportChunk(gc.Src) {
-			sb.WriteString(gc.Src)
-			sb.WriteByte('\n')
-		}
+	for _, body := range bodies {
+		sb.WriteString(body)
+		sb.WriteByte('\n')
 	}
 	for _, c := range comps {
 		if c.Recv != "" {
@@ -369,47 +381,67 @@ func parseParams(src string) ([]param, error) {
 	return out, nil
 }
 
-// importSpec is one parsed import from a pass-through Go chunk: an import path
-// with an optional explicit name ("", a package alias, "." or "_").
+// importSpec is one parsed import hoisted from a pass-through Go chunk: an
+// import path with an optional explicit name ("", a package alias, "." or "_").
 type importSpec struct {
 	name string // "" for the default import name
 	path string // import path, unquoted
 }
 
-// isImportChunk reports whether a pass-through Go chunk is an import declaration.
-// Such chunks must be hoisted ahead of all other declarations in the emitted Go.
-func isImportChunk(src string) bool {
-	return len(importSpecsOf(src)) > 0
-}
-
-// importSpecsOf parses the import specs of a pass-through Go chunk. It returns
-// nil when the chunk is not (solely) an import declaration.
-func importSpecsOf(src string) []importSpec {
-	src = strings.TrimSpace(src)
-	f, err := parser.ParseFile(token.NewFileSet(), "", "package p\n"+src, parser.ImportsOnly)
+// splitChunk separates a pass-through Go chunk into its imports (to hoist ahead
+// of all other declarations) and the remaining source (decls, comments) to emit
+// verbatim in the body. The remainder is produced by byte-excising the import
+// declarations from the chunk, so non-import content is preserved exactly.
+//
+// A chunk may freely mix an import with following type/func declarations (the
+// common top-of-file layout); both parts are returned. If the chunk is
+// unparseable or carries no imports, it is passed through unchanged as the body.
+func splitChunk(src string) (imports []importSpec, body string) {
+	const prefix = "package _gsxp\n"
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "", prefix+src, parser.ParseComments)
 	if err != nil {
-		return nil
+		return nil, src // unparseable: pass through unchanged
 	}
-	// Reject chunks that carry anything beyond imports.
+	const shift = len(prefix)
+	type span struct{ lo, hi int }
+	var cut []span
 	for _, d := range f.Decls {
 		gd, ok := d.(*goast.GenDecl)
 		if !ok || gd.Tok != token.IMPORT {
-			return nil
+			continue
 		}
+		for _, s := range gd.Specs {
+			is := s.(*goast.ImportSpec)
+			path, err := strconv.Unquote(is.Path.Value)
+			if err != nil {
+				continue
+			}
+			var name string
+			if is.Name != nil {
+				name = is.Name.Name
+			}
+			imports = append(imports, importSpec{name: name, path: path})
+		}
+		cut = append(cut, span{
+			lo: fset.Position(gd.Pos()).Offset - shift,
+			hi: fset.Position(gd.End()).Offset - shift,
+		})
 	}
-	var out []importSpec
-	for _, imp := range f.Imports {
-		path, err := strconv.Unquote(imp.Path.Value)
-		if err != nil {
-			return nil
-		}
-		var name string
-		if imp.Name != nil {
-			name = imp.Name.Name
-		}
-		out = append(out, importSpec{name: name, path: path})
+	if len(cut) == 0 {
+		return nil, src
 	}
-	return out
+	var b strings.Builder
+	prev := 0
+	for _, c := range cut {
+		if c.lo < prev || c.hi > len(src) {
+			continue
+		}
+		b.WriteString(src[prev:c.lo])
+		prev = c.hi
+	}
+	b.WriteString(src[prev:])
+	return imports, strings.TrimSpace(b.String())
 }
 
 // fieldName maps a param name to its props struct field (first letter upper).
