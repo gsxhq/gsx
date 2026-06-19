@@ -34,7 +34,10 @@ func generateFile(file *ast.File, resolved map[*ast.Interp]types.Type, fset *tok
 	for _, d := range file.Decls {
 		switch v := d.(type) {
 		case *ast.GoChunk:
-			specs, rest := splitChunk(v.Src)
+			specs, rest, err := splitChunk(v.Src)
+			if err != nil {
+				return nil, err
+			}
 			for _, s := range specs {
 				if s.name == "" {
 					imports[s.path] = true
@@ -201,7 +204,7 @@ func emitLine(b *bytes.Buffer, fset *token.FileSet, pos token.Pos) {
 func emitRender(b *bytes.Buffer, expr string, t types.Type, imports map[string]bool) error {
 	switch classify(t) {
 	case catString:
-		fmt.Fprintf(b, "\t\tgw.Text(%s)\n", expr)
+		fmt.Fprintf(b, "\t\tgw.Text(string(%s))\n", expr)
 	case catBytes:
 		fmt.Fprintf(b, "\t\tgw.Text(string(%s))\n", expr)
 	case catInt:
@@ -215,7 +218,7 @@ func emitRender(b *bytes.Buffer, expr string, t types.Type, imports map[string]b
 		fmt.Fprintf(b, "\t\tgw.Text(strconv.FormatFloat(float64(%s), 'g', -1, 64))\n", expr)
 	case catBool:
 		imports["strconv"] = true
-		fmt.Fprintf(b, "\t\tgw.Text(strconv.FormatBool(%s))\n", expr)
+		fmt.Fprintf(b, "\t\tgw.Text(strconv.FormatBool(bool(%s)))\n", expr)
 	case catStringer:
 		fmt.Fprintf(b, "\t\tgw.Text((%s).String())\n", expr)
 	case catNode:

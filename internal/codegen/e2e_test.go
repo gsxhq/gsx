@@ -313,6 +313,124 @@ component List(items []gsx.Node) {
 	assertHTMLEqual(t, got, `<ul><li>a</li><li>b</li></ul>`)
 }
 
+// TestRenderMultiGsxPackage proves two .gsx files in one package resolve and
+// render together: a cross-file component call (<Footer/> defined in a.gsx,
+// called from b.gsx). Regression for the "_gsxuse redeclared" bug, where each
+// per-file skeleton declared _gsxuse, breaking type resolution for the package.
+func TestRenderMultiGsxPackage(t *testing.T) {
+	files := map[string]string{
+		"a.gsx": `package views
+
+component Footer() {
+	<footer>FOOT</footer>
+}
+`,
+		"b.gsx": `package views
+
+component Page() {
+	<div><Footer/></div>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Page(p.PageProps{})`)
+	assertHTMLEqual(t, got, `<div><footer>FOOT</footer></div>`)
+}
+
+// TestRenderNamedScalarTypes proves a named string type (type ID string) and a
+// named bool type (type Flag bool) interpolate and compile: emitRender must
+// convert to the underlying type (string(id), bool(flag)) or `go build` fails.
+func TestRenderNamedScalarTypes(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+type ID string
+
+type Flag bool
+
+component Tag(id ID, flag Flag) {
+	<p>{id}|{flag}</p>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Tag(p.TagProps{Id: p.ID("abc"), Flag: p.Flag(true)})`)
+	assertHTMLEqual(t, got, `<p>abc|true</p>`)
+}
+
+// TestInterleavedImportsCleanError proves that a pass-through Go block with an
+// import appearing after a func (invalid Go: imports must be first) yields a
+// clean "pass-through"/"invalid Go" diagnostic rather than a cryptic leaked
+// "imports must appear before other declarations" resolution error or a panic.
+func TestInterleavedImportsCleanError(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+func helper() string { return "x" }
+
+import "fmt"
+
+var _ = fmt.Sprintf
+
+component Bad() {
+	<p>{helper()}</p>
+}
+`,
+	}
+	tmp := t.TempDir()
+	repoRoot, _ := filepath.Abs("../..")
+	writeFile(t, tmp, "go.mod", "module gsxbad\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pkgDir := filepath.Join(tmp, "genpkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for n, c := range files {
+		writeFile(t, pkgDir, n, c)
+	}
+	_, err := GeneratePackage(pkgDir)
+	if err == nil {
+		t.Fatal("expected error for interleaved imports, got nil")
+	}
+	if !strings.Contains(err.Error(), "pass-through") && !strings.Contains(err.Error(), "invalid Go") {
+		t.Fatalf("expected clean pass-through/invalid Go error, got: %v", err)
+	}
+}
+
+// TestMethodOnlyFileCleanError proves a .gsx whose only component is a method
+// component yields the clean "method components not supported yet" error rather
+// than an "imported and not used" error masking it (the skeleton imports _gsxrt
+// but, with no rendered components, must still reference it via var _).
+func TestMethodOnlyFileCleanError(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+type P struct{}
+
+component (p P) View() {
+	<p>x</p>
+}
+`,
+	}
+	tmp := t.TempDir()
+	repoRoot, _ := filepath.Abs("../..")
+	writeFile(t, tmp, "go.mod", "module gsxmeth\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pkgDir := filepath.Join(tmp, "genpkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for n, c := range files {
+		writeFile(t, pkgDir, n, c)
+	}
+	_, err := GeneratePackage(pkgDir)
+	if err == nil {
+		t.Fatal("expected error for method component, got nil")
+	}
+	if strings.Contains(err.Error(), "imported") && strings.Contains(err.Error(), "not used") {
+		t.Fatalf("import-unused error masked the real diagnostic: %v", err)
+	}
+	if !strings.Contains(err.Error(), "method components not supported") {
+		t.Fatalf("expected method components not supported error, got: %v", err)
+	}
+}
+
 // TestRenderCrossFileAndComponent proves go/packages + Overlay resolves a type
 // defined in a sibling .go file (User) AND a cross-component call (<Footer/>).
 func TestRenderCrossFileAndComponent(t *testing.T) {

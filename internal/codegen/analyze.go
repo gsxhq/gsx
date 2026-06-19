@@ -33,6 +33,17 @@ func resolveTypesPkg(dir string, files map[string]*gsxast.File) (map[*gsxast.Int
 		skelComps[xpath] = comps
 	}
 
+	// Declare the _gsxuse probe helper exactly once, in a shared overlay file, so
+	// a multi-.gsx package doesn't redeclare it once per skeleton (which would
+	// fail type-checking for the whole package). harvest keys on the _gsxuse
+	// identifier; this file is absent from skelComps, so harvest skips it.
+	pkgName := ""
+	for _, f := range files {
+		pkgName = f.Package
+		break
+	}
+	overlay[filepath.Join(dir, "gsxshared.x.go")] = []byte("package " + pkgName + "\n\nfunc _gsxuse(...any) {}\n")
+
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 			packages.NeedImports | packages.NeedDeps | packages.NeedTypes |
@@ -83,7 +94,10 @@ func buildSkeleton(file *gsxast.File) (string, []*gsxast.Component, error) {
 	var bodies []string
 	for _, d := range file.Decls {
 		if gc, ok := d.(*gsxast.GoChunk); ok {
-			imps, body := splitChunk(gc.Src)
+			imps, body, err := splitChunk(gc.Src)
+			if err != nil {
+				return "", nil, err
+			}
 			imports = append(imports, imps...)
 			if body != "" {
 				bodies = append(bodies, body)
@@ -101,7 +115,10 @@ func buildSkeleton(file *gsxast.File) (string, []*gsxast.Component, error) {
 			fmt.Fprintf(&sb, "import %q\n", imp.path)
 		}
 	}
-	sb.WriteString("func _gsxuse(...any) {}\n")
+	// Always reference _gsxrt so the import stays used even when the file has no
+	// non-method components (e.g. a method-only file whose components are skipped
+	// below) — otherwise the import-unused error masks the real diagnostic.
+	sb.WriteString("var _ _gsxrt.Node\n")
 	for _, body := range bodies {
 		sb.WriteString(body)
 		sb.WriteByte('\n')
@@ -394,14 +411,16 @@ type importSpec struct {
 // declarations from the chunk, so non-import content is preserved exactly.
 //
 // A chunk may freely mix an import with following type/func declarations (the
-// common top-of-file layout); both parts are returned. If the chunk is
-// unparseable or carries no imports, it is passed through unchanged as the body.
-func splitChunk(src string) (imports []importSpec, body string) {
+// common top-of-file layout); both parts are returned. If the chunk carries no
+// imports, it is passed through unchanged as the body. If the chunk is invalid
+// Go (e.g. an import after a func), an error is returned so the caller can
+// surface a clean diagnostic instead of leaking it into a later resolution pass.
+func splitChunk(src string) (imports []importSpec, body string, err error) {
 	const prefix = "package _gsxp\n"
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "", prefix+src, parser.ParseComments)
 	if err != nil {
-		return nil, src // unparseable: pass through unchanged
+		return nil, "", fmt.Errorf("codegen: invalid Go in pass-through block: %w", err)
 	}
 	const shift = len(prefix)
 	type span struct{ lo, hi int }
@@ -429,7 +448,7 @@ func splitChunk(src string) (imports []importSpec, body string) {
 		})
 	}
 	if len(cut) == 0 {
-		return nil, src
+		return nil, src, nil
 	}
 	var b strings.Builder
 	prev := 0
@@ -441,7 +460,7 @@ func splitChunk(src string) (imports []importSpec, body string) {
 		prev = c.hi
 	}
 	b.WriteString(src[prev:])
-	return imports, strings.TrimSpace(b.String())
+	return imports, strings.TrimSpace(b.String()), nil
 }
 
 // fieldName maps a param name to its props struct field (first letter upper).
