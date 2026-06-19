@@ -23,6 +23,8 @@ func TestSoundnessNoDesync(t *testing.T) {
 		{"multi-component apostrophe", "package p\ncomponent A() { <p>Jack's</p> }\ncomponent B() { <span>ok</span> }"},
 		{"for range slice literal", "package p\ncomponent C() { <ul>{ for _, v := range []int{1,2} { <li>{v}</li> } }</ul> }"},
 		{"for range map literal", "package p\ncomponent C() { { for k := range map[string]int{\"a\":1} { <i>{k}</i> } } }"},
+		{"apostrophe in case body (same line)", "package p\ncomponent C(x int) { { switch x { case 1: <a>it's</a> case 2: <b/> } } }"},
+		{"apostrophe before switch (same line)", "package p\ncomponent C(x int) { <p>Jack's</p> { switch x { case 1: <a/> } } }"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

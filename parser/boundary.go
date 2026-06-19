@@ -86,23 +86,23 @@ func blockHeaderParses(header string) bool {
 }
 
 // scanToCaseColon returns the index of the ':' that ends a switch case list,
-// scanning Go tokens from offset `from` and returning the first ':' at
-// paren/bracket/brace depth 0. ok is false if no such ':' is found.
+// scanning Go tokens from `from` (the start of the case list) and returning the
+// first ':' at paren/bracket/brace depth 0. Scanning starts at `from` — not
+// offset 0 — so markup prose before the case list (e.g. an earlier case body
+// with an apostrophe) is never tokenized and cannot desync the scanner. ok is
+// false if no such ':' is found.
 func scanToCaseColon(src string, from int) (int, bool) {
+	sub := src[from:]
 	fset := token.NewFileSet()
-	file := fset.AddFile("", fset.Base(), len(src))
+	file := fset.AddFile("", fset.Base(), len(sub))
 	var s scanner.Scanner
-	s.Init(file, []byte(src), func(token.Position, string) {}, scanner.ScanComments)
+	s.Init(file, []byte(sub), func(token.Position, string) {}, scanner.ScanComments)
 
 	depth := 0
 	for {
 		pos, tok, _ := s.Scan()
 		if tok == token.EOF {
 			return 0, false
-		}
-		off := fset.Position(pos).Offset
-		if off < from {
-			continue
 		}
 		switch tok {
 		case token.LPAREN, token.LBRACK, token.LBRACE:
@@ -111,7 +111,7 @@ func scanToCaseColon(src string, from int) (int, bool) {
 			depth--
 		case token.COLON:
 			if depth == 0 {
-				return off, true
+				return from + fset.Position(pos).Offset, true
 			}
 		}
 	}
