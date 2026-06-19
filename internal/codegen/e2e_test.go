@@ -2,7 +2,6 @@ package codegen
 
 import (
 	"fmt"
-	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,68 +11,7 @@ import (
 	"testing"
 
 	"golang.org/x/net/html"
-
-	"github.com/gsxhq/gsx/parser"
 )
-
-// packageClause matches the `package <name>` clause of the generated source so
-// we can rewrite it to `package main` for the temp render module.
-var packageClause = regexp.MustCompile(`(?m)^package\s+\w+`)
-
-// renderGSX parses gsxSrc, runs Generate, assembles a throwaway Go module that
-// renders the component, runs it, and returns the rendered HTML.
-//
-// invocation is the Go expression that builds and is rendered, e.g.
-// `Greeting(GreetingProps{Name: "World", Count: 3})`. The harness wraps it as
-// `_ = <invocation>.Render(context.Background(), os.Stdout)`.
-//
-// Any failure (parse, generate, go run) fails the test, including the generated
-// source and the go tool output for debuggability.
-func renderGSX(t *testing.T, gsxSrc, invocation string) string {
-	t.Helper()
-	if testing.Short() {
-		t.Skip("skipping go-run render test in -short mode")
-	}
-
-	repoRoot, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatalf("repo root: %v", err)
-	}
-
-	file, err := parser.ParseFile(token.NewFileSet(), "component.gsx", gsxSrc, 0)
-	if err != nil {
-		t.Fatalf("parse:\n%s\nerror: %v", gsxSrc, err)
-	}
-	out, err := Generate(file)
-	if err != nil {
-		t.Fatalf("generate:\n%s\nerror: %v", gsxSrc, err)
-	}
-	gen := string(out)
-	genMain := packageClause.ReplaceAllString(gen, "package main")
-
-	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module gsxrender\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
-	writeFile(t, dir, "component.go", genMain)
-	writeFile(t, dir, "main.go", fmt.Sprintf(`package main
-
-import (
-	"context"
-	"os"
-)
-
-func main() {
-	_ = %s.Render(context.Background(), os.Stdout)
-}
-`, invocation))
-
-	cmd := exec.Command("go", "run", ".")
-	cmd.Dir = dir
-	rendered, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("go run failed: %v\n--- generated ---\n%s\n--- go output ---\n%s", err, genMain, rendered)
-	}
-	return string(rendered)
-}
 
 // assertHTMLEqual compares got and want as HTML by structure, ignoring
 // insignificant inter-element whitespace and formatting differences. On
@@ -174,18 +112,22 @@ func nodeLabel(n *html.Node) string {
 // TestRenderFieldAccess proves go/types resolves a struct field-access
 // interpolation (user.Name string, user.Age int) end-to-end.
 func TestRenderFieldAccess(t *testing.T) {
-	src := `package examples
+	files := map[string]string{
+		"model.go": `package views
 
 type User struct {
 	Name string
 	Age  int
 }
+`,
+		"views.gsx": `package views
 
 component Profile(user User) {
 	<p>{user.Name} is {user.Age}</p>
 }
-`
-	got := renderGSX(t, src, `Profile(ProfileProps{User: User{Name: "Alice", Age: 30}})`)
+`,
+	}
+	got := renderPackage(t, files, `p.Profile(p.ProfileProps{User: p.User{Name: "Alice", Age: 30}})`)
 	assertHTMLEqual(t, got, "<p>Alice is 30</p>")
 }
 
@@ -230,8 +172,6 @@ import (
 	p "gsxrender/genpkg"
 )
 
-var _ = p.Footer
-
 func main() {
 	_ = `+invocation+`.Render(context.Background(), os.Stdout)
 }
@@ -243,6 +183,41 @@ func main() {
 		t.Fatalf("go run failed: %v\n%s", err, out)
 	}
 	return string(out)
+}
+
+// TestProbeAcceptsMultiValueExpr is a forward check that the probe type-checks a
+// (T, error) interpolation expression (multi-value), which the old `_ = (expr)`
+// probe could not. Full unwrap rendering lands in Task 3; here we only assert
+// the package RESOLVES + GENERATES without a type error.
+func TestProbeAcceptsMultiValueExpr(t *testing.T) {
+	files := map[string]string{
+		"helpers.go": `package views
+
+func lookup(k string) (string, error) { return k, nil }
+`,
+		"views.gsx": `package views
+
+component Label(key string) {
+	<span>{lookup(key)}</span>
+}
+`,
+	}
+	tmp := t.TempDir()
+	repoRoot, _ := filepath.Abs("../..")
+	writeFile(t, tmp, "go.mod", "module gsxr\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pkgDir := filepath.Join(tmp, "genpkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for n, c := range files {
+		writeFile(t, pkgDir, n, c)
+	}
+	// Resolution must succeed (the multi-value expr type-checks under _gsxuse);
+	// EMISSION may still error "not supported yet" until Task 3 — that is fine.
+	_, err := GeneratePackage(pkgDir)
+	if err != nil && strings.Contains(err.Error(), "type resolution failed") {
+		t.Fatalf("probe failed to type-check a (T,error) expr: %v", err)
+	}
 }
 
 // TestRenderCrossFileAndComponent proves go/packages + Overlay resolves a type
