@@ -549,6 +549,11 @@ func (p *parser) parseElement() (ast.Markup, error) {
 	}
 	p.i++ // past '<'
 
+	// `<!…`: DOCTYPE or HTML comment (both preserved verbatim).
+	if p.peek() == '!' {
+		return p.parseBang(start, startPos, resolvedPos)
+	}
+
 	// Fragment: <>…</>
 	if p.peek() == '>' {
 		p.i++ // past '>'
@@ -587,6 +592,18 @@ func (p *parser) parseElement() (ast.Markup, error) {
 	}
 	p.i++ // past '>'
 
+	// Raw-text elements (<script>, <style>): content is verbatim until the
+	// matching case-insensitive close tag. No markup/interpolation inside.
+	if isRawTextTag(tag) {
+		children, err := p.parseRawTextBody(tag, resolvedPos)
+		if err != nil {
+			return nil, err
+		}
+		el := &ast.Element{Tag: tag, Attrs: attrs, Children: children}
+		ast.SetSpan(el, startPos, p.posAt(p.i))
+		return el, nil
+	}
+
 	children, err := p.parseChildren(tag)
 	if err != nil {
 		return nil, err
@@ -594,6 +611,90 @@ func (p *parser) parseElement() (ast.Markup, error) {
 	el := &ast.Element{Tag: tag, Attrs: attrs, Children: children}
 	ast.SetSpan(el, startPos, p.posAt(p.i))
 	return el, nil
+}
+
+// isRawTextTag reports whether tag is an HTML raw-text element (case-insensitive
+// "script" or "style"), whose body is consumed verbatim.
+func isRawTextTag(tag string) bool {
+	switch strings.ToLower(tag) {
+	case "script", "style":
+		return true
+	}
+	return false
+}
+
+// parseBang parses a `<!…` construct after the leading `<!` `!` byte: either an
+// HTML comment `<!-- … -->` or a `<!DOCTYPE …>` declaration. The cursor is at the
+// '!'. start is the byte offset of the opening '<'; startPos/resolvedPos describe it.
+func (p *parser) parseBang(start int, startPos token.Pos, resolvedPos token.Position) (ast.Markup, error) {
+	if p.at("!--") {
+		p.i += len("!--") // past '!--'
+		bodyStart := p.i
+		for !p.eof() {
+			if p.at("-->") {
+				text := p.src[bodyStart:p.i]
+				p.i += len("-->")
+				n := &ast.HTMLComment{Text: text}
+				ast.SetSpan(n, startPos, p.posAt(p.i))
+				return n, nil
+			}
+			p.i++
+		}
+		return nil, fmt.Errorf("%d:%d: unterminated `<!--` comment", resolvedPos.Line, resolvedPos.Column)
+	}
+	// DOCTYPE (case-insensitive); cursor at '!'.
+	if len(p.src)-p.i >= len("!doctype") &&
+		strings.EqualFold(p.src[p.i+1:p.i+1+len("doctype")], "doctype") {
+		for !p.eof() {
+			if p.peek() == '>' {
+				p.i++ // past '>'
+				n := &ast.Doctype{Text: p.src[start:p.i]}
+				ast.SetSpan(n, startPos, p.posAt(p.i))
+				return n, nil
+			}
+			p.i++
+		}
+		return nil, fmt.Errorf("%d:%d: unterminated `<!DOCTYPE`", resolvedPos.Line, resolvedPos.Column)
+	}
+	return nil, fmt.Errorf("%d:%d: expected `<!--` or `<!DOCTYPE` after `<!`", resolvedPos.Line, resolvedPos.Column)
+}
+
+// parseRawTextBody consumes a raw-text element body verbatim until the matching
+// case-insensitive `</tag>` close tag, which it consumes. Returns a single Text
+// child (or no children when the body is empty). openPos describes the open tag,
+// used for the unterminated error.
+func (p *parser) parseRawTextBody(tag string, openPos token.Position) ([]ast.Markup, error) {
+	bodyStart := p.i
+	bodyStartPos := p.posAt(p.i)
+	closeLower := "</" + strings.ToLower(tag)
+	for !p.eof() {
+		if p.peek() == '<' && p.i+1 < len(p.src) && p.src[p.i+1] == '/' &&
+			p.i+len(closeLower) <= len(p.src) &&
+			strings.EqualFold(p.src[p.i:p.i+len(closeLower)], closeLower) {
+			// Confirm the char after the tag name terminates it (space or '>').
+			after := p.i + len(closeLower)
+			if after >= len(p.src) || !isTagNameByte(p.src[after]) {
+				rawEnd := p.i
+				raw := p.src[bodyStart:rawEnd]
+				// consume close tag </tag …>
+				p.i += len(closeLower)
+				p.skipSpace()
+				if p.peek() != '>' {
+					cp := p.file.Position(p.pos())
+					return nil, fmt.Errorf("%d:%d: malformed close tag </%s>", cp.Line, cp.Column, tag)
+				}
+				p.i++ // past '>'
+				if raw == "" {
+					return nil, nil
+				}
+				n := &ast.Text{Value: raw}
+				ast.SetSpan(n, bodyStartPos, p.posAt(rawEnd))
+				return []ast.Markup{n}, nil
+			}
+		}
+		p.i++
+	}
+	return nil, fmt.Errorf("%d:%d: unterminated raw-text element <%s>", openPos.Line, openPos.Column, tag)
 }
 
 func (p *parser) parseChildren(closeTag string) ([]ast.Markup, error) {
