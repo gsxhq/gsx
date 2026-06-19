@@ -19,13 +19,12 @@ func (p *parser) parseInterp() (*ast.Interp, error) {
 		return nil, fmt.Errorf("%d:%d: unterminated `{`", resolvedPos.Line, resolvedPos.Column)
 	}
 	inner := strings.TrimSpace(p.src[p.i+1 : end])
-	try := false
-	if strings.HasSuffix(inner, "?") {
-		try = true
-		inner = strings.TrimSpace(strings.TrimSuffix(inner, "?"))
+	seed, seedTry, stages, perr := parsePipe(inner)
+	if perr != nil {
+		return nil, fmt.Errorf("%d:%d: %v", resolvedPos.Line, resolvedPos.Column, perr)
 	}
 	p.i = end + 1
-	n := &ast.Interp{Expr: inner, Try: try}
+	n := &ast.Interp{Expr: seed, Try: seedTry, Stages: stages}
 	ast.SetSpan(n, startPos, p.posAt(p.i))
 	return n, nil
 }
@@ -525,7 +524,7 @@ func (p *parser) parseAttrBraceValue(name string, attrStartPos token.Pos) (ast.A
 	if err != nil {
 		return nil, err
 	}
-	ea := &ast.ExprAttr{Name: name, Expr: in.Expr, Try: in.Try}
+	ea := &ast.ExprAttr{Name: name, Expr: in.Expr, Try: in.Try, Stages: in.Stages}
 	ast.SetSpan(ea, attrStartPos, in.End())
 	return ea, nil
 }

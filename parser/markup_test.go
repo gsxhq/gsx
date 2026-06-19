@@ -755,3 +755,38 @@ func TestParseIfParenComposite(t *testing.T) {
 		t.Fatalf("then = %#v", n.Then)
 	}
 }
+
+func TestParseInterpPipeline(t *testing.T) {
+	f := parseStringT(t, "package p\ncomponent C() { <p>{ name |> upper |> truncate(20) }</p> }\n")
+	var interp *ast.Interp
+	ast.Inspect(f, func(n ast.Node) bool {
+		if i, ok := n.(*ast.Interp); ok {
+			interp = i
+		}
+		return true
+	})
+	if interp == nil {
+		t.Fatal("no Interp found")
+	}
+	if interp.Expr != "name" {
+		t.Errorf("seed = %q, want \"name\"", interp.Expr)
+	}
+	want := []ast.PipeStage{{Name: "upper"}, {Name: "truncate", Args: "20", HasArgs: true}}
+	if !reflect.DeepEqual(interp.Stages, want) {
+		t.Errorf("stages = %#v, want %#v", interp.Stages, want)
+	}
+}
+
+func TestParseAttrPipeline(t *testing.T) {
+	f := parseStringT(t, "package p\ncomponent C() { <a href={ u |> absolute }>x</a> }\n")
+	var ea *ast.ExprAttr
+	ast.Inspect(f, func(n ast.Node) bool {
+		if a, ok := n.(*ast.ExprAttr); ok {
+			ea = a
+		}
+		return true
+	})
+	if ea == nil || ea.Expr != "u" || len(ea.Stages) != 1 || ea.Stages[0].Name != "absolute" {
+		t.Fatalf("ExprAttr pipeline not parsed: %#v", ea)
+	}
+}
