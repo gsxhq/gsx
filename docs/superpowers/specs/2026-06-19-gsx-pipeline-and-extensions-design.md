@@ -114,6 +114,32 @@ A pipeline as a **filter argument** (`items |> join(sep |> upper)`) is
 implementable later if wanted (we control the post-`|>` grammar) but is **deferred
 (YAGNI)**.
 
+### A.4.1 Map / reduce / collection transforms
+
+The contract already covers collection processing, because a whole-collection
+operation is just a `func([]T) R` (or `func(Args…) func([]T) R`) filter:
+
+```go
+{ tags  |> unique |> sort |> join(", ") }   // []string → … → string
+{ items |> take(3) |> mapEach(displayName) }
+{ nums  |> reduce(addInt, 0) }              // reduce-to-scalar
+{ items |> filter(isActive) }
+```
+
+- **Reduce / aggregate / whole-slice ops** (`sum`, `join`, `sort`, `take`,
+  `reverse`, `unique`, `filter`, `reduce`) — fully supported, nothing new. Generics
+  make them clean: `func Reduce[T, A any](fn func(A, T) A, init A) func([]T) A`.
+- **Map-for-rendering** — use a `for` loop with a per-item pipeline (idiomatic
+  JSX/templ); not a filter.
+- **Map-to-a-value** — a higher-order `mapEach(transform)` of type
+  `func(func(T) U) func([]T) []U`. The `transform` **argument is opaque Go**, so a
+  **func literal or in-scope function works today**
+  (`mapEach(func(u User) string { return u.Name })`). The *only* gap is naming an
+  **ambient filter** in argument position (`mapEach(upper)`), which needs filter
+  resolution in argument position — the deferred A.4 item, of which map is the
+  strongest motivator. Decision: **leave deferred**; the func-literal/in-scope-func
+  form covers the need until the sugar is proven missed.
+
 ### A.5 Interactions
 
 - **`?` try-marker (error propagation).** Each stage may be failable. A failable
