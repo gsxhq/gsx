@@ -4,9 +4,7 @@ import (
 	"flag"
 	"go/token"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/gsxhq/gsx/parser"
@@ -60,43 +58,8 @@ func TestGenerateSource(t *testing.T) {
 // TestRenderEndToEnd compiles and runs the generated code against the real
 // runtime and asserts the rendered HTML — the seed of render.golden.
 func TestRenderEndToEnd(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping go-run render test in -short mode")
-	}
-	repoRoot, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	gen := generate(t, greetingSrc)
-	// Reuse the generated decls in a package main harness.
-	genMain := strings.Replace(gen, "package examples", "package main", 1)
-
-	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module gsxrender\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
-	writeFile(t, dir, "greeting.go", genMain)
-	writeFile(t, dir, "main.go", `package main
-
-import (
-	"context"
-	"os"
-)
-
-func main() {
-	_ = Greeting(GreetingProps{Name: "World", Count: 3}).Render(context.Background(), os.Stdout)
-}
-`)
-
-	cmd := exec.Command("go", "run", ".")
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("go run failed: %v\n%s", err, out)
-	}
-	want := "<p>Hello, World! You have 3 messages.</p>"
-	if string(out) != want {
-		t.Fatalf("rendered HTML mismatch:\n got %q\nwant %q", string(out), want)
-	}
+	got := renderGSX(t, greetingSrc, `Greeting(GreetingProps{Name: "World", Count: 3})`)
+	assertHTMLEqual(t, got, "<p>Hello, World! You have 3 messages.</p>")
 }
 
 func writeFile(t *testing.T, dir, name, content string) {
