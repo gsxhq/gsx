@@ -76,7 +76,7 @@ the AST, independent of the value's type.
 | Resolved type | Text context | Notes |
 |---|---|---|
 | `string`, `[]byte` | `gw.Text(s)` / `gw.Text(string(b))` | HTML-escaped |
-| integer / float | `gw.Text(strconv.…)` | formatted then escaped |
+| integer / float | `gw.Text(strconv.…)` | **minimal default** — raw formatting; ergonomic formatting is the pipeline (below) |
 | `bool` | `gw.Text("true"/"false")` text; boolean-attr in attribute position | context-dependent |
 | `gsx.Node` (anything with `Render(ctx,w) error`) | `gw.Node(ctx, n)` | rendered inline, nil-safe |
 | `[]gsx.Node` | loop `gw.Node` | each in order |
@@ -84,6 +84,31 @@ the AST, independent of the value's type.
 | `gsx.Raw` | `gw.Node(ctx, x)` | trusted, unescaped (Raw is a Node) |
 | `(T, error)` (2-value) | unwrap+propagate (see Errors) | T then rendered by its row |
 | anything else | **compile-time diagnostic** | clear `.gsx`-positioned error |
+
+### Pipeline `|>` and numeric/value formatting
+
+The raw `numeric → strconv` row is a deliberately minimal default. The
+**ergonomic** way to format a value — floats especially — is the pipeline
+(`2026-06-19-gsx-pipeline-and-extensions-design.md`): `{ price |> formatDollar(2)
+}`, `{ n |> humanize }`, `{ tags |> join(", ") }`. Two facts make this cheap for
+codegen:
+
+- **Filters are generic Go functions; gsx does no type-specific dispatch.** One
+  `func Humanize[T constraints.Integer | constraints.Float](n T) string` covers
+  every numeric type. `{ n |> humanize }` → `Humanize(n)`; Go's type inference
+  specializes `T` from the argument.
+- **gsx supplies the type argument only where Go can't infer it.** A
+  parameterized filter `func FormatDollar[T Numeric](decimals int) func(T)
+  string` used as `{ f |> formatDollar(2) }` lowers to `formatDollar(2)(f)`, but
+  Go cannot infer `T` from `formatDollar(2)` — so gsx injects the **already-
+  resolved** seed type: `FormatDollar[float64](2)(f)`. This is the *only* use of
+  type info in the pipeline (supplying a type arg, never dispatching). gsx then
+  resolves the filter's **result** type to pick the render call. The pipeline
+  composes before the escaper.
+
+Because filter-name resolution is the same `go/types` harvest the analyzer
+already performs, the pipeline is **ergonomically load-bearing (numerics) and
+infrastructurally cheap** — so it is an **early v1 phase**, not deep-deferred.
 
 ### Attributes
 
@@ -151,16 +176,20 @@ goldens, starting from the spike as the seed: components + method components;
 params→props + local-binding; full-type interpolation (the §5 table); control
 flow (`if`/`for`/`switch`, `{{ }}`); attributes (static/expr/bool/composable
 class+style/spread/conditional); child components with props + `{children}`;
-context-aware escaping; error auto-unwrap; `//line` maps; collapse the spike's
-transitional probe path onto `go/packages`. The implementation plan decides the
-exact phase boundaries (likely: core emit + interpolation → control flow →
-attributes → child components → fallthrough/diagnostics).
+context-aware escaping; error auto-unwrap; `//line` maps; the **pipeline `|>` +
+filter resolution + a starter `std`** (ergonomically load-bearing for numeric
+formatting, and cheap given the analyzer); collapse the spike's transitional
+probe path onto `go/packages`. The implementation plan decides the exact phase
+boundaries (likely: core emit + interpolation → control flow → attributes →
+pipeline+filters → child components → fallthrough/diagnostics).
 
 **Deferred (own specs/plans later):**
 - Auto-fallthrough attribute placement + its compile-time ambiguity errors (may
   land late in v1 or as v1.1).
 - The `gen.Main` CLI / `generate` command / file-watching / incremental builds.
-- Pipeline `|>` + filter resolution + `std` (its own design already written).
+- The full `std` filter inventory + initialism-aware filter naming + the
+  argument-position filter resolution (`mapEach(upper)`) — the pipeline *core*
+  is in v1; these refinements are not.
 - The structured `internal/diag` model (codes/ranges/JSON).
 - Pluggable attr→field and filter-name mappers.
 
