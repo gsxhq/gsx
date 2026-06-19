@@ -7,14 +7,16 @@ import (
 )
 
 // goExprEnd returns the index of the `}` that matches the `{` at src[open],
-// scanning Go tokens so that braces inside strings, runes, and comments do not
-// count. ok is false if no matching brace is found.
+// scanning Go tokens from `open` so that (a) braces inside strings, runes, and
+// comments do not count and (b) any markup prose BEFORE `open` is never
+// tokenized. ok is false if no matching brace is found.
 func goExprEnd(src string, open int) (int, bool) {
+	sub := src[open:]
 	fset := token.NewFileSet()
-	file := fset.AddFile("", fset.Base(), len(src))
+	file := fset.AddFile("", fset.Base(), len(sub))
 	var s scanner.Scanner
 	// ScanComments so comment text (which may contain braces) is consumed as a unit.
-	s.Init(file, []byte(src), nil, scanner.ScanComments)
+	s.Init(file, []byte(sub), nil, scanner.ScanComments)
 
 	depth := 0
 	for {
@@ -22,17 +24,13 @@ func goExprEnd(src string, open int) (int, bool) {
 		if tok == token.EOF {
 			return 0, false
 		}
-		off := fset.Position(pos).Offset
-		if off < open {
-			continue
-		}
 		switch tok {
 		case token.LBRACE, token.LPAREN, token.LBRACK:
 			depth++
 		case token.RBRACE, token.RPAREN, token.RBRACK:
 			depth--
 			if depth == 0 && tok == token.RBRACE {
-				return off, true
+				return open + fset.Position(pos).Offset, true
 			}
 		}
 	}
@@ -107,12 +105,14 @@ func scanToCaseColon(src string, from int) (int, bool) {
 	}
 }
 
-// parenEnd returns the index of the `)` matching the `(` at src[open].
+// parenEnd returns the index of the `)` matching the `(` at src[open], scanning
+// Go tokens from `open` so prose before `open` is never tokenized.
 func parenEnd(src string, open int) (int, bool) {
+	sub := src[open:]
 	fset := token.NewFileSet()
-	file := fset.AddFile("", fset.Base(), len(src))
+	file := fset.AddFile("", fset.Base(), len(sub))
 	var s scanner.Scanner
-	s.Init(file, []byte(src), nil, scanner.ScanComments)
+	s.Init(file, []byte(sub), nil, scanner.ScanComments)
 
 	depth := 0
 	for {
@@ -120,17 +120,13 @@ func parenEnd(src string, open int) (int, bool) {
 		if tok == token.EOF {
 			return 0, false
 		}
-		off := fset.Position(pos).Offset
-		if off < open {
-			continue
-		}
 		switch tok {
 		case token.LPAREN, token.LBRACE, token.LBRACK:
 			depth++
 		case token.RPAREN, token.RBRACE, token.RBRACK:
 			depth--
 			if depth == 0 && tok == token.RPAREN {
-				return off, true
+				return open + fset.Position(pos).Offset, true
 			}
 		}
 	}
