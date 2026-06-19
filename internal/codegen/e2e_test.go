@@ -263,6 +263,24 @@ component Bad(_gsxfoo string) {
 	}
 }
 
+// TestReservedParamEmittedImport proves a param named after a package the
+// emitter references in the closure body (gsx, strconv) is rejected cleanly,
+// rather than producing non-compiling generated code via local-binding shadowing.
+func TestReservedParamEmittedImport(t *testing.T) {
+	for _, name := range []string{"gsx", "strconv"} {
+		files := map[string]string{
+			"views.gsx": "package views\n\ncomponent Bad(" + name + " string, n int) {\n\t<p>{" + name + "}{n}</p>\n}\n",
+		}
+		err := generatePackageErr(t, files)
+		if err == nil {
+			t.Fatalf("param %q: expected reserved-name error, got nil", name)
+		}
+		if !strings.Contains(err.Error(), "reserved") {
+			t.Fatalf("param %q: expected clean reserved-name error, got: %v", name, err)
+		}
+	}
+}
+
 // TestRenderPointerNode proves a *Widget param whose POINTER implements Render
 // (pointer-receiver) classifies as catNode and renders via gw.Node(ctx, ptr),
 // since *Widget's value method set has Render.

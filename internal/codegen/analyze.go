@@ -451,9 +451,21 @@ func checkReservedParams(params []param) error {
 		if strings.HasPrefix(p.name, "_gsx") {
 			return fmt.Errorf("codegen: param name %q uses the reserved _gsx prefix", p.name)
 		}
+		// Package identifiers the emitter references inside the closure body: a
+		// same-named param would shadow them via local-binding and break the
+		// generated code. (The runtime import and strconv are the only package
+		// idents emitted into bodies today; a more robust fix would _gsx-alias
+		// generator-emitted imports — tracked for phase 2.)
+		if emittedImportIdent[p.name] {
+			return fmt.Errorf("codegen: param name %q is reserved (shadows a generated import)", p.name)
+		}
 	}
 	return nil
 }
+
+// emittedImportIdent is the set of package identifiers the emitter references in
+// a render closure body (see genInterp/emitRender and genComponent).
+var emittedImportIdent = map[string]bool{"gsx": true, "strconv": true}
 
 // importSpec is one parsed import hoisted from a pass-through Go chunk: an
 // import path with an optional explicit name ("", a package alias, "." or "_").
