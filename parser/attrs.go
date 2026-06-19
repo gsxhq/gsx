@@ -215,7 +215,7 @@ func (p *parser) parseCondAttrTail() (*ast.CondAttr, error) {
 	kwPos := p.posAt(p.i)
 	p.i += 2 // past 'if'
 	condStart := p.i
-	braceOff, ok := scanToBlockBrace(p.src, p.i)
+	braceOff, ok := scanToBlockBrace(p.src, p.i, "if")
 	if !ok {
 		cp := p.file.Position(p.posAt(p.i))
 		return nil, fmt.Errorf("%d:%d: expected `{` after `if` condition", cp.Line, cp.Column)

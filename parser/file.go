@@ -53,8 +53,6 @@ func ParseFile(fset *token.FileSet, filename string, src any, mode Mode) (*ast.F
 		return nil, err
 	}
 
-	offsets := topLevelComponentOffsets(srcBytes)
-
 	f := &ast.File{
 		Package: pkgName,
 	}
@@ -62,15 +60,14 @@ func ParseFile(fset *token.FileSet, filename string, src any, mode Mode) (*ast.F
 
 	cursor := pkgEnd
 	p := newParser(file, srcStr)
-	for _, off := range offsets {
-		if off < cursor {
-			continue
+	for {
+		off, found := nextTopLevelComponent(srcStr, cursor)
+		if !found {
+			break
 		}
 		if chunk := strings.TrimSpace(srcStr[cursor:off]); chunk != "" {
-			chunkStart := file.Pos(cursor)
-			chunkEnd := file.Pos(off)
 			gc := &ast.GoChunk{Src: srcStr[cursor:off]}
-			ast.SetSpan(gc, chunkStart, chunkEnd)
+			ast.SetSpan(gc, file.Pos(cursor), file.Pos(off))
 			f.Decls = append(f.Decls, gc)
 		}
 		p.i = off
@@ -118,20 +115,24 @@ func scanPackage(file *token.File, src []byte) (name string, kwPos token.Pos, en
 	}
 }
 
-// topLevelComponentOffsets returns byte offsets of `component` identifiers that sit
-// at brace depth 0. Uses go/scanner so strings/comments/identifiers don't confuse it.
-func topLevelComponentOffsets(src []byte) []int {
+// nextTopLevelComponent returns the byte offset of the next `component`
+// identifier at brace depth 0 at or after `from`, scanning Go tokens over
+// src[from:]. The region [from, returned offset) is a pure-Go gap: component
+// bodies (which contain markup) begin after the `component` keyword and are
+// consumed by parseComponent, never by this scan. found is false if there is no
+// further top-level component.
+func nextTopLevelComponent(src string, from int) (int, bool) {
+	sub := src[from:]
 	localFset := token.NewFileSet()
-	localFile := localFset.AddFile("", localFset.Base(), len(src))
+	localFile := localFset.AddFile("", localFset.Base(), len(sub))
 	var s scanner.Scanner
-	s.Init(localFile, src, nil, scanner.ScanComments)
+	s.Init(localFile, []byte(sub), nil, scanner.ScanComments)
 
-	var offs []int
 	depth := 0
 	for {
 		pos, tok, lit := s.Scan()
 		if tok == token.EOF {
-			return offs
+			return 0, false
 		}
 		switch tok {
 		case token.LBRACE:
@@ -142,7 +143,7 @@ func topLevelComponentOffsets(src []byte) []int {
 			}
 		case token.IDENT:
 			if depth == 0 && lit == "component" {
-				offs = append(offs, localFset.Position(pos).Offset)
+				return from + localFset.Position(pos).Offset, true
 			}
 		}
 	}

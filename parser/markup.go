@@ -192,16 +192,19 @@ func (p *parser) braceKeyword() string {
 	return ""
 }
 
-// parseControlBody parses a markup sequence forming a control-flow body. The
-// cursor must be just past the opening '{'. It parses children until the
-// matching '}' at this level, consumes that '}', and returns the children.
-func (p *parser) parseControlBody() ([]ast.Markup, error) {
+// parseMarkupUntilClose parses a markup sequence terminated by the matching
+// top-level '}', which it consumes. `what` names the enclosing construct for the
+// unterminated-EOF error (e.g. "control-flow body", "component body"). Inter-node
+// whitespace is skipped; text within nodes is preserved. The terminating '}' is
+// the first top-level '}'; a '}' inside a nested element's text or a `{…}`
+// construct is consumed by those sub-parsers, not seen here.
+func (p *parser) parseMarkupUntilClose(what string) ([]ast.Markup, error) {
 	var nodes []ast.Markup
 	for {
 		p.skipSpace()
 		if p.eof() {
 			cp := p.file.Position(p.pos())
-			return nil, fmt.Errorf("%d:%d: unterminated control-flow body, expected `}`", cp.Line, cp.Column)
+			return nil, fmt.Errorf("%d:%d: unterminated %s, expected `}`", cp.Line, cp.Column, what)
 		}
 		switch {
 		case p.peek() == '}':
@@ -227,6 +230,12 @@ func (p *parser) parseControlBody() ([]ast.Markup, error) {
 	}
 }
 
+// parseControlBody parses a control-flow body: markup until the matching '}'.
+// The cursor must be just past the opening '{'.
+func (p *parser) parseControlBody() ([]ast.Markup, error) {
+	return p.parseMarkupUntilClose("control-flow body")
+}
+
 // parseForMarkup parses `{ for Clause { Body } }`. Cursor at '{'; the caller has
 // verified the leading keyword is "for".
 func (p *parser) parseForMarkup() (ast.Markup, error) {
@@ -235,7 +244,7 @@ func (p *parser) parseForMarkup() (ast.Markup, error) {
 	p.skipSpace()
 	p.i += len("for")
 	clauseStart := p.i
-	braceOff, ok := scanToBlockBrace(p.src, p.i)
+	braceOff, ok := scanToBlockBrace(p.src, p.i, "for")
 	if !ok {
 		cp := p.file.Position(p.posAt(p.i))
 		return nil, fmt.Errorf("%d:%d: expected `{` after `for` clause", cp.Line, cp.Column)
@@ -284,7 +293,7 @@ func (p *parser) parseIfTail() (*ast.IfMarkup, error) {
 	kwPos := p.posAt(p.i)
 	p.i += 2 // past 'if'
 	condStart := p.i
-	braceOff, ok := scanToBlockBrace(p.src, p.i)
+	braceOff, ok := scanToBlockBrace(p.src, p.i, "if")
 	if !ok {
 		cp := p.file.Position(p.posAt(p.i))
 		return nil, fmt.Errorf("%d:%d: expected `{` after `if` condition", cp.Line, cp.Column)
@@ -331,7 +340,7 @@ func (p *parser) parseSwitchMarkup() (ast.Markup, error) {
 	p.skipSpace()
 	p.i += len("switch")
 	tagStart := p.i
-	braceOff, ok := scanToBlockBrace(p.src, p.i)
+	braceOff, ok := scanToBlockBrace(p.src, p.i, "switch")
 	if !ok {
 		cp := p.file.Position(p.posAt(p.i))
 		return nil, fmt.Errorf("%d:%d: expected `{` after `switch`", cp.Line, cp.Column)
@@ -503,19 +512,11 @@ func (p *parser) parseAttrBraceValue(name string, attrStartPos token.Pos) (ast.A
 		j++
 	}
 	if j < len(p.src) && p.src[j] == '<' && j+1 < len(p.src) && startsTag(p.src[j+1]) {
-		end, ok := goExprEnd(p.src, p.i) // markup is brace-balanced too
-		if !ok {
-			return nil, fmt.Errorf("unterminated markup attribute %q", name)
-		}
-		innerStart := p.i + 1
-		inner := p.src[innerStart:end]
-		subBase := p.base + innerStart
-		sub := newSub(p.file, inner, subBase)
-		nodes, err := sub.parseNodesUntilEOF()
+		p.i++ // past '{'
+		nodes, err := p.parseMarkupUntilClose("markup attribute")
 		if err != nil {
 			return nil, err
 		}
-		p.i = end + 1
 		ma := &ast.MarkupAttr{Name: name, Value: nodes}
 		ast.SetSpan(ma, attrStartPos, p.posAt(p.i))
 		return ma, nil
@@ -642,34 +643,5 @@ func (p *parser) parseChildren(closeTag string) ([]ast.Markup, error) {
 			continue
 		}
 		nodes = append(nodes, p.parseText())
-	}
-}
-
-func (p *parser) parseNodesUntilEOF() ([]ast.Markup, error) {
-	var nodes []ast.Markup
-	for {
-		p.skipSpace()
-		if p.eof() {
-			return nodes, nil
-		}
-		switch {
-		case p.peek() == '<':
-			el, err := p.parseElement()
-			if err != nil {
-				return nil, err
-			}
-			nodes = append(nodes, el)
-		case p.peek() == '{':
-			node, skipped, err := p.parseBraceNode()
-			if err != nil {
-				return nil, err
-			}
-			if skipped {
-				continue
-			}
-			nodes = append(nodes, node)
-		default:
-			nodes = append(nodes, p.parseText())
-		}
 	}
 }

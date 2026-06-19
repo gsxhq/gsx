@@ -1,7 +1,10 @@
 // parser/boundary_test.go
 package parser
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestGoExprEnd(t *testing.T) {
 	cases := []struct {
@@ -44,5 +47,29 @@ func TestParenEnd(t *testing.T) {
 		if ok != c.ok || (ok && got != c.close) {
 			t.Errorf("parenEnd(%q) = (%d,%v), want (%d,%v)", c.src, got, ok, c.close, c.ok)
 		}
+	}
+}
+
+func TestGoExprEndIgnoresPrecedingProse(t *testing.T) {
+	// An apostrophe BEFORE the brace must not desync the scanner: goExprEnd is
+	// asked to match the brace at `open`, and only the region from `open` on
+	// (pure Go) should be tokenized.
+	src := `Today's items: {n}`
+	open := strings.IndexByte(src, '{')
+	end, ok := goExprEnd(src, open)
+	if !ok {
+		t.Fatalf("goExprEnd returned ok=false; want match at the closing brace")
+	}
+	if src[end] != '}' || end != len(src)-1 {
+		t.Fatalf("end=%d (src[end]=%q), want %d (the final '}')", end, string(src[end]), len(src)-1)
+	}
+}
+
+func TestParenEndIgnoresPrecedingProse(t *testing.T) {
+	src := `it's (a, b)`
+	open := strings.IndexByte(src, '(')
+	end, ok := parenEnd(src, open)
+	if !ok || src[end] != ')' || end != len(src)-1 {
+		t.Fatalf("parenEnd end=%d ok=%v, want final ')'", end, ok)
 	}
 }
