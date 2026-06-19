@@ -53,11 +53,15 @@ component Spinner() {
 }
 
 func TestMultiComponentWithApostrophe(t *testing.T) {
-	// B3: an apostrophe (same line as a brace) in the FIRST component's body must
-	// not cause the SECOND component to be dropped/misparsed.
+	// B3: an apostrophe on the SAME line as the body-closing brace must not cause
+	// the SECOND component to be dropped. (The apostrophe opens a rune literal that
+	// the old whole-file scan ran into; when the `}` is on that same line it gets
+	// swallowed, the depth never returns to 0, and B is missed. With the `}` on a
+	// separate line the rune terminates at the newline first — which is why the
+	// braces must be on the apostrophe's line to exercise the regression.)
 	src := "package p\n" +
-		"component A() {\n\t<p>Jack's profile</p>\n}\n" +
-		"component B() {\n\t<span>ok</span>\n}\n"
+		"component A() { <p>Jack's profile</p> }\n" +
+		"component B() { <span>ok</span> }\n"
 	file, err := ParseFile(token.NewFileSet(), "t.gsx", src, 0)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
