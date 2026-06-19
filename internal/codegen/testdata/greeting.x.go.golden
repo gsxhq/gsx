@@ -24,7 +24,7 @@ func Greeting(p GreetingProps) gsx.Node {
 		gw.S("Hello, ")
 		gw.Text(name)
 		gw.S("! You have ")
-		gw.Text(strconv.Itoa(count))
+		gw.Text(strconv.FormatInt(int64(count), 10))
 		gw.S(" messages.")
 		gw.S("</p>")
 		return gw.Err()

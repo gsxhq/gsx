@@ -9,6 +9,7 @@ import (
 	"go/token"
 	"go/types"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"golang.org/x/tools/go/packages"
@@ -78,9 +79,17 @@ func buildSkeleton(file *gsxast.File) (string, []*gsxast.Component, error) {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "package %s\n", file.Package)
 	sb.WriteString("import _gsxrt \"github.com/gsxhq/gsx\"\n")
+	// Import GoChunks must precede every other declaration, so hoist them ahead
+	// of the synthesized _gsxuse func and the rest of the pass-through Go.
+	for _, d := range file.Decls {
+		if gc, ok := d.(*gsxast.GoChunk); ok && isImportChunk(gc.Src) {
+			sb.WriteString(gc.Src)
+			sb.WriteByte('\n')
+		}
+	}
 	sb.WriteString("func _gsxuse(...any) {}\n")
 	for _, d := range file.Decls {
-		if gc, ok := d.(*gsxast.GoChunk); ok {
+		if gc, ok := d.(*gsxast.GoChunk); ok && !isImportChunk(gc.Src) {
 			sb.WriteString(gc.Src)
 			sb.WriteByte('\n')
 		}
@@ -176,19 +185,99 @@ type category int
 const (
 	catUnsupported category = iota
 	catString
+	catBytes
 	catInt
+	catUint
+	catFloat
+	catBool
+	catNode
+	catNodeSlice
+	catStringer
 )
 
+// classify maps a resolved type to a render category using structural checks
+// (method sets), so it needs no handle to the gsx.Node / fmt.Stringer interface
+// types.
 func classify(t types.Type) category {
-	if b, ok := t.Underlying().(*types.Basic); ok {
+	if t == nil {
+		return catUnsupported
+	}
+	if implementsNode(t) {
+		return catNode
+	}
+	if s, ok := t.Underlying().(*types.Slice); ok && implementsNode(s.Elem()) {
+		return catNodeSlice
+	}
+	if implementsStringer(t) {
+		return catStringer
+	}
+	switch u := t.Underlying().(type) {
+	case *types.Basic:
 		switch {
-		case b.Info()&types.IsString != 0:
+		case u.Info()&types.IsString != 0:
 			return catString
-		case b.Info()&types.IsInteger != 0:
+		case u.Info()&types.IsUnsigned != 0:
+			return catUint
+		case u.Info()&types.IsInteger != 0:
 			return catInt
+		case u.Info()&types.IsFloat != 0:
+			return catFloat
+		case u.Info()&types.IsBoolean != 0:
+			return catBool
+		}
+	case *types.Slice:
+		if b, ok := u.Elem().Underlying().(*types.Basic); ok && b.Kind() == types.Byte {
+			return catBytes
 		}
 	}
 	return catUnsupported
+}
+
+// implementsNode reports whether t has a method Render(context.Context, io.Writer) error.
+func implementsNode(t types.Type) bool {
+	m := lookupMethod(t, "Render")
+	if m == nil {
+		return false
+	}
+	sig := m.Type().(*types.Signature)
+	if sig.Params().Len() != 2 || sig.Results().Len() != 1 {
+		return false
+	}
+	if sig.Params().At(0).Type().String() != "context.Context" {
+		return false
+	}
+	if sig.Params().At(1).Type().String() != "io.Writer" {
+		return false
+	}
+	return sig.Results().At(0).Type().String() == "error"
+}
+
+// implementsStringer reports whether t has a method String() string.
+func implementsStringer(t types.Type) bool {
+	m := lookupMethod(t, "String")
+	if m == nil {
+		return false
+	}
+	sig := m.Type().(*types.Signature)
+	return sig.Params().Len() == 0 && sig.Results().Len() == 1 &&
+		sig.Results().At(0).Type().String() == "string"
+}
+
+func lookupMethod(t types.Type, name string) *types.Func {
+	ms := types.NewMethodSet(t)
+	if sel := ms.Lookup(nil, name); sel != nil {
+		if fn, ok := sel.Obj().(*types.Func); ok {
+			return fn
+		}
+	}
+	// also try the pointer method set (value may be addressable at the call site)
+	ms = types.NewMethodSet(types.NewPointer(t))
+	if sel := ms.Lookup(nil, name); sel != nil {
+		if fn, ok := sel.Obj().(*types.Func); ok {
+			return fn
+		}
+	}
+	return nil
 }
 
 func componentInterps(c *gsxast.Component) []*gsxast.Interp {
@@ -278,6 +367,49 @@ func parseParams(src string) ([]param, error) {
 		}
 	}
 	return out, nil
+}
+
+// importSpec is one parsed import from a pass-through Go chunk: an import path
+// with an optional explicit name ("", a package alias, "." or "_").
+type importSpec struct {
+	name string // "" for the default import name
+	path string // import path, unquoted
+}
+
+// isImportChunk reports whether a pass-through Go chunk is an import declaration.
+// Such chunks must be hoisted ahead of all other declarations in the emitted Go.
+func isImportChunk(src string) bool {
+	return len(importSpecsOf(src)) > 0
+}
+
+// importSpecsOf parses the import specs of a pass-through Go chunk. It returns
+// nil when the chunk is not (solely) an import declaration.
+func importSpecsOf(src string) []importSpec {
+	src = strings.TrimSpace(src)
+	f, err := parser.ParseFile(token.NewFileSet(), "", "package p\n"+src, parser.ImportsOnly)
+	if err != nil {
+		return nil
+	}
+	// Reject chunks that carry anything beyond imports.
+	for _, d := range f.Decls {
+		gd, ok := d.(*goast.GenDecl)
+		if !ok || gd.Tok != token.IMPORT {
+			return nil
+		}
+	}
+	var out []importSpec
+	for _, imp := range f.Imports {
+		path, err := strconv.Unquote(imp.Path.Value)
+		if err != nil {
+			return nil
+		}
+		var name string
+		if imp.Name != nil {
+			name = imp.Name.Name
+		}
+		out = append(out, importSpec{name: name, path: path})
+	}
+	return out
 }
 
 // fieldName maps a param name to its props struct field (first letter upper).

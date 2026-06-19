@@ -169,8 +169,11 @@ import (
 	"context"
 	"os"
 
+	"github.com/gsxhq/gsx"
 	p "gsxrender/genpkg"
 )
+
+var _ = gsx.Raw
 
 func main() {
 	_ = `+invocation+`.Render(context.Background(), os.Stdout)
@@ -218,6 +221,31 @@ component Label(key string) {
 	if err != nil && strings.Contains(err.Error(), "type resolution failed") {
 		t.Fatalf("probe failed to type-check a (T,error) expr: %v", err)
 	}
+}
+
+func TestRenderInterpTypes(t *testing.T) {
+	files := map[string]string{
+		"model.go": `package views
+
+import "fmt"
+
+type Money int
+
+func (m Money) String() string { return fmt.Sprintf("$%d", int(m)) }
+`,
+		"views.gsx": `package views
+
+import "github.com/gsxhq/gsx"
+
+component Demo(s string, n int, f float64, ok bool, node gsx.Node, price Money) {
+	<div>{s}|{n}|{f}|{ok}|{node}|{price}</div>
+}
+`,
+	}
+	got := renderPackage(t, files,
+		`p.Demo(p.DemoProps{S: "hi", N: 7, F: 3.5, Ok: true, Node: gsx.Raw("<b>x</b>"), Price: p.Money(9)})`)
+	// gsx.Raw renders verbatim; Money is a fmt.Stringer -> "$9"; bool -> "true".
+	assertHTMLEqual(t, got, `<div>hi|7|3.5|true|<b>x</b>|$9</div>`)
 }
 
 // TestRenderCrossFileAndComponent proves go/packages + Overlay resolves a type
