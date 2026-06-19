@@ -223,6 +223,26 @@ component Label(key string) {
 	}
 }
 
+// TestRenderTryUnwrap exercises the (T, error) auto-unwrap: an interpolation of
+// a func returning (string, error) is lowered to a temp + error-propagate, then
+// the value is rendered by its category.
+func TestRenderTryUnwrap(t *testing.T) {
+	files := map[string]string{
+		"helpers.go": `package views
+
+func greet(name string) (string, error) { return "Hi " + name, nil }
+`,
+		"views.gsx": `package views
+
+component Card(name string) {
+	<p>{greet(name)}</p>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Card(p.CardProps{Name: "Al"})`)
+	assertHTMLEqual(t, got, "<p>Hi Al</p>")
+}
+
 func TestRenderInterpTypes(t *testing.T) {
 	files := map[string]string{
 		"model.go": `package views

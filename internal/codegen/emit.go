@@ -15,6 +15,7 @@ import (
 // generateFile emits the .x.go for a parsed gsx file given already-resolved
 // interpolation types.
 func generateFile(file *ast.File, resolved map[*ast.Interp]types.Type) ([]byte, error) {
+	interpTemp = 0
 	imports := map[string]bool{
 		"context":              true,
 		"io":                   true,
@@ -164,6 +165,26 @@ func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[*ast.Interp]types.Ty
 		return fmt.Errorf("codegen spike: could not resolve type of interpolation %q", n.Expr)
 	}
 	expr := strings.TrimSpace(n.Expr)
+	if tup, ok := t.(*types.Tuple); ok {
+		if tup.Len() != 2 || tup.At(1).Type().String() != "error" {
+			return fmt.Errorf("codegen: interpolation %q returns %s; only (T, error) is supported", expr, t)
+		}
+		// v, err := expr; if err != nil { return err }; then render v by its type.
+		tmp := fmt.Sprintf("_gsxv%d", interpTemp)
+		interpTemp++
+		fmt.Fprintf(b, "\t\t%s, _gsxerr := %s\n\t\tif _gsxerr != nil {\n\t\t\treturn _gsxerr\n\t\t}\n", tmp, expr)
+		return emitRender(b, tmp, tup.At(0).Type(), imports)
+	}
+	return emitRender(b, expr, t, imports)
+}
+
+// interpTemp gives unique unwrap temp names within a generated file. It is reset
+// at the start of generateFile.
+var interpTemp int
+
+// emitRender writes the type-aware writer call for a single renderable value
+// named by expr (a verbatim expression or a temp identifier) and its type t.
+func emitRender(b *bytes.Buffer, expr string, t types.Type, imports map[string]bool) error {
 	switch classify(t) {
 	case catString:
 		fmt.Fprintf(b, "\t\tgw.Text(%s)\n", expr)
