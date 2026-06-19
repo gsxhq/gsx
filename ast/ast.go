@@ -146,14 +146,27 @@ type Text struct {
 
 func (*Text) markupNode() {}
 
-// Interp is `{ expr }` (Try=false) or `{ expr? }` (Try=true).
+// Interp is `{ expr }` (Try=false) or `{ expr? }` (Try=true). When Stages is
+// non-empty, Expr is the pipeline seed and Stages are applied left-to-right
+// (`seed |> s0 |> s1 …`).
 type Interp struct {
 	span
-	Expr string
-	Try  bool
+	Expr   string
+	Try    bool
+	Stages []PipeStage
 }
 
 func (*Interp) markupNode() {}
+
+// PipeStage is one `|> name` / `|> name(args)` filter in a pipeline. It is a
+// plain value, not a Node. HasArgs distinguishes `f` (bare → f(x)) from `f()`
+// (parameterized → f()(x)); Try records a trailing `?`.
+type PipeStage struct {
+	Name    string
+	Args    string
+	HasArgs bool
+	Try     bool
+}
 
 // StaticAttr is name="value".
 type StaticAttr struct {
@@ -163,11 +176,13 @@ type StaticAttr struct {
 
 func (*StaticAttr) attrNode() {}
 
-// ExprAttr is name={expr} or name={expr?}.
+// ExprAttr is name={expr} or name={expr?}. Stages mirrors Interp.Stages for a
+// pipelined attribute value (`name={ seed |> s0 … }`).
 type ExprAttr struct {
 	span
 	Name, Expr string
 	Try        bool
+	Stages     []PipeStage
 }
 
 func (*ExprAttr) attrNode() {}

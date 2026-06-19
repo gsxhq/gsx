@@ -72,12 +72,18 @@ func fprintNode(w io.Writer, node Node, depth int) error {
 		if _, err := fmt.Fprintf(w, "%sInterp expr=%q try=%v\n", indent, n.Expr, n.Try); err != nil {
 			return err
 		}
+		if err := fprintStages(w, indent, n.Stages); err != nil {
+			return err
+		}
 	case *StaticAttr:
 		if _, err := fmt.Fprintf(w, "%sStaticAttr name=%s value=%q\n", indent, n.Name, n.Value); err != nil {
 			return err
 		}
 	case *ExprAttr:
 		if _, err := fmt.Fprintf(w, "%sExprAttr name=%s expr=%q try=%v\n", indent, n.Name, n.Expr, n.Try); err != nil {
+			return err
+		}
+		if err := fprintStages(w, indent, n.Stages); err != nil {
 			return err
 		}
 	case *BoolAttr:
@@ -183,6 +189,18 @@ func fprintNode(w io.Writer, node Node, depth int) error {
 		}
 	default:
 		if _, err := fmt.Fprintf(w, "%s<unknown node %T>\n", indent, node); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// fprintStages renders a pipeline's filter stages as indented lines beneath
+// their Interp/ExprAttr, mirroring the ClassPart convention.
+func fprintStages(w io.Writer, indent string, stages []PipeStage) error {
+	for _, st := range stages {
+		if _, err := fmt.Fprintf(w, "%s  PipeStage name=%s args=%q hasArgs=%v try=%v\n",
+			indent, st.Name, st.Args, st.HasArgs, st.Try); err != nil {
 			return err
 		}
 	}

@@ -89,3 +89,24 @@ func TestFprintPart2(t *testing.T) {
 		t.Fatalf("Fprint mismatch:\n--- got ---\n%s\n--- want ---\n%s", b.String(), want)
 	}
 }
+
+func TestFprintInterpWithPipeStages(t *testing.T) {
+	n := &ast.Interp{
+		Expr: "name",
+		Stages: []ast.PipeStage{
+			{Name: "upper"},
+			{Name: "truncate", Args: "20", HasArgs: true},
+		},
+	}
+	var b strings.Builder
+	if err := ast.Fprint(&b, n); err != nil {
+		t.Fatal(err)
+	}
+	want := `Interp expr="name" try=false
+  PipeStage name=upper args="" hasArgs=false try=false
+  PipeStage name=truncate args="20" hasArgs=true try=false
+`
+	if b.String() != want {
+		t.Errorf("got:\n%s\nwant:\n%s", b.String(), want)
+	}
+}
