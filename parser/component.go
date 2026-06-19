@@ -60,18 +60,8 @@ func (p *parser) parseComponent() (*ast.Component, error) {
 		cp := p.file.Position(p.pos())
 		return nil, fmt.Errorf("%d:%d: expected `{` to open component body", cp.Line, cp.Column)
 	}
-	end, ok := goExprEnd(p.src, p.i)
-	if !ok {
-		cp := p.file.Position(p.pos())
-		return nil, fmt.Errorf("%d:%d: unterminated component body", cp.Line, cp.Column)
-	}
-	bodyStart := p.i + 1
-	body := p.src[bodyStart:end]
-	subBase := p.base + bodyStart
-	p.i = end + 1
-
-	sub := newSub(p.file, body, subBase)
-	nodes, err := sub.parseNodesUntilEOF()
+	p.i++ // past body '{'
+	nodes, err := p.parseMarkupUntilClose("component body")
 	if err != nil {
 		return nil, err
 	}

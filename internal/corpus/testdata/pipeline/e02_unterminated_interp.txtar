@@ -1,8 +1,8 @@
-# error: unterminated { in child content causes unterminated component body
+# error: unterminated { in child content swallows the close tag, so the element is unterminated
 -- input.gsx --
 package p
 
 component X() { <p>{ x </p> }
 -- ast.golden --
 -- diagnostics.golden --
-3:15: unterminated component body
+unexpected EOF, expected </p>

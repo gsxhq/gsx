@@ -192,16 +192,19 @@ func (p *parser) braceKeyword() string {
 	return ""
 }
 
-// parseControlBody parses a markup sequence forming a control-flow body. The
-// cursor must be just past the opening '{'. It parses children until the
-// matching '}' at this level, consumes that '}', and returns the children.
-func (p *parser) parseControlBody() ([]ast.Markup, error) {
+// parseMarkupUntilClose parses a markup sequence terminated by the matching
+// top-level '}', which it consumes. `what` names the enclosing construct for the
+// unterminated-EOF error (e.g. "control-flow body", "component body"). Inter-node
+// whitespace is skipped; text within nodes is preserved. The terminating '}' is
+// the first top-level '}'; a '}' inside a nested element's text or a `{…}`
+// construct is consumed by those sub-parsers, not seen here.
+func (p *parser) parseMarkupUntilClose(what string) ([]ast.Markup, error) {
 	var nodes []ast.Markup
 	for {
 		p.skipSpace()
 		if p.eof() {
 			cp := p.file.Position(p.pos())
-			return nil, fmt.Errorf("%d:%d: unterminated control-flow body, expected `}`", cp.Line, cp.Column)
+			return nil, fmt.Errorf("%d:%d: unterminated %s, expected `}`", cp.Line, cp.Column, what)
 		}
 		switch {
 		case p.peek() == '}':
@@ -225,6 +228,12 @@ func (p *parser) parseControlBody() ([]ast.Markup, error) {
 			nodes = append(nodes, p.parseTextCtx(true))
 		}
 	}
+}
+
+// parseControlBody parses a control-flow body: markup until the matching '}'.
+// The cursor must be just past the opening '{'.
+func (p *parser) parseControlBody() ([]ast.Markup, error) {
+	return p.parseMarkupUntilClose("control-flow body")
 }
 
 // parseForMarkup parses `{ for Clause { Body } }`. Cursor at '{'; the caller has
