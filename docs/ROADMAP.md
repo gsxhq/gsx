@@ -16,7 +16,7 @@ generator/CLI may use `golang.org/x/tools`.
 | Runtime (`gsx`) | ✅ done |
 | Codegen | 🟡 phase 1 done (foundation + interpolation); feature phases pending |
 | CLI / `gen.Main` | ⬜ not started |
-| Pipeline `|>` end-to-end | 🟡 parsed only — **codegen + filters not done** |
+| Pipeline `|>` end-to-end | 🟡 parsed + codegen errors cleanly (no silent drop) — **lowering + filters not done** |
 
 ## Done
 
@@ -46,9 +46,9 @@ Tested by source golden + ~21 compile-and-render goldens.
 Each is a spec/plan → SDD slice that graduates more of the example corpus to
 render goldens. Suggested order:
 
-1. ⬜ **Guard pipeline silent-drop** — make codegen ERROR on non-empty
-   `Interp.Stages`/`ExprAttr` stages until the pipeline is lowered (prevents
-   silently dropping filters). *Do first — it's a correctness hole today.*
+1. ✅ **Guard pipeline silent-drop** — codegen now errors on non-empty
+   `Interp.Stages` (interpolation). *(ExprAttr stages will be guarded when
+   attribute codegen lands — attributes aren't emitted yet.)*
 2. ⬜ **Control flow** — `{ if/for/switch }`, `{{ }}` → plain Go around writes.
 3. ⬜ **Attributes** — static / expr (type+context-aware: `AttrValue` vs `URL`) /
    bool / composable `class`+`style` / spread / conditional `{ if … { attr } }`.
