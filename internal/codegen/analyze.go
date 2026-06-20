@@ -139,10 +139,16 @@ func componentPropFieldsFor(files map[string]*gsxast.File) (map[string]map[strin
 			for _, p := range params {
 				fields[fieldName(p.name)] = true
 			}
-			if usesChildren(c.Body) {
+			hasChildren := usesChildren(c.Body)
+			if hasChildren {
 				fields["Children"] = true
 			}
-			if _, ok := singleRoot(c.Body); ok {
+			// Mirror the Attrs synthesis gate in genComponent/buildSkeleton exactly
+			// (hasFallthrough) so the map agrees with the struct that is actually
+			// emitted — a single-root NULLARY METHOD has no props struct at all, so
+			// it must NOT claim an Attrs field.
+			_, hasRoot := singleRoot(c.Body)
+			if hasRoot && (c.Recv == "" || len(params) > 0 || hasChildren) {
 				fields["Attrs"] = true
 			}
 			out[propsName] = fields
