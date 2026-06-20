@@ -14,7 +14,7 @@ generator/CLI may use `golang.org/x/tools`.
 |---|---|
 | Parser + AST | ✅ done (Part 2 grammar + pipeline parsing) |
 | Runtime (`gsx`) | ✅ done |
-| Codegen | 🟡 phase 1 done (foundation + interpolation) + control flow; attributes/pipeline/methods pending |
+| Codegen | 🟡 phase 1 (interpolation) + control flow + attributes (security core) done; pipeline/methods/composable class+style/spread pending |
 | CLI / `gen.Main` | ⬜ not started |
 | Pipeline `|>` end-to-end | 🟡 parsed + codegen errors cleanly (no silent drop) — **lowering + filters not done** |
 
@@ -51,8 +51,14 @@ render goldens. Suggested order:
    attribute codegen lands — attributes aren't emitted yet.)*
 2. ✅ **Control flow** — `{ if/for/switch }`, `{{ }}`, fragments → plain Go around
    writes (probe mirrors structure so loop-var/block-local interps resolve).
-3. ⬜ **Attributes** — static / expr (type+context-aware: `AttrValue` vs `URL`) /
-   bool / composable `class`+`style` / spread / conditional `{ if … { attr } }`.
+3. 🟡 **Attributes — security core done.** Static (always-quoted, codegen-escaped),
+   bool, and expr attrs with **structural context-aware escaping** (URL →
+   scheme-allow-list + entity-escape `gw.URL`; plain → §5 type-aware `gw.AttrValue`;
+   JS `on*`/`@*`/`hx-on*` and CSS `style` → **fail-closed compile error**). Attr-expr
+   type resolution via the probe pass (`resolved` keyed by `ast.Node`). Independent
+   adversarial security review: SHIP. **Deferred:** composable `class`+`style`,
+   spread, conditional `{ if … { attr } }`, attr `?`/`|>`, clean codegen error for
+   non-string value in a URL attr (currently a Go compile error).
 4. ⬜ **Pipeline `|>` + filters** — lower `Stages` to nested (generic) filter
    calls; `gen`-registered filter resolution via `go/types` harvest; ship a
    starter `std` filter package. (Ergonomically load-bearing for numerics.)
@@ -93,21 +99,25 @@ attribute-name validation against tag breakout (`validAttrName`), documented
 
 **Prioritized work (dig into, in order):**
 
-1. ⬜ **[Blocking] Context state machine in codegen** — auto-dispatch
-   `Text`/`AttrValue`/`URL` from *parsed HTML position* (not author choice).
-   This is the make-or-break: without it, gsx is a string concatenator with
-   helpers, not "safe like html/template". Folds into phase-2 #3 (Attributes).
-2. ⬜ **[Blocking] Always-quote emitted attribute values** — kills the Jinja
+1. ✅ **[Blocking] Context dispatch in codegen** — attribute escaping is now
+   auto-dispatched (`AttrValue`/`URL`/reject) from the *parsed attribute name*,
+   not author choice. (Element-content interpolation was already §5 type-aware.)
+   This is the safe-by-default core. *(A full Text/RCDATA/comment-position state
+   machine across all markup positions is broader future work.)*
+2. ✅ **[Blocking] Always-quote emitted attribute values** — every static and
+   expr attr value is wrapped in codegen-emitted double quotes; kills the Jinja
    `xmlattr` / unquoted-attribute injection class (CVE-2024-22195) outright.
-3. ⬜ **[High] Compile-time rejection of bare strings in JS/CSS/`on*=` contexts**
-   — escaping *cannot* secure these grammars (safehtml refuses to try); require a
-   safe type via pipeline filter (`|> js` / `|> css` / `|> json`). gsx's
-   leapfrog feature: a build error, not a runtime `ZgotmplZ`.
-4. ⬜ **[High] Harden `urlSanitize`** against control-char/whitespace scheme
-   evasion (`java\tscript:`, `\x01javascript:`); fuzz target seeded from the
-   OWASP filter-evasion sheet. Build the *complete* URL-context attribute table
-   (`meta http-equiv=refresh` — CVE-2026-27142, `formaction`, `base href`,
-   `ping`, `xlink:href`), not just `href`/`src`.
+3. ✅ **[High] Compile-time rejection of bare exprs in JS/CSS/`on*=` contexts**
+   — `on*`/`@*`/`hx-on*` and `style` expr values are a build error (fail-closed),
+   not a runtime `ZgotmplZ`. Safe-type pipeline filters (`|> js`/`|> css`) will
+   later open these intentionally.
+4. 🟡 **[High] Harden `urlSanitize` + complete URL-attr table** — control-char /
+   whitespace scheme evasion (`java\tscript:`, `\x01javascript:`, leading-space)
+   maps to the sentinel (verified by adversarial probe); the `urlAttrs` table
+   covers `href`/`src`/`action`/`formaction`/`poster`/`cite`/`ping`/`data`/
+   `background`/`manifest`/`xlink:href`/`hx-*`. **Remaining:** `meta
+   http-equiv=refresh` content (CVE-2026-27142) and `base href` carriers; a
+   dedicated fuzz target seeded from the OWASP filter-evasion sheet.
 5. ⬜ **[High] Split navigational vs resource URLs** in the type/filter
    vocabulary (`URL` vs `TrustedResourceURL`, à la safehtml; html/template
    conflates them — go#27926).
