@@ -314,7 +314,17 @@ func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, imp
 		fmt.Fprintf(b, "\t\t_gsxgw.BoolAttr(%s, true)\n", strconv.Quote(t.Name))
 	case *ast.ExprAttr:
 		return emitExprAttr(b, t, resolved, imports) // implemented in Task 3
-	case *ast.SpreadAttr, *ast.ClassAttr, *ast.CondAttr:
+	case *ast.ClassAttr:
+		// `class`/`style` composed attributes parse to ClassAttr. The `style`
+		// CSS grammar cannot be made safe by HTML-entity escaping, so an
+		// interpolated style value must fail closed (the same invariant
+		// emitExprAttr enforces for any other CSS-context attribute). `class`
+		// composition is merely deferred until its lowering lands.
+		if attrContext(t.Name) == ctxCSS {
+			return fmt.Errorf("codegen: expr value in CSS context (%q) is unsafe; needs a safe type via `|> css` (not available yet) — use a static value", t.Name)
+		}
+		return fmt.Errorf("codegen: attribute kind %T not supported yet (deferred)", a)
+	case *ast.SpreadAttr, *ast.CondAttr:
 		return fmt.Errorf("codegen: attribute kind %T not supported yet (deferred)", a)
 	default:
 		return fmt.Errorf("codegen: unknown attribute %T", a)
@@ -329,29 +339,109 @@ func htmlAttrEscape(s string) string {
 	return r.Replace(s)
 }
 
-// emitExprAttr emits a name={expr} attribute. Only the bool-typed case (a dynamic
-// boolean attribute, e.g. disabled={on}) is handled here, via gw.BoolAttr; it is
-// the dynamic counterpart of a bare BoolAttr. All other expr-attr value kinds
-// (string/URL/etc.) are deferred to a later task and error clearly.
-//
-// NOTE: this is a minimal, type-directed implementation rather than the brief's
-// pure error stub — the brief's own Task 2 test (`disabled={on}`) requires the
-// bool-expr-attr path to work. See the task report for the deviation rationale.
+type attrCtx int
+
+const (
+	ctxPlain attrCtx = iota
+	ctxURL
+	ctxJS
+	ctxCSS
+)
+
+var urlAttrs = map[string]bool{
+	"href": true, "src": true, "action": true, "formaction": true, "poster": true,
+	"cite": true, "ping": true, "data": true, "background": true, "manifest": true,
+	"xlink:href": true, "hx-get": true, "hx-post": true, "hx-put": true,
+	"hx-delete": true, "hx-patch": true,
+}
+
+// attrContext classifies an attribute name into an escaping context (structural,
+// from the name — gsx's compile-time alternative to html/template's tokenizer).
+func attrContext(name string) attrCtx {
+	n := strings.ToLower(name)
+	switch {
+	case urlAttrs[n]:
+		return ctxURL
+	case n == "style":
+		return ctxCSS
+	case strings.HasPrefix(n, "@") || strings.HasPrefix(n, "hx-on") ||
+		(strings.HasPrefix(n, "on") && len(n) > 2 && n[2] >= 'a' && n[2] <= 'z'):
+		return ctxJS
+	default:
+		return ctxPlain
+	}
+}
+
+// emitExprAttr emits an expr attribute value with context-aware escaping. JS/CSS
+// contexts reject (fail-closed) until safe-type pipeline filters exist.
 func emitExprAttr(b *bytes.Buffer, a *ast.ExprAttr, resolved map[ast.Node]types.Type, imports map[string]bool) error {
-	if a.Try {
-		return fmt.Errorf("codegen: `?` try-marker on attribute %q not supported yet", a.Name)
-	}
 	if len(a.Stages) > 0 {
-		return fmt.Errorf("codegen: pipeline `|>` on attribute %q not supported yet", a.Name)
+		return fmt.Errorf("codegen: pipeline `|>` not supported in codegen yet (attribute %q)", a.Name)
 	}
+	if a.Try {
+		return fmt.Errorf("codegen: `?` try-marker in attribute %q not supported yet", a.Name)
+	}
+	switch attrContext(a.Name) {
+	case ctxJS:
+		return fmt.Errorf("codegen: expr value in JS/event-handler context (%q) is unsafe; needs a safe type via `|> js` (not available yet) — use a static value", a.Name)
+	case ctxCSS:
+		return fmt.Errorf("codegen: expr value in CSS context (%q) is unsafe; needs a safe type via `|> css` (not available yet) — use a static value", a.Name)
+	}
+
 	t, ok := resolved[a]
 	if !ok || t == nil {
-		return fmt.Errorf("codegen: could not resolve type of attribute %q={%s}", a.Name, a.Expr)
+		return fmt.Errorf("codegen: could not resolve type of attribute %q value %q", a.Name, a.Expr)
 	}
-	if classify(t) != catBool {
-		return fmt.Errorf("codegen: expr attribute %q (type %s) not supported yet", a.Name, t)
+	expr := strings.TrimSpace(a.Expr)
+
+	// A bool-typed value is a boolean attribute regardless of context.
+	if classify(t) == catBool {
+		fmt.Fprintf(b, "\t\t_gsxgw.BoolAttr(%s, bool(%s))\n", strconv.Quote(a.Name), expr)
+		return nil
 	}
-	fmt.Fprintf(b, "\t\t_gsxgw.BoolAttr(%s, bool(%s))\n", strconv.Quote(a.Name), strings.TrimSpace(a.Expr))
+
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
+	if attrContext(a.Name) == ctxURL {
+		// URL context: value must be string-like; sanitize + escape.
+		fmt.Fprintf(b, "\t\t_gsxgw.URL(%s)\n", urlStringExpr(expr, t))
+	} else {
+		if err := emitAttrValue(b, expr, t, imports); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
+	return nil
+}
+
+// urlStringExpr renders a URL-context value as a string expression for gw.URL.
+func urlStringExpr(expr string, t types.Type) string {
+	if classify(t) == catString {
+		return "string(" + expr + ")"
+	}
+	return expr // non-string URL values are unusual; let the Go compiler check gw.URL's arg
+}
+
+// emitAttrValue writes a non-URL attribute value via gw.AttrValue, §5 type-aware.
+func emitAttrValue(b *bytes.Buffer, expr string, t types.Type, imports map[string]bool) error {
+	switch classify(t) {
+	case catString:
+		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(string(%s))\n", expr)
+	case catBytes:
+		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(string(%s))\n", expr)
+	case catInt:
+		imports["strconv"] = true
+		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(strconv.FormatInt(int64(%s), 10))\n", expr)
+	case catUint:
+		imports["strconv"] = true
+		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(strconv.FormatUint(uint64(%s), 10))\n", expr)
+	case catFloat:
+		imports["strconv"] = true
+		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(strconv.FormatFloat(float64(%s), 'g', -1, 64))\n", expr)
+	case catStringer:
+		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue((%s).String())\n", expr)
+	default:
+		return fmt.Errorf("codegen: attribute value type %s not supported (string/number/bool/Stringer only)", t)
+	}
 	return nil
 }
 

@@ -756,3 +756,57 @@ component Chip(first string, last string) {
 	got := renderPackage(t, files, `p.Chip(p.ChipProps{First: "Ada", Last: "Lovelace"})`)
 	assertHTMLEqual(t, got, "<div><span>Ada Lovelace</span></div>")
 }
+
+func TestRenderExprAttrs(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Link(url string, label string, n int, checked bool) {
+	<a href={url} data-label={label} data-n={n} aria-hidden={checked}>{label}</a>
+}
+`,
+	}
+	// URL sanitized + attr-escaped; string attr-escaped; int formatted; bool -> boolean attr.
+	got := renderPackage(t, files,
+		`p.Link(p.LinkProps{Url: "/p?q=a&b", Label: "a\"b", N: 5, Checked: true})`)
+	assertHTMLEqual(t, got, `<a href="/p?q=a&b" data-label="a&#34;b" data-n="5" aria-hidden>a"b</a>`)
+}
+
+func TestRenderExprAttrURLBlocked(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Bad(u string) { <a href={u}>x</a> }
+`,
+	}
+	got := renderPackage(t, files, `p.Bad(p.BadProps{U: "javascript:alert(1)"})`)
+	// urlSanitize replaces a dangerous scheme with the sentinel.
+	assertHTMLEqual(t, got, `<a href="about:invalid#gsx">x</a>`)
+}
+
+func TestRenderExprAttrJSRejected(t *testing.T) {
+	for _, name := range []string{"onclick", "style"} {
+		files := map[string]string{
+			"views.gsx": "package views\n\ncomponent C(x string) {\n\t<div " + name + "={x}>y</div>\n}\n",
+		}
+		err := generatePackageErr(t, files)
+		if err == nil {
+			t.Fatalf("%s: expected fail-closed error for expr in JS/CSS context, got nil", name)
+		}
+		if !strings.Contains(err.Error(), "context") {
+			t.Fatalf("%s: expected context-rejection error, got: %v", name, err)
+		}
+	}
+}
+
+func TestRenderExprAttrXSS(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component C(v string) { <div data-x={v}>y</div> }
+`,
+	}
+	got := renderPackage(t, files, `p.C(p.CProps{V: "\"><script>alert(1)</script>"})`)
+	// the quote and angle brackets must be entity-escaped — no tag breakout.
+	assertHTMLEqual(t, got, `<div data-x="&#34;&gt;&lt;script&gt;alert(1)&lt;/script&gt;">y</div>`)
+}
