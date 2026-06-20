@@ -75,9 +75,13 @@ render goldens. Suggested order:
    shared `childPropsFields` for emit+probe); `{children}` slot (synthesized
    `Children gsx.Node` field + `gsx.Func` closure passed by the parent; slot renders
    in parent scope; nil-safe). Order invariant: component elements recurse children
-   (slot), skip attrs (props). Independent review: SHIP. **Deferred:** named slots
-   (markup attrs `header={<m/>}`), auto-fallthrough / `{...attrs}` / component
-   spread (→ #7), class/cond/pipeline attrs on a component.
+   (slot), skip attrs (props). Independent review: SHIP.
+   - ✅ **Named slots** — `<Panel header={ <h1/> }/>` (markup attr) → a `gsx.Func`
+     closure assigned to the declared `gsx.Node` prop, placed via `{header}`. Unified
+     `childPropsLiteral`/`emitSlotClosure`/`walkMarkupAttrs` (emit ≡ probe; order:
+     markup-attr values then children). Independent review: SHIP (no findings).
+   - **Deferred:** auto-fallthrough / `{...attrs}` / component spread (→ #7),
+     class/cond/pipeline attrs on a component.
 6. ✅ **Method components** — `component (p T) Name(params) { … }` → method
    `func (p T) Name(_gsxp T<Name>Props) gsx.Node` (nullary → no props struct; the
    receiver IS the page data, `p.Field` works). Invocation `<p.Content/>` /
