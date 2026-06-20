@@ -16,7 +16,7 @@ import (
 
 // generateFile emits the .x.go for a parsed gsx file given already-resolved
 // interpolation types.
-func generateFile(file *ast.File, resolved map[*ast.Interp]types.Type, fset *token.FileSet) ([]byte, error) {
+func generateFile(file *ast.File, resolved map[ast.Node]types.Type, fset *token.FileSet) ([]byte, error) {
 	interpTemp = 0
 	imports := map[string]bool{
 		"context":              true,
@@ -91,7 +91,7 @@ func writeImports(b *bytes.Buffer, imports map[string]bool, aliased []importSpec
 	b.WriteString(")\n\n")
 }
 
-func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[*ast.Interp]types.Type, imports map[string]bool, fset *token.FileSet) error {
+func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types.Type, imports map[string]bool, fset *token.FileSet) error {
 	if c.Recv != "" {
 		return fmt.Errorf("codegen spike: method components not supported yet (%s)", c.Name)
 	}
@@ -134,7 +134,7 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[*ast.Interp]ty
 	return nil
 }
 
-func genNode(b *bytes.Buffer, n ast.Markup, resolved map[*ast.Interp]types.Type, imports map[string]bool, fset *token.FileSet) error {
+func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, imports map[string]bool, fset *token.FileSet) error {
 	switch t := n.(type) {
 	case *ast.Text:
 		emitS(b, t.Value)
@@ -143,14 +143,17 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[*ast.Interp]types.Type,
 		if isComponentTag(t.Tag) {
 			return genChildComponent(b, t)
 		}
-		if len(t.Attrs) > 0 {
-			return fmt.Errorf("codegen spike: element attributes not supported yet (<%s>)", t.Tag)
+		emitS(b, "<"+t.Tag)
+		for _, a := range t.Attrs {
+			if err := emitAttr(b, a, resolved, imports); err != nil {
+				return err
+			}
 		}
 		if t.Void {
-			emitS(b, "<"+t.Tag+"/>")
+			emitS(b, "/>")
 			return nil
 		}
-		emitS(b, "<"+t.Tag+">")
+		emitS(b, ">")
 		for _, c := range t.Children {
 			if err := genNode(b, c, resolved, imports, fset); err != nil {
 				return err
@@ -222,7 +225,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[*ast.Interp]types.Type,
 // genInterp emits the type-aware writer call for an interpolation. The type comes
 // from the go/types resolution pass; the expression is emitted verbatim (params
 // are in scope as locals).
-func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[*ast.Interp]types.Type, imports map[string]bool, fset *token.FileSet) error {
+func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, imports map[string]bool, fset *token.FileSet) error {
 	emitLine(b, fset, n.Pos())
 	if len(n.Stages) > 0 {
 		// The pipeline parses into Stages, but codegen does not lower it yet.
@@ -298,6 +301,148 @@ func emitRender(b *bytes.Buffer, expr string, t types.Type, imports map[string]b
 
 func emitS(b *bytes.Buffer, s string) {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(s))
+}
+
+// emitAttr emits one element attribute. Static values are escaped at codegen and
+// always double-quoted; bool attrs use gw.BoolAttr. Expr attrs are handled in a
+// later task; the deferred attr kinds error clearly.
+func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, imports map[string]bool) error {
+	switch t := a.(type) {
+	case *ast.StaticAttr:
+		fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+t.Name+`="`+htmlAttrEscape(t.Value)+`"`))
+	case *ast.BoolAttr:
+		fmt.Fprintf(b, "\t\t_gsxgw.BoolAttr(%s, true)\n", strconv.Quote(t.Name))
+	case *ast.ExprAttr:
+		return emitExprAttr(b, t, resolved, imports) // implemented in Task 3
+	case *ast.ClassAttr:
+		// `class`/`style` composed attributes parse to ClassAttr. The `style`
+		// CSS grammar cannot be made safe by HTML-entity escaping, so an
+		// interpolated style value must fail closed (the same invariant
+		// emitExprAttr enforces for any other CSS-context attribute). `class`
+		// composition is merely deferred until its lowering lands.
+		if attrContext(t.Name) == ctxCSS {
+			return fmt.Errorf("codegen: expr value in CSS context (%q) is unsafe; needs a safe type via `|> css` (not available yet) — use a static value", t.Name)
+		}
+		return fmt.Errorf("codegen: attribute kind %T not supported yet (deferred)", a)
+	case *ast.SpreadAttr, *ast.CondAttr:
+		return fmt.Errorf("codegen: attribute kind %T not supported yet (deferred)", a)
+	default:
+		return fmt.Errorf("codegen: unknown attribute %T", a)
+	}
+	return nil
+}
+
+// htmlAttrEscape escapes a static attribute value for a double-quoted context at
+// codegen time (matches the runtime gw.AttrValue entity set).
+func htmlAttrEscape(s string) string {
+	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&#34;", "'", "&#39;")
+	return r.Replace(s)
+}
+
+type attrCtx int
+
+const (
+	ctxPlain attrCtx = iota
+	ctxURL
+	ctxJS
+	ctxCSS
+)
+
+var urlAttrs = map[string]bool{
+	"href": true, "src": true, "action": true, "formaction": true, "poster": true,
+	"cite": true, "ping": true, "data": true, "background": true, "manifest": true,
+	"xlink:href": true, "hx-get": true, "hx-post": true, "hx-put": true,
+	"hx-delete": true, "hx-patch": true,
+}
+
+// attrContext classifies an attribute name into an escaping context (structural,
+// from the name — gsx's compile-time alternative to html/template's tokenizer).
+func attrContext(name string) attrCtx {
+	n := strings.ToLower(name)
+	switch {
+	case urlAttrs[n]:
+		return ctxURL
+	case n == "style":
+		return ctxCSS
+	case strings.HasPrefix(n, "@") || strings.HasPrefix(n, "hx-on") ||
+		(strings.HasPrefix(n, "on") && len(n) > 2 && n[2] >= 'a' && n[2] <= 'z'):
+		return ctxJS
+	default:
+		return ctxPlain
+	}
+}
+
+// emitExprAttr emits an expr attribute value with context-aware escaping. JS/CSS
+// contexts reject (fail-closed) until safe-type pipeline filters exist.
+func emitExprAttr(b *bytes.Buffer, a *ast.ExprAttr, resolved map[ast.Node]types.Type, imports map[string]bool) error {
+	if len(a.Stages) > 0 {
+		return fmt.Errorf("codegen: pipeline `|>` not supported in codegen yet (attribute %q)", a.Name)
+	}
+	if a.Try {
+		return fmt.Errorf("codegen: `?` try-marker in attribute %q not supported yet", a.Name)
+	}
+	switch attrContext(a.Name) {
+	case ctxJS:
+		return fmt.Errorf("codegen: expr value in JS/event-handler context (%q) is unsafe; needs a safe type via `|> js` (not available yet) — use a static value", a.Name)
+	case ctxCSS:
+		return fmt.Errorf("codegen: expr value in CSS context (%q) is unsafe; needs a safe type via `|> css` (not available yet) — use a static value", a.Name)
+	}
+
+	t, ok := resolved[a]
+	if !ok || t == nil {
+		return fmt.Errorf("codegen: could not resolve type of attribute %q value %q", a.Name, a.Expr)
+	}
+	expr := strings.TrimSpace(a.Expr)
+
+	// A bool-typed value is a boolean attribute regardless of context.
+	if classify(t) == catBool {
+		fmt.Fprintf(b, "\t\t_gsxgw.BoolAttr(%s, bool(%s))\n", strconv.Quote(a.Name), expr)
+		return nil
+	}
+
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
+	if attrContext(a.Name) == ctxURL {
+		// URL context: value must be string-like; sanitize + escape.
+		fmt.Fprintf(b, "\t\t_gsxgw.URL(%s)\n", urlStringExpr(expr, t))
+	} else {
+		if err := emitAttrValue(b, expr, t, imports); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
+	return nil
+}
+
+// urlStringExpr renders a URL-context value as a string expression for gw.URL.
+func urlStringExpr(expr string, t types.Type) string {
+	if classify(t) == catString {
+		return "string(" + expr + ")"
+	}
+	return expr // non-string URL values are unusual; let the Go compiler check gw.URL's arg
+}
+
+// emitAttrValue writes a non-URL attribute value via gw.AttrValue, §5 type-aware.
+func emitAttrValue(b *bytes.Buffer, expr string, t types.Type, imports map[string]bool) error {
+	switch classify(t) {
+	case catString:
+		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(string(%s))\n", expr)
+	case catBytes:
+		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(string(%s))\n", expr)
+	case catInt:
+		imports["strconv"] = true
+		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(strconv.FormatInt(int64(%s), 10))\n", expr)
+	case catUint:
+		imports["strconv"] = true
+		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(strconv.FormatUint(uint64(%s), 10))\n", expr)
+	case catFloat:
+		imports["strconv"] = true
+		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(strconv.FormatFloat(float64(%s), 'g', -1, 64))\n", expr)
+	case catStringer:
+		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue((%s).String())\n", expr)
+	default:
+		return fmt.Errorf("codegen: attribute value type %s not supported (string/number/bool/Stringer only)", t)
+	}
+	return nil
 }
 
 // isComponentTag reports whether a tag names a component (uppercase first letter

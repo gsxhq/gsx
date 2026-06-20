@@ -20,7 +20,7 @@ import (
 
 // resolveTypesPkg type-checks the package (real .go files + synthesized gsx
 // component skeletons via Overlay) and returns each interpolation's type.
-func resolveTypesPkg(dir string, files map[string]*gsxast.File) (map[*gsxast.Interp]types.Type, error) {
+func resolveTypesPkg(dir string, files map[string]*gsxast.File) (map[gsxast.Node]types.Type, error) {
 	overlay := map[string][]byte{}
 	skelComps := map[string][]*gsxast.Component{}
 	for path, file := range files {
@@ -72,7 +72,7 @@ func resolveTypesPkg(dir string, files map[string]*gsxast.File) (map[*gsxast.Int
 		return nil, fmt.Errorf("codegen: type resolution failed: %s", pkg.Errors[0])
 	}
 
-	out := map[*gsxast.Interp]types.Type{}
+	out := map[gsxast.Node]types.Type{}
 	for _, f := range pkg.Syntax {
 		fname := pkg.Fset.Position(f.Pos()).Filename
 		comps, ok := skelComps[fname]
@@ -202,6 +202,11 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup) {
 			if isComponentTag(t.Tag) {
 				fmt.Fprintf(sb, "_ = %s(%sProps{})\n", t.Tag, t.Tag)
 			} else {
+				for _, a := range t.Attrs {
+					if ea, ok := a.(*gsxast.ExprAttr); ok {
+						fmt.Fprintf(sb, "_gsxuse(%s)\n", strings.TrimSpace(ea.Expr))
+					}
+				}
 				emitProbes(sb, t.Children)
 			}
 		case *gsxast.Fragment:
@@ -241,7 +246,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup) {
 // harvest reads each interpolation's resolved type from a type-checked skeleton
 // file. An interpolation probe is now an ExprStmt whose call target is the
 // identifier `_gsxuse`; harvest the single argument's type.
-func harvest(f *goast.File, comps []*gsxast.Component, info *types.Info, out map[*gsxast.Interp]types.Type) {
+func harvest(f *goast.File, comps []*gsxast.Component, info *types.Info, out map[gsxast.Node]types.Type) {
 	byName := map[string]*gsxast.Component{}
 	for _, c := range comps {
 		byName[c.Name] = c
@@ -255,7 +260,7 @@ func harvest(f *goast.File, comps []*gsxast.Component, info *types.Info, out map
 		if !ok || fd.Body == nil {
 			continue
 		}
-		interps := componentInterps(c)
+		nodes := componentExprs(c)
 		k := 0
 		goast.Inspect(fd.Body, func(node goast.Node) bool {
 			call, ok := node.(*goast.CallExpr)
@@ -266,8 +271,8 @@ func harvest(f *goast.File, comps []*gsxast.Component, info *types.Info, out map
 			if !ok || id.Name != "_gsxuse" || len(call.Args) != 1 {
 				return true
 			}
-			if k < len(interps) {
-				out[interps[k]] = info.Types[call.Args[0]].Type
+			if k < len(nodes) {
+				out[nodes[k]] = info.Types[call.Args[0]].Type
 				k++
 			}
 			return true
@@ -374,36 +379,42 @@ func lookupMethod(t types.Type, name string) *types.Func {
 	return nil
 }
 
-func componentInterps(c *gsxast.Component) []*gsxast.Interp {
-	var out []*gsxast.Interp
-	collectInterps(c.Body, &out)
+func componentExprs(c *gsxast.Component) []gsxast.Node {
+	var out []gsxast.Node
+	collectExprs(c.Body, &out)
 	return out
 }
 
-// collectInterps gathers interpolation nodes in depth-first source order — the
-// SAME order emitProbes emits probes and genNode emits writes, so the k-th probe
-// aligns with the k-th interpolation.
-func collectInterps(nodes []gsxast.Markup, out *[]*gsxast.Interp) {
+// collectExprs gathers the type-needing expression nodes (*Interp and *ExprAttr)
+// in depth-first source order — per element, attribute expressions BEFORE
+// children — matching emitProbes/genNode traversal so the k-th probe aligns with
+// the k-th node.
+func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *gsxast.Interp:
 			*out = append(*out, t)
 		case *gsxast.Element:
-			if !isComponentTag(t.Tag) {
-				collectInterps(t.Children, out)
+			if isComponentTag(t.Tag) {
+				continue // child component: props deferred; no attr exprs / children here
 			}
+			for _, a := range t.Attrs {
+				if ea, ok := a.(*gsxast.ExprAttr); ok {
+					*out = append(*out, ea)
+				}
+			}
+			collectExprs(t.Children, out)
 		case *gsxast.Fragment:
-			collectInterps(t.Children, out)
+			collectExprs(t.Children, out)
 		case *gsxast.ForMarkup:
-			collectInterps(t.Body, out)
+			collectExprs(t.Body, out)
 		case *gsxast.IfMarkup:
-			collectInterps(t.Then, out)
-			collectInterps(t.Else, out)
+			collectExprs(t.Then, out)
+			collectExprs(t.Else, out)
 		case *gsxast.SwitchMarkup:
 			for _, cc := range t.Cases {
-				collectInterps(cc.Body, out)
+				collectExprs(cc.Body, out)
 			}
-			// *gsxast.GoBlock: no interpolations (its body is opaque Go).
 		}
 	}
 }
@@ -420,8 +431,15 @@ func usedParams(c *gsxast.Component, params []param) map[string]bool {
 			refs[id] = true
 		}
 	}
-	for _, in := range componentInterps(c) {
-		addIdents(in.Expr)
+	for _, n := range componentExprs(c) {
+		var expr string
+		switch v := n.(type) {
+		case *gsxast.Interp:
+			expr = v.Expr
+		case *gsxast.ExprAttr:
+			expr = v.Expr
+		}
+		addIdents(expr)
 	}
 	collectClauseSrc(c.Body, addIdents)
 	used := make(map[string]bool, len(params))

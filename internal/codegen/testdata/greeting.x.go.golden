@@ -21,7 +21,8 @@ func Greeting(_gsxp GreetingProps) gsx.Node {
 		count := _gsxp.Count
 		_gsxgw := gsx.W(_gsxw)
 //line views.gsx:4:2
-		_gsxgw.S("<p>")
+		_gsxgw.S("<p")
+		_gsxgw.S(">")
 		_gsxgw.S("Hello, ")
 //line views.gsx:4:12
 		_gsxgw.Text(string(name))
