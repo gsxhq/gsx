@@ -51,14 +51,16 @@ render goldens. Suggested order:
    attribute codegen lands — attributes aren't emitted yet.)*
 2. ✅ **Control flow** — `{ if/for/switch }`, `{{ }}`, fragments → plain Go around
    writes (probe mirrors structure so loop-var/block-local interps resolve).
-3. 🟡 **Attributes — security core done.** Static (always-quoted, codegen-escaped),
-   bool, and expr attrs with **structural context-aware escaping** (URL →
-   scheme-allow-list + entity-escape `gw.URL`; plain → §5 type-aware `gw.AttrValue`;
-   JS `on*`/`@*`/`hx-on*` and CSS `style` → **fail-closed compile error**). Attr-expr
-   type resolution via the probe pass (`resolved` keyed by `ast.Node`). Independent
-   adversarial security review: SHIP. **Deferred:** composable `class`+`style`,
-   spread, conditional `{ if … { attr } }`, attr `?`/`|>`, clean codegen error for
-   non-string value in a URL attr (currently a Go compile error).
+3. 🟡 **Attributes — security core + composable kinds done.** Static (always-quoted,
+   codegen-escaped), bool, and expr attrs with **structural context-aware escaping**
+   (URL → scheme-allow-list + entity-escape `gw.URL`; plain → §5 type-aware
+   `gw.AttrValue`; JS `on*`/`@*`/`hx-on*` and CSS `style` → **fail-closed compile
+   error**). Plus composable **`class`** (`gw.Class`), **element spread** `{...attrs}`
+   (`gw.Spread`), and **conditional** `{ if cond { attr } else { attr } }` (a shared
+   `walkAttrExprs` keeps the type-probe order invariant with branch-nested exprs).
+   Two independent adversarial reviews: SHIP. **Deferred:** `style` composition
+   (stays fail-closed pending `|> css`), `[]string` class parts, attr `?`/`|>`,
+   non-string-value-in-URL-attr clean error.
 4. 🟡 **Pipeline `|>` + filters — first slice done.** Lowering of `Stages` to
    nested qualified Go calls (`{x |> a |> b(n)}` → `_gsxstd.B(n)(_gsxstd.A((x)))`),
    resolved against the shipped `std` package via `go/types` harvest-by-contract;
