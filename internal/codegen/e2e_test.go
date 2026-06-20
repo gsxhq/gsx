@@ -1453,3 +1453,183 @@ component X(children gsx.Node) { <div>{children}</div> }
 		t.Fatalf("expected reserved-children error, got: %v", err)
 	}
 }
+
+// TestRenderMethodInvocationChain is the example-11-style chain: a method
+// component invokes another method via the enclosing receiver var (`p`), through
+// several levels (Page → Content → Grid → Row, with a {for} loop in Grid). Each
+// `<p.X.../>` lowers to a method call `p.X(...)`, NOT a package-function call.
+func TestRenderMethodInvocationChain(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+type User struct {
+	Email string
+}
+
+type UsersPage struct {
+	Title string
+	Sort  string
+	Users []User
+}
+
+component (p UsersPage) Page() {
+	<div><p.Content/></div>
+}
+
+component (p UsersPage) Content() {
+	<h1>{p.Title}</h1><p.Grid sort={p.Sort}/>
+}
+
+component (p UsersPage) Grid(sort string) {
+	<ul>{ for _, u := range p.Users { <p.Row user={u} sort={sort}/> } }</ul>
+}
+
+component (p UsersPage) Row(user User, sort string) {
+	<li>{user.Email}-{sort}</li>
+}
+`,
+	}
+	got := renderPackage(t, files,
+		`(p.UsersPage{Title: "T", Sort: "s", Users: []p.User{{Email: "a@b"}, {Email: "c@d"}}}).Page()`)
+	assertHTMLEqual(t, got,
+		`<div><h1>T</h1><ul><li>a@b-s</li><li>c@d-s</li></ul></div>`)
+}
+
+// TestRenderMethodInvocationNullary proves a nullary method invocation
+// `<p.Content/>` (no attrs, no children) lowers to `p.Content()` with NO props
+// literal (the nullary method has no props struct).
+func TestRenderMethodInvocationNullary(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+type UsersPage struct {
+	Title string
+}
+
+component (p UsersPage) Page() {
+	<div><p.Content/></div>
+}
+
+component (p UsersPage) Content() {
+	<h1>{p.Title}</h1>
+}
+`,
+	}
+	got := renderPackage(t, files, `(p.UsersPage{Title: "Hi"}).Page()`)
+	assertHTMLEqual(t, got, `<div><h1>Hi</h1></div>`)
+}
+
+// TestRenderMethodInvocationParam proves a parameterized method invocation
+// `<p.Grid sort={x}/>` lowers to `p.Grid(UsersPageGridProps{Sort: x})` — props
+// type named after the ENCLOSING receiver's TYPE, not `p.GridProps`.
+func TestRenderMethodInvocationParam(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+type UsersPage struct {
+	Sort string
+}
+
+component (p UsersPage) Page() {
+	<div><p.Grid sort={p.Sort}/></div>
+}
+
+component (p UsersPage) Grid(sort string) {
+	<span>{sort}</span>
+}
+`,
+	}
+	got := renderPackage(t, files, `(p.UsersPage{Sort: "name"}).Page()`)
+	assertHTMLEqual(t, got, `<div><span>name</span></div>`)
+}
+
+// TestRenderMethodInvocationLoopVarBinding proves a loop var used ONLY in a
+// method-invocation prop (`<p.Row user={u}/>` inside `{ for _, u := range ... }`)
+// is bound — collectChildPropExprSrc walks the method-tag attrs too.
+func TestRenderMethodInvocationLoopVarBinding(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+type User struct {
+	Email string
+}
+
+type UsersPage struct {
+	Users []User
+}
+
+component (p UsersPage) Page() {
+	<ul>{ for _, u := range p.Users { <p.Row user={u}/> } }</ul>
+}
+
+component (p UsersPage) Row(user User) {
+	<li>{user.Email}</li>
+}
+`,
+	}
+	got := renderPackage(t, files,
+		`(p.UsersPage{Users: []p.User{{Email: "x@y"}}}).Page()`)
+	assertHTMLEqual(t, got, `<ul><li>x@y</li></ul>`)
+}
+
+// TestRenderMethodAndFunctionMixed proves the disambiguation rule: in a method
+// component body, a dotted tag whose left == receiver var (`<p.Content/>`) lowers
+// to a METHOD call, while an uppercase non-dotted same-file FUNCTION component
+// (`<Card.../>`) lowers to a package-function call `Card(CardProps{...})`.
+func TestRenderMethodAndFunctionMixed(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+type UsersPage struct {
+	Title string
+}
+
+component Card(label string) {
+	<div class="card">{label}</div>
+}
+
+component (p UsersPage) Page() {
+	<section><p.Content/><Card label="hello"/></section>
+}
+
+component (p UsersPage) Content() {
+	<h1>{p.Title}</h1>
+}
+`,
+	}
+	got := renderPackage(t, files, `(p.UsersPage{Title: "T"}).Page()`)
+	assertHTMLEqual(t, got,
+		`<section><h1>T</h1><div class="card">hello</div></section>`)
+}
+
+// TestRenderMethodInvocationSlotInterleaved is the order-invariant test for
+// method invocations with slot content: a method component (`Wrap`) that places
+// `{children}` is invoked via the receiver (`<p.Wrap>{mid}</p.Wrap>`), interleaved
+// with sibling typed interps. Each renders with its own type (the k-th _gsxuse
+// maps to the k-th collectExprs node, even through the method-tag slot recursion).
+func TestRenderMethodInvocationSlotInterleaved(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+type UsersPage struct {
+	Before string
+	Mid    int
+	After  bool
+}
+
+component (p UsersPage) Wrap() {
+	<div>{children}</div>
+}
+
+component (p UsersPage) Page() {
+	<span>{p.Before}</span>
+	<p.Wrap><em>{p.Mid}</em></p.Wrap>
+	<span>{p.After}</span>
+}
+`,
+	}
+	got := renderPackage(t, files,
+		`(p.UsersPage{Before: "B", Mid: 7, After: true}).Page()`)
+	assertHTMLEqual(t, got,
+		`<span>B</span><div><em>7</em></div><span>true</span>`)
+}

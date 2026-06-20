@@ -203,8 +203,13 @@ func buildSkeleton(file *gsxast.File, table filterTable) (string, []*gsxast.Comp
 		// param. The receiver clause + props-struct name + nullary-no-props must be
 		// byte-identical in shape to emission, else resolution disagrees.
 		propsName := c.Name + "Props"
+		// recvVar/recvTypeName stay "" for a function component; for a method
+		// component they are passed to emitProbes so a dotted child tag whose left ==
+		// recvVar is probed as a method call (mirroring the emitter's childInvocation).
+		var recvVar, recvTypeName string
 		if c.Recv != "" {
-			recvVar, _, recvTypeName, rerr := parseRecv(c.Recv)
+			var rerr error
+			recvVar, _, recvTypeName, rerr = parseRecv(c.Recv)
 			if rerr != nil {
 				return "", nil, rerr
 			}
@@ -258,7 +263,7 @@ func buildSkeleton(file *gsxast.File, table filterTable) (string, []*gsxast.Comp
 		if hasChildren {
 			sb.WriteString("\tchildren := _gsxp.Children\n\t_ = children\n")
 		}
-		if err := emitProbes(&sb, c.Body, table); err != nil {
+		if err := emitProbes(&sb, c.Body, table, recvVar, recvTypeName); err != nil {
 			return "", nil, err
 		}
 		sb.WriteString("\treturn nil\n}\n")
@@ -324,8 +329,14 @@ func bodyHasPipeline(nodes []gsxast.Markup) bool {
 // emitProbes writes type-resolution probes for a component body. It MIRRORS the
 // control structure (real for/if/switch + {{ }} code) so interpolations that
 // reference loop vars / block-locals type-check in scope. Each interpolation is
-// `_gsxuse(expr)`; child components are `_ = Child(ChildProps{})`.
-func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable) error {
+// `_gsxuse(expr)`; child components are `_ = Child(ChildProps{})` (or, for a
+// method invocation via the enclosing receiver, `_ = p.Method(...)`).
+//
+// recvVar/recvTypeName are the enclosing component's receiver var + type name
+// (empty for a function component); they drive the same method-vs-package
+// disambiguation as the emitter (childInvocation), so the probe type-checks the
+// call against the real method/function signature + props struct identically.
+func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, recvVar, recvTypeName string) error {
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *gsxast.Interp:
@@ -336,29 +347,36 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable) e
 			fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 		case *gsxast.Element:
 			if isComponentTag(t.Tag) {
-				// Emit the SAME props literal as genChildComponent so the assignment
-				// type-checks each prop expr against the child's real field type. The
-				// shared childPropsFields builder guarantees the attr fields never
-				// drift. When the element has slot content, add a typed-nil Children so
+				// Emit the SAME call as genChildComponent (via childInvocation) so the
+				// assignment type-checks each prop expr against the child's/method's real
+				// field type. The shared childPropsFields builder guarantees the attr
+				// fields never drift. A nullary method invocation (no attrs, no children)
+				// has no props struct → `_ = p.Method()`. Otherwise build the props
+				// literal; when the element has slot content, add a typed-nil Children so
 				// the literal type-checks WITHOUT building the real slot closure here —
 				// the slot content is probed SEPARATELY by recursing t.Children below
 				// (its interps become _gsxuse in the SAME order collectExprs collected
 				// them; the props-literal exprs are NOT _gsxuse, so they don't perturb
 				// the k-th alignment).
-				fields, err := childPropsFields(t)
-				if err != nil {
-					return err
-				}
-				if len(t.Children) > 0 {
-					childField := "Children: _gsxrt.Node(nil)"
-					if fields == "" {
-						fields = childField
-					} else {
-						fields = fields + ", " + childField
+				callTarget, propsType, isMethod := childInvocation(t, recvVar, recvTypeName)
+				if isMethod && len(t.Attrs) == 0 && len(t.Children) == 0 {
+					fmt.Fprintf(sb, "_ = %s()\n", callTarget)
+				} else {
+					fields, err := childPropsFields(t)
+					if err != nil {
+						return err
 					}
+					if len(t.Children) > 0 {
+						childField := "Children: _gsxrt.Node(nil)"
+						if fields == "" {
+							fields = childField
+						} else {
+							fields = fields + ", " + childField
+						}
+					}
+					fmt.Fprintf(sb, "_ = %s(%s{%s})\n", callTarget, propsType, fields)
 				}
-				fmt.Fprintf(sb, "_ = %s(%sProps{%s})\n", t.Tag, t.Tag, fields)
-				if err := emitProbes(sb, t.Children, table); err != nil {
+				if err := emitProbes(sb, t.Children, table, recvVar, recvTypeName); err != nil {
 					return err
 				}
 			} else {
@@ -381,29 +399,29 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable) e
 				if probeErr != nil {
 					return probeErr
 				}
-				if err := emitProbes(sb, t.Children, table); err != nil {
+				if err := emitProbes(sb, t.Children, table, recvVar, recvTypeName); err != nil {
 					return err
 				}
 			}
 		case *gsxast.Fragment:
-			if err := emitProbes(sb, t.Children, table); err != nil {
+			if err := emitProbes(sb, t.Children, table, recvVar, recvTypeName); err != nil {
 				return err
 			}
 		case *gsxast.ForMarkup:
 			fmt.Fprintf(sb, "for %s {\n", t.Clause)
-			if err := emitProbes(sb, t.Body, table); err != nil {
+			if err := emitProbes(sb, t.Body, table, recvVar, recvTypeName); err != nil {
 				return err
 			}
 			sb.WriteString("}\n")
 		case *gsxast.IfMarkup:
 			fmt.Fprintf(sb, "if %s {\n", t.Cond)
-			if err := emitProbes(sb, t.Then, table); err != nil {
+			if err := emitProbes(sb, t.Then, table, recvVar, recvTypeName); err != nil {
 				return err
 			}
 			sb.WriteString("}")
 			if t.Else != nil {
 				sb.WriteString(" else {\n")
-				if err := emitProbes(sb, t.Else, table); err != nil {
+				if err := emitProbes(sb, t.Else, table, recvVar, recvTypeName); err != nil {
 					return err
 				}
 				sb.WriteString("}")
@@ -417,7 +435,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable) e
 				} else {
 					fmt.Fprintf(sb, "case %s:\n", cc.List)
 				}
-				if err := emitProbes(sb, cc.Body, table); err != nil {
+				if err := emitProbes(sb, cc.Body, table, recvVar, recvTypeName); err != nil {
 					return err
 				}
 			}

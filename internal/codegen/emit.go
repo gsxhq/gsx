@@ -116,8 +116,13 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 	// in the signature. A free function component has no receiver: props struct
 	// <Name>Props and a plain `func <Name>`.
 	propsName := c.Name + "Props"
+	// recvVar/recvTypeName stay "" for a function component; for a method component
+	// they are threaded into genNode → genChildComponent so a dotted child tag whose
+	// left == recvVar lowers to a method call.
+	var recvVar, recvTypeName string
 	if c.Recv != "" {
-		recvVar, _, recvTypeName, rerr := parseRecv(c.Recv)
+		var rerr error
+		recvVar, _, recvTypeName, rerr = parseRecv(c.Recv)
 		if rerr != nil {
 			return rerr
 		}
@@ -181,7 +186,7 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 	}
 	b.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
 	for _, m := range c.Body {
-		if err := genNode(b, m, resolved, table, imports, fset); err != nil {
+		if err := genNode(b, m, resolved, table, imports, fset, recvVar, recvTypeName); err != nil {
 			return err
 		}
 	}
@@ -190,14 +195,18 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 	return nil
 }
 
-func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet) error {
+// genNode emits one markup node. recvVar/recvTypeName are the enclosing
+// component's receiver var + type name (empty for a function component); they
+// thread down to genChildComponent for the method-vs-package disambiguation of a
+// dotted child-component tag.
+func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string) error {
 	switch t := n.(type) {
 	case *ast.Text:
 		emitS(b, t.Value)
 	case *ast.Element:
 		emitLine(b, fset, t.Pos())
 		if isComponentTag(t.Tag) {
-			return genChildComponent(b, t, resolved, table, imports, fset)
+			return genChildComponent(b, t, resolved, table, imports, fset, recvVar, recvTypeName)
 		}
 		emitS(b, "<"+t.Tag)
 		for _, a := range t.Attrs {
@@ -211,7 +220,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		}
 		emitS(b, ">")
 		for _, c := range t.Children {
-			if err := genNode(b, c, resolved, table, imports, fset); err != nil {
+			if err := genNode(b, c, resolved, table, imports, fset, recvVar, recvTypeName); err != nil {
 				return err
 			}
 		}
@@ -220,7 +229,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		return genInterp(b, t, resolved, table, imports, fset)
 	case *ast.Fragment:
 		for _, c := range t.Children {
-			if err := genNode(b, c, resolved, table, imports, fset); err != nil {
+			if err := genNode(b, c, resolved, table, imports, fset, recvVar, recvTypeName); err != nil {
 				return err
 			}
 		}
@@ -228,7 +237,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		emitLine(b, fset, t.Pos())
 		fmt.Fprintf(b, "for %s {\n", t.Clause)
 		for _, c := range t.Body {
-			if err := genNode(b, c, resolved, table, imports, fset); err != nil {
+			if err := genNode(b, c, resolved, table, imports, fset, recvVar, recvTypeName); err != nil {
 				return err
 			}
 		}
@@ -237,7 +246,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		emitLine(b, fset, t.Pos())
 		fmt.Fprintf(b, "if %s {\n", t.Cond)
 		for _, c := range t.Then {
-			if err := genNode(b, c, resolved, table, imports, fset); err != nil {
+			if err := genNode(b, c, resolved, table, imports, fset, recvVar, recvTypeName); err != nil {
 				return err
 			}
 		}
@@ -245,7 +254,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		if t.Else != nil {
 			b.WriteString(" else {\n")
 			for _, c := range t.Else {
-				if err := genNode(b, c, resolved, table, imports, fset); err != nil {
+				if err := genNode(b, c, resolved, table, imports, fset, recvVar, recvTypeName); err != nil {
 					return err
 				}
 			}
@@ -262,7 +271,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 				fmt.Fprintf(b, "case %s:\n", cc.List)
 			}
 			for _, c := range cc.Body {
-				if err := genNode(b, c, resolved, table, imports, fset); err != nil {
+				if err := genNode(b, c, resolved, table, imports, fset, recvVar, recvTypeName); err != nil {
 					return err
 				}
 			}
@@ -631,12 +640,55 @@ func usesChildren(body []ast.Markup) bool {
 	return false
 }
 
+// childInvocation resolves a child-component tag to its CALL shape, applying the
+// method-vs-package disambiguation. It is the SINGLE source of the call target +
+// props-type name shared by genChildComponent (emit) and emitProbes (probe), so
+// the two never drift on which call/props-struct a `<X.Y/>` invokes.
+//
+// Disambiguation (syntactic, deterministic): split el.Tag on the first `.` into
+// (left, method). If the enclosing component is a method component (recvVar != "")
+// AND left == recvVar → METHOD invocation: callTarget = `<recvVar>.<method>`,
+// propsType = `<recvTypeName><method>Props`. Otherwise → existing PACKAGE-function
+// path: callTarget = el.Tag, propsType = el.Tag + "Props" (e.g. `ui.AppShell` and
+// `ui.AppShellProps`, or a same-file uppercase `Card` / `CardProps`).
+//
+// A NULLARY method invocation — a method whose call has NO props struct — happens
+// only when isMethod AND the element has no attrs AND no children (a method that
+// places `{children}` has a Children field, so children imply a props literal).
+// The caller decides nullary via isNullaryCall below; this helper only reports
+// the disambiguation result.
+func childInvocation(el *ast.Element, recvVar, recvTypeName string) (callTarget, propsType string, isMethod bool) {
+	if recvVar != "" {
+		if i := strings.IndexByte(el.Tag, '.'); i >= 0 {
+			left, method := el.Tag[:i], el.Tag[i+1:]
+			if left == recvVar {
+				return recvVar + "." + method, recvTypeName + method + "Props", true
+			}
+		}
+	}
+	return el.Tag, el.Tag + "Props", false
+}
+
 // genChildComponent lowers a child-component element to a gw.Node render call,
 // building the props struct literal from the element's attributes. When the
 // element has children, the slot markup is passed as a `Children gsx.Node`
 // field — a gsx.Func render closure mirroring genComponent's, so the slot renders
 // in THIS (parent) scope, where its interps' params/loop vars are bound.
-func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet) error {
+//
+// recvVar/recvTypeName are the ENCLOSING component's receiver var + type name
+// (empty for a function component); they drive the method-vs-package
+// disambiguation via childInvocation.
+func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string) error {
+	callTarget, propsType, isMethod := childInvocation(el, recvVar, recvTypeName)
+	// A nullary METHOD invocation — no attrs, no children — has no props struct, so
+	// it is called bare: `p.Content()`. Any attrs or children mean the method has a
+	// props struct (children → a Children field), so we build a props literal.
+	isNullaryCall := isMethod && len(el.Attrs) == 0 && len(el.Children) == 0
+	if isNullaryCall {
+		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s())\n", callTarget)
+		return nil
+	}
+
 	fields, err := childPropsFields(el)
 	if err != nil {
 		return err
@@ -650,7 +702,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 		slot.WriteString("gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {\n")
 		slot.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
 		for _, c := range el.Children {
-			if err := genNode(&slot, c, resolved, table, imports, fset); err != nil {
+			if err := genNode(&slot, c, resolved, table, imports, fset, recvVar, recvTypeName); err != nil {
 				return err
 			}
 		}
@@ -663,7 +715,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 			fields = fields + ", " + childField
 		}
 	}
-	fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s(%sProps{%s}))\n", el.Tag, el.Tag, fields)
+	fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s(%s{%s}))\n", callTarget, propsType, fields)
 	return nil
 }
 
