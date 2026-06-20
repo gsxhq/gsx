@@ -14,9 +14,9 @@ generator/CLI may use `golang.org/x/tools`.
 |---|---|
 | Parser + AST | ✅ done (Part 2 grammar + pipeline parsing) |
 | Runtime (`gsx`) | ✅ done |
-| Codegen | 🟡 phase 1 (interpolation) + control flow + attributes (security core) done; pipeline/methods/composable class+style/spread pending |
+| Codegen | 🟡 interpolation + control flow + attributes (security core) + pipeline `\|>` (first slice) done; methods/composable class+style/spread/extension-seam pending |
 | CLI / `gen.Main` | ⬜ not started |
-| Pipeline `|>` end-to-end | 🟡 parsed + codegen errors cleanly (no silent drop) — **lowering + filters not done** |
+| Pipeline `|>` end-to-end | 🟡 lowering + `std` filters done (interp + attr, harvest-by-contract) — **extension seam (`gen.Main`/user filter pkgs) + per-stage `?` not done** |
 
 ## Done
 
@@ -59,9 +59,15 @@ render goldens. Suggested order:
    adversarial security review: SHIP. **Deferred:** composable `class`+`style`,
    spread, conditional `{ if … { attr } }`, attr `?`/`|>`, clean codegen error for
    non-string value in a URL attr (currently a Go compile error).
-4. ⬜ **Pipeline `|>` + filters** — lower `Stages` to nested (generic) filter
-   calls; `gen`-registered filter resolution via `go/types` harvest; ship a
-   starter `std` filter package. (Ergonomically load-bearing for numerics.)
+4. 🟡 **Pipeline `|>` + filters — first slice done.** Lowering of `Stages` to
+   nested qualified Go calls (`{x |> a |> b(n)}` → `_gsxstd.B(n)(_gsxstd.A((x)))`),
+   resolved against the shipped `std` package via `go/types` harvest-by-contract;
+   the lowered expr is both the type-probe and the emitted render, so the result
+   flows through the existing type-aware render / context escaper (interp + attr).
+   Independent review: SHIP (1 bug found+fixed — params used only in filter args).
+   **Deferred:** the `gen.Main`/`cmd/gsx`/`WithFilters` extension seam + user filter
+   packages + collision/precedence + `gsx info`/`vet`; per-stage `?` (failable
+   filters); initialism-aware naming; pipeline-as-filter-argument; ambient `mapEach`.
 5. ⬜ **Child-component props + `{children}`** — attr→field mapping, children/slot
    closures.
 6. ⬜ **Method components** — `component (r T) X()` → method.
