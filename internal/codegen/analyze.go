@@ -159,6 +159,13 @@ func buildSkeleton(file *gsxast.File, table filterTable) (string, []*gsxast.Comp
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "package %s\n", file.Package)
 	sb.WriteString("import _gsxrt \"github.com/gsxhq/gsx\"\n")
+	// Import context under a RESERVED alias so each skeleton component func can
+	// bind a real `ctx context.Context` (matching the emitted closure's ambient
+	// param) — interp/attr exprs referencing `ctx` then type-check. The reserved
+	// alias avoids any duplicate-import clash with a user GoChunk that also
+	// imports "context" (Go rejects two plain imports of the same path); the type
+	// _gsxctx.Context IS context.Context, so resolution is unaffected.
+	sb.WriteString("import _gsxctx \"context\"\n")
 	if usesStd {
 		fmt.Fprintf(&sb, "import _gsxstd %q\n", stdImportPath)
 	}
@@ -173,14 +180,15 @@ func buildSkeleton(file *gsxast.File, table filterTable) (string, []*gsxast.Comp
 	// non-method components (e.g. a method-only file whose components are skipped
 	// below) — otherwise the import-unused error masks the real diagnostic.
 	sb.WriteString("var _ _gsxrt.Node\n")
+	// Keep the reserved context import used even when a file has no non-method
+	// component func that binds `ctx` (e.g. a method-only file) — otherwise an
+	// import-unused error would mask the real diagnostic.
+	sb.WriteString("var _ _gsxctx.Context\n")
 	for _, body := range bodies {
 		sb.WriteString(body)
 		sb.WriteByte('\n')
 	}
 	for _, c := range comps {
-		if c.Recv != "" {
-			continue // SPIKE: method components handled later
-		}
 		params, err := parseParams(c.Params)
 		if err != nil {
 			return "", nil, err
@@ -188,21 +196,64 @@ func buildSkeleton(file *gsxast.File, table filterTable) (string, []*gsxast.Comp
 		if err := checkReservedParams(params); err != nil {
 			return "", nil, err
 		}
+		// MIRROR genComponent (emit.go): a method component emits a Go method whose
+		// receiver var is in scope (so `p.Field` probes type-check against the real
+		// receiver type), its props struct is named <RecvTypeName><Name>Props, and a
+		// NULLARY method (no params, no children) gets NO props struct + no _gsxp
+		// param. The receiver clause + props-struct name + nullary-no-props must be
+		// byte-identical in shape to emission, else resolution disagrees.
+		propsName := c.Name + "Props"
+		// recvVar/recvTypeName stay "" for a function component; for a method
+		// component they are passed to emitProbes so a dotted child tag whose left ==
+		// recvVar is probed as a method call (mirroring the emitter's childInvocation).
+		var recvVar, recvTypeName string
+		if c.Recv != "" {
+			var rerr error
+			recvVar, _, recvTypeName, rerr = parseRecv(c.Recv)
+			if rerr != nil {
+				return "", nil, rerr
+			}
+			if rerr := checkReservedRecvVar(recvVar); rerr != nil {
+				return "", nil, rerr
+			}
+			propsName = recvTypeName + c.Name + "Props"
+		}
 		// Synthesize the implicit `Children _gsxrt.Node` slot field + `children`
 		// local in lockstep with genComponent (emit.go), so skeleton and emitted
 		// code agree on the props shape and the `{children}` interp type-checks.
 		hasChildren := usesChildren(c.Body)
-		fmt.Fprintf(&sb, "type %sProps struct {\n", c.Name)
-		for _, p := range params {
-			fmt.Fprintf(&sb, "\t%s %s\n", fieldName(p.name), p.typ)
+		// MIRROR emit.go: only a method component suppresses the props struct when
+		// nullary; a function component always keeps its (possibly empty) props
+		// struct so the child-invocation path's `<Tag>Props{}` literal type-checks.
+		hasProps := c.Recv == "" || len(params) > 0 || hasChildren
+		if hasProps {
+			fmt.Fprintf(&sb, "type %s struct {\n", propsName)
+			for _, p := range params {
+				fmt.Fprintf(&sb, "\t%s %s\n", fieldName(p.name), p.typ)
+			}
+			if hasChildren {
+				sb.WriteString("\tChildren _gsxrt.Node\n")
+			}
+			sb.WriteString("}\n")
 		}
-		if hasChildren {
-			sb.WriteString("\tChildren _gsxrt.Node\n")
-		}
-		sb.WriteString("}\n")
 		// Use the same reserved props-param name as the emitted code (_gsxp) so a
-		// user param named `p` does not collide in the skeleton either.
-		fmt.Fprintf(&sb, "func %s(_gsxp %sProps) _gsxrt.Node {\n", c.Name, c.Name)
+		// user param named `p` does not collide in the skeleton either. Emit the
+		// receiver clause verbatim for a method component (its receiver var is in
+		// scope, like the emitted method).
+		if c.Recv != "" {
+			fmt.Fprintf(&sb, "func %s %s(", c.Recv, c.Name)
+		} else {
+			fmt.Fprintf(&sb, "func %s(", c.Name)
+		}
+		if hasProps {
+			fmt.Fprintf(&sb, "_gsxp %s", propsName)
+		}
+		sb.WriteString(") _gsxrt.Node {\n")
+		// Bind the ambient `ctx` (matching the emitted closure's
+		// `func(ctx context.Context, _gsxw io.Writer)` param) so probe exprs that
+		// reference it — `{ fromCtx(ctx) }`, `id={ g(ctx) }` — type-check. The
+		// `_ = ctx` keeps it used for components that don't reference ctx.
+		sb.WriteString("\tvar ctx _gsxctx.Context\n\t_ = ctx\n")
 		used := usedParams(c, params)
 		for _, p := range params {
 			if used[p.name] {
@@ -212,7 +263,7 @@ func buildSkeleton(file *gsxast.File, table filterTable) (string, []*gsxast.Comp
 		if hasChildren {
 			sb.WriteString("\tchildren := _gsxp.Children\n\t_ = children\n")
 		}
-		if err := emitProbes(&sb, c.Body, table); err != nil {
+		if err := emitProbes(&sb, c.Body, table, recvVar, recvTypeName); err != nil {
 			return "", nil, err
 		}
 		sb.WriteString("\treturn nil\n}\n")
@@ -278,8 +329,14 @@ func bodyHasPipeline(nodes []gsxast.Markup) bool {
 // emitProbes writes type-resolution probes for a component body. It MIRRORS the
 // control structure (real for/if/switch + {{ }} code) so interpolations that
 // reference loop vars / block-locals type-check in scope. Each interpolation is
-// `_gsxuse(expr)`; child components are `_ = Child(ChildProps{})`.
-func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable) error {
+// `_gsxuse(expr)`; child components are `_ = Child(ChildProps{})` (or, for a
+// method invocation via the enclosing receiver, `_ = p.Method(...)`).
+//
+// recvVar/recvTypeName are the enclosing component's receiver var + type name
+// (empty for a function component); they drive the same method-vs-package
+// disambiguation as the emitter (childInvocation), so the probe type-checks the
+// call against the real method/function signature + props struct identically.
+func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, recvVar, recvTypeName string) error {
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *gsxast.Interp:
@@ -290,29 +347,36 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable) e
 			fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 		case *gsxast.Element:
 			if isComponentTag(t.Tag) {
-				// Emit the SAME props literal as genChildComponent so the assignment
-				// type-checks each prop expr against the child's real field type. The
-				// shared childPropsFields builder guarantees the attr fields never
-				// drift. When the element has slot content, add a typed-nil Children so
+				// Emit the SAME call as genChildComponent (via childInvocation) so the
+				// assignment type-checks each prop expr against the child's/method's real
+				// field type. The shared childPropsFields builder guarantees the attr
+				// fields never drift. A nullary method invocation (no attrs, no children)
+				// has no props struct → `_ = p.Method()`. Otherwise build the props
+				// literal; when the element has slot content, add a typed-nil Children so
 				// the literal type-checks WITHOUT building the real slot closure here —
 				// the slot content is probed SEPARATELY by recursing t.Children below
 				// (its interps become _gsxuse in the SAME order collectExprs collected
 				// them; the props-literal exprs are NOT _gsxuse, so they don't perturb
 				// the k-th alignment).
-				fields, err := childPropsFields(t)
-				if err != nil {
-					return err
-				}
-				if len(t.Children) > 0 {
-					childField := "Children: _gsxrt.Node(nil)"
-					if fields == "" {
-						fields = childField
-					} else {
-						fields = fields + ", " + childField
+				callTarget, propsType, isMethod := childInvocation(t, recvVar, recvTypeName)
+				if isMethod && len(t.Attrs) == 0 && len(t.Children) == 0 {
+					fmt.Fprintf(sb, "_ = %s()\n", callTarget)
+				} else {
+					fields, err := childPropsFields(t)
+					if err != nil {
+						return err
 					}
+					if len(t.Children) > 0 {
+						childField := "Children: _gsxrt.Node(nil)"
+						if fields == "" {
+							fields = childField
+						} else {
+							fields = fields + ", " + childField
+						}
+					}
+					fmt.Fprintf(sb, "_ = %s(%s{%s})\n", callTarget, propsType, fields)
 				}
-				fmt.Fprintf(sb, "_ = %s(%sProps{%s})\n", t.Tag, t.Tag, fields)
-				if err := emitProbes(sb, t.Children, table); err != nil {
+				if err := emitProbes(sb, t.Children, table, recvVar, recvTypeName); err != nil {
 					return err
 				}
 			} else {
@@ -335,29 +399,29 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable) e
 				if probeErr != nil {
 					return probeErr
 				}
-				if err := emitProbes(sb, t.Children, table); err != nil {
+				if err := emitProbes(sb, t.Children, table, recvVar, recvTypeName); err != nil {
 					return err
 				}
 			}
 		case *gsxast.Fragment:
-			if err := emitProbes(sb, t.Children, table); err != nil {
+			if err := emitProbes(sb, t.Children, table, recvVar, recvTypeName); err != nil {
 				return err
 			}
 		case *gsxast.ForMarkup:
 			fmt.Fprintf(sb, "for %s {\n", t.Clause)
-			if err := emitProbes(sb, t.Body, table); err != nil {
+			if err := emitProbes(sb, t.Body, table, recvVar, recvTypeName); err != nil {
 				return err
 			}
 			sb.WriteString("}\n")
 		case *gsxast.IfMarkup:
 			fmt.Fprintf(sb, "if %s {\n", t.Cond)
-			if err := emitProbes(sb, t.Then, table); err != nil {
+			if err := emitProbes(sb, t.Then, table, recvVar, recvTypeName); err != nil {
 				return err
 			}
 			sb.WriteString("}")
 			if t.Else != nil {
 				sb.WriteString(" else {\n")
-				if err := emitProbes(sb, t.Else, table); err != nil {
+				if err := emitProbes(sb, t.Else, table, recvVar, recvTypeName); err != nil {
 					return err
 				}
 				sb.WriteString("}")
@@ -371,7 +435,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable) e
 				} else {
 					fmt.Fprintf(sb, "case %s:\n", cc.List)
 				}
-				if err := emitProbes(sb, cc.Body, table); err != nil {
+				if err := emitProbes(sb, cc.Body, table, recvVar, recvTypeName); err != nil {
 					return err
 				}
 			}
@@ -403,16 +467,21 @@ func probeExpr(seed string, stages []gsxast.PipeStage, table filterTable) (strin
 // file. An interpolation probe is now an ExprStmt whose call target is the
 // identifier `_gsxuse`; harvest the single argument's type.
 func harvest(f *goast.File, comps []*gsxast.Component, info *types.Info, out map[gsxast.Node]types.Type) {
-	byName := map[string]*gsxast.Component{}
+	// Key by receiver-type + method name, not name alone: two method components
+	// with the same method name on different receivers (e.g. (UsersPage) Row and
+	// (OrdersPage) Row) are distinct, and their skeleton funcs are distinct
+	// methods — keying on name alone would map both skeleton funcs to one
+	// component and leave the other's interps unresolved.
+	byKey := map[string]*gsxast.Component{}
 	for _, c := range comps {
-		byName[c.Name] = c
+		byKey[componentKey(c)] = c
 	}
 	for _, decl := range f.Decls {
 		fd, ok := decl.(*goast.FuncDecl)
 		if !ok {
 			continue
 		}
-		c, ok := byName[fd.Name.Name]
+		c, ok := byKey[funcDeclKey(fd)]
 		if !ok || fd.Body == nil {
 			continue
 		}
@@ -434,6 +503,48 @@ func harvest(f *goast.File, comps []*gsxast.Component, info *types.Info, out map
 			return true
 		})
 	}
+}
+
+// componentKey identifies a component by receiver-type + name, so same-named
+// methods on different receivers are distinct. A function component (no receiver)
+// keys on its name alone (with a leading "." marker so it can never collide with
+// a method named the same on a receiver type called "").
+func componentKey(c *gsxast.Component) string {
+	if c.Recv == "" {
+		return "." + c.Name
+	}
+	_, _, recvTypeName, err := parseRecv(c.Recv)
+	if err != nil {
+		// Should not happen: buildSkeleton already parsed this receiver before
+		// harvest runs. Fall back to name-only rather than panic.
+		return "." + c.Name
+	}
+	return recvTypeName + "." + c.Name
+}
+
+// funcDeclKey mirrors componentKey for a type-checked skeleton FuncDecl: a method
+// keys on its receiver type name + method name; a plain func on "." + name.
+func funcDeclKey(fd *goast.FuncDecl) string {
+	if fd.Recv == nil || len(fd.Recv.List) == 0 {
+		return "." + fd.Name.Name
+	}
+	return recvTypeIdent(fd.Recv.List[0].Type) + "." + fd.Name.Name
+}
+
+// recvTypeIdent extracts the receiver type's base name from a skeleton method's
+// receiver expression: T, *T, T[X], *T[X] → "T".
+func recvTypeIdent(e goast.Expr) string {
+	switch t := e.(type) {
+	case *goast.Ident:
+		return t.Name
+	case *goast.StarExpr:
+		return recvTypeIdent(t.X)
+	case *goast.IndexExpr:
+		return recvTypeIdent(t.X)
+	case *goast.IndexListExpr:
+		return recvTypeIdent(t.X)
+	}
+	return ""
 }
 
 type category int
@@ -815,6 +926,65 @@ func valueIdents(exprSrc string) map[string]bool {
 		prevPeriod = tok == token.PERIOD
 	}
 	return out
+}
+
+// parseRecv parses a method-component receiver clause (INCLUDING parens, e.g.
+// "(p UsersPage)", "(f *Form)") into its variable name, full receiver type, and
+// the bare type name used to prefix the props struct. It reuses go/parser on a
+// synthesized method so it handles `*T`, named/unnamed, and spacing robustly.
+//
+// For "(p UsersPage)"  → recvVar "p", recvType "UsersPage",  recvTypeName "UsersPage".
+// For "(f *Form)"      → recvVar "f", recvType "*Form",       recvTypeName "Form".
+//
+// An UNNAMED receiver ("(UsersPage)" / "(*Form)") is rejected: a method
+// component needs the receiver var as its page-data handle (referenced in the
+// body as `p.Field`). It is shared by genComponent (emit) and buildSkeleton
+// (skeleton) so both agree on the signature, props-struct name, and reserved
+// receiver-var check.
+func parseRecv(recv string) (recvVar, recvType, recvTypeName string, err error) {
+	src := strings.TrimSpace(recv)
+	if src == "" {
+		return "", "", "", fmt.Errorf("codegen: empty method-component receiver")
+	}
+	fset := token.NewFileSet()
+	f, perr := parser.ParseFile(fset, "", "package _\nfunc "+src+" _m() {}", 0)
+	if perr != nil {
+		return "", "", "", fmt.Errorf("codegen: parse method-component receiver %q: %w", recv, perr)
+	}
+	fn, ok := f.Decls[0].(*goast.FuncDecl)
+	if !ok || fn.Recv == nil || len(fn.Recv.List) != 1 {
+		return "", "", "", fmt.Errorf("codegen: invalid method-component receiver %q", recv)
+	}
+	field := fn.Recv.List[0]
+	if len(field.Names) != 1 || field.Names[0].Name == "_" {
+		return "", "", "", fmt.Errorf("codegen: method component receiver must be named, e.g. (p T) — got %q", recv)
+	}
+	recvVar = field.Names[0].Name
+	var tb strings.Builder
+	if err := printer.Fprint(&tb, fset, field.Type); err != nil {
+		return "", "", "", err
+	}
+	recvType = tb.String()
+	recvTypeName = strings.TrimPrefix(recvType, "*")
+	return recvVar, recvType, recvTypeName, nil
+}
+
+// checkReservedRecvVar rejects a method-component receiver var that would
+// collide with the ambient closure context (`ctx`), the generator's reserved
+// `_gsx` namespace, or a package ident the emitter references in the body
+// (gsx/strconv) — any of which would break the emitted method body where the
+// receiver var is in scope.
+func checkReservedRecvVar(recvVar string) error {
+	if recvVar == "ctx" {
+		return fmt.Errorf("codegen: method-component receiver var %q is reserved (ambient context)", recvVar)
+	}
+	if strings.HasPrefix(recvVar, "_gsx") {
+		return fmt.Errorf("codegen: method-component receiver var %q uses the reserved _gsx prefix", recvVar)
+	}
+	if emittedImportIdent[recvVar] {
+		return fmt.Errorf("codegen: method-component receiver var %q is reserved (shadows a generated import)", recvVar)
+	}
+	return nil
 }
 
 type param struct{ name, typ string }
