@@ -635,3 +635,18 @@ component Profile(user User) {
 	got := renderPackage(t, files, `p.Profile(p.ProfileProps{User: p.User{Name: "Alice", Age: 30}})`)
 	assertHTMLEqual(t, got, `<div>Alice (30) <footer>(c) gsx</footer></div>`)
 }
+
+// TestPipelineNotSupportedErrors proves codegen errors (not silently drops the
+// filter) on a pipelined interpolation until pipeline lowering lands.
+func TestPipelineNotSupportedErrors(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": "package views\n\nfunc upper(s string) string { return s }\n\ncomponent C(name string) {\n\t<p>{ name |> upper }</p>\n}\n",
+	}
+	err := generatePackageErr(t, files)
+	if err == nil {
+		t.Fatal("expected error for pipeline in codegen, got nil")
+	}
+	if !strings.Contains(err.Error(), "pipeline") {
+		t.Fatalf("expected clean 'pipeline not supported' error, got: %v", err)
+	}
+}
