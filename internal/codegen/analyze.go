@@ -467,16 +467,21 @@ func probeExpr(seed string, stages []gsxast.PipeStage, table filterTable) (strin
 // file. An interpolation probe is now an ExprStmt whose call target is the
 // identifier `_gsxuse`; harvest the single argument's type.
 func harvest(f *goast.File, comps []*gsxast.Component, info *types.Info, out map[gsxast.Node]types.Type) {
-	byName := map[string]*gsxast.Component{}
+	// Key by receiver-type + method name, not name alone: two method components
+	// with the same method name on different receivers (e.g. (UsersPage) Row and
+	// (OrdersPage) Row) are distinct, and their skeleton funcs are distinct
+	// methods — keying on name alone would map both skeleton funcs to one
+	// component and leave the other's interps unresolved.
+	byKey := map[string]*gsxast.Component{}
 	for _, c := range comps {
-		byName[c.Name] = c
+		byKey[componentKey(c)] = c
 	}
 	for _, decl := range f.Decls {
 		fd, ok := decl.(*goast.FuncDecl)
 		if !ok {
 			continue
 		}
-		c, ok := byName[fd.Name.Name]
+		c, ok := byKey[funcDeclKey(fd)]
 		if !ok || fd.Body == nil {
 			continue
 		}
@@ -498,6 +503,48 @@ func harvest(f *goast.File, comps []*gsxast.Component, info *types.Info, out map
 			return true
 		})
 	}
+}
+
+// componentKey identifies a component by receiver-type + name, so same-named
+// methods on different receivers are distinct. A function component (no receiver)
+// keys on its name alone (with a leading "." marker so it can never collide with
+// a method named the same on a receiver type called "").
+func componentKey(c *gsxast.Component) string {
+	if c.Recv == "" {
+		return "." + c.Name
+	}
+	_, _, recvTypeName, err := parseRecv(c.Recv)
+	if err != nil {
+		// Should not happen: buildSkeleton already parsed this receiver before
+		// harvest runs. Fall back to name-only rather than panic.
+		return "." + c.Name
+	}
+	return recvTypeName + "." + c.Name
+}
+
+// funcDeclKey mirrors componentKey for a type-checked skeleton FuncDecl: a method
+// keys on its receiver type name + method name; a plain func on "." + name.
+func funcDeclKey(fd *goast.FuncDecl) string {
+	if fd.Recv == nil || len(fd.Recv.List) == 0 {
+		return "." + fd.Name.Name
+	}
+	return recvTypeIdent(fd.Recv.List[0].Type) + "." + fd.Name.Name
+}
+
+// recvTypeIdent extracts the receiver type's base name from a skeleton method's
+// receiver expression: T, *T, T[X], *T[X] → "T".
+func recvTypeIdent(e goast.Expr) string {
+	switch t := e.(type) {
+	case *goast.Ident:
+		return t.Name
+	case *goast.StarExpr:
+		return recvTypeIdent(t.X)
+	case *goast.IndexExpr:
+		return recvTypeIdent(t.X)
+	case *goast.IndexListExpr:
+		return recvTypeIdent(t.X)
+	}
+	return ""
 }
 
 type category int

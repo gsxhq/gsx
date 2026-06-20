@@ -1495,6 +1495,27 @@ component (p UsersPage) Row(user User, sort string) {
 		`<div><h1>T</h1><ul><li>a@b-s</li><li>c@d-s</li></ul></div>`)
 }
 
+// TestRenderMethodSameNameDifferentReceivers proves type resolution keys on
+// receiver-type + method name, not name alone: two method components named `Row`
+// on different receivers (with differently-typed interps) each resolve correctly.
+// Regression for the harvest byName collision (found by independent review).
+func TestRenderMethodSameNameDifferentReceivers(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+type A struct{ S string }
+type B struct{ N int }
+
+component (a A) Row() { <i>{a.S}</i> }
+component (b B) Row() { <b>{b.N}</b> }
+`,
+	}
+	got := renderPackage(t, files, `(p.A{S: "hi"}).Row()`)
+	assertHTMLEqual(t, got, `<i>hi</i>`)
+	got = renderPackage(t, files, `(p.B{N: 7}).Row()`)
+	assertHTMLEqual(t, got, `<b>7</b>`)
+}
+
 // TestRenderMethodInvocationNullary proves a nullary method invocation
 // `<p.Content/>` (no attrs, no children) lowers to `p.Content()` with NO props
 // literal (the nullary method has no props struct).
