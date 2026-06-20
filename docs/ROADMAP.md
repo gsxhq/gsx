@@ -15,7 +15,7 @@ generator/CLI may use `golang.org/x/tools`.
 | Parser + AST | ✅ done (Part 2 grammar + pipeline parsing) |
 | Runtime (`gsx`) | ✅ done |
 | Codegen | 🟡 interpolation + control flow + full attributes (security core, composable class, spread, conditional) + pipeline `\|>` + child props/`{children}` + method components + named slots + attribute fallthrough (auto class-merge/spread + manual `{...attrs}`) done; extension-seam/`style`-composition pending |
-| CLI / `gen.Main` | ⬜ not started |
+| CLI / `gen.Main` | 🟡 `gsx generate` runnable (`gen.Main`/`cmd/gsx` write `.x.go`) — `WithFilters` seam, `fmt`/`vet`/`lsp`, `--json`/`diag` pending |
 | Pipeline `|>` end-to-end | 🟡 lowering + `std` filters done (interp + attr, harvest-by-contract) — **extension seam (`gen.Main`/user filter pkgs) + per-stage `?` not done** |
 
 ## Done
@@ -177,8 +177,14 @@ attribute-name validation against tag breakout (`validAttrName`), documented
   guard (currently `gsx`/`strconv` are reserved param names as a stopgap).
 - ⬜ **Structured diagnostics** (`internal/diag`: GSXnnnn codes, ranges, JSON) —
   designed in the CLI-skeleton spec; not built.
-- ⬜ **CLI / `gen.Main`** (`generate`/`fmt`/`vet`/`lsp`/`render`), file discovery,
-  `//go:generate`, incremental/watch — designed, not built.
+- 🟡 **CLI / `gen.Main`** — `gsx generate` SHIPPED: public `gen` package
+  (`Generate(paths)` discovers `.gsx` recursively, codegens per package dir, writes
+  `.x.go`), `gen.Main(...Option)` dispatch (`generate`/`version`/`help`, `-C`/`-q`/`-v`,
+  exit 0/1/2), `cmd/gsx` stock binary. `//go:generate gsx generate` works.
+  **Pending:** `WithFilters`/`WithClassMerger` extension seam (+ marker types, per-pkg
+  filter qualification, last-wins); `internal/diag` + `--json` envelope + GSXnnnn codes;
+  `fmt` (needs an AST→source printer); `vet`/`lsp`/`render`/`info`/`explain`/`init`;
+  `--watch`/incremental; per-command flags (today flags must precede the command).
 - ⬜ **Codegen niceties** — coalesce adjacent `gw.S` static writes; `//line`
   trailing-state reset; `data:image` URL allowance.
 
