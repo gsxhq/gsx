@@ -45,14 +45,24 @@ func GeneratePackage(dir string) (map[string][]byte, error) {
 		files[m] = f
 	}
 
-	resolved, table, structFields, err := resolveTypesPkg(dir, files)
+	// Derive the call-site prop-field map from the parsed ASTs (same-package),
+	// BEFORE type resolution. The SAME map drives BOTH the probe split
+	// (resolveTypesPkg → buildSkeleton → emitProbes) and the emit split
+	// (generateFile → genChildComponent → childPropsLiteral), so emit ≡ probe is
+	// guaranteed with no second type-check.
+	propFields, err := componentPropFieldsFor(files)
+	if err != nil {
+		return nil, err
+	}
+
+	resolved, table, err := resolveTypesPkg(dir, files, propFields)
 	if err != nil {
 		return nil, err
 	}
 
 	out := map[string][]byte{}
 	for path, file := range files {
-		gen, err := generateFile(file, resolved, table, structFields, fset)
+		gen, err := generateFile(file, resolved, table, propFields, fset)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}

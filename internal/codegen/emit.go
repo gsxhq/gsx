@@ -880,7 +880,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 	// loop vars are bound. emitProbes drives the same builder with a typed-nil
 	// slotValue, so emit and probe agree on WHICH fields exist — only the VALUE
 	// differs, and they cannot drift.
-	fields, err := childPropsLiteral(el, func(nodes []ast.Markup) (string, error) {
+	fields, err := childPropsLiteral(el, propsType, "gsx", structFields, func(nodes []ast.Markup) (string, error) {
 		return emitSlotClosure(nodes, resolved, table, structFields, imports, fset, recvVar, recvTypeName)
 	})
 	if err != nil {
@@ -915,38 +915,69 @@ func emitSlotClosure(nodes []ast.Markup, resolved map[ast.Node]types.Type, table
 // literal so the render emission (genChildComponent) and the type-check probe
 // (emitProbes) cannot drift — they pass the SAME field set, differing only in the
 // slot VALUE supplied by slotValue (a real gsx.Func closure for emission, a
-// typed-nil for the probe). It iterates el.Attrs once: static→quoted, expr→expr
-// (rejecting Try/Stages), bool→true, markup→slotValue(ma.Value); a markup field
-// appears at its attr position. After the attrs, when the element has children, a
-// `Children: slotValue(el.Children)` field is appended last. The returned string
-// is empty for an attribute-less, child-less component (yielding `Props{}`).
-func childPropsLiteral(el *ast.Element, slotValue func(nodes []ast.Markup) (string, error)) (string, error) {
+// typed-nil for the probe).
+//
+// It SPLITS each Static/Expr/Bool attr via isPropField(propFields[propsType], …):
+//   - a DECLARED prop name → a props-struct field (static→quoted, expr→trimmed
+//     expr rejecting Try/Stages, bool→true), exactly as before; and
+//   - anything else (a non-identifier name like `data-test`/`@click`/`hx-*`, or an
+//     undeclared identifier on a known same-package child) → a FALLTHROUGH bag
+//     entry keyed by the attr's RAW name (static→quoted value, bool→true, expr→
+//     trimmed expr).
+//
+// A markup attribute is always a named slot (rendered via slotValue); composed
+// class/spread/conditional attrs on a component still error. When ≥1 fallthrough
+// entry exists, a single `Attrs: gsx.Attrs{…}` field is appended (after Children);
+// with none, NO Attrs field is emitted (so a pure-props invocation is unchanged).
+// rtPkg is the package qualifier for the gsx runtime (`gsx` in emitted code,
+// `_gsxrt` in a type-check skeleton), used only to name the fallthrough-bag type
+// `<rtPkg>.Attrs` so emit and probe reference the SAME runtime type under their
+// respective aliases.
+func childPropsLiteral(el *ast.Element, propsType, rtPkg string, propFields map[string]map[string]bool, slotValue func(nodes []ast.Markup) (string, error)) (string, error) {
+	declared := propFields[propsType] // nil for cross-package / unknown → graceful
 	var fields []string
+	var bag []string // fallthrough entries: `"<rawName>": <value>`
 	for _, a := range el.Attrs {
 		switch t := a.(type) {
 		case *ast.StaticAttr:
-			if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
-				return "", err
+			if isPropField(declared, t.Name) {
+				if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
+					return "", err
+				}
+				fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), strconv.Quote(t.Value)))
+			} else {
+				bag = append(bag, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), strconv.Quote(t.Value)))
 			}
-			fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), strconv.Quote(t.Value)))
 		case *ast.ExprAttr:
-			if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
-				return "", err
+			if isPropField(declared, t.Name) {
+				if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
+					return "", err
+				}
+				if t.Try || len(t.Stages) > 0 {
+					return "", fmt.Errorf("codegen: pipeline/`?` on child-component prop %q (<%s>) not supported yet", t.Name, el.Tag)
+				}
+				fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), strings.TrimSpace(t.Expr)))
+			} else {
+				if t.Try || len(t.Stages) > 0 {
+					return "", fmt.Errorf("codegen: pipeline/`?` on child-component fallthrough attr %q (<%s>) not supported yet", t.Name, el.Tag)
+				}
+				bag = append(bag, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), strings.TrimSpace(t.Expr)))
 			}
-			if t.Try || len(t.Stages) > 0 {
-				return "", fmt.Errorf("codegen: pipeline/`?` on child-component prop %q (<%s>) not supported yet", t.Name, el.Tag)
-			}
-			fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), strings.TrimSpace(t.Expr)))
 		case *ast.BoolAttr:
-			if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
-				return "", err
+			if isPropField(declared, t.Name) {
+				if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
+					return "", err
+				}
+				fields = append(fields, fmt.Sprintf("%s: true", fieldName(t.Name)))
+			} else {
+				bag = append(bag, fmt.Sprintf("%s: true", strconv.Quote(t.Name)))
 			}
-			fields = append(fields, fmt.Sprintf("%s: true", fieldName(t.Name)))
 		case *ast.MarkupAttr:
 			// A markup attribute (`header={ <h1/> }`) is a NAMED slot bound to a
 			// declared `gsx.Node` prop. Its name must be a valid field identifier; its
 			// VALUE is rendered by slotValue (a gsx.Func closure on emit, a typed-nil
-			// on probe) — the SAME machinery as the {children} slot.
+			// on probe) — the SAME machinery as the {children} slot. A named slot is
+			// never a fallthrough attr.
 			if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
 				return "", err
 			}
@@ -972,12 +1003,46 @@ func childPropsLiteral(el *ast.Element, slotValue func(nodes []ast.Markup) (stri
 		}
 		fields = append(fields, "Children: "+val)
 	}
+	if len(bag) > 0 {
+		fields = append(fields, fmt.Sprintf("Attrs: %s.Attrs{%s}", rtPkg, strings.Join(bag, ", ")))
+	}
 	return strings.Join(fields, ", "), nil
 }
 
-// checkComponentAttrName rejects an attribute name that is not a Go identifier
-// (e.g. hyphenated `data-test`): it cannot map to a props struct field, and
-// attribute fallthrough is not supported yet.
+// isPropField reports whether a child-invocation attribute named `name` maps to a
+// DECLARED props-struct field (→ a struct field) versus a FALLTHROUGH attr (→ the
+// Attrs bag). declared is the child's prop-field set (nil for a cross-package or
+// otherwise unknown child).
+//
+//   - A non-identifier name (data-test, @click, hx-*) can never be a Go field → it
+//     falls through.
+//   - The synthesized Attrs/Children fields are never caller-set props → fall
+//     through (Children is supplied as slot markup, never a simple attr).
+//   - When declared is nil (cross-package / unknown), assume an identifier attr IS
+//     a prop — today's behavior. This means a cross-package child's NON-identifier
+//     fallthrough WORKS (the common data-*/@/hx-* case), but a cross-package
+//     UNDECLARED-IDENTIFIER attr is wrongly assumed a prop and surfaces at the
+//     final `go build` of the .x.go. A future cross-package enhancement can resolve
+//     imported struct fields; this task does not.
+//   - Otherwise, membership in declared decides.
+func isPropField(declared map[string]bool, name string) bool {
+	if !token.IsIdentifier(name) {
+		return false
+	}
+	fn := fieldName(name)
+	if fn == "Attrs" || fn == "Children" {
+		return false
+	}
+	if declared == nil {
+		return true
+	}
+	return declared[fn]
+}
+
+// checkComponentAttrName rejects a prop attribute name that is not a Go identifier.
+// It is now only reached on the isPropField (declared-prop) branch — a
+// non-identifier name is classified as a fallthrough attr by isPropField and never
+// reaches here, so this guards only a malformed declared-prop name.
 func checkComponentAttrName(name, tag string) error {
 	if !token.IsIdentifier(name) {
 		return fmt.Errorf("codegen: non-identifier attribute %q on component %s (attribute fallthrough not supported yet)", name, tag)
