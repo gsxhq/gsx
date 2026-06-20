@@ -15,8 +15,8 @@ generator/CLI may use `golang.org/x/tools`.
 | Parser + AST | ✅ done (Part 2 grammar + pipeline parsing) |
 | Runtime (`gsx`) | ✅ done |
 | Codegen | 🟡 interpolation + control flow + full attributes (security core, composable class, spread, conditional) + pipeline `\|>` + child props/`{children}` + method components + named slots + attribute fallthrough (auto class-merge/spread + manual `{...attrs}`) done; extension-seam/`style`-composition pending |
-| CLI / `gen.Main` | 🟡 `gsx generate` runnable (`gen.Main`/`cmd/gsx` write `.x.go`) — `WithFilters` seam, `fmt`/`vet`/`lsp`, `--json`/`diag` pending |
-| Pipeline `|>` end-to-end | 🟡 lowering + `std` filters done (interp + attr, harvest-by-contract) — **extension seam (`gen.Main`/user filter pkgs) + per-stage `?` not done** |
+| CLI / `gen.Main` | 🟡 `gsx generate` runnable + **`gen.WithFilters`** user filter packages (`std.Pkg` marker, last-wins) — `WithClassMerger`, `fmt`/`vet`/`lsp`, `--json`/`diag` pending |
+| Pipeline `|>` end-to-end | 🟡 lowering + `std` filters + **user filter packages** (`gen.WithFilters`, multi-pkg last-wins, per-pkg alias) done — per-stage `?` + initialism naming pending |
 
 ## Done
 
