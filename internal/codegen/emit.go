@@ -344,13 +344,61 @@ func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, tab
 		if attrContext(t.Name) == ctxCSS {
 			return fmt.Errorf("codegen: expr value in CSS context (%q) is unsafe; needs a safe type via `|> css` (not available yet) — use a static value", t.Name)
 		}
-		return fmt.Errorf("codegen: attribute kind %T not supported yet (deferred)", a)
-	case *ast.SpreadAttr, *ast.CondAttr:
-		return fmt.Errorf("codegen: attribute kind %T not supported yet (deferred)", a)
+		emitClassAttr(b, t)
+	case *ast.SpreadAttr:
+		// emitAttr runs only for non-component elements (genNode routes component
+		// tags to genChildComponent before the attr loop), so a SpreadAttr here is
+		// always an element spread: gw.Spread writes the bag deterministically.
+		// Note: gw.Spread entity-escapes values and drops invalid attr names, but
+		// (per the gsx.Attrs trust contract) does NOT URL/CSS-sanitize or reject
+		// JS-context keys — a bag's keys/values are trusted developer input. This is
+		// deliberately distinct from the composable-style/expr-attr paths, which fail
+		// closed on CSS/JS contexts because their values may be untrusted data.
+		fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", strings.TrimSpace(t.Expr))
+	case *ast.CondAttr:
+		// Attr emission is a sequence of writer calls between `<tag` and `>`, so
+		// wrapping the branch's attr emits in a real Go `if`/`else` is valid. An
+		// else-if is a *CondAttr in Else, handled by the recursive emitAttr below.
+		// (No //line for the cond: emitAttr has no fset, the wrapper is a pure
+		// control construct, and each nested attr emit carries its own line map.)
+		fmt.Fprintf(b, "\t\tif %s {\n", t.Cond)
+		for _, inner := range t.Then {
+			if err := emitAttr(b, inner, resolved, table, imports); err != nil {
+				return err
+			}
+		}
+		if len(t.Else) > 0 {
+			b.WriteString("\t\t} else {\n")
+			for _, inner := range t.Else {
+				if err := emitAttr(b, inner, resolved, table, imports); err != nil {
+					return err
+				}
+			}
+		}
+		b.WriteString("\t\t}\n")
+		return nil
 	default:
 		return fmt.Errorf("codegen: unknown attribute %T", a)
 	}
 	return nil
+}
+
+// emitClassAttr lowers a composable `class={ … }` to the open ` class="`, a
+// gw.Class call composing each part (gsx.Class for an unconditional Expr,
+// gsx.ClassIf for a conditional one), and the closing `"`. gw.Class runs the
+// tokens through the installed ClassMerger and writes the attr-escaped value.
+func emitClassAttr(b *bytes.Buffer, a *ast.ClassAttr) {
+	parts := make([]string, 0, len(a.Parts))
+	for _, p := range a.Parts {
+		if p.Cond == "" {
+			parts = append(parts, fmt.Sprintf("gsx.Class(%s)", strings.TrimSpace(p.Expr)))
+		} else {
+			parts = append(parts, fmt.Sprintf("gsx.ClassIf(%s, %s)", strings.TrimSpace(p.Expr), strings.TrimSpace(p.Cond)))
+		}
+	}
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
+	fmt.Fprintf(b, "\t\t_gsxgw.Class(%s)\n", strings.Join(parts, ", "))
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
 }
 
 // htmlAttrEscape escapes a static attribute value for a double-quoted context at

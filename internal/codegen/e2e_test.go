@@ -951,3 +951,134 @@ component C(x string) { <div data-x={ x |> upper? }>y</div> }
 		t.Fatalf("expected ?-stage deferred error, got nil")
 	}
 }
+
+// TestRenderComposableClass proves `class={ "a", "b": cond, extra }` lowers to
+// gsx.Class/gsx.ClassIf parts, merges (default merger dedupes + space-joins) and
+// drops the conditional token when its cond is false. The `extra` param is used
+// ONLY in a class part, so it also proves the usedParams binding reaches there.
+func TestRenderComposableClass(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component C(on bool, extra string) {
+	<div class={ "btn", "btn-on": on, extra }>y</div>
+}
+`,
+	}
+	gotOn := renderPackage(t, files, `p.C(p.CProps{On: true, Extra: "x"})`)
+	assertHTMLEqual(t, gotOn, `<div class="btn btn-on x">y</div>`)
+
+	gotOff := renderPackage(t, files, `p.C(p.CProps{On: false, Extra: "x"})`)
+	assertHTMLEqual(t, gotOff, `<div class="btn x">y</div>`)
+}
+
+// TestRenderComposableClassEscaping proves a class token / override containing a
+// `"` is attr-escaped — no breakout.
+func TestRenderComposableClassEscaping(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component C(extra string) {
+	<div class={ "btn", extra }>y</div>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.C(p.CProps{Extra: "\"><script>"})`)
+	assertHTMLEqual(t, got, `<div class="btn &#34;&gt;&lt;script&gt;">y</div>`)
+}
+
+// TestRenderElementSpread proves `<div {...attrs}>` emits gw.Spread: keys sorted,
+// bool true -> boolean attr, others key="value" attr-escaped. The `attrs` param
+// is used ONLY in the spread, so it also proves usedParams binds it.
+func TestRenderElementSpread(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+import "github.com/gsxhq/gsx"
+
+component C(attrs gsx.Attrs) {
+	<div {...attrs}>y</div>
+}
+`,
+	}
+	got := renderPackage(t, files,
+		`p.C(p.CProps{Attrs: gsx.Attrs{"data-x": "1", "hidden": true, "class": "c"}})`)
+	// Spread sorts keys: class, data-x, hidden. hidden is a bool boolean-attr.
+	assertHTMLEqual(t, got, `<div class="c" data-x="1" hidden>y</div>`)
+}
+
+// TestRenderComposableStyleRejected proves `style={ … }` composition still fails
+// closed (CSS context cannot be entity-secured).
+func TestRenderComposableStyleRejected(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component C(on bool) { <div style={ "color: red": on }>y</div> }
+`,
+	}
+	err := generatePackageErr(t, files)
+	if err == nil {
+		t.Fatalf("expected fail-closed error for style composition, got nil")
+	}
+	if !strings.Contains(err.Error(), "context") {
+		t.Fatalf("expected context-rejection error, got: %v", err)
+	}
+}
+
+func TestRenderCondAttrBool(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component C(featured bool) { <span { if featured { class="badge" } }>y</span> }
+`}
+	got := renderPackage(t, files, `p.C(p.CProps{Featured: true})`)
+	assertHTMLEqual(t, got, `<span class="badge">y</span>`)
+	got = renderPackage(t, files, `p.C(p.CProps{Featured: false})`)
+	assertHTMLEqual(t, got, `<span>y</span>`)
+}
+
+func TestRenderCondAttrElseTypedExprs(t *testing.T) {
+	// BOTH branches carry a typed expr value — the order-invariant check: each
+	// must resolve+escape with its OWN type, not the other's.
+	files := map[string]string{"views.gsx": `package views
+
+component C(a bool, x string, n int) { <div { if a { data-x={x} } else { data-n={n} } }>y</div> }
+`}
+	got := renderPackage(t, files, `p.C(p.CProps{A: true, X: "a\"b", N: 5})`)
+	assertHTMLEqual(t, got, `<div data-x="a&#34;b">y</div>`)
+	got = renderPackage(t, files, `p.C(p.CProps{A: false, X: "a\"b", N: 5})`)
+	assertHTMLEqual(t, got, `<div data-n="5">y</div>`)
+}
+
+func TestRenderCondAttrElseIf(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component C(n int) { <div { if n == 1 { data-one="y" } else if n == 2 { data-two="y" } else { data-other="y" } }>z</div> }
+`}
+	got := renderPackage(t, files, `p.C(p.CProps{N: 2})`)
+	assertHTMLEqual(t, got, `<div data-two="y">z</div>`)
+	got = renderPackage(t, files, `p.C(p.CProps{N: 9})`)
+	assertHTMLEqual(t, got, `<div data-other="y">z</div>`)
+}
+
+func TestRenderCondAttrInterleaved(t *testing.T) {
+	// a conditional attr BETWEEN two plain typed attrs + a typed child interp —
+	// strongest order-invariant probe (misalignment renders one value's type for
+	// another).
+	files := map[string]string{"views.gsx": `package views
+
+component C(a bool, s string, n int, f float64) { <div data-s={s} { if a { data-x={n} } } data-f={f}>{ n }</div> }
+`}
+	got := renderPackage(t, files, `p.C(p.CProps{A: true, S: "hi", N: 7, F: 2.5})`)
+	assertHTMLEqual(t, got, `<div data-s="hi" data-x="7" data-f="2.5">7</div>`)
+}
+
+func TestRenderCondAttrParamOnlyInBranch(t *testing.T) {
+	// param used ONLY inside a conditional branch's attr expr must be bound
+	// (usedParams must recurse CondAttr — else `undefined: msg`).
+	files := map[string]string{"views.gsx": `package views
+
+component C(show bool, msg string) { <div { if show { title={msg} } }>y</div> }
+`}
+	got := renderPackage(t, files, `p.C(p.CProps{Show: true, Msg: "hello"})`)
+	assertHTMLEqual(t, got, `<div title="hello">y</div>`)
+}
