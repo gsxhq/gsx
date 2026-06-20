@@ -351,7 +351,27 @@ func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, tab
 		// always an element spread: gw.Spread writes the bag deterministically.
 		fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", strings.TrimSpace(t.Expr))
 	case *ast.CondAttr:
-		return fmt.Errorf("codegen: attribute kind %T not supported yet (deferred)", a)
+		// Attr emission is a sequence of writer calls between `<tag` and `>`, so
+		// wrapping the branch's attr emits in a real Go `if`/`else` is valid. An
+		// else-if is a *CondAttr in Else, handled by the recursive emitAttr below.
+		// (No //line for the cond: emitAttr has no fset, the wrapper is a pure
+		// control construct, and each nested attr emit carries its own line map.)
+		fmt.Fprintf(b, "\t\tif %s {\n", t.Cond)
+		for _, inner := range t.Then {
+			if err := emitAttr(b, inner, resolved, table, imports); err != nil {
+				return err
+			}
+		}
+		if len(t.Else) > 0 {
+			b.WriteString("\t\t} else {\n")
+			for _, inner := range t.Else {
+				if err := emitAttr(b, inner, resolved, table, imports); err != nil {
+					return err
+				}
+			}
+		}
+		b.WriteString("\t\t}\n")
+		return nil
 	default:
 		return fmt.Errorf("codegen: unknown attribute %T", a)
 	}

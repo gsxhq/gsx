@@ -1024,3 +1024,61 @@ component C(on bool) { <div style={ "color: red": on }>y</div> }
 		t.Fatalf("expected context-rejection error, got: %v", err)
 	}
 }
+
+func TestRenderCondAttrBool(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component C(featured bool) { <span { if featured { class="badge" } }>y</span> }
+`}
+	got := renderPackage(t, files, `p.C(p.CProps{Featured: true})`)
+	assertHTMLEqual(t, got, `<span class="badge">y</span>`)
+	got = renderPackage(t, files, `p.C(p.CProps{Featured: false})`)
+	assertHTMLEqual(t, got, `<span>y</span>`)
+}
+
+func TestRenderCondAttrElseTypedExprs(t *testing.T) {
+	// BOTH branches carry a typed expr value — the order-invariant check: each
+	// must resolve+escape with its OWN type, not the other's.
+	files := map[string]string{"views.gsx": `package views
+
+component C(a bool, x string, n int) { <div { if a { data-x={x} } else { data-n={n} } }>y</div> }
+`}
+	got := renderPackage(t, files, `p.C(p.CProps{A: true, X: "a\"b", N: 5})`)
+	assertHTMLEqual(t, got, `<div data-x="a&#34;b">y</div>`)
+	got = renderPackage(t, files, `p.C(p.CProps{A: false, X: "a\"b", N: 5})`)
+	assertHTMLEqual(t, got, `<div data-n="5">y</div>`)
+}
+
+func TestRenderCondAttrElseIf(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component C(n int) { <div { if n == 1 { data-one="y" } else if n == 2 { data-two="y" } else { data-other="y" } }>z</div> }
+`}
+	got := renderPackage(t, files, `p.C(p.CProps{N: 2})`)
+	assertHTMLEqual(t, got, `<div data-two="y">z</div>`)
+	got = renderPackage(t, files, `p.C(p.CProps{N: 9})`)
+	assertHTMLEqual(t, got, `<div data-other="y">z</div>`)
+}
+
+func TestRenderCondAttrInterleaved(t *testing.T) {
+	// a conditional attr BETWEEN two plain typed attrs + a typed child interp —
+	// strongest order-invariant probe (misalignment renders one value's type for
+	// another).
+	files := map[string]string{"views.gsx": `package views
+
+component C(a bool, s string, n int, f float64) { <div data-s={s} { if a { data-x={n} } } data-f={f}>{ n }</div> }
+`}
+	got := renderPackage(t, files, `p.C(p.CProps{A: true, S: "hi", N: 7, F: 2.5})`)
+	assertHTMLEqual(t, got, `<div data-s="hi" data-x="7" data-f="2.5">7</div>`)
+}
+
+func TestRenderCondAttrParamOnlyInBranch(t *testing.T) {
+	// param used ONLY inside a conditional branch's attr expr must be bound
+	// (usedParams must recurse CondAttr — else `undefined: msg`).
+	files := map[string]string{"views.gsx": `package views
+
+component C(show bool, msg string) { <div { if show { title={msg} } }>y</div> }
+`}
+	got := renderPackage(t, files, `p.C(p.CProps{Show: true, Msg: "hello"})`)
+	assertHTMLEqual(t, got, `<div title="hello">y</div>`)
+}

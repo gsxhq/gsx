@@ -224,10 +224,14 @@ func bodyHasPipeline(nodes []gsxast.Markup) bool {
 			if isComponentTag(t.Tag) {
 				continue
 			}
-			for _, a := range t.Attrs {
-				if ea, ok := a.(*gsxast.ExprAttr); ok && len(ea.Stages) > 0 {
-					return true
+			found := false
+			walkAttrExprs(t.Attrs, func(ea *gsxast.ExprAttr) {
+				if len(ea.Stages) > 0 {
+					found = true
 				}
+			})
+			if found {
+				return true
 			}
 			if bodyHasPipeline(t.Children) {
 				return true
@@ -272,14 +276,24 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable) e
 			if isComponentTag(t.Tag) {
 				fmt.Fprintf(sb, "_ = %s(%sProps{})\n", t.Tag, t.Tag)
 			} else {
-				for _, a := range t.Attrs {
-					if ea, ok := a.(*gsxast.ExprAttr); ok {
-						probe, err := probeExpr(ea.Expr, ea.Stages, table)
-						if err != nil {
-							return err
-						}
-						fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
+				// Probe each attr-expr (top-level and CondAttr-nested) FLAT, in the
+				// SAME canonical order collectExprs walks, so the k-th _gsxuse maps to
+				// the k-th collected node. The nested exprs type-check regardless of
+				// branch, so no real `if` wrapper is needed.
+				var probeErr error
+				walkAttrExprs(t.Attrs, func(ea *gsxast.ExprAttr) {
+					if probeErr != nil {
+						return
 					}
+					probe, err := probeExpr(ea.Expr, ea.Stages, table)
+					if err != nil {
+						probeErr = err
+						return
+					}
+					fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
+				})
+				if probeErr != nil {
+					return probeErr
 				}
 				if err := emitProbes(sb, t.Children, table); err != nil {
 					return err
@@ -500,11 +514,11 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 			if isComponentTag(t.Tag) {
 				continue // child component: props deferred; no attr exprs / children here
 			}
-			for _, a := range t.Attrs {
-				if ea, ok := a.(*gsxast.ExprAttr); ok {
-					*out = append(*out, ea)
-				}
-			}
+			// Collect each attr-expr (top-level and CondAttr-nested) in canonical
+			// order, before the element's children — emitProbes walks identically.
+			walkAttrExprs(t.Attrs, func(ea *gsxast.ExprAttr) {
+				*out = append(*out, ea)
+			})
 			collectExprs(t.Children, out)
 		case *gsxast.Fragment:
 			collectExprs(t.Children, out)
@@ -517,6 +531,25 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 			for _, cc := range t.Cases {
 				collectExprs(cc.Body, out)
 			}
+		}
+	}
+}
+
+// walkAttrExprs invokes fn for each type-needing *ExprAttr in an element's attr
+// list, in canonical source order: each top-level *ExprAttr where it sits, and —
+// for a *CondAttr — its Then attr-exprs then its Else attr-exprs (recursing
+// nested *CondAttrs, so an else-if chain is visited in order). Other attr kinds
+// (Static/Bool/Class/Spread) contribute no expr node. This is the SINGLE walk
+// shared by collectExprs (builds the ordered node list) and emitProbes (emits one
+// _gsxuse per node) so the k-th probe always maps to the k-th node — no drift.
+func walkAttrExprs(attrs []gsxast.Attr, fn func(*gsxast.ExprAttr)) {
+	for _, a := range attrs {
+		switch at := a.(type) {
+		case *gsxast.ExprAttr:
+			fn(at)
+		case *gsxast.CondAttr:
+			walkAttrExprs(at.Then, fn)
+			walkAttrExprs(at.Else, fn)
 		}
 	}
 }
@@ -610,19 +643,7 @@ func collectAttrExprSrc(nodes []gsxast.Markup, add func(string)) {
 			if isComponentTag(t.Tag) {
 				continue
 			}
-			for _, a := range t.Attrs {
-				switch at := a.(type) {
-				case *gsxast.ClassAttr:
-					for _, p := range at.Parts {
-						add(p.Expr)
-						if p.Cond != "" {
-							add(p.Cond)
-						}
-					}
-				case *gsxast.SpreadAttr:
-					add(at.Expr)
-				}
-			}
+			collectAttrSrc(t.Attrs, add)
 			collectAttrExprSrc(t.Children, add)
 		case *gsxast.Fragment:
 			collectAttrExprSrc(t.Children, add)
@@ -635,6 +656,40 @@ func collectAttrExprSrc(nodes []gsxast.Markup, add func(string)) {
 			for _, cc := range t.Cases {
 				collectAttrExprSrc(cc.Body, add)
 			}
+		}
+	}
+}
+
+// collectAttrSrc feeds every verbatim-emitted Go fragment in an attr list to add:
+// composable-class part Expr+Cond, element-spread Expr, conditional-attr Cond, and
+// — recursing into a *CondAttr's Then/Else — the same for nested attrs. (Nested
+// *ExprAttr exprs are bound via the componentExprs path in usedParams, but a param
+// used ONLY inside a CondAttr branch's expr-attr value is still bound because
+// componentExprs/collectExprs now also recurse CondAttr; the Cond and nested
+// class/spread fragments are bound here.)
+func collectAttrSrc(attrs []gsxast.Attr, add func(string)) {
+	for _, a := range attrs {
+		switch at := a.(type) {
+		case *gsxast.ClassAttr:
+			for _, p := range at.Parts {
+				add(p.Expr)
+				if p.Cond != "" {
+					add(p.Cond)
+				}
+			}
+		case *gsxast.SpreadAttr:
+			add(at.Expr)
+		case *gsxast.ExprAttr:
+			add(at.Expr)
+			for _, st := range at.Stages {
+				if st.Args != "" {
+					add(st.Args)
+				}
+			}
+		case *gsxast.CondAttr:
+			add(at.Cond)
+			collectAttrSrc(at.Then, add)
+			collectAttrSrc(at.Else, add)
 		}
 	}
 }
