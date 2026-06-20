@@ -117,13 +117,24 @@ type Result struct {
 // package. The returned error is non-nil when any error occurred (so callers can
 // detect failure), with Result still populated for summary reporting.
 func Generate(paths []string) (Result, error) {
+	return generate(paths, nil)
+}
+
+// generate is the Generate core: it additionally takes the ordered filter
+// package import paths to resolve pipelines against (last-wins by name). A nil
+// or empty filterPkgs defaults to the built-in std package (codegen's
+// GeneratePackageWithFilters applies the same empty→std default), so the public
+// Generate stays stock std-only. The Main → runConfig → runGenerate path passes
+// the config's WithFilters list here so a custom gsx binary's filter packages
+// reach codegen.
+func generate(paths []string, filterPkgs []string) (Result, error) {
 	var res Result
 	dirs, err := discoverDirs(paths)
 	if err != nil {
 		return res, err
 	}
 	for _, dir := range dirs {
-		out, gerr := codegen.GeneratePackage(dir)
+		out, gerr := codegen.GeneratePackageWithFilters(dir, filterPkgs)
 		if gerr != nil {
 			res.Errs = append(res.Errs, fmt.Errorf("%s: %w", dir, gerr))
 			continue

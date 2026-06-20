@@ -15,10 +15,18 @@ import (
 // class merger — lands in a later slice.
 type Option func(*config)
 
-// config holds the resolved options for a Main invocation. It is empty in this
-// slice (the stock binary == std codegen); fields arrive with the extension
-// seam in a later slice.
-type config struct{}
+// config holds the resolved options for a Main invocation.
+//
+// filterPkgs is the ordered, de-duplicated list of filter-package import paths
+// registered via WithFilters; it flows down to codegen with LAST-WINS name
+// precedence (overrides go last). When empty, the stock binary == std codegen.
+//
+// errs collects option-construction problems (e.g. a bad WithFilters marker) so
+// the run can fail with a clear message instead of silently dropping the option.
+type config struct {
+	filterPkgs []string
+	errs       []error
+}
 
 // Main is the gsx process entry point: it builds a config from opts (currently
 // a no-op), runs the CLI, and exits with the resulting code. All logic lives in
@@ -28,7 +36,7 @@ func Main(opts ...Option) {
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(runConfig(os.Args[1:], os.Stdout, os.Stderr, cfg))
 }
 
 // run parses args, dispatches the command, and returns the process exit code
@@ -39,6 +47,22 @@ func Main(opts ...Option) {
 // args), -q (quiet), -v (verbose). The chdir is restored before returning so a
 // single process may invoke run repeatedly (e.g. tests) without leaking cwd.
 func run(args []string, stdout, stderr io.Writer) int {
+	return runConfig(args, stdout, stderr, config{})
+}
+
+// runConfig is run with an explicit config: it carries the resolved options
+// (filterPkgs, option-construction errs) from Main down to the generate path.
+// run delegates to it with a zero config (stock std codegen) so existing
+// callers and tests can drive the CLI without building options.
+func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
+	// Surface any option-construction errors (e.g. a bad WithFilters marker)
+	// before doing any work, so a misconfigured custom binary fails clearly.
+	if len(cfg.errs) > 0 {
+		for _, e := range cfg.errs {
+			fmt.Fprintf(stderr, "gsx: %v\n", e)
+		}
+		return 2
+	}
 	fs := flag.NewFlagSet("gsx", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() { printUsage(stderr) }
@@ -82,7 +106,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	cmd, cmdArgs := rest[0], rest[1:]
 	switch cmd {
 	case "generate":
-		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose)
+		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, cfg.filterPkgs)
 	case "version":
 		fmt.Fprintln(stdout, version())
 		return 0
@@ -99,11 +123,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 // summary. It distinguishes a usage error (a path that does not exist →
 // discovery fails with no per-package errors → exit 2) from a codegen error (one
 // or more packages failed → exit 1). Success returns 0.
-func runGenerate(paths []string, stdout, stderr io.Writer, quiet, verbose bool) int {
+func runGenerate(paths []string, stdout, stderr io.Writer, quiet, verbose bool, filterPkgs []string) int {
 	if len(paths) == 0 {
 		paths = []string{"."}
 	}
-	res, err := Generate(paths)
+	res, err := generate(paths, filterPkgs)
 
 	if len(res.Errs) > 0 {
 		// Codegen failures: report each, exit 1.
