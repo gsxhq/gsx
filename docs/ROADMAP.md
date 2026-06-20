@@ -70,8 +70,14 @@ render goldens. Suggested order:
    **Deferred:** the `gen.Main`/`cmd/gsx`/`WithFilters` extension seam + user filter
    packages + collision/precedence + `gsx info`/`vet`; per-stage `?` (failable
    filters); initialism-aware naming; pipeline-as-filter-argument; ambient `mapEach`.
-5. ⬜ **Child-component props + `{children}`** — attr→field mapping, children/slot
-   closures.
+5. ✅ **Child-component props + `{children}`** — attr→field mapping
+   (`<Card title={x} featured/>` → `Card(CardProps{Title: x, Featured: true})`,
+   shared `childPropsFields` for emit+probe); `{children}` slot (synthesized
+   `Children gsx.Node` field + `gsx.Func` closure passed by the parent; slot renders
+   in parent scope; nil-safe). Order invariant: component elements recurse children
+   (slot), skip attrs (props). Independent review: SHIP. **Deferred:** named slots
+   (markup attrs `header={<m/>}`), auto-fallthrough / `{...attrs}` / component
+   spread (→ #7), class/cond/pipeline attrs on a component.
 6. ⬜ **Method components** — `component (r T) X()` → method.
 7. ⬜ **Auto-fallthrough attrs + diagnostics** — single-root fallthrough +
    compile-time ambiguity errors.
@@ -136,6 +142,13 @@ attribute-name validation against tag breakout (`validAttrName`), documented
 
 ## Tracked debts / deferrals
 
+- ⬜ **`ctx` not usable in interpolations** — the design calls `ctx` ambient and
+  valid in interp exprs (e.g. `{ structpages.ID(ctx, …) }`), but the type-resolution
+  **skeleton** component func (`func X(_gsxp XProps) Node`) never binds `ctx`, so
+  `{ f(ctx) }` fails resolution with `undefined: ctx` (the real render closure does
+  have `ctx`). Skeleton/closure asymmetry. **Blocks method components (#6)** — the
+  `11_struct_methods` example uses `ctx` in bodies. Fix: bind/accept `ctx` in the
+  skeleton component func. (Found by Phase-3 independent review.)
 - ⬜ **Pipeline codegen + filters/`std`/`gen`** — designed
   (`2026-06-19-gsx-pipeline-and-extensions-design.md`), not implemented (phase-2 #4).
 - ⬜ **Example 02 `02_text_escaping.gsx`** stays red (`47:35`): a `//` line
