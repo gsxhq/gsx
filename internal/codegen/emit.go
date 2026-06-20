@@ -689,43 +689,54 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 		return nil
 	}
 
-	fields, err := childPropsFields(el)
+	// Build the FULL props literal (simple attr fields + markup-attr slot fields +
+	// Children) through the shared childPropsLiteral. The slot VALUE for both
+	// markup attributes and the {children} slot is a real gsx.Func render closure
+	// (emitSlotClosure), rendered in THIS (parent) scope so its interps' params/
+	// loop vars are bound. emitProbes drives the same builder with a typed-nil
+	// slotValue, so emit and probe agree on WHICH fields exist — only the VALUE
+	// differs, and they cannot drift.
+	fields, err := childPropsLiteral(el, func(nodes []ast.Markup) (string, error) {
+		return emitSlotClosure(nodes, resolved, table, imports, fset, recvVar, recvTypeName)
+	})
 	if err != nil {
 		return err
-	}
-	if len(el.Children) > 0 {
-		// Compose the Children field with the Task-1 attr fields: childPropsFields
-		// stays attrs-only; the slot closure is appended here. The closure mirrors
-		// genComponent EXACTLY — same reserved idents (_gsxw/_gsxgw), gsx.W/gsx.Func,
-		// and trailing Err() — so the slot streams to the same output.
-		var slot bytes.Buffer
-		slot.WriteString("gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {\n")
-		slot.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
-		for _, c := range el.Children {
-			if err := genNode(&slot, c, resolved, table, imports, fset, recvVar, recvTypeName); err != nil {
-				return err
-			}
-		}
-		slot.WriteString("\t\treturn _gsxgw.Err()\n")
-		slot.WriteString("\t})")
-		childField := "Children: " + slot.String()
-		if fields == "" {
-			fields = childField
-		} else {
-			fields = fields + ", " + childField
-		}
 	}
 	fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s(%s{%s}))\n", callTarget, propsType, fields)
 	return nil
 }
 
-// childPropsFields builds the comma-joined field list for a child component's
-// props struct literal (e.g. `Title: "Hi", Featured: true, Count: n`) from the
-// element's attributes. It is the SINGLE source of the props-literal so the
-// render emission (genChildComponent) and the type-check probe (emitProbes)
-// cannot drift — static values are strconv.Quote'd identically in both. The
-// returned string is empty for an attribute-less component (yielding `Props{}`).
-func childPropsFields(el *ast.Element) (string, error) {
+// emitSlotClosure renders a slot (the {children} markup or a named markup-attr
+// value) as a gsx.Func render closure string. The closure mirrors genComponent
+// EXACTLY — same reserved idents (_gsxw/_gsxgw), gsx.W/gsx.Func, and trailing
+// Err() — so the slot streams to the same output, in THIS (parent) scope. It is
+// shared by the Children slot and every named markup slot so they cannot drift.
+func emitSlotClosure(nodes []ast.Markup, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string) (string, error) {
+	var slot bytes.Buffer
+	slot.WriteString("gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {\n")
+	slot.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
+	for _, c := range nodes {
+		if err := genNode(&slot, c, resolved, table, imports, fset, recvVar, recvTypeName); err != nil {
+			return "", err
+		}
+	}
+	slot.WriteString("\t\treturn _gsxgw.Err()\n")
+	slot.WriteString("\t})")
+	return slot.String(), nil
+}
+
+// childPropsLiteral builds the comma-joined field list for a child component's
+// props struct literal (e.g. `Title: "Hi", Featured: true, Header: <slot>`) from
+// the element's attributes and children. It is the SINGLE source of the props
+// literal so the render emission (genChildComponent) and the type-check probe
+// (emitProbes) cannot drift — they pass the SAME field set, differing only in the
+// slot VALUE supplied by slotValue (a real gsx.Func closure for emission, a
+// typed-nil for the probe). It iterates el.Attrs once: static→quoted, expr→expr
+// (rejecting Try/Stages), bool→true, markup→slotValue(ma.Value); a markup field
+// appears at its attr position. After the attrs, when the element has children, a
+// `Children: slotValue(el.Children)` field is appended last. The returned string
+// is empty for an attribute-less, child-less component (yielding `Props{}`).
+func childPropsLiteral(el *ast.Element, slotValue func(nodes []ast.Markup) (string, error)) (string, error) {
 	var fields []string
 	for _, a := range el.Attrs {
 		switch t := a.(type) {
@@ -747,17 +758,35 @@ func childPropsFields(el *ast.Element) (string, error) {
 				return "", err
 			}
 			fields = append(fields, fmt.Sprintf("%s: true", fieldName(t.Name)))
+		case *ast.MarkupAttr:
+			// A markup attribute (`header={ <h1/> }`) is a NAMED slot bound to a
+			// declared `gsx.Node` prop. Its name must be a valid field identifier; its
+			// VALUE is rendered by slotValue (a gsx.Func closure on emit, a typed-nil
+			// on probe) — the SAME machinery as the {children} slot.
+			if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
+				return "", err
+			}
+			val, err := slotValue(t.Value)
+			if err != nil {
+				return "", err
+			}
+			fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), val))
 		case *ast.ClassAttr:
 			return "", fmt.Errorf("codegen: class attribute on a component (<%s>) not supported yet", el.Tag)
 		case *ast.SpreadAttr:
 			return "", fmt.Errorf("codegen: spread attribute on a component (<%s>) not supported yet", el.Tag)
 		case *ast.CondAttr:
 			return "", fmt.Errorf("codegen: conditional attribute on a component (<%s>) not supported yet", el.Tag)
-		case *ast.MarkupAttr:
-			return "", fmt.Errorf("codegen: markup attribute on a component (<%s>) not supported yet", el.Tag)
 		default:
 			return "", fmt.Errorf("codegen: unknown attribute %T on component (<%s>)", a, el.Tag)
 		}
+	}
+	if len(el.Children) > 0 {
+		val, err := slotValue(el.Children)
+		if err != nil {
+			return "", err
+		}
+		fields = append(fields, "Children: "+val)
 	}
 	return strings.Join(fields, ", "), nil
 }

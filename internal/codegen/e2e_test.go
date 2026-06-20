@@ -1654,3 +1654,147 @@ component (p UsersPage) Page() {
 	assertHTMLEqual(t, got,
 		`<span>B</span><div><em>7</em></div><span>true</span>`)
 }
+
+// TestRenderNamedSlot proves a markup attribute on a component invocation
+// (`header={ <h1>Title</h1> }`) lowers to a gsx.Func closure bound to the named
+// `gsx.Node` prop and renders at the {header} placement.
+func TestRenderNamedSlot(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+import "github.com/gsxhq/gsx"
+
+component Panel(header gsx.Node) {
+	<div class="panel"><div class="hd">{header}</div></div>
+}
+
+component Page() {
+	<Panel header={ <h1>Title</h1> }/>
+}
+`}
+	got := renderPackage(t, files, `p.Page(p.PageProps{})`)
+	assertHTMLEqual(t, got, `<div class="panel"><div class="hd"><h1>Title</h1></div></div>`)
+}
+
+// TestRenderNamedSlotWithChildren proves a named slot and the {children} slot
+// coexist: both render at their respective placements.
+func TestRenderNamedSlotWithChildren(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+import "github.com/gsxhq/gsx"
+
+component Panel(header gsx.Node) {
+	<section>{header}{children}</section>
+}
+
+component Page() {
+	<Panel header={ <h1>T</h1> }><p>body</p></Panel>
+}
+`}
+	got := renderPackage(t, files, `p.Page(p.PageProps{})`)
+	assertHTMLEqual(t, got, `<section><h1>T</h1><p>body</p></section>`)
+}
+
+// TestRenderNamedSlotBinding proves a named slot value renders in the PARENT
+// scope: it references a parent param and a parent loop var, both bound in the
+// parent's render closure (not the child's).
+func TestRenderNamedSlotBinding(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+import "github.com/gsxhq/gsx"
+
+component Panel(header gsx.Node) {
+	<div>{header}</div>
+}
+
+component Page(title string, xs []string) {
+	<Panel header={ <h1>{title}</h1> }/>
+	{ for _, x := range xs { <Panel header={ <b>{x}</b> }/> } }
+}
+`}
+	got := renderPackage(t, files, `p.Page(p.PageProps{Title: "Hi", Xs: []string{"a", "b"}})`)
+	assertHTMLEqual(t, got, `<div><h1>Hi</h1></div><div><b>a</b></div><div><b>b</b></div>`)
+}
+
+// TestRenderNamedSlotInterleaved is the load-bearing order-invariant test: a
+// component invocation with a markup attr whose value carries a typed interp
+// (int), plus children carrying another typed interp (bool), sandwiched between
+// sibling interps (string before, float64 after). Each must render with its own
+// type — the k-th _gsxuse maps to the k-th collectExprs node, and the markup-attr
+// value is collected/probed BEFORE the children.
+func TestRenderNamedSlotInterleaved(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+import "github.com/gsxhq/gsx"
+
+component Panel(lead gsx.Node) {
+	<div>{lead}{children}</div>
+}
+
+component Page(s string, n int, b bool, f float64) {
+	<span>{s}</span>
+	<Panel lead={ <em>{n}</em> }>{b}</Panel>
+	<span>{f}</span>
+}
+`}
+	got := renderPackage(t, files,
+		`p.Page(p.PageProps{S: "S", N: 7, B: true, F: 3.5})`)
+	assertHTMLEqual(t, got, `<span>S</span><div><em>7</em>true</div><span>3.5</span>`)
+}
+
+// TestRenderMultipleNamedSlots proves two markup attributes on one component are
+// both bound and placed.
+func TestRenderMultipleNamedSlots(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+import "github.com/gsxhq/gsx"
+
+component Panel(header gsx.Node, footer gsx.Node) {
+	<div><header>{header}</header><footer>{footer}</footer></div>
+}
+
+component Page() {
+	<Panel header={ <h1>H</h1> } footer={ <small>F</small> }/>
+}
+`}
+	got := renderPackage(t, files, `p.Page(p.PageProps{})`)
+	assertHTMLEqual(t, got, `<div><header><h1>H</h1></header><footer><small>F</small></footer></div>`)
+}
+
+// TestRenderNodeParamStandalone is a regression: a standalone gsx.Node param,
+// placed via {header}, passed a markup value, renders (via catNode).
+func TestRenderNodeParamStandalone(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+import "github.com/gsxhq/gsx"
+
+component Panel(header gsx.Node) {
+	<div>{header}</div>
+}
+`}
+	got := renderPackage(t, files, `p.Panel(p.PanelProps{Header: gsx.Raw("<h1>X</h1>")})`)
+	assertHTMLEqual(t, got, `<div><h1>X</h1></div>`)
+}
+
+// TestRenderNamedSlotBadName proves a markup attribute with a non-identifier
+// name on a component is rejected (checkComponentAttrName).
+func TestRenderNamedSlotBadName(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+import "github.com/gsxhq/gsx"
+
+component Panel(header gsx.Node) {
+	<div>{header}</div>
+}
+
+component Page() {
+	<Panel data-x={ <m/> }/>
+}
+`}
+	err := generatePackageErr(t, files)
+	if err == nil {
+		t.Fatal("expected error for non-identifier markup-attr name, got nil")
+	}
+	if !strings.Contains(err.Error(), "data-x") {
+		t.Fatalf("expected non-identifier attr error mentioning data-x, got: %v", err)
+	}
+}
