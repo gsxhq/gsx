@@ -114,9 +114,16 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 	}
 
 	// Props struct (field types are syntactic — straight from the param list).
+	// When the body references `{children}`, synthesize an implicit
+	// `Children gsx.Node` slot field after the param fields; the parent fills it
+	// with a render closure (genChildComponent).
+	hasChildren := usesChildren(c.Body)
 	fmt.Fprintf(b, "type %sProps struct {\n", c.Name)
 	for _, p := range params {
 		fmt.Fprintf(b, "\t%s %s\n", fieldName(p.name), p.typ)
+	}
+	if hasChildren {
+		b.WriteString("\tChildren gsx.Node\n")
 	}
 	fmt.Fprintf(b, "}\n\n")
 
@@ -132,6 +139,11 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 		if used[p.name] {
 			fmt.Fprintf(b, "\t\t%s := _gsxp.%s\n", p.name, fieldName(p.name))
 		}
+	}
+	if hasChildren {
+		// Bind the implicit slot local; the bare `{children}` interp resolves to
+		// this gsx.Node and renders via the catNode path (gw.Node, nil-safe).
+		b.WriteString("\t\tchildren := _gsxp.Children\n")
 	}
 	b.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
 	for _, m := range c.Body {
@@ -151,7 +163,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 	case *ast.Element:
 		emitLine(b, fset, t.Pos())
 		if isComponentTag(t.Tag) {
-			return genChildComponent(b, t)
+			return genChildComponent(b, t, resolved, table, imports, fset)
 		}
 		emitS(b, "<"+t.Tag)
 		for _, a := range t.Attrs {
@@ -540,15 +552,136 @@ func isComponentTag(tag string) bool {
 	return tag[0] >= 'A' && tag[0] <= 'Z'
 }
 
-// genChildComponent lowers a child-component element to a gw.Node render call.
-// SPIKE: no props (attributes) or children on the child yet.
-func genChildComponent(b *bytes.Buffer, el *ast.Element) error {
-	if len(el.Attrs) > 0 {
-		return fmt.Errorf("codegen spike: child-component props (attributes) not supported yet (<%s>)", el.Tag)
+// usesChildren reports whether any interpolation in the markup body is a bare
+// `{children}` reference. It mirrors the markup walks (recursing control flow,
+// non-component element children, and fragments); a child component's OWN attrs
+// are props (not slot content), and a child component's children render in THIS
+// parent scope, so those are recursed too — a `{children}` inside a nested
+// element or another component's slot still counts. The result drives whether the
+// component synthesizes a `Children gsx.Node` field + `children` local binding.
+func usesChildren(body []ast.Markup) bool {
+	for _, n := range body {
+		switch t := n.(type) {
+		case *ast.Interp:
+			if strings.TrimSpace(t.Expr) == "children" {
+				return true
+			}
+		case *ast.Element:
+			// Recurse children for BOTH plain elements and child components: a
+			// component's slot content renders in this scope, so a `{children}` there
+			// references THIS component's slot. (We do not walk a component's attrs —
+			// those are props.)
+			if usesChildren(t.Children) {
+				return true
+			}
+		case *ast.Fragment:
+			if usesChildren(t.Children) {
+				return true
+			}
+		case *ast.ForMarkup:
+			if usesChildren(t.Body) {
+				return true
+			}
+		case *ast.IfMarkup:
+			if usesChildren(t.Then) || usesChildren(t.Else) {
+				return true
+			}
+		case *ast.SwitchMarkup:
+			for _, cc := range t.Cases {
+				if usesChildren(cc.Body) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// genChildComponent lowers a child-component element to a gw.Node render call,
+// building the props struct literal from the element's attributes. When the
+// element has children, the slot markup is passed as a `Children gsx.Node`
+// field — a gsx.Func render closure mirroring genComponent's, so the slot renders
+// in THIS (parent) scope, where its interps' params/loop vars are bound.
+func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet) error {
+	fields, err := childPropsFields(el)
+	if err != nil {
+		return err
 	}
 	if len(el.Children) > 0 {
-		return fmt.Errorf("codegen spike: child-component children not supported yet (<%s>)", el.Tag)
+		// Compose the Children field with the Task-1 attr fields: childPropsFields
+		// stays attrs-only; the slot closure is appended here. The closure mirrors
+		// genComponent EXACTLY — same reserved idents (_gsxw/_gsxgw), gsx.W/gsx.Func,
+		// and trailing Err() — so the slot streams to the same output.
+		var slot bytes.Buffer
+		slot.WriteString("gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {\n")
+		slot.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
+		for _, c := range el.Children {
+			if err := genNode(&slot, c, resolved, table, imports, fset); err != nil {
+				return err
+			}
+		}
+		slot.WriteString("\t\treturn _gsxgw.Err()\n")
+		slot.WriteString("\t})")
+		childField := "Children: " + slot.String()
+		if fields == "" {
+			fields = childField
+		} else {
+			fields = fields + ", " + childField
+		}
 	}
-	fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s(%sProps{}))\n", el.Tag, el.Tag)
+	fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s(%sProps{%s}))\n", el.Tag, el.Tag, fields)
+	return nil
+}
+
+// childPropsFields builds the comma-joined field list for a child component's
+// props struct literal (e.g. `Title: "Hi", Featured: true, Count: n`) from the
+// element's attributes. It is the SINGLE source of the props-literal so the
+// render emission (genChildComponent) and the type-check probe (emitProbes)
+// cannot drift — static values are strconv.Quote'd identically in both. The
+// returned string is empty for an attribute-less component (yielding `Props{}`).
+func childPropsFields(el *ast.Element) (string, error) {
+	var fields []string
+	for _, a := range el.Attrs {
+		switch t := a.(type) {
+		case *ast.StaticAttr:
+			if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
+				return "", err
+			}
+			fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), strconv.Quote(t.Value)))
+		case *ast.ExprAttr:
+			if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
+				return "", err
+			}
+			if t.Try || len(t.Stages) > 0 {
+				return "", fmt.Errorf("codegen: pipeline/`?` on child-component prop %q (<%s>) not supported yet", t.Name, el.Tag)
+			}
+			fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), strings.TrimSpace(t.Expr)))
+		case *ast.BoolAttr:
+			if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
+				return "", err
+			}
+			fields = append(fields, fmt.Sprintf("%s: true", fieldName(t.Name)))
+		case *ast.ClassAttr:
+			return "", fmt.Errorf("codegen: class attribute on a component (<%s>) not supported yet", el.Tag)
+		case *ast.SpreadAttr:
+			return "", fmt.Errorf("codegen: spread attribute on a component (<%s>) not supported yet", el.Tag)
+		case *ast.CondAttr:
+			return "", fmt.Errorf("codegen: conditional attribute on a component (<%s>) not supported yet", el.Tag)
+		case *ast.MarkupAttr:
+			return "", fmt.Errorf("codegen: markup attribute on a component (<%s>) not supported yet", el.Tag)
+		default:
+			return "", fmt.Errorf("codegen: unknown attribute %T on component (<%s>)", a, el.Tag)
+		}
+	}
+	return strings.Join(fields, ", "), nil
+}
+
+// checkComponentAttrName rejects an attribute name that is not a Go identifier
+// (e.g. hyphenated `data-test`): it cannot map to a props struct field, and
+// attribute fallthrough is not supported yet.
+func checkComponentAttrName(name, tag string) error {
+	if !token.IsIdentifier(name) {
+		return fmt.Errorf("codegen: non-identifier attribute %q on component %s (attribute fallthrough not supported yet)", name, tag)
+	}
 	return nil
 }

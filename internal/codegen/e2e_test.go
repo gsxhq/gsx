@@ -1082,3 +1082,246 @@ component C(show bool, msg string) { <div { if show { title={msg} } }>y</div> }
 	got := renderPackage(t, files, `p.C(p.CProps{Show: true, Msg: "hello"})`)
 	assertHTMLEqual(t, got, `<div title="hello">y</div>`)
 }
+
+// TestRenderChildComponentProps proves a parent passes props (from attributes)
+// to a child component: expr attr, bool attr, and a param used ONLY in a child
+// prop expr is bound. The child renders different output for featured true/false.
+func TestRenderChildComponentProps(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component Card(title string, featured bool, count int) {
+	<div class={ "card", "card-featured": featured }><h2>{title}</h2><span>{count}</span></div>
+}
+
+component Page(t string, n int) {
+	<Card title={t} featured count={n}/>
+}
+`}
+	got := renderPackage(t, files, `p.Page(p.PageProps{T: "Hi", N: 3})`)
+	assertHTMLEqual(t, got, `<div class="card card-featured"><h2>Hi</h2><span>3</span></div>`)
+}
+
+// TestRenderChildComponentPropsFeaturedFalse proves the featured-false branch
+// (bool prop omitted ⇒ false ⇒ no card-featured class).
+func TestRenderChildComponentPropsFeaturedFalse(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component Card(title string, featured bool, count int) {
+	<div class={ "card", "card-featured": featured }><h2>{title}</h2><span>{count}</span></div>
+}
+
+component Page(t string, n int) {
+	<Card title={t} count={n}/>
+}
+`}
+	got := renderPackage(t, files, `p.Page(p.PageProps{T: "Yo", N: 9})`)
+	assertHTMLEqual(t, got, `<div class="card"><h2>Yo</h2><span>9</span></div>`)
+}
+
+// TestRenderChildComponentStaticProp proves a static-attr child prop is quoted
+// and passed as a Go string literal.
+func TestRenderChildComponentStaticProp(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component Card(title string, featured bool, count int) {
+	<div><h2>{title}</h2><span>{count}</span></div>
+}
+
+component Page(n int) {
+	<Card title="Hello" count={n}/>
+}
+`}
+	got := renderPackage(t, files, `p.Page(p.PageProps{N: 5})`)
+	assertHTMLEqual(t, got, `<div><h2>Hello</h2><span>5</span></div>`)
+}
+
+// TestRenderChildComponentNoProps proves the empty-attrs case still works
+// (regression guard for Card(CardProps{})).
+func TestRenderChildComponentNoProps(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component Footer() { <footer>x</footer> }
+
+component Page() { <Footer/> }
+`}
+	got := renderPackage(t, files, `p.Page(p.PageProps{})`)
+	assertHTMLEqual(t, got, `<footer>x</footer>`)
+}
+
+// TestChildComponentPropPipelineErrors proves a pipeline on a child prop is a
+// clean codegen error (deferred).
+func TestChildComponentPropPipelineErrors(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component Card(title string) { <div>{title}</div> }
+
+component Page(t string) { <Card title={t |> upper}/> }
+`}
+	err := generatePackageErr(t, files)
+	if err == nil {
+		t.Fatal("expected error for pipeline on child prop, got nil")
+	}
+	if !strings.Contains(err.Error(), "pipeline") {
+		t.Fatalf("expected pipeline error, got: %v", err)
+	}
+}
+
+// TestChildComponentPropTryErrors proves a `?` try-marker on a child prop is a
+// clean codegen error (deferred).
+func TestChildComponentPropTryErrors(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+func lookup(s string) (string, error) { return s, nil }
+
+component Card(title string) { <div>{title}</div> }
+
+component Page(t string) { <Card title={lookup(t)?}/> }
+`}
+	err := generatePackageErr(t, files)
+	if err == nil {
+		t.Fatal("expected error for try-marker on child prop, got nil")
+	}
+}
+
+// TestChildComponentHyphenAttrErrors proves a non-identifier (hyphenated) attr
+// on a component is a clean codegen error (fallthrough not supported).
+func TestChildComponentHyphenAttrErrors(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component Card(title string) { <div>{title}</div> }
+
+component Page() { <Card data-x="1"/> }
+`}
+	err := generatePackageErr(t, files)
+	if err == nil {
+		t.Fatal("expected error for hyphenated attr on component, got nil")
+	}
+	if !strings.Contains(err.Error(), "non-identifier") {
+		t.Fatalf("expected non-identifier error, got: %v", err)
+	}
+}
+
+// TestChildComponentSpreadErrors proves a spread on a component is a clean
+// codegen error (not supported yet).
+func TestChildComponentSpreadErrors(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component Card(title string) { <div>{title}</div> }
+
+component Page(attrs gsx.Attrs) { <Card {...attrs}/> }
+`}
+	err := generatePackageErr(t, files)
+	if err == nil {
+		t.Fatal("expected error for spread on component, got nil")
+	}
+}
+
+// TestChildComponentClassAttrErrors proves a composable class attr on a
+// component is a clean codegen error (not supported yet).
+func TestChildComponentClassAttrErrors(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component Card(title string) { <div>{title}</div> }
+
+component Page(on bool) { <Card class={ "a", "b": on }/> }
+`}
+	err := generatePackageErr(t, files)
+	if err == nil {
+		t.Fatal("expected error for class attr on component, got nil")
+	}
+}
+
+// TestRenderChildrenSlot proves a component referencing {children} places the
+// parent-supplied slot markup at the {children} position, composed with a prop.
+func TestRenderChildrenSlot(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component Card(title string) {
+	<section><h2>{title}</h2>{children}</section>
+}
+
+component Page() {
+	<Card title="Hi"><p>body</p></Card>
+}
+`}
+	got := renderPackage(t, files, `p.Page(p.PageProps{})`)
+	assertHTMLEqual(t, got, `<section><h2>Hi</h2><p>body</p></section>`)
+}
+
+// TestRenderChildrenSlotEmpty proves a {children}-referencing component rendered
+// with NO children passed renders nothing for the slot (nil gsx.Node is a
+// render no-op — gw.Node tolerates nil).
+func TestRenderChildrenSlotEmpty(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component Card(title string) {
+	<section><h2>{title}</h2>{children}</section>
+}
+
+component Page() {
+	<Card title="Hi"/>
+}
+`}
+	got := renderPackage(t, files, `p.Page(p.PageProps{})`)
+	assertHTMLEqual(t, got, `<section><h2>Hi</h2></section>`)
+}
+
+// TestRenderChildrenSlotBinding proves slot content renders in the PARENT scope:
+// it references a parent param and a parent loop var, both bound in the parent's
+// render closure (not the child's).
+func TestRenderChildrenSlotBinding(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component Wrap() {
+	<div>{children}</div>
+}
+
+component Page(name string, items []string) {
+	<Wrap>
+		<span>{name}</span>
+		{ for _, it := range items { <li>{it}</li> } }
+	</Wrap>
+}
+`}
+	got := renderPackage(t, files, `p.Page(p.PageProps{Name: "Jo", Items: []string{"a", "b"}})`)
+	assertHTMLEqual(t, got, `<div><span>Jo</span><li>a</li><li>b</li></div>`)
+}
+
+// TestRenderChildrenSlotInterleaved is the load-bearing order-invariant test: a
+// typed interp BEFORE a child component, the child's slot containing a typed
+// interp of a DIFFERENT type, and a typed interp AFTER. Each must render with its
+// own type (k-th _gsxuse maps to k-th collectExprs node).
+func TestRenderChildrenSlotInterleaved(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component Wrap() {
+	<div>{children}</div>
+}
+
+component Page(before string, mid int, after bool) {
+	<span>{before}</span>
+	<Wrap><em>{mid}</em></Wrap>
+	<span>{after}</span>
+}
+`}
+	got := renderPackage(t, files, `p.Page(p.PageProps{Before: "B", Mid: 7, After: true})`)
+	assertHTMLEqual(t, got, `<span>B</span><div><em>7</em></div><span>true</span>`)
+}
+
+// TestReservedParamChildren proves a param named `children` is rejected: Task 2
+// synthesizes a Children field + children local, so a user param would collide.
+func TestReservedParamChildren(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+import "github.com/gsxhq/gsx"
+
+component X(children gsx.Node) { <div>{children}</div> }
+`}
+	err := generatePackageErr(t, files)
+	if err == nil {
+		t.Fatal("expected error for param named children, got nil")
+	}
+	if !strings.Contains(err.Error(), "children") || !strings.Contains(err.Error(), "reserved") {
+		t.Fatalf("expected reserved-children error, got: %v", err)
+	}
+}

@@ -188,9 +188,16 @@ func buildSkeleton(file *gsxast.File, table filterTable) (string, []*gsxast.Comp
 		if err := checkReservedParams(params); err != nil {
 			return "", nil, err
 		}
+		// Synthesize the implicit `Children _gsxrt.Node` slot field + `children`
+		// local in lockstep with genComponent (emit.go), so skeleton and emitted
+		// code agree on the props shape and the `{children}` interp type-checks.
+		hasChildren := usesChildren(c.Body)
 		fmt.Fprintf(&sb, "type %sProps struct {\n", c.Name)
 		for _, p := range params {
 			fmt.Fprintf(&sb, "\t%s %s\n", fieldName(p.name), p.typ)
+		}
+		if hasChildren {
+			sb.WriteString("\tChildren _gsxrt.Node\n")
 		}
 		sb.WriteString("}\n")
 		// Use the same reserved props-param name as the emitted code (_gsxp) so a
@@ -201,6 +208,9 @@ func buildSkeleton(file *gsxast.File, table filterTable) (string, []*gsxast.Comp
 			if used[p.name] {
 				fmt.Fprintf(&sb, "\t%s := _gsxp.%s\n\t_ = %s\n", p.name, fieldName(p.name), p.name)
 			}
+		}
+		if hasChildren {
+			sb.WriteString("\tchildren := _gsxp.Children\n\t_ = children\n")
 		}
 		if err := emitProbes(&sb, c.Body, table); err != nil {
 			return "", nil, err
@@ -222,6 +232,12 @@ func bodyHasPipeline(nodes []gsxast.Markup) bool {
 			}
 		case *gsxast.Element:
 			if isComponentTag(t.Tag) {
+				// A component's attrs (props) reject pipelines at emission, so they
+				// contribute no _gsxstd call — but its slot children render in this
+				// parent scope and CAN carry a pipeline, so recurse them.
+				if bodyHasPipeline(t.Children) {
+					return true
+				}
 				continue
 			}
 			found := false
@@ -274,7 +290,31 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable) e
 			fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 		case *gsxast.Element:
 			if isComponentTag(t.Tag) {
-				fmt.Fprintf(sb, "_ = %s(%sProps{})\n", t.Tag, t.Tag)
+				// Emit the SAME props literal as genChildComponent so the assignment
+				// type-checks each prop expr against the child's real field type. The
+				// shared childPropsFields builder guarantees the attr fields never
+				// drift. When the element has slot content, add a typed-nil Children so
+				// the literal type-checks WITHOUT building the real slot closure here —
+				// the slot content is probed SEPARATELY by recursing t.Children below
+				// (its interps become _gsxuse in the SAME order collectExprs collected
+				// them; the props-literal exprs are NOT _gsxuse, so they don't perturb
+				// the k-th alignment).
+				fields, err := childPropsFields(t)
+				if err != nil {
+					return err
+				}
+				if len(t.Children) > 0 {
+					childField := "Children: _gsxrt.Node(nil)"
+					if fields == "" {
+						fields = childField
+					} else {
+						fields = fields + ", " + childField
+					}
+				}
+				fmt.Fprintf(sb, "_ = %s(%sProps{%s})\n", t.Tag, t.Tag, fields)
+				if err := emitProbes(sb, t.Children, table); err != nil {
+					return err
+				}
 			} else {
 				// Probe each attr-expr (top-level and CondAttr-nested) FLAT, in the
 				// SAME canonical order collectExprs walks, so the k-th _gsxuse maps to
@@ -512,7 +552,13 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 			*out = append(*out, t)
 		case *gsxast.Element:
 			if isComponentTag(t.Tag) {
-				continue // child component: props deferred; no attr exprs / children here
+				// Child component: its attrs are props (type-checked via the props
+				// literal, NOT _gsxuse), so they are NOT collected here. But its
+				// children are SLOT content rendered in THIS (parent) scope, so their
+				// interps/exprs ARE collected — in source order. emitProbes recurses
+				// identically, so the k-th probe still maps to the k-th node.
+				collectExprs(t.Children, out)
+				continue
 			}
 			// Collect each attr-expr (top-level and CondAttr-nested) in canonical
 			// order, before the element's children — emitProbes walks identically.
@@ -591,6 +637,13 @@ func usedParams(c *gsxast.Component, params []param) map[string]bool {
 	// a param referenced ONLY there must be bound as a local too — otherwise the
 	// generated code fails type-check with `undefined: x`.
 	collectAttrExprSrc(c.Body, addIdents)
+	// Child-component prop exprs (each <Child attr={expr}/>) are emitted verbatim
+	// into the props literal — both the skeleton probe (`_ = Child(ChildProps{Attr:
+	// expr})`) and the render call. A parent param referenced ONLY in such an expr
+	// must therefore be bound as a local, else the generated code fails type-check
+	// with `undefined: x`. These exprs are NOT in collectExprs/the _gsxuse sequence
+	// (they're not probed via _gsxuse), so they need their own walk here.
+	collectChildPropExprSrc(c.Body, addIdents)
 	used := make(map[string]bool, len(params))
 	for _, p := range params {
 		used[p.name] = refs[p.name]
@@ -606,9 +659,12 @@ func collectClauseSrc(nodes []gsxast.Markup, add func(string)) {
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *gsxast.Element:
-			if !isComponentTag(t.Tag) {
-				collectClauseSrc(t.Children, add)
-			}
+			// Recurse children for BOTH plain elements and child components: a
+			// component's slot content renders in THIS parent scope, so a control-flow
+			// clause inside the slot (e.g. `for ... range items`) references a parent
+			// local and must be bound. (A component's attrs are props, not slot
+			// content, so they are not visited here.)
+			collectClauseSrc(t.Children, add)
 		case *gsxast.Fragment:
 			collectClauseSrc(t.Children, add)
 		case *gsxast.ForMarkup:
@@ -641,6 +697,11 @@ func collectAttrExprSrc(nodes []gsxast.Markup, add func(string)) {
 		switch t := n.(type) {
 		case *gsxast.Element:
 			if isComponentTag(t.Tag) {
+				// A component's attrs are props (handled via childPropsFields), so they
+				// are skipped — but its slot children render in THIS parent scope, so a
+				// composable-class/element-spread expr inside the slot references a
+				// parent local and must be bound. Recurse the children (not the attrs).
+				collectAttrExprSrc(t.Children, add)
 				continue
 			}
 			collectAttrSrc(t.Attrs, add)
@@ -655,6 +716,45 @@ func collectAttrExprSrc(nodes []gsxast.Markup, add func(string)) {
 		case *gsxast.SwitchMarkup:
 			for _, cc := range t.Cases {
 				collectAttrExprSrc(cc.Body, add)
+			}
+		}
+	}
+}
+
+// collectChildPropExprSrc visits markup in depth-first source order and feeds the
+// Expr of every child-component *ExprAttr to add. Unlike collectAttrExprSrc (which
+// SKIPS component tags), this walk descends INTO a component element to read its
+// prop exprs — they are emitted verbatim into the props literal, so a param used
+// only there must be bound. Pipelined prop exprs are rejected at emission, so only
+// the bare Expr (no Stages args) is collected here. Non-component element children
+// are still recursed so a child component nested inside a plain element is found.
+func collectChildPropExprSrc(nodes []gsxast.Markup, add func(string)) {
+	for _, n := range nodes {
+		switch t := n.(type) {
+		case *gsxast.Element:
+			if isComponentTag(t.Tag) {
+				for _, a := range t.Attrs {
+					if ea, ok := a.(*gsxast.ExprAttr); ok {
+						add(ea.Expr)
+					}
+				}
+				// Recurse the slot children too: a child component nested inside this
+				// component's slot renders in THIS parent scope, so its prop exprs
+				// reference parent locals and must be bound.
+				collectChildPropExprSrc(t.Children, add)
+				continue
+			}
+			collectChildPropExprSrc(t.Children, add)
+		case *gsxast.Fragment:
+			collectChildPropExprSrc(t.Children, add)
+		case *gsxast.ForMarkup:
+			collectChildPropExprSrc(t.Body, add)
+		case *gsxast.IfMarkup:
+			collectChildPropExprSrc(t.Then, add)
+			collectChildPropExprSrc(t.Else, add)
+		case *gsxast.SwitchMarkup:
+			for _, cc := range t.Cases {
+				collectChildPropExprSrc(cc.Body, add)
 			}
 		}
 	}
@@ -756,6 +856,9 @@ func checkReservedParams(params []param) error {
 	for _, p := range params {
 		if p.name == "ctx" {
 			return fmt.Errorf("codegen: param name %q is reserved (ambient context)", p.name)
+		}
+		if p.name == "children" {
+			return fmt.Errorf("codegen: param name %q is reserved (implicit children slot)", p.name)
 		}
 		if strings.HasPrefix(p.name, "_gsx") {
 			return fmt.Errorf("codegen: param name %q uses the reserved _gsx prefix", p.name)
