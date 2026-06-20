@@ -274,7 +274,14 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable) e
 			fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 		case *gsxast.Element:
 			if isComponentTag(t.Tag) {
-				fmt.Fprintf(sb, "_ = %s(%sProps{})\n", t.Tag, t.Tag)
+				// Emit the SAME props literal as genChildComponent so the assignment
+				// type-checks each prop expr against the child's real field type. The
+				// shared childPropsFields builder guarantees the two never drift.
+				fields, err := childPropsFields(t)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(sb, "_ = %s(%sProps{%s})\n", t.Tag, t.Tag, fields)
 			} else {
 				// Probe each attr-expr (top-level and CondAttr-nested) FLAT, in the
 				// SAME canonical order collectExprs walks, so the k-th _gsxuse maps to
@@ -591,6 +598,13 @@ func usedParams(c *gsxast.Component, params []param) map[string]bool {
 	// a param referenced ONLY there must be bound as a local too — otherwise the
 	// generated code fails type-check with `undefined: x`.
 	collectAttrExprSrc(c.Body, addIdents)
+	// Child-component prop exprs (each <Child attr={expr}/>) are emitted verbatim
+	// into the props literal — both the skeleton probe (`_ = Child(ChildProps{Attr:
+	// expr})`) and the render call. A parent param referenced ONLY in such an expr
+	// must therefore be bound as a local, else the generated code fails type-check
+	// with `undefined: x`. These exprs are NOT in collectExprs/the _gsxuse sequence
+	// (they're not probed via _gsxuse), so they need their own walk here.
+	collectChildPropExprSrc(c.Body, addIdents)
 	used := make(map[string]bool, len(params))
 	for _, p := range params {
 		used[p.name] = refs[p.name]
@@ -655,6 +669,41 @@ func collectAttrExprSrc(nodes []gsxast.Markup, add func(string)) {
 		case *gsxast.SwitchMarkup:
 			for _, cc := range t.Cases {
 				collectAttrExprSrc(cc.Body, add)
+			}
+		}
+	}
+}
+
+// collectChildPropExprSrc visits markup in depth-first source order and feeds the
+// Expr of every child-component *ExprAttr to add. Unlike collectAttrExprSrc (which
+// SKIPS component tags), this walk descends INTO a component element to read its
+// prop exprs — they are emitted verbatim into the props literal, so a param used
+// only there must be bound. Pipelined prop exprs are rejected at emission, so only
+// the bare Expr (no Stages args) is collected here. Non-component element children
+// are still recursed so a child component nested inside a plain element is found.
+func collectChildPropExprSrc(nodes []gsxast.Markup, add func(string)) {
+	for _, n := range nodes {
+		switch t := n.(type) {
+		case *gsxast.Element:
+			if isComponentTag(t.Tag) {
+				for _, a := range t.Attrs {
+					if ea, ok := a.(*gsxast.ExprAttr); ok {
+						add(ea.Expr)
+					}
+				}
+				continue
+			}
+			collectChildPropExprSrc(t.Children, add)
+		case *gsxast.Fragment:
+			collectChildPropExprSrc(t.Children, add)
+		case *gsxast.ForMarkup:
+			collectChildPropExprSrc(t.Body, add)
+		case *gsxast.IfMarkup:
+			collectChildPropExprSrc(t.Then, add)
+			collectChildPropExprSrc(t.Else, add)
+		case *gsxast.SwitchMarkup:
+			for _, cc := range t.Cases {
+				collectChildPropExprSrc(cc.Body, add)
 			}
 		}
 	}

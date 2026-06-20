@@ -540,15 +540,70 @@ func isComponentTag(tag string) bool {
 	return tag[0] >= 'A' && tag[0] <= 'Z'
 }
 
-// genChildComponent lowers a child-component element to a gw.Node render call.
-// SPIKE: no props (attributes) or children on the child yet.
+// genChildComponent lowers a child-component element to a gw.Node render call,
+// building the props struct literal from the element's attributes. Children on a
+// child component are deferred (Task 2).
 func genChildComponent(b *bytes.Buffer, el *ast.Element) error {
-	if len(el.Attrs) > 0 {
-		return fmt.Errorf("codegen spike: child-component props (attributes) not supported yet (<%s>)", el.Tag)
-	}
 	if len(el.Children) > 0 {
 		return fmt.Errorf("codegen spike: child-component children not supported yet (<%s>)", el.Tag)
 	}
-	fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s(%sProps{}))\n", el.Tag, el.Tag)
+	fields, err := childPropsFields(el)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s(%sProps{%s}))\n", el.Tag, el.Tag, fields)
+	return nil
+}
+
+// childPropsFields builds the comma-joined field list for a child component's
+// props struct literal (e.g. `Title: "Hi", Featured: true, Count: n`) from the
+// element's attributes. It is the SINGLE source of the props-literal so the
+// render emission (genChildComponent) and the type-check probe (emitProbes)
+// cannot drift — static values are strconv.Quote'd identically in both. The
+// returned string is empty for an attribute-less component (yielding `Props{}`).
+func childPropsFields(el *ast.Element) (string, error) {
+	var fields []string
+	for _, a := range el.Attrs {
+		switch t := a.(type) {
+		case *ast.StaticAttr:
+			if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
+				return "", err
+			}
+			fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), strconv.Quote(t.Value)))
+		case *ast.ExprAttr:
+			if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
+				return "", err
+			}
+			if t.Try || len(t.Stages) > 0 {
+				return "", fmt.Errorf("codegen: pipeline/`?` on child-component prop %q (<%s>) not supported yet", t.Name, el.Tag)
+			}
+			fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), strings.TrimSpace(t.Expr)))
+		case *ast.BoolAttr:
+			if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
+				return "", err
+			}
+			fields = append(fields, fmt.Sprintf("%s: true", fieldName(t.Name)))
+		case *ast.ClassAttr:
+			return "", fmt.Errorf("codegen: class attribute on a component (<%s>) not supported yet", el.Tag)
+		case *ast.SpreadAttr:
+			return "", fmt.Errorf("codegen: spread attribute on a component (<%s>) not supported yet", el.Tag)
+		case *ast.CondAttr:
+			return "", fmt.Errorf("codegen: conditional attribute on a component (<%s>) not supported yet", el.Tag)
+		case *ast.MarkupAttr:
+			return "", fmt.Errorf("codegen: markup attribute on a component (<%s>) not supported yet", el.Tag)
+		default:
+			return "", fmt.Errorf("codegen: unknown attribute %T on component (<%s>)", a, el.Tag)
+		}
+	}
+	return strings.Join(fields, ", "), nil
+}
+
+// checkComponentAttrName rejects an attribute name that is not a Go identifier
+// (e.g. hyphenated `data-test`): it cannot map to a props struct field, and
+// attribute fallthrough is not supported yet.
+func checkComponentAttrName(name, tag string) error {
+	if !token.IsIdentifier(name) {
+		return fmt.Errorf("codegen: non-identifier attribute %q on component %s (attribute fallthrough not supported yet)", name, tag)
+	}
 	return nil
 }
