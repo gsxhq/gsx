@@ -3,8 +3,8 @@
 **Date:** 2026-06-20
 **Status:** Approved (design)
 **Module:** `github.com/gsxhq/gsx`
-**Org layout:** `~/personal/gsxhq/` holds the org's repos (currently just `gsx`);
-a future docs-site repo lands at `~/personal/gsxhq/<site>`.
+**Org layout:** `~/personal/gsxhq/` holds the org's repos (`gsx`, plus the new
+`website` repo this iteration creates at `~/personal/gsxhq/website`).
 
 ## Summary
 
@@ -12,32 +12,39 @@ Lay the documentation groundwork for gsx in **this iteration**, scoped honestly 
 the project's real state: parser + runtime + codegen phase 1 are done, but there is
 **no CLI yet — gsx is not runnable end-to-end**. We therefore ship the *foundation*,
 not a full user manual: a README, public Markdown docs covering **vision →
-principles → syntax**, and a portable authoring **skill**. The public site
-(VitePress) and reference/how-to docs are deferred.
+principles → syntax**, a portable authoring **skill**, and a bootstrapped
+**VitePress site** so the docs and the site develop together. Reference/how-to docs
+(CLI, filters, API) and "getting started / install" remain deferred until gsx is
+runnable.
 
-All four originally-requested deliverables are addressed:
+All four originally-requested deliverables are addressed — **all built this
+iteration**, across two repos:
 
-1. **README** — built now (repo root).
-2. **docs/ folder** — public Markdown content built now (vision/principles/syntax).
-3. **GitHub Pages site** — *deferred* to a separate `gsxhq/<site>` VitePress repo
-   that consumes this repo's Markdown. Not built this iteration.
-4. **Skill** — built now, portable, at top-level `skills/gsx/`.
+1. **README** — repo root of `gsxhq/gsx`.
+2. **docs/ folder** — public Markdown content (vision/principles/syntax) in
+   `gsxhq/gsx`.
+3. **GitHub Pages site** — a new sibling repo `gsxhq/website` (VitePress) that
+   consumes this repo's Markdown via a build-time fetch and deploys to Pages.
+4. **Skill** — top-level `skills/gsx/` in `gsxhq/gsx`, portable.
 
 ## Decisions (from brainstorming)
 
 - **Purpose / timing:** groundwork iteration. Start with vision/principles, then
   syntax; the rest (how-to, CLI, API reference) comes later. Everything is honest
   about WIP status.
-- **Site tooling:** VitePress — but deferred to a separate repo, not built now.
+- **Site tooling:** VitePress, bootstrapped this iteration in a separate repo
+  **`gsxhq/website`** (sibling at `~/personal/gsxhq/website`).
 - **Content home:** authored Markdown lives in **this repo's `docs/`** (reviewed
-  alongside code = single source of truth). The future `gsxhq/<site>` VitePress repo
-  consumes it (git submodule or build-time fetch).
+  alongside code = single source of truth). The `gsxhq/website` repo consumes it via
+  a **build-time fetch**: a sync script copies `gsx/docs/guide/**` into the site's
+  content dir before `vitepress dev`/`build`. The script prefers the local sibling
+  `../gsx` when present (fast local dev); otherwise it `git clone`s the repo (CI).
 - **Skill scope:** teach an agent to **author `.gsx` correctly** (language only),
   mirroring the existing `structpages` skill. WIP-honest.
 - **Skill home:** top-level `skills/gsx/SKILL.md` — tool-agnostic so it copies into
   `.claude/skills`, Codex, Gemini, etc.
-- **Internal docs:** `docs/superpowers/` specs and `docs/ROADMAP.md` stay in place;
-  the future site will `srcExclude` them.
+- **Internal docs:** `docs/superpowers/` specs and `docs/ROADMAP.md` stay in place
+  and are never synced to the site (the sync copies only `docs/guide/**`).
 
 ## Components
 
@@ -93,10 +100,11 @@ docs/
 `examples/*.gsx` remains the canonical syntax corpus; `syntax.md` references it
 rather than duplicating it.
 
-*Submodule-boundary note:* public pages sit directly under `docs/` (siblings of the
-internal `superpowers/`). The future VitePress repo pulls `docs/` and `srcExclude`s
-`superpowers/**` + `ROADMAP.md`. (If a cleaner submodule boundary is wanted later,
-public pages can be re-nested under `docs/content/` — deferred, not done now.)
+*Sync-boundary note:* public guide pages sit under `docs/guide/`. The website's
+sync script copies **only `docs/guide/**`** into the site — the internal
+`superpowers/` specs, `ROADMAP.md`, and `docs/index.md` are never pulled. The site
+provides its own home/hero page (see §4); `docs/index.md` stays a lightweight
+overview for people browsing the repo on GitHub.
 
 ### 3. `skills/gsx/` — portable authoring skill
 
@@ -114,10 +122,48 @@ public pages can be re-nested under `docs/content/` — deferred, not done now.)
 - **Portability:** plain Markdown + frontmatter, no Claude-only paths in the body,
   so it copies/symlinks into any agent's skill location.
 
+### 4. `gsxhq/website` — VitePress site (new sibling repo)
+
+A new repo at `~/personal/gsxhq/website`, bootstrapped by hand (no interactive
+`npm create`) so it's reproducible:
+
+```
+website/
+  package.json              # vitepress devDep; scripts: predev/sync, dev, prebuild, build, preview
+  .gitignore                # node_modules/, .vitepress/cache/, .vitepress/dist/, the synced content dir
+  scripts/sync-docs.mjs     # build-time fetch: copy gsx/docs/guide/** → content/guide/**
+  README.md                 # how to dev/build the site; notes content is synced from gsxhq/gsx
+  .vitepress/
+    config.{js,ts}          # title, description, base, nav, sidebar, theme, social/repo links
+  index.md                  # site home/hero (lives in website repo — presentation, not content)
+  content/                  # synced (gitignored): guide/vision.md, guide/principles.md, guide/syntax.md
+  .github/workflows/deploy.yml  # build on push to main → deploy to GitHub Pages
+```
+
+Key design points:
+
+- **Build-time fetch (`scripts/sync-docs.mjs`).** Resolves the source: if `../gsx`
+  exists (local sibling), copy its `docs/guide/**`; else `git clone --depth 1`
+  `https://github.com/gsxhq/gsx` into a temp dir and copy from there. Copies into
+  `content/guide/` (gitignored). Idempotent; run by `predev`/`prebuild`. A
+  `dev:watch` variant re-syncs on changes to the local sibling so docs + site can
+  be edited together.
+- **VitePress layout.** `srcDir` is the repo root; the home page (`index.md`) and
+  nav/sidebar config live in the website repo; content pages come from `content/`.
+  Sidebar references `content/guide/{vision,principles,syntax}.md`.
+- **Pages deploy.** `.github/workflows/deploy.yml`: checkout website → Node setup →
+  run sync (clones gsx) → `npm ci` → `npm run build` → upload `.vitepress/dist` →
+  `actions/deploy-pages`. `base` defaults to `/website/` (project Pages at
+  `gsxhq.github.io/website/`); documented as switch-to-`/` when a custom domain is
+  added.
+- **Status-honest.** Home page and nav carry the same WIP framing as the README
+  (language design stable; not yet runnable end-to-end).
+
+The two repos develop together: edit `gsx/docs/guide/*`, the site picks it up on
+the next sync (or live via `dev:watch`).
+
 ## Out of scope (deferred, tracked)
 
-- **VitePress site / GitHub Pages** — separate `gsxhq/<site>` repo: `.vitepress/`
-  config, theme, nav, Pages deploy Action, submodule/fetch of this repo's `docs/`.
 - **Reference docs** — CLI commands, `|>` filters / `std` package, runtime API.
 - **Getting started / install** — requires the CLI to exist.
 - **Skill expansion** — integration patterns (structpages interop, where `.x.go`
@@ -133,4 +179,8 @@ Docs are prose, so verification is lightweight:
   `examples/NN_*.gsx` file (no invented syntax).
 - README status claims match `docs/ROADMAP.md` (no overclaiming of what works).
 - Skill frontmatter is valid; body contains no Claude-only tool/path assumptions.
+- **Site builds.** In `gsxhq/website`: `npm run build` succeeds end-to-end —
+  the sync script pulls `gsx/docs/guide/**` and VitePress builds with no dead links
+  or missing pages. `npm run dev` serves locally for visual review of the rendered
+  vision/principles/syntax pages.
 ```
