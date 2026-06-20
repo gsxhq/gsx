@@ -535,13 +535,22 @@ func usedParams(c *gsxast.Component, params []param) map[string]bool {
 	}
 	for _, n := range componentExprs(c) {
 		var expr string
+		var stages []gsxast.PipeStage
 		switch v := n.(type) {
 		case *gsxast.Interp:
-			expr = v.Expr
+			expr, stages = v.Expr, v.Stages
 		case *gsxast.ExprAttr:
-			expr = v.Expr
+			expr, stages = v.Expr, v.Stages
 		}
 		addIdents(expr)
+		// Filter arguments are emitted verbatim into the lowered call
+		// (_gsxstd.Join(sep)(...)), so idents they reference — e.g. a component
+		// param used only inside join(sep) — must be bound as locals too.
+		for _, st := range stages {
+			if st.Args != "" {
+				addIdents(st.Args)
+			}
+		}
 	}
 	collectClauseSrc(c.Body, addIdents)
 	used := make(map[string]bool, len(params))

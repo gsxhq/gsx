@@ -721,6 +721,17 @@ component Tags(tags []string) { <p>{ tags |> join(", ") }</p> }
 	assertHTMLEqual(t, got, `<p>a, b, c</p>`)
 }
 
+func TestRenderPipelineParamArg(t *testing.T) {
+	// A component param referenced ONLY inside a filter argument must be bound as
+	// a local (the lowered _gsxstd.Join(sep)(...) references it verbatim).
+	files := map[string]string{"views.gsx": `package views
+
+component Tags(tags []string, sep string) { <p>{ tags |> join(sep) }</p> }
+`}
+	got := renderPackage(t, files, `p.Tags(p.TagsProps{Tags: []string{"a","b"}, Sep: " / "})`)
+	assertHTMLEqual(t, got, `<p>a / b</p>`)
+}
+
 func TestRenderPipelineLoopVar(t *testing.T) {
 	files := map[string]string{"views.gsx": `package views
 
