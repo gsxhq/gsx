@@ -344,13 +344,36 @@ func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, tab
 		if attrContext(t.Name) == ctxCSS {
 			return fmt.Errorf("codegen: expr value in CSS context (%q) is unsafe; needs a safe type via `|> css` (not available yet) — use a static value", t.Name)
 		}
-		return fmt.Errorf("codegen: attribute kind %T not supported yet (deferred)", a)
-	case *ast.SpreadAttr, *ast.CondAttr:
+		emitClassAttr(b, t)
+	case *ast.SpreadAttr:
+		// emitAttr runs only for non-component elements (genNode routes component
+		// tags to genChildComponent before the attr loop), so a SpreadAttr here is
+		// always an element spread: gw.Spread writes the bag deterministically.
+		fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", strings.TrimSpace(t.Expr))
+	case *ast.CondAttr:
 		return fmt.Errorf("codegen: attribute kind %T not supported yet (deferred)", a)
 	default:
 		return fmt.Errorf("codegen: unknown attribute %T", a)
 	}
 	return nil
+}
+
+// emitClassAttr lowers a composable `class={ … }` to the open ` class="`, a
+// gw.Class call composing each part (gsx.Class for an unconditional Expr,
+// gsx.ClassIf for a conditional one), and the closing `"`. gw.Class runs the
+// tokens through the installed ClassMerger and writes the attr-escaped value.
+func emitClassAttr(b *bytes.Buffer, a *ast.ClassAttr) {
+	parts := make([]string, 0, len(a.Parts))
+	for _, p := range a.Parts {
+		if p.Cond == "" {
+			parts = append(parts, fmt.Sprintf("gsx.Class(%s)", strings.TrimSpace(p.Expr)))
+		} else {
+			parts = append(parts, fmt.Sprintf("gsx.ClassIf(%s, %s)", strings.TrimSpace(p.Expr), strings.TrimSpace(p.Cond)))
+		}
+	}
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
+	fmt.Fprintf(b, "\t\t_gsxgw.Class(%s)\n", strings.Join(parts, ", "))
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
 }
 
 // htmlAttrEscape escapes a static attribute value for a double-quoted context at

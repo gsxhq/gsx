@@ -553,6 +553,11 @@ func usedParams(c *gsxast.Component, params []param) map[string]bool {
 		}
 	}
 	collectClauseSrc(c.Body, addIdents)
+	// Composable class parts (Expr + Cond) and element-spread exprs are emitted
+	// verbatim into the render closure (gsx.Class/ClassIf args, gw.Spread arg), so
+	// a param referenced ONLY there must be bound as a local too — otherwise the
+	// generated code fails type-check with `undefined: x`.
+	collectAttrExprSrc(c.Body, addIdents)
 	used := make(map[string]bool, len(params))
 	for _, p := range params {
 		used[p.name] = refs[p.name]
@@ -588,6 +593,48 @@ func collectClauseSrc(nodes []gsxast.Markup, add func(string)) {
 			}
 		case *gsxast.GoBlock:
 			add(t.Code)
+		}
+	}
+}
+
+// collectAttrExprSrc visits markup in depth-first source order and feeds every
+// composable-class part source (each Expr and Cond) and element-spread expr to
+// add. These fragments are emitted verbatim into the render closure, so the
+// idents they reference must be in scope wherever the markup renders. Component
+// tags are skipped (their attrs are props, handled elsewhere — and isComponentTag
+// routes them away from emitAttr).
+func collectAttrExprSrc(nodes []gsxast.Markup, add func(string)) {
+	for _, n := range nodes {
+		switch t := n.(type) {
+		case *gsxast.Element:
+			if isComponentTag(t.Tag) {
+				continue
+			}
+			for _, a := range t.Attrs {
+				switch at := a.(type) {
+				case *gsxast.ClassAttr:
+					for _, p := range at.Parts {
+						add(p.Expr)
+						if p.Cond != "" {
+							add(p.Cond)
+						}
+					}
+				case *gsxast.SpreadAttr:
+					add(at.Expr)
+				}
+			}
+			collectAttrExprSrc(t.Children, add)
+		case *gsxast.Fragment:
+			collectAttrExprSrc(t.Children, add)
+		case *gsxast.ForMarkup:
+			collectAttrExprSrc(t.Body, add)
+		case *gsxast.IfMarkup:
+			collectAttrExprSrc(t.Then, add)
+			collectAttrExprSrc(t.Else, add)
+		case *gsxast.SwitchMarkup:
+			for _, cc := range t.Cases {
+				collectAttrExprSrc(cc.Body, add)
+			}
 		}
 	}
 }

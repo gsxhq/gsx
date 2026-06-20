@@ -951,3 +951,76 @@ component C(x string) { <div data-x={ x |> upper? }>y</div> }
 		t.Fatalf("expected ?-stage deferred error, got nil")
 	}
 }
+
+// TestRenderComposableClass proves `class={ "a", "b": cond, extra }` lowers to
+// gsx.Class/gsx.ClassIf parts, merges (default merger dedupes + space-joins) and
+// drops the conditional token when its cond is false. The `extra` param is used
+// ONLY in a class part, so it also proves the usedParams binding reaches there.
+func TestRenderComposableClass(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component C(on bool, extra string) {
+	<div class={ "btn", "btn-on": on, extra }>y</div>
+}
+`,
+	}
+	gotOn := renderPackage(t, files, `p.C(p.CProps{On: true, Extra: "x"})`)
+	assertHTMLEqual(t, gotOn, `<div class="btn btn-on x">y</div>`)
+
+	gotOff := renderPackage(t, files, `p.C(p.CProps{On: false, Extra: "x"})`)
+	assertHTMLEqual(t, gotOff, `<div class="btn x">y</div>`)
+}
+
+// TestRenderComposableClassEscaping proves a class token / override containing a
+// `"` is attr-escaped — no breakout.
+func TestRenderComposableClassEscaping(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component C(extra string) {
+	<div class={ "btn", extra }>y</div>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.C(p.CProps{Extra: "\"><script>"})`)
+	assertHTMLEqual(t, got, `<div class="btn &#34;&gt;&lt;script&gt;">y</div>`)
+}
+
+// TestRenderElementSpread proves `<div {...attrs}>` emits gw.Spread: keys sorted,
+// bool true -> boolean attr, others key="value" attr-escaped. The `attrs` param
+// is used ONLY in the spread, so it also proves usedParams binds it.
+func TestRenderElementSpread(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+import "github.com/gsxhq/gsx"
+
+component C(attrs gsx.Attrs) {
+	<div {...attrs}>y</div>
+}
+`,
+	}
+	got := renderPackage(t, files,
+		`p.C(p.CProps{Attrs: gsx.Attrs{"data-x": "1", "hidden": true, "class": "c"}})`)
+	// Spread sorts keys: class, data-x, hidden. hidden is a bool boolean-attr.
+	assertHTMLEqual(t, got, `<div class="c" data-x="1" hidden>y</div>`)
+}
+
+// TestRenderComposableStyleRejected proves `style={ … }` composition still fails
+// closed (CSS context cannot be entity-secured).
+func TestRenderComposableStyleRejected(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component C(on bool) { <div style={ "color: red": on }>y</div> }
+`,
+	}
+	err := generatePackageErr(t, files)
+	if err == nil {
+		t.Fatalf("expected fail-closed error for style composition, got nil")
+	}
+	if !strings.Contains(err.Error(), "context") {
+		t.Fatalf("expected context-rejection error, got: %v", err)
+	}
+}
