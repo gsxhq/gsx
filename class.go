@@ -55,6 +55,27 @@ func (gw *Writer) Class(parts ...ClassPart) {
 	gw.AttrValue(ClassMerger(classTokens(parts)))
 }
 
+// ClassMerged writes a class attribute composed of parts plus the extra string
+// (e.g. a fallthrough Attrs.Class()), running everything through ClassMerger. It
+// writes nothing when the merged token set is empty — so a root element with no
+// class and no fallthrough class stays attribute-free.
+func (gw *Writer) ClassMerged(extra string, parts ...ClassPart) {
+	if gw.err != nil {
+		return
+	}
+	all := parts
+	if strings.TrimSpace(extra) != "" {
+		all = append(append([]ClassPart{}, parts...), Class(extra))
+	}
+	merged := ClassMerger(classTokens(all))
+	if merged == "" {
+		return
+	}
+	gw.writeStr(` class="`)
+	gw.AttrValue(merged)
+	gw.writeStr(`"`)
+}
+
 // Style composes the on parts as '; '-joined declarations (no merge) and writes
 // the escaped style attribute value.
 func (gw *Writer) Style(parts ...ClassPart) {

@@ -141,7 +141,19 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 	// the child-component invocation path (genChildComponent) always builds a
 	// `<Tag>Props{}` literal.
 	hasChildren := usesChildren(c.Body)
-	hasProps := c.Recv == "" || len(params) > 0 || hasChildren
+	// A single-root component is fallthrough-eligible: it synthesizes an
+	// `Attrs gsx.Attrs` props field the caller fills with undeclared attributes,
+	// applied (class-merge + spread) at the root element below. Mirror the
+	// `Children` synthesis exactly — gate into hasProps, append AFTER the param
+	// and Children fields (field order: params, Children, Attrs).
+	root, hasRoot := singleRoot(c.Body)
+	// A NULLARY method component (no params, no children) is invoked bare as
+	// `p.Page()` with no props struct (the call-site nullary contract), so it must
+	// NOT gain a props struct via fallthrough — gate fallthrough out of that case.
+	// A function component (always has a props struct) or a method with params/
+	// children is eligible.
+	hasFallthrough := hasRoot && (c.Recv == "" || len(params) > 0 || hasChildren)
+	hasProps := c.Recv == "" || len(params) > 0 || hasChildren || hasFallthrough
 	if hasProps {
 		fmt.Fprintf(b, "type %s struct {\n", propsName)
 		for _, p := range params {
@@ -149,6 +161,9 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 		}
 		if hasChildren {
 			b.WriteString("\tChildren gsx.Node\n")
+		}
+		if hasFallthrough {
+			b.WriteString("\tAttrs gsx.Attrs\n")
 		}
 		fmt.Fprintf(b, "}\n\n")
 	}
@@ -186,6 +201,15 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 	}
 	b.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
 	for _, m := range c.Body {
+		// The single root (when fallthrough-eligible) is emitted via the
+		// fallthrough path so the bag's class merges + the rest spreads at the root;
+		// all other body nodes (insignificant whitespace/comments) render normally.
+		if hasFallthrough && m == ast.Markup(root) {
+			if err := emitRootElement(b, root, resolved, table, imports, fset, recvVar, recvTypeName); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := genNode(b, m, resolved, table, imports, fset, recvVar, recvTypeName); err != nil {
 			return err
 		}
@@ -193,6 +217,132 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 	b.WriteString("\t\treturn _gsxgw.Err()\n")
 	b.WriteString("\t})\n}\n\n")
 	return nil
+}
+
+// emitRootElement emits a single-root element with attribute fallthrough applied:
+// the bag (`_gsxp.Attrs`) merges its class into the root's class and spreads its
+// remaining entries after the root's own attrs, with the root's own attr names
+// (plus "class"/"style") dropped from the spread so the root WINS (D5). The
+// root's CHILDREN render via normal genNode — the bag does NOT propagate. When
+// the bag is nil/empty (no caller set Attrs yet), every merge/spread is a no-op:
+// Attrs.Class()="" adds no token (ClassMerged/Class), and Spread(empty) writes
+// nothing — so the output is byte-equivalent to the normal Element path.
+//
+// A void root cannot receive fallthrough (it has no place for it to matter beyond
+// attrs, but void roots ARE handled: class-merge + spread then `/>`).
+func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string) error {
+	emitLine(b, fset, el.Pos())
+	emitS(b, "<"+el.Tag)
+	// Collect the root's own named attrs so the spread can drop them (root-wins),
+	// and find a composed/static class attr to merge the bag's class into.
+	var classAttr *ast.ClassAttr    // composed class={ … }
+	var staticClass *ast.StaticAttr // static class="x"
+	for _, a := range el.Attrs {
+		switch t := a.(type) {
+		case *ast.ClassAttr:
+			if t.Name == "class" {
+				classAttr = t
+			}
+		case *ast.StaticAttr:
+			if t.Name == "class" {
+				staticClass = t
+			}
+		}
+	}
+	// Emit the root's own attrs in source order, but replace the class attr's
+	// emission with a merged one (bag class folded in). Non-class attrs emit
+	// verbatim via emitAttr (byte-identical to the normal path).
+	for _, a := range el.Attrs {
+		switch t := a.(type) {
+		case *ast.ClassAttr:
+			if t == classAttr {
+				emitRootComposedClass(b, t)
+				continue
+			}
+		case *ast.StaticAttr:
+			if t == staticClass {
+				emitRootStaticClass(b, t)
+				continue
+			}
+		}
+		if err := emitAttr(b, a, resolved, table, imports); err != nil {
+			return err
+		}
+	}
+	// If the root had NO class attr at all, emit a guarded merged class in attr
+	// position — writes class only when the bag contributes a non-empty token set.
+	if classAttr == nil && staticClass == nil {
+		b.WriteString("\t\t_gsxgw.ClassMerged(_gsxp.Attrs.Class())\n")
+	}
+	// Spread the rest of the bag, dropping the root's own attr names (root-wins)
+	// plus class/style (class merged above; style deferred/fail-closed this task).
+	fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, _gsxp.Attrs.Without(%s))\n", rootWithoutArgs(el))
+	if el.Void {
+		emitS(b, "/>")
+		return nil
+	}
+	emitS(b, ">")
+	for _, c := range el.Children {
+		if err := genNode(b, c, resolved, table, imports, fset, recvVar, recvTypeName); err != nil {
+			return err
+		}
+	}
+	emitS(b, "</"+el.Tag+">")
+	return nil
+}
+
+// emitRootComposedClass emits a composed `class={ … }` merged with the bag's
+// class: ` class="` + gw.Class(<existing parts…>, gsx.Class(_gsxp.Attrs.Class()))
+// + `"`. Mirrors emitClassAttr's part lowering, appending the bag class as a
+// final unconditional part so it merges/dedupes through ClassMerger.
+func emitRootComposedClass(b *bytes.Buffer, a *ast.ClassAttr) {
+	parts := make([]string, 0, len(a.Parts)+1)
+	for _, p := range a.Parts {
+		if p.Cond == "" {
+			parts = append(parts, fmt.Sprintf("gsx.Class(%s)", strings.TrimSpace(p.Expr)))
+		} else {
+			parts = append(parts, fmt.Sprintf("gsx.ClassIf(%s, %s)", strings.TrimSpace(p.Expr), strings.TrimSpace(p.Cond)))
+		}
+	}
+	parts = append(parts, "gsx.Class(_gsxp.Attrs.Class())")
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
+	fmt.Fprintf(b, "\t\t_gsxgw.Class(%s)\n", strings.Join(parts, ", "))
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
+}
+
+// emitRootStaticClass emits a static `class="x"` merged with the bag's class:
+// ` class="` + gw.Class(gsx.Class("x"), gsx.Class(_gsxp.Attrs.Class())) + `"`.
+func emitRootStaticClass(b *bytes.Buffer, a *ast.StaticAttr) {
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
+	fmt.Fprintf(b, "\t\t_gsxgw.Class(gsx.Class(%s), gsx.Class(_gsxp.Attrs.Class()))\n", strconv.Quote(a.Value))
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
+}
+
+// rootWithoutArgs builds the quoted arg list for `_gsxp.Attrs.Without(…)`: the
+// root element's own named attr names (static/bool/expr/class) followed by
+// "class","style". A bag entry whose key matches a root attr is dropped (D5
+// root-wins); class is merged separately and style is deferred. Spread/cond attrs
+// have no single static name and contribute none here.
+func rootWithoutArgs(el *ast.Element) string {
+	var names []string
+	for _, a := range el.Attrs {
+		switch t := a.(type) {
+		case *ast.StaticAttr:
+			names = append(names, t.Name)
+		case *ast.BoolAttr:
+			names = append(names, t.Name)
+		case *ast.ExprAttr:
+			names = append(names, t.Name)
+		case *ast.ClassAttr:
+			names = append(names, t.Name)
+		}
+	}
+	names = append(names, "class", "style")
+	quoted := make([]string, len(names))
+	for i, n := range names {
+		quoted[i] = strconv.Quote(n)
+	}
+	return strings.Join(quoted, ", ")
 }
 
 // genNode emits one markup node. recvVar/recvTypeName are the enclosing
@@ -593,6 +743,40 @@ func isComponentTag(tag string) bool {
 		return true
 	}
 	return tag[0] >= 'A' && tag[0] <= 'Z'
+}
+
+// singleRoot reports the component body's single root element when the body has
+// EXACTLY one meaningful top-level node and that node is a NON-component
+// `*ast.Element`. Pure-whitespace `*ast.Text` (Value is all spaces/newlines) and
+// HTML comments are insignificant and skipped; any other node kind alongside (or
+// as) the candidate — a Doctype, a fragment, multiple elements, a control-flow
+// node, an interp, or a component-tag element — yields (nil, false). It drives
+// child auto-fallthrough eligibility: only a single HTML-element root can receive
+// the synthesized Attrs bag (class-merge + spread at that element).
+func singleRoot(body []ast.Markup) (*ast.Element, bool) {
+	var root *ast.Element
+	for _, n := range body {
+		switch t := n.(type) {
+		case *ast.Text:
+			if strings.TrimSpace(t.Value) == "" {
+				continue // insignificant whitespace
+			}
+			return nil, false // non-whitespace text alongside → not single-root
+		case *ast.HTMLComment:
+			continue // comments are insignificant
+		case *ast.Element:
+			if root != nil || isComponentTag(t.Tag) {
+				return nil, false // a second element, or a component-tag root
+			}
+			root = t
+		default:
+			return nil, false // fragment / control-flow / interp / doctype → not single-root
+		}
+	}
+	if root == nil {
+		return nil, false
+	}
+	return root, true
 }
 
 // usesChildren reports whether any interpolation in the markup body is a bare

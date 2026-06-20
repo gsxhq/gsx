@@ -37,6 +37,37 @@ func TestStyleJoins(t *testing.T) {
 	}
 }
 
+func renderClassMerged(extra string, parts ...ClassPart) string {
+	var b strings.Builder
+	W(&b).ClassMerged(extra, parts...)
+	return b.String()
+}
+
+func TestClassMergedEmptyWritesNothing(t *testing.T) {
+	if got := renderClassMerged(""); got != "" {
+		t.Fatalf("empty: got %q, want empty", got)
+	}
+}
+
+func TestClassMergedPartsOnly(t *testing.T) {
+	if got := renderClassMerged("", Class("btn"), Class("px-4")); got != ` class="btn px-4"` {
+		t.Fatalf("parts only: got %q", got)
+	}
+}
+
+func TestClassMergedExtraOnly(t *testing.T) {
+	if got := renderClassMerged("w-full"); got != ` class="w-full"` {
+		t.Fatalf("extra only: got %q", got)
+	}
+}
+
+func TestClassMergedPartsAndExtraDeduped(t *testing.T) {
+	got := renderClassMerged("btn w-full", Class("btn"), Class("px-4"))
+	if got != ` class="btn px-4 w-full"` {
+		t.Fatalf("merged+deduped: got %q", got)
+	}
+}
+
 func TestClassMergerOverride(t *testing.T) {
 	orig := ClassMerger
 	t.Cleanup(func() { ClassMerger = orig })

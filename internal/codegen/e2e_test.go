@@ -1115,22 +1115,24 @@ component C(extra string) {
 	assertHTMLEqual(t, got, `<div class="btn &#34;&gt;&lt;script&gt;">y</div>`)
 }
 
-// TestRenderElementSpread proves `<div {...attrs}>` emits gw.Spread: keys sorted,
-// bool true -> boolean attr, others key="value" attr-escaped. The `attrs` param
-// is used ONLY in the spread, so it also proves usedParams binds it.
+// TestRenderElementSpread proves `<div {...extra}>` emits gw.Spread: keys sorted,
+// bool true -> boolean attr, others key="value" attr-escaped. The `extra` param
+// is used ONLY in the spread, so it also proves usedParams binds it. (A param
+// named `attrs` is now reserved for synthesized fallthrough, so this uses a
+// distinct bag-typed param to exercise the same element-spread machinery.)
 func TestRenderElementSpread(t *testing.T) {
 	files := map[string]string{
 		"views.gsx": `package views
 
 import "github.com/gsxhq/gsx"
 
-component C(attrs gsx.Attrs) {
-	<div {...attrs}>y</div>
+component C(extra gsx.Attrs) {
+	<div {...extra}>y</div>
 }
 `,
 	}
 	got := renderPackage(t, files,
-		`p.C(p.CProps{Attrs: gsx.Attrs{"data-x": "1", "hidden": true, "class": "c"}})`)
+		`p.C(p.CProps{Extra: gsx.Attrs{"data-x": "1", "hidden": true, "class": "c"}})`)
 	// Spread sorts keys: class, data-x, hidden. hidden is a bool boolean-attr.
 	assertHTMLEqual(t, got, `<div class="c" data-x="1" hidden>y</div>`)
 }
@@ -1796,5 +1798,192 @@ component Page() {
 	}
 	if !strings.Contains(err.Error(), "data-x") {
 		t.Fatalf("expected non-identifier attr error mentioning data-x, got: %v", err)
+	}
+}
+
+// --- Task 1: child auto-fallthrough (Attrs field + root class-merge/spread) ---
+
+// TestFallthroughComposedClassMerge: a single-root component whose root has a
+// composed class merges the bag's class and spreads the bag's other attrs.
+func TestFallthroughComposedClassMerge(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Box(variant string) {
+	<div class={ "box", variant }>{children}</div>
+}
+`,
+	}
+	got := renderPackage(t, files,
+		`p.Box(p.BoxProps{Variant: "big", Attrs: gsx.Attrs{"class": "w-full", "data-test": "x"}})`)
+	assertHTMLEqual(t, got, `<div class="box big w-full" data-test="x"></div>`)
+}
+
+// TestFallthroughStaticClassMerge: a static class root merges the bag class and
+// spreads the rest.
+func TestFallthroughStaticClassMerge(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Card() {
+	<section class="card">{children}</section>
+}
+`,
+	}
+	got := renderPackage(t, files,
+		`p.Card(p.CardProps{Attrs: gsx.Attrs{"class": "hl", "id": "a"}})`)
+	assertHTMLEqual(t, got, `<section class="card hl" id="a"></section>`)
+}
+
+// TestFallthroughNoClassRootWithBag: a no-class root gains a class from the bag.
+func TestFallthroughNoClassRootWithBag(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component P() {
+	<p>{children}</p>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.P(p.PProps{Attrs: gsx.Attrs{"class": "x"}})`)
+	assertHTMLEqual(t, got, `<p class="x"></p>`)
+}
+
+// TestFallthroughNoClassEmptyBag: a no-class root with an EMPTY bag emits no
+// class attribute (the ClassMerged empty-class guard).
+func TestFallthroughNoClassEmptyBag(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component P() {
+	<p>{children}</p>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.P(p.PProps{})`)
+	if strings.Contains(got, "class=") {
+		t.Fatalf("empty bag must not emit a class attribute, got: %q", got)
+	}
+	assertHTMLEqual(t, got, `<p></p>`)
+}
+
+// TestFallthroughRootWins: the root's own attr (href) wins; the bag's same-named
+// entry is dropped (via Without), while a new bag attr spreads.
+func TestFallthroughRootWins(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Link() {
+	<a href="/x">{children}</a>
+}
+`,
+	}
+	got := renderPackage(t, files,
+		`p.Link(p.LinkProps{Attrs: gsx.Attrs{"href": "/evil", "data-y": "1"}})`)
+	assertHTMLEqual(t, got, `<a href="/x" data-y="1"></a>`)
+}
+
+// TestFallthroughEmptyBagNoop: a nil Attrs bag on a single-root component renders
+// identically to having no bag — every merge/spread is a no-op.
+func TestFallthroughEmptyBagNoop(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Box(variant string) {
+	<div class={ "box", variant }>{children}</div>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Box(p.BoxProps{Variant: "big"})`)
+	assertHTMLEqual(t, got, `<div class="box big"></div>`)
+}
+
+// TestFallthroughNotEligibleNoField: a fragment-root (multi-root) component is
+// NOT single-root, so it has no synthesized Attrs field — assigning Attrs in the
+// props literal is an unknown-field compile error surfaced by the generated code.
+func TestFallthroughNotEligibleNoField(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Multi() {
+	<p>a</p>
+	<p>b</p>
+}
+`,
+	}
+	// GeneratePackage itself succeeds (no Attrs field is fine); the error only
+	// surfaces when a caller tries to set Attrs. Use renderPackage so the harness
+	// compiles the invocation against the generated props struct.
+	if testing.Short() {
+		t.Skip("skipping go-run render test in -short mode")
+	}
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module gsxnf\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pkgDir := filepath.Join(tmp, "genpkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for n, c := range files {
+		writeFile(t, pkgDir, n, c)
+	}
+	gen, err := GeneratePackage(pkgDir)
+	if err != nil {
+		t.Fatalf("GeneratePackage: %v", err)
+	}
+	for gsxPath, src := range gen {
+		base := strings.TrimSuffix(filepath.Base(gsxPath), ".gsx")
+		s := string(src)
+		if strings.Contains(s, "Attrs gsx.Attrs") {
+			t.Fatalf("multi-root component must NOT synthesize an Attrs field, got:\n%s", s)
+		}
+		writeFile(t, pkgDir, base+".x.go", s)
+	}
+	writeFile(t, tmp, "main.go", `package main
+
+import (
+	"context"
+	"os"
+
+	"github.com/gsxhq/gsx"
+	p "gsxnf/genpkg"
+)
+
+var _ = gsx.Raw
+
+func main() {
+	_ = p.Multi(p.MultiProps{Attrs: gsx.Attrs{"data-x": "1"}}).Render(context.Background(), os.Stdout)
+}
+`)
+	cmd := exec.Command("go", "build", ".")
+	cmd.Dir = tmp
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected compile error assigning Attrs to a non-eligible component, got success")
+	}
+	if !strings.Contains(string(out), "Attrs") {
+		t.Fatalf("expected unknown-field Attrs error, got:\n%s", out)
+	}
+}
+
+// TestReservedParamAttrs: a param named `attrs` is rejected (it is now
+// synthesized), like `children`.
+func TestReservedParamAttrs(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+import "github.com/gsxhq/gsx"
+
+component X(attrs gsx.Attrs) {
+	<p>hi</p>
+}
+`,
+	}
+	err := generatePackageErr(t, files)
+	if err == nil {
+		t.Fatal("expected error for param named attrs, got nil")
+	}
+	if !strings.Contains(err.Error(), "reserved") || !strings.Contains(err.Error(), "attrs") {
+		t.Fatalf("expected clean reserved-name error mentioning attrs, got: %v", err)
 	}
 }

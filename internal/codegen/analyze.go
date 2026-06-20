@@ -222,10 +222,21 @@ func buildSkeleton(file *gsxast.File, table filterTable) (string, []*gsxast.Comp
 		// local in lockstep with genComponent (emit.go), so skeleton and emitted
 		// code agree on the props shape and the `{children}` interp type-checks.
 		hasChildren := usesChildren(c.Body)
+		// MIRROR emit.go: a single-root component synthesizes a fallthrough
+		// `Attrs _gsxrt.Attrs` props field so the emitted props struct shape matches
+		// (same gating into hasProps, same field order: params, Children, Attrs). The
+		// skeleton body does NOT emit the root application (it emits probes); it only
+		// needs the field present so any `_gsxp.Attrs` references / the field's
+		// existence type-check identically to the emitted struct (unused is fine).
+		_, hasRoot := singleRoot(c.Body)
+		// MIRROR emit.go: a nullary method component (no params, no children) stays
+		// nullary (no props struct, bare `p.Page()` call) — fallthrough is gated out
+		// of that case so it does not force a props struct.
+		hasFallthrough := hasRoot && (c.Recv == "" || len(params) > 0 || hasChildren)
 		// MIRROR emit.go: only a method component suppresses the props struct when
 		// nullary; a function component always keeps its (possibly empty) props
 		// struct so the child-invocation path's `<Tag>Props{}` literal type-checks.
-		hasProps := c.Recv == "" || len(params) > 0 || hasChildren
+		hasProps := c.Recv == "" || len(params) > 0 || hasChildren || hasFallthrough
 		if hasProps {
 			fmt.Fprintf(&sb, "type %s struct {\n", propsName)
 			for _, p := range params {
@@ -233,6 +244,9 @@ func buildSkeleton(file *gsxast.File, table filterTable) (string, []*gsxast.Comp
 			}
 			if hasChildren {
 				sb.WriteString("\tChildren _gsxrt.Node\n")
+			}
+			if hasFallthrough {
+				sb.WriteString("\tAttrs _gsxrt.Attrs\n")
 			}
 			sb.WriteString("}\n")
 		}
@@ -1085,6 +1099,9 @@ func checkReservedParams(params []param) error {
 		}
 		if p.name == "children" {
 			return fmt.Errorf("codegen: param name %q is reserved (implicit children slot)", p.name)
+		}
+		if p.name == "attrs" {
+			return fmt.Errorf("codegen: param name %q is reserved (implicit fallthrough attributes)", p.name)
 		}
 		if strings.HasPrefix(p.name, "_gsx") {
 			return fmt.Errorf("codegen: param name %q uses the reserved _gsx prefix", p.name)
