@@ -14,7 +14,7 @@ generator/CLI may use `golang.org/x/tools`.
 |---|---|
 | Parser + AST | ✅ done (Part 2 grammar + pipeline parsing) |
 | Runtime (`gsx`) | ✅ done |
-| Codegen | 🟡 interpolation + control flow + attributes (security core) + pipeline `\|>` (first slice) done; methods/composable class+style/spread/extension-seam pending |
+| Codegen | 🟡 interpolation + control flow + full attributes (security core, composable class, spread, conditional) + pipeline `\|>` + child props/`{children}` + method components done; auto-fallthrough/named-slots/extension-seam/`style`-composition pending |
 | CLI / `gen.Main` | ⬜ not started |
 | Pipeline `|>` end-to-end | 🟡 lowering + `std` filters done (interp + attr, harvest-by-contract) — **extension seam (`gen.Main`/user filter pkgs) + per-stage `?` not done** |
 
@@ -78,7 +78,16 @@ render goldens. Suggested order:
    (slot), skip attrs (props). Independent review: SHIP. **Deferred:** named slots
    (markup attrs `header={<m/>}`), auto-fallthrough / `{...attrs}` / component
    spread (→ #7), class/cond/pipeline attrs on a component.
-6. ⬜ **Method components** — `component (r T) X()` → method.
+6. ✅ **Method components** — `component (p T) Name(params) { … }` → method
+   `func (p T) Name(_gsxp T<Name>Props) gsx.Node` (nullary → no props struct; the
+   receiver IS the page data, `p.Field` works). Invocation `<p.Content/>` /
+   `<p.Grid sort={p.Sort}/>` (left ident == enclosing receiver var) → method call;
+   other dotted tags stay package calls (shared `childInvocation`/`childPropsFields`
+   keep probe ≡ emit). `harvest` keyed by receiver+method (same-named methods on
+   different receivers resolve). Also fixed **`ctx`-in-interpolation** (skeleton
+   binds `ctx`). Independent review: SHIP (1 Critical found+fixed). **Deferred:**
+   `<v.Method/>` for a non-receiver local (treated as package call); generic
+   receivers `(p T[X])`; named markup-attr slots.
 7. ⬜ **Auto-fallthrough attrs + diagnostics** — single-root fallthrough +
    compile-time ambiguity errors.
 
@@ -142,13 +151,6 @@ attribute-name validation against tag breakout (`validAttrName`), documented
 
 ## Tracked debts / deferrals
 
-- ⬜ **`ctx` not usable in interpolations** — the design calls `ctx` ambient and
-  valid in interp exprs (e.g. `{ structpages.ID(ctx, …) }`), but the type-resolution
-  **skeleton** component func (`func X(_gsxp XProps) Node`) never binds `ctx`, so
-  `{ f(ctx) }` fails resolution with `undefined: ctx` (the real render closure does
-  have `ctx`). Skeleton/closure asymmetry. **Blocks method components (#6)** — the
-  `11_struct_methods` example uses `ctx` in bodies. Fix: bind/accept `ctx` in the
-  skeleton component func. (Found by Phase-3 independent review.)
 - ⬜ **Pipeline codegen + filters/`std`/`gen`** — designed
   (`2026-06-19-gsx-pipeline-and-extensions-design.md`), not implemented (phase-2 #4).
 - ⬜ **Example 02 `02_text_escaping.gsx`** stays red (`47:35`): a `//` line
