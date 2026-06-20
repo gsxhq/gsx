@@ -2,7 +2,9 @@
 
 > **Syntax is roughly fixed, not frozen.** This page is a quick tour. The
 > [`examples/`](https://github.com/gsxhq/gsx/tree/main/examples) corpus is the
-> canonical, always-current reference — every accepted form is demonstrated there.
+> canonical reference — nearly every accepted form is demonstrated there (one file,
+> `02_text_escaping.gsx`, has a tracked parser gap; see the
+> [roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md)).
 
 A `.gsx` file is ordinary Go (package, imports, types, funcs) plus `component`
 declarations. A component has a templ-style header and a JSX-style body — the
@@ -55,7 +57,7 @@ names: `<Card title="Hi" featured/>` → `Card(CardProps{Title: "Hi", Featured: 
 
 Inside `{ }`, gsx decides markup-vs-Go positionally — the Babel rule: `{ <div/> }`
 is markup, `{ a < b }` is a Go expression. When in doubt, see
-[`examples/06_corner_cases.gsx`](https://github.com/gsxhq/gsx/tree/main/examples/06_corner_cases.gsx).
+[`examples/06_corner_cases.gsx`](https://github.com/gsxhq/gsx/blob/main/examples/06_corner_cases.gsx).
 
 ## Learn by example
 
