@@ -65,7 +65,16 @@ func discoverDirs(paths []string) ([]string, error) {
 	}
 	dirs := make([]string, 0, len(found))
 	for d := range found {
-		dirs = append(dirs, d)
+		// Resolve to an absolute path: the codegen type resolver loads each
+		// package via go/packages with an overlay keyed by absolute filenames,
+		// so a relative dir (e.g. under a -C chdir) would fail to match the
+		// overlay and report "no Go files". Absolute dirs also make Written
+		// paths unambiguous for the CLI summary.
+		abs, err := filepath.Abs(d)
+		if err != nil {
+			return nil, err
+		}
+		dirs = append(dirs, abs)
 	}
 	sort.Strings(dirs)
 	return dirs, nil
