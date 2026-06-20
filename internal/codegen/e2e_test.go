@@ -2145,6 +2145,44 @@ component Page() {
 	}
 }
 
+// TestFallthroughCondAttrRootNotEligible: a single-root component whose root sets an
+// attribute CONDITIONALLY (`{ if … { id=… } }`) is NOT fallthrough-eligible — its
+// runtime-named attrs can't be statically de-duped, so a colliding fallthrough would
+// emit a duplicate attribute. It must fail closed (no Attrs field → unknown-field
+// error), not silently emit `id="real" id="caller"`. (Independent-review finding.)
+func TestFallthroughCondAttrRootNotEligible(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Box(active bool) {
+	<button { if active { id="real" } }>x</button>
+}
+
+component Page() {
+	<Box active={true} id="caller"/>
+}
+`,
+	}
+	if err := generatePackageErr(t, files); err == nil || !strings.Contains(err.Error(), "Attrs") {
+		t.Fatalf("expected an Attrs unknown-field error for fallthrough onto a CondAttr-root child, got: %v", err)
+	}
+}
+
+// TestFallthroughCondAttrRootStandalone: a CondAttr-root component still renders fine
+// on its own (it is simply not fallthrough-eligible — no regression to its rendering).
+func TestFallthroughCondAttrRootStandalone(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Box(active bool) {
+	<button { if active { id="real" } }>x</button>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Box(p.BoxProps{Active: true})`)
+	assertHTMLEqual(t, got, `<button id="real">x</button>`)
+}
+
 // TestCallSiteNoFallthroughUnchanged: a child invocation with ONLY declared props and
 // no fallthrough produces a props literal with NO Attrs field (unchanged behavior).
 func TestCallSiteNoFallthroughUnchanged(t *testing.T) {
