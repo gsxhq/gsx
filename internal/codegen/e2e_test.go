@@ -728,3 +728,16 @@ component Badge(kind string) {
 		assertHTMLEqual(t, got, tc.want)
 	}
 }
+
+func TestRenderGoBlock(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Chip(first string, last string) {
+	<div>{{ full := first + " " + last }}<span>{full}</span></div>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Chip(p.ChipProps{First: "Ada", Last: "Lovelace"})`)
+	assertHTMLEqual(t, got, "<div><span>Ada Lovelace</span></div>")
+}

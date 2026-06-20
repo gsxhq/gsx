@@ -209,6 +209,10 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[*ast.Interp]types.Type,
 			}
 		}
 		b.WriteString("}\n")
+	case *ast.GoBlock:
+		emitLine(b, fset, t.Pos())
+		b.WriteString(t.Code)
+		b.WriteString("\n")
 	default:
 		return fmt.Errorf("codegen spike: unsupported markup node %T", n)
 	}
