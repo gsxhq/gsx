@@ -2,3 +2,5 @@
 *.x.go
 /tmp/
 .DS_Store
+/gsx
+/.claude/
