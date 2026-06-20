@@ -1231,20 +1231,97 @@ component Page(on bool) { <Card class={ "a", "b": on }/> }
 	}
 }
 
-// TestChildComponentChildrenStillErrors proves children on a component still
-// errors (deferred to a later task).
-func TestChildComponentChildrenStillErrors(t *testing.T) {
+// TestRenderChildrenSlot proves a component referencing {children} places the
+// parent-supplied slot markup at the {children} position, composed with a prop.
+func TestRenderChildrenSlot(t *testing.T) {
 	files := map[string]string{"views.gsx": `package views
 
-component Card(title string) { <div>{title}</div> }
+component Card(title string) {
+	<section><h2>{title}</h2>{children}</section>
+}
 
-component Page() { <Card title="hi">x</Card> }
+component Page() {
+	<Card title="Hi"><p>body</p></Card>
+}
+`}
+	got := renderPackage(t, files, `p.Page(p.PageProps{})`)
+	assertHTMLEqual(t, got, `<section><h2>Hi</h2><p>body</p></section>`)
+}
+
+// TestRenderChildrenSlotEmpty proves a {children}-referencing component rendered
+// with NO children passed renders nothing for the slot (nil gsx.Node is a
+// render no-op — gw.Node tolerates nil).
+func TestRenderChildrenSlotEmpty(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component Card(title string) {
+	<section><h2>{title}</h2>{children}</section>
+}
+
+component Page() {
+	<Card title="Hi"/>
+}
+`}
+	got := renderPackage(t, files, `p.Page(p.PageProps{})`)
+	assertHTMLEqual(t, got, `<section><h2>Hi</h2></section>`)
+}
+
+// TestRenderChildrenSlotBinding proves slot content renders in the PARENT scope:
+// it references a parent param and a parent loop var, both bound in the parent's
+// render closure (not the child's).
+func TestRenderChildrenSlotBinding(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component Wrap() {
+	<div>{children}</div>
+}
+
+component Page(name string, items []string) {
+	<Wrap>
+		<span>{name}</span>
+		{ for _, it := range items { <li>{it}</li> } }
+	</Wrap>
+}
+`}
+	got := renderPackage(t, files, `p.Page(p.PageProps{Name: "Jo", Items: []string{"a", "b"}})`)
+	assertHTMLEqual(t, got, `<div><span>Jo</span><li>a</li><li>b</li></div>`)
+}
+
+// TestRenderChildrenSlotInterleaved is the load-bearing order-invariant test: a
+// typed interp BEFORE a child component, the child's slot containing a typed
+// interp of a DIFFERENT type, and a typed interp AFTER. Each must render with its
+// own type (k-th _gsxuse maps to k-th collectExprs node).
+func TestRenderChildrenSlotInterleaved(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component Wrap() {
+	<div>{children}</div>
+}
+
+component Page(before string, mid int, after bool) {
+	<span>{before}</span>
+	<Wrap><em>{mid}</em></Wrap>
+	<span>{after}</span>
+}
+`}
+	got := renderPackage(t, files, `p.Page(p.PageProps{Before: "B", Mid: 7, After: true})`)
+	assertHTMLEqual(t, got, `<span>B</span><div><em>7</em></div><span>true</span>`)
+}
+
+// TestReservedParamChildren proves a param named `children` is rejected: Task 2
+// synthesizes a Children field + children local, so a user param would collide.
+func TestReservedParamChildren(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+import "github.com/gsxhq/gsx"
+
+component X(children gsx.Node) { <div>{children}</div> }
 `}
 	err := generatePackageErr(t, files)
 	if err == nil {
-		t.Fatal("expected error for children on component, got nil")
+		t.Fatal("expected error for param named children, got nil")
 	}
-	if !strings.Contains(err.Error(), "children") {
-		t.Fatalf("expected children error, got: %v", err)
+	if !strings.Contains(err.Error(), "children") || !strings.Contains(err.Error(), "reserved") {
+		t.Fatalf("expected reserved-children error, got: %v", err)
 	}
 }
