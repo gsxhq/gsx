@@ -147,12 +147,26 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 	// `Children` synthesis exactly — gate into hasProps, append AFTER the param
 	// and Children fields (field order: params, Children, Attrs).
 	root, hasRoot := singleRoot(c.Body)
+	// MANUAL mode: a component whose body references the identifier `attrs` (a
+	// `{...attrs}` element spread, or `attrs.X()` in an interp/expr/clause) takes
+	// over fallthrough placement itself — auto root injection is DISABLED and the
+	// author's `{...attrs}` renders the bag. It is ALWAYS fallthrough-eligible
+	// (forces the Attrs field), even for a nullary method (which then gains a props
+	// struct — correct, since it has fallthrough). See usesAttrs.
+	manual := usesAttrs(c.Body)
 	// A NULLARY method component (no params, no children) is invoked bare as
 	// `p.Page()` with no props struct (the call-site nullary contract), so it must
-	// NOT gain a props struct via fallthrough — gate fallthrough out of that case.
+	// NOT gain a props struct via AUTO fallthrough — gate auto out of that case.
 	// A function component (always has a props struct) or a method with params/
-	// children is eligible.
-	hasFallthrough := hasRoot && (c.Recv == "" || len(params) > 0 || hasChildren)
+	// children is auto-eligible; manual forces eligibility regardless.
+	autoEligible := hasRoot && (c.Recv == "" || len(params) > 0 || hasChildren)
+	hasFallthrough := autoEligible || manual
+	// AUTO application (Task-1 root class-merge + spread injection) happens only for
+	// a single-root component that is auto-eligible (so the Attrs FIELD exists — a
+	// nullary method with no props struct is NOT) and does NOT reference `attrs`.
+	// When manual, the root (and whole body) emits via normal genNode and the author
+	// places the bag; the bag is bound to the `attrs` local below.
+	autoApply := autoEligible && !manual
 	hasProps := c.Recv == "" || len(params) > 0 || hasChildren || hasFallthrough
 	if hasProps {
 		fmt.Fprintf(b, "type %s struct {\n", propsName)
@@ -199,12 +213,22 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 		// this gsx.Node and renders via the catNode path (gw.Node, nil-safe).
 		b.WriteString("\t\tchildren := _gsxp.Children\n")
 	}
+	if manual {
+		// MANUAL mode: bind the synthesized bag to a same-named local so the author's
+		// `{...attrs}` element spread (emitted as `gw.Spread(ctx, attrs)`) and any
+		// `attrs.X()` reference resolve. Nil-safe: a nil bag spreads/queries to
+		// nothing. (`_ = attrs` guards the unlikely case where usesAttrs detected a
+		// reference the body no longer reaches after lowering.)
+		b.WriteString("\t\tattrs := _gsxp.Attrs\n\t\t_ = attrs\n")
+	}
 	b.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
 	for _, m := range c.Body {
-		// The single root (when fallthrough-eligible) is emitted via the
-		// fallthrough path so the bag's class merges + the rest spreads at the root;
-		// all other body nodes (insignificant whitespace/comments) render normally.
-		if hasFallthrough && m == ast.Markup(root) {
+		// The single root (when AUTO-eligible) is emitted via the fallthrough path so
+		// the bag's class merges + the rest spreads at the root; all other body nodes
+		// (insignificant whitespace/comments) render normally. In MANUAL mode autoApply
+		// is false, so the root emits via normal genNode and the author's {...attrs}
+		// places the bag.
+		if autoApply && m == ast.Markup(root) {
 			if err := emitRootElement(b, root, resolved, table, structFields, imports, fset, recvVar, recvTypeName); err != nil {
 				return err
 			}
@@ -818,6 +842,122 @@ func usesChildren(body []ast.Markup) bool {
 				if usesChildren(cc.Body) {
 					return true
 				}
+			}
+		}
+	}
+	return false
+}
+
+// usesAttrs reports whether the markup body references the EXACT identifier
+// `attrs` in any value-position Go fragment — the MANUAL-mode trigger. It mirrors
+// usesChildren's recursion (control flow, fragments, non-component and component
+// element children incl. named-slot values) but detects via valueIdents, which is
+// token-based: it matches the bare ident `attrs` (e.g. `{...attrs}` SpreadAttr,
+// `{...attrs.Without("id")}`, `{ attrs.Class() }` interp, an `attrs`-referencing
+// control-flow clause), and crucially does NOT match a longer ident like
+// `attrsList` (a different token) nor a selector field after a `.` (e.g.
+// `x.attrs`). A component's SIMPLE attrs (props) are NOT walked — those are the
+// caller's prop exprs, not this component's body — but its named-slot values and
+// slot children render in THIS scope and CAN reference this component's `attrs`,
+// so they are recursed.
+func usesAttrs(body []ast.Markup) bool {
+	refsAttrs := func(src string) bool { return valueIdents(src)["attrs"] }
+	for _, n := range body {
+		switch t := n.(type) {
+		case *ast.Interp:
+			if refsAttrs(t.Expr) {
+				return true
+			}
+			for _, st := range t.Stages {
+				if st.Args != "" && refsAttrs(st.Args) {
+					return true
+				}
+			}
+		case *ast.Element:
+			// A non-component element: walk its attrs (spread/expr/class/cond) for an
+			// `attrs` reference. A component element: skip its SIMPLE attrs (props) but
+			// recurse named-slot values, which render in this scope. Both recurse
+			// children.
+			if !isComponentTag(t.Tag) {
+				if attrsRefAttrs(t.Attrs) {
+					return true
+				}
+			} else {
+				found := false
+				walkMarkupAttrs(t.Attrs, func(value []ast.Markup) {
+					if usesAttrs(value) {
+						found = true
+					}
+				})
+				if found {
+					return true
+				}
+			}
+			if usesAttrs(t.Children) {
+				return true
+			}
+		case *ast.Fragment:
+			if usesAttrs(t.Children) {
+				return true
+			}
+		case *ast.ForMarkup:
+			if refsAttrs(t.Clause) || usesAttrs(t.Body) {
+				return true
+			}
+		case *ast.IfMarkup:
+			if refsAttrs(t.Cond) || usesAttrs(t.Then) || usesAttrs(t.Else) {
+				return true
+			}
+		case *ast.SwitchMarkup:
+			if refsAttrs(t.Tag) {
+				return true
+			}
+			for _, cc := range t.Cases {
+				if refsAttrs(cc.List) || usesAttrs(cc.Body) {
+					return true
+				}
+			}
+		case *ast.GoBlock:
+			if refsAttrs(t.Code) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// attrsRefAttrs reports whether any verbatim-emitted Go fragment in a (non-
+// component) element's attr list references the identifier `attrs`: a
+// `{...attrs}` SpreadAttr's Expr, a composable-class part Expr/Cond, an ExprAttr
+// Expr or its pipeline args, or — recursing — a CondAttr's Cond and branches.
+// These are exactly the fragments collectAttrSrc feeds to the ident walks, so a
+// manual `attrs` reference anywhere in them is detected.
+func attrsRefAttrs(attrs []ast.Attr) bool {
+	refsAttrs := func(src string) bool { return valueIdents(src)["attrs"] }
+	for _, a := range attrs {
+		switch at := a.(type) {
+		case *ast.SpreadAttr:
+			if refsAttrs(at.Expr) {
+				return true
+			}
+		case *ast.ClassAttr:
+			for _, p := range at.Parts {
+				if refsAttrs(p.Expr) || (p.Cond != "" && refsAttrs(p.Cond)) {
+					return true
+				}
+			}
+		case *ast.ExprAttr:
+			if refsAttrs(at.Expr) {
+				return true
+			}
+			for _, st := range at.Stages {
+				if st.Args != "" && refsAttrs(st.Args) {
+					return true
+				}
+			}
+		case *ast.CondAttr:
+			if refsAttrs(at.Cond) || attrsRefAttrs(at.Then) || attrsRefAttrs(at.Else) {
+				return true
 			}
 		}
 	}

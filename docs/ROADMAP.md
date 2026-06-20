@@ -14,7 +14,7 @@ generator/CLI may use `golang.org/x/tools`.
 |---|---|
 | Parser + AST | ✅ done (Part 2 grammar + pipeline parsing) |
 | Runtime (`gsx`) | ✅ done |
-| Codegen | 🟡 interpolation + control flow + full attributes (security core, composable class, spread, conditional) + pipeline `\|>` + child props/`{children}` + method components done; auto-fallthrough/named-slots/extension-seam/`style`-composition pending |
+| Codegen | 🟡 interpolation + control flow + full attributes (security core, composable class, spread, conditional) + pipeline `\|>` + child props/`{children}` + method components + named slots + attribute fallthrough (auto class-merge/spread + manual `{...attrs}`) done; extension-seam/`style`-composition pending |
 | CLI / `gen.Main` | ⬜ not started |
 | Pipeline `|>` end-to-end | 🟡 lowering + `std` filters done (interp + attr, harvest-by-contract) — **extension seam (`gen.Main`/user filter pkgs) + per-stage `?` not done** |
 
@@ -92,8 +92,20 @@ render goldens. Suggested order:
    binds `ctx`). Independent review: SHIP (1 Critical found+fixed). **Deferred:**
    `<v.Method/>` for a non-receiver local (treated as package call); generic
    receivers `(p T[X])`; named markup-attr slots.
-7. ⬜ **Auto-fallthrough attrs + diagnostics** — single-root fallthrough +
-   compile-time ambiguity errors.
+7. ✅ **Attribute fallthrough** — undeclared invocation attrs split (declared
+   props via go/types `<Tag>Props` fields vs everything else → an `Attrs gsx.Attrs`
+   bag, AST-derived split). **Auto** single-root: the bag's `class` merges into the
+   root's class and the rest spreads at the root, root-wins (root's own attrs +
+   class/style dropped from the spread); empty bag is a no-op. **Manual** `{...attrs}`:
+   a body referencing `attrs` takes over placement (auto root injection disabled),
+   binding `attrs := _gsxp.Attrs`. Ambiguity (a fallthrough attr onto a non-eligible
+   multi-root/fragment child, which has no `Attrs` field) surfaces as a Go
+   unknown-field error.
+   - **Deferred:** `style` fallthrough (fail-closed pending the `|> css` pipeline);
+     cross-package undeclared-identifier split (best-effort — non-identifier attrs
+     fall through, undeclared cross-package identifiers are assumed props and surface
+     at the imported build); a pretty ambiguity diagnostic (today the raw Go
+     unknown-field error).
 
 ## Security — safe by default, escape hatch via pipeline
 

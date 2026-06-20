@@ -2206,3 +2206,173 @@ component (p Pg) Page() {
 	got := renderPackage(t, files, `(p.Pg{}).Page()`)
 	assertHTMLEqual(t, got, `<button data-variant="primary" data-test="x">Go</button>`)
 }
+
+// --- Task 4: manual-mode fallthrough ({...attrs}) ---
+
+// TestManualFallthroughPlacement is the headline manual-mode case: a component whose
+// body references `attrs` (via a `{...attrs}` spread) takes over placement. The
+// fallthrough attrs land on the INNER `<input>` (where {...attrs} sits), NOT on the
+// multi-level `<div class="wrap">` root — auto root-injection is disabled. The
+// declared `id` stays a prop; data-test/placeholder fall through into the bag.
+func TestManualFallthroughPlacement(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Field(id string) {
+	<div class="wrap"><input id={id} {...attrs}/></div>
+}
+
+component Page() {
+	<Field id="email" data-test="x" placeholder="you@co"/>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Page(p.PageProps{})`)
+	assertHTMLEqual(t, got,
+		`<div class="wrap"><input id="email" data-test="x" placeholder="you@co"/></div>`)
+}
+
+// TestManualFallthroughDisablesAuto proves manual mode disables auto root injection:
+// the fallthrough attrs appear ONCE, on the inner <input> (where {...attrs} is), and
+// are NOT also auto-applied to the <div class="wrap"> root. Were auto still active,
+// the root <div> would carry data-test/placeholder too.
+func TestManualFallthroughDisablesAuto(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Field(id string) {
+	<div class="wrap"><input id={id} {...attrs}/></div>
+}
+
+component Page() {
+	<Field id="email" data-test="x" placeholder="you@co"/>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Page(p.PageProps{})`)
+	// The root <div> must carry only its own class="wrap" — no fallthrough attrs.
+	if strings.Contains(got, `<div class="wrap" data-test`) ||
+		strings.Contains(got, `<div class="wrap" placeholder`) ||
+		strings.Contains(got, `data-test="x"></div>`) {
+		t.Fatalf("manual mode must not auto-apply fallthrough attrs to the root <div>:\n%s", got)
+	}
+	// Exactly one occurrence each (on the <input>).
+	if n := strings.Count(got, `data-test="x"`); n != 1 {
+		t.Fatalf("expected data-test once, got %d:\n%s", n, got)
+	}
+	if n := strings.Count(got, `placeholder="you@co"`); n != 1 {
+		t.Fatalf("expected placeholder once, got %d:\n%s", n, got)
+	}
+}
+
+// TestManualFallthroughWithout proves the bound `attrs` local is a real gsx.Attrs:
+// `{...attrs.Without("id")}` compiles and the runtime Without call drops `id` from
+// the spread (here the caller passes no id, so it is a no-op on output, but the
+// method call must type-check and run). placeholder still falls through.
+func TestManualFallthroughWithout(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Panel(title string) {
+	<section><h2>{title}</h2><aside {...attrs.Without("title")}>body</aside></section>
+}
+
+component Page() {
+	<Panel title="Hi" data-test="x" placeholder="p"/>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Page(p.PageProps{})`)
+	assertHTMLEqual(t, got,
+		`<section><h2>Hi</h2><aside data-test="x" placeholder="p">body</aside></section>`)
+}
+
+// TestManualFallthroughNullaryMethod proves manual mode forces the Attrs field even
+// on a nullary method component (which normally stays props-less). Referencing
+// `attrs` makes it fallthrough-eligible, so it gets a props struct + Attrs field and
+// is invoked as a function-style child with the bag.
+func TestManualFallthroughNullaryMethod(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+type Pg struct{}
+
+component (p Pg) Wrap() {
+	<div class="outer"><span {...attrs}/></div>
+}
+
+component (p Pg) Page() {
+	<p.Wrap data-test="x"/>
+}
+`,
+	}
+	got := renderPackage(t, files, `(p.Pg{}).Page()`)
+	assertHTMLEqual(t, got, `<div class="outer"><span data-test="x"></span></div>`)
+}
+
+// TestManualAutoStillWorks (regression): a single-root component with NO `attrs`
+// reference still auto-applies the fallthrough bag at its root (manual must not
+// regress auto). Mirrors the Task-1 auto path.
+func TestManualAutoStillWorks(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Box(variant string) {
+	<div class={ "box", variant }>{children}</div>
+}
+`,
+	}
+	got := renderPackage(t, files,
+		`p.Box(p.BoxProps{Variant: "big", Attrs: gsx.Attrs{"class": "w-full", "data-test": "x"}})`)
+	assertHTMLEqual(t, got, `<div class="box big w-full" data-test="x"></div>`)
+}
+
+// TestExample12EndToEnd is the end-to-end golden for examples/12_children_attrs.gsx:
+// it reproduces, in same-package renders through the harness, the example's
+// load-bearing patterns combined:
+//   - AUTO fallthrough + class-merge + {children} (Toolbar -> Button): the caller's
+//     class merges into the composed root class, data-*/hx-*/@click fall through onto
+//     the single root <button>, and {children} places the slot content.
+//   - MANUAL fallthrough placement (LoginForm -> Field): the multi-level Field roots
+//     at <div class="field"> but places the caller's name/required/hx-get on the inner
+//     <input> via {...attrs} — auto root injection disabled.
+//
+// Example 12 itself stays PARSE-ONLY (its LabeledInput uses a `{{ rest :=
+// attrs.Without("class") }}` GoBlock whose declared var the emitter does not yet
+// track as used — a pre-existing GoBlock-local limitation, orthogonal to fallthrough);
+// this test graduates its auto+manual core to a render golden.
+func TestExample12EndToEnd(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Button(variant string) {
+	<button type="button" class={ "btn", variantClass(variant) }>{children}</button>
+}
+
+component Toolbar() {
+	<div><Button variant="primary" class="w-full" data-test="save" hx-post="/save" @click="go()">Save</Button></div>
+}
+
+component Field(label string) {
+	<div class="field"><label>{label}</label><input class="control" {...attrs}/></div>
+}
+
+component LoginForm() {
+	<form><Field label="Email" name="email" required hx-get="/check-email"/></form>
+}
+
+func variantClass(v string) string { return "btn-" + v }
+`,
+	}
+	// Toolbar: auto path. class merges (btn + btn-primary + w-full); data-test/hx-post/
+	// @click spread onto the single root <button>; root's own type wins; children place.
+	gotToolbar := renderPackage(t, files, `p.Toolbar(p.ToolbarProps{})`)
+	assertHTMLEqual(t, gotToolbar,
+		`<div><button type="button" class="btn btn-primary w-full" data-test="save" hx-post="/save" @click="go()">Save</button></div>`)
+
+	// LoginForm: manual path. name/required/hx-get land on the inner <input> (where
+	// {...attrs} sits), NOT on the <div class="field"> root.
+	gotForm := renderPackage(t, files, `p.LoginForm(p.LoginFormProps{})`)
+	assertHTMLEqual(t, gotForm,
+		`<form><div class="field"><label>Email</label><input class="control" name="email" required hx-get="/check-email"/></div></form>`)
+}

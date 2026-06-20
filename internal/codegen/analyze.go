@@ -146,9 +146,12 @@ func componentPropFieldsFor(files map[string]*gsxast.File) (map[string]map[strin
 			// Mirror the Attrs synthesis gate in genComponent/buildSkeleton exactly
 			// (hasFallthrough) so the map agrees with the struct that is actually
 			// emitted — a single-root NULLARY METHOD has no props struct at all, so
-			// it must NOT claim an Attrs field.
+			// it must NOT claim an Attrs field. MANUAL mode (a body referencing
+			// `attrs`) forces the Attrs field regardless (incl. for a nullary method,
+			// which then gains a props struct), so OR it in.
 			_, hasRoot := singleRoot(c.Body)
-			if hasRoot && (c.Recv == "" || len(params) > 0 || hasChildren) {
+			manual := usesAttrs(c.Body)
+			if (hasRoot && (c.Recv == "" || len(params) > 0 || hasChildren)) || manual {
 				fields["Attrs"] = true
 			}
 			out[propsName] = fields
@@ -298,10 +301,13 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields map[string]m
 		// needs the field present so any `_gsxp.Attrs` references / the field's
 		// existence type-check identically to the emitted struct (unused is fine).
 		_, hasRoot := singleRoot(c.Body)
+		// MIRROR emit.go: MANUAL mode — a body referencing `attrs` forces fallthrough
+		// eligibility (even a nullary method) and DISABLES auto root injection.
+		manual := usesAttrs(c.Body)
 		// MIRROR emit.go: a nullary method component (no params, no children) stays
-		// nullary (no props struct, bare `p.Page()` call) — fallthrough is gated out
-		// of that case so it does not force a props struct.
-		hasFallthrough := hasRoot && (c.Recv == "" || len(params) > 0 || hasChildren)
+		// nullary (no props struct, bare `p.Page()` call) — AUTO fallthrough is gated
+		// out of that case so it does not force a props struct; manual forces it.
+		hasFallthrough := (hasRoot && (c.Recv == "" || len(params) > 0 || hasChildren)) || manual
 		// MIRROR emit.go: only a method component suppresses the props struct when
 		// nullary; a function component always keeps its (possibly empty) props
 		// struct so the child-invocation path's `<Tag>Props{}` literal type-checks.
@@ -345,6 +351,12 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields map[string]m
 		}
 		if hasChildren {
 			sb.WriteString("\tchildren := _gsxp.Children\n\t_ = children\n")
+		}
+		// MIRROR emit.go: in MANUAL mode bind the synthesized bag to `attrs` so the
+		// probe type-checks the author's `{...attrs}` (probed as `_gsxgw.Spread(ctx,
+		// attrs)`) and any `attrs.X()` reference identically to emitted code.
+		if manual {
+			sb.WriteString("\tattrs := _gsxp.Attrs\n\t_ = attrs\n")
 		}
 		if err := emitProbes(&sb, c.Body, table, propFields, recvVar, recvTypeName); err != nil {
 			return "", nil, err
