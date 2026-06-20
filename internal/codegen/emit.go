@@ -170,6 +170,11 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[*ast.Interp]types.Type,
 // are in scope as locals).
 func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[*ast.Interp]types.Type, imports map[string]bool, fset *token.FileSet) error {
 	emitLine(b, fset, n.Pos())
+	if len(n.Stages) > 0 {
+		// The pipeline parses into Stages, but codegen does not lower it yet.
+		// Error rather than silently render the seed and drop the filters.
+		return fmt.Errorf("codegen: pipeline `|>` not supported in codegen yet (interpolation %q)", n.Expr)
+	}
 	if n.Try {
 		return fmt.Errorf("codegen spike: `?` try-marker not supported yet")
 	}
