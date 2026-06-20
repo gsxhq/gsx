@@ -648,11 +648,11 @@ component Bad() {
 	}
 }
 
-// TestMethodOnlyFileCleanError proves a .gsx whose only component is a method
-// component yields the clean "method components not supported yet" error rather
-// than an "imported and not used" error masking it (the skeleton imports _gsxrt
-// but, with no rendered components, must still reference it via var _).
-func TestMethodOnlyFileCleanError(t *testing.T) {
+// TestMethodOnlyFileGenerates proves a .gsx whose only component is a method
+// component generates without an "imported and not used" error masking the
+// skeleton (the skeleton imports _gsxrt but, with no other components, must
+// still reference it via var _). Method components are now supported (Task 2).
+func TestMethodOnlyFileGenerates(t *testing.T) {
 	files := map[string]string{
 		"views.gsx": `package views
 
@@ -674,14 +674,116 @@ component (p P) View() {
 		writeFile(t, pkgDir, n, c)
 	}
 	_, err := GeneratePackage(pkgDir)
+	if err != nil {
+		t.Fatalf("expected method-only file to generate, got error: %v", err)
+	}
+}
+
+// TestRenderMethodNullary proves a nullary method component
+// `(p UsersPage) Page()` emits a Go method with no props struct and no _gsxp
+// param; the receiver var is in scope so {p.Title} references the receiver field.
+func TestRenderMethodNullary(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+type UsersPage struct {
+	Title string
+	Sort  string
+}
+
+component (p UsersPage) Page() {
+	<h1>{p.Title}</h1>
+}
+`,
+	}
+	got := renderPackage(t, files, `(p.UsersPage{Title: "Hi"}).Page()`)
+	assertHTMLEqual(t, got, `<h1>Hi</h1>`)
+}
+
+// TestRenderMethodWithParam proves a method component with a param emits a
+// <RecvType><Method>Props struct (UsersPageGridProps{Sort string}); the body
+// references both the param (sort) and the receiver field (p.Title).
+func TestRenderMethodWithParam(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+type UsersPage struct {
+	Title string
+	Sort  string
+}
+
+component (p UsersPage) Grid(sort string) {
+	<div>{sort}-{p.Title}</div>
+}
+`,
+	}
+	got := renderPackage(t, files,
+		`(p.UsersPage{Title: "T"}).Grid(p.UsersPageGridProps{Sort: "name"})`)
+	assertHTMLEqual(t, got, `<div>name-T</div>`)
+}
+
+// TestRenderMethodPointerReceiver proves a pointer-receiver method component
+// `(f *Form) Render2()` compiles and renders; the emitted receiver keeps the
+// `*Form` while the props-struct name (if any) strips the `*` (FormRender2Props).
+func TestRenderMethodPointerReceiver(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+type Form struct {
+	Action string
+}
+
+component (f *Form) Render2(label string) {
+	<form action={f.Action}>{label}</form>
+}
+`,
+	}
+	got := renderPackage(t, files,
+		`(&p.Form{Action: "/submit"}).Render2(p.FormRender2Props{Label: "Go"})`)
+	assertHTMLEqual(t, got, `<form action="/submit">Go</form>`)
+}
+
+// TestMethodUnnamedReceiverError proves an unnamed receiver
+// `component (UsersPage) X()` is rejected with a clear error.
+func TestMethodUnnamedReceiverError(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+type UsersPage struct{ Title string }
+
+component (UsersPage) X() {
+	<p>x</p>
+}
+`,
+	}
+	err := generatePackageErr(t, files)
 	if err == nil {
-		t.Fatal("expected error for method component, got nil")
+		t.Fatal("expected error for unnamed receiver, got nil")
 	}
-	if strings.Contains(err.Error(), "imported") && strings.Contains(err.Error(), "not used") {
-		t.Fatalf("import-unused error masked the real diagnostic: %v", err)
+	if !strings.Contains(err.Error(), "named") {
+		t.Fatalf("expected receiver-must-be-named error, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "method components not supported") {
-		t.Fatalf("expected method components not supported error, got: %v", err)
+}
+
+// TestMethodReservedRecvVarCtx proves a receiver var named `ctx` is rejected:
+// it would shadow the ambient context in the emitted closure body.
+func TestMethodReservedRecvVarCtx(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+type UsersPage struct{ Title string }
+
+component (ctx UsersPage) X() {
+	<p>x</p>
+}
+`,
+	}
+	err := generatePackageErr(t, files)
+	if err == nil {
+		t.Fatal("expected error for receiver var named ctx, got nil")
+	}
+	if !strings.Contains(err.Error(), "reserved") {
+		t.Fatalf("expected reserved receiver-name error, got: %v", err)
 	}
 }
 

@@ -102,9 +102,6 @@ func writeImports(b *bytes.Buffer, imports map[string]bool, aliased []importSpec
 }
 
 func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet) error {
-	if c.Recv != "" {
-		return fmt.Errorf("codegen spike: method components not supported yet (%s)", c.Name)
-	}
 	params, err := parseParams(c.Params)
 	if err != nil {
 		return err
@@ -113,26 +110,63 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 		return err
 	}
 
+	// A method component (non-empty Recv) emits a Go method whose receiver var is
+	// in scope in the body (so `{p.Field}` works); its props struct (if any) is
+	// named <RecvTypeName><Name>Props, and the receiver clause is emitted verbatim
+	// in the signature. A free function component has no receiver: props struct
+	// <Name>Props and a plain `func <Name>`.
+	propsName := c.Name + "Props"
+	if c.Recv != "" {
+		recvVar, _, recvTypeName, rerr := parseRecv(c.Recv)
+		if rerr != nil {
+			return rerr
+		}
+		if rerr := checkReservedRecvVar(recvVar); rerr != nil {
+			return rerr
+		}
+		propsName = recvTypeName + c.Name + "Props"
+	}
+
 	// Props struct (field types are syntactic — straight from the param list).
 	// When the body references `{children}`, synthesize an implicit
 	// `Children gsx.Node` slot field after the param fields; the parent fills it
-	// with a render closure (genChildComponent).
+	// with a render closure (genChildComponent). A NULLARY METHOD (no params, no
+	// children) gets NO props struct and NO _gsxp param — `p.Page()`. A nullary
+	// FUNCTION component keeps its empty props struct (`Page(PageProps{})`), since
+	// the child-component invocation path (genChildComponent) always builds a
+	// `<Tag>Props{}` literal.
 	hasChildren := usesChildren(c.Body)
-	fmt.Fprintf(b, "type %sProps struct {\n", c.Name)
-	for _, p := range params {
-		fmt.Fprintf(b, "\t%s %s\n", fieldName(p.name), p.typ)
+	hasProps := c.Recv == "" || len(params) > 0 || hasChildren
+	if hasProps {
+		fmt.Fprintf(b, "type %s struct {\n", propsName)
+		for _, p := range params {
+			fmt.Fprintf(b, "\t%s %s\n", fieldName(p.name), p.typ)
+		}
+		if hasChildren {
+			b.WriteString("\tChildren gsx.Node\n")
+		}
+		fmt.Fprintf(b, "}\n\n")
 	}
-	if hasChildren {
-		b.WriteString("\tChildren gsx.Node\n")
-	}
-	fmt.Fprintf(b, "}\n\n")
 
-	// Render func. Bind each USED param to a same-named local so interpolation
-	// expressions can be emitted verbatim. The props param, io.Writer closure
-	// param, and gsx.Writer local use the reserved _gsx* namespace so a user
-	// param named p/w/gw cannot collide with them. ctx stays ambient (user
-	// interpolation exprs may reference it).
-	fmt.Fprintf(b, "func %s(_gsxp %sProps) gsx.Node {\n", c.Name, c.Name)
+	// Render func/method. The only differences between function and method
+	// components are the signature (receiver clause + props-struct name) and
+	// whether a props struct exists; the render-closure body is identical.
+	if c.Recv != "" {
+		fmt.Fprintf(b, "func %s %s(", c.Recv, c.Name)
+	} else {
+		fmt.Fprintf(b, "func %s(", c.Name)
+	}
+	if hasProps {
+		fmt.Fprintf(b, "_gsxp %s", propsName)
+	}
+	b.WriteString(") gsx.Node {\n")
+
+	// Bind each USED param to a same-named local so interpolation expressions can
+	// be emitted verbatim. The props param, io.Writer closure param, and
+	// gsx.Writer local use the reserved _gsx* namespace so a user param named
+	// p/w/gw cannot collide with them. ctx stays ambient (user interpolation exprs
+	// may reference it). For a method component the receiver var is already in
+	// scope (it's the method receiver) and is NOT bound as a prop local.
 	b.WriteString("\treturn gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {\n")
 	used := usedParams(c, params)
 	for _, p := range params {

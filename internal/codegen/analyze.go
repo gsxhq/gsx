@@ -189,9 +189,6 @@ func buildSkeleton(file *gsxast.File, table filterTable) (string, []*gsxast.Comp
 		sb.WriteByte('\n')
 	}
 	for _, c := range comps {
-		if c.Recv != "" {
-			continue // SPIKE: method components handled later
-		}
 		params, err := parseParams(c.Params)
 		if err != nil {
 			return "", nil, err
@@ -199,21 +196,54 @@ func buildSkeleton(file *gsxast.File, table filterTable) (string, []*gsxast.Comp
 		if err := checkReservedParams(params); err != nil {
 			return "", nil, err
 		}
+		// MIRROR genComponent (emit.go): a method component emits a Go method whose
+		// receiver var is in scope (so `p.Field` probes type-check against the real
+		// receiver type), its props struct is named <RecvTypeName><Name>Props, and a
+		// NULLARY method (no params, no children) gets NO props struct + no _gsxp
+		// param. The receiver clause + props-struct name + nullary-no-props must be
+		// byte-identical in shape to emission, else resolution disagrees.
+		propsName := c.Name + "Props"
+		if c.Recv != "" {
+			recvVar, _, recvTypeName, rerr := parseRecv(c.Recv)
+			if rerr != nil {
+				return "", nil, rerr
+			}
+			if rerr := checkReservedRecvVar(recvVar); rerr != nil {
+				return "", nil, rerr
+			}
+			propsName = recvTypeName + c.Name + "Props"
+		}
 		// Synthesize the implicit `Children _gsxrt.Node` slot field + `children`
 		// local in lockstep with genComponent (emit.go), so skeleton and emitted
 		// code agree on the props shape and the `{children}` interp type-checks.
 		hasChildren := usesChildren(c.Body)
-		fmt.Fprintf(&sb, "type %sProps struct {\n", c.Name)
-		for _, p := range params {
-			fmt.Fprintf(&sb, "\t%s %s\n", fieldName(p.name), p.typ)
+		// MIRROR emit.go: only a method component suppresses the props struct when
+		// nullary; a function component always keeps its (possibly empty) props
+		// struct so the child-invocation path's `<Tag>Props{}` literal type-checks.
+		hasProps := c.Recv == "" || len(params) > 0 || hasChildren
+		if hasProps {
+			fmt.Fprintf(&sb, "type %s struct {\n", propsName)
+			for _, p := range params {
+				fmt.Fprintf(&sb, "\t%s %s\n", fieldName(p.name), p.typ)
+			}
+			if hasChildren {
+				sb.WriteString("\tChildren _gsxrt.Node\n")
+			}
+			sb.WriteString("}\n")
 		}
-		if hasChildren {
-			sb.WriteString("\tChildren _gsxrt.Node\n")
-		}
-		sb.WriteString("}\n")
 		// Use the same reserved props-param name as the emitted code (_gsxp) so a
-		// user param named `p` does not collide in the skeleton either.
-		fmt.Fprintf(&sb, "func %s(_gsxp %sProps) _gsxrt.Node {\n", c.Name, c.Name)
+		// user param named `p` does not collide in the skeleton either. Emit the
+		// receiver clause verbatim for a method component (its receiver var is in
+		// scope, like the emitted method).
+		if c.Recv != "" {
+			fmt.Fprintf(&sb, "func %s %s(", c.Recv, c.Name)
+		} else {
+			fmt.Fprintf(&sb, "func %s(", c.Name)
+		}
+		if hasProps {
+			fmt.Fprintf(&sb, "_gsxp %s", propsName)
+		}
+		sb.WriteString(") _gsxrt.Node {\n")
 		// Bind the ambient `ctx` (matching the emitted closure's
 		// `func(ctx context.Context, _gsxw io.Writer)` param) so probe exprs that
 		// reference it — `{ fromCtx(ctx) }`, `id={ g(ctx) }` — type-check. The
@@ -831,6 +861,65 @@ func valueIdents(exprSrc string) map[string]bool {
 		prevPeriod = tok == token.PERIOD
 	}
 	return out
+}
+
+// parseRecv parses a method-component receiver clause (INCLUDING parens, e.g.
+// "(p UsersPage)", "(f *Form)") into its variable name, full receiver type, and
+// the bare type name used to prefix the props struct. It reuses go/parser on a
+// synthesized method so it handles `*T`, named/unnamed, and spacing robustly.
+//
+// For "(p UsersPage)"  → recvVar "p", recvType "UsersPage",  recvTypeName "UsersPage".
+// For "(f *Form)"      → recvVar "f", recvType "*Form",       recvTypeName "Form".
+//
+// An UNNAMED receiver ("(UsersPage)" / "(*Form)") is rejected: a method
+// component needs the receiver var as its page-data handle (referenced in the
+// body as `p.Field`). It is shared by genComponent (emit) and buildSkeleton
+// (skeleton) so both agree on the signature, props-struct name, and reserved
+// receiver-var check.
+func parseRecv(recv string) (recvVar, recvType, recvTypeName string, err error) {
+	src := strings.TrimSpace(recv)
+	if src == "" {
+		return "", "", "", fmt.Errorf("codegen: empty method-component receiver")
+	}
+	fset := token.NewFileSet()
+	f, perr := parser.ParseFile(fset, "", "package _\nfunc "+src+" _m() {}", 0)
+	if perr != nil {
+		return "", "", "", fmt.Errorf("codegen: parse method-component receiver %q: %w", recv, perr)
+	}
+	fn, ok := f.Decls[0].(*goast.FuncDecl)
+	if !ok || fn.Recv == nil || len(fn.Recv.List) != 1 {
+		return "", "", "", fmt.Errorf("codegen: invalid method-component receiver %q", recv)
+	}
+	field := fn.Recv.List[0]
+	if len(field.Names) != 1 || field.Names[0].Name == "_" {
+		return "", "", "", fmt.Errorf("codegen: method component receiver must be named, e.g. (p T) — got %q", recv)
+	}
+	recvVar = field.Names[0].Name
+	var tb strings.Builder
+	if err := printer.Fprint(&tb, fset, field.Type); err != nil {
+		return "", "", "", err
+	}
+	recvType = tb.String()
+	recvTypeName = strings.TrimPrefix(recvType, "*")
+	return recvVar, recvType, recvTypeName, nil
+}
+
+// checkReservedRecvVar rejects a method-component receiver var that would
+// collide with the ambient closure context (`ctx`), the generator's reserved
+// `_gsx` namespace, or a package ident the emitter references in the body
+// (gsx/strconv) — any of which would break the emitted method body where the
+// receiver var is in scope.
+func checkReservedRecvVar(recvVar string) error {
+	if recvVar == "ctx" {
+		return fmt.Errorf("codegen: method-component receiver var %q is reserved (ambient context)", recvVar)
+	}
+	if strings.HasPrefix(recvVar, "_gsx") {
+		return fmt.Errorf("codegen: method-component receiver var %q uses the reserved _gsx prefix", recvVar)
+	}
+	if emittedImportIdent[recvVar] {
+		return fmt.Errorf("codegen: method-component receiver var %q is reserved (shadows a generated import)", recvVar)
+	}
+	return nil
 }
 
 type param struct{ name, typ string }
