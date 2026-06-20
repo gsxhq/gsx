@@ -283,9 +283,19 @@ func bodyHasPipeline(nodes []gsxast.Markup) bool {
 			}
 		case *gsxast.Element:
 			if isComponentTag(t.Tag) {
-				// A component's attrs (props) reject pipelines at emission, so they
-				// contribute no _gsxstd call — but its slot children render in this
-				// parent scope and CAN carry a pipeline, so recurse them.
+				// A component's SIMPLE attrs (props) reject pipelines at emission, so
+				// they contribute no _gsxstd call — but its named-slot (markup-attr)
+				// values AND its slot children render in this parent scope and CAN carry
+				// a pipeline, so recurse them.
+				found := false
+				walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
+					if bodyHasPipeline(value) {
+						found = true
+					}
+				})
+				if found {
+					return true
+				}
 				if bodyHasPipeline(t.Children) {
 					return true
 				}
@@ -349,32 +359,45 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, r
 			if isComponentTag(t.Tag) {
 				// Emit the SAME call as genChildComponent (via childInvocation) so the
 				// assignment type-checks each prop expr against the child's/method's real
-				// field type. The shared childPropsFields builder guarantees the attr
-				// fields never drift. A nullary method invocation (no attrs, no children)
-				// has no props struct → `_ = p.Method()`. Otherwise build the props
-				// literal; when the element has slot content, add a typed-nil Children so
-				// the literal type-checks WITHOUT building the real slot closure here —
-				// the slot content is probed SEPARATELY by recursing t.Children below
-				// (its interps become _gsxuse in the SAME order collectExprs collected
-				// them; the props-literal exprs are NOT _gsxuse, so they don't perturb
-				// the k-th alignment).
+				// field type. The shared childPropsLiteral builder guarantees the attr +
+				// slot fields never drift. A nullary method invocation (no attrs, no
+				// children) has no props struct → `_ = p.Method()`. Otherwise build the
+				// props literal; named-slot/Children fields use a typed-nil so the
+				// literal type-checks WITHOUT building the real slot closure here —
+				// the slot content (markup-attr values then t.Children) is probed
+				// SEPARATELY below (its interps become _gsxuse in the SAME order
+				// collectExprs collected them; the props-literal exprs are NOT _gsxuse,
+				// so they don't perturb the k-th alignment).
 				callTarget, propsType, isMethod := childInvocation(t, recvVar, recvTypeName)
 				if isMethod && len(t.Attrs) == 0 && len(t.Children) == 0 {
 					fmt.Fprintf(sb, "_ = %s()\n", callTarget)
 				} else {
-					fields, err := childPropsFields(t)
+					// Build the SAME props literal as the emitter via childPropsLiteral,
+					// but with a typed-nil slotValue: each named-slot and Children field
+					// is `_gsxrt.Node(nil)` so the literal type-checks WITHOUT the real
+					// closure. The slot content (markup-attr values + children) is probed
+					// SEPARATELY below, so its interps become the _gsxuse sequence in the
+					// SAME order collectExprs collected them; the props-literal exprs are
+					// NOT _gsxuse, so they don't perturb the k-th alignment.
+					fields, err := childPropsLiteral(t, func(nodes []gsxast.Markup) (string, error) {
+						return "_gsxrt.Node(nil)", nil
+					})
 					if err != nil {
 						return err
 					}
-					if len(t.Children) > 0 {
-						childField := "Children: _gsxrt.Node(nil)"
-						if fields == "" {
-							fields = childField
-						} else {
-							fields = fields + ", " + childField
-						}
-					}
 					fmt.Fprintf(sb, "_ = %s(%s{%s})\n", callTarget, propsType, fields)
+				}
+				// Probe slot content in the SAME canonical order collectExprs walks:
+				// each markup-attr value (attr order) then the children.
+				var probeErr error
+				walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
+					if probeErr != nil {
+						return
+					}
+					probeErr = emitProbes(sb, value, table, recvVar, recvTypeName)
+				})
+				if probeErr != nil {
+					return probeErr
 				}
 				if err := emitProbes(sb, t.Children, table, recvVar, recvTypeName); err != nil {
 					return err
@@ -663,11 +686,16 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 			*out = append(*out, t)
 		case *gsxast.Element:
 			if isComponentTag(t.Tag) {
-				// Child component: its attrs are props (type-checked via the props
-				// literal, NOT _gsxuse), so they are NOT collected here. But its
-				// children are SLOT content rendered in THIS (parent) scope, so their
-				// interps/exprs ARE collected — in source order. emitProbes recurses
-				// identically, so the k-th probe still maps to the k-th node.
+				// Child component: its SIMPLE attrs are props (type-checked via the
+				// props literal, NOT _gsxuse), so they are NOT collected here. But a
+				// MARKUP attr (named slot) value AND the children are SLOT content
+				// rendered in THIS (parent) scope, so their interps/exprs ARE collected
+				// — markup-attr values (in attr order) BEFORE children. emitProbes
+				// recurses identically (same shared walkMarkupAttrs order), so the k-th
+				// probe still maps to the k-th node.
+				walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
+					collectExprs(value, out)
+				})
 				collectExprs(t.Children, out)
 				continue
 			}
@@ -707,6 +735,21 @@ func walkAttrExprs(attrs []gsxast.Attr, fn func(*gsxast.ExprAttr)) {
 		case *gsxast.CondAttr:
 			walkAttrExprs(at.Then, fn)
 			walkAttrExprs(at.Else, fn)
+		}
+	}
+}
+
+// walkMarkupAttrs invokes fn with the Value (markup node list) of each
+// *MarkupAttr in an element's attr list, in source order. A markup attr is a
+// NAMED slot: its value renders in the PARENT scope and carries interps needing
+// types, so it must be collected/probed/bound BEFORE the element's children. This
+// is the SINGLE walk shared by collectExprs and emitProbes (and the binding
+// walks) so the markup-value recursion order cannot drift — exactly as
+// walkAttrExprs unifies the CondAttr recursion.
+func walkMarkupAttrs(attrs []gsxast.Attr, fn func(value []gsxast.Markup)) {
+	for _, a := range attrs {
+		if ma, ok := a.(*gsxast.MarkupAttr); ok {
+			fn(ma.Value)
 		}
 	}
 }
@@ -773,8 +816,12 @@ func collectClauseSrc(nodes []gsxast.Markup, add func(string)) {
 			// Recurse children for BOTH plain elements and child components: a
 			// component's slot content renders in THIS parent scope, so a control-flow
 			// clause inside the slot (e.g. `for ... range items`) references a parent
-			// local and must be bound. (A component's attrs are props, not slot
-			// content, so they are not visited here.)
+			// local and must be bound. A component's MARKUP-attr (named slot) values
+			// also render in this parent scope, so recurse them too. (A component's
+			// SIMPLE attrs are props, not slot content, so they are not visited.)
+			walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
+				collectClauseSrc(value, add)
+			})
 			collectClauseSrc(t.Children, add)
 		case *gsxast.Fragment:
 			collectClauseSrc(t.Children, add)
@@ -808,10 +855,15 @@ func collectAttrExprSrc(nodes []gsxast.Markup, add func(string)) {
 		switch t := n.(type) {
 		case *gsxast.Element:
 			if isComponentTag(t.Tag) {
-				// A component's attrs are props (handled via childPropsFields), so they
-				// are skipped — but its slot children render in THIS parent scope, so a
-				// composable-class/element-spread expr inside the slot references a
-				// parent local and must be bound. Recurse the children (not the attrs).
+				// A component's SIMPLE attrs are props (handled via childPropsLiteral),
+				// so they are skipped — but its named-slot (markup-attr) values AND its
+				// slot children render in THIS parent scope, so a composable-class/
+				// element-spread expr inside either references a parent local and must be
+				// bound. Recurse the markup-attr values and the children (not the simple
+				// attrs).
+				walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
+					collectAttrExprSrc(value, add)
+				})
 				collectAttrExprSrc(t.Children, add)
 				continue
 			}
@@ -849,9 +901,13 @@ func collectChildPropExprSrc(nodes []gsxast.Markup, add func(string)) {
 						add(ea.Expr)
 					}
 				}
-				// Recurse the slot children too: a child component nested inside this
-				// component's slot renders in THIS parent scope, so its prop exprs
-				// reference parent locals and must be bound.
+				// Recurse the named-slot (markup-attr) values AND the slot children: a
+				// child component nested inside this component's named slot OR its
+				// children renders in THIS parent scope, so its prop exprs reference
+				// parent locals and must be bound.
+				walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
+					collectChildPropExprSrc(value, add)
+				})
 				collectChildPropExprSrc(t.Children, add)
 				continue
 			}
