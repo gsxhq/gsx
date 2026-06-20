@@ -16,7 +16,7 @@ import (
 
 // generateFile emits the .x.go for a parsed gsx file given already-resolved
 // interpolation types.
-func generateFile(file *ast.File, resolved map[ast.Node]types.Type, fset *token.FileSet) ([]byte, error) {
+func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filterTable, fset *token.FileSet) ([]byte, error) {
 	interpTemp = 0
 	imports := map[string]bool{
 		"context":              true,
@@ -50,7 +50,7 @@ func generateFile(file *ast.File, resolved map[ast.Node]types.Type, fset *token.
 				body.WriteString("\n\n")
 			}
 		case *ast.Component:
-			if err := genComponent(&body, v, resolved, imports, fset); err != nil {
+			if err := genComponent(&body, v, resolved, table, imports, fset); err != nil {
 				return nil, err
 			}
 		}
@@ -65,10 +65,17 @@ func generateFile(file *ast.File, resolved map[ast.Node]types.Type, fset *token.
 
 func writeImports(b *bytes.Buffer, imports map[string]bool, aliased []importSpec) {
 	var std, ext []string
+	usesStd := false // the gsx filter std package, imported under the reserved alias
 	for imp := range imports {
-		if strings.Contains(imp, ".") {
+		switch {
+		case imp == stdImportPath:
+			// The lowered pipeline calls reference _gsxstd.<Func>; the import MUST
+			// use exactly that reserved alias (collision-safe — no user symbol can
+			// start with _gsx). Emit it separately, not in the plain ext loop.
+			usesStd = true
+		case strings.Contains(imp, "."):
 			ext = append(ext, imp)
-		} else {
+		default:
 			std = append(std, imp)
 		}
 	}
@@ -79,11 +86,14 @@ func writeImports(b *bytes.Buffer, imports map[string]bool, aliased []importSpec
 	for _, imp := range std {
 		fmt.Fprintf(b, "\t%q\n", imp)
 	}
-	if len(std) > 0 && (len(ext) > 0 || len(aliased) > 0) {
+	if len(std) > 0 && (len(ext) > 0 || len(aliased) > 0 || usesStd) {
 		b.WriteString("\n")
 	}
 	for _, imp := range ext {
 		fmt.Fprintf(b, "\t%q\n", imp)
+	}
+	if usesStd {
+		fmt.Fprintf(b, "\t_gsxstd %q\n", stdImportPath)
 	}
 	for _, imp := range aliased {
 		fmt.Fprintf(b, "\t%s %q\n", imp.name, imp.path)
@@ -91,7 +101,7 @@ func writeImports(b *bytes.Buffer, imports map[string]bool, aliased []importSpec
 	b.WriteString(")\n\n")
 }
 
-func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types.Type, imports map[string]bool, fset *token.FileSet) error {
+func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet) error {
 	if c.Recv != "" {
 		return fmt.Errorf("codegen spike: method components not supported yet (%s)", c.Name)
 	}
@@ -125,7 +135,7 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 	}
 	b.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
 	for _, m := range c.Body {
-		if err := genNode(b, m, resolved, imports, fset); err != nil {
+		if err := genNode(b, m, resolved, table, imports, fset); err != nil {
 			return err
 		}
 	}
@@ -134,7 +144,7 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 	return nil
 }
 
-func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, imports map[string]bool, fset *token.FileSet) error {
+func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet) error {
 	switch t := n.(type) {
 	case *ast.Text:
 		emitS(b, t.Value)
@@ -145,7 +155,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, im
 		}
 		emitS(b, "<"+t.Tag)
 		for _, a := range t.Attrs {
-			if err := emitAttr(b, a, resolved, imports); err != nil {
+			if err := emitAttr(b, a, resolved, table, imports); err != nil {
 				return err
 			}
 		}
@@ -155,16 +165,16 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, im
 		}
 		emitS(b, ">")
 		for _, c := range t.Children {
-			if err := genNode(b, c, resolved, imports, fset); err != nil {
+			if err := genNode(b, c, resolved, table, imports, fset); err != nil {
 				return err
 			}
 		}
 		emitS(b, "</"+t.Tag+">")
 	case *ast.Interp:
-		return genInterp(b, t, resolved, imports, fset)
+		return genInterp(b, t, resolved, table, imports, fset)
 	case *ast.Fragment:
 		for _, c := range t.Children {
-			if err := genNode(b, c, resolved, imports, fset); err != nil {
+			if err := genNode(b, c, resolved, table, imports, fset); err != nil {
 				return err
 			}
 		}
@@ -172,7 +182,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, im
 		emitLine(b, fset, t.Pos())
 		fmt.Fprintf(b, "for %s {\n", t.Clause)
 		for _, c := range t.Body {
-			if err := genNode(b, c, resolved, imports, fset); err != nil {
+			if err := genNode(b, c, resolved, table, imports, fset); err != nil {
 				return err
 			}
 		}
@@ -181,7 +191,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, im
 		emitLine(b, fset, t.Pos())
 		fmt.Fprintf(b, "if %s {\n", t.Cond)
 		for _, c := range t.Then {
-			if err := genNode(b, c, resolved, imports, fset); err != nil {
+			if err := genNode(b, c, resolved, table, imports, fset); err != nil {
 				return err
 			}
 		}
@@ -189,7 +199,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, im
 		if t.Else != nil {
 			b.WriteString(" else {\n")
 			for _, c := range t.Else {
-				if err := genNode(b, c, resolved, imports, fset); err != nil {
+				if err := genNode(b, c, resolved, table, imports, fset); err != nil {
 					return err
 				}
 			}
@@ -206,7 +216,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, im
 				fmt.Fprintf(b, "case %s:\n", cc.List)
 			}
 			for _, c := range cc.Body {
-				if err := genNode(b, c, resolved, imports, fset); err != nil {
+				if err := genNode(b, c, resolved, table, imports, fset); err != nil {
 					return err
 				}
 			}
@@ -225,12 +235,23 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, im
 // genInterp emits the type-aware writer call for an interpolation. The type comes
 // from the go/types resolution pass; the expression is emitted verbatim (params
 // are in scope as locals).
-func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, imports map[string]bool, fset *token.FileSet) error {
+func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet) error {
 	emitLine(b, fset, n.Pos())
 	if len(n.Stages) > 0 {
-		// The pipeline parses into Stages, but codegen does not lower it yet.
-		// Error rather than silently render the seed and drop the filters.
-		return fmt.Errorf("codegen: pipeline `|>` not supported in codegen yet (interpolation %q)", n.Expr)
+		// Lower the pipeline to nested std calls — the SAME lowerPipe output the
+		// probe used, so resolved[n] is already the pipeline's RESULT type.
+		lowered, usesStd, err := lowerPipe(n.Expr, n.Stages, table)
+		if err != nil {
+			return err
+		}
+		if usesStd {
+			imports[stdImportPath] = true
+		}
+		t, ok := resolved[n]
+		if !ok || t == nil {
+			return fmt.Errorf("codegen: could not resolve type of pipeline %q", n.Expr)
+		}
+		return emitRender(b, lowered, t, imports)
 	}
 	if n.Try {
 		return fmt.Errorf("codegen spike: `?` try-marker not supported yet")
@@ -306,14 +327,14 @@ func emitS(b *bytes.Buffer, s string) {
 // emitAttr emits one element attribute. Static values are escaped at codegen and
 // always double-quoted; bool attrs use gw.BoolAttr. Expr attrs are handled in a
 // later task; the deferred attr kinds error clearly.
-func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, imports map[string]bool) error {
+func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool) error {
 	switch t := a.(type) {
 	case *ast.StaticAttr:
 		fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+t.Name+`="`+htmlAttrEscape(t.Value)+`"`))
 	case *ast.BoolAttr:
 		fmt.Fprintf(b, "\t\t_gsxgw.BoolAttr(%s, true)\n", strconv.Quote(t.Name))
 	case *ast.ExprAttr:
-		return emitExprAttr(b, t, resolved, imports) // implemented in Task 3
+		return emitExprAttr(b, t, resolved, table, imports)
 	case *ast.ClassAttr:
 		// `class`/`style` composed attributes parse to ClassAttr. The `style`
 		// CSS grammar cannot be made safe by HTML-entity escaping, so an
@@ -374,25 +395,39 @@ func attrContext(name string) attrCtx {
 
 // emitExprAttr emits an expr attribute value with context-aware escaping. JS/CSS
 // contexts reject (fail-closed) until safe-type pipeline filters exist.
-func emitExprAttr(b *bytes.Buffer, a *ast.ExprAttr, resolved map[ast.Node]types.Type, imports map[string]bool) error {
-	if len(a.Stages) > 0 {
-		return fmt.Errorf("codegen: pipeline `|>` not supported in codegen yet (attribute %q)", a.Name)
-	}
-	if a.Try {
-		return fmt.Errorf("codegen: `?` try-marker in attribute %q not supported yet", a.Name)
-	}
+func emitExprAttr(b *bytes.Buffer, a *ast.ExprAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool) error {
+	// (1) JS/CSS contexts reject FIRST — a pipeline does not unlock them this
+	// slice, so `onclick={x |> upper}` must give the context error, not a
+	// pipeline error.
 	switch attrContext(a.Name) {
 	case ctxJS:
 		return fmt.Errorf("codegen: expr value in JS/event-handler context (%q) is unsafe; needs a safe type via `|> js` (not available yet) — use a static value", a.Name)
 	case ctxCSS:
 		return fmt.Errorf("codegen: expr value in CSS context (%q) is unsafe; needs a safe type via `|> css` (not available yet) — use a static value", a.Name)
 	}
+	// (2) whole-attr `?` try-marker is deferred (per-stage `?` is caught by lowerPipe).
+	if a.Try {
+		return fmt.Errorf("codegen: `?` try-marker in attribute %q not supported yet", a.Name)
+	}
+	// (3) value expression: lower a pipeline to nested std calls (same lowerPipe
+	// the probe used, so resolved[a] is already the pipeline's RESULT type), else
+	// the bare trimmed expr.
+	expr := strings.TrimSpace(a.Expr)
+	if len(a.Stages) > 0 {
+		lowered, usesStd, err := lowerPipe(a.Expr, a.Stages, table)
+		if err != nil {
+			return err
+		}
+		if usesStd {
+			imports[stdImportPath] = true
+		}
+		expr = lowered
+	}
 
 	t, ok := resolved[a]
 	if !ok || t == nil {
 		return fmt.Errorf("codegen: could not resolve type of attribute %q value %q", a.Name, a.Expr)
 	}
-	expr := strings.TrimSpace(a.Expr)
 
 	// A bool-typed value is a boolean attribute regardless of context.
 	if classify(t) == catBool {

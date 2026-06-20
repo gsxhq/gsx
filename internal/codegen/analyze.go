@@ -20,13 +20,17 @@ import (
 
 // resolveTypesPkg type-checks the package (real .go files + synthesized gsx
 // component skeletons via Overlay) and returns each interpolation's type.
-func resolveTypesPkg(dir string, files map[string]*gsxast.File) (map[gsxast.Node]types.Type, error) {
+func resolveTypesPkg(dir string, files map[string]*gsxast.File) (map[gsxast.Node]types.Type, filterTable, error) {
+	table, err := loadFilterTable(dir)
+	if err != nil {
+		return nil, nil, err
+	}
 	overlay := map[string][]byte{}
 	skelComps := map[string][]*gsxast.Component{}
 	for path, file := range files {
-		skel, comps, err := buildSkeleton(file)
+		skel, comps, err := buildSkeleton(file, table)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		base := strings.TrimSuffix(filepath.Base(path), ".gsx")
 		xpath := filepath.Join(dir, base+".x.go")
@@ -49,7 +53,7 @@ func resolveTypesPkg(dir string, files map[string]*gsxast.File) (map[gsxast.Node
 	// a free path within the package dir.
 	sharedPath, err := freeOverlayPath(dir, "gsxshared", ".x.go", overlay)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	overlay[sharedPath] = []byte("package " + pkgName + "\n\nfunc _gsxuse(...any) {}\n")
 
@@ -62,14 +66,14 @@ func resolveTypesPkg(dir string, files map[string]*gsxast.File) (map[gsxast.Node
 	}
 	pkgs, err := packages.Load(cfg, ".")
 	if err != nil {
-		return nil, fmt.Errorf("codegen: load package: %w", err)
+		return nil, nil, fmt.Errorf("codegen: load package: %w", err)
 	}
 	if len(pkgs) == 0 {
-		return nil, fmt.Errorf("codegen: no package found in %s", dir)
+		return nil, nil, fmt.Errorf("codegen: no package found in %s", dir)
 	}
 	pkg := pkgs[0]
 	if len(pkg.Errors) > 0 {
-		return nil, fmt.Errorf("codegen: type resolution failed: %s", pkg.Errors[0])
+		return nil, nil, fmt.Errorf("codegen: type resolution failed: %s", pkg.Errors[0])
 	}
 
 	out := map[gsxast.Node]types.Type{}
@@ -81,7 +85,7 @@ func resolveTypesPkg(dir string, files map[string]*gsxast.File) (map[gsxast.Node
 		}
 		harvest(f, comps, pkg.TypesInfo, out)
 	}
-	return out, nil
+	return out, table, nil
 }
 
 // freeOverlayPath returns a path in dir of the form
@@ -114,7 +118,7 @@ func freeOverlayPath(dir, base, suffix string, overlay map[string][]byte) (strin
 // resolution: the file's GoChunks, plus each component's real props struct and
 // func signature, with a probe body (used-param locals, each interpolation as
 // `_gsxuse(expr)`, each child component as `_ = Child(ChildProps{})`).
-func buildSkeleton(file *gsxast.File) (string, []*gsxast.Component, error) {
+func buildSkeleton(file *gsxast.File, table filterTable) (string, []*gsxast.Component, error) {
 	var comps []*gsxast.Component
 	for _, d := range file.Decls {
 		if c, ok := d.(*gsxast.Component); ok {
@@ -140,9 +144,24 @@ func buildSkeleton(file *gsxast.File) (string, []*gsxast.Component, error) {
 		}
 	}
 
+	// Pre-scan for any pipeline in a component body. When present, the probes
+	// reference _gsxstd.<Func>, so the skeleton must import std under the same
+	// reserved alias the emitter uses. Only import when used — an unused import
+	// fails the skeleton type-check.
+	usesStd := false
+	for _, c := range comps {
+		if bodyHasPipeline(c.Body) {
+			usesStd = true
+			break
+		}
+	}
+
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "package %s\n", file.Package)
 	sb.WriteString("import _gsxrt \"github.com/gsxhq/gsx\"\n")
+	if usesStd {
+		fmt.Fprintf(&sb, "import _gsxstd %q\n", stdImportPath)
+	}
 	for _, imp := range imports {
 		if imp.name != "" {
 			fmt.Fprintf(&sb, "import %s %q\n", imp.name, imp.path)
@@ -183,45 +202,110 @@ func buildSkeleton(file *gsxast.File) (string, []*gsxast.Component, error) {
 				fmt.Fprintf(&sb, "\t%s := _gsxp.%s\n\t_ = %s\n", p.name, fieldName(p.name), p.name)
 			}
 		}
-		emitProbes(&sb, c.Body)
+		if err := emitProbes(&sb, c.Body, table); err != nil {
+			return "", nil, err
+		}
 		sb.WriteString("\treturn nil\n}\n")
 	}
 	return sb.String(), comps, nil
+}
+
+// bodyHasPipeline reports whether any interpolation or expr-attribute in the
+// markup carries a pipeline (a non-empty Stages). It mirrors the markup walk of
+// emitProbes/collectExprs so the pre-scan and the probe agree on what counts.
+func bodyHasPipeline(nodes []gsxast.Markup) bool {
+	for _, n := range nodes {
+		switch t := n.(type) {
+		case *gsxast.Interp:
+			if len(t.Stages) > 0 {
+				return true
+			}
+		case *gsxast.Element:
+			if isComponentTag(t.Tag) {
+				continue
+			}
+			for _, a := range t.Attrs {
+				if ea, ok := a.(*gsxast.ExprAttr); ok && len(ea.Stages) > 0 {
+					return true
+				}
+			}
+			if bodyHasPipeline(t.Children) {
+				return true
+			}
+		case *gsxast.Fragment:
+			if bodyHasPipeline(t.Children) {
+				return true
+			}
+		case *gsxast.ForMarkup:
+			if bodyHasPipeline(t.Body) {
+				return true
+			}
+		case *gsxast.IfMarkup:
+			if bodyHasPipeline(t.Then) || bodyHasPipeline(t.Else) {
+				return true
+			}
+		case *gsxast.SwitchMarkup:
+			for _, cc := range t.Cases {
+				if bodyHasPipeline(cc.Body) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // emitProbes writes type-resolution probes for a component body. It MIRRORS the
 // control structure (real for/if/switch + {{ }} code) so interpolations that
 // reference loop vars / block-locals type-check in scope. Each interpolation is
 // `_gsxuse(expr)`; child components are `_ = Child(ChildProps{})`.
-func emitProbes(sb *strings.Builder, nodes []gsxast.Markup) {
+func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable) error {
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *gsxast.Interp:
-			fmt.Fprintf(sb, "_gsxuse(%s)\n", strings.TrimSpace(t.Expr))
+			probe, err := probeExpr(t.Expr, t.Stages, table)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 		case *gsxast.Element:
 			if isComponentTag(t.Tag) {
 				fmt.Fprintf(sb, "_ = %s(%sProps{})\n", t.Tag, t.Tag)
 			} else {
 				for _, a := range t.Attrs {
 					if ea, ok := a.(*gsxast.ExprAttr); ok {
-						fmt.Fprintf(sb, "_gsxuse(%s)\n", strings.TrimSpace(ea.Expr))
+						probe, err := probeExpr(ea.Expr, ea.Stages, table)
+						if err != nil {
+							return err
+						}
+						fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 					}
 				}
-				emitProbes(sb, t.Children)
+				if err := emitProbes(sb, t.Children, table); err != nil {
+					return err
+				}
 			}
 		case *gsxast.Fragment:
-			emitProbes(sb, t.Children)
+			if err := emitProbes(sb, t.Children, table); err != nil {
+				return err
+			}
 		case *gsxast.ForMarkup:
 			fmt.Fprintf(sb, "for %s {\n", t.Clause)
-			emitProbes(sb, t.Body)
+			if err := emitProbes(sb, t.Body, table); err != nil {
+				return err
+			}
 			sb.WriteString("}\n")
 		case *gsxast.IfMarkup:
 			fmt.Fprintf(sb, "if %s {\n", t.Cond)
-			emitProbes(sb, t.Then)
+			if err := emitProbes(sb, t.Then, table); err != nil {
+				return err
+			}
 			sb.WriteString("}")
 			if t.Else != nil {
 				sb.WriteString(" else {\n")
-				emitProbes(sb, t.Else)
+				if err := emitProbes(sb, t.Else, table); err != nil {
+					return err
+				}
 				sb.WriteString("}")
 			}
 			sb.WriteString("\n")
@@ -233,7 +317,9 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup) {
 				} else {
 					fmt.Fprintf(sb, "case %s:\n", cc.List)
 				}
-				emitProbes(sb, cc.Body)
+				if err := emitProbes(sb, cc.Body, table); err != nil {
+					return err
+				}
 			}
 			sb.WriteString("}\n")
 		case *gsxast.GoBlock:
@@ -241,6 +327,22 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup) {
 			sb.WriteString("\n")
 		}
 	}
+	return nil
+}
+
+// probeExpr returns the Go expression to probe for an interpolation / expr-attr.
+// Without stages it is the trimmed seed; with stages it is the lowered pipeline
+// (the SAME lowerPipe output the emitter uses), so the harvested type is the
+// pipeline's RESULT type and resolution stays aligned with emission.
+func probeExpr(seed string, stages []gsxast.PipeStage, table filterTable) (string, error) {
+	if len(stages) == 0 {
+		return strings.TrimSpace(seed), nil
+	}
+	lowered, _, err := lowerPipe(seed, stages, table)
+	if err != nil {
+		return "", err
+	}
+	return lowered, nil
 }
 
 // harvest reads each interpolation's resolved type from a type-checked skeleton
@@ -433,13 +535,22 @@ func usedParams(c *gsxast.Component, params []param) map[string]bool {
 	}
 	for _, n := range componentExprs(c) {
 		var expr string
+		var stages []gsxast.PipeStage
 		switch v := n.(type) {
 		case *gsxast.Interp:
-			expr = v.Expr
+			expr, stages = v.Expr, v.Stages
 		case *gsxast.ExprAttr:
-			expr = v.Expr
+			expr, stages = v.Expr, v.Stages
 		}
 		addIdents(expr)
+		// Filter arguments are emitted verbatim into the lowered call
+		// (_gsxstd.Join(sep)(...)), so idents they reference — e.g. a component
+		// param used only inside join(sep) — must be bound as locals too.
+		for _, st := range stages {
+			if st.Args != "" {
+				addIdents(st.Args)
+			}
+		}
 	}
 	collectClauseSrc(c.Body, addIdents)
 	used := make(map[string]bool, len(params))

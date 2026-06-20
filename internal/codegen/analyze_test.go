@@ -28,7 +28,7 @@ func TestResolveAttrExprType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := resolveTypesPkg(pkgDir, map[string]*gsxast.File{filepath.Join(pkgDir, "views.gsx"): file})
+	resolved, _, err := resolveTypesPkg(pkgDir, map[string]*gsxast.File{filepath.Join(pkgDir, "views.gsx"): file})
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
