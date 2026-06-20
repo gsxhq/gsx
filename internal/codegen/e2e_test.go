@@ -443,6 +443,21 @@ component List(items []Item) {
 	assertHTMLEqual(t, got, "<ul><li>a: 1</li><li>b: 2</li></ul>")
 }
 
+func TestRenderStaticAndBoolAttrs(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Field(on bool) {
+	<input type="text" class="form-control" required disabled={on}/>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Field(p.FieldProps{On: true})`)
+	assertHTMLEqual(t, got, `<input type="text" class="form-control" required disabled/>`)
+	got = renderPackage(t, files, `p.Field(p.FieldProps{On: false})`)
+	assertHTMLEqual(t, got, `<input type="text" class="form-control" required/>`)
+}
+
 func TestRenderFragment(t *testing.T) {
 	files := map[string]string{
 		"views.gsx": `package views

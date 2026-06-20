@@ -143,14 +143,17 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, im
 		if isComponentTag(t.Tag) {
 			return genChildComponent(b, t)
 		}
-		if len(t.Attrs) > 0 {
-			return fmt.Errorf("codegen spike: element attributes not supported yet (<%s>)", t.Tag)
+		emitS(b, "<"+t.Tag)
+		for _, a := range t.Attrs {
+			if err := emitAttr(b, a, resolved, imports); err != nil {
+				return err
+			}
 		}
 		if t.Void {
-			emitS(b, "<"+t.Tag+"/>")
+			emitS(b, "/>")
 			return nil
 		}
-		emitS(b, "<"+t.Tag+">")
+		emitS(b, ">")
 		for _, c := range t.Children {
 			if err := genNode(b, c, resolved, imports, fset); err != nil {
 				return err
@@ -298,6 +301,58 @@ func emitRender(b *bytes.Buffer, expr string, t types.Type, imports map[string]b
 
 func emitS(b *bytes.Buffer, s string) {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(s))
+}
+
+// emitAttr emits one element attribute. Static values are escaped at codegen and
+// always double-quoted; bool attrs use gw.BoolAttr. Expr attrs are handled in a
+// later task; the deferred attr kinds error clearly.
+func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, imports map[string]bool) error {
+	switch t := a.(type) {
+	case *ast.StaticAttr:
+		fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+t.Name+`="`+htmlAttrEscape(t.Value)+`"`))
+	case *ast.BoolAttr:
+		fmt.Fprintf(b, "\t\t_gsxgw.BoolAttr(%s, true)\n", strconv.Quote(t.Name))
+	case *ast.ExprAttr:
+		return emitExprAttr(b, t, resolved, imports) // implemented in Task 3
+	case *ast.SpreadAttr, *ast.ClassAttr, *ast.CondAttr:
+		return fmt.Errorf("codegen: attribute kind %T not supported yet (deferred)", a)
+	default:
+		return fmt.Errorf("codegen: unknown attribute %T", a)
+	}
+	return nil
+}
+
+// htmlAttrEscape escapes a static attribute value for a double-quoted context at
+// codegen time (matches the runtime gw.AttrValue entity set).
+func htmlAttrEscape(s string) string {
+	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&#34;", "'", "&#39;")
+	return r.Replace(s)
+}
+
+// emitExprAttr emits a name={expr} attribute. Only the bool-typed case (a dynamic
+// boolean attribute, e.g. disabled={on}) is handled here, via gw.BoolAttr; it is
+// the dynamic counterpart of a bare BoolAttr. All other expr-attr value kinds
+// (string/URL/etc.) are deferred to a later task and error clearly.
+//
+// NOTE: this is a minimal, type-directed implementation rather than the brief's
+// pure error stub — the brief's own Task 2 test (`disabled={on}`) requires the
+// bool-expr-attr path to work. See the task report for the deviation rationale.
+func emitExprAttr(b *bytes.Buffer, a *ast.ExprAttr, resolved map[ast.Node]types.Type, imports map[string]bool) error {
+	if a.Try {
+		return fmt.Errorf("codegen: `?` try-marker on attribute %q not supported yet", a.Name)
+	}
+	if len(a.Stages) > 0 {
+		return fmt.Errorf("codegen: pipeline `|>` on attribute %q not supported yet", a.Name)
+	}
+	t, ok := resolved[a]
+	if !ok || t == nil {
+		return fmt.Errorf("codegen: could not resolve type of attribute %q={%s}", a.Name, a.Expr)
+	}
+	if classify(t) != catBool {
+		return fmt.Errorf("codegen: expr attribute %q (type %s) not supported yet", a.Name, t)
+	}
+	fmt.Fprintf(b, "\t\t_gsxgw.BoolAttr(%s, bool(%s))\n", strconv.Quote(a.Name), strings.TrimSpace(a.Expr))
+	return nil
 }
 
 // isComponentTag reports whether a tag names a component (uppercase first letter
