@@ -1115,22 +1115,24 @@ component C(extra string) {
 	assertHTMLEqual(t, got, `<div class="btn &#34;&gt;&lt;script&gt;">y</div>`)
 }
 
-// TestRenderElementSpread proves `<div {...attrs}>` emits gw.Spread: keys sorted,
-// bool true -> boolean attr, others key="value" attr-escaped. The `attrs` param
-// is used ONLY in the spread, so it also proves usedParams binds it.
+// TestRenderElementSpread proves `<div {...extra}>` emits gw.Spread: keys sorted,
+// bool true -> boolean attr, others key="value" attr-escaped. The `extra` param
+// is used ONLY in the spread, so it also proves usedParams binds it. (A param
+// named `attrs` is now reserved for synthesized fallthrough, so this uses a
+// distinct bag-typed param to exercise the same element-spread machinery.)
 func TestRenderElementSpread(t *testing.T) {
 	files := map[string]string{
 		"views.gsx": `package views
 
 import "github.com/gsxhq/gsx"
 
-component C(attrs gsx.Attrs) {
-	<div {...attrs}>y</div>
+component C(extra gsx.Attrs) {
+	<div {...extra}>y</div>
 }
 `,
 	}
 	got := renderPackage(t, files,
-		`p.C(p.CProps{Attrs: gsx.Attrs{"data-x": "1", "hidden": true, "class": "c"}})`)
+		`p.C(p.CProps{Extra: gsx.Attrs{"data-x": "1", "hidden": true, "class": "c"}})`)
 	// Spread sorts keys: class, data-x, hidden. hidden is a bool boolean-attr.
 	assertHTMLEqual(t, got, `<div class="c" data-x="1" hidden>y</div>`)
 }
@@ -1311,22 +1313,18 @@ component Page(t string) { <Card title={lookup(t)?}/> }
 	}
 }
 
-// TestChildComponentHyphenAttrErrors proves a non-identifier (hyphenated) attr
-// on a component is a clean codegen error (fallthrough not supported).
-func TestChildComponentHyphenAttrErrors(t *testing.T) {
+// TestChildComponentHyphenAttrFallsThrough proves a non-identifier (hyphenated)
+// attr on a single-root component is NO LONGER an error: it falls through into the
+// child's Attrs bag and spreads onto the child's root element.
+func TestChildComponentHyphenAttrFallsThrough(t *testing.T) {
 	files := map[string]string{"views.gsx": `package views
 
 component Card(title string) { <div>{title}</div> }
 
-component Page() { <Card data-x="1"/> }
+component Page() { <Card title="Hi" data-x="1"/> }
 `}
-	err := generatePackageErr(t, files)
-	if err == nil {
-		t.Fatal("expected error for hyphenated attr on component, got nil")
-	}
-	if !strings.Contains(err.Error(), "non-identifier") {
-		t.Fatalf("expected non-identifier error, got: %v", err)
-	}
+	got := renderPackage(t, files, `p.Page(p.PageProps{})`)
+	assertHTMLEqual(t, got, `<div data-x="1">Hi</div>`)
 }
 
 // TestChildComponentSpreadErrors proves a spread on a component is a clean
@@ -1797,4 +1795,622 @@ component Page() {
 	if !strings.Contains(err.Error(), "data-x") {
 		t.Fatalf("expected non-identifier attr error mentioning data-x, got: %v", err)
 	}
+}
+
+// --- Task 1: child auto-fallthrough (Attrs field + root class-merge/spread) ---
+
+// TestFallthroughComposedClassMerge: a single-root component whose root has a
+// composed class merges the bag's class and spreads the bag's other attrs.
+func TestFallthroughComposedClassMerge(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Box(variant string) {
+	<div class={ "box", variant }>{children}</div>
+}
+`,
+	}
+	got := renderPackage(t, files,
+		`p.Box(p.BoxProps{Variant: "big", Attrs: gsx.Attrs{"class": "w-full", "data-test": "x"}})`)
+	assertHTMLEqual(t, got, `<div class="box big w-full" data-test="x"></div>`)
+}
+
+// TestFallthroughStaticClassMerge: a static class root merges the bag class and
+// spreads the rest.
+func TestFallthroughStaticClassMerge(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Card() {
+	<section class="card">{children}</section>
+}
+`,
+	}
+	got := renderPackage(t, files,
+		`p.Card(p.CardProps{Attrs: gsx.Attrs{"class": "hl", "id": "a"}})`)
+	assertHTMLEqual(t, got, `<section class="card hl" id="a"></section>`)
+}
+
+// TestFallthroughNoClassRootWithBag: a no-class root gains a class from the bag.
+func TestFallthroughNoClassRootWithBag(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component P() {
+	<p>{children}</p>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.P(p.PProps{Attrs: gsx.Attrs{"class": "x"}})`)
+	assertHTMLEqual(t, got, `<p class="x"></p>`)
+}
+
+// TestFallthroughNoClassEmptyBag: a no-class root with an EMPTY bag emits no
+// class attribute (the ClassMerged empty-class guard).
+func TestFallthroughNoClassEmptyBag(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component P() {
+	<p>{children}</p>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.P(p.PProps{})`)
+	if strings.Contains(got, "class=") {
+		t.Fatalf("empty bag must not emit a class attribute, got: %q", got)
+	}
+	assertHTMLEqual(t, got, `<p></p>`)
+}
+
+// TestFallthroughRootWins: the root's own attr (href) wins; the bag's same-named
+// entry is dropped (via Without), while a new bag attr spreads.
+func TestFallthroughRootWins(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Link() {
+	<a href="/x">{children}</a>
+}
+`,
+	}
+	got := renderPackage(t, files,
+		`p.Link(p.LinkProps{Attrs: gsx.Attrs{"href": "/evil", "data-y": "1"}})`)
+	assertHTMLEqual(t, got, `<a href="/x" data-y="1"></a>`)
+}
+
+// TestFallthroughEmptyBagNoop: a nil Attrs bag on a single-root component renders
+// identically to having no bag — every merge/spread is a no-op.
+func TestFallthroughEmptyBagNoop(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Box(variant string) {
+	<div class={ "box", variant }>{children}</div>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Box(p.BoxProps{Variant: "big"})`)
+	assertHTMLEqual(t, got, `<div class="box big"></div>`)
+}
+
+// TestFallthroughNotEligibleNoField: a fragment-root (multi-root) component is
+// NOT single-root, so it has no synthesized Attrs field — assigning Attrs in the
+// props literal is an unknown-field compile error surfaced by the generated code.
+func TestFallthroughNotEligibleNoField(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Multi() {
+	<p>a</p>
+	<p>b</p>
+}
+`,
+	}
+	// GeneratePackage itself succeeds (no Attrs field is fine); the error only
+	// surfaces when a caller tries to set Attrs. Use renderPackage so the harness
+	// compiles the invocation against the generated props struct.
+	if testing.Short() {
+		t.Skip("skipping go-run render test in -short mode")
+	}
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module gsxnf\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pkgDir := filepath.Join(tmp, "genpkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for n, c := range files {
+		writeFile(t, pkgDir, n, c)
+	}
+	gen, err := GeneratePackage(pkgDir)
+	if err != nil {
+		t.Fatalf("GeneratePackage: %v", err)
+	}
+	for gsxPath, src := range gen {
+		base := strings.TrimSuffix(filepath.Base(gsxPath), ".gsx")
+		s := string(src)
+		if strings.Contains(s, "Attrs gsx.Attrs") {
+			t.Fatalf("multi-root component must NOT synthesize an Attrs field, got:\n%s", s)
+		}
+		writeFile(t, pkgDir, base+".x.go", s)
+	}
+	writeFile(t, tmp, "main.go", `package main
+
+import (
+	"context"
+	"os"
+
+	"github.com/gsxhq/gsx"
+	p "gsxnf/genpkg"
+)
+
+var _ = gsx.Raw
+
+func main() {
+	_ = p.Multi(p.MultiProps{Attrs: gsx.Attrs{"data-x": "1"}}).Render(context.Background(), os.Stdout)
+}
+`)
+	cmd := exec.Command("go", "build", ".")
+	cmd.Dir = tmp
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected compile error assigning Attrs to a non-eligible component, got success")
+	}
+	if !strings.Contains(string(out), "Attrs") {
+		t.Fatalf("expected unknown-field Attrs error, got:\n%s", out)
+	}
+}
+
+// TestReservedParamAttrs: a param named `attrs` is rejected (it is now
+// synthesized), like `children`.
+func TestReservedParamAttrs(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+import "github.com/gsxhq/gsx"
+
+component X(attrs gsx.Attrs) {
+	<p>hi</p>
+}
+`,
+	}
+	err := generatePackageErr(t, files)
+	if err == nil {
+		t.Fatal("expected error for param named attrs, got nil")
+	}
+	if !strings.Contains(err.Error(), "reserved") || !strings.Contains(err.Error(), "attrs") {
+		t.Fatalf("expected clean reserved-name error mentioning attrs, got: %v", err)
+	}
+}
+
+// example-12: call-site attribute split. A child invocation's attrs are split:
+// declared props become props-struct fields; everything else (non-identifier
+// names, undeclared identifiers) falls through into an Attrs gsx.Attrs{} bag,
+// which the child's single-root element merges (class) / spreads.
+
+// TestCallSiteFallthroughButton is the headline example-12: a Button child with a
+// declared `variant` prop, a static class on its root, and data-test/hx-post
+// fallthrough attrs. The variant drives the root class; the bag's class merges; the
+// fallthrough attrs spread onto the root.
+func TestCallSiteFallthroughButton(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Button(variant string) {
+	<button class="btn" data-variant={variant}>{children}</button>
+}
+
+component Page() {
+	<Button variant="primary" class="w-full" data-test="x" hx-post="/go">Save</Button>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Page(p.PageProps{})`)
+	assertHTMLEqual(t, got,
+		`<button class="btn w-full" data-variant="primary" data-test="x" hx-post="/go">Save</button>`)
+}
+
+// TestCallSiteDeclaredVsUndeclaredIdentifier: a declared identifier attr (`variant`)
+// becomes a prop field; an UNDECLARED identifier attr (`role`) on a same-package
+// child whose prop fields are known falls through into the bag (spread onto root).
+func TestCallSiteDeclaredVsUndeclaredIdentifier(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Button(variant string) {
+	<button data-variant={variant}>{children}</button>
+}
+
+component Page() {
+	<Button variant="primary" role="button">Go</Button>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Page(p.PageProps{})`)
+	assertHTMLEqual(t, got, `<button data-variant="primary" role="button">Go</button>`)
+}
+
+// TestCallSiteNonIdentifierFallthrough: a non-identifier attr name (data-test, @click,
+// hx-post) can never be a prop field — it always falls through into the bag.
+func TestCallSiteNonIdentifierFallthrough(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Button() {
+	<button>{children}</button>
+}
+
+component Page() {
+	<Button data-test="t" hx-post="/x">Go</Button>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Page(p.PageProps{})`)
+	assertHTMLEqual(t, got, `<button data-test="t" hx-post="/x">Go</button>`)
+}
+
+// TestCallSiteClassMerge: a declared prop drives a composed root class, and the
+// caller's fallthrough class MERGES into it: btn + primary (from variant) + w-full.
+func TestCallSiteClassMerge(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Button(variant string) {
+	<button class={ "btn", variant }>{children}</button>
+}
+
+component Page() {
+	<Button variant="primary" class="w-full">Go</Button>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Page(p.PageProps{})`)
+	assertHTMLEqual(t, got, `<button class="btn primary w-full">Go</button>`)
+}
+
+// TestCallSiteRootWins: when both the child's root and the caller's fallthrough set
+// the same attr (`type`), the ROOT wins — the bag's `type="reset"` is dropped in
+// favor of the root's `type="button"`.
+func TestCallSiteRootWins(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Button() {
+	<button type="button">{children}</button>
+}
+
+component Page() {
+	<Button type="reset">Go</Button>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Page(p.PageProps{})`)
+	assertHTMLEqual(t, got, `<button type="button">Go</button>`)
+}
+
+// TestCallSiteFallthroughNotEligible: a fallthrough attr on a MULTI-ROOT (not
+// single-root) child has no Attrs field to receive it → the generated props literal
+// assigns an unknown field → a `go build` compile error on the .x.go.
+func TestCallSiteFallthroughNotEligible(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping go-run render test in -short mode")
+	}
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Multi() {
+	<p>a</p>
+	<p>b</p>
+}
+
+component Page() {
+	<Multi data-x="1"/>
+}
+`,
+	}
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module gsxcs\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pkgDir := filepath.Join(tmp, "genpkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for n, c := range files {
+		writeFile(t, pkgDir, n, c)
+	}
+	gen, err := GeneratePackage(pkgDir)
+	// The split happens at generate time; the probe also splits, so the probe's
+	// `Multi(MultiProps{Attrs: ...})` references a non-existent field → resolution
+	// (type-check) fails inside GeneratePackage.
+	if err != nil {
+		if !strings.Contains(err.Error(), "Attrs") {
+			t.Fatalf("expected an Attrs-field resolution error, got: %v", err)
+		}
+		return
+	}
+	// If resolution somehow passed, the emitted .x.go must still fail to build.
+	for gsxPath, src := range gen {
+		base := strings.TrimSuffix(filepath.Base(gsxPath), ".gsx")
+		writeFile(t, pkgDir, base+".x.go", string(src))
+	}
+	cmd := exec.Command("go", "build", "./...")
+	cmd.Dir = tmp
+	out, berr := cmd.CombinedOutput()
+	if berr == nil {
+		t.Fatalf("expected compile error for fallthrough onto a non-eligible child, got success")
+	}
+	if !strings.Contains(string(out), "Attrs") {
+		t.Fatalf("expected unknown-field Attrs error, got:\n%s", out)
+	}
+}
+
+// TestFallthroughCondAttrRootNotEligible: a single-root component whose root sets an
+// attribute CONDITIONALLY (`{ if … { id=… } }`) is NOT fallthrough-eligible — its
+// runtime-named attrs can't be statically de-duped, so a colliding fallthrough would
+// emit a duplicate attribute. It must fail closed (no Attrs field → unknown-field
+// error), not silently emit `id="real" id="caller"`. (Independent-review finding.)
+func TestFallthroughCondAttrRootNotEligible(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Box(active bool) {
+	<button { if active { id="real" } }>x</button>
+}
+
+component Page() {
+	<Box active={true} id="caller"/>
+}
+`,
+	}
+	if err := generatePackageErr(t, files); err == nil || !strings.Contains(err.Error(), "Attrs") {
+		t.Fatalf("expected an Attrs unknown-field error for fallthrough onto a CondAttr-root child, got: %v", err)
+	}
+}
+
+// TestFallthroughCondAttrRootStandalone: a CondAttr-root component still renders fine
+// on its own (it is simply not fallthrough-eligible — no regression to its rendering).
+func TestFallthroughCondAttrRootStandalone(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Box(active bool) {
+	<button { if active { id="real" } }>x</button>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Box(p.BoxProps{Active: true})`)
+	assertHTMLEqual(t, got, `<button id="real">x</button>`)
+}
+
+// TestCallSiteNoFallthroughUnchanged: a child invocation with ONLY declared props and
+// no fallthrough produces a props literal with NO Attrs field (unchanged behavior).
+func TestCallSiteNoFallthroughUnchanged(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Card(title string) {
+	<div>{title}</div>
+}
+
+component Page() {
+	<Card title="Hi"/>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Page(p.PageProps{})`)
+	assertHTMLEqual(t, got, `<div>Hi</div>`)
+
+	// Assert the generated props literal carries no Attrs field.
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module gsxnofall\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pkgDir := filepath.Join(tmp, "genpkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for n, c := range files {
+		writeFile(t, pkgDir, n, c)
+	}
+	gen, err := GeneratePackage(pkgDir)
+	if err != nil {
+		t.Fatalf("GeneratePackage: %v", err)
+	}
+	for _, src := range gen {
+		if strings.Contains(string(src), "Card(CardProps{Title:") && strings.Contains(string(src), "Attrs:") {
+			t.Fatalf("no-fallthrough Card invocation must not carry an Attrs field:\n%s", src)
+		}
+	}
+}
+
+// TestCallSiteMethodFallthrough: a method invocation `<p.Btn .../>` with a fallthrough
+// attr splits identically — the declared prop is a field, the data-* attr falls into
+// the method's props Attrs bag.
+func TestCallSiteMethodFallthrough(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+type Pg struct{}
+
+component (p Pg) Btn(variant string) {
+	<button data-variant={variant}>{children}</button>
+}
+
+component (p Pg) Page() {
+	<p.Btn variant="primary" data-test="x">Go</p.Btn>
+}
+`,
+	}
+	got := renderPackage(t, files, `(p.Pg{}).Page()`)
+	assertHTMLEqual(t, got, `<button data-variant="primary" data-test="x">Go</button>`)
+}
+
+// --- Task 4: manual-mode fallthrough ({...attrs}) ---
+
+// TestManualFallthroughPlacement is the headline manual-mode case: a component whose
+// body references `attrs` (via a `{...attrs}` spread) takes over placement. The
+// fallthrough attrs land on the INNER `<input>` (where {...attrs} sits), NOT on the
+// multi-level `<div class="wrap">` root — auto root-injection is disabled. The
+// declared `id` stays a prop; data-test/placeholder fall through into the bag.
+func TestManualFallthroughPlacement(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Field(id string) {
+	<div class="wrap"><input id={id} {...attrs}/></div>
+}
+
+component Page() {
+	<Field id="email" data-test="x" placeholder="you@co"/>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Page(p.PageProps{})`)
+	assertHTMLEqual(t, got,
+		`<div class="wrap"><input id="email" data-test="x" placeholder="you@co"/></div>`)
+}
+
+// TestManualFallthroughDisablesAuto proves manual mode disables auto root injection:
+// the fallthrough attrs appear ONCE, on the inner <input> (where {...attrs} is), and
+// are NOT also auto-applied to the <div class="wrap"> root. Were auto still active,
+// the root <div> would carry data-test/placeholder too.
+func TestManualFallthroughDisablesAuto(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Field(id string) {
+	<div class="wrap"><input id={id} {...attrs}/></div>
+}
+
+component Page() {
+	<Field id="email" data-test="x" placeholder="you@co"/>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Page(p.PageProps{})`)
+	// The root <div> must carry only its own class="wrap" — no fallthrough attrs.
+	if strings.Contains(got, `<div class="wrap" data-test`) ||
+		strings.Contains(got, `<div class="wrap" placeholder`) ||
+		strings.Contains(got, `data-test="x"></div>`) {
+		t.Fatalf("manual mode must not auto-apply fallthrough attrs to the root <div>:\n%s", got)
+	}
+	// Exactly one occurrence each (on the <input>).
+	if n := strings.Count(got, `data-test="x"`); n != 1 {
+		t.Fatalf("expected data-test once, got %d:\n%s", n, got)
+	}
+	if n := strings.Count(got, `placeholder="you@co"`); n != 1 {
+		t.Fatalf("expected placeholder once, got %d:\n%s", n, got)
+	}
+}
+
+// TestManualFallthroughWithout proves the bound `attrs` local is a real gsx.Attrs:
+// `{...attrs.Without("id")}` compiles and the runtime Without call drops `id` from
+// the spread (here the caller passes no id, so it is a no-op on output, but the
+// method call must type-check and run). placeholder still falls through.
+func TestManualFallthroughWithout(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Panel(title string) {
+	<section><h2>{title}</h2><aside {...attrs.Without("title")}>body</aside></section>
+}
+
+component Page() {
+	<Panel title="Hi" data-test="x" placeholder="p"/>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Page(p.PageProps{})`)
+	assertHTMLEqual(t, got,
+		`<section><h2>Hi</h2><aside data-test="x" placeholder="p">body</aside></section>`)
+}
+
+// TestManualFallthroughNullaryMethod proves manual mode forces the Attrs field even
+// on a nullary method component (which normally stays props-less). Referencing
+// `attrs` makes it fallthrough-eligible, so it gets a props struct + Attrs field and
+// is invoked as a function-style child with the bag.
+func TestManualFallthroughNullaryMethod(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+type Pg struct{}
+
+component (p Pg) Wrap() {
+	<div class="outer"><span {...attrs}/></div>
+}
+
+component (p Pg) Page() {
+	<p.Wrap data-test="x"/>
+}
+`,
+	}
+	got := renderPackage(t, files, `(p.Pg{}).Page()`)
+	assertHTMLEqual(t, got, `<div class="outer"><span data-test="x"></span></div>`)
+}
+
+// TestManualAutoStillWorks (regression): a single-root component with NO `attrs`
+// reference still auto-applies the fallthrough bag at its root (manual must not
+// regress auto). Mirrors the Task-1 auto path.
+func TestManualAutoStillWorks(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Box(variant string) {
+	<div class={ "box", variant }>{children}</div>
+}
+`,
+	}
+	got := renderPackage(t, files,
+		`p.Box(p.BoxProps{Variant: "big", Attrs: gsx.Attrs{"class": "w-full", "data-test": "x"}})`)
+	assertHTMLEqual(t, got, `<div class="box big w-full" data-test="x"></div>`)
+}
+
+// TestExample12EndToEnd is the end-to-end golden for examples/12_children_attrs.gsx:
+// it reproduces, in same-package renders through the harness, the example's
+// load-bearing patterns combined:
+//   - AUTO fallthrough + class-merge + {children} (Toolbar -> Button): the caller's
+//     class merges into the composed root class, data-*/hx-*/@click fall through onto
+//     the single root <button>, and {children} places the slot content.
+//   - MANUAL fallthrough placement (LoginForm -> Field): the multi-level Field roots
+//     at <div class="field"> but places the caller's name/required/hx-get on the inner
+//     <input> via {...attrs} — auto root injection disabled.
+//
+// Example 12 itself stays PARSE-ONLY (its LabeledInput uses a `{{ rest :=
+// attrs.Without("class") }}` GoBlock whose declared var the emitter does not yet
+// track as used — a pre-existing GoBlock-local limitation, orthogonal to fallthrough);
+// this test graduates its auto+manual core to a render golden.
+func TestExample12EndToEnd(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Button(variant string) {
+	<button type="button" class={ "btn", variantClass(variant) }>{children}</button>
+}
+
+component Toolbar() {
+	<div><Button variant="primary" class="w-full" data-test="save" hx-post="/save" @click="go()">Save</Button></div>
+}
+
+component Field(label string) {
+	<div class="field"><label>{label}</label><input class="control" {...attrs}/></div>
+}
+
+component LoginForm() {
+	<form><Field label="Email" name="email" required hx-get="/check-email"/></form>
+}
+
+func variantClass(v string) string { return "btn-" + v }
+`,
+	}
+	// Toolbar: auto path. class merges (btn + btn-primary + w-full); data-test/hx-post/
+	// @click spread onto the single root <button>; root's own type wins; children place.
+	gotToolbar := renderPackage(t, files, `p.Toolbar(p.ToolbarProps{})`)
+	assertHTMLEqual(t, gotToolbar,
+		`<div><button type="button" class="btn btn-primary w-full" data-test="save" hx-post="/save" @click="go()">Save</button></div>`)
+
+	// LoginForm: manual path. name/required/hx-get land on the inner <input> (where
+	// {...attrs} sits), NOT on the <div class="field"> root.
+	gotForm := renderPackage(t, files, `p.LoginForm(p.LoginFormProps{})`)
+	assertHTMLEqual(t, gotForm,
+		`<form><div class="field"><label>Email</label><input class="control" name="email" required hx-get="/check-email"/></div></form>`)
 }

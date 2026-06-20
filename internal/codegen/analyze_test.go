@@ -28,7 +28,12 @@ func TestResolveAttrExprType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, _, err := resolveTypesPkg(pkgDir, map[string]*gsxast.File{filepath.Join(pkgDir, "views.gsx"): file})
+	files := map[string]*gsxast.File{filepath.Join(pkgDir, "views.gsx"): file}
+	propFields, err := componentPropFieldsFor(files)
+	if err != nil {
+		t.Fatalf("propFields: %v", err)
+	}
+	resolved, _, err := resolveTypesPkg(pkgDir, files, propFields)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -50,4 +55,62 @@ func TestResolveAttrExprType(t *testing.T) {
 	if b, ok := got.Underlying().(*types.Basic); !ok || b.Info()&types.IsString == 0 {
 		t.Fatalf("attr expr type = %s, want string", got)
 	}
+}
+
+// TestComponentPropFieldsFor checks the AST-derived prop-field map (the call-site
+// split's source, built BEFORE type resolution): same-package function and method
+// components are keyed by the BARE props-type name childInvocation produces, and
+// carry their declared param fields plus the synthesized Children (when {children}
+// is used) and Attrs (single-root) fields — EXACTLY what the skeleton/emitter
+// synthesize, so emit ≡ probe.
+func TestComponentPropFieldsFor(t *testing.T) {
+	// Card: single-root function component using {children} → CardProps has
+	//   {Title, Featured, Children, Attrs}.
+	// (p Pg) Grid: single-root method component (no children) → PgGridProps has
+	//   {Sort, Attrs}.
+	src := "package views\n\n" +
+		"type Pg struct{}\n\n" +
+		"component Card(title string, featured bool) {\n\t<div>{title}{children}</div>\n}\n\n" +
+		"component (p Pg) Grid(sort string) {\n\t<i>{sort}</i>\n}\n"
+
+	file, err := gsxparser.ParseFile(token.NewFileSet(), "views.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	propFields, err := componentPropFieldsFor(map[string]*gsxast.File{"views.gsx": file})
+	if err != nil {
+		t.Fatalf("propFields: %v", err)
+	}
+
+	card, ok := propFields["CardProps"]
+	if !ok {
+		t.Fatalf("propFields has no CardProps key (keys: %v)", keysOf(propFields))
+	}
+	for _, want := range []string{"Title", "Featured", "Children", "Attrs"} {
+		if !card[want] {
+			t.Errorf("CardProps missing field %q (have %v)", want, card)
+		}
+	}
+	if card["Bogus"] {
+		t.Errorf("CardProps unexpectedly has field Bogus")
+	}
+
+	grid, ok := propFields["PgGridProps"]
+	if !ok {
+		t.Fatalf("propFields has no PgGridProps key (keys: %v)", keysOf(propFields))
+	}
+	if !grid["Sort"] || !grid["Attrs"] {
+		t.Errorf("PgGridProps want {Sort, Attrs} (have %v)", grid)
+	}
+	if grid["Children"] {
+		t.Errorf("PgGridProps unexpectedly has Children (Grid does not use {children})")
+	}
+}
+
+func keysOf(m map[string]map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }

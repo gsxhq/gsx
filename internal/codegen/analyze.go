@@ -20,7 +20,13 @@ import (
 
 // resolveTypesPkg type-checks the package (real .go files + synthesized gsx
 // component skeletons via Overlay) and returns each interpolation's type.
-func resolveTypesPkg(dir string, files map[string]*gsxast.File) (map[gsxast.Node]types.Type, filterTable, error) {
+//
+// propFields is the SAME AST-derived prop-field map GeneratePackage threads into
+// emission (see componentPropFieldsFor); it drives the call-site split inside the
+// PROBE (buildSkeleton/emitProbes) so the probe's child-props literal splits
+// fallthrough attrs into an Attrs bag IDENTICALLY to emission — guaranteeing the
+// generate-time type-check validates exactly what the emitter produces.
+func resolveTypesPkg(dir string, files map[string]*gsxast.File, propFields map[string]map[string]bool) (map[gsxast.Node]types.Type, filterTable, error) {
 	table, err := loadFilterTable(dir)
 	if err != nil {
 		return nil, nil, err
@@ -28,7 +34,7 @@ func resolveTypesPkg(dir string, files map[string]*gsxast.File) (map[gsxast.Node
 	overlay := map[string][]byte{}
 	skelComps := map[string][]*gsxast.Component{}
 	for path, file := range files {
-		skel, comps, err := buildSkeleton(file, table)
+		skel, comps, err := buildSkeleton(file, table, propFields)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -88,6 +94,72 @@ func resolveTypesPkg(dir string, files map[string]*gsxast.File) (map[gsxast.Node
 	return out, table, nil
 }
 
+// componentPropFieldsFor builds the call-site split's prop-field map purely from
+// the parsed component ASTs — SAME-PACKAGE only, available BEFORE type resolution.
+// It is keyed by props-struct TYPE NAME exactly as childInvocation produces it
+// (bare <Name>Props for a function component, <RecvType><Name>Props for a method),
+// with value the set of field NAMES the skeleton/emitter synthesize for that
+// component:
+//
+//	propFields(c) = { fieldName(param) : param ∈ c.Params }
+//	             ∪ { "Children" if usesChildren(c.Body) }
+//	             ∪ { "Attrs"    if singleRoot(c.Body) }
+//
+// Because BOTH the probe (buildSkeleton/emitProbes) and emission
+// (genChildComponent/childPropsLiteral) classify call-site attrs through THIS map,
+// emit ≡ probe is guaranteed with no second type-check. A component's props type is
+// absent from this map exactly when it is CROSS-PACKAGE (or otherwise unknown), so
+// a lookup miss → graceful fallback (see isPropField): identifier attrs assumed
+// props, non-identifier attrs fall through.
+//
+// A receiver parse failure is silently skipped (the component is simply omitted, so
+// its call sites take the graceful cross-package path); buildSkeleton re-parses the
+// same receiver and surfaces a clean error there.
+func componentPropFieldsFor(files map[string]*gsxast.File) (map[string]map[string]bool, error) {
+	out := map[string]map[string]bool{}
+	for _, file := range files {
+		for _, d := range file.Decls {
+			c, ok := d.(*gsxast.Component)
+			if !ok {
+				continue
+			}
+			params, err := parseParams(c.Params)
+			if err != nil {
+				return nil, err
+			}
+			propsName := c.Name + "Props"
+			if c.Recv != "" {
+				_, _, recvTypeName, rerr := parseRecv(c.Recv)
+				if rerr != nil {
+					continue // surfaced cleanly by buildSkeleton
+				}
+				propsName = recvTypeName + c.Name + "Props"
+			}
+			fields := map[string]bool{}
+			for _, p := range params {
+				fields[fieldName(p.name)] = true
+			}
+			hasChildren := usesChildren(c.Body)
+			if hasChildren {
+				fields["Children"] = true
+			}
+			// Mirror the Attrs synthesis gate in genComponent/buildSkeleton exactly
+			// (hasFallthrough) so the map agrees with the struct that is actually
+			// emitted — a single-root NULLARY METHOD has no props struct at all, so
+			// it must NOT claim an Attrs field. MANUAL mode (a body referencing
+			// `attrs`) forces the Attrs field regardless (incl. for a nullary method,
+			// which then gains a props struct), so OR it in.
+			_, hasRoot := singleRoot(c.Body)
+			manual := usesAttrs(c.Body)
+			if (hasRoot && (c.Recv == "" || len(params) > 0 || hasChildren)) || manual {
+				fields["Attrs"] = true
+			}
+			out[propsName] = fields
+		}
+	}
+	return out, nil
+}
+
 // freeOverlayPath returns a path in dir of the form
 // base+suffix, base+"1"+suffix, base+"2"+suffix, … — the first one that exists
 // neither on disk nor already in the overlay map. The returned file is used as
@@ -118,7 +190,7 @@ func freeOverlayPath(dir, base, suffix string, overlay map[string][]byte) (strin
 // resolution: the file's GoChunks, plus each component's real props struct and
 // func signature, with a probe body (used-param locals, each interpolation as
 // `_gsxuse(expr)`, each child component as `_ = Child(ChildProps{})`).
-func buildSkeleton(file *gsxast.File, table filterTable) (string, []*gsxast.Component, error) {
+func buildSkeleton(file *gsxast.File, table filterTable, propFields map[string]map[string]bool) (string, []*gsxast.Component, error) {
 	var comps []*gsxast.Component
 	for _, d := range file.Decls {
 		if c, ok := d.(*gsxast.Component); ok {
@@ -222,10 +294,24 @@ func buildSkeleton(file *gsxast.File, table filterTable) (string, []*gsxast.Comp
 		// local in lockstep with genComponent (emit.go), so skeleton and emitted
 		// code agree on the props shape and the `{children}` interp type-checks.
 		hasChildren := usesChildren(c.Body)
+		// MIRROR emit.go: a single-root component synthesizes a fallthrough
+		// `Attrs _gsxrt.Attrs` props field so the emitted props struct shape matches
+		// (same gating into hasProps, same field order: params, Children, Attrs). The
+		// skeleton body does NOT emit the root application (it emits probes); it only
+		// needs the field present so any `_gsxp.Attrs` references / the field's
+		// existence type-check identically to the emitted struct (unused is fine).
+		_, hasRoot := singleRoot(c.Body)
+		// MIRROR emit.go: MANUAL mode — a body referencing `attrs` forces fallthrough
+		// eligibility (even a nullary method) and DISABLES auto root injection.
+		manual := usesAttrs(c.Body)
+		// MIRROR emit.go: a nullary method component (no params, no children) stays
+		// nullary (no props struct, bare `p.Page()` call) — AUTO fallthrough is gated
+		// out of that case so it does not force a props struct; manual forces it.
+		hasFallthrough := (hasRoot && (c.Recv == "" || len(params) > 0 || hasChildren)) || manual
 		// MIRROR emit.go: only a method component suppresses the props struct when
 		// nullary; a function component always keeps its (possibly empty) props
 		// struct so the child-invocation path's `<Tag>Props{}` literal type-checks.
-		hasProps := c.Recv == "" || len(params) > 0 || hasChildren
+		hasProps := c.Recv == "" || len(params) > 0 || hasChildren || hasFallthrough
 		if hasProps {
 			fmt.Fprintf(&sb, "type %s struct {\n", propsName)
 			for _, p := range params {
@@ -233,6 +319,9 @@ func buildSkeleton(file *gsxast.File, table filterTable) (string, []*gsxast.Comp
 			}
 			if hasChildren {
 				sb.WriteString("\tChildren _gsxrt.Node\n")
+			}
+			if hasFallthrough {
+				sb.WriteString("\tAttrs _gsxrt.Attrs\n")
 			}
 			sb.WriteString("}\n")
 		}
@@ -263,7 +352,13 @@ func buildSkeleton(file *gsxast.File, table filterTable) (string, []*gsxast.Comp
 		if hasChildren {
 			sb.WriteString("\tchildren := _gsxp.Children\n\t_ = children\n")
 		}
-		if err := emitProbes(&sb, c.Body, table, recvVar, recvTypeName); err != nil {
+		// MIRROR emit.go: in MANUAL mode bind the synthesized bag to `attrs` so the
+		// probe type-checks the author's `{...attrs}` (probed as `_gsxgw.Spread(ctx,
+		// attrs)`) and any `attrs.X()` reference identically to emitted code.
+		if manual {
+			sb.WriteString("\tattrs := _gsxp.Attrs\n\t_ = attrs\n")
+		}
+		if err := emitProbes(&sb, c.Body, table, propFields, recvVar, recvTypeName); err != nil {
 			return "", nil, err
 		}
 		sb.WriteString("\treturn nil\n}\n")
@@ -346,7 +441,7 @@ func bodyHasPipeline(nodes []gsxast.Markup) bool {
 // (empty for a function component); they drive the same method-vs-package
 // disambiguation as the emitter (childInvocation), so the probe type-checks the
 // call against the real method/function signature + props struct identically.
-func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, recvVar, recvTypeName string) error {
+func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, propFields map[string]map[string]bool, recvVar, recvTypeName string) error {
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *gsxast.Interp:
@@ -379,7 +474,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, r
 					// SEPARATELY below, so its interps become the _gsxuse sequence in the
 					// SAME order collectExprs collected them; the props-literal exprs are
 					// NOT _gsxuse, so they don't perturb the k-th alignment.
-					fields, err := childPropsLiteral(t, func(nodes []gsxast.Markup) (string, error) {
+					fields, err := childPropsLiteral(t, propsType, "_gsxrt", propFields, func(nodes []gsxast.Markup) (string, error) {
 						return "_gsxrt.Node(nil)", nil
 					})
 					if err != nil {
@@ -394,12 +489,12 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, r
 					if probeErr != nil {
 						return
 					}
-					probeErr = emitProbes(sb, value, table, recvVar, recvTypeName)
+					probeErr = emitProbes(sb, value, table, propFields, recvVar, recvTypeName)
 				})
 				if probeErr != nil {
 					return probeErr
 				}
-				if err := emitProbes(sb, t.Children, table, recvVar, recvTypeName); err != nil {
+				if err := emitProbes(sb, t.Children, table, propFields, recvVar, recvTypeName); err != nil {
 					return err
 				}
 			} else {
@@ -422,29 +517,29 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, r
 				if probeErr != nil {
 					return probeErr
 				}
-				if err := emitProbes(sb, t.Children, table, recvVar, recvTypeName); err != nil {
+				if err := emitProbes(sb, t.Children, table, propFields, recvVar, recvTypeName); err != nil {
 					return err
 				}
 			}
 		case *gsxast.Fragment:
-			if err := emitProbes(sb, t.Children, table, recvVar, recvTypeName); err != nil {
+			if err := emitProbes(sb, t.Children, table, propFields, recvVar, recvTypeName); err != nil {
 				return err
 			}
 		case *gsxast.ForMarkup:
 			fmt.Fprintf(sb, "for %s {\n", t.Clause)
-			if err := emitProbes(sb, t.Body, table, recvVar, recvTypeName); err != nil {
+			if err := emitProbes(sb, t.Body, table, propFields, recvVar, recvTypeName); err != nil {
 				return err
 			}
 			sb.WriteString("}\n")
 		case *gsxast.IfMarkup:
 			fmt.Fprintf(sb, "if %s {\n", t.Cond)
-			if err := emitProbes(sb, t.Then, table, recvVar, recvTypeName); err != nil {
+			if err := emitProbes(sb, t.Then, table, propFields, recvVar, recvTypeName); err != nil {
 				return err
 			}
 			sb.WriteString("}")
 			if t.Else != nil {
 				sb.WriteString(" else {\n")
-				if err := emitProbes(sb, t.Else, table, recvVar, recvTypeName); err != nil {
+				if err := emitProbes(sb, t.Else, table, propFields, recvVar, recvTypeName); err != nil {
 					return err
 				}
 				sb.WriteString("}")
@@ -458,7 +553,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, r
 				} else {
 					fmt.Fprintf(sb, "case %s:\n", cc.List)
 				}
-				if err := emitProbes(sb, cc.Body, table, recvVar, recvTypeName); err != nil {
+				if err := emitProbes(sb, cc.Body, table, propFields, recvVar, recvTypeName); err != nil {
 					return err
 				}
 			}
@@ -1085,6 +1180,9 @@ func checkReservedParams(params []param) error {
 		}
 		if p.name == "children" {
 			return fmt.Errorf("codegen: param name %q is reserved (implicit children slot)", p.name)
+		}
+		if p.name == "attrs" {
+			return fmt.Errorf("codegen: param name %q is reserved (implicit fallthrough attributes)", p.name)
 		}
 		if strings.HasPrefix(p.name, "_gsx") {
 			return fmt.Errorf("codegen: param name %q uses the reserved _gsx prefix", p.name)

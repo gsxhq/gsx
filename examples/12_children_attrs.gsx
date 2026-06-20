@@ -84,6 +84,11 @@ component Spinner(size string) {
 // `classFromAttrs` pattern (one-learning/ui/common_components.templ) — but the
 // helpers are provided, not hand-written. `class` stays on the wrapper; the rest
 // go to the <input>. (Touching `attrs` here disables auto-fallthrough.)
+// NOTE: this file is PARSE-ONLY today — LabeledInput's `{{ rest := … }}` GoBlock
+// declares a local the emitter does not yet track as used by the `{...rest}` spread
+// (a pre-existing GoBlock-local limitation, orthogonal to fallthrough). The auto +
+// manual fallthrough core it demonstrates is rendered end-to-end in codegen's
+// TestExample12EndToEnd.
 component LabeledInput(label string) {
 	{{ rest := attrs.Without("class") }}
 	<div class={ "field", attrs.Class() }>
