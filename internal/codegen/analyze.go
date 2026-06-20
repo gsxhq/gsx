@@ -189,21 +189,51 @@ func buildSkeleton(file *gsxast.File) (string, []*gsxast.Component, error) {
 	return sb.String(), comps, nil
 }
 
-// emitProbes writes the type-resolution probes for a component body:
-// `_gsxuse(expr)` per interpolation (arity-safe — _gsxuse is variadic, so a
-// (T,error) call spreads to two args and still type-checks), and a child call
-// `Child(ChildProps{})` per child component.
+// emitProbes writes type-resolution probes for a component body. It MIRRORS the
+// control structure (real for/if/switch + {{ }} code) so interpolations that
+// reference loop vars / block-locals type-check in scope. Each interpolation is
+// `_gsxuse(expr)`; child components are `_ = Child(ChildProps{})`.
 func emitProbes(sb *strings.Builder, nodes []gsxast.Markup) {
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *gsxast.Interp:
-			fmt.Fprintf(sb, "\t_gsxuse(%s)\n", strings.TrimSpace(t.Expr))
+			fmt.Fprintf(sb, "_gsxuse(%s)\n", strings.TrimSpace(t.Expr))
 		case *gsxast.Element:
 			if isComponentTag(t.Tag) {
-				fmt.Fprintf(sb, "\t_ = %s(%sProps{})\n", t.Tag, t.Tag)
+				fmt.Fprintf(sb, "_ = %s(%sProps{})\n", t.Tag, t.Tag)
 			} else {
 				emitProbes(sb, t.Children)
 			}
+		case *gsxast.Fragment:
+			emitProbes(sb, t.Children)
+		case *gsxast.ForMarkup:
+			fmt.Fprintf(sb, "for %s {\n", t.Clause)
+			emitProbes(sb, t.Body)
+			sb.WriteString("}\n")
+		case *gsxast.IfMarkup:
+			fmt.Fprintf(sb, "if %s {\n", t.Cond)
+			emitProbes(sb, t.Then)
+			sb.WriteString("}")
+			if t.Else != nil {
+				sb.WriteString(" else {\n")
+				emitProbes(sb, t.Else)
+				sb.WriteString("}")
+			}
+			sb.WriteString("\n")
+		case *gsxast.SwitchMarkup:
+			fmt.Fprintf(sb, "switch %s {\n", t.Tag)
+			for _, cc := range t.Cases {
+				if cc.Default {
+					sb.WriteString("default:\n")
+				} else {
+					fmt.Fprintf(sb, "case %s:\n", cc.List)
+				}
+				emitProbes(sb, cc.Body)
+			}
+			sb.WriteString("}\n")
+		case *gsxast.GoBlock:
+			sb.WriteString(t.Code)
+			sb.WriteString("\n")
 		}
 	}
 }
@@ -227,25 +257,21 @@ func harvest(f *goast.File, comps []*gsxast.Component, info *types.Info, out map
 		}
 		interps := componentInterps(c)
 		k := 0
-		for _, stmt := range fd.Body.List {
-			es, ok := stmt.(*goast.ExprStmt)
+		goast.Inspect(fd.Body, func(node goast.Node) bool {
+			call, ok := node.(*goast.CallExpr)
 			if !ok {
-				continue
-			}
-			call, ok := es.X.(*goast.CallExpr)
-			if !ok {
-				continue
+				return true
 			}
 			id, ok := call.Fun.(*goast.Ident)
 			if !ok || id.Name != "_gsxuse" || len(call.Args) != 1 {
-				continue // child-component probe or other
+				return true
 			}
-			if k >= len(interps) {
-				break
+			if k < len(interps) {
+				out[interps[k]] = info.Types[call.Args[0]].Type
+				k++
 			}
-			out[interps[k]] = info.Types[call.Args[0]].Type
-			k++
-		}
+			return true
+		})
 	}
 }
 
@@ -354,8 +380,9 @@ func componentInterps(c *gsxast.Component) []*gsxast.Interp {
 	return out
 }
 
-// collectInterps gathers interpolation nodes in source (depth-first) order — the
-// same order genNode emits them, so the probe and the emission stay aligned.
+// collectInterps gathers interpolation nodes in depth-first source order — the
+// SAME order emitProbes emits probes and genNode emits writes, so the k-th probe
+// aligns with the k-th interpolation.
 func collectInterps(nodes []gsxast.Markup, out *[]*gsxast.Interp) {
 	for _, n := range nodes {
 		switch t := n.(type) {
@@ -365,24 +392,75 @@ func collectInterps(nodes []gsxast.Markup, out *[]*gsxast.Interp) {
 			if !isComponentTag(t.Tag) {
 				collectInterps(t.Children, out)
 			}
+		case *gsxast.Fragment:
+			collectInterps(t.Children, out)
+		case *gsxast.ForMarkup:
+			collectInterps(t.Body, out)
+		case *gsxast.IfMarkup:
+			collectInterps(t.Then, out)
+			collectInterps(t.Else, out)
+		case *gsxast.SwitchMarkup:
+			for _, cc := range t.Cases {
+				collectInterps(cc.Body, out)
+			}
+			// *gsxast.GoBlock: no interpolations (its body is opaque Go).
 		}
 	}
 }
 
 // usedParams reports which params are referenced (in value position) by any
-// interpolation, so only those are bound to locals.
+// interpolation OR by any control-flow clause (for/if/switch/case head and {{ }}
+// Go block), so only those are bound to locals. Control-flow clauses are emitted
+// verbatim into both the skeleton probe and the render closure, so a param named
+// in `range items` must be in scope there just like one in an interpolation.
 func usedParams(c *gsxast.Component, params []param) map[string]bool {
 	refs := map[string]bool{}
-	for _, in := range componentInterps(c) {
-		for id := range valueIdents(in.Expr) {
+	addIdents := func(src string) {
+		for id := range valueIdents(src) {
 			refs[id] = true
 		}
 	}
+	for _, in := range componentInterps(c) {
+		addIdents(in.Expr)
+	}
+	collectClauseSrc(c.Body, addIdents)
 	used := make(map[string]bool, len(params))
 	for _, p := range params {
 		used[p.name] = refs[p.name]
 	}
 	return used
+}
+
+// collectClauseSrc visits markup in depth-first source order and feeds every Go
+// control-flow clause source (for clause, if cond, switch tag, case list, GoBlock
+// code) to add. These fragments are emitted verbatim, so the idents they
+// reference must be in scope wherever the markup renders.
+func collectClauseSrc(nodes []gsxast.Markup, add func(string)) {
+	for _, n := range nodes {
+		switch t := n.(type) {
+		case *gsxast.Element:
+			if !isComponentTag(t.Tag) {
+				collectClauseSrc(t.Children, add)
+			}
+		case *gsxast.Fragment:
+			collectClauseSrc(t.Children, add)
+		case *gsxast.ForMarkup:
+			add(t.Clause)
+			collectClauseSrc(t.Body, add)
+		case *gsxast.IfMarkup:
+			add(t.Cond)
+			collectClauseSrc(t.Then, add)
+			collectClauseSrc(t.Else, add)
+		case *gsxast.SwitchMarkup:
+			add(t.Tag)
+			for _, cc := range t.Cases {
+				add(cc.List)
+				collectClauseSrc(cc.Body, add)
+			}
+		case *gsxast.GoBlock:
+			add(t.Code)
+		}
+	}
 }
 
 // valueIdents returns the identifiers used in value position in a Go expression

@@ -159,6 +159,21 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[*ast.Interp]types.Type,
 		emitS(b, "</"+t.Tag+">")
 	case *ast.Interp:
 		return genInterp(b, t, resolved, imports, fset)
+	case *ast.Fragment:
+		for _, c := range t.Children {
+			if err := genNode(b, c, resolved, imports, fset); err != nil {
+				return err
+			}
+		}
+	case *ast.ForMarkup:
+		emitLine(b, fset, t.Pos())
+		fmt.Fprintf(b, "for %s {\n", t.Clause)
+		for _, c := range t.Body {
+			if err := genNode(b, c, resolved, imports, fset); err != nil {
+				return err
+			}
+		}
+		b.WriteString("}\n")
 	default:
 		return fmt.Errorf("codegen spike: unsupported markup node %T", n)
 	}

@@ -422,6 +422,40 @@ component Card(name string) {
 	assertHTMLEqual(t, got, "<p>Hi Al</p>")
 }
 
+func TestRenderForLoop(t *testing.T) {
+	files := map[string]string{
+		"model.go": `package views
+
+type Item struct {
+	Name  string
+	Count int
+}
+`,
+		"views.gsx": `package views
+
+component List(items []Item) {
+	<ul>{ for _, it := range items { <li>{it.Name}: {it.Count}</li> } }</ul>
+}
+`,
+	}
+	got := renderPackage(t, files,
+		`p.List(p.ListProps{Items: []p.Item{{Name: "a", Count: 1}, {Name: "b", Count: 2}}})`)
+	assertHTMLEqual(t, got, "<ul><li>a: 1</li><li>b: 2</li></ul>")
+}
+
+func TestRenderFragment(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Pair(a string, b string) {
+	<><span>{a}</span><span>{b}</span></>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Pair(p.PairProps{A: "x", B: "y"})`)
+	assertHTMLEqual(t, got, "<span>x</span><span>y</span>")
+}
+
 func TestRenderInterpTypes(t *testing.T) {
 	files := map[string]string{
 		"model.go": `package views
