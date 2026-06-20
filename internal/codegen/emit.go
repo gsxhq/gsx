@@ -349,6 +349,11 @@ func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, tab
 		// emitAttr runs only for non-component elements (genNode routes component
 		// tags to genChildComponent before the attr loop), so a SpreadAttr here is
 		// always an element spread: gw.Spread writes the bag deterministically.
+		// Note: gw.Spread entity-escapes values and drops invalid attr names, but
+		// (per the gsx.Attrs trust contract) does NOT URL/CSS-sanitize or reject
+		// JS-context keys — a bag's keys/values are trusted developer input. This is
+		// deliberately distinct from the composable-style/expr-attr paths, which fail
+		// closed on CSS/JS contexts because their values may be untrusted data.
 		fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", strings.TrimSpace(t.Expr))
 	case *ast.CondAttr:
 		// Attr emission is a sequence of writer calls between `<tag` and `>`, so
