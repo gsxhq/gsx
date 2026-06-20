@@ -193,6 +193,22 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[*ast.Interp]types.Type,
 			b.WriteString("}")
 		}
 		b.WriteString("\n")
+	case *ast.SwitchMarkup:
+		emitLine(b, fset, t.Pos())
+		fmt.Fprintf(b, "switch %s {\n", t.Tag)
+		for _, cc := range t.Cases {
+			if cc.Default {
+				b.WriteString("default:\n")
+			} else {
+				fmt.Fprintf(b, "case %s:\n", cc.List)
+			}
+			for _, c := range cc.Body {
+				if err := genNode(b, c, resolved, imports, fset); err != nil {
+					return err
+				}
+			}
+		}
+		b.WriteString("}\n")
 	default:
 		return fmt.Errorf("codegen spike: unsupported markup node %T", n)
 	}

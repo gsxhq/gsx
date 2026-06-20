@@ -702,3 +702,29 @@ component Status(n int) {
 		assertHTMLEqual(t, got, tc.want)
 	}
 }
+
+func TestRenderSwitch(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Badge(kind string) {
+	<span>{ switch kind {
+	case "warn":
+		<b>warning</b>
+	case "err":
+		<b>error</b>
+	default:
+		<b>info</b>
+	} }</span>
+}
+`,
+	}
+	for _, tc := range []struct{ kind, want string }{
+		{"warn", "<span><b>warning</b></span>"},
+		{"err", "<span><b>error</b></span>"},
+		{"other", "<span><b>info</b></span>"},
+	} {
+		got := renderPackage(t, files, fmt.Sprintf(`p.Badge(p.BadgeProps{Kind: %q})`, tc.kind))
+		assertHTMLEqual(t, got, tc.want)
+	}
+}
