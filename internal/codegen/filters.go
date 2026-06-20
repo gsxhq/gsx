@@ -3,11 +3,51 @@ package codegen
 import (
 	"fmt"
 	"go/types"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 
 	"golang.org/x/tools/go/packages"
+
+	"github.com/gsxhq/gsx/ast"
 )
+
+// lowerPipe lowers a pipeline (a seed expression plus left-to-right stages) to a
+// nested Go expression string of qualified std calls: `{ x |> a |> b(n) }`
+// becomes `_gsxstd.B(n)(_gsxstd.A((x)))`. The SAME string is used for the type
+// probe (analyze.go) and the emitted render (emit.go), so type resolution and
+// emission stay aligned (the order invariant). usesStd reports whether any std
+// call was emitted, so the caller adds the _gsxstd import.
+//
+// Stage classification uses the parsed HasArgs flag (parens present) for arity
+// checks against the filter's harvested kind: a bare filter must have no parens,
+// a parameterized filter must have parens. Per-stage `?` (Try) is deferred and
+// errors.
+func lowerPipe(seed string, stages []ast.PipeStage, table filterTable) (expr string, usesStd bool, err error) {
+	acc := "(" + strings.TrimSpace(seed) + ")"
+	for _, st := range stages {
+		if st.Try {
+			return "", false, fmt.Errorf("codegen: `?` try-marker on filter %q not supported yet", st.Name)
+		}
+		e, ok := table.lookup(st.Name)
+		if !ok {
+			return "", false, fmt.Errorf("codegen: unknown filter %q", st.Name)
+		}
+		switch e.kind {
+		case filterBare:
+			if st.HasArgs {
+				return "", false, fmt.Errorf("codegen: filter %q takes no arguments", st.Name)
+			}
+			acc = "_gsxstd." + e.funcName + "(" + acc + ")"
+		case filterParam:
+			if !st.HasArgs {
+				return "", false, fmt.Errorf("codegen: filter %q requires arguments", st.Name)
+			}
+			acc = "_gsxstd." + e.funcName + "(" + st.Args + ")(" + acc + ")"
+		}
+	}
+	return acc, true, nil
+}
 
 // filterKind distinguishes the two filter contract shapes harvested from std.
 type filterKind int

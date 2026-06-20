@@ -45,14 +45,14 @@ func GeneratePackage(dir string) (map[string][]byte, error) {
 		files[m] = f
 	}
 
-	resolved, err := resolveTypesPkg(dir, files)
+	resolved, table, err := resolveTypesPkg(dir, files)
 	if err != nil {
 		return nil, err
 	}
 
 	out := map[string][]byte{}
 	for path, file := range files {
-		gen, err := generateFile(file, resolved, fset)
+		gen, err := generateFile(file, resolved, table, fset)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}

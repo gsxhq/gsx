@@ -685,18 +685,79 @@ component Profile(user User) {
 	assertHTMLEqual(t, got, `<div>Alice (30) <footer>(c) gsx</footer></div>`)
 }
 
-// TestPipelineNotSupportedErrors proves codegen errors (not silently drops the
-// filter) on a pipelined interpolation until pipeline lowering lands.
-func TestPipelineNotSupportedErrors(t *testing.T) {
-	files := map[string]string{
-		"views.gsx": "package views\n\nfunc upper(s string) string { return s }\n\ncomponent C(name string) {\n\t<p>{ name |> upper }</p>\n}\n",
+func TestRenderPipelineBare(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component Hi(name string) { <p>{ name |> upper }</p> }
+`}
+	got := renderPackage(t, files, `p.Hi(p.HiProps{Name: "ada"})`)
+	assertHTMLEqual(t, got, `<p>ADA</p>`)
+}
+
+func TestRenderPipelineChain(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component Hi(name string) { <p>{ name |> trim |> upper }</p> }
+`}
+	got := renderPackage(t, files, `p.Hi(p.HiProps{Name: "  ada  "})`)
+	assertHTMLEqual(t, got, `<p>ADA</p>`)
+}
+
+func TestRenderPipelineParam(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component Hi(s string) { <p>{ s |> truncate(3) }</p> }
+`}
+	got := renderPackage(t, files, `p.Hi(p.HiProps{S: "abcdef"})`)
+	assertHTMLEqual(t, got, `<p>abc</p>`)
+}
+
+func TestRenderPipelineJoin(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component Tags(tags []string) { <p>{ tags |> join(", ") }</p> }
+`}
+	got := renderPackage(t, files, `p.Tags(p.TagsProps{Tags: []string{"a","b","c"}})`)
+	assertHTMLEqual(t, got, `<p>a, b, c</p>`)
+}
+
+func TestRenderPipelineLoopVar(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component L(xs []string) { <ul>{ for _, x := range xs { <li>{ x |> upper }</li> } }</ul> }
+`}
+	got := renderPackage(t, files, `p.L(p.LProps{Xs: []string{"a","b"}})`)
+	assertHTMLEqual(t, got, `<ul><li>A</li><li>B</li></ul>`)
+}
+
+func TestPipelineUnknownFilter(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component Hi(name string) { <p>{ name |> bogus }</p> }
+`}
+	if err := generatePackageErr(t, files); err == nil || !strings.Contains(err.Error(), "bogus") {
+		t.Fatalf("expected unknown-filter error naming bogus, got: %v", err)
 	}
-	err := generatePackageErr(t, files)
-	if err == nil {
-		t.Fatal("expected error for pipeline in codegen, got nil")
+}
+
+func TestPipelineArityMismatch(t *testing.T) {
+	// bare filter given args
+	files := map[string]string{"views.gsx": `package views
+
+component Hi(name string) { <p>{ name |> upper(2) }</p> }
+`}
+	if err := generatePackageErr(t, files); err == nil || !strings.Contains(err.Error(), "upper") {
+		t.Fatalf("expected arity error naming upper, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "pipeline") {
-		t.Fatalf("expected clean 'pipeline not supported' error, got: %v", err)
+}
+
+func TestPipelineTryRejected(t *testing.T) {
+	files := map[string]string{"views.gsx": `package views
+
+component Hi(name string) { <p>{ name |> upper? }</p> }
+`}
+	if err := generatePackageErr(t, files); err == nil || !strings.Contains(err.Error(), "?") {
+		t.Fatalf("expected ?-deferred error, got: %v", err)
 	}
 }
 
