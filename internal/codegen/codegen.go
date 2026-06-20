@@ -20,13 +20,30 @@ import (
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
-// GeneratePackage generates a .x.go for every .gsx file in dir, resolving
-// interpolation types with go/types over the WHOLE package — the package's
-// hand-written .go files plus synthesized skeletons of the gsx components,
-// injected via go/packages Overlay. This resolves cross-file type references
-// and cross-component calls. dir must be inside a Go module. The result maps
-// each .gsx path to its generated source.
+// GeneratePackage generates a .x.go for every .gsx file in dir using only the
+// gsx built-in filter package (std). It is a thin wrapper over
+// GeneratePackageWithFilters preserved for callers (and the test harness) that
+// do not configure custom filter packages.
 func GeneratePackage(dir string) (map[string][]byte, error) {
+	return GeneratePackageWithFilters(dir, []string{stdImportPath})
+}
+
+// GeneratePackageWithFilters generates a .x.go for every .gsx file in dir,
+// resolving interpolation types with go/types over the WHOLE package — the
+// package's hand-written .go files plus synthesized skeletons of the gsx
+// components, injected via go/packages Overlay. This resolves cross-file type
+// references and cross-component calls. dir must be inside a Go module. The
+// result maps each .gsx path to its generated source.
+//
+// filterPkgs is the ORDERED list of filter package import paths whose exported
+// funcs are harvested (by contract) into the filter table, with LAST-WINS
+// precedence: a later package shadows an earlier same-named filter. Each filter
+// is qualified at lowering time by its owning package's reserved import alias
+// (std → _gsxstd, every other package → _gsxf<i>). An empty filterPkgs defaults
+// to just the std package; duplicate paths are removed preserving first-seen
+// order (last-wins still applies to NAME collisions across distinct packages).
+func GeneratePackageWithFilters(dir string, filterPkgs []string) (map[string][]byte, error) {
+	filterPkgs = dedupFilterPkgs(filterPkgs)
 	matches, err := filepath.Glob(filepath.Join(dir, "*.gsx"))
 	if err != nil {
 		return nil, err
@@ -55,7 +72,7 @@ func GeneratePackage(dir string) (map[string][]byte, error) {
 		return nil, err
 	}
 
-	resolved, table, err := resolveTypesPkg(dir, files, propFields)
+	resolved, table, err := resolveTypesPkgWithFilters(dir, files, propFields, filterPkgs)
 	if err != nil {
 		return nil, err
 	}
@@ -69,4 +86,23 @@ func GeneratePackage(dir string) (map[string][]byte, error) {
 		out[path] = gen
 	}
 	return out, nil
+}
+
+// dedupFilterPkgs returns filterPkgs with duplicate import paths removed,
+// preserving first-seen order. An empty (or nil) list defaults to just the gsx
+// built-in std filter package, so callers always get std available.
+func dedupFilterPkgs(filterPkgs []string) []string {
+	if len(filterPkgs) == 0 {
+		return []string{stdImportPath}
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(filterPkgs))
+	for _, p := range filterPkgs {
+		if seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	return out
 }

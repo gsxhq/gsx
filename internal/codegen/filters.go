@@ -13,40 +13,47 @@ import (
 )
 
 // lowerPipe lowers a pipeline (a seed expression plus left-to-right stages) to a
-// nested Go expression string of qualified std calls: `{ x |> a |> b(n) }`
-// becomes `_gsxstd.B(n)(_gsxstd.A((x)))`. The SAME string is used for the type
-// probe (analyze.go) and the emitted render (emit.go), so type resolution and
-// emission stay aligned (the order invariant). usesStd reports whether any std
-// call was emitted, so the caller adds the _gsxstd import.
+// nested Go expression string of qualified filter calls: `{ x |> a |> b(n) }`
+// becomes `<alias>.B(n)(<alias>.A((x)))`, where <alias> is each filter's OWNING
+// package alias (e.g. _gsxstd for std, _gsxf0 for the first user package). The
+// SAME string is used for the type probe (analyze.go) and the emitted render
+// (emit.go), so type resolution and emission stay aligned (the order invariant).
+//
+// usedPkgs reports WHICH filter packages the lowered expression references, as a
+// map alias→pkgPath, so the caller imports exactly those packages under exactly
+// those aliases — the probe (skeleton) and the emit drive their import blocks
+// from this SAME set, keeping resolution and emission in lockstep.
 //
 // Stage classification uses the parsed HasArgs flag (parens present) for arity
 // checks against the filter's harvested kind: a bare filter must have no parens,
 // a parameterized filter must have parens. Per-stage `?` (Try) is deferred and
 // errors.
-func lowerPipe(seed string, stages []ast.PipeStage, table filterTable) (expr string, usesStd bool, err error) {
+func lowerPipe(seed string, stages []ast.PipeStage, table filterTable) (expr string, usedPkgs map[string]string, err error) {
 	acc := "(" + strings.TrimSpace(seed) + ")"
+	usedPkgs = map[string]string{}
 	for _, st := range stages {
 		if st.Try {
-			return "", false, fmt.Errorf("codegen: `?` try-marker on filter %q not supported yet", st.Name)
+			return "", nil, fmt.Errorf("codegen: `?` try-marker on filter %q not supported yet", st.Name)
 		}
 		e, ok := table.lookup(st.Name)
 		if !ok {
-			return "", false, fmt.Errorf("codegen: unknown filter %q", st.Name)
+			return "", nil, fmt.Errorf("codegen: unknown filter %q", st.Name)
 		}
+		usedPkgs[e.alias] = e.pkgPath
 		switch e.kind {
 		case filterBare:
 			if st.HasArgs {
-				return "", false, fmt.Errorf("codegen: filter %q takes no arguments", st.Name)
+				return "", nil, fmt.Errorf("codegen: filter %q takes no arguments", st.Name)
 			}
-			acc = "_gsxstd." + e.funcName + "(" + acc + ")"
+			acc = e.alias + "." + e.funcName + "(" + acc + ")"
 		case filterParam:
 			if !st.HasArgs {
-				return "", false, fmt.Errorf("codegen: filter %q requires arguments", st.Name)
+				return "", nil, fmt.Errorf("codegen: filter %q requires arguments", st.Name)
 			}
-			acc = "_gsxstd." + e.funcName + "(" + st.Args + ")(" + acc + ")"
+			acc = e.alias + "." + e.funcName + "(" + st.Args + ")(" + acc + ")"
 		}
 	}
-	return acc, true, nil
+	return acc, usedPkgs, nil
 }
 
 // filterKind distinguishes the two filter contract shapes harvested from std.
@@ -61,11 +68,15 @@ const (
 	filterParam
 )
 
-// filterEntry is one harvested filter. funcName is the exported Go name in the
-// std package (e.g. "Upper"); the caller qualifies it as _gsxstd.<funcName>.
+// filterEntry is one harvested filter. funcName is the exported Go name in its
+// owning package (e.g. "Upper"); alias is that package's reserved import alias
+// (the caller qualifies the call as <alias>.<funcName>); pkgPath is the package's
+// import path (so the caller can emit `<alias> "<pkgPath>"`).
 type filterEntry struct {
 	funcName string
 	kind     filterKind
+	alias    string
+	pkgPath  string
 }
 
 // filterTable maps a template-level filter name to its harvested entry. The
@@ -78,52 +89,117 @@ func (t filterTable) lookup(name string) (filterEntry, bool) {
 	return e, ok
 }
 
-// stdImportPath is the fixed filter package the resolver harvests. The wider
-// extensibility seam (user filter packages, precedence) is deferred.
+// stdImportPath is the gsx built-in filter package. It is always available
+// (GeneratePackageWithFilters defaults to it) and keeps the reserved _gsxstd
+// alias so std-only generation is byte-identical regardless of any added
+// packages.
 const stdImportPath = "github.com/gsxhq/gsx/std"
 
-// loadFilterTable type-checks the std package and harvests its exported funcs
-// by contract into a name→func table. dir anchors the package load against the
-// module's go.mod (incl. any test replace directive), mirroring the
-// packages.Config style of resolveTypesPkg.
+// stdAlias is the reserved import alias for the std filter package. Preserving
+// it keeps std-only generated output unchanged across the multi-package feature.
+const stdAlias = "_gsxstd"
+
+// filterAliases assigns a reserved import alias to each filter package path in
+// pkgPaths: stdImportPath → _gsxstd (preserved); every other package → _gsxf<i>
+// where i is its position AMONG THE NON-STD packages (std does not consume an
+// index). The result is deterministic and independent of where std sits in the
+// list, so a given non-std package always gets the same alias for a fixed
+// non-std ordering. Aliases use the reserved _gsx prefix, so they never collide
+// with a user symbol.
+func filterAliases(pkgPaths []string) map[string]string {
+	aliases := map[string]string{}
+	nonStd := 0
+	for _, p := range pkgPaths {
+		if _, seen := aliases[p]; seen {
+			continue
+		}
+		if p == stdImportPath {
+			aliases[p] = stdAlias
+			continue
+		}
+		aliases[p] = fmt.Sprintf("_gsxf%d", nonStd)
+		nonStd++
+	}
+	return aliases
+}
+
+// loadFilterTable type-checks the std filter package and harvests its exported
+// funcs by contract. It is the single-package entry point retained for callers
+// that only need std; loadFilterTableMulti is the general multi-package form.
 func loadFilterTable(dir string) (filterTable, error) {
+	return loadFilterTableMulti(dir, []string{stdImportPath})
+}
+
+// loadFilterTableMulti type-checks every filter package in pkgPaths (one
+// packages.Load over all patterns) and harvests their exported funcs by contract
+// into a name→entry table. The table is built LAST-WINS: pkgPaths are processed
+// in order, so a later package's filter shadows an earlier same-named one. Each
+// entry records its owning package's reserved alias (see filterAliases) and
+// import path, so lowerPipe qualifies the call and the caller imports the package
+// under the same alias. dir anchors the load against the module's go.mod (incl.
+// any test replace directive), mirroring resolveTypesPkg.
+func loadFilterTableMulti(dir string, pkgPaths []string) (filterTable, error) {
+	if len(pkgPaths) == 0 {
+		return filterTable{}, nil
+	}
+	aliases := filterAliases(pkgPaths)
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedTypes |
 			packages.NeedImports | packages.NeedDeps,
 		Dir: dir,
 	}
-	pkgs, err := packages.Load(cfg, stdImportPath)
+	pkgs, err := packages.Load(cfg, pkgPaths...)
 	if err != nil {
-		return nil, fmt.Errorf("codegen: load std package: %w", err)
+		return nil, fmt.Errorf("codegen: load filter packages: %w", err)
 	}
-	if len(pkgs) == 0 {
-		return nil, fmt.Errorf("codegen: no std package found in %s", dir)
-	}
-	pkg := pkgs[0]
-	if len(pkg.Errors) > 0 {
-		return nil, fmt.Errorf("codegen: std type resolution failed: %s", pkg.Errors[0])
+	// Index loaded packages by import path so we can harvest in pkgPaths order
+	// (the last-wins precedence depends on order, which packages.Load does not
+	// guarantee to preserve).
+	byPath := map[string]*packages.Package{}
+	for _, pkg := range pkgs {
+		byPath[pkg.PkgPath] = pkg
 	}
 
 	table := filterTable{}
-	scope := pkg.Types.Scope()
-	for _, name := range scope.Names() {
-		obj := scope.Lookup(name)
-		if !obj.Exported() {
-			continue
-		}
-		fn, ok := obj.(*types.Func)
+	for _, path := range pkgPaths {
+		pkg, ok := byPath[path]
 		if !ok {
-			continue
+			return nil, fmt.Errorf("codegen: filter package %q not found in %s", path, dir)
 		}
-		sig, ok := fn.Type().(*types.Signature)
-		if !ok {
-			continue
+		if len(pkg.Errors) > 0 {
+			return nil, fmt.Errorf("codegen: filter package %q type resolution failed: %s", path, pkg.Errors[0])
 		}
-		kind, ok := classifyFilter(sig)
-		if !ok {
-			continue
+		if pkg.Types == nil {
+			return nil, fmt.Errorf("codegen: filter package %q has no type information", path)
 		}
-		table[lowerFirst(name)] = filterEntry{funcName: name, kind: kind}
+		alias := aliases[path]
+		scope := pkg.Types.Scope()
+		for _, name := range scope.Names() {
+			obj := scope.Lookup(name)
+			if !obj.Exported() {
+				continue
+			}
+			fn, ok := obj.(*types.Func)
+			if !ok {
+				continue
+			}
+			sig, ok := fn.Type().(*types.Signature)
+			if !ok {
+				continue
+			}
+			kind, ok := classifyFilter(sig)
+			if !ok {
+				continue
+			}
+			// Last-wins: a later package in pkgPaths overwrites an earlier entry
+			// with the same template-level name.
+			table[lowerFirst(name)] = filterEntry{
+				funcName: name,
+				kind:     kind,
+				alias:    alias,
+				pkgPath:  path,
+			}
+		}
 	}
 	return table, nil
 }

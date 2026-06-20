@@ -10,6 +10,7 @@ import (
 	"go/types"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -27,7 +28,14 @@ import (
 // fallthrough attrs into an Attrs bag IDENTICALLY to emission — guaranteeing the
 // generate-time type-check validates exactly what the emitter produces.
 func resolveTypesPkg(dir string, files map[string]*gsxast.File, propFields map[string]map[string]bool) (map[gsxast.Node]types.Type, filterTable, error) {
-	table, err := loadFilterTable(dir)
+	return resolveTypesPkgWithFilters(dir, files, propFields, []string{stdImportPath})
+}
+
+// resolveTypesPkgWithFilters is the multi-package form of resolveTypesPkg: it
+// harvests the filter table from filterPkgs (last-wins precedence) and otherwise
+// behaves identically. resolveTypesPkg is the std-only wrapper.
+func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propFields map[string]map[string]bool, filterPkgs []string) (map[gsxast.Node]types.Type, filterTable, error) {
+	table, err := loadFilterTableMulti(dir, filterPkgs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -216,15 +224,18 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields map[string]m
 		}
 	}
 
-	// Pre-scan for any pipeline in a component body. When present, the probes
-	// reference _gsxstd.<Func>, so the skeleton must import std under the same
-	// reserved alias the emitter uses. Only import when used — an unused import
-	// fails the skeleton type-check.
-	usesStd := false
+	// Emit each component's probe body into a temp buffer, accumulating the
+	// filter packages the probes actually reference (alias→pkgPath). The probes
+	// reference <alias>.<Func>, so the skeleton must import each USED filter
+	// package under the SAME reserved alias the emitter uses — driven by the same
+	// lowerPipe report so probe (skeleton) and emit agree on which packages and
+	// aliases are in play. Only USED packages are imported (an unused import fails
+	// the skeleton type-check).
+	usedFilters := map[string]string{} // alias -> pkgPath
+	var compBuf strings.Builder
 	for _, c := range comps {
-		if bodyHasPipeline(c.Body) {
-			usesStd = true
-			break
+		if err := emitComponentSkeleton(&compBuf, c, table, propFields, usedFilters); err != nil {
+			return "", nil, err
 		}
 	}
 
@@ -238,8 +249,11 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields map[string]m
 	// imports "context" (Go rejects two plain imports of the same path); the type
 	// _gsxctx.Context IS context.Context, so resolution is unaffected.
 	sb.WriteString("import _gsxctx \"context\"\n")
-	if usesStd {
-		fmt.Fprintf(&sb, "import _gsxstd %q\n", stdImportPath)
+	// Import each USED filter package under its reserved alias. std keeps its
+	// _gsxstd alias and dedicated `import _gsxstd "<std>"` line (in alias order),
+	// so std-only skeletons stay byte-identical to before.
+	for _, alias := range sortedFilterAliases(usedFilters) {
+		fmt.Fprintf(&sb, "import %s %q\n", alias, usedFilters[alias])
 	}
 	for _, imp := range imports {
 		if imp.name != "" {
@@ -260,175 +274,128 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields map[string]m
 		sb.WriteString(body)
 		sb.WriteByte('\n')
 	}
-	for _, c := range comps {
-		params, err := parseParams(c.Params)
-		if err != nil {
-			return "", nil, err
-		}
-		if err := checkReservedParams(params); err != nil {
-			return "", nil, err
-		}
-		// MIRROR genComponent (emit.go): a method component emits a Go method whose
-		// receiver var is in scope (so `p.Field` probes type-check against the real
-		// receiver type), its props struct is named <RecvTypeName><Name>Props, and a
-		// NULLARY method (no params, no children) gets NO props struct + no _gsxp
-		// param. The receiver clause + props-struct name + nullary-no-props must be
-		// byte-identical in shape to emission, else resolution disagrees.
-		propsName := c.Name + "Props"
-		// recvVar/recvTypeName stay "" for a function component; for a method
-		// component they are passed to emitProbes so a dotted child tag whose left ==
-		// recvVar is probed as a method call (mirroring the emitter's childInvocation).
-		var recvVar, recvTypeName string
-		if c.Recv != "" {
-			var rerr error
-			recvVar, _, recvTypeName, rerr = parseRecv(c.Recv)
-			if rerr != nil {
-				return "", nil, rerr
-			}
-			if rerr := checkReservedRecvVar(recvVar); rerr != nil {
-				return "", nil, rerr
-			}
-			propsName = recvTypeName + c.Name + "Props"
-		}
-		// Synthesize the implicit `Children _gsxrt.Node` slot field + `children`
-		// local in lockstep with genComponent (emit.go), so skeleton and emitted
-		// code agree on the props shape and the `{children}` interp type-checks.
-		hasChildren := usesChildren(c.Body)
-		// MIRROR emit.go: a single-root component synthesizes a fallthrough
-		// `Attrs _gsxrt.Attrs` props field so the emitted props struct shape matches
-		// (same gating into hasProps, same field order: params, Children, Attrs). The
-		// skeleton body does NOT emit the root application (it emits probes); it only
-		// needs the field present so any `_gsxp.Attrs` references / the field's
-		// existence type-check identically to the emitted struct (unused is fine).
-		_, hasRoot := singleRoot(c.Body)
-		// MIRROR emit.go: MANUAL mode — a body referencing `attrs` forces fallthrough
-		// eligibility (even a nullary method) and DISABLES auto root injection.
-		manual := usesAttrs(c.Body)
-		// MIRROR emit.go: a nullary method component (no params, no children) stays
-		// nullary (no props struct, bare `p.Page()` call) — AUTO fallthrough is gated
-		// out of that case so it does not force a props struct; manual forces it.
-		hasFallthrough := (hasRoot && (c.Recv == "" || len(params) > 0 || hasChildren)) || manual
-		// MIRROR emit.go: only a method component suppresses the props struct when
-		// nullary; a function component always keeps its (possibly empty) props
-		// struct so the child-invocation path's `<Tag>Props{}` literal type-checks.
-		hasProps := c.Recv == "" || len(params) > 0 || hasChildren || hasFallthrough
-		if hasProps {
-			fmt.Fprintf(&sb, "type %s struct {\n", propsName)
-			for _, p := range params {
-				fmt.Fprintf(&sb, "\t%s %s\n", fieldName(p.name), p.typ)
-			}
-			if hasChildren {
-				sb.WriteString("\tChildren _gsxrt.Node\n")
-			}
-			if hasFallthrough {
-				sb.WriteString("\tAttrs _gsxrt.Attrs\n")
-			}
-			sb.WriteString("}\n")
-		}
-		// Use the same reserved props-param name as the emitted code (_gsxp) so a
-		// user param named `p` does not collide in the skeleton either. Emit the
-		// receiver clause verbatim for a method component (its receiver var is in
-		// scope, like the emitted method).
-		if c.Recv != "" {
-			fmt.Fprintf(&sb, "func %s %s(", c.Recv, c.Name)
-		} else {
-			fmt.Fprintf(&sb, "func %s(", c.Name)
-		}
-		if hasProps {
-			fmt.Fprintf(&sb, "_gsxp %s", propsName)
-		}
-		sb.WriteString(") _gsxrt.Node {\n")
-		// Bind the ambient `ctx` (matching the emitted closure's
-		// `func(ctx context.Context, _gsxw io.Writer)` param) so probe exprs that
-		// reference it — `{ fromCtx(ctx) }`, `id={ g(ctx) }` — type-check. The
-		// `_ = ctx` keeps it used for components that don't reference ctx.
-		sb.WriteString("\tvar ctx _gsxctx.Context\n\t_ = ctx\n")
-		used := usedParams(c, params)
-		for _, p := range params {
-			if used[p.name] {
-				fmt.Fprintf(&sb, "\t%s := _gsxp.%s\n\t_ = %s\n", p.name, fieldName(p.name), p.name)
-			}
-		}
-		if hasChildren {
-			sb.WriteString("\tchildren := _gsxp.Children\n\t_ = children\n")
-		}
-		// MIRROR emit.go: in MANUAL mode bind the synthesized bag to `attrs` so the
-		// probe type-checks the author's `{...attrs}` (probed as `_gsxgw.Spread(ctx,
-		// attrs)`) and any `attrs.X()` reference identically to emitted code.
-		if manual {
-			sb.WriteString("\tattrs := _gsxp.Attrs\n\t_ = attrs\n")
-		}
-		if err := emitProbes(&sb, c.Body, table, propFields, recvVar, recvTypeName); err != nil {
-			return "", nil, err
-		}
-		sb.WriteString("\treturn nil\n}\n")
-	}
+	sb.WriteString(compBuf.String())
 	return sb.String(), comps, nil
 }
 
-// bodyHasPipeline reports whether any interpolation or expr-attribute in the
-// markup carries a pipeline (a non-empty Stages). It mirrors the markup walk of
-// emitProbes/collectExprs so the pre-scan and the probe agree on what counts.
-func bodyHasPipeline(nodes []gsxast.Markup) bool {
-	for _, n := range nodes {
-		switch t := n.(type) {
-		case *gsxast.Interp:
-			if len(t.Stages) > 0 {
-				return true
-			}
-		case *gsxast.Element:
-			if isComponentTag(t.Tag) {
-				// A component's SIMPLE attrs (props) reject pipelines at emission, so
-				// they contribute no _gsxstd call — but its named-slot (markup-attr)
-				// values AND its slot children render in this parent scope and CAN carry
-				// a pipeline, so recurse them.
-				found := false
-				walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
-					if bodyHasPipeline(value) {
-						found = true
-					}
-				})
-				if found {
-					return true
-				}
-				if bodyHasPipeline(t.Children) {
-					return true
-				}
-				continue
-			}
-			found := false
-			walkAttrExprs(t.Attrs, func(ea *gsxast.ExprAttr) {
-				if len(ea.Stages) > 0 {
-					found = true
-				}
-			})
-			if found {
-				return true
-			}
-			if bodyHasPipeline(t.Children) {
-				return true
-			}
-		case *gsxast.Fragment:
-			if bodyHasPipeline(t.Children) {
-				return true
-			}
-		case *gsxast.ForMarkup:
-			if bodyHasPipeline(t.Body) {
-				return true
-			}
-		case *gsxast.IfMarkup:
-			if bodyHasPipeline(t.Then) || bodyHasPipeline(t.Else) {
-				return true
-			}
-		case *gsxast.SwitchMarkup:
-			for _, cc := range t.Cases {
-				if bodyHasPipeline(cc.Body) {
-					return true
-				}
-			}
+// sortedFilterAliases returns the aliases of a usedFilters map (alias→pkgPath)
+// in deterministic (sorted) order, so the skeleton's import block is stable.
+func sortedFilterAliases(usedFilters map[string]string) []string {
+	aliases := make([]string, 0, len(usedFilters))
+	for a := range usedFilters {
+		aliases = append(aliases, a)
+	}
+	sort.Strings(aliases)
+	return aliases
+}
+
+// emitComponentSkeleton writes one component's probe skeleton (props struct +
+// func/method signature + probe body) into sb, accumulating into usedFilters
+// (alias→pkgPath) every filter package the component's probes reference — so the
+// caller imports exactly those packages under those aliases.
+func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filterTable, propFields map[string]map[string]bool, usedFilters map[string]string) error {
+	params, err := parseParams(c.Params)
+	if err != nil {
+		return err
+	}
+	if err := checkReservedParams(params); err != nil {
+		return err
+	}
+	// MIRROR genComponent (emit.go): a method component emits a Go method whose
+	// receiver var is in scope (so `p.Field` probes type-check against the real
+	// receiver type), its props struct is named <RecvTypeName><Name>Props, and a
+	// NULLARY method (no params, no children) gets NO props struct + no _gsxp
+	// param. The receiver clause + props-struct name + nullary-no-props must be
+	// byte-identical in shape to emission, else resolution disagrees.
+	propsName := c.Name + "Props"
+	// recvVar/recvTypeName stay "" for a function component; for a method
+	// component they are passed to emitProbes so a dotted child tag whose left ==
+	// recvVar is probed as a method call (mirroring the emitter's childInvocation).
+	var recvVar, recvTypeName string
+	if c.Recv != "" {
+		var rerr error
+		recvVar, _, recvTypeName, rerr = parseRecv(c.Recv)
+		if rerr != nil {
+			return rerr
+		}
+		if rerr := checkReservedRecvVar(recvVar); rerr != nil {
+			return rerr
+		}
+		propsName = recvTypeName + c.Name + "Props"
+	}
+	// Synthesize the implicit `Children _gsxrt.Node` slot field + `children`
+	// local in lockstep with genComponent (emit.go), so skeleton and emitted
+	// code agree on the props shape and the `{children}` interp type-checks.
+	hasChildren := usesChildren(c.Body)
+	// MIRROR emit.go: a single-root component synthesizes a fallthrough
+	// `Attrs _gsxrt.Attrs` props field so the emitted props struct shape matches
+	// (same gating into hasProps, same field order: params, Children, Attrs). The
+	// skeleton body does NOT emit the root application (it emits probes); it only
+	// needs the field present so any `_gsxp.Attrs` references / the field's
+	// existence type-check identically to the emitted struct (unused is fine).
+	_, hasRoot := singleRoot(c.Body)
+	// MIRROR emit.go: MANUAL mode — a body referencing `attrs` forces fallthrough
+	// eligibility (even a nullary method) and DISABLES auto root injection.
+	manual := usesAttrs(c.Body)
+	// MIRROR emit.go: a nullary method component (no params, no children) stays
+	// nullary (no props struct, bare `p.Page()` call) — AUTO fallthrough is gated
+	// out of that case so it does not force a props struct; manual forces it.
+	hasFallthrough := (hasRoot && (c.Recv == "" || len(params) > 0 || hasChildren)) || manual
+	// MIRROR emit.go: only a method component suppresses the props struct when
+	// nullary; a function component always keeps its (possibly empty) props
+	// struct so the child-invocation path's `<Tag>Props{}` literal type-checks.
+	hasProps := c.Recv == "" || len(params) > 0 || hasChildren || hasFallthrough
+	if hasProps {
+		fmt.Fprintf(sb, "type %s struct {\n", propsName)
+		for _, p := range params {
+			fmt.Fprintf(sb, "\t%s %s\n", fieldName(p.name), p.typ)
+		}
+		if hasChildren {
+			sb.WriteString("\tChildren _gsxrt.Node\n")
+		}
+		if hasFallthrough {
+			sb.WriteString("\tAttrs _gsxrt.Attrs\n")
+		}
+		sb.WriteString("}\n")
+	}
+	// Use the same reserved props-param name as the emitted code (_gsxp) so a
+	// user param named `p` does not collide in the skeleton either. Emit the
+	// receiver clause verbatim for a method component (its receiver var is in
+	// scope, like the emitted method).
+	if c.Recv != "" {
+		fmt.Fprintf(sb, "func %s %s(", c.Recv, c.Name)
+	} else {
+		fmt.Fprintf(sb, "func %s(", c.Name)
+	}
+	if hasProps {
+		fmt.Fprintf(sb, "_gsxp %s", propsName)
+	}
+	sb.WriteString(") _gsxrt.Node {\n")
+	// Bind the ambient `ctx` (matching the emitted closure's
+	// `func(ctx context.Context, _gsxw io.Writer)` param) so probe exprs that
+	// reference it — `{ fromCtx(ctx) }`, `id={ g(ctx) }` — type-check. The
+	// `_ = ctx` keeps it used for components that don't reference ctx.
+	sb.WriteString("\tvar ctx _gsxctx.Context\n\t_ = ctx\n")
+	used := usedParams(c, params)
+	for _, p := range params {
+		if used[p.name] {
+			fmt.Fprintf(sb, "\t%s := _gsxp.%s\n\t_ = %s\n", p.name, fieldName(p.name), p.name)
 		}
 	}
-	return false
+	if hasChildren {
+		sb.WriteString("\tchildren := _gsxp.Children\n\t_ = children\n")
+	}
+	// MIRROR emit.go: in MANUAL mode bind the synthesized bag to `attrs` so the
+	// probe type-checks the author's `{...attrs}` (probed as `_gsxgw.Spread(ctx,
+	// attrs)`) and any `attrs.X()` reference identically to emitted code.
+	if manual {
+		sb.WriteString("\tattrs := _gsxp.Attrs\n\t_ = attrs\n")
+	}
+	if err := emitProbes(sb, c.Body, table, propFields, recvVar, recvTypeName, usedFilters); err != nil {
+		return err
+	}
+	sb.WriteString("\treturn nil\n}\n")
+	return nil
 }
 
 // emitProbes writes type-resolution probes for a component body. It MIRRORS the
@@ -441,11 +408,15 @@ func bodyHasPipeline(nodes []gsxast.Markup) bool {
 // (empty for a function component); they drive the same method-vs-package
 // disambiguation as the emitter (childInvocation), so the probe type-checks the
 // call against the real method/function signature + props struct identically.
-func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, propFields map[string]map[string]bool, recvVar, recvTypeName string) error {
+//
+// usedFilters (alias→pkgPath) accumulates every filter package the probes
+// reference, so the skeleton imports exactly those packages under those aliases
+// — driven by the SAME lowerPipe report the emitter uses.
+func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, propFields map[string]map[string]bool, recvVar, recvTypeName string, usedFilters map[string]string) error {
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *gsxast.Interp:
-			probe, err := probeExpr(t.Expr, t.Stages, table)
+			probe, err := probeExpr(t.Expr, t.Stages, table, usedFilters)
 			if err != nil {
 				return err
 			}
@@ -489,12 +460,12 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					if probeErr != nil {
 						return
 					}
-					probeErr = emitProbes(sb, value, table, propFields, recvVar, recvTypeName)
+					probeErr = emitProbes(sb, value, table, propFields, recvVar, recvTypeName, usedFilters)
 				})
 				if probeErr != nil {
 					return probeErr
 				}
-				if err := emitProbes(sb, t.Children, table, propFields, recvVar, recvTypeName); err != nil {
+				if err := emitProbes(sb, t.Children, table, propFields, recvVar, recvTypeName, usedFilters); err != nil {
 					return err
 				}
 			} else {
@@ -507,7 +478,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					if probeErr != nil {
 						return
 					}
-					probe, err := probeExpr(ea.Expr, ea.Stages, table)
+					probe, err := probeExpr(ea.Expr, ea.Stages, table, usedFilters)
 					if err != nil {
 						probeErr = err
 						return
@@ -517,29 +488,29 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				if probeErr != nil {
 					return probeErr
 				}
-				if err := emitProbes(sb, t.Children, table, propFields, recvVar, recvTypeName); err != nil {
+				if err := emitProbes(sb, t.Children, table, propFields, recvVar, recvTypeName, usedFilters); err != nil {
 					return err
 				}
 			}
 		case *gsxast.Fragment:
-			if err := emitProbes(sb, t.Children, table, propFields, recvVar, recvTypeName); err != nil {
+			if err := emitProbes(sb, t.Children, table, propFields, recvVar, recvTypeName, usedFilters); err != nil {
 				return err
 			}
 		case *gsxast.ForMarkup:
 			fmt.Fprintf(sb, "for %s {\n", t.Clause)
-			if err := emitProbes(sb, t.Body, table, propFields, recvVar, recvTypeName); err != nil {
+			if err := emitProbes(sb, t.Body, table, propFields, recvVar, recvTypeName, usedFilters); err != nil {
 				return err
 			}
 			sb.WriteString("}\n")
 		case *gsxast.IfMarkup:
 			fmt.Fprintf(sb, "if %s {\n", t.Cond)
-			if err := emitProbes(sb, t.Then, table, propFields, recvVar, recvTypeName); err != nil {
+			if err := emitProbes(sb, t.Then, table, propFields, recvVar, recvTypeName, usedFilters); err != nil {
 				return err
 			}
 			sb.WriteString("}")
 			if t.Else != nil {
 				sb.WriteString(" else {\n")
-				if err := emitProbes(sb, t.Else, table, propFields, recvVar, recvTypeName); err != nil {
+				if err := emitProbes(sb, t.Else, table, propFields, recvVar, recvTypeName, usedFilters); err != nil {
 					return err
 				}
 				sb.WriteString("}")
@@ -553,7 +524,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				} else {
 					fmt.Fprintf(sb, "case %s:\n", cc.List)
 				}
-				if err := emitProbes(sb, cc.Body, table, propFields, recvVar, recvTypeName); err != nil {
+				if err := emitProbes(sb, cc.Body, table, propFields, recvVar, recvTypeName, usedFilters); err != nil {
 					return err
 				}
 			}
@@ -569,14 +540,19 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 // probeExpr returns the Go expression to probe for an interpolation / expr-attr.
 // Without stages it is the trimmed seed; with stages it is the lowered pipeline
 // (the SAME lowerPipe output the emitter uses), so the harvested type is the
-// pipeline's RESULT type and resolution stays aligned with emission.
-func probeExpr(seed string, stages []gsxast.PipeStage, table filterTable) (string, error) {
+// pipeline's RESULT type and resolution stays aligned with emission. The
+// pipeline's used filter packages are merged into usedFilters so the skeleton
+// imports each referenced package under its reserved alias.
+func probeExpr(seed string, stages []gsxast.PipeStage, table filterTable, usedFilters map[string]string) (string, error) {
 	if len(stages) == 0 {
 		return strings.TrimSpace(seed), nil
 	}
-	lowered, _, err := lowerPipe(seed, stages, table)
+	lowered, used, err := lowerPipe(seed, stages, table)
 	if err != nil {
 		return "", err
+	}
+	for alias, path := range used {
+		usedFilters[alias] = path
 	}
 	return lowered, nil
 }
