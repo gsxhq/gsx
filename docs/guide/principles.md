@@ -30,10 +30,11 @@ right treatment — determined at codegen from the value's position, not by the
 author wrapping values manually. Unsafe contexts (bare expressions in `on*`
 handlers or `style` attributes) are **compile errors**, not runtime surprises.
 
-The opt-out is explicit and auditable. Trusted values flow through the `|>`
-pipeline (`{ x |> raw }`, `{ url |> trustedResource }`) — grep-able, type-checked,
-and deliberate. Type-driven attributes mean a `bool` renders as a bare or omitted
-attribute rather than the string `"true"`.
+The opt-out is explicit and auditable. Trusted values use `gsx.Raw(s)` for
+trusted HTML and `gsx.SafeURL(u)` for trusted URLs — grep-able, type-checked,
+and deliberate. (A pipeline-based opt-out form is a design direction on the roadmap.)
+Type-driven attributes mean a `bool` renders as a bare or omitted attribute
+rather than the string `"true"`.
 
 ## Standard-library-only runtime
 
