@@ -1,0 +1,137 @@
+// Package gen is the gsx generation engine: it discovers .gsx files under a set
+// of paths, runs the codegen for each Go package directory, and writes the
+// resulting .x.go files to disk next to their .gsx sources.
+package gen
+
+import (
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"github.com/gsxhq/gsx/internal/codegen"
+)
+
+// skipDirs are directory names never descended into during discovery, in
+// addition to any directory whose name begins with a dot.
+var skipDirs = map[string]bool{
+	".git":         true,
+	"vendor":       true,
+	"node_modules": true,
+	"testdata":     true,
+}
+
+// shouldSkipDir reports whether a directory with the given base name must be
+// skipped during the walk: hidden dirs (name starts with ".") or any name in
+// skipDirs. The current directory marker "." is never skipped.
+func shouldSkipDir(name string) bool {
+	if name == "." || name == "" {
+		return false
+	}
+	if strings.HasPrefix(name, ".") {
+		return true
+	}
+	return skipDirs[name]
+}
+
+// discoverDirs walks each given path recursively and returns the unique, sorted
+// set of directories that DIRECTLY contain at least one *.gsx file. Empty paths
+// default to ["."]. A path that is a single .gsx file contributes its containing
+// directory. Directories named .git, vendor, node_modules, testdata, or any
+// hidden (dot-prefixed) directory are skipped and not descended into. An error
+// is returned if any given path does not exist.
+func discoverDirs(paths []string) ([]string, error) {
+	if len(paths) == 0 {
+		paths = []string{"."}
+	}
+	found := map[string]bool{}
+	for _, p := range paths {
+		info, err := os.Stat(p)
+		if err != nil {
+			return nil, err
+		}
+		if !info.IsDir() {
+			if strings.HasSuffix(p, ".gsx") {
+				found[filepath.Dir(p)] = true
+			}
+			continue
+		}
+		if err := walkForGsx(p, found); err != nil {
+			return nil, err
+		}
+	}
+	dirs := make([]string, 0, len(found))
+	for d := range found {
+		dirs = append(dirs, d)
+	}
+	sort.Strings(dirs)
+	return dirs, nil
+}
+
+// walkForGsx walks root, recording into found any directory that directly
+// contains a .gsx file, while skipping junk directories.
+func walkForGsx(root string, found map[string]bool) error {
+	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			// Never skip the root itself even if its name is junk-like (the
+			// caller explicitly asked for it); only skip discovered subdirs.
+			if path != root && shouldSkipDir(d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(d.Name(), ".gsx") {
+			found[filepath.Dir(path)] = true
+		}
+		return nil
+	})
+}
+
+// Result reports the outcome of a Generate run. Written holds the paths of the
+// .x.go files written to disk; Errs holds the per-directory errors encountered
+// (each .x.go is written only when its whole package generated successfully).
+type Result struct {
+	Written []string
+	Errs    []error
+}
+
+// Generate discovers .gsx files under the given paths (default ["."]), runs
+// codegen per Go package directory, and writes each resulting .x.go to disk next
+// to its .gsx source. One package's codegen failure is recorded in the returned
+// Result.Errs and does not abort the others nor write a partial .x.go for that
+// package. The returned error is non-nil when any error occurred (so callers can
+// detect failure), with Result still populated for summary reporting.
+func Generate(paths []string) (Result, error) {
+	var res Result
+	dirs, err := discoverDirs(paths)
+	if err != nil {
+		return res, err
+	}
+	for _, dir := range dirs {
+		out, gerr := codegen.GeneratePackage(dir)
+		if gerr != nil {
+			res.Errs = append(res.Errs, fmt.Errorf("%s: %w", dir, gerr))
+			continue
+		}
+		for gsxPath, src := range out {
+			base := strings.TrimSuffix(filepath.Base(gsxPath), ".gsx")
+			target := filepath.Join(dir, base+".x.go")
+			if werr := os.WriteFile(target, src, 0o644); werr != nil {
+				res.Errs = append(res.Errs, fmt.Errorf("%s: %w", target, werr))
+				continue
+			}
+			res.Written = append(res.Written, target)
+		}
+	}
+	sort.Strings(res.Written)
+	if len(res.Errs) > 0 {
+		return res, errors.Join(res.Errs...)
+	}
+	return res, nil
+}
