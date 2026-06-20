@@ -16,7 +16,7 @@ import (
 
 // generateFile emits the .x.go for a parsed gsx file given already-resolved
 // interpolation types.
-func generateFile(file *ast.File, resolved map[*ast.Interp]types.Type, fset *token.FileSet) ([]byte, error) {
+func generateFile(file *ast.File, resolved map[ast.Node]types.Type, fset *token.FileSet) ([]byte, error) {
 	interpTemp = 0
 	imports := map[string]bool{
 		"context":              true,
@@ -91,7 +91,7 @@ func writeImports(b *bytes.Buffer, imports map[string]bool, aliased []importSpec
 	b.WriteString(")\n\n")
 }
 
-func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[*ast.Interp]types.Type, imports map[string]bool, fset *token.FileSet) error {
+func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types.Type, imports map[string]bool, fset *token.FileSet) error {
 	if c.Recv != "" {
 		return fmt.Errorf("codegen spike: method components not supported yet (%s)", c.Name)
 	}
@@ -134,7 +134,7 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[*ast.Interp]ty
 	return nil
 }
 
-func genNode(b *bytes.Buffer, n ast.Markup, resolved map[*ast.Interp]types.Type, imports map[string]bool, fset *token.FileSet) error {
+func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, imports map[string]bool, fset *token.FileSet) error {
 	switch t := n.(type) {
 	case *ast.Text:
 		emitS(b, t.Value)
@@ -222,7 +222,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[*ast.Interp]types.Type,
 // genInterp emits the type-aware writer call for an interpolation. The type comes
 // from the go/types resolution pass; the expression is emitted verbatim (params
 // are in scope as locals).
-func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[*ast.Interp]types.Type, imports map[string]bool, fset *token.FileSet) error {
+func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, imports map[string]bool, fset *token.FileSet) error {
 	emitLine(b, fset, n.Pos())
 	if len(n.Stages) > 0 {
 		// The pipeline parses into Stages, but codegen does not lower it yet.
