@@ -93,8 +93,10 @@ render goldens. Suggested order:
    `<v.Method/>` for a non-receiver local (treated as package call); generic
    receivers `(p T[X])`; named markup-attr slots.
 7. ✅ **Attribute fallthrough** — undeclared invocation attrs split (declared
-   props via go/types `<Tag>Props` fields vs everything else → an `Attrs gsx.Attrs`
-   bag, AST-derived split). **Auto** single-root: the bag's `class` merges into the
+   props — matched against an **AST-derived** map of each component's prop field
+   names, same for emit + probe so no second type-check — vs everything else → an
+   `Attrs gsx.Attrs` bag). **Auto** single-root (no `CondAttr`/`SpreadAttr` on the
+   root): the bag's `class` merges into the
    root's class and the rest spreads at the root, root-wins (root's own attrs +
    class/style dropped from the spread); empty bag is a no-op. **Manual** `{...attrs}`:
    a body referencing `attrs` takes over placement (auto root injection disabled),
