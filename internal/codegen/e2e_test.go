@@ -422,6 +422,40 @@ component Card(name string) {
 	assertHTMLEqual(t, got, "<p>Hi Al</p>")
 }
 
+func TestRenderForLoop(t *testing.T) {
+	files := map[string]string{
+		"model.go": `package views
+
+type Item struct {
+	Name  string
+	Count int
+}
+`,
+		"views.gsx": `package views
+
+component List(items []Item) {
+	<ul>{ for _, it := range items { <li>{it.Name}: {it.Count}</li> } }</ul>
+}
+`,
+	}
+	got := renderPackage(t, files,
+		`p.List(p.ListProps{Items: []p.Item{{Name: "a", Count: 1}, {Name: "b", Count: 2}}})`)
+	assertHTMLEqual(t, got, "<ul><li>a: 1</li><li>b: 2</li></ul>")
+}
+
+func TestRenderFragment(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Pair(a string, b string) {
+	<><span>{a}</span><span>{b}</span></>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Pair(p.PairProps{A: "x", B: "y"})`)
+	assertHTMLEqual(t, got, "<span>x</span><span>y</span>")
+}
+
 func TestRenderInterpTypes(t *testing.T) {
 	files := map[string]string{
 		"model.go": `package views
@@ -649,4 +683,61 @@ func TestPipelineNotSupportedErrors(t *testing.T) {
 	if !strings.Contains(err.Error(), "pipeline") {
 		t.Fatalf("expected clean 'pipeline not supported' error, got: %v", err)
 	}
+}
+
+func TestRenderIf(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Status(n int) {
+	<p>{ if n > 0 { <span>pos</span> } else if n < 0 { <span>neg</span> } else { <span>zero</span> } }</p>
+}
+`,
+	}
+	for _, tc := range []struct {
+		n    int
+		want string
+	}{{1, "<p><span>pos</span></p>"}, {-1, "<p><span>neg</span></p>"}, {0, "<p><span>zero</span></p>"}} {
+		got := renderPackage(t, files, fmt.Sprintf(`p.Status(p.StatusProps{N: %d})`, tc.n))
+		assertHTMLEqual(t, got, tc.want)
+	}
+}
+
+func TestRenderSwitch(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Badge(kind string) {
+	<span>{ switch kind {
+	case "warn":
+		<b>warning</b>
+	case "err":
+		<b>error</b>
+	default:
+		<b>info</b>
+	} }</span>
+}
+`,
+	}
+	for _, tc := range []struct{ kind, want string }{
+		{"warn", "<span><b>warning</b></span>"},
+		{"err", "<span><b>error</b></span>"},
+		{"other", "<span><b>info</b></span>"},
+	} {
+		got := renderPackage(t, files, fmt.Sprintf(`p.Badge(p.BadgeProps{Kind: %q})`, tc.kind))
+		assertHTMLEqual(t, got, tc.want)
+	}
+}
+
+func TestRenderGoBlock(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Chip(first string, last string) {
+	<div>{{ full := first + " " + last }}<span>{full}</span></div>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.Chip(p.ChipProps{First: "Ada", Last: "Lovelace"})`)
+	assertHTMLEqual(t, got, "<div><span>Ada Lovelace</span></div>")
 }

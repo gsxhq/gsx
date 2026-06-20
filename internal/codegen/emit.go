@@ -159,6 +159,60 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[*ast.Interp]types.Type,
 		emitS(b, "</"+t.Tag+">")
 	case *ast.Interp:
 		return genInterp(b, t, resolved, imports, fset)
+	case *ast.Fragment:
+		for _, c := range t.Children {
+			if err := genNode(b, c, resolved, imports, fset); err != nil {
+				return err
+			}
+		}
+	case *ast.ForMarkup:
+		emitLine(b, fset, t.Pos())
+		fmt.Fprintf(b, "for %s {\n", t.Clause)
+		for _, c := range t.Body {
+			if err := genNode(b, c, resolved, imports, fset); err != nil {
+				return err
+			}
+		}
+		b.WriteString("}\n")
+	case *ast.IfMarkup:
+		emitLine(b, fset, t.Pos())
+		fmt.Fprintf(b, "if %s {\n", t.Cond)
+		for _, c := range t.Then {
+			if err := genNode(b, c, resolved, imports, fset); err != nil {
+				return err
+			}
+		}
+		b.WriteString("}")
+		if t.Else != nil {
+			b.WriteString(" else {\n")
+			for _, c := range t.Else {
+				if err := genNode(b, c, resolved, imports, fset); err != nil {
+					return err
+				}
+			}
+			b.WriteString("}")
+		}
+		b.WriteString("\n")
+	case *ast.SwitchMarkup:
+		emitLine(b, fset, t.Pos())
+		fmt.Fprintf(b, "switch %s {\n", t.Tag)
+		for _, cc := range t.Cases {
+			if cc.Default {
+				b.WriteString("default:\n")
+			} else {
+				fmt.Fprintf(b, "case %s:\n", cc.List)
+			}
+			for _, c := range cc.Body {
+				if err := genNode(b, c, resolved, imports, fset); err != nil {
+					return err
+				}
+			}
+		}
+		b.WriteString("}\n")
+	case *ast.GoBlock:
+		emitLine(b, fset, t.Pos())
+		b.WriteString(t.Code)
+		b.WriteString("\n")
 	default:
 		return fmt.Errorf("codegen spike: unsupported markup node %T", n)
 	}
