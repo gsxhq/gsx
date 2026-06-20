@@ -684,3 +684,21 @@ func TestPipelineNotSupportedErrors(t *testing.T) {
 		t.Fatalf("expected clean 'pipeline not supported' error, got: %v", err)
 	}
 }
+
+func TestRenderIf(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+component Status(n int) {
+	<p>{ if n > 0 { <span>pos</span> } else if n < 0 { <span>neg</span> } else { <span>zero</span> } }</p>
+}
+`,
+	}
+	for _, tc := range []struct {
+		n    int
+		want string
+	}{{1, "<p><span>pos</span></p>"}, {-1, "<p><span>neg</span></p>"}, {0, "<p><span>zero</span></p>"}} {
+		got := renderPackage(t, files, fmt.Sprintf(`p.Status(p.StatusProps{N: %d})`, tc.n))
+		assertHTMLEqual(t, got, tc.want)
+	}
+}
