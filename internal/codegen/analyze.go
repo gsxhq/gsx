@@ -159,6 +159,13 @@ func buildSkeleton(file *gsxast.File, table filterTable) (string, []*gsxast.Comp
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "package %s\n", file.Package)
 	sb.WriteString("import _gsxrt \"github.com/gsxhq/gsx\"\n")
+	// Import context under a RESERVED alias so each skeleton component func can
+	// bind a real `ctx context.Context` (matching the emitted closure's ambient
+	// param) — interp/attr exprs referencing `ctx` then type-check. The reserved
+	// alias avoids any duplicate-import clash with a user GoChunk that also
+	// imports "context" (Go rejects two plain imports of the same path); the type
+	// _gsxctx.Context IS context.Context, so resolution is unaffected.
+	sb.WriteString("import _gsxctx \"context\"\n")
 	if usesStd {
 		fmt.Fprintf(&sb, "import _gsxstd %q\n", stdImportPath)
 	}
@@ -173,6 +180,10 @@ func buildSkeleton(file *gsxast.File, table filterTable) (string, []*gsxast.Comp
 	// non-method components (e.g. a method-only file whose components are skipped
 	// below) — otherwise the import-unused error masks the real diagnostic.
 	sb.WriteString("var _ _gsxrt.Node\n")
+	// Keep the reserved context import used even when a file has no non-method
+	// component func that binds `ctx` (e.g. a method-only file) — otherwise an
+	// import-unused error would mask the real diagnostic.
+	sb.WriteString("var _ _gsxctx.Context\n")
 	for _, body := range bodies {
 		sb.WriteString(body)
 		sb.WriteByte('\n')
@@ -203,6 +214,11 @@ func buildSkeleton(file *gsxast.File, table filterTable) (string, []*gsxast.Comp
 		// Use the same reserved props-param name as the emitted code (_gsxp) so a
 		// user param named `p` does not collide in the skeleton either.
 		fmt.Fprintf(&sb, "func %s(_gsxp %sProps) _gsxrt.Node {\n", c.Name, c.Name)
+		// Bind the ambient `ctx` (matching the emitted closure's
+		// `func(ctx context.Context, _gsxw io.Writer)` param) so probe exprs that
+		// reference it — `{ fromCtx(ctx) }`, `id={ g(ctx) }` — type-check. The
+		// `_ = ctx` keeps it used for components that don't reference ctx.
+		sb.WriteString("\tvar ctx _gsxctx.Context\n\t_ = ctx\n")
 		used := usedParams(c, params)
 		for _, p := range params {
 			if used[p.name] {

@@ -243,6 +243,32 @@ component Bad(ctx string) {
 	}
 }
 
+// TestRenderCtxInInterp proves an interpolation referencing the ambient `ctx`
+// (the closure's context.Context param) type-checks and renders: the skeleton
+// component func binds a real `ctx` so `{ fromCtx(ctx) }` resolves instead of
+// failing with `undefined: ctx`.
+func TestRenderCtxInInterp(t *testing.T) {
+	files := map[string]string{
+		"views.gsx": `package views
+
+import "context"
+
+func fromCtx(ctx context.Context) string {
+	if ctx == nil {
+		return "nil-ctx"
+	}
+	return "ok"
+}
+
+component C() {
+	<p>{ fromCtx(ctx) }</p>
+}
+`,
+	}
+	got := renderPackage(t, files, `p.C(p.CProps{})`)
+	assertHTMLEqual(t, got, "<p>ok</p>")
+}
+
 // TestReservedParamGsxPrefix proves a param using the reserved _gsx prefix is
 // rejected with a clean codegen error.
 func TestReservedParamGsxPrefix(t *testing.T) {
