@@ -16,7 +16,7 @@ import (
 
 // generateFile emits the .x.go for a parsed gsx file given already-resolved
 // interpolation types.
-func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filterTable, fset *token.FileSet) ([]byte, error) {
+func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filterTable, structFields map[string]map[string]bool, fset *token.FileSet) ([]byte, error) {
 	interpTemp = 0
 	imports := map[string]bool{
 		"context":              true,
@@ -50,7 +50,7 @@ func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filter
 				body.WriteString("\n\n")
 			}
 		case *ast.Component:
-			if err := genComponent(&body, v, resolved, table, imports, fset); err != nil {
+			if err := genComponent(&body, v, resolved, table, structFields, imports, fset); err != nil {
 				return nil, err
 			}
 		}
@@ -101,7 +101,7 @@ func writeImports(b *bytes.Buffer, imports map[string]bool, aliased []importSpec
 	b.WriteString(")\n\n")
 }
 
-func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet) error {
+func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types.Type, table filterTable, structFields map[string]map[string]bool, imports map[string]bool, fset *token.FileSet) error {
 	params, err := parseParams(c.Params)
 	if err != nil {
 		return err
@@ -205,12 +205,12 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 		// fallthrough path so the bag's class merges + the rest spreads at the root;
 		// all other body nodes (insignificant whitespace/comments) render normally.
 		if hasFallthrough && m == ast.Markup(root) {
-			if err := emitRootElement(b, root, resolved, table, imports, fset, recvVar, recvTypeName); err != nil {
+			if err := emitRootElement(b, root, resolved, table, structFields, imports, fset, recvVar, recvTypeName); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := genNode(b, m, resolved, table, imports, fset, recvVar, recvTypeName); err != nil {
+		if err := genNode(b, m, resolved, table, structFields, imports, fset, recvVar, recvTypeName); err != nil {
 			return err
 		}
 	}
@@ -230,7 +230,7 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 //
 // A void root cannot receive fallthrough (it has no place for it to matter beyond
 // attrs, but void roots ARE handled: class-merge + spread then `/>`).
-func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string) error {
+func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]types.Type, table filterTable, structFields map[string]map[string]bool, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string) error {
 	emitLine(b, fset, el.Pos())
 	emitS(b, "<"+el.Tag)
 	// Collect the root's own named attrs so the spread can drop them (root-wins),
@@ -283,7 +283,7 @@ func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]typ
 	}
 	emitS(b, ">")
 	for _, c := range el.Children {
-		if err := genNode(b, c, resolved, table, imports, fset, recvVar, recvTypeName); err != nil {
+		if err := genNode(b, c, resolved, table, structFields, imports, fset, recvVar, recvTypeName); err != nil {
 			return err
 		}
 	}
@@ -349,14 +349,14 @@ func rootWithoutArgs(el *ast.Element) string {
 // component's receiver var + type name (empty for a function component); they
 // thread down to genChildComponent for the method-vs-package disambiguation of a
 // dotted child-component tag.
-func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string) error {
+func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table filterTable, structFields map[string]map[string]bool, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string) error {
 	switch t := n.(type) {
 	case *ast.Text:
 		emitS(b, t.Value)
 	case *ast.Element:
 		emitLine(b, fset, t.Pos())
 		if isComponentTag(t.Tag) {
-			return genChildComponent(b, t, resolved, table, imports, fset, recvVar, recvTypeName)
+			return genChildComponent(b, t, resolved, table, structFields, imports, fset, recvVar, recvTypeName)
 		}
 		emitS(b, "<"+t.Tag)
 		for _, a := range t.Attrs {
@@ -370,7 +370,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		}
 		emitS(b, ">")
 		for _, c := range t.Children {
-			if err := genNode(b, c, resolved, table, imports, fset, recvVar, recvTypeName); err != nil {
+			if err := genNode(b, c, resolved, table, structFields, imports, fset, recvVar, recvTypeName); err != nil {
 				return err
 			}
 		}
@@ -379,7 +379,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		return genInterp(b, t, resolved, table, imports, fset)
 	case *ast.Fragment:
 		for _, c := range t.Children {
-			if err := genNode(b, c, resolved, table, imports, fset, recvVar, recvTypeName); err != nil {
+			if err := genNode(b, c, resolved, table, structFields, imports, fset, recvVar, recvTypeName); err != nil {
 				return err
 			}
 		}
@@ -387,7 +387,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		emitLine(b, fset, t.Pos())
 		fmt.Fprintf(b, "for %s {\n", t.Clause)
 		for _, c := range t.Body {
-			if err := genNode(b, c, resolved, table, imports, fset, recvVar, recvTypeName); err != nil {
+			if err := genNode(b, c, resolved, table, structFields, imports, fset, recvVar, recvTypeName); err != nil {
 				return err
 			}
 		}
@@ -396,7 +396,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		emitLine(b, fset, t.Pos())
 		fmt.Fprintf(b, "if %s {\n", t.Cond)
 		for _, c := range t.Then {
-			if err := genNode(b, c, resolved, table, imports, fset, recvVar, recvTypeName); err != nil {
+			if err := genNode(b, c, resolved, table, structFields, imports, fset, recvVar, recvTypeName); err != nil {
 				return err
 			}
 		}
@@ -404,7 +404,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		if t.Else != nil {
 			b.WriteString(" else {\n")
 			for _, c := range t.Else {
-				if err := genNode(b, c, resolved, table, imports, fset, recvVar, recvTypeName); err != nil {
+				if err := genNode(b, c, resolved, table, structFields, imports, fset, recvVar, recvTypeName); err != nil {
 					return err
 				}
 			}
@@ -421,7 +421,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 				fmt.Fprintf(b, "case %s:\n", cc.List)
 			}
 			for _, c := range cc.Body {
-				if err := genNode(b, c, resolved, table, imports, fset, recvVar, recvTypeName); err != nil {
+				if err := genNode(b, c, resolved, table, structFields, imports, fset, recvVar, recvTypeName); err != nil {
 					return err
 				}
 			}
@@ -862,7 +862,7 @@ func childInvocation(el *ast.Element, recvVar, recvTypeName string) (callTarget,
 // recvVar/recvTypeName are the ENCLOSING component's receiver var + type name
 // (empty for a function component); they drive the method-vs-package
 // disambiguation via childInvocation.
-func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string) error {
+func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]types.Type, table filterTable, structFields map[string]map[string]bool, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string) error {
 	callTarget, propsType, isMethod := childInvocation(el, recvVar, recvTypeName)
 	// A nullary METHOD invocation — no attrs, no children — has no props struct, so
 	// it is called bare: `p.Content()`. Any attrs or children mean the method has a
@@ -881,7 +881,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 	// slotValue, so emit and probe agree on WHICH fields exist — only the VALUE
 	// differs, and they cannot drift.
 	fields, err := childPropsLiteral(el, func(nodes []ast.Markup) (string, error) {
-		return emitSlotClosure(nodes, resolved, table, imports, fset, recvVar, recvTypeName)
+		return emitSlotClosure(nodes, resolved, table, structFields, imports, fset, recvVar, recvTypeName)
 	})
 	if err != nil {
 		return err
@@ -895,12 +895,12 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 // EXACTLY — same reserved idents (_gsxw/_gsxgw), gsx.W/gsx.Func, and trailing
 // Err() — so the slot streams to the same output, in THIS (parent) scope. It is
 // shared by the Children slot and every named markup slot so they cannot drift.
-func emitSlotClosure(nodes []ast.Markup, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string) (string, error) {
+func emitSlotClosure(nodes []ast.Markup, resolved map[ast.Node]types.Type, table filterTable, structFields map[string]map[string]bool, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string) (string, error) {
 	var slot bytes.Buffer
 	slot.WriteString("gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {\n")
 	slot.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
 	for _, c := range nodes {
-		if err := genNode(&slot, c, resolved, table, imports, fset, recvVar, recvTypeName); err != nil {
+		if err := genNode(&slot, c, resolved, table, structFields, imports, fset, recvVar, recvTypeName); err != nil {
 			return "", err
 		}
 	}

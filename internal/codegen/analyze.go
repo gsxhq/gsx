@@ -19,18 +19,22 @@ import (
 )
 
 // resolveTypesPkg type-checks the package (real .go files + synthesized gsx
-// component skeletons via Overlay) and returns each interpolation's type.
-func resolveTypesPkg(dir string, files map[string]*gsxast.File) (map[gsxast.Node]types.Type, filterTable, error) {
+// component skeletons via Overlay) and returns each interpolation's type, plus
+// structFields: a lookup from a props-struct TYPE NAME (keyed exactly as
+// childInvocation produces it — bare same-package, pkg-qualified cross-package)
+// to its set of field names, so the call-site split (Task 3) can classify each
+// invocation attr as a declared prop vs a fallthrough attr.
+func resolveTypesPkg(dir string, files map[string]*gsxast.File) (map[gsxast.Node]types.Type, filterTable, map[string]map[string]bool, error) {
 	table, err := loadFilterTable(dir)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	overlay := map[string][]byte{}
 	skelComps := map[string][]*gsxast.Component{}
 	for path, file := range files {
 		skel, comps, err := buildSkeleton(file, table)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		base := strings.TrimSuffix(filepath.Base(path), ".gsx")
 		xpath := filepath.Join(dir, base+".x.go")
@@ -53,7 +57,7 @@ func resolveTypesPkg(dir string, files map[string]*gsxast.File) (map[gsxast.Node
 	// a free path within the package dir.
 	sharedPath, err := freeOverlayPath(dir, "gsxshared", ".x.go", overlay)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	overlay[sharedPath] = []byte("package " + pkgName + "\n\nfunc _gsxuse(...any) {}\n")
 
@@ -66,14 +70,14 @@ func resolveTypesPkg(dir string, files map[string]*gsxast.File) (map[gsxast.Node
 	}
 	pkgs, err := packages.Load(cfg, ".")
 	if err != nil {
-		return nil, nil, fmt.Errorf("codegen: load package: %w", err)
+		return nil, nil, nil, fmt.Errorf("codegen: load package: %w", err)
 	}
 	if len(pkgs) == 0 {
-		return nil, nil, fmt.Errorf("codegen: no package found in %s", dir)
+		return nil, nil, nil, fmt.Errorf("codegen: no package found in %s", dir)
 	}
 	pkg := pkgs[0]
 	if len(pkg.Errors) > 0 {
-		return nil, nil, fmt.Errorf("codegen: type resolution failed: %s", pkg.Errors[0])
+		return nil, nil, nil, fmt.Errorf("codegen: type resolution failed: %s", pkg.Errors[0])
 	}
 
 	out := map[gsxast.Node]types.Type{}
@@ -85,7 +89,45 @@ func resolveTypesPkg(dir string, files map[string]*gsxast.File) (map[gsxast.Node
 		}
 		harvest(f, comps, pkg.TypesInfo, out)
 	}
-	return out, table, nil
+	return out, table, harvestStructFields(pkg.Types), nil
+}
+
+// harvestStructFields builds the props-struct field lookup the call-site split
+// (Task 3) consumes: a map from a props-struct TYPE NAME to the set of its field
+// names. The keying mirrors childInvocation's propsType string EXACTLY so a Task-3
+// lookup `structFields[propsType]` resolves:
+//   - SAME-PACKAGE structs (including the skeleton-synthesized <Name>Props /
+//     <RecvType><Name>Props structs, which ARE in the type-checked package scope
+//     because the skeleton declares them) are keyed by their BARE name, e.g.
+//     "CardProps", "PgGridProps".
+//   - IMPORTED-package structs are keyed by "<pkgName>.<TypeName>", matching how
+//     childInvocation qualifies a cross-package props type (ui.Button →
+//     "ui.ButtonProps"). NOTE: an aliased import (`import x "ui"`) keys by the REAL
+//     package name (ip.Name()), not the alias — an accepted edge case.
+func harvestStructFields(pkg *types.Package) map[string]map[string]bool {
+	out := map[string]map[string]bool{}
+	collect := func(scope *types.Scope, prefix string) {
+		for _, name := range scope.Names() {
+			tn, ok := scope.Lookup(name).(*types.TypeName)
+			if !ok {
+				continue
+			}
+			st, ok := tn.Type().Underlying().(*types.Struct)
+			if !ok {
+				continue
+			}
+			fields := map[string]bool{}
+			for i := 0; i < st.NumFields(); i++ {
+				fields[st.Field(i).Name()] = true
+			}
+			out[prefix+name] = fields
+		}
+	}
+	collect(pkg.Scope(), "")
+	for _, ip := range pkg.Imports() {
+		collect(ip.Scope(), ip.Name()+".")
+	}
+	return out
 }
 
 // freeOverlayPath returns a path in dir of the form
