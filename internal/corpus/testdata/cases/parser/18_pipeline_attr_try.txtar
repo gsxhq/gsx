@@ -4,6 +4,7 @@ package examples
 
 component C(u string) { <a href={ u |> absolute()? }>x</a> }
 -- diagnostics.golden --
+codegen: `?` try-marker on filter "absolute" not supported yet
 -- ast.golden --
 File package=examples
   Component name=C recv="" params="u string"

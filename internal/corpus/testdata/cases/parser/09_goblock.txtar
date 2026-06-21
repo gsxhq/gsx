@@ -11,6 +11,7 @@ component Chip(name string) {
 }
 
 -- diagnostics.golden --
+codegen: type resolution failed: cases/parser_09_goblock/input.x.go:15:13: undefined: f
 -- ast.golden --
 File package=examples
   Component name=Chip recv="" params="name string"

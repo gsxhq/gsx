@@ -12,3 +12,4 @@ File package=p
       Text value="! "
       Interp expr="greeting(name)" try=true
 -- diagnostics.golden --
+codegen: type resolution failed: cases/parser_02_interpolation/input.x.go:16:9: undefined: greeting

@@ -12,6 +12,7 @@ component Page() {
 	</head>
 }
 -- diagnostics.golden --
+codegen: type resolution failed: cases/parser_16_raw_text/input.x.go:12:9: undefined: n
 -- ast.golden --
 File package=p
   Component name=Page recv="" params=""

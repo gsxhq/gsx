@@ -16,3 +16,4 @@ File package=p
   Component name=Shell recv="" params="p Page"
     Element tag=p.Body void=true
 -- diagnostics.golden --
+codegen: type resolution failed: cases/parser_07_method_component/input.x.go:22:5: undefined: p

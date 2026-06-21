@@ -10,3 +10,4 @@ File package=p
       SpreadAttr expr="attrs"
       Text value="x"
 -- diagnostics.golden --
+codegen: param name "attrs" is reserved (implicit fallthrough attributes)

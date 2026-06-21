@@ -16,3 +16,4 @@ File package=p
         Element tag=h1 void=false
           Text value="Hi"
 -- diagnostics.golden --
+cases/parser_06_markup_attr/input.gsx: codegen: interpolation "header" has type interface{}; not a renderable type
