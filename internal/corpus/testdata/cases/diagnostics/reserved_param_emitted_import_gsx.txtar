@@ -1,0 +1,8 @@
+-- input.gsx --
+package views
+
+component Bad(gsx string, n int) {
+	<p>{gsx}{n}</p>
+}
+-- diagnostics.golden --
+codegen: param name "gsx" is reserved (shadows a generated import)

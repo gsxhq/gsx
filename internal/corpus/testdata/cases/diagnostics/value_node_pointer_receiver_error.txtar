@@ -1,0 +1,22 @@
+-- widget.go --
+package views
+
+import (
+	"context"
+	"io"
+)
+
+type Widget struct{ Label string }
+
+func (w *Widget) Render(ctx context.Context, out io.Writer) error {
+	_, err := io.WriteString(out, "<b>"+w.Label+"</b>")
+	return err
+}
+-- input.gsx --
+package views
+
+component Show(widget Widget) {
+	<div>{widget}</div>
+}
+-- diagnostics.golden --
+cases/diagnostics_value_node_pointer_receiver_error/input.gsx: codegen: interpolation "widget" has type corpustest/cases/diagnostics_value_node_pointer_receiver_error.Widget; not a renderable type

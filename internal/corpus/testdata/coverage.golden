@@ -40,6 +40,15 @@ control_flow/if_zero	diag render
 control_flow/switch_default	diag render
 control_flow/switch_err	diag render
 control_flow/switch_warn	diag render
+diagnostics/ctx_in_interp	diag render
+diagnostics/param_name_collision	diag render
+diagnostics/pointer_node_render	diag render
+diagnostics/reserved_param_children	diag(error)
+diagnostics/reserved_param_ctx	diag(error)
+diagnostics/reserved_param_emitted_import_gsx	diag(error)
+diagnostics/reserved_param_emitted_import_strconv	diag(error)
+diagnostics/reserved_param_gsx_prefix	diag(error)
+diagnostics/value_node_pointer_receiver_error	diag(error)
 elements/fragment	diag render
 elements/named_scalar_types	diag render
 elements/node_slice	diag render
@@ -126,4 +135,8 @@ security/js_rejected_onclick	diag(error)
 security/js_rejected_style	diag(error)
 security/url_blocked	diag render
 security/xss	diag render
-TOTAL: 128 cases (render: 86, error: 23, gen-pinned: 0)
+xpkg/cross_file_and_component	diag render
+xpkg/interleaved_imports_error	diag(error)
+xpkg/multi_gsx_package	diag render
+xpkg/real_gsxshared_file	diag render
+TOTAL: 141 cases (render: 92, error: 30, gen-pinned: 0)

@@ -1,0 +1,25 @@
+-- widget.go --
+package views
+
+import (
+	"context"
+	"io"
+)
+
+type Widget struct{ Label string }
+
+func (w *Widget) Render(ctx context.Context, out io.Writer) error {
+	_, err := io.WriteString(out, "<b>"+w.Label+"</b>")
+	return err
+}
+-- input.gsx --
+package views
+
+component Show(widget *Widget) {
+	<div>{widget}</div>
+}
+-- invoke --
+Show(ShowProps{Widget: &Widget{Label: "hi"}})
+-- diagnostics.golden --
+-- render.golden --
+<div><b>hi</b></div>

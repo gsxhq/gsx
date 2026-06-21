@@ -1,0 +1,14 @@
+-- input.gsx --
+package views
+
+func helper() string { return "x" }
+
+import "fmt"
+
+var _ = fmt.Sprintf
+
+component Bad() {
+	<p>{helper()}</p>
+}
+-- diagnostics.golden --
+codegen: invalid Go in pass-through block: 6:1: imports must appear before other declarations

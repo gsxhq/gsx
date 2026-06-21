@@ -1,0 +1,8 @@
+-- input.gsx --
+package views
+
+component Bad(ctx string) {
+	<p>{ctx}</p>
+}
+-- diagnostics.golden --
+codegen: param name "ctx" is reserved (ambient context)

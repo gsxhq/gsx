@@ -1,0 +1,15 @@
+-- gsxshared.x.go --
+package views
+
+func UserHelper() string { return "real" }
+-- input.gsx --
+package views
+
+component Greet() {
+	<p>{UserHelper()}</p>
+}
+-- invoke --
+Greet(GreetProps{})
+-- diagnostics.golden --
+-- render.golden --
+<p>real</p>
