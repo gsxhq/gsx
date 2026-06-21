@@ -15,6 +15,7 @@ class/style_rejected	diag(error)
 codegen-shape/example12_form	diag render
 codegen-shape/example12_toolbar	diag render
 codegen-shape/greeting	diag gen render
+codegen-shape/whitespace_collapse	diag gen render
 components/child_class_attr_error	diag(error)
 components/child_hyphen_attr_fallthrough	diag render
 components/child_no_props	diag render
@@ -145,4 +146,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 147 cases (render: 97, error: 31, gen-pinned: 3)
+TOTAL: 148 cases (render: 98, error: 31, gen-pinned: 4)

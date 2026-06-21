@@ -11,6 +11,7 @@ import (
 	"golang.org/x/tools/go/packages"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/wsnorm"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
@@ -71,6 +72,8 @@ func GeneratePackages(moduleDir string, dirs []string) (map[string]*PackageResul
 				parseErr = fmt.Errorf("%s: %w", m, err)
 				break
 			}
+			// JSX whitespace pass before resolution + emit (mirror codegen.go).
+			wsnorm.Normalize(f)
 			files[m] = f
 		}
 		if parseErr != nil {
@@ -229,4 +232,3 @@ func GeneratePackages(moduleDir string, dirs []string) (map[string]*PackageResul
 
 	return result, nil
 }
-

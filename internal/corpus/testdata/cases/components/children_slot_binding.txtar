@@ -15,7 +15,4 @@ component Page(name string, items []string) {
 Page(PageProps{Name: "Jo", Items: []string{"a", "b"}})
 -- diagnostics.golden --
 -- render.golden --
-<div>
-		<span>Jo</span>
-		<li>a</li><li>b</li>
-	</div>
+<div><span>Jo</span><li>a</li><li>b</li></div>
