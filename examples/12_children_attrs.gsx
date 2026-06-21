@@ -62,7 +62,7 @@ component LoginForm() {
 component Stack() {
 	<>
 		<hr/>
-		<section {...attrs}>{children}</section>   // explicit target for fallthrough attrs
+		<section {...attrs}>{children}</section> {/* explicit target for fallthrough attrs */}
 		<hr/>
 	</>
 }

@@ -44,7 +44,7 @@ component (p UsersPage) Content() {
 		hx-swap="outerHTML"
 	>
 		<h1>{p.Title}</h1>
-		<p.Grid sort={p.Sort}/>      // method calling a sibling method, with a param
+		<p.Grid sort={p.Sort}/> {/* method calling a sibling method, with a param */}
 	</div>
 }
 

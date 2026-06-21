@@ -1,5 +1,5 @@
 01_elements.gsx: ok
-02_text_escaping.gsx: 47:35: expected tag name
+02_text_escaping.gsx: ok
 03_control_flow.gsx: ok
 04_components.gsx: ok
 05_attributes.gsx: ok
