@@ -1,0 +1,11 @@
+-- input.gsx --
+package views
+
+component Pair(a string, b string) {
+	<><span>{a}</span><span>{b}</span></>
+}
+-- invoke --
+Pair(PairProps{A: "x", B: "y"})
+-- diagnostics.golden --
+-- render.golden --
+<span>x</span><span>y</span>

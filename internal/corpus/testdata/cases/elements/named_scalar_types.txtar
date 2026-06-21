@@ -1,0 +1,15 @@
+-- input.gsx --
+package views
+
+type ID string
+
+type Flag bool
+
+component Tag(id ID, flag Flag) {
+	<p>{id}|{flag}</p>
+}
+-- invoke --
+Tag(TagProps{Id: ID("abc"), Flag: Flag(true)})
+-- diagnostics.golden --
+-- render.golden --
+<p>abc|true</p>

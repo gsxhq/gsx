@@ -1,3 +1,12 @@
+elements/fragment	diag render
+elements/named_scalar_types	diag render
+elements/node_slice	diag render
+elements/static_and_bool_attrs_off	diag render
+elements/static_and_bool_attrs_on	diag render
+interpolation/field_access	diag render
+interpolation/interp_types	diag render
+interpolation/mixed_chunk	diag render
+interpolation/probe_multi_value_expr	diag render
 parser/01_elements	ast diag
 parser/02_interpolation	ast diag
 parser/03_attrs	ast diag
@@ -21,4 +30,4 @@ parser/e02_unterminated_interp	ast diag(error)
 parser/e03_bad_attr_name	ast diag(error)
 parser/e04_nonspread_brace	ast diag(error)
 parser/e05_empty_pipe_stage	ast diag(error)
-TOTAL: 23 cases (render: 0, error: 5, gen-pinned: 0)
+TOTAL: 32 cases (render: 9, error: 5, gen-pinned: 0)

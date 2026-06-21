@@ -109,27 +109,6 @@ func nodeLabel(n *html.Node) string {
 	return fmt.Sprintf("node(type=%d)", n.Type)
 }
 
-// TestRenderFieldAccess proves go/types resolves a struct field-access
-// interpolation (user.Name string, user.Age int) end-to-end.
-func TestRenderFieldAccess(t *testing.T) {
-	files := map[string]string{
-		"model.go": `package views
-
-type User struct {
-	Name string
-	Age  int
-}
-`,
-		"views.gsx": `package views
-
-component Profile(user User) {
-	<p>{user.Name} is {user.Age}</p>
-}
-`,
-	}
-	got := renderPackage(t, files, `p.Profile(p.ProfileProps{User: p.User{Name: "Alice", Age: 30}})`)
-	assertHTMLEqual(t, got, "<p>Alice is 30</p>")
-}
 
 // renderPackage writes files (e.g. a sibling .go and one or more .gsx) into a
 // package inside a temp module, runs GeneratePackage (go/packages + Overlay
@@ -393,40 +372,6 @@ component Greet() {
 	assertHTMLEqual(t, got, "<p>real</p>")
 }
 
-// TestProbeAcceptsMultiValueExpr is a forward check that the probe type-checks a
-// (T, error) interpolation expression (multi-value), which the old `_ = (expr)`
-// probe could not. Full unwrap rendering lands in Task 3; here we only assert
-// the package RESOLVES + GENERATES without a type error.
-func TestProbeAcceptsMultiValueExpr(t *testing.T) {
-	files := map[string]string{
-		"helpers.go": `package views
-
-func lookup(k string) (string, error) { return k, nil }
-`,
-		"views.gsx": `package views
-
-component Label(key string) {
-	<span>{lookup(key)}</span>
-}
-`,
-	}
-	tmp := t.TempDir()
-	repoRoot, _ := filepath.Abs("../..")
-	writeFile(t, tmp, "go.mod", "module gsxr\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
-	pkgDir := filepath.Join(tmp, "genpkg")
-	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for n, c := range files {
-		writeFile(t, pkgDir, n, c)
-	}
-	// Resolution must succeed (the multi-value expr type-checks under _gsxuse);
-	// EMISSION may still error "not supported yet" until Task 3 — that is fine.
-	_, err := GeneratePackage(pkgDir)
-	if err != nil && strings.Contains(err.Error(), "type resolution failed") {
-		t.Fatalf("probe failed to type-check a (T,error) expr: %v", err)
-	}
-}
 
 // TestRenderTryUnwrap exercises the (T, error) auto-unwrap: an interpolation of
 // a func returning (string, error) is lowered to a temp + error-propagate, then
@@ -469,103 +414,6 @@ component List(items []Item) {
 	assertHTMLEqual(t, got, "<ul><li>a: 1</li><li>b: 2</li></ul>")
 }
 
-func TestRenderStaticAndBoolAttrs(t *testing.T) {
-	files := map[string]string{
-		"views.gsx": `package views
-
-component Field(on bool) {
-	<input type="text" class="form-control" required disabled={on}/>
-}
-`,
-	}
-	got := renderPackage(t, files, `p.Field(p.FieldProps{On: true})`)
-	assertHTMLEqual(t, got, `<input type="text" class="form-control" required disabled/>`)
-	got = renderPackage(t, files, `p.Field(p.FieldProps{On: false})`)
-	assertHTMLEqual(t, got, `<input type="text" class="form-control" required/>`)
-}
-
-func TestRenderFragment(t *testing.T) {
-	files := map[string]string{
-		"views.gsx": `package views
-
-component Pair(a string, b string) {
-	<><span>{a}</span><span>{b}</span></>
-}
-`,
-	}
-	got := renderPackage(t, files, `p.Pair(p.PairProps{A: "x", B: "y"})`)
-	assertHTMLEqual(t, got, "<span>x</span><span>y</span>")
-}
-
-func TestRenderInterpTypes(t *testing.T) {
-	files := map[string]string{
-		"model.go": `package views
-
-import "fmt"
-
-type Money int
-
-func (m Money) String() string { return fmt.Sprintf("$%d", int(m)) }
-`,
-		"views.gsx": `package views
-
-import "github.com/gsxhq/gsx"
-
-component Demo(s string, n int, f float64, ok bool, node gsx.Node, price Money) {
-	<div>{s}|{n}|{f}|{ok}|{node}|{price}</div>
-}
-`,
-	}
-	got := renderPackage(t, files,
-		`p.Demo(p.DemoProps{S: "hi", N: 7, F: 3.5, Ok: true, Node: gsx.Raw("<b>x</b>"), Price: p.Money(9)})`)
-	// gsx.Raw renders verbatim; Money is a fmt.Stringer -> "$9"; bool -> "true".
-	assertHTMLEqual(t, got, `<div>hi|7|3.5|true|<b>x</b>|$9</div>`)
-}
-
-// TestRenderMixedChunk proves a single GoChunk that mixes an import with
-// trailing type/func declarations is NOT misclassified as a pure-import chunk:
-// the import is hoisted, AND the trailing decls survive into the body and are
-// usable by the component. Regression for the ImportsOnly classification bug.
-func TestRenderMixedChunk(t *testing.T) {
-	files := map[string]string{
-		"views.gsx": `package views
-
-import "fmt"
-
-type Money int
-
-func (m Money) String() string { return fmt.Sprintf("$%d", int(m)) }
-
-func label() string { return "price:" }
-
-component Receipt(price Money) {
-	<p>{label()}{price}</p>
-}
-`,
-	}
-	// label() returns string; Money is a fmt.Stringer -> "$9". Both the helper
-	// func and the Money type live in the same chunk as the `import "fmt"`.
-	got := renderPackage(t, files, `p.Receipt(p.ReceiptProps{Price: p.Money(9)})`)
-	assertHTMLEqual(t, got, `<p>price:$9</p>`)
-}
-
-// TestRenderNodeSlice exercises catNodeSlice: a []gsx.Node param interpolated as
-// {items} must emit a for-loop that renders each node in order.
-func TestRenderNodeSlice(t *testing.T) {
-	files := map[string]string{
-		"views.gsx": `package views
-
-import "github.com/gsxhq/gsx"
-
-component List(items []gsx.Node) {
-	<ul>{items}</ul>
-}
-`,
-	}
-	got := renderPackage(t, files,
-		`p.List(p.ListProps{Items: []gsx.Node{gsx.Raw("<li>a</li>"), gsx.Raw("<li>b</li>")}})`)
-	assertHTMLEqual(t, got, `<ul><li>a</li><li>b</li></ul>`)
-}
 
 // TestRenderMultiGsxPackage proves two .gsx files in one package resolve and
 // render together: a cross-file component call (<Footer/> defined in a.gsx,
@@ -590,25 +438,6 @@ component Page() {
 	assertHTMLEqual(t, got, `<div><footer>FOOT</footer></div>`)
 }
 
-// TestRenderNamedScalarTypes proves a named string type (type ID string) and a
-// named bool type (type Flag bool) interpolate and compile: emitRender must
-// convert to the underlying type (string(id), bool(flag)) or `go build` fails.
-func TestRenderNamedScalarTypes(t *testing.T) {
-	files := map[string]string{
-		"views.gsx": `package views
-
-type ID string
-
-type Flag bool
-
-component Tag(id ID, flag Flag) {
-	<p>{id}|{flag}</p>
-}
-`,
-	}
-	got := renderPackage(t, files, `p.Tag(p.TagProps{Id: p.ID("abc"), Flag: p.Flag(true)})`)
-	assertHTMLEqual(t, got, `<p>abc|true</p>`)
-}
 
 // TestInterleavedImportsCleanError proves that a pass-through Go block with an
 // import appearing after a func (invalid Go: imports must be first) yields a

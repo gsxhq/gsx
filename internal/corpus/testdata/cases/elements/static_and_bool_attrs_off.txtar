@@ -1,0 +1,11 @@
+-- input.gsx --
+package views
+
+component Field(on bool) {
+	<input type="text" class="form-control" required disabled={on}/>
+}
+-- invoke --
+Field(FieldProps{On: false})
+-- diagnostics.golden --
+-- render.golden --
+<input type="text" class="form-control" required/>

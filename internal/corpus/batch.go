@@ -101,7 +101,14 @@ func (c *caseDoc) writeEntry(moduleDir, root string) (string, error) {
 	}
 
 	pkgName := packageNameOf(c.files["input.gsx"])
-	body := "package " + pkgName + "\n\n" + entry
+	// If the invoke references gsx. (e.g. gsx.Raw, gsx.Attrs), add the import so
+	// the generated entry file compiles. Each Go file in a package needs its own
+	// import declarations even though other files in the package already import gsx.
+	extraImport := ""
+	if referencedQualifiers(c.invoke)["gsx"] {
+		extraImport = "import \"github.com/gsxhq/gsx\"\n\n"
+	}
+	body := "package " + pkgName + "\n\n" + extraImport + entry
 	if err := os.WriteFile(filepath.Join(moduleDir, "gsxentry.go"), []byte(body), 0o644); err != nil {
 		return "", err
 	}
