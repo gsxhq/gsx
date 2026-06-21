@@ -1,0 +1,11 @@
+-- input.gsx --
+package views
+
+component Card() {
+	<section class="card">{children}</section>
+}
+-- invoke --
+Card(CardProps{Attrs: gsx.Attrs{"class": "hl", "id": "a"}})
+-- diagnostics.golden --
+-- render.golden --
+<section class="card hl" id="a"></section>

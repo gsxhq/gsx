@@ -1,0 +1,15 @@
+-- input.gsx --
+package views
+
+component Card(title string) {
+	<div>{title}</div>
+}
+
+component Page() {
+	<Card title="Hi"/>
+}
+-- invoke --
+Page(PageProps{})
+-- diagnostics.golden --
+-- render.golden --
+<div>Hi</div>

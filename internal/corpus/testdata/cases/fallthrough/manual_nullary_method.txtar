@@ -1,0 +1,17 @@
+-- input.gsx --
+package views
+
+type Pg struct{}
+
+component (p Pg) Wrap() {
+	<div class="outer"><span {...attrs}/></div>
+}
+
+component (p Pg) Page() {
+	<p.Wrap data-test="x"/>
+}
+-- invoke --
+(Pg{}).Page()
+-- diagnostics.golden --
+-- render.golden --
+<div class="outer"><span data-test="x"/></div>

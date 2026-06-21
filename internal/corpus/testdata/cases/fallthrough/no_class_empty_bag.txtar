@@ -1,0 +1,11 @@
+-- input.gsx --
+package views
+
+component P() {
+	<p>{children}</p>
+}
+-- invoke --
+P(PProps{})
+-- diagnostics.golden --
+-- render.golden --
+<p></p>

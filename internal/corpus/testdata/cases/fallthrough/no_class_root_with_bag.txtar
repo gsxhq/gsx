@@ -1,0 +1,11 @@
+-- input.gsx --
+package views
+
+component P() {
+	<p>{children}</p>
+}
+-- invoke --
+P(PProps{Attrs: gsx.Attrs{"class": "x"}})
+-- diagnostics.golden --
+-- render.golden --
+<p class="x"></p>

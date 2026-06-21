@@ -1,0 +1,11 @@
+-- input.gsx --
+package views
+
+component Box(variant string) {
+	<div class={ "box", variant }>{children}</div>
+}
+-- invoke --
+Box(BoxProps{Variant: "big"})
+-- diagnostics.golden --
+-- render.golden --
+<div class="box big"></div>

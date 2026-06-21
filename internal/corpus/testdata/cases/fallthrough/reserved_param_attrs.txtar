@@ -1,0 +1,10 @@
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component X(attrs gsx.Attrs) {
+	<p>hi</p>
+}
+-- diagnostics.golden --
+codegen: param name "attrs" is reserved (implicit fallthrough attributes)

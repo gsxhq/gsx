@@ -45,6 +45,27 @@ elements/named_scalar_types	diag render
 elements/node_slice	diag render
 elements/static_and_bool_attrs_off	diag render
 elements/static_and_bool_attrs_on	diag render
+fallthrough/call_site_button	diag render
+fallthrough/call_site_class_merge	diag render
+fallthrough/call_site_declared_vs_undeclared	diag render
+fallthrough/call_site_method_fallthrough	diag render
+fallthrough/call_site_no_fallthrough_unchanged	diag render
+fallthrough/call_site_non_identifier	diag render
+fallthrough/call_site_not_eligible	diag(error)
+fallthrough/call_site_root_wins	diag render
+fallthrough/composed_class_merge	diag render
+fallthrough/empty_bag_noop	diag render
+fallthrough/manual_auto_still_works	diag render
+fallthrough/manual_disables_auto	diag render
+fallthrough/manual_nullary_method	diag render
+fallthrough/manual_placement	diag render
+fallthrough/manual_without	diag render
+fallthrough/no_class_empty_bag	diag render
+fallthrough/no_class_root_with_bag	diag render
+fallthrough/not_eligible_no_field	diag render
+fallthrough/reserved_param_attrs	diag(error)
+fallthrough/root_wins	diag render
+fallthrough/static_class_merge	diag render
 interpolation/field_access	diag render
 interpolation/interp_types	diag render
 interpolation/mixed_chunk	diag render
@@ -107,4 +128,4 @@ security/js_rejected_onclick	diag(error)
 security/js_rejected_style	diag(error)
 security/url_blocked	diag render
 security/xss	diag render
-TOTAL: 109 cases (render: 69, error: 21, gen-pinned: 0)
+TOTAL: 130 cases (render: 88, error: 23, gen-pinned: 0)

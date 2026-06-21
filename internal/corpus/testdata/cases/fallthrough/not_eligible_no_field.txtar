@@ -1,0 +1,12 @@
+-- input.gsx --
+package views
+
+component Multi() {
+	<p>a</p>
+	<p>b</p>
+}
+-- invoke --
+Multi(MultiProps{})
+-- diagnostics.golden --
+-- render.golden --
+<p>a</p><p>b</p>
