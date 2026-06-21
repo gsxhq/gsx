@@ -42,11 +42,14 @@ func loadCase(path string) (*caseDoc, error) {
 		files:   map[string][]byte{},
 		goldens: map[string][]byte{},
 	}
-	// name: strip leading path up to and including "testdata/" and trailing ".txtar".
+	// name: relative to testdata/, with a leading "cases/" stripped so real
+	// cases (testdata/cases/<area>/<scenario>) get spec-form names like
+	// "attrs/expr_attrs"; fixtures elsewhere keep their dir (e.g. loadertest/single).
 	rel := filepath.ToSlash(path)
 	if i := strings.Index(rel, "testdata/"); i >= 0 {
 		rel = rel[i+len("testdata/"):]
 	}
+	rel = strings.TrimPrefix(rel, "cases/")
 	c.name = strings.TrimSuffix(rel, ".txtar")
 	c.dir = strings.ReplaceAll(c.name, "/", "_")
 
