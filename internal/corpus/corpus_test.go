@@ -6,8 +6,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/gsxhq/gsx/internal/txtar"
@@ -46,6 +48,47 @@ func TestCorpus(t *testing.T) {
 		t.Fatalf("renderBatch: %v", err)
 	}
 
+	// Pre-pass: run generate concurrently for all default-branch cases (non-renderable,
+	// non-(single && hasAstGolden), non-(single && parserDiag>0)) so the per-case
+	// compare loop below can read from the map instead of calling generate inline.
+	type precomputedResult struct {
+		gen  []byte
+		diag []byte
+	}
+	precomputed := map[string]precomputedResult{}
+	var precomputedMu sync.Mutex
+
+	sem := make(chan struct{}, runtime.NumCPU())
+	var wg sync.WaitGroup
+	for _, c := range cases {
+		c := c
+		_, parserDiag, single := c.astAndParserDiag()
+		if c.renderable() {
+			continue
+		}
+		if single && hasAstGolden(c) {
+			continue
+		}
+		if single && len(parserDiag) > 0 {
+			continue
+		}
+		// This case hits the default branch — pre-generate it.
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			tmp := mustTempModule(repoRoot)
+			gen, diag := c.generate(caseModuleDir(tmp, c), caseImportRoot(c))
+			diag = normalizeDiagPaths(diag, tmp)
+			os.RemoveAll(tmp)
+			precomputedMu.Lock()
+			precomputed[c.name] = precomputedResult{gen: gen, diag: diag}
+			precomputedMu.Unlock()
+		}()
+	}
+	wg.Wait()
+
 	for _, c := range cases {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
@@ -65,12 +108,9 @@ func TestCorpus(t *testing.T) {
 				// diagnostics only; codegen stays in the parser layer per spec §2.
 				diagGot = parserDiag
 			default:
-				tmp := mustTempModule(repoRoot)
-				genGot, diagGot = c.generate(caseModuleDir(tmp, c), caseImportRoot(c))
-				// Normalize away the non-deterministic temp-dir prefix in diagnostics
-				// so golden files are stable across runs.
-				diagGot = normalizeDiagPaths(diagGot, tmp)
-				os.RemoveAll(tmp)
+				if r, ok := precomputed[c.name]; ok {
+					genGot, diagGot = r.gen, r.diag
+				}
 			}
 
 			if single {

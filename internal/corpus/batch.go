@@ -7,7 +7,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
+	"sync"
 )
 
 type renderResult struct {
@@ -24,20 +26,49 @@ func renderBatch(repoRoot string, cases []*caseDoc) (map[string]*renderResult, e
 	tmp := mustTempModule(repoRoot)
 	defer os.RemoveAll(tmp)
 
+	// Step 1: filter renderable cases preserving order.
+	var renderable []*caseDoc
+	for _, c := range cases {
+		if c.renderable() {
+			renderable = append(renderable, c)
+		}
+	}
+
+	// Step 2: run all generate calls concurrently via a bounded worker pool.
+	type genResult struct {
+		gen  []byte
+		diag []byte
+	}
+	results := make([]genResult, len(renderable))
+
+	sem := make(chan struct{}, runtime.NumCPU())
+	var wg sync.WaitGroup
+	for i, c := range renderable {
+		i, c := i, c
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			moduleDir := caseModuleDir(tmp, c)
+			root := caseImportRoot(c)
+			gen, diag := c.generate(moduleDir, root)
+			results[i] = genResult{gen: gen, diag: diag}
+		}()
+	}
+	wg.Wait()
+
+	// Step 3: iterate renderable cases IN ORDER, call writeEntry for those with
+	// empty diag, assign case0/case1/... aliases, and populate res.
 	var imports, dispatch bytes.Buffer
 	built := 0
-	for _, c := range cases {
-		if !c.renderable() {
-			continue
-		}
-		moduleDir := caseModuleDir(tmp, c)
-		root := caseImportRoot(c)
-		gen, diag := c.generate(moduleDir, root)
-		res[c.name] = &renderResult{diagnostics: diag, generated: gen}
-		if len(diag) > 0 {
+	for i, c := range renderable {
+		r := results[i]
+		res[c.name] = &renderResult{diagnostics: r.diag, generated: r.gen}
+		if len(r.diag) > 0 {
 			continue // codegen failed; not buildable
 		}
-		entryPkg, err := c.writeEntry(moduleDir, root)
+		entryPkg, err := c.writeEntry(caseModuleDir(tmp, c), caseImportRoot(c))
 		if err != nil {
 			return nil, fmt.Errorf("case %s: %w", c.name, err)
 		}
