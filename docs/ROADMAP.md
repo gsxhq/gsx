@@ -26,8 +26,8 @@ generator/CLI may use `golang.org/x/tools`.
 control flow (`{ if/for/switch }`), `{{ }}` Go blocks, conditional attributes,
 composable `class`/`style`, comments, `<!DOCTYPE>`, `<!-- -->`, raw-text
 `<script>`/`<style>`, **pipeline `|>` parsing** (`Interp.Stages` / `ExprAttr`
-stages). Public go/ast-parity API; fuzz-hardened (no crashers). 11/12 examples
-parse (see Debts: example 02).
+stages). Public go/ast-parity API; fuzz-hardened (no crashers). 12/12 examples
+parse.
 
 **Runtime** (`gsx`, module root) — `Node`/`Func`/`Raw`, error-threading `Writer`
 with streaming text/attr/URL escapers, class/style compose + pluggable
@@ -172,8 +172,14 @@ attribute-name validation against tag breakout (`validAttrName`), documented
 
 - ⬜ **Pipeline codegen + filters/`std`/`gen`** — designed
   (`2026-06-19-gsx-pipeline-and-extensions-design.md`), not implemented (phase-2 #4).
-- ⬜ **Example 02 `02_text_escaping.gsx`** stays red (`47:35`): a `//` line
-  comment in markup-content position. Separate parser gap; decision pending.
+- ✅ **Example 02 `02_text_escaping.gsx`** — RESOLVED. The `//`-in-markup grammar
+  question is decided per the design (§414): **element content is literal text**,
+  so a bare `//` in content position renders verbatim (it is NOT a comment). The
+  example was violating its own documented model — fixed to use the braced
+  `{/* … */}` content-comment form (comments are tag-interior `//`/`/* */` or
+  braced; content `//` is literal). Printer simplified accordingly (the moot
+  `isLineCommentText` line-comment special-case removed; faithfulness + idempotence
+  re-proven over the corpus).
 - ⬜ **`_gsx`-alias generator-emitted imports** — robust form of the import-shadow
   guard (currently `gsx`/`strconv` are reserved param names as a stopgap).
 - ⬜ **Structured diagnostics** (`internal/diag`: GSXnnnn codes, ranges, JSON) —

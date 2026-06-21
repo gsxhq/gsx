@@ -42,9 +42,9 @@ component Article(bodyHTML string) {
 // you already trust (e.g. from a type-safe router).
 component Links(userURL, trustedURL string) {
 	<div>
-		<a href={userURL}>user-supplied link</a>            // auto-sanitized
-		<a href={gsx.SafeURL(trustedURL)}>trusted link</a>  // opt out of sanitizing
-		// A string literal containing '<' is a Go expression, never markup:
+		<a href={userURL}>user-supplied link</a> {/* auto-sanitized */}
+		<a href={gsx.SafeURL(trustedURL)}>trusted link</a> {/* opt out of sanitizing */}
+		{/* A string literal containing '<' is a Go expression, never markup: */}
 		<span title={"comparisons like a < b are safe here"}>tooltip</span>
 	</div>
 }

@@ -18,7 +18,6 @@ import (
 	goast "go/ast"
 	"go/format"
 	goparser "go/parser"
-	goscanner "go/scanner"
 	gotoken "go/token"
 	"io"
 	"strings"
@@ -119,23 +118,16 @@ func blockLevel(n ast.Markup) bool {
 }
 
 // isBlockList implements the layout contract: a list lays out BLOCK iff it has
-// at least one block-level child AND no surviving *INLINE Text node; otherwise
-// INLINE.
+// at least one block-level child AND no surviving Text node; otherwise INLINE.
 //
-// A surviving Text normally forces INLINE (breaking around it would alter
-// rendering). The one exception is a *line-comment Text* (a Text that ends in an
-// open Go `//` line comment): such a node is terminated by a newline, so it must
-// occupy its own line — it cannot share a physical line with the next sibling
-// (the comment would swallow it). It therefore does NOT force inline and is
-// treated as block-level. See isLineCommentText.
+// Any surviving Text forces INLINE (breaking around it would alter rendering).
+// A markup `//` is ordinary literal text — element content is literal (comments
+// are tag-interior `//`/`/* */` or braced `{/* … */}`), so a Text never carries
+// an "open" line comment that could swallow a sibling. No special case needed.
 func isBlockList(nodes []ast.Markup) bool {
 	hasBlock := false
 	for _, n := range nodes {
-		if t, ok := n.(*ast.Text); ok {
-			if isLineCommentText(t.Value) {
-				hasBlock = true
-				continue
-			}
+		if _, ok := n.(*ast.Text); ok {
 			return false
 		}
 		if blockLevel(n) {
@@ -143,52 +135,6 @@ func isBlockList(nodes []ast.Markup) bool {
 		}
 	}
 	return hasBlock
-}
-
-// isLineCommentText reports whether s's FINAL go/scanner token is a `//` line
-// comment (scanning with ScanComments so a `//` inside a string/rune literal, e.g.
-// a URL "http://x", is never misclassified). A trailing markup comment is
-// line-scoped: a sibling placed after it on the same physical line would be
-// swallowed by the comment on a re-parse, so such a Text must not be block-split
-// above a sibling.
-//
-// SAFETY / why "final token" is the right (conservative) test: Go's automatic
-// semicolon insertion means a comment PRECEDED by content (e.g. `foo // note`)
-// scans with a trailing synthetic `;`, so this returns false there. That is safe:
-// an undetected comment-Text is treated as an ordinary surviving Text, which forces
-// the whole children list onto the INLINE-verbatim path (the comment stays on the
-// parent's single line and re-parses faithfully). So a false negative degrades to
-// inline — it can never place a comment above a sibling. Only a Text that is
-// purely/finally a line comment (e.g. ` // note` after an element) is detected and
-// given its own line. (See the open grammar question: whether a `//` line in markup
-// should be rendered Text at all — same parser gap as example 02.)
-func isLineCommentText(s string) bool {
-	if !strings.Contains(s, "//") {
-		return false
-	}
-	fset := gotoken.NewFileSet()
-	file := fset.AddFile("", fset.Base(), len(s))
-	var sc goscanner.Scanner
-	sc.Init(file, []byte(s), nil, goscanner.ScanComments)
-	lineComment := false
-	for {
-		_, tok, lit := sc.Scan()
-		if tok == gotoken.EOF {
-			break
-		}
-		if tok == gotoken.COMMENT && strings.HasPrefix(lit, "//") {
-			lineComment = true
-		} else {
-			lineComment = false
-		}
-	}
-	return lineComment
-}
-
-// startsWithSpace reports whether s begins with a space or tab (significant
-// inline whitespace preserved by Normalize).
-func startsWithSpace(s string) bool {
-	return len(s) > 0 && (s[0] == ' ' || s[0] == '\t')
 }
 
 // children prints a children list between an already-emitted opener and a
@@ -213,29 +159,12 @@ func (p *printer) children(nodes []ast.Markup, parentDepth int, preserve bool) {
 		}
 		return
 	}
-	prevEmitted := false
+	// A block list never contains a surviving Text (isBlockList rejects any),
+	// so each child is block-level and sits on its own indented line.
 	for _, n := range nodes {
-		// A line-comment Text is appended directly to the previous child's line
-		// (no leading newline/indent) so that any significant leading space it
-		// carries — e.g. `<x/> // note` — is preserved verbatim. On its own line
-		// that edge space would be dropped by re-normalization, breaking
-		// faithfulness and idempotence. When it is the first node and carries a
-		// leading space, it is likewise appended directly after the opener.
-		if t, ok := n.(*ast.Text); ok && isLineCommentText(t.Value) {
-			if prevEmitted || startsWithSpace(t.Value) {
-				p.ws(t.Value)
-			} else {
-				p.ws("\n")
-				p.indent(parentDepth + 1)
-				p.ws(t.Value)
-			}
-			prevEmitted = true
-			continue
-		}
 		p.ws("\n")
 		p.indent(parentDepth + 1)
 		p.markup(n, parentDepth+1)
-		prevEmitted = true
 	}
 	p.ws("\n")
 	p.indent(parentDepth)
