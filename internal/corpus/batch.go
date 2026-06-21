@@ -70,7 +70,6 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 	}
 	states := make([]*caseState, len(candidates))
 	var allPkgDirs []string
-	dirToCase := map[string]*caseState{}
 
 	for i, c := range candidates {
 		cs := &caseState{c: c}
@@ -79,7 +78,6 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 			absDir := filepath.Join(moduleDir, filepath.FromSlash(relDir))
 			cs.pkgDirs = append(cs.pkgDirs, absDir)
 			allPkgDirs = append(allPkgDirs, absDir)
-			dirToCase[absDir] = cs
 		}
 		states[i] = cs
 	}
@@ -183,10 +181,6 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 	// Step 5: build and run all renderable cases with a single `go run`.
 	var imports, dispatch bytes.Buffer
 	built := 0
-	type renderEntry struct {
-		name string
-	}
-	var renderOrder []renderEntry
 
 	for _, c := range candidates {
 		if !c.renderable() {
@@ -207,7 +201,6 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 		fmt.Fprintf(&imports, "\t%s %q\n", alias, entryPkg)
 		fmt.Fprintf(&dispatch, "\tos.Stdout.WriteString(%q)\n\t_ = %s.GsxEntryRender(ctx, os.Stdout)\n",
 			caseMarkerPrefix+c.name+caseMarkerSuffix+"\n", alias)
-		renderOrder = append(renderOrder, renderEntry{name: c.name})
 	}
 
 	if built > 0 {
