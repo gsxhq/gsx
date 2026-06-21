@@ -55,7 +55,6 @@ fallthrough/call_site_not_eligible	diag(error)
 fallthrough/call_site_root_wins	diag render
 fallthrough/composed_class_merge	diag render
 fallthrough/empty_bag_noop	diag render
-fallthrough/manual_auto_still_works	diag render
 fallthrough/manual_nullary_method	diag render
 fallthrough/manual_placement	diag render
 fallthrough/manual_without	diag render
@@ -127,4 +126,4 @@ security/js_rejected_onclick	diag(error)
 security/js_rejected_style	diag(error)
 security/url_blocked	diag render
 security/xss	diag render
-TOTAL: 129 cases (render: 87, error: 23, gen-pinned: 0)
+TOTAL: 128 cases (render: 86, error: 23, gen-pinned: 0)
