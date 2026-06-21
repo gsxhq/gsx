@@ -54,7 +54,6 @@ func (c *caseDoc) astAndParserDiag() (astDump []byte, parserDiag []byte, single 
 // writes the .x.go next to its source, and returns concatenated generated
 // source + codegen diagnostics.
 func (c *caseDoc) generate(moduleDir, importRoot string) (genConcat []byte, diag []byte) {
-	var d bytes.Buffer
 	for name, data := range c.files {
 		if name == "go.mod" {
 			continue
@@ -66,28 +65,58 @@ func (c *caseDoc) generate(moduleDir, importRoot string) (genConcat []byte, diag
 		os.MkdirAll(filepath.Dir(dst), 0o755)
 		os.WriteFile(dst, data, 0o644)
 	}
-	var parts []string
-	for _, dir := range c.packageDirs() {
-		pkgDir := filepath.Join(moduleDir, filepath.FromSlash(dir))
-		gen, err := codegen.GeneratePackage(pkgDir)
-		if err != nil {
-			d.WriteString(err.Error())
-			d.WriteByte('\n')
-			continue
+
+	// Generate each package to a fixpoint. A package that references another
+	// case package's components can only be generated once that package's
+	// .x.go exists on disk, and packageDirs() order is not dependency order.
+	// Re-attempt failing packages until a pass makes no progress, then report
+	// the residual errors.
+	genByDir := map[string][]byte{}
+	dirs := c.packageDirs()
+	remaining := dirs
+	for len(remaining) > 0 {
+		var failed []string
+		var errs bytes.Buffer
+		for _, dir := range remaining {
+			pkgDir := filepath.Join(moduleDir, filepath.FromSlash(dir))
+			gen, err := codegen.GeneratePackage(pkgDir)
+			if err != nil {
+				failed = append(failed, dir)
+				errs.WriteString(err.Error())
+				errs.WriteByte('\n')
+				continue
+			}
+			gsxPaths := make([]string, 0, len(gen))
+			for p := range gen {
+				gsxPaths = append(gsxPaths, p)
+			}
+			sort.Strings(gsxPaths)
+			var parts []string
+			for _, p := range gsxPaths {
+				out := rewriteImportPath(gen[p], c.modulePath, importRoot) // no-op when modulePath==""
+				base := strings.TrimSuffix(filepath.Base(p), ".gsx")
+				os.WriteFile(filepath.Join(pkgDir, base+".x.go"), out, 0o644)
+				parts = append(parts, string(out))
+			}
+			genByDir[dir] = []byte(strings.Join(parts, ""))
 		}
-		gsxPaths := make([]string, 0, len(gen))
-		for p := range gen {
-			gsxPaths = append(gsxPaths, p)
+		if len(failed) == len(remaining) {
+			// No progress this pass — genuine errors. Report and stop.
+			return concatByDir(genByDir, dirs), errs.Bytes()
 		}
-		sort.Strings(gsxPaths)
-		for _, p := range gsxPaths {
-			out := rewriteImportPath(gen[p], c.modulePath, importRoot) // no-op when modulePath==""
-			base := strings.TrimSuffix(filepath.Base(p), ".gsx")
-			os.WriteFile(filepath.Join(pkgDir, base+".x.go"), out, 0o644)
-			parts = append(parts, string(out))
-		}
+		remaining = failed
 	}
-	return []byte(strings.Join(parts, "")), d.Bytes()
+	return concatByDir(genByDir, dirs), nil
+}
+
+// concatByDir joins per-directory generated output in the given (sorted) dir
+// order for deterministic golden output.
+func concatByDir(m map[string][]byte, dirs []string) []byte {
+	var b bytes.Buffer
+	for _, d := range dirs {
+		b.Write(m[d])
+	}
+	return b.Bytes()
 }
 
 // packageDirs returns the distinct directories (relative to module root)

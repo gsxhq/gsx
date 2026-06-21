@@ -32,13 +32,7 @@ func renderBatch(repoRoot string, cases []*caseDoc) (map[string]*renderResult, e
 		}
 		moduleDir := caseModuleDir(tmp, c)
 		root := caseImportRoot(c)
-		gen, diag := c.generate(moduleDir, root) // the single codegen for renderables
-		if len(diag) > 0 && c.multiPkg {
-			// Multi-package cases may have inter-package dependencies; a first pass
-			// writes leaf-package .x.go files to disk, enabling a second pass to
-			// resolve them when generating dependent packages.
-			gen, diag = c.generate(moduleDir, root)
-		}
+		gen, diag := c.generate(moduleDir, root)
 		res[c.name] = &renderResult{diagnostics: diag, generated: gen}
 		if len(diag) > 0 {
 			continue // codegen failed; not buildable
