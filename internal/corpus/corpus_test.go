@@ -63,13 +63,13 @@ func TestCorpus(t *testing.T) {
 	for _, c := range cases {
 		c := c
 		_, parserDiag, single := c.astAndParserDiag()
+		if single && len(parserDiag) > 0 {
+			continue
+		}
 		if c.renderable() {
 			continue
 		}
 		if single && hasAstGolden(c) {
-			continue
-		}
-		if single && len(parserDiag) > 0 {
 			continue
 		}
 		// This case hits the default branch — pre-generate it.
