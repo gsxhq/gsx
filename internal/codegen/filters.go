@@ -3,6 +3,7 @@ package codegen
 import (
 	"fmt"
 	"go/types"
+	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -142,6 +143,34 @@ func loadFilterTableMulti(dir string, pkgPaths []string) (filterTable, error) {
 	if len(pkgPaths) == 0 {
 		return filterTable{}, nil
 	}
+	harvested, err := harvestFilters(dir, pkgPaths)
+	if err != nil {
+		return nil, err
+	}
+	table := filterTable{}
+	for name, entries := range harvested {
+		// Last-wins: the LAST entry for a template-level name (latest package in
+		// pkgPaths order) is the winner. harvestFilters preserves package order
+		// AND, within a package, scope.Names() order, matching the original
+		// in-place table overwrite.
+		table[name] = entries[len(entries)-1]
+	}
+	return table, nil
+}
+
+// harvestFilters type-checks every filter package in pkgPaths (one
+// packages.Load over all patterns) and harvests their exported funcs by
+// contract into a name→entries map. Entries for a given template-level name are
+// ordered by package (pkgPaths order) and, within a package, by scope name
+// order — so the LAST entry is the last-wins winner and the earlier entries are
+// the ones it shadows. Each entry records its owning package's reserved alias
+// (see filterAliases) and import path. dir anchors the load against the
+// module's go.mod (incl. any test replace directive), mirroring resolveTypesPkg.
+//
+// This is the single harvest seam shared by loadFilterTableMulti (winner-only
+// table) and ResolveFilters (full table + shadows), so both see the exact same
+// precedence.
+func harvestFilters(dir string, pkgPaths []string) (map[string][]filterEntry, error) {
 	aliases := filterAliases(pkgPaths)
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedTypes |
@@ -160,7 +189,7 @@ func loadFilterTableMulti(dir string, pkgPaths []string) (filterTable, error) {
 		byPath[pkg.PkgPath] = pkg
 	}
 
-	table := filterTable{}
+	harvested := map[string][]filterEntry{}
 	for _, path := range pkgPaths {
 		pkg, ok := byPath[path]
 		if !ok {
@@ -191,17 +220,55 @@ func loadFilterTableMulti(dir string, pkgPaths []string) (filterTable, error) {
 			if !ok {
 				continue
 			}
-			// Last-wins: a later package in pkgPaths overwrites an earlier entry
-			// with the same template-level name.
-			table[lowerFirst(name)] = filterEntry{
+			tname := lowerFirst(name)
+			harvested[tname] = append(harvested[tname], filterEntry{
 				funcName: name,
 				kind:     kind,
 				alias:    alias,
 				pkgPath:  path,
-			}
+			})
 		}
 	}
-	return table, nil
+	return harvested, nil
+}
+
+// FilterInfo describes one resolved pipeline filter, for `gsx info`.
+type FilterInfo struct {
+	Name    string   // template name (first-rune-lowered), e.g. "upper"
+	Pkg     string   // winning package import path
+	Func    string   // exported Go func name, e.g. "Upper"
+	Param   bool     // parameterized func(Args...) func(T) R; else bare func(T) R
+	Shadows []string // import paths of EARLIER same-named filters this one overrides
+}
+
+// ResolveFilters harvests the filter packages (in order, last-wins) and returns
+// the resolved table sorted by Name, recording which earlier same-named filters
+// each winner shadows. An empty filterPkgs defaults to [stdImportPath], matching
+// GeneratePackageWithFilters. dir anchors the go/packages load against the
+// module's go.mod.
+func ResolveFilters(dir string, filterPkgs []string) ([]FilterInfo, error) {
+	filterPkgs = dedupFilterPkgs(filterPkgs)
+	harvested, err := harvestFilters(dir, filterPkgs)
+	if err != nil {
+		return nil, err
+	}
+	infos := make([]FilterInfo, 0, len(harvested))
+	for name, entries := range harvested {
+		winner := entries[len(entries)-1]
+		var shadows []string
+		for _, e := range entries[:len(entries)-1] {
+			shadows = append(shadows, e.pkgPath)
+		}
+		infos = append(infos, FilterInfo{
+			Name:    name,
+			Pkg:     winner.pkgPath,
+			Func:    winner.funcName,
+			Param:   winner.kind == filterParam,
+			Shadows: shadows,
+		})
+	}
+	sort.Slice(infos, func(i, j int) bool { return infos[i].Name < infos[j].Name })
+	return infos, nil
 }
 
 // classifyFilter inspects a func signature against the filter contract. It
