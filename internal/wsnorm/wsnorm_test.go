@@ -285,3 +285,40 @@ func TestNormalizeIdempotentAST(t *testing.T) {
 		})
 	}
 }
+
+// --- Coverage: paths correct but previously untested (per review) ---
+
+// TestSwitchBodyNormalized proves SwitchMarkup case AND default bodies are walked.
+func TestSwitchBodyNormalized(t *testing.T) {
+	f := parse(t, "{ switch n {\ncase 1:\n  <p>one   {n}</p>\ndefault:\n  <p>many   {n}</p>\n} }")
+	Normalize(f)
+	got := collectText(f)
+	// Each branch's indentation drops; "one   "/"many   " collapse to one space.
+	want := []string{"one ", "many "}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("text nodes = %#v, want %#v", got, want)
+	}
+}
+
+// TestCondAttrNestedSlotNormalized proves normalizeAttrs recurses a CondAttr's
+// branches to reach a MarkupAttr slot, which is then normalized.
+func TestCondAttrNestedSlotNormalized(t *testing.T) {
+	f := parse(t, "<Panel { if on { header={ <h1>\n  Hi \n</h1> } } }/>")
+	Normalize(f)
+	got := collectText(f)
+	want := []string{"Hi"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("text nodes = %#v, want %#v", got, want)
+	}
+}
+
+// TestPreserveTagUppercase proves isPreserveTag is case-insensitive (<PRE>).
+func TestPreserveTagUppercase(t *testing.T) {
+	f := parse(t, "<PRE>  a\n  b</PRE>")
+	Normalize(f)
+	got := collectText(f)
+	want := []string{"  a\n  b"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("text nodes = %#v, want %#v", got, want)
+	}
+}
