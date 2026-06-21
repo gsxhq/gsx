@@ -107,6 +107,10 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 	switch cmd {
 	case "generate":
 		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, cfg.filterPkgs)
+	case "info":
+		// Resolve against cwd: -C (handled above) has already chdir'd, so "."
+		// anchors the go/packages load at the user's chosen directory.
+		return runInfo(stdout, stderr, ".", cfg.filterPkgs)
 	case "version":
 		fmt.Fprintln(stdout, version())
 		return 0
@@ -176,6 +180,7 @@ Usage:
 
 Commands:
 	generate [paths...]   generate .x.go from .gsx files (default: .)
+	info                  list the resolved pipeline filters
 	version               print the gsx version
 	help                  show this help
 
