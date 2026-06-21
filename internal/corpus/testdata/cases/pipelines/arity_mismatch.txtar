@@ -1,0 +1,6 @@
+-- input.gsx --
+package views
+
+component Hi(name string) { <p>{ name |> upper(2) }</p> }
+-- diagnostics.golden --
+codegen: filter "upper" takes no arguments

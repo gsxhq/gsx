@@ -1,0 +1,15 @@
+-- helpers.go --
+package views
+
+func greet(name string) (string, error) { return "Hi " + name, nil }
+-- input.gsx --
+package views
+
+component Card(name string) {
+	<p>{greet(name)}</p>
+}
+-- invoke --
+Card(CardProps{Name: "Al"})
+-- diagnostics.golden --
+-- render.golden --
+<p>Hi Al</p>

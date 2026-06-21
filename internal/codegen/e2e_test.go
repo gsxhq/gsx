@@ -373,26 +373,6 @@ component Greet() {
 }
 
 
-// TestRenderTryUnwrap exercises the (T, error) auto-unwrap: an interpolation of
-// a func returning (string, error) is lowered to a temp + error-propagate, then
-// the value is rendered by its category.
-func TestRenderTryUnwrap(t *testing.T) {
-	files := map[string]string{
-		"helpers.go": `package views
-
-func greet(name string) (string, error) { return "Hi " + name, nil }
-`,
-		"views.gsx": `package views
-
-component Card(name string) {
-	<p>{greet(name)}</p>
-}
-`,
-	}
-	got := renderPackage(t, files, `p.Card(p.CardProps{Name: "Al"})`)
-	assertHTMLEqual(t, got, "<p>Hi Al</p>")
-}
-
 func TestRenderForLoop(t *testing.T) {
 	files := map[string]string{
 		"model.go": `package views
@@ -642,93 +622,6 @@ component Profile(user User) {
 	assertHTMLEqual(t, got, `<div>Alice (30) <footer>(c) gsx</footer></div>`)
 }
 
-func TestRenderPipelineBare(t *testing.T) {
-	files := map[string]string{"views.gsx": `package views
-
-component Hi(name string) { <p>{ name |> upper }</p> }
-`}
-	got := renderPackage(t, files, `p.Hi(p.HiProps{Name: "ada"})`)
-	assertHTMLEqual(t, got, `<p>ADA</p>`)
-}
-
-func TestRenderPipelineChain(t *testing.T) {
-	files := map[string]string{"views.gsx": `package views
-
-component Hi(name string) { <p>{ name |> trim |> upper }</p> }
-`}
-	got := renderPackage(t, files, `p.Hi(p.HiProps{Name: "  ada  "})`)
-	assertHTMLEqual(t, got, `<p>ADA</p>`)
-}
-
-func TestRenderPipelineParam(t *testing.T) {
-	files := map[string]string{"views.gsx": `package views
-
-component Hi(s string) { <p>{ s |> truncate(3) }</p> }
-`}
-	got := renderPackage(t, files, `p.Hi(p.HiProps{S: "abcdef"})`)
-	assertHTMLEqual(t, got, `<p>abc</p>`)
-}
-
-func TestRenderPipelineJoin(t *testing.T) {
-	files := map[string]string{"views.gsx": `package views
-
-component Tags(tags []string) { <p>{ tags |> join(", ") }</p> }
-`}
-	got := renderPackage(t, files, `p.Tags(p.TagsProps{Tags: []string{"a","b","c"}})`)
-	assertHTMLEqual(t, got, `<p>a, b, c</p>`)
-}
-
-func TestRenderPipelineParamArg(t *testing.T) {
-	// A component param referenced ONLY inside a filter argument must be bound as
-	// a local (the lowered _gsxstd.Join(sep)(...) references it verbatim).
-	files := map[string]string{"views.gsx": `package views
-
-component Tags(tags []string, sep string) { <p>{ tags |> join(sep) }</p> }
-`}
-	got := renderPackage(t, files, `p.Tags(p.TagsProps{Tags: []string{"a","b"}, Sep: " / "})`)
-	assertHTMLEqual(t, got, `<p>a / b</p>`)
-}
-
-func TestRenderPipelineLoopVar(t *testing.T) {
-	files := map[string]string{"views.gsx": `package views
-
-component L(xs []string) { <ul>{ for _, x := range xs { <li>{ x |> upper }</li> } }</ul> }
-`}
-	got := renderPackage(t, files, `p.L(p.LProps{Xs: []string{"a","b"}})`)
-	assertHTMLEqual(t, got, `<ul><li>A</li><li>B</li></ul>`)
-}
-
-func TestPipelineUnknownFilter(t *testing.T) {
-	files := map[string]string{"views.gsx": `package views
-
-component Hi(name string) { <p>{ name |> bogus }</p> }
-`}
-	if err := generatePackageErr(t, files); err == nil || !strings.Contains(err.Error(), "bogus") {
-		t.Fatalf("expected unknown-filter error naming bogus, got: %v", err)
-	}
-}
-
-func TestPipelineArityMismatch(t *testing.T) {
-	// bare filter given args
-	files := map[string]string{"views.gsx": `package views
-
-component Hi(name string) { <p>{ name |> upper(2) }</p> }
-`}
-	if err := generatePackageErr(t, files); err == nil || !strings.Contains(err.Error(), "upper") {
-		t.Fatalf("expected arity error naming upper, got: %v", err)
-	}
-}
-
-func TestPipelineTryRejected(t *testing.T) {
-	files := map[string]string{"views.gsx": `package views
-
-component Hi(name string) { <p>{ name |> upper? }</p> }
-`}
-	if err := generatePackageErr(t, files); err == nil || !strings.Contains(err.Error(), "?") {
-		t.Fatalf("expected ?-deferred error, got: %v", err)
-	}
-}
-
 func TestRenderIf(t *testing.T) {
 	files := map[string]string{
 		"views.gsx": `package views
@@ -784,75 +677,6 @@ component Chip(first string, last string) {
 	}
 	got := renderPackage(t, files, `p.Chip(p.ChipProps{First: "Ada", Last: "Lovelace"})`)
 	assertHTMLEqual(t, got, "<div><span>Ada Lovelace</span></div>")
-}
-
-func TestRenderAttrPipelinePlain(t *testing.T) {
-	files := map[string]string{"views.gsx": `package views
-
-component C(name string) { <div data-x={ name |> upper }>y</div> }
-`}
-	got := renderPackage(t, files, `p.C(p.CProps{Name: "ada"})`)
-	assertHTMLEqual(t, got, `<div data-x="ADA">y</div>`)
-}
-
-func TestRenderAttrPipelineEscaped(t *testing.T) {
-	// the pipeline result is still attr-escaped (no breakout)
-	files := map[string]string{"views.gsx": `package views
-
-component C(name string) { <div data-x={ name |> trim }>y</div> }
-`}
-	got := renderPackage(t, files, `p.C(p.CProps{Name: "  a\"b  "})`)
-	assertHTMLEqual(t, got, `<div data-x="a&#34;b">y</div>`)
-}
-
-func TestRenderAttrPipelineURL(t *testing.T) {
-	// URL context: result routed through gw.URL (scheme allow-list + escape)
-	files := map[string]string{"views.gsx": `package views
-
-component C(u string) { <a href={ u |> trim }>x</a> }
-`}
-	got := renderPackage(t, files, `p.C(p.CProps{U: "  javascript:alert(1)  "})`)
-	assertHTMLEqual(t, got, `<a href="about:invalid#gsx">x</a>`)
-}
-
-func TestRenderAttrPipelineURLOK(t *testing.T) {
-	files := map[string]string{"views.gsx": `package views
-
-component C(u string) { <a href={ u |> trim }>x</a> }
-`}
-	got := renderPackage(t, files, `p.C(p.CProps{U: "  /p?q=a&b  "})`)
-	assertHTMLEqual(t, got, `<a href="/p?q=a&b">x</a>`)
-}
-
-func TestAttrPipelineJSRejected(t *testing.T) {
-	// JS context rejects even with a pipeline (pipeline does not unlock it)
-	files := map[string]string{"views.gsx": `package views
-
-component C(x string) { <div onclick={ x |> upper }>y</div> }
-`}
-	if err := generatePackageErr(t, files); err == nil || !strings.Contains(err.Error(), "context") {
-		t.Fatalf("expected JS-context rejection, got: %v", err)
-	}
-}
-
-func TestAttrPipelineUnknownFilter(t *testing.T) {
-	files := map[string]string{"views.gsx": `package views
-
-component C(x string) { <div data-x={ x |> bogus }>y</div> }
-`}
-	if err := generatePackageErr(t, files); err == nil || !strings.Contains(err.Error(), "bogus") {
-		t.Fatalf("expected unknown-filter error, got: %v", err)
-	}
-}
-
-func TestAttrPipelineTryStageRejected(t *testing.T) {
-	files := map[string]string{"views.gsx": `package views
-
-component C(x string) { <div data-x={ x |> upper? }>y</div> }
-`}
-	if err := generatePackageErr(t, files); err == nil {
-		t.Fatalf("expected ?-stage deferred error, got nil")
-	}
 }
 
 // TestRenderChildComponentProps proves a parent passes props (from attributes)

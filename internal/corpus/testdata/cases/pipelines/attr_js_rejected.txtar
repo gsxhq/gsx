@@ -1,0 +1,6 @@
+-- input.gsx --
+package views
+
+component C(x string) { <div onclick={ x |> upper }>y</div> }
+-- diagnostics.golden --
+cases/pipelines_attr_js_rejected/input.gsx: codegen: expr value in JS/event-handler context ("onclick") is unsafe; needs a safe type via `|> js` (not available yet) — use a static value
