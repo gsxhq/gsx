@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -108,11 +109,19 @@ func TestGeneratePackages_ErrorIsolation(t *testing.T) {
 		t.Fatalf("GeneratePackages returned unexpected top-level error: %v", err)
 	}
 
-	if res := results[dirA]; res.Err != nil {
-		t.Errorf("dir a: unexpected error: %v", res.Err)
-	}
-	if res := results[dirB]; res.Err != nil {
-		t.Errorf("dir b: unexpected error: %v", res.Err)
+	for _, tc := range []struct{ name, dir string }{{"a", dirA}, {"b", dirB}} {
+		res := results[tc.dir]
+		if res == nil {
+			t.Errorf("dir %s: missing result", tc.name)
+			continue
+		}
+		if res.Err != nil {
+			t.Errorf("dir %s: unexpected error: %v", tc.name, res.Err)
+			continue
+		}
+		if len(res.Files) == 0 {
+			t.Errorf("dir %s: no files generated (silent zero-output failure)", tc.name)
+		}
 	}
 	if res := results[dirC]; res.Err == nil {
 		t.Errorf("dir c: expected error for undefined identifier, got nil")
@@ -159,4 +168,45 @@ func TestGeneratePackages_CrossPackage(t *testing.T) {
 			t.Errorf("dir %s: no files generated", dir)
 		}
 	}
+}
+
+// TestGeneratePackages_NonCanonicalDir verifies that non-canonical dir paths
+// (containing redundant "/./") are normalized and still produce output. Before
+// Fix 1, such a path would never match the go/packages-returned absolute dir,
+// causing a silent zero-output result.
+func TestGeneratePackages_NonCanonicalDir(t *testing.T) {
+	tmp := tempModule(t, "gsxbatch")
+
+	dirA := makeSubPkg(t, tmp, "a",
+		"package views\n\ncomponent Hello(name string) {\n\t<p>{name}</p>\n}\n",
+	)
+
+	// Construct a non-canonical path via a redundant "/./".
+	nonCanonical := strings.Join([]string{tmp, ".", "a"}, string(filepath.Separator))
+
+	results, err := GeneratePackages(tmp, []string{nonCanonical})
+	if err != nil {
+		t.Fatalf("GeneratePackages: %v", err)
+	}
+
+	// The result must be keyed by the normalized (canonical) absolute path.
+	res, ok := results[dirA]
+	if !ok {
+		t.Fatalf("result not found under canonical key %s; keys returned: %v", dirA, mapKeys(results))
+	}
+	if res.Err != nil {
+		t.Errorf("unexpected error: %v", res.Err)
+	}
+	if len(res.Files) == 0 {
+		t.Errorf("no files generated for non-canonical dir input")
+	}
+}
+
+// mapKeys returns the keys of a map[string]*PackageResult for test diagnostics.
+func mapKeys(m map[string]*PackageResult) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }

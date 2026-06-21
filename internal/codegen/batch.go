@@ -25,16 +25,25 @@ type PackageResult struct {
 // types for ALL packages with a SINGLE go/packages load (the shared dependency
 // graph is resolved once), and loads the filter table once. A per-package error
 // (parse or type-resolution) is recorded in that dir's PackageResult.Err without
-// failing the others. The returned map is keyed by the input dir (verbatim).
+// failing the others. The returned map is keyed by the normalized absolute dir.
 func GeneratePackages(moduleDir string, dirs []string) (map[string]*PackageResult, error) {
+	// Normalize each input dir to an absolute, clean path. If Abs fails for a
+	// dir, record the error keyed by the original string and skip it.
 	result := make(map[string]*PackageResult, len(dirs))
+	absDirs := make([]string, 0, len(dirs))
 	for _, dir := range dirs {
-		result[dir] = &PackageResult{Files: map[string][]byte{}}
+		abs, err := filepath.Abs(dir)
+		if err != nil {
+			result[dir] = &PackageResult{Err: fmt.Errorf("codegen: abs(%s): %w", dir, err)}
+			continue
+		}
+		result[abs] = &PackageResult{Files: map[string][]byte{}}
+		absDirs = append(absDirs, abs)
 	}
 
 	// Build a set of included dirs for fast lookup.
-	dirSet := make(map[string]bool, len(dirs))
-	for _, dir := range dirs {
+	dirSet := make(map[string]bool, len(absDirs))
+	for _, dir := range absDirs {
 		dirSet[dir] = true
 	}
 
@@ -42,8 +51,8 @@ func GeneratePackages(moduleDir string, dirs []string) (map[string]*PackageResul
 	fset := token.NewFileSet()
 
 	// Step 1: parse .gsx files per dir. Exclude dirs with parse errors.
-	filesByDir := make(map[string]map[string]*gsxast.File, len(dirs))
-	for _, dir := range dirs {
+	filesByDir := make(map[string]map[string]*gsxast.File, len(absDirs))
+	for _, dir := range absDirs {
 		matches, err := filepath.Glob(filepath.Join(dir, "*.gsx"))
 		if err != nil {
 			result[dir].Err = err
@@ -73,8 +82,8 @@ func GeneratePackages(moduleDir string, dirs []string) (map[string]*PackageResul
 
 	// Step 2: derive propFields per dir (MUST stay per-dir; type-name collisions
 	// across packages mean we can never merge them).
-	propFieldsByDir := make(map[string]map[string]map[string]bool, len(dirs))
-	for _, dir := range dirs {
+	propFieldsByDir := make(map[string]map[string]map[string]bool, len(absDirs))
+	for _, dir := range absDirs {
 		files, ok := filesByDir[dir]
 		if !ok {
 			continue // already errored
@@ -98,10 +107,8 @@ func GeneratePackages(moduleDir string, dirs []string) (map[string]*PackageResul
 	overlay := map[string][]byte{}
 	// skelCompsByPath maps absXpath → slice of *gsxast.Component (from buildSkeleton).
 	skelCompsByPath := map[string][]*gsxast.Component{}
-	// dirByXpath maps absXpath → dir (for post-load harvest routing).
-	dirByXpath := map[string]string{}
 
-	for _, dir := range dirs {
+	for _, dir := range absDirs {
 		files, ok := filesByDir[dir]
 		if !ok {
 			continue
@@ -128,7 +135,6 @@ func GeneratePackages(moduleDir string, dirs []string) (map[string]*PackageResul
 			absXpath := filepath.Join(dir, base+".x.go")
 			overlay[absXpath] = []byte(skel)
 			skelCompsByPath[absXpath] = comps
-			dirByXpath[absXpath] = dir
 		}
 		if skeletonErr {
 			continue
@@ -205,7 +211,7 @@ func GeneratePackages(moduleDir string, dirs []string) (map[string]*PackageResul
 	}
 
 	// Step 7: generateFile for each included dir.
-	for _, dir := range dirs {
+	for _, dir := range absDirs {
 		files, ok := filesByDir[dir]
 		if !ok {
 			continue // excluded
