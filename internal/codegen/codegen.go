@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/wsnorm"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
@@ -59,6 +60,10 @@ func GeneratePackageWithFilters(dir string, filterPkgs []string) (map[string][]b
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", m, err)
 		}
+		// Apply the JSX whitespace model before type resolution + emit, so cosmetic
+		// indentation is not rendered (the parser stays lossless; wsnorm is the one
+		// shared pass — mirror this in batch.go's GeneratePackages).
+		wsnorm.Normalize(f)
 		files[m] = f
 	}
 
