@@ -139,11 +139,14 @@ func TestRunUnknownCommand(t *testing.T) {
 	}
 }
 
-// TestRunDeferredCommand proves a deferred command (fmt) is treated as unknown.
-func TestRunDeferredCommand(t *testing.T) {
-	code, _, errb := runCapture(t, []string{"fmt"})
-	if code != 2 {
-		t.Fatalf("expected exit 2 for deferred command, got %d; stderr=%q", code, errb)
+// TestRunFmtDispatch proves the `fmt` command is wired into run: dispatching
+// `fmt` over an empty directory (via -C) is a recognized command that succeeds
+// (exit 0) rather than the unknown-command exit 2.
+func TestRunFmtDispatch(t *testing.T) {
+	dir := t.TempDir()
+	code, _, errb := runCapture(t, []string{"-C", dir, "fmt"})
+	if code != 0 {
+		t.Fatalf("expected exit 0 for fmt over empty dir, got %d; stderr=%q", code, errb)
 	}
 }
 
