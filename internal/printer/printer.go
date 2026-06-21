@@ -129,12 +129,23 @@ func isBlockList(nodes []ast.Markup) bool {
 	return hasBlock
 }
 
-// isLineCommentText reports whether s, as gsx markup text, ends in an open Go
-// `//` line comment — i.e. a `//` that is not inside a string/rune literal and
-// has no terminating newline. Such text is line-scoped: anything placed after it
-// on the same physical line would be swallowed by the comment on a re-parse, so
-// the printer must give it its own line. Detected with go/scanner so that `//`
-// inside a string (e.g. a URL "http://x") is not misclassified.
+// isLineCommentText reports whether s's FINAL go/scanner token is a `//` line
+// comment (scanning with ScanComments so a `//` inside a string/rune literal, e.g.
+// a URL "http://x", is never misclassified). A trailing markup comment is
+// line-scoped: a sibling placed after it on the same physical line would be
+// swallowed by the comment on a re-parse, so such a Text must not be block-split
+// above a sibling.
+//
+// SAFETY / why "final token" is the right (conservative) test: Go's automatic
+// semicolon insertion means a comment PRECEDED by content (e.g. `foo // note`)
+// scans with a trailing synthetic `;`, so this returns false there. That is safe:
+// an undetected comment-Text is treated as an ordinary surviving Text, which forces
+// the whole children list onto the INLINE-verbatim path (the comment stays on the
+// parent's single line and re-parses faithfully). So a false negative degrades to
+// inline — it can never place a comment above a sibling. Only a Text that is
+// purely/finally a line comment (e.g. ` // note` after an element) is detected and
+// given its own line. (See the open grammar question: whether a `//` line in markup
+// should be rendered Text at all — same parser gap as example 02.)
 func isLineCommentText(s string) bool {
 	if !strings.Contains(s, "//") {
 		return false
