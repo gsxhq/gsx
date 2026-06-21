@@ -1,0 +1,25 @@
+-- input.gsx --
+package views
+
+component Button(variant string) {
+	<button type="button" class={ "btn", variantClass(variant) }>{children}</button>
+}
+
+component Toolbar() {
+	<div><Button variant="primary" class="w-full" data-test="save" hx-post="/save" @click="go()">Save</Button></div>
+}
+
+component Field(label string) {
+	<div class="field"><label>{label}</label><input class="control" {...attrs}/></div>
+}
+
+component LoginForm() {
+	<form><Field label="Email" name="email" required hx-get="/check-email"/></form>
+}
+
+func variantClass(v string) string { return "btn-" + v }
+-- invoke --
+LoginForm(LoginFormProps{})
+-- diagnostics.golden --
+-- render.golden --
+<form><div class="field"><label>Email</label><input class="control" hx-get="/check-email" name="email" required/></div></form>

@@ -1,0 +1,11 @@
+-- input.gsx --
+package views
+
+component Box(active bool) {
+	<button { if active { id="real" } }>x</button>
+}
+-- invoke --
+Box(BoxProps{Active: true})
+-- diagnostics.golden --
+-- render.golden --
+<button id="real">x</button>

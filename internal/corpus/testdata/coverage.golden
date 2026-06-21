@@ -12,6 +12,9 @@ class/composable_on	diag render
 class/escaping	diag render
 class/spread	diag render
 class/style_rejected	diag(error)
+codegen-shape/example12_form	diag render
+codegen-shape/example12_toolbar	diag render
+codegen-shape/greeting	diag gen render
 components/child_class_attr_error	diag(error)
 components/child_hyphen_attr_fallthrough	diag render
 components/child_no_props	diag render
@@ -58,18 +61,20 @@ fallthrough/call_site_button	diag render
 fallthrough/call_site_class_merge	diag render
 fallthrough/call_site_declared_vs_undeclared	diag render
 fallthrough/call_site_method_fallthrough	diag render
-fallthrough/call_site_no_fallthrough_unchanged	diag render
+fallthrough/call_site_no_fallthrough_unchanged	diag gen render
 fallthrough/call_site_non_identifier	diag render
 fallthrough/call_site_not_eligible	diag(error)
 fallthrough/call_site_root_wins	diag render
 fallthrough/composed_class_merge	diag render
+fallthrough/cond_attr_root_not_eligible	diag(error)
+fallthrough/cond_attr_root_standalone	diag render
 fallthrough/empty_bag_noop	diag render
 fallthrough/manual_nullary_method	diag render
 fallthrough/manual_placement	diag render
 fallthrough/manual_without	diag render
 fallthrough/no_class_empty_bag	diag render
 fallthrough/no_class_root_with_bag	diag render
-fallthrough/not_eligible_no_field	diag render
+fallthrough/not_eligible_no_field	diag gen render
 fallthrough/reserved_param_attrs	diag(error)
 fallthrough/root_wins	diag render
 fallthrough/static_class_merge	diag render
@@ -136,7 +141,8 @@ security/js_rejected_style	diag(error)
 security/url_blocked	diag render
 security/xss	diag render
 xpkg/cross_file_and_component	diag render
+xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 141 cases (render: 92, error: 30, gen-pinned: 0)
+TOTAL: 147 cases (render: 97, error: 31, gen-pinned: 3)
