@@ -1,0 +1,13 @@
+-- input.gsx --
+package views
+
+type A struct{ S string }
+type B struct{ N int }
+
+component (a A) Row() { <i>{a.S}</i> }
+component (b B) Row() { <b>{b.N}</b> }
+-- invoke --
+(B{N: 7}).Row()
+-- diagnostics.golden --
+-- render.golden --
+<b>7</b>

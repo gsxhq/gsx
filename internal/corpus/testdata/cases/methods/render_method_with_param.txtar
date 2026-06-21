@@ -1,0 +1,16 @@
+-- input.gsx --
+package views
+
+type UsersPage struct {
+	Title string
+	Sort  string
+}
+
+component (p UsersPage) Grid(sort string) {
+	<div>{sort}-{p.Title}</div>
+}
+-- invoke --
+(UsersPage{Title: "T"}).Grid(UsersPageGridProps{Sort: "name"})
+-- diagnostics.golden --
+-- render.golden --
+<div>name-T</div>

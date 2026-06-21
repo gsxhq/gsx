@@ -49,6 +49,20 @@ interpolation/field_access	diag render
 interpolation/interp_types	diag render
 interpolation/mixed_chunk	diag render
 interpolation/probe_multi_value_expr	diag render
+methods/method_only_file_generates	diag
+methods/method_reserved_recv_var_ctx	diag(error)
+methods/method_unnamed_receiver_error	diag(error)
+methods/render_method_and_function_mixed	diag render
+methods/render_method_invocation_chain	diag render
+methods/render_method_invocation_loop_var_binding	diag render
+methods/render_method_invocation_nullary	diag render
+methods/render_method_invocation_param	diag render
+methods/render_method_invocation_slot_interleaved	diag render
+methods/render_method_nullary	diag render
+methods/render_method_pointer_receiver	diag render
+methods/render_method_same_name_different_receivers_a	diag render
+methods/render_method_same_name_different_receivers_b	diag render
+methods/render_method_with_param	diag render
 parser/01_elements	ast diag
 parser/02_interpolation	ast diag
 parser/03_attrs	ast diag
@@ -93,4 +107,4 @@ security/js_rejected_onclick	diag(error)
 security/js_rejected_style	diag(error)
 security/url_blocked	diag render
 security/xss	diag render
-TOTAL: 95 cases (render: 58, error: 19, gen-pinned: 0)
+TOTAL: 109 cases (render: 69, error: 21, gen-pinned: 0)

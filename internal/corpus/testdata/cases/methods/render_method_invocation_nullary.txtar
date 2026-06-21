@@ -1,0 +1,19 @@
+-- input.gsx --
+package views
+
+type UsersPage struct {
+	Title string
+}
+
+component (p UsersPage) Page() {
+	<div><p.Content/></div>
+}
+
+component (p UsersPage) Content() {
+	<h1>{p.Title}</h1>
+}
+-- invoke --
+(UsersPage{Title: "Hi"}).Page()
+-- diagnostics.golden --
+-- render.golden --
+<div><h1>Hi</h1></div>
