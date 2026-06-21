@@ -1,0 +1,15 @@
+-- input.gsx --
+package views
+
+component Card(title string, featured bool, count int) {
+	<div class={ "card", "card-featured": featured }><h2>{title}</h2><span>{count}</span></div>
+}
+
+component Page(t string, n int) {
+	<Card title={t} count={n}/>
+}
+-- invoke --
+Page(PageProps{T: "Yo", N: 9})
+-- diagnostics.golden --
+-- render.golden --
+<div class="card"><h2>Yo</h2><span>9</span></div>

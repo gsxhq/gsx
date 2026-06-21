@@ -1,0 +1,9 @@
+-- input.gsx --
+package views
+
+component Card(title string) { <div>{title}</div> }
+
+component Page(attrs gsx.Attrs) { <Card {...attrs}/> }
+-- diagnostics.golden --
+codegen: param name "attrs" is reserved (implicit fallthrough attributes)
+-- render.golden --
