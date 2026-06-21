@@ -85,7 +85,23 @@ func (p *printer) component(c *ast.Component) {
 	p.ws("(")
 	p.ws(fmtParams(c.Params))
 	p.ws(") {")
-	p.children(c.Body, 0, false)
+	// A component body always breaks after `{` (like a Go func body): the closing
+	// `}` sits on its own line and the body is indented. A BLOCK body puts each
+	// child on its own line; an INLINE body (a surviving Text forces inline) goes on
+	// a single indented line — never jammed onto the brace line. The added newlines
+	// are cosmetic (Normalize drops them), so this stays render-faithful + idempotent.
+	if len(c.Body) > 0 {
+		if isBlockList(c.Body) {
+			p.children(c.Body, 0, false)
+		} else {
+			p.ws("\n")
+			p.indent(1)
+			for _, n := range c.Body {
+				p.markupInline(n, 1)
+			}
+			p.ws("\n")
+		}
+	}
 	p.indent(0)
 	p.ws("}\n")
 }
