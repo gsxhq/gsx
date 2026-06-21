@@ -1,3 +1,12 @@
+attrs/cond_attr_bool_off	diag render
+attrs/cond_attr_bool_on	diag render
+attrs/cond_attr_else_if_other	diag render
+attrs/cond_attr_else_if_two	diag render
+attrs/cond_attr_else_typed_exprs_false	diag render
+attrs/cond_attr_else_typed_exprs_true	diag render
+attrs/cond_attr_interleaved	diag render
+attrs/cond_attr_param_only_in_branch	diag render
+attrs/expr_attrs	diag render
 elements/fragment	diag render
 elements/named_scalar_types	diag render
 elements/node_slice	diag render
@@ -30,4 +39,8 @@ parser/e02_unterminated_interp	ast diag(error)
 parser/e03_bad_attr_name	ast diag(error)
 parser/e04_nonspread_brace	ast diag(error)
 parser/e05_empty_pipe_stage	ast diag(error)
-TOTAL: 32 cases (render: 9, error: 5, gen-pinned: 0)
+security/js_rejected_onclick	diag(error)
+security/js_rejected_style	diag(error)
+security/url_blocked	diag render
+security/xss	diag render
+TOTAL: 45 cases (render: 20, error: 7, gen-pinned: 0)

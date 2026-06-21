@@ -1,0 +1,11 @@
+-- input.gsx --
+package views
+
+component Link(url string, label string, n int, checked bool) {
+	<a href={url} data-label={label} data-n={n} aria-hidden={checked}>{label}</a>
+}
+-- invoke --
+Link(LinkProps{Url: "/p?q=a&b", Label: "a\"b", N: 5, Checked: true})
+-- diagnostics.golden --
+-- render.golden --
+<a href="/p?q=a&amp;b" data-label="a&#34;b" data-n="5" aria-hidden>a&#34;b</a>

@@ -786,60 +786,6 @@ component Chip(first string, last string) {
 	assertHTMLEqual(t, got, "<div><span>Ada Lovelace</span></div>")
 }
 
-func TestRenderExprAttrs(t *testing.T) {
-	files := map[string]string{
-		"views.gsx": `package views
-
-component Link(url string, label string, n int, checked bool) {
-	<a href={url} data-label={label} data-n={n} aria-hidden={checked}>{label}</a>
-}
-`,
-	}
-	// URL sanitized + attr-escaped; string attr-escaped; int formatted; bool -> boolean attr.
-	got := renderPackage(t, files,
-		`p.Link(p.LinkProps{Url: "/p?q=a&b", Label: "a\"b", N: 5, Checked: true})`)
-	assertHTMLEqual(t, got, `<a href="/p?q=a&b" data-label="a&#34;b" data-n="5" aria-hidden>a"b</a>`)
-}
-
-func TestRenderExprAttrURLBlocked(t *testing.T) {
-	files := map[string]string{
-		"views.gsx": `package views
-
-component Bad(u string) { <a href={u}>x</a> }
-`,
-	}
-	got := renderPackage(t, files, `p.Bad(p.BadProps{U: "javascript:alert(1)"})`)
-	// urlSanitize replaces a dangerous scheme with the sentinel.
-	assertHTMLEqual(t, got, `<a href="about:invalid#gsx">x</a>`)
-}
-
-func TestRenderExprAttrJSRejected(t *testing.T) {
-	for _, name := range []string{"onclick", "style"} {
-		files := map[string]string{
-			"views.gsx": "package views\n\ncomponent C(x string) {\n\t<div " + name + "={x}>y</div>\n}\n",
-		}
-		err := generatePackageErr(t, files)
-		if err == nil {
-			t.Fatalf("%s: expected fail-closed error for expr in JS/CSS context, got nil", name)
-		}
-		if !strings.Contains(err.Error(), "context") {
-			t.Fatalf("%s: expected context-rejection error, got: %v", name, err)
-		}
-	}
-}
-
-func TestRenderExprAttrXSS(t *testing.T) {
-	files := map[string]string{
-		"views.gsx": `package views
-
-component C(v string) { <div data-x={v}>y</div> }
-`,
-	}
-	got := renderPackage(t, files, `p.C(p.CProps{V: "\"><script>alert(1)</script>"})`)
-	// the quote and angle brackets must be entity-escaped — no tag breakout.
-	assertHTMLEqual(t, got, `<div data-x="&#34;&gt;&lt;script&gt;alert(1)&lt;/script&gt;">y</div>`)
-}
-
 func TestRenderAttrPipelinePlain(t *testing.T) {
 	files := map[string]string{"views.gsx": `package views
 
@@ -982,64 +928,6 @@ component C(on bool) { <div style={ "color: red": on }>y</div> }
 	if !strings.Contains(err.Error(), "context") {
 		t.Fatalf("expected context-rejection error, got: %v", err)
 	}
-}
-
-func TestRenderCondAttrBool(t *testing.T) {
-	files := map[string]string{"views.gsx": `package views
-
-component C(featured bool) { <span { if featured { class="badge" } }>y</span> }
-`}
-	got := renderPackage(t, files, `p.C(p.CProps{Featured: true})`)
-	assertHTMLEqual(t, got, `<span class="badge">y</span>`)
-	got = renderPackage(t, files, `p.C(p.CProps{Featured: false})`)
-	assertHTMLEqual(t, got, `<span>y</span>`)
-}
-
-func TestRenderCondAttrElseTypedExprs(t *testing.T) {
-	// BOTH branches carry a typed expr value — the order-invariant check: each
-	// must resolve+escape with its OWN type, not the other's.
-	files := map[string]string{"views.gsx": `package views
-
-component C(a bool, x string, n int) { <div { if a { data-x={x} } else { data-n={n} } }>y</div> }
-`}
-	got := renderPackage(t, files, `p.C(p.CProps{A: true, X: "a\"b", N: 5})`)
-	assertHTMLEqual(t, got, `<div data-x="a&#34;b">y</div>`)
-	got = renderPackage(t, files, `p.C(p.CProps{A: false, X: "a\"b", N: 5})`)
-	assertHTMLEqual(t, got, `<div data-n="5">y</div>`)
-}
-
-func TestRenderCondAttrElseIf(t *testing.T) {
-	files := map[string]string{"views.gsx": `package views
-
-component C(n int) { <div { if n == 1 { data-one="y" } else if n == 2 { data-two="y" } else { data-other="y" } }>z</div> }
-`}
-	got := renderPackage(t, files, `p.C(p.CProps{N: 2})`)
-	assertHTMLEqual(t, got, `<div data-two="y">z</div>`)
-	got = renderPackage(t, files, `p.C(p.CProps{N: 9})`)
-	assertHTMLEqual(t, got, `<div data-other="y">z</div>`)
-}
-
-func TestRenderCondAttrInterleaved(t *testing.T) {
-	// a conditional attr BETWEEN two plain typed attrs + a typed child interp —
-	// strongest order-invariant probe (misalignment renders one value's type for
-	// another).
-	files := map[string]string{"views.gsx": `package views
-
-component C(a bool, s string, n int, f float64) { <div data-s={s} { if a { data-x={n} } } data-f={f}>{ n }</div> }
-`}
-	got := renderPackage(t, files, `p.C(p.CProps{A: true, S: "hi", N: 7, F: 2.5})`)
-	assertHTMLEqual(t, got, `<div data-s="hi" data-x="7" data-f="2.5">7</div>`)
-}
-
-func TestRenderCondAttrParamOnlyInBranch(t *testing.T) {
-	// param used ONLY inside a conditional branch's attr expr must be bound
-	// (usedParams must recurse CondAttr — else `undefined: msg`).
-	files := map[string]string{"views.gsx": `package views
-
-component C(show bool, msg string) { <div { if show { title={msg} } }>y</div> }
-`}
-	got := renderPackage(t, files, `p.C(p.CProps{Show: true, Msg: "hello"})`)
-	assertHTMLEqual(t, got, `<div title="hello">y</div>`)
 }
 
 // TestRenderChildComponentProps proves a parent passes props (from attributes)
