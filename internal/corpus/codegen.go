@@ -49,74 +49,10 @@ func (c *caseDoc) astAndParserDiag() (astDump []byte, parserDiag []byte, single 
 	return dump.Bytes(), diag.Bytes(), true
 }
 
-// generate is the SINGLE place GeneratePackage is invoked. It writes sources
-// (rewriting the module path for multi-package cases), generates each package,
-// writes the .x.go next to its source, and returns concatenated generated
-// source + codegen diagnostics.
-func (c *caseDoc) generate(moduleDir, importRoot string) (genConcat []byte, diag []byte) {
-	for name, data := range c.files {
-		if name == "go.mod" {
-			continue
-		}
-		if c.multiPkg {
-			data = rewriteImportPath(data, c.modulePath, importRoot)
-		}
-		dst := filepath.Join(moduleDir, filepath.FromSlash(name))
-		os.MkdirAll(filepath.Dir(dst), 0o755)
-		os.WriteFile(dst, data, 0o644)
-	}
-
-	// Generate each package to a fixpoint. A package that references another
-	// case package's components can only be generated once that package's
-	// .x.go exists on disk, and packageDirs() order is not dependency order.
-	// Re-attempt failing packages until a pass makes no progress, then report
-	// the residual errors.
-	genByDir := map[string][]byte{}
-	dirs := c.packageDirs()
-	remaining := dirs
-	for len(remaining) > 0 {
-		var failed []string
-		var errs bytes.Buffer
-		for _, dir := range remaining {
-			pkgDir := filepath.Join(moduleDir, filepath.FromSlash(dir))
-			gen, err := codegen.GeneratePackage(pkgDir)
-			if err != nil {
-				failed = append(failed, dir)
-				errs.WriteString(err.Error())
-				errs.WriteByte('\n')
-				continue
-			}
-			gsxPaths := make([]string, 0, len(gen))
-			for p := range gen {
-				gsxPaths = append(gsxPaths, p)
-			}
-			sort.Strings(gsxPaths)
-			var parts []string
-			for _, p := range gsxPaths {
-				out := rewriteImportPath(gen[p], c.modulePath, importRoot) // no-op when modulePath==""
-				base := strings.TrimSuffix(filepath.Base(p), ".gsx")
-				os.WriteFile(filepath.Join(pkgDir, base+".x.go"), out, 0o644)
-				parts = append(parts, string(out))
-			}
-			genByDir[dir] = []byte(strings.Join(parts, ""))
-		}
-		if len(failed) == len(remaining) {
-			// No progress this pass — genuine errors. Report and stop.
-			return concatByDir(genByDir, dirs), errs.Bytes()
-		}
-		remaining = failed
-	}
-	return concatByDir(genByDir, dirs), nil
-}
-
-// concatByDir joins per-directory generated output in the given (sorted) dir
-// order for deterministic golden output.
-func concatByDir(m map[string][]byte, dirs []string) []byte {
-	var b bytes.Buffer
-	for _, d := range dirs {
-		b.Write(m[d])
-	}
-	return b.Bytes()
+// codegenGeneratePackages is a thin wrapper around codegen.GeneratePackages
+// that returns the result map keyed by absolute dir.
+func codegenGeneratePackages(moduleDir string, dirs []string) (map[string]*codegen.PackageResult, error) {
+	return codegen.GeneratePackages(moduleDir, dirs)
 }
 
 // packageDirs returns the distinct directories (relative to module root)
@@ -135,6 +71,18 @@ func (c *caseDoc) packageDirs() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// normalizeDiagPaths replaces occurrences of the temp module dir (and its
+// filepath.Separator-trailing form) in diag with an empty prefix so that
+// golden files contain stable relative paths independent of the OS temp dir.
+func normalizeDiagPaths(diag []byte, tmpDir string) []byte {
+	if len(diag) == 0 {
+		return diag
+	}
+	// Replace "tmpDir/" (with separator) so remaining path is relative.
+	prefix := tmpDir + string(filepath.Separator)
+	return bytes.ReplaceAll(diag, []byte(prefix), nil)
 }
 
 func packageNameOf(src []byte) string {

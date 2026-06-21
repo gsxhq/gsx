@@ -7,68 +7,198 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
+	"sort"
 	"strings"
-	"sync"
 )
 
-type renderResult struct {
-	html        string
-	diagnostics []byte
-	generated   []byte
+type caseCodegen struct {
+	gen  []byte // concatenated generated .x.go (sorted by gsx path), for the generated.x.go.golden facet
+	diag []byte // normalized codegen diagnostics (empty if clean)
+	html string // rendered HTML (renderable cases only; empty otherwise)
 }
 
 const caseMarkerPrefix = "\x00CASE "
 const caseMarkerSuffix = "\x00"
 
-func renderBatch(repoRoot string, cases []*caseDoc) (map[string]*renderResult, error) {
-	res := map[string]*renderResult{}
+// writeCaseSources writes a case's source files into moduleDir/<c.dir>,
+// rewriting import paths for multi-package cases.
+func writeCaseSources(moduleDir string, c *caseDoc) error {
+	dir := caseModuleDir(moduleDir, c)
+	root := caseImportRoot(c)
+	for name, data := range c.files {
+		if name == "go.mod" {
+			continue
+		}
+		if c.multiPkg {
+			data = rewriteImportPath(data, c.modulePath, root)
+		}
+		dst := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(dst, data, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// batchCodegen writes ALL candidate cases' sources into ONE shared temp module,
+// runs codegen.GeneratePackages ONCE, then builds+runs the renderable cases in a
+// single `go run`. Returns per-case results keyed by case name.
+func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodegen, error) {
+	if len(candidates) == 0 {
+		return map[string]*caseCodegen{}, nil
+	}
+
 	tmp := mustTempModule(repoRoot)
 	defer os.RemoveAll(tmp)
 
-	// Step 1: filter renderable cases preserving order.
-	var renderable []*caseDoc
-	for _, c := range cases {
-		if c.renderable() {
-			renderable = append(renderable, c)
+	// Step 1: write all candidates' sources (sequentially — file I/O is fast).
+	for _, c := range candidates {
+		if err := writeCaseSources(tmp, c); err != nil {
+			return nil, fmt.Errorf("case %s: write sources: %w", c.name, err)
 		}
 	}
 
-	// Step 2: run all generate calls concurrently via a bounded worker pool.
-	type genResult struct {
-		gen  []byte
-		diag []byte
+	// Step 2: collect all package dirs across all candidates, and build a map
+	// from absolute package dir → owning case.
+	// Also track each case's ordered package dirs.
+	type caseState struct {
+		c       *caseDoc
+		pkgDirs []string // absolute paths
 	}
-	results := make([]genResult, len(renderable))
+	states := make([]*caseState, len(candidates))
+	var allPkgDirs []string
+	dirToCase := map[string]*caseState{}
 
-	sem := make(chan struct{}, runtime.NumCPU())
-	var wg sync.WaitGroup
-	for i, c := range renderable {
-		i, c := i, c
-		wg.Add(1)
-		sem <- struct{}{}
-		go func() {
-			defer wg.Done()
-			defer func() { <-sem }()
-			moduleDir := caseModuleDir(tmp, c)
-			root := caseImportRoot(c)
-			gen, diag := c.generate(moduleDir, root)
-			results[i] = genResult{gen: gen, diag: diag}
-		}()
+	for i, c := range candidates {
+		cs := &caseState{c: c}
+		moduleDir := caseModuleDir(tmp, c)
+		for _, relDir := range c.packageDirs() {
+			absDir := filepath.Join(moduleDir, filepath.FromSlash(relDir))
+			cs.pkgDirs = append(cs.pkgDirs, absDir)
+			allPkgDirs = append(allPkgDirs, absDir)
+			dirToCase[absDir] = cs
+		}
+		states[i] = cs
 	}
-	wg.Wait()
 
-	// Step 3: iterate renderable cases IN ORDER, call writeEntry for those with
-	// empty diag, assign case0/case1/... aliases, and populate res.
+	// Step 3: ONE GeneratePackages call for all dirs.
+	pkgResults, err := codegenGeneratePackages(tmp, allPkgDirs)
+	if err != nil {
+		return nil, fmt.Errorf("batchCodegen: GeneratePackages: %w", err)
+	}
+
+	// Step 4: reassemble per-case results.
+	results := make(map[string]*caseCodegen, len(candidates))
+
+	for _, cs := range states {
+		c := cs.c
+		cg := &caseCodegen{}
+		root := caseImportRoot(c)
+
+		// Collect package results for this case.
+		// Check if any package has an error.
+		var allFiles []struct {
+			dir  string
+			path string // original .gsx path
+			data []byte
+		}
+		hasErr := false
+		var diagBuf bytes.Buffer
+
+		for _, pkgDir := range cs.pkgDirs {
+			pr, ok := pkgResults[pkgDir]
+			if !ok {
+				// Shouldn't happen; treat as error.
+				fmt.Fprintf(&diagBuf, "codegen: no result for %s\n", pkgDir)
+				hasErr = true
+				continue
+			}
+			if pr.Err != nil {
+				diagBuf.WriteString(pr.Err.Error())
+				diagBuf.WriteByte('\n')
+				hasErr = true
+				continue
+			}
+			// Collect files for this dir.
+			for gsxPath, genData := range pr.Files {
+				// Rewrite import paths in generated output (no-op when modulePath=="").
+				out := rewriteImportPath(genData, c.modulePath, root)
+				allFiles = append(allFiles, struct {
+					dir  string
+					path string
+					data []byte
+				}{dir: pkgDir, path: gsxPath, data: out})
+			}
+		}
+
+		if hasErr {
+			cg.diag = normalizeDiagPaths(diagBuf.Bytes(), tmp)
+		} else {
+			// Sort files: by pkgDir order (matching packageDirs() order), then by gsx path.
+			// Build ordered dir list to match concatByDir behaviour.
+			orderedDirs := cs.pkgDirs // already in packageDirs() order
+
+			// Group files by dir.
+			byDir := map[string][]struct{ path string; data []byte }{}
+			for _, f := range allFiles {
+				byDir[f.dir] = append(byDir[f.dir], struct{ path string; data []byte }{f.path, f.data})
+			}
+			// Sort within each dir by gsx path.
+			for dir := range byDir {
+				sort.Slice(byDir[dir], func(i, j int) bool {
+					return byDir[dir][i].path < byDir[dir][j].path
+				})
+			}
+
+			var genBuf bytes.Buffer
+			for _, dir := range orderedDirs {
+				files := byDir[dir]
+				for _, f := range files {
+					genBuf.Write(f.data)
+				}
+			}
+			gen := genBuf.Bytes()
+			if len(gen) > 0 {
+				cg.gen = gen
+			}
+
+			// Write .x.go files to disk for renderable cases (needed by go run).
+			for dir, files := range byDir {
+				for _, f := range files {
+					base := strings.TrimSuffix(filepath.Base(f.path), ".gsx")
+					xgoPath := filepath.Join(dir, base+".x.go")
+					if err := os.WriteFile(xgoPath, f.data, 0o644); err != nil {
+						return nil, fmt.Errorf("case %s: write .x.go: %w", c.name, err)
+					}
+				}
+			}
+		}
+
+		results[c.name] = cg
+	}
+
+	// Step 5: build and run all renderable cases with a single `go run`.
 	var imports, dispatch bytes.Buffer
 	built := 0
-	for i, c := range renderable {
-		r := results[i]
-		res[c.name] = &renderResult{diagnostics: r.diag, generated: r.gen}
-		if len(r.diag) > 0 {
+	type renderEntry struct {
+		name string
+	}
+	var renderOrder []renderEntry
+
+	for _, c := range candidates {
+		if !c.renderable() {
+			continue
+		}
+		cg := results[c.name]
+		if cg == nil || len(cg.diag) > 0 {
 			continue // codegen failed; not buildable
 		}
-		entryPkg, err := c.writeEntry(caseModuleDir(tmp, c), caseImportRoot(c))
+		moduleDir := caseModuleDir(tmp, c)
+		root := caseImportRoot(c)
+		entryPkg, err := c.writeEntry(moduleDir, root)
 		if err != nil {
 			return nil, fmt.Errorf("case %s: %w", c.name, err)
 		}
@@ -77,33 +207,34 @@ func renderBatch(repoRoot string, cases []*caseDoc) (map[string]*renderResult, e
 		fmt.Fprintf(&imports, "\t%s %q\n", alias, entryPkg)
 		fmt.Fprintf(&dispatch, "\tos.Stdout.WriteString(%q)\n\t_ = %s.GsxEntryRender(ctx, os.Stdout)\n",
 			caseMarkerPrefix+c.name+caseMarkerSuffix+"\n", alias)
-	}
-	if built == 0 {
-		return res, nil
+		renderOrder = append(renderOrder, renderEntry{name: c.name})
 	}
 
-	main := "package main\n\nimport (\n\t\"context\"\n\t\"os\"\n" + imports.String() + ")\n\nfunc main() {\n\tctx := context.Background()\n" + dispatch.String() + "}\n"
-	if err := os.WriteFile(filepath.Join(tmp, "main.go"), []byte(main), 0o644); err != nil {
-		return nil, err
-	}
+	if built > 0 {
+		main := "package main\n\nimport (\n\t\"context\"\n\t\"os\"\n" + imports.String() + ")\n\nfunc main() {\n\tctx := context.Background()\n" + dispatch.String() + "}\n"
+		if err := os.WriteFile(filepath.Join(tmp, "main.go"), []byte(main), 0o644); err != nil {
+			return nil, err
+		}
 
-	cmd := exec.Command("go", "run", ".")
-	cmd.Dir = tmp
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("batch go run: %w\n%s", err, stderr.String())
-	}
-	for name, html := range splitBatchOutput(stdout.String()) {
-		if r := res[name]; r != nil {
-			r.html = html
+		cmd := exec.Command("go", "run", ".")
+		cmd.Dir = tmp
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			return nil, fmt.Errorf("batch go run: %w\n%s", err, stderr.String())
+		}
+		for name, html := range splitBatchOutput(stdout.String()) {
+			if cg := results[name]; cg != nil {
+				cg.html = html
+			}
 		}
 	}
-	return res, nil
+
+	return results, nil
 }
 
-// writeEntry writes the GsxEntryRender wrapper (codegen already ran in generate)
+// writeEntry writes the GsxEntryRender wrapper (codegen already ran in batchCodegen)
 // and returns the import path of the package that holds it.
 func (c *caseDoc) writeEntry(moduleDir, root string) (string, error) {
 	entry := "import (\n\t_gsxctx \"context\"\n\t_gsxio \"io\"\n)\n\nfunc GsxEntryRender(ctx _gsxctx.Context, w _gsxio.Writer) error {\n\treturn (" + string(bytes.TrimSpace(c.invoke)) + ").Render(ctx, w)\n}\n"

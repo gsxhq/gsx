@@ -6,10 +6,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/gsxhq/gsx/internal/txtar"
@@ -42,74 +40,63 @@ func TestCorpus(t *testing.T) {
 		paths[c.name] = p
 	}
 
-	// Single batch render (the only place renderable cases are generated).
-	batch, err := renderBatch(repoRoot, cases)
-	if err != nil {
-		t.Fatalf("renderBatch: %v", err)
+	// Classify cases and collect codegen candidates for ONE batchCodegen call.
+	// A candidate is any case that is NOT a parse-error case and NOT a parser-layer case.
+	type classification struct {
+		single     bool
+		parserDiag []byte
+		astDump    []byte
+		isCandidate bool
 	}
+	classif := make(map[string]*classification, len(cases))
+	var candidates []*caseDoc
 
-	// Pre-pass: run generate concurrently for all default-branch cases (non-renderable,
-	// non-(single && hasAstGolden), non-(single && parserDiag>0)) so the per-case
-	// compare loop below can read from the map instead of calling generate inline.
-	type precomputedResult struct {
-		gen  []byte
-		diag []byte
-	}
-	precomputed := map[string]precomputedResult{}
-	var precomputedMu sync.Mutex
-
-	sem := make(chan struct{}, runtime.NumCPU())
-	var wg sync.WaitGroup
 	for _, c := range cases {
-		c := c
-		_, parserDiag, single := c.astAndParserDiag()
+		astDump, parserDiag, single := c.astAndParserDiag()
+		cl := &classification{
+			single:     single,
+			parserDiag: parserDiag,
+			astDump:    astDump,
+		}
 		if single && len(parserDiag) > 0 {
-			continue
+			// parse-error case — no codegen
+			cl.isCandidate = false
+		} else if single && hasAstGolden(c) {
+			// parser-layer snapshot — no codegen
+			cl.isCandidate = false
+		} else {
+			cl.isCandidate = true
+			candidates = append(candidates, c)
 		}
-		if c.renderable() {
-			continue
-		}
-		if single && hasAstGolden(c) {
-			continue
-		}
-		// This case hits the default branch — pre-generate it.
-		wg.Add(1)
-		sem <- struct{}{}
-		go func() {
-			defer wg.Done()
-			defer func() { <-sem }()
-			tmp := mustTempModule(repoRoot)
-			gen, diag := c.generate(caseModuleDir(tmp, c), caseImportRoot(c))
-			diag = normalizeDiagPaths(diag, tmp)
-			os.RemoveAll(tmp)
-			precomputedMu.Lock()
-			precomputed[c.name] = precomputedResult{gen: gen, diag: diag}
-			precomputedMu.Unlock()
-		}()
+		classif[c.name] = cl
 	}
-	wg.Wait()
+
+	// Single batchCodegen call for ALL candidate cases (renderable + default-branch).
+	cg, err := batchCodegen(repoRoot, candidates)
+	if err != nil {
+		t.Fatalf("batchCodegen: %v", err)
+	}
 
 	for _, c := range cases {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
-			astDump, parserDiag, single := c.astAndParserDiag()
+			cl := classif[c.name]
+			astDump := cl.astDump
+			parserDiag := cl.parserDiag
+			single := cl.single
 
-			// Resolve diagnostics + generated facets without re-generating renderables.
+			// Resolve diagnostics + generated facets.
 			var diagGot, genGot []byte
 			switch {
 			case single && len(parserDiag) > 0:
 				diagGot = parserDiag // parser-error case; no codegen
-			case c.renderable():
-				if r := batch[c.name]; r != nil {
-					diagGot, genGot = r.diagnostics, r.generated
-				}
 			case single && hasAstGolden(c):
 				// parser-layer snapshot (pins ast.golden): parse + AST + parser
 				// diagnostics only; codegen stays in the parser layer per spec §2.
 				diagGot = parserDiag
 			default:
-				if r, ok := precomputed[c.name]; ok {
-					genGot, diagGot = r.gen, r.diag
+				if r := cg[c.name]; r != nil {
+					diagGot, genGot = r.diag, r.gen
 				}
 			}
 
@@ -126,7 +113,7 @@ func TestCorpus(t *testing.T) {
 					}
 				}
 				gotHTML := ""
-				if r := batch[c.name]; r != nil {
+				if r := cg[c.name]; r != nil {
 					gotHTML = r.html
 				}
 				if *update {
@@ -195,18 +182,6 @@ func checkOrUpdateCoverage(t *testing.T, cases []*caseDoc) {
 func hasAstGolden(c *caseDoc) bool {
 	_, ok := c.goldens["ast.golden"]
 	return ok
-}
-
-// normalizeDiagPaths replaces occurrences of the temp module dir (and its
-// filepath.Separator-trailing form) in diag with an empty prefix so that
-// golden files contain stable relative paths independent of the OS temp dir.
-func normalizeDiagPaths(diag []byte, tmpDir string) []byte {
-	if len(diag) == 0 {
-		return diag
-	}
-	// Replace "tmpDir/" (with separator) so remaining path is relative.
-	prefix := tmpDir + string(filepath.Separator)
-	return bytes.ReplaceAll(diag, []byte(prefix), nil)
 }
 
 // setSection replaces the Data of the named section if it exists, or appends it.
