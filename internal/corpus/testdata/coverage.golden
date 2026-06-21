@@ -12,21 +12,21 @@ class/composable_on	diag render
 class/escaping	diag render
 class/spread	diag render
 class/style_rejected	diag(error)
-components/child_class_attr_error	diag(error) render
+components/child_class_attr_error	diag(error)
 components/child_hyphen_attr_fallthrough	diag render
 components/child_no_props	diag render
-components/child_prop_pipeline_error	diag(error) render
-components/child_prop_try_error	diag(error) render
+components/child_prop_pipeline_error	diag(error)
+components/child_prop_try_error	diag(error)
 components/child_props	diag render
 components/child_props_featured_false	diag render
 components/child_props_static	diag render
-components/child_spread_error	diag(error) render
+components/child_spread_error	diag(error)
 components/children_slot	diag render
 components/children_slot_binding	diag render
 components/children_slot_empty	diag render
 components/children_slot_interleaved	diag render
 components/named_slot	diag render
-components/named_slot_bad_name	diag(error) render
+components/named_slot_bad_name	diag(error)
 components/named_slot_binding	diag render
 components/named_slot_interleaved	diag render
 components/named_slot_multiple	diag render
@@ -93,4 +93,4 @@ security/js_rejected_onclick	diag(error)
 security/js_rejected_style	diag(error)
 security/url_blocked	diag render
 security/xss	diag render
-TOTAL: 95 cases (render: 63, error: 19, gen-pinned: 0)
+TOTAL: 95 cases (render: 58, error: 19, gen-pinned: 0)
