@@ -1,0 +1,11 @@
+-- input.gsx --
+package views
+
+component C(extra string) {
+	<div class={ "btn", extra }>y</div>
+}
+-- invoke --
+C(CProps{Extra: "\"><script>"})
+-- diagnostics.golden --
+-- render.golden --
+<div class="btn &#34;&gt;&lt;script&gt;">y</div>

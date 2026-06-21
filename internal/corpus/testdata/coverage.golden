@@ -7,6 +7,11 @@ attrs/cond_attr_else_typed_exprs_true	diag render
 attrs/cond_attr_interleaved	diag render
 attrs/cond_attr_param_only_in_branch	diag render
 attrs/expr_attrs	diag render
+class/composable_off	diag render
+class/composable_on	diag render
+class/escaping	diag render
+class/spread	diag render
+class/style_rejected	diag(error)
 elements/fragment	diag render
 elements/named_scalar_types	diag render
 elements/node_slice	diag render
@@ -43,4 +48,4 @@ security/js_rejected_onclick	diag(error)
 security/js_rejected_style	diag(error)
 security/url_blocked	diag render
 security/xss	diag render
-TOTAL: 45 cases (render: 20, error: 7, gen-pinned: 0)
+TOTAL: 50 cases (render: 24, error: 8, gen-pinned: 0)
