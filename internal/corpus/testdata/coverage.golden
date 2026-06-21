@@ -12,6 +12,14 @@ class/composable_on	diag render
 class/escaping	diag render
 class/spread	diag render
 class/style_rejected	diag(error)
+control_flow/for	diag render
+control_flow/goblock	diag render
+control_flow/if_neg	diag render
+control_flow/if_pos	diag render
+control_flow/if_zero	diag render
+control_flow/switch_default	diag render
+control_flow/switch_err	diag render
+control_flow/switch_warn	diag render
 elements/fragment	diag render
 elements/named_scalar_types	diag render
 elements/node_slice	diag render
@@ -65,4 +73,4 @@ security/js_rejected_onclick	diag(error)
 security/js_rejected_style	diag(error)
 security/url_blocked	diag render
 security/xss	diag render
-TOTAL: 67 cases (render: 35, error: 14, gen-pinned: 0)
+TOTAL: 75 cases (render: 43, error: 14, gen-pinned: 0)

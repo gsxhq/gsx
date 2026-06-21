@@ -1,0 +1,18 @@
+-- model.go --
+package views
+
+type Item struct {
+	Name  string
+	Count int
+}
+-- input.gsx --
+package views
+
+component List(items []Item) {
+	<ul>{ for _, it := range items { <li>{it.Name}: {it.Count}</li> } }</ul>
+}
+-- invoke --
+List(ListProps{Items: []Item{{Name: "a", Count: 1}, {Name: "b", Count: 2}}})
+-- diagnostics.golden --
+-- render.golden --
+<ul><li>a: 1</li><li>b: 2</li></ul>
