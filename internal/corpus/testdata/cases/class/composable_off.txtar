@@ -1,0 +1,11 @@
+-- input.gsx --
+package views
+
+component C(on bool, extra string) {
+	<div class={ "btn", "btn-on": on, extra }>y</div>
+}
+-- invoke --
+C(CProps{On: false, Extra: "x"})
+-- diagnostics.golden --
+-- render.golden --
+<div class="btn x">y</div>

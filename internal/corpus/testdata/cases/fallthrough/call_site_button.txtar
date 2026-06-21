@@ -1,0 +1,15 @@
+-- input.gsx --
+package views
+
+component Button(variant string) {
+	<button class="btn" data-variant={variant}>{children}</button>
+}
+
+component Page() {
+	<Button variant="primary" class="w-full" data-test="x" hx-post="/go">Save</Button>
+}
+-- invoke --
+Page(PageProps{})
+-- diagnostics.golden --
+-- render.golden --
+<button class="btn w-full" data-variant="primary" data-test="x" hx-post="/go">Save</button>

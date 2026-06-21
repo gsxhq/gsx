@@ -1,0 +1,6 @@
+-- input.gsx --
+package views
+
+component C(x string) { <div data-x={ x |> upper? }>y</div> }
+-- diagnostics.golden --
+codegen: `?` try-marker on filter "upper" not supported yet

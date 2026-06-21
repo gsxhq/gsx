@@ -1,0 +1,21 @@
+-- model.go --
+package views
+
+import "fmt"
+
+type Money int
+
+func (m Money) String() string { return fmt.Sprintf("$%d", int(m)) }
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Demo(s string, n int, f float64, ok bool, node gsx.Node, price Money) {
+	<div>{s}|{n}|{f}|{ok}|{node}|{price}</div>
+}
+-- invoke --
+Demo(DemoProps{S: "hi", N: 7, F: 3.5, Ok: true, Node: gsx.Raw("<b>x</b>"), Price: Money(9)})
+-- diagnostics.golden --
+-- render.golden --
+<div>hi|7|3.5|true|<b>x</b>|$9</div>

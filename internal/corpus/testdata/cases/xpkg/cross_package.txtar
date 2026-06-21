@@ -1,0 +1,19 @@
+-- go.mod --
+module example.com/app
+
+go 1.26.1
+-- ui/button.gsx --
+package ui
+
+component Button(label string) { <button class="btn">{label}</button> }
+-- pages/home.gsx --
+package pages
+
+import "example.com/app/ui"
+
+component Home() { <ui.Button label="Go"/> }
+-- invoke --
+pages.Home(pages.HomeProps{})
+-- diagnostics.golden --
+-- render.golden --
+<button class="btn">Go</button>

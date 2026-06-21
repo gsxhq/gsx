@@ -1,0 +1,22 @@
+-- model.go --
+package views
+
+type User struct {
+	Name string
+	Age  int
+}
+-- input.gsx --
+package views
+
+component Footer() {
+	<footer>(c) gsx</footer>
+}
+
+component Profile(user User) {
+	<div>{user.Name} ({user.Age}) <Footer/></div>
+}
+-- invoke --
+Profile(ProfileProps{User: User{Name: "Alice", Age: 30}})
+-- diagnostics.golden --
+-- render.golden --
+<div>Alice (30) <footer>(c) gsx</footer></div>

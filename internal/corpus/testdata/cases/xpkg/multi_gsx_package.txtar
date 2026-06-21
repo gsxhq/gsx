@@ -1,0 +1,17 @@
+-- footer.gsx --
+package views
+
+component Footer() {
+	<footer>FOOT</footer>
+}
+-- input.gsx --
+package views
+
+component Page() {
+	<div><Footer/></div>
+}
+-- invoke --
+Page(PageProps{})
+-- diagnostics.golden --
+-- render.golden --
+<div><footer>FOOT</footer></div>

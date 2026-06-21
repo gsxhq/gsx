@@ -1,0 +1,15 @@
+-- input.gsx --
+package views
+
+component Button() {
+	<button>{children}</button>
+}
+
+component Page() {
+	<Button data-test="t" hx-post="/x">Go</Button>
+}
+-- invoke --
+Page(PageProps{})
+-- diagnostics.golden --
+-- render.golden --
+<button data-test="t" hx-post="/x">Go</button>

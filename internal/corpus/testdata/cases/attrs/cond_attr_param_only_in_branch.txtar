@@ -1,0 +1,9 @@
+-- input.gsx --
+package views
+
+component C(show bool, msg string) { <div { if show { title={msg} } }>y</div> }
+-- invoke --
+C(CProps{Show: true, Msg: "hello"})
+-- diagnostics.golden --
+-- render.golden --
+<div title="hello">y</div>

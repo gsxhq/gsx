@@ -1,0 +1,23 @@
+-- input.gsx --
+package views
+
+type UsersPage struct {
+	Before string
+	Mid    int
+	After  bool
+}
+
+component (p UsersPage) Wrap() {
+	<div>{children}</div>
+}
+
+component (p UsersPage) Page() {
+	<span>{p.Before}</span>
+	<p.Wrap><em>{p.Mid}</em></p.Wrap>
+	<span>{p.After}</span>
+}
+-- invoke --
+(UsersPage{Before: "B", Mid: 7, After: true}).Page()
+-- diagnostics.golden --
+-- render.golden --
+<span>B</span><div><em>7</em></div><span>true</span>

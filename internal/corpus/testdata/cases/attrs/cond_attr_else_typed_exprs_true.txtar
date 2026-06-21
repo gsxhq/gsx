@@ -1,0 +1,9 @@
+-- input.gsx --
+package views
+
+component C(a bool, x string, n int) { <div { if a { data-x={x} } else { data-n={n} } }>y</div> }
+-- invoke --
+C(CProps{A: true, X: "a\"b", N: 5})
+-- diagnostics.golden --
+-- render.golden --
+<div data-x="a&#34;b">y</div>

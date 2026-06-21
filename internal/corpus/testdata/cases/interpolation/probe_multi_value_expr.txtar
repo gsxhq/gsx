@@ -1,0 +1,15 @@
+-- helpers.go --
+package views
+
+func lookup(k string) (string, error) { return k, nil }
+-- input.gsx --
+package views
+
+component Label(key string) {
+	<span>{lookup(key)}</span>
+}
+-- invoke --
+Label(LabelProps{Key: "hello"})
+-- diagnostics.golden --
+-- render.golden --
+<span>hello</span>

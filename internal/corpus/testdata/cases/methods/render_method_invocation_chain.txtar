@@ -1,0 +1,33 @@
+-- input.gsx --
+package views
+
+type User struct {
+	Email string
+}
+
+type UsersPage struct {
+	Title string
+	Sort  string
+	Users []User
+}
+
+component (p UsersPage) Page() {
+	<div><p.Content/></div>
+}
+
+component (p UsersPage) Content() {
+	<h1>{p.Title}</h1><p.Grid sort={p.Sort}/>
+}
+
+component (p UsersPage) Grid(sort string) {
+	<ul>{ for _, u := range p.Users { <p.Row user={u} sort={sort}/> } }</ul>
+}
+
+component (p UsersPage) Row(user User, sort string) {
+	<li>{user.Email}-{sort}</li>
+}
+-- invoke --
+(UsersPage{Title: "T", Sort: "s", Users: []User{{Email: "a@b"}, {Email: "c@d"}}}).Page()
+-- diagnostics.golden --
+-- render.golden --
+<div><h1>T</h1><ul><li>a@b-s</li><li>c@d-s</li></ul></div>

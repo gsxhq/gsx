@@ -1,0 +1,16 @@
+-- input.gsx --
+package views
+
+type UsersPage struct {
+	Title string
+	Sort  string
+}
+
+component (p UsersPage) Page() {
+	<h1>{p.Title}</h1>
+}
+-- invoke --
+(UsersPage{Title: "Hi"}).Page()
+-- diagnostics.golden --
+-- render.golden --
+<h1>Hi</h1>

@@ -1,0 +1,19 @@
+-- input.gsx --
+package views
+
+import "fmt"
+
+type Money int
+
+func (m Money) String() string { return fmt.Sprintf("$%d", int(m)) }
+
+func label() string { return "price:" }
+
+component Receipt(price Money) {
+	<p>{label()}{price}</p>
+}
+-- invoke --
+Receipt(ReceiptProps{Price: Money(9)})
+-- diagnostics.golden --
+-- render.golden --
+<p>price:$9</p>

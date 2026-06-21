@@ -1,0 +1,148 @@
+attrs/cond_attr_bool_off	diag render
+attrs/cond_attr_bool_on	diag render
+attrs/cond_attr_else_if_other	diag render
+attrs/cond_attr_else_if_two	diag render
+attrs/cond_attr_else_typed_exprs_false	diag render
+attrs/cond_attr_else_typed_exprs_true	diag render
+attrs/cond_attr_interleaved	diag render
+attrs/cond_attr_param_only_in_branch	diag render
+attrs/expr_attrs	diag render
+class/composable_off	diag render
+class/composable_on	diag render
+class/escaping	diag render
+class/spread	diag render
+class/style_rejected	diag(error)
+codegen-shape/example12_form	diag render
+codegen-shape/example12_toolbar	diag render
+codegen-shape/greeting	diag gen render
+components/child_class_attr_error	diag(error)
+components/child_hyphen_attr_fallthrough	diag render
+components/child_no_props	diag render
+components/child_prop_pipeline_error	diag(error)
+components/child_prop_try_error	diag(error)
+components/child_props	diag render
+components/child_props_featured_false	diag render
+components/child_props_static	diag render
+components/child_spread_error	diag(error)
+components/children_slot	diag render
+components/children_slot_binding	diag render
+components/children_slot_empty	diag render
+components/children_slot_interleaved	diag render
+components/named_slot	diag render
+components/named_slot_bad_name	diag(error)
+components/named_slot_binding	diag render
+components/named_slot_interleaved	diag render
+components/named_slot_multiple	diag render
+components/named_slot_with_children	diag render
+components/node_param_standalone	diag render
+control_flow/for	diag render
+control_flow/goblock	diag render
+control_flow/if_neg	diag render
+control_flow/if_pos	diag render
+control_flow/if_zero	diag render
+control_flow/switch_default	diag render
+control_flow/switch_err	diag render
+control_flow/switch_warn	diag render
+diagnostics/ctx_in_interp	diag render
+diagnostics/param_name_collision	diag render
+diagnostics/pointer_node_render	diag render
+diagnostics/reserved_param_children	diag(error)
+diagnostics/reserved_param_ctx	diag(error)
+diagnostics/reserved_param_emitted_import_gsx	diag(error)
+diagnostics/reserved_param_emitted_import_strconv	diag(error)
+diagnostics/reserved_param_gsx_prefix	diag(error)
+diagnostics/value_node_pointer_receiver_error	diag(error)
+elements/fragment	diag render
+elements/named_scalar_types	diag render
+elements/node_slice	diag render
+elements/static_and_bool_attrs_off	diag render
+elements/static_and_bool_attrs_on	diag render
+fallthrough/call_site_button	diag render
+fallthrough/call_site_class_merge	diag render
+fallthrough/call_site_declared_vs_undeclared	diag render
+fallthrough/call_site_method_fallthrough	diag render
+fallthrough/call_site_no_fallthrough_unchanged	diag gen render
+fallthrough/call_site_non_identifier	diag render
+fallthrough/call_site_not_eligible	diag(error)
+fallthrough/call_site_root_wins	diag render
+fallthrough/composed_class_merge	diag render
+fallthrough/cond_attr_root_not_eligible	diag(error)
+fallthrough/cond_attr_root_standalone	diag render
+fallthrough/empty_bag_noop	diag render
+fallthrough/manual_nullary_method	diag render
+fallthrough/manual_placement	diag render
+fallthrough/manual_without	diag render
+fallthrough/no_class_empty_bag	diag render
+fallthrough/no_class_root_with_bag	diag render
+fallthrough/not_eligible_no_field	diag gen render
+fallthrough/reserved_param_attrs	diag(error)
+fallthrough/root_wins	diag render
+fallthrough/static_class_merge	diag render
+interpolation/field_access	diag render
+interpolation/interp_types	diag render
+interpolation/mixed_chunk	diag render
+interpolation/probe_multi_value_expr	diag render
+methods/method_only_file_generates	diag
+methods/method_reserved_recv_var_ctx	diag(error)
+methods/method_unnamed_receiver_error	diag(error)
+methods/render_method_and_function_mixed	diag render
+methods/render_method_invocation_chain	diag render
+methods/render_method_invocation_loop_var_binding	diag render
+methods/render_method_invocation_nullary	diag render
+methods/render_method_invocation_param	diag render
+methods/render_method_invocation_slot_interleaved	diag render
+methods/render_method_nullary	diag render
+methods/render_method_pointer_receiver	diag render
+methods/render_method_same_name_different_receivers_a	diag render
+methods/render_method_same_name_different_receivers_b	diag render
+methods/render_method_with_param	diag render
+parser/01_elements	ast diag
+parser/02_interpolation	ast diag
+parser/03_attrs	ast diag
+parser/04_components_children	ast diag
+parser/05_fragment	ast diag
+parser/06_markup_attr	ast diag
+parser/07_method_component	ast diag
+parser/08_spread_whitespace	ast diag
+parser/09_goblock	ast diag
+parser/10_if	ast diag
+parser/11_for	ast diag
+parser/12_switch	ast diag
+parser/13_cond_attr	ast diag
+parser/14_composable_class	ast diag
+parser/15_doctype_comment	ast diag
+parser/16_raw_text	ast diag
+parser/17_pipeline	ast diag
+parser/18_pipeline_attr_try	ast diag
+parser/e01_mismatched_close	ast diag(error)
+parser/e02_unterminated_interp	ast diag(error)
+parser/e03_bad_attr_name	ast diag(error)
+parser/e04_nonspread_brace	ast diag(error)
+parser/e05_empty_pipe_stage	ast diag(error)
+pipelines/arity_mismatch	diag(error)
+pipelines/attr_escaped	diag render
+pipelines/attr_js_rejected	diag(error)
+pipelines/attr_plain	diag render
+pipelines/attr_try_stage_rejected	diag(error)
+pipelines/attr_unknown_filter	diag(error)
+pipelines/attr_url	diag render
+pipelines/attr_url_ok	diag render
+pipelines/bare	diag render
+pipelines/chain	diag render
+pipelines/join	diag render
+pipelines/loop_var	diag render
+pipelines/param	diag render
+pipelines/param_arg	diag render
+pipelines/try_rejected	diag(error)
+pipelines/try_unwrap	diag render
+pipelines/unknown_filter	diag(error)
+security/js_rejected_onclick	diag(error)
+security/js_rejected_style	diag(error)
+security/url_blocked	diag render
+security/xss	diag render
+xpkg/cross_file_and_component	diag render
+xpkg/cross_package	diag render
+xpkg/interleaved_imports_error	diag(error)
+xpkg/multi_gsx_package	diag render
+xpkg/real_gsxshared_file	diag render
+TOTAL: 147 cases (render: 97, error: 31, gen-pinned: 3)

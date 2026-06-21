@@ -1,0 +1,9 @@
+-- input.gsx --
+package views
+
+component Tags(tags []string, sep string) { <p>{ tags |> join(sep) }</p> }
+-- invoke --
+Tags(TagsProps{Tags: []string{"a","b"}, Sep: " / "})
+-- diagnostics.golden --
+-- render.golden --
+<p>a / b</p>

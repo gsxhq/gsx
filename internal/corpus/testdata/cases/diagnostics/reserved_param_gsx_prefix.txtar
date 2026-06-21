@@ -1,0 +1,8 @@
+-- input.gsx --
+package views
+
+component Bad(_gsxfoo string) {
+	<p>{_gsxfoo}</p>
+}
+-- diagnostics.golden --
+codegen: param name "_gsxfoo" uses the reserved _gsx prefix

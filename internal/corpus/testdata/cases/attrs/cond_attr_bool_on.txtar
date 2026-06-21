@@ -1,0 +1,9 @@
+-- input.gsx --
+package views
+
+component C(featured bool) { <span { if featured { class="badge" } }>y</span> }
+-- invoke --
+C(CProps{Featured: true})
+-- diagnostics.golden --
+-- render.golden --
+<span class="badge">y</span>

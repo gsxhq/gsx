@@ -1,0 +1,17 @@
+-- input.gsx --
+package views
+
+component Wrap() {
+	<div>{children}</div>
+}
+
+component Page(before string, mid int, after bool) {
+	<span>{before}</span>
+	<Wrap><em>{mid}</em></Wrap>
+	<span>{after}</span>
+}
+-- invoke --
+Page(PageProps{Before: "B", Mid: 7, After: true})
+-- diagnostics.golden --
+-- render.golden --
+<span>B</span><div><em>7</em></div><span>true</span>

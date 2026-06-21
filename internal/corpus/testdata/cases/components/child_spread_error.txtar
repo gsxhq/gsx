@@ -1,0 +1,8 @@
+-- input.gsx --
+package views
+
+component Card(title string) { <div>{title}</div> }
+
+component Page(bag gsx.Attrs) { <Card {...bag}/> }
+-- diagnostics.golden --
+codegen: spread attribute on a component (<Card>) not supported yet

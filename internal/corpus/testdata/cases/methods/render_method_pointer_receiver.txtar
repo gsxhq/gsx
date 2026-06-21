@@ -1,0 +1,15 @@
+-- input.gsx --
+package views
+
+type Form struct {
+	Action string
+}
+
+component (f *Form) Render2(label string) {
+	<form action={f.Action}>{label}</form>
+}
+-- invoke --
+(&Form{Action: "/submit"}).Render2(FormRender2Props{Label: "Go"})
+-- diagnostics.golden --
+-- render.golden --
+<form action="/submit">Go</form>

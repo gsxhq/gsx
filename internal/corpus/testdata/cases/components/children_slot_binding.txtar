@@ -1,0 +1,21 @@
+-- input.gsx --
+package views
+
+component Wrap() {
+	<div>{children}</div>
+}
+
+component Page(name string, items []string) {
+	<Wrap>
+		<span>{name}</span>
+		{ for _, it := range items { <li>{it}</li> } }
+	</Wrap>
+}
+-- invoke --
+Page(PageProps{Name: "Jo", Items: []string{"a", "b"}})
+-- diagnostics.golden --
+-- render.golden --
+<div>
+		<span>Jo</span>
+		<li>a</li><li>b</li>
+	</div>

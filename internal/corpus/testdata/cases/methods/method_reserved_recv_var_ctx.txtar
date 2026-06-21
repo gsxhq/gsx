@@ -1,0 +1,10 @@
+-- input.gsx --
+package views
+
+type UsersPage struct{ Title string }
+
+component (ctx UsersPage) X() {
+	<p>x</p>
+}
+-- diagnostics.golden --
+codegen: method-component receiver var "ctx" is reserved (ambient context)

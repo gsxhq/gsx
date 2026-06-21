@@ -1,0 +1,15 @@
+-- input.gsx --
+package views
+
+component Button() {
+	<button type="button">{children}</button>
+}
+
+component Page() {
+	<Button type="reset">Go</Button>
+}
+-- invoke --
+Page(PageProps{})
+-- diagnostics.golden --
+-- render.golden --
+<button type="button">Go</button>

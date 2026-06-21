@@ -1,0 +1,11 @@
+-- input.gsx --
+package views
+
+component Chip(first string, last string) {
+	<div>{{ full := first + " " + last }}<span>{full}</span></div>
+}
+-- invoke --
+Chip(ChipProps{First: "Ada", Last: "Lovelace"})
+-- diagnostics.golden --
+-- render.golden --
+<div><span>Ada Lovelace</span></div>

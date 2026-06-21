@@ -1,0 +1,13 @@
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Panel(header gsx.Node) {
+	<div>{header}</div>
+}
+-- invoke --
+Panel(PanelProps{Header: gsx.Raw("<h1>X</h1>")})
+-- diagnostics.golden --
+-- render.golden --
+<div><h1>X</h1></div>

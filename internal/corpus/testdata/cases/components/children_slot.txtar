@@ -1,0 +1,15 @@
+-- input.gsx --
+package views
+
+component Card(title string) {
+	<section><h2>{title}</h2>{children}</section>
+}
+
+component Page() {
+	<Card title="Hi"><p>body</p></Card>
+}
+-- invoke --
+Page(PageProps{})
+-- diagnostics.golden --
+-- render.golden --
+<section><h2>Hi</h2><p>body</p></section>
