@@ -60,6 +60,10 @@ func TestCorpus(t *testing.T) {
 				if r := batch[c.name]; r != nil {
 					diagGot, genGot = r.diagnostics, r.generated
 				}
+			case single && hasAstGolden(c):
+				// parser-layer snapshot (pins ast.golden): parse + AST + parser
+				// diagnostics only; codegen stays in the parser layer per spec §2.
+				diagGot = parserDiag
 			default:
 				tmp := mustTempModule(repoRoot)
 				genGot, diagGot = c.generate(caseModuleDir(tmp, c), caseImportRoot(c))
@@ -145,6 +149,12 @@ func checkOrUpdateCoverage(t *testing.T, cases []*caseDoc) {
 	if !bytes.Equal(got, want) {
 		t.Errorf("coverage changed (run -update):\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
+}
+
+// hasAstGolden reports whether the case has an ast.golden section pinned.
+func hasAstGolden(c *caseDoc) bool {
+	_, ok := c.goldens["ast.golden"]
+	return ok
 }
 
 // normalizeDiagPaths replaces occurrences of the temp module dir (and its

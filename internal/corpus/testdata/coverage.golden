@@ -1,24 +1,24 @@
 parser/01_elements	ast diag
-parser/02_interpolation	ast diag(error)
+parser/02_interpolation	ast diag
 parser/03_attrs	ast diag
 parser/04_components_children	ast diag
 parser/05_fragment	ast diag
-parser/06_markup_attr	ast diag(error)
-parser/07_method_component	ast diag(error)
-parser/08_spread_whitespace	ast diag(error)
-parser/09_goblock	ast diag(error)
+parser/06_markup_attr	ast diag
+parser/07_method_component	ast diag
+parser/08_spread_whitespace	ast diag
+parser/09_goblock	ast diag
 parser/10_if	ast diag
 parser/11_for	ast diag
 parser/12_switch	ast diag
 parser/13_cond_attr	ast diag
 parser/14_composable_class	ast diag
-parser/15_doctype_comment	ast diag(error)
-parser/16_raw_text	ast diag(error)
+parser/15_doctype_comment	ast diag
+parser/16_raw_text	ast diag
 parser/17_pipeline	ast diag
-parser/18_pipeline_attr_try	ast diag(error)
+parser/18_pipeline_attr_try	ast diag
 parser/e01_mismatched_close	ast diag(error)
 parser/e02_unterminated_interp	ast diag(error)
 parser/e03_bad_attr_name	ast diag(error)
 parser/e04_nonspread_brace	ast diag(error)
 parser/e05_empty_pipe_stage	ast diag(error)
-TOTAL: 23 cases (render: 0, error: 13, gen-pinned: 0)
+TOTAL: 23 cases (render: 0, error: 5, gen-pinned: 0)

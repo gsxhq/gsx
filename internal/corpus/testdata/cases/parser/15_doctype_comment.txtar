@@ -13,7 +13,6 @@ component Doc() {
 	</>
 }
 -- diagnostics.golden --
-cases/parser_15_doctype_comment/input.gsx: codegen spike: unsupported markup node *ast.Doctype
 -- ast.golden --
 File package=p
   Component name=Doc recv="" params=""
