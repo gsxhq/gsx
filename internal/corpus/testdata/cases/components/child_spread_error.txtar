@@ -3,6 +3,6 @@ package views
 
 component Card(title string) { <div>{title}</div> }
 
-component Page(attrs gsx.Attrs) { <Card {...attrs}/> }
+component Page(bag gsx.Attrs) { <Card {...bag}/> }
 -- diagnostics.golden --
-codegen: param name "attrs" is reserved (implicit fallthrough attributes)
+codegen: spread attribute on a component (<Card>) not supported yet
