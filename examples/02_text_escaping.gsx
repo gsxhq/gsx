@@ -62,6 +62,7 @@ component DataAttrs(entityType string) {
 // gsx.SafeCSS opts out for author-controlled CSS.
 // Note: the CSS filter rejects values containing '(' or '/' (so dynamic rgb(...)/calc(...)/url(...)
 // collapse to a safe placeholder — use a string literal or gsx.SafeCSS for those).
+// The <style> static CSS is auto-minified at build time (source formatting / gsx fmt unaffected).
 component ThemedCard(width int, accent string) {
 	<style>
 		.themed {

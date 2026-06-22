@@ -226,7 +226,7 @@ extension point.
 ≥1 space — never zero), between adjacent ident/number/dimension tokens
 (`margin: 1px 2px`), **≥1 space around binary `+`/`-` in `calc()`/`min`/`max`/`clamp`**
 (`calc(50% - 8px)`), and all interior whitespace of custom-property (`--*`) values
-(including the valid empty value `--x: ;`).
+(including the valid empty value `--x: ;`; note that a whitespace-only custom-property value collapses to `--x:` — rendering-equivalent, since CSS trims leading/trailing whitespace before `var()` substitution).
 
 **Hole-aware.** The minifier operates on the `<style>` child list (`Text`+`Interp`),
 treating each `${ expr }` `Interp` as a single **opaque token**: whitespace immediately
@@ -311,7 +311,7 @@ accordingly.
   corpus); a dedicated corpus case locks `${ }` printing.
 - **Minifier** (`internal/cssmin` unit tests): a golden corpus of the historical
   naive-minifier breakages that the safe pass must NOT change semantics on — `calc(50%
-  - 8px)` spacing, empty custom property `--x: ;`, data-URI with spaces, `url() format()`
+  - 8px)` spacing, empty custom property `--x: ;` (acceptable to collapse to `--x:` — rendering-equivalent), data-URI with spaces, `url() format()`
   spacing, `@media … and (…)`, `grid-template-areas` rows, IE `*`/`_` hacks, `/*!`/`>/**/`
   comment hacks, descendant combinator vs `.a.b`, `content:"  "` strings, `An+B`
   (`2n + 1`), `unicode-range` — plus gsx hole cases (`margin: ${a} ${b}` keeps both

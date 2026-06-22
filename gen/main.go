@@ -26,6 +26,7 @@ type Option func(*config)
 // the run can fail with a clear message instead of silently dropping the option.
 type config struct {
 	filterPkgs []string
+	cssMin     func(string) (string, error)
 	errs       []error
 }
 
@@ -107,7 +108,7 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 	cmd, cmdArgs := rest[0], rest[1:]
 	switch cmd {
 	case "generate":
-		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, cfg.filterPkgs)
+		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, cfg.filterPkgs, cfg.cssMin)
 	case "clean":
 		return runClean(cmdArgs, stdout, stderr)
 	case "info":
@@ -174,7 +175,7 @@ func runClean(args []string, stdout, stderr io.Writer) int {
 // discovery fails with no per-package errors → exit 2) from a codegen error (one
 // or more packages failed → exit 1). Success returns 0.
 // noCache bypasses the content-hash cache and forces a full regeneration.
-func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string) int {
+func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string, cssMin func(string) (string, error)) int {
 	gfs := flag.NewFlagSet("generate", flag.ContinueOnError)
 	gfs.SetOutput(stderr)
 	var nocacheFlag bool
@@ -186,7 +187,10 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 	if len(paths) == 0 {
 		paths = []string{"."}
 	}
-	res, err := generateCached(paths, filterPkgs, !nocacheFlag)
+	// Bypass the cache when --no-cache is set OR when a custom minifier is
+	// configured: funcs are not hashable, so the cache cannot key on cssMin.
+	useCache := !nocacheFlag && cssMin == nil
+	res, err := generateCached(paths, filterPkgs, useCache, cssMin)
 
 	if len(res.Errs) > 0 {
 		// Codegen failures: report each, exit 1.
