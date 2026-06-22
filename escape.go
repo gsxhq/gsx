@@ -8,8 +8,11 @@ import (
 )
 
 // htmlReplacer escapes the bytes unsafe in HTML text and double-quoted attribute
-// contexts. The entity set matches html.EscapeString.
+// contexts. The entity set matches html/template.HTMLEscapeString (text/template
+// HTMLEscape), which replaces NUL with U+FFFD per the HTML5 parse-error rule
+// (https://www.w3.org/TR/html5/syntax.html#before-attribute-value-state).
 var htmlReplacer = strings.NewReplacer(
+	"\x00", "�",
 	"&", "&amp;",
 	"<", "&lt;",
 	">", "&gt;",
