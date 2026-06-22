@@ -867,7 +867,10 @@ func emitExprAttr(b *bytes.Buffer, a *ast.ExprAttr, resolved map[ast.Node]types.
 	}
 
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
-	if attrContext(a.Name) == ctxURL {
+	if attrContext(a.Name) == ctxURL && !isRawURL(t) {
+		// URL context: value must be string-like; sanitize + escape. A gsx.RawURL
+		// value (isRawURL) is the author's vouch — fall through to gw.AttrValue,
+		// which entity-escapes but skips the scheme allow-list.
 		fmt.Fprintf(b, "\t\t_gsxgw.URL(%s)\n", urlStringExpr(expr, t))
 	} else {
 		if err := emitAttrValue(b, expr, t, imports); err != nil {
@@ -876,6 +879,19 @@ func emitExprAttr(b *bytes.Buffer, a *ast.ExprAttr, resolved map[ast.Node]types.
 	}
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
 	return nil
+}
+
+// isRawURL reports whether t is the gsx.RawURL named type — the author's opt-out
+// from URL scheme sanitizing. Such a value is routed through gw.AttrValue
+// (entity-escaped, scheme unchecked) instead of gw.URL.
+func isRawURL(t types.Type) bool {
+	n, ok := types.Unalias(t).(*types.Named)
+	if !ok {
+		return false
+	}
+	obj := n.Obj()
+	return obj != nil && obj.Name() == "RawURL" &&
+		obj.Pkg() != nil && obj.Pkg().Path() == "github.com/gsxhq/gsx"
 }
 
 // urlStringExpr renders a URL-context value as a string expression for gw.URL.

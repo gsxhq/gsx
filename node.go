@@ -28,3 +28,12 @@ func Raw(html string) Node {
 		return err
 	})
 }
+
+// RawURL marks a URL the template author vouches for — the opt-out from gsx's URL
+// scheme allow-list. A RawURL value in a URL attribute (href, src, …) skips the
+// scheme check, so a non-http(s)/mailto/tel scheme is NOT replaced with the
+// blocked-URL sentinel. It is still entity-escaped for the attribute context, so
+// it cannot break out of the quotes — "raw" means "skip gsx's safety judgement
+// about the scheme", not "write byte-for-byte". Use only for URLs you control or
+// have already validated.
+type RawURL string
