@@ -602,7 +602,7 @@ func emitS(b *bytes.Buffer, s string) {
 
 // genStyleChild emits one child of a <style> element. Text is raw CSS (verbatim);
 // an Interp is rendered in CSS context (auto-sanitized). <style> bodies contain
-// only Text and ${ } interps (parser guarantee).
+// only Text and @{ } interps (parser guarantee).
 func genStyleChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, imports map[string]bool, fset *token.FileSet) error {
 	switch t := n.(type) {
 	case *ast.Text:
@@ -611,7 +611,7 @@ func genStyleChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Ty
 	case *ast.Interp:
 		return emitCSSInterp(b, t, resolved, imports, fset)
 	default:
-		return fmt.Errorf("codegen: <style> body may contain only text and ${ } interpolations, got %T", n)
+		return fmt.Errorf("codegen: <style> body may contain only text and @{ } interpolations, got %T", n)
 	}
 }
 

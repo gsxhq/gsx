@@ -660,7 +660,7 @@ func (p *parser) parseBang(start int, startPos token.Pos, resolvedPos token.Posi
 
 // parseRawTextBody consumes a raw-text element body until the matching
 // case-insensitive `</tag>` close tag, which it consumes. For <style> the body
-// is split into Text and ${ … } Interp children; for every other raw-text tag
+// is split into Text and @{ … } Interp children; for every other raw-text tag
 // (e.g. <script>) the body is a single verbatim Text. openPos describes the open
 // tag, used for the unterminated error.
 func (p *parser) parseRawTextBody(tag string, openPos token.Position) ([]ast.Markup, error) {
@@ -694,10 +694,10 @@ func (p *parser) parseRawTextBody(tag string, openPos token.Position) ([]ast.Mar
 				return nodes, nil
 			}
 		}
-		// Interpolation? (<style> only; trigger is exactly `${`.)
-		if interpolate && p.peek() == '$' && p.i+1 < len(p.src) && p.src[p.i+1] == '{' {
+		// Interpolation? (<style> only; trigger is exactly `@{`.)
+		if interpolate && p.peek() == '@' && p.i+1 < len(p.src) && p.src[p.i+1] == '{' {
 			flush(p.i)
-			p.i++ // past '$'; cursor now at '{' for parseInterp
+			p.i++ // past '@'; cursor now at '{' for parseInterp
 			in, err := p.parseInterp()
 			if err != nil {
 				return nil, err

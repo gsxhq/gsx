@@ -326,7 +326,7 @@ func TestPreserveTagUppercase(t *testing.T) {
 func TestStyleInterpPreserved(t *testing.T) {
 	// A <style> body with an interp must pass through wsnorm untouched: Text
 	// verbatim, Interp intact.
-	src := "package p\n\ncomponent C(w int) {\n\t<style>.a {\n\t\twidth: ${ w }px;\n\t}</style>\n}\n"
+	src := "package p\n\ncomponent C(w int) {\n\t<style>.a {\n\t\twidth: @{ w }px;\n\t}</style>\n}\n"
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "t.gsx", src, 0)
 	if err != nil {

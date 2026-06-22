@@ -1,7 +1,7 @@
 // Package cssmin is gsx's codegen-time CSS minifier: a robust, stable, safe pass
 // over the static CSS of <style> blocks. It performs only whitespace/comment
 // reductions that cannot change rendering — never value rewrites — and is
-// hole-aware (an ${ } interpolation is opaque, its adjacent whitespace preserved).
+// hole-aware (an @{ } interpolation is opaque, its adjacent whitespace preserved).
 package cssmin
 
 import "strings"

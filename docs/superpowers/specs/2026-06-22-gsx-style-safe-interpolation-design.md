@@ -45,6 +45,8 @@ ends-with attribute selector, which is `$=`, never `$` directly before `{` — s
 unambiguous, and it is the interpolation form JS/shell authors already know. Whitespace
 is flexible (`${x}` ≡ `${ x }`).
 
+**Migrated to `@{ }`** (2026-06-23, slice A) to avoid the JS template-literal `${}` collision — see `2026-06-23-gsx-js-interpolation-design.md`.
+
 **Auto-sanitize (matches URL handling).** Every interpolation in a **CSS context** —
 the `style=` attribute **or** anywhere inside a `<style>` block — is automatically run
 through the CSS value-filter. No filter syntax, no annotation.

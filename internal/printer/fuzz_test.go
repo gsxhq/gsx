@@ -16,7 +16,7 @@ import (
 // interp (it surfaces later as a codegen/compile error), but the formatter's
 // faithfulness contract only covers well-formed gsx: go/format cannot normalize a
 // malformed expr, so it falls back to verbatim, which can round-trip badly in ANY
-// interp ({ } or ${ }). That is a pre-existing, general printer limitation, not a
+// interp ({ } or @{ }). That is a pre-existing, general printer limitation, not a
 // <style> concern — so this fuzzer skips such inputs and asserts faithfulness only
 // for the real surface.
 func allInterpExprsValid(file *gsxast.File) bool {
@@ -59,8 +59,8 @@ func allInterpExprsValid(file *gsxast.File) bool {
 // source). Parse errors on the input are fine (random bytes aren't valid gsx).
 func FuzzStyleRoundTrip(f *testing.F) {
 	for _, body := range []string{
-		".a{width:${w}px}", "${a}${b}", "$x", "${", "${ }", "${ a |> upper }",
-		"${ x? }", "</sty", `${ "}" }`, "color:${c};", "/* c */ .a{x:${y}}",
+		".a{width:@{w}px}", "@{a}@{b}", "$x", "@{", "@{ }", "@{ a |> upper }",
+		"@{ x? }", "</sty", `@{ "}" }`, "color:@{c};", "/* c */ .a{x:@{y}}",
 	} {
 		f.Add(body)
 	}
