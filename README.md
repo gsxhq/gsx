@@ -50,9 +50,9 @@ component Card(title string, featured bool) {
 
 ## Documentation site
 
-The public docs site is built with VitePress in the separate
-[`gsxhq/website`](https://github.com/gsxhq/website) repo, which renders the
-Markdown in [`docs/guide/`](docs/guide/).
+The public docs site — <https://gsxhq.github.io/> — is built with VitePress in the
+separate [`gsxhq.github.io`](https://github.com/gsxhq/gsxhq.github.io) repo, which
+renders the Markdown in [`docs/guide/`](docs/guide/).
 
 ## Contributing
 
