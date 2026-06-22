@@ -380,3 +380,11 @@ func TestStyleInterpFormatPreservesPipeline(t *testing.T) {
 	want := "package p\n\ncomponent C(x string) {\n\t<style>.a{color:${ x |> upper }}</style>\n}\n"
 	checkFormat(t, src, want)
 }
+
+func TestStyleInterpTryAndPipeline(t *testing.T) {
+	// A <style> interp combining Try and a pipeline stage must round-trip
+	// byte-identically — neither the ? nor the |> stage may be dropped.
+	src := "package p\n\ncomponent C(x string) {\n\t<style>.a{color:${ x? |> upper }}</style>\n}\n"
+	want := "package p\n\ncomponent C(x string) {\n\t<style>.a{color:${ x? |> upper }}</style>\n}\n"
+	checkFormat(t, src, want)
+}
