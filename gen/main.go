@@ -107,6 +107,8 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 	switch cmd {
 	case "generate":
 		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, cfg.filterPkgs)
+	case "clean":
+		return runClean(cmdArgs, stdout, stderr)
 	case "info":
 		// Resolve against cwd: -C (handled above) has already chdir'd, so "."
 		// anchors the go/packages load at the user's chosen directory.
@@ -123,6 +125,35 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 		fmt.Fprintf(stderr, "gsx: unknown command %q\nRun 'gsx help' for usage.\n", cmd)
 		return 2
 	}
+}
+
+// runClean implements the `clean` command. Currently the only flag is --cache,
+// which removes the gsx cache directory (resolved via cacheDir). When the cache
+// is disabled no-ops are printed and the function returns 0. Without any flags
+// the usage for `clean` is printed and the function returns 0.
+func runClean(args []string, stdout, stderr io.Writer) int {
+	cfs := flag.NewFlagSet("clean", flag.ContinueOnError)
+	cfs.SetOutput(stderr)
+	var cache bool
+	cfs.BoolVar(&cache, "cache", false, "remove the gsx cache directory")
+	if err := cfs.Parse(args); err != nil {
+		return 2
+	}
+	if !cache {
+		fmt.Fprint(stdout, "gsx clean: no flags given.\n\nUsage:\n\tgsx clean --cache   remove the gsx cache directory\n")
+		return 0
+	}
+	dir, enabled := cacheDir()
+	if !enabled {
+		fmt.Fprintln(stdout, "gsx clean: cache is disabled (GSXCACHE=off or no usable cache dir); nothing to remove")
+		return 0
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		fmt.Fprintf(stderr, "gsx: clean --cache: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "removed gsx cache: %s\n", dir)
+	return 0
 }
 
 // runGenerate runs the generate command over paths (default ["."]) and prints a
@@ -192,6 +223,7 @@ Usage:
 Commands:
 	generate [paths...]   generate .x.go from .gsx files (default: .)
 	fmt [paths...]        format .gsx files (canonical, idempotent)
+	clean --cache         remove the gsx cache directory
 	info                  list the resolved pipeline filters
 	version               print the gsx version
 	help                  show this help

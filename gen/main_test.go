@@ -150,6 +150,57 @@ func TestRunFmtDispatch(t *testing.T) {
 	}
 }
 
+// TestCleanCache proves `clean --cache` removes the cache dir when GSXCACHE is
+// a real directory, and that `clean` without --cache does nothing destructive.
+func TestCleanCache(t *testing.T) {
+	cacheRoot := t.TempDir()
+	t.Setenv("GSXCACHE", cacheRoot)
+
+	// Write a dummy cache entry so we can verify RemoveAll happened.
+	entryFile := filepath.Join(cacheRoot, "dummy-entry")
+	if err := os.WriteFile(entryFile, []byte("data"), 0o644); err != nil {
+		t.Fatalf("setup: write dummy entry: %v", err)
+	}
+
+	code, out, errb := runCapture(t, []string{"clean", "--cache"})
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d; stderr=%q", code, errb)
+	}
+	if !strings.Contains(out, "removed gsx cache") {
+		t.Fatalf("expected stdout to mention removed gsx cache, got %q", out)
+	}
+	// The cache dir itself must be gone (RemoveAll removes the root too).
+	if _, err := os.Stat(cacheRoot); !os.IsNotExist(err) {
+		t.Fatalf("expected cache dir to be removed, but stat returned: %v", err)
+	}
+}
+
+// TestCleanCacheDisabled proves `clean --cache` when GSXCACHE=off prints a
+// clear message and exits 0 without removing anything.
+func TestCleanCacheDisabled(t *testing.T) {
+	t.Setenv("GSXCACHE", "off")
+
+	code, out, errb := runCapture(t, []string{"clean", "--cache"})
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d; stderr=%q", code, errb)
+	}
+	if !strings.Contains(out, "cache") {
+		t.Fatalf("expected stdout to mention cache, got %q", out)
+	}
+}
+
+// TestCleanNoFlags proves `clean` without --cache prints usage and exits 0.
+func TestCleanNoFlags(t *testing.T) {
+	code, out, errb := runCapture(t, []string{"clean"})
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d; stderr=%q", code, errb)
+	}
+	if !strings.Contains(out, "cache") {
+		t.Fatalf("expected stdout to mention cache, got %q", out)
+	}
+	_ = errb
+}
+
 // TestRunChdir proves -C runs relative to the given directory: a relative path
 // "views" resolves under the -C dir.
 func TestRunChdir(t *testing.T) {
