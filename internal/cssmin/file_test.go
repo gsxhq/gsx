@@ -105,6 +105,19 @@ func TestMinifyFileNULBail(t *testing.T) {
 	}
 }
 
+func TestMinifyFileStyleInMarkupAttr(t *testing.T) {
+	// <style> passed as a markup-attribute slot value must still be minified.
+	deep := styleEl(&ast.Text{Value: "  .a {\n  x: 1;\n}  "})
+	host := &ast.Element{Tag: "div", Attrs: []ast.Attr{&ast.MarkupAttr{Name: "header", Value: []ast.Markup{deep}}}}
+	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{host}}}}
+	if err := MinifyFile(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := deep.Children[0].(*ast.Text).Value; got != ".a{x: 1}" {
+		t.Fatalf("<style> in MarkupAttr slot not minified: %q", got)
+	}
+}
+
 func TestMinifyFileNestedStyle(t *testing.T) {
 	deepStyle := styleEl(&ast.Text{Value: "  .a {\n  x: 1;\n}  "})
 	div := &ast.Element{Tag: "div", Children: []ast.Markup{deepStyle}}

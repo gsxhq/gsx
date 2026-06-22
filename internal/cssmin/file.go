@@ -37,9 +37,15 @@ func minifyMarkup(nodes []ast.Markup, ext func(string) (string, error)) error {
 					return err
 				}
 				v.Children = mc
+				if err := minifyAttrs(v.Attrs, ext); err != nil {
+					return err
+				}
 				continue
 			}
 			if err := minifyMarkup(v.Children, ext); err != nil {
+				return err
+			}
+			if err := minifyAttrs(v.Attrs, ext); err != nil {
 				return err
 			}
 		case *ast.Fragment:
@@ -125,6 +131,27 @@ func minifyStyleChildren(children []ast.Markup, ext func(string) (string, error)
 		}
 	}
 	return splitSentinels(minifyCSS(sb.String()), interps), nil
+}
+
+// minifyAttrs walks attribute markup slots (a MarkupAttr value is a fresh markup
+// context that may itself contain <style>), so <style> in name={ … } is minified too.
+func minifyAttrs(attrs []ast.Attr, ext func(string) (string, error)) error {
+	for _, a := range attrs {
+		switch v := a.(type) {
+		case *ast.MarkupAttr:
+			if err := minifyMarkup(v.Value, ext); err != nil {
+				return err
+			}
+		case *ast.CondAttr:
+			if err := minifyAttrs(v.Then, ext); err != nil {
+				return err
+			}
+			if err := minifyAttrs(v.Else, ext); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // splitSentinels reassembles a minified sentinel string into Text + Interp nodes.

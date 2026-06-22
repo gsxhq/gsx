@@ -16,6 +16,11 @@ func minifyCSS(s string) string {
 	pending := false      // an unemitted whitespace run
 	afterBang := false    // whitespace after a kept /*! */ is still suppressed
 
+	// Note: a whitespace-only custom-property value (e.g. `--x: ;`) collapses to
+	// `--x:` because the space between `:` and `;` is adjacent to delimiters and is
+	// dropped. This is rendering-equivalent: CSS Custom Properties Level 1 trims
+	// leading/trailing whitespace before var() substitution, so both forms compute
+	// to the empty value.
 	isDelim := func(c byte) bool { return c == '{' || c == '}' || c == ';' || c == ',' }
 	flush := func(cur byte) {
 		if !pending {
