@@ -138,6 +138,7 @@ pipelines/param_arg	diag render
 pipelines/try_rejected	diag(error)
 pipelines/try_unwrap	diag render
 pipelines/unknown_filter	diag(error)
+script/minify	diag gen render
 security/js_rejected_onclick	diag(error)
 security/js_rejected_style	diag render
 security/url_blocked	diag render
@@ -157,4 +158,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 159 cases (render: 108, error: 31, gen-pinned: 11)
+TOTAL: 160 cases (render: 109, error: 31, gen-pinned: 12)

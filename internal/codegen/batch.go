@@ -29,7 +29,7 @@ type PackageResult struct {
 // error (parse or type-resolution) is recorded in that dir's PackageResult.Err
 // without failing the others. The returned map is keyed by the normalized
 // absolute dir.
-func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []string, cssMin func(string) (string, error)) (map[string]*PackageResult, error) {
+func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []string, cssMin, jsMin func(string) (string, error)) (map[string]*PackageResult, error) {
 	filterPkgs = dedupFilterPkgs(filterPkgs) // empty → [stdImportPath]
 
 	// Normalize each input dir to an absolute, clean path. If Abs fails for a
@@ -232,7 +232,7 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 		}
 		pf := propFieldsByDir[dir]
 		for path, file := range files {
-			gen, err := generateFile(file, resolved, table, pf, fset, cssMin)
+			gen, err := generateFile(file, resolved, table, pf, fset, cssMin, jsMin)
 			if err != nil {
 				result[dir].Err = fmt.Errorf("%s: %w", path, err)
 				break
@@ -247,5 +247,5 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 // GeneratePackages is GeneratePackagesWithFilters with the built-in std filter
 // package (kept for the test corpus and any std-only caller).
 func GeneratePackages(moduleDir string, dirs []string) (map[string]*PackageResult, error) {
-	return GeneratePackagesWithFilters(moduleDir, dirs, nil, nil)
+	return GeneratePackagesWithFilters(moduleDir, dirs, nil, nil, nil)
 }

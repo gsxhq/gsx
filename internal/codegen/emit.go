@@ -15,11 +15,12 @@ import (
 
 	"github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/cssmin"
+	"github.com/gsxhq/gsx/internal/jsmin"
 )
 
 // generateFile emits the .x.go for a parsed gsx file given already-resolved
 // interpolation types.
-func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filterTable, structFields map[string]map[string]bool, fset *token.FileSet, cssMin func(string) (string, error)) ([]byte, error) {
+func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filterTable, structFields map[string]map[string]bool, fset *token.FileSet, cssMin, jsMin func(string) (string, error)) ([]byte, error) {
 	interpTemp = 0
 	// Minify the static CSS of <style> blocks. cssMin is nil for the built-in
 	// safe minifier, or a custom override (e.g. tdewolff) threaded from
@@ -27,6 +28,12 @@ func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filter
 	// (holeless blocks); holey blocks always use the built-in hole-aware pass
 	// regardless of cssMin.
 	if err := cssmin.MinifyFile(file, cssMin); err != nil {
+		return nil, err
+	}
+	// Minify the static JS of <script> blocks. jsMin is nil for the built-in
+	// safe minifier (ASI-safe, newline-keeping), or a custom override threaded
+	// from gen.WithJSMinifier. <script> content is always holeless.
+	if err := jsmin.MinifyFile(file, jsMin); err != nil {
 		return nil, err
 	}
 	imports := map[string]bool{

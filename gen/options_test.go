@@ -136,3 +136,12 @@ func TestWithCSSMinifierOption(t *testing.T) {
 		t.Fatal("WithCSSMinifier did not set cfg.cssMin")
 	}
 }
+
+func TestWithJSMinifierOption(t *testing.T) {
+	min := func(js string) (string, error) { return js, nil }
+	var cfg config
+	WithJSMinifier(min)(&cfg)
+	if cfg.jsMin == nil {
+		t.Fatal("WithJSMinifier did not set cfg.jsMin")
+	}
+}

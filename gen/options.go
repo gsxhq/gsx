@@ -49,6 +49,12 @@ func WithCSSMinifier(min func(css string) (string, error)) Option {
 	return func(cfg *config) { cfg.cssMin = min }
 }
 
+// WithJSMinifier installs a custom JS minifier for <script> blocks, replacing
+// the built-in safe minifier. It receives complete JS (<script> is holeless).
+func WithJSMinifier(min func(js string) (string, error)) Option {
+	return func(cfg *config) { cfg.jsMin = min }
+}
+
 // appendFilterPkg appends path to the config's ordered filter-package list
 // unless it is already present (first-seen order is preserved).
 func (cfg *config) appendFilterPkg(path string) {
