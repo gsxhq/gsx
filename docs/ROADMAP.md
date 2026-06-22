@@ -157,6 +157,12 @@ attribute-name validation against tag breakout (`validAttrName`), documented
      construction); `gsx.SafeCSS` is the author opt-out; composed `style={ "x": cond,
      dyn }` trusts string-literal parts and filters dynamic ones. Adversarial-reviewed
      + fuzzed (44.7M inputs, no breakout-byte leak). `<script>` stays raw.
+   - **CSS minification — DONE (slice 2):** `<style>` static CSS is minified at
+     codegen time by a robust, stdlib-only built-in (`internal/cssmin`:
+     whitespace/comments only, no value rewrites, hole-aware for `${ }`);
+     `gen.WithCSSMinifier` swaps in an aggressive minifier (e.g. tdewolff) for
+     holeless blocks. On by default (cache `Version()` bumped); `gsx fmt`/source
+     untouched. JS minification (`gen.WithJSMinifier`) is slice 3.
    - **JS — still fail-closed:** `on*`/`@*`/`hx-on*` expr values are a build error
      (not a runtime `ZgotmplZ`); a `|> js` safe pipeline + `<script>` interpolation is
      a later chapter.
