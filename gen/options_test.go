@@ -2,8 +2,11 @@ package gen
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/cssmin"
 	"github.com/gsxhq/gsx/std"
 )
 
@@ -86,5 +89,50 @@ func TestWithFiltersBuiltinMarkerRecorded(t *testing.T) {
 	}
 	if len(cfg.filterPkgs) != 0 {
 		t.Fatalf("expected no filter pkgs from a builtin marker, got %v", cfg.filterPkgs)
+	}
+}
+
+// This is a focused unit test of the threading contract at the cssmin layer:
+// the same boundary gen.WithCSSMinifier relies on. (An end-to-end gen test needs
+// a temp module; the corpus covers built-in end-to-end. Here we assert the ext
+// func reaches holeless blocks only.)
+func TestWithCSSMinifierBoundary(t *testing.T) {
+	called := false
+	ext := func(css string) (string, error) { called = true; return "/*ext*/" + css, nil }
+
+	holeless := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{
+		&ast.Element{Tag: "style", Children: []ast.Markup{&ast.Text{Value: ".a{x:1}"}}},
+	}}}}
+	if err := cssmin.MinifyFile(holeless, ext); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("ext not called on holeless block")
+	}
+	got := holeless.Decls[0].(*ast.Component).Body[0].(*ast.Element).Children[0].(*ast.Text).Value
+	if !strings.HasPrefix(got, "/*ext*/") {
+		t.Fatalf("ext output not used: %q", got)
+	}
+
+	called = false
+	holey := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{
+		&ast.Element{Tag: "style", Children: []ast.Markup{
+			&ast.Text{Value: ".a{x:"}, &ast.Interp{Expr: "v"}, &ast.Text{Value: "}"},
+		}},
+	}}}}
+	if err := cssmin.MinifyFile(holey, ext); err != nil {
+		t.Fatal(err)
+	}
+	if called {
+		t.Fatal("ext must NOT be called on a holey block")
+	}
+}
+
+func TestWithCSSMinifierOption(t *testing.T) {
+	min := func(css string) (string, error) { return css, nil }
+	var cfg config
+	WithCSSMinifier(min)(&cfg)
+	if cfg.cssMin == nil {
+		t.Fatal("WithCSSMinifier did not set cfg.cssMin")
 	}
 }

@@ -38,6 +38,17 @@ func WithFilters(markers ...any) Option {
 	}
 }
 
+// WithCSSMinifier installs a custom CSS minifier for <style> blocks, replacing
+// the built-in safe minifier on FULLY-STATIC (holeless) blocks. A block that
+// contains ${ } interpolation always uses gsx's built-in hole-aware minifier, so
+// the custom minifier only ever receives complete, valid CSS. Wrap any
+// whole-buffer minifier (e.g. tdewolff) in this signature:
+//
+//	gen.Main(gen.WithCSSMinifier(func(css string) (string, error) { … }))
+func WithCSSMinifier(min func(css string) (string, error)) Option {
+	return func(cfg *config) { cfg.cssMin = min }
+}
+
 // appendFilterPkg appends path to the config's ordered filter-package list
 // unless it is already present (first-seen order is preserved).
 func (cfg *config) appendFilterPkg(path string) {
