@@ -104,8 +104,74 @@ type hole struct {
 	resolved bool   // a token covered this hole
 }
 
+// jsExecutableTypes are the <script type> values that run as JavaScript. Any
+// other (non-empty) type marks a data block (e.g. application/json) — not JS.
+var jsExecutableTypes = map[string]bool{
+	"text/javascript": true, "module": true, "application/javascript": true,
+	"text/ecmascript": true, "application/ecmascript": true,
+}
+
+// isDataIslandScript reports whether el is a <script> whose type marks it a data
+// block (not executable JS), e.g. <script type="application/json">.
+func isDataIslandScript(el *ast.Element) bool {
+	for _, a := range el.Attrs {
+		if sa, ok := a.(*ast.StaticAttr); ok && strings.EqualFold(sa.Name, "type") {
+			t := strings.ToLower(strings.TrimSpace(sa.Value))
+			return t != "" && !jsExecutableTypes[t]
+		}
+	}
+	return false
+}
+
+// scriptType returns the static `type` attribute value of el (for diagnostics),
+// or "" if absent / non-static.
+func scriptType(el *ast.Element) string {
+	for _, a := range el.Attrs {
+		if sa, ok := a.(*ast.StaticAttr); ok && strings.EqualFold(sa.Name, "type") {
+			return sa.Value
+		}
+	}
+	return ""
+}
+
+// resolveDataIsland classifies a data-block <script> (e.g. application/json):
+// the whole body must be exactly one @{ } hole (modulo whitespace), emitted as a
+// JSON value. Anything else fails closed.
+func resolveDataIsland(el *ast.Element) error {
+	var theInterp *ast.Interp
+	for _, c := range el.Children {
+		switch v := c.(type) {
+		case *ast.Text:
+			if strings.TrimSpace(v.Value) != "" {
+				return fmt.Errorf("jsx: a data <script> (type=%q) must contain exactly one @{ } value; found literal text %q",
+					scriptType(el), strings.TrimSpace(v.Value))
+			}
+		case *ast.Interp:
+			if theInterp != nil {
+				return fmt.Errorf("jsx: a data <script> must contain exactly one @{ } value; found more than one")
+			}
+			theInterp = v
+		default:
+			return fmt.Errorf("jsx: unexpected %T in data <script> body", c)
+		}
+	}
+	if theInterp == nil {
+		return nil // holeless data block (static JSON) — nothing to interpolate.
+	}
+	theInterp.JSCtx = ast.JSCtxValue
+	return nil
+}
+
 // resolveScript classifies every Interp child of a <script> element.
 func resolveScript(el *ast.Element) error {
+	// A data-block <script> (e.g. type="application/json") is not JavaScript:
+	// its body must be exactly one @{ } value emitted as JSON. This branch runs
+	// FIRST so a holeless data block also takes the data path (and is never
+	// JS-classified); resolveDataIsland returns nil for a holeless body.
+	if isDataIslandScript(el) {
+		return resolveDataIsland(el)
+	}
+
 	// Collect holes and build the skeleton. Bail early if there are no holes.
 	hasInterp := false
 	for _, c := range el.Children {

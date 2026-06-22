@@ -5,4 +5,4 @@ component Page() {
 	<div x-on:click="@{ stmt } = 1">x</div>
 }
 -- diagnostics.golden --
-cases/jsattr_jsattr_identifier_rejected/input.gsx: jsx: @{ } at 12572 here is not a safe JavaScript value position (it looks like an identifier/binding); wrap the value where it is used as a value, or use a data attribute
+cases/jsattr_jsattr_identifier_rejected/input.gsx: jsx: @{ } at 12970 here is not a safe JavaScript value position (it looks like an identifier/binding); wrap the value where it is used as a value, or use a data attribute

@@ -1,0 +1,8 @@
+-- input.gsx --
+package views
+
+component Page(a string, b string) {
+	<script type="application/json">@{ a } @{ b }</script>
+}
+-- diagnostics.golden --
+cases/datajson_island_multi_hole_rejected/input.gsx: jsx: a data <script> must contain exactly one @{ } value; found more than one
