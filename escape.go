@@ -9,8 +9,9 @@ import (
 
 // htmlReplacer escapes the bytes unsafe in HTML text and double-quoted attribute
 // contexts. The entity set matches html/template.HTMLEscapeString (text/template
-// HTMLEscape), which replaces NUL with U+FFFD per the HTML5 parse-error rule
-// (https://www.w3.org/TR/html5/syntax.html#before-attribute-value-state).
+// HTMLEscape), which replaces NUL with U+FFFD per the HTML5 tokenizer rule that
+// rewrites U+0000 to U+FFFD on a parse error
+// (https://html.spec.whatwg.org/multipage/parsing.html#data-state).
 var htmlReplacer = strings.NewReplacer(
 	"\x00", "�",
 	"&", "&amp;",
