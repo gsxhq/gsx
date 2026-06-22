@@ -14,6 +14,21 @@ import (
 	"github.com/gsxhq/gsx/internal/codegen"
 )
 
+// buildContext returns a stable string capturing the Go build context that can
+// affect type resolution (and thus generated output). Folded into every cache
+// key so a different GOOS/GOARCH/tags/CGO/etc. never collides on the same key.
+func buildContext(moduleRoot string) string {
+	cmd := exec.Command("go", "env", "GOVERSION", "GOOS", "GOARCH", "CGO_ENABLED", "GOFLAGS", "GOEXPERIMENT")
+	cmd.Dir = moduleRoot
+	out, err := cmd.Output()
+	if err != nil {
+		// Uncertain context → return a unique-ish marker so we don't share a key
+		// with a real context (caller still caches, but conservatively).
+		return "buildctx-unknown"
+	}
+	return strings.TrimSpace(string(out))
+}
+
 type pkgInfo struct {
 	ImportPath string
 	Dir        string
@@ -76,8 +91,9 @@ func dirSourceHash(dir string) (string, error) {
 
 // computeKey is the per-package cache key. dir is the absolute package dir;
 // graph maps import paths to info; modPath is the module path; goModHash/
-// goSumHash/goVersion/filterPkgs are the version pins.
-func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumHash, goVersion string, filterPkgs []string) (string, error) {
+// goSumHash/buildCtx/filterPkgs are the version pins. buildCtx is the output
+// of buildContext() and subsumes GOVERSION, GOOS, GOARCH, CGO_ENABLED, etc.
+func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumHash, buildCtx string, filterPkgs []string) (string, error) {
 	dir = filepath.Clean(dir)
 	own, err := dirSourceHash(dir)
 	if err != nil {
@@ -114,7 +130,7 @@ func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumH
 
 	pins := dedupSorted(filterPkgs)
 	h := sha256.New()
-	fmt.Fprintf(h, "gsxcache-v1\x00%s\x00%s\x00%s\x00%s\x00", codegen.Version(), goVersion, goModHash, goSumHash)
+	fmt.Fprintf(h, "gsxcache-v1\x00%s\x00%s\x00%s\x00%s\x00", codegen.Version(), buildCtx, goModHash, goSumHash)
 	fmt.Fprintf(h, "filters=%s\x00own=%s\x00", strings.Join(pins, "\x00"), own)
 	for _, d := range depHashes {
 		fmt.Fprintf(h, "dep=%s\x00", d)

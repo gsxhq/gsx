@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 
 	"github.com/gsxhq/gsx/internal/codegen"
@@ -43,7 +42,7 @@ func generateCached(paths, filterPkgs []string, useCache bool) (Result, error) {
 	}
 
 	graph, gerr := loadGraph(root)
-	goVer := runtime.Version()
+	bctx := buildContext(root)
 	goModH := fileHashOrEmpty(filepath.Join(root, "go.mod"))
 	goSumH := fileHashOrEmpty(filepath.Join(root, "go.sum"))
 
@@ -54,7 +53,7 @@ func generateCached(paths, filterPkgs []string, useCache bool) (Result, error) {
 			miss = append(miss, dir) // graph failed → regenerate everything (safe)
 			continue
 		}
-		k, err := computeKey(dir, graph, modPath, goModH, goSumH, goVer, filterPkgs)
+		k, err := computeKey(dir, graph, modPath, goModH, goSumH, bctx, filterPkgs)
 		if err != nil {
 			miss = append(miss, dir) // uncertain → MISS
 			continue

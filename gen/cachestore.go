@@ -41,11 +41,27 @@ func storeGet(dir, key string) (pkgOutput, bool) {
 	return out, ok
 }
 
+// cachedirTagContent is the standard CACHEDIR.TAG sentinel content.
+// See https://bford.info/cachedir/
+const cachedirTagContent = "Signature: 8a477f597d28d172789f06886806bc55\n# This file is a cache directory tag created by gsx.\n# For information about cache directory tags see https://bford.info/cachedir/\n"
+
+// writeSentinel idempotently writes the CACHEDIR.TAG file to the cache root dir.
+// Best-effort: errors are silently ignored so they never break a cache write.
+func writeSentinel(cacheRoot string) {
+	tag := filepath.Join(cacheRoot, "CACHEDIR.TAG")
+	if _, err := os.Stat(tag); err == nil {
+		return // already present
+	}
+	_ = os.WriteFile(tag, []byte(cachedirTagContent), 0o644)
+}
+
 func storePut(dir, key string, out pkgOutput) error {
 	p := entryPath(dir, key)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
+	// Ensure the cache root is tagged as a cache dir (idempotent, best-effort).
+	writeSentinel(dir)
 	tmp, err := os.CreateTemp(filepath.Dir(p), "tmp-")
 	if err != nil {
 		return err

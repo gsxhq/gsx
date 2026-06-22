@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 )
 
@@ -147,6 +148,18 @@ func runClean(args []string, stdout, stderr io.Writer) int {
 	if !enabled {
 		fmt.Fprintln(stdout, "gsx clean: cache is disabled (GSXCACHE=off or no usable cache dir); nothing to remove")
 		return 0
+	}
+	// If the directory doesn't exist there's nothing to remove — success.
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		fmt.Fprintf(stdout, "gsx clean: cache dir does not exist: %s\n", dir)
+		return 0
+	}
+	// Require the CACHEDIR.TAG sentinel to prevent accidentally nuking a
+	// non-cache dir (e.g. GSXCACHE=$HOME would otherwise delete $HOME).
+	tag := filepath.Join(dir, "CACHEDIR.TAG")
+	if _, err := os.Stat(tag); os.IsNotExist(err) {
+		fmt.Fprintf(stderr, "gsx: refusing to remove %q: not a gsx cache dir (no CACHEDIR.TAG)\n", dir)
+		return 1
 	}
 	if err := os.RemoveAll(dir); err != nil {
 		fmt.Fprintf(stderr, "gsx: clean --cache: %v\n", err)

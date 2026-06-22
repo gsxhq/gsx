@@ -6,6 +6,45 @@ import (
 	"testing"
 )
 
+// TestBuildContextKeySensitivity is the core regression guard for Fix 1:
+// a different buildCtx string must produce a different cache key, and the same
+// buildCtx must produce the same key (stability).
+func TestBuildContextKeySensitivity(t *testing.T) {
+	tmp := t.TempDir()
+	os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module ex/bctx\n\ngo 1.26\n"), 0o644)
+	os.MkdirAll(filepath.Join(tmp, "a"), 0o755)
+	os.WriteFile(filepath.Join(tmp, "a", "a.go"), []byte("package a\n"), 0o644)
+
+	graph, err := loadGraph(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aDir := filepath.Join(tmp, "a")
+
+	bctxDarwin := "go1.26\ndarwin\namd64\n0\n\n"
+	bctxLinux := "go1.26\nlinux\namd64\n0\n\n"
+
+	k1a, err := computeKey(aDir, graph, "ex/bctx", "", "", bctxDarwin, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k1b, err := computeKey(aDir, graph, "ex/bctx", "", "", bctxDarwin, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k1a != k1b {
+		t.Error("same buildCtx must produce the same key (unstable)")
+	}
+
+	k2, err := computeKey(aDir, graph, "ex/bctx", "", "", bctxLinux, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k1a == k2 {
+		t.Error("different buildCtx (darwin vs linux) must produce different keys")
+	}
+}
+
 func TestDirSourceHashStableAndSensitive(t *testing.T) {
 	d := t.TempDir()
 	os.WriteFile(filepath.Join(d, "a.gsx"), []byte("package v\ncomponent A(){<p>x</p>}\n"), 0o644)
@@ -55,19 +94,19 @@ func TestComputeKeyDepClosure(t *testing.T) {
 		t.Fatal(err)
 	}
 	bDir := filepath.Join(tmp, "b")
-	key1, err := computeKey(bDir, graph, "ex/app", "", "", "go1.26", nil)
+	key1, err := computeKey(bDir, graph, "ex/app", "", "", "go1.26\nlinux\namd64\n0\n\n", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// edit dependency a -> b's key must change
 	os.WriteFile(filepath.Join(tmp, "a", "a.go"), []byte("package a\n\nfunc A() string { return \"A2\" }\n"), 0o644)
-	key2, _ := computeKey(bDir, loadGraphMust(t, tmp), "ex/app", "", "", "go1.26", nil)
+	key2, _ := computeKey(bDir, loadGraphMust(t, tmp), "ex/app", "", "", "go1.26\nlinux\namd64\n0\n\n", nil)
 	if key1 == key2 {
 		t.Error("editing dependency a must change b's key")
 	}
 	// edit unrelated c -> b's key must NOT change
 	os.WriteFile(filepath.Join(tmp, "c", "c.go"), []byte("package c\n\nfunc C() string { return \"C2\" }\n"), 0o644)
-	key3, _ := computeKey(bDir, loadGraphMust(t, tmp), "ex/app", "", "", "go1.26", nil)
+	key3, _ := computeKey(bDir, loadGraphMust(t, tmp), "ex/app", "", "", "go1.26\nlinux\namd64\n0\n\n", nil)
 	if key3 != key2 {
 		t.Error("editing unrelated c must NOT change b's key")
 	}
