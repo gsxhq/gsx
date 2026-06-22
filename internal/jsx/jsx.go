@@ -151,7 +151,12 @@ func resolveScript(el *ast.Element) error {
 				h.interp.Pos())
 		}
 		if h.comment {
-			el.Children[h.childIdx] = &ast.Text{Value: interpLiteral(h.interp)}
+			lit := interpLiteral(h.interp)
+			if strings.Contains(strings.ToLower(lit), "</script") {
+				return fmt.Errorf("jsx: @{ } at %d inside a <script> comment contains \"</script\", which would close the script element; remove it or move the value out of the comment",
+					h.interp.Pos())
+			}
+			el.Children[h.childIdx] = &ast.Text{Value: lit}
 			continue
 		}
 		h.interp.JSCtx = h.ctx

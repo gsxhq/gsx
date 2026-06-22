@@ -144,6 +144,7 @@ func TestResolveScriptsErrors(t *testing.T) {
 		{"optional chain member name", `obj?.@{ p }`},
 		{"statement position", `var x = 1; @{ y }`},
 		{"placeholder collision", `let _GSXJSHOLE_0 = @{ x }`},
+		{"comment hole script-breakout", "const u = @{ id }; // x @{ \"</script>\" }\n"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
