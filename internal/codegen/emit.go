@@ -3,7 +3,9 @@ package codegen
 import (
 	"bytes"
 	"fmt"
+	goast "go/ast"
 	"go/format"
+	goparser "go/parser"
 	"go/token"
 	"go/types"
 	"path/filepath"
@@ -325,9 +327,17 @@ func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]typ
 		return nil
 	}
 	emitS(b, ">")
-	for _, c := range el.Children {
-		if err := genNode(b, c, resolved, table, structFields, imports, fset, recvVar, recvTypeName); err != nil {
-			return err
+	if strings.EqualFold(el.Tag, "style") {
+		for _, c := range el.Children {
+			if err := genStyleChild(b, c, resolved, imports, fset); err != nil {
+				return err
+			}
+		}
+	} else {
+		for _, c := range el.Children {
+			if err := genNode(b, c, resolved, table, structFields, imports, fset, recvVar, recvTypeName); err != nil {
+				return err
+			}
 		}
 	}
 	emitS(b, "</"+el.Tag+">")
@@ -412,9 +422,17 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 			return nil
 		}
 		emitS(b, ">")
-		for _, c := range t.Children {
-			if err := genNode(b, c, resolved, table, structFields, imports, fset, recvVar, recvTypeName); err != nil {
-				return err
+		if strings.EqualFold(t.Tag, "style") {
+			for _, c := range t.Children {
+				if err := genStyleChild(b, c, resolved, imports, fset); err != nil {
+					return err
+				}
+			}
+		} else {
+			for _, c := range t.Children {
+				if err := genNode(b, c, resolved, table, structFields, imports, fset, recvVar, recvTypeName); err != nil {
+					return err
+				}
 			}
 		}
 		emitS(b, "</"+t.Tag+">")
@@ -573,6 +591,74 @@ func emitS(b *bytes.Buffer, s string) {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(s))
 }
 
+// genStyleChild emits one child of a <style> element. Text is raw CSS (verbatim);
+// an Interp is rendered in CSS context (auto-sanitized). <style> bodies contain
+// only Text and ${ } interps (parser guarantee).
+func genStyleChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, imports map[string]bool, fset *token.FileSet) error {
+	switch t := n.(type) {
+	case *ast.Text:
+		emitS(b, t.Value)
+		return nil
+	case *ast.Interp:
+		return emitCSSInterp(b, t, resolved, imports, fset)
+	default:
+		return fmt.Errorf("codegen: <style> body may contain only text and ${ } interpolations, got %T", n)
+	}
+}
+
+// emitCSSInterp renders a <style> interpolation value in CSS block context.
+func emitCSSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, imports map[string]bool, fset *token.FileSet) error {
+	if n.Try {
+		return fmt.Errorf("codegen: `?` try-marker not supported in <style> interpolation yet")
+	}
+	if len(n.Stages) > 0 {
+		return fmt.Errorf("codegen: pipeline stages not supported in <style> interpolation yet")
+	}
+	t, ok := resolved[n]
+	if !ok || t == nil {
+		return fmt.Errorf("codegen: could not resolve type of <style> interpolation %q", n.Expr)
+	}
+	expr := strings.TrimSpace(n.Expr)
+	if tup, ok := t.(*types.Tuple); ok {
+		if tup.Len() != 2 || tup.At(1).Type().String() != "error" {
+			return fmt.Errorf("codegen: <style> interpolation %q returns %s; only (T, error) is supported", expr, t)
+		}
+		tmp := fmt.Sprintf("_gsxv%d", interpTemp)
+		interpTemp++
+		fmt.Fprintf(b, "\t\t%s, _gsxerr := %s\n\t\tif _gsxerr != nil {\n\t\t\treturn _gsxerr\n\t\t}\n", tmp, expr)
+		return emitRenderCSS(b, tmp, tup.At(0).Type(), imports)
+	}
+	return emitRenderCSS(b, expr, t, imports)
+}
+
+// emitRenderCSS writes a value in CSS block context (inside <style>): SafeCSS and
+// numbers are emitted raw (safe by construction); strings/Stringers go through
+// gw.CSS (the value-filter).
+func emitRenderCSS(b *bytes.Buffer, expr string, t types.Type, imports map[string]bool) error {
+	if isSafeCSS(t) {
+		fmt.Fprintf(b, "\t\t_gsxgw.S(string(%s))\n", expr)
+		return nil
+	}
+	switch classify(t) {
+	case catInt:
+		imports["strconv"] = true
+		fmt.Fprintf(b, "\t\t_gsxgw.S(strconv.FormatInt(int64(%s), 10))\n", expr)
+	case catUint:
+		imports["strconv"] = true
+		fmt.Fprintf(b, "\t\t_gsxgw.S(strconv.FormatUint(uint64(%s), 10))\n", expr)
+	case catFloat:
+		imports["strconv"] = true
+		fmt.Fprintf(b, "\t\t_gsxgw.S(strconv.FormatFloat(float64(%s), 'g', -1, 64))\n", expr)
+	case catString, catBytes:
+		fmt.Fprintf(b, "\t\t_gsxgw.CSS(string(%s))\n", expr)
+	case catStringer:
+		fmt.Fprintf(b, "\t\t_gsxgw.CSS((%s).String())\n", expr)
+	default:
+		return fmt.Errorf("codegen: value of type %s not renderable in CSS context (need string/number/Stringer or gsx.SafeCSS)", t)
+	}
+	return nil
+}
+
 // emitAttr emits one element attribute. Static values are escaped at codegen and
 // always double-quoted; bool attrs use gw.BoolAttr. Expr attrs are handled in a
 // later task; the deferred attr kinds error clearly.
@@ -585,15 +671,13 @@ func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, tab
 	case *ast.ExprAttr:
 		return emitExprAttr(b, t, resolved, table, imports)
 	case *ast.ClassAttr:
-		// `class`/`style` composed attributes parse to ClassAttr. The `style`
-		// CSS grammar cannot be made safe by HTML-entity escaping, so an
-		// interpolated style value must fail closed (the same invariant
-		// emitExprAttr enforces for any other CSS-context attribute). `class`
-		// composition is merely deferred until its lowering lands.
+		// class -> token merge (gw.Class); style -> '; '-joined declarations
+		// (gw.Style) with dynamic parts CSS-value-filtered.
 		if attrContext(t.Name) == ctxCSS {
-			return fmt.Errorf("codegen: expr value in CSS context (%q) is unsafe; needs a safe type via `|> css` (not available yet) — use a static value", t.Name)
+			emitStyleAttr(b, t)
+		} else {
+			emitClassAttr(b, t)
 		}
-		emitClassAttr(b, t)
 	case *ast.SpreadAttr:
 		// emitAttr runs only for non-component elements (genNode routes component
 		// tags to genChildComponent before the attr loop), so a SpreadAttr here is
@@ -648,6 +732,47 @@ func emitClassAttr(b *bytes.Buffer, a *ast.ClassAttr) {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
 	fmt.Fprintf(b, "\t\t_gsxgw.Class(%s)\n", strings.Join(parts, ", "))
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
+}
+
+// emitStyleAttr lowers a composable `style={ … }` to ` style="` + a gw.Style call
+// composing each part as a CSS declaration, then `"`. A string-literal part is
+// trusted and emitted raw; any dynamic part value is wrapped in gsx.FilterCSS so
+// untrusted data cannot inject declarations or break out. gw.Style joins the
+// included parts with "; " and attr-escapes the result.
+func emitStyleAttr(b *bytes.Buffer, a *ast.ClassAttr) {
+	parts := make([]string, 0, len(a.Parts))
+	for _, p := range a.Parts {
+		val := styleDeclExpr(p.Expr)
+		if p.Cond == "" {
+			parts = append(parts, fmt.Sprintf("gsx.Class(%s)", val))
+		} else {
+			parts = append(parts, fmt.Sprintf("gsx.ClassIf(%s, %s)", val, strings.TrimSpace(p.Cond)))
+		}
+	}
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
+	fmt.Fprintf(b, "\t\t_gsxgw.Style(%s)\n", strings.Join(parts, ", "))
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
+}
+
+// styleDeclExpr returns the Go expression for a composed-style part's value: a
+// pure string-literal part is trusted (returned verbatim); any other (dynamic)
+// part is wrapped in gsx.FilterCSS so its runtime value is CSS-value-filtered.
+func styleDeclExpr(expr string) string {
+	e := strings.TrimSpace(expr)
+	if isStringLiteralExpr(e) {
+		return e
+	}
+	return "gsx.FilterCSS(" + e + ")"
+}
+
+// isStringLiteralExpr reports whether expr is exactly a Go string literal.
+func isStringLiteralExpr(expr string) bool {
+	node, err := goparser.ParseExpr(expr)
+	if err != nil {
+		return false
+	}
+	lit, ok := node.(*goast.BasicLit)
+	return ok && lit.Kind == token.STRING
 }
 
 // htmlAttrEscape escapes a static attribute value for a double-quoted context at
@@ -734,7 +859,6 @@ func emitExprAttr(b *bytes.Buffer, a *ast.ExprAttr, resolved map[ast.Node]types.
 
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
 	if attrContext(a.Name) == ctxURL {
-		// URL context: value must be string-like; sanitize + escape.
 		fmt.Fprintf(b, "\t\t_gsxgw.URL(%s)\n", urlStringExpr(expr, t))
 	} else {
 		if err := emitAttrValue(b, expr, t, imports); err != nil {

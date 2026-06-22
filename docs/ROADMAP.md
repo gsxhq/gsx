@@ -149,10 +149,17 @@ attribute-name validation against tag breakout (`validAttrName`), documented
 2. ✅ **[Blocking] Always-quote emitted attribute values** — every static and
    expr attr value is wrapped in codegen-emitted double quotes; kills the Jinja
    `xmlattr` / unquoted-attribute injection class (CVE-2024-22195) outright.
-3. ✅ **[High] Compile-time rejection of bare exprs in JS/CSS/`on*=` contexts**
-   — `on*`/`@*`/`hx-on*` and `style` expr values are a build error (fail-closed),
-   not a runtime `ZgotmplZ`. Safe-type pipeline filters (`|> js`/`|> css`) will
-   later open these intentionally.
+3. ✅ **[High] CSS contexts auto-sanitize; JS contexts fail-closed.**
+   - **CSS — DONE (slice 1, 2026-06-22):** `<style>` blocks support `${ expr }`
+     interpolation and `style={ … }` attributes auto-sanitize, both routing
+     untrusted values through a faithful port of `html/template`'s `cssValueFilter`
+     (exported `gsx.FilterCSS`; block writer `gw.CSS`). Numbers are raw (safe by
+     construction); `gsx.SafeCSS` is the author opt-out; composed `style={ "x": cond,
+     dyn }` trusts string-literal parts and filters dynamic ones. Adversarial-reviewed
+     + fuzzed (44.7M inputs, no breakout-byte leak). `<script>` stays raw.
+   - **JS — still fail-closed:** `on*`/`@*`/`hx-on*` expr values are a build error
+     (not a runtime `ZgotmplZ`); a `|> js` safe pipeline + `<script>` interpolation is
+     a later chapter.
 4. 🟡 **[High] Harden `urlSanitize` + complete URL-attr table** — control-char /
    whitespace scheme evasion (`java\tscript:`, `\x01javascript:`, leading-space)
    maps to the sentinel (verified by adversarial probe); the `urlAttrs` table

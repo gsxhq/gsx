@@ -322,3 +322,37 @@ func TestPreserveTagUppercase(t *testing.T) {
 		t.Fatalf("text nodes = %#v, want %#v", got, want)
 	}
 }
+
+func TestStyleInterpPreserved(t *testing.T) {
+	// A <style> body with an interp must pass through wsnorm untouched: Text
+	// verbatim, Interp intact.
+	src := "package p\n\ncomponent C(w int) {\n\t<style>.a {\n\t\twidth: ${ w }px;\n\t}</style>\n}\n"
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "t.gsx", src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	Normalize(f)
+	style := f.Decls[0].(*ast.Component).Body[0].(*ast.Element)
+	var sawInterp bool
+	for _, c := range style.Children {
+		switch v := c.(type) {
+		case *ast.Text:
+			if v.Value == "" {
+				t.Errorf("Normalize produced empty Text node in <style> body")
+			}
+		case *ast.Interp:
+			sawInterp = true
+			if v.Expr != "w" {
+				t.Fatalf("interp Expr = %q, want w", v.Expr)
+			}
+		}
+	}
+	if !sawInterp {
+		t.Fatal("interp was lost from <style> body after Normalize")
+	}
+	// The leading whitespace inside <style> must be preserved (not collapsed).
+	if txt, ok := style.Children[0].(*ast.Text); !ok || txt.Value != ".a {\n\t\twidth: " {
+		t.Fatalf("child0 = %#v, want verbatim leading CSS text", style.Children[0])
+	}
+}

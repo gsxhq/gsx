@@ -74,3 +74,45 @@ func TestWriteURLEscapesAfterSanitize(t *testing.T) {
 		t.Fatalf("blocked URL = %q, want %q", b.String(), blockedURL)
 	}
 }
+
+func TestCSSValueFilter(t *testing.T) {
+	tests := []struct{ css, want string }{
+		{"", ""},
+		{"foo", "foo"},
+		{"0", "0"},
+		{"0px", "0px"},
+		{"-5px", "-5px"},
+		{"1.25in", "1.25in"},
+		{"+.33em", "+.33em"},
+		{"100%", "100%"},
+		{".foo", ".foo"},
+		{"#bar", "#bar"},
+		{"-moz-corner-radius", "-moz-corner-radius"},
+		{"#123456", "#123456"},
+		{"U+00-FF, U+980-9FF", "U+00-FF, U+980-9FF"},
+		{"color: red", "color: red"},
+		{"<!--", "ZgotmplZ"},
+		{"-->", "ZgotmplZ"},
+		{"</style", "ZgotmplZ"},
+		{`"`, "ZgotmplZ"},
+		{`'`, "ZgotmplZ"},
+		{"`", "ZgotmplZ"},
+		{"\x00", "ZgotmplZ"},
+		{"/* foo */", "ZgotmplZ"},
+		{"//", "ZgotmplZ"},
+		{"rgb(1,2,3)", "ZgotmplZ"},
+		{"expression(alert(1337))", "ZgotmplZ"},
+		{"EXPRESSION", "ZgotmplZ"},
+		{"-moz-binding", "ZgotmplZ"},
+		{`-express\69on(alert(1337))`, "ZgotmplZ"},
+		{`-expre\0000073sion`, "-expre\x073sion"},
+		{"@import url evil.css", "ZgotmplZ"},
+		{"<", "ZgotmplZ"},
+		{">", "ZgotmplZ"},
+	}
+	for _, tt := range tests {
+		if got := cssValueFilter(tt.css); got != tt.want {
+			t.Errorf("cssValueFilter(%q) = %q, want %q", tt.css, got, tt.want)
+		}
+	}
+}

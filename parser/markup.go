@@ -658,24 +658,32 @@ func (p *parser) parseBang(start int, startPos token.Pos, resolvedPos token.Posi
 	return nil, fmt.Errorf("%d:%d: expected `<!--` or `<!DOCTYPE` after `<!`", resolvedPos.Line, resolvedPos.Column)
 }
 
-// parseRawTextBody consumes a raw-text element body verbatim until the matching
-// case-insensitive `</tag>` close tag, which it consumes. Returns a single Text
-// child (or no children when the body is empty). openPos describes the open tag,
-// used for the unterminated error.
+// parseRawTextBody consumes a raw-text element body until the matching
+// case-insensitive `</tag>` close tag, which it consumes. For <style> the body
+// is split into Text and ${ … } Interp children; for every other raw-text tag
+// (e.g. <script>) the body is a single verbatim Text. openPos describes the open
+// tag, used for the unterminated error.
 func (p *parser) parseRawTextBody(tag string, openPos token.Position) ([]ast.Markup, error) {
-	bodyStart := p.i
-	bodyStartPos := p.posAt(p.i)
+	interpolate := strings.EqualFold(tag, "style")
 	closeLower := "</" + strings.ToLower(tag)
+	var nodes []ast.Markup
+	segStart := p.i
+	segStartPos := p.posAt(p.i)
+	flush := func(end int) {
+		if end > segStart {
+			txt := &ast.Text{Value: p.src[segStart:end]}
+			ast.SetSpan(txt, segStartPos, p.posAt(end))
+			nodes = append(nodes, txt)
+		}
+	}
 	for !p.eof() {
+		// Close tag?
 		if p.peek() == '<' && p.i+1 < len(p.src) && p.src[p.i+1] == '/' &&
 			p.i+len(closeLower) <= len(p.src) &&
 			strings.EqualFold(p.src[p.i:p.i+len(closeLower)], closeLower) {
-			// Confirm the char after the tag name terminates it (space or '>').
 			after := p.i + len(closeLower)
 			if after >= len(p.src) || !isTagNameByte(p.src[after]) {
-				rawEnd := p.i
-				raw := p.src[bodyStart:rawEnd]
-				// consume close tag </tag …>
+				flush(p.i)
 				p.i += len(closeLower)
 				p.skipSpace()
 				if p.peek() != '>' {
@@ -683,13 +691,21 @@ func (p *parser) parseRawTextBody(tag string, openPos token.Position) ([]ast.Mar
 					return nil, fmt.Errorf("%d:%d: malformed close tag </%s>", cp.Line, cp.Column, tag)
 				}
 				p.i++ // past '>'
-				if raw == "" {
-					return nil, nil
-				}
-				n := &ast.Text{Value: raw}
-				ast.SetSpan(n, bodyStartPos, p.posAt(rawEnd))
-				return []ast.Markup{n}, nil
+				return nodes, nil
 			}
+		}
+		// Interpolation? (<style> only; trigger is exactly `${`.)
+		if interpolate && p.peek() == '$' && p.i+1 < len(p.src) && p.src[p.i+1] == '{' {
+			flush(p.i)
+			p.i++ // past '$'; cursor now at '{' for parseInterp
+			in, err := p.parseInterp()
+			if err != nil {
+				return nil, err
+			}
+			nodes = append(nodes, in)
+			segStart = p.i
+			segStartPos = p.posAt(p.i)
+			continue
 		}
 		p.i++
 	}
