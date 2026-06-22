@@ -1015,9 +1015,33 @@ func TestStyleInterpolation(t *testing.T) {
 	}
 }
 
-func TestScriptStaysRaw(t *testing.T) {
-	// <script> must NOT interpolate: @{x} is literal text.
-	src := `<script>var x = @{y};</script>`
+func TestScriptAtBraceTriggers(t *testing.T) {
+	// <script> now interpolates @{ … } just like <style>.
+	// "let x=@{ y }" → Text{"let x="}, Interp{Expr:"y"}, Text{""}
+	// The trailing empty segment is NOT emitted because flush only appends when
+	// end > segStart (markup.go:672-678); after the interp segStart advances to
+	// the start of "</script>", so flush(p.i) finds end==segStart → no Text.
+	src := `<script>let x=@{ y }</script>`
+	p := testParser(src)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := n.(*ast.Element)
+	if len(el.Children) != 2 {
+		t.Fatalf("got %d children, want 2: %#v", len(el.Children), el.Children)
+	}
+	if txt, ok := el.Children[0].(*ast.Text); !ok || txt.Value != "let x=" {
+		t.Fatalf("child0 = %#v, want Text \"let x=\"", el.Children[0])
+	}
+	if in, ok := el.Children[1].(*ast.Interp); !ok || in.Expr != "y" {
+		t.Fatalf("child1 = %#v, want Interp{Expr:\"y\"}", el.Children[1])
+	}
+}
+
+func TestScriptBareAtIsLiteral(t *testing.T) {
+	// A bare '@' not immediately followed by '{' stays literal in <script>.
+	src := `<script>a @ b</script>`
 	p := testParser(src)
 	n, err := p.parseElement()
 	if err != nil {
@@ -1025,10 +1049,33 @@ func TestScriptStaysRaw(t *testing.T) {
 	}
 	el := n.(*ast.Element)
 	if len(el.Children) != 1 {
-		t.Fatalf("got %d children, want 1: %#v", len(el.Children), el.Children)
+		t.Fatalf("got %d children, want 1 (all literal): %#v", len(el.Children), el.Children)
 	}
-	if txt, ok := el.Children[0].(*ast.Text); !ok || txt.Value != "var x = @{y};" {
-		t.Fatalf("child0 = %#v, want literal Text", el.Children[0])
+	if txt, ok := el.Children[0].(*ast.Text); !ok || txt.Value != "a @ b" {
+		t.Fatalf("child0 = %#v, want Text \"a @ b\"", el.Children[0])
+	}
+}
+
+func TestScriptNoInterpolationWithTrailingText(t *testing.T) {
+	// Interp in the middle of script content: trailing text IS emitted.
+	src := `<script>var x = @{y};</script>`
+	p := testParser(src)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := n.(*ast.Element)
+	if len(el.Children) != 3 {
+		t.Fatalf("got %d children, want 3: %#v", len(el.Children), el.Children)
+	}
+	if txt, ok := el.Children[0].(*ast.Text); !ok || txt.Value != "var x = " {
+		t.Fatalf("child0 = %#v, want Text \"var x = \"", el.Children[0])
+	}
+	if in, ok := el.Children[1].(*ast.Interp); !ok || in.Expr != "y" {
+		t.Fatalf("child1 = %#v, want Interp{Expr:\"y\"}", el.Children[1])
+	}
+	if txt, ok := el.Children[2].(*ast.Text); !ok || txt.Value != ";" {
+		t.Fatalf("child2 = %#v, want Text \";\"", el.Children[2])
 	}
 }
 

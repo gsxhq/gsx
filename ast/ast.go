@@ -179,9 +179,23 @@ type Interp struct {
 	Expr   string
 	Try    bool
 	Stages []PipeStage
+	// JSCtx is set by internal/jsx for Interps inside a <script>; JSCtxNone otherwise.
+	JSCtx JSCtx
 }
 
 func (*Interp) markupNode() {}
+
+// JSCtx is the JavaScript context an Interp inside a <script> was classified
+// into (set by internal/jsx). 0 (JSCtxNone) for non-script interps.
+type JSCtx uint8
+
+const (
+	JSCtxNone JSCtx = iota
+	JSCtxValue
+	JSCtxString
+	JSCtxTemplate
+	JSCtxRegexp
+)
 
 // PipeStage is one `|> name` / `|> name(args)` filter in a pipeline. It is a
 // plain value, not a Node. HasArgs distinguishes `f` (bare → f(x)) from `f()`
