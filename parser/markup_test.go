@@ -1049,6 +1049,24 @@ func TestStyleBareDollarIsLiteral(t *testing.T) {
 	}
 }
 
+func TestStyleBareAtIsLiteral(t *testing.T) {
+	// A bare '@' not immediately followed by '{' stays literal (mirrors the trigger's
+	// {-adjacency requirement): at-rules (@media), bare @, and @ident are all CSS text.
+	src := `<style>@media (x){ .a{c:1} } a@b @ c</style>`
+	p := testParser(src)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := n.(*ast.Element)
+	if len(el.Children) != 1 {
+		t.Fatalf("got %d children, want 1 (all literal): %#v", len(el.Children), el.Children)
+	}
+	if txt := el.Children[0].(*ast.Text); txt.Value != `@media (x){ .a{c:1} } a@b @ c` {
+		t.Fatalf("text = %q, want verbatim incl. bare @ / @media", txt.Value)
+	}
+}
+
 func TestStyleUnterminatedInterp(t *testing.T) {
 	// Note: brief listed `@{w}` (with closing brace) which is valid; corrected to
 	// `@{w` (no closing brace) so the interpolation is genuinely unterminated.
