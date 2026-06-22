@@ -2,8 +2,13 @@
 
 **Date:** 2026-06-22
 **Status:** approved (brainstorm) — ready for writing-plans
-**Scope:** `<style>` block interpolation + `style=` attribute interpolation, via one
-shared CSS-safe primitive. `<script>` / `|> js` are explicitly out of scope.
+**Scope:** `<style>` block interpolation + `style=` attribute interpolation (via one
+shared CSS-safe primitive), plus codegen-time CSS minification of `<style>` content
+(a robust built-in default + a pluggable extension point). `<script>` / `|> js` /
+JS minification are explicitly out of scope.
+
+**Implementation slices:** (1) the interpolation + safety core (Components 1–4);
+(2) CSS minification (Component 5), building on the same `<style>` emit path.
 
 ## Goal
 
@@ -170,6 +175,76 @@ this slice.
 - The faithfulness + idempotence property tests (`render(fmt(S)) ≡ render(S)`,
   `fmt(fmt(S)) == fmt(S)`) extend to cover `<style>` interpolation via the corpus.
 
+## Component 5 — CSS minification (built-in safe default + extension point)
+
+`<style>` content is emitted verbatim today (a `Text` child → `_gsxgw.S(quoted)`),
+so the source CSS — indentation, comments, blank lines and all — ships into every
+rendered page. This component minifies the **static** CSS at codegen time. It is a
+**separable implementation slice** (the interpolation core, Components 1–4, ships
+first; minification builds on the same `<style>` emit path).
+
+### The robust/stable default — `internal/cssmin`
+
+A new codegen-time package (the minifier runs in the generator, not the stdlib-only
+runtime — though it is itself written stdlib-only). It is a **real CSS tokenizer**, never
+regex. It performs only the transformations that are *guaranteed* not to change
+rendering — the cross-tool "safe" set (tdewolff "no structural changes",
+clean-css Level 1 minus value rewrites, esbuild whitespace-only):
+
+- strip comments **except** `/*! … */` (and preserve the legacy `>/**/` and IE5/Mac
+  adjacency hacks);
+- collapse insignificant whitespace runs to a single space, and remove whitespace
+  adjacent to `, : ; { } ( )` and around the `>`/`+`/`~` combinators and `*`/`/` in
+  math functions;
+- drop the redundant trailing `;` before `}` (the "queued semicolon" technique);
+- trim leading/trailing whitespace of declaration values; unquote `url()` when safe.
+
+It performs **no value rewrites** — explicitly **not** `0px`→`0` (breaks `@keyframes`
+`%`, `<time>`, `flex-basis`), color shortening, longhand→shorthand, dedup, or any
+rule merging/reordering. Those are the aggressive tier, available only via the
+extension point.
+
+**Tokenizer must preserve significant whitespace:** inside string literals
+(`content: "  "`), inside/around `url(...)`, the **descendant combinator** (`a b`,
+≥1 space — never zero), between adjacent ident/number/dimension tokens
+(`margin: 1px 2px`), **≥1 space around binary `+`/`-` in `calc()`/`min`/`max`/`clamp`**
+(`calc(50% - 8px)`), and all interior whitespace of custom-property (`--*`) values
+(including the valid empty value `--x: ;`).
+
+**Hole-aware.** The minifier operates on the `<style>` child list (`Text`+`Interp`),
+treating each `${ expr }` `Interp` as a single **opaque token**: whitespace immediately
+adjacent to a hole is never collapsed or trimmed, and no token/merge reasoning crosses a
+hole. This guarantees `margin: ${a} ${b}` (two values), `color: ${c}`, and
+`width: calc(${a} - ${b})` stay correct regardless of the runtime value.
+
+### The extension point — `gen.WithCSSMinifier`
+
+A functional option mirroring `gen.WithFilters`:
+
+```go
+gen.Main(gen.WithCSSMinifier(func(css string) (string, error) { … }))
+```
+
+The signature is the universal minifier shape (`func(css string) (string, error)`) so
+any whole-buffer CSS minifier (tdewolff, Lightning CSS, …) drops in. It defaults to the
+built-in safe minifier. The option value (the minifier func) threads from `gen` through
+to codegen alongside the filter table.
+
+**Boundary (load-bearing):** the pluggable minifier is invoked **only on
+fully-static (holeless) `<style>` blocks**, where it receives a complete, syntactically
+valid CSS string. **Interpolated (holey) `<style>` blocks always use the built-in
+hole-aware safe minifier** — an external string→string minifier cannot reason across
+holes safely, so hole structure never crosses the public boundary. Aggressive
+minification is thus available for static stylesheets; interpolated blocks get the safe
+pass. Minification is **on by default** (per the robust-default principle); a no-op
+minifier option expresses "off".
+
+### Orthogonality
+
+Minification is a **codegen-output** transform only. `gsx fmt` and the source `.gsx`
+are untouched — the author keeps readable, indented CSS; the *generated* `.x.go`
+carries the minified form. Existing `<style>` codegen goldens shrink accordingly.
+
 ## Error handling (summary)
 
 | Situation | Result |
@@ -195,11 +270,24 @@ this slice.
   corpus/unit case that asserted the old rejection), `onclick={…}` still fails closed.
 - **Formatter**: round-trip `<style>` with `${ }` (faithfulness + idempotence over the
   corpus); a dedicated corpus case locks `${ }` printing.
+- **Minifier** (`internal/cssmin` unit tests): a golden corpus of the historical
+  naive-minifier breakages that the safe pass must NOT change semantics on — `calc(50%
+  - 8px)` spacing, empty custom property `--x: ;`, data-URI with spaces, `url() format()`
+  spacing, `@media … and (…)`, `grid-template-areas` rows, IE `*`/`_` hacks, `/*!`/`>/**/`
+  comment hacks, descendant combinator vs `.a.b`, `content:"  "` strings, `An+B`
+  (`2n + 1`), `unicode-range` — plus gsx hole cases (`margin: ${a} ${b}` keeps both
+  spaces, `width: calc(${a} - ${b})` no cross-hole merge, `${sel} { … }`). Verify
+  idempotence (`min(min(x)) == min(x)`) and that `WithCSSMinifier` is invoked only for
+  holeless blocks (and never sees a hole).
 
 ## Non-goals / future
 
 - `<script>` interpolation and `|> js` (JS context is a harder safety problem — own
-  design).
+  design); JS minification and a parallel `WithJSMinifier` (same extension shape).
+- An aggressive *built-in* CSS tier (value rewrites, structural transforms) — those
+  belong to a user-supplied `WithCSSMinifier`, not gsx core.
+- Exposing interpolation holes to the pluggable minifier (a structured chunk API) —
+  holey blocks stay on the built-in safe pass.
 - `gsx.SafeURL` parity (same opt-out-type pattern; referenced by example 02, still
   unimplemented).
 - Named CSS-value convenience types (e.g. a `Color`/`Length` type safe bare).
@@ -216,6 +304,14 @@ this slice.
 - **Raw-text scanner regressions** — adding `${` handling must not change `<script>` or
   non-interpolated `<style>` behavior. Mitigation: `<style>`-only branch + negative
   tests; `<script>` path untouched.
+- **Minifier correctness** — a too-clever default that rewrites values can silently
+  break rendering (`0px`→`0`, color/shorthand). Mitigation: the default is whitespace +
+  comments only, tokenizer-based (never regex), with the historical-breakage golden
+  corpus as the guard; all value/structural transforms are pushed to the opt-in
+  extension point.
+- **Hole-adjacency in the minifier** — collapsing whitespace next to a `${ }` could
+  change a multi-value declaration. Mitigation: holes are opaque tokens with
+  never-touched adjacent whitespace; covered by the gsx hole golden cases.
 - **Formatter faithfulness on preserve + interp** — the printer must emit `${ }` in
   preserve context without re-indenting the surrounding raw CSS. Mitigation: the
   corpus-wide property tests are the guard.
