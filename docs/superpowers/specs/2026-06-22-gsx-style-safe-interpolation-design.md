@@ -49,9 +49,9 @@ is flexible (`${x}` ≡ `${ x }`).
 the `style=` attribute **or** anywhere inside a `<style>` block — is automatically run
 through the CSS value-filter. No filter syntax, no annotation.
 
-**`gsx.SafeCSS(x)` — the opt-out.** Wrapping a value in `gsx.SafeCSS` tells gsx the
+**`gsx.RawCSS(x)` — the opt-out.** Wrapping a value in `gsx.RawCSS` tells gsx the
 author vouches for it as arbitrary CSS; it is emitted raw (the filter is skipped). This
-is the CSS analogue of the (planned) `gsx.SafeURL`.
+is the CSS analogue of the (planned) `gsx.RawURL`.
 
 **Numbers** are safe by construction and emitted via `strconv` directly.
 
@@ -60,13 +60,13 @@ existing hard error — there is no safe auto-escaper for JS, and `|> js` is a s
 chapter.
 
 ```gsx
-component Card(w int, userColor string, raw gsx.SafeCSS) {
+component Card(w int, userColor string, raw gsx.RawCSS) {
 	<style>
 		.card {
 			width:  ${ w }px;               /* int  → "123"            (strconv)   */
 			color:  ${ userColor };          /* string → gw.CSS value-filter        */
-			border: ${ gsx.SafeCSS("1px solid #000") };  /* author opt-out: raw     */
-			margin: ${ raw };                /* SafeCSS param: raw                  */
+			border: ${ gsx.RawCSS("1px solid #000") };  /* author opt-out: raw     */
+			margin: ${ raw };                /* RawCSS param: raw                  */
 		}
 	</style>
 	<div style={ "color: " + userColor }>…</div>   {/* style attr: auto-filtered  */}
@@ -104,13 +104,13 @@ printer — mirroring how `style=` context is derived from the attribute name.
 **Errors:** an unterminated `${ … ` before `</style>` is a parse error with the
 `${`'s line:col; the existing unterminated-`<style>` error is unchanged.
 
-## Component 2 — Runtime: `gsx.SafeCSS` + the CSS value-filter
+## Component 2 — Runtime: `gsx.RawCSS` + the CSS value-filter
 
 Stdlib-only (runtime constraint is sacred). Two additions to the root `gsx` package:
 
-- **`type SafeCSS string`** (new `safe.go`, or alongside `Raw` in `node.go`). The
+- **`type RawCSS string`** (new `safe.go`, or alongside `Raw` in `node.go`). The
   author-vouched safe-CSS string type. This establishes the safe-opt-out-string-type
-  pattern; a parallel `SafeURL` (already referenced by example 02, not yet
+  pattern; a parallel `RawURL` (already referenced by example 02, not yet
   implemented) is left to a future slice.
 - **The value-filter.** A pure `escape.go` function `cssValueFilter(s string) string`
   (sibling of `writeURL`'s helper). It is a **faithful port of the standard library's
@@ -123,9 +123,9 @@ Stdlib-only (runtime constraint is sacred). Two additions to the root `gsx` pack
   `--`/`<!--`/`-->` run, or (after escape-decoding + lowercasing) `expression` or
   `mozbinding`. **Note the conservatism:** parenthesized values like `rgb(1,2,3)` and
   slash values like `12px/1.5` are *rejected* by this filter (they contain `(`/`/`); for
-  those, the author uses `gsx.SafeCSS`. gsx's `gw.CSS` drops html/template's
+  those, the author uses `gsx.RawCSS`. gsx's `gw.CSS` drops html/template's
   `stringify`/`contentTypeCSS` typed-value machinery — it always receives a plain
-  untrusted `string` (the `SafeCSS` opt-out is decided at codegen, never reaching the
+  untrusted `string` (the `RawCSS` opt-out is decided at codegen, never reaching the
   filter).
 
 **Two CSS contexts ⇒ two `*Writer` methods over the one filter**, mirroring how
@@ -151,21 +151,21 @@ by `style=` and `<style>` interps:
 The two sub-contexts differ in their **outer** escaping, independent of the value's
 trust: a `<style>` block is raw text (no HTML escaping), while a `style="…"` value is
 always HTML-attr-escaped so it can never break the quote (CSS survives HTML-decoding).
-The CSS **value-filter** applies only to untrusted data, never to vouched `SafeCSS`.
+The CSS **value-filter** applies only to untrusted data, never to vouched `RawCSS`.
 Per resolved type:
 
 | value | inside `<style>` block | inside `style="…"` |
 |---|---|---|
-| `isSafeCSS(t)` (vouched) | raw (`string(expr)`) | `_gsxgw.AttrValue(string(expr))` — attr-escape only, no filter |
+| `isRawCSS(t)` (vouched) | raw (`string(expr)`) | `_gsxgw.AttrValue(string(expr))` — attr-escape only, no filter |
 | numeric (`catInt/Uint/Float`) | `strconv`, raw | `strconv` via `_gsxgw.AttrValue` |
 | string-like (`catString/Bytes/Stringer`) | `_gsxgw.CSS(…)` (filter) | `_gsxgw.CSSAttr(…)` (filter + attr-escape) |
 | otherwise | compile error | compile error |
 
-`isSafeCSS(t)` is a type-identity check (a `*types.Named` whose object is
-`github.com/gsxhq/gsx.SafeCSS`).
+`isRawCSS(t)` is a type-identity check (a `*types.Named` whose object is
+`github.com/gsxhq/gsx.RawCSS`).
 
-`isSafeCSS` is a localized identity check (not a new global `classify` category), so a
-`SafeCSS` value used outside CSS context keeps its ordinary string behavior. `ctxJS`
+`isRawCSS` is a localized identity check (not a new global `classify` category), so a
+`RawCSS` value used outside CSS context keeps its ordinary string behavior. `ctxJS`
 fail-closed is unchanged. The whole-attribute `?` try-marker remains unsupported in
 this slice.
 
@@ -303,9 +303,9 @@ accordingly.
   `-moz-corner-radius`, `color: red`, `U+00-FF, U+980-9FF`), breakouts → `ZgotmplZ`
   (`<!--`, `-->`, `</style`, `"`, `'`, `` ` ``, `\x00`, `/* */`, `//`, `(`/`)`, `;`,
   `expression(…)`, `-moz-binding`, escaped `-express\69on`, `@import url evil.css`,
-  `<`, `>`). Confirm a `SafeCSS`-vouched value bypasses the filter at the codegen level.
+  `<`, `>`). Confirm a `RawCSS`-vouched value bypasses the filter at the codegen level.
 - **Codegen** (corpus + unit): golden for `<style>` auto-sanitize (string→`gw.CSS`,
-  numeric→`strconv`, `SafeCSS`→raw), `style={…}` now auto-sanitizes (update/replace any
+  numeric→`strconv`, `RawCSS`→raw), `style={…}` now auto-sanitizes (update/replace any
   corpus/unit case that asserted the old rejection), `onclick={…}` still fails closed.
 - **Formatter**: round-trip `<style>` with `${ }` (faithfulness + idempotence over the
   corpus); a dedicated corpus case locks `${ }` printing.
@@ -335,13 +335,13 @@ accordingly.
   `WithCSSMinifier`/`WithJSMinifier`, not gsx core.
 - Exposing interpolation holes to the pluggable minifier (a structured chunk API) —
   holey blocks stay on the built-in safe pass.
-- `gsx.SafeURL` parity (same opt-out-type pattern; referenced by example 02, still
+- `gsx.RawURL` parity (same opt-out-type pattern; referenced by example 02, still
   unimplemented).
 - Named CSS-value convenience types (e.g. a `Color`/`Length` type safe bare).
 - A literal-`${` escape inside `<style>` (does not occur in real CSS; add only if a
   concrete need appears).
 - Auto-applying the filter to `style=` for non-string interpolations beyond the
-  numeric/SafeCSS cases.
+  numeric/RawCSS cases.
 
 ## Risks
 

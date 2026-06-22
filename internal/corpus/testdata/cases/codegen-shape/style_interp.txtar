@@ -3,11 +3,11 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-component Theme(w int, accent string, raw gsx.SafeCSS) {
+component Theme(w int, accent string, raw gsx.RawCSS) {
 	<style>.card{width:${w}px;color:${accent};border:${raw}}</style>
 }
 -- invoke --
-Theme(ThemeProps{W: 8, Accent: "red", Raw: gsx.SafeCSS("1px solid")})
+Theme(ThemeProps{W: 8, Accent: "red", Raw: gsx.RawCSS("1px solid")})
 -- diagnostics.golden --
 -- render.golden --
 <style>.card{width:8px;color:red;border:1px solid}</style>
@@ -27,7 +27,7 @@ import (
 type ThemeProps struct {
 	W      int
 	Accent string
-	Raw    gsx.SafeCSS
+	Raw    gsx.RawCSS
 	Attrs  gsx.Attrs
 }
 

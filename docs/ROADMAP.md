@@ -154,7 +154,7 @@ attribute-name validation against tag breakout (`validAttrName`), documented
      interpolation and `style={ … }` attributes auto-sanitize, both routing
      untrusted values through a faithful port of `html/template`'s `cssValueFilter`
      (exported `gsx.FilterCSS`; block writer `gw.CSS`). Numbers are raw (safe by
-     construction); `gsx.SafeCSS` is the author opt-out; composed `style={ "x": cond,
+     construction); `gsx.RawCSS` is the author opt-out; composed `style={ "x": cond,
      dyn }` trusts string-literal parts and filters dynamic ones. Adversarial-reviewed
      + fuzzed (44.7M inputs, no breakout-byte leak). `<script>` stays raw.
    - **CSS minification — DONE (slice 2):** `<style>` static CSS is minified at

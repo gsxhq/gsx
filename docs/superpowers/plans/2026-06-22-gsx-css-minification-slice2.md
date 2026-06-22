@@ -781,7 +781,7 @@ git commit -m "gen: WithCSSMinifier extension point; thread custom minifier to c
 - [ ] **Step 2: Example note** — add a brief comment above `ThemedCard` in `examples/02_text_escaping.gsx`:
 
 ```gsx
-// (<style> static CSS is auto-minified at build time; gsx.SafeCSS / source formatting are unaffected.)
+// (<style> static CSS is auto-minified at build time; gsx.RawCSS / source formatting are unaffected.)
 ```
 
 Run `go test ./internal/corpus -run Example -update && go test ./internal/corpus` — `02_text_escaping.gsx: ok` must hold.

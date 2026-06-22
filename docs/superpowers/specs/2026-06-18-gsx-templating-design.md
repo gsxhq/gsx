@@ -77,7 +77,7 @@ tried to add JSX-like inline components. Lessons carried over:
   on." A `component` body may freely contain Go expressions and (via `{{ }}`)
   statements — but gsx's own behaviors do not require runtime calls. Runtime
   functions appear in source **only when they are obviously explicit intent** —
-  trusted-value opt-outs (`gsx.Raw`, `gsx.SafeURL`, `gsx.SafeCSS`, `gsx.SafeJS`)
+  trusted-value opt-outs (`gsx.Raw`, `gsx.RawURL`, `gsx.RawCSS`, `gsx.RawJS`)
   and explicit encoders (`gsx.JSON`).
 
 ## 1. File & Package Model
@@ -351,7 +351,7 @@ Three brace forms inside a component body, by leading token:
   | `gsx.Node` (anything with `Render(ctx,w) error`) | rendered inline |
   | `[]gsx.Node` | each rendered in order |
   | `fmt.Stringer` | `.String()`, then HTML-escaped |
-  | `gsx.Raw` / `gsx.SafeURL` / … | per their opt-out semantics |
+  | `gsx.Raw` / `gsx.RawURL` / … | per their opt-out semantics |
   | anything else | **compile-time error** (clear message) |
 
   Because the type is known at compile time, the generator emits the precise
@@ -402,11 +402,11 @@ ignored or panicked. (`?` only lacks a return path inside a hand-written plain
   |---------|---------------|---------|---------|
   | HTML text | element body | HTML-escape | `gsx.Raw(s)` |
   | HTML attribute | `name={ … }` | attribute-escape | — |
-  | URL attribute | `href`/`src`/`action`/`formaction`/`poster`/`cite`/`srcset`/… | sanitize scheme (neutralise `javascript:` etc.) | `gsx.SafeURL(s)` |
-  | CSS | `style` / `<style>` body | CSS-escape | `gsx.SafeCSS(s)` |
-  | JS | `on*` handlers / `<script>` body | JS-escape | `gsx.SafeJS(s)` |
+  | URL attribute | `href`/`src`/`action`/`formaction`/`poster`/`cite`/`srcset`/… | sanitize scheme (neutralise `javascript:` etc.) | `gsx.RawURL(s)` |
+  | CSS | `style` / `<style>` body | CSS-escape | `gsx.RawCSS(s)` |
+  | JS | `on*` handlers / `<script>` body | JS-escape | `gsx.RawJS(s)` |
   There is no `gsx.URL(...)` wrapper — sanitizing is the default for URL attributes;
-  `gsx.SafeURL` is the trusted opt-out. The generator knows the attribute name and
+  `gsx.RawURL` is the trusted opt-out. The generator knows the attribute name and
   element, so it picks the escaper with no type resolution.
 - **Comments:** Three forms, by position:
   - **Tag-interior** (inside `<tag … >`/`/>`): `// … ` (line, to end-of-line) and `/* … */` (block) are stripped — no AST node, no output.  An unterminated `/* … ` is a parse error.

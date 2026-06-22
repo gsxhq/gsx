@@ -640,11 +640,11 @@ func emitCSSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.T
 	return emitRenderCSS(b, expr, t, imports)
 }
 
-// emitRenderCSS writes a value in CSS block context (inside <style>): SafeCSS and
+// emitRenderCSS writes a value in CSS block context (inside <style>): RawCSS and
 // numbers are emitted raw (safe by construction); strings/Stringers go through
 // gw.CSS (the value-filter).
 func emitRenderCSS(b *bytes.Buffer, expr string, t types.Type, imports map[string]bool) error {
-	if isSafeCSS(t) {
+	if isRawCSS(t) {
 		fmt.Fprintf(b, "\t\t_gsxgw.S(string(%s))\n", expr)
 		return nil
 	}
@@ -663,7 +663,7 @@ func emitRenderCSS(b *bytes.Buffer, expr string, t types.Type, imports map[strin
 	case catStringer:
 		fmt.Fprintf(b, "\t\t_gsxgw.CSS((%s).String())\n", expr)
 	default:
-		return fmt.Errorf("codegen: value of type %s not renderable in CSS context (need string/number/Stringer or gsx.SafeCSS)", t)
+		return fmt.Errorf("codegen: value of type %s not renderable in CSS context (need string/number/Stringer or gsx.RawCSS)", t)
 	}
 	return nil
 }
