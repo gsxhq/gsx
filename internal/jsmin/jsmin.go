@@ -68,12 +68,14 @@ func minifyJS(s string) string {
 				out.Write(data) // bang comment: keep verbatim
 				prevTT = tt
 			} else if strings.HasPrefix(string(data), "//") {
-				// Single-line comment: the comment occupied one line. Its trailing \n
-				// will arrive as the next LineTerminatorToken. To ensure that line is
-				// preserved as a blank line (ASI + blank line) when there is already a
-				// pending newline, increment rather than cap.
-				// e.g. `a()\n// note\nb()` → a() [NL from \n] [NL from comment line] b()
-				pendingNL++
+				// Single-line comment: strip it. Its terminating newline (the next
+				// LineTerminatorToken, plus any preceding one) collapses to a single
+				// ASI-significant newline — one is sufficient for ASI, and capping (not
+				// counting) keeps minification idempotent. e.g. `a()\n// note\nb()`
+				// → `a()\nb()`.
+				if pendingNL == 0 {
+					pendingNL = 1
+				}
 			} else if bytesContainNewline(data) {
 				// This path is unreachable (block comments with newlines become
 				// CommentLineTerminatorToken), but guard anyway.
