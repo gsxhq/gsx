@@ -3,12 +3,14 @@
 **Date:** 2026-06-22
 **Status:** approved (brainstorm) — ready for writing-plans
 **Scope:** `<style>` block interpolation + `style=` attribute interpolation (via one
-shared CSS-safe primitive), plus codegen-time CSS minification of `<style>` content
-(a robust built-in default + a pluggable extension point). `<script>` / `|> js` /
-JS minification are explicitly out of scope.
+shared CSS-safe primitive), plus codegen-time minification of `<style>` **and**
+`<script>` static content — each with a robust built-in default + a pluggable extension
+point. `<script>` *interpolation* and the `|> js` value pipeline are out of scope.
 
 **Implementation slices:** (1) the interpolation + safety core (Components 1–4);
-(2) CSS minification (Component 5), building on the same `<style>` emit path.
+(2) CSS minification + the shared minifier-option plumbing (Component 5); (3) JS
+minification (Component 5), independent of (2). Slices build on the `<style>`/`<script>`
+emit path.
 
 ## Goal
 
@@ -175,15 +177,23 @@ this slice.
 - The faithfulness + idempotence property tests (`render(fmt(S)) ≡ render(S)`,
   `fmt(fmt(S)) == fmt(S)`) extend to cover `<style>` interpolation via the corpus.
 
-## Component 5 — CSS minification (built-in safe default + extension point)
+## Component 5 — CSS & JS minification (built-in safe default + extension point)
 
-`<style>` content is emitted verbatim today (a `Text` child → `_gsxgw.S(quoted)`),
-so the source CSS — indentation, comments, blank lines and all — ships into every
-rendered page. This component minifies the **static** CSS at codegen time. It is a
-**separable implementation slice** (the interpolation core, Components 1–4, ships
-first; minification builds on the same `<style>` emit path).
+`<style>` and `<script>` content is emitted verbatim today (a `Text` child →
+`_gsxgw.S(quoted)`), so the source CSS/JS — indentation, comments, blank lines and all —
+ships into every rendered page. This component minifies that **static** content at
+codegen time. Both languages follow the **same shape**: a built-in robust/stable safe
+minifier on by default, plus a pluggable extension point for an aggressive
+(value-rewriting / "obfuscating") minifier. It is a **separable implementation slice**
+(the interpolation core, Components 1–4, ships first), and CSS and JS are themselves
+independent sub-slices.
 
-### The robust/stable default — `internal/cssmin`
+**Asymmetry to keep in mind:** CSS gains interpolation in this design, so a `<style>`
+body can be *holey* (`Text`+`Interp`) and its minifier must be hole-aware. `<script>`
+interpolation is deferred, so static JS is always **holeless** — the JS minifier needs
+no hole/opaque-token logic (until a future `<script>`-interpolation chapter adds it).
+
+### The robust/stable CSS default — `internal/cssmin`
 
 A new codegen-time package (the minifier runs in the generator, not the stdlib-only
 runtime — though it is itself written stdlib-only). It is a **real CSS tokenizer**, never
@@ -217,33 +227,53 @@ adjacent to a hole is never collapsed or trimmed, and no token/merge reasoning c
 hole. This guarantees `margin: ${a} ${b}` (two values), `color: ${c}`, and
 `width: calc(${a} - ${b})` stay correct regardless of the runtime value.
 
-### The extension point — `gen.WithCSSMinifier`
+### The robust/stable JS default — `internal/jsmin`
 
-A functional option mirroring `gen.WithFilters`:
+A parallel codegen-time package (stdlib-only) for `<script>` static content. A **real JS
+tokenizer**, never regex — JS minification is *harder* to make stable than CSS, so the
+tokenizer must correctly handle: **automatic semicolon insertion (ASI)** — never remove
+a newline that terminates a statement; **regex literals vs the `/` divide operator**
+(disambiguated by preceding-token context); **string and template literals** (incl.
+`${…}` *inside* a JS template literal — which is JS syntax, unrelated to gsx's `<style>`
+delimiter — and nested templates); and line comments whose terminating newline may be
+ASI-significant. The safe set: strip comments (keep `/*! … */`), collapse insignificant
+whitespace, but **preserve every newline that could trigger ASI** and all literal
+interiors. **No** identifier mangling, no value rewriting, no statement reordering —
+those are the aggressive ("obfuscation") tier behind the extension point. Static JS is
+always holeless (no `<script>` interpolation yet), so no opaque-token logic is needed.
+
+### The extension points — `gen.WithCSSMinifier` / `gen.WithJSMinifier`
+
+Two parallel functional options mirroring `gen.WithFilters`:
 
 ```go
-gen.Main(gen.WithCSSMinifier(func(css string) (string, error) { … }))
+gen.Main(
+	gen.WithCSSMinifier(func(css string) (string, error) { … }),  // e.g. wrap tdewolff
+	gen.WithJSMinifier(func(js string) (string, error) { … }),     // e.g. wrap esbuild
+)
 ```
 
-The signature is the universal minifier shape (`func(css string) (string, error)`) so
-any whole-buffer CSS minifier (tdewolff, Lightning CSS, …) drops in. It defaults to the
-built-in safe minifier. The option value (the minifier func) threads from `gen` through
+Both use the universal minifier shape (`func(src string) (string, error)`) so any
+whole-buffer minifier (tdewolff, Lightning CSS, esbuild, …) drops in via a small adapter.
+Each defaults to its built-in safe minifier. The option values thread from `gen` through
 to codegen alongside the filter table.
 
-**Boundary (load-bearing):** the pluggable minifier is invoked **only on
-fully-static (holeless) `<style>` blocks**, where it receives a complete, syntactically
-valid CSS string. **Interpolated (holey) `<style>` blocks always use the built-in
-hole-aware safe minifier** — an external string→string minifier cannot reason across
-holes safely, so hole structure never crosses the public boundary. Aggressive
-minification is thus available for static stylesheets; interpolated blocks get the safe
-pass. Minification is **on by default** (per the robust-default principle); a no-op
-minifier option expresses "off".
+**Boundary (load-bearing):** a pluggable minifier is invoked **only on fully-static
+(holeless) blocks**, where it receives complete, syntactically valid source. **Holey
+`<style>` blocks always use the built-in hole-aware CSS minifier** — an external
+string→string minifier cannot reason across holes safely, so hole structure never
+crosses the public boundary. (`<script>` is always holeless, so its extension point has
+no such restriction yet.) Aggressive minification is thus available for static
+stylesheets/scripts; interpolated CSS gets the safe pass. Minification is **on by
+default** for both languages (per the robust-default principle); a no-op minifier option
+expresses "off".
 
 ### Orthogonality
 
 Minification is a **codegen-output** transform only. `gsx fmt` and the source `.gsx`
-are untouched — the author keeps readable, indented CSS; the *generated* `.x.go`
-carries the minified form. Existing `<style>` codegen goldens shrink accordingly.
+are untouched — the author keeps readable, indented CSS/JS; the *generated* `.x.go`
+carries the minified form. Existing `<style>`/`<script>` codegen goldens shrink
+accordingly.
 
 ## Error handling (summary)
 
@@ -279,13 +309,21 @@ carries the minified form. Existing `<style>` codegen goldens shrink accordingly
   spaces, `width: calc(${a} - ${b})` no cross-hole merge, `${sel} { … }`). Verify
   idempotence (`min(min(x)) == min(x)`) and that `WithCSSMinifier` is invoked only for
   holeless blocks (and never sees a hole).
+- **JS minifier** (`internal/jsmin` unit tests): a golden corpus of ASI and
+  literal-sensitive cases the safe pass must NOT break — `return\n a+b` (newline kept,
+  ASI), `a = b\n/foo/.test(c)` (regex vs divide), `let x = `a ${b} c`` (template-literal
+  interior + JS `${}`), nested templates, `i++\n++j` (ASI), a `//` line comment whose
+  newline is ASI-significant, `/*! banner */` kept, and a div-vs-regex case
+  (`a / b / c`). Idempotence, and `WithJSMinifier` invoked on the holeless static script.
 
 ## Non-goals / future
 
-- `<script>` interpolation and `|> js` (JS context is a harder safety problem — own
-  design); JS minification and a parallel `WithJSMinifier` (same extension shape).
-- An aggressive *built-in* CSS tier (value rewrites, structural transforms) — those
-  belong to a user-supplied `WithCSSMinifier`, not gsx core.
+- `<script>` *interpolation* and the `|> js` value pipeline (JS *escaping* in dynamic
+  positions is a harder safety problem — own design). Note JS *minification* of static
+  `<script>` IS in scope here.
+- An aggressive *built-in* tier for either language (value rewrites, identifier
+  mangling, structural transforms) — those belong to a user-supplied
+  `WithCSSMinifier`/`WithJSMinifier`, not gsx core.
 - Exposing interpolation holes to the pluggable minifier (a structured chunk API) —
   holey blocks stay on the built-in safe pass.
 - `gsx.SafeURL` parity (same opt-out-type pattern; referenced by example 02, still
@@ -312,6 +350,13 @@ carries the minified form. Existing `<style>` codegen goldens shrink accordingly
 - **Hole-adjacency in the minifier** — collapsing whitespace next to a `${ }` could
   change a multi-value declaration. Mitigation: holes are opaque tokens with
   never-touched adjacent whitespace; covered by the gsx hole golden cases.
+- **JS minification stability (ASI / regex / templates)** — JS is materially harder to
+  minify safely than CSS: dropping an ASI-significant newline, or mis-classifying `/` as
+  divide vs regex, silently changes behavior. Mitigation: a real JS tokenizer (never
+  regex) that preserves ASI-significant newlines and literal interiors, the ASI/regex/
+  template golden corpus, and pushing all aggressive transforms to `WithJSMinifier`. If
+  a robust default proves too risky in build, fall back to JS-extension-only without
+  blocking the CSS slices.
 - **Formatter faithfulness on preserve + interp** — the printer must emit `${ }` in
   preserve context without re-indenting the surrounding raw CSS. Mitigation: the
   corpus-wide property tests are the guard.
