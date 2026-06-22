@@ -210,3 +210,30 @@ func mapKeys(m map[string]*PackageResult) []string {
 	}
 	return keys
 }
+
+func TestGeneratePackagesWithFilters_CustomFilter(t *testing.T) {
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module gsxbatchf\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	// a filter package
+	os.MkdirAll(filepath.Join(tmp, "myf"), 0o755)
+	writeFile(t, filepath.Join(tmp, "myf"), "f.go", "package myf\n\nfunc Shout(s string) string { return s + \"!\" }\n")
+	// a gsx package using the custom filter
+	os.MkdirAll(filepath.Join(tmp, "v"), 0o755)
+	writeFile(t, filepath.Join(tmp, "v"), "v.gsx", "package v\n\ncomponent C(name string) { <p>{ name |> shout }</p> }\n")
+
+	dirV := filepath.Join(tmp, "v")
+	res, err := GeneratePackagesWithFilters(tmp, []string{dirV}, []string{"gsxbatchf/myf"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := res[mustAbs(t, dirV)]
+	if r == nil || r.Err != nil {
+		t.Fatalf("expected clean result, got %+v", r)
+	}
+	if len(r.Files) == 0 {
+		t.Fatalf("expected generated files")
+	}
+}
+
+func mustAbs(t *testing.T, p string) string { t.Helper(); a, _ := filepath.Abs(p); return a }
