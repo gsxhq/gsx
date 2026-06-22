@@ -8,7 +8,7 @@
 //   - { expr } in text         -> auto HTML-escaped
 //   - { expr } in an attribute -> auto attribute-escaped
 //   - href/src/action/…        -> auto URL-sanitized (no templ.URL-style wrapper!)
-//   - opt-outs: gsx.Raw (trusted HTML), gsx.SafeURL (trusted URL)
+//   - opt-outs: gsx.Raw (trusted HTML), gsx.RawURL (trusted URL — skip scheme check)
 //   - HTML entities pass through literally
 //
 // Corner cases: a string literal containing '<' must NOT be parsed as markup
@@ -38,12 +38,13 @@ component Article(bodyHTML string) {
 }
 
 // URL attributes are sanitized AUTOMATICALLY by context (e.g. a javascript: URL is
-// neutralised) — no wrapper needed. gsx.SafeURL is the explicit OPT-OUT for a URL
-// you already trust (e.g. from a type-safe router).
+// neutralised) — no wrapper needed. gsx.RawURL is the explicit OPT-OUT for a URL
+// you already trust (e.g. from a type-safe router): it skips the scheme check but
+// is still attribute-escaped, so it can't break out of the quotes.
 component Links(userURL, trustedURL string) {
 	<div>
 		<a href={userURL}>user-supplied link</a> {/* auto-sanitized */}
-		<a href={gsx.SafeURL(trustedURL)}>trusted link</a> {/* opt out of sanitizing */}
+		<a href={gsx.RawURL(trustedURL)}>trusted link</a> {/* opt out of scheme check */}
 		{/* A string literal containing '<' is a Go expression, never markup: */}
 		<span title={"comparisons like a < b are safe here"}>tooltip</span>
 	</div>

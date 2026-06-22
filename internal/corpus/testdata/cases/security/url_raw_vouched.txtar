@@ -1,0 +1,11 @@
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Vouched(u gsx.RawURL) { <a href={u}>x</a> }
+-- invoke --
+Vouched(VouchedProps{U: `javascript:a="b"`})
+-- diagnostics.golden --
+-- render.golden --
+<a href="javascript:a=&#34;b&#34;">x</a>
