@@ -3,4 +3,3 @@ package views
 
 component C(on bool) { <div style={ "color: red": on }>y</div> }
 -- diagnostics.golden --
-cases/class_style_rejected/input.gsx: codegen: expr value in CSS context ("style") is unsafe; needs a safe type via `|> css` (not available yet) — use a static value

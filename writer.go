@@ -79,12 +79,3 @@ func (gw *Writer) CSS(s string) {
 	gw.writeStr(cssValueFilter(s))
 }
 
-// CSSAttr writes s into a style="…" attribute: value-filtered, then
-// HTML-attribute-escaped so it can never break the quote (CSS survives HTML
-// decoding).
-func (gw *Writer) CSSAttr(s string) {
-	if gw.err != nil {
-		return
-	}
-	gw.err = writeHTML(gw.w, cssValueFilter(s))
-}

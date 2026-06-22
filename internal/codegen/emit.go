@@ -3,7 +3,9 @@ package codegen
 import (
 	"bytes"
 	"fmt"
+	goast "go/ast"
 	"go/format"
+	goparser "go/parser"
 	"go/token"
 	"go/types"
 	"path/filepath"
@@ -657,34 +659,6 @@ func emitRenderCSS(b *bytes.Buffer, expr string, t types.Type, imports map[strin
 	return nil
 }
 
-// emitCSSAttrValue writes a style="…" attribute value: SafeCSS and numbers are
-// attr-escaped only (safe by construction); strings/Stringers go through
-// gw.CSSAttr (value-filter + attr-escape).
-func emitCSSAttrValue(b *bytes.Buffer, expr string, t types.Type, imports map[string]bool) error {
-	if isSafeCSS(t) {
-		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(string(%s))\n", expr)
-		return nil
-	}
-	switch classify(t) {
-	case catInt:
-		imports["strconv"] = true
-		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(strconv.FormatInt(int64(%s), 10))\n", expr)
-	case catUint:
-		imports["strconv"] = true
-		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(strconv.FormatUint(uint64(%s), 10))\n", expr)
-	case catFloat:
-		imports["strconv"] = true
-		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(strconv.FormatFloat(float64(%s), 'g', -1, 64))\n", expr)
-	case catString, catBytes:
-		fmt.Fprintf(b, "\t\t_gsxgw.CSSAttr(string(%s))\n", expr)
-	case catStringer:
-		fmt.Fprintf(b, "\t\t_gsxgw.CSSAttr((%s).String())\n", expr)
-	default:
-		return fmt.Errorf("codegen: style attribute value type %s not supported (need string/number/Stringer or gsx.SafeCSS)", t)
-	}
-	return nil
-}
-
 // emitAttr emits one element attribute. Static values are escaped at codegen and
 // always double-quoted; bool attrs use gw.BoolAttr. Expr attrs are handled in a
 // later task; the deferred attr kinds error clearly.
@@ -697,15 +671,13 @@ func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, tab
 	case *ast.ExprAttr:
 		return emitExprAttr(b, t, resolved, table, imports)
 	case *ast.ClassAttr:
-		// `class`/`style` composed attributes parse to ClassAttr. The `style`
-		// CSS grammar cannot be made safe by HTML-entity escaping, so an
-		// interpolated style value must fail closed (the same invariant
-		// emitExprAttr enforces for any other CSS-context attribute). `class`
-		// composition is merely deferred until its lowering lands.
+		// class -> token merge (gw.Class); style -> '; '-joined declarations
+		// (gw.Style) with dynamic parts CSS-value-filtered.
 		if attrContext(t.Name) == ctxCSS {
-			return fmt.Errorf("codegen: expr value in CSS context (%q) is unsafe; needs a safe type via `|> css` (not available yet) — use a static value", t.Name)
+			emitStyleAttr(b, t)
+		} else {
+			emitClassAttr(b, t)
 		}
-		emitClassAttr(b, t)
 	case *ast.SpreadAttr:
 		// emitAttr runs only for non-component elements (genNode routes component
 		// tags to genChildComponent before the attr loop), so a SpreadAttr here is
@@ -762,6 +734,47 @@ func emitClassAttr(b *bytes.Buffer, a *ast.ClassAttr) {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
 }
 
+// emitStyleAttr lowers a composable `style={ … }` to ` style="` + a gw.Style call
+// composing each part as a CSS declaration, then `"`. A string-literal part is
+// trusted and emitted raw; any dynamic part value is wrapped in gsx.FilterCSS so
+// untrusted data cannot inject declarations or break out. gw.Style joins the
+// included parts with "; " and attr-escapes the result.
+func emitStyleAttr(b *bytes.Buffer, a *ast.ClassAttr) {
+	parts := make([]string, 0, len(a.Parts))
+	for _, p := range a.Parts {
+		val := styleDeclExpr(p.Expr)
+		if p.Cond == "" {
+			parts = append(parts, fmt.Sprintf("gsx.Class(%s)", val))
+		} else {
+			parts = append(parts, fmt.Sprintf("gsx.ClassIf(%s, %s)", val, strings.TrimSpace(p.Cond)))
+		}
+	}
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
+	fmt.Fprintf(b, "\t\t_gsxgw.Style(%s)\n", strings.Join(parts, ", "))
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
+}
+
+// styleDeclExpr returns the Go expression for a composed-style part's value: a
+// pure string-literal part is trusted (returned verbatim); any other (dynamic)
+// part is wrapped in gsx.FilterCSS so its runtime value is CSS-value-filtered.
+func styleDeclExpr(expr string) string {
+	e := strings.TrimSpace(expr)
+	if isStringLiteralExpr(e) {
+		return e
+	}
+	return "gsx.FilterCSS(" + e + ")"
+}
+
+// isStringLiteralExpr reports whether expr is exactly a Go string literal.
+func isStringLiteralExpr(expr string) bool {
+	node, err := goparser.ParseExpr(expr)
+	if err != nil {
+		return false
+	}
+	lit, ok := node.(*goast.BasicLit)
+	return ok && lit.Kind == token.STRING
+}
+
 // htmlAttrEscape escapes a static attribute value for a double-quoted context at
 // codegen time (matches the runtime gw.AttrValue entity set).
 func htmlAttrEscape(s string) string {
@@ -811,6 +824,8 @@ func emitExprAttr(b *bytes.Buffer, a *ast.ExprAttr, resolved map[ast.Node]types.
 	switch attrContext(a.Name) {
 	case ctxJS:
 		return fmt.Errorf("codegen: expr value in JS/event-handler context (%q) is unsafe; needs a safe type via `|> js` (not available yet) — use a static value", a.Name)
+	case ctxCSS:
+		return fmt.Errorf("codegen: expr value in CSS context (%q) is unsafe; needs a safe type via `|> css` (not available yet) — use a static value", a.Name)
 	}
 	// (2) whole-attr `?` try-marker is deferred (per-stage `?` is caught by lowerPipe).
 	if a.Try {
@@ -843,14 +858,9 @@ func emitExprAttr(b *bytes.Buffer, a *ast.ExprAttr, resolved map[ast.Node]types.
 	}
 
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
-	switch attrContext(a.Name) {
-	case ctxURL:
+	if attrContext(a.Name) == ctxURL {
 		fmt.Fprintf(b, "\t\t_gsxgw.URL(%s)\n", urlStringExpr(expr, t))
-	case ctxCSS:
-		if err := emitCSSAttrValue(b, expr, t, imports); err != nil {
-			return err
-		}
-	default:
+	} else {
 		if err := emitAttrValue(b, expr, t, imports); err != nil {
 			return err
 		}

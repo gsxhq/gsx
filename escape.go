@@ -171,3 +171,9 @@ func skipCSSSpace(c []byte) []byte {
 	}
 	return c
 }
+
+// FilterCSS returns s when it is a safe CSS value, else a harmless inert
+// placeholder. Generated code wraps each DYNAMIC composed-style declaration value
+// in FilterCSS so untrusted data cannot inject declarations or break out of the
+// style attribute. A trusted string-literal declaration is emitted without it.
+func FilterCSS(s string) string { return cssValueFilter(s) }
