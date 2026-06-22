@@ -26,7 +26,7 @@ func TestGenerateWithUserFilter(t *testing.T) {
 	writeFile(t, viewsDir, "hi.gsx", "package views\n\ncomponent Hi(n string) {\n\t<p>{ n |> shout }</p>\n}\n")
 
 	filterPkgs := []string{stdPath, mod + "/myfilters"}
-	res, err := generate([]string{viewsDir}, filterPkgs, nil)
+	res, err := generate([]string{viewsDir}, filterPkgs, nil, nil)
 	if err != nil {
 		t.Fatalf("generate: %v (errs=%v)", err, res.Errs)
 	}

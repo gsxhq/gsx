@@ -113,7 +113,7 @@ type Result struct {
 // package. The returned error is non-nil when any error occurred (so callers can
 // detect failure), with Result still populated for summary reporting.
 func Generate(paths []string) (Result, error) {
-	return generate(paths, nil, nil)
+	return generate(paths, nil, nil, nil)
 }
 
 // generate is the Generate core: it additionally takes the ordered filter
@@ -124,9 +124,9 @@ func Generate(paths []string) (Result, error) {
 // the config's WithFilters list here so a custom gsx binary's filter packages
 // reach codegen.
 //
-// cssMin is an optional custom CSS minifier for holeless <style> blocks. When
-// non-nil the incremental cache is bypassed (a func is not hashable), so each
-// run re-generates. The built-in (nil) path keeps the cache.
-func generate(paths []string, filterPkgs []string, cssMin func(string) (string, error)) (Result, error) {
-	return generateCached(paths, filterPkgs, cssMin == nil, cssMin)
+// cssMin and jsMin are optional custom minifiers for holeless <style>/<script>
+// blocks. When either is non-nil the incremental cache is bypassed (a func is
+// not hashable), so each run re-generates. The built-in (nil) path keeps the cache.
+func generate(paths []string, filterPkgs []string, cssMin, jsMin func(string) (string, error)) (Result, error) {
+	return generateCached(paths, filterPkgs, cssMin == nil && jsMin == nil, cssMin, jsMin)
 }

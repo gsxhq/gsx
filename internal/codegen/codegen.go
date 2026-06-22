@@ -26,7 +26,7 @@ import (
 // GeneratePackageWithFilters preserved for callers (and the test harness) that
 // do not configure custom filter packages.
 func GeneratePackage(dir string) (map[string][]byte, error) {
-	return GeneratePackageWithFilters(dir, []string{stdImportPath}, nil)
+	return GeneratePackageWithFilters(dir, []string{stdImportPath}, nil, nil)
 }
 
 // GeneratePackageWithFilters generates a .x.go for every .gsx file in dir,
@@ -43,7 +43,7 @@ func GeneratePackage(dir string) (map[string][]byte, error) {
 // (std → _gsxstd, every other package → _gsxf<i>). An empty filterPkgs defaults
 // to just the std package; duplicate paths are removed preserving first-seen
 // order (last-wins still applies to NAME collisions across distinct packages).
-func GeneratePackageWithFilters(dir string, filterPkgs []string, cssMin func(string) (string, error)) (map[string][]byte, error) {
+func GeneratePackageWithFilters(dir string, filterPkgs []string, cssMin, jsMin func(string) (string, error)) (map[string][]byte, error) {
 	filterPkgs = dedupFilterPkgs(filterPkgs)
 	matches, err := filepath.Glob(filepath.Join(dir, "*.gsx"))
 	if err != nil {
@@ -84,7 +84,7 @@ func GeneratePackageWithFilters(dir string, filterPkgs []string, cssMin func(str
 
 	out := map[string][]byte{}
 	for path, file := range files {
-		gen, err := generateFile(file, resolved, table, propFields, fset, cssMin)
+		gen, err := generateFile(file, resolved, table, propFields, fset, cssMin, jsMin)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
