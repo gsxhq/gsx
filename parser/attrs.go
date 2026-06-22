@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/attrjs"
 )
 
 // splitComposed splits the inner source of a `class={ … }` / `style={ … }`
@@ -138,6 +139,9 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 	switch {
 	case p.at(`="`):
 		p.i += 2
+		if attrjs.IsJSAttr(name) {
+			return p.parseJSAttrValue(name, attrStartPos)
+		}
 		vs := p.i
 		for !p.eof() && p.src[p.i] != '"' {
 			p.i++
@@ -161,6 +165,61 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 		ast.SetSpan(ba, attrStartPos, p.posAt(p.i))
 		return ba, nil
 	}
+}
+
+// parseJSAttrValue parses a JS-context attribute's double-quoted value, splitting
+// @{ } holes into Text + Interp segments like a <script> body, bounded by the
+// closing '"'. The cursor must be just past the opening `="`. If the value has at
+// least one hole it returns a *ast.JSAttr; if it is hole-free it returns a
+// *ast.StaticAttr with the raw value (no behavior change). parseInterp does
+// Go-aware brace-balancing, so a '"' inside a hole (e.g. @{ "v" }) is consumed by
+// the hole and does not prematurely terminate the value.
+func (p *parser) parseJSAttrValue(name string, attrStartPos token.Pos) (ast.Attr, error) {
+	valStart := p.i
+	var segments []ast.Markup
+	segStart := p.i
+	segStartPos := p.posAt(p.i)
+	hasInterp := false
+	flush := func(end int) {
+		if end > segStart {
+			txt := &ast.Text{Value: p.src[segStart:end]}
+			ast.SetSpan(txt, segStartPos, p.posAt(end))
+			segments = append(segments, txt)
+		}
+	}
+	for !p.eof() {
+		// Closing quote terminates the value.
+		if p.src[p.i] == '"' {
+			flush(p.i)
+			closeOff := p.i
+			p.i++ // past closing quote
+			if !hasInterp {
+				// Hole-free JS attribute: keep StaticAttr (no behavior change).
+				sa := &ast.StaticAttr{Name: name, Value: p.src[valStart:closeOff]}
+				ast.SetSpan(sa, attrStartPos, p.posAt(p.i))
+				return sa, nil
+			}
+			ja := &ast.JSAttr{Name: name, Segments: segments}
+			ast.SetSpan(ja, attrStartPos, p.posAt(p.i))
+			return ja, nil
+		}
+		// Interpolation hole? (trigger is exactly `@{`.)
+		if p.src[p.i] == '@' && p.i+1 < len(p.src) && p.src[p.i+1] == '{' {
+			flush(p.i)
+			p.i++ // past '@'; cursor now at '{' for parseInterp
+			in, err := p.parseInterp()
+			if err != nil {
+				return nil, err
+			}
+			segments = append(segments, in)
+			hasInterp = true
+			segStart = p.i
+			segStartPos = p.posAt(p.i)
+			continue
+		}
+		p.i++
+	}
+	return nil, fmt.Errorf("unterminated attribute string for %q", name)
 }
 
 // parseAttrsUntilBrace parses an attribute list terminated by '}' (the body of a

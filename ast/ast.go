@@ -251,6 +251,18 @@ type MarkupAttr struct {
 
 func (*MarkupAttr) attrNode() {}
 
+// JSAttr is a JS-context attribute whose quoted value contains @{ } holes:
+// name="… @{ expr } …" (e.g. x-data, onclick). Segments are Text and Interp,
+// like a <script> body. Set only for attrjs.IsJSAttr names with ≥1 hole;
+// hole-free JS attributes stay StaticAttr.
+type JSAttr struct {
+	span
+	Name     string
+	Segments []Markup
+}
+
+func (*JSAttr) attrNode() {}
+
 // GoBlock is `{{ stmt }}` — a Go-statement escape hatch in a component body.
 // Code is the trimmed Go source between the `{{` and `}}` delimiters.
 type GoBlock struct {
