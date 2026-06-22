@@ -14,12 +14,20 @@ import (
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/cssmin"
 )
 
 // generateFile emits the .x.go for a parsed gsx file given already-resolved
 // interpolation types.
 func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filterTable, structFields map[string]map[string]bool, fset *token.FileSet) ([]byte, error) {
 	interpTemp = 0
+	// Minify the static CSS of <style> blocks (built-in safe minifier; the
+	// WithCSSMinifier extension threads an override here in a later task). This
+	// mutates only <style> Text nodes — Interp pointers (and so `resolved`) are
+	// preserved. fmt does not run this, so source/`gsx fmt` are unaffected.
+	if err := cssmin.MinifyFile(file, nil); err != nil {
+		return nil, err
+	}
 	imports := map[string]bool{
 		"context":              true,
 		"io":                   true,
