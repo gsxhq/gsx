@@ -994,7 +994,7 @@ func TestParseScriptEmpty(t *testing.T) {
 }
 
 func TestStyleInterpolation(t *testing.T) {
-	src := `<style>.a{width:${w}px}</style>`
+	src := `<style>.a{width:@{w}px}</style>`
 	p := testParser(src)
 	n, err := p.parseElement()
 	if err != nil {
@@ -1016,8 +1016,8 @@ func TestStyleInterpolation(t *testing.T) {
 }
 
 func TestScriptStaysRaw(t *testing.T) {
-	// <script> must NOT interpolate: ${x} is literal text.
-	src := `<script>var x = ${y};</script>`
+	// <script> must NOT interpolate: @{x} is literal text.
+	src := `<script>var x = @{y};</script>`
 	p := testParser(src)
 	n, err := p.parseElement()
 	if err != nil {
@@ -1027,7 +1027,7 @@ func TestScriptStaysRaw(t *testing.T) {
 	if len(el.Children) != 1 {
 		t.Fatalf("got %d children, want 1: %#v", len(el.Children), el.Children)
 	}
-	if txt, ok := el.Children[0].(*ast.Text); !ok || txt.Value != "var x = ${y};" {
+	if txt, ok := el.Children[0].(*ast.Text); !ok || txt.Value != "var x = @{y};" {
 		t.Fatalf("child0 = %#v, want literal Text", el.Children[0])
 	}
 }
@@ -1050,11 +1050,44 @@ func TestStyleBareDollarIsLiteral(t *testing.T) {
 }
 
 func TestStyleUnterminatedInterp(t *testing.T) {
-	// Note: brief listed `${w}` (with closing brace) which is valid; corrected to
-	// `${w` (no closing brace) so the interpolation is genuinely unterminated.
-	src := `<style>.a{w:${w</style>`
+	// Note: brief listed `@{w}` (with closing brace) which is valid; corrected to
+	// `@{w` (no closing brace) so the interpolation is genuinely unterminated.
+	src := `<style>.a{w:@{w</style>`
 	p := testParser(src)
 	if _, err := p.parseElement(); err == nil {
 		t.Fatal("expected an error for unterminated interpolation, got nil")
+	}
+}
+
+func TestStyleAtBraceTriggers(t *testing.T) {
+	src := `<style>.a{width:@{w}px}</style>`
+	p := testParser(src)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := n.(*ast.Element)
+	if len(el.Children) != 3 {
+		t.Fatalf("got %d children, want 3: %#v", len(el.Children), el.Children)
+	}
+	if in, ok := el.Children[1].(*ast.Interp); !ok || in.Expr != "w" {
+		t.Fatalf("child1 = %#v, want Interp{Expr:w}", el.Children[1])
+	}
+}
+
+func TestStyleDollarBraceIsNowLiteral(t *testing.T) {
+	// After the migration, ${ … } inside <style> is plain CSS text, not an interp.
+	src := `<style>.a{content:"${ w }"}</style>`
+	p := testParser(src)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := n.(*ast.Element)
+	if len(el.Children) != 1 {
+		t.Fatalf("got %d children, want 1 (all literal): %#v", len(el.Children), el.Children)
+	}
+	if txt := el.Children[0].(*ast.Text); txt.Value != `.a{content:"${ w }"}` {
+		t.Fatalf("text = %q, want it verbatim incl. ${ }", txt.Value)
 	}
 }

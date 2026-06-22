@@ -20,7 +20,7 @@ func TestRawCSSAliasOptsOut(t *testing.T) {
 		"import \"github.com/gsxhq/gsx\"\n\n" +
 		"type RawStyle = gsx.RawCSS\n\n" +
 		"component Styled(plain string, raw RawStyle) {\n" +
-		"\t<style>.a { color: ${ plain }; border: ${ raw }; }</style>\n" +
+		"\t<style>.a { color: @{ plain }; border: @{ raw }; }</style>\n" +
 		"}\n"
 	writeFile(t, pkgDir, "views.gsx", src)
 

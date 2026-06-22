@@ -2,7 +2,7 @@
 package views
 
 component C(raw []byte) {
-	<style>.a{color:${ raw }}</style>
+	<style>.a{color:@{ raw }}</style>
 }
 -- invoke --
 C(CProps{Raw: []byte("blue")})

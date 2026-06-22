@@ -10,7 +10,7 @@ import (
 
 // MinifyFile minifies the static CSS of every <style> element in f, in place.
 // ext, if non-nil, minifies the full CSS of a HOLELESS <style> block (the
-// pluggable extension point); a block containing ${ } interpolation always uses
+// pluggable extension point); a block containing @{ } interpolation always uses
 // the built-in hole-aware minifier, because an external string->string minifier
 // cannot reason across holes. A nil ext uses the built-in for every block.
 func MinifyFile(f *ast.File, ext func(string) (string, error)) error {

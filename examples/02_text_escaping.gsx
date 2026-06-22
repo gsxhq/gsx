@@ -67,8 +67,8 @@ component DataAttrs(entityType string) {
 component ThemedCard(width int, accent string) {
 	<style>
 		.themed {
-			width: ${ width }px;
-			color: ${ accent };
+			width: @{ width }px;
+			color: @{ accent };
 		}
 	</style>
 }
