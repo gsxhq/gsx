@@ -219,8 +219,11 @@ func (p *printer) element(e *ast.Element, depth int) {
 		return
 	}
 	p.ws(">")
-	if strings.EqualFold(e.Tag, "style") {
-		p.styleChildren(e.Children)
+	if strings.EqualFold(e.Tag, "style") || strings.EqualFold(e.Tag, "script") {
+		// <style> and <script> use @{ } holes (split distinctly from regular { }
+		// markup interps); print them verbatim with the @{ } delimiter so the
+		// formatted output re-parses to the same script/style interps.
+		p.rawHoleChildren(e.Children)
 	} else if isPreserveTag(e.Tag) {
 		p.children(e.Children, depth, true)
 	} else {
@@ -231,12 +234,13 @@ func (p *printer) element(e *ast.Element, depth int) {
 	p.ws(">")
 }
 
-// styleChildren prints the children of a <style> element: Text nodes are
-// emitted verbatim and Interp nodes use the @{ } delimiter (distinct from the
-// regular { } markup interp, so the re-parse recognizes them as style interps).
-// Try ('?') and pipeline Stages are preserved faithfully so that the formatter
-// never silently strips them — codegen will reject them with a clear error.
-func (p *printer) styleChildren(nodes []ast.Markup) {
+// rawHoleChildren prints the children of a <style> or <script> element: Text
+// nodes are emitted verbatim and Interp nodes use the @{ } delimiter (distinct
+// from the regular { } markup interp, so the re-parse recognizes them as
+// style/script interps). Try ('?') and pipeline Stages are preserved faithfully
+// so that the formatter never silently strips them — codegen will reject them
+// with a clear error.
+func (p *printer) rawHoleChildren(nodes []ast.Markup) {
 	for _, n := range nodes {
 		switch v := n.(type) {
 		case *ast.Text:

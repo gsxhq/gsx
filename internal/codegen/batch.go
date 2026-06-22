@@ -11,6 +11,7 @@ import (
 	"golang.org/x/tools/go/packages"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/jsx"
 	"github.com/gsxhq/gsx/internal/wsnorm"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
@@ -78,6 +79,13 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 			}
 			// JSX whitespace pass before resolution + emit (mirror codegen.go).
 			wsnorm.Normalize(f)
+			// Classify <script> @{ } JS contexts + un-split comment holes before
+			// resolution/emit (mirror codegen.go). Fails closed; surfaces as this
+			// package's codegen diagnostic.
+			if err := jsx.ResolveScripts(f); err != nil {
+				parseErr = fmt.Errorf("%s: %w", m, err)
+				break
+			}
 			files[m] = f
 		}
 		if parseErr != nil {

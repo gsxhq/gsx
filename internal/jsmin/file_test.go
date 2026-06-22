@@ -36,6 +36,24 @@ func TestMinifyFileExt(t *testing.T) {
 	}
 }
 
+// TestMinifyFileSkipsHoleyScript asserts a <script> carrying an @{ } hole (an
+// *ast.Interp child) is left UNCHANGED — minifying Text runs around a hole is
+// unsafe (ASI / hole-boundary whitespace). All-Text scripts are still minified.
+func TestMinifyFileSkipsHoleyScript(t *testing.T) {
+	text1 := &ast.Text{Value: "const data = "}
+	interp := &ast.Interp{Expr: "cfg"}
+	text2 := &ast.Text{Value: ";\n\treturn data;"}
+	el := &ast.Element{Tag: "script", Children: []ast.Markup{text1, interp, text2}}
+	f := fileWith(el)
+	if err := MinifyFile(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	ch := f.Decls[0].(*ast.Component).Body[0].(*ast.Element).Children
+	if len(ch) != 3 || ch[0] != ast.Markup(text1) || ch[1] != ast.Markup(interp) || ch[2] != ast.Markup(text2) {
+		t.Fatalf("holey <script> must be left unchanged, got %#v", ch)
+	}
+}
+
 func TestMinifyFileLeavesStyleAlone(t *testing.T) {
 	f := fileWith(&ast.Element{Tag: "style", Children: []ast.Markup{&ast.Text{Value: "  .a { x: 1 }  "}}})
 	if err := MinifyFile(f, nil); err != nil {

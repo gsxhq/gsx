@@ -32,7 +32,8 @@ func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filter
 	}
 	// Minify the static JS of <script> blocks. jsMin is nil for the built-in
 	// safe minifier (ASI-safe, newline-keeping), or a custom override threaded
-	// from gen.WithJSMinifier. <script> content is always holeless.
+	// from gen.WithJSMinifier. Only holeless <script> blocks are minified; a
+	// script carrying any @{ } hole is left un-minified for safety (see jsmin).
 	if err := jsmin.MinifyFile(file, jsMin); err != nil {
 		return nil, err
 	}
@@ -349,6 +350,12 @@ func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]typ
 				return err
 			}
 		}
+	} else if strings.EqualFold(el.Tag, "script") {
+		for _, c := range el.Children {
+			if err := genScriptChild(b, c, resolved, imports, fset); err != nil {
+				return err
+			}
+		}
 	} else {
 		for _, c := range el.Children {
 			if err := genNode(b, c, resolved, table, structFields, imports, fset, recvVar, recvTypeName); err != nil {
@@ -441,6 +448,12 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		if strings.EqualFold(t.Tag, "style") {
 			for _, c := range t.Children {
 				if err := genStyleChild(b, c, resolved, imports, fset); err != nil {
+					return err
+				}
+			}
+		} else if strings.EqualFold(t.Tag, "script") {
+			for _, c := range t.Children {
+				if err := genScriptChild(b, c, resolved, imports, fset); err != nil {
 					return err
 				}
 			}
@@ -671,6 +684,85 @@ func emitRenderCSS(b *bytes.Buffer, expr string, t types.Type, imports map[strin
 		fmt.Fprintf(b, "\t\t_gsxgw.CSS((%s).String())\n", expr)
 	default:
 		return fmt.Errorf("codegen: value of type %s not renderable in CSS context (need string/number/Stringer or gsx.RawCSS)", t)
+	}
+	return nil
+}
+
+// genScriptChild emits one child of a <script> element. Text is raw JS
+// (verbatim); an Interp is rendered through the JS escaper selected by its
+// JSCtx (set by internal/jsx). Comment-context holes were already un-split to
+// Text by jsx.ResolveScripts, so they arrive here as Text.
+func genScriptChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, imports map[string]bool, fset *token.FileSet) error {
+	switch t := n.(type) {
+	case *ast.Text:
+		emitS(b, t.Value)
+		return nil
+	case *ast.Interp:
+		return emitJSInterp(b, t, resolved, imports, fset)
+	default:
+		return fmt.Errorf("codegen: <script> body may contain only text and @{ } interpolations, got %T", n)
+	}
+}
+
+// emitJSInterp renders a <script> interpolation value through the runtime JS
+// escaper chosen by its JSCtx. It mirrors emitCSSInterp's Try/Stages rejection
+// and (T, error) tuple unwrap.
+func emitJSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, imports map[string]bool, fset *token.FileSet) error {
+	if n.Try {
+		return fmt.Errorf("codegen: `?` try-marker not supported in <script> interpolation yet")
+	}
+	if len(n.Stages) > 0 {
+		return fmt.Errorf("codegen: pipeline stages not supported in <script> interpolation yet")
+	}
+	t, ok := resolved[n]
+	if !ok || t == nil {
+		return fmt.Errorf("codegen: could not resolve type of <script> interpolation %q", n.Expr)
+	}
+	expr := strings.TrimSpace(n.Expr)
+	// Unwrap (T, error) exactly like emitCSSInterp.
+	if tup, ok := t.(*types.Tuple); ok {
+		if tup.Len() != 2 || tup.At(1).Type().String() != "error" {
+			return fmt.Errorf("codegen: <script> interpolation %q returns %s; only (T, error) is supported", expr, t)
+		}
+		tmp := fmt.Sprintf("_gsxv%d", interpTemp)
+		interpTemp++
+		fmt.Fprintf(b, "\t\t%s, _gsxerr := %s\n\t\tif _gsxerr != nil {\n\t\t\treturn _gsxerr\n\t\t}\n", tmp, expr)
+		return emitJSValue(b, n.JSCtx, tmp, tup.At(0).Type(), imports)
+	}
+	return emitJSValue(b, n.JSCtx, expr, t, imports)
+}
+
+// emitJSValue selects the runtime JS escaper by JS context. Value context goes
+// through JSVal(any) (JSON-encode; gsx.RawJS passthrough is handled at runtime);
+// string/template/regexp contexts go through the string-taking escapers.
+func emitJSValue(b *bytes.Buffer, ctx ast.JSCtx, expr string, t types.Type, imports map[string]bool) error {
+	switch ctx {
+	case ast.JSCtxValue:
+		// JSVal accepts any (JSON-encode); gsx.RawJS passthrough handled at runtime.
+		// No type constraint — numbers, structs, slices, maps all JSON-encode.
+		fmt.Fprintf(b, "\t\t_gsxgw.JSVal(%s)\n", expr)
+		return nil
+	case ast.JSCtxString:
+		return emitJSString(b, "JSStr", expr, t)
+	case ast.JSCtxTemplate:
+		return emitJSString(b, "JSTmpl", expr, t)
+	case ast.JSCtxRegexp:
+		return emitJSString(b, "JSRegexp", expr, t)
+	default:
+		return fmt.Errorf("codegen: <script> interpolation %q has no JS context (internal error: ResolveScripts not run?)", expr)
+	}
+}
+
+// emitJSString emits a string-context JS escaper call (JSStr/JSTmpl/JSRegexp),
+// which take a Go string. The value must be string-like.
+func emitJSString(b *bytes.Buffer, method, expr string, t types.Type) error {
+	switch classify(t) {
+	case catString, catBytes:
+		fmt.Fprintf(b, "\t\t_gsxgw.%s(string(%s))\n", method, expr)
+	case catStringer:
+		fmt.Fprintf(b, "\t\t_gsxgw.%s((%s).String())\n", method, expr)
+	default:
+		return fmt.Errorf("codegen: value of type %s not renderable in a JS string/template/regex context (need string or Stringer)", t)
 	}
 	return nil
 }
