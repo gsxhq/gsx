@@ -106,7 +106,7 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 	cmd, cmdArgs := rest[0], rest[1:]
 	switch cmd {
 	case "generate":
-		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, cfg.filterPkgs)
+		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, cfg.filterPkgs)
 	case "info":
 		// Resolve against cwd: -C (handled above) has already chdir'd, so "."
 		// anchors the go/packages load at the user's chosen directory.
@@ -129,11 +129,20 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 // summary. It distinguishes a usage error (a path that does not exist →
 // discovery fails with no per-package errors → exit 2) from a codegen error (one
 // or more packages failed → exit 1). Success returns 0.
-func runGenerate(paths []string, stdout, stderr io.Writer, quiet, verbose bool, filterPkgs []string) int {
+// noCache bypasses the content-hash cache and forces a full regeneration.
+func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string) int {
+	gfs := flag.NewFlagSet("generate", flag.ContinueOnError)
+	gfs.SetOutput(stderr)
+	var nocacheFlag bool
+	gfs.BoolVar(&nocacheFlag, "no-cache", noCache, "bypass the content-hash cache; regenerate all")
+	if err := gfs.Parse(args); err != nil {
+		return 2
+	}
+	paths := gfs.Args()
 	if len(paths) == 0 {
 		paths = []string{"."}
 	}
-	res, err := generate(paths, filterPkgs)
+	res, err := generateCached(paths, filterPkgs, !nocacheFlag)
 
 	if len(res.Errs) > 0 {
 		// Codegen failures: report each, exit 1.
