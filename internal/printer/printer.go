@@ -447,6 +447,14 @@ func (p *printer) attr(a ast.Attr, depth int) {
 		p.ws("={ ")
 		p.markupAttrValue(v.Value, depth)
 		p.ws(" }")
+	case *ast.JSAttr:
+		// A JS-context attribute whose quoted value is literal JS with @{ } holes
+		// (e.g. x-data="{ tab: @{ tab } }"). Reconstruct name="…" with the holes
+		// printed faithfully (Try/Stages preserved) via the shared rawHole printer.
+		p.ws(v.Name)
+		p.ws(`="`)
+		p.rawHoleChildren(v.Segments)
+		p.ws(`"`)
 	default:
 		p.err = fmt.Errorf("printer: unknown attr type %T", a)
 	}

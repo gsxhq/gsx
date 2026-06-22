@@ -196,3 +196,77 @@ func TestResolveScriptsHolelessUnchanged(t *testing.T) {
 		t.Fatal("unexpected interp in holeless script")
 	}
 }
+
+// jsAttrSegs builds a JS-attribute Segments list from a template where "@" marks
+// a hole: each "@" in parts[i] boundary becomes an *ast.Interp{Expr: exprs[i]}.
+// Caller passes the literal text chunks and the hole exprs interleaved.
+func jsAttrSegs(texts []string, exprs []string) []ast.Markup {
+	var segs []ast.Markup
+	for i, tx := range texts {
+		if tx != "" {
+			segs = append(segs, &ast.Text{Value: tx})
+		}
+		if i < len(exprs) {
+			segs = append(segs, &ast.Interp{Expr: exprs[i]})
+		}
+	}
+	return segs
+}
+
+func interpSegs(segs []ast.Markup) []*ast.Interp {
+	var out []*ast.Interp
+	for _, s := range segs {
+		if in, ok := s.(*ast.Interp); ok {
+			out = append(out, in)
+		}
+	}
+	return out
+}
+
+func TestResolveJSAttrValueContext(t *testing.T) {
+	// x-data="{ tab: @{ tab }, open: false }"
+	segs := jsAttrSegs([]string{"{ tab: ", ", open: false }"}, []string{" tab "})
+	if err := ResolveJSAttr("x-data", segs); err != nil {
+		t.Fatalf("ResolveJSAttr: %v", err)
+	}
+	ins := interpSegs(segs)
+	if len(ins) != 1 || ins[0].JSCtx != ast.JSCtxValue {
+		t.Fatalf("got %d interps, ctx %v; want 1 JSCtxValue", len(ins), ins[0].JSCtx)
+	}
+}
+
+func TestResolveJSAttrStringContext(t *testing.T) {
+	// x-init="fetch('/x/@{ id }')"
+	segs := jsAttrSegs([]string{"fetch('/x/", "')"}, []string{" id "})
+	if err := ResolveJSAttr("x-init", segs); err != nil {
+		t.Fatalf("ResolveJSAttr: %v", err)
+	}
+	ins := interpSegs(segs)
+	if len(ins) != 1 || ins[0].JSCtx != ast.JSCtxString {
+		t.Fatalf("ctx = %v; want JSCtxString", ins[0].JSCtx)
+	}
+}
+
+func TestResolveJSAttrBindingRejected(t *testing.T) {
+	// x-on:click="@{ stmt } = 1" — binding/identifier position
+	segs := jsAttrSegs([]string{"", " = 1"}, []string{" stmt "})
+	err := ResolveJSAttr("x-on:click", segs)
+	if err == nil {
+		t.Fatal("expected fail-closed error for binding position, got nil")
+	}
+	if !strings.Contains(err.Error(), "identifier/binding") {
+		t.Fatalf("error = %q; want identifier/binding rejection", err)
+	}
+}
+
+func TestResolveJSAttrCommentRejected(t *testing.T) {
+	// onclick="/* @{ x } */ doThing()" — hole inside a JS comment
+	segs := jsAttrSegs([]string{"/* ", " */ doThing()"}, []string{" x "})
+	err := ResolveJSAttr("onclick", segs)
+	if err == nil {
+		t.Fatal("expected fail-closed error for comment-context hole, got nil")
+	}
+	if !strings.Contains(err.Error(), "JS comment") {
+		t.Fatalf("error = %q; want JS comment rejection", err)
+	}
+}

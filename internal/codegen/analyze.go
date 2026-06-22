@@ -488,6 +488,18 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				if probeErr != nil {
 					return probeErr
 				}
+				// Then probe each JS-attribute's @{ } interps, in attr source order —
+				// collectExprs walks identically (same walkMarkupAttrs), so the k-th
+				// _gsxuse maps to the k-th collected node.
+				walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
+					if probeErr != nil {
+						return
+					}
+					probeErr = emitProbes(sb, value, table, propFields, recvVar, recvTypeName, usedFilters)
+				})
+				if probeErr != nil {
+					return probeErr
+				}
 				if err := emitProbes(sb, t.Children, table, propFields, recvVar, recvTypeName, usedFilters); err != nil {
 					return err
 				}
@@ -787,6 +799,11 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 			walkAttrExprs(t.Attrs, func(ea *gsxast.ExprAttr) {
 				*out = append(*out, ea)
 			})
+			// Then each JS-attribute (e.g. x-data="… @{ x } …") @{ } interp, in
+			// attr source order — emitProbes walks identically (same walkMarkupAttrs).
+			walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
+				collectExprs(value, out)
+			})
 			collectExprs(t.Children, out)
 		case *gsxast.Fragment:
 			collectExprs(t.Children, out)
@@ -831,8 +848,14 @@ func walkAttrExprs(attrs []gsxast.Attr, fn func(*gsxast.ExprAttr)) {
 // walkAttrExprs unifies the CondAttr recursion.
 func walkMarkupAttrs(attrs []gsxast.Attr, fn func(value []gsxast.Markup)) {
 	for _, a := range attrs {
-		if ma, ok := a.(*gsxast.MarkupAttr); ok {
-			fn(ma.Value)
+		switch t := a.(type) {
+		case *gsxast.MarkupAttr:
+			fn(t.Value)
+		case *gsxast.JSAttr:
+			// A JS-context attribute value (e.g. x-data="{ tab: @{ tab } }") carries
+			// @{ } interps that need types — yield its Segments so they are collected
+			// and probed in the SAME order by collectExprs and emitProbes.
+			fn(t.Segments)
 		}
 	}
 }

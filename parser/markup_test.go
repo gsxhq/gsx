@@ -1156,3 +1156,91 @@ func TestStyleDollarBraceIsNowLiteral(t *testing.T) {
 		t.Fatalf("text = %q, want it verbatim incl. ${ }", txt.Value)
 	}
 }
+
+// parseSingleElemAttrs parses `<div ...>` and returns the element's attrs.
+func parseSingleElemAttrs(t *testing.T, src string) []ast.Attr {
+	t.Helper()
+	p := testParser(src)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n.(*ast.Element).Attrs
+}
+
+func TestJSAttrSplitsHoles(t *testing.T) {
+	attrs := parseSingleElemAttrs(t, `<div x-data="{ a: @{ x } }"></div>`)
+	if len(attrs) != 1 {
+		t.Fatalf("got %d attrs, want 1: %#v", len(attrs), attrs)
+	}
+	a, ok := attrs[0].(*ast.JSAttr)
+	if !ok || a.Name != "x-data" {
+		t.Fatalf("attr0 = %#v, want JSAttr{x-data}", attrs[0])
+	}
+	if len(a.Segments) != 3 {
+		t.Fatalf("got %d segments: %#v", len(a.Segments), a.Segments)
+	}
+	if txt, ok := a.Segments[0].(*ast.Text); !ok || txt.Value != "{ a: " {
+		t.Fatalf("seg0 = %#v, want Text %q", a.Segments[0], "{ a: ")
+	}
+	if in, ok := a.Segments[1].(*ast.Interp); !ok || in.Expr != "x" {
+		t.Fatalf("seg1 = %#v, want Interp{x}", a.Segments[1])
+	}
+	if txt, ok := a.Segments[2].(*ast.Text); !ok || txt.Value != " }" {
+		t.Fatalf("seg2 = %#v, want Text %q", a.Segments[2], " }")
+	}
+}
+
+func TestJSAttrOnclick(t *testing.T) {
+	attrs := parseSingleElemAttrs(t, `<div onclick="alert(@{ n })"></div>`)
+	a, ok := attrs[0].(*ast.JSAttr)
+	if !ok || a.Name != "onclick" {
+		t.Fatalf("attr0 = %#v, want JSAttr{onclick}", attrs[0])
+	}
+	if len(a.Segments) != 3 {
+		t.Fatalf("got %d segments: %#v", len(a.Segments), a.Segments)
+	}
+	if txt, ok := a.Segments[0].(*ast.Text); !ok || txt.Value != "alert(" {
+		t.Fatalf("seg0 = %#v, want Text %q", a.Segments[0], "alert(")
+	}
+	if in, ok := a.Segments[1].(*ast.Interp); !ok || in.Expr != "n" {
+		t.Fatalf("seg1 = %#v, want Interp{n}", a.Segments[1])
+	}
+	if txt, ok := a.Segments[2].(*ast.Text); !ok || txt.Value != ")" {
+		t.Fatalf("seg2 = %#v, want Text %q", a.Segments[2], ")")
+	}
+}
+
+func TestNonJSAttrHoleStaysLiteral(t *testing.T) {
+	attrs := parseSingleElemAttrs(t, `<div title="a@{b}"></div>`)
+	a, ok := attrs[0].(*ast.StaticAttr)
+	if !ok || a.Name != "title" || a.Value != "a@{b}" {
+		t.Fatalf("attr0 = %#v, want StaticAttr{title, a@{b}}", attrs[0])
+	}
+}
+
+func TestJSAttrNoHoleStaysStatic(t *testing.T) {
+	attrs := parseSingleElemAttrs(t, `<div x-data="{ open: false }"></div>`)
+	a, ok := attrs[0].(*ast.StaticAttr)
+	if !ok || a.Name != "x-data" || a.Value != "{ open: false }" {
+		t.Fatalf("attr0 = %#v, want StaticAttr{x-data, { open: false }}", attrs[0])
+	}
+}
+
+func TestJSAttrHoleWithInnerStringLiteral(t *testing.T) {
+	attrs := parseSingleElemAttrs(t, `<div x-data="{ s: @{ "v" } }"></div>`)
+	a, ok := attrs[0].(*ast.JSAttr)
+	if !ok || a.Name != "x-data" {
+		t.Fatalf("attr0 = %#v, want JSAttr{x-data}", attrs[0])
+	}
+	if len(a.Segments) != 3 {
+		t.Fatalf("got %d segments: %#v", len(a.Segments), a.Segments)
+	}
+	in, ok := a.Segments[1].(*ast.Interp)
+	if !ok || in.Expr != `"v"` {
+		t.Fatalf("seg1 = %#v, want Interp{\"v\"}", a.Segments[1])
+	}
+	if txt, ok := a.Segments[2].(*ast.Text); !ok || txt.Value != " }" {
+		t.Fatalf("seg2 = %#v, want trailing Text %q", a.Segments[2], " }")
+	}
+}

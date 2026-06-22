@@ -48,6 +48,16 @@ func resolveMarkup(nodes []ast.Markup) error {
 	for _, n := range nodes {
 		switch v := n.(type) {
 		case *ast.Element:
+			// Resolve JS-context attributes (e.g. x-data, onclick) on EVERY
+			// element, including <script> (it can carry <script onload="@{…}">).
+			// This must run before the holes are type-probed in codegen.
+			for _, a := range v.Attrs {
+				if ja, ok := a.(*ast.JSAttr); ok {
+					if err := ResolveJSAttr(ja.Name, ja.Segments); err != nil {
+						return err
+					}
+				}
+			}
 			if strings.EqualFold(v.Tag, "script") {
 				if err := resolveScript(v); err != nil {
 					return err
@@ -158,6 +168,76 @@ func resolveScript(el *ast.Element) error {
 			}
 			el.Children[h.childIdx] = &ast.Text{Value: lit}
 			continue
+		}
+		h.interp.JSCtx = h.ctx
+	}
+	return nil
+}
+
+// ResolveJSAttr classifies every @{ … } hole in a JS-context attribute value
+// (e.g. x-data="{ tab: @{ tab } }"). It builds the same _GSXJSHOLE_ skeleton as
+// resolveScript, runs the same classify, and sets each Interp.JSCtx — so codegen
+// can later escape each hole by its JS context. An attribute value is a single JS
+// expression (not a program), so a hole that lands inside a JS comment is
+// degenerate and FAILS CLOSED here (unlike <script>, where comment holes
+// un-split): we never mutate the segments before the type-probe. Identifier /
+// binding / unclassifiable positions fail closed exactly as in <script>.
+func ResolveJSAttr(name string, segments []ast.Markup) error {
+	// Bail early if there are no holes (a hole-free JS attr stays StaticAttr and
+	// never reaches here, but be defensive).
+	hasInterp := false
+	for _, c := range segments {
+		if _, ok := c.(*ast.Interp); ok {
+			hasInterp = true
+			break
+		}
+	}
+	if !hasInterp {
+		return nil
+	}
+
+	// Placeholder-collision guard (fail-closed): if any literal Text already
+	// contains the sentinel stem, we cannot safely place sentinels.
+	for _, c := range segments {
+		if t, ok := c.(*ast.Text); ok && strings.Contains(t.Value, holePrefix) {
+			return fmt.Errorf("jsx: attribute %q: value contains the reserved sentinel %q; cannot classify @{ } holes safely",
+				name, holePrefix)
+		}
+	}
+
+	var sb strings.Builder
+	var holes []*hole
+	for idx, c := range segments {
+		switch v := c.(type) {
+		case *ast.Text:
+			sb.WriteString(v.Value)
+		case *ast.Interp:
+			ph := fmt.Sprintf("%s%d", holePrefix, len(holes))
+			start := sb.Len()
+			sb.WriteString(ph)
+			holes = append(holes, &hole{
+				interp:   v,
+				childIdx: idx,
+				start:    start,
+				end:      start + len(ph),
+			})
+		default:
+			return fmt.Errorf("jsx: attribute %q: value may contain only text and @{ } interpolations, got %T", name, c)
+		}
+	}
+
+	if err := classify(sb.String(), holes); err != nil {
+		return err
+	}
+
+	for _, h := range holes {
+		if !h.resolved {
+			return fmt.Errorf("jsx: @{ } at %d in attribute %q could not be classified (lex error or unreachable position); fails closed",
+				h.interp.Pos(), name)
+		}
+		if h.comment {
+			return fmt.Errorf("jsx: @{ } at %d inside a JS comment in attribute %q is not supported; move it out of the comment",
+				h.interp.Pos(), name)
 		}
 		h.interp.JSCtx = h.ctx
 	}

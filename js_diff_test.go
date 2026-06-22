@@ -114,6 +114,149 @@ func TestJSRegexpDiff(t *testing.T) {
 	}
 }
 
+// --- gsx *Attr escaper string helpers -----------------------------------------
+
+func gsxJSValAttr(v any) string    { var b strings.Builder; W(&b).JSValAttr(v); return b.String() }
+func gsxJSStrAttr(s string) string { var b strings.Builder; W(&b).JSStrAttr(s); return b.String() }
+func gsxJSTmplAttr(s string) string {
+	var b strings.Builder
+	W(&b).JSTmplAttr(s)
+	return b.String()
+}
+func gsxJSRegexpAttr(s string) string {
+	var b strings.Builder
+	W(&b).JSRegexpAttr(s)
+	return b.String()
+}
+
+// TestJSValAttrParity asserts that JSValAttr equals htmlReplacer.Replace(jsValOracle(s))
+// for the full C1 corpus — proving the composition is JS-escape THEN HTML-attr-escape.
+func TestJSValAttrParity(t *testing.T) {
+	for _, s := range jsCorpus() {
+		want := htmlReplacer.Replace(jsValOracle(s))
+		if got := gsxJSValAttr(s); got != want {
+			t.Errorf("JSValAttr(%q)=%q, want %q", s, got, want)
+		}
+	}
+}
+
+// TestJSStrAttrParity asserts that JSStrAttr equals htmlReplacer.Replace(jsStrOracle(s)).
+func TestJSStrAttrParity(t *testing.T) {
+	for _, s := range jsCorpus() {
+		want := htmlReplacer.Replace(jsStrOracle(s))
+		if got := gsxJSStrAttr(s); got != want {
+			t.Errorf("JSStrAttr(%q)=%q, want %q", s, got, want)
+		}
+	}
+}
+
+// TestJSTmplAttrParity asserts that JSTmplAttr equals htmlReplacer.Replace(jsTmplOracle(s)).
+func TestJSTmplAttrParity(t *testing.T) {
+	for _, s := range jsCorpus() {
+		want := htmlReplacer.Replace(jsTmplOracle(s))
+		if got := gsxJSTmplAttr(s); got != want {
+			t.Errorf("JSTmplAttr(%q)=%q, want %q", s, got, want)
+		}
+	}
+}
+
+// TestJSRegexpAttrParity asserts that JSRegexpAttr equals htmlReplacer.Replace(jsRegexpOracle(s)).
+func TestJSRegexpAttrParity(t *testing.T) {
+	for _, s := range jsCorpus() {
+		want := htmlReplacer.Replace(jsRegexpOracle(s))
+		if got := gsxJSRegexpAttr(s); got != want {
+			t.Errorf("JSRegexpAttr(%q)=%q, want %q", s, got, want)
+		}
+	}
+}
+
+// TestJSAttrBreakout is the security test: dangerous payloads must NOT produce
+// raw '"', '<', or '>' in the output — any such bytes from the input must be
+// JS-escaped or HTML-entity-escaped, so the result cannot break out of either
+// a double-quoted HTML attribute or the JS string inside it.
+func TestJSAttrBreakout(t *testing.T) {
+	breakoutPayload := `"><script>alert(1)</script>`
+
+	t.Run("JSValAttr", func(t *testing.T) {
+		got := gsxJSValAttr(breakoutPayload)
+		if strings.Contains(got, `"`) {
+			t.Errorf("JSValAttr output contains raw double-quote: %q", got)
+		}
+		if strings.Contains(got, "<") {
+			t.Errorf("JSValAttr output contains raw '<': %q", got)
+		}
+		if strings.Contains(got, ">") {
+			t.Errorf("JSValAttr output contains raw '>': %q", got)
+		}
+	})
+
+	t.Run("JSStrAttr", func(t *testing.T) {
+		got := gsxJSStrAttr(`a"b`)
+		if strings.Contains(got, `"`) {
+			t.Errorf("JSStrAttr output contains raw double-quote: %q", got)
+		}
+
+		got2 := gsxJSStrAttr(breakoutPayload)
+		if strings.Contains(got2, `"`) {
+			t.Errorf("JSStrAttr output contains raw double-quote: %q", got2)
+		}
+		if strings.Contains(got2, "<") {
+			t.Errorf("JSStrAttr output contains raw '<': %q", got2)
+		}
+		if strings.Contains(got2, ">") {
+			t.Errorf("JSStrAttr output contains raw '>': %q", got2)
+		}
+	})
+
+	t.Run("JSTmplAttr", func(t *testing.T) {
+		got := gsxJSTmplAttr(breakoutPayload)
+		if strings.Contains(got, `"`) {
+			t.Errorf("JSTmplAttr output contains raw double-quote: %q", got)
+		}
+		if strings.Contains(got, "<") {
+			t.Errorf("JSTmplAttr output contains raw '<': %q", got)
+		}
+		if strings.Contains(got, ">") {
+			t.Errorf("JSTmplAttr output contains raw '>': %q", got)
+		}
+	})
+
+	t.Run("JSRegexpAttr", func(t *testing.T) {
+		got := gsxJSRegexpAttr(breakoutPayload)
+		if strings.Contains(got, `"`) {
+			t.Errorf("JSRegexpAttr output contains raw double-quote: %q", got)
+		}
+		if strings.Contains(got, "<") {
+			t.Errorf("JSRegexpAttr output contains raw '<': %q", got)
+		}
+		if strings.Contains(got, ">") {
+			t.Errorf("JSRegexpAttr output contains raw '>': %q", got)
+		}
+	})
+}
+
+// TestJSValAttrRawJS confirms that RawJS is passed through as raw JS (no
+// JS-string-escaping of parens etc.) but still HTML-attribute-escaped so it
+// survives inside a double-quoted attribute.
+func TestJSValAttrRawJS(t *testing.T) {
+	// Plain identifier — no HTML-special chars, should come through verbatim.
+	if got := gsxJSValAttr(RawJS("toggle()")); got != "toggle()" {
+		t.Errorf("JSValAttr(RawJS(%q))=%q, want %q", "toggle()", got, "toggle()")
+	}
+	// A RawJS with HTML-special chars must be HTML-attr-escaped but NOT JS-escaped.
+	got := gsxJSValAttr(RawJS(`foo("bar") && x<y`))
+	if strings.Contains(got, `"`) {
+		t.Errorf("JSValAttr(RawJS) output contains raw double-quote: %q", got)
+	}
+	if strings.Contains(got, "<") {
+		t.Errorf("JSValAttr(RawJS) output contains raw '<': %q", got)
+	}
+	// Parens must NOT be backslash-escaped (not JS-string-escaped).
+	if strings.Contains(got, `\(`) || strings.Contains(got, `\)`) {
+		t.Errorf("JSValAttr(RawJS) parens were JS-escaped, should not be: %q", got)
+	}
+}
+
 // TestJSRawPassthrough confirms a gsx.RawJS value is emitted verbatim in value
 // context, bypassing JSON marshaling (the analogue of template.JS).
 func TestJSRawPassthrough(t *testing.T) {
