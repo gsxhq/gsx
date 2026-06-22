@@ -31,11 +31,12 @@ make CSS behave like URLs.
 
 ## Surface (what the author writes)
 
-**Delimiter — `#{ … }` (SCSS-style).** Inside `<style>`, `{` already means a CSS rule
-block, so gsx's universal `{ expr }` cannot be reused without parsing CSS. `#{` never
-occurs in plain CSS (hex colors are `#fff`, IDs `#id` — never `#` directly before `{`),
-so it is unambiguous and instantly familiar to anyone who has used Sass. Whitespace is
-flexible (`#{x}` ≡ `#{ x }`).
+**Delimiter — `${ … }` (JS-template-literal style).** Inside `<style>`, `{` already
+means a CSS rule block, so gsx's universal `{ expr }` cannot be reused without parsing
+CSS. `${` never occurs in plain CSS — `$` appears only in the `[attr$="x"]`
+ends-with attribute selector, which is `$=`, never `$` directly before `{` — so `${` is
+unambiguous, and it is the interpolation form JS/shell authors already know. Whitespace
+is flexible (`${x}` ≡ `${ x }`).
 
 **Auto-sanitize (matches URL handling).** Every interpolation in a **CSS context** —
 the `style=` attribute **or** anywhere inside a `<style>` block — is automatically run
@@ -55,37 +56,37 @@ chapter.
 component Card(w int, userColor string, raw gsx.SafeCSS) {
 	<style>
 		.card {
-			width:  #{ w }px;               /* int  → "123"            (strconv)   */
-			color:  #{ userColor };          /* string → gw.CSS value-filter        */
-			border: #{ gsx.SafeCSS("1px solid #000") };  /* author opt-out: raw     */
-			margin: #{ raw };                /* SafeCSS param: raw                  */
+			width:  ${ w }px;               /* int  → "123"            (strconv)   */
+			color:  ${ userColor };          /* string → gw.CSS value-filter        */
+			border: ${ gsx.SafeCSS("1px solid #000") };  /* author opt-out: raw     */
+			margin: ${ raw };                /* SafeCSS param: raw                  */
 		}
 	</style>
 	<div style={ "color: " + userColor }>…</div>   {/* style attr: auto-filtered  */}
 }
 ```
 
-`#{ userColor }` where `userColor = "red; } body { display:none"` → the value-filter
+`${ userColor }` where `userColor = "red; } body { display:none"` → the value-filter
 neutralizes it (the breakout `;`/`}` make it fail to the safe placeholder); the rule
 cannot escape `.card { … }`.
 
-## Component 1 — Parser: `#{ }` inside `<style>` only
+## Component 1 — Parser: `${ }` inside `<style>` only
 
 `parser/markup.go` `parseRawTextBody` currently consumes a raw-text element's body
 verbatim into a single `*ast.Text`. Change, **for `<style>` only** (`<script>` stays
 fully verbatim):
 
-- Scan the body, accumulating raw bytes into a pending `Text`. On `#{`:
+- Scan the body, accumulating raw bytes into a pending `Text`. On `${`:
   - flush the pending `Text` (if non-empty);
-  - parse a `#{ … }` interpolation by reusing the existing interpolation
+  - parse a `${ … }` interpolation by reusing the existing interpolation
     expression-scanner (the same Go-string-aware, brace-depth-aware scan
     `parseInterp` uses, plus optional `|> …` pipeline stages) and emit an `*ast.Interp`;
   - resume raw accumulation after the matching `}`.
   - Continue until the matching case-insensitive `</style>`.
-- `#{` is the **sole** interpolation trigger; every other `{`, `}`, `#`, `${`, `/* */`
-  stays raw CSS verbatim.
+- `${` is the **sole** interpolation trigger; every other `{`, `}`, `#`, bare `$`,
+  `#{`, `/* */` stays raw CSS verbatim.
 - Because the expression scanner respects Go string literals, an interpolated
-  `#{ "</style>" }` does not terminate the raw-text element (the `</style>` lives
+  `${ "</style>" }` does not terminate the raw-text element (the `</style>` lives
   inside a Go string); raw-text termination logic is unchanged.
 
 **No new AST node and no AST context flag.** A `<style>` body becomes the normal
@@ -93,8 +94,8 @@ fully verbatim):
 **positional** — derived from the enclosing `<style>` element by codegen and the
 printer — mirroring how `style=` context is derived from the attribute name.
 
-**Errors:** an unterminated `#{ … ` before `</style>` is a parse error with the
-`#{`'s line:col; the existing unterminated-`<style>` error is unchanged.
+**Errors:** an unterminated `${ … ` before `</style>` is a parse error with the
+`${`'s line:col; the existing unterminated-`<style>` error is unchanged.
 
 ## Component 2 — Runtime: `gsx.SafeCSS` + the CSS value-filter
 
@@ -163,9 +164,9 @@ this slice.
   Interps already pass through — add a guard/test so a future change can't normalize
   inside `<style>`).
 - **`internal/printer`**: the preserve path emits `Text` verbatim and renders an
-  `Interp` with the **`#{ expr }`** delimiter (positional: inside a `<style>`),
+  `Interp` with the **`${ expr }`** delimiter (positional: inside a `<style>`),
   versus the normal `{ expr }` elsewhere. Pipeline stages (`|> …`), if ever present,
-  print as usual inside `#{ }`.
+  print as usual inside `${ }`.
 - The faithfulness + idempotence property tests (`render(fmt(S)) ≡ render(S)`,
   `fmt(fmt(S)) == fmt(S)`) extend to cover `<style>` interpolation via the corpus.
 
@@ -173,7 +174,7 @@ this slice.
 
 | Situation | Result |
 |---|---|
-| `#{ … ` unterminated before `</style>` | parse error, `#{` position |
+| `${ … ` unterminated before `</style>` | parse error, `${` position |
 | CSS-context value of non-renderable type | codegen error |
 | Bare interpolation of untrusted string in CSS | **allowed** — auto-filtered (safe) |
 | Interpolation in `onclick=`/`@`/`hx-on*` | unchanged hard error (fail-closed) |
@@ -181,9 +182,9 @@ this slice.
 
 ## Testing
 
-- **Parser** (`parser/markup_test.go`): `#{x}` adjacent to CSS braces
-  (`.a{width:#{w}}`), multiple interps in one body, whitespace variants, unterminated
-  `#{`, and negative cases proving `<script>` bodies, bare `{`/`}`/`#`, and `${` stay
+- **Parser** (`parser/markup_test.go`): `${x}` adjacent to CSS braces
+  (`.a{width:${w}}`), multiple interps in one body, whitespace variants, unterminated
+  `${`, and negative cases proving `<script>` bodies, bare `{`/`}`/`#`/`$`, and `#{` stay
   raw.
 - **Runtime** (`escape_test.go`): port representative cases from the stdlib
   `html/template` css tests — safe tokens pass (`10px`, `#fff`, `rgb(1,2,3)`,
@@ -192,8 +193,8 @@ this slice.
 - **Codegen** (corpus + unit): golden for `<style>` auto-sanitize (string→`gw.CSS`,
   numeric→`strconv`, `SafeCSS`→raw), `style={…}` now auto-sanitizes (update/replace any
   corpus/unit case that asserted the old rejection), `onclick={…}` still fails closed.
-- **Formatter**: round-trip `<style>` with `#{ }` (faithfulness + idempotence over the
-  corpus); a dedicated corpus case locks `#{ }` printing.
+- **Formatter**: round-trip `<style>` with `${ }` (faithfulness + idempotence over the
+  corpus); a dedicated corpus case locks `${ }` printing.
 
 ## Non-goals / future
 
@@ -202,7 +203,7 @@ this slice.
 - `gsx.SafeURL` parity (same opt-out-type pattern; referenced by example 02, still
   unimplemented).
 - Named CSS-value convenience types (e.g. a `Color`/`Length` type safe bare).
-- A literal-`#{` escape inside `<style>` (does not occur in real CSS; add only if a
+- A literal-`${` escape inside `<style>` (does not occur in real CSS; add only if a
   concrete need appears).
 - Auto-applying the filter to `style=` for non-string interpolations beyond the
   numeric/SafeCSS cases.
@@ -212,9 +213,9 @@ this slice.
 - **`cssValueFilter` port fidelity** — the safety rests entirely on faithfully porting
   the stdlib algorithm. Mitigation: port `html/template/css.go` directly (helpers and
   all), and lift its test vectors. Do **not** approximate.
-- **Raw-text scanner regressions** — adding `#{` handling must not change `<script>` or
+- **Raw-text scanner regressions** — adding `${` handling must not change `<script>` or
   non-interpolated `<style>` behavior. Mitigation: `<style>`-only branch + negative
   tests; `<script>` path untouched.
-- **Formatter faithfulness on preserve + interp** — the printer must emit `#{ }` in
+- **Formatter faithfulness on preserve + interp** — the printer must emit `${ }` in
   preserve context without re-indenting the surrounding raw CSS. Mitigation: the
   corpus-wide property tests are the guard.
