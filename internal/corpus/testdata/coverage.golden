@@ -45,6 +45,9 @@ control_flow/if_zero	diag render
 control_flow/switch_default	diag render
 control_flow/switch_err	diag render
 control_flow/switch_warn	diag render
+datajson/island_breakout	diag gen render
+datajson/island_multi_hole_rejected	diag(error)
+datajson/island_value	diag gen render
 diagnostics/ctx_in_interp	diag render
 diagnostics/param_name_collision	diag render
 diagnostics/pointer_node_render	diag render
@@ -169,4 +172,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 171 cases (render: 120, error: 31, gen-pinned: 22)
+TOTAL: 174 cases (render: 122, error: 32, gen-pinned: 24)

@@ -197,6 +197,59 @@ func TestResolveScriptsHolelessUnchanged(t *testing.T) {
 	}
 }
 
+// setType appends (or replaces) a static `type` attribute on el.
+func setType(el *ast.Element, val string) {
+	el.Attrs = append(el.Attrs, &ast.StaticAttr{Name: "type", Value: val})
+}
+
+func TestResolveDataIsland(t *testing.T) {
+	t.Run("bare value", func(t *testing.T) {
+		f, el := parseScript(t, `@{ data }`)
+		setType(el, "application/json")
+		if err := ResolveScripts(f); err != nil {
+			t.Fatalf("ResolveScripts: %v", err)
+		}
+		ins := interps(el)
+		if len(ins) != 1 || ins[0].JSCtx != ast.JSCtxValue {
+			t.Fatalf("got %d interps ctx %v; want 1 JSCtxValue", len(ins), ins[0].JSCtx)
+		}
+	})
+	t.Run("whitespace padded", func(t *testing.T) {
+		f, el := parseScript(t, `  @{ data }  `)
+		setType(el, "application/json")
+		if err := ResolveScripts(f); err != nil {
+			t.Fatalf("ResolveScripts: %v", err)
+		}
+		ins := interps(el)
+		if len(ins) != 1 || ins[0].JSCtx != ast.JSCtxValue {
+			t.Fatalf("got %d interps ctx %v; want 1 JSCtxValue", len(ins), ins[0].JSCtx)
+		}
+	})
+	t.Run("multiple holes rejected", func(t *testing.T) {
+		f, el := parseScript(t, `@{ a } @{ b }`)
+		setType(el, "application/json")
+		if err := ResolveScripts(f); err == nil {
+			t.Fatal("expected error for multiple holes, got nil")
+		}
+	})
+	t.Run("literal text rejected", func(t *testing.T) {
+		f, el := parseScript(t, `[@{ a }]`)
+		setType(el, "application/json")
+		if err := ResolveScripts(f); err == nil {
+			t.Fatal("expected error for literal text, got nil")
+		}
+	})
+	t.Run("module type stays JS path fails closed", func(t *testing.T) {
+		// type="module" is executable JS: a bare @{ data } is a start-of-input
+		// (non-value) position and must fail closed on the JS path, unchanged.
+		f, el := parseScript(t, `@{ data }`)
+		setType(el, "module")
+		if err := ResolveScripts(f); err == nil {
+			t.Fatal("expected fail-closed error for bare hole in type=module script, got nil")
+		}
+	})
+}
+
 // jsAttrSegs builds a JS-attribute Segments list from a template where "@" marks
 // a hole: each "@" in parts[i] boundary becomes an *ast.Interp{Expr: exprs[i]}.
 // Caller passes the literal text chunks and the hole exprs interleaved.

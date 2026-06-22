@@ -30,6 +30,14 @@ func minifyMarkup(nodes []ast.Markup, ext func(string) (string, error)) error {
 		switch v := n.(type) {
 		case *ast.Element:
 			if strings.EqualFold(v.Tag, "script") {
+				// A data-block <script> (e.g. type="application/json") is not
+				// JavaScript; running the JS minifier on its body is wrong. Leave
+				// it unchanged. (Holey data islands are also covered by the
+				// holey-skip in minifyScriptChildren, but a HOLELESS static JSON
+				// block would otherwise be JS-minified — this skip prevents that.)
+				if isDataIslandScript(v) {
+					continue
+				}
 				mc, err := minifyScriptChildren(v.Children, ext)
 				if err != nil {
 					return err
@@ -64,6 +72,27 @@ func minifyMarkup(nodes []ast.Markup, ext func(string) (string, error)) error {
 		}
 	}
 	return nil
+}
+
+// jsExecutableTypes mirrors internal/jsx's set: <script type> values that run as
+// JavaScript. Any other (non-empty) type marks a data block.
+var jsExecutableTypes = map[string]bool{
+	"text/javascript": true, "module": true, "application/javascript": true,
+	"text/ecmascript": true, "application/ecmascript": true,
+}
+
+// isDataIslandScript reports whether el is a <script> whose static `type` marks
+// it a data block (not executable JS). It is a ~6-line duplicate of the jsx
+// predicate (internal/jsx/jsx.go); the copy is intentional so jsmin need not
+// depend on jsx. Keep the two in sync.
+func isDataIslandScript(el *ast.Element) bool {
+	for _, a := range el.Attrs {
+		if sa, ok := a.(*ast.StaticAttr); ok && strings.EqualFold(sa.Name, "type") {
+			t := strings.ToLower(strings.TrimSpace(sa.Value))
+			return t != "" && !jsExecutableTypes[t]
+		}
+	}
+	return false
 }
 
 func minifyScriptChildren(children []ast.Markup, ext func(string) (string, error)) ([]ast.Markup, error) {
