@@ -151,9 +151,10 @@ style/block_try_rejected	diag(error)
 style/block_tuple_error	diag gen render
 style/composed_attribute	diag gen render
 style/composed_injection	diag render
+style/minify_block	diag gen render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 158 cases (render: 107, error: 31, gen-pinned: 10)
+TOTAL: 159 cases (render: 108, error: 31, gen-pinned: 11)

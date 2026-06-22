@@ -14,12 +14,21 @@ import (
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/cssmin"
 )
 
 // generateFile emits the .x.go for a parsed gsx file given already-resolved
 // interpolation types.
-func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filterTable, structFields map[string]map[string]bool, fset *token.FileSet) ([]byte, error) {
+func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filterTable, structFields map[string]map[string]bool, fset *token.FileSet, cssMin func(string) (string, error)) ([]byte, error) {
 	interpTemp = 0
+	// Minify the static CSS of <style> blocks. cssMin is nil for the built-in
+	// safe minifier, or a custom override (e.g. tdewolff) threaded from
+	// gen.WithCSSMinifier. Custom minifiers only ever receive complete, valid CSS
+	// (holeless blocks); holey blocks always use the built-in hole-aware pass
+	// regardless of cssMin.
+	if err := cssmin.MinifyFile(file, cssMin); err != nil {
+		return nil, err
+	}
 	imports := map[string]bool{
 		"context":              true,
 		"io":                   true,

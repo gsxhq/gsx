@@ -21,13 +21,17 @@ type PackageResult struct {
 	Err   error             // non-nil if THIS package failed parse / type resolution
 }
 
-// GeneratePackages generates .x.go for every .gsx across the given package dirs,
-// which MUST all live in the same Go module rooted at moduleDir. It resolves
-// types for ALL packages with a SINGLE go/packages load (the shared dependency
-// graph is resolved once), and loads the filter table once. A per-package error
-// (parse or type-resolution) is recorded in that dir's PackageResult.Err without
-// failing the others. The returned map is keyed by the normalized absolute dir.
-func GeneratePackages(moduleDir string, dirs []string) (map[string]*PackageResult, error) {
+// GeneratePackagesWithFilters generates .x.go for every .gsx across the given
+// package dirs, which MUST all live in the same Go module rooted at moduleDir.
+// It resolves types for ALL packages with a SINGLE go/packages load (loading
+// ONLY the given dirs as explicit patterns, not the whole module), and loads the
+// filter table once using filterPkgs (empty ⇒ built-in std filter). A per-package
+// error (parse or type-resolution) is recorded in that dir's PackageResult.Err
+// without failing the others. The returned map is keyed by the normalized
+// absolute dir.
+func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []string, cssMin func(string) (string, error)) (map[string]*PackageResult, error) {
+	filterPkgs = dedupFilterPkgs(filterPkgs) // empty → [stdImportPath]
+
 	// Normalize each input dir to an absolute, clean path. If Abs fails for a
 	// dir, record the error keyed by the original string and skip it.
 	result := make(map[string]*PackageResult, len(dirs))
@@ -101,7 +105,7 @@ func GeneratePackages(moduleDir string, dirs []string) (map[string]*PackageResul
 	}
 
 	// Step 3: load filter table ONCE from the module root.
-	table, err := loadFilterTable(moduleDir)
+	table, err := loadFilterTableMulti(moduleDir, filterPkgs)
 	if err != nil {
 		return nil, fmt.Errorf("codegen: load filter table: %w", err)
 	}
@@ -161,7 +165,14 @@ func GeneratePackages(moduleDir string, dirs []string) (map[string]*PackageResul
 		Dir:     moduleDir,
 		Overlay: overlay,
 	}
-	pkgs, err := packages.Load(cfg, "./...")
+	patterns := make([]string, 0, len(absDirs))
+	for _, d := range absDirs {
+		patterns = append(patterns, d)
+	}
+	if len(patterns) == 0 {
+		return result, nil
+	}
+	pkgs, err := packages.Load(cfg, patterns...)
 	if err != nil {
 		return nil, fmt.Errorf("codegen: load packages: %w", err)
 	}
@@ -221,7 +232,7 @@ func GeneratePackages(moduleDir string, dirs []string) (map[string]*PackageResul
 		}
 		pf := propFieldsByDir[dir]
 		for path, file := range files {
-			gen, err := generateFile(file, resolved, table, pf, fset)
+			gen, err := generateFile(file, resolved, table, pf, fset, cssMin)
 			if err != nil {
 				result[dir].Err = fmt.Errorf("%s: %w", path, err)
 				break
@@ -231,4 +242,10 @@ func GeneratePackages(moduleDir string, dirs []string) (map[string]*PackageResul
 	}
 
 	return result, nil
+}
+
+// GeneratePackages is GeneratePackagesWithFilters with the built-in std filter
+// package (kept for the test corpus and any std-only caller).
+func GeneratePackages(moduleDir string, dirs []string) (map[string]*PackageResult, error) {
+	return GeneratePackagesWithFilters(moduleDir, dirs, nil, nil)
 }
