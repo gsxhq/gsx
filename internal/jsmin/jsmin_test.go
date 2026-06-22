@@ -16,6 +16,11 @@ func TestMinifyJS(t *testing.T) {
 		{"no token fusion", "return  x", "return x"},
 		{"collapse blank lines", "a()\n\n\n\nb()", "a()\nb()"},
 		{"empty", "", ""},
+		// Regression: data-loss bugs where / after a value-ending token was wrongly
+		// treated as regex-start, causing l.RegExp() to consume and discard the RHS.
+		{"division after close brace", "let x = {v:1} / 2", "let x = {v:1} / 2"},
+		{"division after block", "function f(){return x} / 2", "function f(){return x} / 2"},
+		{"division after bang comment", "x /*! k */ / 2", "x /*! k */ / 2"},
 	}
 	for _, tt := range tests {
 		if got := minifyJS(tt.in); got != tt.want {

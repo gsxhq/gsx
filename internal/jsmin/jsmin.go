@@ -66,7 +66,9 @@ func minifyJS(s string) string {
 			if strings.HasPrefix(string(data), "/*!") {
 				flush()
 				out.Write(data) // bang comment: keep verbatim
-				prevTT = tt
+				// Do NOT update prevTT: a bang comment does not change expression
+				// context. Keeping the previous significant token prevents a `/`
+				// right after a bang comment from being misclassified as regex-start.
 			} else if strings.HasPrefix(string(data), "//") {
 				// Single-line comment: strip it. Its terminating newline (the next
 				// LineTerminatorToken, plus any preceding one) collapses to a single
@@ -142,6 +144,10 @@ func regexPosition(prev js.TokenType) bool {
 	// Tokens that end an expression → division.
 	case js.CloseParenToken,   // (x) / y
 		js.CloseBracketToken,  // a[i] / y
+		js.CloseBraceToken,    // {…} / y  — ends object literal or block; / is division.
+		// Treating } as division is conservative-safe: if it was actually a block
+		// statement followed by a regex, the / lexes as DivToken verbatim (no bytes
+		// lost); treating } as regex-precedes causes RHS token loss on RegExp() failure.
 		js.IncrToken,          // x++ / y  (postfix)
 		js.DecrToken,          // x-- / y  (postfix)
 		js.RegExpToken,        // /re/ / y (rare but valid)
@@ -151,11 +157,11 @@ func regexPosition(prev js.TokenType) bool {
 		js.TrueToken,          // true / y
 		js.FalseToken,         // false / y
 		js.NullToken,          // null / y
-		js.ThisToken:          // this / y
+		js.ThisToken,          // this / y
+		js.SuperToken:         // super / y  (super ends an expr; `super /` is invalid JS)
 		return false
 
 	// Reserved words that return a value → starts a new expr? No: these end expressions.
-	// (super, new handled below; they START expressions)
 
 	// Everything else is expression-start position → regex.
 	default:
