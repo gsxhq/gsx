@@ -412,6 +412,8 @@ func rootWithoutArgs(el *ast.Element) string {
 			names = append(names, t.Name)
 		case *ast.ClassAttr:
 			names = append(names, t.Name)
+		case *ast.JSAttr:
+			names = append(names, t.Name)
 		}
 	}
 	names = append(names, "class", "style")
