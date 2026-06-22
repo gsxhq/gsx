@@ -2,9 +2,8 @@
 
 > **Syntax is roughly fixed, not frozen.** This page is a quick tour. The
 > [`examples/`](https://github.com/gsxhq/gsx/tree/main/examples) corpus is the
-> canonical reference — nearly every accepted form is demonstrated there (one file,
-> `02_text_escaping.gsx`, has a tracked parser gap; see the
-> [roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md)).
+> canonical, always-current reference — every accepted form is demonstrated there
+> (all 12 examples parse).
 
 A `.gsx` file is ordinary Go (package, imports, types, funcs) plus `component`
 declarations. A component has a templ-style header and a JSX-style body — the
@@ -72,6 +71,6 @@ is markup, `{ a < b }` is a Go expression. When in doubt, see
 | Method components, page composition | `11_struct_methods.gsx` |
 | Children & attribute fallthrough | `12_children_attrs.gsx` |
 
-> **Status — alpha.** `.gsx` files are illustrative; the CLI that generates `.x.go`
-> is a work in progress. Follow the
+> **Status — alpha.** `.gsx` compiles to plain Go via `gsx generate`; syntax is
+> stable but still evolving. Follow the
 > [roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md).

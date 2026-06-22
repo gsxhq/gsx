@@ -8,9 +8,10 @@ description: Use when writing or editing .gsx files — gsx templating component
 gsx is a Go templating language: templ-style `component` declarations with a
 JSX-style markup body, compiled to plain Go (`.gsx` → `.x.go`).
 
-> **Status:** language design is stable; the CLI/codegen is a work in progress, so
-> `.gsx` files are not yet buildable end-to-end. Treat `examples/*.gsx` as the
-> canonical, current reference and prefer copying patterns from there.
+> **Status:** gsx is runnable — `gsx generate` compiles `.gsx` → `.x.go`. The
+> language is stable but still evolving (some CLI commands and `style` composition
+> are in progress). Treat `examples/*.gsx` as the canonical, current reference and
+> prefer copying patterns from there.
 
 ## Core rules
 

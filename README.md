@@ -3,9 +3,12 @@
 A templating language for Go: **templ-style `component` declarations** with a
 **JSX-style markup body**, compiled to plain Go.
 
-> **Status — alpha.** Language design is stable; the parser, runtime, and codegen
-> phase 1 are done. The CLI is a work in progress, so gsx is **not yet runnable
-> end-to-end**. See the [roadmap](docs/ROADMAP.md).
+> **Status — alpha.** gsx is runnable end-to-end: `gsx generate` compiles
+> `.gsx` → `.x.go` (plus `gsx fmt` and `gsx info`). Codegen covers interpolation,
+> control flow, attributes with contextual escaping, the `|>` pipeline + filters,
+> components/props/`{children}`, method components, named slots, and attribute
+> fallthrough. Still in progress: some CLI commands (`vet`/`lsp`), `style`
+> composition, and structured diagnostics. See the [roadmap](docs/ROADMAP.md).
 
 ## What is gsx
 
@@ -37,7 +40,7 @@ component Card(title string, featured bool) {
 }
 ```
 
-*(Illustrative — `.gsx` files are not yet buildable; the CLI is WIP.)*
+*Run `gsx generate` to compile this to plain Go (`.x.go`), then `go build`.*
 
 ## Learn more
 
