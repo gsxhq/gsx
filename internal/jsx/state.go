@@ -58,9 +58,9 @@ func isSignificant(tt js.TokenType) bool {
 // unambiguous expression-introducing tokens qualify; everything else fails
 // closed (binding/name/statement/value-ending position).
 func isValuePosition(prevSig js.TokenType) bool {
-	// Operators introduce a value to their right — except ++ / -- which attach
-	// to an lvalue, not a value.
-	if js.IsOperator(prevSig) && prevSig != js.IncrToken && prevSig != js.DecrToken {
+	// Operators introduce a value to their right — except ++ / -- (which attach
+	// to an lvalue) and ?. (optional chaining, a member-NAME position like `.`).
+	if js.IsOperator(prevSig) && prevSig != js.IncrToken && prevSig != js.DecrToken && prevSig != js.OptChainToken {
 		return true
 	}
 	switch prevSig {

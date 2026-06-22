@@ -141,6 +141,7 @@ func TestResolveScriptsErrors(t *testing.T) {
 	}{
 		{"binding position", `let @{ x } = 1`},
 		{"member name", `obj.@{ p }`},
+		{"optional chain member name", `obj?.@{ p }`},
 		{"statement position", `var x = 1; @{ y }`},
 		{"placeholder collision", `let _GSXJSHOLE_0 = @{ x }`},
 	}
