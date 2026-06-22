@@ -6,7 +6,7 @@ func TestMinifyJS(t *testing.T) {
 	tests := []struct{ name, in, want string }{
 		{"drop indentation, keep newline", "function f() {\n\treturn 1;\n}", "function f() {\nreturn 1;\n}"},
 		{"collapse intra-line spaces", "let   x   =   1", "let x = 1"},
-		{"strip line comment, keep its newline (ASI)", "a()\n// note\nb()", "a()\n\nb()"},
+		{"strip line comment, keep one ASI newline", "a()\n// note\nb()", "a()\nb()"},
 		{"strip block comment", "a/* note */b", "a b"},
 		{"keep bang comment", "/*! keep */\nx", "/*! keep */\nx"},
 		{"string interior verbatim", `let s = "a  b\t c"`, `let s = "a  b\t c"`},
