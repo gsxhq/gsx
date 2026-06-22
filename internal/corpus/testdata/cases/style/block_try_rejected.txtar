@@ -1,0 +1,8 @@
+-- input.gsx --
+package views
+
+component C(x string) {
+	<style>.a{color:${ x? }}</style>
+}
+-- diagnostics.golden --
+cases/style_block_try_rejected/input.gsx: codegen: `?` try-marker not supported in <style> interpolation yet

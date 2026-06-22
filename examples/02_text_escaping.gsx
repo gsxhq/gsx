@@ -58,3 +58,16 @@ component DataAttrs(entityType string) {
 		data-note={"text with \"quotes\" and <tags> stays literal"}
 	/>
 }
+
+// <style> interpolation: dynamic values are CSS-value-filtered automatically;
+// gsx.SafeCSS opts out for author-controlled CSS.
+// Note: the CSS filter rejects values containing '(' or '/' (so dynamic rgb(...)/calc(...)/url(...)
+// collapse to a safe placeholder — use a string literal or gsx.SafeCSS for those).
+component ThemedCard(width int, accent string) {
+	<style>
+		.themed {
+			width: ${ width }px;
+			color: ${ accent };
+		}
+	</style>
+}

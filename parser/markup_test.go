@@ -992,3 +992,69 @@ func TestParseScriptEmpty(t *testing.T) {
 		t.Fatalf("children = %#v", el.Children)
 	}
 }
+
+func TestStyleInterpolation(t *testing.T) {
+	src := `<style>.a{width:${w}px}</style>`
+	p := testParser(src)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := n.(*ast.Element)
+	if len(el.Children) != 3 {
+		t.Fatalf("got %d children, want 3: %#v", len(el.Children), el.Children)
+	}
+	if txt, ok := el.Children[0].(*ast.Text); !ok || txt.Value != ".a{width:" {
+		t.Fatalf("child0 = %#v, want Text \".a{width:\"", el.Children[0])
+	}
+	if in, ok := el.Children[1].(*ast.Interp); !ok || in.Expr != "w" {
+		t.Fatalf("child1 = %#v, want Interp{Expr:w}", el.Children[1])
+	}
+	if txt, ok := el.Children[2].(*ast.Text); !ok || txt.Value != "px}" {
+		t.Fatalf("child2 = %#v, want Text \"px}\"", el.Children[2])
+	}
+}
+
+func TestScriptStaysRaw(t *testing.T) {
+	// <script> must NOT interpolate: ${x} is literal text.
+	src := `<script>var x = ${y};</script>`
+	p := testParser(src)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := n.(*ast.Element)
+	if len(el.Children) != 1 {
+		t.Fatalf("got %d children, want 1: %#v", len(el.Children), el.Children)
+	}
+	if txt, ok := el.Children[0].(*ast.Text); !ok || txt.Value != "var x = ${y};" {
+		t.Fatalf("child0 = %#v, want literal Text", el.Children[0])
+	}
+}
+
+func TestStyleBareDollarIsLiteral(t *testing.T) {
+	// A '$' not immediately followed by '{' stays raw, as do bare { } #.
+	src := `<style>.a{c:$x; #d{} }</style>`
+	p := testParser(src)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := n.(*ast.Element)
+	if len(el.Children) != 1 {
+		t.Fatalf("got %d children, want 1 (all literal): %#v", len(el.Children), el.Children)
+	}
+	if txt := el.Children[0].(*ast.Text); txt.Value != ".a{c:$x; #d{} }" {
+		t.Fatalf("text = %q", txt.Value)
+	}
+}
+
+func TestStyleUnterminatedInterp(t *testing.T) {
+	// Note: brief listed `${w}` (with closing brace) which is valid; corrected to
+	// `${w` (no closing brace) so the interpolation is genuinely unterminated.
+	src := `<style>.a{w:${w</style>`
+	p := testParser(src)
+	if _, err := p.parseElement(); err == nil {
+		t.Fatal("expected an error for unterminated interpolation, got nil")
+	}
+}

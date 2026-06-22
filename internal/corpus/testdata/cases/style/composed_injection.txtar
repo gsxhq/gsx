@@ -1,0 +1,11 @@
+-- input.gsx --
+package views
+
+component Evil(u string) {
+	<span style={ "color: " + u }>x</span>
+}
+-- invoke --
+Evil(EvilProps{U: "red; pointer-events: none; background: url(javascript:alert(1))"})
+-- render.golden --
+<span style="ZgotmplZ">x</span>
+-- diagnostics.golden --
