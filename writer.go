@@ -71,3 +71,20 @@ func (gw *Writer) Node(ctx context.Context, n Node) {
 	}
 	gw.err = n.Render(ctx, gw.w)
 }
+
+// CSS writes s into a <style> raw-text context, value-filtered so it cannot
+// break out of a CSS value. The filter rejects '<', so the result is raw-text
+// safe and needs no HTML escaping.
+func (gw *Writer) CSS(s string) {
+	gw.writeStr(cssValueFilter(s))
+}
+
+// CSSAttr writes s into a style="…" attribute: value-filtered, then
+// HTML-attribute-escaped so it can never break the quote (CSS survives HTML
+// decoding).
+func (gw *Writer) CSSAttr(s string) {
+	if gw.err != nil {
+		return
+	}
+	gw.err = writeHTML(gw.w, cssValueFilter(s))
+}

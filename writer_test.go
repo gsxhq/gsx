@@ -66,3 +66,30 @@ func TestWriterErrorThreadingShortCircuits(t *testing.T) {
 	}
 	var _ io.Writer = fw
 }
+
+func TestWriterCSS(t *testing.T) {
+	cases := []struct {
+		name   string
+		render func(*Writer)
+		want   string
+	}{
+		{"block safe", func(w *Writer) { w.CSS("10px") }, "10px"},
+		{"block breakout", func(w *Writer) { w.CSS("red;}body{x") }, "ZgotmplZ"},
+		{"attr safe", func(w *Writer) { w.CSSAttr("color: red") }, "color: red"},
+		{"attr breakout", func(w *Writer) { w.CSSAttr(`a"b`) }, "ZgotmplZ"},
+		{"safecss type is a string", func(w *Writer) { w.S(string(SafeCSS("1px solid"))) }, "1px solid"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var b strings.Builder
+			w := W(&b)
+			c.render(w)
+			if err := w.Err(); err != nil {
+				t.Fatalf("Err = %v", err)
+			}
+			if b.String() != c.want {
+				t.Errorf("got %q, want %q", b.String(), c.want)
+			}
+		})
+	}
+}
