@@ -19,6 +19,7 @@ func minifyCSS(s string) string {
 	isDelim := func(c byte) bool { return c == '{' || c == '}' || c == ';' || c == ',' }
 	flush := func(cur byte) {
 		if !pending {
+			afterBang = false // a non-whitespace byte ends the post-bang suppression window
 			return
 		}
 		pending = false

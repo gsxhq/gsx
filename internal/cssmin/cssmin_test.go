@@ -26,6 +26,10 @@ func TestMinifyCSS(t *testing.T) {
 		{"unicode-range", "@font-face{unicode-range:U+0000-00FF, U+0131}", "@font-face{unicode-range:U+0000-00FF,U+0131}"},
 		{"empty", "", ""},
 		{"only comment", "/* gone */", ""},
+		// --- afterBang leak regression ---
+		{"bang then token then significant space", "/*! */x y{a:b}", "/*! */x y{a:b}"},
+		{"bang then token then value separator", "/*! */x{a:1 2}", "/*! */x{a:1 2}"},
+		{"bang then immediate space suppressed", "/*! k */ .a{x:1}", "/*! k */.a{x:1}"},
 	}
 	for _, tt := range tests {
 		if got := minifyCSS(tt.in); got != tt.want {
