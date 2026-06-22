@@ -91,3 +91,33 @@ func TestMinifyFileExtHolelessOnly(t *testing.T) {
 		t.Fatal("holey block lost its interp")
 	}
 }
+
+func TestMinifyFileNULBail(t *testing.T) {
+	in := &ast.Interp{Expr: "a"}
+	orig := []ast.Markup{&ast.Text{Value: ".a{ x:\x001 "}, in, &ast.Text{Value: " }"}}
+	f := fileWith(styleEl(orig...))
+	if err := MinifyFile(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	ch := styleChildren(f)
+	if len(ch) != 3 || ch[0].(*ast.Text).Value != ".a{ x:\x001 " || ch[1] != in {
+		t.Fatalf("NUL bail did not return children verbatim: %#v", ch)
+	}
+}
+
+func TestMinifyFileNestedStyle(t *testing.T) {
+	deepStyle := styleEl(&ast.Text{Value: "  .a {\n  x: 1;\n}  "})
+	div := &ast.Element{Tag: "div", Children: []ast.Markup{deepStyle}}
+	elseStyle := styleEl(&ast.Text{Value: "  .b {\n  y: 2;\n}  "})
+	iff := &ast.IfMarkup{Cond: "ok", Then: nil, Else: []ast.Markup{elseStyle}}
+	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{div, iff}}}}
+	if err := MinifyFile(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := deepStyle.Children[0].(*ast.Text).Value; got != ".a{x: 1}" {
+		t.Fatalf("nested <style> in div not minified: %q", got)
+	}
+	if got := elseStyle.Children[0].(*ast.Text).Value; got != ".b{y: 2}" {
+		t.Fatalf("<style> in IfMarkup.Else not minified: %q", got)
+	}
+}

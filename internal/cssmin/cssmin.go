@@ -8,7 +8,7 @@ import "strings"
 
 // minifyCSS applies the safe-minification set to a complete CSS string: strips
 // comments (keeping /*! … */), collapses each whitespace run to one space,
-// removes whitespace adjacent to { } ; , drops a ; immediately before }, and
+// removes whitespace adjacent to { } ; , drops all trailing ; before }, and
 // trims the edges. String literals and url(…) interiors are preserved verbatim.
 // It never rewrites values and never removes a space that could be significant.
 func minifyCSS(s string) string {
@@ -95,8 +95,10 @@ func minifyCSS(s string) string {
 			}
 		default:
 			flush(c)
-			if c == '}' && len(out) > 0 && out[len(out)-1] == ';' {
-				out = out[:len(out)-1] // drop a ; immediately before }
+			if c == '}' {
+				for len(out) > 0 && out[len(out)-1] == ';' {
+					out = out[:len(out)-1] // drop ALL trailing ; before }
+				}
 			}
 			out = append(out, c)
 			i++

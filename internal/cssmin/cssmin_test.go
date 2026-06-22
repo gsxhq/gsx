@@ -9,6 +9,8 @@ func TestMinifyCSS(t *testing.T) {
 		{"strip comment", "a/* x */b", "a b"},
 		{"keep bang comment", "/*! keep */\n.a{color:red}", "/*! keep */.a{color:red}"},
 		{"drop semi before brace", ".a{color:red;}", ".a{color:red}"},
+		{"double semicolon before brace", ".a{x:1;;}", ".a{x:1}"},
+		{"only semicolons in block", ".a{;;}", ".a{}"},
 		{"ws around delimiters", ".a , .b { x:1 ; y:2 }", ".a,.b{x:1;y:2}"},
 		{"comment between idents keeps separation", "a/**/b", "a b"},
 		// --- must NOT break (historical naive-minifier breakages) ---
@@ -42,6 +44,7 @@ func TestMinifyCSSIdempotent(t *testing.T) {
 	for _, in := range []string{
 		".a{color:red}", ".a , .b { x:1 ; }", "@media (a) and (b){.x{y:1}}",
 		".a{width:calc(100% - 8px)}", ".a{content:\"  \"}", "/*! k */.a{x:1}",
+		".a{x:1;;}", ";;}", // idempotence regression: multiple trailing ;
 	} {
 		once := minifyCSS(in)
 		if twice := minifyCSS(once); twice != once {
