@@ -372,3 +372,11 @@ func TestStyleInterpFormat(t *testing.T) {
 	want := "package p\n\ncomponent C(w int) {\n\t<style>.a{width:${ w }px}</style>\n}\n"
 	checkFormat(t, src, want)
 }
+
+func TestStyleInterpFormatPreservesPipeline(t *testing.T) {
+	// ${ x |> upper } in a <style> block must round-trip exactly — the printer
+	// must not silently discard pipeline stages or the Try suffix.
+	src := "package p\n\ncomponent C(x string) {\n\t<style>.a{color:${ x |> upper }}</style>\n}\n"
+	want := "package p\n\ncomponent C(x string) {\n\t<style>.a{color:${ x |> upper }}</style>\n}\n"
+	checkFormat(t, src, want)
+}

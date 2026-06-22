@@ -4,4 +4,8 @@ package views
 component C(x string) {
 	<div style={x}>y</div>
 }
+-- invoke --
+C(CProps{X: "color:red;background:url(javascript:alert(1))"})
 -- diagnostics.golden --
+-- render.golden --
+<div style="ZgotmplZ">y</div>

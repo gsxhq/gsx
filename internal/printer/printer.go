@@ -234,6 +234,8 @@ func (p *printer) element(e *ast.Element, depth int) {
 // styleChildren prints the children of a <style> element: Text nodes are
 // emitted verbatim and Interp nodes use the ${ } delimiter (distinct from the
 // regular { } markup interp, so the re-parse recognizes them as style interps).
+// Try ('?') and pipeline Stages are preserved faithfully so that the formatter
+// never silently strips them — codegen will reject them with a clear error.
 func (p *printer) styleChildren(nodes []ast.Markup) {
 	for _, n := range nodes {
 		switch v := n.(type) {
@@ -242,6 +244,13 @@ func (p *printer) styleChildren(nodes []ast.Markup) {
 		case *ast.Interp:
 			p.ws("${ ")
 			p.ws(fmtExpr(v.Expr))
+			if v.Try {
+				p.ws("?")
+			}
+			for _, s := range v.Stages {
+				p.ws(" |> ")
+				p.pipeStage(s)
+			}
 			p.ws(" }")
 		default:
 			p.markup(n, 0)
