@@ -115,11 +115,18 @@ Stdlib-only (runtime constraint is sacred). Two additions to the root `gsx` pack
 - **The value-filter.** A pure `escape.go` function `cssValueFilter(s string) string`
   (sibling of `writeURL`'s helper). It is a **faithful port of the standard library's
   `html/template/css.go` `cssValueFilter`** and its helpers (`decodeCSS`,
-  `isCSSNmchar`, `skipCSSSpace`, the `filterFailsafe` placeholder). That algorithm is
-  the authority — we do not invent CSS-safety logic. Behavior: decode CSS escapes,
-  then pass genuinely-safe value tokens (`10px`, `#fff`, `rgb(1,2,3)`, `color: red`)
-  verbatim and replace anything carrying breakout potential
-  (`} { ; < > " ' ( ) \  url( expression /* …`) with the safe placeholder.
+  `isCSSNmchar`, `skipCSSSpace`, `hexDecode`/`isHex`, the `ZgotmplZ` failsafe). That
+  algorithm is the authority — we do not invent CSS-safety logic. Behavior: decode CSS
+  escapes, then pass genuinely-safe value tokens (`10px`, `#fff`, `#123456`, `100%`,
+  `-moz-corner-radius`, `color: red`) verbatim and replace the whole value with the
+  `ZgotmplZ` failsafe if it contains ANY of `0x00 " ' ( ) / ; @ [ \ ] \` { } < >`, a
+  `--`/`<!--`/`-->` run, or (after escape-decoding + lowercasing) `expression` or
+  `mozbinding`. **Note the conservatism:** parenthesized values like `rgb(1,2,3)` and
+  slash values like `12px/1.5` are *rejected* by this filter (they contain `(`/`/`); for
+  those, the author uses `gsx.SafeCSS`. gsx's `gw.CSS` drops html/template's
+  `stringify`/`contentTypeCSS` typed-value machinery — it always receives a plain
+  untrusted `string` (the `SafeCSS` opt-out is decided at codegen, never reaching the
+  filter).
 
 **Two CSS contexts ⇒ two `*Writer` methods over the one filter**, mirroring how
 `html/template` chains `cssValueFilter` with (only in attributes) `htmlEscaper`:
@@ -291,10 +298,12 @@ accordingly.
   (`.a{width:${w}}`), multiple interps in one body, whitespace variants, unterminated
   `${`, and negative cases proving `<script>` bodies, bare `{`/`}`/`#`/`$`, and `#{` stay
   raw.
-- **Runtime** (`escape_test.go`): port representative cases from the stdlib
-  `html/template` css tests — safe tokens pass (`10px`, `#fff`, `rgb(1,2,3)`,
-  `color:red`), breakouts neutralized (`}`, `;`, `url(javascript:…)`, `expression(`,
-  `</style>`, escaped `\3c`/`\00003c`), idempotence of the placeholder.
+- **Runtime** (`escape_test.go`): port the stdlib `html/template` `TestCSSValueFilter`
+  vectors — safe tokens pass (`10px`, `#fff`, `#123456`, `100%`, `+.33em`,
+  `-moz-corner-radius`, `color: red`, `U+00-FF, U+980-9FF`), breakouts → `ZgotmplZ`
+  (`<!--`, `-->`, `</style`, `"`, `'`, `` ` ``, `\x00`, `/* */`, `//`, `(`/`)`, `;`,
+  `expression(…)`, `-moz-binding`, escaped `-express\69on`, `@import url evil.css`,
+  `<`, `>`). Confirm a `SafeCSS`-vouched value bypasses the filter at the codegen level.
 - **Codegen** (corpus + unit): golden for `<style>` auto-sanitize (string→`gw.CSS`,
   numeric→`strconv`, `SafeCSS`→raw), `style={…}` now auto-sanitizes (update/replace any
   corpus/unit case that asserted the old rejection), `onclick={…}` still fails closed.
