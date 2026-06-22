@@ -133,13 +133,27 @@ func generate(paths []string, filterPkgs []string) (Result, error) {
 	if err != nil {
 		return res, err
 	}
+	if len(dirs) == 0 {
+		return res, nil
+	}
+	root, _, err := moduleRoot(dirs[0])
+	if err != nil {
+		return res, err
+	}
+	out, err := codegen.GeneratePackagesWithFilters(root, dirs, filterPkgs)
+	if err != nil {
+		return res, err
+	}
 	for _, dir := range dirs {
-		out, gerr := codegen.GeneratePackageWithFilters(dir, filterPkgs)
-		if gerr != nil {
-			res.Errs = append(res.Errs, fmt.Errorf("%s: %w", dir, gerr))
+		pr := out[dir] // dirs are already absolute (discoverDirs); GeneratePackages keys by abs dir
+		if pr == nil {
 			continue
 		}
-		for gsxPath, src := range out {
+		if pr.Err != nil {
+			res.Errs = append(res.Errs, fmt.Errorf("%s: %w", dir, pr.Err))
+			continue
+		}
+		for gsxPath, src := range pr.Files {
 			base := strings.TrimSuffix(filepath.Base(gsxPath), ".gsx")
 			target := filepath.Join(dir, base+".x.go")
 			if werr := os.WriteFile(target, src, 0o644); werr != nil {
