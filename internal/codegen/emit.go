@@ -751,7 +751,7 @@ func emitExprAttr(b *bytes.Buffer, a *ast.ExprAttr, resolved map[ast.Node]types.
 // from URL scheme sanitizing. Such a value is routed through gw.AttrValue
 // (entity-escaped, scheme unchecked) instead of gw.URL.
 func isRawURL(t types.Type) bool {
-	n, ok := t.(*types.Named)
+	n, ok := types.Unalias(t).(*types.Named)
 	if !ok {
 		return false
 	}

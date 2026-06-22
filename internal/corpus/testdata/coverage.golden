@@ -140,10 +140,11 @@ pipelines/unknown_filter	diag(error)
 security/js_rejected_onclick	diag(error)
 security/js_rejected_style	diag(error)
 security/url_blocked	diag render
+security/url_raw_vouched	diag render
 security/xss	diag render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 148 cases (render: 98, error: 31, gen-pinned: 4)
+TOTAL: 149 cases (render: 99, error: 31, gen-pinned: 4)
