@@ -35,6 +35,12 @@ Pinning `ast.golden` in a case tells the harness the case lives at the
 `diagnostics.golden`.  Use this for cases that test parsing, AST structure,
 or parse-time diagnostics without involving the code generator.
 
+This rule applies only to **single-package** cases (those built from a single
+`input.gsx`).  For multi-package cases the `ast.golden` facet is neither checked
+nor honored as a skip signal — both the dump and the skip are gated on `single`
+(`corpus_test.go:64`, `:103`) — so multi-package cases always run through
+codegen.  Keep parser-layer cases single-package.
+
 ### Render-safety rule
 
 A renderable case — any case that has an `invoke` section and produces no
@@ -150,9 +156,12 @@ populate `-- diagnostics.golden --` with the expected messages.  Run
 ## Coverage
 
 ```sh
-make cover
+make cover        # run the suite, print the total coverage line
+make cover-html   # same, then open the HTML report in a browser
 ```
 
-This runs the corpus tests with Go's `-coverprofile` and opens the HTML
-report.  The corpus exercises the compiler end-to-end, so coverage here
-reflects real-world code paths rather than unit-test artefacts.
+`make cover` builds a `cover.out` profile with `-coverpkg=./...` and prints the
+total; `make cover-html` additionally opens the line-by-line HTML report.  The
+`-coverpkg` flag is the point: the corpus drives `internal/codegen` in-process,
+so cross-package attribution counts that real end-to-end exercise toward the
+compiler's coverage rather than reporting only unit-test artefacts.
