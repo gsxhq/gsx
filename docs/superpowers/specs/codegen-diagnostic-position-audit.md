@@ -47,7 +47,7 @@ whose `.Pos()` should be passed to `fset.Position()` when positions are threaded
 | `analyze.go:1173` | `codegen: param name %q is reserved (implicit fallthrough attributes)` | no | `*ast.Component` |
 | `analyze.go:1176` | `codegen: param name %q uses the reserved _gsx prefix` | no | `*ast.Component` |
 | `analyze.go:1184` | `codegen: param name %q is reserved (shadows a generated import)` | no | `*ast.Component` |
-| `analyze.go:1216` | `codegen: invalid Go in pass-through block: %w` | no | `*ast.GoBlock` (caller has the `GoBlock` in scope at call site in `buildSkeleton`) |
+| `analyze.go:1216` | `codegen: invalid Go in pass-through block: %w` | no | `*gsxast.GoChunk` (caller loop at analyze.go:215 has `gc *gsxast.GoChunk`; pass `gc.Pos()`) |
 
 ### emit.go
 
@@ -65,7 +65,7 @@ whose `.Pos()` should be passed to `fset.Position()` when positions are threaded
 | `emit.go:628` | `codegen: could not resolve type of <style> interpolation %q` | no | `*ast.Interp` `n` — `n.Pos()` |
 | `emit.go:633` | `codegen: <style> interpolation %q returns %s; only (T, error) is supported` | no | `*ast.Interp` `n` — `n.Pos()` |
 | `emit.go:666` | `codegen: value of type %s not renderable in CSS context (need string/number/Stringer or gsx.RawCSS)` | no | `*ast.Interp` `n` (caller `emitCSSInterp` has it) |
-| `emit.go:723` | `codegen: unknown attribute %T` | no | the `ast.Attr` `a` in `emitAttr` — `a.Pos()` |
+| `emit.go:723` | `codegen: unknown attribute %T` | no | the `ast.Attr` `a` in `emitAttr` — `a.Pos()`; note `fset` is also absent from `emitAttr`'s signature (emit.go:674) and must be threaded, same as `emitExprAttr` |
 | `emit.go:835` | `codegen: expr value in JS/event-handler context (%q) is unsafe; …` | no | `*ast.ExprAttr` `a` — `a.Pos()` |
 | `emit.go:837` | `codegen: expr value in CSS context (%q) is unsafe; …` | no | `*ast.ExprAttr` `a` — `a.Pos()` |
 | `emit.go:841` | `codegen: \`?\` try-marker in attribute %q not supported yet` | no | `*ast.ExprAttr` `a` — `a.Pos()` |
@@ -116,7 +116,7 @@ whose `.Pos()` should be passed to `fset.Position()` when positions are threaded
 reads `codegen: param name "ctx" is reserved (ambient context)` with no `line:col`. The function
 `checkReservedParams` (analyze.go:1164) receives only `params []param` (name+type strings), with
 no `*ast.Component` or `fset` in scope. Threading the position requires the caller `genComponent`
-(emit.go:134, which has `c *ast.Component` and `fset *token.FileSet`) to pass position info down,
+(emit.go:134; call at emit.go:155, which has `c *ast.Component` and `fset *token.FileSet`) to pass position info down,
 or `checkReservedParams` to accept a component pos argument.
 
 **Row emit.go:835** (`codegen: expr value in JS/event-handler context`): confirmed in
