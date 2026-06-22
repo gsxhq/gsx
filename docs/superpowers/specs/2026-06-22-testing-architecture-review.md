@@ -208,6 +208,17 @@ Aligned with the **existing** corpus/txtar spine — extend it, don't replace it
   (it partially does — `security` cases include the path prefix). *Inspired by:* rustc UI
   tests / `compiletest`.
 
+  > **Correction (2026-06-22):** "the harness already has positions in hand from
+  > parser/codegen" is true only for *parser* diagnostics — parser error cases already pin
+  > `line:col` in `diagnostics.golden` (e.g. `3:24: mismatched close tag </span>`). *Codegen*
+  > diagnostics carry **no** `.gsx` position today: every `fmt.Errorf("codegen: …")` site in
+  > `internal/codegen/` (55 sites across `analyze.go`, `emit.go`, `batch.go`, `filters.go`)
+  > emits a bare `codegen: …` string with no `line:col`. Threading them requires plumbing
+  > `fset.Position(node.Pos())` into each error site — a real codegen change across multiple
+  > files, split into its own increment. "Cheap" holds for parser; codegen is a meaningful
+  > engineering task. See `codegen-diagnostic-position-audit.md` for the full site inventory
+  > and per-site AST-node recommendations.
+
 - **R10 — "Adding a corpus case" doc (closes G10).**
   *What:* a short `internal/corpus/README.md` (this is the one place a doc *is* warranted —
   it lives next to the thing it documents): the facet table, the render-safety rule, the
