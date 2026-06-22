@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/jsx"
 	"github.com/gsxhq/gsx/internal/wsnorm"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
@@ -64,6 +65,12 @@ func GeneratePackageWithFilters(dir string, filterPkgs []string, cssMin, jsMin f
 		// indentation is not rendered (the parser stays lossless; wsnorm is the one
 		// shared pass — mirror this in batch.go's GeneratePackages).
 		wsnorm.Normalize(f)
+		// Classify each <script> @{ } hole's JS context (and un-split comment holes
+		// to literal text) BEFORE type resolution + emit. Fails closed on an
+		// unsafe/ambiguous position, surfacing as this file's codegen diagnostic.
+		if err := jsx.ResolveScripts(f); err != nil {
+			return nil, fmt.Errorf("%s: %w", m, err)
+		}
 		files[m] = f
 	}
 
