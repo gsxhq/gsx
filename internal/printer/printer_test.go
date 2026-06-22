@@ -366,3 +366,9 @@ func TestNullaryStaysEmpty(t *testing.T) {
 		t.Errorf("nullary () not preserved:\n%s", got)
 	}
 }
+
+func TestStyleInterpFormat(t *testing.T) {
+	src := "package p\n\ncomponent C(w int) {\n\t<style>.a{width:${ w }px}</style>\n}\n"
+	want := "package p\n\ncomponent C(w int) {\n\t<style>.a{width:${ w }px}</style>\n}\n"
+	checkFormat(t, src, want)
+}

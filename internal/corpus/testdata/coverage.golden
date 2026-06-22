@@ -11,7 +11,7 @@ class/composable_off	diag render
 class/composable_on	diag render
 class/escaping	diag render
 class/spread	diag render
-class/style_rejected	diag(error)
+class/style_rejected	diag
 codegen-shape/example12_form	diag render
 codegen-shape/example12_toolbar	diag render
 codegen-shape/greeting	diag gen render
@@ -139,12 +139,15 @@ pipelines/try_rejected	diag(error)
 pipelines/try_unwrap	diag render
 pipelines/unknown_filter	diag(error)
 security/js_rejected_onclick	diag(error)
-security/js_rejected_style	diag(error)
+security/js_rejected_style	diag
 security/url_blocked	diag render
 security/xss	diag render
+style/block_interpolation	diag gen render
+style/composed_attribute	diag gen render
+style/composed_injection	diag render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 149 cases (render: 99, error: 31, gen-pinned: 5)
+TOTAL: 152 cases (render: 102, error: 29, gen-pinned: 7)

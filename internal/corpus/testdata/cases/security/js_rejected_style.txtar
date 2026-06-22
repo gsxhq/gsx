@@ -5,4 +5,3 @@ component C(x string) {
 	<div style={x}>y</div>
 }
 -- diagnostics.golden --
-cases/security_js_rejected_style/input.gsx: codegen: expr value in CSS context ("style") is unsafe; needs a safe type via `|> css` (not available yet) — use a static value
