@@ -219,7 +219,9 @@ func (p *printer) element(e *ast.Element, depth int) {
 		return
 	}
 	p.ws(">")
-	if isPreserveTag(e.Tag) {
+	if strings.EqualFold(e.Tag, "style") {
+		p.styleChildren(e.Children)
+	} else if isPreserveTag(e.Tag) {
 		p.children(e.Children, depth, true)
 	} else {
 		p.children(e.Children, depth, false)
@@ -227,6 +229,24 @@ func (p *printer) element(e *ast.Element, depth int) {
 	p.ws("</")
 	p.ws(e.Tag)
 	p.ws(">")
+}
+
+// styleChildren prints the children of a <style> element: Text nodes are
+// emitted verbatim and Interp nodes use the ${ } delimiter (distinct from the
+// regular { } markup interp, so the re-parse recognizes them as style interps).
+func (p *printer) styleChildren(nodes []ast.Markup) {
+	for _, n := range nodes {
+		switch v := n.(type) {
+		case *ast.Text:
+			p.ws(v.Value)
+		case *ast.Interp:
+			p.ws("${ ")
+			p.ws(fmtExpr(v.Expr))
+			p.ws(" }")
+		default:
+			p.markup(n, 0)
+		}
+	}
 }
 
 func (p *printer) fragment(f *ast.Fragment, depth int) {
