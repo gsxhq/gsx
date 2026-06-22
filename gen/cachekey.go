@@ -78,6 +78,7 @@ func dirSourceHash(dir string) (string, error) {
 // graph maps import paths to info; modPath is the module path; goModHash/
 // goSumHash/goVersion/filterPkgs are the version pins.
 func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumHash, goVersion string, filterPkgs []string) (string, error) {
+	dir = filepath.Clean(dir)
 	own, err := dirSourceHash(dir)
 	if err != nil {
 		return "", err
@@ -114,7 +115,7 @@ func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumH
 	pins := dedupSorted(filterPkgs)
 	h := sha256.New()
 	fmt.Fprintf(h, "gsxcache-v1\x00%s\x00%s\x00%s\x00%s\x00", codegen.Version(), goVersion, goModHash, goSumHash)
-	fmt.Fprintf(h, "filters=%s\x00own=%s\x00", strings.Join(pins, ","), own)
+	fmt.Fprintf(h, "filters=%s\x00own=%s\x00", strings.Join(pins, "\x00"), own)
 	for _, d := range depHashes {
 		fmt.Fprintf(h, "dep=%s\x00", d)
 	}

@@ -13,19 +13,28 @@ func TestDirSourceHashStableAndSensitive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h2, _ := dirSourceHash(d)
+	h2, err := dirSourceHash(d)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if h1 != h2 {
 		t.Fatal("hash not stable for identical inputs")
 	}
 	// generated .x.go must NOT affect the hash
 	os.WriteFile(filepath.Join(d, "a.x.go"), []byte("package v // generated\n"), 0o644)
-	h3, _ := dirSourceHash(d)
+	h3, err := dirSourceHash(d)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if h3 != h1 {
 		t.Errorf(".x.go must be excluded from source hash")
 	}
 	// editing source MUST change the hash
 	os.WriteFile(filepath.Join(d, "a.gsx"), []byte("package v\ncomponent A(){<p>y</p>}\n"), 0o644)
-	h4, _ := dirSourceHash(d)
+	h4, err := dirSourceHash(d)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if h4 == h1 {
 		t.Errorf("source edit must change the hash")
 	}
