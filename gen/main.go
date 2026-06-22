@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 )
 
@@ -106,7 +107,9 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 	cmd, cmdArgs := rest[0], rest[1:]
 	switch cmd {
 	case "generate":
-		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, cfg.filterPkgs)
+		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, cfg.filterPkgs)
+	case "clean":
+		return runClean(cmdArgs, stdout, stderr)
 	case "info":
 		// Resolve against cwd: -C (handled above) has already chdir'd, so "."
 		// anchors the go/packages load at the user's chosen directory.
@@ -125,15 +128,65 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 	}
 }
 
+// runClean implements the `clean` command. Currently the only flag is --cache,
+// which removes the gsx cache directory (resolved via cacheDir). When the cache
+// is disabled no-ops are printed and the function returns 0. Without any flags
+// the usage for `clean` is printed and the function returns 0.
+func runClean(args []string, stdout, stderr io.Writer) int {
+	cfs := flag.NewFlagSet("clean", flag.ContinueOnError)
+	cfs.SetOutput(stderr)
+	var cache bool
+	cfs.BoolVar(&cache, "cache", false, "remove the gsx cache directory")
+	if err := cfs.Parse(args); err != nil {
+		return 2
+	}
+	if !cache {
+		fmt.Fprint(stdout, "gsx clean: no flags given.\n\nUsage:\n\tgsx clean --cache   remove the gsx cache directory\n")
+		return 0
+	}
+	dir, enabled := cacheDir()
+	if !enabled {
+		fmt.Fprintln(stdout, "gsx clean: cache is disabled (GSXCACHE=off or no usable cache dir); nothing to remove")
+		return 0
+	}
+	// If the directory doesn't exist there's nothing to remove — success.
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		fmt.Fprintf(stdout, "gsx clean: cache dir does not exist: %s\n", dir)
+		return 0
+	}
+	// Require the CACHEDIR.TAG sentinel to prevent accidentally nuking a
+	// non-cache dir (e.g. GSXCACHE=$HOME would otherwise delete $HOME).
+	tag := filepath.Join(dir, "CACHEDIR.TAG")
+	if _, err := os.Stat(tag); os.IsNotExist(err) {
+		fmt.Fprintf(stderr, "gsx: refusing to remove %q: not a gsx cache dir (no CACHEDIR.TAG)\n", dir)
+		return 1
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		fmt.Fprintf(stderr, "gsx: clean --cache: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "removed gsx cache: %s\n", dir)
+	return 0
+}
+
 // runGenerate runs the generate command over paths (default ["."]) and prints a
 // summary. It distinguishes a usage error (a path that does not exist →
 // discovery fails with no per-package errors → exit 2) from a codegen error (one
 // or more packages failed → exit 1). Success returns 0.
-func runGenerate(paths []string, stdout, stderr io.Writer, quiet, verbose bool, filterPkgs []string) int {
+// noCache bypasses the content-hash cache and forces a full regeneration.
+func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string) int {
+	gfs := flag.NewFlagSet("generate", flag.ContinueOnError)
+	gfs.SetOutput(stderr)
+	var nocacheFlag bool
+	gfs.BoolVar(&nocacheFlag, "no-cache", noCache, "bypass the content-hash cache; regenerate all")
+	if err := gfs.Parse(args); err != nil {
+		return 2
+	}
+	paths := gfs.Args()
 	if len(paths) == 0 {
 		paths = []string{"."}
 	}
-	res, err := generate(paths, filterPkgs)
+	res, err := generateCached(paths, filterPkgs, !nocacheFlag)
 
 	if len(res.Errs) > 0 {
 		// Codegen failures: report each, exit 1.
@@ -183,6 +236,7 @@ Usage:
 Commands:
 	generate [paths...]   generate .x.go from .gsx files (default: .)
 	fmt [paths...]        format .gsx files (canonical, idempotent)
+	clean --cache         remove the gsx cache directory
 	info                  list the resolved pipeline filters
 	version               print the gsx version
 	help                  show this help

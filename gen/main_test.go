@@ -150,6 +150,100 @@ func TestRunFmtDispatch(t *testing.T) {
 	}
 }
 
+// TestCleanCache proves `clean --cache` removes the cache dir when GSXCACHE is
+// a real directory that has the CACHEDIR.TAG sentinel, and that `clean` without
+// --cache does nothing destructive.
+func TestCleanCache(t *testing.T) {
+	cacheRoot := t.TempDir()
+	t.Setenv("GSXCACHE", cacheRoot)
+
+	// Write the sentinel so the guard passes.
+	writeSentinel(cacheRoot)
+
+	code, out, errb := runCapture(t, []string{"clean", "--cache"})
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d; stderr=%q", code, errb)
+	}
+	if !strings.Contains(out, "removed gsx cache") {
+		t.Fatalf("expected stdout to mention removed gsx cache, got %q", out)
+	}
+	// The cache dir itself must be gone (RemoveAll removes the root too).
+	if _, err := os.Stat(cacheRoot); !os.IsNotExist(err) {
+		t.Fatalf("expected cache dir to be removed, but stat returned: %v", err)
+	}
+}
+
+// TestCleanCacheSentinelGuard proves that clean --cache REFUSES (exit 1, dir
+// not removed) when the GSXCACHE dir lacks the CACHEDIR.TAG sentinel.
+// This guards against GSXCACHE=$HOME accidentally deleting $HOME.
+func TestCleanCacheSentinelGuard(t *testing.T) {
+	cacheRoot := t.TempDir()
+	t.Setenv("GSXCACHE", cacheRoot)
+
+	// Write a file to prove the dir is NOT removed.
+	entryFile := filepath.Join(cacheRoot, "dummy-entry")
+	if err := os.WriteFile(entryFile, []byte("data"), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	// No CACHEDIR.TAG written — sentinel is absent.
+
+	code, _, errb := runCapture(t, []string{"clean", "--cache"})
+	if code == 0 {
+		t.Fatalf("expected non-zero exit when sentinel absent, got 0")
+	}
+	if !strings.Contains(errb, "CACHEDIR.TAG") {
+		t.Errorf("expected stderr to mention CACHEDIR.TAG, got %q", errb)
+	}
+	// Dir must still exist.
+	if _, err := os.Stat(cacheRoot); err != nil {
+		t.Fatalf("dir must NOT be removed when sentinel absent: %v", err)
+	}
+}
+
+// TestCleanCacheSentinelWrittenByStorePut proves that a normal generate/storePut
+// lifecycle writes the CACHEDIR.TAG sentinel so clean --cache works afterward.
+func TestCleanCacheSentinelWrittenByStorePut(t *testing.T) {
+	cacheRoot := t.TempDir()
+	out := pkgOutput{"a.x.go": []byte("package a\n")}
+	if err := storePut(cacheRoot, "testkey", out); err != nil {
+		t.Fatal(err)
+	}
+	tag := filepath.Join(cacheRoot, "CACHEDIR.TAG")
+	data, err := os.ReadFile(tag)
+	if err != nil {
+		t.Fatalf("CACHEDIR.TAG must exist after storePut: %v", err)
+	}
+	if !strings.Contains(string(data), "8a477f597d28d172789f06886806bc55") {
+		t.Errorf("CACHEDIR.TAG missing expected signature, got %q", string(data))
+	}
+}
+
+// TestCleanCacheDisabled proves `clean --cache` when GSXCACHE=off prints a
+// clear message and exits 0 without removing anything.
+func TestCleanCacheDisabled(t *testing.T) {
+	t.Setenv("GSXCACHE", "off")
+
+	code, out, errb := runCapture(t, []string{"clean", "--cache"})
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d; stderr=%q", code, errb)
+	}
+	if !strings.Contains(out, "cache") {
+		t.Fatalf("expected stdout to mention cache, got %q", out)
+	}
+}
+
+// TestCleanNoFlags proves `clean` without --cache prints usage and exits 0.
+func TestCleanNoFlags(t *testing.T) {
+	code, out, errb := runCapture(t, []string{"clean"})
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d; stderr=%q", code, errb)
+	}
+	if !strings.Contains(out, "cache") {
+		t.Fatalf("expected stdout to mention cache, got %q", out)
+	}
+	_ = errb
+}
+
 // TestRunChdir proves -C runs relative to the given directory: a relative path
 // "views" resolves under the -C dir.
 func TestRunChdir(t *testing.T) {
