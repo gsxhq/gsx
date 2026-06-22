@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/attrjs"
 	"github.com/gsxhq/gsx/internal/cssmin"
 	"github.com/gsxhq/gsx/internal/jsmin"
 )
@@ -915,8 +916,7 @@ func attrContext(name string) attrCtx {
 		return ctxURL
 	case n == "style":
 		return ctxCSS
-	case strings.HasPrefix(n, "@") || strings.HasPrefix(n, "hx-on") ||
-		(strings.HasPrefix(n, "on") && len(n) > 2 && n[2] >= 'a' && n[2] <= 'z'):
+	case attrjs.IsJSAttr(name):
 		return ctxJS
 	default:
 		return ctxPlain
