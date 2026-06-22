@@ -779,6 +779,8 @@ func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, tab
 		fmt.Fprintf(b, "\t\t_gsxgw.BoolAttr(%s, true)\n", strconv.Quote(t.Name))
 	case *ast.ExprAttr:
 		return emitExprAttr(b, t, resolved, table, imports)
+	case *ast.JSAttr:
+		return emitJSAttr(b, t, resolved, imports)
 	case *ast.ClassAttr:
 		// class -> token merge (gw.Class); style -> '; '-joined declarations
 		// (gw.Style) with dynamic parts CSS-value-filtered.
@@ -823,6 +825,75 @@ func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, tab
 		return fmt.Errorf("codegen: unknown attribute %T", a)
 	}
 	return nil
+}
+
+// emitJSAttr emits a JS-context attribute whose quoted value is literal JS with
+// @{ } holes (form 2a, e.g. x-data="{ tab: @{ x } }"). Static JS text is
+// HTML-attr-escaped at codegen so <,>,& survive the attribute; each hole is
+// escaped by its JSCtx and then HTML-attr-escaped (the *Attr escapers do both).
+func emitJSAttr(b *bytes.Buffer, a *ast.JSAttr, resolved map[ast.Node]types.Type, imports map[string]bool) error {
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
+	for _, seg := range a.Segments {
+		switch s := seg.(type) {
+		case *ast.Text:
+			fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(htmlAttrEscape(s.Value)))
+		case *ast.Interp:
+			if err := emitJSAttrInterp(b, s, resolved, imports); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("codegen: JS attribute %q value may contain only text and @{ } interpolations, got %T", a.Name, seg)
+		}
+	}
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
+	return nil
+}
+
+// emitJSAttrInterp renders one @{ } hole in a JS-context attribute value through
+// the runtime *Attr escaper chosen by its JSCtx. It mirrors emitJSInterp's
+// Try/Stages rejection and (T, error) tuple unwrap, but routes to the JS*Attr
+// methods (which additionally HTML-attr-escape).
+func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, imports map[string]bool) error {
+	if n.Try {
+		return fmt.Errorf("codegen: `?` try-marker not supported in JS attribute interpolation yet")
+	}
+	if len(n.Stages) > 0 {
+		return fmt.Errorf("codegen: pipeline stages not supported in JS attribute interpolation yet")
+	}
+	t, ok := resolved[n]
+	if !ok || t == nil {
+		return fmt.Errorf("codegen: could not resolve type of JS attribute interpolation %q", n.Expr)
+	}
+	expr := strings.TrimSpace(n.Expr)
+	if tup, ok := t.(*types.Tuple); ok {
+		if tup.Len() != 2 || tup.At(1).Type().String() != "error" {
+			return fmt.Errorf("codegen: JS attribute interpolation %q returns %s; only (T, error) is supported", expr, t)
+		}
+		tmp := fmt.Sprintf("_gsxv%d", interpTemp)
+		interpTemp++
+		fmt.Fprintf(b, "\t\t%s, _gsxerr := %s\n\t\tif _gsxerr != nil {\n\t\t\treturn _gsxerr\n\t\t}\n", tmp, expr)
+		return emitJSAttrValue(b, n.JSCtx, tmp, tup.At(0).Type())
+	}
+	return emitJSAttrValue(b, n.JSCtx, expr, t)
+}
+
+// emitJSAttrValue selects the runtime JS *Attr escaper by JS context, mirroring
+// emitJSValue but calling the attribute-escaping variants.
+func emitJSAttrValue(b *bytes.Buffer, ctx ast.JSCtx, expr string, t types.Type) error {
+	switch ctx {
+	case ast.JSCtxValue:
+		// JSValAttr accepts any (JSON-encode); gsx.RawJS passthrough at runtime.
+		fmt.Fprintf(b, "\t\t_gsxgw.JSValAttr(%s)\n", expr)
+		return nil
+	case ast.JSCtxString:
+		return emitJSString(b, "JSStrAttr", expr, t)
+	case ast.JSCtxTemplate:
+		return emitJSString(b, "JSTmplAttr", expr, t)
+	case ast.JSCtxRegexp:
+		return emitJSString(b, "JSRegexpAttr", expr, t)
+	default:
+		return fmt.Errorf("codegen: JS attribute interpolation %q has no JS context (internal error: ResolveJSAttr not run?)", expr)
+	}
 }
 
 // emitClassAttr lowers a composable `class={ … }` to the open ` class="`, a
@@ -930,8 +1001,6 @@ func emitExprAttr(b *bytes.Buffer, a *ast.ExprAttr, resolved map[ast.Node]types.
 	// slice, so `onclick={x |> upper}` must give the context error, not a
 	// pipeline error.
 	switch attrContext(a.Name) {
-	case ctxJS:
-		return fmt.Errorf("codegen: expr value in JS/event-handler context (%q) is unsafe; needs a safe type via `|> js` (not available yet) — use a static value", a.Name)
 	case ctxCSS:
 		return fmt.Errorf("codegen: expr value in CSS context (%q) is unsafe; needs a safe type via `|> css` (not available yet) — use a static value", a.Name)
 	}
@@ -959,14 +1028,23 @@ func emitExprAttr(b *bytes.Buffer, a *ast.ExprAttr, resolved map[ast.Node]types.
 		return fmt.Errorf("codegen: could not resolve type of attribute %q value %q", a.Name, a.Expr)
 	}
 
-	// A bool-typed value is a boolean attribute regardless of context.
-	if classify(t) == catBool {
+	// A bool-typed value is a boolean attribute regardless of context — EXCEPT in
+	// a JS context, where a bool must JSON-encode to "true"/"false" inside the
+	// attribute value (e.g. Alpine x-show={ b } → x-show="true"), not become a
+	// bare boolean attribute.
+	if classify(t) == catBool && attrContext(a.Name) != ctxJS {
 		fmt.Fprintf(b, "\t\t_gsxgw.BoolAttr(%s, bool(%s))\n", strconv.Quote(a.Name), expr)
 		return nil
 	}
 
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
-	if attrContext(a.Name) == ctxURL && !isRawURL(t) {
+	if attrContext(a.Name) == ctxJS {
+		// JS-context attribute, whole-value form (x-data={ expr }): JSON-encode the
+		// value then HTML-attr-escape. JSValAttr accepts any type (numbers, structs,
+		// maps, bools) and passes gsx.RawJS through. No type-classification needed,
+		// same as a JSCtxValue hole.
+		fmt.Fprintf(b, "\t\t_gsxgw.JSValAttr(%s)\n", expr)
+	} else if attrContext(a.Name) == ctxURL && !isRawURL(t) {
 		// URL context: value must be string-like; sanitize + escape. A gsx.RawURL
 		// value (isRawURL) is the author's vouch — fall through to gw.AttrValue,
 		// which entity-escapes but skips the scheme allow-list.
@@ -1239,6 +1317,12 @@ func attrsRefAttrs(attrs []ast.Attr) bool {
 			}
 		case *ast.CondAttr:
 			if refsAttrs(at.Cond) || attrsRefAttrs(at.Then) || attrsRefAttrs(at.Else) {
+				return true
+			}
+		case *ast.JSAttr:
+			// A JS-attribute value's @{ } interps render in this scope, so an `attrs`
+			// reference there needs the local bound.
+			if usesAttrs(at.Segments) {
 				return true
 			}
 		}

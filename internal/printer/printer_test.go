@@ -164,6 +164,20 @@ component C() {
 	checkFormat(t, src, want)
 }
 
+func TestJSAttr(t *testing.T) {
+	src := `package p
+component C(tab string) {
+	<div x-data="{ tab: @{ tab }, open: false }" onclick="alert(@{ tab })">x</div>
+}`
+	want := `package p
+
+component C(tab string) {
+	<div x-data="{ tab: @{ tab }, open: false }" onclick="alert(@{ tab })">x</div>
+}
+`
+	checkFormat(t, src, want)
+}
+
 func TestIfElseIfElse(t *testing.T) {
 	src := `package p
 component C() {
