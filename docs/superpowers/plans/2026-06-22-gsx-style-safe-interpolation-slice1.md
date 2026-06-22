@@ -2,16 +2,16 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Allow `${ expr }` interpolation inside `<style>` blocks and auto-sanitized `style={ expr }` attributes, with a real CSS value-filter and a `gsx.SafeCSS` opt-out — safe by default, like gsx's URL handling.
+**Goal:** Allow `${ expr }` interpolation inside `<style>` blocks and auto-sanitized `style={ expr }` attributes, with a real CSS value-filter and a `gsx.RawCSS` opt-out — safe by default, like gsx's URL handling.
 
-**Architecture:** Three independent layers plus glue. (1) Runtime: a `gsx.SafeCSS` string type + a port of `html/template`'s `cssValueFilter`, exposed as two `*Writer` methods `CSS`/`CSSAttr`. (2) Parser: `parseRawTextBody` learns to split a `<style>` body into `Text`+`Interp` on `${`. (3) Codegen: a positional CSS-context emit path (inside `<style>`, or the `style=` attribute) that dispatches on the resolved type — `SafeCSS`→raw, numeric→`strconv`, string→value-filter. (4) Printer prints `${ }` in `<style>`. The skeleton/probe/harvest walks already recurse into element children generically, so type resolution of `<style>` interps needs no changes.
+**Architecture:** Three independent layers plus glue. (1) Runtime: a `gsx.RawCSS` string type + a port of `html/template`'s `cssValueFilter`, exposed as two `*Writer` methods `CSS`/`CSSAttr`. (2) Parser: `parseRawTextBody` learns to split a `<style>` body into `Text`+`Interp` on `${`. (3) Codegen: a positional CSS-context emit path (inside `<style>`, or the `style=` attribute) that dispatches on the resolved type — `RawCSS`→raw, numeric→`strconv`, string→value-filter. (4) Printer prints `${ }` in `<style>`. The skeleton/probe/harvest walks already recurse into element children generically, so type resolution of `<style>` interps needs no changes.
 
 **Tech Stack:** Go (stdlib-only runtime; generator may use `golang.org/x/tools`). Existing gsx packages: root `gsx` (runtime), `parser`, `ast`, `internal/codegen`, `internal/printer`, `internal/wsnorm`, `internal/corpus`.
 
 ## Global Constraints
 
 - **Runtime is stdlib-only** (the root `gsx` package + `escape.go`/`writer.go`/`safe.go`). No third-party imports there. The generator (`internal/codegen`) may use `golang.org/x/tools`.
-- **Unexported by default** — new helpers/types that need no serialization or cross-package use start lowercase (e.g. `cssValueFilter`, `isSafeCSS`). Exported: `gsx.SafeCSS`, `(*Writer).CSS`, `(*Writer).CSSAttr`.
+- **Unexported by default** — new helpers/types that need no serialization or cross-package use start lowercase (e.g. `cssValueFilter`, `isRawCSS`). Exported: `gsx.RawCSS`, `(*Writer).CSS`, `(*Writer).CSSAttr`.
 - **The ORDER INVARIANT** (`collectExprs` ≡ `emitProbes` ≡ `harvest` traversal) must stay intact — this slice adds NO new probe/collect logic; `<style>` interps ride the existing generic element-children recursion.
 - **CSS safety is a PORT, never an approximation** — `cssValueFilter` and its helpers are copied from `$(go env GOROOT)/src/html/template/css.go` with only the typed-string machinery removed. Do not hand-roll CSS-safety logic.
 - After each task: `go build ./...` and `go test ./...` must pass before committing.
@@ -20,7 +20,7 @@
 
 ---
 
-### Task 1: Runtime — `gsx.SafeCSS` + `cssValueFilter` + `gw.CSS`/`gw.CSSAttr`
+### Task 1: Runtime — `gsx.RawCSS` + `cssValueFilter` + `gw.CSS`/`gw.CSSAttr`
 
 **Files:**
 - Create: `safe.go`
@@ -29,7 +29,7 @@
 - Test: `escape_test.go` (append `TestCSSValueFilter`), `writer_test.go` (append `TestWriterCSS`)
 
 **Interfaces:**
-- Produces: `type SafeCSS string`; `func cssValueFilter(s string) string` (unexported); `func (gw *Writer) CSS(s string)`; `func (gw *Writer) CSSAttr(s string)`.
+- Produces: `type RawCSS string`; `func cssValueFilter(s string) string` (unexported); `func (gw *Writer) CSS(s string)`; `func (gw *Writer) CSSAttr(s string)`.
 - Consumes: existing `writeHTML(io.Writer, string) error`, `(*Writer).writeStr`, the `Writer{w, err}` shape.
 
 - [ ] **Step 1: Write the failing filter test** — append to `escape_test.go`:
@@ -228,7 +228,7 @@ func TestWriterCSS(t *testing.T) {
 		{"block breakout", func(w *Writer) { w.CSS("red;}body{x") }, "ZgotmplZ"},
 		{"attr safe", func(w *Writer) { w.CSSAttr("color: red") }, "color: red"},
 		{"attr breakout", func(w *Writer) { w.CSSAttr(`a"b`) }, "ZgotmplZ"},
-		{"safecss type is a string", func(w *Writer) { w.S(string(SafeCSS("1px solid"))) }, "1px solid"},
+		{"rawcss type is a string", func(w *Writer) { w.S(string(RawCSS("1px solid"))) }, "1px solid"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -251,19 +251,19 @@ func TestWriterCSS(t *testing.T) {
 - [ ] **Step 6: Run to verify it fails**
 
 Run: `go test . -run TestWriterCSS`
-Expected: FAIL — `undefined: SafeCSS`, `w.CSS undefined`, `w.CSSAttr undefined`.
+Expected: FAIL — `undefined: RawCSS`, `w.CSS undefined`, `w.CSSAttr undefined`.
 
 - [ ] **Step 7: Create `safe.go`**
 
 ```go
 package gsx
 
-// SafeCSS is a string the template author vouches for as safe CSS. In a CSS
-// context — inside a <style> block or a style= attribute — a SafeCSS value is
+// RawCSS is a string the template author vouches for as safe CSS. In a CSS
+// context — inside a <style> block or a style= attribute — a RawCSS value is
 // emitted verbatim, bypassing the gw.CSS value-filter (the CSS analogue of
 // trusting raw HTML via Raw). Use it only for CSS you control, never for
 // untrusted data.
-type SafeCSS string
+type RawCSS string
 ```
 
 - [ ] **Step 8: Add the two methods to `writer.go`** — append:
@@ -296,7 +296,7 @@ Expected: PASS.
 
 ```bash
 git add safe.go escape.go writer.go escape_test.go writer_test.go
-git commit -m "runtime: gsx.SafeCSS + cssValueFilter port + gw.CSS/CSSAttr"
+git commit -m "runtime: gsx.RawCSS + cssValueFilter port + gw.CSS/CSSAttr"
 ```
 
 ---
@@ -459,26 +459,26 @@ git commit -m "parser: \${ } interpolation inside <style> bodies (script stays r
 ### Task 3: Codegen — CSS-context emit dispatch (`<style>` interps + `style=`)
 
 **Files:**
-- Modify: `internal/codegen/analyze.go` (add `isSafeCSS`)
+- Modify: `internal/codegen/analyze.go` (add `isRawCSS`)
 - Modify: `internal/codegen/emit.go` (style-children emit, `emitRenderCSS`, `emitCSSAttrValue`, `emitExprAttr` CSS case)
 - Test: `internal/corpus/testdata/cases/codegen-shape/style_interp.txtar` (new — exact generated-Go golden)
 
 **Interfaces:**
-- Consumes: `gsx.SafeCSS` / `(*Writer).CSS` / `(*Writer).CSSAttr` (Task 1); `<style>` `Interp` children (Task 2); existing `classify`, `emitS`, `emitAttrValue`, `attrContext`, `interpTemp`, `urlStringExpr`, `types.Named`.
-- Produces: `func isSafeCSS(types.Type) bool`; CSS-context emission routing `_gsxgw.CSS`/`_gsxgw.CSSAttr`/`_gsxgw.S`/`_gsxgw.AttrValue` by type.
+- Consumes: `gsx.RawCSS` / `(*Writer).CSS` / `(*Writer).CSSAttr` (Task 1); `<style>` `Interp` children (Task 2); existing `classify`, `emitS`, `emitAttrValue`, `attrContext`, `interpTemp`, `urlStringExpr`, `types.Named`.
+- Produces: `func isRawCSS(types.Type) bool`; CSS-context emission routing `_gsxgw.CSS`/`_gsxgw.CSSAttr`/`_gsxgw.S`/`_gsxgw.AttrValue` by type.
 
-- [ ] **Step 1: Add `isSafeCSS` to `analyze.go`** (near `classify`):
+- [ ] **Step 1: Add `isRawCSS` to `analyze.go`** (near `classify`):
 
 ```go
-// isSafeCSS reports whether t is the named type github.com/gsxhq/gsx.SafeCSS —
+// isRawCSS reports whether t is the named type github.com/gsxhq/gsx.RawCSS —
 // the author-vouched safe-CSS string, emitted raw in a CSS context.
-func isSafeCSS(t types.Type) bool {
+func isRawCSS(t types.Type) bool {
 	named, ok := t.(*types.Named)
 	if !ok {
 		return false
 	}
 	obj := named.Obj()
-	return obj != nil && obj.Name() == "SafeCSS" &&
+	return obj != nil && obj.Name() == "RawCSS" &&
 		obj.Pkg() != nil && obj.Pkg().Path() == "github.com/gsxhq/gsx"
 }
 ```
@@ -526,11 +526,11 @@ func emitCSSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.T
 	return emitRenderCSS(b, expr, t, imports)
 }
 
-// emitRenderCSS writes a value in CSS block context (inside <style>): SafeCSS and
+// emitRenderCSS writes a value in CSS block context (inside <style>): RawCSS and
 // numbers are emitted raw (safe by construction); strings/Stringers go through
 // gw.CSS (the value-filter).
 func emitRenderCSS(b *bytes.Buffer, expr string, t types.Type, imports map[string]bool) error {
-	if isSafeCSS(t) {
+	if isRawCSS(t) {
 		fmt.Fprintf(b, "\t\t_gsxgw.S(string(%s))\n", expr)
 		return nil
 	}
@@ -549,16 +549,16 @@ func emitRenderCSS(b *bytes.Buffer, expr string, t types.Type, imports map[strin
 	case catStringer:
 		fmt.Fprintf(b, "\t\t_gsxgw.CSS((%s).String())\n", expr)
 	default:
-		return fmt.Errorf("codegen: value of type %s not renderable in CSS context (need string/number/Stringer or gsx.SafeCSS)", t)
+		return fmt.Errorf("codegen: value of type %s not renderable in CSS context (need string/number/Stringer or gsx.RawCSS)", t)
 	}
 	return nil
 }
 
-// emitCSSAttrValue writes a style="…" attribute value: SafeCSS and numbers are
+// emitCSSAttrValue writes a style="…" attribute value: RawCSS and numbers are
 // attr-escaped only (safe by construction); strings/Stringers go through
 // gw.CSSAttr (value-filter + attr-escape).
 func emitCSSAttrValue(b *bytes.Buffer, expr string, t types.Type, imports map[string]bool) error {
-	if isSafeCSS(t) {
+	if isRawCSS(t) {
 		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(string(%s))\n", expr)
 		return nil
 	}
@@ -577,7 +577,7 @@ func emitCSSAttrValue(b *bytes.Buffer, expr string, t types.Type, imports map[st
 	case catStringer:
 		fmt.Fprintf(b, "\t\t_gsxgw.CSSAttr((%s).String())\n", expr)
 	default:
-		return fmt.Errorf("codegen: style attribute value type %s not supported (need string/number/Stringer or gsx.SafeCSS)", t)
+		return fmt.Errorf("codegen: style attribute value type %s not supported (need string/number/Stringer or gsx.RawCSS)", t)
 	}
 	return nil
 }
@@ -660,11 +660,11 @@ Expected: build PASS. If the grep finds a unit test asserting the old `style=` C
 -- input.gsx --
 package views
 
-component Theme(w int, accent string, raw gsx.SafeCSS) {
+component Theme(w int, accent string, raw gsx.RawCSS) {
 	<style>.card{width:${w}px;color:${accent};border:${raw}}</style>
 }
 -- invoke --
-Theme(ThemeProps{W: 8, Accent: "red", Raw: gsx.SafeCSS("1px solid")})
+Theme(ThemeProps{W: 8, Accent: "red", Raw: gsx.RawCSS("1px solid")})
 -- render.golden --
 <style>.card{width:8px;color:red;border:1px solid}</style>
 ```
@@ -870,7 +870,7 @@ Expected: PASS. Inspect both `.txtar` files to confirm `generated.x.go.golden` s
 
 ```gsx
 // <style> interpolation: dynamic values are CSS-value-filtered automatically;
-// gsx.SafeCSS opts out for author-controlled CSS.
+// gsx.RawCSS opts out for author-controlled CSS.
 component ThemedCard(width int, accent string) {
 	<style>
 		.themed {
@@ -904,14 +904,14 @@ git commit -m "corpus+examples: end-to-end <style>/style= safe interpolation"
 
 **Spec coverage (Components 1–4 of the design):**
 - Component 1 (parser `${ }`) → Task 2. ✓
-- Component 2 (`SafeCSS` + `cssValueFilter` + `gw.CSS`/`CSSAttr`) → Task 1. ✓
-- Component 3 (codegen CSS-context dispatch; `isSafeCSS`; `style=` auto-sanitize; `ctxJS` unchanged) → Task 3. ✓
+- Component 2 (`RawCSS` + `cssValueFilter` + `gw.CSS`/`CSSAttr`) → Task 1. ✓
+- Component 3 (codegen CSS-context dispatch; `isRawCSS`; `style=` auto-sanitize; `ctxJS` unchanged) → Task 3. ✓
 - Component 4 (printer `${ }`; wsnorm preserve guard) → Task 4. ✓
 - End-to-end + examples + breakout-neutralization proof → Task 5. ✓
 - Component 5 (CSS/JS minification) → out of this slice, by design. ✓
 
 **Deferred-with-clear-errors (verified present):** pipeline stages + `?` in `<style>` interps (Task 3 Step 2 `emitCSSInterp`); composed-`style` `ClassAttr` untouched (Task 3 Step 5); `<script>` stays raw (Task 2 Step 1 `TestScriptStaysRaw`).
 
-**Type/name consistency:** `cssValueFilter(string) string`, `cssFailsafe = "ZgotmplZ"`, `SafeCSS`, `(*Writer).CSS`, `(*Writer).CSSAttr`, `isSafeCSS`, `genStyleChild`, `emitCSSInterp`, `emitRenderCSS`, `emitCSSAttrValue`, `styleChildren` — each defined once and referenced with the same signature throughout.
+**Type/name consistency:** `cssValueFilter(string) string`, `cssFailsafe = "ZgotmplZ"`, `RawCSS`, `(*Writer).CSS`, `(*Writer).CSSAttr`, `isRawCSS`, `genStyleChild`, `emitCSSInterp`, `emitRenderCSS`, `emitCSSAttrValue`, `styleChildren` — each defined once and referenced with the same signature throughout.
 
 **Placeholder scan:** none — every code step shows complete code; the only "port from source" is `cssValueFilter`, which is transcribed in full in Task 1 Step 3 with its exact test vectors in Step 1.

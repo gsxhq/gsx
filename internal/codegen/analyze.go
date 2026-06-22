@@ -641,15 +641,15 @@ func recvTypeIdent(e goast.Expr) string {
 	return ""
 }
 
-// isSafeCSS reports whether t is the named type github.com/gsxhq/gsx.SafeCSS —
+// isRawCSS reports whether t is the named type github.com/gsxhq/gsx.RawCSS —
 // the author-vouched safe-CSS string, emitted raw in a CSS context.
-func isSafeCSS(t types.Type) bool {
-	named, ok := t.(*types.Named)
+func isRawCSS(t types.Type) bool {
+	named, ok := types.Unalias(t).(*types.Named)
 	if !ok {
 		return false
 	}
 	obj := named.Obj()
-	return obj != nil && obj.Name() == "SafeCSS" &&
+	return obj != nil && obj.Name() == "RawCSS" &&
 		obj.Pkg() != nil && obj.Pkg().Path() == "github.com/gsxhq/gsx"
 }
 

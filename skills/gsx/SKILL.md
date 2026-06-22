@@ -27,7 +27,10 @@ JSX-style markup body, compiled to plain Go (`.gsx` → `.x.go`).
 
 ## Forms
 
-- Interpolation: `{ expr }` (auto HTML-escaped). Unescaped: `gsx.Raw(s)`.
+- Interpolation: `{ expr }` (auto-escaped per context: HTML/attr/URL/CSS). Opt-outs,
+  each bypassing one check: `gsx.Raw(s)` (HTML), `gsx.RawURL(s)` (URL scheme check),
+  `gsx.RawCSS(s)` (CSS value-filter). JS/event-handler (`on*`) contexts are a
+  compile error, not auto-escaped.
 - Try-marker: `{ expr? }` unwraps `(T, error)` and propagates the error.
 - Attributes: static `name="lit"`, dynamic `name={ expr }`, boolean bare `name`,
   type-driven `disabled={ cond }` (bool → bare/omitted), spread `{...expr}`,

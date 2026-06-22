@@ -60,9 +60,9 @@ component DataAttrs(entityType string) {
 }
 
 // <style> interpolation: dynamic values are CSS-value-filtered automatically;
-// gsx.SafeCSS opts out for author-controlled CSS.
+// gsx.RawCSS opts out for author-controlled CSS.
 // Note: the CSS filter rejects values containing '(' or '/' (so dynamic rgb(...)/calc(...)/url(...)
-// collapse to a safe placeholder — use a string literal or gsx.SafeCSS for those).
+// collapse to a safe placeholder — use a string literal or gsx.RawCSS for those).
 component ThemedCard(width int, accent string) {
 	<style>
 		.themed {

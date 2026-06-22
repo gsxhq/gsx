@@ -214,7 +214,7 @@ Everything else is internal and free to churn.
 ```
 github.com/gsxhq/gsx/ast       PUBLIC, stable  — node types (promoted from internal)
 github.com/gsxhq/gsx/parser    PUBLIC, stable  — ParseFile(fset, name, src) (*ast.File, error)
-github.com/gsxhq/gsx           PUBLIC          — runtime: Node, Func, Attrs, Raw/SafeURL, gw helpers
+github.com/gsxhq/gsx           PUBLIC          — runtime: Node, Func, Attrs, Raw/RawURL, gw helpers
 github.com/gsxhq/gsx/analysis  PLANNED (deferred) — go/analysis bridge (gsx AST + go/types)
 
 cmd/gsx/main.go     entry; registers commands, dispatches

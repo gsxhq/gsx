@@ -75,7 +75,7 @@ func TestWriterCSS(t *testing.T) {
 	}{
 		{"block safe", func(w *Writer) { w.CSS("10px") }, "10px"},
 		{"block breakout", func(w *Writer) { w.CSS("red;}body{x") }, "ZgotmplZ"},
-		{"safecss type is a string", func(w *Writer) { w.S(string(SafeCSS("1px solid"))) }, "1px solid"},
+		{"rawcss type is a string", func(w *Writer) { w.S(string(RawCSS("1px solid"))) }, "1px solid"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

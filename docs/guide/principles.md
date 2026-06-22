@@ -25,15 +25,17 @@ surprise.
 ## Secure by construction
 
 Interpolation is auto-escaped by default, and escaping is **context-aware**: text,
-attribute, and URL contexts each get the right treatment — determined at codegen
-from the value's position, not by the author wrapping values manually. URLs are
-checked against a scheme allow-list, attribute values are always quoted, and unsafe
-contexts (bare expressions in `on*` handlers or `style` attributes) are **compile
-errors**, not runtime surprises.
+attribute, URL, and CSS contexts each get the right treatment — determined at
+codegen from the value's position, not by the author wrapping values manually. URLs
+are checked against a scheme allow-list, `<style>`/`style=` values pass a CSS
+value-filter, attribute values are always quoted, and JS contexts with no safe
+encoding yet (bare expressions in `on*`/event handlers) are **compile errors**, not
+runtime surprises.
 
-The opt-out is explicit and auditable: `gsx.Raw(s)` injects trusted HTML without
-escaping — grep-able and deliberate. Type-driven attributes mean a `bool` renders
-as a bare or omitted attribute rather than the string `"true"`.
+The opt-outs are explicit and auditable — each a deliberate, grep-able bypass of one
+specific check: `gsx.Raw(s)` for trusted HTML, `gsx.RawURL(s)` for a URL whose
+scheme you vouch for, and `gsx.RawCSS(s)` for trusted CSS. Type-driven attributes
+mean a `bool` renders as a bare or omitted attribute rather than the string `"true"`.
 
 ## Standard-library-only runtime
 
