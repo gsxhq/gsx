@@ -61,5 +61,4 @@ generator/CLI may use `golang.org/x/tools`.
 
 ## License
 
-Not yet chosen — license **TBD**. Until a `LICENSE` file is added, all rights are
-reserved by the author.
+[MIT](LICENSE) © 2026 Jackie Li
