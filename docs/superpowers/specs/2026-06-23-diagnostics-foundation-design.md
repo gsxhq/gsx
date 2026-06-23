@@ -55,17 +55,22 @@ const (
     Hint
 )
 
-// Diagnostic is one structured problem. It is pure data: positions are raw
-// token.Pos resolved against a *token.FileSet at render time (mirrors how
-// go/types.Error pairs a Pos with the checker's Fset). Pos..End is a RANGE; for
-// a point diagnostic End may equal Pos.
+// Diagnostic is one structured problem. It carries already-RESOLVED positions
+// (token.Position: Filename, Line 1-based, Column 1-based byte) rather than raw
+// token.Pos. Rationale: diagnostics originate from TWO different token.FileSets —
+// the gsx parser's fset (parser/codegen/jsx) and go/packages' own fset (type
+// errors, whose positions map back to .gsx through the generated `//line`
+// directives). Storing resolved Positions makes Diagnostic fileset-agnostic and
+// self-contained; the LSP layer still derives 0-based/UTF-16 columns from the
+// source line (via SourceProvider) when it needs them. Start..End is a RANGE;
+// for a point diagnostic End may equal Start.
 type Diagnostic struct {
-    Pos, End token.Pos
-    Severity Severity
-    Code     string // stable machine code, e.g. "reserved-param" (may be "" early)
-    Message  string // the primary one-line problem statement
-    Help     string // optional secondary guidance, e.g. "rename the parameter" ("" = none)
-    Source   string // origin: "parser" | "types" | "codegen" | "jsx"
+    Start, End token.Position
+    Severity   Severity
+    Code       string // stable machine code, e.g. "reserved-param" (may be "" early)
+    Message    string // the primary one-line problem statement
+    Help       string // optional secondary guidance, e.g. "rename the parameter" ("" = none)
+    Source     string // origin: "parser" | "types" | "codegen" | "jsx"
 }
 ```
 
@@ -83,21 +88,26 @@ Rationale for raw `token.Pos` + FileSet-at-render (not pre-resolved line:col): t
 ```go
 // Bag accumulates diagnostics during a run. One Bag spans a package's
 // resolve+codegen pass so a single run reports all of that package's problems.
+// It holds the gsx parser fset purely as a convenience for resolving AST-node
+// token.Pos in Errorf; diagnostics from other filesets (type errors) are added
+// pre-resolved via Add.
 type Bag struct {
     fset  *token.FileSet
     diags []Diagnostic
 }
 
 func NewBag(fset *token.FileSet) *Bag
+// Add appends an already-resolved Diagnostic (used for go/types errors, whose
+// Position comes from go/packages' fset).
 func (b *Bag) Add(d Diagnostic)
-// Errorf is the common case: an Error-severity diagnostic at an AST node's range.
+// Errorf is the common case for gsx-fset diagnostics: an Error-severity
+// diagnostic at an AST node's range. It resolves pos/end via the Bag's fset.
 func (b *Bag) Errorf(pos, end token.Pos, code, format string, args ...any)
 func (b *Bag) HasErrors() bool          // any Error-severity diagnostic present
-func (b *Bag) Sorted() []Diagnostic     // stable order: by filename, then Pos
-func (b *Bag) FileSet() *token.FileSet
+func (b *Bag) Sorted() []Diagnostic     // stable order: by filename, then line, then column
 ```
 
-A `*Bag` is threaded through type resolution and codegen, replacing the `return err` sites with `b.Errorf(node.Pos(), node.End(), code, …)` + `continue`. Sorting is by file then position so output (and goldens) are deterministic regardless of recovery order.
+A `*Bag` is threaded through type resolution and codegen, replacing the `return err` sites with `b.Errorf(node.Pos(), node.End(), code, …)`. Sorting is by filename, then line, then column, so output (and goldens) are deterministic regardless of recovery order.
 
 ## 5. Semantic-layer recovery (the `go build` behaviour)
 
@@ -117,19 +127,19 @@ The principle: **report most errors in one run.** The two layers differ:
 
 ## 7. Rendering (rich · compact · JSON), `--json`, exit codes
 
-Three renderings live in `internal/diag`, all driven by a `Bag` + `*token.FileSet`,
-so every command (`generate`, `fmt`, `vet`, `lsp`) reuses them. A diagnostic's
-range is resolved to 1-based `line:col` for all human/JSON output; the LSP layer
-converts to 0-based/UTF-16 separately.
+Three renderings live in `internal/diag`, all driven by `[]Diagnostic` (positions
+already resolved), so every command (`generate`, `fmt`, `vet`, `lsp`) reuses them.
+Positions are 1-based `line:col` for all human/JSON output; the LSP layer converts
+to 0-based/UTF-16 separately.
 
 ```go
 // SourceProvider yields a file's bytes for snippet rendering. The CLI reads disk;
 // the future LSP supplies the in-memory (possibly unsaved) buffer. nil → no snippet.
 type SourceProvider func(filename string) ([]byte, bool)
 
-func RenderRich(w io.Writer, fset *token.FileSet, diags []Diagnostic, src SourceProvider)
-func RenderCompact(w io.Writer, fset *token.FileSet, diags []Diagnostic)
-func RenderJSON(w io.Writer, fset *token.FileSet, diags []Diagnostic) error
+func RenderRich(w io.Writer, diags []Diagnostic, src SourceProvider)
+func RenderCompact(w io.Writer, diags []Diagnostic)
+func RenderJSON(w io.Writer, diags []Diagnostic) error
 ```
 
 - **Rich (default for an interactive `gsx generate`)** — rustc/Go-flavoured, human-first:
@@ -144,7 +154,7 @@ func RenderJSON(w io.Writer, fset *token.FileSet, diags []Diagnostic) error
   ```
   Header is `severity[code]: message` (code omitted when `""`); `-->` locates the
   primary position; the source line (via `SourceProvider`) carries a caret
-  underline spanning `Pos..End`; `Help` renders as the `= help:` line. With no
+  underline spanning `Start..End`; `Help` renders as the `= help:` line. With no
   `SourceProvider` (or the file is unreadable) it degrades gracefully to the
   compact line. Diagnostics print in `Bag.Sorted()` order.
 
@@ -200,7 +210,7 @@ so the big corpus changes minimally:
 
 ## 10. Testing strategy
 
-- **`internal/diag` unit:** `Bag.Add/Errorf/HasErrors/Sorted` (stable file-then-pos ordering); severity enum. Renderers (all FileSet-driven, tested with a synthetic FileSet): **compact** one-line form; **JSON** shape (1-based, lowercase severity, `range.start`/`range.end`, `code`/`help` omitted-when-empty); **rich** snippet with the caret spanning `Pos..End` and the `= help:` line, plus the **graceful degradation** to compact when the `SourceProvider` returns nothing.
+- **`internal/diag` unit:** `Bag.Add` (pre-resolved), `Bag.Errorf` (resolves AST `token.Pos` via the bag's fset into `token.Position`), `HasErrors`, `Sorted` (stable filename→line→column ordering); severity enum. Renderers (driven by `[]Diagnostic`, tested with hand-built `token.Position` values — no fset needed): **compact** one-line form; **JSON** shape (1-based, lowercase severity, `range.start`/`range.end`, `code`/`help` omitted-when-empty); **rich** snippet with the caret spanning `Start..End` and the `= help:` line, plus the **graceful degradation** to compact when the `SourceProvider` returns nothing.
 - **Semantic recovery:** a package with multiple `go/types` errors reports all of them; a file with multiple codegen errors reports all, each positioned; a failed component does not suppress a sibling component's diagnostics; a package with any error writes no `.x.go` while a clean sibling package still writes.
 - **Migration fidelity:** existing single-error codegen/jsx cases produce the same message text, now positioned; parser cases unchanged.
 - **Corpus:** the rebaselined goldens pass; `normalizeDiag` removed; `--json` golden round-trips.
@@ -208,11 +218,11 @@ so the big corpus changes minimally:
 
 ## 11. LSP-readiness checklist (why these choices)
 
-- Range (`Pos..End`) → LSP `Diagnostic.range`. ✓
+- Range (`Start..End` as `token.Position`) → LSP `Diagnostic.range`. ✓
 - `Severity` enum (4 levels) → LSP `DiagnosticSeverity`. ✓
 - `Code` → LSP `Diagnostic.code` (filtering, future code actions). ✓
 - `Source` → LSP `Diagnostic.source`. ✓
 - `Help` → LSP diagnostic message detail / `relatedInformation`. ✓
 - `[]Diagnostic` + collector → LSP "all diagnostics for a document". ✓ (semantic now; parser in Slice 2)
-- Raw `token.Pos` + FileSet + `SourceProvider` → LSP layer derives 0-based/UTF-16 from the (possibly unsaved) buffer. ✓
+- Resolved `token.Position` (fileset-agnostic) + `SourceProvider` → LSP layer derives 0-based/UTF-16 from the (possibly unsaved) buffer line. ✓
 - Structured suggested-fix edits → LSP code actions / `textEdit`. ✗ deferred (§2 Out) — `Help` free text for now.
