@@ -1,0 +1,15 @@
+-- input.gsx --
+package views
+
+component Page(title string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head><title>{ title }</title></head>
+		<body>hi</body>
+	</html>
+}
+-- invoke --
+Page(PageProps{Title: "Home"})
+-- diagnostics.golden --
+-- render.golden --
+<!DOCTYPE html><html lang="en"><head><title>Home</title></head><body>hi</body></html>

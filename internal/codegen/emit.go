@@ -651,6 +651,9 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 	switch t := n.(type) {
 	case *ast.Text:
 		emitS(b, t.Value)
+	case *ast.Doctype:
+		// Renders verbatim — Text holds the full `<!DOCTYPE …>` source.
+		emitS(b, t.Text)
 	case *ast.Element:
 		emitLine(b, fset, t.Pos())
 		if isComponentTag(t.Tag) {
