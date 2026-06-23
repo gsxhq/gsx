@@ -20,6 +20,7 @@ a **JSX-style markup body**, compiled to plain Go.
 - **[Principles](./guide/principles.md)** — the design commitments.
 - **[Syntax](./guide/syntax.md)** — a quick tour; the [`examples/`](../examples/)
   corpus is the canonical reference.
+- **[Extensions](./guide/extensions.md)** — custom attribute classification, filter packages, and the `cmd/gsx` registration pattern.
 
 ## Reference
 
