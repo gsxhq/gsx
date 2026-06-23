@@ -29,7 +29,6 @@ import (
 // propagate as fatal errors.
 var errSkipComponent = errors.New("skip")
 
-
 // resolveTypesPkg type-checks the package (real .go files + synthesized gsx
 // component skeletons via Overlay) and returns each interpolation's type.
 //
@@ -479,7 +478,21 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 			if err != nil {
 				return err
 			}
-			emitSkeletonLine(sb, fset, t.Pos())
+			const probePrefixLen = len("_gsxuse(") // 8
+			if len(t.Stages) == 0 && t.ExprPos.IsValid() {
+				ep := fset.Position(t.ExprPos)
+				if col := ep.Column - probePrefixLen; col >= 1 {
+					// Compensated //line: the probe's first token (at byte offset 8 into
+					// "_gsxuse(expr)") will be reported at ep.Column, matching the source.
+					fmt.Fprintf(sb, "//line %s:%d:%d\n", ep.Filename, ep.Line, col)
+				} else {
+					// Expr is too near the line start for compensation; file+line are exact.
+					emitSkeletonLine(sb, fset, t.ExprPos)
+				}
+			} else {
+				// Staged pipeline or no ExprPos: keep unchanged behavior ('{' pos).
+				emitSkeletonLine(sb, fset, t.Pos())
+			}
 			fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 		case *gsxast.Element:
 			if isComponentTag(t.Tag) {
@@ -621,13 +634,11 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 // resolve to .gsx file:line:col instead of the generated overlay .x.go.
 // fset may be nil (e.g. in test-only callers); in that case no directive is emitted.
 //
-// TODO(column-accuracy): the .gsx FILE and LINE are exact, but the reported
-// COLUMN is skeleton-relative — it is offset by the probe wrapper (e.g.
-// `_gsxuse(`) and, for child-component prop errors, points inside the generated
-// props literal rather than the .gsx source. Anchoring at the user expression's
-// start (an expression-start token.Pos on ast.Interp, plus per-probe column
-// compensation `col = srcCol - skeletonCol + 1`) would make the column exact.
-// Deferred to a follow-up (Slice 2): file+line is the Slice-1 promise and is met.
+// Column accuracy: interpolation expression columns are now exact via
+// Interp.ExprPos + compensated //line (col = exprCol - len("_gsxuse(")).
+// Component-prop and pipeline-staged probes remain coarse: synthesized
+// props-literal fields and rewritten pipeline expressions have no faithful
+// source column, so they still emit //line at the node's Pos().
 func emitSkeletonLine(sb *strings.Builder, fset *token.FileSet, pos token.Pos) {
 	if fset == nil || !pos.IsValid() {
 		return
