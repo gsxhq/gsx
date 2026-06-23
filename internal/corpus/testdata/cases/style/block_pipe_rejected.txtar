@@ -5,4 +5,4 @@ component C(x string) {
 	<style>.a{color:@{ x |> upper }}</style>
 }
 -- diagnostics.golden --
-cases/style_block_pipe_rejected/input.gsx: codegen: pipeline stages not supported in <style> interpolation yet
+4:19: pipeline stages not supported in <style> interpolation yet

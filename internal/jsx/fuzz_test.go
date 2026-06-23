@@ -26,7 +26,7 @@ func FuzzResolveScriptsFailClosed(f *testing.F) {
 		}}
 		file := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{script}}}}
 
-		err := ResolveScripts(file) // must not panic
+		err := ResolveScriptsErr(file) // must not panic
 		if err != nil {
 			return // fail-closed is an acceptable outcome
 		}

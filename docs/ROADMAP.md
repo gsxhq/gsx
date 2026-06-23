@@ -15,7 +15,7 @@ generator/CLI may use `golang.org/x/tools`.
 | Parser + AST | ✅ done (Part 2 grammar + pipeline parsing) |
 | Runtime (`gsx`) | ✅ done |
 | Codegen | 🟡 interpolation + control flow + full attributes (security core, composable class, spread, conditional) + pipeline `\|>` + child props/`{children}` + method components + named slots + attribute fallthrough (auto class-merge/spread + manual `{...attrs}`) + **custom attribute classification** (`WithJSAttrs`/`WithURLAttrs`/`WithCSSAttrs` + `WithAttrClassifier` escape hatch; resolved-config manifest in build cache) done; `style`-composition pending — spec `2026-06-23-attr-classification-extensions-design.md`, plan `2026-06-23-attr-classification-extensions.md` |
-| CLI / `gen.Main` | 🟡 `gsx generate` + `gsx info` + **`gsx fmt`** (canonical formatter, faithful+idempotent) runnable + **`gen.WithFilters`** user filter packages + **`gsx info --json`** (resolved config: schemaVersion, module, userRules, hasPredicate, predicateLabel (omitempty), filters) — `vet`/`WithClassMerger`/`lsp`/`diag` pending |
+| CLI / `gen.Main` | 🟡 `gsx generate` + `gsx info` + **`gsx fmt`** (canonical formatter, faithful+idempotent) runnable + **`gen.WithFilters`** user filter packages + **`gsx info --json`** (resolved config: schemaVersion, module, userRules, hasPredicate, predicateLabel (omitempty), filters) + **`internal/diag`** structured diagnostics (resolved `token.Position` Start/End, severity, code, help, source; `Bag` collector; rich/compact/JSON renderers) + **`gsx generate --json`** (JSON array to stdout; rich on TTY, compact otherwise; exit 1 on any error-severity diagnostic) — `vet`/`WithClassMerger`/`lsp` pending |
 | Whitespace model | ✅ JSX-style: `internal/wsnorm.Normalize` (parser lossless) wired into codegen (indentation no longer rendered) + powers `gsx fmt`. render-faithful + idempotent over the whole corpus. |
 | Pipeline `|>` end-to-end | 🟡 lowering + `std` filters + **user filter packages** (`gen.WithFilters`, multi-pkg last-wins, per-pkg alias) done — per-stage `?` + initialism naming pending |
 
@@ -195,8 +195,26 @@ attribute-name validation against tag breakout (`validAttrName`), documented
   re-proven over the corpus).
 - ⬜ **`_gsx`-alias generator-emitted imports** — robust form of the import-shadow
   guard (currently `gsx`/`strconv` are reserved param names as a stopgap).
-- ⬜ **Structured diagnostics** (`internal/diag`: GSXnnnn codes, ranges, JSON) —
-  designed in the CLI-skeleton spec; not built.
+- ✅ **Structured diagnostics — Slice 1 (semantic layer) SHIPPED** (`internal/diag`:
+  resolved `token.Position` Start/End ranges, `Severity` {error/warning/info/hint;
+  only error produced in Slice 1}, `Code`, `Message`, `Help`, `Source`; `Bag`
+  collector with `Add`/`Errorf`/`Report`/`HasErrors`/`Sorted`; three renderers:
+  **rich** (rustc/Go-style snippet+caret+`= help:`), **compact** (`file:line:col:
+  severity[code]: message`), **JSON** (`{file,range,severity,code,message,help,source}`
+  array). **Semantic-layer recovery:** all `go/types` errors surfaced (not just first);
+  codegen accumulates diagnostics and recovers at the **component boundary** (bad
+  component skipped, siblings still report); per-package write remains all-or-nothing
+  (`HasErrors` → no `.x.go` emitted). **Positioned diagnostics:** codegen diagnostics
+  now carry `.gsx` positions (closes gap inventoried in `codegen-diagnostic-position-audit.md`);
+  jsx diagnostics carry real `file:line:col` (old `normalizeDiag` "at N" raw-offset
+  hack removed). **`gsx generate`:** rich renderer on TTY, compact otherwise,
+  `--json` for agents/editors; exit 1 on any error-severity diagnostic, exit 0
+  on success, exit 2 on fatal setup failure. Spec:
+  `docs/superpowers/specs/2026-06-23-diagnostics-foundation-design.md`, plan:
+  `docs/superpowers/plans/2026-06-23-diagnostics-foundation.md`.
+  **Parser error recovery is Slice 2 (PENDING)** — the parser still stops at the
+  first syntax error (wrapped as a single diagnostic); only the semantic layer
+  recovers in Slice 1.
 - 🟡 **CLI / `gen.Main`** — `gsx generate` SHIPPED: public `gen` package
   (`Generate(paths)` discovers `.gsx` recursively, codegens per package dir, writes
   `.x.go`), `gen.Main(...Option)` dispatch (`generate`/`version`/`help`, `-C`/`-q`/`-v`,
@@ -205,8 +223,12 @@ attribute-name validation against tag breakout (`validAttrName`), documented
   `WithJSAttrs`/`WithURLAttrs`/`WithCSSAttrs`/`WithAttrClassifier` attribute-classification
   extensions; `gsx info --json` (resolved config manifest: schemaVersion, module,
   userRules, hasPredicate, filters).
-  **Pending:** `WithClassMerger`; `internal/diag` + GSXnnnn codes; `vet`/`lsp`/`render`/`explain`/`init`;
-  `--watch`/incremental; per-command flags (today flags must precede the command).
+  **Also shipped (diagnostics foundation):** `internal/diag` structured diagnostics +
+  `gsx generate --json` + rich/TTY/compact renderer selection + error-severity exit codes;
+  codegen+jsx positioned diagnostics; semantic-layer multi-error recovery; `normalizeDiag` removed.
+  **Pending:** `WithClassMerger`; GSXnnnn numeric codes; `vet`/`lsp`/`render`/`explain`/`init`;
+  `--watch`/incremental; per-command flags (today flags must precede the command);
+  parser-layer error recovery (Slice 2).
 - ⬜ **Codegen niceties** — coalesce adjacent `gw.S` static writes; `//line`
   trailing-state reset; `data:image` URL allowance.
 
@@ -220,3 +242,6 @@ attribute-name validation against tag breakout (`validAttrName`), documented
 - `2026-06-18-gsx-cli-skeleton-design.md` — CLI, exit codes, diagnostics model.
 - `2026-06-20-gsx-security-design.md` — threat model, contextual auto-escaping,
   pipeline escape hatch, URL/JS/CSS contexts (to be written).
+- `2026-06-23-diagnostics-foundation-design.md` — `internal/diag` model, renderers,
+  semantic/parser recovery slices, LSP-readiness properties.
+- `2026-06-23-diagnostics-foundation.md` (plan) — SDD tasks 1–5; Slice 1 shipped.

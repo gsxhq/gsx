@@ -24,7 +24,8 @@ func TestResolveAttrExprType(t *testing.T) {
 	src := "package views\n\ncomponent A(id string) {\n\t<div data-id={id}></div>\n}\n"
 	writeFile(t, pkgDir, "views.gsx", src)
 
-	file, err := gsxparser.ParseFile(token.NewFileSet(), filepath.Join(pkgDir, "views.gsx"), []byte(src), 0)
+	fset := token.NewFileSet()
+	file, err := gsxparser.ParseFile(fset, filepath.Join(pkgDir, "views.gsx"), []byte(src), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +34,7 @@ func TestResolveAttrExprType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("propFields: %v", err)
 	}
-	resolved, _, err := resolveTypesPkg(pkgDir, files, propFields, nodeProps)
+	resolved, _, err := resolveTypesPkg(pkgDir, files, propFields, nodeProps, fset)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}

@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"errors"
 	"fmt"
 	goast "go/ast"
 	"go/parser"
@@ -19,6 +20,16 @@ import (
 	gsxast "github.com/gsxhq/gsx/ast"
 )
 
+// errSkipComponent is a sentinel returned by emitComponentSkeleton when the
+// component fails an early validation check (reserved param/recv, parse error)
+// that will also be caught — with a positioned diagnostic — in genComponent at
+// emit time. The caller (buildSkeleton) skips this component's skeleton and
+// continues; the overall skeleton remains valid Go. Infrastructure errors
+// (e.g. unknown filter in emitProbes) are NOT wrapped in this sentinel and
+// propagate as fatal errors.
+var errSkipComponent = errors.New("skip")
+
+
 // resolveTypesPkg type-checks the package (real .go files + synthesized gsx
 // component skeletons via Overlay) and returns each interpolation's type.
 //
@@ -29,15 +40,16 @@ import (
 // generate-time type-check validates exactly what the emitter produces.
 //
 // nodeProps records which declared params have type exactly gsx.Node; it is
-// threaded alongside propFields for future use.
-func resolveTypesPkg(dir string, files map[string]*gsxast.File, propFields, nodeProps map[string]map[string]bool) (map[gsxast.Node]types.Type, filterTable, error) {
-	return resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, []string{stdImportPath})
+// threaded alongside propFields and consumed by emit/probe to promote renderable
+// values into gsx.Node props (gsx.Val/gsx.Text).
+func resolveTypesPkg(dir string, files map[string]*gsxast.File, propFields, nodeProps map[string]map[string]bool, fset *token.FileSet) (map[gsxast.Node]types.Type, filterTable, error) {
+	return resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, []string{stdImportPath}, fset)
 }
 
 // resolveTypesPkgWithFilters is the multi-package form of resolveTypesPkg: it
 // harvests the filter table from filterPkgs (last-wins precedence) and otherwise
 // behaves identically. resolveTypesPkg is the std-only wrapper.
-func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propFields, nodeProps map[string]map[string]bool, filterPkgs []string) (map[gsxast.Node]types.Type, filterTable, error) {
+func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propFields, nodeProps map[string]map[string]bool, filterPkgs []string, fset *token.FileSet) (map[gsxast.Node]types.Type, filterTable, error) {
 	table, err := loadFilterTableMulti(dir, filterPkgs)
 	if err != nil {
 		return nil, nil, err
@@ -45,7 +57,7 @@ func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propF
 	overlay := map[string][]byte{}
 	skelComps := map[string][]*gsxast.Component{}
 	for path, file := range files {
-		skel, comps, err := buildSkeleton(file, table, propFields, nodeProps)
+		skel, comps, err := buildSkeleton(file, table, propFields, nodeProps, fset)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -218,7 +230,7 @@ func freeOverlayPath(dir, base, suffix string, overlay map[string][]byte) (strin
 // resolution: the file's GoChunks, plus each component's real props struct and
 // func signature, with a probe body (used-param locals, each interpolation as
 // `_gsxuse(expr)`, each child component as `_ = Child(ChildProps{})`).
-func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps map[string]map[string]bool) (string, []*gsxast.Component, error) {
+func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps map[string]map[string]bool, fset *token.FileSet) (string, []*gsxast.Component, error) {
 	var comps []*gsxast.Component
 	for _, d := range file.Decls {
 		if c, ok := d.(*gsxast.Component); ok {
@@ -253,11 +265,25 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps m
 	// the skeleton type-check).
 	usedFilters := map[string]string{} // alias -> pkgPath
 	var compBuf strings.Builder
+	// Keep only the components whose skeletons succeed. A validation error
+	// (errSkipComponent — reserved param/recv, parse failure) means the component
+	// is invalid for codegen; skip its skeleton so the overall file stays valid Go.
+	// genComponent will re-encounter the same error at emit time and record a
+	// positioned diagnostic via the bag. Any OTHER error is a real infrastructure
+	// failure and must abort the whole skeleton build.
+	var validComps []*gsxast.Component
 	for _, c := range comps {
-		if err := emitComponentSkeleton(&compBuf, c, table, propFields, nodeProps, usedFilters); err != nil {
+		if err := emitComponentSkeleton(&compBuf, c, table, propFields, nodeProps, usedFilters, fset); err != nil {
+			if errors.Is(err, errSkipComponent) {
+				// Validation failure: skip this component's skeleton; it will fail
+				// again (with a positioned diagnostic) during generateFile.
+				continue
+			}
 			return "", nil, err
 		}
+		validComps = append(validComps, c)
 	}
+	comps = validComps
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "package %s\n", file.Package)
@@ -313,13 +339,22 @@ func sortedFilterAliases(usedFilters map[string]string) []string {
 // func/method signature + probe body) into sb, accumulating into usedFilters
 // (alias→pkgPath) every filter package the component's probes reference — so the
 // caller imports exactly those packages under those aliases.
-func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filterTable, propFields, nodeProps map[string]map[string]bool, usedFilters map[string]string) error {
+func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filterTable, propFields, nodeProps map[string]map[string]bool, usedFilters map[string]string, fset *token.FileSet) error {
 	params, err := parseParams(c.Params)
 	if err != nil {
-		return err
+		// Emit a minimal stub so the overall skeleton remains valid Go, keeping
+		// any user GoChunk imports used. The parse error will be re-surfaced (with
+		// position) by genComponent at emit time.
+		emitComponentStub(sb, c, nil, true)
+		return errSkipComponent
 	}
 	if err := checkReservedParams(params); err != nil {
-		return err
+		// Emit a stub that INCLUDES the props struct (keeping user-imported types
+		// like gsx.Node used in the skeleton) so GoChunk imports don't spuriously
+		// trigger "imported and not used". The reserved-param error will be
+		// re-surfaced (with position) by genComponent at emit time.
+		emitComponentStub(sb, c, params, true)
+		return errSkipComponent
 	}
 	// MIRROR genComponent (emit.go): a method component emits a Go method whose
 	// receiver var is in scope (so `p.Field` probes type-check against the real
@@ -336,10 +371,14 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 		var rerr error
 		recvVar, _, recvTypeName, rerr = parseRecv(c.Recv)
 		if rerr != nil {
-			return rerr
+			// Recv parse failed — the receiver clause may be invalid Go; use a bare
+			// function stub (no receiver) to keep the skeleton valid.
+			emitComponentStub(sb, c, params, false)
+			return errSkipComponent
 		}
 		if rerr := checkReservedRecvVar(recvVar); rerr != nil {
-			return rerr
+			emitComponentStub(sb, c, params, true)
+			return errSkipComponent
 		}
 		propsName = recvTypeName + c.Name + "Props"
 	}
@@ -411,7 +450,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 	if manual {
 		sb.WriteString("\tattrs := _gsxp.Attrs\n\t_ = attrs\n")
 	}
-	if err := emitProbes(sb, c.Body, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters); err != nil {
+	if err := emitProbes(sb, c.Body, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters, fset); err != nil {
 		return err
 	}
 	sb.WriteString("\treturn nil\n}\n")
@@ -432,7 +471,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 // usedFilters (alias→pkgPath) accumulates every filter package the probes
 // reference, so the skeleton imports exactly those packages under those aliases
 // — driven by the SAME lowerPipe report the emitter uses.
-func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, propFields, nodeProps map[string]map[string]bool, recvVar, recvTypeName string, usedFilters map[string]string) error {
+func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, propFields, nodeProps map[string]map[string]bool, recvVar, recvTypeName string, usedFilters map[string]string, fset *token.FileSet) error {
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *gsxast.Interp:
@@ -440,6 +479,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 			if err != nil {
 				return err
 			}
+			emitSkeletonLine(sb, fset, t.Pos())
 			fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 		case *gsxast.Element:
 			if isComponentTag(t.Tag) {
@@ -456,6 +496,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				// so they don't perturb the k-th alignment).
 				callTarget, propsType, isMethod := childInvocation(t, recvVar, recvTypeName)
 				if isMethod && len(t.Attrs) == 0 && len(t.Children) == 0 {
+					emitSkeletonLine(sb, fset, t.Pos())
 					fmt.Fprintf(sb, "_ = %s()\n", callTarget)
 				} else {
 					// Build the SAME props literal as the emitter via childPropsLiteral,
@@ -469,8 +510,12 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 						return "_gsxrt.Node(nil)", nil
 					})
 					if err != nil {
+						// childPropsLiteral returns an *attrError with the offending attr's
+						// position embedded. Propagate it as-is so the batch.go sink can emit
+						// a positioned diagnostic (not positionless).
 						return err
 					}
+					emitSkeletonLine(sb, fset, t.Pos())
 					fmt.Fprintf(sb, "_ = %s(%s{%s})\n", callTarget, propsType, fields)
 				}
 				// Probe slot content in the SAME canonical order collectExprs walks:
@@ -480,12 +525,12 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					if probeErr != nil {
 						return
 					}
-					probeErr = emitProbes(sb, value, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters)
+					probeErr = emitProbes(sb, value, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters, fset)
 				})
 				if probeErr != nil {
 					return probeErr
 				}
-				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters); err != nil {
+				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters, fset); err != nil {
 					return err
 				}
 			} else {
@@ -503,6 +548,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 						probeErr = err
 						return
 					}
+					emitSkeletonLine(sb, fset, ea.Pos())
 					fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 				})
 				if probeErr != nil {
@@ -515,34 +561,34 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					if probeErr != nil {
 						return
 					}
-					probeErr = emitProbes(sb, value, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters)
+					probeErr = emitProbes(sb, value, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters, fset)
 				})
 				if probeErr != nil {
 					return probeErr
 				}
-				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters); err != nil {
+				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters, fset); err != nil {
 					return err
 				}
 			}
 		case *gsxast.Fragment:
-			if err := emitProbes(sb, t.Children, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters); err != nil {
+			if err := emitProbes(sb, t.Children, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters, fset); err != nil {
 				return err
 			}
 		case *gsxast.ForMarkup:
 			fmt.Fprintf(sb, "for %s {\n", t.Clause)
-			if err := emitProbes(sb, t.Body, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters); err != nil {
+			if err := emitProbes(sb, t.Body, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters, fset); err != nil {
 				return err
 			}
 			sb.WriteString("}\n")
 		case *gsxast.IfMarkup:
 			fmt.Fprintf(sb, "if %s {\n", t.Cond)
-			if err := emitProbes(sb, t.Then, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters); err != nil {
+			if err := emitProbes(sb, t.Then, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters, fset); err != nil {
 				return err
 			}
 			sb.WriteString("}")
 			if t.Else != nil {
 				sb.WriteString(" else {\n")
-				if err := emitProbes(sb, t.Else, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters); err != nil {
+				if err := emitProbes(sb, t.Else, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters, fset); err != nil {
 					return err
 				}
 				sb.WriteString("}")
@@ -556,7 +602,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				} else {
 					fmt.Fprintf(sb, "case %s:\n", cc.List)
 				}
-				if err := emitProbes(sb, cc.Body, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters); err != nil {
+				if err := emitProbes(sb, cc.Body, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters, fset); err != nil {
 					return err
 				}
 			}
@@ -567,6 +613,27 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 		}
 	}
 	return nil
+}
+
+// emitSkeletonLine writes a //line directive into a skeleton strings.Builder,
+// mapping subsequent source to the .gsx file position, so go/types errors
+// produced by the type-checker (via pkg.Fset which honors //line directives)
+// resolve to .gsx file:line:col instead of the generated overlay .x.go.
+// fset may be nil (e.g. in test-only callers); in that case no directive is emitted.
+//
+// TODO(column-accuracy): the .gsx FILE and LINE are exact, but the reported
+// COLUMN is skeleton-relative — it is offset by the probe wrapper (e.g.
+// `_gsxuse(`) and, for child-component prop errors, points inside the generated
+// props literal rather than the .gsx source. Anchoring at the user expression's
+// start (an expression-start token.Pos on ast.Interp, plus per-probe column
+// compensation `col = srcCol - skeletonCol + 1`) would make the column exact.
+// Deferred to a follow-up (Slice 2): file+line is the Slice-1 promise and is met.
+func emitSkeletonLine(sb *strings.Builder, fset *token.FileSet, pos token.Pos) {
+	if fset == nil || !pos.IsValid() {
+		return
+	}
+	p := fset.Position(pos)
+	fmt.Fprintf(sb, "//line %s:%d:%d\n", p.Filename, p.Line, p.Column)
 }
 
 // probeExpr returns the Go expression to probe for an interpolation / expr-attr.
@@ -1297,6 +1364,70 @@ func splitChunk(src string) (imports []importSpec, body string, err error) {
 	}
 	b.WriteString(src[prev:])
 	return imports, strings.TrimSpace(b.String()), nil
+}
+
+// emitComponentStub emits a minimal valid Go func/method stub for a component
+// whose skeleton would otherwise be invalid (reserved param/recv, parse error).
+// The stub keeps the skeleton valid Go and ensures user GoChunk imports are not
+// spuriously flagged as "imported and not used". The body returns nil — no type
+// probes are emitted; genComponent re-encounters the validation error at emit
+// time and records a positioned diagnostic.
+//
+// params is the parsed parameter list (may be nil if parsing failed). When
+// non-nil, a props struct is emitted so param type references (e.g. gsx.Node)
+// in user GoChunk imports remain "used" in the skeleton.
+//
+// withRecv controls whether the method receiver clause is emitted (true for
+// most cases; false when parseRecv itself failed and c.Recv is bad syntax).
+//
+// CRITICAL: the stub props struct MUST mirror the Children/Attrs field synthesis
+// that emitComponentSkeleton/genComponent use — otherwise a sibling that
+// instantiates the bad component WITH CHILDREN will get a spurious "unknown field
+// Children" type error from the overlay, masking the real diagnostic. We use the
+// SAME gating (usesChildren / singleRoot / usesAttrs) on the body so the stub
+// struct shape matches what siblings reference.
+func emitComponentStub(sb *strings.Builder, c *gsxast.Component, params []param, withRecv bool) {
+	propsName := c.Name + "Props"
+	// MIRROR emitComponentSkeleton: compute Children/Attrs gates from the body.
+	hasChildren := usesChildren(c.Body)
+	_, hasRoot := singleRoot(c.Body)
+	manual := usesAttrs(c.Body)
+	// MIRROR emitComponentSkeleton line 380: hasFallthrough gating.
+	hasFallthrough := (hasRoot && (c.Recv == "" || len(params) > 0 || hasChildren)) || manual
+	// MIRROR emitComponentSkeleton line 384: hasProps gating.
+	// When params is nil (parse failed), treat as len(params)==0 for gating.
+	hasProps := c.Recv == "" || len(params) > 0 || hasChildren || hasFallthrough
+	// Track which field names the params already declare (e.g. a bad param named
+	// "children" → field "Children") so we do not double-declare the synthesized
+	// Children/Attrs fields and produce a "redeclared" type-error in the overlay.
+	paramFields := make(map[string]bool, len(params))
+	for _, p := range params {
+		paramFields[fieldName(p.name)] = true
+	}
+	if hasProps {
+		fmt.Fprintf(sb, "type %s struct {\n", propsName)
+		for _, p := range params {
+			fmt.Fprintf(sb, "\t%s %s\n", fieldName(p.name), p.typ)
+		}
+		if hasChildren && !paramFields["Children"] {
+			sb.WriteString("\tChildren _gsxrt.Node\n")
+		}
+		if hasFallthrough && !paramFields["Attrs"] {
+			sb.WriteString("\tAttrs _gsxrt.Attrs\n")
+		}
+		sb.WriteString("}\n")
+		if withRecv && c.Recv != "" {
+			fmt.Fprintf(sb, "func %s %s(_gsxp %s) _gsxrt.Node { return nil }\n", c.Recv, c.Name, propsName)
+		} else {
+			fmt.Fprintf(sb, "func %s(_gsxp %s) _gsxrt.Node { return nil }\n", c.Name, propsName)
+		}
+	} else {
+		if withRecv && c.Recv != "" {
+			fmt.Fprintf(sb, "func %s %s() _gsxrt.Node { return nil }\n", c.Recv, c.Name)
+		} else {
+			fmt.Fprintf(sb, "func %s() _gsxrt.Node { return nil }\n", c.Name)
+		}
+	}
 }
 
 // fieldName maps a param name to its props struct field (first letter upper).

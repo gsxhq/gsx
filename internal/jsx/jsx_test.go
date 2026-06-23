@@ -66,7 +66,7 @@ func TestResolveScriptsContexts(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			f, el := parseScript(t, tc.body)
-			if err := ResolveScripts(f); err != nil {
+			if err := ResolveScriptsErr(f); err != nil {
 				t.Fatalf("ResolveScripts: %v", err)
 			}
 			got := interps(el)
@@ -86,7 +86,7 @@ func TestResolveScriptsTemplateExprUntouchedDollar(t *testing.T) {
 	// The JS ${js} in template text is NOT a gsx hole (gsx holes are @{ }).
 	// Only @{ g } is an Interp; ${js} stays literal in the Text node.
 	f, el := parseScript(t, "let s = `t ${js} @{ g }`")
-	if err := ResolveScripts(f); err != nil {
+	if err := ResolveScriptsErr(f); err != nil {
 		t.Fatal(err)
 	}
 	var joined strings.Builder
@@ -115,7 +115,7 @@ func TestResolveScriptsCommentUnsplit(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			f, el := parseScript(t, tc.body)
-			if err := ResolveScripts(f); err != nil {
+			if err := ResolveScriptsErr(f); err != nil {
 				t.Fatalf("ResolveScripts: %v", err)
 			}
 			if n := len(interps(el)); n != 0 {
@@ -149,7 +149,7 @@ func TestResolveScriptsErrors(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			f, _ := parseScript(t, tc.body)
-			if err := ResolveScripts(f); err == nil {
+			if err := ResolveScriptsErr(f); err == nil {
 				t.Fatalf("expected error for %q, got nil", tc.body)
 			}
 		})
@@ -163,7 +163,7 @@ func TestResolveScriptsIgnoresStyle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ResolveScripts(f); err != nil {
+	if err := ResolveScriptsErr(f); err != nil {
 		t.Fatal(err)
 	}
 	comp := f.Decls[0].(*ast.Component)
@@ -186,7 +186,7 @@ func TestResolveScriptsIgnoresStyle(t *testing.T) {
 func TestResolveScriptsHolelessUnchanged(t *testing.T) {
 	f, el := parseScript(t, `var x = 1;`)
 	before := len(el.Children)
-	if err := ResolveScripts(f); err != nil {
+	if err := ResolveScriptsErr(f); err != nil {
 		t.Fatal(err)
 	}
 	if len(el.Children) != before {
@@ -206,7 +206,7 @@ func TestResolveDataIsland(t *testing.T) {
 	t.Run("bare value", func(t *testing.T) {
 		f, el := parseScript(t, `@{ data }`)
 		setType(el, "application/json")
-		if err := ResolveScripts(f); err != nil {
+		if err := ResolveScriptsErr(f); err != nil {
 			t.Fatalf("ResolveScripts: %v", err)
 		}
 		ins := interps(el)
@@ -217,7 +217,7 @@ func TestResolveDataIsland(t *testing.T) {
 	t.Run("whitespace padded", func(t *testing.T) {
 		f, el := parseScript(t, `  @{ data }  `)
 		setType(el, "application/json")
-		if err := ResolveScripts(f); err != nil {
+		if err := ResolveScriptsErr(f); err != nil {
 			t.Fatalf("ResolveScripts: %v", err)
 		}
 		ins := interps(el)
@@ -228,14 +228,14 @@ func TestResolveDataIsland(t *testing.T) {
 	t.Run("multiple holes rejected", func(t *testing.T) {
 		f, el := parseScript(t, `@{ a } @{ b }`)
 		setType(el, "application/json")
-		if err := ResolveScripts(f); err == nil {
+		if err := ResolveScriptsErr(f); err == nil {
 			t.Fatal("expected error for multiple holes, got nil")
 		}
 	})
 	t.Run("literal text rejected", func(t *testing.T) {
 		f, el := parseScript(t, `[@{ a }]`)
 		setType(el, "application/json")
-		if err := ResolveScripts(f); err == nil {
+		if err := ResolveScriptsErr(f); err == nil {
 			t.Fatal("expected error for literal text, got nil")
 		}
 	})
@@ -244,7 +244,7 @@ func TestResolveDataIsland(t *testing.T) {
 		// (non-value) position and must fail closed on the JS path, unchanged.
 		f, el := parseScript(t, `@{ data }`)
 		setType(el, "module")
-		if err := ResolveScripts(f); err == nil {
+		if err := ResolveScriptsErr(f); err == nil {
 			t.Fatal("expected fail-closed error for bare hole in type=module script, got nil")
 		}
 	})

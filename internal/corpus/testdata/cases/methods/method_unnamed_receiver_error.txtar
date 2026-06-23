@@ -7,4 +7,4 @@ component (UsersPage) X() {
 	<p>x</p>
 }
 -- diagnostics.golden --
-codegen: method component receiver must be named, e.g. (p T) — got "(UsersPage)"
+5:1: method component receiver must be named, e.g. (p T) — got "(UsersPage)"

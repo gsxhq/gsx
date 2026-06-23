@@ -3,4 +3,4 @@ package views
 
 component Hi(name string) { <p>{ name |> upper? }</p> }
 -- diagnostics.golden --
-codegen: `?` try-marker on filter "upper" not supported yet
+`?` try-marker on filter "upper" not supported yet

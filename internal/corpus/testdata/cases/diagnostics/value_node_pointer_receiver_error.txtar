@@ -19,4 +19,4 @@ component Show(widget Widget) {
 	<div>{widget}</div>
 }
 -- diagnostics.golden --
-cases/diagnostics_value_node_pointer_receiver_error/input.gsx: codegen: interpolation "widget" has type corpustest/cases/diagnostics_value_node_pointer_receiver_error.Widget; not a renderable type
+4:7: interpolation "widget" has type corpustest/cases/diagnostics_value_node_pointer_receiver_error.Widget; not a renderable type

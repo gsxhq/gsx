@@ -7,8 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"sort"
+	"strings"
 
 	"github.com/gsxhq/gsx/internal/attrclass"
+	"github.com/gsxhq/gsx/internal/diag"
 )
 
 // Option configures Main. It is the option SHAPE for the gen composition root;
@@ -190,18 +193,30 @@ func runClean(args []string, stdout, stderr io.Writer) int {
 
 // runGenerate runs the generate command over paths (default ["."]) and prints a
 // summary. It distinguishes a usage error (a path that does not exist →
-// discovery fails with no per-package errors → exit 2) from a codegen error (one
-// or more packages failed → exit 1). Success returns 0.
+// discovery fails → exit 2) from a codegen error (one or more error-severity
+// diagnostics → exit 1). Success returns 0.
 // noCache bypasses the content-hash cache and forces a full regeneration.
 func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string, cls *attrclass.Classifier, predLabel string, cssMin, jsMin func(string) (string, error)) int {
 	gfs := flag.NewFlagSet("generate", flag.ContinueOnError)
 	gfs.SetOutput(stderr)
 	var nocacheFlag bool
+	var jsonFlag bool
 	gfs.BoolVar(&nocacheFlag, "no-cache", noCache, "bypass the content-hash cache; regenerate all")
-	if err := gfs.Parse(args); err != nil {
+	gfs.BoolVar(&jsonFlag, "json", false, "emit diagnostics as a JSON array to stdout")
+	// Partition args into flag tokens (starting with "-") and positional paths
+	// so that flags work in any position relative to path arguments.
+	// Note: only boolean flags are supported here; -flag value pairs are not.
+	var flagArgs, paths []string
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") {
+			flagArgs = append(flagArgs, a)
+		} else {
+			paths = append(paths, a)
+		}
+	}
+	if err := gfs.Parse(flagArgs); err != nil {
 		return 2
 	}
-	paths := gfs.Args()
 	if len(paths) == 0 {
 		paths = []string{"."}
 	}
@@ -210,17 +225,52 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 	useCache := !nocacheFlag && cssMin == nil && jsMin == nil
 	res, err := generateCached(paths, filterPkgs, cls, predLabel, useCache, cssMin, jsMin)
 
+	// Operational errors (I/O, module-graph failures): these are not diagnostics.
+	// Print each with the gsx: prefix and return early.
 	if len(res.Errs) > 0 {
-		// Codegen failures: report each, exit 1.
 		for _, e := range res.Errs {
 			fmt.Fprintf(stderr, "gsx: %v\n", e)
 		}
 		return 1
 	}
-	if err != nil {
-		// No per-package errors but Generate failed → discovery/usage error.
+	// If generate failed with no operational errors and no error diagnostics,
+	// it must be a discovery/usage error (e.g. path does not exist).
+	if err != nil && !anyErrorDiag(res.Diags) {
 		fmt.Fprintf(stderr, "gsx: %v\n", err)
 		return 2
+	}
+
+	// Sort the merged diagnostics deterministically: filename→line→column.
+	sort.SliceStable(res.Diags, func(i, j int) bool {
+		a, b := res.Diags[i].Start, res.Diags[j].Start
+		if a.Filename != b.Filename {
+			return a.Filename < b.Filename
+		}
+		if a.Line != b.Line {
+			return a.Line < b.Line
+		}
+		return a.Column < b.Column
+	})
+
+	// Render diagnostics.
+	if jsonFlag {
+		// JSON mode: write to stdout, nothing to stderr.
+		_ = diag.RenderJSON(stdout, res.Diags)
+	} else if isTTY(stderr) {
+		// Rich mode: rustc-style with source snippet + caret.
+		src := func(name string) ([]byte, bool) {
+			b, e := os.ReadFile(name)
+			return b, e == nil
+		}
+		diag.RenderRich(stderr, res.Diags, src)
+	} else {
+		// Compact mode: one line per diagnostic.
+		diag.RenderCompact(stderr, res.Diags)
+	}
+
+	// Exit 1 if any error-severity diagnostic.
+	if anyErrorDiag(res.Diags) {
+		return 1
 	}
 
 	if quiet {
@@ -235,6 +285,20 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 		fmt.Fprintf(stdout, "gsx: wrote %d file(s)\n", n)
 	}
 	return 0
+}
+
+// isTTY reports whether w is a character device (i.e., a terminal). Uses only
+// stdlib: checks os.ModeCharDevice on the file's mode bits.
+func isTTY(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	fi, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
 }
 
 // version reports the gsx version from the build info's main module, or

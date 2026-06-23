@@ -125,8 +125,8 @@ func TestGenerateNestedDirs(t *testing.T) {
 }
 
 // TestGeneratePartialFailure proves a codegen error in one dir is reported
-// (naming the dir) and writes nothing for that dir, while a good dir in the
-// same call IS written.
+// (as an error-severity diagnostic naming the bad file) and writes nothing for
+// that dir, while a good dir in the same call IS written.
 func TestGeneratePartialFailure(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
@@ -142,8 +142,16 @@ func TestGeneratePartialFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected a non-nil combined error, got nil")
 	}
-	if !strings.Contains(err.Error(), badDir) {
-		t.Fatalf("expected error to name the bad dir %q, got: %v", badDir, err)
+	// Error diagnostics now live in res.Diags (not res.Errs).
+	var badFileDiag bool
+	for _, d := range res.Diags {
+		if strings.Contains(d.Start.Filename, badDir) {
+			badFileDiag = true
+			break
+		}
+	}
+	if !badFileDiag {
+		t.Fatalf("expected an error diagnostic with a file path under the bad dir %q; diags: %v", badDir, res.Diags)
 	}
 	// Bad dir: nothing written.
 	if _, statErr := os.Stat(filepath.Join(badDir, "bad.x.go")); statErr == nil {
@@ -156,8 +164,9 @@ func TestGeneratePartialFailure(t *testing.T) {
 	if len(res.Written) != 1 {
 		t.Fatalf("expected 1 written (good dir), got %d: %v", len(res.Written), res.Written)
 	}
-	if len(res.Errs) != 1 {
-		t.Fatalf("expected 1 err (bad dir), got %d: %v", len(res.Errs), res.Errs)
+	// Operational errors (I/O, load failures) must be empty — codegen errors are in res.Diags.
+	if len(res.Errs) != 0 {
+		t.Fatalf("expected 0 operational errs (codegen errors go to res.Diags), got %d: %v", len(res.Errs), res.Errs)
 	}
 }
 

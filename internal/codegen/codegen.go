@@ -18,6 +18,7 @@ import (
 
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/attrclass"
+	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/jsx"
 	"github.com/gsxhq/gsx/internal/wsnorm"
 	gsxparser "github.com/gsxhq/gsx/parser"
@@ -55,6 +56,7 @@ func GeneratePackageWithFilters(dir string, filterPkgs []string, cls *attrclass.
 		return nil, err
 	}
 	fset := token.NewFileSet()
+	bag := diag.NewBag(fset)
 	files := map[string]*gsxast.File{}
 	for _, m := range matches {
 		src, err := os.ReadFile(m)
@@ -72,8 +74,11 @@ func GeneratePackageWithFilters(dir string, filterPkgs []string, cls *attrclass.
 		// Classify each <script> @{ } hole's JS context (and un-split comment holes
 		// to literal text) BEFORE type resolution + emit. Fails closed on an
 		// unsafe/ambiguous position, surfacing as this file's codegen diagnostic.
-		if err := jsx.ResolveScripts(f); err != nil {
-			return nil, fmt.Errorf("%s: %w", m, err)
+		if !jsx.ResolveScripts(f, bag) {
+			if diags := bag.Sorted(); len(diags) > 0 {
+				return nil, fmt.Errorf("%s: %s", m, diags[0].Message)
+			}
+			return nil, fmt.Errorf("%s: jsx: unclassifiable error", m)
 		}
 		files[m] = f
 	}
@@ -90,16 +95,20 @@ func GeneratePackageWithFilters(dir string, filterPkgs []string, cls *attrclass.
 		return nil, err
 	}
 
-	resolved, table, err := resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, filterPkgs)
+	resolved, table, err := resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, filterPkgs, fset)
 	if err != nil {
 		return nil, err
 	}
 
 	out := map[string][]byte{}
 	for path, file := range files {
-		gen, err := generateFile(file, resolved, table, propFields, nodeProps, fset, cls, cssMin, jsMin)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
+		gen, genOK := generateFile(file, resolved, table, propFields, nodeProps, fset, cls, bag, cssMin, jsMin)
+		if !genOK {
+			// Collect diagnostics from bag into an error for the legacy single-package API.
+			if diags := bag.Sorted(); len(diags) > 0 {
+				return nil, fmt.Errorf("%s: %s", path, diags[len(diags)-1].Message)
+			}
+			return nil, fmt.Errorf("%s: codegen: unknown error", path)
 		}
 		out[path] = gen
 	}

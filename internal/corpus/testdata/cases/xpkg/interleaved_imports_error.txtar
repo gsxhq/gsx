@@ -11,4 +11,4 @@ component Bad() {
 	<p>{helper()}</p>
 }
 -- diagnostics.golden --
-codegen: invalid Go in pass-through block: 6:1: imports must appear before other declarations
+invalid Go in pass-through block: 6:1: imports must appear before other declarations

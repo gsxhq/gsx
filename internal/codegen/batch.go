@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"errors"
 	"fmt"
 	"go/token"
 	"go/types"
@@ -12,6 +13,7 @@ import (
 
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/attrclass"
+	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/jsx"
 	"github.com/gsxhq/gsx/internal/wsnorm"
 	gsxparser "github.com/gsxhq/gsx/parser"
@@ -19,8 +21,9 @@ import (
 
 // PackageResult is the per-package outcome of GeneratePackages.
 type PackageResult struct {
-	Files map[string][]byte // .gsx path -> generated .x.go source
-	Err   error             // non-nil if THIS package failed parse / type resolution
+	Files map[string][]byte  // .gsx path -> generated .x.go source
+	Diags []diag.Diagnostic  // all diagnostics collected for this package
+	Err   error              // transition sentinel: non-nil if any Error-severity diagnostic (until consumers read Diags)
 }
 
 // GeneratePackagesWithFilters generates .x.go for every .gsx across the given
@@ -60,25 +63,36 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 	// Shared fset for ALL parses in this call — positions/harvest rely on it.
 	fset := token.NewFileSet()
 
+	// Per-package diagnostic bags — keyed by the same abs dir as result.
+	// Each bag holds the shared parse fset so AST token.Pos values resolve
+	// correctly. Type errors (from pkg.Fset) are added pre-resolved via Add.
+	bags := make(map[string]*diag.Bag, len(absDirs))
+	for _, dir := range absDirs {
+		bags[dir] = diag.NewBag(fset)
+	}
+
 	// Step 1: parse .gsx files per dir. Exclude dirs with parse errors.
 	filesByDir := make(map[string]map[string]*gsxast.File, len(absDirs))
 	for _, dir := range absDirs {
+		bag := bags[dir]
 		matches, err := filepath.Glob(filepath.Join(dir, "*.gsx"))
 		if err != nil {
-			result[dir].Err = err
+			bag.Add(diag.Diagnostic{Severity: diag.Error, Message: err.Error(), Source: "parser"})
 			continue
 		}
 		files := make(map[string]*gsxast.File, len(matches))
-		var parseErr error
+		hasErr := false
 		for _, m := range matches {
 			src, err := os.ReadFile(m)
 			if err != nil {
-				parseErr = err
+				bag.Add(diag.Diagnostic{Severity: diag.Error, Message: err.Error(), Source: "parser"})
+				hasErr = true
 				break
 			}
 			f, err := gsxparser.ParseFileWithClassifier(fset, m, src, 0, cls)
 			if err != nil {
-				parseErr = fmt.Errorf("%s: %w", m, err)
+				bag.Add(diag.Diagnostic{Severity: diag.Error, Message: fmt.Sprintf("%s: %s", m, err.Error()), Source: "parser"})
+				hasErr = true
 				break
 			}
 			// JSX whitespace pass before resolution + emit (mirror codegen.go).
@@ -86,14 +100,13 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 			// Classify <script> @{ } JS contexts + un-split comment holes before
 			// resolution/emit (mirror codegen.go). Fails closed; surfaces as this
 			// package's codegen diagnostic.
-			if err := jsx.ResolveScripts(f); err != nil {
-				parseErr = fmt.Errorf("%s: %w", m, err)
+			if !jsx.ResolveScripts(f, bag) {
+				hasErr = true
 				break
 			}
 			files[m] = f
 		}
-		if parseErr != nil {
-			result[dir].Err = parseErr
+		if hasErr {
 			continue
 		}
 		filesByDir[dir] = files
@@ -111,7 +124,7 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 		}
 		pf, np, err := componentPropFieldsFor(files)
 		if err != nil {
-			result[dir].Err = err
+			bags[dir].Add(diag.Diagnostic{Severity: diag.Error, Message: err.Error(), Source: "codegen"})
 			delete(filesByDir, dir)
 			continue
 		}
@@ -147,9 +160,17 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 		np := nodePropsByDir[dir]
 		skeletonErr := false
 		for path, file := range files {
-			skel, comps, err := buildSkeleton(file, table, pf, np)
+			skel, comps, err := buildSkeleton(file, table, pf, np, fset)
 			if err != nil {
-				result[dir].Err = err
+				// An attrError carries the offending attr's position and a diagnostic
+				// code — emit a positioned diagnostic. Any other error is an infrastructure
+				// failure recorded positionlessly (with the "codegen: " prefix stripped).
+				var ae *attrError
+				if errors.As(err, &ae) {
+					bags[dir].Errorf(ae.pos, ae.end, ae.code, "%s", ae.msg)
+				} else {
+					bags[dir].Add(diag.Diagnostic{Severity: diag.Error, Message: strings.TrimPrefix(err.Error(), "codegen: "), Source: "codegen"})
+				}
 				delete(filesByDir, dir)
 				skeletonErr = true
 				break
@@ -166,7 +187,7 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 		// Per-dir shared _gsxuse helper — mirror resolveTypesPkg exactly.
 		sharedPath, err := freeOverlayPath(dir, "gsxshared", ".x.go", overlay)
 		if err != nil {
-			result[dir].Err = err
+			bags[dir].Add(diag.Diagnostic{Severity: diag.Error, Message: err.Error(), Source: "codegen"})
 			delete(filesByDir, dir)
 			continue
 		}
@@ -224,8 +245,44 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 			continue // dir was excluded due to earlier error
 		}
 
+		// Collect ALL type errors into the bag (positioned via pkg.Fset which
+		// resolves //line directives back to the .gsx source file).
+		if len(pkg.TypeErrors) > 0 {
+			pkgBag := bags[pkgDir]
+			for _, e := range pkg.TypeErrors {
+				p := e.Fset.Position(e.Pos)
+				pkgBag.Add(diag.Diagnostic{
+					Start:    p,
+					End:      p,
+					Severity: diag.Error,
+					Message:  e.Msg,
+					Source:   "types",
+				})
+			}
+			// Also capture any non-type pkg errors (load/list errors) as positionless.
+			for _, pe := range pkg.Errors {
+				if pe.Kind != packages.TypeError {
+					pkgBag.Add(diag.Diagnostic{
+						Severity: diag.Error,
+						Message:  pe.Msg,
+						Source:   "loader",
+					})
+				}
+			}
+			delete(filesByDir, pkgDir) // exclude from codegen step
+			continue
+		}
+
+		// Even if there are no TypeErrors, check for other (load/list) errors.
 		if len(pkg.Errors) > 0 {
-			result[pkgDir].Err = fmt.Errorf("codegen: type resolution failed: %s", pkg.Errors[0])
+			pkgBag := bags[pkgDir]
+			for _, pe := range pkg.Errors {
+				pkgBag.Add(diag.Diagnostic{
+					Severity: diag.Error,
+					Message:  pe.Msg,
+					Source:   "loader",
+				})
+			}
 			delete(filesByDir, pkgDir) // exclude from codegen step
 			continue
 		}
@@ -247,14 +304,27 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 			continue // excluded
 		}
 		pf := propFieldsByDir[dir]
+		bag := bags[dir]
 		np := nodePropsByDir[dir]
 		for path, file := range files {
-			gen, err := generateFile(file, resolved, table, pf, np, fset, cls, cssMin, jsMin)
-			if err != nil {
-				result[dir].Err = fmt.Errorf("%s: %w", path, err)
-				break
+			gen, genOK := generateFile(file, resolved, table, pf, np, fset, cls, bag, cssMin, jsMin)
+			if !genOK {
+				// Diagnostics already in bag; skip writing this file but continue
+				// processing other files in the package so all errors are reported.
+				_ = path
+				continue
 			}
 			result[dir].Files[path] = gen
+		}
+	}
+
+	// Finalize: populate Diags and set transition sentinel Err on each package.
+	errDiagReported := errors.New("codegen: diagnostics reported")
+	for _, dir := range absDirs {
+		bag := bags[dir]
+		result[dir].Diags = bag.Sorted()
+		if bag.HasErrors() {
+			result[dir].Err = errDiagReported
 		}
 	}
 

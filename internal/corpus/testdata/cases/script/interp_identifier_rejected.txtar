@@ -7,4 +7,4 @@ component Page() {
 	</script>
 }
 -- diagnostics.golden --
-cases/script_interp_identifier_rejected/input.gsx: jsx: @{ } at N here is not a safe JavaScript value position (it looks like an identifier/binding); wrap the value where it is used as a value, or use a data attribute
+5:8: jsx: @{ } here is not a safe JavaScript value position (it looks like an identifier/binding); wrap the value where it is used as a value, or use a data attribute

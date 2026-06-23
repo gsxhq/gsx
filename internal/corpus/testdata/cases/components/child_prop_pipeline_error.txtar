@@ -5,4 +5,4 @@ component Card(title string) { <div>{title}</div> }
 
 component Page(t string) { <Card title={t |> upper}/> }
 -- diagnostics.golden --
-codegen: pipeline/`?` on child-component prop "title" (<Card>) not supported yet
+5:34: pipeline/`?` on child-component prop "title" (<Card>) not supported yet

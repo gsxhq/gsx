@@ -1,0 +1,8 @@
+-- input.gsx --
+package views
+
+component Inner(title string) { <div>{title}</div> }
+
+component Page() { <Inner class={ "a" } title="y"/> }
+-- diagnostics.golden --
+5:27: class attribute on a component (<Inner>) not supported yet
