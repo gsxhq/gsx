@@ -15,6 +15,11 @@ import (
 // resolves the module root for a directory and runs the stock (std-filter)
 // codegen pipeline over that one package, returning its diagnostics. It never
 // writes .x.go to disk — only PackageResult.Diags is read.
+//
+// Slice-1 limitation: codegen discovers .gsx files by on-disk glob, so a buffer
+// opened in the editor but never saved to disk is not analyzed (its override is
+// never consulted). Editing existing .gsx files works; unsaved-new files are a
+// slice-2 follow-up.
 type lspAnalyzer struct{}
 
 func (lspAnalyzer) Diagnose(dir string, override map[string][]byte) ([]diag.Diagnostic, error) {

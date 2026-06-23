@@ -146,6 +146,12 @@ they need only encoding conversion, not a reverse map.
   debouncing is out of scope for slice 1 and tracked for a later perf slice,
   reusing the existing Tier 0/2 cache work.)
 
+> **Erratum (as built):** the shipped slice 1 re-checks **synchronously** on
+> every `didChange` — debounce was deferred within slice 1 to keep the loop
+> deterministic and testable (it is a pure latency optimization that does not
+> change published results). See the plan's "Out of scope for slice 1". The
+> debounce wrapper is a fast-follow.
+
 ### 4.4 Publishing diagnostics
 
 - Convert each `diag.Diagnostic` (1-based line/col, resolved `token.Position`) to
