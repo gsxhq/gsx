@@ -11,6 +11,7 @@ import (
 	"golang.org/x/tools/go/packages"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/jsx"
 	"github.com/gsxhq/gsx/internal/wsnorm"
 	gsxparser "github.com/gsxhq/gsx/parser"
@@ -30,7 +31,10 @@ type PackageResult struct {
 // error (parse or type-resolution) is recorded in that dir's PackageResult.Err
 // without failing the others. The returned map is keyed by the normalized
 // absolute dir.
-func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []string, cssMin, jsMin func(string) (string, error)) (map[string]*PackageResult, error) {
+func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []string, cls *attrclass.Classifier, cssMin, jsMin func(string) (string, error)) (map[string]*PackageResult, error) {
+	if cls == nil {
+		cls = attrclass.Builtin()
+	}
 	filterPkgs = dedupFilterPkgs(filterPkgs) // empty → [stdImportPath]
 
 	// Normalize each input dir to an absolute, clean path. If Abs fails for a
@@ -72,7 +76,7 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 				parseErr = err
 				break
 			}
-			f, err := gsxparser.ParseFile(fset, m, src, 0)
+			f, err := gsxparser.ParseFileWithClassifier(fset, m, src, 0, cls)
 			if err != nil {
 				parseErr = fmt.Errorf("%s: %w", m, err)
 				break
@@ -240,7 +244,7 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 		}
 		pf := propFieldsByDir[dir]
 		for path, file := range files {
-			gen, err := generateFile(file, resolved, table, pf, fset, cssMin, jsMin)
+			gen, err := generateFile(file, resolved, table, pf, fset, cls, cssMin, jsMin)
 			if err != nil {
 				result[dir].Err = fmt.Errorf("%s: %w", path, err)
 				break
@@ -255,5 +259,5 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 // GeneratePackages is GeneratePackagesWithFilters with the built-in std filter
 // package (kept for the test corpus and any std-only caller).
 func GeneratePackages(moduleDir string, dirs []string) (map[string]*PackageResult, error) {
-	return GeneratePackagesWithFilters(moduleDir, dirs, nil, nil, nil)
+	return GeneratePackagesWithFilters(moduleDir, dirs, nil, nil, nil, nil)
 }

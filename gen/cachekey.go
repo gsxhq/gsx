@@ -93,7 +93,9 @@ func dirSourceHash(dir string) (string, error) {
 // graph maps import paths to info; modPath is the module path; goModHash/
 // goSumHash/buildCtx/filterPkgs are the version pins. buildCtx is the output
 // of buildContext() and subsumes GOVERSION, GOOS, GOARCH, CGO_ENABLED, etc.
-func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumHash, buildCtx string, filterPkgs []string) (string, error) {
+// clsFingerprint is the attrclass.Classifier.Fingerprint() for the current run;
+// it ensures a changed attribute classification rule invalidates cached output.
+func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumHash, buildCtx string, filterPkgs []string, clsFingerprint string) (string, error) {
 	dir = filepath.Clean(dir)
 	own, err := dirSourceHash(dir)
 	if err != nil {
@@ -131,7 +133,7 @@ func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumH
 	pins := dedupSorted(filterPkgs)
 	h := sha256.New()
 	fmt.Fprintf(h, "gsxcache-v1\x00%s\x00%s\x00%s\x00%s\x00", codegen.Version(), buildCtx, goModHash, goSumHash)
-	fmt.Fprintf(h, "filters=%s\x00own=%s\x00", strings.Join(pins, "\x00"), own)
+	fmt.Fprintf(h, "filters=%s\x00cls=%s\x00own=%s\x00", strings.Join(pins, "\x00"), clsFingerprint, own)
 	for _, d := range depHashes {
 		fmt.Fprintf(h, "dep=%s\x00", d)
 	}

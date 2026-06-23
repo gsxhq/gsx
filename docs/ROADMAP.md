@@ -14,8 +14,8 @@ generator/CLI may use `golang.org/x/tools`.
 |---|---|
 | Parser + AST | ✅ done (Part 2 grammar + pipeline parsing) |
 | Runtime (`gsx`) | ✅ done |
-| Codegen | 🟡 interpolation + control flow + full attributes (security core, composable class, spread, conditional) + pipeline `\|>` + child props/`{children}` + method components + named slots + attribute fallthrough (auto class-merge/spread + manual `{...attrs}`) done; extension-seam/`style`-composition pending |
-| CLI / `gen.Main` | 🟡 `gsx generate` + `gsx info` + **`gsx fmt`** (canonical formatter, faithful+idempotent) runnable + **`gen.WithFilters`** user filter packages — `vet`/`WithClassMerger`/`lsp`, `--json`/`diag` pending |
+| Codegen | 🟡 interpolation + control flow + full attributes (security core, composable class, spread, conditional) + pipeline `\|>` + child props/`{children}` + method components + named slots + attribute fallthrough (auto class-merge/spread + manual `{...attrs}`) + **custom attribute classification** (`WithJSAttrs`/`WithURLAttrs`/`WithCSSAttrs` + `WithAttrClassifier` escape hatch; resolved-config manifest in build cache) done; `style`-composition pending — spec `2026-06-23-attr-classification-extensions-design.md`, plan `2026-06-23-attr-classification-extensions.md` |
+| CLI / `gen.Main` | 🟡 `gsx generate` + `gsx info` + **`gsx fmt`** (canonical formatter, faithful+idempotent) runnable + **`gen.WithFilters`** user filter packages + **`gsx info --json`** (resolved config: schemaVersion, module, userRules, hasPredicate, predicateLabel (omitempty), filters) — `vet`/`WithClassMerger`/`lsp`/`diag` pending |
 | Whitespace model | ✅ JSX-style: `internal/wsnorm.Normalize` (parser lossless) wired into codegen (indentation no longer rendered) + powers `gsx fmt`. render-faithful + idempotent over the whole corpus. |
 | Pipeline `|>` end-to-end | 🟡 lowering + `std` filters + **user filter packages** (`gen.WithFilters`, multi-pkg last-wins, per-pkg alias) done — per-stage `?` + initialism naming pending |
 
@@ -201,9 +201,11 @@ attribute-name validation against tag breakout (`validAttrName`), documented
   (`Generate(paths)` discovers `.gsx` recursively, codegens per package dir, writes
   `.x.go`), `gen.Main(...Option)` dispatch (`generate`/`version`/`help`, `-C`/`-q`/`-v`,
   exit 0/1/2), `cmd/gsx` stock binary. `//go:generate gsx generate` works.
-  **Pending:** `WithFilters`/`WithClassMerger` extension seam (+ marker types, per-pkg
-  filter qualification, last-wins); `internal/diag` + `--json` envelope + GSXnnnn codes;
-  `fmt` (needs an AST→source printer); `vet`/`lsp`/`render`/`info`/`explain`/`init`;
+  **Also shipped:** `WithFilters` + `WithCSSMinifier`/`WithJSMinifier` extension seam;
+  `WithJSAttrs`/`WithURLAttrs`/`WithCSSAttrs`/`WithAttrClassifier` attribute-classification
+  extensions; `gsx info --json` (resolved config manifest: schemaVersion, module,
+  userRules, hasPredicate, filters).
+  **Pending:** `WithClassMerger`; `internal/diag` + GSXnnnn codes; `vet`/`lsp`/`render`/`explain`/`init`;
   `--watch`/incremental; per-command flags (today flags must precede the command).
 - ⬜ **Codegen niceties** — coalesce adjacent `gw.S` static writes; `//line`
   trailing-state reset; `data:image` URL allowance.

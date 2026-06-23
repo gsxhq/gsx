@@ -50,7 +50,7 @@ func renderWithFilters(t *testing.T, myfilters string, views map[string]string, 
 		writeMultiFile(t, viewsDir, name, content)
 	}
 
-	gen, err := GeneratePackageWithFilters(viewsDir, filterPkgs, nil, nil)
+	gen, err := GeneratePackageWithFilters(viewsDir, filterPkgs, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("GeneratePackageWithFilters: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestMultiFilterUnknownErrors(t *testing.T) {
 	}
 	writeMultiFile(t, viewsDir, "views.gsx", "package views\n\ncomponent C(n string) {\n\t<p>{ n |> nope }</p>\n}\n")
 
-	_, err = GeneratePackageWithFilters(viewsDir, []string{stdImportPath, "gsxmf/myfilters"}, nil, nil)
+	_, err = GeneratePackageWithFilters(viewsDir, []string{stdImportPath, "gsxmf/myfilters"}, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for unknown filter \"nope\"")
 	}

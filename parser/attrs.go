@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
-	"github.com/gsxhq/gsx/internal/attrjs"
+	"github.com/gsxhq/gsx/internal/attrclass"
 )
 
 // splitComposed splits the inner source of a `class={ … }` / `style={ … }`
@@ -139,7 +139,7 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 	switch {
 	case p.at(`="`):
 		p.i += 2
-		if attrjs.IsJSAttr(name) {
+		if p.classifier.Context(name) == attrclass.CtxJS {
 			return p.parseJSAttrValue(name, attrStartPos)
 		}
 		vs := p.i

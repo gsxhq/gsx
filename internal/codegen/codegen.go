@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/jsx"
 	"github.com/gsxhq/gsx/internal/wsnorm"
 	gsxparser "github.com/gsxhq/gsx/parser"
@@ -27,7 +28,7 @@ import (
 // GeneratePackageWithFilters preserved for callers (and the test harness) that
 // do not configure custom filter packages.
 func GeneratePackage(dir string) (map[string][]byte, error) {
-	return GeneratePackageWithFilters(dir, []string{stdImportPath}, nil, nil)
+	return GeneratePackageWithFilters(dir, []string{stdImportPath}, nil, nil, nil)
 }
 
 // GeneratePackageWithFilters generates a .x.go for every .gsx file in dir,
@@ -44,7 +45,10 @@ func GeneratePackage(dir string) (map[string][]byte, error) {
 // (std → _gsxstd, every other package → _gsxf<i>). An empty filterPkgs defaults
 // to just the std package; duplicate paths are removed preserving first-seen
 // order (last-wins still applies to NAME collisions across distinct packages).
-func GeneratePackageWithFilters(dir string, filterPkgs []string, cssMin, jsMin func(string) (string, error)) (map[string][]byte, error) {
+func GeneratePackageWithFilters(dir string, filterPkgs []string, cls *attrclass.Classifier, cssMin, jsMin func(string) (string, error)) (map[string][]byte, error) {
+	if cls == nil {
+		cls = attrclass.Builtin()
+	}
 	filterPkgs = dedupFilterPkgs(filterPkgs)
 	matches, err := filepath.Glob(filepath.Join(dir, "*.gsx"))
 	if err != nil {
@@ -57,7 +61,7 @@ func GeneratePackageWithFilters(dir string, filterPkgs []string, cssMin, jsMin f
 		if err != nil {
 			return nil, err
 		}
-		f, err := gsxparser.ParseFile(fset, m, src, 0)
+		f, err := gsxparser.ParseFileWithClassifier(fset, m, src, 0, cls)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", m, err)
 		}
@@ -91,7 +95,7 @@ func GeneratePackageWithFilters(dir string, filterPkgs []string, cssMin, jsMin f
 
 	out := map[string][]byte{}
 	for path, file := range files {
-		gen, err := generateFile(file, resolved, table, propFields, fset, cssMin, jsMin)
+		gen, err := generateFile(file, resolved, table, propFields, fset, cls, cssMin, jsMin)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
