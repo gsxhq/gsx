@@ -62,6 +62,7 @@ diagnostics/reserved_param_emitted_import_gsx	diag(error)
 diagnostics/reserved_param_emitted_import_strconv	diag(error)
 diagnostics/reserved_param_gsx_prefix	diag(error)
 diagnostics/value_node_pointer_receiver_error	diag(error)
+doctype/render	diag render
 elements/fragment	diag render
 elements/named_scalar_types	diag render
 elements/node_slice	diag render
@@ -195,4 +196,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 197 cases (render: 144, error: 33, gen-pinned: 42)
+TOTAL: 198 cases (render: 145, error: 33, gen-pinned: 42)
