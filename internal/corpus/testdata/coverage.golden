@@ -96,6 +96,8 @@ jsattr/root_wins	diag render
 jsattr/string_hostile	diag gen render
 jsattr/tmpl_hostile	diag gen render
 jsattr/value_tuple	diag gen render
+jsattr/whole_value_bool	diag gen render
+jsattr/whole_value_map	diag gen render
 jsattr/xdata_literal_holes	diag gen render
 jsattr/xdata_whole_value	diag gen render
 methods/method_only_file_generates	diag
@@ -162,6 +164,7 @@ script/rawjs_passthrough	diag gen render
 script/regexp_hostile	diag gen render
 script/string_hostile	diag gen render
 script/tmpl_hostile	diag gen render
+script/value_nonstring	diag gen render
 script/value_tuple	diag gen render
 security/js_rejected_onclick	diag gen render
 security/js_rejected_style	diag render
@@ -183,4 +186,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 185 cases (render: 133, error: 32, gen-pinned: 36)
+TOTAL: 188 cases (render: 136, error: 32, gen-pinned: 39)
