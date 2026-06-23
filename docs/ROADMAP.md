@@ -15,7 +15,7 @@ generator/CLI may use `golang.org/x/tools`.
 | Parser + AST | ✅ done (Part 2 grammar + pipeline parsing) |
 | Runtime (`gsx`) | ✅ done |
 | Codegen | 🟡 interpolation + control flow + full attributes (security core, composable class, spread, conditional) + pipeline `\|>` + child props/`{children}` + method components + named slots + attribute fallthrough (auto class-merge/spread + manual `{...attrs}`) + **custom attribute classification** (`WithJSAttrs`/`WithURLAttrs`/`WithCSSAttrs` + `WithAttrClassifier` escape hatch; resolved-config manifest in build cache) done; `style`-composition pending — spec `2026-06-23-attr-classification-extensions-design.md`, plan `2026-06-23-attr-classification-extensions.md` |
-| CLI / `gen.Main` | 🟡 `gsx generate` + `gsx info` + **`gsx fmt`** (canonical formatter, faithful+idempotent) runnable + **`gen.WithFilters`** user filter packages + **`gsx info --json`** (resolved config: schemaVersion, module, userRules, hasPredicate, predicateLabel (omitempty), filters) + **`internal/diag`** structured diagnostics (resolved `token.Position` Start/End, severity, code, help, source; `Bag` collector; rich/compact/JSON renderers) + **`gsx generate --json`** (JSON array to stdout; rich on TTY, compact otherwise; exit 1 on any error-severity diagnostic) — `vet`/`WithClassMerger`/`lsp` pending |
+| CLI / `gen.Main` | 🟡 `gsx generate` + `gsx info` + **`gsx fmt`** (canonical formatter, faithful+idempotent) runnable + **`gen.WithFilters`** user filter packages + **`gsx info --json`** (resolved config: schemaVersion, module, userRules, hasPredicate, predicateLabel (omitempty), filters) + **`internal/diag`** structured diagnostics (resolved `token.Position` Start/End, severity, code, help, source; `Bag` collector; rich/compact/JSON renderers) + **`gsx generate --json`** (JSON array to stdout; rich on TTY, compact otherwise; exit 1 on any error-severity diagnostic) + **parser errors positioned + component-boundary recovery** (Slice 2: `file:line:col: error[syntax]: …`; parser resyncs at each `component` boundary) — `vet`/`WithClassMerger`/`lsp` pending |
 | Whitespace model | ✅ JSX-style: `internal/wsnorm.Normalize` (parser lossless) wired into codegen (indentation no longer rendered) + powers `gsx fmt`. render-faithful + idempotent over the whole corpus. |
 | Pipeline `|>` end-to-end | 🟡 lowering + `std` filters + **user filter packages** (`gen.WithFilters`, multi-pkg last-wins, per-pkg alias) done — per-stage `?` + initialism naming pending |
 
@@ -212,9 +212,26 @@ attribute-name validation against tag breakout (`validAttrName`), documented
   on success, exit 2 on fatal setup failure. Spec:
   `docs/superpowers/specs/2026-06-23-diagnostics-foundation-design.md`, plan:
   `docs/superpowers/plans/2026-06-23-diagnostics-foundation.md`.
-  **Parser error recovery is Slice 2 (PENDING)** — the parser still stops at the
-  first syntax error (wrapped as a single diagnostic); only the semantic layer
-  recovers in Slice 1.
+- ✅ **Structured diagnostics — Slice 2 (parser layer) SHIPPED** — parser errors
+  now carry structured `token.Pos` and render positioned: `index.gsx:21:4:
+  error[syntax]: mismatched close tag </Layout>, expected </h1>` (previously
+  the position was embedded inside the message text, behind a positionless
+  diagnostic). Implemented via `parser.Error{Pos, Msg}` + `p.errorf` accumulator.
+  **Component-boundary recovery:** a syntax error in one component no longer stops
+  the file — the parser resyncs to the next top-level `component` keyword and
+  continues, so a file reports **one diagnostic per broken component** (with a
+  forward-progress guarantee). `ParseFileWithClassifier` now returns
+  `(*ast.File, []Error)`; `ParseFile` keeps its single-`error` contract.
+  A package with any parser error skips type-resolution and emit (writes nothing)
+  — same all-or-nothing stance as Slice 1. New corpus cases prove it; CLI
+  verified end-to-end. **LSP-readiness:** the parser layer is now closed — all
+  of parser/types/codegen/jsx produce positioned, structured diagnostics through
+  one `diag.Bag`; "all diagnostics for a document" holds for parser + semantic
+  layers. **Deferred:** intra-component parser recovery (multiple syntax errors
+  within one component); type-errors-alongside-parser-errors (a syntax-broken
+  package skips semantic phases). Spec:
+  `docs/superpowers/specs/2026-06-24-parser-error-recovery-design.md`, plan:
+  `docs/superpowers/plans/2026-06-24-parser-error-recovery.md`.
 - 🟡 **CLI / `gen.Main`** — `gsx generate` SHIPPED: public `gen` package
   (`Generate(paths)` discovers `.gsx` recursively, codegens per package dir, writes
   `.x.go`), `gen.Main(...Option)` dispatch (`generate`/`version`/`help`, `-C`/`-q`/`-v`,
@@ -226,9 +243,14 @@ attribute-name validation against tag breakout (`validAttrName`), documented
   **Also shipped (diagnostics foundation):** `internal/diag` structured diagnostics +
   `gsx generate --json` + rich/TTY/compact renderer selection + error-severity exit codes;
   codegen+jsx positioned diagnostics; semantic-layer multi-error recovery; `normalizeDiag` removed.
+  **Also shipped (parser error recovery, Slice 2):** parser errors carry structured
+  `token.Pos`; render `file:line:col: error[syntax]: …`; component-boundary recovery
+  (one diagnostic per broken component; forward-progress guarantee); `ParseFileWithClassifier`
+  returns `(*ast.File, []Error)`; `ParseFile` retains single-`error` contract;
+  parser-error packages skip resolve/emit (all-or-nothing, same as Slice 1).
   **Pending:** `WithClassMerger`; GSXnnnn numeric codes; `vet`/`lsp`/`render`/`explain`/`init`;
   `--watch`/incremental; per-command flags (today flags must precede the command);
-  parser-layer error recovery (Slice 2).
+  intra-component parser recovery; type-errors-alongside-parser-errors.
 - ⬜ **Codegen niceties** — coalesce adjacent `gw.S` static writes; `//line`
   trailing-state reset; `data:image` URL allowance.
 
