@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gsxhq/gsx/internal/attrclass"
 )
 
 // TestRunInfoStd drives runInfo against the repo root (a module that resolves
@@ -16,7 +18,7 @@ func TestRunInfoStd(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	code := runInfo(&out, &bytes.Buffer{}, repoRoot, []string{stdImportPath})
+	code := runInfo(&out, &bytes.Buffer{}, repoRoot, []string{stdImportPath}, attrclass.Builtin(), "", nil)
 	if code != 0 {
 		t.Fatalf("runInfo exit = %d, want 0", code)
 	}
@@ -49,7 +51,7 @@ func TestRunInfoShadow(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	code := runInfo(&out, &bytes.Buffer{}, tmp, []string{stdImportPath, "gsxmf/myfilters"})
+	code := runInfo(&out, &bytes.Buffer{}, tmp, []string{stdImportPath, "gsxmf/myfilters"}, attrclass.Builtin(), "", nil)
 	if code != 0 {
 		t.Fatalf("runInfo exit = %d, want 0", code)
 	}
@@ -65,7 +67,7 @@ func TestRunInfoBadPkg(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errBuf bytes.Buffer
-	code := runInfo(&out, &errBuf, repoRoot, []string{"github.com/gsxhq/gsx/does-not-exist"})
+	code := runInfo(&out, &errBuf, repoRoot, []string{"github.com/gsxhq/gsx/does-not-exist"}, attrclass.Builtin(), "", nil)
 	if code != 1 {
 		t.Fatalf("runInfo exit = %d, want 1", code)
 	}

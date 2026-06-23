@@ -126,13 +126,13 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 	cmd, cmdArgs := rest[0], rest[1:]
 	switch cmd {
 	case "generate":
-		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, cfg.filterPkgs, cfg.classifier(), cfg.cssMin, cfg.jsMin)
+		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, cfg.filterPkgs, cfg.classifier(), cfg.predLabel, cfg.cssMin, cfg.jsMin)
 	case "clean":
 		return runClean(cmdArgs, stdout, stderr)
 	case "info":
 		// Resolve against cwd: -C (handled above) has already chdir'd, so "."
 		// anchors the go/packages load at the user's chosen directory.
-		return runInfo(stdout, stderr, ".", cfg.filterPkgs)
+		return runInfo(stdout, stderr, ".", cfg.filterPkgs, cfg.classifier(), cfg.predLabel, cmdArgs)
 	case "fmt":
 		return runFmt(stdout, stderr, cmdArgs)
 	case "version":
@@ -193,7 +193,7 @@ func runClean(args []string, stdout, stderr io.Writer) int {
 // discovery fails with no per-package errors → exit 2) from a codegen error (one
 // or more packages failed → exit 1). Success returns 0.
 // noCache bypasses the content-hash cache and forces a full regeneration.
-func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string, cls *attrclass.Classifier, cssMin, jsMin func(string) (string, error)) int {
+func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string, cls *attrclass.Classifier, predLabel string, cssMin, jsMin func(string) (string, error)) int {
 	gfs := flag.NewFlagSet("generate", flag.ContinueOnError)
 	gfs.SetOutput(stderr)
 	var nocacheFlag bool
@@ -208,7 +208,7 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 	// Bypass the cache when --no-cache is set OR when a custom minifier is
 	// configured: funcs are not hashable, so the cache cannot key on cssMin/jsMin.
 	useCache := !nocacheFlag && cssMin == nil && jsMin == nil
-	res, err := generateCached(paths, filterPkgs, cls, useCache, cssMin, jsMin)
+	res, err := generateCached(paths, filterPkgs, cls, predLabel, useCache, cssMin, jsMin)
 
 	if len(res.Errs) > 0 {
 		// Codegen failures: report each, exit 1.

@@ -12,7 +12,7 @@ import (
 	"github.com/gsxhq/gsx/internal/codegen"
 )
 
-func generateCached(paths, filterPkgs []string, cls *attrclass.Classifier, useCache bool, cssMin, jsMin func(string) (string, error)) (Result, error) {
+func generateCached(paths, filterPkgs []string, cls *attrclass.Classifier, predLabel string, useCache bool, cssMin, jsMin func(string) (string, error)) (Result, error) {
 	var res Result
 	dirs, err := discoverDirs(paths)
 	if err != nil {
@@ -120,6 +120,19 @@ func generateCached(paths, filterPkgs []string, cls *attrclass.Classifier, useCa
 	if len(res.Errs) > 0 {
 		return res, errors.Join(res.Errs...)
 	}
+
+	// Persist the resolved config manifest so external tools can consume it
+	// without re-running gsx. Best-effort: manifest write must never fail the
+	// build.
+	if enabled && modPath != "" && len(res.Errs) == 0 {
+		filters, _ := codegen.ResolveFilters(root, filterPkgs) // best-effort
+		mf := make([]manifestFilter, 0, len(filters))
+		for _, fi := range filters {
+			mf = append(mf, manifestFilter{Name: fi.Name, Pkg: fi.Pkg, Func: fi.Func})
+		}
+		_ = saveManifest(cdir, modPath, buildManifest(modPath, cls, predLabel, mf))
+	}
+
 	return res, nil
 }
 
