@@ -96,6 +96,9 @@ jsattr/caller_wins	diag render
 jsattr/click_rawjs	diag gen render
 jsattr/jsattr_breakout	diag gen render
 jsattr/jsattr_identifier_rejected	diag(error)
+jsattr/manual_forced	diag gen render
+jsattr/manual_multi_spread_rejected	diag(error)
+jsattr/manual_overridable	diag gen render
 jsattr/regexp_hostile	diag gen render
 jsattr/string_hostile	diag gen render
 jsattr/tmpl_hostile	diag gen render
@@ -192,4 +195,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 194 cases (render: 142, error: 32, gen-pinned: 40)
+TOTAL: 197 cases (render: 144, error: 33, gen-pinned: 42)
