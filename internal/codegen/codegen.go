@@ -61,7 +61,7 @@ func GeneratePackageWithFilters(dir string, filterPkgs []string, cls *attrclass.
 		if err != nil {
 			return nil, err
 		}
-		f, err := gsxparser.ParseFile(fset, m, src, 0)
+		f, err := gsxparser.ParseFileWithClassifier(fset, m, src, 0, cls)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", m, err)
 		}

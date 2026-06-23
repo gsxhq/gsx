@@ -76,7 +76,7 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 				parseErr = err
 				break
 			}
-			f, err := gsxparser.ParseFile(fset, m, src, 0)
+			f, err := gsxparser.ParseFileWithClassifier(fset, m, src, 0, cls)
 			if err != nil {
 				parseErr = fmt.Errorf("%s: %w", m, err)
 				break

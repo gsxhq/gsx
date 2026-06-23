@@ -9,18 +9,29 @@ import (
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/attrclass"
 )
 
 // Mode controls optional parser features. Currently a no-op (future parity with go/parser).
 type Mode uint
 
-// ParseFile parses a .gsx source file.
+// ParseFile parses a .gsx source file with gsx's built-in attribute classification.
 //
 // fset is the token.FileSet to record positions in.
 // filename is used for error messages and position recording.
 // src may be nil (read filename via os.ReadFile), a string, or a []byte.
 // mode is reserved for future use; pass 0.
 func ParseFile(fset *token.FileSet, filename string, src any, mode Mode) (*ast.File, error) {
+	return ParseFileWithClassifier(fset, filename, src, mode, attrclass.Builtin())
+}
+
+// ParseFileWithClassifier parses using cls to classify attribute names (which
+// JS-context attributes split @{ } holes). A nil cls means built-ins only.
+func ParseFileWithClassifier(fset *token.FileSet, filename string, src any, mode Mode, cls *attrclass.Classifier) (*ast.File, error) {
+	if cls == nil {
+		cls = attrclass.Builtin()
+	}
+
 	var srcBytes []byte
 	switch v := src.(type) {
 	case nil:
@@ -60,6 +71,7 @@ func ParseFile(fset *token.FileSet, filename string, src any, mode Mode) (*ast.F
 
 	cursor := pkgEnd
 	p := newParser(file, srcStr)
+	p.classifier = cls
 	for {
 		off, found := nextTopLevelComponent(srcStr, cursor)
 		if !found {

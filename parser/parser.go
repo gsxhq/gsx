@@ -3,18 +3,21 @@ package parser
 import (
 	"go/token"
 	"strings"
+
+	"github.com/gsxhq/gsx/internal/attrclass"
 )
 
 type parser struct {
-	file *token.File
-	src  string
-	base int // absolute byte offset of src[0] in file
-	i    int // byte cursor within src
+	file       *token.File
+	src        string
+	base       int // absolute byte offset of src[0] in file
+	i          int // byte cursor within src
+	classifier *attrclass.Classifier
 }
 
 // newParser creates a parser for src at absolute offset 0 in file.
 func newParser(file *token.File, src string) *parser {
-	return &parser{file: file, src: src, base: 0}
+	return &parser{file: file, src: src, base: 0, classifier: attrclass.Builtin()}
 }
 
 func (p *parser) eof() bool { return p.i >= len(p.src) }
