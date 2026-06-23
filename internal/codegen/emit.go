@@ -947,7 +947,7 @@ func styleDeclExpr(expr string) string {
 	if isStringLiteralExpr(e) {
 		return e
 	}
-	return "gsx.FilterCSS(" + e + ")"
+	return "gsx.StyleValue(" + e + ")"
 }
 
 // isStringLiteralExpr reports whether expr is exactly a Go string literal.
@@ -967,21 +967,16 @@ func htmlAttrEscape(s string) string {
 	return r.Replace(s)
 }
 
-// emitExprAttr emits an expr attribute value with context-aware escaping. JS/CSS
-// contexts reject (fail-closed) until safe-type pipeline filters exist.
+// emitExprAttr emits an expr attribute value with context-aware escaping. A CSS
+// context is contextually sanitized (gw.CSS) with a gsx.RawCSS author opt-out; a
+// JS context routes through gw.JSValAttr. Both are handled in the value-emit
+// section below by their respective branches.
 func emitExprAttr(b *bytes.Buffer, a *ast.ExprAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, cls *attrclass.Classifier) error {
-	// (1) JS/CSS contexts reject FIRST — a pipeline does not unlock them this
-	// slice, so `onclick={x |> upper}` must give the context error, not a
-	// pipeline error.
-	switch cls.Context(a.Name) {
-	case attrclass.CtxCSS:
-		return fmt.Errorf("codegen: expr value in CSS context (%q) is unsafe; needs a safe type via `|> css` (not available yet) — use a static value", a.Name)
-	}
-	// (2) whole-attr `?` try-marker is deferred (per-stage `?` is caught by lowerPipe).
+	// (1) whole-attr `?` try-marker is deferred (per-stage `?` is caught by lowerPipe).
 	if a.Try {
 		return fmt.Errorf("codegen: `?` try-marker in attribute %q not supported yet", a.Name)
 	}
-	// (3) value expression: lower a pipeline to nested std calls (same lowerPipe
+	// (2) value expression: lower a pipeline to nested std calls (same lowerPipe
 	// the probe used, so resolved[a] is already the pipeline's RESULT type), else
 	// the bare trimmed expr.
 	expr := strings.TrimSpace(a.Expr)
@@ -1022,6 +1017,15 @@ func emitExprAttr(b *bytes.Buffer, a *ast.ExprAttr, resolved map[ast.Node]types.
 		// value (isRawURL) is the author's vouch — fall through to gw.AttrValue,
 		// which entity-escapes but skips the scheme allow-list.
 		fmt.Fprintf(b, "\t\t_gsxgw.URL(%s)\n", urlStringExpr(expr, t))
+	} else if cls.Context(a.Name) == attrclass.CtxCSS {
+		// CSS context (the built-in `style` parses to a composable ClassAttr, so this
+		// branch is reached by a user CSS-rule attribute in whole-value ={ } form).
+		// Mirror the <style>-block emission: a gsx.RawCSS value is the author's
+		// opt-out (emitted raw via gw.S), strings/Stringers go through the gw.CSS
+		// value-filter, numbers are formatted raw, any other type is an error.
+		if err := emitRenderCSS(b, expr, t, imports); err != nil {
+			return err
+		}
 	} else {
 		if err := emitAttrValue(b, expr, t, imports); err != nil {
 			return err

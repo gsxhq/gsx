@@ -75,6 +75,37 @@ func TestWriteURLEscapesAfterSanitize(t *testing.T) {
 	}
 }
 
+func TestStyleValue(t *testing.T) {
+	// RawCSS passthrough: value is emitted verbatim (no filtering).
+	if got := StyleValue(RawCSS("color:blue")); got != "color:blue" {
+		t.Errorf("StyleValue(RawCSS) = %q, want %q", got, "color:blue")
+	}
+	// RawCSS with hostile content still passes through (author vouched).
+	const hostile = "color:red; background:url(javascript:alert(1))"
+	if got := StyleValue(RawCSS(hostile)); got != hostile {
+		t.Errorf("StyleValue(RawCSS hostile) = %q, want %q", got, hostile)
+	}
+	// Plain string: filtered (hostile input must become cssFailsafe).
+	filtered := cssValueFilter("width:1px; x:url(javascript:alert(1))")
+	if got := StyleValue("width:1px; x:url(javascript:alert(1))"); got != filtered {
+		t.Errorf("StyleValue(string) = %q, want filtered %q", got, filtered)
+	}
+	if got := StyleValue("width:1px; x:url(javascript:alert(1))"); got == "width:1px; x:url(javascript:alert(1))" {
+		t.Errorf("StyleValue(string) must filter hostile CSS, got %q", got)
+	}
+	// Safe plain string: passes through filter unchanged.
+	if got := StyleValue("red"); got != "red" {
+		t.Errorf("StyleValue(safe string) = %q, want %q", got, "red")
+	}
+	// StyleValue with a plain string == FilterCSS (byte-identical).
+	for _, s := range []string{"red", "1px solid blue", "url(javascript:alert(1))", ""} {
+		want := FilterCSS(s)
+		if got := StyleValue(s); got != want {
+			t.Errorf("StyleValue(%q) = %q, want FilterCSS result %q", s, got, want)
+		}
+	}
+}
+
 func TestCSSValueFilter(t *testing.T) {
 	tests := []struct{ css, want string }{
 		{"", ""},

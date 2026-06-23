@@ -17,19 +17,22 @@ func ClassIf(s string, on bool) ClassPart { return ClassPart{s: s, on: on} }
 
 // ClassMerger is the installable class-merge strategy. It receives the flattened,
 // non-empty class tokens in source order and returns the final class string. The
-// default dedupes (first occurrence wins) and joins with single spaces. Apps
+// default dedupes (last occurrence wins, caller-last) and joins with single spaces. Apps
 // replace it once at init to install e.g. a Tailwind-aware merger.
 var ClassMerger func(tokens []string) string = defaultClassMerge
 
 func defaultClassMerge(tokens []string) string {
-	seen := make(map[string]struct{}, len(tokens))
+	// Keep the LAST occurrence of each token (caller/last-wins), preserving the
+	// surviving tokens in source order. e.g. "a b a" -> "b a".
+	lastIdx := make(map[string]int, len(tokens))
+	for i, t := range tokens {
+		lastIdx[t] = i
+	}
 	out := make([]string, 0, len(tokens))
-	for _, t := range tokens {
-		if _, dup := seen[t]; dup {
-			continue
+	for i, t := range tokens {
+		if lastIdx[t] == i {
+			out = append(out, t)
 		}
-		seen[t] = struct{}{}
-		out = append(out, t)
 	}
 	return strings.Join(out, " ")
 }
@@ -44,6 +47,12 @@ func classTokens(parts []ClassPart) []string {
 		toks = append(toks, strings.Fields(p.s)...)
 	}
 	return toks
+}
+
+// ClassString returns the merged class string for parts (the value form of
+// gw.Class), so generated code can place a composed class into an Attrs map.
+func ClassString(parts ...ClassPart) string {
+	return ClassMerger(classTokens(parts))
 }
 
 // Class composes parts, runs them through ClassMerger, and writes the escaped

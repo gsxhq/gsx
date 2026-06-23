@@ -16,9 +16,10 @@ func TestClassComposeDedupeOrder(t *testing.T) {
 		Class("btn px-4"), // whitespace-split into two tokens
 		ClassIf("active", true),
 		ClassIf("hidden", false), // excluded
-		Class("btn"),             // dup, dropped
+		Class("btn"),             // dup — last occurrence wins, moves btn to end
 	)
-	if got != "btn px-4 active" {
+	// last-wins: "btn" at positions 0 and 3; last wins → "px-4 active btn"
+	if got != "px-4 active btn" {
 		t.Fatalf("got %q", got)
 	}
 }
@@ -63,8 +64,30 @@ func TestClassMergedExtraOnly(t *testing.T) {
 
 func TestClassMergedPartsAndExtraDeduped(t *testing.T) {
 	got := renderClassMerged("btn w-full", Class("btn"), Class("px-4"))
-	if got != ` class="btn px-4 w-full"` {
+	// tokens: ["btn"(0), "px-4"(1), "btn"(2), "w-full"(3)]
+	// last-wins: "btn" last at 2 → "px-4 btn w-full" (caller/extra wins over component)
+	if got != ` class="px-4 btn w-full"` {
 		t.Fatalf("merged+deduped: got %q", got)
+	}
+}
+
+func TestDefaultClassMergeLastWins(t *testing.T) {
+	for _, tt := range []struct{ in []string; want string }{
+		{[]string{"a", "b", "a"}, "b a"},
+		{[]string{"a", "b"}, "a b"},
+		{[]string{"x", "x", "x"}, "x"},
+		{[]string{}, ""},
+		{[]string{"p-2", "p-4", "p-2"}, "p-4 p-2"},
+	} {
+		if got := defaultClassMerge(tt.in); got != tt.want {
+			t.Errorf("defaultClassMerge(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestClassString(t *testing.T) {
+	if got := ClassString(Class("a b"), ClassIf("c", false), Class("d")); got != "a b d" {
+		t.Errorf("ClassString = %q, want \"a b d\"", got)
 	}
 }
 

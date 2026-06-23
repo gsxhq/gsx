@@ -171,6 +171,7 @@ security/js_rejected_style	diag render
 security/url_blocked	diag render
 security/url_raw_vouched	diag render
 security/xss	diag render
+style/attr_expr_sanitized	diag render
 style/block_bytes	diag gen render
 style/block_import_injection	diag gen render
 style/block_interpolation	diag gen render
@@ -180,10 +181,11 @@ style/block_try_rejected	diag(error)
 style/block_tuple_error	diag gen render
 style/composed_attribute	diag gen render
 style/composed_injection	diag gen render
+style/composed_rawcss_optout	diag gen render
 style/minify_block	diag gen render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 188 cases (render: 136, error: 32, gen-pinned: 39)
+TOTAL: 190 cases (render: 138, error: 32, gen-pinned: 40)
