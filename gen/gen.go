@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/gsxhq/gsx/internal/attrclass"
+	"github.com/gsxhq/gsx/internal/diag"
 )
 
 // skipDirs are directory names never descended into during discovery, in
@@ -101,11 +102,13 @@ func walkForGsx(root string, found map[string]bool) error {
 }
 
 // Result reports the outcome of a Generate run. Written holds the paths of the
-// .x.go files written to disk; Errs holds the per-directory errors encountered
-// (each .x.go is written only when its whole package generated successfully).
+// .x.go files written to disk; Errs holds genuine operational errors (I/O,
+// module-graph failures, write failures) — NOT codegen/type diagnostics. Diags
+// holds all structured diagnostics (errors, warnings) collected from codegen.
 type Result struct {
 	Written []string
 	Errs    []error
+	Diags   []diag.Diagnostic
 }
 
 // Generate discovers .gsx files under the given paths (default ["."]), runs
