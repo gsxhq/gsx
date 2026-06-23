@@ -109,6 +109,17 @@ func TestCSSValueFilter(t *testing.T) {
 		{"@import url evil.css", "ZgotmplZ"},
 		{"<", "ZgotmplZ"},
 		{">", "ZgotmplZ"},
+		// cold decode branches: hexDecode uppercase A-F
+		{"\\3C script\\3E", "ZgotmplZ"},   // uppercase hex \3C \3E -> "<script>" (hexDecode A-F)
+		// cold decode branches: skipCSSSpace whitespace variants after hex escape
+		{"expr\\65\tssion", "ZgotmplZ"},    // tab after \65 -> "expression" (skipCSSSpace \t)
+		{"expr\\65\nssion", "ZgotmplZ"},    // newline (skipCSSSpace \n)
+		{"expr\\65\fssion", "ZgotmplZ"},    // form feed (skipCSSSpace \f)
+		{"expr\\65\rssion", "ZgotmplZ"},    // CR (skipCSSSpace \r)
+		{"expr\\65\r\nssion", "ZgotmplZ"},  // CRLF (skipCSSSpace \r\n two-byte branch)
+		// cold decode branches: decodeCSS len<2 and >MaxRune clamp
+		{"foo\\", "foo"},       // trailing lone backslash dropped (decodeCSS len<2 break)
+		{"\\110000", "𑀀0"},   // hex > utf8.MaxRune: r/16=U+11000 (𑀀) + remaining "0" (decodeCSS clamp)
 	}
 	for _, tt := range tests {
 		if got := cssValueFilter(tt.css); got != tt.want {

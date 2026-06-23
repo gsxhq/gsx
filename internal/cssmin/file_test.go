@@ -134,3 +134,55 @@ func TestMinifyFileNestedStyle(t *testing.T) {
 		t.Fatalf("<style> in IfMarkup.Else not minified: %q", got)
 	}
 }
+
+func TestMinifyFileStyleInForMarkup(t *testing.T) {
+	deep := styleEl(&ast.Text{Value: "  .a {\n  x: 1;\n}  "})
+	loop := &ast.ForMarkup{Clause: "_, x := range xs", Body: []ast.Markup{deep}}
+	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{loop}}}}
+	if err := MinifyFile(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := deep.Children[0].(*ast.Text).Value; got != ".a{x: 1}" {
+		t.Fatalf("<style> in ForMarkup.Body not minified: %q", got)
+	}
+}
+
+func TestMinifyFileStyleInSwitchMarkup(t *testing.T) {
+	deep := styleEl(&ast.Text{Value: "  .a {\n  x: 1;\n}  "})
+	sw := &ast.SwitchMarkup{Tag: "v", Cases: []*ast.CaseClause{{List: "1", Body: []ast.Markup{deep}}}}
+	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{sw}}}}
+	if err := MinifyFile(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := deep.Children[0].(*ast.Text).Value; got != ".a{x: 1}" {
+		t.Fatalf("<style> in SwitchMarkup case not minified: %q", got)
+	}
+}
+
+func TestMinifyFileStyleInFragment(t *testing.T) {
+	deep := styleEl(&ast.Text{Value: "  .a {\n  x: 1;\n}  "})
+	frag := &ast.Fragment{Children: []ast.Markup{deep}}
+	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{frag}}}}
+	if err := MinifyFile(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := deep.Children[0].(*ast.Text).Value; got != ".a{x: 1}" {
+		t.Fatalf("<style> in Fragment not minified: %q", got)
+	}
+}
+
+func TestMinifyFileStyleInCondAttr(t *testing.T) {
+	deep := styleEl(&ast.Text{Value: "  .a {\n  x: 1;\n}  "})
+	host := &ast.Element{Tag: "div", Attrs: []ast.Attr{
+		&ast.CondAttr{Cond: "ok", Then: []ast.Attr{
+			&ast.MarkupAttr{Name: "header", Value: []ast.Markup{deep}},
+		}},
+	}}
+	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{host}}}}
+	if err := MinifyFile(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := deep.Children[0].(*ast.Text).Value; got != ".a{x: 1}" {
+		t.Fatalf("<style> in CondAttr.Then MarkupAttr not minified: %q", got)
+	}
+}

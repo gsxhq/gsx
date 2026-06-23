@@ -18,6 +18,9 @@ func FuzzCSSValueFilter(f *testing.F) {
 		"</style", "expression(alert(1))", "EXPRESSION", "-moz-binding",
 		`\3c script`, `-expre\69on`, "url(javascript:alert(1))", "a;b}c{d",
 		"--x: ;", "1.25in", "U+00-FF", "\x00", "`backtick`",
+		"\\3C script\\3E", "expr\\65\tssion", "expr\\65\nssion",
+		"expr\\65\fssion", "expr\\65\rssion", "expr\\65\r\nssion",
+		"foo\\", "\\110000",
 	} {
 		f.Add(s)
 	}
