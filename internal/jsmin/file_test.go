@@ -64,3 +64,57 @@ func TestMinifyFileLeavesStyleAlone(t *testing.T) {
 		t.Fatalf("jsmin must not touch <style>: %q", ch[0].(*ast.Text).Value)
 	}
 }
+
+func TestMinifyFileScriptInForMarkup(t *testing.T) {
+	deep := scriptEl("function f() {\n\treturn 1;\n}")
+	loop := &ast.ForMarkup{Clause: "_, x := range xs", Body: []ast.Markup{deep}}
+	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{loop}}}}
+	if err := MinifyFile(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := deep.Children[0].(*ast.Text).Value; got != "function f() {\nreturn 1;\n}" {
+		t.Fatalf("<script> in ForMarkup.Body not minified: %q", got)
+	}
+}
+
+func TestMinifyFileScriptInSwitchMarkup(t *testing.T) {
+	deep := scriptEl("function f() {\n\treturn 1;\n}")
+	sw := &ast.SwitchMarkup{Tag: "v", Cases: []*ast.CaseClause{{List: "1", Body: []ast.Markup{deep}}}}
+	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{sw}}}}
+	if err := MinifyFile(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := deep.Children[0].(*ast.Text).Value; got != "function f() {\nreturn 1;\n}" {
+		t.Fatalf("<script> in SwitchMarkup case not minified: %q", got)
+	}
+}
+
+func TestMinifyFileScriptInFragment(t *testing.T) {
+	deep := scriptEl("function f() {\n\treturn 1;\n}")
+	frag := &ast.Fragment{Children: []ast.Markup{deep}}
+	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{frag}}}}
+	if err := MinifyFile(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := deep.Children[0].(*ast.Text).Value; got != "function f() {\nreturn 1;\n}" {
+		t.Fatalf("<script> in Fragment not minified: %q", got)
+	}
+}
+
+func TestMinifyFileSkipsDataIslandScript(t *testing.T) {
+	// A holeless data-block <script type="application/json"> is NOT JavaScript;
+	// MinifyFile must leave its body byte-for-byte unchanged.
+	body := "{\n  \"a\": 1\n}"
+	el := &ast.Element{
+		Tag:   "script",
+		Attrs: []ast.Attr{&ast.StaticAttr{Name: "type", Value: "application/json"}},
+		Children: []ast.Markup{&ast.Text{Value: body}},
+	}
+	f := fileWith(el)
+	if err := MinifyFile(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := el.Children[0].(*ast.Text).Value; got != body {
+		t.Fatalf("data-island <script> was modified: %q (want %q)", got, body)
+	}
+}
