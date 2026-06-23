@@ -126,3 +126,22 @@ Inside `Card`, `<h2>{title}</h2>` renders the Node via the existing `catNode` pa
 - **`Val` render/escaping parity with §5** — the numeric/string cases must format/escape identically to `emitRender`; the parity unit test pins it.
 - **Build-time looseness** (§4) — an unrenderable value compiles and errors at render via `Val`'s `default`; accepted for v1.
 - **Alloc cost** — ~2 per promoted prop (1 for static-string via `gsx.Text`); per-prop, not per-element; revisit with per-type fast-paths *behind the same API* only if profiling demands.
+
+---
+
+## 8. Decision record: `Val` box vs `classify`-at-emit specialization
+
+**Status:** decided — keep the `Val` runtime box as shipped (2026-06-23). Recorded after a post-merge discussion that sharpened *why*, and corrected an overstatement in §1/§3.
+
+**The correction.** §1 and §3 imply the prop expression's type is unavailable ("needs no resolved type", "classify-at-codegen [is] the hard part"). That is only true of the **probe (skeleton) pass**, which runs *before* type resolution. There are two passes: the probe is the *input* to `go/packages` resolution; the **emit pass runs after** and has the full `resolved map[ast.Node]types.Type` — the same map `emitRender` already uses to specialize inline `{ len(title) }` into `strconv.FormatInt(...)`. So for a concretely-typed prop expression like `content={ len(title) }`, the type (`int`) **is** known at emit. The earlier "we can't know the type" framing was imprecise.
+
+**The alternative we did NOT take.** Because the type *is* known at emit, codegen could specialize the prop value exactly like `emitAttrValue`/`emitRender` do for attributes and interpolations — `int`→`gsx.Text(strconv.FormatInt(...))`, `string`→`gsx.Text(string(expr))`, `fmt.Stringer`→`gsx.Text(expr.String())`, `[]Node`→`gsx.Fragment(expr...)`, already-`Node`→raw `expr` — and emit **no `Val` box at all**. That alternative is strictly *more* capable in two ways: it rejects unrenderable types at **build time** (via `classify`'s `default`), and it handles **named scalar types** (`type Slug string`) correctly, because `classify` keys on the underlying type. Both are things the shipped `Val` does *not* do (see the named-scalar limitation documented on `Val` and in §4's build-time looseness).
+
+**Why we kept `Val` anyway (the trade).**
+- The **probe pass forces a Node-typed wrapper regardless**: the skeleton literal `CardProps{Title: <X>}` must type-check against the `gsx.Node` field *before* resolution exists, so `<X>` must accept an arbitrary expression yet be a `Node`. `gsx.Val(any) Node` is the natural such wrapper. Some box must exist on the probe side; that is not optional.
+- Given the probe already needs `Val(expr)`, emitting the *same* thing on the emit side buys **one uniform path**: no need to (a) thread/harvest each prop expression's resolved type (today prop-literal exprs are deliberately *not* type-harvested — `Val` taking `any` is exactly why they needn't be), (b) add a `classify`+Node-wrap branch to `childPropsLiteral`, or (c) maintain an emit-value-vs-probe-value asymmetry in the shared literal builder. The classify alternative is more machinery and reintroduces the kind of emit/probe value divergence the shared builder was written to avoid.
+- **One case where `Val` is genuinely irreducible:** an expression whose **static type is `any`** (or a non-`Node`, non-`Stringer` interface). There the static type says nothing about renderability — only the runtime type does. `classify(interface{})`→unsupported, but `gsx.Val(x)` switches on the dynamic type and renders it. So a runtime box is unavoidable for genuinely dynamic values; `Val` covers them uniformly.
+
+**The cost we accept by keeping `Val`:** ~2 allocs per promoted prop; render-time (not build-time) error for an unrenderable type; and named scalar types (`type Slug string`) hit `Val`'s `default` rather than rendering — even though inline `{ slug }` renders fine (documented on `Val`'s doc-comment).
+
+**Future option (not scheduled):** a hybrid — `classify`-specialize at emit for concrete renderable types (gaining build-time strictness + named-scalar support + zero box), falling back to `gsx.Val` only when the static type is `any`/a non-concrete interface. This needs prop-expression type harvesting in the probe and a `classify` branch in the emit path; weigh it in its own spec if the limitations above start to bite.

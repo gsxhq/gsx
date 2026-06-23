@@ -16,6 +16,9 @@ import (
 // by the type switch — they hit the default error case even though { x } inline
 // classifies them by underlying type. Workaround: convert to the base type
 // (string(slug)) or pass through a |> pipeline before promotion.
+//
+// Why a runtime box rather than classify-and-specialize at codegen (the type IS
+// known at emit time): see docs/superpowers/specs/2026-06-23-gsx-node-prop-promotion-design.md §8.
 func Val(v any) Node { return valNode{v} }
 
 type valNode struct{ v any }
