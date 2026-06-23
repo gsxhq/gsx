@@ -17,7 +17,7 @@ func ClassIf(s string, on bool) ClassPart { return ClassPart{s: s, on: on} }
 
 // ClassMerger is the installable class-merge strategy. It receives the flattened,
 // non-empty class tokens in source order and returns the final class string. The
-// default dedupes (first occurrence wins) and joins with single spaces. Apps
+// default dedupes (last occurrence wins, caller-last) and joins with single spaces. Apps
 // replace it once at init to install e.g. a Tailwind-aware merger.
 var ClassMerger func(tokens []string) string = defaultClassMerge
 
