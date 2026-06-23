@@ -25,7 +25,7 @@ import (
 // interpolation types. It returns (nil, false) if any component failed; all
 // component errors are recorded in bag (component-boundary recovery continues
 // to the next component on failure, so multiple errors are always reported).
-func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filterTable, structFields map[string]map[string]bool, fset *token.FileSet, cls *attrclass.Classifier, bag *diag.Bag, cssMin, jsMin func(string) (string, error)) ([]byte, bool) {
+func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, fset *token.FileSet, cls *attrclass.Classifier, bag *diag.Bag, cssMin, jsMin func(string) (string, error)) ([]byte, bool) {
 	if cls == nil {
 		cls = attrclass.Builtin()
 	}
@@ -85,7 +85,7 @@ func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filter
 			// On failure, the diagnostic is already in bag — skip this component's
 			// output and continue to the next (report ALL components' errors).
 			var cbuf bytes.Buffer
-			if genComponent(&cbuf, v, resolved, table, structFields, imports, fset, cls, bag) {
+			if genComponent(&cbuf, v, resolved, table, structFields, nodeProps, imports, fset, cls, bag) {
 				body.Write(cbuf.Bytes())
 			} else {
 				ok = false
@@ -166,7 +166,7 @@ func writeImports(b *bytes.Buffer, imports map[string]bool, aliased []importSpec
 	b.WriteString(")\n\n")
 }
 
-func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types.Type, table filterTable, structFields map[string]map[string]bool, imports map[string]bool, fset *token.FileSet, cls *attrclass.Classifier, bag *diag.Bag) bool {
+func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, imports map[string]bool, fset *token.FileSet, cls *attrclass.Classifier, bag *diag.Bag) bool {
 	params, err := parseParams(c.Params)
 	if err != nil {
 		bag.Errorf(c.Pos(), c.End(), "invalid-syntax", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
@@ -298,12 +298,12 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 		// is false, so the root emits via normal genNode and the author's {...attrs}
 		// places the bag.
 		if autoApply && m == ast.Markup(root) {
-			if !emitRootElement(b, root, resolved, table, structFields, imports, fset, recvVar, recvTypeName, cls, bag) {
+			if !emitRootElement(b, root, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag) {
 				return false
 			}
 			continue
 		}
-		if !genNode(b, m, resolved, table, structFields, imports, fset, recvVar, recvTypeName, cls, bag) {
+		if !genNode(b, m, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag) {
 			return false
 		}
 	}
@@ -312,64 +312,31 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 	return true
 }
 
-// emitRootElement emits a single-root element with attribute fallthrough applied:
-// the bag (`_gsxp.Attrs`) merges its class into the root's class and spreads its
-// remaining entries after the root's own attrs, with the root's own attr names
-// (plus "class"/"style") dropped from the spread so the root WINS (D5). The
-// root's CHILDREN render via normal genNode — the bag does NOT propagate. When
-// the bag is nil/empty (no caller set Attrs yet), every merge/spread is a no-op:
-// Attrs.Class()="" adds no token (ClassMerged/Class), and Spread(empty) writes
-// nothing — so the output is byte-equivalent to the normal Element path.
+// emitRootElement emits a single-root element with CALLER-WINS attribute
+// fallthrough applied: the bag (`_gsxp.Attrs`) merges its class into the root's
+// class (last-wins → caller-wins) and merges its style over the root's style
+// (property last-wins → caller-wins), and every OTHER root attr is emitted under
+// a runtime guard (`if !_gsxp.Attrs.Has(name)`) so a bag entry of the same name
+// SHADOWS it — the guarded attr is skipped and the bag's value spreads instead
+// (caller-wins, D5 flipped). Each guarded attr keeps its own context escaper
+// (gw.URL / gw.JSValAttr / gw.AttrValue …) since its body is exactly the normal
+// emitAttr output. The root's CHILDREN render via normal genNode — the bag does
+// NOT propagate. When the bag is nil/empty, every guard is true (Has is nil-safe),
+// ClassMerged/StyleMerged add nothing, and Spread(empty) writes nothing — so the
+// output is byte-equivalent to the normal Element path.
 //
 // A void root cannot receive fallthrough (it has no place for it to matter beyond
-// attrs, but void roots ARE handled: class-merge + spread then `/>`).
-func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]types.Type, table filterTable, structFields map[string]map[string]bool, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, bag *diag.Bag) bool {
+// attrs, but void roots ARE handled: class/style-merge + guarded attrs + spread
+// then `/>`).
+func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, bag *diag.Bag) bool {
 	emitLine(b, fset, el.Pos())
 	emitS(b, "<"+el.Tag)
-	// Collect the root's own named attrs so the spread can drop them (root-wins),
-	// and find a composed/static class attr to merge the bag's class into.
-	var classAttr *ast.ClassAttr    // composed class={ … }
-	var staticClass *ast.StaticAttr // static class="x"
-	for _, a := range el.Attrs {
-		switch t := a.(type) {
-		case *ast.ClassAttr:
-			if t.Name == "class" {
-				classAttr = t
-			}
-		case *ast.StaticAttr:
-			if t.Name == "class" {
-				staticClass = t
-			}
-		}
+	// AUTO mode: there is no author `{...attrs}`, so the bag spreads at the END and
+	// every root attr is overridable. splitIdx == len(el.Attrs) means "all attrs
+	// precede the (synthetic) spread" → all guarded.
+	if !emitFallthroughAttrs(b, el.Attrs, len(el.Attrs), resolved, table, imports, cls, bag) {
+		return false
 	}
-	// Emit the root's own attrs in source order, but replace the class attr's
-	// emission with a merged one (bag class folded in). Non-class attrs emit
-	// verbatim via emitAttr (byte-identical to the normal path).
-	for _, a := range el.Attrs {
-		switch t := a.(type) {
-		case *ast.ClassAttr:
-			if t == classAttr {
-				emitRootComposedClass(b, t)
-				continue
-			}
-		case *ast.StaticAttr:
-			if t == staticClass {
-				emitRootStaticClass(b, t)
-				continue
-			}
-		}
-		if !emitAttr(b, a, resolved, table, imports, cls, bag) {
-			return false
-		}
-	}
-	// If the root had NO class attr at all, emit a guarded merged class in attr
-	// position — writes class only when the bag contributes a non-empty token set.
-	if classAttr == nil && staticClass == nil {
-		b.WriteString("\t\t_gsxgw.ClassMerged(_gsxp.Attrs.Class())\n")
-	}
-	// Spread the rest of the bag, dropping the root's own attr names (root-wins)
-	// plus class/style (class merged above; style deferred/fail-closed this task).
-	fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, _gsxp.Attrs.Without(%s))\n", rootWithoutArgs(el))
 	if el.Void {
 		emitS(b, "/>")
 		return true
@@ -389,13 +356,248 @@ func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]typ
 		}
 	} else {
 		for _, c := range el.Children {
-			if !genNode(b, c, resolved, table, structFields, imports, fset, recvVar, recvTypeName, cls, bag) {
+			if !genNode(b, c, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag) {
 				return false
 			}
 		}
 	}
 	emitS(b, "</"+el.Tag+">")
 	return true
+}
+
+// emitFallthroughAttrs emits the caller-wins attribute section (between `<tag`
+// and the closing `>` / `/>`) shared by AUTO mode (emitRootElement) and MANUAL
+// mode (emitManualSpreadElement). splitIdx is the index in attrs at which the
+// bag spreads:
+//   - AUTO mode: splitIdx == len(attrs) — the (synthetic) bag spread is at the
+//     end, so EVERY scalar root attr is OVERRIDABLE (guarded `if !Has(name)`,
+//     caller-wins).
+//   - MANUAL mode: splitIdx is the position of the author's `{...attrs}` — scalar
+//     attrs BEFORE it are overridable (guarded); scalar attrs AFTER it are FORCED
+//     (emitted UNGUARDED so the root always wins) and their names are excluded
+//     from the bag spread so a same-named bag entry can never emit (root wins).
+//
+// class/style are positional-exempt: wherever they appear they MERGE caller-last
+// (ClassMerged / StyleMerged), emitted once at the spread position. The author's
+// `{...attrs}` SpreadAttr itself (when present at splitIdx) is consumed here, not
+// emitted via emitAttr.
+func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, cls *attrclass.Classifier, bag *diag.Bag) bool {
+	// Find a composed/static class attr to merge the bag's class into, and a
+	// composed/static style attr whose declarations the bag's style merges over.
+	var classAttr *ast.ClassAttr    // composed class={ … }
+	var staticClass *ast.StaticAttr // static class="x"
+	var styleAttr *ast.ClassAttr    // composed style={ … } (CtxCSS ClassAttr)
+	var staticStyle *ast.StaticAttr // static style="x"
+	for _, a := range attrs {
+		switch t := a.(type) {
+		case *ast.ClassAttr:
+			switch t.Name {
+			case "class":
+				classAttr = t
+			case "style":
+				styleAttr = t
+			}
+		case *ast.StaticAttr:
+			switch t.Name {
+			case "class":
+				staticClass = t
+			case "style":
+				staticStyle = t
+			}
+		}
+	}
+	// forcedNames collects the names of post-spread scalar attrs (MANUAL mode) so
+	// the bag spread drops them — the unguarded root emit then wins.
+	var forcedNames []string
+
+	// emitScalar emits one non-class/style attr, either guarded (overridable) or
+	// unguarded (forced).
+	emitScalar := func(a ast.Attr, guarded bool) bool {
+		name, ok := rootAttrName(a)
+		if !ok {
+			// No single static name (Cond) — no caller-wins shadow target; emit
+			// unguarded. (A SpreadAttr at the split position is consumed below, not
+			// here.)
+			return emitAttr(b, a, resolved, table, imports, cls, bag)
+		}
+		if !guarded {
+			forcedNames = append(forcedNames, name)
+			return emitAttr(b, a, resolved, table, imports, cls, bag)
+		}
+		fmt.Fprintf(b, "\t\tif !_gsxp.Attrs.Has(%s) {\n", strconv.Quote(name))
+		if !emitAttr(b, a, resolved, table, imports, cls, bag) {
+			return false
+		}
+		b.WriteString("\t\t}\n")
+		return true
+	}
+
+	// emitSpread emits the class merge, style merge, then the bag spread (dropping
+	// class/style + any forced names). Called once, at the split position.
+	emitSpread := func() bool {
+		// If the root had NO class attr at all, emit a merged class in attr position —
+		// writes class only when the bag contributes a non-empty token set.
+		if classAttr == nil && staticClass == nil {
+			b.WriteString("\t\t_gsxgw.ClassMerged(_gsxp.Attrs.Class())\n")
+		}
+		// Style: when the caller set a `style`, merge it OVER the root's style
+		// property-last-wins (StyleMerged, caller-wins). When the caller did NOT set a
+		// style, emit the root's own style via its normal context path UNCHANGED — this
+		// preserves the composable-style CSS sanitizer (gw.Style → the ZgotmplZ failsafe
+		// for an injection, and intra-style duplicate properties) which StyleMerged's
+		// `prop: value` parser would lose (it drops colon-less fragments and dedupes
+		// properties). The empty-bag case takes the else branch → byte-identical output.
+		if styleAttr != nil || staticStyle != nil {
+			b.WriteString("\t\tif _gsxp.Attrs.Has(\"style\") {\n")
+			fmt.Fprintf(b, "\t\t\t_gsxgw.StyleMerged(%s, _gsxp.Attrs.Style())\n", rootStyleString(styleAttr, staticStyle))
+			b.WriteString("\t\t} else {\n")
+			if staticStyle != nil {
+				if !emitAttr(b, staticStyle, resolved, table, imports, cls, bag) {
+					return false
+				}
+			} else {
+				emitStyleAttr(b, styleAttr)
+			}
+			b.WriteString("\t\t}\n")
+		} else {
+			// No root style: emit StyleMerged so a caller-only style still appears (it is
+			// a no-op when the bag has no style either).
+			b.WriteString("\t\t_gsxgw.StyleMerged(\"\", _gsxp.Attrs.Style())\n")
+		}
+		// Spread the rest of the bag, dropping class/style (both merged above) plus
+		// any forced names (excluded so the unguarded root emit wins — caller can't
+		// override a post-spread attr). Every other bag attr spreads, including one
+		// that shadows a guarded (overridable) root attr (which was then skipped).
+		without := append([]string{"class", "style"}, forcedNames...)
+		quoted := make([]string, len(without))
+		for i, n := range without {
+			quoted[i] = strconv.Quote(n)
+		}
+		fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, _gsxp.Attrs.Without(%s))\n", strings.Join(quoted, ", "))
+		return true
+	}
+
+	// In MANUAL mode the author's `{...attrs}` lives at splitIdx; collecting the
+	// forced names requires emitting post-spread scalars BEFORE the spread call (so
+	// forcedNames is populated). We therefore emit in three phases:
+	//   1. overridable scalars (idx < splitIdx, guarded)
+	//   2. forced scalars (idx > splitIdx, unguarded, names collected)
+	//   3. the spread (class/style merge + bag, dropping the forced names)
+	// then re-walk to interleave nothing else — class/style are handled by phase 3.
+	// Emission order in the output: overridable scalars, then the spread, then the
+	// forced scalars — matching `<div a {...attrs} b/>` (a, bag, b). We achieve that
+	// by buffering the forced-scalar bytes.
+	var forcedBuf bytes.Buffer
+	for i, a := range attrs {
+		// class is merged in place here (emitRoot{Composed,Static}Class); style is
+		// skipped here and merged by emitSpread (phase 3). Both ignore spread position.
+		switch t := a.(type) {
+		case *ast.ClassAttr:
+			if t == classAttr {
+				emitRootComposedClass(b, t)
+				continue
+			}
+			if t == styleAttr {
+				continue
+			}
+		case *ast.StaticAttr:
+			if t == staticClass {
+				emitRootStaticClass(b, t)
+				continue
+			}
+			if t == staticStyle {
+				continue
+			}
+		case *ast.SpreadAttr:
+			// The bag spread at the split position is consumed here. A non-bag spread
+			// (handled by the caller's detection) never reaches this helper at splitIdx;
+			// a stray SpreadAttr at any other index is emitted inline (unchanged).
+			if i == splitIdx {
+				continue
+			}
+			fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", strings.TrimSpace(t.Expr))
+			continue
+		}
+		if i < splitIdx {
+			if !emitScalar(a, true) {
+				return false
+			}
+			continue
+		}
+		// Post-spread: forced. Buffer it (emitted after the spread) but collect its
+		// name now via emitScalar against forcedBuf.
+		saved := b
+		b = &forcedBuf
+		okScalar := emitScalar(a, false)
+		b = saved
+		if !okScalar {
+			return false
+		}
+	}
+	// Phase 3: the spread (now that forcedNames is fully populated), then flush the
+	// buffered forced scalars after it.
+	if !emitSpread() {
+		return false
+	}
+	b.Write(forcedBuf.Bytes())
+	return true
+}
+
+// emitManualSpreadElement emits a non-component element that carries the author's
+// `{...attrs}` bag spread (MANUAL fallthrough), applying positional precedence:
+// root attrs before the spread are caller-overridable, attrs after are forced
+// (root wins). splitIdx is the bag SpreadAttr's index in el.Attrs (guaranteed
+// unique by the caller).
+func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, bag *diag.Bag) bool {
+	emitS(b, "<"+el.Tag)
+	if !emitFallthroughAttrs(b, el.Attrs, splitIdx, resolved, table, imports, cls, bag) {
+		return false
+	}
+	if el.Void {
+		emitS(b, "/>")
+		return true
+	}
+	emitS(b, ">")
+	if strings.EqualFold(el.Tag, "style") {
+		for _, c := range el.Children {
+			if !genStyleChild(b, c, resolved, imports, fset, bag) {
+				return false
+			}
+		}
+	} else if strings.EqualFold(el.Tag, "script") {
+		for _, c := range el.Children {
+			if !genScriptChild(b, c, resolved, imports, fset, bag) {
+				return false
+			}
+		}
+	} else {
+		for _, c := range el.Children {
+			if !genNode(b, c, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag) {
+				return false
+			}
+		}
+	}
+	emitS(b, "</"+el.Tag+">")
+	return true
+}
+
+// bagSpreadIndex returns the index of the author's `{...attrs}` bag spread in
+// attrs (a SpreadAttr whose trimmed Expr is the bound bag name "attrs"), whether
+// one was found, and an error if more than one is present (precedence ambiguous).
+// A non-bag spread (`{...someOtherExpr}`) is ignored — it keeps its inline emit.
+func bagSpreadIndex(attrs []ast.Attr) (int, bool, error) {
+	idx, found := -1, false
+	for i, a := range attrs {
+		s, ok := a.(*ast.SpreadAttr)
+		if !ok || strings.TrimSpace(s.Expr) != "attrs" {
+			continue
+		}
+		if found {
+			return 0, false, fmt.Errorf("codegen: more than one {...attrs} spread on an element; precedence is ambiguous")
+		}
+		idx, found = i, true
+	}
+	return idx, found, nil
 }
 
 // emitRootComposedClass emits a composed `class={ … }` merged with the bag's
@@ -425,47 +627,74 @@ func emitRootStaticClass(b *bytes.Buffer, a *ast.StaticAttr) {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
 }
 
-// rootWithoutArgs builds the quoted arg list for `_gsxp.Attrs.Without(…)`: the
-// root element's own named attr names (static/bool/expr/class) followed by
-// "class","style". A bag entry whose key matches a root attr is dropped (D5
-// root-wins); class is merged separately and style is deferred. Spread/cond attrs
-// have no single static name and contribute none here.
-func rootWithoutArgs(el *ast.Element) string {
-	var names []string
-	for _, a := range el.Attrs {
-		switch t := a.(type) {
-		case *ast.StaticAttr:
-			names = append(names, t.Name)
-		case *ast.BoolAttr:
-			names = append(names, t.Name)
-		case *ast.ExprAttr:
-			names = append(names, t.Name)
-		case *ast.ClassAttr:
-			names = append(names, t.Name)
-		case *ast.JSAttr:
-			names = append(names, t.Name)
+// rootAttrName returns the single static attribute name of a non-class/style root
+// attr that the caller-wins guard brackets. Static/bool/expr/JS attrs each have
+// one name; Spread/Cond attrs have none (ok=false), so they emit unguarded.
+func rootAttrName(a ast.Attr) (string, bool) {
+	switch t := a.(type) {
+	case *ast.StaticAttr:
+		return t.Name, true
+	case *ast.BoolAttr:
+		return t.Name, true
+	case *ast.ExprAttr:
+		return t.Name, true
+	case *ast.JSAttr:
+		return t.Name, true
+	}
+	return "", false
+}
+
+// rootStyleString returns the Go expression for the root element's own style
+// declarations, passed as StyleMerged's first arg (the bag's Style() is second,
+// caller-wins). For a static `style="x"` it is the quoted literal; for a composed
+// `style={ … }` (a CtxCSS ClassAttr) it is a gsx.StyleString(parts…) call mirroring
+// emitStyleAttr's part lowering (string-literal parts trusted, dynamic parts
+// CSS-value-filtered). With no style attr it is the empty string literal.
+func rootStyleString(styleAttr *ast.ClassAttr, staticStyle *ast.StaticAttr) string {
+	switch {
+	case staticStyle != nil:
+		return strconv.Quote(staticStyle.Value)
+	case styleAttr != nil:
+		parts := make([]string, 0, len(styleAttr.Parts))
+		for _, p := range styleAttr.Parts {
+			val := styleDeclExpr(p.Expr)
+			if p.Cond == "" {
+				parts = append(parts, fmt.Sprintf("gsx.Class(%s)", val))
+			} else {
+				parts = append(parts, fmt.Sprintf("gsx.ClassIf(%s, %s)", val, strings.TrimSpace(p.Cond)))
+			}
 		}
+		return "gsx.StyleString(" + strings.Join(parts, ", ") + ")"
+	default:
+		return `""`
 	}
-	names = append(names, "class", "style")
-	quoted := make([]string, len(names))
-	for i, n := range names {
-		quoted[i] = strconv.Quote(n)
-	}
-	return strings.Join(quoted, ", ")
 }
 
 // genNode emits one markup node. recvVar/recvTypeName are the enclosing
 // component's receiver var + type name (empty for a function component); they
 // thread down to genChildComponent for the method-vs-package disambiguation of a
 // dotted child-component tag.
-func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table filterTable, structFields map[string]map[string]bool, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, bag *diag.Bag) bool {
+func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, bag *diag.Bag) bool {
 	switch t := n.(type) {
 	case *ast.Text:
 		emitS(b, t.Value)
+	case *ast.Doctype:
+		// Renders verbatim — Text holds the full `<!DOCTYPE …>` source.
+		emitS(b, t.Text)
 	case *ast.Element:
 		emitLine(b, fset, t.Pos())
 		if isComponentTag(t.Tag) {
-			return genChildComponent(b, t, resolved, table, structFields, imports, fset, recvVar, recvTypeName, cls, bag)
+			return genChildComponent(b, t, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag)
+		}
+		// MANUAL fallthrough: an element carrying the author's `{...attrs}` bag spread
+		// gets position-aware precedence (pre-spread overridable, post-spread forced).
+		// Detection is the trimmed SpreadAttr Expr == bound bag name "attrs"; a non-bag
+		// spread keeps its inline emit via the normal attr loop below.
+		if splitIdx, found, err := bagSpreadIndex(t.Attrs); err != nil {
+			bag.Errorf(t.Pos(), t.End(), "attr-fallthrough", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+			return false
+		} else if found {
+			return emitManualSpreadElement(b, t, splitIdx, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag)
 		}
 		emitS(b, "<"+t.Tag)
 		for _, a := range t.Attrs {
@@ -492,7 +721,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 			}
 		} else {
 			for _, c := range t.Children {
-				if !genNode(b, c, resolved, table, structFields, imports, fset, recvVar, recvTypeName, cls, bag) {
+				if !genNode(b, c, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag) {
 					return false
 				}
 			}
@@ -502,7 +731,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		return genInterp(b, t, resolved, table, imports, fset, bag)
 	case *ast.Fragment:
 		for _, c := range t.Children {
-			if !genNode(b, c, resolved, table, structFields, imports, fset, recvVar, recvTypeName, cls, bag) {
+			if !genNode(b, c, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag) {
 				return false
 			}
 		}
@@ -510,7 +739,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		emitLine(b, fset, t.Pos())
 		fmt.Fprintf(b, "for %s {\n", t.Clause)
 		for _, c := range t.Body {
-			if !genNode(b, c, resolved, table, structFields, imports, fset, recvVar, recvTypeName, cls, bag) {
+			if !genNode(b, c, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag) {
 				return false
 			}
 		}
@@ -519,7 +748,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		emitLine(b, fset, t.Pos())
 		fmt.Fprintf(b, "if %s {\n", t.Cond)
 		for _, c := range t.Then {
-			if !genNode(b, c, resolved, table, structFields, imports, fset, recvVar, recvTypeName, cls, bag) {
+			if !genNode(b, c, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag) {
 				return false
 			}
 		}
@@ -527,7 +756,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		if t.Else != nil {
 			b.WriteString(" else {\n")
 			for _, c := range t.Else {
-				if !genNode(b, c, resolved, table, structFields, imports, fset, recvVar, recvTypeName, cls, bag) {
+				if !genNode(b, c, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag) {
 					return false
 				}
 			}
@@ -544,7 +773,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 				fmt.Fprintf(b, "case %s:\n", cc.List)
 			}
 			for _, c := range cc.Body {
-				if !genNode(b, c, resolved, table, structFields, imports, fset, recvVar, recvTypeName, cls, bag) {
+				if !genNode(b, c, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag) {
 					return false
 				}
 			}
@@ -1187,9 +1416,9 @@ func singleRoot(body []ast.Markup) (*ast.Element, bool) {
 		return nil, false
 	}
 	// The root is fallthrough-eligible only when ALL its own attributes have
-	// STATICALLY-KNOWN names: root-wins de-dup spreads the bag minus the root's own
-	// attr names (rootWithoutArgs) and merges the bag's class into the root's class.
-	// A *CondAttr (`{ if … { id=… } }`) or *SpreadAttr (`<div {...x}>`) sets attrs
+	// STATICALLY-KNOWN names: caller-wins emit guards each root attr with
+	// `if !_gsxp.Attrs.Has(name)` and merges the bag's class/style — both need the
+	// static name. A *CondAttr (`{ if … { id=… } }`) or *SpreadAttr (`<div {...x}>`) sets attrs
 	// whose names/values are only known at runtime, so neither the drop set nor the
 	// class merge can account for them — a colliding fallthrough would emit a
 	// duplicate attribute (and bypass class-merge). Such a root is NOT auto-eligible;
@@ -1408,7 +1637,7 @@ func childInvocation(el *ast.Element, recvVar, recvTypeName string) (callTarget,
 // recvVar/recvTypeName are the ENCLOSING component's receiver var + type name
 // (empty for a function component); they drive the method-vs-package
 // disambiguation via childInvocation.
-func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]types.Type, table filterTable, structFields map[string]map[string]bool, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, bag *diag.Bag) bool {
+func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, bag *diag.Bag) bool {
 	callTarget, propsType, isMethod := childInvocation(el, recvVar, recvTypeName)
 	// A nullary METHOD invocation — no attrs, no children — has no props struct, so
 	// it is called bare: `p.Content()`. Any attrs or children mean the method has a
@@ -1426,8 +1655,8 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 	// loop vars are bound. emitProbes drives the same builder with a typed-nil
 	// slotValue, so emit and probe agree on WHICH fields exist — only the VALUE
 	// differs, and they cannot drift.
-	fields, err := childPropsLiteral(el, propsType, "gsx", structFields, func(nodes []ast.Markup) (string, error) {
-		s, ok := emitSlotClosure(nodes, resolved, table, structFields, imports, fset, recvVar, recvTypeName, cls, bag)
+	fields, err := childPropsLiteral(el, propsType, "gsx", structFields, nodeProps[propsType], func(nodes []ast.Markup) (string, error) {
+		s, ok := emitSlotClosure(nodes, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag)
 		if !ok {
 			return "", fmt.Errorf("slot closure failed")
 		}
@@ -1489,12 +1718,12 @@ func childPropsErrorCode(err error) string {
 // EXACTLY — same reserved idents (_gsxw/_gsxgw), gsx.W/gsx.Func, and trailing
 // Err() — so the slot streams to the same output, in THIS (parent) scope. It is
 // shared by the Children slot and every named markup slot so they cannot drift.
-func emitSlotClosure(nodes []ast.Markup, resolved map[ast.Node]types.Type, table filterTable, structFields map[string]map[string]bool, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, bag *diag.Bag) (string, bool) {
+func emitSlotClosure(nodes []ast.Markup, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, bag *diag.Bag) (string, bool) {
 	var slot bytes.Buffer
 	slot.WriteString("gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {\n")
 	slot.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
 	for _, c := range nodes {
-		if !genNode(&slot, c, resolved, table, structFields, imports, fset, recvVar, recvTypeName, cls, bag) {
+		if !genNode(&slot, c, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag) {
 			return "", false
 		}
 	}
@@ -1527,31 +1756,10 @@ func emitSlotClosure(nodes []ast.Markup, resolved map[ast.Node]types.Type, table
 // `_gsxrt` in a type-check skeleton), used only to name the fallthrough-bag type
 // `<rtPkg>.Attrs` so emit and probe reference the SAME runtime type under their
 // respective aliases.
-// childPropsLiteral builds the comma-joined field list for a child component's
-// props struct literal (e.g. `Title: "Hi", Featured: true, Header: <slot>`) from
-// the element's attributes and children. It is the SINGLE source of the props
-// literal so the render emission (genChildComponent) and the type-check probe
-// (emitProbes) cannot drift — they pass the SAME field set, differing only in the
-// slot VALUE supplied by slotValue (a real gsx.Func closure for emission, a
-// typed-nil for the probe).
-//
-// It SPLITS each Static/Expr/Bool attr via isPropField(propFields[propsType], …):
-//   - a DECLARED prop name → a props-struct field (static→quoted, expr→trimmed
-//     expr rejecting Try/Stages, bool→true), exactly as before; and
-//   - anything else (a non-identifier name like `data-test`/`@click`/`hx-*`, or an
-//     undeclared identifier on a known same-package child) → a FALLTHROUGH bag
-//     entry keyed by the attr's RAW name (static→quoted value, bool→true, expr→
-//     trimmed expr).
-//
-// A markup attribute is always a named slot (rendered via slotValue); composed
-// class/spread/conditional attrs on a component still error. When ≥1 fallthrough
-// entry exists, a single `Attrs: gsx.Attrs{…}` field is appended (after Children);
-// with none, NO Attrs field is emitted (so a pure-props invocation is unchanged).
-// rtPkg is the package qualifier for the gsx runtime (`gsx` in emitted code,
-// `_gsxrt` in a type-check skeleton), used only to name the fallthrough-bag type
-// `<rtPkg>.Attrs` so emit and probe reference the SAME runtime type under their
-// respective aliases.
-func childPropsLiteral(el *ast.Element, propsType, rtPkg string, propFields map[string]map[string]bool, slotValue func(nodes []ast.Markup) (string, error)) (string, error) {
+// nodeFields is the child props type's set of declared gsx.Node fields
+// (nodeProps[propsType]); a non-node value bound to one of these is promoted via
+// rtPkg.Val/rtPkg.Text so a renderable value fills a gsx.Node prop.
+func childPropsLiteral(el *ast.Element, propsType, rtPkg string, propFields map[string]map[string]bool, nodeFields map[string]bool, slotValue func(nodes []ast.Markup) (string, error)) (string, error) {
 	declared := propFields[propsType] // nil for cross-package / unknown → graceful
 	var fields []string
 	var bag []string // fallthrough entries: `"<rawName>": <value>`
@@ -1562,7 +1770,11 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, propFields map[
 				if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
 					return "", err
 				}
-				fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), strconv.Quote(t.Value)))
+				if nodeFields[fieldName(t.Name)] {
+					fields = append(fields, fmt.Sprintf("%s: %s.Text(%s)", fieldName(t.Name), rtPkg, strconv.Quote(t.Value)))
+				} else {
+					fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), strconv.Quote(t.Value)))
+				}
 			} else {
 				bag = append(bag, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), strconv.Quote(t.Value)))
 			}
@@ -1575,7 +1787,11 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, propFields map[
 					msg := fmt.Sprintf("pipeline/`?` on child-component prop %q (<%s>) not supported yet", t.Name, el.Tag)
 					return "", &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-child-pipeline", msg: msg}
 				}
-				fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), strings.TrimSpace(t.Expr)))
+				if nodeFields[fieldName(t.Name)] {
+					fields = append(fields, fmt.Sprintf("%s: %s.Val(%s)", fieldName(t.Name), rtPkg, strings.TrimSpace(t.Expr)))
+				} else {
+					fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), strings.TrimSpace(t.Expr)))
+				}
 			} else {
 				if t.Try || len(t.Stages) > 0 {
 					msg := fmt.Sprintf("pipeline/`?` on child-component fallthrough attr %q (<%s>) not supported yet", t.Name, el.Tag)
@@ -1588,7 +1804,11 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, propFields map[
 				if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
 					return "", err
 				}
-				fields = append(fields, fmt.Sprintf("%s: true", fieldName(t.Name)))
+				if nodeFields[fieldName(t.Name)] {
+					fields = append(fields, fmt.Sprintf("%s: %s.Val(true)", fieldName(t.Name), rtPkg))
+				} else {
+					fields = append(fields, fmt.Sprintf("%s: true", fieldName(t.Name)))
+				}
 			} else {
 				bag = append(bag, fmt.Sprintf("%s: true", strconv.Quote(t.Name)))
 			}

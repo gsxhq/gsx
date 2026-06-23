@@ -112,21 +112,24 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 		filesByDir[dir] = files
 	}
 
-	// Step 2: derive propFields per dir (MUST stay per-dir; type-name collisions
-	// across packages mean we can never merge them).
+	// Step 2: derive propFields and nodeProps per dir (MUST stay per-dir; type-name
+	// collisions across packages mean we can never merge them). nodeProps records
+	// which declared params have type exactly gsx.Node; threaded alongside propFields.
 	propFieldsByDir := make(map[string]map[string]map[string]bool, len(absDirs))
+	nodePropsByDir := make(map[string]map[string]map[string]bool, len(absDirs))
 	for _, dir := range absDirs {
 		files, ok := filesByDir[dir]
 		if !ok {
 			continue // already errored
 		}
-		pf, err := componentPropFieldsFor(files)
+		pf, np, err := componentPropFieldsFor(files)
 		if err != nil {
 			bags[dir].Add(diag.Diagnostic{Severity: diag.Error, Message: err.Error(), Source: "codegen"})
 			delete(filesByDir, dir)
 			continue
 		}
 		propFieldsByDir[dir] = pf
+		nodePropsByDir[dir] = np
 	}
 
 	// Step 3: load filter table ONCE from the module root.
@@ -154,9 +157,10 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 			break
 		}
 
+		np := nodePropsByDir[dir]
 		skeletonErr := false
 		for path, file := range files {
-			skel, comps, err := buildSkeleton(file, table, pf, fset)
+			skel, comps, err := buildSkeleton(file, table, pf, np, fset)
 			if err != nil {
 				// An attrError carries the offending attr's position and a diagnostic
 				// code — emit a positioned diagnostic. Any other error is an infrastructure
@@ -301,8 +305,9 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 		}
 		pf := propFieldsByDir[dir]
 		bag := bags[dir]
+		np := nodePropsByDir[dir]
 		for path, file := range files {
-			gen, genOK := generateFile(file, resolved, table, pf, fset, cls, bag, cssMin, jsMin)
+			gen, genOK := generateFile(file, resolved, table, pf, np, fset, cls, bag, cssMin, jsMin)
 			if !genOK {
 				// Diagnostics already in bag; skip writing this file but continue
 				// processing other files in the package so all errors are reported.

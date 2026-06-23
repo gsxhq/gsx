@@ -8,4 +8,4 @@ component Link() {
 Link(LinkProps{Attrs: gsx.Attrs{"href": "/evil", "data-y": "1"}})
 -- diagnostics.golden --
 -- render.golden --
-<a href="/x" data-y="1"></a>
+<a data-y="1" href="/evil"></a>

@@ -1,0 +1,8 @@
+-- input.gsx --
+package views
+
+component Box() {
+	<div {...attrs} id="x" {...attrs}>{children}</div>
+}
+-- diagnostics.golden --
+4:2: more than one {...attrs} spread on an element; precedence is ambiguous

@@ -8,4 +8,4 @@ component Panel(tab string) {
 Panel(PanelProps{Tab: "home", Attrs: gsx.Attrs{"x-data": "OVERRIDE"}})
 -- diagnostics.golden --
 -- render.golden --
-<div x-data="{ tab: &#34;home&#34; }">slot</div>
+<div x-data="OVERRIDE">slot</div>
