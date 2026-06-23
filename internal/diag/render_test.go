@@ -44,3 +44,37 @@ func TestRenderRichDegradesWithoutSource(t *testing.T) {
 		t.Errorf("expected compact degradation, got:\n%s", buf.String())
 	}
 }
+
+func TestRenderCompactPositionless(t *testing.T) {
+	var buf bytes.Buffer
+	// A positionless diagnostic (zero Start) must NOT print a "0:0:" prefix —
+	// just "severity[code]: message" (e.g. a parser error whose position lives
+	// in the message text in Slice 1).
+	RenderCompact(&buf, []Diagnostic{
+		{Severity: Error, Message: "index.gsx: 28:3: mismatched close tag </Layout>", Source: "parser"},
+	})
+	got := buf.String()
+	if strings.Contains(got, ":0:0:") {
+		t.Errorf("positionless diagnostic must not print a :0:0: prefix:\n%s", got)
+	}
+	if got != "error: index.gsx: 28:3: mismatched close tag </Layout>\n" {
+		t.Errorf("compact positionless render wrong:\n%q", got)
+	}
+}
+
+func TestRenderRichPositionless(t *testing.T) {
+	var buf bytes.Buffer
+	RenderRich(&buf, []Diagnostic{
+		{Severity: Error, Code: "syntax", Message: "mismatched close tag", Help: "close the open tag"},
+	}, nil)
+	got := buf.String()
+	if strings.Contains(got, ":0:0:") || strings.Contains(got, "-->") {
+		t.Errorf("positionless rich render must not print a :0:0: prefix or --> location:\n%s", got)
+	}
+	if !strings.Contains(got, "error[syntax]: mismatched close tag") {
+		t.Errorf("rich positionless render missing header:\n%s", got)
+	}
+	if !strings.Contains(got, "= help: close the open tag") {
+		t.Errorf("rich positionless render should still show help:\n%s", got)
+	}
+}
