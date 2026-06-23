@@ -82,6 +82,40 @@ func jsCorpus() []string {
 	}
 }
 
+func FuzzJSEscapersMatchStdlib(f *testing.F) {
+	for _, s := range jsCorpus() {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		// Non-attr JS contexts: byte-parity vs the html/template sub-context oracle.
+		if got, want := gsxJSVal(s), jsValOracle(s); got != want {
+			t.Fatalf("JSVal(%q)=%q, oracle=%q", s, got, want)
+		}
+		if got, want := gsxJSStr(s), jsStrOracle(s); got != want {
+			t.Fatalf("JSStr(%q)=%q, oracle=%q", s, got, want)
+		}
+		if got, want := gsxJSTmpl(s), jsTmplOracle(s); got != want {
+			t.Fatalf("JSTmpl(%q)=%q, oracle=%q", s, got, want)
+		}
+		if got, want := gsxJSRegexp(s), jsRegexpOracle(s); got != want {
+			t.Fatalf("JSRegexp(%q)=%q, oracle=%q", s, got, want)
+		}
+		// Attr variants: JS-escape composed with HTML-attr-escape (htmlReplacer).
+		if got, want := gsxJSValAttr(s), htmlReplacer.Replace(jsValOracle(s)); got != want {
+			t.Fatalf("JSValAttr(%q)=%q, oracle=%q", s, got, want)
+		}
+		if got, want := gsxJSStrAttr(s), htmlReplacer.Replace(jsStrOracle(s)); got != want {
+			t.Fatalf("JSStrAttr(%q)=%q, oracle=%q", s, got, want)
+		}
+		if got, want := gsxJSTmplAttr(s), htmlReplacer.Replace(jsTmplOracle(s)); got != want {
+			t.Fatalf("JSTmplAttr(%q)=%q, oracle=%q", s, got, want)
+		}
+		if got, want := gsxJSRegexpAttr(s), htmlReplacer.Replace(jsRegexpOracle(s)); got != want {
+			t.Fatalf("JSRegexpAttr(%q)=%q, oracle=%q", s, got, want)
+		}
+	})
+}
+
 func TestJSValDiff(t *testing.T) {
 	for _, s := range jsCorpus() {
 		if got, want := gsxJSVal(s), jsValOracle(s); got != want {
