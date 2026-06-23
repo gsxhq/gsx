@@ -10,4 +10,4 @@ component Page() {
 	<Multi data-x="1"/>
 }
 -- diagnostics.golden --
-codegen: type resolution failed: cases/fallthrough_call_site_not_eligible/input.x.go:18:22: unknown field Attrs in struct literal of type MultiProps
+18:22: unknown field Attrs in struct literal of type MultiProps

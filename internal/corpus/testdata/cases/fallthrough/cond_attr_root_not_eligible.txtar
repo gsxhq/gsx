@@ -9,4 +9,4 @@ component Page() {
 	<Box active={true} id="caller"/>
 }
 -- diagnostics.golden --
-codegen: type resolution failed: cases/fallthrough_cond_attr_root_not_eligible/input.x.go:21:32: unknown field Attrs in struct literal of type BoxProps
+21:32: unknown field Attrs in struct literal of type BoxProps

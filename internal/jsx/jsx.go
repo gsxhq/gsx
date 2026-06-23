@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/tdewolff/parse/v2"
 	"github.com/tdewolff/parse/v2/js"
 )
@@ -28,23 +29,40 @@ const holePrefix = "_GSXJSHOLE_"
 
 // ResolveScripts walks f and classifies every @{ … } hole inside each <script>
 // element, setting interp.JSCtx, un-splitting comment holes back to literal
-// Text, or returning a positioned fail-closed error. <style> and non-script
-// interps are left untouched (JSCtxNone).
-func ResolveScripts(f *ast.File) error {
+// Text, or recording a positioned fail-closed diagnostic in bag. Returns true if
+// clean (no errors recorded), false if any diagnostic was added. <style> and
+// non-script interps are left untouched (JSCtxNone).
+func ResolveScripts(f *ast.File, bag *diag.Bag) bool {
+	ok := true
 	for _, d := range f.Decls {
-		if comp, ok := d.(*ast.Component); ok {
-			if err := resolveMarkup(comp.Body); err != nil {
-				return err
+		if comp, ok2 := d.(*ast.Component); ok2 {
+			if !resolveMarkup(comp.Body, bag) {
+				ok = false
 			}
 		}
 	}
-	return nil
+	return ok
+}
+
+// ResolveScriptsErr is the backward-compatible error-returning wrapper for tests
+// and callers that do not yet hold a *diag.Bag.
+func ResolveScriptsErr(f *ast.File) error {
+	bag := diag.NewBag(nil)
+	if ResolveScripts(f, bag) {
+		return nil
+	}
+	if diags := bag.Sorted(); len(diags) > 0 {
+		return fmt.Errorf("%s", diags[0].Message)
+	}
+	return fmt.Errorf("jsx: ResolveScripts: unclassifiable error")
 }
 
 // resolveMarkup mirrors internal/jsmin/file.go's minifyMarkup walk: recurse
 // through Element/Fragment/IfMarkup/ForMarkup/SwitchMarkup, but stop at <script>
 // elements (resolve them, don't recurse into their raw-text children).
-func resolveMarkup(nodes []ast.Markup) error {
+// Returns true if clean, false if any diagnostic was added to bag.
+func resolveMarkup(nodes []ast.Markup, bag *diag.Bag) bool {
+	ok := true
 	for _, n := range nodes {
 		switch v := n.(type) {
 		case *ast.Element:
@@ -52,45 +70,45 @@ func resolveMarkup(nodes []ast.Markup) error {
 			// element, including <script> (it can carry <script onload="@{…}">).
 			// This must run before the holes are type-probed in codegen.
 			for _, a := range v.Attrs {
-				if ja, ok := a.(*ast.JSAttr); ok {
-					if err := ResolveJSAttr(ja.Name, ja.Segments); err != nil {
-						return err
+				if ja, ok2 := a.(*ast.JSAttr); ok2 {
+					if !resolveJSAttr(ja.Name, ja.Segments, bag) {
+						ok = false
 					}
 				}
 			}
 			if strings.EqualFold(v.Tag, "script") {
-				if err := resolveScript(v); err != nil {
-					return err
+				if !resolveScript(v, bag) {
+					ok = false
 				}
 				continue
 			}
-			if err := resolveMarkup(v.Children); err != nil {
-				return err
+			if !resolveMarkup(v.Children, bag) {
+				ok = false
 			}
 		case *ast.Fragment:
-			if err := resolveMarkup(v.Children); err != nil {
-				return err
+			if !resolveMarkup(v.Children, bag) {
+				ok = false
 			}
 		case *ast.IfMarkup:
-			if err := resolveMarkup(v.Then); err != nil {
-				return err
+			if !resolveMarkup(v.Then, bag) {
+				ok = false
 			}
-			if err := resolveMarkup(v.Else); err != nil {
-				return err
+			if !resolveMarkup(v.Else, bag) {
+				ok = false
 			}
 		case *ast.ForMarkup:
-			if err := resolveMarkup(v.Body); err != nil {
-				return err
+			if !resolveMarkup(v.Body, bag) {
+				ok = false
 			}
 		case *ast.SwitchMarkup:
 			for i := range v.Cases {
-				if err := resolveMarkup(v.Cases[i].Body); err != nil {
-					return err
+				if !resolveMarkup(v.Cases[i].Body, bag) {
+					ok = false
 				}
 			}
 		}
 	}
-	return nil
+	return ok
 }
 
 // hole records one @{ … } interpolation in the lexed skeleton.
@@ -137,39 +155,47 @@ func scriptType(el *ast.Element) string {
 // resolveDataIsland classifies a data-block <script> (e.g. application/json):
 // the whole body must be exactly one @{ } hole (modulo whitespace), emitted as a
 // JSON value. Anything else fails closed.
-func resolveDataIsland(el *ast.Element) error {
+// Returns true if clean, false if any diagnostic was added to bag.
+func resolveDataIsland(el *ast.Element, bag *diag.Bag) bool {
 	var theInterp *ast.Interp
 	for _, c := range el.Children {
 		switch v := c.(type) {
 		case *ast.Text:
 			if strings.TrimSpace(v.Value) != "" {
-				return fmt.Errorf("jsx: a data <script> (type=%q) must contain exactly one @{ } value; found literal text %q",
+				bag.Report(el.Pos(), el.End(), diag.Error, "jsx-data-island", "jsx",
+					"jsx: a data <script> (type=%q) must contain exactly one @{ } value; found literal text %q",
 					scriptType(el), strings.TrimSpace(v.Value))
+				return false
 			}
 		case *ast.Interp:
 			if theInterp != nil {
-				return fmt.Errorf("jsx: a data <script> must contain exactly one @{ } value; found more than one")
+				bag.Report(el.Pos(), el.End(), diag.Error, "jsx-data-island", "jsx",
+					"jsx: a data <script> must contain exactly one @{ } value; found more than one")
+				return false
 			}
 			theInterp = v
 		default:
-			return fmt.Errorf("jsx: unexpected %T in data <script> body", c)
+			bag.Report(el.Pos(), el.End(), diag.Error, "jsx-data-island", "jsx",
+				"jsx: unexpected %T in data <script> body", c)
+			return false
 		}
 	}
 	if theInterp == nil {
-		return nil // holeless data block (static JSON) — nothing to interpolate.
+		return true // holeless data block (static JSON) — nothing to interpolate.
 	}
 	theInterp.JSCtx = ast.JSCtxValue
-	return nil
+	return true
 }
 
 // resolveScript classifies every Interp child of a <script> element.
-func resolveScript(el *ast.Element) error {
+// Returns true if clean, false if any diagnostic was added to bag.
+func resolveScript(el *ast.Element, bag *diag.Bag) bool {
 	// A data-block <script> (e.g. type="application/json") is not JavaScript:
 	// its body must be exactly one @{ } value emitted as JSON. This branch runs
 	// FIRST so a holeless data block also takes the data path (and is never
-	// JS-classified); resolveDataIsland returns nil for a holeless body.
+	// JS-classified); resolveDataIsland returns true for a holeless body.
 	if isDataIslandScript(el) {
-		return resolveDataIsland(el)
+		return resolveDataIsland(el, bag)
 	}
 
 	// Collect holes and build the skeleton. Bail early if there are no holes.
@@ -181,15 +207,17 @@ func resolveScript(el *ast.Element) error {
 		}
 	}
 	if !hasInterp {
-		return nil
+		return true
 	}
 
 	// Placeholder-collision guard (CVE-grade, fail-closed): if any literal Text
 	// already contains the sentinel stem, we cannot safely place sentinels.
 	for _, c := range el.Children {
 		if t, ok := c.(*ast.Text); ok && strings.Contains(t.Value, holePrefix) {
-			return fmt.Errorf("jsx: <script> at %d: source contains the reserved sentinel %q; cannot classify @{ } holes safely",
-				el.Pos(), holePrefix)
+			bag.Report(el.Pos(), el.End(), diag.Error, "jsx-sentinel-collision", "jsx",
+				"jsx: <script> source contains the reserved sentinel %q; cannot classify @{ } holes safely",
+				holePrefix)
+			return false
 		}
 	}
 
@@ -211,36 +239,57 @@ func resolveScript(el *ast.Element) error {
 			})
 		default:
 			// Should not occur inside a raw-text <script>; fail closed.
-			return fmt.Errorf("jsx: <script> at %d: unexpected non-text/interp node %T in script body",
-				el.Pos(), c)
+			bag.Report(el.Pos(), el.End(), diag.Error, "jsx-unexpected-node", "jsx",
+				"jsx: unexpected non-text/interp node %T in script body", c)
+			return false
 		}
 	}
 
-	if err := classify(sb.String(), holes); err != nil {
-		return err
+	if !classify(sb.String(), holes, bag) {
+		return false
 	}
 
 	// Apply: set JSCtx, or rewrite comment holes to literal Text in place.
+	ok := true
 	for _, h := range holes {
 		if !h.resolved {
-			return fmt.Errorf("jsx: @{ } at %d in <script> could not be classified (lex error or unreachable position); fails closed",
-				h.interp.Pos())
+			bag.Report(h.interp.Pos(), h.interp.End(), diag.Error, "jsx-unresolved", "jsx",
+				"jsx: @{ } in <script> could not be classified (lex error or unreachable position); fails closed")
+			ok = false
+			continue
 		}
 		if h.comment {
 			lit := interpLiteral(h.interp)
 			if strings.Contains(strings.ToLower(lit), "</script") {
-				return fmt.Errorf("jsx: @{ } at %d inside a <script> comment contains \"</script\", which would close the script element; remove it or move the value out of the comment",
-					h.interp.Pos())
+				bag.Report(h.interp.Pos(), h.interp.End(), diag.Error, "jsx-script-close", "jsx",
+					"jsx: @{ } inside a <script> comment contains \"</script\", which would close the script element; remove it or move the value out of the comment")
+				ok = false
+				continue
 			}
 			el.Children[h.childIdx] = &ast.Text{Value: lit}
 			continue
 		}
 		h.interp.JSCtx = h.ctx
 	}
-	return nil
+	return ok
 }
 
-// ResolveJSAttr classifies every @{ … } hole in a JS-context attribute value
+// ResolveJSAttr is the public entry point for callers outside the JSX engine
+// (e.g. unit tests) that do not yet hold a *diag.Bag. It creates a temporary
+// bag, delegates to resolveJSAttr, and converts any recorded diagnostic back
+// into an error for backward compatibility.
+func ResolveJSAttr(name string, segments []ast.Markup) error {
+	bag := diag.NewBag(nil)
+	if resolveJSAttr(name, segments, bag) {
+		return nil
+	}
+	if diags := bag.Sorted(); len(diags) > 0 {
+		return fmt.Errorf("%s", diags[0].Message)
+	}
+	return fmt.Errorf("jsx: attribute %q: unclassifiable @{ } hole", name)
+}
+
+// resolveJSAttr classifies every @{ … } hole in a JS-context attribute value
 // (e.g. x-data="{ tab: @{ tab } }"). It builds the same _GSXJSHOLE_ skeleton as
 // resolveScript, runs the same classify, and sets each Interp.JSCtx — so codegen
 // can later escape each hole by its JS context. An attribute value is a single JS
@@ -248,7 +297,8 @@ func resolveScript(el *ast.Element) error {
 // degenerate and FAILS CLOSED here (unlike <script>, where comment holes
 // un-split): we never mutate the segments before the type-probe. Identifier /
 // binding / unclassifiable positions fail closed exactly as in <script>.
-func ResolveJSAttr(name string, segments []ast.Markup) error {
+// Returns true if clean, false if any diagnostic was added to bag.
+func resolveJSAttr(name string, segments []ast.Markup, bag *diag.Bag) bool {
 	// Bail early if there are no holes (a hole-free JS attr stays StaticAttr and
 	// never reaches here, but be defensive).
 	hasInterp := false
@@ -259,15 +309,27 @@ func ResolveJSAttr(name string, segments []ast.Markup) error {
 		}
 	}
 	if !hasInterp {
-		return nil
+		return true
 	}
 
 	// Placeholder-collision guard (fail-closed): if any literal Text already
 	// contains the sentinel stem, we cannot safely place sentinels.
 	for _, c := range segments {
 		if t, ok := c.(*ast.Text); ok && strings.Contains(t.Value, holePrefix) {
-			return fmt.Errorf("jsx: attribute %q: value contains the reserved sentinel %q; cannot classify @{ } holes safely",
-				name, holePrefix)
+			// Use the first interp's position as a best-effort location.
+			var firstInterp *ast.Interp
+			for _, seg := range segments {
+				if interp, ok2 := seg.(*ast.Interp); ok2 {
+					firstInterp = interp
+					break
+				}
+			}
+			if firstInterp != nil {
+				bag.Report(firstInterp.Pos(), firstInterp.End(), diag.Error, "jsx-sentinel-collision", "jsx",
+					"jsx: attribute %q: value contains the reserved sentinel %q; cannot classify @{ } holes safely",
+					name, holePrefix)
+			}
+			return false
 		}
 	}
 
@@ -288,35 +350,53 @@ func ResolveJSAttr(name string, segments []ast.Markup) error {
 				end:      start + len(ph),
 			})
 		default:
-			return fmt.Errorf("jsx: attribute %q: value may contain only text and @{ } interpolations, got %T", name, c)
+			// Use first interp's position as best effort.
+			var firstInterp *ast.Interp
+			for _, seg := range segments {
+				if interp, ok2 := seg.(*ast.Interp); ok2 {
+					firstInterp = interp
+					break
+				}
+			}
+			if firstInterp != nil {
+				bag.Report(firstInterp.Pos(), firstInterp.End(), diag.Error, "jsx-unexpected-node", "jsx",
+					"jsx: attribute %q: value may contain only text and @{ } interpolations, got %T", name, c)
+			}
+			return false
 		}
 	}
 
-	if err := classify(sb.String(), holes); err != nil {
-		return err
+	if !classify(sb.String(), holes, bag) {
+		return false
 	}
 
+	ok := true
 	for _, h := range holes {
 		if !h.resolved {
-			return fmt.Errorf("jsx: @{ } at %d in attribute %q could not be classified (lex error or unreachable position); fails closed",
-				h.interp.Pos(), name)
+			bag.Report(h.interp.Pos(), h.interp.End(), diag.Error, "jsx-unresolved", "jsx",
+				"jsx: @{ } in attribute %q could not be classified (lex error or unreachable position); fails closed", name)
+			ok = false
+			continue
 		}
 		if h.comment {
-			return fmt.Errorf("jsx: @{ } at %d inside a JS comment in attribute %q is not supported; move it out of the comment",
-				h.interp.Pos(), name)
+			bag.Report(h.interp.Pos(), h.interp.End(), diag.Error, "jsx-attr-comment", "jsx",
+				"jsx: @{ } inside a JS comment in attribute %q is not supported; move it out of the comment", name)
+			ok = false
+			continue
 		}
 		h.interp.JSCtx = h.ctx
 	}
-	return nil
+	return ok
 }
 
 // classify lexes the skeleton and assigns each hole a context (setting h.ctx /
-// h.comment / h.resolved), or returns a positioned fail-closed error for a hole
-// in an unsafe code position.
-func classify(skeleton string, holes []*hole) error {
+// h.comment / h.resolved), recording positioned fail-closed diagnostics in bag
+// for any hole in an unsafe code position. Returns true if clean.
+func classify(skeleton string, holes []*hole, bag *diag.Bag) bool {
 	l := js.NewLexer(parse.NewInputString(skeleton))
 	pos := 0                 // running byte offset = start of the token about to be processed
 	prevSig := js.ErrorToken // previous SIGNIFICANT token (start-of-input)
+	ok := true
 
 	for {
 		tt, data := l.Next()
@@ -344,8 +424,8 @@ func classify(skeleton string, holes []*hole) error {
 			if h.start < start || h.end > end {
 				continue // hole not (fully) within this token
 			}
-			if err := classifyHole(h, tt, start, end, prevSig); err != nil {
-				return err
+			if !classifyHole(h, tt, start, end, prevSig, bag) {
+				ok = false
 			}
 		}
 
@@ -353,12 +433,13 @@ func classify(skeleton string, holes []*hole) error {
 			prevSig = tt
 		}
 	}
-	return nil
+	return ok
 }
 
 // classifyHole assigns a context to one hole that falls within token (tt) spanning
 // [tokStart, tokEnd), given the previous significant token prevSig.
-func classifyHole(h *hole, tt js.TokenType, tokStart, tokEnd int, prevSig js.TokenType) error {
+// Returns true if clean, false if a diagnostic was added to bag.
+func classifyHole(h *hole, tt js.TokenType, tokStart, tokEnd int, prevSig js.TokenType, bag *diag.Bag) bool {
 	ownToken := h.start == tokStart && h.end == tokEnd
 
 	if !ownToken {
@@ -373,22 +454,24 @@ func classifyHole(h *hole, tt js.TokenType, tokStart, tokEnd int, prevSig js.Tok
 		case js.CommentToken, js.CommentLineTerminatorToken:
 			h.comment = true
 		default:
-			return fmt.Errorf("jsx: @{ } at %d in <script> lands inside a %v token; fails closed",
-				h.interp.Pos(), tt)
+			bag.Report(h.interp.Pos(), h.interp.End(), diag.Error, "jsx-bad-token", "jsx",
+				"jsx: @{ } in <script> lands inside a %v token; fails closed", tt)
+			return false
 		}
 		h.resolved = true
-		return nil
+		return true
 	}
 
 	// The placeholder IS its own IdentifierToken: classify by prevSig.
 	if isValuePosition(prevSig) {
 		h.ctx = ast.JSCtxValue
 		h.resolved = true
-		return nil
+		return true
 	}
-	return fmt.Errorf("jsx: @{ } at %d here is not a safe JavaScript value position "+
-		"(it looks like an identifier/binding); wrap the value where it is used as a value, or use a data attribute",
-		h.interp.Pos())
+	bag.Report(h.interp.Pos(), h.interp.End(), diag.Error, "jsx-identifier-position", "jsx",
+		"jsx: @{ } here is not a safe JavaScript value position "+
+			"(it looks like an identifier/binding); wrap the value where it is used as a value, or use a data attribute")
+	return false
 }
 
 // interpLiteral reconstructs the @{ … } source of an Interp, mirroring the

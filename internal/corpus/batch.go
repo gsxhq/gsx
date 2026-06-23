@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/gsxhq/gsx/internal/diag"
 )
 
 type caseCodegen struct {
@@ -114,9 +116,13 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 				hasErr = true
 				continue
 			}
-			if pr.Err != nil {
-				diagBuf.WriteString(pr.Err.Error())
-				diagBuf.WriteByte('\n')
+			// Render diagnostics from pr.Diags.
+			// Format: "line:col: message" for positioned diagnostics (Start.Line > 0),
+			// or just "message" for positionless ones (so codegen goldens stay unchanged).
+			if len(pr.Diags) > 0 {
+				for _, d := range pr.Diags {
+					formatDiagLine(&diagBuf, d)
+				}
 				hasErr = true
 				continue
 			}
@@ -291,6 +297,19 @@ func referencedQualifiers(src []byte) map[string]bool {
 		out[string(m[1])] = true
 	}
 	return out
+}
+
+// formatDiagLine formats one diagnostic into the diagBuf for golden comparison.
+// Positioned diagnostics (Start.Line > 0) get "line:col: message\n".
+// Positionless ones (e.g. codegen-layer errors in Task 2) get just "message\n",
+// matching the old pr.Err.Error() format so existing codegen goldens are unchanged.
+func formatDiagLine(buf *bytes.Buffer, d diag.Diagnostic) {
+	if d.Start.Line > 0 {
+		fmt.Fprintf(buf, "%d:%d: %s\n", d.Start.Line, d.Start.Column, d.Message)
+	} else {
+		buf.WriteString(d.Message)
+		buf.WriteByte('\n')
+	}
 }
 
 func splitBatchOutput(out string) map[string]string {

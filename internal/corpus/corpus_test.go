@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -16,19 +15,6 @@ import (
 
 var update = flag.Bool("update", false, "regenerate golden sections in testdata/cases")
 
-// diagOffsetRe matches the volatile byte offset in JS-hole diagnostics
-// ("jsx: @{ } at 12970 here is not…"). The number is h.interp.Pos() rendered as
-// a raw offset into the BATCHED go/packages buffer (all corpus cases loaded
-// together), so it is not an offset into the user's .gsx file, conveys nothing
-// stable, and shifts whenever any unrelated case is added ahead of it. Real
-// line:col positions are the deferred codegen-diagnostic-position increment's
-// job; until then we replace the offset with a placeholder so it stops churning
-// unrelated goldens.
-var diagOffsetRe = regexp.MustCompile(`\bat \d+\b`)
-
-// normalizeDiag canonicalizes the volatile byte offset in diagnostics so adding
-// unrelated corpus cases does not churn unrelated goldens.
-func normalizeDiag(b []byte) []byte { return diagOffsetRe.ReplaceAll(b, []byte("at N")) }
 
 func TestCorpus(t *testing.T) {
 	repoRoot, _ := filepath.Abs("../..")
@@ -118,7 +104,6 @@ func TestCorpus(t *testing.T) {
 			if single {
 				checkOrUpdateFacet(t, c, "ast.golden", astDump, paths[c.name])
 			}
-			diagGot = normalizeDiag(diagGot)
 			checkOrUpdateFacet(t, c, "diagnostics.golden", diagGot, paths[c.name])
 			checkOrUpdateFacet(t, c, "generated.x.go.golden", genGot, paths[c.name])
 
@@ -171,9 +156,6 @@ func checkOrUpdateFacet(t *testing.T, c *caseDoc, sec string, got []byte, path s
 		return
 	}
 	want := c.goldens[sec]
-	if sec == "diagnostics.golden" {
-		want = normalizeDiag(want)
-	}
 	if !bytes.Equal(got, want) {
 		t.Errorf("%s: %s mismatch\n--- got ---\n%s\n--- want ---\n%s", c.name, sec, got, want)
 	}
