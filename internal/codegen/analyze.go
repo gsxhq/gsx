@@ -599,6 +599,14 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 // produced by the type-checker (via pkg.Fset which honors //line directives)
 // resolve to .gsx file:line:col instead of the generated overlay .x.go.
 // fset may be nil (e.g. in test-only callers); in that case no directive is emitted.
+//
+// TODO(column-accuracy): the .gsx FILE and LINE are exact, but the reported
+// COLUMN is skeleton-relative — it is offset by the probe wrapper (e.g.
+// `_gsxuse(`) and, for child-component prop errors, points inside the generated
+// props literal rather than the .gsx source. Anchoring at the user expression's
+// start (an expression-start token.Pos on ast.Interp, plus per-probe column
+// compensation `col = srcCol - skeletonCol + 1`) would make the column exact.
+// Deferred to a follow-up (Slice 2): file+line is the Slice-1 promise and is met.
 func emitSkeletonLine(sb *strings.Builder, fset *token.FileSet, pos token.Pos) {
 	if fset == nil || !pos.IsValid() {
 		return
