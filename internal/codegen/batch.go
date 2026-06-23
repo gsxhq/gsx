@@ -158,7 +158,15 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 		for path, file := range files {
 			skel, comps, err := buildSkeleton(file, table, pf)
 			if err != nil {
-				bags[dir].Add(diag.Diagnostic{Severity: diag.Error, Message: err.Error(), Source: "codegen"})
+				// An attrError carries the offending attr's position and a diagnostic
+				// code — emit a positioned diagnostic. Any other error is an infrastructure
+				// failure recorded positionlessly (with the "codegen: " prefix stripped).
+				var ae *attrError
+				if errors.As(err, &ae) {
+					bags[dir].Errorf(ae.pos, ae.end, ae.code, "%s", ae.msg)
+				} else {
+					bags[dir].Add(diag.Diagnostic{Severity: diag.Error, Message: strings.TrimPrefix(err.Error(), "codegen: "), Source: "codegen"})
+				}
 				delete(filesByDir, dir)
 				skeletonErr = true
 				break

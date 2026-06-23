@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	goast "go/ast"
 	"go/format"
@@ -65,7 +66,7 @@ func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filter
 		case *ast.GoChunk:
 			specs, rest, err := splitChunk(v.Src)
 			if err != nil {
-				bag.Add(diag.Diagnostic{Severity: diag.Error, Message: err.Error(), Source: "codegen"})
+				bag.Errorf(v.Pos(), v.End(), "invalid-syntax", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 				return nil, false
 			}
 			for _, s := range specs {
@@ -1434,12 +1435,30 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 	})
 	if err != nil {
 		// Convert the childPropsLiteral error to a positioned diagnostic.
-		bag.Errorf(el.Pos(), el.End(), childPropsErrorCode(err), "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+		// An attrError carries the specific attr's position; fall back to the element.
+		var ae *attrError
+		if errors.As(err, &ae) {
+			bag.Errorf(ae.pos, ae.end, ae.code, "%s", ae.msg)
+		} else {
+			bag.Errorf(el.Pos(), el.End(), childPropsErrorCode(err), "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+		}
 		return false
 	}
 	fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s(%s{%s}))\n", callTarget, propsType, fields)
 	return true
 }
+
+// attrError is an error from childPropsLiteral that carries the offending attr
+// node's position so callers can emit a positioned diagnostic. The msg field has
+// the "codegen: " prefix stripped; code is already resolved via childPropsErrorCode.
+type attrError struct {
+	pos  token.Pos
+	end  token.Pos
+	code string
+	msg  string
+}
+
+func (e *attrError) Error() string { return e.msg }
 
 // childPropsErrorCode returns the diagnostic error code for a childPropsLiteral
 // error, based on the error message content.
@@ -1553,12 +1572,14 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, propFields map[
 					return "", err
 				}
 				if t.Try || len(t.Stages) > 0 {
-					return "", fmt.Errorf("codegen: pipeline/`?` on child-component prop %q (<%s>) not supported yet", t.Name, el.Tag)
+					msg := fmt.Sprintf("pipeline/`?` on child-component prop %q (<%s>) not supported yet", t.Name, el.Tag)
+					return "", &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-child-pipeline", msg: msg}
 				}
 				fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), strings.TrimSpace(t.Expr)))
 			} else {
 				if t.Try || len(t.Stages) > 0 {
-					return "", fmt.Errorf("codegen: pipeline/`?` on child-component fallthrough attr %q (<%s>) not supported yet", t.Name, el.Tag)
+					msg := fmt.Sprintf("pipeline/`?` on child-component fallthrough attr %q (<%s>) not supported yet", t.Name, el.Tag)
+					return "", &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-child-pipeline", msg: msg}
 				}
 				bag = append(bag, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), strings.TrimSpace(t.Expr)))
 			}
@@ -1586,13 +1607,17 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, propFields map[
 			}
 			fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), val))
 		case *ast.ClassAttr:
-			return "", fmt.Errorf("codegen: class attribute on a component (<%s>) not supported yet", el.Tag)
+			msg := fmt.Sprintf("class attribute on a component (<%s>) not supported yet", el.Tag)
+			return "", &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 		case *ast.SpreadAttr:
-			return "", fmt.Errorf("codegen: spread attribute on a component (<%s>) not supported yet", el.Tag)
+			msg := fmt.Sprintf("spread attribute on a component (<%s>) not supported yet", el.Tag)
+			return "", &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 		case *ast.CondAttr:
-			return "", fmt.Errorf("codegen: conditional attribute on a component (<%s>) not supported yet", el.Tag)
+			msg := fmt.Sprintf("conditional attribute on a component (<%s>) not supported yet", el.Tag)
+			return "", &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 		default:
-			return "", fmt.Errorf("codegen: unknown attribute %T on component (<%s>)", a, el.Tag)
+			msg := fmt.Sprintf("unknown attribute %T on component (<%s>)", a, el.Tag)
+			return "", &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}
 		}
 	}
 	if len(el.Children) > 0 {

@@ -3,4 +3,4 @@ package views
 
 component Hi(name string) { <p>{ name |> bogus }</p> }
 -- diagnostics.golden --
-codegen: unknown filter "bogus"
+unknown filter "bogus"

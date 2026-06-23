@@ -29,6 +29,7 @@ import (
 // propagate as fatal errors.
 var errSkipComponent = errors.New("skip")
 
+
 // resolveTypesPkg type-checks the package (real .go files + synthesized gsx
 // component skeletons via Overlay) and returns each interpolation's type.
 //
@@ -486,6 +487,9 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 						return "_gsxrt.Node(nil)", nil
 					})
 					if err != nil {
+						// childPropsLiteral returns an *attrError with the offending attr's
+						// position embedded. Propagate it as-is so the batch.go sink can emit
+						// a positioned diagnostic (not positionless).
 						return err
 					}
 					fmt.Fprintf(sb, "_ = %s(%s{%s})\n", callTarget, propsType, fields)
@@ -1329,15 +1333,41 @@ func splitChunk(src string) (imports []importSpec, body string, err error) {
 //
 // withRecv controls whether the method receiver clause is emitted (true for
 // most cases; false when parseRecv itself failed and c.Recv is bad syntax).
+//
+// CRITICAL: the stub props struct MUST mirror the Children/Attrs field synthesis
+// that emitComponentSkeleton/genComponent use — otherwise a sibling that
+// instantiates the bad component WITH CHILDREN will get a spurious "unknown field
+// Children" type error from the overlay, masking the real diagnostic. We use the
+// SAME gating (usesChildren / singleRoot / usesAttrs) on the body so the stub
+// struct shape matches what siblings reference.
 func emitComponentStub(sb *strings.Builder, c *gsxast.Component, params []param, withRecv bool) {
 	propsName := c.Name + "Props"
-	// Emit a props struct if we have parsed params, to keep user-imported types
-	// (like gsx.Node) used in the skeleton. The struct itself is harmless — the
-	// reserved param name appears as a field name (uppercase), not as a local.
-	if len(params) > 0 {
+	// MIRROR emitComponentSkeleton: compute Children/Attrs gates from the body.
+	hasChildren := usesChildren(c.Body)
+	_, hasRoot := singleRoot(c.Body)
+	manual := usesAttrs(c.Body)
+	// MIRROR emitComponentSkeleton line 380: hasFallthrough gating.
+	hasFallthrough := (hasRoot && (c.Recv == "" || len(params) > 0 || hasChildren)) || manual
+	// MIRROR emitComponentSkeleton line 384: hasProps gating.
+	// When params is nil (parse failed), treat as len(params)==0 for gating.
+	hasProps := c.Recv == "" || len(params) > 0 || hasChildren || hasFallthrough
+	// Track which field names the params already declare (e.g. a bad param named
+	// "children" → field "Children") so we do not double-declare the synthesized
+	// Children/Attrs fields and produce a "redeclared" type-error in the overlay.
+	paramFields := make(map[string]bool, len(params))
+	for _, p := range params {
+		paramFields[fieldName(p.name)] = true
+	}
+	if hasProps {
 		fmt.Fprintf(sb, "type %s struct {\n", propsName)
 		for _, p := range params {
 			fmt.Fprintf(sb, "\t%s %s\n", fieldName(p.name), p.typ)
+		}
+		if hasChildren && !paramFields["Children"] {
+			sb.WriteString("\tChildren _gsxrt.Node\n")
+		}
+		if hasFallthrough && !paramFields["Attrs"] {
+			sb.WriteString("\tAttrs _gsxrt.Attrs\n")
 		}
 		sb.WriteString("}\n")
 		if withRecv && c.Recv != "" {

@@ -11,4 +11,4 @@ component Page() {
 	<Panel data-x={ <m/> }/>
 }
 -- diagnostics.golden --
-codegen: non-identifier attribute "data-x" on component Panel (attribute fallthrough not supported yet)
+non-identifier attribute "data-x" on component Panel (attribute fallthrough not supported yet)
