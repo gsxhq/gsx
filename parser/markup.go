@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"fmt"
 	"go/scanner"
 	"go/token"
 	"strings"
@@ -13,15 +12,14 @@ import (
 func (p *parser) parseInterp() (*ast.Interp, error) {
 	start := p.i
 	startPos := p.posAt(start)
-	resolvedPos := p.file.Position(startPos)
 	end, ok := goExprEnd(p.src, p.i)
 	if !ok {
-		return nil, fmt.Errorf("%d:%d: unterminated `{`", resolvedPos.Line, resolvedPos.Column)
+		return nil, p.errorf(startPos, "unterminated `{`")
 	}
 	inner := strings.TrimSpace(p.src[p.i+1 : end])
 	seed, seedTry, stages, perr := parsePipe(inner)
 	if perr != nil {
-		return nil, fmt.Errorf("%d:%d: %v", resolvedPos.Line, resolvedPos.Column, perr)
+		return nil, p.errorf(startPos, "%v", perr)
 	}
 	p.i = end + 1
 	n := &ast.Interp{Expr: seed, Try: seedTry, Stages: stages}
@@ -73,8 +71,7 @@ func (p *parser) skipTagComment() (bool, error) {
 		}
 		// unterminated
 		startPos := p.posAt(start)
-		resolvedPos := p.file.Position(startPos)
-		return false, fmt.Errorf("%d:%d: unterminated block comment", resolvedPos.Line, resolvedPos.Column)
+		return false, p.errorf(startPos, "unterminated block comment")
 	}
 	if p.at("//") {
 		p.i += 2 // past '//'
@@ -132,17 +129,16 @@ func (p *parser) skipBracedComment() (bool, error) {
 // braces are handled by go/scanner brace-matching.
 func (p *parser) parseGoBlock() (*ast.GoBlock, error) {
 	startPos := p.posAt(p.i)
-	cp := p.file.Position(startPos)
 	outerEnd, ok := goExprEnd(p.src, p.i)
 	if !ok {
-		return nil, fmt.Errorf("%d:%d: unterminated `{{`", cp.Line, cp.Column)
+		return nil, p.errorf(startPos, "unterminated `{{`")
 	}
 	innerEnd, ok := goExprEnd(p.src, p.i+1)
 	if !ok || innerEnd >= outerEnd {
-		return nil, fmt.Errorf("%d:%d: malformed `{{ }}` block", cp.Line, cp.Column)
+		return nil, p.errorf(startPos, "malformed `{{ }}` block")
 	}
 	if strings.TrimSpace(p.src[innerEnd+1:outerEnd]) != "" {
-		return nil, fmt.Errorf("%d:%d: malformed `{{ }}` block", cp.Line, cp.Column)
+		return nil, p.errorf(startPos, "malformed `{{ }}` block")
 	}
 	code := strings.TrimSpace(p.src[p.i+2 : innerEnd])
 	p.i = outerEnd + 1
@@ -202,8 +198,7 @@ func (p *parser) parseMarkupUntilClose(what string) ([]ast.Markup, error) {
 	for {
 		p.skipSpace()
 		if p.eof() {
-			cp := p.file.Position(p.pos())
-			return nil, fmt.Errorf("%d:%d: unterminated %s, expected `}`", cp.Line, cp.Column, what)
+			return nil, p.errorf(p.pos(), "unterminated %s, expected `}`", what)
 		}
 		switch {
 		case p.peek() == '}':
@@ -245,8 +240,7 @@ func (p *parser) parseForMarkup() (ast.Markup, error) {
 	clauseStart := p.i
 	braceOff, ok := scanToBlockBrace(p.src, p.i, "for")
 	if !ok {
-		cp := p.file.Position(p.posAt(p.i))
-		return nil, fmt.Errorf("%d:%d: expected `{` after `for` clause", cp.Line, cp.Column)
+		return nil, p.errorf(p.posAt(p.i), "expected `{` after `for` clause")
 	}
 	clause := strings.TrimSpace(p.src[clauseStart:braceOff])
 	p.i = braceOff + 1 // past body '{'
@@ -256,8 +250,7 @@ func (p *parser) parseForMarkup() (ast.Markup, error) {
 	}
 	p.skipSpace()
 	if p.peek() != '}' {
-		cp := p.file.Position(p.pos())
-		return nil, fmt.Errorf("%d:%d: expected `}` to close `{ for … }`", cp.Line, cp.Column)
+		return nil, p.errorf(p.pos(), "expected `}` to close `{ for … }`")
 	}
 	p.i++ // past outer '}'
 	n := &ast.ForMarkup{Clause: clause, Body: body}
@@ -277,8 +270,7 @@ func (p *parser) parseIfMarkup() (ast.Markup, error) {
 	}
 	p.skipSpace()
 	if p.peek() != '}' {
-		cp := p.file.Position(p.pos())
-		return nil, fmt.Errorf("%d:%d: expected `}` to close `{ if … }`", cp.Line, cp.Column)
+		return nil, p.errorf(p.pos(), "expected `}` to close `{ if … }`")
 	}
 	p.i++ // past outer '}'
 	ast.SetSpan(n, startPos, p.posAt(p.i))
@@ -294,8 +286,7 @@ func (p *parser) parseIfTail() (*ast.IfMarkup, error) {
 	condStart := p.i
 	braceOff, ok := scanToBlockBrace(p.src, p.i, "if")
 	if !ok {
-		cp := p.file.Position(p.posAt(p.i))
-		return nil, fmt.Errorf("%d:%d: expected `{` after `if` condition", cp.Line, cp.Column)
+		return nil, p.errorf(p.posAt(p.i), "expected `{` after `if` condition")
 	}
 	cond := strings.TrimSpace(p.src[condStart:braceOff])
 	p.i = braceOff + 1 // past body '{'
@@ -323,8 +314,7 @@ func (p *parser) parseIfTail() (*ast.IfMarkup, error) {
 			}
 			n.Else = []ast.Markup{elseIf}
 		default:
-			cp := p.file.Position(p.pos())
-			return nil, fmt.Errorf("%d:%d: expected `{` or `if` after `else`", cp.Line, cp.Column)
+			return nil, p.errorf(p.pos(), "expected `{` or `if` after `else`")
 		}
 	}
 	ast.SetSpan(n, kwPos, p.posAt(p.i))
@@ -341,8 +331,7 @@ func (p *parser) parseSwitchMarkup() (ast.Markup, error) {
 	tagStart := p.i
 	braceOff, ok := scanToBlockBrace(p.src, p.i, "switch")
 	if !ok {
-		cp := p.file.Position(p.posAt(p.i))
-		return nil, fmt.Errorf("%d:%d: expected `{` after `switch`", cp.Line, cp.Column)
+		return nil, p.errorf(p.posAt(p.i), "expected `{` after `switch`")
 	}
 	tag := strings.TrimSpace(p.src[tagStart:braceOff])
 	p.i = braceOff + 1 // past switch-body '{'
@@ -351,8 +340,7 @@ func (p *parser) parseSwitchMarkup() (ast.Markup, error) {
 	for {
 		p.skipSpace()
 		if p.eof() {
-			cp := p.file.Position(p.pos())
-			return nil, fmt.Errorf("%d:%d: unterminated `switch`, expected `}`", cp.Line, cp.Column)
+			return nil, p.errorf(p.pos(), "unterminated `switch`, expected `}`")
 		}
 		if p.peek() == '}' {
 			p.i++ // past switch-body '}'
@@ -367,8 +355,7 @@ func (p *parser) parseSwitchMarkup() (ast.Markup, error) {
 
 	p.skipSpace()
 	if p.peek() != '}' {
-		cp := p.file.Position(p.pos())
-		return nil, fmt.Errorf("%d:%d: expected `}` to close `{ switch … }`", cp.Line, cp.Column)
+		return nil, p.errorf(p.pos(), "expected `}` to close `{ switch … }`")
 	}
 	p.i++ // past outer '}'
 	n := &ast.SwitchMarkup{Tag: tag, Cases: cases}
@@ -387,8 +374,7 @@ func (p *parser) parseCaseClause() (*ast.CaseClause, error) {
 		listStart := p.i
 		colonOff, ok := scanToCaseColon(p.src, p.i)
 		if !ok {
-			cp := p.file.Position(p.posAt(p.i))
-			return nil, fmt.Errorf("%d:%d: expected `:` in `case`", cp.Line, cp.Column)
+			return nil, p.errorf(p.posAt(p.i), "expected `:` in `case`")
 		}
 		cc.List = strings.TrimSpace(p.src[listStart:colonOff])
 		p.i = colonOff + 1 // past ':'
@@ -396,14 +382,12 @@ func (p *parser) parseCaseClause() (*ast.CaseClause, error) {
 		p.i += len("default")
 		p.skipSpace()
 		if p.peek() != ':' {
-			cp := p.file.Position(p.pos())
-			return nil, fmt.Errorf("%d:%d: expected `:` after `default`", cp.Line, cp.Column)
+			return nil, p.errorf(p.pos(), "expected `:` after `default`")
 		}
 		cc.Default = true
 		p.i++ // past ':'
 	default:
-		cp := p.file.Position(p.pos())
-		return nil, fmt.Errorf("%d:%d: expected `case` or `default` in `switch`", cp.Line, cp.Column)
+		return nil, p.errorf(p.pos(), "expected `case` or `default` in `switch`")
 	}
 	body, err := p.parseCaseBody()
 	if err != nil {
@@ -422,8 +406,7 @@ func (p *parser) parseCaseBody() ([]ast.Markup, error) {
 	for {
 		p.skipSpace()
 		if p.eof() {
-			cp := p.file.Position(p.pos())
-			return nil, fmt.Errorf("%d:%d: unterminated `case` body", cp.Line, cp.Column)
+			return nil, p.errorf(p.pos(), "unterminated `case` body")
 		}
 		if p.peek() == '}' || p.atWord("case") || p.atWord("default") {
 			return nodes, nil
@@ -484,7 +467,7 @@ func (p *parser) parseAttrs() ([]ast.Attr, error) {
 	for {
 		p.skipSpace()
 		if p.eof() {
-			return nil, fmt.Errorf("unexpected EOF in attributes")
+			return nil, p.errorf(p.pos(), "unexpected EOF in attributes")
 		}
 		if p.peek() == '>' || p.at("/>") {
 			return attrs, nil
@@ -542,15 +525,14 @@ func isTagNameByte(b byte) bool {
 func (p *parser) parseElement() (ast.Markup, error) {
 	start := p.i
 	startPos := p.posAt(start)
-	resolvedPos := p.file.Position(startPos)
 	if p.peek() != '<' {
-		return nil, fmt.Errorf("%d:%d: expected '<'", resolvedPos.Line, resolvedPos.Column)
+		return nil, p.errorf(startPos, "expected '<'")
 	}
 	p.i++ // past '<'
 
 	// `<!…`: DOCTYPE or HTML comment (both preserved verbatim).
 	if p.peek() == '!' {
-		return p.parseBang(start, startPos, resolvedPos)
+		return p.parseBang(start, startPos)
 	}
 
 	// Fragment: <>…</>
@@ -571,7 +553,7 @@ func (p *parser) parseElement() (ast.Markup, error) {
 	}
 	tag := p.src[tagStart:p.i]
 	if tag == "" {
-		return nil, fmt.Errorf("%d:%d: expected tag name", resolvedPos.Line, resolvedPos.Column)
+		return nil, p.errorf(startPos, "expected tag name")
 	}
 
 	attrs, err := p.parseAttrs()
@@ -586,15 +568,14 @@ func (p *parser) parseElement() (ast.Markup, error) {
 		return el, nil
 	}
 	if p.peek() != '>' {
-		cp := p.file.Position(p.pos())
-		return nil, fmt.Errorf("%d:%d: expected '>' or '/>' in <%s>", cp.Line, cp.Column, tag)
+		return nil, p.errorf(p.pos(), "expected '>' or '/>' in <%s>", tag)
 	}
 	p.i++ // past '>'
 
 	// Raw-text elements (<script>, <style>): content is verbatim until the
 	// matching case-insensitive close tag. No markup/interpolation inside.
 	if isRawTextTag(tag) {
-		children, err := p.parseRawTextBody(tag, resolvedPos)
+		children, err := p.parseRawTextBody(tag, startPos)
 		if err != nil {
 			return nil, err
 		}
@@ -624,8 +605,8 @@ func isRawTextTag(tag string) bool {
 
 // parseBang parses a `<!…` construct after the leading `<!` `!` byte: either an
 // HTML comment `<!-- … -->` or a `<!DOCTYPE …>` declaration. The cursor is at the
-// '!'. start is the byte offset of the opening '<'; startPos/resolvedPos describe it.
-func (p *parser) parseBang(start int, startPos token.Pos, resolvedPos token.Position) (ast.Markup, error) {
+// '!'. start is the byte offset of the opening '<'; startPos describes it.
+func (p *parser) parseBang(start int, startPos token.Pos) (ast.Markup, error) {
 	if p.at("!--") {
 		p.i += len("!--") // past '!--'
 		bodyStart := p.i
@@ -639,7 +620,7 @@ func (p *parser) parseBang(start int, startPos token.Pos, resolvedPos token.Posi
 			}
 			p.i++
 		}
-		return nil, fmt.Errorf("%d:%d: unterminated `<!--` comment", resolvedPos.Line, resolvedPos.Column)
+		return nil, p.errorf(startPos, "unterminated `<!--` comment")
 	}
 	// DOCTYPE (case-insensitive); cursor at '!'.
 	if len(p.src)-p.i >= len("!doctype") &&
@@ -653,9 +634,9 @@ func (p *parser) parseBang(start int, startPos token.Pos, resolvedPos token.Posi
 			}
 			p.i++
 		}
-		return nil, fmt.Errorf("%d:%d: unterminated `<!DOCTYPE`", resolvedPos.Line, resolvedPos.Column)
+		return nil, p.errorf(startPos, "unterminated `<!DOCTYPE`")
 	}
-	return nil, fmt.Errorf("%d:%d: expected `<!--` or `<!DOCTYPE` after `<!`", resolvedPos.Line, resolvedPos.Column)
+	return nil, p.errorf(startPos, "expected `<!--` or `<!DOCTYPE` after `<!`")
 }
 
 // parseRawTextBody consumes a raw-text element body until the matching
@@ -663,7 +644,7 @@ func (p *parser) parseBang(start int, startPos token.Pos, resolvedPos token.Posi
 // <script> the body is split into Text and @{ … } Interp children; for every
 // other raw-text tag the body is a single verbatim Text. openPos describes the
 // open tag, used for the unterminated error.
-func (p *parser) parseRawTextBody(tag string, openPos token.Position) ([]ast.Markup, error) {
+func (p *parser) parseRawTextBody(tag string, openPos token.Pos) ([]ast.Markup, error) {
 	interpolate := strings.EqualFold(tag, "style") || strings.EqualFold(tag, "script")
 	closeLower := "</" + strings.ToLower(tag)
 	var nodes []ast.Markup
@@ -687,8 +668,7 @@ func (p *parser) parseRawTextBody(tag string, openPos token.Position) ([]ast.Mar
 				p.i += len(closeLower)
 				p.skipSpace()
 				if p.peek() != '>' {
-					cp := p.file.Position(p.pos())
-					return nil, fmt.Errorf("%d:%d: malformed close tag </%s>", cp.Line, cp.Column, tag)
+					return nil, p.errorf(p.pos(), "malformed close tag </%s>", tag)
 				}
 				p.i++ // past '>'
 				return nodes, nil
@@ -709,17 +689,17 @@ func (p *parser) parseRawTextBody(tag string, openPos token.Position) ([]ast.Mar
 		}
 		p.i++
 	}
-	return nil, fmt.Errorf("%d:%d: unterminated raw-text element <%s>", openPos.Line, openPos.Column, tag)
+	return nil, p.errorf(openPos, "unterminated raw-text element <%s>", tag)
 }
 
 func (p *parser) parseChildren(closeTag string) ([]ast.Markup, error) {
 	var nodes []ast.Markup
 	for {
 		if p.eof() {
-			return nil, fmt.Errorf("unexpected EOF, expected </%s>", closeTag)
+			return nil, p.errorf(token.NoPos, "unexpected EOF, expected </%s>", closeTag)
 		}
 		if p.at("</") {
-			mmPos := p.file.Position(p.pos())
+			mmTokPos := p.pos()
 			// consume close tag
 			p.i += 2
 			start := p.i
@@ -729,13 +709,11 @@ func (p *parser) parseChildren(closeTag string) ([]ast.Markup, error) {
 			got := p.src[start:p.i]
 			p.skipSpace()
 			if p.peek() != '>' {
-				cp := p.file.Position(p.pos())
-				return nil, fmt.Errorf("%d:%d: malformed close tag", cp.Line, cp.Column)
+				return nil, p.errorf(p.pos(), "malformed close tag")
 			}
 			p.i++ // past '>'
 			if got != closeTag {
-				return nil, fmt.Errorf("%d:%d: mismatched close tag </%s>, expected </%s>",
-					mmPos.Line, mmPos.Column, got, closeTag)
+				return nil, p.errorf(mmTokPos, "mismatched close tag </%s>, expected </%s>", got, closeTag)
 			}
 			return nodes, nil
 		}

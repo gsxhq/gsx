@@ -85,7 +85,7 @@ func ParseFileWithClassifier(fset *token.FileSet, filename string, src any, mode
 		p.i = off
 		c, err := p.parseComponent()
 		if err != nil {
-			return nil, err
+			return nil, p.firstErr()
 		}
 		f.Decls = append(f.Decls, c)
 		cursor = p.i
@@ -98,6 +98,20 @@ func ParseFileWithClassifier(fset *token.FileSet, filename string, src any, mode
 		f.Decls = append(f.Decls, gc)
 	}
 	return f, nil
+}
+
+// firstErr converts the first accumulated structured error back into the legacy
+// "line:col: message" string format so the public API stays byte-identical.
+func (p *parser) firstErr() error {
+	if len(p.errs) == 0 {
+		return nil
+	}
+	e := p.errs[0]
+	pos := p.file.Position(e.Pos)
+	if pos.IsValid() {
+		return fmt.Errorf("%d:%d: %s", pos.Line, pos.Column, e.Msg)
+	}
+	return fmt.Errorf("%s", e.Msg)
 }
 
 // scanPackage finds the package clause. Returns the package name, position of the

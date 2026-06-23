@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
@@ -12,9 +11,8 @@ import (
 func (p *parser) parseComponent() (*ast.Component, error) {
 	start := p.i
 	startPos := p.posAt(start)
-	curPos := p.file.Position(startPos)
 	if !p.at("component") {
-		return nil, fmt.Errorf("%d:%d: expected `component`", curPos.Line, curPos.Column)
+		return nil, p.errorf(startPos, "expected `component`")
 	}
 	p.i += len("component")
 	c := &ast.Component{}
@@ -24,8 +22,7 @@ func (p *parser) parseComponent() (*ast.Component, error) {
 	if p.peek() == '(' {
 		end, ok := parenEnd(p.src, p.i)
 		if !ok {
-			cp := p.file.Position(p.pos())
-			return nil, fmt.Errorf("%d:%d: unterminated receiver", cp.Line, cp.Column)
+			return nil, p.errorf(p.pos(), "unterminated receiver")
 		}
 		c.Recv = p.src[p.i : end+1]
 		p.i = end + 1
@@ -39,8 +36,7 @@ func (p *parser) parseComponent() (*ast.Component, error) {
 	}
 	c.Name = p.src[nameStart:p.i]
 	if c.Name == "" {
-		cp := p.file.Position(p.pos())
-		return nil, fmt.Errorf("%d:%d: expected component name", cp.Line, cp.Column)
+		return nil, p.errorf(p.pos(), "expected component name")
 	}
 
 	p.skipSpace()
@@ -48,8 +44,7 @@ func (p *parser) parseComponent() (*ast.Component, error) {
 	if p.peek() == '(' {
 		end, ok := parenEnd(p.src, p.i)
 		if !ok {
-			cp := p.file.Position(p.pos())
-			return nil, fmt.Errorf("%d:%d: unterminated params", cp.Line, cp.Column)
+			return nil, p.errorf(p.pos(), "unterminated params")
 		}
 		c.Params = strings.TrimSpace(p.src[p.i+1 : end])
 		p.i = end + 1
@@ -57,8 +52,7 @@ func (p *parser) parseComponent() (*ast.Component, error) {
 
 	p.skipSpace()
 	if p.peek() != '{' {
-		cp := p.file.Position(p.pos())
-		return nil, fmt.Errorf("%d:%d: expected `{` to open component body", cp.Line, cp.Column)
+		return nil, p.errorf(p.pos(), "expected `{` to open component body")
 	}
 	p.i++ // past body '{'
 	nodes, err := p.parseMarkupUntilClose("component body")
