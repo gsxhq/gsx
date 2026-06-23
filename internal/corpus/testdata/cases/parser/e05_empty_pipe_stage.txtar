@@ -6,3 +6,5 @@ component C(name string) { <p>{ name |> }</p> }
 -- diagnostics.golden --
 3:31: empty pipeline stage
 -- ast.golden --
+File package=examples
+  GoChunk len=18

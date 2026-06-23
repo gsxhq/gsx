@@ -1,11 +1,35 @@
 package parser
 
 import (
+	"errors"
+	"fmt"
 	"go/token"
 	"strings"
 
 	"github.com/gsxhq/gsx/internal/attrclass"
 )
+
+// Error is a positioned parser diagnostic. Pos resolves to file:line:col via the
+// FileSet the parser was created with. Exported so codegen can convert it to a
+// diag.Diagnostic.
+type Error struct {
+	Pos token.Pos
+	Msg string
+}
+
+// errParse is the sentinel identity for all parser errors. errorf returns a
+// *parseErr that wraps this sentinel so errors.Is(err, errParse) is true, yet
+// err.Error() still returns the message text (needed by internal tests that
+// call parser methods directly).
+var errParse = errors.New("parse error")
+
+// parseErr is a lightweight wrapper returned by errorf. It satisfies
+// errors.Is(err, errParse) via its Unwrap method, while still exposing the
+// human-readable message through Error().
+type parseErr struct{ msg string }
+
+func (e *parseErr) Error() string  { return e.msg }
+func (e *parseErr) Unwrap() error  { return errParse }
 
 type parser struct {
 	file       *token.File
@@ -13,6 +37,15 @@ type parser struct {
 	base       int // absolute byte offset of src[0] in file
 	i          int // byte cursor within src
 	classifier *attrclass.Classifier
+	errs       []Error
+}
+
+// errorf records a positioned error and returns a *parseErr whose Error()
+// returns the message text; errors.Is(err, errParse) is true via Unwrap.
+func (p *parser) errorf(pos token.Pos, format string, args ...any) error {
+	msg := fmt.Sprintf(format, args...)
+	p.errs = append(p.errs, Error{Pos: pos, Msg: msg})
+	return &parseErr{msg: msg}
 }
 
 // newParser creates a parser for src at absolute offset 0 in file.

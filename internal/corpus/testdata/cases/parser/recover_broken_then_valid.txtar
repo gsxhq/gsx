@@ -1,0 +1,9 @@
+# recovery: broken component followed by valid one — valid component stays in AST, one diagnostic only
+-- input.gsx --
+package p
+
+component Bad() { <div>hi</span> }
+
+component Good() { <p>ok</p> }
+-- diagnostics.golden --
+3:26: mismatched close tag </span>, expected </div>

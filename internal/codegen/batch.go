@@ -89,11 +89,13 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 				hasErr = true
 				break
 			}
-			f, err := gsxparser.ParseFileWithClassifier(fset, m, src, 0, cls)
-			if err != nil {
-				bag.Add(diag.Diagnostic{Severity: diag.Error, Message: fmt.Sprintf("%s: %s", m, err.Error()), Source: "parser"})
+			f, perrs := gsxparser.ParseFileWithClassifier(fset, m, src, 0, cls)
+			for _, e := range perrs {
+				bag.Report(e.Pos, e.Pos, diag.Error, "syntax", "parser", "%s", e.Msg)
+			}
+			if len(perrs) > 0 {
 				hasErr = true
-				break
+				continue // keep parsing other files to collect all parser errors
 			}
 			// JSX whitespace pass before resolution + emit (mirror codegen.go).
 			wsnorm.Normalize(f)

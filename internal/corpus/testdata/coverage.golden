@@ -149,6 +149,8 @@ parser/e02_unterminated_interp	ast diag(error)
 parser/e03_bad_attr_name	ast diag(error)
 parser/e04_nonspread_brace	ast diag(error)
 parser/e05_empty_pipe_stage	ast diag(error)
+parser/recover_broken_then_valid	diag(error)
+parser/recover_two_broken_components	diag(error)
 pipelines/arity_mismatch	diag(error)
 pipelines/attr_escaped	diag render
 pipelines/attr_js_rejected	diag gen render
@@ -205,4 +207,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 207 cases (render: 150, error: 37, gen-pinned: 45)
+TOTAL: 209 cases (render: 150, error: 39, gen-pinned: 45)
