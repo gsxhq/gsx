@@ -116,3 +116,8 @@ gsx clean --cache # wipe the cache (needed after changing a predicate's logic)
 
 The manifest is a **derived cache**, not a hand-edited config file — always
 regenerated from the authoritative source (your `cmd/gsx/main.go`).
+
+> **Note:** the manifest is refreshed only when gsx's incremental build cache is
+> active. Projects that bypass the cache (e.g. by supplying a custom
+> `WithCSSMinifier` or `WithJSMinifier`) should use `gsx info --json` to read the
+> current resolved config instead of relying on the persisted manifest.

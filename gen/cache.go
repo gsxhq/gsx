@@ -124,7 +124,7 @@ func generateCached(paths, filterPkgs []string, cls *attrclass.Classifier, predL
 	// Persist the resolved config manifest so external tools can consume it
 	// without re-running gsx. Best-effort: manifest write must never fail the
 	// build.
-	if enabled && modPath != "" && len(res.Errs) == 0 {
+	if enabled && modPath != "" && len(res.Errs) == 0 { // len(res.Errs)==0 is defensive: the errors.Join early-return above already guarantees success, but the explicit guard documents the "only on success" contract
 		filters, _ := codegen.ResolveFilters(root, filterPkgs) // best-effort
 		mf := make([]manifestFilter, 0, len(filters))
 		for _, fi := range filters {

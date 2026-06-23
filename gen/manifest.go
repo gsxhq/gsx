@@ -66,6 +66,11 @@ func saveManifest(cacheDir, modPath string, m manifest) error {
 	return os.Rename(tmp.Name(), p) // atomic
 }
 
+// loadManifest is the external-tool / offline read contract: it lets tools
+// ground themselves on the last successful build without re-running gsx. gsx
+// itself never reads the persisted manifest in place of the live classifier —
+// it always rebuilds via buildManifest / gsx info --json — so this function is
+// intentionally unused inside gsx, not dead code.
 func loadManifest(cacheDir, modPath string) (manifest, bool) {
 	data, err := os.ReadFile(manifestPath(cacheDir, modPath))
 	if err != nil {
