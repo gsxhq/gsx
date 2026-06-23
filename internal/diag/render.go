@@ -23,6 +23,12 @@ func header(d Diagnostic) string {
 // file:line:col: severity[code]: message
 func RenderCompact(w io.Writer, diags []Diagnostic) {
 	for _, d := range diags {
+		// A positionless diagnostic (e.g. a Slice-1 parser error, whose location
+		// still lives in the message text) prints just the header — no "0:0:".
+		if !d.Start.IsValid() {
+			fmt.Fprintf(w, "%s\n", header(d))
+			continue
+		}
 		fmt.Fprintf(w, "%s:%d:%d: %s\n", d.Start.Filename, d.Start.Line, d.Start.Column, header(d))
 	}
 }
@@ -67,6 +73,15 @@ func RenderJSON(w io.Writer, diags []Diagnostic) error {
 // It degrades to the compact line when src yields no source for the file.
 func RenderRich(w io.Writer, diags []Diagnostic, src SourceProvider) {
 	for _, d := range diags {
+		// A positionless diagnostic has no source line to underline — print just
+		// the header (and help), with no "0:0:" prefix or --> location.
+		if !d.Start.IsValid() {
+			fmt.Fprintf(w, "%s\n", header(d))
+			if d.Help != "" {
+				fmt.Fprintf(w, "  = help: %s\n", d.Help)
+			}
+			continue
+		}
 		line, ok := sourceLine(src, d.Start.Filename, d.Start.Line)
 		if !ok {
 			fmt.Fprintf(w, "%s:%d:%d: %s\n", d.Start.Filename, d.Start.Line, d.Start.Column, header(d))
