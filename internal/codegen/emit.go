@@ -1196,9 +1196,9 @@ func singleRoot(body []ast.Markup) (*ast.Element, bool) {
 		return nil, false
 	}
 	// The root is fallthrough-eligible only when ALL its own attributes have
-	// STATICALLY-KNOWN names: root-wins de-dup spreads the bag minus the root's own
-	// attr names (rootWithoutArgs) and merges the bag's class into the root's class.
-	// A *CondAttr (`{ if … { id=… } }`) or *SpreadAttr (`<div {...x}>`) sets attrs
+	// STATICALLY-KNOWN names: caller-wins emit guards each root attr with
+	// `if !_gsxp.Attrs.Has(name)` and merges the bag's class/style — both need the
+	// static name. A *CondAttr (`{ if … { id=… } }`) or *SpreadAttr (`<div {...x}>`) sets attrs
 	// whose names/values are only known at runtime, so neither the drop set nor the
 	// class merge can account for them — a colliding fallthrough would emit a
 	// duplicate attribute (and bypass class-merge). Such a root is NOT auto-eligible;
