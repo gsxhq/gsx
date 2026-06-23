@@ -5,7 +5,7 @@ component Page() {
 	<div x-data="{ d: @{ load() } }">x</div>
 }
 
-func load() (string, error) { return "ok", nil }
+func load() (string, error) { return "</script>\"", nil }
 -- invoke --
 Page(PageProps{})
 -- diagnostics.golden --
@@ -48,6 +48,6 @@ func Page(_gsxp PageProps) gsx.Node {
 	})
 }
 
-func load() (string, error) { return "ok", nil }
+func load() (string, error) { return "</script>\"", nil }
 -- render.golden --
-<div x-data="{ d: &#34;ok&#34; }">x</div>
+<div x-data="{ d: &#34;\u003c/script\u003e\&#34;&#34; }">x</div>
