@@ -82,7 +82,7 @@ func (b *Bag) Report(pos, end token.Pos, sev Severity, code, source, format stri
 // Errorf is the codegen convenience: an Error-severity diagnostic for an AST
 // node range.
 func (b *Bag) Errorf(pos, end token.Pos, code, format string, args ...any) {
-	b.Report(pos, end, Error, code, "", format, args...)
+	b.Report(pos, end, Error, code, "codegen", format, args...)
 }
 
 func (b *Bag) HasErrors() bool {

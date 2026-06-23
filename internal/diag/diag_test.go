@@ -38,7 +38,7 @@ func TestBagErrorfResolvesAndHasErrors(t *testing.T) {
 		t.Fatal("bag should report errors after Errorf")
 	}
 	d := b.Sorted()[0]
-	if d.Severity != Error || d.Code != "reserved-param" || d.Source != "" {
+	if d.Severity != Error || d.Code != "reserved-param" || d.Source != "codegen" {
 		t.Errorf("unexpected diag fields: %+v", d)
 	}
 	if d.Message != `param name "ctx" is reserved` {
