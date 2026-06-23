@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"sort"
+	"strings"
 
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/diag"
@@ -202,10 +203,20 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 	var jsonFlag bool
 	gfs.BoolVar(&nocacheFlag, "no-cache", noCache, "bypass the content-hash cache; regenerate all")
 	gfs.BoolVar(&jsonFlag, "json", false, "emit diagnostics as a JSON array to stdout")
-	if err := gfs.Parse(args); err != nil {
+	// Partition args into flag tokens (starting with "-") and positional paths
+	// so that flags work in any position relative to path arguments.
+	// Note: only boolean flags are supported here; -flag value pairs are not.
+	var flagArgs, paths []string
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") {
+			flagArgs = append(flagArgs, a)
+		} else {
+			paths = append(paths, a)
+		}
+	}
+	if err := gfs.Parse(flagArgs); err != nil {
 		return 2
 	}
-	paths := gfs.Args()
 	if len(paths) == 0 {
 		paths = []string{"."}
 	}

@@ -185,6 +185,45 @@ func TestGenerateDiagJSONShape(t *testing.T) {
 	}
 }
 
+// TestGenerateDiagJSONFlagAfterPath proves that --json works when placed AFTER
+// the path argument (e.g. generate <dir> --json), not just before it.
+// Previously Go's flag.FlagSet stopped at the first non-flag argument, so
+// "--json" after a path was treated as another path and failed with "no such
+// file or directory". The fix pre-partitions args into flags and positionals
+// before calling gfs.Parse.
+func TestGenerateDiagJSONFlagAfterPath(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	mod := newModule(t, "gsxdiagjsonflagafter")
+	pkgDir := newPkg(t, mod, "views", gsxWithReservedParam)
+
+	// Flag comes AFTER the path — this is the previously broken form.
+	code, out, errb := runGenerateArgs(t, []string{pkgDir, "--json"})
+	if code != 1 {
+		t.Fatalf("expected exit 1 for codegen diagnostic with --json after path, got %d; stderr=%q", code, errb)
+	}
+	// stdout must be a valid JSON array
+	var arr []map[string]any
+	if err := json.Unmarshal([]byte(out), &arr); err != nil {
+		t.Fatalf("--json after path: stdout is not a valid JSON array: %v\nstdout=%q\nstderr=%q", err, out, errb)
+	}
+	if len(arr) == 0 {
+		t.Fatalf("--json after path: expected at least one diagnostic in JSON array, got empty; stdout=%q", out)
+	}
+	// Must contain the reserved-param diagnostic
+	var found bool
+	for _, entry := range arr {
+		if c, ok := entry["code"].(string); ok && c == "reserved-param" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'reserved-param' code in JSON array (flag after path), got: %v", arr)
+	}
+}
+
 // newPkg creates pkgDir under mod, writes src as the sole .gsx file,
 // and returns the package directory path.
 func newPkg(t *testing.T, mod, pkg, src string) string {
