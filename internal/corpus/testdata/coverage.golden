@@ -179,6 +179,10 @@ security/js_rejected_style	diag render
 security/url_blocked	diag render
 security/url_raw_vouched	diag render
 security/xss	diag render
+slots/node_prop_bool_attr	diag gen render
+slots/node_prop_escaping	diag render
+slots/node_prop_promotion	diag gen render
+slots/node_prop_realworld	diag render
 style/attr_expr_sanitized	diag render
 style/block_bytes	diag gen render
 style/block_import_injection	diag gen render
@@ -196,4 +200,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 198 cases (render: 145, error: 33, gen-pinned: 42)
+TOTAL: 202 cases (render: 149, error: 33, gen-pinned: 44)

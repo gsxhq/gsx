@@ -465,7 +465,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					// SEPARATELY below, so its interps become the _gsxuse sequence in the
 					// SAME order collectExprs collected them; the props-literal exprs are
 					// NOT _gsxuse, so they don't perturb the k-th alignment.
-					fields, err := childPropsLiteral(t, propsType, "_gsxrt", propFields, func(nodes []gsxast.Markup) (string, error) {
+					fields, err := childPropsLiteral(t, propsType, "_gsxrt", propFields, nodeProps[propsType], func(nodes []gsxast.Markup) (string, error) {
 						return "_gsxrt.Node(nil)", nil
 					})
 					if err != nil {

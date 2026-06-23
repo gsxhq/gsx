@@ -44,11 +44,11 @@ and store it (e.g. a second return map `nodeOut[propsName] = nodeFields`). Add `
 
 ---
 
-### Task 2: Runtime `gsx.Val(any)` + `gsx.Text(string)`
+### Task 2: Runtime `gsx.Val(any)` + `gsx.Text(string)` + `gsx.Fragment(...Node)`
 
-**Files:** Create `val.go` (root `gsx` package: `Val`/`valNode`/`Text`/`textNode`); Test `val_test.go`.
+**Files:** Create `val.go` (root `gsx` package: `Val`/`valNode`/`Text`/`textNode`/`Fragment`/`fragmentNode`); Test `val_test.go`.
 
-**Interfaces — Produces:** `func Val(v any) Node`; `func Text(s string) Node`.
+**Interfaces — Produces:** `func Val(v any) Node`; `func Text(s string) Node`; `func Fragment(nodes ...Node) Node` (a Node that renders each child in order, no wrapper element — the type-safe, variadic way to build one multi-node `gsx.Node` value; same render semantics as `Val`'s `[]Node` case: nil children skipped). `Fragment` and `Val`'s `[]Node` case SHOULD share one render helper to avoid duplicate slice-render logic.
 
 - [ ] **Step 1: Failing tests** `val_test.go`:
 ```go
@@ -65,6 +65,7 @@ func TestVal(t *testing.T) {
 		{"a", "a"}, {"<b>", "&lt;b&gt;"}, {5, "5"}, {int64(-3), "-3"}, {uint(7), "7"},
 		{3.5, "3.5"}, {true, "true"}, {[]byte("<x>"), "&lt;x&gt;"},
 		{stringerT{}, "S&lt;x&gt;"}, {nil, ""}, {Raw("<i>"), "<i>"},
+		{[]Node{Text("a"), nil, Text("b")}, "ab"}, // catNodeSlice parity; nil skipped
 	} {
 		if got := renderNode(Val(tt.in)); got != tt.want {
 			t.Errorf("Val(%v) = %q, want %q", tt.in, got, tt.want)
@@ -74,6 +75,19 @@ func TestVal(t *testing.T) {
 func TestText(t *testing.T) {
 	if got := renderNode(Text("<b>")); got != "&lt;b&gt;" {
 		t.Errorf("Text = %q, want escaped", got)
+	}
+}
+func TestFragment(t *testing.T) {
+	// renders each child in order, no wrapper element; nil children skipped; empty → "".
+	if got := renderNode(Fragment(Text("a"), nil, Text("<b>"))); got != "a&lt;b&gt;" {
+		t.Errorf("Fragment = %q, want %q", got, "a&lt;b&gt;")
+	}
+	if got := renderNode(Fragment()); got != "" {
+		t.Errorf("Fragment() = %q, want empty", got)
+	}
+	// Fragment is usable as a promoted value too: Val(Fragment(...)) == Fragment(...).
+	if got := renderNode(Val(Fragment(Text("x"), Text("y")))); got != "xy" {
+		t.Errorf("Val(Fragment) = %q, want %q", got, "xy")
 	}
 }
 ```
@@ -109,6 +123,11 @@ func (n valNode) Render(ctx context.Context, w io.Writer) error {
 			return nil
 		}
 		return t.Render(ctx, w)
+	case []Node:
+		// Parity with emitRender's catNodeSlice: a []gsx.Node renders each
+		// element in order (so a value that renders inline as { rows } also
+		// renders when promoted into a gsx.Node prop). nil elements skipped.
+		return renderNodes(ctx, w, t)
 	case string:
 		gw.Text(t)
 	case []byte:
@@ -158,10 +177,36 @@ func (t textNode) Render(_ context.Context, w io.Writer) error {
 	gw.Text(string(t))
 	return gw.Err()
 }
+
+// Fragment groups children into one Node with no wrapper element — the
+// type-safe, variadic way to fill a single gsx.Node prop with multiple nodes
+// (and the lowering target for a future <>…</> syntax). Renders each child in
+// order; nil children are skipped; Fragment() renders nothing.
+func Fragment(nodes ...Node) Node { return fragmentNode(nodes) }
+
+type fragmentNode []Node
+
+func (f fragmentNode) Render(ctx context.Context, w io.Writer) error {
+	return renderNodes(ctx, w, f)
+}
+
+// renderNodes renders each node in order, skipping nils — the shared body of
+// Val's []Node case and fragmentNode (one place for the slice-render rule).
+func renderNodes(ctx context.Context, w io.Writer, nodes []Node) error {
+	for _, n := range nodes {
+		if n == nil {
+			continue
+		}
+		if err := n.Render(ctx, w); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 ```
 (Confirm `W`/`gw.Text`/`gw.S`/`gw.Err` signatures in `writer.go`. The numeric formatting MIRRORS `emitRender` (`emit.go:823`) — read it and match `FormatFloat`'s verb/precision so `Val(f)` == inline `{ f }`.)
 - [ ] **Step 4: Run** `go test .` green. Confirm `go list -deps github.com/gsxhq/gsx | grep -c tdewolff` is 0 (val.go is stdlib-only).
-- [ ] **Step 5: Commit** `runtime: gsx.Val(any) universal value-Node box + gsx.Text escaped-text node`.
+- [ ] **Step 5: Commit** `runtime: gsx.Val(any) value-Node box + gsx.Text escaped-text node + gsx.Fragment multi-node group`.
 
 ---
 

@@ -1591,7 +1591,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 	// loop vars are bound. emitProbes drives the same builder with a typed-nil
 	// slotValue, so emit and probe agree on WHICH fields exist — only the VALUE
 	// differs, and they cannot drift.
-	fields, err := childPropsLiteral(el, propsType, "gsx", structFields, func(nodes []ast.Markup) (string, error) {
+	fields, err := childPropsLiteral(el, propsType, "gsx", structFields, nodeProps[propsType], func(nodes []ast.Markup) (string, error) {
 		return emitSlotClosure(nodes, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls)
 	})
 	if err != nil {
@@ -1644,7 +1644,7 @@ func emitSlotClosure(nodes []ast.Markup, resolved map[ast.Node]types.Type, table
 // `_gsxrt` in a type-check skeleton), used only to name the fallthrough-bag type
 // `<rtPkg>.Attrs` so emit and probe reference the SAME runtime type under their
 // respective aliases.
-func childPropsLiteral(el *ast.Element, propsType, rtPkg string, propFields map[string]map[string]bool, slotValue func(nodes []ast.Markup) (string, error)) (string, error) {
+func childPropsLiteral(el *ast.Element, propsType, rtPkg string, propFields map[string]map[string]bool, nodeFields map[string]bool, slotValue func(nodes []ast.Markup) (string, error)) (string, error) {
 	declared := propFields[propsType] // nil for cross-package / unknown → graceful
 	var fields []string
 	var bag []string // fallthrough entries: `"<rawName>": <value>`
@@ -1655,7 +1655,11 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, propFields map[
 				if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
 					return "", err
 				}
-				fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), strconv.Quote(t.Value)))
+				if nodeFields[fieldName(t.Name)] {
+					fields = append(fields, fmt.Sprintf("%s: %s.Text(%s)", fieldName(t.Name), rtPkg, strconv.Quote(t.Value)))
+				} else {
+					fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), strconv.Quote(t.Value)))
+				}
 			} else {
 				bag = append(bag, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), strconv.Quote(t.Value)))
 			}
@@ -1667,7 +1671,11 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, propFields map[
 				if t.Try || len(t.Stages) > 0 {
 					return "", fmt.Errorf("codegen: pipeline/`?` on child-component prop %q (<%s>) not supported yet", t.Name, el.Tag)
 				}
-				fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), strings.TrimSpace(t.Expr)))
+				if nodeFields[fieldName(t.Name)] {
+					fields = append(fields, fmt.Sprintf("%s: %s.Val(%s)", fieldName(t.Name), rtPkg, strings.TrimSpace(t.Expr)))
+				} else {
+					fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), strings.TrimSpace(t.Expr)))
+				}
 			} else {
 				if t.Try || len(t.Stages) > 0 {
 					return "", fmt.Errorf("codegen: pipeline/`?` on child-component fallthrough attr %q (<%s>) not supported yet", t.Name, el.Tag)
@@ -1679,7 +1687,11 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, propFields map[
 				if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
 					return "", err
 				}
-				fields = append(fields, fmt.Sprintf("%s: true", fieldName(t.Name)))
+				if nodeFields[fieldName(t.Name)] {
+					fields = append(fields, fmt.Sprintf("%s: %s.Val(true)", fieldName(t.Name), rtPkg))
+				} else {
+					fields = append(fields, fmt.Sprintf("%s: true", fieldName(t.Name)))
+				}
 			} else {
 				bag = append(bag, fmt.Sprintf("%s: true", strconv.Quote(t.Name)))
 			}
