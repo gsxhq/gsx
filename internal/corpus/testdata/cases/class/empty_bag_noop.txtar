@@ -1,0 +1,11 @@
+-- input.gsx --
+package views
+
+component Box() {
+	<div id="b" data-k="v">{children}</div>
+}
+-- invoke --
+Box(BoxProps{})
+-- diagnostics.golden --
+-- render.golden --
+<div id="b" data-k="v"></div>

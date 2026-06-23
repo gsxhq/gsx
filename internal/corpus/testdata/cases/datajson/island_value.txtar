@@ -42,10 +42,15 @@ func Page(_gsxp PageProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:9:2
 		_gsxgw.S("<script")
-		_gsxgw.S(" type=\"application/json\"")
-		_gsxgw.S(" id=\"cfg\"")
+		if !_gsxp.Attrs.Has("type") {
+			_gsxgw.S(" type=\"application/json\"")
+		}
+		if !_gsxp.Attrs.Has("id") {
+			_gsxgw.S(" id=\"cfg\"")
+		}
 		_gsxgw.ClassMerged(_gsxp.Attrs.Class())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("type", "id", "class", "style"))
+		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
+		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
 		_gsxgw.S(">")
 		_gsxgw.JSVal(cfg)
 		_gsxgw.S("</script>")

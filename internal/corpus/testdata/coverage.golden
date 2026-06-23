@@ -7,9 +7,13 @@ attrs/cond_attr_else_typed_exprs_true	diag render
 attrs/cond_attr_interleaved	diag render
 attrs/cond_attr_param_only_in_branch	diag render
 attrs/expr_attrs	diag render
+class/caller_wins_classstyle	diag render
+class/caller_wins_scalar	diag render
 class/composable_off	diag render
 class/composable_on	diag render
+class/empty_bag_noop	diag render
 class/escaping	diag render
+class/fallthrough_url_preserved	diag render
 class/non_root_class	diag gen render
 class/spread	diag render
 class/style_rejected	diag
@@ -64,13 +68,14 @@ elements/node_slice	diag render
 elements/static_and_bool_attrs_off	diag render
 elements/static_and_bool_attrs_on	diag render
 fallthrough/call_site_button	diag render
+fallthrough/call_site_caller_wins	diag render
 fallthrough/call_site_class_merge	diag render
 fallthrough/call_site_declared_vs_undeclared	diag render
 fallthrough/call_site_method_fallthrough	diag render
 fallthrough/call_site_no_fallthrough_unchanged	diag gen render
 fallthrough/call_site_non_identifier	diag render
 fallthrough/call_site_not_eligible	diag(error)
-fallthrough/call_site_root_wins	diag render
+fallthrough/caller_wins	diag render
 fallthrough/composed_class_merge	diag render
 fallthrough/cond_attr_root_not_eligible	diag(error)
 fallthrough/cond_attr_root_standalone	diag render
@@ -82,17 +87,16 @@ fallthrough/no_class_empty_bag	diag render
 fallthrough/no_class_root_with_bag	diag render
 fallthrough/not_eligible_no_field	diag gen render
 fallthrough/reserved_param_attrs	diag(error)
-fallthrough/root_wins	diag render
 fallthrough/static_class_merge	diag render
 interpolation/field_access	diag render
 interpolation/interp_types	diag render
 interpolation/mixed_chunk	diag render
 interpolation/probe_multi_value_expr	diag render
+jsattr/caller_wins	diag render
 jsattr/click_rawjs	diag gen render
 jsattr/jsattr_breakout	diag gen render
 jsattr/jsattr_identifier_rejected	diag(error)
 jsattr/regexp_hostile	diag gen render
-jsattr/root_wins	diag render
 jsattr/string_hostile	diag gen render
 jsattr/tmpl_hostile	diag gen render
 jsattr/value_tuple	diag gen render
@@ -188,4 +192,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 190 cases (render: 138, error: 32, gen-pinned: 40)
+TOTAL: 194 cases (render: 142, error: 32, gen-pinned: 40)

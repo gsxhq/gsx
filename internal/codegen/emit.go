@@ -285,39 +285,55 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 	return nil
 }
 
-// emitRootElement emits a single-root element with attribute fallthrough applied:
-// the bag (`_gsxp.Attrs`) merges its class into the root's class and spreads its
-// remaining entries after the root's own attrs, with the root's own attr names
-// (plus "class"/"style") dropped from the spread so the root WINS (D5). The
-// root's CHILDREN render via normal genNode — the bag does NOT propagate. When
-// the bag is nil/empty (no caller set Attrs yet), every merge/spread is a no-op:
-// Attrs.Class()="" adds no token (ClassMerged/Class), and Spread(empty) writes
-// nothing — so the output is byte-equivalent to the normal Element path.
+// emitRootElement emits a single-root element with CALLER-WINS attribute
+// fallthrough applied: the bag (`_gsxp.Attrs`) merges its class into the root's
+// class (last-wins → caller-wins) and merges its style over the root's style
+// (property last-wins → caller-wins), and every OTHER root attr is emitted under
+// a runtime guard (`if !_gsxp.Attrs.Has(name)`) so a bag entry of the same name
+// SHADOWS it — the guarded attr is skipped and the bag's value spreads instead
+// (caller-wins, D5 flipped). Each guarded attr keeps its own context escaper
+// (gw.URL / gw.JSValAttr / gw.AttrValue …) since its body is exactly the normal
+// emitAttr output. The root's CHILDREN render via normal genNode — the bag does
+// NOT propagate. When the bag is nil/empty, every guard is true (Has is nil-safe),
+// ClassMerged/StyleMerged add nothing, and Spread(empty) writes nothing — so the
+// output is byte-equivalent to the normal Element path.
 //
 // A void root cannot receive fallthrough (it has no place for it to matter beyond
-// attrs, but void roots ARE handled: class-merge + spread then `/>`).
+// attrs, but void roots ARE handled: class/style-merge + guarded attrs + spread
+// then `/>`).
 func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]types.Type, table filterTable, structFields map[string]map[string]bool, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier) error {
 	emitLine(b, fset, el.Pos())
 	emitS(b, "<"+el.Tag)
-	// Collect the root's own named attrs so the spread can drop them (root-wins),
-	// and find a composed/static class attr to merge the bag's class into.
+	// Find a composed/static class attr to merge the bag's class into, and a
+	// composed/static style attr whose declarations the bag's style merges over.
 	var classAttr *ast.ClassAttr    // composed class={ … }
 	var staticClass *ast.StaticAttr // static class="x"
+	var styleAttr *ast.ClassAttr    // composed style={ … } (CtxCSS ClassAttr)
+	var staticStyle *ast.StaticAttr // static style="x"
 	for _, a := range el.Attrs {
 		switch t := a.(type) {
 		case *ast.ClassAttr:
-			if t.Name == "class" {
+			switch t.Name {
+			case "class":
 				classAttr = t
+			case "style":
+				styleAttr = t
 			}
 		case *ast.StaticAttr:
-			if t.Name == "class" {
+			switch t.Name {
+			case "class":
 				staticClass = t
+			case "style":
+				staticStyle = t
 			}
 		}
 	}
-	// Emit the root's own attrs in source order, but replace the class attr's
-	// emission with a merged one (bag class folded in). Non-class attrs emit
-	// verbatim via emitAttr (byte-identical to the normal path).
+	// Emit the root's own attrs in source order:
+	//   - class → MERGED with the bag class (unguarded; bag last → caller-wins).
+	//   - style → skipped here; emitted once below as a single StyleMerged so the
+	//     bag's style declarations override the root's per-property (caller-wins).
+	//   - every other attr → emitted via its normal context path (emitAttr) but
+	//     BRACKETED by `if !_gsxp.Attrs.Has(name)` so a same-named bag entry wins.
 	for _, a := range el.Attrs {
 		switch t := a.(type) {
 		case *ast.ClassAttr:
@@ -325,24 +341,66 @@ func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]typ
 				emitRootComposedClass(b, t)
 				continue
 			}
+			if t == styleAttr {
+				continue // style merged via StyleMerged below
+			}
 		case *ast.StaticAttr:
 			if t == staticClass {
 				emitRootStaticClass(b, t)
 				continue
 			}
+			if t == staticStyle {
+				continue // style merged via StyleMerged below
+			}
 		}
+		name, ok := rootAttrName(a)
+		if !ok {
+			// No single static name (Spread/Cond) — Spread is the manual path (not
+			// reached here); Cond has no caller-wins shadow target. Emit unguarded.
+			if err := emitAttr(b, a, resolved, table, imports, cls); err != nil {
+				return err
+			}
+			continue
+		}
+		fmt.Fprintf(b, "\t\tif !_gsxp.Attrs.Has(%s) {\n", strconv.Quote(name))
 		if err := emitAttr(b, a, resolved, table, imports, cls); err != nil {
 			return err
 		}
+		b.WriteString("\t\t}\n")
 	}
-	// If the root had NO class attr at all, emit a guarded merged class in attr
-	// position — writes class only when the bag contributes a non-empty token set.
+	// If the root had NO class attr at all, emit a merged class in attr position —
+	// writes class only when the bag contributes a non-empty token set.
 	if classAttr == nil && staticClass == nil {
 		b.WriteString("\t\t_gsxgw.ClassMerged(_gsxp.Attrs.Class())\n")
 	}
-	// Spread the rest of the bag, dropping the root's own attr names (root-wins)
-	// plus class/style (class merged above; style deferred/fail-closed this task).
-	fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, _gsxp.Attrs.Without(%s))\n", rootWithoutArgs(el))
+	// Style: when the caller set a `style`, merge it OVER the root's style
+	// property-last-wins (StyleMerged, caller-wins). When the caller did NOT set a
+	// style, emit the root's own style via its normal context path UNCHANGED — this
+	// preserves the composable-style CSS sanitizer (gw.Style → the ZgotmplZ failsafe
+	// for an injection, and intra-style duplicate properties) which StyleMerged's
+	// `prop: value` parser would lose (it drops colon-less fragments and dedupes
+	// properties). The empty-bag case takes the else branch → byte-identical output.
+	if styleAttr != nil || staticStyle != nil {
+		b.WriteString("\t\tif _gsxp.Attrs.Has(\"style\") {\n")
+		fmt.Fprintf(b, "\t\t\t_gsxgw.StyleMerged(%s, _gsxp.Attrs.Style())\n", rootStyleString(styleAttr, staticStyle))
+		b.WriteString("\t\t} else {\n")
+		if staticStyle != nil {
+			if err := emitAttr(b, staticStyle, resolved, table, imports, cls); err != nil {
+				return err
+			}
+		} else {
+			emitStyleAttr(b, styleAttr)
+		}
+		b.WriteString("\t\t}\n")
+	} else {
+		// No root style: emit StyleMerged so a caller-only style still appears (it is
+		// a no-op when the bag has no style either).
+		b.WriteString("\t\t_gsxgw.StyleMerged(\"\", _gsxp.Attrs.Style())\n")
+	}
+	// Spread the rest of the bag, dropping only class/style (both merged above);
+	// every other bag attr spreads — including one that shadows a guarded root attr
+	// (which was then skipped), giving caller-wins.
+	b.WriteString("\t\t_gsxgw.Spread(ctx, _gsxp.Attrs.Without(\"class\", \"style\"))\n")
 	if el.Void {
 		emitS(b, "/>")
 		return nil
@@ -398,33 +456,47 @@ func emitRootStaticClass(b *bytes.Buffer, a *ast.StaticAttr) {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
 }
 
-// rootWithoutArgs builds the quoted arg list for `_gsxp.Attrs.Without(…)`: the
-// root element's own named attr names (static/bool/expr/class) followed by
-// "class","style". A bag entry whose key matches a root attr is dropped (D5
-// root-wins); class is merged separately and style is deferred. Spread/cond attrs
-// have no single static name and contribute none here.
-func rootWithoutArgs(el *ast.Element) string {
-	var names []string
-	for _, a := range el.Attrs {
-		switch t := a.(type) {
-		case *ast.StaticAttr:
-			names = append(names, t.Name)
-		case *ast.BoolAttr:
-			names = append(names, t.Name)
-		case *ast.ExprAttr:
-			names = append(names, t.Name)
-		case *ast.ClassAttr:
-			names = append(names, t.Name)
-		case *ast.JSAttr:
-			names = append(names, t.Name)
+// rootAttrName returns the single static attribute name of a non-class/style root
+// attr that the caller-wins guard brackets. Static/bool/expr/JS attrs each have
+// one name; Spread/Cond attrs have none (ok=false), so they emit unguarded.
+func rootAttrName(a ast.Attr) (string, bool) {
+	switch t := a.(type) {
+	case *ast.StaticAttr:
+		return t.Name, true
+	case *ast.BoolAttr:
+		return t.Name, true
+	case *ast.ExprAttr:
+		return t.Name, true
+	case *ast.JSAttr:
+		return t.Name, true
+	}
+	return "", false
+}
+
+// rootStyleString returns the Go expression for the root element's own style
+// declarations, passed as StyleMerged's first arg (the bag's Style() is second,
+// caller-wins). For a static `style="x"` it is the quoted literal; for a composed
+// `style={ … }` (a CtxCSS ClassAttr) it is a gsx.StyleString(parts…) call mirroring
+// emitStyleAttr's part lowering (string-literal parts trusted, dynamic parts
+// CSS-value-filtered). With no style attr it is the empty string literal.
+func rootStyleString(styleAttr *ast.ClassAttr, staticStyle *ast.StaticAttr) string {
+	switch {
+	case staticStyle != nil:
+		return strconv.Quote(staticStyle.Value)
+	case styleAttr != nil:
+		parts := make([]string, 0, len(styleAttr.Parts))
+		for _, p := range styleAttr.Parts {
+			val := styleDeclExpr(p.Expr)
+			if p.Cond == "" {
+				parts = append(parts, fmt.Sprintf("gsx.Class(%s)", val))
+			} else {
+				parts = append(parts, fmt.Sprintf("gsx.ClassIf(%s, %s)", val, strings.TrimSpace(p.Cond)))
+			}
 		}
+		return "gsx.StyleString(" + strings.Join(parts, ", ") + ")"
+	default:
+		return `""`
 	}
-	names = append(names, "class", "style")
-	quoted := make([]string, len(names))
-	for i, n := range names {
-		quoted[i] = strconv.Quote(n)
-	}
-	return strings.Join(quoted, ", ")
 }
 
 // genNode emits one markup node. recvVar/recvTypeName are the enclosing

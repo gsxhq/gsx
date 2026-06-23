@@ -34,11 +34,15 @@ func Badge(_gsxp BadgeProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<span")
-		_gsxgw.S(" style=\"")
-		_gsxgw.Style(gsx.Class("color: red"), gsx.Class(gsx.StyleValue("color: "+accent)), gsx.ClassIf("display: none", hide))
-		_gsxgw.S("\"")
 		_gsxgw.ClassMerged(_gsxp.Attrs.Class())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("style", "class", "style"))
+		if _gsxp.Attrs.Has("style") {
+			_gsxgw.StyleMerged(gsx.StyleString(gsx.Class("color: red"), gsx.Class(gsx.StyleValue("color: "+accent)), gsx.ClassIf("display: none", hide)), _gsxp.Attrs.Style())
+		} else {
+			_gsxgw.S(" style=\"")
+			_gsxgw.Style(gsx.Class("color: red"), gsx.Class(gsx.StyleValue("color: "+accent)), gsx.ClassIf("display: none", hide))
+			_gsxgw.S("\"")
+		}
+		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
 		_gsxgw.S(">")
 		_gsxgw.S("hi")
 		_gsxgw.S("</span>")

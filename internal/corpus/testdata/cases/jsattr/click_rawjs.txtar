@@ -32,11 +32,14 @@ func Page(_gsxp PageProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<button")
-		_gsxgw.S(" @click=\"")
-		_gsxgw.JSValAttr(gsx.RawJS("toggle()"))
-		_gsxgw.S("\"")
+		if !_gsxp.Attrs.Has("@click") {
+			_gsxgw.S(" @click=\"")
+			_gsxgw.JSValAttr(gsx.RawJS("toggle()"))
+			_gsxgw.S("\"")
+		}
 		_gsxgw.ClassMerged(_gsxp.Attrs.Class())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("@click", "class", "style"))
+		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
+		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
 		_gsxgw.S(">")
 		_gsxgw.S("x")
 		_gsxgw.S("</button>")
