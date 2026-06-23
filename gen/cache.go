@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/codegen"
 )
 
@@ -87,7 +88,7 @@ func generateCached(paths, filterPkgs []string, useCache bool, cssMin, jsMin fun
 
 	// GENERATE phase: only the miss set, in ONE load.
 	if len(miss) > 0 {
-		out, err := codegen.GeneratePackagesWithFilters(root, miss, filterPkgs, cssMin, jsMin)
+		out, err := codegen.GeneratePackagesWithFilters(root, miss, filterPkgs, attrclass.Builtin(), cssMin, jsMin)
 		if err != nil {
 			return res, err
 		}
@@ -160,7 +161,7 @@ func contains(ss []string, s string) bool {
 
 // mustGen / writeAll: the no-cache fallback (Tier 0 path) reused by generateCached.
 func mustGen(root string, dirs, filterPkgs []string, cssMin, jsMin func(string) (string, error), res *Result) map[string]*codegen.PackageResult {
-	out, err := codegen.GeneratePackagesWithFilters(root, dirs, filterPkgs, cssMin, jsMin)
+	out, err := codegen.GeneratePackagesWithFilters(root, dirs, filterPkgs, attrclass.Builtin(), cssMin, jsMin)
 	if err != nil {
 		res.Errs = append(res.Errs, err)
 		return nil
