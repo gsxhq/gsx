@@ -153,6 +153,11 @@ script/interp_identifier_rejected	diag(error)
 script/interp_string	diag gen render
 script/interp_value	diag gen render
 script/minify	diag gen render
+script/rawjs_passthrough	diag gen render
+script/regexp_hostile	diag gen render
+script/string_hostile	diag gen render
+script/tmpl_hostile	diag gen render
+script/value_tuple	diag gen render
 security/js_rejected_onclick	diag gen render
 security/js_rejected_style	diag render
 security/url_blocked	diag render
@@ -172,4 +177,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 174 cases (render: 122, error: 32, gen-pinned: 24)
+TOTAL: 179 cases (render: 127, error: 32, gen-pinned: 29)
