@@ -486,8 +486,13 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					// "_gsxuse(expr)") will be reported at ep.Column, matching the source.
 					fmt.Fprintf(sb, "//line %s:%d:%d\n", ep.Filename, ep.Line, col)
 				} else {
-					// Expr is too near the line start for compensation; file+line are exact.
-					emitSkeletonLine(sb, fset, t.ExprPos)
+					// Expr is too near the line start for //line compensation (col < 1 is
+					// invalid). Fall back to the '{'-anchored position — identical to the
+					// pre-column-accuracy behavior — so shallow interps are never worse than
+					// the base. Making shallow interps exact would need a post-type-check
+					// column override keyed to the originating Interp — deferred.
+					// TODO(column-accuracy): exact columns for shallow interps (exprCol ≤ 8).
+					emitSkeletonLine(sb, fset, t.Pos())
 				}
 			} else {
 				// Staged pipeline or no ExprPos: keep unchanged behavior ('{' pos).
