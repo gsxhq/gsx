@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+
+	"github.com/gsxhq/gsx/internal/attrclass"
 )
 
 // Option configures Main. It is the option SHAPE for the gen composition root;
@@ -28,7 +30,22 @@ type config struct {
 	filterPkgs []string
 	cssMin     func(string) (string, error)
 	jsMin      func(string) (string, error)
+	jsRules    []attrclass.Rule
+	urlRules   []attrclass.Rule
+	cssRules   []attrclass.Rule
+	attrPred   func(name string) (attrclass.Context, bool)
+	predLabel  string
 	errs       []error
+}
+
+// classifier builds the resolved Classifier from the accumulated options. A
+// config with no attr options yields a built-ins-only Classifier.
+func (cfg *config) classifier() *attrclass.Classifier {
+	return attrclass.New(attrclass.Rules{
+		JS:  cfg.jsRules,
+		URL: cfg.urlRules,
+		CSS: cfg.cssRules,
+	}, cfg.attrPred)
 }
 
 // Main is the gsx process entry point: it builds a config from opts (currently
@@ -109,7 +126,7 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 	cmd, cmdArgs := rest[0], rest[1:]
 	switch cmd {
 	case "generate":
-		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, cfg.filterPkgs, cfg.cssMin, cfg.jsMin)
+		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, cfg.filterPkgs, cfg.classifier(), cfg.cssMin, cfg.jsMin)
 	case "clean":
 		return runClean(cmdArgs, stdout, stderr)
 	case "info":
@@ -176,7 +193,7 @@ func runClean(args []string, stdout, stderr io.Writer) int {
 // discovery fails with no per-package errors → exit 2) from a codegen error (one
 // or more packages failed → exit 1). Success returns 0.
 // noCache bypasses the content-hash cache and forces a full regeneration.
-func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string, cssMin, jsMin func(string) (string, error)) int {
+func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string, cls *attrclass.Classifier, cssMin, jsMin func(string) (string, error)) int {
 	gfs := flag.NewFlagSet("generate", flag.ContinueOnError)
 	gfs.SetOutput(stderr)
 	var nocacheFlag bool
@@ -191,7 +208,7 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 	// Bypass the cache when --no-cache is set OR when a custom minifier is
 	// configured: funcs are not hashable, so the cache cannot key on cssMin/jsMin.
 	useCache := !nocacheFlag && cssMin == nil && jsMin == nil
-	res, err := generateCached(paths, filterPkgs, useCache, cssMin, jsMin)
+	res, err := generateCached(paths, filterPkgs, cls, useCache, cssMin, jsMin)
 
 	if len(res.Errs) > 0 {
 		// Codegen failures: report each, exit 1.

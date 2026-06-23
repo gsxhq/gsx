@@ -12,7 +12,7 @@ import (
 	"github.com/gsxhq/gsx/internal/codegen"
 )
 
-func generateCached(paths, filterPkgs []string, useCache bool, cssMin, jsMin func(string) (string, error)) (Result, error) {
+func generateCached(paths, filterPkgs []string, cls *attrclass.Classifier, useCache bool, cssMin, jsMin func(string) (string, error)) (Result, error) {
 	var res Result
 	dirs, err := discoverDirs(paths)
 	if err != nil {
@@ -37,9 +37,11 @@ func generateCached(paths, filterPkgs []string, useCache bool, cssMin, jsMin fun
 		enabled = false
 	}
 
+	clsFingerprint := cls.Fingerprint()
+
 	// No cache: one batched generate (Tier 0 path).
 	if !enabled {
-		return writeAll(dirs, mustGen(root, dirs, filterPkgs, cssMin, jsMin, &res), &res)
+		return writeAll(dirs, mustGen(root, dirs, filterPkgs, cls, cssMin, jsMin, &res), &res)
 	}
 
 	graph, gerr := loadGraph(root)
@@ -54,7 +56,7 @@ func generateCached(paths, filterPkgs []string, useCache bool, cssMin, jsMin fun
 			miss = append(miss, dir) // graph failed → regenerate everything (safe)
 			continue
 		}
-		k, err := computeKey(dir, graph, modPath, goModH, goSumH, bctx, filterPkgs)
+		k, err := computeKey(dir, graph, modPath, goModH, goSumH, bctx, filterPkgs, clsFingerprint)
 		if err != nil {
 			miss = append(miss, dir) // uncertain → MISS
 			continue
@@ -88,7 +90,7 @@ func generateCached(paths, filterPkgs []string, useCache bool, cssMin, jsMin fun
 
 	// GENERATE phase: only the miss set, in ONE load.
 	if len(miss) > 0 {
-		out, err := codegen.GeneratePackagesWithFilters(root, miss, filterPkgs, attrclass.Builtin(), cssMin, jsMin)
+		out, err := codegen.GeneratePackagesWithFilters(root, miss, filterPkgs, cls, cssMin, jsMin)
 		if err != nil {
 			return res, err
 		}
@@ -160,8 +162,8 @@ func contains(ss []string, s string) bool {
 }
 
 // mustGen / writeAll: the no-cache fallback (Tier 0 path) reused by generateCached.
-func mustGen(root string, dirs, filterPkgs []string, cssMin, jsMin func(string) (string, error), res *Result) map[string]*codegen.PackageResult {
-	out, err := codegen.GeneratePackagesWithFilters(root, dirs, filterPkgs, attrclass.Builtin(), cssMin, jsMin)
+func mustGen(root string, dirs, filterPkgs []string, cls *attrclass.Classifier, cssMin, jsMin func(string) (string, error), res *Result) map[string]*codegen.PackageResult {
+	out, err := codegen.GeneratePackagesWithFilters(root, dirs, filterPkgs, cls, cssMin, jsMin)
 	if err != nil {
 		res.Errs = append(res.Errs, err)
 		return nil

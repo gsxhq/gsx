@@ -3,6 +3,8 @@ package gen
 import (
 	"fmt"
 	"reflect"
+
+	"github.com/gsxhq/gsx/internal/attrclass"
 )
 
 // WithFilters registers one or more filter packages by their marker tokens.
@@ -64,4 +66,53 @@ func (cfg *config) appendFilterPkg(path string) {
 		}
 	}
 	cfg.filterPkgs = append(cfg.filterPkgs, path)
+}
+
+// WithJSAttrs registers additional JS-context attribute rules (e.g. Vue v-on:,
+// Livewire wire:). Rules are additive over the built-ins; an invalid rule (both
+// or neither of Name/Prefix set) fails the run with a clear message.
+func WithJSAttrs(rules ...attrclass.Rule) Option {
+	return func(cfg *config) {
+		cfg.jsRules = appendValidRules(cfg, "WithJSAttrs", cfg.jsRules, rules)
+	}
+}
+
+// WithURLAttrs registers additional URL-context attribute rules.
+func WithURLAttrs(rules ...attrclass.Rule) Option {
+	return func(cfg *config) {
+		cfg.urlRules = appendValidRules(cfg, "WithURLAttrs", cfg.urlRules, rules)
+	}
+}
+
+// WithCSSAttrs registers additional CSS-context attribute rules.
+func WithCSSAttrs(rules ...attrclass.Rule) Option {
+	return func(cfg *config) {
+		cfg.cssRules = appendValidRules(cfg, "WithCSSAttrs", cfg.cssRules, rules)
+	}
+}
+
+// WithAttrClassifier installs a predicate escape hatch for matching logic the
+// declarative rules cannot express. It is additive (consulted only for names no
+// rule matched) and cannot downgrade a built-in. label is recorded in the
+// manifest so offline tools can name the predicate they cannot evaluate.
+// NOTE: predicate-classified attributes do not survive a broken build — prefer
+// declarative rules where possible.
+func WithAttrClassifier(label string, fn func(name string) (attrclass.Context, bool)) Option {
+	return func(cfg *config) {
+		cfg.attrPred = fn
+		cfg.predLabel = label
+	}
+}
+
+// appendValidRules validates each rule in add, recording errors for invalid
+// rules onto cfg.errs, and appends the valid ones to dst.
+func appendValidRules(cfg *config, who string, dst, add []attrclass.Rule) []attrclass.Rule {
+	for i, r := range add {
+		if err := r.Valid(); err != nil {
+			cfg.errs = append(cfg.errs, fmt.Errorf("%s: rule %d: %w", who, i, err))
+			continue
+		}
+		dst = append(dst, r)
+	}
+	return dst
 }
