@@ -71,6 +71,15 @@ func (a Attrs) Class() string {
 	return ClassMerger(classTokens([]ClassPart{Class(toStr(v))}))
 }
 
+// Style returns the bag's "style" declaration string, or "".
+func (a Attrs) Style() string {
+	v, ok := a["style"]
+	if !ok {
+		return ""
+	}
+	return toStr(v)
+}
+
 // Spread renders the bag deterministically (keys sorted). bool values use
 // boolean-attribute semantics; everything else is written as key="value" with
 // attribute escaping. ctx is reserved for forward-compatibility.

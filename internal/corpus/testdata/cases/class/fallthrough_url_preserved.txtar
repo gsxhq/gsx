@@ -1,0 +1,11 @@
+-- input.gsx --
+package views
+
+component Link(u string) {
+	<a href={ u }>{children}</a>
+}
+-- invoke --
+Link(LinkProps{U: "javascript:alert(1)"})
+-- diagnostics.golden --
+-- render.golden --
+<a href="about:invalid#gsx"></a>

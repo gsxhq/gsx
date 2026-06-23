@@ -32,11 +32,14 @@ func C(_gsxp CProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div")
-		_gsxgw.S(" onclick=\"")
-		_gsxgw.JSValAttr(x)
-		_gsxgw.S("\"")
+		if !_gsxp.Attrs.Has("onclick") {
+			_gsxgw.S(" onclick=\"")
+			_gsxgw.JSValAttr(x)
+			_gsxgw.S("\"")
+		}
 		_gsxgw.ClassMerged(_gsxp.Attrs.Class())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("onclick", "class", "style"))
+		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
+		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
 		_gsxgw.S(">")
 		_gsxgw.S("y")
 		_gsxgw.S("</div>")

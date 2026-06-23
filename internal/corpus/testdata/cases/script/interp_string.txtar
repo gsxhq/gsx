@@ -37,6 +37,7 @@ func Page(_gsxp PageProps) gsx.Node {
 //line input.gsx:4:2
 		_gsxgw.S("<script")
 		_gsxgw.ClassMerged(_gsxp.Attrs.Class())
+		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
 		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
 		_gsxgw.S(">")
 		_gsxgw.S("\n\t\tconst url = \"/api/")

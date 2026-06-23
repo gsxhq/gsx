@@ -1,0 +1,11 @@
+-- input.gsx --
+package views
+
+component Card() {
+	<div class="card" style="color:red">{children}</div>
+}
+-- invoke --
+Card(CardProps{Attrs: gsx.Attrs{"class": "featured", "style": "color:blue; margin:0"}})
+-- diagnostics.golden --
+-- render.golden --
+<div class="card featured" style="color:blue; margin:0"></div>

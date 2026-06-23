@@ -36,11 +36,15 @@ func Theme(_gsxp ThemeProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<div")
-		_gsxgw.S(" style=\"")
-		_gsxgw.Style(gsx.Class(gsx.StyleValue("border: "+userInput)), gsx.Class(gsx.StyleValue("color: "+themeColor)))
-		_gsxgw.S("\"")
 		_gsxgw.ClassMerged(_gsxp.Attrs.Class())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("style", "class", "style"))
+		if _gsxp.Attrs.Has("style") {
+			_gsxgw.StyleMerged(gsx.StyleString(gsx.Class(gsx.StyleValue("border: "+userInput)), gsx.Class(gsx.StyleValue("color: "+themeColor))), _gsxp.Attrs.Style())
+		} else {
+			_gsxgw.S(" style=\"")
+			_gsxgw.Style(gsx.Class(gsx.StyleValue("border: "+userInput)), gsx.Class(gsx.StyleValue("color: "+themeColor)))
+			_gsxgw.S("\"")
+		}
+		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
 		_gsxgw.S(">")
 		_gsxgw.S("content")
 		_gsxgw.S("</div>")

@@ -49,6 +49,23 @@ func classTokens(parts []ClassPart) []string {
 	return toks
 }
 
+// StyleString returns the merged style declaration string for parts (the value
+// form of gw.Style), so generated code can pass a composed root style to
+// StyleMerged. Like gw.Style it includes only on-parts and joins with "; ", but
+// does NOT attr-escape (the caller escapes).
+func StyleString(parts ...ClassPart) string {
+	decls := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if !p.on {
+			continue
+		}
+		if d := strings.TrimSpace(p.s); d != "" {
+			decls = append(decls, d)
+		}
+	}
+	return strings.Join(decls, "; ")
+}
+
 // ClassString returns the merged class string for parts (the value form of
 // gw.Class), so generated code can place a composed class into an Attrs map.
 func ClassString(parts ...ClassPart) string {

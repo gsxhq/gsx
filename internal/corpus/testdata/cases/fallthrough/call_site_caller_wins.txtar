@@ -12,4 +12,4 @@ component Page() {
 Page(PageProps{})
 -- diagnostics.golden --
 -- render.golden --
-<button type="button">Go</button>
+<button type="reset">Go</button>
