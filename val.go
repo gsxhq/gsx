@@ -11,6 +11,11 @@ import (
 // A Node renders itself; string/[]byte/fmt.Stringer render as escaped text; the
 // numeric and bool kinds render their plain Go form (use the |> pipeline for
 // formatted numbers, e.g. { f | money("$") }); nil renders nothing.
+//
+// Named scalar types (e.g. type Slug string, type Money float64) are NOT matched
+// by the type switch — they hit the default error case even though { x } inline
+// classifies them by underlying type. Workaround: convert to the base type
+// (string(slug)) or pass through a |> pipeline before promotion.
 func Val(v any) Node { return valNode{v} }
 
 type valNode struct{ v any }
