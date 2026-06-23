@@ -292,15 +292,14 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 			continue // excluded
 		}
 		pf := propFieldsByDir[dir]
+		bag := bags[dir]
 		for path, file := range files {
-			gen, err := generateFile(file, resolved, table, pf, fset, cls, cssMin, jsMin)
-			if err != nil {
-				bags[dir].Add(diag.Diagnostic{
-					Severity: diag.Error,
-					Message:  fmt.Sprintf("%s: %s", path, err.Error()),
-					Source:   "codegen",
-				})
-				break
+			gen, genOK := generateFile(file, resolved, table, pf, fset, cls, bag, cssMin, jsMin)
+			if !genOK {
+				// Diagnostics already in bag; skip writing this file but continue
+				// processing other files in the package so all errors are reported.
+				_ = path
+				continue
 			}
 			result[dir].Files[path] = gen
 		}

@@ -100,9 +100,13 @@ func GeneratePackageWithFilters(dir string, filterPkgs []string, cls *attrclass.
 
 	out := map[string][]byte{}
 	for path, file := range files {
-		gen, err := generateFile(file, resolved, table, propFields, fset, cls, cssMin, jsMin)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
+		gen, genOK := generateFile(file, resolved, table, propFields, fset, cls, bag, cssMin, jsMin)
+		if !genOK {
+			// Collect diagnostics from bag into an error for the legacy single-package API.
+			if diags := bag.Sorted(); len(diags) > 0 {
+				return nil, fmt.Errorf("%s: %s", path, diags[len(diags)-1].Message)
+			}
+			return nil, fmt.Errorf("%s: codegen: unknown error", path)
 		}
 		out[path] = gen
 	}

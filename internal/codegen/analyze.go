@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"errors"
 	"fmt"
 	goast "go/ast"
 	"go/parser"
@@ -18,6 +19,15 @@ import (
 
 	gsxast "github.com/gsxhq/gsx/ast"
 )
+
+// errSkipComponent is a sentinel returned by emitComponentSkeleton when the
+// component fails an early validation check (reserved param/recv, parse error)
+// that will also be caught — with a positioned diagnostic — in genComponent at
+// emit time. The caller (buildSkeleton) skips this component's skeleton and
+// continues; the overall skeleton remains valid Go. Infrastructure errors
+// (e.g. unknown filter in emitProbes) are NOT wrapped in this sentinel and
+// propagate as fatal errors.
+var errSkipComponent = errors.New("skip")
 
 // resolveTypesPkg type-checks the package (real .go files + synthesized gsx
 // component skeletons via Overlay) and returns each interpolation's type.
@@ -233,11 +243,25 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields map[string]m
 	// the skeleton type-check).
 	usedFilters := map[string]string{} // alias -> pkgPath
 	var compBuf strings.Builder
+	// Keep only the components whose skeletons succeed. A validation error
+	// (errSkipComponent — reserved param/recv, parse failure) means the component
+	// is invalid for codegen; skip its skeleton so the overall file stays valid Go.
+	// genComponent will re-encounter the same error at emit time and record a
+	// positioned diagnostic via the bag. Any OTHER error is a real infrastructure
+	// failure and must abort the whole skeleton build.
+	var validComps []*gsxast.Component
 	for _, c := range comps {
 		if err := emitComponentSkeleton(&compBuf, c, table, propFields, usedFilters); err != nil {
+			if errors.Is(err, errSkipComponent) {
+				// Validation failure: skip this component's skeleton; it will fail
+				// again (with a positioned diagnostic) during generateFile.
+				continue
+			}
 			return "", nil, err
 		}
+		validComps = append(validComps, c)
 	}
+	comps = validComps
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "package %s\n", file.Package)
@@ -296,10 +320,19 @@ func sortedFilterAliases(usedFilters map[string]string) []string {
 func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filterTable, propFields map[string]map[string]bool, usedFilters map[string]string) error {
 	params, err := parseParams(c.Params)
 	if err != nil {
-		return err
+		// Emit a minimal stub so the overall skeleton remains valid Go, keeping
+		// any user GoChunk imports used. The parse error will be re-surfaced (with
+		// position) by genComponent at emit time.
+		emitComponentStub(sb, c, nil, true)
+		return errSkipComponent
 	}
 	if err := checkReservedParams(params); err != nil {
-		return err
+		// Emit a stub that INCLUDES the props struct (keeping user-imported types
+		// like gsx.Node used in the skeleton) so GoChunk imports don't spuriously
+		// trigger "imported and not used". The reserved-param error will be
+		// re-surfaced (with position) by genComponent at emit time.
+		emitComponentStub(sb, c, params, true)
+		return errSkipComponent
 	}
 	// MIRROR genComponent (emit.go): a method component emits a Go method whose
 	// receiver var is in scope (so `p.Field` probes type-check against the real
@@ -316,10 +349,14 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 		var rerr error
 		recvVar, _, recvTypeName, rerr = parseRecv(c.Recv)
 		if rerr != nil {
-			return rerr
+			// Recv parse failed — the receiver clause may be invalid Go; use a bare
+			// function stub (no receiver) to keep the skeleton valid.
+			emitComponentStub(sb, c, params, false)
+			return errSkipComponent
 		}
 		if rerr := checkReservedRecvVar(recvVar); rerr != nil {
-			return rerr
+			emitComponentStub(sb, c, params, true)
+			return errSkipComponent
 		}
 		propsName = recvTypeName + c.Name + "Props"
 	}
@@ -1277,6 +1314,44 @@ func splitChunk(src string) (imports []importSpec, body string, err error) {
 	}
 	b.WriteString(src[prev:])
 	return imports, strings.TrimSpace(b.String()), nil
+}
+
+// emitComponentStub emits a minimal valid Go func/method stub for a component
+// whose skeleton would otherwise be invalid (reserved param/recv, parse error).
+// The stub keeps the skeleton valid Go and ensures user GoChunk imports are not
+// spuriously flagged as "imported and not used". The body returns nil — no type
+// probes are emitted; genComponent re-encounters the validation error at emit
+// time and records a positioned diagnostic.
+//
+// params is the parsed parameter list (may be nil if parsing failed). When
+// non-nil, a props struct is emitted so param type references (e.g. gsx.Node)
+// in user GoChunk imports remain "used" in the skeleton.
+//
+// withRecv controls whether the method receiver clause is emitted (true for
+// most cases; false when parseRecv itself failed and c.Recv is bad syntax).
+func emitComponentStub(sb *strings.Builder, c *gsxast.Component, params []param, withRecv bool) {
+	propsName := c.Name + "Props"
+	// Emit a props struct if we have parsed params, to keep user-imported types
+	// (like gsx.Node) used in the skeleton. The struct itself is harmless — the
+	// reserved param name appears as a field name (uppercase), not as a local.
+	if len(params) > 0 {
+		fmt.Fprintf(sb, "type %s struct {\n", propsName)
+		for _, p := range params {
+			fmt.Fprintf(sb, "\t%s %s\n", fieldName(p.name), p.typ)
+		}
+		sb.WriteString("}\n")
+		if withRecv && c.Recv != "" {
+			fmt.Fprintf(sb, "func %s %s(_gsxp %s) _gsxrt.Node { return nil }\n", c.Recv, c.Name, propsName)
+		} else {
+			fmt.Fprintf(sb, "func %s(_gsxp %s) _gsxrt.Node { return nil }\n", c.Name, propsName)
+		}
+	} else {
+		if withRecv && c.Recv != "" {
+			fmt.Fprintf(sb, "func %s %s() _gsxrt.Node { return nil }\n", c.Recv, c.Name)
+		} else {
+			fmt.Fprintf(sb, "func %s() _gsxrt.Node { return nil }\n", c.Name)
+		}
+	}
 }
 
 // fieldName maps a param name to its props struct field (first letter upper).
