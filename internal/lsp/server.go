@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"path/filepath"
 
 	"github.com/gsxhq/gsx/internal/diag"
 )
@@ -126,8 +127,91 @@ func (s *Server) notify(method string, params any) error {
 	}{"2.0", method, params})
 }
 
-// Transitional stubs — Task 6 replaces these bodies with real implementations.
+func (s *Server) handleDidOpen(f frame) error {
+	var p didOpenParams
+	if err := json.Unmarshal(f.Params, &p); err != nil {
+		return nil
+	}
+	s.docs.open(p.TextDocument.URI, p.TextDocument.Text, p.TextDocument.Version)
+	return s.analyzeAndPublish(p.TextDocument.URI)
+}
 
-func (s *Server) handleDidOpen(f frame) error   { return nil }
-func (s *Server) handleDidChange(f frame) error { return nil }
-func (s *Server) handleDidClose(f frame) error  { return nil }
+func (s *Server) handleDidChange(f frame) error {
+	var p didChangeParams
+	if err := json.Unmarshal(f.Params, &p); err != nil {
+		return nil
+	}
+	if len(p.ContentChanges) == 0 {
+		return nil
+	}
+	// Full-document sync: the last change carries the whole new text.
+	text := p.ContentChanges[len(p.ContentChanges)-1].Text
+	s.docs.update(p.TextDocument.URI, text, p.TextDocument.Version)
+	return s.analyzeAndPublish(p.TextDocument.URI)
+}
+
+func (s *Server) handleDidClose(f frame) error {
+	var p didCloseParams
+	if err := json.Unmarshal(f.Params, &p); err != nil {
+		return nil
+	}
+	s.docs.close(p.TextDocument.URI)
+	// Clear diagnostics for the now-closed document.
+	return s.notify("textDocument/publishDiagnostics", publishDiagnosticsParams{URI: p.TextDocument.URI, Diagnostics: []Diagnostic{}})
+}
+
+// analyzeAndPublish re-analyzes the package containing changedURI and publishes
+// diagnostics for every open document in that directory (empty list when a
+// document is now clean, so stale squiggles never linger). Diagnostics that
+// carry no filename are attached to changedURI at the file start.
+func (s *Server) analyzeAndPublish(changedURI string) error {
+	dir := filepath.Dir(uriToPath(changedURI))
+	openDocs := s.docs.openInDir(dir) // abs path -> text
+	override := make(map[string][]byte, len(openDocs))
+	for path, text := range openDocs {
+		override[path] = []byte(text)
+	}
+
+	diags, err := s.analyzer.Diagnose(dir, override)
+	if err != nil {
+		// Analysis failure (e.g. no go.mod): do not crash the session. Clear the
+		// changed file's diagnostics and move on.
+		return s.notify("textDocument/publishDiagnostics", publishDiagnosticsParams{URI: changedURI, Diagnostics: []Diagnostic{}})
+	}
+
+	// Group diagnostics by absolute filename; positionless/foreign ones go to
+	// the changed document.
+	changedPath := uriToPath(changedURI)
+	byPath := map[string][]diag.Diagnostic{}
+	for _, d := range diags {
+		key := d.Start.Filename
+		if key == "" {
+			key = changedPath
+		}
+		byPath[key] = append(byPath[key], d)
+	}
+
+	// Publish for every open doc in the dir (clearing clean ones), plus any file
+	// that has diagnostics even if not currently open.
+	targets := map[string]bool{}
+	for path := range openDocs {
+		targets[path] = true
+	}
+	for path := range byPath {
+		targets[path] = true
+	}
+
+	for path := range targets {
+		text := openDocs[path] // "" if not open; positions still map (best effort)
+		lineAt := lineAtFunc(text)
+		ds := byPath[path]
+		out := make([]Diagnostic, 0, len(ds))
+		for _, d := range ds {
+			out = append(out, convertDiag(d, lineAt, s.enc))
+		}
+		if err := s.notify("textDocument/publishDiagnostics", publishDiagnosticsParams{URI: pathToURI(path), Diagnostics: out}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
