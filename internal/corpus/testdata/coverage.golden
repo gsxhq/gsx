@@ -10,6 +10,7 @@ attrs/expr_attrs	diag render
 class/composable_off	diag render
 class/composable_on	diag render
 class/escaping	diag render
+class/non_root_class	diag gen render
 class/spread	diag render
 class/style_rejected	diag
 codegen-shape/example12_form	diag render
@@ -181,4 +182,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 183 cases (render: 131, error: 32, gen-pinned: 33)
+TOTAL: 184 cases (render: 132, error: 32, gen-pinned: 34)
