@@ -1,4 +1,4 @@
-# Design: renderable values auto-promote to `gsx.Node` props
+# Design: renderable values auto-promote to `gsx.Node` props (`gsx.Val`)
 
 **Date:** 2026-06-23
 **Status:** Approved (brainstorm), pending implementation plan
@@ -7,108 +7,122 @@
 
 ## 1. Goal & scope
 
-A component prop typed **`gsx.Node`** should accept, from a `.gsx` caller, **any value gsx already renders as text or markup** — not only `{ <markup/> }`. So:
+A component prop typed **`gsx.Node`** should accept, from a `.gsx` caller, **any value gsx renders as text or markup** — not only `{ <markup/> }`:
 
 ```gsx
 component Card(title gsx.Node, content gsx.Node) { <h2>{title}</h2><p>{content}</p> }
 
-<Card title="Card Title"            content={ count } />      <!-- string / int -->
-<Card title={ <span>Rich</span> }   content={ someNode } />   <!-- markup / node -->
+<Card title="Card Title"          content={ n } />        <!-- string / int -->
+<Card title={ <span>Rich</span> } content={ someNode } /> <!-- markup / node -->
 ```
 
-both compile and render. This is the React-`ReactNode` ergonomic: a `gsx.Node` prop is a "text-or-markup" slot.
+**Mechanism: a universal value box.** A new runtime `gsx.Val(v any) Node` wraps any value as a Node and renders it by a type switch (the §5 set). Codegen, when a non-node value is bound to a `gsx.Node` prop, emits `gsx.Val(expr)`. A *static string* attribute takes a free fast-path, `gsx.Text(literal)`, that skips the `any` box.
 
-**Key principle (the whole design):** `gsx.Node` is just `Render(ctx, w) error` — anything renderable is a Node. gsx's `{ x }` interpolation (§5) already renders the full scalar set as escaped text. So promotion = **wrap the value's existing §5 rendering in a `gsx.Func` closure**; the closure satisfies `Render`, so it *is* a `gsx.Node`. No per-type runtime helper, no reflection — reuse the codegen we have.
+**Why a single `any` box, not per-type boxes or an inline closure:**
+- It is **extensible** — supporting a new renderable type is one `case` in `Val`'s switch, not a new constructor + codegen branch.
+- It **keeps codegen trivial and preserves emit ≡ probe for free**: `gsx.Val(expr)` needs no resolved type and type-checks identically in the type-check skeleton and the emitted code, so there is **no classify-at-codegen and no emit/probe asymmetry** (the hard part of the alternatives).
+- Cost is **~2 small allocations per promoted prop** (box the value into `any`, box the node into the `gsx.Node` interface), once per render-of-that-prop — negligible against the hundreds of allocs a page already makes per element/attr/string. The static-string fast-path hits the **1-alloc floor** for the common literal-text case.
 
-**Go stays strict.** A `string`/`int` never *is* a `gsx.Node` in Go (a hand-written `CardProps{Title: "x"}` still won't compile). The promotion happens only at the **`.gsx` → Go boundary**, in the child-props codegen.
+**Go stays strict.** A `string`/`int` is never a `gsx.Node` in Go — a hand-written `CardProps{Title: "x"}` still won't compile. Promotion happens only at the `.gsx`→Go boundary (codegen emits `gsx.Val(...)`). For hand-written Go callers, `gsx.Val`/`gsx.Text` are the explicit constructors (`CardProps{Title: gsx.Val(5)}`).
 
-**In scope:** the codegen rule that wraps a renderable non-node attribute value bound to a `gsx.Node` prop in a `gsx.Func` closure rendering it via §5; for every §5 category. Tests.
+**In scope:** runtime `gsx.Val(any) Node` + `gsx.Text(string) Node`; the codegen rule mapping a non-node value bound to a `gsx.Node` prop to `gsx.Val(expr)` (static string → `gsx.Text`); tests.
 
-**Out of scope:** the `gsx.Text` / `gsx.Group` runtime constructors (optional Go-side conveniences — a separate, tiny add if wanted; the `.gsx` ergonomic does NOT depend on them). Changing the `gsx.Node` field type or introducing a union type (explicitly rejected — Go strictness is desirable).
+**Out of scope:** per-type concrete boxes (`gsx.Int`/`gsx.Float`) — the universal box covers the cases and concrete types only pay off if gsx ever needs to *introspect* a node's type, which it doesn't (a `Node`'s only operation is `Render`). Nice number/float formatting is the **pipeline's** job (`{ f | money("$") }`), not `Val`'s — `Val` renders the plain Go default.
 
-**Global constraints:** runtime stdlib-only (unchanged — this is codegen-only). No regression to existing child-props / slot behavior. Escaping is preserved (the wrapped §5 render does the same escaping as inline `{ x }`).
+**Global constraints:** runtime stays stdlib-only. Threat model unchanged — `Val`'s string/Stringer rendering goes through the same `gw.Text` escaper as `{ x }`, so promoted text is escaped identically.
 
 ---
 
-## 2. The promotion rule
+## 2. Runtime: `gsx.Val` + `gsx.Text`
 
-When a child-component attribute binds to a prop whose declared type is **`gsx.Node`**, map the value by its §5 `classify` category (`analyze.go:686`):
-
-| Value | category | Emitted field value |
-|---|---|---|
-| markup `{ <…/> }` (a `MarkupAttr`) | — | the slot closure (`emitSlotClosure`) — **unchanged** |
-| a `gsx.Node` value | `catNode` | the expr as-is — **unchanged** |
-| a `[]gsx.Node` value | `catNodeSlice` | a `gsx.Func` closure rendering each (the `catNodeSlice` branch of `emitRender`) |
-| `string` / `[]byte` / `int*` / `uint*` / `float*` / `bool` / `fmt.Stringer` | `catString`/`catBytes`/`catInt`/`catUint`/`catFloat`/`catBool`/`catStringer` | **a `gsx.Func` closure that renders the value via `emitRender`** ← the new behavior |
-| anything else | `catUnsupported` | the same friendly error `{ x }` gives for an unrenderable value |
-
-A static string attribute (`title="Card Title"`) is the `catString` case (the value is a string literal). `gsx.Raw(...)` is already a `gsx.Node` (`catNode`) — unchanged.
-
-The emitted closure has the canonical shape (same as `emitSlotClosure`, but the body is the §5 render of the value rather than markup):
 ```go
-gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-    _gsxgw := gsx.W(_gsxw)
-    <emitRender output for the value, e.g. _gsxgw.Text(string(title)) / _gsxgw.S(strconv.Itoa(count))>
-    return _gsxgw.Err()
-})
+// Val wraps any renderable value as a Node, so a value can fill a gsx.Node prop.
+// It renders v by type: a Node renders itself; string/[]byte/Stringer render as
+// escaped text; the numeric and bool kinds render their plain Go form (use the
+// |> pipeline for formatted output, e.g. { f | money("$") }). nil renders nothing.
+func Val(v any) Node { return valNode{v} }
+
+type valNode struct{ v any }
+func (n valNode) Render(ctx context.Context, w io.Writer) error {
+    if n.v == nil { return nil }
+    switch t := n.v.(type) {
+    case Node:           if t == nil { return nil }; return t.Render(ctx, w)
+    case string:         /* gw.Text(t) */
+    case []byte:         /* gw.Text(string(t)) */
+    case fmt.Stringer:   /* gw.Text(t.String()) */
+    case int, int8, int16, int32, int64:    /* gw.S(strconv.FormatInt(...)) */
+    case uint, …:        /* gw.S(strconv.FormatUint(...)) */
+    case float32, float64: /* gw.S(strconv.FormatFloat(..., 'g', -1, …)) */
+    case bool:           /* gw.S(strconv.FormatBool(t)) */
+    default:             /* a clear "unrenderable in a gsx.Node prop" error */
+    }
+    …
+}
+
+// Text is the escaped-text Node — the static-string fast-path (codegen emits it
+// for a literal attribute) and a Go-side text constructor. One alloc, no any-box.
+func Text(s string) Node { return textNode(s) }
+type textNode string
+func (t textNode) Render(_ context.Context, w io.Writer) error { /* gw.Text(string(t)) */ }
 ```
+
+The numeric/bool cases mirror the §5 `emitRender` formatting so `gsx.Val(n)` and inline `{ n }` produce the same bytes. The `default` case errors at *render* time for a truly unrenderable type — but codegen also rejects it at *build* time (§4), so render-time default is a backstop.
 
 ---
 
-## 3. Architecture & the one real implementation problem
+## 3. Codegen rule
 
-The promotion lives in **`childPropsLiteral`** (`emit.go:1647`) — which builds the `CardProps{Title: …, Content: …}` field list — and reuses **`emitRender`** (`emit.go:823`, the §5 per-category emitter) inside an `emitSlotClosure`-style (`emit.go:1609`) `gsx.Func` wrapper.
+When a child-component attribute binds to a prop whose declared type is **`gsx.Node`** (the `nodeProps` signal, §4):
 
-**The crux:** `childPropsLiteral` must know **each target field's declared type** (is it `gsx.Node`?) to decide whether to wrap. Today it maps by attribute *kind* (markup→slot, expr→value, static→string), not by field type. So the work is:
+| Attr | Emits | Allocs |
+|---|---|---|
+| `title="literal"` (`StaticAttr`) | `Title: gsx.Text("literal")` | 1 |
+| `content={ expr }` (`ExprAttr`, any value) | `Content: gsx.Val(expr)` | 2 (1 if `expr` is a pointer/interface) |
+| `header={ <markup/> }` (`MarkupAttr`) | the slot closure — **unchanged** |
+| a value already `gsx.Node` via `{ nodeVar }` | `gsx.Val(nodeVar)` — `Val`'s `case Node` delegates (a small over-wrap; rare, accepted to keep codegen classify-free) |
+| unrenderable (`catUnsupported`) | the same build error `{ x }` gives (§4) |
 
-1. **Thread the child component's prop types to the mapping site.** The child component's prop declarations (`component Card(title gsx.Node, …)`) give each field's type. Source it from the same place the props-field set (`propFields` / `childPropsFields`) is derived — extend it from field *names* to field *names→types* (or a `name→isNode` predicate, since only "is this field `gsx.Node`" matters for the rule). The probe/skeleton already type-resolves the child invocation, so the type is available; the emit side must carry it. Determine the cleanest carrier (AST param types of the child component, vs the resolved props type) during planning — both emit and probe must agree (the emit ≡ probe invariant).
-2. **In `childPropsLiteral`,** for an attr bound to a `gsx.Node` field: if the value is already a node/markup → today's path; else if `classify(value)` is a renderable scalar/slice → emit the `gsx.Func`-closure-with-`emitRender`; else → the catUnsupported error.
-3. **emit ≡ probe:** whatever drives the promotion decision (field-is-Node + value category) must be identical in the probe (`buildSkeleton`/`emitProbes`) and the emit, so the type-check and the generated code agree (the standing gsx invariant). If the probe emits the child call differently, align it.
+**The whole win:** `gsx.Text(lit)` / `gsx.Val(expr)` are emitted **identically by both the emit and the type-check probe** — no `resolved` type needed, no `classify`, no emit/probe callback. `childPropsLiteral` only needs to know "is this field `gsx.Node`?" to choose `gsx.Text`/`gsx.Val` over a bare value. (A bool attribute bound to a `gsx.Node` prop → `gsx.Val(true)`, renders `true`; an edge case, consistent.)
 
----
-
-## 4. Data flow
-
-```
-<Card title="Card Title" content={ count }>
-  → childPropsLiteral, with child-prop types known:
-      Title  field is gsx.Node, value "Card Title" is catString
-         → Title: gsx.Func(func(ctx,w){ gw:=gsx.W(w); gw.Text("Card Title"); return gw.Err() })
-      Content field is gsx.Node, value count is catInt
-         → Content: gsx.Func(func(ctx,w){ gw:=gsx.W(w); gw.S(strconv.Itoa(count)); return gw.Err() })
-  → Card(CardProps{Title: <closure>, Content: <closure>, Children: <slot closure>})
-```
-
-Inside `Card`, `<h2>{title}</h2>` renders the closure via the existing `catNode` path (`gw.Node`, nil-safe) — unchanged.
+Non-`gsx.Node` props are untouched — a `string` prop still takes a string, an `int` prop an int.
 
 ---
 
-## 5. Error handling
+## 4. The one real implementation problem — the `nodeProps` signal
 
-- A value bound to a `gsx.Node` prop whose type is `catUnsupported` (e.g. a struct with no `String()`) → the same clear codegen error the `{ x }` interpolation already emits for that type, naming the attribute.
-- A `gsx.Node` prop left unset → the field is the zero `gsx.Node` (nil); rendering a nil node is a no-op (existing `gw.Node` nil-safety).
-- Non-`gsx.Node` props are unaffected (a `string` prop still takes a string; an `int` prop an int) — the promotion is gated on the field being `gsx.Node`.
+`childPropsLiteral` (`emit.go:1647`) today maps by attribute *kind* (static→quoted, expr→expr, markup→slot). To apply the rule it must know **each target field's declared type is `gsx.Node`**. Source it AST-derived, parallel to the existing `propFields` (field-name) map: in the same derivation loop (`analyze.go:146`), build `nodeProps[propsType][fieldName] = isGsxNodeType(p.typ)` where `isGsxNodeType(typ) == (strings.TrimSpace(typ) == "gsx.Node")`, and thread it to `childPropsLiteral` exactly as `propFields` is threaded. Because both emit (`genChildComponent`) and probe (`emitProbes`) call `childPropsLiteral` with the SAME `nodeProps`, and both emit the SAME `gsx.Val`/`gsx.Text`, emit ≡ probe holds with no extra machinery.
+
+**Build-time error for an unrenderable value:** because both emit and probe wrap the value in `gsx.Val(...)`, the Go type-checker accepts any type at the boundary (`Val` takes `any`), so an unrenderable type would only fail at *render* (the `default` case). To keep the friendly *build-time* error, the probe/emit can additionally reference the expr in a `{ x }`-style position that `classify` checks — OR (simpler) accept the `Val` render-time error and document it. **Decision: accept the build-time looseness for v1** (any value compiles; a non-renderable one is caught by `Val`'s `default` returning a clear error at render). Revisit if a build-time guard is wanted. *(This is the one deliberate trade of the `any` box: `Val` is permissive by type.)*
+
+---
+
+## 5. Data flow
+
+```
+<Card title="Card Title" content={ n }>
+  → childPropsLiteral, nodeProps["CardProps"]={Title,Content}:
+      Title  is gsx.Node, static  → Title: gsx.Text("Card Title")
+      Content is gsx.Node, expr   → Content: gsx.Val(n)
+  → Card(CardProps{Title: gsx.Text("Card Title"), Content: gsx.Val(n), Children: <slot>})
+identical in emit and probe.
+```
+Inside `Card`, `<h2>{title}</h2>` renders the Node via the existing `catNode` path (`gw.Node`, nil-safe).
 
 ---
 
 ## 6. Testing
 
-- **Corpus render** (the real surface): the user's two-`Card` file —
-  - `<Card title="Card Title" content="…">…children…</Card>` (string → text node),
-  - `<Card title={ <span>…</span> } content={ <em>…</em> }/>` (markup, unchanged),
-  - a `<Card title={ n }>` with `n int` (int → text node),
-  - a `<Card title={ node }>` with a `gsx.Node`-typed value (passthrough),
-  - escaping check: `<Card title={ userStr }>` with hostile `userStr` → rendered escaped (the closure's `gw.Text` escapes).
-  Pin `generated.x.go.golden` (shows the `gsx.Func(... emitRender ...)` wrapper) + `render.golden`.
-- **Error case:** a `gsx.Node` prop bound to an unrenderable type → `diagnostics.golden`.
-- **No-regression:** existing named-slot / `{children}` / child-props corpus stays green (markup and node values map exactly as before). Bump `internal/codegen/version.go`.
+- **Runtime unit** (`val_test.go`): `gsx.Val` renders each kind — `Val("a")`→`a`, `Val(5)`→`5`, `Val(3.14)`→`3.14`, `Val(true)`→`true`, `Val(someNode)`→the node's output, `Val(nil)`→``, a `Stringer`→its `String()`; **escaping**: `Val("<b>")`→`&lt;b&gt;`. `gsx.Text("<b>")`→`&lt;b&gt;`. Parity: `Val(n)` bytes == inline `{ n }` bytes for each scalar.
+- **Corpus render**: the user's two-`Card` file — `<Card title="Card Title" content="…">…children…</Card>` (string), `<Card title={ <span>…</span> } content={ node }/>` (markup + node), `<Card content={ n }>` (int). Pin `generated.x.go.golden` (`Title: gsx.Text(...)`, `Content: gsx.Val(...)`, markup slot unchanged) + `render.golden`.
+- **Escaping corpus**: `<Card title={ userStr }>` with hostile `userStr` → render escaped.
+- **No-regression**: existing named-slot / `{children}` / child-props cases stay green (markup/node map exactly as before). Bump `internal/codegen/version.go`.
 - `go test ./...` green; `go vet ./...` clean.
 
 ---
 
 ## 7. Risks
-
-- **Threading field types to `childPropsLiteral`** while preserving the **emit ≡ probe** invariant is the main risk — the plan must source the field-is-`gsx.Node` signal from a place both probe and emit read identically (as the existing `childPropsFields` already does for field *names*).
-- **Escaping parity** — the wrapped render must use the SAME `emitRender` the inline `{ x }` uses, so a promoted string/Stringer is escaped identically; a render corpus case with a hostile value proves it.
-- **`catNodeSlice` into a single `gsx.Node` prop** — wrap via the `emitRender` `catNodeSlice` branch (renders each); confirm that branch is closure-safe.
-- **Optional `gsx.Text`/`gsx.Group`** are explicitly out — revisit only if hand-written Go callers need them; the `.gsx` ergonomic is independent.
+- **`nodeProps` threading** (the one real change) is mechanical but wide — mirror every `propFields` signature so emit and probe stay symmetric.
+- **`isGsxNodeType` is a string match** (`"gsx.Node"`) — robust for the normal `import "github.com/gsxhq/gsx"`; a dot-import/alias would miss (documented; the param type is author-written source).
+- **`Val` render/escaping parity with §5** — the numeric/string cases must format/escape identically to `emitRender`; the parity unit test pins it.
+- **Build-time looseness** (§4) — an unrenderable value compiles and errors at render via `Val`'s `default`; accepted for v1.
+- **Alloc cost** — ~2 per promoted prop (1 for static-string via `gsx.Text`); per-prop, not per-element; revisit with per-type fast-paths *behind the same API* only if profiling demands.
