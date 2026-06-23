@@ -10,4 +10,4 @@ component Page() {
 	<Multi data-x="1"/>
 }
 -- diagnostics.golden --
-18:22: unknown field Attrs in struct literal of type MultiProps
+9:23: unknown field Attrs in struct literal of type MultiProps

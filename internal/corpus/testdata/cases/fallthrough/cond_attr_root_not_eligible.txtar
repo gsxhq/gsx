@@ -9,4 +9,4 @@ component Page() {
 	<Box active={true} id="caller"/>
 }
 -- diagnostics.golden --
-21:32: unknown field Attrs in struct literal of type BoxProps
+8:33: unknown field Attrs in struct literal of type BoxProps

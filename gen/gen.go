@@ -113,10 +113,10 @@ type Result struct {
 
 // Generate discovers .gsx files under the given paths (default ["."]), runs
 // codegen per Go package directory, and writes each resulting .x.go to disk next
-// to its .gsx source. One package's codegen failure is recorded in the returned
-// Result.Errs and does not abort the others nor write a partial .x.go for that
-// package. The returned error is non-nil when any error occurred (so callers can
-// detect failure), with Result still populated for summary reporting.
+// to its .gsx source. Genuine operational errors (I/O, module-graph failures)
+// are recorded in Result.Errs; error-severity diagnostics (type errors, codegen
+// errors) are recorded in Result.Diags. The returned error is non-nil when any
+// error occurred, with Result still populated for summary reporting.
 func Generate(paths []string) (Result, error) {
 	return generate(paths, nil, nil, nil)
 }

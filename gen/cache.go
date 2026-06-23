@@ -103,9 +103,15 @@ func generateCached(paths, filterPkgs []string, cls *attrclass.Classifier, predL
 			// Collect structured diagnostics regardless of error state.
 			res.Diags = append(res.Diags, pr.Diags...)
 			if pr.Err != nil {
-				// pr.Err is the transition sentinel ("codegen: diagnostics reported")
-				// when there are error-severity diagnostics. The diagnostics are
-				// already in res.Diags above; we do NOT add the sentinel to res.Errs.
+				if len(pr.Diags) > 0 {
+					// pr.Err is the transition sentinel ("codegen: diagnostics reported")
+					// when there are error-severity diagnostics. The diagnostics are
+					// already in res.Diags above; we do NOT add the sentinel to res.Errs.
+					continue
+				}
+				// pr.Err with no Diags is a genuine operational error (e.g. Abs path
+				// failure). Surface it in res.Errs so it is not silently dropped.
+				res.Errs = append(res.Errs, pr.Err)
 				continue
 			}
 			po := toPkgOutput(dir, pr.Files)
@@ -218,8 +224,14 @@ func writeAll(dirs []string, out map[string]*codegen.PackageResult, res *Result)
 			// Collect structured diagnostics regardless of error state.
 			res.Diags = append(res.Diags, pr.Diags...)
 			if pr.Err != nil {
-				// pr.Err is the transition sentinel when there are error-severity
-				// diagnostics. Skip it — diagnostics are already in res.Diags.
+				if len(pr.Diags) > 0 {
+					// pr.Err is the transition sentinel when there are error-severity
+					// diagnostics. Skip it — diagnostics are already in res.Diags.
+					continue
+				}
+				// pr.Err with no Diags is a genuine operational error (e.g. Abs path
+				// failure). Surface it in res.Errs so it is not silently dropped.
+				res.Errs = append(res.Errs, pr.Err)
 				continue
 			}
 			written, werr := restore(dir, toPkgOutput(dir, pr.Files))

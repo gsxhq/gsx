@@ -60,6 +60,7 @@ diagnostics/reserved_param_emitted_import_strconv	diag(error)
 diagnostics/reserved_param_gsx_prefix	diag(error)
 diagnostics/reserved_param_stub_masking	diag(error)
 diagnostics/reserved_param_stub_masking_attrs	diag(error)
+diagnostics/undefined_interp	diag(error)
 diagnostics/value_node_pointer_receiver_error	diag(error)
 elements/fragment	diag render
 elements/named_scalar_types	diag render
@@ -191,4 +192,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 193 cases (render: 138, error: 35, gen-pinned: 40)
+TOTAL: 194 cases (render: 138, error: 36, gen-pinned: 40)

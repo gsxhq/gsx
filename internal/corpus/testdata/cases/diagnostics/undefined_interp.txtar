@@ -1,0 +1,8 @@
+-- input.gsx --
+package views
+
+component A() {
+	<div>{ undefinedIdent }</div>
+}
+-- diagnostics.golden --
+4:15: undefined: undefinedIdent

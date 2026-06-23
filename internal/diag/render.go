@@ -94,9 +94,8 @@ func caretIndent(col int) int {
 	return col - 1
 }
 
-// carets returns the underline: one '^' per byte column in the range on the
-// start line (at least one), capped so a multi-line range underlines to EOL of
-// the start line via the caller's source length is left simple here: single-line.
+// carets returns a caret underline string: at least one '^', spanning the
+// byte-column width of the diagnostic range when it falls on a single line.
 func carets(d Diagnostic) string {
 	n := 1
 	if d.End.Line == d.Start.Line && d.End.Column > d.Start.Column {

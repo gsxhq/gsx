@@ -156,7 +156,7 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 
 		skeletonErr := false
 		for path, file := range files {
-			skel, comps, err := buildSkeleton(file, table, pf)
+			skel, comps, err := buildSkeleton(file, table, pf, fset)
 			if err != nil {
 				// An attrError carries the offending attr's position and a diagnostic
 				// code — emit a positioned diagnostic. Any other error is an infrastructure
