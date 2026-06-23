@@ -27,21 +27,20 @@ package main
 
 import (
 	"github.com/gsxhq/gsx/gen"
-	"github.com/gsxhq/gsx/internal/attrclass"
 )
 
 func main() {
 	gen.Main(
 		// Livewire wire: attributes carry JS expressions.
 		gen.WithJSAttrs(
-			attrclass.Rule{Prefix: "wire:"},
+			gen.Rule{Prefix: "wire:"},
 		),
 		// Vue v-on: event handlers are JS; v-bind: attrs may carry URLs.
 		gen.WithJSAttrs(
-			attrclass.Rule{Prefix: "v-on:"},
+			gen.Rule{Prefix: "v-on:"},
 		),
 		gen.WithURLAttrs(
-			attrclass.Rule{Name: "v-bind:href"},
+			gen.Rule{Name: "v-bind:href"},
 		),
 	)
 }
@@ -57,17 +56,18 @@ When the matching logic cannot be expressed as a list of rules, install a
 predicate via `gen.WithAttrClassifier`:
 
 ```go
-gen.WithAttrClassifier("myFramework", func(name string) (attrclass.Context, bool) {
+gen.WithAttrClassifier("myFramework", func(name string) (gen.Context, bool) {
 	if strings.HasPrefix(name, "data-js-") {
-		return attrclass.CtxJS, true
+		return gen.CtxJS, true
 	}
-	return attrclass.CtxPlain, false // not handled; return false to pass through
+	return gen.CtxPlain, false // not handled by this predicate; return false to pass through
 })
 ```
 
 The predicate receives the original (non-lowercased) attribute name and is
-consulted **only for attributes no rule matched**. Returning `false` or
-`(CtxPlain, true)` both leave the attribute as plain. Like rules, the predicate
+consulted **only for attributes no rule matched**. Returning `false` is the
+canonical "not handled / pass through" signal. Returning `(CtxPlain, true)` is
+also treated as plain (a `CtxPlain` result is ignored). Like rules, the predicate
 is additive — it cannot downgrade built-in classifications.
 
 **Offline caveat:** predicate logic is a Go closure and cannot be serialised.
@@ -83,10 +83,11 @@ regeneration.
 
 ## Registration pattern
 
-Because `internal/attrclass` is an internal package of the `github.com/gsxhq/gsx`
-module, user code outside that module cannot import it directly. The intended
-pattern is to maintain a `cmd/gsx/main.go` inside your own module's repository
-that depends on `github.com/gsxhq/gsx/gen` and wires options there:
+The intended pattern is to maintain a `cmd/gsx/main.go` inside your own
+module's repository that depends on `github.com/gsxhq/gsx/gen` and wires
+options there. All public types (`gen.Rule`, `gen.Context`, `gen.CtxJS`, …)
+are re-exported from the `gen` package — your code never needs to import
+`internal/attrclass` directly:
 
 ```
 myapp/

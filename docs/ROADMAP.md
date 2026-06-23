@@ -15,7 +15,7 @@ generator/CLI may use `golang.org/x/tools`.
 | Parser + AST | ✅ done (Part 2 grammar + pipeline parsing) |
 | Runtime (`gsx`) | ✅ done |
 | Codegen | 🟡 interpolation + control flow + full attributes (security core, composable class, spread, conditional) + pipeline `\|>` + child props/`{children}` + method components + named slots + attribute fallthrough (auto class-merge/spread + manual `{...attrs}`) + **custom attribute classification** (`WithJSAttrs`/`WithURLAttrs`/`WithCSSAttrs` + `WithAttrClassifier` escape hatch; resolved-config manifest in build cache) done; `style`-composition pending — spec `2026-06-23-attr-classification-extensions-design.md`, plan `2026-06-23-attr-classification-extensions.md` |
-| CLI / `gen.Main` | 🟡 `gsx generate` + `gsx info` + **`gsx fmt`** (canonical formatter, faithful+idempotent) runnable + **`gen.WithFilters`** user filter packages + **`gsx info --json`** (resolved config: schemaVersion, module, userRules, hasPredicate, filters) — `vet`/`WithClassMerger`/`lsp`/`diag` pending |
+| CLI / `gen.Main` | 🟡 `gsx generate` + `gsx info` + **`gsx fmt`** (canonical formatter, faithful+idempotent) runnable + **`gen.WithFilters`** user filter packages + **`gsx info --json`** (resolved config: schemaVersion, module, userRules, hasPredicate, predicateLabel (omitempty), filters) — `vet`/`WithClassMerger`/`lsp`/`diag` pending |
 | Whitespace model | ✅ JSX-style: `internal/wsnorm.Normalize` (parser lossless) wired into codegen (indentation no longer rendered) + powers `gsx fmt`. render-faithful + idempotent over the whole corpus. |
 | Pipeline `|>` end-to-end | 🟡 lowering + `std` filters + **user filter packages** (`gen.WithFilters`, multi-pkg last-wins, per-pkg alias) done — per-stage `?` + initialism naming pending |
 
