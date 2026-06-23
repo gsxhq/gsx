@@ -82,20 +82,22 @@ func GeneratePackageWithFilters(dir string, filterPkgs []string, cls *attrclass.
 	// BEFORE type resolution. The SAME map drives BOTH the probe split
 	// (resolveTypesPkg → buildSkeleton → emitProbes) and the emit split
 	// (generateFile → genChildComponent → childPropsLiteral), so emit ≡ probe is
-	// guaranteed with no second type-check.
-	propFields, err := componentPropFieldsFor(files)
+	// guaranteed with no second type-check. nodeProps records which declared params
+	// have type exactly gsx.Node; it is threaded alongside propFields (a later task
+	// consumes it).
+	propFields, nodeProps, err := componentPropFieldsFor(files)
 	if err != nil {
 		return nil, err
 	}
 
-	resolved, table, err := resolveTypesPkgWithFilters(dir, files, propFields, filterPkgs)
+	resolved, table, err := resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, filterPkgs)
 	if err != nil {
 		return nil, err
 	}
 
 	out := map[string][]byte{}
 	for path, file := range files {
-		gen, err := generateFile(file, resolved, table, propFields, fset, cls, cssMin, jsMin)
+		gen, err := generateFile(file, resolved, table, propFields, nodeProps, fset, cls, cssMin, jsMin)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}

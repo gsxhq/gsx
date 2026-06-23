@@ -29,11 +29,11 @@ func TestResolveAttrExprType(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := map[string]*gsxast.File{filepath.Join(pkgDir, "views.gsx"): file}
-	propFields, err := componentPropFieldsFor(files)
+	propFields, nodeProps, err := componentPropFieldsFor(files)
 	if err != nil {
 		t.Fatalf("propFields: %v", err)
 	}
-	resolved, _, err := resolveTypesPkg(pkgDir, files, propFields)
+	resolved, _, err := resolveTypesPkg(pkgDir, files, propFields, nodeProps)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestComponentPropFieldsFor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	propFields, err := componentPropFieldsFor(map[string]*gsxast.File{"views.gsx": file})
+	propFields, _, err := componentPropFieldsFor(map[string]*gsxast.File{"views.gsx": file})
 	if err != nil {
 		t.Fatalf("propFields: %v", err)
 	}
@@ -113,4 +113,95 @@ func keysOf(m map[string]map[string]bool) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// TestIsGsxNodeType checks that isGsxNodeType recognises exactly "gsx.Node"
+// (with optional surrounding whitespace) and nothing else.
+func TestIsGsxNodeType(t *testing.T) {
+	cases := []struct {
+		typ  string
+		want bool
+	}{
+		{"gsx.Node", true},
+		{" gsx.Node ", true},
+		{"string", false},
+		{"int", false},
+		{"[]gsx.Node", false},
+		{"gsx.Node2", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		got := isGsxNodeType(tc.typ)
+		if got != tc.want {
+			t.Errorf("isGsxNodeType(%q) = %v, want %v", tc.typ, got, tc.want)
+		}
+	}
+}
+
+// TestNodePropsSignal checks that componentPropFieldsFor derives the nodeProps
+// signal: for component Card(title gsx.Node, n int), nodeProps["CardProps"] has
+// Title:true and does NOT contain N.
+// It also verifies that synthetic Children and Attrs fields (added to propFields
+// when a component uses {children} and has a single root) are NOT promoted into
+// nodeProps — only declared gsx.Node params should appear there.
+func TestNodePropsSignal(t *testing.T) {
+	src := "package views\n\n" +
+		"component Card(title gsx.Node, n int) {\n\t<div>{title}</div>\n}\n"
+
+	file, err := gsxparser.ParseFile(token.NewFileSet(), "views.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, nodeProps, err := componentPropFieldsFor(map[string]*gsxast.File{"views.gsx": file})
+	if err != nil {
+		t.Fatalf("componentPropFieldsFor: %v", err)
+	}
+
+	card, ok := nodeProps["CardProps"]
+	if !ok {
+		t.Fatalf("nodeProps has no CardProps key (keys: %v)", keysOf(nodeProps))
+	}
+	if !card["Title"] {
+		t.Errorf("nodeProps[CardProps] missing Title (have %v)", card)
+	}
+	if card["N"] {
+		t.Errorf("nodeProps[CardProps] unexpectedly has N (int param should not be a node prop)")
+	}
+
+	// Box: single-root + {children} → propFields gets both Children and Attrs
+	// synthesized; nodeProps must NOT include either synthetic field.
+	src2 := "package views\n\n" +
+		"component Box(label gsx.Node) {\n\t<div>{children}</div>\n}\n"
+
+	file2, err := gsxparser.ParseFile(token.NewFileSet(), "views2.gsx", []byte(src2), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	propFields2, nodeProps2, err := componentPropFieldsFor(map[string]*gsxast.File{"views2.gsx": file2})
+	if err != nil {
+		t.Fatalf("componentPropFieldsFor (Box): %v", err)
+	}
+
+	// Confirm the fixture actually triggered both syntheses (precondition).
+	box := propFields2["BoxProps"]
+	if !box["Children"] {
+		t.Fatalf("precondition: BoxProps should have synthetic Children field (have %v)", box)
+	}
+	if !box["Attrs"] {
+		t.Fatalf("precondition: BoxProps should have synthetic Attrs field (have %v)", box)
+	}
+
+	boxNode, ok := nodeProps2["BoxProps"]
+	if !ok {
+		t.Fatalf("nodeProps has no BoxProps key (keys: %v)", keysOf(nodeProps2))
+	}
+	if !boxNode["Label"] {
+		t.Errorf("nodeProps[BoxProps] missing Label (declared gsx.Node param) (have %v)", boxNode)
+	}
+	if boxNode["Children"] {
+		t.Errorf("nodeProps[BoxProps] unexpectedly contains synthetic Children field")
+	}
+	if boxNode["Attrs"] {
+		t.Errorf("nodeProps[BoxProps] unexpectedly contains synthetic Attrs field")
+	}
 }
