@@ -2,6 +2,7 @@ package corpus
 
 import (
 	"bytes"
+	"fmt"
 	"go/token"
 	"os"
 	"path/filepath"
@@ -32,19 +33,27 @@ func mustTempModule(repoRoot string) string {
 // astAndParserDiag parses a single-package case's input.gsx. It returns the AST
 // dump and any parser diagnostic text. single=false for multi-package cases
 // (no input.gsx shorthand) — those carry no AST facet.
+//
+// Uses ParseFileWithClassifier so that recovery cases with multiple errors each
+// produce one diagnostic line (rather than only the first error).
 func (c *caseDoc) astAndParserDiag() (astDump []byte, parserDiag []byte, single bool) {
 	src, has := c.files["input.gsx"]
 	if !has || c.multiPkg {
 		return nil, nil, false
 	}
-	file, perr := parser.ParseFile(token.NewFileSet(), "input.gsx", src, 0)
+	fset := token.NewFileSet()
+	file, errs := parser.ParseFileWithClassifier(fset, "input.gsx", src, 0, nil)
 	var dump, diag bytes.Buffer
 	if file != nil {
 		ast.Fprint(&dump, file)
 	}
-	if perr != nil {
-		diag.WriteString(perr.Error())
-		diag.WriteByte('\n')
+	for _, e := range errs {
+		pos := fset.Position(e.Pos)
+		if pos.IsValid() {
+			fmt.Fprintf(&diag, "%d:%d: %s\n", pos.Line, pos.Column, e.Msg)
+		} else {
+			fmt.Fprintf(&diag, "%s\n", e.Msg)
+		}
 	}
 	return dump.Bytes(), diag.Bytes(), true
 }
