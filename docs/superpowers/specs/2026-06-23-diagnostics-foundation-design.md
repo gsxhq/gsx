@@ -6,6 +6,10 @@
 **Motivation:** the gsx LSP (next project) needs structured diagnostics with ranges, severities, and codes, and it must report all of a file's diagnostics at once. This foundation provides that model and the semantic recovery, consumed first by `gsx generate` and later by the LSP server.
 **Related:** `2026-06-23-attr-classification-extensions-design.md` (the toolserver seam the LSP will use; the deferred "jsx errors surface a raw `token.Pos` offset" follow-up that this spec fixes).
 
+**Prior art considered:**
+- `codegen-diagnostic-position-audit.md` — a checked-in inventory of **all 55 positionless codegen diagnostic sites**, each classified and mapped to the AST node whose `Pos()` should supply the position. This is the authoritative migration worklist for §6; the plan reuses it directly instead of re-deriving the sites.
+- `2026-06-22-testing-architecture-review.md` §R3 / `2026-06-22-testing-foundation-p0-design.md` §4 — the "position-annotated diagnostics" intention (the audit was its deferred deliverable). R3 floated two test styles: `line:col` in `diagnostics.golden` vs rustc-style inline `//~ ERROR <substr>` annotations. This spec keeps the existing golden approach (190 cases already use it) and notes inline annotations as a possible later refinement (§9).
+
 ## 1. Problem
 
 gsx currently has no diagnostic abstraction — every error is a plain `error`:
@@ -19,7 +23,7 @@ gsx currently has no diagnostic abstraction — every error is a plain `error`:
 ## 2. Scope
 
 **In (Slice 1):**
-- `internal/diag` package: `Diagnostic`, `Severity`, `Bag` (collector), and a renderer (CLI text + JSON).
+- `internal/diag` package: `Diagnostic` (incl. optional `Help`), `Severity`, `Bag` (collector), and three renderers — **rich** (source snippet + caret underline + `help:`), **compact** (one-line), and **JSON**.
 - Semantic-layer recovery: surface **all** `go/types` errors; make codegen **accumulate and continue** per component/node instead of returning on the first error.
 - Migrate existing codegen + jsx errors to emit structured diagnostics (codegen gains positions; jsx gains `file:line:col`); convert the single parser error into a diagnostic.
 - `--json` output and exit-code semantics for `gsx generate`.
@@ -31,6 +35,7 @@ gsx currently has no diagnostic abstraction — every error is a plain `error`:
 - **Lint-check producers** (escape-hatch audit, unused props, …) — `gsx vet` content, not this foundation.
 - **0-based / UTF-16 column conversion** — the LSP wire format's concern; this foundation keeps positions as `token.Pos` and renders 1-based line:col.
 - **Systematic code assignment** for every existing error — codes are introduced and applied where cheap; exhaustive coding can follow.
+- **Structured suggested-fix edits** (a range + replacement, applied by `--fix` / surfaced as LSP code actions) — `Help` is free text only in Slice 1; the edit model + applier is a later increment.
 
 ## 3. Data model (`internal/diag`)
 
@@ -58,10 +63,18 @@ type Diagnostic struct {
     Pos, End token.Pos
     Severity Severity
     Code     string // stable machine code, e.g. "reserved-param" (may be "" early)
-    Message  string
+    Message  string // the primary one-line problem statement
+    Help     string // optional secondary guidance, e.g. "rename the parameter" ("" = none)
     Source   string // origin: "parser" | "types" | "codegen" | "jsx"
 }
 ```
+
+`Help` is the one "rich" field in the model — a single secondary guidance line that
+serves both audiences: humans read it under the caret, agents read it from JSON.
+A *structured* suggested-fix (a range + replacement text, mapping to an LSP code
+action / a future `gsx … --fix`) is deliberately **not** modeled in Slice 1 (see
+§2 Out); `Help` stays free text. The richness in Slice 1 is in *rendering*, not
+in an edit-application engine.
 
 Rationale for raw `token.Pos` + FileSet-at-render (not pre-resolved line:col): the `*token.FileSet` is already threaded through parser and codegen, so resolution is free at the edge; keeping `Diagnostic` FileSet-free makes it trivially serializable and lets the future LSP layer derive 0-based/UTF-16 columns from source without a lossy round-trip through byte columns.
 
@@ -102,15 +115,57 @@ The principle: **report most errors in one run.** The two layers differ:
 - **jsx** (`internal/jsx/jsx.go`): the three `"jsx: … at %d …"` sites emit a `Diagnostic` with the real range from `el.Pos()/interp.Pos()`, rendered as `file:line:col`. This removes the volatility, so the corpus harness's `normalizeDiag` ("at N") scrub is **deleted**.
 - **Parser** (`parser/…`): already mostly `line:col`-formatted. Slice 1 converts the single returned `error` into one `Diagnostic` (`Source:"parser"`). Parser sites that lack a position today (e.g. some `attrs.go` "unterminated…" cases) get one where the cursor position is available; true multi-error parser recovery is Slice 2. Parser/types diagnostics may start with `Code:""`.
 
-## 7. Rendering, `--json`, exit codes
+## 7. Rendering (rich · compact · JSON), `--json`, exit codes
 
-- **Human (default):** `file:line:col: message`, one per line, in `Bag.Sorted()` order — matching the parser's existing `3:24:`-style. Non-error severities gain a `warning:`/`info:`/`hint:` infix (no producer in Slice 1, but the renderer supports it). The current `gsx: <dir>: <err>` double-prefix is **dropped** — the diagnostic already carries the file path; a leading `gsx:` program prefix is only used for non-diagnostic operational errors (e.g. "cannot read dir").
-- **`--json`:** a JSON array of
-  ```json
-  {"file":"views.gsx","range":{"start":{"line":3,"col":24},"end":{"line":3,"col":31}},
-   "severity":"error","code":"reserved-param","message":"…","source":"codegen"}
+Three renderings live in `internal/diag`, all driven by a `Bag` + `*token.FileSet`,
+so every command (`generate`, `fmt`, `vet`, `lsp`) reuses them. A diagnostic's
+range is resolved to 1-based `line:col` for all human/JSON output; the LSP layer
+converts to 0-based/UTF-16 separately.
+
+```go
+// SourceProvider yields a file's bytes for snippet rendering. The CLI reads disk;
+// the future LSP supplies the in-memory (possibly unsaved) buffer. nil → no snippet.
+type SourceProvider func(filename string) ([]byte, bool)
+
+func RenderRich(w io.Writer, fset *token.FileSet, diags []Diagnostic, src SourceProvider)
+func RenderCompact(w io.Writer, fset *token.FileSet, diags []Diagnostic)
+func RenderJSON(w io.Writer, fset *token.FileSet, diags []Diagnostic) error
+```
+
+- **Rich (default for an interactive `gsx generate`)** — rustc/Go-flavoured, human-first:
   ```
-  Line/col are **1-based** (the LSP layer converts to 0-based/UTF-16). Severity serializes as a lowercase string. The flag is added to `gsx generate`; rendering lives in `internal/diag` so future commands (`fmt`, `vet`, `lsp`) reuse it.
+  error[reserved-param]: param name "ctx" is reserved (ambient context)
+    --> views.gsx:3:13
+     |
+   3 | component X(ctx string) {
+     |             ^^^ reserved name
+     |
+     = help: rename the parameter; `ctx` is the ambient context
+  ```
+  Header is `severity[code]: message` (code omitted when `""`); `-->` locates the
+  primary position; the source line (via `SourceProvider`) carries a caret
+  underline spanning `Pos..End`; `Help` renders as the `= help:` line. With no
+  `SourceProvider` (or the file is unreadable) it degrades gracefully to the
+  compact line. Diagnostics print in `Bag.Sorted()` order.
+
+- **Compact (goldens, CI, pipes, `--quiet`)** — one deterministic line per
+  diagnostic: `file:line:col: severity[code]: message` (a minimal evolution of
+  today's `line:col: message`). No source snippet → stable and grep-friendly.
+  This is the form the corpus `diagnostics.golden` asserts (§9).
+
+- **JSON (`--json`, agent-first)** — array of:
+  ```json
+  {"file":"views.gsx","range":{"start":{"line":3,"col":13},"end":{"line":3,"col":16}},
+   "severity":"error","code":"reserved-param","message":"…","help":"rename the parameter; …","source":"codegen"}
+  ```
+  1-based line/col; severity as a lowercase string; `help` omitted when empty.
+
+**Selection:** `gsx generate` defaults to **rich** on a TTY and **compact** when
+stderr is not a terminal (so CI logs and pipes stay one-line and stable),
+overridable by `--json`. The current `gsx: <dir>: <err>` double-prefix is
+**dropped** — the diagnostic carries the file path; a leading `gsx:` program
+prefix remains only for non-diagnostic operational errors (e.g. "cannot read dir").
+
 - **Exit code:** `gsx generate` exits non-zero iff the `Bag` `HasErrors()`. Warnings/info alone do not fail the build.
 
 ## 8. CLI wiring
@@ -119,15 +174,33 @@ The principle: **report most errors in one run.** The two layers differ:
 
 ## 9. Corpus impact + rebaseline strategy
 
-- **Codegen `diagnostics.golden`:** gain `file:line:col:` prefixes and may list **multiple** diagnostics (recovery). Rebaselined via the runner's `--update`, reviewed in the diff to confirm positions and ordering are correct.
-- **jsx `diagnostics.golden`:** `"at N"` becomes real `file:line:col`; delete `normalizeDiag` and its regex.
-- **Parser `diagnostics.golden`:** largely unchanged (single error, same `line:col:` format); a few positionless cases gain a position.
-- **New cases:** add multi-error fixtures (a file with ≥2 independent codegen/type errors) proving exhaustive reporting, and a `--json` golden proving the JSON shape.
-- The `diagnostics.golden` section stays **always-enforced** (empty = expect no diagnostics), so a regression that drops or reorders diagnostics fails loudly.
+To keep churn proportionate, the 190-case `diagnostics.golden` corpus keeps its
+existing **`line:col: message`** projection (one line per diagnostic, in
+`Bag.Sorted()` order) — a small harness formatter over the diagnostic list, *not*
+the rich/compact CLI renderers. Severity is always `Error` in Slice 1 (no value
+pinning it per case) and `Code`/`Help`/`range`-end are pinned separately (below),
+so the big corpus changes minimally:
+
+- **Codegen `diagnostics.golden`:** gain a `line:col:` prefix (per the
+  `codegen-diagnostic-position-audit.md` node mapping) and may list **multiple**
+  lines (recovery). Rebaselined via the runner's `--update`, reviewed in the diff.
+- **jsx `diagnostics.golden`:** `"at N"` becomes a real `line:col`; **delete**
+  `normalizeDiag` and its regex.
+- **Parser `diagnostics.golden`:** unchanged (already `line:col: message`); a few
+  positionless cases gain a position.
+- **Structured-shape goldens (new, small):** 2–3 dedicated cases assert the **JSON**
+  renderer output — pinning `range.start`/`range.end`, `severity`, `code`, `help`,
+  `source` — so the rich model is tested without reformatting every case.
+- **Multi-error fixture (new):** a file with ≥2 independent codegen/type errors,
+  proving exhaustive reporting (semantic recovery).
+- `diagnostics.golden` stays **always-enforced** (empty = expect none), so a
+  regression that drops or reorders diagnostics fails loudly.
+- **Deferred test refinement:** the R3 rustc-style inline `//~ ERROR <substr>`
+  annotation harness remains a possible later convenience; not adopted here.
 
 ## 10. Testing strategy
 
-- **`internal/diag` unit:** `Bag.Add/Errorf/HasErrors/Sorted` (stable file-then-pos ordering); severity enum; CLI render of a multi-diagnostic Bag; JSON render shape (1-based, lowercase severity, range start/end). Render is FileSet-driven — test with a synthetic FileSet.
+- **`internal/diag` unit:** `Bag.Add/Errorf/HasErrors/Sorted` (stable file-then-pos ordering); severity enum. Renderers (all FileSet-driven, tested with a synthetic FileSet): **compact** one-line form; **JSON** shape (1-based, lowercase severity, `range.start`/`range.end`, `code`/`help` omitted-when-empty); **rich** snippet with the caret spanning `Pos..End` and the `= help:` line, plus the **graceful degradation** to compact when the `SourceProvider` returns nothing.
 - **Semantic recovery:** a package with multiple `go/types` errors reports all of them; a file with multiple codegen errors reports all, each positioned; a failed component does not suppress a sibling component's diagnostics; a package with any error writes no `.x.go` while a clean sibling package still writes.
 - **Migration fidelity:** existing single-error codegen/jsx cases produce the same message text, now positioned; parser cases unchanged.
 - **Corpus:** the rebaselined goldens pass; `normalizeDiag` removed; `--json` golden round-trips.
@@ -139,5 +212,7 @@ The principle: **report most errors in one run.** The two layers differ:
 - `Severity` enum (4 levels) → LSP `DiagnosticSeverity`. ✓
 - `Code` → LSP `Diagnostic.code` (filtering, future code actions). ✓
 - `Source` → LSP `Diagnostic.source`. ✓
+- `Help` → LSP diagnostic message detail / `relatedInformation`. ✓
 - `[]Diagnostic` + collector → LSP "all diagnostics for a document". ✓ (semantic now; parser in Slice 2)
-- Raw `token.Pos` + FileSet → LSP layer derives 0-based/UTF-16 from source. ✓
+- Raw `token.Pos` + FileSet + `SourceProvider` → LSP layer derives 0-based/UTF-16 from the (possibly unsaved) buffer. ✓
+- Structured suggested-fix edits → LSP code actions / `textEdit`. ✗ deferred (§2 Out) — `Help` free text for now.
