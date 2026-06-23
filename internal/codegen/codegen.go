@@ -63,9 +63,12 @@ func GeneratePackageWithFilters(dir string, filterPkgs []string, cls *attrclass.
 		if err != nil {
 			return nil, err
 		}
-		f, err := gsxparser.ParseFileWithClassifier(fset, m, src, 0, cls)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", m, err)
+		f, perrs := gsxparser.ParseFileWithClassifier(fset, m, src, 0, cls)
+		for _, e := range perrs {
+			bag.Report(e.Pos, e.Pos, diag.Error, "syntax", "parser", "%s", e.Msg)
+		}
+		if len(perrs) > 0 {
+			return nil, fmt.Errorf("%s: parse failed", m)
 		}
 		// Apply the JSX whitespace model before type resolution + emit, so cosmetic
 		// indentation is not rendered (the parser stays lossless; wsnorm is the one
