@@ -299,3 +299,45 @@ func (badJSMarshaler) MarshalJSON() ([]byte, error) {
 type errString string
 
 func (e errString) Error() string { return string(e) }
+
+func TestJSValNonStringTypes(t *testing.T) {
+	cases := []struct {
+		name string
+		in   any
+		want string
+	}{
+		{"int", 42, " 42 "},
+		{"bool_true", true, " true "},
+		{"bool_false", false, " false "},
+		{"float", 3.5, " 3.5 "},
+		{"nil", nil, " null "},
+		{"map", map[string]int{"a": 1}, `{"a":1}`},
+		{"slice", []int{1, 2}, `[1,2]`},
+	}
+	for _, c := range cases {
+		if got := gsxJSVal(c.in); got != c.want {
+			t.Errorf("JSVal(%s)=%q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+func TestJSValAttrNonStringTypes(t *testing.T) {
+	cases := []struct {
+		name string
+		in   any
+		want string
+	}{
+		{"int", 42, " 42 "},
+		{"bool_true", true, " true "},
+		{"bool_false", false, " false "},
+		{"float", 3.5, " 3.5 "},
+		{"nil", nil, " null "},
+		{"map", map[string]int{"a": 1}, `{&#34;a&#34;:1}`},
+		{"slice", []int{1, 2}, `[1,2]`},
+	}
+	for _, c := range cases {
+		if got := gsxJSValAttr(c.in); got != c.want {
+			t.Errorf("JSValAttr(%s)=%q, want %q", c.name, got, c.want)
+		}
+	}
+}
