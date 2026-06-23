@@ -584,12 +584,316 @@ git commit -m "test(cssmin): cover <style> minification in for/switch/fragment +
 
 ---
 
-## Task 8: Final verification
+## Task 8: JSVal/JSValAttr non-string value coverage (audit #4 + review minors)
+
+Pin `JSVal`/`JSValAttr` for non-string types (int/bool/map). This also covers `js.go` `isJSIdentPart` (28.6% — only reachable for non-string JSON output) and the review minors (`x-show={ b }` bool-in-ctxJS; form-2b whole-value with non-struct types).
+
+**Files (Create):**
+- `internal/corpus/testdata/cases/script/value_nonstring.txtar`
+- `internal/corpus/testdata/cases/jsattr/whole_value_bool.txtar`
+- `internal/corpus/testdata/cases/jsattr/whole_value_map.txtar`
+- Regenerate: `internal/corpus/testdata/coverage.golden`
+
+**Interfaces:** script value-context non-string → `_gsxgw.JSVal(<expr>)` (JSON-encode); JS-attr whole-value → `_gsxgw.JSValAttr(<expr>)`. `JSVal`/`JSValAttr` accept `any`.
+
+- [ ] **Step 1: Write the inputs** (append a `-- generated.x.go.golden --` marker per the Global Constraints rule)
+
+`value_nonstring.txtar`:
+```
+-- input.gsx --
+package views
+
+component Page(count int, flag bool) {
+	<script>const n = @{ count }; const b = @{ flag };</script>
+}
+-- invoke --
+Page(PageProps{Count: 42, Flag: true})
+-- diagnostics.golden --
+```
+
+`whole_value_bool.txtar` (`x-show={ b }` — verify it routes to a JS context; if `x-show` is NOT JS-classified, use `x-data={ open }` instead and note it):
+```
+-- input.gsx --
+package views
+
+component Page(open bool) {
+	<div x-show={ open }>x</div>
+}
+-- invoke --
+Page(PageProps{Open: true})
+-- diagnostics.golden --
+```
+
+`whole_value_map.txtar`:
+```
+-- input.gsx --
+package views
+
+component Page(m map[string]int) {
+	<div x-data={ m }>x</div>
+}
+-- invoke --
+Page(PageProps{M: map[string]int{"a": 1}})
+-- diagnostics.golden --
+```
+
+- [ ] **Step 2: Generate + verify**
+
+Run `go test ./internal/corpus -run TestCorpus -update`. Verify:
+- `value_nonstring`: gen contains `_gsxgw.JSVal(count)` and `_gsxgw.JSVal(flag)`; render shows `const n = 42; const b = true;`.
+- `whole_value_bool`: gen contains `_gsxgw.JSValAttr(open)`; render shows `x-show="true"` (or `x-data="true"` if you fell back). If the attr is NOT JS-classified (gen shows a plain static/expr attr, not `JSValAttr`), switch to `x-data` and re-verify.
+- `whole_value_map`: gen contains `_gsxgw.JSValAttr(m)`; render shows the JSON map, attr-escaped (e.g. `x-data="{&#34;a&#34;:1}"`).
+
+- [ ] **Step 3: Confirm green + coverage**
+
+`go test ./internal/corpus -run TestCorpus -count=1` → PASS. `make cover` then `go tool cover -func=cover.out | grep 'js.go:364'` → `isJSIdentPart` materially higher than 28.6%.
+
+- [ ] **Step 4: Commit**
+```bash
+git add internal/corpus/testdata/cases/script/value_nonstring.txtar internal/corpus/testdata/cases/jsattr/whole_value_bool.txtar internal/corpus/testdata/cases/jsattr/whole_value_map.txtar internal/corpus/testdata/coverage.golden
+git commit -m "test(corpus): JSVal/JSValAttr non-string values (int/bool/map) — covers isJSIdentPart"
+```
+
+---
+
+## Task 9: JS escaper differential FUZZ vs html/template (review #1 — security core)
+
+The CSS/HTML escapers have `FuzzEscaperMatchesStdlib` (parity-vs-`html/template` fuzz); the JS escapers (`JSVal`/`JSStr`/`JSTmpl`/`JSRegexp` + `*Attr`) have only fixed tables (`TestJS*Diff`, `TestJS*AttrParity`). Give them the same fuzz-parity guarantee. This is the security core.
+
+**Files:**
+- Modify: `js_diff_test.go` (add `FuzzJSEscapersMatchStdlib`)
+
+**Interfaces (already in `js_diff_test.go`, package `gsx` — reuse, do not re-implement):**
+- Oracles: `jsValOracle`, `jsStrOracle`, `jsTmplOracle`, `jsRegexpOracle` (each renders `{{.}}` through `html/template` in that JS sub-context and extracts the value).
+- gsx wrappers: `gsxJSVal`, `gsxJSStr`, `gsxJSTmpl`, `gsxJSRegexp`, and the attr variants `gsxJSValAttr`, `gsxJSStrAttr`, `gsxJSTmplAttr`, `gsxJSRegexpAttr`.
+- Seed corpus: `jsCorpus()`.
+- The `*Attr` parity assertion the fixed tests use is `gsxJSStrAttr(s) == htmlReplacer.Replace(jsStrOracle(s))` (and likewise for the other three) — `htmlReplacer` is accessible (same package).
+
+- [ ] **Step 1: Add the fuzz target**
+
+In `js_diff_test.go`, add a fuzz that seeds from `jsCorpus()` and, for each input, asserts the SAME parities the existing `TestJSValDiff`/`TestJSStrDiff`/`TestJSTmplDiff`/`TestJSRegexpDiff` and `TestJS*AttrParity` tests assert — over the fuzzed input. Concretely:
+```go
+func FuzzJSEscapersMatchStdlib(f *testing.F) {
+	for _, s := range jsCorpus() {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		// Non-attr JS contexts: byte-parity vs the html/template sub-context oracle.
+		if got, want := gsxJSVal(s), jsValOracle(s); got != want {
+			t.Fatalf("JSVal(%q)=%q, oracle=%q", s, got, want)
+		}
+		if got, want := gsxJSStr(s), jsStrOracle(s); got != want {
+			t.Fatalf("JSStr(%q)=%q, oracle=%q", s, got, want)
+		}
+		if got, want := gsxJSTmpl(s), jsTmplOracle(s); got != want {
+			t.Fatalf("JSTmpl(%q)=%q, oracle=%q", s, got, want)
+		}
+		if got, want := gsxJSRegexp(s), jsRegexpOracle(s); got != want {
+			t.Fatalf("JSRegexp(%q)=%q, oracle=%q", s, got, want)
+		}
+		// Attr variants: JS-escape composed with HTML-attr-escape (htmlReplacer).
+		if got, want := gsxJSValAttr(s), htmlReplacer.Replace(jsValOracle(s)); got != want {
+			t.Fatalf("JSValAttr(%q)=%q, oracle=%q", s, got, want)
+		}
+		if got, want := gsxJSStrAttr(s), htmlReplacer.Replace(jsStrOracle(s)); got != want {
+			t.Fatalf("JSStrAttr(%q)=%q, oracle=%q", s, got, want)
+		}
+		if got, want := gsxJSTmplAttr(s), htmlReplacer.Replace(jsTmplOracle(s)); got != want {
+			t.Fatalf("JSTmplAttr(%q)=%q, oracle=%q", s, got, want)
+		}
+		if got, want := gsxJSRegexpAttr(s), htmlReplacer.Replace(jsRegexpOracle(s)); got != want {
+			t.Fatalf("JSRegexpAttr(%q)=%q, oracle=%q", s, got, want)
+		}
+	})
+}
+```
+If any helper signature differs from the above (e.g. an oracle name), match what `js_diff_test.go` actually defines — read it first; do not invent.
+
+- [ ] **Step 2: Run the fuzz**
+
+Run: `go test . -run FuzzJSEscapersMatchStdlib -count=1` (seed corpus as unit test) → PASS.
+Run: `go test . -run x -fuzz FuzzJSEscapersMatchStdlib -fuzztime=30s`.
+- If it passes with no new failures: good.
+- If the fuzz finds a divergence: this is a FINDING. Determine whether it is (a) a REAL gsx escaper bug (gsx emits something less safe than html/template) — if so, STOP and surface it per the Global Constraints (do not fix the escaper in this task; it is a production change), or (b) a deliberate, safe gsx difference — if so, add a documented, justified skip (mirror `escape_diff_test.go`'s `knownDivergences` pattern: a guarded skip with a security justification comment) and a corpus seed under `testdata/fuzz/`. NEVER silently allow-list without a justification.
+
+- [ ] **Step 3: Commit**
+```bash
+git add js_diff_test.go
+git commit -m "test: differential fuzz for JS escapers (JSVal/JSStr/JSTmpl/JSRegexp + *Attr) vs html/template"
+```
+
+---
+
+## Task 10: jsmin walk-branch + data-island coverage (review #3 — twin of Task 7)
+
+`internal/jsmin/file.go`'s walk has the same `ForMarkup`/`SwitchMarkup`/`Fragment` branches as cssmin (untested) plus a data-island skip (`isDataIslandScript`, file.go:38) that no test exercises. Mirror Task 7 for jsmin.
+
+**Files:**
+- Modify: `internal/jsmin/file_test.go`
+
+**Interfaces (from `internal/jsmin/file_test.go`, verified):** `scriptEl(text string) *ast.Element`, `fileWith(el *ast.Element) *ast.File`, `MinifyFile(*ast.File, ext) error`. A holeless `<script>` body `"function f() {\n\treturn 1;\n}"` minifies to `"function f() {\nreturn 1;\n}"` (see `TestMinifyFileScript`). AST structs: `ForMarkup{Clause string; Body []Markup}`, `SwitchMarkup{Tag string; Cases []*CaseClause}`, `CaseClause{List string; Default bool; Body []Markup}`, `Fragment{Children []Markup}`. A data-island script is an `*ast.Element{Tag:"script"}` with a `*ast.StaticAttr{Name:"type", Value:"application/json"}` — `isDataIslandScript` returns true for any non-executable `type`, so its body must be left UNCHANGED by `MinifyFile`.
+
+- [ ] **Step 1: Add the four tests**
+
+Append to `internal/jsmin/file_test.go` (the helpers `scriptEl`/`fileWith` already exist):
+```go
+func TestMinifyFileScriptInForMarkup(t *testing.T) {
+	deep := scriptEl("function f() {\n\treturn 1;\n}")
+	loop := &ast.ForMarkup{Clause: "_, x := range xs", Body: []ast.Markup{deep}}
+	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{loop}}}}
+	if err := MinifyFile(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := deep.Children[0].(*ast.Text).Value; got != "function f() {\nreturn 1;\n}" {
+		t.Fatalf("<script> in ForMarkup.Body not minified: %q", got)
+	}
+}
+
+func TestMinifyFileScriptInSwitchMarkup(t *testing.T) {
+	deep := scriptEl("function f() {\n\treturn 1;\n}")
+	sw := &ast.SwitchMarkup{Tag: "v", Cases: []*ast.CaseClause{{List: "1", Body: []ast.Markup{deep}}}}
+	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{sw}}}}
+	if err := MinifyFile(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := deep.Children[0].(*ast.Text).Value; got != "function f() {\nreturn 1;\n}" {
+		t.Fatalf("<script> in SwitchMarkup case not minified: %q", got)
+	}
+}
+
+func TestMinifyFileScriptInFragment(t *testing.T) {
+	deep := scriptEl("function f() {\n\treturn 1;\n}")
+	frag := &ast.Fragment{Children: []ast.Markup{deep}}
+	f := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{frag}}}}
+	if err := MinifyFile(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := deep.Children[0].(*ast.Text).Value; got != "function f() {\nreturn 1;\n}" {
+		t.Fatalf("<script> in Fragment not minified: %q", got)
+	}
+}
+
+func TestMinifyFileSkipsDataIslandScript(t *testing.T) {
+	// A holeless data-block <script type="application/json"> is NOT JavaScript;
+	// MinifyFile must leave its body byte-for-byte unchanged.
+	body := "{\n  \"a\": 1\n}"
+	el := &ast.Element{
+		Tag:   "script",
+		Attrs: []ast.Attr{&ast.StaticAttr{Name: "type", Value: "application/json"}},
+		Children: []ast.Markup{&ast.Text{Value: body}},
+	}
+	f := fileWith(el)
+	if err := MinifyFile(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := el.Children[0].(*ast.Text).Value; got != body {
+		t.Fatalf("data-island <script> was modified: %q (want %q)", got, body)
+	}
+}
+```
+
+- [ ] **Step 2: Run + verify**
+
+Run: `go test ./internal/jsmin -run 'TestMinifyFileScriptIn|TestMinifyFileSkipsDataIsland' -v` → all PASS. If a struct field differs, read `ast/ast.go` and fix the literal (no production change). If a test reveals `<script>` in some node is genuinely NOT walked (a real minification-miss bug), STOP and surface it per the Global Constraints rather than asserting the unminified value.
+
+- [ ] **Step 3: Confirm coverage + suite**
+
+Run: `make cover` then `go tool cover -func=cover.out | grep -E 'jsmin/file\.go:'` → the `ForMarkup`/`SwitchMarkup`/`Fragment` walk branches + the data-island skip now covered.
+Run: `go test ./... -count=1` (green), `go vet ./...` (clean).
+
+- [ ] **Step 4: Commit**
+```bash
+git add internal/jsmin/file_test.go
+git commit -m "test(jsmin): cover <script> minify in for/switch/fragment + data-island skip"
+```
+
+---
+
+## Task 11: jsx classifier fail-closed FUZZ (review #2 — highest-value hardening)
+
+`internal/jsx` (the novel JS-context state machine, CVE-territory) has ZERO fuzz — only tables + corpus. Add a no-panic + fail-closed-invariant fuzz: throw arbitrary JS around a hole at `ResolveScripts`; assert it never panics and every surviving hole resolves to a real `JSCtx` (never silently left unescaped) OR `ResolveScripts` returns a fail-closed error.
+
+**Files:**
+- Create: `internal/jsx/fuzz_test.go` (package `jsx`)
+
+**Interfaces (verified):**
+- `ResolveScripts(f *ast.File) error` — the public entry; walks the file, classifies `<script>` holes, sets `Interp.JSCtx`, rewrites comment holes to literal `Text` (removing them from children), and fails closed on unclassifiable holes.
+- `ast.JSCtx` constants: `JSCtxNone` (0, the unescaped/default), `JSCtxValue`, `JSCtxString`, `JSCtxTemplate`, `JSCtxRegexp` (the four real escaping contexts).
+- Construct the AST directly (no parser — the fuzz input is arbitrary bytes): `&ast.File{Decls: []ast.Decl{&ast.Component{Name:"C", Body: []ast.Markup{ &ast.Element{Tag:"script", Children: []ast.Markup{ &ast.Text{Value: prefix}, &ast.Interp{Expr:"x"}, &ast.Text{Value: suffix} }} }}}}`.
+- The security invariant: after `ResolveScripts` returns `nil`, every `*ast.Interp` STILL present in the script's children must have `JSCtx != ast.JSCtxNone` (comment holes are removed from children, so they are correctly not checked). An interp left at `JSCtxNone` with a `nil` error = a silently-unescaped hole = a leak.
+
+- [ ] **Step 1: Write the fuzz**
+
+Create `internal/jsx/fuzz_test.go`:
+```go
+package jsx
+
+import (
+	"testing"
+
+	"github.com/gsxhq/gsx/ast"
+)
+
+// FuzzResolveScriptsFailClosed throws arbitrary JS text around a single @{ } hole
+// in a <script> body and asserts the classifier (1) never panics and (2) never
+// leaves the hole silently unescaped: a nil error MUST mean every surviving hole
+// resolved to a real JS context (not JSCtxNone). A fail-closed error is fine.
+func FuzzResolveScriptsFailClosed(f *testing.F) {
+	for _, s := range []string{
+		"", "var x=", "var x=\"", "var x=`", "var x=/", "let ", "//", "/*",
+		"const y={a:", "return ", "x=1;y=", "function f(){", "`${", "</script>",
+	} {
+		f.Add(s, "")
+		f.Add("", s)
+		f.Add(s, s)
+	}
+	f.Fuzz(func(t *testing.T, prefix, suffix string) {
+		in := &ast.Interp{Expr: "x"}
+		script := &ast.Element{Tag: "script", Children: []ast.Markup{
+			&ast.Text{Value: prefix}, in, &ast.Text{Value: suffix},
+		}}
+		file := &ast.File{Decls: []ast.Decl{&ast.Component{Name: "C", Body: []ast.Markup{script}}}}
+
+		err := ResolveScripts(file) // must not panic
+		if err != nil {
+			return // fail-closed is an acceptable outcome
+		}
+		// nil error: every surviving hole must carry a real escaping context.
+		for _, c := range script.Children {
+			if ip, ok := c.(*ast.Interp); ok && ip.JSCtx == ast.JSCtxNone {
+				t.Fatalf("hole left JSCtxNone (silently unescaped) for prefix=%q suffix=%q", prefix, suffix)
+			}
+		}
+	})
+}
+```
+If `ResolveScripts` mutates `script.Children` (comment un-split removes the interp), the loop correctly only checks surviving interps. If the real field/constant names differ, read `ast/ast.go` and `internal/jsx/jsx.go` and match them — do not invent.
+
+- [ ] **Step 2: Run the fuzz**
+
+Run: `go test ./internal/jsx -run FuzzResolveScriptsFailClosed -count=1` (seed corpus) → PASS.
+Run: `go test ./internal/jsx -run x -fuzz FuzzResolveScriptsFailClosed -fuzztime=30s`.
+- A panic or a `JSCtxNone`-with-nil-error failure is a REAL classifier bug (a fail-open leak in CVE-territory code) — STOP and surface it per the Global Constraints; do NOT weaken the assertion to make it pass.
+- If it passes: the fail-closed invariant holds over the fuzzed surface.
+
+- [ ] **Step 3: Confirm suite**
+
+`go test ./... -count=1` (green), `go vet ./...` (clean).
+
+- [ ] **Step 4: Commit**
+```bash
+git add internal/jsx/fuzz_test.go
+git commit -m "test(jsx): fail-closed fuzz — classifier never panics or silently leaves a hole unescaped"
+```
+
+---
+
+## Task 12: Final verification
 
 - [ ] **Step 1:** `go test ./... -count=1` → all green.
 - [ ] **Step 2:** `go vet ./...` → clean.
-- [ ] **Step 3:** `make cover` → runs; capture `go tool cover -func=cover.out` for the audit's named functions and confirm the before→after deltas: `emitClassAttr` 0→100%; `emitJSValue`/`emitJSAttrValue` materially up; `hexDecode`/`skipCSSSpace`/`decodeCSS` ~100% (minus the defensive `hexDecode` panic); `minifyMarkup`/`minifyAttrs` For/Switch/Fragment/CondAttr covered.
-- [ ] **Step 4:** Fuzzers: `FuzzCSSValueFilter`, `FuzzEscaperMatchesStdlib`, `FuzzMinifyCSS`, `FuzzMinifyJS` each `-fuzztime=10s` with no divergence.
+- [ ] **Step 3:** `make cover` → runs; capture `go tool cover -func=cover.out` for the audit's named functions and confirm the before→after deltas: `emitClassAttr` 0→100%; `emitJSValue`/`emitJSAttrValue` materially up; `isJSIdentPart` up from 28.6%; `hexDecode`/`skipCSSSpace`/`decodeCSS` ~100% (minus the defensive `hexDecode` panic); `cssmin` AND `jsmin` `minifyMarkup`/`minifyAttrs` For/Switch/Fragment/CondAttr + data-island skip covered.
+- [ ] **Step 4:** Fuzzers each `-fuzztime=10s` with no divergence: `FuzzCSSValueFilter`, `FuzzEscaperMatchesStdlib`, `FuzzJSEscapersMatchStdlib` (new — JS escaper parity), `FuzzResolveScriptsFailClosed` (new — jsx fail-closed), `FuzzMinifyCSS`, `FuzzMinifyJS`.
 - [ ] **Step 5:** Confirm `git grep -n 'go.work'` finds nothing new; structural compare and single-batch render untouched; the only production file in the branch diff is none (test/test-infra/docs only) — `git diff --stat $(git merge-base main HEAD)..HEAD` shows no `*.go` under the root package, `internal/codegen`, or runtime files except test files.
 - [ ] **Step 6:** Summarize in the final report: per-function coverage before→after; any unreachable JS-attr template/regexp branch found in Task 3; any real bug surfaced (should be none).
 
