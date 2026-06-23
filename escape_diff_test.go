@@ -133,6 +133,10 @@ func diffCorpus() []string {
 		"rgb(1,2,3)", "<!--", "-->", "</style", "expression(alert(1))", "EXPRESSION",
 		"-moz-binding", `\3c script`, `-expre\69on`, "url(javascript:alert(1))",
 		"a;b}c{d", "--x: ;", "1.25in", "`backtick`", "\x00",
+		// CSS decode-branch seeds (uppercase hex, ws-after-hex, trailing backslash, MaxRune clamp)
+		"\\3C script\\3E", "expr\\65\tssion", "expr\\65\nssion",
+		"expr\\65\fssion", "expr\\65\rssion", "expr\\65\r\nssion",
+		"foo\\", "\\110000",
 	}
 }
 
