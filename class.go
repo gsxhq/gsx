@@ -49,6 +49,12 @@ func classTokens(parts []ClassPart) []string {
 	return toks
 }
 
+// ClassString returns the merged class string for parts (the value form of
+// gw.Class), so generated code can place a composed class into an Attrs map.
+func ClassString(parts ...ClassPart) string {
+	return ClassMerger(classTokens(parts))
+}
+
 // Class composes parts, runs them through ClassMerger, and writes the escaped
 // class attribute value.
 func (gw *Writer) Class(parts ...ClassPart) {

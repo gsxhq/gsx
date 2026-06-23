@@ -73,6 +73,24 @@ func TestSpreadEmpty(t *testing.T) {
 	}
 }
 
+func TestAttrsMergeCallerWins(t *testing.T) {
+	root := Attrs{"id": "root", "class": "base", "style": "color:red", "role": "x"}
+	bag := Attrs{"id": "caller", "class": "extra", "style": "margin:0"}
+	got := root.Merge(bag)
+	if got["id"] != "caller" {
+		t.Errorf("id = %v, want caller (other wins)", got["id"])
+	}
+	if got["role"] != "x" {
+		t.Errorf("role dropped")
+	}
+	if got["class"] != "base extra" {
+		t.Errorf("class = %v, want \"base extra\"", got["class"])
+	}
+	if got["style"] != "color:red; margin:0" {
+		t.Errorf("style = %v, want \"color:red; margin:0\"", got["style"])
+	}
+}
+
 func TestSpreadSkipsUnsafeKeysKeepsSpecialNames(t *testing.T) {
 	var b strings.Builder
 	W(&b).Spread(context.Background(), Attrs{

@@ -85,6 +85,12 @@ func TestDefaultClassMergeLastWins(t *testing.T) {
 	}
 }
 
+func TestClassString(t *testing.T) {
+	if got := ClassString(Class("a b"), ClassIf("c", false), Class("d")); got != "a b d" {
+		t.Errorf("ClassString = %q, want \"a b d\"", got)
+	}
+}
+
 func TestClassMergerOverride(t *testing.T) {
 	orig := ClassMerger
 	t.Cleanup(func() { ClassMerger = orig })
