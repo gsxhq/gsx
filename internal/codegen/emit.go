@@ -947,7 +947,7 @@ func styleDeclExpr(expr string) string {
 	if isStringLiteralExpr(e) {
 		return e
 	}
-	return "gsx.FilterCSS(" + e + ")"
+	return "gsx.StyleValue(" + e + ")"
 }
 
 // isStringLiteralExpr reports whether expr is exactly a Go string literal.
