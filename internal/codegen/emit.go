@@ -407,7 +407,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 
 	// emitSpread emits the class merge, style merge, then the bag spread (dropping
 	// class/style + any forced names). Called once, at the split position.
-	emitSpread := func() {
+	emitSpread := func() error {
 		// If the root had NO class attr at all, emit a merged class in attr position —
 		// writes class only when the bag contributes a non-empty token set.
 		if classAttr == nil && staticClass == nil {
@@ -425,7 +425,9 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			fmt.Fprintf(b, "\t\t\t_gsxgw.StyleMerged(%s, _gsxp.Attrs.Style())\n", rootStyleString(styleAttr, staticStyle))
 			b.WriteString("\t\t} else {\n")
 			if staticStyle != nil {
-				_ = emitAttr(b, staticStyle, resolved, table, imports, cls)
+				if err := emitAttr(b, staticStyle, resolved, table, imports, cls); err != nil {
+					return err
+				}
 			} else {
 				emitStyleAttr(b, styleAttr)
 			}
@@ -445,6 +447,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			quoted[i] = strconv.Quote(n)
 		}
 		fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, _gsxp.Attrs.Without(%s))\n", strings.Join(quoted, ", "))
+		return nil
 	}
 
 	// In MANUAL mode the author's `{...attrs}` lives at splitIdx; collecting the
@@ -459,7 +462,8 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 	// by buffering the forced-scalar bytes.
 	var forcedBuf bytes.Buffer
 	for i, a := range attrs {
-		// class/style are merged in phase 3 regardless of position; skip here.
+		// class is merged in place here (emitRoot{Composed,Static}Class); style is
+		// skipped here and merged by emitSpread (phase 3). Both ignore spread position.
 		switch t := a.(type) {
 		case *ast.ClassAttr:
 			if t == classAttr {
@@ -505,7 +509,9 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 	}
 	// Phase 3: the spread (now that forcedNames is fully populated), then flush the
 	// buffered forced scalars after it.
-	emitSpread()
+	if err := emitSpread(); err != nil {
+		return err
+	}
 	b.Write(forcedBuf.Bytes())
 	return nil
 }
