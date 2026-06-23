@@ -91,6 +91,15 @@ func TestAttrsMergeCallerWins(t *testing.T) {
 	}
 }
 
+func TestAttrsStyle(t *testing.T) {
+	if got := (Attrs{"style": "color: red"}).Style(); got != "color: red" {
+		t.Errorf("Style() = %q, want \"color: red\"", got)
+	}
+	if got := (Attrs{}).Style(); got != "" {
+		t.Errorf("empty Style() = %q, want \"\"", got)
+	}
+}
+
 func TestSpreadSkipsUnsafeKeysKeepsSpecialNames(t *testing.T) {
 	var b strings.Builder
 	W(&b).Spread(context.Background(), Attrs{

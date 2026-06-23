@@ -91,6 +91,13 @@ func TestClassString(t *testing.T) {
 	}
 }
 
+func TestStyleString(t *testing.T) {
+	// gw.Style includes a part only when its .on is true; joins decls with "; ".
+	if got := StyleString(Class("color: red"), ClassIf("margin: 0", false), Class("padding: 1px")); got != "color: red; padding: 1px" {
+		t.Errorf("StyleString = %q, want \"color: red; padding: 1px\"", got)
+	}
+}
+
 func TestClassMergerOverride(t *testing.T) {
 	orig := ClassMerger
 	t.Cleanup(func() { ClassMerger = orig })
