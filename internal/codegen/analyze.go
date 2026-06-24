@@ -71,7 +71,7 @@ func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propF
 	overlay := map[string][]byte{}
 	skelComps := map[string][]*gsxast.Component{}
 	for path, file := range files {
-		skel, comps, err := buildSkeleton(file, table, propFields, nodeProps, fset)
+		skel, comps, _, err := buildSkeleton(file, table, propFields, nodeProps, fset)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -230,7 +230,7 @@ func freeOverlayPath(dir, base, suffix string, overlay map[string][]byte) (strin
 // resolution: the file's GoChunks, plus each component's real props struct and
 // func signature, with a probe body (used-param locals, each interpolation as
 // `_gsxuse(expr)`, each child component as `_ = Child(ChildProps{})`).
-func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps map[string]map[string]bool, fset *token.FileSet) (string, []*gsxast.Component, error) {
+func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps map[string]map[string]bool, fset *token.FileSet) (string, []*gsxast.Component, []importSpec, error) {
 	var comps []*gsxast.Component
 	for _, d := range file.Decls {
 		if c, ok := d.(*gsxast.Component); ok {
@@ -249,7 +249,7 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps m
 		if gc, ok := d.(*gsxast.GoChunk); ok {
 			imps, body, bodyOff, err := splitChunk(gc.Src)
 			if err != nil {
-				return "", nil, err
+				return "", nil, nil, err
 			}
 			// Resolve each import's .gsx position so the skeleton can emit a //line
 			// directive ahead of it — gc.Src starts exactly at gc.Pos(), so the
@@ -294,7 +294,7 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps m
 				// again (with a positioned diagnostic) during generateFile.
 				continue
 			}
-			return "", nil, err
+			return "", nil, nil, err
 		}
 		validComps = append(validComps, c)
 	}
@@ -348,7 +348,7 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps m
 		sb.WriteString(b.src)
 		sb.WriteByte('\n')
 	}
-	return sb.String(), comps, nil
+	return sb.String(), comps, imports, nil
 }
 
 // goBody is a GoChunk's non-import remainder paired with the .gsx source

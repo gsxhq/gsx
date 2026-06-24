@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/gsxhq/gsx/internal/attrclass"
+	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
 )
 
@@ -43,13 +45,15 @@ func runFmt(stdout, stderr io.Writer, args []string) int {
 	fs := flag.NewFlagSet("gsx fmt", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
-		write bool
-		list  bool
-		diff  bool
+		write     bool
+		list      bool
+		diff      bool
+		noImports bool
 	)
 	fs.BoolVar(&write, "w", false, "write result to (source) file instead of stdout")
 	fs.BoolVar(&list, "l", false, "list files whose formatting differs")
 	fs.BoolVar(&diff, "d", false, "display diffs instead of rewriting files")
+	fs.BoolVar(&noImports, "no-imports", false, "do not remove unused imports (skip module analysis)")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0
@@ -64,6 +68,11 @@ func runFmt(stdout, stderr io.Writer, args []string) int {
 		return 2
 	}
 
+	var unusedByPath map[string][]gsxfmt.ImportRef
+	if !noImports {
+		unusedByPath = analyzeUnusedImports(files)
+	}
+
 	exit := 0
 	for _, path := range files {
 		orig, err := os.ReadFile(path)
@@ -72,7 +81,8 @@ func runFmt(stdout, stderr io.Writer, args []string) int {
 			exit = 1
 			continue
 		}
-		formatted, err := formatGsx(path, orig)
+		abs, _ := filepath.Abs(path)
+		formatted, err := gsxfmt.FormatRemovingImports(path, orig, unusedByPath[abs])
 		if err != nil {
 			fmt.Fprintf(stderr, "%s: %v\n", path, err)
 			exit = 1
@@ -122,6 +132,48 @@ func Format(name string, src []byte) ([]byte, error) { return formatGsx(name, sr
 // the shared engine the language server's textDocument/formatting also uses.
 func formatGsx(name string, src []byte) ([]byte, error) {
 	return gsxfmt.Format(name, src)
+}
+
+// analyzeUnusedImports best-effort computes, per absolute .gsx path, the imports
+// the file declares but does not use, by analyzing each containing directory's
+// package. Directories not in a module, or that fail to load, are skipped — the
+// caller then formats those files syntactically (no removal). Keys are absolute.
+func analyzeUnusedImports(files []string) map[string][]gsxfmt.ImportRef {
+	out := map[string][]gsxfmt.ImportRef{}
+	dirs := map[string]bool{}
+	for _, f := range files {
+		dirs[filepath.Dir(f)] = true
+	}
+	for dir := range dirs {
+		root, _, err := moduleRoot(dir)
+		if err != nil {
+			continue // not in a module → syntactic fallback
+		}
+		absDir, err := filepath.Abs(dir)
+		if err != nil {
+			continue
+		}
+		res, err := codegen.GeneratePackagesWithFilters(root, []string{absDir}, nil, attrclass.Builtin(), nil, nil, nil)
+		if err != nil {
+			continue
+		}
+		pr := res[absDir]
+		if pr == nil {
+			continue
+		}
+		for gsxPath, imps := range pr.UnusedImports {
+			absPath, err := filepath.Abs(gsxPath)
+			if err != nil {
+				continue
+			}
+			refs := make([]gsxfmt.ImportRef, len(imps))
+			for i, u := range imps {
+				refs[i] = gsxfmt.ImportRef{Name: u.Name, Path: u.Path}
+			}
+			out[absPath] = refs
+		}
+	}
+	return out
 }
 
 // gsxFiles resolves the path args to a sorted, de-duplicated list of .gsx files

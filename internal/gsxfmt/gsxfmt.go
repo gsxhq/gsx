@@ -29,3 +29,22 @@ func Format(name string, src []byte) ([]byte, error) {
 	}
 	return b.Bytes(), nil
 }
+
+// FormatRemovingImports formats src exactly like Format, but first removes every
+// import listed in `unused` from the file's pass-through Go chunks. With an empty
+// or nil `unused` it is identical to Format. A parse error is returned unchanged
+// (the caller decides whether to surface or ignore it).
+func FormatRemovingImports(name string, src []byte, unused []ImportRef) ([]byte, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, name, src, 0)
+	if err != nil {
+		return nil, err
+	}
+	removeImports(f, unused)
+	wsnorm.Normalize(f)
+	var b bytes.Buffer
+	if err := printer.Fprint(&b, f); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
+}

@@ -201,3 +201,77 @@ func TestFmtDiff(t *testing.T) {
 		t.Errorf("-d output missing hunk header:\n%s", out)
 	}
 }
+
+// TestFmtRemovesUnusedImport: `gsx fmt -w` drops an unused import by default.
+func TestFmtRemovesUnusedImport(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	dir := t.TempDir()
+	repoRoot, _ := filepath.Abs("..")
+	w := func(p, c string) {
+		if err := os.WriteFile(filepath.Join(dir, p), []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w("go.mod", "module example.com/u\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	p := filepath.Join(dir, "c.gsx")
+	w("c.gsx", "package u\n\nimport \"strings\"\n\ncomponent C() {\n\t<p>hi</p>\n}\n")
+
+	if code, _, errb := fmtCapture(t, []string{"-w", p}); code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errb)
+	}
+	after, _ := os.ReadFile(p)
+	if strings.Contains(string(after), "strings") {
+		t.Fatalf("unused import not removed by default:\n%s", after)
+	}
+}
+
+// TestFmtNoImportsKeepsUnused: `-no-imports` skips removal (syntactic only).
+func TestFmtNoImportsKeepsUnused(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	dir := t.TempDir()
+	repoRoot, _ := filepath.Abs("..")
+	w := func(p, c string) {
+		if err := os.WriteFile(filepath.Join(dir, p), []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w("go.mod", "module example.com/u\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	p := filepath.Join(dir, "c.gsx")
+	w("c.gsx", "package u\n\nimport \"strings\"\n\ncomponent C() {\n\t<p>hi</p>\n}\n")
+
+	if code, _, errb := fmtCapture(t, []string{"-no-imports", "-w", p}); code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errb)
+	}
+	after, _ := os.ReadFile(p)
+	if !strings.Contains(string(after), "strings") {
+		t.Fatalf("-no-imports should keep the import:\n%s", after)
+	}
+}
+
+// TestFmtOutsideModuleFallsBack: a .gsx not in any module is still formatted
+// (syntactically); the unused import is kept and the exit code is success.
+func TestFmtOutsideModuleFallsBack(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	dir := t.TempDir() // no go.mod
+	p := filepath.Join(dir, "c.gsx")
+	if err := os.WriteFile(p, []byte("package u\n\nimport   \"strings\"\n\ncomponent C() {\n\t<p>hi</p>\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errb := fmtCapture(t, []string{"-w", p})
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s (formatting must not fail outside a module)", code, errb)
+	}
+	after, _ := os.ReadFile(p)
+	if !strings.Contains(string(after), "strings") {
+		t.Fatalf("outside a module the import must be kept (no analysis):\n%s", after)
+	}
+	if strings.Contains(string(after), "import   \"strings\"") {
+		t.Fatalf("file was not syntactically formatted:\n%s", after)
+	}
+}

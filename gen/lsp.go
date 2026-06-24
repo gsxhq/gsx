@@ -7,6 +7,7 @@ import (
 
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/codegen"
+	"github.com/gsxhq/gsx/internal/gsxfmt"
 	"github.com/gsxhq/gsx/internal/lsp"
 )
 
@@ -47,15 +48,24 @@ func (lspAnalyzer) Analyze(dir string, override map[string][]byte) (*lsp.Package
 	for i, nr := range pr.NavIndex {
 		nav[i] = lsp.NavRef{From: nr.From, Name: nr.Name, To: nr.To}
 	}
+	unused := make(map[string][]gsxfmt.ImportRef, len(pr.UnusedImports))
+	for path, imps := range pr.UnusedImports {
+		refs := make([]gsxfmt.ImportRef, len(imps))
+		for i, u := range imps {
+			refs[i] = gsxfmt.ImportRef{Name: u.Name, Path: u.Path}
+		}
+		unused[path] = refs
+	}
 	return &lsp.Package{
-		Diags:      pr.Diags,
-		GSXFset:    pr.GSXFset,
-		Fset:       pr.Fset,
-		Info:       pr.Info,
-		ExprMap:    pr.ExprMap,
-		Files:      pr.GSXFiles,
-		CrossIndex: cross,
-		NavIndex:   nav,
+		Diags:         pr.Diags,
+		GSXFset:       pr.GSXFset,
+		Fset:          pr.Fset,
+		Info:          pr.Info,
+		ExprMap:       pr.ExprMap,
+		Files:         pr.GSXFiles,
+		CrossIndex:    cross,
+		NavIndex:      nav,
+		UnusedImports: unused,
 	}, nil
 }
 

@@ -54,6 +54,18 @@ type PackageResult struct {
 	GSXFiles   map[string]*gsxast.File
 	CrossIndex map[string]CrossRef // componentKey → cross-boundary index entry
 	NavIndex   []NavRef            // navigable Go references → .gsx targets (func, props-struct, field)
+
+	// UnusedImports lists, per .gsx file path, the imports the file declares but
+	// does not use — safe to drop on format. Empty unless the package's ONLY type
+	// errors are unused-import errors (else removal is unsafe).
+	UnusedImports map[string][]UnusedImport
+}
+
+// UnusedImport is one import a .gsx file declares but never references, as
+// determined by the type-checker. Name is "" for a default import.
+type UnusedImport struct {
+	Name string
+	Path string
 }
 
 // GeneratePackagesWithFilters generates .x.go for every .gsx across the given
@@ -180,6 +192,7 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 	overlay := map[string][]byte{}
 	// skelCompsByPath maps absXpath → slice of *gsxast.Component (from buildSkeleton).
 	skelCompsByPath := map[string][]*gsxast.Component{}
+	importsByDir := map[string][]importSpec{} // dir → hoisted import specs across its files
 
 	for _, dir := range absDirs {
 		files, ok := filesByDir[dir]
@@ -198,7 +211,7 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 		np := nodePropsByDir[dir]
 		skeletonErr := false
 		for path, file := range files {
-			skel, comps, err := buildSkeleton(file, table, pf, np, fset)
+			skel, comps, imps, err := buildSkeleton(file, table, pf, np, fset)
 			if err != nil {
 				// An attrError carries the offending attr's position and a diagnostic
 				// code — emit a positioned diagnostic. Any other error is an infrastructure
@@ -217,6 +230,7 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 			absXpath := filepath.Join(dir, base+".x.go")
 			overlay[absXpath] = []byte(skel)
 			skelCompsByPath[absXpath] = comps
+			importsByDir[dir] = append(importsByDir[dir], imps...)
 		}
 		if skeletonErr {
 			continue
@@ -426,6 +440,7 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 		}
 		res.CrossIndex = index
 		res.NavIndex = navIndex
+		res.UnusedImports = detectUnusedImports(pkg, importsByDir[pkgDir], fset)
 
 		// Collect ALL type errors into the bag (positioned via pkg.Fset which
 		// resolves //line directives back to the .gsx source file).
@@ -502,6 +517,63 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 	}
 
 	return result, nil
+}
+
+// detectUnusedImports correlates the package's type errors with the .gsx
+// positions of its hoisted imports. It returns a non-nil map only when EVERY
+// type error is a genuine "imported and not used" error landing on a hoisted
+// import line. If any error is not of that exact class (e.g. "could not import"
+// for an unresolvable package, or any semantic error on a non-import line), the
+// analysis is unreliable and nil is returned — never remove under uncertainty.
+// Returns nil when there are no type errors (nothing unused).
+func detectUnusedImports(pkg *packages.Package, imports []importSpec, gsxFset *token.FileSet) map[string][]UnusedImport {
+	if len(pkg.TypeErrors) == 0 || len(imports) == 0 {
+		return nil
+	}
+	type posKey struct {
+		file string
+		line int
+	}
+	byPos := map[posKey][]importSpec{}
+	for _, imp := range imports {
+		if !imp.pos.IsValid() {
+			continue // unresolved position: cannot correlate safely
+		}
+		p := gsxFset.Position(imp.pos)
+		k := posKey{p.Filename, p.Line}
+		byPos[k] = append(byPos[k], imp)
+	}
+	out := map[string][]UnusedImport{}
+	for _, e := range pkg.TypeErrors {
+		ep := e.Fset.Position(e.Pos)
+		specs, ok := byPos[posKey{ep.Filename, ep.Line}]
+		if !ok || !strings.Contains(e.Msg, "imported and not used") {
+			return nil // not a clean unused-import error → analysis unreliable, remove nothing
+		}
+		spec := specs[0]
+		if len(specs) > 1 {
+			spec = pickImportByPath(specs, e.Msg)
+		}
+		out[ep.Filename] = append(out[ep.Filename], UnusedImport{Name: spec.name, Path: spec.path})
+	}
+	return out
+}
+
+// pickImportByPath disambiguates several imports sharing one .gsx line using the
+// path go/types names in the error (`"<path>" imported ...`). Falls back to the
+// first spec if the path is not found.
+func pickImportByPath(specs []importSpec, msg string) importSpec {
+	if i := strings.IndexByte(msg, '"'); i >= 0 {
+		if j := strings.IndexByte(msg[i+1:], '"'); j >= 0 {
+			path := msg[i+1 : i+1+j]
+			for _, s := range specs {
+				if s.path == path {
+					return s
+				}
+			}
+		}
+	}
+	return specs[0]
 }
 
 // GeneratePackages is GeneratePackagesWithFilters with the built-in std filter

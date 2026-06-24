@@ -7,6 +7,7 @@ import (
 
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/gsxfmt"
 )
 
 // CrossRef is one component's cross-boundary entry (see the .go->.gsx design):
@@ -39,4 +40,8 @@ type Package struct {
 	Files      map[string]*gsxast.File  // .gsx path → parsed gsx AST
 	CrossIndex map[string]CrossRef
 	NavIndex   []NavRef // navigable Go references → .gsx targets (func, props-struct, field)
+
+	// UnusedImports lists, per .gsx file path, imports that file declares but does
+	// not use — what formatting may safely drop. Empty when analysis is unreliable.
+	UnusedImports map[string][]gsxfmt.ImportRef
 }
