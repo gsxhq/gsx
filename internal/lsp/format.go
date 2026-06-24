@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 
 	"github.com/gsxhq/gsx/internal/gsxfmt"
@@ -28,7 +29,12 @@ func (s *Server) handleFormatting(f frame) error {
 	if !ok {
 		return s.reply(f.ID, []TextEdit{})
 	}
-	formatted, err := gsxfmt.Format(uriToPath(uri), []byte(text))
+	path := uriToPath(uri)
+	var unused []gsxfmt.ImportRef
+	if pkg := s.pkgs[filepath.Dir(path)]; pkg != nil {
+		unused = pkg.UnusedImports[path] // nil when analysis is unavailable/unreliable
+	}
+	formatted, err := gsxfmt.FormatRemovingImports(path, []byte(text), unused)
 	if err != nil || string(formatted) == text {
 		return s.reply(f.ID, []TextEdit{}) // invalid mid-edit, or already canonical
 	}

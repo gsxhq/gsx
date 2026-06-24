@@ -79,6 +79,34 @@ func TestFormattingAdvertised(t *testing.T) {
 	}
 }
 
+// TestFormattingRemovesUnusedImport: textDocument/formatting on a .gsx with an
+// unused import returns an edit whose text drops that import.
+func TestFormattingRemovesUnusedImport(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	dir := t.TempDir()
+	repoRoot, _ := filepath.Abs("..")
+	must := func(p, c string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, p), []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	must("go.mod", "module example.com/u\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	src := "package u\n\nimport \"strings\"\n\ncomponent C() {\n\t<p>hi</p>\n}\n"
+	must("c.gsx", src)
+	uri := "file://" + filepath.Join(dir, "c.gsx")
+
+	edits := formattingEdits(t, uri, src)
+	if len(edits) != 1 {
+		t.Fatalf("want 1 edit, got %d: %+v", len(edits), edits)
+	}
+	if strings.Contains(edits[0].NewText, "strings") {
+		t.Fatalf("formatting did not drop the unused import:\n%s", edits[0].NewText)
+	}
+}
+
 // formattingEdits opens uri with the given text and returns the edits from a
 // textDocument/formatting request (id 2).
 func formattingEdits(t *testing.T, uri, text string) []lsp.TextEdit {
