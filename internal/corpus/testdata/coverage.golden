@@ -168,6 +168,11 @@ pipelines/param_arg	diag render
 pipelines/try_rejected	diag(error)
 pipelines/try_unwrap	diag render
 pipelines/unknown_filter	diag(error)
+playground/auto_escaping	diag render
+playground/composable_class	diag render
+playground/composition	diag render
+playground/control_flow	diag render
+playground/interpolation	diag render
 script/interp_breakout	diag gen render
 script/interp_comment_literal	diag gen render
 script/interp_identifier_rejected	diag(error)
@@ -207,4 +212,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 209 cases (render: 150, error: 39, gen-pinned: 45)
+TOTAL: 214 cases (render: 155, error: 39, gen-pinned: 45)

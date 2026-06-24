@@ -1,0 +1,13 @@
+-- input.gsx --
+package views
+
+component Tag(label string, active bool) {
+	<span class={ "tag", "tag--active": active }>
+		{label}
+	</span>
+}
+-- invoke --
+Tag(TagProps{Label: "stable", Active: true})
+-- diagnostics.golden --
+-- render.golden --
+<span class="tag tag--active">stable</span>

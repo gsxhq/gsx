@@ -1,0 +1,12 @@
+-- input.gsx --
+package views
+
+// User input is HTML-escaped by construction — no XSS.
+component Comment(body string) {
+	<blockquote>{body}</blockquote>
+}
+-- invoke --
+Comment(CommentProps{Body: "<script>alert(1)</script>"})
+-- diagnostics.golden --
+-- render.golden --
+<blockquote>&lt;script&gt;alert(1)&lt;/script&gt;</blockquote>
