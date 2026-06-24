@@ -22,6 +22,7 @@ gsx [global flags] <command> [arguments]
 |---------|--------------|
 | `generate [paths...]` | generate `.x.go` from `.gsx` files (default: `.`) |
 | `fmt [paths...]` | format `.gsx` files (canonical, idempotent) |
+| `init [dir]` | scaffold a gsx + Vite starter app |
 | `clean --cache` | remove the gsx cache directory |
 | `info` | list the resolved pipeline filters and attribute rules |
 | `lsp` | run the language server over stdio (JSON-RPC) |
@@ -40,6 +41,41 @@ Global flags apply to any command and **must come before the command name**
 | `-v` | verbose: list each written file |
 
 `-q` / `-v` only affect `generate`'s success output; other commands ignore them.
+
+## gsx init
+
+```
+gsx init [dir] [--template simple] [--module path] [--force]
+```
+
+Scaffolds a new gsx + Vite starter app into `dir` (default: `.`).
+The `simple` template creates a project with a stock `net/http` ServeMux server,
+a `.gsx` component, a Vite dev-server config, and a Taskfile that wires the full
+dev loop together.
+
+| Flag | Effect |
+|------|--------|
+| `--template` | starter template to use (default: `simple`) |
+| `--module` | Go module path (default: basename of the target directory) |
+| `--force` | overwrite an existing `go.mod` or `package.json` |
+
+On success, `gsx init` prints the next steps:
+
+```
+Scaffolded a gsx + Vite app. Next steps:
+  cd <dir>
+  go get -tool github.com/gsxhq/gsx/cmd/gsx@latest
+  go mod tidy
+  npm install
+  task dev
+```
+
+**Exit codes:** `0` on success; `2` on a usage error (unknown template, or an
+existing `go.mod`/`package.json` without `--force`); `1` on an I/O error.
+
+> **Planned template:** `structpages` — a struct-based routing starter built on
+> the [structpages](https://github.com/gsxhq/gsx/tree/main/structpages) framework
+> (htmx + templ). Not yet available; only `simple` is currently implemented.
 
 ## generate
 
@@ -185,7 +221,7 @@ custom binary configures a CSS/JS minifier (functions are not hashable).
 
 ## Status
 
-> **Alpha.** `generate`, `fmt`, `info`, `clean`, `version`, and `lsp` (an early
-> diagnostics-only slice) are implemented. A checker (`vet`) and richer
+> **Alpha.** `generate`, `fmt`, `init`, `info`, `clean`, `version`, and `lsp`
+> (an early diagnostics-only slice) are implemented. A checker (`vet`) and richer
 > language-server features are on the
 > [roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md).

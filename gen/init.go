@@ -3,9 +3,14 @@ package gen
 import (
 	"bytes"
 	"embed"
+	"flag"
+	"fmt"
+	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/template"
 )
@@ -94,4 +99,79 @@ func render(raw []byte, data tmplData) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// runInit scaffolds a starter project into the target dir (default ".").
+func runInit(args []string, stdout, stderr io.Writer) int {
+	ifs := flag.NewFlagSet("init", flag.ContinueOnError)
+	ifs.SetOutput(stderr)
+	var templateName, module string
+	var force bool
+	ifs.StringVar(&templateName, "template", defaultTemplate, "starter template")
+	ifs.StringVar(&module, "module", "", "Go module path (default: target dir basename)")
+	ifs.BoolVar(&force, "force", false, "overwrite an existing go.mod/package.json")
+	if err := ifs.Parse(args); err != nil {
+		return 2
+	}
+
+	dir := "."
+	if rest := ifs.Args(); len(rest) > 0 {
+		dir = rest[0]
+	}
+
+	tpl, ok := templates[templateName]
+	if !ok {
+		fmt.Fprintf(stderr, "gsx: unknown template %q. Available:\n", templateName)
+		for _, t := range templateList() {
+			fmt.Fprintf(stderr, "  %-12s %s\n", t.name, t.desc)
+		}
+		return 2
+	}
+
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		fmt.Fprintf(stderr, "gsx: %v\n", err)
+		return 2
+	}
+	if module == "" {
+		module = filepath.Base(abs)
+	}
+
+	if !force {
+		for _, f := range []string{"go.mod", "package.json"} {
+			if _, err := os.Stat(filepath.Join(abs, f)); err == nil {
+				fmt.Fprintf(stderr, "gsx: %s already exists in %s (use --force to overwrite)\n", f, dir)
+				return 2
+			}
+		}
+	}
+
+	data := tmplData{Module: module, Name: path.Base(filepath.ToSlash(module))}
+	if err := scaffold(initFS, tpl.root, abs, data, force); err != nil {
+		fmt.Fprintf(stderr, "gsx: init: %v\n", err)
+		return 1
+	}
+	printNextSteps(stdout, dir)
+	return 0
+}
+
+// templateList returns the registered templates sorted by name.
+func templateList() []initTemplate {
+	out := make([]initTemplate, 0, len(templates))
+	for _, t := range templates {
+		out = append(out, t)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
+	return out
+}
+
+func printNextSteps(stdout io.Writer, dir string) {
+	fmt.Fprintln(stdout, "Scaffolded a gsx + Vite app. Next steps:")
+	if dir != "." {
+		fmt.Fprintf(stdout, "  cd %s\n", dir)
+	}
+	fmt.Fprintln(stdout, "  go get -tool github.com/gsxhq/gsx/cmd/gsx@latest")
+	fmt.Fprintln(stdout, "  go mod tidy")
+	fmt.Fprintln(stdout, "  npm install")
+	fmt.Fprintln(stdout, "  task dev")
 }

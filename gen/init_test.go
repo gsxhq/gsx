@@ -8,6 +8,71 @@ import (
 	"testing/fstest"
 )
 
+func TestInitDefault(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "myapp")
+	code, out, errb := runCapture(t, []string{"init", target})
+	if code != 0 {
+		t.Fatalf("exit %d; stderr=%q", code, errb)
+	}
+	gomod, err := os.ReadFile(filepath.Join(target, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(gomod), "module myapp") {
+		t.Fatalf("module not derived from dir basename: %s", gomod)
+	}
+	if !strings.Contains(out, "task dev") {
+		t.Fatalf("next steps not printed: %q", out)
+	}
+}
+
+func TestInitModuleFlag(t *testing.T) {
+	dir := t.TempDir()
+	code, _, errb := runCapture(t, []string{"init", "--module", "example.com/foo", dir})
+	if code != 0 {
+		t.Fatalf("exit %d; stderr=%q", code, errb)
+	}
+	gomod, _ := os.ReadFile(filepath.Join(dir, "go.mod"))
+	if !strings.Contains(string(gomod), "module example.com/foo") {
+		t.Fatalf("go.mod = %s", gomod)
+	}
+	pkg, _ := os.ReadFile(filepath.Join(dir, "package.json"))
+	if !strings.Contains(string(pkg), "\"name\": \"foo\"") {
+		t.Fatalf("package.json name not basename: %s", pkg)
+	}
+}
+
+func TestInitUnknownTemplate(t *testing.T) {
+	dir := t.TempDir()
+	code, _, errb := runCapture(t, []string{"init", "--template", "bogus", dir})
+	if code != 2 {
+		t.Fatalf("expected exit 2, got %d", code)
+	}
+	if !strings.Contains(errb, "simple") {
+		t.Fatalf("did not list available templates: %q", errb)
+	}
+}
+
+func TestInitRefusesExistingProject(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errb := runCapture(t, []string{"init", dir})
+	if code != 2 {
+		t.Fatalf("expected exit 2 for existing go.mod, got %d", code)
+	}
+	if !strings.Contains(errb, "--force") {
+		t.Fatalf("error should mention --force: %q", errb)
+	}
+	// --force proceeds:
+	code, _, errb = runCapture(t, []string{"init", "--force", dir})
+	if code != 0 {
+		t.Fatalf("--force should succeed, got %d; %q", code, errb)
+	}
+}
+
 func TestScaffoldRendersAndTransforms(t *testing.T) {
 	src := fstest.MapFS{
 		"tpl/go.mod.tmpl":      {Data: []byte("module «.Module»\n")},
