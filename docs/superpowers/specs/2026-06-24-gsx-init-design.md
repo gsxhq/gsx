@@ -10,8 +10,9 @@ templates build for production with content-hashed assets.
 The gsx extension/dev story has three pieces, two of which now ship:
 1. **`@gsxhq/vite-plugin-gsx`** (npm, v0.1.0) — watches `.gsx`, regenerates,
    error overlay, `/__reload` receiver.
-2. **`github.com/gsxhq/vite`** (Go, v0.1.0) — generic manifest resolver +
-   dev/prod asset switch + `/static` server + `NotifyReload`.
+2. **`github.com/gsxhq/vite`** (Go, v0.1.0 shipped; **v0.2.0 adds context
+   helpers**, see below) — generic manifest resolver + dev/prod asset switch +
+   `/static` server + `NotifyReload` + `NewContext`/`FromContext`/`Middleware`.
 3. **`gsx init`** (this spec) — scaffolds a project that wires 1 + 2 together so
    a newcomer gets the whole loop without hand-assembling it.
 
@@ -122,28 +123,32 @@ func main() {
     }
     mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
         w.Header().Set("Content-Type", "text/html; charset=utf-8")
-        page := Index(IndexProps{Title: "gsx + Vite", Assets: v.Entry("web/main.js")})
-        if err := page.Render(r.Context(), w); err != nil {
+        if err := Index(IndexProps{Title: "gsx + Vite"}).Render(r.Context(), w); err != nil {
             http.Error(w, err.Error(), http.StatusInternalServerError)
         }
     })
     vite.NotifyReload(devURL) // dev-only; no-op when devURL == ""
     log.Println("listening on :7777")
-    http.ListenAndServe(":7777", mux)
+    // v.Middleware injects *vite.Vite into each request's context, so components
+    // read the asset bundle from ctx instead of receiving it as a prop.
+    http.ListenAndServe(":7777", v.Middleware(mux))
 }
 ```
 
 ### `app.gsx` (shape)
 
-The component takes the resolved `vite.Bundle` and renders the asset tags by
-iterating — the `.gsx` does not branch on dev/prod (Go computed the lists):
+The Layout pulls the resolved `vite.Bundle` from the request **context** (not a
+prop) using a `{{ … }}` statement binding, then iterates to render the tags — so
+no component below it has to thread assets through. The `.gsx` does not branch on
+dev/prod (Go computed the lists):
 
 ```gsx
 package main
 
 import "github.com/gsxhq/vite"
 
-component Layout(title string, assets vite.Bundle) {
+component Layout(title string) {
+  {{ assets := vite.FromContext(ctx).Entry("web/main.js") }}
   <!DOCTYPE html>
   <html lang="en">
     <head>
@@ -157,17 +162,36 @@ component Layout(title string, assets vite.Bundle) {
   </html>
 }
 
-component Index(title string, assets vite.Bundle) {
-  <Layout title={title} assets={assets}>
+component Index(title string) {
+  <Layout title={title}>
     <h1>Hello from gsx + Vite</h1>
     <p>Edit <code>app.gsx</code> and save — the page live-reloads.</p>
   </Layout>
 }
 ```
 
-(The exact prop-passing form — positional vs a generated `IndexProps` struct —
-follows gsx's existing component conventions; the implementation plan pins it
-against the real codegen, and the scaffold-compiles test is the gate.)
+`ctx` is the render context in scope inside every component body (the generated
+closure parameter); `v.Middleware` put `*vite.Vite` there per request. `{{ … }}`
+is gsx's Go-statement escape hatch, so `assets` is bound once and the three
+`for` loops iterate it. The exact prop form (the generated `IndexProps` struct)
+follows gsx's existing conventions; the scaffold-compiles test is the gate.
+
+### Context-based asset access — `gsxhq/vite` v0.2.0 (prerequisite)
+
+This pattern requires a small, generic addition to `github.com/gsxhq/vite`
+(built and tagged **v0.2.0** before `gsx init`, since the scaffold's `go.mod`
+will `require` it):
+
+```go
+// context.go in github.com/gsxhq/vite
+func NewContext(ctx context.Context, v *Vite) context.Context // stash *Vite
+func FromContext(ctx context.Context) *Vite                   // retrieve (nil if absent)
+func (v *Vite) Middleware(next http.Handler) http.Handler     // r = r.WithContext(NewContext(...))
+```
+
+It is the standard "dependency in context" pattern (cf. his-project's per-request
+asset resolver); keeping it in the generic lib means every Go+Vite app — gsx or
+not — gets it, and gsx components stay free of asset plumbing.
 
 ### Dev loop (`task dev`)
 
@@ -227,7 +251,7 @@ go build        # embeds dist/, serves /static/, reads manifest
 ## Module resolution
 
 The scaffold's `go.mod` `require`s `github.com/gsxhq/gsx`, `github.com/gsxhq/vite`
-(v0.1.0, published), and `github.com/bokwoon95/wgo` (tool), plus the `tool`
+(v0.2.0 — adds the context helpers above), and `github.com/bokwoon95/wgo` (tool), plus the `tool`
 directives for `github.com/gsxhq/gsx/cmd/gsx` and `github.com/bokwoon95/wgo`. It
 emits **no `replace`** — end users run `go mod tidy`. `gsx` itself is resolved as
 whatever `go mod tidy` finds for `github.com/gsxhq/gsx` (a published tag once
