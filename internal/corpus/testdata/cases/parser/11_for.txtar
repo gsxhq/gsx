@@ -19,5 +19,5 @@ File package=examples
       Text value="\n\t\t"
       ForMarkup clause="_, r := range rows"
         Element tag=li void=false
-          Interp expr="r" try=false
+          Interp expr="r"
       Text value="\n\t"

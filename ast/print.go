@@ -77,7 +77,7 @@ func fprintNode(w io.Writer, node Node, depth int) error {
 			return err
 		}
 	case *Interp:
-		if _, err := fmt.Fprintf(w, "%sInterp expr=%q try=%v\n", indent, n.Expr, n.Try); err != nil {
+		if _, err := fmt.Fprintf(w, "%sInterp expr=%q\n", indent, n.Expr); err != nil {
 			return err
 		}
 		if err := fprintStages(w, indent, n.Stages); err != nil {
@@ -88,7 +88,7 @@ func fprintNode(w io.Writer, node Node, depth int) error {
 			return err
 		}
 	case *ExprAttr:
-		if _, err := fmt.Fprintf(w, "%sExprAttr name=%s expr=%q try=%v\n", indent, n.Name, n.Expr, n.Try); err != nil {
+		if _, err := fmt.Fprintf(w, "%sExprAttr name=%s expr=%q\n", indent, n.Name, n.Expr); err != nil {
 			return err
 		}
 		if err := fprintStages(w, indent, n.Stages); err != nil {
@@ -207,8 +207,8 @@ func fprintNode(w io.Writer, node Node, depth int) error {
 // their Interp/ExprAttr, mirroring the ClassPart convention.
 func fprintStages(w io.Writer, indent string, stages []PipeStage) error {
 	for _, st := range stages {
-		if _, err := fmt.Fprintf(w, "%s  PipeStage name=%s args=%q hasArgs=%v try=%v\n",
-			indent, st.Name, st.Args, st.HasArgs, st.Try); err != nil {
+		if _, err := fmt.Fprintf(w, "%s  PipeStage name=%s args=%q hasArgs=%v\n",
+			indent, st.Name, st.Args, st.HasArgs); err != nil {
 			return err
 		}
 	}

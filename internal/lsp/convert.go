@@ -76,6 +76,48 @@ func utf16Len(s string) int {
 	return n
 }
 
+// byteOffsetForPosition maps a 0-based LSP position (character counted in enc)
+// to a byte offset in text. It is the inverse of charForByteCol. A line or
+// character past the end clamps to the end of the line / text.
+func byteOffsetForPosition(text string, line, character int, enc encoding) int {
+	off := 0
+	for l := 0; l < line; l++ {
+		nl := strings.IndexByte(text[off:], '\n')
+		if nl < 0 {
+			return len(text)
+		}
+		off += nl + 1
+	}
+	lineText := text[off:]
+	if nl := strings.IndexByte(lineText, '\n'); nl >= 0 {
+		lineText = lineText[:nl]
+	}
+	return off + byteForChar(lineText, character, enc)
+}
+
+// byteForChar returns the byte offset within lineText for the 0-based character
+// index in enc.
+func byteForChar(lineText string, character int, enc encoding) int {
+	if enc == encUTF8 {
+		if character > len(lineText) {
+			return len(lineText)
+		}
+		return character
+	}
+	units := 0
+	for i, r := range lineText {
+		if units >= character {
+			return i
+		}
+		if r > 0xFFFF {
+			units += 2
+		} else {
+			units++
+		}
+	}
+	return len(lineText)
+}
+
 // lspSeverity maps a gsx severity to an LSP DiagnosticSeverity (1=Error,
 // 2=Warning, 3=Information, 4=Hint).
 func lspSeverity(s diag.Severity) int {

@@ -27,15 +27,11 @@ import (
 //
 // Stage classification uses the parsed HasArgs flag (parens present) for arity
 // checks against the filter's harvested kind: a bare filter must have no parens,
-// a parameterized filter must have parens. Per-stage `?` (Try) is deferred and
-// errors.
+// a parameterized filter must have parens.
 func lowerPipe(seed string, stages []ast.PipeStage, table filterTable) (expr string, usedPkgs map[string]string, err error) {
 	acc := "(" + strings.TrimSpace(seed) + ")"
 	usedPkgs = map[string]string{}
 	for _, st := range stages {
-		if st.Try {
-			return "", nil, fmt.Errorf("codegen: `?` try-marker on filter %q not supported yet", st.Name)
-		}
 		e, ok := table.lookup(st.Name)
 		if !ok {
 			return "", nil, fmt.Errorf("codegen: unknown filter %q", st.Name)

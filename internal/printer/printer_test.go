@@ -106,16 +106,14 @@ component C() {
 	checkFormat(t, src, want)
 }
 
-func TestInterpTryAndPipeline(t *testing.T) {
+func TestInterpPipeline(t *testing.T) {
 	src := `package p
 component C() {
-	<div>{ x? }</div>
 	<div>{ items |> reverse |> take(3) }</div>
 }`
 	want := `package p
 
 component C() {
-	<div>{ x? }</div>
 	<div>{ items |> reverse |> take(3) }</div>
 }
 `
@@ -125,12 +123,12 @@ component C() {
 func TestAttrKinds(t *testing.T) {
 	src := `package p
 component C() {
-	<div id="main" hidden class={ "card", "active": isActive } data-x={ val? } {...rest}>{children}</div>
+	<div id="main" hidden class={ "card", "active": isActive } data-x={ val } {...rest}>{children}</div>
 }`
 	want := `package p
 
 component C() {
-	<div id="main" hidden class={ "card", "active": isActive } data-x={val?} {...rest}>{ children }</div>
+	<div id="main" hidden class={ "card", "active": isActive } data-x={val} {...rest}>{ children }</div>
 }
 `
 	checkFormat(t, src, want)
@@ -389,16 +387,8 @@ func TestStyleInterpFormat(t *testing.T) {
 
 func TestStyleInterpFormatPreservesPipeline(t *testing.T) {
 	// @{ x |> upper } in a <style> block must round-trip exactly — the printer
-	// must not silently discard pipeline stages or the Try suffix.
+	// must not silently discard pipeline stages.
 	src := "package p\n\ncomponent C(x string) {\n\t<style>.a{color:@{ x |> upper }}</style>\n}\n"
 	want := "package p\n\ncomponent C(x string) {\n\t<style>.a{color:@{ x |> upper }}</style>\n}\n"
-	checkFormat(t, src, want)
-}
-
-func TestStyleInterpTryAndPipeline(t *testing.T) {
-	// A <style> interp combining Try and a pipeline stage must round-trip
-	// byte-identically — neither the ? nor the |> stage may be dropped.
-	src := "package p\n\ncomponent C(x string) {\n\t<style>.a{color:@{ x? |> upper }}</style>\n}\n"
-	want := "package p\n\ncomponent C(x string) {\n\t<style>.a{color:@{ x? |> upper }}</style>\n}\n"
 	checkFormat(t, src, want)
 }

@@ -1,0 +1,13 @@
+# A composable class={…} on a component (whose root carries no own class) falls
+# through to the child root's Attrs bag and renders the merged class string.
+-- input.gsx --
+package views
+
+component Card(title string) { <div>{title}</div> }
+
+component Page(on bool) { <Card class={ "a", "b": on }/> }
+-- invoke --
+Page(PageProps{On: true})
+-- diagnostics.golden --
+-- render.golden --
+<div class="a b"></div>

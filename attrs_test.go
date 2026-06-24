@@ -120,3 +120,44 @@ func TestSpreadSkipsUnsafeKeysKeepsSpecialNames(t *testing.T) {
 		t.Fatalf("got  %q\nwant %q", b.String(), want)
 	}
 }
+
+func TestAttrsCond(t *testing.T) {
+	then := func() Attrs { return Attrs{"class": "hot"} }
+	els := func() Attrs { return Attrs{"class": "cold"} }
+
+	if got := AttrsCond(true, then, els); got["class"] != "hot" {
+		t.Errorf("AttrsCond(true) class = %v, want \"hot\"", got["class"])
+	}
+	if got := AttrsCond(false, then, els); got["class"] != "cold" {
+		t.Errorf("AttrsCond(false) class = %v, want \"cold\"", got["class"])
+	}
+	// els == nil: a false cond yields nil, which merges as empty.
+	if got := AttrsCond(false, then, nil); got != nil {
+		t.Errorf("AttrsCond(false, then, nil) = %v, want nil", got)
+	}
+	if got := AttrsCond(true, then, nil); got["class"] != "hot" {
+		t.Errorf("AttrsCond(true, then, nil) class = %v, want \"hot\"", got["class"])
+	}
+
+	// The UNTAKEN branch thunk must NOT be called — its body would panic /
+	// flip a flag if evaluated. This is the lazy-eval guarantee.
+	thenCalled, elsCalled := false, false
+	thenPanic := func() Attrs { thenCalled = true; panic("then evaluated") }
+	elsPanic := func() Attrs { elsCalled = true; panic("els evaluated") }
+
+	// cond true: only then runs, els must be untouched.
+	if got := AttrsCond(true, then, elsPanic); got["class"] != "hot" {
+		t.Errorf("AttrsCond(true, then, elsPanic) class = %v, want \"hot\"", got["class"])
+	}
+	if elsCalled {
+		t.Error("AttrsCond(true): untaken els thunk was evaluated")
+	}
+
+	// cond false: only els runs, then must be untouched.
+	if got := AttrsCond(false, thenPanic, els); got["class"] != "cold" {
+		t.Errorf("AttrsCond(false, thenPanic, els) class = %v, want \"cold\"", got["class"])
+	}
+	if thenCalled {
+		t.Error("AttrsCond(false): untaken then thunk was evaluated")
+	}
+}

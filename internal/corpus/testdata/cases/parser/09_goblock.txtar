@@ -19,5 +19,5 @@ File package=examples
       GoBlock code="initials := f(name)"
       Text value="\n\t\t"
       Element tag=span void=false
-        Interp expr="initials" try=false
+        Interp expr="initials"
       Text value="\n\t"

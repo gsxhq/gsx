@@ -53,7 +53,7 @@ func runInfo(stdout, stderr io.Writer, dir string, filterPkgs []string, cls *att
 		return 0
 	}
 
-	fmt.Fprintf(stdout, "gsx %s\n", version())
+	fmt.Fprintf(stdout, "gsx %s\n", bareVersion())
 
 	// The configured packages, in last-wins order. An empty list defaults to
 	// [std] (ResolveFilters applies the same default), so report that here too.

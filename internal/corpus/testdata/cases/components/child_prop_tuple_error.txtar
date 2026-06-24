@@ -1,0 +1,14 @@
+# A bare (T, error) value bound to a child-component PROP is NOT auto-unwrapped
+# (the props struct literal is an expression and can't host the unwrap statements —
+# documented out of scope). It surfaces as a single-value-context error; handle it
+# with a local or `{ if v, err := … }` before the invocation.
+-- input.gsx --
+package views
+
+func lookup(s string) (string, error) { return s, nil }
+
+component Card(title string) { <div>{title}</div> }
+
+component Page(t string) { <Card title={lookup(t)}/> }
+-- diagnostics.golden --
+7:54: multiple-value lookup(t) (value of type (string, error)) in single-value context

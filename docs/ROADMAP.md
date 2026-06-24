@@ -52,16 +52,18 @@ render goldens. Suggested order:
    attribute codegen lands — attributes aren't emitted yet.)*
 2. ✅ **Control flow** — `{ if/for/switch }`, `{{ }}`, fragments → plain Go around
    writes (probe mirrors structure so loop-var/block-local interps resolve).
-3. 🟡 **Attributes — security core + composable kinds done.** Static (always-quoted,
+3. ✅ **Attributes — security core + composable kinds done.** Static (always-quoted,
    codegen-escaped), bool, and expr attrs with **structural context-aware escaping**
    (URL → scheme-allow-list + entity-escape `gw.URL`; plain → §5 type-aware
-   `gw.AttrValue`; JS `on*`/`@*`/`hx-on*` and CSS `style` → **fail-closed compile
-   error**). Plus composable **`class`** (`gw.Class`), **element spread** `{...attrs}`
+   `gw.AttrValue`; **CSS `style`/`<style>` → auto value-filter `gw.CSS`/`gw.Style`
+   with a `gsx.RawCSS` opt-out**; JS `on*`/`@*`/`hx-on*` expr values → **fail-closed
+   compile error**). Plus composable **`class`** (`gw.Class`) and composable
+   **`style`** (`gw.Style`/`gsx.StyleString`), **element spread** `{...attrs}`
    (`gw.Spread`), and **conditional** `{ if cond { attr } else { attr } }` (a shared
    `walkAttrExprs` keeps the type-probe order invariant with branch-nested exprs).
-   Two independent adversarial reviews: SHIP. **Deferred:** `style` composition
-   (stays fail-closed pending `|> css`), `[]string` class parts, attr `?`/`|>`,
-   non-string-value-in-URL-attr clean error.
+   Pipelines `|>` work in every interpolation/attr context. **Deferred:** `[]string`
+   class parts; non-string-value-in-URL-attr clean error. *(There is no `|> css`
+   filter — CSS sanitization is automatic; `?` try-marker was removed.)*
 4. 🟡 **Pipeline `|>` + filters — first slice done.** Lowering of `Stages` to
    nested qualified Go calls (`{x |> a |> b(n)}` → `_gsxstd.B(n)(_gsxstd.A((x)))`),
    resolved against the shipped `std` package via `go/types` harvest-by-contract;
@@ -104,8 +106,14 @@ render goldens. Suggested order:
    binding `attrs := _gsxp.Attrs`. Ambiguity (a fallthrough attr onto a non-eligible
    multi-root/fragment child, which has no `Attrs` field) surfaces as a Go
    unknown-field error.
-   - **Deferred:** `style` fallthrough (fail-closed pending the `|> css` pipeline);
-     cross-package undeclared-identifier split (best-effort — non-identifier attrs
+   - **Update:** component-attribute fallthrough now also covers composable
+     `class={…}`, `{...spread}`, conditional `{ if }`, and pipelined values on a
+     `<Card …>` invocation (routed into the child's `Attrs` bag; `gsx.AttrsCond`
+     for lazy conditional branches). Static `style="…"` falls through (root
+     `StyleMerged`). **Deferred:** composable `style={…}` on a *component* invocation
+     (composable `class` works; composable `style` on a component does not yet —
+     set it on the root or use a static `style="…"`); cross-package
+     undeclared-identifier split (best-effort — non-identifier attrs
      fall through, undeclared cross-package identifiers are assumed props and surface
      at the imported build); a pretty ambiguity diagnostic (today the raw Go
      unknown-field error).
@@ -121,13 +129,26 @@ ambition is to turn html/template's *runtime* safety into *compile-time* safety:
 
 **Escape-hatch direction — pipeline, not function calls.** templ/html-template
 spell the opt-out as a typed-string constructor (`templ.Raw(x)`,
-`template.HTML(x)`) — easy to apply to tainted data and invisible in review. gsx
-instead routes *all* escaping decisions through the `|>` pipeline, which is more
-flexible and pluggable:
+`template.HTML(x)`) — easy to apply to tainted data and invisible in review. gsx's
+*aspiration* is to route escaping opt-outs through the `|>` pipeline, which is more
+flexible, pluggable, and `grep`-able:
+
+> **Status (shipped reality):** encoding is **automatic by context** — HTML, attr,
+> URL, **JS/JSON** (`@{ x }` in `<script>`/JS-attrs and the
+> `<script type="application/json">@{ data }</script>` island JSON-encode via
+> `JSVal`), and **CSS** (`<style>` bodies + `style=`/CSS-context attrs value-filter
+> via `gw.CSS`/`gw.Style`/`FilterCSS`). **JSON and CSS are automatic, never
+> `|> json`/`|> css` filters.** The opt-outs that ship today are **typed
+> constructors** — `gsx.Raw` (HTML), `gsx.RawJS`, `gsx.RawCSS`, `gsx.RawURL` —
+> *not* `|> raw`/`|> js`/`|> css` filters (those don't exist; `std` ships only
+> `default/join/lower/trim/truncate/upper`). The **one genuinely fail-closed
+> context is JS event-handler expression values** (`onclick={…}` / `@*` / `hx-on*`),
+> which are a compile error. The pipeline-as-opt-out bullets below are the intended
+> *future* direction, not the current API.
 
 - Safe is the default: a bare `{ x }` is always context-escaped by codegen.
-- The opt-out is a *filter*, not a cast: `{ x |> raw }`, `{ x |> js }`,
-  `{ data |> json }`, `{ url |> trustedResource }`. Filters are registered and
+- The intended opt-out is a *filter*, not a cast: `{ x |> raw }`, `{ x |> js }`,
+  `{ url |> trustedResource }`. Filters are registered and
   `grep`-able (`|> raw` greps cleanly for audit), and the registry is pluggable
   so projects can add vetted domain-specific safe constructors.
 - Filters can carry the *type contract*: a `raw`/`js`/`css` filter's signature
@@ -176,8 +197,12 @@ attribute-name validation against tag breakout (`validAttrName`), documented
 5. ⬜ **[High] Split navigational vs resource URLs** in the type/filter
    vocabulary (`URL` vs `TrustedResourceURL`, à la safehtml; html/template
    conflates them — go#27926).
-6. ⬜ **[Medium] One obvious data→`<script>` path** — `{ data |> json }`
-   (HTML-safe JSON: escape `< > &` and U+2028/U+2029).
+6. ✅ **One obvious data→`<script>` path — DONE (automatic, not a filter).** A
+   `<script type="application/json">@{ data }</script>` island, and any JS-value
+   context (`@{ x }` in `<script>`/JS-attrs), auto JSON-encode via `JSVal`
+   (HTML-safe: `< > &`, U+2028/U+2029; numeric token-fusion padding); `gsx.RawJS`
+   opts out. There is **no `|> json` filter** — JSON is the JS-value encoding. See
+   `2026-06-23-gsx-js-interpolation-design.md` and the `datajson/` corpus.
 7. ⬜ **[v2] CSP nonce threading** for emitted `<script>`/`<style>` — thread a
    per-request nonce; do not build a CSP engine (header is the server's job).
 

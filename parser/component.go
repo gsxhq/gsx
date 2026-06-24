@@ -46,7 +46,11 @@ func (p *parser) parseComponent() (*ast.Component, error) {
 		if !ok {
 			return nil, p.errorf(p.pos(), "unterminated params")
 		}
-		c.Params = strings.TrimSpace(p.src[p.i+1 : end])
+		raw := p.src[p.i+1 : end]
+		// ParamsPos: first non-whitespace byte after `(` — the start of the param list.
+		lead := len(raw) - len(strings.TrimLeft(raw, " \t\r\n"))
+		c.ParamsPos = p.posAt(p.i + 1 + lead)
+		c.Params = strings.TrimSpace(raw)
 		p.i = end + 1
 	}
 

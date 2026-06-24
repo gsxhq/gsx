@@ -1,8 +1,0 @@
--- input.gsx --
-package views
-
-component Card(title string) { <div>{title}</div> }
-
-component Page(on bool) { <Card class={ "a", "b": on }/> }
--- diagnostics.golden --
-5:33: class attribute on a component (<Card>) not supported yet

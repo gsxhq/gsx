@@ -34,7 +34,7 @@ func TestFprintGolden(t *testing.T) {
 		"  Component name=Greet recv=\"\" params=\"name string\"\n" +
 		"    Element tag=div void=false\n" +
 		"      StaticAttr name=class value=\"hello\"\n" +
-		"      Interp expr=\"name\" try=false\n"
+		"      Interp expr=\"name\"\n"
 	if got != want {
 		t.Errorf("Fprint output mismatch.\nGot:\n%s\nWant:\n%s", got, want)
 	}
@@ -69,7 +69,7 @@ func TestFprintPart2(t *testing.T) {
     then:
       Text value="yes"
     else:
-      Interp expr="fallback" try=false
+      Interp expr="fallback"
   ForMarkup clause="_, r := range rows"
     Element tag=li void=false
   SwitchMarkup tag="k"
@@ -102,9 +102,9 @@ func TestFprintInterpWithPipeStages(t *testing.T) {
 	if err := ast.Fprint(&b, n); err != nil {
 		t.Fatal(err)
 	}
-	want := `Interp expr="name" try=false
-  PipeStage name=upper args="" hasArgs=false try=false
-  PipeStage name=truncate args="20" hasArgs=true try=false
+	want := `Interp expr="name"
+  PipeStage name=upper args="" hasArgs=false
+  PipeStage name=truncate args="20" hasArgs=true
 `
 	if b.String() != want {
 		t.Errorf("got:\n%s\nwant:\n%s", b.String(), want)

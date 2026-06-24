@@ -1,0 +1,15 @@
+# A spread {...bag} on a component merges the runtime gsx.Attrs into the child
+# root (caller-wins fallthrough), like element spread.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Card(title string) { <div>{title}</div> }
+
+component Page(bag gsx.Attrs) { <Card {...bag}/> }
+-- invoke --
+Page(PageProps{Bag: gsx.Attrs{"id": "x"}})
+-- diagnostics.golden --
+-- render.golden --
+<div id="x"></div>

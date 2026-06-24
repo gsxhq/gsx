@@ -86,14 +86,18 @@ func isStageName(s string) bool {
 	return true
 }
 
-// parsePipeStage parses one filter segment: `name`, `name(args)`, or either with
-// a trailing `?`.
+// errTryMarker is returned for any trailing `?` (on the seed or a stage). gsx has
+// no try-marker: a `(T, error)` value is auto-unwrapped at codegen (the error
+// propagates out of the enclosing Render). Go has no `?` operator, so a trailing
+// `?` is unambiguously the removed marker — reject it with a migration hint rather
+// than letting `expr?` poison type resolution for the whole file.
+var errTryMarker = fmt.Errorf("the `?` try-marker is not supported; gsx auto-unwraps (T, error) values — remove the `?` (handle the error explicitly with `{ if v, err := f(); err != nil { … } }`)")
+
+// parsePipeStage parses one filter segment: `name` or `name(args)`.
 func parsePipeStage(seg string) (ast.PipeStage, error) {
 	s := strings.TrimSpace(seg)
-	try := false
 	if strings.HasSuffix(s, "?") {
-		try = true
-		s = strings.TrimSpace(strings.TrimSuffix(s, "?"))
+		return ast.PipeStage{}, errTryMarker
 	}
 	if s == "" {
 		return ast.PipeStage{}, fmt.Errorf("empty pipeline stage")
@@ -110,30 +114,29 @@ func parsePipeStage(seg string) (ast.PipeStage, error) {
 		if !isStageName(name) {
 			return ast.PipeStage{}, fmt.Errorf("invalid pipeline filter name %q", name)
 		}
-		return ast.PipeStage{Name: name, Args: strings.TrimSpace(s[i+1 : end]), HasArgs: true, Try: try}, nil
+		return ast.PipeStage{Name: name, Args: strings.TrimSpace(s[i+1 : end]), HasArgs: true}, nil
 	}
 	if !isStageName(s) {
 		return ast.PipeStage{}, fmt.Errorf("invalid pipeline filter name %q", s)
 	}
-	return ast.PipeStage{Name: s, Try: try}, nil
+	return ast.PipeStage{Name: s}, nil
 }
 
 // parsePipe splits inner into a seed expression and its filter stages. With no
-// top-level `|>`, stages is nil and the result matches the pre-pipeline shape
-// (seed = the expression, seedTry = its trailing `?`).
-func parsePipe(inner string) (seed string, seedTry bool, stages []ast.PipeStage, err error) {
+// top-level `|>`, stages is nil and seed is the whole expression. A trailing `?`
+// on the seed (the removed try-marker) is rejected.
+func parsePipe(inner string) (seed string, stages []ast.PipeStage, err error) {
 	segs := splitPipe(inner)
 	seed = strings.TrimSpace(segs[0])
 	if strings.HasSuffix(seed, "?") {
-		seedTry = true
-		seed = strings.TrimSpace(strings.TrimSuffix(seed, "?"))
+		return "", nil, errTryMarker
 	}
 	for _, seg := range segs[1:] {
 		st, e := parsePipeStage(seg)
 		if e != nil {
-			return "", false, nil, e
+			return "", nil, e
 		}
 		stages = append(stages, st)
 	}
-	return seed, seedTry, stages, nil
+	return seed, stages, nil
 }

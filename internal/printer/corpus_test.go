@@ -2,6 +2,7 @@ package printer
 
 import (
 	"go/token"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -9,9 +10,54 @@ import (
 	"testing"
 
 	"github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/txtar"
 	"github.com/gsxhq/gsx/internal/wsnorm"
 	"github.com/gsxhq/gsx/parser"
 )
+
+// corpusSource is one gsx source file extracted from the txtar corpus.
+type corpusSource struct {
+	name string // "<case-path>:<file>" label for test output
+	src  string
+}
+
+// corpusGsxSources collects every *.gsx source embedded in the txtar corpus
+// (internal/corpus/testdata/cases/**/*.txtar). That corpus is the maintained
+// source of truth — every case parses, codegens, and renders in internal/corpus,
+// so it cannot harbor stale syntax — which makes it the right round-trip input for
+// the formatter (replacing the old hand-kept examples/ folder). Non-parseable
+// sources (intentional parser-error cases) are skipped by each test, as before.
+func corpusGsxSources(t *testing.T) []corpusSource {
+	t.Helper()
+	const root = "../corpus/testdata/cases"
+	var out []corpusSource
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".txtar") {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(root, path)
+		for _, f := range txtar.Parse(data).Files {
+			if strings.HasSuffix(f.Name, ".gsx") {
+				out = append(out, corpusSource{rel + ":" + f.Name, string(f.Data)})
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) == 0 {
+		t.Fatal("no corpus .gsx sources found under " + root)
+	}
+	return out
+}
 
 func normPrint(t *testing.T, src string) (string, error) {
 	fset := token.NewFileSet()
@@ -25,27 +71,24 @@ func normPrint(t *testing.T, src string) (string, error) {
 	return b.String(), err
 }
 func TestCorpusIdempotence(t *testing.T) {
-	files, _ := filepath.Glob("../../examples/*.gsx")
-	for _, fn := range files {
-		data, _ := os.ReadFile(fn)
-		// Only files that PARSE originally are in scope (02 is a known parse-fail).
+	for _, c := range corpusGsxSources(t) {
+		// Only sources that PARSE originally are in scope (parser-error cases skip).
 		fset := token.NewFileSet()
-		if _, err := parser.ParseFile(fset, fn, string(data), 0); err != nil {
-			t.Logf("%s: skipped (does not parse: %v)", filepath.Base(fn), err)
+		if _, err := parser.ParseFile(fset, c.name, c.src, 0); err != nil {
 			continue
 		}
-		out1, err := normPrint(t, string(data))
+		out1, err := normPrint(t, c.src)
 		if err != nil {
-			t.Errorf("%s print: %v", fn, err)
+			t.Errorf("%s print: %v", c.name, err)
 			continue
 		}
 		out2, err := normPrint(t, out1)
 		if err != nil {
-			t.Errorf("%s REPARSE FAIL: %v\n%s", filepath.Base(fn), err, out1)
+			t.Errorf("%s REPARSE FAIL: %v\n%s", c.name, err, out1)
 			continue
 		}
 		if out1 != out2 {
-			t.Errorf("%s NOT idempotent", filepath.Base(fn))
+			t.Errorf("%s NOT idempotent", c.name)
 		}
 	}
 }
@@ -58,8 +101,16 @@ func zeroSpans(n ast.Node) {
 	ast.Inspect(n, func(m ast.Node) bool {
 		if m != nil {
 			ast.SetSpan(m, 0, 0)
-			if interp, ok := m.(*ast.Interp); ok {
-				interp.ExprPos = 0
+			// Position fields outside the embedded span (set by the parser for
+			// codegen //line columns and the LSP) must also be zeroed so the
+			// faithfulness comparison ignores source layout.
+			switch v := m.(type) {
+			case *ast.Interp:
+				v.ExprPos = 0
+			case *ast.ExprAttr:
+				v.ExprPos = 0
+			case *ast.Component:
+				v.ParamsPos = 0
 			}
 		}
 		return true
@@ -180,22 +231,20 @@ func normalizedAST(t *testing.T, src string) *ast.File {
 // equal Normalize(parse(S)) by content for every parseable corpus file. fmt only
 // adds collapsible cosmetic whitespace.
 func TestCorpusFaithfulness(t *testing.T) {
-	files, _ := filepath.Glob("../../examples/*.gsx")
-	for _, fn := range files {
-		data, _ := os.ReadFile(fn)
+	for _, c := range corpusGsxSources(t) {
 		fset := token.NewFileSet()
-		if _, err := parser.ParseFile(fset, fn, string(data), 0); err != nil {
-			continue // skip non-parseable (e.g. 02)
+		if _, err := parser.ParseFile(fset, c.name, c.src, 0); err != nil {
+			continue // skip non-parseable (parser-error cases)
 		}
-		formatted, err := normPrint(t, string(data))
+		formatted, err := normPrint(t, c.src)
 		if err != nil {
-			t.Errorf("%s print: %v", filepath.Base(fn), err)
+			t.Errorf("%s print: %v", c.name, err)
 			continue
 		}
-		want := normalizedAST(t, string(data))
+		want := normalizedAST(t, c.src)
 		got := normalizedAST(t, formatted)
 		if !reflect.DeepEqual(want, got) {
-			t.Errorf("%s: fmt changed the normalized AST (not render-faithful)", filepath.Base(fn))
+			t.Errorf("%s: fmt changed the normalized AST (not render-faithful)", c.name)
 		}
 	}
 }

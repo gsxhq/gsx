@@ -47,8 +47,9 @@ component Card(title string, featured bool) {
 - **Docs** — [Why gsx](docs/guide/vision.md) ·
   [Principles](docs/guide/principles.md) · [Syntax](docs/guide/syntax.md) ·
   [CLI](docs/guide/cli.md)
-- **Examples** — the [`examples/`](examples/) corpus is the canonical syntax
-  reference.
+- **Examples** — the [test corpus](internal/corpus/testdata/cases) is the
+  canonical syntax reference (every case parses, generates Go, and pins its
+  rendered output).
 - **Roadmap & status** — [docs/ROADMAP.md](docs/ROADMAP.md).
 - **Design docs** — [docs/superpowers/specs/](docs/superpowers/specs/).
 

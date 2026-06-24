@@ -1,0 +1,13 @@
+# A |> pipeline on a string child-component prop lowers like every other
+# interpolation context (the prop is a plain string field, not a gsx.Node).
+-- input.gsx --
+package views
+
+component Card(title string) { <div>{title}</div> }
+
+component Page(t string) { <Card title={t |> upper}/> }
+-- invoke --
+Page(PageProps{T: "ada"})
+-- diagnostics.golden --
+-- render.golden --
+<div>ADA</div>

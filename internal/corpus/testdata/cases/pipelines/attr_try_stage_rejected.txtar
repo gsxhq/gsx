@@ -3,4 +3,4 @@ package views
 
 component C(x string) { <div data-x={ x |> upper? }>y</div> }
 -- diagnostics.golden --
-`?` try-marker on filter "upper" not supported yet
+3:37: the `?` try-marker is not supported; gsx auto-unwraps (T, error) values — remove the `?` (handle the error explicitly with `{ if v, err := f(); err != nil { … } }`)

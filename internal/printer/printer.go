@@ -237,7 +237,7 @@ func (p *printer) element(e *ast.Element, depth int) {
 // rawHoleChildren prints the children of a <style> or <script> element: Text
 // nodes are emitted verbatim and Interp nodes use the @{ } delimiter (distinct
 // from the regular { } markup interp, so the re-parse recognizes them as
-// style/script interps). Try ('?') and pipeline Stages are preserved faithfully
+// style/script interps). Pipeline Stages are preserved faithfully
 // so that the formatter never silently strips them — codegen will reject them
 // with a clear error.
 func (p *printer) rawHoleChildren(nodes []ast.Markup) {
@@ -248,9 +248,6 @@ func (p *printer) rawHoleChildren(nodes []ast.Markup) {
 		case *ast.Interp:
 			p.ws("@{ ")
 			p.ws(fmtExpr(v.Expr))
-			if v.Try {
-				p.ws("?")
-			}
 			for _, s := range v.Stages {
 				p.ws(" |> ")
 				p.pipeStage(s)
@@ -271,18 +268,9 @@ func (p *printer) fragment(f *ast.Fragment, depth int) {
 func (p *printer) interp(i *ast.Interp) {
 	p.ws("{ ")
 	p.ws(fmtExpr(i.Expr))
-	if len(i.Stages) == 0 {
-		if i.Try {
-			p.ws("?")
-		}
-	} else {
-		if i.Try {
-			p.ws("?")
-		}
-		for _, s := range i.Stages {
-			p.ws(" |> ")
-			p.pipeStage(s)
-		}
+	for _, s := range i.Stages {
+		p.ws(" |> ")
+		p.pipeStage(s)
 	}
 	p.ws(" }")
 }
@@ -293,9 +281,6 @@ func (p *printer) pipeStage(s ast.PipeStage) {
 		p.ws("(")
 		p.ws(fmtArgs(s.Args))
 		p.ws(")")
-	}
-	if s.Try {
-		p.ws("?")
 	}
 }
 
@@ -418,18 +403,9 @@ func (p *printer) attr(a ast.Attr, depth int) {
 		p.ws(v.Name)
 		p.ws("={")
 		p.ws(fmtExpr(v.Expr))
-		if len(v.Stages) == 0 {
-			if v.Try {
-				p.ws("?")
-			}
-		} else {
-			if v.Try {
-				p.ws("?")
-			}
-			for _, s := range v.Stages {
-				p.ws(" |> ")
-				p.pipeStage(s)
-			}
+		for _, s := range v.Stages {
+			p.ws(" |> ")
+			p.pipeStage(s)
 		}
 		p.ws("}")
 	case *ast.SpreadAttr:
@@ -450,7 +426,7 @@ func (p *printer) attr(a ast.Attr, depth int) {
 	case *ast.JSAttr:
 		// A JS-context attribute whose quoted value is literal JS with @{ } holes
 		// (e.g. x-data="{ tab: @{ tab } }"). Reconstruct name="…" with the holes
-		// printed faithfully (Try/Stages preserved) via the shared rawHole printer.
+		// printed faithfully (pipeline Stages preserved) via the shared rawHole printer.
 		p.ws(v.Name)
 		p.ws(`="`)
 		p.rawHoleChildren(v.Segments)

@@ -8,7 +8,7 @@ File package=p
   Component name=Input recv="" params="id string, rest map[string]string"
     Element tag=input void=true
       StaticAttr name=type value="text"
-      ExprAttr name=id expr="id" try=false
+      ExprAttr name=id expr="id"
       BoolAttr name=disabled
       SpreadAttr expr="rest"
 -- diagnostics.golden --

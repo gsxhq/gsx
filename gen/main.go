@@ -203,8 +203,15 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 	gfs.SetOutput(stderr)
 	var nocacheFlag bool
 	var jsonFlag bool
+	// -q/-v are output flags that belong to generate (cf. `go build -v`), so they
+	// work in any position after the command. Their defaults are the global
+	// values, which OR-combines a global `gsx -v generate` with a per-command
+	// `gsx generate -v` — either turns the behaviour on.
+	quietFlag, verboseFlag := quiet, verbose
 	gfs.BoolVar(&nocacheFlag, "no-cache", noCache, "bypass the content-hash cache; regenerate all")
 	gfs.BoolVar(&jsonFlag, "json", false, "emit diagnostics as a JSON array to stdout")
+	gfs.BoolVar(&quietFlag, "q", quiet, "quiet: suppress success output")
+	gfs.BoolVar(&verboseFlag, "v", verbose, "verbose: list each written file")
 	// Partition args into flag tokens (starting with "-") and positional paths
 	// so that flags work in any position relative to path arguments.
 	// Note: only boolean flags are supported here; -flag value pairs are not.
@@ -275,10 +282,10 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 		return 1
 	}
 
-	if quiet {
+	if quietFlag {
 		return 0
 	}
-	if verbose {
+	if verboseFlag {
 		for _, w := range res.Written {
 			fmt.Fprintln(stdout, w)
 		}
@@ -303,15 +310,77 @@ func isTTY(w io.Writer) bool {
 	return fi.Mode()&os.ModeCharDevice != 0
 }
 
-// version reports the gsx version from the build info's main module, or
-// "(devel)" when no version is embedded (e.g. `go run` or a local build).
-func version() string {
+// bareVersion reports just the gsx module version (e.g. "v1.2.3"), or "(devel)"
+// when none is embedded. It is the one-line form embedded by `info`; the
+// `version` command uses the richer banner from version().
+func bareVersion() string {
 	if info, ok := debug.ReadBuildInfo(); ok {
 		if v := info.Main.Version; v != "" {
 			return v
 		}
 	}
 	return "(devel)"
+}
+
+// version reports the gsx version banner for the `version` command. It reads the
+// build info's main-module version, or "(devel)" when none is embedded (e.g.
+// `go run` or a local build), and enriches it with the VCS revision/time/dirty
+// state and the Go toolchain version when available — so a dev build still
+// reports a useful commit for bug reports. The banner already begins with
+// "gsx "; callers embedding a one-line version should use bareVersion instead.
+func version() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "gsx (devel)"
+	}
+	return formatBuildVersion(info)
+}
+
+// formatBuildVersion renders the multi-line version banner from build info. It
+// is split out from version() so it can be tested deterministically with a
+// synthetic *debug.BuildInfo rather than the ambient build environment.
+func formatBuildVersion(info *debug.BuildInfo) string {
+	ver := info.Main.Version
+	if ver == "" {
+		ver = "(devel)"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "gsx %s", ver)
+
+	// Extract VCS settings (present when built with buildvcs from a repo).
+	var rev, vcsTime string
+	var dirty bool
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+		case "vcs.time":
+			vcsTime = s.Value
+		case "vcs.modified":
+			dirty = s.Value == "true"
+		}
+	}
+	if rev != "" {
+		short := rev
+		if len(short) > 12 {
+			short = short[:12]
+		}
+		fmt.Fprintf(&b, "\n  commit: %s", short)
+		var paren []string
+		if vcsTime != "" {
+			paren = append(paren, vcsTime)
+		}
+		if dirty {
+			paren = append(paren, "dirty")
+		}
+		if len(paren) > 0 {
+			fmt.Fprintf(&b, " (%s)", strings.Join(paren, ", "))
+		}
+	}
+	if info.GoVersion != "" {
+		fmt.Fprintf(&b, "\n  go:     %s", info.GoVersion)
+	}
+	return b.String()
 }
 
 // printUsage writes the top-level usage text listing the available commands.
@@ -330,9 +399,13 @@ Commands:
 	version               print the gsx version
 	help                  show this help
 
-Global flags:
+Global flags (must precede the command):
 	-C dir   change to dir before running
+
+generate flags (accepted in any position):
 	-q       quiet: suppress success output
 	-v       verbose: list each written file
+	--json   emit diagnostics as a JSON array to stdout
+	--no-cache   bypass the content-hash cache; regenerate all
 `)
 }

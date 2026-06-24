@@ -1,3 +1,5 @@
+attrs/attr_error_autounwrap	diag gen render
+attrs/attr_error_autounwrap_nested	diag gen render
 attrs/cond_attr_bool_off	diag render
 attrs/cond_attr_bool_on	diag render
 attrs/cond_attr_else_if_other	diag render
@@ -22,20 +24,31 @@ codegen-shape/example12_toolbar	diag render
 codegen-shape/greeting	diag gen render
 codegen-shape/style_interp	diag gen render
 codegen-shape/whitespace_collapse	diag gen render
-components/child_class_attr_error	diag(error)
-components/child_class_attr_positioned	diag(error)
+components/child_class_fallthrough	diag render
+components/child_class_positioned	diag render
 components/child_hyphen_attr_fallthrough	diag render
 components/child_no_props	diag render
-components/child_prop_pipeline_error	diag(error)
+components/child_prop_pipeline	diag render
 components/child_prop_try_error	diag(error)
+components/child_prop_tuple_error	diag(error)
 components/child_props	diag render
 components/child_props_featured_false	diag render
 components/child_props_static	diag render
-components/child_spread_error	diag(error)
+components/child_spread_fallthrough	diag render
 components/children_slot	diag render
 components/children_slot_binding	diag render
 components/children_slot_empty	diag render
 components/children_slot_interleaved	diag render
+components/component_class_and_spread	diag gen render
+components/component_composable_class	diag gen render
+components/component_cond_branch_spread_rejected	diag(error)
+components/component_conditional_attr	diag gen render
+components/component_conditional_attr_else	diag gen render
+components/component_conditional_attr_lazy	diag gen render
+components/component_fallthrough_pipeline	diag gen render
+components/component_prop_pipeline	diag gen render
+components/component_spread	diag gen render
+components/component_spread_with_class	diag gen render
 components/named_slot	diag render
 components/named_slot_bad_name	diag(error)
 components/named_slot_binding	diag render
@@ -45,6 +58,7 @@ components/named_slot_with_children	diag render
 components/node_param_standalone	diag render
 control_flow/for	diag render
 control_flow/goblock	diag render
+control_flow/if_init_error_handling	diag gen render
 control_flow/if_neg	diag render
 control_flow/if_pos	diag render
 control_flow/if_zero	diag render
@@ -107,6 +121,7 @@ jsattr/manual_overridable	diag gen render
 jsattr/regexp_hostile	diag gen render
 jsattr/string_hostile	diag gen render
 jsattr/tmpl_hostile	diag gen render
+jsattr/value_pipeline	diag gen render
 jsattr/value_tuple	diag gen render
 jsattr/whole_value_bool	diag gen render
 jsattr/whole_value_map	diag gen render
@@ -143,7 +158,7 @@ parser/14_composable_class	ast diag
 parser/15_doctype_comment	ast diag
 parser/16_raw_text	ast diag
 parser/17_pipeline	ast diag
-parser/18_pipeline_attr_try	ast diag
+parser/18_pipeline_attr_try	ast diag(error)
 parser/e01_mismatched_close	ast diag(error)
 parser/e02_unterminated_interp	ast diag(error)
 parser/e03_bad_attr_name	ast diag(error)
@@ -184,6 +199,8 @@ script/regexp_hostile	diag gen render
 script/string_hostile	diag gen render
 script/tmpl_hostile	diag gen render
 script/value_nonstring	diag gen render
+script/value_pipeline	diag gen render
+script/value_pipeline_param	diag gen render
 script/value_tuple	diag gen render
 security/js_rejected_onclick	diag gen render
 security/js_rejected_style	diag render
@@ -199,7 +216,7 @@ style/attr_expr_sanitized	diag render
 style/block_bytes	diag gen render
 style/block_import_injection	diag gen render
 style/block_interpolation	diag gen render
-style/block_pipe_rejected	diag(error)
+style/block_pipeline	diag gen render
 style/block_stringer	diag gen render
 style/block_try_rejected	diag(error)
 style/block_tuple_error	diag gen render
@@ -212,4 +229,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 214 cases (render: 155, error: 39, gen-pinned: 45)
+TOTAL: 231 cases (render: 175, error: 37, gen-pinned: 61)

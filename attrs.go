@@ -62,6 +62,25 @@ func (a Attrs) Merge(other Attrs) Attrs {
 	return out
 }
 
+// AttrsCond selects one of two attribute-bag thunks for a conditional component
+// attribute: it calls and returns then() when cond is true, otherwise els().
+// The branches are THUNKS so the untaken branch is never evaluated — mirroring a
+// real Go `if cond { … } else { … }`, where the untaken block's expressions
+// (e.g. `u.Name` when `u == nil`) are not evaluated. els may be nil (no else
+// branch), in which case a false cond yields a nil bag — a nil Attrs merges as
+// empty. Generated code chains this into a bag-building .Merge(...) expression so
+// a conditional attr only contributes its entries when its condition holds.
+func AttrsCond(cond bool, then, els func() Attrs) Attrs {
+	if cond {
+		if then != nil {
+			return then()
+		}
+	} else if els != nil {
+		return els()
+	}
+	return nil
+}
+
 // Class returns the merged class string from the bag's "class" entry, or "".
 func (a Attrs) Class() string {
 	v, ok := a["class"]

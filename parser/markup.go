@@ -20,12 +20,12 @@ func (p *parser) parseInterp() (*ast.Interp, error) {
 	lead := len(rawInner) - len(strings.TrimLeft(rawInner, " \t\r\n"))
 	exprPos := p.posAt(p.i + 1 + lead)
 	inner := strings.TrimSpace(rawInner)
-	seed, seedTry, stages, perr := parsePipe(inner)
+	seed, stages, perr := parsePipe(inner)
 	if perr != nil {
 		return nil, p.errorf(startPos, "%v", perr)
 	}
 	p.i = end + 1
-	n := &ast.Interp{Expr: seed, Try: seedTry, Stages: stages, ExprPos: exprPos}
+	n := &ast.Interp{Expr: seed, Stages: stages, ExprPos: exprPos}
 	ast.SetSpan(n, startPos, p.posAt(p.i))
 	return n, nil
 }
@@ -510,7 +510,7 @@ func (p *parser) parseAttrBraceValue(name string, attrStartPos token.Pos) (ast.A
 	if err != nil {
 		return nil, err
 	}
-	ea := &ast.ExprAttr{Name: name, Expr: in.Expr, Try: in.Try, Stages: in.Stages}
+	ea := &ast.ExprAttr{Name: name, Expr: in.Expr, ExprPos: in.ExprPos, Stages: in.Stages}
 	ast.SetSpan(ea, attrStartPos, in.End())
 	return ea, nil
 }

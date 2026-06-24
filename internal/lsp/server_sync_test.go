@@ -16,18 +16,18 @@ type fakeAnalyzer struct {
 	file string // abs .gsx path to attach the diagnostic to
 }
 
-func (a fakeAnalyzer) Diagnose(dir string, override map[string][]byte) ([]diag.Diagnostic, error) {
+func (a fakeAnalyzer) Analyze(dir string, override map[string][]byte) (*Package, error) {
 	if _, ok := override[a.file]; !ok {
-		return nil, nil // the open buffer must reach the analyzer
+		return &Package{}, nil // the open buffer must reach the analyzer
 	}
-	return []diag.Diagnostic{{
+	return &Package{Diags: []diag.Diagnostic{{
 		Start:    token.Position{Filename: a.file, Line: 1, Column: 3},
 		End:      token.Position{Filename: a.file, Line: 1, Column: 6},
 		Severity: diag.Error,
 		Code:     "type-error",
 		Source:   "types",
 		Message:  "undefined: foo",
-	}}, nil
+	}}}, nil
 }
 
 func TestDidOpenPublishesDiagnostics(t *testing.T) {

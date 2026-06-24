@@ -115,10 +115,11 @@ func (*GoChunk) declNode() {}
 // Component is a `component [recv] Name(params) { body }` declaration.
 type Component struct {
 	span
-	Recv   string // e.g. "(p UsersPage)" or "(f *Form)"; "" if none
-	Name   string
-	Params string // raw param-list source, e.g. "title string, featured bool"; "" if none
-	Body   []Markup
+	Recv      string    // e.g. "(p UsersPage)" or "(f *Form)"; "" if none
+	Name      string
+	Params    string    // raw param-list source, e.g. "title string, featured bool"; "" if none
+	ParamsPos token.Pos // position of the first char of Params in source (after `(` + ws); NoPos if no params
+	Body      []Markup
 }
 
 func (*Component) declNode() {}
@@ -171,19 +172,20 @@ type HTMLComment struct {
 
 func (*HTMLComment) markupNode() {}
 
-// Interp is `{ expr }` (Try=false) or `{ expr? }` (Try=true). When Stages is
-// non-empty, Expr is the pipeline seed and Stages are applied left-to-right
-// (`seed |> s0 |> s1 …`).
+// Interp is `{ expr }`. When Stages is non-empty, Expr is the pipeline seed and
+// Stages are applied left-to-right (`seed |> s0 |> s1 …`). A `(T, error)` Expr is
+// auto-unwrapped at codegen (the error propagates out of the enclosing Render);
+// there is no try-marker.
 type Interp struct {
 	span
 	Expr   string
-	Try    bool
 	Stages []PipeStage
 	// ExprPos is the position of the first non-whitespace character of the
 	// interpolation's inner expression in the source file (i.e. where Expr
 	// starts before trimming). It is token.NoPos when unavailable. Used by
 	// codegen to emit compensated //line directives so type errors map to the
-	// exact source column of the expression rather than the '{' opener.
+	// exact source column of the expression rather than the '{' opener, and by
+	// the LSP to map a cursor onto the expression for go-to-definition.
 	ExprPos token.Pos
 	// JSCtx is set by internal/jsx for Interps inside a <script>; JSCtxNone otherwise.
 	JSCtx JSCtx
@@ -205,12 +207,11 @@ const (
 
 // PipeStage is one `|> name` / `|> name(args)` filter in a pipeline. It is a
 // plain value, not a Node. HasArgs distinguishes `f` (bare → f(x)) from `f()`
-// (parameterized → f()(x)); Try records a trailing `?`.
+// (parameterized → f()(x)).
 type PipeStage struct {
 	Name    string
 	Args    string
 	HasArgs bool
-	Try     bool
 }
 
 // StaticAttr is name="value".
@@ -221,12 +222,13 @@ type StaticAttr struct {
 
 func (*StaticAttr) attrNode() {}
 
-// ExprAttr is name={expr} or name={expr?}. Stages mirrors Interp.Stages for a
-// pipelined attribute value (`name={ seed |> s0 … }`).
+// ExprAttr is name={expr}. Stages mirrors Interp.Stages for a pipelined
+// attribute value (`name={ seed |> s0 … }`). A `(T, error)` expr is auto-unwrapped
+// at codegen (the error propagates out of the enclosing Render).
 type ExprAttr struct {
 	span
 	Name, Expr string
-	Try        bool
+	ExprPos    token.Pos // position of the first char of Expr in source (for go-to-definition)
 	Stages     []PipeStage
 }
 
