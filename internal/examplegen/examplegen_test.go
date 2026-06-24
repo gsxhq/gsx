@@ -63,3 +63,26 @@ func TestPresetsJSON(t *testing.T) {
 		t.Fatalf("preset[0] = %v", got[0])
 	}
 }
+
+func TestRenderMarkdown(t *testing.T) {
+	exs, _ := Load("testdata")
+	md := string(RenderMarkdown(exs))
+	// category headings
+	if !strings.Contains(md, "## Basics") || !strings.Contains(md, "## Components & composition") {
+		t.Fatalf("missing category headings:\n%s", md)
+	}
+	// example heading + summary + a gsx fence + a playground link
+	if !strings.Contains(md, "### Hello") || !strings.Contains(md, "A greeting.") {
+		t.Fatalf("missing example heading/summary")
+	}
+	if !strings.Contains(md, "```gsx") {
+		t.Fatalf("missing gsx code fence")
+	}
+	if !strings.Contains(md, "/playground#try=") {
+		t.Fatalf("missing playground link")
+	}
+	// multi-file example shows per-file captions
+	if !strings.Contains(md, "**lib.gsx**") || !strings.Contains(md, "**page.gsx**") {
+		t.Fatalf("multi-file example missing per-file captions:\n%s", md)
+	}
+}
