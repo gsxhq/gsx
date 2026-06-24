@@ -42,13 +42,13 @@ var errSkipComponent = errors.New("skip")
 // threaded alongside propFields and consumed by emit/probe to promote renderable
 // values into gsx.Node props (gsx.Val/gsx.Text).
 func resolveTypesPkg(dir string, files map[string]*gsxast.File, propFields, nodeProps map[string]map[string]bool, byo *byoData, fset *token.FileSet) (map[gsxast.Node]types.Type, filterTable, error) {
-	return resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, byo, []string{stdImportPath}, fset)
+	return resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, byo, nil, []string{stdImportPath}, fset)
 }
 
 // resolveTypesPkgWithFilters is the multi-package form of resolveTypesPkg: it
 // harvests the filter table from filterPkgs (last-wins precedence) and otherwise
 // behaves identically. resolveTypesPkg is the std-only wrapper.
-func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propFields, nodeProps map[string]map[string]bool, byo *byoData, filterPkgs []string, fset *token.FileSet) (map[gsxast.Node]types.Type, filterTable, error) {
+func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propFields, nodeProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, filterPkgs []string, fset *token.FileSet) (map[gsxast.Node]types.Type, filterTable, error) {
 	table, err := loadFilterTableMulti(dir, filterPkgs)
 	if err != nil {
 		return nil, nil, err
@@ -56,7 +56,7 @@ func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propF
 	overlay := map[string][]byte{}
 	skelComps := map[string][]*gsxast.Component{}
 	for path, file := range files {
-		skel, comps, err := buildSkeleton(file, table, propFields, nodeProps, byo, fset)
+		skel, comps, err := buildSkeleton(file, table, propFields, nodeProps, byo, fm, fset)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -330,7 +330,7 @@ func freeOverlayPath(dir, base, suffix string, overlay map[string][]byte) (strin
 // resolution: the file's GoChunks, plus each component's real props struct and
 // func signature, with a probe body (used-param locals, each interpolation as
 // `_gsxuse(expr)`, each child component as `_ = Child(ChildProps{})`).
-func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps map[string]map[string]bool, byo *byoData, fset *token.FileSet) (string, []*gsxast.Component, error) {
+func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, fset *token.FileSet) (string, []*gsxast.Component, error) {
 	var comps []*gsxast.Component
 	for _, d := range file.Decls {
 		if c, ok := d.(*gsxast.Component); ok {
@@ -388,7 +388,7 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps m
 	// failure and must abort the whole skeleton build.
 	var validComps []*gsxast.Component
 	for _, c := range comps {
-		if err := emitComponentSkeleton(&compBuf, c, table, propFields, nodeProps, byo, usedFilters, fset); err != nil {
+		if err := emitComponentSkeleton(&compBuf, c, table, propFields, nodeProps, byo, fm, usedFilters, fset); err != nil {
 			if errors.Is(err, errSkipComponent) {
 				// Validation failure: skip this component's skeleton; it will fail
 				// again (with a positioned diagnostic) during generateFile.
@@ -473,7 +473,7 @@ func sortedFilterAliases(usedFilters map[string]string) []string {
 // func/method signature + probe body) into sb, accumulating into usedFilters
 // (alias→pkgPath) every filter package the component's probes reference — so the
 // caller imports exactly those packages under those aliases.
-func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filterTable, propFields, nodeProps map[string]map[string]bool, byo *byoData, usedFilters map[string]string, fset *token.FileSet) error {
+func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filterTable, propFields, nodeProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, usedFilters map[string]string, fset *token.FileSet) error {
 	params, err := parseParams(c.Params)
 	if err != nil {
 		// Emit a minimal stub so the overall skeleton remains valid Go, keeping
@@ -545,7 +545,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 		// Reset the //line so the probe body's own positions are not shifted by the
 		// param binding's mapping.
 		emitSkeletonLine(sb, fset, c.Pos())
-		if err := emitProbes(sb, c.Body, table, propFields, nodeProps, byo, recvVar, recvTypeName, usedFilters, fset); err != nil {
+		if err := emitProbes(sb, c.Body, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
 			return err
 		}
 		sb.WriteString("\treturn nil\n}\n")
@@ -632,7 +632,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 	if manual {
 		sb.WriteString("\tattrs := _gsxp.Attrs\n\t_ = attrs\n")
 	}
-	if err := emitProbes(sb, c.Body, table, propFields, nodeProps, byo, recvVar, recvTypeName, usedFilters, fset); err != nil {
+	if err := emitProbes(sb, c.Body, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
 		return err
 	}
 	sb.WriteString("\treturn nil\n}\n")
@@ -653,7 +653,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 // usedFilters (alias→pkgPath) accumulates every filter package the probes
 // reference, so the skeleton imports exactly those packages under those aliases
 // — driven by the SAME lowerPipe report the emitter uses.
-func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, propFields, nodeProps map[string]map[string]bool, byo *byoData, recvVar, recvTypeName string, usedFilters map[string]string, fset *token.FileSet) error {
+func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, propFields, nodeProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, recvVar, recvTypeName string, usedFilters map[string]string, fset *token.FileSet) error {
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *gsxast.Interp:
@@ -711,7 +711,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					// NOT _gsxuse, so they don't perturb the k-th alignment.
 					// When splatExpr is non-empty (byo whole-struct splat), emit
 					// `_ = callTarget(splatExpr)` mirroring the emitter exactly.
-					fields, splatExpr, usedPkgs, err := childPropsLiteral(t, propsType, "_gsxrt", table, propFields, nodeProps[propsType], byo, func(nodes []gsxast.Markup) (string, error) {
+					fields, splatExpr, usedPkgs, err := childPropsLiteral(t, propsType, "_gsxrt", table, propFields, nodeProps[propsType], byo, fm, func(nodes []gsxast.Markup) (string, error) {
 						return "_gsxrt.Node(nil)", nil
 					})
 					if err != nil {
@@ -743,12 +743,12 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					if probeErr != nil {
 						return
 					}
-					probeErr = emitProbes(sb, value, table, propFields, nodeProps, byo, recvVar, recvTypeName, usedFilters, fset)
+					probeErr = emitProbes(sb, value, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset)
 				})
 				if probeErr != nil {
 					return probeErr
 				}
-				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, byo, recvVar, recvTypeName, usedFilters, fset); err != nil {
+				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
 					return err
 				}
 			} else {
@@ -786,34 +786,34 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					if probeErr != nil {
 						return
 					}
-					probeErr = emitProbes(sb, value, table, propFields, nodeProps, byo, recvVar, recvTypeName, usedFilters, fset)
+					probeErr = emitProbes(sb, value, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset)
 				})
 				if probeErr != nil {
 					return probeErr
 				}
-				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, byo, recvVar, recvTypeName, usedFilters, fset); err != nil {
+				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
 					return err
 				}
 			}
 		case *gsxast.Fragment:
-			if err := emitProbes(sb, t.Children, table, propFields, nodeProps, byo, recvVar, recvTypeName, usedFilters, fset); err != nil {
+			if err := emitProbes(sb, t.Children, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
 				return err
 			}
 		case *gsxast.ForMarkup:
 			fmt.Fprintf(sb, "for %s {\n", t.Clause)
-			if err := emitProbes(sb, t.Body, table, propFields, nodeProps, byo, recvVar, recvTypeName, usedFilters, fset); err != nil {
+			if err := emitProbes(sb, t.Body, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
 				return err
 			}
 			sb.WriteString("}\n")
 		case *gsxast.IfMarkup:
 			fmt.Fprintf(sb, "if %s {\n", t.Cond)
-			if err := emitProbes(sb, t.Then, table, propFields, nodeProps, byo, recvVar, recvTypeName, usedFilters, fset); err != nil {
+			if err := emitProbes(sb, t.Then, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
 				return err
 			}
 			sb.WriteString("}")
 			if t.Else != nil {
 				sb.WriteString(" else {\n")
-				if err := emitProbes(sb, t.Else, table, propFields, nodeProps, byo, recvVar, recvTypeName, usedFilters, fset); err != nil {
+				if err := emitProbes(sb, t.Else, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
 					return err
 				}
 				sb.WriteString("}")
@@ -827,7 +827,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				} else {
 					fmt.Fprintf(sb, "case %s:\n", cc.List)
 				}
-				if err := emitProbes(sb, cc.Body, table, propFields, nodeProps, byo, recvVar, recvTypeName, usedFilters, fset); err != nil {
+				if err := emitProbes(sb, cc.Body, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
 					return err
 				}
 			}

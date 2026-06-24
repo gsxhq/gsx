@@ -95,7 +95,7 @@ func dirSourceHash(dir string) (string, error) {
 // of buildContext() and subsumes GOVERSION, GOOS, GOARCH, CGO_ENABLED, etc.
 // clsFingerprint is the attrclass.Classifier.Fingerprint() for the current run;
 // it ensures a changed attribute classification rule invalidates cached output.
-func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumHash, buildCtx string, filterPkgs []string, clsFingerprint string) (string, error) {
+func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumHash, buildCtx string, filterPkgs []string, clsFingerprint string, hasFieldMatcher bool) (string, error) {
 	dir = filepath.Clean(dir)
 	own, err := dirSourceHash(dir)
 	if err != nil {
@@ -131,9 +131,13 @@ func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumH
 	sort.Strings(depHashes)
 
 	pins := dedupSorted(filterPkgs)
+	fmStr := "0"
+	if hasFieldMatcher {
+		fmStr = "1"
+	}
 	h := sha256.New()
 	fmt.Fprintf(h, "gsxcache-v1\x00%s\x00%s\x00%s\x00%s\x00", codegen.Version(), buildCtx, goModHash, goSumHash)
-	fmt.Fprintf(h, "filters=%s\x00cls=%s\x00own=%s\x00", strings.Join(pins, "\x00"), clsFingerprint, own)
+	fmt.Fprintf(h, "filters=%s\x00cls=%s\x00fm=%s\x00own=%s\x00", strings.Join(pins, "\x00"), clsFingerprint, fmStr, own)
 	for _, d := range depHashes {
 		fmt.Fprintf(h, "dep=%s\x00", d)
 	}

@@ -239,7 +239,7 @@ func TestChildPropPipelineSkeletonImportsStd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadFilterTable: %v", err)
 	}
-	skel, _, err := buildSkeleton(file, table, propFields, nodeProps, byo, fset)
+	skel, _, err := buildSkeleton(file, table, propFields, nodeProps, byo, nil, fset)
 	if err != nil {
 		t.Fatalf("buildSkeleton: %v", err)
 	}

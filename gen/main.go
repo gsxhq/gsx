@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/gsxhq/gsx/internal/attrclass"
+	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/diag"
 )
 
@@ -30,15 +31,16 @@ type Option func(*config)
 // errs collects option-construction problems (e.g. a bad WithFilters marker) so
 // the run can fail with a clear message instead of silently dropping the option.
 type config struct {
-	filterPkgs []string
-	cssMin     func(string) (string, error)
-	jsMin      func(string) (string, error)
-	jsRules    []attrclass.Rule
-	urlRules   []attrclass.Rule
-	cssRules   []attrclass.Rule
-	attrPred   func(name string) (attrclass.Context, bool)
-	predLabel  string
-	errs       []error
+	filterPkgs   []string
+	cssMin       func(string) (string, error)
+	jsMin        func(string) (string, error)
+	jsRules      []attrclass.Rule
+	urlRules     []attrclass.Rule
+	cssRules     []attrclass.Rule
+	attrPred     func(name string) (attrclass.Context, bool)
+	predLabel    string
+	fieldMatcher codegen.FieldMatcher
+	errs         []error
 }
 
 // classifier builds the resolved Classifier from the accumulated options. A
@@ -129,13 +131,13 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 	cmd, cmdArgs := rest[0], rest[1:]
 	switch cmd {
 	case "generate":
-		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, cfg.filterPkgs, cfg.classifier(), cfg.predLabel, cfg.cssMin, cfg.jsMin)
+		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, cfg.filterPkgs, cfg.classifier(), cfg.predLabel, cfg.fieldMatcher, cfg.cssMin, cfg.jsMin)
 	case "clean":
 		return runClean(cmdArgs, stdout, stderr)
 	case "info":
 		// Resolve against cwd: -C (handled above) has already chdir'd, so "."
 		// anchors the go/packages load at the user's chosen directory.
-		return runInfo(stdout, stderr, ".", cfg.filterPkgs, cfg.classifier(), cfg.predLabel, cmdArgs)
+		return runInfo(stdout, stderr, ".", cfg.filterPkgs, cfg.classifier(), cfg.predLabel, cfg.fieldMatcher, cmdArgs)
 	case "fmt":
 		return runFmt(stdout, stderr, cmdArgs)
 	case "lsp":
@@ -198,7 +200,7 @@ func runClean(args []string, stdout, stderr io.Writer) int {
 // discovery fails → exit 2) from a codegen error (one or more error-severity
 // diagnostics → exit 1). Success returns 0.
 // noCache bypasses the content-hash cache and forces a full regeneration.
-func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string, cls *attrclass.Classifier, predLabel string, cssMin, jsMin func(string) (string, error)) int {
+func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string, cls *attrclass.Classifier, predLabel string, fm codegen.FieldMatcher, cssMin, jsMin func(string) (string, error)) int {
 	gfs := flag.NewFlagSet("generate", flag.ContinueOnError)
 	gfs.SetOutput(stderr)
 	var nocacheFlag bool
@@ -231,8 +233,10 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 	}
 	// Bypass the cache when --no-cache is set OR when a custom minifier is
 	// configured: funcs are not hashable, so the cache cannot key on cssMin/jsMin.
-	useCache := !nocacheFlag && cssMin == nil && jsMin == nil
-	res, err := generateCached(paths, filterPkgs, cls, predLabel, useCache, cssMin, jsMin)
+	// Bypass the cache when a custom field matcher is installed: funcs are not
+	// hashable, so the cache cannot key on fm. Mirror the minifier bypass pattern.
+	useCache := !nocacheFlag && cssMin == nil && jsMin == nil && fm == nil
+	res, err := generateCached(paths, filterPkgs, cls, predLabel, fm, useCache, cssMin, jsMin)
 
 	// Operational errors (I/O, module-graph failures): these are not diagnostics.
 	// Print each with the gsx: prefix and return early.
