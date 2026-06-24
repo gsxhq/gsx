@@ -344,13 +344,13 @@ func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]typ
 	emitS(b, ">")
 	if strings.EqualFold(el.Tag, "style") {
 		for _, c := range el.Children {
-			if !genStyleChild(b, c, resolved, imports, fset, bag) {
+			if !genStyleChild(b, c, resolved, table, imports, fset, bag) {
 				return false
 			}
 		}
 	} else if strings.EqualFold(el.Tag, "script") {
 		for _, c := range el.Children {
-			if !genScriptChild(b, c, resolved, imports, fset, bag) {
+			if !genScriptChild(b, c, resolved, table, imports, fset, bag) {
 				return false
 			}
 		}
@@ -560,13 +560,13 @@ func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, res
 	emitS(b, ">")
 	if strings.EqualFold(el.Tag, "style") {
 		for _, c := range el.Children {
-			if !genStyleChild(b, c, resolved, imports, fset, bag) {
+			if !genStyleChild(b, c, resolved, table, imports, fset, bag) {
 				return false
 			}
 		}
 	} else if strings.EqualFold(el.Tag, "script") {
 		for _, c := range el.Children {
-			if !genScriptChild(b, c, resolved, imports, fset, bag) {
+			if !genScriptChild(b, c, resolved, table, imports, fset, bag) {
 				return false
 			}
 		}
@@ -709,13 +709,13 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		emitS(b, ">")
 		if strings.EqualFold(t.Tag, "style") {
 			for _, c := range t.Children {
-				if !genStyleChild(b, c, resolved, imports, fset, bag) {
+				if !genStyleChild(b, c, resolved, table, imports, fset, bag) {
 					return false
 				}
 			}
 		} else if strings.EqualFold(t.Tag, "script") {
 			for _, c := range t.Children {
-				if !genScriptChild(b, c, resolved, imports, fset, bag) {
+				if !genScriptChild(b, c, resolved, table, imports, fset, bag) {
 					return false
 				}
 			}
@@ -889,13 +889,13 @@ func emitS(b *bytes.Buffer, s string) {
 // genStyleChild emits one child of a <style> element. Text is raw CSS (verbatim);
 // an Interp is rendered in CSS context (auto-sanitized). <style> bodies contain
 // only Text and @{ } interps (parser guarantee).
-func genStyleChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, imports map[string]bool, fset *token.FileSet, bag *diag.Bag) bool {
+func genStyleChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet, bag *diag.Bag) bool {
 	switch t := n.(type) {
 	case *ast.Text:
 		emitS(b, t.Value)
 		return true
 	case *ast.Interp:
-		return emitCSSInterp(b, t, resolved, imports, fset, bag)
+		return emitCSSInterp(b, t, resolved, table, imports, fset, bag)
 	default:
 		bag.Errorf(n.Pos(), n.End(), "unsupported-style-node", "<style> body may contain only text and @{ } interpolations, got %T", n)
 		return false
@@ -903,17 +903,24 @@ func genStyleChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Ty
 }
 
 // emitCSSInterp renders a <style> interpolation value in CSS block context.
-func emitCSSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, imports map[string]bool, fset *token.FileSet, bag *diag.Bag) bool {
+func emitCSSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet, bag *diag.Bag) bool {
+	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
-		bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "pipeline stages not supported in <style> interpolation yet")
-		return false
+		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table)
+		if err != nil {
+			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+			return false
+		}
+		for _, p := range usedPkgs {
+			imports[p] = true
+		}
+		expr = lowered
 	}
 	t, ok := resolved[n]
 	if !ok || t == nil {
 		bag.Errorf(n.Pos(), n.End(), "unresolved-interp", "could not resolve type of <style> interpolation %q", n.Expr)
 		return false
 	}
-	expr := strings.TrimSpace(n.Expr)
 	if tup, ok := t.(*types.Tuple); ok {
 		if tup.Len() != 2 || tup.At(1).Type().String() != "error" {
 			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "<style> interpolation %q returns %s; only (T, error) is supported", expr, t)
@@ -960,13 +967,13 @@ func emitRenderCSS(b *bytes.Buffer, expr string, t types.Type, imports map[strin
 // (verbatim); an Interp is rendered through the JS escaper selected by its
 // JSCtx (set by internal/jsx). Comment-context holes were already un-split to
 // Text by jsx.ResolveScripts, so they arrive here as Text.
-func genScriptChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, imports map[string]bool, fset *token.FileSet, bag *diag.Bag) bool {
+func genScriptChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet, bag *diag.Bag) bool {
 	switch t := n.(type) {
 	case *ast.Text:
 		emitS(b, t.Value)
 		return true
 	case *ast.Interp:
-		return emitJSInterp(b, t, resolved, imports, fset, bag)
+		return emitJSInterp(b, t, resolved, table, imports, fset, bag)
 	default:
 		bag.Errorf(n.Pos(), n.End(), "unsupported-script-node", "<script> body may contain only text and @{ } interpolations, got %T", n)
 		return false
@@ -976,17 +983,24 @@ func genScriptChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.T
 // emitJSInterp renders a <script> interpolation value through the runtime JS
 // escaper chosen by its JSCtx. It mirrors emitCSSInterp's pipeline-stage handling
 // and (T, error) tuple auto-unwrap.
-func emitJSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, imports map[string]bool, fset *token.FileSet, bag *diag.Bag) bool {
+func emitJSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet, bag *diag.Bag) bool {
+	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
-		bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "pipeline stages not supported in <script> interpolation yet")
-		return false
+		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table)
+		if err != nil {
+			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+			return false
+		}
+		for _, p := range usedPkgs {
+			imports[p] = true
+		}
+		expr = lowered
 	}
 	t, ok := resolved[n]
 	if !ok || t == nil {
 		bag.Errorf(n.Pos(), n.End(), "unresolved-interp", "could not resolve type of <script> interpolation %q", n.Expr)
 		return false
 	}
-	expr := strings.TrimSpace(n.Expr)
 	// Unwrap (T, error) exactly like emitCSSInterp.
 	if tup, ok := t.(*types.Tuple); ok {
 		if tup.Len() != 2 || tup.At(1).Type().String() != "error" {
@@ -1052,7 +1066,7 @@ func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, tab
 	case *ast.ExprAttr:
 		return emitExprAttr(b, t, resolved, table, imports, cls, bag)
 	case *ast.JSAttr:
-		return emitJSAttr(b, t, resolved, imports, bag)
+		return emitJSAttr(b, t, resolved, table, imports, bag)
 	case *ast.ClassAttr:
 		// class -> token merge (gw.Class); style -> '; '-joined declarations
 		// (gw.Style) with dynamic parts CSS-value-filtered.
@@ -1104,14 +1118,14 @@ func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, tab
 // @{ } holes (form 2a, e.g. x-data="{ tab: @{ x } }"). Static JS text is
 // HTML-attr-escaped at codegen so <,>,& survive the attribute; each hole is
 // escaped by its JSCtx and then HTML-attr-escaped (the *Attr escapers do both).
-func emitJSAttr(b *bytes.Buffer, a *ast.JSAttr, resolved map[ast.Node]types.Type, imports map[string]bool, bag *diag.Bag) bool {
+func emitJSAttr(b *bytes.Buffer, a *ast.JSAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, bag *diag.Bag) bool {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
 	for _, seg := range a.Segments {
 		switch s := seg.(type) {
 		case *ast.Text:
 			fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(htmlAttrEscape(s.Value)))
 		case *ast.Interp:
-			if !emitJSAttrInterp(b, s, resolved, imports, bag) {
+			if !emitJSAttrInterp(b, s, resolved, table, imports, bag) {
 				return false
 			}
 		default:
@@ -1127,17 +1141,24 @@ func emitJSAttr(b *bytes.Buffer, a *ast.JSAttr, resolved map[ast.Node]types.Type
 // the runtime *Attr escaper chosen by its JSCtx. It mirrors emitJSInterp's
 // pipeline-stage handling and (T, error) tuple auto-unwrap, but routes to the
 // JS*Attr methods (which additionally HTML-attr-escape).
-func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, imports map[string]bool, bag *diag.Bag) bool {
+func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, bag *diag.Bag) bool {
+	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
-		bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "pipeline stages not supported in JS attribute interpolation yet")
-		return false
+		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table)
+		if err != nil {
+			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+			return false
+		}
+		for _, p := range usedPkgs {
+			imports[p] = true
+		}
+		expr = lowered
 	}
 	t, ok := resolved[n]
 	if !ok || t == nil {
 		bag.Errorf(n.Pos(), n.End(), "unresolved-interp", "could not resolve type of JS attribute interpolation %q", n.Expr)
 		return false
 	}
-	expr := strings.TrimSpace(n.Expr)
 	if tup, ok := t.(*types.Tuple); ok {
 		if tup.Len() != 2 || tup.At(1).Type().String() != "error" {
 			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "JS attribute interpolation %q returns %s; only (T, error) is supported", expr, t)

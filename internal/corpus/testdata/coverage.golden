@@ -111,6 +111,7 @@ jsattr/manual_overridable	diag gen render
 jsattr/regexp_hostile	diag gen render
 jsattr/string_hostile	diag gen render
 jsattr/tmpl_hostile	diag gen render
+jsattr/value_pipeline	diag gen render
 jsattr/value_tuple	diag gen render
 jsattr/whole_value_bool	diag gen render
 jsattr/whole_value_map	diag gen render
@@ -183,6 +184,7 @@ script/regexp_hostile	diag gen render
 script/string_hostile	diag gen render
 script/tmpl_hostile	diag gen render
 script/value_nonstring	diag gen render
+script/value_pipeline	diag gen render
 script/value_tuple	diag gen render
 security/js_rejected_onclick	diag gen render
 security/js_rejected_style	diag render
@@ -198,7 +200,7 @@ style/attr_expr_sanitized	diag render
 style/block_bytes	diag gen render
 style/block_import_injection	diag gen render
 style/block_interpolation	diag gen render
-style/block_pipe_rejected	diag(error)
+style/block_pipeline	diag gen render
 style/block_stringer	diag gen render
 style/block_try_rejected	diag(error)
 style/block_tuple_error	diag gen render
@@ -211,4 +213,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 213 cases (render: 153, error: 41, gen-pinned: 48)
+TOTAL: 215 cases (render: 156, error: 40, gen-pinned: 51)

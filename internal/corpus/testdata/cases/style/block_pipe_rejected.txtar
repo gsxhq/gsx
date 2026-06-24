@@ -1,8 +1,0 @@
--- input.gsx --
-package views
-
-component C(x string) {
-	<style>.a{color:@{ x |> upper }}</style>
-}
--- diagnostics.golden --
-4:19: pipeline stages not supported in <style> interpolation yet
