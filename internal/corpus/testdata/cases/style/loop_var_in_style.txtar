@@ -1,0 +1,17 @@
+# Regression: a for-loop variable used ONLY inside a composable style={ … } must be
+# seen as USED by the skeleton (same class/style liveness-probe gap).
+-- input.gsx --
+package views
+
+component Bars(vals []int) {
+	<div>
+		{ for _, v := range vals {
+			<span style={ "color: red", "font-weight: bold": v > 5 }>x</span>
+		} }
+	</div>
+}
+-- invoke --
+Bars(BarsProps{Vals: []int{3, 8}})
+-- diagnostics.golden --
+-- render.golden --
+<div><span style="color: red">x</span><span style="color: red; font-weight: bold">x</span></div>
