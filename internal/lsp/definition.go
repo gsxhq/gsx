@@ -72,6 +72,9 @@ func (s *Server) handleDefinition(f frame) error {
 	}
 	uri := p.TextDocument.URI
 	path := uriToPath(uri)
+	if strings.HasSuffix(path, ".go") {
+		return s.handleGoDefinition(f, uri, path)
+	}
 	text, ok := s.docs.text(uri)
 	if !ok {
 		return s.reply(f.ID, nil)
@@ -144,5 +147,76 @@ func (s *Server) locationFor(dp token.Position) Location {
 	}
 	pos := Position{Line: line, Character: char}
 	return Location{URI: pathToURI(dp.Filename), Range: Range{Start: pos, End: pos}}
+}
+
+// handleGoDefinition answers definition for a cursor in a .go file: if the
+// cursor sits on a reference to a gsx component (per the cross-index), jump to
+// that component's .gsx declaration. Otherwise null (gopls handles real Go).
+func (s *Server) handleGoDefinition(f frame, uri, path string) error {
+	var p textDocumentPositionParams
+	if err := json.Unmarshal(f.Params, &p); err != nil {
+		return s.reply(f.ID, nil)
+	}
+	text, ok := s.docs.text(uri)
+	if !ok {
+		return s.reply(f.ID, nil)
+	}
+	pkg := s.pkgs[filepath.Dir(path)]
+	if pkg == nil || len(pkg.CrossIndex) == 0 {
+		return s.reply(f.ID, nil) // not a gsx package
+	}
+	curLine := p.Position.Line + 1 // token.Position is 1-based
+	curCol := byteOffsetForPosition(text, p.Position.Line, p.Position.Character, s.enc) -
+		lineStartOffset(text, p.Position.Line) + 1 // 1-based byte column on the line
+	for _, cr := range pkg.CrossIndex {
+		for _, r := range cr.Refs {
+			if posCoversCursor(r, path, curLine, curCol, len(cr.Name)) {
+				return s.reply(f.ID, s.locationForPos(cr.Decl))
+			}
+		}
+	}
+	return s.reply(f.ID, nil)
+}
+
+// lineStartOffset returns the byte offset of the start of the 0-based line.
+func lineStartOffset(text string, line int) int {
+	off := 0
+	for i := 0; i < line; i++ {
+		nl := strings.IndexByte(text[off:], '\n')
+		if nl < 0 {
+			return len(text)
+		}
+		off += nl + 1
+	}
+	return off
+}
+
+// locationForPos converts a resolved token.Position (a .gsx or .go file) to an
+// LSP Location, encoding the column against the target file's own text.
+func (s *Server) locationForPos(dp token.Position) Location {
+	char := dp.Column - 1
+	if data, err := os.ReadFile(dp.Filename); err == nil {
+		char = charForByteCol(lineAtFunc(string(data))(dp.Line), dp.Column, s.enc)
+	}
+	line := dp.Line - 1
+	if line < 0 {
+		line = 0
+	}
+	pos := Position{Line: line, Character: char}
+	return Location{URI: pathToURI(dp.Filename), Range: Range{Start: pos, End: pos}}
+}
+
+// posCoversCursor reports whether the token.Position r (a reference in a .go
+// file) covers the given cursor (1-based line and byte column). The reference
+// name has length nameLen bytes; the span is [r.Column, r.Column+nameLen).
+// filepath.Base comparison is used so the cross-index path need not be absolute.
+func posCoversCursor(r token.Position, path string, curLine, curCol, nameLen int) bool {
+	if r.Line != curLine {
+		return false
+	}
+	if filepath.Base(r.Filename) != filepath.Base(path) {
+		return false
+	}
+	return curCol >= r.Column && curCol < r.Column+nameLen
 }
 
