@@ -111,6 +111,13 @@ func runFmt(stdout, stderr io.Writer, args []string) int {
 	return exit
 }
 
+// Format returns the canonical, idempotent formatting of a single .gsx source
+// (the same transformation `gsx fmt` applies): parse → whitespace-normalize →
+// print. name is used only in parse-error messages. A non-nil error is a parse
+// or print failure. It is the in-process entry point for tooling (editors,
+// the playground) that wants to format without the CLI.
+func Format(name string, src []byte) ([]byte, error) { return formatGsx(name, src) }
+
 // formatGsx parses src (named for diagnostics), normalizes whitespace, and
 // prints the canonical gsx source. The returned bytes are the formatted form; a
 // non-nil error is a parse or print failure (the caller treats it as a per-file

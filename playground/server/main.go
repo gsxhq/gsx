@@ -19,6 +19,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/gsxhq/gsx/gen"
 )
 
 var (
@@ -60,9 +62,35 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/render", makeRenderHandler(p))
+	mux.HandleFunc("/format", formatHandler)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprintln(w, "ok") })
 	log.Printf("gsx playground on %s (gsxmod=%s, pool=%d)", listenAddr, *gsxMod, poolSize)
 	log.Fatal(http.ListenAndServe(listenAddr, loggingMiddleware(cors(withLimits(mux, 64*1024, sem)))))
+}
+
+// formatHandler formats the supplied .gsx source via gen.Format (same as
+// `gsx fmt`). Returns {"formatted": "..."} on success, or {"error": "..."} on a
+// parse/print failure. Stateless — no workspace/pool needed.
+func formatHandler(w http.ResponseWriter, req *http.Request) {
+	if req.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if req.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var in renderReq
+	if err := json.NewDecoder(req.Body).Decode(&in); err != nil {
+		http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	out, err := gen.Format("playground.gsx", []byte(in.GSX))
+	if err != nil {
+		writeJSON(w, map[string]string{"error": oneline(err.Error())})
+		return
+	}
+	writeJSON(w, map[string]string{"formatted": string(out)})
 }
 
 func makeRenderHandler(p *pool) http.HandlerFunc {
