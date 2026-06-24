@@ -37,14 +37,24 @@ GitHub `examples/` folder), so there is no docs examples page at all.
   the removed folder), checked by a **dedicated test**.
 - **Doc metadata lives inside the txtar** (a `-- doc --` section), so one file
   is the complete single source for an example: prose, code, invoke, golden.
+- **Grouping:** the gallery is sectioned; the `doc` block carries a `category`
+  so the generator emits section headings.
+- **Multi-file examples:** an example may contain more than one `.gsx` file.
+  txtar is already Go Playground's multi-file format (`-- file --` separators),
+  and the corpus render harness already compiles multi-file cases. Multi-file
+  examples stay in **one package (`views`)** so they remain playground-
+  renderable; cross-package composition stays corpus-only. There is still
+  exactly **one invoke** (one render entry point) per example. The "template
+  composition" example (a shared component-library file + a page-method file)
+  is the showcase for this.
 
 ## Architecture
 
 ```
 examples/NN-slug.txtar          ← SINGLE SOURCE (per example)
-  -- doc --        name / summary / order
-  -- input.gsx --  package views + component(s)
-  -- invoke --     render expression
+  -- doc --        name / summary / category / order
+  -- <file>.gsx -- one or more package-views source files
+  -- invoke --     the single render expression
   -- render.golden -- expected HTML (CI-verified, -update regenerates)
         │
         ├── internal/corpus  (dedicated test)  → compile + `go run` → assert render.golden   [CI gate]
@@ -68,13 +78,15 @@ GsxPlayground.vue  import presets from './presets.generated.json'   (replaces ha
 
 ### 1. Fixture format — `examples/NN-slug.txtar`
 
-A txtar archive with four sections. Example:
+A txtar archive with a `-- doc --` block, one or more `.gsx` source files, an
+`-- invoke --`, and a `-- render.golden --`. Single-file example:
 
 ```
 -- doc --
 name: Control flow
 summary: if / else and loops that contribute markup, using the { … } brace forms.
-order: 20
+category: Control flow
+order: 40
 -- input.gsx --
 package views
 
@@ -89,12 +101,45 @@ Inbox(InboxProps{Name: "World", Count: 2})
 <section><p>Hi World, you have 2 messages.</p></section>
 ```
 
-- `input.gsx` includes the `package views` line (matches the playground editor
-  `source`; the render server already normalizes any package line to
+**Multi-file example** (the template-composition showcase — a shared component
+library file + a page-method file, all `package views`, one invoke):
+
+```
+-- doc --
+name: Template composition
+summary: A shared component library composed by a page method — multiple files, one render entry.
+category: Components & composition
+order: 100
+-- components.gsx --
+package views
+
+component Button(label string) { <button class="btn">{label}</button> }
+component Card(title string) { <section class="card"><h2>{title}</h2>{children}</section> }
+-- page.gsx --
+package views
+
+type HomePage struct{ Title string }
+
+component (p HomePage) Render() {
+	<main>
+		<Card title={p.Title}><Button label="Save" /></Card>
+	</main>
+}
+-- invoke --
+HomePage{Title: "Dashboard"}.Render()
+-- render.golden --
+<main><section class="card"><h2>Dashboard</h2><button class="btn">Save</button></section></main>
+```
+
+- Each `.gsx` file includes its `package views` line (matches the playground
+  editor `source`; the render server normalizes any package line to
   `package views`).
-- `order` is an integer; it controls both the docs page order and the preset
-  dropdown order. The `NN-` filename prefix mirrors it for human sorting.
-- `name` / `summary` are single-line values.
+- All source files in an example share **one package** (`views`); the file
+  names are flat (no `/`) so they land together in the playground's views dir.
+- `category` groups the example under a section heading on the docs page and
+  (optionally) in the dropdown; `order` sorts globally. The `NN-` filename
+  prefix mirrors `order` for human sorting.
+- `name` / `summary` / `category` are single-line values.
 
 ### 2. Loader extension — `internal/corpus/loader.go`
 
@@ -104,8 +149,11 @@ Inbox(InboxProps{Name: "World", Count: 2})
 - New `caseDoc` field `doc []byte` (raw `-- doc --` body).
 - `case f.Name == "doc": c.doc = f.Data` (so it is NOT written to disk as a
   file during codegen).
-- A small parser `parseDocMeta(c.doc) → docMeta{name, summary, order}` (simple
-  `key: value` line scan; unknown keys ignored; missing `order` → 0).
+- A small parser `parseDocMeta(c.doc) → docMeta{name, summary, category, order}`
+  (simple `key: value` line scan; unknown keys ignored; missing `order` → 0).
+
+Multi-file cases already work in the loader/harness (`c.files` keys multiple
+`.gsx` files; `batchCodegen` compiles them together).
 
 This change is inert for existing `testdata/cases` (none have a `doc` section).
 
@@ -128,21 +176,31 @@ pipeline that ships.
 
 A small command (wired to `//go:generate` and/or a `make examples` target) that:
 
-1. Reads `examples/*.txtar`, parses `doc` + `input.gsx` + `invoke`, sorts by
-   `(order, filename)`.
-2. Emits **`docs/guide/examples.md`**:
+1. Reads `examples/*.txtar`, parses `doc` + the `.gsx` source file(s) + `invoke`,
+   sorts by `(order, filename)`.
+2. Computes, per example, the **playground source string**:
+   - Single file → the file's bytes verbatim.
+   - Multiple files → the files joined in **Go-Playground txtar format**
+     (`-- name.gsx --\n<bytes>\n-- name2.gsx --\n<bytes>`), sorted by file name.
+     This is the exact form the render server splits and the editor displays.
+3. Emits **`docs/guide/examples.md`**:
    - VitePress front-matter + a short intro paragraph.
-   - Per example: `## {name}`, the `{summary}`, a ` ```gsx ` fenced block with
-     `input.gsx`, and a link
+   - Examples grouped under `## {category}` headings (categories in first-seen
+     order by `order`).
+   - Per example: `### {name}`, the `{summary}`, then **one ` ```gsx ` fenced
+     block per source file** (each preceded by a small `**file.gsx**` caption
+     when there is more than one file), and a link
      `[▶ Open in Playground](/playground#try={payload})`.
-   - `payload = base64.StdEncoding(JSON)` where `JSON = {"s":<input.gsx>,"i":<invoke>}`.
-     This byte-for-byte matches the Vue decoder
+   - `payload = base64.StdEncoding(JSON)` where
+     `JSON = {"s":<playground source string>,"i":<invoke>}`. This byte-for-byte
+     matches the Vue decoder
      (`JSON.parse(b64decode(decodeURIComponent(hash)))` reading `o.s` / `o.i`,
      where `b64decode` is `atob` over UTF-8 bytes). Go `json.Marshal` of a
      struct with tags `s`,`i` produces the same `{"s":…,"i":…}` shape; standard
      base64 (`+`,`/`,`=`) is safe in a URL hash fragment.
-3. Emits **`docs/examples.json`** and **`playground/server/examples.json`** with
-   identical content: `[{ "name", "source": <input.gsx>, "invoke": <invoke> }]`
+4. Emits **`docs/examples.json`** and **`playground/server/examples.json`** with
+   identical content:
+   `[{ "name", "category", "source": <playground source string>, "invoke" }]`
    in sorted order.
 
 The generator is deterministic. Generated artifacts are committed; a
@@ -167,29 +225,93 @@ so the backend seed can never drift from the docs/frontend again.
   `presets.generated.json` (committed once, regenerated by sync at build time)
   keeps the import resolvable for local dev.
 
-### 7. Nav fix — `.vitepress/config.*`
+### 7. Multi-file render — `playground/server/render.go` + editor
+
+The render server currently writes the single `in.GSX` to one `comp.gsx`. Change
+it to treat `in.GSX` as a **Go-Playground txtar source**:
+
+- If `in.GSX` contains `-- name.gsx --` separators, parse it with the existing
+  `internal/txtar` package and write each file into the views dir (file names
+  are flat, single package; reject names containing `/` or `..` to keep writes
+  inside the workspace). Each file's package line is normalized to
+  `package views` as today.
+- If there are no separators, behavior is unchanged (one `comp.gsx`).
+- The render shim + single invoke are unchanged.
+
+The cache key already hashes `(gsx, invoke)`, so multi-file sources cache
+correctly with no key change.
+
+**Editor (`GsxPlayground.vue`):** the single CodeMirror editor holds the
+playground source string as-is. For multi-file presets that means the
+`-- file --` separators are visible in the editor (Go Playground style) — the
+server splits them on render. Per-file tabs are a future enhancement, not part
+of this slice.
+
+### 8. Nav fix — `.vitepress/config.*`
 
 Point the "Examples" nav item (and add a sidebar entry) at `/guide/examples`.
 
 ## The example set (initial)
 
-Seven examples, each showcasing a distinct feature / ergonomic. The existing
-five playground corpus cases are migrated into `examples/` (with `doc`
-sections); two are added:
+Nineteen examples in six sections. Each borrows the canonical walkthrough of a
+popular templating library and adds the gsx flavor. The existing five playground
+corpus cases are migrated in (with `doc` sections); the rest are new. Slugs are
+prefixed with `order` (`NN-slug.txtar`).
 
-| order | slug | shows |
-|-------|------|-------|
-| 10 | interpolation | `{expr}` interpolation, props struct |
-| 20 | control-flow | `{ if … else … }`, loops contributing markup |
-| 30 | composable-class | composable `class` / `style` attributes |
-| 40 | attributes | spread, boolean, and conditional attributes |
-| 50 | components-and-slots | composition, `{children}`, named slots |
-| 60 | pipelines | `{ x \|> upper }` / `truncate(n)` filter pipelines |
-| 70 | auto-escaping | HTML-escaping by construction (the `<img onerror>` XSS demo) |
+**§ Basics**
 
-The old `internal/corpus/testdata/cases/playground/*.txtar` cases are **removed**
-(superseded by `examples/`) to avoid a second copy. The `examples/` render test
-provides equivalent (stronger) coverage.
+| order | slug | borrows from | gsx flavor |
+|-------|------|--------------|-----------|
+| 10 | interpolation | JSX/Vue/Jinja first example | compile-checked props struct |
+| 20 | attributes | Vue `:attr` / JSX | `attr={cond}` lazy conditional + boolean attrs |
+| 30 | auto-escaping | Jinja autoescape / Handlebars `{{{}}}` / JSX `dangerouslySetInnerHTML` | escaped by construction + `gsx.Raw`/`RawURL` |
+
+**§ Control flow**
+
+| order | slug | borrows from | gsx flavor |
+|-------|------|--------------|-----------|
+| 40 | if-else | Vue `v-if` / Jinja `if` | brace `{ if … else … }` form |
+| 50 | loops | Vue `v-for` / Jinja `for` / Handlebars `each` | real Go `range`, loop-var binding |
+| 60 | switch | templ `switch` / Go `html/template` | brace `{ switch … }` |
+
+**§ Components & composition**
+
+| order | slug | borrows from | gsx flavor |
+|-------|------|--------------|-----------|
+| 70 | components | everyone | typed props struct |
+| 80 | children | JSX `children` / Vue default slot / templ `@children` | `{children}` of `gsx.Node` |
+| 90 | named-slots | Vue named slots | typed named slots |
+| 100 | template-composition *(multi-file)* | Jinja inheritance / templ layout / EJS layout | shared component lib file + page-method file, one invoke |
+| 110 | fallthrough-attrs | JSX `{...props}` / Vue fallthrough attrs | caller-wins merge |
+| 120 | method-components | templ method components | components as methods on a type |
+
+**§ Styling**
+
+| order | slug | borrows from | gsx flavor |
+|-------|------|--------------|-----------|
+| 130 | composable-class | Vue `:class` object / `clsx` | class merge + conditional classes |
+| 140 | style-blocks | Vue `:style` / SFC scoped style | sanitized style, `RawCSS` opt-out |
+
+**§ Transforming values**
+
+| order | slug | borrows from | gsx flavor |
+|-------|------|--------------|-----------|
+| 150 | pipelines | Jinja filters `{{ x\|upper }}` / Handlebars helpers | typed filters from the `gsx info` registry |
+
+**§ Interactive & whole-page**
+
+| order | slug | borrows from | gsx flavor |
+|-------|------|--------------|-----------|
+| 160 | fragments | JSX/Vue fragments | multiple roots, no wrapper |
+| 170 | forms | practical composite | labels, inputs, conditional state |
+| 180 | js-and-islands | Alpine `x-data` / htmx | safe JS-attr handling + JSON data islands |
+| 190 | full-document | doctype + page layout | `<!DOCTYPE html>` + full page |
+
+Cross-package composition is intentionally excluded (the single-package
+playground cannot render it). The old
+`internal/corpus/testdata/cases/playground/*.txtar` cases are **removed**
+(superseded by `examples/`); the `examples/` render test provides equivalent
+(stronger) coverage.
 
 ## Data flow
 
@@ -204,8 +326,10 @@ provides equivalent (stronger) coverage.
 
 ## Error handling
 
-- **Generator:** a fixture missing `doc`/`input.gsx`/`invoke` is a hard error
-  (non-zero exit, names the file) — fail loud, never emit a partial page.
+- **Generator:** a fixture missing `doc`, any `.gsx` source file, or `invoke` is
+  a hard error (non-zero exit, names the file) — fail loud, never emit a partial
+  page. A multi-file fixture with a source file outside `package views` (or a
+  name containing `/`) is also an error.
 - **Render test:** a compile error or golden mismatch fails the test with the
   case name and diff (existing batch-harness behavior).
 - **Sync:** if `docs/examples.json` is absent at sync time, `sync-docs.mjs`
@@ -217,10 +341,14 @@ provides equivalent (stronger) coverage.
 - **`internal/corpus` examples render test** — every example compiles, runs, and
   matches `render.golden` (the CI gate).
 - **`internal/examplegen` unit tests** — golden tests for the emitted
-  `examples.md` and `examples.json` from a small fixture set; a focused test
+  `examples.md` and `examples.json` from a small fixture set (covering both a
+  single-file and a multi-file example, and category grouping); a focused test
   that the generated `#try=` payload round-trips through the same decode logic
   the Vue uses (decode base64 → JSON → `{s,i}` equals the fixture's
-  source/invoke).
+  source/invoke), including the multi-file txtar-joined source.
+- **Multi-file render test** — a `playground/server` test that posts a
+  txtar-format multi-file source and asserts the composed HTML; and that a
+  source with no separators still renders (unchanged path).
 - **`parseDocMeta` unit test** — key/value parsing, missing-order default,
   unknown-key tolerance.
 - **Manual:** build the site with the synced presets; confirm the Examples page
@@ -229,10 +357,14 @@ provides equivalent (stronger) coverage.
 
 ## Scope / YAGNI
 
-In scope: the fixture format + loader hook, the render test, the generator
-(docs page + both presets JSONs), the backend embed-seed, the frontend import,
-the sync step, the nav fix, and the seven-example set.
+In scope: the fixture format (incl. multi-file + `category`) + loader hook, the
+render test, the generator (sectioned docs page + both presets JSONs), the
+backend embed-seed, the multi-file render-server split, the frontend import +
+multi-file source display, the sync step, the nav fix, and the nineteen-example
+set.
 
 Out of scope (future): a CI guard that fails on un-regenerated artifacts (nice
 to have, can add later); inline rendered output on the docs page; embedded live
-playgrounds; per-example "edit history" or versioning.
+playgrounds; **per-file editor tabs** in the playground (multi-file uses visible
+`-- file --` separators for now); cross-package examples; per-example "edit
+history" or versioning.
