@@ -2,6 +2,7 @@ package gen
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -174,4 +175,42 @@ func TestScaffoldSimpleTemplate(t *testing.T) {
 	if !strings.Contains(string(appgsx), "{{ assets := vite.FromContext(ctx).Entry") {
 		t.Errorf("app.gsx lost its {{ }} block: %s", appgsx)
 	}
+}
+
+func TestInitScaffoldCompiles(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping scaffold-compiles integration test in -short mode")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+	// Locate the local gsx module root (two dirs up from this test file's pkg).
+	gsxRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	if code, _, errb := runCapture(t, []string{"init", "--module", "gsxinitdemo", dir}); code != 0 {
+		t.Fatalf("init failed: %d %s", code, errb)
+	}
+
+	// GOFLAGS=-mod=mod lets `go` auto-add the gsx require (resolved via the
+	// replace below) and update go.sum, instead of erroring under -mod=readonly.
+	run := func(name string, args ...string) {
+		t.Helper()
+		cmd := exec.Command(name, args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%s %v failed: %v\n%s", name, args, err, out)
+		}
+	}
+	// Point gsx at the in-progress local checkout (it is not tagged yet); vite +
+	// wgo resolve from the proxy at the versions pinned in the template go.mod.
+	run("go", "mod", "edit", "-replace", "github.com/gsxhq/gsx="+gsxRoot)
+	// Generate .x.go from app.gsx (go run resolves cmd/gsx via the replace),
+	// then build the whole module.
+	run("go", "run", "github.com/gsxhq/gsx/cmd/gsx", "generate", ".")
+	run("go", "build", "./...")
 }

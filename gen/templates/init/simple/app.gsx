@@ -10,9 +10,9 @@ component Layout(title string) {
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       <title>{title}</title>
       {{ assets := vite.FromContext(ctx).Entry("web/main.js") }}
-      for _, href := range assets.CSS { <link rel="stylesheet" href={href} /> }
-      for _, src := range assets.Preloads { <link rel="modulepreload" href={src} /> }
-      for _, src := range assets.JS { <script type="module" src={src}></script> }
+      { for _, href := range assets.CSS { <link rel="stylesheet" href={href} /> } }
+      { for _, src := range assets.Preloads { <link rel="modulepreload" href={src} /> } }
+      { for _, src := range assets.JS { <script type="module" src={src}></script> } }
     </head>
     <body>{children}</body>
   </html>
