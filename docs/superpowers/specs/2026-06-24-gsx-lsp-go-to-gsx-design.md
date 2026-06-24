@@ -241,11 +241,28 @@ large projects need optimization before we write any.
 
 ## 12. Follow-ups (tracked, not yet built)
 
-- **`textDocument/formatting` capability.** Advertise `documentFormattingProvider`
-  and wire `internal/printer` (the engine behind `gsx fmt`) to the
-  formatting request, so editors can format `.gsx` on save / on command via the
-  language server rather than shelling out to the CLI. (Also listed in the broad
-  LSP design §5.) Scope: full-document formatting first; range formatting later.
+- **`textDocument/formatting` capability.** *(Shipped.)* `documentFormattingProvider`
+  advertised; the shared engine lives in `internal/gsxfmt` (parse → wsnorm →
+  print), used by both `gsx fmt` and the server. Range formatting is still a
+  later follow-up.
+- **Unused-import removal on format (a designed slice, not a tweak).** The
+  type-checker already detects unused `.gsx` GoChunk imports — verified: it emits
+  `"strings" imported and not used`. Two facts make this a real slice rather than
+  a syntactic pass: (1) a syntactic "scan for `pkg.`" approach is the exact
+  heuristic to avoid — it mishandles aliased imports, packages whose name ≠ path
+  tail, dedup, and blank/dot imports; the authoritative signal is the
+  type-checker. (2) The unused-import diagnostic is currently positioned in the
+  **overlay** `*.x.go` (the hoisted skeleton imports carry no `//line`), so it
+  does not map back to the `.gsx` import line. The slice needs: detection (reuse
+  the type-checker signal); mapping each unused skeleton import to its `.gsx`
+  GoChunk import span (give the hoisted imports a `//line`, or match by
+  path/alias against the parsed chunk specs); AST-level removal composed with the
+  `gsxfmt` reprint; a guard that skips removal when the package has unrelated type
+  errors (else a "used" import whose only use sits in errored code is falsely
+  dropped); and an opt-in `gsx fmt` flag (default stays syntactic/fast — removal
+  needs a module load). Related cleanup: the overlay `*.x.go` diagnostics
+  currently leak to a phantom `*.x.go` URI the user can't open — filter or remap
+  them.
 - **Surface a diagnostic when package load fails.** Today, if `go/packages.Load`
   cannot resolve the package (e.g. a stale `replace` directive, missing
   dependency, broken `go.mod`), analysis returns an empty package and the server
