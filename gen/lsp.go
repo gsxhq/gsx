@@ -43,6 +43,10 @@ func (lspAnalyzer) Analyze(dir string, override map[string][]byte) (*lsp.Package
 	for k, v := range pr.CrossIndex {
 		cross[k] = lsp.CrossRef{Name: v.Name, Decl: v.Decl, Refs: v.Refs}
 	}
+	nav := make([]lsp.NavRef, len(pr.NavIndex))
+	for i, nr := range pr.NavIndex {
+		nav[i] = lsp.NavRef{From: nr.From, Name: nr.Name, To: nr.To}
+	}
 	return &lsp.Package{
 		Diags:      pr.Diags,
 		GSXFset:    pr.GSXFset,
@@ -51,6 +55,7 @@ func (lspAnalyzer) Analyze(dir string, override map[string][]byte) (*lsp.Package
 		ExprMap:    pr.ExprMap,
 		Files:      pr.GSXFiles,
 		CrossIndex: cross,
+		NavIndex:   nav,
 	}, nil
 }
 

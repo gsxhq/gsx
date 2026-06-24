@@ -85,6 +85,12 @@ func (s *Server) handleDefinition(f frame) error {
 	}
 
 	off := byteOffsetForPosition(text, p.Position.Line, p.Position.Character, s.enc)
+
+	// D2: cursor on a component tag name in a .gsx file → jump to the component declaration.
+	if decl, ok := componentTagDeclAt(pkg, path, off); ok {
+		return s.reply(f.ID, s.locationForPos(decl))
+	}
+
 	node, exprPos := exprNodeAtOffset(pkg, path, off)
 	if node == nil {
 		return s.reply(f.ID, nil)
@@ -152,17 +158,15 @@ func (s *Server) handleGoDefinition(f frame, uri, path string) error {
 		return s.reply(f.ID, nil)
 	}
 	pkg := s.pkgs[filepath.Dir(path)]
-	if pkg == nil || len(pkg.CrossIndex) == 0 {
+	if pkg == nil || (len(pkg.NavIndex) == 0 && len(pkg.CrossIndex) == 0) {
 		return s.reply(f.ID, nil) // not a gsx package
 	}
 	curLine := p.Position.Line + 1 // token.Position is 1-based
 	curCol := byteOffsetForPosition(text, p.Position.Line, p.Position.Character, s.enc) -
 		lineStartOffset(text, p.Position.Line) + 1 // 1-based byte column on the line
-	for _, cr := range pkg.CrossIndex {
-		for _, r := range cr.Refs {
-			if posCoversCursor(r, path, curLine, curCol, len(cr.Name)) {
-				return s.reply(f.ID, s.locationForPos(cr.Decl))
-			}
+	for _, nr := range pkg.NavIndex {
+		if nr.To.IsValid() && posCoversCursor(nr.From, path, curLine, curCol, len(nr.Name)) {
+			return s.reply(f.ID, s.locationForPos(nr.To))
 		}
 	}
 	return s.reply(f.ID, nil)
@@ -208,5 +212,52 @@ func posCoversCursor(r token.Position, path string, curLine, curCol, nameLen int
 		return false
 	}
 	return curCol >= r.Column && curCol < r.Column+nameLen
+}
+
+// componentTagDeclAt checks whether the byte offset off in the .gsx file at
+// path sits on the name portion of a component element tag (e.g. the "Card" in
+// "<Card .../>"). If so, it looks the component up in pkg.CrossIndex by the
+// function-component key "." + tag, and returns its Decl position and true.
+// Returns (zero, false) if the cursor is not on a component tag.
+func componentTagDeclAt(pkg *Package, path string, off int) (token.Position, bool) {
+	if pkg == nil || pkg.GSXFset == nil || pkg.Files == nil {
+		return token.Position{}, false
+	}
+	f := pkg.Files[path]
+	if f == nil {
+		return token.Position{}, false
+	}
+	var result token.Position
+	found := false
+	gsxast.Inspect(f, func(n gsxast.Node) bool {
+		if found {
+			return false
+		}
+		el, ok := n.(*gsxast.Element)
+		if !ok {
+			return true
+		}
+		tag := el.Tag
+		if tag == "" || strings.Contains(tag, ".") || tag[0] < 'A' || tag[0] > 'Z' {
+			// not a simple function component tag
+			return true
+		}
+		// The tag name starts right after the '<': nameStart is the byte offset of
+		// the first character of the tag name in the file.
+		elOff := pkg.GSXFset.Position(el.Pos()).Offset
+		nameStart := elOff + 1 // skip '<'
+		nameEnd := nameStart + len(tag)
+		if off >= nameStart && off < nameEnd {
+			// Cursor is on the tag name; look up in CrossIndex.
+			key := "." + tag
+			cr, ok := pkg.CrossIndex[key]
+			if ok && cr.Decl.IsValid() {
+				result = cr.Decl
+				found = true
+			}
+		}
+		return true
+	})
+	return result, found
 }
 

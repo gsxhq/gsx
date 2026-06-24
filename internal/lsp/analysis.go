@@ -17,6 +17,15 @@ type CrossRef struct {
 	Refs []token.Position
 }
 
+// NavRef is one navigable Go reference (in a .go file) and the .gsx position it
+// targets. From is the reference site; Name is the identifier text (used for
+// cursor-span checking); To is the .gsx declaration target.
+type NavRef struct {
+	From token.Position
+	Name string
+	To   token.Position
+}
+
 // Package is the retained, read-only result of analyzing one .gsx package: the
 // diagnostics plus everything the read-intelligence features need. The two
 // FileSets are distinct — GSXFset resolves gsx node positions; Fset resolves
@@ -29,4 +38,5 @@ type Package struct {
 	ExprMap    map[gsxast.Node]ast.Expr // gsx Interp/ExprAttr → skeleton go/ast expr
 	Files      map[string]*gsxast.File  // .gsx path → parsed gsx AST
 	CrossIndex map[string]CrossRef
+	NavIndex   []NavRef // navigable Go references → .gsx targets (func, props-struct, field)
 }
