@@ -238,19 +238,21 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps m
 	}
 
 	// Split every GoChunk into its imports (hoisted ahead of all declarations)
-	// and its non-import body (emitted after the synthesized _gsxuse func). A
-	// single chunk may carry both — e.g. an import followed by type/func decls.
+	// and its non-import body. Each body carries the .gsx source position of its
+	// first byte so it can be emitted under a //line directive — go-to-definition
+	// on a user-declared top-level Go symbol (a helper func/type/var in the .gsx)
+	// then resolves back to the .gsx instead of the synthetic overlay.
 	var imports []importSpec
-	var bodies []string
+	var bodies []goBody
 	for _, d := range file.Decls {
 		if gc, ok := d.(*gsxast.GoChunk); ok {
-			imps, body, err := splitChunk(gc.Src)
+			imps, body, bodyOff, err := splitChunk(gc.Src)
 			if err != nil {
 				return "", nil, err
 			}
 			imports = append(imports, imps...)
 			if body != "" {
-				bodies = append(bodies, body)
+				bodies = append(bodies, goBody{src: body, pos: gc.Pos() + token.Pos(bodyOff)})
 			}
 		}
 	}
@@ -315,12 +317,25 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps m
 	// component func that binds `ctx` (e.g. a method-only file) — otherwise an
 	// import-unused error would mask the real diagnostic.
 	sb.WriteString("var _ _gsxctx.Context\n")
-	for _, body := range bodies {
-		sb.WriteString(body)
+	// Component skeletons first, then the user's raw-Go bodies. Bodies follow the
+	// components (Go permits forward references between top-level decls, so a probe
+	// like `_gsxuse(helper())` still resolves) so each body's //line directive
+	// stays scoped to that body — it cannot bleed into a component skeleton's
+	// unmapped props-struct / signature lines and shift their overlay positions.
+	sb.WriteString(compBuf.String())
+	for _, b := range bodies {
+		emitSkeletonLine(&sb, fset, b.pos)
+		sb.WriteString(b.src)
 		sb.WriteByte('\n')
 	}
-	sb.WriteString(compBuf.String())
 	return sb.String(), comps, nil
+}
+
+// goBody is a GoChunk's non-import remainder paired with the .gsx source
+// position of its first byte (for the //line directive that maps it back).
+type goBody struct {
+	src string
+	pos token.Pos
 }
 
 // sortedFilterAliases returns the aliases of a usedFilters map (alias→pkgPath)
@@ -1392,16 +1407,22 @@ type importSpec struct {
 // imports, it is passed through unchanged as the body. If the chunk is invalid
 // Go (e.g. an import after a func), an error is returned so the caller can
 // surface a clean diagnostic instead of leaking it into a later resolution pass.
-func splitChunk(src string) (imports []importSpec, body string, err error) {
+//
+// bodyOff is the byte offset WITHIN src of the body's first character, so a
+// caller holding the chunk's source position can emit a //line directive that
+// maps the body back to its .gsx origin. Valid Go requires every import to
+// precede all other declarations, so the body is the single contiguous span
+// after the last import (any comments before/between imports carry no symbols
+// and are dropped); a single //line anchor therefore maps the whole body.
+func splitChunk(src string) (imports []importSpec, body string, bodyOff int, err error) {
 	const prefix = "package _gsxp\n"
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "", prefix+src, parser.ParseComments)
 	if err != nil {
-		return nil, "", fmt.Errorf("codegen: invalid Go in pass-through block: %w", err)
+		return nil, "", 0, fmt.Errorf("codegen: invalid Go in pass-through block: %w", err)
 	}
 	const shift = len(prefix)
-	type span struct{ lo, hi int }
-	var cut []span
+	lastImportEnd := 0
 	for _, d := range f.Decls {
 		gd, ok := d.(*goast.GenDecl)
 		if !ok || gd.Tok != token.IMPORT {
@@ -1419,25 +1440,15 @@ func splitChunk(src string) (imports []importSpec, body string, err error) {
 			}
 			imports = append(imports, importSpec{name: name, path: path})
 		}
-		cut = append(cut, span{
-			lo: fset.Position(gd.Pos()).Offset - shift,
-			hi: fset.Position(gd.End()).Offset - shift,
-		})
-	}
-	if len(cut) == 0 {
-		return nil, src, nil
-	}
-	var b strings.Builder
-	prev := 0
-	for _, c := range cut {
-		if c.lo < prev || c.hi > len(src) {
-			continue
+		if end := fset.Position(gd.End()).Offset - shift; end > lastImportEnd {
+			lastImportEnd = end
 		}
-		b.WriteString(src[prev:c.lo])
-		prev = c.hi
 	}
-	b.WriteString(src[prev:])
-	return imports, strings.TrimSpace(b.String()), nil
+	tail := src[lastImportEnd:]
+	left := strings.TrimLeft(tail, " \t\r\n")
+	bodyOff = lastImportEnd + (len(tail) - len(left))
+	body = strings.TrimRight(left, " \t\r\n")
+	return imports, body, bodyOff, nil
 }
 
 // emitComponentStub emits a minimal valid Go func/method stub for a component
