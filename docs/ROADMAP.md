@@ -279,6 +279,22 @@ attribute-name validation against tag breakout (`validAttrName`), documented
 - ⬜ **Codegen niceties** — coalesce adjacent `gw.S` static writes; `//line`
   trailing-state reset; `data:image` URL allowance.
 
+## Documentation backlog
+
+- ⬜ **Examples section (rebuild)** — the GitHub `examples/*.gsx` files were removed;
+  replace them with a dedicated docs **Examples** section where each example
+  demonstrates one or more distinct syntax features / ergonomics improvements
+  (interpolation, control flow, composable class/style, components/slots,
+  pipelines, auto-escaping, …) rather than a flat file dump.
+- ⬜ **Examples → Playground links** — each example links to the interactive
+  playground (<https://gsxhq.github.io/playground>) pre-loaded with that example
+  so readers can run/edit it live (the playground already supports `#try=` shared
+  state for this).
+- ⬜ **Getting Started section** — a dedicated guide using `gsx init`, walking
+  through first-project setup and explaining the tech stack it scaffolds (the
+  generated layout, the Vite plugin / dev loop, how `.gsx → .x.go → go build`
+  fits together).
+
 ## Design docs (reference)
 
 - `2026-06-18-gsx-templating-design.md` — the language.
