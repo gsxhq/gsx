@@ -524,7 +524,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					// SEPARATELY below, so its interps become the _gsxuse sequence in the
 					// SAME order collectExprs collected them; the props-literal exprs are
 					// NOT _gsxuse, so they don't perturb the k-th alignment.
-					fields, err := childPropsLiteral(t, propsType, "_gsxrt", propFields, nodeProps[propsType], func(nodes []gsxast.Markup) (string, error) {
+					fields, usedPkgs, err := childPropsLiteral(t, propsType, "_gsxrt", table, propFields, nodeProps[propsType], func(nodes []gsxast.Markup) (string, error) {
 						return "_gsxrt.Node(nil)", nil
 					})
 					if err != nil {
@@ -532,6 +532,14 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 						// position embedded. Propagate it as-is so the batch.go sink can emit
 						// a positioned diagnostic (not positionless).
 						return err
+					}
+					// Record filter packages referenced by a lowered prop/fallthrough
+					// pipeline so the skeleton imports them under their reserved aliases
+					// — the SAME set the emitter records into its imports map. Without
+					// this the skeleton would not import _gsxstdN and a prop pipeline
+					// would fail to resolve.
+					for alias, path := range usedPkgs {
+						usedFilters[alias] = path
 					}
 					emitSkeletonLine(sb, fset, t.Pos())
 					fmt.Fprintf(sb, "_ = %s(%s{%s})\n", callTarget, propsType, fields)
@@ -1105,11 +1113,12 @@ func collectChildPropExprSrc(nodes []gsxast.Markup, add func(string)) {
 		switch t := n.(type) {
 		case *gsxast.Element:
 			if isComponentTag(t.Tag) {
-				for _, a := range t.Attrs {
-					if ea, ok := a.(*gsxast.ExprAttr); ok {
-						add(ea.Expr)
-					}
-				}
+				// Every verbatim-emitted attr fragment childPropsLiteral places into the
+				// props literal — prop/fallthrough *ExprAttr exprs (+ pipeline stage
+				// args), composable-class part Expr/Cond, spread Expr, conditional-attr
+				// Cond and its branch attrs — references parent locals and must be bound.
+				// collectAttrSrc walks exactly that set (and recurses CondAttr branches).
+				collectAttrSrc(t.Attrs, add)
 				// Recurse the named-slot (markup-attr) values AND the slot children: a
 				// child component nested inside this component's named slot OR its
 				// children renders in THIS parent scope, so its prop exprs reference

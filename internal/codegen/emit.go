@@ -1669,7 +1669,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 	// loop vars are bound. emitProbes drives the same builder with a typed-nil
 	// slotValue, so emit and probe agree on WHICH fields exist — only the VALUE
 	// differs, and they cannot drift.
-	fields, err := childPropsLiteral(el, propsType, "gsx", structFields, nodeProps[propsType], func(nodes []ast.Markup) (string, error) {
+	fields, usedPkgs, err := childPropsLiteral(el, propsType, "gsx", table, structFields, nodeProps[propsType], func(nodes []ast.Markup) (string, error) {
 		s, ok := emitSlotClosure(nodes, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag)
 		if !ok {
 			return "", fmt.Errorf("slot closure failed")
@@ -1686,6 +1686,11 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 			bag.Errorf(el.Pos(), el.End(), childPropsErrorCode(err), "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 		}
 		return false
+	}
+	// Record any filter packages referenced by a lowered prop/fallthrough pipeline
+	// so writeImports emits them under their reserved aliases — mirroring genInterp.
+	for _, path := range usedPkgs {
+		imports[path] = true
 	}
 	fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s(%s{%s}))\n", callTarget, propsType, fields)
 	return true
@@ -1762,27 +1767,53 @@ func emitSlotClosure(nodes []ast.Markup, resolved map[ast.Node]types.Type, table
 //     entry keyed by the attr's RAW name (static→quoted value, bool→true, expr→
 //     trimmed expr).
 //
-// A markup attribute is always a named slot (rendered via slotValue); composed
-// class/spread/conditional attrs on a component still error. When ≥1 fallthrough
-// entry exists, a single `Attrs: gsx.Attrs{…}` field is appended (after Children);
-// with none, NO Attrs field is emitted (so a pure-props invocation is unchanged).
+// A markup attribute is always a named slot (rendered via slotValue). Composed
+// class/spread/conditional fallthrough attrs build the Attrs bag as a chained
+// EXPRESSION in source order:
+//
+//	<rtPkg>.Attrs{<static/expr/bool + composable-class entries>}
+//	    .Merge(<spreadExpr>)
+//	    .Merge(<rtPkg>.AttrsCond(<cond>, <rtPkg>.Attrs{<then>}, <rtPkg>.Attrs{<else>}))…
+//
+// keeping this a single string keeps emit≡probe trivial (no statement preamble).
+// When the bag is a bare static literal with no entries, NO Attrs field is
+// emitted (so a pure-props invocation is byte-identical to before); the .Merge
+// chain / class entry is only added when those features are present.
+//
 // rtPkg is the package qualifier for the gsx runtime (`gsx` in emitted code,
-// `_gsxrt` in a type-check skeleton), used only to name the fallthrough-bag type
-// `<rtPkg>.Attrs` so emit and probe reference the SAME runtime type under their
-// respective aliases.
+// `_gsxrt` in a type-check skeleton), used to name the bag type `<rtPkg>.Attrs`,
+// the `<rtPkg>.ClassString`/`Class`/`ClassIf` class helpers, `<rtPkg>.AttrsCond`,
+// and node-prop `<rtPkg>.Val`/`Text` promotion, so emit and probe reference the
+// SAME runtime symbols under their respective aliases.
+//
+// table lowers any `|>` pipeline on a prop or fallthrough ExprAttr (the SAME
+// lowerPipe the text/attr paths use). usedPkgs (alias→pkgPath) reports every
+// filter package the lowered exprs reference so BOTH callers import them: the
+// emitter into its imports map, the probe into its usedFilters set — without
+// this the skeleton would not import the std filter package and prop pipelines
+// would fail to resolve.
+//
 // nodeFields is the child props type's set of declared gsx.Node fields
 // (nodeProps[propsType]); a non-node value bound to one of these is promoted via
 // rtPkg.Val/rtPkg.Text so a renderable value fills a gsx.Node prop.
-func childPropsLiteral(el *ast.Element, propsType, rtPkg string, propFields map[string]map[string]bool, nodeFields map[string]bool, slotValue func(nodes []ast.Markup) (string, error)) (string, error) {
+func childPropsLiteral(el *ast.Element, propsType, rtPkg string, table filterTable, propFields map[string]map[string]bool, nodeFields map[string]bool, slotValue func(nodes []ast.Markup) (string, error)) (fieldsStr string, usedPkgs map[string]string, err error) {
 	declared := propFields[propsType] // nil for cross-package / unknown → graceful
+	usedPkgs = map[string]string{}
 	var fields []string
-	var bag []string // fallthrough entries: `"<rawName>": <value>`
+	var bag []string         // fallthrough base-literal entries: `"<rawName>": <value>`
+	var mergeChain []string  // `.Merge(<spread>)` / `.Merge(<rtPkg>.AttrsCond(...))` in source order
+	// recordPkgs merges a lowerPipe usedPkgs result into the shared set.
+	recordPkgs := func(used map[string]string) {
+		for alias, path := range used {
+			usedPkgs[alias] = path
+		}
+	}
 	for _, a := range el.Attrs {
 		switch t := a.(type) {
 		case *ast.StaticAttr:
 			if isPropField(declared, t.Name) {
 				if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
-					return "", err
+					return "", nil, err
 				}
 				if nodeFields[fieldName(t.Name)] {
 					fields = append(fields, fmt.Sprintf("%s: %s.Text(%s)", fieldName(t.Name), rtPkg, strconv.Quote(t.Value)))
@@ -1795,28 +1826,40 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, propFields map[
 		case *ast.ExprAttr:
 			if isPropField(declared, t.Name) {
 				if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
-					return "", err
+					return "", nil, err
 				}
+				val := strings.TrimSpace(t.Expr)
 				if len(t.Stages) > 0 {
-					msg := fmt.Sprintf("pipeline on child-component prop %q (<%s>) not supported yet", t.Name, el.Tag)
-					return "", &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-child-pipeline", msg: msg}
+					lowered, used, perr := lowerPipe(t.Expr, t.Stages, table)
+					if perr != nil {
+						msg := strings.TrimPrefix(perr.Error(), "codegen: ")
+						return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}
+					}
+					recordPkgs(used)
+					val = lowered
 				}
 				if nodeFields[fieldName(t.Name)] {
-					fields = append(fields, fmt.Sprintf("%s: %s.Val(%s)", fieldName(t.Name), rtPkg, strings.TrimSpace(t.Expr)))
+					fields = append(fields, fmt.Sprintf("%s: %s.Val(%s)", fieldName(t.Name), rtPkg, val))
 				} else {
-					fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), strings.TrimSpace(t.Expr)))
+					fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), val))
 				}
 			} else {
+				val := strings.TrimSpace(t.Expr)
 				if len(t.Stages) > 0 {
-					msg := fmt.Sprintf("pipeline on child-component fallthrough attr %q (<%s>) not supported yet", t.Name, el.Tag)
-					return "", &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-child-pipeline", msg: msg}
+					lowered, used, perr := lowerPipe(t.Expr, t.Stages, table)
+					if perr != nil {
+						msg := strings.TrimPrefix(perr.Error(), "codegen: ")
+						return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}
+					}
+					recordPkgs(used)
+					val = lowered
 				}
-				bag = append(bag, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), strings.TrimSpace(t.Expr)))
+				bag = append(bag, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), val))
 			}
 		case *ast.BoolAttr:
 			if isPropField(declared, t.Name) {
 				if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
-					return "", err
+					return "", nil, err
 				}
 				if nodeFields[fieldName(t.Name)] {
 					fields = append(fields, fmt.Sprintf("%s: %s.Val(true)", fieldName(t.Name), rtPkg))
@@ -1833,38 +1876,119 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, propFields map[
 			// on probe) — the SAME machinery as the {children} slot. A named slot is
 			// never a fallthrough attr.
 			if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
-				return "", err
+				return "", nil, err
 			}
-			val, err := slotValue(t.Value)
-			if err != nil {
-				return "", err
+			val, verr := slotValue(t.Value)
+			if verr != nil {
+				return "", nil, verr
 			}
 			fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), val))
 		case *ast.ClassAttr:
-			msg := fmt.Sprintf("class attribute on a component (<%s>) not supported yet", el.Tag)
-			return "", &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
+			// Only a composable class={…} is in scope; a composable style={…} stays
+			// unsupported.
+			if t.Name != "class" {
+				msg := fmt.Sprintf("%s attribute on a component (<%s>) not supported yet", t.Name, el.Tag)
+				return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
+			}
+			bag = append(bag, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), classEntryExpr(t, rtPkg)))
 		case *ast.SpreadAttr:
-			msg := fmt.Sprintf("spread attribute on a component (<%s>) not supported yet", el.Tag)
-			return "", &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
+			mergeChain = append(mergeChain, fmt.Sprintf(".Merge(%s)", strings.TrimSpace(t.Expr)))
 		case *ast.CondAttr:
-			msg := fmt.Sprintf("conditional attribute on a component (<%s>) not supported yet", el.Tag)
-			return "", &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
+			condExpr, cerr := condAttrsExpr(t, rtPkg, el.Tag)
+			if cerr != nil {
+				return "", nil, cerr
+			}
+			mergeChain = append(mergeChain, fmt.Sprintf(".Merge(%s)", condExpr))
 		default:
 			msg := fmt.Sprintf("unknown attribute %T on component (<%s>)", a, el.Tag)
-			return "", &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}
+			return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}
 		}
 	}
 	if len(el.Children) > 0 {
-		val, err := slotValue(el.Children)
-		if err != nil {
-			return "", err
+		val, verr := slotValue(el.Children)
+		if verr != nil {
+			return "", nil, verr
 		}
 		fields = append(fields, "Children: "+val)
 	}
-	if len(bag) > 0 {
-		fields = append(fields, fmt.Sprintf("Attrs: %s.Attrs{%s}", rtPkg, strings.Join(bag, ", ")))
+	if len(bag) > 0 || len(mergeChain) > 0 {
+		attrsExpr := fmt.Sprintf("%s.Attrs{%s}", rtPkg, strings.Join(bag, ", "))
+		attrsExpr += strings.Join(mergeChain, "")
+		fields = append(fields, "Attrs: "+attrsExpr)
 	}
-	return strings.Join(fields, ", "), nil
+	return strings.Join(fields, ", "), usedPkgs, nil
+}
+
+// classEntryExpr lowers a composable class={…} ClassAttr to a runtime
+// ClassString(...) call producing the merged class string for the Attrs bag's
+// "class" entry. It mirrors emitRootComposedClass's part lowering (an
+// unconditional part → <rtPkg>.Class(<Expr>); a conditional part →
+// <rtPkg>.ClassIf(<Expr>, <Cond>)) so the value the child root merges is built
+// the same way regardless of whether the class sits on the root or a child.
+func classEntryExpr(a *ast.ClassAttr, rtPkg string) string {
+	parts := make([]string, 0, len(a.Parts))
+	for _, p := range a.Parts {
+		if p.Cond == "" {
+			parts = append(parts, fmt.Sprintf("%s.Class(%s)", rtPkg, strings.TrimSpace(p.Expr)))
+		} else {
+			parts = append(parts, fmt.Sprintf("%s.ClassIf(%s, %s)", rtPkg, strings.TrimSpace(p.Expr), strings.TrimSpace(p.Cond)))
+		}
+	}
+	return fmt.Sprintf("%s.ClassString(%s)", rtPkg, strings.Join(parts, ", "))
+}
+
+// condAttrsExpr lowers a conditional attribute { if cond { … } else { … } } on a
+// component to a <rtPkg>.AttrsCond(<cond>, <rtPkg>.Attrs{<then>}, <else>) call:
+// only the taken branch's attrs reach the merged bag at runtime. then/else
+// entries are built from the branch's static/expr/bool attrs (and a nested
+// composable class via classEntryExpr); the else literal is `nil` when there is
+// no else branch. Nesting stays shallow — a CondAttr nested inside a branch is
+// unsupported.
+func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string) (string, error) {
+	thenLit, err := condBranchAttrs(t.Then, rtPkg, tag)
+	if err != nil {
+		return "", err
+	}
+	elseLit := "nil"
+	if len(t.Else) > 0 {
+		elseLit, err = condBranchAttrs(t.Else, rtPkg, tag)
+		if err != nil {
+			return "", err
+		}
+	}
+	return fmt.Sprintf("%s.AttrsCond(%s, %s, %s)", rtPkg, strings.TrimSpace(t.Cond), thenLit, elseLit), nil
+}
+
+// condBranchAttrs builds a <rtPkg>.Attrs{…} literal from one conditional-attr
+// branch's attrs. Static/expr/bool attrs become bag entries keyed by raw name; a
+// composable class={…} becomes a ClassString entry. A spread or nested
+// conditional inside a branch is unsupported (kept shallow).
+func condBranchAttrs(attrs []ast.Attr, rtPkg, tag string) (string, error) {
+	var entries []string
+	for _, a := range attrs {
+		switch t := a.(type) {
+		case *ast.StaticAttr:
+			entries = append(entries, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), strconv.Quote(t.Value)))
+		case *ast.ExprAttr:
+			if len(t.Stages) > 0 {
+				msg := fmt.Sprintf("pipeline in a conditional attribute branch (<%s>) not supported yet", tag)
+				return "", &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
+			}
+			entries = append(entries, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), strings.TrimSpace(t.Expr)))
+		case *ast.BoolAttr:
+			entries = append(entries, fmt.Sprintf("%s: true", strconv.Quote(t.Name)))
+		case *ast.ClassAttr:
+			if t.Name != "class" {
+				msg := fmt.Sprintf("%s attribute in a conditional branch (<%s>) not supported yet", t.Name, tag)
+				return "", &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
+			}
+			entries = append(entries, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), classEntryExpr(t, rtPkg)))
+		default:
+			msg := fmt.Sprintf("unsupported attribute %T in a conditional branch (<%s>)", a, tag)
+			return "", &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}
+		}
+	}
+	return fmt.Sprintf("%s.Attrs{%s}", rtPkg, strings.Join(entries, ", ")), nil
 }
 
 // isPropField reports whether a child-invocation attribute named `name` maps to a

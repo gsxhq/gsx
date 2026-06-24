@@ -62,6 +62,19 @@ func (a Attrs) Merge(other Attrs) Attrs {
 	return out
 }
 
+// AttrsCond selects one of two attribute bags for a conditional component
+// attribute: it returns then when cond is true, otherwise els. els may be nil
+// (no else branch), in which case a false cond yields a nil bag — a nil Attrs
+// merges as empty. Generated code chains this into a bag-building .Merge(...)
+// expression so a conditional attr only contributes its entries when its
+// condition holds.
+func AttrsCond(cond bool, then, els Attrs) Attrs {
+	if cond {
+		return then
+	}
+	return els
+}
+
 // Class returns the merged class string from the bag's "class" entry, or "".
 func (a Attrs) Class() string {
 	v, ok := a["class"]
