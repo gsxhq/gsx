@@ -27,8 +27,65 @@ Capitalization decides what a tag means:
 - lowercase / hyphenated → HTML element: `<div>`, `<el-dialog>`
 - Capitalized / dotted → component: `<Card>`, `<ui.Button>`, `<p.Content>`
 
-Inline component params become a generated props struct, so gsx owns the field
-names: `<Card title="Hi" featured/>` → `Card(CardProps{Title: "Hi", Featured: true})`.
+## Component props — author owns the type
+
+The **param shape decides** which props model is used:
+
+| Param shape | Model | Generated signature |
+|-------------|-------|---------------------|
+| **Single named-struct param** (`component Button(p Props)`) | **Bring-your-own (byo)** — use the author's type directly; no wrapper generated | `func Button(p Props) gsx.Node` |
+| **Inline params** — multiple params or a single non-struct param | **Generated** `<Name>Props` struct (field per param + `Children`/`Attrs` when used) | `func Card(p CardProps) gsx.Node` |
+| **Nullary** — zero non-receiver params | **No props** (unless `{children}` or fallthrough attrs are used, in which case a gsx-owned props is grown) | `func Shell() gsx.Node` |
+
+The discriminator is *discoverable*: writing `(p Props)` (where `Props` resolves to a
+named struct in `go/types`) opts you onto the byo path. Receiver params are not counted.
+
+### Byo path — field-build
+
+When gsx builds a byo-path component tag, it maps each attribute to a field of the author struct:
+
+```gsx
+<Button variant="primary" featured full-width data-id="7">Save</Button>
+```
+→
+```go
+Button(Props{
+    Variant:   "primary",
+    Featured:  true,            // bare bool attr → true
+    FullWidth: true,            // kebab→Camel
+    Attrs:     gsx.Attrs{"data-id": "7"},  // no matching field → Attrs bag
+    Children:  gsx.Func(/* "Save" */),     // children → Children field
+})
+```
+
+**Field matching** (default, in order):
+1. Identifier → Go-capitalized: `variant` → `Variant`, `fullWidth` → `FullWidth`
+2. Kebab → CamelCase: `full-width` → `FullWidth`, `aria-label` → `AriaLabel`
+3. No matching field → falls through to the `Attrs gsx.Attrs` field
+
+**`Children` and `Attrs` are explicit** on the byo path — the author's struct must
+declare `Children gsx.Node` to use `{children}`, and `Attrs gsx.Attrs` to accept
+unmatched attrs. Missing the field is a clear codegen error.
+
+### Byo path — whole-struct splat `{ x... }`
+
+Pass a prebuilt struct as the entire prop value — the dominant real-world pattern:
+
+```gsx
+<Button { data... }/>
+```
+→
+```go
+Button(data)
+```
+
+Splat is all-or-nothing; build or modify the struct before passing it. The splat
+syntax is also the way method components and structpages page handlers receive a
+shared props type:
+
+```gsx
+<p.Content { pd... }/>   // → p.Content(pd)
+```
 
 ## Quick reference
 
@@ -39,12 +96,12 @@ names: `<Card title="Hi" featured/>` → `Card(CardProps{Title: "Hi", Featured: 
 | `<div>`, `<el-dialog>` | HTML element (lowercase / hyphenated) |
 | `<Card>`, `<ui.Button>` | component (Capitalized / dotted) |
 | `{ expr }` | interpolation in body (auto HTML-escaped) |
-| `{ f() }` where `f` returns `(T, error)` | auto-unwraps to `T`; the error propagates out of the enclosing `Render` (no `?` marker) |
+| `{ f() }` where `f` returns `(T, error)` | auto-unwraps to `T`; the error propagates out of the enclosing `Render` (no marker needed) |
 | `name="lit"` | static string attribute |
 | `name={ expr }` | dynamic attribute (Go expression) |
 | `name` (bare) | boolean attribute = `true` |
 | `disabled={ cond }` | type-driven boolean attr (bool → bare/omitted) |
-| `{...expr}` | spread attributes (element) / props (component) |
+| `{ expr... }` | spread/splat — on an **element**: spreads `gsx.Attrs` as HTML attrs; on a **component**: whole-struct splat (passes the prebuilt struct as props) |
 | `{ if … }` / `{ for … }` inside a tag | conditional attributes |
 | `{ if/for/switch … { <markup> } }` | control flow contributing children |
 | `{{ stmt }}` | Go statement escape hatch (no output) |
@@ -52,6 +109,20 @@ names: `<Card title="Hi" featured/>` → `Card(CardProps{Title: "Hi", Featured: 
 | `class={ a, "cls": cond }` | composable `class`/`style` (comma list; conditional sugar) |
 | `{children}` | explicit children placement |
 | `gsx.Raw(s)` | unescaped HTML |
+
+## Spread operator — trailing `{ x... }`
+
+The spread operator mirrors Go convention (trailing dots, as in `f(x...)`):
+
+```gsx
+<div { attrs... }>          {/* element: spreads gsx.Attrs as HTML attributes */}
+<Card { data... }/>         {/* component: whole-struct splat → Card(data)    */}
+<ui.Button { btn... }/>     {/* dotted component: same trailing-splat syntax  */}
+```
+
+The context (element vs component tag) determines the meaning — no type resolution
+is needed. The grammar treats both as the same `spread_attribute` node in the
+attribute list; the code generator interprets it based on the tag kind.
 
 ## Markup vs Go (the one subtlety)
 
@@ -101,6 +172,7 @@ rendered output, all verified on every test run.
 | Markup-vs-Go corner cases | `parser/` |
 | Method components, page composition | `methods/` |
 | Children & attribute fallthrough | `fallthrough/` |
+| Byo props: field-build, splat, shared props | `props/` |
 
 > **Status — alpha.** `.gsx` compiles to plain Go via `gsx generate`; syntax is
 > stable but still evolving. Follow the
