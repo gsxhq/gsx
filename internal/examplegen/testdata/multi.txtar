@@ -1,0 +1,17 @@
+-- doc --
+name: Two files
+summary: A lib file and a page file.
+category: Components & composition
+order: 20
+-- lib.gsx --
+package views
+
+component Box() { <div>box</div> }
+-- page.gsx --
+package views
+
+component Page() { <Box/> }
+-- invoke --
+Page(PageProps{})
+-- render.golden --
+<div>box</div>

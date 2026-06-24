@@ -1,0 +1,13 @@
+-- doc --
+name: Hello
+summary: A greeting.
+category: Basics
+order: 10
+-- input.gsx --
+package views
+
+component Hello() { <p>hi</p> }
+-- invoke --
+Hello(HelloProps{})
+-- render.golden --
+<p>hi</p>
