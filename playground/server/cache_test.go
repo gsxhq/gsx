@@ -14,6 +14,25 @@ func TestCacheKeyDistinct(t *testing.T) {
 	}
 }
 
+func TestCacheable(t *testing.T) {
+	cases := []struct {
+		name string
+		r    renderResp
+		want bool
+	}{
+		{"success", renderResp{HTML: "<p>x</p>"}, true},
+		{"diagnostic", renderResp{Diagnostics: []diagnostic{{Severity: "error", Message: "boom"}}}, true},
+		{"operational error", renderResp{Error: "render: timeout"}, false},
+		{"empty timeout (poison case)", renderResp{}, false},
+		{"error wins over html", renderResp{HTML: "<p>x</p>", Error: "oops"}, false},
+	}
+	for _, c := range cases {
+		if got := cacheable(c.r); got != c.want {
+			t.Errorf("%s: cacheable=%v want %v", c.name, got, c.want)
+		}
+	}
+}
+
 func TestCacheHit(t *testing.T) {
 	in := renderReq{
 		GSX:    "package views\n\ncomponent C(s string) {\n\t<p>{s}</p>\n}\n",

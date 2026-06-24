@@ -163,8 +163,18 @@ func (p *pool) render(in renderReq) renderResp {
 	ws := <-p.free // block until a workspace is free (back-pressure)
 	defer func() { p.free <- ws }()
 	resp := renderIn(p.gsxBin, p.gocache, ws, in)
-	p.cache.put(key, resp)
+	if cacheable(resp) {
+		p.cache.put(key, resp)
+	}
 	return resp
+}
+
+// cacheable reports whether a render result is safe to cache: a deterministic
+// success (HTML) or a real diagnostic result. Transient failures — timeouts,
+// operational errors, or empty output — must NOT be cached, or they would
+// poison the cache and serve blank forever.
+func cacheable(r renderResp) bool {
+	return r.Error == "" && (r.HTML != "" || len(r.Diagnostics) > 0)
 }
 
 // writeShim writes the render shim Go file into viewDir.
@@ -180,7 +190,9 @@ func writeShim(viewDir, invoke string) {
 // renderIn performs one render cycle in the given workspace.
 func renderIn(gsxBin, gocache string, ws *workspace, in renderReq) renderResp {
 	start := time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	// 25s leaves headroom under Cloud Run's 30s request timeout; a cold instance's
+	// first `gsx generate` (go list under gVisor) can take 10-13s.
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 
 	env := []string{
