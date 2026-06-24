@@ -1,6 +1,8 @@
 package codegen
 
 import (
+	"fmt"
+	"go/token"
 	"strings"
 	"unicode"
 )
@@ -100,6 +102,21 @@ func fieldMatcherOrDefault(fm FieldMatcher) FieldMatcher {
 		return fm
 	}
 	return defaultFieldMatcher
+}
+
+// validateMatchedField checks that fn (returned by a custom FieldMatcher) is a
+// valid Go identifier AND — when declared is non-nil — is present in the known
+// field set. The default matcher only ever returns fields that already exist, so
+// this only matters for buggy custom matchers. Returns a non-nil error with code
+// "bad-field-match" when the check fails.
+func validateMatchedField(fn, attr, propsType string, declared map[string]bool) error {
+	if !token.IsIdentifier(fn) {
+		return fmt.Errorf("field matcher returned %q for attribute %q, which is not a valid Go identifier", fn, attr)
+	}
+	if declared != nil && !declared[fn] {
+		return fmt.Errorf("field matcher returned %q for attribute %q, which is not an exported field of %s", fn, attr, propsType)
+	}
+	return nil
 }
 
 // matchField resolves an attr name to a props struct field name using the given

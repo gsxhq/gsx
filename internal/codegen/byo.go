@@ -197,14 +197,17 @@ func isGsxAttrsType(typ string) bool {
 	return strings.TrimSpace(typ) == "gsx.Attrs"
 }
 
-// loadExternalStructFields does a preliminary go/packages load of the package's
-// EXISTING .go files (valid Go independent of the .gsx) to enumerate the
-// exported fields of each requested struct type. It mirrors the type-resolution
-// discipline used by resolveTypesPkg, but with NO overlay — only the real .go
-// files are loaded, so it cannot depend on (or be perturbed by) the not-yet-
-// generated .x.go. wanted is the set of struct type names to enumerate; the
-// return maps are keyed by type name. A type absent from .go files (e.g. it is
-// declared in a .gsx GoChunk, already handled) is simply absent from the result.
+// loadExternalStructFields does a preliminary go/packages load of the package
+// directory to enumerate the exported fields of each requested struct type. It
+// mirrors the type-resolution discipline used by resolveTypesPkg, but with NO
+// overlay — packages.Load(cfg, ".") loads the package's existing on-disk files
+// (hand-written .go and any previously generated .x.go) without the not-yet-
+// generated .x.go for the current run. The struct's field set is still reliable
+// because struct declarations always live in hand-written .go files; any .x.go
+// present on disk can only add functions (never struct fields). wanted is the
+// set of struct type names to enumerate; the return maps are keyed by type name.
+// A type absent from .go files (e.g. it is declared in a .gsx GoChunk, already
+// handled) is simply absent from the result.
 //
 // Load failures and type errors are swallowed: at this stage the package's .go
 // files may legitimately be incomplete (they reference funcs the .x.go will

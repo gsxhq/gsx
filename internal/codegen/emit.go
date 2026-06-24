@@ -1788,8 +1788,6 @@ func childPropsErrorCode(err error) string {
 		return "unsupported-attr"
 	case strings.Contains(msg, "slot closure"):
 		return "unsupported-node"
-	case strings.Contains(msg, "splat"):
-		return "byo-splat-mixed"
 	default:
 		return "unsupported-component-attr"
 	}
@@ -1913,8 +1911,8 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, table filterTab
 		switch t := a.(type) {
 		case *ast.StaticAttr:
 			if fn, isProp := matchField(declared, t.Name, fm); isProp {
-				if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
-					return "", "", nil, err
+				if verr := validateMatchedField(fn, t.Name, propsType, declared); verr != nil {
+					return "", "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "bad-field-match", msg: verr.Error()}
 				}
 				if nodeFields[fn] {
 					fields = append(fields, fmt.Sprintf("%s: %s.Text(%s)", fn, rtPkg, strconv.Quote(t.Value)))
@@ -1926,8 +1924,8 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, table filterTab
 			}
 		case *ast.ExprAttr:
 			if fn, isProp := matchField(declared, t.Name, fm); isProp {
-				if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
-					return "", "", nil, err
+				if verr := validateMatchedField(fn, t.Name, propsType, declared); verr != nil {
+					return "", "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "bad-field-match", msg: verr.Error()}
 				}
 				val := strings.TrimSpace(t.Expr)
 				if len(t.Stages) > 0 {
@@ -1959,8 +1957,8 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, table filterTab
 			}
 		case *ast.BoolAttr:
 			if fn, isProp := matchField(declared, t.Name, fm); isProp {
-				if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
-					return "", "", nil, err
+				if verr := validateMatchedField(fn, t.Name, propsType, declared); verr != nil {
+					return "", "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "bad-field-match", msg: verr.Error()}
 				}
 				if nodeFields[fn] {
 					fields = append(fields, fmt.Sprintf("%s: %s.Val(true)", fn, rtPkg))
@@ -2114,10 +2112,3 @@ func condBranchAttrs(attrs []ast.Attr, rtPkg, tag string) (string, error) {
 	return fmt.Sprintf("%s.Attrs{%s}", rtPkg, strings.Join(entries, ", ")), nil
 }
 
-// checkComponentAttrName is a no-op guard retained for the declared-prop branch.
-// Previously it rejected non-identifier attr names; with the FieldMatcher, kebab
-// and other non-identifier attr names can legitimately match a prop field (the
-// matcher validated the mapping). The check is now a no-op.
-func checkComponentAttrName(name, tag string) error {
-	return nil
-}
