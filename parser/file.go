@@ -22,12 +22,21 @@ type Mode uint
 // src may be nil (read filename via os.ReadFile), a string, or a []byte.
 // mode is reserved for future use; pass 0.
 func ParseFile(fset *token.FileSet, filename string, src any, mode Mode) (*ast.File, error) {
-	return ParseFileWithClassifier(fset, filename, src, mode, attrclass.Builtin())
+	f, errs := ParseFileWithClassifier(fset, filename, src, mode, attrclass.Builtin())
+	if len(errs) > 0 {
+		e := errs[0]
+		pos := fset.Position(e.Pos)
+		if pos.IsValid() {
+			return f, fmt.Errorf("%d:%d: %s", pos.Line, pos.Column, e.Msg)
+		}
+		return f, fmt.Errorf("%s", e.Msg)
+	}
+	return f, nil
 }
 
 // ParseFileWithClassifier parses using cls to classify attribute names (which
 // JS-context attributes split @{ } holes). A nil cls means built-ins only.
-func ParseFileWithClassifier(fset *token.FileSet, filename string, src any, mode Mode, cls *attrclass.Classifier) (*ast.File, error) {
+func ParseFileWithClassifier(fset *token.FileSet, filename string, src any, mode Mode, cls *attrclass.Classifier) (*ast.File, []Error) {
 	if cls == nil {
 		cls = attrclass.Builtin()
 	}
@@ -37,7 +46,7 @@ func ParseFileWithClassifier(fset *token.FileSet, filename string, src any, mode
 	case nil:
 		b, err := os.ReadFile(filename)
 		if err != nil {
-			return nil, err
+			return nil, []Error{{Pos: token.NoPos, Msg: err.Error()}}
 		}
 		srcBytes = b
 	case string:
@@ -45,7 +54,7 @@ func ParseFileWithClassifier(fset *token.FileSet, filename string, src any, mode
 	case []byte:
 		srcBytes = v
 	default:
-		return nil, fmt.Errorf("parser.ParseFile: invalid src type %T", src)
+		return nil, []Error{{Pos: token.NoPos, Msg: fmt.Sprintf("parser.ParseFile: invalid src type %T", src)}}
 	}
 
 	file := fset.AddFile(filename, fset.Base(), len(srcBytes))
@@ -61,7 +70,7 @@ func ParseFileWithClassifier(fset *token.FileSet, filename string, src any, mode
 
 	pkgName, pkgKwPos, pkgEnd, err := scanPackage(file, srcBytes)
 	if err != nil {
-		return nil, err
+		return nil, []Error{{Pos: pkgKwPos, Msg: err.Error()}}
 	}
 
 	f := &ast.File{
@@ -85,7 +94,15 @@ func ParseFileWithClassifier(fset *token.FileSet, filename string, src any, mode
 		p.i = off
 		c, err := p.parseComponent()
 		if err != nil {
-			return nil, err
+			// Error already recorded in p.errs. Resync strictly past this component's
+			// `component` keyword so the next scan can't re-match it (forward progress),
+			// skip the broken component, and continue.
+			resyncFrom := off + len("component")
+			if p.i > resyncFrom {
+				resyncFrom = p.i
+			}
+			cursor = resyncFrom
+			continue
 		}
 		f.Decls = append(f.Decls, c)
 		cursor = p.i
@@ -97,12 +114,13 @@ func ParseFileWithClassifier(fset *token.FileSet, filename string, src any, mode
 		ast.SetSpan(gc, chunkStart, chunkEnd)
 		f.Decls = append(f.Decls, gc)
 	}
-	return f, nil
+	return f, p.errs
 }
 
 // scanPackage finds the package clause. Returns the package name, position of the
 // `package` keyword token (as token.Pos in the given file), and byte offset after
 // the package name (used to advance the cursor past the package clause).
+// On error, pkgKwPos may be token.NoPos (if the package keyword was never found).
 func scanPackage(file *token.File, src []byte) (name string, kwPos token.Pos, end int, err error) {
 	localFset := token.NewFileSet()
 	localFile := localFset.AddFile("", localFset.Base(), len(src))
@@ -119,7 +137,7 @@ func scanPackage(file *token.File, src []byte) (name string, kwPos token.Pos, en
 			_ = lit
 			namePos, tok2, lit2 := s.Scan()
 			if tok2 != token.IDENT {
-				return "", token.NoPos, 0, fmt.Errorf("malformed package clause")
+				return "", mappedKwPos, 0, fmt.Errorf("malformed package clause")
 			}
 			nameOff := localFset.Position(namePos).Offset
 			return lit2, mappedKwPos, nameOff + len(lit2), nil

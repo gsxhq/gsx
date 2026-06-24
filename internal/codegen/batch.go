@@ -34,7 +34,7 @@ type PackageResult struct {
 // error (parse or type-resolution) is recorded in that dir's PackageResult.Err
 // without failing the others. The returned map is keyed by the normalized
 // absolute dir.
-func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []string, cls *attrclass.Classifier, cssMin, jsMin func(string) (string, error)) (map[string]*PackageResult, error) {
+func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []string, cls *attrclass.Classifier, cssMin, jsMin func(string) (string, error), srcOverride map[string][]byte) (map[string]*PackageResult, error) {
 	if cls == nil {
 		cls = attrclass.Builtin()
 	}
@@ -83,17 +83,25 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 		files := make(map[string]*gsxast.File, len(matches))
 		hasErr := false
 		for _, m := range matches {
-			src, err := os.ReadFile(m)
-			if err != nil {
-				bag.Add(diag.Diagnostic{Severity: diag.Error, Message: err.Error(), Source: "parser"})
-				hasErr = true
-				break
+			var src []byte
+			if ov, ok := srcOverride[m]; ok {
+				src = ov
+			} else {
+				b, err := os.ReadFile(m)
+				if err != nil {
+					bag.Add(diag.Diagnostic{Severity: diag.Error, Message: err.Error(), Source: "parser"})
+					hasErr = true
+					break
+				}
+				src = b
 			}
-			f, err := gsxparser.ParseFileWithClassifier(fset, m, src, 0, cls)
-			if err != nil {
-				bag.Add(diag.Diagnostic{Severity: diag.Error, Message: fmt.Sprintf("%s: %s", m, err.Error()), Source: "parser"})
+			f, perrs := gsxparser.ParseFileWithClassifier(fset, m, src, 0, cls)
+			for _, e := range perrs {
+				bag.Report(e.Pos, e.Pos, diag.Error, "syntax", "parser", "%s", e.Msg)
+			}
+			if len(perrs) > 0 {
 				hasErr = true
-				break
+				continue // keep parsing other files to collect all parser errors
 			}
 			// JSX whitespace pass before resolution + emit (mirror codegen.go).
 			wsnorm.Normalize(f)
@@ -334,5 +342,5 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 // GeneratePackages is GeneratePackagesWithFilters with the built-in std filter
 // package (kept for the test corpus and any std-only caller).
 func GeneratePackages(moduleDir string, dirs []string) (map[string]*PackageResult, error) {
-	return GeneratePackagesWithFilters(moduleDir, dirs, nil, nil, nil, nil)
+	return GeneratePackagesWithFilters(moduleDir, dirs, nil, nil, nil, nil, nil)
 }

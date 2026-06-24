@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"fmt"
 	"go/scanner"
 	"go/token"
 	"strings"
@@ -82,7 +81,7 @@ func splitComposed(src string) ([]ast.ClassPart, error) {
 func (p *parser) parseComposedAttr(name string, startPos token.Pos) (ast.Attr, error) {
 	end, ok := goExprEnd(p.src, p.i)
 	if !ok {
-		return nil, fmt.Errorf("unterminated `{` in %s value", name)
+		return nil, p.errorf(p.pos(), "unterminated `{` in %s value", name)
 	}
 	parts, err := splitComposed(p.src[p.i+1 : end])
 	if err != nil {
@@ -101,12 +100,11 @@ func (p *parser) parseSpreadAttr() (ast.Attr, error) {
 	attrStartPos := p.posAt(p.i)
 	end, ok := goExprEnd(p.src, p.i)
 	if !ok {
-		return nil, fmt.Errorf("unterminated `{` in attributes")
+		return nil, p.errorf(p.pos(), "unterminated `{` in attributes")
 	}
 	inner := strings.TrimSpace(p.src[p.i+1 : end])
 	if !strings.HasPrefix(inner, "...") {
-		cp := p.file.Position(attrStartPos)
-		return nil, fmt.Errorf("%d:%d: expected `...` spread inside `{ }` attribute", cp.Line, cp.Column)
+		return nil, p.errorf(attrStartPos, "expected `...` spread inside `{ }` attribute")
 	}
 	expr := strings.TrimSpace(strings.TrimPrefix(inner, "..."))
 	p.i = end + 1
@@ -132,8 +130,7 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 		p.i++
 	}
 	if p.i == attrStart {
-		cp := p.file.Position(p.pos())
-		return nil, fmt.Errorf("%d:%d: expected attribute name, got %q", cp.Line, cp.Column, string(p.peek()))
+		return nil, p.errorf(p.pos(), "expected attribute name, got %q", string(p.peek()))
 	}
 	name := p.src[attrStart:p.i]
 	switch {
@@ -147,7 +144,7 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 			p.i++
 		}
 		if p.eof() {
-			return nil, fmt.Errorf("unterminated attribute string for %q", name)
+			return nil, p.errorf(p.pos(), "unterminated attribute string for %q", name)
 		}
 		val := p.src[vs:p.i]
 		p.i++ // past closing quote
@@ -219,7 +216,7 @@ func (p *parser) parseJSAttrValue(name string, attrStartPos token.Pos) (ast.Attr
 		}
 		p.i++
 	}
-	return nil, fmt.Errorf("unterminated attribute string for %q", name)
+	return nil, p.errorf(p.pos(), "unterminated attribute string for %q", name)
 }
 
 // parseAttrsUntilBrace parses an attribute list terminated by '}' (the body of a
@@ -229,7 +226,7 @@ func (p *parser) parseAttrsUntilBrace() ([]ast.Attr, error) {
 	for {
 		p.skipSpace()
 		if p.eof() {
-			return nil, fmt.Errorf("unexpected EOF in `{ if … }` attribute body")
+			return nil, p.errorf(p.pos(), "unexpected EOF in `{ if … }` attribute body")
 		}
 		if p.peek() == '}' {
 			p.i++ // consume '}'
@@ -260,8 +257,7 @@ func (p *parser) parseCondAttr() (ast.Attr, error) {
 	}
 	p.skipSpace()
 	if p.peek() != '}' {
-		cp := p.file.Position(p.pos())
-		return nil, fmt.Errorf("%d:%d: expected `}` to close `{ if … }` attribute", cp.Line, cp.Column)
+		return nil, p.errorf(p.pos(), "expected `}` to close `{ if … }` attribute")
 	}
 	p.i++ // past outer '}'
 	ast.SetSpan(n, startPos, p.posAt(p.i))
@@ -276,8 +272,7 @@ func (p *parser) parseCondAttrTail() (*ast.CondAttr, error) {
 	condStart := p.i
 	braceOff, ok := scanToBlockBrace(p.src, p.i, "if")
 	if !ok {
-		cp := p.file.Position(p.posAt(p.i))
-		return nil, fmt.Errorf("%d:%d: expected `{` after `if` condition", cp.Line, cp.Column)
+		return nil, p.errorf(p.posAt(p.i), "expected `{` after `if` condition")
 	}
 	cond := strings.TrimSpace(p.src[condStart:braceOff])
 	p.i = braceOff + 1 // past body '{'
@@ -305,8 +300,7 @@ func (p *parser) parseCondAttrTail() (*ast.CondAttr, error) {
 			}
 			n.Else = []ast.Attr{elseIf}
 		default:
-			cp := p.file.Position(p.pos())
-			return nil, fmt.Errorf("%d:%d: expected `{` or `if` after `else`", cp.Line, cp.Column)
+			return nil, p.errorf(p.pos(), "expected `{` or `if` after `else`")
 		}
 	}
 	ast.SetSpan(n, kwPos, p.posAt(p.i))

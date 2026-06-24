@@ -12,9 +12,9 @@ func parseAttrType(t *testing.T, src string, cls *attrclass.Classifier) ast.Attr
 	t.Helper()
 	// gsx components use the `component` keyword, not `func`.
 	full := "package p\n\ncomponent C() {\n\t" + src + "\n}\n"
-	f, err := ParseFileWithClassifier(token.NewFileSet(), "c.gsx", []byte(full), 0, cls)
-	if err != nil {
-		t.Fatalf("parse %q: %v", src, err)
+	f, errs := ParseFileWithClassifier(token.NewFileSet(), "c.gsx", []byte(full), 0, cls)
+	if len(errs) > 0 {
+		t.Fatalf("parse %q: %v", src, errs)
 	}
 	// Walk to the first element's first attribute.
 	var found ast.Attr

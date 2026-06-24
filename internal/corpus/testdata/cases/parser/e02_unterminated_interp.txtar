@@ -4,5 +4,6 @@ package p
 
 component X() { <p>{ x </p> }
 -- ast.golden --
+File package=p
 -- diagnostics.golden --
 unexpected EOF, expected </p>

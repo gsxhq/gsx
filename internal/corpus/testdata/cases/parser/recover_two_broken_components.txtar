@@ -1,0 +1,10 @@
+# recovery: two broken components each emit one diagnostic (component-boundary recovery)
+-- input.gsx --
+package p
+
+component A() { <div>hi</span> }
+
+component B() { <p>yo</b> }
+-- diagnostics.golden --
+3:24: mismatched close tag </span>, expected </div>
+5:22: mismatched close tag </b>, expected </p>

@@ -4,5 +4,7 @@ package p
 
 component X() { <div =oops> }
 -- ast.golden --
+File package=p
+  GoChunk len=9
 -- diagnostics.golden --
 3:22: expected attribute name, got "="
