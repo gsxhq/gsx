@@ -238,3 +238,24 @@ component jumps into its `.gsx` declaration, and find-references lists every use
 across `.go` and `.gsx` — with **no `.x.go` on disk**, purely from gsx's
 in-memory analysis. Plus a recorded performance baseline that tells us whether
 large projects need optimization before we write any.
+
+## 12. Follow-ups (tracked, not yet built)
+
+- **`textDocument/formatting` capability.** Advertise `documentFormattingProvider`
+  and wire `internal/printer` (the engine behind `gsx fmt`) to the
+  formatting request, so editors can format `.gsx` on save / on command via the
+  language server rather than shelling out to the CLI. (Also listed in the broad
+  LSP design §5.) Scope: full-document formatting first; range formatting later.
+- **Surface a diagnostic when package load fails.** Today, if `go/packages.Load`
+  cannot resolve the package (e.g. a stale `replace` directive, missing
+  dependency, broken `go.mod`), analysis returns an empty package and the server
+  silently answers **null** to every nav/def request — indistinguishable from
+  "feature broken." Publish a positionless diagnostic (`source: "loader"`) on the
+  open file so the user sees *why* navigation is dead. (Observed in the field: a
+  test fixture's `replace` pointed at a removed worktree; every `gd` returned null
+  with no explanation.)
+- **Go-to-def on raw-Go symbols** declared in a `.gsx` (helper func/type/var in a
+  pass-through chunk) now resolves to the `.gsx` via a `//line` on the body.
+  `find-references` on such symbols is still unsupported (they are not components,
+  so they are not in the cross-index; gopls cannot see them since they live in a
+  `.gsx`). A future slice could index them.
