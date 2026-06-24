@@ -121,6 +121,7 @@ gsx fmt                 # print formatted "." to stdout
 gsx fmt -w ./web        # rewrite files in place
 gsx fmt -l              # list files whose formatting differs
 gsx fmt -d file.gsx     # show a unified diff of the changes
+gsx fmt -w -no-imports  # rewrite, but keep unused imports
 ```
 
 | Flag | Effect |
@@ -129,10 +130,18 @@ gsx fmt -d file.gsx     # show a unified diff of the changes
 | `-w` | rewrite each changed file in place |
 | `-l` | list the paths of files whose formatting differs |
 | `-d` | write a unified diff of the changes to stdout |
+| `-no-imports` | keep unused imports (skip the module analysis that finds them) |
 
 Path arguments are `.gsx` files or directories (walked recursively, skipping
 `.git`, hidden dirs, `vendor`, `node_modules`, and `testdata`). No arguments
 formats `.` recursively.
+
+**Unused imports.** Like `goimports`, `gsx fmt` **removes unused imports** from a
+`.gsx` file's pass-through Go by default — detected via the type-checker, so it
+runs a module analysis (`go list` + type-check). Pass `-no-imports` to format
+whitespace only and skip that analysis (faster, and works outside a resolvable
+module). The language server's format action drops unused imports too, so
+format-on-save in an editor keeps imports tidy.
 
 **Exit codes:** `0` on success; `1` on a parse error, or — with `-l` / `-d` —
 when any file differs. The non-zero-on-difference behavior of `-l` / `-d` is
