@@ -10,8 +10,11 @@ Cut the playground's per-render type-resolution cost from a per-request `go list
 component package against a cached `go/types` importer. Target: edit latency
 ~7 s → ~2 s (the new floor is `go build`/run, ~1.5 s).
 
-This is scoped to the **playground** (a fixed module: gsx runtime + the import
-allowlist). The stock `gsx generate` CLI keeps its `packages.Load` path unchanged.
+The cached resolver is built as a **general codegen capability** (not
+playground-specific); the **playground is consumer #1**. The stock one-shot
+`gsx generate` CLI keeps its `packages.Load` path unchanged (a fresh process
+can't reuse an in-memory cache). A future **local-dev** consumer can reuse the
+same capability — see "Future consumers".
 
 ## Spike evidence (proven)
 
@@ -123,12 +126,25 @@ build all stay.
   startup (before/with the preset seed) so only the instance's first moments pay
   it, not each render.
 
+## Future consumers (out of this slice)
+
+- **Local dev via the Vite plugin.** `@gsxhq/vite-plugin-gsx` currently `spawn`s a
+  fresh `gsx generate` per `.gsx` save, so the edited file always pays full
+  `packages.Load` and no in-memory cache survives. To make local dev fast, gsx
+  would expose a **persistent generate mode** (a stdio daemon holding this cached
+  resolver), and the plugin would spawn it **once** and send per-change requests
+  instead of spawning per change. That reuses this capability verbatim; it adds
+  only **dep-change invalidation** (rebuild the importer when `go.mod`/`go.sum`
+  changes; stay warm across pure `.gsx` edits) since a real project's deps aren't
+  fixed like the playground's. This is a separate slice (gsx daemon + plugin
+  rework; revises the plugin's approved "spawn-per-change" design).
+
 ## Out of scope
 
 - Speeding `go build`/run (the new ~1.5 s floor) — would need a persistent
   compile/exec strategy; separate effort.
-- Using the cached resolver in the CLI (`gsx generate`) — the CLI has arbitrary,
-  non-fixed deps; not applicable.
+- The one-shot `gsx generate` CLI — a fresh process can't reuse the cache; keeps
+  `packages.Load`.
 
 ## Testing
 
