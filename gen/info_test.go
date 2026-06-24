@@ -30,6 +30,24 @@ func TestRunInfoStd(t *testing.T) {
 	}
 }
 
+// TestRunInfoVersionSingleLine proves the info banner reports the version with a
+// single "gsx " prefix (regression: version() began returning a banner that
+// itself starts with "gsx ", which doubled the prefix to "gsx gsx ...").
+func TestRunInfoVersionSingleLine(t *testing.T) {
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	code := runInfo(&out, &bytes.Buffer{}, repoRoot, []string{stdImportPath}, attrclass.Builtin(), "", nil)
+	if code != 0 {
+		t.Fatalf("runInfo exit = %d, want 0", code)
+	}
+	if strings.Contains(out.String(), "gsx gsx") {
+		t.Fatalf("info version line has doubled prefix:\n%s", out.String())
+	}
+}
+
 // TestRunInfoShadow proves a shadowed filter is marked with "(shadows ".
 func TestRunInfoShadow(t *testing.T) {
 	if testing.Short() {

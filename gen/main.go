@@ -310,11 +310,24 @@ func isTTY(w io.Writer) bool {
 	return fi.Mode()&os.ModeCharDevice != 0
 }
 
-// version reports the gsx version. It reads the build info's main-module
-// version, or "(devel)" when none is embedded (e.g. `go run` or a local
-// build), and enriches it with the VCS revision/time/dirty state and the Go
-// toolchain version when available — so a dev build still reports a useful
-// commit for bug reports.
+// bareVersion reports just the gsx module version (e.g. "v1.2.3"), or "(devel)"
+// when none is embedded. It is the one-line form embedded by `info`; the
+// `version` command uses the richer banner from version().
+func bareVersion() string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		if v := info.Main.Version; v != "" {
+			return v
+		}
+	}
+	return "(devel)"
+}
+
+// version reports the gsx version banner for the `version` command. It reads the
+// build info's main-module version, or "(devel)" when none is embedded (e.g.
+// `go run` or a local build), and enriches it with the VCS revision/time/dirty
+// state and the Go toolchain version when available — so a dev build still
+// reports a useful commit for bug reports. The banner already begins with
+// "gsx "; callers embedding a one-line version should use bareVersion instead.
 func version() string {
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
