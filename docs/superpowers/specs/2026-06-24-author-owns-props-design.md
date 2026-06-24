@@ -98,6 +98,8 @@ The byo path is **explicit** — `Children`/`Attrs` are real fields the author c
 
 The **generated path keeps today's behavior**: auto `Children` field + auto class-merge/spread fallthrough.
 
+**Which signatures are a contract (the nullary-`Page()` question).** A component's Go signature is a stable contract only when it is (a) **structpages-dispatched** (matched by signature) or (b) **called from hand-written Go**. In both, the author is on the **byo** path and *owns* the type, so the signature changes only when *they* change the declaration — never silently. The signature that gsx *auto-grows* (a nullary component gaining a `Children`/`Attrs` field the first time it uses `{children}`/fallthrough) is the **tag-invoked, gsx-owned** case (a layout/helper like `<p.Shell>…</p.Shell>`), where gsx also generates the call site, so the change is invisible at every use. Therefore: **skip the arg when unused; gsx-owned signatures may grow on use (safe — tag-invoked); auto-add `Children`/`Attrs` only to types gsx owns** (generated props, and `Props` declared *in the `.gsx`*). An **external byo `Props`** that uses `{children}`/fallthrough without the field is a clear error (the author adds it) — contract types never move under you. structpages page methods don't take children in practice, so their dispatch stays stable.
+
 ---
 
 ## 7. Method components & structpages
@@ -185,3 +187,21 @@ Every syntax change ships per-context corpus coverage (project rule). `go build`
 - **emit ≡ probe for byo field-build** — the byo field set must be identical on both paths; derive from the one resolved `Props` type.
 - **LSP regression** — keep `ExprMap`/`//line` intact; the existing LSP corpus is the guard.
 - **Heuristic surprise** — a component author expecting a generated wrapper but writing a single struct param gets byo; the discriminator is documented and `gsx info` can report which path a component took.
+
+---
+
+## 14. Tooling & ecosystem impact (`gsxhq/` org)
+
+The org is five repos plus gsx-internal tooling. Two changes ripple out: (a) the spread migration `{...x}` → `{ x... }` *plus* the new component splat `{ x... }`, and (b) the author-owns-Props model. The component-decl and tag *syntax* is otherwise unchanged, so most surfaces are unaffected or transparent.
+
+- **`tree-sitter-gsx`** (grammar — feeds editor highlighting / structural parsing). **Already stale**: `grammar.js` still has `spread_attribute: seq('{','...',go_expr,'}')` (leading dots) and `optional('?')` on `expr_attribute`/holes (the `?` try-marker was removed from gsx). This redesign requires a coordinated grammar update — it **must land with the gsx change** so highlighting stays correct:
+  - `spread_attribute`: leading `{...x}` → trailing `{ x... }`.
+  - add the component whole-struct **splat** `{ x... }` (trailing-splat in a component-tag arg position).
+  - remove `optional('?')` (catch up to the `?` removal).
+  - `tree-sitter generate` + update `test/` corpus and `queries/` (highlights/injections) for any renamed/added nodes.
+  - The author-owns-Props model itself is invisible to the grammar (decls + tags unchanged) — only the spread/splat tokens change.
+- **`gsxhq.github.io`** (docs site). `guide/` is **synced from `gsx/docs/guide`** at build (`scripts/sync-docs.mjs`); updating gsx's guide (component-props model, spread syntax — and the already-landed `?`/JSON/CSS corrections) propagates on the next deploy. Check for site-only landing content mentioning props/spread.
+- **`vite-plugin-gsx` / `vite`** — the plugin invokes the gsx compiler (`gsx generate`); it does **not** parse gsx syntax. Transparent to the redesign (and benefits from cleaner output). At most a gsx dep-version bump.
+- **gsx-internal** — `gsx fmt`/printer (spread leading→trailing; must rewrite + stay idempotent, §8); LSP (§10); parser (new splat token; `?` already gone); codegen (§9); corpus + the rewritten structpages examples (migrate `{...x}`); **playground** uses codegen — transparent (no tree-sitter coupling found).
+
+**Coordination:** the implementation plan includes a **tooling-sync slice** — `tree-sitter-gsx` (grammar + regenerate + tests) and the docs guide — as a tracked step landing alongside the gsx change. The Vite plugin and site are dep-bump / redeploy, not code changes.
