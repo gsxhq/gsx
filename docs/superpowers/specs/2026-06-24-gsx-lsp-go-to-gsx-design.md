@@ -121,10 +121,14 @@ slice-2a's param `//line`. In-memory skeleton only — never written to disk.
 `textDocument/references` is served **entirely from the same `crossIndex`** — no
 full `Info` at query time:
 
-1. Identify the component the cursor is on — find the component whose `Decl` or
-   one of whose `Refs` covers the cursor `Location` (works for a `.go` cursor, a
-   `.gsx` `<Card/>` tag, or the `.gsx` declaration).
-2. Return that component's `Refs` (already a mix of `.go` and `.gsx` Locations),
+1. Identify the component the cursor is on by an **exact** position match — the
+   component's `.gsx` declaration (`NamePos`, exact) or a `.go` reference (real
+   positions). `.gsx`-file ref positions are skipped for identification: their
+   `//line`-derived columns are approximate, so a cursor on a `.gsx` `<Card/>`
+   **tag** resolves predictably to "no match" rather than an off-by-column hit.
+   (Identifying the component from a `.gsx` tag cursor is **deferred** — it needs
+   component-tag resolution, the same as definition's D2.)
+2. Return that component's `Refs` (always a mix of `.go` and `.gsx` Locations),
    plus its `Decl` when `includeDeclaration` is set.
 
 Because references were resolved and `//line`-mapped when the index was built,

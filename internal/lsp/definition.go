@@ -133,20 +133,10 @@ func (s *Server) handleDefinition(f frame) error {
 	return s.reply(f.ID, loc)
 }
 
-// locationFor builds an LSP Location from a resolved definition position,
-// converting its 1-based byte column to the negotiated encoding using the target
-// file's own line text (read from disk; the target is a real file).
+// locationFor builds an LSP Location from a resolved definition position. Alias
+// of locationForPos (kept for the slice-2a .gsx-side call sites).
 func (s *Server) locationFor(dp token.Position) Location {
-	char := dp.Column - 1
-	if data, err := os.ReadFile(dp.Filename); err == nil {
-		char = charForByteCol(lineAtFunc(string(data))(dp.Line), dp.Column, s.enc)
-	}
-	line := dp.Line - 1
-	if line < 0 {
-		line = 0
-	}
-	pos := Position{Line: line, Character: char}
-	return Location{URI: pathToURI(dp.Filename), Range: Range{Start: pos, End: pos}}
+	return s.locationForPos(dp)
 }
 
 // handleGoDefinition answers definition for a cursor in a .go file: if the
