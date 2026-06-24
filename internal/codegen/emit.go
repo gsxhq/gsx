@@ -593,7 +593,7 @@ func bagSpreadIndex(attrs []ast.Attr) (int, bool, error) {
 			continue
 		}
 		if found {
-			return 0, false, fmt.Errorf("codegen: more than one {...attrs} spread on an element; precedence is ambiguous")
+			return 0, false, fmt.Errorf("codegen: more than one { attrs... } spread on an element; precedence is ambiguous")
 		}
 		idx, found = i, true
 	}

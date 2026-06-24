@@ -1,0 +1,7 @@
+# leading-dots spread {..x} is no longer valid; must produce a parse error
+-- input.gsx --
+package p
+
+component X() { <div {...attrs}>x</div> }
+-- diagnostics.golden --
+3:22: expected `...` trailing spread inside `{ }` attribute; did you mean `{ attrs... }`?

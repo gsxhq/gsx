@@ -7,4 +7,4 @@ component X() { <div { x }>text</div> }
 File package=p
   GoChunk len=19
 -- diagnostics.golden --
-3:22: expected `...` spread inside `{ }` attribute
+3:22: expected `...` trailing spread inside `{ }` attribute

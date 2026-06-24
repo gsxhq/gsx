@@ -1,6 +1,10 @@
 # REDESIGN TARGET: method components pass their single author-struct param THROUGH
 # (no per-method wrapper), so Page + Content share ONE author type — the structpages
 # Props()/RenderTarget dispatch pattern. Generated: func (p home) Content(d pageData).
+#
+# NOTE: invoke uses homeContentProps (current generated wrapper) not pageData (desired
+# author type); the render result is correct, but the call-site ergonomics are wrong
+# until the author-owns-Props redesign lands (Task N of the plan).
 -- input.gsx --
 package views
 
@@ -15,7 +19,7 @@ component (p home) Content(d pageData) {
 	<h1>{ d.Title }</h1>
 }
 -- invoke --
-home{}.Content(pageData{Title: "Hi"})
+home{}.Content(homeContentProps{D: pageData{Title: "Hi"}})
 -- diagnostics.golden --
 -- render.golden --
 <h1>Hi</h1>

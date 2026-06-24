@@ -10,7 +10,7 @@ component Toolbar() {
 }
 
 component Field(label string) {
-	<div class="field"><label>{label}</label><input class="control" {...attrs}/></div>
+	<div class="field"><label>{label}</label><input class="control" { attrs... }/></div>
 }
 
 component LoginForm() {

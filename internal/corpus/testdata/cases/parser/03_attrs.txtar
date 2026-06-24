@@ -2,7 +2,7 @@
 -- input.gsx --
 package p
 
-component Input(id string, rest map[string]string) { <input type="text" id={id} disabled {...rest} /> }
+component Input(id string, rest map[string]string) { <input type="text" id={id} disabled { rest... } /> }
 -- ast.golden --
 File package=p
   Component name=Input recv="" params="id string, rest map[string]string"

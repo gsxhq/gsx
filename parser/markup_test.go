@@ -54,7 +54,7 @@ func TestParseText(t *testing.T) {
 }
 
 func TestParseAttrs(t *testing.T) {
-	p := testParser(`class="card" id={x} disabled {...rest} data-y={z}>`)
+	p := testParser(`class="card" id={x} disabled { rest... } data-y={z}>`)
 	attrs, err := p.parseAttrs()
 	if err != nil {
 		t.Fatal(err)
@@ -183,8 +183,8 @@ func TestParseChildrenMismatch(t *testing.T) {
 }
 
 func TestParseSpreadWhitespace(t *testing.T) {
-	// {...expr}, { ...expr }, and {...  expr  } must all parse as one spread.
-	for _, src := range []string{`{...rest}>`, `{ ...rest }>`, `{...  rest  }>`} {
+	// { rest... }, {rest...}, and {  rest  ...  } must all parse as one spread.
+	for _, src := range []string{`{ rest... }>`, `{rest...}>`, `{  rest  ...  }>`} {
 		p := testParser(src)
 		attrs, err := p.parseAttrs()
 		if err != nil {
@@ -617,7 +617,7 @@ func TestParseCondAttrBool(t *testing.T) {
 
 func TestParseCondAttrWithOtherAttrs(t *testing.T) {
 	// Conditional attr composes with normal attrs and a spread on one element.
-	p := testParser(`<button type="button" { if on { disabled } } {...rest}>x</button>`)
+	p := testParser(`<button type="button" { if on { disabled } } { rest... }>x</button>`)
 	node, err := p.parseElement()
 	if err != nil {
 		t.Fatal(err)
