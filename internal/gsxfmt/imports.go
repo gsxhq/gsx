@@ -27,7 +27,7 @@ func removeImports(f *gsxast.File, unused []ImportRef) {
 	if len(unused) == 0 {
 		return
 	}
-	out := f.Decls[:0]
+	out := make([]gsxast.Decl, 0, len(f.Decls))
 	for _, d := range f.Decls {
 		gc, ok := d.(*gsxast.GoChunk)
 		if !ok {
@@ -36,10 +36,11 @@ func removeImports(f *gsxast.File, unused []ImportRef) {
 		}
 		if rewritten, changed := deleteChunkImports(gc.Src, unused); changed {
 			gc.Src = rewritten
+			if strings.TrimSpace(gc.Src) == "" {
+				continue // entirely-imports chunk, now empty → drop
+			}
 		}
-		if strings.TrimSpace(gc.Src) != "" {
-			out = append(out, gc)
-		}
+		out = append(out, gc)
 	}
 	f.Decls = out
 }
