@@ -39,13 +39,18 @@ func (lspAnalyzer) Analyze(dir string, override map[string][]byte) (*lsp.Package
 	if pr == nil {
 		return &lsp.Package{}, nil
 	}
+	cross := make(map[string]lsp.CrossRef, len(pr.CrossIndex))
+	for k, v := range pr.CrossIndex {
+		cross[k] = lsp.CrossRef{Name: v.Name, Decl: v.Decl, Refs: v.Refs}
+	}
 	return &lsp.Package{
-		Diags:   pr.Diags,
-		GSXFset: pr.GSXFset,
-		Fset:    pr.Fset,
-		Info:    pr.Info,
-		ExprMap: pr.ExprMap,
-		Files:   pr.GSXFiles,
+		Diags:      pr.Diags,
+		GSXFset:    pr.GSXFset,
+		Fset:       pr.Fset,
+		Info:       pr.Info,
+		ExprMap:    pr.ExprMap,
+		Files:      pr.GSXFiles,
+		CrossIndex: cross,
 	}, nil
 }
 
