@@ -4,16 +4,68 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"go/parser"
+	"go/token"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
 
 var pkgLine = regexp.MustCompile(`(?m)^package\s+\w+`)
+
+// allowedImports is the deny-by-default allowlist for the generated views
+// package. It is the union of imports gsx codegen emits and a curated set of
+// capability-free stdlib packages safe for a public template playground.
+// Anything not listed (net*, os*, os/exec, syscall, unsafe, runtime, "C", ...)
+// is rejected, removing the network/exec/filesystem vectors before the program
+// is ever built or run.
+var allowedImports = map[string]bool{
+	"context": true, "io": true, "strconv": true, "fmt": true,
+	"strings": true, "time": true, "sort": true, "errors": true,
+	"math": true, "math/rand": true, "unicode": true, "unicode/utf8": true,
+	"html": true,
+	"github.com/gsxhq/gsx":     true,
+	"github.com/gsxhq/gsx/std": true,
+}
+
+// checkImports parses every generated *.x.go in viewDir for its imports and
+// returns a diagnostic naming the first import not on the allowlist, or nil if
+// all are allowed. Parsing the GENERATED code is comprehensive: all visitor
+// Go-chunk imports flow into the .x.go. Rejecting unsafe also blocks
+// //go:linkname; rejecting "C" blocks cgo.
+func checkImports(viewDir string) *diagnostic {
+	entries, err := os.ReadDir(viewDir)
+	if err != nil {
+		return &diagnostic{Severity: "error", Message: "playground: cannot inspect generated code: " + err.Error()}
+	}
+	fset := token.NewFileSet()
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".x.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, filepath.Join(viewDir, e.Name()), nil, parser.ImportsOnly)
+		if err != nil {
+			return &diagnostic{Severity: "error", Message: "playground: cannot parse generated code: " + err.Error()}
+		}
+		for _, imp := range f.Imports {
+			path := strings.Trim(imp.Path.Value, `"`)
+			if !allowedImports[path] {
+				p := fset.Position(imp.Pos())
+				return &diagnostic{
+					Severity: "error",
+					Message:  "import " + strconv.Quote(path) + " is not allowed in the playground",
+					Line:     p.Line, Column: p.Column,
+				}
+			}
+		}
+	}
+	return nil
+}
 
 type workspace struct {
 	play    string
@@ -66,7 +118,12 @@ func newPool(gsxMod, work string, size int) (p *pool, err error) {
 	if err = os.MkdirAll(gocache, 0o755); err != nil {
 		return nil, err
 	}
-	env := []string{"GOCACHE=" + gocache}
+	env := []string{
+		"GOCACHE=" + gocache,
+		"GOPROXY=off",
+		"GOFLAGS=-mod=mod",
+		"CGO_ENABLED=0",
+	}
 	p = &pool{gsxBin: gsxBin, gocache: gocache, free: make(chan *workspace, size)}
 	for i := 0; i < size; i++ {
 		ws := &workspace{play: filepath.Join(work, fmt.Sprintf("play%d", i))}
@@ -115,7 +172,12 @@ func renderIn(gsxBin, gocache string, ws *workspace, in renderReq) renderResp {
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
 
-	env := []string{"GOCACHE=" + gocache}
+	env := []string{
+		"GOCACHE=" + gocache,
+		"GOPROXY=off",
+		"GOFLAGS=-mod=mod",
+		"CGO_ENABLED=0",
+	}
 
 	// Reset and write the user's component + shim.
 	os.RemoveAll(ws.viewDir)
@@ -140,6 +202,11 @@ func renderIn(gsxBin, gocache string, ws *workspace, in renderReq) renderResp {
 	}
 
 	generatedGo := readGenerated(ws.viewDir)
+
+	// 1a) import allowlist: reject disallowed imports before build/run.
+	if d := checkImports(ws.viewDir); d != nil {
+		return renderResp{GeneratedGo: generatedGo, Diagnostics: []diagnostic{*d}, Ms: ms()}
+	}
 
 	// 2) authentic build + run.
 	runOut, runErr := run(ctx, ws.play, env, "go", "run", ".")

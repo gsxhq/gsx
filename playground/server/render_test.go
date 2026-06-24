@@ -92,6 +92,38 @@ func TestMethodGuard(t *testing.T) {
 	}
 }
 
+func TestImportRejected(t *testing.T) {
+	resp := testPool.render(renderReq{
+		GSX:    "package views\n\nimport \"net/http\"\n\ncomponent C() {\n\t<p>{http.MethodGet}</p>\n}\n",
+		Invoke: "C(CProps{})",
+	})
+	if resp.HTML != "" {
+		t.Fatalf("expected rejection, got html %q", resp.HTML)
+	}
+	found := false
+	for _, d := range resp.Diagnostics {
+		if d.Severity == "error" && strings.Contains(d.Message, "not allowed") && strings.Contains(d.Message, "net/http") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected an 'import not allowed: net/http' diagnostic, got %+v (err=%q)", resp.Diagnostics, resp.Error)
+	}
+}
+
+func TestAllowedImportRenders(t *testing.T) {
+	resp := testPool.render(renderReq{
+		GSX:    "package views\n\nimport \"strings\"\n\ncomponent C(s string) {\n\t<p>{strings.ToUpper(s)}</p>\n}\n",
+		Invoke: `C(CProps{S: "hi"})`,
+	})
+	if resp.Error != "" || len(resp.Diagnostics) != 0 {
+		t.Fatalf("unexpected error/diags: %q %+v", resp.Error, resp.Diagnostics)
+	}
+	if strings.TrimSpace(resp.HTML) != "<p>HI</p>" {
+		t.Fatalf("html = %q", resp.HTML)
+	}
+}
+
 func TestPoolConcurrent(t *testing.T) {
 	wd, _ := os.Getwd()
 	gsxMod := filepath.Clean(filepath.Join(wd, "..", ".."))
