@@ -1,4 +1,5 @@
 attrs/attr_error_autounwrap	diag gen render
+attrs/attr_error_autounwrap_nested	diag gen render
 attrs/cond_attr_bool_off	diag render
 attrs/cond_attr_bool_on	diag render
 attrs/cond_attr_else_if_other	diag render
@@ -29,6 +30,7 @@ components/child_hyphen_attr_fallthrough	diag render
 components/child_no_props	diag render
 components/child_prop_pipeline_error	diag(error)
 components/child_prop_try_error	diag(error)
+components/child_prop_tuple_error	diag(error)
 components/child_props	diag render
 components/child_props_featured_false	diag render
 components/child_props_static	diag render
@@ -208,4 +210,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 210 cases (render: 151, error: 40, gen-pinned: 46)
+TOTAL: 212 cases (render: 152, error: 41, gen-pinned: 47)
