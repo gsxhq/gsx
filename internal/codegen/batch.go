@@ -20,6 +20,16 @@ import (
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
+// CrossRef is one component's cross-boundary entry: its name, its .gsx
+// declaration, and every reference (resolved positions — .go call sites stay
+// .go; .gsx <Card/> tags map to .gsx via the skeleton's child-tag //line).
+// Name's length bounds the cursor-on-reference span check in the LSP.
+type CrossRef struct {
+	Name string
+	Decl token.Position
+	Refs []token.Position
+}
+
 // PackageResult is the per-package outcome of GeneratePackages.
 type PackageResult struct {
 	Files map[string][]byte // .gsx path -> generated .x.go source
@@ -29,11 +39,12 @@ type PackageResult struct {
 	// Retained analysis for the language server (read-only; nil when the package
 	// failed before type-checking). The two FileSets are distinct: GSXFset is the
 	// gsx parse fset; Fset is the go/packages skeleton fset.
-	GSXFset  *token.FileSet
-	Fset     *token.FileSet
-	Info     *types.Info
-	ExprMap  map[gsxast.Node]goast.Expr
-	GSXFiles map[string]*gsxast.File
+	GSXFset    *token.FileSet
+	Fset       *token.FileSet
+	Info       *types.Info
+	ExprMap    map[gsxast.Node]goast.Expr
+	GSXFiles   map[string]*gsxast.File
+	CrossIndex map[string]CrossRef // componentKey → cross-boundary index entry
 }
 
 // GeneratePackagesWithFilters generates .x.go for every .gsx across the given
@@ -279,6 +290,56 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 			}
 			harvest(f, comps, pkg.TypesInfo, resolved, res.ExprMap)
 		}
+
+		// Build the slim cross-boundary index: component objects (by componentKey)
+		// → their .gsx declaration + every reference, resolved through pkg.Fset
+		// (//line maps skeleton refs to .gsx; real .go refs stay .go).
+		compByKey := map[string]*gsxast.Component{} // componentKey → component (for Name + NamePos)
+		compObjByKey := map[string]types.Object{}   // componentKey → the component's func object
+		for _, f := range pkg.Syntax {
+			fname := pkg.Fset.Position(f.Pos()).Filename
+			comps, ok := skelCompsByPath[fname]
+			if !ok {
+				continue
+			}
+			for _, c := range comps {
+				compByKey[componentKey(c)] = c
+			}
+			for _, decl := range f.Decls {
+				fd, ok := decl.(*goast.FuncDecl)
+				if !ok {
+					continue
+				}
+				if _, ok := compByKey[funcDeclKey(fd)]; !ok {
+					continue
+				}
+				if obj := pkg.TypesInfo.Defs[fd.Name]; obj != nil {
+					compObjByKey[funcDeclKey(fd)] = obj
+				}
+			}
+		}
+		objKey := map[types.Object]string{} // reverse: object → componentKey
+		for key, obj := range compObjByKey {
+			objKey[obj] = key
+		}
+		index := map[string]CrossRef{}
+		for key, c := range compByKey {
+			index[key] = CrossRef{Name: c.Name, Decl: fset.Position(c.NamePos)} // gsx fset → .gsx position
+		}
+		for id, obj := range pkg.TypesInfo.Uses {
+			key, ok := objKey[obj]
+			if !ok {
+				continue
+			}
+			p := pkg.Fset.Position(id.Pos())
+			if strings.HasSuffix(p.Filename, ".x.go") {
+				continue // synthetic skeleton position with no //line — skip
+			}
+			cr := index[key]
+			cr.Refs = append(cr.Refs, p)
+			index[key] = cr
+		}
+		res.CrossIndex = index
 
 		// Collect ALL type errors into the bag (positioned via pkg.Fset which
 		// resolves //line directives back to the .gsx source file).
