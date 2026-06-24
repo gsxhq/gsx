@@ -61,7 +61,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/render", makeRenderHandler(p))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprintln(w, "ok") })
-	log.Printf("gsx playground on %s (gsxmod=%s, pool=%d)", listenAddr, p.gsxBin, poolSize)
+	log.Printf("gsx playground on %s (gsxmod=%s, pool=%d)", listenAddr, *gsxMod, poolSize)
 	log.Fatal(http.ListenAndServe(listenAddr, loggingMiddleware(cors(withLimits(mux, 64*1024, sem)))))
 }
 
