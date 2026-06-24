@@ -14,6 +14,6 @@ File package=examples
     Element tag=button void=false
       CondAttr cond="id != \"\""
         then:
-          ExprAttr name=id expr="id" try=false
+          ExprAttr name=id expr="id"
       SpreadAttr expr="attrs"
       Text value="x"

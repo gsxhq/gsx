@@ -9,7 +9,7 @@ component Demo() { <Panel header={<h1>Hi</h1>}></Panel> }
 File package=p
   Component name=Panel recv="" params="header interface{}"
     Element tag=div void=false
-      Interp expr="header" try=false
+      Interp expr="header"
   Component name=Demo recv="" params=""
     Element tag=Panel void=false
       MarkupAttr name=header

@@ -46,7 +46,6 @@ func TestParsePipeStage(t *testing.T) {
 		{"truncate(20)", ast.PipeStage{Name: "truncate", Args: "20", HasArgs: true}},
 		{"f()", ast.PipeStage{Name: "f", Args: "", HasArgs: true}},
 		{"strings.ToUpper", ast.PipeStage{Name: "strings.ToUpper"}},
-		{"validate()?", ast.PipeStage{Name: "validate", HasArgs: true, Try: true}},
 		{"join(\", \")", ast.PipeStage{Name: "join", Args: "\", \"", HasArgs: true}},
 	}
 	for _, c := range ok {
@@ -68,29 +67,37 @@ func TestParsePipeStage(t *testing.T) {
 }
 
 func TestParsePipe(t *testing.T) {
-	seed, try, stages, err := parsePipe("name? |> upper |> truncate(20)")
+	seed, stages, err := parsePipe("name |> upper |> truncate(20)")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if seed != "name" || !try {
-		t.Fatalf("seed=%q try=%v, want \"name\" true", seed, try)
+	if seed != "name" {
+		t.Fatalf("seed=%q, want \"name\"", seed)
 	}
 	want := []ast.PipeStage{{Name: "upper"}, {Name: "truncate", Args: "20", HasArgs: true}}
 	if !reflect.DeepEqual(stages, want) {
 		t.Fatalf("stages=%#v, want %#v", stages, want)
 	}
 
-	// No pipe → seed only, nil stages (backward-compat shape).
-	seed, try, stages, err = parsePipe("greeting(name)?")
-	if err != nil || seed != "greeting(name)" || !try || stages != nil {
-		t.Fatalf("plain: seed=%q try=%v stages=%#v err=%v", seed, try, stages, err)
+	// No pipe → seed only, nil stages.
+	seed, stages, err = parsePipe("greeting(name)")
+	if err != nil || seed != "greeting(name)" || stages != nil {
+		t.Fatalf("plain: seed=%q stages=%#v err=%v", seed, stages, err)
+	}
+
+	// The removed `?` try-marker is rejected — on the seed and on a stage.
+	if _, _, err := parsePipe("name? |> upper"); err == nil {
+		t.Fatal("expected error for `?` on the seed")
+	}
+	if _, _, err := parsePipe("name |> validate()? |> upper"); err == nil {
+		t.Fatal("expected error for `?` on a stage")
 	}
 }
 
 func TestParsePipeEdges(t *testing.T) {
 	// Inner |> inside a filter argument stays opaque (spec A.4: nested pipelines
 	// are NOT split; the arg is one Go string).
-	seed, _, stages, err := parsePipe("items |> join(sep |> upper)")
+	seed, stages, err := parsePipe("items |> join(sep |> upper)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,31 +106,22 @@ func TestParsePipeEdges(t *testing.T) {
 		t.Fatalf("nested arg: seed=%q stages=%#v", seed, stages)
 	}
 
-	// Per-stage try on a middle stage (spec A.5).
-	seed, _, stages, err = parsePipe("name |> validate()? |> upper")
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantTry := []ast.PipeStage{{Name: "validate", HasArgs: true, Try: true}, {Name: "upper"}}
-	if seed != "name" || !reflect.DeepEqual(stages, wantTry) {
-		t.Fatalf("mid try: seed=%q stages=%#v", seed, stages)
-	}
-
-	// A `?` inside a seed string literal is not the try-marker.
-	seed, try, _, err := parsePipe(`"huh?" |> upper`)
-	if err != nil || seed != `"huh?"` || try {
-		t.Fatalf("string-? seed: seed=%q try=%v err=%v", seed, try, err)
+	// A `?` inside a seed string literal is not the try-marker (the literal ends
+	// with `"`, not `?`), so it parses cleanly.
+	seed, _, err = parsePipe(`"huh?" |> upper`)
+	if err != nil || seed != `"huh?"` {
+		t.Fatalf("string-? seed: seed=%q err=%v", seed, err)
 	}
 
 	// Empty middle stage is an error.
-	if _, _, _, err := parsePipe("a |>|> b"); err == nil {
+	if _, _, err := parsePipe("a |>|> b"); err == nil {
 		t.Fatal("expected error for empty middle stage")
 	}
 
-	// Empty interpolation keeps the pre-pipeline shape (seed "", nil stages).
-	seed, try, stages, err = parsePipe("")
-	if err != nil || seed != "" || try || stages != nil {
-		t.Fatalf("empty: seed=%q try=%v stages=%#v err=%v", seed, try, stages, err)
+	// Empty interpolation → seed "", nil stages.
+	seed, stages, err = parsePipe("")
+	if err != nil || seed != "" || stages != nil {
+		t.Fatalf("empty: seed=%q stages=%#v err=%v", seed, stages, err)
 	}
 }
 
@@ -157,6 +155,6 @@ func FuzzParsePipe(f *testing.F) {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
-		_, _, _, _ = parsePipe(s) // MUST NOT PANIC; malformed → error
+		_, _, _ = parsePipe(s) // MUST NOT PANIC; malformed → error
 	})
 }

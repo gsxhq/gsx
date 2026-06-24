@@ -5,4 +5,4 @@ component C(x string) {
 	<style>.a{color:@{ x? }}</style>
 }
 -- diagnostics.golden --
-4:19: `?` try-marker not supported in <style> interpolation yet
+4:19: the `?` try-marker is not supported; gsx auto-unwraps (T, error) values — remove the `?` (handle the error explicitly with `{ if v, err := f(); err != nil { … } }`)

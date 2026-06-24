@@ -21,6 +21,6 @@ File package=p
         Text value=".box { color: red } a < b"
       Text value="\n\t\t"
       Element tag=script void=false
-        ExprAttr name=nonce expr="n" try=false
+        ExprAttr name=nonce expr="n"
         Text value="\n\t\t\tconst cfg = { ok: true };\n\t\t\tif (a < b) { go(\"</span>\"); } // not a real close\n\t\t"
       Text value="\n\t"

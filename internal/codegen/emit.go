@@ -814,10 +814,6 @@ func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type,
 		}
 		return emitRender(b, lowered, t, imports, n, bag)
 	}
-	if n.Try {
-		bag.Errorf(n.Pos(), n.End(), "unsupported-try", "`?` try-marker not supported yet")
-		return false
-	}
 	t, ok := resolved[n]
 	if !ok || t == nil {
 		bag.Errorf(n.Pos(), n.End(), "unresolved-interp", "could not resolve type of interpolation %q", n.Expr)
@@ -908,10 +904,6 @@ func genStyleChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Ty
 
 // emitCSSInterp renders a <style> interpolation value in CSS block context.
 func emitCSSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, imports map[string]bool, fset *token.FileSet, bag *diag.Bag) bool {
-	if n.Try {
-		bag.Errorf(n.Pos(), n.End(), "unsupported-try", "`?` try-marker not supported in <style> interpolation yet")
-		return false
-	}
 	if len(n.Stages) > 0 {
 		bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "pipeline stages not supported in <style> interpolation yet")
 		return false
@@ -982,13 +974,9 @@ func genScriptChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.T
 }
 
 // emitJSInterp renders a <script> interpolation value through the runtime JS
-// escaper chosen by its JSCtx. It mirrors emitCSSInterp's Try/Stages rejection
-// and (T, error) tuple unwrap.
+// escaper chosen by its JSCtx. It mirrors emitCSSInterp's pipeline-stage handling
+// and (T, error) tuple auto-unwrap.
 func emitJSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, imports map[string]bool, fset *token.FileSet, bag *diag.Bag) bool {
-	if n.Try {
-		bag.Errorf(n.Pos(), n.End(), "unsupported-try", "`?` try-marker not supported in <script> interpolation yet")
-		return false
-	}
 	if len(n.Stages) > 0 {
 		bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "pipeline stages not supported in <script> interpolation yet")
 		return false
@@ -1137,13 +1125,9 @@ func emitJSAttr(b *bytes.Buffer, a *ast.JSAttr, resolved map[ast.Node]types.Type
 
 // emitJSAttrInterp renders one @{ } hole in a JS-context attribute value through
 // the runtime *Attr escaper chosen by its JSCtx. It mirrors emitJSInterp's
-// Try/Stages rejection and (T, error) tuple unwrap, but routes to the JS*Attr
-// methods (which additionally HTML-attr-escape).
+// pipeline-stage handling and (T, error) tuple auto-unwrap, but routes to the
+// JS*Attr methods (which additionally HTML-attr-escape).
 func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, imports map[string]bool, bag *diag.Bag) bool {
-	if n.Try {
-		bag.Errorf(n.Pos(), n.End(), "unsupported-try", "`?` try-marker not supported in JS attribute interpolation yet")
-		return false
-	}
 	if len(n.Stages) > 0 {
 		bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "pipeline stages not supported in JS attribute interpolation yet")
 		return false
@@ -1259,12 +1243,7 @@ func htmlAttrEscape(s string) string {
 // JS context routes through gw.JSValAttr. Both are handled in the value-emit
 // section below by their respective branches.
 func emitExprAttr(b *bytes.Buffer, a *ast.ExprAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, cls *attrclass.Classifier, bag *diag.Bag) bool {
-	// (1) whole-attr `?` try-marker is deferred (per-stage `?` is caught by lowerPipe).
-	if a.Try {
-		bag.Errorf(a.Pos(), a.End(), "unsupported-try", "`?` try-marker in attribute %q not supported yet", a.Name)
-		return false
-	}
-	// (2) value expression: lower a pipeline to nested std calls (same lowerPipe
+	// (1) value expression: lower a pipeline to nested std calls (same lowerPipe
 	// the probe used, so resolved[a] is already the pipeline's RESULT type), else
 	// the bare trimmed expr.
 	expr := strings.TrimSpace(a.Expr)
@@ -1284,6 +1263,20 @@ func emitExprAttr(b *bytes.Buffer, a *ast.ExprAttr, resolved map[ast.Node]types.
 	if !ok || t == nil {
 		bag.Errorf(a.Pos(), a.End(), "unresolved-attr", "could not resolve type of attribute %q value %q", a.Name, a.Expr)
 		return false
+	}
+
+	// (2) auto-unwrap a (T, error) value — v, err := expr; if err != nil { return err } —
+	// then use v by its type T, exactly as text/<style>/<script> interpolation do.
+	if tup, ok := t.(*types.Tuple); ok {
+		if tup.Len() != 2 || tup.At(1).Type().String() != "error" {
+			bag.Errorf(a.Pos(), a.End(), "invalid-tuple", "attribute %q value %q returns %s; only (T, error) is supported", a.Name, a.Expr, t)
+			return false
+		}
+		tmp := fmt.Sprintf("_gsxv%d", interpTemp)
+		interpTemp++
+		fmt.Fprintf(b, "\t\t%s, _gsxerr := %s\n\t\tif _gsxerr != nil {\n\t\t\treturn _gsxerr\n\t\t}\n", tmp, expr)
+		expr = tmp
+		t = tup.At(0).Type()
 	}
 
 	// A bool-typed value is a boolean attribute regardless of context — EXCEPT in
@@ -1742,7 +1735,7 @@ func emitSlotClosure(nodes []ast.Markup, resolved map[ast.Node]types.Type, table
 //
 // It SPLITS each Static/Expr/Bool attr via isPropField(propFields[propsType], …):
 //   - a DECLARED prop name → a props-struct field (static→quoted, expr→trimmed
-//     expr rejecting Try/Stages, bool→true), exactly as before; and
+//     expr rejecting pipeline Stages, bool→true), exactly as before; and
 //   - anything else (a non-identifier name like `data-test`/`@click`/`hx-*`, or an
 //     undeclared identifier on a known same-package child) → a FALLTHROUGH bag
 //     entry keyed by the attr's RAW name (static→quoted value, bool→true, expr→
@@ -1783,8 +1776,8 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, propFields map[
 				if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
 					return "", err
 				}
-				if t.Try || len(t.Stages) > 0 {
-					msg := fmt.Sprintf("pipeline/`?` on child-component prop %q (<%s>) not supported yet", t.Name, el.Tag)
+				if len(t.Stages) > 0 {
+					msg := fmt.Sprintf("pipeline on child-component prop %q (<%s>) not supported yet", t.Name, el.Tag)
 					return "", &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-child-pipeline", msg: msg}
 				}
 				if nodeFields[fieldName(t.Name)] {
@@ -1793,8 +1786,8 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, propFields map[
 					fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), strings.TrimSpace(t.Expr)))
 				}
 			} else {
-				if t.Try || len(t.Stages) > 0 {
-					msg := fmt.Sprintf("pipeline/`?` on child-component fallthrough attr %q (<%s>) not supported yet", t.Name, el.Tag)
+				if len(t.Stages) > 0 {
+					msg := fmt.Sprintf("pipeline on child-component fallthrough attr %q (<%s>) not supported yet", t.Name, el.Tag)
 					return "", &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-child-pipeline", msg: msg}
 				}
 				bag = append(bag, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), strings.TrimSpace(t.Expr)))

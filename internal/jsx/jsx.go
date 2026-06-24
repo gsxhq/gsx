@@ -483,9 +483,6 @@ func interpLiteral(in *ast.Interp) string {
 	var b strings.Builder
 	b.WriteString("@{ ")
 	b.WriteString(in.Expr)
-	if in.Try {
-		b.WriteByte('?')
-	}
 	for _, s := range in.Stages {
 		b.WriteString(" |> ")
 		b.WriteString(s.Name)
@@ -493,9 +490,6 @@ func interpLiteral(in *ast.Interp) string {
 			b.WriteByte('(')
 			b.WriteString(s.Args)
 			b.WriteByte(')')
-		}
-		if s.Try {
-			b.WriteByte('?')
 		}
 	}
 	b.WriteString(" }")

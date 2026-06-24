@@ -366,30 +366,48 @@ Three brace forms inside a component body, by leading token:
   top of the body or between markup siblings. Markup is a value inside it
   (`{{ header := <h1>…</h1> }}`).
 
-### Native `(T, error)` — the `?` try-marker
+### Native `(T, error)` — implicit auto-unwrap (no try-marker)
 
-A `?` suffix on an expression unwraps a `(T, error)` call: it uses `T` and lowers
-to `if err != nil { return err }` **inside the component's `Render` method**,
-short-circuiting the render. Because every component's `Render` returns `error`
-unconditionally (§10), `?` is *always* valid in a component body. Zero type
-resolution — the marker declares intent (Rust/Zig `try`).
+A `(T, error)` value in **any** interpolation or attribute position auto-unwraps:
+codegen lowers it to `v, err := expr; if err != nil { return err }` **inside the
+component's `Render` method**, then uses `v` by its type `T`. Because every
+component's `Render` returns `error` unconditionally (§10), the error propagates
+out with no ceremony — and a function that *gains* an `error` return "just works"
+in every template that already calls it, with no call-site edits.
+
+> **Decision (2026-06-24): implicit, not explicit.** An earlier design used a `?`
+> try-marker (Rust/Zig `try`) to make the unwrap explicit. It was removed in favor
+> of implicit auto-unwrap: the marker added ceremony for the dominant case (you
+> almost always want to propagate), and would force editing every call site whenever
+> a signature gained an error. A trailing `?` is now a **parse error** that points
+> here. The rejected-`?` corpus cases (`pipelines/try_rejected`,
+> `style/block_try_rejected`, `components/child_prop_try_error`, …) pin the error
+> per context.
 
 ```go
 component UserForm() {            // ctx is ambient, not declared
     <form
-        hx-post={ route.URL(ctx, CreateUser{})? }
+        hx-post={ route.URL(ctx, CreateUser{}) }    // (string, error) → auto-unwrap
         hx-target={ route.IDTarget(ctx, UsersList{}) }
     >
         <h1>{ pageTitle(ctx) }</h1>
-        <li>{ render(item)? }</li>
+        <li>{ render(item) }</li>                    // auto-unwrap
     </form>
 }
 ```
 
-Nested component tags propagate failures automatically — rendering a child calls
-its `Render`, whose error streams out of the parent's `Render`. Errors are never
-ignored or panicked. (`?` only lacks a return path inside a hand-written plain
-`func` that returns no `error`; there it is a generation-time error.)
+To **handle** an error instead of propagating it (fallback, log, ignore), use a
+control-flow block with a Go init statement — the explicit escape hatch:
+
+```go
+{ if v, err := mayFail(); err != nil { <span class="err">{ err.Error() }</span> } else { <span>{ v }</span> } }
+```
+
+Nested component tags propagate failures automatically too — rendering a child
+calls its `Render`, whose error streams out of the parent's `Render`. Errors are
+never silently ignored or panicked. (Auto-unwrap only lacks a return path inside a
+hand-written plain `func` that returns no `error`; there it is a generation-time
+error.)
 
 ### Other constructs
 

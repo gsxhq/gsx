@@ -39,7 +39,7 @@ names: `<Card title="Hi" featured/>` → `Card(CardProps{Title: "Hi", Featured: 
 | `<div>`, `<el-dialog>` | HTML element (lowercase / hyphenated) |
 | `<Card>`, `<ui.Button>` | component (Capitalized / dotted) |
 | `{ expr }` | interpolation in body (auto HTML-escaped) |
-| `{ expr? }` | try-marker: unwrap `(T, error)`, propagate the error |
+| `{ f() }` where `f` returns `(T, error)` | auto-unwraps to `T`; the error propagates out of the enclosing `Render` (no `?` marker) |
 | `name="lit"` | static string attribute |
 | `name={ expr }` | dynamic attribute (Go expression) |
 | `name` (bare) | boolean attribute = `true` |

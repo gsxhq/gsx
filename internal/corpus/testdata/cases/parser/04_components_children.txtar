@@ -9,7 +9,7 @@ component Page() { <Card title="x"><b>kid</b></Card> }
 File package=p
   Component name=Card recv="" params="title string"
     Element tag=div void=false
-      Interp expr="children" try=false
+      Interp expr="children"
   Component name=Page recv="" params=""
     Element tag=Card void=false
       StaticAttr name=title value="x"

@@ -7,4 +7,4 @@ component Card(title string) { <div>{title}</div> }
 
 component Page(t string) { <Card title={lookup(t)?}/> }
 -- diagnostics.golden --
-7:34: pipeline/`?` on child-component prop "title" (<Card>) not supported yet
+7:40: the `?` try-marker is not supported; gsx auto-unwraps (T, error) values — remove the `?` (handle the error explicitly with `{ if v, err := f(); err != nil { … } }`)

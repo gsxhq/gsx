@@ -1,3 +1,4 @@
+attrs/attr_error_autounwrap	diag gen render
 attrs/cond_attr_bool_off	diag render
 attrs/cond_attr_bool_on	diag render
 attrs/cond_attr_else_if_other	diag render
@@ -143,7 +144,7 @@ parser/14_composable_class	ast diag
 parser/15_doctype_comment	ast diag
 parser/16_raw_text	ast diag
 parser/17_pipeline	ast diag
-parser/18_pipeline_attr_try	ast diag
+parser/18_pipeline_attr_try	ast diag(error)
 parser/e01_mismatched_close	ast diag(error)
 parser/e02_unterminated_interp	ast diag(error)
 parser/e03_bad_attr_name	ast diag(error)
@@ -207,4 +208,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 209 cases (render: 150, error: 39, gen-pinned: 45)
+TOTAL: 210 cases (render: 151, error: 40, gen-pinned: 46)

@@ -32,7 +32,9 @@ JSX-style markup body, compiled to plain Go (`.gsx` → `.x.go`).
   each bypassing one check: `gsx.Raw(s)` (HTML), `gsx.RawURL(s)` (URL scheme check),
   `gsx.RawCSS(s)` (CSS value-filter). JS/event-handler (`on*`) contexts are a
   compile error, not auto-escaped.
-- Try-marker: `{ expr? }` unwraps `(T, error)` and propagates the error.
+- Error handling: a `(T, error)` interpolation/attr value (`{ f() }`, `name={ f() }`)
+  auto-unwraps to `T`; the error propagates out of the enclosing `Render`. There is
+  no `?` try-marker. To handle the error instead, use `{ if v, err := f(); err != nil { … } }`.
 - Attributes: static `name="lit"`, dynamic `name={ expr }`, boolean bare `name`,
   type-driven `disabled={ cond }` (bool → bare/omitted), spread `{...expr}`,
   conditional `{ if … }` / `{ for … }` inside the tag.

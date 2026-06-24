@@ -25,7 +25,7 @@ func TestParseInterp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n.Expr != "user.Name" || n.Try {
+	if n.Expr != "user.Name" {
 		t.Fatalf("got %+v", n)
 	}
 	if p.src[p.i:] != "rest" {
@@ -33,14 +33,12 @@ func TestParseInterp(t *testing.T) {
 	}
 }
 
-func TestParseInterpTry(t *testing.T) {
+// The `?` try-marker was removed: a trailing `?` is now a parse error (gsx
+// auto-unwraps (T, error)). Confirm the marker is rejected, not silently parsed.
+func TestParseInterpTryRejected(t *testing.T) {
 	p := testParser(`{ route.URL(ctx)? }`)
-	n, err := p.parseInterp()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n.Expr != "route.URL(ctx)" || !n.Try {
-		t.Fatalf("got %+v", n)
+	if _, err := p.parseInterp(); err == nil {
+		t.Fatal("expected a parse error for the removed `?` try-marker, got nil")
 	}
 }
 
@@ -56,7 +54,7 @@ func TestParseText(t *testing.T) {
 }
 
 func TestParseAttrs(t *testing.T) {
-	p := testParser(`class="card" id={x} disabled {...rest} data-y={z?}>`)
+	p := testParser(`class="card" id={x} disabled {...rest} data-y={z}>`)
 	attrs, err := p.parseAttrs()
 	if err != nil {
 		t.Fatal(err)
@@ -76,7 +74,7 @@ func TestParseAttrs(t *testing.T) {
 	if a, ok := attrs[3].(*ast.SpreadAttr); !ok || a.Expr != "rest" {
 		t.Fatalf("attr3 = %#v", attrs[3])
 	}
-	if a, ok := attrs[4].(*ast.ExprAttr); !ok || a.Name != "data-y" || !a.Try {
+	if a, ok := attrs[4].(*ast.ExprAttr); !ok || a.Name != "data-y" || a.Expr != "z" {
 		t.Fatalf("attr4 = %#v", attrs[4])
 	}
 	if p.peek() != '>' {

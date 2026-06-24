@@ -1,14 +1,14 @@
-# text + interp + try-interp in a parameterised component
+# text + interpolation (plain expr and call) in a parameterised component
 -- input.gsx --
 package p
 
-component Greet(name string) { <p>Hi {name}! {greeting(name)?}</p> }
+component Greet(name string) { <p>Hi {name}! {greeting(name)}</p> }
 -- ast.golden --
 File package=p
   Component name=Greet recv="" params="name string"
     Element tag=p void=false
       Text value="Hi "
-      Interp expr="name" try=false
+      Interp expr="name"
       Text value="! "
-      Interp expr="greeting(name)" try=true
+      Interp expr="greeting(name)"
 -- diagnostics.golden --
