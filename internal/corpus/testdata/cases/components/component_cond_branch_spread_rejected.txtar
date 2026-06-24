@@ -1,0 +1,15 @@
+# COVERAGE / REJECTION (gap #2): a spread {...extra} nested INSIDE a conditional
+# attr branch is unsupported (cond branches stay shallow). Must error cleanly with
+# the unsupported-component-attr diagnostic, not miscompile.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Card(title gsx.Node) { <div class="card">{title}</div> }
+
+component Page(hot bool, extra gsx.Attrs) {
+	<Card title="Hi" { if hot { {...extra} } } />
+}
+-- diagnostics.golden --
+8:30: unsupported attribute *ast.SpreadAttr in a conditional branch (<Card>)

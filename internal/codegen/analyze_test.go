@@ -5,6 +5,7 @@ import (
 	"go/types"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	gsxast "github.com/gsxhq/gsx/ast"
@@ -204,5 +205,48 @@ func TestNodePropsSignal(t *testing.T) {
 	}
 	if boxNode["Attrs"] {
 		t.Errorf("nodeProps[BoxProps] unexpectedly contains synthetic Attrs field")
+	}
+}
+
+// TestChildPropPipelineSkeletonImportsStd verifies the emit≡probe import
+// plumbing for a child-component prop pipeline: childPropsLiteral surfaces the
+// filter packages a lowered prop pipeline references, so buildSkeleton imports
+// the std filter package under its reserved _gsxstd alias and the lowered
+// _gsxstd.Upper(...) call resolves. Without the threading the skeleton would
+// not import std and type resolution would fail.
+func TestChildPropPipelineSkeletonImportsStd(t *testing.T) {
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module gsxa\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pkgDir := filepath.Join(tmp, "genpkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Card(title gsx.Node) { <div class=\"card\">{title}</div> }\n\ncomponent Page(name string) {\n\t<Card title={ name |> upper } />\n}\n"
+	writeFile(t, pkgDir, "views.gsx", src)
+
+	fset := token.NewFileSet()
+	file, err := gsxparser.ParseFile(fset, filepath.Join(pkgDir, "views.gsx"), []byte(src), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]*gsxast.File{filepath.Join(pkgDir, "views.gsx"): file}
+	propFields, nodeProps, err := componentPropFieldsFor(files)
+	if err != nil {
+		t.Fatalf("propFields: %v", err)
+	}
+	table, err := loadFilterTable(pkgDir)
+	if err != nil {
+		t.Fatalf("loadFilterTable: %v", err)
+	}
+	skel, _, err := buildSkeleton(file, table, propFields, nodeProps, fset)
+	if err != nil {
+		t.Fatalf("buildSkeleton: %v", err)
+	}
+	if !strings.Contains(skel, `import _gsxstd "github.com/gsxhq/gsx/std"`) {
+		t.Errorf("skeleton missing std filter import; got:\n%s", skel)
+	}
+	if !strings.Contains(skel, "_gsxstd.Upper((name))") {
+		t.Errorf("skeleton missing lowered pipeline call; got:\n%s", skel)
 	}
 }
