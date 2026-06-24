@@ -179,6 +179,12 @@ type Interp struct {
 	Expr   string
 	Try    bool
 	Stages []PipeStage
+	// ExprPos is the position of the first non-whitespace character of the
+	// interpolation's inner expression in the source file (i.e. where Expr
+	// starts before trimming). It is token.NoPos when unavailable. Used by
+	// codegen to emit compensated //line directives so type errors map to the
+	// exact source column of the expression rather than the '{' opener.
+	ExprPos token.Pos
 	// JSCtx is set by internal/jsx for Interps inside a <script>; JSCtxNone otherwise.
 	JSCtx JSCtx
 }

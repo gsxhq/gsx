@@ -16,13 +16,16 @@ func (p *parser) parseInterp() (*ast.Interp, error) {
 	if !ok {
 		return nil, p.errorf(startPos, "unterminated `{`")
 	}
-	inner := strings.TrimSpace(p.src[p.i+1 : end])
+	rawInner := p.src[p.i+1 : end]
+	lead := len(rawInner) - len(strings.TrimLeft(rawInner, " \t\r\n"))
+	exprPos := p.posAt(p.i + 1 + lead)
+	inner := strings.TrimSpace(rawInner)
 	seed, seedTry, stages, perr := parsePipe(inner)
 	if perr != nil {
 		return nil, p.errorf(startPos, "%v", perr)
 	}
 	p.i = end + 1
-	n := &ast.Interp{Expr: seed, Try: seedTry, Stages: stages}
+	n := &ast.Interp{Expr: seed, Try: seedTry, Stages: stages, ExprPos: exprPos}
 	ast.SetSpan(n, startPos, p.posAt(p.i))
 	return n, nil
 }
