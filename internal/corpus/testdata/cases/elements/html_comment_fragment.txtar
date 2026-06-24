@@ -1,0 +1,16 @@
+# HTML comments render in a fragment and around control flow; `--` inside the body
+# (not `-->`) is preserved verbatim. A common real use is an htmx out-of-band marker.
+-- input.gsx --
+package views
+
+component C(show bool) {
+	<>
+		<!-- oob -- swap -->
+		{ if show { <p>yes</p> } else { <p>no</p> } }
+	</>
+}
+-- invoke --
+C(CProps{Show: false})
+-- diagnostics.golden --
+-- render.golden --
+<!-- oob -- swap --><p>no</p>

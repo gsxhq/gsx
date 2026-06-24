@@ -1,0 +1,14 @@
+# HTML comments <!-- … --> pass through to the output (spec: rendered verbatim).
+# The comment text is literal (parser stops at the first -->), so no escaping and
+# no breakout risk.
+-- input.gsx --
+package views
+
+component C(name string) {
+	<div><!-- header --><h1>{name}</h1><!-- a < b & c --></div>
+}
+-- invoke --
+C(CProps{Name: "Ada"})
+-- diagnostics.golden --
+-- render.golden --
+<div><!-- header --><h1>Ada</h1><!-- a < b & c --></div>
