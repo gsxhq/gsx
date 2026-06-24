@@ -138,6 +138,8 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 		return runInfo(stdout, stderr, ".", cfg.filterPkgs, cfg.classifier(), cfg.predLabel, cmdArgs)
 	case "fmt":
 		return runFmt(stdout, stderr, cmdArgs)
+	case "lsp":
+		return runLSP(os.Stdin, stdout, stderr, cmdArgs)
 	case "version":
 		fmt.Fprintln(stdout, version())
 		return 0
@@ -324,6 +326,7 @@ Commands:
 	fmt [paths...]        format .gsx files (canonical, idempotent)
 	clean --cache         remove the gsx cache directory
 	info                  list the resolved pipeline filters
+	lsp                   run the language server over stdio (JSON-RPC)
 	version               print the gsx version
 	help                  show this help
 

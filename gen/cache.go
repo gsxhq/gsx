@@ -91,7 +91,7 @@ func generateCached(paths, filterPkgs []string, cls *attrclass.Classifier, predL
 
 	// GENERATE phase: only the miss set, in ONE load.
 	if len(miss) > 0 {
-		out, err := codegen.GeneratePackagesWithFilters(root, miss, filterPkgs, cls, cssMin, jsMin)
+		out, err := codegen.GeneratePackagesWithFilters(root, miss, filterPkgs, cls, cssMin, jsMin, nil)
 		if err != nil {
 			return res, err
 		}
@@ -206,7 +206,7 @@ func contains(ss []string, s string) bool {
 
 // mustGen / writeAll: the no-cache fallback (Tier 0 path) reused by generateCached.
 func mustGen(root string, dirs, filterPkgs []string, cls *attrclass.Classifier, cssMin, jsMin func(string) (string, error), res *Result) map[string]*codegen.PackageResult {
-	out, err := codegen.GeneratePackagesWithFilters(root, dirs, filterPkgs, cls, cssMin, jsMin)
+	out, err := codegen.GeneratePackagesWithFilters(root, dirs, filterPkgs, cls, cssMin, jsMin, nil)
 	if err != nil {
 		res.Errs = append(res.Errs, err)
 		return nil
