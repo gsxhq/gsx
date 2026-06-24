@@ -154,9 +154,9 @@ component Layout(title string) {
     <head>
       <meta charset="UTF-8" />
       <title>{title}</title>
-      for _, href := range assets.CSS { <link rel="stylesheet" href={href} /> }
-      for _, src := range assets.Preloads { <link rel="modulepreload" href={src} /> }
-      for _, src := range assets.JS { <script type="module" src={src}></script> }
+      { for _, href := range assets.CSS { <link rel="stylesheet" href={href} /> } }
+      { for _, src := range assets.Preloads { <link rel="modulepreload" href={src} /> } }
+      { for _, src := range assets.JS { <script type="module" src={src}></script> } }
     </head>
     <body>{children}</body>
   </html>
