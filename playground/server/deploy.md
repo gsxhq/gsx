@@ -1,5 +1,51 @@
 # Deploying the gsx playground to Cloud Run (free tier)
 
+## Security (READ BEFORE public deploy)
+
+The render service compiles and runs **visitor-supplied Go code** using the real
+Go toolchain. gVisor sandboxes kernel syscalls inside Cloud Run, but **gVisor
+does not block outbound network connections**. A visitor can therefore use
+`net`, `net/http`, `os/exec curl`, etc. to make arbitrary outbound requests
+from inside the container.
+
+On a public `--allow-unauthenticated` Cloud Run service this enables:
+
+- **SSRF / data exfiltration** — the container can reach internal GCP services
+  and, critically, the **GCP metadata endpoint at `169.254.169.254`**, which
+  returns instance identity tokens and project metadata without any
+  authentication.
+
+**Before exposing the service publicly, choose one of the following (maintainer
+decision):**
+
+a. **Restrict egress (strongly preferred).** Attach a
+   [Serverless VPC Access connector](https://cloud.google.com/vpc/docs/configure-serverless-vpc-access)
+   and deploy with `--vpc-egress=all-traffic` routed through a VPC that has no
+   default internet route and no path to `169.254.169.254`. This fully closes
+   the SSRF surface. **Note: a VPC connector incurs cost beyond the always-free
+   tier** — factor this in before enabling.
+
+b. **Keep the service non-public.** Drop `--allow-unauthenticated` from the
+   deploy command so Cloud Run requires a valid Google identity token on every
+   request. Operate this way until egress is restricted.
+
+c. **Accept the residual risk explicitly.** Only sensible for a throwaway or
+   low-value project where credential exfil has no meaningful impact. If you
+   choose this path, at minimum: set a strict `--timeout` (≤ 30 s), keep
+   `--max-instances` low (≤ 3), and enable Cloud Run request logging and
+   alerting on anomalous egress patterns.
+
+> **Do NOT expose this service publicly until one of the above is in place.**
+> The GCP metadata endpoint risk is the primary reason options (a) and (b) are
+> strongly preferred over (c).
+
+### Local / CI pipeline note
+
+The `-prewarm` build step and any `go test` runs execute the **same compilation
+pipeline on the host**, with **no gVisor sandbox**. These paths must only ever
+process **trusted inputs** (your own code, CI fixtures). Never pipe untrusted
+user input through a host-side `go build`/`go test` invocation.
+
 ## Prerequisites
 
 - `gcloud` CLI authenticated (`gcloud auth login`)

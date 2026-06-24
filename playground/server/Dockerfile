@@ -6,7 +6,6 @@ WORKDIR /gsx
 COPY . /gsx
 
 ENV GOCACHE=/gocache
-ENV PLAYGROUND_WORK=/work
 
 # Build the server.
 RUN cd /gsx/playground/server && go build -o /usr/local/bin/gsxplayground .
