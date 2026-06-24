@@ -1,0 +1,15 @@
+-- doc --
+name: Pipelines / filters
+summary: Transform values with typed filter pipelines — { x |> trim |> upper } — drawn from the gsx info registry.
+category: Transforming values
+order: 150
+-- input.gsx --
+package views
+
+component Hi(name string) {
+	<p>{ name |> trim |> upper }</p>
+}
+-- invoke --
+Hi(HiProps{Name: "  ada  "})
+-- render.golden --
+<p>ADA</p>

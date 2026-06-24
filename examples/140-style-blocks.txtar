@@ -1,0 +1,20 @@
+-- doc --
+name: Style blocks
+summary: A <style> block interpolates values with @{ … }; interpolated values are CSS-sanitized by construction.
+category: Styling
+order: 140
+-- input.gsx --
+package views
+
+component Card(w int, userColor string) {
+	<style>
+		.card {
+			width: @{ w }px;
+			color: @{ userColor };
+		}
+	</style>
+}
+-- invoke --
+Card(CardProps{W: 12, UserColor: "teal"})
+-- render.golden --
+<style>.card{width: 12px;color: teal}</style>

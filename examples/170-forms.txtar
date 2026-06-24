@@ -1,0 +1,23 @@
+-- doc --
+name: Forms
+summary: A reusable Field component forwards undeclared attributes ({...attrs}) onto its input, so callers add type/name/required without Field declaring them.
+category: Interactive & whole-page
+order: 170
+-- input.gsx --
+package views
+
+component Field(label string) {
+	<div class="field"><label>{label}</label><input class="control" {...attrs}/></div>
+}
+
+component LoginForm() {
+	<form method="post" action="/login">
+		<Field label="Email" type="email" name="email" required/>
+		<Field label="Password" type="password" name="password" required/>
+		<button type="submit">Sign in</button>
+	</form>
+}
+-- invoke --
+LoginForm(LoginFormProps{})
+-- render.golden --
+<form method="post" action="/login"><div class="field"><label>Email</label><input class="control" name="email" required type="email"/></div><div class="field"><label>Password</label><input class="control" name="password" required type="password"/></div><button type="submit">Sign in</button></form>
