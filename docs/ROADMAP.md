@@ -278,6 +278,22 @@ attribute-name validation against tag breakout (`validAttrName`), documented
   intra-component parser recovery; type-errors-alongside-parser-errors.
 - ⬜ **Codegen niceties** — coalesce adjacent `gw.S` static writes; `//line`
   trailing-state reset; `data:image` URL allowance.
+- ⬜ **Tooling performance measurement on a realistic large corpus** — the existing
+  baseline (`gen/perf_test.go`, `GSX_PERF=1`; note
+  `docs/superpowers/notes/2026-06-24-go-to-gsx-perf.md`) uses a *synthetic* 50-package
+  fixture of trivial components: ~383 ms/package `Analyze` (cost dominated by
+  `go/packages.Load`), ~24.7 MiB/package retained, cross-index lookups <1 µs. That
+  understates real cost — real `.gsx` files have deeper type graphs (real imports,
+  cross-package component refs, props structs, method components). **Plan:** measure a
+  realistic corpus, blog example first (`~/personal/structpages/examples/blog` —
+  needs a few fixes before it's measurement-ready), then a larger real-world project,
+  scaling up to gauge `Analyze`/codegen latency, retained memory growth, and GC
+  pressure at size. **New angle from this slice:** `gsx fmt` now loads the module by
+  default (to remove unused imports) — measure that default cost vs `gsx fmt
+  -no-imports` (syntactic, no load) on a large tree, to confirm the on-by-default
+  decision holds at scale. Likely mitigations if needed: debounce + LRU cap on the
+  LSP's retained packages; slimming the `.gsx`-side full-`Info` retention (the 24.7
+  MiB figure).
 
 ## Documentation backlog
 
