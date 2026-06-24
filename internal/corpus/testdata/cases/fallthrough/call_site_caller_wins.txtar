@@ -9,7 +9,7 @@ component Page() {
 	<Button type="reset">Go</Button>
 }
 -- invoke --
-Page(PageProps{})
+Page()
 -- diagnostics.golden --
 -- render.golden --
 <button type="reset">Go</button>

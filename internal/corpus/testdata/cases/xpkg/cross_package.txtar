@@ -13,7 +13,7 @@ import "example.com/app/ui"
 
 component Home() { <ui.Button label="Go"/> }
 -- invoke --
-pages.Home(pages.HomeProps{})
+pages.Home()
 -- diagnostics.golden --
 -- render.golden --
 <button class="btn">Go</button>

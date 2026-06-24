@@ -177,20 +177,43 @@ func componentPropFieldsFor(files map[string]*gsxast.File) (propFields, nodeProp
 			}
 			// Mirror the Attrs synthesis gate in genComponent/buildSkeleton exactly
 			// (hasFallthrough) so the map agrees with the struct that is actually
-			// emitted — a single-root NULLARY METHOD has no props struct at all, so
-			// it must NOT claim an Attrs field. MANUAL mode (a body referencing
-			// `attrs`) forces the Attrs field regardless (incl. for a nullary method,
-			// which then gains a props struct), so OR it in.
+			// emitted. MANUAL mode (a body referencing `attrs`) forces the Attrs field
+			// regardless, so OR it in. A NULLARY component (no params, no children)
+			// is auto-eligible only when it already has something in the props struct
+			// (params or children) — otherwise auto fallthrough would force a props
+			// struct for a component that is truly nullary (no props at all). This
+			// mirrors the method-nullary gate in genComponent/emitComponentSkeleton.
 			_, hasRoot := singleRoot(c.Body)
 			manual := usesAttrs(c.Body)
-			if (hasRoot && (c.Recv == "" || len(params) > 0 || hasChildren)) || manual {
+			if (hasRoot && (len(params) > 0 || hasChildren)) || manual {
 				fields["Attrs"] = true
 			}
-			out[propsName] = fields
+			// A function component whose fields map is empty (no params, no Children,
+			// no Attrs) has no props struct — record it with a nil value so callers
+			// can distinguish it from a cross-package component (absent key).
+			// Method nullary is already handled by isMethod in the call-site logic and
+			// keeps its empty map entry here.
+			if c.Recv == "" && len(fields) == 0 {
+				out[propsName] = nil
+			} else {
+				out[propsName] = fields
+			}
 			nodeOut[propsName] = nodeFields
 		}
 	}
 	return out, nodeOut, nil
+}
+
+// isNoPropsComponent reports whether propsType names a same-package function
+// component that has NO props struct (nullary: no params, no children, no
+// fallthrough Attrs). The sentinel is a propFields entry whose key is present
+// (same-package) but whose value is nil (no props struct). A cross-package
+// component has no entry at all (absent key → not no-props). A method component
+// is handled by isMethod in the call-site logic and is never recorded with a nil
+// value, so this function fires only for function components.
+func isNoPropsComponent(propFields map[string]map[string]bool, propsType string) bool {
+	fields, ok := propFields[propsType]
+	return ok && fields == nil
 }
 
 // isGsxNodeType reports whether a param's declared type string is exactly
@@ -429,14 +452,15 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 	// MIRROR emit.go: MANUAL mode — a body referencing `attrs` forces fallthrough
 	// eligibility (even a nullary method) and DISABLES auto root injection.
 	manual := usesAttrs(c.Body)
-	// MIRROR emit.go: a nullary method component (no params, no children) stays
-	// nullary (no props struct, bare `p.Page()` call) — AUTO fallthrough is gated
-	// out of that case so it does not force a props struct; manual forces it.
-	hasFallthrough := (hasRoot && (c.Recv == "" || len(params) > 0 || hasChildren)) || manual
-	// MIRROR emit.go: only a method component suppresses the props struct when
-	// nullary; a function component always keeps its (possibly empty) props
-	// struct so the child-invocation path's `<Tag>Props{}` literal type-checks.
-	hasProps := c.Recv == "" || len(params) > 0 || hasChildren || hasFallthrough
+	// MIRROR emit.go: a nullary component (no params, no children) stays nullary
+	// (no props struct, bare call) — AUTO fallthrough is gated out of that case so
+	// it does not force a props struct; manual forces it. This applies to BOTH
+	// function and method components (unifying the no-props path).
+	hasFallthrough := (hasRoot && (len(params) > 0 || hasChildren)) || manual
+	// A component has a props struct iff it has at least one field (params,
+	// Children, or Attrs via fallthrough). A nullary function or method with no
+	// fallthrough and no children generates no props struct (bare call).
+	hasProps := len(params) > 0 || hasChildren || hasFallthrough
 	if hasProps {
 		fmt.Fprintf(sb, "type %s struct {\n", propsName)
 		for _, p := range params {
@@ -550,8 +574,9 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				// Emit the SAME call as genChildComponent (via childInvocation) so the
 				// assignment type-checks each prop expr against the child's/method's real
 				// field type. The shared childPropsLiteral builder guarantees the attr +
-				// slot fields never drift. A nullary method invocation (no attrs, no
-				// children) has no props struct → `_ = p.Method()`. Otherwise build the
+				// slot fields never drift. A nullary invocation (method OR no-props
+				// function; no attrs, no children) has no props struct → `_ = X()`.
+				// Otherwise build the
 				// props literal; named-slot/Children fields use a typed-nil so the
 				// literal type-checks WITHOUT building the real slot closure here —
 				// the slot content (markup-attr values then t.Children) is probed
@@ -559,7 +584,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				// collectExprs collected them; the props-literal exprs are NOT _gsxuse,
 				// so they don't perturb the k-th alignment).
 				callTarget, propsType, isMethod := childInvocation(t, recvVar, recvTypeName)
-				if isMethod && len(t.Attrs) == 0 && len(t.Children) == 0 {
+				if (isMethod || isNoPropsComponent(propFields, propsType)) && len(t.Attrs) == 0 && len(t.Children) == 0 {
 					emitSkeletonLine(sb, fset, t.Pos())
 					fmt.Fprintf(sb, "_ = %s()\n", callTarget)
 				} else {

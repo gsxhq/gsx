@@ -9,7 +9,7 @@ component Page() {
 	<Field id="email" data-test="x" placeholder="you@co"/>
 }
 -- invoke --
-Page(PageProps{})
+Page()
 -- diagnostics.golden --
 -- render.golden --
 <div class="wrap"><input id="email" data-test="x" placeholder="you@co"/></div>

@@ -9,7 +9,7 @@ component Page() {
 	<Panel title="Hi" data-test="x" placeholder="p"/>
 }
 -- invoke --
-Page(PageProps{})
+Page()
 -- diagnostics.golden --
 -- render.golden --
 <section><h2>Hi</h2><aside data-test="x" placeholder="p">body</aside></section>

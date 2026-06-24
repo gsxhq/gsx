@@ -9,7 +9,7 @@ component Page() {
 	<Card title="Hi"><p>body</p></Card>
 }
 -- invoke --
-Page(PageProps{})
+Page()
 -- diagnostics.golden --
 -- render.golden --
 <section><h2>Hi</h2><p>body</p></section>

@@ -5,7 +5,7 @@ component Footer() { <footer>x</footer> }
 
 component Page() { <Footer/> }
 -- invoke --
-Page(PageProps{})
+Page()
 -- diagnostics.golden --
 -- render.golden --
 <footer>x</footer>

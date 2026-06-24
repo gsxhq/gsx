@@ -204,11 +204,11 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 	// Props struct (field types are syntactic — straight from the param list).
 	// When the body references `{children}`, synthesize an implicit
 	// `Children gsx.Node` slot field after the param fields; the parent fills it
-	// with a render closure (genChildComponent). A NULLARY METHOD (no params, no
-	// children) gets NO props struct and NO _gsxp param — `p.Page()`. A nullary
-	// FUNCTION component keeps its empty props struct (`Page(PageProps{})`), since
-	// the child-component invocation path (genChildComponent) always builds a
-	// `<Tag>Props{}` literal.
+	// with a render closure (genChildComponent). A NULLARY component (function OR
+	// method: no params, no children, no fallthrough) gets NO props struct and NO
+	// _gsxp param — emitted as `func Name() gsx.Node`, called as `Name()`. A
+	// component grows a props struct ONLY when it has params, uses `{children}`,
+	// or uses fallthrough attrs (auto single-root or manual `{...attrs}`).
 	hasChildren := usesChildren(c.Body)
 	// A single-root component is fallthrough-eligible: it synthesizes an
 	// `Attrs gsx.Attrs` props field the caller fills with undeclared attributes,
@@ -220,23 +220,22 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 	// `{...attrs}` element spread, or `attrs.X()` in an interp/expr/clause) takes
 	// over fallthrough placement itself — auto root injection is DISABLED and the
 	// author's `{...attrs}` renders the bag. It is ALWAYS fallthrough-eligible
-	// (forces the Attrs field), even for a nullary method (which then gains a props
-	// struct — correct, since it has fallthrough). See usesAttrs.
+	// (forces the Attrs field), even for a nullary component (which then gains a
+	// props struct — correct, since it has fallthrough). See usesAttrs.
 	manual := usesAttrs(c.Body)
-	// A NULLARY method component (no params, no children) is invoked bare as
-	// `p.Page()` with no props struct (the call-site nullary contract), so it must
-	// NOT gain a props struct via AUTO fallthrough — gate auto out of that case.
-	// A function component (always has a props struct) or a method with params/
-	// children is auto-eligible; manual forces eligibility regardless.
-	autoEligible := hasRoot && (c.Recv == "" || len(params) > 0 || hasChildren)
+	// AUTO fallthrough requires the component to have SOMETHING in the props
+	// struct already (params or children) — a nullary component (function or
+	// method) with a single root gets NO auto fallthrough, so it remains nullary
+	// no-props. manual forces fallthrough for any component regardless.
+	autoEligible := hasRoot && (len(params) > 0 || hasChildren)
 	hasFallthrough := autoEligible || manual
 	// AUTO application (Task-1 root class-merge + spread injection) happens only for
 	// a single-root component that is auto-eligible (so the Attrs FIELD exists — a
-	// nullary method with no props struct is NOT) and does NOT reference `attrs`.
+	// nullary component with no props struct is NOT) and does NOT reference `attrs`.
 	// When manual, the root (and whole body) emits via normal genNode and the author
 	// places the bag; the bag is bound to the `attrs` local below.
 	autoApply := autoEligible && !manual
-	hasProps := c.Recv == "" || len(params) > 0 || hasChildren || hasFallthrough
+	hasProps := len(params) > 0 || hasChildren || hasFallthrough
 	if hasProps {
 		fmt.Fprintf(b, "type %s struct {\n", propsName)
 		for _, p := range params {
@@ -1666,10 +1665,14 @@ func childInvocation(el *ast.Element, recvVar, recvTypeName string) (callTarget,
 // disambiguation via childInvocation.
 func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, bag *diag.Bag) bool {
 	callTarget, propsType, isMethod := childInvocation(el, recvVar, recvTypeName)
-	// A nullary METHOD invocation — no attrs, no children — has no props struct, so
-	// it is called bare: `p.Content()`. Any attrs or children mean the method has a
-	// props struct (children → a Children field), so we build a props literal.
-	isNullaryCall := isMethod && len(el.Attrs) == 0 && len(el.Children) == 0
+	// A nullary call — no attrs, no children — emits a bare call with no props
+	// literal. This applies to:
+	//   - a nullary METHOD invocation (isMethod, no props struct by method-nullary
+	//     contract), and
+	//   - a nullary FUNCTION component that has no props struct (isNoPropsComponent:
+	//     same-package, propFields entry present with nil value).
+	// Any attrs or children mean the component has a props struct, so build a literal.
+	isNullaryCall := (isMethod || isNoPropsComponent(structFields, propsType)) && len(el.Attrs) == 0 && len(el.Children) == 0
 	if isNullaryCall {
 		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s())\n", callTarget)
 		return true
