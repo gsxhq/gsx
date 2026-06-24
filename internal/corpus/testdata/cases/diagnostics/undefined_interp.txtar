@@ -5,4 +5,4 @@ component A() {
 	<div>{ undefinedIdent }</div>
 }
 -- diagnostics.golden --
-4:15: undefined: undefinedIdent
+4:9: undefined: undefinedIdent

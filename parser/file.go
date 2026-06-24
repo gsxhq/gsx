@@ -2,6 +2,7 @@
 package parser
 
 import (
+	"errors"
 	"fmt"
 	"go/scanner"
 	"go/token"
@@ -29,7 +30,7 @@ func ParseFile(fset *token.FileSet, filename string, src any, mode Mode) (*ast.F
 		if pos.IsValid() {
 			return f, fmt.Errorf("%d:%d: %s", pos.Line, pos.Column, e.Msg)
 		}
-		return f, fmt.Errorf("%s", e.Msg)
+		return f, errors.New(e.Msg)
 	}
 	return f, nil
 }

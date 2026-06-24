@@ -42,6 +42,7 @@ func (c *caseDoc) astAndParserDiag() (astDump []byte, parserDiag []byte, single 
 		return nil, nil, false
 	}
 	fset := token.NewFileSet()
+	// nil classifier → attrclass.Builtin(), same default as ParseFile.
 	file, errs := parser.ParseFileWithClassifier(fset, "input.gsx", src, 0, nil)
 	var dump, diag bytes.Buffer
 	if file != nil {
