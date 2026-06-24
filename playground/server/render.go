@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"go/parser"
 	"go/token"
@@ -14,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gsxhq/gsx/gen"
 )
 
 var pkgLine = regexp.MustCompile(`(?m)^package\s+\w+`)
@@ -31,6 +32,32 @@ var allowedImports = map[string]bool{
 	"html": true,
 	"github.com/gsxhq/gsx":     true,
 	"github.com/gsxhq/gsx/std": true,
+}
+
+// checkImportsSource parses the user-supplied GSX source (as Go) for imports
+// and returns a diagnostic naming the first import not on the allowlist, or nil
+// if all are allowed. This runs BEFORE Generate so that disallowed imports
+// produce the friendly "not allowed" message rather than an opaque infra error
+// from the cached importer.
+func checkImportsSource(src string) *diagnostic {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "comp.gsx", src, parser.ImportsOnly)
+	if err != nil {
+		// Parse errors here are fine; the real parse happens in Generate.
+		return nil
+	}
+	for _, imp := range f.Imports {
+		path := strings.Trim(imp.Path.Value, `"`)
+		if !allowedImports[path] {
+			p := fset.Position(imp.Pos())
+			return &diagnostic{
+				Severity: "error",
+				Message:  "import " + strconv.Quote(path) + " is not allowed in the playground",
+				Line:     p.Line, Column: p.Column,
+			}
+		}
+	}
+	return nil
 }
 
 // checkImports parses every generated *.x.go in viewDir for its imports and
@@ -73,10 +100,10 @@ type workspace struct {
 }
 
 type pool struct {
-	gsxBin  string
-	gocache string
-	free    chan *workspace
-	cache   *respCache
+	resolver *gen.CachedResolver
+	gocache  string
+	free     chan *workspace
+	cache    *respCache
 }
 
 type renderReq struct {
@@ -102,8 +129,33 @@ type renderResp struct {
 	RunMs       int64        `json:"runMs"` // go build + run time
 }
 
-// newPool builds gsx once, sets up `size` prepared workspaces sharing one
-// GOCACHE, and pre-warms the build cache. Workspaces are handed out per request.
+// toDiagnostics maps the diagnostics in a gen.Result to the server's
+// diagnostic type. It avoids importing internal/diag by operating on the
+// Result value directly; the internal type's fields are accessible via the
+// returned slice elements.
+func toDiagnostics(res gen.Result) []diagnostic {
+	if len(res.Diags) == 0 {
+		return nil
+	}
+	out := make([]diagnostic, 0, len(res.Diags))
+	for _, d := range res.Diags {
+		msg := d.Message
+		if d.Code != "" {
+			msg = d.Code + ": " + msg
+		}
+		out = append(out, diagnostic{
+			Severity: d.Severity.String(),
+			Message:  msg,
+			Line:     d.Start.Line,
+			Column:   d.Start.Column,
+		})
+	}
+	return out
+}
+
+// newPool builds the cached resolver once, sets up `size` prepared workspaces
+// sharing one GOCACHE, and pre-warms the build cache. Workspaces are handed
+// out per request.
 func newPool(gsxMod, work string, size int) (p *pool, err error) {
 	created := work == ""
 	if created {
@@ -112,12 +164,12 @@ func newPool(gsxMod, work string, size int) (p *pool, err error) {
 			return nil, err
 		}
 	}
-	defer func() { if err != nil && created { os.RemoveAll(work) } }()
-	gsxBin := filepath.Join(work, "gsx")
-	// one-time gsx bootstrap build; uses the host GOCACHE
-	if out, buildErr := run(context.Background(), gsxMod, nil, "go", "build", "-o", gsxBin, "./cmd/gsx"); buildErr != nil {
-		return nil, fmt.Errorf("build gsx: %v: %s", buildErr, out)
-	}
+	defer func() {
+		if err != nil && created {
+			os.RemoveAll(work)
+		}
+	}()
+
 	gocache := filepath.Join(work, "gocache")
 	if err = os.MkdirAll(gocache, 0o755); err != nil {
 		return nil, err
@@ -128,7 +180,8 @@ func newPool(gsxMod, work string, size int) (p *pool, err error) {
 		"GOFLAGS=-mod=mod",
 		"CGO_ENABLED=0",
 	}
-	p = &pool{gsxBin: gsxBin, gocache: gocache, free: make(chan *workspace, size), cache: newRespCache(512)}
+	p = &pool{gocache: gocache, free: make(chan *workspace, size), cache: newRespCache(512)}
+
 	for i := 0; i < size; i++ {
 		ws := &workspace{play: filepath.Join(work, fmt.Sprintf("play%d", i))}
 		ws.viewDir = filepath.Join(ws.play, "views")
@@ -143,9 +196,35 @@ func newPool(gsxMod, work string, size int) (p *pool, err error) {
 		if out, err = run(context.Background(), ws.play, env, "go", "mod", "tidy"); err != nil {
 			return nil, fmt.Errorf("mod tidy: %v: %s", err, out)
 		}
-		if out, err = run(context.Background(), ws.play, env, gsxBin, "generate", "./views"); err != nil {
-			return nil, fmt.Errorf("seed generate: %v: %s", err, out)
+
+		// Build the cached resolver once from the first workspace's play dir,
+		// whose go.mod already has the gsx replace directive. Reuse it for all
+		// subsequent workspaces.
+		if i == 0 {
+			p.resolver, err = gen.NewCachedResolver(ws.play, gen.DefaultPlaygroundImports)
+			if err != nil {
+				return nil, fmt.Errorf("build cached resolver: %v", err)
+			}
 		}
+
+		// Seed the workspace with generated .x.go via the cached resolver so
+		// the subsequent go build has a real generated file to compile against.
+		seedSrc := map[string][]byte{
+			filepath.Join(ws.viewDir, "comp.gsx"): []byte("package views\n\ncomponent Hello() {\n\t<p>hi</p>\n}\n"),
+		}
+		seedRes, seedErr := p.resolver.Generate(ws.viewDir, seedSrc)
+		if seedErr != nil {
+			return nil, fmt.Errorf("seed generate: %v", seedErr)
+		}
+		for path, b := range seedRes.Files {
+			// Files keys from in-process generate with absolute srcOverride keys
+			// are absolute .x.go paths. Write them directly.
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(ws.viewDir, filepath.Base(path))
+			}
+			writeFile(path, string(b))
+		}
+
 		if out, err = run(context.Background(), ws.play, env, "go", "build", "-o", filepath.Join(ws.play, "play-bin"), "."); err != nil {
 			return nil, fmt.Errorf("warm build: %v: %s", err, out)
 		}
@@ -163,7 +242,7 @@ func (p *pool) render(in renderReq) renderResp {
 	}
 	ws := <-p.free // block until a workspace is free (back-pressure)
 	defer func() { p.free <- ws }()
-	resp := renderIn(p.gsxBin, p.gocache, ws, in)
+	resp := renderIn(p.resolver, p.gocache, ws, in)
 	if cacheable(resp) {
 		p.cache.put(key, resp)
 	}
@@ -189,10 +268,9 @@ func writeShim(viewDir, invoke string) {
 }
 
 // renderIn performs one render cycle in the given workspace.
-func renderIn(gsxBin, gocache string, ws *workspace, in renderReq) renderResp {
+func renderIn(resolver *gen.CachedResolver, gocache string, ws *workspace, in renderReq) renderResp {
 	start := time.Now()
-	// 25s leaves headroom under Cloud Run's 30s request timeout; a cold instance's
-	// first `gsx generate` (go list under gVisor) can take 10-13s.
+	// 25s leaves headroom under Cloud Run's 30s request timeout.
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 
@@ -203,38 +281,61 @@ func renderIn(gsxBin, gocache string, ws *workspace, in renderReq) renderResp {
 		"CGO_ENABLED=0",
 	}
 
-	// Reset and write the user's component + shim.
+	// Reset and write the user's shim. The .gsx source is passed via srcOverride
+	// to Generate rather than written to disk first.
 	os.RemoveAll(ws.viewDir)
 	if err := os.MkdirAll(ws.viewDir, 0o755); err != nil {
 		return renderResp{Error: "reset workspace: " + err.Error()}
 	}
-	writeFile(filepath.Join(ws.viewDir, "comp.gsx"), pkgLine.ReplaceAllString(in.GSX, "package views"))
 	writeShim(ws.viewDir, strings.TrimSpace(in.Invoke))
 
 	ms := func() int64 { return time.Since(start).Milliseconds() }
 
-	// 1) authentic codegen with structured diagnostics.
+	userGSX := pkgLine.ReplaceAllString(in.GSX, "package views")
+
+	// 0) Pre-flight import check on user source to produce a friendly diagnostic
+	// for disallowed imports before calling Generate (which would return an
+	// opaque infra error for unloaded packages).
+	if d := checkImportsSource(userGSX); d != nil {
+		return renderResp{Diagnostics: []diagnostic{*d}, Ms: ms()}
+	}
+
+	// 1) In-process codegen via the cached resolver (no per-render go list).
 	genStart := time.Now()
-	genOut, genErr := run(ctx, ws.play, env, gsxBin, "generate", "--json", "./views")
+	res, gerr := resolver.Generate(
+		ws.viewDir,
+		map[string][]byte{
+			filepath.Join(ws.viewDir, "comp.gsx"): []byte(userGSX),
+		},
+	)
 	genMs := time.Since(genStart).Milliseconds()
-	diags := parseDiags(genOut)
-	if genErr != nil {
-		// Errors are reported as diagnostics; if none parsed, surface raw stderr.
+
+	diags := toDiagnostics(res)
+	if gerr != nil {
 		resp := renderResp{Diagnostics: diags, Ms: ms(), GenMs: genMs}
 		if len(diags) == 0 {
-			resp.Error = oneline(genOut)
+			resp.Error = "generate: " + gerr.Error()
 		}
 		return resp
 	}
 
+	// Write generated .x.go files to disk for the build step.
+	for path, b := range res.Files {
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(ws.viewDir, filepath.Base(path))
+		}
+		writeFile(path, string(b))
+	}
+
 	generatedGo := readGenerated(ws.viewDir)
 
-	// 1a) import allowlist: reject disallowed imports before build/run.
+	// 1a) Belt-and-suspenders: check generated .x.go for disallowed imports
+	// (catches any import the codegen emits that slipped past the source check).
 	if d := checkImports(ws.viewDir); d != nil {
 		return renderResp{GeneratedGo: generatedGo, Diagnostics: []diagnostic{*d}, Ms: ms(), GenMs: genMs}
 	}
 
-	// 2) authentic build + run.
+	// 2) Authentic build + run.
 	runStart := time.Now()
 	runOut, runErr := run(ctx, ws.play, env, "go", "run", ".")
 	runMs := time.Since(runStart).Milliseconds()
@@ -242,38 +343,6 @@ func renderIn(gsxBin, gocache string, ws *workspace, in renderReq) renderResp {
 		return renderResp{GeneratedGo: generatedGo, Diagnostics: diags, Error: "render: " + oneline(runOut), Ms: ms(), GenMs: genMs, RunMs: runMs}
 	}
 	return renderResp{HTML: runOut, GeneratedGo: generatedGo, Diagnostics: diags, Ms: ms(), GenMs: genMs, RunMs: runMs}
-}
-
-// parseDiags decodes `gsx generate --json` output (a JSON array of diagnostics).
-func parseDiags(out string) []diagnostic {
-	out = strings.TrimSpace(out)
-	i := strings.Index(out, "[")
-	if i < 0 {
-		return nil
-	}
-	var raw []struct {
-		Severity string `json:"severity"`
-		Code     string `json:"code"`
-		Message  string `json:"message"`
-		Range    struct {
-			Start struct {
-				Line int `json:"line"`
-				Col  int `json:"col"`
-			} `json:"start"`
-		} `json:"range"`
-	}
-	if err := json.Unmarshal([]byte(out[i:]), &raw); err != nil {
-		return nil
-	}
-	var ds []diagnostic
-	for _, r := range raw {
-		msg := r.Message
-		if r.Code != "" {
-			msg = r.Code + ": " + msg
-		}
-		ds = append(ds, diagnostic{Severity: r.Severity, Message: msg, Line: r.Range.Start.Line, Column: r.Range.Start.Col})
-	}
-	return ds
 }
 
 func readGenerated(viewDir string) string {
