@@ -29,11 +29,10 @@ Today gsx **generates** a per-component props struct `<Name>Props` (for a method
 For a component `component [recv] Name(params…)`, look at the **sole non-receiver parameter**:
 
 - **Single parameter whose resolved type is a named `struct`** → **bring-your-own (byo)**: use that type directly; generate **no** wrapper. (`component Button(p Props)`, `component (p Home) Page(d HomeData)`.)
-- **Zero params, multiple params, or a single non-struct param** (scalar / `gsx.Node` / slice / interface) → **generated**: `NameProps{…}` exactly as today. (`component Card(title gsx.Node, n int)`, `component Greeting(name string)`, `component (p P) Grid(sort string)`.)
+- **Inline params** — multiple params, or a single non-struct param (scalar / `gsx.Node` / slice / interface) → **generated** `NameProps{…}` (param fields + `Children`/`Attrs` if used), as today. (`component Card(title gsx.Node, n int)`, `component Greeting(name string)`, `component (p P) Grid(sort string)`.)
+- **Nullary** — zero non-receiver params **and** uses neither `{children}` nor fallthrough attrs → **no `Props` at all**: `func Name() gsx.Node` (function) / `func (p T) Name() gsx.Node` (method). Function and method are identical here; the method form simply carries its data in the **receiver** (`p.Field`). A nullary component grows a gsx-owned `Props` (with just `Children`/`Attrs`) **only** when it actually uses them (§6) — so it never gets the "magic" `Children`/`Attrs` unless used. *(This drops today's empty `NameProps{}` for nullary function components — see §11.)*
 
-The discriminator ("is the lone non-receiver param a named struct?") is resolved via `go/types`. It is *discoverable*: writing `(p Props)` opts you onto the explicit path.
-
-Receiver params are never counted. A nullary method component (`component (p Home) Page()`) stays as today (receiver is the page data; no props struct).
+The discriminator ("is the lone non-receiver param a named struct?") is resolved via `go/types`. It is *discoverable*: writing `(p Props)` opts you onto the explicit path. Receiver params are never counted.
 
 ---
 
@@ -116,7 +115,7 @@ component (p Home) Partial(d pageData) { … }
 - `structpages` calls `Props() (pageData, error)` then dispatches `Page(pd)` / `Content(pd)` / `Partial(pd)` — **one shared type**. The gap-#2 blocker is gone; no structpages change needed.
 - Tag-invoke a method component: field-build `<p.Content title="Hi"/>` → `p.Content(pageData{Title:"Hi"})`, or splat `<p.Content { pd... }/>` → `p.Content(pd)`.
 
-A nullary method component (`Page()`) is unchanged (receiver is the data).
+A nullary method component (`Page()`) carries its data in the **receiver** and generates **no `Props`** — identical to a nullary function component except for the receiver (§2). It gains a gsx-owned `Props` (just `Children`/`Attrs`) only if it uses them.
 
 ---
 
@@ -155,7 +154,8 @@ The LSP (`gen/lsp.go` builds the codegen skeleton in-memory; `analysis.go`'s `Ex
 
 ## 11. Backward compatibility & migration
 
-- **Generated path unchanged:** inline-param + nullary components behave exactly as today (`Card(title gsx.Node, n int)` → `CardProps`). No churn.
+- **Generated path (inline params) unchanged:** `Card(title gsx.Node, n int)` → `CardProps` as today.
+- **Nullary loses its empty `Props`:** a nullary function component that uses no `{children}`/attrs now emits `func Name() gsx.Node` (was `func Name(NameProps) gsx.Node` with an empty `NameProps`), unifying it with the nullary method form. Existing nullary corpus cases (e.g. the `Multi()`/`MultiProps{}` shape) update their goldens + `<Name/>`-invocation. A child invocation `<Name/>` emits `Name()` instead of `Name(NameProps{})`.
 - **Flips to byo:** a component whose sole non-receiver param is a named struct (e.g. existing `methods/` case `Row(user User)`) now passes through. Its generated golden + any field-build call sites change; audit `methods/` and update.
 - **Spread migration:** `{...x}` → `{ x... }` corpus-wide + in the rewritten structpages examples (formatter-assisted). The structpages `htmx-render-target`/`blog` Props **workarounds** are removed (net simplification).
 - **Hand-written references to a generated `<Name>Props`** for a now-byo component break (intended — the author owns the type).
