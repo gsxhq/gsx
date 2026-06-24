@@ -1,0 +1,11 @@
+# A comment body containing `--!>` (HTML5 comment-end-bang close) is REJECTED — it
+# survives the parser (only `-->` stops it) but would break out of the comment in a
+# browser, turning following source into live markup. Rejected, not silently emitted.
+-- input.gsx --
+package views
+
+component C() {
+	<div><!-- ok --!> <script>alert(1)</script> --></div>
+}
+-- diagnostics.golden --
+4:7: HTML comment text contains a comment-close sequence (`-->` or `--!>`); it would break out of the comment
