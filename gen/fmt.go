@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
-	"go/token"
 	"io"
 	"io/fs"
 	"os"
@@ -12,9 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/gsxhq/gsx/internal/printer"
-	"github.com/gsxhq/gsx/internal/wsnorm"
-	"github.com/gsxhq/gsx/parser"
+	"github.com/gsxhq/gsx/internal/gsxfmt"
 )
 
 // runFmt implements `gsx fmt`: it formats .gsx files to their canonical,
@@ -114,19 +111,10 @@ func runFmt(stdout, stderr io.Writer, args []string) int {
 // formatGsx parses src (named for diagnostics), normalizes whitespace, and
 // prints the canonical gsx source. The returned bytes are the formatted form; a
 // non-nil error is a parse or print failure (the caller treats it as a per-file
-// failure and continues with the other files).
+// failure and continues with the other files). It delegates to gsxfmt.Format,
+// the shared engine the language server's textDocument/formatting also uses.
 func formatGsx(name string, src []byte) ([]byte, error) {
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, name, src, 0)
-	if err != nil {
-		return nil, err
-	}
-	wsnorm.Normalize(f)
-	var b bytes.Buffer
-	if err := printer.Fprint(&b, f); err != nil {
-		return nil, err
-	}
-	return b.Bytes(), nil
+	return gsxfmt.Format(name, src)
 }
 
 // gsxFiles resolves the path args to a sorted, de-duplicated list of .gsx files

@@ -44,10 +44,24 @@ type initializeResult struct {
 }
 
 type serverCapabilities struct {
-	PositionEncoding   string `json:"positionEncoding"`
-	TextDocumentSync   int    `json:"textDocumentSync"`
-	DefinitionProvider bool   `json:"definitionProvider"`
-	ReferencesProvider bool   `json:"referencesProvider"`
+	PositionEncoding           string `json:"positionEncoding"`
+	TextDocumentSync           int    `json:"textDocumentSync"`
+	DefinitionProvider         bool   `json:"definitionProvider"`
+	ReferencesProvider         bool   `json:"referencesProvider"`
+	DocumentFormattingProvider bool   `json:"documentFormattingProvider"`
+}
+
+// TextEdit is a single text replacement: NewText replaces the span at Range.
+type TextEdit struct {
+	Range   Range  `json:"range"`
+	NewText string `json:"newText"`
+}
+
+// documentFormattingParams is the payload of textDocument/formatting. Options
+// (tab size / spaces) are accepted but ignored: gsx has one canonical form, like
+// gofmt.
+type documentFormattingParams struct {
+	TextDocument textDocumentIdentifier `json:"textDocument"`
 }
 
 type referenceContext struct {

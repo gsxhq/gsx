@@ -77,6 +77,8 @@ func (s *Server) handle(f frame) error {
 		return s.handleDefinition(f)
 	case "textDocument/references":
 		return s.handleReferences(f)
+	case "textDocument/formatting":
+		return s.handleFormatting(f)
 	default:
 		if len(f.ID) > 0 {
 			return s.replyError(f.ID, -32601, "method not found: "+f.Method)
@@ -98,10 +100,11 @@ func (s *Server) handleInitialize(f frame) error {
 		}
 	}
 	return s.reply(f.ID, initializeResult{Capabilities: serverCapabilities{
-		PositionEncoding:   encName,
-		TextDocumentSync:   1, // full document sync
-		DefinitionProvider: true,
-		ReferencesProvider: true,
+		PositionEncoding:           encName,
+		TextDocumentSync:           1, // full document sync
+		DefinitionProvider:         true,
+		ReferencesProvider:         true,
+		DocumentFormattingProvider: true,
 	}})
 }
 
