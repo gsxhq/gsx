@@ -30,6 +30,14 @@ type CrossRef struct {
 	Refs []token.Position
 }
 
+// NavRef is one navigable Go reference (in a .go or skeleton file) and the .gsx
+// position it targets. From is the reference site; To is the .gsx declaration.
+type NavRef struct {
+	From token.Position
+	Name string // identifier text, for the cursor-span length check in the LSP
+	To   token.Position
+}
+
 // PackageResult is the per-package outcome of GeneratePackages.
 type PackageResult struct {
 	Files map[string][]byte // .gsx path -> generated .x.go source
@@ -45,6 +53,7 @@ type PackageResult struct {
 	ExprMap    map[gsxast.Node]goast.Expr
 	GSXFiles   map[string]*gsxast.File
 	CrossIndex map[string]CrossRef // componentKey → cross-boundary index entry
+	NavIndex   []NavRef            // navigable Go references → .gsx targets (func, props-struct, field)
 }
 
 // GeneratePackagesWithFilters generates .x.go for every .gsx across the given
@@ -326,20 +335,90 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 		for key, c := range compByKey {
 			index[key] = CrossRef{Name: c.Name, Decl: fset.Position(c.NamePos)} // gsx fset → .gsx position
 		}
-		for id, obj := range pkg.TypesInfo.Uses {
-			key, ok := objKey[obj]
+
+		// Build maps for NavIndex: props-struct objects and field var objects → .gsx targets.
+		// structObjToComp maps a props-struct types.Object → the component it belongs to.
+		// fieldObjToPos maps a field *types.Var → the .gsx position of the corresponding param.
+		structObjToComp := map[types.Object]*gsxast.Component{}
+		fieldObjToPos := map[*types.Var]token.Position{}
+		for _, c := range compByKey {
+			// Derive propsName the same way emitComponentSkeleton does.
+			propsName := c.Name + "Props"
+			if c.Recv != "" {
+				_, _, recvTypeName, rerr := parseRecv(c.Recv)
+				if rerr == nil {
+					propsName = recvTypeName + c.Name + "Props"
+				}
+			}
+			structObj := pkg.Types.Scope().Lookup(propsName)
+			if structObj == nil {
+				continue
+			}
+			structObjToComp[structObj] = c
+
+			// Map each field var → the .gsx position of its corresponding param.
+			params, err := parseParams(c.Params)
+			if err != nil {
+				continue
+			}
+			st, ok := structObj.Type().Underlying().(*types.Struct)
 			if !ok {
 				continue
 			}
+			for _, p := range params {
+				fname := fieldName(p.name)
+				paramPos := fset.Position(c.ParamsPos + token.Pos(p.nameOff))
+				for i := 0; i < st.NumFields(); i++ {
+					fv := st.Field(i)
+					if fv.Name() == fname {
+						fieldObjToPos[fv] = paramPos
+						break
+					}
+				}
+			}
+		}
+
+		var navIndex []NavRef
+		for id, obj := range pkg.TypesInfo.Uses {
 			p := pkg.Fset.Position(id.Pos())
 			if strings.HasSuffix(p.Filename, ".x.go") {
 				continue // synthetic skeleton position with no //line — skip
 			}
-			cr := index[key]
-			cr.Refs = append(cr.Refs, p)
-			index[key] = cr
+			// Case 1: component func reference → .gsx component decl.
+			if key, ok := objKey[obj]; ok {
+				c := compByKey[key]
+				cr := index[key]
+				cr.Refs = append(cr.Refs, p)
+				index[key] = cr
+				navIndex = append(navIndex, NavRef{
+					From: p,
+					Name: id.Name,
+					To:   fset.Position(c.NamePos),
+				})
+				continue
+			}
+			// Case 2: props-struct type reference → .gsx component decl.
+			if c, ok := structObjToComp[obj]; ok {
+				navIndex = append(navIndex, NavRef{
+					From: p,
+					Name: id.Name,
+					To:   fset.Position(c.NamePos),
+				})
+				continue
+			}
+			// Case 3: props-struct field reference → .gsx param position.
+			if fv, ok := obj.(*types.Var); ok {
+				if paramPos, ok := fieldObjToPos[fv]; ok {
+					navIndex = append(navIndex, NavRef{
+						From: p,
+						Name: id.Name,
+						To:   paramPos,
+					})
+				}
+			}
 		}
 		res.CrossIndex = index
+		res.NavIndex = navIndex
 
 		// Collect ALL type errors into the bag (positioned via pkg.Fset which
 		// resolves //line directives back to the .gsx source file).
