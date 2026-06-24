@@ -1,6 +1,9 @@
 package gen
 
 import (
+	"bytes"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,10 +12,103 @@ import (
 	"testing/fstest"
 )
 
+// initNI drives initWith non-interactively (no TTY, no real subprocess) so
+// scaffold-style tests never depend on the ambient terminal.
+func initNI(t *testing.T, args ...string) (int, string, string) {
+	t.Helper()
+	var out, errb bytes.Buffer
+	noop := func(_ []string, _ string, _, _ io.Writer) error { return nil }
+	code := initWith(args, strings.NewReader(""), &out, &errb, false, noop)
+	return code, out.String(), errb.String()
+}
+
+// recordingRunner records the commands it runs and returns the scripted error
+// for the failAt-th call (failAt < 0 ⇒ never fail).
+func recordingRunner(failAt int, failErr error) (*[][]string, stepRunner) {
+	var calls [][]string
+	run := func(args []string, dir string, stdout, stderr io.Writer) error {
+		calls = append(calls, args)
+		if failAt >= 0 && len(calls)-1 == failAt {
+			return failErr
+		}
+		return nil
+	}
+	return &calls, run
+}
+
+func TestInitInteractiveRunsAllSteps(t *testing.T) {
+	dir := t.TempDir()
+	calls, run := recordingRunner(-1, nil)
+	var out, errb bytes.Buffer
+	code := initWith([]string{"--module", "demo", dir},
+		strings.NewReader("y\ny\ny\n"), &out, &errb, true, run)
+	if code != 0 {
+		t.Fatalf("exit %d; stderr=%q", code, errb.String())
+	}
+	if len(*calls) != 3 {
+		t.Fatalf("expected 3 steps, got %d: %v", len(*calls), *calls)
+	}
+	if (*calls)[0][1] != "get" || (*calls)[2][0] != "npm" {
+		t.Fatalf("unexpected order: %v", *calls)
+	}
+	if !strings.Contains(out.String(), "task dev") {
+		t.Fatalf("final 'task dev' missing: %q", out.String())
+	}
+}
+
+func TestInitInteractiveSkipsOnNo(t *testing.T) {
+	dir := t.TempDir()
+	calls, run := recordingRunner(-1, nil)
+	var out, errb bytes.Buffer
+	code := initWith([]string{"--module", "demo", dir},
+		strings.NewReader("n\ny\ny\n"), &out, &errb, true, run)
+	if code != 0 {
+		t.Fatalf("exit %d; %q", code, errb.String())
+	}
+	if len(*calls) != 2 {
+		t.Fatalf("expected 2 steps (one skipped), got %d: %v", len(*calls), *calls)
+	}
+	if (*calls)[0][0] != "go" || (*calls)[0][1] != "mod" {
+		t.Fatalf("first run should be `go mod tidy`, got %v", (*calls)[0])
+	}
+}
+
+func TestInitInteractiveStopsOnFailure(t *testing.T) {
+	dir := t.TempDir()
+	calls, run := recordingRunner(1, fmt.Errorf("boom")) // 2nd step fails
+	var out, errb bytes.Buffer
+	code := initWith([]string{"--module", "demo", dir},
+		strings.NewReader("y\ny\ny\n"), &out, &errb, true, run)
+	if code != 1 {
+		t.Fatalf("expected exit 1, got %d", code)
+	}
+	if len(*calls) != 2 {
+		t.Fatalf("should stop after the failing step, ran %d", len(*calls))
+	}
+	if !strings.Contains(errb.String(), "npm install") {
+		t.Fatalf("remaining steps not printed: %q", errb.String())
+	}
+}
+
+func TestInitYesRunsWithoutPrompt(t *testing.T) {
+	dir := t.TempDir()
+	calls, run := recordingRunner(-1, nil)
+	var out, errb bytes.Buffer
+	// interactive=false but --yes ⇒ run all, no stdin consumed.
+	code := initWith([]string{"--yes", "--module", "demo", dir},
+		strings.NewReader(""), &out, &errb, false, run)
+	if code != 0 {
+		t.Fatalf("exit %d; %q", code, errb.String())
+	}
+	if len(*calls) != 3 {
+		t.Fatalf("--yes should run all 3 steps, got %d", len(*calls))
+	}
+}
+
 func TestInitDefault(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "myapp")
-	code, out, errb := runCapture(t, []string{"init", target})
+	code, out, errb := initNI(t, target)
 	if code != 0 {
 		t.Fatalf("exit %d; stderr=%q", code, errb)
 	}
@@ -30,7 +126,7 @@ func TestInitDefault(t *testing.T) {
 
 func TestInitModuleFlag(t *testing.T) {
 	dir := t.TempDir()
-	code, _, errb := runCapture(t, []string{"init", "--module", "example.com/foo", dir})
+	code, _, errb := initNI(t, "--module", "example.com/foo", dir)
 	if code != 0 {
 		t.Fatalf("exit %d; stderr=%q", code, errb)
 	}
@@ -46,7 +142,7 @@ func TestInitModuleFlag(t *testing.T) {
 
 func TestInitUnknownTemplate(t *testing.T) {
 	dir := t.TempDir()
-	code, _, errb := runCapture(t, []string{"init", "--template", "bogus", dir})
+	code, _, errb := initNI(t, "--template", "bogus", dir)
 	if code != 2 {
 		t.Fatalf("expected exit 2, got %d", code)
 	}
@@ -60,7 +156,7 @@ func TestInitRefusesExistingProject(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	code, _, errb := runCapture(t, []string{"init", dir})
+	code, _, errb := initNI(t, dir)
 	if code != 2 {
 		t.Fatalf("expected exit 2 for existing go.mod, got %d", code)
 	}
@@ -68,7 +164,7 @@ func TestInitRefusesExistingProject(t *testing.T) {
 		t.Fatalf("error should mention --force: %q", errb)
 	}
 	// --force proceeds:
-	code, _, errb = runCapture(t, []string{"init", "--force", dir})
+	code, _, errb = initNI(t, "--force", dir)
 	if code != 0 {
 		t.Fatalf("--force should succeed, got %d; %q", code, errb)
 	}
@@ -79,7 +175,7 @@ func TestInitRefusesExistingPackageJSON(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	code, _, errb := runCapture(t, []string{"init", dir})
+	code, _, errb := initNI(t, dir)
 	if code != 2 {
 		t.Fatalf("expected exit 2 for existing package.json, got %d", code)
 	}
@@ -90,7 +186,7 @@ func TestInitRefusesExistingPackageJSON(t *testing.T) {
 
 func TestInitFlagsAfterDir(t *testing.T) {
 	dir := t.TempDir()
-	code, _, errb := runCapture(t, []string{"init", dir, "--module", "example.com/after"})
+	code, _, errb := initNI(t, dir, "--module", "example.com/after")
 	if code != 0 {
 		t.Fatalf("exit %d; stderr=%q", code, errb)
 	}
@@ -217,7 +313,7 @@ func TestInitScaffoldCompiles(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	if code, _, errb := runCapture(t, []string{"init", "--module", "gsxinitdemo", dir}); code != 0 {
+	if code, _, errb := initNI(t, "--module", "gsxinitdemo", dir); code != 0 {
 		t.Fatalf("init failed: %d %s", code, errb)
 	}
 

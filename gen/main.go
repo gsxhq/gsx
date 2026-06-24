@@ -139,7 +139,7 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 	case "fmt":
 		return runFmt(stdout, stderr, cmdArgs)
 	case "init":
-		return runInit(cmdArgs, stdout, stderr)
+		return runInit(cmdArgs, os.Stdin, stdout, stderr)
 	case "lsp":
 		return runLSP(os.Stdin, stdout, stderr, cmdArgs)
 	case "version":

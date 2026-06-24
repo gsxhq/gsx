@@ -45,7 +45,7 @@ Global flags apply to any command and **must come before the command name**
 ## gsx init
 
 ```
-gsx init [dir] [--template simple] [--module path] [--force]
+gsx init [dir] [--template simple] [--module path] [--force] [--yes|-y]
 ```
 
 Scaffolds a new gsx + Vite starter app into `dir` (default: `.`).
@@ -58,8 +58,37 @@ dev loop together.
 | `--template` | starter template to use (default: `simple`) |
 | `--module` | Go module path (default: basename of the target directory) |
 | `--force` | overwrite an existing `go.mod` or `package.json` |
+| `--yes`, `-y` | run all setup steps without prompting |
 
-On success, `gsx init` prints the next steps:
+### Interactive mode (terminal)
+
+When run on a terminal (`gsx init`), the command:
+
+1. Prompts for the project name if no `dir` argument is given (default: `gsx-app`).
+2. Scaffolds the starter files.
+3. Confirms and runs each setup step in order:
+   - `go get -tool github.com/gsxhq/gsx/cmd/gsx@latest`
+   - `go mod tidy`
+   - `npm install`
+
+Each step shows the command and asks `[Y/n]`; pressing Enter or typing `y`/`yes`
+runs it. Type `n` to skip a step and continue with the rest.
+
+On success it prints:
+
+```
+✓ Done!
+  cd <dir>
+  task dev
+```
+
+`task dev` starts the dev server with Vite hot-reload and opens the browser
+(`vite --open`).
+
+### Non-interactive mode (CI / redirected stdin)
+
+When stdin is not a terminal (pipe, redirect, CI environment), `gsx init`
+scaffolds the project and **prints the setup steps** instead of running them:
 
 ```
 Scaffolded a gsx + Vite app. Next steps:
@@ -70,8 +99,16 @@ Scaffolded a gsx + Vite app. Next steps:
   task dev
 ```
 
+Use `--yes`/`-y` to run all setup steps unattended without prompting (useful in
+CI scripts or when you want a one-shot setup):
+
+```bash
+gsx init myapp --yes
+```
+
 **Exit codes:** `0` on success; `2` on a usage error (unknown template, or an
-existing `go.mod`/`package.json` without `--force`); `1` on an I/O error.
+existing `go.mod`/`package.json` without `--force`); `1` on a step failure or
+I/O error. When a step fails the remaining commands are printed to stderr.
 
 > **Planned template:** `structpages` — a struct-based routing starter built on
 > the [structpages](https://github.com/gsxhq/gsx/tree/main/structpages) framework
