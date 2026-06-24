@@ -24,6 +24,7 @@ gsx [global flags] <command> [arguments]
 | `fmt [paths...]` | format `.gsx` files (canonical, idempotent) |
 | `clean --cache` | remove the gsx cache directory |
 | `info` | list the resolved pipeline filters and attribute rules |
+| `lsp` | run the language server over stdio (JSON-RPC) |
 | `version` | print the gsx version |
 | `help` | show usage |
 
@@ -148,6 +149,21 @@ to delete a directory that is not a gsx cache (the directory must contain the
 standard `CACHEDIR.TAG` sentinel), so pointing `GSXCACHE` at a non-cache path
 will not nuke it.
 
+## lsp
+
+Runs the gsx language server over stdin/stdout, speaking the
+[Language Server Protocol](https://microsoft.github.io/language-server-protocol/)
+as JSON-RPC. It is launched by an editor, not invoked by hand:
+
+```bash
+gsx lsp                 # blocks, reading LSP messages on stdin
+```
+
+The server analyzes each open package with the stock (std-filter) codegen
+pipeline and publishes diagnostics — it never writes `.x.go` to disk. It is an
+early slice: editing existing `.gsx` files is analyzed live, but a new buffer
+that has never been saved to disk is not yet picked up.
+
 ## version
 
 ```bash
@@ -169,6 +185,7 @@ custom binary configures a CSS/JS minifier (functions are not hashable).
 
 ## Status
 
-> **Alpha.** `generate`, `fmt`, `info`, `clean`, and `version` are implemented.
-> A language server (`lsp`) and a checker (`vet`) are on the
+> **Alpha.** `generate`, `fmt`, `info`, `clean`, `version`, and `lsp` (an early
+> diagnostics-only slice) are implemented. A checker (`vet`) and richer
+> language-server features are on the
 > [roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md).
