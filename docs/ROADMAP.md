@@ -121,13 +121,24 @@ ambition is to turn html/template's *runtime* safety into *compile-time* safety:
 
 **Escape-hatch direction — pipeline, not function calls.** templ/html-template
 spell the opt-out as a typed-string constructor (`templ.Raw(x)`,
-`template.HTML(x)`) — easy to apply to tainted data and invisible in review. gsx
-instead routes *all* escaping decisions through the `|>` pipeline, which is more
-flexible and pluggable:
+`template.HTML(x)`) — easy to apply to tainted data and invisible in review. gsx's
+*aspiration* is to route escaping opt-outs through the `|>` pipeline, which is more
+flexible, pluggable, and `grep`-able:
+
+> **Status (shipped reality):** encoding is **automatic by context** — HTML, attr,
+> URL, and **JS/JSON** (`@{ x }` in `<script>`/JS-attrs and the
+> `<script type="application/json">@{ data }</script>` island JSON-encode via
+> `JSVal`). **JSON is automatic, never a `|> json` filter.** The opt-outs that ship
+> today are **typed constructors** — `gsx.Raw` (HTML), `gsx.RawJS`, `gsx.RawCSS`,
+> `gsx.RawURL` — *not* `|> raw`/`|> js`/`|> css` filters (those don't exist; `std`
+> ships only `default/join/lower/trim/truncate/upper`). **CSS is the one
+> fail-closed exception**: dynamic `style`/`<style>` values are rejected unless
+> `gsx.RawCSS`-vouched (pending a `|> css` sanitizer). The pipeline-as-opt-out
+> bullets below are the intended *future* direction, not the current API.
 
 - Safe is the default: a bare `{ x }` is always context-escaped by codegen.
-- The opt-out is a *filter*, not a cast: `{ x |> raw }`, `{ x |> js }`,
-  `{ data |> json }`, `{ url |> trustedResource }`. Filters are registered and
+- The intended opt-out is a *filter*, not a cast: `{ x |> raw }`, `{ x |> js }`,
+  `{ url |> trustedResource }`. Filters are registered and
   `grep`-able (`|> raw` greps cleanly for audit), and the registry is pluggable
   so projects can add vetted domain-specific safe constructors.
 - Filters can carry the *type contract*: a `raw`/`js`/`css` filter's signature
@@ -176,8 +187,12 @@ attribute-name validation against tag breakout (`validAttrName`), documented
 5. ⬜ **[High] Split navigational vs resource URLs** in the type/filter
    vocabulary (`URL` vs `TrustedResourceURL`, à la safehtml; html/template
    conflates them — go#27926).
-6. ⬜ **[Medium] One obvious data→`<script>` path** — `{ data |> json }`
-   (HTML-safe JSON: escape `< > &` and U+2028/U+2029).
+6. ✅ **One obvious data→`<script>` path — DONE (automatic, not a filter).** A
+   `<script type="application/json">@{ data }</script>` island, and any JS-value
+   context (`@{ x }` in `<script>`/JS-attrs), auto JSON-encode via `JSVal`
+   (HTML-safe: `< > &`, U+2028/U+2029; numeric token-fusion padding); `gsx.RawJS`
+   opts out. There is **no `|> json` filter** — JSON is the JS-value encoding. See
+   `2026-06-23-gsx-js-interpolation-design.md` and the `datajson/` corpus.
 7. ⬜ **[v2] CSP nonce threading** for emitted `<script>`/`<style>` — thread a
    per-request nonce; do not build a CSP engine (header is the server's job).
 

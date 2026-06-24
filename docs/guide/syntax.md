@@ -60,6 +60,28 @@ is markup, `{ a < b }` is a Go expression. When in doubt, see the
 [`parser/`](https://github.com/gsxhq/gsx/tree/main/internal/corpus/testdata/cases/parser)
 corpus cases.
 
+## Escaping & safe contexts
+
+Encoding is **automatic and context-aware** — you write the value, gsx picks the
+escaper from *where* it sits (the codegen knows the context). Helpers are
+**opt-outs** for trusted values, never required for safety.
+
+| Context | What gsx does | Opt-out (trusted) |
+|---------|---------------|-------------------|
+| Text / attribute (`{ x }`, `attr={ x }`) | HTML / attribute escape | `gsx.Raw(s)` |
+| URL attribute (`href`, `src`, `action`, `hx-*`, …) | scheme-sanitize + escape | `gsx.RawURL(s)` |
+| JS value (`@{ x }` in `<script>` or a JS attr like `x-data`/`@click`/`hx-on*`) | **JSON-encode** (HTML-safe), Go value → JS literal | `gsx.RawJS(s)` |
+| JSON data island (`<script type="application/json">@{ data }</script>`) | **JSON-encode** the whole body | — |
+| CSS value (`<style>` body, CSS-context attrs) | value-filter (`gw.CSS`); risky tokens like `(` `/` collapse to a safe placeholder | `gsx.RawCSS(s)` |
+
+**JSON is automatic, not a filter.** Any JS-value position JSON-encodes via the
+runtime `JSVal`; there is no `|> json`. Every context above is safe by default —
+**CSS is just the most conservative** (its value-filter drops `(`/`/`, so a dynamic
+`rgb(...)`/`calc(...)`/`url(...)` needs `gsx.RawCSS`). The one piece still
+*fail-closed* is dynamic `style=` **composition** (interpolating values into the
+composable `style` list), pending a `|> css` sanitizer. See the `security/`,
+`jsattr/`, and `datajson/` corpus cases.
+
 ## Learn by example
 
 Each topic maps to a directory of [corpus cases](https://github.com/gsxhq/gsx/tree/main/internal/corpus/testdata/cases)
