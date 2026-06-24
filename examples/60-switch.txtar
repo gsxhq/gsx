@@ -1,0 +1,22 @@
+-- doc --
+name: Switch
+summary: { switch … } selects one branch of markup; default handles the rest.
+category: Control flow
+order: 60
+-- input.gsx --
+package views
+
+component Badge(kind string) {
+	<span>{ switch kind {
+	case "warn":
+		<b>warning</b>
+	case "err":
+		<b>error</b>
+	default:
+		<b>info</b>
+	} }</span>
+}
+-- invoke --
+Badge(BadgeProps{Kind: "warn"})
+-- render.golden --
+<span><b>warning</b></span>

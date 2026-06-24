@@ -1,0 +1,15 @@
+-- doc --
+name: Attributes
+summary: Expression attributes (attr={expr}), boolean attributes, and a conditional attribute via { if … { attr=… } }.
+category: Basics
+order: 20
+-- input.gsx --
+package views
+
+component Link(url string, label string, external bool, featured bool) {
+	<a href={url} data-count={3} aria-current={external} { if featured { class="featured" } }>{label}</a>
+}
+-- invoke --
+Link(LinkProps{Url: "/p?q=a&b", Label: "Docs", External: true, Featured: true})
+-- render.golden --
+<a href="/p?q=a&amp;b" data-count="3" aria-current class="featured">Docs</a>
