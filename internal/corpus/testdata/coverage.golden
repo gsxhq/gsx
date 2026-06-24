@@ -198,6 +198,7 @@ playground/control_flow	diag render
 playground/interpolation	diag render
 props/byo_attrs_missing	diag(error)
 props/byo_children_missing	diag(error)
+props/byo_external_node_vs_renderable	diag gen render
 props/byo_external_props	diag gen render
 props/byo_single_struct	diag gen render
 props/heuristic_boundaries	diag gen render
@@ -243,4 +244,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 245 cases (render: 185, error: 41, gen-pinned: 65)
+TOTAL: 246 cases (render: 186, error: 41, gen-pinned: 66)

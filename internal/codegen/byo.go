@@ -261,10 +261,10 @@ func loadExternalStructFields(dir string, wanted map[string]bool) (fields, nodeF
 			}
 			f[fld.Name()] = true
 			ft := fld.Type()
-			if implementsNode(ft) {
+			if isGsxNodeNamed(ft) {
 				nf[fld.Name()] = true
 			}
-			if fld.Name() == "Children" && implementsNode(ft) {
+			if fld.Name() == "Children" && isGsxNodeNamed(ft) {
 				bs.hasChildren = true
 			}
 			if fld.Name() == "Attrs" && isGsxAttrsNamed(ft) {
@@ -286,5 +286,22 @@ func isGsxAttrsNamed(t types.Type) bool {
 	}
 	obj := named.Obj()
 	return obj != nil && obj.Name() == "Attrs" &&
+		obj.Pkg() != nil && obj.Pkg().Path() == "github.com/gsxhq/gsx"
+}
+
+// isGsxNodeNamed reports whether a resolved type is exactly
+// github.com/gsxhq/gsx.Node — the interface type, not merely something that
+// implements it. This mirrors the syntactic isGsxNodeType check used by the
+// .gsx GoChunk path (fieldsFromGsxStruct), which tests for the literal string
+// "gsx.Node". Using implementsNode here would be WRONG: any concrete type with
+// Render(context.Context, io.Writer) error would be classified as a node-field,
+// causing non-node attrs to be wrapped in gsx.Val — a type mismatch.
+func isGsxNodeNamed(t types.Type) bool {
+	named, ok := types.Unalias(t).(*types.Named)
+	if !ok {
+		return false
+	}
+	obj := named.Obj()
+	return obj != nil && obj.Name() == "Node" &&
 		obj.Pkg() != nil && obj.Pkg().Path() == "github.com/gsxhq/gsx"
 }
