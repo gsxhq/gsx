@@ -1,3 +1,4 @@
 import "./style.css";
+import { setupCounter } from "./counter.js";
 
-console.log("gsx + Vite dev loop ready");
+setupCounter(document.querySelector("#counter"));
