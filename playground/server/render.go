@@ -158,6 +158,7 @@ func (p *pool) render(in renderReq) renderResp {
 	key := cacheKey(in)
 	if r, ok := p.cache.get(key); ok {
 		r.Cached = true
+		r.Ms = 0 // a cache hit is effectively instant; don't report the original render's time
 		return r
 	}
 	ws := <-p.free // block until a workspace is free (back-pressure)
