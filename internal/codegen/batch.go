@@ -520,11 +520,12 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 }
 
 // detectUnusedImports correlates the package's type errors with the .gsx
-// positions of its hoisted imports. An error landing on a hoisted import's .gsx
-// line IS that import's "imported and not used" error (the skeleton emits one
-// //line per import). If ANY type error does not land on a hoisted import, the
-// analysis is unreliable and nothing is returned — never remove under
-// uncertainty. Returns nil when there are no type errors (nothing unused).
+// positions of its hoisted imports. It returns a non-nil map only when EVERY
+// type error is a genuine "imported and not used" error landing on a hoisted
+// import line. If any error is not of that exact class (e.g. "could not import"
+// for an unresolvable package, or any semantic error on a non-import line), the
+// analysis is unreliable and nil is returned — never remove under uncertainty.
+// Returns nil when there are no type errors (nothing unused).
 func detectUnusedImports(pkg *packages.Package, imports []importSpec, gsxFset *token.FileSet) map[string][]UnusedImport {
 	if len(pkg.TypeErrors) == 0 || len(imports) == 0 {
 		return nil
@@ -546,8 +547,8 @@ func detectUnusedImports(pkg *packages.Package, imports []importSpec, gsxFset *t
 	for _, e := range pkg.TypeErrors {
 		ep := e.Fset.Position(e.Pos)
 		specs, ok := byPos[posKey{ep.Filename, ep.Line}]
-		if !ok {
-			return nil // a non-import type error → remove nothing
+		if !ok || !strings.Contains(e.Msg, "imported and not used") {
+			return nil // not a clean unused-import error → analysis unreliable, remove nothing
 		}
 		spec := specs[0]
 		if len(specs) > 1 {

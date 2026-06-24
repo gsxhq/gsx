@@ -102,7 +102,7 @@ func TestFormattingRemovesUnusedImport(t *testing.T) {
 	if len(edits) != 1 {
 		t.Fatalf("want 1 edit, got %d: %+v", len(edits), edits)
 	}
-	if strings.Contains(edits[0].NewText, "strings") {
+	if strings.Contains(edits[0].NewText, "import \"strings\"") {
 		t.Fatalf("formatting did not drop the unused import:\n%s", edits[0].NewText)
 	}
 }

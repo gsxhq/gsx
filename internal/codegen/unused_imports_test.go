@@ -39,6 +39,30 @@ func TestUnusedImportsDetected(t *testing.T) {
 	}
 }
 
+// TestUnusedImportsGateOnBrokenImport: an import that is REFERENCED but cannot
+// be resolved (typo'd / not fetched) produces a "could not import" error on the
+// import line, NOT "imported and not used". It must never be reported unused.
+func TestUnusedImportsGateOnBrokenImport(t *testing.T) {
+	dir := t.TempDir()
+	repoRoot, _ := filepath.Abs("../..")
+	writeFile(t, dir, "go.mod",
+		"module example.com/u\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	writeFile(t, dir, "card.gsx",
+		"package u\n\nimport \"example.com/u/nope/stringz\"\n\ncomponent Card() {\n\t<p>{ stringz.X() }</p>\n}\n")
+
+	out, err := GeneratePackagesWithFilters(dir, []string{dir}, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pr := out[dir]
+	if pr == nil {
+		t.Fatalf("no result")
+	}
+	if n := len(pr.UnusedImports); n != 0 {
+		t.Errorf("a referenced-but-unresolvable import must not be removable, got %+v", pr.UnusedImports)
+	}
+}
+
 // TestUnusedImportsGateOnOtherError: when the package has a NON-import type
 // error, UnusedImports stays empty even though an unused import is present —
 // removing under uncertainty is unsafe.
