@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -68,6 +69,18 @@ func TestNavIndex(t *testing.T) {
 	} else {
 		if !strings.HasSuffix(titleRef.To.Filename, "card.gsx") {
 			t.Errorf("Title NavRef.To.Filename = %q, want card.gsx", titleRef.To.Filename)
+		}
+		// exact: To must point at the 'title' param in the component signature.
+		if data, err := os.ReadFile(titleRef.To.Filename); err == nil {
+			if titleRef.To.Offset >= len(data) || data[titleRef.To.Offset] != 't' {
+				t.Errorf("Title NavRef.To should land on the 'title' param (byte 't'); To=%v", titleRef.To)
+			}
+		}
+	}
+	// exact: Card NavRef.To must land on the 'C' of `component Card`.
+	if data, err := os.ReadFile(cardRef.To.Filename); err == nil && cardRef.To.Offset < len(data) {
+		if data[cardRef.To.Offset] != 'C' {
+			t.Errorf("Card NavRef.To should land on the component name 'C'; To=%v", cardRef.To)
 		}
 	}
 }
