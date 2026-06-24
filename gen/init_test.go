@@ -3,6 +3,7 @@ package gen
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 )
@@ -70,5 +71,42 @@ func TestRenderCustomDelims(t *testing.T) {
 	}
 	if string(out) != "n: {{ go }} and { x }" {
 		t.Fatalf("render = %q", out)
+	}
+}
+
+func TestScaffoldSimpleTemplate(t *testing.T) {
+	dest := t.TempDir()
+	tpl := templates[defaultTemplate]
+	if err := scaffold(initFS, tpl.root, dest, tmplData{Module: "example.com/demo", Name: "demo"}, false); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{
+		"go.mod", "main.go", "app.gsx", "vite.config.ts", "package.json",
+		"Taskfile.yml", "web/main.js", "web/style.css", "dist/.gitkeep",
+		".gitignore", "README.md",
+	} {
+		if _, err := os.Stat(filepath.Join(dest, rel)); err != nil {
+			t.Errorf("missing scaffolded file %s: %v", rel, err)
+		}
+	}
+	gomod, _ := os.ReadFile(filepath.Join(dest, "go.mod"))
+	if !strings.Contains(string(gomod), "module example.com/demo") {
+		t.Errorf("go.mod missing substituted module: %s", gomod)
+	}
+	// No unrendered delimiters leaked anywhere:
+	_ = filepath.Walk(dest, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+		b, _ := os.ReadFile(p)
+		if strings.ContainsAny(string(b), "«»") {
+			t.Errorf("stray delimiter in %s", p)
+		}
+		return nil
+	})
+	// app.gsx kept its gsx statement block:
+	appgsx, _ := os.ReadFile(filepath.Join(dest, "app.gsx"))
+	if !strings.Contains(string(appgsx), "{{ assets := vite.FromContext(ctx).Entry") {
+		t.Errorf("app.gsx lost its {{ }} block: %s", appgsx)
 	}
 }

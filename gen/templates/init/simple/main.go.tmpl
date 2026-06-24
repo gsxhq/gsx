@@ -1,0 +1,40 @@
+package main
+
+import (
+	"embed"
+	"log"
+	"net/http"
+	"os"
+
+	"github.com/gsxhq/vite"
+)
+
+//go:embed all:dist
+var distFS embed.FS
+
+func main() {
+	devURL := os.Getenv("VITE_DEV_URL") // "" in prod
+	v, err := vite.New(vite.Config{DevURL: devURL, Dist: distFS, DistDir: "dist"})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	if !v.Dev() {
+		mux.Handle("/static/", v.StaticHandler())
+	}
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := Index(IndexProps{Title: "gsx + Vite"}).Render(r.Context(), w); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
+
+	vite.NotifyReload(devURL) // dev-only; no-op when devURL == ""
+	log.Println("listening on http://localhost:7777")
+	// v.Middleware injects *vite.Vite into each request's context so components
+	// read the asset bundle from ctx (no prop threading).
+	if err := http.ListenAndServe(":7777", v.Middleware(mux)); err != nil {
+		log.Fatal(err)
+	}
+}

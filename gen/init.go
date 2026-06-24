@@ -2,12 +2,16 @@ package gen
 
 import (
 	"bytes"
+	"embed"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"text/template"
 )
+
+//go:embed all:templates/init
+var initFS embed.FS
 
 // tmplData is the substitution context for init templates.
 type tmplData struct {

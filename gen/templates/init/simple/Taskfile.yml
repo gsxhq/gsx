@@ -1,0 +1,18 @@
+version: '3'
+
+tasks:
+  dev:
+    desc: Run Vite + the Go server with live reload.
+    deps: [dev:vite, dev:server]
+
+  dev:vite:
+    desc: Vite dev server (front door; runs the gsx plugin).
+    cmds:
+      - npm run dev
+
+  dev:server:
+    desc: Rebuild + restart the Go server on .go changes.
+    env:
+      VITE_DEV_URL: http://localhost:5173
+    cmds:
+      - go tool wgo -file=.go -xdir=tmp -xdir=node_modules -xdir=dist go build -o tmp/app . :: tmp/app
