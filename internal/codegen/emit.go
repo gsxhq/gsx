@@ -1880,13 +1880,17 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, table filterTab
 	// Must be all-or-nothing: the sole attr, no children. Error otherwise.
 	if isByoChild {
 		for _, a := range el.Attrs {
-			if _, ok := a.(*ast.SpreadAttr); ok {
+			if s, ok := a.(*ast.SpreadAttr); ok {
 				// Found a splat on a byo component. Validate all-or-nothing.
 				if len(el.Attrs) != 1 || len(el.Children) > 0 {
 					msg := fmt.Sprintf("{ x... } splat on <%s> passes the whole prop value; remove the other attrs or children", el.Tag)
 					return "", "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "byo-splat-mixed", msg: msg}
 				}
-				expr := strings.TrimSpace(a.(*ast.SpreadAttr).Expr)
+				expr := strings.TrimSpace(s.Expr)
+				if expr == "" {
+					msg := fmt.Sprintf("empty { x... } splat on <%s>; provide the struct expression to splat", el.Tag)
+					return "", "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "empty-splat", msg: msg}
+				}
 				return "", expr, map[string]string{}, nil
 			}
 		}
