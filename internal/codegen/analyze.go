@@ -15,8 +15,6 @@ import (
 	"strconv"
 	"strings"
 
-	"golang.org/x/tools/go/packages"
-
 	gsxast "github.com/gsxhq/gsx/ast"
 )
 
@@ -42,17 +40,34 @@ var errSkipComponent = errors.New("skip")
 // threaded alongside propFields and consumed by emit/probe to promote renderable
 // values into gsx.Node props (gsx.Val/gsx.Text).
 func resolveTypesPkg(dir string, files map[string]*gsxast.File, propFields, nodeProps map[string]map[string]bool, fset *token.FileSet) (map[gsxast.Node]types.Type, filterTable, error) {
-	return resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, []string{stdImportPath}, fset)
+	return resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, []string{stdImportPath}, fset, nil)
 }
 
 // resolveTypesPkgWithFilters is the multi-package form of resolveTypesPkg: it
 // harvests the filter table from filterPkgs (last-wins precedence) and otherwise
 // behaves identically. resolveTypesPkg is the std-only wrapper.
-func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propFields, nodeProps map[string]map[string]bool, filterPkgs []string, fset *token.FileSet) (map[gsxast.Node]types.Type, filterTable, error) {
-	table, err := loadFilterTableMulti(dir, filterPkgs)
-	if err != nil {
-		return nil, nil, err
+//
+// resolver is optional; nil uses packagesLoadResolver (the original packages.Load
+// behavior, byte-identical to before). When a *cachedResolver is passed, its
+// prebuilt filterTable is used instead of calling loadFilterTableMulti again.
+func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propFields, nodeProps map[string]map[string]bool, filterPkgs []string, fset *token.FileSet, resolver typeResolver) (map[gsxast.Node]types.Type, filterTable, error) {
+	if resolver == nil {
+		resolver = packagesLoadResolver{}
 	}
+
+	// Use the cached resolver's prebuilt filter table when available; otherwise
+	// load it fresh (the original behavior).
+	var table filterTable
+	if cr, ok := resolver.(*cachedResolver); ok {
+		table = cr.filters()
+	} else {
+		var err error
+		table, err = loadFilterTableMulti(dir, filterPkgs)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
 	overlay := map[string][]byte{}
 	skelComps := map[string][]*gsxast.Component{}
 	for path, file := range files {
@@ -85,33 +100,19 @@ func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propF
 	}
 	overlay[sharedPath] = []byte("package " + pkgName + "\n\nfunc _gsxuse(...any) {}\n")
 
-	cfg := &packages.Config{
-		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
-			packages.NeedImports | packages.NeedDeps | packages.NeedTypes |
-			packages.NeedSyntax | packages.NeedTypesInfo,
-		Dir:     dir,
-		Overlay: overlay,
-	}
-	pkgs, err := packages.Load(cfg, ".")
+	goFiles, info, err := resolver.check(dir, overlay, fset)
 	if err != nil {
-		return nil, nil, fmt.Errorf("codegen: load package: %w", err)
-	}
-	if len(pkgs) == 0 {
-		return nil, nil, fmt.Errorf("codegen: no package found in %s", dir)
-	}
-	pkg := pkgs[0]
-	if len(pkg.Errors) > 0 {
-		return nil, nil, fmt.Errorf("codegen: type resolution failed: %s", pkg.Errors[0])
+		return nil, nil, err
 	}
 
 	out := map[gsxast.Node]types.Type{}
-	for _, f := range pkg.Syntax {
-		fname := pkg.Fset.Position(f.Pos()).Filename
+	for _, f := range goFiles {
+		fname := fset.Position(f.Pos()).Filename
 		comps, ok := skelComps[fname]
 		if !ok {
 			continue // a real .go file, not one of our overlays
 		}
-		harvest(f, comps, pkg.TypesInfo, out, nil)
+		harvest(f, comps, info, out, nil)
 	}
 	return out, table, nil
 }
