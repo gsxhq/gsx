@@ -1,3 +1,8 @@
+-- doc --
+name: Auto-escaping & safe raw
+summary: User input is HTML-escaped by construction — no XSS. Use gsx.Raw / gsx.RawURL to opt out deliberately.
+category: Basics
+order: 30
 -- input.gsx --
 package views
 
@@ -7,6 +12,5 @@ component Comment(body string) {
 }
 -- invoke --
 Comment(CommentProps{Body: "<img src=x onerror=alert(1)>"})
--- diagnostics.golden --
 -- render.golden --
 <blockquote>&lt;img src=x onerror=alert(1)&gt;</blockquote>

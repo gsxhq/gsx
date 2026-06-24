@@ -1,3 +1,8 @@
+-- doc --
+name: Children
+summary: A component renders its nested markup via {children} (like JSX children / a Vue default slot).
+category: Components & composition
+order: 80
 -- input.gsx --
 package views
 
@@ -7,8 +12,11 @@ component Card(title string) {
 		<div class="card__body">{children}</div>
 	</article>
 }
+
+component Page() {
+	<Card title="Hello"><em>composed</em></Card>
+}
 -- invoke --
-Card(CardProps{Title: "Hello", Children: gsx.Raw("<em>composed</em>")})
--- diagnostics.golden --
+Page(PageProps{})
 -- render.golden --
 <article class="card"><h3>Hello</h3><div class="card__body"><em>composed</em></div></article>
