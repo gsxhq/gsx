@@ -75,6 +75,8 @@ func (s *Server) handle(f frame) error {
 		return s.handleDidClose(f)
 	case "textDocument/definition":
 		return s.handleDefinition(f)
+	case "textDocument/references":
+		return s.handleReferences(f)
 	default:
 		if len(f.ID) > 0 {
 			return s.replyError(f.ID, -32601, "method not found: "+f.Method)
@@ -99,6 +101,7 @@ func (s *Server) handleInitialize(f frame) error {
 		PositionEncoding:   encName,
 		TextDocumentSync:   1, // full document sync
 		DefinitionProvider: true,
+		ReferencesProvider: true,
 	}})
 }
 

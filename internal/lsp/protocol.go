@@ -47,6 +47,17 @@ type serverCapabilities struct {
 	PositionEncoding   string `json:"positionEncoding"`
 	TextDocumentSync   int    `json:"textDocumentSync"`
 	DefinitionProvider bool   `json:"definitionProvider"`
+	ReferencesProvider bool   `json:"referencesProvider"`
+}
+
+type referenceContext struct {
+	IncludeDeclaration bool `json:"includeDeclaration"`
+}
+
+type referenceParams struct {
+	TextDocument textDocumentIdentifier `json:"textDocument"`
+	Position     Position               `json:"position"`
+	Context      referenceContext       `json:"context"`
 }
 
 type textDocumentPositionParams struct {
