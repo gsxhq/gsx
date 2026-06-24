@@ -1,0 +1,116 @@
+[
+  {
+    "name": "Interpolation & props",
+    "category": "Basics",
+    "source": "package views\n\ncomponent Greeting(name string, count int) {\n\t<p>Hello, {name}! You have {count} messages.</p>\n}\n",
+    "invoke": "Greeting(GreetingProps{Name: \"World\", Count: 3})"
+  },
+  {
+    "name": "Attributes",
+    "category": "Basics",
+    "source": "package views\n\ncomponent Link(url string, label string, external bool, featured bool) {\n\t<a href={url} data-count={3} aria-current={external} { if featured { class=\"featured\" } }>{label}</a>\n}\n",
+    "invoke": "Link(LinkProps{Url: \"/p?q=a&b\", Label: \"Docs\", External: true, Featured: true})"
+  },
+  {
+    "name": "Auto-escaping & safe raw",
+    "category": "Basics",
+    "source": "package views\n\n// User input is HTML-escaped by construction — no XSS.\ncomponent Comment(body string) {\n\t<blockquote>{body}</blockquote>\n}\n",
+    "invoke": "Comment(CommentProps{Body: \"<img src=x onerror=alert(1)>\"})"
+  },
+  {
+    "name": "If / else",
+    "category": "Control flow",
+    "source": "package views\n\ncomponent Inbox(name string, count int) {\n\t<section>\n\t\t<h1>Hi {name}</h1>\n\t\t{ if count > 0 {\n\t\t\t<p class=\"badge\">{count} new</p>\n\t\t} else {\n\t\t\t<p>all caught up</p>\n\t\t} }\n\t</section>\n}\n",
+    "invoke": "Inbox(InboxProps{Name: \"World\", Count: 2})"
+  },
+  {
+    "name": "Loops over lists",
+    "category": "Control flow",
+    "source": "package views\n\ntype Item struct {\n\tName  string\n\tCount int\n}\n\ncomponent List(items []Item) {\n\t<ul>{ for _, it := range items {\n\t\t<li>{it.Name}: {it.Count}</li>\n\t} }</ul>\n}\n",
+    "invoke": "List(ListProps{Items: []Item{{Name: \"alpha\", Count: 1}, {Name: \"beta\", Count: 2}}})"
+  },
+  {
+    "name": "Switch",
+    "category": "Control flow",
+    "source": "package views\n\ncomponent Badge(kind string) {\n\t<span>{ switch kind {\n\tcase \"warn\":\n\t\t<b>warning</b>\n\tcase \"err\":\n\t\t<b>error</b>\n\tdefault:\n\t\t<b>info</b>\n\t} }</span>\n}\n",
+    "invoke": "Badge(BadgeProps{Kind: \"warn\"})"
+  },
+  {
+    "name": "Components & props",
+    "category": "Components & composition",
+    "source": "package views\n\ncomponent Card(title string, featured bool, count int) {\n\t<div class={ \"card\", \"card-featured\": featured }><h2>{title}</h2><span>{count}</span></div>\n}\n\ncomponent Page(t string, n int) {\n\t<Card title={t} featured count={n}/>\n}\n",
+    "invoke": "Page(PageProps{T: \"Hi\", N: 3})"
+  },
+  {
+    "name": "Children",
+    "category": "Components & composition",
+    "source": "package views\n\ncomponent Card(title string) {\n\t<article class=\"card\">\n\t\t<h3>{title}</h3>\n\t\t<div class=\"card__body\">{children}</div>\n\t</article>\n}\n\ncomponent Page() {\n\t<Card title=\"Hello\"><em>composed</em></Card>\n}\n",
+    "invoke": "Page(PageProps{})"
+  },
+  {
+    "name": "Named slots",
+    "category": "Components & composition",
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Panel(header gsx.Node, footer gsx.Node) {\n\t<div class=\"panel\"><header>{header}</header><footer>{footer}</footer></div>\n}\n\ncomponent Page() {\n\t<Panel header={ <h1>H</h1> } footer={ <small>F</small> }/>\n}\n",
+    "invoke": "Page(PageProps{})"
+  },
+  {
+    "name": "Template composition",
+    "category": "Components & composition",
+    "source": "-- components.gsx --\npackage views\n\ncomponent Button(label string) {\n\t<button class=\"btn\">{label}</button>\n}\n\ncomponent Card(title string) {\n\t<section class=\"card\"><h2>{title}</h2>{children}</section>\n}\n-- page.gsx --\npackage views\n\ntype HomePage struct {\n\tTitle string\n}\n\ncomponent (p HomePage) Render() {\n\t<main>\n\t\t<Card title={p.Title}>\n\t\t\t<Button label=\"Save\"/>\n\t\t</Card>\n\t</main>\n}\n",
+    "invoke": "(HomePage{Title: \"Dashboard\"}).Render()"
+  },
+  {
+    "name": "Fallthrough attributes",
+    "category": "Components & composition",
+    "source": "package views\n\ncomponent Button(variant string) {\n\t<button class=\"btn\" data-variant={variant}>{children}</button>\n}\n\ncomponent Page() {\n\t<Button variant=\"primary\" class=\"w-full\" data-test=\"x\" hx-post=\"/go\">Save</Button>\n}\n",
+    "invoke": "Page(PageProps{})"
+  },
+  {
+    "name": "Method components",
+    "category": "Components & composition",
+    "source": "package views\n\ntype UsersPage struct {\n\tTitle string\n\tSort  string\n}\n\ncomponent (p UsersPage) Grid(sort string) {\n\t<div>{sort}-{p.Title}</div>\n}\n",
+    "invoke": "(UsersPage{Title: \"Team\"}).Grid(UsersPageGridProps{Sort: \"name\"})"
+  },
+  {
+    "name": "Composable class",
+    "category": "Styling",
+    "source": "package views\n\ncomponent Tag(label string, active bool) {\n\t<span class={ \"tag\", \"tag--active\": active }>\n\t\t{label}\n\t</span>\n}\n",
+    "invoke": "Tag(TagProps{Label: \"stable\", Active: true})"
+  },
+  {
+    "name": "Style blocks",
+    "category": "Styling",
+    "source": "package views\n\ncomponent Card(w int, userColor string) {\n\t<style>\n\t\t.card {\n\t\t\twidth: @{ w }px;\n\t\t\tcolor: @{ userColor };\n\t\t}\n\t</style>\n}\n",
+    "invoke": "Card(CardProps{W: 12, UserColor: \"teal\"})"
+  },
+  {
+    "name": "Pipelines / filters",
+    "category": "Transforming values",
+    "source": "package views\n\ncomponent Hi(name string) {\n\t<p>{ name |> trim |> upper }</p>\n}\n",
+    "invoke": "Hi(HiProps{Name: \"  ada  \"})"
+  },
+  {
+    "name": "Fragments",
+    "category": "Interactive & whole-page",
+    "source": "package views\n\ncomponent Pair(a string, b string) {\n\t<><span>{a}</span><span>{b}</span></>\n}\n",
+    "invoke": "Pair(PairProps{A: \"x\", B: \"y\"})"
+  },
+  {
+    "name": "Forms",
+    "category": "Interactive & whole-page",
+    "source": "package views\n\ncomponent Field(label string) {\n\t<div class=\"field\"><label>{label}</label><input class=\"control\" {...attrs}/></div>\n}\n\ncomponent LoginForm() {\n\t<form method=\"post\" action=\"/login\">\n\t\t<Field label=\"Email\" type=\"email\" name=\"email\" required/>\n\t\t<Field label=\"Password\" type=\"password\" name=\"password\" required/>\n\t\t<button type=\"submit\">Sign in</button>\n\t</form>\n}\n",
+    "invoke": "LoginForm(LoginFormProps{})"
+  },
+  {
+    "name": "JS attributes & data islands",
+    "category": "Interactive & whole-page",
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ntype Config struct {\n\tEnv  string\n\tBeta bool\n}\n\ncomponent Widget(cfg Config) {\n\t<div>\n\t\t<button @click={ gsx.RawJS(\"toggle()\") }>Toggle</button>\n\t\t<script type=\"application/json\" id=\"cfg\">@{ cfg }</script>\n\t</div>\n}\n",
+    "invoke": "Widget(WidgetProps{Cfg: Config{Env: \"prod\", Beta: true}})"
+  },
+  {
+    "name": "Full HTML document",
+    "category": "Interactive & whole-page",
+    "source": "package views\n\ncomponent Page(title string) {\n\t<!DOCTYPE html>\n\t<html lang=\"en\">\n\t\t<head><title>{ title }</title></head>\n\t\t<body>hi</body>\n\t</html>\n}\n",
+    "invoke": "Page(PageProps{Title: \"Home\"})"
+  }
+]
