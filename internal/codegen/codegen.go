@@ -105,7 +105,7 @@ func GeneratePackageWithFilters(dir string, filterPkgs []string, cls *attrclass.
 		return nil, err
 	}
 
-	resolved, table, err := resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, filterPkgs, fset)
+	resolved, table, err := resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, filterPkgs, fset, nil)
 	if err != nil {
 		return nil, err
 	}
