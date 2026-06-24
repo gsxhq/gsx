@@ -138,6 +138,8 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 		return runInfo(stdout, stderr, ".", cfg.filterPkgs, cfg.classifier(), cfg.predLabel, cmdArgs)
 	case "fmt":
 		return runFmt(stdout, stderr, cmdArgs)
+	case "init":
+		return runInit(cmdArgs, stdout, stderr)
 	case "lsp":
 		return runLSP(os.Stdin, stdout, stderr, cmdArgs)
 	case "version":
@@ -393,6 +395,7 @@ Usage:
 Commands:
 	generate [paths...]   generate .x.go from .gsx files (default: .)
 	fmt [paths...]        format .gsx files (canonical, idempotent)
+	init [dir]            scaffold a gsx + Vite starter app (--template, --module)
 	clean --cache         remove the gsx cache directory
 	info                  list the resolved pipeline filters
 	lsp                   run the language server over stdio (JSON-RPC)
