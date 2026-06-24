@@ -31,11 +31,11 @@ func TestResolveAttrExprType(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := map[string]*gsxast.File{filepath.Join(pkgDir, "views.gsx"): file}
-	propFields, nodeProps, err := componentPropFieldsFor(files)
+	propFields, nodeProps, byo, err := componentPropFieldsFor(pkgDir, files)
 	if err != nil {
 		t.Fatalf("propFields: %v", err)
 	}
-	resolved, _, err := resolveTypesPkg(pkgDir, files, propFields, nodeProps, fset)
+	resolved, _, err := resolveTypesPkg(pkgDir, files, propFields, nodeProps, byo, fset)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestComponentPropFieldsFor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	propFields, _, err := componentPropFieldsFor(map[string]*gsxast.File{"views.gsx": file})
+	propFields, _, _, err := componentPropFieldsFor("", map[string]*gsxast.File{"views.gsx": file})
 	if err != nil {
 		t.Fatalf("propFields: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestNodePropsSignal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, nodeProps, err := componentPropFieldsFor(map[string]*gsxast.File{"views.gsx": file})
+	_, nodeProps, _, err := componentPropFieldsFor("", map[string]*gsxast.File{"views.gsx": file})
 	if err != nil {
 		t.Fatalf("componentPropFieldsFor: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestNodePropsSignal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	propFields2, nodeProps2, err := componentPropFieldsFor(map[string]*gsxast.File{"views2.gsx": file2})
+	propFields2, nodeProps2, _, err := componentPropFieldsFor("", map[string]*gsxast.File{"views2.gsx": file2})
 	if err != nil {
 		t.Fatalf("componentPropFieldsFor (Box): %v", err)
 	}
@@ -231,7 +231,7 @@ func TestChildPropPipelineSkeletonImportsStd(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := map[string]*gsxast.File{filepath.Join(pkgDir, "views.gsx"): file}
-	propFields, nodeProps, err := componentPropFieldsFor(files)
+	propFields, nodeProps, byo, err := componentPropFieldsFor(pkgDir, files)
 	if err != nil {
 		t.Fatalf("propFields: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestChildPropPipelineSkeletonImportsStd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadFilterTable: %v", err)
 	}
-	skel, _, err := buildSkeleton(file, table, propFields, nodeProps, fset)
+	skel, _, err := buildSkeleton(file, table, propFields, nodeProps, byo, fset)
 	if err != nil {
 		t.Fatalf("buildSkeleton: %v", err)
 	}

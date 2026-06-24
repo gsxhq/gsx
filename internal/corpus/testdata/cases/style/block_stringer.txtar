@@ -11,7 +11,7 @@ component C(c Color) {
 	<style>.a{color:@{ c }}</style>
 }
 -- invoke --
-C(CProps{C: Color{R: 255, G: 0, B: 0}})
+C(Color{R: 255, G: 0, B: 0})
 -- render.golden --
 <style>.a{color:#ff0000}</style>
 -- diagnostics.golden --
@@ -32,20 +32,11 @@ type Color struct{ R, G, B int }
 
 func (c Color) String() string { return fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B) }
 
-type CProps struct {
-	C     Color
-	Attrs gsx.Attrs
-}
-
-func C(_gsxp CProps) gsx.Node {
+func C(c Color) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		c := _gsxp.C
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:10:2
 		_gsxgw.S("<style")
-		_gsxgw.ClassMerged(_gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
 		_gsxgw.S(">")
 		_gsxgw.S(".a{color:")
 		_gsxgw.CSS((c).String())

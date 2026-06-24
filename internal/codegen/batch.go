@@ -155,12 +155,13 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 	// which declared params have type exactly gsx.Node; threaded alongside propFields.
 	propFieldsByDir := make(map[string]map[string]map[string]bool, len(absDirs))
 	nodePropsByDir := make(map[string]map[string]map[string]bool, len(absDirs))
+	byoByDir := make(map[string]*byoData, len(absDirs))
 	for _, dir := range absDirs {
 		files, ok := filesByDir[dir]
 		if !ok {
 			continue // already errored
 		}
-		pf, np, err := componentPropFieldsFor(files)
+		pf, np, byo, err := componentPropFieldsFor(dir, files)
 		if err != nil {
 			bags[dir].Add(diag.Diagnostic{Severity: diag.Error, Message: err.Error(), Source: "codegen"})
 			delete(filesByDir, dir)
@@ -168,6 +169,7 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 		}
 		propFieldsByDir[dir] = pf
 		nodePropsByDir[dir] = np
+		byoByDir[dir] = byo
 	}
 
 	// Step 3: load filter table ONCE from the module root.
@@ -196,9 +198,10 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 		}
 
 		np := nodePropsByDir[dir]
+		byo := byoByDir[dir]
 		skeletonErr := false
 		for path, file := range files {
-			skel, comps, err := buildSkeleton(file, table, pf, np, fset)
+			skel, comps, err := buildSkeleton(file, table, pf, np, byo, fset)
 			if err != nil {
 				// An attrError carries the offending attr's position and a diagnostic
 				// code — emit a positioned diagnostic. Any other error is an infrastructure
@@ -479,8 +482,9 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 		pf := propFieldsByDir[dir]
 		bag := bags[dir]
 		np := nodePropsByDir[dir]
+		byo := byoByDir[dir]
 		for path, file := range files {
-			gen, genOK := generateFile(file, resolved, table, pf, np, fset, cls, bag, cssMin, jsMin)
+			gen, genOK := generateFile(file, resolved, table, pf, np, byo, fset, cls, bag, cssMin, jsMin)
 			if !genOK {
 				// Diagnostics already in bag; skip writing this file but continue
 				// processing other files in the package so all errors are reported.

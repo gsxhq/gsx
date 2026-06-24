@@ -196,6 +196,11 @@ playground/composable_class	diag render
 playground/composition	diag render
 playground/control_flow	diag render
 playground/interpolation	diag render
+props/byo_attrs_missing	diag(error)
+props/byo_children_missing	diag(error)
+props/byo_external_props	diag gen render
+props/byo_single_struct	diag gen render
+props/heuristic_boundaries	diag gen render
 script/interp_breakout	diag gen render
 script/interp_comment_literal	diag gen render
 script/interp_identifier_rejected	diag(error)
@@ -238,4 +243,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 240 cases (render: 182, error: 39, gen-pinned: 62)
+TOTAL: 245 cases (render: 185, error: 41, gen-pinned: 65)

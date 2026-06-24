@@ -100,19 +100,19 @@ func GeneratePackageWithFilters(dir string, filterPkgs []string, cls *attrclass.
 	// guaranteed with no second type-check. nodeProps records which declared params
 	// have type exactly gsx.Node; it is threaded alongside propFields (a later task
 	// consumes it).
-	propFields, nodeProps, err := componentPropFieldsFor(files)
+	propFields, nodeProps, byo, err := componentPropFieldsFor(dir, files)
 	if err != nil {
 		return nil, err
 	}
 
-	resolved, table, err := resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, filterPkgs, fset)
+	resolved, table, err := resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, byo, filterPkgs, fset)
 	if err != nil {
 		return nil, err
 	}
 
 	out := map[string][]byte{}
 	for path, file := range files {
-		gen, genOK := generateFile(file, resolved, table, propFields, nodeProps, fset, cls, bag, cssMin, jsMin)
+		gen, genOK := generateFile(file, resolved, table, propFields, nodeProps, byo, fset, cls, bag, cssMin, jsMin)
 		if !genOK {
 			// Collect diagnostics from bag into an error for the legacy single-package API.
 			if diags := bag.Sorted(); len(diags) > 0 {
