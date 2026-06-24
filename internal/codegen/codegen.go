@@ -56,6 +56,9 @@ func GeneratePackageWithFilters(dir string, filterPkgs []string, cls *attrclass.
 		return nil, err
 	}
 	fset := token.NewFileSet()
+	// Note: this single-dir path returns a plain error on failure; it does not
+	// surface diagnostics through the bag. The batch path (GeneratePackages) is
+	// the production entry point and does surface diagnostics.
 	bag := diag.NewBag(fset)
 	files := map[string]*gsxast.File{}
 	for _, m := range matches {

@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"errors"
 	"fmt"
 	"go/token"
 	"strings"
@@ -17,20 +16,6 @@ type Error struct {
 	Msg string
 }
 
-// errParse is the sentinel identity for all parser errors. errorf returns a
-// *parseErr that wraps this sentinel so errors.Is(err, errParse) is true, yet
-// err.Error() still returns the message text (needed by internal tests that
-// call parser methods directly).
-var errParse = errors.New("parse error")
-
-// parseErr is a lightweight wrapper returned by errorf. It satisfies
-// errors.Is(err, errParse) via its Unwrap method, while still exposing the
-// human-readable message through Error().
-type parseErr struct{ msg string }
-
-func (e *parseErr) Error() string  { return e.msg }
-func (e *parseErr) Unwrap() error  { return errParse }
-
 type parser struct {
 	file       *token.File
 	src        string
@@ -40,12 +25,13 @@ type parser struct {
 	errs       []Error
 }
 
-// errorf records a positioned error and returns a *parseErr whose Error()
-// returns the message text; errors.Is(err, errParse) is true via Unwrap.
+// errorf records a positioned error and returns an error whose Error() returns
+// the message text. Callers only check err != nil; the positioned errors are
+// read from p.errs by the caller.
 func (p *parser) errorf(pos token.Pos, format string, args ...any) error {
 	msg := fmt.Sprintf(format, args...)
 	p.errs = append(p.errs, Error{Pos: pos, Msg: msg})
-	return &parseErr{msg: msg}
+	return fmt.Errorf("%s", msg)
 }
 
 // newParser creates a parser for src at absolute offset 0 in file.

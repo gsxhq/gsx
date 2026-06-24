@@ -95,10 +95,15 @@ func TestCorpusIdempotence(t *testing.T) {
 
 // zeroSpans resets every node's span to zero so two ASTs parsed from different
 // text can be compared by content alone (positions necessarily differ).
+// Position fields outside the embedded span (e.g. Interp.ExprPos) are also
+// cleared so deep-equal is unaffected by source layout differences.
 func zeroSpans(n ast.Node) {
 	ast.Inspect(n, func(m ast.Node) bool {
 		if m != nil {
 			ast.SetSpan(m, 0, 0)
+			if interp, ok := m.(*ast.Interp); ok {
+				interp.ExprPos = 0
+			}
 		}
 		return true
 	})
