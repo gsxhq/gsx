@@ -5,39 +5,65 @@
 The render service compiles and runs **visitor-supplied Go code** using the real
 Go toolchain. gVisor sandboxes kernel syscalls inside Cloud Run, but **gVisor
 does not block outbound network connections**. A visitor can therefore use
-`net`, `net/http`, `os/exec curl`, etc. to make arbitrary outbound requests
-from inside the container.
+`net`, `net/http`, `os/exec`, etc. to make arbitrary outbound requests from
+inside the container, including reaching the **GCP metadata endpoint at
+`169.254.169.254`** to exfiltrate instance identity tokens.
 
-On a public `--allow-unauthenticated` Cloud Run service this enables:
+### Free-tier mitigation package (recommended)
 
-- **SSRF / data exfiltration** — the container can reach internal GCP services
-  and, critically, the **GCP metadata endpoint at `169.254.169.254`**, which
-  returns instance identity tokens and project metadata without any
-  authentication.
+Two mitigations are already implemented or easy to apply and together make a
+public free-tier deploy acceptable for a docs playground:
 
-**Before exposing the service publicly, choose one of the following (maintainer
-decision):**
+**a. Source-level import allowlist (implemented).** Before the visitor's
+component is built or run, the service parses the generated `.x.go` file with
+`go/parser` and rejects any import not in a curated capability-free set. The
+allowlist covers exactly the packages that gsx-emitted code uses
+(`context`, `io`, `strconv`, `fmt`, `gsx/std`, etc.). Blocked packages include
+`net`, `os`, `os/exec`, `syscall`, `unsafe`, and cgo — this removes the
+network, exec, and file-system vectors without requiring a VPC connector.
+`//go:linkname` and cgo are also closed because `unsafe` is denied and
+only a single `.gsx` input file is accepted (no assembly).
 
-a. **Restrict egress (strongly preferred).** Attach a
-   [Serverless VPC Access connector](https://cloud.google.com/vpc/docs/configure-serverless-vpc-access)
-   and deploy with `--vpc-egress=all-traffic` routed through a VPC that has no
-   default internet route and no path to `169.254.169.254`. This fully closes
-   the SSRF surface. **Note: a VPC connector incurs cost beyond the always-free
-   tier** — factor this in before enabling.
+**b. Dedicated zero-permission service account.** Create a Cloud Run SA with
+**no IAM roles**. A metadata-endpoint read from inside the container then
+returns a useless token — the credential exfiltration target is neutralised.
 
-b. **Keep the service non-public.** Drop `--allow-unauthenticated` from the
-   deploy command so Cloud Run requires a valid Google identity token on every
-   request. Operate this way until egress is restricted.
+```bash
+# Maintainer inputs — set these before running
+PROJECT=<your-gcp-project-id>
+REGION=us-central1
+SERVICE=gsx-playground
+SA=gsx-playground-sandbox
 
-c. **Accept the residual risk explicitly.** Only sensible for a throwaway or
-   low-value project where credential exfil has no meaningful impact. If you
-   choose this path, at minimum: set a strict `--timeout` (≤ 30 s), keep
-   `--max-instances` low (≤ 3), and enable Cloud Run request logging and
-   alerting on anomalous egress patterns.
+# Create the service account with no permissions granted.
+gcloud iam service-accounts create "$SA" --project "$PROJECT" \
+  --display-name "gsx playground (no permissions)"
 
-> **Do NOT expose this service publicly until one of the above is in place.**
-> The GCP metadata endpoint risk is the primary reason options (a) and (b) are
-> strongly preferred over (c).
+# Deploy under the zero-permission SA.
+gcloud run deploy "$SERVICE" --project "$PROJECT" --region "$REGION" \
+  --image "gcr.io/$PROJECT/$SERVICE" \
+  --service-account "${SA}@${PROJECT}.iam.gserviceaccount.com" \
+  --allow-unauthenticated \
+  --memory 1Gi --cpu 1 --concurrency 4 --timeout 30 \
+  --min-instances 0 --max-instances 3 \
+  --set-env-vars ALLOWED_ORIGIN=https://gsxhq.github.io
+```
+
+With (a) the import allowlist, (b) the zero-permission SA, and (c) Cloud Run's
+gVisor sandbox plus the request limits above, a public free-tier deploy is
+acceptable. The known trade-off: there is no hard namespace-level network-off
+(unlike Go's Playground, which runs on gVisor hosts it fully controls), so
+outbound network is blocked by policy rather than by the kernel. This is
+documented here as the residual risk.
+
+### Hard no-network alternative
+
+For a guarantee at the network layer rather than the policy layer, attach a
+[Serverless VPC Access connector](https://cloud.google.com/vpc/docs/configure-serverless-vpc-access)
+and deploy with `--vpc-egress=all-traffic` routed through a VPC that has no
+default internet route and no path to `169.254.169.254`. This fully closes the
+SSRF surface. Alternatively, use GKE Sandbox (gVisor on a cluster you control).
+**Note: a VPC connector incurs cost beyond the always-free tier.**
 
 ### Local / CI pipeline note
 
