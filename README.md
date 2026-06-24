@@ -45,7 +45,8 @@ component Card(title string, featured bool) {
 ## Learn more
 
 - **Docs** — [Why gsx](docs/guide/vision.md) ·
-  [Principles](docs/guide/principles.md) · [Syntax](docs/guide/syntax.md)
+  [Principles](docs/guide/principles.md) · [Syntax](docs/guide/syntax.md) ·
+  [CLI](docs/guide/cli.md)
 - **Examples** — the [`examples/`](examples/) corpus is the canonical syntax
   reference.
 - **Roadmap & status** — [docs/ROADMAP.md](docs/ROADMAP.md).
