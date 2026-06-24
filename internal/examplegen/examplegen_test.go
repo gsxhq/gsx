@@ -64,11 +64,34 @@ func TestPresetsJSON(t *testing.T) {
 	}
 }
 
+func TestRenderMarkdownProseEscape(t *testing.T) {
+	exs := []Example{
+		{
+			Name:     "X",
+			Summary:  "a <script> & <style> tag",
+			Category: "Y",
+			Files:    []SourceFile{{Name: "a.gsx", Body: "package views\n"}},
+			Source:   "package views\n",
+			Invoke:   "X(XProps{})",
+		},
+	}
+	md := string(RenderMarkdown(exs))
+	if !strings.Contains(md, "a &lt;script&gt; &amp; &lt;style&gt; tag") {
+		t.Errorf("summary not escaped in prose; got:\n%s", md)
+	}
+	if strings.Contains(md, "<script>") {
+		t.Errorf("raw <script> found in prose output; got:\n%s", md)
+	}
+	if strings.Contains(md, "<style>") {
+		t.Errorf("raw <style> found in prose output; got:\n%s", md)
+	}
+}
+
 func TestRenderMarkdown(t *testing.T) {
 	exs, _ := Load("testdata")
 	md := string(RenderMarkdown(exs))
 	// category headings
-	if !strings.Contains(md, "## Basics") || !strings.Contains(md, "## Components & composition") {
+	if !strings.Contains(md, "## Basics") || !strings.Contains(md, "## Components &amp; composition") {
 		t.Fatalf("missing category headings:\n%s", md)
 	}
 	// example heading + summary + a gsx fence + a playground link

@@ -6,7 +6,7 @@ A gallery of gsx features. Each example is compiled and checked in CI; click **O
 
 ## Basics
 
-### Interpolation & props
+### Interpolation &amp; props
 
 Components take a typed props struct; {expr} interpolates Go values, HTML-escaped.
 
@@ -34,7 +34,7 @@ component Link(url string, label string, external bool, featured bool) {
 
 [▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgTGluayh1cmwgc3RyaW5nLCBsYWJlbCBzdHJpbmcsIGV4dGVybmFsIGJvb2wsIGZlYXR1cmVkIGJvb2wpIHtcblx0XHUwMDNjYSBocmVmPXt1cmx9IGRhdGEtY291bnQ9ezN9IGFyaWEtY3VycmVudD17ZXh0ZXJuYWx9IHsgaWYgZmVhdHVyZWQgeyBjbGFzcz1cImZlYXR1cmVkXCIgfSB9XHUwMDNle2xhYmVsfVx1MDAzYy9hXHUwMDNlXG59XG4iLCJpIjoiTGluayhMaW5rUHJvcHN7VXJsOiBcIi9wP3E9YVx1MDAyNmJcIiwgTGFiZWw6IFwiRG9jc1wiLCBFeHRlcm5hbDogdHJ1ZSwgRmVhdHVyZWQ6IHRydWV9KSJ9)
 
-### Auto-escaping & safe raw
+### Auto-escaping &amp; safe raw
 
 User input is HTML-escaped by construction — no XSS. Use gsx.Raw / gsx.RawURL to opt out deliberately.
 
@@ -114,9 +114,9 @@ component Badge(kind string) {
 
 [▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgQmFkZ2Uoa2luZCBzdHJpbmcpIHtcblx0XHUwMDNjc3Bhblx1MDAzZXsgc3dpdGNoIGtpbmQge1xuXHRjYXNlIFwid2FyblwiOlxuXHRcdFx1MDAzY2JcdTAwM2V3YXJuaW5nXHUwMDNjL2JcdTAwM2Vcblx0Y2FzZSBcImVyclwiOlxuXHRcdFx1MDAzY2JcdTAwM2VlcnJvclx1MDAzYy9iXHUwMDNlXG5cdGRlZmF1bHQ6XG5cdFx0XHUwMDNjYlx1MDAzZWluZm9cdTAwM2MvYlx1MDAzZVxuXHR9IH1cdTAwM2Mvc3Bhblx1MDAzZVxufVxuIiwiaSI6IkJhZGdlKEJhZGdlUHJvcHN7S2luZDogXCJ3YXJuXCJ9KSJ9)
 
-## Components & composition
+## Components &amp; composition
 
-### Components & props
+### Components &amp; props
 
 Call a component with a typed props struct; boolean props pass bare (featured).
 
@@ -270,7 +270,7 @@ component Tag(label string, active bool) {
 
 ### Style blocks
 
-A <style> block interpolates values with @{ … }; interpolated values are CSS-sanitized by construction.
+A &lt;style&gt; block interpolates values with @{ … }; interpolated values are CSS-sanitized by construction.
 
 ```gsx
 package views
@@ -291,7 +291,7 @@ component Card(w int, userColor string) {
 
 ### Pipelines / filters
 
-Transform values with typed filter pipelines — { x |> trim |> upper } — drawn from the gsx info registry.
+Transform values with typed filter pipelines — { x |&gt; trim |&gt; upper } — drawn from the gsx info registry.
 
 ```gsx
 package views
@@ -303,11 +303,11 @@ component Hi(name string) {
 
 [▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgSGkobmFtZSBzdHJpbmcpIHtcblx0XHUwMDNjcFx1MDAzZXsgbmFtZSB8XHUwMDNlIHRyaW0gfFx1MDAzZSB1cHBlciB9XHUwMDNjL3BcdTAwM2Vcbn1cbiIsImkiOiJIaShIaVByb3Bze05hbWU6IFwiICBhZGEgIFwifSkifQ==)
 
-## Interactive & whole-page
+## Interactive &amp; whole-page
 
 ### Fragments
 
-A component can return multiple roots with no wrapper element using <>…</>.
+A component can return multiple roots with no wrapper element using &lt;&gt;…&lt;/&gt;.
 
 ```gsx
 package views
@@ -341,9 +341,9 @@ component LoginForm() {
 
 [▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgRmllbGQobGFiZWwgc3RyaW5nKSB7XG5cdFx1MDAzY2RpdiBjbGFzcz1cImZpZWxkXCJcdTAwM2VcdTAwM2NsYWJlbFx1MDAzZXtsYWJlbH1cdTAwM2MvbGFiZWxcdTAwM2VcdTAwM2NpbnB1dCBjbGFzcz1cImNvbnRyb2xcIiB7Li4uYXR0cnN9L1x1MDAzZVx1MDAzYy9kaXZcdTAwM2Vcbn1cblxuY29tcG9uZW50IExvZ2luRm9ybSgpIHtcblx0XHUwMDNjZm9ybSBtZXRob2Q9XCJwb3N0XCIgYWN0aW9uPVwiL2xvZ2luXCJcdTAwM2Vcblx0XHRcdTAwM2NGaWVsZCBsYWJlbD1cIkVtYWlsXCIgdHlwZT1cImVtYWlsXCIgbmFtZT1cImVtYWlsXCIgcmVxdWlyZWQvXHUwMDNlXG5cdFx0XHUwMDNjRmllbGQgbGFiZWw9XCJQYXNzd29yZFwiIHR5cGU9XCJwYXNzd29yZFwiIG5hbWU9XCJwYXNzd29yZFwiIHJlcXVpcmVkL1x1MDAzZVxuXHRcdFx1MDAzY2J1dHRvbiB0eXBlPVwic3VibWl0XCJcdTAwM2VTaWduIGluXHUwMDNjL2J1dHRvblx1MDAzZVxuXHRcdTAwM2MvZm9ybVx1MDAzZVxufVxuIiwiaSI6IkxvZ2luRm9ybShMb2dpbkZvcm1Qcm9wc3t9KSJ9)
 
-### JS attributes & data islands
+### JS attributes &amp; data islands
 
-@click={ gsx.RawJS(…) } emits a vouched event handler; a <script type="application/json"> island serializes typed Go data with @{ … } for client JS.
+@click={ gsx.RawJS(…) } emits a vouched event handler; a &lt;script type="application/json"&gt; island serializes typed Go data with @{ … } for client JS.
 
 ```gsx
 package views
@@ -367,7 +367,7 @@ component Widget(cfg Config) {
 
 ### Full HTML document
 
-Render a whole page, including <!DOCTYPE html>, as one component.
+Render a whole page, including &lt;!DOCTYPE html&gt;, as one component.
 
 ```gsx
 package views

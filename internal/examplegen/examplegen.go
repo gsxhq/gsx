@@ -173,6 +173,11 @@ func tryPayload(source, invoke string) string {
 	return base64.StdEncoding.EncodeToString(b)
 }
 
+// proseEscaper HTML-escapes angle brackets and ampersands in prose fields so
+// VitePress/Vue does not interpret them as HTML elements. Single-pass so
+// inserted entities are not double-escaped.
+var proseEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
+
 // RenderMarkdown emits the docs Examples page: a fixed intro, then examples
 // grouped under ## {category} headings (categories in first-seen order), each
 // with its summary, one ```gsx block per source file (captioned when >1 file),
@@ -192,14 +197,14 @@ func RenderMarkdown(exs []Example) []byte {
 		}
 	}
 	for _, cat := range order {
-		b.WriteString("## " + cat + "\n\n")
+		b.WriteString("## " + proseEscaper.Replace(cat) + "\n\n")
 		for _, e := range exs {
 			if e.Category != cat {
 				continue
 			}
-			b.WriteString("### " + e.Name + "\n\n")
+			b.WriteString("### " + proseEscaper.Replace(e.Name) + "\n\n")
 			if e.Summary != "" {
-				b.WriteString(e.Summary + "\n\n")
+				b.WriteString(proseEscaper.Replace(e.Summary) + "\n\n")
 			}
 			for _, f := range e.Files {
 				if len(e.Files) > 1 {
