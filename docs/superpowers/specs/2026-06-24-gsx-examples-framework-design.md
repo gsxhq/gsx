@@ -242,10 +242,16 @@ The cache key already hashes `(gsx, invoke)`, so multi-file sources cache
 correctly with no key change.
 
 **Editor (`GsxPlayground.vue`):** the single CodeMirror editor holds the
-playground source string as-is. For multi-file presets that means the
-`-- file --` separators are visible in the editor (Go Playground style) — the
-server splits them on render. Per-file tabs are a future enhancement, not part
-of this slice.
+playground source string as-is, and the user can **edit multi-file sources
+directly in the box** — exactly the Go Playground model: one text area whose
+`-- file --` separator lines delimit the files (Go Playground has no tabs; the
+separators *are* its multi-file UI). The server splits the source on those
+separators at render time, so adding/removing a file is just editing text. This
+multi-file editing is **in scope**. The only deferred enhancement is a richer
+*tabbed* multi-file editor (which Go Playground itself doesn't have) — see
+Scope. A small nicety included here: the separator lines get a subtle visual
+treatment (a CodeMirror line decoration) so they read as dividers rather than
+code.
 
 ### 8. Nav fix — `.vitepress/config.*`
 
@@ -363,8 +369,12 @@ backend embed-seed, the multi-file render-server split, the frontend import +
 multi-file source display, the sync step, the nav fix, and the nineteen-example
 set.
 
+Multi-file editing in the playground box **is in scope** (Go-Playground-style
+`-- file --` separators in one editor, fully editable, with a subtle divider
+decoration).
+
 Out of scope (future): a CI guard that fails on un-regenerated artifacts (nice
 to have, can add later); inline rendered output on the docs page; embedded live
-playgrounds; **per-file editor tabs** in the playground (multi-file uses visible
-`-- file --` separators for now); cross-package examples; per-example "edit
-history" or versioning.
+playgrounds; a richer **tabbed** multi-file editor (a per-file-tab UI on top of
+the in-scope separator editing — Go Playground itself doesn't have this);
+cross-package examples; per-example "edit history" or versioning.
