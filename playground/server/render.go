@@ -76,6 +76,7 @@ type pool struct {
 	gsxBin  string
 	gocache string
 	free    chan *workspace
+	cache   *respCache
 }
 
 type renderReq struct {
@@ -96,6 +97,9 @@ type renderResp struct {
 	Diagnostics []diagnostic `json:"diagnostics"`
 	Error       string       `json:"error"`
 	Ms          int64        `json:"ms"`
+	Cached      bool         `json:"cached"`
+	GenMs       int64        `json:"genMs"` // gsx generate (type resolution) time
+	RunMs       int64        `json:"runMs"` // go build + run time
 }
 
 // newPool builds gsx once, sets up `size` prepared workspaces sharing one
@@ -124,7 +128,7 @@ func newPool(gsxMod, work string, size int) (p *pool, err error) {
 		"GOFLAGS=-mod=mod",
 		"CGO_ENABLED=0",
 	}
-	p = &pool{gsxBin: gsxBin, gocache: gocache, free: make(chan *workspace, size)}
+	p = &pool{gsxBin: gsxBin, gocache: gocache, free: make(chan *workspace, size), cache: newRespCache(512)}
 	for i := 0; i < size; i++ {
 		ws := &workspace{play: filepath.Join(work, fmt.Sprintf("play%d", i))}
 		ws.viewDir = filepath.Join(ws.play, "views")
@@ -151,9 +155,16 @@ func newPool(gsxMod, work string, size int) (p *pool, err error) {
 }
 
 func (p *pool) render(in renderReq) renderResp {
+	key := cacheKey(in)
+	if r, ok := p.cache.get(key); ok {
+		r.Cached = true
+		return r
+	}
 	ws := <-p.free // block until a workspace is free (back-pressure)
 	defer func() { p.free <- ws }()
-	return renderIn(p.gsxBin, p.gocache, ws, in)
+	resp := renderIn(p.gsxBin, p.gocache, ws, in)
+	p.cache.put(key, resp)
+	return resp
 }
 
 // writeShim writes the render shim Go file into viewDir.
@@ -190,11 +201,13 @@ func renderIn(gsxBin, gocache string, ws *workspace, in renderReq) renderResp {
 	ms := func() int64 { return time.Since(start).Milliseconds() }
 
 	// 1) authentic codegen with structured diagnostics.
+	genStart := time.Now()
 	genOut, genErr := run(ctx, ws.play, env, gsxBin, "generate", "--json", "./views")
+	genMs := time.Since(genStart).Milliseconds()
 	diags := parseDiags(genOut)
 	if genErr != nil {
 		// Errors are reported as diagnostics; if none parsed, surface raw stderr.
-		resp := renderResp{Diagnostics: diags, Ms: ms()}
+		resp := renderResp{Diagnostics: diags, Ms: ms(), GenMs: genMs}
 		if len(diags) == 0 {
 			resp.Error = oneline(genOut)
 		}
@@ -205,15 +218,17 @@ func renderIn(gsxBin, gocache string, ws *workspace, in renderReq) renderResp {
 
 	// 1a) import allowlist: reject disallowed imports before build/run.
 	if d := checkImports(ws.viewDir); d != nil {
-		return renderResp{GeneratedGo: generatedGo, Diagnostics: []diagnostic{*d}, Ms: ms()}
+		return renderResp{GeneratedGo: generatedGo, Diagnostics: []diagnostic{*d}, Ms: ms(), GenMs: genMs}
 	}
 
 	// 2) authentic build + run.
+	runStart := time.Now()
 	runOut, runErr := run(ctx, ws.play, env, "go", "run", ".")
+	runMs := time.Since(runStart).Milliseconds()
 	if runErr != nil {
-		return renderResp{GeneratedGo: generatedGo, Diagnostics: diags, Error: "render: " + oneline(runOut), Ms: ms()}
+		return renderResp{GeneratedGo: generatedGo, Diagnostics: diags, Error: "render: " + oneline(runOut), Ms: ms(), GenMs: genMs, RunMs: runMs}
 	}
-	return renderResp{HTML: runOut, GeneratedGo: generatedGo, Diagnostics: diags, Ms: ms()}
+	return renderResp{HTML: runOut, GeneratedGo: generatedGo, Diagnostics: diags, Ms: ms(), GenMs: genMs, RunMs: runMs}
 }
 
 // parseDiags decodes `gsx generate --json` output (a JSON array of diagnostics).

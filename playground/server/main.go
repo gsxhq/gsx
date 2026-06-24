@@ -52,6 +52,10 @@ func main() {
 		listenAddr = ":" + port
 	}
 
+	// Warm the response cache with the default examples in the background so the
+	// server starts listening immediately; presets become instant shortly after.
+	go p.seedPresets()
+
 	sem := make(chan struct{}, *concurrency)
 
 	mux := http.NewServeMux()
