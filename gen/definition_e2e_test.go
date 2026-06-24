@@ -199,6 +199,114 @@ func TestDefinitionParam(t *testing.T) {
 	}
 }
 
+// TestDefinitionRawGoSymbol: a top-level Go helper declared in the .gsx file
+// itself (`func greeting()`), referenced from an interpolation, resolves back to
+// its declaration in the SAME .gsx — never null, never into generated .x.go. The
+// raw-Go body is emitted under a //line directive in the skeleton, which is what
+// makes this resolve to source.
+func TestDefinitionRawGoSymbol(t *testing.T) {
+	src := "package x\n\nfunc greeting() string {\n\treturn \"hi\"\n}\n\ncomponent Page() {\n\t<p>{ greeting() }</p>\n}\n"
+	loc := rawGoDefinition(t, src, "{ greeting()", 2 /* skip "{ " to the 'g' */)
+	if loc == nil {
+		t.Fatal("raw-Go definition should resolve to the .gsx declaration, not null")
+	}
+	if !strings.HasSuffix(loc.URI, "page.gsx") {
+		t.Fatalf("raw-Go symbol resolved to %q, want page.gsx", loc.URI)
+	}
+	// Exact landing: the 'g' of `func greeting`.
+	wantLine, wantChar := declStart(t, src, "func greeting", len("func "))
+	if loc.Range.Start.Line != wantLine || loc.Range.Start.Character != wantChar {
+		t.Fatalf("raw-Go symbol landed at L%d:C%d, want L%d:C%d (the 'greeting' decl)",
+			loc.Range.Start.Line, loc.Range.Start.Character, wantLine, wantChar)
+	}
+}
+
+// TestDefinitionRawGoSymbolWithImport: same as above, but the raw-Go chunk also
+// carries an import. splitChunk excises the import (hoisting it ahead of all
+// decls) and reports the body's offset, so the //line still anchors the func to
+// its true .gsx line despite the removed import lines.
+func TestDefinitionRawGoSymbolWithImport(t *testing.T) {
+	src := "package x\n\nimport \"strings\"\n\nfunc shout(s string) string {\n\treturn strings.ToUpper(s)\n}\n\ncomponent Page() {\n\t<p>{ shout(\"hi\") }</p>\n}\n"
+	loc := rawGoDefinition(t, src, "{ shout(", 2 /* skip "{ " to the 's' */)
+	if loc == nil {
+		t.Fatal("raw-Go (with import) definition should resolve to the .gsx declaration, not null")
+	}
+	if !strings.HasSuffix(loc.URI, "page.gsx") {
+		t.Fatalf("raw-Go symbol resolved to %q, want page.gsx", loc.URI)
+	}
+	// Exact landing: the 's' of `func shout` — proves the import excision did not
+	// shift the //line mapping.
+	wantLine, wantChar := declStart(t, src, "func shout", len("func "))
+	if loc.Range.Start.Line != wantLine || loc.Range.Start.Character != wantChar {
+		t.Fatalf("raw-Go symbol (with import) landed at L%d:C%d, want L%d:C%d (the 'shout' decl)",
+			loc.Range.Start.Line, loc.Range.Start.Character, wantLine, wantChar)
+	}
+}
+
+// rawGoDefinition writes src as page.gsx in a temp module, opens it, and issues
+// textDocument/definition at the cursor (the first occurrence of needle, plus
+// cursorOff bytes into it). It fails the test if the response leaks a .x.go
+// location.
+func rawGoDefinition(t *testing.T, src, needle string, cursorOff int) *lsp.Location {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	dir := t.TempDir()
+	repoRoot, _ := filepath.Abs("..")
+	must := func(p, c string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, p), []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	must("go.mod", "module example.com/x\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	must("page.gsx", src)
+	uri := "file://" + filepath.Join(dir, "page.gsx")
+
+	var line, character int
+	for i, l := range strings.Split(src, "\n") {
+		if c := strings.Index(l, needle); c >= 0 {
+			line, character = i, c+cursorOff
+			break
+		}
+	}
+
+	frame := func(v any) string {
+		b, _ := json.Marshal(v)
+		return "Content-Length: " + strconv.Itoa(len(b)) + "\r\n\r\n" + string(b)
+	}
+	in := frame(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}})
+	in += frame(map[string]any{"jsonrpc": "2.0", "method": "textDocument/didOpen",
+		"params": map[string]any{"textDocument": map[string]any{"uri": uri, "version": 1, "text": src}}})
+	in += frame(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "textDocument/definition",
+		"params": map[string]any{"textDocument": map[string]any{"uri": uri},
+			"position": map[string]any{"line": line, "character": character}}})
+	in += frame(map[string]any{"jsonrpc": "2.0", "method": "exit"})
+
+	var out, errBuf bytes.Buffer
+	if code := runLSP(strings.NewReader(in), &out, &errBuf, nil); code != 0 {
+		t.Fatalf("runLSP=%d stderr=%s", code, errBuf.String())
+	}
+	if strings.Contains(out.String(), ".x.go") {
+		t.Fatalf("definition leaked a generated-code location; out:\n%s", out.String())
+	}
+	return definitionResult(t, out.String(), 2)
+}
+
+// declStart returns the 0-based (line, character) of a declared name: the first
+// line containing decl, offset by nameOff bytes (e.g. past "func ").
+func declStart(t *testing.T, src, decl string, nameOff int) (line, character int) {
+	t.Helper()
+	for i, l := range strings.Split(src, "\n") {
+		if c := strings.Index(l, decl); c >= 0 {
+			return i, c + nameOff
+		}
+	}
+	t.Fatalf("could not locate %q in:\n%s", decl, src)
+	return -1, -1
+}
+
 // definitionResult extracts the textDocument/definition result for the given
 // request id from a server's framed output, or nil if the result was null.
 func definitionResult(t *testing.T, out string, id int) *lsp.Location {

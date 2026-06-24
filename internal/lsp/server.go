@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"path/filepath"
+	"strings"
 
 	"github.com/gsxhq/gsx/internal/diag"
 )
@@ -74,6 +75,10 @@ func (s *Server) handle(f frame) error {
 		return s.handleDidClose(f)
 	case "textDocument/definition":
 		return s.handleDefinition(f)
+	case "textDocument/references":
+		return s.handleReferences(f)
+	case "textDocument/formatting":
+		return s.handleFormatting(f)
 	default:
 		if len(f.ID) > 0 {
 			return s.replyError(f.ID, -32601, "method not found: "+f.Method)
@@ -95,9 +100,11 @@ func (s *Server) handleInitialize(f frame) error {
 		}
 	}
 	return s.reply(f.ID, initializeResult{Capabilities: serverCapabilities{
-		PositionEncoding:   encName,
-		TextDocumentSync:   1, // full document sync
-		DefinitionProvider: true,
+		PositionEncoding:           encName,
+		TextDocumentSync:           1, // full document sync
+		DefinitionProvider:         true,
+		ReferencesProvider:         true,
+		DocumentFormattingProvider: true,
 	}})
 }
 
@@ -137,7 +144,12 @@ func (s *Server) handleDidOpen(f frame) error {
 		return nil
 	}
 	s.docs.open(p.TextDocument.URI, p.TextDocument.Text, p.TextDocument.Version)
-	return s.analyzeAndPublish(p.TextDocument.URI)
+	uri := p.TextDocument.URI
+	if strings.HasSuffix(uriToPath(uri), ".go") {
+		s.analyzeOnly(uri) // no diagnostics for .go; gopls owns those
+		return nil
+	}
+	return s.analyzeAndPublish(uri)
 }
 
 func (s *Server) handleDidChange(f frame) error {
@@ -151,7 +163,27 @@ func (s *Server) handleDidChange(f frame) error {
 	// Full-document sync: the last change carries the whole new text.
 	text := p.ContentChanges[len(p.ContentChanges)-1].Text
 	s.docs.update(p.TextDocument.URI, text, p.TextDocument.Version)
-	return s.analyzeAndPublish(p.TextDocument.URI)
+	uri := p.TextDocument.URI
+	if strings.HasSuffix(uriToPath(uri), ".go") {
+		s.analyzeOnly(uri) // no diagnostics for .go; gopls owns those
+		return nil
+	}
+	return s.analyzeAndPublish(uri)
+}
+
+// analyzeOnly analyzes the package for the changed URI and stores the result in
+// s.pkgs, WITHOUT publishing diagnostics. Used for .go files (gopls owns .go
+// diagnostics) so gsx-LSP can still answer component definition/references.
+func (s *Server) analyzeOnly(changedURI string) {
+	dir := filepath.Dir(uriToPath(changedURI))
+	openDocs := s.docs.openInDir(dir)
+	override := make(map[string][]byte, len(openDocs))
+	for path, text := range openDocs {
+		override[path] = []byte(text)
+	}
+	if pkg, err := s.analyzer.Analyze(dir, override); err == nil && pkg != nil {
+		s.pkgs[dir] = pkg
+	}
 }
 
 func (s *Server) handleDidClose(f frame) error {

@@ -1,0 +1,34 @@
+# «.Name»
+
+A gsx + Vite starter (server-rendered HTML, live reload in dev, hashed assets in prod).
+
+## Prerequisites
+- Go 1.24+
+- Node 18+ (npm)
+- [Task](https://taskfile.dev) (`task`)
+
+## Setup
+```sh
+go get -tool github.com/gsxhq/gsx/cmd/gsx@latest
+go mod tidy
+npm install
+```
+
+## Develop
+```sh
+task dev
+```
+Open http://localhost:5173. Edit `app.gsx` and save — the browser live-reloads.
+
+## Production build
+```sh
+npm run build   # vite build → dist/ (hashed assets + manifest)
+go build -o app # embeds dist/, serves /static/, reads the manifest
+./app           # serves on :7777 with no Vite process
+```
+
+## How it works
+- The Vite plugin watches `.gsx` and runs `go tool gsx generate`; `wgo` rebuilds
+  and restarts the Go server; the server POSTs Vite `/__reload` after boot.
+- `main.go` builds a `*vite.Vite` from `VITE_DEV_URL` and injects it into each
+  request via `v.Middleware`; `app.gsx` reads the asset bundle from the context.

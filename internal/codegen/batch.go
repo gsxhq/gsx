@@ -20,6 +20,24 @@ import (
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
+// CrossRef is one component's cross-boundary entry: its name, its .gsx
+// declaration, and every reference (resolved positions — .go call sites stay
+// .go; .gsx <Card/> tags map to .gsx via the skeleton's child-tag //line).
+// Name's length bounds the cursor-on-reference span check in the LSP.
+type CrossRef struct {
+	Name string
+	Decl token.Position
+	Refs []token.Position
+}
+
+// NavRef is one navigable Go reference (in a .go or skeleton file) and the .gsx
+// position it targets. From is the reference site; To is the .gsx declaration.
+type NavRef struct {
+	From token.Position
+	Name string // identifier text, for the cursor-span length check in the LSP
+	To   token.Position
+}
+
 // PackageResult is the per-package outcome of GeneratePackages.
 type PackageResult struct {
 	Files map[string][]byte // .gsx path -> generated .x.go source
@@ -29,11 +47,13 @@ type PackageResult struct {
 	// Retained analysis for the language server (read-only; nil when the package
 	// failed before type-checking). The two FileSets are distinct: GSXFset is the
 	// gsx parse fset; Fset is the go/packages skeleton fset.
-	GSXFset  *token.FileSet
-	Fset     *token.FileSet
-	Info     *types.Info
-	ExprMap  map[gsxast.Node]goast.Expr
-	GSXFiles map[string]*gsxast.File
+	GSXFset    *token.FileSet
+	Fset       *token.FileSet
+	Info       *types.Info
+	ExprMap    map[gsxast.Node]goast.Expr
+	GSXFiles   map[string]*gsxast.File
+	CrossIndex map[string]CrossRef // componentKey → cross-boundary index entry
+	NavIndex   []NavRef            // navigable Go references → .gsx targets (func, props-struct, field)
 }
 
 // GeneratePackagesWithFilters generates .x.go for every .gsx across the given
@@ -279,6 +299,133 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 			}
 			harvest(f, comps, pkg.TypesInfo, resolved, res.ExprMap)
 		}
+
+		// Build the slim cross-boundary index: component objects (by componentKey)
+		// → their .gsx declaration + every reference, resolved through pkg.Fset
+		// (//line maps skeleton refs to .gsx; real .go refs stay .go).
+		compByKey := map[string]*gsxast.Component{} // componentKey → component (for Name + NamePos)
+		compObjByKey := map[string]types.Object{}   // componentKey → the component's func object
+		for _, f := range pkg.Syntax {
+			fname := pkg.Fset.Position(f.Pos()).Filename
+			comps, ok := skelCompsByPath[fname]
+			if !ok {
+				continue
+			}
+			for _, c := range comps {
+				compByKey[componentKey(c)] = c
+			}
+			for _, decl := range f.Decls {
+				fd, ok := decl.(*goast.FuncDecl)
+				if !ok {
+					continue
+				}
+				if _, ok := compByKey[funcDeclKey(fd)]; !ok {
+					continue
+				}
+				if obj := pkg.TypesInfo.Defs[fd.Name]; obj != nil {
+					compObjByKey[funcDeclKey(fd)] = obj
+				}
+			}
+		}
+		objKey := map[types.Object]string{} // reverse: object → componentKey
+		for key, obj := range compObjByKey {
+			objKey[obj] = key
+		}
+		index := map[string]CrossRef{}
+		for key, c := range compByKey {
+			index[key] = CrossRef{Name: c.Name, Decl: fset.Position(c.NamePos)} // gsx fset → .gsx position
+		}
+
+		// Build maps for NavIndex: props-struct objects and field var objects → .gsx targets.
+		// structObjToComp maps a props-struct types.Object → the component it belongs to.
+		// fieldObjToPos maps a field *types.Var → the .gsx position of the corresponding param.
+		structObjToComp := map[types.Object]*gsxast.Component{}
+		fieldObjToPos := map[*types.Var]token.Position{}
+		for _, c := range compByKey {
+			// Derive propsName the same way emitComponentSkeleton does.
+			propsName := c.Name + "Props"
+			if c.Recv != "" {
+				_, _, recvTypeName, rerr := parseRecv(c.Recv)
+				if rerr == nil {
+					propsName = recvTypeName + c.Name + "Props"
+				}
+			}
+			structObj := pkg.Types.Scope().Lookup(propsName)
+			if structObj == nil {
+				continue
+			}
+			structObjToComp[structObj] = c
+
+			// Map each field var → the .gsx position of its corresponding param.
+			params, err := parseParams(c.Params)
+			if err != nil {
+				continue
+			}
+			st, ok := structObj.Type().Underlying().(*types.Struct)
+			if !ok {
+				continue
+			}
+			for _, p := range params {
+				fname := fieldName(p.name)
+				paramPos := fset.Position(c.ParamsPos + token.Pos(p.nameOff))
+				for i := 0; i < st.NumFields(); i++ {
+					fv := st.Field(i)
+					if fv.Name() == fname {
+						fieldObjToPos[fv] = paramPos
+						break
+					}
+				}
+			}
+		}
+
+		var navIndex []NavRef
+		for id, obj := range pkg.TypesInfo.Uses {
+			p := pkg.Fset.Position(id.Pos())
+			if strings.HasSuffix(p.Filename, ".x.go") {
+				continue // synthetic skeleton position with no //line — skip
+			}
+			// Case 1: component func reference → .gsx component decl.
+			if key, ok := objKey[obj]; ok {
+				c := compByKey[key]
+				cr := index[key]
+				cr.Refs = append(cr.Refs, p)
+				index[key] = cr
+				navIndex = append(navIndex, NavRef{
+					From: p,
+					Name: id.Name,
+					To:   fset.Position(c.NamePos),
+				})
+				continue
+			}
+			// Case 2: props-struct type reference → start of the .gsx component
+			// argument list (the props ARE the params, so CardProps lands on the
+			// param list rather than the component name). Components with no params
+			// have no ParamsPos; fall back to the component name there.
+			if c, ok := structObjToComp[obj]; ok {
+				to := c.ParamsPos
+				if !to.IsValid() {
+					to = c.NamePos
+				}
+				navIndex = append(navIndex, NavRef{
+					From: p,
+					Name: id.Name,
+					To:   fset.Position(to),
+				})
+				continue
+			}
+			// Case 3: props-struct field reference → .gsx param position.
+			if fv, ok := obj.(*types.Var); ok {
+				if paramPos, ok := fieldObjToPos[fv]; ok {
+					navIndex = append(navIndex, NavRef{
+						From: p,
+						Name: id.Name,
+						To:   paramPos,
+					})
+				}
+			}
+		}
+		res.CrossIndex = index
+		res.NavIndex = navIndex
 
 		// Collect ALL type errors into the bag (positioned via pkg.Fset which
 		// resolves //line directives back to the .gsx source file).

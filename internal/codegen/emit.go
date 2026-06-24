@@ -64,7 +64,7 @@ func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filter
 	for _, d := range file.Decls {
 		switch v := d.(type) {
 		case *ast.GoChunk:
-			specs, rest, err := splitChunk(v.Src)
+			specs, rest, _, err := splitChunk(v.Src)
 			if err != nil {
 				bag.Errorf(v.Pos(), v.End(), "invalid-syntax", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 				return nil, false
