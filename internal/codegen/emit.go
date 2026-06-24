@@ -1773,7 +1773,7 @@ func emitSlotClosure(nodes []ast.Markup, resolved map[ast.Node]types.Type, table
 //
 //	<rtPkg>.Attrs{<static/expr/bool + composable-class entries>}
 //	    .Merge(<spreadExpr>)
-//	    .Merge(<rtPkg>.AttrsCond(<cond>, <rtPkg>.Attrs{<then>}, <rtPkg>.Attrs{<else>}))…
+//	    .Merge(<rtPkg>.AttrsCond(<cond>, func() <rtPkg>.Attrs { return <rtPkg>.Attrs{<then>} }, <else-thunk|nil>))…
 //
 // keeping this a single string keeps emit≡probe trivial (no statement preamble).
 // When the bag is a bare static literal with no entries, NO Attrs field is
@@ -1938,25 +1938,32 @@ func classEntryExpr(a *ast.ClassAttr, rtPkg string) string {
 }
 
 // condAttrsExpr lowers a conditional attribute { if cond { … } else { … } } on a
-// component to a <rtPkg>.AttrsCond(<cond>, <rtPkg>.Attrs{<then>}, <else>) call:
-// only the taken branch's attrs reach the merged bag at runtime. then/else
-// entries are built from the branch's static/expr/bool attrs (and a nested
-// composable class via classEntryExpr); the else literal is `nil` when there is
-// no else branch. Nesting stays shallow — a CondAttr nested inside a branch is
-// unsupported.
+// component to a
+//
+//	<rtPkg>.AttrsCond(<cond>, func() <rtPkg>.Attrs { return <rtPkg>.Attrs{<then>} }, <else>)
+//
+// call: the branches are emitted as THUNKS so only the taken branch's attrs are
+// evaluated at runtime — matching real Go `if/else`, where the untaken branch's
+// expressions (e.g. `u.Name` when `u == nil`) never run. then/else entries are
+// built from the branch's static/expr/bool attrs (and a nested composable class
+// via classEntryExpr); the else argument is the bare literal `nil` (not a thunk)
+// when there is no else branch. Nesting stays shallow — a CondAttr nested inside
+// a branch is unsupported.
 func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string) (string, error) {
 	thenLit, err := condBranchAttrs(t.Then, rtPkg, tag)
 	if err != nil {
 		return "", err
 	}
-	elseLit := "nil"
+	thenThunk := fmt.Sprintf("func() %s.Attrs { return %s }", rtPkg, thenLit)
+	elseArg := "nil"
 	if len(t.Else) > 0 {
-		elseLit, err = condBranchAttrs(t.Else, rtPkg, tag)
+		elseLit, err := condBranchAttrs(t.Else, rtPkg, tag)
 		if err != nil {
 			return "", err
 		}
+		elseArg = fmt.Sprintf("func() %s.Attrs { return %s }", rtPkg, elseLit)
 	}
-	return fmt.Sprintf("%s.AttrsCond(%s, %s, %s)", rtPkg, strings.TrimSpace(t.Cond), thenLit, elseLit), nil
+	return fmt.Sprintf("%s.AttrsCond(%s, %s, %s)", rtPkg, strings.TrimSpace(t.Cond), thenThunk, elseArg), nil
 }
 
 // condBranchAttrs builds a <rtPkg>.Attrs{…} literal from one conditional-attr
