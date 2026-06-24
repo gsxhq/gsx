@@ -611,6 +611,13 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				if probeErr != nil {
 					return probeErr
 				}
+				// ClassAttr/SpreadAttr part exprs are emitted verbatim by codegen (no
+				// type harvest), so a var used ONLY in `class={ "on": v }` / `{...attrs}`
+				// must still be referenced here or it's "declared and not used". Emit a
+				// liveness `_ = (expr)` — NOT _gsxuse, so the harvest alignment is intact.
+				walkLivenessAttrExprs(t.Attrs, func(expr string) {
+					fmt.Fprintf(sb, "_ = (%s)\n", expr)
+				})
 				// Then probe each JS-attribute's @{ } interps, in attr source order —
 				// collectExprs walks identically (same walkMarkupAttrs), so the k-th
 				// _gsxuse maps to the k-th collected node.
@@ -1018,6 +1025,36 @@ func walkAttrExprs(attrs []gsxast.Attr, fn func(*gsxast.ExprAttr)) {
 		case *gsxast.CondAttr:
 			walkAttrExprs(at.Then, fn)
 			walkAttrExprs(at.Else, fn)
+		}
+	}
+}
+
+// walkLivenessAttrExprs invokes fn for each Go expression in a ClassAttr/SpreadAttr
+// (recursing CondAttr) — the attr exprs that walkAttrExprs does NOT yield. Codegen
+// emits these verbatim (gsx.Class/ClassIf/StyleString, gw.Spread) so they need no
+// type harvest, but the skeleton must still REFERENCE them or a var used ONLY here
+// (e.g. a for-loop var in `class={ "on": v }`) is rejected as "declared and not
+// used". emitProbes emits `_ = (expr)` for each — a liveness reference that, unlike
+// _gsxuse, is invisible to the k-th-probe→k-th-node type-harvest alignment.
+func walkLivenessAttrExprs(attrs []gsxast.Attr, fn func(expr string)) {
+	for _, a := range attrs {
+		switch at := a.(type) {
+		case *gsxast.ClassAttr:
+			for _, p := range at.Parts {
+				if e := strings.TrimSpace(p.Expr); e != "" {
+					fn(e)
+				}
+				if c := strings.TrimSpace(p.Cond); c != "" {
+					fn(c)
+				}
+			}
+		case *gsxast.SpreadAttr:
+			if e := strings.TrimSpace(at.Expr); e != "" {
+				fn(e)
+			}
+		case *gsxast.CondAttr:
+			walkLivenessAttrExprs(at.Then, fn)
+			walkLivenessAttrExprs(at.Else, fn)
 		}
 	}
 }

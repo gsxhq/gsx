@@ -1,0 +1,19 @@
+# Regression: a for-loop variable used ONLY in a spread {...a} must be seen as USED
+# by the skeleton (same liveness-probe gap as class/style).
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Rows(bags []gsx.Attrs) {
+	<div>
+		{ for _, a := range bags {
+			<span {...a}>x</span>
+		} }
+	</div>
+}
+-- invoke --
+Rows(RowsProps{Bags: []gsx.Attrs{{"data-i": "0"}, {"data-i": "1"}}})
+-- diagnostics.golden --
+-- render.golden --
+<div><span data-i="0">x</span><span data-i="1">x</span></div>

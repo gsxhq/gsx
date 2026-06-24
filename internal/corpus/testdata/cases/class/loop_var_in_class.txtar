@@ -1,0 +1,17 @@
+# Regression: a for-loop variable used ONLY inside a composable class={ … } must be
+# seen as USED by the type-resolution skeleton (was "declared and not used: v").
+-- input.gsx --
+package views
+
+component Bars(vals []int) {
+	<div>
+		{ for _, v := range vals {
+			<span class={ "bar", "hot": v > 5 }>x</span>
+		} }
+	</div>
+}
+-- invoke --
+Bars(BarsProps{Vals: []int{3, 8}})
+-- diagnostics.golden --
+-- render.golden --
+<div><span class="bar">x</span><span class="bar hot">x</span></div>
