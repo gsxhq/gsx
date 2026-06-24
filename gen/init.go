@@ -110,13 +110,29 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 	ifs.StringVar(&templateName, "template", defaultTemplate, "starter template")
 	ifs.StringVar(&module, "module", "", "Go module path (default: target dir basename)")
 	ifs.BoolVar(&force, "force", false, "overwrite an existing go.mod/package.json")
-	if err := ifs.Parse(args); err != nil {
-		return 2
+	// Allow the [dir] positional in any position relative to flags (stdlib flag
+	// otherwise stops at the first positional). -template/-module take a value;
+	// -force is boolean.
+	valueFlag := map[string]bool{
+		"-template": true, "--template": true,
+		"-module": true, "--module": true,
 	}
-
+	var flagArgs []string
 	dir := "."
-	if rest := ifs.Args(); len(rest) > 0 {
-		dir = rest[0]
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if strings.HasPrefix(a, "-") {
+			flagArgs = append(flagArgs, a)
+			if valueFlag[a] && !strings.Contains(a, "=") && i+1 < len(args) {
+				flagArgs = append(flagArgs, args[i+1])
+				i++
+			}
+		} else {
+			dir = a
+		}
+	}
+	if err := ifs.Parse(flagArgs); err != nil {
+		return 2
 	}
 
 	tpl, ok := templates[templateName]

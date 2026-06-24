@@ -74,6 +74,32 @@ func TestInitRefusesExistingProject(t *testing.T) {
 	}
 }
 
+func TestInitRefusesExistingPackageJSON(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errb := runCapture(t, []string{"init", dir})
+	if code != 2 {
+		t.Fatalf("expected exit 2 for existing package.json, got %d", code)
+	}
+	if !strings.Contains(errb, "--force") {
+		t.Fatalf("error should mention --force: %q", errb)
+	}
+}
+
+func TestInitFlagsAfterDir(t *testing.T) {
+	dir := t.TempDir()
+	code, _, errb := runCapture(t, []string{"init", dir, "--module", "example.com/after"})
+	if code != 0 {
+		t.Fatalf("exit %d; stderr=%q", code, errb)
+	}
+	gomod, _ := os.ReadFile(filepath.Join(dir, "go.mod"))
+	if !strings.Contains(string(gomod), "module example.com/after") {
+		t.Fatalf("flag after dir ignored: go.mod = %s", gomod)
+	}
+}
+
 func TestScaffoldRendersAndTransforms(t *testing.T) {
 	src := fstest.MapFS{
 		"tpl/go.mod.tmpl":      {Data: []byte("module «.Module»\n")},
