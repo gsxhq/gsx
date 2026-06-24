@@ -201,6 +201,8 @@ props/byo_children_missing	diag(error)
 props/byo_external_node_vs_renderable	diag gen render
 props/byo_external_props	diag gen render
 props/byo_kebab_fields	diag gen render
+props/byo_method_shared_props	diag gen render
+props/byo_method_trio	diag gen render
 props/byo_single_struct	diag gen render
 props/byo_splat	diag gen render
 props/byo_splat_children_rejected	diag(error)
@@ -249,4 +251,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 251 cases (render: 188, error: 44, gen-pinned: 68)
+TOTAL: 253 cases (render: 190, error: 44, gen-pinned: 70)
