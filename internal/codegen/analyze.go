@@ -709,7 +709,9 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					// SEPARATELY below, so its interps become the _gsxuse sequence in the
 					// SAME order collectExprs collected them; the props-literal exprs are
 					// NOT _gsxuse, so they don't perturb the k-th alignment.
-					fields, usedPkgs, err := childPropsLiteral(t, propsType, "_gsxrt", table, propFields, nodeProps[propsType], byo, func(nodes []gsxast.Markup) (string, error) {
+					// When splatExpr is non-empty (byo whole-struct splat), emit
+					// `_ = callTarget(splatExpr)` mirroring the emitter exactly.
+					fields, splatExpr, usedPkgs, err := childPropsLiteral(t, propsType, "_gsxrt", table, propFields, nodeProps[propsType], byo, func(nodes []gsxast.Markup) (string, error) {
 						return "_gsxrt.Node(nil)", nil
 					})
 					if err != nil {
@@ -727,7 +729,12 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 						usedFilters[alias] = path
 					}
 					emitSkeletonLine(sb, fset, t.Pos())
-					fmt.Fprintf(sb, "_ = %s(%s{%s})\n", callTarget, propsType, fields)
+					if splatExpr != "" {
+						// Whole-struct splat: mirrors genChildComponent exactly.
+						fmt.Fprintf(sb, "_ = %s(%s)\n", callTarget, splatExpr)
+					} else {
+						fmt.Fprintf(sb, "_ = %s(%s{%s})\n", callTarget, propsType, fields)
+					}
 				}
 				// Probe slot content in the SAME canonical order collectExprs walks:
 				// each markup-attr value (attr order) then the children.
