@@ -10,19 +10,20 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 )
 
 var pkgLine = regexp.MustCompile(`(?m)^package\s+\w+`)
 
-// renderer owns the prepared module and serializes requests against it.
-type renderer struct {
-	mu      sync.Mutex
-	work    string // work dir
-	play    string // prepared render module dir
-	gsxBin  string // built gsx binary
+type workspace struct {
+	play    string
 	viewDir string
+}
+
+type pool struct {
+	gsxBin  string
+	gocache string
+	free    chan *workspace
 }
 
 type renderReq struct {
@@ -45,65 +46,84 @@ type renderResp struct {
 	Ms          int64        `json:"ms"`
 }
 
-func newRenderer(gsxMod, work string) (*renderer, error) {
+// newPool builds gsx once, sets up `size` prepared workspaces sharing one
+// GOCACHE, and pre-warms the build cache. Workspaces are handed out per request.
+func newPool(gsxMod, work string, size int) (*pool, error) {
 	if work == "" {
 		var err error
-		work, err = os.MkdirTemp("", "gsxplay-")
+		work, err = os.MkdirTemp("", "gsxpool-")
 		if err != nil {
 			return nil, err
 		}
 	}
-	r := &renderer{work: work, play: filepath.Join(work, "play")}
-	r.viewDir = filepath.Join(r.play, "views")
-	r.gsxBin = filepath.Join(work, "gsx")
-	if out, err := run(context.Background(), gsxMod, "go", "build", "-o", r.gsxBin, "./cmd/gsx"); err != nil {
+	gsxBin := filepath.Join(work, "gsx")
+	if out, err := run(context.Background(), gsxMod, nil, "go", "build", "-o", gsxBin, "./cmd/gsx"); err != nil {
 		return nil, fmt.Errorf("build gsx: %v: %s", err, out)
 	}
-	if err := os.MkdirAll(r.viewDir, 0o755); err != nil {
+	gocache := filepath.Join(work, "gocache")
+	if err := os.MkdirAll(gocache, 0o755); err != nil {
 		return nil, err
 	}
-	writeFile(filepath.Join(r.play, "go.mod"), fmt.Sprintf("module gsxplay\n\ngo 1.23\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => %s\n", gsxMod))
-	writeFile(filepath.Join(r.play, "main.go"), "package main\n\nimport (\n\t\"context\"\n\t\"os\"\n\n\t_ \"github.com/gsxhq/gsx\"\n\t\"gsxplay/views\"\n)\n\nfunc main() {\n\tif err := views.Render(context.Background(), os.Stdout); err != nil {\n\t\tpanic(err)\n\t}\n}\n")
-	writeFile(filepath.Join(r.viewDir, "comp.gsx"), "package views\n\ncomponent Hello() {\n\t<p>hi</p>\n}\n")
-	r.writeShim("Hello(HelloProps{})")
-	if out, err := run(context.Background(), r.play, "go", "mod", "tidy"); err != nil {
-		return nil, fmt.Errorf("mod tidy: %v: %s", err, out)
+	env := []string{"GOCACHE=" + gocache}
+	p := &pool{gsxBin: gsxBin, gocache: gocache, free: make(chan *workspace, size)}
+	for i := 0; i < size; i++ {
+		ws := &workspace{play: filepath.Join(work, fmt.Sprintf("play%d", i))}
+		ws.viewDir = filepath.Join(ws.play, "views")
+		if err := os.MkdirAll(ws.viewDir, 0o755); err != nil {
+			return nil, err
+		}
+		writeFile(filepath.Join(ws.play, "go.mod"), fmt.Sprintf("module gsxplay\n\ngo 1.23\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => %s\n", gsxMod))
+		writeFile(filepath.Join(ws.play, "main.go"), "package main\n\nimport (\n\t\"context\"\n\t\"os\"\n\n\t_ \"github.com/gsxhq/gsx\"\n\t\"gsxplay/views\"\n)\n\nfunc main() {\n\tif err := views.Render(context.Background(), os.Stdout); err != nil {\n\t\tpanic(err)\n\t}\n}\n")
+		writeFile(filepath.Join(ws.viewDir, "comp.gsx"), "package views\n\ncomponent Hello() {\n\t<p>hi</p>\n}\n")
+		writeShim(ws.viewDir, "Hello(HelloProps{})")
+		if out, err := run(context.Background(), ws.play, env, "go", "mod", "tidy"); err != nil {
+			return nil, fmt.Errorf("mod tidy: %v: %s", err, out)
+		}
+		if out, err := run(context.Background(), ws.play, env, gsxBin, "generate", "./views"); err != nil {
+			return nil, fmt.Errorf("seed generate: %v: %s", err, out)
+		}
+		if out, err := run(context.Background(), ws.play, env, "go", "build", "-o", filepath.Join(ws.play, "play-bin"), "."); err != nil {
+			return nil, fmt.Errorf("warm build: %v: %s", err, out)
+		}
+		p.free <- ws
 	}
-	if out, err := run(context.Background(), r.play, r.gsxBin, "generate", "./views"); err != nil {
-		return nil, fmt.Errorf("seed generate: %v: %s", err, out)
-	}
-	if out, err := run(context.Background(), r.play, "go", "build", "-o", filepath.Join(work, "play-bin"), "."); err != nil {
-		return nil, fmt.Errorf("warm build: %v: %s", err, out)
-	}
-	return r, nil
+	return p, nil
 }
 
-func (r *renderer) writeShim(invoke string) {
+func (p *pool) render(in renderReq) renderResp {
+	ws := <-p.free // block until a workspace is free (back-pressure)
+	defer func() { p.free <- ws }()
+	return renderIn(p.gsxBin, p.gocache, ws, in)
+}
+
+// writeShim writes the render shim Go file into viewDir.
+func writeShim(viewDir, invoke string) {
 	imp := ""
 	if strings.Contains(invoke, "gsx.") {
 		imp = "\t\"github.com/gsxhq/gsx\"\n"
 	}
-	writeFile(filepath.Join(r.viewDir, "render_shim.go"),
+	writeFile(filepath.Join(viewDir, "render_shim.go"),
 		"package views\n\nimport (\n\t\"context\"\n\t\"io\"\n"+imp+")\n\nfunc Render(ctx context.Context, w io.Writer) error {\n\treturn ("+invoke+").Render(ctx, w)\n}\n")
 }
 
-func (r *renderer) render(in renderReq) renderResp {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+// renderIn performs one render cycle in the given workspace.
+func renderIn(gsxBin, gocache string, ws *workspace, in renderReq) renderResp {
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
 
+	env := []string{"GOCACHE=" + gocache}
+
 	// Reset and write the user's component + shim.
-	os.RemoveAll(r.viewDir)
-	os.MkdirAll(r.viewDir, 0o755)
-	writeFile(filepath.Join(r.viewDir, "comp.gsx"), pkgLine.ReplaceAllString(in.GSX, "package views"))
-	r.writeShim(strings.TrimSpace(in.Invoke))
+	os.RemoveAll(ws.viewDir)
+	os.MkdirAll(ws.viewDir, 0o755)
+	writeFile(filepath.Join(ws.viewDir, "comp.gsx"), pkgLine.ReplaceAllString(in.GSX, "package views"))
+	writeShim(ws.viewDir, strings.TrimSpace(in.Invoke))
 
 	ms := func() int64 { return time.Since(start).Milliseconds() }
 
 	// 1) authentic codegen with structured diagnostics.
-	genOut, genErr := run(ctx, r.play, r.gsxBin, "generate", "--json", "./views")
+	genOut, genErr := run(ctx, ws.play, env, gsxBin, "generate", "--json", "./views")
 	diags := parseDiags(genOut)
 	if genErr != nil {
 		// Errors are reported as diagnostics; if none parsed, surface raw stderr.
@@ -114,10 +134,10 @@ func (r *renderer) render(in renderReq) renderResp {
 		return resp
 	}
 
-	generatedGo := readGenerated(r.viewDir)
+	generatedGo := readGenerated(ws.viewDir)
 
 	// 2) authentic build + run.
-	runOut, runErr := run(ctx, r.play, "go", "run", ".")
+	runOut, runErr := run(ctx, ws.play, env, "go", "run", ".")
 	if runErr != nil {
 		return renderResp{GeneratedGo: generatedGo, Diagnostics: diags, Error: "render: " + oneline(runOut), Ms: ms()}
 	}
@@ -167,9 +187,12 @@ func readGenerated(viewDir string) string {
 	return ""
 }
 
-func run(ctx context.Context, dir, name string, args ...string) (string, error) {
+func run(ctx context.Context, dir string, env []string, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
@@ -181,7 +204,7 @@ func writeFile(path, content string) {
 }
 
 func defaultGsxMod() string {
-	// This file lives at <gsxmod>/playground/server/main.go.
+	// This file lives at <gsxmod>/playground/server/render.go.
 	wd, _ := os.Getwd()
 	return filepath.Clean(filepath.Join(wd, "..", ".."))
 }
