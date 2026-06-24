@@ -10,8 +10,9 @@ JSX-style markup body, compiled to plain Go (`.gsx` → `.x.go`).
 
 > **Status:** gsx is runnable — `gsx generate` compiles `.gsx` → `.x.go`. The
 > language is stable but still evolving (some CLI commands and `style` composition
-> are in progress). Treat `examples/*.gsx` as the canonical, current reference and
-> prefer copying patterns from there.
+> are in progress). Treat the `internal/corpus/testdata/cases/**/*.txtar` corpus
+> as the canonical, current reference — each case pins the `.gsx` input, generated
+> Go, and rendered output — and prefer copying patterns from there.
 
 ## Core rules
 
@@ -48,11 +49,13 @@ JSX-style markup body, compiled to plain Go (`.gsx` → `.x.go`).
 
 Inside `{ }`, gsx decides markup-vs-Go **positionally** (the Babel rule):
 `{ <div/> }` is markup, `{ a < b }` is a Go expression. If a comparison or generic
-looks like a tag, reach for parentheses or a `{{ }}` block. See
-`examples/06_corner_cases.gsx`.
+looks like a tag, reach for parentheses or a `{{ }}` block. See the
+`internal/corpus/testdata/cases/parser/` corpus cases.
 
 ## When in doubt
 
-Read the matching example: elements `01`, escaping `02`, control flow `03`,
-components/children `04`, attributes `05`, corner cases `06`, method components
-`11`, fallthrough `12`. Full guide: `docs/guide/syntax.md`.
+Read the matching corpus directory under `internal/corpus/testdata/cases/`:
+elements `elements/`, escaping `interpolation/` + `security/`, control flow
+`control_flow/`, components/children/slots `components/` + `slots/`, attributes
+`attrs/` + `class/` + `style/` + `jsattr/`, corner cases `parser/`, method
+components `methods/`, fallthrough `fallthrough/`. Full guide: `docs/guide/syntax.md`.

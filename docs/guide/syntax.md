@@ -1,9 +1,10 @@
 # Syntax
 
 > **Syntax is roughly fixed, not frozen.** This page is a quick tour. The
-> [`examples/`](https://github.com/gsxhq/gsx/tree/main/examples) corpus is the
-> canonical, always-current reference — every accepted form is demonstrated there
-> (all 12 examples parse).
+> [test corpus](https://github.com/gsxhq/gsx/tree/main/internal/corpus/testdata/cases)
+> is the canonical, always-current reference — every accepted form is a case that
+> parses, generates Go, and pins its rendered output, so it can never drift from
+> what the compiler actually does.
 
 A `.gsx` file is ordinary Go (package, imports, types, funcs) plus `component`
 declarations. A component has a templ-style header and a JSX-style body — the
@@ -55,21 +56,27 @@ names: `<Card title="Hi" featured/>` → `Card(CardProps{Title: "Hi", Featured: 
 ## Markup vs Go (the one subtlety)
 
 Inside `{ }`, gsx decides markup-vs-Go positionally — the Babel rule: `{ <div/> }`
-is markup, `{ a < b }` is a Go expression. When in doubt, see
-[`examples/06_corner_cases.gsx`](https://github.com/gsxhq/gsx/blob/main/examples/06_corner_cases.gsx).
+is markup, `{ a < b }` is a Go expression. When in doubt, see the
+[`parser/`](https://github.com/gsxhq/gsx/tree/main/internal/corpus/testdata/cases/parser)
+corpus cases.
 
 ## Learn by example
 
-| Topic | Example |
-|-------|---------|
-| Elements, attrs, void, DOCTYPE, SVG, web components | `01_elements.gsx` |
-| Interpolation, raw HTML, escaping contexts | `02_text_escaping.gsx` |
-| if / for / switch, fragments, `{{ }}` | `03_control_flow.gsx` |
-| `component` decls, props, `{children}`, slots | `04_components.gsx` |
-| The full attribute system | `05_attributes.gsx` |
-| Markup-vs-Go corner cases | `06_corner_cases.gsx` |
-| Method components, page composition | `11_struct_methods.gsx` |
-| Children & attribute fallthrough | `12_children_attrs.gsx` |
+Each topic maps to a directory of [corpus cases](https://github.com/gsxhq/gsx/tree/main/internal/corpus/testdata/cases)
+— every case is a `.txtar` holding the `.gsx` input, the generated Go, and the
+rendered output, all verified on every test run.
+
+| Topic | Corpus cases |
+|-------|--------------|
+| Elements, void, DOCTYPE, SVG, web components | `elements/`, `doctype/` |
+| Interpolation, raw HTML, escaping contexts | `interpolation/`, `security/` |
+| if / for / switch, fragments | `control_flow/` |
+| `component` decls, props, `{children}`, slots | `components/`, `slots/` |
+| The full attribute system | `attrs/`, `class/`, `style/`, `jsattr/` |
+| `|>` pipelines & filters | `pipelines/` |
+| Markup-vs-Go corner cases | `parser/` |
+| Method components, page composition | `methods/` |
+| Children & attribute fallthrough | `fallthrough/` |
 
 > **Status — alpha.** `.gsx` compiles to plain Go via `gsx generate`; syntax is
 > stable but still evolving. Follow the

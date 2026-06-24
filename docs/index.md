@@ -18,8 +18,10 @@ a **JSX-style markup body**, compiled to plain Go.
 
 - **[Why gsx](./guide/vision.md)** — the problem it solves and the bet behind it.
 - **[Principles](./guide/principles.md)** — the design commitments.
-- **[Syntax](./guide/syntax.md)** — a quick tour; the [`examples/`](../examples/)
-  corpus is the canonical reference.
+- **[Syntax](./guide/syntax.md)** — a quick tour; the
+  [test corpus](https://github.com/gsxhq/gsx/tree/main/internal/corpus/testdata/cases)
+  is the canonical, always-current reference (every accepted form is a case that
+  parses, generates Go, and pins its rendered output).
 - **[Extensions](./guide/extensions.md)** — custom attribute classification, filter packages, and the `cmd/gsx` registration pattern.
 
 ## Reference
