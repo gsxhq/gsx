@@ -48,7 +48,7 @@ func resolveTypesPkg(dir string, files map[string]*gsxast.File, propFields, node
 // behaves identically. resolveTypesPkg is the std-only wrapper.
 //
 // resolver is optional; nil uses packagesLoadResolver (the original packages.Load
-// behavior, byte-identical to before). When a *cachedResolver is passed, its
+// behavior, byte-identical to before). When a *CachedResolver is passed, its
 // prebuilt filterTable is used instead of calling loadFilterTableMulti again.
 func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propFields, nodeProps map[string]map[string]bool, filterPkgs []string, fset *token.FileSet, resolver typeResolver) (map[gsxast.Node]types.Type, filterTable, error) {
 	if resolver == nil {
@@ -58,7 +58,7 @@ func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propF
 	// Use the cached resolver's prebuilt filter table when available; otherwise
 	// load it fresh (the original behavior).
 	var table filterTable
-	if cr, ok := resolver.(*cachedResolver); ok {
+	if cr, ok := resolver.(*CachedResolver); ok {
 		table = cr.filters()
 	} else {
 		var err error
