@@ -535,6 +535,9 @@ func detectUnusedImports(pkg *packages.Package, imports []importSpec, gsxFset *t
 	}
 	byPos := map[posKey][]importSpec{}
 	for _, imp := range imports {
+		if !imp.pos.IsValid() {
+			continue // unresolved position: cannot correlate safely
+		}
 		p := gsxFset.Position(imp.pos)
 		k := posKey{p.Filename, p.Line}
 		byPos[k] = append(byPos[k], imp)
