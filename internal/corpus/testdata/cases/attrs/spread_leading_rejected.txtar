@@ -1,4 +1,4 @@
-# leading-dots spread {..x} is no longer valid; must produce a parse error
+# leading-dots spread {...x} is no longer valid; must produce a parse error
 -- input.gsx --
 package p
 

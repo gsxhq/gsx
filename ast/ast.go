@@ -243,7 +243,7 @@ type BoolAttr struct {
 
 func (*BoolAttr) attrNode() {}
 
-// SpreadAttr is {...expr}.
+// SpreadAttr is { expr... }.
 type SpreadAttr struct {
 	span
 	Expr string
