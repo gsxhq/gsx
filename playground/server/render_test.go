@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -64,6 +67,28 @@ func TestRenderEscaping(t *testing.T) {
 	}
 	if !strings.Contains(resp.HTML, "&lt;script&gt;") {
 		t.Fatalf("expected escaped output, got: %q", resp.HTML)
+	}
+}
+
+func TestOversizeRejected(t *testing.T) {
+	h := makeRenderHandler(testPool)
+	big := bytes.Repeat([]byte("x"), 70*1024)
+	body := `{"gsx":"` + string(big) + `","invoke":"Hello(HelloProps{})"}`
+	req := httptest.NewRequest("POST", "/render", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	withLimits(h, 64*1024, make(chan struct{}, 1)).ServeHTTP(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("code = %d, want 413", rec.Code)
+	}
+}
+
+func TestMethodGuard(t *testing.T) {
+	h := makeRenderHandler(testPool)
+	req := httptest.NewRequest("GET", "/render", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("code = %d, want 405", rec.Code)
 	}
 }
 
