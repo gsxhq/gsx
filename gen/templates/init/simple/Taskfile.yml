@@ -1,5 +1,7 @@
 version: '3'
 
+dotenv: ['.env']
+
 tasks:
   dev:
     desc: Run Vite + the Go server with live reload.
@@ -12,8 +14,6 @@ tasks:
 
   dev:server:
     desc: Rebuild + restart the Go server on .go changes.
-    env:
-      VITE_DEV_URL: http://localhost:5173
     cmds:
       # Single-quoted: the wgo `::` separator contains a colon-space sequence that
       # unquoted YAML would misparse as a mapping key.

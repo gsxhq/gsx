@@ -271,7 +271,7 @@ func TestScaffoldSimpleTemplate(t *testing.T) {
 	for _, rel := range []string{
 		"go.mod", "main.go", "app.gsx", "vite.config.ts", "package.json",
 		"Taskfile.yml", "web/main.js", "web/style.css", "dist/.gitkeep",
-		".gitignore", "README.md",
+		".gitignore", "README.md", ".env.example", ".env",
 	} {
 		if _, err := os.Stat(filepath.Join(dest, rel)); err != nil {
 			t.Errorf("missing scaffolded file %s: %v", rel, err)
@@ -296,6 +296,27 @@ func TestScaffoldSimpleTemplate(t *testing.T) {
 	appgsx, _ := os.ReadFile(filepath.Join(dest, "app.gsx"))
 	if !strings.Contains(string(appgsx), "{{ assets := vite.FromContext(ctx).Entry") {
 		t.Errorf("app.gsx lost its {{ }} block: %s", appgsx)
+	}
+}
+
+func TestInitTaskfileParses(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping Taskfile-parse gate in -short mode")
+	}
+	if _, err := exec.LookPath("task"); err != nil {
+		t.Skip("task not on PATH")
+	}
+
+	dir := t.TempDir()
+	if code, _, errb := initNI(t, "--module", "taskfiledemo", dir); code != 0 {
+		t.Fatalf("init failed: %d %s", code, errb)
+	}
+
+	cmd := exec.Command("task", "--list")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("task --list failed: %v\n%s", err, out)
 	}
 }
 
