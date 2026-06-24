@@ -510,7 +510,7 @@ func (p *parser) parseAttrBraceValue(name string, attrStartPos token.Pos) (ast.A
 	if err != nil {
 		return nil, err
 	}
-	ea := &ast.ExprAttr{Name: name, Expr: in.Expr, Stages: in.Stages}
+	ea := &ast.ExprAttr{Name: name, Expr: in.Expr, ExprPos: in.ExprPos, Stages: in.Stages}
 	ast.SetSpan(ea, attrStartPos, in.End())
 	return ea, nil
 }

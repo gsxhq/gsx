@@ -101,8 +101,16 @@ func zeroSpans(n ast.Node) {
 	ast.Inspect(n, func(m ast.Node) bool {
 		if m != nil {
 			ast.SetSpan(m, 0, 0)
-			if interp, ok := m.(*ast.Interp); ok {
-				interp.ExprPos = 0
+			// Position fields outside the embedded span (set by the parser for
+			// codegen //line columns and the LSP) must also be zeroed so the
+			// faithfulness comparison ignores source layout.
+			switch v := m.(type) {
+			case *ast.Interp:
+				v.ExprPos = 0
+			case *ast.ExprAttr:
+				v.ExprPos = 0
+			case *ast.Component:
+				v.ParamsPos = 0
 			}
 		}
 		return true

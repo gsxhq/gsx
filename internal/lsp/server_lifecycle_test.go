@@ -7,13 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gsxhq/gsx/internal/diag"
 )
 
 // nilAnalyzer satisfies Analyzer and returns nothing.
 type nilAnalyzer struct{}
 
-func (nilAnalyzer) Diagnose(string, map[string][]byte) ([]diag.Diagnostic, error) { return nil, nil }
+func (nilAnalyzer) Analyze(string, map[string][]byte) (*Package, error) { return &Package{}, nil }
 
 // framed wraps a JSON-RPC body in Content-Length framing.
 func framed(t *testing.T, v any) string {

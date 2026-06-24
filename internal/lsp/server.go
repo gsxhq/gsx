@@ -12,7 +12,7 @@ import (
 // Analyzer computes diagnostics for the package in dir, using override (abs
 // .gsx path -> buffer bytes) in place of on-disk content for open documents.
 type Analyzer interface {
-	Diagnose(dir string, override map[string][]byte) ([]diag.Diagnostic, error)
+	Analyze(dir string, override map[string][]byte) (*Package, error)
 }
 
 // Server is a stdio LSP server that publishes gsx diagnostics. It owns the
@@ -21,6 +21,7 @@ type Server struct {
 	conn     *conn
 	docs     *docStore
 	analyzer Analyzer
+	pkgs     map[string]*Package // dir → latest analyzed package
 	enc      encoding
 	shutdown bool
 	exited   bool
@@ -30,7 +31,7 @@ type Server struct {
 // notifications to w. The default position encoding is UTF-16 until initialize
 // negotiates otherwise.
 func NewServer(r io.Reader, w io.Writer, a Analyzer) *Server {
-	return &Server{conn: newConn(r, w), docs: newDocStore(), analyzer: a, enc: encUTF16}
+	return &Server{conn: newConn(r, w), docs: newDocStore(), analyzer: a, pkgs: map[string]*Package{}, enc: encUTF16}
 }
 
 // Run reads and dispatches messages until the stream closes or an `exit`
@@ -71,6 +72,8 @@ func (s *Server) handle(f frame) error {
 		return s.handleDidChange(f)
 	case "textDocument/didClose":
 		return s.handleDidClose(f)
+	case "textDocument/definition":
+		return s.handleDefinition(f)
 	default:
 		if len(f.ID) > 0 {
 			return s.replyError(f.ID, -32601, "method not found: "+f.Method)
@@ -92,8 +95,9 @@ func (s *Server) handleInitialize(f frame) error {
 		}
 	}
 	return s.reply(f.ID, initializeResult{Capabilities: serverCapabilities{
-		PositionEncoding: encName,
-		TextDocumentSync: 1, // full document sync
+		PositionEncoding:   encName,
+		TextDocumentSync:   1, // full document sync
+		DefinitionProvider: true,
 	}})
 }
 
@@ -172,12 +176,14 @@ func (s *Server) analyzeAndPublish(changedURI string) error {
 		override[path] = []byte(text)
 	}
 
-	diags, err := s.analyzer.Diagnose(dir, override)
-	if err != nil {
+	pkg, err := s.analyzer.Analyze(dir, override)
+	if err != nil || pkg == nil {
 		// Analysis failure (e.g. no go.mod): do not crash the session. Clear the
 		// changed file's diagnostics and move on.
 		return s.notify("textDocument/publishDiagnostics", publishDiagnosticsParams{URI: changedURI, Diagnostics: []Diagnostic{}})
 	}
+	s.pkgs[dir] = pkg
+	diags := pkg.Diags
 
 	// Group diagnostics by absolute filename; positionless/foreign ones go to
 	// the changed document.

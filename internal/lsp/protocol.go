@@ -44,8 +44,20 @@ type initializeResult struct {
 }
 
 type serverCapabilities struct {
-	PositionEncoding string `json:"positionEncoding"`
-	TextDocumentSync int    `json:"textDocumentSync"`
+	PositionEncoding   string `json:"positionEncoding"`
+	TextDocumentSync   int    `json:"textDocumentSync"`
+	DefinitionProvider bool   `json:"definitionProvider"`
+}
+
+type textDocumentPositionParams struct {
+	TextDocument textDocumentIdentifier `json:"textDocument"`
+	Position     Position               `json:"position"`
+}
+
+// Location is the LSP Location type: a URI and a range within it.
+type Location struct {
+	URI   string `json:"uri"`
+	Range Range  `json:"range"`
 }
 
 type textDocumentItem struct {

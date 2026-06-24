@@ -3,6 +3,7 @@ package codegen
 import (
 	"errors"
 	"fmt"
+	goast "go/ast"
 	"go/token"
 	"go/types"
 	"os"
@@ -21,9 +22,18 @@ import (
 
 // PackageResult is the per-package outcome of GeneratePackages.
 type PackageResult struct {
-	Files map[string][]byte  // .gsx path -> generated .x.go source
-	Diags []diag.Diagnostic  // all diagnostics collected for this package
-	Err   error              // transition sentinel: non-nil if any Error-severity diagnostic (until consumers read Diags)
+	Files map[string][]byte // .gsx path -> generated .x.go source
+	Diags []diag.Diagnostic // all diagnostics collected for this package
+	Err   error             // transition sentinel: non-nil if any Error-severity diagnostic (until consumers read Diags)
+
+	// Retained analysis for the language server (read-only; nil when the package
+	// failed before type-checking). The two FileSets are distinct: GSXFset is the
+	// gsx parse fset; Fset is the go/packages skeleton fset.
+	GSXFset  *token.FileSet
+	Fset     *token.FileSet
+	Info     *types.Info
+	ExprMap  map[gsxast.Node]goast.Expr
+	GSXFiles map[string]*gsxast.File
 }
 
 // GeneratePackagesWithFilters generates .x.go for every .gsx across the given
@@ -253,6 +263,23 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 			continue // dir was excluded due to earlier error
 		}
 
+		// Retain the analyzed package for the LSP, even if it has type errors
+		// (go/types fills TypesInfo best-effort; the skeleton AST is intact).
+		res := result[pkgDir]
+		res.GSXFset = fset
+		res.Fset = pkg.Fset
+		res.Info = pkg.TypesInfo
+		res.GSXFiles = filesByDir[pkgDir]
+		res.ExprMap = map[gsxast.Node]goast.Expr{}
+		for _, f := range pkg.Syntax {
+			fname := pkg.Fset.Position(f.Pos()).Filename
+			comps, ok := skelCompsByPath[fname]
+			if !ok {
+				continue
+			}
+			harvest(f, comps, pkg.TypesInfo, resolved, res.ExprMap)
+		}
+
 		// Collect ALL type errors into the bag (positioned via pkg.Fset which
 		// resolves //line directives back to the .gsx source file).
 		if len(pkg.TypeErrors) > 0 {
@@ -293,15 +320,6 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 			}
 			delete(filesByDir, pkgDir) // exclude from codegen step
 			continue
-		}
-
-		for _, f := range pkg.Syntax {
-			fname := pkg.Fset.Position(f.Pos()).Filename
-			comps, ok := skelCompsByPath[fname]
-			if !ok {
-				continue // real .go file or shared _gsxuse helper — skip
-			}
-			harvest(f, comps, pkg.TypesInfo, resolved)
 		}
 	}
 

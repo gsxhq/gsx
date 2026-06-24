@@ -111,7 +111,7 @@ func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propF
 		if !ok {
 			continue // a real .go file, not one of our overlays
 		}
-		harvest(f, comps, pkg.TypesInfo, out)
+		harvest(f, comps, pkg.TypesInfo, out, nil)
 	}
 	return out, table, nil
 }
@@ -437,8 +437,20 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 	used := usedParams(c, params)
 	for _, p := range params {
 		if used[p.name] {
+			// //line so go-to-definition on a param reference resolves back to the
+			// param's .gsx declaration (the line+col of its name in the component
+			// signature) instead of this synthesized binding.
+			if c.ParamsPos.IsValid() {
+				emitSkeletonLineParam(sb, fset, c.ParamsPos+token.Pos(p.nameOff))
+			}
 			fmt.Fprintf(sb, "\t%s := _gsxp.%s\n\t_ = %s\n", p.name, fieldName(p.name), p.name)
 		}
+	}
+	if hasChildren || manual {
+		// Reset the //line so the children/attrs bindings (which are synthesized,
+		// not user-declared) don't inherit the last param's source mapping; point
+		// them at the component declaration.
+		emitSkeletonLine(sb, fset, c.Pos())
 	}
 	if hasChildren {
 		sb.WriteString("\tchildren := _gsxp.Children\n\t_ = children\n")
@@ -652,6 +664,24 @@ func emitSkeletonLine(sb *strings.Builder, fset *token.FileSet, pos token.Pos) {
 	fmt.Fprintf(sb, "//line %s:%d:%d\n", p.Filename, p.Line, p.Column)
 }
 
+// emitSkeletonLineParam emits a //line for a param binding (`\t<name> := …`). The
+// binding is indented one tab, so the name sits at skeleton column 2 and would
+// map one column past the param's .gsx position; point the directive one column
+// left to compensate so go-to-definition lands exactly on the param name. The
+// column is adjusted (not the byte position), so the line stays correct even for
+// a multi-line param list.
+func emitSkeletonLineParam(sb *strings.Builder, fset *token.FileSet, pos token.Pos) {
+	if fset == nil || !pos.IsValid() {
+		return
+	}
+	p := fset.Position(pos)
+	col := p.Column - 1
+	if col < 1 {
+		col = 1
+	}
+	fmt.Fprintf(sb, "//line %s:%d:%d\n", p.Filename, p.Line, col)
+}
+
 // probeExpr returns the Go expression to probe for an interpolation / expr-attr.
 // Without stages it is the trimmed seed; with stages it is the lowered pipeline
 // (the SAME lowerPipe output the emitter uses), so the harvested type is the
@@ -675,7 +705,7 @@ func probeExpr(seed string, stages []gsxast.PipeStage, table filterTable, usedFi
 // harvest reads each interpolation's resolved type from a type-checked skeleton
 // file. An interpolation probe is now an ExprStmt whose call target is the
 // identifier `_gsxuse`; harvest the single argument's type.
-func harvest(f *goast.File, comps []*gsxast.Component, info *types.Info, out map[gsxast.Node]types.Type) {
+func harvest(f *goast.File, comps []*gsxast.Component, info *types.Info, out map[gsxast.Node]types.Type, exprOut map[gsxast.Node]goast.Expr) {
 	// Key by receiver-type + method name, not name alone: two method components
 	// with the same method name on different receivers (e.g. (UsersPage) Row and
 	// (OrdersPage) Row) are distinct, and their skeleton funcs are distinct
@@ -707,6 +737,9 @@ func harvest(f *goast.File, comps []*gsxast.Component, info *types.Info, out map
 			}
 			if k < len(nodes) {
 				out[nodes[k]] = info.Types[call.Args[0]].Type
+				if exprOut != nil {
+					exprOut[nodes[k]] = call.Args[0]
+				}
 				k++
 			}
 			return true
@@ -1252,17 +1285,29 @@ func checkReservedRecvVar(recvVar string) error {
 	return nil
 }
 
-type param struct{ name, typ string }
+// param is one component parameter. nameOff is the byte offset of the param's
+// name within the (trimmed) Params source string — added to Component.ParamsPos
+// it yields the param name's .gsx position (for go-to-definition).
+type param struct {
+	name, typ string
+	nameOff   int
+}
+
+// paramSynthPrefix is the synthetic source prepended in parseParams; the param
+// list begins immediately after it, so a name's offset within the param source
+// is its offset in the synthetic file minus this length.
+const paramSynthPrefix = "package p\nfunc _("
 
 // parseParams parses an inline param list ("name string, user User") into
-// (name, Go-type) pairs by reusing go/parser on a synthesized function.
+// (name, Go-type, name-offset) tuples by reusing go/parser on a synthesized
+// function.
 func parseParams(src string) ([]param, error) {
 	src = strings.TrimSpace(src)
 	if src == "" {
 		return nil, nil
 	}
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "", "package p\nfunc _("+src+") {}", 0)
+	f, err := parser.ParseFile(fset, "", paramSynthPrefix+src+") {}", 0)
 	if err != nil {
 		return nil, fmt.Errorf("codegen: parse params %q: %w", src, err)
 	}
@@ -1275,7 +1320,11 @@ func parseParams(src string) ([]param, error) {
 		}
 		typ := tb.String()
 		for _, nm := range field.Names {
-			out = append(out, param{name: nm.Name, typ: typ})
+			out = append(out, param{
+				name:    nm.Name,
+				typ:     typ,
+				nameOff: fset.Position(nm.Pos()).Offset - len(paramSynthPrefix),
+			})
 		}
 	}
 	return out, nil

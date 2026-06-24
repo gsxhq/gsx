@@ -115,10 +115,11 @@ func (*GoChunk) declNode() {}
 // Component is a `component [recv] Name(params) { body }` declaration.
 type Component struct {
 	span
-	Recv   string // e.g. "(p UsersPage)" or "(f *Form)"; "" if none
-	Name   string
-	Params string // raw param-list source, e.g. "title string, featured bool"; "" if none
-	Body   []Markup
+	Recv      string    // e.g. "(p UsersPage)" or "(f *Form)"; "" if none
+	Name      string
+	Params    string    // raw param-list source, e.g. "title string, featured bool"; "" if none
+	ParamsPos token.Pos // position of the first char of Params in source (after `(` + ws); NoPos if no params
+	Body      []Markup
 }
 
 func (*Component) declNode() {}
@@ -183,7 +184,8 @@ type Interp struct {
 	// interpolation's inner expression in the source file (i.e. where Expr
 	// starts before trimming). It is token.NoPos when unavailable. Used by
 	// codegen to emit compensated //line directives so type errors map to the
-	// exact source column of the expression rather than the '{' opener.
+	// exact source column of the expression rather than the '{' opener, and by
+	// the LSP to map a cursor onto the expression for go-to-definition.
 	ExprPos token.Pos
 	// JSCtx is set by internal/jsx for Interps inside a <script>; JSCtxNone otherwise.
 	JSCtx JSCtx
@@ -226,6 +228,7 @@ func (*StaticAttr) attrNode() {}
 type ExprAttr struct {
 	span
 	Name, Expr string
+	ExprPos    token.Pos // position of the first char of Expr in source (for go-to-definition)
 	Stages     []PipeStage
 }
 
