@@ -397,12 +397,19 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 				})
 				continue
 			}
-			// Case 2: props-struct type reference → .gsx component decl.
+			// Case 2: props-struct type reference → start of the .gsx component
+			// argument list (the props ARE the params, so CardProps lands on the
+			// param list rather than the component name). Components with no params
+			// have no ParamsPos; fall back to the component name there.
 			if c, ok := structObjToComp[obj]; ok {
+				to := c.ParamsPos
+				if !to.IsValid() {
+					to = c.NamePos
+				}
 				navIndex = append(navIndex, NavRef{
 					From: p,
 					Name: id.Name,
-					To:   fset.Position(c.NamePos),
+					To:   fset.Position(to),
 				})
 				continue
 			}

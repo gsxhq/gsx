@@ -52,13 +52,20 @@ func TestNavIndex(t *testing.T) {
 		}
 	}
 
-	// --- CardProps struct reference → card.gsx ---
+	// --- CardProps struct reference → card.gsx (start of the argument list) ---
 	propsRef, ok := byName["CardProps"]
 	if !ok {
 		t.Errorf("NavIndex missing NavRef for 'CardProps' from main.go; all refs: %+v", pr.NavIndex)
 	} else {
 		if !strings.HasSuffix(propsRef.To.Filename, "card.gsx") {
 			t.Errorf("CardProps NavRef.To.Filename = %q, want card.gsx", propsRef.To.Filename)
+		}
+		// exact: To must land on the start of the argument list — the 't' of the
+		// first param `title` in `component Card(title string)`.
+		if data, err := os.ReadFile(propsRef.To.Filename); err == nil {
+			if propsRef.To.Offset >= len(data) || data[propsRef.To.Offset] != 't' {
+				t.Errorf("CardProps NavRef.To should land on the argument-list start (byte 't' of 'title'); To=%v", propsRef.To)
+			}
 		}
 	}
 
