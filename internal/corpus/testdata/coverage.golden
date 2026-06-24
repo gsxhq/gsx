@@ -185,6 +185,7 @@ script/string_hostile	diag gen render
 script/tmpl_hostile	diag gen render
 script/value_nonstring	diag gen render
 script/value_pipeline	diag gen render
+script/value_pipeline_param	diag gen render
 script/value_tuple	diag gen render
 security/js_rejected_onclick	diag gen render
 security/js_rejected_style	diag render
@@ -213,4 +214,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 215 cases (render: 156, error: 40, gen-pinned: 51)
+TOTAL: 216 cases (render: 157, error: 40, gen-pinned: 52)
