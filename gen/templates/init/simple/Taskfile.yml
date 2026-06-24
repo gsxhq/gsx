@@ -15,4 +15,6 @@ tasks:
     env:
       VITE_DEV_URL: http://localhost:5173
     cmds:
-      - go tool wgo -file=.go -xdir=tmp -xdir=node_modules -xdir=dist go build -o tmp/app . :: tmp/app
+      # Single-quoted: the wgo `::` separator contains a colon-space sequence that
+      # unquoted YAML would misparse as a mapping key.
+      - 'go tool wgo -file=.go -xdir=tmp -xdir=node_modules -xdir=dist go build -o tmp/app . :: tmp/app'
