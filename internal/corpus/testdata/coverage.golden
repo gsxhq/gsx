@@ -48,6 +48,7 @@ components/named_slot_with_children	diag render
 components/node_param_standalone	diag render
 control_flow/for	diag render
 control_flow/goblock	diag render
+control_flow/if_init_error_handling	diag gen render
 control_flow/if_neg	diag render
 control_flow/if_pos	diag render
 control_flow/if_zero	diag render
@@ -210,4 +211,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 212 cases (render: 152, error: 41, gen-pinned: 47)
+TOTAL: 213 cases (render: 153, error: 41, gen-pinned: 48)
