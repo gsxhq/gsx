@@ -155,25 +155,29 @@ func TestPerfBaseline(t *testing.T) {
 	}
 
 	// ---------- definition/references lookup latency (index-only) ----------
-	// Find a package that has CrossIndex entries and simulate a lookup.
+	// Time an ACTUAL CrossIndex map lookup by component key (the real query-path
+	// operation), averaged over many iterations so we time the lookup, not the
+	// clock. The handlers then range the entry's Refs — also O(refs).
 	var defLatency, refLatency time.Duration
 	for _, pkg := range pkgs {
 		if pkg == nil || len(pkg.CrossIndex) == 0 {
 			continue
 		}
-		// Pick any entry.
-		for _, ref := range pkg.CrossIndex {
-			// Simulate definition: lookup is O(1) map lookup by component key, then return Decl.
-			start := time.Now()
-			_ = ref.Decl
-			defLatency = time.Since(start)
-
-			// Simulate references: return ref.Refs slice.
-			start = time.Now()
-			_ = ref.Refs
-			refLatency = time.Since(start)
+		var key string
+		for k := range pkg.CrossIndex {
+			key = k
 			break
 		}
+		const iters = 100000
+		start := time.Now()
+		var sink int
+		for i := 0; i < iters; i++ {
+			cr := pkg.CrossIndex[key] // real map lookup
+			sink += len(cr.Refs)
+		}
+		defLatency = time.Since(start) / iters
+		refLatency = defLatency // same operation (lookup + range over Refs)
+		_ = sink
 		break
 	}
 

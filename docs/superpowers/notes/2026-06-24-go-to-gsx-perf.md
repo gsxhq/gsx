@@ -43,8 +43,9 @@ pays the full `go/packages.Load` cost.
 
 ### Definition / references lookup latency (cross-index)
 
-Both measured at **< 1 µs** (single map lookup, returns a pre-built
-`token.Position`). As expected, the cross-index query path is not a concern.
+A real `CrossIndex` map lookup by component key, averaged over 100k iterations,
+measures **well under 1 µs** (the handlers then range the entry's `Refs`, also
+O(refs)). As expected, the cross-index query path is not a concern.
 
 ### Retained memory (heap, holding all 50 `*lsp.Package` results)
 
@@ -64,9 +65,13 @@ ExprMap, gsx AST, CrossIndex).
 | Metric | Value |
 |--------|-------|
 | CrossIndex entries | 200 (4 per package × 50) |
-| `CrossRef` struct size | 80 bytes |
-| Slim index (estimated) | 15.6 KiB |
-| Slim index as % of retained heap | ~0.0% |
+| `CrossRef` header size (`unsafe.Sizeof`) | 80 bytes |
+| Slim index (incl. string + Refs bodies) | ~30–40 KiB |
+| Slim index as % of retained heap | ~0.003% |
+
+(The 80 B is the struct header only; counting each `Name` string body and the
+`[]token.Position` backing arrays, the true per-entry cost is ~150–200 B, so the
+whole 200-entry index is on the order of tens of KiB — still negligible.)
 
 The cross-index is negligible. Retained memory is dominated by `types.Info`
 (the full type-checker output, retained for `.gsx`-side go-to-definition) and
@@ -132,8 +137,8 @@ pending profiling (the 24.7 MiB includes the gsx AST and FileSets too, so
 
 **4. Lazy `.go` attach / deferred cross-index**
 Not warranted. The CrossIndex build cost is negligible (< 1 ms) and the slim
-index is < 16 KiB for the entire 50-package fixture. The `.go→.gsx` design's
-"build once, discard inputs" intent is already correct.
+index is on the order of tens of KiB for the entire 50-package fixture. The
+`.go→.gsx` design's "build once, discard inputs" intent is already correct.
 
 ### What NOT to do yet
 
