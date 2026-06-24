@@ -250,6 +250,19 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps m
 			if err != nil {
 				return "", nil, err
 			}
+			// Resolve each import's .gsx position so the skeleton can emit a //line
+			// directive ahead of it — gc.Src starts exactly at gc.Pos(), so the
+			// chunk's byte offset plus the import's intra-chunk offset is the
+			// absolute .gsx offset. Without this, go/types import errors (e.g.
+			// "imported and not used") resolve to the overlay .x.go path/line.
+			if fset != nil && gc.Pos().IsValid() {
+				if tf := fset.File(gc.Pos()); tf != nil {
+					base := fset.Position(gc.Pos()).Offset
+					for i := range imps {
+						imps[i].pos = tf.Pos(base + imps[i].srcOff)
+					}
+				}
+			}
 			imports = append(imports, imps...)
 			if body != "" {
 				bodies = append(bodies, goBody{src: body, pos: gc.Pos() + token.Pos(bodyOff)})
@@ -303,6 +316,12 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps m
 		fmt.Fprintf(&sb, "import %s %q\n", alias, usedFilters[alias])
 	}
 	for _, imp := range imports {
+		// Map go/types import errors back to the .gsx source. The skeleton spec
+		// starts at column 8 (after "import "), so compensate the //line column by
+		// that prefix; when the source column is < 8 (the common indented-import
+		// case) the compensated column would be < 1, so fall back to a line-only
+		// directive (column 1) rather than emit a misleading offset.
+		emitSkeletonLineImport(&sb, fset, imp.pos)
 		if imp.name != "" {
 			fmt.Fprintf(&sb, "import %s %q\n", imp.name, imp.path)
 		} else {
@@ -607,6 +626,13 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				if probeErr != nil {
 					return probeErr
 				}
+				// ClassAttr/SpreadAttr part exprs are emitted verbatim by codegen (no
+				// type harvest), so a var used ONLY in `class={ "on": v }` / `{...attrs}`
+				// must still be referenced here or it's "declared and not used". Emit a
+				// liveness `_ = (expr)` — NOT _gsxuse, so the harvest alignment is intact.
+				walkLivenessAttrExprs(t.Attrs, func(expr string) {
+					fmt.Fprintf(sb, "_ = (%s)\n", expr)
+				})
 				// Then probe each JS-attribute's @{ } interps, in attr source order —
 				// collectExprs walks identically (same walkMarkupAttrs), so the k-th
 				// _gsxuse maps to the k-th collected node.
@@ -699,6 +725,26 @@ func emitSkeletonLineParam(sb *strings.Builder, fset *token.FileSet, pos token.P
 	}
 	p := fset.Position(pos)
 	col := p.Column - 1
+	if col < 1 {
+		col = 1
+	}
+	fmt.Fprintf(sb, "//line %s:%d:%d\n", p.Filename, p.Line, col)
+}
+
+// emitSkeletonLineImport emits a //line directive ahead of a hoisted user
+// import so go/types import errors (notably "imported and not used") resolve to
+// the .gsx source instead of the synthesized overlay .x.go. The skeleton spec
+// sits at column 8 (after the literal "import "), so the directive column is
+// compensated by that 7-char prefix; when the source column is ≤ 7 (the common
+// indented-import case) the compensated column would be < 1, so a line-only
+// directive (column 1) is emitted rather than a misleading offset.
+func emitSkeletonLineImport(sb *strings.Builder, fset *token.FileSet, pos token.Pos) {
+	if fset == nil || !pos.IsValid() {
+		return
+	}
+	const prefixLen = len("import ")
+	p := fset.Position(pos)
+	col := p.Column - prefixLen
 	if col < 1 {
 		col = 1
 	}
@@ -994,6 +1040,36 @@ func walkAttrExprs(attrs []gsxast.Attr, fn func(*gsxast.ExprAttr)) {
 		case *gsxast.CondAttr:
 			walkAttrExprs(at.Then, fn)
 			walkAttrExprs(at.Else, fn)
+		}
+	}
+}
+
+// walkLivenessAttrExprs invokes fn for each Go expression in a ClassAttr/SpreadAttr
+// (recursing CondAttr) — the attr exprs that walkAttrExprs does NOT yield. Codegen
+// emits these verbatim (gsx.Class/ClassIf/StyleString, gw.Spread) so they need no
+// type harvest, but the skeleton must still REFERENCE them or a var used ONLY here
+// (e.g. a for-loop var in `class={ "on": v }`) is rejected as "declared and not
+// used". emitProbes emits `_ = (expr)` for each — a liveness reference that, unlike
+// _gsxuse, is invisible to the k-th-probe→k-th-node type-harvest alignment.
+func walkLivenessAttrExprs(attrs []gsxast.Attr, fn func(expr string)) {
+	for _, a := range attrs {
+		switch at := a.(type) {
+		case *gsxast.ClassAttr:
+			for _, p := range at.Parts {
+				if e := strings.TrimSpace(p.Expr); e != "" {
+					fn(e)
+				}
+				if c := strings.TrimSpace(p.Cond); c != "" {
+					fn(c)
+				}
+			}
+		case *gsxast.SpreadAttr:
+			if e := strings.TrimSpace(at.Expr); e != "" {
+				fn(e)
+			}
+		case *gsxast.CondAttr:
+			walkLivenessAttrExprs(at.Then, fn)
+			walkLivenessAttrExprs(at.Else, fn)
 		}
 	}
 }
@@ -1393,8 +1469,10 @@ var emittedImportIdent = map[string]bool{"gsx": true, "strconv": true}
 // importSpec is one parsed import hoisted from a pass-through Go chunk: an
 // import path with an optional explicit name ("", a package alias, "." or "_").
 type importSpec struct {
-	name string // "" for the default import name
-	path string // import path, unquoted
+	name   string    // "" for the default import name
+	path   string    // import path, unquoted
+	srcOff int       // byte offset of the spec's start within the chunk src
+	pos    token.Pos // resolved .gsx position of the spec (set by buildSkeleton)
 }
 
 // splitChunk separates a pass-through Go chunk into its imports (to hoist ahead
@@ -1438,7 +1516,11 @@ func splitChunk(src string) (imports []importSpec, body string, bodyOff int, err
 			if is.Name != nil {
 				name = is.Name.Name
 			}
-			imports = append(imports, importSpec{name: name, path: path})
+			imports = append(imports, importSpec{
+				name:   name,
+				path:   path,
+				srcOff: fset.Position(is.Pos()).Offset - shift,
+			})
 		}
 		if end := fset.Position(gd.End()).Offset - shift; end > lastImportEnd {
 			lastImportEnd = end

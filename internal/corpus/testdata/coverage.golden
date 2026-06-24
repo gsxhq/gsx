@@ -16,6 +16,8 @@ class/composable_on	diag render
 class/empty_bag_noop	diag render
 class/escaping	diag render
 class/fallthrough_url_preserved	diag render
+class/loop_var_in_class	diag render
+class/loop_var_in_spread	diag render
 class/non_root_class	diag gen render
 class/spread	diag render
 class/style_rejected	diag
@@ -82,6 +84,9 @@ diagnostics/undefined_interp	diag(error)
 diagnostics/value_node_pointer_receiver_error	diag(error)
 doctype/render	diag render
 elements/fragment	diag render
+elements/html_comment	diag render
+elements/html_comment_breakout	diag(error)
+elements/html_comment_fragment	diag render
 elements/named_scalar_types	diag render
 elements/node_slice	diag render
 elements/static_and_bool_attrs_off	diag render
@@ -183,6 +188,11 @@ pipelines/param_arg	diag render
 pipelines/try_rejected	diag(error)
 pipelines/try_unwrap	diag render
 pipelines/unknown_filter	diag(error)
+playground/auto_escaping	diag render
+playground/composable_class	diag render
+playground/composition	diag render
+playground/control_flow	diag render
+playground/interpolation	diag render
 script/interp_breakout	diag gen render
 script/interp_comment_literal	diag gen render
 script/interp_identifier_rejected	diag(error)
@@ -218,10 +228,11 @@ style/block_tuple_error	diag gen render
 style/composed_attribute	diag gen render
 style/composed_injection	diag gen render
 style/composed_rawcss_optout	diag gen render
+style/loop_var_in_style	diag render
 style/minify_block	diag gen render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 226 cases (render: 170, error: 37, gen-pinned: 61)
+TOTAL: 237 cases (render: 180, error: 38, gen-pinned: 61)

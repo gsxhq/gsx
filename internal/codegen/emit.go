@@ -681,6 +681,19 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 	case *ast.Doctype:
 		// Renders verbatim — Text holds the full `<!DOCTYPE …>` source.
 		emitS(b, t.Text)
+	case *ast.HTMLComment:
+		// <!-- text --> renders verbatim (spec: HTML comments pass through). Text is
+		// the literal between the delimiters and carries no interpolation, so it needs
+		// no escaping. But it MUST NOT contain a comment-close sequence or it would
+		// break out of the comment in a browser: `-->` (comment-end state) and `--!>`
+		// (HTML5 comment-end-bang state, §13.2.5.51) both close a comment. The parser
+		// stops at the first `-->` so that can only arrive via a hand-built AST, but
+		// `--!>` DOES survive the parser (it isn't `-->`), so this guard is load-bearing.
+		if strings.Contains(t.Text, "-->") || strings.Contains(t.Text, "--!>") {
+			bag.Errorf(t.Pos(), t.End(), "invalid-comment", "HTML comment text contains a comment-close sequence (`-->` or `--!>`); it would break out of the comment")
+			return false
+		}
+		emitS(b, "<!--"+t.Text+"-->")
 	case *ast.Element:
 		emitLine(b, fset, t.Pos())
 		if isComponentTag(t.Tag) {

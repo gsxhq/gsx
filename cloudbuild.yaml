@@ -1,0 +1,20 @@
+# cloudbuild.yaml — builds the gsx playground container.
+#
+# The Dockerfile lives at playground/server/Dockerfile but needs the repo root
+# as build context (the Go module lives at the root).  Cloud Build's default
+# docker build step uses the root Dockerfile, so we must spell out -f explicitly.
+#
+# Usage (from the repo root):
+#   gcloud builds submit --config cloudbuild.yaml \
+#     --substitutions _IMAGE=gcr.io/$PROJECT_ID/gsx-playground .
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - playground/server/Dockerfile
+      - -t
+      - $_IMAGE
+      - .
+images:
+  - $_IMAGE

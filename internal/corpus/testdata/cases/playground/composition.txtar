@@ -1,0 +1,14 @@
+-- input.gsx --
+package views
+
+component Card(title string) {
+	<article class="card">
+		<h3>{title}</h3>
+		<div class="card__body">{children}</div>
+	</article>
+}
+-- invoke --
+Card(CardProps{Title: "Hello", Children: gsx.Raw("<em>composed</em>")})
+-- diagnostics.golden --
+-- render.golden --
+<article class="card"><h3>Hello</h3><div class="card__body"><em>composed</em></div></article>

@@ -74,13 +74,15 @@ escaper from *where* it sits (the codegen knows the context). Helpers are
 | JSON data island (`<script type="application/json">@{ data }</script>`) | **JSON-encode** the whole body | — |
 | CSS value (`<style>` body, CSS-context attrs) | value-filter (`gw.CSS`); risky tokens like `(` `/` collapse to a safe placeholder | `gsx.RawCSS(s)` |
 
-**JSON is automatic, not a filter.** Any JS-value position JSON-encodes via the
-runtime `JSVal`; there is no `|> json`. Every context above is safe by default —
-**CSS is just the most conservative** (its value-filter drops `(`/`/`, so a dynamic
-`rgb(...)`/`calc(...)`/`url(...)` needs `gsx.RawCSS`). The one piece still
-*fail-closed* is dynamic `style=` **composition** (interpolating values into the
-composable `style` list), pending a `|> css` sanitizer. See the `security/`,
-`jsattr/`, and `datajson/` corpus cases.
+**JSON and CSS are automatic, not filters.** Any JS-value position JSON-encodes via
+the runtime `JSVal`; CSS values (`<style>` bodies, `style=` and CSS-context attrs,
+composable `style={ … }`) auto value-filter via `gw.CSS`/`gw.Style`. There is no
+`|> json` or `|> css`. Every context above is safe by default — **CSS is just the
+most conservative** (its value-filter drops `(`/`/`, so a dynamic
+`rgb(...)`/`calc(...)`/`url(...)` needs `gsx.RawCSS`). The one genuinely
+*fail-closed* context is a **JS event-handler expression value** (`onclick={ … }`,
+`@click={ … }`, `hx-on*`), which is a compile error — use `gsx.RawJS` for trusted
+JS. See the `security/`, `style/`, `jsattr/`, and `datajson/` corpus cases.
 
 ## Learn by example
 
