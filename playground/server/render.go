@@ -112,10 +112,14 @@ type renderReq struct {
 }
 
 type diagnostic struct {
-	Severity string `json:"severity"`
-	Message  string `json:"message"`
-	Line     int    `json:"line"`
-	Column   int    `json:"column"`
+	Severity  string `json:"severity"`
+	Code      string `json:"code,omitempty"`
+	Message   string `json:"message"`
+	Help      string `json:"help,omitempty"`
+	Line      int    `json:"line"`
+	Column    int    `json:"column"`
+	EndLine   int    `json:"endLine,omitempty"`
+	EndColumn int    `json:"endColumn,omitempty"`
 }
 
 type renderResp struct {
@@ -139,15 +143,15 @@ func toDiagnostics(res gen.Result) []diagnostic {
 	}
 	out := make([]diagnostic, 0, len(res.Diags))
 	for _, d := range res.Diags {
-		msg := d.Message
-		if d.Code != "" {
-			msg = d.Code + ": " + msg
-		}
 		out = append(out, diagnostic{
-			Severity: d.Severity.String(),
-			Message:  msg,
-			Line:     d.Start.Line,
-			Column:   d.Start.Column,
+			Severity:  d.Severity.String(),
+			Code:      d.Code,
+			Message:   d.Message,
+			Help:      d.Help,
+			Line:      d.Start.Line,
+			Column:    d.Start.Column,
+			EndLine:   d.End.Line,
+			EndColumn: d.End.Column,
 		})
 	}
 	return out
