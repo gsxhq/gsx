@@ -1,6 +1,9 @@
 # playground/server/.dockerignore is relative to the build context (repo root)
 node_modules
 .git
+.claude
+.superpowers
+.remember
 **/*.x.go
 playground/server/*-bin
 docs/superpowers
