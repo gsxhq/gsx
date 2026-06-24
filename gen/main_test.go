@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"testing"
 )
@@ -111,6 +112,79 @@ func TestRunVersion(t *testing.T) {
 	}
 	if strings.TrimSpace(out) == "" {
 		t.Fatalf("expected non-empty version stdout, got %q", out)
+	}
+}
+
+// TestRunGenerateVerboseAfterCommand proves -v works AFTER the command and its
+// path argument (the flag-position fix): `gsx generate <dir> -v` lists the file
+// rather than erroring with exit 2.
+func TestRunGenerateVerboseAfterCommand(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	mod := newModule(t, "gsxrungenvafter")
+	pkgDir := filepath.Join(mod, "views")
+	writeFile(t, pkgDir, "hi.gsx", hiComponent)
+
+	code, out, errb := runCapture(t, []string{"generate", pkgDir, "-v"})
+	if code != 0 {
+		t.Fatalf("expected exit 0 for `generate <dir> -v`, got %d; stderr=%q", code, errb)
+	}
+	target := filepath.Join(pkgDir, "hi.x.go")
+	if !strings.Contains(out, target) {
+		t.Fatalf("expected verbose stdout to list %q, got %q", target, out)
+	}
+}
+
+// TestRunGenerateQuietAfterCommand proves -q works AFTER the command.
+func TestRunGenerateQuietAfterCommand(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	mod := newModule(t, "gsxrungenqafter")
+	pkgDir := filepath.Join(mod, "views")
+	writeFile(t, pkgDir, "hi.gsx", hiComponent)
+
+	code, out, errb := runCapture(t, []string{"generate", pkgDir, "-q"})
+	if code != 0 {
+		t.Fatalf("expected exit 0 for `generate <dir> -q`, got %d; stderr=%q", code, errb)
+	}
+	if out != "" {
+		t.Fatalf("expected empty stdout with trailing -q, got %q", out)
+	}
+}
+
+// TestFormatBuildVersion proves the version banner includes the module version,
+// a shortened VCS revision with time + dirty marker, and the Go toolchain
+// version, and that it omits the commit line when no VCS info is present.
+func TestFormatBuildVersion(t *testing.T) {
+	full := &debug.BuildInfo{
+		GoVersion: "go1.24.0",
+		Settings: []debug.BuildSetting{
+			{Key: "vcs.revision", Value: "0123456789abcdef0123456789abcdef01234567"},
+			{Key: "vcs.time", Value: "2026-06-23T21:14:05Z"},
+			{Key: "vcs.modified", Value: "true"},
+		},
+	}
+	full.Main.Version = "(devel)"
+	got := formatBuildVersion(full)
+	for _, want := range []string{"gsx (devel)", "commit: 0123456789ab", "2026-06-23T21:14:05Z", "dirty", "go:     go1.24.0"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("version banner missing %q; got:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "0123456789abcdef") {
+		t.Errorf("revision should be shortened to 12 chars, got:\n%s", got)
+	}
+
+	bare := &debug.BuildInfo{GoVersion: "go1.24.0"}
+	bare.Main.Version = "v1.2.3"
+	got = formatBuildVersion(bare)
+	if !strings.Contains(got, "gsx v1.2.3") {
+		t.Errorf("expected tagged version, got:\n%s", got)
+	}
+	if strings.Contains(got, "commit:") {
+		t.Errorf("expected no commit line without VCS info, got:\n%s", got)
 	}
 }
 
