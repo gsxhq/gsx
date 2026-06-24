@@ -26,10 +26,20 @@ var (
 	gsxMod      = flag.String("gsxmod", defaultGsxMod(), "path to the gsx module (used via replace)")
 	workIn      = flag.String("work", "", "work dir (default: a temp dir)")
 	concurrency = flag.Int("concurrency", 4, "number of parallel workspaces in the pool")
+	prewarm     = flag.Bool("prewarm", false, "build pool (warm GOCACHE + work dir) and exit 0 without serving")
 )
 
 func main() {
 	flag.Parse()
+
+	if *prewarm {
+		if _, err := newPool(*gsxMod, *workIn, *concurrency); err != nil {
+			log.Fatalf("prewarm: %v", err)
+		}
+		log.Println("prewarm complete")
+		return
+	}
+
 	poolSize := *concurrency
 	p, err := newPool(*gsxMod, *workIn, poolSize)
 	if err != nil {
