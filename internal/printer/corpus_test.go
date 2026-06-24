@@ -110,6 +110,7 @@ func zeroSpans(n ast.Node) {
 			case *ast.ExprAttr:
 				v.ExprPos = 0
 			case *ast.Component:
+				v.NamePos = 0
 				v.ParamsPos = 0
 			}
 		}

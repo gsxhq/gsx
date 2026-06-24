@@ -35,6 +35,7 @@ func (p *parser) parseComponent() (*ast.Component, error) {
 		p.i++
 	}
 	c.Name = p.src[nameStart:p.i]
+	c.NamePos = p.posAt(nameStart)
 	if c.Name == "" {
 		return nil, p.errorf(p.pos(), "expected component name")
 	}
