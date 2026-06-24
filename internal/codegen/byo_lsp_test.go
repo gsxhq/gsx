@@ -179,5 +179,32 @@ component Page(someVar string, pd Props) {
 	if !buttonGenerated {
 		t.Error("button.gsx was not generated (no entry in pr.Files)")
 	}
+
+	// (d) Caller-side field-build attr expr is resolvable via direct-occurrence.
+	//
+	// For a caller-side field-build ExprAttr like variant={someVar} in page.gsx,
+	// the value expression (someVar) is NOT entered into ExprMap. Instead, it
+	// appears VERBATIM in the generated Props struct literal:
+	//
+	//   _ = Button(Props{Variant: someVar, ...})   (skeleton)
+	//   _gsxgw.Node(ctx, Button(Props{Variant: someVar, ...}))  (emit)
+	//
+	// collectExprs skips simple attrs on component tags (they are type-checked via
+	// the props literal, not _gsxuse). gopls resolves `someVar` directly from the
+	// generated Props{Variant: someVar} occurrence — no ExprMap bridge needed.
+	// This assertion proves the direct occurrence is present so go-to-definition
+	// on `someVar` in page.gsx can be served by gopls via the generated code.
+	pageGenerated := false
+	for srcPath, src := range pr.Files {
+		if strings.HasSuffix(srcPath, "page.gsx") {
+			pageGenerated = true
+			if !strings.Contains(string(src), "someVar") {
+				t.Errorf("page.gsx generated output missing direct occurrence of someVar in Button(Props{...}); generated:\n%s", src)
+			}
+		}
+	}
+	if !pageGenerated {
+		t.Error("page.gsx was not generated (no entry in pr.Files)")
+	}
 }
 

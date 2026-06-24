@@ -95,11 +95,11 @@ func TestComponentTagDeclAtByo(t *testing.T) {
 
 // TestExprNodeAtOffsetByoBody verifies that exprNodeAtOffset works inside a
 // byo component body: the interpolation { p.Variant } (where p is the author
-// struct param) is found and its ExprPos is valid. This exercises the
-// interp→gopls path: a cursor on "Variant" resolves to ExprMap[interp] and
-// then to gopls via the skeleton. The byo path emits the same skeleton interp
-// as the generated path (same collectExprs / harvest discipline), so this is a
-// regression guard.
+// struct param) is found and its ExprPos is valid. This proves
+// exprNodeAtOffset locates the byo-body Interp node and its ExprPos; the
+// ExprMap→gopls bridge (ExprMap[interp] → skeleton go/ast expr → gopls) is
+// covered by TestByoLSPContract. Note: exprNodeAtOffset does NOT consult
+// ExprMap — it only finds the Interp/ExprAttr node and ExprPos in the gsx AST.
 func TestExprNodeAtOffsetByoBody(t *testing.T) {
 	// A byo component with a { p.Variant } interpolation (no pipe stages).
 	src := "package x\n\ncomponent Button(p Props) {\n\t<button>{ p.Variant }</button>\n}\n"
