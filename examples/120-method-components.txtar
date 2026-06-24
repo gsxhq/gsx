@@ -1,0 +1,20 @@
+-- doc --
+name: Method components
+summary: Components can be methods on a type, so page state lives on the receiver (p) and per-call data in the props struct.
+category: Components & composition
+order: 120
+-- input.gsx --
+package views
+
+type UsersPage struct {
+	Title string
+	Sort  string
+}
+
+component (p UsersPage) Grid(sort string) {
+	<div>{sort}-{p.Title}</div>
+}
+-- invoke --
+(UsersPage{Title: "Team"}).Grid(UsersPageGridProps{Sort: "name"})
+-- render.golden --
+<div>name-Team</div>
