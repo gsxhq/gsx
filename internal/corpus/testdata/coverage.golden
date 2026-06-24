@@ -24,21 +24,27 @@ codegen-shape/example12_toolbar	diag render
 codegen-shape/greeting	diag gen render
 codegen-shape/style_interp	diag gen render
 codegen-shape/whitespace_collapse	diag gen render
-components/child_class_attr_error	diag(error)
-components/child_class_attr_positioned	diag(error)
+components/child_class_fallthrough	diag render
+components/child_class_positioned	diag render
 components/child_hyphen_attr_fallthrough	diag render
 components/child_no_props	diag render
-components/child_prop_pipeline_error	diag(error)
+components/child_prop_pipeline	diag render
 components/child_prop_try_error	diag(error)
 components/child_prop_tuple_error	diag(error)
 components/child_props	diag render
 components/child_props_featured_false	diag render
 components/child_props_static	diag render
-components/child_spread_error	diag(error)
+components/child_spread_fallthrough	diag render
 components/children_slot	diag render
 components/children_slot_binding	diag render
 components/children_slot_empty	diag render
 components/children_slot_interleaved	diag render
+components/component_composable_class	diag gen render
+components/component_conditional_attr	diag gen render
+components/component_conditional_attr_else	diag gen render
+components/component_prop_pipeline	diag gen render
+components/component_spread	diag gen render
+components/component_spread_with_class	diag gen render
 components/named_slot	diag render
 components/named_slot_bad_name	diag(error)
 components/named_slot_binding	diag render
@@ -214,4 +220,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 216 cases (render: 157, error: 40, gen-pinned: 52)
+TOTAL: 222 cases (render: 167, error: 36, gen-pinned: 58)

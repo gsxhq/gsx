@@ -1,0 +1,13 @@
+# A composable class={…} positioned before a prop attr on a component: the class
+# falls through to the child root's Attrs bag, the prop binds the struct field.
+-- input.gsx --
+package views
+
+component Inner(title string) { <div>{title}</div> }
+
+component Page() { <Inner class={ "a" } title="y"/> }
+-- invoke --
+Page(PageProps{})
+-- diagnostics.golden --
+-- render.golden --
+<div class="a">y</div>
