@@ -8,6 +8,9 @@ export default defineConfig(({ mode }) => {
   return {
     // Don't wipe the terminal — keep the combined Go + Vite log readable.
     clearScreen: false,
+    // Go serves the logos from its embedded public/ (at /public/), so Vite must
+    // not also process public/ (no dev/prod path ambiguity, no dist duplication).
+    publicDir: false,
     plugins: [gsx()],
     server: {
       port: vitePort,

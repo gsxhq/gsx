@@ -17,6 +17,9 @@ import (
 //go:embed all:dist
 var distFS embed.FS
 
+//go:embed all:public
+var publicFS embed.FS
+
 func main() {
 	devURL := os.Getenv("VITE_DEV_URL") // "" in prod
 	v, err := vite.New(vite.Config{DevURL: devURL, Dist: distFS, DistDir: "dist"})
@@ -25,6 +28,10 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+	mux.Handle("/public/", http.FileServerFS(publicFS))
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
 	if !v.Dev() {
 		mux.Handle("/static/", v.StaticHandler())
 	}

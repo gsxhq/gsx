@@ -271,7 +271,8 @@ func TestScaffoldSimpleTemplate(t *testing.T) {
 	for _, rel := range []string{
 		"go.mod", "main.go", "app.gsx", "vite.config.ts", "package.json",
 		"Taskfile.yml", "web/main.js", "web/style.css", "web/counter.js", "dist/.gitkeep",
-		".gitignore", "README.md", ".env.example", ".env", "logos.go",
+		".gitignore", "README.md", ".env.example", ".env",
+		"public/vite.svg", "public/gsx.svg",
 	} {
 		if _, err := os.Stat(filepath.Join(dest, rel)); err != nil {
 			t.Errorf("missing scaffolded file %s: %v", rel, err)
