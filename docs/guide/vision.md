@@ -59,6 +59,22 @@ silent holes. The opt-outs (`gsx.Raw`, `gsx.RawURL`, `gsx.RawCSS`) are explicit 
 grep-able. This compile-time safety is gsx's core differentiator. See
 [Principles](./principles) for the full model.
 
+## A build step — and a dev loop that earns it
+
+gsx compiles: `.gsx` → `.x.go` → `go build`. That's a real build step, and we don't
+apologize for it — it's exactly what buys compile-time type safety and contextual
+escaping. A build step is only worth paying for if the feedback is instant, so gsx
+ships the loop that makes it disappear.
+
+**[`@gsxhq/vite-plugin-gsx`](https://github.com/gsxhq/vite-plugin-gsx)** watches your
+`.gsx` files, regenerates on save, surfaces gsx diagnostics in Vite's error overlay,
+and reloads the browser — the Vite dev experience front-end developers already reach
+for, now driving Go HTML. `gsx init` wires it up out of the box: `task dev`, edit,
+see it live. Paired with the `github.com/gsxhq/vite` Go helper for asset manifests,
+your Go server and the Vite dev server run side by side.
+
+A build step you never wait on doesn't feel like one. That's the bet.
+
 ## The design lesson: bounded symbol resolution
 
 To deliver those ergonomics, gsx *does* resolve symbols — it loads packages with

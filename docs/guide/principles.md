@@ -22,6 +22,14 @@ compiler, not by gsx at runtime. A wrong template is a compile error with a real
 source location (gsx emits `//line` directives back to the `.gsx`), not a runtime
 surprise.
 
+## Embrace the build step
+
+gsx compiles `.gsx` → `.x.go` → `go build` rather than interpreting templates at
+runtime — that compile step is what makes the type-safety above possible. We treat it
+as a feature, not a tax: the `@gsxhq/vite-plugin-gsx` plugin regenerates and
+live-reloads on save (`gsx init` wires it up), so the loop stays instant. A build
+step you never wait on is just a faster, safer template.
+
 ## Secure by construction
 
 Interpolation is auto-escaped by default, and escaping is **context-aware**: text,
