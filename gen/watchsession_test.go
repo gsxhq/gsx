@@ -2,7 +2,6 @@ package gen
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -55,12 +54,60 @@ func TestNewModuleResolver_CrossPackage(t *testing.T) {
 	}
 }
 
-func mustRun(t *testing.T, dir string, name string, args ...string) {
+func writeFileT(t *testing.T, path, s string) {
 	t.Helper()
-	cmd := exec.Command(name, args...)
-	cmd.Dir = dir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("%s %v: %v\n%s", name, args, err, out)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(s), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeMod(t *testing.T, root string) {
+	t.Helper()
+	writeFileT(t, filepath.Join(root, "go.mod"), "module example.com/m\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+gsxModuleDir(t)+"\n")
+}
+
+// TestWatchSession_WarmRegen proves that a pure .gsx edit regenerates via the
+// warm resolver and updates the .x.go on disk.
+func TestWatchSession_WarmRegen(t *testing.T) {
+	root := t.TempDir()
+	writeMod(t, root)
+	gsxPath := filepath.Join(root, "views", "page.gsx")
+	writeFileT(t, gsxPath, "package views\n\ncomponent Page() {\n\t<h1>one</h1>\n}\n")
+
+	s, _, err := newWatchSession(watchConfig{paths: []string{filepath.Join(root, "views")}})
+	if err != nil {
+		t.Fatalf("newWatchSession: %v", err)
+	}
+	// Edit the source, then warm-regen.
+	writeFileT(t, gsxPath, "package views\n\ncomponent Page() {\n\t<h1>two</h1>\n}\n")
+	r := s.regen(filepath.Join(root, "views"))
+	if !r.OK {
+		t.Fatalf("regen not OK: err=%v diags=%v", r.Err, r.Diags)
+	}
+	xgo, _ := os.ReadFile(filepath.Join(root, "views", "page.x.go"))
+	if !strings.Contains(string(xgo), `"two"`) {
+		t.Fatalf("page.x.go not updated to \"two\":\n%s", xgo)
+	}
+}
+
+// TestWatchSession_RegenError proves that a broken .gsx yields OK=false with
+// diagnostics.
+func TestWatchSession_RegenError(t *testing.T) {
+	root := t.TempDir()
+	writeMod(t, root)
+	gsxPath := filepath.Join(root, "views", "page.gsx")
+	writeFileT(t, gsxPath, "package views\n\ncomponent Page() {\n\t<h1>{undefinedSym}</h1>\n}\n")
+
+	s, _, err := newWatchSession(watchConfig{paths: []string{filepath.Join(root, "views")}})
+	if err != nil {
+		t.Fatalf("newWatchSession: %v", err)
+	}
+	r := s.regen(filepath.Join(root, "views"))
+	if r.OK || len(r.Diags) == 0 {
+		t.Fatalf("expected OK=false with diagnostics, got OK=%v diags=%v", r.OK, r.Diags)
 	}
 }
 
