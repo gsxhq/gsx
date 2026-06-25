@@ -28,10 +28,28 @@ invocations, but it structurally cannot speed the edit loop:
    `go/packages.Load` + type-check on every save.
 
 So the file cache helps everything *except* the package being actively edited.
-The only way past it is a long-lived process that avoids per-save startup and
-keeps OS/Go build caches warm. (True analysis warmth — retaining dependency
-`*types.Package` and re-checking only the dirty package — is the slice-2 lever,
-deliberately out of scope here.)
+The only way past it is a long-lived process that keeps the analysis warm.
+
+**Prior art — `gen.CachedResolver` (the playground server).** This already
+exists and is proven: `playground/server/render.go` builds a `gen.CachedResolver`
+**once** (`gen.NewCachedResolver(moduleDir, imports)` — the single
+`packages.Load`), then renders each request via `resolver.Generate(dir, src)`,
+which runs **fully in-process with no per-render `go list`** (tracked as
+`genMs`). The watch daemon should reuse this engine rather than reinvent it. The
+cold `Generate(paths)` path re-runs `go/packages.Load` (~383 ms) every call; the
+warm resolver pays that once at startup and amortizes it across every save.
+
+**The catch the playground didn't face.** The playground uses the resolver in a
+constrained setting: a **single** generated package (`views`) and a **fixed,
+immutable import allowlist**. Its cached importer (`mapImporter`) returns
+`"cached importer: %q not loaded"` for anything not pre-loaded, and assumes the
+loaded dependency types never change. A real project has (a) a **dynamic import
+set** — a `.gsx` can add an import the resolver never loaded, (b) **multiple
+in-module packages** with cross-package component refs, and (c) **mutable
+`.go`** files. So the daemon must pre-load the whole module and **rebuild the
+resolver when the dependency surface changes** (see Component A). True
+fine-grained incremental invalidation (re-check only the dirty package, keep
+everything else warm across signature changes) remains the slice-2 lever.
 
 ## Architecture
 
@@ -39,7 +57,7 @@ deliberately out of scope here.)
 .gsx save
    │  (fsnotify, debounced)
    ▼
-gsx generate --watch  ── regenerates .x.go (existing Generate path) ──▶ disk
+gsx generate --watch  ── warm regenerate (gen.CachedResolver) ──▶ .x.go on disk
    │  emits NDJSON on stdout                                              │
    ▼                                                                      ▼
 vite-plugin-gsx  ── overlay show/clear ──▶ browser              wgo sees .x.go change
@@ -68,11 +86,25 @@ watch set.
 burst of events editors emit on a single save into one regenerate cycle. The
 timer resets on each event and fires once quiet.
 
-**Regenerate cycle.** On a settled change, run the **existing `Generate(paths)`
-path in-process** (no new codegen logic). The content-hash file cache already
-scopes codegen to the dirty package (siblings hit), so slice-1 warmth =
-no process startup + warm OS/Go/cache-store. Each cycle is **instrumented**:
-wall-clock duration is recorded and reported.
+**Warm regenerate via `gen.CachedResolver`.** The daemon holds a `watchSession`
+that owns one `gen.CachedResolver`, built at startup over the **whole module**
+(load `./...` once → pre-load every in-module package + its imports, so
+cross-package component refs resolve and the cached importer doesn't miss).
+On a settled `.gsx` change, the session calls `resolver.Generate(dir, nil)`
+(read from disk) for each dirty package — **fully in-process, no per-save
+`go list`**. Generated `.x.go` are written with the file-cache's existing
+hash-gated `restore` (identical bytes → no write → no spurious wgo rebuild).
+Each cycle is **instrumented** (`durationMs`).
+
+**Rebuild policy (the staleness guard).** The cached resolver is only valid
+while the dependency surface is unchanged. The session rebuilds it (one cold
+`packages.Load`) when:
+- a watched `*.go`, `go.mod`, or `go.sum` changes, or
+- `resolver.Generate` fails with a cached-importer miss (a `.gsx` added an
+  import the resolver never loaded).
+On a cached-importer miss the session rebuilds once and retries the cycle, so a
+newly-added import self-heals. Pure `.gsx` markup/logic edits never trigger a
+rebuild — they take the warm path.
 
 **Lifecycle.** Runs until SIGINT/SIGTERM, then exits cleanly (stop the watcher,
 flush). A regenerate that returns error-severity diagnostics does **not** stop
@@ -133,6 +165,56 @@ becomes the base argv with `generate --watch --format=ndjson` appended;
 `debounce` is passed through; `generateOnStart` is implicit in watch mode).
 Version bump (minor).
 
+## Code structure & reuse (DRY)
+
+The daemon is a **thin orchestrator over existing pieces** — it adds watching
+and a warm-session lifecycle, and reuses everything else. No generate logic,
+diagnostic encoding, or file-writing is duplicated.
+
+| Need | Reuse (existing) | New |
+|---|---|---|
+| Warm in-process codegen | `gen.CachedResolver` (`NewCachedResolver` / `Generate`) — the same engine the playground uses | — |
+| Resolve target dirs | `discoverDirs(paths)` (gen) | — |
+| Hash-gated `.x.go` write | `restore()` (gen/cache.go) | — (extract to a shared helper if still unexported) |
+| Diagnostics → JSON | the **one** encoder already behind `gsx generate --json` / `internal/diag` | — |
+| Whole-module import/dir discovery | `go/packages` load (as the resolver build already does) | thin helper to collect the dir + import set |
+| Command dispatch | `gen/main.go` `case "generate"` | `--watch`/`--format` flags → `runWatch` |
+| File watching | — | `fsnotify` watcher + debounce (new generator-side dep) |
+
+New, focused units (small files, one responsibility each):
+
+- **`gen/watch.go` — `runWatch`.** Flag parsing (`--watch`, `--format`), wiring
+  the watcher → debounce → session, signal handling, shutdown. Pure
+  orchestration; no codegen knowledge.
+- **`gen/watchsession.go` — `watchSession`.** Owns the `*gen.CachedResolver` +
+  the module's import/dir set. `regenerate(dirtyDirs)` (warm `resolver.Generate`
+  + `restore`) and `rebuild()` (the rebuild policy). This is the only unit with
+  real logic, and it sits **on top of** `gen.CachedResolver` — it does not fork it.
+- **`gen/watchemit.go` — the event renderer.** Human lines vs NDJSON, reusing
+  the existing diag-JSON encoder so the `diagnostics` field is byte-identical to
+  `gsx generate --json` (and the LSP). One diagnostic JSON shape, three emitters.
+
+**Relationship to the playground.** Both consume `gen.CachedResolver` — that is
+the shared engine, and the DRY win. The watch-specific parts (whole-module
+pre-load, rebuild-on-dep-change) live in `watchSession` because the playground
+deliberately doesn't need them (fixed allowlist, immutable deps, single
+package). We reuse the genuinely shared engine without forcing a premature
+shared abstraction over two different lifecycles (YAGNI); if the playground
+later wants a module-wide resolver, it can lift `watchSession`'s builder.
+
+## Correctness boundary (slice 1)
+
+The warm resolver is **fully correct** for the dominant workflows:
+single-package projects (the `gsx init` scaffold) and leaf edits, where the
+edited package's types don't feed another package's resolution. The one known
+slice-1 staleness: editing a `.gsx` so a component's **prop signature** changes
+while *another* package references `<a.Component>` — the other package keeps the
+old view of A until it is itself regenerated (or the resolver is rebuilt). The
+rebuild policy already covers the `.go`/go.mod/import triggers; closing this
+cross-package-signature edge needs fine-grained invalidation, which is **slice
+2**. Until then it is a documented limitation, not a silent wrong answer (a
+stale cross-package ref surfaces as a Go build error at most).
+
 ## Reload-chain interaction (the subtle part)
 
 | Outcome | `.x.go` written? | wgo rebuild? | Go `/__reload`? | Plugin action |
@@ -181,23 +263,27 @@ slice 2 (scoped re-check) is worth building.
 
 ## Scope boundaries
 
-**In (slice 1):** `--watch` mode (watcher + debounce + warm-process regenerate +
-instrumentation), the human + NDJSON renderers, plugin supervision, the
-recovery-reload wiring, the measurement e2e.
+**In (slice 1):** `--watch` mode (watcher + debounce + `watchSession` warm
+regenerate over `gen.CachedResolver` + rebuild policy + instrumentation), the
+human + NDJSON renderers, plugin supervision, the recovery-reload wiring, the
+measurement e2e.
 
 **Out (deferred):**
-- **Slice 2 — scoped re-type-checking** (retain dependency `*types.Package`,
-  re-check only the dirty package). Gated on slice-1 measurements.
+- **Slice 2 — fine-grained incremental invalidation** (re-check only the dirty
+  package across cross-package signature changes, instead of rebuilding the
+  whole resolver). Closes the correctness-boundary edge above. Gated on slice-1
+  measurements.
 - Daemon auto-restart-on-crash in the plugin.
 - Any IPC beyond NDJSON-on-stdout (no socket, no request/response).
 - Watching outside the module / cross-module.
 
-## Open question for review
+## Decisions resolved during design
 
-Watching non-generated `*.go` (not just `*.gsx`) is the correct-but-broader
-choice: a `.go` type change *can* change generated output, so ignoring `.go`
-would let `.x.go` go stale until the next `.gsx` edit. The cost is more
-regenerate cycles during ordinary Go editing (debounce mitigates). Alternative:
-watch `.gsx` only in slice 1 and accept that a `.go`-only change needs a manual
-regen / the next `.gsx` save. **Recommendation: watch both** (correctness), but
-flag for the reviewer.
+- **Watch `*.gsx` and non-generated `*.go`** (not `.gsx`-only). A `.go`/go.mod
+  change both invalidates the cached resolver *and* can change generated output,
+  so it must trigger a rebuild + regenerate of the affected package(s). The cost
+  (extra cycles during ordinary Go editing) is bounded by the debounce window.
+- **Warm engine is `gen.CachedResolver`**, not a warm wrapper around the cold
+  `Generate(paths)` path — reusing the proven playground engine, with a
+  whole-module pre-load and a rebuild policy for the cases the playground's fixed
+  allowlist never hit.
