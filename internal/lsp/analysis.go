@@ -36,6 +36,7 @@ type Package struct {
 	GSXFset    *token.FileSet
 	Fset       *token.FileSet
 	Info       *types.Info
+	Types      *types.Package
 	ExprMap    map[gsxast.Node]ast.Expr // gsx Interp/ExprAttr → skeleton go/ast expr
 	Files      map[string]*gsxast.File  // .gsx path → parsed gsx AST
 	CrossIndex map[string]CrossRef

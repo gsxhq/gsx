@@ -95,7 +95,7 @@ func TestServerInitializeDefaultsUTF16(t *testing.T) {
 }
 
 func TestServerUnknownRequestMethodNotFound(t *testing.T) {
-	in := framed(t, map[string]any{"jsonrpc": "2.0", "id": 9, "method": "textDocument/hover", "params": map[string]any{}})
+	in := framed(t, map[string]any{"jsonrpc": "2.0", "id": 9, "method": "textDocument/unknownMethod", "params": map[string]any{}})
 	in += framed(t, map[string]any{"jsonrpc": "2.0", "method": "exit"})
 	var out bytes.Buffer
 	srv := NewServer(strings.NewReader(in), &out, nilAnalyzer{})

@@ -77,6 +77,8 @@ func (s *Server) handle(f frame) error {
 		return s.handleDefinition(f)
 	case "textDocument/references":
 		return s.handleReferences(f)
+	case "textDocument/hover":
+		return s.handleHover(f)
 	case "textDocument/formatting":
 		return s.handleFormatting(f)
 	default:
@@ -105,6 +107,7 @@ func (s *Server) handleInitialize(f frame) error {
 		DefinitionProvider:         true,
 		ReferencesProvider:         true,
 		DocumentFormattingProvider: true,
+		HoverProvider:              true,
 	}})
 }
 

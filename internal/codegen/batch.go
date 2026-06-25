@@ -59,6 +59,10 @@ type PackageResult struct {
 	// does not use — safe to drop on format. Empty unless the package's ONLY type
 	// errors are unused-import errors (else removal is unsafe).
 	UnusedImports map[string][]UnusedImport
+
+	// Types is the analyzed package's go/types.Package, retained for the LSP
+	// (e.g. hover's qualifier). nil when the package failed before type-checking.
+	Types *types.Package
 }
 
 // UnusedImport is one import a .gsx file declares but never references, as
@@ -306,6 +310,7 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 		res.GSXFset = fset
 		res.Fset = pkg.Fset
 		res.Info = pkg.TypesInfo
+		res.Types = pkg.Types
 		res.GSXFiles = filesByDir[pkgDir]
 		res.ExprMap = map[gsxast.Node]goast.Expr{}
 		for _, f := range pkg.Syntax {
