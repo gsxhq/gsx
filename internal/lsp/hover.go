@@ -32,6 +32,12 @@ func (s *Server) handleHover(f frame) error {
 	}
 	off := byteOffsetForPosition(text, p.Position.Line, p.Position.Character, s.enc)
 
+	// A component tag (`<Card/>`) → the component's signature.
+	if c, nameStart, ok := componentAtTag(pkg, path, off); ok {
+		rng := rangeForSpan(text, nameStart, nameStart+len(c.Name), s.enc)
+		return s.reply(f.ID, Hover{Contents: markdownGo(renderComponentSig(c)), Range: &rng})
+	}
+
 	node, exprPos := exprNodeAtOffset(pkg, path, off)
 	if node == nil {
 		return s.reply(f.ID, nil)
@@ -119,4 +125,64 @@ func positionForByteOffset(text string, off int, enc encoding) Position {
 	lineStart := strings.LastIndexByte(text[:off], '\n') + 1 // 0 when no newline precedes
 	char := charForByteCol(text[lineStart:off], (off-lineStart)+1, enc)
 	return Position{Line: line, Character: char}
+}
+
+// componentAtTag reports whether off sits on the name of a simple (non-dotted,
+// capitalized) component tag in the .gsx file, and if so returns the matching
+// function component declared anywhere in the package, plus the byte offset of
+// the tag name. Dotted tags (method/cross-package) are out of scope.
+func componentAtTag(pkg *Package, path string, off int) (*gsxast.Component, int, bool) {
+	if pkg == nil || pkg.GSXFset == nil || pkg.Files == nil {
+		return nil, 0, false
+	}
+	f := pkg.Files[path]
+	if f == nil {
+		return nil, 0, false
+	}
+	tag, nameStart := "", 0
+	gsxast.Inspect(f, func(n gsxast.Node) bool {
+		if tag != "" {
+			return false
+		}
+		el, ok := n.(*gsxast.Element)
+		if !ok {
+			return true
+		}
+		t := el.Tag
+		if t == "" || strings.Contains(t, ".") || t[0] < 'A' || t[0] > 'Z' {
+			return true // not a simple function-component tag
+		}
+		start := pkg.GSXFset.Position(el.Pos()).Offset + 1 // skip '<'
+		if off >= start && off < start+len(t) {
+			tag, nameStart = t, start
+		}
+		return true
+	})
+	if tag == "" {
+		return nil, 0, false
+	}
+	for _, file := range pkg.Files {
+		for _, d := range file.Decls {
+			if c, ok := d.(*gsxast.Component); ok && c.Name == tag && c.Recv == "" {
+				return c, nameStart, true
+			}
+		}
+	}
+	return nil, 0, false
+}
+
+// renderComponentSig renders a component declaration's signature, e.g.
+// "component Card(title string)" or "component (p UsersPage) Row(u User)".
+func renderComponentSig(c *gsxast.Component) string {
+	var b strings.Builder
+	b.WriteString("component ")
+	if c.Recv != "" {
+		b.WriteString(c.Recv)
+		b.WriteByte(' ')
+	}
+	b.WriteString(c.Name)
+	b.WriteByte('(')
+	b.WriteString(c.Params)
+	b.WriteByte(')')
+	return b.String()
 }

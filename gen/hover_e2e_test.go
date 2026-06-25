@@ -160,6 +160,27 @@ func TestHoverPipedNull(t *testing.T) {
 	}
 }
 
+func TestHoverComponentTag(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	dir := t.TempDir()
+	repoRoot, _ := filepath.Abs("..")
+	must := func(p, c string) {
+		if err := os.WriteFile(filepath.Join(dir, p), []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	must("go.mod", "module example.com/h\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	must("card.gsx", "package h\n\ncomponent Card(title string) {\n\t<div>{ title }</div>\n}\n")
+	pageSrc := "package h\n\ncomponent Page() {\n\t<main><Card title=\"hi\"/></main>\n}\n"
+	must("page.gsx", pageSrc)
+	h := hoverAt(t, dir, "page.gsx", pageSrc, "<Card", len("<")) // on the 'Card' tag name
+	if h == nil || !strings.Contains(h.Contents.Value, "component Card(title string)") {
+		t.Fatalf("want 'component Card(title string)', got %+v", h)
+	}
+}
+
 func TestHoverCapabilityAdvertised(t *testing.T) {
 	frame := func(v any) string {
 		b, _ := json.Marshal(v)
