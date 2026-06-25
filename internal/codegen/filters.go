@@ -13,11 +13,26 @@ import (
 	"github.com/gsxhq/gsx/ast"
 )
 
+// pipeCtxIdent is the literal ambient render-context identifier that emitted
+// component bodies bind (the `ctx` of `gsx.Func(func(ctx context.Context, …))`).
+// A ctx-taking filter receives THIS identifier as its first argument, so the
+// lowered call references the same `ctx` user interpolation already uses.
+const pipeCtxIdent = "ctx"
+
 // lowerPipe lowers a pipeline (a seed expression plus left-to-right stages) to a
-// nested Go expression string of qualified filter calls: `{ x |> a |> b(n) }`
-// becomes `<alias>.B(n)(<alias>.A((x)))`, where <alias> is each filter's OWNING
-// package alias (e.g. _gsxstd for std, _gsxf0 for the first user package). The
-// SAME string is used for the type probe (analyze.go) and the emitted render
+// nested Go expression string of qualified seed-first filter calls. Each stage
+// `subject |> name(args…)` lowers to `<alias>.<Func>( [ctx, ] (subject) [, args…] )`:
+//
+//   - `ctx` (the ambient render context, pipeCtxIdent) is prepended IFF the
+//     filter's first parameter type is exactly context.Context;
+//   - the accumulated subject expression goes next, parenthesized;
+//   - the stage's explicit args follow (st.Args, comma-joined), when present.
+//
+// Chaining accumulates left-to-right, so `x |> a |> b(n)` with `a` ctx-less and
+// `b` ctx-taking becomes `B(ctx, A((x)), n)`. <alias> is each filter's OWNING
+// package alias (e.g. _gsxstd for std, _gsxf0 for the first non-std package).
+//
+// The SAME string is used for the type probe (analyze.go) and the emitted render
 // (emit.go), so type resolution and emission stay aligned (the order invariant).
 //
 // usedPkgs reports WHICH filter packages the lowered expression references, as a
@@ -25,9 +40,9 @@ import (
 // those aliases — the probe (skeleton) and the emit drive their import blocks
 // from this SAME set, keeping resolution and emission in lockstep.
 //
-// Stage classification uses the parsed HasArgs flag (parens present) for arity
-// checks against the filter's harvested kind: a bare filter must have no parens,
-// a parameterized filter must have parens.
+// Arity/type mismatches are NOT hand-checked here: a ctx-less zero-arg filter is
+// fine, and wrong/extra args surface as positioned go/types errors via the probe
+// against the resolved signature. Only an unknown filter name is rejected here.
 func lowerPipe(seed string, stages []ast.PipeStage, table filterTable) (expr string, usedPkgs map[string]string, err error) {
 	acc := "(" + strings.TrimSpace(seed) + ")"
 	usedPkgs = map[string]string{}
@@ -37,41 +52,28 @@ func lowerPipe(seed string, stages []ast.PipeStage, table filterTable) (expr str
 			return "", nil, fmt.Errorf("codegen: unknown filter %q", st.Name)
 		}
 		usedPkgs[e.alias] = e.pkgPath
-		switch e.kind {
-		case filterBare:
-			if st.HasArgs {
-				return "", nil, fmt.Errorf("codegen: filter %q takes no arguments", st.Name)
-			}
-			acc = e.alias + "." + e.funcName + "(" + acc + ")"
-		case filterParam:
-			if !st.HasArgs {
-				return "", nil, fmt.Errorf("codegen: filter %q requires arguments", st.Name)
-			}
-			acc = e.alias + "." + e.funcName + "(" + st.Args + ")(" + acc + ")"
+		args := make([]string, 0, 3)
+		if e.wantsCtx {
+			args = append(args, pipeCtxIdent)
 		}
+		args = append(args, acc)
+		if st.HasArgs && strings.TrimSpace(st.Args) != "" {
+			args = append(args, st.Args)
+		}
+		acc = e.alias + "." + e.funcName + "(" + strings.Join(args, ", ") + ")"
 	}
 	return acc, usedPkgs, nil
 }
 
-// filterKind distinguishes the two filter contract shapes harvested from std.
-type filterKind int
-
-const (
-	// filterBare is a func(T) R — applied directly: _gsxstd.Upper(x).
-	filterBare filterKind = iota
-	// filterParam is a func(Args...) func(T) R — the outer call supplies the
-	// filter arguments, the returned unary func is then applied:
-	// _gsxstd.Truncate(5)(x).
-	filterParam
-)
-
 // filterEntry is one harvested filter. funcName is the exported Go name in its
-// owning package (e.g. "Upper"); alias is that package's reserved import alias
-// (the caller qualifies the call as <alias>.<funcName>); pkgPath is the package's
-// import path (so the caller can emit `<alias> "<pkgPath>"`).
+// owning package (e.g. "Upper"); wantsCtx is true when the filter's first
+// parameter is context.Context (gsx injects the ambient ctx as that argument);
+// alias is that package's reserved import alias (the caller qualifies the call as
+// <alias>.<funcName>); pkgPath is the package's import path (so the caller can
+// emit `<alias> "<pkgPath>"`).
 type filterEntry struct {
 	funcName string
-	kind     filterKind
+	wantsCtx bool
 	alias    string
 	pkgPath  string
 }
@@ -79,6 +81,16 @@ type filterEntry struct {
 // filterTable maps a template-level filter name to its harvested entry. The
 // template name is the std func name with its first rune lowercased.
 type filterTable map[string]filterEntry
+
+// FilterAlias is one explicit filter registration from gen.WithFilter: the
+// short template Name, and the resolved Go target (PkgPath + FuncName) reflected
+// from the registered function value. Aliases are harvested AFTER whole-package
+// harvests in option order, participating in the same last-wins table.
+type FilterAlias struct {
+	Name     string // template-level filter name, e.g. "url"
+	PkgPath  string // target package import path, e.g. "example.com/structpages"
+	FuncName string // exported Go func name in that package, e.g. "URLFor"
+}
 
 // lookup returns the entry for a template-level filter name.
 func (t filterTable) lookup(name string) (filterEntry, bool) {
@@ -124,7 +136,7 @@ func filterAliases(pkgPaths []string) map[string]string {
 // funcs by contract. It is the single-package entry point retained for callers
 // that only need std; loadFilterTableMulti is the general multi-package form.
 func loadFilterTable(dir string) (filterTable, error) {
-	return loadFilterTableMulti(dir, []string{stdImportPath})
+	return loadFilterTableMulti(dir, []string{stdImportPath}, nil)
 }
 
 // loadFilterTableMulti type-checks every filter package in pkgPaths (one
@@ -135,11 +147,11 @@ func loadFilterTable(dir string) (filterTable, error) {
 // import path, so lowerPipe qualifies the call and the caller imports the package
 // under the same alias. dir anchors the load against the module's go.mod (incl.
 // any test replace directive), mirroring resolveTypesPkg.
-func loadFilterTableMulti(dir string, pkgPaths []string) (filterTable, error) {
-	if len(pkgPaths) == 0 {
+func loadFilterTableMulti(dir string, pkgPaths []string, aliases []FilterAlias) (filterTable, error) {
+	if len(pkgPaths) == 0 && len(aliases) == 0 {
 		return filterTable{}, nil
 	}
-	harvested, err := harvestFilters(dir, pkgPaths)
+	harvested, err := harvestFilters(dir, pkgPaths, aliases)
 	if err != nil {
 		return nil, err
 	}
@@ -166,14 +178,23 @@ func loadFilterTableMulti(dir string, pkgPaths []string) (filterTable, error) {
 // This is the single harvest seam shared by loadFilterTableMulti (winner-only
 // table) and ResolveFilters (full table + shadows), so both see the exact same
 // precedence.
-func harvestFilters(dir string, pkgPaths []string) (map[string][]filterEntry, error) {
-	aliases := filterAliases(pkgPaths)
+func harvestFilters(dir string, pkgPaths []string, explicitAliases []FilterAlias) (map[string][]filterEntry, error) {
+	// Each alias's PkgPath also needs an import alias and must be loaded so its
+	// target func's signature can be classified. Fold the alias package paths
+	// into the alias-assignment set (after the whole-package paths, so non-std
+	// _gsxf<i> indices stay stable for the package paths) and the load set.
+	aliasPaths := pkgPaths
+	for _, a := range explicitAliases {
+		aliasPaths = append(aliasPaths, a.PkgPath)
+	}
+	aliases := filterAliases(aliasPaths)
+
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedTypes |
 			packages.NeedImports | packages.NeedDeps,
 		Dir: dir,
 	}
-	pkgs, err := packages.Load(cfg, pkgPaths...)
+	pkgs, err := packages.Load(cfg, aliasPaths...)
 	if err != nil {
 		return nil, fmt.Errorf("codegen: load filter packages: %w", err)
 	}
@@ -212,18 +233,60 @@ func harvestFilters(dir string, pkgPaths []string) (map[string][]filterEntry, er
 			if !ok {
 				continue
 			}
-			kind, ok := classifyFilter(sig)
+			wantsCtx, ok := classifyFilter(sig)
 			if !ok {
+				// A non-conforming func (incl. the removed curried shape) is simply
+				// skipped during whole-package harvest, as before.
 				continue
 			}
 			tname := lowerFirst(name)
 			harvested[tname] = append(harvested[tname], filterEntry{
 				funcName: name,
-				kind:     kind,
+				wantsCtx: wantsCtx,
 				alias:    alias,
 				pkgPath:  path,
 			})
 		}
+	}
+
+	// Register explicit aliases AFTER whole-package harvest, in option order, so
+	// an alias can intentionally override a harvested same-named filter (last-wins).
+	for _, a := range explicitAliases {
+		pkg, ok := byPath[a.PkgPath]
+		if !ok {
+			return nil, fmt.Errorf("codegen: WithFilter %q: package %q not found in %s", a.Name, a.PkgPath, dir)
+		}
+		if len(pkg.Errors) > 0 {
+			return nil, fmt.Errorf("codegen: WithFilter %q: package %q type resolution failed: %s", a.Name, a.PkgPath, pkg.Errors[0])
+		}
+		if pkg.Types == nil {
+			return nil, fmt.Errorf("codegen: WithFilter %q: package %q has no type information", a.Name, a.PkgPath)
+		}
+		obj := pkg.Types.Scope().Lookup(a.FuncName)
+		if obj == nil {
+			return nil, fmt.Errorf("codegen: WithFilter %q: func %q not found in package %q", a.Name, a.FuncName, a.PkgPath)
+		}
+		fn, ok := obj.(*types.Func)
+		if !ok {
+			return nil, fmt.Errorf("codegen: WithFilter %q: %q in package %q is not a function", a.Name, a.FuncName, a.PkgPath)
+		}
+		sig, ok := fn.Type().(*types.Signature)
+		if !ok {
+			return nil, fmt.Errorf("codegen: WithFilter %q: %q in package %q has no signature", a.Name, a.FuncName, a.PkgPath)
+		}
+		wantsCtx, ok := classifyFilter(sig)
+		if !ok {
+			if isCurriedShape(sig) {
+				return nil, fmt.Errorf("codegen: WithFilter %q: filter %q uses the removed curried shape func(args) func(T) R; rewrite as seed-first func([ctx,] subject, args...)", a.Name, a.FuncName)
+			}
+			return nil, fmt.Errorf("codegen: WithFilter %q: func %q does not match the seed-first filter contract func([ctx,] subject, args...) (R[, error])", a.Name, a.FuncName)
+		}
+		harvested[a.Name] = append(harvested[a.Name], filterEntry{
+			funcName: a.FuncName,
+			wantsCtx: wantsCtx,
+			alias:    aliases[a.PkgPath],
+			pkgPath:  a.PkgPath,
+		})
 	}
 	return harvested, nil
 }
@@ -233,18 +296,19 @@ type FilterInfo struct {
 	Name    string   // template name (first-rune-lowered), e.g. "upper"
 	Pkg     string   // winning package import path
 	Func    string   // exported Go func name, e.g. "Upper"
-	Param   bool     // parameterized func(Args...) func(T) R; else bare func(T) R
+	Ctx     bool     // first parameter is context.Context (gsx injects ambient ctx)
 	Shadows []string // import paths of EARLIER same-named filters this one overrides
 }
 
-// ResolveFilters harvests the filter packages (in order, last-wins) and returns
-// the resolved table sorted by Name, recording which earlier same-named filters
-// each winner shadows. An empty filterPkgs defaults to [stdImportPath], matching
+// ResolveFilters harvests the filter packages (in order, last-wins) plus the
+// explicit WithFilter aliases (appended after, in option order) and returns the
+// resolved table sorted by Name, recording which earlier same-named filters each
+// winner shadows. An empty filterPkgs defaults to [stdImportPath], matching
 // GeneratePackageWithFilters. dir anchors the go/packages load against the
 // module's go.mod.
-func ResolveFilters(dir string, filterPkgs []string) ([]FilterInfo, error) {
+func ResolveFilters(dir string, filterPkgs []string, aliases []FilterAlias) ([]FilterInfo, error) {
 	filterPkgs = dedupFilterPkgs(filterPkgs)
-	harvested, err := harvestFilters(dir, filterPkgs)
+	harvested, err := harvestFilters(dir, filterPkgs, aliases)
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +323,7 @@ func ResolveFilters(dir string, filterPkgs []string) ([]FilterInfo, error) {
 			Name:    name,
 			Pkg:     winner.pkgPath,
 			Func:    winner.funcName,
-			Param:   winner.kind == filterParam,
+			Ctx:     winner.wantsCtx,
 			Shadows: shadows,
 		})
 	}
@@ -267,30 +331,94 @@ func ResolveFilters(dir string, filterPkgs []string) ([]FilterInfo, error) {
 	return infos, nil
 }
 
-// classifyFilter inspects a func signature against the filter contract. It
-// returns the kind and whether the signature is a filter at all.
+// classifyFilter inspects a func signature against the seed-first filter
+// contract. It returns whether the filter takes an ambient context.Context as
+// its first parameter (wantsCtx) and whether the signature is a valid filter at
+// all (ok).
 //
-// The param shape is checked first: a single result that is itself a unary
-// func is parameterized. Otherwise a 1-param/1-result func is bare. Anything
-// else (a receiver, wrong arity, or a result func that is not unary) is not a
-// filter.
-func classifyFilter(sig *types.Signature) (filterKind, bool) {
+// A valid seed-first filter:
+//   - has no receiver;
+//   - after an optional leading context.Context parameter, has at least one MORE
+//     parameter (the subject). So wantsCtx requires Params().Len() >= 2 with
+//     param0 being context.Context; a ctx-less filter needs Params().Len() >= 1;
+//   - returns exactly 1 result, OR exactly 2 results whose second is error.
+//
+// The removed curried shape (a single result that is itself a unary func
+// func(T) R) is explicitly rejected (ok=false); use isCurriedShape to detect it
+// for a migration diagnostic.
+func classifyFilter(sig *types.Signature) (wantsCtx bool, ok bool) {
 	if sig.Recv() != nil {
-		return 0, false
+		return false, false
 	}
-	// param: exactly one result whose type is a unary func.
-	if sig.Results().Len() == 1 {
-		if inner, ok := sig.Results().At(0).Type().(*types.Signature); ok {
-			if inner.Params().Len() == 1 && inner.Results().Len() == 1 {
-				return filterParam, true
-			}
+	// Reject the removed curried shape func(args) func(T) R outright, even though
+	// it has a single (func) result — a returned unary func is never a valid
+	// seed-first result.
+	if isCurriedShape(sig) {
+		return false, false
+	}
+	if !validFilterResults(sig.Results()) {
+		return false, false
+	}
+	params := sig.Params()
+	if params.Len() >= 1 && isContextContext(params.At(0).Type()) {
+		// A ctx-taking filter needs at least one MORE param after ctx (the subject).
+		if params.Len() >= 2 {
+			return true, true
 		}
+		return false, false
 	}
-	// bare: exactly one param and one result, not the param case above.
-	if sig.Params().Len() == 1 && sig.Results().Len() == 1 {
-		return filterBare, true
+	if params.Len() >= 1 {
+		return false, true
 	}
-	return 0, false
+	return false, false
+}
+
+// validFilterResults reports whether a filter's results match the contract:
+// exactly 1 result, or exactly 2 whose second is error.
+func validFilterResults(res *types.Tuple) bool {
+	switch res.Len() {
+	case 1:
+		return true
+	case 2:
+		return isErrorType(res.At(1).Type())
+	default:
+		return false
+	}
+}
+
+// isErrorType reports whether t is the builtin error interface.
+func isErrorType(t types.Type) bool {
+	named, ok := t.(*types.Named)
+	if !ok {
+		return false
+	}
+	return named.Obj().Pkg() == nil && named.Obj().Name() == "error"
+}
+
+// isContextContext reports whether t is exactly context.Context: a *types.Named
+// whose object lives in the standard "context" package and is named "Context".
+func isContextContext(t types.Type) bool {
+	named, ok := t.(*types.Named)
+	if !ok {
+		return false
+	}
+	obj := named.Obj()
+	return obj.Pkg() != nil && obj.Pkg().Path() == "context" && obj.Name() == "Context"
+}
+
+// isCurriedShape reports whether sig is the removed curried filter shape
+// func(args…) func(T) R: a single result that is itself a unary func. The
+// explicit-alias (WithFilter) path uses this to emit a clear migration
+// diagnostic instead of silently skipping a func the author intended as a filter.
+func isCurriedShape(sig *types.Signature) bool {
+	if sig.Results().Len() != 1 {
+		return false
+	}
+	inner, ok := sig.Results().At(0).Type().(*types.Signature)
+	if !ok {
+		return false
+	}
+	return inner.Params().Len() == 1 && inner.Results().Len() == 1
 }
 
 // lowerFirst lowercases only the first rune of s ("Upper"→"upper",

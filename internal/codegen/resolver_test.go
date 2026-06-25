@@ -125,7 +125,7 @@ func TestCachedResolverMatchesPackagesLoad(t *testing.T) {
 	}
 
 	root := repoRoot(t)
-	cached, err := newCachedResolver(root, []string{stdImportPath}, allowImportsFixture)
+	cached, err := newCachedResolver(root, []string{stdImportPath}, nil, allowImportsFixture)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -30,7 +30,7 @@ component Widget(userStyle string) {
 		t.Fatal(err)
 	}
 	cls := attrclass.New(attrclass.Rules{CSS: []attrclass.Rule{{Prefix: "data-style"}}}, nil)
-	out, err := GeneratePackageWithFilters(dir, nil, cls, nil, nil, nil)
+	out, err := GeneratePackageWithFilters(dir, nil, nil, cls, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -68,7 +68,7 @@ component Widget(raw gsx.RawCSS) {
 		t.Fatal(err)
 	}
 	cls := attrclass.New(attrclass.Rules{CSS: []attrclass.Rule{{Prefix: "data-style"}}}, nil)
-	out, err := GeneratePackageWithFilters(dir, nil, cls, nil, nil, nil)
+	out, err := GeneratePackageWithFilters(dir, nil, nil, cls, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}

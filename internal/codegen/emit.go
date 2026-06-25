@@ -832,10 +832,14 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 // are in scope as locals).
 func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet, bag *diag.Bag) bool {
 	emitLine(b, fset, n.Pos())
+	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
 		// Lower the pipeline to nested filter calls — the SAME lowerPipe output the
 		// probe used, so resolved[n] is already the pipeline's RESULT type. Record
 		// each used filter package path so writeImports emits it under its alias.
+		// The lowered expr then falls through to the SAME (T, error) auto-unwrap as
+		// a bare interpolation, so a seed-first filter returning (R, error) unwraps
+		// exactly like any other error-returning value.
 		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table)
 		if err != nil {
 			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
@@ -844,19 +848,13 @@ func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type,
 		for _, path := range usedPkgs {
 			imports[path] = true
 		}
-		t, ok := resolved[n]
-		if !ok || t == nil {
-			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "could not resolve type of pipeline %q", n.Expr)
-			return false
-		}
-		return emitRender(b, lowered, t, imports, n, bag)
+		expr = lowered
 	}
 	t, ok := resolved[n]
 	if !ok || t == nil {
 		bag.Errorf(n.Pos(), n.End(), "unresolved-interp", "could not resolve type of interpolation %q", n.Expr)
 		return false
 	}
-	expr := strings.TrimSpace(n.Expr)
 	if tup, ok := t.(*types.Tuple); ok {
 		if tup.Len() != 2 || tup.At(1).Type().String() != "error" {
 			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "interpolation %q returns %s; only (T, error) is supported", expr, t)

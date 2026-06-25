@@ -3,4 +3,6 @@ package views
 
 component Hi(name string) { <p>{ name |> upper(2) }</p> }
 -- diagnostics.golden --
-filter "upper" takes no arguments
+3:62: too many arguments in call to _gsxstd.Upper
+	have (string, number)
+	want (string)

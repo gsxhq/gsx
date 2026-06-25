@@ -1,0 +1,13 @@
+# seed-first chained with-args pipeline inside a <script> @{ } interpolation:
+# the JS value context lowers identically to text — Truncate(Trim((name)), 4).
+-- input.gsx --
+package views
+
+component Page(name string) {
+	<script>const n = @{ name |> trim |> truncate(4) };</script>
+}
+-- invoke --
+Page(PageProps{Name: "  hello  "})
+-- diagnostics.golden --
+-- render.golden --
+<script>const n = "hell";</script>

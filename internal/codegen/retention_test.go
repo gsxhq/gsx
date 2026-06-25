@@ -18,7 +18,7 @@ func TestRetentionPopulated(t *testing.T) {
 	writeFile(t, dir, "card.gsx",
 		"package x\n\ncomponent Card(title string) {\n\t<div>{ title }</div>\n}\n")
 
-	out, err := GeneratePackagesWithFilters(dir, []string{dir}, nil, nil, nil, nil, nil, nil)
+	out, err := GeneratePackagesWithFilters(dir, []string{dir}, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

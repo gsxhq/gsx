@@ -1,0 +1,11 @@
+# seed-first with-args pipeline in an attribute-value interpolation: the same
+# `Truncate(s, 8)` lowering applies in the attribute context as in text.
+-- input.gsx --
+package views
+
+component C(s string) { <div data-x={ s |> truncate(8) }>y</div> }
+-- invoke --
+C(CProps{S: "abcdefghij"})
+-- diagnostics.golden --
+-- render.golden --
+<div data-x="abcdefgh">y</div>

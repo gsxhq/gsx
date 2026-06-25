@@ -3,6 +3,10 @@ package gen
 import (
 	"fmt"
 	"reflect"
+	"runtime"
+	"strings"
+
+	"github.com/gsxhq/gsx/internal/codegen"
 )
 
 // WithFilters registers one or more filter packages by their marker tokens.
@@ -36,6 +40,117 @@ func WithFilters(markers ...any) Option {
 			cfg.appendFilterPkg(path)
 		}
 	}
+}
+
+// WithFilter registers a SINGLE function fn as a pipeline filter under the
+// explicit short template name. It is the sibling of WithFilters (whole-package
+// harvest): it lets a project own the template vocabulary (e.g. "url") while the
+// library keeps its idiomatic Go name (e.g. structpages.URLFor):
+//
+//	gen.Main(
+//	    gen.WithFilters(std.Pkg),
+//	    gen.WithFilter("url",    structpages.URLFor),
+//	    gen.WithFilter("id",     structpages.ID),
+//	)
+//
+// fn is reflected via runtime.FuncForPC to recover its fully-qualified
+// package/path.FuncName, which is split into the import path and the exported Go
+// func name. fn MUST be a plain top-level exported function: a method value
+// ((*T).M / T.M), a closure (a .funcN suffix), or an unexported target is
+// rejected with a clear error recorded on the config so the run fails. The
+// signature itself is classified later (at harvest, via go/types) against the
+// seed-first contract, so a curried target surfaces the migration diagnostic
+// there.
+//
+// Aliases are appended in option order AFTER WithFilters package harvests, so an
+// alias can intentionally override a harvested same-named filter (last-wins).
+func WithFilter(name string, fn any) Option {
+	return func(cfg *config) {
+		if fn == nil {
+			cfg.errs = append(cfg.errs, fmt.Errorf("WithFilter %q: fn is nil; pass an exported top-level function (e.g. structpages.URLFor)", name))
+			return
+		}
+		v := reflect.ValueOf(fn)
+		if v.Kind() != reflect.Func {
+			cfg.errs = append(cfg.errs, fmt.Errorf("WithFilter %q: fn (%T) is not a function", name, fn))
+			return
+		}
+		pkgPath, funcName, err := resolveFilterFunc(v)
+		if err != nil {
+			cfg.errs = append(cfg.errs, fmt.Errorf("WithFilter %q: %w", name, err))
+			return
+		}
+		cfg.aliases = append(cfg.aliases, codegen.FilterAlias{
+			Name:     name,
+			PkgPath:  pkgPath,
+			FuncName: funcName,
+		})
+	}
+}
+
+// resolveFilterFunc reflects a function value to its declaring package import
+// path and exported func name, rejecting anything that is not a plain top-level
+// exported function. runtime.FuncForPC returns the fully-qualified name in the
+// form "import/path.FuncName" for a top-level func; method values appear as
+// "import/path.(*T).M" or "import/path.T.M" and closures carry a ".funcN" (or
+// ".funcN.M") suffix — both are rejected.
+func resolveFilterFunc(v reflect.Value) (pkgPath, funcName string, err error) {
+	rf := runtime.FuncForPC(v.Pointer())
+	if rf == nil {
+		return "", "", fmt.Errorf("cannot resolve function value")
+	}
+	full := rf.Name() // e.g. "github.com/foo/bar.URLFor"
+	// Split off the func segment: everything after the LAST "." that is not part
+	// of the import path. The import path may contain dots (foo.com/bar), but the
+	// path component before the final func name never contains a "/"-free dotted
+	// tail other than the func — so split at the last ".".
+	dot := strings.LastIndex(full, ".")
+	if dot < 0 {
+		return "", "", fmt.Errorf("function %q has no package-qualified name", full)
+	}
+	pkgPath = full[:dot]
+	funcName = full[dot+1:]
+
+	// Reject method values: the package portion ends in a receiver group
+	// "(*T)" or "T" preceded by a ".", i.e. the would-be pkgPath still contains a
+	// ".(" or its final segment after the last "/" contains a "." (a type name).
+	// A plain top-level func has a pkgPath whose final "/"-segment has NO ".".
+	if strings.Contains(pkgPath, ".(") {
+		return "", "", fmt.Errorf("function %q is a method value; WithFilter requires a plain top-level function", full)
+	}
+	finalSeg := pkgPath
+	if i := strings.LastIndex(pkgPath, "/"); i >= 0 {
+		finalSeg = pkgPath[i+1:]
+	}
+	if strings.Contains(finalSeg, ".") {
+		// e.g. "github.com/foo/bar.T" → method value T.M; or a closure parent.
+		return "", "", fmt.Errorf("function %q is not a plain top-level function (method value or nested)", full)
+	}
+	// Reject closures: a "func1"/"funcN" suffix, or a non-exported / non-identifier
+	// func name.
+	if !isExportedIdent(funcName) {
+		return "", "", fmt.Errorf("function %q is not an exported top-level function (got %q); WithFilter requires e.g. structpages.URLFor", full, funcName)
+	}
+	return pkgPath, funcName, nil
+}
+
+// isExportedIdent reports whether s is a valid exported Go identifier: a leading
+// uppercase letter followed by letters/digits/underscores. This rejects closure
+// suffixes ("func1") and unexported names ("helper").
+func isExportedIdent(s string) bool {
+	if s == "" {
+		return false
+	}
+	r := rune(s[0])
+	if r < 'A' || r > 'Z' {
+		return false
+	}
+	for _, c := range s[1:] {
+		if !(c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+			return false
+		}
+	}
+	return true
 }
 
 // WithCSSMinifier installs a custom CSS minifier for <style> blocks, replacing

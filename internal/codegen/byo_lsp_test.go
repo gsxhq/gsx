@@ -64,7 +64,7 @@ component Page(someVar string, pd Props) {
 }
 `)
 
-	out, err := GeneratePackagesWithFilters(dir, []string{dir}, nil, nil, nil, nil, nil, nil)
+	out, err := GeneratePackagesWithFilters(dir, []string{dir}, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("GeneratePackagesWithFilters: %v", err)
 	}

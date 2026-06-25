@@ -92,9 +92,8 @@ func TestTruncate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := Truncate(tt.n)
-			if got := f(tt.in); got != tt.want {
-				t.Errorf("Truncate(%d)(%q) = %q, want %q", tt.n, tt.in, got, tt.want)
+			if got := Truncate(tt.in, tt.n); got != tt.want {
+				t.Errorf("Truncate(%q, %d) = %q, want %q", tt.in, tt.n, got, tt.want)
 			}
 		})
 	}
@@ -116,9 +115,8 @@ func TestJoin(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := Join(tt.sep)
-			if got := f(tt.in); got != tt.want {
-				t.Errorf("Join(%q)(%v) = %q, want %q", tt.sep, tt.in, got, tt.want)
+			if got := Join(tt.in, tt.sep); got != tt.want {
+				t.Errorf("Join(%v, %q) = %q, want %q", tt.in, tt.sep, got, tt.want)
 			}
 		})
 	}
@@ -138,9 +136,8 @@ func TestDefault(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := Default(tt.fallback)
-			if got := f(tt.in); got != tt.want {
-				t.Errorf("Default(%q)(%q) = %q, want %q", tt.fallback, tt.in, got, tt.want)
+			if got := Default(tt.in, tt.fallback); got != tt.want {
+				t.Errorf("Default(%q, %q) = %q, want %q", tt.in, tt.fallback, got, tt.want)
 			}
 		})
 	}

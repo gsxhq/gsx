@@ -22,17 +22,18 @@ func TestFilterHarvest(t *testing.T) {
 		t.Fatalf("loadFilterTable: %v", err)
 	}
 
+	// All std filters are seed-first and ctx-less under the new contract.
 	cases := []struct {
 		name     string
 		funcName string
-		kind     filterKind
+		wantsCtx bool
 	}{
-		{"upper", "Upper", filterBare},
-		{"lower", "Lower", filterBare},
-		{"trim", "Trim", filterBare},
-		{"truncate", "Truncate", filterParam},
-		{"join", "Join", filterParam},
-		{"default", "Default", filterParam},
+		{"upper", "Upper", false},
+		{"lower", "Lower", false},
+		{"trim", "Trim", false},
+		{"truncate", "Truncate", false},
+		{"join", "Join", false},
+		{"default", "Default", false},
 	}
 	for _, c := range cases {
 		e, ok := table.lookup(c.name)
@@ -43,8 +44,8 @@ func TestFilterHarvest(t *testing.T) {
 		if e.funcName != c.funcName {
 			t.Errorf("filter %q: funcName = %q, want %q", c.name, e.funcName, c.funcName)
 		}
-		if e.kind != c.kind {
-			t.Errorf("filter %q: kind = %v, want %v", c.name, e.kind, c.kind)
+		if e.wantsCtx != c.wantsCtx {
+			t.Errorf("filter %q: wantsCtx = %v, want %v", c.name, e.wantsCtx, c.wantsCtx)
 		}
 	}
 

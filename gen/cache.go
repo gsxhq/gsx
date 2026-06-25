@@ -13,7 +13,7 @@ import (
 	"github.com/gsxhq/gsx/internal/diag"
 )
 
-func generateCached(paths, filterPkgs []string, cls *attrclass.Classifier, predLabel string, fm codegen.FieldMatcher, useCache bool, cssMin, jsMin func(string) (string, error)) (Result, error) {
+func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, predLabel string, fm codegen.FieldMatcher, useCache bool, cssMin, jsMin func(string) (string, error)) (Result, error) {
 	var res Result
 	dirs, err := discoverDirs(paths)
 	if err != nil {
@@ -42,7 +42,7 @@ func generateCached(paths, filterPkgs []string, cls *attrclass.Classifier, predL
 
 	// No cache: one batched generate (Tier 0 path).
 	if !enabled {
-		return writeAll(dirs, mustGen(root, dirs, filterPkgs, cls, fm, cssMin, jsMin, &res), &res)
+		return writeAll(dirs, mustGen(root, dirs, filterPkgs, aliases, cls, fm, cssMin, jsMin, &res), &res)
 	}
 
 	graph, gerr := loadGraph(root)
@@ -57,7 +57,7 @@ func generateCached(paths, filterPkgs []string, cls *attrclass.Classifier, predL
 			miss = append(miss, dir) // graph failed → regenerate everything (safe)
 			continue
 		}
-		k, err := computeKey(dir, graph, modPath, goModH, goSumH, bctx, filterPkgs, clsFingerprint, fm != nil)
+		k, err := computeKey(dir, graph, modPath, goModH, goSumH, bctx, filterPkgs, aliases, clsFingerprint, fm != nil)
 		if err != nil {
 			miss = append(miss, dir) // uncertain → MISS
 			continue
@@ -91,7 +91,7 @@ func generateCached(paths, filterPkgs []string, cls *attrclass.Classifier, predL
 
 	// GENERATE phase: only the miss set, in ONE load.
 	if len(miss) > 0 {
-		out, err := codegen.GeneratePackagesWithFilters(root, miss, filterPkgs, cls, fm, cssMin, jsMin, nil)
+		out, err := codegen.GeneratePackagesWithFilters(root, miss, filterPkgs, aliases, cls, fm, cssMin, jsMin, nil)
 		if err != nil {
 			return res, err
 		}
@@ -145,7 +145,7 @@ func generateCached(paths, filterPkgs []string, cls *attrclass.Classifier, predL
 	// error-severity diagnostics). Error-severity diagnostics no longer enter
 	// res.Errs (they live in res.Diags), so we must check both.
 	if enabled && modPath != "" {
-		filters, _ := codegen.ResolveFilters(root, filterPkgs) // best-effort
+		filters, _ := codegen.ResolveFilters(root, filterPkgs, aliases) // best-effort
 		mf := make([]manifestFilter, 0, len(filters))
 		for _, fi := range filters {
 			mf = append(mf, manifestFilter{Name: fi.Name, Pkg: fi.Pkg, Func: fi.Func})
@@ -205,8 +205,8 @@ func contains(ss []string, s string) bool {
 }
 
 // mustGen / writeAll: the no-cache fallback (Tier 0 path) reused by generateCached.
-func mustGen(root string, dirs, filterPkgs []string, cls *attrclass.Classifier, fm codegen.FieldMatcher, cssMin, jsMin func(string) (string, error), res *Result) map[string]*codegen.PackageResult {
-	out, err := codegen.GeneratePackagesWithFilters(root, dirs, filterPkgs, cls, fm, cssMin, jsMin, nil)
+func mustGen(root string, dirs, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, cssMin, jsMin func(string) (string, error), res *Result) map[string]*codegen.PackageResult {
+	out, err := codegen.GeneratePackagesWithFilters(root, dirs, filterPkgs, aliases, cls, fm, cssMin, jsMin, nil)
 	if err != nil {
 		res.Errs = append(res.Errs, err)
 		return nil

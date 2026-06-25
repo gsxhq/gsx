@@ -18,7 +18,7 @@ func TestRunInfoStd(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	code := runInfo(&out, &bytes.Buffer{}, repoRoot, []string{stdImportPath}, attrclass.Builtin(), "", nil, nil)
+	code := runInfo(&out, &bytes.Buffer{}, repoRoot, []string{stdImportPath}, nil, attrclass.Builtin(), "", nil, nil)
 	if code != 0 {
 		t.Fatalf("runInfo exit = %d, want 0", code)
 	}
@@ -39,7 +39,7 @@ func TestRunInfoVersionSingleLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	code := runInfo(&out, &bytes.Buffer{}, repoRoot, []string{stdImportPath}, attrclass.Builtin(), "", nil, nil)
+	code := runInfo(&out, &bytes.Buffer{}, repoRoot, []string{stdImportPath}, nil, attrclass.Builtin(), "", nil, nil)
 	if code != 0 {
 		t.Fatalf("runInfo exit = %d, want 0", code)
 	}
@@ -69,7 +69,7 @@ func TestRunInfoShadow(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	code := runInfo(&out, &bytes.Buffer{}, tmp, []string{stdImportPath, "gsxmf/myfilters"}, attrclass.Builtin(), "", nil, nil)
+	code := runInfo(&out, &bytes.Buffer{}, tmp, []string{stdImportPath, "gsxmf/myfilters"}, nil, attrclass.Builtin(), "", nil, nil)
 	if code != 0 {
 		t.Fatalf("runInfo exit = %d, want 0", code)
 	}
@@ -85,7 +85,7 @@ func TestRunInfoBadPkg(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errBuf bytes.Buffer
-	code := runInfo(&out, &errBuf, repoRoot, []string{"github.com/gsxhq/gsx/does-not-exist"}, attrclass.Builtin(), "", nil, nil)
+	code := runInfo(&out, &errBuf, repoRoot, []string{"github.com/gsxhq/gsx/does-not-exist"}, nil, attrclass.Builtin(), "", nil, nil)
 	if code != 1 {
 		t.Fatalf("runInfo exit = %d, want 1", code)
 	}

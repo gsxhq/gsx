@@ -33,7 +33,7 @@ import (
 // GeneratePackageWithFilters preserved for callers (and the test harness) that
 // do not configure custom filter packages.
 func GeneratePackage(dir string) (map[string][]byte, error) {
-	return GeneratePackageWithFilters(dir, []string{stdImportPath}, nil, nil, nil, nil)
+	return GeneratePackageWithFilters(dir, []string{stdImportPath}, nil, nil, nil, nil, nil)
 }
 
 // GeneratePackageWithFilters generates a .x.go for every .gsx file in dir,
@@ -50,7 +50,7 @@ func GeneratePackage(dir string) (map[string][]byte, error) {
 // (std → _gsxstd, every other package → _gsxf<i>). An empty filterPkgs defaults
 // to just the std package; duplicate paths are removed preserving first-seen
 // order (last-wins still applies to NAME collisions across distinct packages).
-func GeneratePackageWithFilters(dir string, filterPkgs []string, cls *attrclass.Classifier, fm FieldMatcher, cssMin, jsMin func(string) (string, error)) (map[string][]byte, error) {
+func GeneratePackageWithFilters(dir string, filterPkgs []string, aliases []FilterAlias, cls *attrclass.Classifier, fm FieldMatcher, cssMin, jsMin func(string) (string, error)) (map[string][]byte, error) {
 	if cls == nil {
 		cls = attrclass.Builtin()
 	}
@@ -105,7 +105,7 @@ func GeneratePackageWithFilters(dir string, filterPkgs []string, cls *attrclass.
 		return nil, err
 	}
 
-	resolved, table, err := resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, byo, fm, filterPkgs, fset, nil)
+	resolved, table, err := resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, byo, fm, filterPkgs, aliases, fset, nil)
 	if err != nil {
 		return nil, err
 	}

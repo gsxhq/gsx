@@ -40,7 +40,7 @@ var errSkipComponent = errors.New("skip")
 // threaded alongside propFields and consumed by emit/probe to promote renderable
 // values into gsx.Node props (gsx.Val/gsx.Text).
 func resolveTypesPkg(dir string, files map[string]*gsxast.File, propFields, nodeProps map[string]map[string]bool, byo *byoData, fset *token.FileSet) (map[gsxast.Node]types.Type, filterTable, error) {
-	return resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, byo, nil, []string{stdImportPath}, fset, nil)
+	return resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, byo, nil, []string{stdImportPath}, nil, fset, nil)
 }
 
 // resolveTypesPkgWithFilters is the multi-package form of resolveTypesPkg: it
@@ -50,7 +50,7 @@ func resolveTypesPkg(dir string, files map[string]*gsxast.File, propFields, node
 // resolver is optional; nil uses packagesLoadResolver (the original packages.Load
 // behavior, byte-identical to before). When a *CachedResolver is passed, its
 // prebuilt filterTable is used instead of calling loadFilterTableMulti again.
-func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propFields, nodeProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, filterPkgs []string, fset *token.FileSet, resolver typeResolver) (map[gsxast.Node]types.Type, filterTable, error) {
+func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propFields, nodeProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, filterPkgs []string, aliases []FilterAlias, fset *token.FileSet, resolver typeResolver) (map[gsxast.Node]types.Type, filterTable, error) {
 	if resolver == nil {
 		resolver = packagesLoadResolver{}
 	}
@@ -62,7 +62,7 @@ func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propF
 		table = cr.filters()
 	} else {
 		var err error
-		table, err = loadFilterTableMulti(dir, filterPkgs)
+		table, err = loadFilterTableMulti(dir, filterPkgs, aliases)
 		if err != nil {
 			return nil, nil, err
 		}
