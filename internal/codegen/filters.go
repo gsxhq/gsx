@@ -418,7 +418,19 @@ func isCurriedShape(sig *types.Signature) bool {
 	if !ok {
 		return false
 	}
-	return inner.Params().Len() == 1 && inner.Results().Len() == 1
+	if inner.Params().Len() != 1 {
+		return false
+	}
+	// The old curried shape returned either `R` or `(R, error)`; recognize both
+	// so the migration diagnostic fires for the error-returning variant too.
+	switch inner.Results().Len() {
+	case 1:
+		return true
+	case 2:
+		return isErrorType(inner.Results().At(1).Type())
+	default:
+		return false
+	}
 }
 
 // lowerFirst lowercases only the first rune of s ("Upper"→"upper",
