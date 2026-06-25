@@ -27,15 +27,21 @@ func (s *Server) handleHover(f frame) error {
 		return s.reply(f.ID, nil)
 	}
 	pkg := s.pkgs[filepath.Dir(path)]
-	if pkg == nil || pkg.Info == nil {
+	if pkg == nil {
 		return s.reply(f.ID, nil)
 	}
 	off := byteOffsetForPosition(text, p.Position.Line, p.Position.Character, s.enc)
 
 	// A component tag (`<Card/>`) → the component's signature.
+	// This path needs only the AST (pkg.GSXFset + pkg.Files), not type info,
+	// so it can answer even when type-checking failed (mid-edit state).
 	if c, nameStart, ok := componentAtTag(pkg, path, off); ok {
 		rng := rangeForSpan(text, nameStart, nameStart+len(c.Name), s.enc)
 		return s.reply(f.ID, Hover{Contents: markdownGo(renderComponentSig(c)), Range: &rng})
+	}
+
+	if pkg.Info == nil {
+		return s.reply(f.ID, nil) // expression hover needs type info
 	}
 
 	node, exprPos := exprNodeAtOffset(pkg, path, off)
