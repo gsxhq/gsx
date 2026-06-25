@@ -107,8 +107,16 @@ func zeroSpans(n ast.Node) {
 			switch v := m.(type) {
 			case *ast.Interp:
 				v.ExprPos = 0
+				for i := range v.Stages {
+					v.Stages[i].NamePos = 0
+					v.Stages[i].ArgsPos = 0
+				}
 			case *ast.ExprAttr:
 				v.ExprPos = 0
+				for i := range v.Stages {
+					v.Stages[i].NamePos = 0
+					v.Stages[i].ArgsPos = 0
+				}
 			case *ast.Component:
 				v.NamePos = 0
 				v.ParamsPos = 0

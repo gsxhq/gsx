@@ -20,7 +20,7 @@ func (p *parser) parseInterp() (*ast.Interp, error) {
 	lead := len(rawInner) - len(strings.TrimLeft(rawInner, " \t\r\n"))
 	exprPos := p.posAt(p.i + 1 + lead)
 	inner := strings.TrimSpace(rawInner)
-	seed, stages, perr := parsePipe(inner)
+	seed, stages, perr := parsePipe(inner, exprPos)
 	if perr != nil {
 		return nil, p.errorf(startPos, "%v", perr)
 	}

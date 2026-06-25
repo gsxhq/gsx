@@ -213,6 +213,8 @@ type PipeStage struct {
 	Name    string
 	Args    string
 	HasArgs bool
+	NamePos token.Pos // position of the first char of Name in source
+	ArgsPos token.Pos // position of the first char of Args (after `(`); NoPos when !HasArgs
 }
 
 // StaticAttr is name="value".

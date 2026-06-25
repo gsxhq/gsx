@@ -131,8 +131,11 @@ func isStageName(s string) bool {
 // than letting `expr?` poison type resolution for the whole file.
 var errTryMarker = fmt.Errorf("the `?` try-marker is not supported; gsx auto-unwraps (T, error) values — remove the `?` (handle the error explicitly with `{ if v, err := f(); err != nil { … } }`)")
 
-// parsePipeStage parses one filter segment: `name` or `name(args)`.
-func parsePipeStage(seg string) (ast.PipeStage, error) {
+// parsePipeStage parses one filter segment: `name` or `name(args)`. segBase is
+// the source position of seg[0], so NamePos/ArgsPos resolve to real source.
+func parsePipeStage(seg string, segBase token.Pos) (ast.PipeStage, error) {
+	leadWS := len(seg) - len(strings.TrimLeft(seg, " \t\r\n"))
+	namePos := segBase + token.Pos(leadWS) // first non-ws char = the name's first char
 	s := strings.TrimSpace(seg)
 	if strings.HasSuffix(s, "?") {
 		return ast.PipeStage{}, errTryMarker
@@ -152,29 +155,36 @@ func parsePipeStage(seg string) (ast.PipeStage, error) {
 		if !isStageName(name) {
 			return ast.PipeStage{}, fmt.Errorf("invalid pipeline filter name %q", name)
 		}
-		return ast.PipeStage{Name: name, Args: strings.TrimSpace(s[i+1 : end]), HasArgs: true}, nil
+		rawArgs := s[i+1 : end]
+		argsLead := len(rawArgs) - len(strings.TrimLeft(rawArgs, " \t\r\n"))
+		// s[k] is at namePos+k; args' first char is s[i+1+argsLead].
+		argsPos := namePos + token.Pos(i+1+argsLead)
+		return ast.PipeStage{Name: name, Args: strings.TrimSpace(rawArgs), HasArgs: true, NamePos: namePos, ArgsPos: argsPos}, nil
 	}
 	if !isStageName(s) {
 		return ast.PipeStage{}, fmt.Errorf("invalid pipeline filter name %q", s)
 	}
-	return ast.PipeStage{Name: s}, nil
+	return ast.PipeStage{Name: s, NamePos: namePos}, nil
 }
 
-// parsePipe splits inner into a seed expression and its filter stages. With no
-// top-level `|>`, stages is nil and seed is the whole expression. A trailing `?`
-// on the seed (the removed try-marker) is rejected.
-func parsePipe(inner string) (seed string, stages []ast.PipeStage, err error) {
+// parsePipe splits inner into a seed expression and its filter stages. base is
+// the source position of inner[0]; stage positions are derived from it.
+// With no top-level `|>`, stages is nil and seed is the whole expression. A
+// trailing `?` on the seed (the removed try-marker) is rejected.
+func parsePipe(inner string, base token.Pos) (seed string, stages []ast.PipeStage, err error) {
 	segs := splitPipe(inner)
 	seed = strings.TrimSpace(segs[0])
 	if strings.HasSuffix(seed, "?") {
 		return "", nil, errTryMarker
 	}
+	segOff := len(segs[0]) + 2 // segs[1] starts after segs[0] + "|>"
 	for _, seg := range segs[1:] {
-		st, e := parsePipeStage(seg)
+		st, e := parsePipeStage(seg, base+token.Pos(segOff))
 		if e != nil {
 			return "", nil, e
 		}
 		stages = append(stages, st)
+		segOff += len(seg) + 2
 	}
 	return seed, stages, nil
 }

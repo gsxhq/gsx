@@ -1,12 +1,44 @@
 package parser
 
 import (
+	"go/token"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/gsxhq/gsx/ast"
 )
+
+func TestPipeStagePositions(t *testing.T) {
+	base := token.Pos(100) // inner[k] is at base+k
+	// { x |> upper } : "x |> upper", upper at offset 5
+	_, stages, err := parsePipe("x |> upper", base)
+	if err != nil || len(stages) != 1 {
+		t.Fatalf("parse: %v stages=%+v", err, stages)
+	}
+	if stages[0].NamePos != base+5 {
+		t.Errorf("upper NamePos = %d, want %d", stages[0].NamePos, base+5)
+	}
+	// { x |> truncate(5) } : truncate at 5, '(' at 13, '5' at 14
+	_, st2, _ := parsePipe("x |> truncate(5)", base)
+	if st2[0].NamePos != base+5 {
+		t.Errorf("truncate NamePos = %d, want %d", st2[0].NamePos, base+5)
+	}
+	if st2[0].ArgsPos != base+14 {
+		t.Errorf("truncate ArgsPos = %d, want %d", st2[0].ArgsPos, base+14)
+	}
+	// whitespace: "x |>  upper |> truncate( 5 )" → upper@6, truncate@15, '5'@25
+	_, st3, _ := parsePipe("x |>  upper |> truncate( 5 )", base)
+	if st3[0].NamePos != base+6 {
+		t.Errorf("ws upper NamePos = %d, want %d", st3[0].NamePos, base+6)
+	}
+	if st3[1].NamePos != base+15 {
+		t.Errorf("ws truncate NamePos = %d, want %d", st3[1].NamePos, base+15)
+	}
+	if st3[1].ArgsPos != base+25 {
+		t.Errorf("ws truncate ArgsPos = %d, want %d", st3[1].ArgsPos, base+25)
+	}
+}
 
 func TestSplitPipe(t *testing.T) {
 	cases := []struct {
@@ -49,7 +81,8 @@ func TestParsePipeStage(t *testing.T) {
 		{"join(\", \")", ast.PipeStage{Name: "join", Args: "\", \"", HasArgs: true}},
 	}
 	for _, c := range ok {
-		got, err := parsePipeStage(c.in)
+		got, err := parsePipeStage(c.in, 0)
+		got.NamePos, got.ArgsPos = 0, 0 // positions are covered by TestPipeStagePositions
 		if err != nil {
 			t.Errorf("parsePipeStage(%q) error: %v", c.in, err)
 			continue
@@ -60,14 +93,14 @@ func TestParsePipeStage(t *testing.T) {
 	}
 	bad := []string{"", "  ", "?", "123", "a b", "f(", ".x", "f(x)y"}
 	for _, in := range bad {
-		if _, err := parsePipeStage(in); err == nil {
+		if _, err := parsePipeStage(in, 0); err == nil {
 			t.Errorf("parsePipeStage(%q): expected error, got nil", in)
 		}
 	}
 }
 
 func TestParsePipe(t *testing.T) {
-	seed, stages, err := parsePipe("name |> upper |> truncate(20)")
+	seed, stages, err := parsePipe("name |> upper |> truncate(20)", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,21 +108,25 @@ func TestParsePipe(t *testing.T) {
 		t.Fatalf("seed=%q, want \"name\"", seed)
 	}
 	want := []ast.PipeStage{{Name: "upper"}, {Name: "truncate", Args: "20", HasArgs: true}}
+	// zero positions before comparing (positions covered by TestPipeStagePositions)
+	for i := range stages {
+		stages[i].NamePos, stages[i].ArgsPos = 0, 0
+	}
 	if !reflect.DeepEqual(stages, want) {
 		t.Fatalf("stages=%#v, want %#v", stages, want)
 	}
 
 	// No pipe → seed only, nil stages.
-	seed, stages, err = parsePipe("greeting(name)")
+	seed, stages, err = parsePipe("greeting(name)", 0)
 	if err != nil || seed != "greeting(name)" || stages != nil {
 		t.Fatalf("plain: seed=%q stages=%#v err=%v", seed, stages, err)
 	}
 
 	// The removed `?` try-marker is rejected — on the seed and on a stage.
-	if _, _, err := parsePipe("name? |> upper"); err == nil {
+	if _, _, err := parsePipe("name? |> upper", 0); err == nil {
 		t.Fatal("expected error for `?` on the seed")
 	}
-	if _, _, err := parsePipe("name |> validate()? |> upper"); err == nil {
+	if _, _, err := parsePipe("name |> validate()? |> upper", 0); err == nil {
 		t.Fatal("expected error for `?` on a stage")
 	}
 }
@@ -97,29 +134,33 @@ func TestParsePipe(t *testing.T) {
 func TestParsePipeEdges(t *testing.T) {
 	// Inner |> inside a filter argument stays opaque (spec A.4: nested pipelines
 	// are NOT split; the arg is one Go string).
-	seed, stages, err := parsePipe("items |> join(sep |> upper)")
+	seed, stages, err := parsePipe("items |> join(sep |> upper)", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	wantJoin := []ast.PipeStage{{Name: "join", Args: "sep |> upper", HasArgs: true}}
+	// zero positions before comparing (positions covered by TestPipeStagePositions)
+	for i := range stages {
+		stages[i].NamePos, stages[i].ArgsPos = 0, 0
+	}
 	if seed != "items" || !reflect.DeepEqual(stages, wantJoin) {
 		t.Fatalf("nested arg: seed=%q stages=%#v", seed, stages)
 	}
 
 	// A `?` inside a seed string literal is not the try-marker (the literal ends
 	// with `"`, not `?`), so it parses cleanly.
-	seed, _, err = parsePipe(`"huh?" |> upper`)
+	seed, _, err = parsePipe(`"huh?" |> upper`, 0)
 	if err != nil || seed != `"huh?"` {
 		t.Fatalf("string-? seed: seed=%q err=%v", seed, err)
 	}
 
 	// Empty middle stage is an error.
-	if _, _, err := parsePipe("a |>|> b"); err == nil {
+	if _, _, err := parsePipe("a |>|> b", 0); err == nil {
 		t.Fatal("expected error for empty middle stage")
 	}
 
 	// Empty interpolation → seed "", nil stages.
-	seed, stages, err = parsePipe("")
+	seed, stages, err = parsePipe("", 0)
 	if err != nil || seed != "" || stages != nil {
 		t.Fatalf("empty: seed=%q stages=%#v err=%v", seed, stages, err)
 	}
@@ -155,6 +196,6 @@ func FuzzParsePipe(f *testing.F) {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
-		_, _, _ = parsePipe(s) // MUST NOT PANIC; malformed → error
+		_, _, _ = parsePipe(s, 0) // MUST NOT PANIC; malformed → error
 	})
 }

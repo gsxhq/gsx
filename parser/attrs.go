@@ -73,7 +73,11 @@ func splitComposed(src string) ([]ast.ClassPart, error) {
 		} else {
 			exprSrc = strings.TrimSpace(src[segStart:segEnd])
 		}
-		seed, stages, perr := parsePipe(exprSrc)
+		// TODO: thread a base token.Pos into splitComposed so ClassPart stages
+		// carry accurate source positions (needed for LSP cursor detection on
+		// class/style pipelines). For now, pass NoPos; the LSP interp/exprattr
+		// paths (parsePipe in markup.go) are already wired correctly.
+		seed, stages, perr := parsePipe(exprSrc, token.NoPos)
 		if perr != nil {
 			return nil, perr
 		}
@@ -126,13 +130,15 @@ func (p *parser) parseSpreadAttr() (ast.Attr, error) {
 	// same seed+stages as the bare `{ seed |> f... }` form (and round-trips with
 	// the printer's parenthesized output). A parenthesized NON-pipeline spread
 	// keeps its parens.
-	seed, stages, perr := parsePipe(core)
+	// TODO: compute proper base positions for spread pipeline stages (needed for
+	// LSP cursor detection on spread pipelines). For now, pass NoPos.
+	seed, stages, perr := parsePipe(core, token.NoPos)
 	if perr != nil {
 		return nil, perr
 	}
 	if len(stages) == 0 {
 		if unwrapped, ok := balancedParenUnwrap(core); ok {
-			if s2, st2, err := parsePipe(unwrapped); err == nil && len(st2) > 0 {
+			if s2, st2, err := parsePipe(unwrapped, token.NoPos); err == nil && len(st2) > 0 {
 				seed, stages = s2, st2
 			}
 		}

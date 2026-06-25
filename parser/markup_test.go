@@ -808,8 +808,13 @@ func TestParseInterpPipeline(t *testing.T) {
 		t.Errorf("seed = %q, want \"name\"", interp.Expr)
 	}
 	want := []ast.PipeStage{{Name: "upper"}, {Name: "truncate", Args: "20", HasArgs: true}}
-	if !reflect.DeepEqual(interp.Stages, want) {
-		t.Errorf("stages = %#v, want %#v", interp.Stages, want)
+	got := make([]ast.PipeStage, len(interp.Stages))
+	copy(got, interp.Stages)
+	for i := range got {
+		got[i].NamePos, got[i].ArgsPos = 0, 0 // positions covered by TestPipeStagePositions
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("stages = %#v, want %#v", got, want)
 	}
 }
 
