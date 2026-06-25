@@ -67,12 +67,11 @@ context-aware escaping, and props checked against real Go types. The question wa
 never whether to resolve symbols, but how to keep that resolution from becoming a
 tar pit.
 
-That lesson comes first-hand. In an early experiment to bring JSX-style inline
-components to templ, the approach tried to map markup attributes onto *positional*
-function parameters and to infer whether a lowercase tag was a component. Doing that
-across packages spiralled into a large, fragile resolver on `go/packages` and
-overlays — hitting overlay module-boundary bugs and performance cliffs. The cost
-wasn't symbol resolution itself; it was the open-ended *inference* layered on top.
+The trap is the open-ended *inference*, not the resolution itself. Try to map markup
+attributes onto *positional* function parameters, or to infer whether a lowercase
+tag is a component, and the resolver has to chase those guesses across packages —
+straight into overlay module-boundary bugs and performance cliffs. gsx never takes
+that on.
 
 gsx makes design choices that keep its resolution bounded — it asks the type checker
 for facts instead of guessing:
