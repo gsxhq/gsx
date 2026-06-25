@@ -297,15 +297,29 @@ attribute-name validation against tag breakout (`validAttrName`), documented
 
 ## Documentation backlog
 
-- ⬜ **Examples section (rebuild)** — the GitHub `examples/*.gsx` files were removed;
-  replace them with a dedicated docs **Examples** section where each example
-  demonstrates one or more distinct syntax features / ergonomics improvements
-  (interpolation, control flow, composable class/style, components/slots,
-  pipelines, auto-escaping, …) rather than a flat file dump.
-- ⬜ **Examples → Playground links** — each example links to the interactive
-  playground (<https://gsxhq.github.io/playground>) pre-loaded with that example
-  so readers can run/edit it live (the playground already supports `#try=` shared
-  state for this).
+- ✅ **Examples section (rebuild) — SHIPPED.** A single-source, CI-checked
+  **Examples** gallery (live: <https://gsxhq.github.io/guide/examples>). Each
+  `examples/*.txtar` fixture — a `-- doc --` metadata block (name/summary/
+  category/order) + one-or-more `package views` `.gsx` files + one `-- invoke --`
+  + a `-- render.golden --` — is the **one source** feeding three consumers, so
+  they can never drift: (1) a render test (`internal/corpus` `TestExamples`
+  compiles + `go run`s every fixture and asserts its golden), (2) the docs page
+  `docs/guide/examples.md`, and (3) the playground presets (frontend dropdown +
+  backend cache-seed). A generator (`internal/examplegen` + `cmd/gsx-examples`,
+  run via `make examples`) emits the docs page (source canonicalized through
+  `gen.Format`) and the byte-identical preset JSONs. **19 examples across 6
+  sections** — Basics · Control flow · Components & composition · Styling ·
+  Transforming values · Interactive & whole-page — each borrowing a popular
+  library's canonical walkthrough (JSX/Vue/Jinja/Handlebars/templ) with the gsx
+  flavor, including a **multi-file template-composition** showcase. Spec/plan:
+  `2026-06-24-gsx-examples-framework-design.md` /
+  `2026-06-24-gsx-examples-framework.md`.
+- ✅ **Examples → Playground links — SHIPPED.** Each example emits an
+  **"Open in Playground"** `#try=` deep-link (std-base64 of `{s:source,i:invoke}`,
+  round-tripped by the playground decoder) that preloads it; opening a link also
+  selects the matching example in the dropdown (or shows a "Shared link" entry
+  for edited state). Multi-file examples ride the Go-Playground txtar format
+  (`-- file --` separators), which the render server splits and the editor shows.
 - ⬜ **Getting Started section** — a dedicated guide using `gsx init`, walking
   through first-project setup and explaining the tech stack it scaffolds (the
   generated layout, the Vite plugin / dev loop, how `.gsx → .x.go → go build`
@@ -324,3 +338,6 @@ attribute-name validation against tag breakout (`validAttrName`), documented
 - `2026-06-23-diagnostics-foundation-design.md` — `internal/diag` model, renderers,
   semantic/parser recovery slices, LSP-readiness properties.
 - `2026-06-23-diagnostics-foundation.md` (plan) — SDD tasks 1–5; Slice 1 shipped.
+- `2026-06-24-gsx-examples-framework-design.md` — single-source examples gallery
+  (`examples/*.txtar` → render test + docs page + playground presets); multi-file
+  support; `#try=` payload encoding. Plan: `2026-06-24-gsx-examples-framework.md`.
