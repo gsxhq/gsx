@@ -1,0 +1,14 @@
+# a |> pipeline inside a style={ … } composable part: the dynamic part value is
+# lowered through the SAME lowerPipe as every other value context, then CSS-value-
+# filtered (gsx.StyleValue).
+-- input.gsx --
+package views
+
+component C(decl string) {
+	<div style={ decl |> upper }>x</div>
+}
+-- invoke --
+C(CProps{Decl: "color: red"})
+-- diagnostics.golden --
+-- render.golden --
+<div style="COLOR: RED">x</div>

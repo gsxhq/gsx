@@ -3,4 +3,4 @@ package views
 
 component Hi(name string) { <p>{ name |> bogus }</p> }
 -- diagnostics.golden --
-unknown filter "bogus"
+3:32: unknown filter "bogus"

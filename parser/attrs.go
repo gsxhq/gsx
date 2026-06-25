@@ -64,14 +64,20 @@ func splitComposed(src string) ([]ast.ClassPart, error) {
 				break
 			}
 		}
+		// The expr segment (before any `: cond` guard) may carry a `|>` pipeline.
+		// The guard Cond is a plain boolean expression and is NEVER piped.
+		var exprSrc, condSrc string
 		if colon >= 0 {
-			parts = append(parts, ast.ClassPart{
-				Expr: strings.TrimSpace(src[segStart:colon]),
-				Cond: strings.TrimSpace(src[colon+1 : segEnd]),
-			})
+			exprSrc = strings.TrimSpace(src[segStart:colon])
+			condSrc = strings.TrimSpace(src[colon+1 : segEnd])
 		} else {
-			parts = append(parts, ast.ClassPart{Expr: strings.TrimSpace(src[segStart:segEnd])})
+			exprSrc = strings.TrimSpace(src[segStart:segEnd])
 		}
+		seed, stages, perr := parsePipe(exprSrc)
+		if perr != nil {
+			return nil, perr
+		}
+		parts = append(parts, ast.ClassPart{Expr: seed, Cond: condSrc, Stages: stages})
 	}
 	return parts, nil
 }
@@ -112,8 +118,13 @@ func (p *parser) parseSpreadAttr() (ast.Attr, error) {
 		return nil, p.errorf(attrStartPos, "expected `...` trailing spread inside `{ }` attribute")
 	}
 	expr := strings.TrimSpace(strings.TrimSuffix(inner, "..."))
+	// The spread/splat subject may carry a `|>` pipeline (`{ seed |> f... }`).
+	seed, stages, perr := parsePipe(expr)
+	if perr != nil {
+		return nil, perr
+	}
 	p.i = end + 1
-	sa := &ast.SpreadAttr{Expr: expr}
+	sa := &ast.SpreadAttr{Expr: seed, Stages: stages}
 	ast.SetSpan(sa, attrStartPos, p.posAt(p.i))
 	return sa, nil
 }

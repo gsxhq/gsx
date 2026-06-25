@@ -243,10 +243,13 @@ type BoolAttr struct {
 
 func (*BoolAttr) attrNode() {}
 
-// SpreadAttr is { expr... }.
+// SpreadAttr is { expr... }. When Stages is non-empty, Expr is the pipeline seed
+// and Stages are applied left-to-right (`{ seed |> s0 |> s1 ... }`), mirroring
+// Interp.Stages — the lowered result is the spread/splat subject.
 type SpreadAttr struct {
 	span
-	Expr string
+	Expr   string
+	Stages []PipeStage
 }
 
 func (*SpreadAttr) attrNode() {}
@@ -334,10 +337,13 @@ func (*CondAttr) attrNode() {}
 
 // ClassPart is one contribution in a composable class/style list: an
 // unconditional Expr, or Expr emitted when Cond is true. Cond == "" → always.
-// It is a plain value, not a Node.
+// When Stages is non-empty, Expr is the pipeline seed and Stages are applied
+// left-to-right (`seed |> s0 |> s1 ...`), mirroring Interp.Stages; the guard Cond
+// is NEVER piped. It is a plain value, not a Node.
 type ClassPart struct {
-	Expr string
-	Cond string
+	Expr   string
+	Cond   string
+	Stages []PipeStage
 }
 
 // ClassAttr is `class={ … }` / `style={ … }` — a composable contribution list.

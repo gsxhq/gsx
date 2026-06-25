@@ -411,6 +411,10 @@ func (p *printer) attr(a ast.Attr, depth int) {
 	case *ast.SpreadAttr:
 		p.ws("{ ")
 		p.ws(fmtExpr(v.Expr))
+		for _, s := range v.Stages {
+			p.ws(" |> ")
+			p.pipeStage(s)
+		}
 		p.ws("... }")
 	case *ast.ClassAttr:
 		p.classAttr(v)
@@ -455,6 +459,10 @@ func (p *printer) classAttr(c *ast.ClassAttr) {
 			p.ws(", ")
 		}
 		p.ws(fmtExpr(part.Expr))
+		for _, s := range part.Stages {
+			p.ws(" |> ")
+			p.pipeStage(s)
+		}
 		if part.Cond != "" {
 			p.ws(": ")
 			p.ws(fmtExpr(part.Cond))
