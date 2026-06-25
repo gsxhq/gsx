@@ -123,6 +123,86 @@ func main() {
 	}
 }
 
+// TestWithFilterPackageAlsoImportedDirectly proves the import-collision fix: a
+// filter package that the .gsx ALSO plain-imports and references by its own name
+// (e.g. structpages.RenderComponent alongside `|> url`) generates a file that
+// imports the package BOTH under its reserved filter alias (for the lowered
+// filter calls) AND plainly (for the user's direct `<pkg>.X` references). Before
+// the fix, only the reserved-alias import was emitted and the direct reference
+// was `undefined: <pkg>`.
+func TestWithFilterPackageAlsoImportedDirectly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping go-run render test in -short mode")
+	}
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp := t.TempDir()
+	writeMultiFile(t, tmp, "go.mod", "module gsxmf\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+
+	mfDir := filepath.Join(tmp, "myfilters")
+	if err := os.MkdirAll(mfDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Upper2 is a seed-first filter; Helper is a NON-filter export the view calls
+	// directly by name — the dual role that triggered the collision.
+	writeMultiFile(t, mfDir, "myfilters.go", `package myfilters
+
+import "strings"
+
+func Upper2(s string) string { return strings.ToUpper(s) }
+
+func Helper() string { return "H!" }
+`)
+
+	viewsDir := filepath.Join(tmp, "views")
+	if err := os.MkdirAll(viewsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The view plain-imports the filter package AND uses both a filter from it
+	// (`|> up`) and a non-filter export by name (`myfilters.Helper()`).
+	writeMultiFile(t, viewsDir, "views.gsx", `package views
+
+import "gsxmf/myfilters"
+
+component C(s string) { <p>{ s |> up }{ myfilters.Helper() }</p> }
+`)
+
+	aliases := []FilterAlias{{Name: "up", PkgPath: "gsxmf/myfilters", FuncName: "Upper2"}}
+	gen, err := GeneratePackageWithFilters(viewsDir, []string{stdImportPath}, aliases, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("GeneratePackageWithFilters: %v", err)
+	}
+	for gsxPath, src := range gen {
+		base := strings.TrimSuffix(filepath.Base(gsxPath), ".gsx")
+		writeMultiFile(t, viewsDir, base+".x.go", string(src))
+	}
+
+	writeMultiFile(t, tmp, "main.go", `package main
+
+import (
+	"context"
+	"os"
+
+	"github.com/gsxhq/gsx"
+	p "gsxmf/views"
+)
+
+var _ = gsx.Raw
+
+func main() {
+	_ = p.C(p.CProps{S: "v"}).Render(context.Background(), os.Stdout)
+}
+`)
+	// go run compiles the generated .x.go; before the fix this failed with
+	// "undefined: myfilters" because only the reserved-alias import was emitted.
+	out := goRun(t, tmp)
+	if !strings.Contains(out, "VH!") {
+		t.Fatalf("expected \"VH!\" (filter + direct package call both resolve); got:\n%s", out)
+	}
+}
+
 // TestWithFilterCurriedMigrationDiagnostic proves a still-curried function
 // registered via a FilterAlias surfaces the migration diagnostic rather than
 // silently miscompiling.
