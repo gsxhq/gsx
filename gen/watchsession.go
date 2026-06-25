@@ -44,11 +44,14 @@ func newWatchSession(cfg watchConfig) (*watchSession, []cycleResult, error) {
 	}
 	// Cold generate: writes all .x.go files to disk.
 	res, gerr := generateCached(cfg.paths, cfg.filterPkgs, cfg.aliases, cfg.cls, cfg.predLabel, cfg.fm, true, cfg.cssMin, cfg.jsMin)
+	// generateCached folds error-severity diagnostics into its returned error, so
+	// gerr==nil already implies !anyErrorDiag(res.Diags). The two-term form is
+	// kept symmetric with the warm path (regen) for clarity and robustness.
 	startup := []cycleResult{{
 		Dir:     root,
 		Written: res.Written,
 		Diags:   res.Diags,
-		OK:      gerr == nil,
+		OK:      gerr == nil && !anyErrorDiag(res.Diags),
 		Err:     opErr(res, gerr),
 	}}
 
@@ -81,25 +84,33 @@ func (s *watchSession) regen(dir string) cycleResult {
 			res, err = s.resolver.Generate(dir, nil)
 		}
 	}
-	written := writeFiles(dir, res.Files)
+	written, werr := writeFiles(dir, res.Files)
+	var finalErr error
+	switch {
+	case err != nil && !anyErrorDiag(res.Diags):
+		finalErr = err
+	case werr != nil:
+		finalErr = werr
+	}
 	return cycleResult{
 		Dir:     dir,
 		Written: written,
 		Diags:   res.Diags,
-		OK:      err == nil && !anyErrorDiag(res.Diags),
-		Err:     opErr(res, err),
+		OK:      err == nil && !anyErrorDiag(res.Diags) && werr == nil,
+		Err:     finalErr,
 	}
 }
 
 // writeFiles persists a resolver Result's Files (keyed by absolute .x.go
-// paths) to dir via hash-gated restore, returning the paths actually written.
-func writeFiles(dir string, files map[string][]byte) []string {
+// paths) to dir via hash-gated restore, returning the paths actually written
+// and any I/O error (e.g. disk full, permission denied).
+func writeFiles(dir string, files map[string][]byte) ([]string, error) {
 	po := pkgOutput{}
 	for absXGo, b := range files {
 		po[filepath.Base(absXGo)] = b
 	}
-	written, _ := restore(dir, po)
-	return written
+	written, err := restore(dir, po)
+	return written, err
 }
 
 // opErr extracts a genuine operational error from a Result/err pair.
