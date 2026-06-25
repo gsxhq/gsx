@@ -104,3 +104,80 @@ func TestPipeDefOnOperatorNull(t *testing.T) {
 		t.Fatalf("def on `|>` must be null, got %v", loc)
 	}
 }
+
+// pipeHoverAt mirrors pipeDefAt for textDocument/hover.
+func pipeHoverAt(t *testing.T, dir, src, needle string, off int) *lsp.Hover {
+	t.Helper()
+	uri := "file://" + filepath.Join(dir, "card.gsx")
+	var line, ch int
+	for i, l := range strings.Split(src, "\n") {
+		if c := strings.Index(l, needle); c >= 0 {
+			line, ch = i, c+off
+			break
+		}
+	}
+	frame := func(v any) string {
+		b, _ := json.Marshal(v)
+		return "Content-Length: " + strconv.Itoa(len(b)) + "\r\n\r\n" + string(b)
+	}
+	in := frame(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}})
+	in += frame(map[string]any{"jsonrpc": "2.0", "method": "textDocument/didOpen",
+		"params": map[string]any{"textDocument": map[string]any{"uri": uri, "version": 1, "text": src}}})
+	in += frame(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "textDocument/hover",
+		"params": map[string]any{"textDocument": map[string]any{"uri": uri},
+			"position": map[string]any{"line": line, "character": ch}}})
+	in += frame(map[string]any{"jsonrpc": "2.0", "method": "exit"})
+
+	var out, errBuf bytes.Buffer
+	if code := runLSP(strings.NewReader(in), &out, &errBuf, nil); code != 0 {
+		t.Fatalf("runLSP=%d stderr=%s", code, errBuf.String())
+	}
+	marker := `"id":2,`
+	for _, part := range strings.Split(out.String(), "Content-Length:") {
+		i := strings.Index(part, "\r\n\r\n")
+		if i < 0 {
+			continue
+		}
+		body := part[i+4:]
+		if !strings.Contains(body, marker) {
+			continue
+		}
+		var resp struct {
+			Result *lsp.Hover `json:"result"`
+		}
+		if err := json.Unmarshal([]byte(body), &resp); err != nil {
+			t.Fatalf("decode hover: %v\nbody=%q", err, body)
+		}
+		return resp.Result
+	}
+	t.Fatalf("no hover response (id 2) in:\n%s", out.String())
+	return nil
+}
+
+func TestPipeHoverFilter(t *testing.T) {
+	dir, src := pipeNavModule(t)
+	h := pipeHoverAt(t, dir, src, "|> upper", len("|> ")) // on `upper`
+	if h == nil || !strings.Contains(h.Contents.Value, "Upper(") {
+		t.Fatalf("hover on filter `upper` → %+v, want func ... Upper(...)", h)
+	}
+}
+
+func TestPipeHoverSeed(t *testing.T) {
+	dir, src := pipeNavModule(t)
+	h := pipeHoverAt(t, dir, src, "Greeting(name)", 0) // on `Greeting`
+	if h == nil || !strings.Contains(h.Contents.Value, "func Greeting(name string) string") {
+		t.Fatalf("hover on seed `Greeting` → %+v", h)
+	}
+}
+
+func TestPipeHoverArg(t *testing.T) {
+	dir, _ := pipeNavModule(t)
+	src := "package p\n\ncomponent Card(name string, n int) {\n\t<div>{ name |> truncate(n) }</div>\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "card.gsx"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := pipeHoverAt(t, dir, src, "truncate(n)", len("truncate(")) // on `n`
+	if h == nil || !strings.Contains(h.Contents.Value, "var n int") {
+		t.Fatalf("hover on arg `n` → %+v, want var n int", h)
+	}
+}

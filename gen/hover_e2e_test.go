@@ -154,9 +154,9 @@ func TestHoverPipedNull(t *testing.T) {
 	must("user.go", "package h\n\ntype User struct {\n\tName string\n}\n")
 	src := "package h\n\ncomponent Card(u User) {\n\t<div>{ u.Name |> upper }</div>\n}\n"
 	must("card.gsx", src)
-	h := hoverAt(t, dir, "card.gsx", src, "{ u.Name", len("{ u.")) // on 'Name' inside a piped expr
+	h := hoverAt(t, dir, "card.gsx", src, "|> upper", 0) // on '|' of '|>' (the operator itself, not seed or filter name)
 	if h != nil {
-		t.Fatalf("hover on a piped expression must be null, got %+v", h)
+		t.Fatalf("hover on |> operator must be null, got %+v", h)
 	}
 }
 

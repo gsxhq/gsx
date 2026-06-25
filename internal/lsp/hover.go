@@ -49,9 +49,10 @@ func (s *Server) handleHover(f frame) error {
 		return s.reply(f.ID, nil)
 	}
 	if hasPipeStages(node) {
-		// A piped expr lowers to a wrapped call, so the byte-identical
-		// relative-offset bridge does not hold and the cursor cannot be reliably
-		// mapped (mirrors definition). Honest null.
+		if obj, span, ok := pipedTarget(pkg, node, exprPos, off); ok {
+			rng := rangeForSpan(text, span[0], span[1], s.enc)
+			return s.reply(f.ID, Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng})
+		}
 		return s.reply(f.ID, nil)
 	}
 	skel := pkg.ExprMap[node]
