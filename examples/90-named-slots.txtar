@@ -13,7 +13,7 @@ component Panel(header gsx.Node, footer gsx.Node) {
 }
 
 component Page() {
-	<Panel header={ <h1>H</h1> } footer={ <small>F</small> }/>
+	<Panel header={ <h1>H</h1> } footer="F"/>
 }
 -- invoke --
 Page()
