@@ -12,7 +12,7 @@ component Profile(user User) {
 	<p>{user.Name} is {user.Age}</p>
 }
 -- invoke --
-Profile(ProfileProps{User: User{Name: "Alice", Age: 30}})
+Profile(User{Name: "Alice", Age: 30})
 -- diagnostics.golden --
 -- render.golden --
 <p>Alice is 30</p>

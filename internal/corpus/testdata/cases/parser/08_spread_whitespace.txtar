@@ -2,7 +2,7 @@
 -- input.gsx --
 package p
 
-component Div(attrs map[string]string) { <div { ...attrs }>x</div> }
+component Div(attrs map[string]string) { <div { attrs... }>x</div> }
 -- ast.golden --
 File package=p
   Component name=Div recv="" params="attrs map[string]string"

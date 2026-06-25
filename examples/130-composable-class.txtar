@@ -1,3 +1,8 @@
+-- doc --
+name: Composable class
+summary: The class attribute takes "always" entries and "name": cond toggles (like clsx / Vue :class).
+category: Styling
+order: 130
 -- input.gsx --
 package views
 
@@ -8,6 +13,5 @@ component Tag(label string, active bool) {
 }
 -- invoke --
 Tag(TagProps{Label: "stable", Active: true})
--- diagnostics.golden --
 -- render.golden --
 <span class="tag tag--active">stable</span>

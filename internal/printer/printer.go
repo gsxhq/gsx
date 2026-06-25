@@ -409,9 +409,9 @@ func (p *printer) attr(a ast.Attr, depth int) {
 		}
 		p.ws("}")
 	case *ast.SpreadAttr:
-		p.ws("{...")
+		p.ws("{ ")
 		p.ws(fmtExpr(v.Expr))
-		p.ws("}")
+		p.ws("... }")
 	case *ast.ClassAttr:
 		p.classAttr(v)
 	case *ast.CondAttr:

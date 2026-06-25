@@ -1,0 +1,33 @@
+-- doc --
+name: Template composition
+summary: A shared component library composed by a page method — multiple files, one render entry. This is the multi-file showcase.
+category: Components & composition
+order: 100
+-- components.gsx --
+package views
+
+component Button(label string) {
+	<button class="btn">{label}</button>
+}
+
+component Card(title string) {
+	<section class="card"><h2>{title}</h2>{children}</section>
+}
+-- page.gsx --
+package views
+
+type HomePage struct {
+	Title string
+}
+
+component (p HomePage) Render() {
+	<main>
+		<Card title={p.Title}>
+			<Button label="Save"/>
+		</Card>
+	</main>
+}
+-- invoke --
+(HomePage{Title: "Dashboard"}).Render()
+-- render.golden --
+<main><section class="card"><h2>Dashboard</h2><button class="btn">Save</button></section></main>

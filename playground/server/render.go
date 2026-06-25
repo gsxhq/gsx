@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"go/parser"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +20,78 @@ import (
 )
 
 var pkgLine = regexp.MustCompile(`(?m)^package\s+\w+`)
+
+// splitSources interprets the playground source as a Go-Playground-style txtar:
+// if it contains `-- name.gsx --` markers, each file becomes its own entry;
+// otherwise the whole source is a single comp.gsx. Every file's package line is
+// normalized to `package views`. File names must be a bare `*.gsx` (no `/`, no
+// `..`) so writes stay inside the views dir.
+func splitSources(gsxSrc string) (map[string][]byte, error) {
+	files := parseTxtarFiles([]byte(gsxSrc))
+	out := map[string][]byte{}
+	if len(files) == 0 {
+		out["comp.gsx"] = []byte(pkgLine.ReplaceAllString(gsxSrc, "package views"))
+		return out, nil
+	}
+	for name, data := range files {
+		if strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
+			return nil, fmt.Errorf("invalid file name %q: must be a bare *.gsx", name)
+		}
+		if !strings.HasSuffix(name, ".gsx") {
+			return nil, fmt.Errorf("invalid file name %q: must end in .gsx", name)
+		}
+		out[name] = []byte(pkgLine.ReplaceAllString(string(data), "package views"))
+	}
+	return out, nil
+}
+
+// parseTxtarFiles parses a txtar-format archive and returns a map of filename
+// to file contents. Returns nil if there are no file markers (single-file path).
+// This is a minimal inline implementation matching golang.org/x/tools/txtar.
+func parseTxtarFiles(data []byte) map[string][]byte {
+	// Find first marker; if none, signal the single-file path.
+	_, firstName, remaining := txtarFindMarker(data)
+	if firstName == "" {
+		return nil
+	}
+	out := map[string][]byte{}
+	currentName := firstName
+	for {
+		fileData, nextName, afterNext := txtarFindMarker(remaining)
+		out[currentName] = fileData
+		if nextName == "" {
+			break
+		}
+		currentName = nextName
+		remaining = afterNext
+	}
+	return out
+}
+
+// txtarFindMarker finds the next `-- name --` marker in data.
+// Returns (data before marker, marker name, data after marker line).
+// If no marker, returns (data, "", nil).
+func txtarFindMarker(data []byte) (before []byte, name string, after []byte) {
+	var b []byte
+	for len(data) > 0 {
+		var line []byte
+		if i := bytes.IndexByte(data, '\n'); i >= 0 {
+			line, data = data[:i], data[i+1:]
+		} else {
+			line, data = data, nil
+		}
+		s := string(line)
+		if strings.HasPrefix(s, "-- ") && strings.HasSuffix(s, " --") {
+			n := strings.TrimSpace(s[3 : len(s)-3])
+			if n != "" {
+				return b, n, data
+			}
+		}
+		b = append(b, line...)
+		b = append(b, '\n')
+	}
+	return b, "", nil
+}
 
 // allowedImports is the deny-by-default allowlist for the generated views
 // package. It is the union of imports gsx codegen emits and a curated set of
@@ -195,7 +269,7 @@ func newPool(gsxMod, work string, size int) (p *pool, err error) {
 		writeFile(filepath.Join(ws.play, "go.mod"), fmt.Sprintf("module gsxplay\n\ngo 1.23\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => %s\n", gsxMod))
 		writeFile(filepath.Join(ws.play, "main.go"), "package main\n\nimport (\n\t\"context\"\n\t\"os\"\n\n\t_ \"github.com/gsxhq/gsx\"\n\t\"gsxplay/views\"\n)\n\nfunc main() {\n\tif err := views.Render(context.Background(), os.Stdout); err != nil {\n\t\tpanic(err)\n\t}\n}\n")
 		writeFile(filepath.Join(ws.viewDir, "comp.gsx"), "package views\n\ncomponent Hello() {\n\t<p>hi</p>\n}\n")
-		writeShim(ws.viewDir, "Hello(HelloProps{})")
+		writeShim(ws.viewDir, "Hello()")
 		var out string
 		if out, err = run(context.Background(), ws.play, env, "go", "mod", "tidy"); err != nil {
 			return nil, fmt.Errorf("mod tidy: %v: %s", err, out)
@@ -295,23 +369,25 @@ func renderIn(resolver *gen.CachedResolver, gocache string, ws *workspace, in re
 
 	ms := func() int64 { return time.Since(start).Milliseconds() }
 
-	userGSX := pkgLine.ReplaceAllString(in.GSX, "package views")
+	srcFiles, splitErr := splitSources(in.GSX)
+	if splitErr != nil {
+		return renderResp{Error: splitErr.Error(), Ms: ms()}
+	}
 
-	// 0) Pre-flight import check on user source to produce a friendly diagnostic
-	// for disallowed imports before calling Generate (which would return an
-	// opaque infra error for unloaded packages).
-	if d := checkImportsSource(userGSX); d != nil {
-		return renderResp{Diagnostics: []diagnostic{*d}, Ms: ms()}
+	// 0) Pre-flight import check on each user source file.
+	for _, b := range srcFiles {
+		if d := checkImportsSource(string(b)); d != nil {
+			return renderResp{Diagnostics: []diagnostic{*d}, Ms: ms()}
+		}
 	}
 
 	// 1) In-process codegen via the cached resolver (no per-render go list).
 	genStart := time.Now()
-	res, gerr := resolver.Generate(
-		ws.viewDir,
-		map[string][]byte{
-			filepath.Join(ws.viewDir, "comp.gsx"): []byte(userGSX),
-		},
-	)
+	srcOverride := map[string][]byte{}
+	for name, b := range srcFiles {
+		srcOverride[filepath.Join(ws.viewDir, name)] = b
+	}
+	res, gerr := resolver.Generate(ws.viewDir, srcOverride)
 	genMs := time.Since(genStart).Milliseconds()
 
 	diags := toDiagnostics(res)
@@ -351,13 +427,22 @@ func renderIn(resolver *gen.CachedResolver, gocache string, ws *workspace, in re
 
 func readGenerated(viewDir string) string {
 	entries, _ := os.ReadDir(viewDir)
+	var names []string
 	for _, e := range entries {
 		if strings.HasSuffix(e.Name(), ".x.go") {
-			b, _ := os.ReadFile(filepath.Join(viewDir, e.Name()))
-			return string(b)
+			names = append(names, e.Name())
 		}
 	}
-	return ""
+	sort.Strings(names)
+	var sb strings.Builder
+	for i, n := range names {
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+		b, _ := os.ReadFile(filepath.Join(viewDir, n))
+		sb.Write(b)
+	}
+	return sb.String()
 }
 
 func run(ctx context.Context, dir string, env []string, name string, args ...string) (string, error) {

@@ -73,7 +73,7 @@ func TestRenderEscaping(t *testing.T) {
 func TestOversizeRejected(t *testing.T) {
 	h := makeRenderHandler(testPool)
 	big := bytes.Repeat([]byte("x"), 70*1024)
-	body := `{"gsx":"` + string(big) + `","invoke":"Hello(HelloProps{})"}`
+	body := `{"gsx":"` + string(big) + `","invoke":"Hello()"}`
 	req := httptest.NewRequest("POST", "/render", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	withLimits(h, 64*1024, make(chan struct{}, 1)).ServeHTTP(rec, req)
@@ -152,5 +152,73 @@ func TestPoolConcurrent(t *testing.T) {
 		if results[i] != want {
 			t.Errorf("req %d: got %q want %q", i, results[i], want)
 		}
+	}
+}
+
+// --- splitSources unit tests ---
+
+func TestSplitSourcesSingle(t *testing.T) {
+	got, err := splitSources("package foo\n\ncomponent A() { <p>x</p> }\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want 1 file, got %d", len(got))
+	}
+	b, ok := got["comp.gsx"]
+	if !ok {
+		t.Fatal("single-file source must map to comp.gsx")
+	}
+	if string(b) != "package views\n\ncomponent A() { <p>x</p> }\n" {
+		t.Fatalf("package line not normalized: %q", b)
+	}
+}
+
+func TestSplitSourcesMulti(t *testing.T) {
+	src := "-- a.gsx --\npackage views\n\ncomponent A() { <p>a</p> }\n-- b.gsx --\npackage views\n\ncomponent B() { <p>b</p> }\n"
+	got, err := splitSources(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got["a.gsx"] == nil || got["b.gsx"] == nil {
+		t.Fatalf("want a.gsx+b.gsx, got %v", keys(got))
+	}
+}
+
+func TestSplitSourcesRejectsBadName(t *testing.T) {
+	if _, err := splitSources("-- ../evil.gsx --\npackage views\n"); err == nil {
+		t.Fatal("expected error for path-traversal file name")
+	}
+	if _, err := splitSources("-- sub/x.gsx --\npackage views\n"); err == nil {
+		t.Fatal("expected error for nested file name")
+	}
+	if _, err := splitSources("-- notes.txt --\npackage views\n"); err == nil {
+		t.Fatal("expected error for non-.gsx file name")
+	}
+}
+
+func keys(m map[string][]byte) []string {
+	var out []string
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+// --- multi-file integration test ---
+
+func TestRenderMultiFile(t *testing.T) {
+	if testing.Short() {
+		t.Skip("multi-file render needs the toolchain; skipped in -short")
+	}
+	src := "-- comp.gsx --\npackage views\n\ncomponent Card(title string) { <section>{title}{children}</section> }\n" +
+		"-- page.gsx --\npackage views\n\ncomponent Page() { <Card title=\"Hi\"><em>x</em></Card> }\n"
+	resp := testPool.render(renderReq{GSX: src, Invoke: "Page()"})
+	if resp.Error != "" || len(resp.Diagnostics) > 0 {
+		t.Fatalf("render error: %s diags=%v", resp.Error, resp.Diagnostics)
+	}
+	want := "<section>Hi<em>x</em></section>"
+	if resp.HTML != want {
+		t.Fatalf("HTML = %q want %q", resp.HTML, want)
 	}
 }

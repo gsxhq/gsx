@@ -4,7 +4,7 @@ gsx pipeline: in-tag { if … } conditional attribute composed with a spread.
 package examples
 
 component Button(id string) {
-	<button { if id != "" { id={id} } } {...attrs}>x</button>
+	<button { if id != "" { id={id} } } { attrs... }>x</button>
 }
 
 -- diagnostics.golden --

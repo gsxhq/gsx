@@ -93,9 +93,9 @@ func (p *parser) parseComposedAttr(name string, startPos token.Pos) (ast.Attr, e
 	return n, nil
 }
 
-// parseSpreadAttr parses `{ ...expr }` at the cursor (which must be at '{'),
-// tolerant of whitespace after '{' and around '...'. In attribute position a
-// non-spread, non-conditional `{ }` is an error.
+// parseSpreadAttr parses `{ expr... }` at the cursor (which must be at '{').
+// The trailing `...` is the Go-convention spread (matching templ `{ p.Attrs... }`).
+// In attribute position a `{ }` without trailing `...` is an error.
 func (p *parser) parseSpreadAttr() (ast.Attr, error) {
 	attrStartPos := p.posAt(p.i)
 	end, ok := goExprEnd(p.src, p.i)
@@ -103,10 +103,15 @@ func (p *parser) parseSpreadAttr() (ast.Attr, error) {
 		return nil, p.errorf(p.pos(), "unterminated `{` in attributes")
 	}
 	inner := strings.TrimSpace(p.src[p.i+1 : end])
-	if !strings.HasPrefix(inner, "...") {
-		return nil, p.errorf(attrStartPos, "expected `...` spread inside `{ }` attribute")
+	if !strings.HasSuffix(inner, "...") {
+		// Detect the old leading-dots form and emit a helpful hint.
+		if strings.HasPrefix(inner, "...") {
+			expr := strings.TrimSpace(strings.TrimPrefix(inner, "..."))
+			return nil, p.errorf(attrStartPos, "expected `...` trailing spread inside `{ }` attribute; did you mean `{ %s... }`?", expr)
+		}
+		return nil, p.errorf(attrStartPos, "expected `...` trailing spread inside `{ }` attribute")
 	}
-	expr := strings.TrimSpace(strings.TrimPrefix(inner, "..."))
+	expr := strings.TrimSpace(strings.TrimSuffix(inner, "..."))
 	p.i = end + 1
 	sa := &ast.SpreadAttr{Expr: expr}
 	ast.SetSpan(sa, attrStartPos, p.posAt(p.i))
@@ -114,7 +119,7 @@ func (p *parser) parseSpreadAttr() (ast.Attr, error) {
 }
 
 // parseSingleAttr parses exactly one attribute at the cursor: a conditional
-// `{ if … }`, a spread `{ ...expr }`, or a name-based attribute
+// `{ if … }`, a spread `{ expr... }`, or a name-based attribute
 // (static / expr / markup / bool). The cursor must be at the attribute start
 // (not whitespace, not a comment, not a terminator).
 func (p *parser) parseSingleAttr() (ast.Attr, error) {

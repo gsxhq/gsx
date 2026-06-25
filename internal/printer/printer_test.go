@@ -123,12 +123,12 @@ component C() {
 func TestAttrKinds(t *testing.T) {
 	src := `package p
 component C() {
-	<div id="main" hidden class={ "card", "active": isActive } data-x={ val } {...rest}>{children}</div>
+	<div id="main" hidden class={ "card", "active": isActive } data-x={ val } { rest... }>{children}</div>
 }`
 	want := `package p
 
 component C() {
-	<div id="main" hidden class={ "card", "active": isActive } data-x={val} {...rest}>{ children }</div>
+	<div id="main" hidden class={ "card", "active": isActive } data-x={val} { rest... }>{ children }</div>
 }
 `
 	checkFormat(t, src, want)

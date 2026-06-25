@@ -28,7 +28,7 @@ func (lspAnalyzer) Analyze(dir string, override map[string][]byte) (*lsp.Package
 	if err != nil {
 		return nil, err
 	}
-	out, err := codegen.GeneratePackagesWithFilters(root, []string{dir}, nil, attrclass.Builtin(), nil, nil, override)
+	out, err := codegen.GeneratePackagesWithFilters(root, []string{dir}, nil, attrclass.Builtin(), nil, nil, nil, override)
 	if err != nil {
 		return nil, err
 	}

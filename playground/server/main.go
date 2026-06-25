@@ -117,7 +117,7 @@ func makeRenderHandler(p *pool) http.HandlerFunc {
 			return
 		}
 		if strings.TrimSpace(in.Invoke) == "" {
-			in.Invoke = "Hello(HelloProps{})"
+			in.Invoke = "Hello()"
 		}
 		writeJSON(w, p.render(in))
 	}

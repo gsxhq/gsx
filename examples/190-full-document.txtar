@@ -1,0 +1,19 @@
+-- doc --
+name: Full HTML document
+summary: Render a whole page, including <!DOCTYPE html>, as one component.
+category: Interactive & whole-page
+order: 190
+-- input.gsx --
+package views
+
+component Page(title string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head><title>{ title }</title></head>
+		<body>hi</body>
+	</html>
+}
+-- invoke --
+Page(PageProps{Title: "Home"})
+-- render.golden --
+<!DOCTYPE html><html lang="en"><head><title>Home</title></head><body>hi</body></html>

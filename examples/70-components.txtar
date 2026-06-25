@@ -1,0 +1,19 @@
+-- doc --
+name: Components & props
+summary: Call a component with a typed props struct; boolean props pass bare (featured).
+category: Components & composition
+order: 70
+-- input.gsx --
+package views
+
+component Card(title string, featured bool, count int) {
+	<div class={ "card", "card-featured": featured }><h2>{title}</h2><span>{count}</span></div>
+}
+
+component Page(t string, n int) {
+	<Card title={t} featured count={n}/>
+}
+-- invoke --
+Page(PageProps{T: "Hi", N: 3})
+-- render.golden --
+<div class="card card-featured"><h2>Hi</h2><span>3</span></div>

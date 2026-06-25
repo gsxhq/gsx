@@ -1,5 +1,5 @@
 # gsx developer tasks. Use tabs for recipe indentation.
-.PHONY: test cover cover-html
+.PHONY: test cover cover-html examples
 
 test:
 	go test ./... -count=1
@@ -13,3 +13,6 @@ cover:
 
 cover-html: cover
 	go tool cover -html=cover.out
+
+examples:
+	go run ./cmd/gsx-examples

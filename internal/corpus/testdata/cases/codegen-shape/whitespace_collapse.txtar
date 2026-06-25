@@ -13,7 +13,7 @@ component Layout() {
 	</>
 }
 -- invoke --
-Layout(LayoutProps{})
+Layout()
 -- diagnostics.golden --
 -- render.golden --
 <header>Top</header><main>Body</main><footer>End</footer>
@@ -29,10 +29,7 @@ import (
 	"github.com/gsxhq/gsx"
 )
 
-type LayoutProps struct {
-}
-
-func Layout(_gsxp LayoutProps) gsx.Node {
+func Layout() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:5:3

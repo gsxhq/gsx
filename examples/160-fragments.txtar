@@ -1,0 +1,15 @@
+-- doc --
+name: Fragments
+summary: A component can return multiple roots with no wrapper element using <>…</>.
+category: Interactive & whole-page
+order: 160
+-- input.gsx --
+package views
+
+component Pair(a string, b string) {
+	<><span>{a}</span><span>{b}</span></>
+}
+-- invoke --
+Pair(PairProps{A: "x", B: "y"})
+-- render.golden --
+<span>x</span><span>y</span>

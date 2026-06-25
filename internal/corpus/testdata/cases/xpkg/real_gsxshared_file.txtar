@@ -9,7 +9,7 @@ component Greet() {
 	<p>{UserHelper()}</p>
 }
 -- invoke --
-Greet(GreetProps{})
+Greet()
 -- diagnostics.golden --
 -- render.golden --
 <p>real</p>

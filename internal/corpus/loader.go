@@ -16,6 +16,7 @@ type caseDoc struct {
 	archive    *txtar.Archive
 	files      map[string][]byte
 	invoke     []byte
+	doc        []byte
 	goldens    map[string][]byte
 	multiPkg   bool
 	modulePath string
@@ -48,6 +49,8 @@ func loadCase(path string) (*caseDoc, error) {
 	rel := filepath.ToSlash(path)
 	if i := strings.Index(rel, "testdata/"); i >= 0 {
 		rel = rel[i+len("testdata/"):]
+	} else if i := strings.Index(rel, "examples/"); i >= 0 {
+		rel = rel[i+len("examples/"):]
 	}
 	rel = strings.TrimPrefix(rel, "cases/")
 	c.name = strings.TrimSuffix(rel, ".txtar")
@@ -59,6 +62,8 @@ func loadCase(path string) (*caseDoc, error) {
 			c.invoke = f.Data
 		case goldenSections[f.Name]:
 			c.goldens[f.Name] = f.Data
+		case f.Name == "doc":
+			c.doc = f.Data
 		default:
 			c.files[f.Name] = f.Data
 			if strings.Contains(f.Name, "/") {

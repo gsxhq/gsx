@@ -11,7 +11,7 @@ component Page() {
 	<Panel header={ <h1>Title</h1> }/>
 }
 -- invoke --
-Page(PageProps{})
+Page()
 -- diagnostics.golden --
 -- render.golden --
 <div class="panel"><div class="hd"><h1>Title</h1></div></div>

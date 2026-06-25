@@ -11,7 +11,7 @@ component Page(cfg Config) {
 	</script>
 }
 -- invoke --
-Page(PageProps{Cfg: Config{Tab: "home"}})
+Page(Config{Tab: "home"})
 -- diagnostics.golden --
 -- render.golden --
 <script>
@@ -33,20 +33,11 @@ type Config struct {
 	Tab string
 }
 
-type PageProps struct {
-	Cfg   Config
-	Attrs gsx.Attrs
-}
-
-func Page(_gsxp PageProps) gsx.Node {
+func Page(cfg Config) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		cfg := _gsxp.Cfg
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:8:2
 		_gsxgw.S("<script")
-		_gsxgw.ClassMerged(_gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
 		_gsxgw.S(">")
 		_gsxgw.S("\n\t\tconst data = ")
 		_gsxgw.JSVal(cfg)

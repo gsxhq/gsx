@@ -2,14 +2,14 @@
 package views
 
 component Panel(title string) {
-	<section><h2>{title}</h2><aside {...attrs.Without("title")}>body</aside></section>
+	<section><h2>{title}</h2><aside { attrs.Without("title")... }>body</aside></section>
 }
 
 component Page() {
 	<Panel title="Hi" data-test="x" placeholder="p"/>
 }
 -- invoke --
-Page(PageProps{})
+Page()
 -- diagnostics.golden --
 -- render.golden --
 <section><h2>Hi</h2><aside data-test="x" placeholder="p">body</aside></section>

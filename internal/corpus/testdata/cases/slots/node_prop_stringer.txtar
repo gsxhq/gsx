@@ -18,7 +18,7 @@ component Page(t tag) {
 	<Label text={t}/>
 }
 -- invoke --
-Page(PageProps{T: tag{name: "go"}})
+Page(tag{name: "go"})
 -- diagnostics.golden --
 -- render.golden --
 <span>#go</span>
@@ -56,13 +56,8 @@ func Label(_gsxp LabelProps) gsx.Node {
 	})
 }
 
-type PageProps struct {
-	T tag
-}
-
-func Page(_gsxp PageProps) gsx.Node {
+func Page(t tag) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		t := _gsxp.T
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:10:2
 		_gsxgw.Node(ctx, Label(LabelProps{Text: gsx.Val(t)}))

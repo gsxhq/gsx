@@ -10,7 +10,7 @@ component Page(cfg Cfg) {
 	<script type="application/json" id="cfg">@{ cfg }</script>
 }
 -- invoke --
-Page(PageProps{Cfg: Cfg{Env: "prod", Beta: true}})
+Page(Cfg{Env: "prod", Beta: true})
 -- diagnostics.golden --
 -- render.golden --
 <script type="application/json" id="cfg">{"Env":"prod","Beta":true}</script>
@@ -31,26 +31,13 @@ type Cfg struct {
 	Beta bool
 }
 
-type PageProps struct {
-	Cfg   Cfg
-	Attrs gsx.Attrs
-}
-
-func Page(_gsxp PageProps) gsx.Node {
+func Page(cfg Cfg) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		cfg := _gsxp.Cfg
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:9:2
 		_gsxgw.S("<script")
-		if !_gsxp.Attrs.Has("type") {
-			_gsxgw.S(" type=\"application/json\"")
-		}
-		if !_gsxp.Attrs.Has("id") {
-			_gsxgw.S(" id=\"cfg\"")
-		}
-		_gsxgw.ClassMerged(_gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
+		_gsxgw.S(" type=\"application/json\"")
+		_gsxgw.S(" id=\"cfg\"")
 		_gsxgw.S(">")
 		_gsxgw.JSVal(cfg)
 		_gsxgw.S("</script>")

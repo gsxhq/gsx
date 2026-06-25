@@ -1,4 +1,4 @@
-# TARGET (gap #2): a spread {...attrs} on a component merges the runtime gsx.Attrs
+# TARGET (gap #2): a spread { attrs... } on a component merges the runtime gsx.Attrs
 # into the child root (caller-wins fallthrough), like element spread.
 -- input.gsx --
 package views
@@ -8,7 +8,7 @@ import "github.com/gsxhq/gsx"
 component Card(title gsx.Node) { <div class="card">{title}</div> }
 
 component Page(extra gsx.Attrs) {
-	<Card title="Hi" {...extra} />
+	<Card title="Hi" { extra... } />
 }
 -- invoke --
 Page(PageProps{Extra: gsx.Attrs{"id": "main", "data-x": "1"}})

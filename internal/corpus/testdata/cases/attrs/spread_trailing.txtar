@@ -1,0 +1,12 @@
+# trailing-dots spread: { expr... } is the Go-convention spread syntax
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component C(extra gsx.Attrs) { <div { extra... }>x</div> }
+-- invoke --
+C(CProps{Extra: gsx.Attrs{"id": "m"}})
+-- diagnostics.golden --
+-- render.golden --
+<div id="m">x</div>

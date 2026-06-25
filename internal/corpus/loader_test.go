@@ -1,6 +1,10 @@
 package corpus
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestLoadCaseSinglePackage(t *testing.T) {
 	c, err := loadCase("testdata/loadertest/single.txtar")
@@ -43,5 +47,24 @@ func TestLoadCaseMultiPackage(t *testing.T) {
 	}
 	if _, ok := c.files["ui/button.gsx"]; !ok {
 		t.Errorf("missing ui/button.gsx")
+	}
+}
+
+func TestLoadCaseDocSection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ex.txtar")
+	src := "-- doc --\nname: Demo\norder: 5\n-- input.gsx --\npackage views\n\ncomponent A() { <p>x</p> }\n-- invoke --\nA(AProps{})\n-- render.golden --\n<p>x</p>\n"
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := loadCase(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, isFile := c.files["doc"]; isFile {
+		t.Fatal("doc must not be a source file")
+	}
+	if m := parseDocMeta(c.doc); m.Name != "Demo" || m.Order != 5 {
+		t.Fatalf("doc meta = %+v", m)
 	}
 }

@@ -288,7 +288,7 @@ func GeneratePackagesWithResolver(moduleDir string, dirs []string, resolver *Cac
 		}
 
 		// Step 2: derive propFields and nodeProps.
-		propFields, nodeProps, err := componentPropFieldsFor(files)
+		propFields, nodeProps, byo, err := componentPropFieldsFor(dir, files)
 		if err != nil {
 			bag.Add(diag.Diagnostic{Severity: diag.Error, Message: err.Error(), Source: "codegen"})
 			res.Diags = bag.Sorted()
@@ -299,7 +299,7 @@ func GeneratePackagesWithResolver(moduleDir string, dirs []string, resolver *Cac
 		// Step 3: resolve types using the cached resolver (no subprocess).
 		// resolveTypesPkgWithFilters detects *CachedResolver and uses its prebuilt
 		// filter table and importer instead of calling packages.Load.
-		resolved, table, resolveErr := resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, filterPkgs, fset, resolver)
+		resolved, table, resolveErr := resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, byo, nil, filterPkgs, fset, resolver)
 		if resolveErr != nil {
 			// Check whether this is a cachedTypeErrors (positioned type errors)
 			// vs a genuine infrastructure error.
@@ -335,7 +335,7 @@ func GeneratePackagesWithResolver(moduleDir string, dirs []string, resolver *Cac
 
 		// Step 4: generate each file.
 		for path, file := range files {
-			gen, genOK := generateFile(file, resolved, table, propFields, nodeProps, fset, cls, bag, nil, nil)
+			gen, genOK := generateFile(file, resolved, table, propFields, nodeProps, byo, fset, cls, nil, bag, nil, nil)
 			if !genOK {
 				_ = path
 				continue

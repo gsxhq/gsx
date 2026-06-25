@@ -1,3 +1,8 @@
+-- doc --
+name: Interpolation & props
+summary: Components take a typed props struct; {expr} interpolates Go values, HTML-escaped.
+category: Basics
+order: 10
 -- input.gsx --
 package views
 
@@ -6,6 +11,5 @@ component Greeting(name string, count int) {
 }
 -- invoke --
 Greeting(GreetingProps{Name: "World", Count: 3})
--- diagnostics.golden --
 -- render.golden --
 <p>Hello, World! You have 3 messages.</p>

@@ -1,0 +1,25 @@
+-- doc --
+name: JS attributes & data islands
+summary: @click={ gsx.RawJS(…) } emits a vouched event handler; a <script type="application/json"> island serializes typed Go data with @{ … } for client JS.
+category: Interactive & whole-page
+order: 180
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+type Config struct {
+	Env  string
+	Beta bool
+}
+
+component Widget(cfg Config) {
+	<div>
+		<button @click={ gsx.RawJS("toggle()") }>Toggle</button>
+		<script type="application/json" id="cfg">@{ cfg }</script>
+	</div>
+}
+-- invoke --
+Widget(Config{Env: "prod", Beta: true})
+-- render.golden --
+<div><button @click="toggle()">Toggle</button><script type="application/json" id="cfg">{"Env":"prod","Beta":true}</script></div>

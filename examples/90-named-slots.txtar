@@ -1,0 +1,21 @@
+-- doc --
+name: Named slots
+summary: Pass markup into named gsx.Node props — header and footer slots.
+category: Components & composition
+order: 90
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Panel(header gsx.Node, footer gsx.Node) {
+	<div class="panel"><header>{header}</header><footer>{footer}</footer></div>
+}
+
+component Page() {
+	<Panel header={ <h1>H</h1> } footer={ <small>F</small> }/>
+}
+-- invoke --
+Page()
+-- render.golden --
+<div class="panel"><header><h1>H</h1></header><footer><small>F</small></footer></div>

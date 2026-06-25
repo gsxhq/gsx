@@ -2,6 +2,10 @@ version: '3'
 
 dotenv: ['.env']
 
+# Prefix each parallel task's lines ([dev:vite] / [dev:server]) into one
+# readable combined log.
+output: prefixed
+
 tasks:
   dev:
     desc: Run Vite + the Go server with live reload.

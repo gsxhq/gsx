@@ -1,3 +1,8 @@
+-- doc --
+name: If / else
+summary: Brace { if … else … } blocks contribute markup conditionally.
+category: Control flow
+order: 40
 -- input.gsx --
 package views
 
@@ -13,6 +18,5 @@ component Inbox(name string, count int) {
 }
 -- invoke --
 Inbox(InboxProps{Name: "World", Count: 2})
--- diagnostics.golden --
 -- render.golden --
 <section><h1>Hi World</h1><p class="badge">2 new</p></section>

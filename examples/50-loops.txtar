@@ -1,0 +1,22 @@
+-- doc --
+name: Loops over lists
+summary: { for … := range … } renders markup per element using a real Go range loop.
+category: Control flow
+order: 50
+-- input.gsx --
+package views
+
+type Item struct {
+	Name  string
+	Count int
+}
+
+component List(items []Item) {
+	<ul>{ for _, it := range items {
+		<li>{it.Name}: {it.Count}</li>
+	} }</ul>
+}
+-- invoke --
+List(ListProps{Items: []Item{{Name: "alpha", Count: 1}, {Name: "beta", Count: 2}}})
+-- render.golden --
+<ul><li>alpha: 1</li><li>beta: 2</li></ul>

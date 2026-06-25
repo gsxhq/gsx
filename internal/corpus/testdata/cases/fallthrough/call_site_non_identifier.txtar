@@ -9,7 +9,7 @@ component Page() {
 	<Button data-test="t" hx-post="/x">Go</Button>
 }
 -- invoke --
-Page(PageProps{})
+Page()
 -- diagnostics.golden --
 -- render.golden --
 <button data-test="t" hx-post="/x">Go</button>

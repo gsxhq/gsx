@@ -7,7 +7,7 @@ component C() {
 
 func theme() (string, error) { return "x", nil }
 -- invoke --
-C(CProps{})
+C()
 -- render.golden --
 <style>.a{content:x}</style>
 -- diagnostics.golden --
@@ -23,18 +23,11 @@ import (
 	"github.com/gsxhq/gsx"
 )
 
-type CProps struct {
-	Attrs gsx.Attrs
-}
-
-func C(_gsxp CProps) gsx.Node {
+func C() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<style")
-		_gsxgw.ClassMerged(_gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
 		_gsxgw.S(">")
 		_gsxgw.S(".a{content:")
 		_gsxv0, _gsxerr := theme()
