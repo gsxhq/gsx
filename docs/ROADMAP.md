@@ -6,324 +6,283 @@ Living high-level status. Update as subsystems land. Detailed design lives in
 Module: `github.com/gsxhq/gsx` · runtime is **standard-library only**; the
 generator/CLI may use `golang.org/x/tools`.
 
+**Status key:** `[x]` done · `[~]` partial / in progress · `[ ]` not started.
+
 ## Pipeline at a glance
 
 `.gsx` → **parser** → **AST** → **codegen** (`go/packages` resolution) → `.x.go` → `go build` → renders HTML via the **runtime**.
 
 | Stage | Status |
 |---|---|
-| Parser + AST | ✅ done (Part 2 grammar + pipeline parsing) |
-| Runtime (`gsx`) | ✅ done |
-| Codegen | 🟡 interpolation + control flow + full attributes (security core, composable class, spread, conditional) + pipeline `\|>` + child props/`{children}` + method components + named slots + attribute fallthrough (auto class-merge/spread + manual `{...attrs}`) + **custom attribute classification** (`WithJSAttrs`/`WithURLAttrs`/`WithCSSAttrs` + `WithAttrClassifier` escape hatch; resolved-config manifest in build cache) done; `style`-composition pending — spec `2026-06-23-attr-classification-extensions-design.md`, plan `2026-06-23-attr-classification-extensions.md` |
-| CLI / `gen.Main` | 🟡 `gsx generate` + `gsx info` + **`gsx fmt`** (canonical formatter, faithful+idempotent) runnable + **`gen.WithFilters`** user filter packages + **`gsx info --json`** (resolved config: schemaVersion, module, userRules, hasPredicate, predicateLabel (omitempty), filters) + **`internal/diag`** structured diagnostics (resolved `token.Position` Start/End, severity, code, help, source; `Bag` collector; rich/compact/JSON renderers) + **`gsx generate --json`** (JSON array to stdout; rich on TTY, compact otherwise; exit 1 on any error-severity diagnostic) + **parser errors positioned + component-boundary recovery** (Slice 2: `file:line:col: error[syntax]: …`; parser resyncs at each `component` boundary) — `vet`/`WithClassMerger`/`lsp` pending |
-| Whitespace model | ✅ JSX-style: `internal/wsnorm.Normalize` (parser lossless) wired into codegen (indentation no longer rendered) + powers `gsx fmt`. render-faithful + idempotent over the whole corpus. |
-| Pipeline `|>` end-to-end | 🟡 lowering + `std` filters + **user filter packages** (`gen.WithFilters`, multi-pkg last-wins, per-pkg alias) done — per-stage `?` + initialism naming pending |
+| Parser + AST | `[x]` Part 2 grammar + pipeline parsing + positioned, recoverable errors |
+| Runtime (`gsx`) | `[x]` done |
+| Codegen | `[~]` interpolation + control flow + full attributes (security core, composable class **and element-level style**, spread, conditional) + pipeline `\|>` + child props/`{children}` + method components + named slots + attribute fallthrough (auto class-merge/spread + manual `{...attrs}`) + custom attribute classification (`WithJSAttrs`/`WithURLAttrs`/`WithCSSAttrs` + `WithAttrClassifier`) + node-prop promotion (`gsx.Val`/`Text`/`Fragment`) done; composable `style` **on a component invocation** + `[]string` class parts pending |
+| Whitespace model | `[x]` JSX-style: `internal/wsnorm.Normalize` (parser lossless) wired into codegen + powers `gsx fmt`. render-faithful + idempotent over the whole corpus. |
+| Pipeline `\|>` end-to-end | `[x]` seed-first forward-application lowering + `std` filters + user filter packages (`gen.WithFilters` + `gen.WithFilter` aliases, multi-pkg last-wins) + `ctx` injection + `(T,error)` implicit auto-unwrap. Works in interp / attr / class / style / spread. Initialism-aware naming pending. |
+| CLI (`gsx`) / `gen.Main` | `[~]` `generate` · `fmt` · `info` · `init` · `lsp` · `clean --cache` · `version` · `help` ship, with `--json` + structured diagnostics. `vet`/`render`/`explain`/`--watch`/`WithClassMerger`/numeric codes pending. |
+| Language server (`gsx lsp`) | `[~]` diagnostics + go-to-definition + hover + find-references + formatting ship; completion / pipeline-aware nav / cross-package deferred. |
+| Developer experience (Vite + `init`) | `[x]` `gsx init` scaffold + `@gsxhq/vite-plugin-gsx` (npm v0.2.1) + `github.com/gsxhq/vite` (v0.2.0). |
 
 ## Done
 
 **Parser / grammar** (`parser/`, `ast/`) — elements, fragments, text, interpolation
-(`{ expr }`, `?` try), attributes (static / expr / bool / spread / markup),
-control flow (`{ if/for/switch }`), `{{ }}` Go blocks, conditional attributes,
-composable `class`/`style`, comments, `<!DOCTYPE>`, `<!-- -->`, raw-text
+(`{ expr }`), attributes (static / expr / bool / spread / markup), control flow
+(`{ if/for/switch }`), `{{ }}` Go blocks, conditional attributes, composable
+`class`/`style`, comments, `<!DOCTYPE>`, `<!-- -->` HTML comments, raw-text
 `<script>`/`<style>`, **pipeline `|>` parsing** (`Interp.Stages` / `ExprAttr`
-stages). Public go/ast-parity API; fuzz-hardened (no crashers). 12/12 examples
-parse.
+stages), **`@{ }` JS-context interpolation**. Public go/ast-parity API;
+fuzz-hardened (no crashers). Parser errors carry structured `token.Pos` and
+recover at the `component` boundary (one diagnostic per broken component).
 
 **Runtime** (`gsx`, module root) — `Node`/`Func`/`Raw`, error-threading `Writer`
-with streaming text/attr/URL escapers, class/style compose + pluggable
-`ClassMerger`, `Attrs` bag + deterministic `Spread`. Independent-review SHIP.
+with streaming text/attr/URL/JS/CSS escapers, class/style compose + pluggable
+`ClassMerger`, `Attrs` bag + deterministic `Spread`. `gsx.Val(any)` /
+`gsx.Text(string)` / `gsx.Fragment(nodes…)` value-Node boxes. `gsx.Raw` /
+`gsx.RawJS` / `gsx.RawCSS` / `gsx.RawURL` typed escape hatches. Independent-review SHIP.
 
 **Codegen phase 1** (`internal/codegen`) — `GeneratePackage(dir)`: `go/packages`
 + `Overlay` skeleton type resolution (cross-file, cross-component); arity-safe
 `_gsxuse` probe; components+params → props + used-param local-binding; full §5
 type-aware interpolation (string / []byte / numeric / bool / `gsx.Node` /
-`[]gsx.Node` / `fmt.Stringer`; `gsx.Raw` via Node); `(T,error)` auto-unwrap;
-child components (no props yet); GoChunk import hoisting; `//line` maps;
-identifier hygiene + pointer-`Render` + overlay-collision hardening.
-Tested by source golden + ~21 compile-and-render goldens.
+`[]gsx.Node` / `fmt.Stringer`; `gsx.Raw` via Node); **`(T,error)` auto-unwrap
+(implicit, no `?` marker)**; child components; GoChunk import hoisting;
+`//line` maps; identifier hygiene + pointer-`Render` + overlay-collision hardening.
 
-## Codegen phase 2 — feature phases (next)
+**Node-prop promotion** — a non-Node value (or fragment) passed where a
+`gsx.Node` prop is expected is boxed automatically via `gsx.Val` / `gsx.Text` /
+`gsx.Fragment`, so authors write `<Card title={x}/>` with `x` of any renderable
+type. Emit ≡ probe.
+
+## Codegen phase 2 — feature phases
 
 Each is a spec/plan → SDD slice that graduates more of the example corpus to
-render goldens. Suggested order:
+render goldens.
 
-1. ✅ **Guard pipeline silent-drop** — codegen now errors on non-empty
-   `Interp.Stages` (interpolation). *(ExprAttr stages will be guarded when
-   attribute codegen lands — attributes aren't emitted yet.)*
-2. ✅ **Control flow** — `{ if/for/switch }`, `{{ }}`, fragments → plain Go around
-   writes (probe mirrors structure so loop-var/block-local interps resolve).
-3. ✅ **Attributes — security core + composable kinds done.** Static (always-quoted,
+1. `[x]` **Guard pipeline silent-drop** — codegen errors on a non-empty
+   `Interp.Stages` that fails to lower.
+2. `[x]` **Control flow** — `{ if/for/switch }`, `{{ }}`, fragments → plain Go
+   around writes (probe mirrors structure so loop-var/block-local interps resolve).
+3. `[x]` **Attributes — security core + composable kinds.** Static (always-quoted,
    codegen-escaped), bool, and expr attrs with **structural context-aware escaping**
    (URL → scheme-allow-list + entity-escape `gw.URL`; plain → §5 type-aware
-   `gw.AttrValue`; **CSS `style`/`<style>` → auto value-filter `gw.CSS`/`gw.Style`
-   with a `gsx.RawCSS` opt-out**; JS `on*`/`@*`/`hx-on*` expr values → **fail-closed
-   compile error**). Plus composable **`class`** (`gw.Class`) and composable
-   **`style`** (`gw.Style`/`gsx.StyleString`), **element spread** `{...attrs}`
-   (`gw.Spread`), and **conditional** `{ if cond { attr } else { attr } }` (a shared
-   `walkAttrExprs` keeps the type-probe order invariant with branch-nested exprs).
-   Pipelines `|>` work in every interpolation/attr context. **Deferred:** `[]string`
-   class parts; non-string-value-in-URL-attr clean error. *(There is no `|> css`
-   filter — CSS sanitization is automatic; `?` try-marker was removed.)*
-4. 🟡 **Pipeline `|>` + filters — first slice done.** Lowering of `Stages` to
-   nested qualified Go calls (`{x |> a |> b(n)}` → `_gsxstd.B(n)(_gsxstd.A((x)))`),
-   resolved against the shipped `std` package via `go/types` harvest-by-contract;
-   the lowered expr is both the type-probe and the emitted render, so the result
-   flows through the existing type-aware render / context escaper (interp + attr).
-   Independent review: SHIP (1 bug found+fixed — params used only in filter args).
-   **Deferred:** the `gen.Main`/`cmd/gsx`/`WithFilters` extension seam + user filter
-   packages + collision/precedence + `gsx info`/`vet`; per-stage `?` (failable
-   filters); initialism-aware naming; pipeline-as-filter-argument; ambient `mapEach`.
-5. ✅ **Child-component props + `{children}`** — attr→field mapping
-   (`<Card title={x} featured/>` → `Card(CardProps{Title: x, Featured: true})`,
-   shared `childPropsFields` for emit+probe); `{children}` slot (synthesized
-   `Children gsx.Node` field + `gsx.Func` closure passed by the parent; slot renders
-   in parent scope; nil-safe). Order invariant: component elements recurse children
-   (slot), skip attrs (props). Independent review: SHIP.
-   - ✅ **Named slots** — `<Panel header={ <h1/> }/>` (markup attr) → a `gsx.Func`
-     closure assigned to the declared `gsx.Node` prop, placed via `{header}`. Unified
-     `childPropsLiteral`/`emitSlotClosure`/`walkMarkupAttrs` (emit ≡ probe; order:
-     markup-attr values then children). Independent review: SHIP (no findings).
-   - **Deferred:** auto-fallthrough / `{...attrs}` / component spread (→ #7),
-     class/cond/pipeline attrs on a component.
-6. ✅ **Method components** — `component (p T) Name(params) { … }` → method
-   `func (p T) Name(_gsxp T<Name>Props) gsx.Node` (nullary → no props struct; the
-   receiver IS the page data, `p.Field` works). Invocation `<p.Content/>` /
-   `<p.Grid sort={p.Sort}/>` (left ident == enclosing receiver var) → method call;
-   other dotted tags stay package calls (shared `childInvocation`/`childPropsFields`
-   keep probe ≡ emit). `harvest` keyed by receiver+method (same-named methods on
-   different receivers resolve). Also fixed **`ctx`-in-interpolation** (skeleton
-   binds `ctx`). Independent review: SHIP (1 Critical found+fixed). **Deferred:**
-   `<v.Method/>` for a non-receiver local (treated as package call); generic
-   receivers `(p T[X])`; named markup-attr slots.
-7. ✅ **Attribute fallthrough** — undeclared invocation attrs split (declared
-   props — matched against an **AST-derived** map of each component's prop field
-   names, same for emit + probe so no second type-check — vs everything else → an
-   `Attrs gsx.Attrs` bag). **Auto** single-root (no `CondAttr`/`SpreadAttr` on the
-   root): the bag's `class` merges into the
-   root's class and the rest spreads at the root, root-wins (root's own attrs +
-   class/style dropped from the spread); empty bag is a no-op. **Manual** `{...attrs}`:
-   a body referencing `attrs` takes over placement (auto root injection disabled),
-   binding `attrs := _gsxp.Attrs`. Ambiguity (a fallthrough attr onto a non-eligible
-   multi-root/fragment child, which has no `Attrs` field) surfaces as a Go
-   unknown-field error.
-   - **Update:** component-attribute fallthrough now also covers composable
-     `class={…}`, `{...spread}`, conditional `{ if }`, and pipelined values on a
-     `<Card …>` invocation (routed into the child's `Attrs` bag; `gsx.AttrsCond`
-     for lazy conditional branches). Static `style="…"` falls through (root
-     `StyleMerged`). **Deferred:** composable `style={…}` on a *component* invocation
-     (composable `class` works; composable `style` on a component does not yet —
-     set it on the root or use a static `style="…"`); cross-package
-     undeclared-identifier split (best-effort — non-identifier attrs
-     fall through, undeclared cross-package identifiers are assumed props and surface
-     at the imported build); a pretty ambiguity diagnostic (today the raw Go
-     unknown-field error).
+   `gw.AttrValue`; CSS `style`/`<style>` → auto value-filter `gw.CSS`/`gw.Style`
+   with a `gsx.RawCSS` opt-out; **JS `on*`/`@*`/`hx-on*` expr values →
+   JSON-encoded via `gw.JSValAttr`, `gsx.RawJS` opt-out — see Security**). Plus
+   composable **`class`** (`gw.Class`), composable **`style`** on elements
+   (`gw.Style`/`gsx.StyleString`), **element spread** `{...attrs}` (`gw.Spread`),
+   and **conditional** `{ if cond { attr } else { attr } }`. Pipelines `|>` work
+   in every interpolation/attr/class/style/spread context. **Deferred:** `[]string`
+   class parts; non-string-value-in-URL-attr clean compile error.
+4. `[x]` **Pipeline `|>` + filters.** Seed-first forward-application: `subject |> name(args…)`
+   → `Name([ctx,] (subject)[, args…])`, resolved against the shipped `std` package
+   (and user packages) via `go/types` harvest-by-contract; the lowered expr is both
+   the type-probe and the emitted render, so the result flows through the existing
+   type-aware render / context escaper. `ctx` is injected when a filter's first
+   param is `context.Context`; `(T,error)` rides the implicit auto-unwrap.
+   `std` ships `default/join/lower/trim/truncate/upper`.
+   - **Removed (not deferred):** the per-stage `?` try-marker — `(T,error)`
+     auto-unwrap is implicit everywhere, so `?` is now a parse error.
+   - **Deferred:** initialism-aware filter naming; pipeline-as-filter-argument and
+     ambient `mapEach` (both unbuilt language features, out of scope).
+5. `[x]` **Child-component props + `{children}`** — attr→field mapping
+   (`<Card title={x} featured/>` → `Card(CardProps{Title: x, Featured: true})`);
+   `{children}` slot (synthesized `Children gsx.Node` field + `gsx.Func` closure;
+   nil-safe).
+   - `[x]` **Named slots** — `<Panel header={ <h1/> }/>` (markup attr) → a
+     `gsx.Func` closure assigned to the declared `gsx.Node` prop, placed via `{header}`.
+6. `[x]` **Method components** — `component (p T) Name(params) { … }` → method
+   `func (p T) Name(...)`; invocation `<p.Content/>` (left ident == enclosing
+   receiver var) → method call; other dotted tags stay package calls. Also fixed
+   `ctx`-in-interpolation. **Deferred:** `<v.Method/>` for a non-receiver local;
+   generic receivers `(p T[X])`.
+7. `[x]` **Attribute fallthrough** — undeclared invocation attrs split (declared
+   props matched against an AST-derived prop-name map vs everything else → an
+   `Attrs gsx.Attrs` bag). **Auto** single-root: the bag's `class` merges into the
+   root's class and the rest spreads at the root, root-wins. **Manual** `{...attrs}`:
+   a body referencing `attrs` takes over placement. Covers composable `class={…}`,
+   `{...spread}`, conditional `{ if }`, and pipelined values on a `<Card …>`
+   invocation, plus whole-struct splat `{ data... }`.
+   - **Deferred:** composable `style={…}` on a *component* invocation (works on an
+     element, or set a static `style="…"`); cross-package undeclared-identifier split
+     (best-effort); a pretty ambiguity diagnostic (today the raw Go unknown-field error).
 
-## Security — safe by default, escape hatch via pipeline
+## Language server (`gsx lsp`)
+
+In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
+`case "lsp"`). The analysis bridge runs the codegen pipeline (parse → type-check
+→ harvest) **without writing `.x.go` to disk**.
+
+- `[x]` **Diagnostics** (`textDocument/publishDiagnostics`) — positioned parse +
+  type errors (Start/End, severity, code, help) from the shared `internal/diag`
+  bag; re-analyses on every change; semantic multi-error + component-boundary recovery.
+- `[x]` **Go-to-definition** (`textDocument/definition`) — four cases: `.gsx`
+  Go-expr → `.go` def (D1/D3); `<Card/>` tag → `component` decl in `.gsx` (D2);
+  `.go` component ref → `.gsx` declaration (D1.go). Uses the skeleton `go/types`
+  analysis + cross-index + NavIndex.
+- `[x]` **Hover** (`textDocument/hover`) — gopls-style type/signature for an
+  identifier or expression; component-tag hover shows the component signature
+  (answered from the AST even when type-checking fails mid-edit).
+- `[x]` **Find-references** (`textDocument/references`) — `.go` call sites + `.gsx`
+  tag sites for a component, in-package.
+- `[x]` **Formatting** (`textDocument/formatting`) — canonical form with
+  unused-import removal (reuses `gen.Format` / `gsxfmt.FormatRemovingImports`).
+- **Deferred:** completion (needs AST repair + ranking; no importable library);
+  pipeline-aware definition/hover (piped exprs return null today — the byte-identical
+  offset bridge breaks under lowering); cross-package references; `didChange`
+  debounce (synchronous today); dotted/cross-package component tags (`<ui.Button/>`).
+
+Specs: `2026-06-23-gsx-lsp-design.md`, `2026-06-24-gsx-lsp-slice2a-goto-definition-design.md`,
+`2026-06-24-gsx-lsp-go-to-gsx-design.md`, `2026-06-24-gsx-lsp-hover-design.md`.
+
+## Developer experience — Vite + `init`
+
+A complete, ready-to-run dev loop across three coordinated, independently-versioned
+pieces. Save → `gsx generate` → `go build` → browser reloads.
+
+- `[x]` **`gsx init` scaffold** (`gen/init.go`, `gen/templates/init/simple/`) —
+  scaffolds a `net/http.ServeMux` Go server (graceful shutdown so `wgo` rebuilds
+  release the port cleanly), a `.gsx` component, a Vite config (front-door proxy +
+  `@gsxhq/vite-plugin-gsx` + `devFallback`), a `Taskfile.yml` (parallel Vite + `wgo`,
+  combined `tmp/dev.log`), embedded `public/*.svg`, and `.env` ports. Interactive
+  (TTY prompts → runs `go mod tidy` / `npm install`) or non-interactive (`--yes`).
+  Flags accepted in any position. Dev serves CSS via Vite JS with a **FOUC loading
+  gate** so the first paint isn't unstyled.
+- `[x]` **`@gsxhq/vite-plugin-gsx`** (npm **v0.2.1**, `~/personal/gsxhq/vite-plugin-gsx`) —
+  `gsx()` watches `.gsx`, runs `gsx generate`, surfaces diagnostics in the Vite
+  error overlay (auto-clears on recovery), and full-reloads on the Go server's
+  POST to `/__reload`; `devFallback()` serves a self-recovering interstitial while
+  the backend is down/restarting.
+- `[x]` **`github.com/gsxhq/vite`** (Go, **v0.2.0**, `~/personal/gsxhq/vite`,
+  stdlib-only) — manifest resolution (dev URL vs embedded prod manifest, transitive
+  CSS dedup), `Entry(name) Bundle`, `StaticHandler()`, `NotifyReload(devURL)`, and
+  context helpers (`NewContext`/`FromContext`/`Middleware`) for request-scoped
+  instance threading.
+
+## Security — safe by default
 
 Threat model (the line every major engine draws): **template authors are
 trusted; interpolated data is not.** Output encoding is gsx's job; input
 validation is the app's job. Because gsx compiles to Go through `go/types`, the
-ambition is to turn html/template's *runtime* safety into *compile-time* safety:
-**unsafe contexts become build errors, not runtime surprises.** Research synthesis
-(templ / html/template / safehtml / JSX / Jinja2) in the security design doc.
+ambition is to turn html/template's *runtime* safety into *compile-time* safety.
+Research synthesis (templ / html/template / safehtml / JSX / Jinja2) in the
+security design doc.
 
-**Escape-hatch direction — pipeline, not function calls.** templ/html-template
-spell the opt-out as a typed-string constructor (`templ.Raw(x)`,
-`template.HTML(x)`) — easy to apply to tainted data and invisible in review. gsx's
-*aspiration* is to route escaping opt-outs through the `|>` pipeline, which is more
-flexible, pluggable, and `grep`-able:
+**Shipped reality — encoding is automatic by context:**
 
-> **Status (shipped reality):** encoding is **automatic by context** — HTML, attr,
-> URL, **JS/JSON** (`@{ x }` in `<script>`/JS-attrs and the
-> `<script type="application/json">@{ data }</script>` island JSON-encode via
-> `JSVal`), and **CSS** (`<style>` bodies + `style=`/CSS-context attrs value-filter
-> via `gw.CSS`/`gw.Style`/`FilterCSS`). **JSON and CSS are automatic, never
-> `|> json`/`|> css` filters.** The opt-outs that ship today are **typed
-> constructors** — `gsx.Raw` (HTML), `gsx.RawJS`, `gsx.RawCSS`, `gsx.RawURL` —
-> *not* `|> raw`/`|> js`/`|> css` filters (those don't exist; `std` ships only
-> `default/join/lower/trim/truncate/upper`). The **one genuinely fail-closed
-> context is JS event-handler expression values** (`onclick={…}` / `@*` / `hx-on*`),
-> which are a compile error. The pipeline-as-opt-out bullets below are the intended
-> *future* direction, not the current API.
+- **HTML / attr / URL** — auto-escaped by structural context (`gw.Text` /
+  `gw.AttrValue` / `gw.URL`); URL scheme allow-list (http/https/mailto/tel →
+  `about:invalid#gsx` sentinel); always-quoted attribute values.
+- **JS / JSON** — `@{ x }` in `<script>` bodies and JS-context attributes
+  (`onclick`/`@*`/`hx-on*`/`x-data`/…), plus the
+  `<script type="application/json">@{ data }</script>` data island, **JSON-encode
+  via `gw.JSVal` / `gw.JSValAttr`** (HTML-safe: `< > &`, U+2028/U+2029; numeric
+  token-fusion padding). `gsx.RawJS` opts out. The **only fail-closed JS cases**
+  are holes landing in unsafe *positions* — a hole used as an identifier / binding /
+  comment rather than a value (e.g. `x-on:click="@{ stmt } = 1"`) — which is a
+  compile error, not a runtime `ZgotmplZ`.
+- **CSS** — `<style>` bodies + `style=`/CSS-context attrs value-filter via
+  `gw.CSS` / `gw.Style` / `FilterCSS` (faithful port of html/template's
+  `cssValueFilter`); numbers are raw; `gsx.RawCSS` opts out. Static `<style>` CSS
+  is minified at codegen time (`internal/cssmin`, hole-aware).
 
-- Safe is the default: a bare `{ x }` is always context-escaped by codegen.
-- The intended opt-out is a *filter*, not a cast: `{ x |> raw }`, `{ x |> js }`,
-  `{ url |> trustedResource }`. Filters are registered and
-  `grep`-able (`|> raw` greps cleanly for audit), and the registry is pluggable
-  so projects can add vetted domain-specific safe constructors.
-- Filters can carry the *type contract*: a `raw`/`js`/`css` filter's signature
-  forces a dedicated safe type (à la safehtml), so the escape hatch is a
-  deliberate, type-checked step rather than a string conversion.
+**JSON and CSS are automatic, never `|> json`/`|> css` filters.** The opt-outs
+that ship are **typed constructors** (`gsx.Raw`, `gsx.RawJS`, `gsx.RawCSS`,
+`gsx.RawURL`) — there are no `|> raw`/`|> js`/`|> css` filters. (`std` ships only
+`default/join/lower/trim/truncate/upper`.) A future pipeline-based escape-hatch
+vocabulary remains a design aspiration, not the current API.
 
-**Already shipped (runtime):** context escapers (`Text` / `AttrValue` / `URL`),
-URL scheme allow-list (http/https/mailto/tel → `about:invalid#gsx` sentinel),
-attribute-name validation against tag breakout (`validAttrName`), documented
-`Attrs` security contract.
+**Prioritized work:**
 
-**Prioritized work (dig into, in order):**
-
-1. ✅ **[Blocking] Context dispatch in codegen** — attribute escaping is now
-   auto-dispatched (`AttrValue`/`URL`/reject) from the *parsed attribute name*,
-   not author choice. (Element-content interpolation was already §5 type-aware.)
-   This is the safe-by-default core. *(A full Text/RCDATA/comment-position state
-   machine across all markup positions is broader future work.)*
-2. ✅ **[Blocking] Always-quote emitted attribute values** — every static and
-   expr attr value is wrapped in codegen-emitted double quotes; kills the Jinja
-   `xmlattr` / unquoted-attribute injection class (CVE-2024-22195) outright.
-3. ✅ **[High] CSS contexts auto-sanitize; JS contexts fail-closed.**
-   - **CSS — DONE (slice 1, 2026-06-22):** `<style>` blocks support `${ expr }`
-     interpolation and `style={ … }` attributes auto-sanitize, both routing
-     untrusted values through a faithful port of `html/template`'s `cssValueFilter`
-     (exported `gsx.FilterCSS`; block writer `gw.CSS`). Numbers are raw (safe by
-     construction); `gsx.RawCSS` is the author opt-out; composed `style={ "x": cond,
-     dyn }` trusts string-literal parts and filters dynamic ones. Adversarial-reviewed
-     + fuzzed (44.7M inputs, no breakout-byte leak). `<script>` stays raw.
-   - **CSS minification — DONE (slice 2):** `<style>` static CSS is minified at
-     codegen time by a robust, stdlib-only built-in (`internal/cssmin`:
-     whitespace/comments only, no value rewrites, hole-aware for `${ }`);
-     `gen.WithCSSMinifier` swaps in an aggressive minifier (e.g. tdewolff) for
-     holeless blocks. On by default (cache `Version()` bumped); `gsx fmt`/source
-     untouched. JS minification (`gen.WithJSMinifier`) is slice 3.
-   - **JS — still fail-closed:** `on*`/`@*`/`hx-on*` expr values are a build error
-     (not a runtime `ZgotmplZ`); a `|> js` safe pipeline + `<script>` interpolation is
-     a later chapter.
-4. 🟡 **[High] Harden `urlSanitize` + complete URL-attr table** — control-char /
-   whitespace scheme evasion (`java\tscript:`, `\x01javascript:`, leading-space)
-   maps to the sentinel (verified by adversarial probe); the `urlAttrs` table
-   covers `href`/`src`/`action`/`formaction`/`poster`/`cite`/`ping`/`data`/
-   `background`/`manifest`/`xlink:href`/`hx-*`. **Remaining:** `meta
+1. `[x]` **Context dispatch in codegen** — attribute escaping is auto-dispatched
+   (`AttrValue`/`URL`/`JSValAttr`/`CSS`) from the *parsed attribute name* +
+   classifier, not author choice. (A full Text/RCDATA/comment-position state
+   machine across all markup positions is broader future work.)
+2. `[x]` **Always-quote emitted attribute values** — kills the Jinja `xmlattr` /
+   unquoted-attribute injection class (CVE-2024-22195).
+3. `[x]` **CSS auto-sanitizes; JS contexts safely JSON-encode** — `<style>`/`style={…}`
+   route untrusted values through `FilterCSS` (adversarial-reviewed + fuzzed, 44.7M
+   inputs, no breakout-byte leak); `@{ }` JS contexts JSON-encode (Slices C1–C3).
+   CSS minification on by default.
+4. `[~]` **Harden `urlSanitize` + complete URL-attr table** — control-char /
+   whitespace scheme evasion maps to the sentinel (adversarial-probed); the
+   `urlAttrs` table covers `href`/`src`/`action`/`formaction`/`poster`/`cite`/`ping`/
+   `data`/`background`/`manifest`/`xlink:href`/`hx-*`. **Remaining:** `meta
    http-equiv=refresh` content (CVE-2026-27142) and `base href` carriers; a
    dedicated fuzz target seeded from the OWASP filter-evasion sheet.
-5. ⬜ **[High] Split navigational vs resource URLs** in the type/filter
-   vocabulary (`URL` vs `TrustedResourceURL`, à la safehtml; html/template
-   conflates them — go#27926).
-6. ✅ **One obvious data→`<script>` path — DONE (automatic, not a filter).** A
-   `<script type="application/json">@{ data }</script>` island, and any JS-value
-   context (`@{ x }` in `<script>`/JS-attrs), auto JSON-encode via `JSVal`
-   (HTML-safe: `< > &`, U+2028/U+2029; numeric token-fusion padding); `gsx.RawJS`
-   opts out. There is **no `|> json` filter** — JSON is the JS-value encoding. See
-   `2026-06-23-gsx-js-interpolation-design.md` and the `datajson/` corpus.
-7. ⬜ **[v2] CSP nonce threading** for emitted `<script>`/`<style>` — thread a
+5. `[ ]` **Split navigational vs resource URLs** in the type/filter vocabulary
+   (`URL` vs `TrustedResourceURL`, à la safehtml; html/template conflates them —
+   go#27926).
+6. `[x]` **One obvious data→`<script>` path** — `<script type="application/json">@{ data }</script>`
+   islands + any JS-value context auto JSON-encode via `JSVal`; `gsx.RawJS` opts out.
+   No `|> json` filter. See `2026-06-23-gsx-js-interpolation-design.md` and `datajson/`.
+7. `[ ]` **CSP nonce threading** for emitted `<script>`/`<style>` — thread a
    per-request nonce; do not build a CSP engine (header is the server's job).
 
 ## Tracked debts / deferrals
 
-- ⬜ **Pipeline codegen + filters/`std`/`gen`** — designed
-  (`2026-06-19-gsx-pipeline-and-extensions-design.md`), not implemented (phase-2 #4).
-- ✅ **Example 02 `02_text_escaping.gsx`** — RESOLVED. The `//`-in-markup grammar
-  question is decided per the design (§414): **element content is literal text**,
-  so a bare `//` in content position renders verbatim (it is NOT a comment). The
-  example was violating its own documented model — fixed to use the braced
-  `{/* … */}` content-comment form (comments are tag-interior `//`/`/* */` or
-  braced; content `//` is literal). Printer simplified accordingly (the moot
-  `isLineCommentText` line-comment special-case removed; faithfulness + idempotence
-  re-proven over the corpus).
-- ⬜ **`_gsx`-alias generator-emitted imports** — robust form of the import-shadow
-  guard (currently `gsx`/`strconv` are reserved param names as a stopgap).
-- ✅ **Structured diagnostics — Slice 1 (semantic layer) SHIPPED** (`internal/diag`:
-  resolved `token.Position` Start/End ranges, `Severity` {error/warning/info/hint;
-  only error produced in Slice 1}, `Code`, `Message`, `Help`, `Source`; `Bag`
-  collector with `Add`/`Errorf`/`Report`/`HasErrors`/`Sorted`; three renderers:
-  **rich** (rustc/Go-style snippet+caret+`= help:`), **compact** (`file:line:col:
-  severity[code]: message`), **JSON** (`{file,range,severity,code,message,help,source}`
-  array). **Semantic-layer recovery:** all `go/types` errors surfaced (not just first);
-  codegen accumulates diagnostics and recovers at the **component boundary** (bad
-  component skipped, siblings still report); per-package write remains all-or-nothing
-  (`HasErrors` → no `.x.go` emitted). **Positioned diagnostics:** codegen diagnostics
-  now carry `.gsx` positions (closes gap inventoried in `codegen-diagnostic-position-audit.md`);
-  jsx diagnostics carry real `file:line:col` (old `normalizeDiag` "at N" raw-offset
-  hack removed). **`gsx generate`:** rich renderer on TTY, compact otherwise,
-  `--json` for agents/editors; exit 1 on any error-severity diagnostic, exit 0
-  on success, exit 2 on fatal setup failure. Spec:
-  `docs/superpowers/specs/2026-06-23-diagnostics-foundation-design.md`, plan:
-  `docs/superpowers/plans/2026-06-23-diagnostics-foundation.md`.
-- ✅ **Structured diagnostics — Slice 2 (parser layer) SHIPPED** — parser errors
-  now carry structured `token.Pos` and render positioned: `index.gsx:21:4:
-  error[syntax]: mismatched close tag </Layout>, expected </h1>` (previously
-  the position was embedded inside the message text, behind a positionless
-  diagnostic). Implemented via `parser.Error{Pos, Msg}` + `p.errorf` accumulator.
-  **Component-boundary recovery:** a syntax error in one component no longer stops
-  the file — the parser resyncs to the next top-level `component` keyword and
-  continues, so a file reports **one diagnostic per broken component** (with a
-  forward-progress guarantee). `ParseFileWithClassifier` now returns
-  `(*ast.File, []Error)`; `ParseFile` keeps its single-`error` contract.
-  A package with any parser error skips type-resolution and emit (writes nothing)
-  — same all-or-nothing stance as Slice 1. New corpus cases prove it; CLI
-  verified end-to-end. **LSP-readiness:** the parser layer is now closed — all
-  of parser/types/codegen/jsx produce positioned, structured diagnostics through
-  one `diag.Bag`; "all diagnostics for a document" holds for parser + semantic
-  layers. **Deferred:** intra-component parser recovery (multiple syntax errors
-  within one component); type-errors-alongside-parser-errors (a syntax-broken
-  package skips semantic phases). Spec:
-  `docs/superpowers/specs/2026-06-24-parser-error-recovery-design.md`, plan:
-  `docs/superpowers/plans/2026-06-24-parser-error-recovery.md`.
-- 🟡 **CLI / `gen.Main`** — `gsx generate` SHIPPED: public `gen` package
-  (`Generate(paths)` discovers `.gsx` recursively, codegens per package dir, writes
-  `.x.go`), `gen.Main(...Option)` dispatch (`generate`/`version`/`help`, `-C`/`-q`/`-v`,
-  exit 0/1/2), `cmd/gsx` stock binary. `//go:generate gsx generate` works.
-  **Also shipped:** `WithFilters` + `WithCSSMinifier`/`WithJSMinifier` extension seam;
-  `WithJSAttrs`/`WithURLAttrs`/`WithCSSAttrs`/`WithAttrClassifier` attribute-classification
-  extensions; `gsx info --json` (resolved config manifest: schemaVersion, module,
-  userRules, hasPredicate, filters).
-  **Also shipped (diagnostics foundation):** `internal/diag` structured diagnostics +
-  `gsx generate --json` + rich/TTY/compact renderer selection + error-severity exit codes;
-  codegen+jsx positioned diagnostics; semantic-layer multi-error recovery; `normalizeDiag` removed.
-  **Also shipped (parser error recovery, Slice 2):** parser errors carry structured
-  `token.Pos`; render `file:line:col: error[syntax]: …`; component-boundary recovery
-  (one diagnostic per broken component; forward-progress guarantee); `ParseFileWithClassifier`
-  returns `(*ast.File, []Error)`; `ParseFile` retains single-`error` contract;
-  parser-error packages skip resolve/emit (all-or-nothing, same as Slice 1).
-  **Pending:** `WithClassMerger`; GSXnnnn numeric codes; `vet`/`lsp`/`render`/`explain`/`init`;
-  `--watch`/incremental; per-command flags (today flags must precede the command);
-  intra-component parser recovery; type-errors-alongside-parser-errors.
-- ⬜ **Codegen niceties** — coalesce adjacent `gw.S` static writes; `//line`
+- `[x]` **Pipeline codegen + filters/`std`/`gen`** — SHIPPED (seed-first
+  forward-application, `ctx` injection, `(T,error)` auto-unwrap, `gen.WithFilters` +
+  `gen.WithFilter` aliases, multi-pkg last-wins). Spec
+  `2026-06-25-pipeline-forward-application-design.md`.
+- `[ ]` **Pipeline extensions** — initialism-aware filter naming;
+  pipeline-as-filter-argument; ambient `mapEach` (deferred / out of scope).
+- `[x]` **Example 02 `//`-in-markup grammar** — decided: element content is
+  literal text, so a bare `//` in content renders verbatim; the braced
+  `{/* … */}` form is the content-comment. Printer simplified; faithfulness +
+  idempotence re-proven.
+- `[ ]` **`_gsx`-alias generator-emitted imports** — robust form of the
+  import-shadow guard (currently `gsx`/`strconv` are reserved param names as a stopgap).
+- `[x]` **Structured diagnostics — Slice 1 (semantic layer)** — `internal/diag`
+  (resolved `token.Position` Start/End, severity, code, message, help, source; `Bag`
+  collector; rich/compact/JSON renderers). All `go/types` errors surfaced; codegen
+  recovers at the component boundary; per-package write is all-or-nothing. Codegen +
+  jsx diagnostics carry `.gsx` positions. `gsx generate` selects rich (TTY) / compact
+  / `--json`; exit 1 on any error. Spec/plan `2026-06-23-diagnostics-foundation*`.
+- `[x]` **Structured diagnostics — Slice 2 (parser layer)** — parser errors carry
+  `token.Pos` and render `file:line:col: error[syntax]: …`; component-boundary
+  recovery (one diagnostic per broken component, forward-progress guarantee);
+  `ParseFileWithClassifier` returns `(*ast.File, []Error)`. **Deferred:**
+  intra-component recovery; type-errors-alongside-parser-errors. Spec/plan
+  `2026-06-24-parser-error-recovery*`.
+- `[~]` **CLI / `gen.Main`** — SHIPPED: `gsx generate` / `fmt` / `info` / `init` /
+  `lsp` / `clean --cache` / `version` / `help`; public `gen` package + `gen.Main`
+  dispatch (`-C`/`-q`/`-v`, exit 0/1/2); `cmd/gsx` stock binary; `//go:generate gsx
+  generate`. Extension seam: `WithFilters`/`WithFilter`, `WithCSSMinifier`/`WithJSMinifier`,
+  `WithJSAttrs`/`WithURLAttrs`/`WithCSSAttrs`/`WithAttrClassifier`, `WithFieldMatcher`.
+  `gsx info --json` config manifest. `generate`/`init` accept flags in any position
+  (`fmt`/`info` require flags first). **Pending:** `WithClassMerger`; GSXnnnn numeric
+  codes (codes are string-based today, e.g. `invalid-syntax`); `vet`/`render`/`explain`;
+  `--watch`/incremental.
+- `[ ]` **Codegen niceties** — coalesce adjacent `gw.S` static writes; `//line`
   trailing-state reset; `data:image` URL allowance.
-- ⬜ **Tooling performance measurement on a realistic large corpus** — the existing
-  baseline (`gen/perf_test.go`, `GSX_PERF=1`; note
-  `docs/superpowers/notes/2026-06-24-go-to-gsx-perf.md`) uses a *synthetic* 50-package
-  fixture of trivial components: ~383 ms/package `Analyze` (cost dominated by
-  `go/packages.Load`), ~24.7 MiB/package retained, cross-index lookups <1 µs. That
-  understates real cost — real `.gsx` files have deeper type graphs (real imports,
-  cross-package component refs, props structs, method components). **Plan:** measure a
-  realistic corpus, blog example first (`~/personal/structpages/examples/blog` —
-  needs a few fixes before it's measurement-ready), then a larger real-world project,
-  scaling up to gauge `Analyze`/codegen latency, retained memory growth, and GC
-  pressure at size. **New angle from this slice:** `gsx fmt` now loads the module by
-  default (to remove unused imports) — measure that default cost vs `gsx fmt
-  -no-imports` (syntactic, no load) on a large tree, to confirm the on-by-default
-  decision holds at scale. Likely mitigations if needed: debounce + LRU cap on the
-  LSP's retained packages; slimming the `.gsx`-side full-`Info` retention (the 24.7
-  MiB figure).
+- `[ ]` **Tooling performance measurement on a realistic large corpus** — the
+  existing baseline (`gen/perf_test.go`, `GSX_PERF=1`; note
+  `2026-06-24-go-to-gsx-perf.md`) uses a *synthetic* 50-package fixture: ~383 ms/package
+  `Analyze` (dominated by `go/packages.Load`), ~24.7 MiB/package retained. Plan:
+  measure a realistic corpus (blog example, then a larger real project) to gauge
+  `Analyze`/codegen latency, retained memory, GC pressure. Also measure `gsx fmt`
+  default (module-loading, for unused-import removal) vs `-no-imports` at scale.
+  Likely mitigations: LSP retained-package LRU cap; slim the `.gsx`-side full-`Info`.
 
 ## Documentation backlog
 
-- ✅ **Examples section (rebuild) — SHIPPED.** A single-source, CI-checked
-  **Examples** gallery (live: <https://gsxhq.github.io/guide/examples>). Each
-  `examples/*.txtar` fixture — a `-- doc --` metadata block (name/summary/
-  category/order) + one-or-more `package views` `.gsx` files + one `-- invoke --`
-  + a `-- render.golden --` — is the **one source** feeding three consumers, so
-  they can never drift: (1) a render test (`internal/corpus` `TestExamples`
-  compiles + `go run`s every fixture and asserts its golden), (2) the docs page
-  `docs/guide/examples.md`, and (3) the playground presets (frontend dropdown +
-  backend cache-seed). A generator (`internal/examplegen` + `cmd/gsx-examples`,
-  run via `make examples`) emits the docs page (source canonicalized through
-  `gen.Format`) and the byte-identical preset JSONs. **19 examples across 6
-  sections** — Basics · Control flow · Components & composition · Styling ·
-  Transforming values · Interactive & whole-page — each borrowing a popular
-  library's canonical walkthrough (JSX/Vue/Jinja/Handlebars/templ) with the gsx
-  flavor, including a **multi-file template-composition** showcase. Spec/plan:
-  `2026-06-24-gsx-examples-framework-design.md` /
-  `2026-06-24-gsx-examples-framework.md`.
-- ✅ **Examples → Playground links — SHIPPED.** Each example emits an
-  **"Open in Playground"** `#try=` deep-link (std-base64 of `{s:source,i:invoke}`,
-  round-tripped by the playground decoder) that preloads it; opening a link also
-  selects the matching example in the dropdown (or shows a "Shared link" entry
-  for edited state). Multi-file examples ride the Go-Playground txtar format
-  (`-- file --` separators), which the render server splits and the editor shows.
-- ⬜ **Getting Started section** — a dedicated guide using `gsx init`, walking
-  through first-project setup and explaining the tech stack it scaffolds (the
-  generated layout, the Vite plugin / dev loop, how `.gsx → .x.go → go build`
-  fits together).
+- `[x]` **Examples gallery — SHIPPED.** A single-source, CI-checked **Examples**
+  gallery (live: <https://gsxhq.github.io/guide/examples>). Each `examples/*.txtar`
+  fixture (a `-- doc --` metadata block + `package views` `.gsx` files + `-- invoke --`
+  + `-- render.golden --`) is the **one source** feeding three consumers: (1) a render
+  test (`internal/corpus` `TestExamples`), (2) the docs page `docs/guide/examples.md`,
+  (3) the playground presets. A generator (`internal/examplegen` + `cmd/gsx-examples`,
+  `make examples`) emits the docs page + byte-identical preset JSONs. **19 examples
+  across 6 sections** — Basics · Control flow · Components & composition · Styling ·
+  Transforming values · Interactive & whole-page. Spec/plan
+  `2026-06-24-gsx-examples-framework*`.
+- `[x]` **Examples → Playground links — SHIPPED.** Each example emits an "Open in
+  Playground" `#try=` deep-link (std-base64 of `{s:source,i:invoke}`); multi-file
+  examples ride the Go-Playground txtar format (`-- file --` separators).
+- `[ ]` **Getting Started guide** — a narrative onboarding tutorial using `gsx init`
+  (scaffold → `task dev` → first live-reload edit → the Vite dev loop → why the build
+  step buys compile-time safety). `gsx init` itself is documented in `docs/guide/cli.md`;
+  a dedicated guide does not exist yet.
 
 ## Design docs (reference)
 
@@ -332,12 +291,11 @@ attribute-name validation against tag breakout (`validAttrName`), documented
 - `2026-06-19-gsx-runtime-design.md` — runtime package.
 - `2026-06-19-gsx-codegen-design.md` — codegen architecture + lowering rules.
 - `2026-06-19-gsx-pipeline-and-extensions-design.md` — `|>` + filters + `gen.Main`.
+- `2026-06-25-pipeline-forward-application-design.md` — seed-first `|>` lowering + `ctx` injection.
 - `2026-06-18-gsx-cli-skeleton-design.md` — CLI, exit codes, diagnostics model.
-- `2026-06-20-gsx-security-design.md` — threat model, contextual auto-escaping,
-  pipeline escape hatch, URL/JS/CSS contexts (to be written).
-- `2026-06-23-diagnostics-foundation-design.md` — `internal/diag` model, renderers,
-  semantic/parser recovery slices, LSP-readiness properties.
-- `2026-06-23-diagnostics-foundation.md` (plan) — SDD tasks 1–5; Slice 1 shipped.
-- `2026-06-24-gsx-examples-framework-design.md` — single-source examples gallery
-  (`examples/*.txtar` → render test + docs page + playground presets); multi-file
-  support; `#try=` payload encoding. Plan: `2026-06-24-gsx-examples-framework.md`.
+- `2026-06-20-gsx-security-design.md` — threat model, contextual auto-escaping, URL/JS/CSS contexts.
+- `2026-06-23-gsx-js-interpolation-design.md` — `@{ }` JS-value contexts + data islands.
+- `2026-06-23-diagnostics-foundation-design.md` — `internal/diag` model, renderers, recovery slices.
+- `2026-06-24-parser-error-recovery-design.md` — positioned parser errors + component-boundary recovery.
+- `2026-06-23-gsx-lsp-design.md` + `2026-06-24-gsx-lsp-slice2a-goto-definition-design.md` + `2026-06-24-gsx-lsp-go-to-gsx-design.md` + `2026-06-24-gsx-lsp-hover-design.md` — LSP.
+- `2026-06-24-gsx-examples-framework-design.md` — single-source examples gallery.
