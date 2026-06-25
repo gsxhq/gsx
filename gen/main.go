@@ -129,6 +129,32 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 		defer os.Chdir(orig)
 	}
 
+	// Discover + load a gsx.toml from the (post-chdir) working dir, then merge the
+	// passed-in programmatic config (opts) ON TOP of it so opts win under the
+	// existing last-wins resolution. With no gsx.toml and no opts this is a no-op,
+	// preserving byte-identical stock behavior. The resolved values populate the
+	// SAME config fields opts already do, so the cache key folds a config change
+	// automatically (no separate config hash). The discovered path (or "") is
+	// threaded to `info`, the single source of truth for "which config is in effect".
+	var configPath string
+	if path, ok := discoverConfig("."); ok {
+		fileCfg, err := loadConfig(path)
+		if err != nil {
+			fmt.Fprintf(stderr, "gsx: %v\n", err)
+			return 2
+		}
+		cfg = mergeConfig(fileCfg, cfg)
+		configPath = path
+	}
+	// Surface any merged option-construction errors (the top-level check covers
+	// the passed-in opts before flag parsing; this catches the merged set too).
+	if len(cfg.errs) > 0 {
+		for _, e := range cfg.errs {
+			fmt.Fprintf(stderr, "gsx: %v\n", e)
+		}
+		return 2
+	}
+
 	cmd, cmdArgs := rest[0], rest[1:]
 	switch cmd {
 	case "generate":
@@ -138,7 +164,7 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 	case "info":
 		// Resolve against cwd: -C (handled above) has already chdir'd, so "."
 		// anchors the go/packages load at the user's chosen directory.
-		return runInfo(stdout, stderr, ".", cfg.filterPkgs, cfg.aliases, cfg.classifier(), cfg.predLabel, cfg.fieldMatcher, cmdArgs)
+		return runInfo(stdout, stderr, ".", configPath, cfg.filterPkgs, cfg.aliases, cfg.classifier(), cfg.predLabel, cfg.fieldMatcher, cmdArgs)
 	case "fmt":
 		return runFmt(stdout, stderr, cmdArgs)
 	case "init":

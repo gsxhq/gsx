@@ -1,0 +1,196 @@
+package gen
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"github.com/BurntSushi/toml"
+	"github.com/gsxhq/gsx/internal/attrclass"
+	"github.com/gsxhq/gsx/internal/codegen"
+)
+
+// configFileName is the project config filename gsx discovers (TOML).
+const configFileName = "gsx.toml"
+
+// tomlConfig is the on-disk gsx.toml schema (v1). It mirrors the declarative
+// subset of the gen.With* options (filters, aliases, attr rules); func-valued
+// options (custom minifier/classifier/field-matcher) stay code-only. Field tags
+// pin the exact TOML keys so strict decoding (Undecoded) can reject typos.
+type tomlConfig struct {
+	Filters  []string          `toml:"filters"`
+	Aliases  map[string]string `toml:"aliases"`
+	JSAttrs  []tomlRule        `toml:"jsAttrs"`
+	URLAttrs []tomlRule        `toml:"urlAttrs"`
+	CSSAttrs []tomlRule        `toml:"cssAttrs"`
+}
+
+// tomlRule is one attribute-classification rule from an array-of-tables. Exactly
+// one of Name/Prefix must be set (validated against attrclass.Rule.Valid).
+type tomlRule struct {
+	Name   string `toml:"name"`
+	Prefix string `toml:"prefix"`
+}
+
+// discoverConfig walks UP from startDir and returns the full path of the FIRST
+// directory containing a gsx.toml. The walk is bounded by the nearest ancestor
+// containing .git (the git repo root); if none, it falls back to the module root
+// (go.mod) directory. The bound dir is checked inclusively, then the walk stops —
+// so a gsx.toml above the repo/module root is never used (no $HOME / filesystem
+// root escape). Returns ("", false) when no config is found within the bound.
+func discoverConfig(startDir string) (path string, ok bool) {
+	d, err := filepath.Abs(startDir)
+	if err != nil {
+		return "", false
+	}
+	bound := configWalkBound(d)
+	for {
+		candidate := filepath.Join(d, configFileName)
+		if fi, statErr := os.Stat(candidate); statErr == nil && !fi.IsDir() {
+			return candidate, true
+		}
+		if d == bound {
+			return "", false
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return "", false
+		}
+		d = parent
+	}
+}
+
+// configWalkBound returns the inclusive upper bound for the discovery walk: the
+// nearest ancestor of dir containing a .git entry (file OR dir — git worktrees
+// and submodules use a .git file), else the module root (go.mod) directory, else
+// dir itself (never escape to the filesystem root).
+func configWalkBound(dir string) string {
+	d := dir
+	for {
+		if _, err := os.Stat(filepath.Join(d, ".git")); err == nil {
+			return d
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			break
+		}
+		d = parent
+	}
+	if root, _, err := moduleRoot(dir); err == nil {
+		return root
+	}
+	return dir
+}
+
+// loadConfig reads and decodes a gsx.toml at path into a config. Decoding is
+// strict: an unknown key (a typo like "filteres") is an error naming the path.
+// Each alias "name = pkg.Func" is parsed via splitPkgFunc (identical to the
+// reflection path) into a codegen.FilterAlias; aliases are emitted sorted by
+// name so the resulting slice — and thus the cache key — is deterministic
+// regardless of TOML map ordering. Each attr rule is validated (exactly one of
+// name/prefix). Returns a populated config (errors name the path + key).
+func loadConfig(path string) (config, error) {
+	var tc tomlConfig
+	md, err := toml.DecodeFile(path, &tc)
+	if err != nil {
+		return config{}, fmt.Errorf("%s: %w", path, err)
+	}
+	if und := md.Undecoded(); len(und) > 0 {
+		keys := make([]string, 0, len(und))
+		for _, k := range und {
+			keys = append(keys, k.String())
+		}
+		sort.Strings(keys)
+		return config{}, fmt.Errorf("%s: unknown key(s): %s", path, strings.Join(keys, ", "))
+	}
+
+	var cfg config
+	for _, f := range tc.Filters {
+		cfg.appendFilterPkg(f)
+	}
+
+	// Aliases: sort by name for a deterministic slice (TOML maps are unordered).
+	names := make([]string, 0, len(tc.Aliases))
+	for n := range tc.Aliases {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		pkgPath, funcName, err := splitPkgFunc(tc.Aliases[n])
+		if err != nil {
+			return config{}, fmt.Errorf("%s: alias %q: %w", path, n, err)
+		}
+		cfg.aliases = append(cfg.aliases, codegen.FilterAlias{Name: n, PkgPath: pkgPath, FuncName: funcName})
+	}
+
+	if cfg.jsRules, err = appendTomlRules(path, "jsAttrs", cfg.jsRules, tc.JSAttrs); err != nil {
+		return config{}, err
+	}
+	if cfg.urlRules, err = appendTomlRules(path, "urlAttrs", cfg.urlRules, tc.URLAttrs); err != nil {
+		return config{}, err
+	}
+	if cfg.cssRules, err = appendTomlRules(path, "cssAttrs", cfg.cssRules, tc.CSSAttrs); err != nil {
+		return config{}, err
+	}
+	return cfg, nil
+}
+
+// appendTomlRules converts and validates a slice of tomlRule into attrclass.Rule,
+// returning an error (naming the path + table + index) on the first invalid rule.
+func appendTomlRules(path, who string, dst []attrclass.Rule, add []tomlRule) ([]attrclass.Rule, error) {
+	for i, r := range add {
+		rule := attrclass.Rule{Name: r.Name, Prefix: r.Prefix}
+		if err := rule.Valid(); err != nil {
+			return nil, fmt.Errorf("%s: %s rule %d: %w", path, who, i, err)
+		}
+		dst = append(dst, rule)
+	}
+	return dst, nil
+}
+
+// mergeConfig merges a programmatic opts config ON TOP of a file-loaded base
+// config. The file base comes first; opts are appended after so they win under
+// the existing last-wins resolution: filterPkgs and aliases are base++opts (with
+// filterPkgs deduped), attr rules are concatenated base++opts, and func-valued
+// fields (cssMin/jsMin, attrPred+predLabel, fieldMatcher) are taken from opts
+// when set, else base. errs are concatenated. Slices are freshly allocated so
+// neither input is mutated.
+func mergeConfig(base, opts config) config {
+	var merged config
+
+	merged.filterPkgs = append(merged.filterPkgs, base.filterPkgs...)
+	for _, p := range opts.filterPkgs {
+		merged.appendFilterPkg(p)
+	}
+
+	merged.aliases = append(merged.aliases, base.aliases...)
+	merged.aliases = append(merged.aliases, opts.aliases...)
+
+	merged.jsRules = append(append(merged.jsRules, base.jsRules...), opts.jsRules...)
+	merged.urlRules = append(append(merged.urlRules, base.urlRules...), opts.urlRules...)
+	merged.cssRules = append(append(merged.cssRules, base.cssRules...), opts.cssRules...)
+
+	merged.cssMin = base.cssMin
+	if opts.cssMin != nil {
+		merged.cssMin = opts.cssMin
+	}
+	merged.jsMin = base.jsMin
+	if opts.jsMin != nil {
+		merged.jsMin = opts.jsMin
+	}
+	merged.attrPred = base.attrPred
+	merged.predLabel = base.predLabel
+	if opts.attrPred != nil {
+		merged.attrPred = opts.attrPred
+		merged.predLabel = opts.predLabel
+	}
+	merged.fieldMatcher = base.fieldMatcher
+	if opts.fieldMatcher != nil {
+		merged.fieldMatcher = opts.fieldMatcher
+	}
+
+	merged.errs = append(append(merged.errs, base.errs...), opts.errs...)
+	return merged
+}

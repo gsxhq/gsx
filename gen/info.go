@@ -22,7 +22,7 @@ import (
 //
 // When asJSON is true it emits the manifest JSON form instead of the human table.
 // cmdArgs are the subcommand arguments (used to parse --json).
-func runInfo(stdout, stderr io.Writer, dir string, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, predLabel string, fm codegen.FieldMatcher, cmdArgs []string) int {
+func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, predLabel string, fm codegen.FieldMatcher, cmdArgs []string) int {
 	// Parse the info subcommand's own flags.
 	ifs := flag.NewFlagSet("info", flag.ContinueOnError)
 	ifs.SetOutput(stderr)
@@ -54,6 +54,14 @@ func runInfo(stdout, stderr io.Writer, dir string, filterPkgs []string, aliases 
 	}
 
 	fmt.Fprintf(stdout, "gsx %s\n", bareVersion())
+
+	// The discovered gsx.toml path — the single source of truth for "which config
+	// is in effect, from where". Empty means std-only (no config found).
+	if configPath != "" {
+		fmt.Fprintf(stdout, "config: %s\n", configPath)
+	} else {
+		fmt.Fprintf(stdout, "config: none\n")
+	}
 
 	// The configured packages, in last-wins order. An empty list defaults to
 	// [std] (ResolveFilters applies the same default), so report that here too.
