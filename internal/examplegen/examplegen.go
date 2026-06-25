@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gsxhq/gsx/gen"
 	"github.com/gsxhq/gsx/internal/txtar"
 )
 
@@ -94,7 +95,13 @@ func loadOne(path string) (Example, error) {
 			if pkg := packageName(f.Data); pkg != "views" {
 				return Example{}, fmt.Errorf("source file %q is package %q, must be views", f.Name, pkg)
 			}
-			files = append(files, SourceFile{Name: f.Name, Body: string(f.Data)})
+			// Canonicalize the displayed source with the same formatter as
+			// `gsx fmt` / the playground, so docs + presets are never one-liners.
+			formatted, ferr := gen.Format(f.Name, f.Data)
+			if ferr != nil {
+				return Example{}, fmt.Errorf("format %q: %w", f.Name, ferr)
+			}
+			files = append(files, SourceFile{Name: f.Name, Body: string(formatted)})
 		}
 	}
 	if !hasDoc {

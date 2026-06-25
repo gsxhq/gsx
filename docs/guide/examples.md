@@ -14,11 +14,11 @@ Components take a typed props struct; {expr} interpolates Go values, HTML-escape
 package views
 
 component Greeting(name string, count int) {
-	<p>Hello, {name}! You have {count} messages.</p>
+	<p>Hello, { name }! You have { count } messages.</p>
 }
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgR3JlZXRpbmcobmFtZSBzdHJpbmcsIGNvdW50IGludCkge1xuXHRcdTAwM2NwXHUwMDNlSGVsbG8sIHtuYW1lfSEgWW91IGhhdmUge2NvdW50fSBtZXNzYWdlcy5cdTAwM2MvcFx1MDAzZVxufVxuIiwiaSI6IkdyZWV0aW5nKEdyZWV0aW5nUHJvcHN7TmFtZTogXCJXb3JsZFwiLCBDb3VudDogM30pIn0=)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgR3JlZXRpbmcobmFtZSBzdHJpbmcsIGNvdW50IGludCkge1xuXHRcdTAwM2NwXHUwMDNlSGVsbG8sIHsgbmFtZSB9ISBZb3UgaGF2ZSB7IGNvdW50IH0gbWVzc2FnZXMuXHUwMDNjL3BcdTAwM2Vcbn1cbiIsImkiOiJHcmVldGluZyhHcmVldGluZ1Byb3Bze05hbWU6IFwiV29ybGRcIiwgQ291bnQ6IDN9KSJ9)
 
 ### Attributes
 
@@ -28,11 +28,11 @@ Expression attributes (attr={expr}), boolean attributes, and a conditional attri
 package views
 
 component Link(url string, label string, external bool, featured bool) {
-	<a href={url} data-count={3} aria-current={external} { if featured { class="featured" } }>{label}</a>
+	<a href={url} data-count={3} aria-current={external} { if featured { class="featured" } }>{ label }</a>
 }
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgTGluayh1cmwgc3RyaW5nLCBsYWJlbCBzdHJpbmcsIGV4dGVybmFsIGJvb2wsIGZlYXR1cmVkIGJvb2wpIHtcblx0XHUwMDNjYSBocmVmPXt1cmx9IGRhdGEtY291bnQ9ezN9IGFyaWEtY3VycmVudD17ZXh0ZXJuYWx9IHsgaWYgZmVhdHVyZWQgeyBjbGFzcz1cImZlYXR1cmVkXCIgfSB9XHUwMDNle2xhYmVsfVx1MDAzYy9hXHUwMDNlXG59XG4iLCJpIjoiTGluayhMaW5rUHJvcHN7VXJsOiBcIi9wP3E9YVx1MDAyNmJcIiwgTGFiZWw6IFwiRG9jc1wiLCBFeHRlcm5hbDogdHJ1ZSwgRmVhdHVyZWQ6IHRydWV9KSJ9)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgTGluayh1cmwgc3RyaW5nLCBsYWJlbCBzdHJpbmcsIGV4dGVybmFsIGJvb2wsIGZlYXR1cmVkIGJvb2wpIHtcblx0XHUwMDNjYSBocmVmPXt1cmx9IGRhdGEtY291bnQ9ezN9IGFyaWEtY3VycmVudD17ZXh0ZXJuYWx9IHsgaWYgZmVhdHVyZWQgeyBjbGFzcz1cImZlYXR1cmVkXCIgfSB9XHUwMDNleyBsYWJlbCB9XHUwMDNjL2FcdTAwM2Vcbn1cbiIsImkiOiJMaW5rKExpbmtQcm9wc3tVcmw6IFwiL3A/cT1hXHUwMDI2YlwiLCBMYWJlbDogXCJEb2NzXCIsIEV4dGVybmFsOiB0cnVlLCBGZWF0dXJlZDogdHJ1ZX0pIn0=)
 
 ### Auto-escaping &amp; safe raw
 
@@ -42,12 +42,13 @@ User input is HTML-escaped by construction — no XSS. Use gsx.Raw / gsx.RawURL 
 package views
 
 // User input is HTML-escaped by construction — no XSS.
+
 component Comment(body string) {
-	<blockquote>{body}</blockquote>
+	<blockquote>{ body }</blockquote>
 }
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG4vLyBVc2VyIGlucHV0IGlzIEhUTUwtZXNjYXBlZCBieSBjb25zdHJ1Y3Rpb24g4oCUIG5vIFhTUy5cbmNvbXBvbmVudCBDb21tZW50KGJvZHkgc3RyaW5nKSB7XG5cdFx1MDAzY2Jsb2NrcXVvdGVcdTAwM2V7Ym9keX1cdTAwM2MvYmxvY2txdW90ZVx1MDAzZVxufVxuIiwiaSI6IkNvbW1lbnQoQ29tbWVudFByb3Bze0JvZHk6IFwiXHUwMDNjaW1nIHNyYz14IG9uZXJyb3I9YWxlcnQoMSlcdTAwM2VcIn0pIn0=)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG4vLyBVc2VyIGlucHV0IGlzIEhUTUwtZXNjYXBlZCBieSBjb25zdHJ1Y3Rpb24g4oCUIG5vIFhTUy5cblxuY29tcG9uZW50IENvbW1lbnQoYm9keSBzdHJpbmcpIHtcblx0XHUwMDNjYmxvY2txdW90ZVx1MDAzZXsgYm9keSB9XHUwMDNjL2Jsb2NrcXVvdGVcdTAwM2Vcbn1cbiIsImkiOiJDb21tZW50KENvbW1lbnRQcm9wc3tCb2R5OiBcIlx1MDAzY2ltZyBzcmM9eCBvbmVycm9yPWFsZXJ0KDEpXHUwMDNlXCJ9KSJ9)
 
 ## Control flow
 
@@ -60,9 +61,9 @@ package views
 
 component Inbox(name string, count int) {
 	<section>
-		<h1>Hi {name}</h1>
+		<h1>Hi { name }</h1>
 		{ if count > 0 {
-			<p class="badge">{count} new</p>
+			<p class="badge">{ count } new</p>
 		} else {
 			<p>all caught up</p>
 		} }
@@ -70,7 +71,7 @@ component Inbox(name string, count int) {
 }
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgSW5ib3gobmFtZSBzdHJpbmcsIGNvdW50IGludCkge1xuXHRcdTAwM2NzZWN0aW9uXHUwMDNlXG5cdFx0XHUwMDNjaDFcdTAwM2VIaSB7bmFtZX1cdTAwM2MvaDFcdTAwM2Vcblx0XHR7IGlmIGNvdW50IFx1MDAzZSAwIHtcblx0XHRcdFx1MDAzY3AgY2xhc3M9XCJiYWRnZVwiXHUwMDNle2NvdW50fSBuZXdcdTAwM2MvcFx1MDAzZVxuXHRcdH0gZWxzZSB7XG5cdFx0XHRcdTAwM2NwXHUwMDNlYWxsIGNhdWdodCB1cFx1MDAzYy9wXHUwMDNlXG5cdFx0fSB9XG5cdFx1MDAzYy9zZWN0aW9uXHUwMDNlXG59XG4iLCJpIjoiSW5ib3goSW5ib3hQcm9wc3tOYW1lOiBcIldvcmxkXCIsIENvdW50OiAyfSkifQ==)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgSW5ib3gobmFtZSBzdHJpbmcsIGNvdW50IGludCkge1xuXHRcdTAwM2NzZWN0aW9uXHUwMDNlXG5cdFx0XHUwMDNjaDFcdTAwM2VIaSB7IG5hbWUgfVx1MDAzYy9oMVx1MDAzZVxuXHRcdHsgaWYgY291bnQgXHUwMDNlIDAge1xuXHRcdFx0XHUwMDNjcCBjbGFzcz1cImJhZGdlXCJcdTAwM2V7IGNvdW50IH0gbmV3XHUwMDNjL3BcdTAwM2Vcblx0XHR9IGVsc2Uge1xuXHRcdFx0XHUwMDNjcFx1MDAzZWFsbCBjYXVnaHQgdXBcdTAwM2MvcFx1MDAzZVxuXHRcdH0gfVxuXHRcdTAwM2Mvc2VjdGlvblx1MDAzZVxufVxuIiwiaSI6IkluYm94KEluYm94UHJvcHN7TmFtZTogXCJXb3JsZFwiLCBDb3VudDogMn0pIn0=)
 
 ### Loops over lists
 
@@ -85,13 +86,15 @@ type Item struct {
 }
 
 component List(items []Item) {
-	<ul>{ for _, it := range items {
-		<li>{it.Name}: {it.Count}</li>
-	} }</ul>
+	<ul>
+		{ for _, it := range items {
+			<li>{ it.Name }: { it.Count }</li>
+		} }
+	</ul>
 }
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG50eXBlIEl0ZW0gc3RydWN0IHtcblx0TmFtZSAgc3RyaW5nXG5cdENvdW50IGludFxufVxuXG5jb21wb25lbnQgTGlzdChpdGVtcyBbXUl0ZW0pIHtcblx0XHUwMDNjdWxcdTAwM2V7IGZvciBfLCBpdCA6PSByYW5nZSBpdGVtcyB7XG5cdFx0XHUwMDNjbGlcdTAwM2V7aXQuTmFtZX06IHtpdC5Db3VudH1cdTAwM2MvbGlcdTAwM2Vcblx0fSB9XHUwMDNjL3VsXHUwMDNlXG59XG4iLCJpIjoiTGlzdChMaXN0UHJvcHN7SXRlbXM6IFtdSXRlbXt7TmFtZTogXCJhbHBoYVwiLCBDb3VudDogMX0sIHtOYW1lOiBcImJldGFcIiwgQ291bnQ6IDJ9fX0pIn0=)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG50eXBlIEl0ZW0gc3RydWN0IHtcblx0TmFtZSAgc3RyaW5nXG5cdENvdW50IGludFxufVxuXG5jb21wb25lbnQgTGlzdChpdGVtcyBbXUl0ZW0pIHtcblx0XHUwMDNjdWxcdTAwM2Vcblx0XHR7IGZvciBfLCBpdCA6PSByYW5nZSBpdGVtcyB7XG5cdFx0XHRcdTAwM2NsaVx1MDAzZXsgaXQuTmFtZSB9OiB7IGl0LkNvdW50IH1cdTAwM2MvbGlcdTAwM2Vcblx0XHR9IH1cblx0XHUwMDNjL3VsXHUwMDNlXG59XG4iLCJpIjoiTGlzdChMaXN0UHJvcHN7SXRlbXM6IFtdSXRlbXt7TmFtZTogXCJhbHBoYVwiLCBDb3VudDogMX0sIHtOYW1lOiBcImJldGFcIiwgQ291bnQ6IDJ9fX0pIn0=)
 
 ### Switch
 
@@ -101,18 +104,20 @@ component List(items []Item) {
 package views
 
 component Badge(kind string) {
-	<span>{ switch kind {
-	case "warn":
-		<b>warning</b>
-	case "err":
-		<b>error</b>
-	default:
-		<b>info</b>
-	} }</span>
+	<span>
+		{ switch kind {
+			case "warn":
+				<b>warning</b>
+			case "err":
+				<b>error</b>
+			default:
+				<b>info</b>
+		} }
+	</span>
 }
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgQmFkZ2Uoa2luZCBzdHJpbmcpIHtcblx0XHUwMDNjc3Bhblx1MDAzZXsgc3dpdGNoIGtpbmQge1xuXHRjYXNlIFwid2FyblwiOlxuXHRcdFx1MDAzY2JcdTAwM2V3YXJuaW5nXHUwMDNjL2JcdTAwM2Vcblx0Y2FzZSBcImVyclwiOlxuXHRcdFx1MDAzY2JcdTAwM2VlcnJvclx1MDAzYy9iXHUwMDNlXG5cdGRlZmF1bHQ6XG5cdFx0XHUwMDNjYlx1MDAzZWluZm9cdTAwM2MvYlx1MDAzZVxuXHR9IH1cdTAwM2Mvc3Bhblx1MDAzZVxufVxuIiwiaSI6IkJhZGdlKEJhZGdlUHJvcHN7S2luZDogXCJ3YXJuXCJ9KSJ9)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgQmFkZ2Uoa2luZCBzdHJpbmcpIHtcblx0XHUwMDNjc3Bhblx1MDAzZVxuXHRcdHsgc3dpdGNoIGtpbmQge1xuXHRcdFx0Y2FzZSBcIndhcm5cIjpcblx0XHRcdFx0XHUwMDNjYlx1MDAzZXdhcm5pbmdcdTAwM2MvYlx1MDAzZVxuXHRcdFx0Y2FzZSBcImVyclwiOlxuXHRcdFx0XHRcdTAwM2NiXHUwMDNlZXJyb3JcdTAwM2MvYlx1MDAzZVxuXHRcdFx0ZGVmYXVsdDpcblx0XHRcdFx0XHUwMDNjYlx1MDAzZWluZm9cdTAwM2MvYlx1MDAzZVxuXHRcdH0gfVxuXHRcdTAwM2Mvc3Bhblx1MDAzZVxufVxuIiwiaSI6IkJhZGdlKEJhZGdlUHJvcHN7S2luZDogXCJ3YXJuXCJ9KSJ9)
 
 ## Components &amp; composition
 
@@ -124,7 +129,10 @@ Call a component with a typed props struct; boolean props pass bare (featured).
 package views
 
 component Card(title string, featured bool, count int) {
-	<div class={ "card", "card-featured": featured }><h2>{title}</h2><span>{count}</span></div>
+	<div class={ "card", "card-featured": featured }>
+		<h2>{ title }</h2>
+		<span>{ count }</span>
+	</div>
 }
 
 component Page(t string, n int) {
@@ -132,7 +140,7 @@ component Page(t string, n int) {
 }
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgQ2FyZCh0aXRsZSBzdHJpbmcsIGZlYXR1cmVkIGJvb2wsIGNvdW50IGludCkge1xuXHRcdTAwM2NkaXYgY2xhc3M9eyBcImNhcmRcIiwgXCJjYXJkLWZlYXR1cmVkXCI6IGZlYXR1cmVkIH1cdTAwM2VcdTAwM2NoMlx1MDAzZXt0aXRsZX1cdTAwM2MvaDJcdTAwM2VcdTAwM2NzcGFuXHUwMDNle2NvdW50fVx1MDAzYy9zcGFuXHUwMDNlXHUwMDNjL2Rpdlx1MDAzZVxufVxuXG5jb21wb25lbnQgUGFnZSh0IHN0cmluZywgbiBpbnQpIHtcblx0XHUwMDNjQ2FyZCB0aXRsZT17dH0gZmVhdHVyZWQgY291bnQ9e259L1x1MDAzZVxufVxuIiwiaSI6IlBhZ2UoUGFnZVByb3Bze1Q6IFwiSGlcIiwgTjogM30pIn0=)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgQ2FyZCh0aXRsZSBzdHJpbmcsIGZlYXR1cmVkIGJvb2wsIGNvdW50IGludCkge1xuXHRcdTAwM2NkaXYgY2xhc3M9eyBcImNhcmRcIiwgXCJjYXJkLWZlYXR1cmVkXCI6IGZlYXR1cmVkIH1cdTAwM2Vcblx0XHRcdTAwM2NoMlx1MDAzZXsgdGl0bGUgfVx1MDAzYy9oMlx1MDAzZVxuXHRcdFx1MDAzY3NwYW5cdTAwM2V7IGNvdW50IH1cdTAwM2Mvc3Bhblx1MDAzZVxuXHRcdTAwM2MvZGl2XHUwMDNlXG59XG5cbmNvbXBvbmVudCBQYWdlKHQgc3RyaW5nLCBuIGludCkge1xuXHRcdTAwM2NDYXJkIHRpdGxlPXt0fSBmZWF0dXJlZCBjb3VudD17bn0vXHUwMDNlXG59XG4iLCJpIjoiUGFnZShQYWdlUHJvcHN7VDogXCJIaVwiLCBOOiAzfSkifQ==)
 
 ### Children
 
@@ -143,17 +151,19 @@ package views
 
 component Card(title string) {
 	<article class="card">
-		<h3>{title}</h3>
-		<div class="card__body">{children}</div>
+		<h3>{ title }</h3>
+		<div class="card__body">{ children }</div>
 	</article>
 }
 
 component Page() {
-	<Card title="Hello"><em>composed</em></Card>
+	<Card title="Hello">
+		<em>composed</em>
+	</Card>
 }
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgQ2FyZCh0aXRsZSBzdHJpbmcpIHtcblx0XHUwMDNjYXJ0aWNsZSBjbGFzcz1cImNhcmRcIlx1MDAzZVxuXHRcdFx1MDAzY2gzXHUwMDNle3RpdGxlfVx1MDAzYy9oM1x1MDAzZVxuXHRcdFx1MDAzY2RpdiBjbGFzcz1cImNhcmRfX2JvZHlcIlx1MDAzZXtjaGlsZHJlbn1cdTAwM2MvZGl2XHUwMDNlXG5cdFx1MDAzYy9hcnRpY2xlXHUwMDNlXG59XG5cbmNvbXBvbmVudCBQYWdlKCkge1xuXHRcdTAwM2NDYXJkIHRpdGxlPVwiSGVsbG9cIlx1MDAzZVx1MDAzY2VtXHUwMDNlY29tcG9zZWRcdTAwM2MvZW1cdTAwM2VcdTAwM2MvQ2FyZFx1MDAzZVxufVxuIiwiaSI6IlBhZ2UoKSJ9)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgQ2FyZCh0aXRsZSBzdHJpbmcpIHtcblx0XHUwMDNjYXJ0aWNsZSBjbGFzcz1cImNhcmRcIlx1MDAzZVxuXHRcdFx1MDAzY2gzXHUwMDNleyB0aXRsZSB9XHUwMDNjL2gzXHUwMDNlXG5cdFx0XHUwMDNjZGl2IGNsYXNzPVwiY2FyZF9fYm9keVwiXHUwMDNleyBjaGlsZHJlbiB9XHUwMDNjL2Rpdlx1MDAzZVxuXHRcdTAwM2MvYXJ0aWNsZVx1MDAzZVxufVxuXG5jb21wb25lbnQgUGFnZSgpIHtcblx0XHUwMDNjQ2FyZCB0aXRsZT1cIkhlbGxvXCJcdTAwM2Vcblx0XHRcdTAwM2NlbVx1MDAzZWNvbXBvc2VkXHUwMDNjL2VtXHUwMDNlXG5cdFx1MDAzYy9DYXJkXHUwMDNlXG59XG4iLCJpIjoiUGFnZSgpIn0=)
 
 ### Named slots
 
@@ -165,7 +175,10 @@ package views
 import "github.com/gsxhq/gsx"
 
 component Panel(header gsx.Node, footer gsx.Node) {
-	<div class="panel"><header>{header}</header><footer>{footer}</footer></div>
+	<div class="panel">
+		<header>{ header }</header>
+		<footer>{ footer }</footer>
+	</div>
 }
 
 component Page() {
@@ -173,7 +186,7 @@ component Page() {
 }
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5pbXBvcnQgXCJnaXRodWIuY29tL2dzeGhxL2dzeFwiXG5cbmNvbXBvbmVudCBQYW5lbChoZWFkZXIgZ3N4Lk5vZGUsIGZvb3RlciBnc3guTm9kZSkge1xuXHRcdTAwM2NkaXYgY2xhc3M9XCJwYW5lbFwiXHUwMDNlXHUwMDNjaGVhZGVyXHUwMDNle2hlYWRlcn1cdTAwM2MvaGVhZGVyXHUwMDNlXHUwMDNjZm9vdGVyXHUwMDNle2Zvb3Rlcn1cdTAwM2MvZm9vdGVyXHUwMDNlXHUwMDNjL2Rpdlx1MDAzZVxufVxuXG5jb21wb25lbnQgUGFnZSgpIHtcblx0XHUwMDNjUGFuZWwgaGVhZGVyPXsgXHUwMDNjaDFcdTAwM2VIXHUwMDNjL2gxXHUwMDNlIH0gZm9vdGVyPXsgXHUwMDNjc21hbGxcdTAwM2VGXHUwMDNjL3NtYWxsXHUwMDNlIH0vXHUwMDNlXG59XG4iLCJpIjoiUGFnZSgpIn0=)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5pbXBvcnQgXCJnaXRodWIuY29tL2dzeGhxL2dzeFwiXG5cbmNvbXBvbmVudCBQYW5lbChoZWFkZXIgZ3N4Lk5vZGUsIGZvb3RlciBnc3guTm9kZSkge1xuXHRcdTAwM2NkaXYgY2xhc3M9XCJwYW5lbFwiXHUwMDNlXG5cdFx0XHUwMDNjaGVhZGVyXHUwMDNleyBoZWFkZXIgfVx1MDAzYy9oZWFkZXJcdTAwM2Vcblx0XHRcdTAwM2Nmb290ZXJcdTAwM2V7IGZvb3RlciB9XHUwMDNjL2Zvb3Rlclx1MDAzZVxuXHRcdTAwM2MvZGl2XHUwMDNlXG59XG5cbmNvbXBvbmVudCBQYWdlKCkge1xuXHRcdTAwM2NQYW5lbCBoZWFkZXI9eyBcdTAwM2NoMVx1MDAzZUhcdTAwM2MvaDFcdTAwM2UgfSBmb290ZXI9eyBcdTAwM2NzbWFsbFx1MDAzZUZcdTAwM2Mvc21hbGxcdTAwM2UgfS9cdTAwM2Vcbn1cbiIsImkiOiJQYWdlKCkifQ==)
 
 ### Template composition
 
@@ -185,11 +198,14 @@ A shared component library composed by a page method — multiple files, one ren
 package views
 
 component Button(label string) {
-	<button class="btn">{label}</button>
+	<button class="btn">{ label }</button>
 }
 
 component Card(title string) {
-	<section class="card"><h2>{title}</h2>{children}</section>
+	<section class="card">
+		<h2>{ title }</h2>
+		{ children }
+	</section>
 }
 ```
 
@@ -211,7 +227,7 @@ component (p HomePage) Render() {
 }
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoiLS0gY29tcG9uZW50cy5nc3ggLS1cbnBhY2thZ2Ugdmlld3NcblxuY29tcG9uZW50IEJ1dHRvbihsYWJlbCBzdHJpbmcpIHtcblx0XHUwMDNjYnV0dG9uIGNsYXNzPVwiYnRuXCJcdTAwM2V7bGFiZWx9XHUwMDNjL2J1dHRvblx1MDAzZVxufVxuXG5jb21wb25lbnQgQ2FyZCh0aXRsZSBzdHJpbmcpIHtcblx0XHUwMDNjc2VjdGlvbiBjbGFzcz1cImNhcmRcIlx1MDAzZVx1MDAzY2gyXHUwMDNle3RpdGxlfVx1MDAzYy9oMlx1MDAzZXtjaGlsZHJlbn1cdTAwM2Mvc2VjdGlvblx1MDAzZVxufVxuLS0gcGFnZS5nc3ggLS1cbnBhY2thZ2Ugdmlld3NcblxudHlwZSBIb21lUGFnZSBzdHJ1Y3Qge1xuXHRUaXRsZSBzdHJpbmdcbn1cblxuY29tcG9uZW50IChwIEhvbWVQYWdlKSBSZW5kZXIoKSB7XG5cdFx1MDAzY21haW5cdTAwM2Vcblx0XHRcdTAwM2NDYXJkIHRpdGxlPXtwLlRpdGxlfVx1MDAzZVxuXHRcdFx0XHUwMDNjQnV0dG9uIGxhYmVsPVwiU2F2ZVwiL1x1MDAzZVxuXHRcdFx1MDAzYy9DYXJkXHUwMDNlXG5cdFx1MDAzYy9tYWluXHUwMDNlXG59XG4iLCJpIjoiKEhvbWVQYWdle1RpdGxlOiBcIkRhc2hib2FyZFwifSkuUmVuZGVyKCkifQ==)
+[▶ Open in Playground](/playground#try=eyJzIjoiLS0gY29tcG9uZW50cy5nc3ggLS1cbnBhY2thZ2Ugdmlld3NcblxuY29tcG9uZW50IEJ1dHRvbihsYWJlbCBzdHJpbmcpIHtcblx0XHUwMDNjYnV0dG9uIGNsYXNzPVwiYnRuXCJcdTAwM2V7IGxhYmVsIH1cdTAwM2MvYnV0dG9uXHUwMDNlXG59XG5cbmNvbXBvbmVudCBDYXJkKHRpdGxlIHN0cmluZykge1xuXHRcdTAwM2NzZWN0aW9uIGNsYXNzPVwiY2FyZFwiXHUwMDNlXG5cdFx0XHUwMDNjaDJcdTAwM2V7IHRpdGxlIH1cdTAwM2MvaDJcdTAwM2Vcblx0XHR7IGNoaWxkcmVuIH1cblx0XHUwMDNjL3NlY3Rpb25cdTAwM2Vcbn1cbi0tIHBhZ2UuZ3N4IC0tXG5wYWNrYWdlIHZpZXdzXG5cbnR5cGUgSG9tZVBhZ2Ugc3RydWN0IHtcblx0VGl0bGUgc3RyaW5nXG59XG5cbmNvbXBvbmVudCAocCBIb21lUGFnZSkgUmVuZGVyKCkge1xuXHRcdTAwM2NtYWluXHUwMDNlXG5cdFx0XHUwMDNjQ2FyZCB0aXRsZT17cC5UaXRsZX1cdTAwM2Vcblx0XHRcdFx1MDAzY0J1dHRvbiBsYWJlbD1cIlNhdmVcIi9cdTAwM2Vcblx0XHRcdTAwM2MvQ2FyZFx1MDAzZVxuXHRcdTAwM2MvbWFpblx1MDAzZVxufVxuIiwiaSI6IihIb21lUGFnZXtUaXRsZTogXCJEYXNoYm9hcmRcIn0pLlJlbmRlcigpIn0=)
 
 ### Fallthrough attributes
 
@@ -221,7 +237,7 @@ Undeclared call-site attributes (class, data-*, hx-*) fall through to the compon
 package views
 
 component Button(variant string) {
-	<button class="btn" data-variant={variant}>{children}</button>
+	<button class="btn" data-variant={variant}>{ children }</button>
 }
 
 component Page() {
@@ -229,7 +245,7 @@ component Page() {
 }
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgQnV0dG9uKHZhcmlhbnQgc3RyaW5nKSB7XG5cdFx1MDAzY2J1dHRvbiBjbGFzcz1cImJ0blwiIGRhdGEtdmFyaWFudD17dmFyaWFudH1cdTAwM2V7Y2hpbGRyZW59XHUwMDNjL2J1dHRvblx1MDAzZVxufVxuXG5jb21wb25lbnQgUGFnZSgpIHtcblx0XHUwMDNjQnV0dG9uIHZhcmlhbnQ9XCJwcmltYXJ5XCIgY2xhc3M9XCJ3LWZ1bGxcIiBkYXRhLXRlc3Q9XCJ4XCIgaHgtcG9zdD1cIi9nb1wiXHUwMDNlU2F2ZVx1MDAzYy9CdXR0b25cdTAwM2Vcbn1cbiIsImkiOiJQYWdlKCkifQ==)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgQnV0dG9uKHZhcmlhbnQgc3RyaW5nKSB7XG5cdFx1MDAzY2J1dHRvbiBjbGFzcz1cImJ0blwiIGRhdGEtdmFyaWFudD17dmFyaWFudH1cdTAwM2V7IGNoaWxkcmVuIH1cdTAwM2MvYnV0dG9uXHUwMDNlXG59XG5cbmNvbXBvbmVudCBQYWdlKCkge1xuXHRcdTAwM2NCdXR0b24gdmFyaWFudD1cInByaW1hcnlcIiBjbGFzcz1cInctZnVsbFwiIGRhdGEtdGVzdD1cInhcIiBoeC1wb3N0PVwiL2dvXCJcdTAwM2VTYXZlXHUwMDNjL0J1dHRvblx1MDAzZVxufVxuIiwiaSI6IlBhZ2UoKSJ9)
 
 ### Method components
 
@@ -244,11 +260,11 @@ type UsersPage struct {
 }
 
 component (p UsersPage) Grid(sort string) {
-	<div>{sort}-{p.Title}</div>
+	<div>{ sort }-{ p.Title }</div>
 }
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG50eXBlIFVzZXJzUGFnZSBzdHJ1Y3Qge1xuXHRUaXRsZSBzdHJpbmdcblx0U29ydCAgc3RyaW5nXG59XG5cbmNvbXBvbmVudCAocCBVc2Vyc1BhZ2UpIEdyaWQoc29ydCBzdHJpbmcpIHtcblx0XHUwMDNjZGl2XHUwMDNle3NvcnR9LXtwLlRpdGxlfVx1MDAzYy9kaXZcdTAwM2Vcbn1cbiIsImkiOiIoVXNlcnNQYWdle1RpdGxlOiBcIlRlYW1cIn0pLkdyaWQoVXNlcnNQYWdlR3JpZFByb3Bze1NvcnQ6IFwibmFtZVwifSkifQ==)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG50eXBlIFVzZXJzUGFnZSBzdHJ1Y3Qge1xuXHRUaXRsZSBzdHJpbmdcblx0U29ydCAgc3RyaW5nXG59XG5cbmNvbXBvbmVudCAocCBVc2Vyc1BhZ2UpIEdyaWQoc29ydCBzdHJpbmcpIHtcblx0XHUwMDNjZGl2XHUwMDNleyBzb3J0IH0teyBwLlRpdGxlIH1cdTAwM2MvZGl2XHUwMDNlXG59XG4iLCJpIjoiKFVzZXJzUGFnZXtUaXRsZTogXCJUZWFtXCJ9KS5HcmlkKFVzZXJzUGFnZUdyaWRQcm9wc3tTb3J0OiBcIm5hbWVcIn0pIn0=)
 
 ## Styling
 
@@ -260,13 +276,11 @@ The class attribute takes "always" entries and "name": cond toggles (like clsx /
 package views
 
 component Tag(label string, active bool) {
-	<span class={ "tag", "tag--active": active }>
-		{label}
-	</span>
+	<span class={ "tag", "tag--active": active }>{ label }</span>
 }
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgVGFnKGxhYmVsIHN0cmluZywgYWN0aXZlIGJvb2wpIHtcblx0XHUwMDNjc3BhbiBjbGFzcz17IFwidGFnXCIsIFwidGFnLS1hY3RpdmVcIjogYWN0aXZlIH1cdTAwM2Vcblx0XHR7bGFiZWx9XG5cdFx1MDAzYy9zcGFuXHUwMDNlXG59XG4iLCJpIjoiVGFnKFRhZ1Byb3Bze0xhYmVsOiBcInN0YWJsZVwiLCBBY3RpdmU6IHRydWV9KSJ9)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgVGFnKGxhYmVsIHN0cmluZywgYWN0aXZlIGJvb2wpIHtcblx0XHUwMDNjc3BhbiBjbGFzcz17IFwidGFnXCIsIFwidGFnLS1hY3RpdmVcIjogYWN0aXZlIH1cdTAwM2V7IGxhYmVsIH1cdTAwM2Mvc3Bhblx1MDAzZVxufVxuIiwiaSI6IlRhZyhUYWdQcm9wc3tMYWJlbDogXCJzdGFibGVcIiwgQWN0aXZlOiB0cnVlfSkifQ==)
 
 ### Style blocks
 
@@ -313,11 +327,14 @@ A component can return multiple roots with no wrapper element using &lt;&gt;…&
 package views
 
 component Pair(a string, b string) {
-	<><span>{a}</span><span>{b}</span></>
+	<>
+		<span>{ a }</span>
+		<span>{ b }</span>
+	</>
 }
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgUGFpcihhIHN0cmluZywgYiBzdHJpbmcpIHtcblx0XHUwMDNjXHUwMDNlXHUwMDNjc3Bhblx1MDAzZXthfVx1MDAzYy9zcGFuXHUwMDNlXHUwMDNjc3Bhblx1MDAzZXtifVx1MDAzYy9zcGFuXHUwMDNlXHUwMDNjL1x1MDAzZVxufVxuIiwiaSI6IlBhaXIoUGFpclByb3Bze0E6IFwieFwiLCBCOiBcInlcIn0pIn0=)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgUGFpcihhIHN0cmluZywgYiBzdHJpbmcpIHtcblx0XHUwMDNjXHUwMDNlXG5cdFx0XHUwMDNjc3Bhblx1MDAzZXsgYSB9XHUwMDNjL3NwYW5cdTAwM2Vcblx0XHRcdTAwM2NzcGFuXHUwMDNleyBiIH1cdTAwM2Mvc3Bhblx1MDAzZVxuXHRcdTAwM2MvXHUwMDNlXG59XG4iLCJpIjoiUGFpcihQYWlyUHJvcHN7QTogXCJ4XCIsIEI6IFwieVwifSkifQ==)
 
 ### Forms
 
@@ -327,7 +344,10 @@ A reusable Field component forwards undeclared attributes ({ attrs... }) onto it
 package views
 
 component Field(label string) {
-	<div class="field"><label>{label}</label><input class="control" { attrs... }/></div>
+	<div class="field">
+		<label>{ label }</label>
+		<input class="control" { attrs... }/>
+	</div>
 }
 
 component LoginForm() {
@@ -339,7 +359,7 @@ component LoginForm() {
 }
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgRmllbGQobGFiZWwgc3RyaW5nKSB7XG5cdFx1MDAzY2RpdiBjbGFzcz1cImZpZWxkXCJcdTAwM2VcdTAwM2NsYWJlbFx1MDAzZXtsYWJlbH1cdTAwM2MvbGFiZWxcdTAwM2VcdTAwM2NpbnB1dCBjbGFzcz1cImNvbnRyb2xcIiB7IGF0dHJzLi4uIH0vXHUwMDNlXHUwMDNjL2Rpdlx1MDAzZVxufVxuXG5jb21wb25lbnQgTG9naW5Gb3JtKCkge1xuXHRcdTAwM2Nmb3JtIG1ldGhvZD1cInBvc3RcIiBhY3Rpb249XCIvbG9naW5cIlx1MDAzZVxuXHRcdFx1MDAzY0ZpZWxkIGxhYmVsPVwiRW1haWxcIiB0eXBlPVwiZW1haWxcIiBuYW1lPVwiZW1haWxcIiByZXF1aXJlZC9cdTAwM2Vcblx0XHRcdTAwM2NGaWVsZCBsYWJlbD1cIlBhc3N3b3JkXCIgdHlwZT1cInBhc3N3b3JkXCIgbmFtZT1cInBhc3N3b3JkXCIgcmVxdWlyZWQvXHUwMDNlXG5cdFx0XHUwMDNjYnV0dG9uIHR5cGU9XCJzdWJtaXRcIlx1MDAzZVNpZ24gaW5cdTAwM2MvYnV0dG9uXHUwMDNlXG5cdFx1MDAzYy9mb3JtXHUwMDNlXG59XG4iLCJpIjoiTG9naW5Gb3JtKCkifQ==)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgRmllbGQobGFiZWwgc3RyaW5nKSB7XG5cdFx1MDAzY2RpdiBjbGFzcz1cImZpZWxkXCJcdTAwM2Vcblx0XHRcdTAwM2NsYWJlbFx1MDAzZXsgbGFiZWwgfVx1MDAzYy9sYWJlbFx1MDAzZVxuXHRcdFx1MDAzY2lucHV0IGNsYXNzPVwiY29udHJvbFwiIHsgYXR0cnMuLi4gfS9cdTAwM2Vcblx0XHUwMDNjL2Rpdlx1MDAzZVxufVxuXG5jb21wb25lbnQgTG9naW5Gb3JtKCkge1xuXHRcdTAwM2Nmb3JtIG1ldGhvZD1cInBvc3RcIiBhY3Rpb249XCIvbG9naW5cIlx1MDAzZVxuXHRcdFx1MDAzY0ZpZWxkIGxhYmVsPVwiRW1haWxcIiB0eXBlPVwiZW1haWxcIiBuYW1lPVwiZW1haWxcIiByZXF1aXJlZC9cdTAwM2Vcblx0XHRcdTAwM2NGaWVsZCBsYWJlbD1cIlBhc3N3b3JkXCIgdHlwZT1cInBhc3N3b3JkXCIgbmFtZT1cInBhc3N3b3JkXCIgcmVxdWlyZWQvXHUwMDNlXG5cdFx0XHUwMDNjYnV0dG9uIHR5cGU9XCJzdWJtaXRcIlx1MDAzZVNpZ24gaW5cdTAwM2MvYnV0dG9uXHUwMDNlXG5cdFx1MDAzYy9mb3JtXHUwMDNlXG59XG4iLCJpIjoiTG9naW5Gb3JtKCkifQ==)
 
 ### JS attributes &amp; data islands
 
@@ -357,13 +377,13 @@ type Config struct {
 
 component Widget(cfg Config) {
 	<div>
-		<button @click={ gsx.RawJS("toggle()") }>Toggle</button>
+		<button @click={gsx.RawJS("toggle()")}>Toggle</button>
 		<script type="application/json" id="cfg">@{ cfg }</script>
 	</div>
 }
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5pbXBvcnQgXCJnaXRodWIuY29tL2dzeGhxL2dzeFwiXG5cbnR5cGUgQ29uZmlnIHN0cnVjdCB7XG5cdEVudiAgc3RyaW5nXG5cdEJldGEgYm9vbFxufVxuXG5jb21wb25lbnQgV2lkZ2V0KGNmZyBDb25maWcpIHtcblx0XHUwMDNjZGl2XHUwMDNlXG5cdFx0XHUwMDNjYnV0dG9uIEBjbGljaz17IGdzeC5SYXdKUyhcInRvZ2dsZSgpXCIpIH1cdTAwM2VUb2dnbGVcdTAwM2MvYnV0dG9uXHUwMDNlXG5cdFx0XHUwMDNjc2NyaXB0IHR5cGU9XCJhcHBsaWNhdGlvbi9qc29uXCIgaWQ9XCJjZmdcIlx1MDAzZUB7IGNmZyB9XHUwMDNjL3NjcmlwdFx1MDAzZVxuXHRcdTAwM2MvZGl2XHUwMDNlXG59XG4iLCJpIjoiV2lkZ2V0KENvbmZpZ3tFbnY6IFwicHJvZFwiLCBCZXRhOiB0cnVlfSkifQ==)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5pbXBvcnQgXCJnaXRodWIuY29tL2dzeGhxL2dzeFwiXG5cbnR5cGUgQ29uZmlnIHN0cnVjdCB7XG5cdEVudiAgc3RyaW5nXG5cdEJldGEgYm9vbFxufVxuXG5jb21wb25lbnQgV2lkZ2V0KGNmZyBDb25maWcpIHtcblx0XHUwMDNjZGl2XHUwMDNlXG5cdFx0XHUwMDNjYnV0dG9uIEBjbGljaz17Z3N4LlJhd0pTKFwidG9nZ2xlKClcIil9XHUwMDNlVG9nZ2xlXHUwMDNjL2J1dHRvblx1MDAzZVxuXHRcdFx1MDAzY3NjcmlwdCB0eXBlPVwiYXBwbGljYXRpb24vanNvblwiIGlkPVwiY2ZnXCJcdTAwM2VAeyBjZmcgfVx1MDAzYy9zY3JpcHRcdTAwM2Vcblx0XHUwMDNjL2Rpdlx1MDAzZVxufVxuIiwiaSI6IldpZGdldChDb25maWd7RW52OiBcInByb2RcIiwgQmV0YTogdHJ1ZX0pIn0=)
 
 ### Full HTML document
 
@@ -375,11 +395,13 @@ package views
 component Page(title string) {
 	<!DOCTYPE html>
 	<html lang="en">
-		<head><title>{ title }</title></head>
+		<head>
+			<title>{ title }</title>
+		</head>
 		<body>hi</body>
 	</html>
 }
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgUGFnZSh0aXRsZSBzdHJpbmcpIHtcblx0XHUwMDNjIURPQ1RZUEUgaHRtbFx1MDAzZVxuXHRcdTAwM2NodG1sIGxhbmc9XCJlblwiXHUwMDNlXG5cdFx0XHUwMDNjaGVhZFx1MDAzZVx1MDAzY3RpdGxlXHUwMDNleyB0aXRsZSB9XHUwMDNjL3RpdGxlXHUwMDNlXHUwMDNjL2hlYWRcdTAwM2Vcblx0XHRcdTAwM2Nib2R5XHUwMDNlaGlcdTAwM2MvYm9keVx1MDAzZVxuXHRcdTAwM2MvaHRtbFx1MDAzZVxufVxuIiwiaSI6IlBhZ2UoUGFnZVByb3Bze1RpdGxlOiBcIkhvbWVcIn0pIn0=)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgUGFnZSh0aXRsZSBzdHJpbmcpIHtcblx0XHUwMDNjIURPQ1RZUEUgaHRtbFx1MDAzZVxuXHRcdTAwM2NodG1sIGxhbmc9XCJlblwiXHUwMDNlXG5cdFx0XHUwMDNjaGVhZFx1MDAzZVxuXHRcdFx0XHUwMDNjdGl0bGVcdTAwM2V7IHRpdGxlIH1cdTAwM2MvdGl0bGVcdTAwM2Vcblx0XHRcdTAwM2MvaGVhZFx1MDAzZVxuXHRcdFx1MDAzY2JvZHlcdTAwM2VoaVx1MDAzYy9ib2R5XHUwMDNlXG5cdFx1MDAzYy9odG1sXHUwMDNlXG59XG4iLCJpIjoiUGFnZShQYWdlUHJvcHN7VGl0bGU6IFwiSG9tZVwifSkifQ==)
 
