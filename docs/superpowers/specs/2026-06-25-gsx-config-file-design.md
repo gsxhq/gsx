@@ -51,12 +51,28 @@ logic.
   dependency-light; this is the one new direct dep, accepted as the cost of a
   hand-editable config (a hand-rolled TOML subset is explicitly rejected — it
   would be the "fake-simple, not a real implementation" anti-pattern).
-- **Location:** module root, beside `go.mod`. gsx discovers it by walking **up**
-  from the target directory (after any `-C` chdir) to the module root (the
-  nearest ancestor with a `go.mod`) and reading `gsx.toml` there if present.
-  One `gsx.toml` per module applies to every package in it (e.g. blog's
-  `admin/`, `blog/`, `ui/` share one config). Absent file → today's behavior
-  (std-only). The search does not look above the module root in v1.
+- **Discovery — first-found walking up, bounded by the git repo root:** gsx
+  walks **up** from the target directory (after any `-C` chdir) and uses the
+  **first `gsx.toml` it finds**. The walk is bounded by the **git repo root**
+  (the nearest ancestor containing `.git`); if none is in the repo, no config
+  (today's std-only behavior). There is **no merging across files** — the
+  nearest `gsx.toml` wins wholesale — and a per-module `gsx.toml` therefore
+  overrides an ancestor one.
+- **Typically at the repo root.** Because the walk crosses module boundaries
+  (it stops at the git repo, not the module's `go.mod`), one `gsx.toml` at the
+  repo root serves **every module in the repo** — e.g. a monorepo of example
+  modules (`examples/todo`, `examples/blog`, …) shares one config, while any
+  single example can drop its own `gsx.toml` to override. Resolution is still
+  per-module: a config alias like `structpages.URLFor` is harvested against the
+  module being generated, which must `require` that package (each example does).
+  A repo-root `gsx.toml` also gives editor tooling a stable project-root anchor.
+- **No global / `$HOME` config.** Every config key is a Go import path
+  (project-specific by nature), so a user-global config would be wrong for
+  unrelated projects; the walk never escapes the git repo. (If gsx ever gains a
+  genuinely user-level setting — none exist — revisit.)
+- **Bounding when not in a git repo:** fall back to the module root (`go.mod`)
+  as the stop, so a non-repo checkout still resolves a config beside its
+  `go.mod` without walking to the filesystem root.
 
 ```toml
 # gsx.toml — at the module root, beside go.mod
@@ -93,8 +109,14 @@ minify = true
 | `filters` | array of strings (import paths) | `WithFilters` |
 | `[aliases]` | table `name → "pkgPath.Func"` | one `FilterAlias` each (`WithFilter`) |
 | `[[jsAttrs]]` / `[[urlAttrs]]` / `[[cssAttrs]]` | array-of-tables, each `{name?, prefix?}` | `WithJSAttrs`/`WithURLAttrs`/`WithCSSAttrs` |
-| `[css].minify` | bool | enable built-in CSS minifier |
-| `[js].minify` | bool | enable built-in JS minifier |
+
+**Minify flags deferred (not v1):** there is currently no string-based bundled
+minifier to enable — `WithCSSMinifier`/`WithJSMinifier` take a custom
+`func(string)(string,error)`, and the internal `cssmin`/`jsmin` operate on an
+AST, not a string transform. A `[css].minify`/`[js].minify` flag therefore has
+no existing target; exposing a bundled string minifier is a separate feature.
+Until it exists, minify stays a code-only option (`cmd/` + a custom func). See
+§10.
 
 **Alias string parsing:** split `"github.com/jackielii/structpages.URLFor"` at the
 **last `.` that follows the last `/`** → `pkgPath="github.com/jackielii/structpages"`,
@@ -145,15 +167,21 @@ the cache (a test).
   ([[pipeline-forward-application]] §4) disappears for config-only projects.
 - **Vite plugin** shells `go tool gsx generate` (stock) which now reads the
   config — zero plugin change, no per-project generator.
-- **`gsx info`** prints the loaded config: its path, and the resolved filters /
-  aliases / rules / minify flags (extend the existing `info` output). This is the
-  debugging surface for "why isn't my `url` filter found."
+- **`gsx info` is the single source of truth.** It prints the **discovered
+  `gsx.toml` path** (or "none") and the **fully-resolved** configuration after
+  merging config + any opts: filters, aliases, and attr rules. This is the
+  authoritative answer to "which config is in effect, from where" and the
+  debugging surface for "why isn't my `url` filter found." (Extends the existing
+  `info` output.)
 
 ## 7. Migration of the structpages examples (validation)
 
-Each example's `cmd/gen/main.go` collapses to a `gsx.toml`:
+All six example modules' `cmd/gen/main.go` collapse to **one** `gsx.toml` at the
+structpages repo root (each example finds it by walking up past its own `go.mod`
+to the repo root):
 
 ```toml
+# structpages/gsx.toml — shared by every example module
 [aliases]
 url    = "github.com/jackielii/structpages.URLFor"
 id     = "github.com/jackielii/structpages.ID"
@@ -185,8 +213,11 @@ on the examples PR, not in the gsx change itself.
 - **config loading unit tests:** parse each schema key; alias-string split
   (incl. dotted path segments like `gopkg.in/x.F`); unknown-key rejection;
   both-name+prefix rejection; missing file → empty config.
-- **discovery unit tests:** found at module root from a nested target dir;
-  absent → std-only; `-C` redirects discovery.
+- **discovery unit tests:** first-found wins walking up from a nested target dir
+  across a module boundary (a repo-root `gsx.toml` found from a sub-module dir);
+  a nearer `gsx.toml` overrides an ancestor one; the walk stops at the git repo
+  root (a `gsx.toml` outside the repo is NOT used); absent → std-only; `-C`
+  redirects discovery; non-repo checkout falls back to the `go.mod` stop.
 - **end-to-end (go-run) test:** a temp module with a `gsx.toml` aliasing a
   ctx-injecting filter, generated via the STOCK run path (no opts), asserting the
   lowered call + render — proving the stock binary honors config.
@@ -198,6 +229,10 @@ on the examples PR, not in the gsx change itself.
 
 ## 10. Out of scope (v1)
 
+- **Minify flags** (`[css].minify`/`[js].minify`): no string-based bundled
+  minifier exists to enable (see §3). Requires first exposing a built-in
+  `func(string)(string,error)` minifier — a separate feature. Until then minify
+  is code-only.
 - Func-valued options in config (custom minifier/classifier/field-matcher) —
   stay `cmd/`-only.
 - Config inheritance / monorepo configs above the module root.
