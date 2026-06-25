@@ -14,6 +14,6 @@ component Page() {
 	<Button variant="primary" class="w-full" data-test="x" hx-post="/go">Save</Button>
 }
 -- invoke --
-Page(PageProps{})
+Page()
 -- render.golden --
 <button class="btn w-full" data-variant="primary" data-test="x" hx-post="/go">Save</button>

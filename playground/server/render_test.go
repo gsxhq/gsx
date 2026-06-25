@@ -73,7 +73,7 @@ func TestRenderEscaping(t *testing.T) {
 func TestOversizeRejected(t *testing.T) {
 	h := makeRenderHandler(testPool)
 	big := bytes.Repeat([]byte("x"), 70*1024)
-	body := `{"gsx":"` + string(big) + `","invoke":"Hello(HelloProps{})"}`
+	body := `{"gsx":"` + string(big) + `","invoke":"Hello()"}`
 	req := httptest.NewRequest("POST", "/render", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	withLimits(h, 64*1024, make(chan struct{}, 1)).ServeHTTP(rec, req)
@@ -213,7 +213,7 @@ func TestRenderMultiFile(t *testing.T) {
 	}
 	src := "-- comp.gsx --\npackage views\n\ncomponent Card(title string) { <section>{title}{children}</section> }\n" +
 		"-- page.gsx --\npackage views\n\ncomponent Page() { <Card title=\"Hi\"><em>x</em></Card> }\n"
-	resp := testPool.render(renderReq{GSX: src, Invoke: "Page(PageProps{})"})
+	resp := testPool.render(renderReq{GSX: src, Invoke: "Page()"})
 	if resp.Error != "" || len(resp.Diagnostics) > 0 {
 		t.Fatalf("render error: %s diags=%v", resp.Error, resp.Diagnostics)
 	}

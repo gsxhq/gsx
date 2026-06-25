@@ -269,7 +269,7 @@ func newPool(gsxMod, work string, size int) (p *pool, err error) {
 		writeFile(filepath.Join(ws.play, "go.mod"), fmt.Sprintf("module gsxplay\n\ngo 1.23\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => %s\n", gsxMod))
 		writeFile(filepath.Join(ws.play, "main.go"), "package main\n\nimport (\n\t\"context\"\n\t\"os\"\n\n\t_ \"github.com/gsxhq/gsx\"\n\t\"gsxplay/views\"\n)\n\nfunc main() {\n\tif err := views.Render(context.Background(), os.Stdout); err != nil {\n\t\tpanic(err)\n\t}\n}\n")
 		writeFile(filepath.Join(ws.viewDir, "comp.gsx"), "package views\n\ncomponent Hello() {\n\t<p>hi</p>\n}\n")
-		writeShim(ws.viewDir, "Hello(HelloProps{})")
+		writeShim(ws.viewDir, "Hello()")
 		var out string
 		if out, err = run(context.Background(), ws.play, env, "go", "mod", "tidy"); err != nil {
 			return nil, fmt.Errorf("mod tidy: %v: %s", err, out)

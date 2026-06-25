@@ -45,13 +45,13 @@
     "name": "Children",
     "category": "Components & composition",
     "source": "package views\n\ncomponent Card(title string) {\n\t<article class=\"card\">\n\t\t<h3>{title}</h3>\n\t\t<div class=\"card__body\">{children}</div>\n\t</article>\n}\n\ncomponent Page() {\n\t<Card title=\"Hello\"><em>composed</em></Card>\n}\n",
-    "invoke": "Page(PageProps{})"
+    "invoke": "Page()"
   },
   {
     "name": "Named slots",
     "category": "Components & composition",
     "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Panel(header gsx.Node, footer gsx.Node) {\n\t<div class=\"panel\"><header>{header}</header><footer>{footer}</footer></div>\n}\n\ncomponent Page() {\n\t<Panel header={ <h1>H</h1> } footer={ <small>F</small> }/>\n}\n",
-    "invoke": "Page(PageProps{})"
+    "invoke": "Page()"
   },
   {
     "name": "Template composition",
@@ -63,7 +63,7 @@
     "name": "Fallthrough attributes",
     "category": "Components & composition",
     "source": "package views\n\ncomponent Button(variant string) {\n\t<button class=\"btn\" data-variant={variant}>{children}</button>\n}\n\ncomponent Page() {\n\t<Button variant=\"primary\" class=\"w-full\" data-test=\"x\" hx-post=\"/go\">Save</Button>\n}\n",
-    "invoke": "Page(PageProps{})"
+    "invoke": "Page()"
   },
   {
     "name": "Method components",
@@ -98,14 +98,14 @@
   {
     "name": "Forms",
     "category": "Interactive & whole-page",
-    "source": "package views\n\ncomponent Field(label string) {\n\t<div class=\"field\"><label>{label}</label><input class=\"control\" {...attrs}/></div>\n}\n\ncomponent LoginForm() {\n\t<form method=\"post\" action=\"/login\">\n\t\t<Field label=\"Email\" type=\"email\" name=\"email\" required/>\n\t\t<Field label=\"Password\" type=\"password\" name=\"password\" required/>\n\t\t<button type=\"submit\">Sign in</button>\n\t</form>\n}\n",
-    "invoke": "LoginForm(LoginFormProps{})"
+    "source": "package views\n\ncomponent Field(label string) {\n\t<div class=\"field\"><label>{label}</label><input class=\"control\" { attrs... }/></div>\n}\n\ncomponent LoginForm() {\n\t<form method=\"post\" action=\"/login\">\n\t\t<Field label=\"Email\" type=\"email\" name=\"email\" required/>\n\t\t<Field label=\"Password\" type=\"password\" name=\"password\" required/>\n\t\t<button type=\"submit\">Sign in</button>\n\t</form>\n}\n",
+    "invoke": "LoginForm()"
   },
   {
     "name": "JS attributes & data islands",
     "category": "Interactive & whole-page",
     "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ntype Config struct {\n\tEnv  string\n\tBeta bool\n}\n\ncomponent Widget(cfg Config) {\n\t<div>\n\t\t<button @click={ gsx.RawJS(\"toggle()\") }>Toggle</button>\n\t\t<script type=\"application/json\" id=\"cfg\">@{ cfg }</script>\n\t</div>\n}\n",
-    "invoke": "Widget(WidgetProps{Cfg: Config{Env: \"prod\", Beta: true}})"
+    "invoke": "Widget(Config{Env: \"prod\", Beta: true})"
   },
   {
     "name": "Full HTML document",

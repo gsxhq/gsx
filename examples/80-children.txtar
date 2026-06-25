@@ -17,6 +17,6 @@ component Page() {
 	<Card title="Hello"><em>composed</em></Card>
 }
 -- invoke --
-Page(PageProps{})
+Page()
 -- render.golden --
 <article class="card"><h3>Hello</h3><div class="card__body"><em>composed</em></div></article>

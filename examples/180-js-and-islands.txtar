@@ -20,6 +20,6 @@ component Widget(cfg Config) {
 	</div>
 }
 -- invoke --
-Widget(WidgetProps{Cfg: Config{Env: "prod", Beta: true}})
+Widget(Config{Env: "prod", Beta: true})
 -- render.golden --
 <div><button @click="toggle()">Toggle</button><script type="application/json" id="cfg">{"Env":"prod","Beta":true}</script></div>
