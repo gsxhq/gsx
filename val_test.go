@@ -1,17 +1,26 @@
 package gsx
 
-import ("strconv"; "strings"; "testing")
+import (
+	"strconv"
+	"strings"
+	"testing"
+)
 
 func renderNode(n Node) string { var b strings.Builder; _ = n.Render(nil, &b); return b.String() }
+
 type stringerT struct{}
+
 func (stringerT) String() string { return "S<x>" }
 
 func TestVal(t *testing.T) {
-	for _, tt := range []struct{ in any; want string }{
+	for _, tt := range []struct {
+		in   any
+		want string
+	}{
 		{"a", "a"}, {"<b>", "&lt;b&gt;"}, {5, "5"}, {int64(-3), "-3"}, {uint(7), "7"},
 		{3.5, "3.5"}, {true, "true"}, {[]byte("<x>"), "&lt;x&gt;"},
 		{stringerT{}, "S&lt;x&gt;"}, {nil, ""}, {Raw("<i>"), "<i>"},
-		{[]Node{Text("a"), nil, Text("b")}, "ab"}, // catNodeSlice parity; nil skipped
+		{[]Node{Text("a"), nil, Text("b")}, "ab"},                               // catNodeSlice parity; nil skipped
 		{float32(0.1), strconv.FormatFloat(float64(float32(0.1)), 'g', -1, 64)}, // bitsize-64 parity pin (would be "0.1" at bitsize 32)
 	} {
 		if got := renderNode(Val(tt.in)); got != tt.want {

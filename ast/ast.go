@@ -115,7 +115,7 @@ func (*GoChunk) declNode() {}
 // Component is a `component [recv] Name(params) { body }` declaration.
 type Component struct {
 	span
-	Recv      string    // e.g. "(p UsersPage)" or "(f *Form)"; "" if none
+	Recv      string // e.g. "(p UsersPage)" or "(f *Form)"; "" if none
 	Name      string
 	NamePos   token.Pos // position of the first char of Name in source
 	Params    string    // raw param-list source, e.g. "title string, featured bool"; "" if none

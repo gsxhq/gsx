@@ -27,9 +27,9 @@ func TestPerfBaseline(t *testing.T) {
 		t.Skip("set GSX_PERF=1 to run")
 	}
 
-	const N = 50          // packages
-	const gsxPerPkg = 4   // .gsx components per package
-	const refsPerPkg = 1  // .go files per package (each references all components)
+	const N = 50         // packages
+	const gsxPerPkg = 4  // .gsx components per package
+	const refsPerPkg = 1 // .go files per package (each references all components)
 
 	dir := t.TempDir()
 	root, err := filepath.Abs("..")

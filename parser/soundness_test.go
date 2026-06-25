@@ -39,8 +39,8 @@ func TestSoundnessNoDesync(t *testing.T) {
 // with a position, no panic, no hang.
 func TestSoundnessCleanErrors(t *testing.T) {
 	bad := []string{
-		"package p\ncomponent C() { <p>hi</p>",          // unterminated body
-		"package p\ncomponent C(n int) { {n }",          // unterminated interp/body
+		"package p\ncomponent C() { <p>hi</p>",           // unterminated body
+		"package p\ncomponent C(n int) { {n }",           // unterminated interp/body
 		"package p\ncomponent C() { <input { attrs... }", // unterminated tag/body
 	}
 	for _, src := range bad {

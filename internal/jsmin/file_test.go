@@ -106,8 +106,8 @@ func TestMinifyFileSkipsDataIslandScript(t *testing.T) {
 	// MinifyFile must leave its body byte-for-byte unchanged.
 	body := "{\n  \"a\": 1\n}"
 	el := &ast.Element{
-		Tag:   "script",
-		Attrs: []ast.Attr{&ast.StaticAttr{Name: "type", Value: "application/json"}},
+		Tag:      "script",
+		Attrs:    []ast.Attr{&ast.StaticAttr{Name: "type", Value: "application/json"}},
 		Children: []ast.Markup{&ast.Text{Value: body}},
 	}
 	f := fileWith(el)

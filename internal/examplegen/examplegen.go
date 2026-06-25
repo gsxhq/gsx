@@ -25,7 +25,7 @@ type Example struct {
 	Summary  string
 	Category string
 	Order    int
-	Source   string       // playground source string (single verbatim, or txtar-joined)
+	Source   string // playground source string (single verbatim, or txtar-joined)
 	Invoke   string
 	Files    []SourceFile // individual source files, for per-file docs blocks
 }

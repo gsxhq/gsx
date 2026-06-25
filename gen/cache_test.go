@@ -12,7 +12,10 @@ func TestCacheColdWarmEdit(t *testing.T) {
 	repoRoot, _ := filepath.Abs("..")
 	tmp := t.TempDir()
 	os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module ex/c\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n"), 0o644)
-	mkgsx := func(p, body string) { os.MkdirAll(filepath.Join(tmp, p), 0o755); os.WriteFile(filepath.Join(tmp, p, p+".gsx"), []byte(body), 0o644) }
+	mkgsx := func(p, body string) {
+		os.MkdirAll(filepath.Join(tmp, p), 0o755)
+		os.WriteFile(filepath.Join(tmp, p, p+".gsx"), []byte(body), 0o644)
+	}
 	mkgsx("v", "package v\n\ncomponent A(name string) { <p>{name}</p> }\n")
 	mkgsx("w", "package w\n\ncomponent B() { <div>hi</div> }\n")
 	t.Setenv("GSXCACHE", t.TempDir())
@@ -53,7 +56,10 @@ func TestNoCacheBypassesCache(t *testing.T) {
 	repoRoot, _ := filepath.Abs("..")
 	tmp := t.TempDir()
 	os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module ex/nc\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n"), 0o644)
-	mkgsx := func(p, body string) { os.MkdirAll(filepath.Join(tmp, p), 0o755); os.WriteFile(filepath.Join(tmp, p, p+".gsx"), []byte(body), 0o644) }
+	mkgsx := func(p, body string) {
+		os.MkdirAll(filepath.Join(tmp, p), 0o755)
+		os.WriteFile(filepath.Join(tmp, p, p+".gsx"), []byte(body), 0o644)
+	}
 	mkgsx("v", "package v\n\ncomponent A(name string) { <p>{name}</p> }\n")
 	t.Setenv("GSXCACHE", t.TempDir())
 

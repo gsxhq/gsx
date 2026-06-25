@@ -1868,7 +1868,7 @@ func emitSlotClosure(nodes []ast.Markup, resolved map[ast.Node]types.Type, table
 // (nodeProps[propsType]); a non-node value bound to one of these is promoted via
 // rtPkg.Val/rtPkg.Text so a renderable value fills a gsx.Node prop.
 func childPropsLiteral(el *ast.Element, propsType, rtPkg string, table filterTable, propFields map[string]map[string]bool, nodeFields map[string]bool, byo *byoData, fm FieldMatcher, slotValue func(nodes []ast.Markup) (string, error)) (fieldsStr string, splatExpr string, usedPkgs map[string]string, err error) {
-	fm = fieldMatcherOrDefault(fm) // normalize nil → default matcher
+	fm = fieldMatcherOrDefault(fm)    // normalize nil → default matcher
 	declared := propFields[propsType] // nil for cross-package / unknown → graceful
 	// BYO struct facts: when the child is byo, an unmatched attr (→ Attrs bag) or
 	// {children} (→ Children field) is a CLEAR ERROR if the author struct lacks the
@@ -2111,4 +2111,3 @@ func condBranchAttrs(attrs []ast.Attr, rtPkg, tag string) (string, error) {
 	}
 	return fmt.Sprintf("%s.Attrs{%s}", rtPkg, strings.Join(entries, ", ")), nil
 }
-

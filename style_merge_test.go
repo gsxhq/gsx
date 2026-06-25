@@ -13,9 +13,9 @@ func styleMerged(root, bag string) string {
 func TestStyleMerged(t *testing.T) {
 	for _, tt := range []struct{ root, bag, want string }{
 		{"color: red; margin: 0", "color: blue", ` style="margin: 0; color: blue"`}, // dedupe, caller last
-		{"a: 1; a: 2", "", ` style="a: 2"`},                                          // within-string last-wins
+		{"a: 1; a: 2", "", ` style="a: 2"`},                                         // within-string last-wins
 		{"color: red", "", ` style="color: red"`},
-		{"", "", ""},                                                                  // empty -> no attr
+		{"", "", ""}, // empty -> no attr
 		{"", "color: blue", ` style="color: blue"`},
 		// robust splitter: ; and : inside url()/quotes are NOT boundaries
 		{"background: url(data:image/png;base64,AA;BB)", "", ` style="background: url(data:image/png;base64,AA;BB)"`},

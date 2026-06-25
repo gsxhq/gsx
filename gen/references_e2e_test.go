@@ -39,14 +39,17 @@ func TestReferences(t *testing.T) {
 		}
 	}
 
-	frame := func(v any) string { b, _ := json.Marshal(v); return "Content-Length: " + strconv.Itoa(len(b)) + "\r\n\r\n" + string(b) }
+	frame := func(v any) string {
+		b, _ := json.Marshal(v)
+		return "Content-Length: " + strconv.Itoa(len(b)) + "\r\n\r\n" + string(b)
+	}
 	in := frame(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}})
 	in += frame(map[string]any{"jsonrpc": "2.0", "method": "textDocument/didOpen",
 		"params": map[string]any{"textDocument": map[string]any{"uri": cardURI, "version": 1, "text": cardSrc}}})
 	in += frame(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "textDocument/references",
 		"params": map[string]any{"textDocument": map[string]any{"uri": cardURI},
 			"position": map[string]any{"line": line, "character": ch},
-			"context": map[string]any{"includeDeclaration": false}}})
+			"context":  map[string]any{"includeDeclaration": false}}})
 	in += frame(map[string]any{"jsonrpc": "2.0", "method": "exit"})
 
 	var out, errBuf bytes.Buffer

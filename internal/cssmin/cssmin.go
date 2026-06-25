@@ -13,8 +13,8 @@ import "strings"
 // It never rewrites values and never removes a space that could be significant.
 func minifyCSS(s string) string {
 	out := make([]byte, 0, len(s))
-	pending := false      // an unemitted whitespace run
-	afterBang := false    // whitespace after a kept /*! */ is still suppressed
+	pending := false   // an unemitted whitespace run
+	afterBang := false // whitespace after a kept /*! */ is still suppressed
 
 	// Note: a whitespace-only custom-property value (e.g. `--x: ;`) collapses to
 	// `--x:` because the space between `:` and `;` is adjacent to delimiters and is

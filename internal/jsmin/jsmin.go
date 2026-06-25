@@ -142,23 +142,23 @@ func regexPosition(prev js.TokenType) bool {
 	}
 	switch prev {
 	// Tokens that end an expression → division.
-	case js.CloseParenToken,   // (x) / y
-		js.CloseBracketToken,  // a[i] / y
-		js.CloseBraceToken,    // {…} / y  — ends object literal or block; / is division.
+	case js.CloseParenToken, // (x) / y
+		js.CloseBracketToken, // a[i] / y
+		js.CloseBraceToken,   // {…} / y  — ends object literal or block; / is division.
 		// Treating } as division is conservative-safe: if it was actually a block
 		// statement followed by a regex, the / lexes as DivToken verbatim (no bytes
 		// lost); treating } as regex-precedes causes RHS token loss on RegExp() failure.
-		js.IncrToken,          // x++ / y  (postfix)
-		js.DecrToken,          // x-- / y  (postfix)
-		js.RegExpToken,        // /re/ / y (rare but valid)
-		js.StringToken,        // "s" / y
-		js.TemplateToken,      // `t` / y
-		js.TemplateEndToken,   // `…${x}` / y
-		js.TrueToken,          // true / y
-		js.FalseToken,         // false / y
-		js.NullToken,          // null / y
-		js.ThisToken,          // this / y
-		js.SuperToken:         // super / y  (super ends an expr; `super /` is invalid JS)
+		js.IncrToken,        // x++ / y  (postfix)
+		js.DecrToken,        // x-- / y  (postfix)
+		js.RegExpToken,      // /re/ / y (rare but valid)
+		js.StringToken,      // "s" / y
+		js.TemplateToken,    // `t` / y
+		js.TemplateEndToken, // `…${x}` / y
+		js.TrueToken,        // true / y
+		js.FalseToken,       // false / y
+		js.NullToken,        // null / y
+		js.ThisToken,        // this / y
+		js.SuperToken:       // super / y  (super ends an expr; `super /` is invalid JS)
 		return false
 
 	// Reserved words that return a value → starts a new expr? No: these end expressions.

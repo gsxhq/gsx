@@ -13,17 +13,17 @@ import (
 // TestByoLSPContract verifies the three pillars of the LSP contract for a
 // bring-your-own-Props (byo) component after the author-owns-Props redesign:
 //
-//  (a) tag-name→decl: the byo Button component is in CrossIndex with a valid
-//      .gsx declaration position so go-to-definition on a <Button …/> tag
-//      resolves back to the component declaration.
+//	(a) tag-name→decl: the byo Button component is in CrossIndex with a valid
+//	    .gsx declaration position so go-to-definition on a <Button …/> tag
+//	    resolves back to the component declaration.
 //
-//  (b) ExprMap covers byo body interp/attr expressions: the { p.Variant } and
-//      { p.Children } interpolations inside the byo component body are mapped
-//      to their skeleton go/ast exprs, so gopls can act on a cursor inside
-//      those expressions (hover/definition).
+//	(b) ExprMap covers byo body interp/attr expressions: the { p.Variant } and
+//	    { p.Children } interpolations inside the byo component body are mapped
+//	    to their skeleton go/ast exprs, so gopls can act on a cursor inside
+//	    those expressions (hover/definition).
 //
-//  (c) //line directives are emitted: the generated .x.go contains //line
-//      markers mapping skeleton positions back to the .gsx source.
+//	(c) //line directives are emitted: the generated .x.go contains //line
+//	    markers mapping skeleton positions back to the .gsx source.
 //
 // The skeleton must also be valid Go (no type errors) for both field-build and
 // whole-struct splat invocations — confirmed implicitly by the absence of type
@@ -207,4 +207,3 @@ component Page(someVar string, pd Props) {
 		t.Error("page.gsx was not generated (no entry in pr.Files)")
 	}
 }
-

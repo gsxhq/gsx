@@ -72,7 +72,10 @@ func TestClassMergedPartsAndExtraDeduped(t *testing.T) {
 }
 
 func TestDefaultClassMergeLastWins(t *testing.T) {
-	for _, tt := range []struct{ in []string; want string }{
+	for _, tt := range []struct {
+		in   []string
+		want string
+	}{
 		{[]string{"a", "b", "a"}, "b a"},
 		{[]string{"a", "b"}, "a b"},
 		{[]string{"x", "x", "x"}, "x"},

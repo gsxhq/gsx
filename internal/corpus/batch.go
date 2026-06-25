@@ -146,9 +146,15 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 			orderedDirs := cs.pkgDirs // already in packageDirs() order
 
 			// Group files by dir.
-			byDir := map[string][]struct{ path string; data []byte }{}
+			byDir := map[string][]struct {
+				path string
+				data []byte
+			}{}
 			for _, f := range allFiles {
-				byDir[f.dir] = append(byDir[f.dir], struct{ path string; data []byte }{f.path, f.data})
+				byDir[f.dir] = append(byDir[f.dir], struct {
+					path string
+					data []byte
+				}{f.path, f.data})
 			}
 			// Sort within each dir by gsx path.
 			for dir := range byDir {

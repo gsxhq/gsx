@@ -13,15 +13,17 @@ import (
 //	component Greeting(name string, count int) { {name} {count} }
 //
 // Line layout (1-indexed):
-//  1:  package views
-//  2:  import _gsxrt "github.com/gsxhq/gsx"
-//  3:  import _gsxctx "context"
-//  4:  var _ _gsxrt.Node
-//  5:  var _ _gsxctx.Context
-//  6:  func _gsxuse(...any) {}
-//  7:  type GreetingProps struct {
-//  8:    Name  string
-//  9:    Count int
+//
+//	1:  package views
+//	2:  import _gsxrt "github.com/gsxhq/gsx"
+//	3:  import _gsxctx "context"
+//	4:  var _ _gsxrt.Node
+//	5:  var _ _gsxctx.Context
+//	6:  func _gsxuse(...any) {}
+//	7:  type GreetingProps struct {
+//	8:    Name  string
+//	9:    Count int
+//
 // 10:  }
 // 11:  func Greeting(_gsxp GreetingProps) _gsxrt.Node {
 // 12:    var ctx _gsxctx.Context

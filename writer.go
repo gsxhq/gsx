@@ -78,4 +78,3 @@ func (gw *Writer) Node(ctx context.Context, n Node) {
 func (gw *Writer) CSS(s string) {
 	gw.writeStr(cssValueFilter(s))
 }
-

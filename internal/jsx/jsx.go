@@ -114,12 +114,12 @@ func resolveMarkup(nodes []ast.Markup, bag *diag.Bag) bool {
 // hole records one @{ … } interpolation in the lexed skeleton.
 type hole struct {
 	interp   *ast.Interp
-	childIdx int    // index of the Interp within el.Children
-	start    int    // byte offset of the placeholder in the skeleton
-	end      int    // start + len(placeholder)
+	childIdx int // index of the Interp within el.Children
+	start    int // byte offset of the placeholder in the skeleton
+	end      int // start + len(placeholder)
 	ctx      ast.JSCtx
-	comment  bool   // hole fell inside a JS comment → un-split to literal
-	resolved bool   // a token covered this hole
+	comment  bool // hole fell inside a JS comment → un-split to literal
+	resolved bool // a token covered this hole
 }
 
 // jsExecutableTypes are the <script type> values that run as JavaScript. Any

@@ -103,7 +103,7 @@ var allowedImports = map[string]bool{
 	"context": true, "io": true, "strconv": true, "fmt": true,
 	"strings": true, "time": true, "sort": true, "errors": true,
 	"math": true, "math/rand": true, "unicode": true, "unicode/utf8": true,
-	"html": true,
+	"html":                     true,
 	"github.com/gsxhq/gsx":     true,
 	"github.com/gsxhq/gsx/std": true,
 }

@@ -16,8 +16,8 @@ func TestRenderRichSnippet(t *testing.T) {
 	}
 	var buf bytes.Buffer
 	RenderRich(&buf, []Diagnostic{{
-		Start: token.Position{Filename: "views.gsx", Line: 3, Column: 13},
-		End:   token.Position{Filename: "views.gsx", Line: 3, Column: 16},
+		Start:    token.Position{Filename: "views.gsx", Line: 3, Column: 13},
+		End:      token.Position{Filename: "views.gsx", Line: 3, Column: 16},
 		Severity: Error, Code: "reserved-param",
 		Message: `param name "ctx" is reserved`, Help: "rename the parameter",
 	}}, src)

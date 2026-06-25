@@ -87,13 +87,11 @@ jobs:
         run: npm run build
 
   format:
-    name: format (advisory)
+    name: format
     runs-on: ubuntu-latest
-    # Advisory for now: the repo carries pre-1.26 gofmt drift (Go 1.26's gofmt
-    # changed struct-comment alignment) and a couple of unformatted .gsx templates.
-    # Flip `continue-on-error` to false once a one-time `gofmt -w` / `gsx fmt -w`
-    # cleanup lands, to make formatting a required gate.
-    continue-on-error: true
+    # Required gate: a one-time `gofmt -w` / `gsx fmt -w` cleanup landed (chore/format-gate),
+    # so gofmt + gsx fmt must stay clean. Pin GO_VERSION to the same gofmt the cleanup
+    # used — a different Go minor can re-introduce formatting drift.
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v5
@@ -104,10 +102,10 @@ jobs:
         run: |
           files=$(gofmt -l $(git ls-files '*.go' | grep -v /testdata/))
           if [ -n "$files" ]; then
-            echo "::warning::these Go files need gofmt:"; echo "$files"; exit 1
+            echo "::error::these Go files need gofmt:"; echo "$files"; exit 1
           fi
       - name: gsx fmt
         run: |
           if ! go run ./cmd/gsx fmt -l .; then
-            echo "::warning::the listed .gsx files need 'gsx fmt -w'"; exit 1
+            echo "::error::the listed .gsx files need 'gsx fmt -w'"; exit 1
           fi

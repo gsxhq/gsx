@@ -260,4 +260,3 @@ func componentTagDeclAt(pkg *Package, path string, off int) (token.Position, boo
 	})
 	return result, found
 }
-

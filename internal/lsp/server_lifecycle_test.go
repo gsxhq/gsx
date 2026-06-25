@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-
 )
 
 // nilAnalyzer satisfies Analyzer and returns nothing.

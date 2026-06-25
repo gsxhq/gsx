@@ -15,7 +15,6 @@ import (
 
 var update = flag.Bool("update", false, "regenerate golden sections in testdata/cases")
 
-
 func TestCorpus(t *testing.T) {
 	repoRoot, _ := filepath.Abs("../..")
 	var files []string
@@ -44,9 +43,9 @@ func TestCorpus(t *testing.T) {
 	// Classify cases and collect codegen candidates for ONE batchCodegen call.
 	// A candidate is any case that is NOT a parse-error case and NOT a parser-layer case.
 	type classification struct {
-		single     bool
-		parserDiag []byte
-		astDump    []byte
+		single      bool
+		parserDiag  []byte
+		astDump     []byte
 		isCandidate bool
 	}
 	classif := make(map[string]*classification, len(cases))
