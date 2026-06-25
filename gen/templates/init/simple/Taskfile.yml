@@ -2,8 +2,9 @@ version: '3'
 
 dotenv: ['.env']
 
-# Prefix each parallel task's lines ([dev:vite] / [dev:server]) into one
-# readable combined log.
+# Prefix each parallel task's lines ([dev:vite] / [dev:server]) into one readable
+# combined terminal log, and tee the same stream to tmp/dev.log for the
+# dev-fallback page to display while the Go server restarts.
 output: prefixed
 
 tasks:
@@ -11,14 +12,22 @@ tasks:
     desc: Run Vite + the Go server with live reload.
     deps: [dev:vite, dev:server]
 
+  dev:setup:
+    internal: true
+    cmds:
+      - mkdir -p tmp
+      - 'echo "=== task dev ===" > tmp/dev.log'
+
   dev:vite:
     desc: Vite dev server (front door; runs the gsx plugin).
+    deps: [dev:setup]
     cmds:
-      - npm run dev
+      - 'npm run dev 2>&1 | tee -a tmp/dev.log'
 
   dev:server:
     desc: Rebuild + restart the Go server on .go changes.
+    deps: [dev:setup]
     cmds:
-      # Single-quoted: the wgo `::` separator contains a colon-space sequence that
-      # unquoted YAML would misparse as a mapping key.
-      - 'go tool wgo -file=.go -xdir=tmp -xdir=node_modules -xdir=dist go build -o tmp/app . :: tmp/app'
+      # Single-quoted: the wgo `::` separator + the pipe are one shell command;
+      # unquoted YAML would misparse the colon-space.
+      - 'go tool wgo -file=.go -xdir=tmp -xdir=node_modules -xdir=dist go build -o tmp/app . :: tmp/app 2>&1 | tee -a tmp/dev.log'
