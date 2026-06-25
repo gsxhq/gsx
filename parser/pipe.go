@@ -10,6 +10,44 @@ import (
 	"github.com/gsxhq/gsx/ast"
 )
 
+// balancedParenUnwrap removes one outer parenthesis layer from s when s is a
+// single fully-parenthesized expression — i.e. s is `(` + inner + `)` and the
+// `)` matching the opening `(` is the final token. Returns (inner, true) in that
+// case, else (s, false). Token-aware (via go/scanner) so parens inside string,
+// rune, or comment tokens are not miscounted. Used by parseSpreadAttr to accept
+// the canonical parenthesized piped-spread form `{ (seed |> f)... }`.
+func balancedParenUnwrap(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if len(s) < 2 || s[0] != '(' {
+		return s, false
+	}
+	fset := token.NewFileSet()
+	file := fset.AddFile("", fset.Base(), len(s))
+	var sc scanner.Scanner
+	sc.Init(file, []byte(s), nil, scanner.ScanComments)
+	depth := 0
+	for {
+		pos, tok, _ := sc.Scan()
+		if tok == token.EOF {
+			return s, false
+		}
+		switch tok {
+		case token.LPAREN, token.LBRACK, token.LBRACE:
+			depth++
+		case token.RPAREN, token.RBRACK, token.RBRACE:
+			depth--
+			if depth == 0 {
+				// This token closes the opening paren at offset 0. s is fully
+				// parenthesized only if it is the final token (last byte).
+				if file.Offset(pos) == len(s)-1 {
+					return strings.TrimSpace(s[1 : len(s)-1]), true
+				}
+				return s, false
+			}
+		}
+	}
+}
+
 // splitPipe splits src on top-level `|>` pipeline operators — those at bracket
 // depth 0, outside strings, runes, and comments. Segments are returned in order
 // with surrounding whitespace preserved (the caller trims). With no top-level

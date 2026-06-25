@@ -153,7 +153,7 @@ func analyzeUnusedImports(files []string) map[string][]gsxfmt.ImportRef {
 		if err != nil {
 			continue
 		}
-		res, err := codegen.GeneratePackagesWithFilters(root, []string{absDir}, nil, attrclass.Builtin(), nil, nil, nil, nil)
+		res, err := codegen.GeneratePackagesWithFilters(root, []string{absDir}, nil, nil, attrclass.Builtin(), nil, nil, nil, nil)
 		if err != nil {
 			continue
 		}

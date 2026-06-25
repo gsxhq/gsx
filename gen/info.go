@@ -22,7 +22,7 @@ import (
 //
 // When asJSON is true it emits the manifest JSON form instead of the human table.
 // cmdArgs are the subcommand arguments (used to parse --json).
-func runInfo(stdout, stderr io.Writer, dir string, filterPkgs []string, cls *attrclass.Classifier, predLabel string, fm codegen.FieldMatcher, cmdArgs []string) int {
+func runInfo(stdout, stderr io.Writer, dir string, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, predLabel string, fm codegen.FieldMatcher, cmdArgs []string) int {
 	// Parse the info subcommand's own flags.
 	ifs := flag.NewFlagSet("info", flag.ContinueOnError)
 	ifs.SetOutput(stderr)
@@ -32,7 +32,7 @@ func runInfo(stdout, stderr io.Writer, dir string, filterPkgs []string, cls *att
 		return 2
 	}
 
-	infos, err := codegen.ResolveFilters(dir, filterPkgs)
+	infos, err := codegen.ResolveFilters(dir, filterPkgs, aliases)
 	if err != nil {
 		fmt.Fprintf(stderr, "gsx: %v\n", err)
 		return 1
@@ -69,9 +69,9 @@ func runInfo(stdout, stderr io.Writer, dir string, filterPkgs []string, cls *att
 	fmt.Fprintf(stdout, "\nFilters (%d):\n", len(infos))
 	tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
 	for _, fi := range infos {
-		kind := "bare"
-		if fi.Param {
-			kind = "param"
+		kind := "seed-first"
+		if fi.Ctx {
+			kind = "seed-first +ctx"
 		}
 		qualified := path.Base(fi.Pkg) + "." + fi.Func
 		line := fmt.Sprintf("  %s\t%s\t%s", fi.Name, qualified, kind)

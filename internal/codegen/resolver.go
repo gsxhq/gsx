@@ -141,13 +141,16 @@ func (e *cachedTypeErrors) Error() string {
 // allowImports) once from moduleDir and returns a resolver whose check method
 // runs without any subprocess. The returned resolver's filters() method exposes
 // the prebuilt filterTable so callers can skip a second loadFilterTableMulti.
-func newCachedResolver(moduleDir string, filterPkgs []string, allowImports []string) (*CachedResolver, error) {
+func newCachedResolver(moduleDir string, filterPkgs []string, aliases []FilterAlias, allowImports []string) (*CachedResolver, error) {
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedTypes | packages.NeedImports | packages.NeedDeps,
 		Dir:  moduleDir,
 	}
 	loadPaths := []string{"github.com/gsxhq/gsx"}
 	loadPaths = append(loadPaths, filterPkgs...)
+	for _, a := range aliases {
+		loadPaths = append(loadPaths, a.PkgPath)
+	}
 	loadPaths = append(loadPaths, allowImports...)
 	pkgs, err := packages.Load(cfg, loadPaths...)
 	if err != nil {
@@ -159,7 +162,7 @@ func newCachedResolver(moduleDir string, filterPkgs []string, allowImports []str
 			m[p.PkgPath] = p.Types
 		}
 	})
-	table, err := loadFilterTableMulti(moduleDir, filterPkgs)
+	table, err := loadFilterTableMulti(moduleDir, filterPkgs, aliases)
 	if err != nil {
 		return nil, err
 	}
@@ -170,8 +173,8 @@ func newCachedResolver(moduleDir string, filterPkgs []string, allowImports []str
 // filterPkgs (plus "github.com/gsxhq/gsx" and allowImports) once from
 // moduleDir and returns a resolver ready for in-process generation with no
 // per-render subprocess.
-func NewCachedResolver(moduleDir string, filterPkgs []string, allowImports []string) (*CachedResolver, error) {
-	return newCachedResolver(moduleDir, filterPkgs, allowImports)
+func NewCachedResolver(moduleDir string, filterPkgs []string, aliases []FilterAlias, allowImports []string) (*CachedResolver, error) {
+	return newCachedResolver(moduleDir, filterPkgs, aliases, allowImports)
 }
 
 // mapImporter implements types.Importer using a prebuilt map of package paths
@@ -299,7 +302,7 @@ func GeneratePackagesWithResolver(moduleDir string, dirs []string, resolver *Cac
 		// Step 3: resolve types using the cached resolver (no subprocess).
 		// resolveTypesPkgWithFilters detects *CachedResolver and uses its prebuilt
 		// filter table and importer instead of calling packages.Load.
-		resolved, table, resolveErr := resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, byo, nil, filterPkgs, fset, resolver)
+		resolved, table, resolveErr := resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, byo, nil, filterPkgs, nil, fset, resolver)
 		if resolveErr != nil {
 			// Check whether this is a cachedTypeErrors (positioned type errors)
 			// vs a genuine infrastructure error.

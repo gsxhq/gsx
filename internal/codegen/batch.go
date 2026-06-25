@@ -80,7 +80,7 @@ type UnusedImport struct {
 // error (parse or type-resolution) is recorded in that dir's PackageResult.Err
 // without failing the others. The returned map is keyed by the normalized
 // absolute dir.
-func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []string, cls *attrclass.Classifier, fm FieldMatcher, cssMin, jsMin func(string) (string, error), srcOverride map[string][]byte) (map[string]*PackageResult, error) {
+func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []string, aliases []FilterAlias, cls *attrclass.Classifier, fm FieldMatcher, cssMin, jsMin func(string) (string, error), srcOverride map[string][]byte) (map[string]*PackageResult, error) {
 	if cls == nil {
 		cls = attrclass.Builtin()
 	}
@@ -189,7 +189,7 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 	}
 
 	// Step 3: load filter table ONCE from the module root.
-	table, err := loadFilterTableMulti(moduleDir, filterPkgs)
+	table, err := loadFilterTableMulti(moduleDir, filterPkgs, aliases)
 	if err != nil {
 		return nil, fmt.Errorf("codegen: load filter table: %w", err)
 	}
@@ -588,5 +588,5 @@ func pickImportByPath(specs []importSpec, msg string) importSpec {
 // GeneratePackages is GeneratePackagesWithFilters with the built-in std filter
 // package (kept for the test corpus and any std-only caller).
 func GeneratePackages(moduleDir string, dirs []string) (map[string]*PackageResult, error) {
-	return GeneratePackagesWithFilters(moduleDir, dirs, nil, nil, nil, nil, nil, nil)
+	return GeneratePackagesWithFilters(moduleDir, dirs, nil, nil, nil, nil, nil, nil, nil)
 }

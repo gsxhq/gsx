@@ -13,7 +13,7 @@ func TestResolveFiltersStd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	infos, err := ResolveFilters(repoRoot, []string{stdImportPath})
+	infos, err := ResolveFilters(repoRoot, []string{stdImportPath}, nil)
 	if err != nil {
 		t.Fatalf("ResolveFilters: %v", err)
 	}
@@ -40,8 +40,8 @@ func TestResolveFiltersStd(t *testing.T) {
 	if upper.Pkg != stdImportPath {
 		t.Fatalf("upper.Pkg = %q, want %q", upper.Pkg, stdImportPath)
 	}
-	if upper.Param {
-		t.Fatalf("upper should be bare, got Param=true")
+	if upper.Ctx {
+		t.Fatalf("upper should be ctx-less, got Ctx=true")
 	}
 	if len(upper.Shadows) != 0 {
 		t.Fatalf("upper.Shadows = %v, want empty", upper.Shadows)
@@ -50,8 +50,8 @@ func TestResolveFiltersStd(t *testing.T) {
 	if !ok {
 		t.Fatal("expected a \"truncate\" filter")
 	}
-	if !trunc.Param {
-		t.Fatalf("truncate should be param, got Param=false")
+	if trunc.Ctx {
+		t.Fatalf("truncate should be ctx-less, got Ctx=true")
 	}
 }
 
@@ -62,7 +62,7 @@ func TestResolveFiltersEmptyDefaultsToStd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	infos, err := ResolveFilters(repoRoot, nil)
+	infos, err := ResolveFilters(repoRoot, nil, nil)
 	if err != nil {
 		t.Fatalf("ResolveFilters: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestResolveFiltersShadowing(t *testing.T) {
 	}
 	writeMultiFile(t, mfDir, "myfilters.go", "package myfilters\n\nfunc Upper(s string) string { return \"USER:\" + s }\n")
 
-	infos, err := ResolveFilters(tmp, []string{stdImportPath, "gsxmf/myfilters"})
+	infos, err := ResolveFilters(tmp, []string{stdImportPath, "gsxmf/myfilters"}, nil)
 	if err != nil {
 		t.Fatalf("ResolveFilters: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestResolveFiltersBadPkg(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = ResolveFilters(repoRoot, []string{"github.com/gsxhq/gsx/does-not-exist"})
+	_, err = ResolveFilters(repoRoot, []string{"github.com/gsxhq/gsx/does-not-exist"}, nil)
 	if err == nil {
 		t.Fatal("expected error for non-existent filter package")
 	}

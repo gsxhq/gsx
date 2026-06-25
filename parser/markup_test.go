@@ -200,6 +200,44 @@ func TestParseSpreadWhitespace(t *testing.T) {
 	}
 }
 
+func TestParseSpreadPipeline(t *testing.T) {
+	// The canonical parenthesized piped-spread form and the bare form parse to the
+	// SAME seed + stages; a parenthesized NON-pipeline keeps its parens; a plain
+	// spread has no stages.
+	cases := []struct {
+		src       string
+		wantSeed  string
+		wantStage string // first stage name, "" if no stages
+	}{
+		{`{ (a |> upper)... }>`, "a", "upper"},
+		{`{ a |> upper... }>`, "a", "upper"},
+		{`{ (a |> trim |> upper)... }>`, "a", "trim"},
+		{`{ rest... }>`, "rest", ""},
+		{`{ (x)... }>`, "(x)", ""},
+	}
+	for _, tc := range cases {
+		p := testParser(tc.src)
+		attrs, err := p.parseAttrs()
+		if err != nil {
+			t.Fatalf("%q: %v", tc.src, err)
+		}
+		sa, ok := attrs[0].(*ast.SpreadAttr)
+		if !ok {
+			t.Fatalf("%q: not a SpreadAttr: %#v", tc.src, attrs[0])
+		}
+		if sa.Expr != tc.wantSeed {
+			t.Errorf("%q: seed = %q, want %q", tc.src, sa.Expr, tc.wantSeed)
+		}
+		if tc.wantStage == "" {
+			if len(sa.Stages) != 0 {
+				t.Errorf("%q: got %d stages, want 0", tc.src, len(sa.Stages))
+			}
+		} else if len(sa.Stages) == 0 || sa.Stages[0].Name != tc.wantStage {
+			t.Errorf("%q: stages = %#v, want first %q", tc.src, sa.Stages, tc.wantStage)
+		}
+	}
+}
+
 func TestTagTrailingLineComment(t *testing.T) {
 	// `<div id={x} // trailing\n class="y">` → div with exactly two attrs (ExprAttr id, StaticAttr class)
 	p := testParser("<div id={x} // trailing\n class=\"y\"></div>")

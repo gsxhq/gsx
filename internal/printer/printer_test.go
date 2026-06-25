@@ -60,6 +60,24 @@ component C() {
 	checkFormat(t, src, want)
 }
 
+func TestSpreadPipelineParenthesized(t *testing.T) {
+	// A piped spread prints parenthesized so the trailing `...` reads as the spread
+	// marker on the whole pipeline. The bare input canonicalizes to the
+	// parenthesized form, and re-formatting is idempotent — which also proves the
+	// parser round-trips the parenthesized form back to the same seed + stages.
+	src := `package p
+component C(extra gsx.Attrs) {
+	<div { extra |> withTitle("hi")... }></div>
+}`
+	want := `package p
+
+component C(extra gsx.Attrs) {
+	<div { (extra |> withTitle("hi"))... }></div>
+}
+`
+	checkFormat(t, src, want)
+}
+
 func TestElementInlineOnlyInterp(t *testing.T) {
 	src := `package p
 component C() {

@@ -472,15 +472,21 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 		// `prop: value` parser would lose (it drops colon-less fragments and dedupes
 		// properties). The empty-bag case takes the else branch → byte-identical output.
 		if styleAttr != nil || staticStyle != nil {
+			styleStr, ok := rootStyleString(styleAttr, staticStyle, table, imports, bag)
+			if !ok {
+				return false
+			}
 			b.WriteString("\t\tif _gsxp.Attrs.Has(\"style\") {\n")
-			fmt.Fprintf(b, "\t\t\t_gsxgw.StyleMerged(%s, _gsxp.Attrs.Style())\n", rootStyleString(styleAttr, staticStyle))
+			fmt.Fprintf(b, "\t\t\t_gsxgw.StyleMerged(%s, _gsxp.Attrs.Style())\n", styleStr)
 			b.WriteString("\t\t} else {\n")
 			if staticStyle != nil {
 				if !emitAttr(b, staticStyle, resolved, table, imports, cls, bag) {
 					return false
 				}
 			} else {
-				emitStyleAttr(b, styleAttr)
+				if !emitStyleAttr(b, styleAttr, table, imports, bag) {
+					return false
+				}
 			}
 			b.WriteString("\t\t}\n")
 		} else {
@@ -518,7 +524,9 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 		switch t := a.(type) {
 		case *ast.ClassAttr:
 			if t == classAttr {
-				emitRootComposedClass(b, t)
+				if !emitRootComposedClass(b, t, table, imports, bag) {
+					return false
+				}
 				continue
 			}
 			if t == styleAttr {
@@ -539,7 +547,11 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			if i == splitIdx {
 				continue
 			}
-			fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", strings.TrimSpace(t.Expr))
+			spreadExpr, ok := spreadAttrExpr(t, table, imports, bag)
+			if !ok {
+				return false
+			}
+			fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", spreadExpr)
 			continue
 		}
 		if i < splitIdx {
@@ -628,19 +640,24 @@ func bagSpreadIndex(attrs []ast.Attr) (int, bool, error) {
 // class: ` class="` + gw.Class(<existing parts…>, gsx.Class(_gsxp.Attrs.Class()))
 // + `"`. Mirrors emitClassAttr's part lowering, appending the bag class as a
 // final unconditional part so it merges/dedupes through ClassMerger.
-func emitRootComposedClass(b *bytes.Buffer, a *ast.ClassAttr) {
+func emitRootComposedClass(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports map[string]bool, bag *diag.Bag) bool {
 	parts := make([]string, 0, len(a.Parts)+1)
 	for _, p := range a.Parts {
+		expr, ok := classPartExpr(p, a, table, imports, bag)
+		if !ok {
+			return false
+		}
 		if p.Cond == "" {
-			parts = append(parts, fmt.Sprintf("gsx.Class(%s)", strings.TrimSpace(p.Expr)))
+			parts = append(parts, fmt.Sprintf("gsx.Class(%s)", expr))
 		} else {
-			parts = append(parts, fmt.Sprintf("gsx.ClassIf(%s, %s)", strings.TrimSpace(p.Expr), strings.TrimSpace(p.Cond)))
+			parts = append(parts, fmt.Sprintf("gsx.ClassIf(%s, %s)", expr, strings.TrimSpace(p.Cond)))
 		}
 	}
 	parts = append(parts, "gsx.Class(_gsxp.Attrs.Class())")
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
 	fmt.Fprintf(b, "\t\t_gsxgw.Class(%s)\n", strings.Join(parts, ", "))
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
+	return true
 }
 
 // emitRootStaticClass emits a static `class="x"` merged with the bag's class:
@@ -674,23 +691,27 @@ func rootAttrName(a ast.Attr) (string, bool) {
 // `style={ … }` (a CtxCSS ClassAttr) it is a gsx.StyleString(parts…) call mirroring
 // emitStyleAttr's part lowering (string-literal parts trusted, dynamic parts
 // CSS-value-filtered). With no style attr it is the empty string literal.
-func rootStyleString(styleAttr *ast.ClassAttr, staticStyle *ast.StaticAttr) string {
+func rootStyleString(styleAttr *ast.ClassAttr, staticStyle *ast.StaticAttr, table filterTable, imports map[string]bool, bag *diag.Bag) (string, bool) {
 	switch {
 	case staticStyle != nil:
-		return strconv.Quote(staticStyle.Value)
+		return strconv.Quote(staticStyle.Value), true
 	case styleAttr != nil:
 		parts := make([]string, 0, len(styleAttr.Parts))
 		for _, p := range styleAttr.Parts {
-			val := styleDeclExpr(p.Expr)
+			expr, ok := classPartExpr(p, styleAttr, table, imports, bag)
+			if !ok {
+				return "", false
+			}
+			val := styleDeclExpr(expr, len(p.Stages) > 0)
 			if p.Cond == "" {
 				parts = append(parts, fmt.Sprintf("gsx.Class(%s)", val))
 			} else {
 				parts = append(parts, fmt.Sprintf("gsx.ClassIf(%s, %s)", val, strings.TrimSpace(p.Cond)))
 			}
 		}
-		return "gsx.StyleString(" + strings.Join(parts, ", ") + ")"
+		return "gsx.StyleString(" + strings.Join(parts, ", ") + ")", true
 	default:
-		return `""`
+		return `""`, true
 	}
 }
 
@@ -832,10 +853,14 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 // are in scope as locals).
 func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet, bag *diag.Bag) bool {
 	emitLine(b, fset, n.Pos())
+	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
 		// Lower the pipeline to nested filter calls — the SAME lowerPipe output the
 		// probe used, so resolved[n] is already the pipeline's RESULT type. Record
 		// each used filter package path so writeImports emits it under its alias.
+		// The lowered expr then falls through to the SAME (T, error) auto-unwrap as
+		// a bare interpolation, so a seed-first filter returning (R, error) unwraps
+		// exactly like any other error-returning value.
 		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table)
 		if err != nil {
 			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
@@ -844,19 +869,13 @@ func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type,
 		for _, path := range usedPkgs {
 			imports[path] = true
 		}
-		t, ok := resolved[n]
-		if !ok || t == nil {
-			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "could not resolve type of pipeline %q", n.Expr)
-			return false
-		}
-		return emitRender(b, lowered, t, imports, n, bag)
+		expr = lowered
 	}
 	t, ok := resolved[n]
 	if !ok || t == nil {
 		bag.Errorf(n.Pos(), n.End(), "unresolved-interp", "could not resolve type of interpolation %q", n.Expr)
 		return false
 	}
-	expr := strings.TrimSpace(n.Expr)
 	if tup, ok := t.(*types.Tuple); ok {
 		if tup.Len() != 2 || tup.At(1).Type().String() != "error" {
 			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "interpolation %q returns %s; only (T, error) is supported", expr, t)
@@ -1091,6 +1110,28 @@ func emitJSString(b *bytes.Buffer, method, expr string, t types.Type, n ast.Node
 	return true
 }
 
+// spreadAttrExpr returns the lowered Go expression for a `{ expr... }` spread/
+// splat subject: its trimmed seed when no `|>` pipeline is present, or the nested
+// filter-call lowering (the SAME lowerPipe every other value context uses) when
+// Stages is present. Lowered filter packages are folded into the caller's import
+// set. A lowering failure (unknown filter) is positioned at the SpreadAttr via
+// the bag with code "unresolved-pipeline" and ok=false.
+func spreadAttrExpr(a *ast.SpreadAttr, table filterTable, imports map[string]bool, bag *diag.Bag) (string, bool) {
+	expr := strings.TrimSpace(a.Expr)
+	if len(a.Stages) == 0 {
+		return expr, true
+	}
+	lowered, usedPkgs, err := lowerPipe(a.Expr, a.Stages, table)
+	if err != nil {
+		bag.Errorf(a.Pos(), a.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+		return "", false
+	}
+	for _, path := range usedPkgs {
+		imports[path] = true
+	}
+	return lowered, true
+}
+
 // emitAttr emits one element attribute. Static values are escaped at codegen and
 // always double-quoted; bool attrs use gw.BoolAttr. Expr attrs are handled in a
 // later task; the deferred attr kinds error clearly.
@@ -1108,9 +1149,13 @@ func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, tab
 		// class -> token merge (gw.Class); style -> '; '-joined declarations
 		// (gw.Style) with dynamic parts CSS-value-filtered.
 		if cls.Context(t.Name) == attrclass.CtxCSS {
-			emitStyleAttr(b, t)
+			if !emitStyleAttr(b, t, table, imports, bag) {
+				return false
+			}
 		} else {
-			emitClassAttr(b, t)
+			if !emitClassAttr(b, t, table, imports, bag) {
+				return false
+			}
 		}
 	case *ast.SpreadAttr:
 		// emitAttr runs only for non-component elements (genNode routes component
@@ -1121,7 +1166,11 @@ func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, tab
 		// JS-context keys — a bag's keys/values are trusted developer input. This is
 		// deliberately distinct from the composable-style/expr-attr paths, which fail
 		// closed on CSS/JS contexts because their values may be untrusted data.
-		fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", strings.TrimSpace(t.Expr))
+		spreadExpr, ok := spreadAttrExpr(t, table, imports, bag)
+		if !ok {
+			return false
+		}
+		fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", spreadExpr)
 	case *ast.CondAttr:
 		// Attr emission is a sequence of writer calls between `<tag` and `>`, so
 		// wrapping the branch's attr emits in a real Go `if`/`else` is valid. An
@@ -1230,22 +1279,62 @@ func emitJSAttrValue(b *bytes.Buffer, ctx ast.JSCtx, expr string, t types.Type, 
 	}
 }
 
+// classPartExpr returns the lowered Go expression for one composable class/style
+// part's value: its trimmed seed when the part carries no `|>` pipeline, or the
+// nested filter-call lowering (the SAME lowerPipe the text/attr/prop paths use)
+// when Stages is present. usedPkgs (the lowered filter packages) are folded into
+// the caller's import set so the SAME packages are imported as the probe records.
+// A lowering failure (an unknown filter) is positioned at the owning ClassAttr a
+// via the bag with code "unresolved-pipeline" and ok=false. The `: cond` guard is
+// never piped, so callers lower only the part's Expr/Stages, not its Cond.
+func classPartExpr(p ast.ClassPart, a *ast.ClassAttr, table filterTable, imports map[string]bool, bag *diag.Bag) (string, bool) {
+	lowered, usedPkgs, err := lowerClassPartSeed(p, table)
+	if err != nil {
+		bag.Errorf(a.Pos(), a.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+		return "", false
+	}
+	for _, path := range usedPkgs {
+		imports[path] = true
+	}
+	return lowered, true
+}
+
+// lowerClassPartSeed returns one composable class/style part's value expression:
+// its trimmed seed when no `|>` pipeline is present, or the nested filter-call
+// lowering (the SAME lowerPipe every other value context uses) plus the used
+// filter packages (alias→pkgPath) when Stages is present. It is the bag-free core
+// shared by the root/element emitters (classPartExpr, which folds usedPkgs into
+// imports) and the component-class path (classEntryExpr, which threads usedPkgs
+// up as an *attrError-positioned diagnostic instead). The `: cond` guard is never
+// piped, so only the part's Expr/Stages are lowered.
+func lowerClassPartSeed(p ast.ClassPart, table filterTable) (string, map[string]string, error) {
+	if len(p.Stages) == 0 {
+		return strings.TrimSpace(p.Expr), nil, nil
+	}
+	return lowerPipe(p.Expr, p.Stages, table)
+}
+
 // emitClassAttr lowers a composable `class={ … }` to the open ` class="`, a
 // gw.Class call composing each part (gsx.Class for an unconditional Expr,
 // gsx.ClassIf for a conditional one), and the closing `"`. gw.Class runs the
 // tokens through the installed ClassMerger and writes the attr-escaped value.
-func emitClassAttr(b *bytes.Buffer, a *ast.ClassAttr) {
+func emitClassAttr(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports map[string]bool, bag *diag.Bag) bool {
 	parts := make([]string, 0, len(a.Parts))
 	for _, p := range a.Parts {
+		expr, ok := classPartExpr(p, a, table, imports, bag)
+		if !ok {
+			return false
+		}
 		if p.Cond == "" {
-			parts = append(parts, fmt.Sprintf("gsx.Class(%s)", strings.TrimSpace(p.Expr)))
+			parts = append(parts, fmt.Sprintf("gsx.Class(%s)", expr))
 		} else {
-			parts = append(parts, fmt.Sprintf("gsx.ClassIf(%s, %s)", strings.TrimSpace(p.Expr), strings.TrimSpace(p.Cond)))
+			parts = append(parts, fmt.Sprintf("gsx.ClassIf(%s, %s)", expr, strings.TrimSpace(p.Cond)))
 		}
 	}
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
 	fmt.Fprintf(b, "\t\t_gsxgw.Class(%s)\n", strings.Join(parts, ", "))
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
+	return true
 }
 
 // emitStyleAttr lowers a composable `style={ … }` to ` style="` + a gw.Style call
@@ -1253,10 +1342,14 @@ func emitClassAttr(b *bytes.Buffer, a *ast.ClassAttr) {
 // trusted and emitted raw; any dynamic part value is wrapped in gsx.FilterCSS so
 // untrusted data cannot inject declarations or break out. gw.Style joins the
 // included parts with "; " and attr-escapes the result.
-func emitStyleAttr(b *bytes.Buffer, a *ast.ClassAttr) {
+func emitStyleAttr(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports map[string]bool, bag *diag.Bag) bool {
 	parts := make([]string, 0, len(a.Parts))
 	for _, p := range a.Parts {
-		val := styleDeclExpr(p.Expr)
+		expr, ok := classPartExpr(p, a, table, imports, bag)
+		if !ok {
+			return false
+		}
+		val := styleDeclExpr(expr, len(p.Stages) > 0)
 		if p.Cond == "" {
 			parts = append(parts, fmt.Sprintf("gsx.Class(%s)", val))
 		} else {
@@ -1266,14 +1359,17 @@ func emitStyleAttr(b *bytes.Buffer, a *ast.ClassAttr) {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
 	fmt.Fprintf(b, "\t\t_gsxgw.Style(%s)\n", strings.Join(parts, ", "))
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
+	return true
 }
 
 // styleDeclExpr returns the Go expression for a composed-style part's value: a
 // pure string-literal part is trusted (returned verbatim); any other (dynamic)
-// part is wrapped in gsx.FilterCSS so its runtime value is CSS-value-filtered.
-func styleDeclExpr(expr string) string {
+// part is wrapped in gsx.FilterCSS so its runtime value is CSS-value-filtered. A
+// piped part is ALWAYS dynamic (the lowered call result is not a string literal),
+// so piped=true forces the CSS-value filter regardless of the lowered text shape.
+func styleDeclExpr(expr string, piped bool) string {
 	e := strings.TrimSpace(expr)
-	if isStringLiteralExpr(e) {
+	if !piped && isStringLiteralExpr(e) {
 		return e
 	}
 	return "gsx.StyleValue(" + e + ")"
@@ -1892,7 +1988,17 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, table filterTab
 					msg := fmt.Sprintf("empty { x... } splat on <%s>; provide the struct expression to splat", el.Tag)
 					return "", "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "empty-splat", msg: msg}
 				}
-				return "", expr, map[string]string{}, nil
+				splatPkgs := map[string]string{}
+				if len(s.Stages) > 0 {
+					lowered, used, perr := lowerPipe(s.Expr, s.Stages, table)
+					if perr != nil {
+						msg := strings.TrimPrefix(perr.Error(), "codegen: ")
+						return "", "", nil, &attrError{pos: s.Pos(), end: s.End(), code: "unresolved-pipeline", msg: msg}
+					}
+					splatPkgs = used
+					expr = lowered
+				}
+				return "", expr, splatPkgs, nil
 			}
 		}
 	}
@@ -1991,14 +2097,30 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, table filterTab
 				msg := fmt.Sprintf("%s attribute on a component (<%s>) not supported yet", t.Name, el.Tag)
 				return "", "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
-			bag = append(bag, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), classEntryExpr(t, rtPkg)))
+			entry, used, eerr := classEntryExpr(t, rtPkg, table)
+			if eerr != nil {
+				return "", "", nil, eerr
+			}
+			recordPkgs(used)
+			bag = append(bag, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), entry))
 		case *ast.SpreadAttr:
-			mergeChain = append(mergeChain, fmt.Sprintf(".Merge(%s)", strings.TrimSpace(t.Expr)))
+			spreadExpr := strings.TrimSpace(t.Expr)
+			if len(t.Stages) > 0 {
+				lowered, used, perr := lowerPipe(t.Expr, t.Stages, table)
+				if perr != nil {
+					msg := strings.TrimPrefix(perr.Error(), "codegen: ")
+					return "", "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}
+				}
+				recordPkgs(used)
+				spreadExpr = lowered
+			}
+			mergeChain = append(mergeChain, fmt.Sprintf(".Merge(%s)", spreadExpr))
 		case *ast.CondAttr:
-			condExpr, cerr := condAttrsExpr(t, rtPkg, el.Tag)
+			condExpr, used, cerr := condAttrsExpr(t, rtPkg, el.Tag, table)
 			if cerr != nil {
 				return "", "", nil, cerr
 			}
+			recordPkgs(used)
 			mergeChain = append(mergeChain, fmt.Sprintf(".Merge(%s)", condExpr))
 		default:
 			msg := fmt.Sprintf("unknown attribute %T on component (<%s>)", a, el.Tag)
@@ -2039,16 +2161,28 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, table filterTab
 // unconditional part → <rtPkg>.Class(<Expr>); a conditional part →
 // <rtPkg>.ClassIf(<Expr>, <Cond>)) so the value the child root merges is built
 // the same way regardless of whether the class sits on the root or a child.
-func classEntryExpr(a *ast.ClassAttr, rtPkg string) string {
+// usedPkgs (alias→pkgPath) reports the filter packages any lowered part references
+// so the caller imports them; an unknown filter surfaces as an *attrError
+// positioned at the ClassAttr.
+func classEntryExpr(a *ast.ClassAttr, rtPkg string, table filterTable) (string, map[string]string, error) {
 	parts := make([]string, 0, len(a.Parts))
+	usedPkgs := map[string]string{}
 	for _, p := range a.Parts {
+		expr, used, err := lowerClassPartSeed(p, table)
+		if err != nil {
+			msg := strings.TrimPrefix(err.Error(), "codegen: ")
+			return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unresolved-pipeline", msg: msg}
+		}
+		for alias, path := range used {
+			usedPkgs[alias] = path
+		}
 		if p.Cond == "" {
-			parts = append(parts, fmt.Sprintf("%s.Class(%s)", rtPkg, strings.TrimSpace(p.Expr)))
+			parts = append(parts, fmt.Sprintf("%s.Class(%s)", rtPkg, expr))
 		} else {
-			parts = append(parts, fmt.Sprintf("%s.ClassIf(%s, %s)", rtPkg, strings.TrimSpace(p.Expr), strings.TrimSpace(p.Cond)))
+			parts = append(parts, fmt.Sprintf("%s.ClassIf(%s, %s)", rtPkg, expr, strings.TrimSpace(p.Cond)))
 		}
 	}
-	return fmt.Sprintf("%s.ClassString(%s)", rtPkg, strings.Join(parts, ", "))
+	return fmt.Sprintf("%s.ClassString(%s)", rtPkg, strings.Join(parts, ", ")), usedPkgs, nil
 }
 
 // condAttrsExpr lowers a conditional attribute { if cond { … } else { … } } on a
@@ -2063,29 +2197,37 @@ func classEntryExpr(a *ast.ClassAttr, rtPkg string) string {
 // via classEntryExpr); the else argument is the bare literal `nil` (not a thunk)
 // when there is no else branch. Nesting stays shallow — a CondAttr nested inside
 // a branch is unsupported.
-func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string) (string, error) {
-	thenLit, err := condBranchAttrs(t.Then, rtPkg, tag)
+func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, table filterTable) (string, map[string]string, error) {
+	usedPkgs := map[string]string{}
+	thenLit, thenUsed, err := condBranchAttrs(t.Then, rtPkg, tag, table)
 	if err != nil {
-		return "", err
+		return "", nil, err
+	}
+	for a, p := range thenUsed {
+		usedPkgs[a] = p
 	}
 	thenThunk := fmt.Sprintf("func() %s.Attrs { return %s }", rtPkg, thenLit)
 	elseArg := "nil"
 	if len(t.Else) > 0 {
-		elseLit, err := condBranchAttrs(t.Else, rtPkg, tag)
+		elseLit, elseUsed, err := condBranchAttrs(t.Else, rtPkg, tag, table)
 		if err != nil {
-			return "", err
+			return "", nil, err
+		}
+		for a, p := range elseUsed {
+			usedPkgs[a] = p
 		}
 		elseArg = fmt.Sprintf("func() %s.Attrs { return %s }", rtPkg, elseLit)
 	}
-	return fmt.Sprintf("%s.AttrsCond(%s, %s, %s)", rtPkg, strings.TrimSpace(t.Cond), thenThunk, elseArg), nil
+	return fmt.Sprintf("%s.AttrsCond(%s, %s, %s)", rtPkg, strings.TrimSpace(t.Cond), thenThunk, elseArg), usedPkgs, nil
 }
 
 // condBranchAttrs builds a <rtPkg>.Attrs{…} literal from one conditional-attr
 // branch's attrs. Static/expr/bool attrs become bag entries keyed by raw name; a
 // composable class={…} becomes a ClassString entry. A spread or nested
 // conditional inside a branch is unsupported (kept shallow).
-func condBranchAttrs(attrs []ast.Attr, rtPkg, tag string) (string, error) {
+func condBranchAttrs(attrs []ast.Attr, rtPkg, tag string, table filterTable) (string, map[string]string, error) {
 	var entries []string
+	usedPkgs := map[string]string{}
 	for _, a := range attrs {
 		switch t := a.(type) {
 		case *ast.StaticAttr:
@@ -2093,7 +2235,7 @@ func condBranchAttrs(attrs []ast.Attr, rtPkg, tag string) (string, error) {
 		case *ast.ExprAttr:
 			if len(t.Stages) > 0 {
 				msg := fmt.Sprintf("pipeline in a conditional attribute branch (<%s>) not supported yet", tag)
-				return "", &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
+				return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
 			entries = append(entries, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), strings.TrimSpace(t.Expr)))
 		case *ast.BoolAttr:
@@ -2101,13 +2243,20 @@ func condBranchAttrs(attrs []ast.Attr, rtPkg, tag string) (string, error) {
 		case *ast.ClassAttr:
 			if t.Name != "class" {
 				msg := fmt.Sprintf("%s attribute in a conditional branch (<%s>) not supported yet", t.Name, tag)
-				return "", &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
+				return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
-			entries = append(entries, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), classEntryExpr(t, rtPkg)))
+			entry, used, eerr := classEntryExpr(t, rtPkg, table)
+			if eerr != nil {
+				return "", nil, eerr
+			}
+			for al, p := range used {
+				usedPkgs[al] = p
+			}
+			entries = append(entries, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), entry))
 		default:
 			msg := fmt.Sprintf("unsupported attribute %T in a conditional branch (<%s>)", a, tag)
-			return "", &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}
+			return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}
 		}
 	}
-	return fmt.Sprintf("%s.Attrs{%s}", rtPkg, strings.Join(entries, ", ")), nil
+	return fmt.Sprintf("%s.Attrs{%s}", rtPkg, strings.Join(entries, ", ")), usedPkgs, nil
 }

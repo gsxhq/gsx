@@ -40,7 +40,7 @@ func Page(_gsxp PageProps) gsx.Node {
 		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
 		_gsxgw.S(">")
 		_gsxgw.S("const n = ")
-		_gsxgw.JSVal(_gsxstd.Truncate(3)((name)))
+		_gsxgw.JSVal(_gsxstd.Truncate((name), 3))
 		_gsxgw.S(";")
 		_gsxgw.S("</script>")
 		return _gsxgw.Err()

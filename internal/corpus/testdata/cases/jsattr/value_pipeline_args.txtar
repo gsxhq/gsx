@@ -1,0 +1,13 @@
+# seed-first with-args pipeline in a JS-attribute @{ } interpolation: the same
+# Truncate(name, 3) lowering applies in the JS-attribute context.
+-- input.gsx --
+package views
+
+component Page(name string) {
+	<div x-data="{ n: @{ name |> truncate(3) } }">x</div>
+}
+-- invoke --
+Page(PageProps{Name: "ada-extra"})
+-- diagnostics.golden --
+-- render.golden --
+<div x-data="{ n: &#34;ada&#34; }">x</div>

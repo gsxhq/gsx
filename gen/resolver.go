@@ -29,7 +29,7 @@ type CachedResolver struct {
 // DefaultPlaygroundImports). The one-time load runs packages.Load; subsequent
 // Generate calls are fully in-process.
 func NewCachedResolver(moduleDir string, allowImports []string) (*CachedResolver, error) {
-	r, err := codegen.NewCachedResolver(moduleDir, []string{codegen.StdImportPath}, allowImports)
+	r, err := codegen.NewCachedResolver(moduleDir, []string{codegen.StdImportPath}, nil, allowImports)
 	if err != nil {
 		return nil, err
 	}

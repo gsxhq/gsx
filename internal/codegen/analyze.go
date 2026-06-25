@@ -40,7 +40,7 @@ var errSkipComponent = errors.New("skip")
 // threaded alongside propFields and consumed by emit/probe to promote renderable
 // values into gsx.Node props (gsx.Val/gsx.Text).
 func resolveTypesPkg(dir string, files map[string]*gsxast.File, propFields, nodeProps map[string]map[string]bool, byo *byoData, fset *token.FileSet) (map[gsxast.Node]types.Type, filterTable, error) {
-	return resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, byo, nil, []string{stdImportPath}, fset, nil)
+	return resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, byo, nil, []string{stdImportPath}, nil, fset, nil)
 }
 
 // resolveTypesPkgWithFilters is the multi-package form of resolveTypesPkg: it
@@ -50,7 +50,7 @@ func resolveTypesPkg(dir string, files map[string]*gsxast.File, propFields, node
 // resolver is optional; nil uses packagesLoadResolver (the original packages.Load
 // behavior, byte-identical to before). When a *CachedResolver is passed, its
 // prebuilt filterTable is used instead of calling loadFilterTableMulti again.
-func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propFields, nodeProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, filterPkgs []string, fset *token.FileSet, resolver typeResolver) (map[gsxast.Node]types.Type, filterTable, error) {
+func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propFields, nodeProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, filterPkgs []string, aliases []FilterAlias, fset *token.FileSet, resolver typeResolver) (map[gsxast.Node]types.Type, filterTable, error) {
 	if resolver == nil {
 		resolver = packagesLoadResolver{}
 	}
@@ -62,7 +62,7 @@ func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propF
 		table = cr.filters()
 	} else {
 		var err error
-		table, err = loadFilterTableMulti(dir, filterPkgs)
+		table, err = loadFilterTableMulti(dir, filterPkgs, aliases)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -777,7 +777,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				// type harvest), so a var used ONLY in `class={ "on": v }` / `{...attrs}`
 				// must still be referenced here or it's "declared and not used". Emit a
 				// liveness `_ = (expr)` — NOT _gsxuse, so the harvest alignment is intact.
-				walkLivenessAttrExprs(t.Attrs, func(expr string) {
+				walkLivenessAttrExprs(t.Attrs, table, usedFilters, func(expr string) {
 					fmt.Fprintf(sb, "_ = (%s)\n", expr)
 				})
 				// Then probe each JS-attribute's @{ } interps, in attr source order —
@@ -904,13 +904,18 @@ func emitSkeletonLineImport(sb *strings.Builder, fset *token.FileSet, pos token.
 // pipeline's RESULT type and resolution stays aligned with emission. The
 // pipeline's used filter packages are merged into usedFilters so the skeleton
 // imports each referenced package under its reserved alias.
+// An unknown filter is TOLERATED here: the probe falls back to the bare seed so
+// the skeleton still type-checks and generation proceeds to the POSITIONED
+// unknown-filter diagnostic emit reports (the probe's bare error must not pre-empt
+// the positioned bag.Errorf in generateFile). A valid pipeline lowers exactly as
+// emit does, keeping emit ≡ probe.
 func probeExpr(seed string, stages []gsxast.PipeStage, table filterTable, usedFilters map[string]string) (string, error) {
 	if len(stages) == 0 {
 		return strings.TrimSpace(seed), nil
 	}
 	lowered, used, err := lowerPipe(seed, stages, table)
 	if err != nil {
-		return "", err
+		return strings.TrimSpace(seed), nil
 	}
 	for alias, path := range used {
 		usedFilters[alias] = path
@@ -1198,25 +1203,50 @@ func walkAttrExprs(attrs []gsxast.Attr, fn func(*gsxast.ExprAttr)) {
 // (e.g. a for-loop var in `class={ "on": v }`) is rejected as "declared and not
 // used". emitProbes emits `_ = (expr)` for each — a liveness reference that, unlike
 // _gsxuse, is invisible to the k-th-probe→k-th-node type-harvest alignment.
-func walkLivenessAttrExprs(attrs []gsxast.Attr, fn func(expr string)) {
+// A ClassPart/SpreadAttr carrying a `|>` pipeline must reference the LOWERED
+// expression — the SAME lowerPipe output emit produces — so type resolution and
+// import harvest match emit exactly (emit ≡ probe). table lowers each pipeline and
+// usedFilters accumulates the referenced filter packages (alias→pkgPath) so the
+// skeleton imports them under the same reserved aliases the emitter records. A
+// lowering failure (an unknown filter) is tolerated here: the probe falls back to
+// referencing the bare seed so type-checking proceeds to the POSITIONED
+// unknown-filter diagnostic generateFile reports (the probe's bare error must not
+// pre-empt it). The guard Cond is never piped, so it is referenced verbatim.
+func walkLivenessAttrExprs(attrs []gsxast.Attr, table filterTable, usedFilters map[string]string, fn func(expr string)) {
+	emit := func(seed string, stages []gsxast.PipeStage) {
+		if strings.TrimSpace(seed) == "" {
+			return
+		}
+		if len(stages) == 0 {
+			fn(strings.TrimSpace(seed))
+			return
+		}
+		lowered, used, err := lowerPipe(seed, stages, table)
+		if err != nil {
+			// Unknown filter: reference the bare seed so the skeleton still type-checks
+			// (and stays "used"); the positioned diagnostic fires in generateFile.
+			fn(strings.TrimSpace(seed))
+			return
+		}
+		for alias, path := range used {
+			usedFilters[alias] = path
+		}
+		fn(lowered)
+	}
 	for _, a := range attrs {
 		switch at := a.(type) {
 		case *gsxast.ClassAttr:
 			for _, p := range at.Parts {
-				if e := strings.TrimSpace(p.Expr); e != "" {
-					fn(e)
-				}
+				emit(p.Expr, p.Stages)
 				if c := strings.TrimSpace(p.Cond); c != "" {
 					fn(c)
 				}
 			}
 		case *gsxast.SpreadAttr:
-			if e := strings.TrimSpace(at.Expr); e != "" {
-				fn(e)
-			}
+			emit(at.Expr, at.Stages)
 		case *gsxast.CondAttr:
-			walkLivenessAttrExprs(at.Then, fn)
-			walkLivenessAttrExprs(at.Else, fn)
+			walkLivenessAttrExprs(at.Then, table, usedFilters, fn)
+			walkLivenessAttrExprs(at.Else, table, usedFilters, fn)
 		}
 	}
 }
@@ -1429,12 +1459,22 @@ func collectAttrSrc(attrs []gsxast.Attr, add func(string)) {
 		case *gsxast.ClassAttr:
 			for _, p := range at.Parts {
 				add(p.Expr)
+				for _, st := range p.Stages {
+					if st.Args != "" {
+						add(st.Args)
+					}
+				}
 				if p.Cond != "" {
 					add(p.Cond)
 				}
 			}
 		case *gsxast.SpreadAttr:
 			add(at.Expr)
+			for _, st := range at.Stages {
+				if st.Args != "" {
+					add(st.Args)
+				}
+			}
 		case *gsxast.ExprAttr:
 			add(at.Expr)
 			for _, st := range at.Stages {
