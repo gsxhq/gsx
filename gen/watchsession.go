@@ -3,6 +3,7 @@ package gen
 import (
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/diag"
@@ -19,7 +20,10 @@ type cycleResult struct {
 	Diags   []diag.Diagnostic
 	OK      bool
 	Err     error
+	DurMs   int64
 }
+
+func (r cycleResult) durationMs() int64 { return r.DurMs }
 
 // watchSession holds the live state for a running generate-on-change session:
 // the warm module-wide resolver and the original configuration.
@@ -78,6 +82,7 @@ func (s *watchSession) rebuild() error {
 // cached-importer miss (a newly added import the resolver has never loaded),
 // it rebuilds once and retries.
 func (s *watchSession) regen(dir string) cycleResult {
+	start := time.Now()
 	res, err := s.resolver.Generate(dir, nil)
 	if err != nil && isCachedImporterMiss(err, res) {
 		if rebuildErr := s.rebuild(); rebuildErr == nil {
@@ -98,6 +103,7 @@ func (s *watchSession) regen(dir string) cycleResult {
 		Diags:   res.Diags,
 		OK:      err == nil && !anyErrorDiag(res.Diags) && werr == nil,
 		Err:     finalErr,
+		DurMs:   time.Since(start).Milliseconds(),
 	}
 }
 
