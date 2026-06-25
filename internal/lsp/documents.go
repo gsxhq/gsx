@@ -64,6 +64,28 @@ func (s *docStore) openInDir(dir string) map[string]string {
 	return out
 }
 
+// docSnap is the retained content and version of one open document.
+type docSnap struct {
+	text    string
+	version int
+}
+
+// snapshotDir returns abs-file-path -> {text, version} for every open document
+// whose containing directory equals dir. Unlike openInDir it carries the version
+// so a publish can be version-tagged (the editor drops stale-version publishes).
+func (s *docStore) snapshotDir(dir string) map[string]docSnap {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := map[string]docSnap{}
+	for uri, d := range s.docs {
+		p := uriToPath(uri)
+		if filepath.Dir(p) == dir {
+			out[p] = docSnap{text: d.text, version: d.version}
+		}
+	}
+	return out
+}
+
 // uriToPath converts a file:// URI to a local filesystem path, decoding percent
 // escapes. Non-file URIs are returned unchanged.
 func uriToPath(uri string) string {
