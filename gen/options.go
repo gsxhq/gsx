@@ -100,6 +100,16 @@ func resolveFilterFunc(v reflect.Value) (pkgPath, funcName string, err error) {
 		return "", "", fmt.Errorf("cannot resolve function value")
 	}
 	full := rf.Name() // e.g. "github.com/foo/bar.URLFor"
+	return splitPkgFunc(full)
+}
+
+// splitPkgFunc splits a fully-qualified "import/path.FuncName" string into its
+// package import path and exported func name, rejecting anything that is not a
+// plain top-level exported function. It is the shared parser used by BOTH the
+// reflection path (resolveFilterFunc, from runtime.FuncForPC) and the gsx.toml
+// config loader (an alias value like "github.com/jackielii/structpages.URLFor"),
+// so both produce an identical (PkgPath, FuncName) for the FilterAlias harvest.
+func splitPkgFunc(full string) (pkgPath, funcName string, err error) {
 	// Split off the func segment: everything after the LAST "." that is not part
 	// of the import path. The import path may contain dots (foo.com/bar), but the
 	// path component before the final func name never contains a "/"-free dotted
@@ -116,7 +126,7 @@ func resolveFilterFunc(v reflect.Value) (pkgPath, funcName string, err error) {
 	// ".(" or its final segment after the last "/" contains a "." (a type name).
 	// A plain top-level func has a pkgPath whose final "/"-segment has NO ".".
 	if strings.Contains(pkgPath, ".(") {
-		return "", "", fmt.Errorf("function %q is a method value; WithFilter requires a plain top-level function", full)
+		return "", "", fmt.Errorf("function %q is a method value; requires a plain top-level function", full)
 	}
 	finalSeg := pkgPath
 	if i := strings.LastIndex(pkgPath, "/"); i >= 0 {
@@ -129,7 +139,7 @@ func resolveFilterFunc(v reflect.Value) (pkgPath, funcName string, err error) {
 	// Reject closures: a "func1"/"funcN" suffix, or a non-exported / non-identifier
 	// func name.
 	if !isExportedIdent(funcName) {
-		return "", "", fmt.Errorf("function %q is not an exported top-level function (got %q); WithFilter requires e.g. structpages.URLFor", full, funcName)
+		return "", "", fmt.Errorf("function %q is not an exported top-level function (got %q); requires e.g. structpages.URLFor", full, funcName)
 	}
 	return pkgPath, funcName, nil
 }

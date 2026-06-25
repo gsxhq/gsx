@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gsxhq/gsx/internal/attrclass"
+	"github.com/gsxhq/gsx/internal/codegen"
 )
 
 // TestRunInfoStd drives runInfo against the repo root (a module that resolves
@@ -18,7 +19,7 @@ func TestRunInfoStd(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	code := runInfo(&out, &bytes.Buffer{}, repoRoot, []string{stdImportPath}, nil, attrclass.Builtin(), "", nil, nil)
+	code := runInfo(&out, &bytes.Buffer{}, repoRoot, "", []string{stdImportPath}, nil, attrclass.Builtin(), "", nil, nil)
 	if code != 0 {
 		t.Fatalf("runInfo exit = %d, want 0", code)
 	}
@@ -39,7 +40,7 @@ func TestRunInfoVersionSingleLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	code := runInfo(&out, &bytes.Buffer{}, repoRoot, []string{stdImportPath}, nil, attrclass.Builtin(), "", nil, nil)
+	code := runInfo(&out, &bytes.Buffer{}, repoRoot, "", []string{stdImportPath}, nil, attrclass.Builtin(), "", nil, nil)
 	if code != 0 {
 		t.Fatalf("runInfo exit = %d, want 0", code)
 	}
@@ -69,7 +70,7 @@ func TestRunInfoShadow(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	code := runInfo(&out, &bytes.Buffer{}, tmp, []string{stdImportPath, "gsxmf/myfilters"}, nil, attrclass.Builtin(), "", nil, nil)
+	code := runInfo(&out, &bytes.Buffer{}, tmp, "", []string{stdImportPath, "gsxmf/myfilters"}, nil, attrclass.Builtin(), "", nil, nil)
 	if code != 0 {
 		t.Fatalf("runInfo exit = %d, want 0", code)
 	}
@@ -85,8 +86,29 @@ func TestRunInfoBadPkg(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errBuf bytes.Buffer
-	code := runInfo(&out, &errBuf, repoRoot, []string{"github.com/gsxhq/gsx/does-not-exist"}, nil, attrclass.Builtin(), "", nil, nil)
+	code := runInfo(&out, &errBuf, repoRoot, "", []string{"github.com/gsxhq/gsx/does-not-exist"}, nil, attrclass.Builtin(), "", nil, nil)
 	if code != 1 {
 		t.Fatalf("runInfo exit = %d, want 1", code)
+	}
+}
+
+// TestRunInfoPrintsConfigBeforeFilterError proves the I3 fix: info prints the
+// banner + `config: <path>` line BEFORE resolving filters, so an unresolvable
+// alias still shows which config is in effect (spec §6 debugging scenario). The
+// exit stays nonzero, but the config line must already be on stdout.
+func TestRunInfoPrintsConfigBeforeFilterError(t *testing.T) {
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(repoRoot, "gsx.toml")
+	aliases := []codegen.FilterAlias{{Name: "x", PkgPath: "github.com/gsxhq/gsx/does-not-exist", FuncName: "F"}}
+	var out, errBuf bytes.Buffer
+	code := runInfo(&out, &errBuf, repoRoot, cfgPath, nil, aliases, attrclass.Builtin(), "", nil, nil)
+	if code != 1 {
+		t.Fatalf("runInfo exit = %d, want 1 (alias targets a non-resolvable package)", code)
+	}
+	if !strings.Contains(out.String(), "config: "+cfgPath) {
+		t.Fatalf("info must print the config line on stdout even when alias resolution fails; got stdout:\n%s", out.String())
 	}
 }

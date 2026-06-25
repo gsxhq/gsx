@@ -22,7 +22,7 @@ import (
 //
 // When asJSON is true it emits the manifest JSON form instead of the human table.
 // cmdArgs are the subcommand arguments (used to parse --json).
-func runInfo(stdout, stderr io.Writer, dir string, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, predLabel string, fm codegen.FieldMatcher, cmdArgs []string) int {
+func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, predLabel string, fm codegen.FieldMatcher, cmdArgs []string) int {
 	// Parse the info subcommand's own flags.
 	ifs := flag.NewFlagSet("info", flag.ContinueOnError)
 	ifs.SetOutput(stderr)
@@ -32,13 +32,12 @@ func runInfo(stdout, stderr io.Writer, dir string, filterPkgs []string, aliases 
 		return 2
 	}
 
-	infos, err := codegen.ResolveFilters(dir, filterPkgs, aliases)
-	if err != nil {
-		fmt.Fprintf(stderr, "gsx: %v\n", err)
-		return 1
-	}
-
 	if asJSON {
+		infos, err := codegen.ResolveFilters(dir, filterPkgs, aliases)
+		if err != nil {
+			fmt.Fprintf(stderr, "gsx: %v\n", err)
+			return 1
+		}
 		// Resolve module path for the manifest Module field; "" if unknown.
 		var modPath string
 		if _, mp, err := moduleRoot(dir); err == nil {
@@ -53,7 +52,27 @@ func runInfo(stdout, stderr io.Writer, dir string, filterPkgs []string, aliases 
 		return 0
 	}
 
+	// Print the version banner + config line FIRST, before resolving filters, so
+	// `gsx info` still shows WHICH config is in effect even when an alias fails to
+	// resolve — the exact debugging scenario info is designated for (spec §6).
 	fmt.Fprintf(stdout, "gsx %s\n", bareVersion())
+
+	// The discovered gsx.toml path — the single source of truth for "which config
+	// is in effect, from where". Empty means std-only (no config found).
+	if configPath != "" {
+		fmt.Fprintf(stdout, "config: %s\n", configPath)
+	} else {
+		fmt.Fprintf(stdout, "config: none\n")
+	}
+
+	// Resolve filters AFTER the config line is printed: on error the config line
+	// is already on stdout (the debugging info the user needs), and the resolution
+	// error is surfaced to stderr with a nonzero exit.
+	infos, err := codegen.ResolveFilters(dir, filterPkgs, aliases)
+	if err != nil {
+		fmt.Fprintf(stderr, "gsx: %v\n", err)
+		return 1
+	}
 
 	// The configured packages, in last-wins order. An empty list defaults to
 	// [std] (ResolveFilters applies the same default), so report that here too.
