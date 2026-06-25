@@ -14,7 +14,7 @@ component C() {
 	<p>{ fromCtx(ctx) }</p>
 }
 -- invoke --
-C(CProps{})
+C()
 -- diagnostics.golden --
 -- render.golden --
 <p>ok</p>

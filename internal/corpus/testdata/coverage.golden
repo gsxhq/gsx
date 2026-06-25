@@ -9,6 +9,8 @@ attrs/cond_attr_else_typed_exprs_true	diag render
 attrs/cond_attr_interleaved	diag render
 attrs/cond_attr_param_only_in_branch	diag render
 attrs/expr_attrs	diag render
+attrs/spread_leading_rejected	diag(error)
+attrs/spread_trailing	diag render
 class/caller_wins_classstyle	diag render
 class/caller_wins_scalar	diag render
 class/composable_off	diag render
@@ -58,6 +60,7 @@ components/named_slot_interleaved	diag render
 components/named_slot_multiple	diag render
 components/named_slot_with_children	diag render
 components/node_param_standalone	diag render
+components/nullary_no_props	diag gen render
 control_flow/for	diag render
 control_flow/goblock	diag render
 control_flow/if_init_error_handling	diag gen render
@@ -193,6 +196,19 @@ playground/composable_class	diag render
 playground/composition	diag render
 playground/control_flow	diag render
 playground/interpolation	diag render
+props/byo_attrs_missing	diag(error)
+props/byo_children_missing	diag(error)
+props/byo_external_node_vs_renderable	diag gen render
+props/byo_external_props	diag gen render
+props/byo_kebab_fields	diag gen render
+props/byo_method_shared_props	diag gen render
+props/byo_method_trio	diag gen render
+props/byo_single_struct	diag gen render
+props/byo_splat	diag gen render
+props/byo_splat_children_rejected	diag(error)
+props/byo_splat_empty_rejected	diag(error)
+props/byo_splat_mixed_rejected	diag(error)
+props/heuristic_boundaries	diag gen render
 script/interp_breakout	diag gen render
 script/interp_comment_literal	diag gen render
 script/interp_identifier_rejected	diag(error)
@@ -235,4 +251,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 237 cases (render: 180, error: 38, gen-pinned: 61)
+TOTAL: 253 cases (render: 190, error: 44, gen-pinned: 70)

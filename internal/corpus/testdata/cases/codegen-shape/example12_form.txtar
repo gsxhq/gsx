@@ -10,7 +10,7 @@ component Toolbar() {
 }
 
 component Field(label string) {
-	<div class="field"><label>{label}</label><input class="control" {...attrs}/></div>
+	<div class="field"><label>{label}</label><input class="control" { attrs... }/></div>
 }
 
 component LoginForm() {
@@ -19,7 +19,7 @@ component LoginForm() {
 
 func variantClass(v string) string { return "btn-" + v }
 -- invoke --
-LoginForm(LoginFormProps{})
+LoginForm()
 -- diagnostics.golden --
 -- render.golden --
 <form><div class="field"><label>Email</label><input class="control" hx-get="/check-email" name="email" required/></div></form>

@@ -6,7 +6,7 @@ component Multi() {
 	<p>b</p>
 }
 -- invoke --
-Multi(MultiProps{})
+Multi()
 -- diagnostics.golden --
 -- render.golden --
 <p>a</p><p>b</p>
@@ -22,10 +22,7 @@ import (
 	"github.com/gsxhq/gsx"
 )
 
-type MultiProps struct {
-}
-
-func Multi(_gsxp MultiProps) gsx.Node {
+func Multi() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2

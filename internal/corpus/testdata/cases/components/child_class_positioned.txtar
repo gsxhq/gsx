@@ -7,7 +7,7 @@ component Inner(title string) { <div>{title}</div> }
 
 component Page() { <Inner class={ "a" } title="y"/> }
 -- invoke --
-Page(PageProps{})
+Page()
 -- diagnostics.golden --
 -- render.golden --
 <div class="a">y</div>

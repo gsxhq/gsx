@@ -17,7 +17,7 @@ func TestSoundnessNoDesync(t *testing.T) {
 		{"goblock after apostrophe", "package p\ncomponent C(name string) { <p>it's {{ x := f(name) }}{x}</p> }"},
 		{"class after apostrophe", "package p\ncomponent C(a string) { <p>don't <b class={a}>x</b></p> }"},
 		{"if after apostrophe", "package p\ncomponent C(c bool) { <p>you're {n} <span>{ if c { <a/> } }</span></p> }"},
-		{"spread after apostrophe", "package p\ncomponent C() { <p>Jack's <input {...attrs}/></p> }"},
+		{"spread after apostrophe", "package p\ncomponent C() { <p>Jack's <input { attrs... }/></p> }"},
 		{"apostrophe in control body", "package p\ncomponent C(c bool) { { if c { <p>it's here</p> } } }"},
 		{"apostrophe in nested element", "package p\ncomponent C() { <ul><li>can't</li><li>won't</li></ul> }"},
 		{"multi-component apostrophe", "package p\ncomponent A() { <p>Jack's</p> }\ncomponent B() { <span>ok</span> }"},
@@ -41,7 +41,7 @@ func TestSoundnessCleanErrors(t *testing.T) {
 	bad := []string{
 		"package p\ncomponent C() { <p>hi</p>",          // unterminated body
 		"package p\ncomponent C(n int) { {n }",          // unterminated interp/body
-		"package p\ncomponent C() { <input {...attrs }", // unterminated tag/body
+		"package p\ncomponent C() { <input { attrs... }", // unterminated tag/body
 	}
 	for _, src := range bad {
 		if _, err := ParseFile(token.NewFileSet(), "t.gsx", src, 0); err == nil {

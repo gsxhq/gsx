@@ -39,8 +39,8 @@ var errSkipComponent = errors.New("skip")
 // nodeProps records which declared params have type exactly gsx.Node; it is
 // threaded alongside propFields and consumed by emit/probe to promote renderable
 // values into gsx.Node props (gsx.Val/gsx.Text).
-func resolveTypesPkg(dir string, files map[string]*gsxast.File, propFields, nodeProps map[string]map[string]bool, fset *token.FileSet) (map[gsxast.Node]types.Type, filterTable, error) {
-	return resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, []string{stdImportPath}, fset, nil)
+func resolveTypesPkg(dir string, files map[string]*gsxast.File, propFields, nodeProps map[string]map[string]bool, byo *byoData, fset *token.FileSet) (map[gsxast.Node]types.Type, filterTable, error) {
+	return resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, byo, nil, []string{stdImportPath}, fset, nil)
 }
 
 // resolveTypesPkgWithFilters is the multi-package form of resolveTypesPkg: it
@@ -50,7 +50,7 @@ func resolveTypesPkg(dir string, files map[string]*gsxast.File, propFields, node
 // resolver is optional; nil uses packagesLoadResolver (the original packages.Load
 // behavior, byte-identical to before). When a *CachedResolver is passed, its
 // prebuilt filterTable is used instead of calling loadFilterTableMulti again.
-func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propFields, nodeProps map[string]map[string]bool, filterPkgs []string, fset *token.FileSet, resolver typeResolver) (map[gsxast.Node]types.Type, filterTable, error) {
+func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propFields, nodeProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, filterPkgs []string, fset *token.FileSet, resolver typeResolver) (map[gsxast.Node]types.Type, filterTable, error) {
 	if resolver == nil {
 		resolver = packagesLoadResolver{}
 	}
@@ -71,7 +71,7 @@ func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propF
 	overlay := map[string][]byte{}
 	skelComps := map[string][]*gsxast.Component{}
 	for path, file := range files {
-		skel, comps, _, err := buildSkeleton(file, table, propFields, nodeProps, fset)
+		skel, comps, _, err := buildSkeleton(file, table, propFields, nodeProps, byo, fm, fset)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -143,9 +143,81 @@ func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propF
 // A receiver parse failure is silently skipped (the component is simply omitted, so
 // its call sites take the graceful cross-package path); buildSkeleton re-parses the
 // same receiver and surfaces a clean error there.
-func componentPropFieldsFor(files map[string]*gsxast.File) (propFields, nodeProps map[string]map[string]bool, err error) {
+//
+// BYO (author-owns-Props): a component whose SOLE non-receiver parameter is an
+// author-declared NAMED STRUCT uses that struct directly — gsx generates no
+// <Name>Props wrapper. Such a component is recorded in byo (componentKey →
+// struct type name) and the struct's exported field set + node fields are
+// published into propFields/nodeProps under the STRUCT's type name (so
+// childPropsLiteral keys on it exactly as for a generated props type). A struct
+// declared in a .gsx GoChunk is read syntactically (no resolution); an external
+// .go struct is enumerated by a preliminary go/packages load of dir. byo is
+// nil-safe and always returned non-nil.
+func componentPropFieldsFor(dir string, files map[string]*gsxast.File) (propFields, nodeProps map[string]map[string]bool, byo *byoData, err error) {
 	out := map[string]map[string]bool{}
 	nodeOut := map[string]map[string]bool{}
+	byo = newByoData()
+
+	// Discover author structs: those declared in .gsx GoChunks are read from the
+	// AST now; any candidate struct NOT found in the .gsx is enumerated via a
+	// preliminary external (.go) type-load below.
+	gsxStructs := gsxStructDecls(files)
+	externalWanted := map[string]bool{}
+
+	// genProps derives the GENERATED-path prop-field map + node-field map for a
+	// component (the historical AST-derived behavior), keyed by propsName/compKey.
+	genProps := func(c *gsxast.Component, params []param, propsName string) {
+		fields := map[string]bool{}
+		nodeFields := map[string]bool{}
+		for _, p := range params {
+			fields[fieldName(p.name)] = true
+			if isGsxNodeType(p.typ) {
+				nodeFields[fieldName(p.name)] = true
+			}
+		}
+		hasChildren := usesChildren(c.Body)
+		if hasChildren {
+			fields["Children"] = true
+		}
+		// Mirror the Attrs synthesis gate in genComponent/buildSkeleton exactly
+		// (hasFallthrough) so the map agrees with the struct that is actually
+		// emitted. MANUAL mode (a body referencing `attrs`) forces the Attrs field
+		// regardless, so OR it in. A NULLARY component (no params, no children)
+		// is auto-eligible only when it already has something in the props struct
+		// (params or children) — otherwise auto fallthrough would force a props
+		// struct for a component that is truly nullary (no props at all). This
+		// mirrors the method-nullary gate in genComponent/emitComponentSkeleton.
+		_, hasRoot := singleRoot(c.Body)
+		manual := usesAttrs(c.Body)
+		if (hasRoot && (len(params) > 0 || hasChildren)) || manual {
+			fields["Attrs"] = true
+		}
+		// A function component whose fields map is empty (no params, no Children,
+		// no Attrs) has no props struct — record it with a nil value so callers
+		// can distinguish it from a cross-package component (absent key).
+		// Method nullary is already handled by isMethod in the call-site logic and
+		// keeps its empty map entry here.
+		if c.Recv == "" && len(fields) == 0 {
+			out[propsName] = nil
+		} else {
+			out[propsName] = fields
+		}
+		nodeOut[propsName] = nodeFields
+	}
+
+	// deferred holds external-struct candidate components whose byo-vs-generated
+	// decision waits on the preliminary load: only after we know the candidate
+	// type IS a struct (load result) can we commit to byo; otherwise the component
+	// falls back to the generated path.
+	type deferredComp struct {
+		c          *gsxast.Component
+		params     []param
+		propsName  string
+		compKey    string
+		structName string
+	}
+	var deferred []deferredComp
+
 	for _, file := range files {
 		for _, d := range file.Decls {
 			c, ok := d.(*gsxast.Component)
@@ -154,44 +226,73 @@ func componentPropFieldsFor(files map[string]*gsxast.File) (propFields, nodeProp
 			}
 			params, err := parseParams(c.Params)
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 			propsName := c.Name + "Props"
+			compKey := "." + c.Name
 			if c.Recv != "" {
 				_, _, recvTypeName, rerr := parseRecv(c.Recv)
 				if rerr != nil {
 					continue // surfaced cleanly by buildSkeleton
 				}
 				propsName = recvTypeName + c.Name + "Props"
+				compKey = recvTypeName + "." + c.Name
 			}
-			fields := map[string]bool{}
-			nodeFields := map[string]bool{}
-			for _, p := range params {
-				fields[fieldName(p.name)] = true
-				if isGsxNodeType(p.typ) {
-					nodeFields[fieldName(p.name)] = true
+			// BYO classification: a sole non-receiver param whose type is a bare
+			// (same-package) struct name → byo. Resolve the field set from the .gsx
+			// GoChunk decl when present; otherwise defer pending the external load.
+			if structName := soleParamTypeName(params); structName != "" {
+				if st, ok := gsxStructs[structName]; ok {
+					f, nf, bs := fieldsFromGsxStruct(st)
+					out[structName] = f
+					nodeOut[structName] = nf
+					byo.structs[structName] = bs
+					byo.inGsx[structName] = true
+					byo.compStruct[compKey] = structName
+					continue
 				}
+				externalWanted[structName] = true
+				deferred = append(deferred, deferredComp{c, params, propsName, compKey, structName})
+				continue
 			}
-			hasChildren := usesChildren(c.Body)
-			if hasChildren {
-				fields["Children"] = true
-			}
-			// Mirror the Attrs synthesis gate in genComponent/buildSkeleton exactly
-			// (hasFallthrough) so the map agrees with the struct that is actually
-			// emitted — a single-root NULLARY METHOD has no props struct at all, so
-			// it must NOT claim an Attrs field. MANUAL mode (a body referencing
-			// `attrs`) forces the Attrs field regardless (incl. for a nullary method,
-			// which then gains a props struct), so OR it in.
-			_, hasRoot := singleRoot(c.Body)
-			manual := usesAttrs(c.Body)
-			if (hasRoot && (c.Recv == "" || len(params) > 0 || hasChildren)) || manual {
-				fields["Attrs"] = true
-			}
-			out[propsName] = fields
-			nodeOut[propsName] = nodeFields
+			genProps(c, params, propsName)
 		}
 	}
-	return out, nodeOut, nil
+
+	// Preliminary external load: enumerate any candidate struct declared in a
+	// sibling .go file. Then finalize each deferred component: byo iff its
+	// candidate type resolved to a struct; otherwise it falls back to the
+	// generated path (an inline single-param component whose type happens to be a
+	// same-package non-struct named type, or a type we could not resolve).
+	if dir != "" && len(externalWanted) > 0 {
+		ef, enf, es := loadExternalStructFields(dir, externalWanted)
+		for name, f := range ef {
+			out[name] = f
+			nodeOut[name] = enf[name]
+			byo.structs[name] = es[name]
+		}
+	}
+	for _, dc := range deferred {
+		if _, ok := byo.structs[dc.structName]; ok {
+			byo.compStruct[dc.compKey] = dc.structName
+			continue
+		}
+		// Not a struct (or unresolved) → not byo; take the generated path.
+		genProps(dc.c, dc.params, dc.propsName)
+	}
+	return out, nodeOut, byo, nil
+}
+
+// isNoPropsComponent reports whether propsType names a same-package function
+// component that has NO props struct (nullary: no params, no children, no
+// fallthrough Attrs). The sentinel is a propFields entry whose key is present
+// (same-package) but whose value is nil (no props struct). A cross-package
+// component has no entry at all (absent key → not no-props). A method component
+// is handled by isMethod in the call-site logic and is never recorded with a nil
+// value, so this function fires only for function components.
+func isNoPropsComponent(propFields map[string]map[string]bool, propsType string) bool {
+	fields, ok := propFields[propsType]
+	return ok && fields == nil
 }
 
 // isGsxNodeType reports whether a param's declared type string is exactly
@@ -230,7 +331,7 @@ func freeOverlayPath(dir, base, suffix string, overlay map[string][]byte) (strin
 // resolution: the file's GoChunks, plus each component's real props struct and
 // func signature, with a probe body (used-param locals, each interpolation as
 // `_gsxuse(expr)`, each child component as `_ = Child(ChildProps{})`).
-func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps map[string]map[string]bool, fset *token.FileSet) (string, []*gsxast.Component, []importSpec, error) {
+func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, fset *token.FileSet) (string, []*gsxast.Component, []importSpec, error) {
 	var comps []*gsxast.Component
 	for _, d := range file.Decls {
 		if c, ok := d.(*gsxast.Component); ok {
@@ -288,7 +389,7 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps m
 	// failure and must abort the whole skeleton build.
 	var validComps []*gsxast.Component
 	for _, c := range comps {
-		if err := emitComponentSkeleton(&compBuf, c, table, propFields, nodeProps, usedFilters, fset); err != nil {
+		if err := emitComponentSkeleton(&compBuf, c, table, propFields, nodeProps, byo, fm, usedFilters, fset); err != nil {
 			if errors.Is(err, errSkipComponent) {
 				// Validation failure: skip this component's skeleton; it will fail
 				// again (with a positioned diagnostic) during generateFile.
@@ -373,7 +474,7 @@ func sortedFilterAliases(usedFilters map[string]string) []string {
 // func/method signature + probe body) into sb, accumulating into usedFilters
 // (alias→pkgPath) every filter package the component's probes reference — so the
 // caller imports exactly those packages under those aliases.
-func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filterTable, propFields, nodeProps map[string]map[string]bool, usedFilters map[string]string, fset *token.FileSet) error {
+func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filterTable, propFields, nodeProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, usedFilters map[string]string, fset *token.FileSet) error {
 	params, err := parseParams(c.Params)
 	if err != nil {
 		// Emit a minimal stub so the overall skeleton remains valid Go, keeping
@@ -416,6 +517,41 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 		}
 		propsName = recvTypeName + c.Name + "Props"
 	}
+	// BYO (author-owns-Props): the sole non-receiver param is an author-declared
+	// struct used DIRECTLY — gsx generates NO props struct. The skeleton emits the
+	// real param (name + type verbatim from the .gsx) so the author's `p.Field`
+	// references type-check against the real struct (declared in a GoChunk body or
+	// external .go), then probes the body. No params/children/attrs magic applies
+	// (the author accesses p.Children / p.Attrs explicitly). MIRRORS the byo branch
+	// in genComponent so emit ≡ probe.
+	if structName, isByo := byo.structTypeName(componentKey(c)); isByo {
+		// The skeleton names the props param `_gsxp` (reserved, so it can never
+		// collide with a user ident) and binds the author's real param to it via a
+		// //line'd local — MIRRORING the generated path's param binding. The local's
+		// //line maps go-to-definition on a `p.Field` reference back to the param's
+		// .gsx declaration (instead of this synthesized binding or the overlay). The
+		// EMITTED signature (genComponent) keeps the real param name verbatim; the
+		// skeleton differs only in this reserved-name shape (harvest keys on the func
+		// name/recv, not the signature), so resolution + LSP stay correct.
+		if c.Recv != "" {
+			fmt.Fprintf(sb, "func %s %s(_gsxp %s) _gsxrt.Node {\n", c.Recv, c.Name, structName)
+		} else {
+			fmt.Fprintf(sb, "func %s(_gsxp %s) _gsxrt.Node {\n", c.Name, structName)
+		}
+		sb.WriteString("\tvar ctx _gsxctx.Context\n\t_ = ctx\n")
+		if c.ParamsPos.IsValid() {
+			emitSkeletonLineParam(sb, fset, c.ParamsPos+token.Pos(params[0].nameOff))
+		}
+		fmt.Fprintf(sb, "\t%s := _gsxp\n\t_ = %s\n", params[0].name, params[0].name)
+		// Reset the //line so the probe body's own positions are not shifted by the
+		// param binding's mapping.
+		emitSkeletonLine(sb, fset, c.Pos())
+		if err := emitProbes(sb, c.Body, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
+			return err
+		}
+		sb.WriteString("\treturn nil\n}\n")
+		return nil
+	}
 	// Synthesize the implicit `Children _gsxrt.Node` slot field + `children`
 	// local in lockstep with genComponent (emit.go), so skeleton and emitted
 	// code agree on the props shape and the `{children}` interp type-checks.
@@ -430,14 +566,15 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 	// MIRROR emit.go: MANUAL mode — a body referencing `attrs` forces fallthrough
 	// eligibility (even a nullary method) and DISABLES auto root injection.
 	manual := usesAttrs(c.Body)
-	// MIRROR emit.go: a nullary method component (no params, no children) stays
-	// nullary (no props struct, bare `p.Page()` call) — AUTO fallthrough is gated
-	// out of that case so it does not force a props struct; manual forces it.
-	hasFallthrough := (hasRoot && (c.Recv == "" || len(params) > 0 || hasChildren)) || manual
-	// MIRROR emit.go: only a method component suppresses the props struct when
-	// nullary; a function component always keeps its (possibly empty) props
-	// struct so the child-invocation path's `<Tag>Props{}` literal type-checks.
-	hasProps := c.Recv == "" || len(params) > 0 || hasChildren || hasFallthrough
+	// MIRROR emit.go: a nullary component (no params, no children) stays nullary
+	// (no props struct, bare call) — AUTO fallthrough is gated out of that case so
+	// it does not force a props struct; manual forces it. This applies to BOTH
+	// function and method components (unifying the no-props path).
+	hasFallthrough := (hasRoot && (len(params) > 0 || hasChildren)) || manual
+	// A component has a props struct iff it has at least one field (params,
+	// Children, or Attrs via fallthrough). A nullary function or method with no
+	// fallthrough and no children generates no props struct (bare call).
+	hasProps := len(params) > 0 || hasChildren || hasFallthrough
 	if hasProps {
 		fmt.Fprintf(sb, "type %s struct {\n", propsName)
 		for _, p := range params {
@@ -496,7 +633,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 	if manual {
 		sb.WriteString("\tattrs := _gsxp.Attrs\n\t_ = attrs\n")
 	}
-	if err := emitProbes(sb, c.Body, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters, fset); err != nil {
+	if err := emitProbes(sb, c.Body, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
 		return err
 	}
 	sb.WriteString("\treturn nil\n}\n")
@@ -517,7 +654,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 // usedFilters (alias→pkgPath) accumulates every filter package the probes
 // reference, so the skeleton imports exactly those packages under those aliases
 // — driven by the SAME lowerPipe report the emitter uses.
-func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, propFields, nodeProps map[string]map[string]bool, recvVar, recvTypeName string, usedFilters map[string]string, fset *token.FileSet) error {
+func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, propFields, nodeProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, recvVar, recvTypeName string, usedFilters map[string]string, fset *token.FileSet) error {
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *gsxast.Interp:
@@ -551,16 +688,18 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				// Emit the SAME call as genChildComponent (via childInvocation) so the
 				// assignment type-checks each prop expr against the child's/method's real
 				// field type. The shared childPropsLiteral builder guarantees the attr +
-				// slot fields never drift. A nullary method invocation (no attrs, no
-				// children) has no props struct → `_ = p.Method()`. Otherwise build the
+				// slot fields never drift. A nullary invocation (method OR no-props
+				// function; no attrs, no children) has no props struct → `_ = X()`.
+				// Otherwise build the
 				// props literal; named-slot/Children fields use a typed-nil so the
 				// literal type-checks WITHOUT building the real slot closure here —
 				// the slot content (markup-attr values then t.Children) is probed
 				// SEPARATELY below (its interps become _gsxuse in the SAME order
 				// collectExprs collected them; the props-literal exprs are NOT _gsxuse,
 				// so they don't perturb the k-th alignment).
-				callTarget, propsType, isMethod := childInvocation(t, recvVar, recvTypeName)
-				if isMethod && len(t.Attrs) == 0 && len(t.Children) == 0 {
+				callTarget, propsType, isMethod := childInvocation(t, byo, recvVar, recvTypeName)
+				_, isByoChild := byo.isByoStruct(propsType)
+				if ((isMethod && !isByoChild) || isNoPropsComponent(propFields, propsType)) && len(t.Attrs) == 0 && len(t.Children) == 0 {
 					emitSkeletonLine(sb, fset, t.Pos())
 					fmt.Fprintf(sb, "_ = %s()\n", callTarget)
 				} else {
@@ -571,7 +710,9 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					// SEPARATELY below, so its interps become the _gsxuse sequence in the
 					// SAME order collectExprs collected them; the props-literal exprs are
 					// NOT _gsxuse, so they don't perturb the k-th alignment.
-					fields, usedPkgs, err := childPropsLiteral(t, propsType, "_gsxrt", table, propFields, nodeProps[propsType], func(nodes []gsxast.Markup) (string, error) {
+					// When splatExpr is non-empty (byo whole-struct splat), emit
+					// `_ = callTarget(splatExpr)` mirroring the emitter exactly.
+					fields, splatExpr, usedPkgs, err := childPropsLiteral(t, propsType, "_gsxrt", table, propFields, nodeProps[propsType], byo, fm, func(nodes []gsxast.Markup) (string, error) {
 						return "_gsxrt.Node(nil)", nil
 					})
 					if err != nil {
@@ -589,7 +730,12 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 						usedFilters[alias] = path
 					}
 					emitSkeletonLine(sb, fset, t.Pos())
-					fmt.Fprintf(sb, "_ = %s(%s{%s})\n", callTarget, propsType, fields)
+					if splatExpr != "" {
+						// Whole-struct splat: mirrors genChildComponent exactly.
+						fmt.Fprintf(sb, "_ = %s(%s)\n", callTarget, splatExpr)
+					} else {
+						fmt.Fprintf(sb, "_ = %s(%s{%s})\n", callTarget, propsType, fields)
+					}
 				}
 				// Probe slot content in the SAME canonical order collectExprs walks:
 				// each markup-attr value (attr order) then the children.
@@ -598,12 +744,12 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					if probeErr != nil {
 						return
 					}
-					probeErr = emitProbes(sb, value, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters, fset)
+					probeErr = emitProbes(sb, value, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset)
 				})
 				if probeErr != nil {
 					return probeErr
 				}
-				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters, fset); err != nil {
+				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
 					return err
 				}
 			} else {
@@ -641,34 +787,34 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					if probeErr != nil {
 						return
 					}
-					probeErr = emitProbes(sb, value, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters, fset)
+					probeErr = emitProbes(sb, value, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset)
 				})
 				if probeErr != nil {
 					return probeErr
 				}
-				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters, fset); err != nil {
+				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
 					return err
 				}
 			}
 		case *gsxast.Fragment:
-			if err := emitProbes(sb, t.Children, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters, fset); err != nil {
+			if err := emitProbes(sb, t.Children, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
 				return err
 			}
 		case *gsxast.ForMarkup:
 			fmt.Fprintf(sb, "for %s {\n", t.Clause)
-			if err := emitProbes(sb, t.Body, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters, fset); err != nil {
+			if err := emitProbes(sb, t.Body, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
 				return err
 			}
 			sb.WriteString("}\n")
 		case *gsxast.IfMarkup:
 			fmt.Fprintf(sb, "if %s {\n", t.Cond)
-			if err := emitProbes(sb, t.Then, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters, fset); err != nil {
+			if err := emitProbes(sb, t.Then, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
 				return err
 			}
 			sb.WriteString("}")
 			if t.Else != nil {
 				sb.WriteString(" else {\n")
-				if err := emitProbes(sb, t.Else, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters, fset); err != nil {
+				if err := emitProbes(sb, t.Else, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
 					return err
 				}
 				sb.WriteString("}")
@@ -682,7 +828,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				} else {
 					fmt.Fprintf(sb, "case %s:\n", cc.List)
 				}
-				if err := emitProbes(sb, cc.Body, table, propFields, nodeProps, recvVar, recvTypeName, usedFilters, fset); err != nil {
+				if err := emitProbes(sb, cc.Body, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
 					return err
 				}
 			}

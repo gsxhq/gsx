@@ -2,7 +2,7 @@
 package views
 
 component Box() {
-	<div {...attrs} id="x" {...attrs}>{children}</div>
+	<div { attrs... } id="x" { attrs... }>{children}</div>
 }
 -- diagnostics.golden --
-4:2: more than one {...attrs} spread on an element; precedence is ambiguous
+4:2: more than one { attrs... } spread on an element; precedence is ambiguous

@@ -4,7 +4,7 @@ package views
 import "github.com/gsxhq/gsx"
 
 component C(extra gsx.Attrs) {
-	<div {...extra}>y</div>
+	<div { extra... }>y</div>
 }
 -- invoke --
 C(CProps{Extra: gsx.Attrs{"data-x": "1", "hidden": true, "class": "c"}})

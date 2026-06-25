@@ -22,7 +22,7 @@ import (
 //
 // When asJSON is true it emits the manifest JSON form instead of the human table.
 // cmdArgs are the subcommand arguments (used to parse --json).
-func runInfo(stdout, stderr io.Writer, dir string, filterPkgs []string, cls *attrclass.Classifier, predLabel string, cmdArgs []string) int {
+func runInfo(stdout, stderr io.Writer, dir string, filterPkgs []string, cls *attrclass.Classifier, predLabel string, fm codegen.FieldMatcher, cmdArgs []string) int {
 	// Parse the info subcommand's own flags.
 	ifs := flag.NewFlagSet("info", flag.ContinueOnError)
 	ifs.SetOutput(stderr)
@@ -48,7 +48,7 @@ func runInfo(stdout, stderr io.Writer, dir string, filterPkgs []string, cls *att
 		for _, fi := range infos {
 			mf = append(mf, manifestFilter{Name: fi.Name, Pkg: fi.Pkg, Func: fi.Func})
 		}
-		data, _ := json.MarshalIndent(buildManifest(modPath, cls, predLabel, mf), "", "  ")
+		data, _ := json.MarshalIndent(buildManifest(modPath, cls, predLabel, fm != nil, mf), "", "  ")
 		fmt.Fprintln(stdout, string(data))
 		return 0
 	}
@@ -86,7 +86,8 @@ func runInfo(stdout, stderr io.Writer, dir string, filterPkgs []string, cls *att
 	rules := cls.Rules()
 	hasRules := len(rules.JS) > 0 || len(rules.URL) > 0 || len(rules.CSS) > 0
 	hasPred := cls.HasPredicate()
-	if hasRules || hasPred {
+	hasFieldMatcher := fm != nil
+	if hasRules || hasPred || hasFieldMatcher {
 		fmt.Fprintf(stdout, "\nAttribute rules:\n")
 		printRuleSlice(stdout, "JS", rules.JS)
 		printRuleSlice(stdout, "URL", rules.URL)
@@ -97,6 +98,9 @@ func runInfo(stdout, stderr io.Writer, dir string, filterPkgs []string, cls *att
 				label = "(unnamed)"
 			}
 			fmt.Fprintf(stdout, "  predicate: %s\n", label)
+		}
+		if hasFieldMatcher {
+			fmt.Fprintf(stdout, "  fieldMatcher: custom\n")
 		}
 	}
 

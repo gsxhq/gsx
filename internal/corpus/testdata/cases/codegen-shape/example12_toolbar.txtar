@@ -10,7 +10,7 @@ component Toolbar() {
 }
 
 component Field(label string) {
-	<div class="field"><label>{label}</label><input class="control" {...attrs}/></div>
+	<div class="field"><label>{label}</label><input class="control" { attrs... }/></div>
 }
 
 component LoginForm() {
@@ -19,7 +19,7 @@ component LoginForm() {
 
 func variantClass(v string) string { return "btn-" + v }
 -- invoke --
-Toolbar(ToolbarProps{})
+Toolbar()
 -- diagnostics.golden --
 -- render.golden --
 <div><button type="button" class="btn btn-primary w-full" @click="go()" data-test="save" hx-post="/save">Save</button></div>

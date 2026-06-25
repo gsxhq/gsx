@@ -1,4 +1,4 @@
-# COVERAGE (gap #2): a spread {...attrs} whose bag INCLUDES a class merges that
+# COVERAGE (gap #2): a spread { attrs... } whose bag INCLUDES a class merges that
 # class INTO the child root's class via gsx.Attrs.Merge (class concatenation), not
 # caller-wins replacement — proving the child root's class-merge sees the spread.
 -- input.gsx --
@@ -9,7 +9,7 @@ import "github.com/gsxhq/gsx"
 component Card(title gsx.Node) { <div class="card">{title}</div> }
 
 component Page(extra gsx.Attrs) {
-	<Card title="Hi" {...extra} />
+	<Card title="Hi" { extra... } />
 }
 -- invoke --
 Page(PageProps{Extra: gsx.Attrs{"class": "extra", "id": "main"}})

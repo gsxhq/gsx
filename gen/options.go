@@ -102,6 +102,24 @@ func WithAttrClassifier(label string, fn func(name string) (Context, bool)) Opti
 	}
 }
 
+// WithFieldMatcher installs a custom FieldMatcher for the byo (bring-your-own
+// Props) attr→field resolution. The matcher is called for every attribute on a
+// byo child component; it replaces the default identifier-capitalize + kebab→Camel
+// logic. When nil the default matcher is used (no-op option).
+//
+// The FieldMatcher receives the raw attribute name (e.g. "aria-label") and the
+// child struct's exported field names, and returns the matched field name +
+// true, or ("", false) to send the attr to the Attrs bag.
+//
+// A custom matcher bypasses the incremental cache (funcs are not hashable) and
+// is recorded as hasFieldMatcher:true in gsx info --json so external tools know
+// the default matching was overridden.
+func WithFieldMatcher(fn FieldMatcher) Option {
+	return func(cfg *config) {
+		cfg.fieldMatcher = fn
+	}
+}
+
 // appendValidRules validates each rule in add, recording errors for invalid
 // rules onto cfg.errs, and appends the valid ones to dst.
 func appendValidRules(cfg *config, who string, dst, add []Rule) []Rule {

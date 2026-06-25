@@ -9,7 +9,7 @@ component Page() {
 	<Card title="Hi"/>
 }
 -- invoke --
-Page(PageProps{})
+Page()
 -- diagnostics.golden --
 -- render.golden --
 <div>Hi</div>
@@ -47,10 +47,7 @@ func Card(_gsxp CardProps) gsx.Node {
 	})
 }
 
-type PageProps struct {
-}
-
-func Page(_gsxp PageProps) gsx.Node {
+func Page() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:8:2

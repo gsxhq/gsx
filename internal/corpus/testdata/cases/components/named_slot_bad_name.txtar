@@ -11,4 +11,4 @@ component Page() {
 	<Panel data-x={ <m/> }/>
 }
 -- diagnostics.golden --
-non-identifier attribute "data-x" on component Panel (attribute fallthrough not supported yet)
+10:9: non-identifier attribute "data-x" on component <Panel> (slot names must be valid Go identifiers)

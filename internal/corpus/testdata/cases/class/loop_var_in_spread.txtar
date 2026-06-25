@@ -1,4 +1,4 @@
-# Regression: a for-loop variable used ONLY in a spread {...a} must be seen as USED
+# Regression: a for-loop variable used ONLY in a spread { a... } must be seen as USED
 # by the skeleton (same liveness-probe gap as class/style).
 -- input.gsx --
 package views
@@ -8,7 +8,7 @@ import "github.com/gsxhq/gsx"
 component Rows(bags []gsx.Attrs) {
 	<div>
 		{ for _, a := range bags {
-			<span {...a}>x</span>
+			<span { a... }>x</span>
 		} }
 	</div>
 }
