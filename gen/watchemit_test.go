@@ -3,6 +3,7 @@ package gen
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -23,6 +24,27 @@ func TestEmitter_NDJSON_GeneratedOK(t *testing.T) {
 	}
 	if _, hasDur := ev["durationMs"]; !hasDur {
 		t.Fatalf("missing durationMs: %v", ev)
+	}
+}
+
+func TestEmitter_NDJSON_OperationalErrorSurfaces(t *testing.T) {
+	var out, errb bytes.Buffer
+	e := &emitter{ndjson: true, stdout: &out, stderr: &errb}
+	e.cycle(cycleResult{Dir: "/m/views", OK: false, Err: errors.New("disk full"), Diags: nil})
+	// The operational error must reach stdout as a machine-readable signal,
+	// not vanish. Assert an "error" event carrying the message appears.
+	if !strings.Contains(out.String(), `"event":"error"`) || !strings.Contains(out.String(), "disk full") {
+		t.Fatalf("operational error not surfaced in NDJSON: %q", out.String())
+	}
+	// Every stdout line must still be valid JSON (stream discipline).
+	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+		if line == "" {
+			continue
+		}
+		var v map[string]any
+		if json.Unmarshal([]byte(line), &v) != nil {
+			t.Fatalf("non-JSON stdout line: %q", line)
+		}
 	}
 }
 

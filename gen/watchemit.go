@@ -25,6 +25,12 @@ func (e *emitter) start(root string, watching []string) {
 }
 
 func (e *emitter) cycle(r cycleResult) {
+	// Operational errors (I/O failure, resolver error with no diagnostics) must
+	// never be silent: emit an explicit error event/message so the caller can act.
+	// This is distinct from compile-diagnostic failures where Diags carries the detail.
+	if !r.OK && len(r.Diags) == 0 && r.Err != nil {
+		e.emitError(r.Err)
+	}
 	if e.ndjson {
 		ev := map[string]any{
 			"event":       "generated",
