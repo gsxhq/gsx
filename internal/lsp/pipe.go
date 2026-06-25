@@ -10,7 +10,8 @@ import (
 
 // ctxIdent is the reserved ambient render-context identifier the codegen lowering
 // injects as the first argument of a ctx-taking filter. It MUST match codegen's
-// pipeCtxIdent ("ctx"); the ctx-injected pipeline e2e test guards this.
+// pipeCtxIdent ("ctx"). The value is stable; a real ctx-injected end-to-end guard
+// lands with the filter-resolution wiring (std has no ctx filter today).
 const ctxIdent = "ctx"
 
 // walkPipe peels the N seed-first filter layers of a lowered pipeline expression.
@@ -18,6 +19,9 @@ const ctxIdent = "ctx"
 // for stage i it returns the filter's Sel ident and its user stage args, and at
 // the bottom the (unwrapped) seed expression. ok=false on any unexpected shape.
 func walkPipe(skel ast.Expr, n int) (selSel []*ast.Ident, selArgs [][]ast.Expr, seed ast.Expr, ok bool) {
+	if n <= 0 {
+		return nil, nil, nil, false
+	}
 	selSel = make([]*ast.Ident, n)
 	selArgs = make([][]ast.Expr, n)
 	cur := skel

@@ -40,11 +40,16 @@ func pipeDefAt(t *testing.T, dir, src, needle string, off int) *lsp.Location {
 	t.Helper()
 	uri := "file://" + filepath.Join(dir, "card.gsx")
 	var line, ch int
+	found := false
 	for i, l := range strings.Split(src, "\n") {
 		if c := strings.Index(l, needle); c >= 0 {
 			line, ch = i, c+off
+			found = true
 			break
 		}
+	}
+	if !found {
+		t.Fatalf("needle %q not found in src", needle)
 	}
 	frame := func(v any) string {
 		b, _ := json.Marshal(v)
@@ -110,11 +115,16 @@ func pipeHoverAt(t *testing.T, dir, src, needle string, off int) *lsp.Hover {
 	t.Helper()
 	uri := "file://" + filepath.Join(dir, "card.gsx")
 	var line, ch int
+	found := false
 	for i, l := range strings.Split(src, "\n") {
 		if c := strings.Index(l, needle); c >= 0 {
 			line, ch = i, c+off
+			found = true
 			break
 		}
+	}
+	if !found {
+		t.Fatalf("needle %q not found in src", needle)
 	}
 	frame := func(v any) string {
 		b, _ := json.Marshal(v)
@@ -157,8 +167,8 @@ func pipeHoverAt(t *testing.T, dir, src, needle string, off int) *lsp.Hover {
 func TestPipeHoverFilter(t *testing.T) {
 	dir, src := pipeNavModule(t)
 	h := pipeHoverAt(t, dir, src, "|> upper", len("|> ")) // on `upper`
-	if h == nil || !strings.Contains(h.Contents.Value, "Upper(") {
-		t.Fatalf("hover on filter `upper` → %+v, want func ... Upper(...)", h)
+	if h == nil || !strings.Contains(h.Contents.Value, "func std.Upper(") {
+		t.Fatalf("hover on filter `upper` → %+v, want func std.Upper(...)", h)
 	}
 }
 

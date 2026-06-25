@@ -27,6 +27,11 @@ func TestPipeStagePositions(t *testing.T) {
 	if st2[0].ArgsPos != base+14 {
 		t.Errorf("truncate ArgsPos = %d, want %d", st2[0].ArgsPos, base+14)
 	}
+	// NoPos base (e.g. class/spread call sites) → stages carry NoPos, not bogus offsets.
+	_, npStages, _ := parsePipe("x |> truncate(5)", token.NoPos)
+	if len(npStages) != 1 || npStages[0].NamePos.IsValid() || npStages[0].ArgsPos.IsValid() {
+		t.Errorf("NoPos base must yield invalid positions, got NamePos=%d ArgsPos=%d", npStages[0].NamePos, npStages[0].ArgsPos)
+	}
 	// whitespace: "x |>  upper |> truncate( 5 )" → upper@6, truncate@15, '5'@25
 	_, st3, _ := parsePipe("x |>  upper |> truncate( 5 )", base)
 	if st3[0].NamePos != base+6 {

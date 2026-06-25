@@ -185,7 +185,11 @@ func parsePipe(inner string, base token.Pos) (seed string, stages []ast.PipeStag
 	}
 	segOff := len(segs[0]) + 2 // segs[1] starts after segs[0] + "|>"
 	for _, seg := range segs[1:] {
-		st, e := parsePipeStage(seg, base+token.Pos(segOff))
+		segBase := token.NoPos
+		if base.IsValid() {
+			segBase = base + token.Pos(segOff)
+		}
+		st, e := parsePipeStage(seg, segBase)
 		if e != nil {
 			return "", nil, e
 		}
