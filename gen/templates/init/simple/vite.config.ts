@@ -1,4 +1,4 @@
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig, loadEnv, createLogger } from "vite";
 import { gsx, devFallback } from "@gsxhq/vite-plugin-gsx";
 
 export default defineConfig(({ mode }) => {
@@ -8,9 +8,20 @@ export default defineConfig(({ mode }) => {
   // Serve a self-recovering interstitial (tails tmp/dev.log, polls /__dev/status)
   // while the Go server is down/restarting, instead of a raw proxy error.
   const fallback = devFallback({ target: `http://localhost:${goPort}`, logFile: "tmp/dev.log" });
+
+  // While the Go server is down/restarting, the dev-fallback interstitial already
+  // shows it — so drop Vite's redundant "http proxy error … ECONNREFUSED" spam.
+  const logger = createLogger();
+  const baseError = logger.error;
+  logger.error = (msg, opts) => {
+    if (typeof msg === "string" && msg.includes("http proxy error")) return;
+    baseError(msg, opts);
+  };
+
   return {
     clearScreen: false,
     publicDir: false,
+    customLogger: logger,
     plugins: [gsx(), fallback.plugin],
     server: {
       port: vitePort,
