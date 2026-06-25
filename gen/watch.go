@@ -166,12 +166,14 @@ func isDepFile(path string) bool {
 	return strings.HasSuffix(b, ".go") && !strings.HasSuffix(b, ".x.go")
 }
 
+// excludedDir reports whether a directory should be skipped: a project-local
+// build/scratch dir named tmp/dist/node_modules/.git. Only the dir's own name
+// is checked — an ancestor named "tmp" (e.g. a project under /private/tmp) must
+// NOT exclude its descendants.
 func excludedDir(path string) bool {
-	for _, seg := range strings.Split(filepath.ToSlash(path), "/") {
-		switch seg {
-		case "tmp", "dist", "node_modules", ".git":
-			return true
-		}
+	switch filepath.Base(path) {
+	case "tmp", "dist", "node_modules", ".git":
+		return true
 	}
 	return false
 }
