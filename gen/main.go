@@ -129,42 +129,29 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 		defer os.Chdir(orig)
 	}
 
-	// Discover + load a gsx.toml from the (post-chdir) working dir, then merge the
-	// passed-in programmatic config (opts) ON TOP of it so opts win under the
-	// existing last-wins resolution. With no gsx.toml and no opts this is a no-op,
-	// preserving byte-identical stock behavior. The resolved values populate the
-	// SAME config fields opts already do, so the cache key folds a config change
-	// automatically (no separate config hash). The discovered path (or "") is
-	// threaded to `info`, the single source of truth for "which config is in effect".
-	var configPath string
-	if path, ok := discoverConfig("."); ok {
-		fileCfg, err := loadConfig(path)
+	cmd, cmdArgs := rest[0], rest[1:]
+	switch cmd {
+	case "generate":
+		// Only generate and info consume gsx.toml; config-agnostic commands
+		// (version/help/clean/fmt/lsp) must not load it, so a malformed config
+		// can't break them. resolveConfig discovers+loads+merges (opts on top).
+		merged, _, err := resolveConfig(cfg)
 		if err != nil {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			return 2
 		}
-		cfg = mergeConfig(fileCfg, cfg)
-		configPath = path
-	}
-	// Surface any merged option-construction errors (the top-level check covers
-	// the passed-in opts before flag parsing; this catches the merged set too).
-	if len(cfg.errs) > 0 {
-		for _, e := range cfg.errs {
-			fmt.Fprintf(stderr, "gsx: %v\n", e)
-		}
-		return 2
-	}
-
-	cmd, cmdArgs := rest[0], rest[1:]
-	switch cmd {
-	case "generate":
-		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, cfg.filterPkgs, cfg.aliases, cfg.classifier(), cfg.predLabel, cfg.fieldMatcher, cfg.cssMin, cfg.jsMin)
+		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.filterPkgs, merged.aliases, merged.classifier(), merged.predLabel, merged.fieldMatcher, merged.cssMin, merged.jsMin)
 	case "clean":
 		return runClean(cmdArgs, stdout, stderr)
 	case "info":
 		// Resolve against cwd: -C (handled above) has already chdir'd, so "."
 		// anchors the go/packages load at the user's chosen directory.
-		return runInfo(stdout, stderr, ".", configPath, cfg.filterPkgs, cfg.aliases, cfg.classifier(), cfg.predLabel, cfg.fieldMatcher, cmdArgs)
+		merged, configPath, err := resolveConfig(cfg)
+		if err != nil {
+			fmt.Fprintf(stderr, "gsx: %v\n", err)
+			return 2
+		}
+		return runInfo(stdout, stderr, ".", configPath, merged.filterPkgs, merged.aliases, merged.classifier(), merged.predLabel, merged.fieldMatcher, cmdArgs)
 	case "fmt":
 		return runFmt(stdout, stderr, cmdArgs)
 	case "init":
@@ -181,6 +168,34 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 		fmt.Fprintf(stderr, "gsx: unknown command %q\nRun 'gsx help' for usage.\n", cmd)
 		return 2
 	}
+}
+
+// resolveConfig discovers a gsx.toml from the (post-chdir) working dir, loads it
+// as the BASE config, and merges the programmatic optCfg ON TOP so opts win under
+// the existing last-wins resolution. It returns the merged config and the
+// discovered path ("" when none found, which info reports as "config: none").
+//
+// It is called ONLY by the commands that consume config (generate, info) — not
+// by version/help/clean/fmt/lsp — so a malformed/ typo'd gsx.toml cannot break a
+// config-agnostic command. A LOAD error (malformed TOML / unknown key / bad
+// alias) is returned naming the path so the caller can fail clearly (exit 2).
+//
+// With no gsx.toml this is a no-op returning optCfg unchanged and an empty path,
+// preserving byte-identical stock behavior. The resolved values populate the
+// SAME config fields opts already do, so the cache key folds a config change
+// automatically (no separate config hash). Option-construction errs on optCfg are
+// already surfaced at the top of runConfig before dispatch, so they need no
+// recheck here.
+func resolveConfig(optCfg config) (merged config, configPath string, err error) {
+	path, ok := discoverConfig(".")
+	if !ok {
+		return optCfg, "", nil
+	}
+	fileCfg, err := loadConfig(path)
+	if err != nil {
+		return config{}, "", err
+	}
+	return mergeConfig(fileCfg, optCfg), path, nil
 }
 
 // runClean implements the `clean` command. Currently the only flag is --cache,

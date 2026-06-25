@@ -1,6 +1,7 @@
 package gen
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -227,6 +228,47 @@ func TestDiscoverConfigNonRepoFallback(t *testing.T) {
 	got, ok := discoverConfig(views)
 	if !ok || got != modCfg {
 		t.Fatalf("discoverConfig = (%q,%v), want (%q,true)", got, ok, modCfg)
+	}
+}
+
+// TestConfigAgnosticCommandsSurviveMalformedConfig proves a malformed gsx.toml in
+// the tree does NOT break config-agnostic commands (version, fmt) — only generate
+// and info load config, so they alone fail (exit 2) on the bad config. This is
+// the I1+I2 regression: config used to load unconditionally before dispatch, so a
+// typo'd gsx.toml broke `gsx version` etc.
+func TestConfigAgnosticCommandsSurviveMalformedConfig(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Malformed: an unknown key strict-decode rejects (the same typo as the
+	// unknown-key unit test). loadConfig fails before any module work.
+	mkfile(t, filepath.Join(tmp, "gsx.toml"), "filteres = [\"x\"]\n")
+
+	// version + fmt must succeed (exit 0) despite the bad config in the tree.
+	for _, args := range [][]string{
+		{"-C", tmp, "version"},
+		{"-C", tmp, "fmt"},
+	} {
+		var out, errb bytes.Buffer
+		if code := run(args, &out, &errb); code != 0 {
+			t.Fatalf("run %v exit=%d, want 0 (malformed gsx.toml must not break a config-agnostic command); stderr=%q", args, code, errb.String())
+		}
+	}
+
+	// generate + info must still fail (exit 2) on the malformed config, naming it.
+	for _, args := range [][]string{
+		{"-C", tmp, "generate"},
+		{"-C", tmp, "info"},
+	} {
+		var out, errb bytes.Buffer
+		code := run(args, &out, &errb)
+		if code != 2 {
+			t.Fatalf("run %v exit=%d, want 2 on malformed config; stderr=%q", args, code, errb.String())
+		}
+		if !strings.Contains(errb.String(), "gsx.toml") {
+			t.Fatalf("run %v stderr should name the config path; got: %q", args, errb.String())
+		}
 	}
 }
 

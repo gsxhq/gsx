@@ -93,13 +93,6 @@ target = "github.com/jackielii/structpages.IDTarget"
 name = "data-href"
 [[jsAttrs]]
 prefix = "data-on-"
-
-# Built-in minifiers (the gsx-bundled CSS/JS minifier; a CUSTOM minifier func
-# still requires a cmd/ binary via WithCSSMinifier/WithJSMinifier).
-[css]
-minify = true
-[js]
-minify = true
 ```
 
 ## 3. Schema (v1)
@@ -135,9 +128,13 @@ error.
 
 - **Stock binary path:** `runConfig` currently receives a zero `config{}` from
   `run`. Insert config loading: resolve the module root from the target dir,
-  load `gsx.toml` if present into a `config`, and pass that to `runConfig`. All
-  subcommands (`generate`, `fmt`, `lsp`, `info`) flow through this, so each
-  honors the config.
+  load `gsx.toml` if present into a `config`, and pass that to `runConfig`.
+  Config is loaded for the subcommands that consume it — **`generate` and
+  `info`** — each via the shared `resolveConfig` (discover → load → merge).
+  Config-agnostic commands (`version`, `help`, `clean`, `fmt`, `lsp`) do **not**
+  load `gsx.toml`, so a malformed config can't break them. **`gsx lsp` config
+  integration is deferred to the separate LSP work** (so it is NOT a divergence
+  here).
 - **`gen.Main(opts…)` (custom cmd/) — MERGE:** `Main` loads `gsx.toml` as the
   base config first, then applies the programmatic `opts` on top. Filters and
   aliases from opts **append** to the config's (the existing last-wins table
@@ -161,10 +158,12 @@ the cache (a test).
 
 ## 6. Tooling impact (the payoff)
 
-- **`gsx lsp`** loads the same `gsx.toml`, so the language server resolves a
-  project's `url`/`id`/`target` filters for diagnostics + go-to-definition with
-  no custom binary. The prior "point the editor at the project's binary" caveat
-  ([[pipeline-forward-application]] §4) disappears for config-only projects.
+- **`gsx lsp` (deferred):** wiring the language server to load the same
+  `gsx.toml` — so it resolves a project's `url`/`id`/`target` filters for
+  diagnostics + go-to-definition with no custom binary — is a **separate LSP
+  effort**, not part of this slice. Until then the prior "point the editor at the
+  project's binary" caveat ([[pipeline-forward-application]] §4) still applies to
+  the language server.
 - **Vite plugin** shells `go tool gsx generate` (stock) which now reads the
   config — zero plugin change, no per-project generator.
 - **`gsx info` is the single source of truth.** It prints the **discovered
