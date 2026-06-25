@@ -105,10 +105,18 @@ ordinary Go, and the runtime package imports nothing outside the standard librar
 
 ---
 
-> **Status — alpha.** gsx is runnable end-to-end. `gsx generate` compiles
-> `.gsx` → `.x.go`, with `gsx fmt`, `gsx info`, `gsx init`, and an `gsx lsp`
-> language server (Go ↔ `.gsx` navigation, formatting, diagnostics). Codegen
-> covers interpolation, control flow, attributes with contextual escaping, the
-> `|>` pipeline + filters, components/props/`{children}`, method components, named
-> slots, attribute fallthrough, and `style` composition. See the
+> **Status — alpha.** gsx is runnable end-to-end, and it's a toolchain, not just a
+> compiler:
+>
+> - **CLI** — `gsx generate` compiles `.gsx` → `.x.go`; plus `gsx fmt`, `gsx info`,
+>   and `gsx init` to scaffold a ready-to-run project.
+> - **Editor** — `gsx lsp` language server: Go ↔ `.gsx` navigation, formatting, and
+>   diagnostics.
+> - **Dev loop** — a Vite plugin (`@gsxhq/vite-plugin-gsx`) regenerates and
+>   live-reloads on save, paired with the `github.com/gsxhq/vite` Go helper for
+>   asset manifests; `gsx init` wires both together.
+>
+> Codegen covers interpolation, control flow, attributes with contextual escaping,
+> the `|>` pipeline + filters, components/props/`{children}`, method components,
+> named slots, attribute fallthrough, and `style` composition. See the
 > [roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md).
