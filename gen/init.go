@@ -1,6 +1,7 @@
 package gen
 
 import (
+	"bufio"
 	"bytes"
 	"embed"
 	"flag"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"sort"
@@ -101,24 +103,32 @@ func render(raw []byte, data tmplData) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// runInit scaffolds a starter project into the target dir (default ".").
-func runInit(args []string, stdout, stderr io.Writer) int {
+type stepRunner func(args []string, dir string, stdout, stderr io.Writer) error
+
+// setupSteps are the post-scaffold commands, in run order.
+var setupSteps = [][]string{
+	{"go", "get", "-tool", "github.com/gsxhq/gsx/cmd/gsx@latest"},
+	{"go", "mod", "tidy"},
+	{"npm", "install"},
+}
+
+func runInit(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	return initWith(args, stdin, stdout, stderr, isTTYReader(stdin), execStep)
+}
+
+func initWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interactive bool, run stepRunner) int {
 	ifs := flag.NewFlagSet("init", flag.ContinueOnError)
 	ifs.SetOutput(stderr)
 	var templateName, module string
-	var force bool
+	var force, yes bool
 	ifs.StringVar(&templateName, "template", defaultTemplate, "starter template")
 	ifs.StringVar(&module, "module", "", "Go module path (default: target dir basename)")
 	ifs.BoolVar(&force, "force", false, "overwrite an existing go.mod/package.json")
-	// Allow the [dir] positional in any position relative to flags (stdlib flag
-	// otherwise stops at the first positional). -template/-module take a value;
-	// -force is boolean.
-	valueFlag := map[string]bool{
-		"-template": true, "--template": true,
-		"-module": true, "--module": true,
-	}
+	ifs.BoolVar(&yes, "yes", false, "run setup steps without prompting")
+	ifs.BoolVar(&yes, "y", false, "run setup steps without prompting (shorthand)")
+	valueFlag := map[string]bool{"-template": true, "--template": true, "-module": true, "--module": true}
 	var flagArgs []string
-	dir := "."
+	dir := ""
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if strings.HasPrefix(a, "-") {
@@ -144,6 +154,15 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
+	reader := bufio.NewReader(stdin)
+	if dir == "" {
+		if interactive && !yes {
+			dir = promptText(reader, stdout, "Project name", "gsx-app")
+		} else {
+			dir = "."
+		}
+	}
+
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		fmt.Fprintf(stderr, "gsx: %v\n", err)
@@ -167,8 +186,80 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "gsx: init: %v\n", err)
 		return 1
 	}
-	printNextSteps(stdout, dir)
+
+	// Non-interactive without --yes keeps the v1 behavior.
+	if !interactive && !yes {
+		printNextSteps(stdout, dir)
+		return 0
+	}
+	return runSteps(reader, abs, dir, stdout, stderr, interactive && !yes, run)
+}
+
+// runSteps confirms (when ask) and runs each setup step in abs. On a failed step
+// it prints the remaining commands and returns 1; on success prints the final
+// "Run: task dev" block and returns 0.
+func runSteps(reader *bufio.Reader, abs, dir string, stdout, stderr io.Writer, ask bool, run stepRunner) int {
+	for i, step := range setupSteps {
+		fmt.Fprintf(stdout, "\n> %s\n", strings.Join(step, " "))
+		if ask && !promptYes(reader, stdout, "  run this?") {
+			fmt.Fprintln(stdout, "  skipped.")
+			continue
+		}
+		if err := run(step, abs, stdout, stderr); err != nil {
+			fmt.Fprintf(stderr, "\ngsx: step failed: %v\nRun the remaining steps manually:\n", err)
+			for _, s := range setupSteps[i:] {
+				fmt.Fprintf(stderr, "  %s\n", strings.Join(s, " "))
+			}
+			return 1
+		}
+	}
+	fmt.Fprintln(stdout, "\n✓ Done!")
+	if dir != "." {
+		fmt.Fprintf(stdout, "  cd %s\n", dir)
+	}
+	fmt.Fprintln(stdout, "  task dev")
 	return 0
+}
+
+// promptYes asks a [Y/n] question; empty/`y`/`yes` ⇒ true.
+func promptYes(reader *bufio.Reader, stdout io.Writer, q string) bool {
+	fmt.Fprintf(stdout, "%s [Y/n] ", q)
+	line, _ := reader.ReadString('\n')
+	s := strings.ToLower(strings.TrimSpace(line))
+	return s == "" || s == "y" || s == "yes"
+}
+
+// promptText asks for a value, returning def on empty input.
+func promptText(reader *bufio.Reader, stdout io.Writer, q, def string) string {
+	fmt.Fprintf(stdout, "%s [%s] ", q, def)
+	line, _ := reader.ReadString('\n')
+	if s := strings.TrimSpace(line); s != "" {
+		return s
+	}
+	return def
+}
+
+// isTTYReader reports whether r is a terminal (a character device). Mirrors the
+// writer-side isTTY in main.go; avoids a golang.org/x/term dependency.
+func isTTYReader(r io.Reader) bool {
+	f, ok := r.(*os.File)
+	if !ok {
+		return false
+	}
+	fi, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
+}
+
+// execStep runs one setup command in dir, streaming output.
+func execStep(args []string, dir string, stdout, stderr io.Writer) error {
+	cmd := exec.Command(args[0], args[1:]...)
+	cmd.Dir = dir
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	return cmd.Run()
 }
 
 // templateList returns the registered templates sorted by name.

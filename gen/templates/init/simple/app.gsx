@@ -1,6 +1,9 @@
 package main
 
-import "github.com/gsxhq/vite"
+import (
+	"github.com/gsxhq/gsx"
+	"github.com/gsxhq/vite"
+)
 
 component Layout(title string) {
   <!DOCTYPE html>
@@ -20,7 +23,16 @@ component Layout(title string) {
 
 component Index(title string) {
   <Layout title={title}>
-    <h1>Hello from gsx + Vite</h1>
-    <p>Edit <code>app.gsx</code> and save — the page live-reloads.</p>
+    <div id="app">
+      <a href="https://vite.dev" target="_blank" rel="noreferrer">{ gsx.Raw(viteLogoSVG) }</a>
+      <a href="https://github.com/gsxhq/gsx" target="_blank" rel="noreferrer">{ gsx.Raw(gsxLogoSVG) }</a>
+      <h1>gsx + Vite</h1>
+      <div class="card">
+        <button id="counter" type="button">count is 0</button>
+      </div>
+      <p class="read-the-docs">
+        Edit <code>app.gsx</code> and save — the page live-reloads.
+      </p>
+    </div>
   </Layout>
 }

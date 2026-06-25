@@ -3,3 +3,4 @@
 !/dist/.gitkeep
 /tmp
 *.x.go
+.env
