@@ -11,7 +11,7 @@ component Page() {
 	<div><Footer/></div>
 }
 -- invoke --
-Page(PageProps{})
+Page()
 -- diagnostics.golden --
 -- render.golden --
 <div><footer>FOOT</footer></div>

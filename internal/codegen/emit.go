@@ -25,10 +25,11 @@ import (
 // interpolation types. It returns (nil, false) if any component failed; all
 // component errors are recorded in bag (component-boundary recovery continues
 // to the next component on failure, so multiple errors are always reported).
-func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, fset *token.FileSet, cls *attrclass.Classifier, bag *diag.Bag, cssMin, jsMin func(string) (string, error)) ([]byte, bool) {
+func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, byo *byoData, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, cssMin, jsMin func(string) (string, error)) ([]byte, bool) {
 	if cls == nil {
 		cls = attrclass.Builtin()
 	}
+	fm = fieldMatcherOrDefault(fm)
 	interpTemp = 0
 	// Minify the static CSS of <style> blocks. cssMin is nil for the built-in
 	// safe minifier, or a custom override (e.g. tdewolff) threaded from
@@ -85,7 +86,7 @@ func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filter
 			// On failure, the diagnostic is already in bag — skip this component's
 			// output and continue to the next (report ALL components' errors).
 			var cbuf bytes.Buffer
-			if genComponent(&cbuf, v, resolved, table, structFields, nodeProps, imports, fset, cls, bag) {
+			if genComponent(&cbuf, v, resolved, table, structFields, nodeProps, byo, imports, fset, cls, fm, bag) {
 				body.Write(cbuf.Bytes())
 			} else {
 				ok = false
@@ -166,7 +167,7 @@ func writeImports(b *bytes.Buffer, imports map[string]bool, aliased []importSpec
 	b.WriteString(")\n\n")
 }
 
-func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, imports map[string]bool, fset *token.FileSet, cls *attrclass.Classifier, bag *diag.Bag) bool {
+func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, byo *byoData, imports map[string]bool, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag) bool {
 	params, err := parseParams(c.Params)
 	if err != nil {
 		bag.Errorf(c.Pos(), c.End(), "invalid-syntax", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
@@ -201,14 +202,38 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 		propsName = recvTypeName + c.Name + "Props"
 	}
 
+	// BYO (author-owns-Props): the sole non-receiver param is an author-declared
+	// struct used DIRECTLY — gsx generates NO props struct and emits the real param
+	// (name + type verbatim from the .gsx). The body refers to the param's fields
+	// (`p.Field`) directly; there is NO {children}/attrs magic (the author exposes
+	// Children/Attrs as real fields and renders them explicitly). MIRRORS the byo
+	// branch in emitComponentSkeleton so emit ≡ probe.
+	if _, isByo := byo.structTypeName(componentKey(c)); isByo {
+		if c.Recv != "" {
+			fmt.Fprintf(b, "func %s %s(%s) gsx.Node {\n", c.Recv, c.Name, strings.TrimSpace(c.Params))
+		} else {
+			fmt.Fprintf(b, "func %s(%s) gsx.Node {\n", c.Name, strings.TrimSpace(c.Params))
+		}
+		b.WriteString("\treturn gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {\n")
+		b.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
+		for _, m := range c.Body {
+			if !genNode(b, m, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag) {
+				return false
+			}
+		}
+		b.WriteString("\t\treturn _gsxgw.Err()\n")
+		b.WriteString("\t})\n}\n\n")
+		return true
+	}
+
 	// Props struct (field types are syntactic — straight from the param list).
 	// When the body references `{children}`, synthesize an implicit
 	// `Children gsx.Node` slot field after the param fields; the parent fills it
-	// with a render closure (genChildComponent). A NULLARY METHOD (no params, no
-	// children) gets NO props struct and NO _gsxp param — `p.Page()`. A nullary
-	// FUNCTION component keeps its empty props struct (`Page(PageProps{})`), since
-	// the child-component invocation path (genChildComponent) always builds a
-	// `<Tag>Props{}` literal.
+	// with a render closure (genChildComponent). A NULLARY component (function OR
+	// method: no params, no children, no fallthrough) gets NO props struct and NO
+	// _gsxp param — emitted as `func Name() gsx.Node`, called as `Name()`. A
+	// component grows a props struct ONLY when it has params, uses `{children}`,
+	// or uses fallthrough attrs (auto single-root or manual `{...attrs}`).
 	hasChildren := usesChildren(c.Body)
 	// A single-root component is fallthrough-eligible: it synthesizes an
 	// `Attrs gsx.Attrs` props field the caller fills with undeclared attributes,
@@ -220,23 +245,22 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 	// `{...attrs}` element spread, or `attrs.X()` in an interp/expr/clause) takes
 	// over fallthrough placement itself — auto root injection is DISABLED and the
 	// author's `{...attrs}` renders the bag. It is ALWAYS fallthrough-eligible
-	// (forces the Attrs field), even for a nullary method (which then gains a props
-	// struct — correct, since it has fallthrough). See usesAttrs.
+	// (forces the Attrs field), even for a nullary component (which then gains a
+	// props struct — correct, since it has fallthrough). See usesAttrs.
 	manual := usesAttrs(c.Body)
-	// A NULLARY method component (no params, no children) is invoked bare as
-	// `p.Page()` with no props struct (the call-site nullary contract), so it must
-	// NOT gain a props struct via AUTO fallthrough — gate auto out of that case.
-	// A function component (always has a props struct) or a method with params/
-	// children is auto-eligible; manual forces eligibility regardless.
-	autoEligible := hasRoot && (c.Recv == "" || len(params) > 0 || hasChildren)
+	// AUTO fallthrough requires the component to have SOMETHING in the props
+	// struct already (params or children) — a nullary component (function or
+	// method) with a single root gets NO auto fallthrough, so it remains nullary
+	// no-props. manual forces fallthrough for any component regardless.
+	autoEligible := hasRoot && (len(params) > 0 || hasChildren)
 	hasFallthrough := autoEligible || manual
 	// AUTO application (Task-1 root class-merge + spread injection) happens only for
 	// a single-root component that is auto-eligible (so the Attrs FIELD exists — a
-	// nullary method with no props struct is NOT) and does NOT reference `attrs`.
+	// nullary component with no props struct is NOT) and does NOT reference `attrs`.
 	// When manual, the root (and whole body) emits via normal genNode and the author
 	// places the bag; the bag is bound to the `attrs` local below.
 	autoApply := autoEligible && !manual
-	hasProps := c.Recv == "" || len(params) > 0 || hasChildren || hasFallthrough
+	hasProps := len(params) > 0 || hasChildren || hasFallthrough
 	if hasProps {
 		fmt.Fprintf(b, "type %s struct {\n", propsName)
 		for _, p := range params {
@@ -298,12 +322,12 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 		// is false, so the root emits via normal genNode and the author's {...attrs}
 		// places the bag.
 		if autoApply && m == ast.Markup(root) {
-			if !emitRootElement(b, root, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag) {
+			if !emitRootElement(b, root, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag) {
 				return false
 			}
 			continue
 		}
-		if !genNode(b, m, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag) {
+		if !genNode(b, m, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag) {
 			return false
 		}
 	}
@@ -328,7 +352,7 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 // A void root cannot receive fallthrough (it has no place for it to matter beyond
 // attrs, but void roots ARE handled: class/style-merge + guarded attrs + spread
 // then `/>`).
-func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, bag *diag.Bag) bool {
+func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, byo *byoData, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag) bool {
 	emitLine(b, fset, el.Pos())
 	emitS(b, "<"+el.Tag)
 	// AUTO mode: there is no author `{...attrs}`, so the bag spreads at the END and
@@ -356,7 +380,7 @@ func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]typ
 		}
 	} else {
 		for _, c := range el.Children {
-			if !genNode(b, c, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag) {
+			if !genNode(b, c, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag) {
 				return false
 			}
 		}
@@ -548,7 +572,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 // root attrs before the spread are caller-overridable, attrs after are forced
 // (root wins). splitIdx is the bag SpreadAttr's index in el.Attrs (guaranteed
 // unique by the caller).
-func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, bag *diag.Bag) bool {
+func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, byo *byoData, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag) bool {
 	emitS(b, "<"+el.Tag)
 	if !emitFallthroughAttrs(b, el.Attrs, splitIdx, resolved, table, imports, cls, bag) {
 		return false
@@ -572,7 +596,7 @@ func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, res
 		}
 	} else {
 		for _, c := range el.Children {
-			if !genNode(b, c, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag) {
+			if !genNode(b, c, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag) {
 				return false
 			}
 		}
@@ -593,7 +617,7 @@ func bagSpreadIndex(attrs []ast.Attr) (int, bool, error) {
 			continue
 		}
 		if found {
-			return 0, false, fmt.Errorf("codegen: more than one {...attrs} spread on an element; precedence is ambiguous")
+			return 0, false, fmt.Errorf("codegen: more than one { attrs... } spread on an element; precedence is ambiguous")
 		}
 		idx, found = i, true
 	}
@@ -674,7 +698,7 @@ func rootStyleString(styleAttr *ast.ClassAttr, staticStyle *ast.StaticAttr) stri
 // component's receiver var + type name (empty for a function component); they
 // thread down to genChildComponent for the method-vs-package disambiguation of a
 // dotted child-component tag.
-func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, bag *diag.Bag) bool {
+func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, byo *byoData, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag) bool {
 	switch t := n.(type) {
 	case *ast.Text:
 		emitS(b, t.Value)
@@ -697,7 +721,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 	case *ast.Element:
 		emitLine(b, fset, t.Pos())
 		if isComponentTag(t.Tag) {
-			return genChildComponent(b, t, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag)
+			return genChildComponent(b, t, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag)
 		}
 		// MANUAL fallthrough: an element carrying the author's `{...attrs}` bag spread
 		// gets position-aware precedence (pre-spread overridable, post-spread forced).
@@ -707,7 +731,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 			bag.Errorf(t.Pos(), t.End(), "attr-fallthrough", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false
 		} else if found {
-			return emitManualSpreadElement(b, t, splitIdx, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag)
+			return emitManualSpreadElement(b, t, splitIdx, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag)
 		}
 		emitS(b, "<"+t.Tag)
 		for _, a := range t.Attrs {
@@ -734,7 +758,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 			}
 		} else {
 			for _, c := range t.Children {
-				if !genNode(b, c, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag) {
+				if !genNode(b, c, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag) {
 					return false
 				}
 			}
@@ -744,7 +768,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		return genInterp(b, t, resolved, table, imports, fset, bag)
 	case *ast.Fragment:
 		for _, c := range t.Children {
-			if !genNode(b, c, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag) {
+			if !genNode(b, c, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag) {
 				return false
 			}
 		}
@@ -752,7 +776,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		emitLine(b, fset, t.Pos())
 		fmt.Fprintf(b, "for %s {\n", t.Clause)
 		for _, c := range t.Body {
-			if !genNode(b, c, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag) {
+			if !genNode(b, c, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag) {
 				return false
 			}
 		}
@@ -761,7 +785,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		emitLine(b, fset, t.Pos())
 		fmt.Fprintf(b, "if %s {\n", t.Cond)
 		for _, c := range t.Then {
-			if !genNode(b, c, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag) {
+			if !genNode(b, c, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag) {
 				return false
 			}
 		}
@@ -769,7 +793,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		if t.Else != nil {
 			b.WriteString(" else {\n")
 			for _, c := range t.Else {
-				if !genNode(b, c, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag) {
+				if !genNode(b, c, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag) {
 					return false
 				}
 			}
@@ -786,7 +810,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 				fmt.Fprintf(b, "case %s:\n", cc.List)
 			}
 			for _, c := range cc.Body {
-				if !genNode(b, c, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag) {
+				if !genNode(b, c, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag) {
 					return false
 				}
 			}
@@ -1643,14 +1667,24 @@ func attrsRefAttrs(attrs []ast.Attr) bool {
 // places `{children}` has a Children field, so children imply a props literal).
 // The caller decides nullary via isNullaryCall below; this helper only reports
 // the disambiguation result.
-func childInvocation(el *ast.Element, recvVar, recvTypeName string) (callTarget, propsType string, isMethod bool) {
+func childInvocation(el *ast.Element, byo *byoData, recvVar, recvTypeName string) (callTarget, propsType string, isMethod bool) {
 	if recvVar != "" {
 		if i := strings.IndexByte(el.Tag, '.'); i >= 0 {
 			left, method := el.Tag[:i], el.Tag[i+1:]
 			if left == recvVar {
+				// BYO method: the method takes its author struct directly, so the
+				// props type is that struct's name (not <RecvType><Method>Props).
+				if st, ok := byo.structTypeName(recvTypeName + "." + method); ok {
+					return recvVar + "." + method, st, true
+				}
 				return recvVar + "." + method, recvTypeName + method + "Props", true
 			}
 		}
+	}
+	// BYO function component: the tag invokes a same-package component whose sole
+	// param is an author struct, so the props type is that struct's name.
+	if st, ok := byo.structTypeName("." + el.Tag); ok {
+		return el.Tag, st, false
 	}
 	return el.Tag, el.Tag + "Props", false
 }
@@ -1664,12 +1698,19 @@ func childInvocation(el *ast.Element, recvVar, recvTypeName string) (callTarget,
 // recvVar/recvTypeName are the ENCLOSING component's receiver var + type name
 // (empty for a function component); they drive the method-vs-package
 // disambiguation via childInvocation.
-func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, bag *diag.Bag) bool {
-	callTarget, propsType, isMethod := childInvocation(el, recvVar, recvTypeName)
-	// A nullary METHOD invocation — no attrs, no children — has no props struct, so
-	// it is called bare: `p.Content()`. Any attrs or children mean the method has a
-	// props struct (children → a Children field), so we build a props literal.
-	isNullaryCall := isMethod && len(el.Attrs) == 0 && len(el.Children) == 0
+func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, byo *byoData, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag) bool {
+	callTarget, propsType, isMethod := childInvocation(el, byo, recvVar, recvTypeName)
+	// A nullary call — no attrs, no children — emits a bare call with no props
+	// literal. This applies to:
+	//   - a nullary METHOD invocation (isMethod, no props struct by method-nullary
+	//     contract), and
+	//   - a nullary FUNCTION component that has no props struct (isNoPropsComponent:
+	//     same-package, propFields entry present with nil value).
+	// A BYO child (method OR function) ALWAYS takes its author struct, so even an
+	// attr/child-free call passes the zero struct (Comp(T{})) — it is never the
+	// bare-call nullary case.
+	_, isByoChild := byo.isByoStruct(propsType)
+	isNullaryCall := ((isMethod && !isByoChild) || isNoPropsComponent(structFields, propsType)) && len(el.Attrs) == 0 && len(el.Children) == 0
 	if isNullaryCall {
 		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s())\n", callTarget)
 		return true
@@ -1682,8 +1723,10 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 	// loop vars are bound. emitProbes drives the same builder with a typed-nil
 	// slotValue, so emit and probe agree on WHICH fields exist — only the VALUE
 	// differs, and they cannot drift.
-	fields, usedPkgs, err := childPropsLiteral(el, propsType, "gsx", table, structFields, nodeProps[propsType], func(nodes []ast.Markup) (string, error) {
-		s, ok := emitSlotClosure(nodes, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag)
+	// When splatExpr is non-empty, the call is a whole-struct splat: emit
+	// callTarget(splatExpr) directly, bypassing the Props{…} literal.
+	fields, splatExpr, usedPkgs, err := childPropsLiteral(el, propsType, "gsx", table, structFields, nodeProps[propsType], byo, fm, func(nodes []ast.Markup) (string, error) {
+		s, ok := emitSlotClosure(nodes, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag)
 		if !ok {
 			return "", fmt.Errorf("slot closure failed")
 		}
@@ -1705,7 +1748,12 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 	for _, path := range usedPkgs {
 		imports[path] = true
 	}
-	fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s(%s{%s}))\n", callTarget, propsType, fields)
+	if splatExpr != "" {
+		// Whole-struct splat: `<Card { d... }/>` → `Card(d)` (no Props{…} literal).
+		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s(%s))\n", callTarget, splatExpr)
+	} else {
+		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s(%s{%s}))\n", callTarget, propsType, fields)
+	}
 	return true
 }
 
@@ -1750,12 +1798,12 @@ func childPropsErrorCode(err error) string {
 // EXACTLY — same reserved idents (_gsxw/_gsxgw), gsx.W/gsx.Func, and trailing
 // Err() — so the slot streams to the same output, in THIS (parent) scope. It is
 // shared by the Children slot and every named markup slot so they cannot drift.
-func emitSlotClosure(nodes []ast.Markup, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, bag *diag.Bag) (string, bool) {
+func emitSlotClosure(nodes []ast.Markup, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, byo *byoData, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag) (string, bool) {
 	var slot bytes.Buffer
 	slot.WriteString("gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {\n")
 	slot.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
 	for _, c := range nodes {
-		if !genNode(&slot, c, resolved, table, structFields, nodeProps, imports, fset, recvVar, recvTypeName, cls, bag) {
+		if !genNode(&slot, c, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag) {
 			return "", false
 		}
 	}
@@ -1772,13 +1820,23 @@ func emitSlotClosure(nodes []ast.Markup, resolved map[ast.Node]types.Type, table
 // slot VALUE supplied by slotValue (a real gsx.Func closure for emission, a
 // typed-nil for the probe).
 //
-// It SPLITS each Static/Expr/Bool attr via isPropField(propFields[propsType], …):
-//   - a DECLARED prop name → a props-struct field (static→quoted, expr→trimmed
+// Whole-struct splat (byo only): when the element's sole attr is a SpreadAttr on
+// a byo component — written `<Card { d... }/>` — childPropsLiteral returns a
+// non-empty splatExpr ("d") and the callers emit `callTarget(splatExpr)` directly
+// instead of `callTarget(propsType{fieldsStr})`. This is all-or-nothing: a splat
+// combined with any other attr or with children is a clear error. On a
+// non-byo (generated/nullary) component a SpreadAttr in the tag attrs is a
+// fallthrough Attrs-bag merge (.Merge), not a whole-struct splat — the byo check
+// is load-bearing.
+//
+// It SPLITS each Static/Expr/Bool attr via matchField(propFields[propsType], …):
+//   - a MATCHED field name (identifier-capitalize or kebab→Camel, or custom
+//     FieldMatcher hit) → a props-struct field (static→quoted, expr→trimmed
 //     expr rejecting pipeline Stages, bool→true), exactly as before; and
-//   - anything else (a non-identifier name like `data-test`/`@click`/`hx-*`, or an
-//     undeclared identifier on a known same-package child) → a FALLTHROUGH bag
-//     entry keyed by the attr's RAW name (static→quoted value, bool→true, expr→
-//     trimmed expr).
+//   - anything else (a kebab/non-identifier name that the matcher does not match,
+//     or an undeclared identifier on a known same-package child) → a FALLTHROUGH
+//     bag entry keyed by the attr's RAW name (static→quoted value, bool→true,
+//     expr→trimmed expr).
 //
 // A markup attribute is always a named slot (rendered via slotValue). Composed
 // class/spread/conditional fallthrough attrs build the Attrs bag as a chained
@@ -1809,12 +1867,40 @@ func emitSlotClosure(nodes []ast.Markup, resolved map[ast.Node]types.Type, table
 // nodeFields is the child props type's set of declared gsx.Node fields
 // (nodeProps[propsType]); a non-node value bound to one of these is promoted via
 // rtPkg.Val/rtPkg.Text so a renderable value fills a gsx.Node prop.
-func childPropsLiteral(el *ast.Element, propsType, rtPkg string, table filterTable, propFields map[string]map[string]bool, nodeFields map[string]bool, slotValue func(nodes []ast.Markup) (string, error)) (fieldsStr string, usedPkgs map[string]string, err error) {
+func childPropsLiteral(el *ast.Element, propsType, rtPkg string, table filterTable, propFields map[string]map[string]bool, nodeFields map[string]bool, byo *byoData, fm FieldMatcher, slotValue func(nodes []ast.Markup) (string, error)) (fieldsStr string, splatExpr string, usedPkgs map[string]string, err error) {
+	fm = fieldMatcherOrDefault(fm) // normalize nil → default matcher
 	declared := propFields[propsType] // nil for cross-package / unknown → graceful
+	// BYO struct facts: when the child is byo, an unmatched attr (→ Attrs bag) or
+	// {children} (→ Children field) is a CLEAR ERROR if the author struct lacks the
+	// corresponding field, rather than silently auto-synthesizing one (the byo path
+	// is explicit — spec §6).
+	byoStr, isByoChild := byo.isByoStruct(propsType)
+
+	// Whole-struct splat (byo only): `<Card { d... }/>` → `Card(d)`.
+	// A SpreadAttr on a byo component is the whole-prop splat, not an Attrs merge.
+	// Must be all-or-nothing: the sole attr, no children. Error otherwise.
+	if isByoChild {
+		for _, a := range el.Attrs {
+			if s, ok := a.(*ast.SpreadAttr); ok {
+				// Found a splat on a byo component. Validate all-or-nothing.
+				if len(el.Attrs) != 1 || len(el.Children) > 0 {
+					msg := fmt.Sprintf("{ x... } splat on <%s> passes the whole prop value; remove the other attrs or children", el.Tag)
+					return "", "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "byo-splat-mixed", msg: msg}
+				}
+				expr := strings.TrimSpace(s.Expr)
+				if expr == "" {
+					msg := fmt.Sprintf("empty { x... } splat on <%s>; provide the struct expression to splat", el.Tag)
+					return "", "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "empty-splat", msg: msg}
+				}
+				return "", expr, map[string]string{}, nil
+			}
+		}
+	}
+
 	usedPkgs = map[string]string{}
 	var fields []string
-	var bag []string         // fallthrough base-literal entries: `"<rawName>": <value>`
-	var mergeChain []string  // `.Merge(<spread>)` / `.Merge(<rtPkg>.AttrsCond(...))` in source order
+	var bag []string        // fallthrough base-literal entries: `"<rawName>": <value>`
+	var mergeChain []string // `.Merge(<spread>)` / `.Merge(<rtPkg>.AttrsCond(...))` in source order
 	// recordPkgs merges a lowerPipe usedPkgs result into the shared set.
 	recordPkgs := func(used map[string]string) {
 		for alias, path := range used {
@@ -1824,37 +1910,37 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, table filterTab
 	for _, a := range el.Attrs {
 		switch t := a.(type) {
 		case *ast.StaticAttr:
-			if isPropField(declared, t.Name) {
-				if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
-					return "", nil, err
+			if fn, isProp := matchField(declared, t.Name, fm); isProp {
+				if verr := validateMatchedField(fn, t.Name, propsType, declared); verr != nil {
+					return "", "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "bad-field-match", msg: verr.Error()}
 				}
-				if nodeFields[fieldName(t.Name)] {
-					fields = append(fields, fmt.Sprintf("%s: %s.Text(%s)", fieldName(t.Name), rtPkg, strconv.Quote(t.Value)))
+				if nodeFields[fn] {
+					fields = append(fields, fmt.Sprintf("%s: %s.Text(%s)", fn, rtPkg, strconv.Quote(t.Value)))
 				} else {
-					fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), strconv.Quote(t.Value)))
+					fields = append(fields, fmt.Sprintf("%s: %s", fn, strconv.Quote(t.Value)))
 				}
 			} else {
 				bag = append(bag, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), strconv.Quote(t.Value)))
 			}
 		case *ast.ExprAttr:
-			if isPropField(declared, t.Name) {
-				if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
-					return "", nil, err
+			if fn, isProp := matchField(declared, t.Name, fm); isProp {
+				if verr := validateMatchedField(fn, t.Name, propsType, declared); verr != nil {
+					return "", "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "bad-field-match", msg: verr.Error()}
 				}
 				val := strings.TrimSpace(t.Expr)
 				if len(t.Stages) > 0 {
 					lowered, used, perr := lowerPipe(t.Expr, t.Stages, table)
 					if perr != nil {
 						msg := strings.TrimPrefix(perr.Error(), "codegen: ")
-						return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}
+						return "", "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}
 					}
 					recordPkgs(used)
 					val = lowered
 				}
-				if nodeFields[fieldName(t.Name)] {
-					fields = append(fields, fmt.Sprintf("%s: %s.Val(%s)", fieldName(t.Name), rtPkg, val))
+				if nodeFields[fn] {
+					fields = append(fields, fmt.Sprintf("%s: %s.Val(%s)", fn, rtPkg, val))
 				} else {
-					fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), val))
+					fields = append(fields, fmt.Sprintf("%s: %s", fn, val))
 				}
 			} else {
 				val := strings.TrimSpace(t.Expr)
@@ -1862,7 +1948,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, table filterTab
 					lowered, used, perr := lowerPipe(t.Expr, t.Stages, table)
 					if perr != nil {
 						msg := strings.TrimPrefix(perr.Error(), "codegen: ")
-						return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}
+						return "", "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}
 					}
 					recordPkgs(used)
 					val = lowered
@@ -1870,30 +1956,32 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, table filterTab
 				bag = append(bag, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), val))
 			}
 		case *ast.BoolAttr:
-			if isPropField(declared, t.Name) {
-				if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
-					return "", nil, err
+			if fn, isProp := matchField(declared, t.Name, fm); isProp {
+				if verr := validateMatchedField(fn, t.Name, propsType, declared); verr != nil {
+					return "", "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "bad-field-match", msg: verr.Error()}
 				}
-				if nodeFields[fieldName(t.Name)] {
-					fields = append(fields, fmt.Sprintf("%s: %s.Val(true)", fieldName(t.Name), rtPkg))
+				if nodeFields[fn] {
+					fields = append(fields, fmt.Sprintf("%s: %s.Val(true)", fn, rtPkg))
 				} else {
-					fields = append(fields, fmt.Sprintf("%s: true", fieldName(t.Name)))
+					fields = append(fields, fmt.Sprintf("%s: true", fn))
 				}
 			} else {
 				bag = append(bag, fmt.Sprintf("%s: true", strconv.Quote(t.Name)))
 			}
 		case *ast.MarkupAttr:
 			// A markup attribute (`header={ <h1/> }`) is a NAMED slot bound to a
-			// declared `gsx.Node` prop. Its name must be a valid field identifier; its
-			// VALUE is rendered by slotValue (a gsx.Func closure on emit, a typed-nil
-			// on probe) — the SAME machinery as the {children} slot. A named slot is
-			// never a fallthrough attr.
-			if err := checkComponentAttrName(t.Name, el.Tag); err != nil {
-				return "", nil, err
+			// declared `gsx.Node` prop. Its name must be a valid Go identifier because
+			// it maps directly to a field via fieldName (capitalize-first only — no
+			// kebab→Camel). Non-identifier names (e.g. "data-x") are a clear error.
+			// This is distinct from StaticAttr/ExprAttr/BoolAttr where the FieldMatcher
+			// can map kebab names to CamelCase fields.
+			if !token.IsIdentifier(t.Name) {
+				msg := fmt.Sprintf("non-identifier attribute %q on component <%s> (slot names must be valid Go identifiers)", t.Name, el.Tag)
+				return "", "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "non-identifier-slot", msg: msg}
 			}
 			val, verr := slotValue(t.Value)
 			if verr != nil {
-				return "", nil, verr
+				return "", "", nil, verr
 			}
 			fields = append(fields, fmt.Sprintf("%s: %s", fieldName(t.Name), val))
 		case *ast.ClassAttr:
@@ -1901,7 +1989,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, table filterTab
 			// unsupported.
 			if t.Name != "class" {
 				msg := fmt.Sprintf("%s attribute on a component (<%s>) not supported yet", t.Name, el.Tag)
-				return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
+				return "", "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
 			bag = append(bag, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), classEntryExpr(t, rtPkg)))
 		case *ast.SpreadAttr:
@@ -1909,27 +1997,40 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, table filterTab
 		case *ast.CondAttr:
 			condExpr, cerr := condAttrsExpr(t, rtPkg, el.Tag)
 			if cerr != nil {
-				return "", nil, cerr
+				return "", "", nil, cerr
 			}
 			mergeChain = append(mergeChain, fmt.Sprintf(".Merge(%s)", condExpr))
 		default:
 			msg := fmt.Sprintf("unknown attribute %T on component (<%s>)", a, el.Tag)
-			return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}
+			return "", "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}
 		}
 	}
 	if len(el.Children) > 0 {
+		// BYO: {children} requires an explicit `Children gsx.Node` field. Missing →
+		// a clear error (the author adds it; gsx auto-adds only for a .gsx-declared
+		// struct, which fieldsFromGsxStruct already reported via hasChildren).
+		if isByoChild && !byoStr.hasChildren {
+			msg := fmt.Sprintf("component <%s> is passed children but its Props type %s has no `Children gsx.Node` field", el.Tag, propsType)
+			return "", "", nil, &attrError{pos: el.Pos(), end: el.End(), code: "byo-missing-children", msg: msg}
+		}
 		val, verr := slotValue(el.Children)
 		if verr != nil {
-			return "", nil, verr
+			return "", "", nil, verr
 		}
 		fields = append(fields, "Children: "+val)
 	}
 	if len(bag) > 0 || len(mergeChain) > 0 {
+		// BYO: unmatched attrs route to an explicit `Attrs gsx.Attrs` field. Missing
+		// → a clear error (the author adds it and spreads it in the markup).
+		if isByoChild && !byoStr.hasAttrs {
+			msg := fmt.Sprintf("attribute on <%s> matches no field of its Props type %s and %s has no `Attrs gsx.Attrs` field", el.Tag, propsType, propsType)
+			return "", "", nil, &attrError{pos: el.Pos(), end: el.End(), code: "byo-missing-attrs", msg: msg}
+		}
 		attrsExpr := fmt.Sprintf("%s.Attrs{%s}", rtPkg, strings.Join(bag, ", "))
 		attrsExpr += strings.Join(mergeChain, "")
 		fields = append(fields, "Attrs: "+attrsExpr)
 	}
-	return strings.Join(fields, ", "), usedPkgs, nil
+	return strings.Join(fields, ", "), "", usedPkgs, nil
 }
 
 // classEntryExpr lowers a composable class={…} ClassAttr to a runtime
@@ -2011,43 +2112,3 @@ func condBranchAttrs(attrs []ast.Attr, rtPkg, tag string) (string, error) {
 	return fmt.Sprintf("%s.Attrs{%s}", rtPkg, strings.Join(entries, ", ")), nil
 }
 
-// isPropField reports whether a child-invocation attribute named `name` maps to a
-// DECLARED props-struct field (→ a struct field) versus a FALLTHROUGH attr (→ the
-// Attrs bag). declared is the child's prop-field set (nil for a cross-package or
-// otherwise unknown child).
-//
-//   - A non-identifier name (data-test, @click, hx-*) can never be a Go field → it
-//     falls through.
-//   - The synthesized Attrs/Children fields are never caller-set props → fall
-//     through (Children is supplied as slot markup, never a simple attr).
-//   - When declared is nil (cross-package / unknown), assume an identifier attr IS
-//     a prop — today's behavior. This means a cross-package child's NON-identifier
-//     fallthrough WORKS (the common data-*/@/hx-* case), but a cross-package
-//     UNDECLARED-IDENTIFIER attr is wrongly assumed a prop and surfaces at the
-//     final `go build` of the .x.go. A future cross-package enhancement can resolve
-//     imported struct fields; this task does not.
-//   - Otherwise, membership in declared decides.
-func isPropField(declared map[string]bool, name string) bool {
-	if !token.IsIdentifier(name) {
-		return false
-	}
-	fn := fieldName(name)
-	if fn == "Attrs" || fn == "Children" {
-		return false
-	}
-	if declared == nil {
-		return true
-	}
-	return declared[fn]
-}
-
-// checkComponentAttrName rejects a prop attribute name that is not a Go identifier.
-// It is now only reached on the isPropField (declared-prop) branch — a
-// non-identifier name is classified as a fallthrough attr by isPropField and never
-// reaches here, so this guards only a malformed declared-prop name.
-func checkComponentAttrName(name, tag string) error {
-	if !token.IsIdentifier(name) {
-		return fmt.Errorf("codegen: non-identifier attribute %q on component %s (attribute fallthrough not supported yet)", name, tag)
-	}
-	return nil
-}

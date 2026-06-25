@@ -15,7 +15,7 @@ func FuzzParseFile(f *testing.F) {
 	f.Add([]byte(""))
 	f.Add([]byte("package p\ncomponent X() { <div></span> }"))
 	f.Add([]byte("package p\ncomponent X() { <p>Hi {name}! {greeting(name)?}</p> }"))
-	f.Add([]byte("package p\ncomponent X() { <input type=\"text\" id={id} disabled {...rest} /> }"))
+	f.Add([]byte("package p\ncomponent X() { <input type=\"text\" id={id} disabled { rest... } /> }"))
 	f.Add([]byte("package p\ncomponent X() { <Panel header={<h1>Hi</h1>}></Panel> }"))
 	f.Add([]byte("package p\ntype T struct{}\ncomponent (t T) M() { <main>x</main> }"))
 	// pipeline operator `|>` (interp + attribute, valid and malformed)

@@ -10,4 +10,7 @@ component Page() {
 	<Multi data-x="1"/>
 }
 -- diagnostics.golden --
-9:23: unknown field Attrs in struct literal of type MultiProps
+9:12: undefined: MultiProps
+9:12: too many arguments in call to Multi
+	have (unknown type)
+	want ()

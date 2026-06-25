@@ -22,7 +22,7 @@ func TestNavIndex(t *testing.T) {
 	writeFile(t, dir, "main.go",
 		"package nav\n\nvar _ = Card(CardProps{Title: \"x\"})\n")
 
-	out, err := GeneratePackagesWithFilters(dir, []string{dir}, nil, nil, nil, nil, nil)
+	out, err := GeneratePackagesWithFilters(dir, []string{dir}, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

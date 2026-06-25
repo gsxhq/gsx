@@ -20,7 +20,7 @@ func TestCrossIndex(t *testing.T) {
 	writeFile(t, dir, "main.go",
 		"package x\n\nvar _ = Card\n")
 
-	out, err := GeneratePackagesWithFilters(dir, []string{dir}, nil, nil, nil, nil, nil)
+	out, err := GeneratePackagesWithFilters(dir, []string{dir}, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

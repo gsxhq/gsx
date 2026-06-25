@@ -2,7 +2,7 @@
 package views
 
 component Dialog() {
-	<div {...attrs} role="dialog">{children}</div>
+	<div { attrs... } role="dialog">{children}</div>
 }
 -- invoke --
 Dialog(DialogProps{Attrs: gsx.Attrs{"role": "alert", "data-x": "1"}})
@@ -37,7 +37,7 @@ func Dialog(_gsxp DialogProps) gsx.Node {
 		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style", "role"))
 		_gsxgw.S(" role=\"dialog\"")
 		_gsxgw.S(">")
-//line input.gsx:4:32
+//line input.gsx:4:34
 		_gsxgw.Node(ctx, children)
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()

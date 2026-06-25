@@ -2,7 +2,7 @@
 package views
 
 component Box() {
-	<div id="x" {...attrs}>{children}</div>
+	<div id="x" { attrs... }>{children}</div>
 }
 -- invoke --
 Box(BoxProps{Attrs: gsx.Attrs{"id": "y"}})
@@ -39,7 +39,7 @@ func Box(_gsxp BoxProps) gsx.Node {
 		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
 		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
 		_gsxgw.S(">")
-//line input.gsx:4:25
+//line input.gsx:4:27
 		_gsxgw.Node(ctx, children)
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
