@@ -40,7 +40,8 @@ func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 	em := &emitter{ndjson: cfg.format == "ndjson", stdout: cfg.stdout, stderr: cfg.stderr}
 
 	// Short-circuit when there are no watchable dirs (no .gsx files found).
-	if dirs, err := discoverDirs(cfg.paths); err != nil || len(dirs) == 0 {
+	dirs, err := discoverDirs(cfg.paths)
+	if err != nil || len(dirs) == 0 {
 		return 0
 	}
 
@@ -57,17 +58,17 @@ func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 	}
 	defer w.Close()
 
-	roots, _ := discoverDirs(cfg.paths)
-	addWatchTree(w, roots)
+	addWatchTree(w, dirs)
 	// Emit start first so tests/consumers can distinguish the initial cold-
 	// generate cycles (below) from subsequent regen cycles.
-	em.start(sess.root, roots)
+	em.start(sess.root, dirs)
 	for _, r := range startup {
 		em.cycle(r)
 	}
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sig)
 
 	var pending = map[string]bool{} // dirty package dirs
 	var depDirty bool               // a .go/go.mod/go.sum changed → rebuild
@@ -111,7 +112,11 @@ func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 		case <-fire:
 			if depDirty {
 				if rerr := sess.rebuild(); rerr != nil {
+					// Skip this cycle: regenerating against a stale resolver
+					// would produce output built on the old type graph. Leave
+					// depDirty=true and pending intact so the next fire retries.
 					em.emitError(rerr)
+					continue
 				}
 				depDirty = false
 			}
@@ -150,7 +155,7 @@ func watchable(path string) bool {
 	if strings.HasSuffix(base, ".x.go") {
 		return false // never react to our own output
 	}
-	return strings.HasSuffix(base, ".gsx") || strings.HasSuffix(base, ".go") || isDepFile(path)
+	return strings.HasSuffix(base, ".gsx") || isDepFile(path)
 }
 
 func isDepFile(path string) bool {
