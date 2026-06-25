@@ -3,7 +3,7 @@
 Generating HTML from Go has always meant giving something up.
 
 `html/template` ships in the standard library, auto-escapes, and has the
-ergonomic everyone quietly loves — the **pipe**: `{{ .Name | upper }}` reads
+ergonomic everyone quietly loves — the **pipe**: <code v-pre>{{ .Name | upper }}</code> reads
 left-to-right and composes cleanly. But it is stringly-typed. Templates parse at
 runtime, errors surface late, and refactoring across templates is unsafe.
 
@@ -35,7 +35,7 @@ component Card(title string, featured bool) {
 - **JSX-style inline components.** `<Card>` nests and composes exactly like
   `<div>`. **Capitalization** decides the meaning — `<div>` is an HTML element,
   `<Card>` is a component — so there is no inference about what a lowercase tag is.
-- **The pipe, kept.** html/template's `{{ . | f }}` is the transform ergonomic gsx
+- **The pipe, kept.** html/template's <code v-pre>{{ . | f }}</code> is the transform ergonomic gsx
   preserves as a `|>` filter pipeline — `{ name |> trim |> upper }` — except the
   filters are real, type-checked Go functions resolved at codegen, not stringly
   dispatched at runtime.
