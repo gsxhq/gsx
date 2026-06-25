@@ -293,9 +293,10 @@ func TestScaffoldSimpleTemplate(t *testing.T) {
 		}
 		return nil
 	})
-	// app.gsx kept its gsx statement block:
+	// app.gsx kept its gsx statement block (the «»-delimited template must not
+	// disturb gsx's own {{ }} blocks):
 	appgsx, _ := os.ReadFile(filepath.Join(dest, "app.gsx"))
-	if !strings.Contains(string(appgsx), "{{ assets := vite.FromContext(ctx).Entry") {
+	if !strings.Contains(string(appgsx), "{{ v := vite.FromContext(ctx) }}") {
 		t.Errorf("app.gsx lost its {{ }} block: %s", appgsx)
 	}
 }
