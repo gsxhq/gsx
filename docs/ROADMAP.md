@@ -226,6 +226,20 @@ vocabulary remains a design aspiration, not the current API.
   `2026-06-25-pipeline-forward-application-design.md`.
 - `[ ]` **Pipeline extensions** — initialism-aware filter naming;
   pipeline-as-filter-argument; ambient `mapEach` (deferred / out of scope).
+- `[~]` **Project gsx command (`[gsx] command`) + LSP filter oracle** — a
+  `gsx.toml` `[gsx] command = ["go","run","./cmd/gsx"]` declares how to invoke the
+  project's gsx. The stock `gsx lsp` uses it as a filter-resolution oracle (runs
+  `<command> info --json`, feeds the resolved filters to the analyzer), so
+  `gd`/hover/diagnostics on project filters (`url`/`id`/`target`, compiled-in
+  `WithFilters`) work in the editor with no Neovim change. In progress. Spec
+  `2026-06-25-gsx-lsp-info-oracle-design.md`.
+- `[ ]` **`gsx generate`/`info` delegation** — make the stock gsx a launcher:
+  when `[gsx] command` is set, `gsx generate|info|lsp` re-exec
+  `<command> <subcommand>` so a teammate with only the stock binary gets correct,
+  full-fidelity output and the Taskfile drops the `go run ./cmd/gsx` ceremony.
+  Needs a one-env-var recursion guard (`GSX_DELEGATED=1`, deterministic) + a
+  generate-fatal vs lsp-best-effort decision on a failed delegate. Builds on the
+  same `[gsx] command` declaration. Spec `2026-06-25-gsx-lsp-info-oracle-design.md` §9.
 - `[x]` **Example 02 `//`-in-markup grammar** — decided: element content is
   literal text, so a bare `//` in content renders verbatim; the braced
   `{/* … */}` form is the content-comment. Printer simplified; faithfulness +
