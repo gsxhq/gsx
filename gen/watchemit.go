@@ -52,6 +52,14 @@ func (e *emitter) line(ev map[string]any) {
 	e.stdout.Write([]byte("\n"))
 }
 
+func (e *emitter) emitError(err error) {
+	if e.ndjson {
+		e.line(map[string]any{"event": "error", "message": err.Error()})
+		return
+	}
+	fmt.Fprintf(e.stderr, "gsx: %v\n", err)
+}
+
 // rawDiagnostics encodes diags through the canonical RenderJSON so the NDJSON
 // diagnostics field is byte-identical to `gsx generate --json`.
 func rawDiagnostics(d []diag.Diagnostic) json.RawMessage {
