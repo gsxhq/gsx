@@ -135,7 +135,10 @@ var errTryMarker = fmt.Errorf("the `?` try-marker is not supported; gsx auto-unw
 // the source position of seg[0], so NamePos/ArgsPos resolve to real source.
 func parsePipeStage(seg string, segBase token.Pos) (ast.PipeStage, error) {
 	leadWS := len(seg) - len(strings.TrimLeft(seg, " \t\r\n"))
-	namePos := segBase + token.Pos(leadWS) // first non-ws char = the name's first char
+	var namePos token.Pos
+	if segBase.IsValid() {
+		namePos = segBase + token.Pos(leadWS)
+	}
 	s := strings.TrimSpace(seg)
 	if strings.HasSuffix(s, "?") {
 		return ast.PipeStage{}, errTryMarker
@@ -158,7 +161,10 @@ func parsePipeStage(seg string, segBase token.Pos) (ast.PipeStage, error) {
 		rawArgs := s[i+1 : end]
 		argsLead := len(rawArgs) - len(strings.TrimLeft(rawArgs, " \t\r\n"))
 		// s[k] is at namePos+k; args' first char is s[i+1+argsLead].
-		argsPos := namePos + token.Pos(i+1+argsLead)
+		var argsPos token.Pos
+		if namePos.IsValid() {
+			argsPos = namePos + token.Pos(i+1+argsLead)
+		}
 		return ast.PipeStage{Name: name, Args: strings.TrimSpace(rawArgs), HasArgs: true, NamePos: namePos, ArgsPos: argsPos}, nil
 	}
 	if !isStageName(s) {
