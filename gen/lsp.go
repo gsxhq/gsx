@@ -61,6 +61,7 @@ func (lspAnalyzer) Analyze(dir string, override map[string][]byte) (*lsp.Package
 		GSXFset:       pr.GSXFset,
 		Fset:          pr.Fset,
 		Info:          pr.Info,
+		Types:         pr.Types,
 		ExprMap:       pr.ExprMap,
 		Files:         pr.GSXFiles,
 		CrossIndex:    cross,

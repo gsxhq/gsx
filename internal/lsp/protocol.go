@@ -49,12 +49,26 @@ type serverCapabilities struct {
 	DefinitionProvider         bool   `json:"definitionProvider"`
 	ReferencesProvider         bool   `json:"referencesProvider"`
 	DocumentFormattingProvider bool   `json:"documentFormattingProvider"`
+	HoverProvider              bool   `json:"hoverProvider"`
 }
 
 // TextEdit is a single text replacement: NewText replaces the span at Range.
 type TextEdit struct {
 	Range   Range  `json:"range"`
 	NewText string `json:"newText"`
+}
+
+// Hover is the textDocument/hover result. Range (the span the editor highlights)
+// is optional.
+type Hover struct {
+	Contents MarkupContent `json:"contents"`
+	Range    *Range        `json:"range,omitempty"`
+}
+
+// MarkupContent is LSP markup content; Kind is "markdown" or "plaintext".
+type MarkupContent struct {
+	Kind  string `json:"kind"`
+	Value string `json:"value"`
 }
 
 // documentFormattingParams is the payload of textDocument/formatting. Options
