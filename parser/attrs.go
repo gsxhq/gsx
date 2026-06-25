@@ -111,17 +111,31 @@ func (p *parser) parseSpreadAttr() (ast.Attr, error) {
 	inner := strings.TrimSpace(p.src[p.i+1 : end])
 	if !strings.HasSuffix(inner, "...") {
 		// Detect the old leading-dots form and emit a helpful hint.
-		if strings.HasPrefix(inner, "...") {
-			expr := strings.TrimSpace(strings.TrimPrefix(inner, "..."))
+		if rest, ok := strings.CutPrefix(inner, "..."); ok {
+			expr := strings.TrimSpace(rest)
 			return nil, p.errorf(attrStartPos, "expected `...` trailing spread inside `{ }` attribute; did you mean `{ %s... }`?", expr)
 		}
 		return nil, p.errorf(attrStartPos, "expected `...` trailing spread inside `{ }` attribute")
 	}
-	expr := strings.TrimSpace(strings.TrimSuffix(inner, "..."))
-	// The spread/splat subject may carry a `|>` pipeline (`{ seed |> f... }`).
-	seed, stages, perr := parsePipe(expr)
+	core := strings.TrimSpace(strings.TrimSuffix(inner, "..."))
+	// The spread/splat subject may carry a `|>` pipeline. Its canonical form
+	// parenthesizes the pipeline so the trailing `...` reads unambiguously as the
+	// spread marker on the whole pipeline: `{ (seed |> f)... }`. parsePipe only
+	// splits a top-level `|>`, so a fully-parenthesized pipeline first parses as a
+	// stage-less seed; unwrap one outer paren layer in that case so it yields the
+	// same seed+stages as the bare `{ seed |> f... }` form (and round-trips with
+	// the printer's parenthesized output). A parenthesized NON-pipeline spread
+	// keeps its parens.
+	seed, stages, perr := parsePipe(core)
 	if perr != nil {
 		return nil, perr
+	}
+	if len(stages) == 0 {
+		if unwrapped, ok := balancedParenUnwrap(core); ok {
+			if s2, st2, err := parsePipe(unwrapped); err == nil && len(st2) > 0 {
+				seed, stages = s2, st2
+			}
+		}
 	}
 	p.i = end + 1
 	sa := &ast.SpreadAttr{Expr: seed, Stages: stages}

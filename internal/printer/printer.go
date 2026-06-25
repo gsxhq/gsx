@@ -409,13 +409,22 @@ func (p *printer) attr(a ast.Attr, depth int) {
 		}
 		p.ws("}")
 	case *ast.SpreadAttr:
+		// A piped spread is parenthesized so the trailing `...` reads clearly as
+		// the spread marker on the whole pipeline: `{ (seed |> f)... }`. A plain
+		// spread needs no parens: `{ seed... }`.
 		p.ws("{ ")
-		p.ws(fmtExpr(v.Expr))
-		for _, s := range v.Stages {
-			p.ws(" |> ")
-			p.pipeStage(s)
+		if len(v.Stages) > 0 {
+			p.ws("(")
+			p.ws(fmtExpr(v.Expr))
+			for _, s := range v.Stages {
+				p.ws(" |> ")
+				p.pipeStage(s)
+			}
+			p.ws(")... }")
+		} else {
+			p.ws(fmtExpr(v.Expr))
+			p.ws("... }")
 		}
-		p.ws("... }")
 	case *ast.ClassAttr:
 		p.classAttr(v)
 	case *ast.CondAttr:
