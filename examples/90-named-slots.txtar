@@ -18,4 +18,4 @@ component Page() {
 -- invoke --
 Page()
 -- render.golden --
-<div class="panel"><header><h1>H</h1></header><footer><small>F</small></footer></div>
+<div class="panel"><header><h1>H</h1></header><footer>F</footer></div>

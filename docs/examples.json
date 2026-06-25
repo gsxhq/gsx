@@ -50,7 +50,7 @@
   {
     "name": "Named slots",
     "category": "Components & composition",
-    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Panel(header gsx.Node, footer gsx.Node) {\n\t<div class=\"panel\">\n\t\t<header>{ header }</header>\n\t\t<footer>{ footer }</footer>\n\t</div>\n}\n\ncomponent Page() {\n\t<Panel header={ <h1>H</h1> } footer={ <small>F</small> }/>\n}\n",
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Panel(header gsx.Node, footer gsx.Node) {\n\t<div class=\"panel\">\n\t\t<header>{ header }</header>\n\t\t<footer>{ footer }</footer>\n\t</div>\n}\n\ncomponent Page() {\n\t<Panel header={ <h1>H</h1> } footer=\"F\"/>\n}\n",
     "invoke": "Page()"
   },
   {
