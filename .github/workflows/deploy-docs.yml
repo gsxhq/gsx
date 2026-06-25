@@ -1,0 +1,49 @@
+name: Deploy docs site
+
+# The docs site (gsxhq.github.io) does NOT watch this repo — its Pages workflow
+# only runs on a push to the SITE repo or a manual dispatch. This workflow bridges
+# that gap: when docs change on main here, it triggers the site's deploy workflow
+# (which clones this repo's main and rebuilds), so the live docs stay in sync.
+#
+# Setup (one-time, done by a maintainer — a workflow's default GITHUB_TOKEN cannot
+# trigger workflows in another repo):
+#   1. Create a fine-grained Personal Access Token scoped to gsxhq/gsxhq.github.io
+#      with Repository permission "Actions: read and write".
+#   2. Add it to THIS repo as an Actions secret named SITE_DISPATCH_TOKEN
+#      (Settings -> Secrets and variables -> Actions -> New repository secret).
+# Until the secret exists, this job no-ops with a warning instead of failing.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      # Only the inputs the site actually consumes (it syncs docs/guide/** and the
+      # generated presets), plus this workflow itself.
+      - 'docs/guide/**'
+      - 'docs/examples.json'
+      - '.github/workflows/deploy-docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Coalesce bursts of doc pushes into a single site deploy.
+concurrency:
+  group: deploy-docs
+  cancel-in-progress: false
+
+jobs:
+  trigger-site-deploy:
+    name: trigger gsxhq.github.io deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch the site Pages build
+        env:
+          GH_TOKEN: ${{ secrets.SITE_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning title=Auto-deploy disabled::SITE_DISPATCH_TOKEN is not set — skipping the docs-site deploy. Add a fine-grained PAT (Actions: read and write on gsxhq/gsxhq.github.io) as the SITE_DISPATCH_TOKEN secret to enable it."
+            exit 0
+          fi
+          gh workflow run deploy.yml -R gsxhq/gsxhq.github.io --ref main
+          echo "Triggered gsxhq/gsxhq.github.io deploy.yml (Pages rebuild)."
