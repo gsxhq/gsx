@@ -29,11 +29,14 @@ func exprNodeAtOffset(pkg *Package, path string, off int) (gsxast.Node, token.Po
 		}
 		var exprPos token.Pos
 		var exprLen int
+		var stages []gsxast.PipeStage
 		switch e := n.(type) {
 		case *gsxast.Interp:
 			exprPos, exprLen = e.ExprPos, len(e.Expr)
+			stages = e.Stages
 		case *gsxast.ExprAttr:
 			exprPos, exprLen = e.ExprPos, len(e.Expr)
+			stages = e.Stages
 		default:
 			return true
 		}
@@ -44,6 +47,27 @@ func exprNodeAtOffset(pkg *Package, path string, off int) (gsxast.Node, token.Po
 		if off >= start && off < start+exprLen {
 			found = n
 			foundPos = exprPos
+			return true
+		}
+		// Also match pipeline stage positions (filter name, filter args) so that
+		// pipedTarget can be dispatched for those cursor positions too.
+		for _, st := range stages {
+			if st.NamePos.IsValid() {
+				nameStart := pkg.GSXFset.Position(st.NamePos).Offset
+				if off >= nameStart && off < nameStart+len(st.Name) {
+					found = n
+					foundPos = exprPos
+					return true
+				}
+			}
+			if st.HasArgs && st.ArgsPos.IsValid() {
+				argsStart := pkg.GSXFset.Position(st.ArgsPos).Offset
+				if off >= argsStart && off < argsStart+len(st.Args) {
+					found = n
+					foundPos = exprPos
+					return true
+				}
+			}
 		}
 		return true
 	})
@@ -96,11 +120,12 @@ func (s *Server) handleDefinition(f frame) error {
 		return s.reply(f.ID, nil)
 	}
 	if hasPipeStages(node) {
-		// A piped expression (`{ x |> f }`) lowers to a wrapped call in the
-		// skeleton, so ExprMap[node] is the lowered call, not the byte-identical
-		// seed. The relative-offset bridge would then map the cursor into
-		// generated code and resolve a wrong symbol. Return no definition until
-		// seed-node mapping lands (follow-up): an honest null beats a wrong jump.
+		if obj, _, ok := pipedTarget(pkg, node, exprPos, off); ok && obj.Pos().IsValid() {
+			dp := pkg.Fset.Position(obj.Pos())
+			if dp.Filename != "" && !strings.HasSuffix(dp.Filename, ".x.go") {
+				return s.reply(f.ID, s.locationForPos(dp))
+			}
+		}
 		return s.reply(f.ID, nil)
 	}
 	skel := pkg.ExprMap[node]

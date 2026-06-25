@@ -71,62 +71,6 @@ func TestDefinitionD1(t *testing.T) {
 	}
 }
 
-// TestDefinitionPipedReturnsNull: a piped expression (`{ u.Name |> upper }`)
-// lowers to a wrapped call in the skeleton, so go-to-def cannot use the
-// byte-identical relative-offset bridge. Rather than jump into generated code
-// (a wrong answer), the handler returns null. Tracks the deferred seed-node fix.
-func TestDefinitionPipedReturnsNull(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping module-resolution test in -short mode")
-	}
-	dir := t.TempDir()
-	repoRoot, _ := filepath.Abs("..")
-	must := func(p, c string) {
-		t.Helper()
-		if err := os.WriteFile(filepath.Join(dir, p), []byte(c), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	must("go.mod", "module example.com/x\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
-	must("user.go", "package x\n\ntype User struct {\n\tName string\n}\n")
-	cardSrc := "package x\n\ncomponent Card(u User) {\n\t<div>{ u.Name |> upper }</div>\n}\n"
-	must("card.gsx", cardSrc)
-	uri := "file://" + filepath.Join(dir, "card.gsx")
-
-	lines := strings.Split(cardSrc, "\n")
-	var line, character int
-	for i, l := range lines {
-		if c := strings.Index(l, "u.Name"); c >= 0 {
-			line, character = i, c+2 // the 'N'
-			break
-		}
-	}
-
-	frame := func(v any) string {
-		b, _ := json.Marshal(v)
-		return "Content-Length: " + strconv.Itoa(len(b)) + "\r\n\r\n" + string(b)
-	}
-	in := frame(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}})
-	in += frame(map[string]any{"jsonrpc": "2.0", "method": "textDocument/didOpen",
-		"params": map[string]any{"textDocument": map[string]any{"uri": uri, "version": 1, "text": cardSrc}}})
-	in += frame(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "textDocument/definition",
-		"params": map[string]any{"textDocument": map[string]any{"uri": uri},
-			"position": map[string]any{"line": line, "character": character}}})
-	in += frame(map[string]any{"jsonrpc": "2.0", "method": "exit"})
-
-	var out, errBuf bytes.Buffer
-	if code := runLSP(strings.NewReader(in), &out, &errBuf, nil); code != 0 {
-		t.Fatalf("runLSP=%d stderr=%s", code, errBuf.String())
-	}
-	s := out.String()
-	if !strings.Contains(s, `"id":2,"result":null`) {
-		t.Fatalf("piped definition should return null; out:\n%s", s)
-	}
-	if strings.Contains(s, ".x.go") {
-		t.Fatalf("piped definition leaked a generated-code location; out:\n%s", s)
-	}
-}
-
 // TestDefinitionParam (D3): go-to-definition on a component param reference (the
 // `u` in `{ u.Name }`) resolves back to the param's declaration in card.gsx — not
 // null, and never into generated .x.go.
