@@ -78,8 +78,22 @@ Bump to **v0.2.0**, publish to npm.
 
 ### B1. Logos as static files
 - Create `gen/templates/init/simple/public/vite.svg` (the official Vite mark) and
-  `public/gsx.svg` (the `{gsx}` wordmark: slate `#5c6b7a` braces, teal `#2c7da0`
-  `gsx`). Plain SVG files, no CSS class (the class goes on the `<img>`).
+  `public/gsx.svg` (the `{gsx}` wordmark). Plain SVG files, no CSS class (the
+  class goes on the `<img>`).
+- **`gsx.svg` — the braces MUST be vector paths, not `<text>` braces.** A `<text>`
+  `{`/`}` in a monospace font renders as harsh, squared-off glyphs that read as
+  square brackets (verified in-browser); vector paths render proper rounded curly
+  braces. Use this verified SVG (slate `#5c6b7a` curly-brace paths + teal
+  `#2c7da0` monospace `gsx`):
+  ```svg
+  <svg width="180" height="64" viewBox="0 0 180 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="gsx logo">
+    <g fill="none" stroke="#5c6b7a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M 34 12 q -11 0 -11 11 l 0 7 q 0 6 -8 6 q 8 0 8 6 l 0 7 q 0 11 11 11"/>
+      <path d="M 146 12 q 11 0 11 11 l 0 7 q 0 6 8 6 q -8 0 -8 6 l 0 7 q 0 11 -11 11"/>
+    </g>
+    <text x="90" y="34" dominant-baseline="central" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="40" font-weight="700" fill="#2c7da0">gsx</text>
+  </svg>
+  ```
 - `main.go`: `//go:embed all:public` → `var publicFS embed.FS`; serve at
   `/public/` with `mux.Handle("/public/", http.FileServerFS(publicFS))` (the
   embed paths are `public/…`, matching the `/public/` URL prefix). Served in dev
