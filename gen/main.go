@@ -166,7 +166,7 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			return 2
 		}
-		return runInfo(stdout, stderr, ".", configPath, merged.filterPkgs, merged.aliases, merged.classifier(), merged.predLabel, merged.fieldMatcher, cmdArgs)
+		return runInfo(stdout, stderr, ".", configPath, merged.filterPkgs, merged.aliases, merged.classifier(), merged.predLabel, merged.fieldMatcher, cmdArgs, merged.cssMinLevel, merged.jsMinLevel)
 	case "fmt":
 		// fmt respects gsx.toml: runFmt reads printWidth per directory via
 		// printWidthFor (best-effort — a malformed/absent config falls back to

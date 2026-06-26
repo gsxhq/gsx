@@ -1,6 +1,8 @@
 package gen
 
 import (
+	"os"
+
 	"github.com/gsxhq/gsx/internal/attrclass"
 )
 
@@ -20,6 +22,20 @@ type manifest struct {
 	PredicateLabel  string           `json:"predicateLabel,omitempty"`
 	HasFieldMatcher bool             `json:"hasFieldMatcher,omitempty"`
 	Filters         []manifestFilter `json:"filters,omitempty"`
+	Minify          manifestMinify   `json:"minify"`
+	Env             []manifestEnv    `json:"env"`
+}
+
+type manifestMinify struct {
+	CSS string `json:"css"`
+	JS  string `json:"js"`
+}
+
+type manifestEnv struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Value       string `json:"value"` // "" when unset
+	Active      bool   `json:"active"`
 }
 
 type manifestFilter struct {
@@ -33,7 +49,19 @@ type manifestFilter struct {
 // means the default matcher is in effect; a non-nil custom matcher changes how
 // attr→field resolution works and therefore changes the generated output for
 // projects with kebab or custom-matched attrs).
-func buildManifest(modPath string, cls *attrclass.Classifier, predLabel string, hasFieldMatcher bool, filters []manifestFilter) manifest {
+func buildManifest(modPath string, cls *attrclass.Classifier, predLabel string, hasFieldMatcher bool, filters []manifestFilter, cssMinLevel, jsMinLevel MinifyLevel) manifest {
+	envs := make([]manifestEnv, 0, len(envOverrides))
+	for _, o := range envOverrides {
+		e := manifestEnv{
+			Name:        o.name,
+			Description: o.desc,
+		}
+		if val, ok := os.LookupEnv(o.name); ok {
+			e.Value = val
+			e.Active = true
+		}
+		envs = append(envs, e)
+	}
 	return manifest{
 		SchemaVersion:   manifestSchemaVersion,
 		Module:          modPath,
@@ -42,5 +70,7 @@ func buildManifest(modPath string, cls *attrclass.Classifier, predLabel string, 
 		PredicateLabel:  predLabel,
 		HasFieldMatcher: hasFieldMatcher,
 		Filters:         filters,
+		Minify:          manifestMinify{CSS: cssMinLevel.String(), JS: jsMinLevel.String()},
+		Env:             envs,
 	}
 }
