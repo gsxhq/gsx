@@ -54,8 +54,18 @@ func assertFormat(t *testing.T, src, want string) {
 	if err := Fprint(&b, f, 80); err != nil {
 		t.Fatalf("print: %v", err)
 	}
-	if got := b.String(); got != want {
+	got := b.String()
+	if got != want {
 		t.Fatalf("format mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+	// Faithfulness: formatting must not change the normalized AST.
+	if !reflect.DeepEqual(normalizedAST(t, src), normalizedAST(t, want)) {
+		t.Fatalf("assertFormat: formatting changed the normalized AST (not faithful)\nsrc:\n%s\nwant:\n%s", src, want)
+	}
+	// Idempotence: formatting want again must yield want.
+	again := fmtSource(t, want)
+	if again != want {
+		t.Fatalf("assertFormat: not idempotent:\n--- want ---\n%s\n--- again ---\n%s", want, again)
 	}
 }
 
@@ -616,4 +626,90 @@ func leadingTabs(line string) int {
 		n++
 	}
 	return n
+}
+
+// TestPrintWidthControlsWrap verifies that the same input stays flat at
+// width 80 but breaks each <li> onto its own line at width 20.
+func TestPrintWidthControlsWrap(t *testing.T) {
+	src := `package p
+component C() {
+	<ul><li>one</li><li>two</li><li>three</li></ul>
+}`
+	// Fits at 80 → one line.
+	flat := format80(t, src)
+	if !strings.Contains(flat, "<ul><li>one</li><li>two</li><li>three</li></ul>") {
+		t.Fatalf("width 80 should stay flat:\n%s", flat)
+	}
+	// At width 20 → breaks each <li> onto its own line.
+	fset := token.NewFileSet()
+	f, _ := parser.ParseFile(fset, "c.gsx", []byte(src), 0)
+	wsnorm.Normalize(f)
+	var b bytes.Buffer
+	if err := Fprint(&b, f, 20); err != nil {
+		t.Fatal(err)
+	}
+	narrow := b.String()
+	if !strings.Contains(narrow, "<ul>\n\t\t<li>one</li>\n") {
+		t.Fatalf("width 20 should break list:\n%s", narrow)
+	}
+}
+
+// TestDSButtonAcceptance verifies the ds/button pattern: CondAttr forces the
+// opening tag to break (one attr per line), single children interp stays inline
+// after >. Strengthened assertFormat enforces faithfulness + idempotence.
+func TestDSButtonAcceptance(t *testing.T) {
+	src := `package ds
+
+component Button(p Props) {
+	<a { if p.ID != "" { id={ p.ID } } } href={ p.Href } class={ buttonClass(p) } { p.Attributes... }>{ children }</a>
+}`
+	want := `package ds
+
+component Button(p Props) {
+	<a
+		{ if p.ID != "" {
+			id={p.ID}
+		} }
+		href={p.Href}
+		class={ buttonClass(p) }
+		{ p.Attributes... }
+	>{ children }</a>
+}
+`
+	assertFormat(t, src, want)
+}
+
+// TestDSFormMessageAcceptance verifies the ds/form-message pattern: CondAttr
+// forces tag break; a multi-line class value (utils.TwMerge) renders with
+// gofmt's own indentation under the ExprAttr. Faithfulness + idempotence
+// enforced by the strengthened assertFormat.
+func TestDSFormMessageAcceptance(t *testing.T) {
+	src := `package ds
+
+component Message(p MessageProps) {
+	<p { if p.ID != "" { id={ p.ID } } } class={ utils.TwMerge(
+		"text-[0.8rem] font-medium",
+		messageVariantClass(p.Variant),
+		p.Class,
+	) } { p.Attributes... }>{ children }</p>
+}`
+	want := `package ds
+
+component Message(p MessageProps) {
+	<p
+		{ if p.ID != "" {
+			id={p.ID}
+		} }
+		class={
+			utils.TwMerge(
+				"text-[0.8rem] font-medium",
+				messageVariantClass(p.Variant),
+				p.Class,
+			)
+		}
+		{ p.Attributes... }
+	>{ children }</p>
+}
+`
+	assertFormat(t, src, want)
 }

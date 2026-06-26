@@ -910,8 +910,8 @@ func fmtCaseList(src string) string {
 // fmtExpr's format.Node path). It wraps the expression as a package-level
 // `var _ = <expr>` and runs format.Source, then extracts the value text. The
 // result may be multi-line (gofmt's own wrapping of a long call); continuation
-// lines are de-indented by one tab (the var-decl level). On any error it falls
-// back to fmtExpr (single line, comment-free) so fmt never fails.
+// lines retain gofmt's own indentation relative to the expression root. On any
+// error it falls back to fmtExpr (single line, comment-free) so fmt never fails.
 func fmtExprPreserving(src string) string {
 	trimmed := strings.TrimSpace(src)
 	if trimmed == "" {
