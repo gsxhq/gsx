@@ -115,8 +115,14 @@ func (s *Server) handleDefinition(f frame) error {
 		return s.reply(f.ID, s.locationForPos(decl))
 	}
 
-	// A: cursor on a component-invocation attribute name → the matching component
-	// parameter (same-package function components; cross-package is Phase 2).
+	// B: cursor on a dotted/cross-package component tag → its declaration in the
+	// imported package's .gsx.
+	if dp, ok := crossPkgTagDeclAt(pkg, path, off); ok {
+		return s.reply(f.ID, s.locationForPos(dp))
+	}
+
+	// A/C: cursor on a component-invocation attribute name → the matching component
+	// parameter (same-package function components and cross-package dotted tags).
 	if dp, ok := componentAttrParamAt(pkg, path, off); ok {
 		return s.reply(f.ID, s.locationForPos(dp))
 	}

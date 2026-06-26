@@ -174,6 +174,15 @@ cross-package; otherwise same-package.
   lsp→codegen import).
 - **Best-effort, never panics.** Any parse failure, missing decl, or
   unresolvable import → `false` → null `gd`, never a crash.
+- **Cross-package navigation requires the dependency to be importable.**
+  Phase 1 (same-package attr) works even if the package has never been
+  generated — the resolver reads only in-memory `.gsx` AST. Phase 2
+  (cross-package B/C) requires the *dependency* to have been generated
+  (`.x.go` on disk) so the Go type-checker can import it; the declaration
+  position returned still comes from the dependency's `.gsx` source, not its
+  `.x.go`. Truly generation-free cross-package navigation would require the
+  analyzer to overlay dependency `.gsx` skeletons as a virtual package — a
+  future enhancement.
 
 ## 7. Testing (per [[gsx-syntax-change-test-coverage]])
 
