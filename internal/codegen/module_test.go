@@ -1,10 +1,10 @@
 package codegen
 
 import (
-	"go/importer"
-	"go/token"
-	goparser "go/parser"
 	goast "go/ast"
+	"go/importer"
+	goparser "go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"testing"
@@ -75,5 +75,43 @@ func TestModuleSourceOverrideThenDisk(t *testing.T) {
 	m.SetOverride(mem, []byte("MEM"))
 	if b, ok := m.source(mem); !ok || string(b) != "MEM" {
 		t.Fatalf("in-memory read: %q,%v", b, ok)
+	}
+}
+
+func TestModuleImporterCrossPackageNoXGo(t *testing.T) {
+	root := t.TempDir()
+	repoRoot, _ := filepath.Abs("../..")
+	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	compDir := filepath.Join(root, "comp")
+	if err := os.MkdirAll(compDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, compDir, "comp.gsx", "package comp\n\ncomponent Button(label string) {\n\t<button>{label}</button>\n}\n")
+	pageDir := filepath.Join(root, "page")
+	if err := os.MkdirAll(pageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, pageDir, "page.gsx",
+		"package page\n\nimport \"example.com/app/comp\"\n\ncomponent Home() {\n\t<div>{ comp.Button(\"hi\") }</div>\n}\n")
+
+	m, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app", FilterPkgs: []string{StdImportPath}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// NOTE: no .x.go exists anywhere on disk.
+	pkg, err := m.typesPackage(filepath.Join(root, "comp"))
+	if err != nil {
+		t.Fatalf("typesPackage(comp): %v", err)
+	}
+	if pkg.Scope().Lookup("Button") == nil {
+		t.Fatalf("comp package missing Button (skeleton import failed)")
+	}
+	// page must type-check against comp's in-memory skeleton (the importer payoff)
+	pagePkg, err := m.typesPackage(filepath.Join(root, "page"))
+	if err != nil {
+		t.Fatalf("typesPackage(page): %v", err)
+	}
+	if pagePkg == nil {
+		t.Fatalf("page failed to type-check against in-memory comp")
 	}
 }

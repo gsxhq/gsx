@@ -1,8 +1,11 @@
 package codegen
 
 import (
+	"go/types"
 	"os"
 	"sync"
+
+	"golang.org/x/tools/go/packages"
 
 	"github.com/gsxhq/gsx/internal/attrclass"
 )
@@ -23,7 +26,9 @@ type Options struct {
 // playground. Not safe for concurrent mutation; callers serialize edits.
 type Module struct {
 	opts      Options
-	overrides map[string][]byte // abs .gsx path -> in-memory source
+	overrides map[string][]byte        // abs .gsx path -> in-memory source
+	ext       types.Importer           // lazily built external importer (stdlib + third-party)
+	pkgTypes  map[string]*types.Package // abs dir -> checked *types.Package cache
 	mu        sync.Mutex
 }
 
@@ -58,4 +63,36 @@ func (m *Module) source(absPath string) ([]byte, bool) {
 		return nil, false
 	}
 	return b, true
+}
+
+// externalImporter lazily loads non-project dependency types once (stdlib,
+// third-party, .go-only packages) and caches them. Project gsx packages never
+// reach it (moduleImporter routes those to typesPackage).
+func (m *Module) externalImporter() (types.Importer, error) {
+	m.mu.Lock()
+	if m.ext != nil {
+		defer m.mu.Unlock()
+		return m.ext, nil
+	}
+	m.mu.Unlock()
+	cfg := &packages.Config{
+		Mode: packages.NeedName | packages.NeedTypes | packages.NeedImports | packages.NeedDeps,
+		Dir:  m.opts.ModuleRoot,
+	}
+	loadPaths := append([]string{stdImportPath}, m.opts.FilterPkgs...)
+	loadPaths = append(loadPaths, "./...")
+	pkgs, err := packages.Load(cfg, loadPaths...)
+	if err != nil {
+		return nil, err
+	}
+	mp := map[string]*types.Package{}
+	packages.Visit(pkgs, nil, func(p *packages.Package) {
+		if p.Types != nil {
+			mp[p.PkgPath] = p.Types
+		}
+	})
+	m.mu.Lock()
+	m.ext = mapImporter(mp)
+	m.mu.Unlock()
+	return m.ext, nil
 }
