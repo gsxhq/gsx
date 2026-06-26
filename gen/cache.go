@@ -22,10 +22,51 @@ func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, c
 	if len(dirs) == 0 {
 		return res, nil
 	}
-	root, modPath, err := moduleRoot(dirs[0])
-	if err != nil {
-		return res, err
+
+	// Discovery walks DOWN across go.mod boundaries, so the dir set may span
+	// several independent modules (e.g. an examples/ tree of sub-modules). Each
+	// module must be loaded against its OWN root: go/packages, cache keys, and the
+	// manifest are all module-anchored, and a dir loaded against a foreign module
+	// fails to type-check. Group by module and generate each group separately.
+	groups, noModule := groupByModule(dirs)
+	for _, d := range noModule {
+		res.Errs = append(res.Errs, fmt.Errorf("gen: no go.mod found above %s", d))
 	}
+	for _, g := range groups {
+		generateModule(g, filterPkgs, aliases, cls, predLabel, fm, useCache, cssMin, jsMin, &res)
+	}
+
+	sort.Strings(res.Written)
+	if len(res.Errs) > 0 {
+		return res, errors.Join(res.Errs...)
+	}
+	// Return a non-nil error when there are error-severity diagnostics, so that
+	// callers using the Go API (Generate, generate) can still detect failure
+	// without inspecting res.Diags directly.
+	if anyErrorDiag(res.Diags) {
+		return res, errors.New("codegen: diagnostics reported")
+	}
+	return res, nil
+}
+
+// generateModule generates every .gsx package dir in one module group g, anchored
+// at g.root, appending its outcome (written paths, diagnostics, operational
+// errors) to res. It mirrors the single-module pipeline: cache HIT restore +
+// MISS regenerate when the incremental cache is usable, else one batched
+// generate. Final result aggregation (sort, error join) is the caller's job, so
+// this only appends to res.
+func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, predLabel string, fm codegen.FieldMatcher, useCache bool, cssMin, jsMin func(string) (string, error), out *Result) {
+	root, modPath, dirs := g.root, g.modPath, g.dirs
+
+	// Work against a LOCAL result so the per-module manifest guard can ask "was
+	// THIS module clean?" without seeing sibling modules' errors. Merge into the
+	// shared out on every exit path (including the early operational-error returns).
+	var res Result
+	defer func() {
+		out.Written = append(out.Written, res.Written...)
+		out.Errs = append(out.Errs, res.Errs...)
+		out.Diags = append(out.Diags, res.Diags...)
+	}()
 
 	cdir, enabled := cacheDir()
 	if !useCache {
@@ -42,7 +83,8 @@ func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, c
 
 	// No cache: one batched generate (Tier 0 path).
 	if !enabled {
-		return writeAll(dirs, mustGen(root, dirs, filterPkgs, aliases, cls, fm, cssMin, jsMin, &res), &res)
+		writeAll(dirs, mustGen(root, dirs, filterPkgs, aliases, cls, fm, cssMin, jsMin, &res), &res)
+		return
 	}
 
 	graph, gerr := loadGraph(root)
@@ -84,7 +126,8 @@ func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, c
 		}
 		written, werr := restore(dir, out)
 		if werr != nil {
-			return res, werr
+			res.Errs = append(res.Errs, werr)
+			return
 		}
 		res.Written = append(res.Written, written...)
 	}
@@ -93,7 +136,8 @@ func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, c
 	if len(miss) > 0 {
 		out, err := codegen.GeneratePackagesWithFilters(root, miss, filterPkgs, aliases, cls, fm, cssMin, jsMin, nil)
 		if err != nil {
-			return res, err
+			res.Errs = append(res.Errs, err)
+			return
 		}
 		for _, dir := range miss {
 			pr := out[dir]
@@ -127,24 +171,14 @@ func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, c
 		}
 	}
 
-	sort.Strings(res.Written)
-	if len(res.Errs) > 0 {
-		return res, errors.Join(res.Errs...)
-	}
-	// Return a non-nil error when there are error-severity diagnostics, so that
-	// callers using the Go API (Generate, generate) can still detect failure
-	// without inspecting res.Diags directly.
-	if anyErrorDiag(res.Diags) {
-		return res, errors.New("codegen: diagnostics reported")
-	}
-
 	// Persist the resolved config manifest so external tools can consume it
 	// without re-running gsx. Best-effort: manifest write must never fail the
 	// build.
-	// Guard: only write on a fully-clean generate (no operational errors AND no
-	// error-severity diagnostics). Error-severity diagnostics no longer enter
-	// res.Errs (they live in res.Diags), so we must check both.
-	if enabled && modPath != "" {
+	// Guard: only write on a fully-clean generate of THIS module (no operational
+	// errors AND no error-severity diagnostics). Error-severity diagnostics live
+	// in res.Diags (not res.Errs), so we must check both — and res is module-local
+	// here, so sibling modules' failures never suppress this module's manifest.
+	if enabled && modPath != "" && len(res.Errs) == 0 && !anyErrorDiag(res.Diags) {
 		filters, _ := codegen.ResolveFilters(root, filterPkgs, aliases) // best-effort
 		mf := make([]manifestFilter, 0, len(filters))
 		for _, fi := range filters {
@@ -152,8 +186,6 @@ func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, c
 		}
 		_ = saveManifest(cdir, modPath, buildManifest(modPath, cls, predLabel, fm != nil, mf))
 	}
-
-	return res, nil
 }
 
 // anyErrorDiag reports whether any diagnostic has Error severity.
@@ -214,42 +246,36 @@ func mustGen(root string, dirs, filterPkgs []string, aliases []codegen.FilterAli
 	return out
 }
 
-func writeAll(dirs []string, out map[string]*codegen.PackageResult, res *Result) (Result, error) {
-	if out != nil {
-		for _, dir := range dirs {
-			pr := out[dir]
-			if pr == nil {
-				continue
-			}
-			// Collect structured diagnostics regardless of error state.
-			res.Diags = append(res.Diags, pr.Diags...)
-			if pr.Err != nil {
-				if len(pr.Diags) > 0 {
-					// pr.Err is the transition sentinel when there are error-severity
-					// diagnostics. Skip it — diagnostics are already in res.Diags.
-					continue
-				}
-				// pr.Err with no Diags is a genuine operational error (e.g. Abs path
-				// failure). Surface it in res.Errs so it is not silently dropped.
-				res.Errs = append(res.Errs, pr.Err)
-				continue
-			}
-			written, werr := restore(dir, toPkgOutput(dir, pr.Files))
-			if werr != nil {
-				res.Errs = append(res.Errs, werr) // genuine I/O error
-				continue
-			}
-			res.Written = append(res.Written, written...)
+// writeAll appends one batched generate's outcome (diagnostics, operational
+// errors, written paths) to res. It is append-only: final aggregation (sort,
+// error join) is the caller's job, since res may span several modules.
+func writeAll(dirs []string, out map[string]*codegen.PackageResult, res *Result) {
+	if out == nil {
+		return
+	}
+	for _, dir := range dirs {
+		pr := out[dir]
+		if pr == nil {
+			continue
 		}
+		// Collect structured diagnostics regardless of error state.
+		res.Diags = append(res.Diags, pr.Diags...)
+		if pr.Err != nil {
+			if len(pr.Diags) > 0 {
+				// pr.Err is the transition sentinel when there are error-severity
+				// diagnostics. Skip it — diagnostics are already in res.Diags.
+				continue
+			}
+			// pr.Err with no Diags is a genuine operational error (e.g. Abs path
+			// failure). Surface it in res.Errs so it is not silently dropped.
+			res.Errs = append(res.Errs, pr.Err)
+			continue
+		}
+		written, werr := restore(dir, toPkgOutput(dir, pr.Files))
+		if werr != nil {
+			res.Errs = append(res.Errs, werr) // genuine I/O error
+			continue
+		}
+		res.Written = append(res.Written, written...)
 	}
-	sort.Strings(res.Written)
-	if len(res.Errs) > 0 {
-		return *res, errors.Join(res.Errs...)
-	}
-	// Return a non-nil error when there are error-severity diagnostics so
-	// callers using the Go API can detect failure without inspecting res.Diags.
-	if anyErrorDiag(res.Diags) {
-		return *res, errors.New("codegen: diagnostics reported")
-	}
-	return *res, nil
 }
