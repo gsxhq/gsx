@@ -1562,12 +1562,8 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 	// breaks the children group still decides independently (its own width).
 	childBody := pretty.Concat(pretty.Indent(pretty.Concat(pretty.SoftLine, inner)), pretty.SoftLine)
 	if !breakable {
-		// A non-breakable children list cannot host added breaks; keep inline.
-		if tagBroken {
-			// Tag broke but children can't safely break: place children inline
-			// directly after `>` on the same (final) tag line.
-			return pretty.Concat(openTag, inner, close)
-		}
+		// A non-breakable children list cannot host added breaks: children sit
+		// inline after `>` (on the final tag line if the opening tag broke).
 		return pretty.Concat(openTag, inner, close)
 	}
 	forceChildren := pretty.Text("")
