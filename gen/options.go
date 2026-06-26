@@ -193,6 +193,18 @@ func WithCSSFormatter(f rawfmt.Formatter) Option {
 	return func(cfg *config) { cfg.cssFmt = f }
 }
 
+// WithJSFormatter installs a custom JS formatter for executable <script> bodies
+// during `gsx fmt`, replacing the built-in re-indenter. It receives complete,
+// self-contained JS (interpolation holes are substituted with sentinel tokens
+// before it runs and restored afterward) and returns the formatted JS, or an
+// error to fall back to verbatim. Wrap any whole-buffer formatter (prettier,
+// biome, esbuild) in this signature:
+//
+//	gen.Main(gen.WithJSFormatter(func(js []byte) ([]byte, error) { … }))
+func WithJSFormatter(f rawfmt.Formatter) Option {
+	return func(cfg *config) { cfg.jsFmt = f }
+}
+
 // appendFilterPkg appends path to the config's ordered filter-package list
 // unless it is already present (first-seen order is preserved).
 func (cfg *config) appendFilterPkg(path string) {

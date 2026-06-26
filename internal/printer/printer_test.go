@@ -467,17 +467,17 @@ func TestNullaryStaysEmpty(t *testing.T) {
 
 func TestStyleInterpFormat(t *testing.T) {
 	src := "package p\n\ncomponent C(w int) {\n\t<style>.a{width:@{ w }px}</style>\n}\n"
-	// CSS is now formatted by cssfmt; the body is expanded to canonical form.
-	want := "package p\n\ncomponent C(w int) {\n\t<style>\n\t\t.a {\n\t\t\twidth: @{ w }px;\n\t\t}\n\t</style>\n}\n"
+	// CSS is re-indented only (no reflow): a minified one-liner stays one line.
+	want := "package p\n\ncomponent C(w int) {\n\t<style>\n\t\t.a{width:@{ w }px}\n\t</style>\n}\n"
 	checkFormat(t, src, want)
 }
 
 func TestStyleInterpFormatPreservesPipeline(t *testing.T) {
 	// @{ x |> upper } in a <style> block must round-trip exactly — the printer
 	// must not silently discard pipeline stages.
-	// CSS is now formatted by cssfmt; the body is expanded to canonical form.
+	// CSS is re-indented only (no reflow): a minified one-liner stays one line.
 	src := "package p\n\ncomponent C(x string) {\n\t<style>.a{color:@{ x |> upper }}</style>\n}\n"
-	want := "package p\n\ncomponent C(x string) {\n\t<style>\n\t\t.a {\n\t\t\tcolor: @{ x |> upper };\n\t\t}\n\t</style>\n}\n"
+	want := "package p\n\ncomponent C(x string) {\n\t<style>\n\t\t.a{color:@{ x |> upper }}\n\t</style>\n}\n"
 	checkFormat(t, src, want)
 }
 

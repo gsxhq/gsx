@@ -12,6 +12,7 @@ import (
 
 	"github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/cssfmt"
+	"github.com/gsxhq/gsx/internal/jsfmt"
 	"github.com/gsxhq/gsx/internal/txtar"
 	"github.com/gsxhq/gsx/internal/wsnorm"
 	"github.com/gsxhq/gsx/parser"
@@ -227,26 +228,42 @@ func canonGoAttr(a ast.Attr) {
 	}
 }
 
-// canonStyleBodies replaces every <style> element's children with a single
-// synthetic Text holding a canonical signature of the body: the CSS token
-// signature of the placeholdered body, with each hole sentinel mapped back to
-// its rendered text. This makes the faithfulness comparison check CSS
-// token-equivalence + hole-sequence (whitespace-insensitive) rather than the
-// byte-identity that <style> formatting deliberately breaks.
-func canonStyleBodies(f *ast.File) {
+// canonEmbeddedBodies replaces every <style> AND <script> element's children
+// with one synthetic Text holding a canonical signature of the body (the
+// language's whitespace-agnostic token signature, with each hole sentinel mapped
+// back to its rendered text). This makes the faithfulness comparison check
+// token-equivalence + hole-sequence — the contract the re-indenter satisfies —
+// rather than the byte-identity that re-indentation deliberately breaks.
+func canonEmbeddedBodies(f *ast.File) {
 	ast.Inspect(f, func(n ast.Node) bool {
 		el, ok := n.(*ast.Element)
-		if !ok || !strings.EqualFold(el.Tag, "style") {
+		if !ok {
 			return true
 		}
-		el.Children = []ast.Markup{&ast.Text{Value: styleSignature(el.Children)}}
-		return false // do not descend into the rewritten children
+		switch {
+		case strings.EqualFold(el.Tag, "style"):
+			el.Children = []ast.Markup{&ast.Text{Value: embeddedSignature(el.Children, cssfmt.TokenSignature)}}
+			return false
+		case strings.EqualFold(el.Tag, "script"):
+			el.Children = []ast.Markup{&ast.Text{Value: embeddedSignature(el.Children, jsfmt.TokenSignature)}}
+			return false
+		}
+		return true
 	})
 }
 
-// styleSignature builds the canonical signature described on canonStyleBodies.
-func styleSignature(nodes []ast.Markup) string {
-	const sent = "\x00H" // a fixed placeholder unlikely to appear in CSS source
+// embeddedSignature builds the canonical signature: the body's placeholdered
+// text (holes → a fixed sentinel) run through sig (a language TokenSignature),
+// with each sentinel mapped back to its rendered hole. Both src and fmt(src)
+// reduce to the same string iff their token streams and hole sequences match.
+//
+// The sentinel is "__gsxH" + index + "__" — a valid identifier in both CSS and
+// JS tokenizers, so it survives both tokenizers verbatim and can be mapped back.
+// (The brief's original "\x00H" sentinel is valid for CSS but causes a lex error
+// in tdewolff's JS lexer, which rejects \x00 bytes; per the brief's note we
+// switch to a sentinel both lexers accept.)
+func embeddedSignature(nodes []ast.Markup, sig func([]byte) string) string {
+	const sent = "__gsxH"
 	var body strings.Builder
 	var holes []string
 	for _, n := range nodes {
@@ -256,15 +273,15 @@ func styleSignature(nodes []ast.Markup) string {
 		case *ast.Interp:
 			body.WriteString(sent)
 			body.WriteString(strconv.Itoa(len(holes)))
-			body.WriteString("\x00")
+			body.WriteString("__")
 			holes = append(holes, renderHole(v))
 		}
 	}
-	sig := cssfmt.TokenSignature([]byte(body.String()))
+	s := sig([]byte(body.String()))
 	for i, h := range holes {
-		sig = strings.ReplaceAll(sig, sent+strconv.Itoa(i)+"\x00", h)
+		s = strings.ReplaceAll(s, sent+strconv.Itoa(i)+"__", h)
 	}
-	return sig
+	return s
 }
 
 func normalizedAST(t *testing.T, src string) *ast.File {
@@ -276,7 +293,7 @@ func normalizedAST(t *testing.T, src string) *ast.File {
 	}
 	wsnorm.Normalize(f)
 	canonGo(f)
-	canonStyleBodies(f)
+	canonEmbeddedBodies(f)
 	zeroSpans(f)
 	return f
 }
