@@ -42,7 +42,7 @@ import (
 //
 // All logic lives here (runFmt returns an int) so tests can drive it without
 // os.Exit.
-func runFmt(stdout, stderr io.Writer, args []string, cssFmt rawfmt.Formatter) int {
+func runFmt(stdout, stderr io.Writer, args []string, cssFmt, jsFmt rawfmt.Formatter) int {
 	fs := flag.NewFlagSet("gsx fmt", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
@@ -90,7 +90,7 @@ func runFmt(stdout, stderr io.Writer, args []string, cssFmt rawfmt.Formatter) in
 			width = printWidthFor(dir)
 			widthByDir[dir] = width
 		}
-		formatted, err := gsxfmt.FormatRemovingImportsWith(path, orig, unusedByPath[abs], width, cssFmt)
+		formatted, err := gsxfmt.FormatRemovingImportsWith(path, orig, unusedByPath[abs], width, cssFmt, jsFmt)
 		if err != nil {
 			fmt.Fprintf(stderr, "%s: %v\n", path, err)
 			exit = 1

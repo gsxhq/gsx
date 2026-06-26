@@ -101,6 +101,11 @@ func safeFormat(f Formatter, src string) (out []byte, err error) {
 // trimmed. The final HardLine returns to the tag's depth for the close tag.
 func reindent(s string) pretty.Doc {
 	s = strings.Trim(s, "\n")
+	if strings.TrimSpace(s) == "" {
+		// An empty or whitespace-only body stays inline: nothing renders between
+		// the open and close tags (e.g. <script src=...></script>).
+		return pretty.Text("")
+	}
 	lines := strings.Split(s, "\n")
 	parts := make([]pretty.Doc, 0, len(lines)*2+1)
 	for _, ln := range lines {

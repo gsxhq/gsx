@@ -1,4 +1,3 @@
-// internal/cssfmt/cssfmt_test.go
 package cssfmt
 
 import (
@@ -15,125 +14,110 @@ func fmtCSS(t *testing.T, in string) string {
 	return string(out)
 }
 
-func TestFormatSingleRule(t *testing.T) {
-	got := fmtCSS(t, ".a{color:red;background:blue}")
-	want := ".a {\n\tcolor: red;\n\tbackground: blue;\n}\n"
-	if got != want {
-		t.Fatalf("got:\n%q\nwant:\n%q", got, want)
+func TestReindentFixesIndentation(t *testing.T) {
+	in := ".a {\n      color: red;\n  background: blue;\n}"
+	want := ".a {\n\tcolor: red;\n\tbackground: blue;\n}"
+	if got := fmtCSS(t, in); got != want {
+		t.Fatalf("got %q want %q", got, want)
 	}
 }
 
-func TestFormatAddsTrailingSemicolon(t *testing.T) {
-	got := fmtCSS(t, ".a{color:red}")
-	if !strings.Contains(got, "color: red;") {
-		t.Fatalf("missing normalized declaration:\n%s", got)
+func TestOneLinerStaysOneLine(t *testing.T) {
+	// A minified rule is NOT reflowed — only its (absent) indentation is touched.
+	in := ".a{color:red;background:blue}"
+	if got := fmtCSS(t, in); got != in {
+		t.Fatalf("one-liner must not be reflowed: got %q", got)
 	}
 }
 
-func TestFormatSelectorList(t *testing.T) {
-	got := fmtCSS(t, "h1,h2 , h3{margin:0}")
-	if !strings.HasPrefix(got, "h1, h2, h3 {") {
-		t.Fatalf("selector list not normalized:\n%s", got)
+func TestNoBlankLinesInvented(t *testing.T) {
+	in := ".a {\n\tcolor: red;\n}\n.b {\n\tmargin: 0;\n}"
+	got := fmtCSS(t, in)
+	if strings.Contains(got, "}\n\n.b") {
+		t.Fatalf("a blank line was invented between rules:\n%s", got)
 	}
 }
 
-func TestFormatPseudoClassColonNotSpaced(t *testing.T) {
-	// A selector colon (pseudo-class) must stay attached — ".a:hover", never
-	// ".a: hover" (which would be a different, broken selector). renderInline
-	// injects no space around ':'; only layoutDecl spaces the declaration colon.
-	got := fmtCSS(t, ".a:hover{color:red}")
-	if !strings.HasPrefix(got, ".a:hover {") {
-		t.Fatalf("pseudo-class colon was spaced/mangled:\n%s", got)
+func TestExistingBlankLinesPreserved(t *testing.T) {
+	in := ".a {\n\tcolor: red;\n}\n\n.b {\n\tmargin: 0;\n}"
+	if got := fmtCSS(t, in); got != in {
+		t.Fatalf("existing blank line not preserved:\n%s", got)
 	}
 }
 
-func TestFormatNestedAtRule(t *testing.T) {
-	got := fmtCSS(t, "@media (min-width:600px){.a{color:red}}")
-	// renderInline injects NO space around ':' — the at-rule prelude keeps
-	// "min-width:600px" as-is (correct + safe). The declaration colon inside the
-	// nested rule IS spaced ("color: red"), because layoutDecl adds it.
-	want := "@media (min-width:600px) {\n\t.a {\n\t\tcolor: red;\n\t}\n}\n"
-	if got != want {
-		t.Fatalf("got:\n%q\nwant:\n%q", got, want)
+func TestNestedAtRuleIndents(t *testing.T) {
+	in := "@media (min-width: 600px) {\n.a {\ncolor: red;\n}\n}"
+	want := "@media (min-width: 600px) {\n\t.a {\n\t\tcolor: red;\n\t}\n}"
+	if got := fmtCSS(t, in); got != want {
+		t.Fatalf("got %q want %q", got, want)
 	}
 }
 
-func TestFormatAtRuleStatement(t *testing.T) {
-	got := fmtCSS(t, `@import "x.css";`)
-	if strings.TrimSpace(got) != `@import "x.css";` {
-		t.Fatalf("at-rule statement not preserved:\n%s", got)
+func TestMultiLineCommentInteriorUntouched(t *testing.T) {
+	in := ".a {\n\t/* keep\n   me */\n\tcolor: red;\n}"
+	got := fmtCSS(t, in)
+	if !strings.Contains(got, "/* keep\n   me */") {
+		t.Fatalf("multi-line comment interior was re-indented:\n%s", got)
 	}
 }
 
-func TestFormatPreservesComment(t *testing.T) {
-	got := fmtCSS(t, "/* hi */ .a{color:red}")
-	if !strings.Contains(got, "/* hi */") {
-		t.Fatalf("comment dropped:\n%s", got)
-	}
-}
-
-func TestFormatPreservesSentinel(t *testing.T) {
-	got := fmtCSS(t, ".a{color:__gsxhole_0_}")
+func TestSentinelPreserved(t *testing.T) {
+	in := ".a {\ncolor: __gsxhole_0_;\n}"
+	got := fmtCSS(t, in)
 	if !strings.Contains(got, "__gsxhole_0_") {
 		t.Fatalf("sentinel mangled:\n%s", got)
 	}
 }
 
-func TestFormatRejectsUnbalanced(t *testing.T) {
-	if _, err := Format([]byte(".a{color:red"), 80); err == nil {
-		t.Fatal("expected error for unbalanced braces")
+func TestUnterminatedStringErrors(t *testing.T) {
+	// A tokenizer error (unterminated string) → error → caller falls back verbatim.
+	if _, err := Format([]byte(".a{content:\"oops}"), 80); err == nil {
+		t.Fatal("expected error on unterminated string")
 	}
 }
 
-func TestTokenSignatureIgnoresWhitespace(t *testing.T) {
-	minified := TokenSignature([]byte("h1,h2{margin:0}"))
-	pretty := TokenSignature([]byte("h1, h2 {\n\tmargin: 0;\n}\n"))
-	if minified != pretty {
-		t.Fatalf("whitespace/optional-semicolon changed the signature:\n%q\n%q", minified, pretty)
-	}
+// realWorldCSS are hand/editor-formatted CSS bodies (tab-indented, the shapes
+// seen in the structpages examples and component styles). Re-indenting
+// correctly-indented CSS must reproduce it exactly, including nested @media
+// (whose `( … )` media-feature parens must NOT add indentation — brace-only).
+var realWorldCSS = []string{
+	".widget {\n\tpadding: 1rem;\n\tborder: 1px solid #ddd;\n}\n.widget h3 {\n\tmargin-top: 0;\n}",
+	"@media (min-width: 600px) {\n\t.a {\n\t\tcolor: red;\n\t}\n}",
+	".a {\n\twidth: calc(100% - 10px);\n\tbackground: url(x.png);\n}",
+	".grid {\n\tdisplay: grid;\n\tgrid-template-columns: repeat(auto-fit, minmax(300px, 1fr));\n}",
 }
 
-func TestTokenSignatureMatchesAcrossFormat(t *testing.T) {
-	src := []byte(".a{color:red}h1,h2{margin:0}")
-	out, err := Format(src, 80)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if TokenSignature(src) != TokenSignature(out) {
-		t.Fatalf("signature changed across Format:\n%q\n%q", TokenSignature(src), TokenSignature(out))
-	}
-}
-
-func TestFormatPreservesDescendantCombinator(t *testing.T) {
-	got := fmtCSS(t, ".a .b{color:red}")
-	if !strings.HasPrefix(got, ".a .b {") {
-		t.Fatalf("descendant combinator space lost (.a .b became compound):\n%s", got)
-	}
-}
-
-func TestFormatPreservesCalcSpaces(t *testing.T) {
-	got := fmtCSS(t, ".a{width:calc(100% - 10px)}")
-	if !strings.Contains(got, "calc(100% - 10px)") {
-		t.Fatalf("required spaces inside calc() were lost:\n%s", got)
+func TestRealWorldCSSReproducedExactly(t *testing.T) {
+	for i, src := range realWorldCSS {
+		got := fmtCSS(t, src)
+		if got != src {
+			t.Errorf("case %d: re-indenting already-correct real CSS changed it:\n--- want (input) ---\n%s\n--- got ---\n%s", i, src, got)
+		}
+		if again := fmtCSS(t, got); again != got {
+			t.Errorf("case %d: not idempotent", i)
+		}
 	}
 }
 
 func TestFormatIdempotent(t *testing.T) {
-	once := fmtCSS(t, ".a{color:red;background:blue}h1,h2{margin:0}")
+	once := fmtCSS(t, ".a {\n   color: red;\n}\n.b{margin:0}")
 	twice := fmtCSS(t, once)
 	if once != twice {
-		t.Fatalf("not idempotent:\n--- once ---\n%s\n--- twice ---\n%s", once, twice)
+		t.Fatalf("not idempotent:\n--- once ---\n%q\n--- twice ---\n%q", once, twice)
 	}
 }
 
-func TestFormatBlankLineBetweenTopLevelRules(t *testing.T) {
-	got := fmtCSS(t, ".a{color:red}h1,h2{margin:0}")
-	if !strings.Contains(got, "}\n\n") {
-		t.Fatalf("expected a blank line between top-level rules:\n%q", got)
+// TokenSignature is retained as the CSS faithfulness oracle.
+func TestTokenSignatureIgnoresWhitespace(t *testing.T) {
+	if TokenSignature([]byte("h1,h2{margin:0}")) != TokenSignature([]byte("h1, h2 {\n\tmargin: 0;\n}\n")) {
+		t.Fatal("whitespace/optional-semicolon changed the signature")
 	}
-	// Declarations within a rule stay tight (no blank line between them).
-	got2 := fmtCSS(t, ".a{color:red;background:blue}")
-	if strings.Contains(got2, ";\n\n") {
-		t.Fatalf("declarations must not be blank-line separated:\n%q", got2)
+}
+
+func TestCSSLoneCRIsLineBreakNotFusion(t *testing.T) {
+	// A lone \r between rules must act as a line break, never fuse tokens.
+	got := fmtCSS(t, ".a{}\r.b{}")
+	if strings.Contains(got, "}.b") || !strings.Contains(got, "}\n.b") {
+		t.Fatalf("lone CR mishandled in CSS: %q", got)
 	}
 }
