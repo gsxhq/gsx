@@ -7,6 +7,48 @@ import (
 	"testing"
 )
 
+// A package whose .gsx references a symbol defined in a sibling hand-written
+// .go file (the structpages/blog pattern: `commentHandler`/`resultsCount` live
+// in comment.go, used from post.gsx/search.gsx). The warm resolver must include
+// the package's own .go files in its type-check, or the symbol reads as
+// "undefined" on every warm regenerate even though the cold generate resolved it.
+func TestNewModuleResolver_SiblingGoSymbol(t *testing.T) {
+	root := t.TempDir()
+	write := func(p, s string) {
+		full := filepath.Join(root, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("go.mod", "module example.com/m\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+gsxModuleDir(t)+"\n")
+	// helper() lives in a hand-written .go file, NOT a .gsx.
+	write("blog/helper.go", "package blog\n\nfunc helper(n int) string { return \"r\" }\n")
+	write("blog/page.gsx", "package blog\n\ncomponent Page(items []int) {\n\t<p>{helper(len(items))}</p>\n}\n")
+
+	blogDir := filepath.Join(root, "blog")
+	// Initial cold generate (creates blog/.x.go); the cold path includes helper.go.
+	if _, err := generateCached([]string{blogDir}, nil, nil, nil, "", nil, false, nil, nil); err != nil {
+		t.Fatalf("initial cold generate: %v", err)
+	}
+
+	r, err := newModuleResolver(root, nil, nil)
+	if err != nil {
+		t.Fatalf("newModuleResolver: %v", err)
+	}
+	res, err := r.Generate(blogDir, nil)
+	if err != nil {
+		t.Fatalf("warm Generate must resolve the sibling-.go symbol, got: %v (diags=%v)", err, res.Diags)
+	}
+	for _, d := range res.Diags {
+		if strings.Contains(d.Message, "helper") {
+			t.Fatalf("warm regen reported a false undefined for a sibling-.go symbol: %s", d.Message)
+		}
+	}
+}
+
 // A two-package module: pkg `comp` defines a component; pkg `views` references
 // it. The whole-module resolver must let `views` regenerate with the cross-
 // package ref resolved (no "cached importer: not loaded" error).

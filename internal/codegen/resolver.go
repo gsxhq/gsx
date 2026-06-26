@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	goast "go/ast"
+	"go/build"
 	"go/parser"
 	"go/token"
 	"go/types"
@@ -85,6 +86,26 @@ func (c *CachedResolver) check(dir string, overlay map[string][]byte, fset *toke
 			return nil, nil, err
 		}
 		files = append(files, f)
+	}
+
+	// Also include the package's hand-written .go files (NOT the generated
+	// .x.go, which the overlay skeletons replace) so a symbol a .gsx references
+	// that is defined in a sibling .go file resolves — matching the cold
+	// packages.Load path. go/build is build-constraint- and test-file-aware
+	// (GoFiles excludes *_test.go and build-excluded files). If the dir has no
+	// buildable Go package (e.g. only .gsx, no .x.go yet), ImportDir errors and
+	// we simply add nothing.
+	if bp, berr := build.ImportDir(dir, 0); berr == nil {
+		for _, name := range bp.GoFiles {
+			if strings.HasSuffix(name, ".x.go") {
+				continue // generated; the overlay provides the fresh skeleton
+			}
+			f, perr := parser.ParseFile(fset, filepath.Join(dir, name), nil, parser.SkipObjectResolution)
+			if perr != nil {
+				return nil, nil, perr
+			}
+			files = append(files, f)
+		}
 	}
 
 	// Derive the real package name from the parsed AST rather than hardcoding
