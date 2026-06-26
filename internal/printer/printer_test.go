@@ -157,6 +157,9 @@ component C() {
 }
 
 func TestAttrKinds(t *testing.T) {
+	// Five attrs total 85 chars flat — exceeds 76 remaining at depth 1 — so the
+	// opening-tag group breaks. Children (`{ children }`) are non-breakable (one
+	// Interp segment), so they sit inline after `>`. Output is faithful+idempotent.
 	src := `package p
 component C() {
 	<div id="main" hidden class={ "card", "active": isActive } data-x={ val } { rest... }>{children}</div>
@@ -164,13 +167,22 @@ component C() {
 	want := `package p
 
 component C() {
-	<div id="main" hidden class={ "card", "active": isActive } data-x={val} { rest... }>{ children }</div>
+	<div
+		id="main"
+		hidden
+		class={ "card", "active": isActive }
+		data-x={val}
+		{ rest... }
+	>{ children }</div>
 }
 `
 	checkFormat(t, src, want)
 }
 
 func TestCondAttr(t *testing.T) {
+	// A CondAttr always forces the opening-tag group to break (BreakParent inside
+	// attrDoc for CondAttr). Children "x" are non-breakable, so they sit inline
+	// after `>`. Output is faithful+idempotent.
 	src := `package p
 component C() {
 	<div { if active { class="on" } else { class="off" } }>x</div>
@@ -178,7 +190,13 @@ component C() {
 	want := `package p
 
 component C() {
-	<div { if active { class="on" } else { class="off" } }>x</div>
+	<div
+		{ if active {
+			class="on"
+		} else {
+			class="off"
+		} }
+	>x</div>
 }
 `
 	checkFormat(t, src, want)
@@ -199,6 +217,9 @@ component C() {
 }
 
 func TestJSAttr(t *testing.T) {
+	// Two JSAttrs — flat tag is 71 chars but tag+child+close = 78 chars; at depth
+	// 1 (position 4) the total 82 > 80 so the opening-tag group breaks. Children
+	// "x" are non-breakable, so they sit inline after `>`. Faithful+idempotent.
 	src := `package p
 component C(tab string) {
 	<div x-data="{ tab: @{ tab }, open: false }" onclick="alert(@{ tab })">x</div>
@@ -206,7 +227,10 @@ component C(tab string) {
 	want := `package p
 
 component C(tab string) {
-	<div x-data="{ tab: @{ tab }, open: false }" onclick="alert(@{ tab })">x</div>
+	<div
+		x-data="{ tab: @{ tab }, open: false }"
+		onclick="alert(@{ tab })"
+	>x</div>
 }
 `
 	checkFormat(t, src, want)
@@ -435,7 +459,10 @@ component C() {
 	<p class="text-sm text-slate-500">
 		by { props.Author.Username }
 		{ if props.Category.Slug != "" {
-			· <a class="hover:underline" href={categoryPage{} |> url("slug", props.Category.Slug)}>{ props.Category.Name }</a>
+			· <a
+				class="hover:underline"
+				href={categoryPage{} |> url("slug", props.Category.Slug)}
+			>{ props.Category.Name }</a>
 		} }
 	</p>
 }
@@ -481,6 +508,47 @@ component C() {
 
 component C() {
 	<div><p>plain</p></div>
+}
+`
+	assertFormat(t, src, want)
+}
+
+func TestAttrWrapOnConditionalAttr(t *testing.T) {
+	// A CondAttr forces the opening tag to break, one attr per line, > alone;
+	// the forced tag-break also forces breakable children onto their own lines.
+	// Two Interp children (no space between) form two segments → breakable.
+	src := `package p
+component C(p Props) {
+	<a { if p.ID != "" { id={ p.ID } } } href={ p.Href } class={ buttonClass(p) } { p.Attributes... }>{ children }{ name }</a>
+}`
+	want := `package p
+
+component C(p Props) {
+	<a
+		{ if p.ID != "" {
+			id={p.ID}
+		} }
+		href={p.Href}
+		class={ buttonClass(p) }
+		{ p.Attributes... }
+	>
+		{ children }
+		{ name }
+	</a>
+}
+`
+	assertFormat(t, src, want)
+}
+
+func TestAttrStayInlineWhenShort(t *testing.T) {
+	src := `package p
+component C() {
+	<a href="/x" class="b">go</a>
+}`
+	want := `package p
+
+component C() {
+	<a href="/x" class="b">go</a>
 }
 `
 	assertFormat(t, src, want)

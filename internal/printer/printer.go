@@ -117,30 +117,111 @@ func (p *printer) segment(s segment) pretty.Doc {
 
 // element renders <tag attrs>children</tag>.
 func (p *printer) element(e *ast.Element) pretty.Doc {
-	open := []pretty.Doc{pretty.Text("<"), pretty.Text(e.Tag)}
+	attrs := make([]pretty.Doc, 0, len(e.Attrs)*2)
 	for _, a := range e.Attrs {
-		open = append(open, pretty.Text(" "), pretty.Text(attrInline(a)))
+		attrs = append(attrs, pretty.Line, p.attrDoc(a))
 	}
-	openTag := pretty.Concat(open...)
+	// Opening tag group: flat → `<tag a b>`; broken → each attr on its own line
+	// with `>` (or `/>`) alone. A forced break inside any attr (CondAttr) breaks
+	// the group; otherwise it breaks only on width overflow.
+	tagBroken := elementHasCondAttr(e)
 
-	if e.Void && len(e.Children) == 0 {
-		return pretty.Concat(openTag, pretty.Text("/>"))
+	selfClose := e.Void && len(e.Children) == 0
+	tail := pretty.Text(">")
+	if selfClose {
+		tail = pretty.Text("/>")
+	}
+	var openGroupBody pretty.Doc
+	if len(e.Attrs) == 0 {
+		openGroupBody = pretty.Concat(pretty.Text("<"), pretty.Text(e.Tag), tail)
+	} else {
+		openGroupBody = pretty.Concat(
+			pretty.Text("<"), pretty.Text(e.Tag),
+			pretty.Indent(pretty.Concat(attrs...)),
+			pretty.SoftLine, tail)
+	}
+	openTag := pretty.Group(openGroupBody)
+
+	if selfClose {
+		return openTag
 	}
 	close := pretty.Concat(pretty.Text("</"), pretty.Text(e.Tag), pretty.Text(">"))
 
 	if strings.EqualFold(e.Tag, "style") || strings.EqualFold(e.Tag, "script") {
-		return pretty.Concat(openTag, pretty.Text(">"), p.rawHoleChildren(e.Children), close)
+		return pretty.Concat(openTag, p.rawHoleChildren(e.Children), close)
 	}
 	if isPreserveTag(e.Tag) {
-		return pretty.Concat(openTag, pretty.Text(">"), p.childrenPreserve(e.Children), close)
+		return pretty.Concat(openTag, p.childrenPreserve(e.Children), close)
 	}
 
 	inner, breakable := p.childrenInner(e.Children)
-	if !breakable {
-		return pretty.Concat(openTag, pretty.Text(">"), inner, close)
+	if len(e.Children) == 0 {
+		return pretty.Concat(openTag, close)
 	}
-	body := pretty.Concat(pretty.Indent(pretty.Concat(pretty.SoftLine, inner)), pretty.SoftLine)
-	return pretty.Group(pretty.Concat(openTag, pretty.Text(">"), body, close))
+	// Couple tag-break to children-break: when the opening tag breaks, children
+	// break too (avoids `>{ children… }</div>`). Encode by adding BreakParent to
+	// the children group when the tag is forced broken; for width-driven tag
+	// breaks the children group still decides independently (its own width).
+	childBody := pretty.Concat(pretty.Indent(pretty.Concat(pretty.SoftLine, inner)), pretty.SoftLine)
+	if !breakable {
+		// A non-breakable children list cannot host added breaks: children sit
+		// inline after `>` (on the final tag line if the opening tag broke).
+		return pretty.Concat(openTag, inner, close)
+	}
+	forceChildren := pretty.Text("")
+	if tagBroken {
+		forceChildren = pretty.BreakParent
+	}
+	return pretty.Concat(openTag, pretty.Group(pretty.Concat(forceChildren, childBody, close)))
+}
+
+// elementHasCondAttr reports whether any attribute is conditional (forces the
+// opening tag to wrap, templ-style).
+func elementHasCondAttr(e *ast.Element) bool {
+	for _, a := range e.Attrs {
+		if _, ok := a.(*ast.CondAttr); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// attrDoc renders one attribute as a Doc. Value expressions remain single-line
+// in this task (multi-line values are added later). A conditional attribute is
+// rendered with its `{ if … { … } }` body broken across lines (templ-style),
+// emitting a BreakParent so the enclosing opening-tag group breaks.
+func (p *printer) attrDoc(a ast.Attr) pretty.Doc {
+	if c, ok := a.(*ast.CondAttr); ok {
+		return pretty.Concat(pretty.BreakParent, pretty.Text("{ "), p.condAttrChainDoc(c), pretty.Text(" }"))
+	}
+	return pretty.Text(attrInline(a))
+}
+
+func (p *printer) condAttrChainDoc(c *ast.CondAttr) pretty.Doc {
+	parts := []pretty.Doc{pretty.Text("if "), pretty.Text(fmtExpr(c.Cond)), pretty.Text(" {"),
+		p.condAttrListDoc(c.Then), pretty.Text("}")}
+	if len(c.Else) == 0 {
+		return pretty.Concat(parts...)
+	}
+	if len(c.Else) == 1 {
+		if elseIf, ok := c.Else[0].(*ast.CondAttr); ok {
+			parts = append(parts, pretty.Text(" else "), p.condAttrChainDoc(elseIf))
+			return pretty.Concat(parts...)
+		}
+	}
+	parts = append(parts, pretty.Text(" else {"), p.condAttrListDoc(c.Else), pretty.Text("}"))
+	return pretty.Concat(parts...)
+}
+
+// condAttrListDoc lays a conditional attribute's inner attrs one per line.
+// The trailing HardLine ensures the closing `}` of the surrounding `if`/`else`
+// block lands on its own line (same pattern as cfBody's trailing Line).
+func (p *printer) condAttrListDoc(attrs []ast.Attr) pretty.Doc {
+	inner := make([]pretty.Doc, 0, len(attrs)*2)
+	for _, a := range attrs {
+		inner = append(inner, pretty.HardLine, p.attrDoc(a))
+	}
+	return pretty.Concat(pretty.Indent(pretty.Concat(inner...)), pretty.HardLine)
 }
 
 // childrenPreserve emits pre/textarea bodies verbatim (no added indentation).
