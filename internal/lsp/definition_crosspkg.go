@@ -125,7 +125,13 @@ func crossPkgTagDeclAt(pkg *Package, path string, off int) (token.Position, bool
 			return true
 		}
 		nameStart := pkg.GSXFset.Position(el.Pos()).Offset + 1 // skip '<'
-		if off < nameStart || off >= nameStart+len(el.Tag) {
+		onOpen := off >= nameStart && off < nameStart+len(el.Tag)
+		onClose := false
+		if el.CloseNamePos.IsValid() {
+			closeStart := pkg.GSXFset.Position(el.CloseNamePos).Offset
+			onClose = off >= closeStart && off < closeStart+len(el.Tag)
+		}
+		if !onOpen && !onClose {
 			return true
 		}
 		qualifier, name, ok := splitDottedTag(el.Tag)
