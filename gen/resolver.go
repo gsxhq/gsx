@@ -1,12 +1,31 @@
 package gen
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 
 	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/typebundle"
 )
+
+// NewBundledResolver builds a CachedResolver from an embedded type bundle (see
+// internal/typebundle) instead of packages.Load — no `go list`, no subprocess.
+// This is the resolver a WASM build uses: the bundle, produced at build time,
+// MUST contain the gsx runtime, every filterPkg, and every import a snippet may
+// reference. Empty filterPkgs defaults to the built-in std filter package.
+func NewBundledResolver(bundle []byte, filterPkgs []string) (*CachedResolver, error) {
+	pkgs, err := typebundle.Read(bundle)
+	if err != nil {
+		return nil, fmt.Errorf("gen: read type bundle: %w", err)
+	}
+	inner, err := codegen.NewCachedResolverFromTypes(pkgs, filterPkgs, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &CachedResolver{inner: inner}, nil
+}
 
 // DefaultPlaygroundImports is the fixed allowlist the playground caches types
 // for. It covers the standard-library packages a playground component is likely
