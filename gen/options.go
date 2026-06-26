@@ -164,26 +164,23 @@ func isExportedIdent(s string) bool {
 	return true
 }
 
-// WithCSSMinifier installs a custom CSS minifier for <style> blocks, replacing
-// the built-in safe minifier on FULLY-STATIC (holeless) blocks. A block that
+// WithCSSMinifier installs a custom CSS minifier for <style> blocks. It is used
+// only when CSS minification is enabled (minify level "full"), where it REPLACES
+// the built-in full minifier on FULLY-STATIC (holeless) blocks. A block that
 // contains @{ } interpolation always uses gsx's built-in hole-aware minifier, so
-// the custom minifier only ever receives complete, valid CSS. Wrap any
-// whole-buffer minifier (e.g. tdewolff) in this signature:
+// the custom minifier only ever receives complete, valid CSS. At level "none"
+// (the default) no minification runs and the custom minifier is not called. Wrap
+// any whole-buffer minifier (e.g. tdewolff) in this signature:
 //
 //	gen.Main(gen.WithCSSMinifier(func(css string) (string, error) { … }))
-//
-// Installing a custom minifier enables the minify pass for that asset, even when
-// no [minify] level is set (the default is none) — the custom minifier is the
-// implementation that runs.
 func WithCSSMinifier(min func(css string) (string, error)) Option {
 	return func(cfg *config) { cfg.cssMin = min }
 }
 
-// WithJSMinifier installs a custom JS minifier for <script> blocks, replacing
-// the built-in safe minifier. It receives complete JS (<script> is holeless).
-// Installing a custom minifier enables the minify pass for that asset, even when
-// no [minify] level is set (the default is none) — the custom minifier is the
-// implementation that runs.
+// WithJSMinifier installs a custom JS minifier for <script> blocks. It is used
+// only when JS minification is enabled (minify level "full"), where it REPLACES
+// the built-in full minifier; it receives complete JS (<script> is holeless). At
+// level "none" (the default) no minification runs and it is not called.
 func WithJSMinifier(min func(js string) (string, error)) Option {
 	return func(cfg *config) { cfg.jsMin = min }
 }

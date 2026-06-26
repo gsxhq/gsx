@@ -87,15 +87,6 @@ func (c config) effectiveJSMin() func(string) (string, error) {
 	return nil
 }
 
-// cssMinifyOn reports whether the <style> minify pass should run: true when a
-// minifier is in effect (level == MinifyFull, or a custom WithCSSMinifier is
-// installed). Keeps the codegen gate consistent with effectiveCSSMin — a custom
-// minifier installed without an explicit level still runs.
-func (c config) cssMinifyOn() bool { return c.effectiveCSSMin() != nil }
-
-// jsMinifyOn mirrors cssMinifyOn for <script> JS.
-func (c config) jsMinifyOn() bool { return c.effectiveJSMin() != nil }
-
 // classifier builds the resolved Classifier from the accumulated options. A
 // config with no attr options yields a built-ins-only Classifier.
 func (cfg *config) classifier() *attrclass.Classifier {
@@ -192,8 +183,7 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			return 2
 		}
-		effCSS, effJS := merged.effectiveCSSMin(), merged.effectiveJSMin()
-		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher, effCSS, effJS, merged.cssMinifyOn(), merged.jsMinifyOn())
+		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher, merged.effectiveCSSMin(), merged.effectiveJSMin(), merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled())
 	case "clean":
 		return runClean(cmdArgs, stdout, stderr)
 	case "info":

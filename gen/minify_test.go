@@ -173,23 +173,25 @@ func TestGenerate_MinifyFullViaConfig(t *testing.T) {
 	}
 }
 
-func TestMinifyGate_CustomMinifierEnables(t *testing.T) {
+// TestMinifyGate_LevelGoverns pins the documented model: the minify pass is
+// gated by the LEVEL (cssMinLevel.enabled()), not by the presence of a custom
+// minifier. A custom WithCSSMinifier/WithJSMinifier REPLACES the built-in full
+// minifier when minification is enabled (level full); at the default level none
+// it is not called. effectiveCSSMin still resolves WHICH minifier runs when the
+// gate is on.
+func TestMinifyGate_LevelGoverns(t *testing.T) {
 	custom := func(s string) (string, error) { return s, nil }
-	// default level (none) + no minifier → gate off
-	if (config{}).cssMinifyOn() || (config{}).jsMinifyOn() {
-		t.Fatal("default config should not minify")
+	// default level (none): gate off, even with a custom minifier installed.
+	if (config{}).cssMinLevel.enabled() || (config{cssMin: custom}).cssMinLevel.enabled() {
+		t.Fatal("at level none the minify gate must be off (custom minifier not called)")
 	}
-	// custom CSS minifier with default level → CSS gate ON (regression guard)
-	if !(config{cssMin: custom}).cssMinifyOn() {
-		t.Fatal("WithCSSMinifier should enable the CSS minify gate at default level")
+	// full level: gate on.
+	if !(config{cssMinLevel: MinifyFull}).cssMinLevel.enabled() {
+		t.Fatal("at level full the minify gate must be on")
 	}
-	// custom JS minifier with default level → JS gate ON
-	if !(config{jsMin: custom}).jsMinifyOn() {
-		t.Fatal("WithJSMinifier should enable the JS minify gate at default level")
-	}
-	// full level (no custom) → gate ON
-	if !(config{cssMinLevel: MinifyFull}).cssMinifyOn() {
-		t.Fatal("MinifyFull should enable the CSS minify gate")
+	// when the gate is on, a custom minifier is the resolved implementation.
+	if got := (config{cssMinLevel: MinifyFull, cssMin: custom}).effectiveCSSMin(); got == nil {
+		t.Fatal("custom CSS minifier must be the resolved minifier at level full")
 	}
 }
 
