@@ -40,6 +40,7 @@ type Props struct {
 	Children gsx.Node
 }
 
+//line input.gsx:10:1
 func Button(p Props) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
@@ -54,6 +55,7 @@ func Button(p Props) gsx.Node {
 	})
 }
 
+//line input.gsx:14:1
 func Page() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)

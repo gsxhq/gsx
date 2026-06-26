@@ -30,6 +30,7 @@ type CardProps struct {
 	Attrs gsx.Attrs
 }
 
+//line input.gsx:3:1
 func Card(_gsxp CardProps) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		title := _gsxp.Title
@@ -47,6 +48,7 @@ func Card(_gsxp CardProps) gsx.Node {
 	})
 }
 
+//line input.gsx:7:1
 func Page() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)

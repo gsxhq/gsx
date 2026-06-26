@@ -26,6 +26,7 @@ type EvilProps struct {
 	Attrs gsx.Attrs
 }
 
+//line input.gsx:3:1
 func Evil(_gsxp EvilProps) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		u := _gsxp.U

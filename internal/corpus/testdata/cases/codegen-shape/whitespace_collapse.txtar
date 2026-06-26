@@ -29,6 +29,7 @@ import (
 	"github.com/gsxhq/gsx"
 )
 
+//line input.gsx:3:1
 func Layout() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)

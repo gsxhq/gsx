@@ -232,6 +232,10 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 	// Children/Attrs as real fields and renders them explicitly). MIRRORS the byo
 	// branch in emitComponentSkeleton so emit ≡ probe.
 	if _, isByo := byo.structTypeName(componentKey(c)); isByo {
+		// Anchor the generated func declaration to the `component` decl position
+		// so go/types (and thus LSP go-to-definition) reports the component's true
+		// .gsx location, not a line drifted from the previous //line directive.
+		emitLine(b, fset, c.Pos())
 		if c.Recv != "" {
 			fmt.Fprintf(b, "func %s %s(%s) gsx.Node {\n", c.Recv, c.Name, strings.TrimSpace(c.Params))
 		} else {
@@ -301,6 +305,10 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 	// Render func/method. The only differences between function and method
 	// components are the signature (receiver clause + props-struct name) and
 	// whether a props struct exists; the render-closure body is identical.
+	// Anchor the func declaration to the `component` decl position so go/types /
+	// LSP go-to-definition reports the component's true .gsx location (not a line
+	// drifted from the previous //line directive).
+	emitLine(b, fset, c.Pos())
 	if c.Recv != "" {
 		fmt.Fprintf(b, "func %s %s(", c.Recv, c.Name)
 	} else {

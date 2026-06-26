@@ -54,6 +54,7 @@ type GreetingProps struct {
 	Attrs gsx.Attrs
 }
 
+//line input.gsx:7:1
 func Greeting(_gsxp GreetingProps) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		name := _gsxp.Name
@@ -77,6 +78,7 @@ type CardProps struct {
 	Attrs gsx.Attrs
 }
 
+//line input.gsx:11:1
 func Card(_gsxp CardProps) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		title := _gsxp.Title
@@ -98,6 +100,7 @@ func Card(_gsxp CardProps) gsx.Node {
 	})
 }
 
+//line input.gsx:15:1
 func Panel(p Props) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
@@ -110,6 +113,7 @@ func Panel(p Props) gsx.Node {
 	})
 }
 
+//line input.gsx:19:1
 func Page() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)

@@ -120,6 +120,8 @@ func zeroSpans(n ast.Node) {
 			case *ast.Component:
 				v.NamePos = 0
 				v.ParamsPos = 0
+			case *ast.Element:
+				v.CloseNamePos = 0
 			}
 		}
 		return true

@@ -33,6 +33,7 @@ type Config struct {
 	Tab string
 }
 
+//line input.gsx:7:1
 func Page(cfg Config) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)

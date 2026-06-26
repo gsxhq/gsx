@@ -32,6 +32,7 @@ type Color struct{ R, G, B int }
 
 func (c Color) String() string { return fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B) }
 
+//line input.gsx:9:1
 func C(c Color) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)

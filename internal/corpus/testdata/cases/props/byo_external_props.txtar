@@ -34,6 +34,7 @@ import (
 	"github.com/gsxhq/gsx"
 )
 
+//line input.gsx:3:1
 func Card(p cardData) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
@@ -46,6 +47,7 @@ func Card(p cardData) gsx.Node {
 	})
 }
 
+//line input.gsx:7:1
 func Page() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)

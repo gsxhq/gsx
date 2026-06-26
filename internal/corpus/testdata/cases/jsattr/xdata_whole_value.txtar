@@ -31,6 +31,7 @@ type State struct {
 	Open bool
 }
 
+//line input.gsx:8:1
 func Page(state State) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)

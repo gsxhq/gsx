@@ -279,12 +279,19 @@ func componentTagDeclAt(pkg *Package, path string, off int) (token.Position, boo
 			// not a simple function component tag
 			return true
 		}
-		// The tag name starts right after the '<': nameStart is the byte offset of
-		// the first character of the tag name in the file.
+		// The opening tag name starts right after the '<': nameStart is the byte
+		// offset of the first character of the tag name in the file.
 		elOff := pkg.GSXFset.Position(el.Pos()).Offset
 		nameStart := elOff + 1 // skip '<'
-		nameEnd := nameStart + len(tag)
-		if off >= nameStart && off < nameEnd {
+		onOpen := off >= nameStart && off < nameStart+len(tag)
+		// The closing tag name (the "Card" in "</Card>") resolves the same way, so
+		// go-to-definition works from either end of the element.
+		onClose := false
+		if el.CloseNamePos.IsValid() {
+			closeStart := pkg.GSXFset.Position(el.CloseNamePos).Offset
+			onClose = off >= closeStart && off < closeStart+len(tag)
+		}
+		if onOpen || onClose {
 			// Cursor is on the tag name; look up in CrossIndex.
 			key := "." + tag
 			cr, ok := pkg.CrossIndex[key]

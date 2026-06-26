@@ -24,6 +24,7 @@ type DialogProps struct {
 	Attrs    gsx.Attrs
 }
 
+//line input.gsx:3:1
 func Dialog(_gsxp DialogProps) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		children := _gsxp.Children

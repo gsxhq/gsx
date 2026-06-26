@@ -33,6 +33,7 @@ type BadgeProps struct {
 	Attrs gsx.Attrs
 }
 
+//line input.gsx:3:1
 func Badge(_gsxp BadgeProps) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		kind := _gsxp.Kind

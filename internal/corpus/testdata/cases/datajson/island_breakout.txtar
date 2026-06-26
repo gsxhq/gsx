@@ -29,6 +29,7 @@ type Cfg struct {
 	Note string
 }
 
+//line input.gsx:7:1
 func Page(cfg Cfg) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)

@@ -570,6 +570,11 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 		// EMITTED signature (genComponent) keeps the real param name verbatim; the
 		// skeleton differs only in this reserved-name shape (harvest keys on the func
 		// name/recv, not the signature), so resolution + LSP stay correct.
+		// Anchor the skeleton func declaration to the `component` decl position so
+		// go/types (and thus same-package LSP go-to-definition on `{ LocalComp(…) }`)
+		// reports the component's true .gsx line, not a line drifted from the
+		// previous //line directive. Mirrors genComponent's emit-side anchor.
+		emitSkeletonLine(sb, fset, c.Pos())
 		if c.Recv != "" {
 			fmt.Fprintf(sb, "func %s %s(_gsxp %s) _gsxrt.Node {\n", c.Recv, c.Name, structName)
 		} else {
@@ -629,6 +634,9 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 	// user param named `p` does not collide in the skeleton either. Emit the
 	// receiver clause verbatim for a method component (its receiver var is in
 	// scope, like the emitted method).
+	// Anchor the skeleton func declaration to the `component` decl position (see
+	// the BYO branch above) so same-package go-to-definition reports the true line.
+	emitSkeletonLine(sb, fset, c.Pos())
 	if c.Recv != "" {
 		fmt.Fprintf(sb, "func %s %s(", c.Recv, c.Name)
 	} else {

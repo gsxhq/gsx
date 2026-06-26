@@ -29,6 +29,7 @@ type ThemeProps struct {
 	Attrs      gsx.Attrs
 }
 
+//line input.gsx:5:1
 func Theme(_gsxp ThemeProps) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		themeColor := _gsxp.ThemeColor

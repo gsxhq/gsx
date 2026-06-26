@@ -25,6 +25,7 @@ type CProps struct {
 	Attrs gsx.Attrs
 }
 
+//line input.gsx:3:1
 func C(_gsxp CProps) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		extra := _gsxp.Extra

@@ -32,6 +32,7 @@ type BoxProps struct {
 	Attrs gsx.Attrs
 }
 
+//line input.gsx:5:1
 func Box(_gsxp BoxProps) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		flag := _gsxp.Flag
@@ -49,6 +50,7 @@ func Box(_gsxp BoxProps) gsx.Node {
 	})
 }
 
+//line input.gsx:9:1
 func Page() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)

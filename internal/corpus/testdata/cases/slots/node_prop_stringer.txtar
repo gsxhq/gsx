@@ -39,6 +39,7 @@ type LabelProps struct {
 	Attrs gsx.Attrs
 }
 
+//line input.gsx:5:1
 func Label(_gsxp LabelProps) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		text := _gsxp.Text
@@ -56,6 +57,7 @@ func Label(_gsxp LabelProps) gsx.Node {
 	})
 }
 
+//line input.gsx:9:1
 func Page(t tag) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)

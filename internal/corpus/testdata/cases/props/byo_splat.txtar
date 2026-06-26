@@ -58,6 +58,7 @@ type pageData struct {
 
 type Home struct{}
 
+//line input.gsx:13:1
 func Card(d cardData) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
@@ -70,6 +71,7 @@ func Card(d cardData) gsx.Node {
 	})
 }
 
+//line input.gsx:17:1
 func Page(d pageData) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
@@ -79,6 +81,7 @@ func Page(d pageData) gsx.Node {
 	})
 }
 
+//line input.gsx:21:1
 func (p Home) Content(pd pageData) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
@@ -91,6 +94,7 @@ func (p Home) Content(pd pageData) gsx.Node {
 	})
 }
 
+//line input.gsx:25:1
 func (p Home) Shell(pd pageData) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)

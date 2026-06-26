@@ -37,6 +37,7 @@ type CardProps struct {
 	Attrs gsx.Attrs
 }
 
+//line input.gsx:6:1
 func Card(_gsxp CardProps) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		id := _gsxp.Id

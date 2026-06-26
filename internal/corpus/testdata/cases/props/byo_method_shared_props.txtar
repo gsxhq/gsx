@@ -53,6 +53,7 @@ type pageData struct {
 
 type home struct{}
 
+//line input.gsx:10:1
 func (p home) Page(d pageData) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
@@ -72,6 +73,7 @@ func (p home) Page(d pageData) gsx.Node {
 	})
 }
 
+//line input.gsx:19:1
 func (p home) Content(d pageData) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
