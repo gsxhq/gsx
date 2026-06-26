@@ -7,8 +7,14 @@ need no code. This page covers the **code escape hatch**: a project-owned
 a Go *function* and therefore cannot live in TOML:
 
 - a custom CSS/JS minifier (`gen.WithCSSMinifier` / `gen.WithJSMinifier`),
+- a custom CSS/JS **formatter** (`gen.WithCSSFormatter` / `gen.WithJSFormatter`),
 - an attribute-classifier **predicate** (`gen.WithAttrClassifier`),
 - a field matcher (`gen.WithFieldMatcher`).
+
+The **minify level** (`none`/`full`) is configured declaratively in
+[`gsx.toml`](./config.md#minify-asset-minification-level) (or the `GSX_MINIFY`
+env var); the code equivalent is `gen.WithMinifyLevel(css, js)`, which overrides
+both.
 
 `gen.Main` loads `gsx.toml` as the base configuration and applies these
 programmatic options on top, so a code-configured project still keeps its
@@ -94,6 +100,68 @@ to offline tools (a future LSP or `vet`).
 (closures are not inspectable), consistent with `WithCSSMinifier`/`WithJSMinifier`.
 After changing a predicate's logic, run `gsx clean --cache` to force full
 regeneration.
+
+## Custom CSS/JS formatter
+
+`gsx fmt` re-indents the CSS inside `<style>` and the JavaScript inside
+`<script>` with a small built-in formatter (it fixes indentation to consistent
+tabs; it does not reflow or restyle your code). When you want fuller fidelity —
+Prettier, Biome, or a house style — replace the built-in with your own via
+`gen.WithCSSFormatter` / `gen.WithJSFormatter`:
+
+```go
+// cmd/gsx/main.go
+gen.Main(
+	gen.WithCSSFormatter(func(src []byte) ([]byte, error) {
+		// Shell out to prettier (or any tool). Return the formatted bytes,
+		// or an error to fall back to verbatim rendering of this body.
+		return runPrettier(src, "--parser", "css")
+	}),
+)
+```
+
+A formatter is a `func(src []byte) ([]byte, error)`. It receives the embedded
+language's source as a **self-contained document** (formatted from column 0; gsx
+re-indents the result to the tag's depth afterward) and returns the formatted
+bytes. Two contracts make it safe:
+
+- **Holes are pre-substituted.** Each `@{ … }` interpolation in the body is
+  replaced with a collision-free placeholder token (a valid CSS/JS identifier)
+  *before* your formatter runs; gsx restores the real holes afterward. Leave
+  those tokens untouched — don't parse or rewrite them.
+- **Errors are not fatal.** Returning an error (or panicking) makes gsx render
+  *that* body verbatim instead, so a formatter that chokes on one file never
+  breaks `gsx fmt`. This is the same correct-or-verbatim rule the built-in uses.
+
+Like the minifiers, this is a **function-valued, code-only** option: `nil` means
+the built-in default applies, `gsx.toml` cannot set it, and it bypasses the
+codegen cache (run `gsx clean --cache` after changing formatter logic). Shelling
+out to an external tool is a user-written wrapper — gsx ships only the in-process
+plug point and a minimal built-in, not a subprocess adapter.
+
+The built-in re-indenter is intentionally minimal: it normalizes leading
+indentation (block scope drives the depth) and leaves everything else — line
+breaks, blank lines, and intra-line spacing — exactly as you wrote it. Reach for
+`WithCSSFormatter` / `WithJSFormatter` when you want true reflow.
+
+## Minify level
+
+Minification runs at a **level** set declaratively — see [`[minify]` in the
+config guide](./config.md#minify-asset-minification-level) for `none` / `full`,
+the `GSX_MINIFY` env switch, and precedence. The code equivalent, which overrides
+both the config file and the env var, is:
+
+```go
+// cmd/gsx/main.go — force full minification regardless of gsx.toml.
+gen.Main(
+	gen.WithMinifyLevel(gen.MinifyFull, gen.MinifyFull), // (css, js)
+)
+```
+
+`WithMinifyLevel` **gates** the pass: at `none` (the default) the asset is
+emitted verbatim and a custom minifier is not called; at `full` gsx applies its
+maximal, non-obfuscating minifier — or your `WithCSSMinifier` / `WithJSMinifier`
+if installed (a custom minifier **replaces** the built-in full pass).
 
 ## Registration pattern
 

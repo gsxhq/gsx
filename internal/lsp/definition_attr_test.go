@@ -11,9 +11,9 @@ func TestParamDeclIn(t *testing.T) {
 		{"title string, featured bool", "featured", "featured bool", true},
 		{"a, b string", "b", "b string", true},
 		{"Title string", "title", "Title string", true}, // firstUpper match
-		{"x int", "y", "", false},                        // no match
-		{"", "x", "", false},                             // empty
-		{"][", "x", "", false},                           // unparseable
+		{"x int", "y", "", false},                       // no match
+		{"", "x", "", false},                            // empty
+		{"][", "x", "", false},                          // unparseable
 	}
 	for _, tc := range tests {
 		got, ok := paramDeclIn(tc.params, tc.attr)

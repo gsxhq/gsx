@@ -13,6 +13,7 @@ import (
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/rawfmt"
 )
 
 // Option configures Main. It is the option SHAPE for the gen composition root;
@@ -35,6 +36,8 @@ type config struct {
 	aliases      []codegen.FilterAlias
 	cssMin       func(string) (string, error)
 	jsMin        func(string) (string, error)
+	cssFmt       rawfmt.Formatter
+	jsFmt        rawfmt.Formatter
 	jsRules      []attrclass.Rule
 	urlRules     []attrclass.Rule
 	cssRules     []attrclass.Rule
@@ -163,7 +166,12 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 		}
 		return runInfo(stdout, stderr, ".", configPath, merged.filterPkgs, merged.aliases, merged.classifier(), merged.predLabel, merged.fieldMatcher, cmdArgs)
 	case "fmt":
-		return runFmt(stdout, stderr, cmdArgs)
+		// fmt respects gsx.toml printWidth per-dir (via printWidthFor inside
+		// runFmt) and tolerates a malformed config. The CSS/JS formatter
+		// overrides are programmatic options (no gsx.toml entry), so they come
+		// from cfg directly — not resolveConfig (which would hard-fail on a bad
+		// config).
+		return runFmt(stdout, stderr, cmdArgs, cfg.cssFmt, cfg.jsFmt)
 	case "init":
 		return runInit(cmdArgs, os.Stdin, stdout, stderr)
 	case "lsp":

@@ -28,11 +28,20 @@ Expression attributes (attr={expr}), boolean attributes, and a conditional attri
 package views
 
 component Link(url string, label string, external bool, featured bool) {
-	<a href={url} data-count={3} aria-current={external} { if featured { class="featured" } }>{ label }</a>
+	<a
+		href={url}
+		data-count={3}
+		aria-current={external}
+		{ if featured {
+			class="featured"
+		} }
+	>
+		{ label }
+	</a>
 }
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgTGluayh1cmwgc3RyaW5nLCBsYWJlbCBzdHJpbmcsIGV4dGVybmFsIGJvb2wsIGZlYXR1cmVkIGJvb2wpIHtcblx0XHUwMDNjYSBocmVmPXt1cmx9IGRhdGEtY291bnQ9ezN9IGFyaWEtY3VycmVudD17ZXh0ZXJuYWx9IHsgaWYgZmVhdHVyZWQgeyBjbGFzcz1cImZlYXR1cmVkXCIgfSB9XHUwMDNleyBsYWJlbCB9XHUwMDNjL2FcdTAwM2Vcbn1cbiIsImkiOiJMaW5rKExpbmtQcm9wc3tVcmw6IFwiL3A/cT1hXHUwMDI2YlwiLCBMYWJlbDogXCJEb2NzXCIsIEV4dGVybmFsOiB0cnVlLCBGZWF0dXJlZDogdHJ1ZX0pIn0=)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgTGluayh1cmwgc3RyaW5nLCBsYWJlbCBzdHJpbmcsIGV4dGVybmFsIGJvb2wsIGZlYXR1cmVkIGJvb2wpIHtcblx0XHUwMDNjYVxuXHRcdGhyZWY9e3VybH1cblx0XHRkYXRhLWNvdW50PXszfVxuXHRcdGFyaWEtY3VycmVudD17ZXh0ZXJuYWx9XG5cdFx0eyBpZiBmZWF0dXJlZCB7XG5cdFx0XHRjbGFzcz1cImZlYXR1cmVkXCJcblx0XHR9IH1cblx0XHUwMDNlXG5cdFx0eyBsYWJlbCB9XG5cdFx1MDAzYy9hXHUwMDNlXG59XG4iLCJpIjoiTGluayhMaW5rUHJvcHN7VXJsOiBcIi9wP3E9YVx1MDAyNmJcIiwgTGFiZWw6IFwiRG9jc1wiLCBFeHRlcm5hbDogdHJ1ZSwgRmVhdHVyZWQ6IHRydWV9KSJ9)
 
 ### Auto-escaping &amp; safe raw
 
@@ -42,13 +51,12 @@ User input is HTML-escaped by construction — no XSS. Use gsx.Raw / gsx.RawURL 
 package views
 
 // User input is HTML-escaped by construction — no XSS.
-
 component Comment(body string) {
 	<blockquote>{ body }</blockquote>
 }
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG4vLyBVc2VyIGlucHV0IGlzIEhUTUwtZXNjYXBlZCBieSBjb25zdHJ1Y3Rpb24g4oCUIG5vIFhTUy5cblxuY29tcG9uZW50IENvbW1lbnQoYm9keSBzdHJpbmcpIHtcblx0XHUwMDNjYmxvY2txdW90ZVx1MDAzZXsgYm9keSB9XHUwMDNjL2Jsb2NrcXVvdGVcdTAwM2Vcbn1cbiIsImkiOiJDb21tZW50KENvbW1lbnRQcm9wc3tCb2R5OiBcIlx1MDAzY2ltZyBzcmM9eCBvbmVycm9yPWFsZXJ0KDEpXHUwMDNlXCJ9KSJ9)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG4vLyBVc2VyIGlucHV0IGlzIEhUTUwtZXNjYXBlZCBieSBjb25zdHJ1Y3Rpb24g4oCUIG5vIFhTUy5cbmNvbXBvbmVudCBDb21tZW50KGJvZHkgc3RyaW5nKSB7XG5cdFx1MDAzY2Jsb2NrcXVvdGVcdTAwM2V7IGJvZHkgfVx1MDAzYy9ibG9ja3F1b3RlXHUwMDNlXG59XG4iLCJpIjoiQ29tbWVudChDb21tZW50UHJvcHN7Qm9keTogXCJcdTAwM2NpbWcgc3JjPXggb25lcnJvcj1hbGVydCgxKVx1MDAzZVwifSkifQ==)
 
 ## Control flow
 
@@ -241,11 +249,13 @@ component Button(variant string) {
 }
 
 component Page() {
-	<Button variant="primary" class="w-full" data-test="x" hx-post="/go">Save</Button>
+	<Button variant="primary" class="w-full" data-test="x" hx-post="/go">
+		Save
+	</Button>
 }
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgQnV0dG9uKHZhcmlhbnQgc3RyaW5nKSB7XG5cdFx1MDAzY2J1dHRvbiBjbGFzcz1cImJ0blwiIGRhdGEtdmFyaWFudD17dmFyaWFudH1cdTAwM2V7IGNoaWxkcmVuIH1cdTAwM2MvYnV0dG9uXHUwMDNlXG59XG5cbmNvbXBvbmVudCBQYWdlKCkge1xuXHRcdTAwM2NCdXR0b24gdmFyaWFudD1cInByaW1hcnlcIiBjbGFzcz1cInctZnVsbFwiIGRhdGEtdGVzdD1cInhcIiBoeC1wb3N0PVwiL2dvXCJcdTAwM2VTYXZlXHUwMDNjL0J1dHRvblx1MDAzZVxufVxuIiwiaSI6IlBhZ2UoKSJ9)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgQnV0dG9uKHZhcmlhbnQgc3RyaW5nKSB7XG5cdFx1MDAzY2J1dHRvbiBjbGFzcz1cImJ0blwiIGRhdGEtdmFyaWFudD17dmFyaWFudH1cdTAwM2V7IGNoaWxkcmVuIH1cdTAwM2MvYnV0dG9uXHUwMDNlXG59XG5cbmNvbXBvbmVudCBQYWdlKCkge1xuXHRcdTAwM2NCdXR0b24gdmFyaWFudD1cInByaW1hcnlcIiBjbGFzcz1cInctZnVsbFwiIGRhdGEtdGVzdD1cInhcIiBoeC1wb3N0PVwiL2dvXCJcdTAwM2Vcblx0XHRTYXZlXG5cdFx1MDAzYy9CdXR0b25cdTAwM2Vcbn1cbiIsImkiOiJQYWdlKCkifQ==)
 
 ### Method components
 
@@ -327,14 +337,11 @@ A component can return multiple roots with no wrapper element using &lt;&gt;…&
 package views
 
 component Pair(a string, b string) {
-	<>
-		<span>{ a }</span>
-		<span>{ b }</span>
-	</>
+	<><span>{ a }</span><span>{ b }</span></>
 }
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgUGFpcihhIHN0cmluZywgYiBzdHJpbmcpIHtcblx0XHUwMDNjXHUwMDNlXG5cdFx0XHUwMDNjc3Bhblx1MDAzZXsgYSB9XHUwMDNjL3NwYW5cdTAwM2Vcblx0XHRcdTAwM2NzcGFuXHUwMDNleyBiIH1cdTAwM2Mvc3Bhblx1MDAzZVxuXHRcdTAwM2MvXHUwMDNlXG59XG4iLCJpIjoiUGFpcihQYWlyUHJvcHN7QTogXCJ4XCIsIEI6IFwieVwifSkifQ==)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgUGFpcihhIHN0cmluZywgYiBzdHJpbmcpIHtcblx0XHUwMDNjXHUwMDNlXHUwMDNjc3Bhblx1MDAzZXsgYSB9XHUwMDNjL3NwYW5cdTAwM2VcdTAwM2NzcGFuXHUwMDNleyBiIH1cdTAwM2Mvc3Bhblx1MDAzZVx1MDAzYy9cdTAwM2Vcbn1cbiIsImkiOiJQYWlyKFBhaXJQcm9wc3tBOiBcInhcIiwgQjogXCJ5XCJ9KSJ9)
 
 ### Forms
 

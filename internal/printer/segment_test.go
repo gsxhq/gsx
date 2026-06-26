@@ -6,8 +6,8 @@ import (
 	"github.com/gsxhq/gsx/ast"
 )
 
-func txt(s string) *ast.Text   { return &ast.Text{Value: s} }
-func interp() *ast.Interp      { return &ast.Interp{Expr: "x"} }
+func txt(s string) *ast.Text       { return &ast.Text{Value: s} }
+func interp() *ast.Interp          { return &ast.Interp{Expr: "x"} }
 func elem(tag string) *ast.Element { return &ast.Element{Tag: tag} }
 
 func segWords(segs []segment) []int {

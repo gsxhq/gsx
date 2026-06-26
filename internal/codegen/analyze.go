@@ -9,7 +9,6 @@ import (
 	"go/scanner"
 	"go/token"
 	"go/types"
-	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -353,12 +352,12 @@ func freeOverlayPath(dir, base, suffix string, overlay map[string][]byte) (strin
 		if _, taken := overlay[p]; taken {
 			continue
 		}
-		_, err := os.Stat(p)
-		if os.IsNotExist(err) {
-			return p, nil
-		}
+		exists, err := diskExists(p)
 		if err != nil {
 			return "", fmt.Errorf("codegen: probing overlay path %s: %w", p, err)
+		}
+		if !exists {
+			return p, nil
 		}
 		// exists on disk — try the next candidate
 	}

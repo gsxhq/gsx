@@ -124,6 +124,9 @@ func crossPkgTagDeclAt(pkg *Package, path string, off int) (token.Position, bool
 		if !ok || !strings.Contains(el.Tag, ".") {
 			return true
 		}
+		// Accept a cursor on either the opening tag name (right after '<') or the
+		// closing tag name (the "layout.AdminShell" in "</layout.AdminShell>"), so
+		// go-to-definition works from either end of a dotted cross-package tag.
 		nameStart := pkg.GSXFset.Position(el.Pos()).Offset + 1 // skip '<'
 		onOpen := off >= nameStart && off < nameStart+len(el.Tag)
 		onClose := false

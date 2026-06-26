@@ -8,13 +8,13 @@
   {
     "name": "Attributes",
     "category": "Basics",
-    "source": "package views\n\ncomponent Link(url string, label string, external bool, featured bool) {\n\t<a href={url} data-count={3} aria-current={external} { if featured { class=\"featured\" } }>{ label }</a>\n}\n",
+    "source": "package views\n\ncomponent Link(url string, label string, external bool, featured bool) {\n\t<a\n\t\thref={url}\n\t\tdata-count={3}\n\t\taria-current={external}\n\t\t{ if featured {\n\t\t\tclass=\"featured\"\n\t\t} }\n\t>\n\t\t{ label }\n\t</a>\n}\n",
     "invoke": "Link(LinkProps{Url: \"/p?q=a&b\", Label: \"Docs\", External: true, Featured: true})"
   },
   {
     "name": "Auto-escaping & safe raw",
     "category": "Basics",
-    "source": "package views\n\n// User input is HTML-escaped by construction — no XSS.\n\ncomponent Comment(body string) {\n\t<blockquote>{ body }</blockquote>\n}\n",
+    "source": "package views\n\n// User input is HTML-escaped by construction — no XSS.\ncomponent Comment(body string) {\n\t<blockquote>{ body }</blockquote>\n}\n",
     "invoke": "Comment(CommentProps{Body: \"<img src=x onerror=alert(1)>\"})"
   },
   {
@@ -62,7 +62,7 @@
   {
     "name": "Fallthrough attributes",
     "category": "Components & composition",
-    "source": "package views\n\ncomponent Button(variant string) {\n\t<button class=\"btn\" data-variant={variant}>{ children }</button>\n}\n\ncomponent Page() {\n\t<Button variant=\"primary\" class=\"w-full\" data-test=\"x\" hx-post=\"/go\">Save</Button>\n}\n",
+    "source": "package views\n\ncomponent Button(variant string) {\n\t<button class=\"btn\" data-variant={variant}>{ children }</button>\n}\n\ncomponent Page() {\n\t<Button variant=\"primary\" class=\"w-full\" data-test=\"x\" hx-post=\"/go\">\n\t\tSave\n\t</Button>\n}\n",
     "invoke": "Page()"
   },
   {
@@ -92,7 +92,7 @@
   {
     "name": "Fragments",
     "category": "Interactive & whole-page",
-    "source": "package views\n\ncomponent Pair(a string, b string) {\n\t<>\n\t\t<span>{ a }</span>\n\t\t<span>{ b }</span>\n\t</>\n}\n",
+    "source": "package views\n\ncomponent Pair(a string, b string) {\n\t<><span>{ a }</span><span>{ b }</span></>\n}\n",
     "invoke": "Pair(PairProps{A: \"x\", B: \"y\"})"
   },
   {

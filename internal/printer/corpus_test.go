@@ -6,10 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/cssfmt"
+	"github.com/gsxhq/gsx/internal/jsfmt"
 	"github.com/gsxhq/gsx/internal/txtar"
 	"github.com/gsxhq/gsx/internal/wsnorm"
 	"github.com/gsxhq/gsx/parser"
@@ -225,6 +228,62 @@ func canonGoAttr(a ast.Attr) {
 	}
 }
 
+// canonEmbeddedBodies replaces every <style> AND <script> element's children
+// with one synthetic Text holding a canonical signature of the body (the
+// language's whitespace-agnostic token signature, with each hole sentinel mapped
+// back to its rendered text). This makes the faithfulness comparison check
+// token-equivalence + hole-sequence — the contract the re-indenter satisfies —
+// rather than the byte-identity that re-indentation deliberately breaks.
+func canonEmbeddedBodies(f *ast.File) {
+	ast.Inspect(f, func(n ast.Node) bool {
+		el, ok := n.(*ast.Element)
+		if !ok {
+			return true
+		}
+		switch {
+		case strings.EqualFold(el.Tag, "style"):
+			el.Children = []ast.Markup{&ast.Text{Value: embeddedSignature(el.Children, cssfmt.TokenSignature)}}
+			return false
+		case strings.EqualFold(el.Tag, "script"):
+			el.Children = []ast.Markup{&ast.Text{Value: embeddedSignature(el.Children, jsfmt.TokenSignature)}}
+			return false
+		}
+		return true
+	})
+}
+
+// embeddedSignature builds the canonical signature: the body's placeholdered
+// text (holes → a fixed sentinel) run through sig (a language TokenSignature),
+// with each sentinel mapped back to its rendered hole. Both src and fmt(src)
+// reduce to the same string iff their token streams and hole sequences match.
+//
+// The sentinel is "__gsxH" + index + "__" — a valid identifier in both CSS and
+// JS tokenizers, so it survives both tokenizers verbatim and can be mapped back.
+// (The brief's original "\x00H" sentinel is valid for CSS but causes a lex error
+// in tdewolff's JS lexer, which rejects \x00 bytes; per the brief's note we
+// switch to a sentinel both lexers accept.)
+func embeddedSignature(nodes []ast.Markup, sig func([]byte) string) string {
+	const sent = "__gsxH"
+	var body strings.Builder
+	var holes []string
+	for _, n := range nodes {
+		switch v := n.(type) {
+		case *ast.Text:
+			body.WriteString(v.Value)
+		case *ast.Interp:
+			body.WriteString(sent)
+			body.WriteString(strconv.Itoa(len(holes)))
+			body.WriteString("__")
+			holes = append(holes, renderHole(v))
+		}
+	}
+	s := sig([]byte(body.String()))
+	for i, h := range holes {
+		s = strings.ReplaceAll(s, sent+strconv.Itoa(i)+"__", h)
+	}
+	return s
+}
+
 func normalizedAST(t *testing.T, src string) *ast.File {
 	t.Helper()
 	fset := token.NewFileSet()
@@ -234,6 +293,7 @@ func normalizedAST(t *testing.T, src string) *ast.File {
 	}
 	wsnorm.Normalize(f)
 	canonGo(f)
+	canonEmbeddedBodies(f)
 	zeroSpans(f)
 	return f
 }

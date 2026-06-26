@@ -77,6 +77,13 @@ func ParseFileWithClassifier(fset *token.FileSet, filename string, src any, mode
 	f := &ast.File{
 		Package: pkgName,
 	}
+	// Capture the doc-comment block preceding `package` (everything before the
+	// keyword, sans surrounding whitespace) so formatting can preserve it.
+	if kwOff := file.Offset(pkgKwPos); kwOff > 0 {
+		if doc := strings.TrimSpace(srcStr[:kwOff]); doc != "" {
+			f.Doc = doc
+		}
+	}
 	ast.SetSpan(f, pkgKwPos, file.Pos(len(srcBytes)))
 
 	cursor := pkgEnd

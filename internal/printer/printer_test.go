@@ -467,15 +467,17 @@ func TestNullaryStaysEmpty(t *testing.T) {
 
 func TestStyleInterpFormat(t *testing.T) {
 	src := "package p\n\ncomponent C(w int) {\n\t<style>.a{width:@{ w }px}</style>\n}\n"
-	want := "package p\n\ncomponent C(w int) {\n\t<style>.a{width:@{ w }px}</style>\n}\n"
+	// CSS is re-indented only (no reflow): a minified one-liner stays one line.
+	want := "package p\n\ncomponent C(w int) {\n\t<style>\n\t\t.a{width:@{ w }px}\n\t</style>\n}\n"
 	checkFormat(t, src, want)
 }
 
 func TestStyleInterpFormatPreservesPipeline(t *testing.T) {
 	// @{ x |> upper } in a <style> block must round-trip exactly — the printer
 	// must not silently discard pipeline stages.
+	// CSS is re-indented only (no reflow): a minified one-liner stays one line.
 	src := "package p\n\ncomponent C(x string) {\n\t<style>.a{color:@{ x |> upper }}</style>\n}\n"
-	want := "package p\n\ncomponent C(x string) {\n\t<style>.a{color:@{ x |> upper }}</style>\n}\n"
+	want := "package p\n\ncomponent C(x string) {\n\t<style>\n\t\t.a{color:@{ x |> upper }}\n\t</style>\n}\n"
 	checkFormat(t, src, want)
 }
 
@@ -884,6 +886,27 @@ component C() {
 	want := `package p
 
 type T struct{}
+
+component C() {
+	<div></div>
+}
+`
+	assertFormat(t, src, want)
+}
+
+func TestPackageDocCommentPreserved(t *testing.T) {
+	// The doc comment above `package` must survive formatting (it was being
+	// dropped: the parser discarded everything before the package keyword).
+	src := `// Package foo exports the shared widgets.
+// Second line of the package doc.
+package foo
+
+component C() {
+	<div></div>
+}`
+	want := `// Package foo exports the shared widgets.
+// Second line of the package doc.
+package foo
 
 component C() {
 	<div></div>

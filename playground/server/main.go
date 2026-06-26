@@ -62,6 +62,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/render", makeRenderHandler(p))
+	mux.HandleFunc("/run", makeRunHandler(p))
 	mux.HandleFunc("/format", formatHandler)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprintln(w, "ok") })
 	log.Printf("gsx playground on %s (gsxmod=%s, pool=%d)", listenAddr, *gsxMod, poolSize)
@@ -148,6 +149,9 @@ func cors(h http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		// Cache the CORS preflight so the browser doesn't re-OPTIONS before every
+		// /run POST. 7200s is Chromium's cap; Firefox honors up to 24h.
+		w.Header().Set("Access-Control-Max-Age", "7200")
 		h.ServeHTTP(w, r)
 	})
 }
