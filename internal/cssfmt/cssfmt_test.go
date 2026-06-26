@@ -85,6 +85,25 @@ func TestFormatRejectsUnbalanced(t *testing.T) {
 	}
 }
 
+func TestTokenSignatureIgnoresWhitespace(t *testing.T) {
+	minified := TokenSignature([]byte("h1,h2{margin:0}"))
+	pretty := TokenSignature([]byte("h1, h2 {\n\tmargin: 0;\n}\n"))
+	if minified != pretty {
+		t.Fatalf("whitespace/optional-semicolon changed the signature:\n%q\n%q", minified, pretty)
+	}
+}
+
+func TestTokenSignatureMatchesAcrossFormat(t *testing.T) {
+	src := []byte(".a{color:red}h1,h2{margin:0}")
+	out, err := Format(src, 80)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if TokenSignature(src) != TokenSignature(out) {
+		t.Fatalf("signature changed across Format:\n%q\n%q", TokenSignature(src), TokenSignature(out))
+	}
+}
+
 func TestFormatIdempotent(t *testing.T) {
 	once := fmtCSS(t, ".a{color:red;background:blue}h1,h2{margin:0}")
 	twice := fmtCSS(t, once)

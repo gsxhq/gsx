@@ -13,6 +13,42 @@ import (
 	"github.com/gsxhq/gsx/internal/pretty"
 )
 
+// TokenSignature returns a whitespace-, comment-, and optional-semicolon-
+// agnostic signature of src: the significant tokens (tWS and tComment dropped)
+// joined by "\x1f". A ';' immediately before a '}' or end of input is dropped —
+// it is insignificant in CSS, and the formatter normalizes its presence (it
+// always emits a trailing ';' on the last declaration in a block). So a minified
+// body and its formatted form share a signature iff they are the same CSS up to
+// whitespace and that optional terminator. On a tokenizer error (unterminated
+// string/comment) it returns the raw source prefixed with "\x00err\x00" so
+// malformed input still compares equal to itself (the printer leaves it
+// verbatim).
+func TokenSignature(src []byte) string {
+	toks, err := tokenize(src)
+	if err != nil {
+		return "\x00err\x00" + string(src)
+	}
+	// Significant tokens only.
+	var sig []token
+	for _, t := range toks {
+		if t.kind == tWS || t.kind == tComment {
+			continue
+		}
+		sig = append(sig, t)
+	}
+	// Drop a ';' that is immediately followed by '}' or is the final token.
+	var out []string
+	for i, t := range sig {
+		if t.kind == tSemi {
+			if i == len(sig)-1 || sig[i+1].kind == tRBrace {
+				continue
+			}
+		}
+		out = append(out, t.text)
+	}
+	return strings.Join(out, "\x1f")
+}
+
 // Format formats a self-contained CSS source string at the given print width.
 func Format(src []byte, width int) ([]byte, error) {
 	toks, err := tokenize(src)
