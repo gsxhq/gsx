@@ -247,6 +247,14 @@ func (p *printer) cfBody(nodes []ast.Markup) pretty.Doc {
 		return pretty.Text("")
 	}
 	inner, _ := p.childrenInner(nodes)
+	// A break inserts newline+indent right after `{` and before `}`. If the
+	// body's first child leads with a significant space, or its last child
+	// trails with one, that break would absorb the space and change the
+	// normalized AST. Keep such bodies flat (single-space padded), matching the
+	// edge guard segmentChildren already enforces for element children.
+	if leadsWithSpace(nodes[0]) || trailsWithSpace(nodes[len(nodes)-1]) {
+		return pretty.Concat(pretty.Text(" "), inner, pretty.Text(" "))
+	}
 	return pretty.Concat(pretty.Indent(pretty.Concat(pretty.Line, inner)), pretty.Line)
 }
 
@@ -380,6 +388,9 @@ func writeAttrInline(b *strings.Builder, a ast.Attr) {
 		b.WriteString(`="`)
 		writeRawHoleString(b, v.Segments)
 		b.WriteString(`"`)
+	default:
+		// Attribute types are AST-defined and enumerable; an unrecognized type
+		// here is a programming error, not user input — skip it explicitly.
 	}
 }
 

@@ -3,6 +3,7 @@ package printer
 import (
 	"bytes"
 	"go/token"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -440,6 +441,32 @@ component C() {
 }
 `
 	assertFormat(t, src, want)
+}
+
+func TestCfBodyEdgeUnsafeStaysFaithful(t *testing.T) {
+	// A control-flow body that is a single space-bearing Text must stay flat
+	// even when the enclosing if is long: breaking would absorb the significant
+	// leading/trailing spaces and change the normalized AST.
+	src := `package p
+component C() {
+	{ if veryLongConditionNameThatWouldForceTheEnclosingGroupToBreakAcrossEightyColumns { some text } }
+}`
+	out, err := normPrint(t, src)
+	if err != nil {
+		t.Fatalf("print: %v", err)
+	}
+	// Faithful: formatting must not change the normalized AST.
+	if !reflect.DeepEqual(normalizedAST(t, src), normalizedAST(t, out)) {
+		t.Fatalf("cfBody break changed normalized AST (unfaithful):\n%s", out)
+	}
+	// Idempotent.
+	out2, err := normPrint(t, out)
+	if err != nil {
+		t.Fatalf("reprint: %v", err)
+	}
+	if out != out2 {
+		t.Fatalf("not idempotent:\n--- once ---\n%s\n--- twice ---\n%s", out, out2)
+	}
 }
 
 func TestShortBlockCollapsesToOneLine(t *testing.T) {
