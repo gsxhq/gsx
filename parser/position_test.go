@@ -180,3 +180,125 @@ func TestTrailingBoundaryPosition(t *testing.T) {
 		t.Errorf("src attr End().Column = %d, want 13", attrEnd.Column)
 	}
 }
+
+// TestElementCloseNamePos verifies the parser records the closing-tag name
+// position on a non-void element (used by LSP go-to-definition from a closing
+// tag), and leaves it NoPos for a self-closing/void element.
+func TestElementCloseNamePos(t *testing.T) {
+	src := "package pos\n\ncomponent Page() {\n\t<section><br/></section>\n}\n"
+	fset := token.NewFileSet()
+	f, err := ParseFile(fset, "t.gsx", src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var page *ast.Component
+	for _, d := range f.Decls {
+		if c, ok := d.(*ast.Component); ok && c.Name == "Page" {
+			page = c
+		}
+	}
+	if page == nil || len(page.Body) == 0 {
+		t.Fatal("Page/body not found")
+	}
+	section, ok := page.Body[0].(*ast.Element)
+	if !ok || section.Tag != "section" {
+		t.Fatalf("expected <section>, got %T", page.Body[0])
+	}
+
+	// Non-void <section>…</section>: CloseNamePos must point at the "section" in
+	// the closing tag.
+	if !section.CloseNamePos.IsValid() {
+		t.Fatal("section.CloseNamePos is NoPos, want the </section> name position")
+	}
+	off := fset.Position(section.CloseNamePos).Offset
+	if got := src[off : off+len("section")]; got != "section" {
+		t.Errorf("CloseNamePos points at %q, want \"section\"", got)
+	}
+	// It must be the CLOSING name (after "</"), not the opening one.
+	if off <= int(section.Pos()) {
+		t.Errorf("CloseNamePos offset %d not after element start", off)
+	}
+
+	// Void <br/>: no closing tag → NoPos.
+	var br *ast.Element
+	for _, ch := range section.Children {
+		if e, ok := ch.(*ast.Element); ok && e.Tag == "br" {
+			br = e
+		}
+	}
+	if br == nil {
+		t.Fatal("<br/> not found")
+	}
+	if br.CloseNamePos.IsValid() {
+		t.Errorf("void <br/> CloseNamePos = %v, want NoPos", br.CloseNamePos)
+	}
+}
+
+// TestElementCloseNamePosEdgeCases covers close-tag name positions the LSP relies
+// on for go-to-definition from a closing tag: whitespace before '>' (the parser
+// skipSpaces, so </Card > is valid) must still point at the NAME, and nested
+// same-name elements must each get their own correct close position.
+func TestElementCloseNamePosEdgeCases(t *testing.T) {
+	firstElement := func(src string) (*ast.File, *token.FileSet) {
+		fset := token.NewFileSet()
+		f, err := ParseFile(fset, "t.gsx", src, 0)
+		if err != nil {
+			t.Fatalf("parse %q: %v", src, err)
+		}
+		return f, fset
+	}
+	nameAt := func(src string, fset *token.FileSet, pos token.Pos, n int) string {
+		off := fset.Position(pos).Offset
+		return src[off : off+n]
+	}
+
+	// Whitespace before '>' in the close tag: </section > — name pos still on "section".
+	t.Run("whitespace_close", func(t *testing.T) {
+		src := "package x\n\ncomponent P() {\n\t<section>hi</section >\n}\n"
+		f, fset := firstElement(src)
+		var sec *ast.Element
+		ast.Inspect(f, func(n ast.Node) bool {
+			if e, ok := n.(*ast.Element); ok && e.Tag == "section" {
+				sec = e
+			}
+			return true
+		})
+		if sec == nil || !sec.CloseNamePos.IsValid() {
+			t.Fatal("section/CloseNamePos missing")
+		}
+		if got := nameAt(src, fset, sec.CloseNamePos, len("section")); got != "section" {
+			t.Errorf("whitespace close: CloseNamePos at %q, want \"section\"", got)
+		}
+	})
+
+	// Nested same-name <div><div>x</div></div>: each div gets its OWN close pos,
+	// and the outer close is after the inner close.
+	t.Run("nested_same_name", func(t *testing.T) {
+		src := "package x\n\ncomponent P() {\n\t<div><div>x</div></div>\n}\n"
+		f, fset := firstElement(src)
+		var divs []*ast.Element
+		ast.Inspect(f, func(n ast.Node) bool {
+			if e, ok := n.(*ast.Element); ok && e.Tag == "div" {
+				divs = append(divs, e)
+			}
+			return true
+		})
+		if len(divs) != 2 {
+			t.Fatalf("want 2 divs, got %d", len(divs))
+		}
+		for _, d := range divs {
+			if !d.CloseNamePos.IsValid() {
+				t.Fatal("div CloseNamePos missing")
+			}
+			if got := nameAt(src, fset, d.CloseNamePos, len("div")); got != "div" {
+				t.Errorf("nested close: CloseNamePos at %q, want \"div\"", got)
+			}
+		}
+		// divs[0] is the outer (visited first); its close tag is the LAST </div>,
+		// so its CloseNamePos offset must exceed the inner div's.
+		outer, inner := fset.Position(divs[0].CloseNamePos).Offset, fset.Position(divs[1].CloseNamePos).Offset
+		if outer <= inner {
+			t.Errorf("outer close offset %d should be after inner %d", outer, inner)
+		}
+	})
+}

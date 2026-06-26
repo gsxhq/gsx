@@ -132,6 +132,11 @@ type Element struct {
 	Void     bool // self-closing <tag/> or HTML void element
 	Attrs    []Attr
 	Children []Markup
+	// CloseNamePos is the position of the first char of the name in the closing
+	// tag (the "Card" in "</Card>"); token.NoPos for void/self-closing elements
+	// (which have no closing tag). Tooling (LSP go-to-definition) uses it so a
+	// cursor on the closing tag resolves like the opening tag.
+	CloseNamePos token.Pos
 }
 
 func (*Element) markupNode() {}

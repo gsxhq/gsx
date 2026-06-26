@@ -152,3 +152,56 @@ func TestHasPipeStages(t *testing.T) {
 		t.Fatalf("piped interp not reported as piped")
 	}
 }
+
+// TestComponentTagDeclAtClosingTag verifies go-to-definition works from the
+// CLOSING tag too: a cursor on "Card" in "</Card>" resolves to the component
+// declaration just like the opening tag (relies on ast.Element.CloseNamePos).
+func TestComponentTagDeclAtClosingTag(t *testing.T) {
+	// Card has children, so the element has an explicit closing tag </Card>.
+	src := "package x\n\ncomponent Page() {\n\t<Card title=\"hi\">body</Card>\n}\n"
+	pkg, path := parseOnlyPackage(t, "page.gsx", src)
+
+	declPos := token.Position{Filename: "card.gsx", Line: 3, Column: 11, Offset: 24}
+	pkg.CrossIndex = map[string]CrossRef{
+		".Card": {Name: "Card", Decl: declPos},
+	}
+
+	// Offset of "Card" inside "</Card>" (the closing tag, the last occurrence).
+	closeStart := strings.Index(src, "</Card>") + 2 // +2 to skip '</'
+	if closeStart < 2 {
+		t.Fatal("could not find </Card> in src")
+	}
+
+	// Cursor on 'C' of the closing tag name.
+	decl, ok := componentTagDeclAt(pkg, path, closeStart)
+	if !ok {
+		t.Fatalf("componentTagDeclAt returned false for cursor on closing tag </Card>")
+	}
+	if decl != declPos {
+		t.Errorf("closing-tag decl = %+v, want %+v", decl, declPos)
+	}
+
+	// Cursor in the middle of the closing tag name ("Ca|rd") — must also resolve.
+	if decl2, ok2 := componentTagDeclAt(pkg, path, closeStart+2); !ok2 || decl2 != declPos {
+		t.Errorf("closing-tag (mid) ok=%v decl=%+v, want true %+v", ok2, decl2, declPos)
+	}
+}
+
+// TestComponentTagDeclAtClosingTagWhitespace verifies go-to-definition still
+// resolves on a closing tag with whitespace before '>' (</Card >), since the
+// parser allows it and records CloseNamePos at the name regardless.
+func TestComponentTagDeclAtClosingTagWhitespace(t *testing.T) {
+	src := "package x\n\ncomponent Page() {\n\t<Card>body</Card >\n}\n"
+	pkg, path := parseOnlyPackage(t, "page.gsx", src)
+	declPos := token.Position{Filename: "card.gsx", Line: 3, Column: 11, Offset: 24}
+	pkg.CrossIndex = map[string]CrossRef{".Card": {Name: "Card", Decl: declPos}}
+
+	closeStart := strings.Index(src, "</Card >") + 2 // skip '</'
+	if closeStart < 2 {
+		t.Fatal("could not find </Card > in src")
+	}
+	decl, ok := componentTagDeclAt(pkg, path, closeStart+1) // cursor on 'a' of Card
+	if !ok || decl != declPos {
+		t.Errorf("whitespace closing tag: ok=%v decl=%+v, want true %+v", ok, decl, declPos)
+	}
+}

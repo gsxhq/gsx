@@ -541,7 +541,7 @@ func (p *parser) parseElement() (ast.Markup, error) {
 	// Fragment: <>…</>
 	if p.peek() == '>' {
 		p.i++ // past '>'
-		children, err := p.parseChildren("")
+		children, _, err := p.parseChildren("")
 		if err != nil {
 			return nil, err
 		}
@@ -587,11 +587,11 @@ func (p *parser) parseElement() (ast.Markup, error) {
 		return el, nil
 	}
 
-	children, err := p.parseChildren(tag)
+	children, closeNamePos, err := p.parseChildren(tag)
 	if err != nil {
 		return nil, err
 	}
-	el := &ast.Element{Tag: tag, Attrs: attrs, Children: children}
+	el := &ast.Element{Tag: tag, Attrs: attrs, Children: children, CloseNamePos: closeNamePos}
 	ast.SetSpan(el, startPos, p.posAt(p.i))
 	return el, nil
 }
@@ -695,11 +695,15 @@ func (p *parser) parseRawTextBody(tag string, openPos token.Pos) ([]ast.Markup, 
 	return nil, p.errorf(openPos, "unterminated raw-text element <%s>", tag)
 }
 
-func (p *parser) parseChildren(closeTag string) ([]ast.Markup, error) {
+// parseChildren parses markup children up to the matching `</closeTag>` (which it
+// consumes). It returns the children, the position of the first char of the name
+// in the closing tag (token.NoPos when closeTag is empty — a `</>` fragment — or
+// on error), and any error.
+func (p *parser) parseChildren(closeTag string) ([]ast.Markup, token.Pos, error) {
 	var nodes []ast.Markup
 	for {
 		if p.eof() {
-			return nil, p.errorf(token.NoPos, "unexpected EOF, expected </%s>", closeTag)
+			return nil, token.NoPos, p.errorf(token.NoPos, "unexpected EOF, expected </%s>", closeTag)
 		}
 		if p.at("</") {
 			mmTokPos := p.pos()
@@ -710,20 +714,24 @@ func (p *parser) parseChildren(closeTag string) ([]ast.Markup, error) {
 				p.i++
 			}
 			got := p.src[start:p.i]
+			closeNamePos := p.posAt(start)
 			p.skipSpace()
 			if p.peek() != '>' {
-				return nil, p.errorf(p.pos(), "malformed close tag")
+				return nil, token.NoPos, p.errorf(p.pos(), "malformed close tag")
 			}
 			p.i++ // past '>'
 			if got != closeTag {
-				return nil, p.errorf(mmTokPos, "mismatched close tag </%s>, expected </%s>", got, closeTag)
+				return nil, token.NoPos, p.errorf(mmTokPos, "mismatched close tag </%s>, expected </%s>", got, closeTag)
 			}
-			return nodes, nil
+			if closeTag == "" {
+				closeNamePos = token.NoPos // `</>` fragment — no name
+			}
+			return nodes, closeNamePos, nil
 		}
 		if p.peek() == '<' {
 			el, err := p.parseElement()
 			if err != nil {
-				return nil, err
+				return nil, token.NoPos, err
 			}
 			nodes = append(nodes, el)
 			continue
@@ -731,7 +739,7 @@ func (p *parser) parseChildren(closeTag string) ([]ast.Markup, error) {
 		if p.peek() == '{' {
 			node, skipped, err := p.parseBraceNode()
 			if err != nil {
-				return nil, err
+				return nil, token.NoPos, err
 			}
 			if skipped {
 				continue
