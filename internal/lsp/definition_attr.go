@@ -60,15 +60,26 @@ func paramOffsetIn(params, attr string) (int, bool) {
 	return 0, false
 }
 
-// componentAttrParamAt resolves a cursor on a same-package function-component
-// tag's attribute NAME to that component's matching parameter position. It walks
-// the in-memory gsx AST (pkg.Files) — never the generated .x.go. Returns false
-// when the cursor is not on such an attribute name, the component or a matching
-// param can't be found, or the param list is unparseable.
+// isComponentTag reports whether tag names a component invocation — a simple
+// upper-initial tag (Card) or a dotted qualifier.Name (components.Input).
+func isComponentTag(tag string) bool {
+	if isSimpleComponentTag(tag) {
+		return true
+	}
+	_, _, ok := splitDottedTag(tag)
+	return ok
+}
+
+// componentAttrParamAt resolves a cursor on a function-component tag's attribute
+// NAME to that component's matching parameter position. It walks the in-memory
+// gsx AST (pkg.Files) — never the generated .x.go. Returns false when the cursor
+// is not on such an attribute name, the component or a matching param can't be
+// found, or the param list is unparseable.
 //
-// Scope (Phase 1): only the direct named attrs of the element are considered.
-// An attr name nested inside a conditional ({ if c { title="x" } }) or supplied
-// via spread is not resolved — a clean miss (null), never a wrong jump.
+// Handles both same-package (simple upper-initial tag) and cross-package (dotted
+// qualifier.Name tag) invocations. Only direct named attrs are considered; attrs
+// nested inside conditionals or supplied via spread are a clean miss (null), never
+// a wrong jump.
 func componentAttrParamAt(pkg *Package, path string, off int) (token.Position, bool) {
 	f := pkg.Files[path]
 	if f == nil || pkg.GSXFset == nil {
@@ -80,7 +91,7 @@ func componentAttrParamAt(pkg *Package, path string, off int) (token.Position, b
 			return false // already found
 		}
 		el, ok := n.(*gsxast.Element)
-		if !ok || !isSimpleComponentTag(el.Tag) {
+		if !ok || !isComponentTag(el.Tag) {
 			return true
 		}
 		for _, a := range el.Attrs {
@@ -99,6 +110,19 @@ func componentAttrParamAt(pkg *Package, path string, off int) (token.Position, b
 	if tag == "" {
 		return token.Position{}, false
 	}
+	if qualifier, name, ok := splitDottedTag(tag); ok {
+		// Cross-package: resolve the imported component's decl + its FileSet.
+		comp, fset, ok := resolveCrossPkgComponent(pkg, qualifier, name)
+		if !ok || !comp.ParamsPos.IsValid() {
+			return token.Position{}, false
+		}
+		rel, ok := paramOffsetIn(comp.Params, attr)
+		if !ok {
+			return token.Position{}, false
+		}
+		return fset.Position(comp.ParamsPos + token.Pos(rel)), true
+	}
+	// Same-package function component (Phase 1).
 	comp := findComponentDecl(pkg, tag)
 	if comp == nil || !comp.ParamsPos.IsValid() {
 		return token.Position{}, false
