@@ -65,6 +65,10 @@ func paramOffsetIn(params, attr string) (int, bool) {
 // the in-memory gsx AST (pkg.Files) — never the generated .x.go. Returns false
 // when the cursor is not on such an attribute name, the component or a matching
 // param can't be found, or the param list is unparseable.
+//
+// Scope (Phase 1): only the direct named attrs of the element are considered.
+// An attr name nested inside a conditional ({ if c { title="x" } }) or supplied
+// via spread is not resolved — a clean miss (null), never a wrong jump.
 func componentAttrParamAt(pkg *Package, path string, off int) (token.Position, bool) {
 	f := pkg.Files[path]
 	if f == nil || pkg.GSXFset == nil {
@@ -133,7 +137,10 @@ func attrName(a gsxast.Attr) (string, bool) {
 }
 
 // findComponentDecl returns the function-component (no receiver) named name from
-// any .gsx file in the package, or nil.
+// any .gsx file in the package, or nil. A package cannot declare two
+// function-components with the same name (a Go redeclaration error), so the
+// first match is unambiguous despite pkg.Files being a map; the c.Recv == ""
+// filter excludes a same-named method-component.
 func findComponentDecl(pkg *Package, name string) *gsxast.Component {
 	for _, f := range pkg.Files {
 		for _, d := range f.Decls {
