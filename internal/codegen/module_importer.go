@@ -67,22 +67,26 @@ func checkSkeletonPackage(dir, pkgName string, files []*goast.File, fset *token.
 }
 
 // moduleImporter resolves a project gsx package from the warm graph (skeletons)
-// and everything else from external. seen breaks the (DAG-guaranteed-acyclic)
-// recursion defensively.
+// and everything else from external. seen breaks recursion on import cycles;
+// cycleErr records the first cycle detected so typesPackageWith can propagate it.
 type moduleImporter struct {
 	m        *Module
 	external types.Importer
 	seen     map[string]bool
+	cycleErr error
 }
 
 func (mi *moduleImporter) Import(path string) (*types.Package, error) {
 	if dir, ok := dirForImportPath(mi.m.opts.ModuleRoot, mi.m.opts.ModulePath, path); ok {
 		if mi.m.isGsxPackage(dir) {
 			if mi.seen[dir] {
-				// cycle guard (shouldn't happen — Go forbids import cycles)
+				// cycle guard: return cached package if ready, else signal cycle error.
 				if p, ok := mi.m.pkgTypes[dir]; ok {
 					return p, nil
 				}
+				err := fmt.Errorf("import cycle through %s", dir)
+				mi.cycleErr = err
+				return nil, err
 			}
 			return mi.m.typesPackageWith(dir, mi)
 		}
@@ -161,6 +165,11 @@ func (m *Module) typesPackageWith(dir string, mi *moduleImporter) (*types.Packag
 	goFiles = append(goFiles, helper)
 
 	pkg, _, _ := checkSkeletonPackage(dir, pkgName, goFiles, fset, mi)
+	if mi.cycleErr != nil {
+		// A cycle was detected during this package's type-check; propagate
+		// the error without caching so the caller receives it.
+		return nil, mi.cycleErr
+	}
 	m.mu.Lock()
 	if m.pkgTypes == nil {
 		m.pkgTypes = map[string]*types.Package{}
@@ -168,12 +177,6 @@ func (m *Module) typesPackageWith(dir string, mi *moduleImporter) (*types.Packag
 	m.pkgTypes[dir] = pkg
 	m.mu.Unlock()
 	return pkg, nil
-}
-
-// parsePackage parses every .gsx in dir (override-aware) and returns the parsed
-// files + package name using a fresh fset.
-func (m *Module) parsePackage(dir string) (map[string]*gsxast.File, string, error) {
-	return m.parsePackageWithFset(dir, token.NewFileSet())
 }
 
 // parsePackageWithFset parses every .gsx in dir into the provided fset so the

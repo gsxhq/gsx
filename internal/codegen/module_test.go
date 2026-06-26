@@ -5,8 +5,10 @@ import (
 	"go/importer"
 	goparser "go/parser"
 	"go/token"
+	"go/types"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -111,7 +113,51 @@ func TestModuleImporterCrossPackageNoXGo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("typesPackage(page): %v", err)
 	}
-	if pagePkg == nil {
-		t.Fatalf("page failed to type-check against in-memory comp")
+	// Verify the importer actually ran by checking that pagePkg imported comp and
+	// that comp's skeleton exposed Button as a function.
+	var compFromPage *types.Package
+	for _, imp := range pagePkg.Imports() {
+		if strings.HasSuffix(imp.Path(), "/comp") || imp.Path() == "example.com/app/comp" {
+			compFromPage = imp
+			break
+		}
+	}
+	if compFromPage == nil {
+		t.Fatalf("page did not import comp: pagePkg.Imports() = %v", pagePkg.Imports())
+	}
+	buttonObj := compFromPage.Scope().Lookup("Button")
+	if _, ok := buttonObj.(*types.Func); !ok {
+		t.Fatalf("comp.Button is %T, want *types.Func", buttonObj)
+	}
+}
+
+// TestModuleImporterRejectsImportCycle proves that the cycle guard in
+// moduleImporter.Import returns an error (not an infinite recursion/hang) when
+// two gsx packages mutually import each other.
+func TestModuleImporterRejectsImportCycle(t *testing.T) {
+	root := t.TempDir()
+	repoRoot, _ := filepath.Abs("../..")
+	writeFile(t, root, "go.mod", "module example.com/cycle\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	aDir := filepath.Join(root, "a")
+	if err := os.MkdirAll(aDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bDir := filepath.Join(root, "b")
+	if err := os.MkdirAll(bDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, aDir, "a.gsx", "package a\n\nimport \"example.com/cycle/b\"\n\ncomponent A() {\n\t<div>{ b.B() }</div>\n}\n")
+	writeFile(t, bDir, "b.gsx", "package b\n\nimport \"example.com/cycle/a\"\n\ncomponent B() {\n\t<div>{ a.A() }</div>\n}\n")
+
+	m, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/cycle", FilterPkgs: []string{StdImportPath}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = m.typesPackage(aDir)
+	if err == nil {
+		t.Fatal("typesPackage(a) expected import cycle error, got nil")
+	}
+	if !strings.Contains(err.Error(), "import cycle") {
+		t.Fatalf("expected 'import cycle' in error, got: %v", err)
 	}
 }
