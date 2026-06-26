@@ -149,6 +149,9 @@ func cors(h http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		// Cache the CORS preflight so the browser doesn't re-OPTIONS before every
+		// /run POST. 7200s is Chromium's cap; Firefox honors up to 24h.
+		w.Header().Set("Access-Control-Max-Age", "7200")
 		h.ServeHTTP(w, r)
 	})
 }
