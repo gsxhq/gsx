@@ -53,7 +53,13 @@ func (p *printer) fail(format string, args ...any) pretty.Doc {
 // Each declaration already ends with a trailing HardLine, so no extra newline
 // is appended here.
 func (p *printer) file(f *ast.File) pretty.Doc {
-	parts := []pretty.Doc{pretty.Text("package "), pretty.Text(f.Package), pretty.HardLine}
+	// The package clause, optionally preceded by its doc comment. Routing the
+	// doc + clause through go/format keeps the comment attached and canonical.
+	pkgClause := "package " + f.Package
+	if f.Doc != "" {
+		pkgClause = fmtGoChunk(f.Doc + "\n" + pkgClause)
+	}
+	parts := []pretty.Doc{multiline(pkgClause), pretty.HardLine}
 	for i, d := range f.Decls {
 		// Each declaration is preceded by a blank line, EXCEPT when the previous
 		// declaration is a Go chunk whose source runs directly into this one (a
