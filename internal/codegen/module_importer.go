@@ -278,10 +278,14 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		}
 	}
 
-	// Phase-0 note: type errors from checkSkeletonPackage are intentionally
-	// discarded here (go/types fills Info best-effort even when checks fail).
-	// Surfacing these as diagnostics via Generate/Package is deferred to Phase 1.
-	pkg, info, _ := checkSkeletonPackage(dir, pkgName, goFiles, fset, mi)
+	pkg, info, typeErrs := checkSkeletonPackage(dir, pkgName, goFiles, fset, mi)
+	for _, e := range typeErrs {
+		p := e.Fset.Position(e.Pos) // e.Fset is the shared fset; //line maps skeleton → .gsx
+		if strings.HasSuffix(p.Filename, ".x.go") {
+			continue // synthetic skeleton position with no //line — skip (as batch/harvest do)
+		}
+		bag.Add(diag.Diagnostic{Start: p, End: p, Severity: diag.Error, Message: e.Msg, Source: "types"})
+	}
 	if mi.cycleErr != nil {
 		// A cycle was detected during this package's type-check; propagate
 		// the error without caching so the caller receives it.

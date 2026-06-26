@@ -147,6 +147,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 		GSXFiles: a.gsxFiles,
 		ExprMap:  a.exprMap,
 	}
+	res.Diags = a.bag.Sorted()
 	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.gsxFset, a.skelFset, a.info, a.pkg)
 	return res, nil
 }
