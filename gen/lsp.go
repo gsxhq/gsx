@@ -98,9 +98,11 @@ func resolveConfigBestEffort(dir string, optCfg config, warnw io.Writer) config 
 }
 
 // runLSP runs the gsx language server over stdin/stdout (JSON-RPC), logging
-// operational failures to stderr. It returns a process exit code.
-func runLSP(stdin io.Reader, stdout, stderr io.Writer, _ []string) int {
-	srv := lsp.NewServer(stdin, stdout, lspAnalyzer{warnw: stderr})
+// operational failures to stderr. cfg carries the binary's compiled-in opts
+// (empty for the stock binary), merged UNDER the project's gsx.toml per Analyze.
+// It returns a process exit code.
+func runLSP(stdin io.Reader, stdout, stderr io.Writer, cfg config, _ []string) int {
+	srv := lsp.NewServer(stdin, stdout, lspAnalyzer{optCfg: cfg, warnw: stderr})
 	if err := srv.Run(); err != nil {
 		fmt.Fprintf(stderr, "gsx: lsp: %v\n", err)
 		return 1

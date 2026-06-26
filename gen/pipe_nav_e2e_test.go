@@ -64,7 +64,7 @@ func pipeDefAt(t *testing.T, dir, src, needle string, off int) *lsp.Location {
 	in += frame(map[string]any{"jsonrpc": "2.0", "method": "exit"})
 
 	var out, errBuf bytes.Buffer
-	if code := runLSP(strings.NewReader(in), &out, &errBuf, nil); code != 0 {
+	if code := runLSP(strings.NewReader(in), &out, &errBuf, config{}, nil); code != 0 {
 		t.Fatalf("runLSP=%d stderr=%s", code, errBuf.String())
 	}
 	if strings.Contains(out.String(), ".x.go") {
@@ -139,7 +139,7 @@ func pipeHoverAt(t *testing.T, dir, src, needle string, off int) *lsp.Hover {
 	in += frame(map[string]any{"jsonrpc": "2.0", "method": "exit"})
 
 	var out, errBuf bytes.Buffer
-	if code := runLSP(strings.NewReader(in), &out, &errBuf, nil); code != 0 {
+	if code := runLSP(strings.NewReader(in), &out, &errBuf, config{}, nil); code != 0 {
 		t.Fatalf("runLSP=%d stderr=%s", code, errBuf.String())
 	}
 	marker := `"id":2,`

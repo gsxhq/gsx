@@ -74,7 +74,7 @@ func TestAPINavCardProps(t *testing.T) {
 	in += lspRequest(map[string]any{"jsonrpc": "2.0", "method": "exit"})
 
 	var out, errBuf bytes.Buffer
-	if code := runLSP(strings.NewReader(in), &out, &errBuf, nil); code != 0 {
+	if code := runLSP(strings.NewReader(in), &out, &errBuf, config{}, nil); code != 0 {
 		t.Fatalf("runLSP=%d stderr=%s", code, errBuf.String())
 	}
 	loc := definitionResult(t, out.String(), 2)
@@ -130,7 +130,7 @@ func TestAPINavTitle(t *testing.T) {
 	in += lspRequest(map[string]any{"jsonrpc": "2.0", "method": "exit"})
 
 	var out, errBuf bytes.Buffer
-	if code := runLSP(strings.NewReader(in), &out, &errBuf, nil); code != 0 {
+	if code := runLSP(strings.NewReader(in), &out, &errBuf, config{}, nil); code != 0 {
 		t.Fatalf("runLSP=%d stderr=%s", code, errBuf.String())
 	}
 	loc := definitionResult(t, out.String(), 2)
@@ -173,7 +173,7 @@ func TestAPINavComponentTag(t *testing.T) {
 	in += lspRequest(map[string]any{"jsonrpc": "2.0", "method": "exit"})
 
 	var out, errBuf bytes.Buffer
-	if code := runLSP(strings.NewReader(in), &out, &errBuf, nil); code != 0 {
+	if code := runLSP(strings.NewReader(in), &out, &errBuf, config{}, nil); code != 0 {
 		t.Fatalf("runLSP=%d stderr=%s", code, errBuf.String())
 	}
 	loc := definitionResult(t, out.String(), 2)

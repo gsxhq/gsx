@@ -71,7 +71,7 @@ func TestFormattingAdvertised(t *testing.T) {
 	in := frame(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}})
 	in += frame(map[string]any{"jsonrpc": "2.0", "method": "exit"})
 	var out, errBuf bytes.Buffer
-	if code := runLSP(strings.NewReader(in), &out, &errBuf, nil); code != 0 {
+	if code := runLSP(strings.NewReader(in), &out, &errBuf, config{}, nil); code != 0 {
 		t.Fatalf("runLSP=%d stderr=%s", code, errBuf.String())
 	}
 	if !strings.Contains(out.String(), `"documentFormattingProvider":true`) {
@@ -124,7 +124,7 @@ func formattingEdits(t *testing.T, uri, text string) []lsp.TextEdit {
 	in += frame(map[string]any{"jsonrpc": "2.0", "method": "exit"})
 
 	var out, errBuf bytes.Buffer
-	if code := runLSP(strings.NewReader(in), &out, &errBuf, nil); code != 0 {
+	if code := runLSP(strings.NewReader(in), &out, &errBuf, config{}, nil); code != 0 {
 		t.Fatalf("runLSP=%d stderr=%s", code, errBuf.String())
 	}
 	marker := `"id":2,`

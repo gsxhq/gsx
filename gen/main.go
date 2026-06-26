@@ -157,7 +157,9 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 	case "init":
 		return runInit(cmdArgs, os.Stdin, stdout, stderr)
 	case "lsp":
-		return runLSP(os.Stdin, stdout, stderr, cmdArgs)
+		// lsp resolves gsx.toml per-file (best-effort) and merges these compiled-in
+		// opts under it; cfg.errs are already surfaced at the top of runConfig.
+		return runLSP(os.Stdin, stdout, stderr, cfg, cmdArgs)
 	case "version":
 		fmt.Fprintln(stdout, version())
 		return 0

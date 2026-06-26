@@ -55,7 +55,7 @@ func TestDefinitionD1(t *testing.T) {
 	in += frame(map[string]any{"jsonrpc": "2.0", "method": "exit"})
 
 	var out, errBuf bytes.Buffer
-	if code := runLSP(strings.NewReader(in), &out, &errBuf, nil); code != 0 {
+	if code := runLSP(strings.NewReader(in), &out, &errBuf, config{}, nil); code != 0 {
 		t.Fatalf("runLSP=%d stderr=%s", code, errBuf.String())
 	}
 	loc := definitionResult(t, out.String(), 2)
@@ -115,7 +115,7 @@ func TestDefinitionParam(t *testing.T) {
 	in += frame(map[string]any{"jsonrpc": "2.0", "method": "exit"})
 
 	var out, errBuf bytes.Buffer
-	if code := runLSP(strings.NewReader(in), &out, &errBuf, nil); code != 0 {
+	if code := runLSP(strings.NewReader(in), &out, &errBuf, config{}, nil); code != 0 {
 		t.Fatalf("runLSP=%d stderr=%s", code, errBuf.String())
 	}
 	s := out.String()
@@ -229,7 +229,7 @@ func rawGoDefinition(t *testing.T, src, needle string, cursorOff int) *lsp.Locat
 	in += frame(map[string]any{"jsonrpc": "2.0", "method": "exit"})
 
 	var out, errBuf bytes.Buffer
-	if code := runLSP(strings.NewReader(in), &out, &errBuf, nil); code != 0 {
+	if code := runLSP(strings.NewReader(in), &out, &errBuf, config{}, nil); code != 0 {
 		t.Fatalf("runLSP=%d stderr=%s", code, errBuf.String())
 	}
 	if strings.Contains(out.String(), ".x.go") {
