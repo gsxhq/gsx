@@ -362,8 +362,16 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 			fmt.Fprintln(stdout, w)
 		}
 	}
-	if n := len(res.Written); n > 0 {
+	// Always report what happened — including a no-op run where everything was
+	// already current — so a bare or -v run is never silently empty.
+	n, u := len(res.Written), res.UpToDate
+	switch {
+	case n > 0 && u > 0:
+		fmt.Fprintf(stdout, "gsx: wrote %d file(s), %d up to date\n", n, u)
+	case n > 0:
 		fmt.Fprintf(stdout, "gsx: wrote %d file(s)\n", n)
+	case u > 0:
+		fmt.Fprintf(stdout, "gsx: %d file(s) already up to date\n", u)
 	}
 	return 0
 }

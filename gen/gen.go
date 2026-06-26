@@ -114,6 +114,10 @@ type Result struct {
 	Errs    []error
 	Diags   []diag.Diagnostic
 	Files   map[string][]byte
+	// UpToDate counts output files that were already current on disk (byte-
+	// identical, so no write happened). Lets the CLI report "N up to date"
+	// instead of falling silent when a run produces no writes.
+	UpToDate int
 }
 
 // Generate discovers .gsx files under the given paths (default ["."]), runs
