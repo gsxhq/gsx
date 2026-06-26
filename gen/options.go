@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gsxhq/gsx/internal/codegen"
+	"github.com/gsxhq/gsx/internal/rawfmt"
 )
 
 // WithFilters registers one or more filter packages by their marker tokens.
@@ -178,6 +179,18 @@ func WithCSSMinifier(min func(css string) (string, error)) Option {
 // the built-in safe minifier. It receives complete JS (<script> is holeless).
 func WithJSMinifier(min func(js string) (string, error)) Option {
 	return func(cfg *config) { cfg.jsMin = min }
+}
+
+// WithCSSFormatter installs a custom CSS formatter for <style> bodies during
+// `gsx fmt`, replacing the built-in minimal formatter. It receives complete,
+// self-contained CSS (interpolation holes are substituted with sentinel tokens
+// before the formatter sees them and restored afterward) and returns the
+// formatted CSS, or an error to fall back to verbatim. Wrap any whole-buffer
+// formatter (e.g. a prettier shell-out) in this signature:
+//
+//	gen.Main(gen.WithCSSFormatter(func(css []byte) ([]byte, error) { … }))
+func WithCSSFormatter(f rawfmt.Formatter) Option {
+	return func(cfg *config) { cfg.cssFmt = f }
 }
 
 // appendFilterPkg appends path to the config's ordered filter-package list

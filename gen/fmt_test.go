@@ -12,7 +12,7 @@ import (
 func fmtCapture(t *testing.T, args []string) (int, string, string) {
 	t.Helper()
 	var out, errb bytes.Buffer
-	code := runFmt(&out, &errb, args)
+	code := runFmt(&out, &errb, args, nil)
 	return code, out.String(), errb.String()
 }
 

@@ -21,13 +21,22 @@ import (
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/cssfmt"
 	"github.com/gsxhq/gsx/internal/pretty"
+	"github.com/gsxhq/gsx/internal/rawfmt"
 )
 
 // Fprint writes the canonical gsx rendering of f to w, wrapping lists that
 // exceed width columns. width <= 0 uses pretty's default (80).
 func Fprint(w io.Writer, f *ast.File, width int) error {
-	var p printer
+	return FprintWith(w, f, width, defaultCSSFormatter(width))
+}
+
+// FprintWith is Fprint with an explicit CSS Formatter for <style> bodies. A nil
+// cssFmt leaves <style> bodies verbatim. The default (used by Fprint) is the
+// built-in cssfmt at the given width.
+func FprintWith(w io.Writer, f *ast.File, width int, cssFmt rawfmt.Formatter) error {
+	p := printer{cssFmt: cssFmt}
 	doc := p.file(f)
 	if p.err != nil {
 		return p.err
@@ -36,10 +45,16 @@ func Fprint(w io.Writer, f *ast.File, width int) error {
 	return err
 }
 
+// defaultCSSFormatter binds the built-in cssfmt to the print width.
+func defaultCSSFormatter(width int) rawfmt.Formatter {
+	return func(src []byte) ([]byte, error) { return cssfmt.Format(src, width) }
+}
+
 // printer accumulates the first I/O-independent error encountered while
 // building the document.
 type printer struct {
-	err error
+	err    error
+	cssFmt rawfmt.Formatter // nil → no CSS formatting (style stays verbatim)
 }
 
 func (p *printer) fail(format string, args ...any) pretty.Doc {
@@ -178,7 +193,16 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 	}
 	close := pretty.Concat(pretty.Text("</"), pretty.Text(e.Tag), pretty.Text(">"))
 
-	if strings.EqualFold(e.Tag, "style") || strings.EqualFold(e.Tag, "script") {
+	if strings.EqualFold(e.Tag, "script") {
+		return pretty.Concat(openTag, p.rawHoleChildren(e.Children), close)
+	}
+	if strings.EqualFold(e.Tag, "style") {
+		if p.cssFmt != nil {
+			segments, holes := nodesToBody(e.Children)
+			if doc, ok := rawfmt.Format(segments, holes, p.cssFmt); ok {
+				return pretty.Concat(openTag, doc, close)
+			}
+		}
 		return pretty.Concat(openTag, p.rawHoleChildren(e.Children), close)
 	}
 	if isPreserveTag(e.Tag) {
@@ -628,17 +652,49 @@ func writeRawHoleString(b *strings.Builder, nodes []ast.Markup) {
 		case *ast.Text:
 			b.WriteString(v.Value)
 		case *ast.Interp:
-			b.WriteString("@{ ")
-			b.WriteString(fmtExpr(v.Expr))
-			for _, s := range v.Stages {
-				b.WriteString(" |> ")
-				b.WriteString(pipeStageStr(s))
-			}
-			b.WriteString(" }")
+			b.WriteString(renderHole(v))
 		default:
 			b.WriteString(markupInlineString(n))
 		}
 	}
+}
+
+// nodesToBody splits a <style> body (only *ast.Text and @{ } *ast.Interp by the
+// raw-text parser) into literal text segments and rendered holes for rawfmt.
+// segments and holes interleave with len(segments) == len(holes)+1: an empty
+// segment is inserted so a hole at the start/end or two adjacent holes still
+// satisfy the invariant.
+func nodesToBody(nodes []ast.Markup) (segments, holes []string) {
+	var cur strings.Builder
+	for _, n := range nodes {
+		switch v := n.(type) {
+		case *ast.Text:
+			cur.WriteString(v.Value)
+		case *ast.Interp:
+			segments = append(segments, cur.String())
+			cur.Reset()
+			holes = append(holes, renderHole(v))
+		default:
+			// The raw-text parser never produces other node types here; render
+			// defensively so the invariant still holds.
+			cur.WriteString(markupInlineString(n))
+		}
+	}
+	segments = append(segments, cur.String())
+	return segments, holes
+}
+
+// renderHole renders one interpolation hole exactly as rawHoleChildren does.
+func renderHole(v *ast.Interp) string {
+	var b strings.Builder
+	b.WriteString("@{ ")
+	b.WriteString(fmtExpr(v.Expr))
+	for _, s := range v.Stages {
+		b.WriteString(" |> ")
+		b.WriteString(pipeStageStr(s))
+	}
+	b.WriteString(" }")
+	return b.String()
 }
 
 // isPreserveTag mirrors wsnorm: pre/textarea/script/style keep bodies verbatim.

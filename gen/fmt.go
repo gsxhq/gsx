@@ -14,6 +14,7 @@ import (
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
+	"github.com/gsxhq/gsx/internal/rawfmt"
 )
 
 // runFmt implements `gsx fmt`: it formats .gsx files to their canonical,
@@ -41,7 +42,7 @@ import (
 //
 // All logic lives here (runFmt returns an int) so tests can drive it without
 // os.Exit.
-func runFmt(stdout, stderr io.Writer, args []string) int {
+func runFmt(stdout, stderr io.Writer, args []string, cssFmt rawfmt.Formatter) int {
 	fs := flag.NewFlagSet("gsx fmt", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
@@ -89,7 +90,7 @@ func runFmt(stdout, stderr io.Writer, args []string) int {
 			width = printWidthFor(dir)
 			widthByDir[dir] = width
 		}
-		formatted, err := gsxfmt.FormatRemovingImports(path, orig, unusedByPath[abs], width)
+		formatted, err := gsxfmt.FormatRemovingImportsWith(path, orig, unusedByPath[abs], width, cssFmt)
 		if err != nil {
 			fmt.Fprintf(stderr, "%s: %v\n", path, err)
 			exit = 1

@@ -6,10 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/cssfmt"
 	"github.com/gsxhq/gsx/internal/txtar"
 	"github.com/gsxhq/gsx/internal/wsnorm"
 	"github.com/gsxhq/gsx/parser"
@@ -225,6 +227,46 @@ func canonGoAttr(a ast.Attr) {
 	}
 }
 
+// canonStyleBodies replaces every <style> element's children with a single
+// synthetic Text holding a canonical signature of the body: the CSS token
+// signature of the placeholdered body, with each hole sentinel mapped back to
+// its rendered text. This makes the faithfulness comparison check CSS
+// token-equivalence + hole-sequence (whitespace-insensitive) rather than the
+// byte-identity that <style> formatting deliberately breaks.
+func canonStyleBodies(f *ast.File) {
+	ast.Inspect(f, func(n ast.Node) bool {
+		el, ok := n.(*ast.Element)
+		if !ok || !strings.EqualFold(el.Tag, "style") {
+			return true
+		}
+		el.Children = []ast.Markup{&ast.Text{Value: styleSignature(el.Children)}}
+		return false // do not descend into the rewritten children
+	})
+}
+
+// styleSignature builds the canonical signature described on canonStyleBodies.
+func styleSignature(nodes []ast.Markup) string {
+	const sent = "\x00H" // a fixed placeholder unlikely to appear in CSS source
+	var body strings.Builder
+	var holes []string
+	for _, n := range nodes {
+		switch v := n.(type) {
+		case *ast.Text:
+			body.WriteString(v.Value)
+		case *ast.Interp:
+			body.WriteString(sent)
+			body.WriteString(strconv.Itoa(len(holes)))
+			body.WriteString("\x00")
+			holes = append(holes, renderHole(v))
+		}
+	}
+	sig := cssfmt.TokenSignature([]byte(body.String()))
+	for i, h := range holes {
+		sig = strings.ReplaceAll(sig, sent+strconv.Itoa(i)+"\x00", h)
+	}
+	return sig
+}
+
 func normalizedAST(t *testing.T, src string) *ast.File {
 	t.Helper()
 	fset := token.NewFileSet()
@@ -234,6 +276,7 @@ func normalizedAST(t *testing.T, src string) *ast.File {
 	}
 	wsnorm.Normalize(f)
 	canonGo(f)
+	canonStyleBodies(f)
 	zeroSpans(f)
 	return f
 }

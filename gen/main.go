@@ -13,6 +13,7 @@ import (
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/rawfmt"
 )
 
 // Option configures Main. It is the option SHAPE for the gen composition root;
@@ -35,6 +36,7 @@ type config struct {
 	aliases      []codegen.FilterAlias
 	cssMin       func(string) (string, error)
 	jsMin        func(string) (string, error)
+	cssFmt       rawfmt.Formatter
 	jsRules      []attrclass.Rule
 	urlRules     []attrclass.Rule
 	cssRules     []attrclass.Rule
@@ -163,7 +165,13 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 		}
 		return runInfo(stdout, stderr, ".", configPath, merged.filterPkgs, merged.aliases, merged.classifier(), merged.predLabel, merged.fieldMatcher, cmdArgs)
 	case "fmt":
-		return runFmt(stdout, stderr, cmdArgs)
+		// fmt respects gsx.toml: runFmt reads printWidth per directory via
+		// printWidthFor (best-effort — a malformed/absent config falls back to
+		// 80 rather than hard-failing). The CSS formatter override has no
+		// gsx.toml entry (it is the programmatic WithCSSFormatter option), so it
+		// comes from cfg directly — not resolveConfig, which would hard-fail on
+		// a malformed config and break that best-effort contract.
+		return runFmt(stdout, stderr, cmdArgs, cfg.cssFmt)
 	case "init":
 		return runInit(cmdArgs, os.Stdin, stdout, stderr)
 	case "lsp":
