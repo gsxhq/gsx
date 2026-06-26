@@ -115,6 +115,12 @@ func (s *Server) handleDefinition(f frame) error {
 		return s.reply(f.ID, s.locationForPos(decl))
 	}
 
+	// A: cursor on a component-invocation attribute name → the matching component
+	// parameter (same-package function components; cross-package is Phase 2).
+	if dp, ok := componentAttrParamAt(pkg, path, off); ok {
+		return s.reply(f.ID, s.locationForPos(dp))
+	}
+
 	node, exprPos := exprNodeAtOffset(pkg, path, off)
 	if node == nil {
 		return s.reply(f.ID, nil)
