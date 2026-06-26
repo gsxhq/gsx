@@ -3,75 +3,62 @@ package interp
 import (
 	"strings"
 	"testing"
-
-	"github.com/traefik/yaegi/interp"
-	"github.com/traefik/yaegi/stdlib"
-
-	"github.com/gsxhq/gsx/playground/playbundle"
 )
 
-// TestInterpretGeneratedComponentToHTML is the HTML-preview feasibility spike:
-// transform a gsx snippet to Go (via the embedded bundle, no subprocess), then
-// INTERPRET the generated component with yaegi + gsx/std reflection bindings and
-// render it to HTML — no Go compiler. If this works, the playground's live
-// preview can run entirely client-side in WASM.
-func TestInterpretGeneratedComponentToHTML(t *testing.T) {
+// TestPlaygroundTransformRendersHTML is the combined transform+render proof:
+// generate Go from gsx and interpret+render it to HTML, all in-process (no Go
+// toolchain). `{name |> upper}` with name "World" must yield "<p>Hello WORLD!</p>".
+func TestPlaygroundTransformRendersHTML(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping interpreter spike in -short mode")
+		t.Skip("skipping transform+render test in -short mode")
 	}
-
-	// 1. gsx -> generated Go.
-	r, err := playbundle.NewResolver()
+	p, err := New()
 	if err != nil {
-		t.Fatalf("NewResolver: %v", err)
+		t.Fatalf("New: %v", err)
 	}
-	const snippet = `package main
+	const src = `package main
 
 component Greeting(name string) {
 	<p>Hello { name |> upper }!</p>
 }
 `
-	res, err := r.GenerateSource("source.gsx", []byte(snippet))
+	out := p.Transform(src, `Greeting(GreetingProps{Name: "World"})`)
+	if len(out.Diagnostics) != 0 {
+		t.Fatalf("unexpected diagnostics: %+v", out.Diagnostics)
+	}
+	if !strings.Contains(out.Code, "Upper(") {
+		t.Fatalf("generated code missing std.Upper call:\n%s", out.Code)
+	}
+	if out.HTML != "<p>Hello WORLD!</p>" {
+		t.Fatalf("rendered HTML = %q, want \"<p>Hello WORLD!</p>\"", out.HTML)
+	}
+}
+
+// TestPlaygroundTransformReportsTypeError proves a generation-time type error is
+// returned as a diagnostic with no HTML (the interpreter is never run on code
+// that did not type-check).
+func TestPlaygroundTransformReportsTypeError(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping transform test in -short mode")
+	}
+	p, err := New()
 	if err != nil {
-		t.Fatalf("transform: %v (diags=%v)", err, res.Diags)
+		t.Fatalf("New: %v", err)
 	}
-	var generatedGo string
-	for _, b := range res.Files {
-		generatedGo = string(b)
-	}
+	const src = `package main
 
-	// 2. Interpret the generated component and render it.
-	i := interp.New(interp.Options{})
-	if err := i.Use(stdlib.Symbols); err != nil {
-		t.Fatalf("Use(stdlib): %v", err)
-	}
-	if err := i.Use(Symbols); err != nil {
-		t.Fatalf("Use(gsx symbols): %v", err)
-	}
-	if _, err := i.Eval(generatedGo); err != nil {
-		t.Fatalf("eval generated component: %v", err)
-	}
-
-	// context is already imported (and in scope) from the generated file's eval;
-	// only strings is new.
-	const driver = `import "strings"
-
-func renderHTML() string {
-	var b strings.Builder
-	Greeting(GreetingProps{Name: "World"}).Render(context.Background(), &b)
-	return b.String()
+component Greeting(count int) {
+	<p>{ count |> upper }</p>
 }
 `
-	if _, err := i.Eval(driver); err != nil {
-		t.Fatalf("eval driver: %v", err)
+	out := p.Transform(src, `Greeting(GreetingProps{Count: 1})`)
+	if out.HTML != "" {
+		t.Fatalf("expected no HTML for a type error, got %q", out.HTML)
 	}
-	v, err := i.Eval("renderHTML()")
-	if err != nil {
-		t.Fatalf("call renderHTML: %v", err)
+	if len(out.Diagnostics) == 0 {
+		t.Fatal("expected a type-error diagnostic")
 	}
-	html := v.String()
-	if !strings.Contains(html, "Hello WORLD") {
-		t.Fatalf("interpreted HTML = %q, want it to contain 'Hello WORLD'", html)
+	if !strings.Contains(out.Diagnostics[0].Message, "as string value in argument") {
+		t.Fatalf("unexpected diagnostic: %+v", out.Diagnostics[0])
 	}
-	t.Logf("interpreted HTML: %s", html)
 }

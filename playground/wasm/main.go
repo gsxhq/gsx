@@ -1,8 +1,9 @@
 //go:build js && wasm
 
-// Command gsx-wasm is the client-side playground transform: it builds the gsx
-// resolver from the embedded type bundle (no go list, no subprocess) and exposes
-// a JS-callable gsxTransform(source) -> {code, diagnostics}. Build with
+// Command gsx-wasm is the client-side playground engine: it builds the gsx
+// transform+render Playground from the embedded type bundle (no go list, no
+// subprocess) and exposes gsxTransform(source, invoke) -> {code, html,
+// diagnostics}. Build with
 //
 //	GOOS=js GOARCH=wasm go build -o gsx.wasm ./playground/wasm
 //
@@ -12,55 +13,45 @@ package main
 import (
 	"syscall/js"
 
-	"github.com/gsxhq/gsx/gen"
-	"github.com/gsxhq/gsx/playground/playbundle"
+	"github.com/gsxhq/gsx/playground/interp"
 )
 
 func main() {
-	resolver, err := playbundle.NewResolver()
+	pg, err := interp.New()
 	if err != nil {
-		panic("gsx-wasm: build resolver: " + err.Error())
+		panic("gsx-wasm: build playground: " + err.Error())
 	}
 
 	js.Global().Set("gsxTransform", js.FuncOf(func(_ js.Value, args []js.Value) any {
-		if len(args) < 1 || args[0].Type() != js.TypeString {
-			return jsResult("", []map[string]any{{"severity": "error", "message": "gsxTransform expects (source string)"}})
+		src, invoke := "", ""
+		if len(args) > 0 && args[0].Type() == js.TypeString {
+			src = args[0].String()
 		}
-		return transform(resolver, args[0].String())
+		if len(args) > 1 && args[1].Type() == js.TypeString {
+			invoke = args[1].String()
+		}
+		return jsResult(pg.Transform(src, invoke))
 	}))
 
-	// Tell the host the function is registered, then keep the runtime alive so the
-	// exported callback stays callable.
 	if ready := js.Global().Get("gsxReady"); ready.Type() == js.TypeFunction {
 		ready.Invoke()
 	}
 	select {}
 }
 
-// transform runs the in-memory gsx transform and shapes the result for JS.
-func transform(resolver *gen.CachedResolver, src string) any {
-	res, _ := resolver.GenerateSource("source.gsx", []byte(src))
-	var code string
-	for _, b := range res.Files {
-		code = string(b) // single virtual source -> single output
-	}
-	diags := make([]map[string]any, 0, len(res.Diags))
-	for _, d := range res.Diags {
-		diags = append(diags, map[string]any{
-			"severity": d.Severity.String(),
-			"code":     d.Code,
+func jsResult(r interp.Result) any {
+	diags := make([]any, len(r.Diagnostics))
+	for i, d := range r.Diagnostics {
+		diags[i] = map[string]any{
+			"severity": d.Severity,
 			"message":  d.Message,
-			"line":     d.Start.Line,
-			"column":   d.Start.Column,
-		})
+			"line":     d.Line,
+			"column":   d.Column,
+		}
 	}
-	return jsResult(code, diags)
-}
-
-func jsResult(code string, diags []map[string]any) any {
-	js := make([]any, len(diags))
-	for i, d := range diags {
-		js[i] = d
+	return map[string]any{
+		"code":        r.Code,
+		"html":        r.HTML,
+		"diagnostics": diags,
 	}
-	return map[string]any{"code": code, "diagnostics": js}
 }
