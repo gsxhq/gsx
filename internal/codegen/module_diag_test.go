@@ -56,10 +56,12 @@ func TestModuleResetPackageCacheKeepsExternalWarm(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The freshly-rebuilt Button props struct must reflect the int param.
-	if obj := pkg.Scope().Lookup("ButtonProps"); obj != nil {
-		if !strings.Contains(obj.Type().Underlying().String(), "int") {
-			t.Fatalf("ResetPackageCache did not refresh comp types: %s", obj.Type().Underlying())
-		}
+	obj := pkg.Scope().Lookup("ButtonProps")
+	if obj == nil {
+		t.Fatal("ButtonProps not in scope after reset")
+	}
+	if !strings.Contains(obj.Type().Underlying().String(), "int") {
+		t.Fatalf("ResetPackageCache did not refresh comp types: %s", obj.Type().Underlying())
 	}
 	// ext importer must still be non-nil (warm, not cleared)
 	if m.ext == nil {

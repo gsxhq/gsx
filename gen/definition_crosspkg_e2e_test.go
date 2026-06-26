@@ -246,7 +246,8 @@ func TestDefinitionCrossPkgClosingTag(t *testing.T) {
 		}
 	}
 	mk("go.mod", "module example.com/x\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
-	mk("ui/components/comp.gsx", "package components\n\ncomponent Input(name string) {\n\t<input value={name}/>\n}\n")
+	depSrc := "package components\n\ncomponent Input(name string) {\n\t<input value={name}/>\n}\n"
+	mk("ui/components/comp.gsx", depSrc)
 	// Use an explicit (non-self-closing) call so the parser sets CloseNamePos on
 	// the element — empty children is fine; codegen treats it like self-closing.
 	page := "package x\n\nimport \"example.com/x/ui/components\"\n\ncomponent Page() {\n\t<components.Input name=\"a\"></components.Input>\n}\n"
@@ -293,8 +294,12 @@ func TestDefinitionCrossPkgClosingTag(t *testing.T) {
 	if !strings.HasSuffix(loc.URI, filepath.Join("ui", "components", "comp.gsx")) {
 		t.Fatalf("resolved to %q, want ui/components/comp.gsx", loc.URI)
 	}
-	// `component Input(...)` is on line index 2 of comp.gsx; expect the `Input` name.
-	if loc.Range.Start.Line != 2 {
-		t.Fatalf("landed on line %d, want 2 (the Input decl)", loc.Range.Start.Line)
+	// `component Input(...)` is on line index 2 of comp.gsx; expect the `Input` name column.
+	depLines := strings.Split(depSrc, "\n")
+	declLine := depLines[2]
+	wantNameCol := strings.Index(declLine, "Input")
+	if loc.Range.Start.Line != 2 || loc.Range.Start.Character != wantNameCol {
+		t.Fatalf("landed at L%d:C%d, want L2:C%d (the Input decl name)",
+			loc.Range.Start.Line, loc.Range.Start.Character, wantNameCol)
 	}
 }

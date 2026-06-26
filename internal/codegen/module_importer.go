@@ -138,6 +138,8 @@ func (m *Module) isGsxPackage(dir string) bool {
 // typesPackage type-checks dir's skeletons (building a fresh importer rooted at
 // dir) and returns/caches the *types.Package. Entry point for external callers.
 func (m *Module) typesPackage(dir string) (*types.Package, error) {
+	m.analysisMu.Lock()
+	defer m.analysisMu.Unlock()
 	ext, err := m.externalImporter()
 	if err != nil {
 		return nil, err
@@ -299,7 +301,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	for _, e := range typeErrs {
 		p := e.Fset.Position(e.Pos) // e.Fset is the shared fset; //line maps skeleton → .gsx
 		if strings.HasSuffix(p.Filename, ".x.go") {
-			continue // synthetic skeleton position with no //line — skip (as batch/harvest do)
+			continue // synthetic skeleton position: no //line directive, so no valid .gsx location to report
 		}
 		bag.Add(diag.Diagnostic{Start: p, End: p, Severity: diag.Error, Message: e.Msg, Source: "types"})
 	}

@@ -28,9 +28,11 @@ type NavRef struct {
 }
 
 // Package is the retained, read-only result of analyzing one .gsx package: the
-// diagnostics plus everything the read-intelligence features need. The two
-// FileSets are distinct — GSXFset resolves gsx node positions; Fset resolves
-// skeleton/object positions (honoring //line).
+// diagnostics plus everything the read-intelligence features need. GSXFset
+// resolves gsx node positions; Fset resolves skeleton/object positions
+// (honoring //line). Under the Module path both may point to the same
+// *token.FileSet (the module-wide shared fset); callers must not assume they
+// are distinct objects.
 type Package struct {
 	Diags      []diag.Diagnostic
 	GSXFset    *token.FileSet
