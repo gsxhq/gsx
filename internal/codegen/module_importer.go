@@ -181,7 +181,6 @@ type analyzed struct {
 	skelFset     *token.FileSet                 // skeleton positions (same fset as gsxFset for Module)
 	goFiles      []*goast.File                  // parsed skeletons + shared helper
 	compsByXGo   map[string][]*gsxast.Component // skeleton abs path -> components
-	ctrlOffByXGo map[string]map[gsxast.Node]int // skeleton abs path -> control-flow clause byte offsets
 	table        filterTable
 	propFields   map[string]map[string]bool
 	nodeProps    map[string]map[string]bool
@@ -375,7 +374,6 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		skelFset:     fset,
 		goFiles:      goFiles,
 		compsByXGo:   compsByXGo,
-		ctrlOffByXGo: ctrlOffByXGo,
 		table:        table,
 		propFields:   propFields,
 		nodeProps:    nodeProps,
