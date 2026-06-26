@@ -54,10 +54,33 @@ func (p *printer) fail(format string, args ...any) pretty.Doc {
 // is appended here.
 func (p *printer) file(f *ast.File) pretty.Doc {
 	parts := []pretty.Doc{pretty.Text("package "), pretty.Text(f.Package), pretty.HardLine}
-	for _, d := range f.Decls {
-		parts = append(parts, pretty.HardLine, p.decl(d))
+	for i, d := range f.Decls {
+		// Each declaration is preceded by a blank line, EXCEPT when the previous
+		// declaration is a Go chunk whose source runs directly into this one (a
+		// doc comment sitting immediately above a `component`, with no blank line
+		// between them in the source): such a comment stays attached, gofmt-style.
+		blank := true
+		if i > 0 {
+			if prev, ok := f.Decls[i-1].(*ast.GoChunk); ok && !endsWithBlankLine(prev.Src) {
+				blank = false
+			}
+		}
+		if blank {
+			parts = append(parts, pretty.HardLine)
+		}
+		parts = append(parts, p.decl(d))
 	}
 	return pretty.Concat(parts...)
+}
+
+// endsWithBlankLine reports whether src's trailing whitespace contains a blank
+// line (two or more newlines) — i.e. the source had a blank line between this Go
+// chunk and whatever follows it. Trailing spaces/tabs on the last line are
+// ignored. A single trailing newline (the chunk runs straight into the next
+// declaration) returns false.
+func endsWithBlankLine(src string) bool {
+	s := strings.TrimRight(src, " \t")
+	return strings.HasSuffix(s, "\n\n")
 }
 
 func (p *printer) decl(d ast.Decl) pretty.Doc {
@@ -128,8 +151,6 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 	// Opening tag group: flat → `<tag a b>`; broken → each attr on its own line
 	// with `>` (or `/>`) alone. A forced break inside any attr (CondAttr) breaks
 	// the group; otherwise it breaks only on width overflow.
-	tagBroken := elementHasCondAttr(e)
-
 	selfClose := e.Void && len(e.Children) == 0
 	tail := pretty.Text(">")
 	if selfClose {
@@ -158,36 +179,30 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 		return pretty.Concat(openTag, p.childrenPreserve(e.Children), close)
 	}
 
-	inner, breakable := p.childrenInner(e.Children)
 	if len(e.Children) == 0 {
 		return pretty.Concat(openTag, close)
 	}
-	// Couple tag-break to children-break: when the opening tag breaks, children
-	// break too (avoids `>{ children… }</div>`). Encode by adding BreakParent to
-	// the children group when the tag is forced broken; for width-driven tag
-	// breaks the children group still decides independently (its own width).
-	childBody := pretty.Concat(pretty.Indent(pretty.Concat(pretty.SoftLine, inner)), pretty.SoftLine)
-	if !breakable {
-		// A non-breakable children list cannot host added breaks: children sit
-		// inline after `>` (on the final tag line if the opening tag broke).
+	inner, edgeSafe := p.childrenInner(e.Children)
+	if !edgeSafe {
+		// Edge-unsafe children cannot host added breaks (a break would absorb a
+		// significant leading/trailing space): keep them inline after `>`.
 		return pretty.Concat(openTag, inner, close)
 	}
-	forceChildren := pretty.Text("")
-	if tagBroken {
-		forceChildren = pretty.BreakParent
+	// One element group with the opening-tag group NESTED inside it. Structural
+	// rule: a list containing a block-level child always breaks so the document
+	// hierarchy is visible (the BreakParent forces it regardless of width); an
+	// inline-only (text/interp) list stays on one line and breaks only if the
+	// opening tag itself wraps. The nested opening-tag group re-decides
+	// independently, so short attributes stay inline even when children break,
+	// and a CondAttr's BreakParent inside the tag also forces the children open.
+	force := pretty.Text("")
+	if hasBlockChild(e.Children) {
+		force = pretty.BreakParent
 	}
-	return pretty.Concat(openTag, pretty.Group(pretty.Concat(forceChildren, childBody, close)))
-}
-
-// elementHasCondAttr reports whether any attribute is conditional (forces the
-// opening tag to wrap, templ-style).
-func elementHasCondAttr(e *ast.Element) bool {
-	for _, a := range e.Attrs {
-		if _, ok := a.(*ast.CondAttr); ok {
-			return true
-		}
-	}
-	return false
+	return pretty.Group(pretty.Concat(
+		openTag, force,
+		pretty.Indent(pretty.Concat(pretty.SoftLine, inner)),
+		pretty.SoftLine, close))
 }
 
 // attrDoc renders one attribute as a Doc. Conditional attributes are rendered
@@ -376,7 +391,15 @@ func (p *printer) cfBody(nodes []ast.Markup) pretty.Doc {
 	if leadsWithSpace(nodes[0]) || trailsWithSpace(nodes[len(nodes)-1]) {
 		return pretty.Concat(pretty.Text(" "), inner, pretty.Text(" "))
 	}
-	return pretty.Concat(pretty.Indent(pretty.Concat(pretty.Line, inner)), pretty.Line)
+	body := pretty.Concat(pretty.Indent(pretty.Concat(pretty.Line, inner)), pretty.Line)
+	// Structural rule: a control-flow body containing a block-level child always
+	// breaks (the BreakParent forces the enclosing if/for group open), so e.g.
+	// `{ for … { <Card/> } }` shows its hierarchy. An inline-only body stays on
+	// one line and breaks only if it overflows the width.
+	if hasBlockChild(nodes) {
+		return pretty.Concat(pretty.BreakParent, body)
+	}
+	return body
 }
 
 // switchMarkup always breaks (cases on their own lines) via HardLine, unless
@@ -436,8 +459,10 @@ func (p *printer) caseBody(nodes []ast.Markup) pretty.Doc {
 	if len(nodes) == 0 {
 		return pretty.Text("")
 	}
-	inner, breakable := p.childrenInner(nodes)
-	if !breakable {
+	inner, edgeSafe := p.childrenInner(nodes)
+	// A switch arm with a block-level child takes its own indented line(s); an
+	// inline-only (or edge-unsafe) arm follows the colon on the same line.
+	if !edgeSafe || !hasBlockChild(nodes) {
 		return inner
 	}
 	return pretty.Indent(pretty.Concat(pretty.HardLine, inner))
