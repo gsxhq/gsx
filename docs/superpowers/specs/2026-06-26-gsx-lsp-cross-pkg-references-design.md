@@ -29,7 +29,16 @@ triggers a one-time whole-module analysis, cached and invalidated on edits.
   the result is cached per edit-cycle, and the module is the user's own (bounded).
   Routing the build through a worker with reply-by-id is a documented follow-up.
 - **Unsaved `.go` edits.** Codegen reads `.go` from disk; `.gsx` open buffers are
-  supplied as overrides. Unsaved `.go` edits are gopls's domain, not ours.
+  supplied as overrides. Unsaved `.go` edits are gopls's domain, not ours. A
+  consequence: a *saved* `.go` reference change is not reflected until the next
+  `.gsx`/document mutation invalidates the cache (the gsx server keys
+  invalidation off the documents it owns).
+- **Pure-`.go` referencing packages.** `discoverDirs` enumerates only dirs that
+  directly contain a `.gsx` file, so a package with *no* `.gsx` files that
+  references a component (e.g. a Go handler calling `components.Input(...)`) is
+  not loaded by `AnalyzeModule` and its references are omitted. This is not a
+  regression (such refs were never found), but it narrows the "whole module"
+  goal; widening enumeration to gsx *importers* is a follow-up.
 - **`.x.go` reliance.** References resolve from in-memory analysis (`TypesInfo` +
   `//line`-mapped positions), never the on-disk `.x.go` content, as everywhere
   else in the LSP.
