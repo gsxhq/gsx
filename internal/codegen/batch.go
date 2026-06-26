@@ -30,6 +30,19 @@ type CrossRef struct {
 	Refs []token.Position
 }
 
+// compOwner identifies the package directory and componentKey that own a
+// component func object, for routing cross-package references (see the
+// cross-package find-references design).
+type compOwner struct{ dir, key string }
+
+// analyzedPkg retains one analyzed package's fileset and use info for the
+// post-loop cross-package reference pass.
+type analyzedPkg struct {
+	dir  string
+	fset *token.FileSet
+	info *types.Info
+}
+
 // NavRef is one navigable Go reference (in a .go or skeleton file) and the .gsx
 // position it targets. From is the reference site; To is the .gsx declaration.
 type NavRef struct {
@@ -276,6 +289,8 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 	// Step 6: build one global resolved map. For each loaded pkg, determine its
 	// dir from its files, skip deps/stdlib, harvest skeletons.
 	resolved := map[gsxast.Node]types.Type{}
+	compObjOwner := map[types.Object]compOwner{}
+	var analyzed []analyzedPkg
 	for _, pkg := range pkgs {
 		// Determine which input dir this loaded package belongs to by looking at
 		// one of its compiled go files. Overlay files live under the dir too.
@@ -357,6 +372,14 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 		for key, c := range compByKey {
 			index[key] = CrossRef{Name: c.Name, Decl: fset.Position(c.NamePos)} // gsx fset → .gsx position
 		}
+
+		// Accumulate this package's component objects and use info for the
+		// cross-package reference pass (design §3). Done before the type-error
+		// `continue`s below so every indexed package participates.
+		for key, obj := range compObjByKey {
+			compObjOwner[obj] = compOwner{dir: pkgDir, key: key}
+		}
+		analyzed = append(analyzed, analyzedPkg{dir: pkgDir, fset: pkg.Fset, info: pkg.TypesInfo})
 
 		// Build maps for NavIndex: props-struct objects and field var objects → .gsx targets.
 		// structObjToComp maps a props-struct types.Object → the component it belongs to.
@@ -490,6 +513,30 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 			}
 			delete(filesByDir, pkgDir) // exclude from codegen step
 			continue
+		}
+	}
+
+	// Cross-package reference pass: route a use of an imported component into
+	// the DECLARING component's CrossRef. In-package refs were already added by
+	// Case 1 above (owner.dir == ap.dir, skipped here). For a single-dir batch
+	// compObjOwner holds one dir, so nothing is appended. See design §3.
+	for _, ap := range analyzed {
+		for id, obj := range ap.info.Uses {
+			owner, ok := compObjOwner[obj]
+			if !ok || owner.dir == ap.dir {
+				continue
+			}
+			p := ap.fset.Position(id.Pos())
+			if strings.HasSuffix(p.Filename, ".x.go") {
+				continue // synthetic skeleton position, no //line
+			}
+			res := result[owner.dir]
+			if res == nil || res.CrossIndex == nil {
+				continue
+			}
+			cr := res.CrossIndex[owner.key]
+			cr.Refs = append(cr.Refs, p)
+			res.CrossIndex[owner.key] = cr
 		}
 	}
 

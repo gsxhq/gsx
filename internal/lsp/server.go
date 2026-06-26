@@ -19,6 +19,14 @@ const defaultDebounce = 250 * time.Millisecond
 // .gsx path -> buffer bytes) in place of on-disk content for open documents.
 type Analyzer interface {
 	Analyze(dir string, override map[string][]byte) (*Package, error)
+	// AnalyzeModule analyzes every gsx package in the module containing dir and
+	// returns one flat cross-reference list (each component once; Refs span the
+	// whole module). Used by find-references; failure is non-fatal (the server
+	// falls back to the per-package CrossIndex).
+	AnalyzeModule(dir string, override map[string][]byte) ([]CrossRef, error)
+	// PrintWidth returns the gsx.toml print width for the given directory
+	// (default 80). Used by textDocument/formatting.
+	PrintWidth(dir string) int
 }
 
 // Server is a stdio LSP server that publishes gsx diagnostics. It owns the
@@ -42,6 +50,9 @@ type Server struct {
 	enc      encoding
 	shutdown bool
 	exited   bool
+
+	moduleRefs      []CrossRef // whole-module cross-reference index (lazy; find-references)
+	moduleRefsValid bool       // false ⇒ rebuild on next references request
 
 	debounce time.Duration
 	// schedule arms a timer that calls f after d, returning a cancel func. It is a
@@ -244,11 +255,19 @@ func (s *Server) notify(method string, params any) error {
 	}{"2.0", method, params})
 }
 
+// invalidateModuleRefs drops the cached whole-module reference index; the next
+// references request rebuilds it. Any document mutation may change references.
+func (s *Server) invalidateModuleRefs() {
+	s.moduleRefs = nil
+	s.moduleRefsValid = false
+}
+
 func (s *Server) handleDidOpen(f frame) error {
 	var p didOpenParams
 	if err := json.Unmarshal(f.Params, &p); err != nil {
 		return nil
 	}
+	s.invalidateModuleRefs()
 	s.docs.open(p.TextDocument.URI, p.TextDocument.Text, p.TextDocument.Version)
 	uri := p.TextDocument.URI
 	dir := filepath.Dir(uriToPath(uri))
@@ -272,6 +291,7 @@ func (s *Server) handleDidChange(f frame) error {
 	if len(p.ContentChanges) == 0 {
 		return nil
 	}
+	s.invalidateModuleRefs()
 	// Full-document sync: the last change carries the whole new text.
 	text := p.ContentChanges[len(p.ContentChanges)-1].Text
 	s.docs.update(p.TextDocument.URI, text, p.TextDocument.Version)
@@ -311,6 +331,7 @@ func (s *Server) handleDidClose(f frame) error {
 	if err := json.Unmarshal(f.Params, &p); err != nil {
 		return nil
 	}
+	s.invalidateModuleRefs()
 	s.docs.close(p.TextDocument.URI)
 	s.gen[filepath.Dir(uriToPath(p.TextDocument.URI))]++ // supersede any in-flight worker
 	// Clear diagnostics for the now-closed document.

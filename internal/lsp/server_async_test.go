@@ -20,6 +20,10 @@ type blockingAnalyzer struct {
 	calls chan chan struct{}
 }
 
+func (a *blockingAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
+	return nil, nil
+}
+
 func (a *blockingAnalyzer) Analyze(_ string, override map[string][]byte) (*Package, error) {
 	release := make(chan struct{})
 	a.calls <- release
@@ -34,6 +38,8 @@ func (a *blockingAnalyzer) Analyze(_ string, override map[string][]byte) (*Packa
 		Message:  "boom",
 	}}}, nil
 }
+
+func (a *blockingAnalyzer) PrintWidth(string) int { return 80 }
 
 // TestAnalysisIsAsyncAndSupersededResultsDiscarded proves two Phase-2 properties
 // deterministically (no sleeps): (1) the Run loop answers requests while an

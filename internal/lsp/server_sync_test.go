@@ -16,6 +16,8 @@ type fakeAnalyzer struct {
 	file string // abs .gsx path to attach the diagnostic to
 }
 
+func (a fakeAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) { return nil, nil }
+
 func (a fakeAnalyzer) Analyze(dir string, override map[string][]byte) (*Package, error) {
 	if _, ok := override[a.file]; !ok {
 		return &Package{}, nil // the open buffer must reach the analyzer
@@ -29,6 +31,8 @@ func (a fakeAnalyzer) Analyze(dir string, override map[string][]byte) (*Package,
 		Message:  "undefined: foo",
 	}}}, nil
 }
+
+func (a fakeAnalyzer) PrintWidth(string) int { return 80 }
 
 func TestDidOpenPublishesDiagnostics(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "page.gsx")

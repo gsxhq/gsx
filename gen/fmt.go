@@ -74,6 +74,7 @@ func runFmt(stdout, stderr io.Writer, args []string) int {
 	}
 
 	exit := 0
+	widthByDir := map[string]int{}
 	for _, path := range files {
 		orig, err := os.ReadFile(path)
 		if err != nil {
@@ -82,7 +83,13 @@ func runFmt(stdout, stderr io.Writer, args []string) int {
 			continue
 		}
 		abs, _ := filepath.Abs(path)
-		formatted, err := gsxfmt.FormatRemovingImports(path, orig, unusedByPath[abs])
+		dir := filepath.Dir(path)
+		width, ok := widthByDir[dir]
+		if !ok {
+			width = printWidthFor(dir)
+			widthByDir[dir] = width
+		}
+		formatted, err := gsxfmt.FormatRemovingImports(path, orig, unusedByPath[abs], width)
 		if err != nil {
 			fmt.Fprintf(stderr, "%s: %v\n", path, err)
 			exit = 1
@@ -131,7 +138,21 @@ func Format(name string, src []byte) ([]byte, error) { return formatGsx(name, sr
 // failure and continues with the other files). It delegates to gsxfmt.Format,
 // the shared engine the language server's textDocument/formatting also uses.
 func formatGsx(name string, src []byte) ([]byte, error) {
-	return gsxfmt.Format(name, src)
+	return gsxfmt.Format(name, src, printWidthFor("."))
+}
+
+// printWidthFor returns the effective gsx.toml printWidth for dir (default 80),
+// best-effort: discovery/decoding failures fall back to 80.
+func printWidthFor(dir string) int {
+	path, ok := discoverConfig(dir)
+	if !ok {
+		return 80
+	}
+	cfg, err := loadConfig(path)
+	if err != nil {
+		return 80
+	}
+	return cfg.effectivePrintWidth()
 }
 
 // analyzeUnusedImports best-effort computes, per absolute .gsx path, the imports

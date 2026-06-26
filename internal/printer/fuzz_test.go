@@ -79,7 +79,7 @@ func FuzzStyleRoundTrip(f *testing.F) {
 		}
 		wsnorm.Normalize(file)
 		var b strings.Builder
-		if err := Fprint(&b, file); err != nil {
+		if err := Fprint(&b, file, 80); err != nil {
 			return
 		}
 		// Faithfulness: the formatted output must itself re-parse.

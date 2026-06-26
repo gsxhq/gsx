@@ -25,68 +25,92 @@ type cycleResult struct {
 
 func (r cycleResult) durationMs() int64 { return r.DurMs }
 
-// watchSession holds the live state for a running generate-on-change session:
-// the warm module-wide resolver and the original configuration.
+// watchSession holds the live state for a running generate-on-change session.
+// Discovery may span several independent modules, so the session keeps one warm
+// resolver per module root: each dir's regenerate must run against the resolver
+// anchored at ITS module, or cross-package refs in a sibling module read as "not
+// loaded". root is the primary module root, used only for the startup banner.
 type watchSession struct {
-	cfg      watchConfig
-	root     string
-	resolver *CachedResolver
+	cfg       watchConfig
+	root      string                     // primary module root (startup banner only)
+	roots     []string                   // every module root the session spans
+	resolvers map[string]*CachedResolver // module root -> warm resolver
 }
 
 // newWatchSession runs the initial cold generate (full cross-package
-// correctness, creates every .x.go), then builds the warm resolver over the
-// now-complete module. Returns the session plus per-dir startup results so the
-// caller can emit them.
+// correctness, creates every .x.go), then builds a warm resolver for every
+// module spanned. Returns the session plus startup results so the caller can
+// emit them.
 func newWatchSession(cfg watchConfig) (*watchSession, []cycleResult, error) {
 	dirs, err := discoverDirs(cfg.paths)
 	if err != nil {
 		return nil, nil, err
 	}
-	root, _, err := moduleRoot(dirs[0])
-	if err != nil {
-		return nil, nil, err
+	groups, _ := groupByModule(dirs)
+	if len(groups) == 0 {
+		// No enclosing module for any discovered dir — surface the lookup error.
+		_, _, mErr := moduleRoot(dirs[0])
+		return nil, nil, mErr
 	}
-	// Cold generate: writes all .x.go files to disk.
+	// Cold generate: writes all .x.go files to disk across every module.
 	res, gerr := generateCached(cfg.paths, cfg.filterPkgs, cfg.aliases, cfg.cls, cfg.predLabel, cfg.fm, true, cfg.cssMin, cfg.jsMin)
 	// generateCached folds error-severity diagnostics into its returned error, so
 	// gerr==nil already implies !anyErrorDiag(res.Diags). The two-term form is
 	// kept symmetric with the warm path (regen) for clarity and robustness.
 	startup := []cycleResult{{
-		Dir:     root,
+		Dir:     groups[0].root,
 		Written: res.Written,
 		Diags:   res.Diags,
 		OK:      gerr == nil && !anyErrorDiag(res.Diags),
 		Err:     opErr(res, gerr),
 	}}
 
-	s := &watchSession{cfg: cfg, root: root}
-	// Build the warm resolver over the whole module (needs .x.go on disk).
+	s := &watchSession{cfg: cfg, root: groups[0].root, resolvers: map[string]*CachedResolver{}}
+	for _, g := range groups {
+		s.roots = append(s.roots, g.root)
+	}
+	// Build the warm resolver for every module (needs .x.go on disk).
 	if err := s.rebuild(); err != nil {
 		return nil, startup, err
 	}
 	return s, startup, nil
 }
 
-// rebuild (re)constructs the module-wide CachedResolver. Call after a dep-
-// surface change (new import, new .x.go added, etc.).
+// rebuild (re)constructs the warm CachedResolver for every module the session
+// spans. Call after a dep-surface change (new import, new .x.go added, etc.).
 func (s *watchSession) rebuild() error {
-	r, err := newModuleResolver(s.root, s.cfg.filterPkgs, s.cfg.aliases)
-	if err != nil {
-		return err
+	resolvers := make(map[string]*CachedResolver, len(s.roots))
+	for _, root := range s.roots {
+		r, err := newModuleResolver(root, s.cfg.filterPkgs, s.cfg.aliases)
+		if err != nil {
+			return err
+		}
+		resolvers[root] = r
 	}
-	s.resolver = r
+	s.resolvers = resolvers
 	return nil
 }
 
-// regen warm-regenerates one dir using the cached resolver. On a
-// cached-importer miss (a newly added import the resolver has never loaded),
-// it rebuilds once and retries.
+// regen warm-regenerates one dir using its module's cached resolver. On a
+// cached-importer miss (a newly added import the resolver has never loaded), it
+// rebuilds once and retries. A dir in a module the session has not seen yet
+// (e.g. a freshly created sub-module) is registered and its resolver built.
 func (s *watchSession) regen(dir string) cycleResult {
 	start := time.Now()
-	res, err := s.resolver.Generate(dir, nil)
+	root, _, rerr := moduleRoot(dir)
+	if rerr != nil {
+		return cycleResult{Dir: dir, Err: rerr, DurMs: time.Since(start).Milliseconds()}
+	}
+	if _, ok := s.resolvers[root]; !ok {
+		s.roots = append(s.roots, root)
+		if rebuildErr := s.rebuild(); rebuildErr != nil {
+			return cycleResult{Dir: dir, Err: rebuildErr, DurMs: time.Since(start).Milliseconds()}
+		}
+	}
+	res, err := s.resolvers[root].Generate(dir, nil)
 	if err != nil && isCachedImporterMiss(err, res) {
 		if rebuildErr := s.rebuild(); rebuildErr == nil {
-			res, err = s.resolver.Generate(dir, nil)
+			res, err = s.resolvers[root].Generate(dir, nil)
 		}
 	}
 	written, werr := writeFiles(dir, res.Files)

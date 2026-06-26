@@ -7,7 +7,7 @@ import (
 
 func mustFormat(t *testing.T, src string, unused []ImportRef) string {
 	t.Helper()
-	out, err := FormatRemovingImports("x.gsx", []byte(src), unused)
+	out, err := FormatRemovingImports("x.gsx", []byte(src), unused, 80)
 	if err != nil {
 		t.Fatalf("FormatRemovingImports: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestBlankImportPreserved(t *testing.T) {
 // TestNoUnusedIsPlainFormat: empty unused ⇒ identical to Format.
 func TestNoUnusedIsPlainFormat(t *testing.T) {
 	src := "package x\n\nimport \"strings\"\n\ncomponent C() {\n\t<p>{ strings.ToUpper(\"x\") }</p>\n}\n"
-	plain, err := Format("x.gsx", []byte(src))
+	plain, err := Format("x.gsx", []byte(src), 80)
 	if err != nil {
 		t.Fatal(err)
 	}

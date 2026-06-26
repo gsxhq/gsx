@@ -291,3 +291,25 @@ func TestMergeConfigOptsOverride(t *testing.T) {
 		t.Fatalf("aliases = %+v", merged.aliases)
 	}
 }
+
+func TestConfigPrintWidth(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gsx.toml")
+	if err := os.WriteFile(path, []byte("printWidth = 100\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if got := cfg.effectivePrintWidth(); got != 100 {
+		t.Fatalf("printWidth = %d, want 100", got)
+	}
+}
+
+func TestConfigPrintWidthDefault(t *testing.T) {
+	var c config
+	if got := c.effectivePrintWidth(); got != 80 {
+		t.Fatalf("default printWidth = %d, want 80", got)
+	}
+}

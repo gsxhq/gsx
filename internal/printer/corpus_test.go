@@ -67,7 +67,7 @@ func normPrint(t *testing.T, src string) (string, error) {
 	}
 	wsnorm.Normalize(f)
 	var b strings.Builder
-	err = Fprint(&b, f)
+	err = Fprint(&b, f, 80)
 	return b.String(), err
 }
 func TestCorpusIdempotence(t *testing.T) {
