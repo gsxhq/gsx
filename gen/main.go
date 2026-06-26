@@ -44,7 +44,10 @@ type config struct {
 	predLabel    string
 	fieldMatcher codegen.FieldMatcher
 	errs         []error
-	printWidth   int // gsx.toml printWidth; 0 means "unset" → 80 at use
+	printWidth      int         // gsx.toml printWidth; 0 means "unset" → 80 at use
+	cssMinLevel     MinifyLevel // <style> minification level (zero = MinifySafe)
+	jsMinLevel      MinifyLevel // <script> minification level (zero = MinifySafe)
+	minifyLevelSet  bool        // true once an option (WithMinifyLevel) pinned the levels
 }
 
 // effectivePrintWidth returns the configured print width, defaulting to 80 when

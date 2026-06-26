@@ -32,6 +32,15 @@ type tomlConfig struct {
 	URLAttrs       []tomlRule        `toml:"urlAttrs"`
 	CSSAttrs       []tomlRule        `toml:"cssAttrs"`
 	PrintWidth     int               `toml:"printWidth"`
+	Minify         *tomlMinify       `toml:"minify"`
+}
+
+// tomlMinify is the [minify] table: per-asset level spellings. A nil pointer
+// (table absent) leaves both levels at their default (safe). An empty string for
+// a key (key absent) likewise leaves that asset's default.
+type tomlMinify struct {
+	CSS string `toml:"css"`
+	JS  string `toml:"js"`
 }
 
 // tomlRule is one attribute-classification rule from an array-of-tables. Exactly
@@ -141,6 +150,22 @@ func loadConfig(path string) (config, error) {
 	}
 	if cfg.cssRules, err = appendTomlRules(path, "cssAttrs", cfg.cssRules, tc.CSSAttrs); err != nil {
 		return config{}, err
+	}
+	if tc.Minify != nil {
+		if tc.Minify.CSS != "" {
+			lvl, err := parseMinifyLevel(tc.Minify.CSS)
+			if err != nil {
+				return config{}, fmt.Errorf("%s: minify.css: %w", path, err)
+			}
+			cfg.cssMinLevel = lvl
+		}
+		if tc.Minify.JS != "" {
+			lvl, err := parseMinifyLevel(tc.Minify.JS)
+			if err != nil {
+				return config{}, fmt.Errorf("%s: minify.js: %w", path, err)
+			}
+			cfg.jsMinLevel = lvl
+		}
 	}
 	cfg.printWidth = tc.PrintWidth
 	return cfg, nil
