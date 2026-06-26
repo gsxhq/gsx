@@ -26,9 +26,9 @@ func TestLoadConfigAllKeys(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "gsx.toml")
 	mkfile(t, path, `
-filters = ["github.com/gsxhq/gsx/std", "example.com/myfilters"]
+filterPackages = ["github.com/gsxhq/gsx/std", "example.com/myfilters"]
 
-[aliases]
+[filters]
 url    = "github.com/jackielii/structpages.URLFor"
 id     = "github.com/jackielii/structpages.ID"
 
@@ -104,7 +104,7 @@ func TestSplitPkgFunc(t *testing.T) {
 func TestLoadConfigBadAlias(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "gsx.toml")
-	mkfile(t, path, "[aliases]\nbad = \"example.com/p.helper\"\n")
+	mkfile(t, path, "[filters]\nbad = \"example.com/p.helper\"\n")
 	_, err := loadConfig(path)
 	if err == nil {
 		t.Fatal("expected error for non-exported alias target")

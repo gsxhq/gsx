@@ -16,15 +16,21 @@ import (
 const configFileName = "gsx.toml"
 
 // tomlConfig is the on-disk gsx.toml schema (v1). It mirrors the declarative
-// subset of the gen.With* options (filters, aliases, attr rules); func-valued
-// options (custom minifier/classifier/field-matcher) stay code-only. Field tags
-// pin the exact TOML keys so strict decoding (Undecoded) can reject typos.
+// subset of the gen.With* options (named filters, filter packages, attr rules);
+// func-valued options (custom minifier/classifier/field-matcher) stay code-only.
+// Field tags pin the exact TOML keys so strict decoding (Undecoded) can reject
+// typos.
+//
+// Filters is the named-filter table (template name → "<pkgPath>.<Func>"), the
+// common case used as `{ value |> name(args) }`. FilterPackages is the bulk
+// form: every exported func of each listed package is registered as a filter,
+// named by its lower-cased func name (std.Upper → `upper`).
 type tomlConfig struct {
-	Filters  []string          `toml:"filters"`
-	Aliases  map[string]string `toml:"aliases"`
-	JSAttrs  []tomlRule        `toml:"jsAttrs"`
-	URLAttrs []tomlRule        `toml:"urlAttrs"`
-	CSSAttrs []tomlRule        `toml:"cssAttrs"`
+	Filters        map[string]string `toml:"filters"`
+	FilterPackages []string          `toml:"filterPackages"`
+	JSAttrs        []tomlRule        `toml:"jsAttrs"`
+	URLAttrs       []tomlRule        `toml:"urlAttrs"`
+	CSSAttrs       []tomlRule        `toml:"cssAttrs"`
 }
 
 // tomlRule is one attribute-classification rule from an array-of-tables. Exactly
@@ -107,20 +113,21 @@ func loadConfig(path string) (config, error) {
 	}
 
 	var cfg config
-	for _, f := range tc.Filters {
-		cfg.appendFilterPkg(f)
+	for _, p := range tc.FilterPackages {
+		cfg.appendFilterPkg(p)
 	}
 
-	// Aliases: sort by name for a deterministic slice (TOML maps are unordered).
-	names := make([]string, 0, len(tc.Aliases))
-	for n := range tc.Aliases {
+	// Named filters: sort by name for a deterministic slice (TOML maps are
+	// unordered) so the resolved order — and thus the cache key — is stable.
+	names := make([]string, 0, len(tc.Filters))
+	for n := range tc.Filters {
 		names = append(names, n)
 	}
 	sort.Strings(names)
 	for _, n := range names {
-		pkgPath, funcName, err := splitPkgFunc(tc.Aliases[n])
+		pkgPath, funcName, err := splitPkgFunc(tc.Filters[n])
 		if err != nil {
-			return config{}, fmt.Errorf("%s: alias %q: %w", path, n, err)
+			return config{}, fmt.Errorf("%s: filter %q: %w", path, n, err)
 		}
 		cfg.aliases = append(cfg.aliases, codegen.FilterAlias{Name: n, PkgPath: pkgPath, FuncName: funcName})
 	}
