@@ -82,7 +82,7 @@ func runFmt(stdout, stderr io.Writer, args []string) int {
 			continue
 		}
 		abs, _ := filepath.Abs(path)
-		formatted, err := gsxfmt.FormatRemovingImports(path, orig, unusedByPath[abs])
+		formatted, err := gsxfmt.FormatRemovingImports(path, orig, unusedByPath[abs], 80)
 		if err != nil {
 			fmt.Fprintf(stderr, "%s: %v\n", path, err)
 			exit = 1
@@ -131,7 +131,7 @@ func Format(name string, src []byte) ([]byte, error) { return formatGsx(name, sr
 // failure and continues with the other files). It delegates to gsxfmt.Format,
 // the shared engine the language server's textDocument/formatting also uses.
 func formatGsx(name string, src []byte) ([]byte, error) {
-	return gsxfmt.Format(name, src)
+	return gsxfmt.Format(name, src, 80)
 }
 
 // analyzeUnusedImports best-effort computes, per absolute .gsx path, the imports

@@ -34,7 +34,7 @@ func (s *Server) handleFormatting(f frame) error {
 	if pkg := s.pkgs[filepath.Dir(path)]; pkg != nil {
 		unused = pkg.UnusedImports[path] // nil when analysis is unavailable/unreliable
 	}
-	formatted, err := gsxfmt.FormatRemovingImports(path, []byte(text), unused)
+	formatted, err := gsxfmt.FormatRemovingImports(path, []byte(text), unused, 80)
 	if err != nil || string(formatted) == text {
 		return s.reply(f.ID, []TextEdit{}) // invalid mid-edit, or already canonical
 	}

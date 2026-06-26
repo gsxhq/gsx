@@ -1,6 +1,7 @@
 package printer
 
 import (
+	"bytes"
 	"go/token"
 	"strings"
 	"testing"
@@ -19,7 +20,7 @@ func fmtSource(t *testing.T, src string) string {
 	}
 	wsnorm.Normalize(f)
 	var b strings.Builder
-	if err := Fprint(&b, f); err != nil {
+	if err := Fprint(&b, f, 80); err != nil {
 		t.Fatalf("Fprint error: %v", err)
 	}
 	return b.String()
@@ -40,7 +41,26 @@ func checkFormat(t *testing.T, src, want string) {
 	}
 }
 
+func assertFormat(t *testing.T, src, want string) {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "c.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	wsnorm.Normalize(f)
+	var b bytes.Buffer
+	if err := Fprint(&b, f, 80); err != nil {
+		t.Fatalf("print: %v", err)
+	}
+	if got := b.String(); got != want {
+		t.Fatalf("format mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
 func TestElementBlock(t *testing.T) {
+	// Two short children fit on one line in the new width-aware layout: the
+	// <div> Group collapses because <div><p>a</p><span>b</span></div> < 80 cols.
 	src := `package p
 component C() {
 	<div>
@@ -51,10 +71,7 @@ component C() {
 	want := `package p
 
 component C() {
-	<div>
-		<p>a</p>
-		<span>b</span>
-	</div>
+	<div><p>a</p><span>b</span></div>
 }
 `
 	checkFormat(t, src, want)
@@ -195,6 +212,8 @@ component C(tab string) {
 }
 
 func TestIfElseIfElse(t *testing.T) {
+	// Short if-else-if-else fits on one line: the Group collapses to flat
+	// because the whole expression is < 80 cols at depth 1.
 	src := `package p
 component C() {
 	<div>
@@ -204,21 +223,14 @@ component C() {
 	want := `package p
 
 component C() {
-	<div>
-		{ if a {
-			<p>A</p>
-		} else if b {
-			<p>B</p>
-		} else {
-			<p>C</p>
-		} }
-	</div>
+	<div>{ if a { <p>A</p> } else if b { <p>B</p> } else { <p>C</p> } }</div>
 }
 `
 	checkFormat(t, src, want)
 }
 
 func TestForMarkup(t *testing.T) {
+	// Short for-range with one child fits on one line at depth 1 (< 80 cols).
 	src := `package p
 component C() {
 	<ul>
@@ -228,17 +240,16 @@ component C() {
 	want := `package p
 
 component C() {
-	<ul>
-		{ for _, it := range items {
-			<li>{ it.Name }</li>
-		} }
-	</ul>
+	<ul>{ for _, it := range items { <li>{ it.Name }</li> } }</ul>
 }
 `
 	checkFormat(t, src, want)
 }
 
 func TestSwitchMarkup(t *testing.T) {
+	// Switch always uses HardLine so it never collapses. Short case bodies (one
+	// non-breakable element) follow the colon on the same line. The <div> renders
+	// inline (one child, not breakable) wrapping the switch block.
 	src := `package p
 component C() {
 	<div>
@@ -253,20 +264,17 @@ component C() {
 	want := `package p
 
 component C() {
-	<div>
-		{ switch kind {
-			case "a":
-				<p>A</p>
-			default:
-				<p>D</p>
-		} }
-	</div>
+	<div>{ switch kind {
+		case "a":<p>A</p>
+		default:<p>D</p>
+	} }</div>
 }
 `
 	checkFormat(t, src, want)
 }
 
 func TestFragment(t *testing.T) {
+	// Two short paragraph children fit on one line: fragment Group collapses.
 	src := `package p
 component C() {
 	<>
@@ -277,10 +285,7 @@ component C() {
 	want := `package p
 
 component C() {
-	<>
-		<p>a</p>
-		<p>b</p>
-	</>
+	<><p>a</p><p>b</p></>
 }
 `
 	checkFormat(t, src, want)
@@ -352,7 +357,8 @@ func TestTextareaVerbatim(t *testing.T) {
 }
 
 func TestNestedBlockInline(t *testing.T) {
-	// Outer block (two elements), inner inline (text+element).
+	// Outer block (two elements), inner inline (text+element). Both fit flat.
+	// Width-aware: <div><p>a <b>x</b> b</p><p>plain</p></div> < 80 cols.
 	src := `package p
 component C() {
 	<div>
@@ -363,10 +369,7 @@ component C() {
 	want := `package p
 
 component C() {
-	<div>
-		<p>a <b>x</b> b</p>
-		<p>plain</p>
-	</div>
+	<div><p>a <b>x</b> b</p><p>plain</p></div>
 }
 `
 	checkFormat(t, src, want)
@@ -409,4 +412,49 @@ func TestStyleInterpFormatPreservesPipeline(t *testing.T) {
 	src := "package p\n\ncomponent C(x string) {\n\t<style>.a{color:@{ x |> upper }}</style>\n}\n"
 	want := "package p\n\ncomponent C(x string) {\n\t<style>.a{color:@{ x |> upper }}</style>\n}\n"
 	checkFormat(t, src, want)
+}
+
+func TestBlockBreaksMixedTextControlFlow(t *testing.T) {
+	// The reported bug: a long <p> with text + interp + an if must break at the
+	// safe boundary (Interp|IfMarkup), keeping "· <a>…</a>" glued by its space.
+	// Canonical output: interp content gains spaces ({ expr }), ExprAttr has none
+	// ({expr}), and the if-body breaks because the flat rendering exceeds 80 cols.
+	src := `package p
+component C() {
+	<p class="text-sm text-slate-500">
+		by {props.Author.Username}
+		{ if props.Category.Slug != "" {
+			· <a class="hover:underline" href={ categoryPage{} |> url("slug", props.Category.Slug) }>{props.Category.Name}</a>
+		} }
+	</p>
+}`
+	want := `package p
+
+component C() {
+	<p class="text-sm text-slate-500">
+		by { props.Author.Username }
+		{ if props.Category.Slug != "" {
+			· <a class="hover:underline" href={categoryPage{} |> url("slug", props.Category.Slug)}>{ props.Category.Name }</a>
+		} }
+	</p>
+}
+`
+	assertFormat(t, src, want)
+}
+
+func TestShortBlockCollapsesToOneLine(t *testing.T) {
+	// "true Prettier": a short block structure that fits 80 cols lays out flat.
+	src := `package p
+component C() {
+	<div>
+		<p>plain</p>
+	</div>
+}`
+	want := `package p
+
+component C() {
+	<div><p>plain</p></div>
+}
+`
+	assertFormat(t, src, want)
 }
