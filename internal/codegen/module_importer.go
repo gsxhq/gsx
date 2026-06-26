@@ -201,11 +201,13 @@ type analyzed struct {
 func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	mi.seen[dir] = true
 
-	// Use a single fset shared across parse + skeleton so //line directives from
-	// buildSkeleton reference valid positions from the same FileSet. For Module
-	// the gsx fset and skeleton fset are the same: skeleton idents resolve back to
-	// .gsx via the //line directives the parser honoured.
-	fset := token.NewFileSet()
+	// Use the Module-wide shared fset for parse + skeleton so //line directives
+	// from buildSkeleton reference valid positions, AND so this package's objects
+	// share one FileSet with sibling packages and external deps (see Module's
+	// "FileSet" note). For Module the gsx fset and skeleton fset are the same:
+	// skeleton idents resolve back to .gsx via the //line directives the parser
+	// honoured.
+	fset := m.fset
 	// bag is created here (using the shared fset for position resolution) so that
 	// script-resolution diagnostics recorded below share the same fset as the
 	// parsed .gsx files. Generate returns a.bag.Sorted() so errors surface.

@@ -146,3 +146,76 @@ func TestDefinitionCrossPkgAttrParam(t *testing.T) {
 			loc.Range.Start.Line, loc.Range.Start.Character, wantCol)
 	}
 }
+
+// gd on the cross-package call `helpers.Thing` inside an EXPRESSION interp
+// `{ helpers.Thing() }` resolves to the `component Thing()` declaration in the
+// imported package's .gsx — with NO .x.go on disk for either package (the warm
+// Module resolves the sibling from skeletons). This exercises the expression
+// go-to-def path (exprNodeAtOffset → innermostIdent → Info.Uses → Fset.Position),
+// the path NOT covered by the tag/attr cross-pkg tests above. It is a regression
+// guard for the single-shared-Module-fset fix: before it, the sibling package was
+// analyzed in a separate (discarded) FileSet, so resolving the dep object's
+// position against the importing package's fset returned a wrong/empty location
+// (a random spot in page.gsx, never helpers.gsx).
+func TestDefinitionCrossPkgExprCall(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	dir := t.TempDir()
+	repoRoot, _ := filepath.Abs("..")
+	mk := func(p, c string) {
+		t.Helper()
+		full := filepath.Join(dir, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("go.mod", "module example.com/x\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	// `component Thing()` decl is on line index 2 of helpers.gsx.
+	mk("helpers/helpers.gsx", "package helpers\n\ncomponent Thing() {\n\t<span>thing</span>\n}\n")
+	page := "package page\n\nimport \"example.com/x/helpers\"\n\ncomponent Page() {\n\t<div>{ helpers.Thing() }</div>\n}\n"
+	mk("page/page.gsx", page)
+	// Deliberately do NOT Generate either package: no .x.go on disk. The warm
+	// Module must resolve helpers.Thing from in-memory skeletons.
+
+	uri := "file://" + filepath.Join(dir, "page", "page.gsx")
+	lines := strings.Split(page, "\n")
+	var line, character int
+	for i, l := range lines {
+		if c := strings.Index(l, "helpers.Thing"); c >= 0 {
+			line, character = i, c+len("helpers.")+1 // a column on "Thing"
+			break
+		}
+	}
+
+	frame := func(v any) string {
+		b, _ := json.Marshal(v)
+		return "Content-Length: " + strconv.Itoa(len(b)) + "\r\n\r\n" + string(b)
+	}
+	in := frame(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}})
+	in += frame(map[string]any{"jsonrpc": "2.0", "method": "textDocument/didOpen",
+		"params": map[string]any{"textDocument": map[string]any{"uri": uri, "version": 1, "text": page}}})
+	in += frame(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "textDocument/definition",
+		"params": map[string]any{"textDocument": map[string]any{"uri": uri},
+			"position": map[string]any{"line": line, "character": character}}})
+	in += frame(map[string]any{"jsonrpc": "2.0", "method": "exit"})
+
+	var out, errBuf bytes.Buffer
+	if code := runLSP(strings.NewReader(in), &out, &errBuf, config{}, nil); code != 0 {
+		t.Fatalf("runLSP=%d stderr=%s", code, errBuf.String())
+	}
+	loc := definitionResult(t, out.String(), 2)
+	if loc == nil {
+		t.Fatalf("definition returned null; out:\n%s\nstderr:\n%s", out.String(), errBuf.String())
+	}
+	if !strings.HasSuffix(loc.URI, filepath.Join("helpers", "helpers.gsx")) {
+		t.Fatalf("resolved to %q, want helpers/helpers.gsx (NOT a spot inside page.gsx)", loc.URI)
+	}
+	// `component Thing()` is on line index 2 of helpers.gsx.
+	if loc.Range.Start.Line != 2 {
+		t.Fatalf("landed on line %d of %s, want 2 (the Thing decl)", loc.Range.Start.Line, loc.URI)
+	}
+}

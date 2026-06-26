@@ -76,13 +76,6 @@ type PackageResult struct {
 	// Types is the analyzed package's go/types.Package, retained for the LSP
 	// (e.g. hover's qualifier). nil when the package failed before type-checking.
 	Types *types.Package
-
-	// ExtFset is the FileSet that covers external (imported, non-project) package
-	// positions. Non-nil only when analysis used the warm-Module path; nil in the
-	// batch (GeneratePackagesWithFilters) path where Fset already covers all packages.
-	// The LSP uses it to resolve cross-package object positions (e.g. go-to-def on a
-	// dotted component tag).
-	ExtFset *token.FileSet
 }
 
 // UnusedImport is one import a .gsx file declares but never references, as

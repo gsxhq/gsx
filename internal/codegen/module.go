@@ -36,11 +36,25 @@ type Options struct {
 //
 // Cache invalidation: pkgTypes and ext are NOT invalidated on SetOverride —
 // imported sibling packages stay cached after an edit. Invalidate is Phase 2.
+//
+// FileSet: the Module uses ONE *token.FileSet (m.fset) for its whole lifetime,
+// covering BOTH the external packages.Load AND every project analyze() call. So
+// every type-object position — package A, sibling B, external dep — resolves
+// unambiguously against the single fset, exactly like the batch path's single
+// packages.Load fset. This is what makes cross-package go-to-def (the expression
+// path) resolve a sibling's obj.Pos() to the sibling's source rather than a
+// random spot in the importing package.
+//
+// Growth (Phase 1, accepted): because the fset is Module-lifetime, re-analyzing a
+// project package each edit (ResetPackageCache clears pkgTypes → re-parse into the
+// same fset) accumulates fset entries. Bounding this (rebuild the Module /
+// incremental re-analysis) is a Phase-2 concern. Do NOT rebuild the fset per edit:
+// that would orphan the warm ext importer's positions.
 type Module struct {
 	opts      Options
 	overrides map[string][]byte         // abs .gsx path -> in-memory source
 	ext       types.Importer            // lazily built external importer (stdlib + third-party)
-	extFset   *token.FileSet            // shared fset used by packages.Load in externalImporter; positions of dep objects
+	fset      *token.FileSet            // module-wide shared FileSet (see "FileSet" / "Growth" notes above)
 	pkgTypes  map[string]*types.Package // abs dir -> checked *types.Package cache
 	mu        sync.Mutex
 }
@@ -52,7 +66,7 @@ func Open(opts Options) (*Module, error) {
 		cls = attrclass.Builtin()
 		opts.Classifier = cls
 	}
-	return &Module{opts: opts, overrides: map[string][]byte{}}, nil
+	return &Module{opts: opts, overrides: map[string][]byte{}, fset: token.NewFileSet()}, nil
 }
 
 // SetOverride records in-memory source for a .gsx path (an unsaved editor buffer
@@ -99,15 +113,14 @@ func (m *Module) externalImporter() (types.Importer, error) {
 		return m.ext, nil
 	}
 	m.mu.Unlock()
-	// Use a single shared FileSet for all packages.Load so that every imported
-	// package's type-object positions belong to this fset. This fset is stored
-	// as m.extFset and exposed via PackageResult.ExtFset — the LSP uses it to
-	// resolve cross-package object positions (e.g. go-to-definition on a dotted
-	// component tag resolves the dep dir via extFset.Position(obj.Pos()).Filename).
-	extFset := token.NewFileSet()
+	// Use the Module-wide shared FileSet for packages.Load so that every imported
+	// dependency's type-object positions live in the SAME fset as the project
+	// packages analyze() type-checks. One fset for the whole Module means an
+	// object from any package — project A, sibling B, or external dep — resolves
+	// unambiguously via m.fset.Position(obj.Pos()).
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedTypes | packages.NeedImports | packages.NeedDeps,
-		Fset: extFset,
+		Fset: m.fset,
 		Dir:  m.opts.ModuleRoot,
 	}
 	// Always load the gsx runtime ("github.com/gsxhq/gsx") so that skeleton
@@ -130,7 +143,6 @@ func (m *Module) externalImporter() (types.Importer, error) {
 	})
 	m.mu.Lock()
 	m.ext = mapImporter(mp)
-	m.extFset = extFset
 	m.mu.Unlock()
 	return m.ext, nil
 }
@@ -148,14 +160,10 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	m.mu.Lock()
-	extFset := m.extFset
-	m.mu.Unlock()
 	res := &PackageResult{
 		Files:    map[string][]byte{},
 		GSXFset:  a.gsxFset,
 		Fset:     a.skelFset,
-		ExtFset:  extFset,
 		Info:     a.info,
 		Types:    a.pkg,
 		GSXFiles: a.gsxFiles,
