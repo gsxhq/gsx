@@ -570,11 +570,11 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 		// EMITTED signature (genComponent) keeps the real param name verbatim; the
 		// skeleton differs only in this reserved-name shape (harvest keys on the func
 		// name/recv, not the signature), so resolution + LSP stay correct.
-		// Anchor the skeleton func declaration to the `component` decl position so
+		// Anchor the skeleton func declaration to the component NAME position so
 		// go/types (and thus same-package LSP go-to-definition on `{ LocalComp(…) }`)
-		// reports the component's true .gsx line, not a line drifted from the
-		// previous //line directive. Mirrors genComponent's emit-side anchor.
-		emitSkeletonLine(sb, fset, c.Pos())
+		// reports the component's name column precisely, not just the keyword column.
+		// Mirrors genComponent's emit-side anchor for the line; adds column precision.
+		emitSkeletonComponentNameLine(sb, fset, c)
 		if c.Recv != "" {
 			fmt.Fprintf(sb, "func %s %s(_gsxp %s) _gsxrt.Node {\n", c.Recv, c.Name, structName)
 		} else {
@@ -634,9 +634,9 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 	// user param named `p` does not collide in the skeleton either. Emit the
 	// receiver clause verbatim for a method component (its receiver var is in
 	// scope, like the emitted method).
-	// Anchor the skeleton func declaration to the `component` decl position (see
-	// the BYO branch above) so same-package go-to-definition reports the true line.
-	emitSkeletonLine(sb, fset, c.Pos())
+	// Anchor the skeleton func declaration to the component NAME position (see
+	// the BYO branch above) so same-package go-to-definition reports the name column.
+	emitSkeletonComponentNameLine(sb, fset, c)
 	if c.Recv != "" {
 		fmt.Fprintf(sb, "func %s %s(", c.Recv, c.Name)
 	} else {
@@ -893,6 +893,28 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 		}
 	}
 	return nil
+}
+
+// emitSkeletonComponentNameLine anchors the skeleton's `func … Name(` declaration
+// so the Name token maps to the component's .gsx NamePos column-precisely, letting
+// LSP go-to-definition land on the component name. genNameCol is the name's column
+// within the generated func line: 6 for `func <Name>` (after "func "), or
+// 7+len(Recv) for `func <Recv> <Name>`. The directive is shifted left by that
+// prefix. (Only the skeleton needs this; the emit-side anchor stays at c.Pos().)
+func emitSkeletonComponentNameLine(sb *strings.Builder, fset *token.FileSet, c *gsxast.Component) {
+	if fset == nil || !c.NamePos.IsValid() {
+		return
+	}
+	genNameCol := 6 // func <Name>
+	if c.Recv != "" {
+		genNameCol = 7 + len(c.Recv) // func <Recv> <Name>
+	}
+	p := fset.Position(c.NamePos)
+	col := p.Column - genNameCol + 1
+	if col < 1 {
+		col = 1
+	}
+	fmt.Fprintf(sb, "//line %s:%d:%d\n", p.Filename, p.Line, col)
 }
 
 // emitSkeletonLine writes a //line directive into a skeleton strings.Builder,
