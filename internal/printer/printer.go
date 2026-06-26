@@ -186,15 +186,51 @@ func elementHasCondAttr(e *ast.Element) bool {
 	return false
 }
 
-// attrDoc renders one attribute as a Doc. Value expressions remain single-line
-// in this task (multi-line values are added later). A conditional attribute is
-// rendered with its `{ if … { … } }` body broken across lines (templ-style),
-// emitting a BreakParent so the enclosing opening-tag group breaks.
+// attrDoc renders one attribute as a Doc. Conditional attributes are rendered
+// with their `{ if … { … } }` body broken across lines (templ-style), emitting
+// a BreakParent so the enclosing opening-tag group breaks. ExprAttr and
+// ClassAttr use fmtExprDoc so long or comment-bearing values can be multi-line.
 func (p *printer) attrDoc(a ast.Attr) pretty.Doc {
-	if c, ok := a.(*ast.CondAttr); ok {
-		return pretty.Concat(pretty.BreakParent, pretty.Text("{ "), p.condAttrChainDoc(c), pretty.Text(" }"))
+	switch v := a.(type) {
+	case *ast.CondAttr:
+		return pretty.Concat(pretty.BreakParent, pretty.Text("{ "), p.condAttrChainDoc(v), pretty.Text(" }"))
+	case *ast.ExprAttr:
+		val := []pretty.Doc{fmtExprDoc(v.Expr)}
+		for _, s := range v.Stages {
+			val = append(val, pretty.Text(" |> "), pretty.Text(pipeStageStr(s)))
+		}
+		return wrapAttrValue(v.Name, pretty.SoftLine, pretty.Concat(val...))
+	case *ast.ClassAttr:
+		parts := make([]pretty.Doc, 0, len(v.Parts)*2)
+		for i, part := range v.Parts {
+			if i > 0 {
+				parts = append(parts, pretty.Text(", "))
+			}
+			seg := []pretty.Doc{fmtExprDoc(part.Expr)}
+			for _, s := range part.Stages {
+				seg = append(seg, pretty.Text(" |> "), pretty.Text(pipeStageStr(s)))
+			}
+			if part.Cond != "" {
+				seg = append(seg, pretty.Text(": "), pretty.Text(fmtExpr(part.Cond)))
+			}
+			parts = append(parts, pretty.Concat(seg...))
+		}
+		return wrapAttrValue(v.Name, pretty.Line, pretty.Concat(parts...))
+	default:
+		return pretty.Text(attrInline(a))
 	}
-	return pretty.Text(attrInline(a))
+}
+
+// wrapAttrValue renders `name={<sep>value<sep>}` where sep is the flat padding
+// for this attribute kind: SoftLine for an expr attr (flat → `name={value}`)
+// or Line for a class attr (flat → `name={ value }`). When the value is
+// multi-line (carries a forced break) or overflows, the Group breaks and both
+// seps become newline+indent: `name={` / indented value / `}`.
+func wrapAttrValue(name string, sep pretty.Doc, value pretty.Doc) pretty.Doc {
+	return pretty.Group(pretty.Concat(
+		pretty.Text(name), pretty.Text("={"),
+		pretty.Indent(pretty.Concat(sep, value)),
+		sep, pretty.Text("}")))
 }
 
 func (p *printer) condAttrChainDoc(c *ast.CondAttr) pretty.Doc {
@@ -868,6 +904,45 @@ func fmtCaseList(src string) string {
 		parts = append(parts, s)
 	}
 	return strings.Join(parts, ", ")
+}
+
+// fmtExprPreserving formats a Go expression, PRESERVING comments (unlike
+// fmtExpr's format.Node path). It wraps the expression as a package-level
+// `var _ = <expr>` and runs format.Source, then extracts the value text. The
+// result may be multi-line (gofmt's own wrapping of a long call); continuation
+// lines are de-indented by one tab (the var-decl level). On any error it falls
+// back to fmtExpr (single line, comment-free) so fmt never fails.
+func fmtExprPreserving(src string) string {
+	trimmed := strings.TrimSpace(src)
+	if trimmed == "" {
+		return ""
+	}
+	wrapped := "package p\nvar _ = " + trimmed + "\n"
+	out, err := format.Source([]byte(wrapped))
+	if err != nil {
+		return fmtExpr(src)
+	}
+	s := string(out)
+	const marker = "var _ = "
+	i := strings.Index(s, marker)
+	if i < 0 {
+		return fmtExpr(src)
+	}
+	body := s[i+len(marker):]
+	body = strings.TrimRight(body, "\n")
+	// De-indent continuation lines by one tab (gofmt indents the value's
+	// wrapped lines to the declaration's body level).
+	lines := strings.Split(body, "\n")
+	for j := 1; j < len(lines); j++ {
+		lines[j] = strings.TrimPrefix(lines[j], "\t")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// fmtExprDoc returns a Doc for a Go expression value, multi-line when gofmt
+// wraps it (HardLine-joined; comments preserved).
+func fmtExprDoc(src string) pretty.Doc {
+	return multiline(fmtExprPreserving(src))
 }
 
 // extractFuncBody returns the contents of `func _m() {\n…\n}` with the func-body

@@ -553,3 +553,43 @@ component C() {
 `
 	assertFormat(t, src, want)
 }
+
+// format80 parses, normalizes, and Fprintfs src at width 80, returning the
+// canonical output. Used by comment-fidelity tests that need a bytes.Buffer.
+func format80(t *testing.T, src string) string {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "c.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	wsnorm.Normalize(f)
+	var b bytes.Buffer
+	if err := Fprint(&b, f, 80); err != nil {
+		t.Fatalf("print: %v", err)
+	}
+	return b.String()
+}
+
+func TestAttrValueMultilinePreservesComment(t *testing.T) {
+	src := `package p
+component C(p Props) {
+	<p class={ utils.TwMerge(
+		// keep this comment
+		"text-[0.8rem] font-medium",
+		p.Class,
+	) }>x</p>
+}`
+	// The comment must survive, and the long call must stay multi-line.
+	got := format80(t, src)
+	if !strings.Contains(got, "// keep this comment") {
+		t.Fatalf("comment dropped:\n%s", got)
+	}
+	if !strings.Contains(got, "utils.TwMerge(\n") {
+		t.Fatalf("expr not multi-line:\n%s", got)
+	}
+	// Idempotence: re-formatting is a fixed point.
+	if again := format80(t, got); again != got {
+		t.Fatalf("not idempotent:\n--- once ---\n%s\n--- twice ---\n%s", got, again)
+	}
+}
