@@ -187,6 +187,19 @@ func TestHasPipeStages(t *testing.T) {
 	}
 }
 
+// TestExprNodeAtOffsetControlFlow verifies that exprNodeAtOffset recognizes a
+// ForMarkup node when the cursor sits on an identifier inside the for-clause.
+func TestExprNodeAtOffsetControlFlow(t *testing.T) {
+	src := "package x\n\ncomponent P(props Props) {\n\t{ for _, post := range props.Posts { <li>x</li> } }\n}\n"
+	pkg, path := parseOnlyPackage(t, "p.gsx", src)
+	// offset of "Posts" inside the for-clause
+	off := strings.Index(src, "props.Posts") + len("props.")
+	node, _ := exprNodeAtOffset(pkg, path, off)
+	if _, ok := node.(*gsxast.ForMarkup); !ok {
+		t.Fatalf("exprNodeAtOffset on a for-clause = %T, want *ForMarkup", node)
+	}
+}
+
 // TestComponentTagDeclAtClosingTagWhitespace verifies go-to-definition still
 // resolves on a closing tag with whitespace before '>' (</Card >), since the
 // parser allows it and records CloseNamePos at the name regardless.

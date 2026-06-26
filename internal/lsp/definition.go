@@ -37,6 +37,12 @@ func exprNodeAtOffset(pkg *Package, path string, off int) (gsxast.Node, token.Po
 		case *gsxast.ExprAttr:
 			exprPos, exprLen = e.ExprPos, len(e.Expr)
 			stages = e.Stages
+		case *gsxast.ForMarkup:
+			exprPos, exprLen = e.ClausePos, len(e.Clause)
+		case *gsxast.IfMarkup:
+			exprPos, exprLen = e.CondPos, len(e.Cond)
+		case *gsxast.GoBlock:
+			exprPos, exprLen = e.CodePos, len(e.Code)
 		default:
 			return true
 		}
@@ -139,6 +145,31 @@ func (s *Server) handleDefinition(f frame) error {
 			}
 		}
 		return s.reply(f.ID, nil)
+	}
+	switch node.(type) {
+	case *gsxast.ForMarkup, *gsxast.IfMarkup, *gsxast.GoBlock:
+		cr, ok := pkg.CtrlMap[node]
+		if !ok || cr.Node == nil {
+			return s.reply(f.ID, nil)
+		}
+		clauseStart := pkg.GSXFset.Position(exprPos).Offset
+		skelPos := cr.ClauseStart + token.Pos(off-clauseStart)
+		id := innermostIdent(cr.Node, skelPos)
+		if id == nil {
+			return s.reply(f.ID, nil)
+		}
+		obj := pkg.Info.Uses[id]
+		if obj == nil {
+			obj = pkg.Info.Defs[id]
+		}
+		if obj == nil || !obj.Pos().IsValid() {
+			return s.reply(f.ID, nil)
+		}
+		dp := pkg.Fset.Position(obj.Pos())
+		if dp.Filename == "" || strings.HasSuffix(dp.Filename, ".x.go") {
+			return s.reply(f.ID, nil)
+		}
+		return s.reply(f.ID, s.locationForPos(dp))
 	}
 	skel := pkg.ExprMap[node]
 	if skel == nil {

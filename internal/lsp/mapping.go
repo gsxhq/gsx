@@ -5,12 +5,12 @@ import (
 	"go/token"
 )
 
-// innermostIdent returns the innermost *ast.Ident in expr's subtree whose
+// innermostIdent returns the innermost *ast.Ident in n's subtree whose
 // [Pos, End) contains pos, or nil if pos falls on no identifier (e.g. on a '.'
-// or operator).
-func innermostIdent(expr ast.Expr, pos token.Pos) *ast.Ident {
+// or operator). Accepts any ast.Node (including ast.Expr, ast.Stmt, etc.).
+func innermostIdent(n ast.Node, pos token.Pos) *ast.Ident {
 	var found *ast.Ident
-	ast.Inspect(expr, func(n ast.Node) bool {
+	ast.Inspect(n, func(n ast.Node) bool {
 		if n == nil {
 			return false
 		}
