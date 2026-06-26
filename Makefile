@@ -1,18 +1,36 @@
 # gsx developer tasks. Use tabs for recipe indentation.
-.PHONY: test cover cover-html examples ci
+.PHONY: test cover cover-html examples ci ci-gomod ci-playground ci-format
 
 test:
 	go test ./... -count=1
 
 # Mirrors .github/workflows/ci.yml (minus the VitePress docs build, which clones
 # the external site repo). Run before every commit to main / merge.
+#
+# Examples are regenerated FIRST, serially: the playground module embeds
+# examples.json (`//go:embed` in playground/server/presets.go), so its build
+# must not race the regeneration. The drift check reads the just-written files.
+# The three remaining lanes are independent, so `make -j3` runs them in parallel
+# — the long pole is `ci-gomod` (the gen/ e2e suite), under which the ~7s
+# playground build+test and the ~1s format check overlap for free.
 ci:
+	$(MAKE) examples
+	git diff --exit-code -- docs/guide/examples.md docs/examples.json playground/server/examples.json
+	$(MAKE) -j3 ci-gomod ci-playground ci-format
+
+# Root module: build, vet, test. The long pole (~50s of in-process e2e tests
+# in gen/, which spawn the Go toolchain per case).
+ci-gomod:
 	go build ./...
 	go vet ./...
 	go test ./... -count=1
+
+# playground/server is a separate Go module.
+ci-playground:
 	cd playground/server && go build ./... && go test ./... -count=1
-	$(MAKE) examples
-	git diff --exit-code -- docs/guide/examples.md docs/examples.json playground/server/examples.json
+
+# gofmt + gsx fmt must stay clean (see the format gate note in ci.yml).
+ci-format:
 	test -z "$$(gofmt -l $$(git ls-files '*.go' | grep -v /testdata/))"
 	go run ./cmd/gsx fmt -l .
 
