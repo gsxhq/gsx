@@ -891,3 +891,24 @@ component C() {
 `
 	assertFormat(t, src, want)
 }
+
+func TestPackageDocCommentPreserved(t *testing.T) {
+	// The doc comment above `package` must survive formatting (it was being
+	// dropped: the parser discarded everything before the package keyword).
+	src := `// Package foo exports the shared widgets.
+// Second line of the package doc.
+package foo
+
+component C() {
+	<div></div>
+}`
+	want := `// Package foo exports the shared widgets.
+// Second line of the package doc.
+package foo
+
+component C() {
+	<div></div>
+}
+`
+	assertFormat(t, src, want)
+}
