@@ -32,6 +32,11 @@ func splitDottedTag(tag string) (qualifier, name string, ok bool) {
 // component object's position filename (the only use of the dep's compiled
 // form), then parses the dependency's .gsx files IN MEMORY to return the decl
 // node and the FileSet its positions belong to. Returns false on any miss.
+//
+// Ambiguous-qualifier safety: if more than one imported package has the same
+// declared name as qualifier (e.g. two distinct imports both named "components"),
+// the function returns (nil, nil, false) rather than picking the wrong one —
+// preserving the "never a wrong jump" invariant.
 func resolveCrossPkgComponent(pkg *Package, qualifier, name string) (*gsxast.Component, *token.FileSet, bool) {
 	if pkg == nil || pkg.Types == nil || pkg.Fset == nil {
 		return nil, nil, false
@@ -39,8 +44,12 @@ func resolveCrossPkgComponent(pkg *Package, qualifier, name string) (*gsxast.Com
 	var imp *types.Package
 	for _, p := range pkg.Types.Imports() {
 		if p.Name() == qualifier {
+			if imp != nil {
+				// Ambiguous: two imports share the same declared name; bail rather
+				// than risk a wrong jump.
+				return nil, nil, false
+			}
 			imp = p
-			break
 		}
 	}
 	if imp == nil {
