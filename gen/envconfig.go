@@ -21,16 +21,20 @@ type envOverride struct {
 var envOverrides = []envOverride{
 	{
 		name: "GSX_MINIFY",
-		desc: `minify <style>/<script>: "on" | "off" (overrides [minify])`,
+		desc: `minify <style>/<script>: off|safe|full (overrides [minify])`,
 		apply: func(raw string, cfg *config) error {
+			var lvl MinifyLevel
 			switch strings.ToLower(strings.TrimSpace(raw)) {
-			case "on":
-				cfg.cssMinLevel, cfg.jsMinLevel = MinifySafe, MinifySafe
-			case "off":
-				cfg.cssMinLevel, cfg.jsMinLevel = MinifyNone, MinifyNone
+			case "off", "none":
+				lvl = MinifyNone
+			case "on", "safe":
+				lvl = MinifySafe
+			case "full":
+				lvl = MinifyFull
 			default:
-				return fmt.Errorf("GSX_MINIFY=%q: want \"on\" or \"off\"", raw)
+				return fmt.Errorf("GSX_MINIFY=%q: want \"off\"/\"none\", \"safe\"/\"on\", or \"full\"", raw)
 			}
+			cfg.cssMinLevel, cfg.jsMinLevel = lvl, lvl
 			return nil
 		},
 	},

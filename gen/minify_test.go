@@ -87,6 +87,85 @@ func TestMergeConfig_MinifyPrecedence(t *testing.T) {
 	}
 }
 
+func TestMinifyLevel_Full(t *testing.T) {
+	if !MinifyFull.enabled() {
+		t.Fatal("MinifyFull must be enabled")
+	}
+	if MinifyFull.String() != "full" {
+		t.Fatalf("MinifyFull.String() = %q", MinifyFull.String())
+	}
+	got, err := parseMinifyLevel("full")
+	if err != nil || got != MinifyFull {
+		t.Fatalf("parseMinifyLevel(full) = %v, %v", got, err)
+	}
+	// Existing values are unchanged (cache/behaviour stability).
+	if MinifySafe != 0 || MinifyNone != 1 || MinifyFull != 2 {
+		t.Fatalf("enum values drifted: safe=%d none=%d full=%d", MinifySafe, MinifyNone, MinifyFull)
+	}
+}
+
+func TestEffectiveMinifier_Full(t *testing.T) {
+	// full with no custom minifier → built-in full installed.
+	cfg := config{cssMinLevel: MinifyFull, jsMinLevel: MinifyFull}
+	if cfg.effectiveCSSMin() == nil {
+		t.Fatal("full should install a built-in CSS minifier")
+	}
+	if cfg.effectiveJSMin() == nil {
+		t.Fatal("full should install a built-in JS minifier")
+	}
+	// safe → nil (built-in safe runs via the gate, not via an ext func).
+	cfg = config{cssMinLevel: MinifySafe, jsMinLevel: MinifySafe}
+	if cfg.effectiveCSSMin() != nil || cfg.effectiveJSMin() != nil {
+		t.Fatal("safe should not install an ext minifier")
+	}
+	// custom minifier wins over full.
+	custom := func(s string) (string, error) { return s, nil }
+	cfg = config{cssMinLevel: MinifyFull, cssMin: custom}
+	if got := cfg.effectiveCSSMin(); got == nil {
+		t.Fatal("custom minifier must be returned")
+	}
+}
+
+func TestGenerate_MinifyFullViaConfig(t *testing.T) {
+	dir := t.TempDir()
+	repoRoot, _ := filepath.Abs("..")
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"),
+		[]byte("module example.com/x\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "page.gsx"),
+		[]byte("package x\n\ncomponent Page() {\n\t<style>\n\t\t.card { color: #ffffff; }\n\t</style>\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "gsx.toml"), []byte("[minify]\ncss = \"full\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git"), []byte(""), 0o644); err != nil { // bound the config walk to dir
+		t.Fatal(err)
+	}
+	chdir(t, dir)
+
+	merged, _, err := resolveConfig(config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := generateCached([]string{"."}, merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher, false, merged.effectiveCSSMin(), merged.effectiveJSMin(), merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Errs) > 0 {
+		t.Fatalf("generate errors: %v", res.Errs)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "page.x.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// full shortens #ffffff → #fff (safe would keep #ffffff).
+	if !strings.Contains(string(b), "#fff") || strings.Contains(string(b), "#ffffff") {
+		t.Fatalf("[minify] css=full should shorten the hex; got:\n%s", b)
+	}
+}
+
 func TestGenerate_MinifyNoneViaConfig(t *testing.T) {
 	dir := t.TempDir()
 	repoRoot, _ := filepath.Abs("..")

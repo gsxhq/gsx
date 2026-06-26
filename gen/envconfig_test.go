@@ -30,6 +30,28 @@ func TestApplyEnvOverrides_Minify(t *testing.T) {
 	}
 }
 
+func TestApplyEnvOverrides_MinifyVocabulary(t *testing.T) {
+	cases := map[string]MinifyLevel{
+		"off": MinifyNone, "none": MinifyNone,
+		"on": MinifySafe, "safe": MinifySafe,
+		"full": MinifyFull,
+	}
+	for raw, want := range cases {
+		t.Setenv("GSX_MINIFY", raw)
+		cfg, err := applyEnvOverrides(config{})
+		if err != nil {
+			t.Fatalf("GSX_MINIFY=%q: %v", raw, err)
+		}
+		if cfg.cssMinLevel != want || cfg.jsMinLevel != want {
+			t.Fatalf("GSX_MINIFY=%q → css=%v js=%v, want %v", raw, cfg.cssMinLevel, cfg.jsMinLevel, want)
+		}
+	}
+	t.Setenv("GSX_MINIFY", "banana")
+	if _, err := applyEnvOverrides(config{}); err == nil {
+		t.Fatal("GSX_MINIFY=banana must error")
+	}
+}
+
 func TestApplyEnvOverrides_AbsentIsNoop(t *testing.T) {
 	// No GSX_* set: file value (none) is preserved untouched.
 	base := config{cssMinLevel: MinifyNone, jsMinLevel: MinifySafe}

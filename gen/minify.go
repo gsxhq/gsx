@@ -13,14 +13,22 @@ const (
 	MinifySafe MinifyLevel = iota
 	// MinifyNone disables minification: the asset is emitted verbatim.
 	MinifyNone
+	// MinifyFull runs an aggressive AST-based minifier (tdewolff/minify) that
+	// rewrites values; it bypasses the incremental cache. A custom minifier, if
+	// installed, takes precedence over the built-in full minifier.
+	MinifyFull
 )
 
 // String returns the TOML/CLI spelling of the level.
 func (l MinifyLevel) String() string {
-	if l == MinifyNone {
+	switch l {
+	case MinifyNone:
 		return "none"
+	case MinifyFull:
+		return "full"
+	default:
+		return "safe"
 	}
-	return "safe"
 }
 
 // enabled reports whether the minify pass should run for this level.
@@ -33,7 +41,9 @@ func parseMinifyLevel(s string) (MinifyLevel, error) {
 		return MinifySafe, nil
 	case "none":
 		return MinifyNone, nil
+	case "full":
+		return MinifyFull, nil
 	default:
-		return 0, fmt.Errorf("invalid minify level %q (want \"safe\" or \"none\")", s)
+		return 0, fmt.Errorf("invalid minify level %q (want \"safe\", \"none\", or \"full\")", s)
 	}
 }

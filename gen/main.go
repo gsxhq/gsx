@@ -13,6 +13,7 @@ import (
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/fullmin"
 	"github.com/gsxhq/gsx/internal/rawfmt"
 )
 
@@ -57,6 +58,32 @@ func (c config) effectivePrintWidth() int {
 		return 80
 	}
 	return c.printWidth
+}
+
+// effectiveCSSMin returns the CSS minifier to thread into codegen when the gate
+// is on: a custom WithCSSMinifier wins; else the MinifyFull level installs the
+// built-in aggressive minifier; else nil (the gate runs the built-in SAFE pass).
+// Returning a non-nil func here is what makes full bypass the incremental cache
+// (useCache is gated on cssMin == nil).
+func (c config) effectiveCSSMin() func(string) (string, error) {
+	if c.cssMin != nil {
+		return c.cssMin
+	}
+	if c.cssMinLevel == MinifyFull {
+		return fullmin.CSS
+	}
+	return nil
+}
+
+// effectiveJSMin mirrors effectiveCSSMin for <script> JS.
+func (c config) effectiveJSMin() func(string) (string, error) {
+	if c.jsMin != nil {
+		return c.jsMin
+	}
+	if c.jsMinLevel == MinifyFull {
+		return fullmin.JS
+	}
+	return nil
 }
 
 // classifier builds the resolved Classifier from the accumulated options. A
@@ -155,7 +182,7 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			return 2
 		}
-		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher, merged.cssMin, merged.jsMin, merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled())
+		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher, merged.effectiveCSSMin(), merged.effectiveJSMin(), merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled())
 	case "clean":
 		return runClean(cmdArgs, stdout, stderr)
 	case "info":
