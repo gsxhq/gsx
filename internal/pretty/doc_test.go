@@ -71,3 +71,31 @@ func TestMultibyteWidth(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestIfBreakFlatAndBroken(t *testing.T) {
+	// Flat: trailing comma suppressed; Broken: trailing comma added.
+	mk := func() Doc {
+		return Group(Concat(
+			Text("["),
+			Indent(Concat(SoftLine, Text("a"), Text(","), Line, Text("b"), IfBreak(Text(","), Text("")))),
+			SoftLine, Text("]"),
+		))
+	}
+	if got := Print(mk(), 80); got != "[a, b]" {
+		t.Fatalf("flat: got %q want %q", got, "[a, b]")
+	}
+	if got := Print(mk(), 4); got != "[\n\ta,\n\tb,\n]" {
+		t.Fatalf("broken: got %q want %q", got, "[\n\ta,\n\tb,\n]")
+	}
+}
+
+func TestFillGreedyWrap(t *testing.T) {
+	// Words separated by Line; width 5 packs greedily: "aa bb" fits (5), next
+	// "cc" would overflow → break before it.
+	d := Fill(Text("aa"), Line, Text("bb"), Line, Text("cc"))
+	got := Print(d, 5)
+	want := "aa bb\ncc"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}

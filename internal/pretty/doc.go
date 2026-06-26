@@ -60,6 +60,16 @@ var HardLine = Doc{kind: kindLine, text: "", hard: true}
 // BreakParent forces the nearest enclosing Group to break. It emits nothing.
 var BreakParent = Doc{kind: kindBreakParent}
 
+// Fill is a greedy per-element layout over an alternating list
+// [content, separator, content, separator, …, content]: it keeps content on
+// the current line until the next content would not fit, breaking the
+// separator before it. Provided for the JS/CSS formatters; the gsx markup
+// printer uses Group/SoftLine (all-or-nothing) instead.
+func Fill(ds ...Doc) Doc { return Doc{kind: kindFill, parts: ds} }
+
+// IfBreak renders broken when the enclosing Group breaks, else flat.
+func IfBreak(broken, flat Doc) Doc { return Doc{kind: kindIfBreak, parts: []Doc{broken, flat}} }
+
 // containsForcedBreak reports whether d carries a forced break that must
 // propagate to an enclosing group. A nested Group already has its forced flag
 // computed (Docs are built inside-out), so a forced inner group propagates.
@@ -81,7 +91,10 @@ func containsForcedBreak(d Doc) bool {
 		}
 		return false
 	case kindIfBreak:
-		return containsForcedBreak(d.parts[0]) || containsForcedBreak(d.parts[1])
+		// Only the broken branch (parts[0]) participates in the break decision:
+		// when the enclosing group is flat it renders parts[1], so a forced
+		// break in parts[1] must not propagate and force the group to break.
+		return containsForcedBreak(d.parts[0])
 	default:
 		return false
 	}

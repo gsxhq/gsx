@@ -40,10 +40,12 @@ func Print(d Doc, width int) string {
 		case kindText:
 			b.WriteString(c.doc.text)
 			pos = advance(pos, c.doc.text)
-		case kindConcat, kindFill:
+		case kindConcat:
 			for i := len(c.doc.parts) - 1; i >= 0; i-- {
 				stack = append(stack, cmd{c.indent, c.mode, c.doc.parts[i]})
 			}
+		case kindFill:
+			stack = fillStep(stack, c, width-pos)
 		case kindIndent:
 			stack = append(stack, cmd{c.indent + 1, c.mode, c.doc.parts[0]})
 		case kindLine:
@@ -77,6 +79,50 @@ func Print(d Doc, width int) string {
 		}
 	}
 	return b.String()
+}
+
+// fillStep implements one step of the greedy Fill layout, pushing onto stack
+// (LIFO) the commands to process next. parts alternate content/separator.
+func fillStep(stack []cmd, c cmd, remaining int) []cmd {
+	parts := c.doc.parts
+	if len(parts) == 0 {
+		return stack
+	}
+	content := cmd{c.indent, modeFlat, parts[0]}
+	contentFits := fits(remaining, content, nil)
+	if len(parts) == 1 {
+		m := modeBreak
+		if contentFits {
+			m = modeFlat
+		}
+		return append(stack, cmd{c.indent, m, parts[0]})
+	}
+	sep := parts[1]
+	if len(parts) == 2 {
+		if contentFits {
+			stack = append(stack, cmd{c.indent, modeFlat, sep})
+			return append(stack, cmd{c.indent, modeFlat, parts[0]})
+		}
+		stack = append(stack, cmd{c.indent, modeBreak, sep})
+		return append(stack, cmd{c.indent, modeBreak, parts[0]})
+	}
+	rest := cmd{c.indent, c.mode, Doc{kind: kindFill, parts: parts[2:]}}
+	pair := cmd{c.indent, modeFlat, Concat(parts[0], sep, parts[2])}
+	pairFits := fits(remaining, pair, nil)
+	// Push in reverse so content is processed first, then separator, then rest.
+	stack = append(stack, rest)
+	switch {
+	case pairFits:
+		stack = append(stack, cmd{c.indent, modeFlat, sep})
+		stack = append(stack, cmd{c.indent, modeFlat, parts[0]})
+	case contentFits:
+		stack = append(stack, cmd{c.indent, modeBreak, sep})
+		stack = append(stack, cmd{c.indent, modeFlat, parts[0]})
+	default:
+		stack = append(stack, cmd{c.indent, modeBreak, sep})
+		stack = append(stack, cmd{c.indent, modeBreak, parts[0]})
+	}
+	return stack
 }
 
 // advance returns the new column after writing s, accounting for embedded
