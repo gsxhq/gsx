@@ -171,12 +171,19 @@ func isExportedIdent(s string) bool {
 // whole-buffer minifier (e.g. tdewolff) in this signature:
 //
 //	gen.Main(gen.WithCSSMinifier(func(css string) (string, error) { … }))
+//
+// Installing a custom minifier enables the minify pass for that asset, even when
+// no [minify] level is set (the default is none) — the custom minifier is the
+// implementation that runs.
 func WithCSSMinifier(min func(css string) (string, error)) Option {
 	return func(cfg *config) { cfg.cssMin = min }
 }
 
 // WithJSMinifier installs a custom JS minifier for <script> blocks, replacing
 // the built-in safe minifier. It receives complete JS (<script> is holeless).
+// Installing a custom minifier enables the minify pass for that asset, even when
+// no [minify] level is set (the default is none) — the custom minifier is the
+// implementation that runs.
 func WithJSMinifier(min func(js string) (string, error)) Option {
 	return func(cfg *config) { cfg.jsMin = min }
 }

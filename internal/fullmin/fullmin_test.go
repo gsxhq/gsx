@@ -1,6 +1,9 @@
 package fullmin
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestCSS_Aggressive(t *testing.T) {
 	// safe minify keeps "color: #ffffff"; full shortens the hex and drops the space.
@@ -23,16 +26,7 @@ func TestJS_Aggressive(t *testing.T) {
 		t.Fatalf("full JS did not shrink: %q", got)
 	}
 	// Top-level name must survive (it may be referenced from HTML).
-	if !contains(got, "add") {
+	if !strings.Contains(got, "add") {
 		t.Fatalf("full JS dropped the function name: %q", got)
 	}
-}
-
-func contains(s, sub string) bool {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }

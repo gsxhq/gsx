@@ -194,6 +194,12 @@ filterPackages = ["example.com/myproject/templatefuncs"]
 prefix = "wire:"
 [[urlAttrs]]
 name = "data-href"
+
+# Minify aggressively in prod builds (default is none). Prefer GSX_MINIFY=full
+# in the prod build command for a dev/prod switch without editing this file.
+[minify]
+css = "full"
+js  = "full"
 ```
 
 ## Environment overrides

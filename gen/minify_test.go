@@ -100,7 +100,7 @@ func TestMinifyLevel_Full(t *testing.T) {
 	if err != nil || got != MinifyFull {
 		t.Fatalf("parseMinifyLevel(full) = %v, %v", got, err)
 	}
-	// Existing values are unchanged (cache/behaviour stability).
+	// enum values must stay none=0/full=1 (cache-key stability).
 	if MinifyNone != 0 || MinifyFull != 1 {
 		t.Fatalf("enum values drifted: none=%d full=%d", MinifyNone, MinifyFull)
 	}
@@ -170,6 +170,26 @@ func TestGenerate_MinifyFullViaConfig(t *testing.T) {
 	// full shortens #ffffff → #fff (none would keep #ffffff).
 	if !strings.Contains(string(b), "#fff") || strings.Contains(string(b), "#ffffff") {
 		t.Fatalf("[minify] css=full should shorten the hex; got:\n%s", b)
+	}
+}
+
+func TestMinifyGate_CustomMinifierEnables(t *testing.T) {
+	custom := func(s string) (string, error) { return s, nil }
+	// default level (none) + no minifier → gate off
+	if (config{}).cssMinifyOn() || (config{}).jsMinifyOn() {
+		t.Fatal("default config should not minify")
+	}
+	// custom CSS minifier with default level → CSS gate ON (regression guard)
+	if !(config{cssMin: custom}).cssMinifyOn() {
+		t.Fatal("WithCSSMinifier should enable the CSS minify gate at default level")
+	}
+	// custom JS minifier with default level → JS gate ON
+	if !(config{jsMin: custom}).jsMinifyOn() {
+		t.Fatal("WithJSMinifier should enable the JS minify gate at default level")
+	}
+	// full level (no custom) → gate ON
+	if !(config{cssMinLevel: MinifyFull}).cssMinifyOn() {
+		t.Fatal("MinifyFull should enable the CSS minify gate")
 	}
 }
 

@@ -257,6 +257,11 @@ Filters (6):
   trim      std.Trim      bare
   truncate  std.Truncate  param
   upper     std.Upper     bare
+
+minify: css=none js=none
+
+Environment:
+  GSX_MINIFY  unset  minify <style>/<script>: none|full (overrides [minify])
 ```
 
 Each filter is `bare` (`{ x |> upper }`) or `param` (`{ x |> truncate(10) }`).
