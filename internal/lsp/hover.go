@@ -41,7 +41,9 @@ func (s *Server) handleHover(f frame) error {
 	}
 
 	// H1: a component-invocation attribute name → the matching param's type.
-	// AST-only (no type info needed), so it answers mid-edit too.
+	// AST-only (no type info needed), so it answers mid-edit too. Unlike the gd
+	// path (componentAttrParamAt), this renders from the Params string and needs
+	// no positions, so it deliberately does not require comp.ParamsPos.IsValid().
 	if tag, attr, attrStart, ok := componentAttrAtOffset(pkg, path, off); ok {
 		if comp, _, ok := resolveTagComponent(pkg, tag); ok {
 			if decl, ok := paramDeclIn(comp.Params, attr); ok {
