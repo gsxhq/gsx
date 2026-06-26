@@ -19,7 +19,7 @@ generator/CLI may use `golang.org/x/tools`.
 | Codegen | `[~]` interpolation + control flow + full attributes (security core, composable class **and element-level style**, spread, conditional) + pipeline `\|>` + child props/`{children}` + method components + named slots + attribute fallthrough (auto class-merge/spread + manual `{...attrs}`) + custom attribute classification (`WithJSAttrs`/`WithURLAttrs`/`WithCSSAttrs` + `WithAttrClassifier`) + node-prop promotion (`gsx.Val`/`Text`/`Fragment`) done; composable `style` **on a component invocation** + `[]string` class parts pending |
 | Whitespace model | `[x]` JSX-style: `internal/wsnorm.Normalize` (parser lossless) wired into codegen + powers `gsx fmt`. render-faithful + idempotent over the whole corpus. |
 | Pipeline `\|>` end-to-end | `[x]` seed-first forward-application lowering + `std` filters + user filter packages (`gen.WithFilters` + `gen.WithFilter` aliases, multi-pkg last-wins) + `ctx` injection + `(T,error)` implicit auto-unwrap. Works in interp / attr / class / style / spread. Initialism-aware naming pending. |
-| CLI (`gsx`) / `gen.Main` | `[~]` `generate` · `fmt` · `info` · `init` · `lsp` · `clean --cache` · `version` · `help` ship, with `--json` + structured diagnostics. `vet`/`render`/`explain`/`--watch`/`WithClassMerger`/numeric codes pending. |
+| CLI (`gsx`) / `gen.Main` | `[~]` `generate` (incl. `--watch`/`--format=ndjson`) · `fmt` · `info` · `init` · `lsp` · `clean --cache` · `version` · `help` ship, with `--json` + structured diagnostics. `vet`/`render`/`explain`/`WithClassMerger`/numeric codes pending. |
 | Language server (`gsx lsp`) | `[~]` diagnostics + go-to-definition + hover + find-references + formatting ship; completion / pipeline-aware nav / cross-package deferred. |
 | Developer experience (Vite + `init`) | `[x]` `gsx init` scaffold + `@gsxhq/vite-plugin-gsx` (npm v0.2.1) + `github.com/gsxhq/vite` (v0.2.0). |
 
@@ -147,11 +147,19 @@ pieces. Save → `gsx generate` → `go build` → browser reloads.
   (TTY prompts → runs `go mod tidy` / `npm install`) or non-interactive (`--yes`).
   Flags accepted in any position. Dev serves CSS via Vite JS with a **FOUC loading
   gate** so the first paint isn't unstyled.
-- `[x]` **`@gsxhq/vite-plugin-gsx`** (npm **v0.2.1**, `~/personal/gsxhq/vite-plugin-gsx`) —
-  `gsx()` watches `.gsx`, runs `gsx generate`, surfaces diagnostics in the Vite
+- `[x]` **`gsx generate --watch`** (warm daemon, `gen/watch.go`) — a long-lived
+  process that keeps the type-resolution environment warm (`gen.CachedResolver`)
+  and regenerates in-process on each change, streaming NDJSON diagnostics. Measured:
+  a warm regenerate is **~1–2 ms** vs **~140 ms** for a cold one-shot `gsx generate`
+  (~70–100×), so the inner save-loop is effectively instant. Rebuilds the resolver
+  on `.go`/go.mod changes; pure `.gsx` edits take the fast path. Slice 2 (fine-grained
+  per-package invalidation) is deferred — the measured warm time made it unnecessary.
+- `[x]` **`@gsxhq/vite-plugin-gsx`** (npm **v0.3.0**, `~/personal/gsxhq/vite-plugin-gsx`) —
+  **supervises** the `gsx generate --watch` daemon (spawns it once, consumes its
+  NDJSON stream) instead of shelling out per save; surfaces diagnostics in the Vite
   error overlay (auto-clears on recovery), and full-reloads on the Go server's
   POST to `/__reload`; `devFallback()` serves a self-recovering interstitial while
-  the backend is down/restarting.
+  the backend is down/restarting. (v0.2.1 ran `gsx generate` per change.)
 - `[x]` **`github.com/gsxhq/vite`** (Go, **v0.2.0**, `~/personal/gsxhq/vite`,
   stdlib-only) — manifest resolution (dev URL vs embedded prod manifest, transitive
   CSS dedup), `Entry(name) Bundle`, `StaticHandler()`, `NotifyReload(devURL)`, and

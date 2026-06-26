@@ -93,7 +93,7 @@ func RenderRich(w io.Writer, diags []Diagnostic, src SourceProvider) {
 		pad := strings.Repeat(" ", len(gutter))
 		fmt.Fprintf(w, " %s |\n", pad)
 		fmt.Fprintf(w, " %s | %s\n", gutter, line)
-		fmt.Fprintf(w, " %s | %s%s\n", pad, strings.Repeat(" ", caretIndent(d.Start.Column)), carets(d))
+		fmt.Fprintf(w, " %s | %s%s\n", pad, caretPad(line, d.Start.Column), carets(d))
 		if d.Help != "" {
 			fmt.Fprintf(w, " %s = help: %s\n", pad, d.Help)
 		}
@@ -101,12 +101,24 @@ func RenderRich(w io.Writer, diags []Diagnostic, src SourceProvider) {
 	}
 }
 
-// caretIndent converts a 1-based byte column to the leading-space count.
-func caretIndent(col int) int {
+// caretPad builds the indentation for the caret row so carets line up under a
+// 1-based byte column. It mirrors the source line's leading bytes, preserving
+// tabs (which terminals expand to a tab stop): copying a source tab into the
+// caret row keeps the two rows aligned where plain spaces would drift. Columns
+// past the source line's length (rare) fall back to spaces.
+func caretPad(line string, col int) string {
 	if col <= 1 {
-		return 0
+		return ""
 	}
-	return col - 1
+	var b strings.Builder
+	for i := 0; i < col-1; i++ {
+		if i < len(line) && line[i] == '\t' {
+			b.WriteByte('\t')
+		} else {
+			b.WriteByte(' ')
+		}
+	}
+	return b.String()
 }
 
 // carets returns a caret underline string: at least one '^', spanning the

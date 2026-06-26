@@ -249,6 +249,8 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 	gfs.SetOutput(stderr)
 	var nocacheFlag bool
 	var jsonFlag bool
+	var watchFlag bool
+	var formatFlag string
 	// -q/-v are output flags that belong to generate (cf. `go build -v`), so they
 	// work in any position after the command. Their defaults are the global
 	// values, which OR-combines a global `gsx -v generate` with a per-command
@@ -256,6 +258,8 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 	quietFlag, verboseFlag := quiet, verbose
 	gfs.BoolVar(&nocacheFlag, "no-cache", noCache, "bypass the content-hash cache; regenerate all")
 	gfs.BoolVar(&jsonFlag, "json", false, "emit diagnostics as a JSON array to stdout")
+	gfs.BoolVar(&watchFlag, "watch", false, "watch sources and regenerate on change (long-lived)")
+	gfs.StringVar(&formatFlag, "format", "", "output format for --watch: \"ndjson\" for machine consumption")
 	gfs.BoolVar(&quietFlag, "q", quiet, "quiet: suppress success output")
 	gfs.BoolVar(&verboseFlag, "v", verbose, "verbose: list each written file")
 	// Partition args into flag tokens (starting with "-") and positional paths
@@ -274,6 +278,14 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 	}
 	if len(paths) == 0 {
 		paths = []string{"."}
+	}
+	if watchFlag {
+		return runWatch(watchConfig{
+			paths: paths, format: formatFlag,
+			stdout: stdout, stderr: stderr, quiet: quiet, verbose: verbose,
+			filterPkgs: filterPkgs, aliases: aliases, cls: cls,
+			predLabel: predLabel, fm: fm, cssMin: cssMin, jsMin: jsMin,
+		})
 	}
 	// Bypass the cache when --no-cache is set OR when a custom minifier is
 	// configured: funcs are not hashable, so the cache cannot key on cssMin/jsMin.

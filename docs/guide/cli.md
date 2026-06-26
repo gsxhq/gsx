@@ -131,8 +131,34 @@ Path arguments are files or directories; with none, `generate` defaults to `.`.
 |------|--------|
 | `-no-cache` | bypass the content-hash cache; regenerate everything |
 | `-json` | emit diagnostics as a JSON array to stdout |
+| `-watch` | stay running and regenerate on every `.gsx`/`.go` change (see below) |
+| `-format` | `ndjson` makes `-watch` stream machine-readable events on stdout |
 
 These subcommand flags may appear before or after the path arguments.
+
+### Watch mode
+
+`gsx generate --watch` runs as a long-lived process: it watches your `.gsx`
+(and non-generated `.go`) sources and regenerates on each change, keeping the
+type-resolution environment **warm** so each rebuild is in-process — no fresh
+`go/packages.Load` per save. On a small package this takes a warm regenerate
+from ~140 ms (a cold one-shot `gsx generate`) down to **~1–2 ms**. A change to a
+`.go`/`go.mod`/`go.sum` file rebuilds the warm resolver first (one reload), then
+regenerates; pure `.gsx` edits always take the fast path. Generated `*.x.go`,
+and the `tmp/`, `dist/`, `node_modules/`, `.git/` directories, are never watched.
+
+```bash
+gsx generate --watch                 # human output on stderr; Ctrl-C to stop
+gsx generate --watch --format=ndjson # one JSON event per line on stdout
+```
+
+With `--format=ndjson`, stdout is a clean newline-delimited JSON stream (all
+logs go to stderr) — this is what the Vite plugin consumes:
+
+- `{"event":"start","root":"<abs>","watching":["<dir>",…]}`
+- `{"event":"generated","ok":true,"durationMs":2,"written":["page.x.go"],"diagnostics":[]}`
+- `{"event":"generated","ok":false,"durationMs":1,"written":[],"diagnostics":[ … ]}` — `diagnostics` is the same shape as `gsx generate --json`
+- `{"event":"error","message":"<text>"}` — an operational failure (not a compile diagnostic)
 
 **Diagnostics** are rendered in one of three forms:
 

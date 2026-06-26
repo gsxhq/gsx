@@ -35,6 +35,30 @@ func TestRenderRichSnippet(t *testing.T) {
 	}
 }
 
+func TestRenderRichCaretAlignsUnderTab(t *testing.T) {
+	// A tab-indented element: the caret row must reuse the leading tab so it
+	// stays aligned with the source line a terminal expands the tab in.
+	src := func(name string) ([]byte, bool) {
+		if name == "views.gsx" {
+			return []byte("component X() {\n\t<div id={ Bad }></div>\n}\n"), true
+		}
+		return nil, false
+	}
+	var buf bytes.Buffer
+	// Line 2 is "\t<div id={ Bad }...": byte col 7 is the 'i' of the id attr.
+	RenderRich(&buf, []Diagnostic{{
+		Start:    token.Position{Filename: "views.gsx", Line: 2, Column: 7},
+		End:      token.Position{Filename: "views.gsx", Line: 2, Column: 16},
+		Severity: Error, Code: "unsupported-attr-type", Message: "bad attr",
+	}}, src)
+	// The caret row's prefix after " | " must be: one tab (mirrored from the
+	// source) + spaces for the remaining columns, then the carets.
+	want := " | \t" + strings.Repeat(" ", 5) + "^^^^^^^^^"
+	if !strings.Contains(buf.String(), want) {
+		t.Errorf("caret row not tab-aligned; want substring %q:\n%s", want, buf.String())
+	}
+}
+
 func TestRenderRichDegradesWithoutSource(t *testing.T) {
 	var buf bytes.Buffer
 	RenderRich(&buf, []Diagnostic{{

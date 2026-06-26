@@ -23,7 +23,12 @@ type Diagnostic struct {
 }
 
 type publishDiagnosticsParams struct {
-	URI         string       `json:"uri"`
+	URI string `json:"uri"`
+	// Version is the document version the diagnostics were computed on. The editor
+	// discards a publish whose version is older than the live buffer, so stale
+	// squiggles from a superseded analysis never linger. Omitted (nil) for files
+	// that are not open (version unknown) and for clear-on-close.
+	Version     *int         `json:"version,omitempty"`
 	Diagnostics []Diagnostic `json:"diagnostics"`
 }
 

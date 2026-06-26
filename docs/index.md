@@ -22,7 +22,8 @@ a **JSX-style markup body**, compiled to plain Go.
   [test corpus](https://github.com/gsxhq/gsx/tree/main/internal/corpus/testdata/cases)
   is the canonical, always-current reference (every accepted form is a case that
   parses, generates Go, and pins its rendered output).
-- **[Extensions](./guide/extensions.md)** — custom attribute classification, filter packages, and the `cmd/gsx` registration pattern.
+- **[Configuration](./guide/config.md)** — the `gsx.toml` file: pipeline filters, filter packages, and attribute rules read by the stock binary.
+- **[Extensions](./guide/extensions.md)** — the code escape hatch (`cmd/gsx` + `gen.Main`) for function-valued options: custom minifier, classifier predicate, field matcher.
 
 ## Reference
 
