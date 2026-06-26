@@ -75,6 +75,14 @@ func (a lspAnalyzer) Analyze(dir string, override map[string][]byte) (*lsp.Packa
 	}, nil
 }
 
+// PrintWidth resolves the effective gsx.toml print width for dir, layering the
+// programmatic optCfg over the file config exactly like Analyze. Best-effort:
+// returns 80 on any failure.
+func (a lspAnalyzer) PrintWidth(dir string) int {
+	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
+	return merged.effectivePrintWidth()
+}
+
 // resolveConfigBestEffort resolves the LSP's effective config: it discovers a
 // gsx.toml from dir (walking up, bounded by .git/module root) and merges it under
 // optCfg — exactly as resolveConfig does for generate/info — but for the LSP it

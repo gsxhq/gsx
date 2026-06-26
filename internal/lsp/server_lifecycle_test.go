@@ -12,6 +12,7 @@ import (
 type nilAnalyzer struct{}
 
 func (nilAnalyzer) Analyze(string, map[string][]byte) (*Package, error) { return &Package{}, nil }
+func (nilAnalyzer) PrintWidth(string) int                               { return 80 }
 
 // framed wraps a JSON-RPC body in Content-Length framing.
 func framed(t *testing.T, v any) string {

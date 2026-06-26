@@ -1,7 +1,9 @@
 package printer
 
 import (
+	"bytes"
 	"go/token"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -19,7 +21,7 @@ func fmtSource(t *testing.T, src string) string {
 	}
 	wsnorm.Normalize(f)
 	var b strings.Builder
-	if err := Fprint(&b, f); err != nil {
+	if err := Fprint(&b, f, 80); err != nil {
 		t.Fatalf("Fprint error: %v", err)
 	}
 	return b.String()
@@ -40,7 +42,36 @@ func checkFormat(t *testing.T, src, want string) {
 	}
 }
 
+func assertFormat(t *testing.T, src, want string) {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "c.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	wsnorm.Normalize(f)
+	var b bytes.Buffer
+	if err := Fprint(&b, f, 80); err != nil {
+		t.Fatalf("print: %v", err)
+	}
+	got := b.String()
+	if got != want {
+		t.Fatalf("format mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+	// Faithfulness: formatting must not change the normalized AST.
+	if !reflect.DeepEqual(normalizedAST(t, src), normalizedAST(t, want)) {
+		t.Fatalf("assertFormat: formatting changed the normalized AST (not faithful)\nsrc:\n%s\nwant:\n%s", src, want)
+	}
+	// Idempotence: formatting want again must yield want.
+	again := fmtSource(t, want)
+	if again != want {
+		t.Fatalf("assertFormat: not idempotent:\n--- want ---\n%s\n--- again ---\n%s", want, again)
+	}
+}
+
 func TestElementBlock(t *testing.T) {
+	// Two short children fit on one line in the new width-aware layout: the
+	// <div> Group collapses because <div><p>a</p><span>b</span></div> < 80 cols.
 	src := `package p
 component C() {
 	<div>
@@ -51,10 +82,7 @@ component C() {
 	want := `package p
 
 component C() {
-	<div>
-		<p>a</p>
-		<span>b</span>
-	</div>
+	<div><p>a</p><span>b</span></div>
 }
 `
 	checkFormat(t, src, want)
@@ -139,6 +167,9 @@ component C() {
 }
 
 func TestAttrKinds(t *testing.T) {
+	// Five attrs total 85 chars flat — exceeds 76 remaining at depth 1 — so the
+	// opening-tag group breaks. Children (`{ children }`) are non-breakable (one
+	// Interp segment), so they sit inline after `>`. Output is faithful+idempotent.
 	src := `package p
 component C() {
 	<div id="main" hidden class={ "card", "active": isActive } data-x={ val } { rest... }>{children}</div>
@@ -146,13 +177,22 @@ component C() {
 	want := `package p
 
 component C() {
-	<div id="main" hidden class={ "card", "active": isActive } data-x={val} { rest... }>{ children }</div>
+	<div
+		id="main"
+		hidden
+		class={ "card", "active": isActive }
+		data-x={val}
+		{ rest... }
+	>{ children }</div>
 }
 `
 	checkFormat(t, src, want)
 }
 
 func TestCondAttr(t *testing.T) {
+	// A CondAttr always forces the opening-tag group to break (BreakParent inside
+	// attrDoc for CondAttr). Children "x" are non-breakable, so they sit inline
+	// after `>`. Output is faithful+idempotent.
 	src := `package p
 component C() {
 	<div { if active { class="on" } else { class="off" } }>x</div>
@@ -160,7 +200,13 @@ component C() {
 	want := `package p
 
 component C() {
-	<div { if active { class="on" } else { class="off" } }>x</div>
+	<div
+		{ if active {
+			class="on"
+		} else {
+			class="off"
+		} }
+	>x</div>
 }
 `
 	checkFormat(t, src, want)
@@ -181,6 +227,9 @@ component C() {
 }
 
 func TestJSAttr(t *testing.T) {
+	// Two JSAttrs — flat tag is 71 chars but tag+child+close = 78 chars; at depth
+	// 1 (position 4) the total 82 > 80 so the opening-tag group breaks. Children
+	// "x" are non-breakable, so they sit inline after `>`. Faithful+idempotent.
 	src := `package p
 component C(tab string) {
 	<div x-data="{ tab: @{ tab }, open: false }" onclick="alert(@{ tab })">x</div>
@@ -188,13 +237,18 @@ component C(tab string) {
 	want := `package p
 
 component C(tab string) {
-	<div x-data="{ tab: @{ tab }, open: false }" onclick="alert(@{ tab })">x</div>
+	<div
+		x-data="{ tab: @{ tab }, open: false }"
+		onclick="alert(@{ tab })"
+	>x</div>
 }
 `
 	checkFormat(t, src, want)
 }
 
 func TestIfElseIfElse(t *testing.T) {
+	// Short if-else-if-else fits on one line: the Group collapses to flat
+	// because the whole expression is < 80 cols at depth 1.
 	src := `package p
 component C() {
 	<div>
@@ -204,21 +258,14 @@ component C() {
 	want := `package p
 
 component C() {
-	<div>
-		{ if a {
-			<p>A</p>
-		} else if b {
-			<p>B</p>
-		} else {
-			<p>C</p>
-		} }
-	</div>
+	<div>{ if a { <p>A</p> } else if b { <p>B</p> } else { <p>C</p> } }</div>
 }
 `
 	checkFormat(t, src, want)
 }
 
 func TestForMarkup(t *testing.T) {
+	// Short for-range with one child fits on one line at depth 1 (< 80 cols).
 	src := `package p
 component C() {
 	<ul>
@@ -228,17 +275,16 @@ component C() {
 	want := `package p
 
 component C() {
-	<ul>
-		{ for _, it := range items {
-			<li>{ it.Name }</li>
-		} }
-	</ul>
+	<ul>{ for _, it := range items { <li>{ it.Name }</li> } }</ul>
 }
 `
 	checkFormat(t, src, want)
 }
 
 func TestSwitchMarkup(t *testing.T) {
+	// Switch always uses HardLine so it never collapses. Short case bodies (one
+	// non-breakable element) follow the colon on the same line. The <div> renders
+	// inline (one child, not breakable) wrapping the switch block.
 	src := `package p
 component C() {
 	<div>
@@ -253,20 +299,17 @@ component C() {
 	want := `package p
 
 component C() {
-	<div>
-		{ switch kind {
-			case "a":
-				<p>A</p>
-			default:
-				<p>D</p>
-		} }
-	</div>
+	<div>{ switch kind {
+		case "a":<p>A</p>
+		default:<p>D</p>
+	} }</div>
 }
 `
 	checkFormat(t, src, want)
 }
 
 func TestFragment(t *testing.T) {
+	// Two short paragraph children fit on one line: fragment Group collapses.
 	src := `package p
 component C() {
 	<>
@@ -277,10 +320,7 @@ component C() {
 	want := `package p
 
 component C() {
-	<>
-		<p>a</p>
-		<p>b</p>
-	</>
+	<><p>a</p><p>b</p></>
 }
 `
 	checkFormat(t, src, want)
@@ -352,7 +392,8 @@ func TestTextareaVerbatim(t *testing.T) {
 }
 
 func TestNestedBlockInline(t *testing.T) {
-	// Outer block (two elements), inner inline (text+element).
+	// Outer block (two elements), inner inline (text+element). Both fit flat.
+	// Width-aware: <div><p>a <b>x</b> b</p><p>plain</p></div> < 80 cols.
 	src := `package p
 component C() {
 	<div>
@@ -363,10 +404,7 @@ component C() {
 	want := `package p
 
 component C() {
-	<div>
-		<p>a <b>x</b> b</p>
-		<p>plain</p>
-	</div>
+	<div><p>a <b>x</b> b</p><p>plain</p></div>
 }
 `
 	checkFormat(t, src, want)
@@ -409,4 +447,309 @@ func TestStyleInterpFormatPreservesPipeline(t *testing.T) {
 	src := "package p\n\ncomponent C(x string) {\n\t<style>.a{color:@{ x |> upper }}</style>\n}\n"
 	want := "package p\n\ncomponent C(x string) {\n\t<style>.a{color:@{ x |> upper }}</style>\n}\n"
 	checkFormat(t, src, want)
+}
+
+func TestBlockBreaksMixedTextControlFlow(t *testing.T) {
+	// The reported bug: a long <p> with text + interp + an if must break at the
+	// safe boundary (Interp|IfMarkup), keeping "· <a>…</a>" glued by its space.
+	// Canonical output: interp content gains spaces ({ expr }), ExprAttr has none
+	// ({expr}), and the if-body breaks because the flat rendering exceeds 80 cols.
+	src := `package p
+component C() {
+	<p class="text-sm text-slate-500">
+		by {props.Author.Username}
+		{ if props.Category.Slug != "" {
+			· <a class="hover:underline" href={ categoryPage{} |> url("slug", props.Category.Slug) }>{props.Category.Name}</a>
+		} }
+	</p>
+}`
+	want := `package p
+
+component C() {
+	<p class="text-sm text-slate-500">
+		by { props.Author.Username }
+		{ if props.Category.Slug != "" {
+			· <a
+				class="hover:underline"
+				href={categoryPage{} |> url("slug", props.Category.Slug)}
+			>{ props.Category.Name }</a>
+		} }
+	</p>
+}
+`
+	assertFormat(t, src, want)
+}
+
+func TestCfBodyEdgeUnsafeStaysFaithful(t *testing.T) {
+	// A control-flow body that is a single space-bearing Text must stay flat
+	// even when the enclosing if is long: breaking would absorb the significant
+	// leading/trailing spaces and change the normalized AST.
+	src := `package p
+component C() {
+	{ if veryLongConditionNameThatWouldForceTheEnclosingGroupToBreakAcrossEightyColumns { some text } }
+}`
+	out, err := normPrint(t, src)
+	if err != nil {
+		t.Fatalf("print: %v", err)
+	}
+	// Faithful: formatting must not change the normalized AST.
+	if !reflect.DeepEqual(normalizedAST(t, src), normalizedAST(t, out)) {
+		t.Fatalf("cfBody break changed normalized AST (unfaithful):\n%s", out)
+	}
+	// Idempotent.
+	out2, err := normPrint(t, out)
+	if err != nil {
+		t.Fatalf("reprint: %v", err)
+	}
+	if out != out2 {
+		t.Fatalf("not idempotent:\n--- once ---\n%s\n--- twice ---\n%s", out, out2)
+	}
+}
+
+func TestShortBlockCollapsesToOneLine(t *testing.T) {
+	// "true Prettier": a short block structure that fits 80 cols lays out flat.
+	src := `package p
+component C() {
+	<div>
+		<p>plain</p>
+	</div>
+}`
+	want := `package p
+
+component C() {
+	<div><p>plain</p></div>
+}
+`
+	assertFormat(t, src, want)
+}
+
+func TestAttrWrapOnConditionalAttr(t *testing.T) {
+	// A CondAttr forces the opening tag to break, one attr per line, > alone;
+	// the forced tag-break also forces breakable children onto their own lines.
+	// Two Interp children (no space between) form two segments → breakable.
+	src := `package p
+component C(p Props) {
+	<a { if p.ID != "" { id={ p.ID } } } href={ p.Href } class={ buttonClass(p) } { p.Attributes... }>{ children }{ name }</a>
+}`
+	want := `package p
+
+component C(p Props) {
+	<a
+		{ if p.ID != "" {
+			id={p.ID}
+		} }
+		href={p.Href}
+		class={ buttonClass(p) }
+		{ p.Attributes... }
+	>
+		{ children }
+		{ name }
+	</a>
+}
+`
+	assertFormat(t, src, want)
+}
+
+func TestAttrStayInlineWhenShort(t *testing.T) {
+	src := `package p
+component C() {
+	<a href="/x" class="b">go</a>
+}`
+	want := `package p
+
+component C() {
+	<a href="/x" class="b">go</a>
+}
+`
+	assertFormat(t, src, want)
+}
+
+// format80 parses, normalizes, and Fprintfs src at width 80, returning the
+// canonical output. Used by comment-fidelity tests that need a bytes.Buffer.
+func format80(t *testing.T, src string) string {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "c.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	wsnorm.Normalize(f)
+	var b bytes.Buffer
+	if err := Fprint(&b, f, 80); err != nil {
+		t.Fatalf("print: %v", err)
+	}
+	return b.String()
+}
+
+func TestAttrValueMultilinePreservesComment(t *testing.T) {
+	src := `package p
+component C(p Props) {
+	<p class={ utils.TwMerge(
+		// keep this comment
+		"text-[0.8rem] font-medium",
+		p.Class,
+	) }>x</p>
+}`
+	// The comment must survive, and the long call must stay multi-line.
+	got := format80(t, src)
+	if !strings.Contains(got, "// keep this comment") {
+		t.Fatalf("comment dropped:\n%s", got)
+	}
+	if !strings.Contains(got, "utils.TwMerge(\n") {
+		t.Fatalf("expr not multi-line:\n%s", got)
+	}
+	// Args must be indented one level deeper than the call (templ-style), not
+	// flattened flush with it.
+	callIndent := leadingTabs(lineContaining(got, "utils.TwMerge("))
+	argIndent := leadingTabs(lineContaining(got, "// keep this comment"))
+	if argIndent != callIndent+1 {
+		t.Fatalf("args should be one tab deeper than the call: callIndent=%d argIndent=%d\n%s", callIndent, argIndent, got)
+	}
+	// Idempotence: re-formatting is a fixed point.
+	if again := format80(t, got); again != got {
+		t.Fatalf("not idempotent:\n--- once ---\n%s\n--- twice ---\n%s", got, again)
+	}
+}
+
+func lineContaining(s, sub string) string {
+	for _, ln := range strings.Split(s, "\n") {
+		if strings.Contains(ln, sub) {
+			return ln
+		}
+	}
+	return ""
+}
+
+func leadingTabs(line string) int {
+	n := 0
+	for n < len(line) && line[n] == '\t' {
+		n++
+	}
+	return n
+}
+
+// TestPrintWidthControlsWrap verifies that the same input stays flat at
+// width 80 but breaks each <li> onto its own line at width 20.
+func TestPrintWidthControlsWrap(t *testing.T) {
+	src := `package p
+component C() {
+	<ul><li>one</li><li>two</li><li>three</li></ul>
+}`
+	// Fits at 80 → one line.
+	flat := format80(t, src)
+	if !strings.Contains(flat, "<ul><li>one</li><li>two</li><li>three</li></ul>") {
+		t.Fatalf("width 80 should stay flat:\n%s", flat)
+	}
+	// At width 20 → breaks each <li> onto its own line.
+	fset := token.NewFileSet()
+	f, _ := parser.ParseFile(fset, "c.gsx", []byte(src), 0)
+	wsnorm.Normalize(f)
+	var b bytes.Buffer
+	if err := Fprint(&b, f, 20); err != nil {
+		t.Fatal(err)
+	}
+	narrow := b.String()
+	if !strings.Contains(narrow, "<ul>\n\t\t<li>one</li>\n") {
+		t.Fatalf("width 20 should break list:\n%s", narrow)
+	}
+}
+
+// TestDSButtonAcceptance verifies the ds/button pattern: CondAttr forces the
+// opening tag to break (one attr per line), single children interp stays inline
+// after >. Strengthened assertFormat enforces faithfulness + idempotence.
+func TestDSButtonAcceptance(t *testing.T) {
+	src := `package ds
+
+component Button(p Props) {
+	<a { if p.ID != "" { id={ p.ID } } } href={ p.Href } class={ buttonClass(p) } { p.Attributes... }>{ children }</a>
+}`
+	want := `package ds
+
+component Button(p Props) {
+	<a
+		{ if p.ID != "" {
+			id={p.ID}
+		} }
+		href={p.Href}
+		class={ buttonClass(p) }
+		{ p.Attributes... }
+	>{ children }</a>
+}
+`
+	assertFormat(t, src, want)
+}
+
+// TestDSFormMessageAcceptance verifies the ds/form-message pattern: CondAttr
+// forces tag break; a multi-line class value (utils.TwMerge) renders with
+// gofmt's own indentation under the ExprAttr. Faithfulness + idempotence
+// enforced by the strengthened assertFormat.
+func TestDSFormMessageAcceptance(t *testing.T) {
+	src := `package ds
+
+component Message(p MessageProps) {
+	<p { if p.ID != "" { id={ p.ID } } } class={ utils.TwMerge(
+		"text-[0.8rem] font-medium",
+		messageVariantClass(p.Variant),
+		p.Class,
+	) } { p.Attributes... }>{ children }</p>
+}`
+	want := `package ds
+
+component Message(p MessageProps) {
+	<p
+		{ if p.ID != "" {
+			id={p.ID}
+		} }
+		class={
+			utils.TwMerge(
+				"text-[0.8rem] font-medium",
+				messageVariantClass(p.Variant),
+				p.Class,
+			)
+		}
+		{ p.Attributes... }
+	>{ children }</p>
+}
+`
+	assertFormat(t, src, want)
+}
+
+func TestComponentBodyEdgeUnsafeStaysFaithful(t *testing.T) {
+	src := "package p\n\ncomponent C() { foo }"
+	out, err := normPrint(t, src)
+	if err != nil {
+		t.Fatalf("normPrint: %v", err)
+	}
+	want := normalizedAST(t, src)
+	got := normalizedAST(t, out)
+	if !reflect.DeepEqual(want, got) {
+		t.Fatalf("not faithful:\n  src=%q\n  out=%q", src, out)
+	}
+	out2, err := normPrint(t, out)
+	if err != nil {
+		t.Fatalf("normPrint(out2): %v", err)
+	}
+	if out != out2 {
+		t.Fatalf("not idempotent:\n  out =%q\n  out2=%q", out, out2)
+	}
+}
+
+func TestSwitchArmEdgeUnsafeStaysFaithful(t *testing.T) {
+	src := "package p\n\ncomponent C() {\n{ switch k { case \"a\": foo } }\n}"
+	out, err := normPrint(t, src)
+	if err != nil {
+		t.Fatalf("normPrint: %v", err)
+	}
+	want := normalizedAST(t, src)
+	got := normalizedAST(t, out)
+	if !reflect.DeepEqual(want, got) {
+		t.Fatalf("not faithful:\n  src=%q\n  out=%q", src, out)
+	}
+	out2, err := normPrint(t, out)
+	if err != nil {
+		t.Fatalf("normPrint(out2): %v", err)
+	}
+	if out != out2 {
+		t.Fatalf("not idempotent:\n  out =%q\n  out2=%q", out, out2)
+	}
 }
