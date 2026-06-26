@@ -157,9 +157,10 @@ at the `safe` level. At `none` the custom minifier is not called.
 **Overrides & precedence — `option > env > config-file`:**
 
 - The `[minify]` table is the **file default**.
-- The `GSX_MINIFY` environment variable is the coarse **dev↔prod switch** that
-  overrides the file: `GSX_MINIFY=off` forces `none` for both assets,
-  `GSX_MINIFY=on` forces the built-in minifier on (the `safe` level) for both.
+- The `GSX_MINIFY` environment variable is the **dev↔prod switch** that overrides
+  the file. It takes a level — `none`, `safe`, or `full` — applied to **both**
+  assets: `GSX_MINIFY=full` for a production build, `GSX_MINIFY=none` for fast,
+  readable dev output.
 - `gen.WithMinifyLevel(css, js)` in a `cmd/gsx` binary wins over **both** (code
   is the most deliberate layer).
 
