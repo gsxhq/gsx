@@ -7,6 +7,7 @@ need no code. This page covers the **code escape hatch**: a project-owned
 a Go *function* and therefore cannot live in TOML:
 
 - a custom CSS/JS minifier (`gen.WithCSSMinifier` / `gen.WithJSMinifier`),
+- a custom CSS/JS **formatter** (`gen.WithCSSFormatter` / `gen.WithJSFormatter`) *(in development)*,
 - an attribute-classifier **predicate** (`gen.WithAttrClassifier`),
 - a field matcher (`gen.WithFieldMatcher`).
 
@@ -94,6 +95,48 @@ to offline tools (a future LSP or `vet`).
 (closures are not inspectable), consistent with `WithCSSMinifier`/`WithJSMinifier`.
 After changing a predicate's logic, run `gsx clean --cache` to force full
 regeneration.
+
+## Custom CSS/JS formatter
+
+`gsx fmt` formats the CSS inside `<style>` (and, in a follow-up, the JS inside
+`<script>`) with a small built-in formatter. When you want fuller fidelity —
+Prettier, Biome, or a house style — replace the built-in with your own via
+`gen.WithCSSFormatter` / `gen.WithJSFormatter`:
+
+```go
+// cmd/gsx/main.go
+gen.Main(
+	gen.WithCSSFormatter(func(src []byte) ([]byte, error) {
+		// Shell out to prettier (or any tool). Return the formatted bytes,
+		// or an error to fall back to verbatim rendering of this body.
+		return runPrettier(src, "--parser", "css")
+	}),
+)
+```
+
+A formatter is a `func(src []byte) ([]byte, error)`. It receives the embedded
+language's source as a **self-contained document** (formatted from column 0; gsx
+re-indents the result to the tag's depth afterward) and returns the formatted
+bytes. Two contracts make it safe:
+
+- **Holes are pre-substituted.** Each `@{ … }` interpolation in the body is
+  replaced with a collision-free placeholder token (a valid CSS/JS identifier)
+  *before* your formatter runs; gsx restores the real holes afterward. Leave
+  those tokens untouched — don't parse or rewrite them.
+- **Errors are not fatal.** Returning an error (or panicking) makes gsx render
+  *that* body verbatim instead, so a formatter that chokes on one file never
+  breaks `gsx fmt`. This is the same correct-or-verbatim rule the built-in uses.
+
+Like the minifiers, this is a **function-valued, code-only** option: `nil` means
+the built-in default applies, `gsx.toml` cannot set it, and it bypasses the
+codegen cache (run `gsx clean --cache` after changing formatter logic). Shelling
+out to an external tool is a user-written wrapper — gsx ships only the in-process
+plug point and a minimal built-in, not a subprocess adapter.
+
+> **In development.** The built-in embedded-CSS formatter is being built now;
+> `WithCSSFormatter` (then `WithJSFormatter` and `<script>` formatting) follow.
+> The contract above is the committed design; the API is not yet on the current
+> release.
 
 ## Registration pattern
 

@@ -206,6 +206,22 @@ whitespace only and skip that analysis (faster, and works outside a resolvable
 module). The language server's format action drops unused imports too, so
 format-on-save in an editor keeps imports tidy.
 
+**Embedded CSS & JS.** `gsx fmt` also formats the languages embedded in your
+markup — the CSS inside `<style>`, and (in a follow-up) the JavaScript inside
+`<script>` — so a whole `.gsx` file has one formatter. CSS lands first with a
+small built-in formatter; JS follows. `@{ }` interpolation holes inside a body
+are preserved exactly across formatting.
+
+Formatting embedded code is **correct-or-verbatim**: if a body can't be parsed
+cleanly, gsx leaves it byte-for-byte untouched rather than risk mangling it —
+the same safety rule as Go-fragment formatting. The built-in CSS formatter is
+deliberately minimal and **replaceable** with your own (e.g. a Prettier
+shell-out) — see [Extending gsx](./extensions.md#custom-css-js-formatter).
+
+> **In development.** Embedded `<style>` CSS formatting is being built now
+> (`<script>` JS after it). On the current release, `<style>` and `<script>`
+> bodies are still emitted verbatim. The `gsx fmt` flags above are stable.
+
 **Exit codes:** `0` on success; `1` on a parse error, or — with `-l` / `-d` —
 when any file differs. The non-zero-on-difference behavior of `-l` / `-d` is
 deliberately CI-friendly: it lets a build fail when sources are not canonically
