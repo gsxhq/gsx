@@ -173,23 +173,25 @@ func (m *Module) typesPackageWith(dir string, mi *moduleImporter) (*types.Packag
 // component cross-index inputs. typesPackage consumes only a.pkg; Module.Package
 // (retained analysis) and Module.Generate (codegen) consume the rest.
 type analyzed struct {
-	pkgName    string
-	gsxFiles   map[string]*gsxast.File        // gsx path -> parsed file
-	gsxFset    *token.FileSet                 // gsx positions
-	skelFset   *token.FileSet                 // skeleton positions (same fset as gsxFset for Module)
-	goFiles    []*goast.File                  // parsed skeletons + shared helper
-	compsByXGo map[string][]*gsxast.Component // skeleton abs path -> components
-	table      filterTable
-	propFields map[string]map[string]bool
-	nodeProps  map[string]map[string]bool
-	byo        *byoData
-	resolved   map[gsxast.Node]types.Type
-	exprMap    map[gsxast.Node]goast.Expr
-	pkg        *types.Package
-	info       *types.Info
-	compByKey  map[string]*gsxast.Component // componentKey -> component (for Name + NamePos)
-	objKey     map[types.Object]string      // component func object -> componentKey
-	bag        *diag.Bag                    // diagnostics from parse + script resolution; used by Generate
+	pkgName     string
+	gsxFiles    map[string]*gsxast.File        // gsx path -> parsed file
+	gsxFset     *token.FileSet                 // gsx positions
+	skelFset    *token.FileSet                 // skeleton positions (same fset as gsxFset for Module)
+	goFiles     []*goast.File                  // parsed skeletons + shared helper
+	compsByXGo  map[string][]*gsxast.Component // skeleton abs path -> components
+	table       filterTable
+	propFields  map[string]map[string]bool
+	nodeProps   map[string]map[string]bool
+	byo         *byoData
+	resolved    map[gsxast.Node]types.Type
+	exprMap     map[gsxast.Node]goast.Expr
+	pkg         *types.Package
+	info        *types.Info
+	compByKey   map[string]*gsxast.Component // componentKey -> component (for Name + NamePos)
+	objKey      map[types.Object]string      // component func object -> componentKey
+	bag         *diag.Bag                    // diagnostics from parse + script resolution; used by Generate
+	importSpecs []importSpec                 // hoisted .gsx import specs (for detectUnusedImports)
+	typeErrs    []types.Error                // raw type errors from checkSkeletonPackage
 }
 
 // analyze performs the shared parse -> skeleton -> type-check pipeline for one
@@ -226,7 +228,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	if scriptErr {
 		gsxFiles = nil // package-level skip: Generate's loop emits nothing
 	}
-	table, err := loadFilterTableMulti(m.opts.ModuleRoot, m.opts.FilterPkgs, m.opts.Aliases)
+	table, err := loadFilterTableMulti(m.opts.ModuleRoot, dedupFilterPkgs(m.opts.FilterPkgs), m.opts.Aliases)
 	if err != nil {
 		return nil, err
 	}
@@ -236,11 +238,13 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	}
 	var goFiles []*goast.File
 	compsByXGo := map[string][]*gsxast.Component{}
+	var allImportSpecs []importSpec
 	for path, f := range gsxFiles {
-		skel, comps, _, berr := buildSkeleton(f, table, propFields, nodeProps, byo, m.opts.FieldMatcher, fset)
+		skel, comps, imps, berr := buildSkeleton(f, table, propFields, nodeProps, byo, m.opts.FieldMatcher, fset)
 		if berr != nil {
 			return nil, berr
 		}
+		allImportSpecs = append(allImportSpecs, imps...)
 		base := strings.TrimSuffix(filepath.Base(path), ".gsx")
 		absXpath := filepath.Join(dir, base+".x.go")
 		gf, perr := goparser.ParseFile(fset, absXpath, skel, goparser.SkipObjectResolution)
@@ -339,23 +343,25 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	}
 
 	return &analyzed{
-		pkgName:    pkgName,
-		gsxFiles:   gsxFiles,
-		gsxFset:    fset,
-		skelFset:   fset,
-		goFiles:    goFiles,
-		compsByXGo: compsByXGo,
-		table:      table,
-		propFields: propFields,
-		nodeProps:  nodeProps,
-		byo:        byo,
-		resolved:   resolved,
-		exprMap:    exprMap,
-		pkg:        pkg,
-		info:       info,
-		compByKey:  compByKey,
-		objKey:     objKey,
-		bag:        bag,
+		pkgName:     pkgName,
+		gsxFiles:    gsxFiles,
+		gsxFset:     fset,
+		skelFset:    fset,
+		goFiles:     goFiles,
+		compsByXGo:  compsByXGo,
+		table:       table,
+		propFields:  propFields,
+		nodeProps:   nodeProps,
+		byo:         byo,
+		resolved:    resolved,
+		exprMap:     exprMap,
+		pkg:         pkg,
+		info:        info,
+		compByKey:   compByKey,
+		objKey:      objKey,
+		bag:         bag,
+		importSpecs: allImportSpecs,
+		typeErrs:    typeErrs,
 	}, nil
 }
 

@@ -76,6 +76,13 @@ type PackageResult struct {
 	// Types is the analyzed package's go/types.Package, retained for the LSP
 	// (e.g. hover's qualifier). nil when the package failed before type-checking.
 	Types *types.Package
+
+	// ExtFset is the FileSet that covers external (imported, non-project) package
+	// positions. Non-nil only when analysis used the warm-Module path; nil in the
+	// batch (GeneratePackagesWithFilters) path where Fset already covers all packages.
+	// The LSP uses it to resolve cross-package object positions (e.g. go-to-def on a
+	// dotted component tag).
+	ExtFset *token.FileSet
 }
 
 // UnusedImport is one import a .gsx file declares but never references, as
@@ -543,4 +550,41 @@ func pickImportByPath(specs []importSpec, msg string) importSpec {
 // package (kept for the test corpus and any std-only caller).
 func GeneratePackages(moduleDir string, dirs []string) (map[string]*PackageResult, error) {
 	return GeneratePackagesWithFilters(moduleDir, dirs, nil, nil, nil, nil, nil, nil, nil)
+}
+
+// detectUnusedImportsFromErrs is the Module path equivalent of detectUnusedImports:
+// it correlates raw go/types type errors (from checkSkeletonPackage) with the
+// hoisted .gsx import specs to identify unused imports, using the same conservative
+// logic as the batch path (returns nil if any error is not a clean unused-import).
+func detectUnusedImportsFromErrs(typeErrs []types.Error, imports []importSpec, gsxFset *token.FileSet) map[string][]UnusedImport {
+	if len(typeErrs) == 0 || len(imports) == 0 {
+		return nil
+	}
+	type posKey struct {
+		file string
+		line int
+	}
+	byPos := map[posKey][]importSpec{}
+	for _, imp := range imports {
+		if !imp.pos.IsValid() {
+			continue // unresolved position: cannot correlate safely
+		}
+		p := gsxFset.Position(imp.pos)
+		k := posKey{p.Filename, p.Line}
+		byPos[k] = append(byPos[k], imp)
+	}
+	out := map[string][]UnusedImport{}
+	for _, e := range typeErrs {
+		ep := e.Fset.Position(e.Pos)
+		specs, ok := byPos[posKey{ep.Filename, ep.Line}]
+		if !ok || !strings.Contains(e.Msg, "imported and not used") {
+			return nil // not a clean unused-import error → analysis unreliable, remove nothing
+		}
+		spec := specs[0]
+		if len(specs) > 1 {
+			spec = pickImportByPath(specs, e.Msg)
+		}
+		out[ep.Filename] = append(out[ep.Filename], UnusedImport{Name: spec.name, Path: spec.path})
+	}
+	return out
 }

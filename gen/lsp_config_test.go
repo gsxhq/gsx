@@ -54,7 +54,7 @@ func TestLSPAnalyzeResolvesTomlAlias(t *testing.T) {
 	dir, must := lspFilterModule(t)
 	must("gsx.toml", "[filters]\nshout = \"example.com/x/myf.Shout\"\n")
 	must("card.gsx", "package x\n\ncomponent Card(name string) {\n\t<p>{ name |> shout }</p>\n}\n")
-	pkg, err := lspAnalyzer{}.Analyze(dir, nil)
+	pkg, err := newLSPAnalyzer(config{}, nil).Analyze(dir, nil)
 	if err != nil {
 		t.Fatalf("Analyze: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestLSPAnalyzeResolvesCtxAlias(t *testing.T) {
 	dir, must := lspFilterModule(t)
 	must("gsx.toml", "[filters]\nurl = \"example.com/x/myf.URL\"\n")
 	must("card.gsx", "package x\n\ncomponent Card(name string) {\n\t<a href={ name |> url(\"id\", name) }>x</a>\n}\n")
-	pkg, err := lspAnalyzer{}.Analyze(dir, nil)
+	pkg, err := newLSPAnalyzer(config{}, nil).Analyze(dir, nil)
 	if err != nil {
 		t.Fatalf("Analyze: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestLSPAnalyzeMalformedConfigFallsBack(t *testing.T) {
 	must("gsx.toml", "bogusKey = 123\n[filters]\nshout = \"example.com/x/myf.Shout\"\n")
 	must("card.gsx", "package x\n\ncomponent Card(name string) {\n\t<p>{ name |> upper }{ name |> shout }</p>\n}\n")
 	var warn bytes.Buffer
-	pkg, err := lspAnalyzer{warnw: &warn}.Analyze(dir, nil)
+	pkg, err := newLSPAnalyzer(config{}, &warn).Analyze(dir, nil)
 	if err != nil {
 		t.Fatalf("Analyze must not error on a malformed gsx.toml: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestLSPAnalyzeNoConfigStdBaseline(t *testing.T) {
 	}
 	dir, must := lspFilterModule(t)
 	must("card.gsx", "package x\n\ncomponent Card(name string) {\n\t<p>{ name |> upper }{ name |> shout }</p>\n}\n")
-	pkg, err := lspAnalyzer{}.Analyze(dir, nil)
+	pkg, err := newLSPAnalyzer(config{}, nil).Analyze(dir, nil)
 	if err != nil {
 		t.Fatalf("Analyze: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestLSPAnalyzeHonorsInProcessOpts(t *testing.T) {
 	dir, must := lspFilterModule(t)
 	must("card.gsx", "package x\n\ncomponent Card(name string) {\n\t<p>{ name |> shout }</p>\n}\n")
 	opt := config{aliases: []codegen.FilterAlias{{Name: "shout", PkgPath: "example.com/x/myf", FuncName: "Shout"}}}
-	pkg, err := lspAnalyzer{optCfg: opt}.Analyze(dir, nil)
+	pkg, err := newLSPAnalyzer(opt, nil).Analyze(dir, nil)
 	if err != nil {
 		t.Fatalf("Analyze: %v", err)
 	}

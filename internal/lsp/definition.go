@@ -133,7 +133,7 @@ func (s *Server) handleDefinition(f frame) error {
 	}
 	if hasPipeStages(node) {
 		if obj, _, ok := pipedTarget(pkg, node, exprPos, off); ok && obj.Pos().IsValid() {
-			dp := pkg.Fset.Position(obj.Pos())
+			dp := positionOf(pkg, obj.Pos())
 			if dp.Filename != "" && !strings.HasSuffix(dp.Filename, ".x.go") {
 				return s.reply(f.ID, s.locationForPos(dp))
 			}
@@ -161,7 +161,7 @@ func (s *Server) handleDefinition(f frame) error {
 	if obj == nil || !obj.Pos().IsValid() {
 		return s.reply(f.ID, nil)
 	}
-	dp := pkg.Fset.Position(obj.Pos())
+	dp := positionOf(pkg, obj.Pos())
 	// Only surface real source locations. Params resolve back to .gsx via the
 	// skeleton's param //line (D3); user Go symbols resolve to real .go files.
 	// Anything still pointing at a bare skeleton overlay path (the in-memory

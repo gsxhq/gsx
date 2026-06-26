@@ -56,14 +56,36 @@ func resolveCrossPkgComponent(pkg *Package, qualifier, name string) (*gsxast.Com
 		return nil, nil, false
 	}
 	obj := imp.Scope().Lookup(name)
-	if obj == nil || !obj.Pos().IsValid() {
+	if obj == nil {
 		return nil, nil, false
 	}
-	depFile := pkg.Fset.Position(obj.Pos()).Filename
-	if depFile == "" {
-		return nil, nil, false
+	// Find the directory containing the dep's .gsx source.
+	//
+	// Warm-Module path (moduleImporter): the dep was type-checked via a recursive
+	// analyze() call that used types.NewPackage(dir, pkgName) — so imp.Path() IS
+	// the absolute directory, not a Go import path. Use it directly.
+	//
+	// Batch path (packages.Load): imp.Path() is the Go import path (e.g.
+	// "example.com/x/ui/components"); obj.Pos() is in pkg.Fset which was the
+	// single shared packages.Load fset. Fall back to position-based lookup.
+	//
+	// Distinguishing heuristic: an absolute path starts with the OS separator
+	// (filepath.IsAbs) — Go import paths never do.
+	var dir string
+	if filepath.IsAbs(imp.Path()) {
+		// Warm-Module path: imp.Path() is already the absolute dep directory.
+		dir = imp.Path()
+	} else {
+		// Batch path: resolve the dep directory via the declared position.
+		if !obj.Pos().IsValid() {
+			return nil, nil, false
+		}
+		depFile := positionOf(pkg, obj.Pos()).Filename
+		if depFile == "" {
+			return nil, nil, false
+		}
+		dir = filepath.Dir(depFile)
 	}
-	dir := filepath.Dir(depFile)
 	matches, err := filepath.Glob(filepath.Join(dir, "*.gsx"))
 	if err != nil {
 		return nil, nil, false

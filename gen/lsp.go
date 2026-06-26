@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"sync"
 
 	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
@@ -11,40 +12,65 @@ import (
 )
 
 // lspAnalyzer is the concrete code analysis behind the language server: it
-// resolves the module root for a directory and runs the stock (std-filter)
-// codegen pipeline over that one package, returning the retained Package — the
-// diagnostics plus the read-only type info (Fset, TypesInfo, expr-map, gsx AST)
-// the read-intelligence features need. It never writes .x.go to disk.
+// resolves the module root for a directory, retrieves (or lazily creates) a warm
+// per-root *codegen.Module, applies override buffers, resets the project-package
+// cache, and returns the retained Package — the diagnostics plus read-only type
+// info (Fset, TypesInfo, expr-map, gsx AST) the read-intelligence features need.
+// It never writes .x.go to disk.
 //
 // Slice-1 limitation: codegen discovers .gsx files by on-disk glob, so a buffer
 // opened in the editor but never saved to disk is not analyzed (its override is
 // never consulted). Editing existing .gsx files works; unsaved-new files are a
 // slice-2 follow-up.
 type lspAnalyzer struct {
-	optCfg config    // programmatic opts (empty for the stock binary); layered OVER gsx.toml (opts win on conflict)
-	warnw  io.Writer // best-effort sink for a malformed gsx.toml; nil → discard, never fatal
+	optCfg config     // programmatic opts (empty for the stock binary); layered OVER gsx.toml (opts win on conflict)
+	warnw  io.Writer  // best-effort sink for a malformed gsx.toml; nil → discard, never fatal
+	mods   *moduleSet // pointer so the value stored in the Analyzer interface shares state
 }
 
-func (a lspAnalyzer) Analyze(dir string, override map[string][]byte) (*lsp.Package, error) {
-	root, _, err := moduleRoot(dir)
+// moduleSet holds one warm *codegen.Module per module root, reused across Analyze
+// calls so the expensive external packages.Load stays warm. Callers may invoke
+// Analyze concurrently for different roots; module() serializes access per root.
+type moduleSet struct {
+	mu     sync.Mutex
+	byRoot map[string]*codegen.Module
+}
+
+// newLSPAnalyzer constructs an lspAnalyzer with an empty warm-module cache.
+func newLSPAnalyzer(cfg config, warnw io.Writer) lspAnalyzer {
+	return lspAnalyzer{optCfg: cfg, warnw: warnw, mods: &moduleSet{byRoot: map[string]*codegen.Module{}}}
+}
+
+// module returns the warm *codegen.Module for root (lazy-initialised). merged is
+// the resolved config for the directory being analysed. The returned Module is
+// shared across calls; callers must call ResetPackageCache() before each Package()
+// call to get a fresh project-type view.
+func (a lspAnalyzer) module(root, modPath string, merged config) (*codegen.Module, error) {
+	a.mods.mu.Lock()
+	defer a.mods.mu.Unlock()
+	if m, ok := a.mods.byRoot[root]; ok {
+		return m, nil
+	}
+	m, err := codegen.Open(codegen.Options{
+		ModuleRoot:   root,
+		ModulePath:   modPath,
+		FilterPkgs:   merged.filterPkgs,
+		Aliases:      merged.aliases,
+		FieldMatcher: merged.fieldMatcher,
+		Classifier:   merged.classifier(),
+	})
 	if err != nil {
 		return nil, err
 	}
-	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
-	out, err := codegen.GeneratePackagesWithFilters(root, []string{dir},
-		merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher,
-		nil, nil, override)
-	if err != nil {
-		return nil, err
-	}
-	abs, err := filepath.Abs(dir)
-	if err != nil {
-		return nil, err
-	}
-	pr := out[abs]
-	if pr == nil {
-		return &lsp.Package{}, nil
-	}
+	a.mods.byRoot[root] = m
+	return m, nil
+}
+
+// adaptPackageResult converts a *codegen.PackageResult (the Module path's output)
+// into the *lsp.Package the server's read-intelligence features consume.
+// Every field mapping is preserved: Diags, GSXFset, Fset, Info, Types, ExprMap,
+// GSXFiles→Files, CrossIndex conversion, NavIndex conversion, UnusedImports conversion.
+func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 	cross := make(map[string]lsp.CrossRef, len(pr.CrossIndex))
 	for k, v := range pr.CrossIndex {
 		cross[k] = lsp.CrossRef{Name: v.Name, Decl: v.Decl, Refs: v.Refs}
@@ -65,6 +91,7 @@ func (a lspAnalyzer) Analyze(dir string, override map[string][]byte) (*lsp.Packa
 		Diags:         pr.Diags,
 		GSXFset:       pr.GSXFset,
 		Fset:          pr.Fset,
+		ExtFset:       pr.ExtFset,
 		Info:          pr.Info,
 		Types:         pr.Types,
 		ExprMap:       pr.ExprMap,
@@ -72,7 +99,35 @@ func (a lspAnalyzer) Analyze(dir string, override map[string][]byte) (*lsp.Packa
 		CrossIndex:    cross,
 		NavIndex:      nav,
 		UnusedImports: unused,
-	}, nil
+	}
+}
+
+func (a lspAnalyzer) Analyze(dir string, override map[string][]byte) (*lsp.Package, error) {
+	root, modPath, err := moduleRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
+	m, err := a.module(root, modPath, merged)
+	if err != nil {
+		return nil, err
+	}
+	for p, src := range override {
+		m.SetOverride(p, src)
+	}
+	m.ResetPackageCache() // Phase-1: project types fresh per edit; ext stays warm
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
+	pr, err := m.Package(abs)
+	if err != nil {
+		return nil, err
+	}
+	if pr == nil {
+		return &lsp.Package{}, nil
+	}
+	return adaptPackageResult(pr), nil
 }
 
 // AnalyzeModule analyzes every gsx package in the module containing dir and
@@ -143,7 +198,7 @@ func resolveConfigBestEffort(dir string, optCfg config, warnw io.Writer) config 
 // (empty for the stock binary), layered OVER the project's gsx.toml (opts win) per Analyze.
 // It returns a process exit code.
 func runLSP(stdin io.Reader, stdout, stderr io.Writer, cfg config, _ []string) int {
-	srv := lsp.NewServer(stdin, stdout, lspAnalyzer{optCfg: cfg, warnw: stderr})
+	srv := lsp.NewServer(stdin, stdout, newLSPAnalyzer(cfg, stderr))
 	if err := srv.Run(); err != nil {
 		fmt.Fprintf(stderr, "gsx: lsp: %v\n", err)
 		return 1
