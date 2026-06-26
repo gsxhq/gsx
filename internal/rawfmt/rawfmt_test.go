@@ -71,3 +71,21 @@ func TestRestoreRejectsDuplicatedSentinel(t *testing.T) {
 		t.Fatal("restore accepted a duplicated sentinel")
 	}
 }
+
+func TestBuildPlaceholderedAvoidsCollisionInHole(t *testing.T) {
+	// A hole whose rendered text contains the default sentinel prefix must not
+	// collide: the chosen prefix is absent from segments AND holes.
+	segs := []string{"a", "b"}
+	holes := []string{"@{ __gsxhole_ }"}
+	text, prefix := buildPlaceholdered(segs, holes)
+	if strings.Contains(holes[0], prefix) {
+		t.Fatalf("chosen prefix %q collides with hole text %q", prefix, holes[0])
+	}
+	got, ok := restore(text, prefix, holes)
+	if !ok {
+		t.Fatal("restore failed on a hole containing the default prefix")
+	}
+	if !strings.Contains(got, "@{ __gsxhole_ }") {
+		t.Fatalf("hole not restored intact:\n%s", got)
+	}
+}

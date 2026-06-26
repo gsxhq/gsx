@@ -104,6 +104,20 @@ func TestTokenSignatureMatchesAcrossFormat(t *testing.T) {
 	}
 }
 
+func TestFormatPreservesDescendantCombinator(t *testing.T) {
+	got := fmtCSS(t, ".a .b{color:red}")
+	if !strings.HasPrefix(got, ".a .b {") {
+		t.Fatalf("descendant combinator space lost (.a .b became compound):\n%s", got)
+	}
+}
+
+func TestFormatPreservesCalcSpaces(t *testing.T) {
+	got := fmtCSS(t, ".a{width:calc(100% - 10px)}")
+	if !strings.Contains(got, "calc(100% - 10px)") {
+		t.Fatalf("required spaces inside calc() were lost:\n%s", got)
+	}
+}
+
 func TestFormatIdempotent(t *testing.T) {
 	once := fmtCSS(t, ".a{color:red;background:blue}h1,h2{margin:0}")
 	twice := fmtCSS(t, once)
