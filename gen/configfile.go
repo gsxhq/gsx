@@ -193,6 +193,10 @@ func mergeConfig(base, opts config) config {
 	if opts.cssFmt != nil {
 		merged.cssFmt = opts.cssFmt
 	}
+	merged.jsFmt = base.jsFmt
+	if opts.jsFmt != nil {
+		merged.jsFmt = opts.jsFmt
+	}
 	merged.attrPred = base.attrPred
 	merged.predLabel = base.predLabel
 	if opts.attrPred != nil {
