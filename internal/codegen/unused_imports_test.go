@@ -18,7 +18,7 @@ func TestUnusedImportsDetected(t *testing.T) {
 	writeFile(t, dir, "card.gsx",
 		"package u\n\nimport (\n\t\"strings\"\n\t\"os\"\n\t\"fmt\"\n)\n\ncomponent Card(name string) {\n\t<p>{ fmt.Sprintf(\"%s\", name) }</p>\n}\n")
 
-	out, err := GeneratePackagesWithFilters(dir, []string{dir}, nil, nil, nil, nil, nil, nil, nil)
+	out, err := GeneratePackagesWithFilters(dir, []string{dir}, nil, nil, nil, nil, nil, nil, true, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestUnusedImportsGateOnBrokenImport(t *testing.T) {
 	writeFile(t, dir, "card.gsx",
 		"package u\n\nimport \"example.com/u/nope/stringz\"\n\ncomponent Card() {\n\t<p>{ stringz.X() }</p>\n}\n")
 
-	out, err := GeneratePackagesWithFilters(dir, []string{dir}, nil, nil, nil, nil, nil, nil, nil)
+	out, err := GeneratePackagesWithFilters(dir, []string{dir}, nil, nil, nil, nil, nil, nil, true, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestUnusedImportsGateOnOtherError(t *testing.T) {
 	writeFile(t, dir, "card.gsx",
 		"package u\n\nimport \"strings\"\n\ncomponent Card() {\n\t<p>{ Nope() }</p>\n}\n")
 
-	out, err := GeneratePackagesWithFilters(dir, []string{dir}, nil, nil, nil, nil, nil, nil, nil)
+	out, err := GeneratePackagesWithFilters(dir, []string{dir}, nil, nil, nil, nil, nil, nil, true, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

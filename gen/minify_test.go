@@ -3,6 +3,7 @@ package gen
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -83,5 +84,44 @@ func TestMergeConfig_MinifyPrecedence(t *testing.T) {
 	merged = mergeConfig(base, config{})
 	if merged.cssMinLevel != MinifyNone || merged.jsMinLevel != MinifyNone {
 		t.Fatalf("no option should keep base: got %v/%v", merged.cssMinLevel, merged.jsMinLevel)
+	}
+}
+
+func TestGenerate_MinifyNoneViaConfig(t *testing.T) {
+	dir := t.TempDir()
+	repoRoot, _ := filepath.Abs("..")
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"),
+		[]byte("module example.com/x\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "page.gsx"),
+		[]byte("package x\n\ncomponent Page() {\n\t<style>\n\t\t.card { margin: 1px  2px; }\n\t</style>\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "gsx.toml"), []byte("[minify]\ncss = \"none\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git"), []byte(""), 0o644); err != nil { // bound the config walk to dir
+		t.Fatal(err)
+	}
+	chdir(t, dir)
+
+	merged, _, err := resolveConfig(config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := generateCached([]string{"."}, merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher, false, merged.cssMin, merged.jsMin, merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Errs) > 0 {
+		t.Fatalf("generate errors: %v", res.Errs)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "page.x.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "1px  2px") {
+		t.Fatalf("[minify] css=none should preserve double space; got:\n%s", b)
 	}
 }

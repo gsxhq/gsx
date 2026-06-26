@@ -29,6 +29,8 @@ type watchConfig struct {
 	fm         codegen.FieldMatcher
 	cssMin     func(string) (string, error)
 	jsMin      func(string) (string, error)
+	cssMinify  bool
+	jsMinify   bool
 }
 
 func runWatch(cfg watchConfig) int { return runWatchWithStop(cfg, nil) }
