@@ -131,6 +131,30 @@ func TestModuleImporterCrossPackageNoXGo(t *testing.T) {
 	}
 }
 
+func TestModulePackageRetainsAnalysis(t *testing.T) {
+	root := t.TempDir()
+	repoRoot, _ := filepath.Abs("../..")
+	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pageDir := filepath.Join(root, "page")
+	if err := os.MkdirAll(pageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, pageDir, "page.gsx",
+		"package page\n\ncomponent Home(name string) {\n\t<h1>Hi {name}</h1>\n}\n")
+
+	m, _ := Open(Options{ModuleRoot: root, ModulePath: "example.com/app", FilterPkgs: []string{StdImportPath}})
+	pr, err := m.Package(pageDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pr.Info == nil || pr.Types == nil || pr.ExprMap == nil || pr.GSXFset == nil || pr.Fset == nil {
+		t.Fatalf("retained analysis not populated: %+v", pr)
+	}
+	if _, ok := pr.CrossIndex[".Home"]; !ok {
+		t.Fatalf("CrossIndex missing .Home: %v", pr.CrossIndex)
+	}
+}
+
 // TestModuleImporterRejectsImportCycle proves that the cycle guard in
 // moduleImporter.Import returns an error (not an infinite recursion/hang) when
 // two gsx packages mutually import each other.

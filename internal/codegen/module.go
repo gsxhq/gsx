@@ -96,3 +96,29 @@ func (m *Module) externalImporter() (types.Importer, error) {
 	m.mu.Unlock()
 	return m.ext, nil
 }
+
+// Package returns the full retained analysis for a single gsx package dir,
+// equivalent to the go-list batch path's per-package result but without codegen
+// (Files stays empty; Generate fills it). It populates the FileSets, *types.Info,
+// *types.Package, ExprMap, GSXFiles, and the cross/nav indexes used by the LSP.
+func (m *Module) Package(dir string) (*PackageResult, error) {
+	ext, err := m.externalImporter()
+	if err != nil {
+		return nil, err
+	}
+	a, err := m.analyze(dir, &moduleImporter{m: m, external: ext, seen: map[string]bool{}})
+	if err != nil {
+		return nil, err
+	}
+	res := &PackageResult{
+		Files:    map[string][]byte{},
+		GSXFset:  a.gsxFset,
+		Fset:     a.skelFset,
+		Info:     a.info,
+		Types:    a.pkg,
+		GSXFiles: a.gsxFiles,
+		ExprMap:  a.exprMap,
+	}
+	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.gsxFset, a.skelFset, a.info, a.pkg)
+	return res, nil
+}

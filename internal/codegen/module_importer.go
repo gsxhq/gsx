@@ -121,7 +121,9 @@ func (m *Module) typesPackage(dir string) (*types.Package, error) {
 	return m.typesPackageWith(dir, &moduleImporter{m: m, external: ext, seen: map[string]bool{}})
 }
 
-// typesPackageWith does the work, threading the recursive importer.
+// typesPackageWith does the work, threading the recursive importer. It calls
+// analyze and returns only the *types.Package (the importer path needs nothing
+// else), caching the result for the cycle guard + repeat lookups.
 func (m *Module) typesPackageWith(dir string, mi *moduleImporter) (*types.Package, error) {
 	m.mu.Lock()
 	if p, ok := m.pkgTypes[dir]; ok {
@@ -129,10 +131,53 @@ func (m *Module) typesPackageWith(dir string, mi *moduleImporter) (*types.Packag
 		return p, nil
 	}
 	m.mu.Unlock()
+	a, err := m.analyze(dir, mi)
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	if m.pkgTypes == nil {
+		m.pkgTypes = map[string]*types.Package{}
+	}
+	m.pkgTypes[dir] = a.pkg
+	m.mu.Unlock()
+	return a.pkg, nil
+}
+
+// analyzed is the full retained result of analyzing one gsx package: the parsed
+// gsx files, the type-checked skeleton, harvested type/expr maps, and the
+// component cross-index inputs. typesPackage consumes only a.pkg; Module.Package
+// (retained analysis) and Module.Generate (codegen) consume the rest.
+type analyzed struct {
+	pkgName    string
+	gsxFiles   map[string]*gsxast.File        // gsx path -> parsed file
+	gsxFset    *token.FileSet                 // gsx positions
+	skelFset   *token.FileSet                 // skeleton positions (same fset as gsxFset for Module)
+	goFiles    []*goast.File                  // parsed skeletons + shared helper
+	compsByXGo map[string][]*gsxast.Component // skeleton abs path -> components
+	table      filterTable
+	propFields map[string]map[string]bool
+	nodeProps  map[string]map[string]bool
+	byo        *byoData
+	resolved   map[gsxast.Node]types.Type
+	exprMap    map[gsxast.Node]goast.Expr
+	pkg        *types.Package
+	info       *types.Info
+	compByKey  map[string]*gsxast.Component // componentKey -> component (for Name + NamePos)
+	objKey     map[types.Object]string      // component func object -> componentKey
+}
+
+// analyze performs the shared parse -> skeleton -> type-check pipeline for one
+// gsx package dir, threading the recursive importer mi, and returns the rich
+// analyzed result. It preserves Task 4's cycle behaviour: a cycle detected
+// during type-check is propagated (without caching) via mi.cycleErr.
+func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	mi.seen[dir] = true
 
 	// Use a single fset shared across parse + skeleton so //line directives from
-	// buildSkeleton reference valid positions from the same FileSet.
+	// buildSkeleton reference valid positions from the same FileSet. For Module
+	// the gsx fset and skeleton fset are the same: skeleton idents resolve back to
+	// .gsx via the //line directives the parser honoured.
 	fset := token.NewFileSet()
 	gsxFiles, pkgName, err := m.parsePackageWithFset(dir, fset)
 	if err != nil {
@@ -147,36 +192,86 @@ func (m *Module) typesPackageWith(dir string, mi *moduleImporter) (*types.Packag
 		return nil, err
 	}
 	var goFiles []*goast.File
+	compsByXGo := map[string][]*gsxast.Component{}
 	for path, f := range gsxFiles {
-		skel, _, _, berr := buildSkeleton(f, table, propFields, nodeProps, byo, m.opts.FieldMatcher, fset)
+		skel, comps, _, berr := buildSkeleton(f, table, propFields, nodeProps, byo, m.opts.FieldMatcher, fset)
 		if berr != nil {
 			return nil, berr
 		}
 		base := strings.TrimSuffix(filepath.Base(path), ".gsx")
-		gf, perr := goparser.ParseFile(fset, filepath.Join(dir, base+".x.go"), skel, goparser.SkipObjectResolution)
+		absXpath := filepath.Join(dir, base+".x.go")
+		gf, perr := goparser.ParseFile(fset, absXpath, skel, goparser.SkipObjectResolution)
 		if perr != nil {
 			return nil, perr
 		}
 		goFiles = append(goFiles, gf)
+		compsByXGo[absXpath] = comps
 	}
 	// Shared _gsxuse/_gsxcompsig helpers, mirroring the batch overlay.
 	helper, _ := goparser.ParseFile(fset, filepath.Join(dir, "_gsxshared.x.go"),
 		"package "+pkgName+"\n\nfunc _gsxuse(...any) {}\nfunc _gsxcompsig(any) {}\n", goparser.SkipObjectResolution)
 	goFiles = append(goFiles, helper)
 
-	pkg, _, _ := checkSkeletonPackage(dir, pkgName, goFiles, fset, mi)
+	pkg, info, _ := checkSkeletonPackage(dir, pkgName, goFiles, fset, mi)
 	if mi.cycleErr != nil {
 		// A cycle was detected during this package's type-check; propagate
 		// the error without caching so the caller receives it.
 		return nil, mi.cycleErr
 	}
-	m.mu.Lock()
-	if m.pkgTypes == nil {
-		m.pkgTypes = map[string]*types.Package{}
+
+	// Harvest once into resolved + exprMap (both consumed downstream: resolved by
+	// Generate, exprMap surfaced by Package). Build the component cross-index
+	// inputs (compByKey / objKey), mirroring the batch path.
+	resolved := map[gsxast.Node]types.Type{}
+	exprMap := map[gsxast.Node]goast.Expr{}
+	compByKey := map[string]*gsxast.Component{} // componentKey -> component
+	compObjByKey := map[string]types.Object{}   // componentKey -> component func object
+	for _, gf := range goFiles {
+		fname := fset.Position(gf.Pos()).Filename
+		comps, ok := compsByXGo[fname]
+		if !ok {
+			continue
+		}
+		harvest(gf, comps, info, resolved, exprMap)
+		for _, c := range comps {
+			compByKey[componentKey(c)] = c
+		}
+		for _, decl := range gf.Decls {
+			fd, ok := decl.(*goast.FuncDecl)
+			if !ok {
+				continue
+			}
+			if _, ok := compByKey[funcDeclKey(fd)]; !ok {
+				continue
+			}
+			if obj := info.Defs[fd.Name]; obj != nil {
+				compObjByKey[funcDeclKey(fd)] = obj
+			}
+		}
 	}
-	m.pkgTypes[dir] = pkg
-	m.mu.Unlock()
-	return pkg, nil
+	objKey := map[types.Object]string{} // reverse: object -> componentKey
+	for key, obj := range compObjByKey {
+		objKey[obj] = key
+	}
+
+	return &analyzed{
+		pkgName:    pkgName,
+		gsxFiles:   gsxFiles,
+		gsxFset:    fset,
+		skelFset:   fset,
+		goFiles:    goFiles,
+		compsByXGo: compsByXGo,
+		table:      table,
+		propFields: propFields,
+		nodeProps:  nodeProps,
+		byo:        byo,
+		resolved:   resolved,
+		exprMap:    exprMap,
+		pkg:        pkg,
+		info:       info,
+		compByKey:  compByKey,
+		objKey:     objKey,
+	}, nil
 }
 
 // parsePackageWithFset parses every .gsx in dir into the provided fset so the
