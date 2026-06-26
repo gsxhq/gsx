@@ -175,7 +175,8 @@ func TestDefinitionCrossPkgExprCall(t *testing.T) {
 	}
 	mk("go.mod", "module example.com/x\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
 	// `component Thing()` decl is on line index 2 of helpers.gsx.
-	mk("helpers/helpers.gsx", "package helpers\n\ncomponent Thing() {\n\t<span>thing</span>\n}\n")
+	depSrc := "package helpers\n\ncomponent Thing() {\n\t<span>thing</span>\n}\n"
+	mk("helpers/helpers.gsx", depSrc)
 	page := "package page\n\nimport \"example.com/x/helpers\"\n\ncomponent Page() {\n\t<div>{ helpers.Thing() }</div>\n}\n"
 	mk("page/page.gsx", page)
 	// Deliberately do NOT Generate either package: no .x.go on disk. The warm
@@ -214,9 +215,12 @@ func TestDefinitionCrossPkgExprCall(t *testing.T) {
 	if !strings.HasSuffix(loc.URI, filepath.Join("helpers", "helpers.gsx")) {
 		t.Fatalf("resolved to %q, want helpers/helpers.gsx (NOT a spot inside page.gsx)", loc.URI)
 	}
-	// `component Thing()` is on line index 2 of helpers.gsx.
-	if loc.Range.Start.Line != 2 {
-		t.Fatalf("landed on line %d of %s, want 2 (the Thing decl)", loc.Range.Start.Line, loc.URI)
+	// `component Thing()` is on line index 2 of helpers.gsx; expect the `Thing` name.
+	depLines := strings.Split(depSrc, "\n")
+	wantNameCol := strings.Index(depLines[2], "Thing")
+	if loc.Range.Start.Line != 2 || loc.Range.Start.Character != wantNameCol {
+		t.Fatalf("landed at L%d:C%d, want L2:C%d (the Thing decl name)",
+			loc.Range.Start.Line, loc.Range.Start.Character, wantNameCol)
 	}
 }
 
