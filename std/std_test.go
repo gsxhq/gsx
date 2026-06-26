@@ -122,6 +122,29 @@ func TestJoin(t *testing.T) {
 	}
 }
 
+func TestFormat(t *testing.T) {
+	tests := []struct {
+		name string
+		v    any
+		spec string
+		rest []any
+		want string
+	}{
+		{"float precision", 3.14159, "%.2f", nil, "3.14"},
+		{"int with text", 5, "%d comments", nil, "5 comments"},
+		{"string verb", "hi", "[%s]", nil, "[hi]"},
+		{"multi-arg subject first", 1, "%d/%d", []any{3}, "1/3"},
+		{"currency", 9.5, "$%.2f", nil, "$9.50"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Format(tt.v, tt.spec, tt.rest...); got != tt.want {
+				t.Errorf("Format(%v, %q, %v) = %q, want %q", tt.v, tt.spec, tt.rest, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDefault(t *testing.T) {
 	tests := []struct {
 		name     string

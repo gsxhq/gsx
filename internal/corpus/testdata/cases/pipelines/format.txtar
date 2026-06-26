@@ -1,0 +1,16 @@
+# the std `format` filter: fmt.Sprintf with the piped value as the first verb
+# (it flips fmt.Sprintf's spec-first order so it works seed-first). Covered in
+# text + attribute contexts, single value and the variadic multi-arg form.
+-- input.gsx --
+package views
+
+component C(count int, price float64, total int) {
+	<p>{ count |> format("%d comments") }</p>
+	<span title={ price |> format("$%.2f") }>{ price |> format("$%.2f") }</span>
+	<b>{ count |> format("%d/%d", total) }</b>
+}
+-- invoke --
+C(CProps{Count: 5, Price: 9.5, Total: 12})
+-- diagnostics.golden --
+-- render.golden --
+<p>5 comments</p><span title="$9.50">$9.50</span><b>5/12</b>
