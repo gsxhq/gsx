@@ -4,8 +4,8 @@ gsx ships two editor integrations: a **language server** (`gsx lsp`) for
 diagnostics and navigation, and a **tree-sitter grammar**
 ([tree-sitter-gsx](https://github.com/gsxhq/tree-sitter-gsx)) for syntax
 highlighting. Both are editor-agnostic — anything that speaks LSP or hosts
-tree-sitter can use them today. A dedicated VS Code extension is
-[planned](#vs-code-planned).
+tree-sitter can use them today. A dedicated [VS Code extension](#vs-code) bundles
+the language client and highlighting into one install.
 
 ## Language server — `gsx lsp`
 
@@ -69,6 +69,13 @@ reads `gsx.toml` in-process, so the filters and attribute rules you
 > github.com/gsxhq/gsx/cmd/gsx@latest`), or point `cmd` at an absolute path /
 > `go tool gsx`.
 
+> **Name collision with Ghostscript.** Ghostscript also installs a binary named
+> `gsx` (Homebrew symlinks it into `/opt/homebrew/bin`), which can shadow the gsx
+> compiler on `PATH`. If `gsx version` prints a Ghostscript banner instead of
+> `gsx v…`, your LSP client is launching the wrong binary — point `cmd` at the
+> real one's absolute path (e.g. `$(go env GOPATH)/bin/gsx`). The
+> [VS Code extension](#vs-code) detects and skips the impostor automatically.
+
 ## Syntax highlighting — tree-sitter
 
 [tree-sitter-gsx](https://github.com/gsxhq/tree-sitter-gsx) is a tree-sitter
@@ -96,9 +103,27 @@ configs already have them).
 > Pair tree-sitter (highlighting) with `gsx lsp` (diagnostics + navigation) for
 > the full Neovim experience — they are independent and complementary.
 
-## VS Code (planned)
+## VS Code
 
-A dedicated VS Code extension — bundling syntax highlighting and the `gsx lsp`
-language client so it works out of the box — is on the roadmap. Until it ships,
-VS Code users can run `gsx lsp` through a generic LSP client extension using the
-settings above (command `gsx lsp`, language `gsx`, `*.gsx` selector).
+The [vscode-gsx](https://github.com/gsxhq/vscode-gsx) extension bundles syntax
+highlighting and the `gsx lsp` language client, so diagnostics, navigation, and
+formatting work out of the box — no generic LSP client to wire up.
+
+- **Highlighting** uses a TextMate grammar (VS Code has no public tree-sitter
+  highlighting API), with Go / JavaScript / CSS colored inside their embedded
+  regions — the same grammar that highlights the gsx blocks in these docs.
+- **Language features** come from `gsx lsp`, spawned automatically. The extension
+  resolves the binary from the `gsx.server.path` setting, then `PATH`, `GOBIN`,
+  and `GOPATH/bin`, **verifying each candidate is really the gsx compiler** — so a
+  shadowing Ghostscript `gsx` is skipped rather than launched. The commands
+  **gsx: Install/Update Language Server** and **gsx: Restart Language Server**
+  help when it's missing or stale.
+
+It is not on the Marketplace yet. For now, build the `.vsix` from the repo and
+install it:
+
+```bash
+git clone https://github.com/gsxhq/vscode-gsx && cd vscode-gsx
+npm ci && npm run package           # produces gsx-<version>.vsix
+code --install-extension gsx-*.vsix
+```
