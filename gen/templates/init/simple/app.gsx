@@ -7,11 +7,22 @@ component Layout(title string) {
 	<html lang="en">
 		<head>
 			<meta charset="UTF-8"/>
-			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<meta
+				name="viewport"
+				content="width=device-width, initial-scale=1.0"
+			/>
 			<title>{ title }</title>
 			{{ v := vite.FromContext(ctx) }}
 			{ if v.Dev() {
-				<style>html[data-loading] body { visibility: hidden; } html[data-loading] * { transition: none !important; }</style>
+				<style>
+					html[data-loading] body {
+						visibility: hidden;
+					}
+
+					html[data-loading] * {
+						transition: none !important;
+					}
+				</style>
 				<script>
 					// Dev-only FOUC gate. Vite injects CSS through JS a tick after the
 					// HTML loads, so hide the page until the entry module (which imports
@@ -37,7 +48,13 @@ component Layout(title string) {
 				<link rel="modulepreload" href={src}/>
 			} }
 			{ for _, src := range assets.JS {
-				<script type="module" src={src} { if v.Dev() && src == assets.JS[len(assets.JS)-1] { onload="window.__gsxReveal()" } }></script>
+				<script
+					type="module"
+					src={src}
+					{ if v.Dev() && src == assets.JS[len(assets.JS)-1] {
+						onload="window.__gsxReveal()"
+					} }
+				></script>
 			} }
 		</head>
 		<body>{ children }</body>
@@ -50,14 +67,20 @@ component Index(title string) {
 			<a href="https://vite.dev" target="_blank" rel="noreferrer">
 				<img src="/public/vite.svg" class="logo" alt="Vite logo"/>
 			</a>
-			<a href="https://github.com/gsxhq/gsx" target="_blank" rel="noreferrer">
+			<a
+				href="https://github.com/gsxhq/gsx"
+				target="_blank"
+				rel="noreferrer"
+			>
 				<img src="/public/gsx.svg" class="logo gsx" alt="gsx logo"/>
 			</a>
 			<h1>gsx + Vite</h1>
 			<div class="card">
 				<button id="counter" type="button">count is 0</button>
 			</div>
-			<p class="read-the-docs">Edit <code>app.gsx</code> and save — the page live-reloads.</p>
+			<p class="read-the-docs">
+				Edit <code>app.gsx</code> and save — the page live-reloads.
+			</p>
 		</div>
 	</Layout>
 }

@@ -9,18 +9,18 @@ import (
 type tokKind int
 
 const (
-	tWS tokKind = iota // whitespace run (may contain newlines)
-	tComment           // /* ... */
-	tString            // "..." or '...'
-	tWord              // ident/number/dimension/hash/at-keyword/sentinel: any run of "word" bytes
-	tLBrace            // {
-	tRBrace            // }
-	tLParen            // (
-	tRParen            // )
-	tColon             // :
-	tSemi              // ;
-	tComma             // ,
-	tDelim             // any other single byte (> + ~ * . # = etc.)
+	tWS      tokKind = iota // whitespace run (may contain newlines)
+	tComment                // /* ... */
+	tString                 // "..." or '...'
+	tWord                   // ident/number/dimension/hash/at-keyword/sentinel: any run of "word" bytes
+	tLBrace                 // {
+	tRBrace                 // }
+	tLParen                 // (
+	tRParen                 // )
+	tColon                  // :
+	tSemi                   // ;
+	tComma                  // ,
+	tDelim                  // any other single byte (> + ~ * . # = etc.)
 )
 
 type token struct {
