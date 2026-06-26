@@ -68,6 +68,12 @@ type PackageResult struct {
 	CrossIndex map[string]CrossRef // componentKey → cross-boundary index entry
 	NavIndex   []NavRef            // navigable Go references → .gsx targets (func, props-struct, field)
 
+	// CtrlMap maps each control-flow node (ForMarkup/IfMarkup/GoBlock) to its
+	// skeleton clause position and smallest containing skeleton go/ast node.
+	// Used by the LSP to bridge a cursor in a for/if/goblock clause to the
+	// skeleton for go-to-definition on loop variables and condition identifiers.
+	CtrlMap map[gsxast.Node]ctrlRef
+
 	// UnusedImports lists, per .gsx file path, the imports the file declares but
 	// does not use — safe to drop on format. Empty unless the package's ONLY type
 	// errors are unused-import errors (else removal is unsafe).
@@ -340,6 +346,25 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 			}
 			harvest(f, comps, pkg.TypesInfo, resolved, res.ExprMap)
 		}
+
+		// Build CtrlMap: skeleton clause position + containing node per control-flow node.
+		ctrlMap := map[gsxast.Node]ctrlRef{}
+		for _, f := range pkg.Syntax {
+			fname := pkg.Fset.Position(f.Pos()).Filename
+			co, ok := ctrlOffByXGo[fname]
+			if !ok {
+				continue
+			}
+			clauseText := make(map[gsxast.Node]string, len(co))
+			for n := range co {
+				clauseText[n] = ctrlClauseText(n)
+			}
+			sub := buildCtrlMap(f, pkg.Fset, co, clauseText)
+			for k, v := range sub {
+				ctrlMap[k] = v
+			}
+		}
+		res.CtrlMap = ctrlMap
 
 		// Build the slim cross-boundary index: component objects (by componentKey)
 		// → their .gsx declaration + every reference, resolved through pkg.Fset

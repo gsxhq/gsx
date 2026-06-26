@@ -509,6 +509,62 @@ type goBody struct {
 	pos token.Pos
 }
 
+// ctrlRef maps a gsx control-flow node (ForMarkup/IfMarkup/GoBlock) to its
+// clause's position in the skeleton (ClauseStart) and the smallest skeleton
+// go/ast node that spans the clause region. The LSP uses this to place a
+// cursor inside the clause and call innermostIdent for go-to-definition.
+type ctrlRef struct {
+	ClauseStart token.Pos
+	Node        goast.Node
+}
+
+// ctrlClauseText returns the clause/cond/code text for a control-flow node:
+// ForMarkup → Clause, IfMarkup → Cond, GoBlock → Code.
+func ctrlClauseText(n gsxast.Node) string {
+	switch t := n.(type) {
+	case *gsxast.ForMarkup:
+		return t.Clause
+	case *gsxast.IfMarkup:
+		return t.Cond
+	case *gsxast.GoBlock:
+		return t.Code
+	}
+	return ""
+}
+
+// buildCtrlMap converts each control-flow node's skeleton byte-offset to a
+// token.Pos and finds the smallest skeleton node spanning its clause/cond/code
+// region, so the LSP can bridge a cursor into the clause and innermostIdent it.
+func buildCtrlMap(f *goast.File, fset *token.FileSet, ctrlOff map[gsxast.Node]int, clauseText map[gsxast.Node]string) map[gsxast.Node]ctrlRef {
+	tf := fset.File(f.Pos())
+	if tf == nil {
+		return nil
+	}
+	out := map[gsxast.Node]ctrlRef{}
+	for node, off := range ctrlOff {
+		text := clauseText[node]
+		start := tf.Pos(off)
+		endOff := off + len(text)
+		if endOff > tf.Size() {
+			endOff = tf.Size()
+		}
+		end := tf.Pos(endOff)
+		var smallest goast.Node
+		goast.Inspect(f, func(n goast.Node) bool {
+			if n == nil {
+				return false
+			}
+			if n.Pos() <= start && end <= n.End() {
+				smallest = n // tighter container; keep descending
+				return true
+			}
+			return false
+		})
+		out[node] = ctrlRef{ClauseStart: start, Node: smallest}
+	}
+	return out
+}
+
 // sortedFilterAliases returns the aliases of a usedFilters map (alias→pkgPath)
 // in deterministic (sorted) order, so the skeleton's import block is stable.
 func sortedFilterAliases(usedFilters map[string]string) []string {

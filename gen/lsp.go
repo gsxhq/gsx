@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
 	"github.com/gsxhq/gsx/internal/lsp"
@@ -87,6 +88,10 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 		}
 		unused[path] = refs
 	}
+	ctrl := make(map[gsxast.Node]lsp.CtrlRef, len(pr.CtrlMap))
+	for k, v := range pr.CtrlMap {
+		ctrl[k] = lsp.CtrlRef{ClauseStart: v.ClauseStart, Node: v.Node}
+	}
 	return &lsp.Package{
 		Diags:         pr.Diags,
 		GSXFset:       pr.GSXFset,
@@ -97,6 +102,7 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 		Files:         pr.GSXFiles,
 		CrossIndex:    cross,
 		NavIndex:      nav,
+		CtrlMap:       ctrl,
 		UnusedImports: unused,
 	}
 }

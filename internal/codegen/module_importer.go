@@ -175,25 +175,27 @@ func (m *Module) typesPackageWith(dir string, mi *moduleImporter) (*types.Packag
 // component cross-index inputs. typesPackage consumes only a.pkg; Module.Package
 // (retained analysis) and Module.Generate (codegen) consume the rest.
 type analyzed struct {
-	pkgName     string
-	gsxFiles    map[string]*gsxast.File        // gsx path -> parsed file
-	gsxFset     *token.FileSet                 // gsx positions
-	skelFset    *token.FileSet                 // skeleton positions (same fset as gsxFset for Module)
-	goFiles     []*goast.File                  // parsed skeletons + shared helper
-	compsByXGo  map[string][]*gsxast.Component // skeleton abs path -> components
-	table       filterTable
-	propFields  map[string]map[string]bool
-	nodeProps   map[string]map[string]bool
-	byo         *byoData
-	resolved    map[gsxast.Node]types.Type
-	exprMap     map[gsxast.Node]goast.Expr
-	pkg         *types.Package
-	info        *types.Info
-	compByKey   map[string]*gsxast.Component // componentKey -> component (for Name + NamePos)
-	objKey      map[types.Object]string      // component func object -> componentKey
-	bag         *diag.Bag                    // diagnostics from parse + script resolution; used by Generate
-	importSpecs []importSpec                 // hoisted .gsx import specs (for detectUnusedImports)
-	typeErrs    []types.Error                // raw type errors from checkSkeletonPackage
+	pkgName      string
+	gsxFiles     map[string]*gsxast.File        // gsx path -> parsed file
+	gsxFset      *token.FileSet                 // gsx positions
+	skelFset     *token.FileSet                 // skeleton positions (same fset as gsxFset for Module)
+	goFiles      []*goast.File                  // parsed skeletons + shared helper
+	compsByXGo   map[string][]*gsxast.Component // skeleton abs path -> components
+	ctrlOffByXGo map[string]map[gsxast.Node]int // skeleton abs path -> control-flow clause byte offsets
+	table        filterTable
+	propFields   map[string]map[string]bool
+	nodeProps    map[string]map[string]bool
+	byo          *byoData
+	resolved     map[gsxast.Node]types.Type
+	exprMap      map[gsxast.Node]goast.Expr
+	ctrlMap      map[gsxast.Node]ctrlRef       // control-flow node -> skeleton clause pos + containing node
+	pkg          *types.Package
+	info         *types.Info
+	compByKey    map[string]*gsxast.Component // componentKey -> component (for Name + NamePos)
+	objKey       map[types.Object]string      // component func object -> componentKey
+	bag          *diag.Bag                    // diagnostics from parse + script resolution; used by Generate
+	importSpecs  []importSpec                 // hoisted .gsx import specs (for detectUnusedImports)
+	typeErrs     []types.Error                // raw type errors from checkSkeletonPackage
 }
 
 // analyze performs the shared parse -> skeleton -> type-check pipeline for one
@@ -242,9 +244,10 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	}
 	var goFiles []*goast.File
 	compsByXGo := map[string][]*gsxast.Component{}
+	ctrlOffByXGo := map[string]map[gsxast.Node]int{}
 	var allImportSpecs []importSpec
 	for path, f := range gsxFiles {
-		skel, comps, imps, _, berr := buildSkeleton(f, table, propFields, nodeProps, byo, m.opts.FieldMatcher, fset)
+		skel, comps, imps, ctrlOff, berr := buildSkeleton(f, table, propFields, nodeProps, byo, m.opts.FieldMatcher, fset)
 		if berr != nil {
 			return nil, berr
 		}
@@ -257,6 +260,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		}
 		goFiles = append(goFiles, gf)
 		compsByXGo[absXpath] = comps
+		ctrlOffByXGo[absXpath] = ctrlOff
 	}
 	// Shared _gsxuse/_gsxcompsig helpers, mirroring the batch overlay.
 	helperXgoPath := filepath.Join(dir, "_gsxshared.x.go")
@@ -346,26 +350,46 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		objKey[obj] = key
 	}
 
+	// Build CtrlMap: skeleton clause position + containing node per control-flow node.
+	ctrlMap := map[gsxast.Node]ctrlRef{}
+	for _, gf := range goFiles {
+		fname := fset.Position(gf.Pos()).Filename
+		co, ok := ctrlOffByXGo[fname]
+		if !ok {
+			continue
+		}
+		clauseText := make(map[gsxast.Node]string, len(co))
+		for n := range co {
+			clauseText[n] = ctrlClauseText(n)
+		}
+		sub := buildCtrlMap(gf, fset, co, clauseText)
+		for k, v := range sub {
+			ctrlMap[k] = v
+		}
+	}
+
 	return &analyzed{
-		pkgName:     pkgName,
-		gsxFiles:    gsxFiles,
-		gsxFset:     fset,
-		skelFset:    fset,
-		goFiles:     goFiles,
-		compsByXGo:  compsByXGo,
-		table:       table,
-		propFields:  propFields,
-		nodeProps:   nodeProps,
-		byo:         byo,
-		resolved:    resolved,
-		exprMap:     exprMap,
-		pkg:         pkg,
-		info:        info,
-		compByKey:   compByKey,
-		objKey:      objKey,
-		bag:         bag,
-		importSpecs: allImportSpecs,
-		typeErrs:    typeErrs,
+		pkgName:      pkgName,
+		gsxFiles:     gsxFiles,
+		gsxFset:      fset,
+		skelFset:     fset,
+		goFiles:      goFiles,
+		compsByXGo:   compsByXGo,
+		ctrlOffByXGo: ctrlOffByXGo,
+		table:        table,
+		propFields:   propFields,
+		nodeProps:    nodeProps,
+		byo:          byo,
+		resolved:     resolved,
+		exprMap:      exprMap,
+		ctrlMap:      ctrlMap,
+		pkg:          pkg,
+		info:         info,
+		compByKey:    compByKey,
+		objKey:       objKey,
+		bag:          bag,
+		importSpecs:  allImportSpecs,
+		typeErrs:     typeErrs,
 	}, nil
 }
 

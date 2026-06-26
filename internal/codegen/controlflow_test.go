@@ -2,6 +2,8 @@ package codegen
 
 import (
 	"go/token"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -49,5 +51,40 @@ func TestBuildSkeletonRecordsCtrlOffsets(t *testing.T) {
 	pre := skel[:forIdx]
 	if li := strings.LastIndex(pre, "//line "); li < 0 || strings.Contains(pre[li:], "\n}") {
 		t.Errorf("expected a //line directive immediately before the for clause")
+	}
+}
+
+func TestModulePackageBuildsCtrlMap(t *testing.T) {
+	root := t.TempDir()
+	repoRoot, _ := filepath.Abs("../..")
+	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pkgDir := filepath.Join(root, "page")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, pkgDir, "page.gsx", "package page\n\ntype Props struct{ Posts []Post }\ntype Post struct{ Title string }\n\ncomponent P(props Props) {\n\t{ for _, post := range props.Posts {\n\t\t<li>{post.Title}</li>\n\t} }\n}\n")
+
+	m, _ := Open(Options{ModuleRoot: root, ModulePath: "example.com/app", FilterPkgs: []string{StdImportPath}})
+	pr, err := m.Package(pkgDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var forM *gsxast.ForMarkup
+	for _, gf := range pr.GSXFiles {
+		gsxast.Inspect(gf, func(n gsxast.Node) bool {
+			if f, ok := n.(*gsxast.ForMarkup); ok {
+				forM = f
+			}
+			return true
+		})
+	}
+	cr, ok := pr.CtrlMap[forM]
+	if !ok || !cr.ClauseStart.IsValid() || cr.Node == nil {
+		t.Fatalf("CtrlMap missing/invalid for ForMarkup: %+v ok=%v", cr, ok)
+	}
+	// ClauseStart maps (via //line) back to the .gsx clause.
+	dp := pr.Fset.Position(cr.ClauseStart)
+	if !strings.HasSuffix(dp.Filename, ".gsx") {
+		t.Errorf("ClauseStart maps to %s, want a .gsx position", dp.Filename)
 	}
 }

@@ -27,6 +27,14 @@ type NavRef struct {
 	To   token.Position
 }
 
+// CtrlRef is the LSP mirror of codegen.ctrlRef: a control-flow clause's
+// skeleton position and smallest containing skeleton node, used for
+// go-to-definition on loop variables and condition identifiers.
+type CtrlRef struct {
+	ClauseStart token.Pos
+	Node        ast.Node // skeleton node scoping innermostIdent
+}
+
 // Package is the retained, read-only result of analyzing one .gsx package: the
 // diagnostics plus everything the read-intelligence features need. GSXFset
 // resolves gsx node positions; Fset resolves skeleton/object positions
@@ -43,6 +51,11 @@ type Package struct {
 	Files      map[string]*gsxast.File  // .gsx path → parsed gsx AST
 	CrossIndex map[string]CrossRef
 	NavIndex   []NavRef // navigable Go references → .gsx targets (func, props-struct, field)
+
+	// CtrlMap maps each control-flow node (ForMarkup/IfMarkup/GoBlock) to its
+	// skeleton clause position and smallest containing skeleton node. Used by the
+	// LSP for go-to-definition on loop variables and condition identifiers.
+	CtrlMap map[gsxast.Node]CtrlRef
 
 	// UnusedImports lists, per .gsx file path, imports that file declares but does
 	// not use — what formatting may safely drop. Empty when analysis is unreliable.
