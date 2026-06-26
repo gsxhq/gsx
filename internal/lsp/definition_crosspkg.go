@@ -83,6 +83,21 @@ func resolveCrossPkgComponent(pkg *Package, qualifier, name string) (*gsxast.Com
 	return nil, nil, false
 }
 
+// resolveTagComponent resolves a component tag to its declaration, unifying the
+// same-package and cross-package paths. It returns the component and the FileSet
+// its positions belong to: pkg.GSXFset for a same-package function component, or
+// the dependency's parse FileSet for a dotted/cross-package tag.
+func resolveTagComponent(pkg *Package, tag string) (*gsxast.Component, *token.FileSet, bool) {
+	if qualifier, name, ok := splitDottedTag(tag); ok {
+		return resolveCrossPkgComponent(pkg, qualifier, name)
+	}
+	c := findComponentDecl(pkg, tag)
+	if c == nil {
+		return nil, nil, false
+	}
+	return c, pkg.GSXFset, true
+}
+
 // crossPkgTagDeclAt resolves a cursor on a dotted component tag NAME to that
 // component's .gsx declaration in the imported package. Returns false when the
 // cursor is not on such a tag or the component can't be resolved.

@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"strings"
 	"unicode"
 
@@ -60,6 +61,41 @@ func paramOffsetIn(params, attr string) (int, bool) {
 	return 0, false
 }
 
+// paramDeclIn parses a gsx component's raw parameter-list source and returns the
+// matched parameter's declaration as "name type" (e.g. "comments []store.Comment",
+// grouped "b string"), matched to attr by firstUpper(name)==firstUpper(attr). ok
+// is false when params is empty, unparseable, or has no matching parameter. Never
+// panics.
+func paramDeclIn(params, attr string) (string, bool) {
+	if strings.TrimSpace(params) == "" {
+		return "", false
+	}
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "", "package p\nfunc _("+params+"){}", 0)
+	if err != nil {
+		return "", false
+	}
+	var fn *ast.FuncDecl
+	for _, d := range file.Decls {
+		if f, ok := d.(*ast.FuncDecl); ok {
+			fn = f
+			break
+		}
+	}
+	if fn == nil || fn.Type.Params == nil {
+		return "", false
+	}
+	want := firstUpper(attr)
+	for _, field := range fn.Type.Params.List {
+		for _, name := range field.Names {
+			if firstUpper(name.Name) == want {
+				return name.Name + " " + types.ExprString(field.Type), true
+			}
+		}
+	}
+	return "", false
+}
+
 // isComponentTag reports whether tag names a component invocation — a simple
 // upper-initial tag (Card) or a dotted qualifier.Name (components.Input).
 func isComponentTag(tag string) bool {
@@ -70,68 +106,55 @@ func isComponentTag(tag string) bool {
 	return ok
 }
 
-// componentAttrParamAt resolves a cursor on a function-component tag's attribute
-// NAME to that component's matching parameter position. It walks the in-memory
-// gsx AST (pkg.Files) — never the generated .x.go. Returns false when the cursor
-// is not on such an attribute name, the component or a matching param can't be
-// found, or the param list is unparseable.
-//
-// Handles both same-package (simple upper-initial tag) and cross-package (dotted
-// qualifier.Name tag) invocations. Only direct named attrs are considered; attrs
-// nested inside conditionals or supplied via spread are a clean miss (null), never
-// a wrong jump.
-func componentAttrParamAt(pkg *Package, path string, off int) (token.Position, bool) {
+// componentAttrAtOffset finds a cursor on a component-invocation attribute NAME.
+// It walks the in-memory gsx AST for an element whose tag is a component (simple
+// or dotted) and whose named attr's name span [attr.Pos(), +len(name)) covers off.
+// Returns the tag, the attr name, and the attr-name byte start (edited-file offset).
+func componentAttrAtOffset(pkg *Package, path string, off int) (tag, attr string, attrStart int, ok bool) {
 	f := pkg.Files[path]
 	if f == nil || pkg.GSXFset == nil {
-		return token.Position{}, false
+		return "", "", 0, false
 	}
-	var tag, attr string
 	gsxast.Inspect(f, func(n gsxast.Node) bool {
 		if tag != "" {
-			return false // already found
+			return false
 		}
-		el, ok := n.(*gsxast.Element)
-		if !ok || !isComponentTag(el.Tag) {
+		el, isEl := n.(*gsxast.Element)
+		if !isEl || !isComponentTag(el.Tag) {
 			return true
 		}
 		for _, a := range el.Attrs {
-			name, ok := attrName(a)
-			if !ok || name == "" {
+			name, named := attrName(a)
+			if !named || name == "" {
 				continue
 			}
 			start := pkg.GSXFset.Position(a.Pos()).Offset
 			if off >= start && off < start+len(name) {
-				tag, attr = el.Tag, name
+				tag, attr, attrStart = el.Tag, name, start
 				return false
 			}
 		}
 		return true
 	})
-	if tag == "" {
+	return tag, attr, attrStart, tag != ""
+}
+
+// componentAttrParamAt resolves a cursor on a component-invocation attribute name
+// to that component's matching parameter position (same-package and cross-package).
+func componentAttrParamAt(pkg *Package, path string, off int) (token.Position, bool) {
+	tag, attr, _, ok := componentAttrAtOffset(pkg, path, off)
+	if !ok {
 		return token.Position{}, false
 	}
-	if qualifier, name, ok := splitDottedTag(tag); ok {
-		// Cross-package: resolve the imported component's decl + its FileSet.
-		comp, fset, ok := resolveCrossPkgComponent(pkg, qualifier, name)
-		if !ok || !comp.ParamsPos.IsValid() {
-			return token.Position{}, false
-		}
-		rel, ok := paramOffsetIn(comp.Params, attr)
-		if !ok {
-			return token.Position{}, false
-		}
-		return fset.Position(comp.ParamsPos + token.Pos(rel)), true
-	}
-	// Same-package function component (Phase 1).
-	comp := findComponentDecl(pkg, tag)
-	if comp == nil || !comp.ParamsPos.IsValid() {
+	comp, fset, ok := resolveTagComponent(pkg, tag)
+	if !ok || !comp.ParamsPos.IsValid() {
 		return token.Position{}, false
 	}
 	rel, ok := paramOffsetIn(comp.Params, attr)
 	if !ok {
 		return token.Position{}, false
 	}
-	return pkg.GSXFset.Position(comp.ParamsPos + token.Pos(rel)), true
+	return fset.Position(comp.ParamsPos + token.Pos(rel)), true
 }
 
 // isSimpleComponentTag reports whether tag is a same-package function-component
