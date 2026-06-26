@@ -938,13 +938,13 @@ func emitSkeletonComponentNameLine(sb *strings.Builder, fset *token.FileSet, c *
 
 // emitSkeletonClauseLine emits a //line anchored so the clause/cond/code text
 // (which the skeleton emits verbatim starting `prefixLen` bytes into the line)
-// maps to its .gsx position pos. col = clauseCol - prefixLen + 1.
+// maps to its .gsx position pos. col = clauseCol - prefixLen.
 func emitSkeletonClauseLine(sb *strings.Builder, fset *token.FileSet, pos token.Pos, prefixLen int) {
 	if fset == nil || !pos.IsValid() {
 		return
 	}
 	p := fset.Position(pos)
-	col := p.Column - prefixLen + 1
+	col := p.Column - prefixLen
 	if col < 1 {
 		col = 1
 	}
