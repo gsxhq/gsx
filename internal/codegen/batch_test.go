@@ -223,7 +223,7 @@ func TestGeneratePackagesWithFilters_CustomFilter(t *testing.T) {
 	writeFile(t, filepath.Join(tmp, "v"), "v.gsx", "package v\n\ncomponent C(name string) { <p>{ name |> shout }</p> }\n")
 
 	dirV := filepath.Join(tmp, "v")
-	res, err := GeneratePackagesWithFilters(tmp, []string{dirV}, []string{"gsxbatchf/myf"}, nil, nil, nil, nil, nil, nil)
+	res, err := GeneratePackagesWithFilters(tmp, []string{dirV}, []string{"gsxbatchf/myf"}, nil, nil, nil, nil, nil, true, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

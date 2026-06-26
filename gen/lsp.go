@@ -152,7 +152,7 @@ func (a lspAnalyzer) AnalyzeModule(dir string, override map[string][]byte) ([]ls
 	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
 	out, err := codegen.GeneratePackagesWithFilters(root, dirs,
 		merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher,
-		nil, nil, override)
+		nil, nil, true, true, override)
 	if err != nil {
 		return nil, err
 	}

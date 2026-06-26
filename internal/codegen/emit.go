@@ -25,7 +25,7 @@ import (
 // interpolation types. It returns (nil, false) if any component failed; all
 // component errors are recorded in bag (component-boundary recovery continues
 // to the next component on failure, so multiple errors are always reported).
-func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, byo *byoData, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, cssMin, jsMin func(string) (string, error)) ([]byte, bool) {
+func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, byo *byoData, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool) ([]byte, bool) {
 	if cls == nil {
 		cls = attrclass.Builtin()
 	}
@@ -36,17 +36,21 @@ func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filter
 	// gen.WithCSSMinifier. Custom minifiers only ever receive complete, valid CSS
 	// (holeless blocks); holey blocks always use the built-in hole-aware pass
 	// regardless of cssMin.
-	if err := cssmin.MinifyFile(file, cssMin); err != nil {
-		bag.Add(diag.Diagnostic{Severity: diag.Error, Message: err.Error(), Source: "codegen"})
-		return nil, false
+	if cssMinify {
+		if err := cssmin.MinifyFile(file, cssMin); err != nil {
+			bag.Add(diag.Diagnostic{Severity: diag.Error, Message: err.Error(), Source: "codegen"})
+			return nil, false
+		}
 	}
 	// Minify the static JS of <script> blocks. jsMin is nil for the built-in
 	// safe minifier (ASI-safe, newline-keeping), or a custom override threaded
 	// from gen.WithJSMinifier. Only holeless <script> blocks are minified; a
 	// script carrying any @{ } hole is left un-minified for safety (see jsmin).
-	if err := jsmin.MinifyFile(file, jsMin); err != nil {
-		bag.Add(diag.Diagnostic{Severity: diag.Error, Message: err.Error(), Source: "codegen"})
-		return nil, false
+	if jsMinify {
+		if err := jsmin.MinifyFile(file, jsMin); err != nil {
+			bag.Add(diag.Diagnostic{Severity: diag.Error, Message: err.Error(), Source: "codegen"})
+			return nil, false
+		}
 	}
 	imports := map[string]bool{
 		"context":              true,

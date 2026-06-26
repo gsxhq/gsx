@@ -24,11 +24,11 @@ func TestBuildContextKeySensitivity(t *testing.T) {
 	bctxDarwin := "go1.26\ndarwin\namd64\n0\n\n"
 	bctxLinux := "go1.26\nlinux\namd64\n0\n\n"
 
-	k1a, err := computeKey(aDir, graph, "ex/bctx", "", "", bctxDarwin, "gen-test", nil, nil, "", false)
+	k1a, err := computeKey(aDir, graph, "ex/bctx", "", "", bctxDarwin, "gen-test", nil, nil, "", false, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	k1b, err := computeKey(aDir, graph, "ex/bctx", "", "", bctxDarwin, "gen-test", nil, nil, "", false)
+	k1b, err := computeKey(aDir, graph, "ex/bctx", "", "", bctxDarwin, "gen-test", nil, nil, "", false, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestBuildContextKeySensitivity(t *testing.T) {
 		t.Error("same buildCtx must produce the same key (unstable)")
 	}
 
-	k2, err := computeKey(aDir, graph, "ex/bctx", "", "", bctxLinux, "gen-test", nil, nil, "", false)
+	k2, err := computeKey(aDir, graph, "ex/bctx", "", "", bctxLinux, "gen-test", nil, nil, "", false, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,19 +94,19 @@ func TestComputeKeyDepClosure(t *testing.T) {
 		t.Fatal(err)
 	}
 	bDir := filepath.Join(tmp, "b")
-	key1, err := computeKey(bDir, graph, "ex/app", "", "", "go1.26\nlinux\namd64\n0\n\n", "gen-test", nil, nil, "", false)
+	key1, err := computeKey(bDir, graph, "ex/app", "", "", "go1.26\nlinux\namd64\n0\n\n", "gen-test", nil, nil, "", false, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// edit dependency a -> b's key must change
 	os.WriteFile(filepath.Join(tmp, "a", "a.go"), []byte("package a\n\nfunc A() string { return \"A2\" }\n"), 0o644)
-	key2, _ := computeKey(bDir, loadGraphMust(t, tmp), "ex/app", "", "", "go1.26\nlinux\namd64\n0\n\n", "gen-test", nil, nil, "", false)
+	key2, _ := computeKey(bDir, loadGraphMust(t, tmp), "ex/app", "", "", "go1.26\nlinux\namd64\n0\n\n", "gen-test", nil, nil, "", false, false, false)
 	if key1 == key2 {
 		t.Error("editing dependency a must change b's key")
 	}
 	// edit unrelated c -> b's key must NOT change
 	os.WriteFile(filepath.Join(tmp, "c", "c.go"), []byte("package c\n\nfunc C() string { return \"C2\" }\n"), 0o644)
-	key3, _ := computeKey(bDir, loadGraphMust(t, tmp), "ex/app", "", "", "go1.26\nlinux\namd64\n0\n\n", "gen-test", nil, nil, "", false)
+	key3, _ := computeKey(bDir, loadGraphMust(t, tmp), "ex/app", "", "", "go1.26\nlinux\namd64\n0\n\n", "gen-test", nil, nil, "", false, false, false)
 	if key3 != key2 {
 		t.Error("editing unrelated c must NOT change b's key")
 	}
@@ -140,11 +140,11 @@ func TestComputeKeyFingerprintSensitivity(t *testing.T) {
 	fp1 := "fingerprint-aaa"
 	fp2 := "fingerprint-bbb"
 
-	k1a, err := computeKey(aDir, graph, "ex/fptest", "", "", bctx, "gen-test", nil, nil, fp1, false)
+	k1a, err := computeKey(aDir, graph, "ex/fptest", "", "", bctx, "gen-test", nil, nil, fp1, false, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	k1b, err := computeKey(aDir, graph, "ex/fptest", "", "", bctx, "gen-test", nil, nil, fp1, false)
+	k1b, err := computeKey(aDir, graph, "ex/fptest", "", "", bctx, "gen-test", nil, nil, fp1, false, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestComputeKeyFingerprintSensitivity(t *testing.T) {
 		t.Error("same fingerprint must produce the same key (unstable)")
 	}
 
-	k2, err := computeKey(aDir, graph, "ex/fptest", "", "", bctx, "gen-test", nil, nil, fp2, false)
+	k2, err := computeKey(aDir, graph, "ex/fptest", "", "", bctx, "gen-test", nil, nil, fp2, false, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}

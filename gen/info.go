@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"path"
 	"strings"
 	"text/tabwriter"
@@ -22,7 +23,7 @@ import (
 //
 // When asJSON is true it emits the manifest JSON form instead of the human table.
 // cmdArgs are the subcommand arguments (used to parse --json).
-func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, predLabel string, fm codegen.FieldMatcher, cmdArgs []string) int {
+func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, predLabel string, fm codegen.FieldMatcher, cmdArgs []string, cssMinLevel, jsMinLevel MinifyLevel) int {
 	// Parse the info subcommand's own flags.
 	ifs := flag.NewFlagSet("info", flag.ContinueOnError)
 	ifs.SetOutput(stderr)
@@ -47,7 +48,7 @@ func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []stri
 		for _, fi := range infos {
 			mf = append(mf, manifestFilter{Name: fi.Name, Pkg: fi.Pkg, Func: fi.Func})
 		}
-		data, _ := json.MarshalIndent(buildManifest(modPath, cls, predLabel, fm != nil, mf), "", "  ")
+		data, _ := json.MarshalIndent(buildManifest(modPath, cls, predLabel, fm != nil, mf, cssMinLevel, jsMinLevel), "", "  ")
 		fmt.Fprintln(stdout, string(data))
 		return 0
 	}
@@ -122,6 +123,19 @@ func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []stri
 			fmt.Fprintf(stdout, "  fieldMatcher: custom\n")
 		}
 	}
+
+	fmt.Fprintf(stdout, "\nminify: css=%s js=%s\n", cssMinLevel, jsMinLevel)
+
+	fmt.Fprintf(stdout, "\nEnvironment:\n")
+	etw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
+	for _, o := range envOverrides {
+		val := "unset"
+		if raw, ok := os.LookupEnv(o.name); ok {
+			val = raw + " (active)"
+		}
+		fmt.Fprintf(etw, "  %s\t%s\t%s\n", o.name, val, o.desc)
+	}
+	etw.Flush()
 
 	return 0
 }

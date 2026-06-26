@@ -359,7 +359,7 @@ func GeneratePackagesWithResolver(moduleDir string, dirs []string, resolver *Cac
 
 		// Step 4: generate each file.
 		for path, file := range files {
-			gen, genOK := generateFile(file, resolved, table, propFields, nodeProps, byo, fset, cls, nil, bag, nil, nil)
+			gen, genOK := generateFile(file, resolved, table, propFields, nodeProps, byo, fset, cls, nil, bag, nil, nil, true, true)
 			if !genOK {
 				_ = path
 				continue

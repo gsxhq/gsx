@@ -84,7 +84,7 @@ func TestModuleMatchesBatchOverCorpus(t *testing.T) {
 			batchResults, err := codegen.GeneratePackagesWithFilters(
 				tmp, []string{pkgDir},
 				[]string{codegen.StdImportPath},
-				nil, nil, nil, nil, nil, nil,
+				nil, nil, nil, nil, nil, true, true, nil,
 			)
 			if err != nil {
 				t.Fatalf("batch GeneratePackagesWithFilters: %v", err)

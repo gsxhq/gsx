@@ -13,7 +13,7 @@ import (
 	"github.com/gsxhq/gsx/internal/diag"
 )
 
-func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, useCache bool, cssMin, jsMin func(string) (string, error)) (Result, error) {
+func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, useCache bool, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool) (Result, error) {
 	var res Result
 	dirs, err := discoverDirs(paths)
 	if err != nil {
@@ -33,7 +33,7 @@ func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, c
 		res.Errs = append(res.Errs, fmt.Errorf("gen: no go.mod found above %s", d))
 	}
 	for _, g := range groups {
-		generateModule(g, filterPkgs, aliases, cls, fm, useCache, cssMin, jsMin, &res)
+		generateModule(g, filterPkgs, aliases, cls, fm, useCache, cssMin, jsMin, cssMinify, jsMinify, &res)
 	}
 
 	sort.Strings(res.Written)
@@ -55,7 +55,7 @@ func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, c
 // MISS regenerate when the incremental cache is usable, else one batched
 // generate. Final result aggregation (sort, error join) is the caller's job, so
 // this only appends to res.
-func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, useCache bool, cssMin, jsMin func(string) (string, error), out *Result) {
+func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, useCache bool, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, out *Result) {
 	root, modPath, dirs := g.root, g.modPath, g.dirs
 
 	// Work against a LOCAL result so the per-module manifest guard can ask "was
@@ -84,7 +84,7 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 
 	// No cache: one batched generate (Tier 0 path).
 	if !enabled {
-		writeAll(dirs, mustGen(root, dirs, filterPkgs, aliases, cls, fm, cssMin, jsMin, &res), &res)
+		writeAll(dirs, mustGen(root, dirs, filterPkgs, aliases, cls, fm, cssMin, jsMin, cssMinify, jsMinify, &res), &res)
 		return
 	}
 
@@ -101,7 +101,7 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 			miss = append(miss, dir) // graph failed → regenerate everything (safe)
 			continue
 		}
-		k, err := computeKey(dir, graph, modPath, goModH, goSumH, bctx, codegenID, filterPkgs, aliases, clsFingerprint, fm != nil)
+		k, err := computeKey(dir, graph, modPath, goModH, goSumH, bctx, codegenID, filterPkgs, aliases, clsFingerprint, fm != nil, cssMinify, jsMinify)
 		if err != nil {
 			miss = append(miss, dir) // uncertain → MISS
 			continue
@@ -137,7 +137,7 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 
 	// GENERATE phase: only the miss set, in ONE load.
 	if len(miss) > 0 {
-		out, err := codegen.GeneratePackagesWithFilters(root, miss, filterPkgs, aliases, cls, fm, cssMin, jsMin, nil)
+		out, err := codegen.GeneratePackagesWithFilters(root, miss, filterPkgs, aliases, cls, fm, cssMin, jsMin, cssMinify, jsMinify, nil)
 		if err != nil {
 			res.Errs = append(res.Errs, err)
 			return
@@ -231,8 +231,8 @@ func contains(ss []string, s string) bool {
 }
 
 // mustGen / writeAll: the no-cache fallback (Tier 0 path) reused by generateCached.
-func mustGen(root string, dirs, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, cssMin, jsMin func(string) (string, error), res *Result) map[string]*codegen.PackageResult {
-	out, err := codegen.GeneratePackagesWithFilters(root, dirs, filterPkgs, aliases, cls, fm, cssMin, jsMin, nil)
+func mustGen(root string, dirs, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, res *Result) map[string]*codegen.PackageResult {
+	out, err := codegen.GeneratePackagesWithFilters(root, dirs, filterPkgs, aliases, cls, fm, cssMin, jsMin, cssMinify, jsMinify, nil)
 	if err != nil {
 		res.Errs = append(res.Errs, err)
 		return nil

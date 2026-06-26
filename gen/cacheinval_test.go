@@ -29,18 +29,18 @@ func TestCodegenIdentityKeySensitivity(t *testing.T) {
 	aDir := filepath.Join(tmp, "a")
 	bctx := "go1.26\ndarwin\namd64\n0\n\n"
 
-	k1, err := computeKey(aDir, graph, "ex/cid", "", "", bctx, "gen-AAA", nil, nil, "", false)
+	k1, err := computeKey(aDir, graph, "ex/cid", "", "", bctx, "gen-AAA", nil, nil, "", false, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	k1b, err := computeKey(aDir, graph, "ex/cid", "", "", bctx, "gen-AAA", nil, nil, "", false)
+	k1b, err := computeKey(aDir, graph, "ex/cid", "", "", bctx, "gen-AAA", nil, nil, "", false, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if k1 != k1b {
 		t.Error("same codegen identity must produce the same key (unstable)")
 	}
-	k2, err := computeKey(aDir, graph, "ex/cid", "", "", bctx, "gen-BBB", nil, nil, "", false)
+	k2, err := computeKey(aDir, graph, "ex/cid", "", "", bctx, "gen-BBB", nil, nil, "", false, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
