@@ -30,6 +30,8 @@ func (a fakeAnalyzer) Analyze(dir string, override map[string][]byte) (*Package,
 	}}}, nil
 }
 
+func (a fakeAnalyzer) PrintWidth(string) int { return 80 }
+
 func TestDidOpenPublishesDiagnostics(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "page.gsx")
 	uri := pathToURI(file)

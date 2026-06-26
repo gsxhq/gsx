@@ -42,6 +42,16 @@ type config struct {
 	predLabel    string
 	fieldMatcher codegen.FieldMatcher
 	errs         []error
+	printWidth   int // gsx.toml printWidth; 0 means "unset" → 80 at use
+}
+
+// effectivePrintWidth returns the configured print width, defaulting to 80 when
+// unset (zero or negative).
+func (c config) effectivePrintWidth() int {
+	if c.printWidth <= 0 {
+		return 80
+	}
+	return c.printWidth
 }
 
 // classifier builds the resolved Classifier from the accumulated options. A

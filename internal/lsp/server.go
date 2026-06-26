@@ -19,6 +19,9 @@ const defaultDebounce = 250 * time.Millisecond
 // .gsx path -> buffer bytes) in place of on-disk content for open documents.
 type Analyzer interface {
 	Analyze(dir string, override map[string][]byte) (*Package, error)
+	// PrintWidth returns the gsx.toml print width for the given directory
+	// (default 80). Used by textDocument/formatting.
+	PrintWidth(dir string) int
 }
 
 // Server is a stdio LSP server that publishes gsx diagnostics. It owns the
