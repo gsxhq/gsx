@@ -1,0 +1,18 @@
+# Passing children to a no-argument component is an error: a zero-arg func has no
+# Children field to receive them. Same clean diagnostic as the attribute case.
+-- divider.go --
+package views
+
+import "github.com/gsxhq/gsx"
+
+func Divider() gsx.Node {
+	return gsx.Raw("<hr>")
+}
+-- input.gsx --
+package views
+
+component Page() {
+	<Divider>oops</Divider>
+}
+-- diagnostics.golden --
+4:2: no-argument component Divider accepts no attributes or children

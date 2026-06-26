@@ -53,6 +53,7 @@ components/component_fallthrough_pipeline	diag gen render
 components/component_prop_pipeline	diag gen render
 components/component_spread	diag gen render
 components/component_spread_with_class	diag gen render
+components/handwritten_func_with_props	diag render
 components/named_slot	diag render
 components/named_slot_bad_name	diag(error)
 components/named_slot_binding	diag render
@@ -60,6 +61,10 @@ components/named_slot_interleaved	diag render
 components/named_slot_multiple	diag render
 components/named_slot_with_children	diag render
 components/node_param_standalone	diag render
+components/nullary_func_component	diag gen render
+components/nullary_func_control_flow	diag render
+components/nullary_func_in_slot	diag render
+components/nullary_func_mixed_kordering	diag render
 components/nullary_no_props	diag gen render
 control_flow/for	diag render
 control_flow/goblock	diag render
@@ -74,6 +79,11 @@ datajson/island_breakout	diag gen render
 datajson/island_multi_hole_rejected	diag(error)
 datajson/island_value	diag gen render
 diagnostics/ctx_in_interp	diag render
+diagnostics/handwritten_func_bad_attr	diag(error)
+diagnostics/noprops_component_with_attrs	diag(error)
+diagnostics/noprops_component_with_children	diag(error)
+diagnostics/nullary_func_with_attrs	diag(error)
+diagnostics/nullary_func_with_children	diag(error)
 diagnostics/param_name_collision	diag render
 diagnostics/pointer_node_render	diag render
 diagnostics/reserved_param_children	diag(error)
@@ -253,4 +263,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 255 cases (render: 192, error: 44, gen-pinned: 72)
+TOTAL: 265 cases (render: 197, error: 49, gen-pinned: 73)

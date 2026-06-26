@@ -1,0 +1,11 @@
+# A .gsx no-props component (`component Box() { … }`, emitted as a bare
+# `func Box() gsx.Node`) is bare-callable as <Box/>; passing attributes is a clean
+# error — consistent with a hand-written nullary func, not a raw `undefined: BoxProps`.
+-- input.gsx --
+package views
+
+component Box() { <div>x</div> }
+
+component Page() { <Box class="x"/> }
+-- diagnostics.golden --
+5:20: no-argument component Box accepts no attributes or children

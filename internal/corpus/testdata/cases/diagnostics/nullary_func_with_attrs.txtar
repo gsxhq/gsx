@@ -1,0 +1,18 @@
+# Passing attributes to a no-argument component is an error: a zero-arg func has
+# no props to receive them. Clean diagnostic instead of a raw `undefined: XxxProps`.
+-- divider.go --
+package views
+
+import "github.com/gsxhq/gsx"
+
+func Divider() gsx.Node {
+	return gsx.Raw("<hr>")
+}
+-- input.gsx --
+package views
+
+component Page() {
+	<Divider class="x"/>
+}
+-- diagnostics.golden --
+4:2: no-argument component Divider accepts no attributes or children

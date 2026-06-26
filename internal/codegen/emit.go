@@ -1815,6 +1815,21 @@ func childInvocation(el *ast.Element, byo *byoData, recvVar, recvTypeName string
 // (empty for a function component); they drive the method-vs-package
 // disambiguation via childInvocation.
 func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, byo *byoData, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag) bool {
+	// A bare-call candidate tag (isBareCallCandidate — a hand-written same-package
+	// func, or a .gsx no-props component) was probed via _gsxcompsig, so harvest
+	// stored its real signature in resolved[el]. A nullary func is a bare call
+	// `<F/>` (like a void element); passing attributes or children is an error (a
+	// zero-arg func has nowhere to put them). An arity ≥ 1 func falls through to
+	// the XxxProps convention below.
+	if sig, ok := resolved[el].(*types.Signature); ok && sig.Params().Len() == 0 {
+		if len(el.Attrs) > 0 || len(el.Children) > 0 {
+			bag.Errorf(el.Pos(), el.End(), "noarg-component-args",
+				"no-argument component %s accepts no attributes or children", el.Tag)
+			return false
+		}
+		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s())\n", el.Tag)
+		return true
+	}
 	callTarget, propsType, isMethod := childInvocation(el, byo, recvVar, recvTypeName)
 	// A nullary call — no attrs, no children — emits a bare call with no props
 	// literal. This applies to:

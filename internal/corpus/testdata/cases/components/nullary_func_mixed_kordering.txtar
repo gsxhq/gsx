@@ -1,0 +1,22 @@
+# The _gsxcompsig arity probes must NOT perturb the _gsxuse k-th alignment: a body
+# mixing a bare <Divider/>, interps {y}/{z}, and a props <Badge title={z}/> must
+# still resolve every interp to its correct type.
+-- divider.go --
+package views
+
+import "github.com/gsxhq/gsx"
+
+func Divider() gsx.Node { return gsx.Raw("<hr>") }
+-- input.gsx --
+package views
+
+component Badge(title string) { <b>{title}</b> }
+
+component Page(y int, z string) {
+	<div><Divider/>{y}<Badge title={z}/><Divider/>{z}</div>
+}
+-- invoke --
+Page(PageProps{Y: 42, Z: "hi"})
+-- render.golden --
+<div><hr>42<b>hi</b><hr>hi</div>
+-- diagnostics.golden --

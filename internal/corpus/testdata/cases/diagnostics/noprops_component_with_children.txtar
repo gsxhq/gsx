@@ -1,0 +1,10 @@
+# Passing children to a .gsx no-props component (no {children} slot) is the same
+# clean error — it has no Children field to receive them.
+-- input.gsx --
+package views
+
+component Box() { <div>x</div> }
+
+component Page() { <Box>kids</Box> }
+-- diagnostics.golden --
+5:20: no-argument component Box accepts no attributes or children

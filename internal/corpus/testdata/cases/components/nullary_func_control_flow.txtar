@@ -1,0 +1,20 @@
+# A bare nullary <F/> resolves correctly inside { if } and { for } bodies — the
+# harvest walks control-flow nodes (forEachComponentTagElement). Also covers
+# multiple <F/> sites sharing one signature.
+-- divider.go --
+package views
+
+import "github.com/gsxhq/gsx"
+
+func Divider() gsx.Node { return gsx.Raw("<hr>") }
+-- input.gsx --
+package views
+
+component Page(show bool, xs []int) {
+	<div>{ if show { <Divider/> } }{ for range xs { <Divider/> } }</div>
+}
+-- invoke --
+Page(PageProps{Show: true, Xs: []int{1, 2}})
+-- render.golden --
+<div><hr><hr><hr></div>
+-- diagnostics.golden --
