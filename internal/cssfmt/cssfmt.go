@@ -27,7 +27,7 @@ func Format(src []byte, width int) ([]byte, error) {
 	if p.i != len(p.toks) {
 		return nil, fmt.Errorf("unexpected %q", p.toks[p.i].text)
 	}
-	doc := layoutItems(items)
+	doc := layoutTopLevel(items)
 	out := pretty.Print(doc, width)
 	out = strings.TrimRight(out, "\n") + "\n"
 	return []byte(out), nil
@@ -145,6 +145,20 @@ func trimWS(toks []token) []token {
 }
 
 // --- layout -----------------------------------------------------------------
+
+// layoutTopLevel renders the top-level item list with a BLANK line (two
+// HardLines) between adjacent rules/at-rules, per the spec's readability rule.
+// Nested block bodies keep layoutItems' single-HardLine separation.
+func layoutTopLevel(items []item) pretty.Doc {
+	var parts []pretty.Doc
+	for i, it := range items {
+		if i > 0 {
+			parts = append(parts, pretty.HardLine, pretty.HardLine)
+		}
+		parts = append(parts, layoutItem(it))
+	}
+	return pretty.Concat(parts...)
+}
 
 func layoutItems(items []item) pretty.Doc {
 	var parts []pretty.Doc

@@ -92,3 +92,15 @@ func TestFormatIdempotent(t *testing.T) {
 		t.Fatalf("not idempotent:\n--- once ---\n%s\n--- twice ---\n%s", once, twice)
 	}
 }
+
+func TestFormatBlankLineBetweenTopLevelRules(t *testing.T) {
+	got := fmtCSS(t, ".a{color:red}h1,h2{margin:0}")
+	if !strings.Contains(got, "}\n\n") {
+		t.Fatalf("expected a blank line between top-level rules:\n%q", got)
+	}
+	// Declarations within a rule stay tight (no blank line between them).
+	got2 := fmtCSS(t, ".a{color:red;background:blue}")
+	if strings.Contains(got2, ";\n\n") {
+		t.Fatalf("declarations must not be blank-line separated:\n%q", got2)
+	}
+}
