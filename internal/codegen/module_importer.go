@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"fmt"
+	"go/build"
 	goast "go/ast"
 	goparser "go/parser"
 	"go/token"
@@ -239,22 +240,31 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// so that companion types and functions are visible during skeleton
 	// type-checking — mirroring how GeneratePackagesWithFilters's packages.Load
 	// overlay sees them on disk alongside the synthetic .x.go overlays.
-	// Excluded: each .x.go whose path matches a skeleton already in goFiles
-	// (compsByXGo), the synthetic helper above (helperXgoPath), and _test files.
-	realGoFiles, _ := filepath.Glob(filepath.Join(dir, "*.go"))
-	for _, realPath := range realGoFiles {
-		if compsByXGo[realPath] != nil || realPath == helperXgoPath {
-			continue // already represented as a synthetic overlay
+	//
+	// Use build.ImportDir (build-constraint- and test-file-aware) instead of a
+	// raw glob so that *_test.go and build-excluded files are correctly omitted —
+	// matching the behaviour of the batch packages.Load path and resolver.go.
+	// On error (e.g. no buildable Go in the dir yet) we simply add nothing.
+	//
+	// Excluded from the result: live-skeleton overlay paths (already in
+	// compsByXGo), the synthetic helper shim (helperXgoPath), and any other
+	// generated .x.go (those are replaced by in-memory skeletons above).
+	if bp, berr := build.ImportDir(dir, 0); berr == nil {
+		for _, name := range bp.GoFiles {
+			absPath := filepath.Join(dir, name)
+			if compsByXGo[absPath] != nil || absPath == helperXgoPath {
+				continue // already represented as a synthetic overlay
+			}
+			src, readErr := os.ReadFile(absPath)
+			if readErr != nil {
+				continue // file disappeared; not fatal
+			}
+			realGF, parseErr := goparser.ParseFile(fset, absPath, src, goparser.SkipObjectResolution)
+			if parseErr != nil {
+				continue // parse error surfaced by type-checker via Error func
+			}
+			goFiles = append(goFiles, realGF)
 		}
-		src, readErr := os.ReadFile(realPath)
-		if readErr != nil {
-			continue // file disappeared; not fatal
-		}
-		realGF, parseErr := goparser.ParseFile(fset, realPath, src, goparser.SkipObjectResolution)
-		if parseErr != nil {
-			continue // parse error surfaced by type-checker via Error func
-		}
-		goFiles = append(goFiles, realGF)
 	}
 
 	pkg, info, _ := checkSkeletonPackage(dir, pkgName, goFiles, fset, mi)

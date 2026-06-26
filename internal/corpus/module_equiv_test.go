@@ -58,8 +58,6 @@ func TestModuleMatchesBatchOverCorpus(t *testing.T) {
 
 	compared := 0
 	for _, c := range cases {
-		c := c
-
 		// Mirror the single-package codegen candidate predicate from TestCorpus
 		// (corpus_test.go:54-70):
 		//   • single=true  ⟺  !c.multiPkg and has "input.gsx"
@@ -77,7 +75,6 @@ func TestModuleMatchesBatchOverCorpus(t *testing.T) {
 		}
 
 		t.Run(c.name, func(t *testing.T) {
-			// Write the case's source files into the shared temp module.
 			if err := writeCaseSources(tmp, c); err != nil {
 				t.Fatalf("writeCaseSources: %v", err)
 			}
@@ -129,7 +126,7 @@ func TestModuleMatchesBatchOverCorpus(t *testing.T) {
 
 	// Fail loudly if the filter was too aggressive — an over-filtered run that
 	// compares nothing would pass vacuously.
-	const minCompared = 10
+	const minCompared = 150
 	if compared < minCompared {
 		t.Errorf("gate compared only %d case(s) (want ≥ %d); single-package filter may be wrong", compared, minCompared)
 	}
