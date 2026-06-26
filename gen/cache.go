@@ -13,7 +13,7 @@ import (
 	"github.com/gsxhq/gsx/internal/diag"
 )
 
-func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, predLabel string, fm codegen.FieldMatcher, useCache bool, cssMin, jsMin func(string) (string, error)) (Result, error) {
+func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, useCache bool, cssMin, jsMin func(string) (string, error)) (Result, error) {
 	var res Result
 	dirs, err := discoverDirs(paths)
 	if err != nil {
@@ -33,7 +33,7 @@ func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, c
 		res.Errs = append(res.Errs, fmt.Errorf("gen: no go.mod found above %s", d))
 	}
 	for _, g := range groups {
-		generateModule(g, filterPkgs, aliases, cls, predLabel, fm, useCache, cssMin, jsMin, &res)
+		generateModule(g, filterPkgs, aliases, cls, fm, useCache, cssMin, jsMin, &res)
 	}
 
 	sort.Strings(res.Written)
@@ -55,7 +55,7 @@ func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, c
 // MISS regenerate when the incremental cache is usable, else one batched
 // generate. Final result aggregation (sort, error join) is the caller's job, so
 // this only appends to res.
-func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, predLabel string, fm codegen.FieldMatcher, useCache bool, cssMin, jsMin func(string) (string, error), out *Result) {
+func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, useCache bool, cssMin, jsMin func(string) (string, error), out *Result) {
 	root, modPath, dirs := g.root, g.modPath, g.dirs
 
 	// Work against a LOCAL result so the per-module manifest guard can ask "was
@@ -174,22 +174,11 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 			}
 		}
 	}
-
-	// Persist the resolved config manifest so external tools can consume it
-	// without re-running gsx. Best-effort: manifest write must never fail the
-	// build.
-	// Guard: only write on a fully-clean generate of THIS module (no operational
-	// errors AND no error-severity diagnostics). Error-severity diagnostics live
-	// in res.Diags (not res.Errs), so we must check both — and res is module-local
-	// here, so sibling modules' failures never suppress this module's manifest.
-	if enabled && modPath != "" && len(res.Errs) == 0 && !anyErrorDiag(res.Diags) {
-		filters, _ := codegen.ResolveFilters(root, filterPkgs, aliases) // best-effort
-		mf := make([]manifestFilter, 0, len(filters))
-		for _, fi := range filters {
-			mf = append(mf, manifestFilter{Name: fi.Name, Pkg: fi.Pkg, Func: fi.Func})
-		}
-		_ = saveManifest(cdir, modPath, buildManifest(modPath, cls, predLabel, fm != nil, mf))
-	}
+	// NOTE: no config-manifest write here. The resolved-config projection is
+	// served on demand by `gsx info --json` (live re-resolve); nothing reads a
+	// persisted manifest. Writing it on every generate forced a redundant
+	// packages.Load (ResolveFilters type-checks the filter packages) per module —
+	// the dominant cost of a fully-cached generate — for output no one consumed.
 }
 
 // anyErrorDiag reports whether any diagnostic has Error severity.

@@ -23,7 +23,7 @@ component A(ctx string) {
 func runGenerateArgs(t *testing.T, args []string) (int, string, string) {
 	t.Helper()
 	var out, errb bytes.Buffer
-	code := runGenerate(args, &out, &errb, false, false, true /*noCache*/, nil, nil, attrclass.Builtin(), "", nil, nil, nil)
+	code := runGenerate(args, &out, &errb, false, false, true /*noCache*/, nil, nil, attrclass.Builtin(), nil, nil, nil)
 	return code, out.String(), errb.String()
 }
 

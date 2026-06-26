@@ -150,7 +150,7 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			return 2
 		}
-		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.filterPkgs, merged.aliases, merged.classifier(), merged.predLabel, merged.fieldMatcher, merged.cssMin, merged.jsMin)
+		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher, merged.cssMin, merged.jsMin)
 	case "clean":
 		return runClean(cmdArgs, stdout, stderr)
 	case "info":
@@ -256,7 +256,7 @@ func runClean(args []string, stdout, stderr io.Writer) int {
 // discovery fails → exit 2) from a codegen error (one or more error-severity
 // diagnostics → exit 1). Success returns 0.
 // noCache bypasses the content-hash cache and forces a full regeneration.
-func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, predLabel string, fm codegen.FieldMatcher, cssMin, jsMin func(string) (string, error)) int {
+func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, cssMin, jsMin func(string) (string, error)) int {
 	gfs := flag.NewFlagSet("generate", flag.ContinueOnError)
 	gfs.SetOutput(stderr)
 	var nocacheFlag bool
@@ -296,7 +296,7 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 			paths: paths, format: formatFlag,
 			stdout: stdout, stderr: stderr, quiet: quiet, verbose: verbose,
 			filterPkgs: filterPkgs, aliases: aliases, cls: cls,
-			predLabel: predLabel, fm: fm, cssMin: cssMin, jsMin: jsMin,
+			fm: fm, cssMin: cssMin, jsMin: jsMin,
 		})
 	}
 	// Bypass the cache when --no-cache is set OR when a custom minifier is
@@ -304,7 +304,7 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 	// Bypass the cache when a custom field matcher is installed: funcs are not
 	// hashable, so the cache cannot key on fm. Mirror the minifier bypass pattern.
 	useCache := !nocacheFlag && cssMin == nil && jsMin == nil && fm == nil
-	res, err := generateCached(paths, filterPkgs, aliases, cls, predLabel, fm, useCache, cssMin, jsMin)
+	res, err := generateCached(paths, filterPkgs, aliases, cls, fm, useCache, cssMin, jsMin)
 
 	// Operational errors (I/O, module-graph failures): these are not diagnostics.
 	// Print each with the gsx: prefix and return early.
