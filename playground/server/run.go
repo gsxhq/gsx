@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"go/parser"
@@ -58,9 +60,33 @@ func (p *pool) runGenerated(in runReq) runResp {
 	if len(in.Files) == 0 || strings.TrimSpace(in.Invoke) == "" {
 		return runResp{Error: "files and invoke are required"}
 	}
+	// Content cache: identical generated Go + invoke renders the same HTML, so
+	// the example corpus (run over and over) is served without recompiling. Reuses
+	// the LRU shared with /render; "run\x00" keys never collide with /render keys.
+	key := runCacheKey(in)
+	if r, ok := p.cache.get(key); ok {
+		return runResp{HTML: r.HTML} // hit → instant, no build
+	}
 	ws := <-p.free // back-pressure: block until a workspace frees up
 	defer func() { p.free <- ws }()
-	return runIn(p.gocache, ws, in)
+	resp := runIn(p.gocache, ws, in)
+	if resp.Error == "" && resp.HTML != "" { // cache only clean successes
+		p.cache.put(key, renderResp{HTML: resp.HTML})
+	}
+	return resp
+}
+
+func runCacheKey(in runReq) string {
+	h := sha256.New()
+	h.Write([]byte("run\x00"))
+	for _, f := range in.Files {
+		h.Write([]byte(f.Name))
+		h.Write([]byte{0})
+		h.Write([]byte(f.Code))
+		h.Write([]byte{0})
+	}
+	h.Write([]byte(in.Invoke))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // runIn compiles and runs the client-supplied generated Go in a warm workspace.
