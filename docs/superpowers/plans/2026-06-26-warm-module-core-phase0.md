@@ -27,7 +27,8 @@
 - **Create `internal/codegen/module_test.go`** — unit tests for the file store, path↔dir helpers, single-package analysis, and cross-package no-`.x.go` resolution.
 - **Create `internal/codegen/module_equiv_test.go`** — the corpus-equivalence gate (drives `Module.Generate` over the corpus dirs and diffs against the batch output).
 
-No existing files are modified in Phase 0 (the core is new code beside the existing paths).
+- **Modify `internal/codegen/batch.go`** — extract the inline cross-index/nav-index block (`batch.go:371-473`) into the new shared `buildCrossNav` helper and call it (Task 5). This is the only existing-file change in Phase 0: a behavior-preserving extraction covered by the existing corpus + batch tests **and** the new equivalence gate.
+- **Create `internal/codegen/crossnav.go`** — the shared `buildCrossNav` helper, called by both `batch.go` and `Module.Package` (one source of truth; no duplication).
 
 ---
 
@@ -681,8 +682,12 @@ type analyzed struct {
 	resolved   map[gsxast.Node]types.Type
 	pkg        *types.Package
 	info       *types.Info
+	compByKey  map[string]*gsxast.Component  // componentKey -> component (for Name + NamePos)
+	objKey     map[types.Object]string       // component func object -> componentKey
 }
 ```
+
+`analyze` must also build `compByKey` and `objKey` (the batch path builds these at `batch.go:328-369`) so `buildCrossNav` can run from an `analyzed`.
 
 `typesPackage`/`typesPackageWith` keep returning `(*types.Package, error)` by calling `analyze` and returning `a.pkg`. (Importantly, `analyze` must parse the gsx files with the **gsx** fset it returns, and skeletons with the **skeleton** fset, matching `batch.go`'s two-fileset split.)
 
@@ -715,23 +720,57 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 		}
 		harvest(gf, comps, a.info, a.resolved, res.ExprMap)
 	}
-	res.CrossIndex, res.NavIndex = m.buildCrossNav(a)
+	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.gsxFset, a.skelFset, a.info, a.pkg)
 	return res, nil
 }
 ```
 
-Implement `buildCrossNav(a *analyzed) (map[string]CrossRef, []NavRef)` by lifting the existing index/navIndex construction from `batch.go:371-473` verbatim (it uses `compByKey`, `objKey`, `pkg.Fset`, `harvest`'s `resolved` is not needed there). Because that block is ~100 lines and already correct, extract it into this helper so both `batch.go` and `Module` call it (DRY) — but to keep Phase 0 non-invasive, **copy** it into `buildCrossNav` for now and leave a `// TODO(phase3): share with batch.go` marker; Phase 3 dedups when batch migrates.
+Extract the index/navIndex construction at `batch.go:371-473` into a shared
+helper in the new `internal/codegen/crossnav.go`:
+
+```go
+// buildCrossNav builds a package's component cross-index (componentKey ->
+// CrossRef with .gsx Decl + in-package Refs) and the navigable-reference index.
+// gsxFset resolves .gsx declaration positions; skelFset (the skeleton fset)
+// resolves use positions (//line-mapped back to .gsx for skeleton refs, real
+// .go for hand-written refs). Shared by the go-list batch path and the Module
+// core so both produce identical indexes.
+func buildCrossNav(
+	compByKey map[string]*gsxast.Component,
+	objKey map[types.Object]string,
+	gsxFset, skelFset *token.FileSet,
+	info *types.Info,
+	pkgTypes *types.Package,
+) (map[string]CrossRef, []NavRef)
+```
+
+Move the body of `batch.go:371-473` into it **verbatim**, substituting the
+parameters for the batch-local names (`fset`→`gsxFset`, `pkg.Fset`→`skelFset`,
+`pkg.TypesInfo`→`info`, `pkg.Types`→`pkgTypes`). Then in `batch.go`, replace that
+inline block with `res.CrossIndex, res.NavIndex = buildCrossNav(compByKey,
+objKey, fset, pkg.Fset, pkg.TypesInfo, pkg.Types)`. `Module.Package` calls
+`buildCrossNav(a.compByKey, a.objKey, a.gsxFset, a.skelFset, a.info, a.pkg)`.
+The cross-package second pass (`batch.go` post-loop, `compObjOwner`) stays in
+`batch.go` — it spans packages and is not part of single-package `buildCrossNav`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `go test ./internal/codegen/ -run TestModulePackageRetainsAnalysis -v`
 Expected: PASS.
 
+- [ ] **Step 4b: Verify the batch.go extraction is behavior-preserving**
+
+The `buildCrossNav` extraction modified `batch.go`. Confirm the existing
+cross-reference + corpus tests still pass:
+
+Run: `go test ./internal/codegen/ ./internal/corpus/ -count=1`
+Expected: all PASS (the extraction must not change batch output).
+
 - [ ] **Step 5: Commit**
 
 ```bash
-git add internal/codegen/module.go internal/codegen/module_importer.go internal/codegen/module_test.go
-git commit -m "feat(codegen): Module.Package populates retained analysis (harvest + cross/nav)"
+git add internal/codegen/crossnav.go internal/codegen/batch.go internal/codegen/module.go internal/codegen/module_importer.go internal/codegen/module_test.go
+git commit -m "refactor(codegen): extract shared buildCrossNav; Module.Package uses it"
 ```
 
 ---
@@ -934,5 +973,5 @@ git commit -m "test(corpus): Module.Generate matches batch byte-for-byte (Phase 
 - **Spec coverage:** This plan covers spec §3 (the `Module` + composite importer), §8 invariants (`.x.go`-independence via skeleton importer; in-memory via override store; generation equivalence via Task 7), and the §7 **Phase 0** gate. It does NOT cover `ModuleRefs`, `Invalidate`/metadata graph (Phase 2), the LSP wiring + Bug A/B (Phase 1), or consumer migration / public façade (Phase 3) — those are later plans.
 - **Known approximation to resolve during execution:** Tasks 4–6 evolve `typesPackageWith` → `analyze`; ensure the final `analyze` is the single source both the importer and `Package`/`Generate` use (DRY). If the Task-4 stub shape fights the Task-5 refactor, implement `analyze` first and have Task 4's importer call it (reorder is fine).
 - **Two filesets:** keep the gsx parse fset and the skeleton parse fset distinct, exactly as `batch.go` does; `harvest`/cross-index use skeleton positions (`//line`-mapped), `generateFile` uses the gsx fset.
-- **DRY debt is explicit:** `buildCrossNav` copies `batch.go:371-473` with a `TODO(phase3)` marker; dedup happens when batch migrates onto the core.
+- **No DRY debt:** `buildCrossNav` is extracted as a shared helper (Task 5) and called by **both** `batch.go` and `Module.Package` — one source of truth. The extraction is behavior-preserving (Step 4b runs the corpus + batch tests). This was a deliberate decision (batch.go is the only existing file Phase 0 modifies).
 ```
