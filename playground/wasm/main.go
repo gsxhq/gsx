@@ -13,6 +13,7 @@ package main
 import (
 	"syscall/js"
 
+	"github.com/gsxhq/gsx/gen"
 	"github.com/gsxhq/gsx/playground/interp"
 )
 
@@ -22,21 +23,33 @@ func main() {
 		panic("gsx-wasm: build playground: " + err.Error())
 	}
 
+	// gsxTransform(source, invoke) -> {html, generatedGo, diagnostics}.
 	js.Global().Set("gsxTransform", js.FuncOf(func(_ js.Value, args []js.Value) any {
-		src, invoke := "", ""
-		if len(args) > 0 && args[0].Type() == js.TypeString {
-			src = args[0].String()
-		}
-		if len(args) > 1 && args[1].Type() == js.TypeString {
-			invoke = args[1].String()
-		}
+		src, invoke := stringArg(args, 0), stringArg(args, 1)
 		return jsResult(pg.Transform(src, invoke))
+	}))
+
+	// gsxFormat(source) -> {formatted} | {error} — the gsx formatter (pure, no
+	// subprocess), so `gsx fmt` also runs client-side.
+	js.Global().Set("gsxFormat", js.FuncOf(func(_ js.Value, args []js.Value) any {
+		out, ferr := gen.Format("playground.gsx", []byte(stringArg(args, 0)))
+		if ferr != nil {
+			return map[string]any{"error": ferr.Error()}
+		}
+		return map[string]any{"formatted": string(out)}
 	}))
 
 	if ready := js.Global().Get("gsxReady"); ready.Type() == js.TypeFunction {
 		ready.Invoke()
 	}
 	select {}
+}
+
+func stringArg(args []js.Value, i int) string {
+	if i < len(args) && args[i].Type() == js.TypeString {
+		return args[i].String()
+	}
+	return ""
 }
 
 func jsResult(r interp.Result) any {
@@ -50,7 +63,7 @@ func jsResult(r interp.Result) any {
 		}
 	}
 	return map[string]any{
-		"code":        r.Code,
+		"generatedGo": r.Code,
 		"html":        r.HTML,
 		"diagnostics": diags,
 	}

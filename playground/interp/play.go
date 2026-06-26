@@ -2,7 +2,6 @@ package interp
 
 import (
 	yaegi "github.com/traefik/yaegi/interp"
-	"github.com/traefik/yaegi/stdlib"
 
 	"github.com/gsxhq/gsx/gen"
 	"github.com/gsxhq/gsx/internal/diag"
@@ -69,9 +68,9 @@ func (p *Playground) Transform(src, invoke string) Result {
 // used so prior definitions never leak in.
 func interpretRender(generatedGo, invoke string) (string, error) {
 	i := yaegi.New(yaegi.Options{})
-	if err := i.Use(stdlib.Symbols); err != nil {
-		return "", err
-	}
+	// Symbols holds ONLY the playground allowlist (stdlib subset) plus the gsx
+	// runtime and std filters — not yaegi's full stdlib — which keeps the wasm
+	// binary deployable. The interpreted code can only import the allowlist.
 	if err := i.Use(Symbols); err != nil {
 		return "", err
 	}

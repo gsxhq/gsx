@@ -58,7 +58,7 @@ const $ = (id) => document.getElementById(id);
 function run() {
   if (typeof globalThis.gsxTransform !== "function") return;
   const out = globalThis.gsxTransform($("src").value, $("invoke").value);
-  $("code").textContent = out.code || "(no output)";
+  $("code").textContent = out.generatedGo || "(no output)";
   $("rawhtml").textContent = out.html || "";
   $("preview").innerHTML = out.html || "<em style='color:#888'>(no render)</em>";
   $("diags").textContent = (out.diagnostics || [])
