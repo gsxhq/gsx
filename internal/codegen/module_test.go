@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -243,5 +244,73 @@ func TestModuleGenerateSkipsPackageOnScriptResolutionFailure(t *testing.T) {
 	}
 	if len(diags) == 0 {
 		t.Fatalf("Generate: expected non-empty diagnostics for script-resolution failure, got none")
+	}
+}
+
+// TestModuleConcurrentPackage verifies that concurrent calls to m.Package with
+// different dirs do not race. This test exercises the analysisMu fix that
+// serializes access to shared state (m.fset, m.pkgTypes, interpTemp via
+// generateFile). Multiple goroutines call m.Package concurrently on different
+// project packages within a single Module.
+func TestModuleConcurrentPackage(t *testing.T) {
+	root := t.TempDir()
+	repoRoot, _ := filepath.Abs("../..")
+	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+
+	// Create three packages: comp, page (imports comp), and widget (independent).
+	compDir := filepath.Join(root, "comp")
+	if err := os.MkdirAll(compDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, compDir, "comp.gsx", "package comp\n\ncomponent Button(label string) {\n\t<button>{label}</button>\n}\n")
+
+	pageDir := filepath.Join(root, "page")
+	if err := os.MkdirAll(pageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, pageDir, "page.gsx",
+		"package page\n\nimport \"example.com/app/comp\"\n\ncomponent Home() {\n\t<div>{ comp.Button(\"hi\") }</div>\n}\n")
+
+	widgetDir := filepath.Join(root, "widget")
+	if err := os.MkdirAll(widgetDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, widgetDir, "widget.gsx", "package widget\n\ncomponent Card(title string) {\n\t<div class=\"card\"><h3>{title}</h3></div>\n}\n")
+
+	m, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app", FilterPkgs: []string{StdImportPath}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Launch 8 goroutines that each call m.Package concurrently on different dirs
+	// in a loop, to exercise concurrent access to the shared fset and pkgTypes.
+	const numGoroutines = 8
+	const loopsPerGoroutine = 5
+	dirs := []string{compDir, pageDir, widgetDir}
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, numGoroutines*loopsPerGoroutine)
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for loop := 0; loop < loopsPerGoroutine; loop++ {
+				// Mix which dir is accessed by rotating through the list.
+				dir := dirs[(id+loop)%len(dirs)]
+				_, err := m.Package(dir)
+				if err != nil {
+					errChan <- err
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	// Collect and report any errors.
+	for err := range errChan {
+		t.Errorf("m.Package failed: %v", err)
 	}
 }
