@@ -165,12 +165,13 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 		}
 		return runInfo(stdout, stderr, ".", configPath, merged.filterPkgs, merged.aliases, merged.classifier(), merged.predLabel, merged.fieldMatcher, cmdArgs)
 	case "fmt":
-		merged, _, err := resolveConfig(cfg)
-		if err != nil {
-			fmt.Fprintf(stderr, "gsx: %v\n", err)
-			return 2
-		}
-		return runFmt(stdout, stderr, cmdArgs, merged.cssFmt)
+		// fmt respects gsx.toml: runFmt reads printWidth per directory via
+		// printWidthFor (best-effort — a malformed/absent config falls back to
+		// 80 rather than hard-failing). The CSS formatter override has no
+		// gsx.toml entry (it is the programmatic WithCSSFormatter option), so it
+		// comes from cfg directly — not resolveConfig, which would hard-fail on
+		// a malformed config and break that best-effort contract.
+		return runFmt(stdout, stderr, cmdArgs, cfg.cssFmt)
 	case "init":
 		return runInit(cmdArgs, os.Stdin, stdout, stderr)
 	case "lsp":
