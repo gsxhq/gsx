@@ -22,6 +22,7 @@ import (
 
 	"github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/cssfmt"
+	"github.com/gsxhq/gsx/internal/jsfmt"
 	"github.com/gsxhq/gsx/internal/pretty"
 	"github.com/gsxhq/gsx/internal/rawfmt"
 )
@@ -29,14 +30,13 @@ import (
 // Fprint writes the canonical gsx rendering of f to w, wrapping lists that
 // exceed width columns. width <= 0 uses pretty's default (80).
 func Fprint(w io.Writer, f *ast.File, width int) error {
-	return FprintWith(w, f, width, defaultCSSFormatter(width))
+	return FprintWith(w, f, width, defaultCSSFormatter(width), defaultJSFormatter(width))
 }
 
-// FprintWith is Fprint with an explicit CSS Formatter for <style> bodies. A nil
-// cssFmt leaves <style> bodies verbatim. The default (used by Fprint) is the
-// built-in cssfmt at the given width.
-func FprintWith(w io.Writer, f *ast.File, width int, cssFmt rawfmt.Formatter) error {
-	p := printer{cssFmt: cssFmt}
+// FprintWith is Fprint with explicit CSS and JS formatters for <style>/<script>
+// bodies. A nil formatter leaves that body verbatim.
+func FprintWith(w io.Writer, f *ast.File, width int, cssFmt, jsFmt rawfmt.Formatter) error {
+	p := printer{cssFmt: cssFmt, jsFmt: jsFmt}
 	doc := p.file(f)
 	if p.err != nil {
 		return p.err
@@ -50,11 +50,16 @@ func defaultCSSFormatter(width int) rawfmt.Formatter {
 	return func(src []byte) ([]byte, error) { return cssfmt.Format(src, width) }
 }
 
+func defaultJSFormatter(width int) rawfmt.Formatter {
+	return func(src []byte) ([]byte, error) { return jsfmt.Format(src, width) }
+}
+
 // printer accumulates the first I/O-independent error encountered while
 // building the document.
 type printer struct {
 	err    error
 	cssFmt rawfmt.Formatter // nil → no CSS formatting (style stays verbatim)
+	jsFmt  rawfmt.Formatter
 }
 
 func (p *printer) fail(format string, args ...any) pretty.Doc {
@@ -194,6 +199,12 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 	close := pretty.Concat(pretty.Text("</"), pretty.Text(e.Tag), pretty.Text(">"))
 
 	if strings.EqualFold(e.Tag, "script") {
+		if p.jsFmt != nil && isExecutableScript(e) {
+			segments, holes := nodesToBody(e.Children)
+			if doc, ok := rawfmt.Format(segments, holes, p.jsFmt); ok {
+				return pretty.Concat(openTag, doc, close)
+			}
+		}
 		return pretty.Concat(openTag, p.rawHoleChildren(e.Children), close)
 	}
 	if strings.EqualFold(e.Tag, "style") {
@@ -704,6 +715,28 @@ func isPreserveTag(tag string) bool {
 		return true
 	}
 	return false
+}
+
+// jsExecutableScriptTypes are <script type> values that run as JavaScript.
+// Mirrors internal/jsx.jsExecutableTypes (kept local to avoid importing the
+// codegen-time jsx package into the formatter path).
+var jsExecutableScriptTypes = map[string]bool{
+	"text/javascript": true, "module": true, "application/javascript": true,
+	"text/ecmascript": true, "application/ecmascript": true,
+}
+
+// isExecutableScript reports whether a <script> runs as JavaScript: no static
+// type attribute, or a static type in the executable set. A data island (e.g.
+// type="application/json", type="text/template") is not executable and is left
+// verbatim.
+func isExecutableScript(e *ast.Element) bool {
+	for _, a := range e.Attrs {
+		if sa, ok := a.(*ast.StaticAttr); ok && strings.EqualFold(sa.Name, "type") {
+			t := strings.ToLower(strings.TrimSpace(sa.Value))
+			return t == "" || jsExecutableScriptTypes[t]
+		}
+	}
+	return true
 }
 
 // ---- Go-fragment formatting helpers ----------------------------------------

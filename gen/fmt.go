@@ -90,7 +90,7 @@ func runFmt(stdout, stderr io.Writer, args []string, cssFmt rawfmt.Formatter) in
 			width = printWidthFor(dir)
 			widthByDir[dir] = width
 		}
-		formatted, err := gsxfmt.FormatRemovingImportsWith(path, orig, unusedByPath[abs], width, cssFmt)
+		formatted, err := gsxfmt.FormatRemovingImportsWith(path, orig, unusedByPath[abs], width, cssFmt, nil)
 		if err != nil {
 			fmt.Fprintf(stderr, "%s: %v\n", path, err)
 			exit = 1

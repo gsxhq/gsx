@@ -50,9 +50,9 @@ func FormatRemovingImports(name string, src []byte, unused []ImportRef, width in
 	return b.Bytes(), nil
 }
 
-// FormatRemovingImportsWith is FormatRemovingImports with an explicit CSS
-// Formatter for <style> bodies (nil → built-in default at the given width).
-func FormatRemovingImportsWith(name string, src []byte, unused []ImportRef, width int, cssFmt rawfmt.Formatter) ([]byte, error) {
+// FormatRemovingImportsWith is FormatRemovingImports with explicit CSS and JS
+// formatters for <style>/<script> bodies (nil → built-in default at width).
+func FormatRemovingImportsWith(name string, src []byte, unused []ImportRef, width int, cssFmt, jsFmt rawfmt.Formatter) ([]byte, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, name, src, 0)
 	if err != nil {
@@ -61,12 +61,12 @@ func FormatRemovingImportsWith(name string, src []byte, unused []ImportRef, widt
 	removeImports(f, unused)
 	wsnorm.Normalize(f)
 	var b bytes.Buffer
-	if cssFmt == nil {
+	if cssFmt == nil && jsFmt == nil {
 		if err := printer.Fprint(&b, f, width); err != nil {
 			return nil, err
 		}
 	} else {
-		if err := printer.FprintWith(&b, f, width, cssFmt); err != nil {
+		if err := printer.FprintWith(&b, f, width, cssFmt, jsFmt); err != nil {
 			return nil, err
 		}
 	}
