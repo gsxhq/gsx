@@ -10,7 +10,7 @@ in the editor — completing pipeline-nav end-to-end. The LSP resolves config th
 same way `generate`/`info` already do — `mergeConfig(gsx.toml, opts)` — but
 **in-process and best-effort**: no subprocess, no delegation, no oracle. The
 stock `~/bin/gsx lsp` reads the project's `gsx.toml`; a project filter declared
-as `[aliases] url = "structpages.URLFor"` then resolves cleanly in the editor.
+as `[filters] url = "structpages.URLFor"` then resolves cleanly in the editor.
 
 **Design principle: the LSP spawns nothing.** The previous design iterations
 (an `gsx info --json` oracle subprocess; `syscall.Exec` delegation to the
@@ -218,12 +218,12 @@ unaffected (discovery finds nothing → optCfg/std baseline).
 
 - **`gsx.toml` alias resolves in the LSP**: a temp module with a local filter
   sub-package (a seed-first `func Shout(s string) string`) and a `.gsx` using
-  `{ name |> shout }`. Write a `gsx.toml` with `[aliases] shout = "<mod>/myf.Shout"`
+  `{ name |> shout }`. Write a `gsx.toml` with `[filters] shout = "<mod>/myf.Shout"`
   at the module root, then `lspAnalyzer{}.Analyze(dir, nil)` → the package has
   **no** "unknown filter shout" diagnostic and the `{ name |> shout }` interp
   resolves (its type is present in `Info`/`ExprMap`).
 - **ctx-injected alias**: a local `func URL(ctx context.Context, page any, args
-  ...any) (string, error)` declared as `[aliases] url = "<mod>/myf.URL"`;
+  ...any) (string, error)` declared as `[filters] url = "<mod>/myf.URL"`;
   `{ page{} |> url("id", x) }` resolves with no diagnostic — proving the analyzer
   re-derives ctx + variadic + `(R,error)` from the alias's live signature.
 - **In-process opts honored (the opt path, no subprocess)**:

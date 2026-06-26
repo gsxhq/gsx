@@ -100,7 +100,7 @@ func TestLSPAnalyzeResolvesTomlAlias(t *testing.T) {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
 	dir, must := lspFilterModule(t)
-	must("gsx.toml", "[aliases]\nshout = \"example.com/x/myf.Shout\"\n")
+	must("gsx.toml", "[filters]\nshout = \"example.com/x/myf.Shout\"\n")
 	must("card.gsx", "package x\n\ncomponent Card(name string) {\n\t<p>{ name |> shout }</p>\n}\n")
 	pkg, err := lspAnalyzer{}.Analyze(dir, nil)
 	if err != nil {
@@ -118,7 +118,7 @@ func TestLSPAnalyzeResolvesCtxAlias(t *testing.T) {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
 	dir, must := lspFilterModule(t)
-	must("gsx.toml", "[aliases]\nurl = \"example.com/x/myf.URL\"\n")
+	must("gsx.toml", "[filters]\nurl = \"example.com/x/myf.URL\"\n")
 	must("card.gsx", "package x\n\ncomponent Card(name string) {\n\t<a href={ name |> url(\"id\", name) }>x</a>\n}\n")
 	pkg, err := lspAnalyzer{}.Analyze(dir, nil)
 	if err != nil {
@@ -137,7 +137,7 @@ func TestLSPAnalyzeMalformedConfigFallsBack(t *testing.T) {
 	}
 	dir, must := lspFilterModule(t)
 	// Leading unknown TOP-LEVEL key → loadConfig's strict Undecoded check errors.
-	must("gsx.toml", "bogusKey = 123\n[aliases]\nshout = \"example.com/x/myf.Shout\"\n")
+	must("gsx.toml", "bogusKey = 123\n[filters]\nshout = \"example.com/x/myf.Shout\"\n")
 	must("card.gsx", "package x\n\ncomponent Card(name string) {\n\t<p>{ name |> upper }{ name |> shout }</p>\n}\n")
 	var warn bytes.Buffer
 	pkg, err := lspAnalyzer{warnw: &warn}.Analyze(dir, nil)
@@ -203,7 +203,7 @@ func TestResolveConfigBestEffort(t *testing.T) {
 		t.Fatalf("no-config: want optCfg unchanged, got %+v", got.aliases)
 	}
 
-	must("gsx.toml", "[aliases]\nshout = \"example.com/x/myf.Shout\"\n")
+	must("gsx.toml", "[filters]\nshout = \"example.com/x/myf.Shout\"\n")
 	got = resolveConfigBestEffort(dir, opt, io.Discard)
 	names := map[string]bool{}
 	for _, a := range got.aliases {
