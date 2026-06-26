@@ -95,9 +95,11 @@ naming each one.
 filterPackages = ["example.com/myproject/templatefuncs"]
 ```
 
-The gsx built-in `std` filter package (`upper`, `lower`, `trim`, `truncate`, …)
-is **always available** — you do not list it. List `filterPackages` only for
-your own packages, or to set precedence (later packages win on name collisions).
+The gsx built-in `std` filter package is **always available** — you do not list
+it. It ships `upper`, `lower`, `trim`, `truncate`, `join`, `default`, and
+`format` (a `fmt.Sprintf` wrapper with the piped value as the first verb:
+`{ price |> format("$%.2f") }`). List `filterPackages` only for your own
+packages, or to set precedence (later packages win on name collisions).
 
 ### `[[jsAttrs]]` / `[[urlAttrs]]` / `[[cssAttrs]]` — attribute contexts
 

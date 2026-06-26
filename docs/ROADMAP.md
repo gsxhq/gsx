@@ -79,7 +79,7 @@ render goldens.
    the type-probe and the emitted render, so the result flows through the existing
    type-aware render / context escaper. `ctx` is injected when a filter's first
    param is `context.Context`; `(T,error)` rides the implicit auto-unwrap.
-   `std` ships `default/join/lower/trim/truncate/upper`.
+   `std` ships `default/format/join/lower/trim/truncate/upper`.
    - **Removed (not deferred):** the per-stage `?` try-marker — `(T,error)`
      auto-unwrap is implicit everywhere, so `?` is now a parse error.
    - **Deferred:** initialism-aware filter naming; pipeline-as-filter-argument and
@@ -196,7 +196,7 @@ security design doc.
 **JSON and CSS are automatic, never `|> json`/`|> css` filters.** The opt-outs
 that ship are **typed constructors** (`gsx.Raw`, `gsx.RawJS`, `gsx.RawCSS`,
 `gsx.RawURL`) — there are no `|> raw`/`|> js`/`|> css` filters. (`std` ships only
-`default/join/lower/trim/truncate/upper`.) A future pipeline-based escape-hatch
+`default/format/join/lower/trim/truncate/upper`.) A future pipeline-based escape-hatch
 vocabulary remains a design aspiration, not the current API.
 
 **Prioritized work:**

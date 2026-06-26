@@ -11,7 +11,25 @@
 // here are stdlib-only and ctx-less.
 package std
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
+
+// Format formats the piped value v with a fmt format spec, returning the
+// resulting string. The piped value is the FIRST verb argument; any extra
+// args follow, so a multi-verb spec works too:
+//
+//	{ price |> format("$%.2f") }        → fmt.Sprintf("$%.2f", price)
+//	{ count |> format("%d items") }     → fmt.Sprintf("%d items", count)
+//	{ x |> format("%d/%d", total) }     → fmt.Sprintf("%d/%d", x, total)
+//
+// It exists because fmt.Sprintf takes the spec FIRST and so cannot be a
+// seed-first filter directly; Format flips the argument order. The result is a
+// plain string and is escaped for its rendering context like any other value.
+func Format(v any, spec string, rest ...any) string {
+	return fmt.Sprintf(spec, append([]any{v}, rest...)...)
+}
 
 // Upper returns s with all Unicode letters mapped to their upper case.
 func Upper(s string) string {
