@@ -82,10 +82,13 @@ func (cssAdapter) Tokenize(src []byte) ([]reindent.Token, bool) {
 		case tComment, tString:
 			// /* */ may span lines; CSS strings do not — both opaque.
 			out = append(out, reindent.Token{Class: reindent.Opaque, Text: t.text})
-		case tLBrace, tLParen:
+		case tLBrace:
 			out = append(out, reindent.Token{Class: reindent.Open, Text: t.text})
-		case tRBrace, tRParen:
+		case tRBrace:
 			out = append(out, reindent.Token{Class: reindent.Close, Text: t.text})
+		// Only braces `{}` drive indentation — NOT parens. CSS parens only appear
+		// single-line (`@media (...)`, `calc(...)`, `url(...)`), so counting them
+		// would risk over-indenting and never helps. Mirrors the JS brace-only rule.
 		default:
 			out = append(out, reindent.Token{Class: reindent.Other, Text: t.text})
 		}
