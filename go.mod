@@ -6,6 +6,7 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/tdewolff/parse/v2 v2.8.13
+	github.com/traefik/yaegi v0.16.1
 	golang.org/x/net v0.56.0
 	golang.org/x/tools v0.46.0
 )
