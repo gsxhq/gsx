@@ -234,6 +234,44 @@ func TestElementCloseNamePos(t *testing.T) {
 	}
 }
 
+// TestControlFlowClausePositions verifies that ForMarkup.ClausePos, IfMarkup.CondPos,
+// and GoBlock.CodePos each point at the first character of the trimmed clause/cond/code.
+func TestControlFlowClausePositions(t *testing.T) {
+	src := "package x\n\ncomponent P(props Props) {\n\t{ for _, post := range props.Posts {\n\t\t<li>{post.Title}</li>\n\t} }\n\t{ if props.Featured { <b>f</b> } }\n\t{{ total := len(props.Posts) }}\n}\n"
+	fset := token.NewFileSet()
+	f, errs := ParseFileWithClassifier(fset, "p.gsx", []byte(src), 0, nil)
+	if len(errs) > 0 {
+		t.Fatalf("parse: %v", errs)
+	}
+	var forM *ast.ForMarkup
+	var ifM *ast.IfMarkup
+	var gb *ast.GoBlock
+	ast.Inspect(f, func(n ast.Node) bool {
+		switch v := n.(type) {
+		case *ast.ForMarkup:
+			forM = v
+		case *ast.IfMarkup:
+			ifM = v
+		case *ast.GoBlock:
+			gb = v
+		}
+		return true
+	})
+	// Each position must point at the first char of the (trimmed) clause/cond/code.
+	check := func(name string, pos token.Pos, text string) {
+		if !pos.IsValid() {
+			t.Fatalf("%s position invalid", name)
+		}
+		off := fset.Position(pos).Offset
+		if got := src[off : off+len(text)]; got != text {
+			t.Errorf("%s: src at pos = %q, want %q", name, got, text)
+		}
+	}
+	check("ForMarkup.ClausePos", forM.ClausePos, "_, post := range props.Posts")
+	check("IfMarkup.CondPos", ifM.CondPos, "props.Featured")
+	check("GoBlock.CodePos", gb.CodePos, "total := len(props.Posts)")
+}
+
 // TestElementCloseNamePosEdgeCases covers close-tag name positions the LSP relies
 // on for go-to-definition from a closing tag: whitespace before '>' (the parser
 // skipSpaces, so </Card > is valid) must still point at the NAME, and nested

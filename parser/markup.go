@@ -143,9 +143,12 @@ func (p *parser) parseGoBlock() (*ast.GoBlock, error) {
 	if strings.TrimSpace(p.src[innerEnd+1:outerEnd]) != "" {
 		return nil, p.errorf(startPos, "malformed `{{ }}` block")
 	}
-	code := strings.TrimSpace(p.src[p.i+2 : innerEnd])
+	rawCode := p.src[p.i+2 : innerEnd]
+	lead := len(rawCode) - len(strings.TrimLeft(rawCode, " \t\r\n"))
+	codePos := p.posAt(p.i + 2 + lead)
+	code := strings.TrimSpace(rawCode)
 	p.i = outerEnd + 1
-	n := &ast.GoBlock{Code: code}
+	n := &ast.GoBlock{Code: code, CodePos: codePos}
 	ast.SetSpan(n, startPos, p.posAt(p.i))
 	return n, nil
 }
@@ -245,7 +248,10 @@ func (p *parser) parseForMarkup() (ast.Markup, error) {
 	if !ok {
 		return nil, p.errorf(p.posAt(p.i), "expected `{` after `for` clause")
 	}
-	clause := strings.TrimSpace(p.src[clauseStart:braceOff])
+	rawClause := p.src[clauseStart:braceOff]
+	lead := len(rawClause) - len(strings.TrimLeft(rawClause, " \t\r\n"))
+	clausePos := p.posAt(clauseStart + lead)
+	clause := strings.TrimSpace(rawClause)
 	p.i = braceOff + 1 // past body '{'
 	body, err := p.parseControlBody()
 	if err != nil {
@@ -256,7 +262,7 @@ func (p *parser) parseForMarkup() (ast.Markup, error) {
 		return nil, p.errorf(p.pos(), "expected `}` to close `{ for … }`")
 	}
 	p.i++ // past outer '}'
-	n := &ast.ForMarkup{Clause: clause, Body: body}
+	n := &ast.ForMarkup{Clause: clause, ClausePos: clausePos, Body: body}
 	ast.SetSpan(n, startPos, p.posAt(p.i))
 	return n, nil
 }
@@ -291,13 +297,16 @@ func (p *parser) parseIfTail() (*ast.IfMarkup, error) {
 	if !ok {
 		return nil, p.errorf(p.posAt(p.i), "expected `{` after `if` condition")
 	}
-	cond := strings.TrimSpace(p.src[condStart:braceOff])
+	rawCond := p.src[condStart:braceOff]
+	lead := len(rawCond) - len(strings.TrimLeft(rawCond, " \t\r\n"))
+	condPos := p.posAt(condStart + lead)
+	cond := strings.TrimSpace(rawCond)
 	p.i = braceOff + 1 // past body '{'
 	body, err := p.parseControlBody()
 	if err != nil {
 		return nil, err
 	}
-	n := &ast.IfMarkup{Cond: cond, Then: body}
+	n := &ast.IfMarkup{Cond: cond, CondPos: condPos, Then: body}
 	p.skipSpace()
 	if p.atWord("else") {
 		p.i += len("else")

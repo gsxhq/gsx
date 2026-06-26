@@ -290,7 +290,8 @@ func (*JSAttr) attrNode() {}
 // Code is the trimmed Go source between the `{{` and `}}` delimiters.
 type GoBlock struct {
 	span
-	Code string
+	Code    string
+	CodePos token.Pos // first char of Code text in source (NoPos if unavailable)
 }
 
 func (*GoBlock) markupNode() {}
@@ -300,9 +301,10 @@ func (*GoBlock) markupNode() {}
 // `else` puts its body in Else; no else clause leaves Else nil.
 type IfMarkup struct {
 	span
-	Cond string
-	Then []Markup
-	Else []Markup
+	Cond    string
+	CondPos token.Pos // first char of Cond text in source (NoPos if unavailable)
+	Then    []Markup
+	Else    []Markup
 }
 
 func (*IfMarkup) markupNode() {}
@@ -310,8 +312,9 @@ func (*IfMarkup) markupNode() {}
 // ForMarkup is `{ for Clause { Body } }`. Clause is the raw Go for/range clause.
 type ForMarkup struct {
 	span
-	Clause string
-	Body   []Markup
+	Clause    string
+	ClausePos token.Pos // first char of Clause text in source (NoPos if unavailable)
+	Body      []Markup
 }
 
 func (*ForMarkup) markupNode() {}
