@@ -75,6 +75,39 @@ func (a lspAnalyzer) Analyze(dir string, override map[string][]byte) (*lsp.Packa
 	}, nil
 }
 
+// AnalyzeModule analyzes every gsx package in the module containing dir and
+// returns a flat cross-reference list. It runs ONE whole-module codegen batch
+// (so cross-package component references route into the declaring component's
+// CrossRef — see the cross-package find-references design) and flattens every
+// package's CrossIndex. override supplies unsaved buffers (abs path -> bytes).
+func (a lspAnalyzer) AnalyzeModule(dir string, override map[string][]byte) ([]lsp.CrossRef, error) {
+	root, _, err := moduleRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	dirs, err := discoverDirs([]string{root})
+	if err != nil {
+		return nil, err
+	}
+	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
+	out, err := codegen.GeneratePackagesWithFilters(root, dirs,
+		merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher,
+		nil, nil, override)
+	if err != nil {
+		return nil, err
+	}
+	var refs []lsp.CrossRef
+	for _, pr := range out {
+		if pr == nil {
+			continue
+		}
+		for _, v := range pr.CrossIndex {
+			refs = append(refs, lsp.CrossRef{Name: v.Name, Decl: v.Decl, Refs: v.Refs})
+		}
+	}
+	return refs, nil
+}
+
 // resolveConfigBestEffort resolves the LSP's effective config: it discovers a
 // gsx.toml from dir (walking up, bounded by .git/module root) and merges it under
 // optCfg — exactly as resolveConfig does for generate/info — but for the LSP it

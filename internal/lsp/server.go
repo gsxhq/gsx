@@ -19,6 +19,11 @@ const defaultDebounce = 250 * time.Millisecond
 // .gsx path -> buffer bytes) in place of on-disk content for open documents.
 type Analyzer interface {
 	Analyze(dir string, override map[string][]byte) (*Package, error)
+	// AnalyzeModule analyzes every gsx package in the module containing dir and
+	// returns one flat cross-reference list (each component once; Refs span the
+	// whole module). Used by find-references; failure is non-fatal (the server
+	// falls back to the per-package CrossIndex).
+	AnalyzeModule(dir string, override map[string][]byte) ([]CrossRef, error)
 }
 
 // Server is a stdio LSP server that publishes gsx diagnostics. It owns the
