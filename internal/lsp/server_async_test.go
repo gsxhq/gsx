@@ -39,6 +39,8 @@ func (a *blockingAnalyzer) Analyze(_ string, override map[string][]byte) (*Packa
 	}}}, nil
 }
 
+func (a *blockingAnalyzer) PrintWidth(string) int { return 80 }
+
 // TestAnalysisIsAsyncAndSupersededResultsDiscarded proves two Phase-2 properties
 // deterministically (no sleeps): (1) the Run loop answers requests while an
 // analysis is parked in a worker — so a heavy type-check never blocks hover; and

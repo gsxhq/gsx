@@ -34,6 +34,7 @@ func (a *moduleRefsAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRe
 	a.moduleCalls++
 	return a.moduleRefs, a.moduleErr
 }
+func (a *moduleRefsAnalyzer) PrintWidth(string) int { return 80 }
 
 // drive runs the given pre-framed messages through a fresh server over the
 // analyzer and returns the raw output. Helper mirrors the existing

@@ -14,7 +14,7 @@ component   Hi(name string) {
 // TestFormatCanonicalizes: a messy file is rewritten to canonical form (collapsed
 // blank lines, single space after `component`).
 func TestFormatCanonicalizes(t *testing.T) {
-	out, err := Format("hi.gsx", []byte(messy))
+	out, err := Format("hi.gsx", []byte(messy), 80)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,11 +29,11 @@ func TestFormatCanonicalizes(t *testing.T) {
 
 // TestFormatIdempotent: formatting an already-canonical file is a no-op.
 func TestFormatIdempotent(t *testing.T) {
-	once, err := Format("hi.gsx", []byte(messy))
+	once, err := Format("hi.gsx", []byte(messy), 80)
 	if err != nil {
 		t.Fatal(err)
 	}
-	twice, err := Format("hi.gsx", once)
+	twice, err := Format("hi.gsx", once, 80)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestFormatIdempotent(t *testing.T) {
 // TestFormatParseErrorReturnsError: invalid gsx yields an error, not silent
 // truncation — callers decide whether to surface or ignore it.
 func TestFormatParseErrorReturnsError(t *testing.T) {
-	if _, err := Format("bad.gsx", []byte("package x\n\ncomponent Hi( {\n")); err == nil {
+	if _, err := Format("bad.gsx", []byte("package x\n\ncomponent Hi( {\n"), 80); err == nil {
 		t.Fatal("expected a parse error for malformed gsx, got nil")
 	}
 }

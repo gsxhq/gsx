@@ -41,6 +41,8 @@ func (a *countingAnalyzer) Analyze(_ string, override map[string][]byte) (*Packa
 	}}}, nil
 }
 
+func (a *countingAnalyzer) PrintWidth(string) int { return 80 }
+
 func (a *countingAnalyzer) calls() int {
 	a.mu.Lock()
 	defer a.mu.Unlock()

@@ -24,6 +24,9 @@ type Analyzer interface {
 	// whole module). Used by find-references; failure is non-fatal (the server
 	// falls back to the per-package CrossIndex).
 	AnalyzeModule(dir string, override map[string][]byte) ([]CrossRef, error)
+	// PrintWidth returns the gsx.toml print width for the given directory
+	// (default 80). Used by textDocument/formatting.
+	PrintWidth(dir string) int
 }
 
 // Server is a stdio LSP server that publishes gsx diagnostics. It owns the

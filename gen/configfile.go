@@ -31,6 +31,7 @@ type tomlConfig struct {
 	JSAttrs        []tomlRule        `toml:"jsAttrs"`
 	URLAttrs       []tomlRule        `toml:"urlAttrs"`
 	CSSAttrs       []tomlRule        `toml:"cssAttrs"`
+	PrintWidth     int               `toml:"printWidth"`
 }
 
 // tomlRule is one attribute-classification rule from an array-of-tables. Exactly
@@ -141,6 +142,7 @@ func loadConfig(path string) (config, error) {
 	if cfg.cssRules, err = appendTomlRules(path, "cssAttrs", cfg.cssRules, tc.CSSAttrs); err != nil {
 		return config{}, err
 	}
+	cfg.printWidth = tc.PrintWidth
 	return cfg, nil
 }
 
@@ -199,5 +201,10 @@ func mergeConfig(base, opts config) config {
 	}
 
 	merged.errs = append(append(merged.errs, base.errs...), opts.errs...)
+
+	merged.printWidth = base.printWidth
+	if opts.printWidth > 0 {
+		merged.printWidth = opts.printWidth
+	}
 	return merged
 }
