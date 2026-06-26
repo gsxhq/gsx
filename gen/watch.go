@@ -26,7 +26,6 @@ type watchConfig struct {
 	filterPkgs []string
 	aliases    []codegen.FilterAlias
 	cls        *attrclass.Classifier
-	predLabel  string
 	fm         codegen.FieldMatcher
 	cssMin     func(string) (string, error)
 	jsMin      func(string) (string, error)

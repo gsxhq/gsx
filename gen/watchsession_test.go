@@ -30,7 +30,7 @@ func TestNewModuleResolver_SiblingGoSymbol(t *testing.T) {
 
 	blogDir := filepath.Join(root, "blog")
 	// Initial cold generate (creates blog/.x.go); the cold path includes helper.go.
-	if _, err := generateCached([]string{blogDir}, nil, nil, nil, "", nil, false, nil, nil); err != nil {
+	if _, err := generateCached([]string{blogDir}, nil, nil, nil, nil, false, nil, nil); err != nil {
 		t.Fatalf("initial cold generate: %v", err)
 	}
 
@@ -72,7 +72,7 @@ func TestNewModuleResolver_CrossPackage(t *testing.T) {
 	write("views/page.gsx", "package views\n\nimport \"example.com/m/comp\"\n\ncomponent Page() {\n\t<comp.Card title=\"hi\"/>\n}\n")
 
 	// Initial cold generate so comp's .x.go exists for the resolver to load.
-	if _, err := generateCached([]string{filepath.Join(root, "comp"), filepath.Join(root, "views")}, nil, nil, nil, "", nil, false, nil, nil); err != nil {
+	if _, err := generateCached([]string{filepath.Join(root, "comp"), filepath.Join(root, "views")}, nil, nil, nil, nil, false, nil, nil); err != nil {
 		t.Fatalf("initial generate: %v", err)
 	}
 
