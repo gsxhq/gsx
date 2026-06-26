@@ -1,0 +1,23 @@
+# A bare nullary <F/> resolves inside a named-slot markup-attr value AND inside a
+# component's children — the harvest recurses both (forEachComponentTagElement).
+-- divider.go --
+package views
+
+import "github.com/gsxhq/gsx"
+
+func Divider() gsx.Node { return gsx.Raw("<hr>") }
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Card(header gsx.Node) { <section>{header}{children}</section> }
+
+component Page() {
+	<Card header={ <Divider/> }><Divider/></Card>
+}
+-- invoke --
+Page()
+-- render.golden --
+<section><hr><hr></section>
+-- diagnostics.golden --

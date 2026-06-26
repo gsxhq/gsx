@@ -10,7 +10,4 @@ component Page() {
 	<Multi data-x="1"/>
 }
 -- diagnostics.golden --
-9:12: undefined: MultiProps
-9:12: too many arguments in call to Multi
-	have (unknown type)
-	want ()
+9:2: no-argument component Multi accepts no attributes or children

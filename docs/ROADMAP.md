@@ -20,7 +20,7 @@ generator/CLI may use `golang.org/x/tools`.
 | Whitespace model | `[x]` JSX-style: `internal/wsnorm.Normalize` (parser lossless) wired into codegen + powers `gsx fmt`. render-faithful + idempotent over the whole corpus. |
 | Pipeline `\|>` end-to-end | `[x]` seed-first forward-application lowering + `std` filters + user filter packages (`gen.WithFilters` + `gen.WithFilter` aliases, multi-pkg last-wins) + `ctx` injection + `(T,error)` implicit auto-unwrap. Works in interp / attr / class / style / spread. Initialism-aware naming pending. |
 | CLI (`gsx`) / `gen.Main` | `[~]` `generate` (incl. `--watch`/`--format=ndjson`) · `fmt` · `info` · `init` · `lsp` · `clean --cache` · `version` · `help` ship, with `--json` + structured diagnostics. `vet`/`render`/`explain`/`WithClassMerger`/numeric codes pending. |
-| Language server (`gsx lsp`) | `[~]` diagnostics + go-to-definition + hover + find-references + formatting ship; completion / pipeline-aware nav / cross-package deferred. |
+| Language server (`gsx lsp`) | `[~]` diagnostics (debounced) + go-to-definition (incl. inside pipelines) + hover (incl. pipelines) + find-references + formatting ship; completion / cross-package deferred. |
 | Developer experience (Vite + `init`) | `[x]` `gsx init` scaffold + `@gsxhq/vite-plugin-gsx` (npm v0.2.1) + `github.com/gsxhq/vite` (v0.2.0). |
 
 ## Done
@@ -105,6 +105,17 @@ render goldens.
    - **Deferred:** composable `style={…}` on a *component* invocation (works on an
      element, or set a static `style="…"`); cross-package undeclared-identifier split
      (best-effort); a pretty ambiguity diagnostic (today the raw Go unknown-field error).
+8. `[x]` **Bare nullary func components** — any same-package tag whose backing func
+   is nullary-by-construction is invokable as a bare `<F/>`, like a self-contained
+   void element, with no `FProps` ceremony: a hand-written `func F() gsx.Node` (not a
+   `.gsx` component — the escape hatch for no-render writer-control nodes; a `gsx.Func`
+   gets the underlying `io.Writer`, so it can flush), **and** a `.gsx` no-props
+   component (`component F() { … }`, emitted as a bare `func F() gsx.Node`). Both flow
+   through one path: codegen probes the tag's real signature (`_gsxcompsig`, harvested
+   into `resolved[el]`) and branches on arity — 0 params → `gw.Node(ctx, F())`; ≥1 →
+   the `FProps{…}` convention. Passing attributes or children to a zero-arg component
+   is a clean diagnostic (was a raw `undefined: FProps`). **Deferred:** non-`gsx.Node`
+   renderable returns; cross-package nullary funcs.
 
 ## Language server (`gsx lsp`)
 
@@ -126,10 +137,16 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
   tag sites for a component, in-package.
 - `[x]` **Formatting** (`textDocument/formatting`) — canonical form with
   unused-import removal (reuses `gen.Format` / `gsxfmt.FormatRemovingImports`).
+- `[x]` **Pipeline-aware definition + hover** (`internal/lsp/pipe.go`) — go-to-def
+  and hover resolve a piped expression's seed, filter, and filter args
+  (`pipedTarget` walks `Interp.Stages`/`ExprAttr` stages and maps the cursor offset
+  to the right span); the `|>` operator itself returns null. Covers interp / attr /
+  class / spread pipes.
+- `[x]` **Debounced diagnostics** (`internal/lsp/server.go`) — a per-directory
+  timer (250 ms) coalesces edit bursts; analysis runs off the read loop and
+  version-tags its publishes. `didOpen` publishes promptly (no debounce).
 - **Deferred:** completion (needs AST repair + ranking; no importable library);
-  pipeline-aware definition/hover (piped exprs return null today — the byte-identical
-  offset bridge breaks under lowering); cross-package references; `didChange`
-  debounce (synchronous today); dotted/cross-package component tags (`<ui.Button/>`).
+  cross-package references; dotted/cross-package component tags (`<ui.Button/>`).
 
 Specs: `2026-06-23-gsx-lsp-design.md`, `2026-06-24-gsx-lsp-slice2a-goto-definition-design.md`,
 `2026-06-24-gsx-lsp-go-to-gsx-design.md`, `2026-06-24-gsx-lsp-hover-design.md`.

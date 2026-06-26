@@ -98,7 +98,7 @@ func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propF
 	if err != nil {
 		return nil, nil, err
 	}
-	overlay[sharedPath] = []byte("package " + pkgName + "\n\nfunc _gsxuse(...any) {}\n")
+	overlay[sharedPath] = []byte("package " + pkgName + "\n\nfunc _gsxuse(...any) {}\nfunc _gsxcompsig(any) {}\n")
 
 	goFiles, info, err := resolver.check(dir, overlay, fset)
 	if err != nil {
@@ -157,6 +157,7 @@ func componentPropFieldsFor(dir string, files map[string]*gsxast.File) (propFiel
 	out := map[string]map[string]bool{}
 	nodeOut := map[string]map[string]bool{}
 	byo = newByoData()
+	byo.nullaryFuncs = packageNullaryFuncs(dir)
 
 	// Discover author structs: those declared in .gsx GoChunks are read from the
 	// AST now; any candidate struct NOT found in the .gsx is enumerated via a
@@ -293,6 +294,41 @@ func componentPropFieldsFor(dir string, files map[string]*gsxast.File) (propFiel
 func isNoPropsComponent(propFields map[string]map[string]bool, propsType string) bool {
 	fields, ok := propFields[propsType]
 	return ok && fields == nil
+}
+
+// isBareCallCandidate reports whether a component tag should be resolved by its
+// real Go signature rather than the XxxProps convention. It fires for a
+// same-package (non-dotted) tag whose backing func is nullary-by-construction:
+//   - a hand-written `func F() gsx.Node` (not a .gsx component), or
+//   - a .gsx no-props function component (`component F() { … }`, which codegen
+//     emits as a bare `func F() gsx.Node`).
+// For either, a nullary call is a valid bare `<F/>` — like a self-contained void
+// element, no props struct — and passing attributes or children is a clean error
+// (a zero-arg func has nowhere to put them). byo components and methods keep
+// their existing paths. The probe (emitProbes) and emitter (genChildComponent)
+// both branch on this so emit ≡ probe: the probe emits _gsxcompsig(F)
+// (arity-agnostic) and the emitter reads the harvested *types.Signature from
+// `resolved[el]`.
+func isBareCallCandidate(el *gsxast.Element, propFields map[string]map[string]bool, byo *byoData, recvVar, recvTypeName string) bool {
+	if !isComponentTag(el.Tag) || strings.Contains(el.Tag, ".") {
+		return false
+	}
+	_, propsType, isMethod := childInvocation(el, byo, recvVar, recvTypeName)
+	if isMethod {
+		return false
+	}
+	if _, isByo := byo.isByoStruct(propsType); isByo {
+		return false
+	}
+	if _, gsxDeclared := propFields[propsType]; gsxDeclared {
+		// A .gsx component: only a no-props function component is bare-callable;
+		// a with-props component keeps the XxxProps convention.
+		return isNoPropsComponent(propFields, propsType)
+	}
+	// A hand-written same-package func: bare-callable ONLY when it is nullary.
+	// An arity ≥ 1 func keeps the XxxProps convention so its attrs still type-check
+	// against the props struct at generate time.
+	return byo.isNullaryFunc(el.Tag)
 }
 
 // isGsxNodeType reports whether a param's declared type string is exactly
@@ -699,7 +735,16 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				// so they don't perturb the k-th alignment).
 				callTarget, propsType, isMethod := childInvocation(t, byo, recvVar, recvTypeName)
 				_, isByoChild := byo.isByoStruct(propsType)
-				if ((isMethod && !isByoChild) || isNoPropsComponent(propFields, propsType)) && len(t.Attrs) == 0 && len(t.Children) == 0 {
+				if isBareCallCandidate(t, propFields, byo, recvVar, recvTypeName) {
+					// A bare-call candidate (a hand-written same-package func, or a .gsx
+					// no-props component): resolve it by its REAL signature rather than the
+					// XxxProps convention, because a nullary `func F() gsx.Node` has no
+					// props struct and the `F(FProps{})` probe would not compile.
+					// _gsxcompsig(F) type-checks at any arity; harvest reads the signature
+					// back into `resolved[el]` so genChildComponent picks the call shape.
+					emitSkeletonLine(sb, fset, t.Pos())
+					fmt.Fprintf(sb, "_gsxcompsig(%s)\n", callTarget)
+				} else if ((isMethod && !isByoChild) || isNoPropsComponent(propFields, propsType)) && len(t.Attrs) == 0 && len(t.Children) == 0 {
 					emitSkeletonLine(sb, fset, t.Pos())
 					fmt.Fprintf(sb, "_ = %s()\n", callTarget)
 				} else {
@@ -965,6 +1010,67 @@ func harvest(f *goast.File, comps []*gsxast.Component, info *types.Info, out map
 			}
 			return true
 		})
+
+		// Resolve hand-written same-package component tags by their REAL signature:
+		// each `_gsxcompsig(F)` probe carries F's type. Map it back (by tag name — a
+		// tag resolves to one func per package, so no k-ordering is needed) onto
+		// every <F/> element in the body, so genChildComponent branches on arity.
+		sigByName := map[string]types.Type{}
+		goast.Inspect(fd.Body, func(node goast.Node) bool {
+			call, ok := node.(*goast.CallExpr)
+			if !ok {
+				return true
+			}
+			id, ok := call.Fun.(*goast.Ident)
+			if !ok || id.Name != "_gsxcompsig" || len(call.Args) != 1 {
+				return true
+			}
+			arg, ok := call.Args[0].(*goast.Ident)
+			if !ok {
+				return true
+			}
+			if tv, ok := info.Types[arg]; ok && tv.Type != nil {
+				sigByName[arg.Name] = tv.Type
+			}
+			return true
+		})
+		if len(sigByName) > 0 {
+			forEachComponentTagElement(c.Body, func(el *gsxast.Element) {
+				if t, ok := sigByName[el.Tag]; ok {
+					out[el] = t
+				}
+			})
+		}
+	}
+}
+
+// forEachComponentTagElement invokes fn for every component-tag *Element in a
+// markup tree (recursing through children, named-slot markup-attr values, and
+// control-flow bodies), so harvest can attach a resolved signature to each
+// invocation site. Mirrors collectExprs's recursion structure.
+func forEachComponentTagElement(nodes []gsxast.Markup, fn func(*gsxast.Element)) {
+	for _, n := range nodes {
+		switch t := n.(type) {
+		case *gsxast.Element:
+			if isComponentTag(t.Tag) {
+				fn(t)
+			}
+			walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
+				forEachComponentTagElement(value, fn)
+			})
+			forEachComponentTagElement(t.Children, fn)
+		case *gsxast.Fragment:
+			forEachComponentTagElement(t.Children, fn)
+		case *gsxast.ForMarkup:
+			forEachComponentTagElement(t.Body, fn)
+		case *gsxast.IfMarkup:
+			forEachComponentTagElement(t.Then, fn)
+			forEachComponentTagElement(t.Else, fn)
+		case *gsxast.SwitchMarkup:
+			for _, cc := range t.Cases {
+				forEachComponentTagElement(cc.Body, fn)
+			}
+		}
 	}
 }
 

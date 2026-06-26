@@ -250,7 +250,7 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 			delete(filesByDir, dir)
 			continue
 		}
-		overlay[sharedPath] = []byte("package " + pkgName + "\n\nfunc _gsxuse(...any) {}\n")
+		overlay[sharedPath] = []byte("package " + pkgName + "\n\nfunc _gsxuse(...any) {}\nfunc _gsxcompsig(any) {}\n")
 	}
 
 	// Step 5: ONE packages.Load for the whole module.

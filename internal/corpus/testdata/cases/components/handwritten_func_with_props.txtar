@@ -1,0 +1,24 @@
+# A hand-written func taking a props struct still uses the XxxProps convention:
+# only a ZERO-arg func bare-calls. <Badge/> with no attrs lowers to Badge(BadgeProps{}),
+# proving the bare-call candidate path falls through to props for arity >= 1.
+-- badge.go --
+package views
+
+import "github.com/gsxhq/gsx"
+
+type BadgeProps struct{ Label string }
+
+func Badge(p BadgeProps) gsx.Node {
+	return gsx.Raw("<span>" + p.Label + "</span>")
+}
+-- input.gsx --
+package views
+
+component Page() {
+	<div><Badge/></div>
+}
+-- invoke --
+Page()
+-- render.golden --
+<div><span></span></div>
+-- diagnostics.golden --

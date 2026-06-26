@@ -5,6 +5,8 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"golang.org/x/tools/go/packages"
@@ -36,6 +38,13 @@ type byoData struct {
 	compStruct map[string]string // componentKey -> struct type name
 	structs    map[string]byoStruct
 	inGsx      map[string]bool // struct type name -> declared in a .gsx GoChunk
+	// nullaryFuncs is the set of same-package top-level funcs (in hand-written .go
+	// files) that take zero params and return one value — the shape that backs a
+	// bare `<F/>` invocation. Populated by a parse-only scan in
+	// componentPropFieldsFor; consulted by isBareCallCandidate so an arity ≥ 1
+	// hand-written func keeps the XxxProps convention (and its generate-time prop
+	// type-check) rather than being mis-treated as a bare call.
+	nullaryFuncs map[string]bool
 }
 
 // byoStruct is one author struct's field facts.
@@ -47,10 +56,17 @@ type byoStruct struct {
 // newByoData returns an empty, ready-to-populate byoData.
 func newByoData() *byoData {
 	return &byoData{
-		compStruct: map[string]string{},
-		structs:    map[string]byoStruct{},
-		inGsx:      map[string]bool{},
+		compStruct:   map[string]string{},
+		structs:      map[string]byoStruct{},
+		inGsx:        map[string]bool{},
+		nullaryFuncs: map[string]bool{},
 	}
+}
+
+// isNullaryFunc reports whether name is a same-package hand-written func that
+// takes zero params (the shape that backs a bare `<name/>` call). nil-safe.
+func (b *byoData) isNullaryFunc(name string) bool {
+	return b != nil && b.nullaryFuncs[name]
 }
 
 // structTypeName returns the byo struct type name for a component, or "" if the
@@ -72,6 +88,51 @@ func (b *byoData) isByoStruct(propsType string) (byoStruct, bool) {
 	}
 	s, ok := b.structs[propsType]
 	return s, ok
+}
+
+// packageNullaryFuncs parses the package's hand-written .go files (parse-only, no
+// type-check — cheap) and returns the set of top-level funcs that take zero
+// parameters and return exactly one value: the shape that can back a bare `<F/>`
+// invocation. Receiver methods, generated .x.go, and _test.go files are skipped.
+// Param/result counts come straight from the AST, so the result is exact
+// regardless of import aliasing. (A non-gsx.Node return is still admitted here —
+// it surfaces as a clean `does not implement gsx.Node` build error, which beats
+// the `undefined: FProps` the convention path would give.)
+func packageNullaryFuncs(dir string) map[string]bool {
+	out := map[string]bool{}
+	if dir == "" {
+		return out
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return out
+	}
+	fset := token.NewFileSet()
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") ||
+			strings.HasSuffix(name, "_test.go") || strings.HasSuffix(name, ".x.go") {
+			continue
+		}
+		f, perr := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
+		if perr != nil {
+			continue
+		}
+		for _, decl := range f.Decls {
+			fd, ok := decl.(*goast.FuncDecl)
+			if !ok || fd.Recv != nil {
+				continue // skip methods
+			}
+			if fd.Type.Params.NumFields() != 0 {
+				continue // takes params → keeps the XxxProps convention
+			}
+			if fd.Type.Results == nil || fd.Type.Results.NumFields() != 1 {
+				continue // must return exactly one value (the rendered node)
+			}
+			out[fd.Name.Name] = true
+		}
+	}
+	return out
 }
 
 // soleParamTypeName returns the bare type name of a component's SOLE non-receiver
