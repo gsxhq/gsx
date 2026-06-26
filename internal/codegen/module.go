@@ -186,7 +186,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	// by a concurrent or repeated generateFile pass on the same nodes.
 	for _, f := range a.gsxFiles {
 		generateFile(f, a.resolved, a.table, a.propFields, a.nodeProps, a.byo,
-			a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, a.bag, nil, nil)
+			a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, a.bag, nil, nil, true, true)
 	}
 	res.Diags = a.bag.Sorted()
 	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.gsxFset, a.skelFset, a.info, a.pkg)
@@ -227,7 +227,7 @@ func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, err
 	out := map[string][]byte{}
 	for path, f := range a.gsxFiles {
 		gen, ok := generateFile(f, a.resolved, a.table, a.propFields, a.nodeProps, a.byo,
-			a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, bag, nil, nil)
+			a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, bag, nil, nil, true, true)
 		if !ok {
 			continue
 		}

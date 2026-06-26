@@ -93,7 +93,7 @@ type UnusedImport struct {
 // error (parse or type-resolution) is recorded in that dir's PackageResult.Err
 // without failing the others. The returned map is keyed by the normalized
 // absolute dir.
-func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []string, aliases []FilterAlias, cls *attrclass.Classifier, fm FieldMatcher, cssMin, jsMin func(string) (string, error), srcOverride map[string][]byte) (map[string]*PackageResult, error) {
+func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []string, aliases []FilterAlias, cls *attrclass.Classifier, fm FieldMatcher, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, srcOverride map[string][]byte) (map[string]*PackageResult, error) {
 	if cls == nil {
 		cls = attrclass.Builtin()
 	}
@@ -458,7 +458,7 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 		np := nodePropsByDir[dir]
 		byo := byoByDir[dir]
 		for path, file := range files {
-			gen, genOK := generateFile(file, resolved, table, pf, np, byo, fset, cls, fm, bag, cssMin, jsMin)
+			gen, genOK := generateFile(file, resolved, table, pf, np, byo, fset, cls, fm, bag, cssMin, jsMin, cssMinify, jsMinify)
 			if !genOK {
 				// Diagnostics already in bag; skip writing this file but continue
 				// processing other files in the package so all errors are reported.
@@ -542,7 +542,7 @@ func pickImportByPath(specs []importSpec, msg string) importSpec {
 // GeneratePackages is GeneratePackagesWithFilters with the built-in std filter
 // package (kept for the test corpus and any std-only caller).
 func GeneratePackages(moduleDir string, dirs []string) (map[string]*PackageResult, error) {
-	return GeneratePackagesWithFilters(moduleDir, dirs, nil, nil, nil, nil, nil, nil, nil)
+	return GeneratePackagesWithFilters(moduleDir, dirs, nil, nil, nil, nil, nil, nil, true, true, nil)
 }
 
 // detectUnusedImportsFromErrs is the Module path equivalent of detectUnusedImports:

@@ -9,6 +9,7 @@ require github.com/gsxhq/gsx v0.0.0-00010101000000-000000000000
 require (
 	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
+	github.com/tdewolff/minify/v2 v2.24.13 // indirect
 	github.com/tdewolff/parse/v2 v2.8.13 // indirect
 	golang.org/x/mod v0.37.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect

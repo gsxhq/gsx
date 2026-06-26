@@ -100,7 +100,7 @@ func TestComponentFuncLineAnchorCodegen(t *testing.T) {
 	}
 	writeFile(t, pkgDir, "views.gsx", lineAnchorSrc)
 
-	out, err := GeneratePackageWithFilters(pkgDir, nil, nil, nil, nil, nil, nil)
+	out, err := GeneratePackageWithFilters(pkgDir, nil, nil, nil, nil, nil, nil, true, true)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}

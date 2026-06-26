@@ -53,7 +53,7 @@ func newWatchSession(cfg watchConfig) (*watchSession, []cycleResult, error) {
 		return nil, nil, mErr
 	}
 	// Cold generate: writes all .x.go files to disk across every module.
-	res, gerr := generateCached(cfg.paths, cfg.filterPkgs, cfg.aliases, cfg.cls, cfg.fm, true, cfg.cssMin, cfg.jsMin)
+	res, gerr := generateCached(cfg.paths, cfg.filterPkgs, cfg.aliases, cfg.cls, cfg.fm, true, cfg.cssMin, cfg.jsMin, cfg.cssMinify, cfg.jsMinify)
 	// generateCached folds error-severity diagnostics into its returned error, so
 	// gerr==nil already implies !anyErrorDiag(res.Diags). The two-term form is
 	// kept symmetric with the warm path (regen) for clarity and robustness.

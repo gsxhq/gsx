@@ -13,6 +13,7 @@ import (
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/fullmin"
 	"github.com/gsxhq/gsx/internal/rawfmt"
 )
 
@@ -32,20 +33,23 @@ type Option func(*config)
 // errs collects option-construction problems (e.g. a bad WithFilters marker) so
 // the run can fail with a clear message instead of silently dropping the option.
 type config struct {
-	filterPkgs   []string
-	aliases      []codegen.FilterAlias
-	cssMin       func(string) (string, error)
-	jsMin        func(string) (string, error)
-	cssFmt       rawfmt.Formatter
-	jsFmt        rawfmt.Formatter
-	jsRules      []attrclass.Rule
-	urlRules     []attrclass.Rule
-	cssRules     []attrclass.Rule
-	attrPred     func(name string) (attrclass.Context, bool)
-	predLabel    string
-	fieldMatcher codegen.FieldMatcher
-	errs         []error
-	printWidth   int // gsx.toml printWidth; 0 means "unset" → 80 at use
+	filterPkgs     []string
+	aliases        []codegen.FilterAlias
+	cssMin         func(string) (string, error)
+	jsMin          func(string) (string, error)
+	cssFmt         rawfmt.Formatter
+	jsFmt          rawfmt.Formatter
+	jsRules        []attrclass.Rule
+	urlRules       []attrclass.Rule
+	cssRules       []attrclass.Rule
+	attrPred       func(name string) (attrclass.Context, bool)
+	predLabel      string
+	fieldMatcher   codegen.FieldMatcher
+	errs           []error
+	printWidth     int         // gsx.toml printWidth; 0 means "unset" → 80 at use
+	cssMinLevel    MinifyLevel // <style> minification level (zero = MinifyNone)
+	jsMinLevel     MinifyLevel // <script> minification level (zero = MinifyNone)
+	minifyLevelSet bool        // true once an option (WithMinifyLevel) pinned the levels
 }
 
 // effectivePrintWidth returns the configured print width, defaulting to 80 when
@@ -55,6 +59,32 @@ func (c config) effectivePrintWidth() int {
 		return 80
 	}
 	return c.printWidth
+}
+
+// effectiveCSSMin returns the CSS minifier to thread into codegen when the gate
+// is on: a custom WithCSSMinifier wins; else the MinifyFull level installs the
+// built-in aggressive minifier; else nil (the gate runs the built-in SAFE pass).
+// Returning a non-nil func here is what makes full bypass the incremental cache
+// (useCache is gated on cssMin == nil).
+func (c config) effectiveCSSMin() func(string) (string, error) {
+	if c.cssMin != nil {
+		return c.cssMin
+	}
+	if c.cssMinLevel == MinifyFull {
+		return fullmin.CSS
+	}
+	return nil
+}
+
+// effectiveJSMin mirrors effectiveCSSMin for <script> JS.
+func (c config) effectiveJSMin() func(string) (string, error) {
+	if c.jsMin != nil {
+		return c.jsMin
+	}
+	if c.jsMinLevel == MinifyFull {
+		return fullmin.JS
+	}
+	return nil
 }
 
 // classifier builds the resolved Classifier from the accumulated options. A
@@ -153,7 +183,7 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			return 2
 		}
-		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher, merged.cssMin, merged.jsMin)
+		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher, merged.effectiveCSSMin(), merged.effectiveJSMin(), merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled())
 	case "clean":
 		return runClean(cmdArgs, stdout, stderr)
 	case "info":
@@ -164,7 +194,7 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			return 2
 		}
-		return runInfo(stdout, stderr, ".", configPath, merged.filterPkgs, merged.aliases, merged.classifier(), merged.predLabel, merged.fieldMatcher, cmdArgs)
+		return runInfo(stdout, stderr, ".", configPath, merged.filterPkgs, merged.aliases, merged.classifier(), merged.predLabel, merged.fieldMatcher, cmdArgs, merged.cssMinLevel, merged.jsMinLevel)
 	case "fmt":
 		// fmt respects gsx.toml printWidth per-dir (via printWidthFor inside
 		// runFmt) and tolerates a malformed config. The CSS/JS formatter
@@ -207,15 +237,24 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 // already surfaced at the top of runConfig before dispatch, so they need no
 // recheck here.
 func resolveConfig(optCfg config) (merged config, configPath string, err error) {
+	// Layer 1: file defaults (base is the zero config when no gsx.toml exists).
+	var base config
 	path, ok := discoverConfig(".")
-	if !ok {
-		return optCfg, "", nil
+	if ok {
+		base, err = loadConfig(path)
+		if err != nil {
+			return config{}, "", err
+		}
+		configPath = path
 	}
-	fileCfg, err := loadConfig(path)
+	// Layer 3: env overrides the file. Applied to base BEFORE the merge so the
+	// final precedence is option > env > config (mergeConfig lets opts win).
+	base, err = applyEnvOverrides(base)
 	if err != nil {
 		return config{}, "", err
 	}
-	return mergeConfig(fileCfg, optCfg), path, nil
+	// Layer 2: programmatic options win (existing last-wins merge).
+	return mergeConfig(base, optCfg), configPath, nil
 }
 
 // runClean implements the `clean` command. Currently the only flag is --cache,
@@ -264,7 +303,7 @@ func runClean(args []string, stdout, stderr io.Writer) int {
 // discovery fails → exit 2) from a codegen error (one or more error-severity
 // diagnostics → exit 1). Success returns 0.
 // noCache bypasses the content-hash cache and forces a full regeneration.
-func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, cssMin, jsMin func(string) (string, error)) int {
+func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool) int {
 	gfs := flag.NewFlagSet("generate", flag.ContinueOnError)
 	gfs.SetOutput(stderr)
 	var nocacheFlag bool
@@ -304,7 +343,7 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 			paths: paths, format: formatFlag,
 			stdout: stdout, stderr: stderr, quiet: quiet, verbose: verbose,
 			filterPkgs: filterPkgs, aliases: aliases, cls: cls,
-			fm: fm, cssMin: cssMin, jsMin: jsMin,
+			fm: fm, cssMin: cssMin, jsMin: jsMin, cssMinify: cssMinify, jsMinify: jsMinify,
 		})
 	}
 	// Bypass the cache when --no-cache is set OR when a custom minifier is
@@ -312,7 +351,7 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 	// Bypass the cache when a custom field matcher is installed: funcs are not
 	// hashable, so the cache cannot key on fm. Mirror the minifier bypass pattern.
 	useCache := !nocacheFlag && cssMin == nil && jsMin == nil && fm == nil
-	res, err := generateCached(paths, filterPkgs, aliases, cls, fm, useCache, cssMin, jsMin)
+	res, err := generateCached(paths, filterPkgs, aliases, cls, fm, useCache, cssMin, jsMin, cssMinify, jsMinify)
 
 	// Operational errors (I/O, module-graph failures): these are not diagnostics.
 	// Print each with the gsx: prefix and return early.
