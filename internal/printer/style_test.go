@@ -6,14 +6,16 @@ import (
 	"testing"
 )
 
-func TestStyleBodyFormatted(t *testing.T) {
-	src := "package p\n\ncomponent C() {\n\t<style>.a{color:red;background:blue}</style>\n}\n"
+func TestStyleBodyReindented(t *testing.T) {
+	// Messy indentation inside <style> gets normalized to tabs; content otherwise
+	// unchanged (no reflow).
+	src := "package p\n\ncomponent C() {\n\t<style>\n        .a {\n   color: red;\n        }\n\t</style>\n}\n"
 	out, err := normPrint(t, src)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "color: red;") || !strings.Contains(out, "background: blue;") {
-		t.Fatalf("style body not formatted:\n%s", out)
+	if !strings.Contains(out, "\t\t.a {") || !strings.Contains(out, "\t\t\tcolor: red;") {
+		t.Fatalf("style body not re-indented to tabs:\n%s", out)
 	}
 }
 
@@ -46,14 +48,13 @@ func TestStyleBodyIdempotent(t *testing.T) {
 	}
 }
 
-func TestStyleMalformedFallsBackVerbatim(t *testing.T) {
-	// Unbalanced CSS → cssfmt errors → verbatim fallback (body unchanged).
-	src := "package p\n\ncomponent C() {\n\t<style>.a{color:red</style>\n}\n"
+func TestStyleUnterminatedStringFallsBackVerbatim(t *testing.T) {
+	src := "package p\n\ncomponent C() {\n\t<style>.a{content:\"oops}</style>\n}\n"
 	out, err := normPrint(t, src)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, ".a{color:red") {
-		t.Fatalf("malformed CSS should be left verbatim:\n%s", out)
+	if !strings.Contains(out, ".a{content:\"oops}") {
+		t.Fatalf("unterminated-string CSS should be left verbatim:\n%s", out)
 	}
 }
