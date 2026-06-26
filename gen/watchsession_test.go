@@ -130,7 +130,8 @@ func TestWatchSession_WarmRegen(t *testing.T) {
 		t.Fatalf("regen not OK: err=%v diags=%v", r.Err, r.Diags)
 	}
 	xgo, _ := os.ReadFile(filepath.Join(root, "views", "page.x.go"))
-	if !strings.Contains(string(xgo), `"two"`) {
+	// Coalesced static writes emit `S("<h1>two</h1>")`, so assert on the content.
+	if !strings.Contains(string(xgo), `two</h1>`) {
 		t.Fatalf("page.x.go not updated to \"two\":\n%s", xgo)
 	}
 }

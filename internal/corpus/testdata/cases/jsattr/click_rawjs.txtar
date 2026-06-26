@@ -27,13 +27,9 @@ func Page() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:6:2
-		_gsxgw.S("<button")
-		_gsxgw.S(" @click=\"")
+		_gsxgw.S("<button @click=\"")
 		_gsxgw.JSValAttr(gsx.RawJS("toggle()"))
-		_gsxgw.S("\"")
-		_gsxgw.S(">")
-		_gsxgw.S("x")
-		_gsxgw.S("</button>")
+		_gsxgw.S("\">x</button>")
 		return _gsxgw.Err()
 	})
 }

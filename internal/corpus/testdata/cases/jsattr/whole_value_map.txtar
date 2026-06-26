@@ -38,9 +38,7 @@ func Page(_gsxp PageProps) gsx.Node {
 		_gsxgw.ClassMerged(_gsxp.Attrs.Class())
 		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
 		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
-		_gsxgw.S("x")
-		_gsxgw.S("</div>")
+		_gsxgw.S(">x</div>")
 		return _gsxgw.Err()
 	})
 }

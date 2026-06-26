@@ -36,12 +36,9 @@ func C(c Color) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.S("<style")
-		_gsxgw.S(">")
-		_gsxgw.S(".a{color:")
+		_gsxgw.S("<style>.a{color:")
 		_gsxgw.CSS((c).String())
-		_gsxgw.S("}")
-		_gsxgw.S("</style>")
+		_gsxgw.S("}</style>")
 		return _gsxgw.Err()
 	})
 }

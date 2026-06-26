@@ -44,11 +44,9 @@ func Button(p Props) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:11:2
-		_gsxgw.S("<button")
-		_gsxgw.S(" class=\"")
+		_gsxgw.S("<button class=\"")
 		_gsxgw.Class(gsx.Class("btn"), gsx.Class(p.Variant))
-		_gsxgw.S("\"")
-		_gsxgw.S(">")
+		_gsxgw.S("\">")
 //line input.gsx:11:37
 		_gsxgw.Node(ctx, p.Children)
 		_gsxgw.S("</button>")

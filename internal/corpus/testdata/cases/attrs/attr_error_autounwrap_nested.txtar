@@ -62,11 +62,7 @@ func Card(_gsxp CardProps) gsx.Node {
 		}
 		_gsxgw.S(" title=\"")
 		_gsxgw.AttrValue(string(_gsxv1))
-		_gsxgw.S("\"")
-		_gsxgw.S(">")
-		_gsxgw.S("profile")
-		_gsxgw.S("</a>")
-		_gsxgw.S("</div>")
+		_gsxgw.S("\">profile</a></div>")
 		return _gsxgw.Err()
 	})
 }

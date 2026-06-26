@@ -37,15 +37,12 @@ func C(_gsxp CProps) gsx.Node {
 		active := _gsxp.Active
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<div")
-		_gsxgw.S(" class=\"")
+		_gsxgw.S("<div class=\"")
 		_gsxgw.Class(gsx.Class(_gsxstd.Upper((theme))), gsx.ClassIf("on", active), gsx.Class(_gsxp.Attrs.Class()))
 		_gsxgw.S("\"")
 		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
 		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
-		_gsxgw.S("x")
-		_gsxgw.S("</div>")
+		_gsxgw.S(">x</div>")
 		return _gsxgw.Err()
 	})
 }

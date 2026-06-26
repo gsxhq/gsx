@@ -37,11 +37,9 @@ func Card(_gsxp CardProps) gsx.Node {
 		_gsxgw.ClassMerged(_gsxp.Attrs.Class())
 		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
 		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
-		_gsxgw.S(".card{color:")
+		_gsxgw.S(">.card{color:")
 		_gsxgw.CSS(string(_gsxstd.Upper((userColor))))
-		_gsxgw.S("}")
-		_gsxgw.S("</style>")
+		_gsxgw.S("}</style>")
 		return _gsxgw.Err()
 	})
 }

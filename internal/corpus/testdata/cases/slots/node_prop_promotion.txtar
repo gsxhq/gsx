@@ -39,27 +39,22 @@ func Card(_gsxp CardProps) gsx.Node {
 		content := _gsxp.Content
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:6:2
-		_gsxgw.S("<div")
-		_gsxgw.S(" class=\"")
+		_gsxgw.S("<div class=\"")
 		_gsxgw.Class(gsx.Class("card"), gsx.Class(_gsxp.Attrs.Class()))
 		_gsxgw.S("\"")
 		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
 		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
 		_gsxgw.S(">")
 //line input.gsx:6:20
-		_gsxgw.S("<h2")
-		_gsxgw.S(">")
+		_gsxgw.S("<h2>")
 //line input.gsx:6:24
 		_gsxgw.Node(ctx, title)
 		_gsxgw.S("</h2>")
 //line input.gsx:6:36
-		_gsxgw.S("<div")
-		_gsxgw.S(" class=\"body\"")
-		_gsxgw.S(">")
+		_gsxgw.S("<div class=\"body\">")
 //line input.gsx:6:54
 		_gsxgw.Node(ctx, content)
-		_gsxgw.S("</div>")
-		_gsxgw.S("</div>")
+		_gsxgw.S("</div></div>")
 		return _gsxgw.Err()
 	})
 }

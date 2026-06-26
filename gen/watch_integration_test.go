@@ -50,7 +50,9 @@ func TestRunWatch_RegeneratesOnGsxChange(t *testing.T) {
 	waitFor(t, 5*time.Second, func() bool { return countGenerated(out.String(), true) > priorCount })
 
 	xgo, _ := os.ReadFile(filepath.Join(root, "views", "page.x.go"))
-	if !strings.Contains(string(xgo), `"two"`) {
+	// Coalesced static writes emit `S("<h1>two</h1>")`, so assert on the content,
+	// not a standalone `"two"` token.
+	if !strings.Contains(string(xgo), `two</h1>`) {
 		t.Fatalf("page.x.go not updated:\n%s", xgo)
 	}
 	close(stop)

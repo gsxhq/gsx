@@ -38,15 +38,13 @@ func Greeting(_gsxp GreetingProps) gsx.Node {
 		_gsxgw.ClassMerged(_gsxp.Attrs.Class())
 		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
 		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
-		_gsxgw.S("Hello, ")
+		_gsxgw.S(">Hello, ")
 //line input.gsx:4:12
 		_gsxgw.Text(string(name))
 		_gsxgw.S("! You have ")
 //line input.gsx:4:29
 		_gsxgw.Text(strconv.FormatInt(int64(count), 10))
-		_gsxgw.S(" messages.")
-		_gsxgw.S("</p>")
+		_gsxgw.S(" messages.</p>")
 		return _gsxgw.Err()
 	})
 }

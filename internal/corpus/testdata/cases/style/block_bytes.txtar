@@ -35,11 +35,9 @@ func C(_gsxp CProps) gsx.Node {
 		_gsxgw.ClassMerged(_gsxp.Attrs.Class())
 		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
 		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
-		_gsxgw.S(".a{color:")
+		_gsxgw.S(">.a{color:")
 		_gsxgw.CSS(string(raw))
-		_gsxgw.S("}")
-		_gsxgw.S("</style>")
+		_gsxgw.S("}</style>")
 		return _gsxgw.Err()
 	})
 }

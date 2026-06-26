@@ -33,20 +33,11 @@ func Layout() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:5:3
-		_gsxgw.S("<header")
-		_gsxgw.S(">")
-		_gsxgw.S("Top")
-		_gsxgw.S("</header>")
+		_gsxgw.S("<header>Top</header>")
 //line input.gsx:6:3
-		_gsxgw.S("<main")
-		_gsxgw.S(">")
-		_gsxgw.S("Body")
-		_gsxgw.S("</main>")
+		_gsxgw.S("<main>Body</main>")
 //line input.gsx:7:3
-		_gsxgw.S("<footer")
-		_gsxgw.S(">")
-		_gsxgw.S("End")
-		_gsxgw.S("</footer>")
+		_gsxgw.S("<footer>End</footer>")
 		return _gsxgw.Err()
 	})
 }

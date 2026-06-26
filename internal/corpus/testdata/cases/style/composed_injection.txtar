@@ -41,9 +41,7 @@ func Evil(_gsxp EvilProps) gsx.Node {
 			_gsxgw.S("\"")
 		}
 		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
-		_gsxgw.S("x")
-		_gsxgw.S("</span>")
+		_gsxgw.S(">x</span>")
 		return _gsxgw.Err()
 	})
 }

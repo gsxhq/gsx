@@ -33,18 +33,14 @@ func Page(_gsxp PageProps) gsx.Node {
 //line input.gsx:4:2
 		_gsxgw.S("<div")
 		if !_gsxp.Attrs.Has("x-data") {
-			_gsxgw.S(" x-data=\"")
-			_gsxgw.S("{ tab: ")
+			_gsxgw.S(" x-data=\"{ tab: ")
 			_gsxgw.JSValAttr(tab)
-			_gsxgw.S(", open: false }")
-			_gsxgw.S("\"")
+			_gsxgw.S(", open: false }\"")
 		}
 		_gsxgw.ClassMerged(_gsxp.Attrs.Class())
 		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
 		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
-		_gsxgw.S("x")
-		_gsxgw.S("</div>")
+		_gsxgw.S(">x</div>")
 		return _gsxgw.Err()
 	})
 }

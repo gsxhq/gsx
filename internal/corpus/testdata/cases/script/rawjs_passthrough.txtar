@@ -25,12 +25,9 @@ func Page() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:6:2
-		_gsxgw.S("<script")
-		_gsxgw.S(">")
-		_gsxgw.S("const fn = ")
+		_gsxgw.S("<script>const fn = ")
 		_gsxgw.JSVal(gsx.RawJS("doThing(1)"))
-		_gsxgw.S(";")
-		_gsxgw.S("</script>")
+		_gsxgw.S(";</script>")
 		return _gsxgw.Err()
 	})
 }

@@ -46,16 +46,13 @@ func Profile(_gsxp ProfileProps) gsx.Node {
 //line input.gsx:6:7
 		if v, err := load(id); err != nil {
 //line input.gsx:6:45
-			_gsxgw.S("<span")
-			_gsxgw.S(" class=\"err\"")
-			_gsxgw.S(">")
+			_gsxgw.S("<span class=\"err\">")
 //line input.gsx:6:63
 			_gsxgw.Text(string(err.Error()))
 			_gsxgw.S("</span>")
 		} else {
 //line input.gsx:6:95
-			_gsxgw.S("<span")
-			_gsxgw.S(">")
+			_gsxgw.S("<span>")
 //line input.gsx:6:101
 			_gsxgw.Text(string(v))
 			_gsxgw.S("</span>")

@@ -60,8 +60,7 @@ func Card(p cardProps) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<div")
-		_gsxgw.S(">")
+		_gsxgw.S("<div>")
 //line input.gsx:4:7
 		_gsxgw.Node(ctx, p.Header)
 //line input.gsx:4:17

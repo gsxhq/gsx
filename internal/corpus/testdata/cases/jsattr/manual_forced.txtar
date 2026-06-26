@@ -35,8 +35,7 @@ func Dialog(_gsxp DialogProps) gsx.Node {
 		_gsxgw.ClassMerged(_gsxp.Attrs.Class())
 		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
 		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style", "role"))
-		_gsxgw.S(" role=\"dialog\"")
-		_gsxgw.S(">")
+		_gsxgw.S(" role=\"dialog\">")
 //line input.gsx:4:34
 		_gsxgw.Node(ctx, children)
 		_gsxgw.S("</div>")

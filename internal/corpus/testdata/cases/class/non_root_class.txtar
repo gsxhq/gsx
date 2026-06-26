@@ -37,14 +37,9 @@ func C(_gsxp CProps) gsx.Node {
 		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
 		_gsxgw.S(">")
 //line input.gsx:4:7
-		_gsxgw.S("<span")
-		_gsxgw.S(" class=\"")
+		_gsxgw.S("<span class=\"")
 		_gsxgw.Class(gsx.Class("btn"), gsx.Class(extra), gsx.ClassIf("active", on))
-		_gsxgw.S("\"")
-		_gsxgw.S(">")
-		_gsxgw.S("y")
-		_gsxgw.S("</span>")
-		_gsxgw.S("</div>")
+		_gsxgw.S("\">y</span></div>")
 		return _gsxgw.Err()
 	})
 }

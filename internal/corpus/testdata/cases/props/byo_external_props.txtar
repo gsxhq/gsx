@@ -38,8 +38,7 @@ func Card(p cardData) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<h2")
-		_gsxgw.S(">")
+		_gsxgw.S("<h2>")
 //line input.gsx:4:6
 		_gsxgw.Text(string(p.Title))
 		_gsxgw.S("</h2>")

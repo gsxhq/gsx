@@ -25,16 +25,13 @@ func Page() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<script")
-		_gsxgw.S(">")
-		_gsxgw.S("const d = ")
+		_gsxgw.S("<script>const d = ")
 		_gsxv0, _gsxerr := load()
 		if _gsxerr != nil {
 			return _gsxerr
 		}
 		_gsxgw.JSVal(_gsxv0)
-		_gsxgw.S(";")
-		_gsxgw.S("</script>")
+		_gsxgw.S(";</script>")
 		return _gsxgw.Err()
 	})
 }

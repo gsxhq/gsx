@@ -26,15 +26,9 @@ func Multi() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<p")
-		_gsxgw.S(">")
-		_gsxgw.S("a")
-		_gsxgw.S("</p>")
+		_gsxgw.S("<p>a</p>")
 //line input.gsx:5:2
-		_gsxgw.S("<p")
-		_gsxgw.S(">")
-		_gsxgw.S("b")
-		_gsxgw.S("</p>")
+		_gsxgw.S("<p>b</p>")
 		return _gsxgw.Err()
 	})
 }

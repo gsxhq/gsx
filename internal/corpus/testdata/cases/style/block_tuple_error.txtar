@@ -27,16 +27,13 @@ func C() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<style")
-		_gsxgw.S(">")
-		_gsxgw.S(".a{content:")
+		_gsxgw.S("<style>.a{content:")
 		_gsxv0, _gsxerr := theme()
 		if _gsxerr != nil {
 			return _gsxerr
 		}
 		_gsxgw.CSS(string(_gsxv0))
-		_gsxgw.S("}")
-		_gsxgw.S("</style>")
+		_gsxgw.S("}</style>")
 		return _gsxgw.Err()
 	})
 }

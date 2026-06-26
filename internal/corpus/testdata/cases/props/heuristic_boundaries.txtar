@@ -63,8 +63,7 @@ func Greeting(_gsxp GreetingProps) gsx.Node {
 		_gsxgw.ClassMerged(_gsxp.Attrs.Class())
 		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
 		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
-		_gsxgw.S("Hi ")
+		_gsxgw.S(">Hi ")
 //line input.gsx:8:8
 		_gsxgw.Text(string(name))
 		_gsxgw.S("</p>")
@@ -103,8 +102,7 @@ func Panel(p Props) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:16:2
-		_gsxgw.S("<section")
-		_gsxgw.S(">")
+		_gsxgw.S("<section>")
 //line input.gsx:16:11
 		_gsxgw.Text(string(p.Title))
 		_gsxgw.S("</section>")

@@ -45,9 +45,7 @@ func Theme(_gsxp ThemeProps) gsx.Node {
 			_gsxgw.S("\"")
 		}
 		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
-		_gsxgw.S("content")
-		_gsxgw.S("</div>")
+		_gsxgw.S(">content</div>")
 		return _gsxgw.Err()
 	})
 }

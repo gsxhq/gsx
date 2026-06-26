@@ -57,21 +57,17 @@ func (p home) Page(d pageData) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:11:2
-		_gsxgw.S("<html")
-		_gsxgw.S(">")
+		_gsxgw.S("<html>")
 //line input.gsx:12:3
-		_gsxgw.S("<body")
-		_gsxgw.S(">")
+		_gsxgw.S("<body>")
 //line input.gsx:13:4
-		_gsxgw.S("<h1")
-		_gsxgw.S(">")
+		_gsxgw.S("<h1>")
 //line input.gsx:13:8
 		_gsxgw.Text(string(d.Title))
 		_gsxgw.S("</h1>")
 //line input.gsx:14:4
 		_gsxgw.Node(ctx, p.Content(d))
-		_gsxgw.S("</body>")
-		_gsxgw.S("</html>")
+		_gsxgw.S("</body></html>")
 		return _gsxgw.Err()
 	})
 }
@@ -80,8 +76,7 @@ func (p home) Content(d pageData) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:20:2
-		_gsxgw.S("<h1")
-		_gsxgw.S(">")
+		_gsxgw.S("<h1>")
 //line input.gsx:20:6
 		_gsxgw.Text(string(d.Heading))
 		_gsxgw.S("</h1>")

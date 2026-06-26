@@ -43,9 +43,7 @@ func Badge(_gsxp BadgeProps) gsx.Node {
 			_gsxgw.S("\"")
 		}
 		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
-		_gsxgw.S("hi")
-		_gsxgw.S("</span>")
+		_gsxgw.S(">hi</span>")
 		return _gsxgw.Err()
 	})
 }

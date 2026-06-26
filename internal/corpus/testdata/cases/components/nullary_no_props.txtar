@@ -25,10 +25,7 @@ func Box() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:3:19
-		_gsxgw.S("<div")
-		_gsxgw.S(">")
-		_gsxgw.S("x")
-		_gsxgw.S("</div>")
+		_gsxgw.S("<div>x</div>")
 		return _gsxgw.Err()
 	})
 }

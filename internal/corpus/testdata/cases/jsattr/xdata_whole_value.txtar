@@ -35,13 +35,9 @@ func Page(state State) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:9:2
-		_gsxgw.S("<div")
-		_gsxgw.S(" x-data=\"")
+		_gsxgw.S("<div x-data=\"")
 		_gsxgw.JSValAttr(state)
-		_gsxgw.S("\"")
-		_gsxgw.S(">")
-		_gsxgw.S("x")
-		_gsxgw.S("</div>")
+		_gsxgw.S("\">x</div>")
 		return _gsxgw.Err()
 	})
 }

@@ -35,10 +35,7 @@ func Page(cfg Cfg) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:9:2
-		_gsxgw.S("<script")
-		_gsxgw.S(" type=\"application/json\"")
-		_gsxgw.S(" id=\"cfg\"")
-		_gsxgw.S(">")
+		_gsxgw.S("<script type=\"application/json\" id=\"cfg\">")
 		_gsxgw.JSVal(cfg)
 		_gsxgw.S("</script>")
 		return _gsxgw.Err()
