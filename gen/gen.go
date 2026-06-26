@@ -114,6 +114,10 @@ type Result struct {
 	Errs    []error
 	Diags   []diag.Diagnostic
 	Files   map[string][]byte
+	// UpToDate counts output files that were already current on disk (byte-
+	// identical, so no write happened). Lets the CLI report "N up to date"
+	// instead of falling silent when a run produces no writes.
+	UpToDate int
 }
 
 // Generate discovers .gsx files under the given paths (default ["."]), runs
@@ -138,5 +142,5 @@ func Generate(paths []string) (Result, error) {
 // blocks. When either is non-nil the incremental cache is bypassed (a func is
 // not hashable), so each run re-generates. The built-in (nil) path keeps the cache.
 func generate(paths []string, filterPkgs []string, cssMin, jsMin func(string) (string, error)) (Result, error) {
-	return generateCached(paths, filterPkgs, nil, attrclass.Builtin(), "", nil, cssMin == nil && jsMin == nil, cssMin, jsMin)
+	return generateCached(paths, filterPkgs, nil, attrclass.Builtin(), nil, cssMin == nil && jsMin == nil, cssMin, jsMin)
 }
