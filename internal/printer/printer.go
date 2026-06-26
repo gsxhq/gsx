@@ -929,14 +929,7 @@ func fmtExprPreserving(src string) string {
 		return fmtExpr(src)
 	}
 	body := s[i+len(marker):]
-	body = strings.TrimRight(body, "\n")
-	// De-indent continuation lines by one tab (gofmt indents the value's
-	// wrapped lines to the declaration's body level).
-	lines := strings.Split(body, "\n")
-	for j := 1; j < len(lines); j++ {
-		lines[j] = strings.TrimPrefix(lines[j], "\t")
-	}
-	return strings.Join(lines, "\n")
+	return strings.TrimRight(body, "\n")
 }
 
 // fmtExprDoc returns a Doc for a Go expression value, multi-line when gofmt

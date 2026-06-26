@@ -588,8 +588,32 @@ component C(p Props) {
 	if !strings.Contains(got, "utils.TwMerge(\n") {
 		t.Fatalf("expr not multi-line:\n%s", got)
 	}
+	// Args must be indented one level deeper than the call (templ-style), not
+	// flattened flush with it.
+	callIndent := leadingTabs(lineContaining(got, "utils.TwMerge("))
+	argIndent := leadingTabs(lineContaining(got, "// keep this comment"))
+	if argIndent != callIndent+1 {
+		t.Fatalf("args should be one tab deeper than the call: callIndent=%d argIndent=%d\n%s", callIndent, argIndent, got)
+	}
 	// Idempotence: re-formatting is a fixed point.
 	if again := format80(t, got); again != got {
 		t.Fatalf("not idempotent:\n--- once ---\n%s\n--- twice ---\n%s", got, again)
 	}
+}
+
+func lineContaining(s, sub string) string {
+	for _, ln := range strings.Split(s, "\n") {
+		if strings.Contains(ln, sub) {
+			return ln
+		}
+	}
+	return ""
+}
+
+func leadingTabs(line string) int {
+	n := 0
+	for n < len(line) && line[n] == '\t' {
+		n++
+	}
+	return n
 }
