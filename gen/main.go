@@ -13,6 +13,7 @@ import (
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/rawfmt"
 )
 
 // Option configures Main. It is the option SHAPE for the gen composition root;
@@ -35,6 +36,7 @@ type config struct {
 	aliases      []codegen.FilterAlias
 	cssMin       func(string) (string, error)
 	jsMin        func(string) (string, error)
+	cssFmt       rawfmt.Formatter
 	jsRules      []attrclass.Rule
 	urlRules     []attrclass.Rule
 	cssRules     []attrclass.Rule
@@ -163,7 +165,12 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 		}
 		return runInfo(stdout, stderr, ".", configPath, merged.filterPkgs, merged.aliases, merged.classifier(), merged.predLabel, merged.fieldMatcher, cmdArgs)
 	case "fmt":
-		return runFmt(stdout, stderr, cmdArgs)
+		merged, _, err := resolveConfig(cfg)
+		if err != nil {
+			fmt.Fprintf(stderr, "gsx: %v\n", err)
+			return 2
+		}
+		return runFmt(stdout, stderr, cmdArgs, merged.cssFmt)
 	case "init":
 		return runInit(cmdArgs, os.Stdin, stdout, stderr)
 	case "lsp":
