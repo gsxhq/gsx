@@ -41,6 +41,17 @@ func TestDataIslandScriptLeftVerbatim(t *testing.T) {
 	}
 }
 
+func TestEmptyScriptStaysInline(t *testing.T) {
+	src := "package p\n\ncomponent C() {\n\t<script src=\"https://x.js\"></script>\n}\n"
+	out, err := normPrint(t, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "<script src=\"https://x.js\"></script>") {
+		t.Fatalf("empty external script should stay inline:\n%s", out)
+	}
+}
+
 func TestScriptIdempotent(t *testing.T) {
 	src := "package p\n\ncomponent C() {\n\t<script>\nif(x){\nf()\n}\n\t</script>\n}\n"
 	once, err := normPrint(t, src)

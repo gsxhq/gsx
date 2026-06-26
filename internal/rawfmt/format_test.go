@@ -65,6 +65,22 @@ func TestFormatRejectsBadArity(t *testing.T) {
 	}
 }
 
+func TestFormatEmptyBodyStaysInline(t *testing.T) {
+	// An empty or whitespace-only body must produce no blank line — it renders
+	// as nothing between the tags. (render wraps with <style>…</style>.)
+	identity := func(src []byte) ([]byte, error) { return src, nil }
+	for _, segs := range [][]string{{""}, {"   "}, {"\n  \n"}} {
+		doc, ok := Format(segs, nil, identity)
+		if !ok {
+			t.Fatalf("unexpected fallback for %q", segs)
+		}
+		out := render(doc) // render is the existing test helper: <style> + Indent(doc) + </style>
+		if out != "<style></style>" {
+			t.Fatalf("empty body not inline for %q: got %q, want \"<style></style>\"", segs, out)
+		}
+	}
+}
+
 func TestFormatBlankLinesHaveNoTrailingTabs(t *testing.T) {
 	// A formatter that emits a blank line between rules; re-indent must not
 	// leave tab-only lines (that would break idempotence).
