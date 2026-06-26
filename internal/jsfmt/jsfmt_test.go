@@ -15,6 +15,87 @@ func fmtJS(t *testing.T, in string) string {
 	return string(out)
 }
 
+// TestCallbackPatternSingleIndent guards the bug that escaped to a user's file:
+// `call(args, (e) => {` has an unclosed `(` AND an opening `{`. Counting both as
+// indent levels put the callback BODY two levels deep (and the `});` one level
+// too deep). Only the brace must count → exactly one level. This is the
+// dominant real-world pattern (htmx/Alpine event handlers).
+func TestCallbackPatternSingleIndent(t *testing.T) {
+	in := "document.body.addEventListener('htmx:beforeRequest', (evt) => {\nconsole.log('HTMX Request:', evt.detail);\n});"
+	want := "document.body.addEventListener('htmx:beforeRequest', (evt) => {\n\tconsole.log('HTMX Request:', evt.detail);\n});"
+	if got := fmtJS(t, in); got != want {
+		t.Fatalf("callback body over/under-indented:\ngot:  %q\nwant: %q", got, want)
+	}
+}
+
+// realWorldJS are bodies harvested from one-learning/ui and his-project's
+// design-system (Alpine + htmx). They are already hand/editor-formatted with
+// tab indentation, so the re-indenter must reproduce them EXACTLY — re-indenting
+// correctly-indented real code is a no-op. This is the coverage that was missing
+// (synthetic single-nesting tests never exercised the callback/IIFE/nested
+// patterns that dominate real code).
+var realWorldJS = []string{
+	// htmx event listeners (the exact shape that broke).
+	"// Optional: Add some basic HTMX event listeners for debugging\n" +
+		"document.body.addEventListener('htmx:beforeRequest', (evt) => {\n" +
+		"\tconsole.log('HTMX Request:', evt.detail);\n" +
+		"});\n" +
+		"document.body.addEventListener('htmx:afterRequest', (evt) => {\n" +
+		"\tconsole.log('HTMX Response:', evt.detail);\n" +
+		"});",
+	// Array .forEach with a nested addEventListener callback (two callback levels).
+	"['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {\n" +
+		"\tdropZone.addEventListener(eventName, preventDefaults, false);\n" +
+		"});\n" +
+		"['dragenter', 'dragover'].forEach(eventName => {\n" +
+		"\tdropZone.addEventListener(eventName, () => {\n" +
+		"\t\tdropZone.classList.add('border-blue-500', 'bg-blue-50');\n" +
+		"\t});\n" +
+		"});",
+	// setInterval callback + nested if, object-method style.
+	"function startUploadProgress() {\n" +
+		"\tlet progress = 0;\n" +
+		"\tconst interval = setInterval(() => {\n" +
+		"\t\tprogress += Math.random() * 15;\n" +
+		"\t\tif (progress > 90) {\n" +
+		"\t\t\tprogress = 90;\n" +
+		"\t\t}\n" +
+		"\t}, 200);\n" +
+		"}",
+	// IIFE with nested function + htmx.ajax object arg.
+	"(function() {\n" +
+		"\tfunction openDrawerFromUrl() {\n" +
+		"\t\tvar id = new URLSearchParams(location.search).get('drawer');\n" +
+		"\t\tif (!id) return;\n" +
+		"\t\thtmx.ajax('GET', '/entities/' + encodeURIComponent(id) + '/drawer', {\n" +
+		"\t\t\ttarget: '#entity-drawer-container'\n" +
+		"\t\t});\n" +
+		"\t}\n" +
+		"})();",
+	// Alpine x-data factory returning an object literal with methods.
+	"function nptEditFormAlpineData() {\n" +
+		"\treturn {\n" +
+		"\t\tactiveTab: 'npt',\n" +
+		"\t\tinit() {\n" +
+		"\t\t\tthis.$watch('activeTab', v => history.replaceState(null, '', '#' + v));\n" +
+		"\t\t}\n" +
+		"\t};\n" +
+		"}",
+}
+
+func TestRealWorldJSReproducedExactly(t *testing.T) {
+	for i, src := range realWorldJS {
+		got := fmtJS(t, src)
+		if got != src {
+			t.Errorf("case %d: re-indenting already-correct real JS changed it:\n--- want (input) ---\n%s\n--- got ---\n%s", i, src, got)
+		}
+		// And it must be idempotent regardless.
+		if again := fmtJS(t, got); again != got {
+			t.Errorf("case %d: not idempotent", i)
+		}
+	}
+}
+
 func TestReindentsToTabs(t *testing.T) {
 	in := "function f() {\n      const x = 1;\n   if (x) {\nreturn x;\n   }\n}"
 	want := "function f() {\n\tconst x = 1;\n\tif (x) {\n\t\treturn x;\n\t}\n}"

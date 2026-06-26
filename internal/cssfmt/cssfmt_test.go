@@ -76,6 +76,29 @@ func TestUnterminatedStringErrors(t *testing.T) {
 	}
 }
 
+// realWorldCSS are hand/editor-formatted CSS bodies (tab-indented, the shapes
+// seen in the structpages examples and component styles). Re-indenting
+// correctly-indented CSS must reproduce it exactly, including nested @media
+// (whose `( … )` media-feature parens must NOT add indentation — brace-only).
+var realWorldCSS = []string{
+	".widget {\n\tpadding: 1rem;\n\tborder: 1px solid #ddd;\n}\n.widget h3 {\n\tmargin-top: 0;\n}",
+	"@media (min-width: 600px) {\n\t.a {\n\t\tcolor: red;\n\t}\n}",
+	".a {\n\twidth: calc(100% - 10px);\n\tbackground: url(x.png);\n}",
+	".grid {\n\tdisplay: grid;\n\tgrid-template-columns: repeat(auto-fit, minmax(300px, 1fr));\n}",
+}
+
+func TestRealWorldCSSReproducedExactly(t *testing.T) {
+	for i, src := range realWorldCSS {
+		got := fmtCSS(t, src)
+		if got != src {
+			t.Errorf("case %d: re-indenting already-correct real CSS changed it:\n--- want (input) ---\n%s\n--- got ---\n%s", i, src, got)
+		}
+		if again := fmtCSS(t, got); again != got {
+			t.Errorf("case %d: not idempotent", i)
+		}
+	}
+}
+
 func TestFormatIdempotent(t *testing.T) {
 	once := fmtCSS(t, ".a {\n   color: red;\n}\n.b{margin:0}")
 	twice := fmtCSS(t, once)

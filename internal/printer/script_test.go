@@ -18,6 +18,28 @@ func TestScriptBodyReindented(t *testing.T) {
 	}
 }
 
+// TestScriptCallbackSingleIndentEndToEnd guards, through the full printer +
+// rawfmt path, the callback pattern that escaped to a user's file: the callback
+// body must be exactly ONE level under its `call(args, () => {` line, not two.
+func TestScriptCallbackSingleIndentEndToEnd(t *testing.T) {
+	src := "package p\n\ncomponent C() {\n\t<script>\ndocument.body.addEventListener('x', (e) => {\nconsole.log(e);\n});\n\t</script>\n}\n"
+	out, err := normPrint(t, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// tag <script> is at depth 1 (component) → body base = depth 2; the call line
+	// at 2 tabs, the callback body exactly one deeper at 3, the `});` back at 2.
+	if !strings.Contains(out, "\t\tdocument.body.addEventListener('x', (e) => {") {
+		t.Fatalf("call line wrong indent:\n%s", out)
+	}
+	if !strings.Contains(out, "\t\t\tconsole.log(e);") {
+		t.Fatalf("callback body should be exactly one level deeper (got over/under-indent):\n%s", out)
+	}
+	if !strings.Contains(out, "\t\t});") {
+		t.Fatalf("`});` should dedent back to the call's level:\n%s", out)
+	}
+}
+
 func TestScriptHolePreserved(t *testing.T) {
 	src := "package p\n\ncomponent C() {\n\t<script>const u = @{ user.ID }</script>\n}\n"
 	out, err := normPrint(t, src)

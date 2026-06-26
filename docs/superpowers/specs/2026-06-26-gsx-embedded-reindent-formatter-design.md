@@ -145,9 +145,18 @@ effect at that point. This guarantees idempotence (re-indenting correctly
 indented input reproduces it) and blank-line cleanliness (no tabs on empty
 lines).
 
-For paren/bracket continuation (`(`, `[`): treated as `Open`/`Close` too, so
-multi-line argument lists / array literals indent one level. (A single, uniform
-block-depth model; no language-specific continuation heuristics.)
+**Only braces `{}` drive indentation — NOT parens or brackets.** (Revised from
+the original "count parens/brackets too" after real-world testing.) The reason:
+the ubiquitous callback pattern `call(args, (e) => {…})` has an *unclosed* `(`
+**and** an opening `{` on the same line; counting both indents the body two
+levels — visibly wrong, and it *changes* correctly-formatted code. Real-world
+JS/CSS indents block scope (`{}`) only, so a brace-only rule reproduces
+hand/editor-formatted code (it is idempotent on it). Measured across the sampled
+projects: 179 brace-opening continuation lines vs **0** bare-paren/bracket
+continuations — so the only cost (a bare multi-line `( … )` / `[ … ]` staying
+flat) never occurs in practice. CSS parens are always single-line
+(`@media (...)`, `calc(...)`, `url(...)`), so the same rule is correct there. A
+single, uniform brace-depth model; no per-language heuristics.
 
 ## CSS — revise `internal/cssfmt`
 

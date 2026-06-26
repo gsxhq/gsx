@@ -130,10 +130,17 @@ func classify(tt js.TokenType, data []byte) reindent.Token {
 	case js.StringToken, js.TemplateToken, js.TemplateStartToken,
 		js.TemplateMiddleToken, js.TemplateEndToken, js.RegExpToken:
 		return reindent.Token{Class: reindent.Opaque, Text: string(data)}
-	case js.OpenBraceToken, js.OpenParenToken, js.OpenBracketToken:
+	case js.OpenBraceToken:
 		return reindent.Token{Class: reindent.Open, Text: string(data)}
-	case js.CloseBraceToken, js.CloseParenToken, js.CloseBracketToken:
+	case js.CloseBraceToken:
 		return reindent.Token{Class: reindent.Close, Text: string(data)}
+	// Only braces `{}` drive indentation — NOT parens/brackets. A line like
+	// `foo('x', (e) => {` has an unclosed `(` AND an opening `{`; counting both
+	// would indent the body two levels (the bug). Real-world JS indents block
+	// scope only, so brace-only reproduces hand/prettier-formatted code (the
+	// callback pattern `call(args, () => {…})` is ubiquitous in Alpine/htmx).
+	// Bare multi-line paren/bracket continuations stay flat — acceptable and
+	// vanishingly rare in practice (0 occurrences across the sampled real code).
 	default:
 		return reindent.Token{Class: reindent.Other, Text: string(data)}
 	}
