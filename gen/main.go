@@ -33,23 +33,23 @@ type Option func(*config)
 // errs collects option-construction problems (e.g. a bad WithFilters marker) so
 // the run can fail with a clear message instead of silently dropping the option.
 type config struct {
-	filterPkgs   []string
-	aliases      []codegen.FilterAlias
-	cssMin       func(string) (string, error)
-	jsMin        func(string) (string, error)
-	cssFmt       rawfmt.Formatter
-	jsFmt        rawfmt.Formatter
-	jsRules      []attrclass.Rule
-	urlRules     []attrclass.Rule
-	cssRules     []attrclass.Rule
-	attrPred     func(name string) (attrclass.Context, bool)
-	predLabel    string
-	fieldMatcher codegen.FieldMatcher
-	errs         []error
-	printWidth      int         // gsx.toml printWidth; 0 means "unset" → 80 at use
-	cssMinLevel     MinifyLevel // <style> minification level (zero = MinifyNone)
-	jsMinLevel      MinifyLevel // <script> minification level (zero = MinifyNone)
-	minifyLevelSet  bool        // true once an option (WithMinifyLevel) pinned the levels
+	filterPkgs     []string
+	aliases        []codegen.FilterAlias
+	cssMin         func(string) (string, error)
+	jsMin          func(string) (string, error)
+	cssFmt         rawfmt.Formatter
+	jsFmt          rawfmt.Formatter
+	jsRules        []attrclass.Rule
+	urlRules       []attrclass.Rule
+	cssRules       []attrclass.Rule
+	attrPred       func(name string) (attrclass.Context, bool)
+	predLabel      string
+	fieldMatcher   codegen.FieldMatcher
+	errs           []error
+	printWidth     int         // gsx.toml printWidth; 0 means "unset" → 80 at use
+	cssMinLevel    MinifyLevel // <style> minification level (zero = MinifyNone)
+	jsMinLevel     MinifyLevel // <script> minification level (zero = MinifyNone)
+	minifyLevelSet bool        // true once an option (WithMinifyLevel) pinned the levels
 }
 
 // effectivePrintWidth returns the configured print width, defaulting to 80 when
