@@ -133,34 +133,33 @@ escape hatch remains code-only.)
 
 ### `[minify]` — asset minification level
 
-gsx minifies the CSS inside `<style>` and the JavaScript inside `<script>` at
+gsx can minify the CSS inside `<style>` and the JavaScript inside `<script>` at
 codegen time. The `[minify]` table sets the level **per asset** — `css` and `js`
-are independent — each one of `"none"`, `"safe"`, or `"full"`. The default is
-`"safe"`.
+are independent — each either `"none"` or `"full"`. The default is `"none"`:
+minification is **off by default** (fast, readable dev output); you opt into
+`"full"` for production builds.
 
 ```toml
 [minify]
-css = "full"   # "none" | "safe" | "full"
-js  = "safe"
+css = "full"   # "none" (default) | "full"
+js  = "full"
 ```
 
 | Level | What it does |
 |-------|--------------|
-| `none` | Emit the asset **verbatim** — no minification. Best while debugging generated output. A custom minifier (below) is not called. |
-| `safe` *(default)* | A conservative pass that strips comments and indentation and collapses intra-line whitespace, but **keeps every newline** so JavaScript automatic semicolon insertion (ASI) is never altered, and **never rewrites values**. Zero risk; modest savings. |
-| `full` | Maximal **safe** compression via a full parse: collapses whitespace *and* newlines (ASI-safe — explicit semicolons are emitted) for the smallest output. It **never renames identifiers and never obfuscates** — variable names are preserved. Use it for production builds. |
+| `none` *(default)* | Emit the asset **verbatim** — no minification. Keeps generated output readable and the incremental cache warm; best for the dev loop. A custom minifier (below) is not called. |
+| `full` | Maximal **safe** compression via a full parse (tdewolff): collapses whitespace *and* newlines (ASI-safe — explicit semicolons are emitted) for the smallest output. It **never renames identifiers and never obfuscates** — variable names are preserved. Best for production builds; note it **bypasses the incremental codegen cache**, so reserve it for prod rather than the dev loop. |
 
-The level **gates** the pass; a [custom minifier](./extensions.md#custom-cssjs-minifier)
-(`gen.WithCSSMinifier` / `gen.WithJSMinifier`) supplies the implementation used
-at the `safe` level. At `none` the custom minifier is not called.
+A [custom minifier](./extensions.md#custom-cssjs-minifier)
+(`gen.WithCSSMinifier` / `gen.WithJSMinifier`), if installed, **replaces** the
+built-in `full` minifier. At `none` no minifier runs.
 
 **Overrides & precedence — `option > env > config-file`:**
 
 - The `[minify]` table is the **file default**.
 - The `GSX_MINIFY` environment variable is the **dev↔prod switch** that overrides
-  the file. It takes a level — `none`, `safe`, or `full` — applied to **both**
-  assets: `GSX_MINIFY=full` for a production build, `GSX_MINIFY=none` for fast,
-  readable dev output.
+  the file: `none` or `full`, applied to **both** assets — `GSX_MINIFY=full` for
+  a production build, `GSX_MINIFY=none` for the dev loop.
 - `gen.WithMinifyLevel(css, js)` in a `cmd/gsx` binary wins over **both** (code
   is the most deliberate layer).
 
@@ -188,7 +187,7 @@ prefix = "wire:"
 [[urlAttrs]]
 name = "data-href"
 
-# Asset minification level (per asset; default "safe").
+# Asset minification level (per asset; "none" default, "full" for prod).
 [minify]
 css = "full"
 js  = "full"

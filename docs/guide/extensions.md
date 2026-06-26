@@ -11,7 +11,7 @@ a Go *function* and therefore cannot live in TOML:
 - an attribute-classifier **predicate** (`gen.WithAttrClassifier`),
 - a field matcher (`gen.WithFieldMatcher`).
 
-The **minify level** (`none`/`safe`/`full`) is configured declaratively in
+The **minify level** (`none`/`full`) is configured declaratively in
 [`gsx.toml`](./config.md#minify-asset-minification-level) (or the `GSX_MINIFY`
 env var); the code equivalent is `gen.WithMinifyLevel(css, js)`, which overrides
 both.
@@ -146,10 +146,10 @@ breaks, blank lines, and intra-line spacing — exactly as you wrote it. Reach f
 
 ## Minify level
 
-The built-in CSS/JS minifiers (and any custom one) run at a **level** set
-declaratively — see [`[minify]` in the config guide](./config.md#minify-asset-minification-level)
-for `none` / `safe` / `full`, the `GSX_MINIFY` env switch, and precedence. The
-code equivalent, which overrides both the config file and the env var, is:
+Minification runs at a **level** set declaratively — see [`[minify]` in the
+config guide](./config.md#minify-asset-minification-level) for `none` / `full`,
+the `GSX_MINIFY` env switch, and precedence. The code equivalent, which overrides
+both the config file and the env var, is:
 
 ```go
 // cmd/gsx/main.go — force full minification regardless of gsx.toml.
@@ -158,10 +158,10 @@ gen.Main(
 )
 ```
 
-`WithMinifyLevel` **gates** the pass: at `safe` it uses the built-in (or your
-`WithCSSMinifier` / `WithJSMinifier`); at `none` the asset is emitted verbatim
-and a custom minifier is not called; at `full` gsx applies its maximal,
-non-obfuscating minifier.
+`WithMinifyLevel` **gates** the pass: at `none` (the default) the asset is
+emitted verbatim and a custom minifier is not called; at `full` gsx applies its
+maximal, non-obfuscating minifier — or your `WithCSSMinifier` / `WithJSMinifier`
+if installed (a custom minifier **replaces** the built-in full pass).
 
 ## Registration pattern
 
