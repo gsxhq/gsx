@@ -5,7 +5,6 @@ import (
 	"io"
 	"path/filepath"
 
-	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
 	"github.com/gsxhq/gsx/internal/lsp"
@@ -21,14 +20,20 @@ import (
 // opened in the editor but never saved to disk is not analyzed (its override is
 // never consulted). Editing existing .gsx files works; unsaved-new files are a
 // slice-2 follow-up.
-type lspAnalyzer struct{}
+type lspAnalyzer struct {
+	optCfg config    // programmatic opts (empty for the stock binary); merged UNDER gsx.toml
+	warnw  io.Writer // best-effort sink for a malformed gsx.toml; nil → discard, never fatal
+}
 
-func (lspAnalyzer) Analyze(dir string, override map[string][]byte) (*lsp.Package, error) {
+func (a lspAnalyzer) Analyze(dir string, override map[string][]byte) (*lsp.Package, error) {
 	root, _, err := moduleRoot(dir)
 	if err != nil {
 		return nil, err
 	}
-	out, err := codegen.GeneratePackagesWithFilters(root, []string{dir}, nil, nil, attrclass.Builtin(), nil, nil, nil, override)
+	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
+	out, err := codegen.GeneratePackagesWithFilters(root, []string{dir},
+		merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher,
+		nil, nil, override)
 	if err != nil {
 		return nil, err
 	}
@@ -70,10 +75,32 @@ func (lspAnalyzer) Analyze(dir string, override map[string][]byte) (*lsp.Package
 	}, nil
 }
 
+// resolveConfigBestEffort resolves the LSP's effective config: it discovers a
+// gsx.toml from dir (walking up, bounded by .git/module root) and merges it under
+// optCfg — exactly as resolveConfig does for generate/info — but for the LSP it
+// must NEVER break analysis. A malformed/typo'd gsx.toml is logged to warnw (when
+// non-nil) and the optCfg baseline is used; with no gsx.toml, optCfg is returned
+// unchanged. It loads no packages (TOML + file walk only), so it is cheap enough
+// to run per Analyze, which also picks up gsx.toml edits live.
+func resolveConfigBestEffort(dir string, optCfg config, warnw io.Writer) config {
+	path, ok := discoverConfig(dir)
+	if !ok {
+		return optCfg
+	}
+	fileCfg, err := loadConfig(path)
+	if err != nil {
+		if warnw != nil {
+			fmt.Fprintf(warnw, "gsx: lsp: ignoring %s: %v\n", path, err)
+		}
+		return optCfg
+	}
+	return mergeConfig(fileCfg, optCfg)
+}
+
 // runLSP runs the gsx language server over stdin/stdout (JSON-RPC), logging
 // operational failures to stderr. It returns a process exit code.
 func runLSP(stdin io.Reader, stdout, stderr io.Writer, _ []string) int {
-	srv := lsp.NewServer(stdin, stdout, lspAnalyzer{})
+	srv := lsp.NewServer(stdin, stdout, lspAnalyzer{warnw: stderr})
 	if err := srv.Run(); err != nil {
 		fmt.Fprintf(stderr, "gsx: lsp: %v\n", err)
 		return 1
