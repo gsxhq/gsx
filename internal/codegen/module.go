@@ -24,11 +24,21 @@ type Options struct {
 
 // Module is a warm, in-process analysis graph for one module root. It is the
 // single analysis core consumed by generate, watch, the LSP, fmt, and the
-// playground. Not safe for concurrent mutation; callers serialize edits.
+// playground.
+//
+// Concurrency contract (Phase 0): the mu guards the overrides, ext, and
+// pkgTypes maps, but Package/Generate mutate pkgTypes and Import reads it
+// under a separate lock acquisition — so the real contract is "one analysis
+// at a time," not merely "serialize edits." Callers must not call Package,
+// Generate, or typesPackage concurrently. True concurrent-analysis support is
+// deferred to Phase 1/2.
+//
+// Cache invalidation: pkgTypes and ext are NOT invalidated on SetOverride —
+// imported sibling packages stay cached after an edit. Invalidate is Phase 2.
 type Module struct {
 	opts      Options
-	overrides map[string][]byte        // abs .gsx path -> in-memory source
-	ext       types.Importer           // lazily built external importer (stdlib + third-party)
+	overrides map[string][]byte         // abs .gsx path -> in-memory source
+	ext       types.Importer            // lazily built external importer (stdlib + third-party)
 	pkgTypes  map[string]*types.Package // abs dir -> checked *types.Package cache
 	mu        sync.Mutex
 }
@@ -44,7 +54,9 @@ func Open(opts Options) (*Module, error) {
 }
 
 // SetOverride records in-memory source for a .gsx path (an unsaved editor buffer
-// or playground source), shadowing disk content.
+// or playground source), shadowing disk content. Note: it does NOT invalidate
+// the pkgTypes cache or the external importer (ext) — callers that need a
+// fresh analysis after an edit must call Invalidate (Phase 2).
 func (m *Module) SetOverride(absPath string, src []byte) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -69,6 +81,15 @@ func (m *Module) source(absPath string) ([]byte, bool) {
 // externalImporter lazily loads non-project dependency types once (stdlib,
 // third-party, .go-only packages) and caches them. Project gsx packages never
 // reach it (moduleImporter routes those to typesPackage).
+//
+// Transitive .x.go boundary (Phase 0, known gap): the load includes "./..." with
+// NeedDeps, so a non-gsx project package that itself imports a gsx package will
+// carry that gsx package's on-disk .x.go types. A focused gsx package that
+// imports such a Go-only intermediary therefore transitively resolves sibling gsx
+// symbols from disk .x.go rather than from skeletons. This narrow
+// (gsx → Go-only → gsx) case is unexercised by the corpus and has no consumer
+// yet; closing it (making all gsx-reachable types come from skeletons) is
+// deferred to Phase 1/2.
 func (m *Module) externalImporter() (types.Importer, error) {
 	m.mu.Lock()
 	if m.ext != nil {
@@ -136,6 +157,17 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 // error only when analysis itself fails (parse error, load error, etc.).
 // Emit errors (per-component) are soft: they surface as diagnostics in the
 // returned slice and the file is omitted from out.
+//
+// Phase-0 equivalence note: byte-for-byte equivalence with the go-list batch
+// path (GeneratePackagesWithFilters) is established only for single-package,
+// non-type-error corpus cases (the corpus gate skips type-error cases). On a
+// package that fails to type-check the batch path emits nothing (it deletes the
+// dir from its work-set on TypeErrors); Generate emits best-effort output.
+// Additionally, type-error diagnostics collected by checkSkeletonPackage are
+// currently discarded (analyze ignores the []types.Error return), so Generate's
+// returned diagnostics omit type errors that the batch path would surface.
+// Proper type-error emission semantics and surfacing type-error diagnostics via
+// the returned slice are deferred to Phase 1.
 func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, error) {
 	ext, err := m.externalImporter()
 	if err != nil {

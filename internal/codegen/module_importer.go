@@ -2,8 +2,8 @@ package codegen
 
 import (
 	"fmt"
-	"go/build"
 	goast "go/ast"
+	"go/build"
 	goparser "go/parser"
 	"go/token"
 	"go/types"
@@ -73,6 +73,15 @@ func checkSkeletonPackage(dir, pkgName string, files []*goast.File, fset *token.
 // moduleImporter resolves a project gsx package from the warm graph (skeletons)
 // and everything else from external. seen breaks recursion on import cycles;
 // cycleErr records the first cycle detected so typesPackageWith can propagate it.
+//
+// Transitive .x.go boundary (Phase 0, known gap): Import routes only direct
+// project gsx packages through the skeleton graph. A Go-only package in the
+// project that transitively imports a sibling gsx package is routed to external,
+// which loaded it from disk .x.go via packages.Load("./..."). A gsx package
+// that imports such a Go-only intermediary therefore transitively resolves those
+// sibling gsx symbols from disk .x.go, not from skeletons. This narrow
+// (gsx → Go-only → gsx) path is unexercised by the corpus; closing it is
+// deferred to Phase 1/2.
 type moduleImporter struct {
 	m        *Module
 	external types.Importer
@@ -269,6 +278,9 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		}
 	}
 
+	// Phase-0 note: type errors from checkSkeletonPackage are intentionally
+	// discarded here (go/types fills Info best-effort even when checks fail).
+	// Surfacing these as diagnostics via Generate/Package is deferred to Phase 1.
 	pkg, info, _ := checkSkeletonPackage(dir, pkgName, goFiles, fset, mi)
 	if mi.cycleErr != nil {
 		// A cycle was detected during this package's type-check; propagate

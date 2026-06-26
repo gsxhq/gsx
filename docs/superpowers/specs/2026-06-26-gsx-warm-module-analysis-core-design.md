@@ -221,7 +221,10 @@ These land in Phase 1 as the first features exercising the warm graph, both
   Removes `go list`-per-edit and `.x.go` reliance; ships Bug A/B. Importer built
   once over the edited package's analysis set (whole-module vs import-closure
   scope is the §11 decision); per edit re-skeleton the changed file and re-check
-  only the edited package.
+  only the edited package. Also: implement proper type-error emission semantics
+  (batch-equivalence on type-error packages) and surface `checkSkeletonPackage`'s
+  `[]types.Error` as diagnostics in `Generate`/`Package`. Close the transitive
+  `.x.go` boundary (gsx → Go-only → gsx) via skeleton-graph routing.
 - **Phase 2 — incremental.** Metadata graph + reverse-dep invalidation → the
   scaling lever for a split `ui`. Per-file skeleton cache.
 - **Phase 3 — consolidate.** Migrate `generate`, `--watch`, `fmt`, and the
@@ -245,7 +248,14 @@ equivalence; `generate` only *migrates* in Phase 3).
 - **Public façade**: external consumers (playground) reach the core through
   exported API; `internal/lsp` reaches it only via the `Analyzer` interface.
 - **Generation equivalence**: `Module.Generate` is byte-for-byte equal to the
-  current generate output across the corpus (Phase 0 gate).
+  current generate output across the corpus (Phase 0 gate). Scope: single-package,
+  non-type-error corpus cases only. On packages that fail to type-check, batch emits
+  nothing while Generate emits best-effort output; type-error emission semantics and
+  surfacing type-error diagnostics are deferred to Phase 1.
+- **`.x.go`-independence boundary**: the invariant holds for direct project gsx
+  imports. The narrow (gsx → Go-only → gsx) transitive path resolves the leaf gsx
+  package from disk `.x.go` (unexercised by the corpus); closing this boundary is
+  deferred to Phase 1/2.
 - **DAG assumption**: recursive skeleton importing relies on Go's no-import-cycle
   rule; guard with a `seen` set regardless.
 
