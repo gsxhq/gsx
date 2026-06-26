@@ -7,9 +7,14 @@ need no code. This page covers the **code escape hatch**: a project-owned
 a Go *function* and therefore cannot live in TOML:
 
 - a custom CSS/JS minifier (`gen.WithCSSMinifier` / `gen.WithJSMinifier`),
-- a custom CSS/JS **formatter** (`gen.WithCSSFormatter` / `gen.WithJSFormatter`) *(in development)*,
+- a custom CSS/JS **formatter** (`gen.WithCSSFormatter` / `gen.WithJSFormatter`),
 - an attribute-classifier **predicate** (`gen.WithAttrClassifier`),
 - a field matcher (`gen.WithFieldMatcher`).
+
+The **minify level** (`none`/`safe`/`full`) is configured declaratively in
+[`gsx.toml`](./config.md#minify-asset-minification-level) (or the `GSX_MINIFY`
+env var); the code equivalent is `gen.WithMinifyLevel(css, js)`, which overrides
+both.
 
 `gen.Main` loads `gsx.toml` as the base configuration and applies these
 programmatic options on top, so a code-configured project still keeps its
@@ -98,8 +103,9 @@ regeneration.
 
 ## Custom CSS/JS formatter
 
-`gsx fmt` formats the CSS inside `<style>` (and, in a follow-up, the JS inside
-`<script>`) with a small built-in formatter. When you want fuller fidelity —
+`gsx fmt` re-indents the CSS inside `<style>` and the JavaScript inside
+`<script>` with a small built-in formatter (it fixes indentation to consistent
+tabs; it does not reflow or restyle your code). When you want fuller fidelity —
 Prettier, Biome, or a house style — replace the built-in with your own via
 `gen.WithCSSFormatter` / `gen.WithJSFormatter`:
 
@@ -133,10 +139,29 @@ codegen cache (run `gsx clean --cache` after changing formatter logic). Shelling
 out to an external tool is a user-written wrapper — gsx ships only the in-process
 plug point and a minimal built-in, not a subprocess adapter.
 
-> **In development.** The built-in embedded-CSS formatter is being built now;
-> `WithCSSFormatter` (then `WithJSFormatter` and `<script>` formatting) follow.
-> The contract above is the committed design; the API is not yet on the current
-> release.
+The built-in re-indenter is intentionally minimal: it normalizes leading
+indentation (block scope drives the depth) and leaves everything else — line
+breaks, blank lines, and intra-line spacing — exactly as you wrote it. Reach for
+`WithCSSFormatter` / `WithJSFormatter` when you want true reflow.
+
+## Minify level
+
+The built-in CSS/JS minifiers (and any custom one) run at a **level** set
+declaratively — see [`[minify]` in the config guide](./config.md#minify-asset-minification-level)
+for `none` / `safe` / `full`, the `GSX_MINIFY` env switch, and precedence. The
+code equivalent, which overrides both the config file and the env var, is:
+
+```go
+// cmd/gsx/main.go — force full minification regardless of gsx.toml.
+gen.Main(
+	gen.WithMinifyLevel(gen.MinifyFull, gen.MinifyFull), // (css, js)
+)
+```
+
+`WithMinifyLevel` **gates** the pass: at `safe` it uses the built-in (or your
+`WithCSSMinifier` / `WithJSMinifier`); at `none` the asset is emitted verbatim
+and a custom minifier is not called; at `full` gsx applies its maximal,
+non-obfuscating minifier.
 
 ## Registration pattern
 

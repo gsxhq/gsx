@@ -131,6 +131,41 @@ classify. (This is the declarative half of [custom attribute
 classification](./extensions.md#custom-attribute-classification); the predicate
 escape hatch remains code-only.)
 
+### `[minify]` — asset minification level
+
+gsx minifies the CSS inside `<style>` and the JavaScript inside `<script>` at
+codegen time. The `[minify]` table sets the level **per asset** — `css` and `js`
+are independent — each one of `"none"`, `"safe"`, or `"full"`. The default is
+`"safe"`.
+
+```toml
+[minify]
+css = "full"   # "none" | "safe" | "full"
+js  = "safe"
+```
+
+| Level | What it does |
+|-------|--------------|
+| `none` | Emit the asset **verbatim** — no minification. Best while debugging generated output. A custom minifier (below) is not called. |
+| `safe` *(default)* | A conservative pass that strips comments and indentation and collapses intra-line whitespace, but **keeps every newline** so JavaScript automatic semicolon insertion (ASI) is never altered, and **never rewrites values**. Zero risk; modest savings. |
+| `full` | Maximal **safe** compression via a full parse: collapses whitespace *and* newlines (ASI-safe — explicit semicolons are emitted) for the smallest output. It **never renames identifiers and never obfuscates** — variable names are preserved. Use it for production builds. |
+
+The level **gates** the pass; a [custom minifier](./extensions.md#custom-cssjs-minifier)
+(`gen.WithCSSMinifier` / `gen.WithJSMinifier`) supplies the implementation used
+at the `safe` level. At `none` the custom minifier is not called.
+
+**Overrides & precedence — `option > env > config-file`:**
+
+- The `[minify]` table is the **file default**.
+- The `GSX_MINIFY` environment variable is the coarse **dev↔prod switch** that
+  overrides the file: `GSX_MINIFY=off` forces `none` for both assets,
+  `GSX_MINIFY=on` forces the built-in minifier on (the `safe` level) for both.
+- `gen.WithMinifyLevel(css, js)` in a `cmd/gsx` binary wins over **both** (code
+  is the most deliberate layer).
+
+`gsx info` reports the resolved level for each asset and which environment
+overrides are in effect (see below).
+
 ## Full example
 
 ```toml
@@ -151,6 +186,11 @@ filterPackages = ["example.com/myproject/templatefuncs"]
 prefix = "wire:"
 [[urlAttrs]]
 name = "data-href"
+
+# Asset minification level (per asset; default "safe").
+[minify]
+css = "full"
+js  = "full"
 ```
 
 ## What is *not* in `gsx.toml`
@@ -176,12 +216,14 @@ filters/rules in `gsx.toml` and writes Go only for the function-valued options.
 ## Verifying with `gsx info`
 
 `gsx info` is the single source of truth for the configuration in effect. It
-prints the discovered `gsx.toml` path (or `config: none`) and the fully-resolved
-filters and attribute rules — the answer to "which config is active, and why
-isn't my `url` filter found":
+prints the discovered `gsx.toml` path (or `config: none`), the fully-resolved
+filters and attribute rules, the resolved **minify level** per asset, and an
+**Environment** section listing every `GSX_*` override and whether it is
+currently set — the answer to "which config is active, and is my `GSX_MINIFY`
+actually taking effect":
 
 ```sh
-gsx info          # human-readable: config path + resolved filters/rules
+gsx info          # human-readable: config path + filters/rules + minify + env
 gsx info --json   # machine-readable (same data)
 ```
 
