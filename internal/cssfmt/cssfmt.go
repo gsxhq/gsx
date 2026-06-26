@@ -94,8 +94,9 @@ func (cssAdapter) Tokenize(src []byte) ([]reindent.Token, bool) {
 }
 
 // splitWS turns a CSS whitespace run (which may contain newlines) into Newline
-// tokens (one per '\n', preserving blank lines) and Space tokens for the rest.
-// '\r' is dropped (CRLF → LF).
+// tokens (one per line break, preserving blank lines) and Space tokens for the
+// rest. \r\n counts as one line break; a lone \r also counts as one (never
+// dropped). All line breaks are normalized to '\n'.
 func splitWS(text string) []reindent.Token {
 	var out []reindent.Token
 	var sp strings.Builder
@@ -105,15 +106,22 @@ func splitWS(text string) []reindent.Token {
 			sp.Reset()
 		}
 	}
-	for _, r := range text {
-		switch r {
+	for i := 0; i < len(text); {
+		switch c := text[i]; c {
 		case '\n':
 			flush()
 			out = append(out, reindent.Token{Class: reindent.Newline, Text: "\n"})
+			i++
 		case '\r':
-			// drop
+			flush()
+			out = append(out, reindent.Token{Class: reindent.Newline, Text: "\n"})
+			i++
+			if i < len(text) && text[i] == '\n' {
+				i++ // CRLF = one line break
+			}
 		default:
-			sp.WriteRune(r)
+			sp.WriteByte(c)
+			i++
 		}
 	}
 	flush()

@@ -8,9 +8,9 @@
 package jsfmt
 
 import (
-	"bytes"
 	"io"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/tdewolff/parse/v2"
 	"github.com/tdewolff/parse/v2/js"
@@ -87,8 +87,16 @@ func lexClassified(src []byte) ([]reindent.Token, bool) {
 		case js.WhitespaceToken:
 			toks = append(toks, reindent.Token{Class: reindent.Space, Text: string(data)})
 		case js.LineTerminatorToken:
-			// Emit one Newline per '\n' so blank lines are preserved.
-			for i := 0; i < bytes.Count(data, []byte("\n")); i++ {
+			// Emit one Newline per line break so blank lines are preserved AND no
+			// ASI-significant break is ever dropped. tdewolff returns \n, \r, \r\n,
+			// U+2028, and U+2029 as LineTerminatorToken (possibly in runs); count line
+			// breaks treating \r\n as one. All are normalized to '\n' (CRLF/exotic
+			// terminators -> LF).
+			n := countLineBreaks(data)
+			if n == 0 {
+				n = 1 // defensive: a terminator token always represents >=1 break
+			}
+			for i := 0; i < n; i++ {
 				toks = append(toks, reindent.Token{Class: reindent.Newline, Text: "\n"})
 			}
 		case js.CommentToken, js.CommentLineTerminatorToken:
@@ -129,6 +137,30 @@ func classify(tt js.TokenType, data []byte) reindent.Token {
 	default:
 		return reindent.Token{Class: reindent.Other, Text: string(data)}
 	}
+}
+
+// countLineBreaks counts JS line terminators in data, treating \r\n as a single
+// break. Recognizes \n, \r, U+2028 (LINE SEPARATOR), and U+2029 (PARAGRAPH SEPARATOR).
+func countLineBreaks(data []byte) int {
+	s := string(data)
+	n := 0
+	for i := 0; i < len(s); {
+		r, sz := utf8.DecodeRuneInString(s[i:])
+		switch r {
+		case '\r':
+			n++
+			i += sz
+			if i < len(s) && s[i] == '\n' {
+				i++ // CRLF counts once
+			}
+		case '\n', ' ', ' ':
+			n++
+			i += sz
+		default:
+			i += sz
+		}
+	}
+	return n
 }
 
 // regexPosition reports whether a DivToken following prev should be re-lexed as

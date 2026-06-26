@@ -81,3 +81,24 @@ func TestTokenSignatureIgnoresWhitespace(t *testing.T) {
 		t.Fatalf("whitespace changed the signature:\n%q\n%q", a, b)
 	}
 }
+
+func TestNonLFLineTerminatorsNotDropped(t *testing.T) {
+	// A lone \r, U+2028, U+2029 must NOT be dropped (that would fuse tokens and
+	// break ASI). Each must become a real line break in the output.
+	for _, in := range []string{"a = 1\rb = 2", "a = 1 b = 2", "a = 1 b = 2"} {
+		got := fmtJS(t, in)
+		if strings.Contains(got, "1b") || strings.Contains(got, "12") {
+			t.Fatalf("line terminator dropped, tokens fused: %q -> %q", in, got)
+		}
+		if !strings.Contains(got, "a = 1\nb = 2") {
+			t.Fatalf("expected a line break preserved (as \\n): %q -> %q", in, got)
+		}
+	}
+}
+
+func TestCRLFNormalizedToLF(t *testing.T) {
+	got := fmtJS(t, "a = 1\r\nb = 2")
+	if got != "a = 1\nb = 2" {
+		t.Fatalf("CRLF not normalized to a single LF: %q", got)
+	}
+}

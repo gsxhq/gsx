@@ -90,3 +90,11 @@ func TestTokenSignatureIgnoresWhitespace(t *testing.T) {
 		t.Fatal("whitespace/optional-semicolon changed the signature")
 	}
 }
+
+func TestCSSLoneCRIsLineBreakNotFusion(t *testing.T) {
+	// A lone \r between rules must act as a line break, never fuse tokens.
+	got := fmtCSS(t, ".a{}\r.b{}")
+	if strings.Contains(got, "}.b") || !strings.Contains(got, "}\n.b") {
+		t.Fatalf("lone CR mishandled in CSS: %q", got)
+	}
+}
