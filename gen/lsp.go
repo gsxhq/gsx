@@ -21,7 +21,7 @@ import (
 // never consulted). Editing existing .gsx files works; unsaved-new files are a
 // slice-2 follow-up.
 type lspAnalyzer struct {
-	optCfg config    // programmatic opts (empty for the stock binary); merged UNDER gsx.toml
+	optCfg config    // programmatic opts (empty for the stock binary); layered OVER gsx.toml (opts win on conflict)
 	warnw  io.Writer // best-effort sink for a malformed gsx.toml; nil → discard, never fatal
 }
 
@@ -99,7 +99,7 @@ func resolveConfigBestEffort(dir string, optCfg config, warnw io.Writer) config 
 
 // runLSP runs the gsx language server over stdin/stdout (JSON-RPC), logging
 // operational failures to stderr. cfg carries the binary's compiled-in opts
-// (empty for the stock binary), merged UNDER the project's gsx.toml per Analyze.
+// (empty for the stock binary), layered OVER the project's gsx.toml (opts win) per Analyze.
 // It returns a process exit code.
 func runLSP(stdin io.Reader, stdout, stderr io.Writer, cfg config, _ []string) int {
 	srv := lsp.NewServer(stdin, stdout, lspAnalyzer{optCfg: cfg, warnw: stderr})
