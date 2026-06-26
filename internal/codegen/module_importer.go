@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/jsx"
 	"github.com/gsxhq/gsx/internal/wsnorm"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
@@ -165,6 +167,7 @@ type analyzed struct {
 	info       *types.Info
 	compByKey  map[string]*gsxast.Component // componentKey -> component (for Name + NamePos)
 	objKey     map[types.Object]string      // component func object -> componentKey
+	bag        *diag.Bag                    // diagnostics from parse + script resolution; used by Generate
 }
 
 // analyze performs the shared parse -> skeleton -> type-check pipeline for one
@@ -179,9 +182,21 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// the gsx fset and skeleton fset are the same: skeleton idents resolve back to
 	// .gsx via the //line directives the parser honoured.
 	fset := token.NewFileSet()
+	// bag is created here (using the shared fset for position resolution) so that
+	// script-resolution diagnostics recorded below share the same fset as the
+	// parsed .gsx files. Generate returns a.bag.Sorted() so errors surface.
+	bag := diag.NewBag(fset)
 	gsxFiles, pkgName, err := m.parsePackageWithFset(dir, fset)
 	if err != nil {
 		return nil, err
+	}
+	// Classify <script> @{ } JS contexts (mirrors batch.go after wsnorm.Normalize).
+	// A file that fails resolution is excluded from further analysis; errors are
+	// recorded in bag (surfaced by Generate via bag.Sorted()).
+	for path, f := range gsxFiles {
+		if !jsx.ResolveScripts(f, bag) {
+			delete(gsxFiles, path)
+		}
 	}
 	table, err := loadFilterTableMulti(m.opts.ModuleRoot, m.opts.FilterPkgs, m.opts.Aliases)
 	if err != nil {
@@ -271,6 +286,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		info:       info,
 		compByKey:  compByKey,
 		objKey:     objKey,
+		bag:        bag,
 	}, nil
 }
 

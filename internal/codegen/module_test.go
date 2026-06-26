@@ -155,6 +155,31 @@ func TestModulePackageRetainsAnalysis(t *testing.T) {
 	}
 }
 
+// TestModuleGenerateProducesXGo verifies that Generate returns generated .x.go
+// bytes (keyed by gsx path) containing the expected package declaration and
+// function signature.
+func TestModuleGenerateProducesXGo(t *testing.T) {
+	root := t.TempDir()
+	repoRoot, _ := filepath.Abs("../..")
+	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pageDir := filepath.Join(root, "page")
+	if err := os.MkdirAll(pageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gsxPath := filepath.Join(pageDir, "page.gsx")
+	writeFile(t, pageDir, "page.gsx", "package page\n\ncomponent Home() {\n\t<h1>hello</h1>\n}\n")
+
+	m, _ := Open(Options{ModuleRoot: root, ModulePath: "example.com/app", FilterPkgs: []string{StdImportPath}})
+	out, diags, err := m.Generate(pageDir)
+	if err != nil {
+		t.Fatalf("Generate: %v (diags=%v)", err, diags)
+	}
+	got := string(out[gsxPath])
+	if !strings.Contains(got, "package page") || !strings.Contains(got, "func Home(") {
+		t.Fatalf("unexpected generated output:\n%s", got)
+	}
+}
+
 // TestModuleImporterRejectsImportCycle proves that the cycle guard in
 // moduleImporter.Import returns an error (not an infinite recursion/hang) when
 // two gsx packages mutually import each other.
