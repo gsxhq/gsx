@@ -7,6 +7,24 @@ program. The few options that are Go *functions* (a custom minifier, an
 attribute-classifier predicate, a field matcher) still require a code-based
 setup; see [Extensions](./extensions.md).
 
+## The config model — three layers
+
+gsx configuration has three layers, applied **per knob** with precedence
+**option > env > config**:
+
+1. **Declarative `gsx.toml`** (preferred) — anything expressible as data: pipeline
+   filters, attribute-classification rules, `printWidth`, and `[minify]`. Start here.
+2. **Programmatic `gen.With*` options** — only for values that are Go *functions*
+   (a custom minifier, an attribute-classifier predicate, a field matcher); these
+   can't be written in TOML. See [Extensions](./extensions.md).
+3. **Environment overrides (`GSX_*`)** — a curated subset of declarative knobs that
+   vary between environments (currently `GSX_MINIFY`), changed without editing a
+   file or recompiling.
+
+A higher layer wins only where it is set; otherwise the value falls through to the
+next. Run [`gsx info`](#verifying-with-gsx-info) to see the resolved configuration
+and which env overrides are active.
+
 ```toml
 # gsx.toml — typically at the repo root
 [filters]
@@ -131,6 +149,31 @@ classify. (This is the declarative half of [custom attribute
 classification](./extensions.md#custom-attribute-classification); the predicate
 escape hatch remains code-only.)
 
+### `[minify]` — asset minification level
+
+gsx can minify the static CSS of `<style>` and the static JS of `<script>` blocks
+at generate time. `[minify]` sets the level **per asset**; the default is `none`
+(no minification — assets are emitted verbatim). Minification is opt-in.
+
+```toml
+[minify]
+css = "full"   # "none" (default) | "full"
+js  = "none"
+```
+
+- **`none`** (default) — emit the asset verbatim.
+- **`full`** — aggressive minification (value rewrites: color/number shortening,
+  JS local-variable mangling; top-level names are preserved). `full` **bypasses
+  the incremental cache** (it installs a minifier function), so it is best suited
+  to prod/release builds rather than the fast edit loop.
+
+A custom minifier installed in code (`gen.WithCSSMinifier` / `gen.WithJSMinifier`,
+see [Extensions](./extensions.md)) takes precedence over the built-in `full`
+minifier. Blocks containing `@{ }` interpolation are minified conservatively (the
+aggressive pass runs only on fully-static blocks).
+
+For dev/prod, prefer the `GSX_MINIFY` env override (below) over editing this table.
+
 ## Full example
 
 ```toml
@@ -153,6 +196,26 @@ prefix = "wire:"
 name = "data-href"
 ```
 
+## Environment overrides
+
+A curated set of `GSX_*` environment variables override declarative config so dev
+and prod differ without editing `gsx.toml` or writing Go. An env override beats the
+file but is itself beaten by a programmatic option (**option > env > config**).
+
+| Variable | Values | Effect |
+|---|---|---|
+| `GSX_MINIFY` | `none` \| `full` | Set the minify level for both `<style>` and `<script>`, overriding `[minify]`. |
+
+A typical setup leaves dev unminified (the default) and minifies in the prod build:
+
+```sh
+gsx generate .                  # dev: verbatim output (default)
+GSX_MINIFY=full gsx generate .  # prod/CI: aggressive minification
+```
+
+`gsx info` lists every variable, whether it is set, and what it does. Internal
+knobs such as `GSXCACHE` are not configuration and are not listed here.
+
 ## What is *not* in `gsx.toml`
 
 Options whose value is a Go **function** cannot be expressed in TOML and stay
@@ -162,6 +225,9 @@ code-only, configured through a project `cmd/gsx/main.go` that calls `gen.Main`
 - a custom CSS/JS minifier (`gen.WithCSSMinifier` / `gen.WithJSMinifier`),
 - an attribute-classifier **predicate** (`gen.WithAttrClassifier`),
 - a field matcher (`gen.WithFieldMatcher`).
+
+> The minify *level* (`[minify] none|full`) lives in `gsx.toml`; only a *custom
+> minifier function* (`gen.WithCSSMinifier`/`WithJSMinifier`) is code-only.
 
 When a project does use a `cmd/gsx` binary, `gen.Main` loads `gsx.toml` as the
 **base** configuration and applies the programmatic options **on top** (filters
