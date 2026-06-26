@@ -99,6 +99,21 @@ func uriToPath(uri string) string {
 	return rest
 }
 
+// allOpenGSX returns abs-file-path -> bytes for every open .gsx document, for
+// whole-module analysis overrides (unsaved buffers across the module).
+func (s *docStore) allOpenGSX() map[string][]byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := map[string][]byte{}
+	for uri, d := range s.docs {
+		p := uriToPath(uri)
+		if strings.HasSuffix(p, ".gsx") {
+			out[p] = []byte(d.text)
+		}
+	}
+	return out
+}
+
 // pathToURI converts an absolute filesystem path to a file:// URI, percent-
 // escaping path segments.
 func pathToURI(path string) string {

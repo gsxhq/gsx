@@ -13,6 +13,11 @@ import (
 // from a .gsx <Card/> tag cursor is deferred (it needs component-tag resolution
 // like definition's D2; the tag's //line column is approximate) — a tag cursor
 // returns empty rather than a flaky off-by-column match.
+//
+// The whole-module index (AnalyzeModule) is queried first: it is built lazily,
+// cached across requests, and invalidated whenever any document mutates. On
+// AnalyzeModule error the single-package CrossIndex (built by Analyze on didOpen)
+// is used as a fallback so existing in-package references behaviour is preserved.
 func (s *Server) handleReferences(f frame) error {
 	var p referenceParams
 	if err := json.Unmarshal(f.Params, &p); err != nil {
@@ -24,34 +29,30 @@ func (s *Server) handleReferences(f frame) error {
 	if !ok {
 		return s.reply(f.ID, []Location{})
 	}
-	pkg := s.pkgs[filepath.Dir(path)]
-	if pkg == nil || len(pkg.CrossIndex) == 0 {
-		return s.reply(f.ID, []Location{})
-	}
 	curLine := p.Position.Line + 1
 	curCol := byteOffsetForPosition(text, p.Position.Line, p.Position.Character, s.enc) -
 		lineStartOffset(text, p.Position.Line) + 1
 
-	// Identify the component by an EXACT cursor match: its .gsx declaration
-	// (NamePos, exact) or a .go reference (real positions). Skip .gsx-file refs
-	// for identification — their //line-derived columns are approximate, so a
-	// tag cursor resolves predictably to "no match" instead of an off-column hit.
-	var found *CrossRef
-	for k := range pkg.CrossIndex {
-		cr := pkg.CrossIndex[k]
-		if posCoversCursor(cr.Decl, path, curLine, curCol, len(cr.Name)) {
-			found = &cr
-			break
+	// Whole-module index (lazy, cached, invalidated on edits). A successful
+	// AnalyzeModule — even an empty result — is cached; an error leaves the
+	// cache invalid so the single-package fallback below still answers.
+	if !s.moduleRefsValid {
+		if refs, err := s.analyzer.AnalyzeModule(filepath.Dir(path), s.docs.allOpenGSX()); err == nil {
+			s.moduleRefs = refs
+			s.moduleRefsValid = true
 		}
-		for _, r := range cr.Refs {
-			if strings.HasSuffix(r.Filename, ".go") &&
-				posCoversCursor(r, path, curLine, curCol, len(cr.Name)) {
-				found = &cr
-				break
+	}
+
+	found := identifyCrossRef(s.moduleRefs, path, curLine, curCol)
+	if found == nil {
+		// Fall back to the single-package index (covers AnalyzeModule errors and
+		// any cursor the module index did not resolve).
+		if pkg := s.pkgs[filepath.Dir(path)]; pkg != nil && len(pkg.CrossIndex) > 0 {
+			vals := make([]CrossRef, 0, len(pkg.CrossIndex))
+			for k := range pkg.CrossIndex {
+				vals = append(vals, pkg.CrossIndex[k])
 			}
-		}
-		if found != nil {
-			break
+			found = identifyCrossRef(vals, path, curLine, curCol)
 		}
 	}
 	if found == nil {
@@ -66,4 +67,24 @@ func (s *Server) handleReferences(f frame) error {
 		locs = append(locs, s.locationForPos(found.Decl))
 	}
 	return s.reply(f.ID, locs)
+}
+
+// identifyCrossRef finds the component whose declaration (exact NamePos) or a
+// .go reference covers the cursor. .gsx-file refs are skipped for identification
+// — their //line-derived columns are approximate (see the original references
+// comment), so a tag cursor resolves to "no match" rather than an off-column hit.
+func identifyCrossRef(refs []CrossRef, path string, curLine, curCol int) *CrossRef {
+	for i := range refs {
+		cr := refs[i]
+		if posCoversCursor(cr.Decl, path, curLine, curCol, len(cr.Name)) {
+			return &refs[i]
+		}
+		for _, r := range cr.Refs {
+			if strings.HasSuffix(r.Filename, ".go") &&
+				posCoversCursor(r, path, curLine, curCol, len(cr.Name)) {
+				return &refs[i]
+			}
+		}
+	}
+	return nil
 }
