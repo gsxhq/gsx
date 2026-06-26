@@ -6,6 +6,7 @@ import (
 	goparser "go/parser"
 	"go/token"
 	"go/types"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -229,9 +230,32 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		compsByXGo[absXpath] = comps
 	}
 	// Shared _gsxuse/_gsxcompsig helpers, mirroring the batch overlay.
-	helper, _ := goparser.ParseFile(fset, filepath.Join(dir, "_gsxshared.x.go"),
+	helperXgoPath := filepath.Join(dir, "_gsxshared.x.go")
+	helper, _ := goparser.ParseFile(fset, helperXgoPath,
 		"package "+pkgName+"\n\nfunc _gsxuse(...any) {}\nfunc _gsxcompsig(any) {}\n", goparser.SkipObjectResolution)
 	goFiles = append(goFiles, helper)
+
+	// Include the package's hand-written .go files (model.go, helper.go, etc.)
+	// so that companion types and functions are visible during skeleton
+	// type-checking — mirroring how GeneratePackagesWithFilters's packages.Load
+	// overlay sees them on disk alongside the synthetic .x.go overlays.
+	// Excluded: each .x.go whose path matches a skeleton already in goFiles
+	// (compsByXGo), the synthetic helper above (helperXgoPath), and _test files.
+	realGoFiles, _ := filepath.Glob(filepath.Join(dir, "*.go"))
+	for _, realPath := range realGoFiles {
+		if compsByXGo[realPath] != nil || realPath == helperXgoPath {
+			continue // already represented as a synthetic overlay
+		}
+		src, readErr := os.ReadFile(realPath)
+		if readErr != nil {
+			continue // file disappeared; not fatal
+		}
+		realGF, parseErr := goparser.ParseFile(fset, realPath, src, goparser.SkipObjectResolution)
+		if parseErr != nil {
+			continue // parse error surfaced by type-checker via Error func
+		}
+		goFiles = append(goFiles, realGF)
+	}
 
 	pkg, info, _ := checkSkeletonPackage(dir, pkgName, goFiles, fset, mi)
 	if mi.cycleErr != nil {

@@ -80,7 +80,13 @@ func (m *Module) externalImporter() (types.Importer, error) {
 		Mode: packages.NeedName | packages.NeedTypes | packages.NeedImports | packages.NeedDeps,
 		Dir:  m.opts.ModuleRoot,
 	}
-	loadPaths := append([]string{stdImportPath}, m.opts.FilterPkgs...)
+	// Always load the gsx runtime ("github.com/gsxhq/gsx") so that skeleton
+	// type-checking can resolve gsx.Node / gsx.Attrs / etc. The skeleton file
+	// every buildSkeleton emits always begins with
+	//   import _gsxrt "github.com/gsxhq/gsx"
+	// so the importer must carry that package. This mirrors newCachedResolver
+	// (resolver.go) which lists "github.com/gsxhq/gsx" first for the same reason.
+	loadPaths := append([]string{"github.com/gsxhq/gsx", stdImportPath}, m.opts.FilterPkgs...)
 	loadPaths = append(loadPaths, "./...")
 	pkgs, err := packages.Load(cfg, loadPaths...)
 	if err != nil {
