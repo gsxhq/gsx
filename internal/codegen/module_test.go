@@ -1,6 +1,12 @@
 package codegen
 
-import "testing"
+import (
+	"go/importer"
+	"go/token"
+	goparser "go/parser"
+	goast "go/ast"
+	"testing"
+)
 
 func TestImportPathDirRoundTrip(t *testing.T) {
 	root := "/m"
@@ -23,5 +29,24 @@ func TestImportPathDirRoundTrip(t *testing.T) {
 	}
 	if _, ok := dirForImportPath(root, mod, "fmt"); ok {
 		t.Fatalf("stdlib path should be !ok")
+	}
+}
+
+func TestCheckSkeletonPackageReturnsPkg(t *testing.T) {
+	src := "package p\n\nfunc F() int { return 1 }\n"
+	fset := token.NewFileSet()
+	f, err := goparser.ParseFile(fset, "/m/p/p.go", src, goparser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, info, errs := checkSkeletonPackage("/m/p", "p", []*goast.File{f}, fset, importer.Default())
+	if len(errs) != 0 {
+		t.Fatalf("unexpected type errors: %v", errs)
+	}
+	if pkg == nil || pkg.Scope().Lookup("F") == nil {
+		t.Fatalf("pkg missing F")
+	}
+	if info == nil || info.Defs == nil {
+		t.Fatalf("info not populated")
 	}
 }
