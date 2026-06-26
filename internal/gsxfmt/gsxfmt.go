@@ -8,6 +8,7 @@ import (
 	"go/token"
 
 	"github.com/gsxhq/gsx/internal/printer"
+	"github.com/gsxhq/gsx/internal/rawfmt"
 	"github.com/gsxhq/gsx/internal/wsnorm"
 	"github.com/gsxhq/gsx/parser"
 )
@@ -45,6 +46,29 @@ func FormatRemovingImports(name string, src []byte, unused []ImportRef, width in
 	var b bytes.Buffer
 	if err := printer.Fprint(&b, f, width); err != nil {
 		return nil, err
+	}
+	return b.Bytes(), nil
+}
+
+// FormatRemovingImportsWith is FormatRemovingImports with an explicit CSS
+// Formatter for <style> bodies (nil → built-in default at the given width).
+func FormatRemovingImportsWith(name string, src []byte, unused []ImportRef, width int, cssFmt rawfmt.Formatter) ([]byte, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, name, src, 0)
+	if err != nil {
+		return nil, err
+	}
+	removeImports(f, unused)
+	wsnorm.Normalize(f)
+	var b bytes.Buffer
+	if cssFmt == nil {
+		if err := printer.Fprint(&b, f, width); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := printer.FprintWith(&b, f, width, cssFmt); err != nil {
+			return nil, err
+		}
 	}
 	return b.Bytes(), nil
 }
