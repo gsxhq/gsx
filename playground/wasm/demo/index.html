@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>gsx → Go, client-side (WASM)</title>
+<script src="wasm_exec.js"></script>
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 1.5rem; max-width: 1100px; }
+  h1 { font-size: 1.2rem; }
+  #status { padding: .4rem .7rem; border-radius: 6px; background: #eee; display: inline-block; }
+  #status.ready { background: #d8f5d8; }
+  #status.err { background: #f8d8d8; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
+  textarea, pre { font: 13px/1.45 ui-monospace, Menlo, monospace; width: 100%; box-sizing: border-box; }
+  textarea { height: 220px; padding: .6rem; }
+  pre { background: #1e1e2e; color: #cdd6f4; padding: .8rem; border-radius: 6px; overflow: auto; min-height: 220px; white-space: pre-wrap; }
+  #diags:empty::before { content: "(none)"; color: #888; }
+  h3 { margin: .8rem 0 .3rem; font-size: .95rem; }
+</style>
+</head>
+<body>
+  <h1>gsx → Go, compiled entirely in your browser (WASM)</h1>
+  <p><span id="status">loading WASM…</span></p>
+  <div class="grid">
+    <div>
+      <h3>gsx source</h3>
+      <textarea id="src" spellcheck="false">package main
+
+component Greeting(name string) {
+	<p>Hello { name |> upper }!</p>
+}
+</textarea>
+      <h3>Diagnostics</h3>
+      <pre id="diags"></pre>
+    </div>
+    <div>
+      <h3>Generated Go (no server, no network)</h3>
+      <pre id="code"></pre>
+    </div>
+  </div>
+
+<script>
+const go = new Go();
+const $ = (id) => document.getElementById(id);
+
+function transform() {
+  if (typeof globalThis.gsxTransform !== "function") return;
+  const out = globalThis.gsxTransform($("src").value);
+  $("code").textContent = out.code || "(no output — see diagnostics)";
+  $("diags").textContent = (out.diagnostics || [])
+    .map((d) => `${d.severity} ${d.line}:${d.column} ${d.message}`)
+    .join("\n");
+}
+
+globalThis.gsxReady = () => {
+  const s = $("status");
+  s.textContent = "WASM ready ✓ — transform runs locally, zero network";
+  s.className = "ready";
+  $("src").addEventListener("input", transform);
+  transform();
+};
+
+(async () => {
+  try {
+    const bytes = await (await fetch("gsx.wasm")).arrayBuffer();
+    const res = await WebAssembly.instantiate(bytes, go.importObject);
+    go.run(res.instance);
+  } catch (e) {
+    const s = $("status");
+    s.textContent = "WASM load failed: " + e;
+    s.className = "err";
+  }
+})();
+</script>
+</body>
+</html>
