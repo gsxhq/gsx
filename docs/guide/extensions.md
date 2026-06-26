@@ -1,9 +1,23 @@
 # Extending gsx
 
-gsx is customised through `gen.Main` options wired in a project-owned
-`cmd/gsx/main.go`. This is the same approach as `gen.WithFilters` for filter
-packages — one Go file, type-checked by the compiler, no config format to
-maintain.
+Most projects configure gsx declaratively in a [`gsx.toml`](./config.md) file
+read by the stock binary — pipeline filters and attribute-classification rules
+need no code. This page covers the **code escape hatch**: a project-owned
+`cmd/gsx/main.go` that calls `gen.Main`, needed only for options whose value is
+a Go *function* and therefore cannot live in TOML:
+
+- a custom CSS/JS minifier (`gen.WithCSSMinifier` / `gen.WithJSMinifier`),
+- an attribute-classifier **predicate** (`gen.WithAttrClassifier`),
+- a field matcher (`gen.WithFieldMatcher`).
+
+`gen.Main` loads `gsx.toml` as the base configuration and applies these
+programmatic options on top, so a code-configured project still keeps its
+filters and declarative rules in `gsx.toml` and writes Go only for the
+function-valued options.
+
+> The declarative forms of attribute classification and filter registration
+> below are equivalently expressible in [`gsx.toml`](./config.md); prefer the
+> config file unless you need the predicate/function escape hatch.
 
 ## Custom attribute classification
 

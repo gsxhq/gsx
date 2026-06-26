@@ -49,7 +49,7 @@ func TestStockGenerateHonorsConfigAcrossModuleBoundary(t *testing.T) {
 	}
 	// Repo-root gsx.toml aliasing the ctx-injecting filter. NOTE: it lives ABOVE
 	// the sub-module's go.mod — discovery must cross that boundary to find it.
-	mkfile(t, filepath.Join(tmp, "gsx.toml"), "[aliases]\nf = \"gsxsub/myfilters.F\"\n")
+	mkfile(t, filepath.Join(tmp, "gsx.toml"), "[filters]\nf = \"gsxsub/myfilters.F\"\n")
 
 	sub := filepath.Join(tmp, "sub")
 	mkfile(t, filepath.Join(sub, "go.mod"), "module gsxsub\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot(t)+"\n")
@@ -114,7 +114,7 @@ func TestMainMergeConfigAndOpts(t *testing.T) {
 	}
 	mkfile(t, filepath.Join(tmp, "go.mod"), "module gsxmerge\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot(t)+"\n")
 	// Config aliases both "shout" and "f"; the opt below overrides "shout".
-	mkfile(t, filepath.Join(tmp, "gsx.toml"), "[aliases]\nshout = \"gsxmerge/myfilters.ShoutConfig\"\nf = \"gsxmerge/myfilters.F\"\n")
+	mkfile(t, filepath.Join(tmp, "gsx.toml"), "[filters]\nshout = \"gsxmerge/myfilters.ShoutConfig\"\nf = \"gsxmerge/myfilters.F\"\n")
 	mkfile(t, filepath.Join(tmp, "myfilters", "myfilters.go"), `package myfilters
 
 func ShoutConfig(s string) string { return "CONFIG:" + s }
@@ -173,7 +173,7 @@ func B(s string) string { return "B:" + s }
 component C(s string) { <p>{ s |> shout }</p> }
 `)
 	cfgPath := filepath.Join(tmp, "gsx.toml")
-	mkfile(t, cfgPath, "[aliases]\nshout = \"gsxcache/myfilters.A\"\n")
+	mkfile(t, cfgPath, "[filters]\nshout = \"gsxcache/myfilters.A\"\n")
 	t.Setenv("GSXCACHE", t.TempDir())
 
 	gen := func() (int, string) {
@@ -191,7 +191,7 @@ component C(s string) { <p>{ s |> shout }</p> }
 		t.Fatalf("warm gen should be no-op; code=%d out=%q", code, o)
 	}
 	// change the alias target in gsx.toml → cache busted → regenerates
-	mkfile(t, cfgPath, "[aliases]\nshout = \"gsxcache/myfilters.B\"\n")
+	mkfile(t, cfgPath, "[filters]\nshout = \"gsxcache/myfilters.B\"\n")
 	if code, o := gen(); code != 0 || !strings.Contains(o, "wrote") {
 		t.Fatalf("after config change, expected regen; code=%d out=%q", code, o)
 	}
@@ -214,7 +214,7 @@ func TestInfoPrintsConfigPathAndAliases(t *testing.T) {
 	mkfile(t, filepath.Join(tmp, "go.mod"), "module gsxinfo\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot(t)+"\n")
 	mkfile(t, filepath.Join(tmp, "myfilters", "myfilters.go"), "package myfilters\n\nfunc Shout(s string) string { return s + \"!\" }\n")
 	cfgPath := filepath.Join(tmp, "gsx.toml")
-	mkfile(t, cfgPath, "[aliases]\nshout = \"gsxinfo/myfilters.Shout\"\n")
+	mkfile(t, cfgPath, "[filters]\nshout = \"gsxinfo/myfilters.Shout\"\n")
 
 	var out, errb bytes.Buffer
 	code := run([]string{"-C", tmp, "info"}, &out, &errb)

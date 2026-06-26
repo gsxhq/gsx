@@ -1,6 +1,10 @@
 # gsx.toml — Project Configuration File — Design
 
-**Status:** approved design (brainstormed 2026-06-25), ready for an implementation plan.
+**Status:** implemented. This is the original design record; the schema keys were
+renamed after implementation for clarity — the named-filter table `[aliases]` →
+**`[filters]`** and the bulk package list `filters` → **`filterPackages`**. The
+authoritative, current reference is the user guide: [Configuration](../../guide/config.md).
+Key names below reflect the original design, not the shipped schema.
 
 **Goal:** Let a project configure gsx codegen declaratively in a `gsx.toml` file
 read by the **stock `gsx` binary**, so the common cases (filter packages, filter
