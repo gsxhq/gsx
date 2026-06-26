@@ -714,9 +714,22 @@ func TestFormatSelectorList(t *testing.T) {
 	}
 }
 
+func TestFormatPseudoClassColonNotSpaced(t *testing.T) {
+	// A selector colon (pseudo-class) must stay attached — ".a:hover", never
+	// ".a: hover" (which would be a different, broken selector). renderInline
+	// injects no space around ':'; only layoutDecl spaces the declaration colon.
+	got := fmtCSS(t, ".a:hover{color:red}")
+	if !strings.HasPrefix(got, ".a:hover {") {
+		t.Fatalf("pseudo-class colon was spaced/mangled:\n%s", got)
+	}
+}
+
 func TestFormatNestedAtRule(t *testing.T) {
 	got := fmtCSS(t, "@media (min-width:600px){.a{color:red}}")
-	want := "@media (min-width: 600px) {\n\t.a {\n\t\tcolor: red;\n\t}\n}\n"
+	// renderInline injects NO space around ':' — the at-rule prelude keeps
+	// "min-width:600px" as-is (correct + safe). The declaration colon inside the
+	// nested rule IS spaced ("color: red"), because layoutDecl adds it.
+	want := "@media (min-width:600px) {\n\t.a {\n\t\tcolor: red;\n\t}\n}\n"
 	if got != want {
 		t.Fatalf("got:\n%q\nwant:\n%q", got, want)
 	}
@@ -991,50 +1004,28 @@ func layoutDecl(toks []token) pretty.Doc {
 	)
 }
 
-// renderInline collapses a token run to canonical single-line text: whitespace
-// runs become a single space (dropped at edges), no space before ':' ',' ')'
-// or after '(', a single space after ':' and ',' and around combinators is
-// approximated by collapsing WS to one space. Comments are kept inline.
+// renderInline collapses a token run to single-line text: each whitespace run
+// becomes a single space (dropped at the edges), and every other token is
+// emitted verbatim and adjacent. It injects NO spacing around ':' / ',' / '>'
+// etc. — that is the SAFE minimal normalization: a pseudo-class like ".a:hover"
+// or a functional ":is(a:hover)" must keep its colon attached, and there is no
+// purely-structural way to tell a selector colon from a media-feature colon
+// without parsing the prelude grammar. Declaration colon spacing ("prop: value")
+// is added explicitly by layoutDecl, and selector / value comma-lists are joined
+// by the Fill in layoutPrelude / layoutDecl — so renderInline never needs to
+// inject a space itself. Comments are kept inline as ordinary tokens.
 func renderInline(toks []token) string {
 	var b strings.Builder
-	for i := 0; i < len(toks); i++ {
-		t := toks[i]
+	for _, t := range toks {
 		if t.kind == tWS {
-			// Collapse to a single space unless at an edge or adjacent to a
-			// token that should not be spaced.
-			if b.Len() == 0 {
-				continue
-			}
-			if i+1 >= len(toks) {
-				continue
-			}
-			next := toks[i+1]
-			if noSpaceBefore(next.kind) {
-				continue
-			}
-			b.WriteByte(' ')
-			continue
-		}
-		if t.kind == tColon || t.kind == tComma {
-			b.WriteString(t.text)
-			b.WriteByte(' ')
-			// Skip a following WS so we don't double-space.
-			if i+1 < len(toks) && toks[i+1].kind == tWS {
-				i++
+			if b.Len() > 0 {
+				b.WriteByte(' ')
 			}
 			continue
 		}
 		b.WriteString(t.text)
 	}
 	return strings.TrimRight(b.String(), " ")
-}
-
-func noSpaceBefore(k tokKind) bool {
-	switch k {
-	case tColon, tSemi, tComma, tRParen:
-		return true
-	}
-	return false
 }
 
 // splitTopLevel splits toks on sep at paren depth 0, returning the groups
