@@ -5,6 +5,8 @@ import (
 	"go/token"
 	goparser "go/parser"
 	goast "go/ast"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -48,5 +50,30 @@ func TestCheckSkeletonPackageReturnsPkg(t *testing.T) {
 	}
 	if info == nil || info.Defs == nil {
 		t.Fatalf("info not populated")
+	}
+}
+
+func TestModuleSourceOverrideThenDisk(t *testing.T) {
+	dir := t.TempDir()
+	onDisk := filepath.Join(dir, "a.gsx")
+	if err := os.WriteFile(onDisk, []byte("DISK"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Open(Options{ModuleRoot: dir, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, ok := m.source(onDisk); !ok || string(b) != "DISK" {
+		t.Fatalf("disk read: %q,%v", b, ok)
+	}
+	m.SetOverride(onDisk, []byte("BUF"))
+	if b, ok := m.source(onDisk); !ok || string(b) != "BUF" {
+		t.Fatalf("override read: %q,%v", b, ok)
+	}
+	// in-memory-only path (no disk file) resolves from override
+	mem := filepath.Join(dir, "mem.gsx")
+	m.SetOverride(mem, []byte("MEM"))
+	if b, ok := m.source(mem); !ok || string(b) != "MEM" {
+		t.Fatalf("in-memory read: %q,%v", b, ok)
 	}
 }
