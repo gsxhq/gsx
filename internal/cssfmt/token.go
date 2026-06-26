@@ -31,8 +31,9 @@ type token struct {
 // isWordByte reports whether b continues an unquoted "word" (identifier,
 // number, dimension, hash, at-keyword, !important, sentinel). It deliberately
 // includes everything that is not whitespace, a string/comment opener, or one
-// of the structural punctuation bytes handled separately — so values like
-// "12px", "#fff", "@media", "!important", "translateX" stay single tokens.
+// of the structural punctuation bytes handled separately ({ } ( ) : ; , .) —
+// so values like "12px", "#fff", "@media", "!important", "translateX" stay
+// single tokens.
 func isWordByte(b byte) bool {
 	switch b {
 	case ' ', '\t', '\r', '\n', '\f', '"', '\'', '{', '}', '(', ')', ':', ';', ',', '.':
@@ -76,6 +77,7 @@ func tokenize(src []byte) ([]token, error) {
 			i = j
 		case b == '"' || b == '\'':
 			j := i + 1
+			closed := false
 			for j < len(s) {
 				if s[j] == '\\' && j+1 < len(s) {
 					j += 2
@@ -83,6 +85,7 @@ func tokenize(src []byte) ([]token, error) {
 				}
 				if s[j] == b {
 					j++
+					closed = true
 					break
 				}
 				if s[j] == '\n' {
@@ -90,7 +93,7 @@ func tokenize(src []byte) ([]token, error) {
 				}
 				j++
 			}
-			if j > len(s) || (j <= len(s) && s[j-1] != b) {
+			if !closed {
 				return nil, fmt.Errorf("unterminated string")
 			}
 			toks = append(toks, token{tString, s[i:j]})

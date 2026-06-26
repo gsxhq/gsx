@@ -77,3 +77,16 @@ func TestTokenizeUnterminatedComment(t *testing.T) {
 		t.Fatal("expected error for unterminated comment")
 	}
 }
+
+func TestTokenizeUnterminatedBareQuote(t *testing.T) {
+	if _, err := tokenize([]byte(`"`)); err == nil {
+		t.Fatal("expected error for a bare opening quote")
+	}
+}
+
+func TestTokenizeUnterminatedTrailingEscape(t *testing.T) {
+	// bytes: " t e x t \ "  (the final \" is an escape, not a terminator)
+	if _, err := tokenize([]byte("\"text\\\"")); err == nil {
+		t.Fatal("expected error for a string whose only closing quote is escaped")
+	}
+}
