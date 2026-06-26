@@ -70,8 +70,7 @@ func assertFormat(t *testing.T, src, want string) {
 }
 
 func TestElementBlock(t *testing.T) {
-	// Two short children fit on one line in the new width-aware layout: the
-	// <div> Group collapses because <div><p>a</p><span>b</span></div> < 80 cols.
+	// Block-level children always break to show hierarchy — structural breaking.
 	src := `package p
 component C() {
 	<div>
@@ -82,7 +81,10 @@ component C() {
 	want := `package p
 
 component C() {
-	<div><p>a</p><span>b</span></div>
+	<div>
+		<p>a</p>
+		<span>b</span>
+	</div>
 }
 `
 	checkFormat(t, src, want)
@@ -121,7 +123,8 @@ component C() {
 }
 
 func TestElementInlineTextAndElement(t *testing.T) {
-	// Text + element child → inline-verbatim (a surviving Text forbids block).
+	// Text + element child: the segment is glued (edge-safe) and breaks to show
+	// the block child; all nodes stay on one indented line together.
 	src := `package p
 component C() {
 	<p>a <b>x</b> b</p>
@@ -129,7 +132,9 @@ component C() {
 	want := `package p
 
 component C() {
-	<p>a <b>x</b> b</p>
+	<p>
+		a <b>x</b> b
+	</p>
 }
 `
 	checkFormat(t, src, want)
@@ -168,8 +173,8 @@ component C() {
 
 func TestAttrKinds(t *testing.T) {
 	// Five attrs total 85 chars flat — exceeds 76 remaining at depth 1 — so the
-	// opening-tag group breaks. Children (`{ children }`) are non-breakable (one
-	// Interp segment), so they sit inline after `>`. Output is faithful+idempotent.
+	// opening-tag group breaks. When the tag breaks, children also break to their
+	// own indented line. Output is faithful+idempotent.
 	src := `package p
 component C() {
 	<div id="main" hidden class={ "card", "active": isActive } data-x={ val } { rest... }>{children}</div>
@@ -183,7 +188,9 @@ component C() {
 		class={ "card", "active": isActive }
 		data-x={val}
 		{ rest... }
-	>{ children }</div>
+	>
+		{ children }
+	</div>
 }
 `
 	checkFormat(t, src, want)
@@ -191,8 +198,8 @@ component C() {
 
 func TestCondAttr(t *testing.T) {
 	// A CondAttr always forces the opening-tag group to break (BreakParent inside
-	// attrDoc for CondAttr). Children "x" are non-breakable, so they sit inline
-	// after `>`. Output is faithful+idempotent.
+	// attrDoc for CondAttr). When the tag breaks, children also break to their own
+	// indented line. Output is faithful+idempotent.
 	src := `package p
 component C() {
 	<div { if active { class="on" } else { class="off" } }>x</div>
@@ -206,7 +213,9 @@ component C() {
 		} else {
 			class="off"
 		} }
-	>x</div>
+	>
+		x
+	</div>
 }
 `
 	checkFormat(t, src, want)
@@ -227,9 +236,9 @@ component C() {
 }
 
 func TestJSAttr(t *testing.T) {
-	// Two JSAttrs — flat tag is 71 chars but tag+child+close = 78 chars; at depth
-	// 1 (position 4) the total 82 > 80 so the opening-tag group breaks. Children
-	// "x" are non-breakable, so they sit inline after `>`. Faithful+idempotent.
+	// Two JSAttrs — flat tag is 71 chars, fits within 80; but the full element
+	// including child and closing tag exceeds 80 so children break to their own
+	// indented line. Attrs stay inline. Faithful+idempotent.
 	src := `package p
 component C(tab string) {
 	<div x-data="{ tab: @{ tab }, open: false }" onclick="alert(@{ tab })">x</div>
@@ -237,18 +246,18 @@ component C(tab string) {
 	want := `package p
 
 component C(tab string) {
-	<div
-		x-data="{ tab: @{ tab }, open: false }"
-		onclick="alert(@{ tab })"
-	>x</div>
+	<div x-data="{ tab: @{ tab }, open: false }" onclick="alert(@{ tab })">
+		x
+	</div>
 }
 `
 	checkFormat(t, src, want)
 }
 
 func TestIfElseIfElse(t *testing.T) {
-	// Short if-else-if-else fits on one line: the Group collapses to flat
-	// because the whole expression is < 80 cols at depth 1.
+	// An if-else-if-else with block children in each arm: the if body has
+	// block-level children so each arm breaks, and the containing <div>
+	// shows hierarchy too.
 	src := `package p
 component C() {
 	<div>
@@ -258,14 +267,23 @@ component C() {
 	want := `package p
 
 component C() {
-	<div>{ if a { <p>A</p> } else if b { <p>B</p> } else { <p>C</p> } }</div>
+	<div>
+		{ if a {
+			<p>A</p>
+		} else if b {
+			<p>B</p>
+		} else {
+			<p>C</p>
+		} }
+	</div>
 }
 `
 	checkFormat(t, src, want)
 }
 
 func TestForMarkup(t *testing.T) {
-	// Short for-range with one child fits on one line at depth 1 (< 80 cols).
+	// A for-range body with a block-level child always breaks to show hierarchy.
+	// The containing <ul> also breaks because it has a block-level child (the for).
 	src := `package p
 component C() {
 	<ul>
@@ -275,16 +293,19 @@ component C() {
 	want := `package p
 
 component C() {
-	<ul>{ for _, it := range items { <li>{ it.Name }</li> } }</ul>
+	<ul>
+		{ for _, it := range items {
+			<li>{ it.Name }</li>
+		} }
+	</ul>
 }
 `
 	checkFormat(t, src, want)
 }
 
 func TestSwitchMarkup(t *testing.T) {
-	// Switch always uses HardLine so it never collapses. Short case bodies (one
-	// non-breakable element) follow the colon on the same line. The <div> renders
-	// inline (one child, not breakable) wrapping the switch block.
+	// Switch arms with block-level children always break to show hierarchy.
+	// The containing <div> also breaks because it has a block-level child (switch).
 	src := `package p
 component C() {
 	<div>
@@ -299,10 +320,14 @@ component C() {
 	want := `package p
 
 component C() {
-	<div>{ switch kind {
-		case "a":<p>A</p>
-		default:<p>D</p>
-	} }</div>
+	<div>
+		{ switch kind {
+			case "a":
+				<p>A</p>
+			default:
+				<p>D</p>
+		} }
+	</div>
 }
 `
 	checkFormat(t, src, want)
@@ -392,8 +417,8 @@ func TestTextareaVerbatim(t *testing.T) {
 }
 
 func TestNestedBlockInline(t *testing.T) {
-	// Outer block (two elements), inner inline (text+element). Both fit flat.
-	// Width-aware: <div><p>a <b>x</b> b</p><p>plain</p></div> < 80 cols.
+	// Outer block has block-level children (two <p> elements) → always breaks.
+	// Inner <p> with text+element glued segment also breaks to show its hierarchy.
 	src := `package p
 component C() {
 	<div>
@@ -404,7 +429,12 @@ component C() {
 	want := `package p
 
 component C() {
-	<div><p>a <b>x</b> b</p><p>plain</p></div>
+	<div>
+		<p>
+			a <b>x</b> b
+		</p>
+		<p>plain</p>
+	</div>
 }
 `
 	checkFormat(t, src, want)
@@ -472,7 +502,9 @@ component C() {
 			· <a
 				class="hover:underline"
 				href={categoryPage{} |> url("slug", props.Category.Slug)}
-			>{ props.Category.Name }</a>
+			>
+				{ props.Category.Name }
+			</a>
 		} }
 	</p>
 }
@@ -506,8 +538,9 @@ component C() {
 	}
 }
 
-func TestShortBlockCollapsesToOneLine(t *testing.T) {
-	// "true Prettier": a short block structure that fits 80 cols lays out flat.
+func TestBlockShowsHierarchy(t *testing.T) {
+	// A block-containing element always breaks to show hierarchy regardless of
+	// whether the content fits within 80 columns — structural breaking.
 	src := `package p
 component C() {
 	<div>
@@ -517,7 +550,9 @@ component C() {
 	want := `package p
 
 component C() {
-	<div><p>plain</p></div>
+	<div>
+		<p>plain</p>
+	</div>
 }
 `
 	assertFormat(t, src, want)
@@ -628,35 +663,47 @@ func leadingTabs(line string) int {
 	return n
 }
 
-// TestPrintWidthControlsWrap verifies that the same input stays flat at
-// width 80 but breaks each <li> onto its own line at width 20.
+// TestPrintWidthControlsWrap verifies that width governs ATTRIBUTE wrapping:
+// a long attribute list (exceeding 80 cols) causes the opening tag to wrap
+// with one attribute per line; short attributes stay on one line.
 func TestPrintWidthControlsWrap(t *testing.T) {
+	// Long attrs: opening tag exceeds 80 cols → attrs wrap, one per line.
+	// When the tag wraps, children also break to their own indented line.
 	src := `package p
 component C() {
-	<ul><li>one</li><li>two</li><li>three</li></ul>
+	<form action="/submit" method="post" class="space-y-4 mt-6" id="contact-form" novalidate>Submit</form>
 }`
-	// Fits at 80 → one line.
-	flat := format80(t, src)
-	if !strings.Contains(flat, "<ul><li>one</li><li>two</li><li>three</li></ul>") {
-		t.Fatalf("width 80 should stay flat:\n%s", flat)
-	}
-	// At width 20 → breaks each <li> onto its own line.
-	fset := token.NewFileSet()
-	f, _ := parser.ParseFile(fset, "c.gsx", []byte(src), 0)
-	wsnorm.Normalize(f)
-	var b bytes.Buffer
-	if err := Fprint(&b, f, 20); err != nil {
-		t.Fatal(err)
-	}
-	narrow := b.String()
-	if !strings.Contains(narrow, "<ul>\n\t\t<li>one</li>\n") {
-		t.Fatalf("width 20 should break list:\n%s", narrow)
+	want := `package p
+
+component C() {
+	<form
+		action="/submit"
+		method="post"
+		class="space-y-4 mt-6"
+		id="contact-form"
+		novalidate
+	>
+		Submit
+	</form>
+}
+`
+	assertFormat(t, src, want)
+
+	// Short attrs: stay inline.
+	shortSrc := `package p
+component C() {
+	<a href="/x" class="b">link</a>
+}`
+	shortGot := fmtSource(t, shortSrc)
+	if !strings.Contains(shortGot, `<a href="/x" class="b">link</a>`) {
+		t.Fatalf("short attrs should stay inline:\n%s", shortGot)
 	}
 }
 
 // TestDSButtonAcceptance verifies the ds/button pattern: CondAttr forces the
-// opening tag to break (one attr per line), single children interp stays inline
-// after >. Strengthened assertFormat enforces faithfulness + idempotence.
+// opening tag to break (one attr per line); when the tag breaks, children also
+// break to their own indented line. Strengthened assertFormat enforces
+// faithfulness + idempotence.
 func TestDSButtonAcceptance(t *testing.T) {
 	src := `package ds
 
@@ -673,7 +720,9 @@ component Button(p Props) {
 		href={p.Href}
 		class={ buttonClass(p) }
 		{ p.Attributes... }
-	>{ children }</a>
+	>
+		{ children }
+	</a>
 }
 `
 	assertFormat(t, src, want)
@@ -681,8 +730,8 @@ component Button(p Props) {
 
 // TestDSFormMessageAcceptance verifies the ds/form-message pattern: CondAttr
 // forces tag break; a multi-line class value (utils.TwMerge) renders with
-// gofmt's own indentation under the ExprAttr. Faithfulness + idempotence
-// enforced by the strengthened assertFormat.
+// gofmt's own indentation under the ExprAttr; when the tag breaks, children
+// also break to their own indented line. Faithfulness + idempotence enforced.
 func TestDSFormMessageAcceptance(t *testing.T) {
 	src := `package ds
 
@@ -708,7 +757,9 @@ component Message(p MessageProps) {
 			)
 		}
 		{ p.Attributes... }
-	>{ children }</p>
+	>
+		{ children }
+	</p>
 }
 `
 	assertFormat(t, src, want)
@@ -752,4 +803,112 @@ func TestSwitchArmEdgeUnsafeStaysFaithful(t *testing.T) {
 	if out != out2 {
 		t.Fatalf("not idempotent:\n  out =%q\n  out2=%q", out, out2)
 	}
+}
+
+func TestSingleBlockChildBreaks(t *testing.T) {
+	// A container whose only child is a block-level `for` must put it on its own
+	// line — the `<div>`/`</div>` must not jam onto the for lines.
+	src := `package p
+component C(props P) {
+	<div class="space-y-4">
+		{ for _, post := range props.Posts {
+			<PostCard p={post}/>
+		} }
+	</div>
+}`
+	want := `package p
+
+component C(props P) {
+	<div class="space-y-4">
+		{ for _, post := range props.Posts {
+			<PostCard p={post}/>
+		} }
+	</div>
+}
+`
+	assertFormat(t, src, want)
+}
+
+func TestShortAttrsStayInlineWithLongChildren(t *testing.T) {
+	// Short attrs on the opening tag must NOT wrap just because the children are
+	// long/multi-line — the attr group decides independently of children.
+	src := `package p
+component C(props P) {
+	<ul class="flex flex-wrap gap-2">
+		{ for _, c := range props.Categories {
+			<li>{ c.Name }</li>
+		} }
+	</ul>
+}`
+	want := `package p
+
+component C(props P) {
+	<ul class="flex flex-wrap gap-2">
+		{ for _, c := range props.Categories {
+			<li>{ c.Name }</li>
+		} }
+	</ul>
+}
+`
+	assertFormat(t, src, want)
+}
+
+func TestDocCommentStaysAttachedToComponent(t *testing.T) {
+	// A comment directly above `component` (no blank line in source) is a doc
+	// comment and must stay attached — no blank line inserted.
+	src := `package p
+
+// Doc comment for C.
+component C() {
+	<div></div>
+}`
+	want := `package p
+
+// Doc comment for C.
+component C() {
+	<div></div>
+}
+`
+	assertFormat(t, src, want)
+}
+
+func TestBlankLineBeforeComponentPreserved(t *testing.T) {
+	// A blank line between preceding code and `component` in source is kept.
+	src := `package p
+
+type T struct{}
+
+component C() {
+	<div></div>
+}`
+	want := `package p
+
+type T struct{}
+
+component C() {
+	<div></div>
+}
+`
+	assertFormat(t, src, want)
+}
+
+func TestPackageDocCommentPreserved(t *testing.T) {
+	// The doc comment above `package` must survive formatting (it was being
+	// dropped: the parser discarded everything before the package keyword).
+	src := `// Package foo exports the shared widgets.
+// Second line of the package doc.
+package foo
+
+component C() {
+	<div></div>
+}`
+	want := `// Package foo exports the shared widgets.
+// Second line of the package doc.
+package foo
+
+component C() {
+	<div></div>
+}
+`
+	assertFormat(t, src, want)
 }

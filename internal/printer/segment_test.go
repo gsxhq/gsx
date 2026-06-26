@@ -31,12 +31,13 @@ func TestSegmentSafeBoundaryBreakable(t *testing.T) {
 	}
 }
 
-func TestSegmentAllGluedNotBreakable(t *testing.T) {
-	// [Text("a "), <b>, Text(" b")] — both boundaries glued → one segment, inline.
+func TestSegmentAllGluedSingleSegment(t *testing.T) {
+	// [Text("a "), <b>, Text(" b")] — both boundaries glued → one segment,
+	// and edge-safe (no significant leading/trailing space) so breakable=true.
 	nodes := []ast.Markup{txt("a "), elem("b"), txt(" b")}
 	segs, breakable := segmentChildren(nodes)
-	if breakable {
-		t.Fatal("want not breakable (all glued)")
+	if !breakable {
+		t.Fatal("want breakable (one segment, edge-safe)")
 	}
 	if got := segWords(segs); len(got) != 1 || got[0] != 3 {
 		t.Fatalf("segments = %v, want [3]", got)
@@ -70,10 +71,11 @@ func TestSegmentTrailingSpaceEdgeGuardForcesInline(t *testing.T) {
 	}
 }
 
-func TestSegmentInterpOnlyNotBreakable(t *testing.T) {
-	// A single Interp — one segment, nothing to break.
+func TestSegmentSingleInterpIsEdgeSafe(t *testing.T) {
+	// A single Interp — one segment, edge-safe (no significant boundary space)
+	// so breakable=true; the element/body layer decides block-vs-inline via hasBlockChild.
 	_, breakable := segmentChildren([]ast.Markup{interp()})
-	if breakable {
-		t.Fatal("single child cannot be breakable")
+	if !breakable {
+		t.Fatal("single Interp is edge-safe so breakable")
 	}
 }

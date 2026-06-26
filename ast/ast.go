@@ -99,6 +99,10 @@ type Attr interface {
 // File is a parsed .gsx file.
 type File struct {
 	span
+	// Doc is the verbatim comment block that precedes the `package` clause (the
+	// package doc comment), or "" if there is none. It is preserved across
+	// formatting; the parser captures everything before the `package` keyword.
+	Doc     string
 	Package string
 	Decls   []Decl
 }
