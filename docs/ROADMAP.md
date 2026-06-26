@@ -234,13 +234,14 @@ vocabulary remains a design aspiration, not the current API.
   `2026-06-25-pipeline-forward-application-design.md`.
 - `[ ]` **Pipeline extensions** — initialism-aware filter naming;
   pipeline-as-filter-argument; ambient `mapEach` (deferred / out of scope).
-- `[~]` **LSP reads `gsx.toml` in-process** — `gsx lsp` resolves config the same
+- `[x]` **LSP reads `gsx.toml` in-process** — `gsx lsp` resolves config the same
   way `generate`/`info` do (`mergeConfig(gsx.toml, opts)`) but in-process and
   best-effort (no subprocess, the LSP spawns nothing → no orphan children), so
-  `gd`/hover/diagnostics on declarative project filters (`[aliases] url = …`,
-  `[filters]`, attr rules) work in the editor with no Neovim change. A malformed
-  `gsx.toml` falls back to the std baseline. In progress. Spec
-  `2026-06-25-gsx-lsp-reads-config-design.md`.
+  `gd`/hover/diagnostics on declarative project filters (`[filters] url = …`,
+  `filterPackages`, attr rules) work in the editor with no Neovim change. A
+  malformed `gsx.toml` falls back to the std baseline; opts are layered over the
+  file (opts win). Spec/plan `2026-06-25-gsx-lsp-reads-config-design.md` /
+  `2026-06-26-gsx-lsp-reads-config.md`.
 - `[ ]` **`[gsx] command` + generate/info/lsp delegation** — a `gsx.toml`
   `[gsx] command = ["./bin/gsx"]` declaring the project's gsx, so the stock binary
   can `syscall.Exec` into it (single process, full fidelity incl. code-only
