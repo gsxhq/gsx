@@ -68,3 +68,20 @@ func TestLoadConfig_Minify(t *testing.T) {
 		t.Fatal("invalid minify.css should error")
 	}
 }
+
+func TestMergeConfig_MinifyPrecedence(t *testing.T) {
+	// option > config: opts pin via WithMinifyLevel beats file base.
+	base := config{cssMinLevel: MinifyNone, jsMinLevel: MinifyNone}
+	var opts config
+	WithMinifyLevel(MinifySafe, MinifySafe)(&opts)
+	merged := mergeConfig(base, opts)
+	if merged.cssMinLevel != MinifySafe || merged.jsMinLevel != MinifySafe {
+		t.Fatalf("WithMinifyLevel should win: got %v/%v", merged.cssMinLevel, merged.jsMinLevel)
+	}
+
+	// No option set → base (env/file) value flows through unchanged.
+	merged = mergeConfig(base, config{})
+	if merged.cssMinLevel != MinifyNone || merged.jsMinLevel != MinifyNone {
+		t.Fatalf("no option should keep base: got %v/%v", merged.cssMinLevel, merged.jsMinLevel)
+	}
+}

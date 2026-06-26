@@ -258,6 +258,20 @@ func WithFieldMatcher(fn FieldMatcher) Option {
 	}
 }
 
+// WithMinifyLevel pins the minification level for <style> CSS and <script> JS,
+// overriding both the [minify] config table and the GSX_MINIFY env var (code is
+// the most deliberate layer: option > env > config). The level GATES the pass;
+// a custom WithCSSMinifier/WithJSMinifier supplies the implementation used when
+// the level is MinifySafe. MinifyNone emits the asset verbatim and the custom
+// minifier is not called.
+func WithMinifyLevel(css, js MinifyLevel) Option {
+	return func(cfg *config) {
+		cfg.cssMinLevel = css
+		cfg.jsMinLevel = js
+		cfg.minifyLevelSet = true
+	}
+}
+
 // appendValidRules validates each rule in add, recording errors for invalid
 // rules onto cfg.errs, and appends the valid ones to dst.
 func appendValidRules(cfg *config, who string, dst, add []Rule) []Rule {
