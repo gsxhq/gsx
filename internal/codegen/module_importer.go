@@ -244,7 +244,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	compsByXGo := map[string][]*gsxast.Component{}
 	var allImportSpecs []importSpec
 	for path, f := range gsxFiles {
-		skel, comps, imps, berr := buildSkeleton(f, table, propFields, nodeProps, byo, m.opts.FieldMatcher, fset)
+		skel, comps, imps, _, berr := buildSkeleton(f, table, propFields, nodeProps, byo, m.opts.FieldMatcher, fset)
 		if berr != nil {
 			return nil, berr
 		}

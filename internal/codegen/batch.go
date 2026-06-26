@@ -211,6 +211,9 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 	overlay := map[string][]byte{}
 	// skelCompsByPath maps absXpath → slice of *gsxast.Component (from buildSkeleton).
 	skelCompsByPath := map[string][]*gsxast.Component{}
+	// ctrlOffByXGo maps absXpath → ctrlOff (control-flow clause byte-offsets in the
+	// skeleton). Collected here per-file for Task 3 (LSP go-to-def on loop vars etc.).
+	ctrlOffByXGo := map[string]map[gsxast.Node]int{}
 	importsByDir := map[string][]importSpec{} // dir → hoisted import specs across its files
 
 	for _, dir := range absDirs {
@@ -231,7 +234,7 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 		byo := byoByDir[dir]
 		skeletonErr := false
 		for path, file := range files {
-			skel, comps, imps, err := buildSkeleton(file, table, pf, np, byo, fm, fset)
+			skel, comps, imps, ctrlOff, err := buildSkeleton(file, table, pf, np, byo, fm, fset)
 			if err != nil {
 				// An attrError carries the offending attr's position and a diagnostic
 				// code — emit a positioned diagnostic. Any other error is an infrastructure
@@ -250,6 +253,7 @@ func GeneratePackagesWithFilters(moduleDir string, dirs []string, filterPkgs []s
 			absXpath := filepath.Join(dir, base+".x.go")
 			overlay[absXpath] = []byte(skel)
 			skelCompsByPath[absXpath] = comps
+			ctrlOffByXGo[absXpath] = ctrlOff
 			importsByDir[dir] = append(importsByDir[dir], imps...)
 		}
 		if skeletonErr {

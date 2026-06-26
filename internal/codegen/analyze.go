@@ -70,7 +70,7 @@ func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propF
 	overlay := map[string][]byte{}
 	skelComps := map[string][]*gsxast.Component{}
 	for path, file := range files {
-		skel, comps, _, err := buildSkeleton(file, table, propFields, nodeProps, byo, fm, fset)
+		skel, comps, _, _, err := buildSkeleton(file, table, propFields, nodeProps, byo, fm, fset)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -367,7 +367,7 @@ func freeOverlayPath(dir, base, suffix string, overlay map[string][]byte) (strin
 // resolution: the file's GoChunks, plus each component's real props struct and
 // func signature, with a probe body (used-param locals, each interpolation as
 // `_gsxuse(expr)`, each child component as `_ = Child(ChildProps{})`).
-func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, fset *token.FileSet) (string, []*gsxast.Component, []importSpec, error) {
+func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, fset *token.FileSet) (string, []*gsxast.Component, []importSpec, map[gsxast.Node]int, error) {
 	var comps []*gsxast.Component
 	for _, d := range file.Decls {
 		if c, ok := d.(*gsxast.Component); ok {
@@ -386,7 +386,7 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps m
 		if gc, ok := d.(*gsxast.GoChunk); ok {
 			imps, body, bodyOff, err := splitChunk(gc.Src)
 			if err != nil {
-				return "", nil, nil, err
+				return "", nil, nil, nil, err
 			}
 			// Resolve each import's .gsx position so the skeleton can emit a //line
 			// directive ahead of it — gc.Src starts exactly at gc.Pos(), so the
@@ -417,6 +417,11 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps m
 	// the skeleton type-check).
 	usedFilters := map[string]string{} // alias -> pkgPath
 	var compBuf strings.Builder
+	// ctrlOff maps each control-flow node (ForMarkup/IfMarkup/GoBlock) to the
+	// byte offset of its clause/cond/code text within the final skeleton string.
+	// Offsets are recorded relative to compBuf during emitComponentSkeleton and
+	// adjusted below (after the prefix is assembled into sb) to be file-relative.
+	ctrlOff := map[gsxast.Node]int{}
 	// Keep only the components whose skeletons succeed. A validation error
 	// (errSkipComponent — reserved param/recv, parse failure) means the component
 	// is invalid for codegen; skip its skeleton so the overall file stays valid Go.
@@ -425,13 +430,13 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps m
 	// failure and must abort the whole skeleton build.
 	var validComps []*gsxast.Component
 	for _, c := range comps {
-		if err := emitComponentSkeleton(&compBuf, c, table, propFields, nodeProps, byo, fm, usedFilters, fset); err != nil {
+		if err := emitComponentSkeleton(&compBuf, c, table, propFields, nodeProps, byo, fm, usedFilters, fset, ctrlOff); err != nil {
 			if errors.Is(err, errSkipComponent) {
 				// Validation failure: skip this component's skeleton; it will fail
 				// again (with a positioned diagnostic) during generateFile.
 				continue
 			}
-			return "", nil, nil, err
+			return "", nil, nil, nil, err
 		}
 		validComps = append(validComps, c)
 	}
@@ -479,13 +484,22 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps m
 	// like `_gsxuse(helper())` still resolves) so each body's //line directive
 	// stays scoped to that body — it cannot bleed into a component skeleton's
 	// unmapped props-struct / signature lines and shift their overlay positions.
+	//
+	// Adjust ctrlOff from compBuf-relative to skeleton-file-relative: each recorded
+	// offset was relative to compBuf (the temp builder used by emitComponentSkeleton);
+	// add the prefix length (everything written into sb before compBuf) so ctrlOff
+	// values index into the final skeleton string returned by buildSkeleton.
+	compBufStart := sb.Len()
 	sb.WriteString(compBuf.String())
+	for k, v := range ctrlOff {
+		ctrlOff[k] = v + compBufStart
+	}
 	for _, b := range bodies {
 		emitSkeletonLine(&sb, fset, b.pos)
 		sb.WriteString(b.src)
 		sb.WriteByte('\n')
 	}
-	return sb.String(), comps, imports, nil
+	return sb.String(), comps, imports, ctrlOff, nil
 }
 
 // goBody is a GoChunk's non-import remainder paired with the .gsx source
@@ -510,7 +524,7 @@ func sortedFilterAliases(usedFilters map[string]string) []string {
 // func/method signature + probe body) into sb, accumulating into usedFilters
 // (alias→pkgPath) every filter package the component's probes reference — so the
 // caller imports exactly those packages under those aliases.
-func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filterTable, propFields, nodeProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, usedFilters map[string]string, fset *token.FileSet) error {
+func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filterTable, propFields, nodeProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int) error {
 	params, err := parseParams(c.Params)
 	if err != nil {
 		// Emit a minimal stub so the overall skeleton remains valid Go, keeping
@@ -587,7 +601,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 		// Reset the //line so the probe body's own positions are not shifted by the
 		// param binding's mapping.
 		emitSkeletonLine(sb, fset, c.Pos())
-		if err := emitProbes(sb, c.Body, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
+		if err := emitProbes(sb, c.Body, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
 			return err
 		}
 		sb.WriteString("\treturn nil\n}\n")
@@ -677,7 +691,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 	if manual {
 		sb.WriteString("\tattrs := _gsxp.Attrs\n\t_ = attrs\n")
 	}
-	if err := emitProbes(sb, c.Body, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
+	if err := emitProbes(sb, c.Body, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
 		return err
 	}
 	sb.WriteString("\treturn nil\n}\n")
@@ -698,7 +712,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 // usedFilters (alias→pkgPath) accumulates every filter package the probes
 // reference, so the skeleton imports exactly those packages under those aliases
 // — driven by the SAME lowerPipe report the emitter uses.
-func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, propFields, nodeProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, recvVar, recvTypeName string, usedFilters map[string]string, fset *token.FileSet) error {
+func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, propFields, nodeProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, recvVar, recvTypeName string, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int) error {
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *gsxast.Interp:
@@ -797,12 +811,12 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					if probeErr != nil {
 						return
 					}
-					probeErr = emitProbes(sb, value, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset)
+					probeErr = emitProbes(sb, value, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff)
 				})
 				if probeErr != nil {
 					return probeErr
 				}
-				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
+				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
 					return err
 				}
 			} else {
@@ -840,34 +854,38 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					if probeErr != nil {
 						return
 					}
-					probeErr = emitProbes(sb, value, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset)
+					probeErr = emitProbes(sb, value, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff)
 				})
 				if probeErr != nil {
 					return probeErr
 				}
-				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
+				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
 					return err
 				}
 			}
 		case *gsxast.Fragment:
-			if err := emitProbes(sb, t.Children, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
+			if err := emitProbes(sb, t.Children, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
 				return err
 			}
 		case *gsxast.ForMarkup:
+			emitSkeletonClauseLine(sb, fset, t.ClausePos, len("for ")) // 4
+			ctrlOff[t] = sb.Len() + len("for ")
 			fmt.Fprintf(sb, "for %s {\n", t.Clause)
-			if err := emitProbes(sb, t.Body, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
+			if err := emitProbes(sb, t.Body, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
 				return err
 			}
 			sb.WriteString("}\n")
 		case *gsxast.IfMarkup:
+			emitSkeletonClauseLine(sb, fset, t.CondPos, len("if ")) // 3
+			ctrlOff[t] = sb.Len() + len("if ")
 			fmt.Fprintf(sb, "if %s {\n", t.Cond)
-			if err := emitProbes(sb, t.Then, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
+			if err := emitProbes(sb, t.Then, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
 				return err
 			}
 			sb.WriteString("}")
 			if t.Else != nil {
 				sb.WriteString(" else {\n")
-				if err := emitProbes(sb, t.Else, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
+				if err := emitProbes(sb, t.Else, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
 					return err
 				}
 				sb.WriteString("}")
@@ -881,12 +899,14 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				} else {
 					fmt.Fprintf(sb, "case %s:\n", cc.List)
 				}
-				if err := emitProbes(sb, cc.Body, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset); err != nil {
+				if err := emitProbes(sb, cc.Body, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
 					return err
 				}
 			}
 			sb.WriteString("}\n")
 		case *gsxast.GoBlock:
+			emitSkeletonClauseLine(sb, fset, t.CodePos, 0)
+			ctrlOff[t] = sb.Len()
 			sb.WriteString(t.Code)
 			sb.WriteString("\n")
 		}
@@ -910,6 +930,21 @@ func emitSkeletonComponentNameLine(sb *strings.Builder, fset *token.FileSet, c *
 	}
 	p := fset.Position(c.NamePos)
 	col := p.Column - genNameCol + 1
+	if col < 1 {
+		col = 1
+	}
+	fmt.Fprintf(sb, "//line %s:%d:%d\n", p.Filename, p.Line, col)
+}
+
+// emitSkeletonClauseLine emits a //line anchored so the clause/cond/code text
+// (which the skeleton emits verbatim starting `prefixLen` bytes into the line)
+// maps to its .gsx position pos. col = clauseCol - prefixLen + 1.
+func emitSkeletonClauseLine(sb *strings.Builder, fset *token.FileSet, pos token.Pos, prefixLen int) {
+	if fset == nil || !pos.IsValid() {
+		return
+	}
+	p := fset.Position(pos)
+	col := p.Column - prefixLen + 1
 	if col < 1 {
 		col = 1
 	}
