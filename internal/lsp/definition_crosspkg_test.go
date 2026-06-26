@@ -11,12 +11,12 @@ func TestSplitDottedTag(t *testing.T) {
 	}{
 		{"components.Input", "components", "Input", true},
 		{"ui.Button", "ui", "Button", true},
-		{"p.Content", "p", "Content", true},   // valid split; qualifier won't match an import at resolve time
-		{"a.b.c", "", "", false},               // multi-dot rejected
-		{"pkg.input", "", "", false},           // lowercase-initial name rejected
-		{"Card", "", "", false},                // no dot
-		{".x", "", "", false},                  // leading dot
-		{"a.", "", "", false},                  // trailing dot
+		{"p.Content", "p", "Content", true}, // valid split; qualifier won't match an import at resolve time
+		{"a.b.c", "", "", false},            // multi-dot rejected
+		{"pkg.input", "", "", false},        // lowercase-initial name rejected
+		{"Card", "", "", false},             // no dot
+		{".x", "", "", false},               // leading dot
+		{"a.", "", "", false},               // trailing dot
 	}
 	for _, tc := range cases {
 		q, n, ok := splitDottedTag(tc.tag)
@@ -34,8 +34,8 @@ func TestIsComponentTag(t *testing.T) {
 	}{
 		{"Card", true},
 		{"components.Input", true},
-		{"div", false},    // lowercase simple tag
-		{"a.b.c", false},  // multi-dot rejected
+		{"div", false},   // lowercase simple tag
+		{"a.b.c", false}, // multi-dot rejected
 		{"", false},
 	}
 	for _, tc := range cases {

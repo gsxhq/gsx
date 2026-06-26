@@ -302,6 +302,7 @@ func isNoPropsComponent(propFields map[string]map[string]bool, propsType string)
 //   - a hand-written `func F() gsx.Node` (not a .gsx component), or
 //   - a .gsx no-props function component (`component F() { … }`, which codegen
 //     emits as a bare `func F() gsx.Node`).
+//
 // For either, a nullary call is a valid bare `<F/>` — like a self-contained void
 // element, no props struct — and passing attributes or children is a clean error
 // (a zero-arg func has nowhere to put them). byo components and methods keep
