@@ -246,9 +246,11 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// matching the behaviour of the batch packages.Load path and resolver.go.
 	// On error (e.g. no buildable Go in the dir yet) we simply add nothing.
 	//
-	// Excluded from the result: live-skeleton overlay paths (already in
-	// compsByXGo), the synthetic helper shim (helperXgoPath), and any other
-	// generated .x.go (those are replaced by in-memory skeletons above).
+	// Excluded from the result: live-skeleton overlay paths (compsByXGo keys —
+	// the in-memory skeletons already cover them) and the synthetic helper shim
+	// (helperXgoPath). Hand-written .x.go files (e.g. gsxshared.x.go) and
+	// orphaned .x.go files (from a deleted .gsx) are intentionally included —
+	// matching batch/packages.Load behaviour which sees all on-disk .go files.
 	if bp, berr := build.ImportDir(dir, 0); berr == nil {
 		for _, name := range bp.GoFiles {
 			absPath := filepath.Join(dir, name)
