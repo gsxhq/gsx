@@ -713,3 +713,43 @@ component Message(p MessageProps) {
 `
 	assertFormat(t, src, want)
 }
+
+func TestComponentBodyEdgeUnsafeStaysFaithful(t *testing.T) {
+	src := "package p\n\ncomponent C() { foo }"
+	out, err := normPrint(t, src)
+	if err != nil {
+		t.Fatalf("normPrint: %v", err)
+	}
+	want := normalizedAST(t, src)
+	got := normalizedAST(t, out)
+	if !reflect.DeepEqual(want, got) {
+		t.Fatalf("not faithful:\n  src=%q\n  out=%q", src, out)
+	}
+	out2, err := normPrint(t, out)
+	if err != nil {
+		t.Fatalf("normPrint(out2): %v", err)
+	}
+	if out != out2 {
+		t.Fatalf("not idempotent:\n  out =%q\n  out2=%q", out, out2)
+	}
+}
+
+func TestSwitchArmEdgeUnsafeStaysFaithful(t *testing.T) {
+	src := "package p\n\ncomponent C() {\n{ switch k { case \"a\": foo } }\n}"
+	out, err := normPrint(t, src)
+	if err != nil {
+		t.Fatalf("normPrint: %v", err)
+	}
+	want := normalizedAST(t, src)
+	got := normalizedAST(t, out)
+	if !reflect.DeepEqual(want, got) {
+		t.Fatalf("not faithful:\n  src=%q\n  out=%q", src, out)
+	}
+	out2, err := normPrint(t, out)
+	if err != nil {
+		t.Fatalf("normPrint(out2): %v", err)
+	}
+	if out != out2 {
+		t.Fatalf("not idempotent:\n  out =%q\n  out2=%q", out, out2)
+	}
+}

@@ -86,6 +86,10 @@ func (p *printer) component(c *ast.Component) pretty.Doc {
 	body := pretty.Text("")
 	if len(c.Body) > 0 {
 		inner, _ := p.childrenInner(c.Body)
+		if leadsWithSpace(c.Body[0]) || trailsWithSpace(c.Body[len(c.Body)-1]) {
+			// edge-unsafe: keep inline so no newline absorbs the significant space
+			return pretty.Concat(pretty.Concat(head...), inner, pretty.Text("}"), pretty.HardLine)
+		}
 		body = pretty.Concat(pretty.Indent(pretty.Concat(pretty.HardLine, inner)))
 	}
 	return pretty.Concat(pretty.Concat(head...), body, pretty.HardLine, pretty.Text("}"), pretty.HardLine)
@@ -375,13 +379,31 @@ func (p *printer) cfBody(nodes []ast.Markup) pretty.Doc {
 	return pretty.Concat(pretty.Indent(pretty.Concat(pretty.Line, inner)), pretty.Line)
 }
 
-// switchMarkup always breaks (cases on their own lines) via HardLine.
+// switchMarkup always breaks (cases on their own lines) via HardLine, unless
+// any arm body is edge-unsafe (leads/trails with a significant space), in which
+// case the whole switch is rendered inline to avoid a HardLine absorbing the space.
 func (p *printer) switchMarkup(s *ast.SwitchMarkup) pretty.Doc {
 	head := []pretty.Doc{pretty.Text("{ switch")}
 	if s.Tag != "" {
 		head = append(head, pretty.Text(" "), pretty.Text(fmtExpr(s.Tag)))
 	}
 	head = append(head, pretty.Text(" {"))
+
+	if switchHasEdgeUnsafeArm(s) {
+		// inline form: no HardLines so edge spaces in arm bodies aren't absorbed
+		inlineCases := make([]pretty.Doc, 0, len(s.Cases))
+		for _, c := range s.Cases {
+			label := pretty.Text("default:")
+			if !c.Default {
+				label = pretty.Concat(pretty.Text("case "), pretty.Text(fmtCaseList(c.List)), pretty.Text(":"))
+			}
+			inlineCases = append(inlineCases, pretty.Concat(label, p.caseBody(c.Body)))
+		}
+		return pretty.Concat(
+			pretty.Concat(head...),
+			pretty.Concat(inlineCases...),
+			pretty.Text("} }"))
+	}
 
 	caseParts := make([]pretty.Doc, 0, len(s.Cases))
 	for _, c := range s.Cases {
@@ -395,6 +417,17 @@ func (p *printer) switchMarkup(s *ast.SwitchMarkup) pretty.Doc {
 		pretty.Concat(head...),
 		pretty.Indent(pretty.Concat(caseParts...)),
 		pretty.HardLine, pretty.Text("} }"))
+}
+
+// switchHasEdgeUnsafeArm reports whether any arm body would lose a significant
+// edge space if the switch were laid out multi-line (HardLine after each arm).
+func switchHasEdgeUnsafeArm(s *ast.SwitchMarkup) bool {
+	for _, c := range s.Cases {
+		if len(c.Body) > 0 && (leadsWithSpace(c.Body[0]) || trailsWithSpace(c.Body[len(c.Body)-1])) {
+			return true
+		}
+	}
+	return false
 }
 
 // caseBody renders a switch arm. Block → each segment on its own line (one
