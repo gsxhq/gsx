@@ -94,6 +94,22 @@ func (c *CachedResolver) GenerateSource(name string, src []byte) (Result, error)
 	return generateInProcess(c.inner, memDir, map[string][]byte{path: src})
 }
 
+// GenerateSources transforms several in-memory .gsx files of ONE package into
+// their generated .x.go, with no filesystem and no subprocess — the multi-file
+// form GenerateSource wraps. files maps a virtual filename to its source; every
+// file must declare the same package. Result.Files holds one entry per input
+// file (keyed by virtual .x.go path); Result.Diags holds parse/type errors.
+func (c *CachedResolver) GenerateSources(files map[string][]byte) (Result, error) {
+	override := make(map[string][]byte, len(files))
+	for name, src := range files {
+		if !strings.HasSuffix(name, ".gsx") {
+			name += ".gsx"
+		}
+		override[filepath.Join(memDir, filepath.Base(name))] = src
+	}
+	return generateInProcess(c.inner, memDir, override)
+}
+
 // generateInProcess implements CachedResolver.Generate. It resolves all paths
 // to absolute, calls GeneratePackagesWithResolver, and maps the internal
 // PackageResult back to the public gen.Result type.

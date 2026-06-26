@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"go/parser"
 	"go/token"
 	"net/http"
@@ -13,12 +14,19 @@ import (
 	"time"
 )
 
+// runFile is one generated .x.go file produced by the WASM transform.
+type runFile struct {
+	Name string `json:"name"`
+	Code string `json:"code"`
+}
+
 // runReq is the lean render request. The client (WASM) already produced the
-// generated Go, so the server only compiles+runs it — no gsx generate. invoke is
-// a Go expression yielding the gsx.Node to render (e.g. Page(PageProps{...})).
+// generated Go, so the server only compiles+runs it — no gsx generate. files are
+// the generated .x.go (one per source .gsx, all package views); invoke is a Go
+// expression yielding the gsx.Node to render (e.g. Page(PageProps{...})).
 type runReq struct {
-	GeneratedGo string `json:"generatedGo"`
-	Invoke      string `json:"invoke"`
+	Files  []runFile `json:"files"`
+	Invoke string    `json:"invoke"`
 }
 
 type runResp struct {
@@ -47,8 +55,8 @@ func makeRunHandler(p *pool) http.HandlerFunc {
 }
 
 func (p *pool) runGenerated(in runReq) runResp {
-	if strings.TrimSpace(in.GeneratedGo) == "" || strings.TrimSpace(in.Invoke) == "" {
-		return runResp{Error: "generatedGo and invoke are required"}
+	if len(in.Files) == 0 || strings.TrimSpace(in.Invoke) == "" {
+		return runResp{Error: "files and invoke are required"}
 	}
 	ws := <-p.free // back-pressure: block until a workspace frees up
 	defer func() { p.free <- ws }()
@@ -66,8 +74,12 @@ func runIn(gocache string, ws *workspace, in runReq) runResp {
 	start := time.Now()
 	ms := func() int64 { return time.Since(start).Milliseconds() }
 
-	if d := checkGeneratedImports(in.GeneratedGo); d != nil {
-		return runResp{Error: d.Message, Ms: ms()}
+	// SECURITY: validate every submitted file's imports against the allowlist
+	// before writing or building anything.
+	for _, f := range in.Files {
+		if d := checkGeneratedImports(f.Code); d != nil {
+			return runResp{Error: d.Message, Ms: ms()}
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
@@ -83,7 +95,14 @@ func runIn(gocache string, ws *workspace, in runReq) runResp {
 	if err := os.MkdirAll(ws.viewDir, 0o755); err != nil {
 		return runResp{Error: "reset workspace: " + err.Error(), Ms: ms()}
 	}
-	writeFile(filepath.Join(ws.viewDir, "source.x.go"), in.GeneratedGo)
+	for i, f := range in.Files {
+		// Sanitize to a base .go filename in the views dir; never trust the name.
+		name := filepath.Base(f.Name)
+		if !strings.HasSuffix(name, ".go") || name == ".go" {
+			name = fmt.Sprintf("gen%d.go", i)
+		}
+		writeFile(filepath.Join(ws.viewDir, name), f.Code)
+	}
 	writeShim(ws.viewDir, strings.TrimSpace(in.Invoke))
 
 	out, err := run(ctx, ws.play, env, "go", "run", ".")
