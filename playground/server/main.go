@@ -62,6 +62,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/render", makeRenderHandler(p))
+	mux.HandleFunc("/run", makeRunHandler(p))
 	mux.HandleFunc("/format", formatHandler)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprintln(w, "ok") })
 	log.Printf("gsx playground on %s (gsxmod=%s, pool=%d)", listenAddr, *gsxMod, poolSize)
