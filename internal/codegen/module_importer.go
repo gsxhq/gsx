@@ -191,12 +191,18 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		return nil, err
 	}
 	// Classify <script> @{ } JS contexts (mirrors batch.go after wsnorm.Normalize).
-	// A file that fails resolution is excluded from further analysis; errors are
-	// recorded in bag (surfaced by Generate via bag.Sorted()).
-	for path, f := range gsxFiles {
+	// If ANY file fails resolution, skip the ENTIRE package (no generated output),
+	// matching batch's package-level-skip semantics:
+	//   hasErr=true; break  →  if hasErr { continue }  (no .x.go for any file).
+	// Diagnostics are recorded in bag and surfaced by Generate via bag.Sorted().
+	scriptErr := false
+	for _, f := range gsxFiles {
 		if !jsx.ResolveScripts(f, bag) {
-			delete(gsxFiles, path)
+			scriptErr = true
 		}
+	}
+	if scriptErr {
+		gsxFiles = nil // package-level skip: Generate's loop emits nothing
 	}
 	table, err := loadFilterTableMulti(m.opts.ModuleRoot, m.opts.FilterPkgs, m.opts.Aliases)
 	if err != nil {

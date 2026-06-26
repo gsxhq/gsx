@@ -210,3 +210,38 @@ func TestModuleImporterRejectsImportCycle(t *testing.T) {
 		t.Fatalf("expected 'import cycle' in error, got: %v", err)
 	}
 }
+
+// TestModuleGenerateSkipsPackageOnScriptResolutionFailure verifies that when a
+// .gsx file contains a <script> interpolation that fails jsx.ResolveScripts
+// (e.g. an interpolation in a binding position), Generate returns NO generated
+// output (empty map) while still returning a non-empty diagnostics slice —
+// matching batch's package-level-skip semantics.
+func TestModuleGenerateSkipsPackageOnScriptResolutionFailure(t *testing.T) {
+	root := t.TempDir()
+	repoRoot, _ := filepath.Abs("../..")
+	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pageDir := filepath.Join(root, "page")
+	if err := os.MkdirAll(pageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// "let @{ x } = 1" puts the interpolation in a JS binding position, which
+	// jsx.ResolveScripts rejects — exactly matching the failing case in
+	// internal/jsx/jsx_test.go TestResolveScriptsErrors / "binding position".
+	writeFile(t, pageDir, "page.gsx",
+		"package page\n\ncomponent Broken() {\n\t<script>let @{ x } = 1</script>\n}\n")
+
+	m, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app", FilterPkgs: []string{StdImportPath}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, diags, err := m.Generate(pageDir)
+	if err != nil {
+		t.Fatalf("Generate: unexpected hard error: %v", err)
+	}
+	if len(out) != 0 {
+		t.Fatalf("Generate: expected empty output map (package-level skip), got %d entries: %v", len(out), out)
+	}
+	if len(diags) == 0 {
+		t.Fatalf("Generate: expected non-empty diagnostics for script-resolution failure, got none")
+	}
+}
