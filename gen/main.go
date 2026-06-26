@@ -210,15 +210,24 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 // already surfaced at the top of runConfig before dispatch, so they need no
 // recheck here.
 func resolveConfig(optCfg config) (merged config, configPath string, err error) {
+	// Layer 1: file defaults (base is the zero config when no gsx.toml exists).
+	var base config
 	path, ok := discoverConfig(".")
-	if !ok {
-		return optCfg, "", nil
+	if ok {
+		base, err = loadConfig(path)
+		if err != nil {
+			return config{}, "", err
+		}
+		configPath = path
 	}
-	fileCfg, err := loadConfig(path)
+	// Layer 3: env overrides the file. Applied to base BEFORE the merge so the
+	// final precedence is option > env > config (mergeConfig lets opts win).
+	base, err = applyEnvOverrides(base)
 	if err != nil {
 		return config{}, "", err
 	}
-	return mergeConfig(fileCfg, optCfg), path, nil
+	// Layer 2: programmatic options win (existing last-wins merge).
+	return mergeConfig(base, optCfg), configPath, nil
 }
 
 // runClean implements the `clean` command. Currently the only flag is --cache,
