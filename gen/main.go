@@ -46,8 +46,8 @@ type config struct {
 	fieldMatcher codegen.FieldMatcher
 	errs         []error
 	printWidth      int         // gsx.toml printWidth; 0 means "unset" → 80 at use
-	cssMinLevel     MinifyLevel // <style> minification level (zero = MinifySafe)
-	jsMinLevel      MinifyLevel // <script> minification level (zero = MinifySafe)
+	cssMinLevel     MinifyLevel // <style> minification level (zero = MinifyNone)
+	jsMinLevel      MinifyLevel // <script> minification level (zero = MinifyNone)
 	minifyLevelSet  bool        // true once an option (WithMinifyLevel) pinned the levels
 }
 

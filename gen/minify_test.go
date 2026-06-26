@@ -8,29 +8,31 @@ import (
 )
 
 func TestMinifyLevel_Basics(t *testing.T) {
-	if MinifySafe != 0 {
-		t.Fatalf("MinifySafe must be the zero value, got %d", MinifySafe)
-	}
-	if !MinifySafe.enabled() {
-		t.Fatal("MinifySafe must be enabled")
+	if MinifyNone != 0 {
+		t.Fatalf("MinifyNone must be the zero value, got %d", MinifyNone)
 	}
 	if MinifyNone.enabled() {
 		t.Fatal("MinifyNone must be disabled")
 	}
-	if MinifySafe.String() != "safe" || MinifyNone.String() != "none" {
-		t.Fatalf("String(): safe=%q none=%q", MinifySafe.String(), MinifyNone.String())
+	if !MinifyFull.enabled() {
+		t.Fatal("MinifyFull must be enabled")
+	}
+	if MinifyNone.String() != "none" || MinifyFull.String() != "full" {
+		t.Fatalf("String(): none=%q full=%q", MinifyNone.String(), MinifyFull.String())
 	}
 }
 
 func TestParseMinifyLevel(t *testing.T) {
-	for in, want := range map[string]MinifyLevel{"safe": MinifySafe, "none": MinifyNone} {
+	for in, want := range map[string]MinifyLevel{"none": MinifyNone, "full": MinifyFull} {
 		got, err := parseMinifyLevel(in)
 		if err != nil || got != want {
 			t.Fatalf("parseMinifyLevel(%q) = %v, %v", in, got, err)
 		}
 	}
-	if _, err := parseMinifyLevel("aggressive"); err == nil {
-		t.Fatal("parseMinifyLevel(aggressive) must error")
+	for _, bad := range []string{"safe", "on", "off", "aggressive"} {
+		if _, err := parseMinifyLevel(bad); err == nil {
+			t.Fatalf("parseMinifyLevel(%q) should error", bad)
+		}
 	}
 }
 
@@ -46,21 +48,21 @@ func writeTOML(t *testing.T, body string) string {
 }
 
 func TestLoadConfig_Minify(t *testing.T) {
-	// Absent [minify] → both default to safe.
+	// Absent [minify] → both default to none.
 	cfg, err := loadConfig(writeTOML(t, "[filters]\nupper = \"example.com/x.Up\"\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.cssMinLevel != MinifySafe || cfg.jsMinLevel != MinifySafe {
-		t.Fatalf("absent [minify] should be safe/safe, got %v/%v", cfg.cssMinLevel, cfg.jsMinLevel)
+	if cfg.cssMinLevel != MinifyNone || cfg.jsMinLevel != MinifyNone {
+		t.Fatalf("absent [minify] should default to none/none, got %v/%v", cfg.cssMinLevel, cfg.jsMinLevel)
 	}
 
 	// Explicit levels.
-	cfg, err = loadConfig(writeTOML(t, "[minify]\ncss = \"none\"\njs = \"safe\"\n"))
+	cfg, err = loadConfig(writeTOML(t, "[minify]\ncss = \"full\"\njs = \"none\"\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.cssMinLevel != MinifyNone || cfg.jsMinLevel != MinifySafe {
+	if cfg.cssMinLevel != MinifyFull || cfg.jsMinLevel != MinifyNone {
 		t.Fatalf("got css=%v js=%v", cfg.cssMinLevel, cfg.jsMinLevel)
 	}
 
@@ -74,9 +76,9 @@ func TestMergeConfig_MinifyPrecedence(t *testing.T) {
 	// option > config: opts pin via WithMinifyLevel beats file base.
 	base := config{cssMinLevel: MinifyNone, jsMinLevel: MinifyNone}
 	var opts config
-	WithMinifyLevel(MinifySafe, MinifySafe)(&opts)
+	WithMinifyLevel(MinifyFull, MinifyFull)(&opts)
 	merged := mergeConfig(base, opts)
-	if merged.cssMinLevel != MinifySafe || merged.jsMinLevel != MinifySafe {
+	if merged.cssMinLevel != MinifyFull || merged.jsMinLevel != MinifyFull {
 		t.Fatalf("WithMinifyLevel should win: got %v/%v", merged.cssMinLevel, merged.jsMinLevel)
 	}
 
@@ -99,8 +101,8 @@ func TestMinifyLevel_Full(t *testing.T) {
 		t.Fatalf("parseMinifyLevel(full) = %v, %v", got, err)
 	}
 	// Existing values are unchanged (cache/behaviour stability).
-	if MinifySafe != 0 || MinifyNone != 1 || MinifyFull != 2 {
-		t.Fatalf("enum values drifted: safe=%d none=%d full=%d", MinifySafe, MinifyNone, MinifyFull)
+	if MinifyNone != 0 || MinifyFull != 1 {
+		t.Fatalf("enum values drifted: none=%d full=%d", MinifyNone, MinifyFull)
 	}
 }
 
@@ -113,16 +115,21 @@ func TestEffectiveMinifier_Full(t *testing.T) {
 	if cfg.effectiveJSMin() == nil {
 		t.Fatal("full should install a built-in JS minifier")
 	}
-	// safe → nil (built-in safe runs via the gate, not via an ext func).
-	cfg = config{cssMinLevel: MinifySafe, jsMinLevel: MinifySafe}
+	// none → nil (no ext minifier runs; verbatim output).
+	cfg = config{cssMinLevel: MinifyNone, jsMinLevel: MinifyNone}
 	if cfg.effectiveCSSMin() != nil || cfg.effectiveJSMin() != nil {
-		t.Fatal("safe should not install an ext minifier")
+		t.Fatal("none should not install an ext minifier")
 	}
 	// custom minifier wins over full.
 	custom := func(s string) (string, error) { return s, nil }
 	cfg = config{cssMinLevel: MinifyFull, cssMin: custom}
 	if got := cfg.effectiveCSSMin(); got == nil {
 		t.Fatal("custom minifier must be returned")
+	}
+	// custom JS minifier wins over full.
+	cfg = config{jsMinLevel: MinifyFull, jsMin: custom}
+	if cfg.effectiveJSMin() == nil {
+		t.Fatal("custom JS minifier must win")
 	}
 }
 
@@ -160,7 +167,7 @@ func TestGenerate_MinifyFullViaConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// full shortens #ffffff → #fff (safe would keep #ffffff).
+	// full shortens #ffffff → #fff (none would keep #ffffff).
 	if !strings.Contains(string(b), "#fff") || strings.Contains(string(b), "#ffffff") {
 		t.Fatalf("[minify] css=full should shorten the hex; got:\n%s", b)
 	}

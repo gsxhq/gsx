@@ -236,7 +236,7 @@ func mergeConfig(base, opts config) config {
 		merged.printWidth = opts.printWidth
 	}
 
-	// MinifyLevel fields use minifyLevelSet as the sentinel so opts.MinifySafe
+	// MinifyLevel fields use minifyLevelSet as the sentinel so opts.MinifyNone
 	// (zero) can be distinguished from "not set by caller". When opts explicitly
 	// sets the level it wins; otherwise the base (env/file) value is preserved.
 	merged.cssMinLevel = base.cssMinLevel

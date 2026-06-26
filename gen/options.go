@@ -261,9 +261,9 @@ func WithFieldMatcher(fn FieldMatcher) Option {
 // WithMinifyLevel pins the minification level for <style> CSS and <script> JS,
 // overriding both the [minify] config table and the GSX_MINIFY env var (code is
 // the most deliberate layer: option > env > config). The level GATES the pass;
-// a custom WithCSSMinifier/WithJSMinifier supplies the implementation used when
-// the level is MinifySafe. MinifyNone emits the asset verbatim and the custom
-// minifier is not called.
+// MinifyNone emits the asset verbatim (no minifier runs); MinifyFull enables
+// aggressive AST-based minification (a custom WithCSSMinifier/WithJSMinifier
+// takes precedence over the built-in full pass).
 func WithMinifyLevel(css, js MinifyLevel) Option {
 	return func(cfg *config) {
 		cfg.cssMinLevel = css
