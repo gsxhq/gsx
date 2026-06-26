@@ -36,9 +36,11 @@ navigation / formatting.
   improves automatically with zero changes.
 - **No bundled gsx binary** — require it on PATH / install it (see Binary
   manager). Bundling per-platform binaries is a possible future, not v1.
-- **No tree-sitter / semantic-token highlighting** — TextMate only for v1.
-  LSP semantic tokens are a possible future precision pass (would also require
-  the gsx LSP to add a `semanticTokens` provider, which it does not have today).
+- **No tree-sitter / semantic-token highlighting in v1** — a coarse TextMate
+  grammar is the base (see §2 for the full rationale: VS Code has no stable
+  third-party tree-sitter highlighting API, and the wasm route degrades UX and
+  embedded-language support). A tree-sitter-wasm semantic-tokens layer *on top*
+  is a possible future augmentation, never the base.
 - **No snippets, no completion** (the LSP offers no completion yet).
 
 ## Architecture
@@ -70,25 +72,67 @@ embedded regions.
 
 ### 2. TextMate grammar (`syntaxes/gsx.tmLanguage.json`)
 
-Scope `source.gsx`. Mirrors the capture vocabulary tree-sitter-gsx already
-uses (`@tag`, `@type` for components, `@keyword`, `@string`, `@comment`,
-`@attribute`, `@operator`, `@punctuation.*`) translated to TextMate scope
-names (`entity.name.tag`, `entity.name.type`/`support.class`,
-`keyword.control`, `string.quoted`, `comment`, `entity.other.attribute-name`,
-`keyword.operator`, `punctuation.*`).
+> **Why TextMate, not the existing tree-sitter grammar (decision + rationale).**
+> The maintenance instinct — drive VS Code from `tree-sitter-gsx` and skip a
+> second grammar — does not pan out in VS Code as of 2026:
+> - VS Code has **no public/stable API** to register a third-party tree-sitter
+>   grammar for highlighting; its native tree-sitter work is core-only, for a
+>   few built-in languages. The only DIY route is bundling `web-tree-sitter`
+>   wasm + a `DocumentSemanticTokensProvider`, which **augments, not replaces**
+>   TextMate.
+> - That route *degrades UX*: semantic-tokens-only coloring is gated on the
+>   theme's `editor.semanticHighlighting` opt-in (some themes show nothing), can
+>   flash unstyled on open, and — critically for gsx — **loses first-class
+>   embedded-language support** (`embeddedLanguages` delegating Go/JS/CSS regions
+>   to VS Code's real grammars). It is also *more* work, not less (wasm + a
+>   provider, and you still want a base TextMate grammar).
+> - **Every templating peer that embeds sub-languages uses a TextMate grammar
+>   for VS Code** — templ, Astro, Svelte, Vue, Phoenix/HEEx; none uses
+>   tree-sitter for VS Code highlighting. templ — the closest analogue (Go host,
+>   `{ }` holes, HTML/JS/CSS) — ships a single coarse `source.templ` grammar
+>   with a small `embeddedLanguages` map and leans on its LSP for semantics.
+>
+> So gsx follows the templ model: a **coarse, minimal** TextMate grammar that
+> does structural coloring + embedded-language delegation, with the **LSP**
+> (`gsx lsp`) providing semantic accuracy. The grammar is deliberately *not* a
+> reimplementation of tree-sitter-gsx — keeping it coarse is what keeps the
+> maintenance low.
 
-Embedded-language injection via `patterns` + `begin/end` rules with
-`contentName` set to the embedded scope:
+Scope `source.gsx`. The grammar is intentionally **coarse**: it colors gsx
+structure and hands embedded regions to the real Go/JS/CSS grammars. It mirrors
+the capture vocabulary tree-sitter-gsx uses (`@tag`, `@type` for components,
+`@keyword`, `@string`, `@comment`, `@attribute`, `@operator`,
+`@punctuation.*`) translated to TextMate scope names (`entity.name.tag`,
+`entity.name.type`/`support.class`, `keyword.control`, `string.quoted`,
+`comment`, `entity.other.attribute-name`, `keyword.operator`, `punctuation.*`).
+Anything requiring real type/semantic awareness is left to the LSP, not encoded
+in regex.
 
-- `{ … }` / `@{ … }` holes and `|>` pipeline segments → `meta.embedded …
-  source.go`.
+Embedded-language regions use `begin/end` rules with `contentName` set to a
+`meta.embedded.* <scope>`, paired with the `embeddedLanguages` map in the
+language contribution so VS Code applies the real embedded grammar (coloring +
+comment-toggle + brackets) inside each region:
+
+- `{ … }` / `@{ … }` holes and `|>` pipeline segments → `source.go`.
 - `<script>…</script>` body → `source.js`.
 - `<style>…</style>` body → `source.css`.
 
-TextMate is regex-coarse — this is intentional (v1). It is a *separate* grammar
-from tree-sitter-gsx (VS Code can't consume tree-sitter on the stable API);
-because TextMate grammars are coarse, keeping the two loosely in sync is low
-burden. Grammar fidelity is exercised by snapshot tests (below).
+**Authoring/maintenance:** author the grammar as a readable **YAML source**
+(`syntaxes/gsx.tmLanguage.src.yaml`) and **generate** the committed JSON in the
+build (the Astro/Svelte pattern), so edits stay legible. Grammar fidelity is
+exercised by snapshot tests (below).
+
+**Reuse beyond VS Code:** this same TextMate grammar is the artifact GitHub.com
+highlighting consumes via **Linguist** — so it is not a VS-Code-only cost; it
+also buys `.gsx` highlighting on GitHub. It is a *separate* grammar from
+tree-sitter-gsx (which serves Neovim); maintaining both is the universal norm
+for this class of language, and keeping each coarse keeps the burden small.
+
+**Deferred augmentation (not v1):** tree-sitter wasm + a
+`DocumentSemanticTokensProvider` *layered on top* of this TextMate base (the way
+VS Code does its built-ins) could add context-aware precision later, reusing
+`tree-sitter-gsx`'s grammar + highlight queries. It is an enhancement, never the
+base, and is out of scope for v1.
 
 ### 3. Binary manager (`src/gsxBinary.ts`)
 
@@ -168,10 +212,14 @@ Nothing in the extension parses or formats gsx, Go, JS, or CSS.
 
 ## Testing
 
+- **Grammar generation:** a build step compiles
+  `syntaxes/gsx.tmLanguage.src.yaml` → `gsx.tmLanguage.json` (e.g. `js-yaml`).
+  CI asserts the committed JSON matches a fresh generation (`git diff
+  --exit-code`), so the source and artifact never drift.
 - **Grammar snapshot tests** (`vscode-tmgrammar-test`): `.gsx` fixtures with
   inline scope assertions — a component tag vs a native tag, a `{ }` hole
   tokenized as Go, a `<style>` body as CSS, a `<script>` body as JS, comments.
-  Runs in CI without VS Code.
+  Runs in CI without VS Code, against the generated JSON.
 - **Binary-manager unit tests:** resolve-order (setting > PATH > GOBIN >
   GOPATH/bin), missing-binary path, missing-`go` path — with the environment
   and lookups mocked.
@@ -184,9 +232,10 @@ Nothing in the extension parses or formats gsx, Go, JS, or CSS.
 
 - **Local dev:** `npm run package` → `gsx-x.y.z.vsix`; install with
   `code --install-extension gsx-*.vsix`; iterate.
-- **PR CI** (GitHub Actions): install deps → typecheck → lint → grammar tests →
-  unit tests → `vsce package`, uploading the `.vsix` as a build artifact (grab
-  it without a local build).
+- **PR CI** (GitHub Actions): install deps → generate grammar (+ assert no
+  drift) → typecheck → lint → grammar snapshot tests → unit tests →
+  `vsce package`, uploading the `.vsix` as a build artifact (grab it without a
+  local build).
 - **Tag release CI:** on a `v*` tag, publish to the **Marketplace**
   (`vsce publish`) and **Open VSX** (`ovsx publish`) using `VSCE_PAT` /
   `OVSX_PAT` repository secrets (maintainer-provided). Publishing happens only
@@ -197,7 +246,8 @@ Nothing in the extension parses or formats gsx, Go, JS, or CSS.
 ```
 package.json                     # manifest: languages, grammars, config, commands, scripts
 language-configuration.json      # brackets / autoclose / comments
-syntaxes/gsx.tmLanguage.json     # TextMate grammar (source.gsx + embeds)
+syntaxes/gsx.tmLanguage.src.yaml # TextMate grammar source (authored)
+syntaxes/gsx.tmLanguage.json     # generated from the YAML (committed; source.gsx + embeds)
 src/extension.ts                 # activate/deactivate + LanguageClient wiring
 src/gsxBinary.ts                 # resolve / install / version the gsx binary
 test/grammar/*.gsx               # tmgrammar-test fixtures + assertions
@@ -220,6 +270,7 @@ icons/ , README.md , CHANGELOG.md, LICENSE
 ## Out of scope (future, separate specs)
 
 - Bundling per-platform `gsx` binaries in the `.vsix`.
-- Tree-sitter or LSP-semantic-token highlighting (precision pass).
+- Tree-sitter-wasm or LSP-semantic-token highlighting layered on the TextMate
+  base (precision augmentation; rationale for deferring in §2).
 - Snippets; completion (blocked on the LSP gaining completion).
 - A `.gsx`-aware Markdown/embedded experience beyond the four units above.
