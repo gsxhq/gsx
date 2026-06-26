@@ -139,7 +139,7 @@ func writeFiles(dir string, files map[string][]byte) ([]string, error) {
 	for absXGo, b := range files {
 		po[filepath.Base(absXGo)] = b
 	}
-	written, err := restore(dir, po)
+	written, _, err := restore(dir, po)
 	return written, err
 }
 

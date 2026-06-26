@@ -10,9 +10,47 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/gsxhq/gsx/internal/codegen"
 )
+
+var (
+	selfHashOnce sync.Once
+	selfHashVal  string
+)
+
+// selfHash returns a content hash of the running gsx executable, memoized for
+// the process. Folded into every cache key so ANY change to the gsx binary —
+// including a codegen/emit change, even an uncommitted dev rebuild — invalidates
+// cached output automatically. This is the robust backstop the manual
+// codegen.Version constant alone cannot provide: a human who forgets to bump the
+// constant after changing emit (e.g. 5aed1ba) would otherwise serve stale .x.go.
+// Returns "" if the executable can't be located or read; the caller still has
+// codegen.Version() as a coarse lever in that case.
+func selfHash() string {
+	selfHashOnce.Do(func() {
+		exe, err := os.Executable()
+		if err != nil {
+			return
+		}
+		data, err := os.ReadFile(exe)
+		if err != nil {
+			return
+		}
+		sum := sha256.Sum256(data)
+		selfHashVal = hex.EncodeToString(sum[:])
+	})
+	return selfHashVal
+}
+
+// codegenIdentity is the cache pin for "which generator produced this output".
+// It composes the manual codegen.Version() (a coarse, explicit invalidation
+// lever for project-wide busts) with selfHash() (automatic invalidation on any
+// binary change). Folded into every cache key via computeKey.
+func codegenIdentity() string {
+	return "v=" + codegen.Version() + "\x00bin=" + selfHash()
+}
 
 // buildContext returns a stable string capturing the Go build context that can
 // affect type resolution (and thus generated output). Folded into every cache
@@ -95,7 +133,10 @@ func dirSourceHash(dir string) (string, error) {
 // of buildContext() and subsumes GOVERSION, GOOS, GOARCH, CGO_ENABLED, etc.
 // clsFingerprint is the attrclass.Classifier.Fingerprint() for the current run;
 // it ensures a changed attribute classification rule invalidates cached output.
-func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumHash, buildCtx string, filterPkgs []string, aliases []codegen.FilterAlias, clsFingerprint string, hasFieldMatcher bool) (string, error) {
+// codegenID is codegenIdentity() — "which generator produced this" — so any
+// change to the gsx binary (emit/lowering) invalidates cached output even when
+// the manual codegen.Version constant is not bumped.
+func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumHash, buildCtx, codegenID string, filterPkgs []string, aliases []codegen.FilterAlias, clsFingerprint string, hasFieldMatcher bool) (string, error) {
 	dir = filepath.Clean(dir)
 	own, err := dirSourceHash(dir)
 	if err != nil {
@@ -144,7 +185,10 @@ func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumH
 		aliasPins = append(aliasPins, a.Name+"="+a.PkgPath+"."+a.FuncName)
 	}
 	h := sha256.New()
-	fmt.Fprintf(h, "gsxcache-v1\x00%s\x00%s\x00%s\x00%s\x00", codegen.Version(), buildCtx, goModHash, goSumHash)
+	// codegenID (codegenIdentity) folds in BOTH the manual codegen.Version and the
+	// gsx binary hash, so it supersedes a bare Version() pin: any emit/lowering
+	// change auto-invalidates even when the constant is not bumped.
+	fmt.Fprintf(h, "gsxcache-v1\x00%s\x00%s\x00%s\x00%s\x00", codegenID, buildCtx, goModHash, goSumHash)
 	fmt.Fprintf(h, "filters=%s\x00aliases=%s\x00cls=%s\x00fm=%s\x00own=%s\x00", strings.Join(pins, "\x00"), strings.Join(aliasPins, "\x00"), clsFingerprint, fmStr, own)
 	for _, d := range depHashes {
 		fmt.Fprintf(h, "dep=%s\x00", d)
