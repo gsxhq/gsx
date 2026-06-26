@@ -67,6 +67,7 @@ component Bye(name string) {
 // TestGenerateSinglePackage writes two .gsx files into one package, generates,
 // asserts the .x.go files exist on disk, and proves the result compiles.
 func TestGenerateSinglePackage(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping go-build test in -short mode")
 	}
@@ -97,6 +98,7 @@ func TestGenerateSinglePackage(t *testing.T) {
 // TestGenerateNestedDirs proves two package dirs each with a .gsx are both
 // generated and the whole module builds.
 func TestGenerateNestedDirs(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping go-build test in -short mode")
 	}
@@ -128,6 +130,7 @@ func TestGenerateNestedDirs(t *testing.T) {
 // (as an error-severity diagnostic naming the bad file) and writes nothing for
 // that dir, while a good dir in the same call IS written.
 func TestGeneratePartialFailure(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -172,6 +175,7 @@ func TestGeneratePartialFailure(t *testing.T) {
 
 // TestGenerateNoGsxDir proves a dir with no .gsx files is a clean no-op.
 func TestGenerateNoGsxDir(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	res, err := Generate([]string{tmp})
 	if err != nil {
@@ -184,6 +188,7 @@ func TestGenerateNoGsxDir(t *testing.T) {
 
 // TestGenerateMissingPath proves a non-existent path is an error.
 func TestGenerateMissingPath(t *testing.T) {
+	t.Parallel()
 	_, err := Generate([]string{"/does/not/exist/anywhere"})
 	if err == nil {
 		t.Fatal("expected error for missing path, got nil")
@@ -191,6 +196,7 @@ func TestGenerateMissingPath(t *testing.T) {
 }
 
 func TestDiscoverDirsFileArg(t *testing.T) {
+	t.Parallel()
 	mod := t.TempDir()
 	pkgDir := filepath.Join(mod, "views")
 	gsxPath := writeFile(t, pkgDir, "hi.gsx", hiComponent)
@@ -205,6 +211,7 @@ func TestDiscoverDirsFileArg(t *testing.T) {
 }
 
 func TestDiscoverDirsSkipsJunk(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	// A real package dir.
 	writeFile(t, filepath.Join(root, "pkg"), "a.gsx", hiComponent)
@@ -226,6 +233,7 @@ func TestDiscoverDirsSkipsJunk(t *testing.T) {
 }
 
 func TestDiscoverDirsDefaultsToCwd(t *testing.T) {
+	t.Parallel()
 	// Empty paths must default to ["."] and not error.
 	if _, err := discoverDirs(nil); err != nil {
 		t.Fatalf("discoverDirs(nil): %v", err)
@@ -233,6 +241,7 @@ func TestDiscoverDirsDefaultsToCwd(t *testing.T) {
 }
 
 func TestDiscoverDirsSortedUnique(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "b"), "x.gsx", hiComponent)
 	writeFile(t, filepath.Join(root, "a"), "x.gsx", hiComponent)

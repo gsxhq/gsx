@@ -8,6 +8,7 @@ import (
 )
 
 func TestModulePackageSurfacesTypeErrors(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	repoRoot, _ := filepath.Abs("../..")
 	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
@@ -35,6 +36,7 @@ func TestModulePackageSurfacesTypeErrors(t *testing.T) {
 }
 
 func TestModuleResetPackageCacheKeepsExternalWarm(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	repoRoot, _ := filepath.Abs("../..")
 	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")

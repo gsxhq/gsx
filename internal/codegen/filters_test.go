@@ -17,6 +17,7 @@ func repoRoot(t *testing.T) string {
 }
 
 func TestFilterHarvest(t *testing.T) {
+	t.Parallel()
 	table, err := loadFilterTable(repoRoot(t))
 	if err != nil {
 		t.Fatalf("loadFilterTable: %v", err)

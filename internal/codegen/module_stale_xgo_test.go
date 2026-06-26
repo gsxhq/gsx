@@ -24,6 +24,7 @@ import (
 //     output and must not contain StaleMarker (belt-and-suspenders check that
 //     the emitted code is derived from the .gsx, not the stale disk file).
 func TestModuleIgnoresStaleOnDiskXGo(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	repoRoot, _ := filepath.Abs("../..")
 	writeFile(t, root, "go.mod",

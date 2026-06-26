@@ -14,6 +14,7 @@ import (
 // (ExprAttr) since the parser does not yet know about user-defined JS attrs
 // (that is Task 3); codegen classifies the ExprAttr via the custom Classifier.
 func TestCustomJSAttrRuleEmitsJSContext(t *testing.T) {
+	t.Parallel()
 	repoRoot, _ := filepath.Abs("../..")
 	tmp := t.TempDir()
 	writeFile(t, tmp, "go.mod", "module gsxwire\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
@@ -46,6 +47,7 @@ component Widget(action string) {
 // (AttrValue, not JSValAttr) — proving the rule, not a regression, caused the
 // change above.
 func TestBuiltinClassifierLeavesCustomAttrPlain(t *testing.T) {
+	t.Parallel()
 	repoRoot, _ := filepath.Abs("../..")
 	tmp := t.TempDir()
 	writeFile(t, tmp, "go.mod", "module gsxwire\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")

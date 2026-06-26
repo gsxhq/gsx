@@ -39,6 +39,7 @@ component C(s string) { <p>{ s |> f("k") }</p> }
 // the STOCK run path (no programmatic opts) honors a repo-root gsx.toml found by
 // walking up ACROSS a go.mod module boundary, and lowers the ctx-injecting alias.
 func TestStockGenerateHonorsConfigAcrossModuleBoundary(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping go-run e2e in -short mode")
 	}
@@ -105,6 +106,7 @@ func main() {
 // programmatic opt alias both apply, and an opt overrides a same-named config
 // alias (opt wins, last-wins). Driven through runConfig (Main without os.Exit).
 func TestMainMergeConfigAndOpts(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping go-run e2e in -short mode")
 	}
@@ -204,6 +206,7 @@ component C(s string) { <p>{ s |> shout }</p> }
 // TestInfoPrintsConfigPathAndAliases proves `gsx info` prints the discovered
 // gsx.toml path and the resolved alias (name → pkg.Func).
 func TestInfoPrintsConfigPathAndAliases(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-load info test in -short mode")
 	}
@@ -238,6 +241,7 @@ func TestInfoPrintsConfigPathAndAliases(t *testing.T) {
 
 // TestInfoNoConfig proves `gsx info` prints "config: none" when no gsx.toml.
 func TestInfoNoConfig(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-load info test in -short mode")
 	}

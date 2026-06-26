@@ -22,6 +22,10 @@ type syncBuf struct {
 func (s *syncBuf) Write(p []byte) (int, error) { s.mu.Lock(); defer s.mu.Unlock(); return s.b.Write(p) }
 func (s *syncBuf) String() string              { s.mu.Lock(); defer s.mu.Unlock(); return s.b.String() }
 
+// NOTE: the TestRunWatch_* integration tests are intentionally NOT t.Parallel():
+// they drive a real fsnotify watcher + debounce timer and assert within wall-clock
+// deadlines (waitFor, 5s), which starve and flake when competing with the rest of
+// the parallel suite for CPU. Keep them serial.
 func TestRunWatch_RegeneratesOnGsxChange(t *testing.T) {
 	root := t.TempDir()
 	writeMod(t, root)
@@ -87,6 +91,7 @@ func countGenerated(s string, ok bool) int {
 
 // A burst of writes within the debounce window coalesces into a single cycle.
 func TestRunWatch_DebounceCoalesces(t *testing.T) {
+	// Serial: see the note on TestRunWatch_RegeneratesOnGsxChange (real-timer deadlines).
 	root := t.TempDir()
 	writeMod(t, root)
 	gsxPath := filepath.Join(root, "views", "page.gsx")

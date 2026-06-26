@@ -112,11 +112,11 @@ var setupSteps = [][]string{
 	{"npm", "install"},
 }
 
-func runInit(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	return initWith(args, stdin, stdout, stderr, isTTYReader(stdin), execStep)
+func runInit(args []string, stdin io.Reader, stdout, stderr io.Writer, workDir string) int {
+	return initWith(args, stdin, stdout, stderr, isTTYReader(stdin), execStep, workDir)
 }
 
-func initWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interactive bool, run stepRunner) int {
+func initWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interactive bool, run stepRunner, workDir string) int {
 	ifs := flag.NewFlagSet("init", flag.ContinueOnError)
 	ifs.SetOutput(stderr)
 	var templateName, module string
@@ -163,11 +163,9 @@ func initWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interact
 		}
 	}
 
-	abs, err := filepath.Abs(dir)
-	if err != nil {
-		fmt.Fprintf(stderr, "gsx: %v\n", err)
-		return 2
-	}
+	// Anchor a relative target dir (and the default ".") at workDir rather than the
+	// process-global cwd, so init is reentrant under -C.
+	abs := absAgainst(workDir, dir)
 	if module == "" {
 		module = filepath.Base(abs)
 	}

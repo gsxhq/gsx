@@ -42,6 +42,7 @@ func sigOf(t *testing.T, scope *types.Scope, name string) *types.Signature {
 }
 
 func TestClassifyFilter(t *testing.T) {
+	t.Parallel()
 	const src = `package x
 
 import "context"
@@ -91,6 +92,7 @@ func TooManyResults(s string) (string, string) { return s, s }
 // TestIsCurriedShape proves the curried-shape detector used by the WithFilter
 // migration diagnostic distinguishes the removed shape from seed-first filters.
 func TestIsCurriedShape(t *testing.T) {
+	t.Parallel()
 	const src = `package x
 
 func Curried(n int) func(string) string { return func(s string) string { return s } }
@@ -112,6 +114,7 @@ func TwoResults(s string) (string, error) { return s, nil }
 // TestIsContextContext proves the context.Context detector accepts only the
 // real stdlib type and rejects look-alikes.
 func TestIsContextContext(t *testing.T) {
+	t.Parallel()
 	const src = `package x
 
 import (

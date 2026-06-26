@@ -18,6 +18,7 @@ func keyWith(t *testing.T, cssMinify, jsMinify bool) string {
 }
 
 func TestComputeKey_MinifyChangesKey(t *testing.T) {
+	t.Parallel()
 	on := keyWith(t, true, true)
 	offCSS := keyWith(t, false, true)
 	offJS := keyWith(t, true, false)

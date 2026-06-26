@@ -11,6 +11,7 @@ import (
 // TestRetentionPopulated: the package result carries Fset/Info and an ExprMap
 // whose entry for the `{ title }` interp is the skeleton ident `title`.
 func TestRetentionPopulated(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	repoRoot, _ := filepath.Abs("../..")
 	writeFile(t, dir, "go.mod",

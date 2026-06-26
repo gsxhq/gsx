@@ -9,6 +9,7 @@ import (
 // TestResolveFiltersStd resolves the std filter package and checks the table is
 // sorted by Name and carries the expected entries with empty Shadows.
 func TestResolveFiltersStd(t *testing.T) {
+	t.Parallel()
 	repoRoot, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -58,6 +59,7 @@ func TestResolveFiltersStd(t *testing.T) {
 // TestResolveFiltersEmptyDefaultsToStd proves an empty filterPkgs defaults to
 // the std package (matching GeneratePackageWithFilters).
 func TestResolveFiltersEmptyDefaultsToStd(t *testing.T) {
+	t.Parallel()
 	repoRoot, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -83,6 +85,7 @@ func TestResolveFiltersEmptyDefaultsToStd(t *testing.T) {
 // TestResolveFiltersShadowing proves a user Upper listed AFTER std wins (Pkg ==
 // user pkg) and records the shadowed std import path in Shadows.
 func TestResolveFiltersShadowing(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-load shadowing test in -short mode")
 	}
@@ -121,6 +124,7 @@ func TestResolveFiltersShadowing(t *testing.T) {
 
 // TestResolveFiltersBadPkg proves a non-existent filter package is a clean error.
 func TestResolveFiltersBadPkg(t *testing.T) {
+	t.Parallel()
 	repoRoot, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)

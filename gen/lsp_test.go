@@ -19,6 +19,7 @@ func frameMsg(t *testing.T, v any) string {
 // TestLSPEndToEndDiagnostics drives the real analyzer through lsp.Server over an
 // in-memory stream and asserts a publishDiagnostics for a .gsx with a type error.
 func TestLSPEndToEndDiagnostics(t *testing.T) {
+	t.Parallel()
 	repoRoot, _ := filepath.Abs("..")
 	dir := t.TempDir()
 	goMod := "module example.com/x\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => " + repoRoot + "\n"

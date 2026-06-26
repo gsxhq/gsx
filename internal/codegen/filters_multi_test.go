@@ -88,6 +88,7 @@ func main() {
 // reserved _gsxf0 alias (shout → myfilters.Shout) WHILE a std filter in the SAME
 // interpolation file still resolves under _gsxstd (upper → std.Upper).
 func TestMultiFilterUserAndStd(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping go-build filter test in -short mode")
 	}
@@ -117,6 +118,7 @@ component C(n string) {
 // TestMultiFilterLastWins proves last-wins precedence: a user Upper listed AFTER
 // std shadows std's built-in upper.
 func TestMultiFilterLastWins(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping go-build filter test in -short mode")
 	}
@@ -143,6 +145,7 @@ component C(n string) {
 // TestMultiFilterStdWinsWhenListedLast proves order matters: with std listed
 // AFTER the user package, std's upper wins for the same name.
 func TestMultiFilterStdWinsWhenListedLast(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping go-build filter test in -short mode")
 	}
@@ -169,6 +172,7 @@ component C(n string) {
 // TestMultiFilterUnknownErrors proves an unknown filter (present in neither
 // package) is a clean codegen error.
 func TestMultiFilterUnknownErrors(t *testing.T) {
+	t.Parallel()
 	repoRoot, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -199,6 +203,7 @@ func TestMultiFilterUnknownErrors(t *testing.T) {
 // stdImportPath keeps _gsxstd; each non-std package gets a stable _gsxf<i> by
 // position among non-std packages, independent of where std sits in the list.
 func TestFilterAliasAssignment(t *testing.T) {
+	t.Parallel()
 	got := filterAliases([]string{stdImportPath, "example.com/a", "example.com/b"})
 	want := map[string]string{
 		stdImportPath:   "_gsxstd",

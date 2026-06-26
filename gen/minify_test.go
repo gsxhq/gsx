@@ -8,6 +8,7 @@ import (
 )
 
 func TestMinifyLevel_Basics(t *testing.T) {
+	t.Parallel()
 	if MinifyNone != 0 {
 		t.Fatalf("MinifyNone must be the zero value, got %d", MinifyNone)
 	}
@@ -23,6 +24,7 @@ func TestMinifyLevel_Basics(t *testing.T) {
 }
 
 func TestParseMinifyLevel(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]MinifyLevel{"none": MinifyNone, "full": MinifyFull} {
 		got, err := parseMinifyLevel(in)
 		if err != nil || got != want {
@@ -48,6 +50,7 @@ func writeTOML(t *testing.T, body string) string {
 }
 
 func TestLoadConfig_Minify(t *testing.T) {
+	t.Parallel()
 	// Absent [minify] → both default to none.
 	cfg, err := loadConfig(writeTOML(t, "[filters]\nupper = \"example.com/x.Up\"\n"))
 	if err != nil {
@@ -73,6 +76,7 @@ func TestLoadConfig_Minify(t *testing.T) {
 }
 
 func TestMergeConfig_MinifyPrecedence(t *testing.T) {
+	t.Parallel()
 	// option > config: opts pin via WithMinifyLevel beats file base.
 	base := config{cssMinLevel: MinifyNone, jsMinLevel: MinifyNone}
 	var opts config
@@ -90,6 +94,7 @@ func TestMergeConfig_MinifyPrecedence(t *testing.T) {
 }
 
 func TestMinifyLevel_Full(t *testing.T) {
+	t.Parallel()
 	if !MinifyFull.enabled() {
 		t.Fatal("MinifyFull must be enabled")
 	}
@@ -107,6 +112,7 @@ func TestMinifyLevel_Full(t *testing.T) {
 }
 
 func TestEffectiveMinifier_Full(t *testing.T) {
+	t.Parallel()
 	// full with no custom minifier → built-in full installed.
 	cfg := config{cssMinLevel: MinifyFull, jsMinLevel: MinifyFull}
 	if cfg.effectiveCSSMin() == nil {
@@ -152,7 +158,7 @@ func TestGenerate_MinifyFullViaConfig(t *testing.T) {
 	}
 	chdir(t, dir)
 
-	merged, _, err := resolveConfig(config{})
+	merged, _, err := resolveConfig(config{}, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,6 +186,7 @@ func TestGenerate_MinifyFullViaConfig(t *testing.T) {
 // it is not called. effectiveCSSMin still resolves WHICH minifier runs when the
 // gate is on.
 func TestMinifyGate_LevelGoverns(t *testing.T) {
+	t.Parallel()
 	custom := func(s string) (string, error) { return s, nil }
 	// default level (none): gate off, even with a custom minifier installed.
 	if (config{}).cssMinLevel.enabled() || (config{cssMin: custom}).cssMinLevel.enabled() {
@@ -214,7 +221,7 @@ func TestGenerate_MinifyNoneViaConfig(t *testing.T) {
 	}
 	chdir(t, dir)
 
-	merged, _, err := resolveConfig(config{})
+	merged, _, err := resolveConfig(config{}, dir)
 	if err != nil {
 		t.Fatal(err)
 	}

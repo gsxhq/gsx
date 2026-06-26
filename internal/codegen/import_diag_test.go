@@ -25,6 +25,7 @@ import (
 //	line 4: \t"context"     ← unused; error must land here
 //	line 5: )
 func TestUnusedImportDiagnosticMapsToSource(t *testing.T) {
+	t.Parallel()
 	mod := tempModule(t, "gsximporttest")
 	viewsDir := filepath.Join(mod, "views")
 	if err := os.MkdirAll(viewsDir, 0o755); err != nil {
@@ -73,6 +74,7 @@ func TestUnusedImportDiagnosticMapsToSource(t *testing.T) {
 //	line 5: \tx "context"   ← unused alias; error must land here
 //	line 6: )
 func TestUnusedImportDiagnosticPerImportLine(t *testing.T) {
+	t.Parallel()
 	mod := tempModule(t, "gsximportline")
 	viewsDir := filepath.Join(mod, "views")
 	if err := os.MkdirAll(viewsDir, 0o755); err != nil {

@@ -9,6 +9,7 @@ import (
 
 // H1 same-package: hover on the `comments` attribute → "comments []store.Comment".
 func TestHoverAttrParamSamePkg(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -36,6 +37,7 @@ func TestHoverAttrParamSamePkg(t *testing.T) {
 // H1 cross-package + H2: hover on `name` attr → "name string"; hover on the
 // `components.Input` tag → "component Input(".
 func TestHoverCrossPkgAttrAndTag(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}

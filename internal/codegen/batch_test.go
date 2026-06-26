@@ -35,6 +35,7 @@ func makeSubPkg(t *testing.T, moduleDir, subdir, gsxSrc string) string {
 // TestGeneratePackages_Equivalence checks that GeneratePackages produces output
 // that is byte-equal to GeneratePackage run on each individual directory.
 func TestGeneratePackages_Equivalence(t *testing.T) {
+	t.Parallel()
 	tmp := tempModule(t, "gsxbatch")
 
 	dirA := makeSubPkg(t, tmp, "a",
@@ -91,6 +92,7 @@ func TestGeneratePackages_Equivalence(t *testing.T) {
 // TestGeneratePackages_ErrorIsolation checks that a type-resolution failure in
 // one package does not prevent the others from generating successfully.
 func TestGeneratePackages_ErrorIsolation(t *testing.T) {
+	t.Parallel()
 	tmp := tempModule(t, "gsxbatch")
 
 	dirA := makeSubPkg(t, tmp, "a",
@@ -133,6 +135,7 @@ func TestGeneratePackages_ErrorIsolation(t *testing.T) {
 // packages resolved in a single GeneratePackages call and no pre-generated
 // .x.go files on disk.
 func TestGeneratePackages_CrossPackage(t *testing.T) {
+	t.Parallel()
 	tmp := tempModule(t, "gsxbatch")
 
 	dirUI := filepath.Join(tmp, "ui")
@@ -175,6 +178,7 @@ func TestGeneratePackages_CrossPackage(t *testing.T) {
 // Fix 1, such a path would never match the go/packages-returned absolute dir,
 // causing a silent zero-output result.
 func TestGeneratePackages_NonCanonicalDir(t *testing.T) {
+	t.Parallel()
 	tmp := tempModule(t, "gsxbatch")
 
 	dirA := makeSubPkg(t, tmp, "a",
@@ -212,6 +216,7 @@ func mapKeys(m map[string]*PackageResult) []string {
 }
 
 func TestGeneratePackagesWithFilters_CustomFilter(t *testing.T) {
+	t.Parallel()
 	repoRoot, _ := filepath.Abs("../..")
 	tmp := t.TempDir()
 	writeFile(t, tmp, "go.mod", "module gsxbatchf\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")

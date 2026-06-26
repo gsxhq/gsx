@@ -20,6 +20,7 @@ func runCapture(t *testing.T, args []string) (int, string, string) {
 // TestRunGenerate proves `generate <pkgDir>` writes the .x.go, returns 0, and
 // the default summary mentions wrote/1.
 func TestRunGenerate(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -42,6 +43,7 @@ func TestRunGenerate(t *testing.T) {
 
 // TestRunGenerateVerbose proves -v lists the written file.
 func TestRunGenerateVerbose(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -61,6 +63,7 @@ func TestRunGenerateVerbose(t *testing.T) {
 
 // TestRunGenerateQuiet proves -q prints nothing on success.
 func TestRunGenerateQuiet(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -79,6 +82,7 @@ func TestRunGenerateQuiet(t *testing.T) {
 
 // TestRunGenerateMissingPath proves a non-existent path is a USAGE error (exit 2).
 func TestRunGenerateMissingPath(t *testing.T) {
+	t.Parallel()
 	code, _, errb := runCapture(t, []string{"generate", "/does/not/exist/anywhere"})
 	if code != 2 {
 		t.Fatalf("expected exit 2 for missing path, got %d; stderr=%q", code, errb)
@@ -88,6 +92,7 @@ func TestRunGenerateMissingPath(t *testing.T) {
 // TestRunGenerateCodegenError proves a .gsx that fails codegen is a CODEGEN error
 // (exit 1) and stderr names the dir.
 func TestRunGenerateCodegenError(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -106,6 +111,7 @@ func TestRunGenerateCodegenError(t *testing.T) {
 
 // TestRunVersion proves version prints something non-empty and returns 0.
 func TestRunVersion(t *testing.T) {
+	t.Parallel()
 	code, out, errb := runCapture(t, []string{"version"})
 	if code != 0 {
 		t.Fatalf("expected exit 0, got %d; stderr=%q", code, errb)
@@ -119,6 +125,7 @@ func TestRunVersion(t *testing.T) {
 // path argument (the flag-position fix): `gsx generate <dir> -v` lists the file
 // rather than erroring with exit 2.
 func TestRunGenerateVerboseAfterCommand(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -138,6 +145,7 @@ func TestRunGenerateVerboseAfterCommand(t *testing.T) {
 
 // TestRunGenerateQuietAfterCommand proves -q works AFTER the command.
 func TestRunGenerateQuietAfterCommand(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -158,6 +166,7 @@ func TestRunGenerateQuietAfterCommand(t *testing.T) {
 // a shortened VCS revision with time + dirty marker, and the Go toolchain
 // version, and that it omits the commit line when no VCS info is present.
 func TestFormatBuildVersion(t *testing.T) {
+	t.Parallel()
 	full := &debug.BuildInfo{
 		GoVersion: "go1.24.0",
 		Settings: []debug.BuildSetting{
@@ -190,6 +199,7 @@ func TestFormatBuildVersion(t *testing.T) {
 
 // TestRunHelp proves help/no-args list the generate command and return 0.
 func TestRunHelp(t *testing.T) {
+	t.Parallel()
 	for _, args := range [][]string{{"help"}, nil, {"-h"}} {
 		code, out, errb := runCapture(t, args)
 		if code != 0 {
@@ -204,6 +214,7 @@ func TestRunHelp(t *testing.T) {
 // TestRunUnknownCommand proves an unknown command is a usage error (exit 2) and
 // stderr mentions unknown.
 func TestRunUnknownCommand(t *testing.T) {
+	t.Parallel()
 	code, _, errb := runCapture(t, []string{"bogus"})
 	if code != 2 {
 		t.Fatalf("expected exit 2 for unknown command, got %d; stderr=%q", code, errb)
@@ -217,6 +228,7 @@ func TestRunUnknownCommand(t *testing.T) {
 // `fmt` over an empty directory (via -C) is a recognized command that succeeds
 // (exit 0) rather than the unknown-command exit 2.
 func TestRunFmtDispatch(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	code, _, errb := runCapture(t, []string{"-C", dir, "fmt"})
 	if code != 0 {
@@ -277,6 +289,7 @@ func TestCleanCacheSentinelGuard(t *testing.T) {
 // TestCleanCacheSentinelWrittenByStorePut proves that a normal generate/storePut
 // lifecycle writes the CACHEDIR.TAG sentinel so clean --cache works afterward.
 func TestCleanCacheSentinelWrittenByStorePut(t *testing.T) {
+	t.Parallel()
 	cacheRoot := t.TempDir()
 	out := pkgOutput{"a.x.go": []byte("package a\n")}
 	if err := storePut(cacheRoot, "testkey", out); err != nil {
@@ -308,6 +321,7 @@ func TestCleanCacheDisabled(t *testing.T) {
 
 // TestCleanNoFlags proves `clean` without --cache prints usage and exits 0.
 func TestCleanNoFlags(t *testing.T) {
+	t.Parallel()
 	code, out, errb := runCapture(t, []string{"clean"})
 	if code != 0 {
 		t.Fatalf("expected exit 0, got %d; stderr=%q", code, errb)
@@ -321,6 +335,7 @@ func TestCleanNoFlags(t *testing.T) {
 // TestRunChdir proves -C runs relative to the given directory: a relative path
 // "views" resolves under the -C dir.
 func TestRunChdir(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}

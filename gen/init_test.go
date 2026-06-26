@@ -18,7 +18,8 @@ func initNI(t *testing.T, args ...string) (int, string, string) {
 	t.Helper()
 	var out, errb bytes.Buffer
 	noop := func(_ []string, _ string, _, _ io.Writer) error { return nil }
-	code := initWith(args, strings.NewReader(""), &out, &errb, false, noop)
+	wd, _ := os.Getwd()
+	code := initWith(args, strings.NewReader(""), &out, &errb, false, noop, wd)
 	return code, out.String(), errb.String()
 }
 
@@ -37,11 +38,12 @@ func recordingRunner(failAt int, failErr error) (*[][]string, stepRunner) {
 }
 
 func TestInitInteractiveRunsAllSteps(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	calls, run := recordingRunner(-1, nil)
 	var out, errb bytes.Buffer
 	code := initWith([]string{"--module", "demo", dir},
-		strings.NewReader("y\ny\ny\n"), &out, &errb, true, run)
+		strings.NewReader("y\ny\ny\n"), &out, &errb, true, run, dir)
 	if code != 0 {
 		t.Fatalf("exit %d; stderr=%q", code, errb.String())
 	}
@@ -57,11 +59,12 @@ func TestInitInteractiveRunsAllSteps(t *testing.T) {
 }
 
 func TestInitInteractiveSkipsOnNo(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	calls, run := recordingRunner(-1, nil)
 	var out, errb bytes.Buffer
 	code := initWith([]string{"--module", "demo", dir},
-		strings.NewReader("n\ny\ny\n"), &out, &errb, true, run)
+		strings.NewReader("n\ny\ny\n"), &out, &errb, true, run, dir)
 	if code != 0 {
 		t.Fatalf("exit %d; %q", code, errb.String())
 	}
@@ -74,11 +77,12 @@ func TestInitInteractiveSkipsOnNo(t *testing.T) {
 }
 
 func TestInitInteractiveStopsOnFailure(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	calls, run := recordingRunner(1, fmt.Errorf("boom")) // 2nd step fails
 	var out, errb bytes.Buffer
 	code := initWith([]string{"--module", "demo", dir},
-		strings.NewReader("y\ny\ny\n"), &out, &errb, true, run)
+		strings.NewReader("y\ny\ny\n"), &out, &errb, true, run, dir)
 	if code != 1 {
 		t.Fatalf("expected exit 1, got %d", code)
 	}
@@ -91,12 +95,13 @@ func TestInitInteractiveStopsOnFailure(t *testing.T) {
 }
 
 func TestInitYesRunsWithoutPrompt(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	calls, run := recordingRunner(-1, nil)
 	var out, errb bytes.Buffer
 	// interactive=false but --yes ⇒ run all, no stdin consumed.
 	code := initWith([]string{"--yes", "--module", "demo", dir},
-		strings.NewReader(""), &out, &errb, false, run)
+		strings.NewReader(""), &out, &errb, false, run, dir)
 	if code != 0 {
 		t.Fatalf("exit %d; %q", code, errb.String())
 	}
@@ -106,6 +111,7 @@ func TestInitYesRunsWithoutPrompt(t *testing.T) {
 }
 
 func TestInitDefault(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	target := filepath.Join(dir, "myapp")
 	code, out, errb := initNI(t, target)
@@ -125,6 +131,7 @@ func TestInitDefault(t *testing.T) {
 }
 
 func TestInitModuleFlag(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	code, _, errb := initNI(t, "--module", "example.com/foo", dir)
 	if code != 0 {
@@ -141,6 +148,7 @@ func TestInitModuleFlag(t *testing.T) {
 }
 
 func TestInitUnknownTemplate(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	code, _, errb := initNI(t, "--template", "bogus", dir)
 	if code != 2 {
@@ -152,6 +160,7 @@ func TestInitUnknownTemplate(t *testing.T) {
 }
 
 func TestInitRefusesExistingProject(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -171,6 +180,7 @@ func TestInitRefusesExistingProject(t *testing.T) {
 }
 
 func TestInitRefusesExistingPackageJSON(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -185,6 +195,7 @@ func TestInitRefusesExistingPackageJSON(t *testing.T) {
 }
 
 func TestInitFlagsAfterDir(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	code, _, errb := initNI(t, dir, "--module", "example.com/after")
 	if code != 0 {
@@ -197,6 +208,7 @@ func TestInitFlagsAfterDir(t *testing.T) {
 }
 
 func TestScaffoldRendersAndTransforms(t *testing.T) {
+	t.Parallel()
 	src := fstest.MapFS{
 		"tpl/go.mod.tmpl":      {Data: []byte("module «.Module»\n")},
 		"tpl/app.gsx":          {Data: []byte("{{ x := 1 }}<p>«.Name»</p>")},
@@ -236,6 +248,7 @@ func TestScaffoldRendersAndTransforms(t *testing.T) {
 }
 
 func TestTransformName(t *testing.T) {
+	t.Parallel()
 	cases := map[string]string{
 		"go.mod.tmpl":      "go.mod",
 		"main.go.tmpl":     "main.go",
@@ -252,6 +265,7 @@ func TestTransformName(t *testing.T) {
 }
 
 func TestRenderCustomDelims(t *testing.T) {
+	t.Parallel()
 	// «» substituted; {{ }} and { } left alone.
 	out, err := render([]byte("«.Name»: {{ go }} and { x }"), tmplData{Name: "n"})
 	if err != nil {
@@ -263,6 +277,7 @@ func TestRenderCustomDelims(t *testing.T) {
 }
 
 func TestScaffoldSimpleTemplate(t *testing.T) {
+	t.Parallel()
 	dest := t.TempDir()
 	tpl := templates[defaultTemplate]
 	if err := scaffold(initFS, tpl.root, dest, tmplData{Module: "example.com/demo", Name: "demo"}, false); err != nil {
@@ -302,6 +317,7 @@ func TestScaffoldSimpleTemplate(t *testing.T) {
 }
 
 func TestInitTaskfileParses(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping Taskfile-parse gate in -short mode")
 	}
@@ -323,6 +339,7 @@ func TestInitTaskfileParses(t *testing.T) {
 }
 
 func TestInitScaffoldCompiles(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping scaffold-compiles integration test in -short mode")
 	}

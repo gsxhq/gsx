@@ -11,6 +11,7 @@ import (
 )
 
 func TestEmitter_NDJSON_GeneratedOK(t *testing.T) {
+	t.Parallel()
 	var out, errb bytes.Buffer
 	e := &emitter{ndjson: true, stdout: &out, stderr: &errb}
 	e.cycle(cycleResult{Dir: "/m/views", Written: []string{"/m/views/page.x.go"}, OK: true})
@@ -28,6 +29,7 @@ func TestEmitter_NDJSON_GeneratedOK(t *testing.T) {
 }
 
 func TestEmitter_NDJSON_OperationalErrorSurfaces(t *testing.T) {
+	t.Parallel()
 	var out, errb bytes.Buffer
 	e := &emitter{ndjson: true, stdout: &out, stderr: &errb}
 	e.cycle(cycleResult{Dir: "/m/views", OK: false, Err: errors.New("disk full"), Diags: nil})
@@ -49,6 +51,7 @@ func TestEmitter_NDJSON_OperationalErrorSurfaces(t *testing.T) {
 }
 
 func TestEmitter_NDJSON_DiagnosticsShapeMatchesRenderJSON(t *testing.T) {
+	t.Parallel()
 	d := diag.Diagnostic{Severity: diag.Error, Code: "x", Message: "boom"}
 	var want bytes.Buffer
 	_ = diag.RenderJSON(&want, []diag.Diagnostic{d})

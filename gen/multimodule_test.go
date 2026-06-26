@@ -21,6 +21,7 @@ func writeModule(t *testing.T, dir, mod string) {
 // fix, every interpolation in both modules failed to type-check because all dirs
 // were loaded against the first module's root.
 func TestGenerateMultiModule(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -61,6 +62,7 @@ func TestGenerateMultiModule(t *testing.T) {
 // Before the fix the session built a single resolver rooted at the first module,
 // so regenerating a dir in the second module resolved nothing.
 func TestWatchSessionMultiModule(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}

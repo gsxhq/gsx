@@ -58,6 +58,7 @@ func resultKeysOf(m map[string]*PackageResult) []string {
 }
 
 func TestCrossPkgReferencesRouted(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip()
 	}
@@ -76,6 +77,7 @@ func TestCrossPkgReferencesRouted(t *testing.T) {
 }
 
 func TestSingleDirReferencesNoRegression(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip()
 	}

@@ -31,6 +31,7 @@ import (
 //
 // This is a guard test: it asserts the redesign did NOT break the LSP contract.
 func TestByoLSPContract(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	repoRoot, _ := filepath.Abs("../..")
 	writeFile(t, dir, "go.mod",
