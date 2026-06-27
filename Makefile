@@ -1,11 +1,17 @@
 # gsx developer tasks. Use tabs for recipe indentation.
-.PHONY: test cover cover-html examples ci ci-gomod ci-playground ci-format
+.PHONY: test check cover cover-html examples ci ci-gomod ci-playground ci-format
+
+# COUNT is the go-test cache control. -count=1 disables the test cache so every
+# run re-executes — the authoritative behaviour `ci` uses to mirror GitHub CI.
+# `make check` overrides it to empty, letting the cache skip unchanged packages.
+COUNT ?= -count=1
 
 test:
 	go test ./... -count=1
 
 # Mirrors .github/workflows/ci.yml (minus the VitePress docs build, which clones
-# the external site repo). Run before every commit to main / merge.
+# the external site repo). Run before merging to main; this is the authoritative,
+# uncached run (-count=1). For the inner dev loop use `make check` instead.
 #
 # Examples are regenerated FIRST, serially: the playground module embeds
 # examples.json (`//go:embed` in playground/server/presets.go), so its build
@@ -18,16 +24,25 @@ ci:
 	git diff --exit-code -- docs/guide/examples.md docs/examples.json playground/server/examples.json
 	$(MAKE) -j3 ci-gomod ci-playground ci-format
 
+# Fast inner-loop check: the SAME checks as `ci`, but lets the Go test cache
+# serve unchanged packages (drops -count=1), so a repeat run after editing one
+# package only re-tests that package and its dependents. The cache is content-
+# keyed over each test binary's import closure, so your edits always re-run the
+# tests they affect — there is no stale-pass risk for code you are changing.
+# GitHub CI's -count=1 run (and `make ci`) remain the authoritative gate.
+check:
+	$(MAKE) ci COUNT=
+
 # Root module: build, vet, test. The long pole (~50s of in-process e2e tests
 # in gen/, which spawn the Go toolchain per case).
 ci-gomod:
 	go build ./...
 	go vet ./...
-	go test ./... -count=1
+	go test ./... $(COUNT)
 
 # playground/server is a separate Go module.
 ci-playground:
-	cd playground/server && go build ./... && go test ./... -count=1
+	cd playground/server && go build ./... && go test ./... $(COUNT)
 
 # gofmt + gsx fmt must stay clean (see the format gate note in ci.yml).
 ci-format:

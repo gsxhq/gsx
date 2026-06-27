@@ -5,9 +5,16 @@ Runtime (root package) is **standard-library only** — keep it dependency-free;
 
 `gsx` binary conflicts with another system tool — run `go run ./cmd/gsx …`, or `gsx version` to verify.
 
-## Before every commit to main / merge
+## Before merging to main
 
 Run `make ci` — it mirrors `.github/workflows/ci.yml` (build/vet/test both modules, examples drift, `gofmt` + `gsx fmt`).
+It is the authoritative, uncached run (`-count=1`); GitHub CI runs the same.
+
+For the **inner dev loop**, use `make check`: the same checks, but it drops `-count=1` so the Go test cache
+serves unchanged packages (a repeat run only re-tests what you edited). The cache is content-keyed over each
+test binary's import closure, so your edits always re-run the tests they affect — no stale-pass risk. You don't
+need the full uncached `make ci` after every small change; run it (or rely on GitHub CI) before merging.
+
 Pin Go to `GO_VERSION` in `ci.yml` (currently 1.26.1); a different minor re-introduces gofmt drift.
 The CI `docs` job (VitePress, clones `gsxhq/gsxhq.github.io`) isn't in `make ci` — only matters when editing `docs/guide/**`.
 
