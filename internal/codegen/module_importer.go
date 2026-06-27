@@ -9,6 +9,7 @@ import (
 	"go/types"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
@@ -116,6 +117,59 @@ func (m *Module) ResetPackageCache() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.pkgTypes = map[string]*types.Package{}
+}
+
+// recordImports updates the project-internal import graph for dir, REPLACING
+// dir's previous forward edges. Only project gsx packages (the things that can
+// live in pkgTypes) become edges; external/stdlib/Go-only imports are ignored.
+// Replacement keeps the graph precise across import add/remove: because the
+// edited package always re-analyzes in the same turn, its outgoing edges are
+// refreshed before any later edit could consult them.
+//
+// Resolves dep dirs (isGsxPackage locks m.mu) BEFORE taking m.mu, then mutates
+// the graph under the lock.
+func (m *Module) recordImports(dir string, specs []importSpec) {
+	deps := map[string]bool{}
+	for _, s := range specs {
+		if dd, ok := dirForImportPath(m.opts.ModuleRoot, m.opts.ModulePath, s.path); ok && m.isGsxPackage(dd) {
+			deps[dd] = true
+		}
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, old := range m.imports[dir] {
+		if set := m.importedBy[old]; set != nil {
+			delete(set, dir)
+		}
+	}
+	newDeps := make([]string, 0, len(deps))
+	for dd := range deps {
+		newDeps = append(newDeps, dd)
+		if m.importedBy[dd] == nil {
+			m.importedBy[dd] = map[string]bool{}
+		}
+		m.importedBy[dd][dir] = true
+	}
+	m.imports[dir] = newDeps
+}
+
+// importGraphSnapshot returns deep copies of the forward and reverse import
+// graphs for tests. Reverse edges are flattened (dep -> sorted importer dirs).
+func (m *Module) importGraphSnapshot() (fwd map[string][]string, rev map[string][]string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	fwd = map[string][]string{}
+	for k, v := range m.imports {
+		fwd[k] = append([]string(nil), v...)
+	}
+	rev = map[string][]string{}
+	for dep, set := range m.importedBy {
+		for imp := range set {
+			rev[dep] = append(rev[dep], imp)
+		}
+		sort.Strings(rev[dep])
+	}
+	return fwd, rev
 }
 
 // isGsxPackage reports whether dir contains at least one .gsx file (disk or
@@ -313,6 +367,11 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		// the error without caching so the caller receives it.
 		return nil, mi.cycleErr
 	}
+
+	// Record the project-internal import graph for this package. Only successful
+	// analyses reach this point, keeping the graph consistent with type-checked
+	// packages. cycleErr paths are excluded (they are not cached in pkgTypes either).
+	m.recordImports(dir, allImportSpecs)
 
 	// Harvest once into resolved + exprMap (both consumed downstream: resolved by
 	// Generate, exprMap surfaced by Package). Build the component cross-index

@@ -60,7 +60,10 @@ type Module struct {
 	ext        types.Importer            // lazily built external importer (stdlib + third-party)
 	fset       *token.FileSet            // module-wide shared FileSet (see "FileSet" / "Growth" notes above)
 	pkgTypes   map[string]*types.Package // abs dir -> checked *types.Package cache
-	mu         sync.Mutex                // guards overrides, ext, pkgTypes
+	imports    map[string][]string        // dir -> its project-gsx dependency dirs (forward edges)
+	importedBy map[string]map[string]bool // dep dir -> set of importer dirs (reverse edges)
+	dirty      map[string]bool            // dirs with a pending content change (consumed by applyDirty)
+	mu         sync.Mutex                // guards overrides, ext, pkgTypes, imports, importedBy, dirty
 	analysisMu sync.Mutex                // serializes Package/Generate/typesPackage (see concurrency contract)
 }
 
@@ -71,7 +74,14 @@ func Open(opts Options) (*Module, error) {
 		cls = attrclass.Builtin()
 		opts.Classifier = cls
 	}
-	return &Module{opts: opts, overrides: map[string][]byte{}, fset: token.NewFileSet()}, nil
+	return &Module{
+		opts:       opts,
+		overrides:  map[string][]byte{},
+		fset:       token.NewFileSet(),
+		imports:    map[string][]string{},
+		importedBy: map[string]map[string]bool{},
+		dirty:      map[string]bool{},
+	}, nil
 }
 
 // SetOverride records in-memory source for a .gsx path (an unsaved editor buffer
