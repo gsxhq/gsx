@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gsxhq/gsx/internal/attrclass"
@@ -39,7 +40,7 @@ func equivWriteFixture(t *testing.T, root string) {
 	modContent := "module example.com/equiv\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => " + repoRoot + "\n"
 	writeFile(t, root, "go.mod", modContent)
 	writeFile(t, filepath.Join(root, "comp"), "card.gsx",
-		"package comp\n\ncomponent Card(title string) {\n\t<div class=\"card\">{title}</div>\n}\n")
+		"package comp\n\ncomponent Card(title string) {\n\t<style>.card {  color : red ;  }</style>\n\t<div class=\"card\">{title}</div>\n}\n")
 	writeFile(t, filepath.Join(root, "views"), "page.gsx",
 		"package views\n\nimport \"example.com/equiv/comp\"\n\ncomponent Page() {\n\t<comp.Card title=\"hello\"/>\n}\n")
 }
@@ -100,8 +101,8 @@ func TestWatchEquiv(t *testing.T) {
 		t.Fatalf("newWatchSession: %v", sessErr)
 	}
 	for _, r := range startup {
-		if r.Err != nil {
-			t.Fatalf("startup regen %s: %v diags=%v", r.Dir, r.Err, r.Diags)
+		if !r.OK {
+			t.Fatalf("startup regen %s: err=%v diags=%v", r.Dir, r.Err, r.Diags)
 		}
 	}
 
@@ -122,6 +123,13 @@ func TestWatchEquiv(t *testing.T) {
 		}
 	}
 
+	// Non-vacuity: assert CSS was actually minified. If watch ignored cssMinify
+	// and emitted raw CSS, this would fail even if bytes matched the wrong thing.
+	cardBuf := equivReadXGo(t, dir1, filepath.Join("comp", "card.x.go"))
+	if !strings.Contains(string(cardBuf), ".card{color : red}") {
+		t.Errorf("TestWatchEquiv: expected minified CSS in card.x.go; got:\n%s", cardBuf)
+	}
+
 	// --- Warm regen after source edit ---
 	// Modify comp/card.gsx in the watch tree.
 	updatedCard := "package comp\n\ncomponent Card(title string) {\n\t<span class=\"card\">{title}</span>\n}\n"
@@ -140,8 +148,8 @@ func TestWatchEquiv(t *testing.T) {
 		affected[dep] = true
 	}
 	for dir := range affected {
-		if r := sess.regenDir(dir); r.Err != nil {
-			t.Fatalf("post-edit regenDir(%s): %v diags=%v", dir, r.Err, r.Diags)
+		if r := sess.regenDir(dir); !r.OK {
+			t.Fatalf("post-edit regenDir(%s): err=%v diags=%v", dir, r.Err, r.Diags)
 		}
 	}
 
@@ -207,8 +215,8 @@ func TestWatchEquiv_MinifyNone(t *testing.T) {
 		t.Fatalf("newWatchSession (minify-none): %v", sessErr)
 	}
 	for _, r := range startup {
-		if r.Err != nil {
-			t.Fatalf("startup regen (minify-none) %s: %v diags=%v", r.Dir, r.Err, r.Diags)
+		if !r.OK {
+			t.Fatalf("startup regen (minify-none) %s: err=%v diags=%v", r.Dir, r.Err, r.Diags)
 		}
 	}
 
@@ -226,5 +234,14 @@ func TestWatchEquiv_MinifyNone(t *testing.T) {
 			t.Errorf("minify-none byte mismatch for %s\none-shot (%d B):\n%s\nwatch (%d B):\n%s",
 				rel, len(osBuf), osBuf, len(wBuf), wBuf)
 		}
+	}
+
+	// Non-vacuity: assert CSS was NOT minified. If watch always minified (ignoring
+	// cssMinify=false), watch's bytes would contain ".card{color : red}" while
+	// one-shot emits the verbatim form — the byte-equality check above would already
+	// catch that mismatch, but this explicit Contains makes the minify STATE visible.
+	cardBuf := equivReadXGo(t, dir1, filepath.Join("comp", "card.x.go"))
+	if !strings.Contains(string(cardBuf), ".card {  color : red ;  }") {
+		t.Errorf("TestWatchEquiv_MinifyNone: expected un-minified CSS in card.x.go; got:\n%s", cardBuf)
 	}
 }
