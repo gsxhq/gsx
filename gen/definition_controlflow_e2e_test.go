@@ -14,11 +14,11 @@ import (
 // single-package .gsx file containing a for-range control-flow block, with NO
 // .x.go on disk.  It asserts three go-to-def targets inside the clause:
 //
-//	{ for _, post := range props.Posts { <li>{post.Title}</li> } }
+//		{ for _, post := range props.Posts { <li>{post.Title}</li> } }
 //
-//   - cursor on "Posts" (in props.Posts)  → the Posts field declaration in page.gsx
-//   - cursor on "props" (in props.Posts)  → the props param in page.gsx
-//   - cursor on "post"  (in post.Title)   → the post binding in the for clause
+//	  - cursor on "Posts" (in props.Posts)  → the Posts field declaration in page.gsx
+//	  - cursor on "props" (in props.Posts)  → the props param in page.gsx
+//	  - cursor on "post"  (in post.Title)   → the post binding in the for clause
 func TestDefinitionControlFlowForClause(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
