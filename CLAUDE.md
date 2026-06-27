@@ -46,6 +46,8 @@ not user config.)
 
 Design lives in `docs/superpowers/specs/`. `docs/ROADMAP.md` should be reviewed and updated.
 
+Performance is important: we thrive to keep generation fast, and dev experience smooth.
+
 ## Neighboring repos (siblings under `~/personal/gsxhq/`)
 
 `gsxhq.github.io` (VitePress docs, local dir `website`) · `tree-sitter-gsx` (grammar) · `vite-plugin-gsx` (`@gsxhq/vite-plugin-gsx`) · `vite` (`github.com/gsxhq/vite`). The dev loop (`gsx init` scaffold + Vite plugin + `vite` Go helper) is shipped/closed. Playground backend (`playground/server/`) deploys to Cloud Run; docs site to GitHub Pages via `deploy-docs.yml`.
