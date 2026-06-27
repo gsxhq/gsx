@@ -94,7 +94,7 @@ type Module struct {
 
 // defaultFsetRebuildBytes bounds the module-lifetime FileSet's project re-parse
 // growth: when fset.Base() climbs this many bytes past the post-load baseline, the
-// Module rebuilds fset+ext+pkgTypes. 256 MiB is generous enough that a rebuild is
+// Module rebuilds fset+ext+pkgTypes+pkgResults. 256 MiB is generous enough that a rebuild is
 // rare (tens of full re-analyses of a large package) yet caps leaked token.File
 // memory. Internal perf knob (not gsx.toml / computeKey); overridable via
 // GSX_FSET_REBUILD_BYTES (0 disables; like GSXCACHE).
@@ -240,7 +240,7 @@ func (m *Module) externalImporter() (types.Importer, error) {
 	return m.ext, nil
 }
 
-// maybeRebuildFset rebuilds the FileSet (and ext/pkgTypes) when project re-parse
+// maybeRebuildFset rebuilds the FileSet (and ext/pkgTypes/pkgResults) when project re-parse
 // growth since the last load exceeds fsetRebuildBytes. A zero threshold disables it.
 // Called at the start of Package/Generate (under analysisMu), before applyDirty.
 func (m *Module) maybeRebuildFset() {
@@ -285,6 +285,12 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	defer m.analysisMu.Unlock()
 	m.maybeRebuildFset()
 	m.applyDirty()
+	m.mu.Lock()
+	cached := m.pkgResults[dir]
+	m.mu.Unlock()
+	if cached != nil {
+		return cached, nil
+	}
 	ext, err := m.externalImporter()
 	if err != nil {
 		return nil, err
@@ -318,6 +324,9 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	res.Diags = a.bag.Sorted()
 	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.gsxFset, a.skelFset, a.info, a.pkg)
 	res.UnusedImports = detectUnusedImportsFromErrs(a.typeErrs, a.importSpecs, a.gsxFset)
+	m.mu.Lock()
+	m.pkgResults[dir] = res
+	m.mu.Unlock()
 	return res, nil
 }
 

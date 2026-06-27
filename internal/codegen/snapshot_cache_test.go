@@ -50,3 +50,66 @@ func TestRebuildClearsPkgResults(t *testing.T) {
 		t.Errorf("rebuildFset must clear pkgResults; remaining=%v", got)
 	}
 }
+
+func TestPackageResultCacheHitAndMiss(t *testing.T) {
+	if testing.Short() {
+		t.Skip()
+	}
+	m, root := setupChainModule(t)
+	comp := filepath.Join(root, "components")
+	r1, err := m.Package(comp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r2, err := m.Package(comp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r1 != r2 {
+		t.Errorf("repeat Package(comp) with no edit must hit the cache (same pointer); got distinct results")
+	}
+	// Edit components → its dirty closure drops the cached result → re-analysis → new pointer.
+	m.SetOverride(filepath.Join(comp, "card.gsx"), componentsEdited)
+	r3, err := m.Package(comp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r3 == r1 {
+		t.Errorf("Package(comp) after an edit must re-analyze (different pointer); got the stale cached result")
+	}
+}
+
+func TestPackageResultCacheDependencyInvalidation(t *testing.T) {
+	if testing.Short() {
+		t.Skip()
+	}
+	m, root := setupChainModule(t)
+	util := filepath.Join(root, "util")
+	comp := filepath.Join(root, "components")
+	solo := filepath.Join(root, "solo")
+	rc1, err := m.Package(comp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs1, err := m.Package(solo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Edit util (a dep of components): components' cached result must drop; solo (unrelated) stays.
+	m.SetOverride(filepath.Join(util, "util.gsx"),
+		[]byte("package util\n\ncomponent Y(label string) {\n\t<em>{label}</em>\n}\n"))
+	rc2, err := m.Package(comp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rc2 == rc1 {
+		t.Errorf("editing dep util must invalidate components' cached result (different pointer)")
+	}
+	rs2, err := m.Package(solo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rs2 != rs1 {
+		t.Errorf("editing util must NOT drop unrelated solo's cached result (same pointer expected)")
+	}
+}
