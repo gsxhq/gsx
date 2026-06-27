@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -298,4 +299,31 @@ func TestGenerateOutputIdenticalAcrossRebuild(t *testing.T) {
 	if len(after) != len(before) {
 		t.Errorf("file count changed across rebuild: before=%d after=%d", len(before), len(after))
 	}
+}
+
+// TestConcurrentRebuildAndPackage verifies that concurrent SetOverride+Package
+// calls on the same Module under a small fsetRebuildBytes threshold produce no
+// data races. The -race detector is the effective assertion: any race on
+// fset/ext/pkgTypes/fsetBaseline/rebuildCount surfaces immediately.
+// fsetRebuildBytes must be assigned BEFORE goroutines start because the field is
+// not guarded by mu (reads/writes are fine once goroutines are serialized by
+// analysisMu, but the initial assignment races with concurrent reads otherwise).
+func TestConcurrentRebuildAndPackage(t *testing.T) {
+	if testing.Short() {
+		t.Skip()
+	}
+	m, root := setupChainModule(t)
+	m.fsetRebuildBytes = 2048 // assign before goroutines start
+	comp := filepath.Join(root, "components")
+	card := filepath.Join(comp, "card.gsx")
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			m.SetOverride(card, fmt.Appendf(nil, "package components\n\nimport \"example.com/x/util\"\n\ncomponent X(title string) {\n\t<div>%d<util.Y label={ title }/></div>\n}\n", i))
+			_, _ = m.Package(comp)
+		}(i)
+	}
+	wg.Wait()
 }
