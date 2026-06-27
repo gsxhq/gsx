@@ -2,8 +2,10 @@ package gen
 
 import (
 	"fmt"
+	"go/types"
 	"io"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	gsxast "github.com/gsxhq/gsx/ast"
@@ -139,12 +141,18 @@ func (a lspAnalyzer) Analyze(dir string, override map[string][]byte) (*lsp.Packa
 }
 
 // AnalyzeModule analyzes every gsx package in the module containing dir and
-// returns a flat cross-reference list. It runs ONE whole-module codegen batch
-// (so cross-package component references route into the declaring component's
-// CrossRef — see the cross-package find-references design) and flattens every
-// package's CrossIndex. override supplies unsaved buffers (abs path -> bytes).
+// returns a flat cross-reference list. It reuses the warm per-root Module
+// (same instance Analyze uses), so the warm type-cache is shared across
+// per-dir Package calls. Cross-package CrossRef routing — a ref in pkg A to
+// a component declared in pkg B routing into B's CrossRef — is performed by
+// an explicit second pass over all packages' type-info, mirroring the batch
+// path's compObjOwner pass. Matching is by import-path string rather than
+// types.Object pointer equality, so it is stable across concurrent or
+// differently-ordered type-checker runs. override supplies unsaved buffers
+// (abs path -> bytes); all overrides are applied before the Package calls so
+// find-references sees current editor content.
 func (a lspAnalyzer) AnalyzeModule(dir string, override map[string][]byte) ([]lsp.CrossRef, error) {
-	root, _, err := moduleRoot(dir)
+	root, modPath, err := moduleRoot(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -153,22 +161,124 @@ func (a lspAnalyzer) AnalyzeModule(dir string, override map[string][]byte) ([]ls
 		return nil, err
 	}
 	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
-	out, err := codegen.GeneratePackagesWithFilters(root, dirs,
-		merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher,
-		nil, nil, true, true, override)
+	m, err := a.module(root, modPath, merged)
 	if err != nil {
 		return nil, err
 	}
-	var refs []lsp.CrossRef
-	for _, pr := range out {
+	// Apply all overrides before any Package call so applyDirty sees the full
+	// dirty set on the first Package call and subsequent calls run from clean state.
+	for p, src := range override {
+		m.SetOverride(p, src)
+	}
+
+	// Phase 1: analyze every package in the module and collect results.
+	type pkgEntry struct {
+		dir string
+		pr  *codegen.PackageResult
+	}
+	var entries []pkgEntry
+	for _, d := range dirs {
+		pr, err := m.Package(d)
+		if err != nil {
+			continue // skip un-analyzable dirs; match prior batch tolerance (partial results)
+		}
 		if pr == nil {
 			continue
 		}
-		for _, v := range pr.CrossIndex {
-			refs = append(refs, lsp.CrossRef{Name: v.Name, Decl: v.Decl, Refs: v.Refs})
+		entries = append(entries, pkgEntry{dir: d, pr: pr})
+	}
+
+	// Phase 2: build import-path → dir map.
+	// The Module's checkSkeletonPackage uses the absolute dir as the types.Package
+	// "path" (types.NewPackage(dir, pkgName)), so the same string is set on every
+	// *types.Package for a given dir — regardless of which type-checker run produced
+	// it. This lets us match without pointer equality.
+	importPathToDir := map[string]string{}
+	for _, e := range entries {
+		if e.pr.Types != nil {
+			importPathToDir[e.pr.Types.Path()] = e.dir
 		}
 	}
+
+	// Phase 3: seed the merged cross-ref map from each package's in-package
+	// CrossIndex (built by buildCrossNav, which already captures same-package refs).
+	// Copy the Refs slice so the cross-package append below does not mutate the
+	// cached PackageResult.
+	type ownerKey struct{ dir, key string }
+	cross := map[ownerKey]lsp.CrossRef{}
+	for _, e := range entries {
+		for key, v := range e.pr.CrossIndex {
+			cross[ownerKey{e.dir, key}] = lsp.CrossRef{
+				Name: v.Name,
+				Decl: v.Decl,
+				Refs: append(v.Refs[:0:0], v.Refs...),
+			}
+		}
+	}
+
+	// Phase 4: cross-package routing pass — mirrors batch.go's compObjOwner loop.
+	// For each package's type-info, find *types.Func uses that are declared in
+	// OTHER project packages and route those refs into the declaring component's
+	// CrossRef. In-package refs are skipped (pkgPath == myPath); external packages
+	// (not in importPathToDir) are skipped. Synthetic .x.go positions (no //line
+	// mapping back to a real source file) are also skipped, mirroring the batch pass.
+	for _, e := range entries {
+		if e.pr.Info == nil || e.pr.Types == nil {
+			continue
+		}
+		myPath := e.pr.Types.Path()
+		for id, obj := range e.pr.Info.Uses {
+			fn, ok := obj.(*types.Func)
+			if !ok || fn.Pkg() == nil {
+				continue // only component-function refs (plain or method)
+			}
+			pkgPath := fn.Pkg().Path()
+			if pkgPath == myPath {
+				continue // in-package ref; already in CrossIndex via buildCrossNav
+			}
+			declDir, ok := importPathToDir[pkgPath]
+			if !ok {
+				continue // external or stdlib package — not a project gsx component
+			}
+			key := crossRefKeyForFunc(fn)
+			ok2 := ownerKey{declDir, key}
+			if _, exists := cross[ok2]; !exists {
+				continue // not a tracked component (e.g. a plain Go func, not a gsx component)
+			}
+			p := e.pr.Fset.Position(id.Pos())
+			if strings.HasSuffix(p.Filename, ".x.go") {
+				continue // synthetic skeleton position; no //line directive
+			}
+			cr := cross[ok2]
+			cr.Refs = append(cr.Refs, p)
+			cross[ok2] = cr
+		}
+	}
+
+	// Phase 5: flatten the merged cross-ref map into the return slice.
+	var refs []lsp.CrossRef
+	for _, cr := range cross {
+		refs = append(refs, cr)
+	}
 	return refs, nil
+}
+
+// crossRefKeyForFunc derives the component key for a *types.Func: ".Name" for
+// a plain function component and "RecvType.Name" for a method component.
+// This mirrors componentKey (analyze.go) applied to the already-typed object.
+func crossRefKeyForFunc(fn *types.Func) string {
+	sig, ok := fn.Type().(*types.Signature)
+	if !ok || sig.Recv() == nil {
+		return "." + fn.Name()
+	}
+	recv := sig.Recv().Type()
+	if ptr, ok := recv.(*types.Pointer); ok {
+		recv = ptr.Elem()
+	}
+	if named, ok := recv.(*types.Named); ok {
+		return named.Obj().Name() + "." + fn.Name()
+	}
+	return "." + fn.Name() // fallback: unnamed receiver
 }
 
 // PrintWidth resolves the effective gsx.toml print width for dir, layering the

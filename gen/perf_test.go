@@ -97,7 +97,7 @@ func TestPerfBaseline(t *testing.T) {
 	totalGoFiles := N * refsPerPkg
 	t.Logf("fixture: %d packages, %d .gsx files, %d .go files", N, totalGSXFiles, totalGoFiles)
 
-	a := lspAnalyzer{}
+	a := newLSPAnalyzer(config{}, nil)
 
 	// ---------- cold pass: measure per-package latency ----------
 	latencies := make([]time.Duration, N)

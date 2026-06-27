@@ -29,7 +29,7 @@ func TestAnalyzeModuleCrossPkg(t *testing.T) {
 	must("use.go", "package x\n\nimport \"example.com/x/components\"\n\nfunc use() { _ = components.Input }\n")
 
 	componentsDir := filepath.Join(root, "components")
-	refs, err := (lspAnalyzer{}).AnalyzeModule(componentsDir, nil)
+	refs, err := newLSPAnalyzer(config{}, nil).AnalyzeModule(componentsDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
