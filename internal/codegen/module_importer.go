@@ -397,22 +397,25 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	compsByXGo := map[string][]*gsxast.Component{}
 	ctrlOffByXGo := map[string]map[gsxast.Node]int{}
 	var allImportSpecs []importSpec
+	skelErr := false
 	for path, f := range gsxFiles {
 		skel, comps, imps, ctrlOff, berr := buildSkeleton(f, table, propFields, nodeProps, byo, m.opts.FieldMatcher, fset)
 		if berr != nil {
-			// Mirror batch.go's attrError handling: a positioned attrError (e.g.
-			// bad-field-match) becomes a diagnostic in the bag and skips this file;
-			// any other buildSkeleton error is fatal (return nil, berr) — same as
-			// batch's non-attrError path which also records it but then skips the
-			// whole dir. Since the Module can skip per-file, we keep fatal for the
-			// other errors to match the current behavior for non-attrError cases.
+			// Mirror GeneratePackagesWithFilters's buildSkeleton error handling:
+			// a positioned attrError becomes a diagnostic and skips this file;
+			// any other error is also recorded as a positionless diagnostic
+			// (stripping "codegen: " prefix) and skips the whole package.
+			// Neither case is a hard infrastructure error — return nil, err is
+			// reserved for fs I/O failures, filter-load failures, etc.
 			var ae *attrError
 			if errors.As(berr, &ae) {
 				bag.Errorf(ae.pos, ae.end, ae.code, "%s", ae.msg)
 				delete(gsxFiles, path)
 				continue
 			}
-			return nil, berr
+			bag.Add(diag.Diagnostic{Severity: diag.Error, Message: strings.TrimPrefix(berr.Error(), "codegen: "), Source: "codegen"})
+			skelErr = true
+			break
 		}
 		allImportSpecs = append(allImportSpecs, imps...)
 		base := strings.TrimSuffix(filepath.Base(path), ".gsx")
@@ -424,6 +427,9 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		goFiles = append(goFiles, gf)
 		compsByXGo[absXpath] = comps
 		ctrlOffByXGo[absXpath] = ctrlOff
+	}
+	if skelErr {
+		gsxFiles = map[string]*gsxast.File{} // package-level skip: Generate's loop emits nothing
 	}
 	// Shared _gsxuse/_gsxcompsig helpers, mirroring the batch overlay.
 	helperXgoPath := filepath.Join(dir, "_gsxshared.x.go")
@@ -473,7 +479,17 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		}
 	}
 
-	pkg, info, typeErrs := checkSkeletonPackage(dir, pkgName, goFiles, fset, mi)
+	// Use the module-qualified import path (not the absolute filesystem dir) as
+	// the package path so that type names in diagnostic messages match the batch
+	// path's behavior — packages.Load assigns proper import paths, e.g.
+	// "corpustest/cases/pkg.Widget", while types.NewPackage(absDir, ...) would
+	// produce the raw filesystem path. normalizeDiagPaths would then strip only
+	// the temp-dir prefix, leaving "cases/pkg.Widget" instead of "corpustest/cases/pkg.Widget".
+	pkgPath := dir
+	if ip, ok := importPathForDir(m.opts.ModuleRoot, m.opts.ModulePath, dir); ok {
+		pkgPath = ip
+	}
+	pkg, info, typeErrs := checkSkeletonPackage(pkgPath, pkgName, goFiles, fset, mi)
 	for _, e := range typeErrs {
 		p := e.Fset.Position(e.Pos) // e.Fset is the shared fset; //line maps skeleton → .gsx
 		if strings.HasSuffix(p.Filename, ".x.go") {

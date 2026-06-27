@@ -188,11 +188,13 @@ func (a lspAnalyzer) AnalyzeModule(dir string, override map[string][]byte) ([]ls
 		entries = append(entries, pkgEntry{dir: d, pr: pr})
 	}
 
-	// Phase 2: build import-path → dir map.
-	// The Module's checkSkeletonPackage uses the absolute dir as the types.Package
-	// "path" (types.NewPackage(dir, pkgName)), so the same string is set on every
-	// *types.Package for a given dir — regardless of which type-checker run produced
-	// it. This lets us match without pointer equality.
+	// Phase 2: build types-package-path → dir map.
+	// The Module's checkSkeletonPackage sets each *types.Package's path to the
+	// module-qualified import path (deterministic per dir via importPathForDir), so
+	// the same string is set on every *types.Package for a given dir regardless of
+	// which type-checker run produced it. Both sides of the Phase-4 match below use
+	// that same import-path string, so we match without types.Object pointer
+	// equality (which is unstable because Package re-analyzes each dir).
 	importPathToDir := map[string]string{}
 	for _, e := range entries {
 		if e.pr.Types != nil {

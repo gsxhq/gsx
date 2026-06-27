@@ -392,16 +392,12 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 // Emit errors (per-component) are soft: they surface as diagnostics in the
 // returned slice and the file is omitted from out.
 //
-// Phase-0 equivalence note: byte-for-byte equivalence with the go-list batch
-// path (GeneratePackagesWithFilters) is established only for single-package,
-// non-type-error corpus cases (the corpus gate skips type-error cases). On a
-// package that fails to type-check the batch path emits nothing (it deletes the
-// dir from its work-set on TypeErrors); Generate emits best-effort output.
-// Additionally, type-error diagnostics collected by checkSkeletonPackage are
-// currently discarded (analyze ignores the []types.Error return), so Generate's
-// returned diagnostics omit type errors that the batch path would surface.
-// Proper type-error emission semantics and surfacing type-error diagnostics via
-// the returned slice are deferred to Phase 1.
+// Type-error semantics match the batch path: a package that fails to type-check
+// emits NOTHING (the emit loop below is gated on len(a.typeErrs)==0, mirroring
+// batch deleting the dir from its work-set on TypeErrors), and the type-error
+// diagnostics collected by checkSkeletonPackage are surfaced via the returned
+// slice (analyze adds them to the bag). The golden corpus test drives this path
+// directly, so type-error corpus cases are validated byte-for-byte.
 func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, error) {
 	m.analysisMu.Lock()
 	defer m.analysisMu.Unlock()
@@ -418,13 +414,20 @@ func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, err
 	// Use the bag created in analyze (shares fset, carries script-resolution diags).
 	bag := a.bag
 	out := map[string][]byte{}
-	for path, f := range a.gsxFiles {
-		gen, ok := generateFile(f, a.resolved, a.table, a.propFields, a.nodeProps, a.byo,
-			a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.CSSMinify, m.opts.JSMinify)
-		if !ok {
-			continue
+	// Match the batch path (GeneratePackagesWithFilters): when a package has type
+	// errors, skip generateFile entirely — only the type-error diagnostics are
+	// surfaced. Running generateFile on a type-error package emits spurious
+	// secondary diagnostics (e.g. "could not resolve type of interpolation") because
+	// resolved lacks entries for identifiers the type-checker flagged as undefined.
+	if len(a.typeErrs) == 0 {
+		for path, f := range a.gsxFiles {
+			gen, ok := generateFile(f, a.resolved, a.table, a.propFields, a.nodeProps, a.byo,
+				a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.CSSMinify, m.opts.JSMinify)
+			if !ok {
+				continue
+			}
+			out[path] = gen
 		}
-		out[path] = gen
 	}
 	return out, bag.Sorted(), nil
 }

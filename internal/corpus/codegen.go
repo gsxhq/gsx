@@ -59,10 +59,15 @@ func (c *caseDoc) astAndParserDiag() (astDump []byte, parserDiag []byte, single 
 	return dump.Bytes(), diag.Bytes(), true
 }
 
-// codegenGeneratePackages is a thin wrapper around codegen.GeneratePackages
-// that returns the result map keyed by absolute dir.
-func codegenGeneratePackages(moduleDir string, dirs []string) (map[string]*codegen.PackageResult, error) {
-	return codegen.GeneratePackages(moduleDir, dirs)
+// codegenGeneratePackages generates .x.go for every .gsx across the given
+// package dirs via codegen.GenerateDirs (the Module-backed façade). Options
+// match GeneratePackages: std filter, CSS+JS minify on, no overrides.
+func codegenGeneratePackages(moduleDir string, dirs []string) (map[string]codegen.DirResult, error) {
+	return codegen.GenerateDirs(moduleDir, dirs, codegen.GenOptions{
+		FilterPkgs: []string{codegen.StdImportPath},
+		CSSMinify:  true,
+		JSMinify:   true,
+	}, nil)
 }
 
 // packageDirs returns the distinct directories (relative to module root)
