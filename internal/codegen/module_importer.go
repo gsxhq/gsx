@@ -130,16 +130,17 @@ func (m *Module) reverseClosure(seeds []string) map[string]bool {
 	return out
 }
 
-// invalidateLocked drops the reverse-closure of dirs from pkgTypes. Assumes m.mu.
+// invalidateLocked drops the reverse-closure of dirs from pkgTypes and pkgResults. Assumes m.mu.
 func (m *Module) invalidateLocked(dirs []string) {
 	for d := range m.reverseClosure(dirs) {
 		delete(m.pkgTypes, d)
+		delete(m.pkgResults, d)
 	}
 }
 
 // Invalidate drops the reverse-reflexive-transitive closure of dirs (the dirs
-// plus every project gsx package that transitively imports them) from pkgTypes,
-// so each is re-type-checked from current skeletons on next use. Graph edges are
+// plus every project gsx package that transitively imports them) from pkgTypes
+// and pkgResults, so each is re-type-checked from current skeletons on next use. Graph edges are
 // retained (refreshed on re-analyze). Everything outside the closure stays warm.
 // This supersedes the coarse whole-cache reset.
 //
@@ -154,7 +155,7 @@ func (m *Module) Invalidate(dirs ...string) {
 }
 
 // applyDirty consumes the pending-dirty set (populated by SetOverride): it drops
-// the reverse-closure of the dirty dirs from pkgTypes and clears the set. Called
+// the reverse-closure of the dirty dirs from pkgTypes + pkgResults and clears the set. Called
 // at the start of each Package/Generate run (under analysisMu).
 func (m *Module) applyDirty() {
 	m.mu.Lock()
@@ -176,6 +177,18 @@ func (m *Module) cachedDirs() []string {
 	defer m.mu.Unlock()
 	out := make([]string, 0, len(m.pkgTypes))
 	for d := range m.pkgTypes {
+		out = append(out, d)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// cachedResultDirs returns the sorted set of dirs with a cached PackageResult (test hook).
+func (m *Module) cachedResultDirs() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, 0, len(m.pkgResults))
+	for d := range m.pkgResults {
 		out = append(out, d)
 	}
 	sort.Strings(out)
@@ -293,26 +306,26 @@ func (m *Module) typesPackageWith(dir string, mi *moduleImporter) (*types.Packag
 // component cross-index inputs. typesPackage consumes only a.pkg; Module.Package
 // (retained analysis) and Module.Generate (codegen) consume the rest.
 type analyzed struct {
-	pkgName      string
-	gsxFiles     map[string]*gsxast.File        // gsx path -> parsed file
-	gsxFset      *token.FileSet                 // gsx positions
-	skelFset     *token.FileSet                 // skeleton positions (same fset as gsxFset for Module)
-	goFiles      []*goast.File                  // parsed skeletons + shared helper
-	compsByXGo   map[string][]*gsxast.Component // skeleton abs path -> components
-	table        filterTable
-	propFields   map[string]map[string]bool
-	nodeProps    map[string]map[string]bool
-	byo          *byoData
-	resolved     map[gsxast.Node]types.Type
-	exprMap      map[gsxast.Node]goast.Expr
-	ctrlMap      map[gsxast.Node]ctrlRef       // control-flow node -> skeleton clause pos + containing node
-	pkg          *types.Package
-	info         *types.Info
-	compByKey    map[string]*gsxast.Component // componentKey -> component (for Name + NamePos)
-	objKey       map[types.Object]string      // component func object -> componentKey
-	bag          *diag.Bag                    // diagnostics from parse + script resolution; used by Generate
-	importSpecs  []importSpec                 // hoisted .gsx import specs (for detectUnusedImports)
-	typeErrs     []types.Error                // raw type errors from checkSkeletonPackage
+	pkgName     string
+	gsxFiles    map[string]*gsxast.File        // gsx path -> parsed file
+	gsxFset     *token.FileSet                 // gsx positions
+	skelFset    *token.FileSet                 // skeleton positions (same fset as gsxFset for Module)
+	goFiles     []*goast.File                  // parsed skeletons + shared helper
+	compsByXGo  map[string][]*gsxast.Component // skeleton abs path -> components
+	table       filterTable
+	propFields  map[string]map[string]bool
+	nodeProps   map[string]map[string]bool
+	byo         *byoData
+	resolved    map[gsxast.Node]types.Type
+	exprMap     map[gsxast.Node]goast.Expr
+	ctrlMap     map[gsxast.Node]ctrlRef // control-flow node -> skeleton clause pos + containing node
+	pkg         *types.Package
+	info        *types.Info
+	compByKey   map[string]*gsxast.Component // componentKey -> component (for Name + NamePos)
+	objKey      map[types.Object]string      // component func object -> componentKey
+	bag         *diag.Bag                    // diagnostics from parse + script resolution; used by Generate
+	importSpecs []importSpec                 // hoisted .gsx import specs (for detectUnusedImports)
+	typeErrs    []types.Error                // raw type errors from checkSkeletonPackage
 }
 
 // analyze performs the shared parse -> skeleton -> type-check pipeline for one
@@ -523,26 +536,26 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	}
 
 	return &analyzed{
-		pkgName:      pkgName,
-		gsxFiles:     gsxFiles,
-		gsxFset:      fset,
-		skelFset:     fset,
-		goFiles:      goFiles,
-		compsByXGo:   compsByXGo,
-		table:        table,
-		propFields:   propFields,
-		nodeProps:    nodeProps,
-		byo:          byo,
-		resolved:     resolved,
-		exprMap:      exprMap,
-		ctrlMap:      ctrlMap,
-		pkg:          pkg,
-		info:         info,
-		compByKey:    compByKey,
-		objKey:       objKey,
-		bag:          bag,
-		importSpecs:  allImportSpecs,
-		typeErrs:     typeErrs,
+		pkgName:     pkgName,
+		gsxFiles:    gsxFiles,
+		gsxFset:     fset,
+		skelFset:    fset,
+		goFiles:     goFiles,
+		compsByXGo:  compsByXGo,
+		table:       table,
+		propFields:  propFields,
+		nodeProps:   nodeProps,
+		byo:         byo,
+		resolved:    resolved,
+		exprMap:     exprMap,
+		ctrlMap:     ctrlMap,
+		pkg:         pkg,
+		info:        info,
+		compByKey:   compByKey,
+		objKey:      objKey,
+		bag:         bag,
+		importSpecs: allImportSpecs,
+		typeErrs:    typeErrs,
 	}, nil
 }
 
