@@ -90,10 +90,10 @@ func TestWatchSessionMultiModule(t *testing.T) {
 		t.Fatalf("newWatchSession: %v", err)
 	}
 
-	// Warm-regen the cross-package consumer in the SECOND module; its resolver
+	// Warm-regen the cross-package consumer in the SECOND module; its Module
 	// must be anchored at beta so the sibling package resolves.
-	r := sess.regen(viewsDir)
+	r := sess.regenDir(viewsDir)
 	if !r.OK {
-		t.Fatalf("regen(beta/views) not OK: err=%v diags=%v", r.Err, r.Diags)
+		t.Fatalf("regenDir(beta/views) not OK: err=%v diags=%v", r.Err, r.Diags)
 	}
 }

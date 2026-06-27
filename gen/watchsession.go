@@ -27,20 +27,63 @@ func (r cycleResult) durationMs() int64 { return r.DurMs }
 
 // watchSession holds the live state for a running generate-on-change session.
 // Discovery may span several independent modules, so the session keeps one warm
-// resolver per module root: each dir's regenerate must run against the resolver
+// Module per module root: each dir's regeneration must run against the Module
 // anchored at ITS module, or cross-package refs in a sibling module read as "not
 // loaded". root is the primary module root, used only for the startup banner.
 type watchSession struct {
-	cfg       watchConfig
-	root      string                     // primary module root (startup banner only)
-	roots     []string                   // every module root the session spans
-	resolvers map[string]*CachedResolver // module root -> warm resolver
+	cfg     watchConfig
+	root    string                     // primary module root (startup banner only)
+	roots   []string                   // every module root the session spans
+	modules map[string]*codegen.Module // module root -> warm Module
 }
 
-// newWatchSession runs the initial cold generate (full cross-package
-// correctness, creates every .x.go), then builds a warm resolver for every
-// module spanned. Returns the session plus startup results so the caller can
-// emit them.
+// openModule constructs a fresh *codegen.Module for the given module root,
+// threading all watchConfig options (filters, aliases, classifier, field matcher,
+// minifiers) into codegen.Open. It does not perform any analysis; analysis is
+// lazy and triggered by the first Generate call.
+func (s *watchSession) openModule(root string) (*codegen.Module, error) {
+	_, modPath, err := moduleRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	return codegen.Open(codegen.Options{
+		ModuleRoot:   root,
+		ModulePath:   modPath,
+		FilterPkgs:   s.cfg.filterPkgs,
+		Aliases:      s.cfg.aliases,
+		FieldMatcher: s.cfg.fm,
+		Classifier:   s.cfg.cls,
+		CSSMin:       s.cfg.cssMin,
+		JSMin:        s.cfg.jsMin,
+		CSSMinify:    s.cfg.cssMinify,
+		JSMinify:     s.cfg.jsMinify,
+	})
+}
+
+// moduleForDir returns the warm Module for dir's enclosing module root. If the
+// root has not been seen before (e.g. a newly created sub-module), it opens a
+// new Module, stores it, and registers the root.
+func (s *watchSession) moduleForDir(dir string) (*codegen.Module, error) {
+	root, _, err := moduleRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	if s.modules[root] == nil {
+		m, err := s.openModule(root)
+		if err != nil {
+			return nil, err
+		}
+		s.modules[root] = m
+		s.roots = append(s.roots, root)
+	}
+	return s.modules[root], nil
+}
+
+// newWatchSession opens a warm Module for every discovered module root, then
+// runs an initial regenDir for every discovered dir. The per-dir generate writes
+// all .x.go files AND fully populates each Module's import graph (needed for
+// Task 4's reverse-closure). Returns the session plus per-dir startup results so
+// the caller can emit them.
 func newWatchSession(cfg watchConfig) (*watchSession, []cycleResult, error) {
 	dirs, err := discoverDirs(cfg.paths)
 	if err != nil {
@@ -52,88 +95,82 @@ func newWatchSession(cfg watchConfig) (*watchSession, []cycleResult, error) {
 		_, _, mErr := moduleRoot(dirs[0])
 		return nil, nil, mErr
 	}
-	// Cold generate: writes all .x.go files to disk across every module.
-	res, gerr := generateCached(cfg.paths, cfg.filterPkgs, cfg.aliases, cfg.cls, cfg.fm, true, cfg.cssMin, cfg.jsMin, cfg.cssMinify, cfg.jsMinify)
-	// generateCached folds error-severity diagnostics into its returned error, so
-	// gerr==nil already implies !anyErrorDiag(res.Diags). The two-term form is
-	// kept symmetric with the warm path (regen) for clarity and robustness.
-	startup := []cycleResult{{
-		Dir:     groups[0].root,
-		Written: res.Written,
-		Diags:   res.Diags,
-		OK:      gerr == nil && !anyErrorDiag(res.Diags),
-		Err:     opErr(res, gerr),
-	}}
 
-	s := &watchSession{cfg: cfg, root: groups[0].root, resolvers: map[string]*CachedResolver{}}
+	s := &watchSession{cfg: cfg, root: groups[0].root, modules: map[string]*codegen.Module{}}
 	for _, g := range groups {
 		s.roots = append(s.roots, g.root)
+		m, err := s.openModule(g.root)
+		if err != nil {
+			return nil, nil, err
+		}
+		s.modules[g.root] = m
 	}
-	// Build the warm resolver for every module (needs .x.go on disk).
-	if err := s.rebuild(); err != nil {
-		return nil, startup, err
+
+	var startup []cycleResult
+	for _, dir := range dirs {
+		startup = append(startup, s.regenDir(dir))
 	}
 	return s, startup, nil
 }
 
-// rebuild (re)constructs the warm CachedResolver for every module the session
-// spans. Call after a dep-surface change (new import, new .x.go added, etc.).
-func (s *watchSession) rebuild() error {
-	resolvers := make(map[string]*CachedResolver, len(s.roots))
+// reopen (re)opens a fresh Module for every module root the session spans, then
+// re-runs regenDir for every discovered dir so the import graphs are fully
+// repopulated. Call after a dep-surface change (new import, .go edit, go.mod
+// change, etc.). This replaces the old rebuild() method.
+func (s *watchSession) reopen() error {
 	for _, root := range s.roots {
-		r, err := newModuleResolver(root, s.cfg.filterPkgs, s.cfg.aliases)
+		m, err := s.openModule(root)
 		if err != nil {
 			return err
 		}
-		resolvers[root] = r
+		s.modules[root] = m
 	}
-	s.resolvers = resolvers
+	// Repopulate the graph for every dir by regenerating.
+	dirs, err := discoverDirs(s.cfg.paths)
+	if err != nil {
+		return err
+	}
+	for _, dir := range dirs {
+		s.regenDir(dir)
+	}
 	return nil
 }
 
-// regen warm-regenerates one dir using its module's cached resolver. On a
-// cached-importer miss (a newly added import the resolver has never loaded), it
-// rebuilds once and retries. A dir in a module the session has not seen yet
-// (e.g. a freshly created sub-module) is registered and its resolver built.
-func (s *watchSession) regen(dir string) cycleResult {
+// regenDir warm-regenerates one package dir using its module's warm Module. It
+// calls Module.Generate, maps the gsx-path-keyed output to .x.go files, and
+// writes them via the hash-gated writeFiles helper.
+func (s *watchSession) regenDir(dir string) cycleResult {
 	start := time.Now()
-	root, _, rerr := moduleRoot(dir)
-	if rerr != nil {
-		return cycleResult{Dir: dir, Err: rerr, DurMs: time.Since(start).Milliseconds()}
+	m, err := s.moduleForDir(dir)
+	if err != nil {
+		return cycleResult{Dir: dir, Err: err, DurMs: time.Since(start).Milliseconds()}
 	}
-	if _, ok := s.resolvers[root]; !ok {
-		s.roots = append(s.roots, root)
-		if rebuildErr := s.rebuild(); rebuildErr != nil {
-			return cycleResult{Dir: dir, Err: rebuildErr, DurMs: time.Since(start).Milliseconds()}
-		}
+	out, diags, gerr := m.Generate(dir)
+	files := make(map[string][]byte, len(out))
+	for gsxPath, b := range out {
+		files[strings.TrimSuffix(gsxPath, ".gsx")+".x.go"] = b
 	}
-	res, err := s.resolvers[root].Generate(dir, nil)
-	if err != nil && isCachedImporterMiss(err, res) {
-		if rebuildErr := s.rebuild(); rebuildErr == nil {
-			res, err = s.resolvers[root].Generate(dir, nil)
-		}
-	}
-	written, werr := writeFiles(dir, res.Files)
+	written, werr := writeFiles(dir, files)
 	var finalErr error
 	switch {
-	case err != nil && !anyErrorDiag(res.Diags):
-		finalErr = err
+	case gerr != nil && !anyErrorDiag(diags):
+		finalErr = gerr
 	case werr != nil:
 		finalErr = werr
 	}
 	return cycleResult{
 		Dir:     dir,
 		Written: written,
-		Diags:   res.Diags,
-		OK:      err == nil && !anyErrorDiag(res.Diags) && werr == nil,
+		Diags:   diags,
+		OK:      gerr == nil && !anyErrorDiag(diags) && werr == nil,
 		Err:     finalErr,
 		DurMs:   time.Since(start).Milliseconds(),
 	}
 }
 
-// writeFiles persists a resolver Result's Files (keyed by absolute .x.go
-// paths) to dir via hash-gated restore, returning the paths actually written
-// and any I/O error (e.g. disk full, permission denied).
+// writeFiles persists generated bytes (keyed by absolute .x.go paths) to dir
+// via hash-gated restore, returning the paths actually written and any I/O error
+// (e.g. disk full, permission denied).
 func writeFiles(dir string, files map[string][]byte) ([]string, error) {
 	po := pkgOutput{}
 	for absXGo, b := range files {
@@ -141,47 +178,4 @@ func writeFiles(dir string, files map[string][]byte) ([]string, error) {
 	}
 	written, _, err := restore(dir, po)
 	return written, err
-}
-
-// opErr extracts a genuine operational error from a Result/err pair.
-// Error-severity diagnostics are reported via Diags, not here.
-func opErr(res Result, err error) error {
-	if err != nil && !anyErrorDiag(res.Diags) {
-		return err
-	}
-	return nil
-}
-
-// isCachedImporterMiss reports whether err (or a diagnostic message) indicates
-// a cached-importer miss — a newly added import the resolver never loaded.
-func isCachedImporterMiss(err error, res Result) bool {
-	if err == nil {
-		return false
-	}
-	if strings.Contains(err.Error(), "cached importer") {
-		return true
-	}
-	for _, d := range res.Diags {
-		if strings.Contains(d.Message, "cached importer") {
-			return true
-		}
-	}
-	return false
-}
-
-// newModuleResolver builds a warm CachedResolver whose importer covers the whole
-// module: all in-module packages (so cross-package gsx component refs resolve)
-// plus their transitive dependencies. filterPkgs/aliases thread the user's
-// pipeline filters, exactly as the cold path does. The one-time packages.Load
-// happens here; resolver.Generate calls afterwards run fully in-process.
-func newModuleResolver(moduleDir string, filterPkgs []string, aliases []codegen.FilterAlias) (*CachedResolver, error) {
-	// "./..." expands to every package in the module; packages.Load (NeedDeps)
-	// pulls their transitive deps into the importer map. This is what lets a
-	// later resolver.Generate of one package see sibling packages' types.
-	allow := []string{"./..."}
-	inner, err := codegen.NewCachedResolver(moduleDir, append([]string{codegen.StdImportPath}, filterPkgs...), aliases, allow)
-	if err != nil {
-		return nil, err
-	}
-	return &CachedResolver{inner: inner}, nil
 }

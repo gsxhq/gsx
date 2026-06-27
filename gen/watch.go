@@ -112,8 +112,8 @@ func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 			schedule()
 		case <-fire:
 			if depDirty {
-				if rerr := sess.rebuild(); rerr != nil {
-					// Skip this cycle: regenerating against a stale resolver
+				if rerr := sess.reopen(); rerr != nil {
+					// Skip this cycle: regenerating against a stale module
 					// would produce output built on the old type graph. Leave
 					// depDirty=true and pending intact so the next fire retries.
 					em.emitError(rerr)
@@ -125,7 +125,7 @@ func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 				if onlyGeneratedRemains(dir) {
 					continue
 				}
-				em.cycle(sess.regen(dir))
+				em.cycle(sess.regenDir(dir))
 			}
 			pending = map[string]bool{}
 		case werr := <-w.Errors:

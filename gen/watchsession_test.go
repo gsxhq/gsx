@@ -7,12 +7,11 @@ import (
 	"testing"
 )
 
-// A package whose .gsx references a symbol defined in a sibling hand-written
-// .go file (the structpages/blog pattern: `commentHandler`/`resultsCount` live
-// in comment.go, used from post.gsx/search.gsx). The warm resolver must include
-// the package's own .go files in its type-check, or the symbol reads as
-// "undefined" on every warm regenerate even though the cold generate resolved it.
-func TestNewModuleResolver_SiblingGoSymbol(t *testing.T) {
+// TestWatchSession_SiblingGoSymbol proves that Module-based warm regen correctly
+// resolves symbols defined in hand-written .go files (not in .gsx files). A
+// package whose .gsx references a symbol in a sibling .go file (the
+// structpages/blog pattern) must not report "undefined" on warm regeneration.
+func TestWatchSession_SiblingGoSymbol(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	write := func(p, s string) {
@@ -30,30 +29,40 @@ func TestNewModuleResolver_SiblingGoSymbol(t *testing.T) {
 	write("blog/page.gsx", "package blog\n\ncomponent Page(items []int) {\n\t<p>{helper(len(items))}</p>\n}\n")
 
 	blogDir := filepath.Join(root, "blog")
-	// Initial cold generate (creates blog/.x.go); the cold path includes helper.go.
-	if _, err := generateCached([]string{blogDir}, nil, nil, nil, nil, false, nil, nil, true, true); err != nil {
-		t.Fatalf("initial cold generate: %v", err)
+
+	// newWatchSession opens a Module and runs startup regenDir for blogDir, fully
+	// populating the import graph (including the sibling .go file).
+	s, startup, err := newWatchSession(watchConfig{paths: []string{blogDir}})
+	if err != nil {
+		t.Fatalf("newWatchSession: %v", err)
+	}
+	for _, r := range startup {
+		if !r.OK {
+			t.Fatalf("startup regen not OK: err=%v diags=%v", r.Err, r.Diags)
+		}
+		for _, d := range r.Diags {
+			if strings.Contains(d.Message, "helper") {
+				t.Fatalf("startup regen reported a false undefined for a sibling-.go symbol: %s", d.Message)
+			}
+		}
 	}
 
-	r, err := newModuleResolver(root, nil, nil)
-	if err != nil {
-		t.Fatalf("newModuleResolver: %v", err)
+	// Warm regen (second call) must still resolve helper() from the .go file.
+	r := s.regenDir(blogDir)
+	if !r.OK {
+		t.Fatalf("warm regenDir must resolve the sibling-.go symbol, got: err=%v diags=%v", r.Err, r.Diags)
 	}
-	res, err := r.Generate(blogDir, nil)
-	if err != nil {
-		t.Fatalf("warm Generate must resolve the sibling-.go symbol, got: %v (diags=%v)", err, res.Diags)
-	}
-	for _, d := range res.Diags {
+	for _, d := range r.Diags {
 		if strings.Contains(d.Message, "helper") {
 			t.Fatalf("warm regen reported a false undefined for a sibling-.go symbol: %s", d.Message)
 		}
 	}
 }
 
-// A two-package module: pkg `comp` defines a component; pkg `views` references
-// it. The whole-module resolver must let `views` regenerate with the cross-
-// package ref resolved (no "cached importer: not loaded" error).
-func TestNewModuleResolver_CrossPackage(t *testing.T) {
+// TestWatchSession_CrossPackage proves that the Module resolver lets a package
+// reference a cross-package component (views → comp.Card) and warm regenDir
+// produces output that correctly calls the cross-package component.
+func TestWatchSession_CrossPackage(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	write := func(p, s string) {
@@ -65,36 +74,32 @@ func TestNewModuleResolver_CrossPackage(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// Use the current go toolchain version so packages.Load does not refuse the module.
-	// No go mod tidy: with a local replace directive the require+replace is sufficient
-	// for packages.Load; tidy would strip "require github.com/gsxhq/gsx" because
-	// there are no .go files importing it before the cold generate runs.
 	write("go.mod", "module example.com/m\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+gsxModuleDir(t)+"\n")
 	write("comp/card.gsx", "package comp\n\ncomponent Card(title string) {\n\t<div class=\"card\">{title}</div>\n}\n")
 	write("views/page.gsx", "package views\n\nimport \"example.com/m/comp\"\n\ncomponent Page() {\n\t<comp.Card title=\"hi\"/>\n}\n")
 
-	// Initial cold generate so comp's .x.go exists for the resolver to load.
-	if _, err := generateCached([]string{filepath.Join(root, "comp"), filepath.Join(root, "views")}, nil, nil, nil, nil, false, nil, nil, true, true); err != nil {
-		t.Fatalf("initial generate: %v", err)
+	compDir := filepath.Join(root, "comp")
+	viewsDir := filepath.Join(root, "views")
+
+	// newWatchSession runs startup regenDir for both dirs, writing their .x.go
+	// files and populating the cross-package import graph.
+	s, _, err := newWatchSession(watchConfig{paths: []string{compDir, viewsDir}})
+	if err != nil {
+		t.Fatalf("newWatchSession: %v", err)
 	}
 
-	r, err := newModuleResolver(root, nil, nil)
+	// Warm regen of views: the Module must resolve comp.Card across packages.
+	r := s.regenDir(viewsDir)
+	if !r.OK {
+		t.Fatalf("warm regenDir(views): err=%v diags=%v", r.Err, r.Diags)
+	}
+	// The regenerated views/page.x.go must call comp.Card.
+	xgo, err := os.ReadFile(filepath.Join(viewsDir, "page.x.go"))
 	if err != nil {
-		t.Fatalf("newModuleResolver: %v", err)
+		t.Fatalf("reading page.x.go: %v", err)
 	}
-	res, err := r.Generate(filepath.Join(root, "views"), nil)
-	if err != nil {
-		t.Fatalf("warm Generate(views): %v (diags=%v)", err, res.Diags)
-	}
-	// The regenerated views/.x.go must call comp.Card.
-	var got string
-	for path, b := range res.Files {
-		if strings.HasSuffix(path, "page.x.go") {
-			got = string(b)
-		}
-	}
-	if !strings.Contains(got, "comp.Card") {
-		t.Fatalf("regenerated page.x.go does not reference comp.Card:\n%s", got)
+	if !strings.Contains(string(xgo), "comp.Card") {
+		t.Fatalf("regenerated page.x.go does not reference comp.Card:\n%s", xgo)
 	}
 }
 
@@ -114,7 +119,7 @@ func writeMod(t *testing.T, root string) {
 }
 
 // TestWatchSession_WarmRegen proves that a pure .gsx edit regenerates via the
-// warm resolver and updates the .x.go on disk.
+// warm Module and updates the .x.go on disk.
 func TestWatchSession_WarmRegen(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -128,9 +133,9 @@ func TestWatchSession_WarmRegen(t *testing.T) {
 	}
 	// Edit the source, then warm-regen.
 	writeFileT(t, gsxPath, "package views\n\ncomponent Page() {\n\t<h1>two</h1>\n}\n")
-	r := s.regen(filepath.Join(root, "views"))
+	r := s.regenDir(filepath.Join(root, "views"))
 	if !r.OK {
-		t.Fatalf("regen not OK: err=%v diags=%v", r.Err, r.Diags)
+		t.Fatalf("regenDir not OK: err=%v diags=%v", r.Err, r.Diags)
 	}
 	xgo, _ := os.ReadFile(filepath.Join(root, "views", "page.x.go"))
 	// Coalesced static writes emit `S("<h1>two</h1>")`, so assert on the content.
@@ -152,7 +157,7 @@ func TestWatchSession_RegenError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newWatchSession: %v", err)
 	}
-	r := s.regen(filepath.Join(root, "views"))
+	r := s.regenDir(filepath.Join(root, "views"))
 	if r.OK || len(r.Diags) == 0 {
 		t.Fatalf("expected OK=false with diagnostics, got OK=%v diags=%v", r.OK, r.Diags)
 	}
