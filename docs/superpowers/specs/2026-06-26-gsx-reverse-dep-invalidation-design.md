@@ -103,9 +103,14 @@ New `Module` fields (guarded by `m.mu`):
 
 Populated by a new helper `recordImports(dir string, specs []importSpec)` called from
 `analyze` (after `importSpecs` is known), which:
-1. Maps each spec's import path to a dir via `dirForImportPath(moduleRoot, modulePath, path)`;
+1. Maps each import path to a dir via `dirForImportPath(moduleRoot, modulePath, path)`;
    keeps only dirs where `isGsxPackage(dir)` is true (project gsx packages — the only
-   things in `pkgTypes`). External/stdlib/Go-only edges are ignored.
+   things in `pkgTypes`). External/stdlib/Go-only edges are ignored. **The paths come
+   from both the `.gsx`-hoisted import specs AND the imports of the package's
+   hand-written `.go` files** (collected in `analyze` from each parsed `realGF.Imports`):
+   a gsx package that imports a sibling gsx package *solely* through a companion `.go`
+   (e.g. a `model.go`) is still type-checked against that sibling's skeleton, so its
+   reverse edge must be recorded or editing the sibling would not invalidate it.
 2. **Replaces** `dir`'s edges: removes `dir` from the `importedBy` set of each of its
    *previous* deps, sets `imports[dir]` to the new dep list, and adds `dir` to the
    `importedBy` set of each new dep. Replacement keeps the graph precise when an edit
@@ -122,8 +127,12 @@ New `Module` field: `dirty map[string]bool` (pending changed dirs, guarded by `m
 
 `SetOverride(path, src)` gains change detection:
 ```
-old, hadSource := m.currentSource(path)   // override-or-disk; reads disk only if no override yet
-if !hadSource || !bytes.Equal(old, src) {
+base, haveBase := m.currentSource(path)   // override-or-disk; reads disk only if no override yet
+// A real change: a base that differs from src, OR a brand-new path with non-empty
+// content. A new path with empty src is not a meaningful change (a nonexistent file
+// registered with no content), so it does not mark dirty.
+changed := haveBase && !bytes.Equal(base, src) || !haveBase && len(src) > 0
+if changed {
     m.dirty[filepath.Dir(path)] = true
 }
 m.overrides[path] = src

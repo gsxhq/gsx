@@ -80,6 +80,55 @@ func TestImportGraphRecorded(t *testing.T) {
 // to verify that recordImports replaces (not appends) forward edges.
 var componentsWithoutUtil = []byte("package components\n\ncomponent X(title string) {\n\t<div>{title}</div>\n}\n")
 
+// TestImportGraphIncludesGoFileImports guards the whole-branch reviewer's
+// under-invalidation finding: a gsx package whose .gsx does NOT import a sibling
+// gsx package, but whose hand-written .go (a model.go) DOES, is still type-checked
+// against that sibling's skeleton — so its reverse edge must be recorded, or
+// editing the sibling would not invalidate it (stale importer served).
+func TestImportGraphIncludesGoFileImports(t *testing.T) {
+	if testing.Short() {
+		t.Skip()
+	}
+	root := t.TempDir()
+	repoRoot, _ := filepath.Abs("..")
+	repoRoot = filepath.Dir(repoRoot) // internal/codegen -> repo root
+	must := func(p, c string) {
+		full := filepath.Join(root, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	must("go.mod", "module example.com/x\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	must("util/util.gsx", "package util\n\ncomponent Y(label string) {\n\t<span>{label}</span>\n}\n")
+	// withgo's .gsx does NOT import util; only its companion model.go does.
+	must("withgo/comp.gsx", "package withgo\n\ncomponent W() {\n\t<div>w</div>\n}\n")
+	must("withgo/model.go", "package withgo\n\nimport \"example.com/x/util\"\n\nvar _ = util.Y\n")
+
+	m, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/x", FilterPkgs: []string{StdImportPath}})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	utilDir := filepath.Join(root, "util")
+	withgoDir := filepath.Join(root, "withgo")
+	if _, err := m.Package(withgoDir); err != nil {
+		t.Fatalf("analyze withgo: %v", err)
+	}
+	// The reverse edge must exist even though util is imported only via model.go.
+	_, rev := m.importGraphSnapshot()
+	assertEdge(t, rev, utilDir, withgoDir)
+
+	// And editing util must invalidate withgo via the reverse closure.
+	m.SetOverride(filepath.Join(utilDir, "util.gsx"),
+		[]byte("package util\n\ncomponent Y(label string) {\n\t<em>{label}</em>\n}\n"))
+	m.applyDirty()
+	if contains(m.cachedDirs(), withgoDir) {
+		t.Errorf("editing util must invalidate withgo (imports util via model.go); cachedDirs=%v", m.cachedDirs())
+	}
+}
+
 func contains(ss []string, s string) bool {
 	for _, x := range ss {
 		if x == s {

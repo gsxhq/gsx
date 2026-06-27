@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
@@ -141,6 +142,11 @@ func (m *Module) invalidateLocked(dirs []string) {
 // so each is re-type-checked from current skeletons on next use. Graph edges are
 // retained (refreshed on re-analyze). Everything outside the closure stays warm.
 // This supersedes the coarse whole-cache reset.
+//
+// Threading: Invalidate takes m.mu but is NOT serialized by analysisMu, so callers
+// must not invoke it concurrently with an in-flight Package/Generate on the same
+// Module (the recursive importer reads pkgTypes under analysisMu without m.mu). The
+// LSP never calls it; the normal incremental path is SetOverride → applyDirty.
 func (m *Module) Invalidate(dirs ...string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -183,12 +189,19 @@ func (m *Module) cachedDirs() []string {
 // edited package always re-analyzes in the same turn, its outgoing edges are
 // refreshed before any later edit could consult them.
 //
+// paths must include every import that participates in dir's type-check — both
+// the .gsx-hoisted import specs AND the imports of the package's hand-written .go
+// files. A gsx package that imports a sibling gsx package SOLELY through a
+// hand-written .go (e.g. a model.go) is still type-checked against that sibling's
+// skeleton, so its reverse edge must be recorded or editing the sibling would not
+// invalidate it.
+//
 // Resolves dep dirs (isGsxPackage locks m.mu) BEFORE taking m.mu, then mutates
 // the graph under the lock.
-func (m *Module) recordImports(dir string, specs []importSpec) {
+func (m *Module) recordImports(dir string, paths []string) {
 	deps := map[string]bool{}
-	for _, s := range specs {
-		if dd, ok := dirForImportPath(m.opts.ModuleRoot, m.opts.ModulePath, s.path); ok && m.isGsxPackage(dd) {
+	for _, p := range paths {
+		if dd, ok := dirForImportPath(m.opts.ModuleRoot, m.opts.ModulePath, p); ok && m.isGsxPackage(dd) {
 			deps[dd] = true
 		}
 	}
@@ -387,6 +400,10 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// (helperXgoPath). Hand-written .x.go files (e.g. gsxshared.x.go) and
 	// orphaned .x.go files (from a deleted .gsx) are intentionally included —
 	// matching batch/packages.Load behaviour which sees all on-disk .go files.
+	// goImportPaths collects the imports of the hand-written .go files so the import
+	// graph (recordImports) also tracks sibling gsx packages reached only through a
+	// companion .go (e.g. a model.go), not just through .gsx-hoisted imports.
+	var goImportPaths []string
 	if bp, berr := build.ImportDir(dir, 0); berr == nil {
 		for _, name := range bp.GoFiles {
 			absPath := filepath.Join(dir, name)
@@ -402,6 +419,11 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 				continue // parse error surfaced by type-checker via Error func
 			}
 			goFiles = append(goFiles, realGF)
+			for _, imp := range realGF.Imports {
+				if p, uerr := strconv.Unquote(imp.Path.Value); uerr == nil {
+					goImportPaths = append(goImportPaths, p)
+				}
+			}
 		}
 	}
 
@@ -437,7 +459,15 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// Record the project-internal import graph for this package. Only successful
 	// analyses reach this point, keeping the graph consistent with type-checked
 	// packages. cycleErr paths are excluded (they are not cached in pkgTypes either).
-	m.recordImports(dir, allImportSpecs)
+	// Both the .gsx-hoisted imports and the hand-written .go imports are recorded so
+	// every sibling gsx package that participates in this package's type-check gets a
+	// reverse edge (else editing it would not invalidate this importer).
+	importPaths := make([]string, 0, len(allImportSpecs)+len(goImportPaths))
+	for _, s := range allImportSpecs {
+		importPaths = append(importPaths, s.path)
+	}
+	importPaths = append(importPaths, goImportPaths...)
+	m.recordImports(dir, importPaths)
 
 	// Harvest once into resolved + exprMap (both consumed downstream: resolved by
 	// Generate, exprMap surfaced by Package). Build the component cross-index
