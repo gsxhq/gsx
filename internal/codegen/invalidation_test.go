@@ -287,7 +287,11 @@ func TestImporterReResolvesAgainstEditedDependency(t *testing.T) {
 	} // warms util+components
 	// Change a util export that components depends on, then re-analyze components
 	// WITHOUT explicitly invalidating: applyDirty (inside Package) must do it.
+	// Override util to add component Z, and override components to USE util.Z so
+	// that a stale pkgTypes[util] (without Z) produces an "undefined" diagnostic —
+	// making the assertion genuinely depend on invalidation having run.
 	m.SetOverride(filepath.Join(util, "helper.gsx"), utilWithNewExport)
+	m.SetOverride(filepath.Join(comp, "card.gsx"), componentsUsingZ)
 	pr, err := m.Package(comp)
 	if err != nil {
 		t.Fatal(err)
