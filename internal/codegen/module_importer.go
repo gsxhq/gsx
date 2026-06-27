@@ -154,6 +154,26 @@ func (m *Module) Invalidate(dirs ...string) {
 	m.invalidateLocked(dirs)
 }
 
+// Dependents returns the reverse-reflexive-transitive closure of dir over the import
+// graph: dir plus every project gsx package that transitively imports it. Watch uses it
+// to regenerate every package affected by a change to dir. Returns just dir when nothing
+// imports it (or dir is unknown to the graph).
+//
+// Threading: like Invalidate, Dependents takes m.mu but is NOT serialized by analysisMu,
+// so callers must not invoke it concurrently with an in-flight Package/Generate on the
+// same Module (the recursive importer reads the graph under analysisMu without m.mu). The
+// watch loop is single-goroutine, so this holds.
+func (m *Module) Dependents(dir string) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cl := m.reverseClosure([]string{dir})
+	out := make([]string, 0, len(cl))
+	for d := range cl {
+		out = append(out, d)
+	}
+	return out
+}
+
 // applyDirty consumes the pending-dirty set (populated by SetOverride): it drops
 // the reverse-closure of the dirty dirs from pkgTypes + pkgResults and clears the set. Called
 // at the start of each Package/Generate run (under analysisMu).

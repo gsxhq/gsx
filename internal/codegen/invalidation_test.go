@@ -392,3 +392,35 @@ func TestPackageCachesEditedPackageForImporters(t *testing.T) {
 	}
 	assertResolvesUtilSymbol(t, pr) // zero error diagnostics ⇒ util.Z resolved in components
 }
+
+func TestDependentsReverseClosure(t *testing.T) {
+	if testing.Short() {
+		t.Skip()
+	}
+	m, root := setupChainModule(t)
+	if _, err := m.Package(filepath.Join(root, "pages")); err != nil {
+		t.Fatal(err)
+	} // warm graph
+	if _, err := m.Package(filepath.Join(root, "solo")); err != nil {
+		t.Fatal(err)
+	}
+	got := m.Dependents(filepath.Join(root, "util"))
+	// util + everything that transitively imports it: components, pages. NOT solo.
+	want := map[string]bool{
+		filepath.Join(root, "util"):       true,
+		filepath.Join(root, "components"): true,
+		filepath.Join(root, "pages"):      true,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("Dependents(util) = %v, want keys %v", got, want)
+	}
+	for _, d := range got {
+		if !want[d] {
+			t.Errorf("unexpected dependent %s", d)
+		}
+	}
+	// A leaf nothing imports: just itself.
+	if d := m.Dependents(filepath.Join(root, "solo")); len(d) != 1 || d[0] != filepath.Join(root, "solo") {
+		t.Errorf("Dependents(solo) = %v, want [solo]", d)
+	}
+}
