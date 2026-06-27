@@ -25,6 +25,10 @@ type Options struct {
 	Aliases      []FilterAlias
 	FieldMatcher FieldMatcher
 	Classifier   *attrclass.Classifier
+	CSSMin       func(string) (string, error) // custom static-CSS minifier (nil = built-in when CSSMinify)
+	JSMin        func(string) (string, error) // custom static-JS minifier (nil = built-in when JSMinify)
+	CSSMinify    bool                         // minify static <style> CSS
+	JSMinify     bool                         // minify static <script> JS
 }
 
 // Module is a warm, in-process analysis graph for one module root. It is the
@@ -365,7 +369,7 @@ func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, err
 	out := map[string][]byte{}
 	for path, f := range a.gsxFiles {
 		gen, ok := generateFile(f, a.resolved, a.table, a.propFields, a.nodeProps, a.byo,
-			a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, bag, nil, nil, true, true)
+			a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.CSSMinify, m.opts.JSMinify)
 		if !ok {
 			continue
 		}

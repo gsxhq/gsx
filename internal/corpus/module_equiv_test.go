@@ -103,6 +103,8 @@ func TestModuleMatchesBatchOverCorpus(t *testing.T) {
 				ModuleRoot: tmp,
 				ModulePath: modulePath,
 				FilterPkgs: []string{codegen.StdImportPath},
+				CSSMinify:  true,
+				JSMinify:   true,
 			})
 			if err != nil {
 				t.Fatalf("codegen.Open: %v", err)
