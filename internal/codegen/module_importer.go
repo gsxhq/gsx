@@ -108,6 +108,18 @@ func (mi *moduleImporter) Import(path string) (*types.Package, error) {
 	return mi.external.Import(path)
 }
 
+// cachedDirs returns the sorted set of dirs currently in pkgTypes (test hook).
+func (m *Module) cachedDirs() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, 0, len(m.pkgTypes))
+	for d := range m.pkgTypes {
+		out = append(out, d)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // ResetPackageCache drops cached project-package type info so the next analysis
 // re-type-checks project packages from current (override-aware) skeletons. The
 // external importer (ext) — built by an expensive packages.Load — is kept warm.
@@ -215,12 +227,6 @@ func (m *Module) typesPackageWith(dir string, mi *moduleImporter) (*types.Packag
 	if err != nil {
 		return nil, err
 	}
-	m.mu.Lock()
-	if m.pkgTypes == nil {
-		m.pkgTypes = map[string]*types.Package{}
-	}
-	m.pkgTypes[dir] = a.pkg
-	m.mu.Unlock()
 	return a.pkg, nil
 }
 
@@ -367,6 +373,21 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		// the error without caching so the caller receives it.
 		return nil, mi.cycleErr
 	}
+
+	// Cache the type-checked package so every entry point — Package, Generate, and
+	// the recursive importer — sees the same freshly-checked result. This eliminates
+	// the latent stale-cache bug where Package(A)/Generate(A) called analyze(A)
+	// directly without writing pkgTypes[A], so a later importer of A would hit a
+	// stale (or absent) entry written by an earlier typesPackageWith call.
+	//
+	// Lock discipline: release m.mu BEFORE calling m.recordImports, which acquires
+	// m.mu internally.
+	m.mu.Lock()
+	if m.pkgTypes == nil {
+		m.pkgTypes = map[string]*types.Package{}
+	}
+	m.pkgTypes[dir] = pkg
+	m.mu.Unlock()
 
 	// Record the project-internal import graph for this package. Only successful
 	// analyses reach this point, keeping the graph consistent with type-checked

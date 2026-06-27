@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/gsxhq/gsx/internal/diag"
 )
 
 // setupChainModule creates a temporary module with a 3-package chain:
@@ -108,4 +110,57 @@ func TestImportGraphEdgeReplacedOnImportRemoval(t *testing.T) {
 	if contains(rev[utilDir], compDir) {
 		t.Errorf("after removing import, util.importedBy should not contain components")
 	}
+}
+
+// utilWithNewExport is a helper.gsx added to the util package, introducing a
+// new exported component Z. Used by TestPackageCachesEditedPackageForImporters
+// to verify that Package(util) updates pkgTypes[util] so importers see Z.
+var utilWithNewExport = []byte("package util\n\ncomponent Z(text string) {\n\t<p>{text}</p>\n}\n")
+
+// componentsUsingZ is a version of card.gsx that imports util and uses util.Z
+// (the new export from utilWithNewExport). If pkgTypes[util] is stale (no Z),
+// type-checking this file produces an "undefined" diagnostic.
+var componentsUsingZ = []byte("package components\n\nimport \"example.com/x/util\"\n\ncomponent X(title string) {\n\t<div><util.Z text={ title }/></div>\n}\n")
+
+// assertResolvesUtilSymbol verifies that the PackageResult for components has
+// no error-severity diagnostics, proving that util.Z (the new export) resolved
+// correctly — i.e. the fresh pkgTypes[util] (with Z) was used, not a stale one.
+// We use the Diags approach rather than Info.Uses because it is robust even when
+// card.gsx's skeleton collapses the selector into a synthetic call site.
+func assertResolvesUtilSymbol(t *testing.T, pr *PackageResult) {
+	t.Helper()
+	for _, d := range pr.Diags {
+		if d.Severity == diag.Error {
+			t.Errorf("unexpected error diagnostic in components after util edit: %s", d.Message)
+		}
+	}
+}
+
+func TestPackageCachesEditedPackageForImporters(t *testing.T) {
+	if testing.Short() {
+		t.Skip()
+	}
+	m, root := setupChainModule(t)
+	utilDir := filepath.Join(root, "util")
+	// Analyze util alone (as an LSP target).
+	if _, err := m.Package(utilDir); err != nil {
+		t.Fatal(err)
+	}
+	if !contains(m.cachedDirs(), utilDir) {
+		t.Fatalf("Package(util) must populate pkgTypes[util]; cached=%v", m.cachedDirs())
+	}
+	// Add a new exported symbol to util via override (helper.gsx → component Z).
+	m.SetOverride(filepath.Join(utilDir, "helper.gsx"), utilWithNewExport)
+	// Override card.gsx to reference util.Z so the type-checker exercises the new symbol.
+	m.SetOverride(filepath.Join(root, "components", "card.gsx"), componentsUsingZ)
+	if _, err := m.Package(utilDir); err != nil {
+		t.Fatal(err)
+	}
+	// components imports util: analyzing it must resolve the NEW symbol's type,
+	// proving it read the fresh cached util (not a stale one).
+	pr, err := m.Package(filepath.Join(root, "components"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertResolvesUtilSymbol(t, pr) // zero error diagnostics ⇒ util.Z resolved in components
 }
