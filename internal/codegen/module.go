@@ -66,11 +66,15 @@ type Options struct {
 // path) resolve a sibling's obj.Pos() to the sibling's source rather than a
 // random spot in the importing package.
 //
-// Growth (Phase 1, accepted): because the fset is Module-lifetime, re-analyzing a
-// project package each edit (applyDirty clears pkgTypes → re-parse into the same
-// fset) accumulates fset entries. Bounding this (rebuild the Module / incremental
-// re-analysis) is a Phase-2 concern. Do NOT rebuild the fset per edit: that would
-// orphan the warm ext importer's positions.
+// Growth bounding: because the fset is Module-lifetime, re-analyzing a project
+// package each edit (applyDirty clears pkgTypes → re-parse into the same fset)
+// accumulates fset entries (token.FileSet is append-only). maybeRebuildFset (called
+// at the start of Package/Generate) bounds this: when project re-parse growth
+// (fset.Base() - fsetBaseline) exceeds fsetRebuildBytes, rebuildFset replaces the
+// fset AND drops ext+pkgTypes TOGETHER, so nothing live holds positions into the
+// discarded fset. The import graph, dirty set, and overrides survive (path/content-
+// based). Do NOT rebuild the fset per edit, and never reset the fset while keeping
+// ext or pkgTypes: that would orphan their positions.
 type Module struct {
 	opts             Options
 	overrides        map[string][]byte          // abs .gsx path -> in-memory source
@@ -229,8 +233,44 @@ func (m *Module) externalImporter() (types.Importer, error) {
 	})
 	m.mu.Lock()
 	m.ext = mapImporter(mp)
+	m.fsetBaseline = m.fset.Base()
 	m.mu.Unlock()
 	return m.ext, nil
+}
+
+// maybeRebuildFset rebuilds the FileSet (and ext/pkgTypes) when project re-parse
+// growth since the last load exceeds fsetRebuildBytes. A zero threshold disables it.
+// Called at the start of Package/Generate (under analysisMu), before applyDirty.
+func (m *Module) maybeRebuildFset() {
+	m.mu.Lock()
+	over := m.fsetRebuildBytes > 0 && m.fset.Base()-m.fsetBaseline > m.fsetRebuildBytes
+	m.mu.Unlock()
+	if over {
+		m.rebuildFset()
+	}
+}
+
+// rebuildFset discards the grown FileSet and the caches that hold positions into it
+// — ext and pkgTypes — together, so nothing live references the old fset (no orphaned
+// positions). The next externalImporter reloads ext into the fresh fset and recaptures
+// fsetBaseline; analyze re-parses into it. The import graph, dirty set, and overrides
+// survive (path/content-based), so reverse-dependency invalidation keeps working.
+// Assumes analysisMu held by the caller (Package/Generate); takes m.mu for the writes.
+func (m *Module) rebuildFset() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.fset = token.NewFileSet()
+	m.ext = nil
+	m.pkgTypes = map[string]*types.Package{}
+	m.fsetBaseline = 0
+	m.rebuildCount++
+}
+
+// rebuilds returns the number of fset rebuilds performed (test hook).
+func (m *Module) rebuilds() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.rebuildCount
 }
 
 // Package returns the full retained analysis for a single gsx package dir,
@@ -240,6 +280,7 @@ func (m *Module) externalImporter() (types.Importer, error) {
 func (m *Module) Package(dir string) (*PackageResult, error) {
 	m.analysisMu.Lock()
 	defer m.analysisMu.Unlock()
+	m.maybeRebuildFset()
 	m.applyDirty()
 	ext, err := m.externalImporter()
 	if err != nil {
@@ -297,6 +338,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, error) {
 	m.analysisMu.Lock()
 	defer m.analysisMu.Unlock()
+	m.maybeRebuildFset()
 	m.applyDirty()
 	ext, err := m.externalImporter()
 	if err != nil {
