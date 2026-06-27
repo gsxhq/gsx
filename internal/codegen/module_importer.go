@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"errors"
 	"fmt"
 	goast "go/ast"
 	"go/build"
@@ -399,6 +400,18 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	for path, f := range gsxFiles {
 		skel, comps, imps, ctrlOff, berr := buildSkeleton(f, table, propFields, nodeProps, byo, m.opts.FieldMatcher, fset)
 		if berr != nil {
+			// Mirror batch.go's attrError handling: a positioned attrError (e.g.
+			// bad-field-match) becomes a diagnostic in the bag and skips this file;
+			// any other buildSkeleton error is fatal (return nil, berr) — same as
+			// batch's non-attrError path which also records it but then skips the
+			// whole dir. Since the Module can skip per-file, we keep fatal for the
+			// other errors to match the current behavior for non-attrError cases.
+			var ae *attrError
+			if errors.As(berr, &ae) {
+				bag.Errorf(ae.pos, ae.end, ae.code, "%s", ae.msg)
+				delete(gsxFiles, path)
+				continue
+			}
 			return nil, berr
 		}
 		allImportSpecs = append(allImportSpecs, imps...)
