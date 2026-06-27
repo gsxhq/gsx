@@ -1,5 +1,5 @@
 # gsx developer tasks. Use tabs for recipe indentation.
-.PHONY: test check cover cover-html examples ci ci-gomod ci-playground ci-format
+.PHONY: test check cover cover-html examples ci ci-gomod ci-playground ci-examples ci-format
 
 # COUNT is the go-test cache control. -count=1 disables the test cache so every
 # run re-executes — the authoritative behaviour `ci` uses to mirror GitHub CI.
@@ -20,8 +20,7 @@ test:
 # — the long pole is `ci-gomod` (the gen/ e2e suite), under which the ~7s
 # playground build+test and the ~1s format check overlap for free.
 ci:
-	$(MAKE) examples
-	git diff --exit-code -- docs/guide/examples.md docs/examples.json playground/server/examples.json
+	$(MAKE) ci-examples
 	$(MAKE) -j3 ci-gomod ci-playground ci-format
 
 # Fast inner-loop check: the SAME checks as `ci`, but lets the Go test cache
@@ -44,9 +43,20 @@ ci-gomod:
 ci-playground:
 	cd playground/server && go build ./... && go test ./... $(COUNT)
 
+# Regenerate the example artifacts and fail if they drift from what's committed
+# (the generator is the source of truth). Run before the parallel lanes in `ci`:
+# the playground module embeds examples.json, so its build must not race the regen.
+ci-examples:
+	$(MAKE) examples
+	@if ! git diff --exit-code -- docs/guide/examples.md docs/examples.json playground/server/examples.json; then \
+		echo "examples artifacts are stale — run 'make examples' and commit the result"; \
+		exit 1; \
+	fi
+
 # gofmt + gsx fmt must stay clean (see the format gate note in ci.yml).
 ci-format:
-	test -z "$$(gofmt -l $$(git ls-files '*.go' | grep -v /testdata/))"
+	@files=$$(gofmt -l $$(git ls-files '*.go' | grep -v /testdata/)); \
+	if [ -n "$$files" ]; then echo "these Go files need gofmt:"; echo "$$files"; exit 1; fi
 	go run ./cmd/gsx fmt -l .
 
 # Honest cross-package coverage: -coverpkg attributes the corpus's in-process
