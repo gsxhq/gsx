@@ -108,6 +108,62 @@ func (mi *moduleImporter) Import(path string) (*types.Package, error) {
 	return mi.external.Import(path)
 }
 
+// reverseClosure returns the reverse-reflexive-transitive closure of seeds over
+// importedBy: each seed plus every dir that transitively imports it. Assumes m.mu.
+func (m *Module) reverseClosure(seeds []string) map[string]bool {
+	out := map[string]bool{}
+	stack := append([]string(nil), seeds...)
+	for len(stack) > 0 {
+		d := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if out[d] {
+			continue
+		}
+		out[d] = true
+		for importer := range m.importedBy[d] {
+			if !out[importer] {
+				stack = append(stack, importer)
+			}
+		}
+	}
+	return out
+}
+
+// invalidateLocked drops the reverse-closure of dirs from pkgTypes. Assumes m.mu.
+func (m *Module) invalidateLocked(dirs []string) {
+	for d := range m.reverseClosure(dirs) {
+		delete(m.pkgTypes, d)
+	}
+}
+
+// Invalidate drops the reverse-reflexive-transitive closure of dirs (the dirs
+// plus every project gsx package that transitively imports them) from pkgTypes,
+// so each is re-type-checked from current skeletons on next use. Graph edges are
+// retained (refreshed on re-analyze). Everything outside the closure stays warm.
+// This supersedes the coarse whole-cache reset.
+func (m *Module) Invalidate(dirs ...string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.invalidateLocked(dirs)
+}
+
+// applyDirty consumes the pending-dirty set (populated by SetOverride): it drops
+// the reverse-closure of the dirty dirs from pkgTypes and clears the set. Called
+// at the start of each Package/Generate run (under analysisMu).
+func (m *Module) applyDirty() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.dirty) == 0 {
+		return
+	}
+	seeds := make([]string, 0, len(m.dirty))
+	for d := range m.dirty {
+		seeds = append(seeds, d)
+	}
+	m.invalidateLocked(seeds)
+	m.dirty = map[string]bool{}
+}
+
 // cachedDirs returns the sorted set of dirs currently in pkgTypes (test hook).
 func (m *Module) cachedDirs() []string {
 	m.mu.Lock()

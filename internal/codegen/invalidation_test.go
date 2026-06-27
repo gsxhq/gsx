@@ -190,6 +190,111 @@ func TestSetOverrideDirtinessDetection(t *testing.T) {
 	}
 }
 
+// componentsEdited is a modified card.gsx that still imports util and uses util.Y,
+// but adds a class attribute to the div — a cosmetic change that still compiles.
+var componentsEdited = []byte("package components\n\nimport \"example.com/x/util\"\n\ncomponent X(title string) {\n\t<div class=\"card\"><util.Y label={ title }/></div>\n}\n")
+
+// pagesEdited is a new index.gsx file for the pages package — it introduces a
+// second component (Index) alongside the existing Page component in page.gsx.
+// It still imports and uses components.X so the file type-checks correctly.
+var pagesEdited = []byte("package pages\n\nimport \"example.com/x/components\"\n\ncomponent Index() {\n\t<main><components.X title=\"world\"/></main>\n}\n")
+
+// sameSet reports whether two string slices contain exactly the same elements
+// (order-independent).
+func sameSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	m := make(map[string]int, len(a))
+	for _, s := range a {
+		m[s]++
+	}
+	for _, s := range b {
+		m[s]--
+		if m[s] < 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func TestEditInvalidatesReverseClosureOnly(t *testing.T) {
+	m, root := setupChainModule(t)
+	util := filepath.Join(root, "util")
+	comp := filepath.Join(root, "components")
+	pages := filepath.Join(root, "pages")
+	solo := filepath.Join(root, "solo")
+	// Warm everything.
+	for _, d := range []string{pages, solo} {
+		if _, err := m.Package(d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// All four cached (pages pulls util+components transitively; solo standalone).
+	for _, d := range []string{util, comp, pages, solo} {
+		if !contains(m.cachedDirs(), d) {
+			t.Fatalf("expected %s cached; got %v", d, m.cachedDirs())
+		}
+	}
+	// Edit components: closure {components, pages} drops; util + solo stay.
+	m.SetOverride(filepath.Join(comp, "card.gsx"), componentsEdited)
+	m.applyDirty() // simulate the start of the next analysis
+	cached := m.cachedDirs()
+	if contains(cached, comp) || contains(cached, pages) {
+		t.Errorf("components/pages should be invalidated; cached=%v", cached)
+	}
+	if !contains(cached, util) || !contains(cached, solo) {
+		t.Errorf("util/solo must stay warm; cached=%v", cached)
+	}
+}
+
+func TestEditLeafInvalidatesOnlyItself(t *testing.T) {
+	m, root := setupChainModule(t)
+	pages := filepath.Join(root, "pages")
+	if _, err := m.Package(pages); err != nil {
+		t.Fatal(err)
+	}
+	m.SetOverride(filepath.Join(pages, "index.gsx"), pagesEdited)
+	m.applyDirty()
+	// util + components (pages' deps, nothing imports pages) stay cached.
+	if !contains(m.cachedDirs(), filepath.Join(root, "util")) ||
+		!contains(m.cachedDirs(), filepath.Join(root, "components")) {
+		t.Errorf("editing pages (a leaf importer) must not invalidate its deps; cached=%v", m.cachedDirs())
+	}
+}
+
+func TestNoOpEditInvalidatesNothing(t *testing.T) {
+	m, root := setupChainModule(t)
+	comp := filepath.Join(root, "components")
+	if _, err := m.Package(filepath.Join(root, "pages")); err != nil {
+		t.Fatal(err)
+	}
+	before := m.cachedDirs()
+	disk, _ := os.ReadFile(filepath.Join(comp, "card.gsx"))
+	m.SetOverride(filepath.Join(comp, "card.gsx"), disk) // identical
+	m.applyDirty()
+	if got := m.cachedDirs(); !sameSet(got, before) {
+		t.Errorf("no-op edit must not invalidate; before=%v after=%v", before, got)
+	}
+}
+
+func TestImporterReResolvesAgainstEditedDependency(t *testing.T) {
+	m, root := setupChainModule(t)
+	util := filepath.Join(root, "util")
+	comp := filepath.Join(root, "components")
+	if _, err := m.Package(comp); err != nil {
+		t.Fatal(err)
+	} // warms util+components
+	// Change a util export that components depends on, then re-analyze components
+	// WITHOUT explicitly invalidating: applyDirty (inside Package) must do it.
+	m.SetOverride(filepath.Join(util, "helper.gsx"), utilWithNewExport)
+	pr, err := m.Package(comp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertResolvesUtilSymbol(t, pr) // new util symbol typed in components
+}
+
 func TestPackageCachesEditedPackageForImporters(t *testing.T) {
 	if testing.Short() {
 		t.Skip()

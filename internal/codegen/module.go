@@ -203,6 +203,7 @@ func (m *Module) externalImporter() (types.Importer, error) {
 func (m *Module) Package(dir string) (*PackageResult, error) {
 	m.analysisMu.Lock()
 	defer m.analysisMu.Unlock()
+	m.applyDirty()
 	ext, err := m.externalImporter()
 	if err != nil {
 		return nil, err
@@ -259,6 +260,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, error) {
 	m.analysisMu.Lock()
 	defer m.analysisMu.Unlock()
+	m.applyDirty()
 	ext, err := m.externalImporter()
 	if err != nil {
 		return nil, nil, err
