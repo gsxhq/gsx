@@ -61,8 +61,8 @@ func GeneratePackageWithFilters(dir string, filterPkgs []string, aliases []Filte
 	}
 	fset := token.NewFileSet()
 	// Note: this single-dir path returns a plain error on failure; it does not
-	// surface diagnostics through the bag. The batch path (GeneratePackages) is
-	// the production entry point and does surface diagnostics.
+	// surface diagnostics through the bag. Module.Generate is the production
+	// entry point and does surface diagnostics.
 	bag := diag.NewBag(fset)
 	files := map[string]*gsxast.File{}
 	for _, m := range matches {
@@ -79,7 +79,7 @@ func GeneratePackageWithFilters(dir string, filterPkgs []string, aliases []Filte
 		}
 		// Apply the JSX whitespace model before type resolution + emit, so cosmetic
 		// indentation is not rendered (the parser stays lossless; wsnorm is the one
-		// shared pass — mirror this in batch.go's GeneratePackages).
+		// shared pass across all codegen paths).
 		wsnorm.Normalize(f)
 		// Classify each <script> @{ } hole's JS context (and un-split comment holes
 		// to literal text) BEFORE type resolution + emit. Fails closed on an

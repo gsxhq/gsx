@@ -21,12 +21,12 @@ const (
 // hole-aware. It is intentionally NOT exposed as a selectable level: it is our
 // own less-battle-tested implementation, and its only niche (minified-but-cached)
 // is moot in CI builds where the cache isn't reused. It is still REACHED in two
-// ways: (1) it is the codegen engine default (codegen.GeneratePackages passes
-// minify=on, used by tests), and (2) it is full's fallback for holey (@{ }) blocks,
-// which an external string->string minifier cannot process. To RE-EXPOSE a "safe"
-// level later: add a MinifySafe constant here, a "safe" case in parseMinifyLevel,
-// route it in config.effectiveCSSMin/effectiveJSMin (return nil so the built-in
-// safe pass runs), and document it in docs/guide/config.md.
+// ways: (1) it is the codegen engine default (minify=on, used by tests), and (2)
+// it is full's fallback for holey (@{ }) blocks, which an external string->string
+// minifier cannot process. To RE-EXPOSE a "safe" level later: add a MinifySafe
+// constant here, a "safe" case in parseMinifyLevel, route it in
+// config.effectiveCSSMin/effectiveJSMin (return nil so the built-in safe pass
+// runs), and document it in docs/guide/config.md.
 
 // String returns the TOML/CLI spelling of the level.
 func (l MinifyLevel) String() string {

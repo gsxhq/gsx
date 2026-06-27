@@ -211,18 +211,15 @@ func (m mapImporter) Import(path string) (*types.Package, error) {
 
 // GeneratePackagesWithResolver generates .x.go for every .gsx across the given
 // package dirs using the provided CachedResolver (no per-render go list /
-// subprocess). It is semantically equivalent to GeneratePackagesWithFilters but
-// threads the resolver's prebuilt importer and filter table through each dir's
-// type-check step instead of launching a subprocess.
+// subprocess). It threads the resolver's prebuilt importer and filter table
+// through each dir's type-check step instead of launching a subprocess.
 //
 // Type errors from the cached checker are surfaced as positioned diagnostics
-// in each PackageResult.Diags, exactly as the default batch path does for
-// packages.Load TypeErrors. Positions resolve to the .gsx source via the
+// in each PackageResult.Diags. Positions resolve to the .gsx source via the
 // //line directives embedded in each skeleton by buildSkeleton/emitSkeletonLine.
 //
 // srcOverride maps absolute .gsx paths to their in-memory source; nil means
-// read from disk. The returned map is keyed by normalized absolute dir, matching
-// GeneratePackagesWithFilters.
+// read from disk. The returned map is keyed by normalized absolute dir.
 func GeneratePackagesWithResolver(moduleDir string, dirs []string, resolver *CachedResolver, cls *attrclass.Classifier, srcOverride map[string][]byte) (map[string]*PackageResult, error) {
 	if cls == nil {
 		cls = attrclass.Builtin()

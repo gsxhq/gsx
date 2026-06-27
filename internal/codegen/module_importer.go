@@ -345,7 +345,7 @@ type analyzed struct {
 	compByKey   map[string]*gsxast.Component // componentKey -> component (for Name + NamePos)
 	objKey      map[types.Object]string      // component func object -> componentKey
 	bag         *diag.Bag                    // diagnostics from parse + script resolution; used by Generate
-	importSpecs []importSpec                 // hoisted .gsx import specs (for detectUnusedImports)
+	importSpecs []importSpec                 // hoisted .gsx import specs (for unused-import detection)
 	typeErrs    []types.Error                // raw type errors from checkSkeletonPackage
 }
 
@@ -401,12 +401,11 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	for path, f := range gsxFiles {
 		skel, comps, imps, ctrlOff, berr := buildSkeleton(f, table, propFields, nodeProps, byo, m.opts.FieldMatcher, fset)
 		if berr != nil {
-			// Mirror GeneratePackagesWithFilters's buildSkeleton error handling:
-			// a positioned attrError becomes a diagnostic and skips this file;
-			// any other error is also recorded as a positionless diagnostic
-			// (stripping "codegen: " prefix) and skips the whole package.
-			// Neither case is a hard infrastructure error — return nil, err is
-			// reserved for fs I/O failures, filter-load failures, etc.
+			// buildSkeleton error handling: a positioned attrError becomes a
+			// diagnostic and skips this file; any other error is also recorded as a
+			// positionless diagnostic (stripping "codegen: " prefix) and skips the
+			// whole package. Neither case is a hard infrastructure error — return
+			// nil, err is reserved for fs I/O failures, filter-load failures, etc.
 			var ae *attrError
 			if errors.As(berr, &ae) {
 				bag.Errorf(ae.pos, ae.end, ae.code, "%s", ae.msg)
@@ -439,19 +438,18 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 
 	// Include the package's hand-written .go files (model.go, helper.go, etc.)
 	// so that companion types and functions are visible during skeleton
-	// type-checking — mirroring how GeneratePackagesWithFilters's packages.Load
-	// overlay sees them on disk alongside the synthetic .x.go overlays.
+	// type-checking alongside the synthetic .x.go overlays.
 	//
 	// Use build.ImportDir (build-constraint- and test-file-aware) instead of a
 	// raw glob so that *_test.go and build-excluded files are correctly omitted —
-	// matching the behaviour of the batch packages.Load path and resolver.go.
+	// matching the behaviour of resolver.go.
 	// On error (e.g. no buildable Go in the dir yet) we simply add nothing.
 	//
 	// Excluded from the result: live-skeleton overlay paths (compsByXGo keys —
 	// the in-memory skeletons already cover them) and the synthetic helper shim
 	// (helperXgoPath). Hand-written .x.go files (e.g. gsxshared.x.go) and
 	// orphaned .x.go files (from a deleted .gsx) are intentionally included —
-	// matching batch/packages.Load behaviour which sees all on-disk .go files.
+	// they are visible to the type-checker as on-disk .go files.
 	// goImportPaths collects the imports of the hand-written .go files so the import
 	// graph (recordImports) also tracks sibling gsx packages reached only through a
 	// companion .go (e.g. a model.go), not just through .gsx-hoisted imports.

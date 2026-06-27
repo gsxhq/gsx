@@ -378,7 +378,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	}
 	res.Diags = a.bag.Sorted()
 	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.gsxFset, a.skelFset, a.info, a.pkg)
-	res.UnusedImports = detectUnusedImportsFromErrs(a.typeErrs, a.importSpecs, a.gsxFset)
+	res.UnusedImports = detectUnusedImports(a.typeErrs, a.importSpecs, a.gsxFset)
 	m.mu.Lock()
 	m.pkgResults[dir] = res
 	m.mu.Unlock()
@@ -414,11 +414,11 @@ func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, err
 	// Use the bag created in analyze (shares fset, carries script-resolution diags).
 	bag := a.bag
 	out := map[string][]byte{}
-	// Match the batch path (GeneratePackagesWithFilters): when a package has type
-	// errors, skip generateFile entirely — only the type-error diagnostics are
-	// surfaced. Running generateFile on a type-error package emits spurious
-	// secondary diagnostics (e.g. "could not resolve type of interpolation") because
-	// resolved lacks entries for identifiers the type-checker flagged as undefined.
+	// When a package has type errors, skip generateFile entirely — only the
+	// type-error diagnostics are surfaced. Running generateFile on a type-error
+	// package emits spurious secondary diagnostics (e.g. "could not resolve type of
+	// interpolation") because resolved lacks entries for identifiers the type-checker
+	// flagged as undefined.
 	if len(a.typeErrs) == 0 {
 		for path, f := range a.gsxFiles {
 			gen, ok := generateFile(f, a.resolved, a.table, a.propFields, a.nodeProps, a.byo,
