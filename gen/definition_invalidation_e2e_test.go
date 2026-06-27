@@ -23,6 +23,17 @@ import (
 // WITHOUT applyDirty wired: pkgTypes[widgetsDir] retains the stale V1
 // types.Package from the Phase-1 analysis, so typesPackageWith returns the V1
 // Badge object with its old Pos() → same line as Phase 1 → assertion failure.
+//
+// Test seam note: passing widgetsV2 inside the homeDir override (rather than via a
+// separate Analyze(widgetsDir) call, as the real server does on a widgets edit) is
+// deliberate — it keeps widgets a CACHE-GATED DEPENDENCY (never a direct Package
+// target, so never re-analyzed directly), the only shape under which applyDirty's
+// drop is the sole refresh path and the test is non-tautological. Editing the dep
+// via its own Analyze(widgetsDir) would re-cache it fresh regardless of applyDirty
+// (analyze caches unconditionally), making such a test pass vacuously. In
+// production the same applyDirty mechanism is triggered instead by the widgets edit
+// marking widgetsDir dirty. The reverse-dependency CLOSURE itself (importers drop
+// transitively) is covered white-box by TestEditInvalidatesReverseClosureOnly.
 func TestDefinitionInvalidationCrossPkg(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")

@@ -14,10 +14,12 @@ import (
 
 // lspAnalyzer is the concrete code analysis behind the language server: it
 // resolves the module root for a directory, retrieves (or lazily creates) a warm
-// per-root *codegen.Module, applies override buffers, resets the project-package
-// cache, and returns the retained Package — the diagnostics plus read-only type
+// per-root *codegen.Module, applies override buffers (which mark changed packages
+// dirty), and returns the retained Package — the diagnostics plus read-only type
 // info (Fset, TypesInfo, expr-map, gsx AST) the read-intelligence features need.
-// It never writes .x.go to disk.
+// The Module self-invalidates: Package drops the changed package and its
+// reverse-dependency closure from the type cache, keeping the rest warm. It never
+// writes .x.go to disk.
 //
 // Slice-1 limitation: codegen discovers .gsx files by on-disk glob, so a buffer
 // opened in the editor but never saved to disk is not analyzed (its override is

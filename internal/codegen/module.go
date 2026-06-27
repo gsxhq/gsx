@@ -51,6 +51,12 @@ type Options struct {
 // Invalidate is the public entry point for callers that need to drop a dir without
 // calling Package/Generate.
 //
+// Known gap (no didChangeWatchedFiles hook yet): invalidation is driven by
+// SetOverride content diffs, so a disk-only change to a package that has no open
+// override (e.g. an external tool rewriting a .gsx file) is not auto-detected — a
+// warm pkgTypes entry would stay stale until that file gets an override or a caller
+// invokes Invalidate. A future file-watch hook closes this.
+//
 // FileSet: the Module uses ONE *token.FileSet (m.fset) for its whole lifetime,
 // covering BOTH the external packages.Load AND every project analyze() call. So
 // every type-object position — package A, sibling B, external dep — resolves
