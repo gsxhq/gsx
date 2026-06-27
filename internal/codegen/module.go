@@ -83,6 +83,10 @@ type Module struct {
 	opts             Options
 	overrides        map[string][]byte          // abs .gsx path -> in-memory source
 	ext              types.Importer             // lazily built external importer (stdlib + third-party)
+	filterTbl        filterTable                // lazily built filter table (see cachedFilterTable)
+	filterTblErr     error                      // error from the filter-table load (cached alongside filterTbl)
+	filterTblDone    bool                       // true once the filter table has been loaded (success or error)
+	filterLoads      int                        // count of filter-table loads performed (observability; test hook)
 	fset             *token.FileSet             // module-wide shared FileSet (see "FileSet" / "Growth" notes above)
 	pkgTypes         map[string]*types.Package  // abs dir -> checked *types.Package cache
 	pkgResults       map[string]*PackageResult  // abs dir -> cached full analysis result (Package path only)
@@ -244,6 +248,41 @@ func (m *Module) externalImporter() (types.Importer, error) {
 	return m.ext, nil
 }
 
+// cachedFilterTable memoizes the filter table for the Module's lifetime. The
+// table is the harvest of a packages.Load over the filter packages — an external
+// go-list + type-check that costs ~150ms — and it depends ONLY on inputs that are
+// immutable for a Module: opts.ModuleRoot, opts.FilterPkgs, opts.Aliases. So it is
+// loaded once and reused across every analyze() call, instead of reloading on each
+// warm regen (the pre-cache behaviour, which made every --watch cycle pay the full
+// packages.Load and turned ~10ms warm regens into ~150ms ones).
+//
+// Lifetime/invalidation: cleared by rebuildFset (alongside ext), and a filter
+// package is Go source — any .go/go.mod change drives the watch loop through
+// reopen(), which builds fresh Modules, so a filter-package edit is naturally
+// picked up. Called only from analyze, which runs under analysisMu; the m.mu
+// double-check mirrors externalImporter.
+func (m *Module) cachedFilterTable() (filterTable, error) {
+	m.mu.Lock()
+	if m.filterTblDone {
+		defer m.mu.Unlock()
+		return m.filterTbl, m.filterTblErr
+	}
+	m.mu.Unlock()
+	tbl, err := loadFilterTableMulti(m.opts.ModuleRoot, dedupFilterPkgs(m.opts.FilterPkgs), m.opts.Aliases)
+	m.mu.Lock()
+	m.filterTbl, m.filterTblErr, m.filterTblDone = tbl, err, true
+	m.filterLoads++
+	m.mu.Unlock()
+	return tbl, err
+}
+
+// filterTableLoads returns the number of filter-table loads performed (test hook).
+func (m *Module) filterTableLoads() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.filterLoads
+}
+
 // maybeRebuildFset rebuilds the FileSet (and ext/pkgTypes/pkgResults) when project re-parse
 // growth since the last load exceeds fsetRebuildBytes. A zero threshold disables it.
 // Called at the start of Package/Generate (under analysisMu), before applyDirty.
@@ -267,6 +306,7 @@ func (m *Module) rebuildFset() {
 	defer m.mu.Unlock()
 	m.fset = token.NewFileSet()
 	m.ext = nil
+	m.filterTbl, m.filterTblErr, m.filterTblDone = filterTable{}, nil, false
 	m.pkgTypes = map[string]*types.Package{}
 	m.pkgResults = map[string]*PackageResult{}
 	m.fsetBaseline = 0

@@ -384,7 +384,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	if scriptErr {
 		gsxFiles = nil // package-level skip: Generate's loop emits nothing
 	}
-	table, err := loadFilterTableMulti(m.opts.ModuleRoot, dedupFilterPkgs(m.opts.FilterPkgs), m.opts.Aliases)
+	table, err := m.cachedFilterTable()
 	if err != nil {
 		return nil, err
 	}
