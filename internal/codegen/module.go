@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"sync"
 
 	"golang.org/x/tools/go/packages"
@@ -71,16 +72,38 @@ type Options struct {
 // re-analysis) is a Phase-2 concern. Do NOT rebuild the fset per edit: that would
 // orphan the warm ext importer's positions.
 type Module struct {
-	opts       Options
-	overrides  map[string][]byte         // abs .gsx path -> in-memory source
-	ext        types.Importer            // lazily built external importer (stdlib + third-party)
-	fset       *token.FileSet            // module-wide shared FileSet (see "FileSet" / "Growth" notes above)
-	pkgTypes   map[string]*types.Package // abs dir -> checked *types.Package cache
-	imports    map[string][]string        // dir -> its project-gsx dependency dirs (forward edges)
-	importedBy map[string]map[string]bool // dep dir -> set of importer dirs (reverse edges)
-	dirty      map[string]bool            // dirs with a pending content change (consumed by applyDirty)
-	mu         sync.Mutex                // guards overrides, ext, pkgTypes, imports, importedBy, dirty
-	analysisMu sync.Mutex                // serializes Package/Generate/typesPackage (see concurrency contract)
+	opts             Options
+	overrides        map[string][]byte          // abs .gsx path -> in-memory source
+	ext              types.Importer             // lazily built external importer (stdlib + third-party)
+	fset             *token.FileSet             // module-wide shared FileSet (see "FileSet" / "Growth" notes above)
+	pkgTypes         map[string]*types.Package  // abs dir -> checked *types.Package cache
+	imports          map[string][]string        // dir -> its project-gsx dependency dirs (forward edges)
+	importedBy       map[string]map[string]bool // dep dir -> set of importer dirs (reverse edges)
+	dirty            map[string]bool            // dirs with a pending content change (consumed by applyDirty)
+	fsetBaseline     int                        // m.fset.Base() captured after the last packages.Load (growth measured since here)
+	fsetRebuildBytes int                        // rebuild fset when fset.Base()-fsetBaseline exceeds this; 0 disables
+	rebuildCount     int                        // count of fset rebuilds performed (observability; exposed via rebuilds())
+	mu               sync.Mutex                 // guards overrides, ext, pkgTypes, imports, importedBy, dirty
+	analysisMu       sync.Mutex                 // serializes Package/Generate/typesPackage (see concurrency contract)
+}
+
+// defaultFsetRebuildBytes bounds the module-lifetime FileSet's project re-parse
+// growth: when fset.Base() climbs this many bytes past the post-load baseline, the
+// Module rebuilds fset+ext+pkgTypes. 256 MiB is generous enough that a rebuild is
+// rare (tens of full re-analyses of a large package) yet caps leaked token.File
+// memory. Internal perf knob (not gsx.toml / computeKey); overridable via
+// GSX_FSET_REBUILD_BYTES (0 disables; like GSXCACHE).
+const defaultFsetRebuildBytes = 256 << 20
+
+// fsetRebuildBytesFromEnv returns the GSX_FSET_REBUILD_BYTES override if set to a
+// valid non-negative integer (0 disables rebuilding), else defaultFsetRebuildBytes.
+func fsetRebuildBytesFromEnv() int {
+	if v, ok := os.LookupEnv("GSX_FSET_REBUILD_BYTES"); ok {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			return n
+		}
+	}
+	return defaultFsetRebuildBytes
 }
 
 // Open constructs a Module. It does not load anything yet; analysis is lazy.
@@ -91,12 +114,13 @@ func Open(opts Options) (*Module, error) {
 		opts.Classifier = cls
 	}
 	return &Module{
-		opts:       opts,
-		overrides:  map[string][]byte{},
-		fset:       token.NewFileSet(),
-		imports:    map[string][]string{},
-		importedBy: map[string]map[string]bool{},
-		dirty:      map[string]bool{},
+		opts:             opts,
+		overrides:        map[string][]byte{},
+		fset:             token.NewFileSet(),
+		imports:          map[string][]string{},
+		importedBy:       map[string]map[string]bool{},
+		dirty:            map[string]bool{},
+		fsetRebuildBytes: fsetRebuildBytesFromEnv(),
 	}, nil
 }
 
