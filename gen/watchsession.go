@@ -117,23 +117,27 @@ func newWatchSession(cfg watchConfig) (*watchSession, []cycleResult, error) {
 // re-runs regenDir for every discovered dir so the import graphs are fully
 // repopulated. Call after a dep-surface change (new import, .go edit, go.mod
 // change, etc.). This replaces the old rebuild() method.
-func (s *watchSession) reopen() error {
+//
+// Returns the per-dir cycle results (mirroring newWatchSession's startup slice)
+// so the caller can emit them. Returns (nil, err) on operational failure.
+func (s *watchSession) reopen() ([]cycleResult, error) {
 	for _, root := range s.roots {
 		m, err := s.openModule(root)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		s.modules[root] = m
 	}
 	// Repopulate the graph for every dir by regenerating.
 	dirs, err := discoverDirs(s.cfg.paths)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var results []cycleResult
 	for _, dir := range dirs {
-		s.regenDir(dir)
+		results = append(results, s.regenDir(dir))
 	}
-	return nil
+	return results, nil
 }
 
 // regenDir warm-regenerates one package dir using its module's warm Module. It

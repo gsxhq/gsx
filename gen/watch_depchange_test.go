@@ -66,8 +66,35 @@ func TestWatchDepChange(t *testing.T) {
 
 	// Drive the depDirty path: reopen() re-opens all Modules and re-runs
 	// regenDir for every dir, incorporating the new .go file content.
-	if reopenErr := sess.reopen(); reopenErr != nil {
+	results, reopenErr := sess.reopen()
+	if reopenErr != nil {
 		t.Fatalf("sess.reopen() after dep change: %v", reopenErr)
+	}
+
+	// Regression guard: reopen must return non-empty results — a dep-change
+	// cycle must NOT be silent. Before the fix, results were discarded and
+	// callers never received diagnostics or notifications for dep-change cycles.
+	if len(results) == 0 {
+		t.Fatal("sess.reopen() returned no cycleResults: dep-change cycle is silent (regression)")
+	}
+
+	// The blog dir must appear in the results and must have regenerated OK.
+	var found bool
+	for _, r := range results {
+		if r.Dir == blogDir {
+			found = true
+			if !r.OK {
+				t.Fatalf("reopen cycleResult for blogDir not OK: err=%v diags=%v", r.Err, r.Diags)
+			}
+			if len(r.Written) == 0 && r.Err == nil {
+				// Written may be empty if hash-gated restore found identical
+				// content; that is still a valid (non-silent) cycle result.
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("reopen results do not contain blogDir %q; got %d results", blogDir, len(results))
 	}
 
 	// After reopen the .x.go must still be valid and non-empty.

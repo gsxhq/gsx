@@ -112,7 +112,8 @@ func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 			schedule()
 		case <-fire:
 			if depDirty {
-				if rerr := sess.reopen(); rerr != nil {
+				results, rerr := sess.reopen()
+				if rerr != nil {
 					// Skip this cycle: regenerating against a stale module
 					// would produce output built on the old type graph. Leave
 					// depDirty=true and pending intact so the next fire retries.
@@ -120,8 +121,13 @@ func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 					continue
 				}
 				// reopen() cold-regenerates every dir (fresh Modules + repopulated
-				// import graph + rewritten .x.go). Pending dirs are already
-				// regenerated — skip the union-regen below to avoid a double pass.
+				// import graph + rewritten .x.go). Emit per-dir cycle results so
+				// diagnostics and notifications are visible to the user.
+				for _, r := range results {
+					em.cycle(r)
+				}
+				// Pending dirs are already regenerated — skip the union-regen
+				// below to avoid a double pass.
 				depDirty = false
 				pending = map[string]bool{}
 				continue
