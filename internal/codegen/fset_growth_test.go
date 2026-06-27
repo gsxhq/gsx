@@ -221,6 +221,54 @@ func TestGraphSurvivesRebuild(t *testing.T) {
 	}
 }
 
+// TestRebuildFsetPreservesGraph is a focused, load-bearing test that proves
+// rebuildFset() itself does NOT clear imports/importedBy. It calls rebuildFset
+// directly, then immediately snapshots the graph — no re-analysis can re-establish
+// edges in between. If someone made rebuildFset also clear the import graph, this
+// test fails (whereas TestGraphSurvivesRebuild would not, because it re-analyzes
+// the whole chain after the rebuild, which re-records every edge).
+func TestRebuildFsetPreservesGraph(t *testing.T) {
+	if testing.Short() {
+		t.Skip()
+	}
+	m, root := setupChainModule(t)
+	util := filepath.Join(root, "util")
+	comp := filepath.Join(root, "components")
+	pages := filepath.Join(root, "pages")
+
+	// Warm the graph at the default threshold (no rebuild will trigger).
+	if _, err := m.Package(pages); err != nil {
+		t.Fatal(err)
+	}
+	if m.rebuilds() != 0 {
+		t.Fatalf("unexpected rebuild during warm-up: got %d", m.rebuilds())
+	}
+
+	// Confirm pre-state: reverse edges exist.
+	_, rev := m.importGraphSnapshot()
+	assertEdge(t, rev, util, comp)
+	assertEdge(t, rev, comp, pages)
+
+	// Call rebuildFset DIRECTLY — no Package/Generate call follows.
+	m.rebuildFset()
+
+	// Assert counter bumped — confirms the rebuild actually ran.
+	if m.rebuilds() != 1 {
+		t.Errorf("rebuilds() = %d, want 1", m.rebuilds())
+	}
+
+	// Assert pkgTypes cleared — the type cache was reset.
+	if cached := m.cachedDirs(); len(cached) != 0 {
+		t.Errorf("cachedDirs after rebuildFset = %v, want empty", cached)
+	}
+
+	// Assert graph SURVIVED — no re-analysis ran since the rebuild.
+	// If rebuildFset cleared imports/importedBy these assertions will fail.
+	_, rev2 := m.importGraphSnapshot()
+	assertEdge(t, rev2, util, comp)
+	assertEdge(t, rev2, comp, pages)
+}
+
 // TestGenerateOutputIdenticalAcrossRebuild proves that Module.Generate produces
 // byte-identical output before and after a forced FileSet rebuild.
 func TestGenerateOutputIdenticalAcrossRebuild(t *testing.T) {
