@@ -82,6 +82,19 @@ does — record it as a diagnostic in the bag and skip that file (drop it from `
 diagnostics batch did. A focused test asserts `GenerateDirs` returns the bad-field-match
 diagnostic (not a hard error).
 
+**Accepted divergence (per-file vs per-dir granularity).** The Module skips only the
+*offending file*; batch skipped the *whole dir* (emitted nothing for it). So on a multi-file
+dir where one file has an `attrError`, the Module emits the good siblings (+ the diagnostic,
+incl. any sibling's own attr diagnostics) where batch emitted nothing. This is **intentional
+and correct**: the warm core is per-file granular by design — the LSP and `--watch` already
+behave this way, and forcing per-dir would regress them. So `GenerateDirs` is byte-identical
+to batch for all *valid* cases (corpus golden + equivalence), and *more precise* (per-file)
+on error cases — NOT a literal byte drop-in on a multi-file dir that contains an error. The
+corpus has no error cases, so the golden migration (§3.4) is unaffected; production `generate`
+gains the per-file behavior. This divergence is not exercised by any committed test beyond the
+foundation's single-file attr-error case — recheck if a multi-file error-case golden is ever
+added.
+
 **Generate-bytes consumers** (one-shot `generate`, golden corpus, output/minify/diag tests)
 use `GenerateDirs`.
 **Analysis-only consumers** (`fmt`→`UnusedImports`, `AnalyzeModule`→`CrossIndex`, and the
