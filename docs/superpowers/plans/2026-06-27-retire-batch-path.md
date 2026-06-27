@@ -1,119 +1,99 @@
 # Phase 4 — Retire the go-list Batch Codegen Path Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax.
 
-**Goal:** Delete `codegen.GeneratePackagesWithFilters` + `GeneratePackages` by migrating their last consumers (one-shot `generate`, `fmt`, `AnalyzeModule`, the golden corpus test, ~8 codegen unit tests) onto the warm `Module` — one go-list codegen path. `CachedResolver` (WASM) untouched.
+**Goal:** Delete `codegen.GeneratePackagesWithFilters` + `GeneratePackages` by laying a shared one-shot Module façade (`GenerateDirs`) and migrating every consumer onto it (or onto `Module.Package` for analysis-only consumers) — one go-list codegen path. `CachedResolver` (WASM) untouched.
 
-**Architecture:** `Module.Generate ≡ batch` is corpus-proven and `Module.Generate` already threads minify (Phase 3), so it is a byte-identical drop-in. Migrate every caller, keeping the equivalence + golden tests as the safety net until the final deletion.
-
-**Tech Stack:** Go; `internal/codegen` warm `Module`; `gen/` (cache, fmt, lsp); `internal/corpus`.
+**Architecture:** `GenerateDirs(moduleRoot, dirs, opts, override)` opens a fresh warm Module and `Generate`s each dir, returning per-dir `.gsx`-keyed bytes + diags (the one-shot façade). Generate-bytes consumers use it; analysis-only consumers (`fmt`, `AnalyzeModule`) use `Module.Package`. A prerequisite fix makes `analyze` surface `buildSkeleton` `attrError`s as diagnostics (like batch) so the façade is a true drop-in.
 
 ## Global Constraints
-
-- **Byte-identical `.x.go` at every step.** Goldens (`internal/corpus/testdata`) must not change; `TestCorpus` passes with NO `-update`. If a golden moves, STOP — it's a real divergence, not an expected change. (Spec §1, §5.)
-- **`Module ≡ batch ≡ goldens`** is the safety net for tasks 1–5; do NOT delete `TestModuleMatchesBatchOverCorpus` or the batch path until task 6, after all callers are migrated and green. (Spec §5.)
-- **Do NOT touch `CachedResolver`/`GeneratePackagesWithResolver`** (the bundle-based WASM path) or `buildCrossNav` (shared). (Spec §1.)
-- **Minify fidelity:** when a migrated caller/test previously got minified output (batch's `true,true` or a configured level), Open the Module with the matching `CSSMinify/JSMinify` (+ `CSSMin/JSMin`). Zero-value Options = no minify. (Phase 3 Options.)
-- **No "simple heuristics."** Real implementations only (CLAUDE.md).
-- **gofmt + gsx fmt.** `gofmt -w` edited files; run `make ci`-relevant gates before the final review.
-- **Every change keeps/ships test coverage** (CLAUDE.md / [[gsx-syntax-change-test-coverage]]).
-
----
+- **Byte-identical `.x.go`**; goldens unchanged; `TestCorpus` passes with NO `-update` (a moved golden = STOP, real divergence). 
+- **Safety net `Module ≡ batch ≡ goldens`** retained through Tasks 1–6; the equivalence test + batch path deleted only in Task 7.
+- **Do NOT touch** `CachedResolver`/`GeneratePackagesWithResolver` or `buildCrossNav`.
+- **Minify:** Open/`GenOptions` with matching `CSSMinify/JSMinify`(+`CSSMin/JSMin`) wherever the prior caller got minified output (batch's `true,true`). Zero-value = no minify.
+- No "simple heuristics"; gofmt + `gsx fmt`; run `make ci`-relevant gates before the final review.
 
 ## File Structure
-- `gen/cache.go` — `generateCached`'s two `GeneratePackagesWithFilters` sites → warm `Module` per root.
-- `gen/fmt.go` — the one call → `Module.Package().UnusedImports`.
-- `gen/lsp.go` — `AnalyzeModule` → warm Module `Package` per dir, aggregate `CrossIndex`.
-- `internal/corpus/codegen.go` (+ `batch.go` caller) — `codegenGeneratePackages` → `Module`.
-- `internal/codegen/{batch_test,crossindex_test,navindex_test,retention_test,minify_gate_test,byo_lsp_test,unused_imports_test,batch_override_test}.go` — migrate or delete.
-- `internal/codegen/batch.go` — delete `GeneratePackagesWithFilters` + `GeneratePackages` (task 6).
-- `internal/corpus/module_equiv_test.go` — delete `TestModuleMatchesBatchOverCorpus` (task 6).
+- `internal/codegen/generate_dirs.go` (new) — `GenerateDirs`, `GenOptions`, `DirResult`.
+- `internal/codegen/module_importer.go` — `analyze` handles `buildSkeleton` `attrError` (diagnostic + skip, not fatal).
+- `gen/cache.go`, `gen/fmt.go`, `gen/lsp.go` — consumers migrate.
+- `internal/corpus/codegen.go` (+ `batch.go` caller) — golden test → `GenerateDirs`.
+- `internal/codegen/*_test.go` (~13) + `gen/resolver_test.go` + `gen/perf_test.go` comment — migrate/delete.
+- `internal/codegen/batch.go`, `internal/corpus/module_equiv_test.go` — deleted in Task 7.
 
 ---
 
-## Task 1: One-shot `generate` → warm Module
+## Task 1: Foundation — `attrError` fix + `GenerateDirs` façade
+**Files:** Create `internal/codegen/generate_dirs.go`; modify `internal/codegen/module_importer.go` (`analyze`); test `internal/codegen/generate_dirs_test.go`.
 
-**Files:** Modify `gen/cache.go`. Tests: existing `gen` generate tests (`gen_test.go`, `cacheinval_test.go`, `perf_test.go`) stay green.
-
-**Interfaces:** Produces a small helper, e.g. `generateViaModule(root string, dirs []string, cfg ...) (map[string]*codegen.PackageResult, error)` OR an inline per-root Module loop, returning the same shape `generateCached`'s callers expect from the batch call.
-
-- [ ] **Step 1: Read** `gen/cache.go` fully — both `GeneratePackagesWithFilters` callsites (the cache-miss path ~`:140` and the no-cache fallback ~`:235`), what they pass, and how the returned `map[dir]*PackageResult`/`.Files` is consumed (written to disk via `restore`/`writeAll`). Note the exact filter/alias/classifier/fieldmatcher/minify args threaded in.
-- [ ] **Step 2:** Replace each `GeneratePackagesWithFilters(root, dirs, filterPkgs, aliases, cls, fm, cssMin, jsMin, cssMinify, jsMinify, nil)` with: `m, err := codegen.Open(codegen.Options{ModuleRoot: root, ModulePath: <modPath via moduleRoot(root)>, FilterPkgs: filterPkgs, Aliases: aliases, FieldMatcher: fm, Classifier: cls, CSSMin: cssMin, JSMin: jsMin, CSSMinify: cssMinify, JSMinify: jsMinify})` then for each dir `out, diags, gerr := m.Generate(dir)`, assembling the same `*PackageResult`-shaped result OR directly the `.x.go` bytes the caller writes. (If the caller only needs `.Files` for `restore`, map `out` gsxPath→.x.go like watch's `regenDir` does — read `gen/watchsession.go regenDir` for the exact mapping.) Handle multiple roots if `dirs` can span roots (group by root; the batch call took a single `moduleDir` so callers already pass per-root dirs — confirm).
-- [ ] **Step 3:** Preserve diagnostics/error semantics: `generateCached` folds error-severity diags into its returned error — keep that behavior (collect `diags` across dirs, apply the same `anyErrorDiag`/error logic the batch path produced).
-- [ ] **Step 4:** `go build ./...` clean; `gofmt -l gen` empty; `go test ./gen -run 'Generate|Cache|Gen' -count=1` PASS (these assert generated output + caching). Spot-check: a generated `.x.go` from `gsx generate` is byte-identical to before (the gen tests + corpus cover this).
-- [ ] **Step 5: Commit** `git commit -m "refactor(gen): one-shot generate uses the warm Module (drop batch)"`.
+- [ ] **Step 1: Read** `internal/codegen/batch.go` — exactly how it handles a `buildSkeleton` `*attrError` (converts to a positioned diagnostic in the per-dir bag, excludes the file). Read `internal/codegen/module_importer.go` `analyze` where `buildSkeleton` is called (it currently returns the error fatally) and where `a.gsxFiles`/the bag live.
+- [ ] **Step 2:** Make `analyze` mirror batch for a `buildSkeleton` `attrError`: add the positioned diagnostic to `bag` and SKIP that file (remove it from `gsxFiles` / don't add its skeleton), instead of `return nil, …, err`. Other `buildSkeleton` errors keep current behavior unless they too are the soft `attrError` type — match batch precisely (read its switch). The bag is returned by `Generate`, so the diagnostic surfaces.
+- [ ] **Step 3:** Write `GenerateDirs`/`GenOptions`/`DirResult` (spec §3.0) in `generate_dirs.go`: Open a Module with the opts (incl. minify), `SetOverride` each `override` entry, then for each dir `out, diags, err := m.Generate(dir)`; on a hard `err` return it; else `result[dir] = DirResult{Files: out, Diags: diags}`. (`Files` stays `.gsx`-keyed.)
+- [ ] **Step 4: Test** `generate_dirs_test.go`: (a) `GenerateDirs` over `setupChainModule`'s dirs produces non-empty `.gsx`-keyed `Files` + the components resolve cross-package; (b) the **attr-error equivalence** — a package whose component triggers a bad field-match `attrError` returns a DIAGNOSTIC in `DirResult.Diags` (not a hard error), matching batch. (Find the bad-field-match fixture from `gen/fieldmatcher_e2e_test.go` `TestWithFieldMatcherBadMapper`.) (c) minify: `CSSMinify:false` vs `true` differ on a `<style>` fixture.
+- [ ] **Step 5:** `go build ./...` clean; `gofmt -l internal/codegen` empty; `go test ./internal/codegen -run 'GenerateDirs|FieldMatch|Attr' -count=1` PASS; `go test ./internal/codegen -count=1` (no regression — the `attrError` change must not break existing tests). Also run `go test ./internal/corpus -count=1` (equivalence + golden) to confirm the `analyze` change is output-neutral.
+- [ ] **Step 6: Commit** `feat(codegen): GenerateDirs one-shot Module façade + analyze surfaces attrError diagnostics`.
 
 ---
 
-## Task 2: `fmt` → `Module.Package`
-
-**Files:** Modify `gen/fmt.go`. Tests: existing fmt/unused-import tests stay green.
-
-- [ ] **Step 1: Read** `gen/fmt.go` around the `GeneratePackagesWithFilters(root, []string{absDir}, nil, nil, attrclass.Builtin(), nil, nil, nil, true, true, nil)` call (~`:180`) and confirm it consumes ONLY `pr.UnusedImports`.
-- [ ] **Step 2:** Replace with `m, err := codegen.Open(codegen.Options{ModuleRoot: root, ModulePath: <modPath>, Classifier: attrclass.Builtin()})` then `pr, err := m.Package(absDir)`; read `pr.UnusedImports`. (No minify needed — `Package` doesn't emit output; `UnusedImports` is identical.) Preserve the surrounding `continue`-on-error fallbacks.
-- [ ] **Step 3:** `go build ./...` clean; `go test ./gen -run 'Fmt|Unused|Import' -count=1` and `go test ./internal/gsxfmt -count=1` PASS.
-- [ ] **Step 4: Commit** `git commit -m "refactor(fmt): unused-import analysis via Module.Package (drop batch)"`.
+## Task 2: One-shot `generate` → `GenerateDirs`
+**Files:** `gen/cache.go`. Tests: `gen` generate/cache suites stay green.
+- [ ] **Step 1: Read** `gen/cache.go` `generateCached` — both `GeneratePackagesWithFilters` sites and how `.Files`(.gsx-keyed)/`.Diags` are written to disk + folded into the error.
+- [ ] **Step 2:** Replace each with `codegen.GenerateDirs(root, dirs, codegen.GenOptions{FilterPkgs, Aliases, Classifier: cls, FieldMatcher: fm, CSSMin, JSMin, CSSMinify, JSMinify}, nil)`. Map `DirResult.Files` (.gsx path) → `.x.go` at the write site (as `gen/watchsession.go regenDir` does). Preserve the diags→error folding (`anyErrorDiag`). Group by root if a callsite can span roots.
+- [ ] **Step 3:** `go build ./...`; `gofmt -l gen` empty; `go test ./gen -run 'Generate|Cache|Gen|Fmt|Minify|Field' -count=1` PASS; then `go test ./gen -count=1`.
+- [ ] **Step 4: Commit** `refactor(gen): one-shot generate via GenerateDirs (drop batch)`.
 
 ---
 
-## Task 3: `AnalyzeModule` find-references → warm Module
-
-**Files:** Modify `gen/lsp.go` (`AnalyzeModule`). Tests: existing find-references tests stay green.
-
-- [ ] **Step 1: Read** `gen/lsp.go` `AnalyzeModule` (~`:143`) and the find-references tests in `gen`/`internal/lsp` that exercise it (whole-module cross-package refs, with unsaved-buffer overrides).
-- [ ] **Step 2:** Rewrite using the warm per-root Module the analyzer already builds: `m, err := a.module(root, modPath, merged)`; for `p, src := range override { m.SetOverride(p, src) }`; for each `dir` in `discoverDirs([root])`: `pr, err := m.Package(dir)`; flatten `pr.CrossIndex` into `[]lsp.CrossRef`. The Module's shared fset across `Package` calls preserves cross-package CrossRef routing (the batch call relied on one shared load — the warm Module gives the same). Match the existing return shape exactly.
-- [ ] **Step 3:** `go build ./...` clean; `go test ./gen ./internal/lsp -run 'Reference|CrossPkg|Module|Nav' -count=1` PASS (find-references across packages, with overrides).
-- [ ] **Step 4: Commit** `git commit -m "refactor(lsp): AnalyzeModule find-references via the warm Module (drop batch)"`.
+## Task 3: `fmt` → `Module.Package`
+**Files:** `gen/fmt.go`.
+- [ ] **Step 1: Read** the `GeneratePackagesWithFilters(root, [absDir], …, true, true, nil)` call (~`:180`); confirm only `pr.UnusedImports` is used.
+- [ ] **Step 2:** Replace with `m, _ := codegen.Open(codegen.Options{ModuleRoot: root, ModulePath: <modPath>, Classifier: attrclass.Builtin()})`; `pr, err := m.Package(absDir)`; read `pr.UnusedImports`. Keep the `continue`-on-error fallbacks.
+- [ ] **Step 3:** `go build ./...`; `go test ./gen -run 'Fmt|Unused|Import' -count=1` and `go test ./internal/gsxfmt -count=1` PASS.
+- [ ] **Step 4: Commit** `refactor(fmt): unused-import analysis via Module.Package (drop batch)`.
 
 ---
 
-## Task 4: Golden corpus test → Module (the crux)
-
-**Files:** Modify `internal/corpus/codegen.go` (+ its caller in `batch.go`). Tests: `TestCorpus` (golden) must stay byte-identical with NO `-update`.
-
-- [ ] **Step 1: Read** `internal/corpus/codegen.go` (`codegenGeneratePackages` → `codegen.GeneratePackages(moduleDir, dirs)`) and `internal/corpus/batch.go` (the `batchCodegen` step that calls it once for all dirs, then builds + runs renderable cases). Understand the `map[dir]*PackageResult` it returns and how downstream consumes `.Files`/`.Diags`.
-- [ ] **Step 2:** Rewrite `codegenGeneratePackages(moduleDir, dirs)` to: `m, err := codegen.Open(codegen.Options{ModuleRoot: moduleDir, FilterPkgs: []string{codegen.StdImportPath}, CSSMinify: true, JSMinify: true})` then for each dir produce the same `*PackageResult` the batch returned. NOTE: `Module.Generate` returns `(map[gsxpath][]byte, diags, err)` — but the corpus consumes `*PackageResult` (with `.Files` keyed by abs `.x.go` and `.Diags`). Use `Module.Package(dir)` to get the `*PackageResult` (Info/CrossIndex/etc.) AND `Module.Generate(dir)` for the `.Files` bytes — OR, simpler, check what the corpus actually reads off the result: if it only needs `.Files` (generated bytes) + `.Diags`, build a `*PackageResult{Files: <gsxpath→.x.go mapped from Generate>, Diags: diags}`. READ `batch.go` to see exactly which `PackageResult` fields the corpus uses, and populate those. Match `GeneratePackages`'s default args (no filters beyond std, minify on → `CSSMinify:true`).
-- [ ] **Step 3:** Run the golden gate WITHOUT update: `go test ./internal/corpus -run TestCorpus -count=1`. It MUST pass with zero golden changes. If any `.x.go.golden`/`render.golden` differs, STOP and report — that is a real divergence to investigate, not a regen.
-- [ ] **Step 4:** `gofmt -l internal/corpus` empty; `go build ./...` clean.
-- [ ] **Step 5: Commit** `git commit -m "refactor(corpus): golden codegen via the warm Module (drop batch)"`.
+## Task 4: `AnalyzeModule` find-references → `Module.Package`
+**Files:** `gen/lsp.go` (`AnalyzeModule`).
+- [ ] **Step 1: Read** `AnalyzeModule` (~`:143`) + the find-references tests exercising it (whole-module cross-package refs with overrides).
+- [ ] **Step 2:** Reuse the warm per-root Module `a.module(root, modPath, merged)`; `SetOverride` each `override`; for each `dir` in `discoverDirs([root])`: `pr, err := m.Package(dir)`; flatten `pr.CrossIndex` into `[]lsp.CrossRef`. Shared fset preserves cross-package routing. Match the return shape.
+- [ ] **Step 3:** `go build ./...`; `go test ./gen ./internal/lsp -run 'Reference|CrossPkg|Module|Nav' -count=1` PASS.
+- [ ] **Step 4: Commit** `refactor(lsp): AnalyzeModule find-references via the warm Module (drop batch)`.
 
 ---
 
-## Task 5: Migrate/delete the ~8 codegen unit tests
-
-**Files:** `internal/codegen/{batch_test,crossindex_test,navindex_test,retention_test,minify_gate_test,byo_lsp_test,unused_imports_test,batch_override_test}.go`.
-
-- [ ] **Step 1:** For EACH file, read its `GeneratePackagesWithFilters` usage and what it asserts. Decide per file: (a) MIGRATE to `Module.Generate`/`Package` (thread `CSSMinify:true` if it asserted minified output; `SetOverride` if it passed `srcOverride`); or (b) DELETE if an existing `internal/codegen` Module test already asserts the same property — name that test in the commit. Default to MIGRATE unless clearly redundant.
-- [ ] **Step 2:** Migrate/delete each. Keep the asserted property intact (CrossIndex, NavIndex, retention, minify-gate, byo-lsp, unused-imports, src-override behavior). For `batch_override_test` → `SetOverride` + `Package`/`Generate`. For `minify_gate_test` → Open with the minify level under test.
-- [ ] **Step 3:** `go build ./...` clean; `gofmt -l internal/codegen` empty; `go test ./internal/codegen -count=1` PASS. Confirm via `grep` that the ONLY remaining `GeneratePackagesWithFilters`/`GeneratePackages` references are the batch definition itself + `module_equiv_test.go` (deleted in task 6) + the corpus (migrated in task 4).
-- [ ] **Step 4: Commit** `git commit -m "test(codegen): migrate batch-path unit tests onto the Module"`.
+## Task 5: Golden corpus test → `GenerateDirs`
+**Files:** `internal/corpus/codegen.go` (+ its `batch.go` caller).
+- [ ] **Step 1: Read** `internal/corpus/codegen.go` (`codegenGeneratePackages`→`codegen.GeneratePackages`) + `internal/corpus/batch.go` — confirm it reads ONLY `.Files` (.gsx-keyed) and `.Diags`.
+- [ ] **Step 2:** Replace `codegenGeneratePackages(tmp, dirs)` with `codegen.GenerateDirs(tmp, dirs, codegen.GenOptions{FilterPkgs: []string{codegen.StdImportPath}, CSSMinify: true, JSMinify: true}, nil)`, adapting `map[dir]DirResult` to what the corpus step consumes (Files+Diags). NO `Package`, NO `.x.go` remap, NO `*PackageResult` rebuild.
+- [ ] **Step 3:** `go test ./internal/corpus -run TestCorpus -count=1` — MUST pass with ZERO golden changes (no `-update`). If a golden moves, STOP and report.
+- [ ] **Step 4:** `gofmt -l internal/corpus` empty; `go build ./...`.
+- [ ] **Step 5: Commit** `refactor(corpus): golden codegen via GenerateDirs (drop batch)`.
 
 ---
 
-## Task 6: Delete the batch path + final sweep
+## Task 6: Migrate the batch-path unit tests
+**Files:** ~13 `internal/codegen/*_test.go` + `gen/resolver_test.go` + `gen/perf_test.go` comment.
+- [ ] **Step 1:** `grep -rln "GeneratePackagesWithFilters\|GeneratePackages\b" --include=*_test.go .` — the full list. For EACH: read what it asserts; migrate to `GenerateDirs` (output/minify/diag/column/override tests — use `override` for srcOverride, `CSSMinify:true` for minify) or `Module.Package` (CrossIndex/NavIndex/unused-imports tests), or DELETE if a Module test already covers it (name it in the commit).
+- [ ] **Step 2:** Fix the stale `gen/perf_test.go` comment. Migrate `gen/resolver_test.go`'s call (it asserts the default path surfaces diagnostics → `GenerateDirs` with default opts).
+- [ ] **Step 3:** `go build ./...`; `gofmt -l internal/codegen gen` empty; `go test ./internal/codegen ./gen -count=1` PASS. Confirm the ONLY remaining batch references are `batch.go` (the defn) + `module_equiv_test.go`.
+- [ ] **Step 4: Commit** `test: migrate batch-path unit tests onto GenerateDirs/Module`.
 
-**Files:** `internal/codegen/batch.go`, `internal/corpus/module_equiv_test.go`, plus any orphaned helper.
+---
 
-- [ ] **Step 1:** `grep -rn "GeneratePackagesWithFilters\|GeneratePackages\b" --include=*.go .` — confirm the ONLY references are the definitions in `batch.go` and `TestModuleMatchesBatchOverCorpus`.
-- [ ] **Step 2:** Delete `GeneratePackagesWithFilters` and `GeneratePackages` from `batch.go`. Then delete any function in `batch.go` that becomes unused (use `gopls check -severity=hint internal/codegen/batch.go` or the compiler/`go vet` to find now-dead helpers) — BUT keep `buildCrossNav` and anything `module.go`/`module_importer.go`/`resolver.go` still call (grep each before removing). If `batch.go` becomes empty, delete the file.
-- [ ] **Step 3:** Delete `TestModuleMatchesBatchOverCorpus` (`internal/corpus/module_equiv_test.go`) — there is no batch to compare against; `TestCorpus` (task 4, now Module-driven) is the codegen source-of-truth. If the file has only that test, delete the file.
-- [ ] **Step 4:** `grep -rn "GeneratePackagesWithFilters\|GeneratePackages\b" --include=*.go .` → empty (no matches). Confirm `CachedResolver`/`GeneratePackagesWithResolver`/`buildCrossNav` still present and referenced.
-- [ ] **Step 5: Full gate:** `go build ./... && go vet ./...`; `go test ./gen ./internal/codegen ./internal/lsp -count=1`; `go test ./internal/corpus -count=1 -timeout 540s` (golden); `gofmt -l . | head` empty; (the final review runs `make ci` for examples-drift + `gsx fmt`).
-- [ ] **Step 6: Commit** `git commit -m "refactor(codegen): delete the go-list batch path; one codegen path"`.
+## Task 7: Delete the batch path + final sweep
+**Files:** `internal/codegen/batch.go`, `internal/corpus/module_equiv_test.go`, any orphan.
+- [ ] **Step 1:** `grep -rn "GeneratePackagesWithFilters\|GeneratePackages\b" --include=*.go .` → only `batch.go` defn + `TestModuleMatchesBatchOverCorpus`.
+- [ ] **Step 2:** Delete `GeneratePackagesWithFilters` + `GeneratePackages` from `batch.go`; delete now-dead helpers it uniquely used (use `gopls check -severity=hint` / the compiler; KEEP `buildCrossNav` + anything `module*.go`/`resolver.go` call — grep each). If `batch.go` is empty, delete it.
+- [ ] **Step 3:** Delete `TestModuleMatchesBatchOverCorpus` (`module_equiv_test.go`) — `TestCorpus` (now Module-driven) is the source-of-truth. Delete the file if that's all it held.
+- [ ] **Step 4:** `grep -rn "GeneratePackagesWithFilters\|GeneratePackages\b" --include=*.go .` → empty. Confirm `CachedResolver`/`GeneratePackagesWithResolver`/`buildCrossNav` remain.
+- [ ] **Step 5: Full gate:** `go build ./... && go vet ./...`; `go test ./gen ./internal/codegen ./internal/lsp -count=1`; `go test ./internal/corpus -count=1 -timeout 540s`; `gofmt -l .` empty.
+- [ ] **Step 6: Commit** `refactor(codegen): delete the go-list batch path; one codegen path`.
 
 ---
 
 ## Final Whole-Branch Review
-Dispatch the final reviewer (superpowers:requesting-code-review) on `git merge-base main HEAD`..HEAD. Then the full gate (per-package, NOT one oversubscribed `go test ./...`):
-```
-go build ./... && go vet ./...
-go test ./gen ./internal/codegen ./internal/lsp -count=1
-go test ./internal/corpus -count=1 -timeout 540s
-make ci   # examples drift + gofmt + gsx fmt (CLAUDE.md before-merge gate)
-```
-Review focus: every migrated consumer produces byte-identical output (goldens unchanged, gen/fmt/find-refs tests green); no batch references remain; `CachedResolver`/WASM + `buildCrossNav` untouched; no orphaned dead code left in `batch.go`; the deletion of the equivalence test is safe because the golden test now drives the Module directly.
+Dispatch the final reviewer on `git merge-base main HEAD`..HEAD; then `go build ./... && go vet ./...`; per-package tests; `go test ./internal/corpus -count=1 -timeout 540s`; `make ci` (examples drift + gofmt + `gsx fmt`). Focus: byte-identical output (goldens unchanged); the `attrError` fix makes Module match batch (no silent diagnostic loss); no batch refs remain; `CachedResolver`/WASM + `buildCrossNav` untouched; no orphaned dead code; equivalence-test deletion is safe (golden test now drives the Module).
 
-## Self-Review notes (spec coverage)
-- §3.1→T1, §3.2→T2, §3.3→T3, §3.4→T4, §3.5→T5, §3.6→T6. Order (§4) preserved: production → golden → units → delete.
-- Safety net (§5): equivalence + golden tests retained through T1–T5; equivalence removed only in T6 after the golden test is Module-driven.
-- Names: `codegen.Open`/`Options` (Phase 3 incl. `CSSMin/JSMin/CSSMinify/JSMinify`), `Module.Generate`/`Package`, `SetOverride`, `pr.UnusedImports`/`pr.CrossIndex`/`pr.Files`/`pr.Diags`.
+## Self-Review (coverage)
+Foundation+attrError+façade → T1. generate → T2. fmt → T3. AnalyzeModule → T4. golden → T5. units (~13+resolver_test+perf comment) → T6. delete+equiv-removal → T7. Safety net retained through T6; removed in T7. Names: `GenerateDirs`/`GenOptions`/`DirResult`, `Module.Generate`/`Package`/`SetOverride`, `pr.UnusedImports`/`CrossIndex`/`Files`(.gsx-keyed)/`Diags`.
