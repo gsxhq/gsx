@@ -44,8 +44,10 @@ func newLSPAnalyzer(cfg config, warnw io.Writer) lspAnalyzer {
 
 // module returns the warm *codegen.Module for root (lazy-initialised). merged is
 // the resolved config for the directory being analysed. The returned Module is
-// shared across calls; callers must call ResetPackageCache() before each Package()
-// call to get a fresh project-type view.
+// shared across calls and self-invalidates: SetOverride records content diffs as
+// dirty dirs, and Package (called from Analyze) applies the reverse-reflexive-
+// transitive closure via applyDirty so importers of changed packages are
+// automatically re-type-checked. No manual cache management is required.
 func (a lspAnalyzer) module(root, modPath string, merged config) (*codegen.Module, error) {
 	a.mods.mu.Lock()
 	defer a.mods.mu.Unlock()
@@ -120,7 +122,6 @@ func (a lspAnalyzer) Analyze(dir string, override map[string][]byte) (*lsp.Packa
 	for p, src := range override {
 		m.SetOverride(p, src)
 	}
-	m.ResetPackageCache() // Phase-1: project types fresh per edit; ext stays warm
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err

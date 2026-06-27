@@ -3,6 +3,7 @@ package codegen
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/gsxhq/gsx/internal/diag"
@@ -297,6 +298,21 @@ func TestImporterReResolvesAgainstEditedDependency(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertResolvesUtilSymbol(t, pr) // new util symbol typed in components
+}
+
+func TestConcurrentSetOverrideAndPackage(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	m, root := setupChainModule(t)
+	comp := filepath.Join(root, "components")
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(2)
+		go func() { defer wg.Done(); m.SetOverride(filepath.Join(comp, "card.gsx"), componentsEdited) }()
+		go func() { defer wg.Done(); _, _ = m.Package(comp) }()
+	}
+	wg.Wait()
 }
 
 func TestPackageCachesEditedPackageForImporters(t *testing.T) {

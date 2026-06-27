@@ -41,8 +41,15 @@ type Options struct {
 // re-acquiring would deadlock. True fine-grained concurrent analysis (multiple
 // roots in parallel or partial invalidation) is deferred to Phase 2.
 //
-// Cache invalidation: pkgTypes and ext are NOT invalidated on SetOverride —
-// imported sibling packages stay cached after an edit. Invalidate is Phase 2.
+// Cache invalidation: SetOverride compares incoming bytes against the current
+// source (override-or-disk) and marks filepath.Dir(absPath) dirty when the
+// content actually changed. Package and Generate call applyDirty at the start of
+// each run: it drops the reverse-reflexive-transitive closure of dirty dirs from
+// pkgTypes (the changed dir plus every project gsx package that transitively
+// imports it), then clears dirty. This means only the affected subgraph is
+// re-type-checked; unchanged packages and the warm ext importer stay cached.
+// Invalidate is the public entry point for callers that need to drop a dir without
+// calling Package/Generate.
 //
 // FileSet: the Module uses ONE *token.FileSet (m.fset) for its whole lifetime,
 // covering BOTH the external packages.Load AND every project analyze() call. So
@@ -53,10 +60,10 @@ type Options struct {
 // random spot in the importing package.
 //
 // Growth (Phase 1, accepted): because the fset is Module-lifetime, re-analyzing a
-// project package each edit (ResetPackageCache clears pkgTypes → re-parse into the
-// same fset) accumulates fset entries. Bounding this (rebuild the Module /
-// incremental re-analysis) is a Phase-2 concern. Do NOT rebuild the fset per edit:
-// that would orphan the warm ext importer's positions.
+// project package each edit (applyDirty clears pkgTypes → re-parse into the same
+// fset) accumulates fset entries. Bounding this (rebuild the Module / incremental
+// re-analysis) is a Phase-2 concern. Do NOT rebuild the fset per edit: that would
+// orphan the warm ext importer's positions.
 type Module struct {
 	opts       Options
 	overrides  map[string][]byte         // abs .gsx path -> in-memory source

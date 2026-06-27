@@ -34,7 +34,7 @@ func TestModulePackageSurfacesTypeErrors(t *testing.T) {
 	}
 }
 
-func TestModuleResetPackageCacheKeepsExternalWarm(t *testing.T) {
+func TestModuleInvalidateKeepsExternalWarm(t *testing.T) {
 	root := t.TempDir()
 	repoRoot, _ := filepath.Abs("../..")
 	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
@@ -48,9 +48,10 @@ func TestModuleResetPackageCacheKeepsExternalWarm(t *testing.T) {
 	if _, err := m.typesPackage(pkgDir); err != nil {
 		t.Fatal(err)
 	}
-	// edit comp.gsx in-memory: Button now takes an int
+	// edit comp.gsx in-memory: Button now takes an int; Invalidate drops the
+	// cached pkgTypes entry so typesPackage re-analyzes from the new override.
 	m.SetOverride(filepath.Join(pkgDir, "comp.gsx"), []byte("package comp\n\ncomponent Button(n int) {\n\t<button>{ n }</button>\n}\n"))
-	m.ResetPackageCache()
+	m.Invalidate(pkgDir)
 	pkg, err := m.typesPackage(pkgDir)
 	if err != nil {
 		t.Fatal(err)
@@ -58,13 +59,13 @@ func TestModuleResetPackageCacheKeepsExternalWarm(t *testing.T) {
 	// The freshly-rebuilt Button props struct must reflect the int param.
 	obj := pkg.Scope().Lookup("ButtonProps")
 	if obj == nil {
-		t.Fatal("ButtonProps not in scope after reset")
+		t.Fatal("ButtonProps not in scope after invalidation")
 	}
 	if !strings.Contains(obj.Type().Underlying().String(), "int") {
-		t.Fatalf("ResetPackageCache did not refresh comp types: %s", obj.Type().Underlying())
+		t.Fatalf("Invalidate did not refresh comp types: %s", obj.Type().Underlying())
 	}
-	// ext importer must still be non-nil (warm, not cleared)
+	// ext importer must still be non-nil (warm, not cleared by Invalidate)
 	if m.ext == nil {
-		t.Fatalf("ResetPackageCache wrongly cleared the external importer")
+		t.Fatalf("Invalidate wrongly cleared the external importer")
 	}
 }

@@ -176,17 +176,6 @@ func (m *Module) cachedDirs() []string {
 	return out
 }
 
-// ResetPackageCache drops cached project-package type info so the next analysis
-// re-type-checks project packages from current (override-aware) skeletons. The
-// external importer (ext) — built by an expensive packages.Load — is kept warm.
-// Phase-1 coarse invalidation; Phase 2 replaces it with reverse-dependency
-// invalidation keyed off the changed package.
-func (m *Module) ResetPackageCache() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.pkgTypes = map[string]*types.Package{}
-}
-
 // recordImports updates the project-internal import graph for dir, REPLACING
 // dir's previous forward edges. Only project gsx packages (the things that can
 // live in pkgTypes) become edges; external/stdlib/Go-only imports are ignored.
