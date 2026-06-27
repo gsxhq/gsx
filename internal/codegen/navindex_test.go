@@ -23,16 +23,16 @@ func TestNavIndex(t *testing.T) {
 	writeFile(t, dir, "main.go",
 		"package nav\n\nvar _ = Card(CardProps{Title: \"x\"})\n")
 
-	out, err := GeneratePackagesWithFilters(dir, []string{dir}, nil, nil, nil, nil, nil, nil, true, true, nil)
+	m, err := Open(Options{ModuleRoot: dir, ModulePath: "example.com/nav"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	pr := out[dir]
-	if pr == nil {
-		t.Fatalf("no result for %s", dir)
+	pr, err := m.Package(dir)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if pr.Err != nil {
-		t.Fatalf("unexpected package error: %v", pr.Err)
+	if hasDiagErrors(pr.Diags) {
+		t.Fatalf("unexpected package errors: %v", pr.Diags)
 	}
 
 	// Index NavRefs by Name, filtering to those From main.go.

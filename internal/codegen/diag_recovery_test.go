@@ -29,14 +29,14 @@ component B(children string) {
 	if err := os.WriteFile(filepath.Join(dir, "v.gsx"), []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, err := GeneratePackages(mod, []string{dir})
+	out, err := GenerateDirs(mod, []string{dir}, GenOptions{}, nil)
 	if err != nil {
 		t.Fatalf("hard error: %v", err)
 	}
-	pr := out[mustAbs(t, dir)]
+	dr := out[dir]
 	var lines int
 	var positioned bool
-	for _, d := range pr.Diags {
+	for _, d := range dr.Diags {
 		if d.Source == "codegen" {
 			lines++
 			if d.Start.Line > 0 && d.Start.Column > 0 {

@@ -37,17 +37,14 @@ func TestUnusedImportDiagnosticMapsToSource(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := GeneratePackages(mod, []string{viewsDir})
+	out, err := GenerateDirs(mod, []string{viewsDir}, GenOptions{}, nil)
 	if err != nil {
-		t.Fatalf("GeneratePackages: %v", err)
+		t.Fatalf("GenerateDirs: %v", err)
 	}
-	pr := out[mustAbs(t, viewsDir)]
-	if pr == nil {
-		t.Fatal("no PackageResult")
-	}
+	dr := out[viewsDir]
 
 	var found bool
-	for _, d := range pr.Diags {
+	for _, d := range dr.Diags {
 		if d.Source != "types" || !strings.Contains(d.Message, "not used") {
 			continue
 		}
@@ -60,7 +57,7 @@ func TestUnusedImportDiagnosticMapsToSource(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("no 'imported and not used' diagnostic found; got %+v", pr.Diags)
+		t.Fatalf("no 'imported and not used' diagnostic found; got %+v", dr.Diags)
 	}
 }
 
@@ -86,17 +83,14 @@ func TestUnusedImportDiagnosticPerImportLine(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := GeneratePackages(mod, []string{viewsDir})
+	out, err := GenerateDirs(mod, []string{viewsDir}, GenOptions{}, nil)
 	if err != nil {
-		t.Fatalf("GeneratePackages: %v", err)
+		t.Fatalf("GenerateDirs: %v", err)
 	}
-	pr := out[mustAbs(t, viewsDir)]
-	if pr == nil {
-		t.Fatal("no PackageResult")
-	}
+	dr := out[viewsDir]
 
 	var found bool
-	for _, d := range pr.Diags {
+	for _, d := range dr.Diags {
 		if d.Source != "types" || !strings.Contains(d.Message, "not used") {
 			continue
 		}
@@ -109,6 +103,6 @@ func TestUnusedImportDiagnosticPerImportLine(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("no 'imported and not used' diagnostic found; got %+v", pr.Diags)
+		t.Fatalf("no 'imported and not used' diagnostic found; got %+v", dr.Diags)
 	}
 }

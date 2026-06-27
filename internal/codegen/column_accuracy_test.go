@@ -40,17 +40,14 @@ func TestInterpColumnAccuracy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := GeneratePackages(mod, []string{viewsDir})
+	out, err := GenerateDirs(mod, []string{viewsDir}, GenOptions{}, nil)
 	if err != nil {
-		t.Fatalf("GeneratePackages: %v", err)
+		t.Fatalf("GenerateDirs: %v", err)
 	}
-	pr := out[mustAbs(t, viewsDir)]
-	if pr == nil {
-		t.Fatal("no PackageResult")
-	}
+	dr := out[viewsDir]
 
 	var found bool
-	for _, d := range pr.Diags {
+	for _, d := range dr.Diags {
 		if d.Source != "types" {
 			continue
 		}
@@ -103,14 +100,11 @@ func TestInterpShallowColumnNoRegression(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := GeneratePackages(mod, []string{viewsDir})
+	out, err := GenerateDirs(mod, []string{viewsDir}, GenOptions{}, nil)
 	if err != nil {
-		t.Fatalf("GeneratePackages: %v", err)
+		t.Fatalf("GenerateDirs: %v", err)
 	}
-	pr := out[mustAbs(t, viewsDir)]
-	if pr == nil {
-		t.Fatal("no PackageResult")
-	}
+	dr := out[viewsDir]
 
 	// col of '{' is 1; base-anchored column = 1 + 8 = 9.
 	const braceCol = 1
@@ -118,7 +112,7 @@ func TestInterpShallowColumnNoRegression(t *testing.T) {
 	baseCol := braceCol + probePrefixLen // 9
 
 	var found bool
-	for _, d := range pr.Diags {
+	for _, d := range dr.Diags {
 		if d.Source != "types" {
 			continue
 		}

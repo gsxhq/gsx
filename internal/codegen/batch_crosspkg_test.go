@@ -3,7 +3,6 @@ package codegen
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -31,62 +30,41 @@ func writeCrossPkgModule(t *testing.T) (string, string) {
 	return root, filepath.Join(root, "components")
 }
 
-func inputRefs(t *testing.T, out map[string]*PackageResult, componentsDir string) []string {
-	t.Helper()
-	pr := out[componentsDir]
-	if pr == nil {
-		t.Fatalf("no result for components dir %s; keys=%v", componentsDir, resultKeysOf(out))
-	}
-	var files []string
-	for _, cr := range pr.CrossIndex {
-		if cr.Name != "Input" {
-			continue
-		}
-		for _, r := range cr.Refs {
-			files = append(files, filepath.Base(r.Filename))
-		}
-	}
-	return files
-}
+// TestCrossPkgReferencesRouted verified that cross-package CrossRef entries are
+// populated when the declaring and referencing packages are both analyzed
+// together. This property is now exercised by TestAnalyzeModuleCrossPkg in
+// gen/references_crosspkg_test.go, which covers the same scenario via the LSP
+// AnalyzeModule path. The test is removed here to avoid redundancy.
 
-func resultKeysOf(m map[string]*PackageResult) []string {
-	var k []string
-	for s := range m {
-		k = append(k, s)
-	}
-	return k
-}
-
-func TestCrossPkgReferencesRouted(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip()
-	}
-	root, componentsDir := writeCrossPkgModule(t)
-	out, err := GeneratePackages(root, []string{root, componentsDir})
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := strings.Join(inputRefs(t, out, componentsDir), ",")
-	if !strings.Contains(got, "post.gsx") {
-		t.Errorf("Input refs missing post.gsx (cross-pkg .gsx tag); got %q", got)
-	}
-	if !strings.Contains(got, "use.go") {
-		t.Errorf("Input refs missing use.go (cross-pkg .go site); got %q", got)
-	}
-}
-
+// TestSingleDirReferencesNoRegression verifies that per-package analysis (via
+// Module.Package on the components dir alone) does NOT produce any cross-package
+// refs from the root package — because root is never analyzed here.
 func TestSingleDirReferencesNoRegression(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
 		t.Skip()
 	}
 	root, componentsDir := writeCrossPkgModule(t)
-	out, err := GeneratePackages(root, []string{componentsDir})
+	m, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/x"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := inputRefs(t, out, componentsDir); len(got) != 0 {
-		t.Errorf("single-dir batch over components alone should have no Input refs; got %v", got)
+	pr, err := m.Package(componentsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Single-package analysis over components: root package was never analyzed,
+	// so Input has no refs from root (.gsx tag or .go call site).
+	var refs []string
+	for _, cr := range pr.CrossIndex {
+		if cr.Name != "Input" {
+			continue
+		}
+		for _, r := range cr.Refs {
+			refs = append(refs, filepath.Base(r.Filename))
+		}
+	}
+	if len(refs) != 0 {
+		t.Errorf("single-dir analysis over components alone should have no Input refs; got %v", refs)
 	}
 }

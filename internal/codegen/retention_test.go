@@ -19,13 +19,13 @@ func TestRetentionPopulated(t *testing.T) {
 	writeFile(t, dir, "card.gsx",
 		"package x\n\ncomponent Card(title string) {\n\t<div>{ title }</div>\n}\n")
 
-	out, err := GeneratePackagesWithFilters(dir, []string{dir}, nil, nil, nil, nil, nil, nil, true, true, nil)
+	m, err := Open(Options{ModuleRoot: dir, ModulePath: "example.com/x"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	pr := out[dir]
-	if pr == nil {
-		t.Fatalf("no result for %s", dir)
+	pr, err := m.Package(dir)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if pr.Fset == nil || pr.GSXFset == nil || pr.Info == nil {
 		t.Fatalf("retention not populated: Fset=%v GSXFset=%v Info=%v", pr.Fset, pr.GSXFset, pr.Info)

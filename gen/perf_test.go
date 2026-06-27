@@ -1,7 +1,7 @@
 package gen
 
-// TestPerfBaseline measures the real Analyze path (lspAnalyzer.Analyze →
-// codegen.GeneratePackagesWithFilters) on a large synthetic fixture.
+// TestPerfBaseline measures the real Analyze path (lspAnalyzer.Analyze) on a
+// large synthetic fixture.
 //
 // It is INTENTIONALLY excluded from the normal test suite: set GSX_PERF=1 to
 // run it.

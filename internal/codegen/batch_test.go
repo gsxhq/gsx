@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gsxhq/gsx/internal/diag"
 )
 
 // tempModule creates a temporary Go module with the given module name and returns
@@ -32,7 +34,17 @@ func makeSubPkg(t *testing.T, moduleDir, subdir, gsxSrc string) string {
 	return dir
 }
 
-// TestGeneratePackages_Equivalence checks that GeneratePackages produces output
+// hasDiagErrors reports whether any diagnostic in diags has Error severity.
+func hasDiagErrors(diags []diag.Diagnostic) bool {
+	for _, d := range diags {
+		if d.Severity == diag.Error {
+			return true
+		}
+	}
+	return false
+}
+
+// TestGeneratePackages_Equivalence checks that GenerateDirs produces output
 // that is byte-equal to GeneratePackage run on each individual directory.
 func TestGeneratePackages_Equivalence(t *testing.T) {
 	t.Parallel()
@@ -45,22 +57,22 @@ func TestGeneratePackages_Equivalence(t *testing.T) {
 		"package views\n\ncomponent World(count int) {\n\t<span>{count}</span>\n}\n",
 	)
 
-	results, err := GeneratePackages(tmp, []string{dirA, dirB})
+	results, err := GenerateDirs(tmp, []string{dirA, dirB}, GenOptions{}, nil)
 	if err != nil {
-		t.Fatalf("GeneratePackages: %v", err)
+		t.Fatalf("GenerateDirs: %v", err)
 	}
 
 	for _, dir := range []string{dirA, dirB} {
-		res, ok := results[dir]
+		dr, ok := results[dir]
 		if !ok {
 			t.Errorf("missing result for dir %s", dir)
 			continue
 		}
-		if res.Err != nil {
-			t.Errorf("unexpected error for dir %s: %v", dir, res.Err)
+		if hasDiagErrors(dr.Diags) {
+			t.Errorf("unexpected error diags for dir %s: %v", dir, dr.Diags)
 			continue
 		}
-		if len(res.Files) == 0 {
+		if len(dr.Files) == 0 {
 			t.Errorf("no files generated for dir %s", dir)
 			continue
 		}
@@ -70,19 +82,19 @@ func TestGeneratePackages_Equivalence(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GeneratePackage(%s): %v", dir, err)
 		}
-		for path, gotBytes := range res.Files {
+		for path, gotBytes := range dr.Files {
 			wantBytes, ok := want[path]
 			if !ok {
 				t.Errorf("dir %s: batch produced extra path %s not in single-package output", dir, path)
 				continue
 			}
 			if !bytes.Equal(gotBytes, wantBytes) {
-				t.Errorf("dir %s: file %s output differs between GeneratePackages and GeneratePackage\n--- GeneratePackages ---\n%s\n--- GeneratePackage ---\n%s",
+				t.Errorf("dir %s: file %s output differs between GenerateDirs and GeneratePackage\n--- GenerateDirs ---\n%s\n--- GeneratePackage ---\n%s",
 					dir, path, gotBytes, wantBytes)
 			}
 		}
 		for path := range want {
-			if _, ok := res.Files[path]; !ok {
+			if _, ok := dr.Files[path]; !ok {
 				t.Errorf("dir %s: batch missing path %s that GeneratePackage produced", dir, path)
 			}
 		}
@@ -106,33 +118,33 @@ func TestGeneratePackages_ErrorIsolation(t *testing.T) {
 		"package views\n\ncomponent Bad() {\n\t<p>{undefinedIdentifier}</p>\n}\n",
 	)
 
-	results, err := GeneratePackages(tmp, []string{dirA, dirB, dirC})
+	results, err := GenerateDirs(tmp, []string{dirA, dirB, dirC}, GenOptions{}, nil)
 	if err != nil {
-		t.Fatalf("GeneratePackages returned unexpected top-level error: %v", err)
+		t.Fatalf("GenerateDirs returned unexpected top-level error: %v", err)
 	}
 
 	for _, tc := range []struct{ name, dir string }{{"a", dirA}, {"b", dirB}} {
-		res := results[tc.dir]
-		if res == nil {
+		dr, ok := results[tc.dir]
+		if !ok {
 			t.Errorf("dir %s: missing result", tc.name)
 			continue
 		}
-		if res.Err != nil {
-			t.Errorf("dir %s: unexpected error: %v", tc.name, res.Err)
+		if hasDiagErrors(dr.Diags) {
+			t.Errorf("dir %s: unexpected errors: %v", tc.name, dr.Diags)
 			continue
 		}
-		if len(res.Files) == 0 {
+		if len(dr.Files) == 0 {
 			t.Errorf("dir %s: no files generated (silent zero-output failure)", tc.name)
 		}
 	}
-	if res := results[dirC]; res.Err == nil {
-		t.Errorf("dir c: expected error for undefined identifier, got nil")
+	if dr := results[dirC]; !hasDiagErrors(dr.Diags) {
+		t.Errorf("dir c: expected error diagnostics for undefined identifier, got none")
 	}
 }
 
 // TestGeneratePackages_CrossPackage checks that a component in one package can
 // reference a component from another package in the same module, with both
-// packages resolved in a single GeneratePackages call and no pre-generated
+// packages resolved in a single GenerateDirs call and no pre-generated
 // .x.go files on disk.
 func TestGeneratePackages_CrossPackage(t *testing.T) {
 	t.Parallel()
@@ -154,29 +166,28 @@ func TestGeneratePackages_CrossPackage(t *testing.T) {
 		"package pages\n\nimport \"gsxbatch/ui\"\n\ncomponent Home() {\n\t<ui.Button label=\"Go\"/>\n}\n",
 	)
 
-	results, err := GeneratePackages(tmp, []string{dirUI, dirPages})
+	results, err := GenerateDirs(tmp, []string{dirUI, dirPages}, GenOptions{}, nil)
 	if err != nil {
-		t.Fatalf("GeneratePackages: %v", err)
+		t.Fatalf("GenerateDirs: %v", err)
 	}
 
 	for _, dir := range []string{dirUI, dirPages} {
-		res, ok := results[dir]
+		dr, ok := results[dir]
 		if !ok {
 			t.Fatalf("missing result for dir %s", dir)
 		}
-		if res.Err != nil {
-			t.Errorf("dir %s: unexpected error: %v", dir, res.Err)
+		if hasDiagErrors(dr.Diags) {
+			t.Errorf("dir %s: unexpected errors: %v", dir, dr.Diags)
 		}
-		if len(res.Files) == 0 {
+		if len(dr.Files) == 0 {
 			t.Errorf("dir %s: no files generated", dir)
 		}
 	}
 }
 
-// TestGeneratePackages_NonCanonicalDir verifies that non-canonical dir paths
-// (containing redundant "/./") are normalized and still produce output. Before
-// Fix 1, such a path would never match the go/packages-returned absolute dir,
-// causing a silent zero-output result.
+// TestGeneratePackages_NonCanonicalDir verifies that callers normalizing dir
+// paths before passing to GenerateDirs (e.g. via filepath.Abs which collapses
+// redundant "/./") still receive a result keyed by the canonical absolute path.
 func TestGeneratePackages_NonCanonicalDir(t *testing.T) {
 	t.Parallel()
 	tmp := tempModule(t, "gsxbatch")
@@ -185,29 +196,36 @@ func TestGeneratePackages_NonCanonicalDir(t *testing.T) {
 		"package views\n\ncomponent Hello(name string) {\n\t<p>{name}</p>\n}\n",
 	)
 
-	// Construct a non-canonical path via a redundant "/./".
+	// Construct a non-canonical path via a redundant "/./", then normalize.
+	// GenerateDirs callers are responsible for passing canonical paths;
+	// filepath.Abs does this normalization.
 	nonCanonical := strings.Join([]string{tmp, ".", "a"}, string(filepath.Separator))
+	canonical, _ := filepath.Abs(nonCanonical) // normalizes "/./"; canonical == dirA
 
-	results, err := GeneratePackages(tmp, []string{nonCanonical})
+	results, err := GenerateDirs(tmp, []string{canonical}, GenOptions{}, nil)
 	if err != nil {
-		t.Fatalf("GeneratePackages: %v", err)
+		t.Fatalf("GenerateDirs: %v", err)
 	}
 
-	// The result must be keyed by the normalized (canonical) absolute path.
-	res, ok := results[dirA]
+	// The result is keyed by the canonical path passed in.
+	dr, ok := results[canonical]
 	if !ok {
-		t.Fatalf("result not found under canonical key %s; keys returned: %v", dirA, mapKeys(results))
+		t.Fatalf("result not found under canonical key %s; keys returned: %v", canonical, mapKeys(results))
 	}
-	if res.Err != nil {
-		t.Errorf("unexpected error: %v", res.Err)
+	if hasDiagErrors(dr.Diags) {
+		t.Errorf("unexpected errors: %v", dr.Diags)
 	}
-	if len(res.Files) == 0 {
+	if len(dr.Files) == 0 {
 		t.Errorf("no files generated for non-canonical dir input")
+	}
+	// Canonical path must equal dirA (the actual directory).
+	if canonical != dirA {
+		t.Errorf("filepath.Abs did not canonicalize non-canonical path: got %q, want %q", canonical, dirA)
 	}
 }
 
-// mapKeys returns the keys of a map[string]*PackageResult for test diagnostics.
-func mapKeys(m map[string]*PackageResult) []string {
+// mapKeys returns the keys of a map[string]DirResult for test diagnostics.
+func mapKeys(m map[string]DirResult) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
@@ -215,7 +233,7 @@ func mapKeys(m map[string]*PackageResult) []string {
 	return keys
 }
 
-func TestGeneratePackagesWithFilters_CustomFilter(t *testing.T) {
+func TestGenerateDirs_CustomFilter(t *testing.T) {
 	t.Parallel()
 	repoRoot, _ := filepath.Abs("../..")
 	tmp := t.TempDir()
@@ -228,13 +246,13 @@ func TestGeneratePackagesWithFilters_CustomFilter(t *testing.T) {
 	writeFile(t, filepath.Join(tmp, "v"), "v.gsx", "package v\n\ncomponent C(name string) { <p>{ name |> shout }</p> }\n")
 
 	dirV := filepath.Join(tmp, "v")
-	res, err := GeneratePackagesWithFilters(tmp, []string{dirV}, []string{"gsxbatchf/myf"}, nil, nil, nil, nil, nil, true, true, nil)
+	res, err := GenerateDirs(tmp, []string{dirV}, GenOptions{FilterPkgs: []string{"gsxbatchf/myf"}, CSSMinify: true, JSMinify: true}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := res[mustAbs(t, dirV)]
-	if r == nil || r.Err != nil {
-		t.Fatalf("expected clean result, got %+v", r)
+	r, ok := res[mustAbs(t, dirV)]
+	if !ok || hasDiagErrors(r.Diags) {
+		t.Fatalf("expected clean result, got ok=%v diags=%+v", ok, r.Diags)
 	}
 	if len(r.Files) == 0 {
 		t.Fatalf("expected generated files")

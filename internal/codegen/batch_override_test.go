@@ -24,25 +24,25 @@ func TestSrcOverrideReplacesDiskContent(t *testing.T) {
 	override := map[string][]byte{
 		gsxPath: []byte("package x\n\ncomponent Page() {\n\t<div>{ nope }</div>\n}\n"),
 	}
-	out, err := GeneratePackagesWithFilters(dir, []string{dir}, nil, nil, nil, nil, nil, nil, true, true, override)
+	out, err := GenerateDirs(dir, []string{dir}, GenOptions{CSSMinify: true, JSMinify: true}, override)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
-	pr := out[dir]
-	if pr == nil {
+	dr, ok := out[dir]
+	if !ok {
 		t.Fatalf("no result for %s (keys: %v)", dir, prKeysOf(out))
 	}
-	if len(pr.Diags) == 0 {
+	if len(dr.Diags) == 0 {
 		t.Fatalf("expected a diagnostic from the override, got none")
 	}
 	found := false
-	for _, d := range pr.Diags {
+	for _, d := range dr.Diags {
 		if strings.Contains(d.Message, "nope") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("diags did not mention undefined 'nope': %+v", pr.Diags)
+		t.Fatalf("diags did not mention undefined 'nope': %+v", dr.Diags)
 	}
 }
 
@@ -53,7 +53,7 @@ func mustWrite(t *testing.T, path, content string) {
 	}
 }
 
-func prKeysOf(m map[string]*PackageResult) []string {
+func prKeysOf(m map[string]DirResult) []string {
 	var k []string
 	for s := range m {
 		k = append(k, s)

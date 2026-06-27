@@ -19,13 +19,13 @@ func TestUnusedImportsDetected(t *testing.T) {
 	writeFile(t, dir, "card.gsx",
 		"package u\n\nimport (\n\t\"strings\"\n\t\"os\"\n\t\"fmt\"\n)\n\ncomponent Card(name string) {\n\t<p>{ fmt.Sprintf(\"%s\", name) }</p>\n}\n")
 
-	out, err := GeneratePackagesWithFilters(dir, []string{dir}, nil, nil, nil, nil, nil, nil, true, true, nil)
+	m, err := Open(Options{ModuleRoot: dir, ModulePath: "example.com/u"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	pr := out[dir]
-	if pr == nil {
-		t.Fatalf("no result for %s", dir)
+	pr, err := m.Package(dir)
+	if err != nil {
+		t.Fatal(err)
 	}
 	gsxPath := filepath.Join(dir, "card.gsx")
 	got := map[string]bool{}
@@ -52,13 +52,13 @@ func TestUnusedImportsGateOnBrokenImport(t *testing.T) {
 	writeFile(t, dir, "card.gsx",
 		"package u\n\nimport \"example.com/u/nope/stringz\"\n\ncomponent Card() {\n\t<p>{ stringz.X() }</p>\n}\n")
 
-	out, err := GeneratePackagesWithFilters(dir, []string{dir}, nil, nil, nil, nil, nil, nil, true, true, nil)
+	m, err := Open(Options{ModuleRoot: dir, ModulePath: "example.com/u"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	pr := out[dir]
-	if pr == nil {
-		t.Fatalf("no result")
+	pr, err := m.Package(dir)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if n := len(pr.UnusedImports); n != 0 {
 		t.Errorf("a referenced-but-unresolvable import must not be removable, got %+v", pr.UnusedImports)
@@ -78,13 +78,13 @@ func TestUnusedImportsGateOnOtherError(t *testing.T) {
 	writeFile(t, dir, "card.gsx",
 		"package u\n\nimport \"strings\"\n\ncomponent Card() {\n\t<p>{ Nope() }</p>\n}\n")
 
-	out, err := GeneratePackagesWithFilters(dir, []string{dir}, nil, nil, nil, nil, nil, nil, true, true, nil)
+	m, err := Open(Options{ModuleRoot: dir, ModulePath: "example.com/u"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	pr := out[dir]
-	if pr == nil {
-		t.Fatalf("no result")
+	pr, err := m.Package(dir)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if n := len(pr.UnusedImports); n != 0 {
 		t.Errorf("expected NO removals under an unrelated error, got %+v", pr.UnusedImports)

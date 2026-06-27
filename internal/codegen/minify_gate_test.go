@@ -17,16 +17,16 @@ func genStyle(t *testing.T, cssMinify bool) string {
 	writeFile(t, dir, "go.mod",
 		"module example.com/x\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
 	writeFile(t, dir, "page.gsx", styleSrc)
-	out, err := GeneratePackagesWithFilters(dir, []string{dir}, nil, nil, nil, nil, nil, nil, cssMinify, true, nil)
+	out, err := GenerateDirs(dir, []string{dir}, GenOptions{JSMinify: true, CSSMinify: cssMinify}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pr := out[dir]
-	if pr == nil || len(pr.Files) == 0 {
+	dr, ok := out[dir]
+	if !ok || len(dr.Files) == 0 {
 		t.Fatal("no generated output")
 	}
 	var sb strings.Builder
-	for _, b := range pr.Files {
+	for _, b := range dr.Files {
 		sb.Write(b)
 	}
 	return sb.String()

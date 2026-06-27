@@ -27,7 +27,7 @@ import (
 //
 // The skeleton must also be valid Go (no type errors) for both field-build and
 // whole-struct splat invocations — confirmed implicitly by the absence of type
-// errors from GeneratePackagesWithFilters.
+// errors from Module.Package.
 //
 // This is a guard test: it asserts the redesign did NOT break the LSP contract.
 func TestByoLSPContract(t *testing.T) {
@@ -65,13 +65,21 @@ component Page(someVar string, pd Props) {
 }
 `)
 
-	out, err := GeneratePackagesWithFilters(dir, []string{dir}, nil, nil, nil, nil, nil, nil, true, true, nil)
+	m, err := Open(Options{ModuleRoot: dir, ModulePath: "example.com/byolsp"})
 	if err != nil {
-		t.Fatalf("GeneratePackagesWithFilters: %v", err)
+		t.Fatalf("Open: %v", err)
 	}
-	pr := out[dir]
-	if pr == nil {
-		t.Fatalf("no PackageResult for %s", dir)
+
+	// Get full LSP analysis (CrossIndex, GSXFiles, ExprMap, Diags).
+	pr, err := m.Package(dir)
+	if err != nil {
+		t.Fatalf("Package: %v", err)
+	}
+
+	// Get generated files (for //line directive and direct-occurrence checks).
+	files, _, err := m.Generate(dir)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
 	}
 
 	// No type errors: skeleton must be valid Go for both field-build and splat.
@@ -166,10 +174,9 @@ component Page(someVar string, pd Props) {
 	}
 
 	// (c) //line directives must be present in the generated .x.go for button.gsx.
-	// pr.Files is keyed by the .gsx source path (absolute), so check for the
-	// key that ends in "button.gsx".
+	// files is keyed by the .gsx source path (absolute).
 	buttonGenerated := false
-	for srcPath, src := range pr.Files {
+	for srcPath, src := range files {
 		if strings.HasSuffix(srcPath, "button.gsx") {
 			buttonGenerated = true
 			if !strings.Contains(string(src), "//line button.gsx:") {
@@ -178,7 +185,7 @@ component Page(someVar string, pd Props) {
 		}
 	}
 	if !buttonGenerated {
-		t.Error("button.gsx was not generated (no entry in pr.Files)")
+		t.Error("button.gsx was not generated (no entry in generated files)")
 	}
 
 	// (d) Caller-side field-build attr expr is resolvable via direct-occurrence.
@@ -196,7 +203,7 @@ component Page(someVar string, pd Props) {
 	// This assertion proves the direct occurrence is present so go-to-definition
 	// on `someVar` in page.gsx can be served by gopls via the generated code.
 	pageGenerated := false
-	for srcPath, src := range pr.Files {
+	for srcPath, src := range files {
 		if strings.HasSuffix(srcPath, "page.gsx") {
 			pageGenerated = true
 			if !strings.Contains(string(src), "someVar") {
@@ -205,6 +212,6 @@ component Page(someVar string, pd Props) {
 		}
 	}
 	if !pageGenerated {
-		t.Error("page.gsx was not generated (no entry in pr.Files)")
+		t.Error("page.gsx was not generated (no entry in generated files)")
 	}
 }

@@ -21,13 +21,13 @@ func TestCrossIndex(t *testing.T) {
 	writeFile(t, dir, "main.go",
 		"package x\n\nvar _ = Card\n")
 
-	out, err := GeneratePackagesWithFilters(dir, []string{dir}, nil, nil, nil, nil, nil, nil, true, true, nil)
+	m, err := Open(Options{ModuleRoot: dir, ModulePath: "example.com/x"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	pr := out[dir]
-	if pr == nil {
-		t.Fatalf("no result for %s", dir)
+	pr, err := m.Package(dir)
+	if err != nil {
+		t.Fatal(err)
 	}
 	cr, ok := pr.CrossIndex[".Card"]
 	if !ok {

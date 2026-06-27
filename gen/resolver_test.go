@@ -63,30 +63,27 @@ func TestCachedResolverTypeError(t *testing.T) {
 		t.Errorf("cached path: diagnostic has no line position: %+v", cachedDiag)
 	}
 
-	// --- Default path (packages.Load) ---
+	// --- Default path (GenerateDirs) ---
 	// Build a temp module so packages.Load can resolve imports.
 	mod := newModule(t, "gsxresolvererr")
 	// Write the bad component into the temp module's views package.
 	viewsDir := mod + "/views"
 	writeFile(t, viewsDir, "bad.gsx", badSrc)
-	defaultRes, err2 := codegen.GeneratePackagesWithFilters(mod, []string{viewsDir}, nil, nil, nil, nil, nil, nil, true, true, nil)
+	defaultRes, err2 := codegen.GenerateDirs(mod, []string{viewsDir}, codegen.GenOptions{}, nil)
 	if err2 != nil {
-		t.Fatalf("default path: GeneratePackagesWithFilters error: %v", err2)
+		t.Fatalf("default path: GenerateDirs error: %v", err2)
 	}
-	defaultPR := defaultRes[viewsDir]
-	if defaultPR == nil {
-		t.Fatal("default path: no result for viewsDir")
-	}
+	defaultDR := defaultRes[viewsDir]
 	var defaultDiag *diag.Diagnostic
-	for i := range defaultPR.Diags {
-		d := &defaultPR.Diags[i]
+	for i := range defaultDR.Diags {
+		d := &defaultDR.Diags[i]
 		if d.Severity == diag.Error {
 			defaultDiag = d
 			break
 		}
 	}
 	if defaultDiag == nil {
-		t.Fatalf("default path: expected an error diagnostic for {missng}, got none (diags: %+v)", defaultPR.Diags)
+		t.Fatalf("default path: expected an error diagnostic for {missng}, got none (diags: %+v)", defaultDR.Diags)
 	}
 
 	// Both paths must produce a diagnostic at the same line/column in the .gsx source.

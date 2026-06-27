@@ -29,23 +29,20 @@ component X() {
 		t.Fatal(err)
 	}
 
-	out, err := GeneratePackages(mod, []string{viewsDir})
+	out, err := GenerateDirs(mod, []string{viewsDir}, GenOptions{}, nil)
 	if err != nil {
-		t.Fatalf("GeneratePackages returned hard error: %v", err)
+		t.Fatalf("GenerateDirs returned hard error: %v", err)
 	}
-	pr := out[mustAbs(t, viewsDir)]
-	if pr == nil {
-		t.Fatal("no PackageResult for dir")
-	}
-	msgs := diagMsgs(pr)
+	dr := out[viewsDir]
+	msgs := diagMsgs(dr)
 	if !strings.Contains(msgs, "undefinedA") || !strings.Contains(msgs, "undefinedB") {
 		t.Errorf("expected BOTH type errors, got diagnostics:\n%s", msgs)
 	}
 }
 
-func diagMsgs(pr *PackageResult) string {
+func diagMsgs(dr DirResult) string {
 	var s string
-	for _, d := range pr.Diags {
+	for _, d := range dr.Diags {
 		s += d.Message + "\n"
 	}
 	return s
