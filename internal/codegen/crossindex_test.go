@@ -9,6 +9,7 @@ import (
 // TestCrossIndex: a component Card declared in card.gsx, called from main.go and
 // used as <Card/> in page.gsx, is indexed with its .gsx Decl and both refs.
 func TestCrossIndex(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	repoRoot, _ := filepath.Abs("../..")
 	writeFile(t, dir, "go.mod",

@@ -13,6 +13,7 @@ import (
 // the package's own .go files in its type-check, or the symbol reads as
 // "undefined" on every warm regenerate even though the cold generate resolved it.
 func TestNewModuleResolver_SiblingGoSymbol(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write := func(p, s string) {
 		full := filepath.Join(root, p)
@@ -53,6 +54,7 @@ func TestNewModuleResolver_SiblingGoSymbol(t *testing.T) {
 // it. The whole-module resolver must let `views` regenerate with the cross-
 // package ref resolved (no "cached importer: not loaded" error).
 func TestNewModuleResolver_CrossPackage(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write := func(p, s string) {
 		full := filepath.Join(root, p)
@@ -114,6 +116,7 @@ func writeMod(t *testing.T, root string) {
 // TestWatchSession_WarmRegen proves that a pure .gsx edit regenerates via the
 // warm resolver and updates the .x.go on disk.
 func TestWatchSession_WarmRegen(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeMod(t, root)
 	gsxPath := filepath.Join(root, "views", "page.gsx")
@@ -139,6 +142,7 @@ func TestWatchSession_WarmRegen(t *testing.T) {
 // TestWatchSession_RegenError proves that a broken .gsx yields OK=false with
 // diagnostics.
 func TestWatchSession_RegenError(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeMod(t, root)
 	gsxPath := filepath.Join(root, "views", "page.gsx")

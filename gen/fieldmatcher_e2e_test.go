@@ -15,6 +15,7 @@ import (
 // attribute "x-title" directly to "Title" (bypassing the default "XTitle"
 // candidate) and confirms the generated output reflects that mapping.
 func TestWithFieldMatcherGoodMapper(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -77,6 +78,7 @@ component Page() {
 // instead of a raw Go compile error. This is the safety net for buggy custom
 // matchers; the default matcher is unaffected (it only ever returns known fields).
 func TestWithFieldMatcherBadMapper(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}

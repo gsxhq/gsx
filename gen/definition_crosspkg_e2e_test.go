@@ -13,6 +13,7 @@ import (
 // gd on the cross-package tag `components.Input` in <components.Input .../>
 // resolves to `component Input(...)` in the imported package's .gsx.
 func TestDefinitionCrossPkgTag(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -81,6 +82,7 @@ func TestDefinitionCrossPkgTag(t *testing.T) {
 // gd on the `name` attribute of <components.Input name="a"/> resolves to the
 // `name` parameter of `component Input(name string)` in the imported package.
 func TestDefinitionCrossPkgAttrParam(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -158,6 +160,7 @@ func TestDefinitionCrossPkgAttrParam(t *testing.T) {
 // position against the importing package's fset returned a wrong/empty location
 // (a random spot in page.gsx, never helpers.gsx).
 func TestDefinitionCrossPkgExprCall(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -230,6 +233,7 @@ func TestDefinitionCrossPkgExprCall(t *testing.T) {
 // Bug B (cross-package): crossPkgTagDeclAt previously only checked el.Pos()
 // (opening), so a cursor on the closing tag returned null.
 func TestDefinitionCrossPkgClosingTag(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}

@@ -7,6 +7,7 @@ import (
 )
 
 func TestWithJSFormatterOption(t *testing.T) {
+	t.Parallel()
 	var cfg config
 	WithJSFormatter(rawfmt.Formatter(func(src []byte) ([]byte, error) { return src, nil }))(&cfg)
 	if cfg.jsFmt == nil {
@@ -15,6 +16,7 @@ func TestWithJSFormatterOption(t *testing.T) {
 }
 
 func TestMergeConfigJSFormatterOptsWins(t *testing.T) {
+	t.Parallel()
 	base := config{jsFmt: func(src []byte) ([]byte, error) { return []byte("base"), nil }}
 	opts := config{jsFmt: func(src []byte) ([]byte, error) { return []byte("opts"), nil }}
 	got, _ := mergeConfig(base, opts).jsFmt(nil)
@@ -24,6 +26,7 @@ func TestMergeConfigJSFormatterOptsWins(t *testing.T) {
 }
 
 func TestMergeConfigJSFormatterFallsBackToBase(t *testing.T) {
+	t.Parallel()
 	base := config{jsFmt: func(src []byte) ([]byte, error) { return []byte("base"), nil }}
 	merged := mergeConfig(base, config{})
 	if merged.jsFmt == nil {

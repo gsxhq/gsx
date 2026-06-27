@@ -23,6 +23,7 @@ import (
 )
 
 func TestPerfBaseline(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("GSX_PERF") == "" {
 		t.Skip("set GSX_PERF=1 to run")
 	}

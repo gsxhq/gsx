@@ -19,6 +19,7 @@ func (sampleRecv) Method(s string) string { return s }
 // TestWithFilterTopLevelFunc proves a plain exported top-level function resolves
 // to its package import path + exported func name and is recorded as an alias.
 func TestWithFilterTopLevelFunc(t *testing.T) {
+	t.Parallel()
 	cfg := applyOpts(WithFilter("sample", SampleFilter))
 	if len(cfg.errs) != 0 {
 		t.Fatalf("unexpected errs: %v", cfg.errs)
@@ -36,6 +37,7 @@ func TestWithFilterTopLevelFunc(t *testing.T) {
 // TestWithFilterAliasOrder proves aliases accumulate in option order (last-wins
 // is applied later at harvest, so order must be preserved here).
 func TestWithFilterAliasOrder(t *testing.T) {
+	t.Parallel()
 	cfg := applyOpts(WithFilter("a", SampleFilter), WithFilter("b", SampleFilter))
 	if len(cfg.aliases) != 2 || cfg.aliases[0].Name != "a" || cfg.aliases[1].Name != "b" {
 		t.Fatalf("alias order not preserved: %+v", cfg.aliases)
@@ -45,6 +47,7 @@ func TestWithFilterAliasOrder(t *testing.T) {
 // TestWithFilterRejectsMethodValue proves a bound/unbound method value is
 // rejected with a clear config error and adds no alias.
 func TestWithFilterRejectsMethodValue(t *testing.T) {
+	t.Parallel()
 	var r sampleRecv
 	cfg := applyOpts(WithFilter("m", r.Method))
 	if len(cfg.errs) == 0 {
@@ -58,6 +61,7 @@ func TestWithFilterRejectsMethodValue(t *testing.T) {
 // TestWithFilterRejectsClosure proves a closure (anonymous function value) is
 // rejected: its runtime name carries a .funcN suffix, not an exported ident.
 func TestWithFilterRejectsClosure(t *testing.T) {
+	t.Parallel()
 	closure := func(s string) string { return s }
 	cfg := applyOpts(WithFilter("c", closure))
 	if len(cfg.errs) == 0 {
@@ -70,6 +74,7 @@ func TestWithFilterRejectsClosure(t *testing.T) {
 
 // TestWithFilterRejectsNonFunc proves a non-function value is rejected.
 func TestWithFilterRejectsNonFunc(t *testing.T) {
+	t.Parallel()
 	cfg := applyOpts(WithFilter("x", 42))
 	if len(cfg.errs) == 0 {
 		t.Fatal("expected an error for a non-function, got none")
@@ -78,6 +83,7 @@ func TestWithFilterRejectsNonFunc(t *testing.T) {
 
 // TestWithFilterRejectsNil proves a nil fn is rejected.
 func TestWithFilterRejectsNil(t *testing.T) {
+	t.Parallel()
 	cfg := applyOpts(WithFilter("x", nil))
 	if len(cfg.errs) == 0 {
 		t.Fatal("expected an error for nil fn, got none")
@@ -87,6 +93,7 @@ func TestWithFilterRejectsNil(t *testing.T) {
 // TestWithFilterRejectsUnexported proves an unexported top-level function is
 // rejected (the template vocabulary must point at an exported func).
 func TestWithFilterRejectsUnexported(t *testing.T) {
+	t.Parallel()
 	cfg := applyOpts(WithFilter("u", unexportedFilter))
 	if len(cfg.errs) == 0 {
 		t.Fatal("expected an error for an unexported function, got none")

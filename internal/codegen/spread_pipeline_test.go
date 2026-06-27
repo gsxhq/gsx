@@ -13,6 +13,7 @@ import (
 // filter operates on gsx.Attrs (std has no Attrs filter), so this exercises a real
 // filter package via the multi-filter render harness.
 func TestSpreadPipelineElement(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping go-run render test in -short mode")
 	}
@@ -57,6 +58,7 @@ component C(extra gsx.Attrs) {
 // while a cross-package filter cannot name a package-local type (import cycle). The
 // lowering itself (the unit under test) is package-agnostic.
 func TestSplatPipelineComponent(t *testing.T) {
+	t.Parallel()
 	table := filterTable{
 		"loud": {funcName: "Loud", alias: "_gsxf0", pkgPath: "gsxmf/myfilters"},
 	}

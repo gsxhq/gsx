@@ -159,17 +159,26 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 		return 0
 	}
 
+	// workDir is the absolute directory that relative path arguments and gsx.toml
+	// discovery resolve against: -C selects it, otherwise it is the process cwd at
+	// startup. We deliberately do NOT os.Chdir — that mutates process-global state,
+	// making the command non-reentrant and the in-process test suite unsafe to run
+	// in parallel. Each command resolves its own paths against workDir instead.
+	workDir, err := filepath.Abs(".")
+	if err != nil {
+		fmt.Fprintf(stderr, "gsx: %v\n", err)
+		return 2
+	}
 	if chdir != "" {
-		orig, err := os.Getwd()
+		workDir, err = filepath.Abs(chdir)
 		if err != nil {
-			fmt.Fprintf(stderr, "gsx: %v\n", err)
-			return 2
-		}
-		if err := os.Chdir(chdir); err != nil {
 			fmt.Fprintf(stderr, "gsx: -C %s: %v\n", chdir, err)
 			return 2
 		}
-		defer os.Chdir(orig)
+		if fi, statErr := os.Stat(workDir); statErr != nil || !fi.IsDir() {
+			fmt.Fprintf(stderr, "gsx: -C %s: not a directory\n", chdir)
+			return 2
+		}
 	}
 
 	cmd, cmdArgs := rest[0], rest[1:]
@@ -178,32 +187,31 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 		// Only generate and info consume gsx.toml; config-agnostic commands
 		// (version/help/clean/fmt/lsp) must not load it, so a malformed config
 		// can't break them. resolveConfig discovers+loads+merges (opts on top).
-		merged, _, err := resolveConfig(cfg)
+		merged, _, err := resolveConfig(cfg, workDir)
 		if err != nil {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			return 2
 		}
-		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher, merged.effectiveCSSMin(), merged.effectiveJSMin(), merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled())
+		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher, merged.effectiveCSSMin(), merged.effectiveJSMin(), merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled(), workDir)
 	case "clean":
 		return runClean(cmdArgs, stdout, stderr)
 	case "info":
-		// Resolve against cwd: -C (handled above) has already chdir'd, so "."
-		// anchors the go/packages load at the user's chosen directory.
-		merged, configPath, err := resolveConfig(cfg)
+		// Anchor the go/packages load at workDir (the -C dir, else startup cwd).
+		merged, configPath, err := resolveConfig(cfg, workDir)
 		if err != nil {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			return 2
 		}
-		return runInfo(stdout, stderr, ".", configPath, merged.filterPkgs, merged.aliases, merged.classifier(), merged.predLabel, merged.fieldMatcher, cmdArgs, merged.cssMinLevel, merged.jsMinLevel)
+		return runInfo(stdout, stderr, workDir, configPath, merged.filterPkgs, merged.aliases, merged.classifier(), merged.predLabel, merged.fieldMatcher, cmdArgs, merged.cssMinLevel, merged.jsMinLevel)
 	case "fmt":
 		// fmt respects gsx.toml printWidth per-dir (via printWidthFor inside
 		// runFmt) and tolerates a malformed config. The CSS/JS formatter
 		// overrides are programmatic options (no gsx.toml entry), so they come
 		// from cfg directly — not resolveConfig (which would hard-fail on a bad
 		// config).
-		return runFmt(stdout, stderr, cmdArgs, cfg.cssFmt, cfg.jsFmt)
+		return runFmt(stdout, stderr, cmdArgs, cfg.cssFmt, cfg.jsFmt, workDir)
 	case "init":
-		return runInit(cmdArgs, os.Stdin, stdout, stderr)
+		return runInit(cmdArgs, os.Stdin, stdout, stderr, workDir)
 	case "lsp":
 		// lsp resolves gsx.toml per-file (best-effort) and merges these compiled-in
 		// opts under it; cfg.errs are already surfaced at the top of runConfig.
@@ -236,10 +244,11 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 // automatically (no separate config hash). Option-construction errs on optCfg are
 // already surfaced at the top of runConfig before dispatch, so they need no
 // recheck here.
-func resolveConfig(optCfg config) (merged config, configPath string, err error) {
+func resolveConfig(optCfg config, workDir string) (merged config, configPath string, err error) {
 	// Layer 1: file defaults (base is the zero config when no gsx.toml exists).
+	// Discovery starts at workDir (-C dir, else startup cwd) and walks up.
 	var base config
-	path, ok := discoverConfig(".")
+	path, ok := discoverConfig(workDir)
 	if ok {
 		base, err = loadConfig(path)
 		if err != nil {
@@ -303,7 +312,7 @@ func runClean(args []string, stdout, stderr io.Writer) int {
 // discovery fails → exit 2) from a codegen error (one or more error-severity
 // diagnostics → exit 1). Success returns 0.
 // noCache bypasses the content-hash cache and forces a full regeneration.
-func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool) int {
+func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, workDir string) int {
 	gfs := flag.NewFlagSet("generate", flag.ContinueOnError)
 	gfs.SetOutput(stderr)
 	var nocacheFlag bool
@@ -335,9 +344,10 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 	if err := gfs.Parse(flagArgs); err != nil {
 		return 2
 	}
-	if len(paths) == 0 {
-		paths = []string{"."}
-	}
+	// Anchor relative path arguments (and the default ".") at workDir, then hand
+	// absolute paths to discovery/codegen — so resolution never consults the
+	// process-global cwd.
+	paths = absPaths(workDir, paths)
 	if watchFlag {
 		return runWatch(watchConfig{
 			paths: paths, format: formatFlag,

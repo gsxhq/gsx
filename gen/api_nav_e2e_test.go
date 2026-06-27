@@ -52,6 +52,7 @@ func lspRequest(v any) string {
 // THE ARGUMENT LIST in card.gsx (the props ARE the params, so the props struct
 // lands on the param list rather than the component name).
 func TestAPINavCardProps(t *testing.T) {
+	t.Parallel()
 	dir, cardSrc, _, renderSrc := setupAPINavModule(t)
 	renderURI := "file://" + filepath.Join(dir, "render.go")
 
@@ -108,6 +109,7 @@ func paramListStart(t *testing.T, cardSrc string) (line, character int) {
 
 // TestAPINavTitle: gd on `Title` field in render.go → resolves to card.gsx at the `title` param.
 func TestAPINavTitle(t *testing.T) {
+	t.Parallel()
 	dir, cardSrc, _, renderSrc := setupAPINavModule(t)
 	renderURI := "file://" + filepath.Join(dir, "render.go")
 
@@ -150,6 +152,7 @@ func TestAPINavTitle(t *testing.T) {
 
 // TestAPINavComponentTag: gd on `Card` tag in page.gsx → resolves to card.gsx component declaration.
 func TestAPINavComponentTag(t *testing.T) {
+	t.Parallel()
 	dir, _, pageSrc, _ := setupAPINavModule(t)
 	pageURI := "file://" + filepath.Join(dir, "page.gsx")
 

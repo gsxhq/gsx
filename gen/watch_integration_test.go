@@ -22,6 +22,14 @@ type syncBuf struct {
 func (s *syncBuf) Write(p []byte) (int, error) { s.mu.Lock(); defer s.mu.Unlock(); return s.b.Write(p) }
 func (s *syncBuf) String() string              { s.mu.Lock(); defer s.mu.Unlock(); return s.b.String() }
 
+// NOTE: the TestRunWatch_* integration tests are intentionally NOT t.Parallel():
+// they drive a real fsnotify watcher + debounce timer and assert within wall-clock
+// deadlines, which would starve competing with the parallel suite for CPU. Keep
+// them serial. The deadlines are generous (60s) because the watcher's startup
+// cycle runs a cold packages.Load + compile of the temp module — that can take
+// tens of seconds on a cold 2-core CI runner (locally it's sub-second). waitFor
+// polls and returns as soon as the condition holds, so a large deadline only
+// guards against slow CI; it never slows the happy path.
 func TestRunWatch_RegeneratesOnGsxChange(t *testing.T) {
 	root := t.TempDir()
 	writeMod(t, root)
@@ -41,13 +49,13 @@ func TestRunWatch_RegeneratesOnGsxChange(t *testing.T) {
 
 	// Wait for the watcher to announce it is ready (start event appears first,
 	// then the cold-generate startup cycle is emitted).
-	waitFor(t, 5*time.Second, func() bool { return strings.Contains(out.String(), `"event":"start"`) })
+	waitFor(t, 60*time.Second, func() bool { return strings.Contains(out.String(), `"event":"start"`) })
 	// Capture the generated count after startup so we can detect the regen.
 	priorCount := countGenerated(out.String(), true)
 
 	// Edit and expect a new generated event with the updated content.
 	writeFileT(t, gsxPath, "package views\n\ncomponent Page() {\n\t<h1>two</h1>\n}\n")
-	waitFor(t, 5*time.Second, func() bool { return countGenerated(out.String(), true) > priorCount })
+	waitFor(t, 60*time.Second, func() bool { return countGenerated(out.String(), true) > priorCount })
 
 	xgo, _ := os.ReadFile(filepath.Join(root, "views", "page.x.go"))
 	// Coalesced static writes emit `S("<h1>two</h1>")`, so assert on the content,
@@ -87,6 +95,7 @@ func countGenerated(s string, ok bool) int {
 
 // A burst of writes within the debounce window coalesces into a single cycle.
 func TestRunWatch_DebounceCoalesces(t *testing.T) {
+	// Serial: see the note on TestRunWatch_RegeneratesOnGsxChange (real-timer deadlines).
 	root := t.TempDir()
 	writeMod(t, root)
 	gsxPath := filepath.Join(root, "views", "page.gsx")
@@ -98,16 +107,16 @@ func TestRunWatch_DebounceCoalesces(t *testing.T) {
 	go func() {
 		done <- runWatchWithStop(watchConfig{paths: []string{filepath.Join(root, "views")}, format: "ndjson", stdout: out, stderr: &syncBuf{}}, stop)
 	}()
-	waitFor(t, 5*time.Second, func() bool { return strings.Contains(out.String(), `"event":"start"`) })
+	waitFor(t, 60*time.Second, func() bool { return strings.Contains(out.String(), `"event":"start"`) })
 	// Wait for startup cycle to settle before measuring.
-	waitFor(t, 5*time.Second, func() bool { return countGenerated(out.String(), true) >= 1 })
+	waitFor(t, 60*time.Second, func() bool { return countGenerated(out.String(), true) >= 1 })
 	priorCount := countGenerated(out.String(), true)
 
 	for i := 1; i <= 5; i++ { // 5 rapid writes
 		writeFileT(t, gsxPath, "package views\n\ncomponent Page() {\n\t<h1>"+string(rune('0'+i))+"</h1>\n}\n")
 		time.Sleep(10 * time.Millisecond) // all within the 100ms window
 	}
-	waitFor(t, 5*time.Second, func() bool { return countGenerated(out.String(), true) > priorCount })
+	waitFor(t, 60*time.Second, func() bool { return countGenerated(out.String(), true) > priorCount })
 	time.Sleep(300 * time.Millisecond) // let any extra cycles flush
 	if n := countGenerated(out.String(), true) - priorCount; n > 2 {
 		t.Fatalf("debounce failed: %d generated cycles for a 5-write burst (want 1, ≤2 tolerated)", n)

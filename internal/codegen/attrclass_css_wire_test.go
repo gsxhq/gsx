@@ -15,6 +15,7 @@ import (
 // composable ClassAttr; a user CSS-context attribute reaches emitExprAttr, whose
 // CtxCSS branch was a fail-closed error before this slice unlocked it.
 func TestCustomCSSAttrRuleEmitsCSSContext(t *testing.T) {
+	t.Parallel()
 	repoRoot, _ := filepath.Abs("../..")
 	tmp := t.TempDir()
 	writeFile(t, tmp, "go.mod", "module gsxcsswire\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
@@ -51,6 +52,7 @@ component Widget(userStyle string) {
 // A gsx.RawCSS value in a custom CSS-context attribute opts out of the value
 // filter: codegen emits it raw via gw.S, the author's vouch.
 func TestCustomCSSAttrRuleRawCSSOptsOut(t *testing.T) {
+	t.Parallel()
 	repoRoot, _ := filepath.Abs("../..")
 	tmp := t.TempDir()
 	writeFile(t, tmp, "go.mod", "module gsxcssraw\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")

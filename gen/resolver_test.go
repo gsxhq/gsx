@@ -11,6 +11,7 @@ import (
 // TestCachedResolverGenerate proves that Generate of a valid component yields
 // the expected generated Go with no diagnostics.
 func TestCachedResolverGenerate(t *testing.T) {
+	t.Parallel()
 	r, err := NewCachedResolver(repoRoot(t), DefaultPlaygroundImports)
 	if err != nil {
 		t.Fatal(err)
@@ -35,6 +36,7 @@ func TestCachedResolverGenerate(t *testing.T) {
 // ({missng}) yields a positioned diagnostic in the .gsx source, and that the
 // position matches the default path's diagnostic for the same input.
 func TestCachedResolverTypeError(t *testing.T) {
+	t.Parallel()
 	const badSrc = "package views\n\ncomponent Bad() {\n\t<p>{missng}</p>\n}\n"
 
 	// --- Cached path ---

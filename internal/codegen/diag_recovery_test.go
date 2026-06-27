@@ -9,6 +9,7 @@ import (
 // Two components each with a distinct codegen error must BOTH be reported
 // (component-boundary recovery), and each diagnostic must carry a .gsx position.
 func TestComponentRecoveryReportsAllPositioned(t *testing.T) {
+	t.Parallel()
 	mod := tempModule(t, "gsxrecoverytest")
 	dir := filepath.Join(mod, "views")
 	if err := os.MkdirAll(dir, 0o755); err != nil {

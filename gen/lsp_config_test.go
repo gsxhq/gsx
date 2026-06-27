@@ -48,6 +48,7 @@ func hasUnknownFilter(pkg *lsp.Package, name string) bool {
 
 // A gsx.toml alias resolves a project filter in the LSP.
 func TestLSPAnalyzeResolvesTomlAlias(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -66,6 +67,7 @@ func TestLSPAnalyzeResolvesTomlAlias(t *testing.T) {
 // A ctx-injected, variadic, (R,error) alias resolves — proving the analyzer
 // re-derives the seed-first contract from the alias's live signature.
 func TestLSPAnalyzeResolvesCtxAlias(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -84,6 +86,7 @@ func TestLSPAnalyzeResolvesCtxAlias(t *testing.T) {
 // A malformed gsx.toml is ignored: Analyze never errors, the std baseline still
 // resolves (upper), the alias does NOT (shout), and a warning is logged.
 func TestLSPAnalyzeMalformedConfigFallsBack(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -109,6 +112,7 @@ func TestLSPAnalyzeMalformedConfigFallsBack(t *testing.T) {
 
 // No gsx.toml → std baseline: upper resolves, an undeclared filter is unknown.
 func TestLSPAnalyzeNoConfigStdBaseline(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -129,6 +133,7 @@ func TestLSPAnalyzeNoConfigStdBaseline(t *testing.T) {
 // In-process opts (as a custom binary built with WithFilter would supply) feed
 // the analyzer even with no gsx.toml present.
 func TestLSPAnalyzeHonorsInProcessOpts(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -147,6 +152,7 @@ func TestLSPAnalyzeHonorsInProcessOpts(t *testing.T) {
 // resolveConfigBestEffort: no file → optCfg unchanged; valid file → merged;
 // malformed file → optCfg + a warning, no panic.
 func TestResolveConfigBestEffort(t *testing.T) {
+	t.Parallel()
 	dir, must := lspFilterModule(t)
 	opt := config{aliases: []codegen.FilterAlias{{Name: "x", PkgPath: "p", FuncName: "F"}}}
 

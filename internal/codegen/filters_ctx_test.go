@@ -36,6 +36,7 @@ func goRun(t *testing.T, dir string) string {
 //   - emit ≡ probe: the SAME lowered call type-checks (probe) and renders (emit),
 //     which is guaranteed because generation would fail if they diverged.
 func TestWithFilterCtxInjectionAndErrorUnwrap(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping go-run render test in -short mode")
 	}
@@ -131,6 +132,7 @@ func main() {
 // the fix, only the reserved-alias import was emitted and the direct reference
 // was `undefined: <pkg>`.
 func TestWithFilterPackageAlsoImportedDirectly(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping go-run render test in -short mode")
 	}
@@ -207,6 +209,7 @@ func main() {
 // registered via a FilterAlias surfaces the migration diagnostic rather than
 // silently miscompiling.
 func TestWithFilterCurriedMigrationDiagnostic(t *testing.T) {
+	t.Parallel()
 	repoRoot, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)

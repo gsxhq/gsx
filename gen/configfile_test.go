@@ -23,6 +23,7 @@ func mkfile(t *testing.T, path, content string) {
 
 // TestLoadConfigAllKeys decodes each schema key and asserts the resolved config.
 func TestLoadConfigAllKeys(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "gsx.toml")
 	mkfile(t, path, `
@@ -70,6 +71,7 @@ name = "data-style"
 // TestSplitPkgFunc covers the shared alias-string parser, including a dotted
 // final path segment (gopkg.in/x.F) and non-exported rejection.
 func TestSplitPkgFunc(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		in      string
 		pkg     string
@@ -102,6 +104,7 @@ func TestSplitPkgFunc(t *testing.T) {
 // TestLoadConfigBadAlias proves a non-exported alias target errors clearly,
 // naming the path and the alias key.
 func TestLoadConfigBadAlias(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "gsx.toml")
 	mkfile(t, path, "[filters]\nbad = \"example.com/p.helper\"\n")
@@ -116,6 +119,7 @@ func TestLoadConfigBadAlias(t *testing.T) {
 
 // TestLoadConfigUnknownKey proves strict decoding rejects an unknown key.
 func TestLoadConfigUnknownKey(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "gsx.toml")
 	mkfile(t, path, "filteres = [\"x\"]\n") // typo
@@ -130,6 +134,7 @@ func TestLoadConfigUnknownKey(t *testing.T) {
 
 // TestLoadConfigBothNamePrefix proves a rule with both name+prefix is rejected.
 func TestLoadConfigBothNamePrefix(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "gsx.toml")
 	mkfile(t, path, "[[jsAttrs]]\nname = \"a\"\nprefix = \"b\"\n")
@@ -144,6 +149,7 @@ func TestLoadConfigBothNamePrefix(t *testing.T) {
 
 // TestDiscoverConfigMissing proves a tree with no gsx.toml yields (",false).
 func TestDiscoverConfigMissing(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	sub := filepath.Join(tmp, "a", "b")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
@@ -158,6 +164,7 @@ func TestDiscoverConfigMissing(t *testing.T) {
 // boundary: a repo-root gsx.toml (bounded by .git) is found from a nested
 // sub-module dir.
 func TestDiscoverConfigAcrossModuleBoundary(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, ".git"), 0o755); err != nil {
 		t.Fatal(err)
@@ -177,6 +184,7 @@ func TestDiscoverConfigAcrossModuleBoundary(t *testing.T) {
 
 // TestDiscoverConfigNearerWins proves a nearer gsx.toml overrides an ancestor.
 func TestDiscoverConfigNearerWins(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, ".git"), 0o755); err != nil {
 		t.Fatal(err)
@@ -197,6 +205,7 @@ func TestDiscoverConfigNearerWins(t *testing.T) {
 // TestDiscoverConfigStopsAtGitRoot proves a gsx.toml ABOVE the .git repo root
 // is NOT used (the walk is bounded at the repo root, inclusive).
 func TestDiscoverConfigStopsAtGitRoot(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	// gsx.toml above the repo root — must NOT be used.
 	mkfile(t, filepath.Join(tmp, "gsx.toml"), "filters = []\n")
@@ -217,6 +226,7 @@ func TestDiscoverConfigStopsAtGitRoot(t *testing.T) {
 // walk falls back to the module root (go.mod) as the stop and finds a gsx.toml
 // beside go.mod.
 func TestDiscoverConfigNonRepoFallback(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	modCfg := filepath.Join(tmp, "gsx.toml")
 	mkfile(t, modCfg, "filters = []\n")
@@ -237,6 +247,7 @@ func TestDiscoverConfigNonRepoFallback(t *testing.T) {
 // the I1+I2 regression: config used to load unconditionally before dispatch, so a
 // typo'd gsx.toml broke `gsx version` etc.
 func TestConfigAgnosticCommandsSurviveMalformedConfig(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, ".git"), 0o755); err != nil {
 		t.Fatal(err)
@@ -275,6 +286,7 @@ func TestConfigAgnosticCommandsSurviveMalformedConfig(t *testing.T) {
 // TestMergeConfigOptsOverride proves opts append after base (opts win last) and
 // func-valued opts override base.
 func TestMergeConfigOptsOverride(t *testing.T) {
+	t.Parallel()
 	base := applyOpts()
 	base.filterPkgs = []string{"a"}
 	base.aliases = []codegen.FilterAlias{{Name: "base", PkgPath: "p", FuncName: "Base"}}
@@ -293,6 +305,7 @@ func TestMergeConfigOptsOverride(t *testing.T) {
 }
 
 func TestConfigPrintWidth(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "gsx.toml")
 	if err := os.WriteFile(path, []byte("printWidth = 100\n"), 0o644); err != nil {
@@ -308,6 +321,7 @@ func TestConfigPrintWidth(t *testing.T) {
 }
 
 func TestConfigPrintWidthDefault(t *testing.T) {
+	t.Parallel()
 	var c config
 	if got := c.effectivePrintWidth(); got != 80 {
 		t.Fatalf("default printWidth = %d, want 80", got)

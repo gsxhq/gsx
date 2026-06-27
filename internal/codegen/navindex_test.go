@@ -13,6 +13,7 @@ import (
 //   - "CardProps" (struct ref)  → card.gsx component decl
 //   - "Title"     (field ref)   → card.gsx param position for "title"
 func TestNavIndex(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	repoRoot, _ := filepath.Abs("../..")
 	writeFile(t, dir, "go.mod",

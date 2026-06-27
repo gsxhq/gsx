@@ -7,6 +7,7 @@ import (
 )
 
 func TestExcludedDir_OnlyOwnBasename(t *testing.T) {
+	t.Parallel()
 	cases := map[string]bool{
 		"/private/tmp/proj/views":      false, // ancestor "tmp" must NOT exclude
 		"/tmp/proj/views":              false,
@@ -27,6 +28,7 @@ func TestExcludedDir_OnlyOwnBasename(t *testing.T) {
 // runWatch returns promptly with exit 0 when there are no dirs to watch, and
 // writes nothing to stdout that isn't valid (empty is fine here).
 func TestRunWatch_NoDirsReturnsCleanly(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir() // no .gsx files
 	var out, errb bytes.Buffer
 	code := runWatch(watchConfig{

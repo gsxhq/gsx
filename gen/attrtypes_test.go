@@ -7,6 +7,7 @@ package gen
 import "testing"
 
 func TestAttrTypesPublicFacadeCompiles(t *testing.T) {
+	t.Parallel()
 	// Construct rules using only gen.Rule — no attrclass import.
 	var cfg config
 	WithJSAttrs(Rule{Prefix: "wire:"})(&cfg)

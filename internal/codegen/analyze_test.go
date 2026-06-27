@@ -15,6 +15,7 @@ import (
 // TestResolveAttrExprType checks that an attribute expression's type is resolved
 // (not just interpolations).
 func TestResolveAttrExprType(t *testing.T) {
+	t.Parallel()
 	repoRoot, _ := filepath.Abs("../..")
 	tmp := t.TempDir()
 	writeFile(t, tmp, "go.mod", "module gsxa\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
@@ -66,6 +67,7 @@ func TestResolveAttrExprType(t *testing.T) {
 // is used) and Attrs (single-root) fields — EXACTLY what the skeleton/emitter
 // synthesize, so emit ≡ probe.
 func TestComponentPropFieldsFor(t *testing.T) {
+	t.Parallel()
 	// Card: single-root function component using {children} → CardProps has
 	//   {Title, Featured, Children, Attrs}.
 	// (p Pg) Grid: single-root method component (no children) → PgGridProps has
@@ -120,6 +122,7 @@ func keysOf(m map[string]map[string]bool) []string {
 // TestIsGsxNodeType checks that isGsxNodeType recognises exactly "gsx.Node"
 // (with optional surrounding whitespace) and nothing else.
 func TestIsGsxNodeType(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		typ  string
 		want bool
@@ -147,6 +150,7 @@ func TestIsGsxNodeType(t *testing.T) {
 // when a component uses {children} and has a single root) are NOT promoted into
 // nodeProps — only declared gsx.Node params should appear there.
 func TestNodePropsSignal(t *testing.T) {
+	t.Parallel()
 	src := "package views\n\n" +
 		"component Card(title gsx.Node, n int) {\n\t<div>{title}</div>\n}\n"
 
@@ -215,6 +219,7 @@ func TestNodePropsSignal(t *testing.T) {
 // _gsxstd.Upper(...) call resolves. Without the threading the skeleton would
 // not import std and type resolution would fail.
 func TestChildPropPipelineSkeletonImportsStd(t *testing.T) {
+	t.Parallel()
 	repoRoot, _ := filepath.Abs("../..")
 	tmp := t.TempDir()
 	writeFile(t, tmp, "go.mod", "module gsxa\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")

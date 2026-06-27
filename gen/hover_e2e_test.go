@@ -88,6 +88,7 @@ func hoverAt(t *testing.T, dir, file, text, needle string, cursorOff int) *lsp.H
 }
 
 func TestHoverField(t *testing.T) {
+	t.Parallel()
 	dir, src := hoverModule(t)
 	h := hoverAt(t, dir, "card.gsx", src, "{ u.Name }", len("{ u."))
 	if h == nil || !strings.Contains(h.Contents.Value, "field Name string") {
@@ -99,6 +100,7 @@ func TestHoverField(t *testing.T) {
 }
 
 func TestHoverVar(t *testing.T) {
+	t.Parallel()
 	dir, src := hoverModule(t)
 	h := hoverAt(t, dir, "card.gsx", src, "{ u.Name }", len("{ ")) // on 'u'
 	if h == nil || !strings.Contains(h.Contents.Value, "var u User") {
@@ -107,6 +109,7 @@ func TestHoverVar(t *testing.T) {
 }
 
 func TestHoverFunc(t *testing.T) {
+	t.Parallel()
 	dir, src := hoverModule(t)
 	h := hoverAt(t, dir, "card.gsx", src, "Greeting(u.Email)", 0) // on 'Greeting'
 	if h == nil || !strings.Contains(h.Contents.Value, "func Greeting(name string) string") {
@@ -115,6 +118,7 @@ func TestHoverFunc(t *testing.T) {
 }
 
 func TestHoverWholeExprType(t *testing.T) {
+	t.Parallel()
 	dir, src := hoverModule(t)
 	h := hoverAt(t, dir, "card.gsx", src, `{ "hi" }`, len("{ ")) // on the string literal
 	if h == nil || !strings.Contains(h.Contents.Value, "string") {
@@ -123,6 +127,7 @@ func TestHoverWholeExprType(t *testing.T) {
 }
 
 func TestHoverGoFileNull(t *testing.T) {
+	t.Parallel()
 	dir, _ := hoverModule(t)
 	goSrc, _ := os.ReadFile(filepath.Join(dir, "user.go"))
 	h := hoverAt(t, dir, "user.go", string(goSrc), "Greeting", 0)
@@ -132,6 +137,7 @@ func TestHoverGoFileNull(t *testing.T) {
 }
 
 func TestHoverNonExprNull(t *testing.T) {
+	t.Parallel()
 	dir, src := hoverModule(t)
 	h := hoverAt(t, dir, "card.gsx", src, "<div>", 1) // on the 'div' tag text, not an expr
 	if h != nil {
@@ -140,6 +146,7 @@ func TestHoverNonExprNull(t *testing.T) {
 }
 
 func TestHoverPipedNull(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -161,6 +168,7 @@ func TestHoverPipedNull(t *testing.T) {
 }
 
 func TestHoverComponentTag(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -182,6 +190,7 @@ func TestHoverComponentTag(t *testing.T) {
 }
 
 func TestHoverCapabilityAdvertised(t *testing.T) {
+	t.Parallel()
 	frame := func(v any) string {
 		b, _ := json.Marshal(v)
 		return "Content-Length: " + strconv.Itoa(len(b)) + "\r\n\r\n" + string(b)

@@ -16,6 +16,7 @@ import (
 // a non-canonical .gsx buffer yields a single whole-document TextEdit whose text
 // is the canonical form.
 func TestFormattingReformats(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "hi.gsx")
 	if err := os.WriteFile(path, []byte(unformattedGsx), 0o644); err != nil {
@@ -47,6 +48,7 @@ func TestFormattingReformats(t *testing.T) {
 
 // TestFormattingAlreadyCanonical: formatting a canonical buffer returns no edits.
 func TestFormattingAlreadyCanonical(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "hi.gsx")
 	canonical, err := formatGsx(path, []byte(unformattedGsx))
@@ -64,6 +66,7 @@ func TestFormattingAlreadyCanonical(t *testing.T) {
 
 // TestFormattingAdvertised: the server advertises documentFormattingProvider.
 func TestFormattingAdvertised(t *testing.T) {
+	t.Parallel()
 	frame := func(v any) string {
 		b, _ := json.Marshal(v)
 		return "Content-Length: " + strconv.Itoa(len(b)) + "\r\n\r\n" + string(b)
@@ -82,6 +85,7 @@ func TestFormattingAdvertised(t *testing.T) {
 // TestFormattingRemovesUnusedImport: textDocument/formatting on a .gsx with an
 // unused import returns an edit whose text drops that import.
 func TestFormattingRemovesUnusedImport(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}

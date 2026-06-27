@@ -10,6 +10,7 @@ import (
 // TestSrcOverrideReplacesDiskContent: a .gsx on disk is clean, but an override
 // buffer introduces a type error; the override must drive the diagnostics.
 func TestSrcOverrideReplacesDiskContent(t *testing.T) {
+	t.Parallel()
 	repoRoot, _ := filepath.Abs("../..")
 	dir := t.TempDir()
 	mustWrite(t, filepath.Join(dir, "go.mod"),

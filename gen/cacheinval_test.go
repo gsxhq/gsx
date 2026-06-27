@@ -18,6 +18,7 @@ import (
 // what prevents the "5aed1ba changed emit but version wasn't bumped → cache
 // served stale output" class of bug without relying on a manual constant bump.
 func TestCodegenIdentityKeySensitivity(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module ex/cid\n\ngo 1.26\n"), 0o644)
 	os.MkdirAll(filepath.Join(tmp, "a"), 0o755)
@@ -53,6 +54,7 @@ func TestCodegenIdentityKeySensitivity(t *testing.T) {
 // (so a rebuilt binary auto-invalidates the cache) and that the hash is stable
 // within a process and matches a manual hash of the executable.
 func TestSelfHashStableNonEmpty(t *testing.T) {
+	t.Parallel()
 	h1 := selfHash()
 	if h1 == "" {
 		t.Fatal("selfHash empty — gsx binary not hashed into the cache key")
@@ -78,6 +80,7 @@ func TestSelfHashStableNonEmpty(t *testing.T) {
 // on disk) is reported as up-to-date rather than vanishing into silence: the
 // second Generate writes nothing but counts the unchanged output in UpToDate.
 func TestGenerateReportsUpToDate(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -109,6 +112,7 @@ func TestGenerateReportsUpToDate(t *testing.T) {
 // writes nothing because everything is current — so -v / a bare run is never
 // silently empty.
 func TestRunGenerateUpToDateMessage(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -130,6 +134,7 @@ func TestRunGenerateUpToDateMessage(t *testing.T) {
 // codegen version (a coarse, explicit invalidation lever) and the binary hash
 // (automatic invalidation on any codegen change).
 func TestCodegenIdentityComposition(t *testing.T) {
+	t.Parallel()
 	id := codegenIdentity()
 	if !strings.Contains(id, codegen.Version()) {
 		t.Fatalf("codegenIdentity %q must include codegen.Version() %q", id, codegen.Version())

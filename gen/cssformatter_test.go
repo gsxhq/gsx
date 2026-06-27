@@ -7,6 +7,7 @@ import (
 )
 
 func TestWithCSSFormatterOption(t *testing.T) {
+	t.Parallel()
 	var cfg config
 	f := func(src []byte) ([]byte, error) { return src, nil }
 	WithCSSFormatter(rawfmt.Formatter(f))(&cfg)
@@ -16,6 +17,7 @@ func TestWithCSSFormatterOption(t *testing.T) {
 }
 
 func TestMergeConfigCSSFormatterOptsWins(t *testing.T) {
+	t.Parallel()
 	base := config{cssFmt: func(src []byte) ([]byte, error) { return []byte("base"), nil }}
 	opts := config{cssFmt: func(src []byte) ([]byte, error) { return []byte("opts"), nil }}
 	merged := mergeConfig(base, opts)
@@ -26,6 +28,7 @@ func TestMergeConfigCSSFormatterOptsWins(t *testing.T) {
 }
 
 func TestMergeConfigCSSFormatterFallsBackToBase(t *testing.T) {
+	t.Parallel()
 	base := config{cssFmt: func(src []byte) ([]byte, error) { return []byte("base"), nil }}
 	merged := mergeConfig(base, config{})
 	if merged.cssFmt == nil {
