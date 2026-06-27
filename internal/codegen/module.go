@@ -83,6 +83,7 @@ type Module struct {
 	opts             Options
 	overrides        map[string][]byte          // abs .gsx path -> in-memory source
 	ext              types.Importer             // lazily built external importer (stdlib + third-party)
+	extLoads         int                        // count of external packages.Load calls (observability; test hook)
 	filterTbl        filterTable                // lazily built filter table (see cachedFilterTable)
 	filterTblErr     error                      // error from the filter-table load (cached alongside filterTbl)
 	filterTblDone    bool                       // true once the filter table has been loaded (success or error)
@@ -243,9 +244,19 @@ func (m *Module) externalImporter() (types.Importer, error) {
 	})
 	m.mu.Lock()
 	m.ext = mapImporter(mp)
+	m.extLoads++
 	m.fsetBaseline = m.fset.Base()
 	m.mu.Unlock()
 	return m.ext, nil
+}
+
+// externalLoads returns the number of external packages.Load calls performed
+// (test hook). Together with filterTableLoads it guards the warm-regen perf
+// invariant: a warm regeneration must trigger ZERO go-list reloads.
+func (m *Module) externalLoads() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.extLoads
 }
 
 // cachedFilterTable memoizes the filter table for the Module's lifetime. The
