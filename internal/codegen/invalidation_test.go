@@ -140,15 +140,43 @@ func TestSetOverrideDirtinessDetection(t *testing.T) {
 	if testing.Short() {
 		t.Skip()
 	}
+
+	// Sub-case: new file not on disk, empty content (src==nil, no base) → not dirty.
+	// This is the degenerate path: helper.gsx does not exist on disk so
+	// os.ReadFile returns nil, and SetOverride sees (haveBase=false, len(src)==0).
+	t.Run("new_file_nil_content_not_dirty", func(t *testing.T) {
+		m, root := setupChainModule(t)
+		utilDir := filepath.Join(root, "util")
+		helper := filepath.Join(utilDir, "helper.gsx")
+		disk, _ := os.ReadFile(helper) // helper.gsx does not exist → disk == nil
+		m.SetOverride(helper, disk)
+		if got := m.dirtyDirs(); len(got) != 0 {
+			t.Errorf("new-file nil-content override must not mark dirty; got %v", got)
+		}
+	})
+
+	// Sub-case: buffer bytes == real on-disk file (canonical didOpen/navigation
+	// path) → not dirty. Exercises the haveBase && bytes.Equal branch via an
+	// actual disk file (util/util.gsx, created by setupChainModule).
+	t.Run("buffer_equals_disk_not_dirty", func(t *testing.T) {
+		m, root := setupChainModule(t)
+		utilDir := filepath.Join(root, "util")
+		utilFile := filepath.Join(utilDir, "util.gsx")
+		diskBytes, err := os.ReadFile(utilFile)
+		if err != nil {
+			t.Fatalf("reading util.gsx: %v", err)
+		}
+		m.SetOverride(utilFile, diskBytes)
+		if got := m.dirtyDirs(); len(got) != 0 {
+			t.Errorf("override==disk must not mark dirty; got %v", got)
+		}
+	})
+
+	// The remaining assertions use a fresh module so earlier dirty-marks don't
+	// pollute them.
 	m, root := setupChainModule(t)
 	utilDir := filepath.Join(root, "util")
 	helper := filepath.Join(utilDir, "helper.gsx")
-	disk, _ := os.ReadFile(helper)
-	// Identical-to-disk override (didOpen) marks nothing dirty.
-	m.SetOverride(helper, disk)
-	if got := m.dirtyDirs(); len(got) != 0 {
-		t.Errorf("identical-to-disk override must not mark dirty; got %v", got)
-	}
 	// A real change marks util dirty.
 	m.SetOverride(helper, utilWithNewExport)
 	if !contains(m.dirtyDirs(), utilDir) {
