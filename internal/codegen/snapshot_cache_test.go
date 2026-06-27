@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -241,7 +242,7 @@ func TestSnapshotCacheClearedByRebuildStillResolves(t *testing.T) {
 	}
 	// (a) Cache was cleared: r2 must be a new allocation.
 	if r2 == r1 {
-		t.Errorf("post-rebuild Package(comp) must return a NEW pointer (pkgResults must have been cleared by rebuildFset); got the pre-rebuild cached result — if rebuildFset does not clear pkgResults, orphaned positions would be served")
+		t.Fatalf("post-rebuild Package(comp) must return a NEW pointer (pkgResults must have been cleared by rebuildFset); got the pre-rebuild cached result — if rebuildFset does not clear pkgResults, orphaned positions would be served")
 	}
 	// (b) A rebuild actually fired.
 	if m.rebuilds() == 0 {
@@ -254,6 +255,93 @@ func TestSnapshotCacheClearedByRebuildStillResolves(t *testing.T) {
 	}
 	if line2 != line1 {
 		t.Errorf("post-rebuild: util.Y decl line = %d, want %d (same source, same line)", line2, line1)
+	}
+}
+
+// TestSnapshotCacheHitPreservesRealDiags verifies that a cache-hit PackageResult
+// carries the same NON-EMPTY diagnostics a fresh analysis would produce.
+// The fixture uses a .gsx file that references an undefined identifier so the
+// type-checker emits ≥1 Error-severity diagnostic. The "fixture is non-vacuous"
+// assertion (FATAL if 0 diags) makes the test honest: if the undefined-ident
+// construct stops producing a diagnostic the test fails rather than passing
+// vacuously.
+func TestSnapshotCacheHitPreservesRealDiags(t *testing.T) {
+	if testing.Short() {
+		t.Skip()
+	}
+
+	// setupBadModule creates a fresh temp module whose single package has an
+	// undefined identifier — producing ≥1 type-error diagnostic on analysis.
+	setupBadModule := func(t *testing.T) (*Module, string) {
+		t.Helper()
+		root := t.TempDir()
+		repoRoot, _ := filepath.Abs("..")
+		repoRoot = filepath.Dir(repoRoot) // internal/codegen -> repo root
+		must := func(p, c string) {
+			full := filepath.Join(root, p)
+			if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(full, []byte(c), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		must("go.mod", "module example.com/x\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+		// undefinedVariable is not declared anywhere — the type-checker emits
+		// an "undefined: undefinedVariable" Error diagnostic into Diags.
+		must("badpkg/bad.gsx", "package badpkg\n\ncomponent Bad() {\n\t<div>{ undefinedVariable }</div>\n}\n")
+		m, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/x", FilterPkgs: []string{StdImportPath}})
+		if err != nil {
+			t.Fatalf("Open: %v", err)
+		}
+		return m, root
+	}
+
+	m, root := setupBadModule(t)
+	badDir := filepath.Join(root, "badpkg")
+
+	// Warm: first Package call analyzes and caches the result (WITH the diag).
+	r1, err := m.Package(badDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Fixture non-vacuity gate: undefined-ident must produce ≥1 diagnostic.
+	if len(r1.Diags) == 0 {
+		t.Fatalf("fixture produced 0 diagnostics — undefined-ident construct must emit ≥1 Error; the .gsx source needs to be adjusted")
+	}
+
+	// Hit: second Package call (no edit) must return the SAME pointer.
+	r2, err := m.Package(badDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r2 != r1 {
+		t.Fatalf("second Package(badDir) must be a cache hit (same pointer); got distinct results — the following diags-parity check would be vacuous")
+	}
+
+	// Fresh module on identical sources — independent baseline without cache.
+	mFresh, rootFresh := setupBadModule(t)
+	rFresh, err := mFresh.Package(filepath.Join(rootFresh, "badpkg"))
+	if err != nil {
+		t.Fatalf("fresh module Package: %v", err)
+	}
+
+	// Parity: compare by "severity:message" only — not by filename, because the
+	// two modules live in different tempdirs.
+	cachedFP := diagFingerprints(r2.Diags)
+	freshFP := diagFingerprints(rFresh.Diags)
+	if len(cachedFP) == 0 {
+		t.Fatalf("cached hit has 0 diags; expected the real diagnostics to be preserved")
+	}
+	if len(cachedFP) != len(freshFP) {
+		t.Errorf("diags parity: cached hit has %d diags, fresh has %d\ncached=%v\nfresh=%v",
+			len(cachedFP), len(freshFP), cachedFP, freshFP)
+	} else {
+		for i := range cachedFP {
+			if cachedFP[i] != freshFP[i] {
+				t.Errorf("diags parity mismatch at [%d]: cached=%q fresh=%q", i, cachedFP[i], freshFP[i])
+			}
+		}
 	}
 }
 
