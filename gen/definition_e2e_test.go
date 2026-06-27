@@ -15,6 +15,7 @@ import (
 // TestDefinitionD1 drives the real analyzer through lsp.Server: go-to-def on the
 // `Name` field in `{ u.Name }` resolves to its declaration in user.go.
 func TestDefinitionD1(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -75,6 +76,7 @@ func TestDefinitionD1(t *testing.T) {
 // `u` in `{ u.Name }`) resolves back to the param's declaration in card.gsx — not
 // null, and never into generated .x.go.
 func TestDefinitionParam(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -149,6 +151,7 @@ func TestDefinitionParam(t *testing.T) {
 // raw-Go body is emitted under a //line directive in the skeleton, which is what
 // makes this resolve to source.
 func TestDefinitionRawGoSymbol(t *testing.T) {
+	t.Parallel()
 	src := "package x\n\nfunc greeting() string {\n\treturn \"hi\"\n}\n\ncomponent Page() {\n\t<p>{ greeting() }</p>\n}\n"
 	loc := rawGoDefinition(t, src, "{ greeting()", 2 /* skip "{ " to the 'g' */)
 	if loc == nil {
@@ -170,6 +173,7 @@ func TestDefinitionRawGoSymbol(t *testing.T) {
 // decls) and reports the body's offset, so the //line still anchors the func to
 // its true .gsx line despite the removed import lines.
 func TestDefinitionRawGoSymbolWithImport(t *testing.T) {
+	t.Parallel()
 	src := "package x\n\nimport \"strings\"\n\nfunc shout(s string) string {\n\treturn strings.ToUpper(s)\n}\n\ncomponent Page() {\n\t<p>{ shout(\"hi\") }</p>\n}\n"
 	loc := rawGoDefinition(t, src, "{ shout(", 2 /* skip "{ " to the 's' */)
 	if loc == nil {

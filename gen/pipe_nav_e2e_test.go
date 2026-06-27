@@ -74,6 +74,7 @@ func pipeDefAt(t *testing.T, dir, src, needle string, off int) *lsp.Location {
 }
 
 func TestPipeDefSeed(t *testing.T) {
+	t.Parallel()
 	dir, src := pipeNavModule(t)
 	loc := pipeDefAt(t, dir, src, "Greeting(name)", 0) // on `Greeting` (the seed call)
 	if loc == nil || !strings.HasSuffix(loc.URI, "u.go") {
@@ -82,6 +83,7 @@ func TestPipeDefSeed(t *testing.T) {
 }
 
 func TestPipeDefFilter(t *testing.T) {
+	t.Parallel()
 	dir, src := pipeNavModule(t)
 	loc := pipeDefAt(t, dir, src, "|> upper", len("|> ")) // on `upper`
 	if loc == nil || !strings.HasSuffix(loc.URI, "std.go") {
@@ -90,6 +92,7 @@ func TestPipeDefFilter(t *testing.T) {
 }
 
 func TestPipeDefArg(t *testing.T) {
+	t.Parallel()
 	dir, _ := pipeNavModule(t)
 	// { name |> truncate(n) } with a param n.
 	src := "package p\n\ncomponent Card(name string, n int) {\n\t<div>{ name |> truncate(n) }</div>\n}\n"
@@ -103,6 +106,7 @@ func TestPipeDefArg(t *testing.T) {
 }
 
 func TestPipeDefOnOperatorNull(t *testing.T) {
+	t.Parallel()
 	dir, src := pipeNavModule(t)
 	loc := pipeDefAt(t, dir, src, "|> upper", 0) // on the `|` of `|>`
 	if loc != nil {
@@ -165,6 +169,7 @@ func pipeHoverAt(t *testing.T, dir, src, needle string, off int) *lsp.Hover {
 }
 
 func TestPipeHoverFilter(t *testing.T) {
+	t.Parallel()
 	dir, src := pipeNavModule(t)
 	h := pipeHoverAt(t, dir, src, "|> upper", len("|> ")) // on `upper`
 	if h == nil || !strings.Contains(h.Contents.Value, "func std.Upper(") {
@@ -173,6 +178,7 @@ func TestPipeHoverFilter(t *testing.T) {
 }
 
 func TestPipeHoverSeed(t *testing.T) {
+	t.Parallel()
 	dir, src := pipeNavModule(t)
 	h := pipeHoverAt(t, dir, src, "Greeting(name)", 0) // on `Greeting`
 	if h == nil || !strings.Contains(h.Contents.Value, "func Greeting(name string) string") {
@@ -181,6 +187,7 @@ func TestPipeHoverSeed(t *testing.T) {
 }
 
 func TestPipeHoverArg(t *testing.T) {
+	t.Parallel()
 	dir, _ := pipeNavModule(t)
 	src := "package p\n\ncomponent Card(name string, n int) {\n\t<div>{ name |> truncate(n) }</div>\n}\n"
 	if err := os.WriteFile(filepath.Join(dir, "card.gsx"), []byte(src), 0o644); err != nil {

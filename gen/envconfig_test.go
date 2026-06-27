@@ -50,6 +50,7 @@ func TestApplyEnvOverrides_MinifyVocabulary(t *testing.T) {
 }
 
 func TestApplyEnvOverrides_AbsentIsNoop(t *testing.T) {
+	t.Parallel()
 	// No GSX_* set: file value (none/full) is preserved untouched.
 	base := config{cssMinLevel: MinifyNone, jsMinLevel: MinifyFull}
 	cfg, err := applyEnvOverrides(base)
@@ -66,7 +67,7 @@ func TestResolveConfig_EnvWithoutFile(t *testing.T) {
 	dir := t.TempDir()
 	chdir(t, dir)
 	t.Setenv("GSX_MINIFY", "none")
-	merged, path, err := resolveConfig(config{})
+	merged, path, err := resolveConfig(config{}, dir)
 	if err != nil {
 		t.Fatal(err)
 	}

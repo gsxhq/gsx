@@ -13,6 +13,7 @@ import (
 // gd on the `comments` attribute name in `<CommentsList comments={nil}/>`
 // resolves to the `comments` parameter of `component CommentsList(comments []Comment)`.
 func TestDefinitionAttrParam(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}

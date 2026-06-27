@@ -33,6 +33,7 @@ func genStyle(t *testing.T, cssMinify bool) string {
 }
 
 func TestMinifyGate_CSS(t *testing.T) {
+	t.Parallel()
 	on := genStyle(t, true)
 	if !strings.Contains(on, "1px 2px") || strings.Contains(on, "1px  2px") {
 		t.Fatalf("cssMinify=true should minify; got:\n%s", on)

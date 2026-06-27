@@ -7,6 +7,7 @@ import (
 )
 
 func TestModuleRoot(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module example.com/app\n\ngo 1.26\n"), 0o644)
 	sub := filepath.Join(tmp, "a", "b")

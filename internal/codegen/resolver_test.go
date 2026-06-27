@@ -119,6 +119,7 @@ func itoa(n int) string {
 // string and count to int — confirming the cached importer correctly threads
 // the github.com/gsxhq/gsx package (required for _gsxrt.Node) and context.
 func TestCachedResolverMatchesPackagesLoad(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	overlay := map[string][]byte{
 		dir + "/comp.x.go": []byte(skeletonFixture),

@@ -46,6 +46,7 @@ func lspFrame(v any) string {
 // result includes both the cross-package .gsx tag (post.gsx) and the .go
 // direct reference (use.go).
 func TestReferencesCrossPkgFromDecl(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip()
 	}
@@ -95,6 +96,7 @@ func TestReferencesCrossPkgFromDecl(t *testing.T) {
 // cursor on the `Input` identifier in use.go (`components.Input`) and asserts
 // the result includes both cross-package reference sites.
 func TestReferencesCrossPkgFromGoCursor(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip()
 	}

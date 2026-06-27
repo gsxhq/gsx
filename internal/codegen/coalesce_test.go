@@ -12,6 +12,7 @@ func wrap(body string) string {
 }
 
 func TestCoalesceMergesAdjacentStaticWrites(t *testing.T) {
+	t.Parallel()
 	in := wrap("\t_gsxgw.S(\"<div\")\n\t_gsxgw.S(\">\")\n\t_gsxgw.S(\"x\")\n\t_gsxgw.S(\"</div>\")")
 	got := string(coalesceStaticWrites([]byte(in)))
 	if !strings.Contains(got, `_gsxgw.S("<div>x</div>")`) {
@@ -23,6 +24,7 @@ func TestCoalesceMergesAdjacentStaticWrites(t *testing.T) {
 }
 
 func TestCoalesceDynamicCallBreaksRun(t *testing.T) {
+	t.Parallel()
 	// A non-S call (gw.Node) between two static writes must NOT be swallowed.
 	in := wrap("\t_gsxgw.S(\"a\")\n\t_gsxgw.Node(ctx, X())\n\t_gsxgw.S(\"b\")")
 	got := string(coalesceStaticWrites([]byte(in)))
@@ -35,6 +37,7 @@ func TestCoalesceDynamicCallBreaksRun(t *testing.T) {
 }
 
 func TestCoalesceNonLiteralArgNotMerged(t *testing.T) {
+	t.Parallel()
 	// _gsxgw.S(string(raw)) and _gsxgw.S(strconv...) take non-literal args (RawCSS,
 	// numeric formatting) and must never be merged into a string literal.
 	in := wrap("\t_gsxgw.S(string(raw))\n\t_gsxgw.S(\"b\")")
@@ -48,6 +51,7 @@ func TestCoalesceNonLiteralArgNotMerged(t *testing.T) {
 }
 
 func TestCoalescePreservesLineDirective(t *testing.T) {
+	t.Parallel()
 	// A //line directive between two static writes must NOT be displaced/swallowed:
 	// the run breaks at the comment, so both S calls remain (each keeps its mapping).
 	in := wrap("\t_gsxgw.S(\"a\")\n//line input.gsx:4:7\n\t_gsxgw.S(\"b\")")
@@ -61,6 +65,7 @@ func TestCoalescePreservesLineDirective(t *testing.T) {
 }
 
 func TestCoalesceMergesInsideSwitchCase(t *testing.T) {
+	t.Parallel()
 	// switch/select clause bodies are []Stmt, not *BlockStmt; their static writes
 	// must coalesce too (the generator emits case bodies flat, not brace-wrapped).
 	in := "package p\nfunc f() {\n\tswitch k {\n\tcase \"a\":\n\t\t_gsxgw.S(\"<b\")\n\t\t_gsxgw.S(\">x</b>\")\n\tdefault:\n\t\t_gsxgw.S(\"<i\")\n\t\t_gsxgw.S(\">y</i>\")\n\t}\n}\n"
@@ -74,6 +79,7 @@ func TestCoalesceMergesInsideSwitchCase(t *testing.T) {
 }
 
 func TestCoalesceRequotesEscapes(t *testing.T) {
+	t.Parallel()
 	// Merging must unquote/requote correctly so embedded quotes survive.
 	in := wrap("\t_gsxgw.S(\"<a href=\\\"\")\n\t_gsxgw.S(\"x\")\n\t_gsxgw.S(\"\\\"\")")
 	got := string(coalesceStaticWrites([]byte(in)))

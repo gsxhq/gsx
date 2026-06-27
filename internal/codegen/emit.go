@@ -30,7 +30,7 @@ func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filter
 		cls = attrclass.Builtin()
 	}
 	fm = fieldMatcherOrDefault(fm)
-	interpTemp = 0
+	interpTemp := 0
 	// Minify the static CSS of <style> blocks. cssMin is nil for the built-in
 	// safe minifier, or a custom override (e.g. tdewolff) threaded from
 	// gen.WithCSSMinifier. Custom minifiers only ever receive complete, valid CSS
@@ -99,7 +99,7 @@ func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filter
 			// On failure, the diagnostic is already in bag — skip this component's
 			// output and continue to the next (report ALL components' errors).
 			var cbuf bytes.Buffer
-			if genComponent(&cbuf, v, resolved, table, structFields, nodeProps, byo, imports, fset, cls, fm, bag) {
+			if genComponent(&cbuf, v, resolved, table, structFields, nodeProps, byo, imports, &interpTemp, fset, cls, fm, bag) {
 				body.Write(cbuf.Bytes())
 			} else {
 				ok = false
@@ -194,7 +194,7 @@ func writeImports(b *bytes.Buffer, imports map[string]bool, aliased []importSpec
 	b.WriteString(")\n\n")
 }
 
-func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, byo *byoData, imports map[string]bool, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag) bool {
+func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, byo *byoData, imports map[string]bool, interpTemp *int, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag) bool {
 	params, err := parseParams(c.Params)
 	if err != nil {
 		bag.Errorf(c.Pos(), c.End(), "invalid-syntax", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
@@ -248,7 +248,7 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 		b.WriteString("\treturn gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {\n")
 		b.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
 		for _, m := range c.Body {
-			if !genNode(b, m, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag) {
+			if !genNode(b, m, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag) {
 				return false
 			}
 		}
@@ -357,12 +357,12 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 		// is false, so the root emits via normal genNode and the author's {...attrs}
 		// places the bag.
 		if autoApply && m == ast.Markup(root) {
-			if !emitRootElement(b, root, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag) {
+			if !emitRootElement(b, root, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag) {
 				return false
 			}
 			continue
 		}
-		if !genNode(b, m, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag) {
+		if !genNode(b, m, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag) {
 			return false
 		}
 	}
@@ -387,13 +387,13 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 // A void root cannot receive fallthrough (it has no place for it to matter beyond
 // attrs, but void roots ARE handled: class/style-merge + guarded attrs + spread
 // then `/>`).
-func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, byo *byoData, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag) bool {
+func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, byo *byoData, imports map[string]bool, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag) bool {
 	emitLine(b, fset, el.Pos())
 	emitS(b, "<"+el.Tag)
 	// AUTO mode: there is no author `{...attrs}`, so the bag spreads at the END and
 	// every root attr is overridable. splitIdx == len(el.Attrs) means "all attrs
 	// precede the (synthetic) spread" → all guarded.
-	if !emitFallthroughAttrs(b, el.Attrs, len(el.Attrs), resolved, table, imports, cls, bag) {
+	if !emitFallthroughAttrs(b, el.Attrs, len(el.Attrs), resolved, table, imports, interpTemp, cls, bag) {
 		return false
 	}
 	if el.Void {
@@ -403,19 +403,19 @@ func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]typ
 	emitS(b, ">")
 	if strings.EqualFold(el.Tag, "style") {
 		for _, c := range el.Children {
-			if !genStyleChild(b, c, resolved, table, imports, fset, bag) {
+			if !genStyleChild(b, c, resolved, table, imports, interpTemp, fset, bag) {
 				return false
 			}
 		}
 	} else if strings.EqualFold(el.Tag, "script") {
 		for _, c := range el.Children {
-			if !genScriptChild(b, c, resolved, table, imports, fset, bag) {
+			if !genScriptChild(b, c, resolved, table, imports, interpTemp, fset, bag) {
 				return false
 			}
 		}
 	} else {
 		for _, c := range el.Children {
-			if !genNode(b, c, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag) {
+			if !genNode(b, c, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag) {
 				return false
 			}
 		}
@@ -440,7 +440,7 @@ func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]typ
 // (ClassMerged / StyleMerged), emitted once at the spread position. The author's
 // `{...attrs}` SpreadAttr itself (when present at splitIdx) is consumed here, not
 // emitted via emitAttr.
-func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, cls *attrclass.Classifier, bag *diag.Bag) bool {
+func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, bag *diag.Bag) bool {
 	// Find a composed/static class attr to merge the bag's class into, and a
 	// composed/static style attr whose declarations the bag's style merges over.
 	var classAttr *ast.ClassAttr    // composed class={ … }
@@ -477,14 +477,14 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			// No single static name (Cond) — no caller-wins shadow target; emit
 			// unguarded. (A SpreadAttr at the split position is consumed below, not
 			// here.)
-			return emitAttr(b, a, resolved, table, imports, cls, bag)
+			return emitAttr(b, a, resolved, table, imports, interpTemp, cls, bag)
 		}
 		if !guarded {
 			forcedNames = append(forcedNames, name)
-			return emitAttr(b, a, resolved, table, imports, cls, bag)
+			return emitAttr(b, a, resolved, table, imports, interpTemp, cls, bag)
 		}
 		fmt.Fprintf(b, "\t\tif !_gsxp.Attrs.Has(%s) {\n", strconv.Quote(name))
-		if !emitAttr(b, a, resolved, table, imports, cls, bag) {
+		if !emitAttr(b, a, resolved, table, imports, interpTemp, cls, bag) {
 			return false
 		}
 		b.WriteString("\t\t}\n")
@@ -515,7 +515,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			fmt.Fprintf(b, "\t\t\t_gsxgw.StyleMerged(%s, _gsxp.Attrs.Style())\n", styleStr)
 			b.WriteString("\t\t} else {\n")
 			if staticStyle != nil {
-				if !emitAttr(b, staticStyle, resolved, table, imports, cls, bag) {
+				if !emitAttr(b, staticStyle, resolved, table, imports, interpTemp, cls, bag) {
 					return false
 				}
 			} else {
@@ -619,9 +619,9 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 // root attrs before the spread are caller-overridable, attrs after are forced
 // (root wins). splitIdx is the bag SpreadAttr's index in el.Attrs (guaranteed
 // unique by the caller).
-func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, byo *byoData, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag) bool {
+func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, byo *byoData, imports map[string]bool, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag) bool {
 	emitS(b, "<"+el.Tag)
-	if !emitFallthroughAttrs(b, el.Attrs, splitIdx, resolved, table, imports, cls, bag) {
+	if !emitFallthroughAttrs(b, el.Attrs, splitIdx, resolved, table, imports, interpTemp, cls, bag) {
 		return false
 	}
 	if el.Void {
@@ -631,19 +631,19 @@ func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, res
 	emitS(b, ">")
 	if strings.EqualFold(el.Tag, "style") {
 		for _, c := range el.Children {
-			if !genStyleChild(b, c, resolved, table, imports, fset, bag) {
+			if !genStyleChild(b, c, resolved, table, imports, interpTemp, fset, bag) {
 				return false
 			}
 		}
 	} else if strings.EqualFold(el.Tag, "script") {
 		for _, c := range el.Children {
-			if !genScriptChild(b, c, resolved, table, imports, fset, bag) {
+			if !genScriptChild(b, c, resolved, table, imports, interpTemp, fset, bag) {
 				return false
 			}
 		}
 	} else {
 		for _, c := range el.Children {
-			if !genNode(b, c, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag) {
+			if !genNode(b, c, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag) {
 				return false
 			}
 		}
@@ -754,7 +754,7 @@ func rootStyleString(styleAttr *ast.ClassAttr, staticStyle *ast.StaticAttr, tabl
 // component's receiver var + type name (empty for a function component); they
 // thread down to genChildComponent for the method-vs-package disambiguation of a
 // dotted child-component tag.
-func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, byo *byoData, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag) bool {
+func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, byo *byoData, imports map[string]bool, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag) bool {
 	switch t := n.(type) {
 	case *ast.Text:
 		emitS(b, t.Value)
@@ -777,7 +777,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 	case *ast.Element:
 		emitLine(b, fset, t.Pos())
 		if isComponentTag(t.Tag) {
-			return genChildComponent(b, t, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag)
+			return genChildComponent(b, t, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag)
 		}
 		// MANUAL fallthrough: an element carrying the author's `{...attrs}` bag spread
 		// gets position-aware precedence (pre-spread overridable, post-spread forced).
@@ -787,11 +787,11 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 			bag.Errorf(t.Pos(), t.End(), "attr-fallthrough", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false
 		} else if found {
-			return emitManualSpreadElement(b, t, splitIdx, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag)
+			return emitManualSpreadElement(b, t, splitIdx, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag)
 		}
 		emitS(b, "<"+t.Tag)
 		for _, a := range t.Attrs {
-			if !emitAttr(b, a, resolved, table, imports, cls, bag) {
+			if !emitAttr(b, a, resolved, table, imports, interpTemp, cls, bag) {
 				return false
 			}
 		}
@@ -802,29 +802,29 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		emitS(b, ">")
 		if strings.EqualFold(t.Tag, "style") {
 			for _, c := range t.Children {
-				if !genStyleChild(b, c, resolved, table, imports, fset, bag) {
+				if !genStyleChild(b, c, resolved, table, imports, interpTemp, fset, bag) {
 					return false
 				}
 			}
 		} else if strings.EqualFold(t.Tag, "script") {
 			for _, c := range t.Children {
-				if !genScriptChild(b, c, resolved, table, imports, fset, bag) {
+				if !genScriptChild(b, c, resolved, table, imports, interpTemp, fset, bag) {
 					return false
 				}
 			}
 		} else {
 			for _, c := range t.Children {
-				if !genNode(b, c, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag) {
+				if !genNode(b, c, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag) {
 					return false
 				}
 			}
 		}
 		emitS(b, "</"+t.Tag+">")
 	case *ast.Interp:
-		return genInterp(b, t, resolved, table, imports, fset, bag)
+		return genInterp(b, t, resolved, table, imports, interpTemp, fset, bag)
 	case *ast.Fragment:
 		for _, c := range t.Children {
-			if !genNode(b, c, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag) {
+			if !genNode(b, c, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag) {
 				return false
 			}
 		}
@@ -832,7 +832,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		emitLine(b, fset, t.Pos())
 		fmt.Fprintf(b, "for %s {\n", t.Clause)
 		for _, c := range t.Body {
-			if !genNode(b, c, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag) {
+			if !genNode(b, c, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag) {
 				return false
 			}
 		}
@@ -841,7 +841,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		emitLine(b, fset, t.Pos())
 		fmt.Fprintf(b, "if %s {\n", t.Cond)
 		for _, c := range t.Then {
-			if !genNode(b, c, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag) {
+			if !genNode(b, c, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag) {
 				return false
 			}
 		}
@@ -849,7 +849,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		if t.Else != nil {
 			b.WriteString(" else {\n")
 			for _, c := range t.Else {
-				if !genNode(b, c, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag) {
+				if !genNode(b, c, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag) {
 					return false
 				}
 			}
@@ -866,7 +866,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 				fmt.Fprintf(b, "case %s:\n", cc.List)
 			}
 			for _, c := range cc.Body {
-				if !genNode(b, c, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag) {
+				if !genNode(b, c, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag) {
 					return false
 				}
 			}
@@ -886,7 +886,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 // genInterp emits the type-aware writer call for an interpolation. The type comes
 // from the go/types resolution pass; the expression is emitted verbatim (params
 // are in scope as locals).
-func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet, bag *diag.Bag) bool {
+func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, fset *token.FileSet, bag *diag.Bag) bool {
 	emitLine(b, fset, n.Pos())
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
@@ -917,17 +917,13 @@ func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type,
 			return false
 		}
 		// v, err := expr; if err != nil { return err }; then render v by its type.
-		tmp := fmt.Sprintf("_gsxv%d", interpTemp)
-		interpTemp++
+		tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+		*interpTemp++
 		fmt.Fprintf(b, "\t\t%s, _gsxerr := %s\n\t\tif _gsxerr != nil {\n\t\t\treturn _gsxerr\n\t\t}\n", tmp, expr)
 		return emitRender(b, tmp, tup.At(0).Type(), imports, n, bag)
 	}
 	return emitRender(b, expr, t, imports, n, bag)
 }
-
-// interpTemp gives unique unwrap temp names within a generated file. It is reset
-// at the start of generateFile.
-var interpTemp int
 
 // emitLine writes a //line directive mapping subsequent output to the gsx node's
 // source position, so Go compiler errors point at the .gsx file. The directive
@@ -980,13 +976,13 @@ func emitS(b *bytes.Buffer, s string) {
 // genStyleChild emits one child of a <style> element. Text is raw CSS (verbatim);
 // an Interp is rendered in CSS context (auto-sanitized). <style> bodies contain
 // only Text and @{ } interps (parser guarantee).
-func genStyleChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet, bag *diag.Bag) bool {
+func genStyleChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, fset *token.FileSet, bag *diag.Bag) bool {
 	switch t := n.(type) {
 	case *ast.Text:
 		emitS(b, t.Value)
 		return true
 	case *ast.Interp:
-		return emitCSSInterp(b, t, resolved, table, imports, fset, bag)
+		return emitCSSInterp(b, t, resolved, table, imports, interpTemp, fset, bag)
 	default:
 		bag.Errorf(n.Pos(), n.End(), "unsupported-style-node", "<style> body may contain only text and @{ } interpolations, got %T", n)
 		return false
@@ -994,7 +990,7 @@ func genStyleChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Ty
 }
 
 // emitCSSInterp renders a <style> interpolation value in CSS block context.
-func emitCSSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet, bag *diag.Bag) bool {
+func emitCSSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, fset *token.FileSet, bag *diag.Bag) bool {
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
 		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table)
@@ -1017,8 +1013,8 @@ func emitCSSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.T
 			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "<style> interpolation %q returns %s; only (T, error) is supported", expr, t)
 			return false
 		}
-		tmp := fmt.Sprintf("_gsxv%d", interpTemp)
-		interpTemp++
+		tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+		*interpTemp++
 		fmt.Fprintf(b, "\t\t%s, _gsxerr := %s\n\t\tif _gsxerr != nil {\n\t\t\treturn _gsxerr\n\t\t}\n", tmp, expr)
 		return emitRenderCSS(b, tmp, tup.At(0).Type(), imports, n, bag)
 	}
@@ -1058,13 +1054,13 @@ func emitRenderCSS(b *bytes.Buffer, expr string, t types.Type, imports map[strin
 // (verbatim); an Interp is rendered through the JS escaper selected by its
 // JSCtx (set by internal/jsx). Comment-context holes were already un-split to
 // Text by jsx.ResolveScripts, so they arrive here as Text.
-func genScriptChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet, bag *diag.Bag) bool {
+func genScriptChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, fset *token.FileSet, bag *diag.Bag) bool {
 	switch t := n.(type) {
 	case *ast.Text:
 		emitS(b, t.Value)
 		return true
 	case *ast.Interp:
-		return emitJSInterp(b, t, resolved, table, imports, fset, bag)
+		return emitJSInterp(b, t, resolved, table, imports, interpTemp, fset, bag)
 	default:
 		bag.Errorf(n.Pos(), n.End(), "unsupported-script-node", "<script> body may contain only text and @{ } interpolations, got %T", n)
 		return false
@@ -1074,7 +1070,7 @@ func genScriptChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.T
 // emitJSInterp renders a <script> interpolation value through the runtime JS
 // escaper chosen by its JSCtx. It mirrors emitCSSInterp's pipeline-stage handling
 // and (T, error) tuple auto-unwrap.
-func emitJSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, fset *token.FileSet, bag *diag.Bag) bool {
+func emitJSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, fset *token.FileSet, bag *diag.Bag) bool {
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
 		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table)
@@ -1098,8 +1094,8 @@ func emitJSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Ty
 			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "<script> interpolation %q returns %s; only (T, error) is supported", expr, t)
 			return false
 		}
-		tmp := fmt.Sprintf("_gsxv%d", interpTemp)
-		interpTemp++
+		tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+		*interpTemp++
 		fmt.Fprintf(b, "\t\t%s, _gsxerr := %s\n\t\tif _gsxerr != nil {\n\t\t\treturn _gsxerr\n\t\t}\n", tmp, expr)
 		return emitJSValue(b, n.JSCtx, tmp, tup.At(0).Type(), imports, n, bag)
 	}
@@ -1170,16 +1166,16 @@ func spreadAttrExpr(a *ast.SpreadAttr, table filterTable, imports map[string]boo
 // emitAttr emits one element attribute. Static values are escaped at codegen and
 // always double-quoted; bool attrs use gw.BoolAttr. Expr attrs are handled in a
 // later task; the deferred attr kinds error clearly.
-func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, cls *attrclass.Classifier, bag *diag.Bag) bool {
+func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, bag *diag.Bag) bool {
 	switch t := a.(type) {
 	case *ast.StaticAttr:
 		fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+t.Name+`="`+htmlAttrEscape(t.Value)+`"`))
 	case *ast.BoolAttr:
 		fmt.Fprintf(b, "\t\t_gsxgw.BoolAttr(%s, true)\n", strconv.Quote(t.Name))
 	case *ast.ExprAttr:
-		return emitExprAttr(b, t, resolved, table, imports, cls, bag)
+		return emitExprAttr(b, t, resolved, table, imports, interpTemp, cls, bag)
 	case *ast.JSAttr:
-		return emitJSAttr(b, t, resolved, table, imports, bag)
+		return emitJSAttr(b, t, resolved, table, imports, interpTemp, bag)
 	case *ast.ClassAttr:
 		// class -> token merge (gw.Class); style -> '; '-joined declarations
 		// (gw.Style) with dynamic parts CSS-value-filtered.
@@ -1214,14 +1210,14 @@ func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, tab
 		// control construct, and each nested attr emit carries its own line map.)
 		fmt.Fprintf(b, "\t\tif %s {\n", t.Cond)
 		for _, inner := range t.Then {
-			if !emitAttr(b, inner, resolved, table, imports, cls, bag) {
+			if !emitAttr(b, inner, resolved, table, imports, interpTemp, cls, bag) {
 				return false
 			}
 		}
 		if len(t.Else) > 0 {
 			b.WriteString("\t\t} else {\n")
 			for _, inner := range t.Else {
-				if !emitAttr(b, inner, resolved, table, imports, cls, bag) {
+				if !emitAttr(b, inner, resolved, table, imports, interpTemp, cls, bag) {
 					return false
 				}
 			}
@@ -1239,14 +1235,14 @@ func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, tab
 // @{ } holes (form 2a, e.g. x-data="{ tab: @{ x } }"). Static JS text is
 // HTML-attr-escaped at codegen so <,>,& survive the attribute; each hole is
 // escaped by its JSCtx and then HTML-attr-escaped (the *Attr escapers do both).
-func emitJSAttr(b *bytes.Buffer, a *ast.JSAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, bag *diag.Bag) bool {
+func emitJSAttr(b *bytes.Buffer, a *ast.JSAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
 	for _, seg := range a.Segments {
 		switch s := seg.(type) {
 		case *ast.Text:
 			fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(htmlAttrEscape(s.Value)))
 		case *ast.Interp:
-			if !emitJSAttrInterp(b, s, resolved, table, imports, bag) {
+			if !emitJSAttrInterp(b, s, resolved, table, imports, interpTemp, bag) {
 				return false
 			}
 		default:
@@ -1262,7 +1258,7 @@ func emitJSAttr(b *bytes.Buffer, a *ast.JSAttr, resolved map[ast.Node]types.Type
 // the runtime *Attr escaper chosen by its JSCtx. It mirrors emitJSInterp's
 // pipeline-stage handling and (T, error) tuple auto-unwrap, but routes to the
 // JS*Attr methods (which additionally HTML-attr-escape).
-func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, bag *diag.Bag) bool {
+func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
 		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table)
@@ -1285,8 +1281,8 @@ func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]type
 			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "JS attribute interpolation %q returns %s; only (T, error) is supported", expr, t)
 			return false
 		}
-		tmp := fmt.Sprintf("_gsxv%d", interpTemp)
-		interpTemp++
+		tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+		*interpTemp++
 		fmt.Fprintf(b, "\t\t%s, _gsxerr := %s\n\t\tif _gsxerr != nil {\n\t\t\treturn _gsxerr\n\t\t}\n", tmp, expr)
 		return emitJSAttrValue(b, n.JSCtx, tmp, tup.At(0).Type(), n, bag)
 	}
@@ -1431,7 +1427,7 @@ func htmlAttrEscape(s string) string {
 // context is contextually sanitized (gw.CSS) with a gsx.RawCSS author opt-out; a
 // JS context routes through gw.JSValAttr. Both are handled in the value-emit
 // section below by their respective branches.
-func emitExprAttr(b *bytes.Buffer, a *ast.ExprAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, cls *attrclass.Classifier, bag *diag.Bag) bool {
+func emitExprAttr(b *bytes.Buffer, a *ast.ExprAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, bag *diag.Bag) bool {
 	// (1) value expression: lower a pipeline to nested std calls (same lowerPipe
 	// the probe used, so resolved[a] is already the pipeline's RESULT type), else
 	// the bare trimmed expr.
@@ -1461,8 +1457,8 @@ func emitExprAttr(b *bytes.Buffer, a *ast.ExprAttr, resolved map[ast.Node]types.
 			bag.Errorf(a.Pos(), a.End(), "invalid-tuple", "attribute %q value %q returns %s; only (T, error) is supported", a.Name, a.Expr, t)
 			return false
 		}
-		tmp := fmt.Sprintf("_gsxv%d", interpTemp)
-		interpTemp++
+		tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+		*interpTemp++
 		fmt.Fprintf(b, "\t\t%s, _gsxerr := %s\n\t\tif _gsxerr != nil {\n\t\t\treturn _gsxerr\n\t\t}\n", tmp, expr)
 		expr = tmp
 		t = tup.At(0).Type()
@@ -1829,7 +1825,7 @@ func childInvocation(el *ast.Element, byo *byoData, recvVar, recvTypeName string
 // recvVar/recvTypeName are the ENCLOSING component's receiver var + type name
 // (empty for a function component); they drive the method-vs-package
 // disambiguation via childInvocation.
-func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, byo *byoData, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag) bool {
+func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, byo *byoData, imports map[string]bool, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag) bool {
 	// A bare-call candidate tag (isBareCallCandidate — a hand-written same-package
 	// func, or a .gsx no-props component) was probed via _gsxcompsig, so harvest
 	// stored its real signature in resolved[el]. A nullary func is a bare call
@@ -1872,7 +1868,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 	// When splatExpr is non-empty, the call is a whole-struct splat: emit
 	// callTarget(splatExpr) directly, bypassing the Props{…} literal.
 	fields, splatExpr, usedPkgs, err := childPropsLiteral(el, propsType, "gsx", table, structFields, nodeProps[propsType], byo, fm, func(nodes []ast.Markup) (string, error) {
-		s, ok := emitSlotClosure(nodes, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag)
+		s, ok := emitSlotClosure(nodes, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag)
 		if !ok {
 			return "", fmt.Errorf("slot closure failed")
 		}
@@ -1944,12 +1940,12 @@ func childPropsErrorCode(err error) string {
 // EXACTLY — same reserved idents (_gsxw/_gsxgw), gsx.W/gsx.Func, and trailing
 // Err() — so the slot streams to the same output, in THIS (parent) scope. It is
 // shared by the Children slot and every named markup slot so they cannot drift.
-func emitSlotClosure(nodes []ast.Markup, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, byo *byoData, imports map[string]bool, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag) (string, bool) {
+func emitSlotClosure(nodes []ast.Markup, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, byo *byoData, imports map[string]bool, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag) (string, bool) {
 	var slot bytes.Buffer
 	slot.WriteString("gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {\n")
 	slot.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
 	for _, c := range nodes {
-		if !genNode(&slot, c, resolved, table, structFields, nodeProps, byo, imports, fset, recvVar, recvTypeName, cls, fm, bag) {
+		if !genNode(&slot, c, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag) {
 			return "", false
 		}
 	}

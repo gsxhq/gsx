@@ -10,6 +10,7 @@ import (
 // TestUnusedImportsDetected: a .gsx that imports "strings" and "os" but uses
 // neither lists both in UnusedImports; a used import is absent.
 func TestUnusedImportsDetected(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	repoRoot, _ := filepath.Abs("../..")
 	writeFile(t, dir, "go.mod",
@@ -43,6 +44,7 @@ func TestUnusedImportsDetected(t *testing.T) {
 // be resolved (typo'd / not fetched) produces a "could not import" error on the
 // import line, NOT "imported and not used". It must never be reported unused.
 func TestUnusedImportsGateOnBrokenImport(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	repoRoot, _ := filepath.Abs("../..")
 	writeFile(t, dir, "go.mod",
@@ -67,6 +69,7 @@ func TestUnusedImportsGateOnBrokenImport(t *testing.T) {
 // error, UnusedImports stays empty even though an unused import is present —
 // removing under uncertainty is unsafe.
 func TestUnusedImportsGateOnOtherError(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	repoRoot, _ := filepath.Abs("../..")
 	writeFile(t, dir, "go.mod",

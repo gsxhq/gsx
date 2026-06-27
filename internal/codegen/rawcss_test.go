@@ -11,6 +11,7 @@ import (
 // CSS value-filter: codegen emits it raw via gw.S, while a plain string goes through
 // gw.CSS. The alias case exercises types.Unalias in isRawCSS.
 func TestRawCSSAliasOptsOut(t *testing.T) {
+	t.Parallel()
 	repoRoot, _ := filepath.Abs("../..")
 	tmp := t.TempDir()
 	writeFile(t, tmp, "go.mod", "module gsxl\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")

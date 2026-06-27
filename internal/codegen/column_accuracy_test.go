@@ -27,6 +27,7 @@ import (
 // byte 8 = len("_gsxuse(")) reports col 7+8=15.
 // After this fix: column must be 9.
 func TestInterpColumnAccuracy(t *testing.T) {
+	t.Parallel()
 	mod := tempModule(t, "gsxcoltest")
 	viewsDir := filepath.Join(mod, "views")
 	if err := os.MkdirAll(viewsDir, 0o755); err != nil {
@@ -88,6 +89,7 @@ func TestInterpColumnAccuracy(t *testing.T) {
 // The '{' col is 1, so base anchored col = 1+8 = 9.
 // Assertion: reported column ≤ (col of '{') + 8.
 func TestInterpShallowColumnNoRegression(t *testing.T) {
+	t.Parallel()
 	mod := tempModule(t, "gsxshallowtest")
 	viewsDir := filepath.Join(mod, "views")
 	if err := os.MkdirAll(viewsDir, 0o755); err != nil {

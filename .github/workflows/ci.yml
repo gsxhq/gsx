@@ -1,12 +1,17 @@
 name: CI
 
 # Comprehensive checks for the gsx repo. Runs on every push to main and on PRs.
+#
+# Each job invokes a Makefile target so the commands stay defined in ONE place
+# (the Makefile, which developers run locally as `make ci`); this workflow only
+# provides the runner, Go/Node toolchain, and job-level parallelism. Keep CI and
+# the Makefile in sync by editing the targets, not by duplicating commands here.
 # Jobs:
-#   build-test  — compile + vet + test BOTH Go modules (root gsx + playground/server)
-#   examples    — render-check every example AND guard against stale generated artifacts
+#   build-test  — `make ci-gomod` + `make ci-playground` (both Go modules)
+#   examples    — `make ci-examples` (regenerate artifacts, fail on drift)
 #   docs        — build the VitePress site against this checkout (catches gsx docs/guide
 #                 markdown that breaks the site — e.g. raw {{ }} / <tags> in prose)
-#   format      — gofmt + gsx fmt (advisory; see note on the job)
+#   format      — `make ci-format` (gofmt + gsx fmt)
 
 on:
   push:
@@ -29,36 +34,24 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-      - name: Build (gsx module)
-        run: go build ./...
-      - name: Vet (gsx module)
-        run: go vet ./...
-      - name: Test (gsx module)
-        run: go test ./... -count=1
-      - name: Build + test (playground/server module)
-        working-directory: playground/server
-        run: |
-          go build ./...
-          go test ./... -count=1
+      - name: gsx module (build · vet · test)
+        run: make ci-gomod
+      - name: playground/server module (build · test)
+        run: make ci-playground
 
   examples:
     name: examples render + drift
     runs-on: ubuntu-latest
+    # Render-checking every example (TestExamples) is covered by `make ci-gomod`'s
+    # `go test ./...` in the build-test job; this job guards the generated artifacts.
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-      - name: Render-check every example (compile + go run + golden)
-        run: go test ./internal/corpus/ -run TestExamples -count=1
       - name: Generated artifacts match the fixtures (no uncommitted drift)
-        run: |
-          make examples
-          if ! git diff --exit-code -- docs/guide/examples.md docs/examples.json playground/server/examples.json; then
-            echo "::error::examples artifacts are stale — run 'make examples' and commit the result"
-            exit 1
-          fi
+        run: make ci-examples
 
   docs:
     name: docs build (VitePress)
@@ -98,14 +91,5 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-      - name: gofmt
-        run: |
-          files=$(gofmt -l $(git ls-files '*.go' | grep -v /testdata/))
-          if [ -n "$files" ]; then
-            echo "::error::these Go files need gofmt:"; echo "$files"; exit 1
-          fi
-      - name: gsx fmt
-        run: |
-          if ! go run ./cmd/gsx fmt -l .; then
-            echo "::error::the listed .gsx files need 'gsx fmt -w'"; exit 1
-          fi
+      - name: gofmt + gsx fmt
+        run: make ci-format

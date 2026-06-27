@@ -10,6 +10,7 @@ import (
 // a different buildCtx string must produce a different cache key, and the same
 // buildCtx must produce the same key (stability).
 func TestBuildContextKeySensitivity(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module ex/bctx\n\ngo 1.26\n"), 0o644)
 	os.MkdirAll(filepath.Join(tmp, "a"), 0o755)
@@ -46,6 +47,7 @@ func TestBuildContextKeySensitivity(t *testing.T) {
 }
 
 func TestDirSourceHashStableAndSensitive(t *testing.T) {
+	t.Parallel()
 	d := t.TempDir()
 	os.WriteFile(filepath.Join(d, "a.gsx"), []byte("package v\ncomponent A(){<p>x</p>}\n"), 0o644)
 	h1, err := dirSourceHash(d)
@@ -80,6 +82,7 @@ func TestDirSourceHashStableAndSensitive(t *testing.T) {
 }
 
 func TestComputeKeyDepClosure(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module ex/app\n\ngo 1.26\n"), 0o644)
 	mk := func(p, content string) {
@@ -125,6 +128,7 @@ func loadGraphMust(t *testing.T, root string) map[string]pkgInfo {
 // produces a different cache key (so changing attr rules invalidates the cache),
 // and that the same fingerprint produces the same key (stability).
 func TestComputeKeyFingerprintSensitivity(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module ex/fptest\n\ngo 1.26\n"), 0o644)
 	os.MkdirAll(filepath.Join(tmp, "a"), 0o755)

@@ -7,6 +7,7 @@ import (
 )
 
 func TestLSPAnalyzeUsesWarmModule(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}

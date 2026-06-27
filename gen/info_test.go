@@ -14,6 +14,7 @@ import (
 // TestRunInfoStd drives runInfo against the repo root (a module that resolves
 // std) and checks the output lists std filters and the filter-packages header.
 func TestRunInfoStd(t *testing.T) {
+	t.Parallel()
 	repoRoot, err := filepath.Abs("..")
 	if err != nil {
 		t.Fatal(err)
@@ -35,6 +36,7 @@ func TestRunInfoStd(t *testing.T) {
 // single "gsx " prefix (regression: version() began returning a banner that
 // itself starts with "gsx ", which doubled the prefix to "gsx gsx ...").
 func TestRunInfoVersionSingleLine(t *testing.T) {
+	t.Parallel()
 	repoRoot, err := filepath.Abs("..")
 	if err != nil {
 		t.Fatal(err)
@@ -51,6 +53,7 @@ func TestRunInfoVersionSingleLine(t *testing.T) {
 
 // TestRunInfoShadow proves a shadowed filter is marked with "(shadows ".
 func TestRunInfoShadow(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-load shadow test in -short mode")
 	}
@@ -81,6 +84,7 @@ func TestRunInfoShadow(t *testing.T) {
 
 // TestRunInfoBadPkg proves a non-existent filter package makes runInfo exit 1.
 func TestRunInfoBadPkg(t *testing.T) {
+	t.Parallel()
 	repoRoot, err := filepath.Abs("..")
 	if err != nil {
 		t.Fatal(err)
@@ -97,6 +101,7 @@ func TestRunInfoBadPkg(t *testing.T) {
 // alias still shows which config is in effect (spec §6 debugging scenario). The
 // exit stays nonzero, but the config line must already be on stdout.
 func TestRunInfoPrintsConfigBeforeFilterError(t *testing.T) {
+	t.Parallel()
 	repoRoot, err := filepath.Abs("..")
 	if err != nil {
 		t.Fatal(err)

@@ -14,6 +14,7 @@ import (
 )
 
 func TestImportPathDirRoundTrip(t *testing.T) {
+	t.Parallel()
 	root := "/m"
 	mod := "example.com/app"
 	// dir under root → import path
@@ -38,6 +39,7 @@ func TestImportPathDirRoundTrip(t *testing.T) {
 }
 
 func TestCheckSkeletonPackageReturnsPkg(t *testing.T) {
+	t.Parallel()
 	src := "package p\n\nfunc F() int { return 1 }\n"
 	fset := token.NewFileSet()
 	f, err := goparser.ParseFile(fset, "/m/p/p.go", src, goparser.SkipObjectResolution)
@@ -57,6 +59,7 @@ func TestCheckSkeletonPackageReturnsPkg(t *testing.T) {
 }
 
 func TestModuleSourceOverrideThenDisk(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	onDisk := filepath.Join(dir, "a.gsx")
 	if err := os.WriteFile(onDisk, []byte("DISK"), 0o644); err != nil {
@@ -82,6 +85,7 @@ func TestModuleSourceOverrideThenDisk(t *testing.T) {
 }
 
 func TestModuleImporterCrossPackageNoXGo(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	repoRoot, _ := filepath.Abs("../..")
 	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
@@ -133,6 +137,7 @@ func TestModuleImporterCrossPackageNoXGo(t *testing.T) {
 }
 
 func TestModulePackageRetainsAnalysis(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	repoRoot, _ := filepath.Abs("../..")
 	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
@@ -160,6 +165,7 @@ func TestModulePackageRetainsAnalysis(t *testing.T) {
 // bytes (keyed by gsx path) containing the expected package declaration and
 // function signature.
 func TestModuleGenerateProducesXGo(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	repoRoot, _ := filepath.Abs("../..")
 	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
@@ -185,6 +191,7 @@ func TestModuleGenerateProducesXGo(t *testing.T) {
 // moduleImporter.Import returns an error (not an infinite recursion/hang) when
 // two gsx packages mutually import each other.
 func TestModuleImporterRejectsImportCycle(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	repoRoot, _ := filepath.Abs("../..")
 	writeFile(t, root, "go.mod", "module example.com/cycle\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
@@ -218,6 +225,7 @@ func TestModuleImporterRejectsImportCycle(t *testing.T) {
 // output (empty map) while still returning a non-empty diagnostics slice —
 // matching batch's package-level-skip semantics.
 func TestModuleGenerateSkipsPackageOnScriptResolutionFailure(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	repoRoot, _ := filepath.Abs("../..")
 	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
@@ -253,6 +261,7 @@ func TestModuleGenerateSkipsPackageOnScriptResolutionFailure(t *testing.T) {
 // generateFile). Multiple goroutines call m.Package concurrently on different
 // project packages within a single Module.
 func TestModuleConcurrentPackage(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	repoRoot, _ := filepath.Abs("../..")
 	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")

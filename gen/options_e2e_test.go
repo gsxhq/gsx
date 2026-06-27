@@ -12,6 +12,7 @@ import (
 // flows through the user filter. This is the end-to-end equivalent of
 // gen.Main(gen.WithFilters(std.Pkg, myfilters.Pkg)).
 func TestGenerateWithUserFilter(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping go-build/run test in -short mode")
 	}

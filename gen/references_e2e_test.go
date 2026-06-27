@@ -13,6 +13,7 @@ import (
 // TestReferences: references on Card (from its card.gsx declaration) returns the
 // main.go call site AND the page.gsx <Card/> tag.
 func TestReferences(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip()
 	}
@@ -91,6 +92,7 @@ func refFrame(v any) string {
 // TestReferencesFromGoCursor: references invoked from a .go call site (cursor on
 // Card in main.go) returns both the .go and .gsx use sites.
 func TestReferencesFromGoCursor(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip()
 	}
@@ -119,6 +121,7 @@ func TestReferencesFromGoCursor(t *testing.T) {
 // .gsx <Card/> TAG cursor returns empty (component-tag resolution is a follow-up;
 // invoke references from the declaration or a .go site instead).
 func TestReferencesTagCursorEmpty(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip()
 	}
@@ -145,6 +148,7 @@ func TestReferencesTagCursorEmpty(t *testing.T) {
 // TestGoScopingNonGsxPackage: a .go file in a package with NO .gsx files — gsx-LSP
 // must return null (it defers entirely to gopls).
 func TestGoScopingNonGsxPackage(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip()
 	}

@@ -3,6 +3,7 @@ package gen
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -23,13 +24,15 @@ component A(ctx string) {
 func runGenerateArgs(t *testing.T, args []string) (int, string, string) {
 	t.Helper()
 	var out, errb bytes.Buffer
-	code := runGenerate(args, &out, &errb, false, false, true /*noCache*/, nil, nil, attrclass.Builtin(), nil, nil, nil, true, true)
+	wd, _ := os.Getwd()
+	code := runGenerate(args, &out, &errb, false, false, true /*noCache*/, nil, nil, attrclass.Builtin(), nil, nil, nil, true, true, wd)
 	return code, out.String(), errb.String()
 }
 
 // TestGenerateDiagNonZeroExit proves that a .gsx with a codegen error (reserved-param)
 // causes runGenerate to exit with code 1.
 func TestGenerateDiagNonZeroExit(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -46,6 +49,7 @@ func TestGenerateDiagNonZeroExit(t *testing.T) {
 // runGenerate emits a compact-format diagnostic line containing "error[" and
 // the file position.
 func TestGenerateDiagCompactOutput(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -66,6 +70,7 @@ func TestGenerateDiagCompactOutput(t *testing.T) {
 // JSON array on stdout containing the diagnostic with the expected code field,
 // and the exit code is still non-zero.
 func TestGenerateDiagJSONOutput(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -100,6 +105,7 @@ func TestGenerateDiagJSONOutput(t *testing.T) {
 // TestGenerateDiagJSONNoStderr proves that --json writes nothing to stderr for
 // diagnostics (only to stdout), keeping stderr clean for scripted use.
 func TestGenerateDiagJSONNoStderr(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -117,6 +123,7 @@ func TestGenerateDiagJSONNoStderr(t *testing.T) {
 // error: the fields file, range.start/end, severity, code, and source must be
 // present and have the expected types and values. This is the JSON-shape golden.
 func TestGenerateDiagJSONShape(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -192,6 +199,7 @@ func TestGenerateDiagJSONShape(t *testing.T) {
 // file or directory". The fix pre-partitions args into flags and positionals
 // before calling gfs.Parse.
 func TestGenerateDiagJSONFlagAfterPath(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}

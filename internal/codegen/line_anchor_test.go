@@ -91,6 +91,7 @@ func assertFuncAnchor(t *testing.T, genSrc, file, name string, wantLine int) {
 // Regression guard for go-to-definition on a component referenced as a Go call in
 // a `{ }` hole (cross-package path), which jumped to a drifted body line before.
 func TestComponentFuncLineAnchorCodegen(t *testing.T) {
+	t.Parallel()
 	repoRoot, _ := filepath.Abs("../..")
 	tmp := t.TempDir()
 	writeFile(t, tmp, "go.mod", "module gsxa\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
@@ -165,6 +166,7 @@ func assertFuncNameAnchorColumn(t *testing.T, skel, src, name string) {
 // each component func-decl points to the NAME column (not the `component` keyword
 // column). This makes LSP go-to-definition land on the component name precisely.
 func TestComponentFuncNameColumnAnchorSkeleton(t *testing.T) {
+	t.Parallel()
 	repoRoot, _ := filepath.Abs("../..")
 	tmp := t.TempDir()
 	writeFile(t, tmp, "go.mod", "module gsxa\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
@@ -203,6 +205,7 @@ func TestComponentFuncNameColumnAnchorSkeleton(t *testing.T) {
 // Regression guard for the SAME-package go-to-definition path (`{ LocalComp(…) }`),
 // which resolves through the skeleton, not the on-disk .x.go.
 func TestComponentFuncLineAnchorSkeleton(t *testing.T) {
+	t.Parallel()
 	repoRoot, _ := filepath.Abs("../..")
 	tmp := t.TempDir()
 	writeFile(t, tmp, "go.mod", "module gsxa\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")

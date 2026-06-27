@@ -9,6 +9,7 @@ import (
 
 // A file with TWO independent type errors must report BOTH (not just the first).
 func TestAllTypeErrorsReported(t *testing.T) {
+	t.Parallel()
 	// Create a temp module rooted at a real Go module so packages.Load works.
 	mod := tempModule(t, "gsxdiagwiretest")
 

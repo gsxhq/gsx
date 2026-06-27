@@ -12,6 +12,7 @@ import (
 )
 
 func TestWithAttrOptionsBuildClassifier(t *testing.T) {
+	t.Parallel()
 	var cfg config
 	WithJSAttrs(attrclass.Rule{Prefix: "wire:"})(&cfg)
 	WithURLAttrs(attrclass.Rule{Name: "data-href"})(&cfg)
@@ -32,6 +33,7 @@ func TestWithAttrOptionsBuildClassifier(t *testing.T) {
 }
 
 func TestWithAttrsRejectsInvalidRule(t *testing.T) {
+	t.Parallel()
 	var cfg config
 	WithJSAttrs(attrclass.Rule{Name: "x", Prefix: "y"})(&cfg) // both set
 	if len(cfg.errs) == 0 {
@@ -40,6 +42,7 @@ func TestWithAttrsRejectsInvalidRule(t *testing.T) {
 }
 
 func TestWithAttrClassifierSetsPredicate(t *testing.T) {
+	t.Parallel()
 	var cfg config
 	WithAttrClassifier("fancy", func(name string) (attrclass.Context, bool) {
 		if name == "fancy-go" {
@@ -71,6 +74,7 @@ func applyOpts(opts ...Option) config {
 // TestWithFiltersStdPath proves WithFilters(std.Pkg) records the std import
 // path recovered via reflection.
 func TestWithFiltersStdPath(t *testing.T) {
+	t.Parallel()
 	cfg := applyOpts(WithFilters(std.Pkg))
 	if len(cfg.errs) != 0 {
 		t.Fatalf("unexpected errs: %v", cfg.errs)
@@ -92,6 +96,7 @@ const genPath = "github.com/gsxhq/gsx/gen"
 // TestWithFiltersOrderAndDedup proves order is preserved (overrides last) and
 // duplicate package paths are collapsed to a single first-seen entry.
 func TestWithFiltersOrderAndDedup(t *testing.T) {
+	t.Parallel()
 	cfg := applyOpts(WithFilters(std.Pkg, otherPkg, std.Pkg))
 	if len(cfg.errs) != 0 {
 		t.Fatalf("unexpected errs: %v", cfg.errs)
@@ -107,6 +112,7 @@ func TestWithFiltersOrderAndDedup(t *testing.T) {
 // TestWithFiltersAcrossCalls proves dedup spans multiple WithFilters options
 // applied to the same config.
 func TestWithFiltersAcrossCalls(t *testing.T) {
+	t.Parallel()
 	cfg := applyOpts(WithFilters(std.Pkg), WithFilters(otherPkg), WithFilters(std.Pkg))
 	want := []string{stdPath, genPath}
 	if !reflect.DeepEqual(cfg.filterPkgs, want) {
@@ -117,6 +123,7 @@ func TestWithFiltersAcrossCalls(t *testing.T) {
 // TestWithFiltersNilMarkerRecorded proves a nil marker is recorded as an error
 // rather than silently dropped, and does not add a filter package.
 func TestWithFiltersNilMarkerRecorded(t *testing.T) {
+	t.Parallel()
 	cfg := applyOpts(WithFilters(nil))
 	if len(cfg.errs) == 0 {
 		t.Fatal("expected an error for a nil marker, got none")
@@ -129,6 +136,7 @@ func TestWithFiltersNilMarkerRecorded(t *testing.T) {
 // TestWithFiltersBuiltinMarkerRecorded proves a marker whose type has no
 // package path (a builtin/unnamed type) is recorded as an error, not dropped.
 func TestWithFiltersBuiltinMarkerRecorded(t *testing.T) {
+	t.Parallel()
 	cfg := applyOpts(WithFilters(42))
 	if len(cfg.errs) == 0 {
 		t.Fatal("expected an error for a builtin-typed marker, got none")
@@ -143,6 +151,7 @@ func TestWithFiltersBuiltinMarkerRecorded(t *testing.T) {
 // a temp module; the corpus covers built-in end-to-end. Here we assert the ext
 // func reaches holeless blocks only.)
 func TestWithCSSMinifierBoundary(t *testing.T) {
+	t.Parallel()
 	called := false
 	ext := func(css string) (string, error) { called = true; return "/*ext*/" + css, nil }
 
@@ -175,6 +184,7 @@ func TestWithCSSMinifierBoundary(t *testing.T) {
 }
 
 func TestWithCSSMinifierOption(t *testing.T) {
+	t.Parallel()
 	min := func(css string) (string, error) { return css, nil }
 	var cfg config
 	WithCSSMinifier(min)(&cfg)
@@ -184,6 +194,7 @@ func TestWithCSSMinifierOption(t *testing.T) {
 }
 
 func TestWithJSMinifierOption(t *testing.T) {
+	t.Parallel()
 	min := func(js string) (string, error) { return js, nil }
 	var cfg config
 	WithJSMinifier(min)(&cfg)

@@ -8,6 +8,7 @@ import (
 )
 
 func TestAnalyzeModuleCrossPkg(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip()
 	}

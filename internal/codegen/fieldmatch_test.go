@@ -3,6 +3,7 @@ package codegen
 import "testing"
 
 func TestDefaultFieldMatcher(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		attr      string
 		fields    []string
@@ -33,6 +34,7 @@ func TestDefaultFieldMatcher(t *testing.T) {
 }
 
 func TestAttrToFieldCandidate(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		attr string
 		want string

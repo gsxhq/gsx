@@ -12,7 +12,8 @@ import (
 func fmtCapture(t *testing.T, args []string) (int, string, string) {
 	t.Helper()
 	var out, errb bytes.Buffer
-	code := runFmt(&out, &errb, args, nil, nil)
+	wd, _ := os.Getwd()
+	code := runFmt(&out, &errb, args, nil, nil, wd)
 	return code, out.String(), errb.String()
 }
 
@@ -30,6 +31,7 @@ component   Hi(name string) {
 // TestFmtDefaultStdout proves the default mode writes formatted output to stdout
 // and does not touch the file on disk.
 func TestFmtDefaultStdout(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	p := filepath.Join(dir, "hi.gsx")
 	if err := os.WriteFile(p, []byte(unformattedGsx), 0o644); err != nil {
@@ -51,6 +53,7 @@ func TestFmtDefaultStdout(t *testing.T) {
 
 // TestFmtListUnformatted proves -l lists an unformatted file and exits 1.
 func TestFmtListUnformatted(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	p := filepath.Join(dir, "hi.gsx")
 	if err := os.WriteFile(p, []byte(unformattedGsx), 0o644); err != nil {
@@ -68,6 +71,7 @@ func TestFmtListUnformatted(t *testing.T) {
 // TestFmtListFormatted proves -l on an already-canonical file exits 0 with no
 // output. The canonical form is obtained by running fmt's default mode first.
 func TestFmtListFormatted(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	p := filepath.Join(dir, "hi.gsx")
 	if err := os.WriteFile(p, []byte(unformattedGsx), 0o644); err != nil {
@@ -90,6 +94,7 @@ func TestFmtListFormatted(t *testing.T) {
 // TestFmtWriteIdempotent proves -w rewrites a changed file and is a no-op on the
 // second run.
 func TestFmtWriteIdempotent(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	p := filepath.Join(dir, "hi.gsx")
 	if err := os.WriteFile(p, []byte(unformattedGsx), 0o644); err != nil {
@@ -123,6 +128,7 @@ func TestFmtWriteIdempotent(t *testing.T) {
 // TestFmtParseError proves a parse-error file is reported to stderr and exits 1,
 // while other files in the same invocation still format.
 func TestFmtParseError(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	bad := filepath.Join(dir, "bad.gsx")
 	if err := os.WriteFile(bad, []byte("package views\n\ncomponent Broken( {\n"), 0o644); err != nil {
@@ -148,6 +154,7 @@ func TestFmtParseError(t *testing.T) {
 // TestFmtDirRecursive proves a directory arg recurses for .gsx files and skips
 // junk dirs (here a hidden dir).
 func TestFmtDirRecursive(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "a.gsx"), []byte(unformattedGsx), 0o644); err != nil {
 		t.Fatal(err)
@@ -185,6 +192,7 @@ func TestFmtDirRecursive(t *testing.T) {
 // TestFmtDiff proves -d emits a unified-diff-style block for a changed file and
 // exits 1.
 func TestFmtDiff(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	p := filepath.Join(dir, "hi.gsx")
 	if err := os.WriteFile(p, []byte(unformattedGsx), 0o644); err != nil {
@@ -204,6 +212,7 @@ func TestFmtDiff(t *testing.T) {
 
 // TestFmtRemovesUnusedImport: `gsx fmt -w` drops an unused import by default.
 func TestFmtRemovesUnusedImport(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -229,6 +238,7 @@ func TestFmtRemovesUnusedImport(t *testing.T) {
 
 // TestFmtNoImportsKeepsUnused: `-no-imports` skips removal (syntactic only).
 func TestFmtNoImportsKeepsUnused(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}
@@ -255,6 +265,7 @@ func TestFmtNoImportsKeepsUnused(t *testing.T) {
 // TestFmtOutsideModuleFallsBack: a .gsx not in any module is still formatted
 // (syntactically); the unused import is kept and the exit code is success.
 func TestFmtOutsideModuleFallsBack(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
 	}

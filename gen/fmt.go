@@ -42,7 +42,7 @@ import (
 //
 // All logic lives here (runFmt returns an int) so tests can drive it without
 // os.Exit.
-func runFmt(stdout, stderr io.Writer, args []string, cssFmt, jsFmt rawfmt.Formatter) int {
+func runFmt(stdout, stderr io.Writer, args []string, cssFmt, jsFmt rawfmt.Formatter, workDir string) int {
 	fs := flag.NewFlagSet("gsx fmt", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
@@ -62,7 +62,9 @@ func runFmt(stdout, stderr io.Writer, args []string, cssFmt, jsFmt rawfmt.Format
 		return 2
 	}
 
-	paths := fs.Args()
+	// Anchor relative path arguments (and the default ".") at workDir so fmt never
+	// consults the process-global cwd.
+	paths := absPaths(workDir, fs.Args())
 	files, err := gsxFiles(paths)
 	if err != nil {
 		fmt.Fprintf(stderr, "gsx: %v\n", err)

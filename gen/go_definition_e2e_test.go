@@ -13,6 +13,7 @@ import (
 )
 
 func TestGoToGsxDefinition(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skips module resolution in -short")
 	}

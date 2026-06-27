@@ -5,6 +5,7 @@ import (
 )
 
 func TestStoreRoundTrip(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	out := pkgOutput{"a.x.go": []byte("package a\n"), "b.x.go": []byte("package b\n")}
 	if err := storePut(dir, "deadbeefkey", out); err != nil {

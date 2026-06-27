@@ -42,6 +42,34 @@ func shouldSkipDir(name string) bool {
 // directory. Directories named .git, vendor, node_modules, testdata, or any
 // hidden (dot-prefixed) directory are skipped and not descended into. An error
 // is returned if any given path does not exist.
+// absAgainst resolves p against base when p is relative, returning a cleaned
+// absolute path; an already-absolute p is returned cleaned, unchanged. base must
+// itself be absolute. This is the reentrant replacement for filepath.Abs at the
+// CLI path-resolution boundary: resolution depends on an explicit working
+// directory (-C, else the startup cwd) instead of the process-global cwd, so the
+// command never has to os.Chdir and can run concurrently (the gen test suite
+// drives run/runConfig in-process and now runs in parallel).
+func absAgainst(base, p string) string {
+	if filepath.IsAbs(p) {
+		return filepath.Clean(p)
+	}
+	return filepath.Join(base, p)
+}
+
+// absPaths resolves each CLI path argument against base (see absAgainst). An
+// empty list defaults to base itself — the old "." default, now anchored at the
+// chosen working directory rather than the process cwd.
+func absPaths(base string, paths []string) []string {
+	if len(paths) == 0 {
+		return []string{base}
+	}
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		out[i] = absAgainst(base, p)
+	}
+	return out
+}
+
 func discoverDirs(paths []string) ([]string, error) {
 	if len(paths) == 0 {
 		paths = []string{"."}
