@@ -119,12 +119,29 @@ func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 					em.emitError(rerr)
 					continue
 				}
+				// reopen() cold-regenerates every dir (fresh Modules + repopulated
+				// import graph + rewritten .x.go). Pending dirs are already
+				// regenerated — skip the union-regen below to avoid a double pass.
 				depDirty = false
+				pending = map[string]bool{}
+				continue
 			}
+			affected := map[string]bool{}
 			for dir := range pending {
 				if onlyGeneratedRemains(dir) {
 					continue
 				}
+				m, err := sess.moduleForDir(dir)
+				if err != nil {
+					em.cycle(cycleResult{Dir: dir, Err: err})
+					continue
+				}
+				m.Invalidate(dir)
+				for _, dep := range m.Dependents(dir) {
+					affected[dep] = true
+				}
+			}
+			for dir := range affected {
 				em.cycle(sess.regenDir(dir))
 			}
 			pending = map[string]bool{}
