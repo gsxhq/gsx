@@ -169,7 +169,7 @@ func analyzeUnusedImports(files []string) map[string][]gsxfmt.ImportRef {
 		dirs[filepath.Dir(f)] = true
 	}
 	for dir := range dirs {
-		root, _, err := moduleRoot(dir)
+		root, modPath, err := moduleRoot(dir)
 		if err != nil {
 			continue // not in a module → syntactic fallback
 		}
@@ -177,11 +177,14 @@ func analyzeUnusedImports(files []string) map[string][]gsxfmt.ImportRef {
 		if err != nil {
 			continue
 		}
-		res, err := codegen.GeneratePackagesWithFilters(root, []string{absDir}, nil, nil, attrclass.Builtin(), nil, nil, nil, true, true, nil)
+		m, err := codegen.Open(codegen.Options{ModuleRoot: root, ModulePath: modPath, Classifier: attrclass.Builtin()})
 		if err != nil {
 			continue
 		}
-		pr := res[absDir]
+		pr, err := m.Package(absDir)
+		if err != nil {
+			continue
+		}
 		if pr == nil {
 			continue
 		}
