@@ -1,9 +1,12 @@
 package codegen
 
 import (
+	"bytes"
 	"go/token"
 	"go/types"
 	"os"
+	"path/filepath"
+	"sort"
 	"sync"
 
 	"golang.org/x/tools/go/packages"
@@ -85,17 +88,31 @@ func Open(opts Options) (*Module, error) {
 }
 
 // SetOverride records in-memory source for a .gsx path (an unsaved editor buffer
-// or playground source), shadowing disk content. Note: it does NOT invalidate
-// the pkgTypes cache or the external importer (ext) — callers that need a
-// fresh analysis after an edit must call Invalidate (Phase 2).
+// or playground source), shadowing disk content. It marks filepath.Dir(absPath)
+// dirty when src differs from the current source (override-or-disk); identical
+// bytes mark nothing dirty. Invalidation is applied lazily by applyDirty at the
+// next Package/Generate call.
 func (m *Module) SetOverride(absPath string, src []byte) {
+	base, haveBase := m.currentSource(absPath)
+	// A real change: if a base exists, it must differ from src. If no base exists
+	// (file not on disk, no prior override), only non-empty src counts as new content.
+	changed := haveBase && !bytes.Equal(base, src) || !haveBase && len(src) > 0
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	if changed {
+		if m.dirty == nil {
+			m.dirty = map[string]bool{}
+		}
+		m.dirty[filepath.Dir(absPath)] = true
+	}
 	m.overrides[absPath] = src
+	m.mu.Unlock()
 }
 
-// source returns the bytes for absPath: override first, else disk.
-func (m *Module) source(absPath string) ([]byte, bool) {
+// currentSource returns the bytes currently backing absPath (override if
+// present, else disk) and whether any source was found. Used by SetOverride to
+// detect a real content change. It takes m.mu only briefly to read the override
+// map and reads disk outside the lock.
+func (m *Module) currentSource(absPath string) ([]byte, bool) {
 	m.mu.Lock()
 	ov, ok := m.overrides[absPath]
 	m.mu.Unlock()
@@ -107,6 +124,23 @@ func (m *Module) source(absPath string) ([]byte, bool) {
 		return nil, false
 	}
 	return b, true
+}
+
+// source returns the bytes for absPath: override first, else disk.
+func (m *Module) source(absPath string) ([]byte, bool) {
+	return m.currentSource(absPath)
+}
+
+// dirtyDirs returns the sorted pending-dirty dirs (test hook; does not clear).
+func (m *Module) dirtyDirs() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, 0, len(m.dirty))
+	for d := range m.dirty {
+		out = append(out, d)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // externalImporter lazily loads non-project dependency types once (stdlib,

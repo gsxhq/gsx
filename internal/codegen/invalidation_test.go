@@ -136,6 +136,32 @@ func assertResolvesUtilSymbol(t *testing.T, pr *PackageResult) {
 	}
 }
 
+func TestSetOverrideDirtinessDetection(t *testing.T) {
+	if testing.Short() {
+		t.Skip()
+	}
+	m, root := setupChainModule(t)
+	utilDir := filepath.Join(root, "util")
+	helper := filepath.Join(utilDir, "helper.gsx")
+	disk, _ := os.ReadFile(helper)
+	// Identical-to-disk override (didOpen) marks nothing dirty.
+	m.SetOverride(helper, disk)
+	if got := m.dirtyDirs(); len(got) != 0 {
+		t.Errorf("identical-to-disk override must not mark dirty; got %v", got)
+	}
+	// A real change marks util dirty.
+	m.SetOverride(helper, utilWithNewExport)
+	if !contains(m.dirtyDirs(), utilDir) {
+		t.Errorf("changed override must mark util dirty; got %v", m.dirtyDirs())
+	}
+	// Re-setting the same changed bytes does not un-mark, but a no-op set of the
+	// now-current override bytes adds nothing new.
+	m.SetOverride(helper, utilWithNewExport)
+	if got := m.dirtyDirs(); !contains(got, utilDir) {
+		t.Errorf("dirty must persist until consumed; got %v", got)
+	}
+}
+
 func TestPackageCachesEditedPackageForImporters(t *testing.T) {
 	if testing.Short() {
 		t.Skip()
