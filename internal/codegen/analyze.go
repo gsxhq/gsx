@@ -9,6 +9,7 @@ import (
 	"go/scanner"
 	"go/token"
 	"go/types"
+	"maps"
 	"sort"
 	"strconv"
 	"strings"
@@ -732,9 +733,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					// — the SAME set the emitter records into its imports map. Without
 					// this the skeleton would not import _gsxstdN and a prop pipeline
 					// would fail to resolve.
-					for alias, path := range usedPkgs {
-						usedFilters[alias] = path
-					}
+					maps.Copy(usedFilters, usedPkgs)
 					emitSkeletonLine(sb, fset, t.Pos())
 					if splatExpr != "" {
 						// Whole-struct splat: mirrors genChildComponent exactly.
@@ -868,10 +867,7 @@ func emitSkeletonComponentNameLine(sb *strings.Builder, fset *token.FileSet, c *
 		genNameCol = 7 + len(c.Recv) // func <Recv> <Name>
 	}
 	p := fset.Position(c.NamePos)
-	col := p.Column - genNameCol + 1
-	if col < 1 {
-		col = 1
-	}
+	col := max(p.Column-genNameCol+1, 1)
 	fmt.Fprintf(sb, "//line %s:%d:%d\n", p.Filename, p.Line, col)
 }
 
@@ -883,10 +879,7 @@ func emitSkeletonClauseLine(sb *strings.Builder, fset *token.FileSet, pos token.
 		return
 	}
 	p := fset.Position(pos)
-	col := p.Column - prefixLen
-	if col < 1 {
-		col = 1
-	}
+	col := max(p.Column-prefixLen, 1)
 	fmt.Fprintf(sb, "//line %s:%d:%d\n", p.Filename, p.Line, col)
 }
 
@@ -920,10 +913,7 @@ func emitSkeletonLineParam(sb *strings.Builder, fset *token.FileSet, pos token.P
 		return
 	}
 	p := fset.Position(pos)
-	col := p.Column - 1
-	if col < 1 {
-		col = 1
-	}
+	col := max(p.Column-1, 1)
 	fmt.Fprintf(sb, "//line %s:%d:%d\n", p.Filename, p.Line, col)
 }
 
@@ -940,10 +930,7 @@ func emitSkeletonLineImport(sb *strings.Builder, fset *token.FileSet, pos token.
 	}
 	const prefixLen = len("import ")
 	p := fset.Position(pos)
-	col := p.Column - prefixLen
-	if col < 1 {
-		col = 1
-	}
+	col := max(p.Column-prefixLen, 1)
 	fmt.Fprintf(sb, "//line %s:%d:%d\n", p.Filename, p.Line, col)
 }
 
@@ -966,9 +953,7 @@ func probeExpr(seed string, stages []gsxast.PipeStage, table filterTable, usedFi
 	if err != nil {
 		return strings.TrimSpace(seed), nil
 	}
-	for alias, path := range used {
-		usedFilters[alias] = path
-	}
+	maps.Copy(usedFilters, used)
 	return lowered, nil
 }
 
@@ -1338,9 +1323,7 @@ func walkLivenessAttrExprs(attrs []gsxast.Attr, table filterTable, usedFilters m
 			fn(strings.TrimSpace(seed))
 			return
 		}
-		for alias, path := range used {
-			usedFilters[alias] = path
-		}
+		maps.Copy(usedFilters, used)
 		fn(lowered)
 	}
 	for _, a := range attrs {

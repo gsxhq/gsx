@@ -80,8 +80,8 @@ func scaffold(srcFS fs.FS, root, destDir string, data tmplData) error {
 func transformName(rel string) string {
 	parts := strings.Split(rel, "/")
 	for i, seg := range parts {
-		if strings.HasPrefix(seg, "dot-") {
-			parts[i] = "." + strings.TrimPrefix(seg, "dot-")
+		if rest, ok := strings.CutPrefix(seg, "dot-"); ok {
+			parts[i] = "." + rest
 		}
 	}
 	last := len(parts) - 1

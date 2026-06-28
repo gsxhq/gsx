@@ -279,7 +279,7 @@ func splitLinesKeepEnds(data []byte) []string {
 	}
 	var lines []string
 	start := 0
-	for i := 0; i < len(data); i++ {
+	for i := range len(data) {
 		if data[i] == '\n' {
 			lines = append(lines, string(data[start:i+1]))
 			start = i + 1

@@ -58,8 +58,7 @@ func buildCrossNav(
 		for _, p := range params {
 			fname := fieldName(p.name)
 			paramPos := gsxFset.Position(c.ParamsPos + token.Pos(p.nameOff))
-			for i := 0; i < st.NumFields(); i++ {
-				fv := st.Field(i)
+			for fv := range st.Fields() {
 				if fv.Name() == fname {
 					fieldObjToPos[fv] = paramPos
 					break

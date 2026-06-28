@@ -9,6 +9,7 @@ import (
 	goparser "go/parser"
 	"go/token"
 	"go/types"
+	"maps"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -1877,8 +1878,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 	if err != nil {
 		// Convert the childPropsLiteral error to a positioned diagnostic.
 		// An attrError carries the specific attr's position; fall back to the element.
-		var ae *attrError
-		if errors.As(err, &ae) {
+		if ae, ok := errors.AsType[*attrError](err); ok {
 			bag.Errorf(ae.pos, ae.end, ae.code, "%s", ae.msg)
 		} else {
 			bag.Errorf(el.Pos(), el.End(), childPropsErrorCode(err), "%s", strings.TrimPrefix(err.Error(), "codegen: "))
@@ -2055,9 +2055,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, table filterTab
 	var mergeChain []string // `.Merge(<spread>)` / `.Merge(<rtPkg>.AttrsCond(...))` in source order
 	// recordPkgs merges a lowerPipe usedPkgs result into the shared set.
 	recordPkgs := func(used map[string]string) {
-		for alias, path := range used {
-			usedPkgs[alias] = path
-		}
+		maps.Copy(usedPkgs, used)
 	}
 	for _, a := range el.Attrs {
 		switch t := a.(type) {
@@ -2219,9 +2217,7 @@ func classEntryExpr(a *ast.ClassAttr, rtPkg string, table filterTable) (string, 
 			msg := strings.TrimPrefix(err.Error(), "codegen: ")
 			return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unresolved-pipeline", msg: msg}
 		}
-		for alias, path := range used {
-			usedPkgs[alias] = path
-		}
+		maps.Copy(usedPkgs, used)
 		if p.Cond == "" {
 			parts = append(parts, fmt.Sprintf("%s.Class(%s)", rtPkg, expr))
 		} else {
@@ -2249,9 +2245,7 @@ func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, table filterTable) (strin
 	if err != nil {
 		return "", nil, err
 	}
-	for a, p := range thenUsed {
-		usedPkgs[a] = p
-	}
+	maps.Copy(usedPkgs, thenUsed)
 	thenThunk := fmt.Sprintf("func() %s.Attrs { return %s }", rtPkg, thenLit)
 	elseArg := "nil"
 	if len(t.Else) > 0 {
@@ -2259,9 +2253,7 @@ func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, table filterTable) (strin
 		if err != nil {
 			return "", nil, err
 		}
-		for a, p := range elseUsed {
-			usedPkgs[a] = p
-		}
+		maps.Copy(usedPkgs, elseUsed)
 		elseArg = fmt.Sprintf("func() %s.Attrs { return %s }", rtPkg, elseLit)
 	}
 	return fmt.Sprintf("%s.AttrsCond(%s, %s, %s)", rtPkg, strings.TrimSpace(t.Cond), thenThunk, elseArg), usedPkgs, nil
@@ -2295,9 +2287,7 @@ func condBranchAttrs(attrs []ast.Attr, rtPkg, tag string, table filterTable) (st
 			if eerr != nil {
 				return "", nil, eerr
 			}
-			for al, p := range used {
-				usedPkgs[al] = p
-			}
+			maps.Copy(usedPkgs, used)
 			entries = append(entries, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), entry))
 		default:
 			msg := fmt.Sprintf("unsupported attribute %T in a conditional branch (<%s>)", a, tag)

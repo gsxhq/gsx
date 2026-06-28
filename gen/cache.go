@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 
 	"github.com/gsxhq/gsx/internal/attrclass"
@@ -131,7 +132,7 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 		if !ok {
 			continue
 		}
-		if contains(miss, dir) {
+		if slices.Contains(miss, dir) {
 			continue
 		}
 		out, ok := storeGet(cdir, k)
@@ -224,15 +225,6 @@ func toPkgOutput(files map[string][]byte) pkgOutput {
 		po[base+".x.go"] = src
 	}
 	return po
-}
-
-func contains(ss []string, s string) bool {
-	for _, x := range ss {
-		if x == s {
-			return true
-		}
-	}
-	return false
 }
 
 // mustGen / writeAll: the no-cache fallback (Tier 0 path) reused by generateCached.

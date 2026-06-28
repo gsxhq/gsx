@@ -318,8 +318,7 @@ func loadExternalStructFields(dir string, wanted map[string]bool) (fields, nodeF
 		f := map[string]bool{}
 		nf := map[string]bool{}
 		var bs byoStruct
-		for i := 0; i < st.NumFields(); i++ {
-			fld := st.Field(i)
+		for fld := range st.Fields() {
 			if !fld.Exported() {
 				continue
 			}

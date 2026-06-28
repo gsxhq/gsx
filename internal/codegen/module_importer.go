@@ -8,6 +8,7 @@ import (
 	goparser "go/parser"
 	"go/token"
 	"go/types"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -406,8 +407,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 			// positionless diagnostic (stripping "codegen: " prefix) and skips the
 			// whole package. Neither case is a hard infrastructure error — return
 			// nil, err is reserved for fs I/O failures, filter-load failures, etc.
-			var ae *attrError
-			if errors.As(berr, &ae) {
+			if ae, ok := errors.AsType[*attrError](berr); ok {
 				bag.Errorf(ae.pos, ae.end, ae.code, "%s", ae.msg)
 				delete(gsxFiles, path)
 				continue
@@ -577,9 +577,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 			clauseText[n] = ctrlClauseText(n)
 		}
 		sub := buildCtrlMap(gf, fset, co, clauseText)
-		for k, v := range sub {
-			ctrlMap[k] = v
-		}
+		maps.Copy(ctrlMap, sub)
 	}
 
 	return &analyzed{
