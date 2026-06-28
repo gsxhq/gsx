@@ -2,10 +2,12 @@ package lsp
 
 import (
 	"encoding/json"
+	"go/parser"
 	"go/token"
 	"go/types"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
@@ -132,21 +134,87 @@ func signatureTypeIdentAt(pkg *Package, path string, off int) (obj types.Object,
 	return nil, 0, 0, false
 }
 
-// signatureTypeDefAt resolves a cursor on a component-signature parameter-type
-// identifier to that identifier's Go definition: a package qualifier resolves to
-// its import; a type name to its declaration. Synthesized overlay targets
-// (.x.go) are rejected. Returns (zero, false) when the cursor is not on a
-// resolvable signature-type identifier.
-func signatureTypeDefAt(pkg *Package, path string, off int) (token.Position, bool) {
-	obj, _, _, ok := signatureTypeIdentAt(pkg, path, off)
-	if !ok || !obj.Pos().IsValid() {
-		return token.Position{}, false
+// signatureTypeDefinition builds the textDocument/definition reply for an
+// identifier resolved inside a component-signature parameter type. A package
+// qualifier (a *types.PkgName) jumps into the imported package — a list of the
+// `package` clauses of its files, like gopls — rather than back to the import
+// site. Any other object jumps to its single declaration. Returns nil (→ null)
+// when there is no real source target.
+func (s *Server) signatureTypeDefinition(pkg *Package, obj types.Object) any {
+	if pn, ok := obj.(*types.PkgName); ok {
+		if locs := s.packageLocations(pn.Imported(), pkg.Fset); len(locs) > 0 {
+			return locs
+		}
+		return nil
+	}
+	if !obj.Pos().IsValid() {
+		return nil
 	}
 	dp := pkg.Fset.Position(obj.Pos())
 	if dp.Filename == "" || strings.HasSuffix(dp.Filename, ".x.go") {
-		return token.Position{}, false
+		return nil
 	}
-	return dp, true
+	return s.locationForPos(dp)
+}
+
+// packageLocations returns the `package` clause location of every file in imp
+// that declares a package-level object — gopls's answer for go-to-definition on
+// a package name. Files are discovered from the package scope's objects (so a
+// file declaring nothing package-level is not listed) and sorted for stable
+// output. Returns nil when imp is nil or no source files can be located (e.g. a
+// dependency available only as export data without file positions).
+func (s *Server) packageLocations(imp *types.Package, fset *token.FileSet) []Location {
+	if imp == nil || fset == nil {
+		return nil
+	}
+	files := map[string]bool{}
+	scope := imp.Scope()
+	for _, name := range scope.Names() {
+		o := scope.Lookup(name)
+		if o == nil || !o.Pos().IsValid() {
+			continue
+		}
+		fn := fset.Position(o.Pos()).Filename
+		if strings.HasSuffix(fn, ".go") && !strings.HasSuffix(fn, ".x.go") {
+			files[fn] = true
+		}
+	}
+	sorted := make([]string, 0, len(files))
+	for fn := range files {
+		sorted = append(sorted, fn)
+	}
+	sort.Strings(sorted)
+	var locs []Location
+	for _, fn := range sorted {
+		if loc, ok := packageClauseLocation(fn, s.enc); ok {
+			locs = append(locs, loc)
+		}
+	}
+	return locs
+}
+
+// packageClauseLocation returns the location of the package-name identifier in
+// the `package X` clause of the Go file at filename (what go-to-definition on a
+// package qualifier should land on). Returns ok=false if the file cannot be read
+// or parsed.
+func packageClauseLocation(filename string, enc encoding) (Location, bool) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return Location{}, false
+	}
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, filename, data, parser.PackageClauseOnly)
+	if err != nil || f.Name == nil {
+		return Location{}, false
+	}
+	p := fset.Position(f.Name.Pos())
+	line := p.Line - 1
+	if line < 0 {
+		line = 0
+	}
+	char := charForByteCol(lineAtFunc(string(data))(p.Line), p.Column, enc)
+	pos := Position{Line: line, Character: char}
+	return Location{URI: pathToURI(filename), Range: Range{Start: pos, End: pos}}, true
 }
 
 // hasPipeStages reports whether the gsx expression node carries pipeline stages
@@ -204,10 +272,12 @@ func (s *Server) handleDefinition(f frame) error {
 
 	// E: cursor on an identifier inside a component-signature parameter TYPE
 	// (e.g. `store.Comment` in `component C(c []store.Comment)`) → the Go
-	// definition of that identifier (the import for a package qualifier, the type
-	// declaration for a type name).
-	if dp, ok := signatureTypeDefAt(pkg, path, off); ok {
-		return s.reply(f.ID, s.locationForPos(dp))
+	// definition of that identifier: a type name jumps to its declaration; a
+	// package qualifier jumps into the package (its files' `package` clauses,
+	// gopls-style). A cursor on a signature type that does not resolve replies
+	// null rather than falling through to expression resolution.
+	if obj, _, _, ok := signatureTypeIdentAt(pkg, path, off); ok {
+		return s.reply(f.ID, s.signatureTypeDefinition(pkg, obj))
 	}
 
 	node, exprPos := exprNodeAtOffset(pkg, path, off)
