@@ -13,30 +13,29 @@ import (
 // internal filters.go symbol.
 const StdImportPath = stdImportPath
 
-// CachedResolver uses a prebuilt importer (no subprocess per render).
-// Its dependencies are loaded once via packages.Load against moduleDir; each
-// per-file check runs entirely in-process via go/types.
-//
-// Use NewCachedResolver to construct a CachedResolver. The zero value is not
-// valid.
-type CachedResolver struct {
+// Bundle carries a prebuilt external importer and filter table so the Module can
+// type-check skeletons with no `go list`/packages.Load. A WASM build (browser,
+// no toolchain) constructs a Bundle once via NewCachedResolver/NewCachedResolverFromTypes
+// and injects it through Options.Bundle. Passive data — it resolves nothing itself.
+// The zero value is invalid.
+type Bundle struct {
 	imp   types.Importer
 	table filterTable
 }
 
 // filters returns the prebuilt filterTable so callers can skip a second
 // loadFilterTableMulti when using this resolver.
-func (c *CachedResolver) filters() filterTable { return c.table }
+func (b *Bundle) filters() filterTable { return b.table }
 
 // importer returns the prebuilt external importer so the Module can type-check
 // skeletons against it without packages.Load (bundle mode).
-func (c *CachedResolver) importer() types.Importer { return c.imp }
+func (b *Bundle) importer() types.Importer { return b.imp }
 
 // newCachedResolver loads filterPkgs (plus "github.com/gsxhq/gsx" and
 // allowImports) once from moduleDir and returns a resolver whose check method
 // runs without any subprocess. The returned resolver's filters() method exposes
 // the prebuilt filterTable so callers can skip a second loadFilterTableMulti.
-func newCachedResolver(moduleDir string, filterPkgs []string, aliases []FilterAlias, allowImports []string) (*CachedResolver, error) {
+func newCachedResolver(moduleDir string, filterPkgs []string, aliases []FilterAlias, allowImports []string) (*Bundle, error) {
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedTypes | packages.NeedImports | packages.NeedDeps,
 		Dir:  moduleDir,
@@ -61,14 +60,14 @@ func newCachedResolver(moduleDir string, filterPkgs []string, aliases []FilterAl
 	if err != nil {
 		return nil, err
 	}
-	return &CachedResolver{imp: mapImporter(m), table: table}, nil
+	return &Bundle{imp: mapImporter(m), table: table}, nil
 }
 
-// NewCachedResolver is the public constructor for CachedResolver. It loads
+// NewCachedResolver is the public constructor for Bundle. It loads
 // filterPkgs (plus "github.com/gsxhq/gsx" and allowImports) once from
-// moduleDir and returns a resolver ready for in-process generation with no
+// moduleDir and returns a Bundle ready for in-process generation with no
 // per-render subprocess.
-func NewCachedResolver(moduleDir string, filterPkgs []string, aliases []FilterAlias, allowImports []string) (*CachedResolver, error) {
+func NewCachedResolver(moduleDir string, filterPkgs []string, aliases []FilterAlias, allowImports []string) (*Bundle, error) {
 	return newCachedResolver(moduleDir, filterPkgs, aliases, allowImports)
 }
 

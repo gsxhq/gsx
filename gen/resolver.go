@@ -35,12 +35,12 @@ var DefaultPlaygroundImports = []string{
 	"math", "math/rand", "unicode", "unicode/utf8", "html",
 }
 
-// CachedResolver wraps an internal codegen.CachedResolver and exposes an
+// CachedResolver wraps an internal codegen.Bundle and exposes an
 // in-process Generate method. Dependencies are loaded once at construction time
 // (via NewCachedResolver); each Generate call runs entirely in-process with no
 // per-render go list or subprocess.
 type CachedResolver struct {
-	inner *codegen.CachedResolver
+	inner *codegen.Bundle
 }
 
 // NewCachedResolver constructs a CachedResolver for a module rooted at
@@ -114,7 +114,7 @@ func (c *CachedResolver) GenerateSources(files map[string][]byte) (Result, error
 // packages.Load / subprocess) and maps its output to the public gen.Result. A
 // fresh Module per call keeps the in-process path stateless; the expensive load
 // already happened once when the bundle was built.
-func generateInProcess(bundle *codegen.CachedResolver, dir string, srcOverride map[string][]byte) (Result, error) {
+func generateInProcess(bundle *codegen.Bundle, dir string, srcOverride map[string][]byte) (Result, error) {
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		return Result{}, err

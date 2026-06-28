@@ -30,13 +30,13 @@ type Options struct {
 	CSSMinify    bool                         // minify static <style> CSS
 	JSMinify     bool                         // minify static <script> JS
 	// Bundle, when non-nil, supplies the external importer and filter table
-	// directly (a prebuilt CachedResolver) so the Module type-checks skeletons
+	// directly (a prebuilt Bundle) so the Module type-checks skeletons
 	// with NO packages.Load / `go list` — the mode a WASM build uses. The Module
 	// then operates override-only (callers SetOverride all source). Bundle mode is
 	// GENERATION-ONLY: the bundle's *types.Package values live in a foreign
 	// FileSet, so imported-object positions do not resolve against m.fset; use
 	// Generate, not Package, in this mode.
-	Bundle *CachedResolver
+	Bundle *Bundle
 }
 
 // Module is a warm, in-process analysis graph for one module root. It is the

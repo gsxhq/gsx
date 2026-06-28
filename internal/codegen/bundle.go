@@ -6,7 +6,7 @@ import (
 )
 
 // This file is the subprocess-free counterpart to the packages.Load-based
-// resolver path: it builds a CachedResolver from already-loaded *types.Package
+// resolver path: it builds a Bundle from already-loaded *types.Package
 // values (e.g. reconstructed from an embedded typebundle), so the gsx transform
 // can run in a WASM build with no `go list`.
 //
@@ -107,16 +107,16 @@ func loadFilterTableFromTypes(byPath map[string]*types.Package, pkgPaths []strin
 	return table, nil
 }
 
-// NewCachedResolverFromTypes builds a CachedResolver from already-loaded packages
+// NewCachedResolverFromTypes builds a Bundle from already-loaded packages
 // (e.g. reconstructed from a typebundle) with NO packages.Load and NO subprocess.
 // pkgs maps import path -> *types.Package and MUST include the gsx runtime, every
 // filterPkg, and every import a generated snippet references. Empty filterPkgs
 // defaults to the built-in std filter package.
-func NewCachedResolverFromTypes(pkgs map[string]*types.Package, filterPkgs []string, aliases []FilterAlias) (*CachedResolver, error) {
+func NewCachedResolverFromTypes(pkgs map[string]*types.Package, filterPkgs []string, aliases []FilterAlias) (*Bundle, error) {
 	filterPkgs = dedupFilterPkgs(filterPkgs)
 	table, err := loadFilterTableFromTypes(pkgs, filterPkgs, aliases)
 	if err != nil {
 		return nil, err
 	}
-	return &CachedResolver{imp: mapImporter(pkgs), table: table}, nil
+	return &Bundle{imp: mapImporter(pkgs), table: table}, nil
 }
