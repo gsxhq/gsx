@@ -81,4 +81,3 @@ func (m mapImporter) Import(path string) (*types.Package, error) {
 	}
 	return nil, fmt.Errorf("cached importer: %q not loaded", path)
 }
-
