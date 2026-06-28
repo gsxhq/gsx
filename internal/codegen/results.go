@@ -50,6 +50,11 @@ type PackageResult struct {
 	// skeleton for go-to-definition on loop variables and condition identifiers.
 	CtrlMap map[gsxast.Node]ctrlRef
 
+	// SigTypes maps each component to the type spans in its parameter list, so the
+	// LSP can answer go-to-definition / hover on the identifiers inside a parameter
+	// TYPE (e.g. `store.Comment` in `component C(c []store.Comment)`).
+	SigTypes map[*gsxast.Component][]SigTypeRef
+
 	// UnusedImports lists, per .gsx file path, the imports the file declares but
 	// does not use — safe to drop on format. Empty unless the package's ONLY type
 	// errors are unused-import errors (else removal is unsafe).

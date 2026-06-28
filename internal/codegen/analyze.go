@@ -402,6 +402,19 @@ type ctrlRef struct {
 	Node        goast.Node
 }
 
+// SigTypeRef bridges one component-parameter TYPE in the .gsx signature to its
+// type-checked skeleton type expression. GSXOff/Len are the type's byte span
+// within the component's (trimmed) Params source — added to the component's
+// ParamsPos they locate the type in the .gsx. SkelTyp is the corresponding
+// skeleton type expression (a props-struct field type, or the sole param type
+// for a BYO component), whose bytes are identical to the source span, so the LSP
+// bridges a cursor into it by relative offset and resolves via go/types.
+type SigTypeRef struct {
+	GSXOff  int
+	Len     int
+	SkelTyp goast.Expr
+}
+
 // ctrlClauseText returns the clause/cond/code text for a control-flow node:
 // ForMarkup → Clause, IfMarkup → Cond, GoBlock → Code.
 func ctrlClauseText(n gsxast.Node) string {
@@ -573,7 +586,12 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 	if hasProps {
 		fmt.Fprintf(sb, "type %s struct {\n", propsName)
 		for _, p := range params {
-			fmt.Fprintf(sb, "\t%s %s\n", fieldName(p.name), p.typ)
+			// Emit the param TYPE verbatim from the .gsx (not the printer-normalized
+			// p.typ) so its bytes stay identical to the source — the LSP bridges a
+			// cursor on a type identifier into this field's type by relative offset,
+			// exactly as it does for interpolation expressions. For gsx-fmt'd source
+			// (all generated output) p.typeSrc == p.typ, so codegen is unchanged.
+			fmt.Fprintf(sb, "\t%s %s\n", fieldName(p.name), p.typeSrc)
 		}
 		if hasChildren {
 			sb.WriteString("\tChildren _gsxrt.Node\n")
@@ -1103,6 +1121,84 @@ func recvTypeIdent(e goast.Expr) string {
 		return recvTypeIdent(t.X)
 	}
 	return ""
+}
+
+// buildSigTypeRefs pairs each of component c's parameter TYPES with its
+// type-checked skeleton type expression, for the LSP's go-to-definition / hover
+// on a parameter type. For a normal component the param types live in the
+// generated props struct's fields (in param order); for a BYO component the sole
+// param's type is the func's only parameter type. Returns nil when c has no
+// parameters or its skeleton shape cannot be located (a skipped/stub component).
+func buildSigTypeRefs(gf *goast.File, c *gsxast.Component, byo *byoData) []SigTypeRef {
+	params, err := parseParams(c.Params)
+	if err != nil || len(params) == 0 {
+		return nil
+	}
+	fd := funcDeclForKey(gf, componentKey(c))
+	if fd == nil || fd.Type.Params == nil || len(fd.Type.Params.List) != 1 {
+		return nil
+	}
+	var skelTypes []goast.Expr
+	if _, isByo := byo.structTypeName(componentKey(c)); isByo {
+		// BYO: the sole skeleton parameter type IS the author struct type the user
+		// navigates to (e.g. `Form` in `func C(_gsxp Form)`).
+		if len(params) != 1 {
+			return nil
+		}
+		skelTypes = []goast.Expr{fd.Type.Params.List[0].Type}
+	} else {
+		// Normal: the skeleton param is `_gsxp <PropsName>`; the props struct's first
+		// len(params) fields carry the param types in declaration order.
+		id, ok := fd.Type.Params.List[0].Type.(*goast.Ident)
+		if !ok {
+			return nil
+		}
+		st := structByName(gf, id.Name)
+		if st == nil || st.Fields == nil || len(st.Fields.List) < len(params) {
+			return nil
+		}
+		skelTypes = make([]goast.Expr, len(params))
+		for i := range params {
+			skelTypes[i] = st.Fields.List[i].Type
+		}
+	}
+	refs := make([]SigTypeRef, len(params))
+	for i, p := range params {
+		refs[i] = SigTypeRef{GSXOff: p.typeOff, Len: p.typeLen, SkelTyp: skelTypes[i]}
+	}
+	return refs
+}
+
+// funcDeclForKey returns the skeleton FuncDecl whose component key matches key,
+// or nil. Used to locate a component's generated signature in its skeleton file.
+func funcDeclForKey(gf *goast.File, key string) *goast.FuncDecl {
+	for _, d := range gf.Decls {
+		if fd, ok := d.(*goast.FuncDecl); ok && funcDeclKey(fd) == key {
+			return fd
+		}
+	}
+	return nil
+}
+
+// structByName returns the *goast.StructType of the top-level `type name struct
+// {…}` declaration in gf, or nil. Used to locate a component's generated props
+// struct so its field types (the param types) can be navigated.
+func structByName(gf *goast.File, name string) *goast.StructType {
+	for _, d := range gf.Decls {
+		gd, ok := d.(*goast.GenDecl)
+		if !ok || gd.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range gd.Specs {
+			ts, ok := spec.(*goast.TypeSpec)
+			if ok && ts.Name.Name == name {
+				if st, ok := ts.Type.(*goast.StructType); ok {
+					return st
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // isRawCSS reports whether t is the named type github.com/gsxhq/gsx.RawCSS —
@@ -1667,10 +1763,17 @@ func checkReservedRecvVar(recvVar string) error {
 
 // param is one component parameter. nameOff is the byte offset of the param's
 // name within the (trimmed) Params source string — added to Component.ParamsPos
-// it yields the param name's .gsx position (for go-to-definition).
+// it yields the param name's .gsx position (for go-to-definition). typeOff/typeLen
+// are the byte span of the param's TYPE within that same trimmed source (for
+// go-to-definition on the type's identifiers); typeSrc is the verbatim type text
+// (emitted into the skeleton so the LSP can bridge a cursor into it by relative
+// offset, exactly as it does for interpolation expressions).
 type param struct {
 	name, typ string
 	nameOff   int
+	typeOff   int
+	typeLen   int
+	typeSrc   string
 }
 
 // paramSynthPrefix is the synthetic source prepended in parseParams; the param
@@ -1687,7 +1790,8 @@ func parseParams(src string) ([]param, error) {
 		return nil, nil
 	}
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "", paramSynthPrefix+src+") {}", 0)
+	synth := paramSynthPrefix + src + ") {}"
+	f, err := parser.ParseFile(fset, "", synth, 0)
 	if err != nil {
 		return nil, fmt.Errorf("codegen: parse params %q: %w", src, err)
 	}
@@ -1699,11 +1803,22 @@ func parseParams(src string) ([]param, error) {
 			return nil, err
 		}
 		typ := tb.String()
+		// Byte span of the type within the synthetic source → its offset/length in
+		// the trimmed param source (subtract the prefix). typeSrc is the verbatim
+		// type text, kept identical to the .gsx so the skeleton can copy it through
+		// and the LSP can bridge a cursor into it by relative offset.
+		tStart := fset.Position(field.Type.Pos()).Offset
+		tEnd := fset.Position(field.Type.End()).Offset
+		typeOff := tStart - len(paramSynthPrefix)
+		typeSrc := synth[tStart:tEnd]
 		for _, nm := range field.Names {
 			out = append(out, param{
 				name:    nm.Name,
 				typ:     typ,
 				nameOff: fset.Position(nm.Pos()).Offset - len(paramSynthPrefix),
+				typeOff: typeOff,
+				typeLen: tEnd - tStart,
+				typeSrc: typeSrc,
 			})
 		}
 	}

@@ -2,9 +2,12 @@ package lsp
 
 import (
 	"encoding/json"
+	"go/parser"
 	"go/token"
+	"go/types"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
@@ -80,6 +83,140 @@ func exprNodeAtOffset(pkg *Package, path string, off int) (gsxast.Node, token.Po
 	return found, foundPos
 }
 
+// signatureTypeIdentAt resolves a cursor sitting on an identifier inside a
+// component-signature parameter TYPE (e.g. `store.Comment` in
+// `component C(c []store.Comment)`) to that identifier's go/types object. It
+// walks the file's components, finds the parameter-type span covering off (via
+// pkg.SigTypes), bridges the cursor into the type-checked skeleton type
+// expression by relative byte offset (the skeleton copies the type verbatim, so
+// the bytes align), and resolves the innermost identifier through go/types.
+// gsxStart/idLen are the identifier's byte span back in the .gsx file (for the
+// hover range). Returns ok=false when the cursor is not on a signature-type
+// identifier or it does not resolve.
+func signatureTypeIdentAt(pkg *Package, path string, off int) (obj types.Object, gsxStart, idLen int, ok bool) {
+	f := pkg.Files[path]
+	if f == nil || pkg.GSXFset == nil || pkg.Info == nil || pkg.SigTypes == nil {
+		return nil, 0, 0, false
+	}
+	for _, d := range f.Decls {
+		c, isComp := d.(*gsxast.Component)
+		if !isComp || !c.ParamsPos.IsValid() {
+			continue
+		}
+		refs := pkg.SigTypes[c]
+		if refs == nil {
+			continue
+		}
+		paramsStart := pkg.GSXFset.Position(c.ParamsPos).Offset
+		for _, r := range refs {
+			start := paramsStart + r.GSXOff
+			if off < start || off >= start+r.Len {
+				continue
+			}
+			skelPos := r.SkelTyp.Pos() + token.Pos(off-start)
+			id := innermostIdent(r.SkelTyp, skelPos)
+			if id == nil {
+				return nil, 0, 0, false
+			}
+			o := pkg.Info.Uses[id]
+			if o == nil {
+				o = pkg.Info.Defs[id]
+			}
+			if o == nil {
+				return nil, 0, 0, false
+			}
+			// The identifier's .gsx span: its offset within the (verbatim) skeleton
+			// type equals its offset within the .gsx type, so add it to the type start.
+			gs := start + int(id.Pos()-r.SkelTyp.Pos())
+			return o, gs, len(id.Name), true
+		}
+	}
+	return nil, 0, 0, false
+}
+
+// signatureTypeDefinition builds the textDocument/definition reply for an
+// identifier resolved inside a component-signature parameter type. A package
+// qualifier (a *types.PkgName) jumps into the imported package — a list of the
+// `package` clauses of its files, like gopls — rather than back to the import
+// site. Any other object jumps to its single declaration. Returns nil (→ null)
+// when there is no real source target.
+func (s *Server) signatureTypeDefinition(pkg *Package, obj types.Object) any {
+	if pn, ok := obj.(*types.PkgName); ok {
+		if locs := s.packageLocations(pn.Imported(), pkg.Fset); len(locs) > 0 {
+			return locs
+		}
+		return nil
+	}
+	if !obj.Pos().IsValid() {
+		return nil
+	}
+	dp := pkg.Fset.Position(obj.Pos())
+	if dp.Filename == "" || strings.HasSuffix(dp.Filename, ".x.go") {
+		return nil
+	}
+	return s.locationForPos(dp)
+}
+
+// packageLocations returns the `package` clause location of every file in imp
+// that declares a package-level object — gopls's answer for go-to-definition on
+// a package name. Files are discovered from the package scope's objects (so a
+// file declaring nothing package-level is not listed) and sorted for stable
+// output. Returns nil when imp is nil or no source files can be located (e.g. a
+// dependency available only as export data without file positions).
+func (s *Server) packageLocations(imp *types.Package, fset *token.FileSet) []Location {
+	if imp == nil || fset == nil {
+		return nil
+	}
+	files := map[string]bool{}
+	scope := imp.Scope()
+	for _, name := range scope.Names() {
+		o := scope.Lookup(name)
+		if o == nil || !o.Pos().IsValid() {
+			continue
+		}
+		fn := fset.Position(o.Pos()).Filename
+		if strings.HasSuffix(fn, ".go") && !strings.HasSuffix(fn, ".x.go") {
+			files[fn] = true
+		}
+	}
+	sorted := make([]string, 0, len(files))
+	for fn := range files {
+		sorted = append(sorted, fn)
+	}
+	sort.Strings(sorted)
+	var locs []Location
+	for _, fn := range sorted {
+		if loc, ok := packageClauseLocation(fn, s.enc); ok {
+			locs = append(locs, loc)
+		}
+	}
+	return locs
+}
+
+// packageClauseLocation returns the location of the package-name identifier in
+// the `package X` clause of the Go file at filename (what go-to-definition on a
+// package qualifier should land on). Returns ok=false if the file cannot be read
+// or parsed.
+func packageClauseLocation(filename string, enc encoding) (Location, bool) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return Location{}, false
+	}
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, filename, data, parser.PackageClauseOnly)
+	if err != nil || f.Name == nil {
+		return Location{}, false
+	}
+	p := fset.Position(f.Name.Pos())
+	line := p.Line - 1
+	if line < 0 {
+		line = 0
+	}
+	char := charForByteCol(lineAtFunc(string(data))(p.Line), p.Column, enc)
+	pos := Position{Line: line, Character: char}
+	return Location{URI: pathToURI(filename), Range: Range{Start: pos, End: pos}}, true
+}
+
 // hasPipeStages reports whether the gsx expression node carries pipeline stages
 // (`{ x |> f }`). Such nodes lower to a wrapped call in the skeleton, breaking
 // the byte-identical relative-offset bridge go-to-def relies on.
@@ -131,6 +268,16 @@ func (s *Server) handleDefinition(f frame) error {
 	// parameter (same-package function components and cross-package dotted tags).
 	if dp, ok := componentAttrParamAt(pkg, path, off); ok {
 		return s.reply(f.ID, s.locationForPos(dp))
+	}
+
+	// E: cursor on an identifier inside a component-signature parameter TYPE
+	// (e.g. `store.Comment` in `component C(c []store.Comment)`) → the Go
+	// definition of that identifier: a type name jumps to its declaration; a
+	// package qualifier jumps into the package (its files' `package` clauses,
+	// gopls-style). A cursor on a signature type that does not resolve replies
+	// null rather than falling through to expression resolution.
+	if obj, _, _, ok := signatureTypeIdentAt(pkg, path, off); ok {
+		return s.reply(f.ID, s.signatureTypeDefinition(pkg, obj))
 	}
 
 	node, exprPos := exprNodeAtOffset(pkg, path, off)
