@@ -24,7 +24,7 @@ func TestSrcOverrideReplacesDiskContent(t *testing.T) {
 	override := map[string][]byte{
 		gsxPath: []byte("package x\n\ncomponent Page() {\n\t<div>{ nope }</div>\n}\n"),
 	}
-	out, err := GenerateDirs(dir, []string{dir}, GenOptions{CSSMinify: true, JSMinify: true}, override)
+	out, err := GenerateDirs(dir, []string{dir}, Options{CSSMinify: true, JSMinify: true}, override)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}

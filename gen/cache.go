@@ -82,7 +82,8 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 
 	clsFingerprint := cls.Fingerprint()
 
-	genOpts := codegen.GenOptions{
+	genOpts := codegen.Options{
+		ModulePath:   modPath,
 		FilterPkgs:   filterPkgs,
 		Aliases:      aliases,
 		Classifier:   cls,
@@ -235,7 +236,7 @@ func contains(ss []string, s string) bool {
 }
 
 // mustGen / writeAll: the no-cache fallback (Tier 0 path) reused by generateCached.
-func mustGen(root string, dirs []string, opts codegen.GenOptions, res *Result) map[string]codegen.DirResult {
+func mustGen(root string, dirs []string, opts codegen.Options, res *Result) map[string]codegen.DirResult {
 	out, err := codegen.GenerateDirs(root, dirs, opts, nil)
 	if err != nil {
 		res.Errs = append(res.Errs, err)

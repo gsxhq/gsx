@@ -15,7 +15,7 @@ func TestLineDirectives(t *testing.T) {
 	pkgDir := filepath.Join(tmp, "genpkg")
 	os.MkdirAll(pkgDir, 0o755)
 	writeFile(t, pkgDir, "views.gsx", "package views\n\ncomponent Greeting(name string) {\n\t<p>{name}</p>\n}\n")
-	res, err := GenerateDirs(tmp, []string{pkgDir}, GenOptions{FilterPkgs: []string{stdImportPath}, CSSMinify: true, JSMinify: true}, nil)
+	res, err := GenerateDirs(tmp, []string{pkgDir}, Options{FilterPkgs: []string{stdImportPath}, CSSMinify: true, JSMinify: true}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

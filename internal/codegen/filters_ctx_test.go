@@ -81,7 +81,7 @@ component C(s string) { <p>{ s |> f("k") }</p> }
 `)
 
 	aliases := []FilterAlias{{Name: "f", PkgPath: "gsxmf/myfilters", FuncName: "F"}}
-	genRes, err := GenerateDirs(tmp, []string{viewsDir}, GenOptions{FilterPkgs: []string{stdImportPath}, Aliases: aliases, CSSMinify: true, JSMinify: true}, nil)
+	genRes, err := GenerateDirs(tmp, []string{viewsDir}, Options{FilterPkgs: []string{stdImportPath}, Aliases: aliases, CSSMinify: true, JSMinify: true}, nil)
 	if err != nil {
 		t.Fatalf("GenerateDirs: %v", err)
 	}
@@ -176,7 +176,7 @@ component C(s string) { <p>{ s |> up }{ myfilters.Helper() }</p> }
 `)
 
 	aliases := []FilterAlias{{Name: "up", PkgPath: "gsxmf/myfilters", FuncName: "Upper2"}}
-	genRes2, err := GenerateDirs(tmp, []string{viewsDir}, GenOptions{FilterPkgs: []string{stdImportPath}, Aliases: aliases, CSSMinify: true, JSMinify: true}, nil)
+	genRes2, err := GenerateDirs(tmp, []string{viewsDir}, Options{FilterPkgs: []string{stdImportPath}, Aliases: aliases, CSSMinify: true, JSMinify: true}, nil)
 	if err != nil {
 		t.Fatalf("GenerateDirs: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestWithFilterCurriedMigrationDiagnostic(t *testing.T) {
 	writeMultiFile(t, viewsDir, "views.gsx", "package views\n\ncomponent C(s string) { <p>{ s |> old(2) }</p> }\n")
 
 	aliases := []FilterAlias{{Name: "old", PkgPath: "gsxmf/myfilters", FuncName: "Old"}}
-	_, curriedErr := GenerateDirs(tmp, []string{viewsDir}, GenOptions{FilterPkgs: []string{stdImportPath}, Aliases: aliases, CSSMinify: true, JSMinify: true}, nil)
+	_, curriedErr := GenerateDirs(tmp, []string{viewsDir}, Options{FilterPkgs: []string{stdImportPath}, Aliases: aliases, CSSMinify: true, JSMinify: true}, nil)
 	if curriedErr == nil {
 		t.Fatal("expected error for curried filter, got nil")
 	}

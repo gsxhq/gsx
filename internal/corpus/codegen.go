@@ -63,7 +63,7 @@ func (c *caseDoc) astAndParserDiag() (astDump []byte, parserDiag []byte, single 
 // package dirs via codegen.GenerateDirs (the Module-backed façade). Options:
 // std filter, CSS+JS minify on, no overrides.
 func codegenGeneratePackages(moduleDir string, dirs []string) (map[string]codegen.DirResult, error) {
-	return codegen.GenerateDirs(moduleDir, dirs, codegen.GenOptions{
+	return codegen.GenerateDirs(moduleDir, dirs, codegen.Options{
 		FilterPkgs: []string{codegen.StdImportPath},
 		CSSMinify:  true,
 		JSMinify:   true,

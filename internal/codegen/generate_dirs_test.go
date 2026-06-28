@@ -29,7 +29,7 @@ func TestGenerateDirsBasic(t *testing.T) {
 		filepath.Join(root, "pages"),
 		filepath.Join(root, "solo"),
 	}
-	result, err := GenerateDirs(root, dirs, GenOptions{FilterPkgs: []string{StdImportPath}}, nil)
+	result, err := GenerateDirs(root, dirs, Options{FilterPkgs: []string{StdImportPath}}, nil)
 	if err != nil {
 		t.Fatalf("GenerateDirs: %v", err)
 	}
@@ -108,7 +108,7 @@ component Page() {
 		return "", false
 	})
 
-	result, err := GenerateDirs(root, []string{pkgDir}, GenOptions{
+	result, err := GenerateDirs(root, []string{pkgDir}, Options{
 		FilterPkgs:   []string{StdImportPath},
 		FieldMatcher: badMatcher,
 	}, nil)
@@ -154,7 +154,7 @@ func TestGenerateDirsMinify(t *testing.T) {
 	writeFile(t, pkgDir, "views.gsx",
 		"package views\n\ncomponent Page() {\n\t<style>.a {  color : red ;  }</style>\n}\n")
 
-	generate := func(opts GenOptions) string {
+	generate := func(opts Options) string {
 		result, err := GenerateDirs(root, []string{pkgDir}, opts, nil)
 		if err != nil {
 			t.Fatalf("GenerateDirs: %v", err)
@@ -167,9 +167,9 @@ func TestGenerateDirsMinify(t *testing.T) {
 		return string(b)
 	}
 
-	noMin := generate(GenOptions{FilterPkgs: []string{StdImportPath}, CSSMinify: false})
-	builtinMin := generate(GenOptions{FilterPkgs: []string{StdImportPath}, CSSMinify: true})
-	fullMin := generate(GenOptions{FilterPkgs: []string{StdImportPath}, CSSMinify: true, CSSMin: fullmin.CSS})
+	noMin := generate(Options{FilterPkgs: []string{StdImportPath}, CSSMinify: false})
+	builtinMin := generate(Options{FilterPkgs: []string{StdImportPath}, CSSMinify: true})
+	fullMin := generate(Options{FilterPkgs: []string{StdImportPath}, CSSMinify: true, CSSMin: fullmin.CSS})
 
 	// noMin: original CSS preserved verbatim.
 	const wantNoMin = `_gsxgw.S("<style>.a {  color : red ;  }</style>")`

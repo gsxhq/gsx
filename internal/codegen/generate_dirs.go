@@ -5,21 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/diag"
 )
-
-// GenOptions configures GenerateDirs.
-type GenOptions struct {
-	FilterPkgs   []string
-	Aliases      []FilterAlias
-	Classifier   *attrclass.Classifier
-	FieldMatcher FieldMatcher
-	CSSMin       func(string) (string, error)
-	JSMin        func(string) (string, error)
-	CSSMinify    bool
-	JSMinify     bool
-}
 
 // DirResult is the per-directory outcome of GenerateDirs.
 type DirResult struct {
@@ -28,29 +15,23 @@ type DirResult struct {
 }
 
 // GenerateDirs opens a fresh Module rooted at moduleRoot, applies any override
-// bytes, and calls Module.Generate on each dir. On a hard (non-diagnostic) error
-// it returns immediately; otherwise each dir's result accumulates in the returned
-// map. The map is keyed by the same dir strings passed in.
-//
-// override maps absolute .gsx paths to in-memory source bytes (e.g. unsaved
-// editor buffers). Pass nil when no overrides are needed.
-func GenerateDirs(moduleRoot string, dirs []string, opts GenOptions, override map[string][]byte) (map[string]DirResult, error) {
-	modPath, err := readModulePath(moduleRoot)
-	if err != nil {
-		return nil, fmt.Errorf("codegen: GenerateDirs: %w", err)
+// bytes, and calls Module.Generate on each dir. opts carries the codegen knobs;
+// GenerateDirs fills opts.ModuleRoot from moduleRoot and derives opts.ModulePath
+// from go.mod only when the caller left it empty (callers that already know the
+// module path pass it to skip the re-read). On a hard (non-diagnostic) error it
+// returns immediately; otherwise each dir's result accumulates in the returned
+// map, keyed by the same dir strings passed in. override maps absolute .gsx paths
+// to in-memory source bytes; pass nil when no overrides are needed.
+func GenerateDirs(moduleRoot string, dirs []string, opts Options, override map[string][]byte) (map[string]DirResult, error) {
+	opts.ModuleRoot = moduleRoot
+	if opts.ModulePath == "" {
+		modPath, err := readModulePath(moduleRoot)
+		if err != nil {
+			return nil, fmt.Errorf("codegen: GenerateDirs: %w", err)
+		}
+		opts.ModulePath = modPath
 	}
-	m, err := Open(Options{
-		ModuleRoot:   moduleRoot,
-		ModulePath:   modPath,
-		FilterPkgs:   opts.FilterPkgs,
-		Aliases:      opts.Aliases,
-		Classifier:   opts.Classifier,
-		FieldMatcher: opts.FieldMatcher,
-		CSSMin:       opts.CSSMin,
-		JSMin:        opts.JSMin,
-		CSSMinify:    opts.CSSMinify,
-		JSMinify:     opts.JSMinify,
-	})
+	m, err := Open(opts)
 	if err != nil {
 		return nil, fmt.Errorf("codegen: GenerateDirs: open module: %w", err)
 	}

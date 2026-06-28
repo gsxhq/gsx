@@ -29,7 +29,7 @@ component X() {
 		t.Fatal(err)
 	}
 
-	out, err := GenerateDirs(mod, []string{viewsDir}, GenOptions{}, nil)
+	out, err := GenerateDirs(mod, []string{viewsDir}, Options{}, nil)
 	if err != nil {
 		t.Fatalf("GenerateDirs returned hard error: %v", err)
 	}

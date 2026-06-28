@@ -30,7 +30,7 @@ component Widget(action string) {
 		t.Fatal(err)
 	}
 	cls := attrclass.New(attrclass.Rules{JS: []attrclass.Rule{{Prefix: "wire:"}}}, nil)
-	res, err := GenerateDirs(tmp, []string{dir}, GenOptions{FilterPkgs: []string{stdImportPath}, Classifier: cls, CSSMinify: true, JSMinify: true}, nil)
+	res, err := GenerateDirs(tmp, []string{dir}, Options{FilterPkgs: []string{stdImportPath}, Classifier: cls, CSSMinify: true, JSMinify: true}, nil)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -66,7 +66,7 @@ component Widget(action string) {
 	if err := os.WriteFile(filepath.Join(dir, "views.gsx"), []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res, err := GenerateDirs(tmp, []string{dir}, GenOptions{FilterPkgs: []string{stdImportPath}, Classifier: attrclass.Builtin(), CSSMinify: true, JSMinify: true}, nil)
+	res, err := GenerateDirs(tmp, []string{dir}, Options{FilterPkgs: []string{stdImportPath}, Classifier: attrclass.Builtin(), CSSMinify: true, JSMinify: true}, nil)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}

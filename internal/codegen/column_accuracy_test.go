@@ -40,7 +40,7 @@ func TestInterpColumnAccuracy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := GenerateDirs(mod, []string{viewsDir}, GenOptions{}, nil)
+	out, err := GenerateDirs(mod, []string{viewsDir}, Options{}, nil)
 	if err != nil {
 		t.Fatalf("GenerateDirs: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestInterpShallowColumnNoRegression(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := GenerateDirs(mod, []string{viewsDir}, GenOptions{}, nil)
+	out, err := GenerateDirs(mod, []string{viewsDir}, Options{}, nil)
 	if err != nil {
 		t.Fatalf("GenerateDirs: %v", err)
 	}

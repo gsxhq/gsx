@@ -50,7 +50,7 @@ func renderWithFilters(t *testing.T, myfilters string, views map[string]string, 
 		writeMultiFile(t, viewsDir, name, content)
 	}
 
-	genRes, err := GenerateDirs(tmp, []string{viewsDir}, GenOptions{FilterPkgs: filterPkgs, CSSMinify: true, JSMinify: true}, nil)
+	genRes, err := GenerateDirs(tmp, []string{viewsDir}, Options{FilterPkgs: filterPkgs, CSSMinify: true, JSMinify: true}, nil)
 	if err != nil {
 		t.Fatalf("GenerateDirs: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestMultiFilterUnknownErrors(t *testing.T) {
 	}
 	writeMultiFile(t, viewsDir, "views.gsx", "package views\n\ncomponent C(n string) {\n\t<p>{ n |> nope }</p>\n}\n")
 
-	unkRes, unkErr := GenerateDirs(tmp, []string{viewsDir}, GenOptions{FilterPkgs: []string{stdImportPath, "gsxmf/myfilters"}, CSSMinify: true, JSMinify: true}, nil)
+	unkRes, unkErr := GenerateDirs(tmp, []string{viewsDir}, Options{FilterPkgs: []string{stdImportPath, "gsxmf/myfilters"}, CSSMinify: true, JSMinify: true}, nil)
 	if unkErr != nil {
 		t.Fatalf("GenerateDirs returned unexpected hard error: %v", unkErr)
 	}

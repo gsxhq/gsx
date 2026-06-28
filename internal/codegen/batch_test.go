@@ -60,7 +60,7 @@ func TestGeneratePackages_ErrorIsolation(t *testing.T) {
 		"package views\n\ncomponent Bad() {\n\t<p>{undefinedIdentifier}</p>\n}\n",
 	)
 
-	results, err := GenerateDirs(tmp, []string{dirA, dirB, dirC}, GenOptions{}, nil)
+	results, err := GenerateDirs(tmp, []string{dirA, dirB, dirC}, Options{}, nil)
 	if err != nil {
 		t.Fatalf("GenerateDirs returned unexpected top-level error: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestGeneratePackages_CrossPackage(t *testing.T) {
 		"package pages\n\nimport \"gsxbatch/ui\"\n\ncomponent Home() {\n\t<ui.Button label=\"Go\"/>\n}\n",
 	)
 
-	results, err := GenerateDirs(tmp, []string{dirUI, dirPages}, GenOptions{}, nil)
+	results, err := GenerateDirs(tmp, []string{dirUI, dirPages}, Options{}, nil)
 	if err != nil {
 		t.Fatalf("GenerateDirs: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestGeneratePackages_NonCanonicalDir(t *testing.T) {
 	nonCanonical := strings.Join([]string{tmp, ".", "a"}, string(filepath.Separator))
 	canonical, _ := filepath.Abs(nonCanonical) // normalizes "/./"; canonical == dirA
 
-	results, err := GenerateDirs(tmp, []string{canonical}, GenOptions{}, nil)
+	results, err := GenerateDirs(tmp, []string{canonical}, Options{}, nil)
 	if err != nil {
 		t.Fatalf("GenerateDirs: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestGenerateDirs_CustomFilter(t *testing.T) {
 	writeFile(t, filepath.Join(tmp, "v"), "v.gsx", "package v\n\ncomponent C(name string) { <p>{ name |> shout }</p> }\n")
 
 	dirV := filepath.Join(tmp, "v")
-	res, err := GenerateDirs(tmp, []string{dirV}, GenOptions{FilterPkgs: []string{"gsxbatchf/myf"}, CSSMinify: true, JSMinify: true}, nil)
+	res, err := GenerateDirs(tmp, []string{dirV}, Options{FilterPkgs: []string{"gsxbatchf/myf"}, CSSMinify: true, JSMinify: true}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
