@@ -76,7 +76,7 @@ func (a lspAnalyzer) module(root, modPath string, merged config) (*codegen.Modul
 // adaptPackageResult converts a *codegen.PackageResult (the Module path's output)
 // into the *lsp.Package the server's read-intelligence features consume.
 // Every field mapping is preserved: Diags, GSXFset, Fset, Info, Types, ExprMap,
-// GSXFiles→Files, CrossIndex conversion, NavIndex conversion, UnusedImports conversion.
+// GSXFiles→Files, CrossIndex/NavIndex/CtrlMap/SigTypes conversions, UnusedImports conversion.
 func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 	cross := make(map[string]lsp.CrossRef, len(pr.CrossIndex))
 	for k, v := range pr.CrossIndex {
@@ -98,6 +98,14 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 	for k, v := range pr.CtrlMap {
 		ctrl[k] = lsp.CtrlRef{ClauseStart: v.ClauseStart, Node: v.Node}
 	}
+	sig := make(map[*gsxast.Component][]lsp.SigTypeRef, len(pr.SigTypes))
+	for c, refs := range pr.SigTypes {
+		lr := make([]lsp.SigTypeRef, len(refs))
+		for i, r := range refs {
+			lr[i] = lsp.SigTypeRef{GSXOff: r.GSXOff, Len: r.Len, SkelTyp: r.SkelTyp}
+		}
+		sig[c] = lr
+	}
 	return &lsp.Package{
 		Diags:         pr.Diags,
 		GSXFset:       pr.GSXFset,
@@ -109,6 +117,7 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 		CrossIndex:    cross,
 		NavIndex:      nav,
 		CtrlMap:       ctrl,
+		SigTypes:      sig,
 		UnusedImports: unused,
 	}
 }

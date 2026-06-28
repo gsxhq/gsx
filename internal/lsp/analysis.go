@@ -35,6 +35,17 @@ type CtrlRef struct {
 	Node        ast.Node // skeleton node scoping innermostIdent
 }
 
+// SigTypeRef is the LSP mirror of codegen.SigTypeRef: one component-parameter
+// TYPE's byte span within the component's (trimmed) Params source (GSXOff/Len),
+// paired with the type-checked skeleton type expression (SkelTyp) whose bytes
+// are identical to that source span. The LSP bridges a cursor into SkelTyp by
+// relative offset and resolves the identifier via go/types.
+type SigTypeRef struct {
+	GSXOff  int
+	Len     int
+	SkelTyp ast.Expr
+}
+
 // Package is the retained, read-only result of analyzing one .gsx package: the
 // diagnostics plus everything the read-intelligence features need. GSXFset
 // resolves gsx node positions; Fset resolves skeleton/object positions
@@ -56,6 +67,12 @@ type Package struct {
 	// skeleton clause position and smallest containing skeleton node. Used by the
 	// LSP for go-to-definition on loop variables and condition identifiers.
 	CtrlMap map[gsxast.Node]CtrlRef
+
+	// SigTypes maps each component to the type spans in its parameter list, so a
+	// cursor on an identifier inside a parameter TYPE (e.g. `store.Comment` in
+	// `component C(c []store.Comment)`) can be bridged into the type-checked
+	// skeleton and resolved for go-to-definition / hover.
+	SigTypes map[*gsxast.Component][]SigTypeRef
 
 	// UnusedImports lists, per .gsx file path, imports that file declares but does
 	// not use — what formatting may safely drop. Empty when analysis is unreliable.

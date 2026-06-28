@@ -3,6 +3,7 @@ package lsp
 import (
 	"encoding/json"
 	"go/token"
+	"go/types"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,6 +81,74 @@ func exprNodeAtOffset(pkg *Package, path string, off int) (gsxast.Node, token.Po
 	return found, foundPos
 }
 
+// signatureTypeIdentAt resolves a cursor sitting on an identifier inside a
+// component-signature parameter TYPE (e.g. `store.Comment` in
+// `component C(c []store.Comment)`) to that identifier's go/types object. It
+// walks the file's components, finds the parameter-type span covering off (via
+// pkg.SigTypes), bridges the cursor into the type-checked skeleton type
+// expression by relative byte offset (the skeleton copies the type verbatim, so
+// the bytes align), and resolves the innermost identifier through go/types.
+// gsxStart/idLen are the identifier's byte span back in the .gsx file (for the
+// hover range). Returns ok=false when the cursor is not on a signature-type
+// identifier or it does not resolve.
+func signatureTypeIdentAt(pkg *Package, path string, off int) (obj types.Object, gsxStart, idLen int, ok bool) {
+	f := pkg.Files[path]
+	if f == nil || pkg.GSXFset == nil || pkg.Info == nil || pkg.SigTypes == nil {
+		return nil, 0, 0, false
+	}
+	for _, d := range f.Decls {
+		c, isComp := d.(*gsxast.Component)
+		if !isComp || !c.ParamsPos.IsValid() {
+			continue
+		}
+		refs := pkg.SigTypes[c]
+		if refs == nil {
+			continue
+		}
+		paramsStart := pkg.GSXFset.Position(c.ParamsPos).Offset
+		for _, r := range refs {
+			start := paramsStart + r.GSXOff
+			if off < start || off >= start+r.Len {
+				continue
+			}
+			skelPos := r.SkelTyp.Pos() + token.Pos(off-start)
+			id := innermostIdent(r.SkelTyp, skelPos)
+			if id == nil {
+				return nil, 0, 0, false
+			}
+			o := pkg.Info.Uses[id]
+			if o == nil {
+				o = pkg.Info.Defs[id]
+			}
+			if o == nil {
+				return nil, 0, 0, false
+			}
+			// The identifier's .gsx span: its offset within the (verbatim) skeleton
+			// type equals its offset within the .gsx type, so add it to the type start.
+			gs := start + int(id.Pos()-r.SkelTyp.Pos())
+			return o, gs, len(id.Name), true
+		}
+	}
+	return nil, 0, 0, false
+}
+
+// signatureTypeDefAt resolves a cursor on a component-signature parameter-type
+// identifier to that identifier's Go definition: a package qualifier resolves to
+// its import; a type name to its declaration. Synthesized overlay targets
+// (.x.go) are rejected. Returns (zero, false) when the cursor is not on a
+// resolvable signature-type identifier.
+func signatureTypeDefAt(pkg *Package, path string, off int) (token.Position, bool) {
+	obj, _, _, ok := signatureTypeIdentAt(pkg, path, off)
+	if !ok || !obj.Pos().IsValid() {
+		return token.Position{}, false
+	}
+	dp := pkg.Fset.Position(obj.Pos())
+	if dp.Filename == "" || strings.HasSuffix(dp.Filename, ".x.go") {
+		return token.Position{}, false
+	}
+	return dp, true
+}
+
 // hasPipeStages reports whether the gsx expression node carries pipeline stages
 // (`{ x |> f }`). Such nodes lower to a wrapped call in the skeleton, breaking
 // the byte-identical relative-offset bridge go-to-def relies on.
@@ -130,6 +199,14 @@ func (s *Server) handleDefinition(f frame) error {
 	// A/C: cursor on a component-invocation attribute name → the matching component
 	// parameter (same-package function components and cross-package dotted tags).
 	if dp, ok := componentAttrParamAt(pkg, path, off); ok {
+		return s.reply(f.ID, s.locationForPos(dp))
+	}
+
+	// E: cursor on an identifier inside a component-signature parameter TYPE
+	// (e.g. `store.Comment` in `component C(c []store.Comment)`) → the Go
+	// definition of that identifier (the import for a package qualifier, the type
+	// declaration for a type name).
+	if dp, ok := signatureTypeDefAt(pkg, path, off); ok {
 		return s.reply(f.ID, s.locationForPos(dp))
 	}
 

@@ -340,7 +340,8 @@ type analyzed struct {
 	byo         *byoData
 	resolved    map[gsxast.Node]types.Type
 	exprMap     map[gsxast.Node]goast.Expr
-	ctrlMap     map[gsxast.Node]ctrlRef // control-flow node -> skeleton clause pos + containing node
+	ctrlMap     map[gsxast.Node]ctrlRef            // control-flow node -> skeleton clause pos + containing node
+	sigTypes    map[*gsxast.Component][]SigTypeRef // component -> parameter type spans (go-to-def on a param type)
 	pkg         *types.Package
 	info        *types.Info
 	compByKey   map[string]*gsxast.Component // componentKey -> component (for Name + NamePos)
@@ -580,6 +581,23 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		maps.Copy(ctrlMap, sub)
 	}
 
+	// Build SigTypes: per component, the byte span of each parameter TYPE in the
+	// .gsx signature paired with its type-checked skeleton type expression, so the
+	// LSP can resolve go-to-def / hover on identifiers inside a parameter type.
+	sigTypes := map[*gsxast.Component][]SigTypeRef{}
+	for _, gf := range goFiles {
+		fname := fset.Position(gf.Pos()).Filename
+		comps, ok := compsByXGo[fname]
+		if !ok {
+			continue
+		}
+		for _, c := range comps {
+			if refs := buildSigTypeRefs(gf, c, byo); refs != nil {
+				sigTypes[c] = refs
+			}
+		}
+	}
+
 	return &analyzed{
 		pkgName:     pkgName,
 		gsxFiles:    gsxFiles,
@@ -594,6 +612,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		resolved:    resolved,
 		exprMap:     exprMap,
 		ctrlMap:     ctrlMap,
+		sigTypes:    sigTypes,
 		pkg:         pkg,
 		info:        info,
 		compByKey:   compByKey,

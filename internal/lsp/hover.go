@@ -57,6 +57,14 @@ func (s *Server) handleHover(f frame) error {
 		return s.reply(f.ID, nil) // expression hover needs type info
 	}
 
+	// H2: an identifier inside a component-signature parameter TYPE (e.g.
+	// `store.Comment` in `component C(c []store.Comment)`) → the resolved object's
+	// signature, like hovering the same identifier in Go.
+	if obj, idStart, idLen, ok := signatureTypeIdentAt(pkg, path, off); ok {
+		rng := rangeForSpan(text, idStart, idStart+idLen, s.enc)
+		return s.reply(f.ID, Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng})
+	}
+
 	node, exprPos := exprNodeAtOffset(pkg, path, off)
 	if node == nil {
 		return s.reply(f.ID, nil)

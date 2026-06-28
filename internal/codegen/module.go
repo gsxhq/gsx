@@ -379,6 +379,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 		GSXFiles: a.gsxFiles,
 		ExprMap:  a.exprMap,
 		CtrlMap:  a.ctrlMap,
+		SigTypes: a.sigTypes,
 	}
 	// Run emit for side-effect diagnostics only (unknown filter, attr-error, etc.).
 	// Gated on len(a.typeErrs)==0, exactly like Generate: running generateFile on a

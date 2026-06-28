@@ -99,6 +99,17 @@ func TestHoverField(t *testing.T) {
 	}
 }
 
+// Hovering the TYPE in a component signature (`component Card(u User)`) shows
+// the resolved type's definition, like hovering the same name in Go.
+func TestHoverSignatureParamType(t *testing.T) {
+	t.Parallel()
+	dir, src := hoverModule(t)
+	h := hoverAt(t, dir, "card.gsx", src, "u User)", len("u ")) // on 'User' in the signature
+	if h == nil || !strings.Contains(h.Contents.Value, "User") || !strings.Contains(h.Contents.Value, "struct") {
+		t.Fatalf("want the User struct type, got %+v", h)
+	}
+}
+
 func TestHoverVar(t *testing.T) {
 	t.Parallel()
 	dir, src := hoverModule(t)
