@@ -50,7 +50,7 @@ var templates = map[string]initTemplate{
 // file with render, maps its name with transformName, and writes it under
 // destDir (creating parent dirs). It overwrites existing files; the
 // project-level existence guard lives in runInit.
-func scaffold(srcFS fs.FS, root, destDir string, data tmplData, force bool) error {
+func scaffold(srcFS fs.FS, root, destDir string, data tmplData) error {
 	return fs.WalkDir(srcFS, root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -180,7 +180,7 @@ func initWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interact
 	}
 
 	data := tmplData{Module: module, Name: path.Base(filepath.ToSlash(module))}
-	if err := scaffold(initFS, tpl.root, abs, data, force); err != nil {
+	if err := scaffold(initFS, tpl.root, abs, data); err != nil {
 		fmt.Fprintf(stderr, "gsx: init: %v\n", err)
 		return 1
 	}

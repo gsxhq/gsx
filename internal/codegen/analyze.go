@@ -9,7 +9,6 @@ import (
 	"go/scanner"
 	"go/token"
 	"go/types"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -245,32 +244,6 @@ func isBareCallCandidate(el *gsxast.Element, propFields map[string]map[string]bo
 // gsx.Node (ignoring surrounding whitespace).
 func isGsxNodeType(typ string) bool {
 	return strings.TrimSpace(typ) == "gsx.Node"
-}
-
-// freeOverlayPath returns a path in dir of the form
-// base+suffix, base+"1"+suffix, base+"2"+suffix, … — the first one that exists
-// neither on disk nor already in the overlay map. The returned file is used as
-// an overlay-only key, so it merely needs to be a free path within the package
-// dir (avoiding both real source files and our own per-.gsx overlays).
-func freeOverlayPath(dir, base, suffix string, overlay map[string][]byte) (string, error) {
-	for i := 0; ; i++ {
-		name := base
-		if i > 0 {
-			name = fmt.Sprintf("%s%d", base, i)
-		}
-		p := filepath.Join(dir, name+suffix)
-		if _, taken := overlay[p]; taken {
-			continue
-		}
-		exists, err := diskExists(p)
-		if err != nil {
-			return "", fmt.Errorf("codegen: probing overlay path %s: %w", p, err)
-		}
-		if !exists {
-			return p, nil
-		}
-		// exists on disk — try the next candidate
-	}
 }
 
 // buildSkeleton synthesizes a Go file standing in for the gsx file during type
