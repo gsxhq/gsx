@@ -32,7 +32,6 @@ type NavRef struct {
 type PackageResult struct {
 	Files map[string][]byte // .gsx path -> generated .x.go source
 	Diags []diag.Diagnostic // all diagnostics collected for this package
-	Err   error             // transition sentinel: non-nil if any Error-severity diagnostic (until consumers read Diags)
 
 	// Retained analysis for the language server (read-only; nil when the package
 	// failed before type-checking). The two FileSets are distinct: GSXFset is the

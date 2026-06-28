@@ -46,7 +46,7 @@ func writeCaseSources(moduleDir string, c *caseDoc) error {
 }
 
 // batchCodegen writes ALL candidate cases' sources into ONE shared temp module,
-// runs codegenGeneratePackages ONCE for all dirs, then builds+runs the renderable
+// runs codegenDirs ONCE for all dirs, then builds+runs the renderable
 // cases in a single `go run`. Returns per-case results keyed by case name.
 func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodegen, error) {
 	if len(candidates) == 0 {
@@ -84,10 +84,10 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 		states[i] = cs
 	}
 
-	// Step 3: ONE codegenGeneratePackages call for all dirs.
-	pkgResults, err := codegenGeneratePackages(tmp, allPkgDirs)
+	// Step 3: ONE codegenDirs call for all dirs.
+	pkgResults, err := codegenDirs(tmp, allPkgDirs)
 	if err != nil {
-		return nil, fmt.Errorf("batchCodegen: codegenGeneratePackages: %w", err)
+		return nil, fmt.Errorf("batchCodegen: codegenDirs: %w", err)
 	}
 
 	// Step 4: reassemble per-case results.

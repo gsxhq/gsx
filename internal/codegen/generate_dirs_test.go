@@ -70,7 +70,7 @@ func TestGenerateDirsBasic(t *testing.T) {
 // whose component uses a FieldMatcher that returns a field not on the struct must
 // produce a "bad-field-match" diagnostic in DirResult.Diags (not a hard error).
 // This proves the Part-A fix — analyze() now handles buildSkeleton *attrError
-// the same way batch.go does.
+// the same way the Module's generate loop does.
 func TestGenerateDirsAttrErrorSurface(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {

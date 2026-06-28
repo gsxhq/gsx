@@ -260,7 +260,7 @@ func isGsxAttrsType(typ string) bool {
 
 // loadExternalStructFields does a preliminary go/packages load of the package
 // directory to enumerate the exported fields of each requested struct type. It
-// mirrors the type-resolution discipline used by resolveTypesPkg, but with NO
+// mirrors the type-resolution discipline of checkSkeletonPackage, but with NO
 // overlay — packages.Load(cfg, ".") loads the package's existing on-disk files
 // (hand-written .go and any previously generated .x.go) without the not-yet-
 // generated .x.go for the current run. The struct's field set is still reliable

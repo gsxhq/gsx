@@ -750,7 +750,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					})
 					if err != nil {
 						// childPropsLiteral returns an *attrError with the offending attr's
-						// position embedded. Propagate it as-is so the batch.go sink can emit
+						// position embedded. Propagate it as-is so the caller can emit
 						// a positioned diagnostic (not positionless).
 						return err
 					}

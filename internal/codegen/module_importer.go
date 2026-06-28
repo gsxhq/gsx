@@ -371,9 +371,9 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Classify <script> @{ } JS contexts (mirrors batch.go after wsnorm.Normalize).
+	// Classify <script> @{ } JS contexts (after wsnorm.Normalize).
 	// If ANY file fails resolution, skip the ENTIRE package (no generated output),
-	// matching batch's package-level-skip semantics:
+	// matching Module's package-level-skip semantics:
 	//   hasErr=true; break  →  if hasErr { continue }  (no .x.go for any file).
 	// Diagnostics are recorded in bag and surfaced by Generate via bag.Sorted().
 	scriptErr := false
@@ -430,7 +430,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	if skelErr {
 		gsxFiles = map[string]*gsxast.File{} // package-level skip: Generate's loop emits nothing
 	}
-	// Shared _gsxuse/_gsxcompsig helpers, mirroring the batch overlay.
+	// Shared _gsxuse/_gsxcompsig helpers, added to every package's overlay.
 	helperXgoPath := filepath.Join(dir, "_gsxshared.x.go")
 	helper, _ := goparser.ParseFile(fset, helperXgoPath,
 		"package "+pkgName+"\n\nfunc _gsxuse(...any) {}\nfunc _gsxcompsig(any) {}\n", goparser.SkipObjectResolution)
@@ -531,7 +531,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 
 	// Harvest once into resolved + exprMap (both consumed downstream: resolved by
 	// Generate, exprMap surfaced by Package). Build the component cross-index
-	// inputs (compByKey / objKey), mirroring the batch path.
+	// inputs (compByKey / objKey).
 	resolved := map[gsxast.Node]types.Type{}
 	exprMap := map[gsxast.Node]goast.Expr{}
 	compByKey := map[string]*gsxast.Component{} // componentKey -> component

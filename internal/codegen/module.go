@@ -73,7 +73,7 @@ type Options struct {
 // FileSet: the Module uses ONE *token.FileSet (m.fset) for its whole lifetime,
 // covering BOTH the external packages.Load AND every project analyze() call. So
 // every type-object position — package A, sibling B, external dep — resolves
-// unambiguously against the single fset, exactly like the batch path's single
+// unambiguously against the single fset, exactly like the Module's own
 // packages.Load fset. This is what makes cross-package go-to-def (the expression
 // path) resolve a sibling's obj.Pos() to the sibling's source rather than a
 // random spot in the importing package.
@@ -348,8 +348,8 @@ func (m *Module) rebuilds() int {
 }
 
 // Package returns the full retained analysis for a single gsx package dir,
-// equivalent to the go-list batch path's per-package result but without codegen
-// (Files stays empty; Generate fills it). It populates the FileSets, *types.Info,
+// without codegen (Files stays empty; Generate fills it). It populates the
+// FileSets, *types.Info,
 // *types.Package, ExprMap, GSXFiles, and the cross/nav indexes used by the LSP.
 func (m *Module) Package(dir string) (*PackageResult, error) {
 	m.analysisMu.Lock()
@@ -412,9 +412,8 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 // Emit errors (per-component) are soft: they surface as diagnostics in the
 // returned slice and the file is omitted from out.
 //
-// Type-error semantics match the batch path: a package that fails to type-check
-// emits NOTHING (the emit loop below is gated on len(a.typeErrs)==0, mirroring
-// batch deleting the dir from its work-set on TypeErrors), and the type-error
+// Type-error semantics: a package that fails to type-check emits NOTHING (the
+// emit loop below is gated on len(a.typeErrs)==0), and the type-error
 // diagnostics collected by checkSkeletonPackage are surfaced via the returned
 // slice (analyze adds them to the bag). The golden corpus test drives this path
 // directly, so type-error corpus cases are validated byte-for-byte.

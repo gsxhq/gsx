@@ -178,6 +178,5 @@ func generateInProcess(bundle *codegen.Bundle, dir string, srcOverride map[strin
 }
 
 // errInProcessDiagnostics is the sentinel returned when in-process generation
-// produced at least one error-severity diagnostic (mirrors the old PackageResult.Err
-// contract).
+// produced at least one error-severity diagnostic.
 var errInProcessDiagnostics = errors.New("gen: diagnostics reported")

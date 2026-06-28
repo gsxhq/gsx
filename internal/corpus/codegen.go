@@ -59,10 +59,9 @@ func (c *caseDoc) astAndParserDiag() (astDump []byte, parserDiag []byte, single 
 	return dump.Bytes(), diag.Bytes(), true
 }
 
-// codegenGeneratePackages generates .x.go for every .gsx across the given
-// package dirs via codegen.GenerateDirs (the Module-backed façade). Options:
-// std filter, CSS+JS minify on, no overrides.
-func codegenGeneratePackages(moduleDir string, dirs []string) (map[string]codegen.DirResult, error) {
+// codegenDirs generates .x.go for every .gsx across the given package dirs via
+// codegen.GenerateDirs. Options: std filter, CSS+JS minify on, no overrides.
+func codegenDirs(moduleDir string, dirs []string) (map[string]codegen.DirResult, error) {
 	return codegen.GenerateDirs(moduleDir, dirs, codegen.Options{
 		FilterPkgs: []string{codegen.StdImportPath},
 		CSSMinify:  true,

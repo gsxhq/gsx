@@ -218,7 +218,7 @@ func (a lspAnalyzer) AnalyzeModule(dir string, override map[string][]byte) ([]ls
 		}
 	}
 
-	// Phase 4: cross-package routing pass — mirrors batch.go's compObjOwner loop.
+	// Phase 4: cross-package routing pass — mirrors GenerateDirs' compObjOwner loop.
 	// For each package's type-info, find *types.Func uses that are declared in
 	// OTHER project packages and route those refs into the declaring component's
 	// CrossRef. In-package refs are skipped (pkgPath == myPath); external packages

@@ -114,8 +114,8 @@ func itoa(n int) string {
 	return string(buf[i:])
 }
 
-// TestCachedResolverMatchesPackagesLoad verifies that cachedResolver.check
-// produces the expected expression types for the skeleton fixture.
+// TestCachedResolverMatchesPackagesLoad verifies that checkSkeletonPackage + bundle.importer()
+// produce the expected expression types for the skeleton fixture.
 // The fixture has _gsxuse(name) and _gsxuse(count); name should resolve to
 // string and count to int — confirming the cached importer correctly threads
 // the github.com/gsxhq/gsx package (required for _gsxrt.Node) and context.

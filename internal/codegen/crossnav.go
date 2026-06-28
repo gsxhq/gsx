@@ -12,8 +12,8 @@ import (
 // CrossRef with .gsx Decl + in-package Refs) and the navigable-reference index.
 // gsxFset resolves .gsx declaration positions; skelFset (the skeleton fset)
 // resolves use positions (//line-mapped back to .gsx for skeleton refs, real
-// .go for hand-written refs). Shared by the go-list batch path and the Module
-// core so both produce identical indexes.
+// .go for hand-written refs). Shared by the Module core (both codegen.GenerateDirs
+// and the LSP path) to produce identical indexes.
 func buildCrossNav(
 	compByKey map[string]*gsxast.Component,
 	objKey map[types.Object]string,
