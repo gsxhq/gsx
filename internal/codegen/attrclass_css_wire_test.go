@@ -31,7 +31,7 @@ component Widget(userStyle string) {
 		t.Fatal(err)
 	}
 	cls := attrclass.New(attrclass.Rules{CSS: []attrclass.Rule{{Prefix: "data-style"}}}, nil)
-	res, err := GenerateDirs(tmp, []string{dir}, GenOptions{FilterPkgs: []string{stdImportPath}, Classifier: cls, CSSMinify: true, JSMinify: true}, nil)
+	res, err := GenerateDirs(tmp, []string{dir}, Options{FilterPkgs: []string{stdImportPath}, Classifier: cls, CSSMinify: true, JSMinify: true}, nil)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -74,7 +74,7 @@ component Widget(raw gsx.RawCSS) {
 		t.Fatal(err)
 	}
 	cls := attrclass.New(attrclass.Rules{CSS: []attrclass.Rule{{Prefix: "data-style"}}}, nil)
-	res2, err := GenerateDirs(tmp, []string{dir}, GenOptions{FilterPkgs: []string{stdImportPath}, Classifier: cls, CSSMinify: true, JSMinify: true}, nil)
+	res2, err := GenerateDirs(tmp, []string{dir}, Options{FilterPkgs: []string{stdImportPath}, Classifier: cls, CSSMinify: true, JSMinify: true}, nil)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}

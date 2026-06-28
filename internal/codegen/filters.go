@@ -146,7 +146,7 @@ func loadFilterTable(dir string) (filterTable, error) {
 // entry records its owning package's reserved alias (see filterAliases) and
 // import path, so lowerPipe qualifies the call and the caller imports the package
 // under the same alias. dir anchors the load against the module's go.mod (incl.
-// any test replace directive), mirroring resolveTypesPkg.
+// any test replace directive).
 func loadFilterTableMulti(dir string, pkgPaths []string, aliases []FilterAlias) (filterTable, error) {
 	if len(pkgPaths) == 0 && len(aliases) == 0 {
 		return filterTable{}, nil
@@ -173,7 +173,7 @@ func loadFilterTableMulti(dir string, pkgPaths []string, aliases []FilterAlias) 
 // order — so the LAST entry is the last-wins winner and the earlier entries are
 // the ones it shadows. Each entry records its owning package's reserved alias
 // (see filterAliases) and import path. dir anchors the load against the
-// module's go.mod (incl. any test replace directive), mirroring resolveTypesPkg.
+// module's go.mod (incl. any test replace directive).
 //
 // This is the single harvest seam shared by loadFilterTableMulti (winner-only
 // table) and ResolveFilters (full table + shadows), so both see the exact same

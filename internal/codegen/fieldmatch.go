@@ -3,6 +3,7 @@ package codegen
 import (
 	"fmt"
 	"go/token"
+	"slices"
 	"strings"
 	"unicode"
 )
@@ -36,10 +37,8 @@ func defaultFieldMatcher(attr string, fields []string) (string, bool) {
 	if candidate == "" {
 		return "", false
 	}
-	for _, f := range fields {
-		if f == candidate {
-			return candidate, true
-		}
+	if slices.Contains(fields, candidate) {
+		return candidate, true
 	}
 	return "", false
 }

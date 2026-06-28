@@ -29,7 +29,7 @@ component B(children string) {
 	if err := os.WriteFile(filepath.Join(dir, "v.gsx"), []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, err := GenerateDirs(mod, []string{dir}, GenOptions{}, nil)
+	out, err := GenerateDirs(mod, []string{dir}, Options{}, nil)
 	if err != nil {
 		t.Fatalf("hard error: %v", err)
 	}

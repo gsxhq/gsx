@@ -217,7 +217,7 @@ func TestScaffoldRendersAndTransforms(t *testing.T) {
 		"tpl/dot-gitignore":    {Data: []byte("/node_modules\n")},
 	}
 	dest := t.TempDir()
-	if err := scaffold(src, "tpl", dest, tmplData{Module: "github.com/x/myapp", Name: "myapp"}, false); err != nil {
+	if err := scaffold(src, "tpl", dest, tmplData{Module: "github.com/x/myapp", Name: "myapp"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -280,7 +280,7 @@ func TestScaffoldSimpleTemplate(t *testing.T) {
 	t.Parallel()
 	dest := t.TempDir()
 	tpl := templates[defaultTemplate]
-	if err := scaffold(initFS, tpl.root, dest, tmplData{Module: "example.com/demo", Name: "demo"}, false); err != nil {
+	if err := scaffold(initFS, tpl.root, dest, tmplData{Module: "example.com/demo", Name: "demo"}); err != nil {
 		t.Fatal(err)
 	}
 	for _, rel := range []string{

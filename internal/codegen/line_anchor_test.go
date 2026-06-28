@@ -101,7 +101,7 @@ func TestComponentFuncLineAnchorCodegen(t *testing.T) {
 	}
 	writeFile(t, pkgDir, "views.gsx", lineAnchorSrc)
 
-	res, err := GenerateDirs(tmp, []string{pkgDir}, GenOptions{FilterPkgs: []string{stdImportPath}, CSSMinify: true, JSMinify: true}, nil)
+	res, err := GenerateDirs(tmp, []string{pkgDir}, Options{FilterPkgs: []string{stdImportPath}, CSSMinify: true, JSMinify: true}, nil)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}

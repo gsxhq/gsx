@@ -2,6 +2,7 @@ package codegen
 
 import (
 	goast "go/ast"
+	goparser "go/parser"
 	"go/token"
 	"go/types"
 	"testing"
@@ -113,34 +114,33 @@ func itoa(n int) string {
 	return string(buf[i:])
 }
 
-// TestCachedResolverMatchesPackagesLoad verifies that cachedResolver.check
-// produces the expected expression types for the skeleton fixture.
+// TestCachedResolverMatchesPackagesLoad verifies that checkSkeletonPackage + bundle.importer()
+// produce the expected expression types for the skeleton fixture.
 // The fixture has _gsxuse(name) and _gsxuse(count); name should resolve to
 // string and count to int — confirming the cached importer correctly threads
 // the github.com/gsxhq/gsx package (required for _gsxrt.Node) and context.
 func TestCachedResolverMatchesPackagesLoad(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	overlay := map[string][]byte{
-		dir + "/comp.x.go": []byte(skeletonFixture),
-	}
 
 	root := repoRoot(t)
-	cached, err := newCachedResolver(root, []string{stdImportPath}, nil, allowImportsFixture)
+	bundle, err := newCachedResolver(root, []string{stdImportPath}, nil, allowImportsFixture)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	fset := token.NewFileSet()
-	cf, cinfo, err := cached.check(dir, overlay, fset)
+	gf, err := goparser.ParseFile(fset, dir+"/comp.x.go", []byte(skeletonFixture), goparser.SkipObjectResolution)
 	if err != nil {
 		t.Fatal(err)
 	}
+	files := []*goast.File{gf}
+	_, info, errs := checkSkeletonPackage(dir, "views", files, fset, bundle.importer())
+	if len(errs) != 0 {
+		t.Fatalf("unexpected type errors: %v", errs)
+	}
 
-	got := harvestUseTypes(cf, cinfo, fset)
-
-	// _gsxuse(name) is on line 18, _gsxuse(count) on line 19.
-	// (Lines 1-indexed; skeletonFixture comment above shows the layout.)
+	got := harvestUseTypes(files, info, fset)
 	want := map[string]string{
 		"name@18":  "string",
 		"count@19": "int",

@@ -9,7 +9,7 @@ import (
 	"go/scanner"
 	"go/token"
 	"go/types"
-	"path/filepath"
+	"maps"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,96 +25,6 @@ import (
 // (e.g. unknown filter in emitProbes) are NOT wrapped in this sentinel and
 // propagate as fatal errors.
 var errSkipComponent = errors.New("skip")
-
-// resolveTypesPkg type-checks the package (real .go files + synthesized gsx
-// component skeletons via Overlay) and returns each interpolation's type.
-//
-// propFields is the SAME AST-derived prop-field map Module.Generate threads into
-// emission (see componentPropFieldsFor); it drives the call-site split inside the
-// PROBE (buildSkeleton/emitProbes) so the probe's child-props literal splits
-// fallthrough attrs into an Attrs bag IDENTICALLY to emission — guaranteeing the
-// generate-time type-check validates exactly what the emitter produces.
-//
-// nodeProps records which declared params have type exactly gsx.Node; it is
-// threaded alongside propFields and consumed by emit/probe to promote renderable
-// values into gsx.Node props (gsx.Val/gsx.Text).
-func resolveTypesPkg(dir string, files map[string]*gsxast.File, propFields, nodeProps map[string]map[string]bool, byo *byoData, fset *token.FileSet) (map[gsxast.Node]types.Type, filterTable, error) {
-	return resolveTypesPkgWithFilters(dir, files, propFields, nodeProps, byo, nil, []string{stdImportPath}, nil, fset, nil)
-}
-
-// resolveTypesPkgWithFilters is the multi-package form of resolveTypesPkg: it
-// harvests the filter table from filterPkgs (last-wins precedence) and otherwise
-// behaves identically. resolveTypesPkg is the std-only wrapper.
-//
-// resolver is optional; nil uses packagesLoadResolver (the original packages.Load
-// behavior, byte-identical to before). When a *CachedResolver is passed, its
-// prebuilt filterTable is used instead of calling loadFilterTableMulti again.
-func resolveTypesPkgWithFilters(dir string, files map[string]*gsxast.File, propFields, nodeProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, filterPkgs []string, aliases []FilterAlias, fset *token.FileSet, resolver typeResolver) (map[gsxast.Node]types.Type, filterTable, error) {
-	if resolver == nil {
-		resolver = packagesLoadResolver{}
-	}
-
-	// Use the cached resolver's prebuilt filter table when available; otherwise
-	// load it fresh (the original behavior).
-	var table filterTable
-	if cr, ok := resolver.(*CachedResolver); ok {
-		table = cr.filters()
-	} else {
-		var err error
-		table, err = loadFilterTableMulti(dir, filterPkgs, aliases)
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-
-	overlay := map[string][]byte{}
-	skelComps := map[string][]*gsxast.Component{}
-	for path, file := range files {
-		skel, comps, _, _, err := buildSkeleton(file, table, propFields, nodeProps, byo, fm, fset)
-		if err != nil {
-			return nil, nil, err
-		}
-		base := strings.TrimSuffix(filepath.Base(path), ".gsx")
-		xpath := filepath.Join(dir, base+".x.go")
-		overlay[xpath] = []byte(skel)
-		skelComps[xpath] = comps
-	}
-
-	// Declare the _gsxuse probe helper exactly once, in a shared overlay file, so
-	// a multi-.gsx package doesn't redeclare it once per skeleton (which would
-	// fail type-checking for the whole package). harvest keys on the _gsxuse
-	// identifier; this file is absent from skelComps, so harvest skips it.
-	pkgName := ""
-	for _, f := range files {
-		pkgName = f.Package
-		break
-	}
-	// Pick an overlay filename that does NOT exist on disk in dir, so a real
-	// gsxshared.x.go (or our own per-file <base>.x.go overlays) is never
-	// clobbered. The file is overlay-only (never written to disk); it just needs
-	// a free path within the package dir.
-	sharedPath, err := freeOverlayPath(dir, "gsxshared", ".x.go", overlay)
-	if err != nil {
-		return nil, nil, err
-	}
-	overlay[sharedPath] = []byte("package " + pkgName + "\n\nfunc _gsxuse(...any) {}\nfunc _gsxcompsig(any) {}\n")
-
-	goFiles, info, err := resolver.check(dir, overlay, fset)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	out := map[gsxast.Node]types.Type{}
-	for _, f := range goFiles {
-		fname := fset.Position(f.Pos()).Filename
-		comps, ok := skelComps[fname]
-		if !ok {
-			continue // a real .go file, not one of our overlays
-		}
-		harvest(f, comps, info, out, nil)
-	}
-	return out, table, nil
-}
 
 // componentPropFieldsFor builds the call-site split's prop-field map purely from
 // the parsed component ASTs — SAME-PACKAGE only, available BEFORE type resolution.
@@ -335,32 +245,6 @@ func isBareCallCandidate(el *gsxast.Element, propFields map[string]map[string]bo
 // gsx.Node (ignoring surrounding whitespace).
 func isGsxNodeType(typ string) bool {
 	return strings.TrimSpace(typ) == "gsx.Node"
-}
-
-// freeOverlayPath returns a path in dir of the form
-// base+suffix, base+"1"+suffix, base+"2"+suffix, … — the first one that exists
-// neither on disk nor already in the overlay map. The returned file is used as
-// an overlay-only key, so it merely needs to be a free path within the package
-// dir (avoiding both real source files and our own per-.gsx overlays).
-func freeOverlayPath(dir, base, suffix string, overlay map[string][]byte) (string, error) {
-	for i := 0; ; i++ {
-		name := base
-		if i > 0 {
-			name = fmt.Sprintf("%s%d", base, i)
-		}
-		p := filepath.Join(dir, name+suffix)
-		if _, taken := overlay[p]; taken {
-			continue
-		}
-		exists, err := diskExists(p)
-		if err != nil {
-			return "", fmt.Errorf("codegen: probing overlay path %s: %w", p, err)
-		}
-		if !exists {
-			return p, nil
-		}
-		// exists on disk — try the next candidate
-	}
 }
 
 // buildSkeleton synthesizes a Go file standing in for the gsx file during type
@@ -840,7 +724,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					})
 					if err != nil {
 						// childPropsLiteral returns an *attrError with the offending attr's
-						// position embedded. Propagate it as-is so the batch.go sink can emit
+						// position embedded. Propagate it as-is so the caller can emit
 						// a positioned diagnostic (not positionless).
 						return err
 					}
@@ -849,9 +733,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					// — the SAME set the emitter records into its imports map. Without
 					// this the skeleton would not import _gsxstdN and a prop pipeline
 					// would fail to resolve.
-					for alias, path := range usedPkgs {
-						usedFilters[alias] = path
-					}
+					maps.Copy(usedFilters, usedPkgs)
 					emitSkeletonLine(sb, fset, t.Pos())
 					if splatExpr != "" {
 						// Whole-struct splat: mirrors genChildComponent exactly.
@@ -985,10 +867,7 @@ func emitSkeletonComponentNameLine(sb *strings.Builder, fset *token.FileSet, c *
 		genNameCol = 7 + len(c.Recv) // func <Recv> <Name>
 	}
 	p := fset.Position(c.NamePos)
-	col := p.Column - genNameCol + 1
-	if col < 1 {
-		col = 1
-	}
+	col := max(p.Column-genNameCol+1, 1)
 	fmt.Fprintf(sb, "//line %s:%d:%d\n", p.Filename, p.Line, col)
 }
 
@@ -1000,10 +879,7 @@ func emitSkeletonClauseLine(sb *strings.Builder, fset *token.FileSet, pos token.
 		return
 	}
 	p := fset.Position(pos)
-	col := p.Column - prefixLen
-	if col < 1 {
-		col = 1
-	}
+	col := max(p.Column-prefixLen, 1)
 	fmt.Fprintf(sb, "//line %s:%d:%d\n", p.Filename, p.Line, col)
 }
 
@@ -1037,10 +913,7 @@ func emitSkeletonLineParam(sb *strings.Builder, fset *token.FileSet, pos token.P
 		return
 	}
 	p := fset.Position(pos)
-	col := p.Column - 1
-	if col < 1 {
-		col = 1
-	}
+	col := max(p.Column-1, 1)
 	fmt.Fprintf(sb, "//line %s:%d:%d\n", p.Filename, p.Line, col)
 }
 
@@ -1057,10 +930,7 @@ func emitSkeletonLineImport(sb *strings.Builder, fset *token.FileSet, pos token.
 	}
 	const prefixLen = len("import ")
 	p := fset.Position(pos)
-	col := p.Column - prefixLen
-	if col < 1 {
-		col = 1
-	}
+	col := max(p.Column-prefixLen, 1)
 	fmt.Fprintf(sb, "//line %s:%d:%d\n", p.Filename, p.Line, col)
 }
 
@@ -1083,9 +953,7 @@ func probeExpr(seed string, stages []gsxast.PipeStage, table filterTable, usedFi
 	if err != nil {
 		return strings.TrimSpace(seed), nil
 	}
-	for alias, path := range used {
-		usedFilters[alias] = path
-	}
+	maps.Copy(usedFilters, used)
 	return lowered, nil
 }
 
@@ -1455,9 +1323,7 @@ func walkLivenessAttrExprs(attrs []gsxast.Attr, table filterTable, usedFilters m
 			fn(strings.TrimSpace(seed))
 			return
 		}
-		for alias, path := range used {
-			usedFilters[alias] = path
-		}
+		maps.Copy(usedFilters, used)
 		fn(lowered)
 	}
 	for _, a := range attrs {

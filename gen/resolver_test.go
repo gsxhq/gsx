@@ -69,7 +69,7 @@ func TestCachedResolverTypeError(t *testing.T) {
 	// Write the bad component into the temp module's views package.
 	viewsDir := mod + "/views"
 	writeFile(t, viewsDir, "bad.gsx", badSrc)
-	defaultRes, err2 := codegen.GenerateDirs(mod, []string{viewsDir}, codegen.GenOptions{}, nil)
+	defaultRes, err2 := codegen.GenerateDirs(mod, []string{viewsDir}, codegen.Options{}, nil)
 	if err2 != nil {
 		t.Fatalf("default path: GenerateDirs error: %v", err2)
 	}

@@ -121,7 +121,7 @@ func decodeOutput(b []byte) (pkgOutput, bool) {
 		return nil, false
 	}
 	out := make(pkgOutput, count)
-	for i := 0; i < count; i++ {
+	for range count {
 		nl, ok := readU64()
 		if !ok {
 			return nil, false

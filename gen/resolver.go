@@ -1,12 +1,12 @@
 package gen
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
 
 	"github.com/gsxhq/gsx/internal/codegen"
-	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/typebundle"
 )
 
@@ -35,12 +35,12 @@ var DefaultPlaygroundImports = []string{
 	"math", "math/rand", "unicode", "unicode/utf8", "html",
 }
 
-// CachedResolver wraps an internal codegen.CachedResolver and exposes an
+// CachedResolver wraps an internal codegen.Bundle and exposes an
 // in-process Generate method. Dependencies are loaded once at construction time
 // (via NewCachedResolver); each Generate call runs entirely in-process with no
 // per-render go list or subprocess.
 type CachedResolver struct {
-	inner *codegen.CachedResolver
+	inner *codegen.Bundle
 }
 
 // NewCachedResolver constructs a CachedResolver for a module rooted at
@@ -110,53 +110,57 @@ func (c *CachedResolver) GenerateSources(files map[string][]byte) (Result, error
 	return generateInProcess(c.inner, memDir, override)
 }
 
-// generateInProcess implements CachedResolver.Generate. It resolves all paths
-// to absolute, calls GeneratePackagesWithResolver, and maps the internal
-// PackageResult back to the public gen.Result type.
-func generateInProcess(resolver *codegen.CachedResolver, dir string, srcOverride map[string][]byte) (Result, error) {
-	// Resolve dir to an absolute path.
+// generateInProcess drives a fresh per-call Module with the prebuilt bundle (no
+// packages.Load / subprocess) and maps its output to the public gen.Result. A
+// fresh Module per call keeps the in-process path stateless; the expensive load
+// already happened once when the bundle was built.
+func generateInProcess(bundle *codegen.Bundle, dir string, srcOverride map[string][]byte) (Result, error) {
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		return Result{}, err
 	}
 
-	// Resolve srcOverride keys to absolute paths. Keys like "views/comp.gsx"
-	// are treated as relative to the PARENT of dir (i.e., the module root or
-	// the caller's working directory). Absolute keys are left unchanged.
+	// Resolve srcOverride keys to absolute paths (unchanged): relative keys like
+	// "views/comp.gsx" resolve against the directory CONTAINING dir; absolute keys
+	// pass through.
 	absOverride := make(map[string][]byte, len(srcOverride))
 	for k, v := range srcOverride {
 		if filepath.IsAbs(k) {
 			absOverride[k] = v
 		} else {
-			// Relative paths: resolve against the directory CONTAINING dir so
-			// that "views/comp.gsx" with dir="views" maps to absDir+"/comp.gsx".
 			absOverride[filepath.Join(filepath.Dir(absDir), filepath.FromSlash(k))] = v
 		}
 	}
 
-	results, err := codegen.GeneratePackagesWithResolver("", []string{absDir}, resolver, nil, absOverride)
+	// ModulePath == absDir reproduces the old types.NewPackage(dir, …) package
+	// path exactly, so diagnostic type qualification is byte-identical to the
+	// former CachedResolver path. The single playground package has no project
+	// siblings, so nothing recurses through the skeleton importer.
+	m, err := codegen.Open(codegen.Options{
+		ModuleRoot: absDir,
+		ModulePath: absDir,
+		FilterPkgs: []string{codegen.StdImportPath},
+		Bundle:     bundle,
+	})
+	if err != nil {
+		return Result{}, err
+	}
+	for p, srcBytes := range absOverride {
+		m.SetOverride(p, srcBytes)
+	}
+
+	out, diags, err := m.Generate(absDir)
 	if err != nil {
 		return Result{}, err
 	}
 
-	pr, ok := results[absDir]
-	if !ok {
-		return Result{}, nil
-	}
-
-	// Map PackageResult.Files (abs .gsx path -> .x.go bytes) to the public
-	// Result.Files. Re-use the same key form the caller used in srcOverride:
-	// if the caller used relative keys, convert back to relative; otherwise
-	// use the absolute path. The key is the .x.go path (not .gsx).
-	files := make(map[string][]byte, len(pr.Files))
-	for absPath, content := range pr.Files {
-		// absPath is an abs .gsx path. Build the .x.go key by swapping the ext.
+	// Map out (abs .gsx path -> .x.go bytes) to Result.Files, preferring the
+	// relative key form when the caller used relative keys (unchanged mapping).
+	files := make(map[string][]byte, len(out))
+	for absPath, content := range out {
 		base := strings.TrimSuffix(absPath, ".gsx")
 		absXGo := base + ".x.go"
-
-		// Prefer the relative key form if the caller used relative keys.
 		if len(srcOverride) > 0 {
-			// Check whether the caller had a matching relative key.
 			rel, relErr := filepath.Rel(filepath.Dir(absDir), absXGo)
 			if relErr == nil && !strings.HasPrefix(rel, "..") {
 				files[rel] = content
@@ -166,11 +170,13 @@ func generateInProcess(resolver *codegen.CachedResolver, dir string, srcOverride
 		files[absXGo] = content
 	}
 
-	var allDiags []diag.Diagnostic
-	allDiags = append(allDiags, pr.Diags...)
-
-	return Result{
-		Files: files,
-		Diags: allDiags,
-	}, pr.Err
+	var retErr error
+	if anyErrorDiag(diags) {
+		retErr = errInProcessDiagnostics
+	}
+	return Result{Files: files, Diags: diags}, retErr
 }
+
+// errInProcessDiagnostics is the sentinel returned when in-process generation
+// produced at least one error-severity diagnostic.
+var errInProcessDiagnostics = errors.New("gen: diagnostics reported")

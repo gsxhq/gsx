@@ -17,7 +17,7 @@ func genStyle(t *testing.T, cssMinify bool) string {
 	writeFile(t, dir, "go.mod",
 		"module example.com/x\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
 	writeFile(t, dir, "page.gsx", styleSrc)
-	out, err := GenerateDirs(dir, []string{dir}, GenOptions{JSMinify: true, CSSMinify: cssMinify}, nil)
+	out, err := GenerateDirs(dir, []string{dir}, Options{JSMinify: true, CSSMinify: cssMinify}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

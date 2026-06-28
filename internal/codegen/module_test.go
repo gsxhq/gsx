@@ -223,7 +223,7 @@ func TestModuleImporterRejectsImportCycle(t *testing.T) {
 // .gsx file contains a <script> interpolation that fails jsx.ResolveScripts
 // (e.g. an interpolation in a binding position), Generate returns NO generated
 // output (empty map) while still returning a non-empty diagnostics slice —
-// matching batch's package-level-skip semantics.
+// matching Module's package-level-skip semantics.
 func TestModuleGenerateSkipsPackageOnScriptResolutionFailure(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

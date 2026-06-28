@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/txtar"
 )
 
@@ -71,21 +72,11 @@ func loadCase(path string) (*caseDoc, error) {
 			}
 			if f.Name == "go.mod" {
 				c.multiPkg = true
-				c.modulePath = parseModulePath(f.Data)
+				c.modulePath = codegen.ModulePathFromGoMod(f.Data)
 			}
 		}
 	}
 	return c, nil
-}
-
-func parseModulePath(gomod []byte) string {
-	for _, line := range strings.Split(string(gomod), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "module ") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "module "))
-		}
-	}
-	return ""
 }
 
 func (c *caseDoc) renderable() bool { return c.invoke != nil }

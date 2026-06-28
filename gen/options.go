@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/gsxhq/gsx/internal/codegen"
@@ -212,12 +213,9 @@ func WithJSFormatter(f rawfmt.Formatter) Option {
 // appendFilterPkg appends path to the config's ordered filter-package list
 // unless it is already present (first-seen order is preserved).
 func (cfg *config) appendFilterPkg(path string) {
-	for _, p := range cfg.filterPkgs {
-		if p == path {
-			return
-		}
+	if !slices.Contains(cfg.filterPkgs, path) {
+		cfg.filterPkgs = append(cfg.filterPkgs, path)
 	}
-	cfg.filterPkgs = append(cfg.filterPkgs, path)
 }
 
 // WithJSAttrs registers additional JS-context attribute rules (e.g. Vue v-on:,

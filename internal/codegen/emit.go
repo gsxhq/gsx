@@ -9,6 +9,7 @@ import (
 	goparser "go/parser"
 	"go/token"
 	"go/types"
+	"maps"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -403,13 +404,13 @@ func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]typ
 	emitS(b, ">")
 	if strings.EqualFold(el.Tag, "style") {
 		for _, c := range el.Children {
-			if !genStyleChild(b, c, resolved, table, imports, interpTemp, fset, bag) {
+			if !genStyleChild(b, c, resolved, table, imports, interpTemp, bag) {
 				return false
 			}
 		}
 	} else if strings.EqualFold(el.Tag, "script") {
 		for _, c := range el.Children {
-			if !genScriptChild(b, c, resolved, table, imports, interpTemp, fset, bag) {
+			if !genScriptChild(b, c, resolved, table, imports, interpTemp, bag) {
 				return false
 			}
 		}
@@ -631,13 +632,13 @@ func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, res
 	emitS(b, ">")
 	if strings.EqualFold(el.Tag, "style") {
 		for _, c := range el.Children {
-			if !genStyleChild(b, c, resolved, table, imports, interpTemp, fset, bag) {
+			if !genStyleChild(b, c, resolved, table, imports, interpTemp, bag) {
 				return false
 			}
 		}
 	} else if strings.EqualFold(el.Tag, "script") {
 		for _, c := range el.Children {
-			if !genScriptChild(b, c, resolved, table, imports, interpTemp, fset, bag) {
+			if !genScriptChild(b, c, resolved, table, imports, interpTemp, bag) {
 				return false
 			}
 		}
@@ -802,13 +803,13 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		emitS(b, ">")
 		if strings.EqualFold(t.Tag, "style") {
 			for _, c := range t.Children {
-				if !genStyleChild(b, c, resolved, table, imports, interpTemp, fset, bag) {
+				if !genStyleChild(b, c, resolved, table, imports, interpTemp, bag) {
 					return false
 				}
 			}
 		} else if strings.EqualFold(t.Tag, "script") {
 			for _, c := range t.Children {
-				if !genScriptChild(b, c, resolved, table, imports, interpTemp, fset, bag) {
+				if !genScriptChild(b, c, resolved, table, imports, interpTemp, bag) {
 					return false
 				}
 			}
@@ -976,13 +977,13 @@ func emitS(b *bytes.Buffer, s string) {
 // genStyleChild emits one child of a <style> element. Text is raw CSS (verbatim);
 // an Interp is rendered in CSS context (auto-sanitized). <style> bodies contain
 // only Text and @{ } interps (parser guarantee).
-func genStyleChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, fset *token.FileSet, bag *diag.Bag) bool {
+func genStyleChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
 	switch t := n.(type) {
 	case *ast.Text:
 		emitS(b, t.Value)
 		return true
 	case *ast.Interp:
-		return emitCSSInterp(b, t, resolved, table, imports, interpTemp, fset, bag)
+		return emitCSSInterp(b, t, resolved, table, imports, interpTemp, bag)
 	default:
 		bag.Errorf(n.Pos(), n.End(), "unsupported-style-node", "<style> body may contain only text and @{ } interpolations, got %T", n)
 		return false
@@ -990,7 +991,7 @@ func genStyleChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Ty
 }
 
 // emitCSSInterp renders a <style> interpolation value in CSS block context.
-func emitCSSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, fset *token.FileSet, bag *diag.Bag) bool {
+func emitCSSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
 		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table)
@@ -1054,13 +1055,13 @@ func emitRenderCSS(b *bytes.Buffer, expr string, t types.Type, imports map[strin
 // (verbatim); an Interp is rendered through the JS escaper selected by its
 // JSCtx (set by internal/jsx). Comment-context holes were already un-split to
 // Text by jsx.ResolveScripts, so they arrive here as Text.
-func genScriptChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, fset *token.FileSet, bag *diag.Bag) bool {
+func genScriptChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
 	switch t := n.(type) {
 	case *ast.Text:
 		emitS(b, t.Value)
 		return true
 	case *ast.Interp:
-		return emitJSInterp(b, t, resolved, table, imports, interpTemp, fset, bag)
+		return emitJSInterp(b, t, resolved, table, imports, interpTemp, bag)
 	default:
 		bag.Errorf(n.Pos(), n.End(), "unsupported-script-node", "<script> body may contain only text and @{ } interpolations, got %T", n)
 		return false
@@ -1070,7 +1071,7 @@ func genScriptChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.T
 // emitJSInterp renders a <script> interpolation value through the runtime JS
 // escaper chosen by its JSCtx. It mirrors emitCSSInterp's pipeline-stage handling
 // and (T, error) tuple auto-unwrap.
-func emitJSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, fset *token.FileSet, bag *diag.Bag) bool {
+func emitJSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
 		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table)
@@ -1097,16 +1098,16 @@ func emitJSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Ty
 		tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
 		*interpTemp++
 		fmt.Fprintf(b, "\t\t%s, _gsxerr := %s\n\t\tif _gsxerr != nil {\n\t\t\treturn _gsxerr\n\t\t}\n", tmp, expr)
-		return emitJSValue(b, n.JSCtx, tmp, tup.At(0).Type(), imports, n, bag)
+		return emitJSValue(b, n.JSCtx, tmp, tup.At(0).Type(), n, bag)
 	}
-	return emitJSValue(b, n.JSCtx, expr, t, imports, n, bag)
+	return emitJSValue(b, n.JSCtx, expr, t, n, bag)
 }
 
 // emitJSValue selects the runtime JS escaper by JS context. Value context goes
 // through JSVal(any) (JSON-encode; gsx.RawJS passthrough is handled at runtime);
 // string/template/regexp contexts go through the string-taking escapers.
 // n is the AST node for positioning any error diagnostic.
-func emitJSValue(b *bytes.Buffer, ctx ast.JSCtx, expr string, t types.Type, imports map[string]bool, n ast.Node, bag *diag.Bag) bool {
+func emitJSValue(b *bytes.Buffer, ctx ast.JSCtx, expr string, t types.Type, n ast.Node, bag *diag.Bag) bool {
 	switch ctx {
 	case ast.JSCtxValue:
 		// JSVal accepts any (JSON-encode); gsx.RawJS passthrough handled at runtime.
@@ -1877,8 +1878,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 	if err != nil {
 		// Convert the childPropsLiteral error to a positioned diagnostic.
 		// An attrError carries the specific attr's position; fall back to the element.
-		var ae *attrError
-		if errors.As(err, &ae) {
+		if ae, ok := errors.AsType[*attrError](err); ok {
 			bag.Errorf(ae.pos, ae.end, ae.code, "%s", ae.msg)
 		} else {
 			bag.Errorf(el.Pos(), el.End(), childPropsErrorCode(err), "%s", strings.TrimPrefix(err.Error(), "codegen: "))
@@ -2055,9 +2055,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg string, table filterTab
 	var mergeChain []string // `.Merge(<spread>)` / `.Merge(<rtPkg>.AttrsCond(...))` in source order
 	// recordPkgs merges a lowerPipe usedPkgs result into the shared set.
 	recordPkgs := func(used map[string]string) {
-		for alias, path := range used {
-			usedPkgs[alias] = path
-		}
+		maps.Copy(usedPkgs, used)
 	}
 	for _, a := range el.Attrs {
 		switch t := a.(type) {
@@ -2219,9 +2217,7 @@ func classEntryExpr(a *ast.ClassAttr, rtPkg string, table filterTable) (string, 
 			msg := strings.TrimPrefix(err.Error(), "codegen: ")
 			return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unresolved-pipeline", msg: msg}
 		}
-		for alias, path := range used {
-			usedPkgs[alias] = path
-		}
+		maps.Copy(usedPkgs, used)
 		if p.Cond == "" {
 			parts = append(parts, fmt.Sprintf("%s.Class(%s)", rtPkg, expr))
 		} else {
@@ -2249,9 +2245,7 @@ func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, table filterTable) (strin
 	if err != nil {
 		return "", nil, err
 	}
-	for a, p := range thenUsed {
-		usedPkgs[a] = p
-	}
+	maps.Copy(usedPkgs, thenUsed)
 	thenThunk := fmt.Sprintf("func() %s.Attrs { return %s }", rtPkg, thenLit)
 	elseArg := "nil"
 	if len(t.Else) > 0 {
@@ -2259,9 +2253,7 @@ func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, table filterTable) (strin
 		if err != nil {
 			return "", nil, err
 		}
-		for a, p := range elseUsed {
-			usedPkgs[a] = p
-		}
+		maps.Copy(usedPkgs, elseUsed)
 		elseArg = fmt.Sprintf("func() %s.Attrs { return %s }", rtPkg, elseLit)
 	}
 	return fmt.Sprintf("%s.AttrsCond(%s, %s, %s)", rtPkg, strings.TrimSpace(t.Cond), thenThunk, elseArg), usedPkgs, nil
@@ -2295,9 +2287,7 @@ func condBranchAttrs(attrs []ast.Attr, rtPkg, tag string, table filterTable) (st
 			if eerr != nil {
 				return "", nil, eerr
 			}
-			for al, p := range used {
-				usedPkgs[al] = p
-			}
+			maps.Copy(usedPkgs, used)
 			entries = append(entries, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), entry))
 		default:
 			msg := fmt.Sprintf("unsupported attribute %T in a conditional branch (<%s>)", a, tag)

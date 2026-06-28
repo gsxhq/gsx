@@ -5,7 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
+
+	"github.com/gsxhq/gsx/internal/codegen"
 )
 
 // moduleGroup is a set of package directories that share one enclosing module,
@@ -58,7 +59,7 @@ func moduleRoot(dir string) (string, string, error) {
 	for {
 		gomod := filepath.Join(d, "go.mod")
 		if data, err := os.ReadFile(gomod); err == nil {
-			return d, modulePathFromGoMod(data), nil
+			return d, codegen.ModulePathFromGoMod(data), nil
 		}
 		parent := filepath.Dir(d)
 		if parent == d {
@@ -66,14 +67,4 @@ func moduleRoot(dir string) (string, string, error) {
 		}
 		d = parent
 	}
-}
-
-func modulePathFromGoMod(data []byte) string {
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "module ") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "module "))
-		}
-	}
-	return ""
 }

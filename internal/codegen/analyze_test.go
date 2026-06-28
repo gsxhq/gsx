@@ -26,37 +26,37 @@ func TestResolveAttrExprType(t *testing.T) {
 	src := "package views\n\ncomponent A(id string) {\n\t<div data-id={id}></div>\n}\n"
 	writeFile(t, pkgDir, "views.gsx", src)
 
-	fset := token.NewFileSet()
-	file, err := gsxparser.ParseFile(fset, filepath.Join(pkgDir, "views.gsx"), []byte(src), 0)
+	m, err := Open(Options{ModuleRoot: tmp, ModulePath: "gsxa", FilterPkgs: []string{StdImportPath}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	files := map[string]*gsxast.File{filepath.Join(pkgDir, "views.gsx"): file}
-	propFields, nodeProps, byo, err := componentPropFieldsFor(pkgDir, files)
+	pr, err := m.Package(pkgDir)
 	if err != nil {
-		t.Fatalf("propFields: %v", err)
+		t.Fatalf("package: %v", err)
 	}
-	resolved, _, err := resolveTypesPkg(pkgDir, files, propFields, nodeProps, byo, fset)
-	if err != nil {
-		t.Fatalf("resolve: %v", err)
-	}
-	// find the ExprAttr node and assert its resolved type is string.
+	// Find the ExprAttr in the package's own parsed AST (Package re-parses).
 	var attr *gsxast.ExprAttr
-	gsxast.Inspect(file, func(n gsxast.Node) bool {
-		if a, ok := n.(*gsxast.ExprAttr); ok {
-			attr = a
-		}
-		return true
-	})
+	for _, file := range pr.GSXFiles {
+		gsxast.Inspect(file, func(n gsxast.Node) bool {
+			if a, ok := n.(*gsxast.ExprAttr); ok {
+				attr = a
+			}
+			return true
+		})
+	}
 	if attr == nil {
 		t.Fatal("no ExprAttr in AST")
 	}
-	got, ok := resolved[attr]
-	if !ok || got == nil {
-		t.Fatalf("attr expr type not resolved (resolved has %d entries)", len(resolved))
+	goExpr, ok := pr.ExprMap[attr]
+	if !ok || goExpr == nil {
+		t.Fatalf("attr expr not mapped (ExprMap has %d entries)", len(pr.ExprMap))
 	}
-	if b, ok := got.Underlying().(*types.Basic); !ok || b.Info()&types.IsString == 0 {
-		t.Fatalf("attr expr type = %s, want string", got)
+	tv := pr.Info.Types[goExpr]
+	if tv.Type == nil {
+		t.Fatal("attr expr type not resolved")
+	}
+	if b, ok := tv.Type.Underlying().(*types.Basic); !ok || b.Info()&types.IsString == 0 {
+		t.Fatalf("attr expr type = %s, want string", tv.Type)
 	}
 }
 
