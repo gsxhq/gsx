@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
@@ -84,15 +85,15 @@ func exprNodeAtOffset(pkg *Package, path string, off int) (gsxast.Node, token.Po
 }
 
 // signatureTypeIdentAt resolves a cursor sitting on an identifier inside a
-// component-signature parameter TYPE (e.g. `store.Comment` in
-// `component C(c []store.Comment)`) to that identifier's go/types object. It
-// walks the file's components, finds the parameter-type span covering off (via
-// pkg.SigTypes), bridges the cursor into the type-checked skeleton type
-// expression by relative byte offset (the skeleton copies the type verbatim, so
-// the bytes align), and resolves the innermost identifier through go/types.
-// gsxStart/idLen are the identifier's byte span back in the .gsx file (for the
-// hover range). Returns ok=false when the cursor is not on a signature-type
-// identifier or it does not resolve.
+// component-signature TYPE — a parameter type (e.g. `store.Comment` in
+// `component C(c []store.Comment)`) or a method receiver type — to that
+// identifier's go/types object. It walks the file's components, finds the
+// signature-type span covering off (via pkg.SigTypes), bridges the cursor into
+// the type-checked skeleton type expression by relative byte offset (the
+// skeleton copies the type verbatim, so the bytes align), and resolves the
+// innermost identifier through go/types. gsxStart/idLen are the identifier's
+// byte span back in the .gsx file (for the hover range). Returns ok=false when
+// the cursor is not on a signature-type identifier or it does not resolve.
 func signatureTypeIdentAt(pkg *Package, path string, off int) (obj types.Object, gsxStart, idLen int, ok bool) {
 	f := pkg.Files[path]
 	if f == nil || pkg.GSXFset == nil || pkg.Info == nil || pkg.SigTypes == nil {
@@ -100,16 +101,11 @@ func signatureTypeIdentAt(pkg *Package, path string, off int) (obj types.Object,
 	}
 	for _, d := range f.Decls {
 		c, isComp := d.(*gsxast.Component)
-		if !isComp || !c.ParamsPos.IsValid() {
+		if !isComp {
 			continue
 		}
-		refs := pkg.SigTypes[c]
-		if refs == nil {
-			continue
-		}
-		paramsStart := pkg.GSXFset.Position(c.ParamsPos).Offset
-		for _, r := range refs {
-			start := paramsStart + r.GSXOff
+		for _, r := range pkg.SigTypes[c] {
+			start := pkg.GSXFset.Position(r.GSXPos).Offset
 			if off < start || off >= start+r.Len {
 				continue
 			}
@@ -217,6 +213,80 @@ func packageClauseLocation(filename string, enc encoding) (Location, bool) {
 	return Location{URI: pathToURI(filename), Range: Range{Start: pos, End: pos}}, true
 }
 
+// importDefAt answers go-to-definition for a cursor on an import statement in a
+// .gsx file (the package path or its alias): it jumps into the imported package,
+// returning the `package` clauses of its files — the same picker as a package
+// qualifier in a parameter type. The second result reports whether the cursor
+// was on an import spec at all (so the caller stops dispatching even when the
+// import does not resolve). gsx imports live in top-level GoChunks, so the
+// chunk under the cursor is re-parsed for its import specs.
+func (s *Server) importDefAt(pkg *Package, path string, off int) (any, bool) {
+	f := pkg.Files[path]
+	if f == nil || pkg.GSXFset == nil || pkg.Types == nil {
+		return nil, false
+	}
+	for _, d := range f.Decls {
+		gc, ok := d.(*gsxast.GoChunk)
+		if !ok {
+			continue
+		}
+		start := pkg.GSXFset.Position(gc.Pos()).Offset
+		if off < start || off >= start+len(gc.Src) {
+			continue
+		}
+		impPath, found := importPathAtOffset(gc.Src, off-start)
+		if !found {
+			return nil, false
+		}
+		if tpkg := importedPackageByPath(pkg.Types, impPath); tpkg != nil {
+			if locs := s.packageLocations(tpkg, pkg.Fset); len(locs) > 0 {
+				return locs, true
+			}
+		}
+		return nil, true // on an import spec, but it did not resolve to source
+	}
+	return nil, false
+}
+
+// importPathAtOffset re-parses a GoChunk's source (the verbatim Go after the
+// .gsx package line) and returns the import path of the import spec covering the
+// byte offset relOff within that source — matching either the path string or the
+// alias. ok is false if relOff is not on an import spec or the chunk's imports
+// do not parse.
+func importPathAtOffset(src string, relOff int) (string, bool) {
+	const prefix = "package _\n"
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "", prefix+src, parser.ImportsOnly)
+	if err != nil {
+		return "", false
+	}
+	target := relOff + len(prefix)
+	for _, imp := range f.Imports {
+		lo := fset.Position(imp.Pos()).Offset
+		hi := fset.Position(imp.End()).Offset
+		if target >= lo && target < hi {
+			p, uerr := strconv.Unquote(imp.Path.Value)
+			if uerr != nil {
+				return "", false
+			}
+			return p, true
+		}
+	}
+	return "", false
+}
+
+// importedPackageByPath returns the direct import of p whose path is importPath,
+// or nil. Used to resolve a .gsx import spec to the analyzed package's
+// already-type-checked dependency.
+func importedPackageByPath(p *types.Package, importPath string) *types.Package {
+	for _, imp := range p.Imports() {
+		if imp.Path() == importPath {
+			return imp
+		}
+	}
+	return nil
+}
+
 // hasPipeStages reports whether the gsx expression node carries pipeline stages
 // (`{ x |> f }`). Such nodes lower to a wrapped call in the skeleton, breaking
 // the byte-identical relative-offset bridge go-to-def relies on.
@@ -278,6 +348,12 @@ func (s *Server) handleDefinition(f frame) error {
 	// null rather than falling through to expression resolution.
 	if obj, _, _, ok := signatureTypeIdentAt(pkg, path, off); ok {
 		return s.reply(f.ID, s.signatureTypeDefinition(pkg, obj))
+	}
+
+	// F: cursor on an import statement in the .gsx → into the imported package
+	// (its files' `package` clauses), the same picker as a type qualifier.
+	if res, ok := s.importDefAt(pkg, path, off); ok {
+		return s.reply(f.ID, res)
 	}
 
 	node, exprPos := exprNodeAtOffset(pkg, path, off)

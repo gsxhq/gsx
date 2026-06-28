@@ -102,7 +102,7 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 	for c, refs := range pr.SigTypes {
 		lr := make([]lsp.SigTypeRef, len(refs))
 		for i, r := range refs {
-			lr[i] = lsp.SigTypeRef{GSXOff: r.GSXOff, Len: r.Len, SkelTyp: r.SkelTyp}
+			lr[i] = lsp.SigTypeRef{GSXPos: r.GSXPos, Len: r.Len, SkelTyp: r.SkelTyp}
 		}
 		sig[c] = lr
 	}

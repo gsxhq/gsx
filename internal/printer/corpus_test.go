@@ -123,6 +123,7 @@ func zeroSpans(n ast.Node) {
 			case *ast.Component:
 				v.NamePos = 0
 				v.ParamsPos = 0
+				v.RecvPos = 0
 			case *ast.Element:
 				v.CloseNamePos = 0
 			case *ast.ForMarkup:
