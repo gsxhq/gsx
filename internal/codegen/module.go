@@ -29,6 +29,14 @@ type Options struct {
 	JSMin        func(string) (string, error) // custom static-JS minifier (nil = built-in when JSMinify)
 	CSSMinify    bool                         // minify static <style> CSS
 	JSMinify     bool                         // minify static <script> JS
+	// Bundle, when non-nil, supplies the external importer and filter table
+	// directly (a prebuilt CachedResolver) so the Module type-checks skeletons
+	// with NO packages.Load / `go list` — the mode a WASM build uses. The Module
+	// then operates override-only (callers SetOverride all source). Bundle mode is
+	// GENERATION-ONLY: the bundle's *types.Package values live in a foreign
+	// FileSet, so imported-object positions do not resolve against m.fset; use
+	// Generate, not Package, in this mode.
+	Bundle *CachedResolver
 }
 
 // Module is a warm, in-process analysis graph for one module root. It is the
@@ -208,6 +216,11 @@ func (m *Module) dirtyDirs() []string {
 // yet; closing it (making all gsx-reachable types come from skeletons) is
 // deferred to Phase 1/2.
 func (m *Module) externalImporter() (types.Importer, error) {
+	if m.opts.Bundle != nil {
+		// Bundle mode: the importer is prebuilt; no packages.Load. Returned
+		// directly (not cached into m.ext) so rebuildFset's reset is harmless.
+		return m.opts.Bundle.importer(), nil
+	}
 	m.mu.Lock()
 	if m.ext != nil {
 		defer m.mu.Unlock()
@@ -273,6 +286,9 @@ func (m *Module) externalLoads() int {
 // picked up. Called only from analyze, which runs under analysisMu; the m.mu
 // double-check mirrors externalImporter.
 func (m *Module) cachedFilterTable() (filterTable, error) {
+	if m.opts.Bundle != nil {
+		return m.opts.Bundle.filters(), nil
+	}
 	m.mu.Lock()
 	if m.filterTblDone {
 		defer m.mu.Unlock()

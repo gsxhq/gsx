@@ -73,6 +73,10 @@ type CachedResolver struct {
 // loadFilterTableMulti when using this resolver.
 func (c *CachedResolver) filters() filterTable { return c.table }
 
+// importer returns the prebuilt external importer so the Module can type-check
+// skeletons against it without packages.Load (bundle mode).
+func (c *CachedResolver) importer() types.Importer { return c.imp }
+
 // check implements typeResolver. It parses the overlay files, derives the real
 // package name from the parsed AST, and runs go/types in-process. Type errors
 // are collected via conf.Error and returned as a *cachedTypeErrors so that
