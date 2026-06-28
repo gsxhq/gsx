@@ -604,50 +604,250 @@ git commit -m "fix(codegen): gate Package emit on type errors (no spurious LSP d
 
 ---
 
-### Task 6: Debt sweep — doc-rot, dead params, modernize
+### Task 6: Canonical go.mod module-path parser (fixes a cache-correctness bug)
 
-Mechanical, low-risk cleanups for a launch-grade tree. Three separate commits so each is independently reviewable, but one review unit.
+`modulePathFromGoMod` is duplicated byte-for-byte in `gen/modroot.go` and `internal/codegen/generate_dirs.go`, and both use a naive `strings.HasPrefix(line, "module ") + TrimPrefix` that returns the WRONG path on two legal go.mod forms:
+- `module example.com/foo // vanity` → returns `example.com/foo // vanity` (comment included)
+- `module "example.com/foo"` → returns `"example.com/foo"` (quotes included)
+
+The module path is load-bearing: `computeKey` (`gen/cachekey.go`) classifies in-module deps by it, so a wrong value silently corrupts incremental-cache invalidation. Replace both with one canonical helper backed by `golang.org/x/mod/modfile.ModulePath` (already in `go.mod`; `internal/codegen` is TOOLING, so the dependency is allowed — the stdlib-only rule binds the runtime root package, not the generator).
 
 **Files:**
-- Modify: `internal/corpus/codegen.go`, `internal/corpus/batch.go` (rename `codegenGeneratePackages`)
-- Modify: comment-only edits across `internal/codegen` (stale "batch path" / resolver references)
-- Modify: `gen/cache.go:218`, `gen/init.go:53`, `internal/codegen/emit.go` (dead params, with care)
-- Modify: production `.go` files flagged by `gopls check` modernize hints (NOT test files)
+- Create: `internal/codegen/modpath.go` (the canonical helper)
+- Create: `internal/codegen/modpath_test.go` (table test)
+- Modify: `internal/codegen/generate_dirs.go` (`readModulePath` uses the helper; delete the local naive `modulePathFromGoMod`)
+- Modify: `gen/modroot.go` (`moduleRoot` calls `codegen.ModulePathFromGoMod`; delete the local naive `modulePathFromGoMod`; drop the now-unused `strings` import if it becomes unused)
 
-**Interfaces:** none (mechanical).
+**Interfaces:**
+- Produces: `codegen.ModulePathFromGoMod(data []byte) string` — exported (called from package `gen`).
 
-- [ ] **Step 1: Doc-rot + corpus rename**
+- [ ] **Step 1: Write the failing table test**
 
-Rename the internal corpus helper `codegenGeneratePackages` → `codegenDirs` in `internal/corpus/codegen.go` (definition) and `internal/corpus/batch.go` (call site). Update its doc comment to say it drives `codegen.GenerateDirs`.
+Create `internal/codegen/modpath_test.go`:
 
-Then grep for stale references to the deleted paths and fix the comments (not behavior):
+```go
+package codegen
 
-```bash
-grep -rn "batch path\|GeneratePackagesWithResolver\|resolveTypesPkg\|the batch overlay\|matching batch" internal/codegen --include="*.go" | grep -v "_test.go"
+import "testing"
+
+func TestModulePathFromGoMod(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ name, src, want string }{
+		{"plain", "module example.com/foo\n\ngo 1.26.1\n", "example.com/foo"},
+		{"inline comment", "module example.com/foo // vanity import\n", "example.com/foo"},
+		{"quoted path", "module \"example.com/foo\"\n", "example.com/foo"},
+		{"with require block", "module example.com/foo\n\ngo 1.26.1\n\nrequire golang.org/x/mod v0.37.0\n", "example.com/foo"},
+		{"no module directive", "go 1.26.1\n", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ModulePathFromGoMod([]byte(tc.src)); got != tc.want {
+				t.Errorf("ModulePathFromGoMod(%q) = %q, want %q", tc.src, got, tc.want)
+			}
+		})
+	}
+}
 ```
 
-For each hit in a comment, reword to describe current reality (e.g. "matching the batch overlay" → "the shared _gsxuse/_gsxcompsig helpers"). Leave code unchanged. Do NOT touch the spec/plan docs.
+- [ ] **Step 2: Prove the naive parser is wrong (strong RED)**
 
-- [ ] **Step 2: Build + corpus, then commit doc-rot**
+First create `internal/codegen/modpath.go` with `ModulePathFromGoMod` TEMPORARILY delegating to the existing naive local function, so the test exercises the current (buggy) behavior:
 
-Run: `go build ./... && go test ./internal/corpus -run TestCorpus -count=1`
+```go
+package codegen
+
+// ModulePathFromGoMod returns the module path declared in go.mod content.
+func ModulePathFromGoMod(data []byte) string {
+	return modulePathFromGoMod(data) // TEMPORARY: naive impl, replaced in Step 3
+}
+```
+
+Run: `go test ./internal/codegen -run TestModulePathFromGoMod -count=1`
+Expected: FAIL on `inline comment` (got `example.com/foo // vanity import`) and `quoted path` (got `"example.com/foo"`) — this concretely demonstrates the bug.
+
+- [ ] **Step 3: Implement via modfile.ModulePath (GREEN)**
+
+Replace `internal/codegen/modpath.go` with the real implementation:
+
+```go
+package codegen
+
+import "golang.org/x/mod/modfile"
+
+// ModulePathFromGoMod returns the module path declared in go.mod content, or ""
+// if the content has no module directive. It delegates to modfile.ModulePath,
+// which correctly handles inline comments (module x // c) and quoted module
+// paths (module "x") — both of which a naive strings.TrimPrefix(line, "module ")
+// mishandles. The module path is load-bearing for computeKey, so correctness here
+// matters for incremental-cache invalidation.
+func ModulePathFromGoMod(data []byte) string {
+	return modfile.ModulePath(data)
+}
+```
+
+Run: `go mod tidy` (promotes `golang.org/x/mod` from indirect to a direct require).
+Run: `go test ./internal/codegen -run TestModulePathFromGoMod -count=1`
+Expected: PASS (all five cases).
+
+- [ ] **Step 4: Route both call sites through the helper; delete the duplicates**
+
+In `internal/codegen/generate_dirs.go`, change `readModulePath` to call `ModulePathFromGoMod(data)` and DELETE the local `modulePathFromGoMod` function (and drop the now-unused `strings` import if nothing else in the file uses it).
+
+In `gen/modroot.go`, change `moduleRoot`'s `return d, modulePathFromGoMod(data), nil` to `return d, codegen.ModulePathFromGoMod(data), nil`, DELETE the local `modulePathFromGoMod`, add the import `"github.com/gsxhq/gsx/internal/codegen"`, and drop the now-unused `strings` import (verify `strings` is not used elsewhere in `modroot.go` — it is not after the deletion).
+
+- [ ] **Step 5: Build + test + corpus oracle**
+
+Run: `go build ./... && go test ./internal/codegen ./gen -count=1 && go test ./internal/corpus -run TestCorpus -count=1`
+Expected: PASS, no golden change.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add internal/codegen/modpath.go internal/codegen/modpath_test.go internal/codegen/generate_dirs.go gen/modroot.go go.mod go.sum
+git commit -m "fix(codegen): parse go.mod module path via modfile (correct on comments/quotes)"
+```
+
+---
+
+### Task 7: Collapse GenOptions into Options; thread the known module path
+
+`GenOptions` (`generate_dirs.go`) mirrors a 9-field subset of `Options` (`module.go`), and `GenerateDirs` copies it field-by-field into `Open(Options{…})`. Adding any codegen knob means editing four sites (Options, GenOptions, the copy block, callers). Delete `GenOptions`; have `GenerateDirs` take `Options` directly. Also thread the module path the caller already knows (`gen/cache.go` computes `modPath` via `groupByModule`, then `GenerateDirs` re-reads and re-parses the same go.mod and discards the result) so the redundant parse is dropped.
+
+Every `GenOptions{…}` field name already exists on `Options` with the identical name, so the call-site change is a mechanical `GenOptions{` → `Options{` rename — no field renames, no new fields for existing callers.
+
+**Files:**
+- Modify: `internal/codegen/generate_dirs.go` (delete `GenOptions`; change `GenerateDirs` signature to take `Options`; derive `ModulePath` only when the caller left it empty)
+- Modify: `gen/cache.go` (pass `codegen.Options{ModulePath: modPath, …}` so the re-parse is skipped)
+- Modify: `internal/corpus/codegen.go` and ~28 `internal/codegen/*_test.go` + `gen/resolver_test.go` call sites (`GenOptions{` → `Options{`)
+
+**Interfaces:**
+- Produces: `GenerateDirs(moduleRoot string, dirs []string, opts Options, override map[string][]byte) (map[string]DirResult, error)`. `GenOptions` no longer exists.
+- The `moduleRoot` parameter remains authoritative: `GenerateDirs` sets `opts.ModuleRoot = moduleRoot` unconditionally and sets `opts.ModulePath` via `readModulePath(moduleRoot)` ONLY when `opts.ModulePath == ""`. So existing callers that pass no module path keep working; `gen/cache.go` can pass a known `ModulePath` to skip the read.
+
+- [ ] **Step 1: Change `GenerateDirs` to take `Options`; delete `GenOptions`**
+
+In `internal/codegen/generate_dirs.go`, delete the `GenOptions` struct entirely and rewrite `GenerateDirs`:
+
+```go
+// GenerateDirs opens a fresh Module rooted at moduleRoot, applies any override
+// bytes, and calls Module.Generate on each dir. opts carries the codegen knobs;
+// GenerateDirs fills opts.ModuleRoot from moduleRoot and derives opts.ModulePath
+// from go.mod only when the caller left it empty (callers that already know the
+// module path pass it to skip the re-read). On a hard (non-diagnostic) error it
+// returns immediately; otherwise each dir's result accumulates in the returned
+// map, keyed by the same dir strings passed in. override maps absolute .gsx paths
+// to in-memory source bytes; pass nil when no overrides are needed.
+func GenerateDirs(moduleRoot string, dirs []string, opts Options, override map[string][]byte) (map[string]DirResult, error) {
+	opts.ModuleRoot = moduleRoot
+	if opts.ModulePath == "" {
+		modPath, err := readModulePath(moduleRoot)
+		if err != nil {
+			return nil, fmt.Errorf("codegen: GenerateDirs: %w", err)
+		}
+		opts.ModulePath = modPath
+	}
+	m, err := Open(opts)
+	if err != nil {
+		return nil, fmt.Errorf("codegen: GenerateDirs: open module: %w", err)
+	}
+	for path, src := range override {
+		m.SetOverride(path, src)
+	}
+	result := make(map[string]DirResult, len(dirs))
+	for _, dir := range dirs {
+		out, diags, err := m.Generate(dir)
+		if err != nil {
+			return nil, fmt.Errorf("codegen: GenerateDirs: generate %s: %w", dir, err)
+		}
+		result[dir] = DirResult{Files: out, Diags: diags}
+	}
+	return result, nil
+}
+```
+
+- [ ] **Step 2: Update all call sites (`GenOptions{` → `Options{`)**
+
+Mechanically replace `GenOptions{` with `Options{` (and `codegen.GenOptions{` with `codegen.Options{`) at every call site. Find them all:
+
+```bash
+grep -rln "GenOptions{" --include="*.go" internal gen
+```
+
+These are `internal/corpus/codegen.go`, `gen/resolver_test.go`, and the `internal/codegen/*_test.go` files. The field names are identical, so no field edits are needed. Do NOT leave any `GenOptions` reference behind: `grep -rn "GenOptions" --include="*.go" .` must return nothing after this step.
+
+- [ ] **Step 3: Thread the known module path in `gen/cache.go`**
+
+In `gen/cache.go`, the per-group generation already has `modPath` in scope (from `groupByModule`). Where it builds the codegen options (currently `genOpts := codegen.GenOptions{…}`), change it to `codegen.Options{ModulePath: modPath, …}` (keep all existing knob fields), so `GenerateDirs` skips the redundant go.mod read. Update both `GenerateDirs` call sites in `gen/cache.go` (the `miss` regeneration and `mustGen`) to pass the `Options` value.
+
+- [ ] **Step 4: Build + full test + corpus oracle**
+
+Run: `go build ./... && go test ./internal/codegen ./gen -count=1 && go test ./internal/corpus -run TestCorpus -count=1`
+Expected: PASS, no golden change.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/codegen/generate_dirs.go gen/cache.go internal/corpus/codegen.go internal/codegen/*_test.go gen/resolver_test.go
+git commit -m "refactor(codegen): GenerateDirs takes Options; drop GenOptions + redundant go.mod parse"
+```
+
+---
+
+### Task 8: Debt sweep — dead field, doc-rot, dead params, modernize
+
+Mechanical, low-risk cleanups for a launch-grade tree, in separate commits (one review unit).
+
+**Files:**
+- Modify: `internal/codegen/results.go` (delete the dead `PackageResult.Err` field)
+- Modify: `internal/corpus/codegen.go`, `internal/corpus/batch.go` (rename `codegenGeneratePackages`)
+- Modify: comment-only edits across `internal/codegen` AND `gen` (stale "batch path" / resolver references)
+- Modify: `gen/cache.go`, `gen/init.go`, `internal/codegen/emit.go` (dead params, with care)
+- Modify: production `.go` files flagged by `gopls check` modernize hints (NOT test files)
+
+**Interfaces:** removes `PackageResult.Err`. Confirm it is dead first (Step 1).
+
+- [ ] **Step 1: Delete the dead `PackageResult.Err` field**
+
+`PackageResult.Err` (`internal/codegen/results.go`, documented as a "transition sentinel") now has ZERO writers and ZERO readers: the resolver path that set it was deleted in Task 3, and `gen/resolver.go` was rerouted off it in Task 2. Confirm, then delete:
+
+```bash
+grep -rn "\.Err\b" --include="*.go" internal/codegen gen/lsp.go gen/fmt.go   # PackageResult.Err — expect no hits referencing it (gen/cache.go .Errs is a different field)
+```
+
+Delete the `Err   error` field line from the `PackageResult` struct in `results.go`. Run `go build ./...` — a clean build proves nothing read it.
+
+- [ ] **Step 2: Doc-rot + corpus rename**
+
+Rename the internal corpus helper `codegenGeneratePackages` → `codegenDirs` in `internal/corpus/codegen.go` (definition) and `internal/corpus/batch.go` (call site + comments). Update its doc comment to say it drives `codegen.GenerateDirs`.
+
+Then grep for stale references to the deleted batch/resolver paths and fix the COMMENTS (not behavior) across BOTH packages, including test files:
+
+```bash
+grep -rn "batch path\|GeneratePackagesWithResolver\|resolveTypesPkg\|the batch overlay\|matching batch\|cachedResolver.check\|batch.go" --include="*.go" internal/codegen gen
+```
+
+Reword each comment to describe current reality (e.g. "matching the batch overlay" → "the shared _gsxuse/_gsxcompsig helpers"; "mirroring resolveTypesPkg" → drop or point at `checkSkeletonPackage`; the `resolver_test.go` `TestCachedResolverMatchesPackagesLoad` docstring "verifies that cachedResolver.check …" → "verifies that checkSkeletonPackage + bundle.importer() …"). Leave code unchanged. Do NOT touch the `docs/superpowers/**` spec/plan files.
+
+- [ ] **Step 3: Build + corpus, commit dead-field + doc-rot**
+
+Run: `go build ./... && go test ./internal/codegen ./gen -count=1 && go test ./internal/corpus -run TestCorpus -count=1`
 Expected: PASS, no golden change.
 
 ```bash
-git add internal/corpus/codegen.go internal/corpus/batch.go internal/codegen/*.go
-git commit -m "docs(codegen): purge stale batch/resolver references; rename corpus helper"
+git add internal/codegen/results.go internal/corpus/codegen.go internal/corpus/batch.go internal/codegen gen
+git commit -m "refactor(codegen): delete dead PackageResult.Err; purge stale batch/resolver comments"
 ```
 
-- [ ] **Step 3: Dead parameters**
+- [ ] **Step 4: Dead parameters**
 
-Remove the unused parameters gopls flags, one at a time, updating each call site:
-- `gen/cache.go:218` unused `dir` — remove from signature + all callers.
-- `gen/init.go:53` unused `force` — remove from signature + all callers.
-- `internal/codegen/emit.go`: `emitCSSInterp`/`emitJSInterp` unused `fset`, `emitJSValue` unused `imports`. **Caution:** these emit helpers form a signature family. Before removing, check sibling emitters (`emitInterp`, `emitStyleInterp`, etc.): if they all carry `fset`/`imports` for uniform dispatch, removing it from one breaks the family's readability — in that case LEAVE it and add a `//nolint`-style short comment is NOT needed; just leave it and skip. Only remove where the param is genuinely orphaned and no sibling symmetry is lost. Run `gopls check -severity=hint internal/codegen/emit.go` after to confirm.
+Remove the unused parameters gopls flags, one at a time (find by `gopls check -severity=hint`, not by stale line number), updating each call site:
+- `gen/cache.go` unused `dir` — remove from signature + all callers.
+- `gen/init.go` unused `force` — remove from signature + all callers.
+- `internal/codegen/emit.go`: `emitCSSInterp`/`emitJSInterp` unused `fset`, `emitJSValue` unused `imports`. **Caution:** these emit helpers form a signature family. Before removing, check sibling emitters (`emitInterp`, `emitStyleInterp`, etc.): if they all carry `fset`/`imports` for uniform dispatch, removing it from one splits the family — in that case LEAVE it and skip (note in your report why). Only remove where the param is genuinely orphaned and no sibling symmetry is lost. Run `gopls check -severity=hint internal/codegen/emit.go` after to confirm.
 
 For each removal: edit signature, fix callers, `go build ./...`.
 
-- [ ] **Step 4: Build + test, commit dead params**
+- [ ] **Step 5: Build + test, commit dead params**
 
 Run: `go build ./... && go test ./internal/codegen ./gen -count=1`
 Expected: PASS.
@@ -657,7 +857,7 @@ git add gen/cache.go gen/init.go internal/codegen/emit.go
 git commit -m "refactor: remove dead parameters flagged by gopls"
 ```
 
-- [ ] **Step 5: Modernize production files**
+- [ ] **Step 6: Modernize production files**
 
 Apply gopls modernize hints in PRODUCTION (non-`_test.go`) files only. Re-run to get the current list:
 
@@ -667,7 +867,7 @@ gopls check -severity=hint internal/codegen/*.go gen/*.go 2>&1 | grep -v "_test.
 
 Apply each (`maps.Copy` for `m[k]=v` loops, `slices.Contains` for find loops, `min`/`max` for the if-assignments, `strings.CutPrefix` for HasPrefix+TrimPrefix, `strings.SplitSeq` for range-over-Split). Add the needed imports (`maps`, `slices`). Skip any hint whose rewrite would reduce clarity; modernization is polish, not a mandate.
 
-- [ ] **Step 6: gofmt, build, full check, commit modernize**
+- [ ] **Step 7: gofmt, build, full check, commit modernize**
 
 Run: `gofmt -w internal/codegen gen && go build ./... && go test ./internal/codegen ./gen -count=1`
 Expected: PASS.
@@ -677,7 +877,7 @@ git add internal/codegen gen
 git commit -m "refactor: apply gopls modernize hints in production code"
 ```
 
-- [ ] **Step 7: Full inner-loop check**
+- [ ] **Step 8: Full inner-loop check**
 
 Run: `make check`
 Expected: PASS (build/vet/test both modules, examples drift, gofmt + gsx fmt). Fix any drift before finishing.
@@ -693,7 +893,9 @@ Expected: PASS (build/vet/test both modules, examples drift, gofmt + gsx fmt). F
 - Migrate the two orphaned tests → Task 3. ✓
 - `CachedResolver` → `Bundle` rename → Task 4. ✓
 - Diagnostic consistency → Task 5. ✓
-- Doc-rot, dead params, modernize → Task 6. ✓
+- Canonical go.mod parser (cache-correctness bug; modfile.ModulePath) → Task 6. ✓
+- Collapse `GenOptions` into `Options` + thread known modPath (drop redundant parse) → Task 7. ✓
+- Dead `PackageResult.Err` field, doc-rot (incl. `gen/`), dead params, modernize → Task 8. ✓
 - Generation-only bundle constraint documented → Task 1 Step 4 (Options doc) + Task 4 Step 2 (Bundle doc). ✓
 - Testing strategy (byte-equivalence, override-only, diag-consistency, migrated tests, corpus backstop, gen oracle) → Tasks 1, 3, 5 + the unchanged corpus/gen oracles. Note: the byte-equivalence test (Task 1) also exercises an override-only-capable Module against a disk fixture; a pure no-disk override path is exercised by the unchanged `gen/resolver_test.go` (memDir). ✓
 
