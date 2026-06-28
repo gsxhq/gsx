@@ -35,13 +35,14 @@ type CtrlRef struct {
 	Node        ast.Node // skeleton node scoping innermostIdent
 }
 
-// SigTypeRef is the LSP mirror of codegen.SigTypeRef: one component-parameter
-// TYPE's byte span within the component's (trimmed) Params source (GSXOff/Len),
-// paired with the type-checked skeleton type expression (SkelTyp) whose bytes
-// are identical to that source span. The LSP bridges a cursor into SkelTyp by
-// relative offset and resolves the identifier via go/types.
+// SigTypeRef is the LSP mirror of codegen.SigTypeRef: one signature TYPE's
+// position (GSXPos) and byte length (Len) in the .gsx — a parameter type or a
+// method receiver type — paired with the type-checked skeleton type expression
+// (SkelTyp) whose bytes are identical to that source span. The LSP bridges a
+// cursor into SkelTyp by relative offset and resolves the identifier via
+// go/types.
 type SigTypeRef struct {
-	GSXOff  int
+	GSXPos  token.Pos
 	Len     int
 	SkelTyp ast.Expr
 }

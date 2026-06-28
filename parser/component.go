@@ -24,6 +24,7 @@ func (p *parser) parseComponent() (*ast.Component, error) {
 		if !ok {
 			return nil, p.errorf(p.pos(), "unterminated receiver")
 		}
+		c.RecvPos = p.posAt(p.i)
 		c.Recv = p.src[p.i : end+1]
 		p.i = end + 1
 		p.skipSpace()

@@ -402,15 +402,15 @@ type ctrlRef struct {
 	Node        goast.Node
 }
 
-// SigTypeRef bridges one component-parameter TYPE in the .gsx signature to its
-// type-checked skeleton type expression. GSXOff/Len are the type's byte span
-// within the component's (trimmed) Params source — added to the component's
-// ParamsPos they locate the type in the .gsx. SkelTyp is the corresponding
-// skeleton type expression (a props-struct field type, or the sole param type
-// for a BYO component), whose bytes are identical to the source span, so the LSP
-// bridges a cursor into it by relative offset and resolves via go/types.
+// SigTypeRef bridges one TYPE in a component signature (a parameter type or the
+// method receiver type) to its type-checked skeleton type expression. GSXPos is
+// the type's first byte in the .gsx and Len its byte length; SkelTyp is the
+// corresponding skeleton type expression (a props-struct field type, the sole
+// param type of a BYO component, or the receiver type), whose bytes are
+// identical to the .gsx source span — so the LSP bridges a cursor into it by
+// relative offset and resolves via go/types.
 type SigTypeRef struct {
-	GSXOff  int
+	GSXPos  token.Pos
 	Len     int
 	SkelTyp goast.Expr
 }
@@ -1123,50 +1123,104 @@ func recvTypeIdent(e goast.Expr) string {
 	return ""
 }
 
-// buildSigTypeRefs pairs each of component c's parameter TYPES with its
-// type-checked skeleton type expression, for the LSP's go-to-definition / hover
-// on a parameter type. For a normal component the param types live in the
-// generated props struct's fields (in param order); for a BYO component the sole
-// param's type is the func's only parameter type. Returns nil when c has no
-// parameters or its skeleton shape cannot be located (a skipped/stub component).
+// buildSigTypeRefs pairs each TYPE in component c's signature — its parameter
+// types and (for a method component) its receiver type — with the corresponding
+// type-checked skeleton type expression, for the LSP's go-to-definition / hover.
+// Parameter types live in the generated props struct's fields (in param order),
+// or, for a BYO component, in the sole func parameter; the receiver type is the
+// skeleton method's receiver. Returns nil when c's skeleton shape cannot be
+// located (a skipped/stub component) or it carries no navigable types.
 func buildSigTypeRefs(gf *goast.File, c *gsxast.Component, byo *byoData) []SigTypeRef {
-	params, err := parseParams(c.Params)
-	if err != nil || len(params) == 0 {
-		return nil
-	}
 	fd := funcDeclForKey(gf, componentKey(c))
-	if fd == nil || fd.Type.Params == nil || len(fd.Type.Params.List) != 1 {
+	if fd == nil {
 		return nil
 	}
-	var skelTypes []goast.Expr
+	var refs []SigTypeRef
+
+	// Parameter types.
+	if params, err := parseParams(c.Params); err == nil && len(params) > 0 {
+		if skel := paramSkelTypes(gf, c, fd, params, byo); skel != nil {
+			for i, p := range params {
+				refs = append(refs, SigTypeRef{
+					GSXPos:  c.ParamsPos + token.Pos(p.typeOff),
+					Len:     p.typeLen,
+					SkelTyp: skel[i],
+				})
+			}
+		}
+	}
+
+	// Method receiver type. The skeleton emits the receiver clause verbatim, so
+	// its bytes match the .gsx; bridge into it like a param type. (Go forbids
+	// methods on non-local types, so a receiver type is always same-package.)
+	if c.Recv != "" && c.RecvPos.IsValid() && fd.Recv != nil && len(fd.Recv.List) == 1 {
+		if off, length, ok := recvTypeSpan(c.Recv); ok {
+			refs = append(refs, SigTypeRef{
+				GSXPos:  c.RecvPos + token.Pos(off),
+				Len:     length,
+				SkelTyp: fd.Recv.List[0].Type,
+			})
+		}
+	}
+	return refs
+}
+
+// paramSkelTypes returns the skeleton type expression for each of c's params, in
+// declaration order: the BYO component's sole func parameter type, or the
+// generated props struct's first len(params) field types. Returns nil when the
+// skeleton shape cannot be located.
+func paramSkelTypes(gf *goast.File, c *gsxast.Component, fd *goast.FuncDecl, params []param, byo *byoData) []goast.Expr {
+	if fd.Type.Params == nil || len(fd.Type.Params.List) != 1 {
+		return nil
+	}
 	if _, isByo := byo.structTypeName(componentKey(c)); isByo {
 		// BYO: the sole skeleton parameter type IS the author struct type the user
 		// navigates to (e.g. `Form` in `func C(_gsxp Form)`).
 		if len(params) != 1 {
 			return nil
 		}
-		skelTypes = []goast.Expr{fd.Type.Params.List[0].Type}
-	} else {
-		// Normal: the skeleton param is `_gsxp <PropsName>`; the props struct's first
-		// len(params) fields carry the param types in declaration order.
-		id, ok := fd.Type.Params.List[0].Type.(*goast.Ident)
-		if !ok {
-			return nil
-		}
-		st := structByName(gf, id.Name)
-		if st == nil || st.Fields == nil || len(st.Fields.List) < len(params) {
-			return nil
-		}
-		skelTypes = make([]goast.Expr, len(params))
-		for i := range params {
-			skelTypes[i] = st.Fields.List[i].Type
-		}
+		return []goast.Expr{fd.Type.Params.List[0].Type}
 	}
-	refs := make([]SigTypeRef, len(params))
-	for i, p := range params {
-		refs[i] = SigTypeRef{GSXOff: p.typeOff, Len: p.typeLen, SkelTyp: skelTypes[i]}
+	// Normal: the skeleton param is `_gsxp <PropsName>`; the props struct's first
+	// len(params) fields carry the param types in declaration order.
+	id, ok := fd.Type.Params.List[0].Type.(*goast.Ident)
+	if !ok {
+		return nil
 	}
-	return refs
+	st := structByName(gf, id.Name)
+	if st == nil || st.Fields == nil || len(st.Fields.List) < len(params) {
+		return nil
+	}
+	skel := make([]goast.Expr, len(params))
+	for i := range params {
+		skel[i] = st.Fields.List[i].Type
+	}
+	return skel
+}
+
+// recvTypeSpan parses a method-component receiver clause (e.g. "(p *Page)") and
+// returns the byte offset and length of the receiver TYPE within that clause
+// string (e.g. "*Page"), for locating it in the .gsx. ok is false if the clause
+// does not parse as a single receiver.
+func recvTypeSpan(recv string) (off, length int, ok bool) {
+	src := strings.TrimSpace(recv)
+	if src == "" {
+		return 0, 0, false
+	}
+	const prefix = "package _\nfunc "
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "", prefix+src+" _m() {}", 0)
+	if err != nil {
+		return 0, 0, false
+	}
+	fn, isFn := f.Decls[0].(*goast.FuncDecl)
+	if !isFn || fn.Recv == nil || len(fn.Recv.List) != 1 {
+		return 0, 0, false
+	}
+	t := fn.Recv.List[0].Type
+	tStart := fset.Position(t.Pos()).Offset
+	tEnd := fset.Position(t.End()).Offset
+	return tStart - len(prefix), tEnd - tStart, true
 }
 
 // funcDeclForKey returns the skeleton FuncDecl whose component key matches key,
