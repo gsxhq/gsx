@@ -46,15 +46,17 @@ func TestBundleModeMatchesGoList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := mB.externalLoads(); got != 0 {
-		t.Fatalf("bundle Module did an external packages.Load (extLoads=%d), want 0", got)
-	}
 	bOut, bDiags, err := mB.Generate(pkgDir)
 	if err != nil {
 		t.Fatalf("bundle generate: %v", err)
 	}
 	if len(bDiags) != 0 {
 		t.Fatalf("bundle diags: %v", bDiags)
+	}
+	// extLoads is incremented during Generate (in externalImporter), not at Open —
+	// check here so this actually guards the zero-go-list invariant.
+	if got := mB.externalLoads(); got != 0 {
+		t.Fatalf("bundle Module did an external packages.Load (extLoads=%d), want 0", got)
 	}
 
 	if !bytes.Equal(goOut[gsxPath], bOut[gsxPath]) {
