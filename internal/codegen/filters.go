@@ -99,7 +99,7 @@ func (t filterTable) lookup(name string) (filterEntry, bool) {
 }
 
 // stdImportPath is the gsx built-in filter package. It is always available
-// (GeneratePackageWithFilters defaults to it) and keeps the reserved _gsxstd
+// (GenerateDirs defaults to it) and keeps the reserved _gsxstd
 // alias so std-only generation is byte-identical regardless of any added
 // packages.
 const stdImportPath = "github.com/gsxhq/gsx/std"
@@ -304,7 +304,7 @@ type FilterInfo struct {
 // explicit WithFilter aliases (appended after, in option order) and returns the
 // resolved table sorted by Name, recording which earlier same-named filters each
 // winner shadows. An empty filterPkgs defaults to [stdImportPath], matching
-// GeneratePackageWithFilters. dir anchors the go/packages load against the
+// GenerateDirs. dir anchors the go/packages load against the
 // module's go.mod.
 func ResolveFilters(dir string, filterPkgs []string, aliases []FilterAlias) ([]FilterInfo, error) {
 	filterPkgs = dedupFilterPkgs(filterPkgs)

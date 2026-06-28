@@ -29,7 +29,7 @@ var errSkipComponent = errors.New("skip")
 // resolveTypesPkg type-checks the package (real .go files + synthesized gsx
 // component skeletons via Overlay) and returns each interpolation's type.
 //
-// propFields is the SAME AST-derived prop-field map GeneratePackage threads into
+// propFields is the SAME AST-derived prop-field map Module.Generate threads into
 // emission (see componentPropFieldsFor); it drives the call-site split inside the
 // PROBE (buildSkeleton/emitProbes) so the probe's child-props literal splits
 // fallthrough attrs into an Attrs bag IDENTICALLY to emission — guaranteeing the

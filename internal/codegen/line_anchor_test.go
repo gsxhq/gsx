@@ -101,12 +101,16 @@ func TestComponentFuncLineAnchorCodegen(t *testing.T) {
 	}
 	writeFile(t, pkgDir, "views.gsx", lineAnchorSrc)
 
-	out, err := GeneratePackageWithFilters(pkgDir, nil, nil, nil, nil, nil, nil, true, true)
+	res, err := GenerateDirs(tmp, []string{pkgDir}, GenOptions{FilterPkgs: []string{stdImportPath}, CSSMinify: true, JSMinify: true}, nil)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
+	dr := res[pkgDir]
+	if hasDiagErrors(dr.Diags) {
+		t.Fatalf("generate: unexpected errors: %v", dr.Diags)
+	}
 	var gen string
-	for _, b := range out {
+	for _, b := range dr.Files {
 		gen += string(b)
 	}
 

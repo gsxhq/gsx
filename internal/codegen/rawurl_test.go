@@ -29,10 +29,11 @@ func TestRawURLBypassesSchemeCheck(t *testing.T) {
 		"component Aliased(tu Trusted) { <a href={tu}>x</a> }\n"
 	writeFile(t, pkgDir, "views.gsx", src)
 
-	gen, err := GeneratePackage(pkgDir)
+	res, err := GenerateDirs(tmp, []string{pkgDir}, GenOptions{FilterPkgs: []string{stdImportPath}, CSSMinify: true, JSMinify: true}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	gen := res[pkgDir].Files
 	var got string
 	for _, s := range gen {
 		got = string(s)

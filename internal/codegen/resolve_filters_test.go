@@ -57,7 +57,7 @@ func TestResolveFiltersStd(t *testing.T) {
 }
 
 // TestResolveFiltersEmptyDefaultsToStd proves an empty filterPkgs defaults to
-// the std package (matching GeneratePackageWithFilters).
+// the std package (matching the std-filter default).
 func TestResolveFiltersEmptyDefaultsToStd(t *testing.T) {
 	t.Parallel()
 	repoRoot, err := filepath.Abs("../..")

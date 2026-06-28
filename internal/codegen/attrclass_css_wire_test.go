@@ -31,12 +31,16 @@ component Widget(userStyle string) {
 		t.Fatal(err)
 	}
 	cls := attrclass.New(attrclass.Rules{CSS: []attrclass.Rule{{Prefix: "data-style"}}}, nil)
-	out, err := GeneratePackageWithFilters(dir, nil, nil, cls, nil, nil, nil, true, true)
+	res, err := GenerateDirs(tmp, []string{dir}, GenOptions{FilterPkgs: []string{stdImportPath}, Classifier: cls, CSSMinify: true, JSMinify: true}, nil)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
+	dr := res[dir]
+	if hasDiagErrors(dr.Diags) {
+		t.Fatalf("generate: unexpected errors: %v", dr.Diags)
+	}
 	var gen string
-	for _, b := range out {
+	for _, b := range dr.Files {
 		gen += string(b)
 	}
 	// String value in a CSS-context attribute goes through the gw.CSS value-filter.
@@ -70,12 +74,16 @@ component Widget(raw gsx.RawCSS) {
 		t.Fatal(err)
 	}
 	cls := attrclass.New(attrclass.Rules{CSS: []attrclass.Rule{{Prefix: "data-style"}}}, nil)
-	out, err := GeneratePackageWithFilters(dir, nil, nil, cls, nil, nil, nil, true, true)
+	res2, err := GenerateDirs(tmp, []string{dir}, GenOptions{FilterPkgs: []string{stdImportPath}, Classifier: cls, CSSMinify: true, JSMinify: true}, nil)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
+	dr2 := res2[dir]
+	if hasDiagErrors(dr2.Diags) {
+		t.Fatalf("generate: unexpected errors: %v", dr2.Diags)
+	}
 	var gen string
-	for _, b := range out {
+	for _, b := range dr2.Files {
 		gen += string(b)
 	}
 	if !strings.Contains(gen, "_gsxgw.S(string(raw))") {

@@ -161,7 +161,7 @@ func Generate(paths []string) (Result, error) {
 // generate is the Generate core: it additionally takes the ordered filter
 // package import paths to resolve pipelines against (last-wins by name). A nil
 // or empty filterPkgs defaults to the built-in std package (codegen's
-// GeneratePackageWithFilters applies the same empty→std default), so the public
+// dedupFilterPkgs applies the same empty→std default), so the public
 // Generate stays stock std-only. The Main → runConfig → runGenerate path passes
 // the config's WithFilters list here so a custom gsx binary's filter packages
 // reach codegen.

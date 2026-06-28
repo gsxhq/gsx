@@ -20,10 +20,10 @@ func writeMultiFile(t *testing.T, dir, name, content string) {
 
 // renderWithFilters mirrors renderPackage but drives the multi-package filter
 // backend: it lays out a temp module containing a `myfilters` package and a
-// views package, runs GeneratePackageWithFilters(viewsDir, filterPkgs), writes
-// the generated .x.go, compiles a harness rendering `invocation` (package alias
-// `p`), and returns the rendered HTML. The module path is fixed to `gsxmf` so
-// filterPkgs can reference `gsxmf/myfilters`.
+// views package, runs GenerateDirs(tmp, []string{viewsDir}, ...) with filterPkgs,
+// writes the generated .x.go, compiles a harness rendering `invocation` (package
+// alias `p`), and returns the rendered HTML. The module path is fixed to `gsxmf`
+// so filterPkgs can reference `gsxmf/myfilters`.
 func renderWithFilters(t *testing.T, myfilters string, views map[string]string, filterPkgs []string, invocation string) string {
 	t.Helper()
 	if testing.Short() {
@@ -50,11 +50,14 @@ func renderWithFilters(t *testing.T, myfilters string, views map[string]string, 
 		writeMultiFile(t, viewsDir, name, content)
 	}
 
-	gen, err := GeneratePackageWithFilters(viewsDir, filterPkgs, nil, nil, nil, nil, nil, true, true)
+	genRes, err := GenerateDirs(tmp, []string{viewsDir}, GenOptions{FilterPkgs: filterPkgs, CSSMinify: true, JSMinify: true}, nil)
 	if err != nil {
-		t.Fatalf("GeneratePackageWithFilters: %v", err)
+		t.Fatalf("GenerateDirs: %v", err)
 	}
-	for gsxPath, src := range gen {
+	if hasDiagErrors(genRes[viewsDir].Diags) {
+		t.Fatalf("GenerateDirs: unexpected errors: %v", genRes[viewsDir].Diags)
+	}
+	for gsxPath, src := range genRes[viewsDir].Files {
 		base := strings.TrimSuffix(filepath.Base(gsxPath), ".gsx")
 		writeMultiFile(t, viewsDir, base+".x.go", string(src))
 	}
@@ -190,12 +193,23 @@ func TestMultiFilterUnknownErrors(t *testing.T) {
 	}
 	writeMultiFile(t, viewsDir, "views.gsx", "package views\n\ncomponent C(n string) {\n\t<p>{ n |> nope }</p>\n}\n")
 
-	_, err = GeneratePackageWithFilters(viewsDir, []string{stdImportPath, "gsxmf/myfilters"}, nil, nil, nil, nil, nil, true, true)
-	if err == nil {
-		t.Fatal("expected error for unknown filter \"nope\"")
+	unkRes, unkErr := GenerateDirs(tmp, []string{viewsDir}, GenOptions{FilterPkgs: []string{stdImportPath, "gsxmf/myfilters"}, CSSMinify: true, JSMinify: true}, nil)
+	if unkErr != nil {
+		t.Fatalf("GenerateDirs returned unexpected hard error: %v", unkErr)
 	}
-	if !strings.Contains(err.Error(), "unknown filter") {
-		t.Fatalf("expected unknown-filter error; got: %v", err)
+	unkDr := unkRes[viewsDir]
+	if !hasDiagErrors(unkDr.Diags) {
+		t.Fatal("expected error diagnostics for unknown filter \"nope\"")
+	}
+	var foundUnknown bool
+	for _, d := range unkDr.Diags {
+		if strings.Contains(d.Message, "unknown filter") {
+			foundUnknown = true
+			break
+		}
+	}
+	if !foundUnknown {
+		t.Fatalf("expected unknown-filter diagnostic; got: %v", unkDr.Diags)
 	}
 }
 

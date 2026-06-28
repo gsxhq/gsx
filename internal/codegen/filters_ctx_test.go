@@ -81,12 +81,16 @@ component C(s string) { <p>{ s |> f("k") }</p> }
 `)
 
 	aliases := []FilterAlias{{Name: "f", PkgPath: "gsxmf/myfilters", FuncName: "F"}}
-	gen, err := GeneratePackageWithFilters(viewsDir, []string{stdImportPath}, aliases, nil, nil, nil, nil, true, true)
+	genRes, err := GenerateDirs(tmp, []string{viewsDir}, GenOptions{FilterPkgs: []string{stdImportPath}, Aliases: aliases, CSSMinify: true, JSMinify: true}, nil)
 	if err != nil {
-		t.Fatalf("GeneratePackageWithFilters: %v", err)
+		t.Fatalf("GenerateDirs: %v", err)
+	}
+	dr := genRes[viewsDir]
+	if hasDiagErrors(dr.Diags) {
+		t.Fatalf("GenerateDirs: unexpected errors: %v", dr.Diags)
 	}
 	var genSrc string
-	for gsxPath, src := range gen {
+	for gsxPath, src := range dr.Files {
 		base := strings.TrimSuffix(filepath.Base(gsxPath), ".gsx")
 		writeMultiFile(t, viewsDir, base+".x.go", string(src))
 		genSrc += string(src)
@@ -172,11 +176,15 @@ component C(s string) { <p>{ s |> up }{ myfilters.Helper() }</p> }
 `)
 
 	aliases := []FilterAlias{{Name: "up", PkgPath: "gsxmf/myfilters", FuncName: "Upper2"}}
-	gen, err := GeneratePackageWithFilters(viewsDir, []string{stdImportPath}, aliases, nil, nil, nil, nil, true, true)
+	genRes2, err := GenerateDirs(tmp, []string{viewsDir}, GenOptions{FilterPkgs: []string{stdImportPath}, Aliases: aliases, CSSMinify: true, JSMinify: true}, nil)
 	if err != nil {
-		t.Fatalf("GeneratePackageWithFilters: %v", err)
+		t.Fatalf("GenerateDirs: %v", err)
 	}
-	for gsxPath, src := range gen {
+	dr2 := genRes2[viewsDir]
+	if hasDiagErrors(dr2.Diags) {
+		t.Fatalf("GenerateDirs: unexpected errors: %v", dr2.Diags)
+	}
+	for gsxPath, src := range dr2.Files {
 		base := strings.TrimSuffix(filepath.Base(gsxPath), ".gsx")
 		writeMultiFile(t, viewsDir, base+".x.go", string(src))
 	}
@@ -228,11 +236,11 @@ func TestWithFilterCurriedMigrationDiagnostic(t *testing.T) {
 	writeMultiFile(t, viewsDir, "views.gsx", "package views\n\ncomponent C(s string) { <p>{ s |> old(2) }</p> }\n")
 
 	aliases := []FilterAlias{{Name: "old", PkgPath: "gsxmf/myfilters", FuncName: "Old"}}
-	_, err = GeneratePackageWithFilters(viewsDir, []string{stdImportPath}, aliases, nil, nil, nil, nil, true, true)
-	if err == nil {
-		t.Fatal("expected migration diagnostic for curried filter, got nil")
+	_, curriedErr := GenerateDirs(tmp, []string{viewsDir}, GenOptions{FilterPkgs: []string{stdImportPath}, Aliases: aliases, CSSMinify: true, JSMinify: true}, nil)
+	if curriedErr == nil {
+		t.Fatal("expected error for curried filter, got nil")
 	}
-	if !strings.Contains(err.Error(), "removed curried shape") {
-		t.Fatalf("expected curried-shape migration diagnostic; got: %v", err)
+	if !strings.Contains(curriedErr.Error(), "removed curried shape") {
+		t.Fatalf("expected curried-shape error; got: %v", curriedErr)
 	}
 }

@@ -1,7 +1,6 @@
 package codegen
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,63 +41,6 @@ func hasDiagErrors(diags []diag.Diagnostic) bool {
 		}
 	}
 	return false
-}
-
-// TestGeneratePackages_Equivalence checks that GenerateDirs produces output
-// that is byte-equal to GeneratePackage run on each individual directory.
-func TestGeneratePackages_Equivalence(t *testing.T) {
-	t.Parallel()
-	tmp := tempModule(t, "gsxbatch")
-
-	dirA := makeSubPkg(t, tmp, "a",
-		"package views\n\ncomponent Hello(name string) {\n\t<p>{name}</p>\n}\n",
-	)
-	dirB := makeSubPkg(t, tmp, "b",
-		"package views\n\ncomponent World(count int) {\n\t<span>{count}</span>\n}\n",
-	)
-
-	results, err := GenerateDirs(tmp, []string{dirA, dirB}, GenOptions{}, nil)
-	if err != nil {
-		t.Fatalf("GenerateDirs: %v", err)
-	}
-
-	for _, dir := range []string{dirA, dirB} {
-		dr, ok := results[dir]
-		if !ok {
-			t.Errorf("missing result for dir %s", dir)
-			continue
-		}
-		if hasDiagErrors(dr.Diags) {
-			t.Errorf("unexpected error diags for dir %s: %v", dir, dr.Diags)
-			continue
-		}
-		if len(dr.Files) == 0 {
-			t.Errorf("no files generated for dir %s", dir)
-			continue
-		}
-
-		// Compare byte-for-byte with GeneratePackage.
-		want, err := GeneratePackage(dir)
-		if err != nil {
-			t.Fatalf("GeneratePackage(%s): %v", dir, err)
-		}
-		for path, gotBytes := range dr.Files {
-			wantBytes, ok := want[path]
-			if !ok {
-				t.Errorf("dir %s: batch produced extra path %s not in single-package output", dir, path)
-				continue
-			}
-			if !bytes.Equal(gotBytes, wantBytes) {
-				t.Errorf("dir %s: file %s output differs between GenerateDirs and GeneratePackage\n--- GenerateDirs ---\n%s\n--- GeneratePackage ---\n%s",
-					dir, path, gotBytes, wantBytes)
-			}
-		}
-		for path := range want {
-			if _, ok := dr.Files[path]; !ok {
-				t.Errorf("dir %s: batch missing path %s that GeneratePackage produced", dir, path)
-			}
-		}
-	}
 }
 
 // TestGeneratePackages_ErrorIsolation checks that a type-resolution failure in
