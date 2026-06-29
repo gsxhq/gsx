@@ -3,6 +3,8 @@ name: Fallthrough attributes
 summary: Undeclared call-site attributes (class, data-*, hx-*) fall through to the component's root element; class merges (caller-wins).
 category: Components & composition
 order: 110
+page: composition
+pageOrder: 50
 -- input.gsx --
 package views
 

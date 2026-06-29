@@ -3,6 +3,8 @@ name: Components & props
 summary: Call a component with a typed props struct; boolean props pass bare (featured).
 category: Components & composition
 order: 70
+page: composition
+pageOrder: 10
 -- input.gsx --
 package views
 

@@ -3,6 +3,8 @@ name: Method components
 summary: Components can be methods on a type, so page state lives on the receiver (p) and per-call data in the props struct.
 category: Components & composition
 order: 120
+page: composition
+pageOrder: 60
 -- input.gsx --
 package views
 
