@@ -17,3 +17,25 @@
 - `150-pipelines.txtar` had `page:`/`pageOrder:` added; the "Transforming values" section was removed from `docs/guide/examples.md` (fixture is now routed to the syntax page, not the general examples page). Two new fixtures (280, 281) appear in `docs/examples.json` and `playground/server/examples.json`.
 
 **Concerns:** None.
+
+---
+
+## Addendum — review fix (filter-arguments example, prose corrections)
+
+**Status:** COMPLETE
+
+**Commit:** `461b599` — "docs(syntax): pipelines — replace try-unwrap fixture with filter-arguments example"
+
+**What was fixed:**
+1. Deleted `examples/280-pipeline-try.txtar` (bare `(T,error)` call, no `|>` — duplicated `221-func-error-unwrap`).
+2. Created `examples/280-filter-arguments.txtar` (pageOrder 20, "Filter arguments", "Transforming values"): shows `{ s |> trim |> truncate(5) }` and `{ count |> format("%d comments") }` — both use `|>` with parenthesised arguments.
+3. Retitled the middle page subsection from "`(T, error)` auto-unwrap" to "Filter arguments"; pointed its `<!--@include-->` at the new `020-filter-arguments.md` partial.
+4. Replaced the old runnable `(T, error)` subsection with a short prose cross-link to `./interpolation`.
+5. Changed "will produce a compile error" → "gsx reports an error" (it is a gsx diagnostic, not a Go compiler error, per `pipelines/try_rejected.txtar`).
+6. Regenerated `docs/examples.json`, `playground/server/examples.json`, and `_generated/pipelines/020-filter-arguments.md` via `make examples`.
+
+**Tests & drift:**
+- `go test ./internal/corpus -run TestExamples` (no `-update`) → PASS
+- `make ci-examples` → exit 0, no drift
+
+**New partial:** `docs/guide/syntax/_generated/pipelines/020-filter-arguments.md` — shows `{ s |> trim |> truncate(5) }` and `{ count |> format("%d comments") }` with rendered output.
