@@ -29,7 +29,7 @@ type Example struct {
 	PageOrder int    // order within the page (falls back to Order)
 	Source    string // playground source string (single verbatim, or txtar-joined)
 	Invoke    string
-	Render    string // rendered HTML (render.golden); required when Page != ""
+	Render    string       // rendered HTML (render.golden); required when Page != ""
 	Files     []SourceFile // individual source files, for per-file docs blocks
 }
 
