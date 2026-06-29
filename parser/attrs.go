@@ -403,7 +403,7 @@ func (p *parser) parseOrderedAttrsLiteral(name string, attrStartPos token.Pos) (
 // bracket depth 0, recording comma and colon offsets, then segments on commas
 // and splits each segment at its first depth-0 colon into a quoted-string key
 // and a raw-Go value expression. base is the absolute byte offset of src[0]
-// within the original source (used to compute ValuePos).
+// within the original source (used to set the span on each OrderedPair).
 func (p *parser) splitOrderedPairs(src string, base int) ([]ast.OrderedPair, error) {
 	fset := token.NewFileSet()
 	file := fset.AddFile("", fset.Base(), len(src))

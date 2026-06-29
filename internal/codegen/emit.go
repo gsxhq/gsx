@@ -2065,78 +2065,69 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 		}
 	}
 
-	// Hoist-all-when-any: if any prop ExprAttr value is a (T, error) tuple, hoist
-	// EVERY prop ExprAttr value to a temp in source order before the Node call.
+	// Unified hoist-all-when-any: if ANY value across ALL props (ExprAttr slots OR
+	// OrderedAttrsAttr pair values) is a (T, error) tuple, hoist EVERY value in
+	// source order before the Node call. This single pass over fieldEntries
+	// preserves left-to-right evaluation order even when ExprAttr and
+	// OrderedAttrsAttr slots are interleaved (e.g. a={f()} bag={{"k":g()}} b={h()}).
 	// Non-tuple values get a plain `tmp := expr`; tuple values get
 	// `tmp, _gsxerr := expr; if _gsxerr != nil { return _gsxerr }`.
-	// Hoisting all-when-any preserves left-to-right evaluation order for side effects.
 	anyTuple := false
+outer:
 	for _, fe := range fieldEntries {
-		if fe.ea == nil {
-			continue
+		if fe.ea != nil {
+			if _, ok := tupleUnwrapType(resolved[fe.ea]); ok {
+				anyTuple = true
+				break outer
+			}
 		}
-		if _, ok := tupleUnwrapType(resolved[fe.ea]); ok {
-			anyTuple = true
-			break
+		if fe.oa != nil {
+			for j := range fe.oaPairs {
+				if _, ok := tupleUnwrapType(resolved[&fe.oa.Pairs[j]]); ok {
+					anyTuple = true
+					break outer
+				}
+			}
 		}
 	}
 	if anyTuple {
 		for i, fe := range fieldEntries {
-			if fe.ea == nil {
-				continue
-			}
-			var tmp string
-			if _, isTup := tupleUnwrapType(resolved[fe.ea]); isTup {
-				tmp = hoistTuple(b, fe.rawVal, interpTemp)
-			} else {
-				tmp = fmt.Sprintf("_gsxv%d", *interpTemp)
-				*interpTemp++
-				fmt.Fprintf(b, "\t\t%s := %s\n", tmp, fe.rawVal)
-			}
-			if fe.isNodeField {
-				fieldEntries[i].str = fmt.Sprintf("%s: gsx.Val(%s)", fe.fieldName, tmp)
-			} else {
-				fieldEntries[i].str = fmt.Sprintf("%s: %s", fe.fieldName, tmp)
+			switch {
+			case fe.ea != nil:
+				var tmp string
+				if _, isTup := tupleUnwrapType(resolved[fe.ea]); isTup {
+					tmp = hoistTuple(b, fe.rawVal, interpTemp)
+				} else {
+					tmp = fmt.Sprintf("_gsxv%d", *interpTemp)
+					*interpTemp++
+					fmt.Fprintf(b, "\t\t%s := %s\n", tmp, fe.rawVal)
+				}
+				if fe.isNodeField {
+					fieldEntries[i].str = fmt.Sprintf("%s: gsx.Val(%s)", fe.fieldName, tmp)
+				} else {
+					fieldEntries[i].str = fmt.Sprintf("%s: %s", fe.fieldName, tmp)
+				}
+			case fe.oa != nil:
+				// Hoist all pairs and rebuild the gsx.OrderedAttrs{…} literal.
+				var sb strings.Builder
+				fmt.Fprintf(&sb, "%s: gsx.OrderedAttrs{", fe.fieldName)
+				for j, pr := range fe.oaPairs {
+					pairType := resolved[&fe.oa.Pairs[j]]
+					var valueStr string
+					if _, isTup := tupleUnwrapType(pairType); isTup {
+						valueStr = hoistTuple(b, pr.rawVal, interpTemp)
+					} else {
+						tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+						*interpTemp++
+						fmt.Fprintf(b, "\t\t%s := %s\n", tmp, pr.rawVal)
+						valueStr = tmp
+					}
+					fmt.Fprintf(&sb, "{Key: %s, Value: %s}, ", strconv.Quote(pr.key), valueStr)
+				}
+				sb.WriteString("}")
+				fieldEntries[i].str = sb.String()
 			}
 		}
-	}
-	// Ordered-attrs pair hoisting: if any pair value in a given OrderedAttrsAttr is
-	// a (T, error) tuple, hoist ALL pairs in that attr so evaluation order within
-	// the pair sequence is preserved (mirrors ExprAttr hoist-all-when-any).
-	// Non-tuple pairs get a plain `tmp := expr`; tuple pairs get the full hoist.
-	for i, fe := range fieldEntries {
-		if fe.oa == nil {
-			continue
-		}
-		// Check if any pair in this attr is a tuple.
-		anyPairTuple := false
-		for j := range fe.oaPairs {
-			if _, ok := tupleUnwrapType(resolved[&fe.oa.Pairs[j]]); ok {
-				anyPairTuple = true
-				break
-			}
-		}
-		if !anyPairTuple {
-			continue
-		}
-		// Hoist all pairs and rebuild the gsx.OrderedAttrs{…} literal.
-		var sb strings.Builder
-		fmt.Fprintf(&sb, "%s: gsx.OrderedAttrs{", fe.fieldName)
-		for j, pr := range fe.oaPairs {
-			pairType := resolved[&fe.oa.Pairs[j]]
-			var valueStr string
-			if _, isTup := tupleUnwrapType(pairType); isTup {
-				valueStr = hoistTuple(b, pr.rawVal, interpTemp)
-			} else {
-				tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-				*interpTemp++
-				fmt.Fprintf(b, "\t\t%s := %s\n", tmp, pr.rawVal)
-				valueStr = tmp
-			}
-			fmt.Fprintf(&sb, "{Key: %s, Value: %s}, ", strconv.Quote(pr.key), valueStr)
-		}
-		sb.WriteString("}")
-		fieldEntries[i].str = sb.String()
 	}
 	strs := make([]string, len(fieldEntries))
 	for i, fe := range fieldEntries {
