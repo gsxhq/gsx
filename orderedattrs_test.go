@@ -31,10 +31,10 @@ func TestSpreadOrderedPreservesOrderNoSort(t *testing.T) {
 
 func TestSpreadOrderedBoolAndEscapingAndUnsafe(t *testing.T) {
 	got := renderSpreadOrdered(OrderedAttrs{
-		{Key: "data-show", Value: true},   // bare when true
-		{Key: "data-hide", Value: false},  // omitted when false
-		{Key: "title", Value: `a"b`},      // attribute-escaped
-		{Key: "bad name", Value: "x"},     // unsafe name -> dropped
+		{Key: "data-show", Value: true},  // bare when true
+		{Key: "data-hide", Value: false}, // omitted when false
+		{Key: "title", Value: `a"b`},     // attribute-escaped
+		{Key: "bad name", Value: "x"},    // unsafe name -> dropped
 	})
 	want := ` data-show title="a&#34;b"`
 	if got != want {
