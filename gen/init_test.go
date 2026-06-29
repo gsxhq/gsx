@@ -53,8 +53,8 @@ func TestInitInteractiveRunsAllSteps(t *testing.T) {
 	if (*calls)[0][1] != "get" || (*calls)[2][0] != "npm" {
 		t.Fatalf("unexpected order: %v", *calls)
 	}
-	if !strings.Contains(out.String(), "task dev") {
-		t.Fatalf("final 'task dev' missing: %q", out.String())
+	if !strings.Contains(out.String(), "npm run dev") {
+		t.Fatalf("final 'npm run dev' missing: %q", out.String())
 	}
 }
 
@@ -125,7 +125,7 @@ func TestInitDefault(t *testing.T) {
 	if !strings.Contains(string(gomod), "module myapp") {
 		t.Fatalf("module not derived from dir basename: %s", gomod)
 	}
-	if !strings.Contains(out, "task dev") {
+	if !strings.Contains(out, "npm run dev") {
 		t.Fatalf("next steps not printed: %q", out)
 	}
 }
