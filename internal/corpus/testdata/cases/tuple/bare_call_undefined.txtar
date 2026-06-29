@@ -20,4 +20,4 @@ package views
 
 component Page() { <Badge label={undefinedX}/> }
 -- diagnostics.golden --
-3:59: undefined: undefinedX
+3:48: undefined: undefinedX

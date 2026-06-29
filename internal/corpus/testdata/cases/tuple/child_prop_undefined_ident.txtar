@@ -10,4 +10,4 @@ component Card(title string) { <div>{title}</div> }
 
 component Page() { <Card title={undefinedX}/> }
 -- diagnostics.golden --
-5:57: undefined: undefinedX
+5:46: undefined: undefinedX

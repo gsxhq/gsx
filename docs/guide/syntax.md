@@ -256,7 +256,7 @@ allowed.
 | Text / body interpolation | `{lookup(key)}` |
 | Element attribute value | `attr={signedURL(p)}` |
 | `<style>` / `<script>` body | interpolated values in raw-text bodies |
-| JS-attribute hole (`@{ }`) | `x-data={ jsPayload(data) }` |
+| JS-context attribute value (`onclick`/`@click`/`hx-on*`) | `onclick={ handler(action) }` |
 | `\|>` pipeline stages | each stage's return is unwrapped if `(T, error)` |
 | Children / slot | `{ renderSlot(ctx) }` |
 | **Child-component prop value** | `<Card title={lookup(t)}/>` |

@@ -71,8 +71,7 @@ func Page(_gsxp PageProps) gsx.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv1 := n
-		_gsxgw.Node(ctx, Card(CardProps{Msg: _gsxv0, Count: _gsxv1}))
+		_gsxgw.Node(ctx, Card(CardProps{Msg: _gsxv0, Count: n}))
 		return _gsxgw.Err()
 	})
 }

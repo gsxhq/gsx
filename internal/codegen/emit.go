@@ -2094,8 +2094,19 @@ outer:
 		for i, fe := range fieldEntries {
 			switch {
 			case fe.ea != nil:
+				// Only hoist CALL expressions: a tuple call via hoistTuple, a
+				// non-tuple call via `_gsxv := call` (preserving its left-to-right
+				// side-effect order relative to the tuple calls). A NON-call value
+				// (untyped constant, ident, selector) has no side effects, so its
+				// source order is immaterial AND hoisting it as `_gsxv := 100`
+				// would fix its untyped type and break assignment to a
+				// non-default-typed field — leave it INLINE in the literal.
+				_, isTup := tupleUnwrapType(resolved[fe.ea])
+				if !isTup && !isCallExpr(fe.rawVal) {
+					continue // keep the inline str built by childPropsLiteral
+				}
 				var tmp string
-				if _, isTup := tupleUnwrapType(resolved[fe.ea]); isTup {
+				if isTup {
 					tmp = hoistTuple(b, fe.rawVal, interpTemp)
 				} else {
 					tmp = fmt.Sprintf("_gsxv%d", *interpTemp)
@@ -2108,19 +2119,24 @@ outer:
 					fieldEntries[i].str = fmt.Sprintf("%s: %s", fe.fieldName, tmp)
 				}
 			case fe.oa != nil:
-				// Hoist all pairs and rebuild the gsx.OrderedAttrs{…} literal.
+				// Hoist tuple/call pairs and rebuild the gsx.OrderedAttrs{…}
+				// literal; non-call pairs stay inline (see the ExprAttr note).
 				var sb strings.Builder
 				fmt.Fprintf(&sb, "%s: gsx.OrderedAttrs{", fe.fieldName)
 				for j, pr := range fe.oaPairs {
 					pairType := resolved[&fe.oa.Pairs[j]]
+					_, isTup := tupleUnwrapType(pairType)
 					var valueStr string
-					if _, isTup := tupleUnwrapType(pairType); isTup {
+					switch {
+					case isTup:
 						valueStr = hoistTuple(b, pr.rawVal, interpTemp)
-					} else {
+					case isCallExpr(pr.rawVal):
 						tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
 						*interpTemp++
 						fmt.Fprintf(b, "\t\t%s := %s\n", tmp, pr.rawVal)
 						valueStr = tmp
+					default:
+						valueStr = pr.rawVal // inline non-call value
 					}
 					fmt.Fprintf(&sb, "{Key: %s, Value: %s}, ", strconv.Quote(pr.key), valueStr)
 				}
@@ -2217,6 +2233,31 @@ type propFieldEntry struct {
 type oaPairEntry struct {
 	key    string // unquoted attribute key (for {Key: …} literal)
 	rawVal string // raw Go expression (no _gsxunwrap wrapping)
+}
+
+// isCallExpr reports whether rawVal parses as a Go function-call expression
+// (after unwrapping any surrounding parens). Only a CallExpr can yield a
+// (T, error) tuple when used in single-value position; literals, identifiers,
+// selectors, etc. are always single-valued. The (T, error) auto-unwrap therefore
+// gates BOTH the skeleton's _gsxunwrap(...) tolerance wrap AND the emit-time
+// hoist on this predicate: wrapping/hoisting a non-call value is needless and, for
+// an untyped constant, actively wrong (it fixes the constant to its default type,
+// breaking assignability to a non-default-typed field). Pipelines already lower to
+// calls, so they still satisfy this and remain wrapped/hoisted.
+func isCallExpr(rawVal string) bool {
+	expr, err := goparser.ParseExpr(rawVal)
+	if err != nil {
+		return false
+	}
+	for {
+		paren, ok := expr.(*goast.ParenExpr)
+		if !ok {
+			break
+		}
+		expr = paren.X
+	}
+	_, ok := expr.(*goast.CallExpr)
+	return ok
 }
 
 // childPropsLiteral builds the per-field list for a child component's props
@@ -2358,11 +2399,16 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				// When probeWrap=true (analyze skeleton), wrap in _gsxunwrap so the
 				// skeleton tolerates (T, error) tuples while still checking field types.
 				// rawVal is stored unwrapped so genChildComponent can hoist it.
-				// Exception: the untyped nil literal cannot infer _gsxunwrap's T
-				// (Go cannot infer T from nil); nil is never a multi-value expression
-				// so no tolerance wrapping is needed — emit it as-is.
+				// ONLY a function-call expression can yield a (T, error) tuple in
+				// single-value position; literals/idents/selectors are always
+				// single-valued. Wrapping a NON-call value is harmful: Go infers
+				// _gsxunwrap's T from an untyped constant using its DEFAULT type
+				// (_gsxunwrap(100) → int), which then fails to assign to a
+				// non-default-typed field (e.g. float64). So only wrap CALL exprs;
+				// non-call values are emitted inline, preserving untyped assignability.
+				// (nil is not a call, so it is also left as-is.)
 				fieldVal := rawVal
-				if probeWrap && rawVal != "nil" {
+				if probeWrap && isCallExpr(rawVal) {
 					fieldVal = fmt.Sprintf("_gsxunwrap(%s)", rawVal)
 				}
 				isNF := nodeFields[fn]
@@ -2470,14 +2516,16 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 			var sb strings.Builder
 			fmt.Fprintf(&sb, "%s: %s.OrderedAttrs{", fn, rtPkg)
 			for _, pr := range t.Pairs {
-				// When probeWrap=true (skeleton path), wrap each pair value with
-				// _gsxunwrap(...) so the skeleton tolerates (T, error) tuples
+				// When probeWrap=true (skeleton path), wrap each CALL pair value
+				// with _gsxunwrap(...) so the skeleton tolerates (T, error) tuples
 				// while still type-checking the value as the first return (any).
-				// When probeWrap=false (emit path), inline the raw value; tuple
-				// pairs are hoisted by genChildComponent before this literal is
-				// built, so the value will have been replaced by a temp already.
+				// Only calls can be tuples; non-call values stay inline (the pair
+				// field is `any`, so wrapping is unnecessary and we keep it
+				// consistent with the ExprAttr path). When probeWrap=false (emit
+				// path), inline the raw value; tuple pairs are hoisted by
+				// genChildComponent before this literal is built.
 				val := pr.Value
-				if probeWrap && val != "nil" {
+				if probeWrap && isCallExpr(val) {
 					val = fmt.Sprintf("_gsxunwrap(%s)", val)
 				}
 				fmt.Fprintf(&sb, "{Key: %s, Value: %s}, ", strconv.Quote(pr.Key), val)

@@ -63,8 +63,7 @@ func Page(_gsxp PageProps) gsx.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv1 := "lit"
-		_gsxgw.Node(ctx, Card(CardProps{Bag: gsx.OrderedAttrs{{Key: "x-a", Value: _gsxv0}, {Key: "x-b", Value: _gsxv1}}}))
+		_gsxgw.Node(ctx, Card(CardProps{Bag: gsx.OrderedAttrs{{Key: "x-a", Value: _gsxv0}, {Key: "x-b", Value: "lit"}}}))
 		return _gsxgw.Err()
 	})
 }
