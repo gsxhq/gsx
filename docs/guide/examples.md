@@ -6,29 +6,6 @@ A gallery of gsx features. Each example is compiled and checked in CI; click **O
 
 ## Basics
 
-### Attributes
-
-Expression attributes (attr={expr}), boolean attributes, and a conditional attribute via { if … { attr=… } }.
-
-```gsx
-package views
-
-component Link(url string, label string, external bool, featured bool) {
-	<a
-		href={url}
-		data-count={3}
-		aria-current={external}
-		{ if featured {
-			class="featured"
-		} }
-	>
-		{ label }
-	</a>
-}
-```
-
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgTGluayh1cmwgc3RyaW5nLCBsYWJlbCBzdHJpbmcsIGV4dGVybmFsIGJvb2wsIGZlYXR1cmVkIGJvb2wpIHtcblx0XHUwMDNjYVxuXHRcdGhyZWY9e3VybH1cblx0XHRkYXRhLWNvdW50PXszfVxuXHRcdGFyaWEtY3VycmVudD17ZXh0ZXJuYWx9XG5cdFx0eyBpZiBmZWF0dXJlZCB7XG5cdFx0XHRjbGFzcz1cImZlYXR1cmVkXCJcblx0XHR9IH1cblx0XHUwMDNlXG5cdFx0eyBsYWJlbCB9XG5cdFx1MDAzYy9hXHUwMDNlXG59XG4iLCJpIjoiTGluayhMaW5rUHJvcHN7VXJsOiBcIi9wP3E9YVx1MDAyNmJcIiwgTGFiZWw6IFwiRG9jc1wiLCBFeHRlcm5hbDogdHJ1ZSwgRmVhdHVyZWQ6IHRydWV9KSJ9)
-
 ### Auto-escaping &amp; safe raw
 
 User input is HTML-escaped by construction — no XSS. Use gsx.Raw / gsx.RawURL to opt out deliberately.

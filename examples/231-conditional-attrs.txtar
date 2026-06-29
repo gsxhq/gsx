@@ -1,0 +1,16 @@
+-- doc --
+name: Conditional Attributes
+summary: "{ if cond { attr } }" adds an attribute only when the condition is true.
+category: Basics
+page: attributes
+pageOrder: 30
+-- input.gsx --
+package views
+
+component Badge(featured bool) {
+	<span { if featured { class="featured" } }>content</span>
+}
+-- invoke --
+Badge(BadgeProps{Featured: true})
+-- render.golden --
+<span class="featured">content</span>

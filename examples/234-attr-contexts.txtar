@@ -1,0 +1,16 @@
+-- doc --
+name: Attribute Contexts
+summary: Attribute values are auto-escaped for their context; URL attributes reject dangerous schemes like javascript:.
+category: Basics
+page: attributes
+pageOrder: 60
+-- input.gsx --
+package views
+
+component Link(href string, label string) {
+	<a href={href}>{ label }</a>
+}
+-- invoke --
+Link(LinkProps{Href: "javascript:alert(1)", Label: "click me"})
+-- render.golden --
+<a href="about:invalid#gsx">click me</a>

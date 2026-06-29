@@ -42,16 +42,40 @@
     "invoke": "Label(LabelProps{Key: \"hello\"})"
   },
   {
+    "name": "Boolean Attributes",
+    "category": "Basics",
+    "source": "package views\n\ncomponent Field(on bool) {\n\t<input type=\"text\" class=\"form-control\" required disabled={on}/>\n}\n",
+    "invoke": "Field(FieldProps{On: true})"
+  },
+  {
+    "name": "Conditional Attributes",
+    "category": "Basics",
+    "source": "package views\n\ncomponent Badge(featured bool) {\n\t<span\n\t\t{ if featured {\n\t\t\tclass=\"featured\"\n\t\t} }\n\t>\n\t\tcontent\n\t</span>\n}\n",
+    "invoke": "Badge(BadgeProps{Featured: true})"
+  },
+  {
+    "name": "Spread Attributes",
+    "category": "Basics",
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Card(extra gsx.Attrs) {\n\t<div { extra... }>content</div>\n}\n",
+    "invoke": "Card(CardProps{Extra: gsx.Attrs{\"id\": \"box\", \"data-active\": \"true\"}})"
+  },
+  {
+    "name": "Attribute Contexts",
+    "category": "Basics",
+    "source": "package views\n\ncomponent Link(href string, label string) {\n\t<a href={href}>{ label }</a>\n}\n",
+    "invoke": "Link(LinkProps{Href: \"javascript:alert(1)\", Label: \"click me\"})"
+  },
+  {
     "name": "Interpolation & props",
     "category": "Basics",
     "source": "package views\n\ncomponent Greeting(name string, count int) {\n\t<p>Hello, { name }! You have { count } messages.</p>\n}\n",
     "invoke": "Greeting(GreetingProps{Name: \"World\", Count: 3})"
   },
   {
-    "name": "Attributes",
+    "name": "Expression Attributes",
     "category": "Basics",
-    "source": "package views\n\ncomponent Link(url string, label string, external bool, featured bool) {\n\t<a\n\t\thref={url}\n\t\tdata-count={3}\n\t\taria-current={external}\n\t\t{ if featured {\n\t\t\tclass=\"featured\"\n\t\t} }\n\t>\n\t\t{ label }\n\t</a>\n}\n",
-    "invoke": "Link(LinkProps{Url: \"/p?q=a&b\", Label: \"Docs\", External: true, Featured: true})"
+    "source": "package views\n\ncomponent Link(url string, label string, count int) {\n\t<a href={url} data-count={count}>{ label }</a>\n}\n",
+    "invoke": "Link(LinkProps{Url: \"/p?q=a&b\", Label: \"Docs\", Count: 42})"
   },
   {
     "name": "Auto-escaping & safe raw",
