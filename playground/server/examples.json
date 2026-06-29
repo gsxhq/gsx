@@ -60,6 +60,12 @@
     "invoke": "Card(CardProps{Extra: gsx.Attrs{\"id\": \"box\", \"data-active\": \"true\"}})"
   },
   {
+    "name": "Ordered Attributes",
+    "category": "Basics",
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Counter(signals gsx.OrderedAttrs) {\n\t<button { signals... }>{ children }</button>\n}\n\ncomponent Page() {\n\t<Counter\n\t\tsignals={{ \"data-signals\": \"{count:0}\", \"data-text\": \"$count\", \"data-on-click\": \"$count++\" }}\n\t>\n\t\tCount\n\t</Counter>\n}\n",
+    "invoke": "Page()"
+  },
+  {
     "name": "Attribute Contexts",
     "category": "Basics",
     "source": "package views\n\ncomponent Link(href string, label string) {\n\t<a href={href}>{ label }</a>\n}\n",

@@ -40,27 +40,20 @@ Boolean values in an `Attrs` bag follow the same rule as attribute-level boolean
 
 ## Ordered `{{ }}` → `gsx.OrderedAttrs`
 
-When insertion order matters — for example, `data-*` directives consumed by Datastar or Alpine.js where the key sequence has semantic significance — use the `{{ "key": value }}` literal syntax in attribute-value position. This produces a `gsx.OrderedAttrs` value that preserves the declaration order of keys rather than sorting them.
+When attribute order matters — for example, `data-*` directives consumed by Datastar where a signal must be declared before it is read — use the `{{ "key": value }}` literal in a **component invocation** to pass an ordered attribute bag. The literal is valid only in attribute-value position at a component call, bound (via the kebab field-matcher) to a prop declared as `gsx.OrderedAttrs`. The component then spreads that prop onto an element with `{ prop... }`, and the attributes render in the exact order they were written in the literal — no sorting.
 
-```gsx
-component Widget(count int) {
-    <div
-        data-signals={{ "count": count, "step": 1 }}
-        data-on-click={{ "setCount": count + 1 }}
-    >
-        { count }
-    </div>
-}
-```
+Unlike `{ bag… }` spread (which sorts keys alphabetically), `{ signals… }` spread on a `gsx.OrderedAttrs` prop calls `SpreadOrdered` and preserves insertion order end to end.
 
-Key differences from `{ bag… }` spread:
+<!--@include: ./_generated/attributes/050-ordered-attributes.md-->
 
-- Keys are quoted string literals written inline; no `map` literal or variable is required.
-- Render order follows declaration order, not alphabetical order.
-- A bool value (`"data-show": true`) renders as the bare attribute `data-show`; `false` omits it.
-- `gsx.OrderedAttrs` does **not** participate in `class`/`style` merge — it is always spread as-is.
+`Counter` declares `signals gsx.OrderedAttrs` and spreads it with `{ signals... }`. The caller passes `signals={{ "data-signals": …, "data-text": …, "data-on-click": … }}` — the attributes render in that exact order. Contrast this with a `gsx.Attrs` (map) bag: the same three keys would render alphabetically as `data-on-click`, `data-signals`, `data-text`.
 
-> A runnable example is added once the ordered-attributes feature lands on the docs branch.
+Key points:
+
+- The `{{ }}` literal is valid **only as the value of a component attribute** whose matching prop is typed `gsx.OrderedAttrs`. There is no standalone-element form — `<div {{ … }}>` is a parse error.
+- Keys are quoted string literals (`"data-signals"`, not bare identifiers). This is required so that kebab and colon names such as `"hx-on:click"` round-trip safely.
+- A bool value (`"data-show": true`) renders the bare attribute `data-show`; `false` omits it entirely — the same rule as `gsx.Attrs`.
+- `gsx.OrderedAttrs` does **not** participate in `class`/`style` merge. Any `"class"` or `"style"` pair in an ordered bag renders verbatim in its slot position; use element-level `class=` or `style=` for merging.
 
 ## Contextual escaping
 
