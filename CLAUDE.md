@@ -13,6 +13,8 @@ It is the authoritative, uncached run (`-count=1`); GitHub CI runs the same. For
 Pin Go to `GO_VERSION` in `ci.yml` (currently 1.26.1); a different minor re-introduces gofmt drift.
 The CI `docs` job (VitePress, clones `gsxhq/gsxhq.github.io`) isn't in `make ci` — only matters when editing `docs/guide/**`.
 
+Any syntax change should be accompanied by rigorous tests and also documentation, ../tree-sitter-gsx and ../vscode-gsx changes.
+
 ## Testing — the txtar corpus is canonical
 
 `internal/corpus/testdata/cases/**/*.txtar` is the authoritative syntax reference (parsed → generated → rendered → goldens pinned). Learn syntax from there, not from prose; Also `examples/*.txtar`
