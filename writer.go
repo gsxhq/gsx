@@ -3,6 +3,7 @@ package gsx
 import (
 	"context"
 	"io"
+	"strconv"
 )
 
 // Writer streams HTML to an underlying io.Writer, retaining the first write error
@@ -36,6 +37,36 @@ func (gw *Writer) Text(s string) {
 		return
 	}
 	gw.err = writeHTML(gw.w, s)
+}
+
+// IntInto writes n in base 10 into the caller-provided scratch buffer and writes
+// the digit bytes directly to the output — no intermediate string allocation, and
+// no HTML escaping (decimal digits and a leading '-' are always safe in text and
+// attribute contexts). Generated code declares one buffer per render and reuses
+// it across all numeric interpolations, so a numeric-heavy component allocates
+// the scratch at most once (when it escapes) rather than once per number.
+func (gw *Writer) IntInto(buf []byte, n int64) {
+	if gw.err != nil {
+		return
+	}
+	_, gw.err = gw.w.Write(strconv.AppendInt(buf[:0], n, 10))
+}
+
+// UintInto writes n in base 10 (see IntInto).
+func (gw *Writer) UintInto(buf []byte, n uint64) {
+	if gw.err != nil {
+		return
+	}
+	_, gw.err = gw.w.Write(strconv.AppendUint(buf[:0], n, 10))
+}
+
+// FloatInto writes f using strconv's 'g' shortest form (see IntInto). The output
+// charset (digits, '.', '-', '+', 'e', and Inf/NaN letters) is always HTML-safe.
+func (gw *Writer) FloatInto(buf []byte, f float64) {
+	if gw.err != nil {
+		return
+	}
+	_, gw.err = gw.w.Write(strconv.AppendFloat(buf[:0], f, 'g', -1, 64))
 }
 
 // AttrValue writes s as an escaped double-quoted attribute value.

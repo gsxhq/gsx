@@ -260,11 +260,14 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 		}
 		b.WriteString("\treturn gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {\n")
 		b.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
+		var body bytes.Buffer
 		for _, m := range c.Body {
-			if !genNode(b, m, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
+			if !genNode(&body, m, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
 				return false
 			}
 		}
+		emitNumScratch(b, body.Bytes())
+		b.Write(body.Bytes())
 		b.WriteString("\t\treturn _gsxgw.Err()\n")
 		b.WriteString("\t})\n}\n\n")
 		return true
@@ -363,6 +366,9 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 		b.WriteString("\t\tattrs := _gsxp.Attrs\n\t\t_ = attrs\n")
 	}
 	b.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
+	// Emit the render body to a temp buffer first so the per-render numeric scratch
+	// (var _gsxnum) is declared only when the body actually uses it.
+	var body bytes.Buffer
 	for _, m := range c.Body {
 		// The single root (when AUTO-eligible) is emitted via the fallthrough path so
 		// the bag's class merges + the rest spreads at the root; all other body nodes
@@ -370,15 +376,17 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 		// is false, so the root emits via normal genNode and the author's {...attrs}
 		// places the bag.
 		if autoApply && m == ast.Markup(root) {
-			if !emitRootElement(b, root, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
+			if !emitRootElement(&body, root, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
 				return false
 			}
 			continue
 		}
-		if !genNode(b, m, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
+		if !genNode(&body, m, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
 			return false
 		}
 	}
+	emitNumScratch(b, body.Bytes())
+	b.Write(body.Bytes())
 	b.WriteString("\t\treturn _gsxgw.Err()\n")
 	b.WriteString("\t})\n}\n\n")
 	return true
@@ -958,14 +966,13 @@ func emitRender(b *bytes.Buffer, expr string, t types.Type, imports map[string]b
 	case catBytes:
 		fmt.Fprintf(b, "\t\t_gsxgw.Text(string(%s))\n", expr)
 	case catInt:
-		imports["strconv"] = true
-		fmt.Fprintf(b, "\t\t_gsxgw.Text(strconv.FormatInt(int64(%s), 10))\n", expr)
+		// Format into the per-render scratch buffer and write the digit bytes
+		// directly — no string allocation, no escaping (digits are always safe).
+		fmt.Fprintf(b, "\t\t_gsxgw.IntInto(_gsxnum[:], int64(%s))\n", expr)
 	case catUint:
-		imports["strconv"] = true
-		fmt.Fprintf(b, "\t\t_gsxgw.Text(strconv.FormatUint(uint64(%s), 10))\n", expr)
+		fmt.Fprintf(b, "\t\t_gsxgw.UintInto(_gsxnum[:], uint64(%s))\n", expr)
 	case catFloat:
-		imports["strconv"] = true
-		fmt.Fprintf(b, "\t\t_gsxgw.Text(strconv.FormatFloat(float64(%s), 'g', -1, 64))\n", expr)
+		fmt.Fprintf(b, "\t\t_gsxgw.FloatInto(_gsxnum[:], float64(%s))\n", expr)
 	case catBool:
 		imports["strconv"] = true
 		fmt.Fprintf(b, "\t\t_gsxgw.Text(strconv.FormatBool(bool(%s)))\n", expr)
@@ -980,6 +987,19 @@ func emitRender(b *bytes.Buffer, expr string, t types.Type, imports map[string]b
 		return false
 	}
 	return true
+}
+
+// emitNumScratch declares the per-render numeric scratch buffer (var _gsxnum) at
+// the head of a render body, but only when the already-emitted body actually
+// references it — components with no integer/uint/float interpolation get no
+// declaration. The marker (_gsxnum[) is emitted solely by emitRender's numeric
+// cases and cannot collide with user code (the _gsx* identifier space is
+// reserved), so the content check is exact, not heuristic. Mirrors the
+// body-content check used to gate the class-merger import.
+func emitNumScratch(b *bytes.Buffer, body []byte) {
+	if bytes.Contains(body, []byte("_gsxnum[")) {
+		b.WriteString("\t\tvar _gsxnum [32]byte\n")
+	}
 }
 
 func emitS(b *bytes.Buffer, s string) {
@@ -1956,11 +1976,14 @@ func emitSlotClosure(nodes []ast.Markup, resolved map[ast.Node]types.Type, table
 	var slot bytes.Buffer
 	slot.WriteString("gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {\n")
 	slot.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
+	var body bytes.Buffer
 	for _, c := range nodes {
-		if !genNode(&slot, c, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
+		if !genNode(&body, c, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
 			return "", false
 		}
 	}
+	emitNumScratch(&slot, body.Bytes())
+	slot.Write(body.Bytes())
 	slot.WriteString("\t\treturn _gsxgw.Err()\n")
 	slot.WriteString("\t})")
 	return slot.String(), true
