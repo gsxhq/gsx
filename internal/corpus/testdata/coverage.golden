@@ -38,7 +38,7 @@ components/child_hyphen_attr_fallthrough	diag render
 components/child_no_props	diag render
 components/child_prop_pipeline	diag render
 components/child_prop_try_error	diag(error)
-components/child_prop_tuple_error	diag(error)
+components/child_prop_tuple_error	diag gen render
 components/child_props	diag render
 components/child_props_featured_false	diag render
 components/child_props_static	diag render
@@ -276,9 +276,14 @@ style/composed_injection	diag gen render
 style/composed_rawcss_optout	diag gen render
 style/loop_var_in_style	diag render
 style/minify_block	diag gen render
+tuple/child_prop_mixed	diag gen render
+tuple/child_prop_multi	diag gen render
+tuple/child_prop_node	diag gen render
+tuple/child_prop_pipeline	diag gen render
+tuple/child_prop_single	diag gen render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 283 cases (render: 214, error: 49, gen-pinned: 91)
+TOTAL: 288 cases (render: 220, error: 48, gen-pinned: 97)

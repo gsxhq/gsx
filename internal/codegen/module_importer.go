@@ -435,7 +435,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// Shared _gsxuse/_gsxcompsig helpers, added to every package's overlay.
 	helperXgoPath := filepath.Join(dir, "_gsxshared.x.go")
 	helper, _ := goparser.ParseFile(fset, helperXgoPath,
-		"package "+pkgName+"\n\nfunc _gsxuse(...any) {}\nfunc _gsxcompsig(any) {}\n", goparser.SkipObjectResolution)
+		"package "+pkgName+"\n\nfunc _gsxuse(...any) {}\nfunc _gsxcompsig(any) {}\nfunc _gsxunwrap[T any](v T, _ ...error) T { return v }\n", goparser.SkipObjectResolution)
 	goFiles = append(goFiles, helper)
 
 	// Include the package's hand-written .go files (model.go, helper.go, etc.)
@@ -495,7 +495,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		if strings.HasSuffix(p.Filename, ".x.go") {
 			continue // synthetic skeleton position: no //line directive, so no valid .gsx location to report
 		}
-		bag.Add(diag.Diagnostic{Start: p, End: p, Severity: diag.Error, Message: e.Msg, Source: "types"})
+		bag.Add(diag.Diagnostic{Start: p, End: p, Severity: diag.Error, Message: stripGsxunwrap(e.Msg), Source: "types"})
 	}
 	if mi.cycleErr != nil {
 		// A cycle was detected during this package's type-check; propagate
@@ -656,4 +656,39 @@ func (m *Module) parsePackageWithFset(dir string, fset *token.FileSet) (map[stri
 		pkgName = f.Package
 	}
 	return files, pkgName, nil
+}
+
+// stripGsxunwrap removes all occurrences of _gsxunwrap(...) in s, replacing each
+// with its argument. This ensures type error messages from the skeleton
+// type-checker do not expose the internal _gsxunwrap helper name to users.
+// Nested parentheses inside the argument are handled via bracket counting.
+func stripGsxunwrap(s string) string {
+	const prefix = "_gsxunwrap("
+	if !strings.Contains(s, prefix) {
+		return s
+	}
+	var b strings.Builder
+	for {
+		i := strings.Index(s, prefix)
+		if i < 0 {
+			b.WriteString(s)
+			break
+		}
+		b.WriteString(s[:i])
+		depth := 1
+		j := i + len(prefix)
+		for j < len(s) && depth > 0 {
+			switch s[j] {
+			case '(':
+				depth++
+			case ')':
+				depth--
+			}
+			j++
+		}
+		// s[i+len(prefix) : j-1] is the content inside _gsxunwrap(...)
+		b.WriteString(s[i+len(prefix) : j-1])
+		s = s[j:]
+	}
+	return b.String()
 }

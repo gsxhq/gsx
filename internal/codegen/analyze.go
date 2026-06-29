@@ -751,9 +751,12 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					// NOT _gsxuse, so they don't perturb the k-th alignment.
 					// When splatExpr is non-empty (byo whole-struct splat), emit
 					// `_ = callTarget(splatExpr)` mirroring the emitter exactly.
-					fields, splatExpr, usedPkgs, err := childPropsLiteral(t, propsType, "_gsxrt", "_gsxrt.DefaultClassMerge", table, propFields, nodeProps[propsType], byo, fm, func(nodes []gsxast.Markup) (string, error) {
+					// probeWrap=true: ExprAttr values are wrapped with _gsxunwrap(...) in
+					// the skeleton so (T, error) tuples type-check while field-type
+					// checking is preserved.
+					fieldEntries, splatExpr, usedPkgs, err := childPropsLiteral(t, propsType, "_gsxrt", "_gsxrt.DefaultClassMerge", table, propFields, nodeProps[propsType], byo, fm, func(nodes []gsxast.Markup) (string, error) {
 						return "_gsxrt.Node(nil)", nil
-					})
+					}, true)
 					if err != nil {
 						// childPropsLiteral returns an *attrError with the offending attr's
 						// position embedded. Propagate it as-is so the caller can emit
@@ -771,8 +774,29 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 						// Whole-struct splat: mirrors genChildComponent exactly.
 						fmt.Fprintf(sb, "_ = %s(%s)\n", callTarget, splatExpr)
 					} else {
-						fmt.Fprintf(sb, "_ = %s(%s{%s})\n", callTarget, propsType, fields)
+						strs := make([]string, len(fieldEntries))
+						for i, fe := range fieldEntries {
+							strs[i] = fe.str
+						}
+						fmt.Fprintf(sb, "_ = %s(%s{%s})\n", callTarget, propsType, strings.Join(strs, ", "))
 					}
+				}
+				// Probe simple ExprAttr values (child-prop values) with _gsxuse so harvest
+				// records their RAW types into resolved[ea]. This is emitted for ALL child
+				// component branches (bare-call, nullary, props-literal) so the k-th probe
+				// always aligns with the k-th node in collectExprs (which also adds ExprAttr
+				// nodes for all child components, before slot content).
+				for _, a := range t.Attrs {
+					ea, ok := a.(*gsxast.ExprAttr)
+					if !ok {
+						continue
+					}
+					probe, perr := probeExpr(ea.Expr, ea.Stages, table, usedFilters)
+					if perr != nil {
+						return perr
+					}
+					emitSkeletonLine(sb, fset, ea.Pos())
+					fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 				}
 				// Probe slot content in the SAME canonical order collectExprs walks:
 				// each markup-attr value (attr order) then the children.
@@ -1397,13 +1421,17 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 			*out = append(*out, t)
 		case *gsxast.Element:
 			if isComponentTag(t.Tag) {
-				// Child component: its SIMPLE attrs are props (type-checked via the
-				// props literal, NOT _gsxuse), so they are NOT collected here. But a
-				// MARKUP attr (named slot) value AND the children are SLOT content
-				// rendered in THIS (parent) scope, so their interps/exprs ARE collected
-				// — markup-attr values (in attr order) BEFORE children. emitProbes
-				// recurses identically (same shared walkMarkupAttrs order), so the k-th
-				// probe still maps to the k-th node.
+				// Child component: collect ExprAttr nodes (prop values) first, then slot
+				// content (markup-attr values and children). emitProbes emits _gsxuse
+				// probes in the SAME order — ExprAttrs before slot content — so the k-th
+				// probe aligns with the k-th node for ALL child-component branches
+				// (bare-call, nullary, and props-literal). The ExprAttr types in resolved
+				// let genChildComponent detect and hoist (T, error) tuple-valued props.
+				for _, a := range t.Attrs {
+					if ea, ok := a.(*gsxast.ExprAttr); ok {
+						*out = append(*out, ea)
+					}
+				}
 				walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
 					collectExprs(value, out)
 				})
