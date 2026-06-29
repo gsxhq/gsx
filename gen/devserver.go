@@ -99,7 +99,7 @@ func waitHealthy(ctx context.Context, url string, timeout time.Duration) bool {
 // = concat, written = concat base names, durationMs = sum.
 func aggregateEvent(results []cycleResult) []byte {
 	ok := true
-	var written []string
+	written := []string{}
 	diags := []json.RawMessage{}
 	var dur int64
 	for _, r := range results {
@@ -170,12 +170,12 @@ func (d *devServer) rebuild(ctx context.Context) error {
 		fmt.Fprintf(d.out, "build failed: %v\n", err)
 		return err
 	}
-	return d.restartNoBuild(ctx)
+	return d.restartNoBuild()
 }
 
 // restartNoBuild stops any running server and starts d.run fresh (used after a
 // successful build and on .env changes).
-func (d *devServer) restartNoBuild(ctx context.Context) error {
+func (d *devServer) restartNoBuild() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.cmd != nil {
@@ -196,6 +196,9 @@ func (d *devServer) restartNoBuild(ctx context.Context) error {
 func (d *devServer) stop() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.cmd == nil {
+		return
+	}
 	killProcGroup(d.cmd, 5*time.Second)
 	d.cmd = nil
 }

@@ -71,6 +71,11 @@ func TestAggregateEvent(t *testing.T) {
 	}
 }
 
+func TestStopBeforeStart(t *testing.T) {
+	d := &devServer{}
+	d.stop() // must not panic when no server was ever started
+}
+
 func TestPostEventReachesServer(t *testing.T) {
 	got := make(chan string, 1)
 	mux := http.NewServeMux()
