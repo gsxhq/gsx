@@ -21,22 +21,6 @@ component Comment(body string) {
 
 [▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG4vLyBVc2VyIGlucHV0IGlzIEhUTUwtZXNjYXBlZCBieSBjb25zdHJ1Y3Rpb24g4oCUIG5vIFhTUy5cbmNvbXBvbmVudCBDb21tZW50KGJvZHkgc3RyaW5nKSB7XG5cdFx1MDAzY2Jsb2NrcXVvdGVcdTAwM2V7IGJvZHkgfVx1MDAzYy9ibG9ja3F1b3RlXHUwMDNlXG59XG4iLCJpIjoiQ29tbWVudChDb21tZW50UHJvcHN7Qm9keTogXCJcdTAwM2NpbWcgc3JjPXggb25lcnJvcj1hbGVydCgxKVx1MDAzZVwifSkifQ==)
 
-## Transforming values
-
-### Pipelines / filters
-
-Transform values with typed filter pipelines — { x |&gt; trim |&gt; upper } — drawn from the gsx info registry.
-
-```gsx
-package views
-
-component Hi(name string) {
-	<p>{ name |> trim |> upper }</p>
-}
-```
-
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgSGkobmFtZSBzdHJpbmcpIHtcblx0XHUwMDNjcFx1MDAzZXsgbmFtZSB8XHUwMDNlIHRyaW0gfFx1MDAzZSB1cHBlciB9XHUwMDNjL3BcdTAwM2Vcbn1cbiIsImkiOiJIaShIaVByb3Bze05hbWU6IFwiICBhZGEgIFwifSkifQ==)
-
 ## Interactive &amp; whole-page
 
 ### Forms

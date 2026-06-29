@@ -1,0 +1,18 @@
+-- doc --
+name: Pipeline (T, error) unwrap
+summary: A function returning (T, error) auto-unwraps in a pipeline interpolation; the error propagates out of Render.
+category: Transforming values
+page: pipelines
+pageOrder: 20
+-- input.gsx --
+package views
+
+func greet(name string) (string, error) { return "Hi " + name, nil }
+
+component Card(name string) {
+	<p>{greet(name)}</p>
+}
+-- invoke --
+Card(CardProps{Name: "Al"})
+-- render.golden --
+<p>Hi Al</p>

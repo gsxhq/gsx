@@ -1,0 +1,16 @@
+-- doc --
+name: Pipelines in attribute context
+summary: Pipelines in attribute values are sanitized for their context; a URL attribute rejects dangerous schemes even after filtering.
+category: Transforming values
+page: pipelines
+pageOrder: 30
+-- input.gsx --
+package views
+
+component Link(u string) {
+	<a href={ u |> trim }>x</a>
+}
+-- invoke --
+Link(LinkProps{U: "  javascript:alert(1)  "})
+-- render.golden --
+<a href="about:invalid#gsx">x</a>
