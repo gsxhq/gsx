@@ -245,17 +245,89 @@ func RenderMarkdown(exs []Example) []byte {
 	return []byte(b.String())
 }
 
-// Generate loads examplesDir and writes the docs Markdown to mdPath and the
-// preset JSON to each path in jsonPaths.
-func Generate(examplesDir, mdPath string, jsonPaths ...string) error {
+// slug lowercases name and collapses non-alphanumerics to single dashes.
+func slug(name string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(name) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			dash = false
+		} else if !dash {
+			b.WriteByte('-')
+			dash = true
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+// partialRelPath is "<page>/<NNN>-<slug>.md".
+func partialRelPath(e Example) string {
+	n := e.PageOrder
+	if n == 0 {
+		n = e.Order
+	}
+	return filepath.Join(e.Page, fmt.Sprintf("%03d-%s.md", n, slug(e.Name)))
+}
+
+// RenderPartial emits one routed example as an include partial: source gsx,
+// rendered html, and a Playground link. No heading — the page owns headings.
+func RenderPartial(e Example) []byte {
+	var b strings.Builder
+	b.WriteString("<!-- GENERATED from examples/*.txtar by cmd/gsx-examples — do not edit. -->\n\n")
+	for _, f := range e.Files {
+		if len(e.Files) > 1 {
+			b.WriteString("**" + f.Name + "**\n\n")
+		}
+		b.WriteString("```gsx\n")
+		body := f.Body
+		if !strings.HasSuffix(body, "\n") {
+			body += "\n"
+		}
+		b.WriteString(body)
+		b.WriteString("```\n\n")
+	}
+	b.WriteString("Renders:\n\n```html\n")
+	r := e.Render
+	if !strings.HasSuffix(r, "\n") {
+		r += "\n"
+	}
+	b.WriteString(r)
+	b.WriteString("```\n\n")
+	b.WriteString("[▶ Open in Playground](/playground#try=" + tryPayload(e.Source, e.Invoke) + ")\n")
+	return []byte(b.String())
+}
+
+// Generate loads examplesDir, writes routed examples as partials under
+// partialsDir, the unrouted gallery to mdPath, and presets to each jsonPaths.
+func Generate(examplesDir, mdPath, partialsDir string, jsonPaths ...string) error {
 	exs, err := Load(examplesDir)
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(mdPath, RenderMarkdown(exs), 0o644); err != nil {
+	// Rebuild the partials tree from scratch so renamed/removed examples leave
+	// no orphan partials (the drift check would otherwise miss the deletion).
+	if err := os.RemoveAll(partialsDir); err != nil {
 		return err
 	}
-	pj, err := presetsJSON(exs)
+	var gallery []Example
+	for _, e := range exs {
+		if e.Page == "" {
+			gallery = append(gallery, e)
+			continue
+		}
+		full := filepath.Join(partialsDir, partialRelPath(e))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(full, RenderPartial(e), 0o644); err != nil {
+			return err
+		}
+	}
+	if err := os.WriteFile(mdPath, RenderMarkdown(gallery), 0o644); err != nil {
+		return err
+	}
+	pj, err := presetsJSON(exs) // playground shows ALL examples
 	if err != nil {
 		return err
 	}

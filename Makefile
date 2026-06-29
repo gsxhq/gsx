@@ -49,7 +49,7 @@ ci-playground:
 # the playground module embeds examples.json, so its build must not race the regen.
 ci-examples:
 	$(MAKE) examples
-	@if ! git diff --exit-code -- docs/guide/examples.md docs/examples.json playground/server/examples.json; then \
+	@if ! git diff --exit-code -- docs/guide/examples.md docs/examples.json playground/server/examples.json docs/guide/syntax/_generated; then \
 		echo "examples artifacts are stale — run 'make examples' and commit the result"; \
 		exit 1; \
 	fi
