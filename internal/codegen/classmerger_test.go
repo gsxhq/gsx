@@ -28,16 +28,25 @@ func TestValidateClassMergerSignature(t *testing.T) {
 	dir := writeTempMergerPkg(t, `package mrg
 func Good(t []string) string { return "" }
 func BadVariadic(t ...any) string { return "" }
+func BadVariadicString(t ...string) string { return "" }
 func BadReturn(t []string) int { return 0 }
 `)
-	if err := validateClassMerger(dir, &ClassMergerRef{PkgPath: "mrgmod/mrg", FuncName: "Good"}); err != nil {
+	if err := ValidateClassMerger(dir, &ClassMergerRef{PkgPath: "mrgmod/mrg", FuncName: "Good"}); err != nil {
 		t.Fatalf("Good: unexpected error: %v", err)
 	}
-	err := validateClassMerger(dir, &ClassMergerRef{PkgPath: "mrgmod/mrg", FuncName: "BadVariadic"})
+	err := ValidateClassMerger(dir, &ClassMergerRef{PkgPath: "mrgmod/mrg", FuncName: "BadVariadic"})
 	if err == nil || !strings.Contains(err.Error(), "func([]string) string") {
 		t.Fatalf("BadVariadic: want signature error, got %v", err)
 	}
-	if err := validateClassMerger(dir, &ClassMergerRef{PkgPath: "mrgmod/mrg", FuncName: "Missing"}); err == nil {
+	err = ValidateClassMerger(dir, &ClassMergerRef{PkgPath: "mrgmod/mrg", FuncName: "BadVariadicString"})
+	if err == nil || !strings.Contains(err.Error(), "func([]string) string") {
+		t.Fatalf("BadVariadicString (variadic-string): want signature error, got %v", err)
+	}
+	err = ValidateClassMerger(dir, &ClassMergerRef{PkgPath: "mrgmod/mrg", FuncName: "BadReturn"})
+	if err == nil || !strings.Contains(err.Error(), "func([]string) string") {
+		t.Fatalf("BadReturn: want signature error, got %v", err)
+	}
+	if err := ValidateClassMerger(dir, &ClassMergerRef{PkgPath: "mrgmod/mrg", FuncName: "Missing"}); err == nil {
 		t.Fatalf("Missing: want error, got nil")
 	}
 }

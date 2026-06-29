@@ -19,12 +19,17 @@ type ClassMergerRef struct {
 	FuncName string
 }
 
-// validateClassMerger type-checks ref.PkgPath and verifies ref.FuncName names an
+// ValidateClassMerger type-checks ref.PkgPath and verifies ref.FuncName names an
 // exported package-level object whose type is exactly func([]string) string.
 // Returns a clear, user-facing error otherwise (missing symbol, or wrong
 // signature with a pointer at the wrapper idiom).
-func validateClassMerger(dir string, ref *ClassMergerRef) error {
-	cfg := &packages.Config{Mode: packages.NeedTypes | packages.NeedTypesInfo | packages.NeedDeps | packages.NeedImports, Dir: dir}
+//
+// Callers outside codegen (e.g. gen.newWatchSession) should call this once at
+// startup to surface a bad merger before codegen emits uncompilable .x.go files.
+// Do NOT call this from codegen.Open: that path is shared by the LSP and fmt,
+// which must not pay a packages.Load per-Open or fail on merger config.
+func ValidateClassMerger(dir string, ref *ClassMergerRef) error {
+	cfg := &packages.Config{Mode: packages.NeedTypes, Dir: dir}
 	pkgs, err := packages.Load(cfg, ref.PkgPath)
 	if err != nil {
 		return fmt.Errorf("class_merger: loading %q: %w", ref.PkgPath, err)

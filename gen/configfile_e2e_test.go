@@ -262,7 +262,7 @@ func TestInfoNoConfig(t *testing.T) {
 //  1. class_merger = "pkg.Func" in gsx.toml wires through generation and the
 //     generated .x.go imports the package under _gsxcm and calls _gsxcm.Func.
 //  2. A bad-signature merger (variadic) surfaces the generate-time validation
-//     error from validateClassMerger (wired in GenerateDirs).
+//     error from ValidateClassMerger (wired in GenerateDirs).
 func TestGenClassMergerE2E(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {

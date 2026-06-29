@@ -97,6 +97,17 @@ func newWatchSession(cfg watchConfig) (*watchSession, []cycleResult, error) {
 		return nil, nil, mErr
 	}
 
+	// Validate the class merger once at session startup so a bad-signature merger
+	// surfaces a clear error instead of silently emitting uncompilable .x.go
+	// files on every regen cycle. The LSP and fmt call codegen.Open directly and
+	// must not pay a packages.Load per call, so this validation lives here and
+	// NOT in codegen.Open or codegen.GenerateDirs (the latter already validates).
+	if cfg.classMerger != nil {
+		if err := codegen.ValidateClassMerger(groups[0].root, cfg.classMerger); err != nil {
+			return nil, nil, err
+		}
+	}
+
 	s := &watchSession{cfg: cfg, root: groups[0].root, modules: map[string]*codegen.Module{}}
 	for _, g := range groups {
 		s.roots = append(s.roots, g.root)
