@@ -12,6 +12,24 @@
     "invoke": "FullName(FullNameProps{First: \"Ada\", Last: \"Lovelace\"})"
   },
   {
+    "name": "Void elements",
+    "category": "Elements",
+    "source": "package views\n\ncomponent AvatarField(src string, alt string, disabled bool) {\n\t<div>\n\t\t<img src={src} alt={alt}/>\n\t\t<br/>\n\t\t<input type=\"text\" required disabled={disabled}/>\n\t</div>\n}\n",
+    "invoke": "AvatarField(AvatarFieldProps{Src: \"/avatar.png\", Alt: \"User\", Disabled: true})"
+  },
+  {
+    "name": "Raw-text elements",
+    "category": "Elements",
+    "source": "package views\n\ncomponent Tracker() {\n\t<script>\n\t\tconst threshold = 5;\n\t\tif (count < threshold) { track(\"below\"); }\n\t</script>\n}\n",
+    "invoke": "Tracker()"
+  },
+  {
+    "name": "HTML comments",
+    "category": "Elements",
+    "source": "package views\n\ncomponent Layout(name string) {\n\t<div>\n\t\t<!-- header -->\n\t\t<h1>{ name }</h1>\n\t\t<!-- a < b -->\n\t</div>\n}\n",
+    "invoke": "Layout(LayoutProps{Name: \"Ada\"})"
+  },
+  {
     "name": "Interpolation & props",
     "category": "Basics",
     "source": "package views\n\ncomponent Greeting(name string, count int) {\n\t<p>Hello, { name }! You have { count } messages.</p>\n}\n",

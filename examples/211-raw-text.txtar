@@ -1,0 +1,20 @@
+-- doc --
+name: Raw-text elements
+summary: Inside <script> and <style>, the body is literal — no markup parsing, and characters like < are never HTML-escaped.
+category: Elements
+page: elements
+pageOrder: 30
+-- input.gsx --
+package views
+
+component Tracker() {
+	<script>
+		const threshold = 5;
+		if (count < threshold) { track("below"); }
+	</script>
+}
+-- invoke --
+Tracker()
+-- render.golden --
+<script>const threshold = 5;
+if (count < threshold) { track("below"); }</script>

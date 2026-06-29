@@ -329,20 +329,6 @@ component Hi(name string) {
 
 ## Interactive &amp; whole-page
 
-### Fragments
-
-A component can return multiple roots with no wrapper element using &lt;&gt;…&lt;/&gt;.
-
-```gsx
-package views
-
-component Pair(a string, b string) {
-	<><span>{ a }</span><span>{ b }</span></>
-}
-```
-
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgUGFpcihhIHN0cmluZywgYiBzdHJpbmcpIHtcblx0XHUwMDNjXHUwMDNlXHUwMDNjc3Bhblx1MDAzZXsgYSB9XHUwMDNjL3NwYW5cdTAwM2VcdTAwM2NzcGFuXHUwMDNleyBiIH1cdTAwM2Mvc3Bhblx1MDAzZVx1MDAzYy9cdTAwM2Vcbn1cbiIsImkiOiJQYWlyKFBhaXJQcm9wc3tBOiBcInhcIiwgQjogXCJ5XCJ9KSJ9)
-
 ### Forms
 
 A reusable Field component forwards undeclared attributes ({ attrs... }) onto its input, so callers add type/name/required without Field declaring them.
@@ -391,24 +377,4 @@ component Widget(cfg Config) {
 ```
 
 [▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5pbXBvcnQgXCJnaXRodWIuY29tL2dzeGhxL2dzeFwiXG5cbnR5cGUgQ29uZmlnIHN0cnVjdCB7XG5cdEVudiAgc3RyaW5nXG5cdEJldGEgYm9vbFxufVxuXG5jb21wb25lbnQgV2lkZ2V0KGNmZyBDb25maWcpIHtcblx0XHUwMDNjZGl2XHUwMDNlXG5cdFx0XHUwMDNjYnV0dG9uIEBjbGljaz17Z3N4LlJhd0pTKFwidG9nZ2xlKClcIil9XHUwMDNlVG9nZ2xlXHUwMDNjL2J1dHRvblx1MDAzZVxuXHRcdFx1MDAzY3NjcmlwdCB0eXBlPVwiYXBwbGljYXRpb24vanNvblwiIGlkPVwiY2ZnXCJcdTAwM2VAeyBjZmcgfVx1MDAzYy9zY3JpcHRcdTAwM2Vcblx0XHUwMDNjL2Rpdlx1MDAzZVxufVxuIiwiaSI6IldpZGdldChDb25maWd7RW52OiBcInByb2RcIiwgQmV0YTogdHJ1ZX0pIn0=)
-
-### Full HTML document
-
-Render a whole page, including &lt;!DOCTYPE html&gt;, as one component.
-
-```gsx
-package views
-
-component Page(title string) {
-	<!DOCTYPE html>
-	<html lang="en">
-		<head>
-			<title>{ title }</title>
-		</head>
-		<body>hi</body>
-	</html>
-}
-```
-
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgUGFnZSh0aXRsZSBzdHJpbmcpIHtcblx0XHUwMDNjIURPQ1RZUEUgaHRtbFx1MDAzZVxuXHRcdTAwM2NodG1sIGxhbmc9XCJlblwiXHUwMDNlXG5cdFx0XHUwMDNjaGVhZFx1MDAzZVxuXHRcdFx0XHUwMDNjdGl0bGVcdTAwM2V7IHRpdGxlIH1cdTAwM2MvdGl0bGVcdTAwM2Vcblx0XHRcdTAwM2MvaGVhZFx1MDAzZVxuXHRcdFx1MDAzY2JvZHlcdTAwM2VoaVx1MDAzYy9ib2R5XHUwMDNlXG5cdFx1MDAzYy9odG1sXHUwMDNlXG59XG4iLCJpIjoiUGFnZShQYWdlUHJvcHN7VGl0bGU6IFwiSG9tZVwifSkifQ==)
 

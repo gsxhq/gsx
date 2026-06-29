@@ -3,6 +3,8 @@ name: Full HTML document
 summary: Render a whole page, including <!DOCTYPE html>, as one component.
 category: Interactive & whole-page
 order: 190
+page: elements
+pageOrder: 40
 -- input.gsx --
 package views
 

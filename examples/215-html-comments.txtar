@@ -1,0 +1,16 @@
+-- doc --
+name: HTML comments
+summary: <!-- … --> HTML comments pass through to the rendered output verbatim.
+category: Elements
+page: comments
+pageOrder: 10
+-- input.gsx --
+package views
+
+component Layout(name string) {
+	<div><!-- header --><h1>{name}</h1><!-- a < b --></div>
+}
+-- invoke --
+Layout(LayoutProps{Name: "Ada"})
+-- render.golden --
+<div><!-- header --><h1>Ada</h1><!-- a < b --></div>
