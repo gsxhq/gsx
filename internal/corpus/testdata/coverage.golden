@@ -132,6 +132,7 @@ fallthrough/static_class_merge	diag render
 interpolation/field_access	diag render
 interpolation/interp_types	diag render
 interpolation/mixed_chunk	diag render
+interpolation/numeric_contexts	diag gen render
 interpolation/probe_multi_value_expr	diag render
 jsattr/caller_wins	diag render
 jsattr/click_rawjs	diag gen render
@@ -267,4 +268,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 269 cases (render: 201, error: 49, gen-pinned: 78)
+TOTAL: 270 cases (render: 202, error: 49, gen-pinned: 79)

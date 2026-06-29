@@ -40,7 +40,6 @@ package views
 import (
 	"context"
 	"io"
-	"strconv"
 
 	"github.com/gsxhq/gsx"
 )
@@ -84,6 +83,7 @@ func Card(_gsxp CardProps) gsx.Node {
 		title := _gsxp.Title
 		n := _gsxp.N
 		_gsxgw := gsx.W(_gsxw)
+		var _gsxnum [32]byte
 //line input.gsx:12:2
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
@@ -94,7 +94,7 @@ func Card(_gsxp CardProps) gsx.Node {
 		_gsxgw.Text(string(title))
 		_gsxgw.S(": ")
 //line input.gsx:12:18
-		_gsxgw.Text(strconv.FormatInt(int64(n), 10))
+		_gsxgw.IntInto(_gsxnum[:], int64(n))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})

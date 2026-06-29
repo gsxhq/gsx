@@ -17,7 +17,6 @@ package views
 import (
 	"context"
 	"io"
-	"strconv"
 
 	"github.com/gsxhq/gsx"
 )
@@ -34,6 +33,7 @@ func Greeting(_gsxp GreetingProps) gsx.Node {
 		name := _gsxp.Name
 		count := _gsxp.Count
 		_gsxgw := gsx.W(_gsxw)
+		var _gsxnum [32]byte
 //line input.gsx:4:2
 		_gsxgw.S("<p")
 		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
@@ -44,7 +44,7 @@ func Greeting(_gsxp GreetingProps) gsx.Node {
 		_gsxgw.Text(string(name))
 		_gsxgw.S("! You have ")
 //line input.gsx:4:29
-		_gsxgw.Text(strconv.FormatInt(int64(count), 10))
+		_gsxgw.IntInto(_gsxnum[:], int64(count))
 		_gsxgw.S(" messages.</p>")
 		return _gsxgw.Err()
 	})
