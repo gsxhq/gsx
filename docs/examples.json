@@ -84,6 +84,12 @@
     "invoke": "(Home{}).Shell(pageData{Heading: \"Hi\"})"
   },
   {
+    "name": "Class & style merging",
+    "category": "Styling",
+    "source": "package views\n\ncomponent Card() {\n\t<div class=\"card\" style=\"color: red\">{ children }</div>\n}\n",
+    "invoke": "Card(CardProps{Attrs: gsx.Attrs{\"class\": \"featured\", \"style\": \"color: blue; margin: 0\"}})"
+  },
+  {
     "name": "Interpolation & props",
     "category": "Basics",
     "source": "package views\n\ncomponent Greeting(name string, count int) {\n\t<p>Hello, { name }! You have { count } messages.</p>\n}\n",

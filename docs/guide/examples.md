@@ -21,41 +21,6 @@ component Comment(body string) {
 
 [▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG4vLyBVc2VyIGlucHV0IGlzIEhUTUwtZXNjYXBlZCBieSBjb25zdHJ1Y3Rpb24g4oCUIG5vIFhTUy5cbmNvbXBvbmVudCBDb21tZW50KGJvZHkgc3RyaW5nKSB7XG5cdFx1MDAzY2Jsb2NrcXVvdGVcdTAwM2V7IGJvZHkgfVx1MDAzYy9ibG9ja3F1b3RlXHUwMDNlXG59XG4iLCJpIjoiQ29tbWVudChDb21tZW50UHJvcHN7Qm9keTogXCJcdTAwM2NpbWcgc3JjPXggb25lcnJvcj1hbGVydCgxKVx1MDAzZVwifSkifQ==)
 
-## Styling
-
-### Composable class
-
-The class attribute takes "always" entries and "name": cond toggles (like clsx / Vue :class).
-
-```gsx
-package views
-
-component Tag(label string, active bool) {
-	<span class={ "tag", "tag--active": active }>{ label }</span>
-}
-```
-
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgVGFnKGxhYmVsIHN0cmluZywgYWN0aXZlIGJvb2wpIHtcblx0XHUwMDNjc3BhbiBjbGFzcz17IFwidGFnXCIsIFwidGFnLS1hY3RpdmVcIjogYWN0aXZlIH1cdTAwM2V7IGxhYmVsIH1cdTAwM2Mvc3Bhblx1MDAzZVxufVxuIiwiaSI6IlRhZyhUYWdQcm9wc3tMYWJlbDogXCJzdGFibGVcIiwgQWN0aXZlOiB0cnVlfSkifQ==)
-
-### Style blocks
-
-A &lt;style&gt; block interpolates values with @{ … }; interpolated values are CSS-sanitized by construction.
-
-```gsx
-package views
-
-component Card(w int, userColor string) {
-	<style>
-		.card {
-			width: @{ w }px;
-			color: @{ userColor };
-		}
-	</style>
-}
-```
-
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgQ2FyZCh3IGludCwgdXNlckNvbG9yIHN0cmluZykge1xuXHRcdTAwM2NzdHlsZVx1MDAzZVxuXHRcdC5jYXJkIHtcblx0XHRcdHdpZHRoOiBAeyB3IH1weDtcblx0XHRcdGNvbG9yOiBAeyB1c2VyQ29sb3IgfTtcblx0XHR9XG5cdFx1MDAzYy9zdHlsZVx1MDAzZVxufVxuIiwiaSI6IkNhcmQoQ2FyZFByb3Bze1c6IDEyLCBVc2VyQ29sb3I6IFwidGVhbFwifSkifQ==)
-
 ## Transforming values
 
 ### Pipelines / filters

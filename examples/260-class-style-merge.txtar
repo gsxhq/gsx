@@ -1,0 +1,16 @@
+-- doc --
+name: Class & style merging
+summary: Caller-supplied class and style merge into the component root — class is token-deduped caller-wins, style dedupes per CSS property keeping the last.
+category: Styling
+page: styling
+pageOrder: 30
+-- input.gsx --
+package views
+
+component Card() {
+	<div class="card" style="color: red">{children}</div>
+}
+-- invoke --
+Card(CardProps{Attrs: gsx.Attrs{"class": "featured", "style": "color: blue; margin: 0"}})
+-- render.golden --
+<div class="card featured" style="color: blue; margin: 0"></div>

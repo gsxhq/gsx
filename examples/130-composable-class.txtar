@@ -3,6 +3,8 @@ name: Composable class
 summary: The class attribute takes "always" entries and "name": cond toggles (like clsx / Vue :class).
 category: Styling
 order: 130
+page: styling
+pageOrder: 10
 -- input.gsx --
 package views
 
