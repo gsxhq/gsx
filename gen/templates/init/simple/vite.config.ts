@@ -1,7 +1,7 @@
 import { defineConfig, loadEnv, createLogger } from "vite";
 import { gsx, devFallback } from "@gsxhq/vite-plugin-gsx";
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const goPort = env.GO_PORT || "7777";
   const vitePort = parseInt(env.VITE_PORT || "5173", 10);
@@ -20,16 +20,22 @@ export default defineConfig(({ mode }) => {
 
   return {
     clearScreen: false,
+    // Dev serves all Vite assets under /__vite/ (matches gsxhq/vite DevBase);
+    // prod uses the default base ("/") since hashed assets are served from
+    // /static via gsxhq/vite.
+    base: command === "serve" ? "/__vite/" : "/",
     publicDir: false,
     customLogger: logger,
     plugins: [gsx(), fallback.plugin],
     server: {
       port: vitePort,
       proxy: {
-        // Everything except Vite-owned namespaces (and /__dev/status, served by
-        // the fallback plugin) goes to the Go server. No `ws: true` — the Go
-        // server has no WebSocket; proxying ws would capture Vite's HMR socket.
-        "^(?!/@vite|/@id|/@fs|/web/|/node_modules|/__reload|/__dev).*": {
+        // Everything except /__vite/ (Vite's own dev-asset namespace) and
+        // /__dev/ (fallback plugin status) goes to the Go server.
+        // Single exclusion — no source-dir denylist, no app-route collisions.
+        // No `ws: true` — the Go server has no WebSocket; proxying ws would
+        // capture Vite's HMR socket.
+        "^(?!/__vite/|/__dev).*": {
           target: `http://localhost:${goPort}`,
           changeOrigin: true,
           configure: fallback.configureProxy,

@@ -22,7 +22,7 @@ var publicFS embed.FS
 
 func main() {
 	devURL := os.Getenv("VITE_DEV_URL") // "" in prod
-	v, err := vite.New(vite.Config{DevURL: devURL, Dist: distFS, DistDir: "dist"})
+	v, err := vite.New(vite.Config{DevURL: devURL, DevBase: "/__vite/", Dist: distFS, DistDir: "dist"})
 	if err != nil {
 		log.Fatal(err)
 	}
