@@ -38,6 +38,8 @@ jobs:
         run: make ci-gomod
       - name: playground/server module (build · test)
         run: make ci-playground
+      - name: examples/tailwind-merge module (build · test)
+        run: make ci-tailwind-example
 
   examples:
     name: examples render + drift
@@ -52,6 +54,8 @@ jobs:
           cache: true
       - name: Generated artifacts match the fixtures (no uncommitted drift)
         run: make ci-examples
+      - name: tailwind-merge card.x.go matches committed output (no drift)
+        run: make ci-tailwind-example-drift
 
   docs:
     name: docs build (VitePress)
