@@ -95,7 +95,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	var vite *exec.Cmd
 	if dc.web != nil {
 		vite = exec.Command(dc.web[0], dc.web[1:]...)
-		vite.Env, vite.Stdout, vite.Stderr = env, mkWriter("vite"), mkWriter("vite")
+		vite.Dir, vite.Env, vite.Stdout, vite.Stderr = workDir, env, mkWriter("vite"), mkWriter("vite")
 		setProcGroup(vite)
 		if err := vite.Start(); err != nil {
 			fmt.Fprintf(stderr, "gsx dev: starting front door: %v\n", err)
@@ -104,7 +104,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	}
 
 	// --- Go server: initial build + run ---
-	srv := &devServer{build: dc.build, run: dc.run, env: env, out: serverOut, healthURL: healthURL}
+	srv := &devServer{dir: workDir, build: dc.build, run: dc.run, env: env, out: serverOut, healthURL: healthURL}
 	if out, err := srv.rebuild(ctx); err != nil {
 		postEvent(viteURL, buildErrorEvent(out))
 	} else if waitHealthy(ctx, healthURL, 10*time.Second) {

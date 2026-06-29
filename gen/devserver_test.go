@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -87,6 +88,38 @@ func TestBuildErrorEvent(t *testing.T) {
 	diags, _ := json.Marshal(ev["diagnostics"])
 	if !strings.Contains(string(diags), `"severity":"error"`) || !strings.Contains(string(diags), "no matching files") {
 		t.Errorf("diagnostic missing error/message: %s", diags)
+	}
+}
+
+func TestDevServerBuildsInDir(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds a binary")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain unavailable")
+	}
+	proj := t.TempDir()
+	must := func(name, content string) {
+		if err := os.WriteFile(filepath.Join(proj, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	must("go.mod", "module devdirtest\n\ngo 1.24\n")
+	must("main.go", "package main\n\nfunc main() {}\n")
+	bin := filepath.Join(t.TempDir(), "out")
+	d := &devServer{
+		dir:   proj,
+		build: []string{"go", "build", "-o", bin, "."},
+		run:   []string{bin},
+		out:   io.Discard,
+	}
+	// rebuild must succeed even though the test's cwd is NOT proj.
+	if out, err := d.rebuild(context.Background()); err != nil {
+		t.Fatalf("rebuild in dir failed: %v\n%s", err, out)
+	}
+	d.stop()
+	if _, err := os.Stat(bin); err != nil {
+		t.Errorf("binary not built in project dir: %v", err)
 	}
 }
 

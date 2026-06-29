@@ -150,6 +150,8 @@ func postBest(url string, body []byte) {
 
 // devServer supervises the built Go server child with build-then-swap semantics.
 type devServer struct {
+	// dir is the project working dir; child build/run commands run here.
+	dir       string
 	build     []string // argv to build (writes the binary)
 	run       []string // argv to run the built binary
 	env       []string
@@ -168,7 +170,7 @@ func (d *devServer) rebuild(ctx context.Context) (string, error) {
 	var buf bytes.Buffer
 	w := io.MultiWriter(d.out, &buf)
 	bcmd := exec.CommandContext(ctx, d.build[0], d.build[1:]...)
-	bcmd.Env, bcmd.Stdout, bcmd.Stderr = d.env, w, w
+	bcmd.Dir, bcmd.Env, bcmd.Stdout, bcmd.Stderr = d.dir, d.env, w, w
 	if err := bcmd.Run(); err != nil {
 		fmt.Fprintf(d.out, "build failed: %v\n", err)
 		return buf.String(), err
@@ -204,7 +206,7 @@ func (d *devServer) restartNoBuild() error {
 		d.cmd = nil
 	}
 	cmd := exec.Command(d.run[0], d.run[1:]...)
-	cmd.Env, cmd.Stdout, cmd.Stderr = d.env, d.out, d.out
+	cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = d.dir, d.env, d.out, d.out
 	setProcGroup(cmd)
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintf(d.out, "start failed: %v\n", err)
