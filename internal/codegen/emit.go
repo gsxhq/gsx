@@ -1050,7 +1050,9 @@ func interpIsNumeric(n *ast.Interp, resolved map[ast.Node]types.Type) bool {
 		return false
 	}
 	if tup, ok := t.(*types.Tuple); ok {
-		if tup.Len() != 2 {
+		// Mirror genInterp's (T, error) unwrap exactly; any other tuple shape is
+		// rejected there with a diagnostic, so it never reaches numeric emission.
+		if tup.Len() != 2 || tup.At(1).Type().String() != "error" {
 			return false
 		}
 		t = tup.At(0).Type()
