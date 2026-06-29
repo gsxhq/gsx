@@ -29,7 +29,7 @@ A `disabled={disabled}` attribute on the `<input/>` renders as `disabled` when t
 
 ## Raw-text elements
 
-`<script>` and `<style>` are **raw-text elements**: the parser reads their bodies as literal text, never as markup. No child elements, no `{interpolation}` — only verbatim bytes up to the matching close tag. This means characters like `<` inside a script or style body are **never HTML-escaped**; they pass through to the output exactly as written.
+`<script>` and `<style>` are **raw-text elements**: the parser reads their bodies as literal text, never as markup. There are no nested child elements and `<` is not treated as a tag start — it passes through to the output exactly as written, never HTML-escaped. The one exception is `@{ expr }` interpolation, which is supported inside both elements for dynamic values.
 
 <!--@include: ./_generated/elements/030-raw-text-elements.md-->
 
