@@ -50,4 +50,4 @@ The escaper applied to `{ expr }` depends on **where** the interpolation appears
 
 Numeric values in text context (`{ count }` where `count` is `int`) are formatted as their decimal representation and do not require escaping — no HTML-special characters can appear in a plain integer string. This means numeric interpolation has no overhead from the escaper.
 
-For a complete reference of escaping contexts and opt-out helpers (`gsx.Raw`, `gsx.RawURL`, `gsx.RawJS`, `gsx.RawCSS`), see [Escaping &amp; safe contexts](../syntax#escaping-safe-contexts).
+For a complete reference of escaping contexts and opt-out helpers (`gsx.Raw`, `gsx.RawURL`, `gsx.RawJS`, `gsx.RawCSS`), see [Escaping](./escaping).

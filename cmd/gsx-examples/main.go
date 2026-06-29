@@ -21,5 +21,5 @@ func main() {
 	if err := examplegen.Generate(*examplesDir, *mdOut, *partials, *docsJSON, *serverJSON); err != nil {
 		log.Fatalf("gsx-examples: %v", err)
 	}
-	log.Printf("generated %s, %s, %s", *mdOut, *docsJSON, *serverJSON)
+	log.Printf("generated %s, %s", *docsJSON, *serverJSON)
 }
