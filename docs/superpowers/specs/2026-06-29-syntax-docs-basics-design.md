@@ -103,7 +103,7 @@ Pages live under `docs/guide/syntax/`.
 
 | Page | Content |
 |---|---|
-| `interop.md` | `gsx.Node ≡ templ.Component`; using gsx alongside `html/template` and React islands (brief, links out) |
+| `interop.md` | **two grounded sections.** Working with **templ**: `gsx.Node ≡ templ.Component` structurally (no adapter/cast/import; both directions), plus the children-don't-cross-by-calling-convention caveat. Working with **`html/template`**: no built-in bridge — render-to-buffer + `template.HTML` (gsx→tmpl) and `gsx.Raw(rendered)` (tmpl→gsx); React islands = one-line HTTP-layer pointer |
 | `render-once.md` | honest "not yet supported" — templ has `templ.Once`; gsx does not (yet). Document the gap + workaround |
 | `forms.md` | short cookbook example (a reusable field forwarding `{ attrs… }`), not a CRUD tutorial |
 

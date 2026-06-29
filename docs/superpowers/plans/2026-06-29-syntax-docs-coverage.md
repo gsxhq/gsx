@@ -566,18 +566,60 @@ git commit -m "feat(examplegen): emit routed runnable partials + drift-gate them
 
 **Subsections (prose-heavy):** Components receive `ctx context.Context` (for `Render`) · gsx favors **explicit props** over context prop-drilling — show the explicit-props pattern (295) · `ctx` used as an interpolation value is a **compile error** (cite `diagnostics/ctx_in_interp`) — explain why (author-owns-props design bet; link `docs/guide/vision.md`).
 
-### Task 15: Reference & notes — `std-functions` + `interop` + `render-once`
+### Task 15: Reference & notes — `std-functions` + `render-once`
 
-**Pages:** `std-functions.md`, `interop.md`, `render-once.md` (prose/reference; reuse existing partials where useful, no new fixtures)
+**Pages:** `std-functions.md`, `render-once.md` (prose/reference; no new fixtures)
 
-- `std-functions.md`: a reference table of runtime helpers with one-line purpose + a link to the page that demonstrates each: `gsx.Raw` (→ raw-html), `gsx.RawURL`/`RawJS`/`RawCSS` (→ escaping/javascript/styling), `gsx.Attrs` (→ attributes spread), `gsx.OrderedAttrs` (→ attributes ordered), `gsx.Node`, `gsx.Func`, `gsx.Join`. Pull exact names/signatures from `class.go`, `rawcss.go`, `attrs.go`, `node.go` (verify names before writing).
-- `interop.md`: `gsx.Node ≡ templ.Component` (cite `docs/guide/vision.md` "Relationship to templ"); brief notes that gsx output composes with `html/template` and React islands at the HTTP layer; link out, no tutorial.
+- `std-functions.md`: a reference table of runtime helpers with one-line purpose + a link to the page that demonstrates each: `gsx.Raw` (→ raw-html), `gsx.RawURL`/`RawJS`/`RawCSS` (→ escaping/javascript/styling), `gsx.Attrs` (→ attributes spread), `gsx.OrderedAttrs` (→ attributes ordered), `gsx.Node`, `gsx.Func`, `gsx.Join`. Pull exact names/signatures from the root package `.go` files (verify names before writing).
 - `render-once.md`: honest gap — templ has `templ.Once`; gsx has no once-render primitive yet. Document the current workaround (emit shared `<style>`/`<script>` in a layout component rendered once) and link the roadmap.
 
 No fixtures → no `make examples` change; still run R5 (`make ci-examples` clean) and R6 commit. Before writing `std-functions.md`, verify each helper name exists:
 ```bash
 grep -nE "func (Raw|RawURL|RawJS|RawCSS|Join|Func)\b|type (Attrs|OrderedAttrs|Node)\b" *.go
 ```
+
+### Task 15b: Interop — `interop.md` (working with templ & html/template)
+
+**Page:** `interop.md` — two grounded sections. No runnable fixtures (examples involve templ / `html/template`, which the gsx corpus harness can't compile); use **prose + accurate Go/gsx code snippets clearly labeled as illustrative**. Every snippet must reflect real gsx behavior — do NOT invent helper APIs. Verify the `gsx.Node` interface in `node.go` before writing.
+
+**Ground truth (from `node.go` + the `~/work/one-learning-gsx` working project — use these facts; do not embellish):**
+
+- `gsx.Node` is exactly `Render(ctx context.Context, w io.Writer) error` — the **identical method set** to `templ.Component` (templ ≥ v0.3, `runtime.go`). So a `gsx.Node` value structurally satisfies `templ.Component` and vice-versa: **no adapter, no cast, no `templ` import**. `node.go` documents this on the `Node` type.
+
+**Section 1 — Working with templ.** Cover, with snippets:
+- A gsx component (which returns `gsx.Node`) renders inside a templ template via templ's `@` call — templ's codegen just calls `.Render(ctx, w)` on it. Example (illustrative, templ side):
+  ```go
+  // inside a .templ file
+  @LLInformation(LLInformationProps{Item: item})   // LLInformation is a gsx component returning gsx.Node
+  ```
+- A `gsx.Node` value assigns directly to a `templ.Component`-typed field (e.g. a tab `Content templ.Component`) with no conversion.
+- Reverse direction: a `templ.Component` value (e.g. `templ.Raw("<p>…</p>")`) passes straight into a gsx component's `Children gsx.Node` prop — no cast:
+  ```go
+  card.Card(card.CardProps{Title: "T", Children: templ.Raw("<p>body</p>")})
+  ```
+- **The one caveat — children don't cross by calling convention.** templ passes children through `context` (`templ.WithChildren`/`GetChildren`, the `@comp { … }` syntax); gsx passes children through an explicit `Children gsx.Node` **prop**. So templ's `@gsxComp(props){ … }` child block is **not** seen by a gsx component. To give a gsx component children from templ, pass the child as an explicit prop value (`Children: …`), not via the `{ … }` block. State this plainly — it is the real gotcha.
+- Top-level composition: any framework that renders a `Render(ctx, w) error` value composes them; e.g. `structpages` renders both. gsx is commonly used as leaf/subtree components inside templ pages.
+
+**Section 2 — Working with `html/template`.** Cover, honestly:
+- gsx has **no built-in bridge** (no `FromGoHTML`/`ToGoHTML` equivalent — that is a deliberate non-goal; the runtime is stdlib-only and small). Do not imply one exists.
+- **gsx → html/template:** render the gsx node to a buffer and wrap the result as `template.HTML` to drop into a Go template:
+  ```go
+  var buf bytes.Buffer
+  _ = myComponent(props).Render(ctx, &buf)
+  data := struct{ Body template.HTML }{ Body: template.HTML(buf.String()) }
+  goTmpl.Execute(w, data)   // {{ .Body }} in the Go template
+  ```
+  Note the safety boundary: gsx already escaped its output; `template.HTML` tells `html/template` to trust it — only wrap gsx's own rendered output this way.
+- **html/template → gsx:** render the Go template to a string and embed it with `gsx.Raw` (the auto-escaping opt-out):
+  ```go
+  var buf bytes.Buffer
+  _ = goTmpl.Execute(&buf, data)
+  // in gsx markup: { gsx.Raw(rendered) }   where rendered = buf.String()
+  ```
+  Same caveat: `gsx.Raw` trusts the string — only use it for output you control / has already been escaped by `html/template`.
+- Keep React/other-island integration to a one-line pointer (it's an HTTP-layer concern: gsx renders the SSR shell, a bundled script hydrates — not a gsx language feature).
+
+Run R5 (`make ci-examples` clean — no fixtures, so nothing should change) and R6 commit.
 
 ### Task 16: Cross-cutting — `forms` (cookbook)
 
@@ -684,7 +726,7 @@ git commit -m "docs: route all examples into Syntax-and-usage pages; overview + 
 
 ## Self-Review
 
-**Spec coverage:** Every spec page (A–E) maps to a task: A → Tasks 3–7; B → Tasks 8–9; C → Tasks 10–12; D → Tasks 13–15 (escaping/raw-html/context/std-functions); E → Tasks 15–16 (interop/render-once/forms). The generator mechanism (page routing, render-output partials, drift gate) → Tasks 1–2. Sidebar + srcExclude → Task 17. `examples.md` retirement + `syntax.md` overview + ROADMAP → Task 18.
+**Spec coverage:** Every spec page (A–E) maps to a task: A → Tasks 3–7; B → Tasks 8–9; C → Tasks 10–12; D → Tasks 13–15 (escaping/raw-html/context/std-functions); E → Tasks 15 (render-once), 15b (interop: templ + html/template), 16 (forms). The generator mechanism (page routing, render-output partials, drift gate) → Tasks 1–2. Sidebar + srcExclude → Task 17. `examples.md` retirement + `syntax.md` overview + ROADMAP → Task 18.
 
 **Placeholder scan:** No "TBD"/"handle edge cases". The one deliberate marker is the ordered-attrs `233` fallback (Task 6 note), which is a real sequencing instruction, not a placeholder. Fixture inputs name an exact source corpus case to adapt (per Global Constraints).
 
