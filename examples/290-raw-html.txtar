@@ -1,0 +1,21 @@
+-- doc --
+name: Raw HTML
+summary: gsx.Raw(s) opts a trusted, already-sanitized string out of HTML escaping — the HTML renders literally.
+category: Basics
+order: 290
+page: raw-html
+pageOrder: 10
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+// ArticleBody renders pre-sanitized HTML from a CMS or Markdown converter.
+// { gsx.Raw(html) } emits the string verbatim — no entity encoding.
+component ArticleBody(html string) {
+	<article>{ gsx.Raw(html) }</article>
+}
+-- invoke --
+ArticleBody(ArticleBodyProps{Html: "<em>Hello</em> &amp; <strong>World</strong>"})
+-- render.golden --
+<article><em>Hello</em> &amp; <strong>World</strong></article>

@@ -3,6 +3,8 @@ name: Auto-escaping & safe raw
 summary: User input is HTML-escaped by construction — no XSS. Use gsx.Raw / gsx.RawURL to opt out deliberately.
 category: Basics
 order: 30
+page: escaping
+pageOrder: 10
 -- input.gsx --
 package views
 
