@@ -30,7 +30,7 @@ Any Go iterable is supported: slices, arrays, maps, strings (rune iteration), ch
 
 <!--@include: ./_generated/control-flow/030-switch.md-->
 
-Each `case` label can list multiple values separated by commas, exactly as in Go. A `default` branch handles values that match no case. Falling through is not supported in gsx switch blocks (the generated Go uses explicit `if`/`else` chains, not Go's `switch` with implicit fallthrough prevention).
+Each `case` label can list multiple comma-separated values, exactly as in Go. A `default` branch handles values that match no case. gsx lowers `{ switch … }` to a native Go `switch` statement; as in Go, a matched case runs only its own branch — cases do not fall through implicitly.
 
 ## Init statements
 
