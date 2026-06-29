@@ -48,7 +48,7 @@ component Page() {
 		return "", false
 	})
 
-	res, err := generateCached([]string{pkgDir}, nil, nil, attrclass.Builtin(), customMatcher, false, nil, nil, true, true)
+	res, err := generateCached([]string{pkgDir}, nil, nil, attrclass.Builtin(), customMatcher, false, nil, nil, true, true, nil)
 	if err != nil {
 		t.Fatalf("generateCached: %v (errs=%v diags=%v)", err, res.Errs, res.Diags)
 	}
@@ -110,7 +110,7 @@ component Page() {
 		return "", false
 	})
 
-	res, err := generateCached([]string{pkgDir}, nil, nil, attrclass.Builtin(), badMatcher, false, nil, nil, true, true)
+	res, err := generateCached([]string{pkgDir}, nil, nil, attrclass.Builtin(), badMatcher, false, nil, nil, true, true, nil)
 	if err == nil {
 		t.Fatal("expected a non-nil error for a bad custom matcher, got nil")
 	}

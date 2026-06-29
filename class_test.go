@@ -7,7 +7,7 @@ import (
 
 func renderClass(parts ...ClassPart) string {
 	var b strings.Builder
-	W(&b).Class(parts...)
+	W(&b).Class(DefaultClassMerge, parts...)
 	return b.String()
 }
 
@@ -40,7 +40,7 @@ func TestStyleJoins(t *testing.T) {
 
 func renderClassMerged(extra string, parts ...ClassPart) string {
 	var b strings.Builder
-	W(&b).ClassMerged(extra, parts...)
+	W(&b).ClassMerged(DefaultClassMerge, extra, parts...)
 	return b.String()
 }
 
@@ -72,24 +72,70 @@ func TestClassMergedPartsAndExtraDeduped(t *testing.T) {
 }
 
 func TestDefaultClassMergeLastWins(t *testing.T) {
-	for _, tt := range []struct {
-		in   []string
-		want string
-	}{
-		{[]string{"a", "b", "a"}, "b a"},
-		{[]string{"a", "b"}, "a b"},
-		{[]string{"x", "x", "x"}, "x"},
-		{[]string{}, ""},
-		{[]string{"p-2", "p-4", "p-2"}, "p-4 p-2"},
-	} {
-		if got := defaultClassMerge(tt.in); got != tt.want {
-			t.Errorf("defaultClassMerge(%q) = %q, want %q", tt.in, got, tt.want)
+	// Multiple sources are split and deduped last-wins.
+	if got := DefaultClassMerge([]string{"a", "b", "a"}); got != "b a" {
+		t.Fatalf("got %q, want %q", got, "b a")
+	}
+	// A single source is returned verbatim (nothing to merge across).
+	if got := DefaultClassMerge([]string{"rounded border p-4"}); got != "rounded border p-4" {
+		t.Fatalf("single source: got %q, want verbatim", got)
+	}
+	// Cross-source dedup still applies when sources are multi-token strings.
+	if got := DefaultClassMerge([]string{"btn px-4", "btn w-full"}); got != "px-4 btn w-full" {
+		t.Fatalf("multi-token sources: got %q", got)
+	}
+	if got := DefaultClassMerge(nil); got != "" {
+		t.Fatalf("empty: got %q", got)
+	}
+}
+
+func TestClassStringUsesPassedMerger(t *testing.T) {
+	// The merger receives the raw, un-split on-class strings in source order
+	// (off parts excluded); it is NOT pre-tokenized by the runtime.
+	merge := func(classes []string) string { return "M:" + strings.Join(classes, "|") }
+	if got := ClassString(merge, Class("a b"), ClassIf("c", false), Class("d")); got != "M:a b|d" {
+		t.Fatalf("got %q, want %q", got, "M:a b|d")
+	}
+}
+
+func TestClassLoneTokenSkipsMerger(t *testing.T) {
+	// A single lone token cannot conflict, so the merger must not be invoked.
+	merge := func(classes []string) string { t.Fatalf("merger called for lone token: %q", classes); return "" }
+	if got := ClassString(merge, Class("card"), ClassIf("hidden", false)); got != "card" {
+		t.Fatalf("got %q, want %q", got, "card")
+	}
+	var b strings.Builder
+	W(&b).Class(merge, Class("card"))
+	if b.String() != "card" {
+		t.Fatalf("Class lone token: got %q", b.String())
+	}
+}
+
+func TestClassMergerReceivesRawForRealMerge(t *testing.T) {
+	// A multi-token single source is NOT lone, so a custom merger still sees it
+	// (e.g. a Tailwind merger must resolve px-4 vs px-8 within one string).
+	seen := false
+	merge := func(classes []string) string {
+		seen = true
+		if len(classes) != 1 || classes[0] != "px-4 px-8" {
+			t.Fatalf("merger got %q, want [\"px-4 px-8\"]", classes)
 		}
+		return "px-8"
+	}
+	if got := ClassString(merge, Class("px-4 px-8")); got != "px-8" || !seen {
+		t.Fatalf("got %q seen=%v", got, seen)
+	}
+}
+
+func TestAttrsClassRawNoMerge(t *testing.T) {
+	a := Attrs{"class": "x  y x"}
+	if got := a.Class(); got != "x  y x" {
+		t.Fatalf("Attrs.Class() = %q, want raw %q", got, "x  y x")
 	}
 }
 
 func TestClassString(t *testing.T) {
-	if got := ClassString(Class("a b"), ClassIf("c", false), Class("d")); got != "a b d" {
+	if got := ClassString(DefaultClassMerge, Class("a b"), ClassIf("c", false), Class("d")); got != "a b d" {
 		t.Errorf("ClassString = %q, want \"a b d\"", got)
 	}
 }
@@ -98,14 +144,5 @@ func TestStyleString(t *testing.T) {
 	// gw.Style includes a part only when its .on is true; joins decls with "; ".
 	if got := StyleString(Class("color: red"), ClassIf("margin: 0", false), Class("padding: 1px")); got != "color: red; padding: 1px" {
 		t.Errorf("StyleString = %q, want \"color: red; padding: 1px\"", got)
-	}
-}
-
-func TestClassMergerOverride(t *testing.T) {
-	orig := ClassMerger
-	t.Cleanup(func() { ClassMerger = orig })
-	ClassMerger = func(tokens []string) string { return "MERGED:" + strings.Join(tokens, ",") }
-	if got := renderClass(Class("a b")); got != "MERGED:a,b" {
-		t.Fatalf("got %q", got)
 	}
 }

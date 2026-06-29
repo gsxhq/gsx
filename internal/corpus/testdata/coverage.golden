@@ -20,6 +20,9 @@ class/escaping	diag render
 class/fallthrough_url_preserved	diag render
 class/loop_var_in_class	diag render
 class/loop_var_in_spread	diag render
+class/merger_composable	diag gen render
+class/merger_fallthrough	diag gen render
+class/merger_static	diag gen render
 class/non_root_class	diag gen render
 class/spread	diag render
 class/style_rejected	diag
@@ -263,4 +266,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 265 cases (render: 197, error: 49, gen-pinned: 74)
+TOTAL: 268 cases (render: 200, error: 49, gen-pinned: 77)

@@ -37,6 +37,11 @@ type Options struct {
 	// FileSet, so imported-object positions do not resolve against m.fset; use
 	// Generate, not Package, in this mode.
 	Bundle *Bundle
+	// ClassMerger, when non-nil, names an exported package-level func of type
+	// func([]string) string that codegen emits in place of gsx.DefaultClassMerge.
+	// Codegen imports the package under the reserved alias _gsxcm and emits
+	// _gsxcm.<FuncName> at every class merge site.
+	ClassMerger *ClassMergerRef
 }
 
 // Module is a warm, in-process analysis graph for one module root. It is the
@@ -394,7 +399,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	if len(a.typeErrs) == 0 {
 		for _, f := range a.gsxFiles {
 			generateFile(f, a.resolved, a.table, a.propFields, a.nodeProps, a.byo,
-				a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, a.bag, nil, nil, true, true)
+				a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, a.bag, nil, nil, true, true, m.opts.ClassMerger)
 		}
 	}
 	res.Diags = a.bag.Sorted()
@@ -442,7 +447,7 @@ func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, err
 	if len(a.typeErrs) == 0 {
 		for path, f := range a.gsxFiles {
 			gen, ok := generateFile(f, a.resolved, a.table, a.propFields, a.nodeProps, a.byo,
-				a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.CSSMinify, m.opts.JSMinify)
+				a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.CSSMinify, m.opts.JSMinify, m.opts.ClassMerger)
 			if !ok {
 				continue
 			}

@@ -327,3 +327,31 @@ func TestConfigPrintWidthDefault(t *testing.T) {
 		t.Fatalf("default printWidth = %d, want 80", got)
 	}
 }
+
+// TestLoadConfigClassMerger proves class_merger = "pkg.Func" is accepted and
+// parsed into cfg.classMerger with the correct PkgPath and FuncName.
+func TestLoadConfigClassMerger(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gsx.toml")
+	mkfile(t, path, `class_merger = "example.com/twcfg.Merge"`)
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.classMerger == nil || cfg.classMerger.PkgPath != "example.com/twcfg" || cfg.classMerger.FuncName != "Merge" {
+		t.Fatalf("got %+v", cfg.classMerger)
+	}
+}
+
+// TestLoadConfigClassMergerBadValue proves a non-qualified ref (no dot, no
+// package path) is rejected with a clear error.
+func TestLoadConfigClassMergerBadValue(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gsx.toml")
+	mkfile(t, path, `class_merger = "noDotHere"`)
+	if _, err := loadConfig(path); err == nil {
+		t.Fatalf("want error for unqualified ref")
+	}
+}

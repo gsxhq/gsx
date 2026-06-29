@@ -41,7 +41,9 @@ func TestAttrsMergeConcatenatesClass(t *testing.T) {
 }
 
 func TestAttrsClassExtract(t *testing.T) {
-	if got := (Attrs{"class": "btn btn px-4"}).Class(); got != "btn px-4" {
+	// Attrs.Class() returns the raw string — no merge/dedupe. The single outer
+	// codegen-emitted class site applies the merger exactly once.
+	if got := (Attrs{"class": "btn btn px-4"}).Class(); got != "btn btn px-4" {
 		t.Fatalf("got %q", got)
 	}
 	if got := (Attrs{}).Class(); got != "" {

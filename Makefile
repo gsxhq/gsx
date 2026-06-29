@@ -1,5 +1,5 @@
 # gsx developer tasks. Use tabs for recipe indentation.
-.PHONY: test check cover cover-html examples ci ci-gomod ci-playground ci-examples ci-format
+.PHONY: test check cover cover-html examples ci ci-gomod ci-playground ci-examples ci-format ci-tailwind-example ci-tailwind-example-drift
 
 # COUNT is the go-test cache control. -count=1 disables the test cache so every
 # run re-executes — the authoritative behaviour `ci` uses to mirror GitHub CI.
@@ -16,12 +16,13 @@ test:
 # Examples are regenerated FIRST, serially: the playground module embeds
 # examples.json (`//go:embed` in playground/server/presets.go), so its build
 # must not race the regeneration. The drift check reads the just-written files.
-# The three remaining lanes are independent, so `make -j3` runs them in parallel
+# The four remaining lanes are independent, so `make -j4` runs them in parallel
 # — the long pole is `ci-gomod` (the gen/ e2e suite), under which the ~7s
-# playground build+test and the ~1s format check overlap for free.
+# playground build+test, the tailwind example, and the ~1s format check overlap for free.
 ci:
 	$(MAKE) ci-examples
-	$(MAKE) -j3 ci-gomod ci-playground ci-format
+	$(MAKE) ci-tailwind-example-drift
+	$(MAKE) -j4 ci-gomod ci-playground ci-tailwind-example ci-format
 
 # Fast inner-loop check: the SAME checks as `ci`, but lets the Go test cache
 # serve unchanged packages (drops -count=1), so a repeat run after editing one
@@ -50,6 +51,18 @@ ci-examples:
 	$(MAKE) examples
 	@if ! git diff --exit-code -- docs/guide/examples.md docs/examples.json playground/server/examples.json; then \
 		echo "examples artifacts are stale — run 'make examples' and commit the result"; \
+		exit 1; \
+	fi
+
+# examples/tailwind-merge is a separate Go module wiring tailwind-merge-go via class_merger.
+ci-tailwind-example:
+	cd examples/tailwind-merge && go build ./... && go test ./... $(COUNT)
+
+# Regenerate the tailwind-merge example's generated output and fail if it drifts.
+ci-tailwind-example-drift:
+	go run ./cmd/gsx -C examples/tailwind-merge generate ./views
+	@if ! git diff --exit-code -- examples/tailwind-merge/views/card.x.go; then \
+		echo "examples/tailwind-merge/views/card.x.go is stale — run 'go run ./cmd/gsx -C examples/tailwind-merge generate ./views' and commit the result"; \
 		exit 1; \
 	fi
 

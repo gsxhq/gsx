@@ -19,7 +19,7 @@ generator/CLI may use `golang.org/x/tools`.
 | Codegen | `[~]` interpolation + control flow + full attributes (security core, composable class **and element-level style**, spread, conditional) + pipeline `\|>` + child props/`{children}` + method components + named slots + attribute fallthrough (auto class-merge/spread + manual `{...attrs}`) + custom attribute classification (`WithJSAttrs`/`WithURLAttrs`/`WithCSSAttrs` + `WithAttrClassifier`) + node-prop promotion (`gsx.Val`/`Text`/`Fragment`) done; composable `style` **on a component invocation** + `[]string` class parts pending |
 | Whitespace model | `[x]` JSX-style: `internal/wsnorm.Normalize` (parser lossless) wired into codegen + powers `gsx fmt`. render-faithful + idempotent over the whole corpus. |
 | Pipeline `\|>` end-to-end | `[x]` seed-first forward-application lowering + `std` filters + user filter packages (`gen.WithFilters` + `gen.WithFilter` aliases, multi-pkg last-wins) + `ctx` injection + `(T,error)` implicit auto-unwrap. Works in interp / attr / class / style / spread. Initialism-aware naming pending. |
-| CLI (`gsx`) / `gen.Main` | `[~]` `generate` (incl. `--watch`/`--format=ndjson`) · `fmt` · `info` · `init` · `lsp` · `clean --cache` · `version` · `help` ship, with `--json` + structured diagnostics. `vet`/`render`/`explain`/`WithClassMerger`/numeric codes pending. |
+| CLI (`gsx`) / `gen.Main` | `[~]` `generate` (incl. `--watch`/`--format=ndjson`) · `fmt` · `info` · `init` · `lsp` · `clean --cache` · `version` · `help` ship, with `--json` + structured diagnostics. `vet`/`render`/`explain`/numeric codes pending. `WithClassMerger` + `class_merger` TOML knob shipped. |
 | Language server (`gsx lsp`) | `[~]` diagnostics (debounced) + go-to-definition (incl. inside pipelines) + hover (incl. pipelines) + find-references + formatting ship; completion / cross-package deferred. |
 | Developer experience (Vite + `init`) | `[x]` `gsx init` scaffold + `@gsxhq/vite-plugin-gsx` (npm v0.2.1) + `github.com/gsxhq/vite` (v0.2.0). |
 
@@ -35,8 +35,8 @@ fuzz-hardened (no crashers). Parser errors carry structured `token.Pos` and
 recover at the `component` boundary (one diagnostic per broken component).
 
 **Runtime** (`gsx`, module root) — `Node`/`Func`/`Raw`, error-threading `Writer`
-with streaming text/attr/URL/JS/CSS escapers, class/style compose + pluggable
-`ClassMerger`, `Attrs` bag + deterministic `Spread`. `gsx.Val(any)` /
+with streaming text/attr/URL/JS/CSS escapers, class/style compose + gen-configured
+class merger (`class_merger` / `gen.WithClassMerger`), `Attrs` bag + deterministic `Spread`. `gsx.Val(any)` /
 `gsx.Text(string)` / `gsx.Fragment(nodes…)` value-Node boxes. `gsx.Raw` /
 `gsx.RawJS` / `gsx.RawCSS` / `gsx.RawURL` typed escape hatches. Independent-review SHIP.
 
@@ -290,7 +290,9 @@ vocabulary remains a design aspiration, not the current API.
   generate`. Extension seam: `WithFilters`/`WithFilter`, `WithCSSMinifier`/`WithJSMinifier`,
   `WithJSAttrs`/`WithURLAttrs`/`WithCSSAttrs`/`WithAttrClassifier`, `WithFieldMatcher`.
   `gsx info --json` config manifest. `generate`/`init` accept flags in any position
-  (`fmt`/`info` require flags first). **Pending:** `WithClassMerger`; GSXnnnn numeric
+  (`fmt`/`info` require flags first). `WithClassMerger` + `class_merger` TOML knob
+  **SHIPPED** (configurable merger seam; Tailwind wrapper idiom; `--watch` validates at
+  startup; cache-keyed; corpus + example coverage). **Pending:** GSXnnnn numeric
   codes (codes are string-based today, e.g. `invalid-syntax`); `vet`/`render`/`explain`;
   `--watch`/incremental.
 - `[ ]` **Codegen niceties** — coalesce adjacent `gw.S` static writes; `//line`

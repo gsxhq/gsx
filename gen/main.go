@@ -46,10 +46,11 @@ type config struct {
 	predLabel      string
 	fieldMatcher   codegen.FieldMatcher
 	errs           []error
-	printWidth     int         // gsx.toml printWidth; 0 means "unset" → 80 at use
-	cssMinLevel    MinifyLevel // <style> minification level (zero = MinifyNone)
-	jsMinLevel     MinifyLevel // <script> minification level (zero = MinifyNone)
-	minifyLevelSet bool        // true once an option (WithMinifyLevel) pinned the levels
+	printWidth     int                     // gsx.toml printWidth; 0 means "unset" → 80 at use
+	cssMinLevel    MinifyLevel             // <style> minification level (zero = MinifyNone)
+	jsMinLevel     MinifyLevel             // <script> minification level (zero = MinifyNone)
+	minifyLevelSet bool                    // true once an option (WithMinifyLevel) pinned the levels
+	classMerger    *codegen.ClassMergerRef // configured class merger (option or toml); nil = default
 }
 
 // effectivePrintWidth returns the configured print width, defaulting to 80 when
@@ -192,7 +193,7 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			return 2
 		}
-		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher, merged.effectiveCSSMin(), merged.effectiveJSMin(), merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled(), workDir)
+		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher, merged.effectiveCSSMin(), merged.effectiveJSMin(), merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled(), merged.classMerger, workDir)
 	case "clean":
 		return runClean(cmdArgs, stdout, stderr)
 	case "info":
@@ -312,7 +313,7 @@ func runClean(args []string, stdout, stderr io.Writer) int {
 // discovery fails → exit 2) from a codegen error (one or more error-severity
 // diagnostics → exit 1). Success returns 0.
 // noCache bypasses the content-hash cache and forces a full regeneration.
-func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, workDir string) int {
+func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef, workDir string) int {
 	gfs := flag.NewFlagSet("generate", flag.ContinueOnError)
 	gfs.SetOutput(stderr)
 	var nocacheFlag bool
@@ -354,6 +355,7 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 			stdout: stdout, stderr: stderr, quiet: quiet, verbose: verbose,
 			filterPkgs: filterPkgs, aliases: aliases, cls: cls,
 			fm: fm, cssMin: cssMin, jsMin: jsMin, cssMinify: cssMinify, jsMinify: jsMinify,
+			classMerger: classMerger,
 		})
 	}
 	// Bypass the cache when --no-cache is set OR when a custom minifier is
@@ -361,7 +363,7 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 	// Bypass the cache when a custom field matcher is installed: funcs are not
 	// hashable, so the cache cannot key on fm. Mirror the minifier bypass pattern.
 	useCache := !nocacheFlag && cssMin == nil && jsMin == nil && fm == nil
-	res, err := generateCached(paths, filterPkgs, aliases, cls, fm, useCache, cssMin, jsMin, cssMinify, jsMinify)
+	res, err := generateCached(paths, filterPkgs, aliases, cls, fm, useCache, cssMin, jsMin, cssMinify, jsMinify, classMerger)
 
 	// Operational errors (I/O, module-graph failures): these are not diagnostics.
 	// Print each with the gsx: prefix and return early.

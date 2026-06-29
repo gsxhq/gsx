@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gsxhq/gsx/internal/codegen"
 )
 
 // TestWatchSession_SiblingGoSymbol proves that Module-based warm regen correctly
@@ -160,6 +162,35 @@ func TestWatchSession_RegenError(t *testing.T) {
 	r := s.regenDir(filepath.Join(root, "views"))
 	if r.OK || len(r.Diags) == 0 {
 		t.Fatalf("expected OK=false with diagnostics, got OK=%v diags=%v", r.OK, r.Diags)
+	}
+}
+
+// TestWatchSession_BadMergerRefused proves that newWatchSession returns a clear
+// signature error when the configured class_merger has the wrong type, instead
+// of silently emitting uncompilable .x.go files on each regen cycle.
+func TestWatchSession_BadMergerRefused(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping go-build test in -short mode")
+	}
+	root := t.TempDir()
+	writeMod(t, root)
+	// A .gsx file so discoverDirs finds the views dir.
+	writeFileT(t, filepath.Join(root, "views", "page.gsx"),
+		"package views\n\ncomponent Page() {\n\t<h1>hello</h1>\n}\n")
+	// A merger package with a bad signature (returns int, not string).
+	writeFileT(t, filepath.Join(root, "mrg", "mrg.go"),
+		"package mrg\n\nfunc Merge(t []string) int { return 0 }\n")
+
+	_, _, err := newWatchSession(watchConfig{
+		paths:       []string{filepath.Join(root, "views")},
+		classMerger: &codegen.ClassMergerRef{PkgPath: "example.com/m/mrg", FuncName: "Merge"},
+	})
+	if err == nil {
+		t.Fatal("want error for bad-signature merger under --watch, got nil")
+	}
+	if !strings.Contains(err.Error(), "func([]string) string") {
+		t.Fatalf("want signature error, got: %v", err)
 	}
 }
 
