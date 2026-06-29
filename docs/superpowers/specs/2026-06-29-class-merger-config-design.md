@@ -7,7 +7,8 @@
 ## Problem
 
 gsx composes `class` attributes from static strings, `clsx`-style toggles, and
-caller fallthrough, then runs the flattened tokens through a *merge strategy*.
+caller fallthrough, then runs the raw, un-split per-source class strings through
+a *merge strategy*.
 The default is last-wins dedup. The intended real-world strategy is a
 Tailwind-aware merge (e.g. `github.com/jackielii/tailwind-merge-go`) that
 collapses conflicting utilities (`px-4 px-8` → `px-8`).
@@ -111,11 +112,21 @@ The identifier may be a **func declaration** (`func Merge([]string) string`) or 
 
 ### Signature contract — direct references only
 
-The runtime seam is `func([]string) string`. gsx emits **only direct references**
-to the configured merger — never a generated adapter. (An adapter would have to
-live somewhere: a package-level helper collides across the multiple `.x.go`
-files gsx emits per package; an inline closure allocates on every render. Both
-are avoided by requiring the merger to already match the seam.)
+The runtime seam is `func([]string) string`. The `[]string` is the **raw,
+un-split class string of each on source** (static parts, `clsx`-style toggles,
+and the caller's fallthrough class) in source order — e.g. a root
+`class="px-4 py-2"` with a caller `class="px-8"` passes `["px-4 py-2", "px-8"]`.
+The runtime does **not** pre-split or pre-join: a real merger (Tailwind) splits
+and resolves within-source and cross-source conflicts itself, so passing raw
+strings preserves the information it needs. `tailwind-merge-go.Merge` accepts a
+`[]string` directly (each element is split internally), so a wrapper passes the
+slice through unchanged — **no join**.
+
+gsx emits **only direct references** to the configured merger — never a
+generated adapter. (An adapter would have to live somewhere: a package-level
+helper collides across the multiple `.x.go` files gsx emits per package; an
+inline closure allocates on every render. Both are avoided by requiring the
+merger to already match the seam.)
 
 The configured merger is validated at **generate time** via `go/types` (the same
 package-loading the filter harvest performs):
@@ -173,8 +184,13 @@ wrapper merges `px-4 px-8` → `px-8` through gsx's seam.)
 
 - **Remove** the mutable global `var ClassMerger` and the package-private
   `defaultClassMerge` indirection.
-- **Export** the default as `func DefaultClassMerge(tokens []string) string`
-  (today's last-wins dedup, unchanged behavior). Stdlib-only.
+- **Export** the default as `func DefaultClassMerge(classes []string) string`.
+  It receives the raw per-source class strings: a single source is returned
+  **verbatim** (nothing to merge across — preserves the author's/caller's string
+  and keeps the common one-class root allocation-free); multiple sources are
+  split into tokens and deduped last-wins. Stdlib-only. (`onClasses` collects the
+  on, non-empty raw strings; a lone single-token source skips the merger entirely
+  via a `loneToken` fast path, since one token cannot conflict.)
 - **Thread a `merge func([]string) string` parameter** into the helpers that
   currently read the global:
   - `ClassString(merge, parts...) string`
