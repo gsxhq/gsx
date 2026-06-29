@@ -7,20 +7,28 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/BurntSushi/toml"
 	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/txtar"
 )
 
 type caseDoc struct {
-	name       string
-	dir        string
-	archive    *txtar.Archive
-	files      map[string][]byte
-	invoke     []byte
-	doc        []byte
-	goldens    map[string][]byte
-	multiPkg   bool
-	modulePath string
+	name        string
+	dir         string
+	archive     *txtar.Archive
+	files       map[string][]byte
+	invoke      []byte
+	doc         []byte
+	goldens     map[string][]byte
+	multiPkg    bool
+	modulePath  string
+	classMerger *codegen.ClassMergerRef // set when case has a gsx.toml with class_merger
+}
+
+// caseToml holds the subset of gsx.toml fields the corpus harness reads.
+// Other fields are allowed but ignored.
+type caseToml struct {
+	ClassMerger string `toml:"class_merger"`
 }
 
 var goldenSections = map[string]bool{
@@ -65,9 +73,25 @@ func loadCase(path string) (*caseDoc, error) {
 			c.goldens[f.Name] = f.Data
 		case f.Name == "doc":
 			c.doc = f.Data
+		case f.Name == "gsx.toml":
+			// Parse class_merger for per-case codegen options; do not write to disk.
+			var tc caseToml
+			if _, err := toml.Decode(string(f.Data), &tc); err != nil {
+				return nil, fmt.Errorf("gsx.toml: %w", err)
+			}
+			if tc.ClassMerger != "" {
+				pkgPath, funcName, err := splitCasePkgFunc(tc.ClassMerger)
+				if err != nil {
+					return nil, fmt.Errorf("gsx.toml: class_merger: %w", err)
+				}
+				c.classMerger = &codegen.ClassMergerRef{PkgPath: pkgPath, FuncName: funcName}
+			}
 		default:
 			c.files[f.Name] = f.Data
-			if strings.Contains(f.Name, "/") {
+			// multiPkg: only .gsx files in subdirs (or go.mod) signal a multi-package
+			// case. Pure-Go helper packages (e.g. a case-local merger) live in
+			// subdirs but must not trigger the cross-package entry path.
+			if strings.Contains(f.Name, "/") && strings.HasSuffix(f.Name, ".gsx") {
 				c.multiPkg = true
 			}
 			if f.Name == "go.mod" {
@@ -102,3 +126,14 @@ func (c *caseDoc) facets() []string {
 }
 
 var _ = fmt.Sprintf
+
+// splitCasePkgFunc splits a "pkg/path.FuncName" string into its import path
+// and exported func name by splitting at the last ".". Used to parse
+// class_merger values from a case-local gsx.toml.
+func splitCasePkgFunc(s string) (pkgPath, funcName string, err error) {
+	dot := strings.LastIndex(s, ".")
+	if dot < 0 {
+		return "", "", fmt.Errorf("%q has no package-qualified name", s)
+	}
+	return s[:dot], s[dot+1:], nil
+}

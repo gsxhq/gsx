@@ -84,10 +84,30 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 		states[i] = cs
 	}
 
-	// Step 3: ONE codegenDirs call for all dirs.
-	pkgResults, err := codegenDirs(tmp, allPkgDirs)
+	// Step 3: codegen. Cases without a class merger are batched into one call;
+	// cases with a per-case merger each get their own call so Options.ClassMerger
+	// can be set independently.
+	var defaultDirs []string
+	for _, cs := range states {
+		if cs.c.classMerger == nil {
+			defaultDirs = append(defaultDirs, cs.pkgDirs...)
+		}
+	}
+	pkgResults, err := codegenDirs(tmp, defaultDirs, nil)
 	if err != nil {
 		return nil, fmt.Errorf("batchCodegen: codegenDirs: %w", err)
+	}
+	for _, cs := range states {
+		if cs.c.classMerger == nil {
+			continue
+		}
+		mergerResults, merr := codegenDirs(tmp, cs.pkgDirs, cs.c.classMerger)
+		if merr != nil {
+			return nil, fmt.Errorf("batchCodegen: codegenDirs(%s): %w", cs.c.name, merr)
+		}
+		for k, v := range mergerResults {
+			pkgResults[k] = v
+		}
 	}
 
 	// Step 4: reassemble per-case results.
