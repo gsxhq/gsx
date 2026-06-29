@@ -28,11 +28,13 @@ These are the explicit opt-outs from gsx's context-aware auto-escaping. Each one
 
 ## Attribute bags
 
+::: v-pre
 | Name | Kind | Signature / type | Description |
 |------|------|-----------------|-------------|
 | `gsx.Attrs` | type | `type Attrs map[string]any` | Unordered attribute bag. Keys are sorted alphabetically at render time. Used for attribute spread (`{ bag… }`) and as the type of a `Children gsx.Attrs` fallthrough field on bring-your-own props. See [Attributes](./attributes). |
 | `gsx.Attr` | type | `type Attr struct{ Key string; Value any }` | A single key-value attribute pair. The element type of `gsx.OrderedAttrs`. |
 | `gsx.OrderedAttrs` | type | `type OrderedAttrs []Attr` | Insertion-ordered attribute bag. Keys render in slice order (not sorted). Populated by the `{{ "key": value }}` literal in a component invocation. See [Attributes — ordered attributes](./attributes#ordered--→-gsxorderedattrs). |
+:::
 
 ## Node boxing
 

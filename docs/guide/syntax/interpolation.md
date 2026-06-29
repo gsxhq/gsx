@@ -10,7 +10,9 @@ Interpolation embeds a Go value into the output using single braces: `{ expr }`.
 
 The `{ name }` and `{ count }` expressions are evaluated against the component's params. String values are HTML-escaped (angle brackets, ampersands, and quotes are encoded); numeric values (`int`, `float64`, etc.) are converted to their decimal string representation without escaping, because digits and a decimal point carry no HTML-special meaning.
 
+::: v-pre
 Note that `{ expr }` is **interpolation** — it emits a value. It is not a Go statement block. To run a Go statement that produces no output, use `{{ stmt }}` (a GoBlock). See [Raw Go](./raw-go) for details.
+:::
 
 ## Fields & typed values
 
@@ -56,6 +58,8 @@ For a complete reference of escaping contexts and opt-out helpers (`gsx.Raw`, `g
 
 In **attribute-value position** (`name={…}`), `{…}` can hold either a Go expression or markup. gsx resolves the ambiguity positionally — the Babel rule: if the first non-space character after `{` is `<` followed by a tag-name character, the content is parsed as markup; otherwise it is a Go expression. So `header={ <h1>Title</h1> }` is a markup-valued attribute (see [Composition — named slots](./composition#named-slots)), while `disabled={ a < b }` is a boolean expression where `<` is the less-than operator.
 
+::: v-pre
 In body and text context the ambiguity does not arise: markup is written as bare elements (`<span>…</span>`), and `{…}` holds interpolation, a GoBlock (`{{ }}`), or a control-flow construct (`{ if … }`, `{ for … }`, `{ switch … }`) — the latter dispatched by keyword, not by `<`.
+:::
 
 For parser corner cases, see the [`parser/` corpus](https://github.com/gsxhq/gsx/tree/main/internal/corpus/testdata/cases/parser).

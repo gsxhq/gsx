@@ -38,14 +38,17 @@ To forward a bag of attributes — commonly used for passthrough components — 
 
 Boolean values in an `Attrs` bag follow the same rule as attribute-level booleans: `"disabled": true` renders as the bare attribute `disabled`; `"disabled": false` omits it.
 
-## Ordered `{{ }}` → `gsx.OrderedAttrs`
+## Ordered-attrs literal → `gsx.OrderedAttrs` {#ordered--→-gsxorderedattrs}
 
+::: v-pre
 When attribute order matters — for example, `data-*` directives consumed by Datastar where a signal must be declared before it is read — use the `{{ "key": value }}` literal in a **component invocation** to pass an ordered attribute bag. The literal is valid only in attribute-value position at a component call, bound (via the kebab field-matcher) to a prop declared as `gsx.OrderedAttrs`. The component then spreads that prop onto an element with `{ prop... }`, and the attributes render in the exact order they were written in the literal — no sorting.
 
 Unlike `{ bag… }` spread (which sorts keys alphabetically), `{ signals… }` spread on a `gsx.OrderedAttrs` prop calls `SpreadOrdered` and preserves insertion order end to end.
+:::
 
 <!--@include: ./_generated/attributes/050-ordered-attributes.md-->
 
+::: v-pre
 `Counter` declares `signals gsx.OrderedAttrs` and spreads it with `{ signals... }`. The caller passes `signals={{ "data-signals": …, "data-text": …, "data-on-click": … }}` — the attributes render in that exact order. Contrast this with a `gsx.Attrs` (map) bag: the same three keys would render alphabetically as `data-on-click`, `data-signals`, `data-text`.
 
 Key points:
@@ -54,6 +57,7 @@ Key points:
 - Keys are quoted string literals (`"data-signals"`, not bare identifiers). This is required so that kebab and colon names such as `"hx-on:click"` round-trip safely.
 - A bool value (`"data-show": true`) renders the bare attribute `data-show`; `false` omits it entirely — the same rule as `gsx.Attrs`.
 - `gsx.OrderedAttrs` does **not** participate in `class`/`style` merge. Any `"class"` or `"style"` pair in an ordered bag renders verbatim in its slot position; use element-level `class=` or `style=` for merging.
+:::
 
 ## Contextual escaping
 

@@ -26,6 +26,7 @@ component Card(title string, featured bool) {
 Each per-topic page goes deeper with runnable examples sourced from
 golden-tested `examples/*.txtar` fixtures.
 
+::: v-pre
 | Page | What it covers |
 |------|----------------|
 | [Basic syntax](./syntax/basic-syntax) | Component declarations, elements vs components, method components |
@@ -48,9 +49,11 @@ golden-tested `examples/*.txtar` fixtures.
 | [Interop](./syntax/interop) | Using gsx components from plain Go |
 | [Render once](./syntax/render-once) | Deduplicating once-per-page output |
 | [Forms](./syntax/forms) | Form elements and helpers |
+:::
 
 ## Quick reference
 
+::: v-pre
 | Form | Meaning |
 |------|---------|
 | `component X(params) { … }` | component declaration (emission body — no return) |
@@ -72,6 +75,7 @@ golden-tested `examples/*.txtar` fixtures.
 | `class={ a, "cls": cond }` | composable `class`/`style` (comma list; conditional sugar) |
 | `{children}` | explicit children placement |
 | `gsx.Raw(s)` | unescaped HTML |
+:::
 
 > **Status — alpha.** `.gsx` compiles to plain Go via `gsx generate`; syntax is
 > stable but still evolving. Follow the
