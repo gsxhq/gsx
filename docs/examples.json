@@ -66,6 +66,24 @@
     "invoke": "Link(LinkProps{Href: \"javascript:alert(1)\", Label: \"click me\"})"
   },
   {
+    "name": "Bring-your-own props",
+    "category": "Components",
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ntype Props struct {\n\tVariant  string\n\tChildren gsx.Node\n\tAttrs    gsx.Attrs\n}\n\ncomponent Button(p Props) {\n\t<button class={ \"btn\", p.Variant } { p.Attrs... }>{ p.Children }</button>\n}\n\ncomponent Page() {\n\t<Button variant=\"primary\" data-test=\"save\">Save</Button>\n}\n",
+    "invoke": "Page()"
+  },
+  {
+    "name": "Props heuristic",
+    "category": "Components",
+    "source": "package views\n\ntype Props struct {\n\tTitle string\n}\n\ncomponent Greeting(name string) {\n\t<p>Hi { name }</p>\n}\n\ncomponent Card(title string, n int) {\n\t<div>{ title }: { n }</div>\n}\n\ncomponent Panel(p Props) {\n\t<section>{ p.Title }</section>\n}\n\ncomponent Page() {\n\t<><Greeting name=\"Ann\"/><Card title=\"T\" n={2}/><Panel title=\"P\"/></>\n}\n",
+    "invoke": "Page()"
+  },
+  {
+    "name": "Whole-struct splat",
+    "category": "Components",
+    "source": "package views\n\ntype cardData struct {\n\tTitle string\n}\n\ntype pageData struct {\n\tHeading string\n}\n\ntype Home struct{}\n\ncomponent Card(d cardData) {\n\t<div>{ d.Title }</div>\n}\n\ncomponent Page(d pageData) {\n\t<Card { cardData{Title: d.Heading}... }/>\n}\n\ncomponent (p Home) Content(pd pageData) {\n\t<h1>{ pd.Heading }</h1>\n}\n\ncomponent (p Home) Shell(pd pageData) {\n\t<p.Content { pd... }/>\n}\n",
+    "invoke": "(Home{}).Shell(pageData{Heading: \"Hi\"})"
+  },
+  {
     "name": "Interpolation & props",
     "category": "Basics",
     "source": "package views\n\ncomponent Greeting(name string, count int) {\n\t<p>Hello, { name }! You have { count } messages.</p>\n}\n",
