@@ -26,28 +26,21 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	fs := flag.NewFlagSet("dev", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
-		webFlag, buildFlag, runFlag, logFlag string
-		noWeb                                bool
+		webFlag, buildFlag, runFlag, logFileFlag string
+		logFlag, noWeb, noLog                    bool
 	)
 	fs.StringVar(&webFlag, "web", "", "front-door command (default: npx vite)")
 	fs.BoolVar(&noWeb, "no-web", false, "don't run the front door; manage only the Go side")
 	fs.StringVar(&buildFlag, "build", "", "server build command (default: go build -o <cache>/server .)")
 	fs.StringVar(&runFlag, "run", "", "server run command (default: <cache>/server)")
-	fs.StringVar(&logFlag, "log", "\x00", "write the backend log to PATH (bare: cache-dir dev.log; off by default)")
+	fs.BoolVar(&logFlag, "log", false, "enable the backend log at the cache-dir default path")
+	fs.StringVar(&logFileFlag, "log-file", "", "enable the backend log at `path`")
+	fs.BoolVar(&noLog, "no-log", false, "disable the backend log (overrides gsx.toml [dev].log)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	logSet := logFlag != "\x00"
 
-	dc := resolveDevConfig(workDir, td, devFlags{
-		web:    splitArgv(webFlag),
-		build:  splitArgv(buildFlag),
-		run:    splitArgv(runFlag),
-		log:    logFileArg(logFlag, logSet),
-		noWeb:  noWeb,
-		noLog:  logSet && logFlag == "",
-		logSet: logSet,
-	})
+	dc := resolveDevConfig(workDir, td, devFlagsFromValues(webFlag, buildFlag, runFlag, logFileFlag, logFlag, noWeb, noLog))
 
 	// --- env + ports ---
 	env := append(os.Environ(), loadDotEnv(workDir)...)
@@ -156,6 +149,9 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 		select {
 		case <-ctx.Done():
 			fmt.Fprintln(stdout, "\ngsx dev: shutting down…")
+			if timer != nil {
+				timer.Stop()
+			}
 			srv.stop()
 			if vite != nil {
 				killProcGroup(vite, 5*time.Second)
@@ -187,6 +183,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 			if envDirty {
 				envDirty = false
 				env = append(os.Environ(), loadDotEnv(workDir)...)
+				// Vite reads .env itself (loadEnv + native .env watch), so only the Go server is restarted here.
 				srv.env = env
 				if err := srv.restartNoBuild(); err == nil && waitHealthy(ctx, healthURL, 10*time.Second) {
 					postReload(viteURL)
@@ -256,12 +253,23 @@ func splitArgv(s string) []string {
 	return strings.Fields(s)
 }
 
-// logFileArg maps the --log flag into the devFlags.log slice: a bare --log (set,
-// empty) yields nil (resolveDevConfig fills the cache-dir default); --log PATH
-// yields [PATH]; unset yields nil.
-func logFileArg(v string, set bool) []string {
-	if set && v != "" {
-		return []string{v}
+// devFlagsFromValues builds the CLI-flag layer for resolveDevConfig from the
+// parsed gsx dev flag values. A web/build/run string is whitespace-split via
+// splitArgv (nil when empty = "flag not given"). Logging precedence among the
+// flags is resolved by resolveDevConfig via logSet/noLog/log; here we only
+// translate which flags were set.
+func devFlagsFromValues(web, build, run, logFile string, logCache, noWeb, noLog bool) devFlags {
+	var logArg []string
+	if logFile != "" {
+		logArg = []string{logFile}
 	}
-	return nil
+	return devFlags{
+		web:    splitArgv(web),
+		build:  splitArgv(build),
+		run:    splitArgv(run),
+		log:    logArg,
+		noWeb:  noWeb,
+		noLog:  noLog,
+		logSet: logCache || logFile != "" || noLog,
+	}
 }

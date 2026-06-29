@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"syscall"
 	"testing"
 	"time"
@@ -30,9 +29,6 @@ import (
 func TestDevTeardownAndRestart(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test: requires building gsx and a live Go server")
-	}
-	if runtime.GOOS == "windows" {
-		t.Skip("group-SIGINT teardown is posix-only; Windows teardown covered by TestKillProcGroup")
 	}
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not available")

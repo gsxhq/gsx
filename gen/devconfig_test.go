@@ -84,3 +84,27 @@ func TestResolveDevConfigLogBareDefaultsToCacheDir(t *testing.T) {
 		t.Errorf("bare --log = %q, want %q", dc.logPath, want)
 	}
 }
+
+func TestDevFlagsLogResolution(t *testing.T) {
+	wd := t.TempDir()
+	// --log (bool) → cache-dir default
+	dc := resolveDevConfig(wd, nil, devFlagsFromValues("", "", "", "", true, false, false))
+	if dc.logPath != filepath.Join(devCacheDir(wd), "dev.log") {
+		t.Errorf("--log should enable cache-dir log, got %q", dc.logPath)
+	}
+	// --log-file=PATH → that path
+	dc = resolveDevConfig(wd, nil, devFlagsFromValues("", "", "", "tmp/dev.log", false, false, false))
+	if dc.logPath != "tmp/dev.log" {
+		t.Errorf("--log-file should set path, got %q", dc.logPath)
+	}
+	// --no-log → off (even overriding a gsx.toml [dev].log)
+	dc = resolveDevConfig(wd, &tomlDev{Log: "tmp/dev.log"}, devFlagsFromValues("", "", "", "", false, false, true))
+	if dc.logPath != "" {
+		t.Errorf("--no-log should disable, got %q", dc.logPath)
+	}
+	// none → off
+	dc = resolveDevConfig(wd, nil, devFlagsFromValues("", "", "", "", false, false, false))
+	if dc.logPath != "" {
+		t.Errorf("no log flags should be off, got %q", dc.logPath)
+	}
+}
