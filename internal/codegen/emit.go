@@ -2281,7 +2281,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 		case *ast.OrderedAttrsAttr:
 			fn, ok := matchField(declared, t.Name, fm)
 			if !ok {
-				msg := fmt.Sprintf("ordered-attrs literal {{ }} on <%s> attribute %q matches no gsx.OrderedAttrs field of %s; declare a field of type gsx.OrderedAttrs", el.Tag, t.Name, propsType)
+				msg := fmt.Sprintf("ordered-attrs literal {{ }} on <%s> attribute %q matches no field of %s and cannot fall through to the Attrs bag; declare a gsx.OrderedAttrs field to receive it", el.Tag, t.Name, propsType)
 				return "", "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "ordered-attrs-no-field", msg: msg}
 			}
 			if verr := validateMatchedField(fn, t.Name, propsType, declared); verr != nil {

@@ -97,6 +97,18 @@ that *keeps order*:
 - A bare key with no value (`{{ "data-x" }}`) and the standalone-spread misuse
   (`<div {{ … }}>`) are parse errors with a pointed message.
 
+### Whitespace around `=`
+
+Optional whitespace is allowed on both sides of `=` for **every** attribute
+value form — `name = "x"`, `name = {x}`, `name = {{ … }}` — and `gsx fmt`
+normalizes it back to `name=…` (no surrounding space). This is a general
+attribute-parsing change (gsx previously required `=` with no surrounding
+whitespace for all attributes); it is included here because the `{{ }}` literal
+made the omission visible, but it applies uniformly to avoid making the ordered
+literal the only attribute that tolerates a space. Decided 2026-06-29 (user):
+rejecting `name = {{…}}` as a syntax error would surprise users who expect the
+formatter to fix spacing.
+
 ### Coexistence with `GoBlock`
 
 `{{ … }}` already exists in gsx as `GoBlock` — the `{{ stmt }}` Go-statement
