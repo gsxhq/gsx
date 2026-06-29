@@ -16,12 +16,12 @@ gsx applies a different escaper depending on the context the value sits in. Each
 
 | Context | Where it applies | What gsx does | Opt-out (trusted only) |
 |---------|-----------------|---------------|------------------------|
-| **Text / attribute** | `{ x }` in body; `attr={ x }` | HTML / attribute escape — `<`, `>`, `&`, `"` are entity-encoded | `gsx.Raw(s)` |
-| **URL attribute** | `href`, `src`, `action`, `formaction`, `xlink:href`; htmx method attrs `hx-get` / `hx-post` / `hx-put` / `hx-delete` / `hx-patch` | Scheme-sanitize: non-allowlisted schemes (e.g. `javascript:`) are replaced with `about:invalid#gsx`; value is then attribute-escaped | `gsx.RawURL(s)` |
+| **Text / attribute** | `{ x }` in body; `attr={ x }` | HTML / attribute escape — `<`, `>`, `&`, `"`, `'` are entity-encoded; NUL is replaced with U+FFFD | `gsx.Raw(s)` |
+| **URL attribute** | `href`, `src`, `action`, `formaction`, `poster`, `cite`, `ping`, `data`, `background`, `manifest`, `xlink:href`; htmx method attrs `hx-get` / `hx-post` / `hx-put` / `hx-delete` / `hx-patch` | Scheme-sanitize: non-allowlisted schemes (e.g. `javascript:`) are replaced with `about:invalid#gsx`; value is then attribute-escaped | `gsx.RawURL(s)` |
 | **JS-context attribute** | `onclick`, `@click`, `hx-on*`, `x-data`, `x-init`, `x-show`, `x-if`, `x-effect`, `x-on:*`, `:*`; whole-value form `attr={ expr }` | JSON-encode the Go value to a safe JS literal — hostile input is neutralized, not blocked | `gsx.RawJS(s)` |
 | **`<script>` body** | `@{ expr }` inside a `<script>` element | JSON-encode; also escapes `</script>`, `<!--`, U+2028/U+2029 so the value cannot terminate the script block | `gsx.RawJS(s)` |
 | **JSON data island** | `@{ expr }` inside `<script type="application/json">` | JSON-encode the whole value | — |
-| **CSS value** | `<style>` body; `style=` attr; composable `style={ … }` | CSS value-filter (`gw.CSS`): tokens containing `(` or `/` collapse to `ZgotmplZ` | `gsx.RawCSS(s)` |
+| **CSS value** | `<style>` body; `style=` attr; composable `style={ … }` | Conservative CSS value-filter: replaces the **entire value** with `ZgotmplZ` if it contains `(`, `/`, `'`, `"`, `;`, `\`, `<`, `>`, or other unsafe chars, a `--` run, or the strings `expression`/`mozbinding` | `gsx.RawCSS(s)` |
 
 ### URL attributes
 
@@ -43,7 +43,7 @@ The **only** case that is a compile error is an `@{ }` interpolation hole that l
 
 ### CSS values
 
-CSS values are filtered through `gw.CSS` (ported from `html/template`). Any token containing `(` or `/` — as in `rgb(...)`, `calc(...)`, `url(...)` — collapses to the safe placeholder `ZgotmplZ`. This means a dynamically-built CSS value like `"color:red;background:url(javascript:alert(1))"` is replaced wholesale.
+CSS values are filtered through `gw.CSS` (ported from `html/template`). The filter is conservative and whole-value: if the value contains **any** of `(`, `)`, `/`, `'`, `"`, `;`, `@`, `[`, `\`, `]`, `` ` ``, `{`, `}`, `<`, `>`, NUL, or a `--` run — or if it decodes to the strings `expression` or `mozbinding` — the **entire value** is replaced with the safe placeholder `ZgotmplZ`. It is not a per-token substitution. This means common CSS functions like `rgb(...)`, `calc(...)`, and `url(...)` (which contain parentheses) are blocked wholesale; even a single unsafe character in any part of the value triggers the replacement.
 
 Use `gsx.RawCSS` for CSS values you trust — for example, a validated color string or a pre-built CSS expression:
 
