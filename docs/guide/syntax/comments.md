@@ -26,8 +26,12 @@ component Note() {
 ```
 :::
 
-The line form `{// … }` (a Go line comment inside braces) works identically — both are stripped at parse time, so neither appears in the generated Go code or the final HTML.
+Renders:
 
-<!--@include: ./_generated/comments/020-content-comment.md-->
+```html
+<p>Visible text</p>
+```
+
+The line form `{// … }` (a Go line comment inside braces) works identically — both are stripped at parse time, so neither appears in the generated Go code or the final HTML.
 
 Content comments are a markup-layer construct. They are distinct from `// …` Go comments that appear **outside** the markup body (above a component declaration, inside a `{{ }}` GoBlock, etc.) — those are stripped by the Go compiler and can never appear inside element markup at all.
