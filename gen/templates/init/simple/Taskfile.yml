@@ -16,6 +16,9 @@ tasks:
     internal: true
     cmds:
       - mkdir -p tmp
+      # Build wgo to a real binary. `go tool wgo` adds a wrapper process that
+      # races Ctrl-C and orphans the Go server (it survives, holding GO_PORT).
+      - go build -o tmp/wgo github.com/bokwoon95/wgo
       - 'echo "=== task dev ===" > tmp/dev.log'
       - go tool gsx generate .
 
@@ -29,6 +32,6 @@ tasks:
     desc: Rebuild + restart the Go server on .go changes.
     deps: [dev:setup]
     cmds:
-      # Single-quoted: the wgo `::` separator + the pipe are one shell command;
-      # unquoted YAML would misparse the colon-space.
-      - 'go tool wgo -file=.go -xdir=tmp -xdir=node_modules -xdir=dist go build -o tmp/app . :: tmp/app 2>&1 | tee -a tmp/dev.log'
+      # tmp/wgo (built in dev:setup), not `go tool wgo` — see there.
+      # Single-quoted: the `::` + pipe contain `: ` which unquoted YAML misparses.
+      - 'tmp/wgo -file=.go -xdir=tmp -xdir=node_modules -xdir=dist go build -o tmp/app . :: tmp/app 2>&1 | tee -a tmp/dev.log'
