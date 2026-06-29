@@ -94,6 +94,20 @@ that *keeps order*:
 - A bare key with no value (`{{ "data-x" }}`) and the standalone-spread misuse
   (`<div {{ … }}>`) are parse errors with a pointed message.
 
+### Coexistence with `GoBlock`
+
+`{{ … }}` already exists in gsx as `GoBlock` — the `{{ stmt }}` Go-statement
+escape hatch (`ast.go:290`, parsed at `markup.go:453`) — but **only in
+markup-body position**. The ordered-attrs literal lives **only in attribute-value
+position** (`name={{ … }}`). The two never collide at parse time: GoBlock is read
+by the body markup parser, the ordered literal by the attribute-value parser.
+This is the same position-driven brace overloading gsx already uses pervasively
+(`{ }` is interp / control-flow / GoBlock in the body, expr / markup value in an
+attribute, and spread / cond in the attribute list). Reusing `{{ }}` for an
+ordered attribute *value* is consistent with that model — same glyph, distinct
+position, distinct meaning. Documented so the overload is intentional, not
+accidental.
+
 ### Bool / valueless attributes
 
 A boolean attribute (e.g. Datastar's bare `data-show`) is written with an
@@ -239,10 +253,12 @@ Per the corpus convention (every syntax/codegen change ships a corpus case):
    BYO-Props components, including cross-package props. If resolution is
    unavailable in some path, define the fallback precisely (emit `Spread`;
    compile error surfaces the misuse).
-2. **`{{` tokenization.** Confirm `={{` is detected before the generic
-   brace-value path (`parseAttrBraceValue`) and that the matching `}}` is scanned
+2. **`{{` tokenization.** Confirm `={{` is detected in `parseSingleAttr`'s
+   `=`-then-`{` branch (`attrs.go:190`) before it dispatches to
+   `parseAttrBraceValue` (`markup.go:502`), and that the matching `}}` is scanned
    with Go-aware brace/quote balancing (a `}` inside a value expression or string
-   must not close the literal early).
+   must not close the literal early). The body-position `GoBlock` parser
+   (`markup.go:453`) is not on this path, so there is no cross-talk.
 3. **Empty literal.** `{{ }}` (no pairs) → empty `gsx.OrderedAttrs{}` (renders
    nothing). Decide whether to allow or reject; leaning allow (consistent with an
    empty map bag).
