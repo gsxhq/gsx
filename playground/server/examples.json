@@ -32,7 +32,7 @@
   {
     "name": "Field access",
     "category": "Basics",
-    "source": "package views\n\ncomponent Profile(user User) {\n\t<p>{ user.Name } is { user.Age }</p>\n}\n",
+    "source": "package views\n\ntype User struct {\n\tName string\n\tAge  int\n}\n\ncomponent Profile(user User) {\n\t<p>{ user.Name } is { user.Age }</p>\n}\n",
     "invoke": "Profile(User{Name: \"Alice\", Age: 30})"
   },
   {

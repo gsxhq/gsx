@@ -4,15 +4,13 @@ summary: Struct fields and typed values interpolate directly with `{ p.Field }`.
 category: Basics
 page: interpolation
 pageOrder: 20
--- model.go --
+-- input.gsx --
 package views
 
 type User struct {
 	Name string
 	Age  int
 }
--- input.gsx --
-package views
 
 component Profile(user User) {
 	<p>{user.Name} is {user.Age}</p>
