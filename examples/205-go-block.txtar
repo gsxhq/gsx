@@ -1,0 +1,16 @@
+-- doc --
+name: Go code block
+summary: A `{{ stmt }}` GoBlock assigns a local variable inside markup; the block itself emits nothing.
+category: Basics
+page: raw-go
+pageOrder: 10
+-- input.gsx --
+package views
+
+component FullName(first string, last string) {
+	<div>{{ full := first + " " + last }}<span>{full}</span></div>
+}
+-- invoke --
+FullName(FullNameProps{First: "Ada", Last: "Lovelace"})
+-- render.golden --
+<div><span>Ada Lovelace</span></div>

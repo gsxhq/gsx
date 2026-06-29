@@ -1,5 +1,17 @@
 [
   {
+    "name": "Component declaration",
+    "category": "Basics",
+    "source": "package views\n\ncomponent Greeting(name string, count int) {\n\t<p>Hello, { name }! You have { count } messages.</p>\n}\n",
+    "invoke": "Greeting(GreetingProps{Name: \"World\", Count: 3})"
+  },
+  {
+    "name": "Go code block",
+    "category": "Basics",
+    "source": "package views\n\ncomponent FullName(first string, last string) {\n\t<div>\n\t\t{{ full := first + \" \" + last }}\n\t\t<span>{ full }</span>\n\t</div>\n}\n",
+    "invoke": "FullName(FullNameProps{First: \"Ada\", Last: \"Lovelace\"})"
+  },
+  {
     "name": "Interpolation & props",
     "category": "Basics",
     "source": "package views\n\ncomponent Greeting(name string, count int) {\n\t<p>Hello, { name }! You have { count } messages.</p>\n}\n",
