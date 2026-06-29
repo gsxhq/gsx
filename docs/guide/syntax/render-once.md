@@ -4,7 +4,7 @@
 
 templ ships `templ.Once` / `templ.OnceHandle` — a mechanism for components that emit shared page-level resources (a `<style>` block, a `<script>` module, a `<link>` preload) to guarantee those resources appear in the output at most once per page, regardless of how many times the component is rendered.
 
-**gsx has no equivalent primitive.** There is no `gsx.Once`, no `OnceHandle`, no built-in deduplication of repeated HTML. This is an acknowledged gap — see the [Roadmap](../../ROADMAP) for the feature's planned status.
+**gsx has no equivalent primitive.** There is no `gsx.Once`, no `OnceHandle`, no built-in deduplication of repeated HTML. This is an acknowledged gap — see the [Roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md) for the feature's planned status.
 
 ## Current workaround: single layout / shell component
 

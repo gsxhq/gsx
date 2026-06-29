@@ -40,7 +40,7 @@ These helpers box ordinary Go values into `gsx.Node` so they can be passed to a 
 
 | Name | Kind | Signature | Description |
 |------|------|-----------|-------------|
-| `gsx.Val` | func | `func Val(v any) Node` | Boxes any renderable value as a Node. Accepts `Node`, `string`, `[]byte`, `fmt.Stringer`, numeric types, and `bool`; panics (at render time) on other types. See [Props](./props). |
+| `gsx.Val` | func | `func Val(v any) Node` | Boxes any renderable value as a Node. Accepts `Node`, `string`, `[]byte`, `fmt.Stringer`, numeric types, and `bool`; returns a render-time error (propagated out of `Render`) for other types. See [Props](./props). |
 | `gsx.Text` | func | `func Text(s string) Node` | Boxes a plain string as an HTML-escaped text Node. Equivalent to `{ s }` inline but usable as a value in Go code. |
 | `gsx.Fragment` | func | `func Fragment(nodes ...Node) Node` | Groups multiple Nodes into a single Node that renders them in order with no wrapper element. The value-level equivalent of `<> … </>`. See [Fragments](./fragments). |
 
