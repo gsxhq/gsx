@@ -194,6 +194,13 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 			return 2
 		}
 		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher, merged.effectiveCSSMin(), merged.effectiveJSMin(), merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled(), merged.classMerger, workDir)
+	case "dev":
+		merged, configPath, err := resolveConfig(cfg, workDir)
+		if err != nil {
+			fmt.Fprintf(stderr, "gsx: %v\n", err)
+			return 2
+		}
+		return runDev(cmdArgs, stdout, stderr, merged, devTomlFor(configPath), workDir)
 	case "clean":
 		return runClean(cmdArgs, stdout, stderr)
 	case "info":
@@ -531,6 +538,7 @@ Usage:
 
 Commands:
 	generate [paths...]   generate .x.go from .gsx files (default: .)
+	dev [flags]           warm generate + build-then-swap server + browser reload (dev loop)
 	fmt [paths...]        format .gsx files (canonical, idempotent)
 	init [dir]            scaffold a gsx + Vite starter app (--template, --module)
 	clean --cache         remove the gsx cache directory
