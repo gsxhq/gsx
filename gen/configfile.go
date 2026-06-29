@@ -33,6 +33,7 @@ type tomlConfig struct {
 	CSSAttrs       []tomlRule        `toml:"cssAttrs"`
 	PrintWidth     int               `toml:"printWidth"`
 	Minify         *tomlMinify       `toml:"minify"`
+	ClassMerger    string            `toml:"class_merger"`
 }
 
 // tomlMinify is the [minify] table: per-asset level spellings. A nil pointer
@@ -140,6 +141,14 @@ func loadConfig(path string) (config, error) {
 			return config{}, fmt.Errorf("%s: filter %q: %w", path, n, err)
 		}
 		cfg.aliases = append(cfg.aliases, codegen.FilterAlias{Name: n, PkgPath: pkgPath, FuncName: funcName})
+	}
+
+	if tc.ClassMerger != "" {
+		pkgPath, funcName, err := splitPkgFunc(tc.ClassMerger)
+		if err != nil {
+			return config{}, fmt.Errorf("%s: class_merger %q: %w", path, tc.ClassMerger, err)
+		}
+		cfg.classMerger = &codegen.ClassMergerRef{PkgPath: pkgPath, FuncName: funcName}
 	}
 
 	if cfg.jsRules, err = appendTomlRules(path, "jsAttrs", cfg.jsRules, tc.JSAttrs); err != nil {

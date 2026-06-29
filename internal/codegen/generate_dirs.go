@@ -31,6 +31,11 @@ func GenerateDirs(moduleRoot string, dirs []string, opts Options, override map[s
 		}
 		opts.ModulePath = modPath
 	}
+	if opts.ClassMerger != nil {
+		if err := validateClassMerger(moduleRoot, opts.ClassMerger); err != nil {
+			return nil, fmt.Errorf("codegen: GenerateDirs: %w", err)
+		}
+	}
 	m, err := Open(opts)
 	if err != nil {
 		return nil, fmt.Errorf("codegen: GenerateDirs: open module: %w", err)

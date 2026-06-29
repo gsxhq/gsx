@@ -257,3 +257,68 @@ func TestInfoNoConfig(t *testing.T) {
 		t.Fatalf("info should print 'config: none'; got:\n%s", out.String())
 	}
 }
+
+// TestGenClassMergerE2E is the end-to-end proof that:
+//  1. class_merger = "pkg.Func" in gsx.toml wires through generation and the
+//     generated .x.go imports the package under _gsxcm and calls _gsxcm.Func.
+//  2. A bad-signature merger (variadic) surfaces the generate-time validation
+//     error from validateClassMerger (wired in GenerateDirs).
+func TestGenClassMergerE2E(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping go-build e2e in -short mode")
+	}
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mod := "gsxcme2e"
+	mkfile(t, filepath.Join(tmp, "go.mod"),
+		"module "+mod+"\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot(t)+"\n")
+
+	// Merger package: func Merge(t []string) string — correct signature.
+	mkfile(t, filepath.Join(tmp, "mrg", "mrg.go"),
+		"package mrg\n\nfunc Merge(t []string) string { return \"\" }\n")
+
+	// gsx.toml pointing at the merger.
+	mkfile(t, filepath.Join(tmp, "gsx.toml"),
+		"class_merger = \""+mod+"/mrg.Merge\"\n")
+
+	// Component with a static class that triggers a class merge site.
+	mkfile(t, filepath.Join(tmp, "views", "card.gsx"),
+		"package views\n\ncomponent Card() {\n\t<section class=\"card\">{children}</section>\n}\n")
+
+	// Run stock generation (reads gsx.toml automatically).
+	var out, errb bytes.Buffer
+	code := run([]string{"-C", tmp, "generate", "./views"}, &out, &errb)
+	if code != 0 {
+		t.Fatalf("generate exit=%d stderr=%q stdout=%q", code, errb.String(), out.String())
+	}
+
+	gen, err := os.ReadFile(filepath.Join(tmp, "views", "card.x.go"))
+	if err != nil {
+		t.Fatalf("read generated: %v", err)
+	}
+	src := string(gen)
+	if !strings.Contains(src, `_gsxcm "`+mod+`/mrg"`) {
+		t.Fatalf("generated .x.go missing aliased import _gsxcm %q/mrg; got:\n%s", mod, src)
+	}
+	if !strings.Contains(src, "_gsxgw.Class(_gsxcm.Merge,") {
+		t.Fatalf("generated .x.go missing direct merger reference _gsxgw.Class(_gsxcm.Merge,...); got:\n%s", src)
+	}
+
+	// Bad-signature variant: a variadic merger must fail validation.
+	mkfile(t, filepath.Join(tmp, "bad", "bad.go"),
+		"package bad\n\nfunc BadMerge(t ...any) string { return \"\" }\n")
+	mkfile(t, filepath.Join(tmp, "gsx.toml"),
+		"class_merger = \""+mod+"/bad.BadMerge\"\n")
+
+	var out2, errb2 bytes.Buffer
+	code2 := run([]string{"-C", tmp, "generate", "./views"}, &out2, &errb2)
+	if code2 == 0 {
+		t.Fatalf("expected non-zero exit for bad-signature merger, got 0; stdout=%q", out2.String())
+	}
+	if !strings.Contains(errb2.String(), "func([]string) string") {
+		t.Fatalf("expected signature-error hint in stderr; got: %q", errb2.String())
+	}
+}
