@@ -162,15 +162,36 @@ type devServer struct {
 
 // rebuild builds the server; on build failure the currently-running server is
 // LEFT RUNNING (go build does not replace the binary on failure) and the build
-// error is returned. On success it stops the old server and starts the new one.
-func (d *devServer) rebuild(ctx context.Context) error {
+// error is returned along with captured compiler output. On success it stops the
+// old server and starts the new one.
+func (d *devServer) rebuild(ctx context.Context) (string, error) {
+	var buf bytes.Buffer
+	w := io.MultiWriter(d.out, &buf)
 	bcmd := exec.CommandContext(ctx, d.build[0], d.build[1:]...)
-	bcmd.Env, bcmd.Stdout, bcmd.Stderr = d.env, d.out, d.out
+	bcmd.Env, bcmd.Stdout, bcmd.Stderr = d.env, w, w
 	if err := bcmd.Run(); err != nil {
 		fmt.Fprintf(d.out, "build failed: %v\n", err)
-		return err
+		return buf.String(), err
 	}
-	return d.restartNoBuild()
+	return "", d.restartNoBuild()
+}
+
+// buildErrorEvent makes an ok:false "generated" event whose single error
+// diagnostic carries msg, so the vite plugin renders it in the overlay. Used
+// for go-build and operational failures that codegen's type-check doesn't catch.
+func buildErrorEvent(msg string) []byte {
+	ev := map[string]any{
+		"event": "generated", "ok": false, "durationMs": 0,
+		"written": []string{},
+		"diagnostics": []map[string]any{{
+			"file":     "build",
+			"range":    map[string]any{"start": map[string]int{"line": 1, "col": 1}, "end": map[string]int{"line": 1, "col": 1}},
+			"severity": "error",
+			"message":  strings.TrimSpace(msg),
+		}},
+	}
+	b, _ := json.Marshal(ev)
+	return b
 }
 
 // restartNoBuild stops any running server and starts d.run fresh (used after a

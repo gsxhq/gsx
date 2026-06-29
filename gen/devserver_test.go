@@ -76,6 +76,20 @@ func TestStopBeforeStart(t *testing.T) {
 	d.stop() // must not panic when no server was ever started
 }
 
+func TestBuildErrorEvent(t *testing.T) {
+	var ev map[string]any
+	if err := json.Unmarshal(buildErrorEvent("embedbad.go: pattern x: no matching files"), &ev); err != nil {
+		t.Fatal(err)
+	}
+	if ev["event"] != "generated" || ev["ok"] != false {
+		t.Fatalf("bad event: %v", ev)
+	}
+	diags, _ := json.Marshal(ev["diagnostics"])
+	if !strings.Contains(string(diags), `"severity":"error"`) || !strings.Contains(string(diags), "no matching files") {
+		t.Errorf("diagnostic missing error/message: %s", diags)
+	}
+}
+
 func TestPostEventReachesServer(t *testing.T) {
 	got := make(chan string, 1)
 	mux := http.NewServeMux()

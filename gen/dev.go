@@ -105,10 +105,10 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 
 	// --- Go server: initial build + run ---
 	srv := &devServer{build: dc.build, run: dc.run, env: env, out: serverOut, healthURL: healthURL}
-	if err := srv.rebuild(ctx); err == nil {
-		if waitHealthy(ctx, healthURL, 10*time.Second) {
-			postReload(viteURL)
-		}
+	if out, err := srv.rebuild(ctx); err != nil {
+		postEvent(viteURL, buildErrorEvent(out))
+	} else if waitHealthy(ctx, healthURL, 10*time.Second) {
+		postReload(viteURL)
 	}
 
 	// --- fsnotify watcher (sources + .env) ---
@@ -124,7 +124,11 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	defer w.Close()
 	addWatchTree(w, []string{workDir})
 
-	fmt.Fprintf(stdout, "gsx dev: watching %s — open %s\n", workDir, viteURL)
+	if dc.web != nil {
+		fmt.Fprintf(stdout, "gsx dev: watching %s — open %s\n", workDir, viteURL)
+	} else {
+		fmt.Fprintf(stdout, "gsx dev: managing Go side only (no front door) — watching %s\n", workDir)
+	}
 
 	var (
 		pending  = map[string]bool{}
@@ -185,6 +189,10 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 				env = append(os.Environ(), loadDotEnv(workDir)...)
 				// Vite reads .env itself (loadEnv + native .env watch), so only the Go server is restarted here.
 				srv.env = env
+				goPort = envPort(env, "GO_PORT", "7777")
+				healthURL = "http://localhost:" + goPort + "/healthz"
+				srv.healthURL = healthURL
+				viteURL = envValue(env, "VITE_DEV_URL", "http://localhost:5173")
 				if err := srv.restartNoBuild(); err == nil && waitHealthy(ctx, healthURL, 10*time.Second) {
 					postReload(viteURL)
 				}
@@ -199,6 +207,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 			depDirty = false
 			if rerr != nil {
 				fmt.Fprintf(serverOut, "regen failed: %v\n", rerr)
+				postEvent(viteURL, buildErrorEvent("regen failed: "+rerr.Error()))
 				continue // preserve nothing; next event retries
 			}
 			// Overlay state from this cycle.
@@ -213,7 +222,9 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 				continue // keep last-good server up; overlay shows the error
 			}
 			if goChanged || wrote {
-				if err := srv.rebuild(ctx); err == nil && waitHealthy(ctx, healthURL, 10*time.Second) {
+				if out, err := srv.rebuild(ctx); err != nil {
+					postEvent(viteURL, buildErrorEvent(out))
+				} else if waitHealthy(ctx, healthURL, 10*time.Second) {
 					postReload(viteURL)
 				}
 			}
@@ -238,11 +249,9 @@ func devTomlFor(configPath string) *tomlDev {
 	return tc.Dev
 }
 
-// isEnvFile reports whether path is a .env file we should restart the server on.
-func isEnvFile(path string) bool {
-	b := filepath.Base(path)
-	return b == ".env" || strings.HasPrefix(b, ".env.")
-}
+// isEnvFile reports whether path is the .env file we read+restart on. Other
+// .env.* variants are Vite's domain (it reads + watches them itself).
+func isEnvFile(path string) bool { return filepath.Base(path) == ".env" }
 
 // splitArgv splits a flag value into argv on whitespace (the common case; use
 // the gsx.toml [dev] array form for exact quoting). Empty ⇒ nil (not set).

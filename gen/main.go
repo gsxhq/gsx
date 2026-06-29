@@ -195,12 +195,17 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 		}
 		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher, merged.effectiveCSSMin(), merged.effectiveJSMin(), merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled(), merged.classMerger, workDir)
 	case "dev":
-		merged, configPath, err := resolveConfig(cfg, workDir)
+		devWorkDir := workDir
+		if len(cmdArgs) > 0 && !strings.HasPrefix(cmdArgs[0], "-") {
+			devWorkDir = absPaths(workDir, cmdArgs[:1])[0]
+			cmdArgs = cmdArgs[1:]
+		}
+		merged, configPath, err := resolveConfig(cfg, devWorkDir)
 		if err != nil {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			return 2
 		}
-		return runDev(cmdArgs, stdout, stderr, merged, devTomlFor(configPath), workDir)
+		return runDev(cmdArgs, stdout, stderr, merged, devTomlFor(configPath), devWorkDir)
 	case "clean":
 		return runClean(cmdArgs, stdout, stderr)
 	case "info":
