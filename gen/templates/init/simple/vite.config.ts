@@ -6,9 +6,8 @@ export default defineConfig(({ command, mode }) => {
   const goPort = env.GO_PORT || "7777";
   const vitePort = parseInt(env.VITE_PORT || "5173", 10);
   // Serve a self-recovering interstitial while the Go server is down/restarting
-  // (instead of a raw proxy error). It tails tmp/dev.log — written by the
-  // dev:server task — to show why the server is down (build error / crash).
-  const fallback = devFallback({ target: `http://localhost:${goPort}`, logFile: "tmp/dev.log" });
+  // (instead of a raw proxy error).
+  const fallback = devFallback({ target: `http://localhost:${goPort}` });
 
   // While the Go server is down/restarting, the dev-fallback interstitial already
   // shows it — so drop Vite's redundant "http proxy error … ECONNREFUSED" spam.
