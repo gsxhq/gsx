@@ -146,3 +146,23 @@ func TestStyleString(t *testing.T) {
 		t.Errorf("StyleString = %q, want \"color: red; padding: 1px\"", got)
 	}
 }
+
+func TestClassJoin(t *testing.T) {
+	// Flattens on, non-empty parts and applies the built-in last-wins dedup (NOT
+	// the configured merger). Off parts and empties are skipped.
+	// tokens ["a","b","a","d"] -> last-wins -> "b a d".
+	got := ClassJoin(Class("a b"), ClassIf("c", false), Class("a"), Class(""), ClassIf("d", true))
+	if got != "b a d" {
+		t.Fatalf("ClassJoin = %q, want %q", got, "b a d")
+	}
+	// A conflict-free single source is preserved verbatim.
+	if got := ClassJoin(Class("px-4 py-2 bg-blue-500")); got != "px-4 py-2 bg-blue-500" {
+		t.Fatalf("single source: got %q", got)
+	}
+	if got := ClassJoin(); got != "" {
+		t.Fatalf("empty ClassJoin = %q, want \"\"", got)
+	}
+	if got := ClassJoin(ClassIf("x", false)); got != "" {
+		t.Fatalf("all-off ClassJoin = %q, want \"\"", got)
+	}
+}
