@@ -57,6 +57,7 @@ func (s *watchSession) openModule(root string) (*codegen.Module, error) {
 		JSMin:        s.cfg.jsMin,
 		CSSMinify:    s.cfg.cssMinify,
 		JSMinify:     s.cfg.jsMinify,
+		ClassMerger:  s.cfg.classMerger,
 	})
 }
 
@@ -94,6 +95,17 @@ func newWatchSession(cfg watchConfig) (*watchSession, []cycleResult, error) {
 		// No enclosing module for any discovered dir — surface the lookup error.
 		_, _, mErr := moduleRoot(dirs[0])
 		return nil, nil, mErr
+	}
+
+	// Validate the class merger once at session startup so a bad-signature merger
+	// surfaces a clear error instead of silently emitting uncompilable .x.go
+	// files on every regen cycle. The LSP and fmt call codegen.Open directly and
+	// must not pay a packages.Load per call, so this validation lives here and
+	// NOT in codegen.Open or codegen.GenerateDirs (the latter already validates).
+	if cfg.classMerger != nil {
+		if err := codegen.ValidateClassMerger(groups[0].root, cfg.classMerger); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	s := &watchSession{cfg: cfg, root: groups[0].root, modules: map[string]*codegen.Module{}}

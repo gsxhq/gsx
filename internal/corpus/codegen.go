@@ -60,12 +60,14 @@ func (c *caseDoc) astAndParserDiag() (astDump []byte, parserDiag []byte, single 
 }
 
 // codegenDirs generates .x.go for every .gsx across the given package dirs via
-// codegen.GenerateDirs. Options: std filter, CSS+JS minify on, no overrides.
-func codegenDirs(moduleDir string, dirs []string) (map[string]codegen.DirResult, error) {
+// codegen.GenerateDirs. Options: std filter, CSS+JS minify on. merger is the
+// per-case class merger (nil means use the built-in DefaultClassMerge path).
+func codegenDirs(moduleDir string, dirs []string, merger *codegen.ClassMergerRef) (map[string]codegen.DirResult, error) {
 	return codegen.GenerateDirs(moduleDir, dirs, codegen.Options{
-		FilterPkgs: []string{codegen.StdImportPath},
-		CSSMinify:  true,
-		JSMinify:   true,
+		FilterPkgs:  []string{codegen.StdImportPath},
+		CSSMinify:   true,
+		JSMinify:    true,
+		ClassMerger: merger,
 	}, nil)
 }
 

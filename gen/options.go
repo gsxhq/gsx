@@ -165,6 +165,34 @@ func isExportedIdent(s string) bool {
 	return true
 }
 
+// WithClassMerger installs fn as the project's class-merge strategy. fn MUST be
+// an exported top-level function of type func([]string) string (e.g. a wrapper
+// around a tailwind-merge-go merger). It is reflected via runtime.FuncForPC to
+// recover its package/path.FuncName, exactly like WithFilter; a closure, method
+// value, or unexported target is rejected with a clear error on the config. The
+// signature is verified at generate time (go/types) against func([]string)string.
+//
+// Precedence: an option-set merger wins over a gsx.toml class_merger.
+func WithClassMerger(fn any) Option {
+	return func(cfg *config) {
+		if fn == nil {
+			cfg.errs = append(cfg.errs, fmt.Errorf("WithClassMerger: fn is nil; pass an exported func([]string) string"))
+			return
+		}
+		v := reflect.ValueOf(fn)
+		if v.Kind() != reflect.Func {
+			cfg.errs = append(cfg.errs, fmt.Errorf("WithClassMerger: fn (%T) is not a function", fn))
+			return
+		}
+		pkgPath, funcName, err := resolveFilterFunc(v)
+		if err != nil {
+			cfg.errs = append(cfg.errs, fmt.Errorf("WithClassMerger: %w", err))
+			return
+		}
+		cfg.classMerger = &codegen.ClassMergerRef{PkgPath: pkgPath, FuncName: funcName}
+	}
+}
+
 // WithCSSMinifier installs a custom CSS minifier for <style> blocks. It is used
 // only when CSS minification is enabled (minify level "full"), where it REPLACES
 // the built-in full minifier on FULLY-STATIC (holeless) blocks. A block that

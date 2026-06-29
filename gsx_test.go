@@ -12,7 +12,7 @@ func card(title string, featured bool, children Node) Node {
 	return Func(func(ctx context.Context, w io.Writer) error {
 		gw := W(w)
 		gw.S(`<section class="`)
-		gw.Class(Class("card"), ClassIf("card-featured", featured))
+		gw.Class(DefaultClassMerge, Class("card"), ClassIf("card-featured", featured))
 		gw.S(`"><h2>`)
 		gw.Text(title)
 		gw.S(`</h2>`)
@@ -27,7 +27,7 @@ func box(padded, disabled bool, attrs Attrs, children Node) Node {
 	return Func(func(ctx context.Context, w io.Writer) error {
 		gw := W(w)
 		gw.S(`<div class="`)
-		gw.Class(Class("box"), ClassIf("p-4", padded))
+		gw.Class(DefaultClassMerge, Class("box"), ClassIf("p-4", padded))
 		gw.S(`"`)
 		gw.BoolAttr("disabled", disabled)
 		if !padded {

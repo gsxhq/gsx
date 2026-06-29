@@ -1,0 +1,3 @@
+# Generated output is committed in examples so the module is self-contained and
+# the drift check (make ci-tailwind-example-drift) can catch stale output.
+!views/*.x.go

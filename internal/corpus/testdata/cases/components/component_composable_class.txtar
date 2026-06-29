@@ -40,7 +40,7 @@ func Card(_gsxp CardProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:5:34
 		_gsxgw.S("<div class=\"")
-		_gsxgw.Class(gsx.Class("card"), gsx.Class(_gsxp.Attrs.Class()))
+		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class("card"), gsx.Class(_gsxp.Attrs.Class()))
 		_gsxgw.S("\"")
 		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
 		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
@@ -62,7 +62,7 @@ func Page(_gsxp PageProps) gsx.Node {
 		flag := _gsxp.Flag
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.Node(ctx, Card(CardProps{Title: gsx.Text("Hi"), Attrs: gsx.Attrs{"class": gsx.ClassString(gsx.Class("featured"), gsx.ClassIf("active", flag))}}))
+		_gsxgw.Node(ctx, Card(CardProps{Title: gsx.Text("Hi"), Attrs: gsx.Attrs{"class": gsx.ClassString(gsx.DefaultClassMerge, gsx.Class("featured"), gsx.ClassIf("active", flag))}}))
 		return _gsxgw.Err()
 	})
 }

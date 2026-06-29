@@ -737,7 +737,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					// NOT _gsxuse, so they don't perturb the k-th alignment.
 					// When splatExpr is non-empty (byo whole-struct splat), emit
 					// `_ = callTarget(splatExpr)` mirroring the emitter exactly.
-					fields, splatExpr, usedPkgs, err := childPropsLiteral(t, propsType, "_gsxrt", table, propFields, nodeProps[propsType], byo, fm, func(nodes []gsxast.Markup) (string, error) {
+					fields, splatExpr, usedPkgs, err := childPropsLiteral(t, propsType, "_gsxrt", "_gsxrt.DefaultClassMerge", table, propFields, nodeProps[propsType], byo, fm, func(nodes []gsxast.Markup) (string, error) {
 						return "_gsxrt.Node(nil)", nil
 					})
 					if err != nil {

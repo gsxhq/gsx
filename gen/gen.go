@@ -170,5 +170,5 @@ func Generate(paths []string) (Result, error) {
 // blocks. When either is non-nil the incremental cache is bypassed (a func is
 // not hashable), so each run re-generates. The built-in (nil) path keeps the cache.
 func generate(paths []string, filterPkgs []string, cssMin, jsMin func(string) (string, error)) (Result, error) {
-	return generateCached(paths, filterPkgs, nil, attrclass.Builtin(), nil, cssMin == nil && jsMin == nil, cssMin, jsMin, true, true)
+	return generateCached(paths, filterPkgs, nil, attrclass.Builtin(), nil, cssMin == nil && jsMin == nil, cssMin, jsMin, true, true, nil)
 }
