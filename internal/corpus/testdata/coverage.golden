@@ -123,6 +123,7 @@ fallthrough/cond_attr_root_standalone	diag render
 fallthrough/empty_bag_noop	diag render
 fallthrough/manual_nullary_method	diag render
 fallthrough/manual_placement	diag render
+fallthrough/manual_split_container_bag	diag gen render
 fallthrough/manual_without	diag render
 fallthrough/no_class_empty_bag	diag render
 fallthrough/no_class_root_with_bag	diag render
@@ -268,4 +269,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 270 cases (render: 202, error: 49, gen-pinned: 79)
+TOTAL: 271 cases (render: 203, error: 49, gen-pinned: 80)
