@@ -24,25 +24,21 @@ To register your own named filter, add it to the `[filters]` table in `gsx.toml`
 
 `name |> trim` strips the surrounding whitespace; `|> upper` then maps every letter to upper case. The two stages are lowered to nested calls — `_gsxstd.Upper(_gsxstd.Trim(name))` — and the result is HTML-escaped as it is written to output.
 
+## Filter arguments
+
+A filter stage can take extra arguments by appending them in parentheses after the filter name: `{ value |> truncate(10) }` or `{ count |> format("%d comments") }`. The piped value is always the first argument; the parenthesised values are appended after it. Stages with and without arguments can be freely mixed in a chain.
+
+<!--@include: ./_generated/pipelines/020-filter-arguments.md-->
+
+`s |> trim |> truncate(5)` strips surrounding whitespace first, then cuts to five runes — lowered to `_gsxstd.Truncate(_gsxstd.Trim(s), 5)`. `count |> format("%d comments")` passes `count` as the first `Sprintf` verb and the string literal as the format spec.
+
 ## `(T, error)` auto-unwrap
 
-A filter that returns `(T, error)` — or any function call with that return shape used directly in a `{ expr }` interpolation — is automatically unwrapped by the code generator. There is no special syntax needed: the generated code assigns the result, checks the error, and if it is non-nil, returns it from `Render`. The caller of `Render` receives the error and can handle it (log, serve a 500, etc.).
+A filter that returns `(T, error)` — or any bare function call `{ f(x) }` with that return shape — is automatically unwrapped. There is no special syntax needed: the generated code assigns the result, checks the error, and if it is non-nil, returns it from `Render`. The caller receives the error and can handle it (log, serve a 500, etc.). See [Interpolation → `(T, error)` unwrap](./interpolation) for a worked example.
 
-The `?` try-marker syntax (e.g., `|> upper?`) is not supported and will produce a compile error — auto-unwrap makes it unnecessary.
+To handle an error inline, use a raw-Go init statement: `{ if v, err := f(); err != nil { … } else { … } }`.
 
-<!--@include: ./_generated/pipelines/020-pipeline-t-error-unwrap.md-->
-
-`greet(name)` returns `(string, error)`. The code generator rewrites this to:
-
-```go
-_v, _err := greet(name)
-if _err != nil {
-    return _err
-}
-// write _v as text
-```
-
-The same auto-unwrap applies when a registered pipeline filter returns `(T, error)`: no extra syntax is needed at the call site.
+The `?` try-marker syntax (e.g., `|> upper?`) is not supported — gsx reports an error — auto-unwrap makes it unnecessary.
 
 ## Pipelines per context
 
