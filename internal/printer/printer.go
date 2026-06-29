@@ -617,7 +617,7 @@ func writeAttrInline(b *strings.Builder, a ast.Attr) {
 				}
 				b.WriteString(strconv.Quote(pair.Key))
 				b.WriteString(": ")
-				b.WriteString(pair.Value)
+				b.WriteString(fmtExpr(pair.Value))
 			}
 			b.WriteString(" }}")
 		}

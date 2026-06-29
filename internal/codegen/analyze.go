@@ -1739,6 +1739,10 @@ func collectAttrSrc(attrs []gsxast.Attr, add func(string)) {
 					add(st.Args)
 				}
 			}
+		case *gsxast.OrderedAttrsAttr:
+			for _, pr := range at.Pairs {
+				add(pr.Value)
+			}
 		case *gsxast.CondAttr:
 			add(at.Cond)
 			collectAttrSrc(at.Then, add)
