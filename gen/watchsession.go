@@ -57,6 +57,7 @@ func (s *watchSession) openModule(root string) (*codegen.Module, error) {
 		JSMin:        s.cfg.jsMin,
 		CSSMinify:    s.cfg.cssMinify,
 		JSMinify:     s.cfg.jsMinify,
+		ClassMerger:  s.cfg.classMerger,
 	})
 }
 

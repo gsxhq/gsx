@@ -233,6 +233,11 @@ func mergeConfig(base, opts config) config {
 		merged.fieldMatcher = opts.fieldMatcher
 	}
 
+	merged.classMerger = base.classMerger
+	if opts.classMerger != nil {
+		merged.classMerger = opts.classMerger
+	}
+
 	merged.errs = append(append(merged.errs, base.errs...), opts.errs...)
 
 	merged.printWidth = base.printWidth

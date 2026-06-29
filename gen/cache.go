@@ -14,7 +14,7 @@ import (
 	"github.com/gsxhq/gsx/internal/diag"
 )
 
-func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, useCache bool, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool) (Result, error) {
+func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, useCache bool, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef) (Result, error) {
 	var res Result
 	dirs, err := discoverDirs(paths)
 	if err != nil {
@@ -34,7 +34,7 @@ func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, c
 		res.Errs = append(res.Errs, fmt.Errorf("gen: no go.mod found above %s", d))
 	}
 	for _, g := range groups {
-		generateModule(g, filterPkgs, aliases, cls, fm, useCache, cssMin, jsMin, cssMinify, jsMinify, &res)
+		generateModule(g, filterPkgs, aliases, cls, fm, useCache, cssMin, jsMin, cssMinify, jsMinify, classMerger, &res)
 	}
 
 	sort.Strings(res.Written)
@@ -56,7 +56,7 @@ func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, c
 // MISS regenerate when the incremental cache is usable, else one batched
 // generate. Final result aggregation (sort, error join) is the caller's job, so
 // this only appends to res.
-func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, useCache bool, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, out *Result) {
+func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, useCache bool, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef, out *Result) {
 	root, modPath, dirs := g.root, g.modPath, g.dirs
 
 	// Work against a LOCAL result so the per-module manifest guard can ask "was
@@ -93,6 +93,7 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 		JSMin:        jsMin,
 		CSSMinify:    cssMinify,
 		JSMinify:     jsMinify,
+		ClassMerger:  classMerger,
 	}
 
 	// No cache: one batched generate (Tier 0 path).
