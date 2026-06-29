@@ -38,7 +38,7 @@
   {
     "name": "Function (T, error) unwrap",
     "category": "Basics",
-    "source": "package views\n\ncomponent Label(key string) {\n\t<span>{ lookup(key) }</span>\n}\n",
+    "source": "package views\n\nfunc lookup(k string) (string, error) { return k, nil }\n\ncomponent Label(key string) {\n\t<span>{ lookup(key) }</span>\n}\n",
     "invoke": "Label(LabelProps{Key: \"hello\"})"
   },
   {

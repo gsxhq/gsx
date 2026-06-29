@@ -44,7 +44,7 @@ The escaper applied to `{ expr }` depends on **where** the interpolation appears
 
 - **Text content** (`<p>{ x }</p>`) — HTML-escapes the string form of `x`.
 - **Attribute value** (`title={ x }`) — attribute-escapes the value.
-- **URL attribute** (`href={ x }`, `src={ x }`, `action={ x }`, `hx-*`) — scheme-sanitizes and escapes.
+- **URL attribute** (`href={ x }`, `src={ x }`, `action={ x }`, and htmx method attrs `hx-get`/`hx-post`/`hx-put`/`hx-delete`/`hx-patch`) — scheme-sanitizes and escapes. (`hx-on*` is a JS context; other `hx-*` attrs are plain text.)
 - **`<script>` body** (`@{ x }`) — JSON-encodes the Go value to a safe JS literal.
 - **`<style>` body** (`@{ x }`) — CSS value-filters the string.
 

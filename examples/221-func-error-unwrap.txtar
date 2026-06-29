@@ -4,12 +4,10 @@ summary: A function returning (T, error) auto-unwraps in `{ expr }`; the error p
 category: Basics
 page: interpolation
 pageOrder: 30
--- helpers.go --
+-- input.gsx --
 package views
 
 func lookup(k string) (string, error) { return k, nil }
--- input.gsx --
-package views
 
 component Label(key string) {
 	<span>{lookup(key)}</span>

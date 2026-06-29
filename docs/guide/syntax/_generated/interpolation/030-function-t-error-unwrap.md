@@ -3,6 +3,8 @@
 ```gsx
 package views
 
+func lookup(k string) (string, error) { return k, nil }
+
 component Label(key string) {
 	<span>{ lookup(key) }</span>
 }
@@ -14,4 +16,4 @@ Renders:
 <span>hello</span>
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgTGFiZWwoa2V5IHN0cmluZykge1xuXHRcdTAwM2NzcGFuXHUwMDNleyBsb29rdXAoa2V5KSB9XHUwMDNjL3NwYW5cdTAwM2Vcbn1cbiIsImkiOiJMYWJlbChMYWJlbFByb3Bze0tleTogXCJoZWxsb1wifSkifQ==)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5mdW5jIGxvb2t1cChrIHN0cmluZykgKHN0cmluZywgZXJyb3IpIHsgcmV0dXJuIGssIG5pbCB9XG5cbmNvbXBvbmVudCBMYWJlbChrZXkgc3RyaW5nKSB7XG5cdFx1MDAzY3NwYW5cdTAwM2V7IGxvb2t1cChrZXkpIH1cdTAwM2Mvc3Bhblx1MDAzZVxufVxuIiwiaSI6IkxhYmVsKExhYmVsUHJvcHN7S2V5OiBcImhlbGxvXCJ9KSJ9)
