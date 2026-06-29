@@ -812,6 +812,21 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					// type-error loop). harvest reads _gsxuseq exactly like _gsxuse.
 					fmt.Fprintf(sb, "_gsxuseq(%s)\n", probe)
 				}
+				// Probe ordered-attrs pair values AFTER ExprAttr probes, in attr source
+				// order then pair order — matching collectExprs's ordering exactly.
+				// _gsxuseq harvests the raw type (possibly a tuple) of each pair value;
+				// the props-literal _gsxunwrap(...) probe already reports expression-internal
+				// errors, so _gsxuseq's quiet suppression avoids duplicates.
+				for _, a := range t.Attrs {
+					oa, ok := a.(*gsxast.OrderedAttrsAttr)
+					if !ok {
+						continue
+					}
+					for i := range oa.Pairs {
+						emitSkeletonLine(sb, fset, oa.Pairs[i].Pos())
+						fmt.Fprintf(sb, "_gsxuseq(%s)\n", oa.Pairs[i].Value)
+					}
+				}
 				// Probe slot content in the SAME canonical order collectExprs walks:
 				// each markup-attr value (attr order) then the children.
 				var probeErr error
@@ -1439,15 +1454,26 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 			*out = append(*out, t)
 		case *gsxast.Element:
 			if isComponentTag(t.Tag) {
-				// Child component: collect ExprAttr nodes (prop values) first, then slot
-				// content (markup-attr values and children). emitProbes emits _gsxuse
-				// probes in the SAME order — ExprAttrs before slot content — so the k-th
-				// probe aligns with the k-th node for ALL child-component branches
-				// (bare-call, nullary, and props-literal). The ExprAttr types in resolved
-				// let genChildComponent detect and hoist (T, error) tuple-valued props.
+				// Child component: collect ExprAttr nodes (prop values) first, then
+				// OrderedPair nodes (pair values, one per pair per OrderedAttrsAttr),
+				// then slot content (markup-attr values and children). emitProbes emits
+				// _gsxuseq probes in the SAME order — ExprAttrs, then pairs, then slot
+				// content — so the k-th probe aligns with the k-th node for ALL
+				// child-component branches. The ExprAttr types in resolved let
+				// genChildComponent detect and hoist (T, error) tuple-valued props;
+				// the OrderedPair types let it detect and hoist tuple pair values.
 				for _, a := range t.Attrs {
 					if ea, ok := a.(*gsxast.ExprAttr); ok {
 						*out = append(*out, ea)
+					}
+				}
+				// Collect pair nodes AFTER all ExprAttrs, in attr source order then
+				// pair order — matching the emitProbes ordering exactly.
+				for _, a := range t.Attrs {
+					if oa, ok := a.(*gsxast.OrderedAttrsAttr); ok {
+						for i := range oa.Pairs {
+							*out = append(*out, &oa.Pairs[i])
+						}
 					}
 				}
 				walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {

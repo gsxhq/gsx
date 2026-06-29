@@ -134,7 +134,7 @@ func zeroSpans(n ast.Node) {
 				v.CodePos = 0
 			case *ast.OrderedAttrsAttr:
 				for i := range v.Pairs {
-					v.Pairs[i].ValuePos = 0
+					ast.SetSpan(&v.Pairs[i], 0, 0)
 				}
 			}
 		}

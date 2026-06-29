@@ -2044,6 +2044,26 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 			}
 		}
 	}
+	// Same rejection for ordered-attrs pair values: if any pair value is a tuple
+	// that is NOT (T, error), emit the same clean diagnostic (wording adapted to
+	// the ordered-attrs context). The skeleton's _gsxunwrap(...) on each pair
+	// value keeps the skeleton from erroring, so this is the sole diagnostic site.
+	for _, fe := range fieldEntries {
+		if fe.oa == nil {
+			continue
+		}
+		for j := range fe.oaPairs {
+			pairType := resolved[&fe.oa.Pairs[j]]
+			if t, ok := pairType.(*types.Tuple); ok {
+				if _, unwrappable := tupleUnwrapType(t); !unwrappable {
+					bag.Errorf(fe.oa.Pairs[j].Pos(), fe.oa.Pairs[j].End(), "invalid-tuple",
+						"ordered-attrs pair %q value %q returns %s; only (T, error) is supported",
+						fe.oaPairs[j].key, fe.oaPairs[j].rawVal, t)
+					return false
+				}
+			}
+		}
+	}
 
 	// Hoist-all-when-any: if any prop ExprAttr value is a (T, error) tuple, hoist
 	// EVERY prop ExprAttr value to a temp in source order before the Node call.
@@ -2079,6 +2099,44 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 				fieldEntries[i].str = fmt.Sprintf("%s: %s", fe.fieldName, tmp)
 			}
 		}
+	}
+	// Ordered-attrs pair hoisting: if any pair value in a given OrderedAttrsAttr is
+	// a (T, error) tuple, hoist ALL pairs in that attr so evaluation order within
+	// the pair sequence is preserved (mirrors ExprAttr hoist-all-when-any).
+	// Non-tuple pairs get a plain `tmp := expr`; tuple pairs get the full hoist.
+	for i, fe := range fieldEntries {
+		if fe.oa == nil {
+			continue
+		}
+		// Check if any pair in this attr is a tuple.
+		anyPairTuple := false
+		for j := range fe.oaPairs {
+			if _, ok := tupleUnwrapType(resolved[&fe.oa.Pairs[j]]); ok {
+				anyPairTuple = true
+				break
+			}
+		}
+		if !anyPairTuple {
+			continue
+		}
+		// Hoist all pairs and rebuild the gsx.OrderedAttrs{…} literal.
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "%s: gsx.OrderedAttrs{", fe.fieldName)
+		for j, pr := range fe.oaPairs {
+			pairType := resolved[&fe.oa.Pairs[j]]
+			var valueStr string
+			if _, isTup := tupleUnwrapType(pairType); isTup {
+				valueStr = hoistTuple(b, pr.rawVal, interpTemp)
+			} else {
+				tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+				*interpTemp++
+				fmt.Fprintf(b, "\t\t%s := %s\n", tmp, pr.rawVal)
+				valueStr = tmp
+			}
+			fmt.Fprintf(&sb, "{Key: %s, Value: %s}, ", strconv.Quote(pr.key), valueStr)
+		}
+		sb.WriteString("}")
+		fieldEntries[i].str = sb.String()
 	}
 	strs := make([]string, len(fieldEntries))
 	for i, fe := range fieldEntries {
@@ -2148,12 +2206,26 @@ func emitSlotClosure(nodes []ast.Markup, resolved map[ast.Node]types.Type, table
 // rawVal, fieldName, and isNodeField fields are populated only for a prop-matched
 // *ExprAttr; they are used by genChildComponent to detect and hoist (T, error)
 // tuple-valued props before the _gsxgw.Node call.
+// For an *OrderedAttrsAttr field, oa is non-nil and oaPairs holds per-pair info
+// (key + raw value expression); genChildComponent uses oa to look up resolved
+// types for each pair and rebuild the gsx.OrderedAttrs{…} literal after hoisting.
 type propFieldEntry struct {
 	str         string        // fully-computed field string, e.g. "Title: lookup(t)"
 	ea          *ast.ExprAttr // non-nil iff this entry came from a prop-matched ExprAttr
 	rawVal      string        // lowered expression (no _gsxunwrap wrapping); used for hoisting
 	fieldName   string        // Go field name; used to rebuild the string after hoisting
 	isNodeField bool          // whether the field expects gsx.Node (needs gsx.Val wrapping)
+	// For OrderedAttrsAttr fields:
+	oa      *ast.OrderedAttrsAttr // non-nil iff this entry came from an ordered-attrs attr
+	oaPairs []oaPairEntry         // per-pair info when oa != nil
+}
+
+// oaPairEntry holds the key and raw value expression for one pair inside an
+// ordered-attrs field. genChildComponent uses it to rebuild the gsx.OrderedAttrs
+// literal after hoisting tuple-valued pairs.
+type oaPairEntry struct {
+	key    string // unquoted attribute key (for {Key: …} literal)
+	rawVal string // raw Go expression (no _gsxunwrap wrapping)
 }
 
 // childPropsLiteral builds the per-field list for a child component's props
@@ -2399,13 +2471,33 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 			if verr := validateMatchedField(fn, t.Name, propsType, declared); verr != nil {
 				return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "bad-field-match", msg: verr.Error()}
 			}
+			// Collect per-pair info for genChildComponent's tuple-hoist pass.
+			pairEntries := make([]oaPairEntry, len(t.Pairs))
+			for i, pr := range t.Pairs {
+				pairEntries[i] = oaPairEntry{key: pr.Key, rawVal: pr.Value}
+			}
 			var sb strings.Builder
 			fmt.Fprintf(&sb, "%s: %s.OrderedAttrs{", fn, rtPkg)
 			for _, pr := range t.Pairs {
-				fmt.Fprintf(&sb, "{Key: %s, Value: %s}, ", strconv.Quote(pr.Key), pr.Value)
+				// When probeWrap=true (skeleton path), wrap each pair value with
+				// _gsxunwrap(...) so the skeleton tolerates (T, error) tuples
+				// while still type-checking the value as the first return (any).
+				// When probeWrap=false (emit path), inline the raw value; tuple
+				// pairs are hoisted by genChildComponent before this literal is
+				// built, so the value will have been replaced by a temp already.
+				val := pr.Value
+				if probeWrap && val != "nil" {
+					val = fmt.Sprintf("_gsxunwrap(%s)", val)
+				}
+				fmt.Fprintf(&sb, "{Key: %s, Value: %s}, ", strconv.Quote(pr.Key), val)
 			}
 			sb.WriteString("}")
-			fields = append(fields, propFieldEntry{str: sb.String()})
+			fields = append(fields, propFieldEntry{
+				str:       sb.String(),
+				fieldName: fn,
+				oa:        t,
+				oaPairs:   pairEntries,
+			})
 		default:
 			msg := fmt.Sprintf("unknown attribute %T on component (<%s>)", a, el.Tag)
 			return nil, "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}
