@@ -562,9 +562,11 @@ git commit -m "feat(examplegen): emit routed runnable partials + drift-gate them
 **Fixtures:**
 | file | page | pageOrder | source case | summary |
 |---|---|---|---|---|
-| NEW `295-explicit-props.txtar` | context | 10 | `70-components` style (adapt) | The gsx way: pass data through explicit, typed props. |
+| NEW `295-reading-context.txtar` | context | 10 | `diagnostics/ctx_in_interp` (renders `<p>ok</p>`) | Reading request-scoped data from the ambient `ctx`. |
 
-**Subsections (prose-heavy):** Components receive `ctx context.Context` (for `Render`) · gsx favors **explicit props** over context prop-drilling — show the explicit-props pattern (295) · `ctx` used as an interpolation value is a **compile error** (cite `diagnostics/ctx_in_interp`) — explain why (author-owns-props design bet; link `docs/guide/vision.md`).
+**Accuracy (verified):** `ctx` IS available in every component body — it is the `ctx` of the emitted `gsx.Func(func(ctx context.Context, w io.Writer))` closure. `{ fromCtx(ctx) }` (passing `ctx` to a helper) is **valid** and renders normally (`diagnostics/ctx_in_interp.txtar` has an EMPTY diagnostics file and renders `<p>ok</p>`). Do NOT claim "ctx in interpolation is a compile error" — that is false. (`{ ctx }` bare would fail only as a type error like interpolating any non-stringable value — don't dwell on it.)
+
+**Subsections (prose-heavy):** Components receive `ctx context.Context` — same shape as templ (the value passed to `Render(ctx, w)`) · Reading from context — pass `ctx` to a typed helper / `ctx.Value(key)` (include 295) · gsx's preference: **explicit, typed props** for app data over context prop-drilling — ctx is there for cross-cutting/request-scoped values, but gsx steers you to props for the data a component actually needs (link `docs/guide/vision.md` "author owns the type" design bet). Frame as a *preference/design lean*, not a prohibition.
 
 ### Task 15: Reference & notes — `std-functions` + `render-once`
 

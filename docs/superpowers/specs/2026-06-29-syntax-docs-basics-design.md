@@ -96,7 +96,7 @@ Pages live under `docs/guide/syntax/`.
 |---|---|
 | `raw-html.md` | `gsx.Raw` opt-out (≈ `templ.Raw`); security caveat |
 | `escaping.md` | context-aware escaping table · all opt-out helpers · XSS-by-construction |
-| `context.md` | components receive `ctx context.Context`; gsx favors explicit props; `ctx` in interpolation is a compile error — explain the stance (this is where gsx *differs*) |
+| `context.md` | components receive `ctx context.Context` (same as templ); `ctx` IS available and usable (`{ fromCtx(ctx) }` renders fine); gsx merely *prefers* explicit typed props over context prop-drilling for app data — explain the design lean (this is where gsx *differs* in emphasis, not capability) |
 | `std-functions.md` | runtime helper reference: `gsx.Raw` / `RawURL` / `RawJS` / `RawCSS`, `Attrs`, `OrderedAttrs`, `Node`, `Func`, `Join`, `Raw*` — what each is for |
 
 **E. Notes & differences** (real sections; some short)
