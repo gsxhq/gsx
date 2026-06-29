@@ -78,16 +78,16 @@ a one-time golden regeneration.
 A single resolved value (unlike `filters`, which is a list): the merger is one
 function reference, or absent.
 
-The config value names an **exported package-level identifier** that is callable
-as the merger (validated by go/types — see contract below). The identifier may be
-either a **func declaration** (`func Merge([]string) string`) or a **package-level
-var of func type** (`var Merge twmerge.TwMergeFn`). Both emit identically as
-`pkg.Merge(<tokens, adapted>)`.
+The config value names an **exported package-level identifier** whose type is
+**exactly `func([]string) string`** (validated by go/types — see contract below).
+The identifier may be a **func declaration** (`func Merge([]string) string`) or a
+**package-level var of that func type** (`var Merge func([]string) string =
+…`). Both emit identically as a direct reference `pkg.Merge`.
 
 - `gsx.toml`: a new top-level key
 
   ```toml
-  class_merger = "github.com/jackielii/tailwind-merge-go.Merge"  # func or var ref
+  class_merger = "myapp/twcfg.Merge"  # an exported func([]string) string (func or var)
   ```
 
   Parsed by the existing `splitPkgFunc`, identical to a filter alias value. Added
@@ -109,29 +109,30 @@ var of func type** (`var Merge twmerge.TwMergeFn`). Both emit identically as
   (`gen/cachekey.go`) — it changes generated output. Absent merger contributes a
   stable empty marker.
 
-### Signature contract and adapter emission
+### Signature contract — direct references only
 
-The runtime seam is `func([]string) string`. The configured merger is validated
-and adapted at **generate time** via `go/types` (the same package-loading the
-filter harvest already performs), never guessed:
+The runtime seam is `func([]string) string`. gsx emits **only direct references**
+to the configured merger — never a generated adapter. (An adapter would have to
+live somewhere: a package-level helper collides across the multiple `.x.go`
+files gsx emits per package; an inline closure allocates on every render. Both
+are avoided by requiring the merger to already match the seam.)
 
-- **Native** `func([]string) string` → emitted by direct reference, no adapter:
-  `mypkg.Merge`.
-- **Variadic `...T` where `[]string` is assignable to a single `T`** (covers
-  Tailwind's `func(...ClassNameValue) string` where `ClassNameValue = any`, and
-  `func(...any) string`) → adapter calls with the slice as one argument:
-  `func(t []string) string { return mypkg.Merge(t) }`.
-- **Variadic `...string`** → adapter spreads:
-  `func(t []string) string { return mypkg.Merge(t...) }`.
-- Anything else (wrong arity, non-string return, not callable with tokens) →
-  **generate-time error** naming the configured ref and the required contract.
-  No silent fallback.
+The configured merger is validated at **generate time** via `go/types` (the same
+package-loading the filter harvest performs):
 
-The adapter, when needed, is emitted **once per generated file** as an unexported
-package-level func (e.g. `_gsxClassMerge`). When no adapter is needed the merger
-is referenced directly. The merger package is imported under a **reserved alias**
-(e.g. `_gsxcm`), reusing the filter-import alias machinery (`writeImports`,
-collision handling with user/std/filter imports).
+- **Exactly `func([]string) string`** (a func decl or a package-level var of that
+  func type) → emitted by direct reference: `_gsxcm.Merge`.
+- **Any other signature** — variadic (`func(...any) string`, including bare
+  `tailwind-merge-go.Merge` whose type is `func(...ClassNameValue) string`),
+  wrong arity, non-string return, etc. → **generate-time error** naming the
+  configured ref, its actual signature, and the required `func([]string) string`,
+  and pointing at the one-line wrapper idiom (below). No silent fallback, no
+  adapter.
+
+The merger package is imported under a **reserved alias** (e.g. `_gsxcm`),
+reusing the filter-import alias machinery (`writeImports`, `filterAliases`-style
+`_gsx`-prefixed naming, collision handling with user/std/filter imports). The
+emit sites reference `<alias>.<FuncName>` directly, exactly like a filter call.
 
 #### Custom-configured mergers: the wrapper idiom
 
@@ -186,20 +187,23 @@ wrapper merges `px-4 px-8` → `px-8` through gsx's seam.)
   - removes today's hidden double-merge,
   - keeps `Attrs.Class()` a zero-arg method, so user-facing `{ attrs.Class() }`
     interpolations are unaffected by the API change.
-- Codegen **always** passes a merger explicitly — `gsx.DefaultClassMerge` when
-  none is configured, the adapter/reference otherwise. (Decision: uniform
-  threading over a separate `ClassWith` variant. Costs a one-time golden regen;
-  keeps the runtime class API to one method each. Revisit at review if the
-  corpus churn is judged not worth it.)
+- Codegen **always** passes a merger expression explicitly — `gsx.DefaultClassMerge`
+  when none is configured, the direct reference `<alias>.<FuncName>` otherwise.
+  (Decision: uniform threading over a separate `ClassWith` variant. Costs a
+  one-time golden regen; keeps the runtime class API to one method each. Revisit
+  at review if the corpus churn is judged not worth it.)
 
 ### Codegen changes (`internal/codegen`)
 
-The four emit sites that produce class calls
-(`emit.go`: `emitRootComposedClass`, `emitRootStaticClass`, `emitClassAttr`,
-`emitSpread`, plus the `ClassString` interp builder ~line 2222) prepend the
-merger argument. New `codegen.Options.ClassMerger *ClassMergerRef`; threaded from
-`gen` like `FilterPkgs`/aliases. When set, register the reserved import alias and
-(if needed) emit the adapter func per file.
+The five emit sites that produce class calls
+(`emit.go`: `emitRootComposedClass`, `emitRootStaticClass`, `emitClassAttr`, the
+`emitSpread` no-class `ClassMerged` branch, plus the `ClassString` interp builder
+~line 2222) prepend a `mergeExpr` argument. `mergeExpr` is computed once per
+generation: `"gsx.DefaultClassMerge"` by default, else `<alias>.<FuncName>` for
+the configured merger. New `codegen.Options.ClassMerger *ClassMergerRef`; threaded
+from `gen` like `FilterPkgs`/aliases. When set, register the reserved import
+alias (so `<alias>` resolves) and validate the merger signature (go/types) —
+direct reference only, no adapter.
 
 ### Generated code: before / after
 
@@ -221,24 +225,8 @@ _gsxgw.Class(gsx.Class("card"), gsx.Class(_gsxp.Attrs.Class()))
 _gsxgw.Class(gsx.DefaultClassMerge, gsx.Class("card"), gsx.Class(_gsxp.Attrs.Class()))
 ```
 
-**Approach A, `class_merger = "github.com/jackielii/tailwind-merge-go.Merge"`:**
-
-```go
-import (
-	"context"
-	"io"
-	"github.com/gsxhq/gsx"
-	_gsxcm "github.com/jackielii/tailwind-merge-go"
-)
-
-func _gsxClassMerge(_gsxtokens []string) string { return _gsxcm.Merge(_gsxtokens) }
-
-// ...
-_gsxgw.Class(_gsxClassMerge, gsx.Class("card"), gsx.Class(_gsxp.Attrs.Class()))
-```
-
-**Approach A, custom wrapper `class_merger = "myapp/twcfg.Merge"`** (native
-`func([]string) string` ⇒ no adapter, direct reference):
+**Approach A, custom wrapper `class_merger = "myapp/twcfg.Merge"`** (already
+`func([]string) string` ⇒ direct reference):
 
 ```go
 import (
@@ -252,24 +240,35 @@ import (
 _gsxgw.Class(_gsxcm.Merge, gsx.Class("card"), gsx.Class(_gsxp.Attrs.Class()))
 ```
 
+**Approach A, `class_merger = "github.com/jackielii/tailwind-merge-go.Merge"`**
+(bare, variadic `func(...ClassNameValue) string`) ⇒ **generate-time error**, not
+generated output:
+
+```
+gsx: class_merger "github.com/jackielii/tailwind-merge-go.Merge" has signature
+func(...any) string; it must be func([]string) string. Wrap it in a one-line
+exported func in your own package — see docs/guide/config.md#class_merger.
+```
+
 ## Testing
 
 - **Runtime unit tests** (root `gsx`): `DefaultClassMerge` behavior;
   `Attrs.Class()` returns raw join (no merge); helpers apply the passed merger;
   `ClassMerged` empty-set no-op preserved. Replace the existing
   `TestClassMergerOverride` (global-swap) with a passed-merger test.
-- **Codegen unit tests** (`internal/codegen`): emit sites prepend the merger;
-  adapter emission per signature class (native / `...any` / `...string`);
-  import-alias collision handling; the generate-time error for a non-conforming
-  merger signature and for an unresolvable ref.
+- **Codegen unit tests** (`internal/codegen`): emit sites prepend the merger
+  expression (`gsx.DefaultClassMerge` by default; `<alias>.Merge` when configured);
+  import-alias resolution; the generate-time error for a non-conforming merger
+  signature (variadic / wrong arity / wrong return) and for an unresolvable ref.
 - **Corpus case(s)** (canonical, per CLAUDE.md). Needs harness support:
   - Add `ClassMerger` to the corpus `codegen.Options` (`internal/corpus/codegen.go`)
     and a per-case way to set it (a case directive or a `gsx.toml` section the
     harness reads).
-  - Use a **case-local merger package** (a small in-repo `func Merge([]string) string`,
-    leveraging existing multi-package case support + import rewriting) so the
-    repo stays dependency-free. The case pins `generated.x.go.golden` (import
-    alias + adapter + threaded calls) and `render.golden` (merge behavior).
+  - Use a **case-local merger package** (a small in-repo
+    `func Merge([]string) string`, leveraging existing multi-package case support
+    + import rewriting) so the repo stays dependency-free. The case pins
+    `generated.x.go.golden` (import alias + direct reference + threaded calls) and
+    `render.golden` (merge behavior).
   - Cover the contexts where class merge appears: composable `class={…}`, static
     root class + fallthrough, and `Attrs.Class()` interpolation.
 - **Runnable example** (real `tailwind-merge-go`): self-contained module (own
