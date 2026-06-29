@@ -200,9 +200,7 @@ func TestAttrWS_JSContextWithSpace(t *testing.T) {
 			t.Errorf("Name=%q, want onclick", a.Name)
 		}
 	default:
-		// JSAttr is also valid here; just check the name field via reflection.
-		// Use the ast.Attr interface — check that it's any attr node with name onclick.
-		t.Fatalf("expected StaticAttr or JSAttr for onclick, got %T", attrs[0])
+		t.Fatalf("expected StaticAttr for onclick, got %T", attrs[0])
 	}
 }
 

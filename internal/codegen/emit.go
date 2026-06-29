@@ -1336,6 +1336,11 @@ func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, tab
 		}
 		b.WriteString("\t\t}\n")
 		return true
+	case *ast.OrderedAttrsAttr:
+		bag.Errorf(a.Pos(), a.End(), "unsupported-attr",
+			"ordered-attrs {{ }} is only valid as the value of a declared gsx.OrderedAttrs component prop, not plain-element attribute %q; declare a gsx.OrderedAttrs prop and spread it with { prop... }",
+			t.Name)
+		return false
 	default:
 		bag.Errorf(a.Pos(), a.End(), "unsupported-attr", "unknown attribute %T", a)
 		return false

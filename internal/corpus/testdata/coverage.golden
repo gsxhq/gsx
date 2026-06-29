@@ -173,9 +173,10 @@ orderedattrs/datastar_example	diag gen render
 orderedattrs/dup_keys	diag gen render
 orderedattrs/escaping	diag gen render
 orderedattrs/parse_literal	ast diag
+orderedattrs/plain_element_error	diag gen render
 orderedattrs/spread_preserves_order	diag gen render
 orderedattrs/value_literal	diag gen render
-orderedattrs/ws_around_eq	diag render
+orderedattrs/ws_around_eq	diag gen render
 parser/01_elements	ast diag
 parser/02_interpolation	ast diag
 parser/03_attrs	ast diag
@@ -279,4 +280,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 281 cases (render: 212, error: 49, gen-pinned: 88)
+TOTAL: 282 cases (render: 213, error: 49, gen-pinned: 90)

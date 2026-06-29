@@ -21,6 +21,7 @@ type OrderedAttrs []Attr
 // unsafe name is dropped, never emitted), the same bool handling (a true bool is
 // a bare attribute, false is omitted), and the same AttrValue escaping — and
 // differs ONLY in that it does not sort. An empty/nil bag writes nothing.
+// ctx is reserved for future context propagation (mirrors Spread's signature).
 func (gw *Writer) SpreadOrdered(ctx context.Context, a OrderedAttrs) {
 	if gw.err != nil || len(a) == 0 {
 		return

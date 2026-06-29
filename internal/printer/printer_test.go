@@ -936,3 +936,32 @@ component C() {
 `
 	checkFormat(t, src, want)
 }
+
+func TestOrderedAttrsEmptyBagFormatting(t *testing.T) {
+	// An empty {{ }} literal must format as `name={{ }}` (single interior space),
+	// not `name={{  }}` (two interior spaces). Also verifies idempotence.
+	src := `package p
+
+import "github.com/gsxhq/gsx"
+
+component C(attrs gsx.OrderedAttrs) {
+	<div></div>
+}
+
+component Page() {
+	<C attrs={{ }}/>
+}`
+	want := `package p
+
+import "github.com/gsxhq/gsx"
+
+component C(attrs gsx.OrderedAttrs) {
+	<div></div>
+}
+
+component Page() {
+	<C attrs={{ }}/>
+}
+`
+	checkFormat(t, src, want)
+}

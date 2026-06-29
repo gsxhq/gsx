@@ -444,8 +444,26 @@ func (p *parser) splitOrderedPairs(src string, base int) ([]ast.OrderedPair, err
 	for k := 0; k+1 < len(bounds); k++ {
 		segStart := bounds[k] + 1
 		segEnd := bounds[k+1]
+		isLast := k+2 == len(bounds)
 		if strings.TrimSpace(src[segStart:segEnd]) == "" {
-			continue // skip empty segments (e.g. trailing comma)
+			if isLast {
+				continue // trailing comma is legal
+			}
+			// Leading or interior empty segment = stray comma. Position the error
+			// at the offending comma (the preceding bounds value).
+			commaOff := bounds[k+1]
+			return nil, p.errorf(p.posAt(base+commaOff), "ordered-attrs literal has an empty pair (stray comma)")
+		}
+
+		// firstNonSpace returns the offset of the first non-whitespace byte in
+		// src[start:end], or start if the segment is all whitespace.
+		firstNonSpace := func(start, end int) int {
+			for i := start; i < end; i++ {
+				if src[i] != ' ' && src[i] != '\t' && src[i] != '\r' && src[i] != '\n' {
+					return i
+				}
+			}
+			return start
 		}
 
 		// Find the first depth-0 colon within this segment.
@@ -458,20 +476,23 @@ func (p *parser) splitOrderedPairs(src string, base int) ([]ast.OrderedPair, err
 		}
 		if colon < 0 {
 			// No colon found: this is a bare key (e.g. `"data-x"` without a value).
-			return nil, p.errorf(p.posAt(base+segStart), "ordered-attrs pair missing value (bare key): %q", strings.TrimSpace(src[segStart:segEnd]))
+			trimmed := strings.TrimSpace(src[segStart:segEnd])
+			keyOff := firstNonSpace(segStart, segEnd)
+			return nil, p.errorf(p.posAt(base+keyOff), "ordered-attrs pair %s is missing a %q", trimmed, ": value")
 		}
 
 		rawKey := strings.TrimSpace(src[segStart:colon])
 		rawValue := strings.TrimSpace(src[colon+1 : segEnd])
 
+		keyOff := firstNonSpace(segStart, colon)
 		if rawValue == "" {
-			return nil, p.errorf(p.posAt(base+segStart), "ordered-attrs pair missing value for key %q", rawKey)
+			return nil, p.errorf(p.posAt(base+keyOff), "ordered-attrs pair missing value for key %q", rawKey)
 		}
 
 		// The key MUST be a Go string literal. Unquote it.
 		key, err := strconv.Unquote(rawKey)
 		if err != nil {
-			return nil, p.errorf(p.posAt(base+segStart), "ordered-attrs key must be a quoted string literal, got %q", rawKey)
+			return nil, p.errorf(p.posAt(base+keyOff), "ordered-attrs key must be a quoted string literal, got %q", rawKey)
 		}
 
 		// ValuePos: offset of the first non-space byte after the colon in src,
