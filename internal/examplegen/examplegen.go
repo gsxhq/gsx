@@ -324,8 +324,16 @@ func Generate(examplesDir, mdPath, partialsDir string, jsonPaths ...string) erro
 			return err
 		}
 	}
-	if err := os.WriteFile(mdPath, RenderMarkdown(gallery), 0o644); err != nil {
-		return err
+	if len(gallery) == 0 {
+		// No unrouted examples: remove the file if it exists so it does not
+		// accumulate as a stale artifact.
+		if err := os.Remove(mdPath); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	} else {
+		if err := os.WriteFile(mdPath, RenderMarkdown(gallery), 0o644); err != nil {
+			return err
+		}
 	}
 	pj, err := presetsJSON(exs) // playground shows ALL examples
 	if err != nil {

@@ -200,6 +200,67 @@ G()
 	}
 }
 
+// TestGenerateAllRoutedOmitsMdPath verifies that when every example is routed
+// to a syntax page (gallery is empty), Generate does NOT write mdPath — and
+// removes a pre-existing file — while still writing partials and presets JSON.
+func TestGenerateAllRoutedOmitsMdPath(t *testing.T) {
+	in := t.TempDir()
+	routed := `-- doc --
+name: Routed Only
+summary: only routed, no gallery
+category: Basics
+page: expressions
+pageOrder: 10
+-- input.gsx --
+package views
+
+component R() {
+	<span>r</span>
+}
+-- invoke --
+R()
+-- render.golden --
+<span>r</span>
+`
+	if err := os.WriteFile(filepath.Join(in, "10-routed.txtar"), []byte(routed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := t.TempDir()
+	md := filepath.Join(out, "examples.md")
+	partials := filepath.Join(out, "_generated")
+	jsonOut := filepath.Join(out, "presets.json")
+
+	// Pre-create md to prove Generate removes it when gallery is empty.
+	if err := os.WriteFile(md, []byte("old content\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Generate(in, md, partials, jsonOut); err != nil {
+		t.Fatal(err)
+	}
+
+	// mdPath must NOT exist when gallery is empty.
+	if _, err := os.Stat(md); !os.IsNotExist(err) {
+		t.Errorf("expected mdPath to be absent when gallery empty, got err=%v", err)
+	}
+
+	// The partial for the routed example must exist.
+	partialPath := filepath.Join(partials, "expressions", "010-routed-only.md")
+	if _, err := os.Stat(partialPath); err != nil {
+		t.Errorf("partial not written: %v", err)
+	}
+
+	// Presets JSON must contain the routed example.
+	dj, err := os.ReadFile(jsonOut)
+	if err != nil {
+		t.Fatalf("presets JSON not written: %v", err)
+	}
+	if !strings.Contains(string(dj), "Routed Only") {
+		t.Errorf("presets JSON missing routed example: %s", dj)
+	}
+}
+
 func TestRenderMarkdown(t *testing.T) {
 	exs, _ := Load("testdata")
 	md := string(RenderMarkdown(exs))
