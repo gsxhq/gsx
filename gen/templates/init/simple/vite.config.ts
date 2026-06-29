@@ -26,7 +26,21 @@ export default defineConfig(({ command, mode }) => {
     base: command === "serve" ? "/__vite/" : "/",
     publicDir: false,
     customLogger: logger,
-    plugins: [gsx(), fallback.plugin],
+    plugins: [
+      gsx(),
+      fallback.plugin,
+      {
+        // Log the app front door ("/"); Vite's own line shows the empty /__vite/ base.
+        name: "gsx-dev-url",
+        configureServer(server) {
+          server.printUrls = () => {
+            server.config.logger.info(
+              `\n  \x1b[32m➜\x1b[0m  Open \x1b[36mhttp://localhost:${vitePort}/\x1b[0m to view your app\n`,
+            );
+          };
+        },
+      },
+    ],
     server: {
       port: vitePort,
       proxy: {
