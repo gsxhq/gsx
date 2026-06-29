@@ -72,15 +72,58 @@ func TestClassMergedPartsAndExtraDeduped(t *testing.T) {
 }
 
 func TestDefaultClassMergeLastWins(t *testing.T) {
+	// Multiple sources are split and deduped last-wins.
 	if got := DefaultClassMerge([]string{"a", "b", "a"}); got != "b a" {
 		t.Fatalf("got %q, want %q", got, "b a")
+	}
+	// A single source is returned verbatim (nothing to merge across).
+	if got := DefaultClassMerge([]string{"rounded border p-4"}); got != "rounded border p-4" {
+		t.Fatalf("single source: got %q, want verbatim", got)
+	}
+	// Cross-source dedup still applies when sources are multi-token strings.
+	if got := DefaultClassMerge([]string{"btn px-4", "btn w-full"}); got != "px-4 btn w-full" {
+		t.Fatalf("multi-token sources: got %q", got)
+	}
+	if got := DefaultClassMerge(nil); got != "" {
+		t.Fatalf("empty: got %q", got)
 	}
 }
 
 func TestClassStringUsesPassedMerger(t *testing.T) {
-	merge := func(tokens []string) string { return "M:" + strings.Join(tokens, ",") }
-	if got := ClassString(merge, Class("a b")); got != "M:a,b" {
-		t.Fatalf("got %q", got)
+	// The merger receives the raw, un-split on-class strings in source order
+	// (off parts excluded); it is NOT pre-tokenized by the runtime.
+	merge := func(classes []string) string { return "M:" + strings.Join(classes, "|") }
+	if got := ClassString(merge, Class("a b"), ClassIf("c", false), Class("d")); got != "M:a b|d" {
+		t.Fatalf("got %q, want %q", got, "M:a b|d")
+	}
+}
+
+func TestClassLoneTokenSkipsMerger(t *testing.T) {
+	// A single lone token cannot conflict, so the merger must not be invoked.
+	merge := func(classes []string) string { t.Fatalf("merger called for lone token: %q", classes); return "" }
+	if got := ClassString(merge, Class("card"), ClassIf("hidden", false)); got != "card" {
+		t.Fatalf("got %q, want %q", got, "card")
+	}
+	var b strings.Builder
+	W(&b).Class(merge, Class("card"))
+	if b.String() != "card" {
+		t.Fatalf("Class lone token: got %q", b.String())
+	}
+}
+
+func TestClassMergerReceivesRawForRealMerge(t *testing.T) {
+	// A multi-token single source is NOT lone, so a custom merger still sees it
+	// (e.g. a Tailwind merger must resolve px-4 vs px-8 within one string).
+	seen := false
+	merge := func(classes []string) string {
+		seen = true
+		if len(classes) != 1 || classes[0] != "px-4 px-8" {
+			t.Fatalf("merger got %q, want [\"px-4 px-8\"]", classes)
+		}
+		return "px-8"
+	}
+	if got := ClassString(merge, Class("px-4 px-8")); got != "px-8" || !seen {
+		t.Fatalf("got %q seen=%v", got, seen)
 	}
 }
 

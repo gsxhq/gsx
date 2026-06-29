@@ -15,34 +15,95 @@ func Class(s string) ClassPart { return ClassPart{s: s, on: true} }
 // ClassIf includes s only when on.
 func ClassIf(s string, on bool) ClassPart { return ClassPart{s: s, on: on} }
 
-// DefaultClassMerge is the built-in class-merge strategy: it keeps the LAST
-// occurrence of each token (caller/last-wins), preserving the surviving tokens
-// in source order. e.g. "a b a" -> "b a". Generated code passes this as the
-// merge function when no class_merger is configured.
-func DefaultClassMerge(tokens []string) string {
-	lastIdx := make(map[string]int, len(tokens))
-	for i, t := range tokens {
-		lastIdx[t] = i
+// DefaultClassMerge is the built-in class-merge strategy. It receives the raw,
+// un-split class strings of each on source (static parts, toggles, and the
+// caller's fallthrough class) in source order, and resolves cross-source
+// conflicts by keeping the LAST occurrence of each token (caller/last-wins),
+// preserving surviving tokens in source order, e.g. ["a b", "a"] -> "b a".
+//
+// A single source is returned verbatim — there is nothing to merge across, so the
+// author's (or caller's) class string is preserved exactly. This makes the common
+// component-root case (one static class, no fallthrough) allocation-free.
+// Generated code passes this as the merge function when no class_merger is
+// configured.
+func DefaultClassMerge(classes []string) string {
+	switch len(classes) {
+	case 0:
+		return ""
+	case 1:
+		return classes[0]
 	}
-	out := make([]string, 0, len(tokens))
-	for i, t := range tokens {
-		if lastIdx[t] == i {
+	// Multiple sources: split into tokens, dedupe last-wins, join. The dedupe is
+	// in-place over the flattened token slice (no map), so a conflict-free merge
+	// allocates only the token slice and the joined result.
+	var toks []string
+	for _, c := range classes {
+		toks = append(toks, strings.Fields(c)...)
+	}
+	return strings.Join(dedupeLastWins(toks), " ")
+}
+
+// dedupeLastWins removes duplicate tokens keeping each token's LAST occurrence,
+// otherwise preserving order. It compacts in place over toks' backing array, so
+// it allocates nothing.
+func dedupeLastWins(toks []string) []string {
+	out := toks[:0]
+	for i, t := range toks {
+		dup := false
+		for j := i + 1; j < len(toks); j++ {
+			if toks[j] == t {
+				dup = true
+				break
+			}
+		}
+		if !dup {
 			out = append(out, t)
 		}
 	}
-	return strings.Join(out, " ")
+	return out
 }
 
-// classTokens flattens the on parts into whitespace-split, non-empty tokens.
-func classTokens(parts []ClassPart) []string {
-	var toks []string
+// onClasses collects the on, non-empty class strings from parts (raw, un-split),
+// in source order — the input a ClassMerger receives.
+func onClasses(parts []ClassPart) []string {
+	var classes []string
 	for _, p := range parts {
-		if !p.on {
+		if p.on && p.s != "" {
+			classes = append(classes, p.s)
+		}
+	}
+	return classes
+}
+
+// loneToken returns the lone on, non-empty part's string when exactly one part is
+// on and it is a single token (no ASCII whitespace), else ("", false). A single
+// class token cannot conflict with anything, so the merge step is a guaranteed
+// no-op for any merger — letting the hot single-class case skip the slice and the
+// merger call entirely.
+func loneToken(parts []ClassPart) (string, bool) {
+	s := ""
+	for _, p := range parts {
+		if !p.on || p.s == "" {
 			continue
 		}
-		toks = append(toks, strings.Fields(p.s)...)
+		if s != "" || hasClassSpace(p.s) {
+			return "", false
+		}
+		s = p.s
 	}
-	return toks
+	return s, s != ""
+}
+
+// hasClassSpace reports whether s contains ASCII whitespace (what class tokens are
+// split on), i.e. whether s holds more than one token.
+func hasClassSpace(s string) bool {
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case ' ', '\t', '\n', '\r', '\f', '\v':
+			return true
+		}
+	}
+	return false
 }
 
 // StyleString returns the merged style declaration string for parts (the value
@@ -64,33 +125,50 @@ func StyleString(parts ...ClassPart) string {
 
 // ClassString returns the merged class string for parts, run through merge (the
 // value form of gw.Class), so generated code can place a composed class into an
-// Attrs map.
-func ClassString(merge func(tokens []string) string, parts ...ClassPart) string {
-	return merge(classTokens(parts))
+// Attrs map. merge receives the raw, un-split on-class strings.
+func ClassString(merge func(classes []string) string, parts ...ClassPart) string {
+	if s, ok := loneToken(parts); ok {
+		return s
+	}
+	return merge(onClasses(parts))
 }
 
 // Class composes parts, runs them through merge, and writes the escaped class
-// attribute value.
-func (gw *Writer) Class(merge func(tokens []string) string, parts ...ClassPart) {
+// attribute value. merge receives the raw, un-split on-class strings.
+func (gw *Writer) Class(merge func(classes []string) string, parts ...ClassPart) {
 	if gw.err != nil {
 		return
 	}
-	gw.AttrValue(merge(classTokens(parts)))
+	if s, ok := loneToken(parts); ok {
+		gw.AttrValue(s)
+		return
+	}
+	gw.AttrValue(merge(onClasses(parts)))
 }
 
 // ClassMerged writes a class attribute composed of parts plus the extra string
 // (e.g. a fallthrough Attrs.Class()), running everything through merge. It writes
-// nothing when the merged token set is empty — so a root element with no class
-// and no fallthrough class stays attribute-free.
-func (gw *Writer) ClassMerged(merge func(tokens []string) string, extra string, parts ...ClassPart) {
+// nothing when there is no class to emit — so a root element with no class and no
+// fallthrough class stays attribute-free. merge receives the raw, un-split
+// on-class strings.
+func (gw *Writer) ClassMerged(merge func(classes []string) string, extra string, parts ...ClassPart) {
 	if gw.err != nil {
 		return
 	}
-	all := parts
-	if strings.TrimSpace(extra) != "" {
-		all = append(append([]ClassPart{}, parts...), Class(extra))
+	classes := onClasses(parts)
+	if e := strings.TrimSpace(extra); e != "" {
+		classes = append(classes, e)
 	}
-	merged := merge(classTokens(all))
+	var merged string
+	switch {
+	case len(classes) == 0:
+		return
+	case len(classes) == 1 && !hasClassSpace(classes[0]):
+		// Lone token: no merge needed for any merger.
+		merged = classes[0]
+	default:
+		merged = merge(classes)
+	}
 	if merged == "" {
 		return
 	}
