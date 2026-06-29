@@ -15,15 +15,11 @@ func Class(s string) ClassPart { return ClassPart{s: s, on: true} }
 // ClassIf includes s only when on.
 func ClassIf(s string, on bool) ClassPart { return ClassPart{s: s, on: on} }
 
-// ClassMerger is the installable class-merge strategy. It receives the flattened,
-// non-empty class tokens in source order and returns the final class string. The
-// default dedupes (last occurrence wins, caller-last) and joins with single spaces. Apps
-// replace it once at init to install e.g. a Tailwind-aware merger.
-var ClassMerger func(tokens []string) string = defaultClassMerge
-
-func defaultClassMerge(tokens []string) string {
-	// Keep the LAST occurrence of each token (caller/last-wins), preserving the
-	// surviving tokens in source order. e.g. "a b a" -> "b a".
+// DefaultClassMerge is the built-in class-merge strategy: it keeps the LAST
+// occurrence of each token (caller/last-wins), preserving the surviving tokens
+// in source order. e.g. "a b a" -> "b a". Generated code passes this as the
+// merge function when no class_merger is configured.
+func DefaultClassMerge(tokens []string) string {
 	lastIdx := make(map[string]int, len(tokens))
 	for i, t := range tokens {
 		lastIdx[t] = i
@@ -66,26 +62,27 @@ func StyleString(parts ...ClassPart) string {
 	return strings.Join(decls, "; ")
 }
 
-// ClassString returns the merged class string for parts (the value form of
-// gw.Class), so generated code can place a composed class into an Attrs map.
-func ClassString(parts ...ClassPart) string {
-	return ClassMerger(classTokens(parts))
+// ClassString returns the merged class string for parts, run through merge (the
+// value form of gw.Class), so generated code can place a composed class into an
+// Attrs map.
+func ClassString(merge func(tokens []string) string, parts ...ClassPart) string {
+	return merge(classTokens(parts))
 }
 
-// Class composes parts, runs them through ClassMerger, and writes the escaped
-// class attribute value.
-func (gw *Writer) Class(parts ...ClassPart) {
+// Class composes parts, runs them through merge, and writes the escaped class
+// attribute value.
+func (gw *Writer) Class(merge func(tokens []string) string, parts ...ClassPart) {
 	if gw.err != nil {
 		return
 	}
-	gw.AttrValue(ClassMerger(classTokens(parts)))
+	gw.AttrValue(merge(classTokens(parts)))
 }
 
 // ClassMerged writes a class attribute composed of parts plus the extra string
-// (e.g. a fallthrough Attrs.Class()), running everything through ClassMerger. It
-// writes nothing when the merged token set is empty — so a root element with no
-// class and no fallthrough class stays attribute-free.
-func (gw *Writer) ClassMerged(extra string, parts ...ClassPart) {
+// (e.g. a fallthrough Attrs.Class()), running everything through merge. It writes
+// nothing when the merged token set is empty — so a root element with no class
+// and no fallthrough class stays attribute-free.
+func (gw *Writer) ClassMerged(merge func(tokens []string) string, extra string, parts ...ClassPart) {
 	if gw.err != nil {
 		return
 	}
@@ -93,7 +90,7 @@ func (gw *Writer) ClassMerged(extra string, parts ...ClassPart) {
 	if strings.TrimSpace(extra) != "" {
 		all = append(append([]ClassPart{}, parts...), Class(extra))
 	}
-	merged := ClassMerger(classTokens(all))
+	merged := merge(classTokens(all))
 	if merged == "" {
 		return
 	}

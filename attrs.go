@@ -81,13 +81,15 @@ func AttrsCond(cond bool, then, els func() Attrs) Attrs {
 	return nil
 }
 
-// Class returns the merged class string from the bag's "class" entry, or "".
+// Class returns the raw joined class string from the bag's "class" entry, or "".
+// It does NOT merge/dedupe — the single outer codegen-emitted class site applies
+// the configured merger exactly once over the bag class plus the root's parts.
 func (a Attrs) Class() string {
 	v, ok := a["class"]
 	if !ok {
 		return ""
 	}
-	return ClassMerger(classTokens([]ClassPart{Class(toStr(v))}))
+	return strings.TrimSpace(toStr(v))
 }
 
 // Style returns the bag's "style" declaration string, or "".

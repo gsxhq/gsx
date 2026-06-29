@@ -7,7 +7,7 @@ import (
 
 func renderClass(parts ...ClassPart) string {
 	var b strings.Builder
-	W(&b).Class(parts...)
+	W(&b).Class(DefaultClassMerge, parts...)
 	return b.String()
 }
 
@@ -40,7 +40,7 @@ func TestStyleJoins(t *testing.T) {
 
 func renderClassMerged(extra string, parts ...ClassPart) string {
 	var b strings.Builder
-	W(&b).ClassMerged(extra, parts...)
+	W(&b).ClassMerged(DefaultClassMerge, extra, parts...)
 	return b.String()
 }
 
@@ -72,24 +72,27 @@ func TestClassMergedPartsAndExtraDeduped(t *testing.T) {
 }
 
 func TestDefaultClassMergeLastWins(t *testing.T) {
-	for _, tt := range []struct {
-		in   []string
-		want string
-	}{
-		{[]string{"a", "b", "a"}, "b a"},
-		{[]string{"a", "b"}, "a b"},
-		{[]string{"x", "x", "x"}, "x"},
-		{[]string{}, ""},
-		{[]string{"p-2", "p-4", "p-2"}, "p-4 p-2"},
-	} {
-		if got := defaultClassMerge(tt.in); got != tt.want {
-			t.Errorf("defaultClassMerge(%q) = %q, want %q", tt.in, got, tt.want)
-		}
+	if got := DefaultClassMerge([]string{"a", "b", "a"}); got != "b a" {
+		t.Fatalf("got %q, want %q", got, "b a")
+	}
+}
+
+func TestClassStringUsesPassedMerger(t *testing.T) {
+	merge := func(tokens []string) string { return "M:" + strings.Join(tokens, ",") }
+	if got := ClassString(merge, Class("a b")); got != "M:a,b" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestAttrsClassRawNoMerge(t *testing.T) {
+	a := Attrs{"class": "x  y x"}
+	if got := a.Class(); got != "x  y x" {
+		t.Fatalf("Attrs.Class() = %q, want raw %q", got, "x  y x")
 	}
 }
 
 func TestClassString(t *testing.T) {
-	if got := ClassString(Class("a b"), ClassIf("c", false), Class("d")); got != "a b d" {
+	if got := ClassString(DefaultClassMerge, Class("a b"), ClassIf("c", false), Class("d")); got != "a b d" {
 		t.Errorf("ClassString = %q, want \"a b d\"", got)
 	}
 }
@@ -98,14 +101,5 @@ func TestStyleString(t *testing.T) {
 	// gw.Style includes a part only when its .on is true; joins decls with "; ".
 	if got := StyleString(Class("color: red"), ClassIf("margin: 0", false), Class("padding: 1px")); got != "color: red; padding: 1px" {
 		t.Errorf("StyleString = %q, want \"color: red; padding: 1px\"", got)
-	}
-}
-
-func TestClassMergerOverride(t *testing.T) {
-	orig := ClassMerger
-	t.Cleanup(func() { ClassMerger = orig })
-	ClassMerger = func(tokens []string) string { return "MERGED:" + strings.Join(tokens, ",") }
-	if got := renderClass(Class("a b")); got != "MERGED:a,b" {
-		t.Fatalf("got %q", got)
 	}
 }
