@@ -1,16 +1,16 @@
 # Raw Go
 
-gsx lets you embed arbitrary Go code inside a component body when you need to compute a local value, call a function for its side-effect, or otherwise run a Go statement that produces no markup output. There are two syntactic forms: the `{{ stmt }}` **GoBlock** for inline statements within an element's children, and the plain `{ … }` **Go block** for multi-statement sequences at the body level.
+gsx lets you embed arbitrary Go code inside a component body when you need to compute a local value, call a function for its side-effect, or otherwise run a Go statement that produces no markup output. The raw-Go form is the `{{ stmt }}` **GoBlock** — double braces signal "this is a Go statement, not an interpolation".
 
-## Go code blocks `{ … }`
+Note: single-brace `{ expr }` is **interpolation** (it emits an escaped value into the output) — a different feature. See [Interpolation](./interpolation) for details.
 
-Control-flow blocks (`if`, `for`, `switch`) in gsx body position already use `{ … }` — they are Go blocks whose bodies happen to contain markup. You can also write a `{{ stmt }}` GoBlock to run a single Go statement inline without producing any output.
+## `{{ stmt }}` GoBlock
 
-The most common use is assigning a local variable before interpolating it:
+A GoBlock runs a single Go statement inline without producing any HTML output. The most common use is assigning a local variable before interpolating it:
 
 <!--@include: ./_generated/raw-go/010-go-code-block.md-->
 
-The `{{ … }}` (double-brace) form signals "this is a Go statement, not an interpolation". It can appear between elements or text nodes anywhere a child can appear. The statement is emitted verbatim into the generated Go and produces no HTML output; the assigned variable is available to all subsequent children in the same scope.
+A GoBlock can appear between elements or text nodes anywhere a child can appear. The statement is emitted verbatim into the generated Go and produces no HTML output; the assigned variable is available to all subsequent children in the same scope.
 
 ## `{{ stmt }}` GoBlock vs the `{{ }}` ordered-attrs literal
 
