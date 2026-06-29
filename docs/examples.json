@@ -134,8 +134,8 @@
   {
     "name": "Method components",
     "category": "Components & composition",
-    "source": "package views\n\ntype UsersPage struct {\n\tTitle string\n\tSort  string\n}\n\ncomponent (p UsersPage) Grid(sort string) {\n\t<div>{ sort }-{ p.Title }</div>\n}\n",
-    "invoke": "(UsersPage{Title: \"Team\"}).Grid(UsersPageGridProps{Sort: \"name\"})"
+    "source": "package views\n\ntype UsersPage struct {\n\tTitle string\n\tSort  string\n}\n\ncomponent (p UsersPage) Page() {\n\t<div>\n\t\t<p.Grid sort={p.Sort}/>\n\t</div>\n}\n\ncomponent (p UsersPage) Grid(sort string) {\n\t<span>{ sort }-{ p.Title }</span>\n}\n",
+    "invoke": "(UsersPage{Title: \"Team\", Sort: \"name\"}).Page()"
   },
   {
     "name": "Composable class",

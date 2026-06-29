@@ -18,9 +18,9 @@ When a component wraps nested markup, it accesses that markup through the specia
 
 <!--@include: ./_generated/composition/020-children.md-->
 
-`Card` renders `{children}` inside `<div class="card__body">`. The caller `<Card title="Hello"><em>composed</em></Card>` supplies `<em>composed</em>` as the children node. The component does not declare `Children` in its param list — the codegen adds an implicit `Children gsx.Node` field to the generated props struct whenever `{children}` appears in the body.
+`Card` renders `{children}` inside `<div class="card__body">`. The caller `<Card title="Hello"><em>composed</em></Card>` supplies `<em>composed</em>` as the children node. `{children}` is an explicit placement point in the markup: the codegen adds a `Children gsx.Node` field to the generated props struct whenever it appears in the body, and the caller's content is bound to that field — not passed through a templ-style context.
 
-Children is an explicit placement: nothing renders at the call-site location; content appears exactly where `{children}` sits inside the component, and only there. A component that does not write `{children}` silently drops the caller's content.
+Content appears exactly where `{children}` sits inside the component, and only there. A component that does not write `{children}` silently drops the caller's content.
 
 ## Named slots
 
@@ -50,7 +50,7 @@ Attributes at the call site that are **not** in the component's declared params 
 
 `Button` declares only `variant string`. At the call site, `class="w-full"`, `data-test="x"`, and `hx-post="/go"` are all undeclared — they fall through to the `<button>` root element. The `class` attribute is **merged, not replaced**: the component's own `class="btn"` is kept, and the caller's `class="w-full"` is appended (`"btn w-full"`). Caller classes are appended after component classes, so if both sides specify the same utility the caller's value comes last (CSS cascade wins for equal-specificity rules).
 
-All other fallthrough attrs are appended verbatim to the root element's attribute list. The generated props struct grows a `gsx.Attrs` field behind the scenes; the component author does not need to spread it explicitly on the root element.
+All other fallthrough attrs are added to the root element's attribute list: attrs the component does not set are appended verbatim; attrs that conflict with one the component already sets are caller-wins (the caller's value replaces the component's). The generated props struct grows a `gsx.Attrs` field behind the scenes; the component author does not need to spread it explicitly on the root element.
 
 ## Method components
 
@@ -58,6 +58,8 @@ A component can be declared as a **method** on a named struct, binding it to a r
 
 <!--@include: ./_generated/composition/060-method-components.md-->
 
-`component (p UsersPage) Grid(sort string)` compiles to a method `func (p UsersPage) Grid(props UsersPageGridProps) gsx.Node`. Inside the body, `p` is the receiver (page state such as `p.Title`) and `sort` is a call-time param from the generated `UsersPageGridProps{Sort: "name"}`.
+`component (p UsersPage) Page()` and `component (p UsersPage) Grid(sort string)` each compile to methods on `UsersPage`. Inside any method component's body, the receiver name (`p`) is in scope for reading page state, and the declared params (`sort`) carry per-call data from the generated props struct.
+
+A method component invokes another method component with `<receiver.Method .../>`, where `receiver` is the receiver variable name. In the example, `Page` calls `<p.Grid sort={p.Sort}/>`: the `p.` prefix routes the call to the `Grid` method on the same receiver value, passing `sort` from the current page state. This is analogous to `<pkg.Name/>` for package-qualified components, except `p` is a local variable rather than an import alias.
 
 Method components are useful for page handlers: the HTTP handler builds the struct from the request, then the template methods read from it without threading data through every call. Multiple method components on the same receiver share the receiver's fields without any additional passing.

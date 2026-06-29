@@ -13,10 +13,14 @@ type UsersPage struct {
 	Sort  string
 }
 
+component (p UsersPage) Page() {
+	<div><p.Grid sort={p.Sort}/></div>
+}
+
 component (p UsersPage) Grid(sort string) {
-	<div>{sort}-{p.Title}</div>
+	<span>{sort}-{p.Title}</span>
 }
 -- invoke --
-(UsersPage{Title: "Team"}).Grid(UsersPageGridProps{Sort: "name"})
+(UsersPage{Title: "Team", Sort: "name"}).Page()
 -- render.golden --
-<div>name-Team</div>
+<div><span>name-Team</span></div>

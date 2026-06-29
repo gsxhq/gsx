@@ -8,15 +8,21 @@ type UsersPage struct {
 	Sort  string
 }
 
+component (p UsersPage) Page() {
+	<div>
+		<p.Grid sort={p.Sort}/>
+	</div>
+}
+
 component (p UsersPage) Grid(sort string) {
-	<div>{ sort }-{ p.Title }</div>
+	<span>{ sort }-{ p.Title }</span>
 }
 ```
 
 Renders:
 
 ```html
-<div>name-Team</div>
+<div><span>name-Team</span></div>
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG50eXBlIFVzZXJzUGFnZSBzdHJ1Y3Qge1xuXHRUaXRsZSBzdHJpbmdcblx0U29ydCAgc3RyaW5nXG59XG5cbmNvbXBvbmVudCAocCBVc2Vyc1BhZ2UpIEdyaWQoc29ydCBzdHJpbmcpIHtcblx0XHUwMDNjZGl2XHUwMDNleyBzb3J0IH0teyBwLlRpdGxlIH1cdTAwM2MvZGl2XHUwMDNlXG59XG4iLCJpIjoiKFVzZXJzUGFnZXtUaXRsZTogXCJUZWFtXCJ9KS5HcmlkKFVzZXJzUGFnZUdyaWRQcm9wc3tTb3J0OiBcIm5hbWVcIn0pIn0=)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG50eXBlIFVzZXJzUGFnZSBzdHJ1Y3Qge1xuXHRUaXRsZSBzdHJpbmdcblx0U29ydCAgc3RyaW5nXG59XG5cbmNvbXBvbmVudCAocCBVc2Vyc1BhZ2UpIFBhZ2UoKSB7XG5cdFx1MDAzY2Rpdlx1MDAzZVxuXHRcdFx1MDAzY3AuR3JpZCBzb3J0PXtwLlNvcnR9L1x1MDAzZVxuXHRcdTAwM2MvZGl2XHUwMDNlXG59XG5cbmNvbXBvbmVudCAocCBVc2Vyc1BhZ2UpIEdyaWQoc29ydCBzdHJpbmcpIHtcblx0XHUwMDNjc3Bhblx1MDAzZXsgc29ydCB9LXsgcC5UaXRsZSB9XHUwMDNjL3NwYW5cdTAwM2Vcbn1cbiIsImkiOiIoVXNlcnNQYWdle1RpdGxlOiBcIlRlYW1cIiwgU29ydDogXCJuYW1lXCJ9KS5QYWdlKCkifQ==)
