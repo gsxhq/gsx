@@ -260,14 +260,12 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 		}
 		b.WriteString("\treturn gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {\n")
 		b.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
-		var body bytes.Buffer
+		emitNumScratch(b, c.Body, resolved)
 		for _, m := range c.Body {
-			if !genNode(&body, m, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
+			if !genNode(b, m, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
 				return false
 			}
 		}
-		emitNumScratch(b, body.Bytes())
-		b.Write(body.Bytes())
 		b.WriteString("\t\treturn _gsxgw.Err()\n")
 		b.WriteString("\t})\n}\n\n")
 		return true
@@ -366,9 +364,7 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 		b.WriteString("\t\tattrs := _gsxp.Attrs\n\t\t_ = attrs\n")
 	}
 	b.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
-	// Emit the render body to a temp buffer first so the per-render numeric scratch
-	// (var _gsxnum) is declared only when the body actually uses it.
-	var body bytes.Buffer
+	emitNumScratch(b, c.Body, resolved)
 	for _, m := range c.Body {
 		// The single root (when AUTO-eligible) is emitted via the fallthrough path so
 		// the bag's class merges + the rest spreads at the root; all other body nodes
@@ -376,17 +372,15 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 		// is false, so the root emits via normal genNode and the author's {...attrs}
 		// places the bag.
 		if autoApply && m == ast.Markup(root) {
-			if !emitRootElement(&body, root, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
+			if !emitRootElement(b, root, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
 				return false
 			}
 			continue
 		}
-		if !genNode(&body, m, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
+		if !genNode(b, m, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
 			return false
 		}
 	}
-	emitNumScratch(b, body.Bytes())
-	b.Write(body.Bytes())
 	b.WriteString("\t\treturn _gsxgw.Err()\n")
 	b.WriteString("\t})\n}\n\n")
 	return true
@@ -990,16 +984,82 @@ func emitRender(b *bytes.Buffer, expr string, t types.Type, imports map[string]b
 }
 
 // emitNumScratch declares the per-render numeric scratch buffer (var _gsxnum) at
-// the head of a render body, but only when the already-emitted body actually
-// references it — components with no integer/uint/float interpolation get no
-// declaration. The marker (_gsxnum[) is emitted solely by emitRender's numeric
-// cases and cannot collide with user code (the _gsx* identifier space is
-// reserved), so the content check is exact, not heuristic. Mirrors the
-// body-content check used to gate the class-merger import.
-func emitNumScratch(b *bytes.Buffer, body []byte) {
-	if bytes.Contains(body, []byte("_gsxnum[")) {
+// the head of a render body, but only when this scope directly interpolates an
+// integer/uint/float (the cases that emit gw.IntInto/UintInto/FloatInto). A
+// component with no numeric interpolation gets no declaration.
+func emitNumScratch(b *bytes.Buffer, nodes []ast.Markup, resolved map[ast.Node]types.Type) {
+	if scopeUsesNumeric(nodes, resolved) {
 		b.WriteString("\t\tvar _gsxnum [32]byte\n")
 	}
+}
+
+// scopeUsesNumeric reports whether any text interpolation rendered directly in
+// THIS scope has an integer/uint/float type. It recurses through same-scope
+// constructs (non-component elements, fragments, control flow) but stops at:
+//   - child components — their slots render in their own closure scope, which
+//     declares its own scratch buffer (see emitSlotClosure);
+//   - <style>/<script> — those interpolate via the CSS/JS writers, not the
+//     numeric text path.
+//
+// Mirrors genNode's traversal and genInterp's render-type resolution, so it
+// agrees exactly with where emitRender emits _gsxnum. A mismatch would surface
+// immediately as a compile error (an unused or undefined _gsxnum) in the corpus.
+func scopeUsesNumeric(nodes []ast.Markup, resolved map[ast.Node]types.Type) bool {
+	for _, n := range nodes {
+		switch t := n.(type) {
+		case *ast.Interp:
+			if interpIsNumeric(t, resolved) {
+				return true
+			}
+		case *ast.Element:
+			if isComponentTag(t.Tag) || strings.EqualFold(t.Tag, "style") || strings.EqualFold(t.Tag, "script") {
+				continue
+			}
+			if scopeUsesNumeric(t.Children, resolved) {
+				return true
+			}
+		case *ast.Fragment:
+			if scopeUsesNumeric(t.Children, resolved) {
+				return true
+			}
+		case *ast.ForMarkup:
+			if scopeUsesNumeric(t.Body, resolved) {
+				return true
+			}
+		case *ast.IfMarkup:
+			if scopeUsesNumeric(t.Then, resolved) || scopeUsesNumeric(t.Else, resolved) {
+				return true
+			}
+		case *ast.SwitchMarkup:
+			for _, cc := range t.Cases {
+				if scopeUsesNumeric(cc.Body, resolved) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// interpIsNumeric reports whether interp n renders as an int/uint/float (the same
+// classification emitRender uses to pick gw.IntInto/UintInto/FloatInto),
+// unwrapping a (T, error) tuple like genInterp does.
+func interpIsNumeric(n *ast.Interp, resolved map[ast.Node]types.Type) bool {
+	t, ok := resolved[n]
+	if !ok || t == nil {
+		return false
+	}
+	if tup, ok := t.(*types.Tuple); ok {
+		if tup.Len() != 2 {
+			return false
+		}
+		t = tup.At(0).Type()
+	}
+	switch classify(t) {
+	case catInt, catUint, catFloat:
+		return true
+	}
+	return false
 }
 
 func emitS(b *bytes.Buffer, s string) {
@@ -1976,14 +2036,12 @@ func emitSlotClosure(nodes []ast.Markup, resolved map[ast.Node]types.Type, table
 	var slot bytes.Buffer
 	slot.WriteString("gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {\n")
 	slot.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
-	var body bytes.Buffer
+	emitNumScratch(&slot, nodes, resolved)
 	for _, c := range nodes {
-		if !genNode(&body, c, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
+		if !genNode(&slot, c, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
 			return "", false
 		}
 	}
-	emitNumScratch(&slot, body.Bytes())
-	slot.Write(body.Bytes())
 	slot.WriteString("\t\treturn _gsxgw.Err()\n")
 	slot.WriteString("\t})")
 	return slot.String(), true
