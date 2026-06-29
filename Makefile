@@ -47,6 +47,8 @@ ci-playground:
 # Regenerate the example artifacts and fail if they drift from what's committed
 # (the generator is the source of truth). Run before the parallel lanes in `ci`:
 # the playground module embeds examples.json, so its build must not race the regen.
+# Note: docs/guide/examples.md is intentionally omitted from the drift check —
+# the flat gallery page is retired; all examples are routed into the Syntax pages.
 ci-examples:
 	$(MAKE) examples
 	@if ! git diff --exit-code -- docs/examples.json playground/server/examples.json docs/guide/syntax/_generated; then \

@@ -1,0 +1,16 @@
+-- doc --
+name: Content comment
+summary: A {/* … */} comment inside markup is parsed and dropped from the rendered output — unlike <!-- --> which is emitted.
+category: Elements
+page: comments
+pageOrder: 20
+-- input.gsx --
+package views
+
+component Note() {
+	<p>Visible{/* hidden note */} text</p>
+}
+-- invoke --
+Note()
+-- render.golden --
+<p>Visible text</p>

@@ -22,3 +22,19 @@
 5. Authored `docs/guide/syntax/control-flow.md` with four subsections: If / else, For / range, Switch, Init statements — each followed by its generated partial include.
 
 **Concerns:** None. The removal of the "Control flow" section from `docs/guide/examples.md` is intentional: routed examples do not appear in the general gallery.
+
+---
+
+## Addendum — factual fix (Switch lowering claim)
+
+**Status:** COMPLETE
+
+**Commit:** `2ef9e64` — "fix(docs): correct switch lowering claim in control-flow guide"
+
+**What was wrong:** The Switch section's last paragraph incorrectly claimed gsx lowers switch blocks to `if`/`else` chains. Ground truth (`switch_warn.txtar` golden) shows the generated code is a native Go `switch` statement.
+
+**Fix applied:** Rewrote the paragraph to state that gsx lowers `{ switch … }` to a native Go `switch` statement, and that cases do not fall through implicitly — consistent with Go semantics. Removed the false "if/else chains" parenthetical entirely.
+
+**Tests + drift:**
+- `go test ./internal/corpus -run TestExamples` → PASS (cached, prose-only change)
+- `make ci-examples` → exit 0, no drift

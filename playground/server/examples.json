@@ -30,6 +30,12 @@
     "invoke": "Layout(LayoutProps{Name: \"Ada\"})"
   },
   {
+    "name": "Content comment",
+    "category": "Elements",
+    "source": "package views\n\ncomponent Note() {\n\t<p>Visible text</p>\n}\n",
+    "invoke": "Note()"
+  },
+  {
     "name": "Field access",
     "category": "Basics",
     "source": "package views\n\ncomponent Profile(user User) {\n\t<p>{ user.Name } is { user.Age }</p>\n}\n",

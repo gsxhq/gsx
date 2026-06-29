@@ -13,3 +13,21 @@ A `//` Go comment outside the markup body (for example, above a component declar
 <!--@include: ./_generated/comments/010-html-comments.md-->
 
 In the example above, `<!-- header -->` and `<!-- a < b -->` both appear in the rendered output. The `<` inside the second comment is not HTML-escaped — it is part of the comment text and passes through literally.
+
+## Content comments `{/* … */}`
+
+A `{/* … */}` block inside markup is a **content comment** — the parser recognises it as comment-only and drops it entirely from the rendered output. Unlike `<!-- -->`, nothing reaches the browser.
+
+::: v-pre
+```gsx
+component Note() {
+	<p>Visible{/* hidden note */} text</p>
+}
+```
+:::
+
+The line form `{// … }` (a Go line comment inside braces) works identically — both are stripped at parse time, so neither appears in the generated Go code or the final HTML.
+
+<!--@include: ./_generated/comments/020-content-comment.md-->
+
+Content comments are a markup-layer construct. They are distinct from `// …` Go comments that appear **outside** the markup body (above a component declaration, inside a `{{ }}` GoBlock, etc.) — those are stripped by the Go compiler and can never appear inside element markup at all.
