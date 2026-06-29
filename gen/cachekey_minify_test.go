@@ -10,7 +10,7 @@ func keyWith(t *testing.T, cssMinify, jsMinify bool) string {
 	t.Helper()
 	dir := t.TempDir()
 	graph := map[string]pkgInfo{}
-	k, err := computeKey(dir, graph, "example.com/x", "gomod", "gosum", "bctx", "codegenid", nil, nil, "clsfp", false, cssMinify, jsMinify)
+	k, err := computeKey(dir, graph, "example.com/x", "gomod", "gosum", "bctx", "codegenid", nil, nil, "clsfp", false, cssMinify, jsMinify, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

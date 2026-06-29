@@ -115,7 +115,7 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 			miss = append(miss, dir) // graph failed → regenerate everything (safe)
 			continue
 		}
-		k, err := computeKey(dir, graph, modPath, goModH, goSumH, bctx, codegenID, filterPkgs, aliases, clsFingerprint, fm != nil, cssMinify, jsMinify)
+		k, err := computeKey(dir, graph, modPath, goModH, goSumH, bctx, codegenID, filterPkgs, aliases, clsFingerprint, fm != nil, cssMinify, jsMinify, classMerger)
 		if err != nil {
 			miss = append(miss, dir) // uncertain → MISS
 			continue

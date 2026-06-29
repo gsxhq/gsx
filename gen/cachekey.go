@@ -136,7 +136,7 @@ func dirSourceHash(dir string) (string, error) {
 // codegenID is codegenIdentity() — "which generator produced this" — so any
 // change to the gsx binary (emit/lowering) invalidates cached output even when
 // the manual codegen.Version constant is not bumped.
-func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumHash, buildCtx, codegenID string, filterPkgs []string, aliases []codegen.FilterAlias, clsFingerprint string, hasFieldMatcher bool, cssMinify, jsMinify bool) (string, error) {
+func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumHash, buildCtx, codegenID string, filterPkgs []string, aliases []codegen.FilterAlias, clsFingerprint string, hasFieldMatcher bool, cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef) (string, error) {
 	dir = filepath.Clean(dir)
 	own, err := dirSourceHash(dir)
 	if err != nil {
@@ -184,12 +184,16 @@ func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumH
 	for _, a := range aliases {
 		aliasPins = append(aliasPins, a.Name+"="+a.PkgPath+"."+a.FuncName)
 	}
+	cm := "cm="
+	if classMerger != nil {
+		cm += classMerger.PkgPath + "." + classMerger.FuncName
+	}
 	h := sha256.New()
 	// codegenID (codegenIdentity) folds in BOTH the manual codegen.Version and the
 	// gsx binary hash, so it supersedes a bare Version() pin: any emit/lowering
 	// change auto-invalidates even when the constant is not bumped.
 	fmt.Fprintf(h, "gsxcache-v1\x00%s\x00%s\x00%s\x00%s\x00", codegenID, buildCtx, goModHash, goSumHash)
-	fmt.Fprintf(h, "filters=%s\x00aliases=%s\x00cls=%s\x00fm=%s\x00minify=css:%d,js:%d\x00own=%s\x00", strings.Join(pins, "\x00"), strings.Join(aliasPins, "\x00"), clsFingerprint, fmStr, b2i(cssMinify), b2i(jsMinify), own)
+	fmt.Fprintf(h, "filters=%s\x00aliases=%s\x00cls=%s\x00fm=%s\x00minify=css:%d,js:%d\x00%s\x00own=%s\x00", strings.Join(pins, "\x00"), strings.Join(aliasPins, "\x00"), clsFingerprint, fmStr, b2i(cssMinify), b2i(jsMinify), cm, own)
 	for _, d := range depHashes {
 		fmt.Fprintf(h, "dep=%s\x00", d)
 	}
