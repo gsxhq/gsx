@@ -17,6 +17,7 @@ tasks:
     cmds:
       - mkdir -p tmp
       - 'echo "=== task dev ===" > tmp/dev.log'
+      - go tool gsx generate .
 
   dev:vite:
     desc: Vite dev server (front door; runs the gsx plugin).
