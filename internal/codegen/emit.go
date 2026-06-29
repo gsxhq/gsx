@@ -76,7 +76,6 @@ func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filter
 	mergeExpr := "gsx.DefaultClassMerge"
 	if merger != nil {
 		mergeExpr = classMergerAlias + "." + merger.FuncName
-		imports[merger.PkgPath] = true // registered under classMergerAlias in writeImports
 	}
 	var body bytes.Buffer
 	ok := true
@@ -121,13 +120,16 @@ func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filter
 	// the table (every entry records its owning package's alias + path). A path in
 	// `imports` that is a filter package is emitted under its reserved alias; std
 	// keeps _gsxstd so std-only output is byte-identical to before.
-	// The class merger package (if configured) is also registered here under its
-	// reserved alias _gsxcm so writeImports emits `_gsxcm "<pkgPath>"`.
+	// The class merger package (if configured) is registered here under its
+	// reserved alias _gsxcm so writeImports emits `_gsxcm "<pkgPath>"` — but
+	// only if the body actually contains at least one merge-site reference to
+	// avoid emitting an unused import in files with no class attributes.
 	filterAlias := map[string]string{}
 	for _, e := range table {
 		filterAlias[e.pkgPath] = e.alias
 	}
-	if merger != nil {
+	if merger != nil && bytes.Contains(body.Bytes(), []byte(classMergerAlias+".")) {
+		imports[merger.PkgPath] = true
 		filterAlias[merger.PkgPath] = classMergerAlias
 	}
 
