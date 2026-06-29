@@ -36,7 +36,7 @@ The byo path activates only for a **single** non-receiver param whose type resol
 
 `Greeting(name string)` has a single non-struct param → gsx generates `GreetingProps{Name string; Attrs gsx.Attrs}`. `Card(title string, n int)` has multiple params → gsx generates `CardProps{Title string; N int; Attrs gsx.Attrs}`. `Panel(p Props)` has a single named-struct param → byo path; `Props` is used directly, no wrapper.
 
-The generated `<Name>Props` struct always includes an `Attrs gsx.Attrs` field (for fallthrough attrs) and a `Children gsx.Node` field when the component body uses `{children}`. The byo struct has neither unless the author declares them.
+The generated `<Name>Props` struct gets an `Attrs gsx.Attrs` field when the component has a single root element (enabling attribute fallthrough), and a `Children gsx.Node` field when the body uses `{children}` — not unconditionally. The byo struct has neither unless the author declares them.
 
 ## Whole-struct splat
 
