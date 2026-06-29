@@ -1,0 +1,12 @@
+# A child-prop value that returns three values is rejected. Only (T, error) — a
+# 2-tuple ending in error — is supported. A 3-value return is a diagnostic, not a panic.
+-- input.gsx --
+package views
+
+func triple() (int, string, bool) { return 1, "x", true }
+
+component Card(x int) { <div>{x}</div> }
+
+component Page() { <Card x={triple()}/> }
+-- diagnostics.golden --
+7:26: child prop "x" value "triple()" returns (int, string, bool); only (T, error) is supported

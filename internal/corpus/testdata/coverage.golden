@@ -276,6 +276,7 @@ style/composed_injection	diag gen render
 style/composed_rawcss_optout	diag gen render
 style/loop_var_in_style	diag render
 style/minify_block	diag gen render
+tuple/bare_call_undefined	diag(error)
 tuple/child_prop_mixed	diag gen render
 tuple/child_prop_multi	diag gen render
 tuple/child_prop_node	diag gen render
@@ -288,12 +289,21 @@ tuple/ordered_multi	diag gen render
 tuple/ordered_single	diag gen render
 tuple/ordered_threaded	diag gen render
 tuple/ordered_ws	diag gen render
+tuple/pos_attr_js	diag gen render
+tuple/pos_children_slot	diag gen render
+tuple/pos_named_slot	diag gen render
+tuple/pos_text_interp	diag gen render
 tuple/reject_field_type_mismatch_childprop	diag(error)
+tuple/reject_multi_error_childprop	diag(error)
 tuple/reject_non_error_tuple_childprop	diag(error)
 tuple/reject_non_error_tuple_ordered	diag(error)
+tuple/reject_three_value_childprop	diag(error)
+tuple/t_int	diag gen render
+tuple/t_nodeslice	diag gen render
+tuple/t_stringer	diag gen render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 298 cases (render: 226, error: 52, gen-pinned: 103)
+TOTAL: 308 cases (render: 233, error: 55, gen-pinned: 110)

@@ -1,0 +1,23 @@
+# Documented multi-error behavior: when a package has a non-(T,error) child-prop
+# tuple AND an unrelated type error (undefined symbol elsewhere), the behavior is:
+# - The unrelated type error (undefined symbol) surfaces normally.
+# - The tuple-rejection diagnostic may be deferred / absent on the same pass because
+#   go/types bails out early when a symbol can't be resolved.
+#
+# This is the KNOWN TRADEOFF: in a clean package (no other errors), the "only
+# (T, error) is supported" diagnostic fires. In a broken package, go/types' error
+# recovery may suppress it. This case pins the current documented behavior so any
+# future change is an explicit decision.
+-- input.gsx --
+package views
+
+func twoInts() (int, int) { return 1, 2 }
+
+component Card(x int) { <div>{x}</div> }
+
+component Page() {
+	<Card x={twoInts()}/>
+	<div>{undefinedSym}</div>
+}
+-- diagnostics.golden --
+9:15: undefined: undefinedSym
