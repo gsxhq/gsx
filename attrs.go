@@ -3,6 +3,7 @@ package gsx
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -26,16 +27,16 @@ func (a Attrs) Get(key string) (any, bool) { v, ok := a[key]; return v, ok }
 
 // Without returns a copy of a without the given keys (a is not mutated).
 func (a Attrs) Without(keys ...string) Attrs {
-	drop := make(map[string]struct{}, len(keys))
-	for _, k := range keys {
-		drop[k] = struct{}{}
+	// Fast path: an empty bag (the common case — no fallthrough attributes) has
+	// nothing to filter. This runs on every component root via Spread.
+	if len(a) == 0 {
+		return nil
 	}
 	out := make(Attrs, len(a))
 	for k, v := range a {
-		if _, skip := drop[k]; skip {
-			continue
+		if !slices.Contains(keys, k) {
+			out[k] = v
 		}
-		out[k] = v
 	}
 	return out
 }

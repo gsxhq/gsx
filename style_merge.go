@@ -74,20 +74,28 @@ func (gw *Writer) StyleMerged(rootStyle, bagStyle string) {
 	if gw.err != nil {
 		return
 	}
-	decls := append(splitDecls(rootStyle), splitDecls(bagStyle)...)
-	lastIdx := make(map[string]int, len(decls))
-	for i, d := range decls {
-		if p := declProp(d); p != "" {
-			lastIdx[p] = i
-		}
+	// Fast path: no style on either side — the common component root. Skip the
+	// split/dedup machinery entirely (this runs on every component root render).
+	if rootStyle == "" && bagStyle == "" {
+		return
 	}
-	out := make([]string, 0, len(decls))
+	decls := append(splitDecls(rootStyle), splitDecls(bagStyle)...)
+	out := decls[:0]
 	for i, d := range decls {
 		p := declProp(d)
 		if p == "" {
 			continue
 		}
-		if lastIdx[p] == i {
+		// Keep d only if its property does not recur later (last-wins). Linear
+		// over the (typically few) decls — no map allocation.
+		dup := false
+		for j := i + 1; j < len(decls); j++ {
+			if declProp(decls[j]) == p {
+				dup = true
+				break
+			}
+		}
+		if !dup {
 			out = append(out, d)
 		}
 	}
