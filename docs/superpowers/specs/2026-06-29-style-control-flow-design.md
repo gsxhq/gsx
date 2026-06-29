@@ -129,6 +129,59 @@ default:
   machinery unchanged; the value-form only changes how one contribution's string
   is computed.
 
+## Tuple `(T, error)` auto-unwrap — coordinated with `uniform-tuple-unwrap`
+
+A class/style contribution is a value position, so per the project invariant
+(*"`(T, error)` auto-unwrap is accepted anywhere an expression is allowed"*) a
+contribution whose expression returns `(string, error)` must unwrap — emitting
+`tmp, _gsxerr := <expr>; if _gsxerr != nil { return _gsxerr }` and using `tmp`,
+with the error propagating out of the enclosing `Render` closure exactly as in
+text interpolation. Today it does **not**: `gsx.Class(s string)` takes a single
+string, so `class={ f() }` (with `f() (string,error)`) is a hard Go
+*multiple-value in single-value context* error. The `uniform-tuple-unwrap`
+design lists composed class/style parts as a deliberate non-goal; **this spec
+closes that exclusion** for both shapes below, consistently:
+
+1. **Plain part** `class={ f() }` / `style={ f() }` — structurally identical to
+   that worktree's child-prop fix: the part value currently inlines into
+   `gsx.Class(<expr>)` / `gsx.ClassIf(<expr>, cond)` (emit.go ~713/769). When any
+   part value in the list is a tuple, hoist **all** of the list's value
+   expressions to temps in source order (tuples via the standard
+   `tmp,_gsxerr:=…;if _gsxerr!=nil{return _gsxerr}`, non-tuples via `tmp:=expr`)
+   before the `_gsxgw.Class(…)` / `StyleString(…)` call, and pass the temps. The
+   `ClassIf` guard `cond` is a bool and is **not** unwrapped.
+2. **Value-form arm** `switch x { case A: f() }` / `if c { f() } else { g() }` —
+   the value-form already hoists a `var _clsN string` assigned by a generated Go
+   `switch`/`if` (above), so each arm is a statement-level assignment site: drop
+   the standard hoist in *before* `_clsN = tmp`. Easier than the inlined-literal
+   positions because no composite-literal tolerance is needed at emit time.
+
+**Reuse, don't duplicate.** Both paths reuse `uniform-tuple-unwrap`'s extracted
+helpers — `hoistTuple(b, expr, t, interpTemp)` / `tupleUnwrapType(t)` (Phase 0) —
+and its type-check **skeleton tolerance**: arm/part values are wrapped in the
+`_gsxunwrap[T any](v T, _ ...error) T` skeleton helper (so go/types accepts both
+tuple and plain values while still field-checking `T`), with tuple-ness detected
+via the raw `_gsxuse(<rawexpr>)` probe. Non-`(T, error)` tuples (e.g.
+`(int,string)`) yield the existing pointed `invalid-tuple` diagnostic at the
+arm/part position, not a raw Go error.
+
+**Dependency / sequencing.** This feature should be built **on top of**
+`uniform-tuple-unwrap` Phase 0 (the shared-helper extraction) so it consumes
+`hoistTuple`/`tupleUnwrapType`/`_gsxunwrap` rather than re-implementing the
+hoist. If the two land independently, the class/style unwrap here must be
+reconciled to the shared helper before merge.
+
+**Cross-worktree amendments required in `uniform-tuple-unwrap`** (own its spec,
+flagged here for coordination):
+- Remove "composed `class`/`style` parts" from the non-goals (it is now in
+  scope, via this spec).
+- Refine the "`for`/`if`/`switch` clauses … not value positions" non-goal to
+  distinguish a control-flow **clause/condition** (still no unwrap — `if cond`,
+  `switch tag`, `for range`) from a value-form **arm** (a value position that
+  **does** unwrap).
+- Add Test-Matrix Section-A rows: plain class part, plain style part, value-form
+  arm (class), value-form arm (style).
+
 ## Formatter (folded in)
 
 Two related printer changes in `internal/printer/printer.go`:
@@ -162,6 +215,18 @@ contexts needs a case **per context**.
 - **Negative cases**: non-string arm (diagnostic); a guard on a value-form part
   (diagnostic); value-form used outside class/style (rejected / parsed as
   existing construct, per context).
+- **Tuple `(T, error)` auto-unwrap** (per the coordinated section above):
+  - plain class part `class={ f() }` and plain style part `style={ f() }` with
+    `f() (string,error)` → unwraps and renders (these are NEW — a hard Go error
+    before).
+  - value-form arm returning a tuple — `class={ switch x { case A: g() } }` and
+    the `style`/`if` variants — unwraps per arm.
+  - multiple tuple parts in one list → hoist-all, source order preserved.
+  - pipeline into an arm/part returning `(R,error)` → unwraps at the host.
+  - rejection: non-`(T,error)` tuple (e.g. `(int,string)`) in a part/arm →
+    pointed `invalid-tuple` diagnostic at the correct position.
+  - error-propagation: an arm/part whose `f()` returns non-nil error → `Render`
+    returns it (runtime unit test in the root `gsx`/codegen package).
 - **Formatter**: golden(s) for (a) a long additive class map now wrapping one
   entry per line, and (b) a value-form breaking arms one per line and collapsing
   when short. Regenerate via `-update`, then verify without it.
@@ -184,8 +249,16 @@ unwrappable long line — validating the feature end-to-end on the case that
 motivated it. `StatusBadgeLarge` (and the templ `statusBadge`/`eventTypeBadge`
 shapes) are secondary candidates exhibiting the same pattern.
 
+## Dependencies & sequencing
+
+- **`uniform-tuple-unwrap` Phase 0** (shared `hoistTuple`/`tupleUnwrapType` +
+  `_gsxunwrap` skeleton tolerance) is a prerequisite for the tuple-unwrap
+  section. Build on top of it; reconcile to the shared helper before merge if
+  they land independently. The cross-worktree amendments listed in the
+  tuple-unwrap section must be applied to that worktree's spec/matrix.
+
 ## Open questions
 
-None blocking. Deferred items (pipe stages on the result; value-form beyond
+Deferred items (pipe stages on the value-form result; value-form beyond
 class/style) are explicitly out of scope for v1 and can be revisited if a
 concrete need appears.
