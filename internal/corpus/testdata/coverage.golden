@@ -48,6 +48,7 @@ components/children_slot_binding	diag render
 components/children_slot_empty	diag render
 components/children_slot_interleaved	diag render
 components/component_class_and_spread	diag gen render
+components/component_class_passthrough_dedup	diag gen render
 components/component_composable_class	diag gen render
 components/component_cond_branch_spread_rejected	diag(error)
 components/component_conditional_attr	diag gen render
@@ -269,4 +270,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 271 cases (render: 203, error: 49, gen-pinned: 80)
+TOTAL: 272 cases (render: 204, error: 49, gen-pinned: 81)

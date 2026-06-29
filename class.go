@@ -133,6 +133,29 @@ func ClassString(merge func(classes []string) string, parts ...ClassPart) string
 	return merge(onClasses(parts))
 }
 
+// ClassJoin flattens the on, non-empty parts into a single class string, applying
+// only the built-in structural last-wins dedup (NOT the configured ClassMerger).
+// It is for placing a composable class into an Attrs bag (the "class" entry a
+// child component receives as fallthrough): the consuming root applies the
+// configured merger exactly once over the root's own classes plus this bag string
+// (Attrs.Class()), so running the configured merger here too would be redundant —
+// and, with an expensive Tailwind-style merger, double the per-element cost.
+//
+// The structural dedup is kept (cheap, no merger call) so a composable class with
+// repeated tokens resolves to the same string whether it sits on a root or is
+// forwarded to a child — matching DefaultClassMerge's "keep last occurrence" rule
+// for the common (default-merger) case.
+func ClassJoin(parts ...ClassPart) string {
+	var toks []string
+	for _, p := range parts {
+		if !p.on || p.s == "" {
+			continue
+		}
+		toks = append(toks, strings.Fields(p.s)...)
+	}
+	return strings.Join(dedupeLastWins(toks), " ")
+}
+
 // Class composes parts, runs them through merge, and writes the escaped class
 // attribute value. merge receives the raw, un-split on-class strings.
 func (gw *Writer) Class(merge func(classes []string) string, parts ...ClassPart) {

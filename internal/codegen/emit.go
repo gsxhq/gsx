@@ -2090,7 +2090,7 @@ func emitSlotClosure(nodes []ast.Markup, resolved map[ast.Node]types.Type, table
 //
 // rtPkg is the package qualifier for the gsx runtime (`gsx` in emitted code,
 // `_gsxrt` in a type-check skeleton), used to name the bag type `<rtPkg>.Attrs`,
-// the `<rtPkg>.ClassString`/`Class`/`ClassIf` class helpers, `<rtPkg>.AttrsCond`,
+// the `<rtPkg>.ClassJoin`/`Class`/`ClassIf` class helpers, `<rtPkg>.AttrsCond`,
 // and node-prop `<rtPkg>.Val`/`Text` promotion, so emit and probe reference the
 // SAME runtime symbols under their respective aliases.
 //
@@ -2295,8 +2295,11 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 }
 
 // classEntryExpr lowers a composable class={…} ClassAttr to a runtime
-// ClassString(...) call producing the merged class string for the Attrs bag's
-// "class" entry. It mirrors emitRootComposedClass's part lowering (an
+// ClassJoin(...) call producing the RAW (un-merged) class string for the Attrs
+// bag's "class" entry — the bag is consumed via Attrs.Class() and merged exactly
+// once at the consuming root, so merging here would be redundant (and, with a
+// Tailwind-style merger, double the per-element cost). It mirrors
+// emitRootComposedClass's part lowering (an
 // unconditional part → <rtPkg>.Class(<Expr>); a conditional part →
 // <rtPkg>.ClassIf(<Expr>, <Cond>)) so the value the child root merges is built
 // the same way regardless of whether the class sits on the root or a child.
@@ -2319,7 +2322,11 @@ func classEntryExpr(a *ast.ClassAttr, rtPkg string, mergeExpr string, table filt
 			parts = append(parts, fmt.Sprintf("%s.ClassIf(%s, %s)", rtPkg, expr, strings.TrimSpace(p.Cond)))
 		}
 	}
-	return fmt.Sprintf("%s.ClassString(%s, %s)", rtPkg, mergeExpr, strings.Join(parts, ", ")), usedPkgs, nil
+	// Raw join (no merger): the bag's class is consumed via Attrs.Class() and
+	// merged exactly once at the consuming root, so merging here would double the
+	// work. mergeExpr is intentionally unused.
+	_ = mergeExpr
+	return fmt.Sprintf("%s.ClassJoin(%s)", rtPkg, strings.Join(parts, ", ")), usedPkgs, nil
 }
 
 // condAttrsExpr lowers a conditional attribute { if cond { … } else { … } } on a
@@ -2356,7 +2363,7 @@ func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table f
 
 // condBranchAttrs builds a <rtPkg>.Attrs{…} literal from one conditional-attr
 // branch's attrs. Static/expr/bool attrs become bag entries keyed by raw name; a
-// composable class={…} becomes a ClassString entry. A spread or nested
+// composable class={…} becomes a ClassJoin entry. A spread or nested
 // conditional inside a branch is unsupported (kept shallow).
 func condBranchAttrs(attrs []ast.Attr, rtPkg, tag string, mergeExpr string, table filterTable) (string, map[string]string, error) {
 	var entries []string
