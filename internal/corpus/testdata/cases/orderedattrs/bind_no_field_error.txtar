@@ -1,0 +1,17 @@
+# {{ }} literal bound to a name with no matching gsx.OrderedAttrs field → diagnostic.
+-- input.gsx --
+package views
+
+component Card(title string) {
+	<div>{title}</div>
+}
+
+component Page() {
+	<Card mystery-attrs={{ "data-x": "1" }}/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+8:8: ordered-attrs literal {{ }} on <Card> attribute "mystery-attrs" matches no gsx.OrderedAttrs field of CardProps; declare a field of type gsx.OrderedAttrs
+-- generated.x.go.golden --
+-- render.golden --

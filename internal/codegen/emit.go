@@ -2278,6 +2278,22 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 			}
 			recordPkgs(used)
 			mergeChain = append(mergeChain, fmt.Sprintf(".Merge(%s)", condExpr))
+		case *ast.OrderedAttrsAttr:
+			fn, ok := matchField(declared, t.Name, fm)
+			if !ok {
+				msg := fmt.Sprintf("ordered-attrs literal {{ }} on <%s> attribute %q matches no gsx.OrderedAttrs field of %s; declare a field of type gsx.OrderedAttrs", el.Tag, t.Name, propsType)
+				return "", "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "ordered-attrs-no-field", msg: msg}
+			}
+			if verr := validateMatchedField(fn, t.Name, propsType, declared); verr != nil {
+				return "", "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "bad-field-match", msg: verr.Error()}
+			}
+			var sb strings.Builder
+			fmt.Fprintf(&sb, "%s: %s.OrderedAttrs{", fn, rtPkg)
+			for _, pr := range t.Pairs {
+				fmt.Fprintf(&sb, "{Key: %s, Value: %s}, ", strconv.Quote(pr.Key), pr.Value)
+			}
+			sb.WriteString("}")
+			fields = append(fields, sb.String())
 		default:
 			msg := fmt.Sprintf("unknown attribute %T on component (<%s>)", a, el.Tag)
 			return "", "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}
