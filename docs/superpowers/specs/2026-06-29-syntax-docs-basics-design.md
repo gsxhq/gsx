@@ -67,7 +67,7 @@ Pages live under `docs/guide/syntax/`.
 | Page | Subsections | Notes |
 |---|---|---|
 | `basic-syntax.md` | package & imports · `component` (header + body, no `return`) · element vs component (capitalization) | — |
-| `raw-go.md` | `{ … }` Go statement block · `{{ stmt }}` GoBlock (position-disambiguated from `{{ }}` ordered-attrs) | gsx's "Raw Go" |
+| `raw-go.md` | `{{ stmt }}` GoBlock (statement, no output) — gsx's "Raw Go" (position-disambiguated from the `{{ }}` ordered-attrs literal); single-brace `{ expr }` is interpolation, not a statement block | — |
 | `elements.md` | tags & nesting · void / self-closing · raw-text (`<pre>`, `<textarea>`) | — |
 | `comments.md` | HTML `<!-- -->` (rendered) · Go `//` `/* */` (stripped) | — |
 | `fragments.md` | `<>…</>` multi-root | — |

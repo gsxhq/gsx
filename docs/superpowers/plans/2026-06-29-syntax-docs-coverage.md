@@ -402,11 +402,11 @@ git commit -m "feat(examplegen): emit routed runnable partials + drift-gate them
 | file | page | pageOrder | source case | summary |
 |---|---|---|---|---|
 | NEW `200-component-declaration.txtar` | basic-syntax | 10 | `codegen-shape/greeting` | A `component` declaration: header params + markup body, no `return`. |
-| NEW `205-go-block.txtar` | raw-go | 10 | `control_flow/goblock` | A `{ … }` Go statement block (and `{{ stmt }}`) for local vars, emitting nothing. |
+| NEW `205-go-block.txtar` | raw-go | 10 | `control_flow/goblock` | A `{{ stmt }}` GoBlock binds local vars, emitting nothing. |
 
 **`basic-syntax.md` subsections:** Package & imports (prose; a `.gsx` is ordinary Go + `component` decls) · The `component` declaration (include 200) · Element vs component (capitalization rule — prose + table, lifted from `syntax.md`).
 
-**`raw-go.md` subsections:** Go code blocks `{ … }` (include 205) · `{{ stmt }}` GoBlock and how it differs from the `{{ }}` ordered-attrs literal by **position** (body vs attribute value) — prose, cite the ordered-attrs design.
+**`raw-go.md` subsections:** `{{ stmt }}` GoBlock — the raw-Go escape hatch that runs a Go statement (e.g. bind a local var) and emits nothing (include 205). Note: single-brace `{ expr }` is **interpolation**, a different form (link to the interpolation page) — gsx has no single-brace multi-statement block. · How `{{ }}` is position-disambiguated: GoBlock in **body** position vs the ordered-attrs `{{ }}` literal in **attribute-value** position — prose (ordered-attrs treated as merged per project direction).
 
 ### Task 4: Foundational — `elements` + `comments` + `fragments`
 
