@@ -71,7 +71,6 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 		pkgDirs []string // absolute paths
 	}
 	states := make([]*caseState, len(candidates))
-	var allPkgDirs []string
 
 	for i, c := range candidates {
 		cs := &caseState{c: c}
@@ -79,7 +78,6 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 		for _, relDir := range c.packageDirs() {
 			absDir := filepath.Join(moduleDir, filepath.FromSlash(relDir))
 			cs.pkgDirs = append(cs.pkgDirs, absDir)
-			allPkgDirs = append(allPkgDirs, absDir)
 		}
 		states[i] = cs
 	}
