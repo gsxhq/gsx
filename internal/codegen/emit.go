@@ -26,7 +26,7 @@ import (
 // interpolation types. It returns (nil, false) if any component failed; all
 // component errors are recorded in bag (component-boundary recovery continues
 // to the next component on failure, so multiple errors are always reported).
-func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, byo *byoData, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool) ([]byte, bool) {
+func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, byo *byoData, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, merger *ClassMergerRef) ([]byte, bool) {
 	if cls == nil {
 		cls = attrclass.Builtin()
 	}
@@ -74,6 +74,10 @@ func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filter
 	// emit ≡ probe.
 	userPlainImports := map[string]bool{}
 	mergeExpr := "gsx.DefaultClassMerge"
+	if merger != nil {
+		mergeExpr = classMergerAlias + "." + merger.FuncName
+		imports[merger.PkgPath] = true // registered under classMergerAlias in writeImports
+	}
 	var body bytes.Buffer
 	ok := true
 	for _, d := range file.Decls {
@@ -117,9 +121,14 @@ func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filter
 	// the table (every entry records its owning package's alias + path). A path in
 	// `imports` that is a filter package is emitted under its reserved alias; std
 	// keeps _gsxstd so std-only output is byte-identical to before.
+	// The class merger package (if configured) is also registered here under its
+	// reserved alias _gsxcm so writeImports emits `_gsxcm "<pkgPath>"`.
 	filterAlias := map[string]string{}
 	for _, e := range table {
 		filterAlias[e.pkgPath] = e.alias
+	}
+	if merger != nil {
+		filterAlias[merger.PkgPath] = classMergerAlias
 	}
 
 	var b bytes.Buffer
@@ -676,7 +685,7 @@ func bagSpreadIndex(attrs []ast.Attr) (int, bool, error) {
 // emitRootComposedClass emits a composed `class={ … }` merged with the bag's
 // class: ` class="` + gw.Class(<existing parts…>, gsx.Class(_gsxp.Attrs.Class()))
 // + `"`. Mirrors emitClassAttr's part lowering, appending the bag class as a
-// final unconditional part so it merges/dedupes through ClassMerger.
+// final unconditional part so it merges/dedupes through the merge func.
 func emitRootComposedClass(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports map[string]bool, bag *diag.Bag, mergeExpr string) bool {
 	parts := make([]string, 0, len(a.Parts)+1)
 	for _, p := range a.Parts {
@@ -1350,7 +1359,7 @@ func lowerClassPartSeed(p ast.ClassPart, table filterTable) (string, map[string]
 // emitClassAttr lowers a composable `class={ … }` to the open ` class="`, a
 // gw.Class call composing each part (gsx.Class for an unconditional Expr,
 // gsx.ClassIf for a conditional one), and the closing `"`. gw.Class runs the
-// tokens through the installed ClassMerger and writes the attr-escaped value.
+// tokens through the passed merge func and writes the attr-escaped value.
 func emitClassAttr(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports map[string]bool, bag *diag.Bag, mergeExpr string) bool {
 	parts := make([]string, 0, len(a.Parts))
 	for _, p := range a.Parts {
