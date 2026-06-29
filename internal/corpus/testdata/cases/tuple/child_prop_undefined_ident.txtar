@@ -1,8 +1,7 @@
 # An expression-internal error in a child-prop value (here an undefined ident)
-# is reported EXACTLY ONCE, even though the skeleton probes the value twice:
-# once via the props-literal _gsxunwrap(...) field-compat check and once via the
-# _gsxuseq(...) type-harvest probe. The harvest probe's redundant error is
-# suppressed.
+# is reported EXACTLY ONCE. A non-call value (ident/literal) is emitted INLINE in
+# the props literal (no _gsxunwrap wrap), and the redundant copy from the
+# _gsxuseq(...) type-harvest probe is suppressed by its quiet span.
 -- input.gsx --
 package views
 

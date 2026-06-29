@@ -774,8 +774,8 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					// therefore reports at this single position, so the COLUMN of a
 					// trailing field can be inaccurate — earlier wrapped fields
 					// (_gsxunwrap(…), gsx.Val(…)) shift the offset, and the column can
-					// even land past end-of-line (see the cond_attr_root_not_eligible
-					// golden's 8:45). This is a known limitation; a future reader
+					// even land past end-of-line for a CALL-valued prop whose wrapped
+					// earlier fields shift the offset. This is a known limitation; a future reader
 					// should not trust the column of a child-prop field-type error.
 					emitSkeletonLine(sb, fset, t.Pos())
 					if splatExpr != "" {

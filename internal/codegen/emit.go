@@ -2066,12 +2066,14 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 	}
 
 	// Unified hoist-all-when-any: if ANY value across ALL props (ExprAttr slots OR
-	// OrderedAttrsAttr pair values) is a (T, error) tuple, hoist EVERY value in
+	// OrderedAttrsAttr pair values) is a (T, error) tuple, hoist every CALL value in
 	// source order before the Node call. This single pass over fieldEntries
 	// preserves left-to-right evaluation order even when ExprAttr and
 	// OrderedAttrsAttr slots are interleaved (e.g. a={f()} bag={{"k":g()}} b={h()}).
-	// Non-tuple values get a plain `tmp := expr`; tuple values get
-	// `tmp, _gsxerr := expr; if _gsxerr != nil { return _gsxerr }`.
+	// Non-tuple CALL values get a plain `tmp := expr`; tuple CALL values get
+	// `tmp, _gsxerr := expr; if _gsxerr != nil { return _gsxerr }`. Non-call values
+	// (literals/idents) have no side effects and stay INLINE, preserving their
+	// untyped-constant assignability.
 	anyTuple := false
 outer:
 	for _, fe := range fieldEntries {
