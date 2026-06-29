@@ -244,5 +244,11 @@
     "category": "Basics",
     "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\n// ArticleBody renders pre-sanitized HTML from a CMS or Markdown converter.\n// { gsx.Raw(html) } emits the string verbatim — no entity encoding.\ncomponent ArticleBody(html string) {\n\t<article>{ gsx.Raw(html) }</article>\n}\n",
     "invoke": "ArticleBody(ArticleBodyProps{Html: \"<em>Hello</em> &amp; <strong>World</strong>\"})"
+  },
+  {
+    "name": "Reading context",
+    "category": "Components",
+    "source": "package views\n\nimport \"context\"\n\ntype ctxKey struct{}\n\n// userName reads an authenticated username from the context, or falls\n// back to \"guest\" when the value is absent.\nfunc userName(ctx context.Context) string {\n\tif v, ok := ctx.Value(ctxKey{}).(string); ok {\n\t\treturn v\n\t}\n\treturn \"guest\"\n}\n\ncomponent Greeting() {\n\t<p>Hello, { userName(ctx) }</p>\n}\n",
+    "invoke": "Greeting()"
   }
 ]
