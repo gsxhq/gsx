@@ -176,9 +176,36 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 		return nil, p.errorf(p.pos(), "expected attribute name, got %q", string(p.peek()))
 	}
 	name := p.src[attrStart:p.i]
+	nameEnd := p.i
+
+	// Lookahead: skip optional whitespace before '=' WITHOUT committing p.i.
+	// This lets us tolerate `name = value`, `name =value`, and `name= value`
+	// while still preserving the bool-attr case (`<div foo bar>`) exactly: if
+	// no '=' is found across whitespace, p.i stays at nameEnd so the attribute
+	// loop's skipSpace() handles the inter-attribute gap.
+	j := nameEnd
+	for j < len(p.src) && (p.src[j] == ' ' || p.src[j] == '\t' || p.src[j] == '\r' || p.src[j] == '\n') {
+		j++
+	}
+
+	if j >= len(p.src) || p.src[j] != '=' {
+		// No '=' found: boolean attribute. Leave p.i at nameEnd.
+		ba := &ast.BoolAttr{Name: name}
+		ast.SetSpan(ba, attrStartPos, p.posAt(nameEnd))
+		return ba, nil
+	}
+
+	// Found '='. Advance past it, then skip any post-'=' whitespace.
+	p.i = j + 1
+	for !p.eof() && (p.src[p.i] == ' ' || p.src[p.i] == '\t' || p.src[p.i] == '\r' || p.src[p.i] == '\n') {
+		p.i++
+	}
+
+	// Dispatch on the value-start character. Each downstream parser assumes
+	// the cursor is positioned exactly at the opening '"' or '{'.
 	switch {
-	case p.at(`="`):
-		p.i += 2
+	case !p.eof() && p.src[p.i] == '"':
+		p.i++ // past opening '"'
 		if p.classifier.Context(name) == attrclass.CtxJS {
 			return p.parseJSAttrValue(name, attrStartPos)
 		}
@@ -194,8 +221,7 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 		sa := &ast.StaticAttr{Name: name, Value: val}
 		ast.SetSpan(sa, attrStartPos, p.posAt(p.i))
 		return sa, nil
-	case p.peek() == '=' && p.i+1 < len(p.src) && p.src[p.i+1] == '{':
-		p.i++ // past '='
+	case !p.eof() && p.src[p.i] == '{':
 		if p.i+1 < len(p.src) && p.src[p.i+1] == '{' {
 			return p.parseOrderedAttrsLiteral(name, attrStartPos)
 		}
@@ -204,9 +230,7 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 		}
 		return p.parseAttrBraceValue(name, attrStartPos)
 	default:
-		ba := &ast.BoolAttr{Name: name}
-		ast.SetSpan(ba, attrStartPos, p.posAt(p.i))
-		return ba, nil
+		return nil, p.errorf(p.pos(), "expected attribute value (\"…\" or { … }) after '=' for %q", name)
 	}
 }
 

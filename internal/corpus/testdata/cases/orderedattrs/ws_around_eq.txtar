@@ -1,0 +1,24 @@
+# Parser: optional whitespace around '=' in all attribute value forms.
+# input.gsx uses spaces/newlines around '=' for class={}, id="", and {{ }}.
+# The formatter (gsx fmt) normalises the output back to canonical name=value form.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Card(containerAttrs gsx.OrderedAttrs) {
+	<div { containerAttrs... }>{children}</div>
+}
+
+component Page() {
+	<Card
+		container-attrs = {{ "data-signals": "{open:false}", "data-text": "$open" }}
+	>
+		<p id = "tip" class = {"note"}>hi</p>
+	</Card>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<div data-signals="{open:false}" data-text="$open"><p id="tip" class="note">hi</p></div>
