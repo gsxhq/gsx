@@ -132,6 +132,10 @@ func zeroSpans(n ast.Node) {
 				v.CondPos = 0
 			case *ast.GoBlock:
 				v.CodePos = 0
+			case *ast.OrderedAttrsAttr:
+				for i := range v.Pairs {
+					v.Pairs[i].ValuePos = 0
+				}
 			}
 		}
 		return true
@@ -231,6 +235,10 @@ func canonGoAttr(a ast.Attr) {
 	case *ast.MarkupAttr:
 		for _, m := range v.Value {
 			canonGo(m)
+		}
+	case *ast.OrderedAttrsAttr:
+		for i := range v.Pairs {
+			v.Pairs[i].Value = fmtExpr(v.Pairs[i].Value)
 		}
 	}
 }

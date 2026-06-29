@@ -102,6 +102,7 @@ shared props type:
 | `name` (bare) | boolean attribute = `true` |
 | `disabled={ cond }` | type-driven boolean attr (bool → bare/omitted) |
 | `{ expr... }` | spread/splat — on an **element**: spreads `gsx.Attrs` as HTML attrs; on a **component**: whole-struct splat (passes the prebuilt struct as props) |
+| `name={{ "k": v, "k2": v2 }}` | ordered-attrs literal — binds to a `gsx.OrderedAttrs` prop; renders in source order |
 | `{ if … }` / `{ for … }` inside a tag | conditional attributes |
 | `{ if/for/switch … { <markup> } }` | control flow contributing children |
 | `{{ stmt }}` | Go statement escape hatch (no output) |
@@ -123,6 +124,118 @@ The spread operator mirrors Go convention (trailing dots, as in `f(x...)`):
 The context (element vs component tag) determines the meaning — no type resolution
 is needed. The grammar treats both as the same `spread_attribute` node in the
 attribute list; the code generator interprets it based on the tag kind.
+
+## Ordered attributes — `{{ "k": v }}`
+
+HTML attribute order is usually irrelevant, but some frameworks depend on it.
+[Datastar](https://data-star.dev/) processes `data-*` directives sequentially, so
+a `data-signals` initializer **must** precede any directive that reads it. A plain
+Go `map` (the `gsx.Attrs` type) renders in sorted key order, which may not be the
+order you want. `gsx.OrderedAttrs` solves this: it is a `[]gsx.Attr` slice that
+renders in the exact order you write it.
+
+### The `{{ }}` literal
+
+Declare a component prop of type `gsx.OrderedAttrs` and pass a value with the
+double-brace literal at the call site:
+
+```gsx
+component Counter(signals gsx.OrderedAttrs) {
+    <button { signals... }>{children}</button>
+}
+
+component Page() {
+    <Counter signals={{ "data-signals": "{count:0}", "data-text": "$count", "data-on-click": "$count++" }}>
+        Count
+    </Counter>
+}
+```
+
+renders as:
+
+```html
+<button data-signals="{count:0}" data-text="$count" data-on-click="$count++">Count</button>
+```
+
+The Datastar directives arrive in exactly the order they appear in the literal —
+`data-signals` first so it is defined before `data-text` and `data-on-click` read it.
+
+### Syntax rules
+
+- **Keys** are **quoted string literals** (e.g. `"data-on-click"`, `"hx-on:click"`).
+  Quoting is required so that kebab and colon names need no special handling.
+- **Values** are **Go expressions** — a string literal, an ident, a selector, a
+  function call, a composite literal, or any other valid Go expression.
+  A `|>` filter pipeline is not supported inside a `{{ }}` value (use a plain
+  Go expression; `|>` remains available in normal `name={ expr |> … }` form).
+- **Boolean values** toggle a bare attribute: `"data-show": true` renders
+  `data-show`; `"data-show": false` omits the attribute entirely.
+- A **trailing comma** is allowed (idiomatic Go style). An **empty** literal
+  `{{ }}` is valid (renders nothing). A leading or interior stray comma is an
+  error.
+- **Whitespace** around the `=` is tolerated for all attribute value forms
+  (`name = {{ … }}`, `name = { … }`, `name = "…"`); `gsx fmt` normalizes all of
+  them to the canonical `name=value` form.
+
+### Prop binding and spreading
+
+The `{{ }}` literal binds to the component prop whose name maps to a
+`gsx.OrderedAttrs` field (the usual kebab→CamelCase rule applies:
+`container-attrs` → `ContainerAttrs`). Inside the component, spread the value
+onto any element with `{ prop... }`:
+
+```gsx
+component Card(containerAttrs gsx.OrderedAttrs) {
+    <div class="container" { containerAttrs... }>{children}</div>
+}
+
+component Page() {
+    <Card container-attrs={{ "data-signals": "{open:false}", "data-text": "$open" }}>
+        content
+    </Card>
+}
+```
+
+The bag can be forwarded through multiple component layers — each layer declares a
+`gsx.OrderedAttrs` prop and passes it down — and is finally spread onto an element
+at whichever depth is appropriate.
+
+### Plain elements — use direct attrs or spread a declared prop
+
+`{{ }}` is **only valid as the value of a declared `gsx.OrderedAttrs` component
+prop**. Writing it directly on a plain HTML element attribute is an error:
+
+```gsx
+{/* ERROR — {{ }} is not valid here */}
+<div data-x={{ "data-a": "1" }}>…</div>
+```
+
+For a plain element, plain attributes already render in source order, so there is
+nothing to gain from `{{ }}`. To conditionally reuse an ordered bag, thread a
+`gsx.OrderedAttrs` prop down to the element:
+
+```gsx
+{/* ok — spread a declared prop */}
+<div { myAttrs... }>…</div>
+```
+
+### Comparing `gsx.Attrs` and `gsx.OrderedAttrs`
+
+| | `gsx.Attrs` (map) | `gsx.OrderedAttrs` (slice) |
+|---|---|---|
+| Go type | `map[string]any` | `[]gsx.Attr{Key, Value}` |
+| Render order | **sorted** key order (deterministic, like `Spread`) | **source / slice** order |
+| Duplicate keys | last write wins (map semantics) | duplicates allowed and emitted |
+| Class/style merge | participates when spread via `{…attrs}` fallthrough | **no** — pairs emit verbatim |
+| Literal syntax | no dedicated literal (build the map in Go) | `{{ "k": v, … }}` |
+| Best for | general "extra HTML attributes" bag; fallthrough | order-sensitive frameworks (Datastar, Stimulus) |
+
+### Security
+
+Values are attribute-escaped identically to `gsx.Attrs` — the same faithful
+`html/template` port. Attribute names are validated; structurally unsafe names
+(names containing spaces or other forbidden characters) are silently dropped.
+`{{ }}` does not bypass any escaping.
 
 ## Markup vs Go (the one subtlety)
 
@@ -168,6 +281,7 @@ rendered output, all verified on every test run.
 | if / for / switch, fragments | `control_flow/` |
 | `component` decls, props, `{children}`, slots | `components/`, `slots/` |
 | The full attribute system | `attrs/`, `class/`, `style/`, `jsattr/` |
+| Ordered attributes (`{{ }}` / `gsx.OrderedAttrs`) | `orderedattrs/` |
 | `|>` pipelines & filters | `pipelines/` |
 | Markup-vs-Go corner cases | `parser/` |
 | Method components, page composition | `methods/` |

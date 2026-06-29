@@ -1,0 +1,14 @@
+# {{ }} on a plain element attribute: should produce a pointed diagnostic,
+# not a leaked internal "unknown attribute *ast.OrderedAttrsAttr" message.
+-- input.gsx --
+package views
+
+component Page() {
+	<div data-x={{ "data-a": "1" }}>content</div>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+4:7: ordered-attrs {{ }} is only valid as the value of a declared gsx.OrderedAttrs component prop, not plain-element attribute "data-x"; declare a gsx.OrderedAttrs prop and spread it with { prop... }
+-- generated.x.go.golden --
+-- render.golden --

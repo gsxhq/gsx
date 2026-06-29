@@ -18,6 +18,7 @@ import (
 	goparser "go/parser"
 	gotoken "go/token"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
@@ -604,6 +605,22 @@ func writeAttrInline(b *strings.Builder, a ast.Attr) {
 		b.WriteString(`="`)
 		writeRawHoleString(b, v.Segments)
 		b.WriteString(`"`)
+	case *ast.OrderedAttrsAttr:
+		b.WriteString(v.Name)
+		if len(v.Pairs) == 0 {
+			b.WriteString("={{ }}")
+		} else {
+			b.WriteString("={{ ")
+			for i, pair := range v.Pairs {
+				if i > 0 {
+					b.WriteString(", ")
+				}
+				b.WriteString(strconv.Quote(pair.Key))
+				b.WriteString(": ")
+				b.WriteString(fmtExpr(pair.Value))
+			}
+			b.WriteString(" }}")
+		}
 	default:
 		// Attribute types are AST-defined and enumerable; an unrecognized type
 		// here is a programming error, not user input — skip it explicitly.

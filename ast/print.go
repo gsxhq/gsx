@@ -195,6 +195,15 @@ func fprintNode(w io.Writer, node Node, depth int) error {
 				return err
 			}
 		}
+	case *OrderedAttrsAttr:
+		if _, err := fmt.Fprintf(w, "%sOrderedAttrsAttr name=%s\n", indent, n.Name); err != nil {
+			return err
+		}
+		for _, pair := range n.Pairs {
+			if _, err := fmt.Fprintf(w, "%s  OrderedPair key=%q value=%q\n", indent, pair.Key, pair.Value); err != nil {
+				return err
+			}
+		}
 	default:
 		if _, err := fmt.Fprintf(w, "%s<unknown node %T>\n", indent, node); err != nil {
 			return err

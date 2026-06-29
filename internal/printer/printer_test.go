@@ -914,3 +914,54 @@ component C() {
 `
 	assertFormat(t, src, want)
 }
+
+// TestAttrWSNormalization proves that the formatter auto-strips whitespace around
+// '=' in all attribute value forms. The printer reconstructs attributes from the
+// AST (which never stores '=' whitespace), so no printer code change is needed —
+// this test just confirms the automatic normalization is real.
+func TestAttrWSNormalization(t *testing.T) {
+	// Source has spaces around '=' in two attribute forms: static string and
+	// brace expression. The formatted output must emit canonical no-space form
+	// (id="tip", data-x={val}) regardless of spacing in the input.
+	src := `package p
+
+component C() {
+	<div id = "tip" data-x = {val}></div>
+}`
+	want := `package p
+
+component C() {
+	<div id="tip" data-x={val}></div>
+}
+`
+	checkFormat(t, src, want)
+}
+
+func TestOrderedAttrsEmptyBagFormatting(t *testing.T) {
+	// An empty {{ }} literal must format as `name={{ }}` (single interior space),
+	// not `name={{  }}` (two interior spaces). Also verifies idempotence.
+	src := `package p
+
+import "github.com/gsxhq/gsx"
+
+component C(attrs gsx.OrderedAttrs) {
+	<div></div>
+}
+
+component Page() {
+	<C attrs={{ }}/>
+}`
+	want := `package p
+
+import "github.com/gsxhq/gsx"
+
+component C(attrs gsx.OrderedAttrs) {
+	<div></div>
+}
+
+component Page() {
+	<C attrs={{ }}/>
+}
+`
+	checkFormat(t, src, want)
+}
