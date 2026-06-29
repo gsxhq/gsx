@@ -21,13 +21,16 @@ import (
 
 // Example is one fully-parsed fixture.
 type Example struct {
-	Name     string
-	Summary  string
-	Category string
-	Order    int
-	Source   string // playground source string (single verbatim, or txtar-joined)
-	Invoke   string
-	Files    []SourceFile // individual source files, for per-file docs blocks
+	Name      string
+	Summary   string
+	Category  string
+	Order     int
+	Page      string // syntax-page slug; "" = gallery only
+	PageOrder int    // order within the page (falls back to Order)
+	Source    string // playground source string (single verbatim, or txtar-joined)
+	Invoke    string
+	Render    string // rendered HTML (render.golden); required when Page != ""
+	Files     []SourceFile // individual source files, for per-file docs blocks
 }
 
 // SourceFile is one .gsx file of an example.
@@ -88,6 +91,8 @@ func loadOne(path string) (Example, error) {
 			parseDoc(&ex, f.Data)
 		case f.Name == "invoke":
 			invoke = strings.TrimSpace(string(f.Data))
+		case f.Name == "render.golden":
+			ex.Render = string(f.Data)
 		case strings.HasSuffix(f.Name, ".gsx"):
 			if strings.ContainsAny(f.Name, "/\\") {
 				return Example{}, fmt.Errorf("source file %q must be a bare *.gsx (one package)", f.Name)
@@ -112,6 +117,9 @@ func loadOne(path string) (Example, error) {
 	}
 	if invoke == "" {
 		return Example{}, fmt.Errorf("missing -- invoke -- section")
+	}
+	if ex.Page != "" && ex.Render == "" {
+		return Example{}, fmt.Errorf("routed example (page: %s) requires a -- render.golden -- section", ex.Page)
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Name < files[j].Name })
 	ex.Files = files
@@ -155,6 +163,12 @@ func parseDoc(ex *Example, b []byte) {
 		case "order":
 			if n, err := strconv.Atoi(val); err == nil {
 				ex.Order = n
+			}
+		case "page":
+			ex.Page = val
+		case "pageOrder":
+			if n, err := strconv.Atoi(val); err == nil {
+				ex.PageOrder = n
 			}
 		}
 	}

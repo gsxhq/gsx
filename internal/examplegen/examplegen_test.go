@@ -3,6 +3,8 @@ package examplegen
 import (
 	"encoding/base64"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -84,6 +86,44 @@ func TestRenderMarkdownProseEscape(t *testing.T) {
 	}
 	if strings.Contains(md, "<style>") {
 		t.Errorf("raw <style> found in prose output; got:\n%s", md)
+	}
+}
+
+func TestLoadParsesPageAndRender(t *testing.T) {
+	dir := t.TempDir()
+	fixture := `-- doc --
+name: Conditional
+summary: a conditional attr
+category: Basics
+page: attributes
+pageOrder: 30
+-- input.gsx --
+package views
+
+component C(on bool) {
+	<a { if on { class="x" } }>y</a>
+}
+-- invoke --
+C(CProps{On: true})
+-- render.golden --
+<a class="x">y</a>
+`
+	if err := os.WriteFile(filepath.Join(dir, "x.txtar"), []byte(fixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	exs, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(exs) != 1 {
+		t.Fatalf("want 1, got %d", len(exs))
+	}
+	e := exs[0]
+	if e.Page != "attributes" || e.PageOrder != 30 {
+		t.Fatalf("page route wrong: %q %d", e.Page, e.PageOrder)
+	}
+	if e.Render != "<a class=\"x\">y</a>\n" {
+		t.Fatalf("render not loaded: %q", e.Render)
 	}
 }
 
