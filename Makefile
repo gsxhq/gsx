@@ -16,9 +16,9 @@ test:
 # Examples are regenerated FIRST, serially: the playground module embeds
 # examples.json (`//go:embed` in playground/server/presets.go), so its build
 # must not race the regeneration. The drift check reads the just-written files.
-# The three remaining lanes are independent, so `make -j3` runs them in parallel
+# The four remaining lanes are independent, so `make -j4` runs them in parallel
 # — the long pole is `ci-gomod` (the gen/ e2e suite), under which the ~7s
-# playground build+test and the ~1s format check overlap for free.
+# playground build+test, the tailwind example, and the ~1s format check overlap for free.
 ci:
 	$(MAKE) ci-examples
 	$(MAKE) ci-tailwind-example-drift
