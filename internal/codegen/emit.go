@@ -938,18 +938,38 @@ func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type,
 		bag.Errorf(n.Pos(), n.End(), "unresolved-interp", "could not resolve type of interpolation %q", n.Expr)
 		return false
 	}
-	if tup, ok := t.(*types.Tuple); ok {
-		if tup.Len() != 2 || tup.At(1).Type().String() != "error" {
+	if _, isTuple := t.(*types.Tuple); isTuple {
+		elemT, ok := tupleUnwrapType(t)
+		if !ok {
 			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "interpolation %q returns %s; only (T, error) is supported", expr, t)
 			return false
 		}
 		// v, err := expr; if err != nil { return err }; then render v by its type.
-		tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-		*interpTemp++
-		fmt.Fprintf(b, "\t\t%s, _gsxerr := %s\n\t\tif _gsxerr != nil {\n\t\t\treturn _gsxerr\n\t\t}\n", tmp, expr)
-		return emitRender(b, tmp, tup.At(0).Type(), imports, n, bag)
+		tmp := hoistTuple(b, expr, interpTemp)
+		return emitRender(b, tmp, elemT, imports, n, bag)
 	}
 	return emitRender(b, expr, t, imports, n, bag)
+}
+
+// tupleUnwrapType reports whether t is a (T, error) tuple, returning T. Any other
+// tuple shape is not unwrappable (callers emit the "only (T, error)" diagnostic).
+func tupleUnwrapType(t types.Type) (types.Type, bool) {
+	tup, ok := t.(*types.Tuple)
+	if !ok || tup.Len() != 2 || tup.At(1).Type().String() != "error" {
+		return nil, false
+	}
+	return tup.At(0).Type(), true
+}
+
+// hoistTuple emits `tmp, _gsxerr := expr; if _gsxerr != nil { return _gsxerr }`
+// and returns the temp name. interpTemp is the shared per-component counter, so
+// temps are unique across all unwrap sites and `return _gsxerr` binds to the
+// enclosing func/closure.
+func hoistTuple(b *bytes.Buffer, expr string, interpTemp *int) string {
+	tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+	*interpTemp++
+	fmt.Fprintf(b, "\t\t%s, _gsxerr := %s\n\t\tif _gsxerr != nil {\n\t\t\treturn _gsxerr\n\t\t}\n", tmp, expr)
+	return tmp
 }
 
 // emitLine writes a //line directive mapping subsequent output to the gsx node's
@@ -1115,15 +1135,14 @@ func emitCSSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.T
 		bag.Errorf(n.Pos(), n.End(), "unresolved-interp", "could not resolve type of <style> interpolation %q", n.Expr)
 		return false
 	}
-	if tup, ok := t.(*types.Tuple); ok {
-		if tup.Len() != 2 || tup.At(1).Type().String() != "error" {
+	if _, isTuple := t.(*types.Tuple); isTuple {
+		elemT, ok := tupleUnwrapType(t)
+		if !ok {
 			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "<style> interpolation %q returns %s; only (T, error) is supported", expr, t)
 			return false
 		}
-		tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-		*interpTemp++
-		fmt.Fprintf(b, "\t\t%s, _gsxerr := %s\n\t\tif _gsxerr != nil {\n\t\t\treturn _gsxerr\n\t\t}\n", tmp, expr)
-		return emitRenderCSS(b, tmp, tup.At(0).Type(), imports, n, bag)
+		tmp := hoistTuple(b, expr, interpTemp)
+		return emitRenderCSS(b, tmp, elemT, imports, n, bag)
 	}
 	return emitRenderCSS(b, expr, t, imports, n, bag)
 }
@@ -1196,15 +1215,14 @@ func emitJSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Ty
 		return false
 	}
 	// Unwrap (T, error) exactly like emitCSSInterp.
-	if tup, ok := t.(*types.Tuple); ok {
-		if tup.Len() != 2 || tup.At(1).Type().String() != "error" {
+	if _, isTuple := t.(*types.Tuple); isTuple {
+		elemT, ok := tupleUnwrapType(t)
+		if !ok {
 			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "<script> interpolation %q returns %s; only (T, error) is supported", expr, t)
 			return false
 		}
-		tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-		*interpTemp++
-		fmt.Fprintf(b, "\t\t%s, _gsxerr := %s\n\t\tif _gsxerr != nil {\n\t\t\treturn _gsxerr\n\t\t}\n", tmp, expr)
-		return emitJSValue(b, n.JSCtx, tmp, tup.At(0).Type(), n, bag)
+		tmp := hoistTuple(b, expr, interpTemp)
+		return emitJSValue(b, n.JSCtx, tmp, elemT, n, bag)
 	}
 	return emitJSValue(b, n.JSCtx, expr, t, n, bag)
 }
@@ -1393,15 +1411,14 @@ func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]type
 		bag.Errorf(n.Pos(), n.End(), "unresolved-interp", "could not resolve type of JS attribute interpolation %q", n.Expr)
 		return false
 	}
-	if tup, ok := t.(*types.Tuple); ok {
-		if tup.Len() != 2 || tup.At(1).Type().String() != "error" {
+	if _, isTuple := t.(*types.Tuple); isTuple {
+		elemT, ok := tupleUnwrapType(t)
+		if !ok {
 			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "JS attribute interpolation %q returns %s; only (T, error) is supported", expr, t)
 			return false
 		}
-		tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-		*interpTemp++
-		fmt.Fprintf(b, "\t\t%s, _gsxerr := %s\n\t\tif _gsxerr != nil {\n\t\t\treturn _gsxerr\n\t\t}\n", tmp, expr)
-		return emitJSAttrValue(b, n.JSCtx, tmp, tup.At(0).Type(), n, bag)
+		tmp := hoistTuple(b, expr, interpTemp)
+		return emitJSAttrValue(b, n.JSCtx, tmp, elemT, n, bag)
 	}
 	return emitJSAttrValue(b, n.JSCtx, expr, t, n, bag)
 }
@@ -1569,16 +1586,14 @@ func emitExprAttr(b *bytes.Buffer, a *ast.ExprAttr, resolved map[ast.Node]types.
 
 	// (2) auto-unwrap a (T, error) value — v, err := expr; if err != nil { return err } —
 	// then use v by its type T, exactly as text/<style>/<script> interpolation do.
-	if tup, ok := t.(*types.Tuple); ok {
-		if tup.Len() != 2 || tup.At(1).Type().String() != "error" {
+	if _, isTuple := t.(*types.Tuple); isTuple {
+		elemT, ok := tupleUnwrapType(t)
+		if !ok {
 			bag.Errorf(a.Pos(), a.End(), "invalid-tuple", "attribute %q value %q returns %s; only (T, error) is supported", a.Name, a.Expr, t)
 			return false
 		}
-		tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-		*interpTemp++
-		fmt.Fprintf(b, "\t\t%s, _gsxerr := %s\n\t\tif _gsxerr != nil {\n\t\t\treturn _gsxerr\n\t\t}\n", tmp, expr)
-		expr = tmp
-		t = tup.At(0).Type()
+		expr = hoistTuple(b, expr, interpTemp)
+		t = elemT
 	}
 
 	// A bool-typed value is a boolean attribute regardless of context — EXCEPT in
