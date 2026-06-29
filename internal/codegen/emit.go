@@ -2027,6 +2027,24 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 		return true
 	}
 
+	// Reject a child-prop value whose RAW type is a tuple that is NOT (T, error):
+	// the auto-unwrap only supports (T, error). This mirrors the identical
+	// rejection at the interpolation / markup-attr / style / script / JS-attr sites
+	// (same "invalid-tuple" code and "only (T, error) is supported" wording). The
+	// skeleton's _gsxunwrap(...) probe no longer rejects such tuples (its trailing
+	// param is `...any`), so this is the single source of the clean diagnostic.
+	for _, fe := range fieldEntries {
+		if fe.ea == nil {
+			continue
+		}
+		if t, ok := resolved[fe.ea].(*types.Tuple); ok {
+			if _, unwrappable := tupleUnwrapType(t); !unwrappable {
+				bag.Errorf(fe.ea.Pos(), fe.ea.End(), "invalid-tuple", "child prop %q value %q returns %s; only (T, error) is supported", fe.ea.Name, fe.ea.Expr, t)
+				return false
+			}
+		}
+	}
+
 	// Hoist-all-when-any: if any prop ExprAttr value is a (T, error) tuple, hoist
 	// EVERY prop ExprAttr value to a temp in source order before the Node call.
 	// Non-tuple values get a plain `tmp := expr`; tuple values get

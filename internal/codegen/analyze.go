@@ -769,6 +769,14 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					// this the skeleton would not import _gsxstdN and a prop pipeline
 					// would fail to resolve.
 					maps.Copy(usedFilters, usedPkgs)
+					// One //line for the WHOLE props literal (the element position).
+					// A child-prop FIELD-TYPE error (e.g. `cannot use … as string`)
+					// therefore reports at this single position, so the COLUMN of a
+					// trailing field can be inaccurate — earlier wrapped fields
+					// (_gsxunwrap(…), gsx.Val(…)) shift the offset, and the column can
+					// even land past end-of-line (see the cond_attr_root_not_eligible
+					// golden's 8:45). This is a known limitation; a future reader
+					// should not trust the column of a child-prop field-type error.
 					emitSkeletonLine(sb, fset, t.Pos())
 					if splatExpr != "" {
 						// Whole-struct splat: mirrors genChildComponent exactly.
@@ -796,7 +804,13 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 						return perr
 					}
 					emitSkeletonLine(sb, fset, ea.Pos())
-					fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
+					// _gsxuseq (the QUIET harvest probe), not _gsxuse: an
+					// expression-internal error here (undefined ident, bad call, …)
+					// is reported by the props-literal _gsxunwrap(...) probe above, so
+					// the duplicate from this type-only probe is suppressed when its
+					// errors are surfaced (see the quietSpans handling in analyze's
+					// type-error loop). harvest reads _gsxuseq exactly like _gsxuse.
+					fmt.Fprintf(sb, "_gsxuseq(%s)\n", probe)
 				}
 				// Probe slot content in the SAME canonical order collectExprs walks:
 				// each markup-attr value (attr order) then the children.
@@ -1043,7 +1057,11 @@ func harvest(f *goast.File, comps []*gsxast.Component, info *types.Info, out map
 				return true
 			}
 			id, ok := call.Fun.(*goast.Ident)
-			if !ok || id.Name != "_gsxuse" || len(call.Args) != 1 {
+			// _gsxuseq is the quiet child-prop harvest variant; it carries a node's
+			// type identically to _gsxuse and occupies the SAME k-ordering slot
+			// (collectExprs adds child-prop ExprAttr nodes in source order), so both
+			// must be matched here or the k alignment would drift.
+			if !ok || (id.Name != "_gsxuse" && id.Name != "_gsxuseq") || len(call.Args) != 1 {
 				return true
 			}
 			if k < len(nodes) {

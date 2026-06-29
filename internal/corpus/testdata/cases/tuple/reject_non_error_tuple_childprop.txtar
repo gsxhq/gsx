@@ -1,0 +1,14 @@
+# A child-component prop value that is a tuple but NOT (T, error) — here a
+# (int, string) two-value return — is rejected with the SAME clean "only
+# (T, error) is supported" diagnostic the interpolation/markup-attr sites use.
+# No internal _gsxunwrap helper name may leak into the message.
+-- input.gsx --
+package views
+
+func twoVals() (int, string) { return 1, "x" }
+
+component Card(x int) { <div>{x}</div> }
+
+component Page() { <Card x={twoVals()}/> }
+-- diagnostics.golden --
+7:26: child prop "x" value "twoVals()" returns (int, string); only (T, error) is supported

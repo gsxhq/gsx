@@ -1,0 +1,13 @@
+# An expression-internal error in a child-prop value (here an undefined ident)
+# is reported EXACTLY ONCE, even though the skeleton probes the value twice:
+# once via the props-literal _gsxunwrap(...) field-compat check and once via the
+# _gsxuseq(...) type-harvest probe. The harvest probe's redundant error is
+# suppressed.
+-- input.gsx --
+package views
+
+component Card(title string) { <div>{title}</div> }
+
+component Page() { <Card title={undefinedX}/> }
+-- diagnostics.golden --
+5:57: undefined: undefinedX

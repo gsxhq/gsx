@@ -281,9 +281,12 @@ tuple/child_prop_multi	diag gen render
 tuple/child_prop_node	diag gen render
 tuple/child_prop_pipeline	diag gen render
 tuple/child_prop_single	diag gen render
+tuple/child_prop_undefined_ident	diag(error)
+tuple/reject_field_type_mismatch_childprop	diag(error)
+tuple/reject_non_error_tuple_childprop	diag(error)
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 288 cases (render: 220, error: 48, gen-pinned: 97)
+TOTAL: 291 cases (render: 220, error: 51, gen-pinned: 97)

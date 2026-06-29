@@ -1,0 +1,13 @@
+# A valid (T, error) child-prop value whose unwrapped T does NOT fit the field
+# type still produces a clean go/types field-type error — with the internal
+# _gsxunwrap helper stripped from the message (never leaked to the user).
+-- input.gsx --
+package views
+
+func numErr() (int, error) { return 1, nil }
+
+component Card(title string) { <div>{title}</div> }
+
+component Page() { <Card title={numErr()}/> }
+-- diagnostics.golden --
+7:46: cannot use numErr() (value of type int) as string value in struct literal
