@@ -166,6 +166,69 @@ built-in `full` minifier. At `none` no minifier runs.
 `gsx info` reports the resolved level for each asset and which environment
 overrides are in effect (see below).
 
+### `class_merger` — Tailwind-aware class merge strategy
+
+gsx composes `class` attributes from static parts, `clsx`-style toggles, and
+caller fallthrough, then passes the raw per-source class strings through a *merge
+strategy* that produces the final value. The default (`gsx.DefaultClassMerge`)
+returns a single source verbatim and dedupes multiple sources last-wins — correct
+for vanilla CSS but not for Tailwind, where conflicting utilities like `px-4 px-8`
+must collapse to `px-8`.
+
+Set `class_merger` to replace the default with a Tailwind-aware implementation:
+
+```toml
+class_merger = "myapp/twcfg.Merge"   # an exported func([]string) string (func or var)
+```
+
+**Signature contract.** The named identifier must be an **exported package-level
+identifier** (a func declaration *or* a package-level var of a func type) with the
+signature **exactly `func([]string) string`**. gsx emits a **direct reference** to
+the symbol — no generated adapter. Any other signature — variadic, wrong arity,
+non-string return — is a **generate-time error** that names the bad signature and
+points at the wrapper idiom below. For example, naming `tailwind-merge-go.Merge`
+directly fails because its type is `func(...ClassNameValue) string`, not
+`func([]string) string`.
+
+**What the merger receives.** Each element is the **raw, un-split class string of
+one source** — a component with `class="px-4 py-2"` and a caller's fallthrough
+`class="px-8"` pass `["px-4 py-2", "px-8"]`. gsx does not pre-split or pre-join:
+a real Tailwind merger splits and resolves conflicts itself.
+`tailwind-merge-go`'s merge function accepts a `[]string` directly (each element is
+split internally), so a wrapper passes the slice straight through — **no join**.
+
+**The wrapper idiom for custom-configured mergers.** `tailwind-merge-go` mergers
+are runtime-constructed values, not named top-level functions, so they cannot be
+named directly in `gsx.toml`. Put a thin exported wrapper in your own utilities
+package and name that instead:
+
+```go
+// package myapp/twcfg
+import "github.com/jackielii/tailwind-merge-go/pkg/twmerge"
+
+var merger = twmerge.CreateTwMerge(twmerge.GetDefaultConfig())
+// or: twmerge.ExtendTailwindMerge(&twmerge.ConfigExtension{...})
+
+// Merge is what gsx.toml names. Already func([]string) string — no join.
+func Merge(classes []string) string { return merger(classes) }
+```
+
+```toml
+class_merger = "myapp/twcfg.Merge"
+```
+
+The wrapper already has the canonical signature, so gsx emits a direct reference
+with no adapter. The merger library, its custom configuration, its cache, and its
+version all live in `myapp/twcfg` and your project's `go.mod` — gsx's runtime
+never imports the library, so upgrading or swapping `tailwind-merge-go` is a
+`go.mod` bump and a `gsx generate`, not a gsx release.
+
+**Option route (custom binary).** `gen.WithClassMerger(fn)` in a project
+`cmd/gsx/main.go` accepts a Go function value (e.g. a top-level
+`func Merge([]string) string`). Precedence is **option > config**: when both are
+set, the option wins. The option route requires a [project
+`cmd/gsx`](./extensions.md); prefer `gsx.toml` unless you already maintain one.
+
 ## Full example
 
 ```toml
@@ -191,6 +254,9 @@ name = "data-href"
 [minify]
 css = "full"
 js  = "full"
+
+# Tailwind-aware class merger (omit to use gsx's built-in last-wins dedup).
+class_merger = "myapp/twcfg.Merge"
 ```
 
 ## What is *not* in `gsx.toml`
