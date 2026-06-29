@@ -74,6 +74,8 @@ func SetSpan(n Node, start, end token.Pos) {
 		v.span = s
 	case *ClassAttr:
 		v.span = s
+	case *OrderedAttrsAttr:
+		v.span = s
 	}
 }
 
@@ -370,6 +372,27 @@ type ClassAttr struct {
 }
 
 func (*ClassAttr) attrNode() {}
+
+// OrderedPair is one "key": value pair of an OrderedAttrsAttr. Key is the
+// unquoted attribute name (string-literal key, already unquoted). Value is the
+// raw Go expression source; ValuePos is the offset of its first char.
+type OrderedPair struct {
+	Key      string
+	Value    string
+	ValuePos token.Pos
+}
+
+// OrderedAttrsAttr is name={{ "k1": v1, "k2": v2 }} — an ordered attribute bag
+// literal in attribute-value position. It lowers to a gsx.OrderedAttrs{…}
+// composite literal bound to the matched prop field. Distinct from a body GoBlock
+// ({{ stmt }}); the two never share a parse position.
+type OrderedAttrsAttr struct {
+	span
+	Name  string
+	Pairs []OrderedPair
+}
+
+func (*OrderedAttrsAttr) attrNode() {}
 
 // Inspect traverses the AST in depth-first order, calling f for each node.
 // If f returns false, Inspect does not recurse into that node's children.

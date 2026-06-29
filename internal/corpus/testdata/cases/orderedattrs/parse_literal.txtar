@@ -1,0 +1,16 @@
+# Parser snapshot: name={{ "k": v, ... }} => OrderedAttrsAttr
+-- input.gsx --
+package p
+
+component C() {
+	<Card container-attrs={{ "data-signals": sig, "hx-on:click": h, "data-show": true }}/>
+}
+-- ast.golden --
+File package=p
+  Component name=C recv="" params=""
+    Element tag=Card void=true
+      OrderedAttrsAttr name=container-attrs
+        OrderedPair key="data-signals" value="sig"
+        OrderedPair key="hx-on:click" value="h"
+        OrderedPair key="data-show" value="true"
+-- diagnostics.golden --

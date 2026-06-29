@@ -167,6 +167,7 @@ methods/render_method_pointer_receiver	diag render
 methods/render_method_same_name_different_receivers_a	diag render
 methods/render_method_same_name_different_receivers_b	diag render
 methods/render_method_with_param	diag render
+orderedattrs/parse_literal	ast diag
 orderedattrs/spread_preserves_order	diag gen render
 parser/01_elements	ast diag
 parser/02_interpolation	ast diag
@@ -271,4 +272,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 273 cases (render: 205, error: 49, gen-pinned: 82)
+TOTAL: 274 cases (render: 205, error: 49, gen-pinned: 82)
