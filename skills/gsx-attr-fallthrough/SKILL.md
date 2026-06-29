@@ -10,10 +10,13 @@ This feature completely replaces templ's hand-written `classFromAttrs`/`attrFrom
 
 Corpus reference: `internal/corpus/testdata/cases/fallthrough/`
 
-## Auto-generated Props for nullary components
+## Auto-generated Props (no explicit `attrs` param needed)
 
-A component with a single root element and `{children}` placement gets an
-auto-generated `Props` struct with **no explicit `attrs` parameter needed**:
+`Attrs gsx.Attrs` is injected for **any single-root-element component** — with
+or without `{children}`. The `Children gsx.Node` field is added separately,
+only when the component body contains a `{children}` placement.
+
+Example with both:
 
 ```gsx
 // button.gsx
@@ -84,7 +87,7 @@ to prevent double-emission:
 
 ```go
 // generated (simplified)
-_gsxp.Attrs.Without("class", "style").Render(ctx, w)
+_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
 ```
 
 ## Pluggable `gsx.ClassMerger` for Tailwind

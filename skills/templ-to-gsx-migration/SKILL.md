@@ -103,8 +103,10 @@ type Component interface {
 }
 ```
 
-A childless gsx node can be passed into templ via `templ.FromGoHTML`-style embedding
-and vice versa: `{ node }` inside a gsx body accepts any value satisfying the interface.
+Because `gsx.Node` and `templ.Component` are structurally identical interfaces
+(`Render(ctx context.Context, w io.Writer) error`), a childless gsx node is used
+directly wherever a `templ.Component` is expected — no adapter is needed.
+(`templ.FromGoHTML` is for `html/template` objects, not gsx nodes.)
 
 **Migration strategy: bottom-up by subtree.**
 Convert leaf components (no child slots) first. A parent page migrates to gsx only
