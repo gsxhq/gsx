@@ -2,9 +2,8 @@ version: '3'
 
 dotenv: ['.env']
 
-# Prefix each parallel task's lines ([dev:vite] / [dev:server]) into one readable
-# combined terminal log, and tee the same stream to tmp/dev.log for the
-# dev-fallback page to display while the Go server restarts.
+# Prefix each parallel task's lines ([dev:vite] / [dev:server]) into one
+# readable combined terminal log.
 output: prefixed
 
 tasks:
@@ -16,22 +15,21 @@ tasks:
     internal: true
     cmds:
       - mkdir -p tmp
-      # Build wgo to a real binary. `go tool wgo` adds a wrapper process that
-      # races Ctrl-C and orphans the Go server (it survives, holding GO_PORT).
+      # Real binary, not `go tool wgo`: the wrapper races Ctrl-C and orphans the server.
       - go build -o tmp/wgo github.com/bokwoon95/wgo
-      - 'echo "=== task dev ===" > tmp/dev.log'
       - go tool gsx generate .
 
   dev:vite:
     desc: Vite dev server (front door; runs the gsx plugin).
     deps: [dev:setup]
     cmds:
-      - 'npm run dev 2>&1 | tee -a tmp/dev.log'
+      - npm run dev
 
   dev:server:
     desc: Rebuild + restart the Go server on .go changes.
     deps: [dev:setup]
     cmds:
-      # tmp/wgo (built in dev:setup), not `go tool wgo` — see there.
-      # Single-quoted: the `::` + pipe contain `: ` which unquoted YAML misparses.
-      - 'tmp/wgo -file=.go -xdir=tmp -xdir=node_modules -xdir=dist go build -o tmp/app . :: tmp/app 2>&1 | tee -a tmp/dev.log'
+      # Single-quoted (`::` contains `: `). Tee server output to tmp/dev.log
+      # (truncating, so it's fresh each session) — the dev-fallback interstitial
+      # tails it to show why the server is down (build error / crash).
+      - 'tmp/wgo -file=.go -xdir=tmp -xdir=node_modules -xdir=dist go build -o tmp/app . :: tmp/app 2>&1 | tee tmp/dev.log'
