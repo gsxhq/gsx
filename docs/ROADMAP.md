@@ -16,7 +16,7 @@ generator/CLI may use `golang.org/x/tools`.
 |---|---|
 | Parser + AST | `[x]` Part 2 grammar + pipeline parsing + positioned, recoverable errors |
 | Runtime (`gsx`) | `[x]` done |
-| Codegen | `[~]` interpolation + control flow + full attributes (security core, composable class **and element-level style**, spread, conditional) + pipeline `\|>` + child props/`{children}` + method components + named slots + attribute fallthrough (auto class-merge/spread + manual `{...attrs}`) + custom attribute classification (`WithJSAttrs`/`WithURLAttrs`/`WithCSSAttrs` + `WithAttrClassifier`) + node-prop promotion (`gsx.Val`/`Text`/`Fragment`) done; composable `style` **on a component invocation** + `[]string` class parts pending |
+| Codegen | `[~]` interpolation + control flow + full attributes (security core, composable class **and element-level style**, spread, conditional) + pipeline `\|>` + child props/`{children}` + method components + named slots + attribute fallthrough (auto class-merge/spread + manual `{...attrs}`) + custom attribute classification (`WithJSAttrs`/`WithURLAttrs`/`WithCSSAttrs` + `WithAttrClassifier`) + node-prop promotion (`gsx.Val`/`Text`/`Fragment`) + ordered attrs (`{{ }}` / `gsx.OrderedAttrs`) done; composable `style` **on a component invocation** + `[]string` class parts pending |
 | Whitespace model | `[x]` JSX-style: `internal/wsnorm.Normalize` (parser lossless) wired into codegen + powers `gsx fmt`. render-faithful + idempotent over the whole corpus. |
 | Pipeline `\|>` end-to-end | `[x]` seed-first forward-application lowering + `std` filters + user filter packages (`gen.WithFilters` + `gen.WithFilter` aliases, multi-pkg last-wins) + `ctx` injection + `(T,error)` implicit auto-unwrap. Works in interp / attr / class / style / spread. Initialism-aware naming pending. |
 | CLI (`gsx`) / `gen.Main` | `[~]` `generate` (incl. `--watch`/`--format=ndjson`) · `fmt` · `info` · `init` · `lsp` · `clean --cache` · `version` · `help` ship, with `--json` + structured diagnostics. `vet`/`render`/`explain`/numeric codes pending. `WithClassMerger` + `class_merger` TOML knob shipped. |
@@ -38,7 +38,10 @@ recover at the `component` boundary (one diagnostic per broken component).
 with streaming text/attr/URL/JS/CSS escapers, class/style compose + gen-configured
 class merger (`class_merger` / `gen.WithClassMerger`), `Attrs` bag + deterministic `Spread`. `gsx.Val(any)` /
 `gsx.Text(string)` / `gsx.Fragment(nodes…)` value-Node boxes. `gsx.Raw` /
-`gsx.RawJS` / `gsx.RawCSS` / `gsx.RawURL` typed escape hatches. Independent-review SHIP.
+`gsx.RawJS` / `gsx.RawCSS` / `gsx.RawURL` typed escape hatches.
+`gsx.OrderedAttrs` (`[]gsx.Attr`) + `Writer.SpreadOrdered` — insertion-ordered,
+duplicate-tolerant attribute bag; renders in slice order (contrast: `Spread` sorts
+`Attrs`). Independent-review SHIP.
 
 **Codegen phase 1** (`internal/codegen`) — `GeneratePackage(dir)`: `go/packages`
 + `Overlay` skeleton type resolution (cross-file, cross-component); arity-safe
@@ -116,6 +119,16 @@ render goldens.
    the `FProps{…}` convention. Passing attributes or children to a zero-arg component
    is a clean diagnostic (was a raw `undefined: FProps`). **Deferred:** non-`gsx.Node`
    renderable returns; cross-package nullary funcs.
+9. `[x]` **Ordered attributes** (`{{ }}` / `gsx.OrderedAttrs`) — `2026-06-29`.
+   A `{{ "key": goExpr, … }}` literal in attribute-value position binds to a
+   declared `gsx.OrderedAttrs` component prop; the bag is spread onto an element with
+   `{ prop... }` via `Writer.SpreadOrdered`, which emits pairs in **slice order** (not
+   sorted). Keys must be quoted string literals (enables kebab/colon names); values
+   are arbitrary Go expressions (`|>` pipelines not supported inside the literal);
+   `bool` values toggle bare/omitted. Duplicate keys and trailing commas are allowed;
+   an empty `{{ }}` renders nothing. Using `{{ }}` directly on a plain-element
+   attribute is a clean diagnostic. The bag does not participate in class/style
+   merging. Escaping and unsafe-name validation mirror `Spread` exactly.
 
 ## Language server (`gsx lsp`)
 
