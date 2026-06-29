@@ -64,27 +64,3 @@ component LoginForm() {
 
 [▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgRmllbGQobGFiZWwgc3RyaW5nKSB7XG5cdFx1MDAzY2RpdiBjbGFzcz1cImZpZWxkXCJcdTAwM2Vcblx0XHRcdTAwM2NsYWJlbFx1MDAzZXsgbGFiZWwgfVx1MDAzYy9sYWJlbFx1MDAzZVxuXHRcdFx1MDAzY2lucHV0IGNsYXNzPVwiY29udHJvbFwiIHsgYXR0cnMuLi4gfS9cdTAwM2Vcblx0XHUwMDNjL2Rpdlx1MDAzZVxufVxuXG5jb21wb25lbnQgTG9naW5Gb3JtKCkge1xuXHRcdTAwM2Nmb3JtIG1ldGhvZD1cInBvc3RcIiBhY3Rpb249XCIvbG9naW5cIlx1MDAzZVxuXHRcdFx1MDAzY0ZpZWxkIGxhYmVsPVwiRW1haWxcIiB0eXBlPVwiZW1haWxcIiBuYW1lPVwiZW1haWxcIiByZXF1aXJlZC9cdTAwM2Vcblx0XHRcdTAwM2NGaWVsZCBsYWJlbD1cIlBhc3N3b3JkXCIgdHlwZT1cInBhc3N3b3JkXCIgbmFtZT1cInBhc3N3b3JkXCIgcmVxdWlyZWQvXHUwMDNlXG5cdFx0XHUwMDNjYnV0dG9uIHR5cGU9XCJzdWJtaXRcIlx1MDAzZVNpZ24gaW5cdTAwM2MvYnV0dG9uXHUwMDNlXG5cdFx1MDAzYy9mb3JtXHUwMDNlXG59XG4iLCJpIjoiTG9naW5Gb3JtKCkifQ==)
 
-### JS attributes &amp; data islands
-
-@click={ gsx.RawJS(…) } emits a vouched event handler; a &lt;script type="application/json"&gt; island serializes typed Go data with @{ … } for client JS.
-
-```gsx
-package views
-
-import "github.com/gsxhq/gsx"
-
-type Config struct {
-	Env  string
-	Beta bool
-}
-
-component Widget(cfg Config) {
-	<div>
-		<button @click={gsx.RawJS("toggle()")}>Toggle</button>
-		<script type="application/json" id="cfg">@{ cfg }</script>
-	</div>
-}
-```
-
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5pbXBvcnQgXCJnaXRodWIuY29tL2dzeGhxL2dzeFwiXG5cbnR5cGUgQ29uZmlnIHN0cnVjdCB7XG5cdEVudiAgc3RyaW5nXG5cdEJldGEgYm9vbFxufVxuXG5jb21wb25lbnQgV2lkZ2V0KGNmZyBDb25maWcpIHtcblx0XHUwMDNjZGl2XHUwMDNlXG5cdFx0XHUwMDNjYnV0dG9uIEBjbGljaz17Z3N4LlJhd0pTKFwidG9nZ2xlKClcIil9XHUwMDNlVG9nZ2xlXHUwMDNjL2J1dHRvblx1MDAzZVxuXHRcdFx1MDAzY3NjcmlwdCB0eXBlPVwiYXBwbGljYXRpb24vanNvblwiIGlkPVwiY2ZnXCJcdTAwM2VAeyBjZmcgfVx1MDAzYy9zY3JpcHRcdTAwM2Vcblx0XHUwMDNjL2Rpdlx1MDAzZVxufVxuIiwiaSI6IldpZGdldChDb25maWd7RW52OiBcInByb2RcIiwgQmV0YTogdHJ1ZX0pIn0=)
-

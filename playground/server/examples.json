@@ -208,5 +208,17 @@
     "category": "Control flow",
     "source": "package views\n\nfunc loadUser(id string) (string, error) { return \"User:\" + id, nil }\n\ncomponent Profile(id string) {\n\t<div>\n\t\t{ if name, err := loadUser(id); err != nil {\n\t\t\t<span class=\"err\">{ err.Error() }</span>\n\t\t} else {\n\t\t\t<span>{ name }</span>\n\t\t} }\n\t</div>\n}\n",
     "invoke": "Profile(ProfileProps{Id: \"42\"})"
+  },
+  {
+    "name": "Script interpolation",
+    "category": "JavaScript",
+    "source": "package views\n\ntype AppState struct {\n\tTab  string\n\tOpen bool\n}\n\ncomponent Shell(state AppState) {\n\t<script>\n\t\tconst app = @{ state };\n\t</script>\n}\n",
+    "invoke": "Shell(AppState{Tab: \"settings\", Open: true})"
+  },
+  {
+    "name": "RawJS event handler",
+    "category": "JavaScript",
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Menu() {\n\t<button @click={gsx.RawJS(\"openMenu()\")}>Open</button>\n}\n",
+    "invoke": "Menu()"
   }
 ]
