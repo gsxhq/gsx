@@ -86,8 +86,11 @@ that *keeps order*:
 - **Keys are quoted string literals.** Required — it is the only robust way to
   carry kebab / colon names like `"hx-on:click"`; a bare `hx-on:click:` would make
   `:` ambiguous as both a key character and the pair separator.
-- **Values are Go expressions** (same expression grammar as a `name={expr}`
-  value).
+- **Values are Go expressions.** v1 supports a plain Go expression per value
+  (string literal, identifier, selector, call, composite literal, etc.). A `|>`
+  filter pipeline *inside* an ordered value is **deferred** (non-goal v1) — use a
+  plain expression; pipelines remain available in the normal `name={ … |> … }`
+  attribute-value form.
 - The literal binds to a prop via the existing kebab field-matcher
   (`internal/codegen/fieldmatch.go`): `container-attrs` → field `ContainerAttrs`,
   which must be typed `gsx.OrderedAttrs`.
