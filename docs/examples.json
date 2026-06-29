@@ -30,6 +30,18 @@
     "invoke": "Layout(LayoutProps{Name: \"Ada\"})"
   },
   {
+    "name": "Field access",
+    "category": "Basics",
+    "source": "package views\n\ncomponent Profile(user User) {\n\t<p>{ user.Name } is { user.Age }</p>\n}\n",
+    "invoke": "Profile(User{Name: \"Alice\", Age: 30})"
+  },
+  {
+    "name": "Function (T, error) unwrap",
+    "category": "Basics",
+    "source": "package views\n\ncomponent Label(key string) {\n\t<span>{ lookup(key) }</span>\n}\n",
+    "invoke": "Label(LabelProps{Key: \"hello\"})"
+  },
+  {
     "name": "Interpolation & props",
     "category": "Basics",
     "source": "package views\n\ncomponent Greeting(name string, count int) {\n\t<p>Hello, { name }! You have { count } messages.</p>\n}\n",
