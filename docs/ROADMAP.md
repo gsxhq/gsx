@@ -35,8 +35,8 @@ fuzz-hardened (no crashers). Parser errors carry structured `token.Pos` and
 recover at the `component` boundary (one diagnostic per broken component).
 
 **Runtime** (`gsx`, module root) — `Node`/`Func`/`Raw`, error-threading `Writer`
-with streaming text/attr/URL/JS/CSS escapers, class/style compose + pluggable
-`ClassMerger`, `Attrs` bag + deterministic `Spread`. `gsx.Val(any)` /
+with streaming text/attr/URL/JS/CSS escapers, class/style compose + gen-configured
+class merger (`class_merger` / `gen.WithClassMerger`), `Attrs` bag + deterministic `Spread`. `gsx.Val(any)` /
 `gsx.Text(string)` / `gsx.Fragment(nodes…)` value-Node boxes. `gsx.Raw` /
 `gsx.RawJS` / `gsx.RawCSS` / `gsx.RawURL` typed escape hatches. Independent-review SHIP.
 
