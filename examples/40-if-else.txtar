@@ -3,6 +3,8 @@ name: If / else
 summary: Brace { if … else … } blocks contribute markup conditionally.
 category: Control flow
 order: 40
+page: control-flow
+pageOrder: 10
 -- input.gsx --
 package views
 

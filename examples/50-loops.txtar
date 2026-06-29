@@ -3,6 +3,8 @@ name: Loops over lists
 summary: { for … := range … } renders markup per element using a real Go range loop.
 category: Control flow
 order: 50
+page: control-flow
+pageOrder: 20
 -- input.gsx --
 package views
 

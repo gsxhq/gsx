@@ -178,5 +178,11 @@
     "category": "Interactive & whole-page",
     "source": "package views\n\ncomponent Page(title string) {\n\t<!DOCTYPE html>\n\t<html lang=\"en\">\n\t\t<head>\n\t\t\t<title>{ title }</title>\n\t\t</head>\n\t\t<body>hi</body>\n\t</html>\n}\n",
     "invoke": "Page(PageProps{Title: \"Home\"})"
+  },
+  {
+    "name": "Init statement",
+    "category": "Control flow",
+    "source": "package views\n\nfunc loadUser(id string) (string, error) { return \"User:\" + id, nil }\n\ncomponent Profile(id string) {\n\t<div>\n\t\t{ if name, err := loadUser(id); err != nil {\n\t\t\t<span class=\"err\">{ err.Error() }</span>\n\t\t} else {\n\t\t\t<span>{ name }</span>\n\t\t} }\n\t</div>\n}\n",
+    "invoke": "Profile(ProfileProps{Id: \"42\"})"
   }
 ]
