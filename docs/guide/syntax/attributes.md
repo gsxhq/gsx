@@ -34,11 +34,17 @@ To forward a bag of attributes — commonly used for passthrough components — 
 
 <!--@include: ./_generated/attributes/040-spread-attributes.md-->
 
-`gsx.Attrs` is `[]gsx.Attr` — an ordered slice. Pairs render in their declared or insertion order: whatever order the call site writes them is the order they appear in the HTML. The implicit fallthrough bag (unmatched call-site attributes collected into an `Attrs` prop) lands in call-site source order.
+`gsx.Attrs` is `[]gsx.Attr` — an ordered slice and the only attribute-bag type accepted by templates. Pairs render in their declared or insertion order: whatever order the call site writes them is the order they appear in the HTML. The implicit fallthrough bag (unmatched call-site attributes collected into an `Attrs` prop) lands in call-site source order.
 
 Boolean values in an `Attrs` slice follow the same rule as attribute-level booleans: `true` renders as the bare attribute name; `false` omits the attribute entirely.
 
-To pass a map, use `gsx.AttrMap{"k": v}` (or any `map[string]any`). Codegen auto-converts it via `gsx.AttrsFromMap`, which sorts keys ascending so the output stays deterministic regardless of map iteration order.
+`map[string]any` and `gsx.AttrMap` are not implicit template bag types. When starting from map-shaped data in Go, convert it explicitly before passing it to a template:
+
+```go
+attrs := gsx.AttrMap{"class": "card", "id": id}.ToAttrs()
+```
+
+`ToAttrs` sorts keys ascending because maps do not preserve insertion order. When order matters, construct `gsx.Attrs` directly instead.
 
 ## Ordered-attrs literal `{{ "k": v }}`
 
