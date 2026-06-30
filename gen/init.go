@@ -195,7 +195,7 @@ func initWith(args []string, stdin io.Reader, stdout, stderr io.Writer, interact
 
 // runSteps confirms (when ask) and runs each setup step in abs. On a failed step
 // it prints the remaining commands and returns 1; on success prints the final
-// "Run: task dev" block and returns 0.
+// "Run: npm run dev" block and returns 0.
 func runSteps(reader *bufio.Reader, abs, dir string, stdout, stderr io.Writer, ask bool, run stepRunner) int {
 	for i, step := range setupSteps {
 		fmt.Fprintf(stdout, "\n> %s\n", strings.Join(step, " "))
@@ -215,7 +215,7 @@ func runSteps(reader *bufio.Reader, abs, dir string, stdout, stderr io.Writer, a
 	if dir != "." {
 		fmt.Fprintf(stdout, "  cd %s\n", dir)
 	}
-	fmt.Fprintln(stdout, "  task dev")
+	fmt.Fprintln(stdout, "  npm run dev")
 	return 0
 }
 
@@ -278,5 +278,5 @@ func printNextSteps(stdout io.Writer, dir string) {
 	fmt.Fprintln(stdout, "  go get -tool github.com/gsxhq/gsx/cmd/gsx@latest")
 	fmt.Fprintln(stdout, "  go mod tidy")
 	fmt.Fprintln(stdout, "  npm install")
-	fmt.Fprintln(stdout, "  task dev")
+	fmt.Fprintln(stdout, "  npm run dev")
 }

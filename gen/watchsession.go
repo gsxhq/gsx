@@ -195,3 +195,35 @@ func writeFiles(dir string, files map[string][]byte) ([]string, error) {
 	written, _, err := restore(dir, po)
 	return written, err
 }
+
+// regenPending runs one regeneration pass over the dirty set. When depDirty is
+// set, it reopens every module (full) and returns all per-dir results. Otherwise
+// it invalidates each pending dir (skipping dirs with no remaining .gsx),
+// computes the affected reverse-closure from each Module's import graph, and
+// regenerates those dirs. On a reopen error it returns (nil, err); the caller
+// must preserve pending+depDirty and retry on the next fire.
+func (s *watchSession) regenPending(pending map[string]bool, depDirty bool) ([]cycleResult, error) {
+	if depDirty {
+		return s.reopen()
+	}
+	affected := map[string]bool{}
+	var results []cycleResult
+	for dir := range pending {
+		if onlyGeneratedRemains(dir) {
+			continue
+		}
+		m, err := s.moduleForDir(dir)
+		if err != nil {
+			results = append(results, cycleResult{Dir: dir, Err: err})
+			continue
+		}
+		m.Invalidate(dir)
+		for _, dep := range m.Dependents(dir) {
+			affected[dep] = true
+		}
+	}
+	for dir := range affected {
+		results = append(results, s.regenDir(dir))
+	}
+	return results, nil
+}
