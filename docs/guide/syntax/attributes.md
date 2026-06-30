@@ -54,7 +54,7 @@ attrs = gsx.AttrMap(m).ToAttrs()
 ::: v-pre
 When attribute order matters — for example, `data-*` directives consumed by Datastar where a signal must be declared before it is read — use the `&#123;&#123; "key": value &#125;&#125;` literal in a **component invocation** to pass an ordered attribute bag. The literal lowers to `gsx.Attrs` (an ordered slice), the same type as any declared `Attrs gsx.Attrs` prop and the `{ bag… }` spread. This removes the old friction where the literal required a separately-typed prop.
 
-Use `&#123;&#123; "k": v &#125;&#125;` any time key order matters: Datastar `data-*` directives, duplicate keys, or explicit ordering that a map would scramble.
+Use `&#123;&#123; "k": v &#125;&#125;` any time key order matters: Datastar `data-*` directives, JSX-style overrides through duplicate scalar keys, or explicit ordering that a map would scramble.
 :::
 
 <!--@include: ./_generated/attributes/050-ordered-attributes.md-->
@@ -70,17 +70,17 @@ Key points:
 - `"class"` or `"style"` pairs in an `Attrs` bag render verbatim in their slot position. At the element level, `class=` and `style=` use the bag's `Class()` / `Style()` aggregate methods for merging.
 - A pair value that returns `(T, error)` — e.g. `&#123;&#123; "data-signals": sig(t) &#125;&#125;` where `sig` returns `(string, error)` — is auto-unwrapped: the error propagates from `Render`. See [auto-unwrap](./interpolation#functions-t-error-auto-unwrap).
 
-`gsx.Attrs` tolerates duplicate keys — the `&#123;&#123; &#125;&#125;` literal can repeat a key. Methods on `gsx.Attrs`:
+`gsx.Attrs` tolerates duplicate keys — the `&#123;&#123; &#125;&#125;` literal can repeat a key. Scalar duplicates are last-wins when spread, matching JSX-style override order. `class` and `style` are special aggregate keys. Methods on `gsx.Attrs`:
 
 | Method | Behavior |
 |--------|----------|
 | `Class() string` | Aggregates **all** `"class"` pairs (space-joined) — nothing dropped |
 | `Style() string` | Aggregates **all** `"style"` pairs (`"; "`-joined) |
-| `Get(key) (any, bool)` | First occurrence wins (matches browser first-attribute-wins) |
+| `Get(key) (any, bool)` | Last occurrence wins |
 | `Has(key) bool` | True if any pair has the key |
 | `Without(keys…) Attrs` | Removes **all** matching pairs |
-| `Take(key) (any, Attrs)` | First value + `Without(key)` |
-| `Merge(other Attrs) Attrs` | `class`/`style` concat in place on first match; other keys overwrite first match or append |
+| `Take(key) (any, Attrs)` | Last value + `Without(key)` |
+| `Merge(other Attrs) Attrs` | `class`/`style` concat in place on first match; other keys overwrite the last existing match or append |
 
 A nil `Attrs` is an empty bag — safe to spread, merge, and call methods on.
 :::

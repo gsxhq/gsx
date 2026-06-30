@@ -148,10 +148,9 @@ type Attr struct {
 type OrderedAttrs []Attr
 ```
 
-- **Duplicate keys are tolerated** (a slice can hold them). They render in order;
-  the browser then applies first-wins per the HTML parser. We neither merge nor
-  dedupe — `OrderedAttrs` is a faithful, ordered passthrough. (Documented; not a
-  feature to rely on.)
+- **Duplicate keys are tolerated** (a slice can hold them). Scalar duplicate keys use
+  last-wins spread semantics, so later pairs intentionally override earlier pairs.
+  `class` and `style` are aggregate keys in the unified `gsx.Attrs` model.
 - A caller may hand-write `gsx.OrderedAttrs{{Key: "data-x", Value: x}}` with no
   sugar at all; `{{ }}` is purely the front door.
 

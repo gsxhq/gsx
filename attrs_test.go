@@ -33,11 +33,11 @@ func TestAttrsClassStyleAggregate(t *testing.T) {
 	}
 }
 
-func TestAttrsGetFirstWins(t *testing.T) {
+func TestAttrsGetLastWins(t *testing.T) {
 	a := Attrs{{Key: "k", Value: "first"}, {Key: "k", Value: "second"}}
 	v, ok := a.Get("k")
-	if !ok || v != "first" {
-		t.Fatalf("Get first-wins = %v,%v want first,true", v, ok)
+	if !ok || v != "second" {
+		t.Fatalf("Get last-wins = %v,%v want second,true", v, ok)
 	}
 	if !a.Has("k") || a.Has("nope") {
 		t.Fatal("Has wrong")
@@ -65,6 +65,15 @@ func TestAttrsMergeOverwriteInPlace(t *testing.T) {
 	}
 }
 
+func TestAttrsMergeIncomingWinsOverReceiverDuplicates(t *testing.T) {
+	a := Attrs{{Key: "id", Value: "old-1"}, {Key: "data-x", Value: "keep"}, {Key: "id", Value: "old-2"}}
+	got := a.Merge(Attrs{{Key: "id", Value: "new"}})
+	want := Attrs{{Key: "data-x", Value: "keep"}, {Key: "id", Value: "new"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Merge with duplicate receiver key = %v, want %v", got, want)
+	}
+}
+
 func TestAttrsCondThunks(t *testing.T) {
 	if got := AttrsCond(true, func() Attrs { return Attrs{{Key: "a", Value: "1"}} }, nil); !reflect.DeepEqual(got, Attrs{{Key: "a", Value: "1"}}) {
 		t.Fatalf("AttrsCond true = %v", got)
@@ -80,11 +89,28 @@ func TestSpreadOrderAndDrop(t *testing.T) {
 	gw.Spread(context.Background(), Attrs{
 		{Key: "data-b", Value: "2"},
 		{Key: "data-a", Value: "1"},
+		{Key: "data-b", Value: "last"},
 		{Key: "checked", Value: true},
 		{Key: "skip me", Value: "x"}, // invalid name → dropped
 		{Key: "off", Value: false},   // false bool → omitted
 	})
-	if got := buf.String(); got != ` data-b="2" data-a="1" checked` {
+	if got := buf.String(); got != ` data-a="1" data-b="last" checked` {
+		t.Fatalf("Spread = %q", got)
+	}
+}
+
+func TestSpreadAggregatesDuplicateClassStyle(t *testing.T) {
+	var buf bytes.Buffer
+	gw := W(&buf)
+	gw.Spread(context.Background(), Attrs{
+		{Key: "data-a", Value: "1"},
+		{Key: "class", Value: "first"},
+		{Key: "data-b", Value: "2"},
+		{Key: "class", Value: "second"},
+		{Key: "style", Value: "color: red"},
+		{Key: "style", Value: "display: block"},
+	})
+	if got := buf.String(); got != ` data-a="1" data-b="2" class="first second" style="color: red; display: block"` {
 		t.Fatalf("Spread = %q", got)
 	}
 }

@@ -1,4 +1,5 @@
-# Duplicate keys in {{ }} render twice in source order (browser applies first-wins).
+# Duplicate scalar keys in {{ }} preserve source order in the generated bag, but
+# Spread renders the last scalar value so later pairs override earlier ones.
 -- input.gsx --
 package views
 
@@ -53,4 +54,4 @@ func Page() gsx.Node {
 	})
 }
 -- render.golden --
-<div data-x="1" data-x="2"></div>
+<div data-x="2"></div>

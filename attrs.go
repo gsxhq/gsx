@@ -19,7 +19,8 @@ type Attr struct {
 // Attrs is gsx's attribute bag: an insertion-ordered, duplicate-tolerant slice of
 // pairs. It is the type of the implicit fallthrough bag, every declared bag prop, the
 // {{ "k": v }} literal, and conditional-attr bags. Spread renders it in SLICE ORDER
-// (no sort) so callers control attribute order (e.g. Datastar data-* directives).
+// (no sort) so callers control attribute order (e.g. Datastar data-* directives);
+// duplicate scalar keys are last-wins, matching JSX-style override order.
 //
 // Security contract: keys are HTML attribute NAMES emitted (after a validity check,
 // see Spread) without entity-encoding — they must come from generated code or trusted
@@ -76,18 +77,18 @@ func (a Attrs) Style() string {
 	return out
 }
 
-// Get returns the value for key and whether it was present. DUPLICATE-KEY RULE: FIRST
-// occurrence wins (matches browser "first attribute wins").
+// Get returns the value for key and whether it was present. DUPLICATE-KEY RULE: LAST
+// occurrence wins, matching JSX-style override order.
 func (a Attrs) Get(key string) (any, bool) {
-	for _, kv := range a {
-		if kv.Key == key {
-			return kv.Value, true
+	for i := len(a) - 1; i >= 0; i-- {
+		if a[i].Key == key {
+			return a[i].Value, true
 		}
 	}
 	return nil, false
 }
 
-// Has reports whether key is present (first-occurrence scan).
+// Has reports whether key is present.
 func (a Attrs) Has(key string) bool {
 	_, ok := a.Get(key)
 	return ok
@@ -111,7 +112,7 @@ func (a Attrs) Without(keys ...string) Attrs {
 	return out
 }
 
-// Take returns Get(key)'s first value and a copy of a without ALL occurrences of key.
+// Take returns Get(key)'s last value and a copy of a without ALL occurrences of key.
 func (a Attrs) Take(key string) (any, Attrs) {
 	v, _ := a.Get(key)
 	return v, a.Without(key)
@@ -119,28 +120,18 @@ func (a Attrs) Take(key string) (any, Attrs) {
 
 // Merge returns a new bag combining a and other, preserving order. For each pair in
 // other: a "class"/"style" value is CONCATENATED onto the first such pair already in
-// the result (or appended if none) — so a directly-spread merged bag never carries a
-// duplicate class/style. Any other key OVERWRITES the first existing occurrence in
-// place (other wins, position preserved), or is appended if absent.
+// the result (or appended if none). Any other key OVERWRITES the last existing
+// occurrence in place and drops earlier duplicates, so the incoming bag wins under the
+// last-wins scalar rule; absent keys append.
 func (a Attrs) Merge(other Attrs) Attrs {
 	out := make(Attrs, len(a))
 	copy(out, a)
 	for _, kv := range other {
-		idx := -1
-		for i := range out {
-			if out[i].Key == kv.Key {
-				idx = i
-				break
-			}
+		if kv.Key == "class" || kv.Key == "style" {
+			out = mergeClassStyleAttr(out, kv)
+			continue
 		}
-		switch {
-		case idx < 0:
-			out = append(out, kv)
-		case kv.Key == "class" || kv.Key == "style":
-			out[idx].Value = joinAttrStrings(kv.Key, toStr(out[idx].Value), toStr(kv.Value))
-		default:
-			out[idx].Value = kv.Value
-		}
+		out = mergeScalarAttr(out, kv)
 	}
 	return out
 }
@@ -162,19 +153,30 @@ func AttrsCond(cond bool, then, els func() Attrs) Attrs {
 	return nil
 }
 
-// Spread renders the bag in SLICE ORDER (no sort). A bool value uses boolean-attribute
-// semantics (true → bare attribute, false → omitted); everything else is written as
-// key="value" with attribute escaping. A key that is not a structurally valid HTML
-// attribute name (see validAttrName) is SKIPPED rather than emitted. Values are
-// attribute-escaped but NOT URL-sanitized (see Attrs). ctx is reserved for
+// Spread renders the bag in SLICE ORDER (no sort), with duplicate scalar keys resolved
+// last-wins. Duplicate class/style keys aggregate and emit once at their last source
+// position. A bool value uses boolean-attribute semantics (true → bare attribute,
+// false → omitted); everything else is written as key="value" with attribute escaping.
+// A key that is not a structurally valid HTML attribute name (see validAttrName) is
+// SKIPPED rather than emitted. Values are attribute-escaped but NOT URL-sanitized (see
+// Attrs). ctx is reserved for
 // forward-compatibility.
 func (gw *Writer) Spread(ctx context.Context, a Attrs) {
 	if gw.err != nil || len(a) == 0 {
 		return
 	}
-	for _, kv := range a {
+	last := lastValidAttrIndexes(a)
+	for i, kv := range a {
 		if !validAttrName(kv.Key) {
 			continue // unsafe/invalid attribute name — drop it
+		}
+		if last[kv.Key] != i {
+			continue
+		}
+		if kv.Key == "class" {
+			kv.Value = a.Class()
+		} else if kv.Key == "style" {
+			kv.Value = a.Style()
 		}
 		if b, ok := kv.Value.(bool); ok {
 			gw.BoolAttr(kv.Key, b)
@@ -186,6 +188,73 @@ func (gw *Writer) Spread(ctx context.Context, a Attrs) {
 		gw.AttrValue(toStr(kv.Value))
 		gw.writeStr(`"`)
 	}
+}
+
+func mergeScalarAttr(out Attrs, kv Attr) Attrs {
+	idx := -1
+	for i := len(out) - 1; i >= 0; i-- {
+		if out[i].Key == kv.Key {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return append(out, kv)
+	}
+	out[idx].Value = kv.Value
+	return removeAttrBefore(out, kv.Key, idx)
+}
+
+func mergeClassStyleAttr(out Attrs, kv Attr) Attrs {
+	idx := -1
+	for i := range out {
+		if out[i].Key == kv.Key {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return append(out, kv)
+	}
+	for i := idx + 1; i < len(out); i++ {
+		if out[i].Key == kv.Key {
+			out[idx].Value = joinAttrStrings(kv.Key, toStr(out[idx].Value), toStr(out[i].Value))
+		}
+	}
+	out[idx].Value = joinAttrStrings(kv.Key, toStr(out[idx].Value), toStr(kv.Value))
+	return removeAttrAfter(out, kv.Key, idx)
+}
+
+func removeAttrBefore(attrs Attrs, key string, keep int) Attrs {
+	out := attrs[:0]
+	for i, kv := range attrs {
+		if kv.Key == key && i < keep {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
+func removeAttrAfter(attrs Attrs, key string, keep int) Attrs {
+	out := attrs[:0]
+	for i, kv := range attrs {
+		if kv.Key == key && i > keep {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
+func lastValidAttrIndexes(attrs Attrs) map[string]int {
+	last := make(map[string]int, len(attrs))
+	for i, kv := range attrs {
+		if validAttrName(kv.Key) {
+			last[kv.Key] = i
+		}
+	}
+	return last
 }
 
 // validAttrName reports whether k is a structurally safe HTML attribute name: non-empty
