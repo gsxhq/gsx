@@ -1,5 +1,5 @@
 # gsx developer tasks. Use tabs for recipe indentation.
-.PHONY: test check cover cover-html examples ci ci-gomod ci-playground ci-examples ci-format ci-tailwind-example ci-tailwind-example-drift
+.PHONY: test check cover cover-html examples ci ci-gomod ci-playground ci-examples ci-format ci-tailwind-example ci-tailwind-example-drift reload-probe
 
 # COUNT is the go-test cache control. -count=1 disables the test cache so every
 # run re-executes — the authoritative behaviour `ci` uses to mirror GitHub CI.
@@ -32,6 +32,13 @@ ci:
 # GitHub CI's -count=1 run (and `make ci`) remain the authoritative gate.
 check:
 	$(MAKE) ci COUNT=
+
+# Manual, repeatable local test of `gsx dev`'s browser-reload behavior (NOT in
+# `ci` — it spawns a live dev loop). Asserts that introducing a .gsx/main.go
+# error posts the overlay and fixing it posts a reload. Pass FRESH=--fresh to
+# re-scaffold the throwaway app. See dev/reload-probe/README.md.
+reload-probe:
+	bash dev/reload-probe/run.sh $(FRESH)
 
 # Root module: build, vet, test. The long pole (~50s of in-process e2e tests
 # in gen/, which spawn the Go toolchain per case).
