@@ -57,6 +57,7 @@ Key points:
 - Keys are quoted string literals (`"data-signals"`, not bare identifiers). This is required so that kebab and colon names such as `"hx-on:click"` round-trip safely.
 - A bool value (`"data-show": true`) renders the bare attribute `data-show`; `false` omits it entirely — the same rule as `gsx.Attrs`.
 - `gsx.OrderedAttrs` does **not** participate in `class`/`style` merge. Any `"class"` or `"style"` pair in an ordered bag renders verbatim in its slot position; use element-level `class=` or `style=` for merging.
+- A pair value that returns `(T, error)` — e.g. `{{ "data-signals": sig(t) }}` where `sig` returns `(string, error)` — is auto-unwrapped: the error propagates from `Render`. See [auto-unwrap](./interpolation#functions-t-error-auto-unwrap).
 :::
 
 ## Contextual escaping

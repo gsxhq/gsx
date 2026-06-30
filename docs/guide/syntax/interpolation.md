@@ -24,7 +24,7 @@ You can interpolate any Go expression, including field accesses on a struct pass
 
 ## Functions & `(T, error)` auto-unwrap
 
-When an expression in `{ … }` is a function call returning `(T, error)`, the code generator automatically unwraps the tuple: it assigns the result to a temporary, checks the error, and if the error is non-nil, returns it from the enclosing `Render` call. No extra syntax is needed.
+When an expression is a function call returning `(T, error)`, the code generator automatically unwraps the tuple: it assigns the result to a temporary, checks the error, and if the error is non-nil, returns it from the enclosing `Render` call. No extra syntax is needed.
 
 <!--@include: ./_generated/interpolation/030-function-t-error-unwrap.md-->
 
@@ -38,7 +38,30 @@ if _err != nil {
 // write _v to output
 ```
 
-The caller of `Render` receives the error and can handle it (log, serve a 500, etc.). The same auto-unwrap applies in attribute values, `<script>` interpolation (`@{ expr }`), and `<style>` interpolation — anywhere `{ expr }` or `@{ expr }` is used.
+The caller of `Render` receives the error and can handle it (log, serve a 500, etc.).
+
+The auto-unwrap is **uniform across all expression positions** — not limited to text interpolation:
+
+::: v-pre
+| Position | Example |
+|---|---|
+| Text interpolation | `{ f() }` |
+| Attribute value | `title={ f() }` |
+| Child-component prop value | `<Row label={lookup(k)}/>` |
+| Ordered-attrs pair value | `<Card bag={{ "k": f(t) }}/>` |
+| Pipeline stage | each `|>` stage whose return is `(T, error)` |
+| Children / slot body | `<Wrap>{ f(t) }</Wrap>` |
+:::
+
+When a child-component prop value returns `(T, error)`, gsx hoists the call to a temporary before building the component literal. When multiple props on the same component call each return a tuple, all are hoisted in source order:
+
+<!--@include: ./_generated/interpolation/035-error-unwrap-childprop.md-->
+
+**Rules:**
+
+- **Only `(T, error)`.** Exactly two return values, with the second typed `error`. Any other multi-value shape — `(int, string)`, three values, etc. — is a **compile-time gsx error**: `only (T, error) is supported`.
+- **Automatic — no marker or opt-out.** The unwrap is always applied; there is no annotation to add or remove.
+- **`?` is a parse error.** A `?` try-marker suffix (e.g. `upper?` in a pipeline stage) is rejected: gsx reports that the `?` try-marker is not supported, because gsx already auto-unwraps `(T, error)` values.
 
 ## Numeric & string contexts
 

@@ -42,6 +42,12 @@
     "invoke": "Label(LabelProps{Key: \"hello\"})"
   },
   {
+    "name": "Error unwrap: childprop",
+    "category": "Basics",
+    "source": "package views\n\nfunc lookup(k string) (string, error) { return \"val-\" + k, nil }\n\ncomponent Row(label string) {\n\t<span>{ label }</span>\n}\n\ncomponent Page(k string) {\n\t<Row label={lookup(k)}/>\n}\n",
+    "invoke": "Page(PageProps{K: \"item\"})"
+  },
+  {
     "name": "Boolean Attributes",
     "category": "Basics",
     "source": "package views\n\ncomponent Field(on bool) {\n\t<input type=\"text\" class=\"form-control\" required disabled={on}/>\n}\n",

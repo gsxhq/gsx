@@ -47,3 +47,5 @@ When the props value is already assembled — for example, loaded from a databas
 `<Card { cardData{Title: d.Heading}... }/>` passes the constructed `cardData` struct directly: the codegen emits `Card(cardData{Title: d.Heading})`, bypassing field-by-field building. `<p.Content { pd... }/>` splats an existing `pageData` value onto a method component: `p.Content(pd)`.
 
 Splat is all-or-nothing — you pass the full struct, not a partial update. Build or transform the struct before the tag; field-by-field attributes and splat cannot be mixed on the same call.
+
+When a field-by-field prop value returns `(T, error)` — for example `<Row label={lookup(k)}/>` where `lookup` returns `(string, error)` — gsx auto-unwraps the tuple and propagates any non-nil error from `Render`; see [auto-unwrap](./interpolation#functions-t-error-auto-unwrap).
