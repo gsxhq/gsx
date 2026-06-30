@@ -27,8 +27,7 @@ import (
 )
 
 type LabelProps struct {
-	Text  string
-	Attrs gsx.Attrs
+	Text string
 }
 
 //line input.gsx:3:1
@@ -37,11 +36,7 @@ func Label(_gsxp LabelProps) gsx.Node {
 		text := _gsxp.Text
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:3:32
-		_gsxgw.S("<span")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
+		_gsxgw.S("<span>")
 //line input.gsx:3:38
 		_gsxgw.Text(string(text))
 		_gsxgw.S("</span>")

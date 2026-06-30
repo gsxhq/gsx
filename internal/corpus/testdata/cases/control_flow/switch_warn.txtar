@@ -29,8 +29,7 @@ import (
 )
 
 type BadgeProps struct {
-	Kind  string
-	Attrs gsx.Attrs
+	Kind string
 }
 
 //line input.gsx:3:1
@@ -39,11 +38,7 @@ func Badge(_gsxp BadgeProps) gsx.Node {
 		kind := _gsxp.Kind
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<span")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
+		_gsxgw.S("<span>")
 //line input.gsx:4:8
 		switch kind {
 		case "warn":

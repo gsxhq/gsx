@@ -196,7 +196,7 @@ overrides are in effect (see below).
 ### `class_merger` — Tailwind-aware class merge strategy
 
 gsx composes `class` attributes from static parts, `clsx`-style toggles, and
-caller fallthrough, then passes the raw per-source class strings through a *merge
+explicitly forwarded attrs, then passes the raw per-source class strings through a *merge
 strategy* that produces the final value. The default (`gsx.DefaultClassMerge`)
 returns a single source verbatim and dedupes multiple sources last-wins — correct
 for vanilla CSS but not for Tailwind, where conflicting utilities like `px-4 px-8`
@@ -218,7 +218,7 @@ directly fails because its type is `func(...ClassNameValue) string`, not
 `func([]string) string`.
 
 **What the merger receives.** Each element is the **raw, un-split class string of
-one source** — a component with `class="px-4 py-2"` and a caller's fallthrough
+one source** — a component with `class="px-4 py-2"` and an explicitly forwarded
 `class="px-8"` pass `["px-4 py-2", "px-8"]`. gsx does not pre-split or pre-join:
 a real Tailwind merger splits and resolves conflicts itself.
 `tailwind-merge-go`'s merge function accepts a `[]string` directly (each element is

@@ -20,8 +20,7 @@ import (
 )
 
 type PageProps struct {
-	V     string
-	Attrs gsx.Attrs
+	V string
 }
 
 //line input.gsx:3:1
@@ -30,11 +29,7 @@ func Page(_gsxp PageProps) gsx.Node {
 		v := _gsxp.V
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<script")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">const r = /x")
+		_gsxgw.S("<script>const r = /x")
 		_gsxgw.JSRegexp(string(v))
 		_gsxgw.S("/;</script>")
 		return _gsxgw.Err()

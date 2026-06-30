@@ -136,5 +136,5 @@ ordinary Go, and the runtime package imports nothing outside the standard librar
 >
 > Codegen covers interpolation, control flow, attributes with contextual escaping,
 > the `|>` pipeline + filters, components/props/`{children}`, method components,
-> named slots, attribute fallthrough, and `style` composition. See the
+> named slots, explicit attribute forwarding, and `style` composition. See the
 > [roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md).

@@ -2,7 +2,7 @@
 package views
 
 component P() {
-	<p>{children}</p>
+	<p { attrs... }>{children}</p>
 }
 -- invoke --
 P(PProps{Attrs: gsx.Attrs{"class": "x"}})

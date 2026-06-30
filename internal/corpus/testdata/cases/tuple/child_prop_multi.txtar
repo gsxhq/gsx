@@ -31,7 +31,6 @@ func lastName(id string) (string, error)  { return "Last-" + id, nil }
 type NameProps struct {
 	First string
 	Last  string
-	Attrs gsx.Attrs
 }
 
 //line input.gsx:6:1
@@ -41,11 +40,7 @@ func Name(_gsxp NameProps) gsx.Node {
 		last := _gsxp.Last
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:6:45
-		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
+		_gsxgw.S("<div>")
 //line input.gsx:6:50
 		_gsxgw.Text(string(first))
 		_gsxgw.S(" ")

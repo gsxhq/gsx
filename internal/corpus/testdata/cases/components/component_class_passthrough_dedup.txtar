@@ -2,7 +2,7 @@
 package views
 
 component Bare(title string) {
-	<div>{title}</div>
+	<div { attrs... }>{title}</div>
 }
 
 component Page() {
@@ -31,6 +31,8 @@ type BareProps struct {
 func Bare(_gsxp BareProps) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		title := _gsxp.Title
+		attrs := _gsxp.Attrs
+		_ = attrs
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div")
@@ -38,7 +40,7 @@ func Bare(_gsxp BareProps) gsx.Node {
 		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
 		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
 		_gsxgw.S(">")
-//line input.gsx:4:7
+//line input.gsx:4:20
 		_gsxgw.Text(string(title))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()

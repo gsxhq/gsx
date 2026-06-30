@@ -8,8 +8,5 @@ component Button(variant string) {
 component Page() {
 	<Button variant="primary" class="w-full" data-test="x" hx-post="/go">Save</Button>
 }
--- invoke --
-Page()
 -- diagnostics.golden --
--- render.golden --
-<button class="btn w-full" data-variant="primary" data-test="x" hx-post="/go">Save</button>
+8:73: unknown field Attrs in struct literal of type ButtonProps

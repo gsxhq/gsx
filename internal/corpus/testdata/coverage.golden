@@ -109,7 +109,7 @@ elements/named_scalar_types	diag render
 elements/node_slice	diag render
 elements/static_and_bool_attrs_off	diag render
 elements/static_and_bool_attrs_on	diag render
-fallthrough/call_site_button	diag render
+fallthrough/call_site_button	diag(error)
 fallthrough/call_site_caller_wins	diag render
 fallthrough/call_site_class_merge	diag render
 fallthrough/call_site_declared_vs_undeclared	diag render
@@ -308,4 +308,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 310 cases (render: 235, error: 55, gen-pinned: 112)
+TOTAL: 310 cases (render: 234, error: 56, gen-pinned: 112)

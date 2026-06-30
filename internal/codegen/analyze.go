@@ -35,7 +35,7 @@ var errSkipComponent = errors.New("skip")
 //
 //	propFields(c) = { fieldName(param) : param ∈ c.Params }
 //	             ∪ { "Children" if usesChildren(c.Body) }
-//	             ∪ { "Attrs"    if singleRoot(c.Body) }
+//	             ∪ { "Attrs"    if usesAttrs(c.Body) }
 //
 // Because BOTH the probe (buildSkeleton/emitProbes) and emission
 // (genChildComponent/childPropsLiteral) classify call-site attrs through THIS map,
@@ -95,17 +95,8 @@ func componentPropFieldsFor(dir string, files map[string]*gsxast.File) (propFiel
 		if hasChildren {
 			fields["Children"] = true
 		}
-		// Mirror the Attrs synthesis gate in genComponent/buildSkeleton exactly
-		// (hasFallthrough) so the map agrees with the struct that is actually
-		// emitted. MANUAL mode (a body referencing `attrs`) forces the Attrs field
-		// regardless, so OR it in. A NULLARY component (no params, no children)
-		// is auto-eligible only when it already has something in the props struct
-		// (params or children) — otherwise auto fallthrough would force a props
-		// struct for a component that is truly nullary (no props at all). This
-		// mirrors the method-nullary gate in genComponent/emitComponentSkeleton.
-		_, hasRoot := singleRoot(c.Body)
 		manual := usesAttrs(c.Body)
-		if (hasRoot && (len(params) > 0 || hasChildren)) || manual {
+		if manual {
 			fields["Attrs"] = true
 		}
 		// A function component whose fields map is empty (no params, no Children,
@@ -578,25 +569,10 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 	// local in lockstep with genComponent (emit.go), so skeleton and emitted
 	// code agree on the props shape and the `{children}` interp type-checks.
 	hasChildren := usesChildren(c.Body)
-	// MIRROR emit.go: a single-root component synthesizes a fallthrough
-	// `Attrs _gsxrt.Attrs` props field so the emitted props struct shape matches
-	// (same gating into hasProps, same field order: params, Children, Attrs). The
-	// skeleton body does NOT emit the root application (it emits probes); it only
-	// needs the field present so any `_gsxp.Attrs` references / the field's
-	// existence type-check identically to the emitted struct (unused is fine).
-	_, hasRoot := singleRoot(c.Body)
-	// MIRROR emit.go: MANUAL mode — a body referencing `attrs` forces fallthrough
-	// eligibility (even a nullary method) and DISABLES auto root injection.
+	// A body referencing `attrs` explicitly forces an Attrs field, including for
+	// a nullary component.
 	manual := usesAttrs(c.Body)
-	// MIRROR emit.go: a nullary component (no params, no children) stays nullary
-	// (no props struct, bare call) — AUTO fallthrough is gated out of that case so
-	// it does not force a props struct; manual forces it. This applies to BOTH
-	// function and method components (unifying the no-props path).
-	hasFallthrough := (hasRoot && (len(params) > 0 || hasChildren)) || manual
-	// A component has a props struct iff it has at least one field (params,
-	// Children, or Attrs via fallthrough). A nullary function or method with no
-	// fallthrough and no children generates no props struct (bare call).
-	hasProps := len(params) > 0 || hasChildren || hasFallthrough
+	hasProps := len(params) > 0 || hasChildren || manual
 	if hasProps {
 		fmt.Fprintf(sb, "type %s struct {\n", propsName)
 		for _, p := range params {
@@ -610,7 +586,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 		if hasChildren {
 			sb.WriteString("\tChildren _gsxrt.Node\n")
 		}
-		if hasFallthrough {
+		if manual {
 			sb.WriteString("\tAttrs _gsxrt.Attrs\n")
 		}
 		sb.WriteString("}\n")
@@ -1984,7 +1960,7 @@ func checkReservedParams(params []param) error {
 			return fmt.Errorf("codegen: param name %q is reserved (implicit children slot)", p.name)
 		}
 		if p.name == "attrs" {
-			return fmt.Errorf("codegen: param name %q is reserved (implicit fallthrough attributes)", p.name)
+			return fmt.Errorf("codegen: param name %q is reserved (explicit attribute forwarding)", p.name)
 		}
 		if strings.HasPrefix(p.name, "_gsx") {
 			return fmt.Errorf("codegen: param name %q uses the reserved _gsx prefix", p.name)
@@ -2090,19 +2066,16 @@ func splitChunk(src string) (imports []importSpec, body string, bodyOff int, err
 // that emitComponentSkeleton/genComponent use — otherwise a sibling that
 // instantiates the bad component WITH CHILDREN will get a spurious "unknown field
 // Children" type error from the overlay, masking the real diagnostic. We use the
-// SAME gating (usesChildren / singleRoot / usesAttrs) on the body so the stub
+// SAME gating (usesChildren / usesAttrs) on the body so the stub
 // struct shape matches what siblings reference.
 func emitComponentStub(sb *strings.Builder, c *gsxast.Component, params []param, withRecv bool) {
 	propsName := c.Name + "Props"
 	// MIRROR emitComponentSkeleton: compute Children/Attrs gates from the body.
 	hasChildren := usesChildren(c.Body)
-	_, hasRoot := singleRoot(c.Body)
 	manual := usesAttrs(c.Body)
-	// MIRROR emitComponentSkeleton line 380: hasFallthrough gating.
-	hasFallthrough := (hasRoot && (c.Recv == "" || len(params) > 0 || hasChildren)) || manual
 	// MIRROR emitComponentSkeleton line 384: hasProps gating.
 	// When params is nil (parse failed), treat as len(params)==0 for gating.
-	hasProps := c.Recv == "" || len(params) > 0 || hasChildren || hasFallthrough
+	hasProps := c.Recv == "" || len(params) > 0 || hasChildren || manual
 	// Track which field names the params already declare (e.g. a bad param named
 	// "children" → field "Children") so we do not double-declare the synthesized
 	// Children/Attrs fields and produce a "redeclared" type-error in the overlay.
@@ -2118,7 +2091,7 @@ func emitComponentStub(sb *strings.Builder, c *gsxast.Component, params []param,
 		if hasChildren && !paramFields["Children"] {
 			sb.WriteString("\tChildren _gsxrt.Node\n")
 		}
-		if hasFallthrough && !paramFields["Attrs"] {
+		if manual && !paramFields["Attrs"] {
 			sb.WriteString("\tAttrs _gsxrt.Attrs\n")
 		}
 		sb.WriteString("}\n")

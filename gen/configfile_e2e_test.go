@@ -284,9 +284,9 @@ func TestGenClassMergerE2E(t *testing.T) {
 	mkfile(t, filepath.Join(tmp, "gsx.toml"),
 		"class_merger = \""+mod+"/mrg.Merge\"\n")
 
-	// Component with a static class that triggers a class merge site.
+	// Component with an explicit attrs spread that triggers a class merge site.
 	mkfile(t, filepath.Join(tmp, "views", "card.gsx"),
-		"package views\n\ncomponent Card() {\n\t<section class=\"card\">{children}</section>\n}\n")
+		"package views\n\ncomponent Card() {\n\t<section class=\"card\" { attrs... }>{children}</section>\n}\n")
 
 	// Run stock generation (reads gsx.toml automatically).
 	var out, errb bytes.Buffer

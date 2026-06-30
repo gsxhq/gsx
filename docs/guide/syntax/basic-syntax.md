@@ -28,7 +28,7 @@ A component is declared with the `component` keyword, a name, a param list, and 
 
 <!--@include: ./_generated/basic-syntax/010-component-declaration.md-->
 
-The code generator produces a typed props struct (`GreetingProps` here) with one exported field per param, plus an `Attrs gsx.Attrs` field for attribute fallthrough. The component function takes that struct and returns a `gsx.Node`.
+The code generator produces a typed props struct (`GreetingProps` here) with one exported field per param. The component function takes that struct and returns a `gsx.Node`.
 
 ## Element vs component
 

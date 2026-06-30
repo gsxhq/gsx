@@ -5,7 +5,7 @@
 // Go (GoChunks: types/helpers), static markup, control flow (if/for/switch,
 // fragments), context-aware attributes (static/bool/expr, composable class, element
 // spread, conditional), child-component invocation with props/{children}/named
-// slots + attribute fallthrough, and type-aware interpolation resolved by go/types
+// slots + explicit attribute forwarding, and type-aware interpolation resolved by go/types
 // in the component's scope. Used params bind to same-named locals so interpolation
 // expressions emit VERBATIM (e.g. {user.Name} -> gw.Text(user.Name) after
 // `user := p.User`). A `(T, error)` value auto-unwraps (the error propagates out of

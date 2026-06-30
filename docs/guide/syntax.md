@@ -37,7 +37,7 @@ golden-tested `examples/*.txtar` fixtures.
 | [Interpolation](./syntax/interpolation) | `{ expr }` value embedding and `(T, error)` auto-unwrap |
 | [Attributes](./syntax/attributes) | Expression, boolean, conditional, spread, and ordered attributes |
 | [Control flow](./syntax/control-flow) | `{ if }`, `{ for }`, `{ switch }` |
-| [Components & composition](./syntax/composition) | Invoking components, `{children}`, named slots, fallthrough attrs |
+| [Components & composition](./syntax/composition) | Invoking components, `{children}`, named slots, explicit attribute forwarding |
 | [Props model](./syntax/props) | Bring-your-own struct, generated props, whole-struct splat |
 | [Styling](./syntax/styling) | Composable `class`/`style`, style blocks, class merger |
 | [JavaScript](./syntax/javascript) | `@{ expr }` in `<script>`, JS-context attributes, data islands |

@@ -29,8 +29,7 @@ import (
 func greet(name string) (string, error) { return "Hello " + name, nil }
 
 type LabelProps struct {
-	Name  string
-	Attrs gsx.Attrs
+	Name string
 }
 
 //line input.gsx:5:1
@@ -39,11 +38,7 @@ func Label(_gsxp LabelProps) gsx.Node {
 		name := _gsxp.Name
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:6:2
-		_gsxgw.S("<span")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
+		_gsxgw.S("<span>")
 //line input.gsx:6:8
 		_gsxv0, _gsxerr := greet(name)
 		if _gsxerr != nil {
