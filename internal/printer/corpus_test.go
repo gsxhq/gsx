@@ -130,6 +130,13 @@ func zeroSpans(n ast.Node) {
 				v.ClausePos = 0
 			case *ast.IfMarkup:
 				v.CondPos = 0
+			case *ast.ValueIf:
+				v.CondPos = 0
+			case *ast.ValueArm:
+				for i := range v.Stages {
+					v.Stages[i].NamePos = 0
+					v.Stages[i].ArgsPos = 0
+				}
 			case *ast.GoBlock:
 				v.CodePos = 0
 			case *ast.OrderedAttrsAttr:
@@ -219,7 +226,16 @@ func canonGoAttr(a ast.Attr) {
 		v.Expr = fmtExpr(v.Expr)
 	case *ast.ClassAttr:
 		for i := range v.Parts {
+			if v.Parts[i].CF != nil {
+				canonValueCF(v.Parts[i].CF)
+				continue
+			}
 			v.Parts[i].Expr = fmtExpr(v.Parts[i].Expr)
+			for j := range v.Parts[i].Stages {
+				if v.Parts[i].Stages[j].HasArgs {
+					v.Parts[i].Stages[j].Args = fmtArgs(v.Parts[i].Stages[j].Args)
+				}
+			}
 			if v.Parts[i].Cond != "" {
 				v.Parts[i].Cond = fmtExpr(v.Parts[i].Cond)
 			}
@@ -239,6 +255,51 @@ func canonGoAttr(a ast.Attr) {
 	case *ast.OrderedAttrsAttr:
 		for i := range v.Pairs {
 			v.Pairs[i].Value = fmtExpr(v.Pairs[i].Value)
+		}
+	}
+}
+
+func canonValueCF(cf *ast.ValueCF) {
+	if cf.If != nil {
+		canonValueIf(cf.If)
+	}
+	if cf.Switch != nil {
+		canonValueSwitch(cf.Switch)
+	}
+}
+
+func canonValueIf(vi *ast.ValueIf) {
+	vi.Cond = fmtExpr(vi.Cond)
+	if vi.Then != nil {
+		canonValueArm(vi.Then)
+	}
+	if vi.ElseIf != nil {
+		canonValueIf(vi.ElseIf)
+	}
+	if vi.Else != nil {
+		canonValueArm(vi.Else)
+	}
+}
+
+func canonValueSwitch(vs *ast.ValueSwitch) {
+	if vs.Tag != "" {
+		vs.Tag = fmtExpr(vs.Tag)
+	}
+	for _, c := range vs.Cases {
+		if !c.Default {
+			c.List = fmtCaseList(c.List)
+		}
+		if c.Value != nil {
+			canonValueArm(c.Value)
+		}
+	}
+}
+
+func canonValueArm(a *ast.ValueArm) {
+	a.Expr = fmtExpr(a.Expr)
+	for i := range a.Stages {
+		if a.Stages[i].HasArgs {
+			a.Stages[i].Args = fmtArgs(a.Stages[i].Args)
 		}
 	}
 }

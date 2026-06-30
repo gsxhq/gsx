@@ -989,3 +989,43 @@ component C(v int) {
 `
 	assertFormat(t, src, want)
 }
+
+func TestValueFormSwitchLayout(t *testing.T) {
+	src := `package p
+component C(v int) {
+	<span class={ "base", switch v { case 1: { "green-aaaaaaaaaaaaaaaaaaaaaaaaaaaa" } default: { "gray-bbbbbbbbbbbbbbbbbbbbbbbb" } } }>x</span>
+}`
+	want := `package p
+
+component C(v int) {
+	<span
+		class={
+			"base",
+			switch v {
+				case 1:
+					{ "green-aaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+				default:
+					{ "gray-bbbbbbbbbbbbbbbbbbbbbbbb" }
+			}
+		}
+	>
+		x
+	</span>
+}
+`
+	assertFormat(t, src, want)
+}
+
+func TestValueFormIfInline(t *testing.T) {
+	src := `package p
+component C(b bool) {
+	<i class={ "x", if b { "on" } else { "off" } }>y</i>
+}`
+	want := `package p
+
+component C(b bool) {
+	<i class={ "x", if b { "on" } else { "off" } }>y</i>
+}
+`
+	assertFormat(t, src, want)
+}
