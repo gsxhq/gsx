@@ -301,6 +301,7 @@ style/loop_var_in_style	diag render
 style/minify_block	diag gen render
 style/part_tuple	diag gen render
 style/value_form_evaluation_order	diag gen render
+style/value_if_else	diag gen render
 style/value_switch	diag gen render
 tuple/bare_call_undefined	diag(error)
 tuple/child_prop_mixed	diag gen render
@@ -334,4 +335,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 336 cases (render: 255, error: 60, gen-pinned: 132)
+TOTAL: 337 cases (render: 256, error: 60, gen-pinned: 133)
