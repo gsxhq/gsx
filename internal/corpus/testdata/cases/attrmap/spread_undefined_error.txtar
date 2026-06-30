@@ -1,0 +1,19 @@
+# An element spread of an UNDEFINED variable must surface a diagnostic. The
+# spread expr is harvested via the SUPPRESSED _gsxuseq probe (to drive the
+# map->Attrs AttrsFromMap decision), but unlike a child-prop value it has no
+# second reference — so a NON-suppressed `_ = (expr)` liveness reference is also
+# emitted, which surfaces the genuine error here instead of silently swallowing
+# it (and dropping the whole package's output).
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Card(bag gsx.Attrs) {
+	<div { undefinedSpreadVar... }>x</div>
+}
+-- invoke --
+Card(CardProps{})
+-- diagnostics.golden --
+6:12: undefined: undefinedSpreadVar
+-- render.golden --

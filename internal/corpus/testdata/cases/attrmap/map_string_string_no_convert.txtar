@@ -17,6 +17,6 @@ component Page() {
 -- invoke --
 Page()
 -- diagnostics.golden --
-10:26: map[string]string does not satisfy gsx.Attrs | map[string]any (map[string]string missing in github.com/gsxhq/gsx.Attrs | map[string]any)
+10:26: map[string]string does not satisfy gsx.Attrs | ~map[string]any (map[string]string missing in github.com/gsxhq/gsx.Attrs | ~map[string]any)
 -- generated.x.go.golden --
 -- render.golden --

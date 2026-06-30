@@ -2455,7 +2455,12 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				// _gsxunwrap, so a (map, error) call first unwraps then coerces. An Attrs
 				// field is never a node field, so this is mutually exclusive with isNF.
 				isAttrsField := attrsFields[fn]
-				if probeWrap && isAttrsField {
+				// The untyped `nil` literal is exempt from the _gsxbag wrap: Go cannot
+				// infer the generic T from untyped nil (`cannot infer T` — which would
+				// also leak the helper name and its synthetic path), yet a bare `nil`
+				// assigns fine to a slice gsx.Attrs field. Bind it directly. (emit's
+				// isStringAnyMap(nil) is already false, so no AttrsFromMap wrap either.)
+				if probeWrap && isAttrsField && fieldVal != "nil" {
 					fieldVal = fmt.Sprintf("_gsxbag(%s)", fieldVal)
 				}
 				var str string
