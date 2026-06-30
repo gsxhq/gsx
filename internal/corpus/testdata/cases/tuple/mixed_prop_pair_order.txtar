@@ -39,10 +39,9 @@ func g(k string) (string, error) { return "g-" + k, nil }
 func h(k string) (string, error) { return "h-" + k, nil }
 
 type CardProps struct {
-	A     string
-	Bag   gsx.Attrs
-	B     string
-	Attrs gsx.Attrs
+	A   string
+	Bag gsx.Attrs
+	B   string
 }
 
 //line input.gsx:9:1
@@ -53,11 +52,7 @@ func Card(_gsxp CardProps) gsx.Node {
 		b := _gsxp.B
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
+		_gsxgw.S("<div>")
 //line input.gsx:10:7
 		_gsxgw.Text(string(a))
 //line input.gsx:10:10

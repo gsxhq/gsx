@@ -98,7 +98,7 @@
   {
     "name": "Class & style merging",
     "category": "Styling",
-    "source": "package views\n\ncomponent Card() {\n\t<div class=\"card\" style=\"color: red\">{ children }</div>\n}\n",
+    "source": "package views\n\ncomponent Card() {\n\t<div class=\"card\" style=\"color: red\" { attrs... }>{ children }</div>\n}\n",
     "invoke": "Card(CardProps{Attrs: gsx.Attrs{{Key: \"class\", Value: \"featured\"}, {Key: \"style\", Value: \"color: blue; margin: 0\"}}})"
   },
   {
@@ -174,9 +174,9 @@
     "invoke": "(HomePage{Title: \"Dashboard\"}).Render()"
   },
   {
-    "name": "Fallthrough attributes",
+    "name": "Explicit attribute forwarding",
     "category": "Components & composition",
-    "source": "package views\n\ncomponent Button(variant string) {\n\t<button class=\"btn\" data-variant={variant}>{ children }</button>\n}\n\ncomponent Page() {\n\t<Button variant=\"primary\" class=\"w-full\" data-test=\"x\" hx-post=\"/go\">\n\t\tSave\n\t</Button>\n}\n",
+    "source": "package views\n\ncomponent Button(variant string) {\n\t<button class=\"btn\" data-variant={variant} { attrs... }>\n\t\t{ children }\n\t</button>\n}\n\ncomponent Page() {\n\t<Button variant=\"primary\" class=\"w-full\" data-test=\"x\" hx-post=\"/go\">\n\t\tSave\n\t</Button>\n}\n",
     "invoke": "Page()"
   },
   {

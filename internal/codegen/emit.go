@@ -280,31 +280,13 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 	// component grows a props struct ONLY when it has params, uses `{children}`,
 	// or uses fallthrough attrs (auto single-root or manual `{...attrs}`).
 	hasChildren := usesChildren(c.Body)
-	// A single-root component is fallthrough-eligible: it synthesizes an
-	// `Attrs gsx.Attrs` props field the caller fills with undeclared attributes,
-	// applied (class-merge + spread) at the root element below. Mirror the
-	// `Children` synthesis exactly — gate into hasProps, append AFTER the param
-	// and Children fields (field order: params, Children, Attrs).
-	root, hasRoot := singleRoot(c.Body)
 	// MANUAL mode: a component whose body references the identifier `attrs` (a
 	// `{...attrs}` element spread, or `attrs.X()` in an interp/expr/clause) takes
-	// over fallthrough placement itself — auto root injection is DISABLED and the
-	// author's `{...attrs}` renders the bag. It is ALWAYS fallthrough-eligible
-	// (forces the Attrs field), even for a nullary component (which then gains a
-	// props struct — correct, since it has fallthrough). See usesAttrs.
+	// over fallthrough placement itself. Explicit forwarding is required: we only
+	// synthesize an `Attrs gsx.Attrs` field when the author actually references
+	// `attrs`; there is no implicit single-root auto-injection path.
 	manual := usesAttrs(c.Body)
-	// AUTO fallthrough requires the component to have SOMETHING in the props
-	// struct already (params or children) — a nullary component (function or
-	// method) with a single root gets NO auto fallthrough, so it remains nullary
-	// no-props. manual forces fallthrough for any component regardless.
-	autoEligible := hasRoot && (len(params) > 0 || hasChildren)
-	hasFallthrough := autoEligible || manual
-	// AUTO application (Task-1 root class-merge + spread injection) happens only for
-	// a single-root component that is auto-eligible (so the Attrs FIELD exists — a
-	// nullary component with no props struct is NOT) and does NOT reference `attrs`.
-	// When manual, the root (and whole body) emits via normal genNode and the author
-	// places the bag; the bag is bound to the `attrs` local below.
-	autoApply := autoEligible && !manual
+	hasFallthrough := manual
 	hasProps := len(params) > 0 || hasChildren || hasFallthrough
 	if hasProps {
 		fmt.Fprintf(b, "type %s struct {\n", propsName)
@@ -366,17 +348,6 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 	b.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
 	emitNumScratch(b, c.Body, resolved)
 	for _, m := range c.Body {
-		// The single root (when AUTO-eligible) is emitted via the fallthrough path so
-		// the bag's class merges + the rest spreads at the root; all other body nodes
-		// (insignificant whitespace/comments) render normally. In MANUAL mode autoApply
-		// is false, so the root emits via normal genNode and the author's {...attrs}
-		// places the bag.
-		if autoApply && m == ast.Markup(root) {
-			if !emitRootElement(b, root, resolved, table, structFields, nodeProps, attrsProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
-				return false
-			}
-			continue
-		}
 		if !genNode(b, m, resolved, table, structFields, nodeProps, attrsProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
 			return false
 		}

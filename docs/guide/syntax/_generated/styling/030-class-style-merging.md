@@ -4,7 +4,7 @@
 package views
 
 component Card() {
-	<div class="card" style="color: red">{ children }</div>
+	<div class="card" style="color: red" { attrs... }>{ children }</div>
 }
 ```
 
@@ -14,4 +14,4 @@ Renders:
 <div class="card featured" style="color: blue; margin: 0"></div>
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgQ2FyZCgpIHtcblx0XHUwMDNjZGl2IGNsYXNzPVwiY2FyZFwiIHN0eWxlPVwiY29sb3I6IHJlZFwiXHUwMDNleyBjaGlsZHJlbiB9XHUwMDNjL2Rpdlx1MDAzZVxufVxuIiwiaSI6IkNhcmQoQ2FyZFByb3Bze0F0dHJzOiBnc3guQXR0cnN7e0tleTogXCJjbGFzc1wiLCBWYWx1ZTogXCJmZWF0dXJlZFwifSwge0tleTogXCJzdHlsZVwiLCBWYWx1ZTogXCJjb2xvcjogYmx1ZTsgbWFyZ2luOiAwXCJ9fX0pIn0=)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgQ2FyZCgpIHtcblx0XHUwMDNjZGl2IGNsYXNzPVwiY2FyZFwiIHN0eWxlPVwiY29sb3I6IHJlZFwiIHsgYXR0cnMuLi4gfVx1MDAzZXsgY2hpbGRyZW4gfVx1MDAzYy9kaXZcdTAwM2Vcbn1cbiIsImkiOiJDYXJkKENhcmRQcm9wc3tBdHRyczogZ3N4LkF0dHJze3tLZXk6IFwiY2xhc3NcIiwgVmFsdWU6IFwiZmVhdHVyZWRcIn0sIHtLZXk6IFwic3R5bGVcIiwgVmFsdWU6IFwiY29sb3I6IGJsdWU7IG1hcmdpbjogMFwifX19KSJ9)
