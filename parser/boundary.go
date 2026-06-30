@@ -118,7 +118,7 @@ func scanToCaseColon(src string, from int) (int, bool) {
 }
 
 // valueSwitchArmEnd returns the byte offset of the next top-level case,
-// default, or switch-closing brace after an unbraced value-switch arm.
+// default, or switch-closing brace after a value-switch arm.
 // Delimiters nested inside Go composite literals, function literals, or other
 // bracketed expressions are ignored.
 func valueSwitchArmEnd(src string, from int) (int, bool) {

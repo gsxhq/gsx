@@ -109,10 +109,11 @@ class={
 }
 ```
 
-**Surface syntax.** Switch values follow GSX's markup-switch shape: each
-unbraced expression follows its `case V:` or `default:` label and ends at the
-next label or the switch's closing brace. Multi-value `case A, B:` arms, a tag
-expression (`switch x { … }`), and a tagless form
+**Surface syntax.** Switch values follow GSX's markup-switch shape: canonically,
+each expression follows its `case V:` or `default:` label and ends at the next
+label or the switch's closing brace. Explicit `{ expr }` arm blocks are also
+accepted and format back to the canonical unbraced shape. Multi-value
+`case A, B:` arms, a tag expression (`switch x { … }`), and a tagless form
 (`switch { case cond: … }`) are supported. Value-form `if` retains its natural
 branch braces and supports `else if` chains and a final `else`.
 

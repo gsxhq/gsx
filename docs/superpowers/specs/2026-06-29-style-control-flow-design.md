@@ -210,9 +210,11 @@ Two related printer changes in `internal/printer/printer.go`:
    helps every component that keeps the additive map rather than converting to
    `switch`.
 
-2. **Value-form arm layout.** Print the value-form with unbraced switch values one
-   `case`/`default` (or `if`/`else`) per line when broken, collapsing to one
-   line when it fits — consistent with how markup `if`/`switch` already print.
+2. **Value-form arm layout.** Print the value-form with canonical unbraced
+   switch values one `case`/`default` (or `if`/`else`) per line when broken,
+   collapsing to one line when it fits — consistent with how markup `if`/`switch`
+   already print. Braced switch-arm blocks remain accepted input and format back
+   to the canonical unbraced shape.
 
 ## Testing — corpus is canonical
 

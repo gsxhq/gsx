@@ -2,7 +2,6 @@ package parser
 
 import (
 	"go/token"
-	"strings"
 	"testing"
 
 	"github.com/gsxhq/gsx/ast"
@@ -31,9 +30,9 @@ func parseValueSwitchAttr(t *testing.T, body string) *ast.ValueSwitch {
 func TestValueSwitchParsesUnbracedCaseValues(t *testing.T) {
 	s := parseValueSwitchAttr(t, `
 	case 1:
-		"green"
+		"green" |> upper
 	case 2, 3:
-		choose(map[int]string{2: "amber"}, v) |> upper
+		choose(map[int]string{2: "amber"}, v)
 	case 4:
 		func() string { switch v { case 4: return "nested" }; return "other" }()
 	default:
@@ -45,11 +44,11 @@ func TestValueSwitchParsesUnbracedCaseValues(t *testing.T) {
 	if got := s.Cases[0].Value.Expr; got != `"green"` {
 		t.Fatalf("case 1 expr = %q", got)
 	}
+	if len(s.Cases[0].Value.Stages) != 1 || s.Cases[0].Value.Stages[0].Name != "upper" {
+		t.Fatalf("case 1 stages = %#v", s.Cases[0].Value.Stages)
+	}
 	if got := s.Cases[1].Value.Expr; got != `choose(map[int]string{2: "amber"}, v)` {
 		t.Fatalf("case 2 expr = %q", got)
-	}
-	if len(s.Cases[1].Value.Stages) != 1 || s.Cases[1].Value.Stages[0].Name != "upper" {
-		t.Fatalf("case 2 stages = %#v", s.Cases[1].Value.Stages)
 	}
 	if got := s.Cases[2].Value.Expr; got != `func() string { switch v { case 4: return "nested" }; return "other" }()` {
 		t.Fatalf("case 4 expr = %q", got)
@@ -59,13 +58,20 @@ func TestValueSwitchParsesUnbracedCaseValues(t *testing.T) {
 	}
 }
 
-func TestValueSwitchRejectsLegacyBracedCaseValue(t *testing.T) {
-	src := "package p\ncomponent C(v int) {\n\t<div class={ switch v { case 1: { \"green\" } default: \"gray\" } }>x</div>\n}\n"
-	_, err := ParseFile(token.NewFileSet(), "test.gsx", src, 0)
-	if err == nil {
-		t.Fatal("expected legacy braced case value to be rejected")
+func TestValueSwitchAcceptsBracedCaseValue(t *testing.T) {
+	s := parseValueSwitchAttr(t, `
+	case 1:
+		{ "green" |> upper }
+	default:
+		{ "gray" }`)
+
+	if got := s.Cases[0].Value.Expr; got != `"green"` {
+		t.Fatalf("case 1 expr = %q", got)
 	}
-	if !strings.Contains(err.Error(), "remove the braces") {
-		t.Fatalf("error = %q, want migration guidance", err)
+	if len(s.Cases[0].Value.Stages) != 1 || s.Cases[0].Value.Stages[0].Name != "upper" {
+		t.Fatalf("case 1 stages = %#v", s.Cases[0].Value.Stages)
+	}
+	if got := s.Cases[1].Value.Expr; got != `"gray"` {
+		t.Fatalf("default expr = %q", got)
 	}
 }

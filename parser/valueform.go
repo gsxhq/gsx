@@ -166,7 +166,13 @@ func (p *parser) parseValueSwitchCase(at int) (*ast.ValueSwitchCase, int, error)
 		return nil, 0, p.errorf(p.posAt(at), "expected `case` or `default` in value-form `switch`")
 	}
 	if valueAt < len(p.src) && p.src[valueAt] == '{' {
-		return nil, 0, p.errorf(p.posAt(valueAt), "braced switch case values are no longer supported; remove the braces")
+		arm, afterPos, err := p.parseValueArm(valueAt)
+		if err != nil {
+			return nil, 0, err
+		}
+		cc.Value = arm
+		ast.SetSpan(cc, start, arm.End())
+		return cc, p.offsetOf(afterPos), nil
 	}
 	end, ok := valueSwitchArmEnd(p.src, valueAt)
 	if !ok {

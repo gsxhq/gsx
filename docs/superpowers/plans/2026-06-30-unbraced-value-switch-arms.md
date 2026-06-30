@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace braced value-form `switch` case values with the same unbraced case-body shape used by markup switches.
+**Goal:** Make value-form `switch` case values use the same unbraced canonical case-body shape used by markup switches.
 
-**Architecture:** Keep value-form `if` unchanged because its braces delimit its branches. For value-form `switch`, scan each case value until the next top-level `case`, `default`, or switch-closing `}`, respecting nested Go delimiters; store the same `ast.ValueArm` and leave codegen unchanged. Make the printer emit only the new canonical form and reject legacy braced case values with a migration diagnostic.
+**Architecture:** Keep value-form `if` unchanged because its braces delimit its branches. For value-form `switch`, scan each unbraced case value until the next top-level `case`, `default`, or switch-closing `}`, respecting nested Go delimiters; still accept an explicit `{ expr }` case block and parse it with the same `ast.ValueArm`. Leave codegen unchanged. Make the printer emit the unbraced canonical form.
 
 **Tech Stack:** Go parser/scanner, GSX AST/printer, txtar corpus, Markdown docs, tree-sitter grammar, VS Code TextMate grammar.
 
@@ -17,7 +17,7 @@
 - Modify: `parser/valueform.go`
 - Test: `parser/valueform_test.go`
 
-- [ ] Add parser tests proving multiline expressions, pipelines, composite literals, nested delimiters, multi-value cases, and tagless switches stop at the correct top-level boundary; prove `{ "old" }` receives a migration diagnostic.
+- [ ] Add parser tests proving multiline expressions, pipelines, composite literals, nested delimiters, multi-value cases, and tagless switches stop at the correct top-level boundary; prove `{ "old" }` remains accepted as an explicit arm block.
 - [ ] Run `go test ./parser -run ValueSwitch -count=1` and confirm the new tests fail for the missing syntax.
 - [ ] Add a scanner-based `valueSwitchArmEnd` boundary helper and parse the unbraced source through `parsePipe`, preserving accurate spans.
 - [ ] Run the focused parser tests and `go test ./parser -count=1`.
@@ -45,7 +45,7 @@
 - Modify: `docs/ROADMAP.md`
 - Modify: `docs/superpowers/specs/2026-06-29-style-control-flow-design.md`
 
-- [ ] Replace every value-switch example with unbraced case values and state that switch cases follow markup-switch case-body syntax while value-form `if` retains branch braces.
+- [ ] Replace value-switch examples with canonical unbraced case values and state that switch cases follow markup-switch case-body syntax while value-form `if` retains branch braces. Note that explicit braced switch-arm blocks are accepted input but are not the printed form.
 - [ ] Remove claims that all value-form arms are brace-delimited.
 - [ ] Run `git diff --check` and search for remaining `case ...: {` value-form examples.
 
@@ -65,4 +65,4 @@
 
 - [ ] Run `make ci`.
 - [ ] Run `git diff --check` and confirm a clean worktree after commits.
-- [ ] Push the feature branch and open a ready PR with the breaking syntax and migration diagnostic called out.
+- [ ] Push the feature branch and open a ready PR with the canonical syntax called out.
