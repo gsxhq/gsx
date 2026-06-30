@@ -265,21 +265,27 @@ func (p *printer) attrDoc(a ast.Attr) pretty.Doc {
 		parts := make([]pretty.Doc, 0, len(v.Parts)*2)
 		for i, part := range v.Parts {
 			if i > 0 {
-				parts = append(parts, pretty.Text(", "))
+				parts = append(parts, pretty.Text(","), pretty.Line)
 			}
-			seg := []pretty.Doc{fmtExprDoc(part.Expr)}
-			for _, s := range part.Stages {
-				seg = append(seg, pretty.Text(" |> "), pretty.Text(pipeStageStr(s)))
-			}
-			if part.Cond != "" {
-				seg = append(seg, pretty.Text(": "), pretty.Text(fmtExpr(part.Cond)))
-			}
-			parts = append(parts, pretty.Concat(seg...))
+			parts = append(parts, p.classPartDoc(part))
 		}
-		return wrapAttrValue(v.Name, pretty.Line, pretty.Concat(parts...))
+		return wrapAttrValue(v.Name, pretty.Line, pretty.Group(pretty.Concat(parts...)))
 	default:
 		return pretty.Text(attrInline(a))
 	}
+}
+
+// classPartDoc renders one composed class/style contribution: `expr`,
+// `expr |> stage`, or `expr: cond`. (Value-form parts are handled in Task 3.)
+func (p *printer) classPartDoc(part ast.ClassPart) pretty.Doc {
+	seg := []pretty.Doc{fmtExprDoc(part.Expr)}
+	for _, s := range part.Stages {
+		seg = append(seg, pretty.Text(" |> "), pretty.Text(pipeStageStr(s)))
+	}
+	if part.Cond != "" {
+		seg = append(seg, pretty.Text(": "), pretty.Text(fmtExpr(part.Cond)))
+	}
+	return pretty.Concat(seg...)
 }
 
 // wrapAttrValue renders `name={<sep>value<sep>}` where sep is the flat padding
