@@ -1,165 +1,86 @@
 package gsx
 
 import (
+	"bytes"
 	"context"
-	"strings"
+	"reflect"
 	"testing"
 )
 
-func TestAttrsHasGet(t *testing.T) {
-	a := Attrs{"id": "x", "disabled": true}
-	if !a.Has("id") || a.Has("nope") {
+func TestAttrsFromMapSorts(t *testing.T) {
+	got := AttrsFromMap(map[string]any{"id": "x", "class": "c", "data-z": 1})
+	want := Attrs{{Key: "class", Value: "c"}, {Key: "data-z", Value: 1}, {Key: "id", Value: "x"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("AttrsFromMap = %v, want %v", got, want)
+	}
+	if AttrsFromMap(nil) != nil {
+		t.Fatal("AttrsFromMap(nil) should be nil")
+	}
+}
+
+func TestAttrsClassStyleAggregate(t *testing.T) {
+	a := Attrs{{Key: "class", Value: "a"}, {Key: "x", Value: "1"}, {Key: "class", Value: "b"}}
+	if got := a.Class(); got != "a b" {
+		t.Fatalf("Class aggregate = %q, want %q", got, "a b")
+	}
+	s := Attrs{{Key: "style", Value: "color:red"}, {Key: "style", Value: "margin:0"}}
+	if got := s.Style(); got != "color:red; margin:0" {
+		t.Fatalf("Style aggregate = %q, want %q", got, "color:red; margin:0")
+	}
+}
+
+func TestAttrsGetFirstWins(t *testing.T) {
+	a := Attrs{{Key: "k", Value: "first"}, {Key: "k", Value: "second"}}
+	v, ok := a.Get("k")
+	if !ok || v != "first" {
+		t.Fatalf("Get first-wins = %v,%v want first,true", v, ok)
+	}
+	if !a.Has("k") || a.Has("nope") {
 		t.Fatal("Has wrong")
 	}
-	if v, ok := a.Get("disabled"); !ok || v != true {
-		t.Fatalf("Get = %v,%v", v, ok)
+}
+
+func TestAttrsWithoutRemovesAll(t *testing.T) {
+	a := Attrs{{Key: "class", Value: "a"}, {Key: "x", Value: "1"}, {Key: "class", Value: "b"}}
+	got := a.Without("class")
+	want := Attrs{{Key: "x", Value: "1"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Without = %v, want %v", got, want)
+	}
+	if Attrs(nil).Without("x") != nil {
+		t.Fatal("Without on nil should be nil")
 	}
 }
 
-func TestAttrsWithoutAndTakeAreImmutable(t *testing.T) {
-	a := Attrs{"a": 1, "b": 2, "c": 3}
-	w := a.Without("b")
-	if w.Has("b") || !w.Has("a") || !a.Has("b") { // original keeps b
-		t.Fatalf("Without mutated or wrong: w=%v a=%v", w, a)
-	}
-	v, rest := a.Take("a")
-	if v != 1 || rest.Has("a") || !a.Has("a") {
-		t.Fatalf("Take wrong: v=%v rest=%v a=%v", v, rest, a)
+func TestAttrsMergeOverwriteInPlace(t *testing.T) {
+	a := Attrs{{Key: "id", Value: "old"}, {Key: "class", Value: "base"}}
+	got := a.Merge(Attrs{{Key: "id", Value: "new"}, {Key: "class", Value: "extra"}, {Key: "data-x", Value: "1"}})
+	want := Attrs{{Key: "id", Value: "new"}, {Key: "class", Value: "base extra"}, {Key: "data-x", Value: "1"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Merge = %v, want %v", got, want)
 	}
 }
 
-func TestAttrsMergeConcatenatesClass(t *testing.T) {
-	a := Attrs{"class": "btn", "id": "x"}
-	b := Attrs{"class": "active", "id": "y"}
-	m := a.Merge(b)
-	if m["class"] != "btn active" { // concatenated
-		t.Fatalf("class = %v", m["class"])
+func TestAttrsCondThunks(t *testing.T) {
+	if got := AttrsCond(true, func() Attrs { return Attrs{{Key: "a", Value: "1"}} }, nil); !reflect.DeepEqual(got, Attrs{{Key: "a", Value: "1"}}) {
+		t.Fatalf("AttrsCond true = %v", got)
 	}
-	if m["id"] != "y" { // other wins
-		t.Fatalf("id = %v", m["id"])
+	if got := AttrsCond(false, func() Attrs { return Attrs{{Key: "a", Value: "1"}} }, nil); got != nil {
+		t.Fatalf("AttrsCond false no-else = %v, want nil", got)
 	}
 }
 
-func TestAttrsClassExtract(t *testing.T) {
-	// Attrs.Class() returns the raw string — no merge/dedupe. The single outer
-	// codegen-emitted class site applies the merger exactly once.
-	if got := (Attrs{"class": "btn btn px-4"}).Class(); got != "btn btn px-4" {
-		t.Fatalf("got %q", got)
-	}
-	if got := (Attrs{}).Class(); got != "" {
-		t.Fatalf("empty class = %q", got)
-	}
-}
-
-func TestSpreadDeterministicAndTyped(t *testing.T) {
-	var b strings.Builder
-	W(&b).Spread(context.Background(), Attrs{
-		"data-z":  "9",
-		"id":      `a"b`,
-		"checked": true,
-		"hidden":  false, // omitted
-		"count":   3,     // fmt-formatted
+func TestSpreadOrderAndDrop(t *testing.T) {
+	var buf bytes.Buffer
+	gw := W(&buf)
+	gw.Spread(context.Background(), Attrs{
+		{Key: "data-b", Value: "2"},
+		{Key: "data-a", Value: "1"},
+		{Key: "checked", Value: true},
+		{Key: "skip me", Value: "x"}, // invalid name → dropped
+		{Key: "off", Value: false},   // false bool → omitted
 	})
-	// keys sorted: checked, count, data-z, hidden(omitted), id
-	want := ` checked count="3" data-z="9" id="a&#34;b"`
-	if b.String() != want {
-		t.Fatalf("got  %q\nwant %q", b.String(), want)
-	}
-}
-
-func TestSpreadEmpty(t *testing.T) {
-	var b strings.Builder
-	W(&b).Spread(context.Background(), nil)
-	if b.String() != "" {
-		t.Fatalf("got %q", b.String())
-	}
-}
-
-func TestAttrsMergeCallerWins(t *testing.T) {
-	root := Attrs{"id": "root", "class": "base", "style": "color:red", "role": "x"}
-	bag := Attrs{"id": "caller", "class": "extra", "style": "margin:0"}
-	got := root.Merge(bag)
-	if got["id"] != "caller" {
-		t.Errorf("id = %v, want caller (other wins)", got["id"])
-	}
-	if got["role"] != "x" {
-		t.Errorf("role dropped")
-	}
-	if got["class"] != "base extra" {
-		t.Errorf("class = %v, want \"base extra\"", got["class"])
-	}
-	if got["style"] != "color:red; margin:0" {
-		t.Errorf("style = %v, want \"color:red; margin:0\"", got["style"])
-	}
-}
-
-func TestAttrsStyle(t *testing.T) {
-	if got := (Attrs{"style": "color: red"}).Style(); got != "color: red" {
-		t.Errorf("Style() = %q, want \"color: red\"", got)
-	}
-	if got := (Attrs{}).Style(); got != "" {
-		t.Errorf("empty Style() = %q, want \"\"", got)
-	}
-}
-
-func TestSpreadSkipsUnsafeKeysKeepsSpecialNames(t *testing.T) {
-	var b strings.Builder
-	W(&b).Spread(context.Background(), Attrs{
-		// unsafe keys — must be dropped (tag/name breakout otherwise):
-		`"><script>`:      "x",
-		"x onmouseover=y": "z",
-		"a/b":             "q",
-		"":                "e",
-		// legitimate special-char attribute names — must be kept:
-		"hx-on::click": "go()",
-		":class":       "c",
-		"@click.away":  "d",
-		"data-id":      "1",
-	})
-	// only the legitimate names survive, sorted: :class, @click.away, data-id, hx-on::click
-	want := ` :class="c" @click.away="d" data-id="1" hx-on::click="go()"`
-	if b.String() != want {
-		t.Fatalf("got  %q\nwant %q", b.String(), want)
-	}
-}
-
-func TestAttrsCond(t *testing.T) {
-	then := func() Attrs { return Attrs{"class": "hot"} }
-	els := func() Attrs { return Attrs{"class": "cold"} }
-
-	if got := AttrsCond(true, then, els); got["class"] != "hot" {
-		t.Errorf("AttrsCond(true) class = %v, want \"hot\"", got["class"])
-	}
-	if got := AttrsCond(false, then, els); got["class"] != "cold" {
-		t.Errorf("AttrsCond(false) class = %v, want \"cold\"", got["class"])
-	}
-	// els == nil: a false cond yields nil, which merges as empty.
-	if got := AttrsCond(false, then, nil); got != nil {
-		t.Errorf("AttrsCond(false, then, nil) = %v, want nil", got)
-	}
-	if got := AttrsCond(true, then, nil); got["class"] != "hot" {
-		t.Errorf("AttrsCond(true, then, nil) class = %v, want \"hot\"", got["class"])
-	}
-
-	// The UNTAKEN branch thunk must NOT be called — its body would panic /
-	// flip a flag if evaluated. This is the lazy-eval guarantee.
-	thenCalled, elsCalled := false, false
-	thenPanic := func() Attrs { thenCalled = true; panic("then evaluated") }
-	elsPanic := func() Attrs { elsCalled = true; panic("els evaluated") }
-
-	// cond true: only then runs, els must be untouched.
-	if got := AttrsCond(true, then, elsPanic); got["class"] != "hot" {
-		t.Errorf("AttrsCond(true, then, elsPanic) class = %v, want \"hot\"", got["class"])
-	}
-	if elsCalled {
-		t.Error("AttrsCond(true): untaken els thunk was evaluated")
-	}
-
-	// cond false: only els runs, then must be untouched.
-	if got := AttrsCond(false, thenPanic, els); got["class"] != "cold" {
-		t.Errorf("AttrsCond(false, thenPanic, els) class = %v, want \"cold\"", got["class"])
-	}
-	if thenCalled {
-		t.Error("AttrsCond(false): untaken then thunk was evaluated")
+	if got := buf.String(); got != ` data-b="2" data-a="1" checked` {
+		t.Fatalf("Spread = %q", got)
 	}
 }

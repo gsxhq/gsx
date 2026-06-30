@@ -59,8 +59,8 @@ func TestIntegrationCard(t *testing.T) {
 }
 
 func TestIntegrationBox(t *testing.T) {
-	got := render(t, box(false, true, Attrs{"id": "b1", "aria-hidden": true}, Raw("x")))
-	// not padded -> data-tight + box class only; disabled bool; spread sorted (aria-hidden, id)
+	got := render(t, box(false, true, Attrs{{Key: "aria-hidden", Value: true}, {Key: "id", Value: "b1"}}, Raw("x")))
+	// not padded -> data-tight + box class only; disabled bool; spread in slice order (aria-hidden, id)
 	want := `<div class="box" disabled data-tight aria-hidden id="b1">x</div>`
 	if got != want {
 		t.Fatalf("got  %q\nwant %q", got, want)
