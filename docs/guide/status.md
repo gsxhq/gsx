@@ -24,4 +24,5 @@ gsx is alpha software. It is usable end to end, but the language and APIs may st
 
 ## Detailed Roadmap
 
-The detailed engineering roadmap lives in [Roadmap & Status](../ROADMAP.md).
+The detailed engineering roadmap lives in
+[Roadmap & Status](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md).
