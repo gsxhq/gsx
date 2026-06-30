@@ -67,7 +67,7 @@ golden-tested `examples/*.txtar` fixtures.
 | `name` (bare) | boolean attribute = `true` |
 | `disabled={ cond }` | type-driven boolean attr (bool → bare/omitted) |
 | `{ expr... }` | spread/splat — on an **element**: spreads `gsx.Attrs` as HTML attrs; on a **component**: whole-struct splat (passes the prebuilt struct as props) |
-| `name={{ "k": v, "k2": v2 }}` | ordered-attrs literal — binds to a `gsx.OrderedAttrs` prop; renders in source order |
+| `name={{ "k": v, "k2": v2 }}` | ordered-attrs literal — binds to a `gsx.Attrs` prop; renders in source order |
 | `{ if … }` / `{ for … }` inside a tag | conditional attributes |
 | `{ if/for/switch … { <markup> } }` | control flow contributing children |
 | `{{ stmt }}` | Go statement escape hatch (no output) |

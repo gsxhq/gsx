@@ -28,36 +28,52 @@ To add one or more attributes only when a condition holds, use `{ if cond { attr
 
 The `{ if … { … } }` block can contain any combination of attribute bindings. The braces wrap the entire `if` expression; the inner braces contain only attribute syntax, not Go statements. An `else` branch is also allowed: `{ if cond { class="a" } else { class="b" } }`.
 
-## Spread `{ x… }` — sorted
+## Spread `{ x… }` — ordered
 
 To forward a bag of attributes — commonly used for passthrough components — declare a parameter of type `gsx.Attrs` and spread it onto an element with `{ bag… }`.
 
 <!--@include: ./_generated/attributes/040-spread-attributes.md-->
 
-`gsx.Attrs` is `map[string]any`. Because map iteration order in Go is undefined, gsx **sorts the keys alphabetically** before rendering to produce deterministic output. In the example above, `data-active` sorts before `id`, so they appear in that order in the HTML regardless of the order they were inserted into the map.
+`gsx.Attrs` is `[]gsx.Attr` — an ordered slice. Pairs render in their declared or insertion order: whatever order the call site writes them is the order they appear in the HTML. The implicit fallthrough bag (unmatched call-site attributes collected into an `Attrs` prop) lands in call-site source order.
 
-Boolean values in an `Attrs` bag follow the same rule as attribute-level booleans: `"disabled": true` renders as the bare attribute `disabled`; `"disabled": false` omits it.
+Boolean values in an `Attrs` slice follow the same rule as attribute-level booleans: `true` renders as the bare attribute name; `false` omits the attribute entirely.
 
-## Ordered-attrs literal → `gsx.OrderedAttrs` {#ordered--→-gsxorderedattrs}
+To pass a map, use `gsx.AttrMap{"k": v}` (or any `map[string]any`). Codegen auto-converts it via `gsx.AttrsFromMap`, which sorts keys ascending so the output stays deterministic regardless of map iteration order.
+
+## Ordered-attrs literal `{{ "k": v }}`
 
 ::: v-pre
-When attribute order matters — for example, `data-*` directives consumed by Datastar where a signal must be declared before it is read — use the `{{ "key": value }}` literal in a **component invocation** to pass an ordered attribute bag. The literal is valid only in attribute-value position at a component call, bound (via the kebab field-matcher) to a prop declared as `gsx.OrderedAttrs`. The component then spreads that prop onto an element with `{ prop... }`, and the attributes render in the exact order they were written in the literal — no sorting.
+When attribute order matters — for example, `data-*` directives consumed by Datastar where a signal must be declared before it is read — use the `{{ "key": value }}` literal in a **component invocation** to pass an ordered attribute bag. The literal lowers to `gsx.Attrs` (an ordered slice), the same type as any declared `Attrs gsx.Attrs` prop and the `{ bag… }` spread. This removes the old friction where the literal required a separately-typed prop.
 
-Unlike `{ bag… }` spread (which sorts keys alphabetically), `{ signals… }` spread on a `gsx.OrderedAttrs` prop calls `SpreadOrdered` and preserves insertion order end to end.
+Use `{{ "k": v }}` any time key order matters: Datastar `data-*` directives, duplicate keys, or explicit ordering that a map would scramble.
 :::
 
 <!--@include: ./_generated/attributes/050-ordered-attributes.md-->
 
 ::: v-pre
-`Counter` declares `signals gsx.OrderedAttrs` and spreads it with `{ signals... }`. The caller passes `signals={{ "data-signals": …, "data-text": …, "data-on-click": … }}` — the attributes render in that exact order. Contrast this with a `gsx.Attrs` (map) bag: the same three keys would render alphabetically as `data-on-click`, `data-signals`, `data-text`.
+`Counter` declares a `gsx.Attrs` prop and spreads it with `{ signals... }`. The caller passes `signals={{ "data-signals": …, "data-text": …, "data-on-click": … }}` — the attributes render in that exact order (source order in the literal). Because `gsx.Attrs` is an ordered slice, no sorting happens.
 
 Key points:
 
-- The `{{ }}` literal is valid **only as the value of a component attribute** whose matching prop is typed `gsx.OrderedAttrs`. There is no standalone-element form — `<div {{ … }}>` is a parse error.
+- The `{{ }}` literal is valid **only as the value of a component attribute** bound to a declared `gsx.Attrs` prop. There is no standalone-element form — `<div {{ … }}>` is a parse error.
 - Keys are quoted string literals (`"data-signals"`, not bare identifiers). This is required so that kebab and colon names such as `"hx-on:click"` round-trip safely.
-- A bool value (`"data-show": true`) renders the bare attribute `data-show`; `false` omits it entirely — the same rule as `gsx.Attrs`.
-- `gsx.OrderedAttrs` does **not** participate in `class`/`style` merge. Any `"class"` or `"style"` pair in an ordered bag renders verbatim in its slot position; use element-level `class=` or `style=` for merging.
+- A bool value (`"data-show": true`) renders the bare attribute `data-show`; `false` omits it entirely.
+- `"class"` or `"style"` pairs in an `Attrs` bag render verbatim in their slot position. At the element level, `class=` and `style=` use the bag's `Class()` / `Style()` aggregate methods for merging.
 - A pair value that returns `(T, error)` — e.g. `{{ "data-signals": sig(t) }}` where `sig` returns `(string, error)` — is auto-unwrapped: the error propagates from `Render`. See [auto-unwrap](./interpolation#functions-t-error-auto-unwrap).
+
+`gsx.Attrs` tolerates duplicate keys — the `{{ }}` literal can repeat a key. Methods on `gsx.Attrs`:
+
+| Method | Behavior |
+|--------|----------|
+| `Class() string` | Aggregates **all** `"class"` pairs (space-joined) — nothing dropped |
+| `Style() string` | Aggregates **all** `"style"` pairs (`"; "`-joined) |
+| `Get(key) (any, bool)` | First occurrence wins (matches browser first-attribute-wins) |
+| `Has(key) bool` | True if any pair has the key |
+| `Without(keys…) Attrs` | Removes **all** matching pairs |
+| `Take(key) (any, Attrs)` | First value + `Without(key)` |
+| `Merge(other Attrs) Attrs` | `class`/`style` concat in place on first match; other keys overwrite first match or append |
+
+A nil `Attrs` is an empty bag — safe to spread, merge, and call methods on.
 :::
 
 ## Contextual escaping

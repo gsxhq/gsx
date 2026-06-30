@@ -26,9 +26,9 @@ The double-brace syntax appears in two distinct positions, and **position alone 
 | Position | Syntax | Meaning |
 |---|---|---|
 | **Body** (between child nodes) | `{{ full := x + y }}` | GoBlock — a Go statement, no output |
-| **Attribute value** | `name={{ "key": value }}` | Ordered-attrs literal — produces a `gsx.OrderedAttrs` |
+| **Attribute value** | `name={{ "key": value }}` | Ordered-attrs literal — produces a `gsx.Attrs` (ordered slice) |
 
-When `{{ … }}` appears as a child of an element or at the top of a component body, it is always a GoBlock. When it appears after `=` as the value of an attribute, it is always an ordered-attrs literal producing a `gsx.OrderedAttrs` that renders attributes in declaration order (useful for `data-*` directive ordering).
+When `{{ … }}` appears as a child of an element or at the top of a component body, it is always a GoBlock. When it appears after `=` as the value of an attribute, it is always an ordered-attrs literal producing a `gsx.Attrs` ordered slice that renders attributes in declaration order (useful for `data-*` directive ordering).
 
 There is no ambiguity: the parser knows which context it is in before reading the `{{`.
 :::
