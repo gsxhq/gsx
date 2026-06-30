@@ -61,7 +61,7 @@ When a child-component prop value returns `(T, error)`, gsx hoists the call to a
 
 - **Only `(T, error)`.** Exactly two return values, with the second typed `error`. Any other multi-value shape — `(int, string)`, three values, etc. — is a **compile-time gsx error**: `only (T, error) is supported`.
 - **Automatic — no marker or opt-out.** The unwrap is always applied; there is no annotation to add or remove.
-- **`?` is a parse error.** A `?` try-marker suffix (e.g. `upper?` in a pipeline stage) is rejected: gsx reports that the `?` try-marker is not supported, because gsx already auto-unwraps `(T, error)` values.
+- **`?` is rejected (a gsx error).** A `?` try-marker suffix (e.g. `upper?` in a pipeline stage) is reported as not supported, because gsx already auto-unwraps `(T, error)` values.
 
 ## Numeric & string contexts
 
