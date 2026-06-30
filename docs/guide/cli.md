@@ -112,7 +112,7 @@ existing `go.mod`/`package.json` without `--force`); `1` on a step failure or
 I/O error. When a step fails the remaining commands are printed to stderr.
 
 > **Planned template:** `structpages` — a struct-based routing starter built on
-> the [structpages](https://github.com/gsxhq/gsx/tree/main/structpages) framework
+> the [structpages](https://github.com/jackielii/structpages) framework
 > (htmx + templ). Not yet available; only `simple` is currently implemented.
 
 ## gsx dev

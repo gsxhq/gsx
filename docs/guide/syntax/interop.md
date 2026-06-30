@@ -72,7 +72,7 @@ The `<p>` block is stored in context by templ's runtime but `gsxCard` reads `Chi
 
 ### Framework composition
 
-Any framework that renders a `Render(ctx context.Context, w io.Writer) error` value — including [structpages](https://github.com/gsxhq/structpages) — composes gsx and templ components without knowing which is which. In practice, gsx is commonly used for leaf and subtree components inside templ page layouts; the two coexist in the same page tree with no glue code.
+Any framework that renders a `Render(ctx context.Context, w io.Writer) error` value — including [structpages](https://github.com/jackielii/structpages) — composes gsx and templ components without knowing which is which. In practice, gsx is commonly used for leaf and subtree components inside templ page layouts; the two coexist in the same page tree with no glue code.
 
 ## Working with html/template
 
