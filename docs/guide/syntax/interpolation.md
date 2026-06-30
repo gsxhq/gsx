@@ -49,7 +49,7 @@ The auto-unwrap is **uniform across all expression positions** — not limited t
 | Attribute value | `title={ f() }` |
 | Child-component prop value | `<Row label={lookup(k)}/>` |
 | Ordered-attrs pair value | `<Card bag={{ "k": f(t) }}/>` |
-| Pipeline stage | each `|>` stage whose return is `(T, error)` |
+| Pipeline stage | each `\|>` stage whose return is `(T, error)` |
 | Children / slot body | `<Wrap>{ f(t) }</Wrap>` |
 :::
 
