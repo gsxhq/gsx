@@ -16,9 +16,9 @@ generator/CLI may use `golang.org/x/tools`.
 |---|---|
 | Parser + AST | `[x]` Part 2 grammar + pipeline parsing + positioned, recoverable errors |
 | Runtime (`gsx`) | `[x]` done |
-| Codegen | `[~]` interpolation + control flow + full attributes (security core, composable class **and element-level style**, spread, conditional) + pipeline `\|>` + child props/`{children}` + method components + named slots + attribute fallthrough (auto class-merge/spread + manual `{...attrs}`) + custom attribute classification (`WithJSAttrs`/`WithURLAttrs`/`WithCSSAttrs` + `WithAttrClassifier`) + node-prop promotion (`gsx.Val`/`Text`/`Fragment`) + ordered attrs (`{{ }}` / `gsx.OrderedAttrs`) done; composable `style` **on a component invocation** + `[]string` class parts pending |
+| Codegen | `[~]` interpolation + control flow + full attributes (security core, composable class **and element-level style**, spread, conditional) + pipeline `\|>` + child props/`{children}` + method components + named slots + attribute fallthrough (auto class-merge/spread + manual `{...attrs}`) + custom attribute classification (`WithJSAttrs`/`WithURLAttrs`/`WithCSSAttrs` + `WithAttrClassifier`) + node-prop promotion (`gsx.Val`/`Text`/`Fragment`) + ordered attrs (`{{ }}` / `gsx.OrderedAttrs`) + uniform `(T,error)` auto-unwrap (all expression positions) done; composable `style` **on a component invocation** + `[]string` class parts pending |
 | Whitespace model | `[x]` JSX-style: `internal/wsnorm.Normalize` (parser lossless) wired into codegen + powers `gsx fmt`. render-faithful + idempotent over the whole corpus. |
-| Pipeline `\|>` end-to-end | `[x]` seed-first forward-application lowering + `std` filters + user filter packages (`gen.WithFilters` + `gen.WithFilter` aliases, multi-pkg last-wins) + `ctx` injection + `(T,error)` implicit auto-unwrap. Works in interp / attr / class / style / spread. Initialism-aware naming pending. |
+| Pipeline `\|>` end-to-end | `[x]` seed-first forward-application lowering + `std` filters + user filter packages (`gen.WithFilters` + `gen.WithFilter` aliases, multi-pkg last-wins) + `ctx` injection + `(T,error)` implicit auto-unwrap. Works in interp / attr / class / style / spread / child-prop values / `{{ }}` pairs (all expression positions). Initialism-aware naming pending. |
 | CLI (`gsx`) / `gen.Main` | `[~]` `generate` (incl. `--watch`/`--format=ndjson`) · `fmt` · `info` · `init` · `lsp` · `clean --cache` · `version` · `help` ship, with `--json` + structured diagnostics. `vet`/`render`/`explain`/numeric codes pending. `WithClassMerger` + `class_merger` TOML knob shipped. |
 | Language server (`gsx lsp`) | `[~]` diagnostics (debounced) + go-to-definition (incl. inside pipelines) + hover (incl. pipelines) + find-references + formatting ship; completion / cross-package deferred. |
 | Developer experience (Vite + `init`) | `[x]` `gsx init` scaffold + `@gsxhq/vite-plugin-gsx` (npm v0.2.1) + `github.com/gsxhq/vite` (v0.2.0). |
@@ -129,6 +129,16 @@ render goldens.
    an empty `{{ }}` renders nothing. Using `{{ }}` directly on a plain-element
    attribute is a clean diagnostic. The bag does not participate in class/style
    merging. Escaping and unsafe-name validation mirror `Spread` exactly.
+10. `[x]` **Uniform `(T, error)` auto-unwrap** — `2026-06-29`. The implicit
+    two-value unwrap (first value used; second `error` → returned from `Render` on
+    non-nil) now applies in **every expression position**: child-component prop values
+    (`<Card title={lookup(t)}/>`) and `{{ }}` ordered-attrs pair values
+    (`{{ "data-signals": signals(s) }}`), in addition to the already-covered text
+    interpolation, element attribute values, `<style>`/`<script>` bodies,
+    JS-attribute holes, children/slots, and pipeline stages. Any non-`(T,error)`
+    multi-value shape is a clean gsx diagnostic (`only (T, error) is supported`).
+    Multiple hoisted values in one call evaluate in source order. A shared
+    `hoistTuple` helper replaces five copy-pasted hoist patterns.
 
 ## Language server (`gsx lsp`)
 

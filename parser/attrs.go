@@ -403,7 +403,7 @@ func (p *parser) parseOrderedAttrsLiteral(name string, attrStartPos token.Pos) (
 // bracket depth 0, recording comma and colon offsets, then segments on commas
 // and splits each segment at its first depth-0 colon into a quoted-string key
 // and a raw-Go value expression. base is the absolute byte offset of src[0]
-// within the original source (used to compute ValuePos).
+// within the original source (used to set the span on each OrderedPair).
 func (p *parser) splitOrderedPairs(src string, base int) ([]ast.OrderedPair, error) {
 	fset := token.NewFileSet()
 	file := fset.AddFile("", fset.Base(), len(src))
@@ -495,18 +495,22 @@ func (p *parser) splitOrderedPairs(src string, base int) ([]ast.OrderedPair, err
 			return nil, p.errorf(p.posAt(base+keyOff), "ordered-attrs key must be a quoted string literal, got %q", rawKey)
 		}
 
-		// ValuePos: offset of the first non-space byte after the colon in src,
-		// translated back to absolute source position via base.
+		// Compute the value span: start = first non-space byte after the colon,
+		// end = last non-space byte of the value (trimmed trailing whitespace).
 		valueStart := colon + 1
 		for valueStart < segEnd && (src[valueStart] == ' ' || src[valueStart] == '\t') {
 			valueStart++
 		}
+		valueEnd := segEnd
+		for valueEnd > valueStart && (src[valueEnd-1] == ' ' || src[valueEnd-1] == '\t') {
+			valueEnd--
+		}
 
-		pairs = append(pairs, ast.OrderedPair{
-			Key:      key,
-			Value:    rawValue,
-			ValuePos: p.posAt(base + valueStart),
-		})
+		var pr ast.OrderedPair
+		pr.Key = key
+		pr.Value = rawValue
+		ast.SetSpan(&pr, p.posAt(base+valueStart), p.posAt(base+valueEnd))
+		pairs = append(pairs, pr)
 	}
 	return pairs, nil
 }

@@ -1,0 +1,19 @@
+# A ordered-attrs pair value that is a tuple but NOT (T, error) — here
+# (int, string) — is rejected with the same clean "only (T, error) is
+# supported" diagnostic. No internal _gsxunwrap name may leak into the message.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+func twoVals() (int, string) { return 1, "x" }
+
+component Card(bag gsx.OrderedAttrs) {
+	<div { bag... }/>
+}
+
+component Page() {
+	<Card bag={{ "x": twoVals() }}/>
+}
+-- diagnostics.golden --
+12:20: ordered-attrs pair "x" value "twoVals()" returns (int, string); only (T, error) is supported

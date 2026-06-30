@@ -1,0 +1,12 @@
+# An expression-internal error in a child-prop value (here an undefined ident)
+# is reported EXACTLY ONCE. A non-call value (ident/literal) is emitted INLINE in
+# the props literal (no _gsxunwrap wrap), and the redundant copy from the
+# _gsxuseq(...) type-harvest probe is suppressed by its quiet span.
+-- input.gsx --
+package views
+
+component Card(title string) { <div>{title}</div> }
+
+component Page() { <Card title={undefinedX}/> }
+-- diagnostics.golden --
+5:46: undefined: undefinedX

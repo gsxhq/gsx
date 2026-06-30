@@ -61,7 +61,7 @@ golden-tested `examples/*.txtar` fixtures.
 | `<div>`, `<el-dialog>` | HTML element (lowercase / hyphenated) |
 | `<Card>`, `<ui.Button>` | component (Capitalized / dotted) |
 | `{ expr }` | interpolation in body (auto HTML-escaped) |
-| `{ f() }` where `f` returns `(T, error)` | auto-unwraps to `T`; the error propagates out of the enclosing `Render` (no marker needed) |
+| any expression returning `(T, error)` | auto-unwraps to `T`; error propagates from the enclosing `Render` — no marker needed, applies in all expression positions (text, attrs, child-prop values, `{{ }}` pair values, pipelines) |
 | `name="lit"` | static string attribute |
 | `name={ expr }` | dynamic attribute (Go expression) |
 | `name` (bare) | boolean attribute = `true` |
