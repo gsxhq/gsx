@@ -42,6 +42,9 @@ Boolean values in an `Attrs` slice follow the same rule as attribute-level boole
 
 ```go
 attrs := gsx.AttrMap{"class": "card", "id": id}.ToAttrs()
+
+// A bare map has no ToAttrs method; convert it to AttrMap first.
+attrs = gsx.AttrMap(m).ToAttrs()
 ```
 
 `ToAttrs` sorts keys ascending because maps do not preserve insertion order. When order matters, construct `gsx.Attrs` directly instead.
