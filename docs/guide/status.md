@@ -12,7 +12,8 @@ gsx is alpha software. It is usable end to end, but the language and APIs may st
 
 ## Partial
 
-- LSP completion and cross-package reference coverage are deferred.
+- LSP completion is deferred.
+- References cover project components discovered during module analysis; external packages are skipped.
 - CLI `vet`, `render`, `explain`, and stable numeric diagnostic codes are deferred.
 - Component-invocation `style={...}` composition and `[]string` class parts are deferred.
 
