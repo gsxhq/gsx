@@ -637,7 +637,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 	// probe type-checks the author's `{...attrs}` (probed as `_gsxgw.Spread(ctx,
 	// attrs)`) and any `attrs.X()` reference identically to emitted code.
 	if manual {
-		sb.WriteString("\tattrs := _gsxp.Attrs\n\t_ = attrs\n")
+		sb.WriteString("\tattrs := _gsxp.Attrs\n")
 	}
 	if err := emitProbes(sb, c.Body, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
 		return err

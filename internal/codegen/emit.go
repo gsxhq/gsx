@@ -344,13 +344,13 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 		// this gsx.Node and renders via the catNode path (gw.Node, nil-safe).
 		b.WriteString("\t\tchildren := _gsxp.Children\n")
 	}
-	if manual {
-		// MANUAL mode: bind the synthesized bag to a same-named local so the author's
+	if usesAttrsLocal(c.Body) {
+		// Bind the synthesized bag to a same-named local so the author's
 		// `{...attrs}` element spread (emitted as `gw.Spread(ctx, attrs)`) and any
 		// `attrs.X()` reference resolve. Nil-safe: a nil bag spreads/queries to
-		// nothing. (`_ = attrs` guards the unlikely case where usesAttrs detected a
-		// reference the body no longer reaches after lowering.)
-		b.WriteString("\t\tattrs := _gsxp.Attrs\n\t\t_ = attrs\n")
+		// nothing. usesAttrs mirrors the emitted expression walk, so this binding is
+		// always consumed.
+		b.WriteString("\t\tattrs := _gsxp.Attrs\n")
 	}
 	b.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
 	emitNumScratch(b, c.Body, resolved)
@@ -1660,11 +1660,21 @@ func usesChildren(body []ast.Markup) bool {
 // `{...attrs.Without("id")}`, `{ attrs.Class() }` interp, an `attrs`-referencing
 // control-flow clause), and crucially does NOT match a longer ident like
 // `attrsList` (a different token) nor a selector field after a `.` (e.g.
-// `x.attrs`). A component's SIMPLE attrs (props) are NOT walked — those are the
-// caller's prop exprs, not this component's body — but its named-slot values and
-// slot children render in THIS scope and CAN reference this component's `attrs`,
-// so they are recursed.
+// `x.attrs`). Child-component prop expressions, named-slot values, and slot
+// children all render in this component's scope and are therefore included.
 func usesAttrs(body []ast.Markup) bool {
+	return usesAttrsMode(body, true)
+}
+
+// usesAttrsLocal reports whether emitted Go needs the local `attrs` binding.
+// A direct `{ attrs... }` element spread is lowered to `_gsxp.Attrs` operations,
+// so it needs the field but not the local. All other references are emitted as
+// source expressions and therefore consume the local.
+func usesAttrsLocal(body []ast.Markup) bool {
+	return usesAttrsMode(body, false)
+}
+
+func usesAttrsMode(body []ast.Markup, countDirectSpread bool) bool {
 	refsAttrs := func(src string) bool { return valueIdents(src)["attrs"] }
 	for _, n := range body {
 		switch t := n.(type) {
@@ -1678,38 +1688,35 @@ func usesAttrs(body []ast.Markup) bool {
 				}
 			}
 		case *ast.Element:
-			// A non-component element: walk its attrs (spread/expr/class/cond) for an
-			// `attrs` reference. A component element: skip its SIMPLE attrs (props) but
-			// recurse named-slot values, which render in this scope. Both recurse
-			// children.
-			if !isComponentTag(t.Tag) {
-				if attrsRefAttrs(t.Attrs) {
-					return true
-				}
-			} else {
-				found := false
-				walkMarkupAttrs(t.Attrs, func(value []ast.Markup) {
-					if usesAttrs(value) {
-						found = true
-					}
-				})
-				if found {
-					return true
-				}
+			// Attribute expressions on both HTML elements and child components are
+			// evaluated in this component's scope.
+			if attrsRefAttrsMode(t.Attrs, countDirectSpread) {
+				return true
 			}
-			if usesAttrs(t.Children) {
+			// Markup-valued component props are represented separately from scalar
+			// attrs; recurse into those values as well.
+			found := false
+			walkMarkupAttrs(t.Attrs, func(value []ast.Markup) {
+				if usesAttrsMode(value, countDirectSpread) {
+					found = true
+				}
+			})
+			if found {
+				return true
+			}
+			if usesAttrsMode(t.Children, countDirectSpread) {
 				return true
 			}
 		case *ast.Fragment:
-			if usesAttrs(t.Children) {
+			if usesAttrsMode(t.Children, countDirectSpread) {
 				return true
 			}
 		case *ast.ForMarkup:
-			if refsAttrs(t.Clause) || usesAttrs(t.Body) {
+			if refsAttrs(t.Clause) || usesAttrsMode(t.Body, countDirectSpread) {
 				return true
 			}
 		case *ast.IfMarkup:
-			if refsAttrs(t.Cond) || usesAttrs(t.Then) || usesAttrs(t.Else) {
+			if refsAttrs(t.Cond) || usesAttrsMode(t.Then, countDirectSpread) || usesAttrsMode(t.Else, countDirectSpread) {
 				return true
 			}
 		case *ast.SwitchMarkup:
@@ -1717,7 +1724,7 @@ func usesAttrs(body []ast.Markup) bool {
 				return true
 			}
 			for _, cc := range t.Cases {
-				if refsAttrs(cc.List) || usesAttrs(cc.Body) {
+				if refsAttrs(cc.List) || usesAttrsMode(cc.Body, countDirectSpread) {
 					return true
 				}
 			}
@@ -1736,12 +1743,12 @@ func usesAttrs(body []ast.Markup) bool {
 // Expr or its pipeline args, or — recursing — a CondAttr's Cond and branches.
 // These are exactly the fragments collectAttrSrc feeds to the ident walks, so a
 // manual `attrs` reference anywhere in them is detected.
-func attrsRefAttrs(attrs []ast.Attr) bool {
+func attrsRefAttrsMode(attrs []ast.Attr, countDirectSpread bool) bool {
 	refsAttrs := func(src string) bool { return valueIdents(src)["attrs"] }
 	for _, a := range attrs {
 		switch at := a.(type) {
 		case *ast.SpreadAttr:
-			if refsAttrs(at.Expr) {
+			if refsAttrs(at.Expr) && (countDirectSpread || strings.TrimSpace(at.Expr) != "attrs") {
 				return true
 			}
 		case *ast.ClassAttr:
@@ -1760,13 +1767,13 @@ func attrsRefAttrs(attrs []ast.Attr) bool {
 				}
 			}
 		case *ast.CondAttr:
-			if refsAttrs(at.Cond) || attrsRefAttrs(at.Then) || attrsRefAttrs(at.Else) {
+			if refsAttrs(at.Cond) || attrsRefAttrsMode(at.Then, countDirectSpread) || attrsRefAttrsMode(at.Else, countDirectSpread) {
 				return true
 			}
 		case *ast.JSAttr:
 			// A JS-attribute value's @{ } interps render in this scope, so an `attrs`
 			// reference there needs the local bound.
-			if usesAttrs(at.Segments) {
+			if usesAttrsMode(at.Segments, countDirectSpread) {
 				return true
 			}
 		}
