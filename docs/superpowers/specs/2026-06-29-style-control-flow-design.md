@@ -156,31 +156,30 @@ closes that exclusion** for both shapes below, consistently:
    the standard hoist in *before* `_clsN = tmp`. Easier than the inlined-literal
    positions because no composite-literal tolerance is needed at emit time.
 
-**Reuse, don't duplicate.** Both paths reuse `uniform-tuple-unwrap`'s extracted
-helpers — `hoistTuple(b, expr, t, interpTemp)` / `tupleUnwrapType(t)` (Phase 0) —
-and its type-check **skeleton tolerance**: arm/part values are wrapped in the
+**Reuse, don't duplicate.** Both paths reuse `uniform-tuple-unwrap`'s shared
+helpers, now **merged to main** (`internal/codegen/emit.go`):
+`tupleUnwrapType(t types.Type) (types.Type, bool)` (reports T) and
+`hoistTuple(b *bytes.Buffer, expr string, interpTemp *int) string` (emits
+`tmp, _gsxerr := expr; if _gsxerr != nil { return _gsxerr }`, returns the
+`_gsxv%d` temp). Plus its type-check **skeleton tolerance**: arm/part values are
+wrapped in the
 `_gsxunwrap[T any](v T, _ ...error) T` skeleton helper (so go/types accepts both
 tuple and plain values while still field-checking `T`), with tuple-ness detected
 via the raw `_gsxuse(<rawexpr>)` probe. Non-`(T, error)` tuples (e.g.
 `(int,string)`) yield the existing pointed `invalid-tuple` diagnostic at the
 arm/part position, not a raw Go error.
 
-**Dependency / sequencing.** This feature should be built **on top of**
-`uniform-tuple-unwrap` Phase 0 (the shared-helper extraction) so it consumes
-`hoistTuple`/`tupleUnwrapType`/`_gsxunwrap` rather than re-implementing the
-hoist. If the two land independently, the class/style unwrap here must be
-reconciled to the shared helper before merge.
+**Dependency.** `uniform-tuple-unwrap` is **merged to main** (commit `40b3d50`);
+its shared `hoistTuple`/`tupleUnwrapType`/`_gsxunwrap` machinery is available.
+This feature consumes those directly rather than re-implementing the hoist. The
+remaining work here extends them to two positions that worktree deliberately
+left out (plain class/style parts; value-form arms).
 
-**Cross-worktree amendments required in `uniform-tuple-unwrap`** (own its spec,
-flagged here for coordination):
-- Remove "composed `class`/`style` parts" from the non-goals (it is now in
-  scope, via this spec).
-- Refine the "`for`/`if`/`switch` clauses … not value positions" non-goal to
-  distinguish a control-flow **clause/condition** (still no unwrap — `if cond`,
-  `switch tag`, `for range`) from a value-form **arm** (a value position that
-  **does** unwrap).
-- Add Test-Matrix Section-A rows: plain class part, plain style part, value-form
-  arm (class), value-form arm (style).
+**Note on its non-goals.** The merged `uniform-tuple-unwrap` spec still lists
+composed class/style parts (and "`if`/`switch` clauses") as non-goals. This spec
+supersedes that for class/style: plain parts and value-form **arms** are value
+positions that unwrap; the control-flow **clause/condition** (`if cond`,
+`switch tag`) remains a non-value position with no unwrap.
 
 ## Formatter (folded in)
 
