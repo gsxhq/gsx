@@ -123,6 +123,30 @@ component Page(m map[string]any) {
 			forbidText: "_gsx",
 		},
 		{
+			name: "element spread rejects unconverted AttrMap",
+			src: `package views
+
+import "github.com/gsxhq/gsx"
+
+component Page(bag gsx.AttrMap) {
+	<div { bag... }></div>
+}
+`,
+			wantText:   "as gsx.Attrs",
+			wantCount:  1,
+			forbidText: "_gsx",
+		},
+		{
+			name: "element spread accepts nil",
+			src: `package views
+
+component Page() {
+	<div { nil... }></div>
+}
+`,
+			wantFiles: true,
+		},
+		{
 			name: "undefined element spread reports once",
 			src: `package views
 

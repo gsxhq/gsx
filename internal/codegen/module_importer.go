@@ -443,10 +443,9 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// intact (it still checks the unwrapped first value T against the field) while
 	// swallowing any extra results, so no internal helper name leaks.
 	//
-	// _gsxuseq is the quiet variant of _gsxuse used ONLY for child-prop type
-	// harvest: errors inside its argument are suppressed (the props-literal
-	// _gsxunwrap(...) probe already reports the same expression-internal error), so
-	// a malformed child-prop value is reported once, not twice.
+	// _gsxuseq quietly harvests child-prop and element-spread types. Errors inside
+	// it are suppressed because each expression also has a native typed probe that
+	// reports the error once.
 	helperXgoPath := filepath.Join(dir, "_gsxshared.x.go")
 	helper, _ := goparser.ParseFile(fset, helperXgoPath,
 		"package "+pkgName+"\n\nfunc _gsxuse(...any) {}\nfunc _gsxuseq(...any) {}\nfunc _gsxcompsig(any) {}\nfunc _gsxunwrap[T any](v T, _ ...any) T { return v }\n", goparser.SkipObjectResolution)
@@ -504,15 +503,11 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		pkgPath = ip
 	}
 	pkg, info, typeErrs := checkSkeletonPackage(pkgPath, pkgName, goFiles, fset, mi)
-	// Collect the skeleton byte spans of every _gsxuseq(...) child-prop harvest
-	// probe. Such a probe re-evaluates a child-component prop value ONLY to harvest
-	// its raw type; the props-literal _gsxunwrap(...) probe already reports any
-	// expression-internal error (undefined ident, bad call, wrong arity, missing
-	// method) for the SAME value. Suppressing errors that originate inside a
-	// _gsxuseq argument keeps a malformed child-prop value reported once (from the
-	// props literal) rather than twice. Positions are raw token.Pos in the shared
-	// fset, so they are directly comparable to a types.Error's Pos (the //line
-	// directives only affect Position() resolution, not Pos ordering).
+	// Collect the skeleton byte spans of every _gsxuseq(...) child-prop or
+	// element-spread harvest probe. Each expression is also checked in a native
+	// typed context (the props literal or gsx.Attrs assignment), so suppressing
+	// errors inside _gsxuseq avoids duplicate diagnostics. Positions are raw
+	// token.Pos in the shared fset, directly comparable to a types.Error's Pos.
 	var quietSpans []struct{ start, end token.Pos }
 	for _, gf := range goFiles {
 		goast.Inspect(gf, func(n goast.Node) bool {
