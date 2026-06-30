@@ -10,7 +10,7 @@ Use gsx when you want JSX-like authoring inside Go projects. Use templ directly 
 
 ## gsx and html/template
 
-`html/template` is stable, standard-library, and excellent for string-template workflows. gsx adds typed components, generated props, compiler-checked composition, contextual escaping by construction, and a formatter/LSP path.
+`html/template` is stable, standard-library, contextually auto-escaping, and excellent for string-template workflows. gsx preserves contextual escaping while adding typed components, generated props, compiler-checked composition, and a formatter/LSP path.
 
 Use `html/template` when you need runtime-loaded templates or the standard package alone. Use gsx when templates are part of the compiled application.
 
