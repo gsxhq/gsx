@@ -5,7 +5,7 @@
 package views
 
 component Badge(v int) {
-	<span class={ "base", switch v { case 1: { "one" } } }>x</span>
+	<span class={ "base", switch v { case 1: "one" } }>x</span>
 }
 -- invoke --
 Badge(BadgeProps{V: 2})

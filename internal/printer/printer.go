@@ -338,11 +338,9 @@ func (p *printer) valueSwitchDoc(s *ast.ValueSwitch) pretty.Doc {
 		if !c.Default {
 			label = pretty.Concat(pretty.Text("case "), pretty.Text(fmtCaseList(c.List)), pretty.Text(":"))
 		}
-		// Each arm value is wrapped in { } so the parser can re-parse it.
-		arm := pretty.Concat(pretty.Text("{ "), p.valueArmDoc(c.Value), pretty.Text(" }"))
 		cases = append(cases,
 			pretty.HardLine, label,
-			pretty.Indent(pretty.Concat(pretty.HardLine, arm)))
+			pretty.Indent(pretty.Concat(pretty.HardLine, p.valueArmDoc(c.Value))))
 	}
 	return pretty.Concat(pretty.Concat(head...), pretty.Indent(pretty.Concat(cases...)), pretty.HardLine, pretty.Text("}"))
 }

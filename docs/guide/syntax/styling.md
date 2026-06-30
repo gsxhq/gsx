@@ -98,18 +98,23 @@ class={
 	"inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset",
 	switch variant {
 	case Green:
-		{ "bg-green-50 text-green-700 ring-green-600/20" }
+		"bg-green-50 text-green-700 ring-green-600/20"
 	case Yellow:
-		{ "bg-yellow-50 text-yellow-700 ring-yellow-600/20" }
+		"bg-yellow-50 text-yellow-700 ring-yellow-600/20"
 	case Red:
-		{ "bg-red-50 text-red-700 ring-red-600/20" }
+		"bg-red-50 text-red-700 ring-red-600/20"
 	default:
-		{ "bg-gray-50 text-gray-700 ring-gray-600/20" }
+		"bg-gray-50 text-gray-700 ring-gray-600/20"
 	},
 }
 ```
 
-**Surface syntax.** Arms are brace-delimited `{ … }`, identical in shape to gsx's existing markup `if`/`switch` and to Go. `switch` supports `case V:` arms, multi-value `case A, B:` arms, an optional `default:`, a tag expression (`switch x { … }`), or a tag-less form (`switch { case cond: … }`). `if` supports `else if` chains and a final `else`.
+**Surface syntax.** Switch values follow GSX's markup-switch shape: each
+unbraced expression follows its `case V:` or `default:` label and ends at the
+next label or the switch's closing brace. Multi-value `case A, B:` arms, a tag
+expression (`switch x { … }`), and a tagless form
+(`switch { case cond: … }`) are supported. Value-form `if` retains its natural
+branch braces and supports `else if` chains and a final `else`.
 
 **Semantics.** The value-form is **exclusive** — exactly one arm's string is contributed to the list. When no arm matches and there is no `default:` / `else`, the zero value (empty string) is contributed — which means nothing is added to the class or style. This makes `if cond { "x" }` without an `else` exactly equivalent to the additive guard form `"x": cond`; the value-form is a strict superset, not a special case. All arms must be strings; a non-string arm is a compile-time diagnostic.
 

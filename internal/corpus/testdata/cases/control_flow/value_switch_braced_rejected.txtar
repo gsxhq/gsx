@@ -1,0 +1,13 @@
+-- input.gsx --
+package views
+
+component Badge(variant int) {
+	<span class={ switch variant {
+	case 1:
+		{ "green" }
+	default:
+		{ "gray" }
+	} }>x</span>
+}
+-- diagnostics.golden --
+6:3: braced switch case values are no longer supported; remove the braces
