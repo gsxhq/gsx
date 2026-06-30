@@ -2,7 +2,7 @@
 package views
 
 component Button(variant string) {
-	<button class={ "btn", variant }>{children}</button>
+	<button class={ "btn", variant } { attrs... }>{children}</button>
 }
 
 component Page() {

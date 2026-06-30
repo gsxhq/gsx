@@ -30,7 +30,6 @@ import (
 
 type CardProps struct {
 	Title gsx.Node
-	Attrs gsx.Attrs
 }
 
 //line input.gsx:5:1
@@ -39,12 +38,7 @@ func Card(_gsxp CardProps) gsx.Node {
 		title := _gsxp.Title
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:5:34
-		_gsxgw.S("<div class=\"")
-		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class("card"), gsx.Class(_gsxp.Attrs.Class()))
-		_gsxgw.S("\"")
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
+		_gsxgw.S("<div class=\"card\">")
 //line input.gsx:5:52
 		_gsxgw.Node(ctx, title)
 		_gsxgw.S("</div>")

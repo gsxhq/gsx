@@ -22,8 +22,7 @@ import (
 )
 
 type ToggleProps struct {
-	On    bool
-	Attrs gsx.Attrs
+	On bool
 }
 
 //line input.gsx:3:1
@@ -41,11 +40,8 @@ func Toggle(_gsxp ToggleProps) gsx.Node {
 			_gsxv1 = "ico-off"
 		}
 		_gsxgw.S(" class=\"")
-		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class(_gsxv0), gsx.Class(_gsxv1), gsx.Class(_gsxp.Attrs.Class()))
-		_gsxgw.S("\"")
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">y</i>")
+		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class(_gsxv0), gsx.Class(_gsxv1))
+		_gsxgw.S("\">y</i>")
 		return _gsxgw.Err()
 	})
 }

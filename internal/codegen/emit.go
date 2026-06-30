@@ -283,37 +283,18 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 	// When the body references `{children}`, synthesize an implicit
 	// `Children gsx.Node` slot field after the param fields; the parent fills it
 	// with a render closure (genChildComponent). A NULLARY component (function OR
-	// method: no params, no children, no fallthrough) gets NO props struct and NO
+	// method: no params, no children, no attrs) gets NO props struct and NO
 	// _gsxp param — emitted as `func Name() gsx.Node`, called as `Name()`. A
 	// component grows a props struct ONLY when it has params, uses `{children}`,
-	// or uses fallthrough attrs (auto single-root or manual `{...attrs}`).
+	// or explicitly uses `attrs`.
 	hasChildren := usesChildren(c.Body)
-	// A single-root component is fallthrough-eligible: it synthesizes an
-	// `Attrs gsx.Attrs` props field the caller fills with undeclared attributes,
-	// applied (class-merge + spread) at the root element below. Mirror the
-	// `Children` synthesis exactly — gate into hasProps, append AFTER the param
-	// and Children fields (field order: params, Children, Attrs).
-	root, hasRoot := singleRoot(c.Body)
-	// MANUAL mode: a component whose body references the identifier `attrs` (a
+	// A component whose body references the identifier `attrs` (a
 	// `{...attrs}` element spread, or `attrs.X()` in an interp/expr/clause) takes
-	// over fallthrough placement itself — auto root injection is DISABLED and the
-	// author's `{...attrs}` renders the bag. It is ALWAYS fallthrough-eligible
-	// (forces the Attrs field), even for a nullary component (which then gains a
-	// props struct — correct, since it has fallthrough). See usesAttrs.
+	// explicit responsibility for placement. This forces an Attrs field even for
+	// a nullary component. Undeclared call-site attributes are rejected when the
+	// component does not use `attrs`.
 	manual := usesAttrs(c.Body)
-	// AUTO fallthrough requires the component to have SOMETHING in the props
-	// struct already (params or children) — a nullary component (function or
-	// method) with a single root gets NO auto fallthrough, so it remains nullary
-	// no-props. manual forces fallthrough for any component regardless.
-	autoEligible := hasRoot && (len(params) > 0 || hasChildren)
-	hasFallthrough := autoEligible || manual
-	// AUTO application (Task-1 root class-merge + spread injection) happens only for
-	// a single-root component that is auto-eligible (so the Attrs FIELD exists — a
-	// nullary component with no props struct is NOT) and does NOT reference `attrs`.
-	// When manual, the root (and whole body) emits via normal genNode and the author
-	// places the bag; the bag is bound to the `attrs` local below.
-	autoApply := autoEligible && !manual
-	hasProps := len(params) > 0 || hasChildren || hasFallthrough
+	hasProps := len(params) > 0 || hasChildren || manual
 	if hasProps {
 		fmt.Fprintf(b, "type %s struct {\n", propsName)
 		for _, p := range params {
@@ -322,7 +303,7 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 		if hasChildren {
 			b.WriteString("\tChildren gsx.Node\n")
 		}
-		if hasFallthrough {
+		if manual {
 			b.WriteString("\tAttrs gsx.Attrs\n")
 		}
 		fmt.Fprintf(b, "}\n\n")
@@ -363,28 +344,17 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 		// this gsx.Node and renders via the catNode path (gw.Node, nil-safe).
 		b.WriteString("\t\tchildren := _gsxp.Children\n")
 	}
-	if manual {
-		// MANUAL mode: bind the synthesized bag to a same-named local so the author's
+	if usesAttrsLocal(c.Body) {
+		// Bind the synthesized bag to a same-named local so the author's
 		// `{...attrs}` element spread (emitted as `gw.Spread(ctx, attrs)`) and any
 		// `attrs.X()` reference resolve. Nil-safe: a nil bag spreads/queries to
-		// nothing. (`_ = attrs` guards the unlikely case where usesAttrs detected a
-		// reference the body no longer reaches after lowering.)
-		b.WriteString("\t\tattrs := _gsxp.Attrs\n\t\t_ = attrs\n")
+		// nothing. usesAttrs mirrors the emitted expression walk, so this binding is
+		// always consumed.
+		b.WriteString("\t\tattrs := _gsxp.Attrs\n")
 	}
 	b.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
 	emitNumScratch(b, c.Body, resolved)
 	for _, m := range c.Body {
-		// The single root (when AUTO-eligible) is emitted via the fallthrough path so
-		// the bag's class merges + the rest spreads at the root; all other body nodes
-		// (insignificant whitespace/comments) render normally. In MANUAL mode autoApply
-		// is false, so the root emits via normal genNode and the author's {...attrs}
-		// places the bag.
-		if autoApply && m == ast.Markup(root) {
-			if !emitRootElement(b, root, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, orderedFields, cls, fm, bag, mergeExpr) {
-				return false
-			}
-			continue
-		}
 		if !genNode(b, m, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, orderedFields, cls, fm, bag, mergeExpr) {
 			return false
 		}
@@ -394,70 +364,13 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 	return true
 }
 
-// emitRootElement emits a single-root element with CALLER-WINS attribute
-// fallthrough applied: the bag (`_gsxp.Attrs`) merges its class into the root's
-// class (last-wins → caller-wins) and merges its style over the root's style
-// (property last-wins → caller-wins), and every OTHER root attr is emitted under
-// a runtime guard (`if !_gsxp.Attrs.Has(name)`) so a bag entry of the same name
-// SHADOWS it — the guarded attr is skipped and the bag's value spreads instead
-// (caller-wins, D5 flipped). Each guarded attr keeps its own context escaper
-// (gw.URL / gw.JSValAttr / gw.AttrValue …) since its body is exactly the normal
-// emitAttr output. The root's CHILDREN render via normal genNode — the bag does
-// NOT propagate. When the bag is nil/empty, every guard is true (Has is nil-safe),
-// ClassMerged/StyleMerged add nothing, and Spread(empty) writes nothing — so the
-// output is byte-equivalent to the normal Element path.
-//
-// A void root cannot receive fallthrough (it has no place for it to matter beyond
-// attrs, but void roots ARE handled: class/style-merge + guarded attrs + spread
-// then `/>`).
-func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps map[string]map[string]bool, byo *byoData, imports map[string]bool, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, orderedFields map[string]bool, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
-	emitLine(b, fset, el.Pos())
-	emitS(b, "<"+el.Tag)
-	// AUTO mode: there is no author `{...attrs}`, so the bag spreads at the END and
-	// every root attr is overridable. splitIdx == len(el.Attrs) means "all attrs
-	// precede the (synthetic) spread" → all guarded.
-	if !emitFallthroughAttrs(b, el.Attrs, len(el.Attrs), resolved, table, imports, interpTemp, orderedFields, cls, bag, mergeExpr) {
-		return false
-	}
-	if el.Void {
-		emitS(b, "/>")
-		return true
-	}
-	emitS(b, ">")
-	if strings.EqualFold(el.Tag, "style") {
-		for _, c := range el.Children {
-			if !genStyleChild(b, c, resolved, table, imports, interpTemp, bag) {
-				return false
-			}
-		}
-	} else if strings.EqualFold(el.Tag, "script") {
-		for _, c := range el.Children {
-			if !genScriptChild(b, c, resolved, table, imports, interpTemp, bag) {
-				return false
-			}
-		}
-	} else {
-		for _, c := range el.Children {
-			if !genNode(b, c, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, orderedFields, cls, fm, bag, mergeExpr) {
-				return false
-			}
-		}
-	}
-	emitS(b, "</"+el.Tag+">")
-	return true
-}
-
 // emitFallthroughAttrs emits the caller-wins attribute section (between `<tag`
-// and the closing `>` / `/>`) shared by AUTO mode (emitRootElement) and MANUAL
-// mode (emitManualSpreadElement). splitIdx is the index in attrs at which the
-// bag spreads:
-//   - AUTO mode: splitIdx == len(attrs) — the (synthetic) bag spread is at the
-//     end, so EVERY scalar root attr is OVERRIDABLE (guarded `if !Has(name)`,
-//     caller-wins).
-//   - MANUAL mode: splitIdx is the position of the author's `{...attrs}` — scalar
-//     attrs BEFORE it are overridable (guarded); scalar attrs AFTER it are FORCED
-//     (emitted UNGUARDED so the root always wins) and their names are excluded
-//     from the bag spread so a same-named bag entry can never emit (root wins).
+// and the closing `>` / `/>`) for an explicit `{ attrs... }` placement.
+// splitIdx is the position of the author's spread — scalar
+//
+//	attrs BEFORE it are overridable (guarded); scalar attrs AFTER it are FORCED
+//	(emitted UNGUARDED so the root always wins) and their names are excluded
+//	from the bag spread so a same-named bag entry can never emit (root wins).
 //
 // class/style are positional-exempt: wherever they appear they MERGE caller-last
 // (ClassMerged / StyleMerged), emitted once at the spread position. The author's
@@ -642,7 +555,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 }
 
 // emitManualSpreadElement emits a non-component element that carries the author's
-// `{...attrs}` bag spread (MANUAL fallthrough), applying positional precedence:
+// `{...attrs}` bag spread (explicit forwarding), applying positional precedence:
 // root attrs before the spread are caller-overridable, attrs after are forced
 // (root wins). splitIdx is the bag SpreadAttr's index in el.Attrs (guaranteed
 // unique by the caller).
@@ -792,7 +705,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		if isComponentTag(t.Tag) {
 			return genChildComponent(b, t, resolved, table, structFields, nodeProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, orderedFields, cls, fm, bag, mergeExpr)
 		}
-		// MANUAL fallthrough: an element carrying the author's `{...attrs}` bag spread
+		// Explicit forwarding: an element carrying the author's `{...attrs}` bag spread
 		// gets position-aware precedence (pre-spread overridable, post-spread forced).
 		// Detection is the trimmed SpreadAttr Expr == bound bag name "attrs"; a non-bag
 		// spread keeps its inline emit via the normal attr loop below.
@@ -1823,54 +1736,6 @@ func isComponentTag(tag string) bool {
 	return tag[0] >= 'A' && tag[0] <= 'Z'
 }
 
-// singleRoot reports the component body's single root element when the body has
-// EXACTLY one meaningful top-level node and that node is a NON-component
-// `*ast.Element`. Pure-whitespace `*ast.Text` (Value is all spaces/newlines) and
-// HTML comments are insignificant and skipped; any other node kind alongside (or
-// as) the candidate — a Doctype, a fragment, multiple elements, a control-flow
-// node, an interp, or a component-tag element — yields (nil, false). It drives
-// child auto-fallthrough eligibility: only a single HTML-element root can receive
-// the synthesized Attrs bag (class-merge + spread at that element).
-func singleRoot(body []ast.Markup) (*ast.Element, bool) {
-	var root *ast.Element
-	for _, n := range body {
-		switch t := n.(type) {
-		case *ast.Text:
-			if strings.TrimSpace(t.Value) == "" {
-				continue // insignificant whitespace
-			}
-			return nil, false // non-whitespace text alongside → not single-root
-		case *ast.HTMLComment:
-			continue // comments are insignificant
-		case *ast.Element:
-			if root != nil || isComponentTag(t.Tag) {
-				return nil, false // a second element, or a component-tag root
-			}
-			root = t
-		default:
-			return nil, false // fragment / control-flow / interp / doctype → not single-root
-		}
-	}
-	if root == nil {
-		return nil, false
-	}
-	// The root is fallthrough-eligible only when ALL its own attributes have
-	// STATICALLY-KNOWN names: caller-wins emit guards each root attr with
-	// `if !_gsxp.Attrs.Has(name)` and merges the bag's class/style — both need the
-	// static name. A *CondAttr (`{ if … { id=… } }`) or *SpreadAttr (`<div {...x}>`) sets attrs
-	// whose names/values are only known at runtime, so neither the drop set nor the
-	// class merge can account for them — a colliding fallthrough would emit a
-	// duplicate attribute (and bypass class-merge). Such a root is NOT auto-eligible;
-	// a fallthrough onto it then fails closed (no Attrs field → Go unknown-field).
-	for _, a := range root.Attrs {
-		switch a.(type) {
-		case *ast.CondAttr, *ast.SpreadAttr:
-			return nil, false
-		}
-	}
-	return root, true
-}
-
 // usesChildren reports whether any interpolation in the markup body is a bare
 // `{children}` reference. It mirrors the markup walks (recursing control flow,
 // non-component element children, and fragments); a child component's OWN attrs
@@ -1924,11 +1789,21 @@ func usesChildren(body []ast.Markup) bool {
 // `{...attrs.Without("id")}`, `{ attrs.Class() }` interp, an `attrs`-referencing
 // control-flow clause), and crucially does NOT match a longer ident like
 // `attrsList` (a different token) nor a selector field after a `.` (e.g.
-// `x.attrs`). A component's SIMPLE attrs (props) are NOT walked — those are the
-// caller's prop exprs, not this component's body — but its named-slot values and
-// slot children render in THIS scope and CAN reference this component's `attrs`,
-// so they are recursed.
+// `x.attrs`). Child-component prop expressions, named-slot values, and slot
+// children all render in this component's scope and are therefore included.
 func usesAttrs(body []ast.Markup) bool {
+	return usesAttrsMode(body, true)
+}
+
+// usesAttrsLocal reports whether emitted Go needs the local `attrs` binding.
+// A direct `{ attrs... }` element spread is lowered to `_gsxp.Attrs` operations,
+// so it needs the field but not the local. All other references are emitted as
+// source expressions and therefore consume the local.
+func usesAttrsLocal(body []ast.Markup) bool {
+	return usesAttrsMode(body, false)
+}
+
+func usesAttrsMode(body []ast.Markup, countDirectSpread bool) bool {
 	refsAttrs := func(src string) bool { return valueIdents(src)["attrs"] }
 	for _, n := range body {
 		switch t := n.(type) {
@@ -1942,38 +1817,35 @@ func usesAttrs(body []ast.Markup) bool {
 				}
 			}
 		case *ast.Element:
-			// A non-component element: walk its attrs (spread/expr/class/cond) for an
-			// `attrs` reference. A component element: skip its SIMPLE attrs (props) but
-			// recurse named-slot values, which render in this scope. Both recurse
-			// children.
-			if !isComponentTag(t.Tag) {
-				if attrsRefAttrs(t.Attrs) {
-					return true
-				}
-			} else {
-				found := false
-				walkMarkupAttrs(t.Attrs, func(value []ast.Markup) {
-					if usesAttrs(value) {
-						found = true
-					}
-				})
-				if found {
-					return true
-				}
+			// Attribute expressions on both HTML elements and child components are
+			// evaluated in this component's scope.
+			if attrsRefAttrsMode(t.Attrs, countDirectSpread) {
+				return true
 			}
-			if usesAttrs(t.Children) {
+			// Markup-valued component props are represented separately from scalar
+			// attrs; recurse into those values as well.
+			found := false
+			walkMarkupAttrs(t.Attrs, func(value []ast.Markup) {
+				if usesAttrsMode(value, countDirectSpread) {
+					found = true
+				}
+			})
+			if found {
+				return true
+			}
+			if usesAttrsMode(t.Children, countDirectSpread) {
 				return true
 			}
 		case *ast.Fragment:
-			if usesAttrs(t.Children) {
+			if usesAttrsMode(t.Children, countDirectSpread) {
 				return true
 			}
 		case *ast.ForMarkup:
-			if refsAttrs(t.Clause) || usesAttrs(t.Body) {
+			if refsAttrs(t.Clause) || usesAttrsMode(t.Body, countDirectSpread) {
 				return true
 			}
 		case *ast.IfMarkup:
-			if refsAttrs(t.Cond) || usesAttrs(t.Then) || usesAttrs(t.Else) {
+			if refsAttrs(t.Cond) || usesAttrsMode(t.Then, countDirectSpread) || usesAttrsMode(t.Else, countDirectSpread) {
 				return true
 			}
 		case *ast.SwitchMarkup:
@@ -1981,7 +1853,7 @@ func usesAttrs(body []ast.Markup) bool {
 				return true
 			}
 			for _, cc := range t.Cases {
-				if refsAttrs(cc.List) || usesAttrs(cc.Body) {
+				if refsAttrs(cc.List) || usesAttrsMode(cc.Body, countDirectSpread) {
 					return true
 				}
 			}
@@ -2000,12 +1872,12 @@ func usesAttrs(body []ast.Markup) bool {
 // Expr or its pipeline args, or — recursing — a CondAttr's Cond and branches.
 // These are exactly the fragments collectAttrSrc feeds to the ident walks, so a
 // manual `attrs` reference anywhere in them is detected.
-func attrsRefAttrs(attrs []ast.Attr) bool {
+func attrsRefAttrsMode(attrs []ast.Attr, countDirectSpread bool) bool {
 	refsAttrs := func(src string) bool { return valueIdents(src)["attrs"] }
 	for _, a := range attrs {
 		switch at := a.(type) {
 		case *ast.SpreadAttr:
-			if refsAttrs(at.Expr) {
+			if refsAttrs(at.Expr) && (countDirectSpread || strings.TrimSpace(at.Expr) != "attrs") {
 				return true
 			}
 		case *ast.ClassAttr:
@@ -2024,13 +1896,13 @@ func attrsRefAttrs(attrs []ast.Attr) bool {
 				}
 			}
 		case *ast.CondAttr:
-			if refsAttrs(at.Cond) || attrsRefAttrs(at.Then) || attrsRefAttrs(at.Else) {
+			if refsAttrs(at.Cond) || attrsRefAttrsMode(at.Then, countDirectSpread) || attrsRefAttrsMode(at.Else, countDirectSpread) {
 				return true
 			}
 		case *ast.JSAttr:
 			// A JS-attribute value's @{ } interps render in this scope, so an `attrs`
 			// reference there needs the local bound.
-			if usesAttrs(at.Segments) {
+			if usesAttrsMode(at.Segments, countDirectSpread) {
 				return true
 			}
 		}

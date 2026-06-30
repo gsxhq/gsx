@@ -37,7 +37,6 @@ type GaugeProps struct {
 	N     int8
 	C     Count
 	On    Toggle
-	Attrs gsx.Attrs
 }
 
 //line input.gsx:7:1
@@ -47,11 +46,7 @@ func Gauge(_gsxp GaugeProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:7:62
-		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
+		_gsxgw.S("<div>")
 //line input.gsx:7:67
 		_gsxgw.FloatInto(_gsxnum[:], float64(value))
 		_gsxgw.S("</div>")

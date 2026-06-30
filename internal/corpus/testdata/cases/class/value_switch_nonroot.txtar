@@ -29,7 +29,6 @@ import (
 
 type WidgetProps struct {
 	Variant int
-	Attrs   gsx.Attrs
 }
 
 //line input.gsx:3:1
@@ -38,11 +37,7 @@ func Widget(_gsxp WidgetProps) gsx.Node {
 		variant := _gsxp.Variant
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
+		_gsxgw.S("<div>")
 //line input.gsx:4:7
 		_gsxgw.S("<span")
 		_gsxv0 := "x"

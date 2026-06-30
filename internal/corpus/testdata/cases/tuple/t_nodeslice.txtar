@@ -37,7 +37,6 @@ func makeItems(n int) ([]gsx.Node, error) {
 
 type ListProps struct {
 	Items []gsx.Node
-	Attrs gsx.Attrs
 }
 
 //line input.gsx:9:1
@@ -46,11 +45,7 @@ func List(_gsxp ListProps) gsx.Node {
 		items := _gsxp.Items
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.S("<ul")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
+		_gsxgw.S("<ul>")
 //line input.gsx:10:6
 		for _, _gsxn := range items {
 			_gsxgw.Node(ctx, _gsxn)

@@ -22,8 +22,7 @@ import (
 )
 
 type LabelProps struct {
-	Rank  int
-	Attrs gsx.Attrs
+	Rank int
 }
 
 //line input.gsx:3:1
@@ -44,11 +43,8 @@ func Label(_gsxp LabelProps) gsx.Node {
 		}
 
 		_gsxgw.S(" class=\"")
-		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class(_gsxv0), gsx.Class(_gsxv1), gsx.Class(_gsxp.Attrs.Class()))
-		_gsxgw.S("\"")
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">ok</span>")
+		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class(_gsxv0), gsx.Class(_gsxv1))
+		_gsxgw.S("\">ok</span>")
 		return _gsxgw.Err()
 	})
 }

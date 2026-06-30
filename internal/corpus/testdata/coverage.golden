@@ -55,6 +55,7 @@ components/child_class_reject_non_error_tuple	diag(error)
 components/child_class_value_arm_tuple	diag gen render
 components/child_hyphen_attr_fallthrough	diag render
 components/child_no_props	diag render
+components/child_prop_attrs_reference	diag gen render
 components/child_prop_pipeline	diag render
 components/child_prop_try_error	diag(error)
 components/child_prop_tuple_error	diag gen render
@@ -132,7 +133,7 @@ elements/named_scalar_types	diag render
 elements/node_slice	diag render
 elements/static_and_bool_attrs_off	diag render
 elements/static_and_bool_attrs_on	diag render
-fallthrough/call_site_button	diag render
+fallthrough/call_site_button	diag(error)
 fallthrough/call_site_caller_wins	diag render
 fallthrough/call_site_class_merge	diag render
 fallthrough/call_site_declared_vs_undeclared	diag render
@@ -335,4 +336,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 337 cases (render: 256, error: 60, gen-pinned: 133)
+TOTAL: 338 cases (render: 256, error: 61, gen-pinned: 134)

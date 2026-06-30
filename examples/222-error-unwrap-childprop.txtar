@@ -1,0 +1,18 @@
+-- doc --
+name: Error unwrap: childprop
+summary: A child-component prop value returning (T, error) auto-unwraps; the error propagates from Render.
+category: Basics
+page: interpolation
+pageOrder: 35
+-- input.gsx --
+package views
+
+func lookup(k string) (string, error) { return "val-" + k, nil }
+
+component Row(label string) { <span>{label}</span> }
+
+component Page(k string) { <Row label={lookup(k)}/> }
+-- invoke --
+Page(PageProps{K: "item"})
+-- render.golden --
+<span>val-item</span>

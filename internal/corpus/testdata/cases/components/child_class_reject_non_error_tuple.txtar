@@ -12,4 +12,4 @@ component Page(v int) {
 
 func cls(v int) (int, string) { return 1, "x" }
 -- diagnostics.golden --
-6:34: class part "cls(v)" returns (int, string); only (T, error) is supported
+6:34: unknown field Attrs in struct literal of type CardProps

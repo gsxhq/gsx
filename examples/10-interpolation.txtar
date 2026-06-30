@@ -3,6 +3,8 @@ name: Interpolation & props
 summary: Components take a typed props struct; {expr} interpolates Go values, HTML-escaped.
 category: Basics
 order: 10
+page: interpolation
+pageOrder: 10
 -- input.gsx --
 package views
 

@@ -6,8 +6,8 @@ A templating language for Go: **templ-style `component` declarations** with a
 > **Status — alpha.** gsx is runnable end-to-end: `gsx generate` compiles
 > `.gsx` → `.x.go` (plus `gsx fmt` and `gsx info`). Codegen covers interpolation,
 > control flow, attributes with contextual escaping, the `|>` pipeline + filters,
-> components/props/`{children}`, method components, named slots, and attribute
-> fallthrough. Still in progress: some CLI commands (`vet`/`lsp`), `style`
+> components/props/`{children}`, method components, named slots, and explicit
+> attribute forwarding. Still in progress: some CLI commands (`vet`/`lsp`), `style`
 > composition, and structured diagnostics. See the [roadmap](docs/ROADMAP.md).
 
 ## What is gsx

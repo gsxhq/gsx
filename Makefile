@@ -1,5 +1,5 @@
 # gsx developer tasks. Use tabs for recipe indentation.
-.PHONY: test check cover cover-html examples ci ci-gomod ci-playground ci-examples ci-format ci-tailwind-example ci-tailwind-example-drift
+.PHONY: test check cover cover-html examples ci ci-gomod ci-playground ci-examples ci-format ci-tailwind-example ci-tailwind-example-drift reload-probe
 
 # COUNT is the go-test cache control. -count=1 disables the test cache so every
 # run re-executes — the authoritative behaviour `ci` uses to mirror GitHub CI.
@@ -33,6 +33,13 @@ ci:
 check:
 	$(MAKE) ci COUNT=
 
+# Manual, repeatable local test of `gsx dev`'s browser-reload behavior (NOT in
+# `ci` — it spawns a live dev loop). Asserts that introducing a .gsx/main.go
+# error posts the overlay and fixing it posts a reload. Pass FRESH=--fresh to
+# re-scaffold the throwaway app. See dev/reload-probe/README.md.
+reload-probe:
+	bash dev/reload-probe/run.sh $(FRESH)
+
 # Root module: build, vet, test. The long pole (~50s of in-process e2e tests
 # in gen/, which spawn the Go toolchain per case).
 ci-gomod:
@@ -47,9 +54,11 @@ ci-playground:
 # Regenerate the example artifacts and fail if they drift from what's committed
 # (the generator is the source of truth). Run before the parallel lanes in `ci`:
 # the playground module embeds examples.json, so its build must not race the regen.
+# Note: docs/guide/examples.md is intentionally omitted from the drift check —
+# the flat gallery page is retired; all examples are routed into the Syntax pages.
 ci-examples:
 	$(MAKE) examples
-	@if ! git diff --exit-code -- docs/guide/examples.md docs/examples.json playground/server/examples.json; then \
+	@if ! git diff --exit-code -- docs/examples.json playground/server/examples.json docs/guide/syntax/_generated; then \
 		echo "examples artifacts are stale — run 'make examples' and commit the result"; \
 		exit 1; \
 	fi

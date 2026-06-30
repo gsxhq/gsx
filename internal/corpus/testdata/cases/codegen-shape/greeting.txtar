@@ -24,7 +24,6 @@ import (
 type GreetingProps struct {
 	Name  string
 	Count int
-	Attrs gsx.Attrs
 }
 
 //line input.gsx:3:1
@@ -35,11 +34,7 @@ func Greeting(_gsxp GreetingProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:4:2
-		_gsxgw.S("<p")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">Hello, ")
+		_gsxgw.S("<p>Hello, ")
 //line input.gsx:4:12
 		_gsxgw.Text(string(name))
 		_gsxgw.S("! You have ")

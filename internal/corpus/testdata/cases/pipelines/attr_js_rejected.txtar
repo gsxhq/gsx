@@ -21,8 +21,7 @@ import (
 )
 
 type CProps struct {
-	X     string
-	Attrs gsx.Attrs
+	X string
 }
 
 //line input.gsx:3:1
@@ -31,16 +30,9 @@ func C(_gsxp CProps) gsx.Node {
 		x := _gsxp.X
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:3:25
-		_gsxgw.S("<div")
-		if !_gsxp.Attrs.Has("onclick") {
-			_gsxgw.S(" onclick=\"")
-			_gsxgw.JSValAttr(_gsxstd.Upper((x)))
-			_gsxgw.S("\"")
-		}
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">y</div>")
+		_gsxgw.S("<div onclick=\"")
+		_gsxgw.JSValAttr(_gsxstd.Upper((x)))
+		_gsxgw.S("\">y</div>")
 		return _gsxgw.Err()
 	})
 }

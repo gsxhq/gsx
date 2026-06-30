@@ -4,7 +4,7 @@ package views
 type Pg struct{}
 
 component (p Pg) Btn(variant string) {
-	<button data-variant={variant}>{children}</button>
+	<button data-variant={variant} { attrs... }>{children}</button>
 }
 
 component (p Pg) Page() {

@@ -3,6 +3,8 @@ name: Template composition
 summary: A shared component library composed by a page method — multiple files, one render entry. This is the multi-file showcase.
 category: Components & composition
 order: 100
+page: composition
+pageOrder: 40
 -- components.gsx --
 package views
 

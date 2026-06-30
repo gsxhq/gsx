@@ -1,0 +1,16 @@
+-- doc --
+name: Boolean Attributes
+summary: Bare boolean attributes are always present; bool-typed expressions render the attribute when true and omit it when false.
+category: Basics
+page: attributes
+pageOrder: 20
+-- input.gsx --
+package views
+
+component Field(on bool) {
+	<input type="text" class="form-control" required disabled={on}/>
+}
+-- invoke --
+Field(FieldProps{On: true})
+-- render.golden --
+<input type="text" class="form-control" required disabled/>

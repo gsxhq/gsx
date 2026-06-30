@@ -24,8 +24,7 @@ import (
 )
 
 type CProps struct {
-	V     int
-	Attrs gsx.Attrs
+	V int
 }
 
 //line input.gsx:3:1
@@ -41,11 +40,8 @@ func C(_gsxp CProps) gsx.Node {
 			return _gsxerr
 		}
 		_gsxgw.S(" class=\"")
-		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class(_gsxv0), gsx.Class(_gsxv1), gsx.Class(_gsxp.Attrs.Class()))
-		_gsxgw.S("\"")
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">x</span>")
+		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class(_gsxv0), gsx.Class(_gsxv1))
+		_gsxgw.S("\">x</span>")
 		return _gsxgw.Err()
 	})
 }

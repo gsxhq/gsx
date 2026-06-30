@@ -29,8 +29,7 @@ import (
 func makeIcon(name string) (gsx.Node, error) { return gsx.Text("<" + name + ">"), nil }
 
 type BadgeProps struct {
-	Icon  gsx.Node
-	Attrs gsx.Attrs
+	Icon gsx.Node
 }
 
 //line input.gsx:7:1
@@ -39,12 +38,7 @@ func Badge(_gsxp BadgeProps) gsx.Node {
 		icon := _gsxp.Icon
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:7:34
-		_gsxgw.S("<div class=\"")
-		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class("badge"), gsx.Class(_gsxp.Attrs.Class()))
-		_gsxgw.S("\"")
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
+		_gsxgw.S("<div class=\"badge\">")
 //line input.gsx:7:53
 		_gsxgw.Node(ctx, icon)
 		_gsxgw.S("</div>")

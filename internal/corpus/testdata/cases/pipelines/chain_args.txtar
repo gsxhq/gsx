@@ -25,8 +25,7 @@ import (
 )
 
 type HiProps struct {
-	S     string
-	Attrs gsx.Attrs
+	S string
 }
 
 //line input.gsx:3:1
@@ -35,11 +34,7 @@ func Hi(_gsxp HiProps) gsx.Node {
 		s := _gsxp.S
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:3:26
-		_gsxgw.S("<p")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
+		_gsxgw.S("<p>")
 //line input.gsx:3:29
 		_gsxgw.Text(string(_gsxstd.Truncate(_gsxstd.Trim((s)), 5)))
 		_gsxgw.S("</p>")

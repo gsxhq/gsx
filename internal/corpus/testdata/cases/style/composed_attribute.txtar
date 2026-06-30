@@ -24,7 +24,6 @@ import (
 type BadgeProps struct {
 	Accent string
 	Hide   bool
-	Attrs  gsx.Attrs
 }
 
 //line input.gsx:3:1
@@ -34,17 +33,9 @@ func Badge(_gsxp BadgeProps) gsx.Node {
 		hide := _gsxp.Hide
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<span")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		if _gsxp.Attrs.Has("style") {
-			_gsxgw.StyleMerged(gsx.StyleString(gsx.Class("color: red"), gsx.Class(gsx.StyleValue("color: "+accent)), gsx.ClassIf("display: none", hide)), _gsxp.Attrs.Style())
-		} else {
-			_gsxgw.S(" style=\"")
-			_gsxgw.Style(gsx.Class("color: red"), gsx.Class(gsx.StyleValue("color: "+accent)), gsx.ClassIf("display: none", hide))
-			_gsxgw.S("\"")
-		}
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">hi</span>")
+		_gsxgw.S("<span style=\"")
+		_gsxgw.Style(gsx.Class("color: red"), gsx.Class(gsx.StyleValue("color: "+accent)), gsx.ClassIf("display: none", hide))
+		_gsxgw.S("\">hi</span>")
 		return _gsxgw.Err()
 	})
 }

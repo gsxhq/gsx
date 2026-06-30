@@ -1,15 +1,17 @@
 -- doc --
-name: Attributes
-summary: Expression attributes (attr={expr}), boolean attributes, and a conditional attribute via { if … { attr=… } }.
+name: Expression Attributes
+summary: Expression attributes (attr={expr}) bind Go values to HTML attributes; the value is auto-escaped for its context.
 category: Basics
 order: 20
+page: attributes
+pageOrder: 10
 -- input.gsx --
 package views
 
-component Link(url string, label string, external bool, featured bool) {
-	<a href={url} data-count={3} aria-current={external} { if featured { class="featured" } }>{label}</a>
+component Link(url string, label string, count int) {
+	<a href={url} data-count={count}>{ label }</a>
 }
 -- invoke --
-Link(LinkProps{Url: "/p?q=a&b", Label: "Docs", External: true, Featured: true})
+Link(LinkProps{Url: "/p?q=a&b", Label: "Docs", Count: 42})
 -- render.golden --
-<a href="/p?q=a&amp;b" data-count="3" aria-current class="featured">Docs</a>
+<a href="/p?q=a&amp;b" data-count="42">Docs</a>

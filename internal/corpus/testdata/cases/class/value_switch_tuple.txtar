@@ -30,7 +30,6 @@ import (
 
 type BadgeProps struct {
 	Variant int
-	Attrs   gsx.Attrs
 }
 
 //line input.gsx:3:1
@@ -53,11 +52,8 @@ func Badge(_gsxp BadgeProps) gsx.Node {
 			_gsxv1 = "gray"
 		}
 		_gsxgw.S(" class=\"")
-		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class(_gsxv0), gsx.Class(_gsxv1), gsx.Class(_gsxp.Attrs.Class()))
-		_gsxgw.S("\"")
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">x</span>")
+		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class(_gsxv0), gsx.Class(_gsxv1))
+		_gsxgw.S("\">x</span>")
 		return _gsxgw.Err()
 	})
 }

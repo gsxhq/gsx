@@ -23,7 +23,6 @@ import (
 
 type BoxProps struct {
 	Active bool
-	Attrs  gsx.Attrs
 }
 
 //line input.gsx:3:1
@@ -33,7 +32,6 @@ func Box(_gsxp BoxProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
 		_gsxv0 := "display: block"
 		var _gsxv1 string
 		if active {
@@ -41,15 +39,9 @@ func Box(_gsxp BoxProps) gsx.Node {
 		} else {
 			_gsxv1 = "color: gray"
 		}
-		if _gsxp.Attrs.Has("style") {
-			_gsxgw.StyleMerged(gsx.StyleString(gsx.Class(_gsxv0), gsx.Class(_gsxv1)), _gsxp.Attrs.Style())
-		} else {
-			_gsxgw.S(" style=\"")
-			_gsxgw.Style(gsx.Class(_gsxv0), gsx.Class(_gsxv1))
-			_gsxgw.S("\"")
-		}
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">x</div>")
+		_gsxgw.S(" style=\"")
+		_gsxgw.Style(gsx.Class(_gsxv0), gsx.Class(_gsxv1))
+		_gsxgw.S("\">x</div>")
 		return _gsxgw.Err()
 	})
 }

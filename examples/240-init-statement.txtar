@@ -1,0 +1,23 @@
+-- doc --
+name: Init statement
+summary: An if init statement scopes a local to the block — ideal for checking a (T, error) result without auto-unwrapping.
+category: Control flow
+order: 240
+page: control-flow
+pageOrder: 40
+-- input.gsx --
+package views
+
+func loadUser(id string) (string, error) { return "User:" + id, nil }
+
+component Profile(id string) {
+	<div>{ if name, err := loadUser(id); err != nil {
+		<span class="err">{ err.Error() }</span>
+	} else {
+		<span>{ name }</span>
+	} }</div>
+}
+-- invoke --
+Profile(ProfileProps{Id: "42"})
+-- render.golden --
+<div><span>User:42</span></div>

@@ -3,6 +3,8 @@ name: Children
 summary: A component renders its nested markup via {children} (like JSX children / a Vue default slot).
 category: Components & composition
 order: 80
+page: composition
+pageOrder: 20
 -- input.gsx --
 package views
 
