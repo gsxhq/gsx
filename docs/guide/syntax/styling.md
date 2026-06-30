@@ -57,6 +57,38 @@ class_merger = "myapp/twcfg.Merge"
 
 A working example that wires `tailwind-merge-go` lives in [`examples/tailwind-merge/`](https://github.com/gsxhq/gsx/tree/main/examples/tailwind-merge). Full configuration reference — including the signature contract and the option-based route (`gen.WithClassMerger`) — is in [Configuration → `class_merger`](../config#class_merger-tailwind-aware-class-merge-strategy).
 
+## Exclusive selection — value-form `if` / `switch`
+
+The composable `class={…}` / `style={…}` list is **additive** — every entry whose guard is true contributes, and multiple can fire at once. For **exclusive selection** — pick exactly one string out of N based on a single discriminant — an additive list forces either a fragile negation default (`x != A && x != B && …`) or duplicated tokens. A value-form `if`/`switch` inside the composed list expresses this cleanly.
+
+Use a value-form `if` for a binary toggle:
+
+```gsx
+class={ "btn", if open { "btn-open" } else { "btn-closed" } }
+```
+
+Use a value-form `switch` to select among several alternatives:
+
+```gsx
+class={
+	"inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset",
+	switch variant {
+		case Green:  "bg-green-50 text-green-700 ring-green-600/20"
+		case Yellow: "bg-yellow-50 text-yellow-700 ring-yellow-600/20"
+		case Red:    "bg-red-50 text-red-700 ring-red-600/20"
+		default:     "bg-gray-50 text-gray-700 ring-gray-600/20"
+	},
+}
+```
+
+**Surface syntax.** Arms are brace-delimited `{ … }`, identical in shape to gsx's existing markup `if`/`switch` and to Go. `switch` supports `case V:` arms, multi-value `case A, B:` arms, an optional `default:`, a tag expression (`switch x { … }`), or a tag-less form (`switch { case cond: … }`). `if` supports `else if` chains and a final `else`.
+
+**Semantics.** The value-form is **exclusive** — exactly one arm's string is contributed to the list. When no arm matches and there is no `default:` / `else`, the zero value (empty string) is contributed — which means nothing is added to the class or style. This makes `if cond { "x" }` without an `else` exactly equivalent to the additive guard form `"x": cond`; the value-form is a strict superset, not a special case. All arms must be strings; a non-string arm is a compile-time diagnostic.
+
+**Scope.** This value-form is only available inside `class={…}` and `style={…}` composed-list blocks. It does not apply to general attribute values (use the existing cond-attr form `{ if cond { data-x="…" } }` for whole-attribute toggles) or to markup children (which already dispatch `if`/`switch` to markup control-flow). A pipe stage on the value-form result is not supported.
+
+> **Upcoming release.** This value-form lands in a future gsx release. Until then, use the additive guard form `"x": cond` as the equivalent of `if cond { "x" }`.
+
 ## `<style>` blocks
 
 A `<style>` element in gsx source is a raw-text element: its content is written verbatim to the output without HTML escaping, and nested tags are not parsed. Dynamic values are interpolated with `@{ expr }` inside the block; each interpolated value is CSS-sanitized by the same `cssValueFilter` that guards the `style=` attribute — risky tokens produce the `ZgotmplZ` placeholder.
