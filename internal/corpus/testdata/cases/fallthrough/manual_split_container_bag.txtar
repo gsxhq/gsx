@@ -66,8 +66,6 @@ func Field(_gsxp FieldProps) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		label := _gsxp.Label
 		containerAttrs := _gsxp.ContainerAttrs
-		attrs := _gsxp.Attrs
-		_ = attrs
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<div class=\"field\"")

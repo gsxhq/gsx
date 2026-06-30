@@ -3,6 +3,6 @@ package views
 
 component Bad(ctx string) { <div></div> }
 
-component Good() { <Bad title="x"/> }
+component Good() { <Bad ctx="x"/> }
 -- diagnostics.golden --
 3:1: param name "ctx" is reserved (ambient context)

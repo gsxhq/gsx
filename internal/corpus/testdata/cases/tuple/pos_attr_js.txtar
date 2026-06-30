@@ -29,7 +29,6 @@ func handler(action string) (string, error) { return "doThing('" + action + "')"
 
 type ButtonProps struct {
 	Action string
-	Attrs  gsx.Attrs
 }
 
 //line input.gsx:5:1
@@ -39,19 +38,13 @@ func Button(_gsxp ButtonProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<button")
-		if !_gsxp.Attrs.Has("onclick") {
-			_gsxv0, _gsxerr := handler(action)
-			if _gsxerr != nil {
-				return _gsxerr
-			}
-			_gsxgw.S(" onclick=\"")
-			_gsxgw.JSValAttr(_gsxv0)
-			_gsxgw.S("\"")
+		_gsxv0, _gsxerr := handler(action)
+		if _gsxerr != nil {
+			return _gsxerr
 		}
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">click</button>")
+		_gsxgw.S(" onclick=\"")
+		_gsxgw.JSValAttr(_gsxv0)
+		_gsxgw.S("\">click</button>")
 		return _gsxgw.Err()
 	})
 }

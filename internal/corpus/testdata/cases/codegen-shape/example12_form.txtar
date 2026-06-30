@@ -2,7 +2,7 @@
 package views
 
 component Button(variant string) {
-	<button type="button" class={ "btn", variantClass(variant) }>{children}</button>
+	<button type="button" class={ "btn", variantClass(variant) } { attrs... }>{children}</button>
 }
 
 component Toolbar() {

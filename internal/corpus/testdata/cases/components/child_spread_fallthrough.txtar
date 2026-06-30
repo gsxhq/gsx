@@ -5,7 +5,7 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-component Card(title string) { <div>{title}</div> }
+component Card(title string) { <div { attrs... }>{title}</div> }
 
 component Page(bag gsx.Attrs) { <Card { bag... }/> }
 -- invoke --

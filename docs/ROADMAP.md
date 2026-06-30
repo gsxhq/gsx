@@ -177,16 +177,20 @@ Specs: `2026-06-23-gsx-lsp-design.md`, `2026-06-24-gsx-lsp-slice2a-goto-definiti
 ## Developer experience — Vite + `init`
 
 A complete, ready-to-run dev loop across three coordinated, independently-versioned
-pieces. Save → `gsx generate` → `go build` → browser reloads.
+pieces. Save → warm generate → build-then-swap Go server → browser reloads.
 
 - `[x]` **`gsx init` scaffold** (`gen/init.go`, `gen/templates/init/simple/`) —
-  scaffolds a `net/http.ServeMux` Go server (graceful shutdown so `wgo` rebuilds
-  release the port cleanly), a `.gsx` component, a Vite config (front-door proxy +
-  `@gsxhq/vite-plugin-gsx` + `devFallback`), a `Taskfile.yml` (parallel Vite + `wgo`,
-  combined `tmp/dev.log`), embedded `public/*.svg`, and `.env` ports. Interactive
+  scaffolds a `net/http.ServeMux` Go server (graceful shutdown for development
+  swaps), a `.gsx` component, a Vite config (front-door proxy +
+  `@gsxhq/vite-plugin-gsx` + `devFallback`), embedded `public/*.svg`, and `.env`
+  ports. Its `npm run dev` script invokes `go tool gsx dev`. Interactive
   (TTY prompts → runs `go mod tidy` / `npm install`) or non-interactive (`--yes`).
   Flags accepted in any position. Dev serves CSS via Vite JS with a **FOUC loading
   gate** so the first paint isn't unstyled.
+- `[x]` **`gsx dev`** — owns the warm generator, build-then-swap Go server,
+  Vite child process, browser diagnostics/reload, `.env` restarts, and clean
+  process-tree teardown. Build artifacts and optional default logs live in a
+  per-project OS cache directory, leaving the working tree clean.
 - `[x]` **`gsx generate --watch`** (warm daemon, `gen/watch.go`) — a long-lived
   process that keeps the type-resolution environment warm (`gen.CachedResolver`)
   and regenerates in-process on each change, streaming NDJSON diagnostics. Measured:
@@ -195,11 +199,11 @@ pieces. Save → `gsx generate` → `go build` → browser reloads.
   on `.go`/go.mod changes; pure `.gsx` edits take the fast path. Slice 2 (fine-grained
   per-package invalidation) is deferred — the measured warm time made it unnecessary.
 - `[x]` **`@gsxhq/vite-plugin-gsx`** (npm **v0.3.0**, `~/personal/gsxhq/vite-plugin-gsx`) —
-  **supervises** the `gsx generate --watch` daemon (spawns it once, consumes its
-  NDJSON stream) instead of shelling out per save; surfaces diagnostics in the Vite
-  error overlay (auto-clears on recovery), and full-reloads on the Go server's
-  POST to `/__reload`; `devFallback()` serves a self-recovering interstitial while
-  the backend is down/restarting. (v0.2.1 ran `gsx generate` per change.)
+  receives generation/build events from `gsx dev`, surfaces diagnostics in the
+  Vite error overlay (auto-clears on recovery), and full-reloads after the server
+  becomes ready; `devFallback()` serves a self-recovering interstitial while the
+  backend is down/restarting. Its standalone opt-in watch mode still supervises
+  `gsx generate --watch`.
 - `[x]` **`github.com/gsxhq/vite`** (Go, **v0.2.0**, `~/personal/gsxhq/vite`,
   stdlib-only) — manifest resolution (dev URL vs embedded prod manifest, transitive
   CSS dedup), `Entry(name) Bundle`, `StaticHandler()`, `NotifyReload(devURL)`, and
@@ -345,10 +349,9 @@ vocabulary remains a design aspiration, not the current API.
   Playground" `#try=` deep-link (std-base64 of `{s:source,i:invoke}`); multi-file
   examples ride the Go-Playground txtar format (`-- file --` separators).
 - `[x]` **Per-topic Syntax and usage pages — SHIPPED.** The guide now has 20 per-topic pages under `docs/guide/syntax/`, each with runnable examples sourced directly from golden-tested `examples/*.txtar` fixtures. `docs/guide/syntax.md` serves as a lightweight overview hub linking to all topic pages.
-- `[ ]` **Getting Started guide** — a narrative onboarding tutorial using `gsx init`
-  (scaffold → `task dev` → first live-reload edit → the Vite dev loop → why the build
-  step buys compile-time safety). `gsx init` itself is documented in `docs/guide/cli.md`;
-  a dedicated guide does not exist yet.
+- `[x]` **Getting Started guide — SHIPPED.** Narrative onboarding using `gsx init`
+  (scaffold → `npm run dev` / `go tool gsx dev` → first live-reload edit → error
+  recovery → production build), including alternative package-manager setup.
 
 ## Design docs (reference)
 

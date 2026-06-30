@@ -2,7 +2,7 @@
 package views
 
 component Box(variant string) {
-	<div class={ "box", variant }>{children}</div>
+	<div class={ "box", variant } { attrs... }>{children}</div>
 }
 -- invoke --
 Box(BoxProps{Variant: "big", Attrs: gsx.Attrs{{Key: "class", Value: "w-full"}, {Key: "data-test", Value: "x"}}})

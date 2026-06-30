@@ -27,7 +27,6 @@ func lookup(key string) (string, error) { return "val-" + key, nil }
 
 type RowProps struct {
 	Label string
-	Attrs gsx.Attrs
 }
 
 //line input.gsx:5:1
@@ -36,11 +35,7 @@ func Row(_gsxp RowProps) gsx.Node {
 		label := _gsxp.Label
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:5:31
-		_gsxgw.S("<span")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
+		_gsxgw.S("<span>")
 //line input.gsx:5:37
 		_gsxgw.Text(string(label))
 		_gsxgw.S("</span>")

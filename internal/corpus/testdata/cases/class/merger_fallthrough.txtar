@@ -18,7 +18,7 @@ func Keep(tokens []string) string {
 -- input.gsx --
 package views
 
-component C() { <div class={ "btn" }>{ children }</div> }
+component C() { <div class={ "btn" } { attrs... }>{ children }</div> }
 -- invoke --
 C(CProps{Attrs: gsx.Attrs{{Key: "class", Value: "btn extra"}}, Children: gsx.Raw("x")})
 -- diagnostics.golden --
@@ -52,7 +52,7 @@ func C(_gsxp CProps) gsx.Node {
 		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
 		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
 		_gsxgw.S(">")
-//line input.gsx:3:38
+//line input.gsx:3:51
 		_gsxgw.Node(ctx, children)
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()

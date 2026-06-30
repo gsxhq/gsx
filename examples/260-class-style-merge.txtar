@@ -1,6 +1,6 @@
 -- doc --
 name: Class & style merging
-summary: Caller-supplied class and style merge into the component root — class is token-deduped caller-wins, style dedupes per CSS property keeping the last.
+summary: Class and style from an explicitly forwarded attrs bag merge at its placement — class is token-deduped caller-wins, style keeps the last value per CSS property.
 category: Styling
 page: styling
 pageOrder: 30
@@ -8,7 +8,7 @@ pageOrder: 30
 package views
 
 component Card() {
-	<div class="card" style="color: red">{children}</div>
+	<div class="card" style="color: red" { attrs... }>{children}</div>
 }
 -- invoke --
 Card(CardProps{Attrs: gsx.Attrs{{Key: "class", Value: "featured"}, {Key: "style", Value: "color: blue; margin: 0"}}})

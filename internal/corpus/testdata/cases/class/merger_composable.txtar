@@ -36,8 +36,7 @@ import (
 )
 
 type CProps struct {
-	On    bool
-	Attrs gsx.Attrs
+	On bool
 }
 
 //line input.gsx:3:1
@@ -47,11 +46,8 @@ func C(_gsxp CProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:3:24
 		_gsxgw.S("<div class=\"")
-		_gsxgw.Class(_gsxcm.Keep, gsx.Class("btn"), gsx.ClassIf("btn-on", on), gsx.Class(_gsxp.Attrs.Class()))
-		_gsxgw.S("\"")
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">y</div>")
+		_gsxgw.Class(_gsxcm.Keep, gsx.Class("btn"), gsx.ClassIf("btn-on", on))
+		_gsxgw.S("\">y</div>")
 		return _gsxgw.Err()
 	})
 }

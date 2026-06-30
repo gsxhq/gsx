@@ -48,15 +48,13 @@ func main() {
 	srv := &http.Server{Addr: ":" + port, Handler: v.Middleware(mux)}
 
 	// Serve in the background so the main goroutine can wait for a shutdown
-	// signal. wgo sends SIGTERM on each rebuild; shutting down gracefully
-	// releases the port BEFORE exit, so the next build re-binds cleanly with no
-	// "address already in use".
+	// signal. gsx dev sends SIGTERM on each rebuild; shutting down gracefully
+	// releases the port BEFORE exit, so the next build re-binds cleanly.
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatal(err)
 		}
 	}()
-	vite.NotifyReload(devURL) // dev-only; no-op when devURL == ""
 	log.Printf("listening on http://localhost:%s", port)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

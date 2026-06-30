@@ -64,18 +64,18 @@ func TestResolveAttrExprType(t *testing.T) {
 // split's source, built BEFORE type resolution): same-package function and method
 // components are keyed by the BARE props-type name childInvocation produces, and
 // carry their declared param fields plus the synthesized Children (when {children}
-// is used) and Attrs (single-root) fields — EXACTLY what the skeleton/emitter
+// is used) and Attrs (when attrs is referenced) fields — EXACTLY what the skeleton/emitter
 // synthesize, so emit ≡ probe.
 func TestComponentPropFieldsFor(t *testing.T) {
 	t.Parallel()
-	// Card: single-root function component using {children} → CardProps has
+	// Card: function component using {children} and attrs → CardProps has
 	//   {Title, Featured, Children, Attrs}.
-	// (p Pg) Grid: single-root method component (no children) → PgGridProps has
+	// (p Pg) Grid: method component using attrs (no children) → PgGridProps has
 	//   {Sort, Attrs}.
 	src := "package views\n\n" +
 		"type Pg struct{}\n\n" +
-		"component Card(title string, featured bool) {\n\t<div>{title}{children}</div>\n}\n\n" +
-		"component (p Pg) Grid(sort string) {\n\t<i>{sort}</i>\n}\n"
+		"component Card(title string, featured bool) {\n\t<div { attrs... }>{title}{children}</div>\n}\n\n" +
+		"component (p Pg) Grid(sort string) {\n\t<i { attrs... }>{sort}</i>\n}\n"
 
 	file, err := gsxparser.ParseFile(token.NewFileSet(), "views.gsx", []byte(src), 0)
 	if err != nil {
@@ -147,7 +147,7 @@ func TestIsGsxNodeType(t *testing.T) {
 // signal: for component Card(title gsx.Node, n int), nodeProps["CardProps"] has
 // Title:true and does NOT contain N.
 // It also verifies that synthetic Children and Attrs fields (added to propFields
-// when a component uses {children} and has a single root) are NOT promoted into
+// when a component uses {children} and explicitly references attrs) are NOT promoted into
 // nodeProps — only declared gsx.Node params should appear there.
 func TestNodePropsSignal(t *testing.T) {
 	t.Parallel()
@@ -174,10 +174,10 @@ func TestNodePropsSignal(t *testing.T) {
 		t.Errorf("nodeProps[CardProps] unexpectedly has N (int param should not be a node prop)")
 	}
 
-	// Box: single-root + {children} → propFields gets both Children and Attrs
+	// Box: {children} + explicit attrs placement → both fields are synthesized;
 	// synthesized; nodeProps must NOT include either synthetic field.
 	src2 := "package views\n\n" +
-		"component Box(label gsx.Node) {\n\t<div>{children}</div>\n}\n"
+		"component Box(label gsx.Node) {\n\t<div { attrs... }>{children}</div>\n}\n"
 
 	file2, err := gsxparser.ParseFile(token.NewFileSet(), "views2.gsx", []byte(src2), 0)
 	if err != nil {

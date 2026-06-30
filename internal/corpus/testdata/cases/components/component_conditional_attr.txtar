@@ -5,7 +5,7 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-component Card(title gsx.Node) { <div class="card">{title}</div> }
+component Card(title gsx.Node) { <div class="card" { attrs... }>{title}</div> }
 
 component Page(hot bool) {
 	<Card title="Hi" { if hot { class="hot" } } />
@@ -44,7 +44,7 @@ func Card(_gsxp CardProps) gsx.Node {
 		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
 		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
 		_gsxgw.S(">")
-//line input.gsx:5:52
+//line input.gsx:5:65
 		_gsxgw.Node(ctx, title)
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()

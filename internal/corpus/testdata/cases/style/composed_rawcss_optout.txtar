@@ -26,7 +26,6 @@ import (
 type ThemeProps struct {
 	ThemeColor gsx.RawCSS
 	UserInput  string
-	Attrs      gsx.Attrs
 }
 
 //line input.gsx:5:1
@@ -36,17 +35,9 @@ func Theme(_gsxp ThemeProps) gsx.Node {
 		userInput := _gsxp.UserInput
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:6:2
-		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		if _gsxp.Attrs.Has("style") {
-			_gsxgw.StyleMerged(gsx.StyleString(gsx.Class(gsx.StyleValue("border: "+userInput)), gsx.Class(gsx.StyleValue("color: "+themeColor))), _gsxp.Attrs.Style())
-		} else {
-			_gsxgw.S(" style=\"")
-			_gsxgw.Style(gsx.Class(gsx.StyleValue("border: "+userInput)), gsx.Class(gsx.StyleValue("color: "+themeColor)))
-			_gsxgw.S("\"")
-		}
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">content</div>")
+		_gsxgw.S("<div style=\"")
+		_gsxgw.Style(gsx.Class(gsx.StyleValue("border: "+userInput)), gsx.Class(gsx.StyleValue("color: "+themeColor)))
+		_gsxgw.S("\">content</div>")
 		return _gsxgw.Err()
 	})
 }

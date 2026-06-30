@@ -42,15 +42,18 @@ Multiple `.gsx` files in the same package share a single Go package, so componen
 
 Cross-package calls import the other package and use its alias: `<ui.Button label="Save"/>`. The generator resolves the tag through the Go type system, so refactoring — renaming a type, moving a package — is caught by the compiler like any other Go identifier.
 
-## Attribute fallthrough
+## Explicit attribute forwarding
 
-Attributes at the call site that are **not** in the component's declared params do not cause an error — they fall through to the component's root element automatically. This lets utility attributes like `class`, `data-*`, and HTMX directives (`hx-*`, `hx-post`, etc.) be passed without the component author having to declare them.
+Undeclared component attributes are rejected unless the component explicitly
+uses the `attrs` bag. Place `{ attrs... }` on the element that should receive
+them; gsx never infers a destination from the component's root.
 
-<!--@include: ./_generated/composition/050-fallthrough-attributes.md-->
+<!--@include: ./_generated/composition/050-explicit-attribute-forwarding.md-->
 
-`Button` declares only `variant string`. At the call site, `class="w-full"`, `data-test="x"`, and `hx-post="/go"` are all undeclared — they fall through to the `<button>` root element. The `class` attribute is **merged, not replaced**: the component's own `class="btn"` is kept, and the caller's `class="w-full"` is appended (`"btn w-full"`). Caller classes are appended after component classes, so if both sides specify the same utility the caller's value comes last (CSS cascade wins for equal-specificity rules).
-
-All other fallthrough attrs are added to the root element's attribute list: attrs the component does not set are appended verbatim; attrs that conflict with one the component already sets are caller-wins (the caller's value replaces the component's). The generated props struct grows a `gsx.Attrs` field behind the scenes; the component author does not need to spread it explicitly on the root element.
+Here `Button` explicitly forwards `class`, `data-test`, and `hx-post` to its
+`button`. The explicit spread also makes wrapper components unambiguous: place
+the bag on the inner control, split it across elements, or omit it to expose only
+declared props.
 
 ## Method components
 

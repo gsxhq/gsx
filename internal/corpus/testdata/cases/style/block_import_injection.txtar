@@ -21,7 +21,6 @@ import (
 
 type PageProps struct {
 	UserColor string
-	Attrs     gsx.Attrs
 }
 
 //line input.gsx:3:1
@@ -30,11 +29,7 @@ func Page(_gsxp PageProps) gsx.Node {
 		userColor := _gsxp.UserColor
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<style")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">.a{color:")
+		_gsxgw.S("<style>.a{color:")
 		_gsxgw.CSS(string(userColor))
 		_gsxgw.S("}</style>")
 		return _gsxgw.Err()

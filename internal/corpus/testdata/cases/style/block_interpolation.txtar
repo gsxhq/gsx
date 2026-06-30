@@ -30,7 +30,6 @@ import (
 type CardProps struct {
 	W         int
 	UserColor string
-	Attrs     gsx.Attrs
 }
 
 //line input.gsx:3:1
@@ -40,11 +39,7 @@ func Card(_gsxp CardProps) gsx.Node {
 		userColor := _gsxp.UserColor
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<style")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">.card{width: ")
+		_gsxgw.S("<style>.card{width: ")
 		_gsxgw.S(strconv.FormatInt(int64(w), 10))
 		_gsxgw.S("px;color: ")
 		_gsxgw.CSS(string(userColor))

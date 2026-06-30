@@ -31,8 +31,7 @@ func buildHref(id string) (string, error) { return "/u/" + id, nil }
 func label(id string) (string, error)     { return "user " + id, nil }
 
 type LinkProps struct {
-	Id    string
-	Attrs gsx.Attrs
+	Id string
 }
 
 //line input.gsx:6:1
@@ -42,28 +41,20 @@ func Link(_gsxp LinkProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:7:2
 		_gsxgw.S("<a")
-		if !_gsxp.Attrs.Has("href") {
-			_gsxv0, _gsxerr := buildHref(id)
-			if _gsxerr != nil {
-				return _gsxerr
-			}
-			_gsxgw.S(" href=\"")
-			_gsxgw.URL(string(_gsxv0))
-			_gsxgw.S("\"")
+		_gsxv0, _gsxerr := buildHref(id)
+		if _gsxerr != nil {
+			return _gsxerr
 		}
-		if !_gsxp.Attrs.Has("title") {
-			_gsxv1, _gsxerr := label(id)
-			if _gsxerr != nil {
-				return _gsxerr
-			}
-			_gsxgw.S(" title=\"")
-			_gsxgw.AttrValue(string(_gsxv1))
-			_gsxgw.S("\"")
+		_gsxgw.S(" href=\"")
+		_gsxgw.URL(string(_gsxv0))
+		_gsxgw.S("\"")
+		_gsxv1, _gsxerr := label(id)
+		if _gsxerr != nil {
+			return _gsxerr
 		}
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">profile</a>")
+		_gsxgw.S(" title=\"")
+		_gsxgw.AttrValue(string(_gsxv1))
+		_gsxgw.S("\">profile</a>")
 		return _gsxgw.Err()
 	})
 }

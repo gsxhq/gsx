@@ -36,7 +36,6 @@ func makeTitle(s string) (string, error) { return "-- " + s + " --", nil }
 
 type PanelProps struct {
 	Header gsx.Node
-	Attrs  gsx.Attrs
 }
 
 //line input.gsx:7:1
@@ -45,12 +44,7 @@ func Panel(_gsxp PanelProps) gsx.Node {
 		header := _gsxp.Header
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.S("<div class=\"")
-		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class("panel"), gsx.Class(_gsxp.Attrs.Class()))
-		_gsxgw.S("\"")
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
+		_gsxgw.S("<div class=\"panel\">")
 //line input.gsx:8:21
 		_gsxgw.Node(ctx, header)
 		_gsxgw.S("</div>")

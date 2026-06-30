@@ -29,7 +29,6 @@ func greeting(name string) (string, error) { return "Hello " + name, nil }
 type CardProps struct {
 	Msg   string
 	Count int
-	Attrs gsx.Attrs
 }
 
 //line input.gsx:5:1
@@ -40,11 +39,7 @@ func Card(_gsxp CardProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:5:41
-		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
+		_gsxgw.S("<div>")
 //line input.gsx:5:46
 		_gsxgw.Text(string(msg))
 		_gsxgw.S(" x")

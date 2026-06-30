@@ -37,8 +37,7 @@ import (
 func makeLabel(s string) (myLabel, error) { return myLabel{text: "[" + s + "]"}, nil }
 
 type BadgeProps struct {
-	Icon  gsx.Node
-	Attrs gsx.Attrs
+	Icon gsx.Node
 }
 
 //line input.gsx:7:1
@@ -47,11 +46,7 @@ func Badge(_gsxp BadgeProps) gsx.Node {
 		icon := _gsxp.Icon
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:7:34
-		_gsxgw.S("<span")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
+		_gsxgw.S("<span>")
 //line input.gsx:7:40
 		_gsxgw.Node(ctx, icon)
 		_gsxgw.S("</span>")

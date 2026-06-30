@@ -2,7 +2,7 @@
 package views
 
 component Card() {
-	<section class="card">{children}</section>
+	<section class="card" { attrs... }>{children}</section>
 }
 -- invoke --
 Card(CardProps{Attrs: gsx.Attrs{{Key: "class", Value: "hl"}, {Key: "id", Value: "a"}}})
