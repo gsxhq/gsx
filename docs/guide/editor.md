@@ -32,7 +32,7 @@ gsx lsp                 # blocks, reading LSP messages on stdin
 | **Formatting** | `textDocument/formatting` | canonical `gsx fmt` form, including unused-import removal — wire it to format-on-save |
 
 **Deferred:** completion. References cover project components discovered during
-module analysis; external packages are skipped. See [Status](./status.md) and the
+module analysis; external/non-project references are deferred. See [Status](./status.md) and the
 [roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md) for current scope.
 
 ### Configure your editor
