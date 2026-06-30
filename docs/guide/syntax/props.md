@@ -26,7 +26,9 @@ When the sole non-receiver param is a named struct from the same package, gsx us
 
 <!--@include: ./_generated/props/010-bring-your-own-props.md-->
 
+::: v-pre
 `Button` declares a `Props` struct with `Variant string`, `Children gsx.Node`, and `Attrs gsx.Attrs`. The call `<Button variant="primary" data-test="save">Save</Button>` maps: `variant` → `Variant: "primary"`, `data-test` (no matching `DataTest` field) → `Attrs: gsx.Attrs{{Key: "data-test", Value: "save"}}`, and the text content → `Children`. Inside the body, `{ p.Attrs... }` spreads the collected attrs onto the `<button>` element.
+:::
 
 ## The discriminator heuristic
 
