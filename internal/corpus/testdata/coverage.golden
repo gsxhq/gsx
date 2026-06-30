@@ -138,6 +138,7 @@ fallthrough/no_class_empty_bag	diag render
 fallthrough/no_class_root_with_bag	diag render
 fallthrough/not_eligible_no_field	diag gen render
 fallthrough/reserved_param_attrs	diag(error)
+fallthrough/source_order	diag render
 fallthrough/static_class_merge	diag render
 interpolation/field_access	diag render
 interpolation/interp_types	diag render
@@ -316,4 +317,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 318 cases (render: 243, error: 55, gen-pinned: 119)
+TOTAL: 319 cases (render: 244, error: 55, gen-pinned: 119)

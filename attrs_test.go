@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -82,5 +83,101 @@ func TestSpreadOrderAndDrop(t *testing.T) {
 	})
 	if got := buf.String(); got != ` data-b="2" data-a="1" checked` {
 		t.Fatalf("Spread = %q", got)
+	}
+}
+
+// TestSpreadSecurityDropsInvalidNames verifies that Spread drops structurally
+// unsafe attribute names (tag-breakout, whitespace, prohibited chars) while
+// keeping legitimate special names used by frameworks.  This is a regression
+// guard for the validAttrName contract (a port of html/template name-safety).
+func TestSpreadSecurityDropsInvalidNames(t *testing.T) {
+	unsafe := []string{
+		"x onmouseover=y", // space → could inject a second attribute
+		">",               // > breaks tag structure
+		"a/b",             // / is a prohibited character
+	}
+	// Empty key is also invalid; check separately since strings.Contains("", "") is always true.
+	emptyKeyBag := Attrs{{Key: "", Value: "evil"}}
+	var emptyBuf bytes.Buffer
+	W(&emptyBuf).Spread(context.Background(), emptyKeyBag)
+	if emptyBuf.Len() != 0 {
+		t.Errorf("Spread with empty key should emit nothing, got: %q", emptyBuf.String())
+	}
+	kept := []string{
+		"hx-on::click",
+		":class",
+		"@click.away",
+		"data-x",
+		"_",
+	}
+
+	bag := make(Attrs, 0, len(unsafe)+len(kept))
+	for _, k := range unsafe {
+		bag = append(bag, Attr{Key: k, Value: "evil"})
+	}
+	for _, k := range kept {
+		bag = append(bag, Attr{Key: k, Value: "ok"})
+	}
+
+	var buf bytes.Buffer
+	gw := W(&buf)
+	gw.Spread(context.Background(), bag)
+	out := buf.String()
+
+	for _, k := range unsafe {
+		if strings.Contains(out, k) {
+			t.Errorf("Spread should have dropped unsafe key %q, but output contains it: %s", k, out)
+		}
+	}
+	for _, k := range kept {
+		if !strings.Contains(out, k) {
+			t.Errorf("Spread should have kept legitimate key %q, but output is: %s", k, out)
+		}
+	}
+}
+
+// TestAttrsCondLazyEval verifies that AttrsCond never invokes the untaken
+// branch.  This is a regression guard: if the untaken thunk were eagerly
+// called, code like `AttrsCond(u != nil, func() Attrs{...u.Name...}, nil)`
+// would panic on the nil path.
+func TestAttrsCondLazyEval(t *testing.T) {
+	thenRan, elsRan := false, false
+	recordThen := func() Attrs { thenRan = true; return Attrs{{Key: "a", Value: "1"}} }
+	recordEls := func() Attrs { elsRan = true; return Attrs{{Key: "b", Value: "2"}} }
+
+	// true branch: only then must run.
+	thenRan, elsRan = false, false
+	got := AttrsCond(true, recordThen, recordEls)
+	if !thenRan {
+		t.Error("AttrsCond(true): then thunk was not called")
+	}
+	if elsRan {
+		t.Error("AttrsCond(true): els thunk must not be called")
+	}
+	if len(got) == 0 || got[0].Key != "a" {
+		t.Errorf("AttrsCond(true) = %v, want [{a 1}]", got)
+	}
+
+	// false branch: only els must run.
+	thenRan, elsRan = false, false
+	got = AttrsCond(false, recordThen, recordEls)
+	if thenRan {
+		t.Error("AttrsCond(false): then thunk must not be called")
+	}
+	if !elsRan {
+		t.Error("AttrsCond(false): els thunk was not called")
+	}
+	if len(got) == 0 || got[0].Key != "b" {
+		t.Errorf("AttrsCond(false) = %v, want [{b 2}]", got)
+	}
+
+	// false + nil els: neither thunk runs, result is nil.
+	thenRan, elsRan = false, false
+	got = AttrsCond(false, recordThen, nil)
+	if thenRan || elsRan {
+		t.Error("AttrsCond(false, ..., nil): no thunk should run")
+	}
+	if got != nil {
+		t.Errorf("AttrsCond(false, ..., nil) = %v, want nil", got)
 	}
 }
