@@ -9,6 +9,22 @@ import (
 	"github.com/gsxhq/gsx/ast"
 )
 
+// classPartsLogicalEqual compares ClassPart slices by their logical fields
+// (Expr, Cond, Stages, CF), ignoring the span positions set during parsing.
+func classPartsLogicalEqual(a, b []ast.ClassPart) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Expr != b[i].Expr || a[i].Cond != b[i].Cond ||
+			!reflect.DeepEqual(a[i].Stages, b[i].Stages) ||
+			a[i].CF != b[i].CF {
+			return false
+		}
+	}
+	return true
+}
+
 // parseStringT parses a full .gsx source string and fails the test on error.
 func parseStringT(t *testing.T, src string) *ast.File {
 	t.Helper()
@@ -703,7 +719,7 @@ func TestParseComposedClass(t *testing.T) {
 		{Expr: `"text-muted"`, Cond: "!isActive"},
 		{Expr: `class`},
 	}
-	if !reflect.DeepEqual(ca.Parts, want) {
+	if !classPartsLogicalEqual(ca.Parts, want) {
 		t.Fatalf("Parts:\n got %#v\nwant %#v", ca.Parts, want)
 	}
 }
@@ -730,7 +746,7 @@ func TestComposedColonInsideBracketsIsOneExpr(t *testing.T) {
 	}
 	ca := node.(*ast.Element).Attrs[0].(*ast.ClassAttr)
 	want := []ast.ClassPart{{Expr: "m[k]"}, {Expr: "s[1:2]"}}
-	if !reflect.DeepEqual(ca.Parts, want) {
+	if !classPartsLogicalEqual(ca.Parts, want) {
 		t.Fatalf("Parts = %#v, want %#v", ca.Parts, want)
 	}
 }

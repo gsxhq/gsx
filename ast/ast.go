@@ -74,6 +74,8 @@ func SetSpan(n Node, start, end token.Pos) {
 		v.span = s
 	case *ClassAttr:
 		v.span = s
+	case *ClassPart:
+		v.span = s
 	case *OrderedAttrsAttr:
 		v.span = s
 	case *OrderedPair:
@@ -368,9 +370,11 @@ func (*CondAttr) attrNode() {}
 // unconditional Expr, or Expr emitted when Cond is true. Cond == "" → always.
 // When Stages is non-empty, Expr is the pipeline seed and Stages are applied
 // left-to-right (`seed |> s0 |> s1 ...`), mirroring Interp.Stages; the guard Cond
-// is NEVER piped. It is a plain value, not a Node.
+// is NEVER piped. It is a Node (span embedded) so *ClassPart can be keyed in the
+// resolved map for (T, error) auto-unwrap on unconditional plain parts.
 // When CF != nil, this is a value-form if/switch; Expr/Cond/Stages are unused.
 type ClassPart struct {
+	span
 	Expr   string
 	Cond   string
 	Stages []PipeStage
@@ -537,9 +541,11 @@ func Inspect(node Node, f func(Node) bool) {
 		}
 	case *ClassAttr:
 		for i := range n.Parts {
-			if cf := n.Parts[i].CF; cf != nil {
-				Inspect(cf, f)
-			}
+			Inspect(&n.Parts[i], f)
+		}
+	case *ClassPart:
+		if n.CF != nil {
+			Inspect(n.CF, f)
 		}
 	case *ValueCF:
 		if n.If != nil {

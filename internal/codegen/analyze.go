@@ -764,7 +764,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					cfInterpTemp := 0
 					fieldEntries, splatExpr, usedPkgs, err := childPropsLiteral(t, propsType, "_gsxrt", "_gsxrt.DefaultClassMerge", table, propFields, nodeProps[propsType], byo, fm, func(nodes []gsxast.Markup) (string, error) {
 						return "_gsxrt.Node(nil)", nil
-					}, true, &cfHoistBuf, &cfInterpTemp)
+					}, true, nil, &cfHoistBuf, &cfInterpTemp)
 					if err != nil {
 						// childPropsLiteral returns an *attrError with the offending attr's
 						// position embedded. Propagate it as-is so the caller can emit
@@ -837,6 +837,27 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 						fmt.Fprintf(sb, "_gsxuseq(%s)\n", oa.Pairs[i].Value)
 					}
 				}
+				// Probe unconditional plain ClassPart exprs AFTER pair probes —
+				// matching collectExprs's ClassPart ordering exactly. _gsxuseq harvests
+				// the raw type so classEntryExpr can detect and hoist (T, error) tuple
+				// call parts. The props-literal probe (_gsxunwrap wrapping) already
+				// reports expression-internal errors, so quiet suppression avoids dups.
+				for _, a := range t.Attrs {
+					ca, ok := a.(*gsxast.ClassAttr)
+					if !ok {
+						continue
+					}
+					for i := range ca.Parts {
+						if ca.Parts[i].CF == nil && ca.Parts[i].Cond == "" {
+							probe, perr := probeExpr(ca.Parts[i].Expr, ca.Parts[i].Stages, table, usedFilters)
+							if perr != nil {
+								probe = strings.TrimSpace(ca.Parts[i].Expr)
+							}
+							emitSkeletonLine(sb, fset, ca.Parts[i].Pos())
+							fmt.Fprintf(sb, "_gsxuseq(%s)\n", probe)
+						}
+					}
+				}
 				// Probe slot content in the SAME canonical order collectExprs walks:
 				// each markup-attr value (attr order) then the children.
 				var probeErr error
@@ -879,37 +900,45 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				// populating resolved[arm] so hoistValueCF can detect and unwrap
 				// (T, error) return types. _gsxuse(...any) accepts multi-return calls
 				// without a syntax error, and harvest reads the tuple type from the
-				// argument's resolved type. A probe per arm replaces the former
-				// no-liveness behavior for CF parts; _gsxuse also keeps the arm's
-				// identifier references live (avoiding "declared and not used").
+				// argument's resolved type. A probe per CF arm, and also per
+				// unconditional plain part, replaces the former liveness-only behavior
+				// for those parts; _gsxuse also keeps identifier references live.
 				for _, a := range t.Attrs {
 					ca, ok := a.(*gsxast.ClassAttr)
 					if !ok {
 						continue
 					}
-					for _, p := range ca.Parts {
-						if p.CF == nil {
-							continue
-						}
-						for _, arm := range valueFormArms(p.CF) {
-							probe, perr := probeExpr(arm.Expr, arm.Stages, table, usedFilters)
-							if perr != nil {
-								// Unknown filter: fall back to the bare seed so the skeleton
-								// type-checks (and identifiers stay live); the positioned
-								// unknown-filter diagnostic fires separately.
-								probe = strings.TrimSpace(arm.Expr)
+					for i := range ca.Parts {
+						if ca.Parts[i].CF != nil {
+							for _, arm := range valueFormArms(ca.Parts[i].CF) {
+								probe, perr := probeExpr(arm.Expr, arm.Stages, table, usedFilters)
+								if perr != nil {
+									// Unknown filter: fall back to the bare seed so the skeleton
+									// type-checks (and identifiers stay live); the positioned
+									// unknown-filter diagnostic fires separately.
+									probe = strings.TrimSpace(arm.Expr)
+								}
+								emitSkeletonLine(sb, fset, arm.Pos())
+								fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 							}
-							emitSkeletonLine(sb, fset, arm.Pos())
+						} else if ca.Parts[i].Cond == "" {
+							// Unconditional plain part: harvest its type for (T, error) unwrap.
+							// _gsxuse also serves as a liveness reference (replaces _ = (expr)).
+							probe, perr := probeExpr(ca.Parts[i].Expr, ca.Parts[i].Stages, table, usedFilters)
+							if perr != nil {
+								probe = strings.TrimSpace(ca.Parts[i].Expr)
+							}
+							emitSkeletonLine(sb, fset, ca.Parts[i].Pos())
 							fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 						}
 					}
 				}
-				// ClassAttr/SpreadAttr non-CF part exprs are emitted verbatim by
-				// codegen (no type harvest), so a var used ONLY in `class={ "on": v }`
-				// / `{...attrs}` must still be referenced here or it's "declared and not
-				// used". Emit a liveness `_ = (expr)` — NOT _gsxuse, so the harvest
-				// alignment is intact. CF parts are excluded (their arms got _gsxuse
-				// probes above, which also serve as liveness references).
+				// ClassAttr/SpreadAttr conditional part exprs and cond guards are
+				// emitted verbatim by codegen (no type harvest), so a var used ONLY in
+				// `class={ "on": v }` or `{...attrs}` must still be referenced here or
+				// it's "declared and not used". Emit a liveness `_ = (expr)` — NOT
+				// _gsxuse, so the harvest alignment is intact. CF parts and unconditional
+				// plain parts are excluded (they have _gsxuse probes above).
 				walkLivenessAttrExprs(t.Attrs, table, usedFilters, func(expr string) {
 					fmt.Fprintf(sb, "_ = (%s)\n", expr)
 				})
@@ -1519,6 +1548,19 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 						}
 					}
 				}
+				// Collect *ClassPart nodes for unconditional plain parts AFTER all
+				// OrderedPair nodes — matching the _gsxuseq probes emitProbes emits
+				// after the pair probes. classEntryExpr reads resolved[part] to detect
+				// and hoist (T, error) tuple-returning call parts.
+				for _, a := range t.Attrs {
+					if ca, ok := a.(*gsxast.ClassAttr); ok {
+						for i := range ca.Parts {
+							if ca.Parts[i].CF == nil && ca.Parts[i].Cond == "" {
+								*out = append(*out, &ca.Parts[i])
+							}
+						}
+					}
+				}
 				walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
 					collectExprs(value, out)
 				})
@@ -1530,23 +1572,27 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 			walkAttrExprs(t.Attrs, func(ea *gsxast.ExprAttr) {
 				*out = append(*out, ea)
 			})
-			// Collect ValueArm nodes for value-form CF parts in source order: for
-			// each ClassAttr in attr order, for each CF part, in arm source order
-			// (if-form: Then, ElseIf chain, Else; switch: case Values). emitProbes
+			// Collect ValueArm nodes for value-form CF parts, and *ClassPart nodes
+			// for unconditional plain parts, in source order: for each ClassAttr in
+			// attr order, for each part, in arm source order for CF parts. emitProbes
 			// emits _gsxuse probes in the SAME order so the k-th probe aligns with
-			// the k-th node, populating resolved[arm] for hoistValueCF's unwrap.
-			// The liveness path (walkLivenessAttrExprs) does NOT add nodes here.
+			// the k-th node, populating resolved[arm] for hoistValueCF's unwrap and
+			// resolved[part] for (T, error) auto-unwrap on plain unconditional parts.
+			// The liveness path (walkLivenessAttrExprs) skips unconditional plain
+			// parts (they now get _gsxuse probes which also serve as liveness refs).
 			for _, a := range t.Attrs {
 				ca, ok := a.(*gsxast.ClassAttr)
 				if !ok {
 					continue
 				}
-				for _, p := range ca.Parts {
-					if p.CF == nil {
-						continue
-					}
-					for _, arm := range valueFormArms(p.CF) {
-						*out = append(*out, arm)
+				for i := range ca.Parts {
+					if ca.Parts[i].CF != nil {
+						for _, arm := range valueFormArms(ca.Parts[i].CF) {
+							*out = append(*out, arm)
+						}
+					} else if ca.Parts[i].Cond == "" {
+						// Unconditional plain part: harvest its type for (T, error) unwrap.
+						*out = append(*out, &ca.Parts[i])
 					}
 				}
 			}
@@ -1629,6 +1675,12 @@ func walkLivenessAttrExprs(attrs []gsxast.Attr, table filterTable, usedFilters m
 		switch at := a.(type) {
 		case *gsxast.ClassAttr:
 			for _, p := range at.Parts {
+				if p.CF == nil && p.Cond == "" {
+					// Unconditional plain parts now get _gsxuse probes in emitProbes
+					// (which also provide liveness). Skip here to avoid a duplicate
+					// `_ = (expr)` that would fail for (T, error) multi-return calls.
+					continue
+				}
 				emit(p.Expr, p.Stages)
 				if c := strings.TrimSpace(p.Cond); c != "" {
 					fn(c)

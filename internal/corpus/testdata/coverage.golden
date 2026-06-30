@@ -24,7 +24,9 @@ class/merger_composable	diag gen render
 class/merger_fallthrough	diag gen render
 class/merger_no_class	diag gen render
 class/merger_static	diag gen render
+class/multi_part_tuple_order	diag gen render
 class/non_root_class	diag gen render
+class/part_tuple	diag gen render
 class/spread	diag render
 class/style_rejected	diag
 class/value_arm_tuple_rejected	diag(error)
@@ -285,6 +287,7 @@ style/composed_injection	diag gen render
 style/composed_rawcss_optout	diag gen render
 style/loop_var_in_style	diag render
 style/minify_block	diag gen render
+style/part_tuple	diag gen render
 style/value_switch	diag gen render
 tuple/bare_call_undefined	diag(error)
 tuple/child_prop_mixed	diag gen render
@@ -318,4 +321,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 320 cases (render: 242, error: 57, gen-pinned: 119)
+TOTAL: 323 cases (render: 245, error: 57, gen-pinned: 122)

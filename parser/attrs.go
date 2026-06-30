@@ -79,6 +79,7 @@ func (p *parser) splitComposed(src string, base int) ([]ast.ClassPart, error) {
 				return nil, err
 			}
 			parts = append(parts, ast.ClassPart{CF: cf})
+			ast.SetSpan(&parts[len(parts)-1], p.posAt(base+segStart), p.posAt(base+segEnd))
 			continue
 		}
 
@@ -107,6 +108,7 @@ func (p *parser) splitComposed(src string, base int) ([]ast.ClassPart, error) {
 			return nil, perr
 		}
 		parts = append(parts, ast.ClassPart{Expr: seed, Cond: condSrc, Stages: stages})
+		ast.SetSpan(&parts[len(parts)-1], p.posAt(base+segStart), p.posAt(base+segEnd))
 	}
 	return parts, nil
 }
