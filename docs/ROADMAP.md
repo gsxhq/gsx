@@ -346,7 +346,7 @@ vocabulary remains a design aspiration, not the current API.
   **SHIPPED** (configurable merger seam; Tailwind wrapper idiom; `--watch` validates at
   startup; cache-keyed; corpus + example coverage). **Pending:** GSXnnnn numeric
   codes (codes are string-based today, e.g. `invalid-syntax`); `vet`/`render`/`explain`;
-  `--watch`/incremental.
+  finer-grained incremental invalidation beyond the current warm watcher.
 - `[ ]` **Codegen niceties** — coalesce adjacent `gw.S` static writes; `//line`
   trailing-state reset; `data:image` URL allowance.
 - `[ ]` **Tooling performance measurement on a realistic large corpus** — the
@@ -360,16 +360,14 @@ vocabulary remains a design aspiration, not the current API.
 
 ## Documentation backlog
 
-- `[x]` **Examples gallery — SHIPPED.** A single-source, CI-checked **Examples**
-  gallery (live: <https://gsxhq.github.io/guide/examples>). Each `examples/*.txtar`
-  fixture (a `-- doc --` metadata block + `package views` `.gsx` files + `-- invoke --`
-  + `-- render.golden --`) is the **one source** feeding three consumers: (1) a render
-  test (`internal/corpus` `TestExamples`), (2) the docs page `docs/guide/examples.md`,
-  (3) the playground presets. A generator (`internal/examplegen` + `cmd/gsx-examples`,
-  `make examples`) emits the docs page + byte-identical preset JSONs. **19 examples
-  across 6 sections** — Basics · Control flow · Components & composition · Styling ·
-  Transforming values · Interactive & whole-page. Spec/plan
-  `2026-06-24-gsx-examples-framework*`.
+- `[x]` **Examples framework — SHIPPED.** `examples/*.txtar` fixtures (a `-- doc --`
+  metadata block + `package views` `.gsx` files + `-- invoke --` + `-- render.golden --`)
+  are the single source feeding render tests, per-topic syntax includes under
+  `docs/guide/syntax/_generated/**`, and playground presets. A generator
+  (`internal/examplegen` + `cmd/gsx-examples`, `make examples`) emits the generated
+  snippets + byte-identical preset JSONs. The public site no longer has a separate
+  Examples page; examples live beside the syntax they document and jump to the
+  playground.
 - `[x]` **Examples → Playground links — SHIPPED.** Each example emits an "Open in
   Playground" `#try=` deep-link (std-base64 of `{s:source,i:invoke}`); multi-file
   examples ride the Go-Playground txtar format (`-- file --` separators).
