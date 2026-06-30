@@ -28,7 +28,7 @@ gsx lsp                 # blocks, reading LSP messages on stdin
 | **Diagnostics** | `publishDiagnostics` | positioned parse + type errors (with severity, code, help) from the shared diagnostics engine; re-analyzed on every change, with multi-error and component-boundary recovery |
 | **Go-to-definition** | `textDocument/definition` | jump from a Go symbol in a `{ }`/attribute expression to its `.go` definition; from a `<Card/>` tag to its `component` declaration; and from a `.go` component reference back to the `.gsx` |
 | **Hover** | `textDocument/hover` | gopls-style type/signature for an identifier or expression; a component tag shows its signature (answered from the AST even mid-edit when type-checking can't complete) |
-| **Find references** | `textDocument/references` | `.go` call sites and `.gsx` tag sites for a component, within the package |
+| **Find references** | `textDocument/references` | `.go` call sites and `.gsx` tag sites for project components discovered by module analysis; external/non-project packages are skipped |
 | **Formatting** | `textDocument/formatting` | canonical `gsx fmt` form, including unused-import removal — wire it to format-on-save |
 
 **Deferred:** completion. References cover project components discovered during
