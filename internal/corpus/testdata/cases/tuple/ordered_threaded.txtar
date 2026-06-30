@@ -1,5 +1,5 @@
 # (T, error) auto-unwrap: tuple {{ }} bound to a prop spread one layer down.
-# Outer receives the OrderedAttrs and passes it unchanged to Inner via spread.
+# Outer receives the ordered gsx.Attrs and passes it unchanged to Inner via spread.
 -- input.gsx --
 package views
 

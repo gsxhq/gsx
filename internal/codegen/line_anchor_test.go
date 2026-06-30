@@ -186,7 +186,7 @@ func TestComponentFuncNameColumnAnchorSkeleton(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := map[string]*gsxast.File{filepath.Join(pkgDir, "views.gsx"): file}
-	propFields, nodeProps, _, attrsProps, byo, err := componentPropFieldsFor(pkgDir, files)
+	propFields, nodeProps, attrsProps, byo, err := componentPropFieldsFor(pkgDir, files)
 	if err != nil {
 		t.Fatalf("propFields: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestComponentFuncLineAnchorSkeleton(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := map[string]*gsxast.File{filepath.Join(pkgDir, "views.gsx"): file}
-	propFields, nodeProps, _, attrsProps, byo, err := componentPropFieldsFor(pkgDir, files)
+	propFields, nodeProps, attrsProps, byo, err := componentPropFieldsFor(pkgDir, files)
 	if err != nil {
 		t.Fatalf("propFields: %v", err)
 	}

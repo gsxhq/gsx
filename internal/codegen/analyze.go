@@ -62,10 +62,9 @@ var errSkipComponent = errors.New("skip")
 // declared in a .gsx GoChunk is read syntactically (no resolution); an external
 // .go struct is enumerated by a preliminary go/packages load of dir. byo is
 // nil-safe and always returned non-nil.
-func componentPropFieldsFor(dir string, files map[string]*gsxast.File) (propFields, nodeProps, orderedProps, attrsProps map[string]map[string]bool, byo *byoData, err error) {
+func componentPropFieldsFor(dir string, files map[string]*gsxast.File) (propFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, err error) {
 	out := map[string]map[string]bool{}
 	nodeOut := map[string]map[string]bool{}
-	orderedOut := map[string]map[string]bool{}
 	// attrsOut[propsType] is the set of field names whose declared type is exactly
 	// gsx.Attrs (the ordered bag slice). A map[string]any value bound to such a
 	// field auto-converts via gsx.AttrsFromMap (see genChildComponent); the
@@ -82,20 +81,16 @@ func componentPropFieldsFor(dir string, files map[string]*gsxast.File) (propFiel
 	externalWanted := map[string]bool{}
 
 	// genProps derives the GENERATED-path prop-field map + node-field map +
-	// orderedAttrs-field map for a component (the historical AST-derived behavior),
+	// attrs-field map for a component (the historical AST-derived behavior),
 	// keyed by propsName/compKey.
 	genProps := func(c *gsxast.Component, params []param, propsName string) {
 		fields := map[string]bool{}
 		nodeFields := map[string]bool{}
-		orderedFields := map[string]bool{}
 		attrsFields := map[string]bool{}
 		for _, p := range params {
 			fields[fieldName(p.name)] = true
 			if isGsxNodeType(p.typ) {
 				nodeFields[fieldName(p.name)] = true
-			}
-			if isOrderedAttrsType(p.typ) {
-				orderedFields[fieldName(p.name)] = true
 			}
 			if isGsxAttrsType(p.typ) {
 				attrsFields[fieldName(p.name)] = true
@@ -129,7 +124,6 @@ func componentPropFieldsFor(dir string, files map[string]*gsxast.File) (propFiel
 			out[propsName] = fields
 		}
 		nodeOut[propsName] = nodeFields
-		orderedOut[propsName] = orderedFields
 		attrsOut[propsName] = attrsFields
 	}
 
@@ -154,7 +148,7 @@ func componentPropFieldsFor(dir string, files map[string]*gsxast.File) (propFiel
 			}
 			params, err := parseParams(c.Params)
 			if err != nil {
-				return nil, nil, nil, nil, nil, err
+				return nil, nil, nil, nil, err
 			}
 			propsName := c.Name + "Props"
 			compKey := "." + c.Name
@@ -208,7 +202,7 @@ func componentPropFieldsFor(dir string, files map[string]*gsxast.File) (propFiel
 		// Not a struct (or unresolved) → not byo; take the generated path.
 		genProps(dc.c, dc.params, dc.propsName)
 	}
-	return out, nodeOut, orderedOut, attrsOut, byo, nil
+	return out, nodeOut, attrsOut, byo, nil
 }
 
 // isNoPropsComponent reports whether propsType names a same-package function
@@ -263,13 +257,6 @@ func isBareCallCandidate(el *gsxast.Element, propFields map[string]map[string]bo
 // gsx.Node (ignoring surrounding whitespace).
 func isGsxNodeType(typ string) bool {
 	return strings.TrimSpace(typ) == "gsx.Node"
-}
-
-// isOrderedAttrsType reports whether a param's declared type string is exactly
-// the gsx OrderedAttrs type (qualified or, in-package, bare).
-func isOrderedAttrsType(typ string) bool {
-	t := strings.TrimSpace(typ)
-	return t == "gsx.OrderedAttrs" || t == "_gsxrt.OrderedAttrs" || t == "OrderedAttrs"
 }
 
 // isStringAnyMap reports whether t is exactly map[string]any (gsx.AttrMap). Only this
