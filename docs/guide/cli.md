@@ -357,7 +357,6 @@ custom binary configures a CSS/JS minifier (functions are not hashable).
 
 ## Status
 
-> **Alpha.** `generate`, `fmt`, `init`, `info`, `clean`, `version`, and `lsp`
-> (an early diagnostics-only slice) are implemented. A checker (`vet`) and richer
-> language-server features are on the
-> [roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md).
+> **Alpha.** The shipped command set is listed above. Planned commands and
+> deferred diagnostics work are tracked in [Status](./status.md) and the
+> [Roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md).

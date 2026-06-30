@@ -7,12 +7,11 @@ a **JSX-style markup body**, compiled to plain Go.
 .gsx → parser → AST → codegen → .x.go → go build → HTML
 ```
 
-> **Status — alpha.** gsx is runnable end-to-end: `gsx generate` compiles
-> `.gsx` → `.x.go` (plus `gsx fmt` and `gsx info`). Codegen covers interpolation,
-> control flow, attributes with contextual escaping, the `|>` pipeline + filters,
-> components/props/`{children}`, method components, named slots, and attribute
-> fallthrough. Still in progress: some CLI commands (`vet`/`lsp`), `style`
-> composition, and structured diagnostics. See the [roadmap](./ROADMAP.md).
+> **Status — alpha.** gsx is runnable end-to-end. `gsx init` scaffolds a Go and
+> Vite application, `gsx dev` runs the warm generate/build/reload loop, and
+> `gsx lsp` provides diagnostics, navigation, hover, references, and formatting.
+> The language and APIs are usable but may still change before a stable release.
+> See the [status](./guide/status.md) and [roadmap](./ROADMAP.md).
 
 ## Start here
 

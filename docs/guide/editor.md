@@ -31,10 +31,9 @@ gsx lsp                 # blocks, reading LSP messages on stdin
 | **Find references** | `textDocument/references` | `.go` call sites and `.gsx` tag sites for a component, within the package |
 | **Formatting** | `textDocument/formatting` | canonical `gsx fmt` form, including unused-import removal — wire it to format-on-save |
 
-**Not yet:** completion, pipeline-aware definition/hover (an expression behind a
-`|>` returns nothing today), cross-package references, and dotted/cross-package
-component tags (`<ui.Button/>`). See the
-[roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md) for status.
+**Deferred:** completion and broader cross-package reference coverage. See
+[Status](./status.md) and the
+[roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md) for current scope.
 
 ### Configure your editor
 

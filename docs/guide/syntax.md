@@ -78,6 +78,7 @@ golden-tested `examples/*.txtar` fixtures.
 | `gsx.Raw(s)` | unescaped HTML |
 :::
 
-> **Status — alpha.** `.gsx` compiles to plain Go via `gsx generate`; syntax is
-> stable but still evolving. Follow the
-> [roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md).
+> **Status — alpha.** Syntax is stable enough for real projects, but not frozen.
+> Follow [Status](./status.md) and the
+> [roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md) before relying
+> on deferred features.
