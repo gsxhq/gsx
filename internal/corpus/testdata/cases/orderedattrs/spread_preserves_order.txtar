@@ -1,16 +1,16 @@
-# Spreading a gsx.OrderedAttrs param emits SpreadOrdered (slice order, NO sort).
-# Hand-written literal in the existing ={expr} form — no {{ }} sugar yet.
+# Spreading a gsx.Attrs (ordered attrs) param preserves source order.
+# Hand-written literal in the existing ={expr} form; {{ }} sugar binds the same type.
 -- input.gsx --
 package views
 
 import "github.com/gsxhq/gsx"
 
-component Box(bag gsx.OrderedAttrs) {
+component Box(bag gsx.Attrs) {
 	<div { bag... }>x</div>
 }
 
 component Page() {
-	<Box bag={gsx.OrderedAttrs{{Key: "data-signals", Value: "{c:0}"}, {Key: "data-text", Value: "$c"}, {Key: "data-a", Value: "z"}}}/>
+	<Box bag={gsx.Attrs{{Key: "data-signals", Value: "{c:0}"}, {Key: "data-text", Value: "$c"}, {Key: "data-a", Value: "z"}}}/>
 }
 -- invoke --
 Page()
@@ -30,7 +30,7 @@ import (
 )
 
 type BoxProps struct {
-	Bag gsx.OrderedAttrs
+	Bag gsx.Attrs
 }
 
 //line input.gsx:5:1
@@ -40,7 +40,7 @@ func Box(_gsxp BoxProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<div")
-		_gsxgw.SpreadOrdered(ctx, bag)
+		_gsxgw.Spread(ctx, bag)
 		_gsxgw.S(">x</div>")
 		return _gsxgw.Err()
 	})
@@ -51,7 +51,7 @@ func Page() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Box(BoxProps{Bag: gsx.OrderedAttrs{{Key: "data-signals", Value: "{c:0}"}, {Key: "data-text", Value: "$c"}, {Key: "data-a", Value: "z"}}}))
+		_gsxgw.Node(ctx, Box(BoxProps{Bag: gsx.Attrs{{Key: "data-signals", Value: "{c:0}"}, {Key: "data-text", Value: "$c"}, {Key: "data-a", Value: "z"}}}))
 		return _gsxgw.Err()
 	})
 }

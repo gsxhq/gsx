@@ -3,7 +3,7 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-component Card(bag gsx.OrderedAttrs) {
+component Card(bag gsx.Attrs) {
 	<div { bag... }>x</div>
 }
 
@@ -26,7 +26,7 @@ import (
 )
 
 type CardProps struct {
-	Bag gsx.OrderedAttrs
+	Bag gsx.Attrs
 }
 
 //line input.gsx:5:1
@@ -36,7 +36,7 @@ func Card(_gsxp CardProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<div")
-		_gsxgw.SpreadOrdered(ctx, bag)
+		_gsxgw.Spread(ctx, bag)
 		_gsxgw.S(">x</div>")
 		return _gsxgw.Err()
 	})
@@ -52,7 +52,7 @@ func Page(_gsxp PageProps) gsx.Node {
 		sig := _gsxp.Sig
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Card(CardProps{Bag: gsx.OrderedAttrs{{Key: "data-signals", Value: sig}}}))
+		_gsxgw.Node(ctx, Card(CardProps{Bag: gsx.Attrs{{Key: "data-signals", Value: sig}}}))
 		return _gsxgw.Err()
 	})
 }

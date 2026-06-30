@@ -80,18 +80,19 @@ method's **duplicate-key rule is defined and documented**:
 |---|---|
 | `Class() string` | **Aggregate** — join the values of *all* `class` pairs (space-separated, trimmed). Nothing is silently dropped. |
 | `Style() string` | **Aggregate** — join the values of *all* `style` pairs (`"; "`-separated). |
-| `Get(key) (any, bool)` | **First wins** — first occurrence in slice order (matches browser "first attribute wins"). |
-| `Has(key) bool` | First occurrence. |
+| `Get(key) (any, bool)` | **Last wins** — last occurrence in slice order, matching JSX-style override order. |
+| `Has(key) bool` | True if any occurrence exists. |
 | `Without(keys...) Attrs` | Removes **all** pairs whose key matches; preserves order of the rest; nil/empty in → nil out. |
-| `Take(key) (any, Attrs)` | Returns `Get`'s first value + `Without(key)` (removes all occurrences). |
-| `Merge(other Attrs) Attrs` | For each pair in `other`: `class`/`style` → **concat in place** onto the first such pair in the result (or append if none), so a directly-spread merged bag never carries a duplicate `class`/`style`. Other keys → **overwrite in place** the first existing occurrence (other wins, position preserved); append if absent. This preserves the old map-`Merge` "other wins" + class/style-concat semantics while keeping order. |
+| `Take(key) (any, Attrs)` | Returns `Get`'s last value + `Without(key)` (removes all occurrences). |
+| `Merge(other Attrs) Attrs` | For each pair in `other`: `class`/`style` → **concat in place** onto the first such pair in the result (or append if none). Other keys → **overwrite in place** the last existing occurrence and drop earlier duplicates (other wins under the last-wins scalar rule); append if absent. This preserves the old map-`Merge` "other wins" + class/style-concat semantics while keeping order. |
 
 `AttrsCond(cond, then, els func() Attrs) Attrs` is unchanged in contract (thunks so the
 untaken branch never evaluates); it now returns the slice `Attrs`. A nil `Attrs` is an
 empty bag (`Spread`/`Without`/`Merge` all tolerate nil).
 
 **Aggregation is the headline semantic to document** (guide + doc comments): `Class()`
-and `Style()` never lose a value even when a bag carries the key twice.
+and `Style()` never lose a value even when a bag carries the key twice. Scalar duplicate
+keys use last-wins semantics so later pairs can intentionally override earlier pairs.
 
 ## 5. Auto-conversion (`AttrMap` → `Attrs`)
 
@@ -206,9 +207,9 @@ corpus rule:
 
 - **Runtime unit tests** (root `gsx` package): each method's duplicate-key rule from §4
   gets an explicit test — `Class()`/`Style()` aggregation across two pairs, `Get`/`Has`
-  first-wins, `Without` removes-all, `Merge` overwrite-in-place + class/style concat,
-  `AttrsFromMap` sort determinism, `Spread` order + `validAttrName` drop + bool handling,
-  nil-bag tolerance.
+  last-wins/presence, `Without` removes-all, `Merge` overwrite-last-in-place +
+  class/style concat, `AttrsFromMap` sort determinism, `Spread` order + last-wins scalar
+  duplicate handling + `validAttrName` drop + bool handling, nil-bag tolerance.
 - **Corpus cases** (regenerate all; add new where coverage is thin):
   - Fallthrough bag renders in **source order** (new behavior) — a dedicated case.
   - `AttrMap`/bare-`map[string]any` auto-conversion at **both** boundaries (prop binding
@@ -239,8 +240,8 @@ corpus rule:
 - Unify on the ordered slice as the default `Attrs`; map becomes `AttrMap`. ✓
 - `AttrMap` is an **alias** for `map[string]any`; auto-conversion accepts bare maps too. ✓
 - Auto-conversion fires at **both** boundaries (prop binding + element spread). ✓
-- `Class()`/`Style()` **aggregate**; `Get`/`Has` **first-wins**; `Without` removes-all;
-  `Merge` overwrite-in-place + class/style concat. ✓
+- `Class()`/`Style()` **aggregate**; scalar `Get`/`Spread` are **last-wins**;
+  `Without` removes-all; `Merge` overwrite-last-in-place + class/style concat. ✓
 - Delete `OrderedAttrs`/`SpreadOrdered` (no compat alias). ✓
 - Breaking sweep accepted; one-learning updated to new semantics. ✓
 

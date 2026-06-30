@@ -128,7 +128,7 @@ func TestClassMergerReceivesRawForRealMerge(t *testing.T) {
 }
 
 func TestAttrsClassRawNoMerge(t *testing.T) {
-	a := Attrs{"class": "x  y x"}
+	a := Attrs{{Key: "class", Value: "x  y x"}}
 	if got := a.Class(); got != "x  y x" {
 		t.Fatalf("Attrs.Class() = %q, want raw %q", got, "x  y x")
 	}

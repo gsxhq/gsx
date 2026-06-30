@@ -8,69 +8,140 @@ import (
 	"strings"
 )
 
-// Attrs is an attribute bag (spread / implicit rest). Values are bool (boolean
-// attribute), string, []string, or anything fmt can format.
+// Attr is one ordered attribute pair. Value is rendered like any attribute value:
+// a bool toggles a bare boolean attribute; anything else is stringified (toStr) and
+// attribute-escaped.
+type Attr struct {
+	Key   string
+	Value any
+}
+
+// Attrs is gsx's attribute bag: an insertion-ordered, duplicate-tolerant slice of
+// pairs. It is the type of the implicit fallthrough bag, every declared bag prop, the
+// {{ "k": v }} literal, and conditional-attr bags. Spread renders it in SLICE ORDER
+// (no sort) so callers control attribute order (e.g. Datastar data-* directives);
+// duplicate scalar keys are last-wins, matching JSX-style override order.
 //
-// Security contract: keys are HTML attribute NAMES emitted (after a validity
-// check, see Spread) without entity-encoding — they must come from generated
-// code or trusted developer input, never from untrusted strings. Values are
-// HTML-attribute-escaped but NOT URL-sanitized: a URL-typed attribute (href,
-// src, action, formaction, …) carrying an untrusted value must be written with
-// gw.URL, not passed through Spread.
-type Attrs map[string]any
+// Security contract: keys are HTML attribute NAMES emitted (after a validity check,
+// see Spread) without entity-encoding — they must come from generated code or trusted
+// developer input, never from untrusted strings. Values are HTML-attribute-escaped but
+// NOT URL-sanitized: a URL-typed attribute (href, src, action, formaction, …) carrying
+// an untrusted value must be written with gw.URL, not passed through Spread.
+type Attrs []Attr
 
-// Has reports whether key is present.
-func (a Attrs) Has(key string) bool { _, ok := a[key]; return ok }
+// AttrMap is a map-form attribute bag for ergonomic Go literals; convert it to Attrs
+// explicitly with ToAttrs before passing/spreading in templates. A map has no order, so
+// ToAttrs sorts keys ascending to keep output deterministic.
+type AttrMap map[string]any
 
-// Get returns the value for key and whether it was present.
-func (a Attrs) Get(key string) (any, bool) { v, ok := a[key]; return v, ok }
-
-// Without returns a copy of a without the given keys (a is not mutated).
-func (a Attrs) Without(keys ...string) Attrs {
-	// Fast path: an empty bag (the common case — no fallthrough attributes) has
-	// nothing to filter. This runs on every component root via Spread.
-	if len(a) == 0 {
+// ToAttrs converts m to an ordered Attrs slice with keys sorted ascending.
+func (m AttrMap) ToAttrs() Attrs {
+	if len(m) == 0 {
 		return nil
 	}
-	out := make(Attrs, len(a))
-	for k, v := range a {
-		if !slices.Contains(keys, k) {
-			out[k] = v
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make(Attrs, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, Attr{Key: k, Value: m[k]})
+	}
+	return out
+}
+
+// Class returns the bag's class string. DUPLICATE-KEY RULE: it AGGREGATES — the values
+// of ALL "class" pairs are joined (space-separated, each trimmed), so no class is
+// silently dropped. It does NOT merge/dedupe tokens; the single outer codegen-emitted
+// class site applies the configured merger exactly once over this plus the root's parts.
+func (a Attrs) Class() string {
+	var out string
+	for _, kv := range a {
+		if kv.Key == "class" {
+			out = joinAttrStrings("class", out, strings.TrimSpace(toStr(kv.Value)))
 		}
 	}
 	return out
 }
 
-// Take returns the value for key and a copy of a without it (a is not mutated).
-func (a Attrs) Take(key string) (any, Attrs) {
-	return a[key], a.Without(key)
+// Style returns the bag's style declaration. DUPLICATE-KEY RULE: AGGREGATES — the
+// values of ALL "style" pairs are joined ("; "-separated).
+func (a Attrs) Style() string {
+	var out string
+	for _, kv := range a {
+		if kv.Key == "style" {
+			out = joinAttrStrings("style", out, toStr(kv.Value))
+		}
+	}
+	return out
 }
 
-// Merge returns a new bag combining a and other. For most keys other wins; the
-// "class" and "style" values are concatenated (a's then other's).
-func (a Attrs) Merge(other Attrs) Attrs {
-	out := make(Attrs, len(a)+len(other))
-	for k, v := range a {
-		out[k] = v
+// Get returns the value for key and whether it was present. DUPLICATE-KEY RULE: LAST
+// occurrence wins, matching JSX-style override order.
+func (a Attrs) Get(key string) (any, bool) {
+	for i := len(a) - 1; i >= 0; i-- {
+		if a[i].Key == key {
+			return a[i].Value, true
+		}
 	}
-	for k, v := range other {
-		if (k == "class" || k == "style") && out[k] != nil {
-			out[k] = joinAttrStrings(k, toStr(out[k]), toStr(v))
+	return nil, false
+}
+
+// Has reports whether key is present.
+func (a Attrs) Has(key string) bool {
+	_, ok := a.Get(key)
+	return ok
+}
+
+// Without returns a copy of a without ANY pair whose key is in keys (a is not mutated);
+// the order of the rest is preserved. An empty result (or empty input) yields nil.
+func (a Attrs) Without(keys ...string) Attrs {
+	if len(a) == 0 {
+		return nil
+	}
+	out := make(Attrs, 0, len(a))
+	for _, kv := range a {
+		if !slices.Contains(keys, kv.Key) {
+			out = append(out, kv)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// Take returns Get(key)'s last value and a copy of a without ALL occurrences of key.
+func (a Attrs) Take(key string) (any, Attrs) {
+	v, _ := a.Get(key)
+	return v, a.Without(key)
+}
+
+// Merge returns a new bag combining a and other, preserving order. For each pair in
+// other: a "class"/"style" value is CONCATENATED onto the first such pair already in
+// the result (or appended if none). Any other key OVERWRITES the last existing
+// occurrence in place and drops earlier duplicates, so the incoming bag wins under the
+// last-wins scalar rule; absent keys append.
+func (a Attrs) Merge(other Attrs) Attrs {
+	out := make(Attrs, len(a))
+	copy(out, a)
+	for _, kv := range other {
+		if kv.Key == "class" || kv.Key == "style" {
+			out = mergeClassStyleAttr(out, kv)
 			continue
 		}
-		out[k] = v
+		out = mergeScalarAttr(out, kv)
 	}
 	return out
 }
 
 // AttrsCond selects one of two attribute-bag thunks for a conditional component
-// attribute: it calls and returns then() when cond is true, otherwise els().
-// The branches are THUNKS so the untaken branch is never evaluated — mirroring a
-// real Go `if cond { … } else { … }`, where the untaken block's expressions
-// (e.g. `u.Name` when `u == nil`) are not evaluated. els may be nil (no else
-// branch), in which case a false cond yields a nil bag — a nil Attrs merges as
-// empty. Generated code chains this into a bag-building .Merge(...) expression so
-// a conditional attr only contributes its entries when its condition holds.
+// attribute: it calls and returns then() when cond is true, otherwise els(). The
+// branches are THUNKS so the untaken branch is never evaluated — mirroring a real Go
+// if/else, where the untaken block's expressions (e.g. u.Name when u == nil) never run.
+// els may be nil (no else branch); a false cond then yields a nil bag (a nil Attrs
+// merges as empty). Generated code chains this into a bag-building .Merge(...).
 func AttrsCond(cond bool, then, els func() Attrs) Attrs {
 	if cond {
 		if then != nil {
@@ -82,71 +153,121 @@ func AttrsCond(cond bool, then, els func() Attrs) Attrs {
 	return nil
 }
 
-// Class returns the raw joined class string from the bag's "class" entry, or "".
-// It does NOT merge/dedupe — the single outer codegen-emitted class site applies
-// the configured merger exactly once over the bag class plus the root's parts.
-func (a Attrs) Class() string {
-	v, ok := a["class"]
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(toStr(v))
-}
-
-// Style returns the bag's "style" declaration string, or "".
-func (a Attrs) Style() string {
-	v, ok := a["style"]
-	if !ok {
-		return ""
-	}
-	return toStr(v)
-}
-
-// Spread renders the bag deterministically (keys sorted). bool values use
-// boolean-attribute semantics; everything else is written as key="value" with
-// attribute escaping. ctx is reserved for forward-compatibility.
-//
-// A key that is not a structurally valid HTML attribute name (empty, or
-// containing whitespace or any of " ' < > = / or a control byte) is SKIPPED
-// rather than emitted — such a name cannot be entity-encoded while staying a
-// valid name, so emitting it verbatim would allow tag breakout. Values are
-// attribute-escaped but NOT URL-sanitized (see Attrs).
+// Spread renders the bag in SLICE ORDER (no sort), with duplicate scalar keys resolved
+// last-wins. Duplicate class/style keys aggregate and emit once at their last source
+// position. A bool value uses boolean-attribute semantics (true → bare attribute,
+// false → omitted); everything else is written as key="value" with attribute escaping.
+// A key that is not a structurally valid HTML attribute name (see validAttrName) is
+// SKIPPED rather than emitted. Values are attribute-escaped but NOT URL-sanitized (see
+// Attrs). ctx is reserved for
+// forward-compatibility.
 func (gw *Writer) Spread(ctx context.Context, a Attrs) {
 	if gw.err != nil || len(a) == 0 {
 		return
 	}
-	keys := make([]string, 0, len(a))
-	for k := range a {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		if !validAttrName(k) {
+	last := lastValidAttrIndexes(a)
+	for i, kv := range a {
+		if !validAttrName(kv.Key) {
 			continue // unsafe/invalid attribute name — drop it
 		}
-		if b, ok := a[k].(bool); ok {
-			gw.BoolAttr(k, b)
+		if last[kv.Key] != i {
+			continue
+		}
+		if kv.Key == "class" {
+			kv.Value = a.Class()
+		} else if kv.Key == "style" {
+			kv.Value = a.Style()
+		}
+		if b, ok := kv.Value.(bool); ok {
+			gw.BoolAttr(kv.Key, b)
 			continue
 		}
 		gw.writeStr(" ")
-		gw.writeStr(k)
+		gw.writeStr(kv.Key)
 		gw.writeStr(`="`)
-		gw.AttrValue(toStr(a[k]))
+		gw.AttrValue(toStr(kv.Value))
 		gw.writeStr(`"`)
 	}
 }
 
-// validAttrName reports whether k is a structurally safe HTML attribute name:
-// non-empty and free of whitespace, control bytes, and the characters that could
-// break out of the tag or the name (" ' < > = / &). Names like "hx-on::click",
-// ":class", "@click.away", "data-x", and "_" pass.
+func mergeScalarAttr(out Attrs, kv Attr) Attrs {
+	idx := -1
+	for i := len(out) - 1; i >= 0; i-- {
+		if out[i].Key == kv.Key {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return append(out, kv)
+	}
+	out[idx].Value = kv.Value
+	return removeAttrBefore(out, kv.Key, idx)
+}
+
+func mergeClassStyleAttr(out Attrs, kv Attr) Attrs {
+	idx := -1
+	for i := range out {
+		if out[i].Key == kv.Key {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return append(out, kv)
+	}
+	for i := idx + 1; i < len(out); i++ {
+		if out[i].Key == kv.Key {
+			out[idx].Value = joinAttrStrings(kv.Key, toStr(out[idx].Value), toStr(out[i].Value))
+		}
+	}
+	out[idx].Value = joinAttrStrings(kv.Key, toStr(out[idx].Value), toStr(kv.Value))
+	return removeAttrAfter(out, kv.Key, idx)
+}
+
+func removeAttrBefore(attrs Attrs, key string, keep int) Attrs {
+	out := attrs[:0]
+	for i, kv := range attrs {
+		if kv.Key == key && i < keep {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
+func removeAttrAfter(attrs Attrs, key string, keep int) Attrs {
+	out := attrs[:0]
+	for i, kv := range attrs {
+		if kv.Key == key && i > keep {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
+func lastValidAttrIndexes(attrs Attrs) map[string]int {
+	last := make(map[string]int, len(attrs))
+	for i, kv := range attrs {
+		if validAttrName(kv.Key) {
+			last[kv.Key] = i
+		}
+	}
+	return last
+}
+
+// validAttrName reports whether k is a structurally safe HTML attribute name: non-empty
+// and free of whitespace, control bytes, and the characters that could break out of the
+// tag or the name (" ' < > = / &). Names like "hx-on::click", ":class", "@click.away",
+// "data-x", and "_" pass.
 func validAttrName(k string) bool {
 	if k == "" {
 		return false
 	}
 	for i := 0; i < len(k); i++ {
 		c := k[i]
-		if c <= ' ' || c == 0x7f { // whitespace or control byte
+		if c <= ' ' || c == 0x7f {
 			return false
 		}
 		switch c {

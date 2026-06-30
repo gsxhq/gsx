@@ -34,7 +34,7 @@ component Field(label string, containerAttrs gsx.Attrs) {
 component Page() {
 	<Field
 		label="Email"
-		container-attrs={gsx.Attrs{"data-testid": "email-field"}}
+		container-attrs={gsx.Attrs{{Key: "data-testid", Value: "email-field"}}}
 		type="email"
 		placeholder="you@co"
 		required
@@ -66,6 +66,7 @@ func Field(_gsxp FieldProps) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		label := _gsxp.Label
 		containerAttrs := _gsxp.ContainerAttrs
+		attrs := _gsxp.Attrs
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<div class=\"field\"")
@@ -78,10 +79,10 @@ func Field(_gsxp FieldProps) gsx.Node {
 		_gsxgw.S("</label>")
 //line input.gsx:8:3
 		_gsxgw.S("<input class=\"")
-		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class("field-input"), gsx.Class(_gsxp.Attrs.Class()))
+		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class("field-input"), gsx.Class(attrs.Class()))
 		_gsxgw.S("\"")
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
+		_gsxgw.StyleMerged("", attrs.Style())
+		_gsxgw.Spread(ctx, attrs.Without("class", "style"))
 		_gsxgw.S("/></div>")
 		return _gsxgw.Err()
 	})
@@ -92,9 +93,9 @@ func Page() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:13:2
-		_gsxgw.Node(ctx, Field(FieldProps{Label: "Email", ContainerAttrs: gsx.Attrs{"data-testid": "email-field"}, Attrs: gsx.Attrs{"type": "email", "placeholder": "you@co", "required": true}}))
+		_gsxgw.Node(ctx, Field(FieldProps{Label: "Email", ContainerAttrs: gsx.Attrs{{Key: "data-testid", Value: "email-field"}}, Attrs: gsx.Attrs{{Key: "type", Value: "email"}, {Key: "placeholder", Value: "you@co"}, {Key: "required", Value: true}}}))
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-<div class="field" data-testid="email-field"><label>Email</label><input class="field-input" placeholder="you@co" required type="email"/></div>
+<div class="field" data-testid="email-field"><label>Email</label><input class="field-input" type="email" placeholder="you@co" required/></div>

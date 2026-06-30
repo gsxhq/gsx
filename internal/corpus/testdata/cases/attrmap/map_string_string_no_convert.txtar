@@ -1,0 +1,20 @@
+# Props declared as gsx.Attrs accept only gsx.Attrs. A map[string]string is
+# rejected by ordinary Go type checking and is not implicitly converted.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Card(bag gsx.Attrs) {
+	<div { bag... }>x</div>
+}
+
+component Page() {
+	<Card bag={map[string]string{"id": "x"}}/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+10:26: cannot use map[string]string{…} (value of type map[string]string) as gsx.Attrs value in struct literal
+-- generated.x.go.golden --
+-- render.golden --

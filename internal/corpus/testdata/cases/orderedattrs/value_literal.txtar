@@ -1,10 +1,10 @@
-# {{ }} value literal binds to a gsx.OrderedAttrs prop, spread in source order.
+# {{ }} value literal binds to a gsx.Attrs prop, spread in source order.
 -- input.gsx --
 package views
 
 import "github.com/gsxhq/gsx"
 
-component Card(containerAttrs gsx.OrderedAttrs) {
+component Card(containerAttrs gsx.Attrs) {
 	<div class="container" { containerAttrs... }>{children}</div>
 }
 
@@ -27,7 +27,7 @@ import (
 )
 
 type CardProps struct {
-	ContainerAttrs gsx.OrderedAttrs
+	ContainerAttrs gsx.Attrs
 	Children       gsx.Node
 }
 
@@ -39,7 +39,7 @@ func Card(_gsxp CardProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<div class=\"container\"")
-		_gsxgw.SpreadOrdered(ctx, containerAttrs)
+		_gsxgw.Spread(ctx, containerAttrs)
 		_gsxgw.S(">")
 //line input.gsx:6:47
 		_gsxgw.Node(ctx, children)
@@ -53,7 +53,7 @@ func Page() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Card(CardProps{ContainerAttrs: gsx.OrderedAttrs{{Key: "data-signals", Value: "{open:false}"}, {Key: "data-text", Value: "$open"}, {Key: "data-a", Value: "z"}}, Children: gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+		_gsxgw.Node(ctx, Card(CardProps{ContainerAttrs: gsx.Attrs{{Key: "data-signals", Value: "{open:false}"}, {Key: "data-text", Value: "$open"}, {Key: "data-a", Value: "z"}}, Children: gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 			_gsxgw := gsx.W(_gsxw)
 			_gsxgw.S("hi")
 			return _gsxgw.Err()

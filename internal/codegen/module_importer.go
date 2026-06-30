@@ -328,28 +328,28 @@ func (m *Module) typesPackageWith(dir string, mi *moduleImporter) (*types.Packag
 // component cross-index inputs. typesPackage consumes only a.pkg; Module.Package
 // (retained analysis) and Module.Generate (codegen) consume the rest.
 type analyzed struct {
-	pkgName      string
-	gsxFiles     map[string]*gsxast.File        // gsx path -> parsed file
-	gsxFset      *token.FileSet                 // gsx positions
-	skelFset     *token.FileSet                 // skeleton positions (same fset as gsxFset for Module)
-	goFiles      []*goast.File                  // parsed skeletons + shared helper
-	compsByXGo   map[string][]*gsxast.Component // skeleton abs path -> components
-	table        filterTable
-	propFields   map[string]map[string]bool
-	nodeProps    map[string]map[string]bool
-	orderedProps map[string]map[string]bool
-	byo          *byoData
-	resolved     map[gsxast.Node]types.Type
-	exprMap      map[gsxast.Node]goast.Expr
-	ctrlMap      map[gsxast.Node]ctrlRef            // control-flow node -> skeleton clause pos + containing node
-	sigTypes     map[*gsxast.Component][]SigTypeRef // component -> parameter type spans (go-to-def on a param type)
-	pkg          *types.Package
-	info         *types.Info
-	compByKey    map[string]*gsxast.Component // componentKey -> component (for Name + NamePos)
-	objKey       map[types.Object]string      // component func object -> componentKey
-	bag          *diag.Bag                    // diagnostics from parse + script resolution; used by Generate
-	importSpecs  []importSpec                 // hoisted .gsx import specs (for unused-import detection)
-	typeErrs     []types.Error                // raw type errors from checkSkeletonPackage
+	pkgName     string
+	gsxFiles    map[string]*gsxast.File        // gsx path -> parsed file
+	gsxFset     *token.FileSet                 // gsx positions
+	skelFset    *token.FileSet                 // skeleton positions (same fset as gsxFset for Module)
+	goFiles     []*goast.File                  // parsed skeletons + shared helper
+	compsByXGo  map[string][]*gsxast.Component // skeleton abs path -> components
+	table       filterTable
+	propFields  map[string]map[string]bool
+	nodeProps   map[string]map[string]bool
+	attrsProps  map[string]map[string]bool
+	byo         *byoData
+	resolved    map[gsxast.Node]types.Type
+	exprMap     map[gsxast.Node]goast.Expr
+	ctrlMap     map[gsxast.Node]ctrlRef            // control-flow node -> skeleton clause pos + containing node
+	sigTypes    map[*gsxast.Component][]SigTypeRef // component -> parameter type spans (go-to-def on a param type)
+	pkg         *types.Package
+	info        *types.Info
+	compByKey   map[string]*gsxast.Component // componentKey -> component (for Name + NamePos)
+	objKey      map[types.Object]string      // component func object -> componentKey
+	bag         *diag.Bag                    // diagnostics from parse + script resolution; used by Generate
+	importSpecs []importSpec                 // hoisted .gsx import specs (for unused-import detection)
+	typeErrs    []types.Error                // raw type errors from checkSkeletonPackage
 }
 
 // analyze performs the shared parse -> skeleton -> type-check pipeline for one
@@ -392,7 +392,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	if err != nil {
 		return nil, err
 	}
-	propFields, nodeProps, orderedProps, byo, err := componentPropFieldsFor(dir, gsxFiles)
+	propFields, nodeProps, attrsProps, byo, err := componentPropFieldsFor(dir, gsxFiles)
 	if err != nil {
 		return nil, err
 	}
@@ -402,7 +402,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	var allImportSpecs []importSpec
 	skelErr := false
 	for path, f := range gsxFiles {
-		skel, comps, imps, ctrlOff, berr := buildSkeleton(f, table, propFields, nodeProps, byo, m.opts.FieldMatcher, fset)
+		skel, comps, imps, ctrlOff, berr := buildSkeleton(f, table, propFields, nodeProps, attrsProps, byo, m.opts.FieldMatcher, fset)
 		if berr != nil {
 			// buildSkeleton error handling: a positioned attrError becomes a
 			// diagnostic and skips this file; any other error is also recorded as a
@@ -443,10 +443,9 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// intact (it still checks the unwrapped first value T against the field) while
 	// swallowing any extra results, so no internal helper name leaks.
 	//
-	// _gsxuseq is the quiet variant of _gsxuse used ONLY for child-prop type
-	// harvest: errors inside its argument are suppressed (the props-literal
-	// _gsxunwrap(...) probe already reports the same expression-internal error), so
-	// a malformed child-prop value is reported once, not twice.
+	// _gsxuseq quietly harvests child-prop and element-spread types. Errors inside
+	// it are suppressed because each expression also has a native typed probe that
+	// reports the error once.
 	helperXgoPath := filepath.Join(dir, "_gsxshared.x.go")
 	helper, _ := goparser.ParseFile(fset, helperXgoPath,
 		"package "+pkgName+"\n\nfunc _gsxuse(...any) {}\nfunc _gsxuseq(...any) {}\nfunc _gsxcompsig(any) {}\nfunc _gsxunwrap[T any](v T, _ ...any) T { return v }\n", goparser.SkipObjectResolution)
@@ -504,15 +503,11 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		pkgPath = ip
 	}
 	pkg, info, typeErrs := checkSkeletonPackage(pkgPath, pkgName, goFiles, fset, mi)
-	// Collect the skeleton byte spans of every _gsxuseq(...) child-prop harvest
-	// probe. Such a probe re-evaluates a child-component prop value ONLY to harvest
-	// its raw type; the props-literal _gsxunwrap(...) probe already reports any
-	// expression-internal error (undefined ident, bad call, wrong arity, missing
-	// method) for the SAME value. Suppressing errors that originate inside a
-	// _gsxuseq argument keeps a malformed child-prop value reported once (from the
-	// props literal) rather than twice. Positions are raw token.Pos in the shared
-	// fset, so they are directly comparable to a types.Error's Pos (the //line
-	// directives only affect Position() resolution, not Pos ordering).
+	// Collect the skeleton byte spans of every _gsxuseq(...) child-prop or
+	// element-spread harvest probe. Each expression is also checked in a native
+	// typed context (the props literal or gsx.Attrs assignment), so suppressing
+	// errors inside _gsxuseq avoids duplicate diagnostics. Positions are raw
+	// token.Pos in the shared fset, directly comparable to a types.Error's Pos.
 	var quietSpans []struct{ start, end token.Pos }
 	for _, gf := range goFiles {
 		goast.Inspect(gf, func(n goast.Node) bool {
@@ -646,28 +641,28 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	}
 
 	return &analyzed{
-		pkgName:      pkgName,
-		gsxFiles:     gsxFiles,
-		gsxFset:      fset,
-		skelFset:     fset,
-		goFiles:      goFiles,
-		compsByXGo:   compsByXGo,
-		table:        table,
-		propFields:   propFields,
-		nodeProps:    nodeProps,
-		orderedProps: orderedProps,
-		byo:          byo,
-		resolved:     resolved,
-		exprMap:      exprMap,
-		ctrlMap:      ctrlMap,
-		sigTypes:     sigTypes,
-		pkg:          pkg,
-		info:         info,
-		compByKey:    compByKey,
-		objKey:       objKey,
-		bag:          bag,
-		importSpecs:  allImportSpecs,
-		typeErrs:     typeErrs,
+		pkgName:     pkgName,
+		gsxFiles:    gsxFiles,
+		gsxFset:     fset,
+		skelFset:    fset,
+		goFiles:     goFiles,
+		compsByXGo:  compsByXGo,
+		table:       table,
+		propFields:  propFields,
+		nodeProps:   nodeProps,
+		attrsProps:  attrsProps,
+		byo:         byo,
+		resolved:    resolved,
+		exprMap:     exprMap,
+		ctrlMap:     ctrlMap,
+		sigTypes:    sigTypes,
+		pkg:         pkg,
+		info:        info,
+		compByKey:   compByKey,
+		objKey:      objKey,
+		bag:         bag,
+		importSpecs: allImportSpecs,
+		typeErrs:    typeErrs,
 	}, nil
 }
 

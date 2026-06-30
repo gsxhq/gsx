@@ -1,0 +1,20 @@
+# A (map[string]any, error) call may be unwrapped, but its map result cannot bind
+# to a gsx.Attrs prop because maps are not implicitly converted.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+func attrsOf(id string) (map[string]any, error) {
+	return map[string]any{"id": id, "class": "c"}, nil
+}
+
+component Card(bag gsx.Attrs) {
+	<div { bag... }>x</div>
+}
+
+component Page() {
+	<Card bag={attrsOf("e1")}/>
+}
+-- diagnostics.golden --
+14:26: cannot use attrsOf("e1") (value of type map[string]any) as gsx.Attrs value in struct literal

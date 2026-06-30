@@ -1,0 +1,19 @@
+# Fallthrough bag renders in SOURCE order (not alphabetical).
+# type, placeholder, name are deliberately non-alphabetical; alphabetical
+# order would be name < placeholder < type.  The rendered output must match
+# the call-site declaration order, not any sorted permutation.
+-- input.gsx --
+package views
+
+component Field(label string) {
+	<input { attrs... }/>
+}
+
+component Page() {
+	<Field label="Email" type="email" placeholder="you@co" name="email"/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<input type="email" placeholder="you@co" name="email"/>

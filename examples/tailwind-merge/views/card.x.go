@@ -19,13 +19,14 @@ type CardProps struct {
 func Card(_gsxp CardProps) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		children := _gsxp.Children
+		attrs := _gsxp.Attrs
 		_gsxgw := gsx.W(_gsxw)
 //line card.gsx:4:2
 		_gsxgw.S("<section class=\"")
-		_gsxgw.Class(_gsxcm.Merge, gsx.Class("px-4 py-2"), gsx.Class(_gsxp.Attrs.Class()))
+		_gsxgw.Class(_gsxcm.Merge, gsx.Class("px-4 py-2"), gsx.Class(attrs.Class()))
 		_gsxgw.S("\"")
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
+		_gsxgw.StyleMerged("", attrs.Style())
+		_gsxgw.Spread(ctx, attrs.Without("class", "style"))
 		_gsxgw.S(">")
 //line card.gsx:4:42
 		_gsxgw.Node(ctx, children)

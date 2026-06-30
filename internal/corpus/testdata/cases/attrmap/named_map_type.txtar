@@ -1,0 +1,19 @@
+# Props declared as gsx.Attrs accept only gsx.Attrs. A defined map type such as
+# MyMap is rejected by ordinary Go type checking; it is not implicitly
+# converted based on its underlying type.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+type MyMap map[string]any
+
+component Card(bag gsx.Attrs) {
+	<div { bag... }>x</div>
+}
+
+component Page() {
+	<Card bag={MyMap{"b": "2", "a": "1"}}/>
+}
+-- diagnostics.golden --
+12:26: cannot use MyMap{…} (value of map type MyMap) as gsx.Attrs value in struct literal

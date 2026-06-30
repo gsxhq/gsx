@@ -5,7 +5,7 @@ component P() {
 	<p { attrs... }>{children}</p>
 }
 -- invoke --
-P(PProps{Attrs: gsx.Attrs{"class": "x"}})
+P(PProps{Attrs: gsx.Attrs{{Key: "class", Value: "x"}}})
 -- diagnostics.golden --
 -- render.golden --
 <p class="x"></p>

@@ -31,9 +31,10 @@ These are the explicit opt-outs from gsx's context-aware auto-escaping. Each one
 ::: v-pre
 | Name | Kind | Signature / type | Description |
 |------|------|-----------------|-------------|
-| `gsx.Attrs` | type | `type Attrs map[string]any` | Unordered attribute bag. Keys are sorted alphabetically at render time. Used for attribute spread (`{ bag… }`) and as the type of an explicit `Attrs gsx.Attrs` field on bring-your-own props. See [Attributes](./attributes). |
-| `gsx.Attr` | type | `type Attr struct{ Key string; Value any }` | A single key-value attribute pair. The element type of `gsx.OrderedAttrs`. |
-| `gsx.OrderedAttrs` | type | `type OrderedAttrs []Attr` | Insertion-ordered attribute bag. Keys render in slice order (not sorted). Populated by the `{{ "key": value }}` literal in a component invocation. See [Attributes — ordered attributes](./attributes#ordered--→-gsxorderedattrs). |
+| `gsx.Attrs` | type | `type Attrs []Attr` | Ordered attribute bag — the default bag type. Pairs render in slice order (source order). Used for `{ bag… }` spread and every declared `Attrs gsx.Attrs` prop. The `{{ "k": v }}` literal lowers to this type. See [Attributes](./attributes). |
+| `gsx.Attr` | type | `type Attr struct{ Key string; Value any }` | A single key-value attribute pair. The element type of `gsx.Attrs`. |
+| `gsx.AttrMap` | type | `type AttrMap map[string]any` | Optional map-backed construction helper. Templates accept `gsx.Attrs`, so call `ToAttrs` before passing map-shaped data to a bag prop or spread. See [Attributes](./attributes). |
+| `gsx.AttrMap.ToAttrs` | method | `func (m AttrMap) ToAttrs() Attrs` | Converts the map to an ordered `Attrs` slice with keys sorted ascending for deterministic output. Construct `Attrs` directly when insertion order matters. |
 :::
 
 ## Node boxing

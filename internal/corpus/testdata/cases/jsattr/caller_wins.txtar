@@ -5,7 +5,7 @@ component Panel(tab string) {
 	<div x-data="{ tab: @{ tab } }" { attrs... }>slot</div>
 }
 -- invoke --
-Panel(PanelProps{Tab: "home", Attrs: gsx.Attrs{"x-data": "OVERRIDE"}})
+Panel(PanelProps{Tab: "home", Attrs: gsx.Attrs{{Key: "x-data", Value: "OVERRIDE"}}})
 -- diagnostics.golden --
 -- render.golden --
 <div x-data="OVERRIDE">slot</div>

@@ -4,7 +4,7 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-component Card(toggleAttrs gsx.OrderedAttrs) {
+component Card(toggleAttrs gsx.Attrs) {
 	<div { toggleAttrs... }></div>
 }
 
@@ -27,7 +27,7 @@ import (
 )
 
 type CardProps struct {
-	ToggleAttrs gsx.OrderedAttrs
+	ToggleAttrs gsx.Attrs
 }
 
 //line input.gsx:5:1
@@ -37,7 +37,7 @@ func Card(_gsxp CardProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<div")
-		_gsxgw.SpreadOrdered(ctx, toggleAttrs)
+		_gsxgw.Spread(ctx, toggleAttrs)
 		_gsxgw.S("></div>")
 		return _gsxgw.Err()
 	})
@@ -48,7 +48,7 @@ func Page() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Card(CardProps{ToggleAttrs: gsx.OrderedAttrs{{Key: "data-show", Value: true}, {Key: "data-hide", Value: false}}}))
+		_gsxgw.Node(ctx, Card(CardProps{ToggleAttrs: gsx.Attrs{{Key: "data-show", Value: true}, {Key: "data-hide", Value: false}}}))
 		return _gsxgw.Err()
 	})
 }

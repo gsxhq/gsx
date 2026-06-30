@@ -4,7 +4,7 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-component Counter(signals gsx.OrderedAttrs) {
+component Counter(signals gsx.Attrs) {
 	<button { signals... }>{children}</button>
 }
 
@@ -27,7 +27,7 @@ import (
 )
 
 type CounterProps struct {
-	Signals  gsx.OrderedAttrs
+	Signals  gsx.Attrs
 	Children gsx.Node
 }
 
@@ -39,7 +39,7 @@ func Counter(_gsxp CounterProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<button")
-		_gsxgw.SpreadOrdered(ctx, signals)
+		_gsxgw.Spread(ctx, signals)
 		_gsxgw.S(">")
 //line input.gsx:6:25
 		_gsxgw.Node(ctx, children)
@@ -53,7 +53,7 @@ func Page() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Counter(CounterProps{Signals: gsx.OrderedAttrs{{Key: "data-signals", Value: "{count:0}"}, {Key: "data-text", Value: "$count"}, {Key: "data-on-click", Value: "$count++"}}, Children: gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+		_gsxgw.Node(ctx, Counter(CounterProps{Signals: gsx.Attrs{{Key: "data-signals", Value: "{count:0}"}, {Key: "data-text", Value: "$count"}, {Key: "data-on-click", Value: "$count++"}}, Children: gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 			_gsxgw := gsx.W(_gsxw)
 			_gsxgw.S("Count")
 			return _gsxgw.Err()

@@ -1,5 +1,5 @@
 # (T, error) auto-unwrap: tuple {{ }} bound to a prop spread one layer down.
-# Outer receives the OrderedAttrs and passes it unchanged to Inner via spread.
+# Outer receives the ordered gsx.Attrs and passes it unchanged to Inner via spread.
 -- input.gsx --
 package views
 
@@ -7,11 +7,11 @@ import "github.com/gsxhq/gsx"
 
 func sig(name string) (string, error) { return "{" + name + ":0}", nil }
 
-component Inner(bag gsx.OrderedAttrs) {
+component Inner(bag gsx.Attrs) {
 	<span { bag... }/>
 }
 
-component Outer(bag gsx.OrderedAttrs) {
+component Outer(bag gsx.Attrs) {
 	<Inner bag={bag}/>
 }
 
@@ -36,7 +36,7 @@ import (
 func sig(name string) (string, error) { return "{" + name + ":0}", nil }
 
 type InnerProps struct {
-	Bag gsx.OrderedAttrs
+	Bag gsx.Attrs
 }
 
 //line input.gsx:7:1
@@ -46,14 +46,14 @@ func Inner(_gsxp InnerProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:8:2
 		_gsxgw.S("<span")
-		_gsxgw.SpreadOrdered(ctx, bag)
+		_gsxgw.Spread(ctx, bag)
 		_gsxgw.S("/>")
 		return _gsxgw.Err()
 	})
 }
 
 type OuterProps struct {
-	Bag gsx.OrderedAttrs
+	Bag gsx.Attrs
 }
 
 //line input.gsx:11:1
@@ -81,7 +81,7 @@ func Page(_gsxp PageProps) gsx.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Outer(OuterProps{Bag: gsx.OrderedAttrs{{Key: "data-signals", Value: _gsxv0}}}))
+		_gsxgw.Node(ctx, Outer(OuterProps{Bag: gsx.Attrs{{Key: "data-signals", Value: _gsxv0}}}))
 		return _gsxgw.Err()
 	})
 }

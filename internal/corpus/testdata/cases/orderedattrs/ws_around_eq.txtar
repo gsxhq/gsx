@@ -6,7 +6,7 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-component Card(containerAttrs gsx.OrderedAttrs) {
+component Card(containerAttrs gsx.Attrs) {
 	<div { containerAttrs... }>{children}</div>
 }
 
@@ -35,7 +35,7 @@ import (
 )
 
 type CardProps struct {
-	ContainerAttrs gsx.OrderedAttrs
+	ContainerAttrs gsx.Attrs
 	Children       gsx.Node
 }
 
@@ -47,7 +47,7 @@ func Card(_gsxp CardProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<div")
-		_gsxgw.SpreadOrdered(ctx, containerAttrs)
+		_gsxgw.Spread(ctx, containerAttrs)
 		_gsxgw.S(">")
 //line input.gsx:6:29
 		_gsxgw.Node(ctx, children)
@@ -61,7 +61,7 @@ func Page() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Card(CardProps{ContainerAttrs: gsx.OrderedAttrs{{Key: "data-signals", Value: "{open:false}"}, {Key: "data-text", Value: "$open"}}, Children: gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+		_gsxgw.Node(ctx, Card(CardProps{ContainerAttrs: gsx.Attrs{{Key: "data-signals", Value: "{open:false}"}, {Key: "data-text", Value: "$open"}}, Children: gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 			_gsxgw := gsx.W(_gsxw)
 //line input.gsx:13:3
 			_gsxgw.S("<p id=\"tip\" class=\"")

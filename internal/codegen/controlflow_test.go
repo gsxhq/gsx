@@ -20,11 +20,11 @@ func TestBuildSkeletonRecordsCtrlOffsets(t *testing.T) {
 	}
 	// minimal props/byo for buildSkeleton; an empty table/maps is fine for a no-import component.
 	table, _ := loadFilterTable(t.TempDir())
-	pf, np, _, byo, err := componentPropFieldsFor(t.TempDir(), map[string]*gsxast.File{"p.gsx": file})
+	pf, np, ap, byo, err := componentPropFieldsFor(t.TempDir(), map[string]*gsxast.File{"p.gsx": file})
 	if err != nil {
 		t.Fatalf("propFields: %v", err)
 	}
-	skel, _, _, ctrlOff, err := buildSkeleton(file, table, pf, np, byo, nil, fset)
+	skel, _, _, ctrlOff, err := buildSkeleton(file, table, pf, np, ap, byo, nil, fset)
 	if err != nil {
 		t.Fatalf("buildSkeleton: %v", err)
 	}

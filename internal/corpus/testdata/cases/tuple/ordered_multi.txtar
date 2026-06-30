@@ -8,7 +8,7 @@ import "github.com/gsxhq/gsx"
 func f(k string) (string, error) { return "f-" + k, nil }
 func g(k string) (string, error) { return "g-" + k, nil }
 
-component Card(bag gsx.OrderedAttrs) {
+component Card(bag gsx.Attrs) {
 	<div { bag... }/>
 }
 
@@ -34,7 +34,7 @@ func f(k string) (string, error) { return "f-" + k, nil }
 func g(k string) (string, error) { return "g-" + k, nil }
 
 type CardProps struct {
-	Bag gsx.OrderedAttrs
+	Bag gsx.Attrs
 }
 
 //line input.gsx:8:1
@@ -44,7 +44,7 @@ func Card(_gsxp CardProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:9:2
 		_gsxgw.S("<div")
-		_gsxgw.SpreadOrdered(ctx, bag)
+		_gsxgw.Spread(ctx, bag)
 		_gsxgw.S("/>")
 		return _gsxgw.Err()
 	})
@@ -68,7 +68,7 @@ func Page(_gsxp PageProps) gsx.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Card(CardProps{Bag: gsx.OrderedAttrs{{Key: "x-a", Value: _gsxv0}, {Key: "x-b", Value: _gsxv1}}}))
+		_gsxgw.Node(ctx, Card(CardProps{Bag: gsx.Attrs{{Key: "x-a", Value: _gsxv0}, {Key: "x-b", Value: _gsxv1}}}))
 		return _gsxgw.Err()
 	})
 }

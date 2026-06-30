@@ -48,7 +48,7 @@ func BenchmarkStyleMergedDedup(b *testing.B) {
 
 func BenchmarkWithoutAttrs(b *testing.B) {
 	b.ReportAllocs()
-	a := Attrs{"id": "x", "class": "c", "data-n": "1"}
+	a := Attrs{{Key: "id", Value: "x"}, {Key: "class", Value: "c"}, {Key: "data-n", Value: "1"}}
 	for b.Loop() {
 		_ = a.Without("class", "style")
 	}

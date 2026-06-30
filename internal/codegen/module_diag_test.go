@@ -80,6 +80,146 @@ func TestPackageOmitsSecondaryDiagsOnTypeError(t *testing.T) {
 	}
 }
 
+func TestAttrsBoundariesUseNativeTypeDiagnostics(t *testing.T) {
+	t.Parallel()
+	repoRoot, _ := filepath.Abs("../..")
+
+	tests := []struct {
+		name       string
+		src        string
+		wantText   string
+		wantCount  int
+		wantFiles  bool
+		forbidText string
+	}{
+		{
+			name: "child prop rejects map without helper leak",
+			src: `package views
+
+import "github.com/gsxhq/gsx"
+
+component Card(bag gsx.Attrs) {
+	<div></div>
+}
+
+component Page(m map[string]any) {
+	<Card bag={m}/>
+}
+`,
+			wantText:   "as gsx.Attrs",
+			wantCount:  1,
+			forbidText: "_gsxbag",
+		},
+		{
+			name: "element spread rejects map and suppresses output",
+			src: `package views
+
+component Page(m map[string]any) {
+	<div { m... }></div>
+}
+`,
+			wantText:   "as gsx.Attrs",
+			wantCount:  1,
+			forbidText: "_gsx",
+		},
+		{
+			name: "element spread rejects unconverted AttrMap",
+			src: `package views
+
+import "github.com/gsxhq/gsx"
+
+component Page(bag gsx.AttrMap) {
+	<div { bag... }></div>
+}
+`,
+			wantText:   "as gsx.Attrs",
+			wantCount:  1,
+			forbidText: "_gsx",
+		},
+		{
+			name: "element spread accepts nil",
+			src: `package views
+
+component Page() {
+	<div { nil... }></div>
+}
+`,
+			wantFiles: true,
+		},
+		{
+			name: "undefined element spread reports once",
+			src: `package views
+
+component Page() {
+	<div { missing... }></div>
+}
+`,
+			wantText:   "undefined: missing",
+			wantCount:  1,
+			forbidText: "_gsx",
+		},
+		{
+			name: "element spread accepts Attrs",
+			src: `package views
+
+import "github.com/gsxhq/gsx"
+
+component Page(bag gsx.Attrs) {
+	<div { bag... }></div>
+}
+`,
+			wantFiles: true,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+			pkgDir := filepath.Join(root, "views")
+			if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, pkgDir, "views.gsx", tc.src)
+
+			m, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app", FilterPkgs: []string{StdImportPath}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			files, diags, err := m.Generate(pkgDir)
+			if err != nil {
+				t.Fatalf("generate: %v", err)
+			}
+			if got := len(files) > 0; got != tc.wantFiles {
+				t.Errorf("generated files present = %v, want %v", got, tc.wantFiles)
+			}
+			if tc.wantText == "" {
+				if len(diags) != 0 {
+					t.Fatalf("unexpected diagnostics: %+v", diags)
+				}
+				return
+			}
+			if len(diags) != tc.wantCount {
+				t.Fatalf("diagnostic count = %d, want %d; all diagnostics: %+v", len(diags), tc.wantCount, diags)
+			}
+			var matches int
+			for _, d := range diags {
+				if strings.Contains(d.Message, tc.wantText) {
+					matches++
+				}
+				if tc.forbidText != "" && strings.Contains(d.Message, tc.forbidText) {
+					t.Errorf("diagnostic leaked %q: %s", tc.forbidText, d.Message)
+				}
+			}
+			if matches != tc.wantCount {
+				t.Fatalf("diagnostics containing %q = %d, want %d; all diagnostics: %+v", tc.wantText, matches, tc.wantCount, diags)
+			}
+		})
+	}
+}
+
 func TestModuleInvalidateKeepsExternalWarm(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

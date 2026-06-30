@@ -63,12 +63,12 @@
     "name": "Spread Attributes",
     "category": "Basics",
     "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Card(extra gsx.Attrs) {\n\t<div { extra... }>content</div>\n}\n",
-    "invoke": "Card(CardProps{Extra: gsx.Attrs{\"id\": \"box\", \"data-active\": \"true\"}})"
+    "invoke": "Card(CardProps{Extra: gsx.Attrs{{Key: \"id\", Value: \"box\"}, {Key: \"data-active\", Value: \"true\"}}})"
   },
   {
     "name": "Ordered Attributes",
     "category": "Basics",
-    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Counter(signals gsx.OrderedAttrs) {\n\t<button { signals... }>{ children }</button>\n}\n\ncomponent Page() {\n\t<Counter\n\t\tsignals={{ \"data-signals\": \"{count:0}\", \"data-text\": \"$count\", \"data-on-click\": \"$count++\" }}\n\t>\n\t\tCount\n\t</Counter>\n}\n",
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Counter(signals gsx.Attrs) {\n\t<button { signals... }>{ children }</button>\n}\n\ncomponent Page() {\n\t<Counter\n\t\tsignals={{ \"data-signals\": \"{count:0}\", \"data-text\": \"$count\", \"data-on-click\": \"$count++\" }}\n\t>\n\t\tCount\n\t</Counter>\n}\n",
     "invoke": "Page()"
   },
   {
@@ -99,7 +99,7 @@
     "name": "Class & style merging",
     "category": "Styling",
     "source": "package views\n\ncomponent Card() {\n\t<div class=\"card\" style=\"color: red\" { attrs... }>{ children }</div>\n}\n",
-    "invoke": "Card(CardProps{Attrs: gsx.Attrs{\"class\": \"featured\", \"style\": \"color: blue; margin: 0\"}})"
+    "invoke": "Card(CardProps{Attrs: gsx.Attrs{{Key: \"class\", Value: \"featured\"}, {Key: \"style\", Value: \"color: blue; margin: 0\"}}})"
   },
   {
     "name": "Filter arguments",

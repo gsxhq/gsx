@@ -8,7 +8,7 @@ import "github.com/gsxhq/gsx"
 
 func twoVals() (int, string) { return 1, "x" }
 
-component Card(bag gsx.OrderedAttrs) {
+component Card(bag gsx.Attrs) {
 	<div { bag... }/>
 }
 

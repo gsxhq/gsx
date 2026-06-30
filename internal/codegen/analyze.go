@@ -63,10 +63,13 @@ var errSkipComponent = errors.New("skip")
 // declared in a .gsx GoChunk is read syntactically (no resolution); an external
 // .go struct is enumerated by a preliminary go/packages load of dir. byo is
 // nil-safe and always returned non-nil.
-func componentPropFieldsFor(dir string, files map[string]*gsxast.File) (propFields, nodeProps, orderedProps map[string]map[string]bool, byo *byoData, err error) {
+func componentPropFieldsFor(dir string, files map[string]*gsxast.File) (propFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, err error) {
 	out := map[string]map[string]bool{}
 	nodeOut := map[string]map[string]bool{}
-	orderedOut := map[string]map[string]bool{}
+	// attrsOut[propsType] is the set of field names whose declared type is exactly
+	// gsx.Attrs (the ordered bag slice). The skeleton uses this classification to
+	// enforce that values bound to bag fields are themselves gsx.Attrs.
+	attrsOut := map[string]map[string]bool{}
 	byo = newByoData()
 	byo.nullaryFuncs = packageNullaryFuncs(dir)
 
@@ -77,19 +80,19 @@ func componentPropFieldsFor(dir string, files map[string]*gsxast.File) (propFiel
 	externalWanted := map[string]bool{}
 
 	// genProps derives the GENERATED-path prop-field map + node-field map +
-	// orderedAttrs-field map for a component (the historical AST-derived behavior),
+	// attrs-field map for a component (the historical AST-derived behavior),
 	// keyed by propsName/compKey.
 	genProps := func(c *gsxast.Component, params []param, propsName string) {
 		fields := map[string]bool{}
 		nodeFields := map[string]bool{}
-		orderedFields := map[string]bool{}
+		attrsFields := map[string]bool{}
 		for _, p := range params {
 			fields[fieldName(p.name)] = true
 			if isGsxNodeType(p.typ) {
 				nodeFields[fieldName(p.name)] = true
 			}
-			if isOrderedAttrsType(p.typ) {
-				orderedFields[fieldName(p.name)] = true
+			if isGsxAttrsType(p.typ) {
+				attrsFields[fieldName(p.name)] = true
 			}
 		}
 		hasChildren := usesChildren(c.Body)
@@ -111,7 +114,7 @@ func componentPropFieldsFor(dir string, files map[string]*gsxast.File) (propFiel
 			out[propsName] = fields
 		}
 		nodeOut[propsName] = nodeFields
-		orderedOut[propsName] = orderedFields
+		attrsOut[propsName] = attrsFields
 	}
 
 	// deferred holds external-struct candidate components whose byo-vs-generated
@@ -189,7 +192,7 @@ func componentPropFieldsFor(dir string, files map[string]*gsxast.File) (propFiel
 		// Not a struct (or unresolved) → not byo; take the generated path.
 		genProps(dc.c, dc.params, dc.propsName)
 	}
-	return out, nodeOut, orderedOut, byo, nil
+	return out, nodeOut, attrsOut, byo, nil
 }
 
 // isNoPropsComponent reports whether propsType names a same-package function
@@ -246,18 +249,11 @@ func isGsxNodeType(typ string) bool {
 	return strings.TrimSpace(typ) == "gsx.Node"
 }
 
-// isOrderedAttrsType reports whether a param's declared type string is exactly
-// the gsx OrderedAttrs type (qualified or, in-package, bare).
-func isOrderedAttrsType(typ string) bool {
-	t := strings.TrimSpace(typ)
-	return t == "gsx.OrderedAttrs" || t == "_gsxrt.OrderedAttrs" || t == "OrderedAttrs"
-}
-
 // buildSkeleton synthesizes a Go file standing in for the gsx file during type
 // resolution: the file's GoChunks, plus each component's real props struct and
 // func signature, with a probe body (used-param locals, each interpolation as
 // `_gsxuse(expr)`, each child component as `_ = Child(ChildProps{})`).
-func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, fset *token.FileSet) (string, []*gsxast.Component, []importSpec, map[gsxast.Node]int, error) {
+func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, fset *token.FileSet) (string, []*gsxast.Component, []importSpec, map[gsxast.Node]int, error) {
 	var comps []*gsxast.Component
 	for _, d := range file.Decls {
 		if c, ok := d.(*gsxast.Component); ok {
@@ -320,7 +316,7 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps m
 	// failure and must abort the whole skeleton build.
 	var validComps []*gsxast.Component
 	for _, c := range comps {
-		if err := emitComponentSkeleton(&compBuf, c, table, propFields, nodeProps, byo, fm, usedFilters, fset, ctrlOff); err != nil {
+		if err := emitComponentSkeleton(&compBuf, c, table, propFields, nodeProps, attrsProps, byo, fm, usedFilters, fset, ctrlOff); err != nil {
 			if errors.Is(err, errSkipComponent) {
 				// Validation failure: skip this component's skeleton; it will fail
 				// again (with a positioned diagnostic) during generateFile.
@@ -483,7 +479,7 @@ func sortedFilterAliases(usedFilters map[string]string) []string {
 // func/method signature + probe body) into sb, accumulating into usedFilters
 // (alias→pkgPath) every filter package the component's probes reference — so the
 // caller imports exactly those packages under those aliases.
-func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filterTable, propFields, nodeProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int) error {
+func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filterTable, propFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int) error {
 	params, err := parseParams(c.Params)
 	if err != nil {
 		// Emit a minimal stub so the overall skeleton remains valid Go, keeping
@@ -560,7 +556,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 		// Reset the //line so the probe body's own positions are not shifted by the
 		// param binding's mapping.
 		emitSkeletonLine(sb, fset, c.Pos())
-		if err := emitProbes(sb, c.Body, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
+		if err := emitProbes(sb, c.Body, table, propFields, nodeProps, attrsProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
 			return err
 		}
 		sb.WriteString("\treturn nil\n}\n")
@@ -640,7 +636,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 	if manual {
 		sb.WriteString("\tattrs := _gsxp.Attrs\n")
 	}
-	if err := emitProbes(sb, c.Body, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
+	if err := emitProbes(sb, c.Body, table, propFields, nodeProps, attrsProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
 		return err
 	}
 	sb.WriteString("\treturn nil\n}\n")
@@ -661,7 +657,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 // usedFilters (alias→pkgPath) accumulates every filter package the probes
 // reference, so the skeleton imports exactly those packages under those aliases
 // — driven by the SAME lowerPipe report the emitter uses.
-func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, propFields, nodeProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, recvVar, recvTypeName string, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int) error {
+func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, propFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, recvVar, recvTypeName string, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int) error {
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *gsxast.Interp:
@@ -814,11 +810,12 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					}
 				}
 				// Probe CF arm exprs and unconditional plain ClassPart exprs AFTER pair
-				// probes — matching collectExprs's ClassPart ordering exactly. _gsxuseq
+				// probes — matching collectExprs's ClassPart ordering exactly. _gsxuse
 				// harvests the raw type so classEntryExpr can detect and hoist (T, error)
-				// tuple call parts and CF arms. The props-literal probe (_gsxunwrap
-				// wrapping) already reports expression-internal errors, so quiet
-				// suppression avoids dups.
+				// tuple call parts and CF arms. Unlike ordinary child-prop expressions,
+				// call-shaped class parts are stubbed in the props-literal probe to
+				// tolerate tuples, so this non-quiet probe is also responsible for
+				// surfacing expression errors such as undefined identifiers.
 				for _, a := range t.Attrs {
 					ca, ok := a.(*gsxast.ClassAttr)
 					if !ok {
@@ -834,7 +831,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 									probe = strings.TrimSpace(arm.Expr)
 								}
 								emitSkeletonLine(sb, fset, arm.Pos())
-								fmt.Fprintf(sb, "_gsxuseq(%s)\n", probe)
+								fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 							}
 						} else if ca.Parts[i].Cond == "" {
 							probe, perr := probeExpr(ca.Parts[i].Expr, ca.Parts[i].Stages, table, usedFilters)
@@ -842,7 +839,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 								probe = strings.TrimSpace(ca.Parts[i].Expr)
 							}
 							emitSkeletonLine(sb, fset, ca.Parts[i].Pos())
-							fmt.Fprintf(sb, "_gsxuseq(%s)\n", probe)
+							fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 						}
 					}
 				}
@@ -853,12 +850,12 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					if probeErr != nil {
 						return
 					}
-					probeErr = emitProbes(sb, value, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff)
+					probeErr = emitProbes(sb, value, table, propFields, nodeProps, attrsProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff)
 				})
 				if probeErr != nil {
 					return probeErr
 				}
-				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
+				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, attrsProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
 					return err
 				}
 			} else {
@@ -878,6 +875,34 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					}
 					emitSkeletonLine(sb, fset, ea.Pos())
 					fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
+				})
+				if probeErr != nil {
+					return probeErr
+				}
+				// Probe each element-spread expr with _gsxuseq. The quiet probe checks
+				// the expression and doubles as its liveness reference, so a var used
+				// ONLY in a `{ x... }` spread stays "used". collectExprs appends each
+				// SpreadAttr AFTER all the element's ExprAttrs, so the k-th probe stays
+				// aligned with the k-th node.
+				walkSpreadAttrs(t.Attrs, func(sa *gsxast.SpreadAttr) {
+					if probeErr != nil {
+						return
+					}
+					probe, err := probeExpr(sa.Expr, sa.Stages, table, usedFilters)
+					if err != nil {
+						probeErr = err
+						return
+					}
+					emitSkeletonLine(sb, fset, sa.Pos())
+					fmt.Fprintf(sb, "_gsxuseq(%s)\n", probe)
+					// The _gsxuseq harvest above has its error span SUPPRESSED
+					// (module_importer quietSpans). Re-check the expression in a native
+					// gsx.Attrs assignment so invalid spread types and expression errors
+					// surface exactly once without exposing a synthetic helper name.
+					// This declaration is NOT a counted probe, so it is invisible to the
+					// k-th-probe→k-th-node harvest alignment.
+					emitSkeletonLine(sb, fset, sa.Pos())
+					fmt.Fprintf(sb, "var _ _gsxrt.Attrs = (%s)\n", probe)
 				})
 				if probeErr != nil {
 					return probeErr
@@ -926,7 +951,8 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				// `class={ "on": v }` or `{...attrs}` must still be referenced here or
 				// it's "declared and not used". Emit a liveness `_ = (expr)` — NOT
 				// _gsxuse, so the harvest alignment is intact. CF parts and unconditional
-				// plain parts are excluded (they have _gsxuse probes above).
+				// plain parts are excluded (they have _gsxuse probes above). Spreads are
+				// excluded too because their _gsxuseq probes above also keep them live.
 				walkLivenessAttrExprs(t.Attrs, table, usedFilters, func(expr string) {
 					fmt.Fprintf(sb, "_ = (%s)\n", expr)
 				})
@@ -937,24 +963,24 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					if probeErr != nil {
 						return
 					}
-					probeErr = emitProbes(sb, value, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff)
+					probeErr = emitProbes(sb, value, table, propFields, nodeProps, attrsProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff)
 				})
 				if probeErr != nil {
 					return probeErr
 				}
-				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
+				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, attrsProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
 					return err
 				}
 			}
 		case *gsxast.Fragment:
-			if err := emitProbes(sb, t.Children, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
+			if err := emitProbes(sb, t.Children, table, propFields, nodeProps, attrsProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
 				return err
 			}
 		case *gsxast.ForMarkup:
 			emitSkeletonClauseLine(sb, fset, t.ClausePos, len("for ")) // 4
 			ctrlOff[t] = sb.Len() + len("for ")
 			fmt.Fprintf(sb, "for %s {\n", t.Clause)
-			if err := emitProbes(sb, t.Body, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
+			if err := emitProbes(sb, t.Body, table, propFields, nodeProps, attrsProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
 				return err
 			}
 			sb.WriteString("}\n")
@@ -962,13 +988,13 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 			emitSkeletonClauseLine(sb, fset, t.CondPos, len("if ")) // 3
 			ctrlOff[t] = sb.Len() + len("if ")
 			fmt.Fprintf(sb, "if %s {\n", t.Cond)
-			if err := emitProbes(sb, t.Then, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
+			if err := emitProbes(sb, t.Then, table, propFields, nodeProps, attrsProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
 				return err
 			}
 			sb.WriteString("}")
 			if t.Else != nil {
 				sb.WriteString(" else {\n")
-				if err := emitProbes(sb, t.Else, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
+				if err := emitProbes(sb, t.Else, table, propFields, nodeProps, attrsProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
 					return err
 				}
 				sb.WriteString("}")
@@ -982,7 +1008,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				} else {
 					fmt.Fprintf(sb, "case %s:\n", cc.List)
 				}
-				if err := emitProbes(sb, cc.Body, table, propFields, nodeProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
+				if err := emitProbes(sb, cc.Body, table, propFields, nodeProps, attrsProps, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff); err != nil {
 					return err
 				}
 			}
@@ -1565,6 +1591,12 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 			walkAttrExprs(t.Attrs, func(ea *gsxast.ExprAttr) {
 				*out = append(*out, ea)
 			})
+			// Then each element-spread expr, AFTER all ExprAttrs — emitProbes emits the
+			// _gsxuseq spread probes in the SAME position (after the _gsxuse ExprAttr
+			// probes), so the k-th spread node maps to the k-th spread probe.
+			walkSpreadAttrs(t.Attrs, func(sa *gsxast.SpreadAttr) {
+				*out = append(*out, sa)
+			})
 			// Collect ValueArm nodes for value-form CF parts, and *ClassPart nodes
 			// for unconditional plain parts, in source order: for each ClassAttr in
 			// attr order, for each part, in arm source order for CF parts. emitProbes
@@ -1629,14 +1661,34 @@ func walkAttrExprs(attrs []gsxast.Attr, fn func(*gsxast.ExprAttr)) {
 	}
 }
 
-// walkLivenessAttrExprs invokes fn for each Go expression in a ClassAttr/SpreadAttr
-// (recursing CondAttr) — the attr exprs that walkAttrExprs does NOT yield. Codegen
-// emits these verbatim (gsx.Class/ClassIf/StyleString, gw.Spread) so they need no
-// type harvest, but the skeleton must still REFERENCE them or a var used ONLY here
+// walkSpreadAttrs invokes fn for each *SpreadAttr in an element's attr list, in
+// canonical source order (recursing *CondAttr Then→Else, like walkAttrExprs). It is
+// the SINGLE walk shared by collectExprs (which appends each spread node AFTER all
+// the element's ExprAttrs) and emitProbes (which emits one _gsxuseq harvest probe
+// per spread, AFTER all the element's _gsxuse ExprAttr probes), so the k-th spread
+// probe always maps to the k-th collected spread node.
+func walkSpreadAttrs(attrs []gsxast.Attr, fn func(*gsxast.SpreadAttr)) {
+	for _, a := range attrs {
+		switch at := a.(type) {
+		case *gsxast.SpreadAttr:
+			fn(at)
+		case *gsxast.CondAttr:
+			walkSpreadAttrs(at.Then, fn)
+			walkSpreadAttrs(at.Else, fn)
+		}
+	}
+}
+
+// walkLivenessAttrExprs invokes fn for each Go expression in a ClassAttr
+// (recursing CondAttr) — the attr exprs that walkAttrExprs does NOT yield, and that
+// carry no type harvest. (SpreadAttr exprs ARE harvested now, via walkSpreadAttrs +
+// _gsxuseq, which doubles as their liveness reference, so they are no longer handled
+// here.) Codegen emits these verbatim (gsx.Class/ClassIf/StyleString) so they need
+// no type harvest, but the skeleton must still REFERENCE them or a var used ONLY here
 // (e.g. a for-loop var in `class={ "on": v }`) is rejected as "declared and not
 // used". emitProbes emits `_ = (expr)` for each — a liveness reference that, unlike
 // _gsxuse, is invisible to the k-th-probe→k-th-node type-harvest alignment.
-// A ClassPart/SpreadAttr carrying a `|>` pipeline must reference the LOWERED
+// A ClassPart carrying a `|>` pipeline must reference the LOWERED
 // expression — the SAME lowerPipe output emit produces — so type resolution and
 // import harvest match emit exactly (emit ≡ probe). table lowers each pipeline and
 // usedFilters accumulates the referenced filter packages (alias→pkgPath) so the
@@ -1679,8 +1731,6 @@ func walkLivenessAttrExprs(attrs []gsxast.Attr, table filterTable, usedFilters m
 					fn(c)
 				}
 			}
-		case *gsxast.SpreadAttr:
-			emit(at.Expr, at.Stages)
 		case *gsxast.CondAttr:
 			walkLivenessAttrExprs(at.Then, table, usedFilters, fn)
 			walkLivenessAttrExprs(at.Else, table, usedFilters, fn)

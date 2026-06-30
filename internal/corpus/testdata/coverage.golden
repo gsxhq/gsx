@@ -1,3 +1,11 @@
+attrmap/bare_map_param	diag(error)
+attrmap/element_spread	diag gen render
+attrmap/map_string_string_no_convert	diag gen render
+attrmap/named_map_type	diag(error)
+attrmap/nil_prop	diag gen render
+attrmap/prop_binding	diag gen render
+attrmap/spread_undefined_error	diag render
+attrmap/tuple_map_compose	diag(error)
 attrs/attr_error_autounwrap	diag gen render
 attrs/attr_error_autounwrap_nested	diag gen render
 attrs/cond_attr_bool_off	diag render
@@ -55,7 +63,7 @@ components/child_class_reject_non_error_tuple	diag(error)
 components/child_class_value_arm_tuple	diag gen render
 components/child_hyphen_attr_fallthrough	diag render
 components/child_no_props	diag render
-components/child_prop_attrs_reference	diag gen render
+components/child_prop_attrs_reference	diag(error) gen
 components/child_prop_pipeline	diag render
 components/child_prop_try_error	diag(error)
 components/child_prop_tuple_error	diag gen render
@@ -155,6 +163,7 @@ fallthrough/no_class_empty_bag	diag render
 fallthrough/no_class_root_with_bag	diag render
 fallthrough/not_eligible_no_field	diag gen render
 fallthrough/reserved_param_attrs	diag(error)
+fallthrough/source_order	diag render
 fallthrough/static_class_merge	diag render
 interpolation/field_access	diag render
 interpolation/interp_types	diag render
@@ -337,4 +346,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 339 cases (render: 257, error: 61, gen-pinned: 134)
+TOTAL: 348 cases (render: 262, error: 65, gen-pinned: 138)

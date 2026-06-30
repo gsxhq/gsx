@@ -1,0 +1,14 @@
+# Element spreads accept only gsx.Attrs. A bare map[string]any parameter is
+# rejected by ordinary Go type checking; it is not implicitly converted.
+-- input.gsx --
+package views
+
+component Card(m map[string]any) {
+	<div { m... }>x</div>
+}
+
+component Page() {
+	<Card m={map[string]any{"z": "1", "a": "2"}}/>
+}
+-- diagnostics.golden --
+4:28: cannot use (m) (variable of type map[string]any) as gsx.Attrs value in variable declaration

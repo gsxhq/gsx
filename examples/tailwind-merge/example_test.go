@@ -12,7 +12,7 @@ import (
 func TestTailwindMergeFallthrough(t *testing.T) {
 	// caller passes conflicting px-8; tailwind merge must drop px-4.
 	var sb strings.Builder
-	node := views.Card(views.CardProps{Attrs: gsx.Attrs{"class": "px-8"}, Children: gsx.Raw("x")})
+	node := views.Card(views.CardProps{Attrs: gsx.Attrs{{Key: "class", Value: "px-8"}}, Children: gsx.Raw("x")})
 	if err := node.Render(context.Background(), &sb); err != nil {
 		t.Fatal(err)
 	}

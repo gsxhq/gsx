@@ -37,13 +37,14 @@ type CardProps struct {
 func Card(_gsxp CardProps) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		title := _gsxp.Title
+		attrs := _gsxp.Attrs
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:5:34
 		_gsxgw.S("<div class=\"")
-		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class("card"), gsx.Class(_gsxp.Attrs.Class()))
+		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class("card"), gsx.Class(attrs.Class()))
 		_gsxgw.S("\"")
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
+		_gsxgw.StyleMerged("", attrs.Style())
+		_gsxgw.Spread(ctx, attrs.Without("class", "style"))
 		_gsxgw.S(">")
 //line input.gsx:5:65
 		_gsxgw.Node(ctx, title)
@@ -62,7 +63,7 @@ func Page(_gsxp PageProps) gsx.Node {
 		flag := _gsxp.Flag
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.Node(ctx, Card(CardProps{Title: gsx.Text("Hi"), Attrs: gsx.Attrs{"class": gsx.ClassJoin(gsx.Class("featured"), gsx.ClassIf("active", flag))}}))
+		_gsxgw.Node(ctx, Card(CardProps{Title: gsx.Text("Hi"), Attrs: gsx.Attrs{{Key: "class", Value: gsx.ClassJoin(gsx.Class("featured"), gsx.ClassIf("active", flag))}}}))
 		return _gsxgw.Err()
 	})
 }

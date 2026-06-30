@@ -1,0 +1,15 @@
+# An element spread of an undefined variable surfaces the ordinary undefined
+# identifier diagnostic.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Card(bag gsx.Attrs) {
+	<div { undefinedSpreadVar... }>x</div>
+}
+-- invoke --
+Card(CardProps{})
+-- diagnostics.golden --
+6:29: undefined: undefinedSpreadVar
+-- render.golden --
