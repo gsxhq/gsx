@@ -1,11 +1,11 @@
-attrmap/bare_map_param	diag gen render
+attrmap/bare_map_param	diag(error)
 attrmap/element_spread	diag gen render
 attrmap/map_string_string_no_convert	diag gen render
-attrmap/named_map_type	diag gen render
+attrmap/named_map_type	diag(error)
 attrmap/nil_prop	diag gen render
 attrmap/prop_binding	diag gen render
 attrmap/spread_undefined_error	diag render
-attrmap/tuple_map_compose	diag gen render
+attrmap/tuple_map_compose	diag(error)
 attrs/attr_error_autounwrap	diag gen render
 attrs/attr_error_autounwrap_nested	diag gen render
 attrs/cond_attr_bool_off	diag render
@@ -318,4 +318,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 320 cases (render: 244, error: 56, gen-pinned: 120)
+TOTAL: 320 cases (render: 241, error: 59, gen-pinned: 117)

@@ -1,8 +1,5 @@
-# A bare `nil` bound to an Attrs bag prop binds directly (nil assigns fine to a
-# slice gsx.Attrs). It is exempt from BOTH the emit-time AttrsFromMap wrap
-# (isStringAnyMap(nil) is false) AND the skeleton _gsxbag wrap (Go cannot infer
-# the generic T from untyped nil, which would also leak the helper name). No
-# _gsxbag / _gsxshared text appears anywhere in the output.
+# A bare nil binds directly to a gsx.Attrs prop because nil is assignable to the
+# slice type. Rendering an empty attribute slice remains valid.
 -- input.gsx --
 package views
 
