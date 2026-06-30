@@ -20,7 +20,7 @@ generator/CLI may use `golang.org/x/tools`.
 | Whitespace model | `[x]` JSX-style: `internal/wsnorm.Normalize` (parser lossless) wired into codegen + powers `gsx fmt`. render-faithful + idempotent over the whole corpus. |
 | Pipeline `\|>` end-to-end | `[x]` seed-first forward-application lowering + `std` filters + user filter packages (`gen.WithFilters` + `gen.WithFilter` aliases, multi-pkg last-wins) + `ctx` injection + `(T,error)` implicit auto-unwrap. Works in interp / attr / class / style / spread / child-prop values / `{{ }}` pairs (all expression positions). Initialism-aware naming pending. |
 | CLI (`gsx`) / `gen.Main` | `[~]` `generate` (incl. `--watch`/`--format=ndjson`) · `fmt` · `info` · `init` · `lsp` · `clean --cache` · `version` · `help` ship, with `--json` + structured diagnostics. `vet`/`render`/`explain`/numeric codes pending. `WithClassMerger` + `class_merger` TOML knob shipped. |
-| Language server (`gsx lsp`) | `[~]` diagnostics (debounced) + go-to-definition (incl. inside pipelines) + hover (incl. pipelines) + find-references + formatting ship; completion / cross-package deferred. |
+| Language server (`gsx lsp`) | `[~]` diagnostics (debounced) + go-to-definition (incl. inside pipelines) + hover (incl. pipelines) + find-references + formatting ship; completion and external/non-project references deferred; references cover project components discovered during module analysis. |
 | Developer experience (Vite + `init`) | `[x]` `gsx init` scaffold + `@gsxhq/vite-plugin-gsx` (npm v0.2.1) + `github.com/gsxhq/vite` (v0.2.0). |
 
 ## Done
@@ -181,7 +181,7 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
   identifier or expression; component-tag hover shows the component signature
   (answered from the AST even when type-checking fails mid-edit).
 - `[x]` **Find-references** (`textDocument/references`) — `.go` call sites + `.gsx`
-  tag sites for a component, in-package.
+  tag sites for project components discovered during module analysis; external/non-project packages are skipped.
 - `[x]` **Formatting** (`textDocument/formatting`) — canonical form with
   unused-import removal (reuses `gen.Format` / `gsxfmt.FormatRemovingImports`).
 - `[x]` **Pipeline-aware definition + hover** (`internal/lsp/pipe.go`) — go-to-def
@@ -192,8 +192,9 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
 - `[x]` **Debounced diagnostics** (`internal/lsp/server.go`) — a per-directory
   timer (250 ms) coalesces edit bursts; analysis runs off the read loop and
   version-tags its publishes. `didOpen` publishes promptly (no debounce).
-- **Deferred:** completion (needs AST repair + ranking; no importable library);
-  cross-package references; dotted/cross-package component tags (`<ui.Button/>`).
+- **Deferred:** completion and external/non-project references; references cover
+  project components discovered during module analysis. Dotted/cross-package
+  component tags (`<ui.Button/>`) are deferred.
 
 Specs: `2026-06-23-gsx-lsp-design.md`, `2026-06-24-gsx-lsp-slice2a-goto-definition-design.md`,
 `2026-06-24-gsx-lsp-go-to-gsx-design.md`, `2026-06-24-gsx-lsp-hover-design.md`.

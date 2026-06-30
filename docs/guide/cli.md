@@ -331,10 +331,10 @@ as JSON-RPC. It is launched by an editor, not invoked by hand:
 gsx lsp                 # blocks, reading LSP messages on stdin
 ```
 
-The server analyzes each open package with the stock (std-filter) codegen
-pipeline and publishes diagnostics — it never writes `.x.go` to disk. It is an
-early slice: editing existing `.gsx` files is analyzed live, but a new buffer
-that has never been saved to disk is not yet picked up.
+The server analyzes each open package using the resolved configuration and
+provides diagnostics, definition, hover, references, and formatting without
+writing `.x.go` to disk. Existing saved `.gsx` files are analyzed live;
+brand-new unsaved buffers are not yet picked up.
 
 ## version
 
