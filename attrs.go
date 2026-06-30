@@ -28,17 +28,13 @@ type Attr struct {
 // an untrusted value must be written with gw.URL, not passed through Spread.
 type Attrs []Attr
 
-// AttrMap is the map form of an attribute bag. It is an ALIAS for map[string]any, so a
-// bare map[string]any, a gsx.AttrMap{…} literal, and a map returned from user code are
-// the same type — and gsx auto-converts any of them to Attrs (via AttrsFromMap) at a
-// component bag-prop binding or an element spread. A map has no order, so the
-// conversion SORTS keys, keeping map-sourced attributes deterministic.
-type AttrMap = map[string]any
+// AttrMap is a map-form attribute bag for ergonomic Go literals; convert it to Attrs
+// explicitly with ToAttrs before passing/spreading in templates. A map has no order, so
+// ToAttrs sorts keys ascending to keep output deterministic.
+type AttrMap map[string]any
 
-// AttrsFromMap converts a map bag to an ordered bag with keys sorted ascending. This is
-// the implicit AttrMap→Attrs coercion gsx inserts at bag boundaries; it is exported for
-// explicit use too. An empty/nil map yields a nil bag.
-func AttrsFromMap(m map[string]any) Attrs {
+// ToAttrs converts m to an ordered Attrs slice with keys sorted ascending.
+func (m AttrMap) ToAttrs() Attrs {
 	if len(m) == 0 {
 		return nil
 	}

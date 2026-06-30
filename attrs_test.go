@@ -8,14 +8,17 @@ import (
 	"testing"
 )
 
-func TestAttrsFromMapSorts(t *testing.T) {
-	got := AttrsFromMap(map[string]any{"id": "x", "class": "c", "data-z": 1})
+func TestAttrMapToAttrsSorts(t *testing.T) {
+	got := AttrMap{"id": "x", "class": "c", "data-z": 1}.ToAttrs()
 	want := Attrs{{Key: "class", Value: "c"}, {Key: "data-z", Value: 1}, {Key: "id", Value: "x"}}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("AttrsFromMap = %v, want %v", got, want)
+		t.Fatalf("ToAttrs = %v, want %v", got, want)
 	}
-	if AttrsFromMap(nil) != nil {
-		t.Fatal("AttrsFromMap(nil) should be nil")
+	if (AttrMap)(nil).ToAttrs() != nil {
+		t.Fatal("AttrMap(nil).ToAttrs() should be nil")
+	}
+	if (AttrMap{}).ToAttrs() != nil {
+		t.Fatal("empty AttrMap.ToAttrs() should be nil")
 	}
 }
 
