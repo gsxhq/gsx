@@ -49,28 +49,28 @@ attrs = gsx.AttrMap(m).ToAttrs()
 
 `ToAttrs` sorts keys ascending because maps do not preserve insertion order. When order matters, construct `gsx.Attrs` directly instead.
 
-## Ordered-attrs literal `{{ "k": v }}`
+## Ordered-attrs literal `&#123;&#123; "k": v &#125;&#125;`
 
 ::: v-pre
-When attribute order matters — for example, `data-*` directives consumed by Datastar where a signal must be declared before it is read — use the `{{ "key": value }}` literal in a **component invocation** to pass an ordered attribute bag. The literal lowers to `gsx.Attrs` (an ordered slice), the same type as any declared `Attrs gsx.Attrs` prop and the `{ bag… }` spread. This removes the old friction where the literal required a separately-typed prop.
+When attribute order matters — for example, `data-*` directives consumed by Datastar where a signal must be declared before it is read — use the `&#123;&#123; "key": value &#125;&#125;` literal in a **component invocation** to pass an ordered attribute bag. The literal lowers to `gsx.Attrs` (an ordered slice), the same type as any declared `Attrs gsx.Attrs` prop and the `{ bag… }` spread. This removes the old friction where the literal required a separately-typed prop.
 
-Use `{{ "k": v }}` any time key order matters: Datastar `data-*` directives, duplicate keys, or explicit ordering that a map would scramble.
+Use `&#123;&#123; "k": v &#125;&#125;` any time key order matters: Datastar `data-*` directives, duplicate keys, or explicit ordering that a map would scramble.
 :::
 
 <!--@include: ./_generated/attributes/050-ordered-attributes.md-->
 
 ::: v-pre
-`Counter` declares a `gsx.Attrs` prop and spreads it with `{ signals... }`. The caller passes `signals={{ "data-signals": …, "data-text": …, "data-on-click": … }}` — the attributes render in that exact order (source order in the literal). Because `gsx.Attrs` is an ordered slice, no sorting happens.
+`Counter` declares a `gsx.Attrs` prop and spreads it with `{ signals... }`. The caller passes `signals=&#123;&#123; "data-signals": …, "data-text": …, "data-on-click": … &#125;&#125;` — the attributes render in that exact order (source order in the literal). Because `gsx.Attrs` is an ordered slice, no sorting happens.
 
 Key points:
 
-- The `{{ }}` literal is valid **only as the value of a component attribute** bound to a declared `gsx.Attrs` prop. There is no standalone-element form — `<div {{ … }}>` is a parse error.
+- The `&#123;&#123; &#125;&#125;` literal is valid **only as the value of a component attribute** bound to a declared `gsx.Attrs` prop. There is no standalone-element form — `<div &#123;&#123; … &#125;&#125;>` is a parse error.
 - Keys are quoted string literals (`"data-signals"`, not bare identifiers). This is required so that kebab and colon names such as `"hx-on:click"` round-trip safely.
 - A bool value (`"data-show": true`) renders the bare attribute `data-show`; `false` omits it entirely.
 - `"class"` or `"style"` pairs in an `Attrs` bag render verbatim in their slot position. At the element level, `class=` and `style=` use the bag's `Class()` / `Style()` aggregate methods for merging.
-- A pair value that returns `(T, error)` — e.g. `{{ "data-signals": sig(t) }}` where `sig` returns `(string, error)` — is auto-unwrapped: the error propagates from `Render`. See [auto-unwrap](./interpolation#functions-t-error-auto-unwrap).
+- A pair value that returns `(T, error)` — e.g. `&#123;&#123; "data-signals": sig(t) &#125;&#125;` where `sig` returns `(string, error)` — is auto-unwrapped: the error propagates from `Render`. See [auto-unwrap](./interpolation#functions-t-error-auto-unwrap).
 
-`gsx.Attrs` tolerates duplicate keys — the `{{ }}` literal can repeat a key. Methods on `gsx.Attrs`:
+`gsx.Attrs` tolerates duplicate keys — the `&#123;&#123; &#125;&#125;` literal can repeat a key. Methods on `gsx.Attrs`:
 
 | Method | Behavior |
 |--------|----------|
