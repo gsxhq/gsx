@@ -107,7 +107,7 @@ func (p *parser) parseValueArm(braceOff int) (*ast.ValueArm, token.Pos, error) {
 	return arm, p.posAt(closeOff + 1), nil
 }
 
-// parseValueSwitch parses `switch [Tag] { case List: { Arm } … default: { Arm } }`
+// parseValueSwitch parses `switch [Tag] { case List: Arm … default: Arm }`
 // starting at the `switch` keyword (offset at).
 func (p *parser) parseValueSwitch(at int) (*ast.ValueSwitch, token.Pos, error) {
 	start := p.posAt(at)
@@ -136,14 +136,14 @@ func (p *parser) parseValueSwitch(at int) (*ast.ValueSwitch, token.Pos, error) {
 	}
 }
 
-// parseValueSwitchCase parses one `case List: { Arm }` or `default: { Arm }`
-// starting at the keyword (offset at). Returns the node and the offset one past
-// the arm's `}`.
+// parseValueSwitchCase parses one `case List: Arm` or `default: Arm`, starting
+// at the keyword (offset at). Returns the node and the offset at the next case,
+// default, or switch-closing brace.
 func (p *parser) parseValueSwitchCase(at int) (*ast.ValueSwitchCase, int, error) {
 	start := p.posAt(at)
 	cc := &ast.ValueSwitchCase{}
 	r := p.src[at:]
-	var braceAt int
+	var valueAt int
 	switch {
 	case strings.HasPrefix(r, "case") && (len(r) == 4 || !isIdentByte(r[4])):
 		listStart := at + len("case")
@@ -153,7 +153,7 @@ func (p *parser) parseValueSwitchCase(at int) (*ast.ValueSwitchCase, int, error)
 		}
 		cc.List = strings.TrimSpace(p.src[listStart:colonOff])
 		rest := strings.TrimLeft(p.src[colonOff+1:], " \t\r\n")
-		braceAt = colonOff + 1 + (len(p.src[colonOff+1:]) - len(rest))
+		valueAt = colonOff + 1 + (len(p.src[colonOff+1:]) - len(rest))
 	case strings.HasPrefix(r, "default") && (len(r) == 7 || !isIdentByte(r[7])):
 		cc.Default = true
 		colon := strings.IndexByte(p.src[at:], ':')
@@ -161,18 +161,37 @@ func (p *parser) parseValueSwitchCase(at int) (*ast.ValueSwitchCase, int, error)
 			return nil, 0, p.errorf(p.posAt(at), "expected `:` after `default`")
 		}
 		rest := strings.TrimLeft(p.src[at+colon+1:], " \t\r\n")
-		braceAt = at + colon + 1 + (len(p.src[at+colon+1:]) - len(rest))
+		valueAt = at + colon + 1 + (len(p.src[at+colon+1:]) - len(rest))
 	default:
 		return nil, 0, p.errorf(p.posAt(at), "expected `case` or `default` in value-form `switch`")
 	}
-	if braceAt >= len(p.src) || p.src[braceAt] != '{' {
-		return nil, 0, p.errorf(p.posAt(braceAt), "expected `{` for case value")
+	if valueAt < len(p.src) && p.src[valueAt] == '{' {
+		arm, afterPos, err := p.parseValueArm(valueAt)
+		if err != nil {
+			return nil, 0, err
+		}
+		cc.Value = arm
+		ast.SetSpan(cc, start, arm.End())
+		return cc, p.offsetOf(afterPos), nil
 	}
-	arm, end, err := p.parseValueArm(braceAt)
+	end, ok := valueSwitchArmEnd(p.src, valueAt)
+	if !ok {
+		return nil, 0, p.errorf(p.posAt(valueAt), "unterminated value-form switch case")
+	}
+	raw := p.src[valueAt:end]
+	expr := strings.TrimSpace(raw)
+	if expr == "" {
+		return nil, 0, p.errorf(p.posAt(valueAt), "value-form switch case must produce a value")
+	}
+	lead := len(raw) - len(strings.TrimLeft(raw, " \t\r\n"))
+	seed, stages, err := parsePipe(expr, p.posAt(valueAt+lead))
 	if err != nil {
 		return nil, 0, err
 	}
+	arm := &ast.ValueArm{Expr: seed, Stages: stages}
+	trimmedEnd := end - (len(raw) - len(strings.TrimRight(raw, " \t\r\n")))
+	ast.SetSpan(arm, p.posAt(valueAt+lead), p.posAt(trimmedEnd))
 	cc.Value = arm
-	ast.SetSpan(cc, start, end)
-	return cc, p.offsetOf(end), nil
+	ast.SetSpan(cc, start, p.posAt(trimmedEnd))
+	return cc, end, nil
 }

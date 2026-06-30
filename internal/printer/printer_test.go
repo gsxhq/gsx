@@ -196,6 +196,45 @@ component C() {
 	checkFormat(t, src, want)
 }
 
+func TestValueSwitchPrintsUnbracedCaseValues(t *testing.T) {
+	src := `package p
+component C(v int) {
+	<div class={ switch v { case 1: "green" default: "gray" } }>x</div>
+}`
+	want := `package p
+
+component C(v int) {
+	<div class={ switch v { case 1: "green" default: "gray" } }>x</div>
+}
+`
+	checkFormat(t, src, want)
+}
+
+func TestValueSwitchBreaksWhenOverWidth(t *testing.T) {
+	src := `package p
+component C(v int) {
+	<div class={ switch v { case 1: "green-green-green-green-green-green-green" default: "gray-gray-gray-gray-gray-gray-gray" } }>x</div>
+}`
+	want := `package p
+
+component C(v int) {
+	<div
+		class={
+			switch v {
+			case 1:
+				"green-green-green-green-green-green-green"
+			default:
+				"gray-gray-gray-gray-gray-gray-gray"
+			}
+		}
+	>
+		x
+	</div>
+}
+`
+	checkFormat(t, src, want)
+}
+
 func TestCondAttr(t *testing.T) {
 	// A CondAttr always forces the opening-tag group to break (BreakParent inside
 	// attrDoc for CondAttr). When the tag breaks, children also break to their own
@@ -993,7 +1032,7 @@ component C(v int) {
 func TestValueFormSwitchLayout(t *testing.T) {
 	src := `package p
 component C(v int) {
-	<span class={ "base", switch v { case 1: { "green-aaaaaaaaaaaaaaaaaaaaaaaaaaaa" } default: { "gray-bbbbbbbbbbbbbbbbbbbbbbbb" } } }>x</span>
+	<span class={ "base", switch v { case 1: "green-aaaaaaaaaaaaaaaaaaaaaaaaaaaa" default: "gray-bbbbbbbbbbbbbbbbbbbbbbbb" } }>x</span>
 }`
 	want := `package p
 
@@ -1002,10 +1041,10 @@ component C(v int) {
 		class={
 			"base",
 			switch v {
-				case 1:
-					{ "green-aaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
-				default:
-					{ "gray-bbbbbbbbbbbbbbbbbbbbbbbb" }
+			case 1:
+				"green-aaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			default:
+				"gray-bbbbbbbbbbbbbbbbbbbbbbbb"
 			}
 		}
 	>

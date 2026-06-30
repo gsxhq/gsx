@@ -142,14 +142,15 @@ render goldens.
 11. `[x]` **Value-form `if`/`switch` in `class`/`style`** — `2026-06-30`. A
     **value-producing** form of `if` and `switch` usable inside `class={…}` /
     `style={…}` contribution lists, providing **exclusive selection** in place of
-    the additive-map negation default. Arms are braced (`case Green: { "cls" }`);
+    the additive-map negation default. Switch values are unbraced
+    (`case Green: "cls"`), matching markup-switch case bodies;
     multi-value cases (`case A, B:`) and `else if` chains are supported; a tagless
     `switch { case cond: … }` follows Go. Lowers to an alloc-free hoisted temp
     (`var _gsxvN string` assigned by a generated Go `switch`/`if`), not an IIFE.
     `if` without `else` is exactly equivalent to the additive guard form — no
     match, no `default`/`else` → empty contribution (nothing added). `(T,error)`
     auto-unwrap applies to both plain parts (`class={ cls(v) }`) and individual
-    arms (`case A: { cls(v) }`), extending the shared `hoistTuple` machinery from
+    arms (`case A: cls(v)`), extending the shared `hoistTuple` machinery from
     item 10. A guard on a value-form part (`switch x {…}: cond`) is a compile-time
     diagnostic. Corpus coverage: `class/value_switch`, `class/value_if_*`,
     `class/value_switch_tuple`, `class/value_arm_pipeline`, `style/value_switch`,

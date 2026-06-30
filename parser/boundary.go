@@ -117,6 +117,39 @@ func scanToCaseColon(src string, from int) (int, bool) {
 	}
 }
 
+// valueSwitchArmEnd returns the byte offset of the next top-level case,
+// default, or switch-closing brace after a value-switch arm.
+// Delimiters nested inside Go composite literals, function literals, or other
+// bracketed expressions are ignored.
+func valueSwitchArmEnd(src string, from int) (int, bool) {
+	sub := src[from:]
+	fset := token.NewFileSet()
+	file := fset.AddFile("", fset.Base(), len(sub))
+	var s scanner.Scanner
+	s.Init(file, []byte(sub), func(token.Position, string) {}, scanner.ScanComments)
+
+	depth := 0
+	for {
+		pos, tok, _ := s.Scan()
+		if tok == token.EOF {
+			return 0, false
+		}
+		off := from + fset.Position(pos).Offset
+		if depth == 0 {
+			switch tok {
+			case token.CASE, token.DEFAULT, token.RBRACE:
+				return off, true
+			}
+		}
+		switch tok {
+		case token.LPAREN, token.LBRACK, token.LBRACE:
+			depth++
+		case token.RPAREN, token.RBRACK, token.RBRACE:
+			depth--
+		}
+	}
+}
+
 // parenEnd returns the index of the `)` matching the `(` at src[open], scanning
 // Go tokens from `open` so prose before `open` is never tokenized.
 func parenEnd(src string, open int) (int, bool) {
