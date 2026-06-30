@@ -726,7 +726,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					// probeWrap=true: ExprAttr values are wrapped with _gsxunwrap(...) in
 					// the skeleton so (T, error) tuples type-check while field-type
 					// checking is preserved.
-					fieldEntries, splatExpr, usedPkgs, err := childPropsLiteral(t, propsType, "_gsxrt", "_gsxrt.DefaultClassMerge", table, propFields, nodeProps[propsType], attrsProps[propsType], byo, fm, func(nodes []gsxast.Markup) (string, error) {
+					fieldEntries, splatExpr, usedPkgs, err := childPropsLiteral(t, propsType, "_gsxrt", "_gsxrt.DefaultClassMerge", table, propFields, nodeProps[propsType], byo, fm, func(nodes []gsxast.Markup) (string, error) {
 						return "_gsxrt.Node(nil)", nil
 					}, true)
 					if err != nil {

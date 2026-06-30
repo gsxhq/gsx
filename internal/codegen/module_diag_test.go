@@ -177,6 +177,9 @@ component Page(bag gsx.Attrs) {
 				}
 				return
 			}
+			if len(diags) != tc.wantCount {
+				t.Fatalf("diagnostic count = %d, want %d; all diagnostics: %+v", len(diags), tc.wantCount, diags)
+			}
 			var matches int
 			for _, d := range diags {
 				if strings.Contains(d.Message, tc.wantText) {
