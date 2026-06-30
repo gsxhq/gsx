@@ -1,4 +1,4 @@
-# {{ }} literal bound to a name with no matching gsx.OrderedAttrs field → diagnostic.
+# {{ }} literal bound to a name with no matching gsx.Attrs field → diagnostic.
 -- input.gsx --
 package views
 

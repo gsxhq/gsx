@@ -8,7 +8,7 @@ import "github.com/gsxhq/gsx"
 
 func twoVals() (int, string) { return 1, "x" }
 
-component Card(bag gsx.OrderedAttrs) {
+component Card(bag gsx.Attrs) {
 	<div { bag... }/>
 }
 
@@ -16,4 +16,4 @@ component Page() {
 	<Card bag={{ "x": twoVals() }}/>
 }
 -- diagnostics.golden --
-7:10: undefined: gsx.OrderedAttrs
+12:20: ordered-attrs pair "x" value "twoVals()" returns (int, string); only (T, error) is supported
