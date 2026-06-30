@@ -32,7 +32,7 @@ func TestValueFormArmErrorPropagation(t *testing.T) {
 	clsFn := func() (string, error) { return "", sentinel }
 
 	// Mirrors generated code for:
-	//   <span class={ "base", switch variant { case 1: { cls(variant) } default: { "gray" } } }>x</span>
+	//   <span class={ "base", switch variant { case 1: cls(variant) default: "gray" } }>x</span>
 	// when variant==1 and cls returns an error.
 	component := Func(func(ctx context.Context, w io.Writer) error {
 		gw := W(w)

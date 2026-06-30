@@ -47,13 +47,14 @@ class={
 class={ "btn", if open { "btn-open" } else { "btn-closed" } }
 ```
 
-### Surface syntax — braced arms
+### Surface syntax
 
-Arms are delimited with `{ … }`, identical in shape to gsx's existing markup
-`if`/`switch` and to Go. This is **unambiguous**: `{` delimits the condition
-from the value. (A brace-less `if cond "x" else "y"` was rejected — it
-reintroduces Go's own `if cond *foo`-style ambiguity between `cond * foo` and
-`cond`, `*foo`.)
+Value-form `switch` follows GSX's existing markup-switch case-body shape:
+the expression after `case V:` / `default:` is unbraced and ends at the next
+top-level label or the switch's closing brace. Nested Go delimiters are scanned,
+so composite literals and function literals remain part of the expression.
+Value-form `if` retains `{ … }` branch delimiters because they separate its
+condition from its value without introducing Go's `if cond *foo` ambiguity.
 
 - `switch`: `case V:` arms, `case A, B:` multi-value arms (Go parity), optional
   `default:`. An optional tag expression (`switch x { … }`); a tag-less
@@ -209,9 +210,11 @@ Two related printer changes in `internal/printer/printer.go`:
    helps every component that keeps the additive map rather than converting to
    `switch`.
 
-2. **Value-form arm layout.** Print the value-form with braced arms one
-   `case`/`default` (or `if`/`else`) per line when broken, collapsing to one
-   line when it fits — consistent with how markup `if`/`switch` already print.
+2. **Value-form arm layout.** Print the value-form with canonical unbraced
+   switch values one `case`/`default` (or `if`/`else`) per line when broken,
+   collapsing to one line when it fits — consistent with how markup `if`/`switch`
+   already print. Braced switch-arm blocks remain accepted input and format back
+   to the canonical unbraced shape.
 
 ## Testing — corpus is canonical
 
