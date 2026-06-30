@@ -1,0 +1,18 @@
+# A child component with class={ "base", cls(v) } where cls returns (string, error):
+# the plain-part tuple is auto-unwrapped exactly as on a regular element.
+-- input.gsx --
+package views
+
+component Card(title string) { <div class="card">{title}</div> }
+
+component Page(v int) {
+	<Card title="Hi" class={ "base", cls(v) } />
+}
+
+func cls(v int) (string, error) { return "green", nil }
+-- invoke --
+Page(PageProps{V: 1})
+-- diagnostics.golden --
+6:34: unknown field Attrs in struct literal of type CardProps
+-- generated.x.go.golden --
+-- render.golden --

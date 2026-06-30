@@ -1,0 +1,24 @@
+# classEntryExpr CF branch: a parent component passes class={ "base", switch … }
+# to a child component so classEntryExpr hoists the var+switch into the parent
+# render body before the Card(...) call, and the child root merges them.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Card(title gsx.Node) { <div class="card">{title}</div> }
+
+component Page(variant int) {
+	<Card title="Hi" class={ "base", switch variant {
+	case 1:
+		{ "primary" }
+	default:
+		{ "secondary" }
+	} } />
+}
+-- invoke --
+Page(PageProps{Variant: 1})
+-- diagnostics.golden --
+15:46: unknown field Attrs in struct literal of type CardProps
+-- generated.x.go.golden --
+-- render.golden --

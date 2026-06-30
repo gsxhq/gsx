@@ -965,3 +965,67 @@ component Page() {
 `
 	checkFormat(t, src, want)
 }
+
+func TestClassMapWraps(t *testing.T) {
+	// A composed class map wider than 80 cols must break one entry per line,
+	// not weld every entry onto one indented line.
+	src := `package p
+component C(v int) {
+	<span class={ "base-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "green-bbbbbbbbbbbbbbbbbbbbbbbb": v == 1, "gray-cccccccccccccccccccccccc": v != 1 }>x</span>
+}`
+	want := `package p
+
+component C(v int) {
+	<span
+		class={
+			"base-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"green-bbbbbbbbbbbbbbbbbbbbbbbb": v == 1,
+			"gray-cccccccccccccccccccccccc": v != 1
+		}
+	>
+		x
+	</span>
+}
+`
+	assertFormat(t, src, want)
+}
+
+func TestValueFormSwitchLayout(t *testing.T) {
+	src := `package p
+component C(v int) {
+	<span class={ "base", switch v { case 1: { "green-aaaaaaaaaaaaaaaaaaaaaaaaaaaa" } default: { "gray-bbbbbbbbbbbbbbbbbbbbbbbb" } } }>x</span>
+}`
+	want := `package p
+
+component C(v int) {
+	<span
+		class={
+			"base",
+			switch v {
+				case 1:
+					{ "green-aaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+				default:
+					{ "gray-bbbbbbbbbbbbbbbbbbbbbbbb" }
+			}
+		}
+	>
+		x
+	</span>
+}
+`
+	assertFormat(t, src, want)
+}
+
+func TestValueFormIfInline(t *testing.T) {
+	src := `package p
+component C(b bool) {
+	<i class={ "x", if b { "on" } else { "off" } }>y</i>
+}`
+	want := `package p
+
+component C(b bool) {
+	<i class={ "x", if b { "on" } else { "off" } }>y</i>
+}
+`
+	assertFormat(t, src, want)
+}

@@ -18,13 +18,24 @@ Multiple always-on strings and any number of conditional pairs can appear in the
 
 ## Inline style composition
 
-The `style` attribute has a parallel composable form. Each entry is a CSS declaration string — optionally conditional:
+The `style` attribute has a parallel composable form. Each entry is a complete
+CSS declaration string — optionally conditional. Static declarations, dynamic
+declarations, and independent guards can be mixed:
 
 ```gsx
-style={ "color: red", "color: " + accent, "display: none": hide }
+style={
+	"display: block",
+	"color: " + accent,
+	"opacity: 0": hidden,
+}
 ```
 
-On-parts are joined with `"; "` into a single `style="…"` attribute value. String literal entries are trusted as-is; entries containing Go expressions are CSS-sanitized at render time: values that carry risky tokens (such as `(` or `/`) collapse to the `ZgotmplZ` placeholder rather than being injected into the page. To opt out of sanitization for a value you control, cast it to `gsx.RawCSS`:
+Parts evaluate strictly from left to right. On-parts are joined with `"; "` into
+a single `style="…"` attribute value. String literal entries are trusted as-is;
+entries containing Go expressions are CSS-sanitized at render time: values that
+carry risky tokens (such as `(` or `/`) collapse to the `ZgotmplZ` placeholder
+rather than being injected into the page. To opt out of sanitization for a value
+you control, cast it to `gsx.RawCSS`:
 
 ```gsx
 style={ "color: " + gsx.RawCSS(trustedColor) }
@@ -67,16 +78,33 @@ Use a value-form `if` for a binary toggle:
 class={ "btn", if open { "btn-open" } else { "btn-closed" } }
 ```
 
+For styles, each selected arm still produces one complete declaration:
+
+```gsx
+style={
+	"display: block",
+	if active {
+		"color: green"
+	} else {
+		"color: gray"
+	},
+}
+```
+
 Use a value-form `switch` to select among several alternatives:
 
 ```gsx
 class={
 	"inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset",
 	switch variant {
-		case Green:  "bg-green-50 text-green-700 ring-green-600/20"
-		case Yellow: "bg-yellow-50 text-yellow-700 ring-yellow-600/20"
-		case Red:    "bg-red-50 text-red-700 ring-red-600/20"
-		default:     "bg-gray-50 text-gray-700 ring-gray-600/20"
+	case Green:
+		{ "bg-green-50 text-green-700 ring-green-600/20" }
+	case Yellow:
+		{ "bg-yellow-50 text-yellow-700 ring-yellow-600/20" }
+	case Red:
+		{ "bg-red-50 text-red-700 ring-red-600/20" }
+	default:
+		{ "bg-gray-50 text-gray-700 ring-gray-600/20" }
 	},
 }
 ```
@@ -87,7 +115,22 @@ class={
 
 **Scope.** This value-form is only available inside `class={…}` and `style={…}` composed-list blocks. It does not apply to general attribute values (use the existing cond-attr form `{ if cond { data-x="…" } }` for whole-attribute toggles) or to markup children (which already dispatch `if`/`switch` to markup control-flow). A pipe stage on the value-form result is not supported.
 
-> **Upcoming release.** This value-form lands in a future gsx release. Until then, use the additive guard form `"x": cond` as the equivalent of `if cond { "x" }`.
+::: v-pre
+## Why not `style={{ "color": color }}`?
+
+GSX currently has one inline-style model: ordered declaration contributions.
+An object-like property/value form would reduce string composition for heavily
+dynamic inline styles, but it would also introduce a second way to express the
+same output, with additional grammar, formatting, code generation, and
+documentation surface. Current project usage has not shown enough repeated
+dynamic declaration construction to justify that cost.
+
+The form is deferred rather than rejected. It can be reconsidered if real
+projects commonly build many dynamic declarations and the native contribution
+syntax becomes a material usability problem. A future design should prefer
+quoted native CSS names such as `"font-size"` and `"--accent"`; it should not
+adopt JSX camelCase conversion or automatic numeric units.
+:::
 
 ## `<style>` blocks
 

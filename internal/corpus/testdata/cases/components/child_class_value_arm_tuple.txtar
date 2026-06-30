@@ -1,0 +1,18 @@
+# A child component with a value-form if arm returning (string, error):
+# the CF arm is auto-unwrapped inline in the if block.
+-- input.gsx --
+package views
+
+component Card(title string) { <div class="card">{title}</div> }
+
+component Page(v int, flag bool) {
+	<Card title="Hi" class={ "base", if flag { cls(v) } else { "gray" } } />
+}
+
+func cls(v int) (string, error) { return "green", nil }
+-- invoke --
+Page(PageProps{V: 1, Flag: true})
+-- diagnostics.golden --
+12:33: unknown field Attrs in struct literal of type CardProps
+-- generated.x.go.golden --
+-- render.golden --

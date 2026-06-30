@@ -8,9 +8,6 @@ component Child() {
 component Wrapper() {
 	<Child class={attrs.Class()}/>
 }
--- invoke --
-Wrapper(WrapperProps{Attrs: gsx.Attrs{"class": "forwarded"}})
 -- diagnostics.golden --
-8:95: undefined: attrs
+8:24: undefined: attrs
 -- generated.x.go.golden --
--- render.golden --

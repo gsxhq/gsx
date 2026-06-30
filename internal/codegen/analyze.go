@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	goast "go/ast"
@@ -726,9 +727,16 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					// probeWrap=true: ExprAttr values are wrapped with _gsxunwrap(...) in
 					// the skeleton so (T, error) tuples type-check while field-type
 					// checking is preserved.
+					// cfHoistBuf collects any var+if/switch statements hoisted by
+					// classEntryExpr for value-form CF parts in a class attr. They
+					// are emitted to the skeleton BEFORE the probe call so the skeleton
+					// remains syntactically valid Go. A local interpTemp counter keeps
+					// the temp names _gsxv0… unique within this probe context.
+					var cfHoistBuf bytes.Buffer
+					cfInterpTemp := 0
 					fieldEntries, splatExpr, usedPkgs, err := childPropsLiteral(t, propsType, "_gsxrt", "_gsxrt.DefaultClassMerge", table, propFields, nodeProps[propsType], byo, fm, func(nodes []gsxast.Markup) (string, error) {
 						return "_gsxrt.Node(nil)", nil
-					}, true)
+					}, true, nil, &cfHoistBuf, &cfInterpTemp)
 					if err != nil {
 						// childPropsLiteral returns an *attrError with the offending attr's
 						// position embedded. Propagate it as-is so the caller can emit
@@ -750,6 +758,8 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					// earlier fields shift the offset. This is a known limitation; a future reader
 					// should not trust the column of a child-prop field-type error.
 					emitSkeletonLine(sb, fset, t.Pos())
+					// Emit any CF-hoisted statements before the probe call.
+					sb.WriteString(cfHoistBuf.String())
 					if splatExpr != "" {
 						// Whole-struct splat: mirrors genChildComponent exactly.
 						fmt.Fprintf(sb, "_ = %s(%s)\n", callTarget, splatExpr)
@@ -797,6 +807,40 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					for i := range oa.Pairs {
 						emitSkeletonLine(sb, fset, oa.Pairs[i].Pos())
 						fmt.Fprintf(sb, "_gsxuseq(%s)\n", oa.Pairs[i].Value)
+					}
+				}
+				// Probe CF arm exprs and unconditional plain ClassPart exprs AFTER pair
+				// probes — matching collectExprs's ClassPart ordering exactly. _gsxuse
+				// harvests the raw type so classEntryExpr can detect and hoist (T, error)
+				// tuple call parts and CF arms. Unlike ordinary child-prop expressions,
+				// call-shaped class parts are stubbed in the props-literal probe to
+				// tolerate tuples, so this non-quiet probe is also responsible for
+				// surfacing expression errors such as undefined identifiers.
+				for _, a := range t.Attrs {
+					ca, ok := a.(*gsxast.ClassAttr)
+					if !ok {
+						continue
+					}
+					for i := range ca.Parts {
+						if ca.Parts[i].CF != nil {
+							// Value-form CF part: probe each arm so harvest populates
+							// resolved[arm] for classEntryExpr's (T, error) unwrap.
+							for _, arm := range valueFormArms(ca.Parts[i].CF) {
+								probe, perr := probeExpr(arm.Expr, arm.Stages, table, usedFilters)
+								if perr != nil {
+									probe = strings.TrimSpace(arm.Expr)
+								}
+								emitSkeletonLine(sb, fset, arm.Pos())
+								fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
+							}
+						} else if ca.Parts[i].Cond == "" {
+							probe, perr := probeExpr(ca.Parts[i].Expr, ca.Parts[i].Stages, table, usedFilters)
+							if perr != nil {
+								probe = strings.TrimSpace(ca.Parts[i].Expr)
+							}
+							emitSkeletonLine(sb, fset, ca.Parts[i].Pos())
+							fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
+						}
 					}
 				}
 				// Probe slot content in the SAME canonical order collectExprs walks:
@@ -863,11 +907,52 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				if probeErr != nil {
 					return probeErr
 				}
-				// ClassAttr part exprs are emitted verbatim by codegen (no type harvest),
-				// so a var used ONLY in `class={ "on": v }` must still be referenced here
-				// or it's "declared and not used". Emit a liveness `_ = (expr)` — NOT
-				// _gsxuse, so the harvest alignment is intact. (Spreads are handled above
-				// via _gsxuseq, which also keeps them live.)
+				// Emit _gsxuse probes for value-form CF arm expressions in the SAME
+				// source order collectExprs collects them (attr order → CF-part order
+				// → arm order). harvest maps the k-th _gsxuse to the k-th node,
+				// populating resolved[arm] so hoistValueCF can detect and unwrap
+				// (T, error) return types. _gsxuse(...any) accepts multi-return calls
+				// without a syntax error, and harvest reads the tuple type from the
+				// argument's resolved type. A probe per CF arm, and also per
+				// unconditional plain part, replaces the former liveness-only behavior
+				// for those parts; _gsxuse also keeps identifier references live.
+				for _, a := range t.Attrs {
+					ca, ok := a.(*gsxast.ClassAttr)
+					if !ok {
+						continue
+					}
+					for i := range ca.Parts {
+						if ca.Parts[i].CF != nil {
+							for _, arm := range valueFormArms(ca.Parts[i].CF) {
+								probe, perr := probeExpr(arm.Expr, arm.Stages, table, usedFilters)
+								if perr != nil {
+									// Unknown filter: fall back to the bare seed so the skeleton
+									// type-checks (and identifiers stay live); the positioned
+									// unknown-filter diagnostic fires separately.
+									probe = strings.TrimSpace(arm.Expr)
+								}
+								emitSkeletonLine(sb, fset, arm.Pos())
+								fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
+							}
+						} else if ca.Parts[i].Cond == "" {
+							// Unconditional plain part: harvest its type for (T, error) unwrap.
+							// _gsxuse also serves as a liveness reference (replaces _ = (expr)).
+							probe, perr := probeExpr(ca.Parts[i].Expr, ca.Parts[i].Stages, table, usedFilters)
+							if perr != nil {
+								probe = strings.TrimSpace(ca.Parts[i].Expr)
+							}
+							emitSkeletonLine(sb, fset, ca.Parts[i].Pos())
+							fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
+						}
+					}
+				}
+				// ClassAttr/SpreadAttr conditional part exprs and cond guards are
+				// emitted verbatim by codegen (no type harvest), so a var used ONLY in
+				// `class={ "on": v }` or `{...attrs}` must still be referenced here or
+				// it's "declared and not used". Emit a liveness `_ = (expr)` — NOT
+				// _gsxuse, so the harvest alignment is intact. CF parts and unconditional
+				// plain parts are excluded (they have _gsxuse probes above). Spreads are
+				// excluded too because their _gsxuseq probes above also keep them live.
 				walkLivenessAttrExprs(t.Attrs, table, usedFilters, func(expr string) {
 					fmt.Fprintf(sb, "_ = (%s)\n", expr)
 				})
@@ -1477,6 +1562,24 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 						}
 					}
 				}
+				// Collect *ValueArm nodes for CF arms and *ClassPart nodes for
+				// unconditional plain parts AFTER all OrderedPair nodes — matching the
+				// _gsxuseq probes emitProbes emits after the pair probes.
+				// classEntryExpr reads resolved[arm] for (T, error) CF-arm unwrap and
+				// resolved[part] for plain-part tuple unwrap.
+				for _, a := range t.Attrs {
+					if ca, ok := a.(*gsxast.ClassAttr); ok {
+						for i := range ca.Parts {
+							if ca.Parts[i].CF != nil {
+								for _, arm := range valueFormArms(ca.Parts[i].CF) {
+									*out = append(*out, arm)
+								}
+							} else if ca.Parts[i].Cond == "" {
+								*out = append(*out, &ca.Parts[i])
+							}
+						}
+					}
+				}
 				walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
 					collectExprs(value, out)
 				})
@@ -1494,6 +1597,30 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 			walkSpreadAttrs(t.Attrs, func(sa *gsxast.SpreadAttr) {
 				*out = append(*out, sa)
 			})
+			// Collect ValueArm nodes for value-form CF parts, and *ClassPart nodes
+			// for unconditional plain parts, in source order: for each ClassAttr in
+			// attr order, for each part, in arm source order for CF parts. emitProbes
+			// emits _gsxuse probes in the SAME order so the k-th probe aligns with
+			// the k-th node, populating resolved[arm] for hoistValueCF's unwrap and
+			// resolved[part] for (T, error) auto-unwrap on plain unconditional parts.
+			// The liveness path (walkLivenessAttrExprs) skips unconditional plain
+			// parts (they now get _gsxuse probes which also serve as liveness refs).
+			for _, a := range t.Attrs {
+				ca, ok := a.(*gsxast.ClassAttr)
+				if !ok {
+					continue
+				}
+				for i := range ca.Parts {
+					if ca.Parts[i].CF != nil {
+						for _, arm := range valueFormArms(ca.Parts[i].CF) {
+							*out = append(*out, arm)
+						}
+					} else if ca.Parts[i].Cond == "" {
+						// Unconditional plain part: harvest its type for (T, error) unwrap.
+						*out = append(*out, &ca.Parts[i])
+					}
+				}
+			}
 			// Then each JS-attribute (e.g. x-data="… @{ x } …") @{ } interp, in
 			// attr source order — emitProbes walks identically (same walkMarkupAttrs).
 			walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
@@ -1593,6 +1720,12 @@ func walkLivenessAttrExprs(attrs []gsxast.Attr, table filterTable, usedFilters m
 		switch at := a.(type) {
 		case *gsxast.ClassAttr:
 			for _, p := range at.Parts {
+				if p.CF == nil && p.Cond == "" {
+					// Unconditional plain parts now get _gsxuse probes in emitProbes
+					// (which also provide liveness). Skip here to avoid a duplicate
+					// `_ = (expr)` that would fail for (T, error) multi-return calls.
+					continue
+				}
 				emit(p.Expr, p.Stages)
 				if c := strings.TrimSpace(p.Cond); c != "" {
 					fn(c)
@@ -1801,17 +1934,22 @@ func collectChildPropExprSrc(nodes []gsxast.Markup, add func(string)) {
 }
 
 // collectAttrSrc feeds every verbatim-emitted Go fragment in an attr list to add:
-// composable-class part Expr+Cond, element-spread Expr, conditional-attr Cond, and
-// — recursing into a *CondAttr's Then/Else — the same for nested attrs. (Nested
-// *ExprAttr exprs are bound via the componentExprs path in usedParams, but a param
-// used ONLY inside a CondAttr branch's expr-attr value is still bound because
-// componentExprs/collectExprs now also recurse CondAttr; the Cond and nested
-// class/spread fragments are bound here.)
+// composable-class part Expr+Cond (and value-form CF switch-tag/if-cond + arm
+// exprs), element-spread Expr, conditional-attr Cond, and — recursing into a
+// *CondAttr's Then/Else — the same for nested attrs. (Nested *ExprAttr exprs are
+// bound via the componentExprs path in usedParams, but a param used ONLY inside a
+// CondAttr branch's expr-attr value is still bound because componentExprs/
+// collectExprs now also recurse CondAttr; the Cond and nested class/spread
+// fragments are bound here.)
 func collectAttrSrc(attrs []gsxast.Attr, add func(string)) {
 	for _, a := range attrs {
 		switch at := a.(type) {
 		case *gsxast.ClassAttr:
 			for _, p := range at.Parts {
+				if p.CF != nil {
+					addValueCFSrc(p.CF, add)
+					continue
+				}
 				add(p.Expr)
 				for _, st := range p.Stages {
 					if st.Args != "" {
@@ -1846,6 +1984,79 @@ func collectAttrSrc(attrs []gsxast.Attr, add func(string)) {
 			collectAttrSrc(at.Else, add)
 		}
 	}
+}
+
+// addValueCFSrc feeds the verbatim-emitted Go fragments from a value-form CF
+// (if/switch inside a class/style list) to add. The switch tag, case lists,
+// if/else-if conditions, and arm expressions are all emitted verbatim, so any
+// identifiers they reference must be in scope as locals.
+func addValueCFSrc(cf *gsxast.ValueCF, add func(string)) {
+	if cf.If != nil {
+		addValueIfSrc(cf.If, add)
+		return
+	}
+	if cf.Switch != nil {
+		add(cf.Switch.Tag)
+		for _, c := range cf.Switch.Cases {
+			if c.List != "" {
+				add(c.List)
+			}
+			addValueArmSrc(c.Value, add)
+		}
+	}
+}
+
+func addValueIfSrc(vi *gsxast.ValueIf, add func(string)) {
+	add(vi.Cond)
+	addValueArmSrc(vi.Then, add)
+	if vi.ElseIf != nil {
+		addValueIfSrc(vi.ElseIf, add)
+	}
+	if vi.Else != nil {
+		addValueArmSrc(vi.Else, add)
+	}
+}
+
+func addValueArmSrc(arm *gsxast.ValueArm, add func(string)) {
+	if arm == nil {
+		return
+	}
+	add(arm.Expr)
+	for _, st := range arm.Stages {
+		if st.Args != "" {
+			add(st.Args)
+		}
+	}
+}
+
+// valueFormArms returns the arm value-expression nodes of a value-form part in
+// source order, for type-harvest alignment. For an if-form, the order is:
+// Then, then the ElseIf chain (recursively), then Else. For a switch, each
+// case's Value in case-declaration order. nil arms are skipped.
+func valueFormArms(cf *gsxast.ValueCF) []*gsxast.ValueArm {
+	var out []*gsxast.ValueArm
+	if cf.If != nil {
+		var walk func(vi *gsxast.ValueIf)
+		walk = func(vi *gsxast.ValueIf) {
+			if vi.Then != nil {
+				out = append(out, vi.Then)
+			}
+			if vi.ElseIf != nil {
+				walk(vi.ElseIf)
+			}
+			if vi.Else != nil {
+				out = append(out, vi.Else)
+			}
+		}
+		walk(cf.If)
+		return out
+	}
+	for _, c := range cf.Switch.Cases {
+		if c.Value != nil {
+			out = append(out, c.Value)
+		}
+	}
+	return out
 }
 
 // valueIdents returns the identifiers used in value position in a Go expression

@@ -493,7 +493,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 		// `prop: value` parser would lose (it drops colon-less fragments and dedupes
 		// properties). The empty-bag case takes the else branch → byte-identical output.
 		if styleAttr != nil || staticStyle != nil {
-			styleStr, ok := rootStyleString(styleAttr, staticStyle, table, imports, bag)
+			styleStr, styleParts, ok := rootStyleString(b, styleAttr, staticStyle, table, imports, interpTemp, bag, resolved)
 			if !ok {
 				return false
 			}
@@ -505,9 +505,9 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 					return false
 				}
 			} else {
-				if !emitStyleAttr(b, styleAttr, table, imports, bag) {
-					return false
-				}
+				fmt.Fprintf(b, "\t\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+styleAttr.Name+`="`))
+				fmt.Fprintf(b, "\t\t\t_gsxgw.Style(%s)\n", strings.Join(styleParts, ", "))
+				fmt.Fprintf(b, "\t\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
 			}
 			b.WriteString("\t\t}\n")
 		} else {
@@ -545,7 +545,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 		switch t := a.(type) {
 		case *ast.ClassAttr:
 			if t == classAttr {
-				if !emitRootComposedClass(b, t, table, imports, bag, mergeExpr) {
+				if !emitRootComposedClass(b, t, table, imports, interpTemp, bag, mergeExpr, resolved) {
 					return false
 				}
 				continue
@@ -661,18 +661,10 @@ func bagSpreadIndex(attrs []ast.Attr) (int, bool, error) {
 // class: ` class="` + gw.Class(<existing parts…>, gsx.Class(_gsxp.Attrs.Class()))
 // + `"`. Mirrors emitClassAttr's part lowering, appending the bag class as a
 // final unconditional part so it merges/dedupes through the merge func.
-func emitRootComposedClass(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports map[string]bool, bag *diag.Bag, mergeExpr string) bool {
-	parts := make([]string, 0, len(a.Parts)+1)
-	for _, p := range a.Parts {
-		expr, ok := classPartExpr(p, a, table, imports, bag)
-		if !ok {
-			return false
-		}
-		if p.Cond == "" {
-			parts = append(parts, fmt.Sprintf("gsx.Class(%s)", expr))
-		} else {
-			parts = append(parts, fmt.Sprintf("gsx.ClassIf(%s, %s)", expr, strings.TrimSpace(p.Cond)))
-		}
+func emitRootComposedClass(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag, mergeExpr string, resolved map[ast.Node]types.Type) bool {
+	parts, ok := composedParts(b, a, table, imports, interpTemp, bag, resolved, false)
+	if !ok {
+		return false
 	}
 	parts = append(parts, "gsx.Class(_gsxp.Attrs.Class())")
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
@@ -712,27 +704,21 @@ func rootAttrName(a ast.Attr) (string, bool) {
 // `style={ … }` (a CtxCSS ClassAttr) it is a gsx.StyleString(parts…) call mirroring
 // emitStyleAttr's part lowering (string-literal parts trusted, dynamic parts
 // CSS-value-filtered). With no style attr it is the empty string literal.
-func rootStyleString(styleAttr *ast.ClassAttr, staticStyle *ast.StaticAttr, table filterTable, imports map[string]bool, bag *diag.Bag) (string, bool) {
+// b and interpTemp are needed when any part is a value-form CF (if/switch): the
+// hoisted var+switch statements are written to b before the StyleMerged call.
+// resolved maps each *ast.ValueArm to its harvest type for (T, error) unwrap.
+func rootStyleString(b *bytes.Buffer, styleAttr *ast.ClassAttr, staticStyle *ast.StaticAttr, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type) (string, []string, bool) {
 	switch {
 	case staticStyle != nil:
-		return strconv.Quote(staticStyle.Value), true
+		return strconv.Quote(staticStyle.Value), nil, true
 	case styleAttr != nil:
-		parts := make([]string, 0, len(styleAttr.Parts))
-		for _, p := range styleAttr.Parts {
-			expr, ok := classPartExpr(p, styleAttr, table, imports, bag)
-			if !ok {
-				return "", false
-			}
-			val := styleDeclExpr(expr, len(p.Stages) > 0)
-			if p.Cond == "" {
-				parts = append(parts, fmt.Sprintf("gsx.Class(%s)", val))
-			} else {
-				parts = append(parts, fmt.Sprintf("gsx.ClassIf(%s, %s)", val, strings.TrimSpace(p.Cond)))
-			}
+		parts, ok := composedParts(b, styleAttr, table, imports, interpTemp, bag, resolved, true)
+		if !ok {
+			return "", nil, false
 		}
-		return "gsx.StyleString(" + strings.Join(parts, ", ") + ")", true
+		return "gsx.StyleString(" + strings.Join(parts, ", ") + ")", parts, true
 	default:
-		return `""`, true
+		return `""`, nil, true
 	}
 }
 
@@ -929,6 +915,98 @@ func hoistTuple(b *bytes.Buffer, expr string, interpTemp *int) string {
 	*interpTemp++
 	fmt.Fprintf(b, "\t\t%s, _gsxerr := %s\n\t\tif _gsxerr != nil {\n\t\t\treturn _gsxerr\n\t\t}\n", tmp, expr)
 	return tmp
+}
+
+// hoistValueCF emits `var _gsxvN string; <if|switch> { … _gsxvN = <arm> … }`
+// before the class/style part list and returns the temp name. style=true wraps
+// each arm value with styleDeclExpr (CSS-value filtering for dynamic arms).
+// resolved maps each *ast.ValueArm to its harvest type; when an arm's type is
+// a (T, error) tuple, armExpr calls hoistTuple to emit the unwrap inline.
+func hoistValueCF(b *bytes.Buffer, cf *ast.ValueCF, table filterTable, imports map[string]bool, interpTemp *int, style bool, bag *diag.Bag, resolved map[ast.Node]types.Type) (string, bool) {
+	tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+	*interpTemp++
+	fmt.Fprintf(b, "\t\tvar %s string\n", tmp)
+	armExpr := func(a *ast.ValueArm) (string, bool) {
+		expr, used, err := lowerClassPartSeed(ast.ClassPart{Expr: a.Expr, Stages: a.Stages}, table)
+		if err != nil {
+			bag.Errorf(a.Pos(), a.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+			return "", false
+		}
+		for _, path := range used {
+			imports[path] = true
+		}
+		// If the arm's harvest type is a (T, error) tuple, unwrap it inline.
+		// hoistTuple writes `_gsxvN, _gsxerr := expr; if _gsxerr != nil { return _gsxerr }`
+		// into b at this point — which is AFTER the if/case label and BEFORE the
+		// _gsxvN = ... assignment, so the hoist lands inside the correct block.
+		if t := resolved[a]; t != nil {
+			if _, isTuple := t.(*types.Tuple); isTuple {
+				if _, ok := tupleUnwrapType(t); !ok {
+					kind := "class"
+					if style {
+						kind = "style"
+					}
+					bag.Errorf(a.Pos(), a.End(), "invalid-tuple", "%s value-form arm %q returns %s; only (T, error) is supported", kind, a.Expr, t)
+					return "", false
+				}
+				expr = hoistTuple(b, expr, interpTemp)
+			}
+		}
+		if style {
+			expr = styleDeclExpr(expr, len(a.Stages) > 0)
+		}
+		return expr, true
+	}
+	if cf.If != nil {
+		return tmp, emitValueIf(b, cf.If, tmp, armExpr)
+	}
+	return tmp, emitValueSwitch(b, cf.Switch, tmp, armExpr)
+}
+
+// emitValueIf emits an `if … { _gsxvN = arm } [else if … | else { … }]` block.
+// armExpr is called AFTER writing the if/else-if header so any hoist statements
+// it writes (e.g. for tuple unwrap) land inside the block, before the assignment.
+func emitValueIf(b *bytes.Buffer, vi *ast.ValueIf, tmp string, armExpr func(*ast.ValueArm) (string, bool)) bool {
+	fmt.Fprintf(b, "\t\tif %s {\n", vi.Cond)
+	e, ok := armExpr(vi.Then)
+	if !ok {
+		return false
+	}
+	fmt.Fprintf(b, "\t\t\t%s = %s\n\t\t}", tmp, e)
+	switch {
+	case vi.ElseIf != nil:
+		b.WriteString(" else ")
+		if !emitValueIf(b, vi.ElseIf, tmp, armExpr) {
+			return false
+		}
+	case vi.Else != nil:
+		b.WriteString(" else {\n")
+		ee, ok := armExpr(vi.Else)
+		if !ok {
+			return false
+		}
+		fmt.Fprintf(b, "\t\t\t%s = %s\n\t\t}", tmp, ee)
+	}
+	b.WriteString("\n")
+	return true
+}
+
+func emitValueSwitch(b *bytes.Buffer, vs *ast.ValueSwitch, tmp string, armExpr func(*ast.ValueArm) (string, bool)) bool {
+	fmt.Fprintf(b, "\t\tswitch %s {\n", vs.Tag)
+	for _, c := range vs.Cases {
+		if c.Default {
+			b.WriteString("\t\tdefault:\n")
+		} else {
+			fmt.Fprintf(b, "\t\tcase %s:\n", c.List)
+		}
+		e, ok := armExpr(c.Value)
+		if !ok {
+			return false
+		}
+		fmt.Fprintf(b, "\t\t\t%s = %s\n", tmp, e)
+	}
+	b.WriteString("\t\t}\n")
+	return true
 }
 
 // emitLine writes a //line directive mapping subsequent output to the gsx node's
@@ -1264,11 +1342,11 @@ func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, tab
 		// class -> token merge (gw.Class); style -> '; '-joined declarations
 		// (gw.Style) with dynamic parts CSS-value-filtered.
 		if cls.Context(t.Name) == attrclass.CtxCSS {
-			if !emitStyleAttr(b, t, table, imports, bag) {
+			if !emitStyleAttr(b, t, table, imports, interpTemp, bag, resolved) {
 				return false
 			}
 		} else {
-			if !emitClassAttr(b, t, table, imports, bag, mergeExpr) {
+			if !emitClassAttr(b, t, table, imports, interpTemp, bag, mergeExpr, resolved) {
 				return false
 			}
 		}
@@ -1436,18 +1514,11 @@ func lowerClassPartSeed(p ast.ClassPart, table filterTable) (string, map[string]
 // gw.Class call composing each part (gsx.Class for an unconditional Expr,
 // gsx.ClassIf for a conditional one), and the closing `"`. gw.Class runs the
 // tokens through the passed merge func and writes the attr-escaped value.
-func emitClassAttr(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports map[string]bool, bag *diag.Bag, mergeExpr string) bool {
-	parts := make([]string, 0, len(a.Parts))
-	for _, p := range a.Parts {
-		expr, ok := classPartExpr(p, a, table, imports, bag)
-		if !ok {
-			return false
-		}
-		if p.Cond == "" {
-			parts = append(parts, fmt.Sprintf("gsx.Class(%s)", expr))
-		} else {
-			parts = append(parts, fmt.Sprintf("gsx.ClassIf(%s, %s)", expr, strings.TrimSpace(p.Cond)))
-		}
+// resolved maps each *ast.ValueArm to its harvest type for (T, error) unwrap.
+func emitClassAttr(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag, mergeExpr string, resolved map[ast.Node]types.Type) bool {
+	parts, ok := composedParts(b, a, table, imports, interpTemp, bag, resolved, false)
+	if !ok {
+		return false
 	}
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
 	fmt.Fprintf(b, "\t\t_gsxgw.Class(%s, %s)\n", mergeExpr, strings.Join(parts, ", "))
@@ -1460,24 +1531,82 @@ func emitClassAttr(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports
 // trusted and emitted raw; any dynamic part value is wrapped in gsx.FilterCSS so
 // untrusted data cannot inject declarations or break out. gw.Style joins the
 // included parts with "; " and attr-escapes the result.
-func emitStyleAttr(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports map[string]bool, bag *diag.Bag) bool {
-	parts := make([]string, 0, len(a.Parts))
-	for _, p := range a.Parts {
-		expr, ok := classPartExpr(p, a, table, imports, bag)
-		if !ok {
-			return false
-		}
-		val := styleDeclExpr(expr, len(p.Stages) > 0)
-		if p.Cond == "" {
-			parts = append(parts, fmt.Sprintf("gsx.Class(%s)", val))
-		} else {
-			parts = append(parts, fmt.Sprintf("gsx.ClassIf(%s, %s)", val, strings.TrimSpace(p.Cond)))
-		}
+// resolved maps each *ast.ValueArm to its harvest type for (T, error) unwrap.
+func emitStyleAttr(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type) bool {
+	parts, ok := composedParts(b, a, table, imports, interpTemp, bag, resolved, true)
+	if !ok {
+		return false
 	}
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
 	fmt.Fprintf(b, "\t\t_gsxgw.Style(%s)\n", strings.Join(parts, ", "))
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
 	return true
+}
+
+func composedPartsOrdered(a *ast.ClassAttr, resolved map[ast.Node]types.Type) bool {
+	for i := range a.Parts {
+		p := &a.Parts[i]
+		if p.CF != nil {
+			return true
+		}
+		if _, ok := resolved[p].(*types.Tuple); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func composedParts(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type, style bool) ([]string, bool) {
+	parts := make([]string, 0, len(a.Parts))
+	ordered := composedPartsOrdered(a, resolved)
+	for i := range a.Parts {
+		p := &a.Parts[i]
+		if p.CF != nil {
+			tmp, ok := hoistValueCF(b, p.CF, table, imports, interpTemp, style, bag, resolved)
+			if !ok {
+				return nil, false
+			}
+			parts = append(parts, fmt.Sprintf("gsx.Class(%s)", tmp))
+			continue
+		}
+		expr, ok := classPartExpr(*p, a, table, imports, bag)
+		if !ok {
+			return nil, false
+		}
+		if t, isTuple := resolved[p].(*types.Tuple); isTuple {
+			if _, ok := tupleUnwrapType(t); !ok {
+				kind := "class"
+				if style {
+					kind = "style"
+				}
+				bag.Errorf(p.Pos(), p.End(), "invalid-tuple", "%s part %q returns %s; only (T, error) is supported", kind, p.Expr, t)
+				return nil, false
+			}
+			expr = hoistTuple(b, expr, interpTemp)
+		} else if ordered {
+			tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+			*interpTemp++
+			fmt.Fprintf(b, "\t\t%s := %s\n", tmp, expr)
+			expr = tmp
+		}
+		val := expr
+		if style && (len(p.Stages) > 0 || !isStringLiteralExpr(strings.TrimSpace(p.Expr))) {
+			val = "gsx.StyleValue(" + expr + ")"
+		}
+		if p.Cond == "" {
+			parts = append(parts, fmt.Sprintf("gsx.Class(%s)", val))
+			continue
+		}
+		cond := strings.TrimSpace(p.Cond)
+		if ordered {
+			tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+			*interpTemp++
+			fmt.Fprintf(b, "\t\t%s := %s\n", tmp, cond)
+			cond = tmp
+		}
+		parts = append(parts, fmt.Sprintf("gsx.ClassIf(%s, %s)", val, cond))
+	}
+	return parts, true
 }
 
 // styleDeclExpr returns the Go expression for a composed-style part's value: a
@@ -1958,7 +2087,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 			return "", fmt.Errorf("slot closure failed")
 		}
 		return s, nil
-	}, false)
+	}, false, resolved, b, interpTemp)
 	if err != nil {
 		// Convert the childPropsLiteral error to a positioned diagnostic.
 		// An attrError carries the specific attr's position; fall back to the element.
@@ -2273,7 +2402,14 @@ func isCallExpr(rawVal string) bool {
 // probeWrap=true wraps each prop-matched ExprAttr value with _gsxunwrap(...) so the
 // skeleton tolerates (T, error) tuples while still checking field types. Pass false
 // for the real code emitter; pass true for the type-check probe (analyze.go).
-func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, table filterTable, propFields map[string]map[string]bool, nodeFields map[string]bool, byo *byoData, fm FieldMatcher, slotValue func(nodes []ast.Markup) (string, error), probeWrap bool) (fields []propFieldEntry, splatExpr string, usedPkgs map[string]string, err error) {
+// b and interpTemp are threaded to classEntryExpr so value-form CF (if/switch) parts
+// in a composed class attr on the child element can hoist their var+if/switch
+// statements into b before the Node call. Pass nil for both in contexts that do not
+// support hoisting (e.g. the analyze path passes a local scratch buffer).
+// resolved maps *ClassPart nodes to their harvest type so classEntryExpr can detect
+// and hoist (T, error) tuple-returning unconditional plain parts. Pass nil in the
+// probe path (skeleton does not need resolved; probeWrap wraps call exprs instead).
+func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, table filterTable, propFields map[string]map[string]bool, nodeFields map[string]bool, byo *byoData, fm FieldMatcher, slotValue func(nodes []ast.Markup) (string, error), probeWrap bool, resolved map[ast.Node]types.Type, b *bytes.Buffer, interpTemp *int) (fields []propFieldEntry, splatExpr string, usedPkgs map[string]string, err error) {
 	fm = fieldMatcherOrDefault(fm)    // normalize nil → default matcher
 	declared := propFields[propsType] // nil for cross-package / unknown → graceful
 	// BYO struct facts: when the child is byo, an unmatched attr (→ Attrs bag) or
@@ -2429,7 +2565,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				msg := fmt.Sprintf("%s attribute on a component (<%s>) not supported yet", t.Name, el.Tag)
 				return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
-			entry, used, eerr := classEntryExpr(t, rtPkg, mergeExpr, table)
+			entry, used, eerr := classEntryExpr(b, interpTemp, t, rtPkg, mergeExpr, table, resolved, probeWrap)
 			if eerr != nil {
 				return nil, "", nil, eerr
 			}
@@ -2537,20 +2673,132 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 // usedPkgs (alias→pkgPath) reports the filter packages any lowered part references
 // so the caller imports them; an unknown filter surfaces as an *attrError
 // positioned at the ClassAttr.
-func classEntryExpr(a *ast.ClassAttr, rtPkg string, mergeExpr string, table filterTable) (string, map[string]string, error) {
+// b and interpTemp are needed to hoist value-form CF (if/switch) parts: the
+// hoisted var+if/switch statements are written to b before the containing call.
+// When b is nil (conditional-attr branch context), CF parts are unsupported.
+func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg string, mergeExpr string, table filterTable, resolved map[ast.Node]types.Type, probeWrap bool) (string, map[string]string, error) {
 	parts := make([]string, 0, len(a.Parts))
 	usedPkgs := map[string]string{}
-	for _, p := range a.Parts {
-		expr, used, err := lowerClassPartSeed(p, table)
+	ordered := !probeWrap && composedPartsOrdered(a, resolved)
+	for i := range a.Parts {
+		p := &a.Parts[i]
+		if p.CF != nil {
+			if b == nil || interpTemp == nil {
+				return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: "value-form if/switch in class on a component conditional-attr branch not supported yet"}
+			}
+			tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+			*interpTemp++
+			fmt.Fprintf(b, "\t\tvar %s string\n", tmp)
+			var lowerErr error
+			armExpr := func(arm *ast.ValueArm) (string, bool) {
+				expr, used, err := lowerClassPartSeed(ast.ClassPart{Expr: arm.Expr, Stages: arm.Stages}, table)
+				if err != nil {
+					lowerErr = &attrError{pos: a.Pos(), end: a.End(), code: "unresolved-pipeline", msg: err.Error()}
+					return "", false
+				}
+				maps.Copy(usedPkgs, used)
+				if probeWrap && isCallExpr(expr) {
+					// Skeleton mode: wrap call exprs with _gsxunwrap so the
+					// assignment _gsxvN = _gsxunwrap(cls(v)) compiles even when
+					// cls returns (T, error). b and interpTemp are non-nil here
+					// (guarded above). resolved is nil in skeleton mode, so the
+					// emit-mode check below is skipped.
+					expr = fmt.Sprintf("_gsxunwrap(%s)", expr)
+				} else if !probeWrap {
+					// Emit mode: consult resolved to detect and hoist (T, error)
+					// tuples. hoistTuple writes the unwrap into b at this point —
+					// after the if/case label and before the _gsxvN = assignment —
+					// so the hoist lands inside the correct block.
+					if t := resolved[arm]; t != nil {
+						if _, isTuple := t.(*types.Tuple); isTuple {
+							if _, ok := tupleUnwrapType(t); !ok {
+								lowerErr = &attrError{pos: arm.Pos(), end: arm.End(), code: "invalid-tuple", msg: fmt.Sprintf("class value-form arm %q returns %s; only (T, error) is supported", arm.Expr, t)}
+								return "", false
+							}
+							expr = hoistTuple(b, expr, interpTemp)
+						}
+					}
+				}
+				return expr, true
+			}
+			var cfOK bool
+			if p.CF.If != nil {
+				cfOK = emitValueIf(b, p.CF.If, tmp, armExpr)
+			} else {
+				cfOK = emitValueSwitch(b, p.CF.Switch, tmp, armExpr)
+			}
+			if !cfOK {
+				msg := "value-form CF arm lowering failed"
+				if lowerErr != nil {
+					msg = strings.TrimPrefix(lowerErr.Error(), "codegen: ")
+				}
+				return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unresolved-pipeline", msg: msg}
+			}
+			parts = append(parts, fmt.Sprintf("%s.Class(%s)", rtPkg, tmp))
+			continue
+		}
+		expr, used, err := lowerClassPartSeed(*p, table)
 		if err != nil {
 			msg := strings.TrimPrefix(err.Error(), "codegen: ")
 			return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unresolved-pipeline", msg: msg}
 		}
 		maps.Copy(usedPkgs, used)
 		if p.Cond == "" {
+			// Unconditional plain part: in probe mode stub call exprs with "" so
+			// the skeleton's gsx.Class("") compiles regardless of the call's return
+			// type. The string constraint IS re-imposed by gsx.Class in the emitted
+			// code, so a wrong type still fails to compile — the stub only defers
+			// that check out of the skeleton so the clean emit-time "invalid-tuple"
+			// diagnostic can fire first for ALL non-(T,error) tuples.
+			// _gsxuseq probe (emitProbes) handles both liveness and type harvest.
+			//
+			// In emit mode, check resolved for a tuple and hoist it.
+			if probeWrap && isCallExpr(expr) {
+				expr = `""`
+			} else if !probeWrap {
+				t := resolved[p]
+				if tup, isAny := t.(*types.Tuple); isAny {
+					if _, ok2 := tupleUnwrapType(tup); !ok2 {
+						return "", nil, &attrError{pos: p.Pos(), end: p.End(), code: "invalid-tuple", msg: fmt.Sprintf("class part %q returns %s; only (T, error) is supported", p.Expr, t)}
+					}
+					if b == nil || interpTemp == nil {
+						return "", nil, &attrError{pos: p.Pos(), end: p.End(), code: "unsupported-component-attr", msg: "tuple-returning class part in a conditional-attr branch not supported yet"}
+					}
+					expr = hoistTuple(b, expr, interpTemp)
+				} else if ordered {
+					if b == nil || interpTemp == nil {
+						return "", nil, &attrError{pos: p.Pos(), end: p.End(), code: "unsupported-component-attr", msg: "ordered class part in a conditional-attr branch not supported yet"}
+					}
+					tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+					*interpTemp++
+					fmt.Fprintf(b, "\t\t%s := %s\n", tmp, expr)
+					expr = tmp
+				}
+			}
 			parts = append(parts, fmt.Sprintf("%s.Class(%s)", rtPkg, expr))
 		} else {
-			parts = append(parts, fmt.Sprintf("%s.ClassIf(%s, %s)", rtPkg, expr, strings.TrimSpace(p.Cond)))
+			if !probeWrap && ordered {
+				if b == nil || interpTemp == nil {
+					return "", nil, &attrError{pos: p.Pos(), end: p.End(), code: "unsupported-component-attr", msg: "ordered class part in a conditional-attr branch not supported yet"}
+				}
+				if t, isTuple := resolved[p].(*types.Tuple); isTuple {
+					if _, ok := tupleUnwrapType(t); !ok {
+						return "", nil, &attrError{pos: p.Pos(), end: p.End(), code: "invalid-tuple", msg: fmt.Sprintf("class part %q returns %s; only (T, error) is supported", p.Expr, t)}
+					}
+					expr = hoistTuple(b, expr, interpTemp)
+				} else {
+					tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+					*interpTemp++
+					fmt.Fprintf(b, "\t\t%s := %s\n", tmp, expr)
+					expr = tmp
+				}
+				condTmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+				*interpTemp++
+				fmt.Fprintf(b, "\t\t%s := %s\n", condTmp, strings.TrimSpace(p.Cond))
+				parts = append(parts, fmt.Sprintf("%s.ClassIf(%s, %s)", rtPkg, expr, condTmp))
+			} else {
+				parts = append(parts, fmt.Sprintf("%s.ClassIf(%s, %s)", rtPkg, expr, strings.TrimSpace(p.Cond)))
+			}
 		}
 	}
 	// Raw join (no merger): the bag's class is consumed via Attrs.Class() and
@@ -2616,7 +2864,11 @@ func condBranchAttrs(attrs []ast.Attr, rtPkg, tag string, mergeExpr string, tabl
 				msg := fmt.Sprintf("%s attribute in a conditional branch (<%s>) not supported yet", t.Name, tag)
 				return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
-			entry, used, eerr := classEntryExpr(t, rtPkg, mergeExpr, table)
+			// nil, nil, nil, false: CF parts in conditional-attr class branches are
+			// unsupported (they require statement-level hoisting into the outer body,
+			// not inside an inline closure); classEntryExpr returns an error if CF is
+			// present. Tuple parts are also unsupported (b=nil prevents hoisting).
+			entry, used, eerr := classEntryExpr(nil, nil, t, rtPkg, mergeExpr, table, nil, false)
 			if eerr != nil {
 				return "", nil, eerr
 			}

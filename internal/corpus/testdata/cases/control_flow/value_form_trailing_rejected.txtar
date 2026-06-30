@@ -1,0 +1,8 @@
+-- input.gsx --
+package views
+
+component C(x int) {
+	<span class={ "base", switch x { case 1: { "a" } default: { "b" } } |> upper }>y</span>
+}
+-- diagnostics.golden --
+4:69: unexpected "|> upper" after value-form switch in class/style; pipe stages on a value-form result are not supported
