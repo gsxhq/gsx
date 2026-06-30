@@ -129,6 +129,21 @@ default:
   machinery unchanged; the value-form only changes how one contribution's string
   is computed.
 
+### Evaluation order
+
+Composed `class`/`style` contributions evaluate strictly left-to-right, including
+plain expressions, guarded values and guards, tuple-returning expressions, and
+value-form conditions/arms. Hoisting a value-form or tuple must not move it ahead
+of an earlier contribution. For example, in
+`class={ setState(), if state { "on" } else { "off" } }`, `setState()` runs
+before the `if` condition is evaluated.
+
+Whenever any contribution requires statement-level lowering, codegen hoists all
+effectful contributions in source order and passes their temps to the existing
+composition call. This applies consistently to element class/style attributes,
+root class/style fallthrough merging, and class values passed to child
+components. Literal and other provably effect-free values may remain inline.
+
 ## Tuple `(T, error)` auto-unwrap — coordinated with `uniform-tuple-unwrap`
 
 A class/style contribution is a value position, so per the project invariant
