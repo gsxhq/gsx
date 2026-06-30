@@ -837,18 +837,30 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 						fmt.Fprintf(sb, "_gsxuseq(%s)\n", oa.Pairs[i].Value)
 					}
 				}
-				// Probe unconditional plain ClassPart exprs AFTER pair probes —
-				// matching collectExprs's ClassPart ordering exactly. _gsxuseq harvests
-				// the raw type so classEntryExpr can detect and hoist (T, error) tuple
-				// call parts. The props-literal probe (_gsxunwrap wrapping) already
-				// reports expression-internal errors, so quiet suppression avoids dups.
+				// Probe CF arm exprs and unconditional plain ClassPart exprs AFTER pair
+				// probes — matching collectExprs's ClassPart ordering exactly. _gsxuseq
+				// harvests the raw type so classEntryExpr can detect and hoist (T, error)
+				// tuple call parts and CF arms. The props-literal probe (_gsxunwrap
+				// wrapping) already reports expression-internal errors, so quiet
+				// suppression avoids dups.
 				for _, a := range t.Attrs {
 					ca, ok := a.(*gsxast.ClassAttr)
 					if !ok {
 						continue
 					}
 					for i := range ca.Parts {
-						if ca.Parts[i].CF == nil && ca.Parts[i].Cond == "" {
+						if ca.Parts[i].CF != nil {
+							// Value-form CF part: probe each arm so harvest populates
+							// resolved[arm] for classEntryExpr's (T, error) unwrap.
+							for _, arm := range valueFormArms(ca.Parts[i].CF) {
+								probe, perr := probeExpr(arm.Expr, arm.Stages, table, usedFilters)
+								if perr != nil {
+									probe = strings.TrimSpace(arm.Expr)
+								}
+								emitSkeletonLine(sb, fset, arm.Pos())
+								fmt.Fprintf(sb, "_gsxuseq(%s)\n", probe)
+							}
+						} else if ca.Parts[i].Cond == "" {
 							probe, perr := probeExpr(ca.Parts[i].Expr, ca.Parts[i].Stages, table, usedFilters)
 							if perr != nil {
 								probe = strings.TrimSpace(ca.Parts[i].Expr)
@@ -1548,14 +1560,19 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 						}
 					}
 				}
-				// Collect *ClassPart nodes for unconditional plain parts AFTER all
-				// OrderedPair nodes — matching the _gsxuseq probes emitProbes emits
-				// after the pair probes. classEntryExpr reads resolved[part] to detect
-				// and hoist (T, error) tuple-returning call parts.
+				// Collect *ValueArm nodes for CF arms and *ClassPart nodes for
+				// unconditional plain parts AFTER all OrderedPair nodes — matching the
+				// _gsxuseq probes emitProbes emits after the pair probes.
+				// classEntryExpr reads resolved[arm] for (T, error) CF-arm unwrap and
+				// resolved[part] for plain-part tuple unwrap.
 				for _, a := range t.Attrs {
 					if ca, ok := a.(*gsxast.ClassAttr); ok {
 						for i := range ca.Parts {
-							if ca.Parts[i].CF == nil && ca.Parts[i].Cond == "" {
+							if ca.Parts[i].CF != nil {
+								for _, arm := range valueFormArms(ca.Parts[i].CF) {
+									*out = append(*out, arm)
+								}
+							} else if ca.Parts[i].Cond == "" {
 								*out = append(*out, &ca.Parts[i])
 							}
 						}

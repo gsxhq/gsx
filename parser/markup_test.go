@@ -11,6 +11,10 @@ import (
 
 // classPartsLogicalEqual compares ClassPart slices by their logical fields
 // (Expr, Cond, Stages, CF), ignoring the span positions set during parsing.
+// NOTE: CF is compared by pointer identity (`a[i].CF != b[i].CF`). This is
+// correct for all current `want` cases, which all have CF == nil. A future
+// test with non-nil CF in `want` would silently pass on a differently-valued
+// non-nil CF — extend this function to a recursive deep compare if needed.
 func classPartsLogicalEqual(a, b []ast.ClassPart) bool {
 	if len(a) != len(b) {
 		return false

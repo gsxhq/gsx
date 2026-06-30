@@ -2802,10 +2802,32 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg st
 			armExpr := func(arm *ast.ValueArm) (string, bool) {
 				expr, used, err := lowerClassPartSeed(ast.ClassPart{Expr: arm.Expr, Stages: arm.Stages}, table)
 				if err != nil {
-					lowerErr = &attrError{pos: a.Pos(), end: a.End(), code: "invalid-tuple", msg: err.Error()}
+					lowerErr = &attrError{pos: a.Pos(), end: a.End(), code: "unresolved-pipeline", msg: err.Error()}
 					return "", false
 				}
 				maps.Copy(usedPkgs, used)
+				if probeWrap && isCallExpr(expr) {
+					// Skeleton mode: wrap call exprs with _gsxunwrap so the
+					// assignment _gsxvN = _gsxunwrap(cls(v)) compiles even when
+					// cls returns (T, error). b and interpTemp are non-nil here
+					// (guarded above). resolved is nil in skeleton mode, so the
+					// emit-mode check below is skipped.
+					expr = fmt.Sprintf("_gsxunwrap(%s)", expr)
+				} else if !probeWrap {
+					// Emit mode: consult resolved to detect and hoist (T, error)
+					// tuples. hoistTuple writes the unwrap into b at this point —
+					// after the if/case label and before the _gsxvN = assignment —
+					// so the hoist lands inside the correct block.
+					if t := resolved[arm]; t != nil {
+						if _, isTuple := t.(*types.Tuple); isTuple {
+							if _, ok := tupleUnwrapType(t); !ok {
+								lowerErr = &attrError{pos: arm.Pos(), end: arm.End(), code: "invalid-tuple", msg: fmt.Sprintf("class value-form arm %q returns %s; only (T, error) is supported", arm.Expr, t)}
+								return "", false
+							}
+							expr = hoistTuple(b, expr, interpTemp)
+						}
+					}
+				}
 				return expr, true
 			}
 			var cfOK bool
@@ -2831,11 +2853,18 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg st
 		}
 		maps.Copy(usedPkgs, used)
 		if p.Cond == "" {
-			// Unconditional plain part: in probe mode wrap call exprs so skeleton
-			// compiles even when the call returns (T, error). In emit mode, check
-			// resolved for a tuple and hoist it.
+			// Unconditional plain part: in probe mode stub call exprs with "" so
+			// the skeleton's gsx.Class("") compiles regardless of the call's return
+			// type. The class value lands in gsx.Attrs (map[string]any), so there
+			// is no field-type constraint that _gsxunwrap would preserve; the
+			// _gsxuseq probe (emitProbes) handles both liveness and type harvest.
+			// Stubbing lets the skeleton compile even for a (int,string) tuple,
+			// so the clean "invalid-tuple" diagnostic fires at emit time for ALL
+			// non-(T,error) tuples (not just those whose first return is string).
+			//
+			// In emit mode, check resolved for a tuple and hoist it.
 			if probeWrap && isCallExpr(expr) {
-				expr = fmt.Sprintf("_gsxunwrap(%s)", expr)
+				expr = `""`
 			} else if !probeWrap {
 				t := resolved[p]
 				if tup, isAny := t.(*types.Tuple); isAny {

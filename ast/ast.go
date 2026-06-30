@@ -474,7 +474,8 @@ func (*OrderedAttrsAttr) attrNode() {}
 //   - *SwitchMarkup: each CaseClause
 //   - *CaseClause: each Body markup node
 //   - *CondAttr: each Then and Else attr node
-//   - *ClassAttr: each ClassPart's CF (if non-nil)
+//   - *ClassAttr: each *ClassPart (Parts slice walked by pointer)
+//   - *ClassPart: CF (if non-nil)
 //   - *ValueCF: If or Switch (whichever is non-nil)
 //   - *ValueIf: Then, ElseIf (if non-nil), Else (if non-nil)
 //   - *ValueSwitch: each CaseClause

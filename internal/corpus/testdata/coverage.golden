@@ -41,7 +41,10 @@ codegen-shape/greeting	diag gen render
 codegen-shape/style_interp	diag gen render
 codegen-shape/whitespace_collapse	diag gen render
 components/child_class_fallthrough	diag render
+components/child_class_part_tuple	diag gen render
 components/child_class_positioned	diag render
+components/child_class_reject_non_error_tuple	diag(error)
+components/child_class_value_arm_tuple	diag gen render
 components/child_hyphen_attr_fallthrough	diag render
 components/child_no_props	diag render
 components/child_prop_pipeline	diag render
@@ -321,4 +324,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 323 cases (render: 245, error: 57, gen-pinned: 122)
+TOTAL: 326 cases (render: 247, error: 58, gen-pinned: 124)
