@@ -43,6 +43,10 @@ export default defineConfig(({ command, mode }) => {
     ],
     server: {
       port: vitePort,
+      // Fail loudly if VITE_PORT is already taken (e.g. another gsx app),
+      // instead of silently moving to the next port — the Go server's
+      // VITE_DEV_URL and the printed URL both assume this exact port.
+      strictPort: true,
       proxy: {
         // Everything except /__vite/ (Vite's own dev-asset namespace) and
         // /__dev/ (fallback plugin status) goes to the Go server.
