@@ -26,9 +26,10 @@ surprise.
 
 gsx compiles `.gsx` → `.x.go` → `go build` rather than interpreting templates at
 runtime — that compile step is what makes the type-safety above possible. We treat it
-as a feature, not a tax: the `@gsxhq/vite-plugin-gsx` plugin regenerates and
-live-reloads on save (`gsx init` wires it up), so the loop stays instant. A build
-step you never wait on is just a faster, safer template.
+as a feature, not a tax: `gsx dev` keeps generation warm, safely rebuilds and
+restarts the Go server, and uses Vite for browser errors and reloads. `gsx init`
+wires the whole loop to `npm run dev`, so a build step you never wait on is just
+a faster, safer template.
 
 ## Secure by construction
 

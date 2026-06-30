@@ -7,6 +7,33 @@ program. The few options that are Go *functions* (a custom minifier, an
 attribute-classifier predicate, a field matcher) still require a code-based
 setup; see [Extensions](./extensions.md).
 
+## `[dev]` — development loop
+
+`gsx dev` works without configuration: it runs `npx vite`, builds the current
+package to a per-project operating-system cache directory, and runs that binary.
+The `[dev]` table customizes those commands:
+
+```toml
+[dev]
+web = ["pnpm", "vite"]
+build = ["go", "build", "-tags", "dev", "-o", "tmp/app", "."]
+run = ["tmp/app"]
+log = "tmp/dev.log"
+```
+
+`web`, `build`, and `run` are argument arrays executed directly, without a
+shell. If `build` changes the output path, update `run` to match it. `log` is
+optional and off by default; a configured path may write into the working tree.
+
+Set `no_web = true` when another process manages Vite:
+
+```toml
+[dev]
+no_web = true
+```
+
+CLI flags override this table. See the [`gsx dev` reference](./cli#gsx-dev).
+
 ```toml
 # gsx.toml — typically at the repo root
 [filters]

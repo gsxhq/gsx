@@ -66,12 +66,15 @@ apologize for it — it's exactly what buys compile-time type safety and context
 escaping. A build step is only worth paying for if the feedback is instant, so gsx
 ships the loop that makes it disappear.
 
-**[`@gsxhq/vite-plugin-gsx`](https://github.com/gsxhq/vite-plugin-gsx)** watches your
-`.gsx` files, regenerates on save, surfaces gsx diagnostics in Vite's error overlay,
-and reloads the browser — the Vite dev experience front-end developers already reach
-for, now driving Go HTML. `gsx init` wires it up out of the box: `task dev`, edit,
-see it live. Paired with the `github.com/gsxhq/vite` Go helper for asset manifests,
-your Go server and the Vite dev server run side by side.
+**`gsx dev`** owns the complete loop in one foreground process: it watches `.gsx`,
+`.go`, and `.env` files, regenerates with a warm compiler, safely rebuilds and swaps
+the Go server, and supervises Vite. The
+[`@gsxhq/vite-plugin-gsx`](https://github.com/gsxhq/vite-plugin-gsx) bridge surfaces
+diagnostics in Vite's error overlay and reloads the browser — the Vite development
+experience front-end developers already reach for, now driving Go HTML. `gsx init`
+wires it up out of the box: `npm run dev`, edit, see it live. The
+`github.com/gsxhq/vite` Go helper resolves development assets and production
+manifests.
 
 A build step you never wait on doesn't feel like one. That's the bet.
 
@@ -128,9 +131,8 @@ ordinary Go, and the runtime package imports nothing outside the standard librar
 >   and `gsx init` to scaffold a ready-to-run project.
 > - **Editor** — `gsx lsp` language server: Go ↔ `.gsx` navigation, formatting, and
 >   diagnostics.
-> - **Dev loop** — a Vite plugin (`@gsxhq/vite-plugin-gsx`) regenerates and
->   live-reloads on save, paired with the `github.com/gsxhq/vite` Go helper for
->   asset manifests; `gsx init` wires both together.
+> - **Dev loop** — `gsx dev` performs warm generation, build-then-swap server
+>   restarts, and Vite browser feedback; `gsx init` wires it to `npm run dev`.
 >
 > Codegen covers interpolation, control flow, attributes with contextual escaping,
 > the `|>` pipeline + filters, components/props/`{children}`, method components,

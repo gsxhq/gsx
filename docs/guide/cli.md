@@ -21,6 +21,7 @@ gsx [global flags] <command> [arguments]
 | Command | What it does |
 |---------|--------------|
 | `generate [paths...]` | generate `.x.go` from `.gsx` files (default: `.`) |
+| `dev [dir]` | run the warm generate, Go server, and browser-reload loop |
 | `fmt [paths...]` | format `.gsx` files (canonical, idempotent) |
 | `init [dir]` | scaffold a gsx + Vite starter app |
 | `clean --cache` | remove the gsx cache directory |
@@ -50,8 +51,8 @@ gsx init [dir] [--template simple] [--module path] [--force] [--yes|-y]
 
 Scaffolds a new gsx + Vite starter app into `dir` (default: `.`).
 The `simple` template creates a project with a stock `net/http` ServeMux server,
-a `.gsx` component, a Vite dev-server config, and a Taskfile that wires the full
-dev loop together.
+a `.gsx` component, and a Vite dev-server config. Its `npm run dev` script runs
+the complete development loop through the project-local gsx tool.
 
 | Flag | Effect |
 |------|--------|
@@ -79,11 +80,11 @@ On success it prints:
 ```
 ✓ Done!
   cd <dir>
-  task dev
+  npm run dev
 ```
 
-`task dev` starts the dev server with Vite hot-reload and opens the browser
-(`vite --open`).
+`npm run dev` runs `go tool gsx dev`, which starts the Go server and Vite
+front door. Open `http://localhost:5173`.
 
 ### Non-interactive mode (CI / redirected stdin)
 
@@ -96,7 +97,7 @@ Scaffolded a gsx + Vite app. Next steps:
   go get -tool github.com/gsxhq/gsx/cmd/gsx@latest
   go mod tidy
   npm install
-  task dev
+  npm run dev
 ```
 
 Use `--yes`/`-y` to run all setup steps unattended without prompting (useful in
@@ -113,6 +114,47 @@ I/O error. When a step fails the remaining commands are printed to stderr.
 > **Planned template:** `structpages` — a struct-based routing starter built on
 > the [structpages](https://github.com/gsxhq/gsx/tree/main/structpages) framework
 > (htmx + templ). Not yet available; only `simple` is currently implemented.
+
+## gsx dev
+
+```
+gsx dev [dir] [--web command] [--no-web] [--build command] [--run command]
+              [--log] [--log-file path] [--no-log]
+```
+
+`gsx dev` owns the application development loop in one foreground process. It
+keeps gsx's type information warm, regenerates `.x.go` files, builds and safely
+swaps the Go server, supervises Vite, and drives Vite's browser error overlay and
+reload. A failed generation or build leaves the last working server running.
+
+The generated starter exposes it as:
+
+```sh
+npm run dev        # runs go tool gsx dev
+go tool gsx dev    # equivalent direct command
+```
+
+Vite requires Node.js and a package manager. The default front-door command is
+`npx vite`; npm can be replaced with pnpm, Yarn, or another compatible tool by
+setting `web` in [`gsx.toml`](./config#dev-development-loop), or with `--web`.
+
+| Flag | Effect |
+|------|--------|
+| `--web command` | front-door command (default: `npx vite`) |
+| `--no-web` | manage generation and the Go server without starting Vite |
+| `--build command` | Go server build command |
+| `--run command` | built server run command |
+| `--log` | write a backend log in gsx's per-project cache directory |
+| `--log-file path` | write the backend log to an explicit path |
+| `--no-log` | disable logging, including a log configured in `gsx.toml` |
+
+Command flags are whitespace-split and executed directly, without a shell. Use
+the array form in `gsx.toml` when arguments need precise boundaries.
+
+By default the built server and optional bare `--log` output live in the
+per-project operating-system cache, so the loop does not add temporary artifacts
+to the working tree. The generated `.x.go` files remain beside their `.gsx`
+sources.
 
 ## generate
 
@@ -153,7 +195,8 @@ gsx generate --watch --format=ndjson # one JSON event per line on stdout
 ```
 
 With `--format=ndjson`, stdout is a clean newline-delimited JSON stream (all
-logs go to stderr) — this is what the Vite plugin consumes:
+logs go to stderr). This supports integrations that run the standalone watcher;
+`gsx dev` performs generation in-process instead:
 
 - `{"event":"start","root":"<abs>","watching":["<dir>",…]}`
 - `{"event":"generated","ok":true,"durationMs":2,"written":["page.x.go"],"diagnostics":[]}`
