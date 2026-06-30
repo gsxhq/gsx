@@ -4,6 +4,18 @@ gsx renders by streaming HTML straight to your `io.Writer` — no intermediate
 document, no per-component buffer pool. Generated code is direct write calls, and
 the escaper writes safe runs in place, so rendering allocates very little.
 
+## Reproduce
+
+The benchmark source lives at [github.com/gsxhq/gsx-bench](https://github.com/gsxhq/gsx-bench).
+
+```sh
+git clone https://github.com/gsxhq/gsx-bench
+cd gsx-bench
+go test -bench . -benchmem
+```
+
+The numbers below are a snapshot from Apple M3 Ultra with Go 1.26.1. Treat them as directional; use the command above on your hardware for local decisions.
+
 ## Numbers
 
 Apple M3 Ultra, Go 1.26.1, rendering into a pooled `bytes.Buffer` (as an HTTP
@@ -36,7 +48,4 @@ escaper never allocates:
 
 - gsx is roughly **5× faster than `html/template`** and consistently ahead of
   templ, with a fraction of the allocations.
-- Numbers are machine- and version-specific — run them on your hardware.
-- Source, methodology, and every scenario:
-  [github.com/gsxhq/gsx-bench](https://github.com/gsxhq/gsx-bench)
-  (`go test -bench . -benchmem`).
+- Numbers are machine- and version-specific.

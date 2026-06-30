@@ -1,4 +1,6 @@
-# Render-once (gap note)
+# Render-once
+
+This page documents the current render-once status so applications can make an explicit layout choice today.
 
 ## templ has `templ.Once`; gsx does not
 

@@ -1,4 +1,4 @@
-# Syntax
+# Syntax reference
 
 > **Syntax is roughly fixed, not frozen.** This page is the compact reference and
 > topic hub. If you are new to gsx, start with [Learn gsx](./learn), then use this
