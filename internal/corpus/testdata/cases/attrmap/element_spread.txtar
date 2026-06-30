@@ -4,12 +4,12 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-component Card(attrs gsx.Attrs) {
-	<div { attrs... }>x</div>
+component Card(bag gsx.Attrs) {
+	<div { bag... }>x</div>
 }
 
 component Page() {
-	<Card attrs={gsx.AttrMap{"data-b": "2", "data-a": "1"}.ToAttrs()}/>
+	<Card bag={gsx.AttrMap{"data-b": "2", "data-a": "1"}.ToAttrs()}/>
 }
 -- invoke --
 Page()
@@ -27,17 +27,17 @@ import (
 )
 
 type CardProps struct {
-	Attrs gsx.Attrs
+	Bag gsx.Attrs
 }
 
 //line input.gsx:5:1
 func Card(_gsxp CardProps) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		attrs := _gsxp.Attrs
+		bag := _gsxp.Bag
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<div")
-		_gsxgw.Spread(ctx, attrs)
+		_gsxgw.Spread(ctx, bag)
 		_gsxgw.S(">x</div>")
 		return _gsxgw.Err()
 	})
@@ -48,7 +48,7 @@ func Page() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Card(CardProps{Attrs: gsx.AttrMap{"data-b": "2", "data-a": "1"}.ToAttrs()}))
+		_gsxgw.Node(ctx, Card(CardProps{Bag: gsx.AttrMap{"data-b": "2", "data-a": "1"}.ToAttrs()}))
 		return _gsxgw.Err()
 	})
 }
