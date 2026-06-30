@@ -852,17 +852,13 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					emitSkeletonLine(sb, fset, sa.Pos())
 					fmt.Fprintf(sb, "_gsxuseq(%s)\n", probe)
 					// The _gsxuseq harvest above has its error span SUPPRESSED
-					// (module_importer quietSpans), because a child-prop value's error is
-					// re-reported by the props literal. An element spread has NO such
-					// second reference, so a genuine error (undefined spread var, bad
-					// call) inside it would be silently swallowed AND would drop the
-					// package's output. Emit a NON-suppressed `_ = (probe)` liveness
-					// reference so the error surfaces exactly once (the _gsxuseq copy
-					// stays suppressed, so no double-report). The `_ =` form is NOT a
-					// counted probe, so it is invisible to the k-th-probe→k-th-node
-					// harvest alignment.
+					// (module_importer quietSpans). Re-check the expression in a native
+					// gsx.Attrs assignment so invalid spread types and expression errors
+					// surface exactly once without exposing a synthetic helper name.
+					// This declaration is NOT a counted probe, so it is invisible to the
+					// k-th-probe→k-th-node harvest alignment.
 					emitSkeletonLine(sb, fset, sa.Pos())
-					fmt.Fprintf(sb, "_ = (%s)\n", probe)
+					fmt.Fprintf(sb, "var _ _gsxrt.Attrs = (%s)\n", probe)
 				})
 				if probeErr != nil {
 					return probeErr

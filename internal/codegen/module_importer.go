@@ -447,12 +447,9 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// harvest: errors inside its argument are suppressed (the props-literal
 	// _gsxunwrap(...) probe already reports the same expression-internal error), so
 	// a malformed child-prop value is reported once, not twice.
-	//
-	// _gsxbag exists only to enforce gsx.Attrs checking for values bound to
-	// gsx.Attrs-typed child-prop fields. It admits no map types.
 	helperXgoPath := filepath.Join(dir, "_gsxshared.x.go")
 	helper, _ := goparser.ParseFile(fset, helperXgoPath,
-		"package "+pkgName+"\n\nimport _gsxrt \"github.com/gsxhq/gsx\"\n\nfunc _gsxuse(...any) {}\nfunc _gsxuseq(...any) {}\nfunc _gsxcompsig(any) {}\nfunc _gsxunwrap[T any](v T, _ ...any) T { return v }\nfunc _gsxbag(v _gsxrt.Attrs) _gsxrt.Attrs { return v }\n", goparser.SkipObjectResolution)
+		"package "+pkgName+"\n\nfunc _gsxuse(...any) {}\nfunc _gsxuseq(...any) {}\nfunc _gsxcompsig(any) {}\nfunc _gsxunwrap[T any](v T, _ ...any) T { return v }\n", goparser.SkipObjectResolution)
 	goFiles = append(goFiles, helper)
 
 	// Include the package's hand-written .go files (model.go, helper.go, etc.)

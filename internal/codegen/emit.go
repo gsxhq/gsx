@@ -2367,15 +2367,6 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 					fieldVal = fmt.Sprintf("_gsxunwrap(%s)", rawVal)
 				}
 				isNF := nodeFields[fn]
-				// In the skeleton, wrap values targeting gsx.Attrs fields with
-				// _gsxbag solely to enforce that their unwrapped value is gsx.Attrs.
-				// It composes outside _gsxunwrap, so tuple-valued calls are checked
-				// after unwrapping. An Attrs field is never a node field.
-				isAttrsField := attrsFields[fn]
-				// A bare nil already assigns to gsx.Attrs and needs no helper call.
-				if probeWrap && isAttrsField && fieldVal != "nil" {
-					fieldVal = fmt.Sprintf("_gsxbag(%s)", fieldVal)
-				}
 				var str string
 				if isNF {
 					str = fmt.Sprintf("%s: %s.Val(%s)", fn, rtPkg, fieldVal)
