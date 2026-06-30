@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	goast "go/ast"
@@ -754,9 +755,16 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					// probeWrap=true: ExprAttr values are wrapped with _gsxunwrap(...) in
 					// the skeleton so (T, error) tuples type-check while field-type
 					// checking is preserved.
+					// cfHoistBuf collects any var+if/switch statements hoisted by
+					// classEntryExpr for value-form CF parts in a class attr. They
+					// are emitted to the skeleton BEFORE the probe call so the skeleton
+					// remains syntactically valid Go. A local interpTemp counter keeps
+					// the temp names _gsxv0… unique within this probe context.
+					var cfHoistBuf bytes.Buffer
+					cfInterpTemp := 0
 					fieldEntries, splatExpr, usedPkgs, err := childPropsLiteral(t, propsType, "_gsxrt", "_gsxrt.DefaultClassMerge", table, propFields, nodeProps[propsType], byo, fm, func(nodes []gsxast.Markup) (string, error) {
 						return "_gsxrt.Node(nil)", nil
-					}, true)
+					}, true, &cfHoistBuf, &cfInterpTemp)
 					if err != nil {
 						// childPropsLiteral returns an *attrError with the offending attr's
 						// position embedded. Propagate it as-is so the caller can emit
@@ -778,6 +786,8 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					// earlier fields shift the offset. This is a known limitation; a future reader
 					// should not trust the column of a child-prop field-type error.
 					emitSkeletonLine(sb, fset, t.Pos())
+					// Emit any CF-hoisted statements before the probe call.
+					sb.WriteString(cfHoistBuf.String())
 					if splatExpr != "" {
 						// Whole-struct splat: mirrors genChildComponent exactly.
 						fmt.Fprintf(sb, "_ = %s(%s)\n", callTarget, splatExpr)
@@ -1776,17 +1786,22 @@ func collectChildPropExprSrc(nodes []gsxast.Markup, add func(string)) {
 }
 
 // collectAttrSrc feeds every verbatim-emitted Go fragment in an attr list to add:
-// composable-class part Expr+Cond, element-spread Expr, conditional-attr Cond, and
-// — recursing into a *CondAttr's Then/Else — the same for nested attrs. (Nested
-// *ExprAttr exprs are bound via the componentExprs path in usedParams, but a param
-// used ONLY inside a CondAttr branch's expr-attr value is still bound because
-// componentExprs/collectExprs now also recurse CondAttr; the Cond and nested
-// class/spread fragments are bound here.)
+// composable-class part Expr+Cond (and value-form CF switch-tag/if-cond + arm
+// exprs), element-spread Expr, conditional-attr Cond, and — recursing into a
+// *CondAttr's Then/Else — the same for nested attrs. (Nested *ExprAttr exprs are
+// bound via the componentExprs path in usedParams, but a param used ONLY inside a
+// CondAttr branch's expr-attr value is still bound because componentExprs/
+// collectExprs now also recurse CondAttr; the Cond and nested class/spread
+// fragments are bound here.)
 func collectAttrSrc(attrs []gsxast.Attr, add func(string)) {
 	for _, a := range attrs {
 		switch at := a.(type) {
 		case *gsxast.ClassAttr:
 			for _, p := range at.Parts {
+				if p.CF != nil {
+					addValueCFSrc(p.CF, add)
+					continue
+				}
 				add(p.Expr)
 				for _, st := range p.Stages {
 					if st.Args != "" {
@@ -1819,6 +1834,49 @@ func collectAttrSrc(attrs []gsxast.Attr, add func(string)) {
 			add(at.Cond)
 			collectAttrSrc(at.Then, add)
 			collectAttrSrc(at.Else, add)
+		}
+	}
+}
+
+// addValueCFSrc feeds the verbatim-emitted Go fragments from a value-form CF
+// (if/switch inside a class/style list) to add. The switch tag, case lists,
+// if/else-if conditions, and arm expressions are all emitted verbatim, so any
+// identifiers they reference must be in scope as locals.
+func addValueCFSrc(cf *gsxast.ValueCF, add func(string)) {
+	if cf.If != nil {
+		addValueIfSrc(cf.If, add)
+		return
+	}
+	if cf.Switch != nil {
+		add(cf.Switch.Tag)
+		for _, c := range cf.Switch.Cases {
+			if c.List != "" {
+				add(c.List)
+			}
+			addValueArmSrc(c.Value, add)
+		}
+	}
+}
+
+func addValueIfSrc(vi *gsxast.ValueIf, add func(string)) {
+	add(vi.Cond)
+	addValueArmSrc(vi.Then, add)
+	if vi.ElseIf != nil {
+		addValueIfSrc(vi.ElseIf, add)
+	}
+	if vi.Else != nil {
+		addValueArmSrc(vi.Else, add)
+	}
+}
+
+func addValueArmSrc(arm *gsxast.ValueArm, add func(string)) {
+	if arm == nil {
+		return
+	}
+	add(arm.Expr)
+	for _, st := range arm.Stages {
+		if st.Args != "" {
+			add(st.Args)
 		}
 	}
 }
