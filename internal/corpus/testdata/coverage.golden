@@ -29,11 +29,17 @@ class/non_root_class	diag gen render
 class/part_tuple	diag gen render
 class/spread	diag render
 class/style_rejected	diag
+class/value_arm_pipeline	diag gen render
 class/value_arm_tuple_rejected	diag(error)
 class/value_if_else	diag gen render
 class/value_if_elseif	diag gen render
+class/value_if_no_else_false	diag gen render
+class/value_if_no_else_true	diag gen render
+class/value_part_nonstring_rejected	diag(error)
 class/value_switch	diag gen render
+class/value_switch_no_default	diag gen render
 class/value_switch_nonroot	diag gen render
+class/value_switch_tagless	diag gen render
 class/value_switch_tuple	diag gen render
 codegen-shape/example12_form	diag render
 codegen-shape/example12_toolbar	diag render
@@ -324,4 +330,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 326 cases (render: 247, error: 58, gen-pinned: 124)
+TOTAL: 332 cases (render: 252, error: 59, gen-pinned: 129)

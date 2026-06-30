@@ -2855,12 +2855,11 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg st
 		if p.Cond == "" {
 			// Unconditional plain part: in probe mode stub call exprs with "" so
 			// the skeleton's gsx.Class("") compiles regardless of the call's return
-			// type. The class value lands in gsx.Attrs (map[string]any), so there
-			// is no field-type constraint that _gsxunwrap would preserve; the
+			// type. The string constraint IS re-imposed by gsx.Class in the emitted
+			// code, so a wrong type still fails to compile — the stub only defers
+			// that check out of the skeleton so the clean emit-time "invalid-tuple"
+			// diagnostic can fire first for ALL non-(T,error) tuples.
 			// _gsxuseq probe (emitProbes) handles both liveness and type harvest.
-			// Stubbing lets the skeleton compile even for a (int,string) tuple,
-			// so the clean "invalid-tuple" diagnostic fires at emit time for ALL
-			// non-(T,error) tuples (not just those whose first return is string).
 			//
 			// In emit mode, check resolved for a tuple and hoist it.
 			if probeWrap && isCallExpr(expr) {
