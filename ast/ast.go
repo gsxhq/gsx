@@ -571,7 +571,7 @@ func Inspect(node Node, f func(Node) bool) {
 		Inspect(n.Value, f)
 	case *ValueArm:
 		// leaf
-		// GoBlock, OrderedPair: leaves (no sub-nodes)
+		// GoBlock and OrderedPair are also leaves with no child nodes.
 	}
 	f(nil)
 }

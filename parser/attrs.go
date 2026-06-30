@@ -78,6 +78,13 @@ func (p *parser) splitComposed(src string, base int) ([]ast.ClassPart, error) {
 			if err != nil {
 				return nil, err
 			}
+			// Guard: assert nothing meaningful follows the value-form within this
+			// segment. p.offsetOf converts the token.Pos back to a byte offset in
+			// p.src; subtract base to get the offset within src.
+			endOff := p.offsetOf(cf.End()) - base
+			if rest := strings.TrimSpace(src[endOff:segEnd]); rest != "" {
+				return nil, p.errorf(cf.End(), "unexpected %q after value-form %s in class/style; pipe stages on a value-form result are not supported", rest, kw)
+			}
 			parts = append(parts, ast.ClassPart{CF: cf})
 			ast.SetSpan(&parts[len(parts)-1], p.posAt(base+segStart), p.posAt(base+segEnd))
 			continue

@@ -99,6 +99,7 @@ control_flow/switch_default	diag render
 control_flow/switch_err	diag render
 control_flow/switch_warn	diag gen render
 control_flow/value_form_guard_rejected	diag(error)
+control_flow/value_form_trailing_rejected	diag(error)
 control_flow/value_switch_ast	ast diag
 datajson/island_breakout	diag gen render
 datajson/island_multi_hole_rejected	diag(error)
@@ -330,4 +331,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 332 cases (render: 252, error: 59, gen-pinned: 129)
+TOTAL: 333 cases (render: 252, error: 60, gen-pinned: 129)

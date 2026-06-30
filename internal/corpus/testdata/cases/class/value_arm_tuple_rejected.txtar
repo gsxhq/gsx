@@ -13,4 +13,4 @@ component C(v int) {
 
 func bad(v int) (int, string) { return 0, "" }
 -- diagnostics.golden --
-6:3: value-form arm "bad(v)" returns (int, string); only (T, error) is supported
+6:3: class value-form arm "bad(v)" returns (int, string); only (T, error) is supported

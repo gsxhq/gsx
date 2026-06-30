@@ -1039,7 +1039,11 @@ func hoistValueCF(b *bytes.Buffer, cf *ast.ValueCF, table filterTable, imports m
 		if t := resolved[a]; t != nil {
 			if _, isTuple := t.(*types.Tuple); isTuple {
 				if _, ok := tupleUnwrapType(t); !ok {
-					bag.Errorf(a.Pos(), a.End(), "invalid-tuple", "value-form arm %q returns %s; only (T, error) is supported", a.Expr, t)
+					kind := "class"
+					if style {
+						kind = "style"
+					}
+					bag.Errorf(a.Pos(), a.End(), "invalid-tuple", "%s value-form arm %q returns %s; only (T, error) is supported", kind, a.Expr, t)
 					return "", false
 				}
 				expr = hoistTuple(b, expr, interpTemp)

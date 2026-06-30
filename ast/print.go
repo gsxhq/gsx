@@ -214,6 +214,9 @@ func fprintNode(w io.Writer, node Node, depth int) error {
 			return err
 		}
 		if n.ElseIf != nil {
+			if _, err := fmt.Fprintf(w, "%s  else if:\n", indent); err != nil {
+				return err
+			}
 			if err := fprintNode(w, n.ElseIf, depth+1); err != nil {
 				return err
 			}
