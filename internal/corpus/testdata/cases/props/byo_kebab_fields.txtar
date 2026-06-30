@@ -60,7 +60,7 @@ func Page() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:16:2
-		_gsxgw.Node(ctx, Button(Props{FullWidth: true, AriaLabel: "Close", Attrs: gsx.Attrs{"data-id": "7"}}))
+		_gsxgw.Node(ctx, Button(Props{FullWidth: true, AriaLabel: "Close", Attrs: gsx.Attrs{{Key: "data-id", Value: "7"}}}))
 		return _gsxgw.Err()
 	})
 }

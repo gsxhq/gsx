@@ -5,7 +5,7 @@ component Link() {
 	<a href="/x">{children}</a>
 }
 -- invoke --
-Link(LinkProps{Attrs: gsx.Attrs{"href": "/evil", "data-y": "1"}})
+Link(LinkProps{Attrs: gsx.Attrs{{Key: "href", Value: "/evil"}, {Key: "data-y", Value: "1"}}})
 -- diagnostics.golden --
 -- render.golden --
-<a data-y="1" href="/evil"></a>
+<a href="/evil" data-y="1"></a>

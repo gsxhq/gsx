@@ -9,7 +9,7 @@ component Card(title string) { <div>{title}</div> }
 
 component Page(bag gsx.Attrs) { <Card { bag... }/> }
 -- invoke --
-Page(PageProps{Bag: gsx.Attrs{"id": "x"}})
+Page(PageProps{Bag: gsx.Attrs{{Key: "id", Value: "x"}}})
 -- diagnostics.golden --
 -- render.golden --
 <div id="x"></div>

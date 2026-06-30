@@ -63,7 +63,7 @@ func Page(_gsxp PageProps) gsx.Node {
 		name := _gsxp.Name
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.Node(ctx, Card(CardProps{Title: gsx.Text("Hi"), Attrs: gsx.Attrs{"data-x": _gsxstd.Upper((name))}}))
+		_gsxgw.Node(ctx, Card(CardProps{Title: gsx.Text("Hi"), Attrs: gsx.Attrs{{Key: "data-x", Value: _gsxstd.Upper((name))}}}))
 		return _gsxgw.Err()
 	})
 }

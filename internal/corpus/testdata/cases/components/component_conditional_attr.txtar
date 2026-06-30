@@ -61,7 +61,7 @@ func Page(_gsxp PageProps) gsx.Node {
 		hot := _gsxp.Hot
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.Node(ctx, Card(CardProps{Title: gsx.Text("Hi"), Attrs: gsx.Attrs{}.Merge(gsx.AttrsCond(hot, func() gsx.Attrs { return gsx.Attrs{"class": "hot"} }, nil))}))
+		_gsxgw.Node(ctx, Card(CardProps{Title: gsx.Text("Hi"), Attrs: gsx.Attrs{}.Merge(gsx.AttrsCond(hot, func() gsx.Attrs { return gsx.Attrs{{Key: "class", Value: "hot"}} }, nil))}))
 		return _gsxgw.Err()
 	})
 }

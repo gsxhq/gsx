@@ -23,12 +23,7 @@ import "github.com/gsxhq/gsx"
 
 // WithTitle adds a title attribute to a bag (seed-first: subject is the Attrs).
 func WithTitle(a gsx.Attrs, t string) gsx.Attrs {
-	out := gsx.Attrs{}
-	for k, v := range a {
-		out[k] = v
-	}
-	out["title"] = t
-	return out
+	return append(a, gsx.Attr{Key: "title", Value: t})
 }
 `
 	views := map[string]string{
@@ -43,7 +38,7 @@ component C(extra gsx.Attrs) {
 	}
 	got := renderWithFilters(t, myfilters, views,
 		[]string{stdImportPath, "gsxmf/myfilters"},
-		`p.C(p.CProps{Extra: gsx.Attrs{"id": "m"}})`)
+		`p.C(p.CProps{Extra: gsx.Attrs{{Key: "id", Value: "m"}}})`)
 	if !strings.Contains(got, `id="m"`) || !strings.Contains(got, `title="hi"`) {
 		t.Fatalf("expected spread pipeline to add title; got:\n%s", got)
 	}

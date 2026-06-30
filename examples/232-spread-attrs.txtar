@@ -1,6 +1,6 @@
 -- doc --
 name: Spread Attributes
-summary: "{ bag... }" spreads a gsx.Attrs bag onto an element; keys render in sorted (alphabetical) order.
+summary: "{ bag... }" spreads a gsx.Attrs bag onto an element; keys render in source order.
 category: Basics
 page: attributes
 pageOrder: 40
@@ -13,6 +13,6 @@ component Card(extra gsx.Attrs) {
 	<div { extra... }>content</div>
 }
 -- invoke --
-Card(CardProps{Extra: gsx.Attrs{"id": "box", "data-active": "true"}})
+Card(CardProps{Extra: gsx.Attrs{{Key: "id", Value: "box"}, {Key: "data-active", Value: "true"}}})
 -- render.golden --
-<div data-active="true" id="box">content</div>
+<div id="box" data-active="true">content</div>

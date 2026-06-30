@@ -609,11 +609,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			if !ok {
 				return false
 			}
-			if orderedFields[fieldName(spreadExpr)] {
-				fmt.Fprintf(b, "\t\t_gsxgw.SpreadOrdered(ctx, %s)\n", spreadExpr)
-			} else {
-				fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", spreadExpr)
-			}
+			fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", spreadExpr)
 			continue
 		}
 		if i < splitIdx {
@@ -1316,22 +1312,16 @@ func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, tab
 	case *ast.SpreadAttr:
 		// emitAttr runs only for non-component elements (genNode routes component
 		// tags to genChildComponent before the attr loop), so a SpreadAttr here is
-		// always an element spread. A param typed gsx.OrderedAttrs dispatches
-		// SpreadOrdered (preserves slice order); all other spreads use Spread (sorts).
-		// Note: gw.Spread entity-escapes values and drops invalid attr names, but
-		// (per the gsx.Attrs trust contract) does NOT URL/CSS-sanitize or reject
-		// JS-context keys — a bag's keys/values are trusted developer input. This is
-		// deliberately distinct from the composable-style/expr-attr paths, which fail
-		// closed on CSS/JS contexts because their values may be untrusted data.
+		// always an element spread. Spread entity-escapes values and drops invalid
+		// attr names, but (per the gsx.Attrs trust contract) does NOT URL/CSS-sanitize
+		// or reject JS-context keys — a bag's keys/values are trusted developer input.
+		// This is deliberately distinct from the composable-style/expr-attr paths,
+		// which fail closed on CSS/JS contexts because their values may be untrusted.
 		spreadExpr, ok := spreadAttrExpr(t, table, imports, bag)
 		if !ok {
 			return false
 		}
-		if orderedFields[fieldName(spreadExpr)] {
-			fmt.Fprintf(b, "\t\t_gsxgw.SpreadOrdered(ctx, %s)\n", spreadExpr)
-		} else {
-			fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", spreadExpr)
-		}
+		fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", spreadExpr)
 	case *ast.CondAttr:
 		// Attr emission is a sequence of writer calls between `<tag` and `>`, so
 		// wrapping the branch's attr emits in a real Go `if`/`else` is valid. An
@@ -1356,7 +1346,7 @@ func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, tab
 		return true
 	case *ast.OrderedAttrsAttr:
 		bag.Errorf(a.Pos(), a.End(), "unsupported-attr",
-			"ordered-attrs {{ }} is only valid as the value of a declared gsx.OrderedAttrs component prop, not plain-element attribute %q; declare a gsx.OrderedAttrs prop and spread it with { prop... }",
+			"ordered-attrs {{ }} is only valid as the value of a declared gsx.Attrs component prop, not plain-element attribute %q; declare a gsx.Attrs prop and spread it with { prop... }",
 			t.Name)
 		return false
 	default:
@@ -2121,10 +2111,10 @@ outer:
 					fieldEntries[i].str = fmt.Sprintf("%s: %s", fe.fieldName, tmp)
 				}
 			case fe.oa != nil:
-				// Hoist tuple/call pairs and rebuild the gsx.OrderedAttrs{…}
+				// Hoist tuple/call pairs and rebuild the gsx.Attrs{…}
 				// literal; non-call pairs stay inline (see the ExprAttr note).
 				var sb strings.Builder
-				fmt.Fprintf(&sb, "%s: gsx.OrderedAttrs{", fe.fieldName)
+				fmt.Fprintf(&sb, "%s: gsx.Attrs{", fe.fieldName)
 				for j, pr := range fe.oaPairs {
 					pairType := resolved[&fe.oa.Pairs[j]]
 					_, isTup := tupleUnwrapType(pairType)
@@ -2380,7 +2370,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 					fields = append(fields, propFieldEntry{str: fmt.Sprintf("%s: %s", fn, strconv.Quote(t.Value))})
 				}
 			} else {
-				bag = append(bag, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), strconv.Quote(t.Value)))
+				bag = append(bag, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), strconv.Quote(t.Value)))
 			}
 		case *ast.ExprAttr:
 			if fn, isProp := matchField(declared, t.Name, fm); isProp {
@@ -2438,7 +2428,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 					recordPkgs(used)
 					val = lowered
 				}
-				bag = append(bag, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), val))
+				bag = append(bag, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), val))
 			}
 		case *ast.BoolAttr:
 			if fn, isProp := matchField(declared, t.Name, fm); isProp {
@@ -2451,7 +2441,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 					fields = append(fields, propFieldEntry{str: fmt.Sprintf("%s: true", fn)})
 				}
 			} else {
-				bag = append(bag, fmt.Sprintf("%s: true", strconv.Quote(t.Name)))
+				bag = append(bag, fmt.Sprintf("{Key: %s, Value: true}", strconv.Quote(t.Name)))
 			}
 		case *ast.MarkupAttr:
 			// A markup attribute (`header={ <h1/> }`) is a NAMED slot bound to a
@@ -2481,7 +2471,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				return nil, "", nil, eerr
 			}
 			recordPkgs(used)
-			bag = append(bag, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), entry))
+			bag = append(bag, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), entry))
 		case *ast.SpreadAttr:
 			spreadExpr := strings.TrimSpace(t.Expr)
 			if len(t.Stages) > 0 {
@@ -2504,7 +2494,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 		case *ast.OrderedAttrsAttr:
 			fn, ok := matchField(declared, t.Name, fm)
 			if !ok {
-				msg := fmt.Sprintf("ordered-attrs literal {{ }} on <%s> attribute %q matches no field of %s and cannot fall through to the Attrs bag; declare a gsx.OrderedAttrs field to receive it", el.Tag, t.Name, propsType)
+				msg := fmt.Sprintf("ordered-attrs literal {{ }} on <%s> attribute %q matches no field of %s and cannot fall through to the Attrs bag; declare a gsx.Attrs field to receive it", el.Tag, t.Name, propsType)
 				return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "ordered-attrs-no-field", msg: msg}
 			}
 			if verr := validateMatchedField(fn, t.Name, propsType, declared); verr != nil {
@@ -2516,7 +2506,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				pairEntries[i] = oaPairEntry{key: pr.Key, rawVal: pr.Value}
 			}
 			var sb strings.Builder
-			fmt.Fprintf(&sb, "%s: %s.OrderedAttrs{", fn, rtPkg)
+			fmt.Fprintf(&sb, "%s: %s.Attrs{", fn, rtPkg)
 			for _, pr := range t.Pairs {
 				// When probeWrap=true (skeleton path), wrap each CALL pair value
 				// with _gsxunwrap(...) so the skeleton tolerates (T, error) tuples
@@ -2649,15 +2639,15 @@ func condBranchAttrs(attrs []ast.Attr, rtPkg, tag string, mergeExpr string, tabl
 	for _, a := range attrs {
 		switch t := a.(type) {
 		case *ast.StaticAttr:
-			entries = append(entries, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), strconv.Quote(t.Value)))
+			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), strconv.Quote(t.Value)))
 		case *ast.ExprAttr:
 			if len(t.Stages) > 0 {
 				msg := fmt.Sprintf("pipeline in a conditional attribute branch (<%s>) not supported yet", tag)
 				return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
-			entries = append(entries, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), strings.TrimSpace(t.Expr)))
+			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), strings.TrimSpace(t.Expr)))
 		case *ast.BoolAttr:
-			entries = append(entries, fmt.Sprintf("%s: true", strconv.Quote(t.Name)))
+			entries = append(entries, fmt.Sprintf("{Key: %s, Value: true}", strconv.Quote(t.Name)))
 		case *ast.ClassAttr:
 			if t.Name != "class" {
 				msg := fmt.Sprintf("%s attribute in a conditional branch (<%s>) not supported yet", t.Name, tag)
@@ -2668,7 +2658,7 @@ func condBranchAttrs(attrs []ast.Attr, rtPkg, tag string, mergeExpr string, tabl
 				return "", nil, eerr
 			}
 			maps.Copy(usedPkgs, used)
-			entries = append(entries, fmt.Sprintf("%s: %s", strconv.Quote(t.Name), entry))
+			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), entry))
 		default:
 			msg := fmt.Sprintf("unsupported attribute %T in a conditional branch (<%s>)", a, tag)
 			return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}

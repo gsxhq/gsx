@@ -50,7 +50,7 @@ func Page() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.Node(ctx, Bare(BareProps{Title: "hi", Attrs: gsx.Attrs{"class": gsx.ClassJoin(gsx.Class("dup"), gsx.Class("dup"), gsx.Class("keep"))}}))
+		_gsxgw.Node(ctx, Bare(BareProps{Title: "hi", Attrs: gsx.Attrs{{Key: "class", Value: gsx.ClassJoin(gsx.Class("dup"), gsx.Class("dup"), gsx.Class("keep"))}}}))
 		return _gsxgw.Err()
 	})
 }

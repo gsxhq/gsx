@@ -12,7 +12,7 @@ component Page(extra gsx.Attrs) {
 	<Card title="Hi" { extra... } />
 }
 -- invoke --
-Page(PageProps{Extra: gsx.Attrs{"class": "extra", "id": "main"}})
+Page(PageProps{Extra: gsx.Attrs{{Key: "class", Value: "extra"}, {Key: "id", Value: "main"}}})
 -- diagnostics.golden --
 -- render.golden --
 <div class="card extra" id="main">Hi</div>

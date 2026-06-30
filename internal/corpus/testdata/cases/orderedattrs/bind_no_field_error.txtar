@@ -12,6 +12,6 @@ component Page() {
 -- invoke --
 Page()
 -- diagnostics.golden --
-8:8: ordered-attrs literal {{ }} on <Card> attribute "mystery-attrs" matches no field of CardProps and cannot fall through to the Attrs bag; declare a gsx.OrderedAttrs field to receive it
+8:8: ordered-attrs literal {{ }} on <Card> attribute "mystery-attrs" matches no field of CardProps and cannot fall through to the Attrs bag; declare a gsx.Attrs field to receive it
 -- generated.x.go.golden --
 -- render.golden --

@@ -34,7 +34,7 @@ component Field(label string, containerAttrs gsx.Attrs) {
 component Page() {
 	<Field
 		label="Email"
-		container-attrs={gsx.Attrs{"data-testid": "email-field"}}
+		container-attrs={gsx.Attrs{{Key: "data-testid", Value: "email-field"}}}
 		type="email"
 		placeholder="you@co"
 		required
@@ -94,9 +94,9 @@ func Page() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:13:2
-		_gsxgw.Node(ctx, Field(FieldProps{Label: "Email", ContainerAttrs: gsx.Attrs{"data-testid": "email-field"}, Attrs: gsx.Attrs{"type": "email", "placeholder": "you@co", "required": true}}))
+		_gsxgw.Node(ctx, Field(FieldProps{Label: "Email", ContainerAttrs: gsx.Attrs{{Key: "data-testid", Value: "email-field"}}, Attrs: gsx.Attrs{{Key: "type", Value: "email"}, {Key: "placeholder", Value: "you@co"}, {Key: "required", Value: true}}}))
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-<div class="field" data-testid="email-field"><label>Email</label><input class="field-input" placeholder="you@co" required type="email"/></div>
+<div class="field" data-testid="email-field"><label>Email</label><input class="field-input" type="email" placeholder="you@co" required/></div>

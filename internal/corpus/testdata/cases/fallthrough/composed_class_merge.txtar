@@ -5,7 +5,7 @@ component Box(variant string) {
 	<div class={ "box", variant }>{children}</div>
 }
 -- invoke --
-Box(BoxProps{Variant: "big", Attrs: gsx.Attrs{"class": "w-full", "data-test": "x"}})
+Box(BoxProps{Variant: "big", Attrs: gsx.Attrs{{Key: "class", Value: "w-full"}, {Key: "data-test", Value: "x"}}})
 -- diagnostics.golden --
 -- render.golden --
 <div class="box big w-full" data-test="x"></div>
