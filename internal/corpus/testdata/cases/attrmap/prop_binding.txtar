@@ -1,4 +1,4 @@
-# A map[string]any value bound to an Attrs bag prop auto-converts (sorted).
+# An AttrMap value explicitly converts to Attrs before binding to a bag prop.
 -- input.gsx --
 package views
 
@@ -9,7 +9,7 @@ component Card(bag gsx.Attrs) {
 }
 
 component Page() {
-	<Card bag={gsx.AttrMap{"id": "x", "class": "c"}}/>
+	<Card bag={gsx.AttrMap{"id": "x", "class": "c"}.ToAttrs()}/>
 }
 -- invoke --
 Page()
@@ -48,7 +48,7 @@ func Page() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Card(CardProps{Bag: gsx.AttrsFromMap(gsx.AttrMap{"id": "x", "class": "c"})}))
+		_gsxgw.Node(ctx, Card(CardProps{Bag: gsx.AttrMap{"id": "x", "class": "c"}.ToAttrs()}))
 		return _gsxgw.Err()
 	})
 }

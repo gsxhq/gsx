@@ -572,7 +572,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			if !ok {
 				return false
 			}
-			fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", maybeAttrsFromMap(spreadExpr, t, resolved))
+			fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", spreadExpr)
 			continue
 		}
 		if i < splitIdx {
@@ -1231,20 +1231,6 @@ func emitJSString(b *bytes.Buffer, method, expr string, t types.Type, n ast.Node
 // Stages is present. Lowered filter packages are folded into the caller's import
 // set. A lowering failure (unknown filter) is positioned at the SpreadAttr via
 // the bag with code "unresolved-pipeline" and ok=false.
-// maybeAttrsFromMap applies the implicit AttrMap→Attrs coercion at an element
-// spread: when the spread expression's RESOLVED type is exactly map[string]any
-// (gsx.AttrMap or a bare map[string]any), it is wrapped with gsx.AttrsFromMap
-// (which sorts keys) so it satisfies gw.Spread's gsx.Attrs parameter. Any other
-// type — including gsx.Attrs itself — passes through unchanged. The resolved type
-// is harvested by the _gsxuseq spread probe in emitProbes (keyed on the SpreadAttr
-// node), mirroring how child-prop and interpolation types are resolved.
-func maybeAttrsFromMap(spreadExpr string, sa *ast.SpreadAttr, resolved map[ast.Node]types.Type) string {
-	if isStringAnyMap(resolved[sa]) {
-		return fmt.Sprintf("gsx.AttrsFromMap(%s)", spreadExpr)
-	}
-	return spreadExpr
-}
-
 func spreadAttrExpr(a *ast.SpreadAttr, table filterTable, imports map[string]bool, bag *diag.Bag) (string, bool) {
 	expr := strings.TrimSpace(a.Expr)
 	if len(a.Stages) == 0 {
@@ -1298,7 +1284,7 @@ func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, tab
 		if !ok {
 			return false
 		}
-		fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", maybeAttrsFromMap(spreadExpr, t, resolved))
+		fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", spreadExpr)
 	case *ast.CondAttr:
 		// Attr emission is a sequence of writer calls between `<tag` and `>`, so
 		// wrapping the branch's attr emits in a real Go `if`/`else` is valid. An
@@ -2114,29 +2100,6 @@ outer:
 			}
 		}
 	}
-	// Implicit AttrMap→Attrs coercion: a value whose RESOLVED type is exactly
-	// map[string]any, bound to a field whose declared type is gsx.Attrs, is wrapped
-	// with gsx.AttrsFromMap (sorts keys). This runs AFTER the tuple-hoist pass, so a
-	// (map[string]any, error) call has already been hoisted to a temp typed
-	// map[string]any — the wrap then targets that temp. The post-anyTuple fe.str for
-	// an ExprAttr Attrs field is always "<Field>: <value>" (an Attrs field is never a
-	// node field), so the value is recovered by stripping the "<Field>: " prefix.
-	for i, fe := range fieldEntries {
-		if fe.ea == nil || !fe.isAttrsField {
-			continue
-		}
-		vt := resolved[fe.ea]
-		if tup, ok := vt.(*types.Tuple); ok {
-			if elemT, ok2 := tupleUnwrapType(tup); ok2 {
-				vt = elemT
-			}
-		}
-		if !isStringAnyMap(vt) {
-			continue
-		}
-		val := strings.TrimPrefix(fieldEntries[i].str, fe.fieldName+": ")
-		fieldEntries[i].str = fmt.Sprintf("%s: gsx.AttrsFromMap(%s)", fe.fieldName, val)
-	}
 	strs := make([]string, len(fieldEntries))
 	for i, fe := range fieldEntries {
 		strs[i] = fe.str
@@ -2214,10 +2177,6 @@ type propFieldEntry struct {
 	rawVal      string        // lowered expression (no _gsxunwrap wrapping); used for hoisting
 	fieldName   string        // Go field name; used to rebuild the string after hoisting
 	isNodeField bool          // whether the field expects gsx.Node (needs gsx.Val wrapping)
-	// isAttrsField marks a field whose declared type is exactly gsx.Attrs (the
-	// ordered bag slice). genChildComponent wraps a map[string]any value bound to
-	// such a field with gsx.AttrsFromMap (the implicit AttrMap→Attrs coercion).
-	isAttrsField bool
 	// For OrderedAttrsAttr fields:
 	oa      *ast.OrderedAttrsAttr // non-nil iff this entry came from an ordered-attrs attr
 	oaPairs []oaPairEntry         // per-pair info when oa != nil
@@ -2408,21 +2367,12 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 					fieldVal = fmt.Sprintf("_gsxunwrap(%s)", rawVal)
 				}
 				isNF := nodeFields[fn]
-				// A field whose declared type is exactly gsx.Attrs (the ordered bag
-				// slice) auto-converts a map[string]any value via gsx.AttrsFromMap. In
-				// the skeleton (probeWrap), wrap the value with _gsxbag(...) — a generic
-				// admitting EITHER gsx.Attrs OR map[string]any — so the props-literal
-				// assignment type-checks for both shapes (mirroring the emit-time
-				// AttrsFromMap wrap, which genChildComponent applies only for the map
-				// case from the harvested resolved type). _gsxbag composes outside any
-				// _gsxunwrap, so a (map, error) call first unwraps then coerces. An Attrs
-				// field is never a node field, so this is mutually exclusive with isNF.
+				// In the skeleton, wrap values targeting gsx.Attrs fields with
+				// _gsxbag solely to enforce that their unwrapped value is gsx.Attrs.
+				// It composes outside _gsxunwrap, so tuple-valued calls are checked
+				// after unwrapping. An Attrs field is never a node field.
 				isAttrsField := attrsFields[fn]
-				// The untyped `nil` literal is exempt from the _gsxbag wrap: Go cannot
-				// infer the generic T from untyped nil (`cannot infer T` — which would
-				// also leak the helper name and its synthetic path), yet a bare `nil`
-				// assigns fine to a slice gsx.Attrs field. Bind it directly. (emit's
-				// isStringAnyMap(nil) is already false, so no AttrsFromMap wrap either.)
+				// A bare nil already assigns to gsx.Attrs and needs no helper call.
 				if probeWrap && isAttrsField && fieldVal != "nil" {
 					fieldVal = fmt.Sprintf("_gsxbag(%s)", fieldVal)
 				}
@@ -2433,12 +2383,11 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 					str = fmt.Sprintf("%s: %s", fn, fieldVal)
 				}
 				fields = append(fields, propFieldEntry{
-					str:          str,
-					ea:           t,
-					rawVal:       rawVal,
-					fieldName:    fn,
-					isNodeField:  isNF,
-					isAttrsField: isAttrsField,
+					str:         str,
+					ea:          t,
+					rawVal:      rawVal,
+					fieldName:   fn,
+					isNodeField: isNF,
 				})
 			} else {
 				val := strings.TrimSpace(t.Expr)

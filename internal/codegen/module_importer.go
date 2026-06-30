@@ -448,22 +448,11 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// _gsxunwrap(...) probe already reports the same expression-internal error), so
 	// a malformed child-prop value is reported once, not twice.
 	//
-	// _gsxbag is the child-prop bag-coercion helper: a generic with a union
-	// constraint admitting EITHER gsx.Attrs (the ordered bag slice) OR any type whose
-	// underlying type is map[string]any (gsx.AttrMap, bare map[string]any, or a defined
-	// `type MyMap map[string]any`), returning gsx.Attrs. The `~map[string]any` element
-	// matches by UNDERLYING type so it aligns with emit's isStringAnyMap predicate
-	// (which uses t.Underlying()) — without `~`, a defined named map type would be
-	// rejected by the skeleton yet converted by emit, a spurious disagreement. The
-	// skeleton wraps every value bound to a gsx.Attrs-typed child-prop field with
-	// _gsxbag(...) so the assignment type-checks whether the author passes an Attrs or a
-	// map — mirroring the emit-time gsx.AttrsFromMap(...) conversion (which fires only
-	// for the map case, decided from the harvested resolved type). The union REJECTS any
-	// other type (e.g. map[string]string, whose underlying is map[string]string ≠
-	// map[string]any, or int), preserving field-type checking for non-bag values.
+	// _gsxbag exists only to enforce gsx.Attrs checking for values bound to
+	// gsx.Attrs-typed child-prop fields. It admits no map types.
 	helperXgoPath := filepath.Join(dir, "_gsxshared.x.go")
 	helper, _ := goparser.ParseFile(fset, helperXgoPath,
-		"package "+pkgName+"\n\nimport _gsxrt \"github.com/gsxhq/gsx\"\n\nfunc _gsxuse(...any) {}\nfunc _gsxuseq(...any) {}\nfunc _gsxcompsig(any) {}\nfunc _gsxunwrap[T any](v T, _ ...any) T { return v }\nfunc _gsxbag[T _gsxrt.Attrs | ~map[string]any](v T) _gsxrt.Attrs { return nil }\n", goparser.SkipObjectResolution)
+		"package "+pkgName+"\n\nimport _gsxrt \"github.com/gsxhq/gsx\"\n\nfunc _gsxuse(...any) {}\nfunc _gsxuseq(...any) {}\nfunc _gsxcompsig(any) {}\nfunc _gsxunwrap[T any](v T, _ ...any) T { return v }\nfunc _gsxbag(v _gsxrt.Attrs) _gsxrt.Attrs { return v }\n", goparser.SkipObjectResolution)
 	goFiles = append(goFiles, helper)
 
 	// Include the package's hand-written .go files (model.go, helper.go, etc.)

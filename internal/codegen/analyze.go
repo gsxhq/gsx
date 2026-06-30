@@ -66,10 +66,8 @@ func componentPropFieldsFor(dir string, files map[string]*gsxast.File) (propFiel
 	out := map[string]map[string]bool{}
 	nodeOut := map[string]map[string]bool{}
 	// attrsOut[propsType] is the set of field names whose declared type is exactly
-	// gsx.Attrs (the ordered bag slice). A map[string]any value bound to such a
-	// field auto-converts via gsx.AttrsFromMap (see genChildComponent); the
-	// classification is what distinguishes a map→Attrs binding (wrap) from a
-	// map→map binding (a field typed gsx.AttrMap, no wrap).
+	// gsx.Attrs (the ordered bag slice). The skeleton uses this classification to
+	// enforce that values bound to bag fields are themselves gsx.Attrs.
 	attrsOut := map[string]map[string]bool{}
 	byo = newByoData()
 	byo.nullaryFuncs = packageNullaryFuncs(dir)
@@ -248,25 +246,6 @@ func isBareCallCandidate(el *gsxast.Element, propFields map[string]map[string]bo
 // gsx.Node (ignoring surrounding whitespace).
 func isGsxNodeType(typ string) bool {
 	return strings.TrimSpace(typ) == "gsx.Node"
-}
-
-// isStringAnyMap reports whether t is exactly map[string]any (gsx.AttrMap). Only this
-// map shape auto-converts to Attrs at a bag boundary; any other map (e.g.
-// map[string]string) stays a type error. The check is on the resolved go/types type:
-// key kind string, elem the empty (method-less) interface.
-func isStringAnyMap(t types.Type) bool {
-	if t == nil {
-		return false
-	}
-	m, ok := t.Underlying().(*types.Map)
-	if !ok {
-		return false
-	}
-	if b, ok := m.Key().Underlying().(*types.Basic); !ok || b.Kind() != types.String {
-		return false
-	}
-	iface, ok := m.Elem().Underlying().(*types.Interface)
-	return ok && iface.NumMethods() == 0
 }
 
 // buildSkeleton synthesizes a Go file standing in for the gsx file during type
@@ -856,13 +835,11 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				if probeErr != nil {
 					return probeErr
 				}
-				// Probe each element-spread expr with _gsxuseq so harvest records its
-				// resolved type into resolved[spreadAttr] — emitFallthroughAttrs/emitAttr
-				// read it to decide the implicit map[string]any -> Attrs (AttrsFromMap)
-				// wrap at the spread. _gsxuseq (the quiet harvest probe) doubles as the
-				// liveness reference, so a var used ONLY in a `{ x... }` spread stays
-				// "used". collectExprs appends each SpreadAttr AFTER all the element's
-				// ExprAttrs, so the k-th probe stays aligned with the k-th node.
+				// Probe each element-spread expr with _gsxuseq. The quiet probe checks
+				// the expression and doubles as its liveness reference, so a var used
+				// ONLY in a `{ x... }` spread stays "used". collectExprs appends each
+				// SpreadAttr AFTER all the element's ExprAttrs, so the k-th probe stays
+				// aligned with the k-th node.
 				walkSpreadAttrs(t.Attrs, func(sa *gsxast.SpreadAttr) {
 					if probeErr != nil {
 						return
@@ -1517,8 +1494,7 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 			})
 			// Then each element-spread expr, AFTER all ExprAttrs — emitProbes emits the
 			// _gsxuseq spread probes in the SAME position (after the _gsxuse ExprAttr
-			// probes), so the k-th spread node maps to the k-th spread probe. The
-			// harvested type lands in resolved[spreadAttr] for the AttrsFromMap wrap.
+			// probes), so the k-th spread node maps to the k-th spread probe.
 			walkSpreadAttrs(t.Attrs, func(sa *gsxast.SpreadAttr) {
 				*out = append(*out, sa)
 			})
@@ -1567,8 +1543,7 @@ func walkAttrExprs(attrs []gsxast.Attr, fn func(*gsxast.ExprAttr)) {
 // the SINGLE walk shared by collectExprs (which appends each spread node AFTER all
 // the element's ExprAttrs) and emitProbes (which emits one _gsxuseq harvest probe
 // per spread, AFTER all the element's _gsxuse ExprAttr probes), so the k-th spread
-// probe always maps to the k-th collected spread node — the spread's resolved type
-// lands in resolved[spreadAttr] for the AttrsFromMap wrap decision at emit.
+// probe always maps to the k-th collected spread node.
 func walkSpreadAttrs(attrs []gsxast.Attr, fn func(*gsxast.SpreadAttr)) {
 	for _, a := range attrs {
 		switch at := a.(type) {
