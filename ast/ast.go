@@ -78,6 +78,16 @@ func SetSpan(n Node, start, end token.Pos) {
 		v.span = s
 	case *OrderedPair:
 		v.span = s
+	case *ValueArm:
+		v.span = s
+	case *ValueIf:
+		v.span = s
+	case *ValueSwitch:
+		v.span = s
+	case *ValueSwitchCase:
+		v.span = s
+	case *ValueCF:
+		v.span = s
 	}
 }
 
@@ -359,10 +369,12 @@ func (*CondAttr) attrNode() {}
 // When Stages is non-empty, Expr is the pipeline seed and Stages are applied
 // left-to-right (`seed |> s0 |> s1 ...`), mirroring Interp.Stages; the guard Cond
 // is NEVER piped. It is a plain value, not a Node.
+// When CF != nil, this is a value-form if/switch; Expr/Cond/Stages are unused.
 type ClassPart struct {
 	Expr   string
 	Cond   string
 	Stages []PipeStage
+	CF     *ValueCF // when non-nil, value-form if/switch; Expr/Cond/Stages unused
 }
 
 // ClassAttr is `class={ … }` / `style={ … }` — a composable contribution list.
@@ -374,6 +386,52 @@ type ClassAttr struct {
 }
 
 func (*ClassAttr) attrNode() {}
+
+// ValueArm is one produced value in a value-form if/switch inside a class/style
+// list — a Go string expression with an optional pipeline. It is a Node (for
+// type harvest + diagnostics) but neither Markup nor Attr.
+type ValueArm struct {
+	span
+	Expr   string
+	Stages []PipeStage
+}
+
+// ValueIf is the value-producing `if Cond { Then } [else if … | else { Else }]`
+// usable inside class/style. Then is always set; the tail is either ElseIf
+// (an `else if` chain) or Else (a final `else { … }`), or neither.
+type ValueIf struct {
+	span
+	Cond    string
+	CondPos token.Pos
+	Then    *ValueArm
+	ElseIf  *ValueIf
+	Else    *ValueArm
+}
+
+// ValueSwitch is the value-producing `switch [Tag] { case … default … }`.
+// Tag is "" for a tagless switch.
+type ValueSwitch struct {
+	span
+	Tag   string
+	Cases []*ValueSwitchCase
+}
+
+// ValueSwitchCase is one `case List:` / `default:` arm of a ValueSwitch. List is
+// the raw Go case expression(s); Default is true for `default:` (List == "").
+type ValueSwitchCase struct {
+	span
+	List    string
+	Default bool
+	Value   *ValueArm
+}
+
+// ValueCF is the value-form control-flow attached to a ClassPart. Exactly one of
+// If/Switch is non-nil.
+type ValueCF struct {
+	span
+	If     *ValueIf
+	Switch *ValueSwitch
+}
 
 // OrderedPair is one "key": value pair of an OrderedAttrsAttr. Key is the
 // unquoted attribute name (string-literal key, already unquoted). Value is the
@@ -412,6 +470,12 @@ func (*OrderedAttrsAttr) attrNode() {}
 //   - *SwitchMarkup: each CaseClause
 //   - *CaseClause: each Body markup node
 //   - *CondAttr: each Then and Else attr node
+//   - *ClassAttr: each ClassPart's CF (if non-nil)
+//   - *ValueCF: If or Switch (whichever is non-nil)
+//   - *ValueIf: Then, ElseIf (if non-nil), Else (if non-nil)
+//   - *ValueSwitch: each CaseClause
+//   - *ValueSwitchCase: Value arm
+//   - *ValueArm: leaf
 //   - all other nodes: leaves (no children)
 func Inspect(node Node, f func(Node) bool) {
 	if !f(node) {
@@ -471,7 +535,36 @@ func Inspect(node Node, f func(Node) bool) {
 		for i := range n.Pairs {
 			Inspect(&n.Pairs[i], f)
 		}
-		// GoBlock, ClassAttr, OrderedPair: leaves (no sub-nodes)
+	case *ClassAttr:
+		for i := range n.Parts {
+			if cf := n.Parts[i].CF; cf != nil {
+				Inspect(cf, f)
+			}
+		}
+	case *ValueCF:
+		if n.If != nil {
+			Inspect(n.If, f)
+		}
+		if n.Switch != nil {
+			Inspect(n.Switch, f)
+		}
+	case *ValueIf:
+		Inspect(n.Then, f)
+		if n.ElseIf != nil {
+			Inspect(n.ElseIf, f)
+		}
+		if n.Else != nil {
+			Inspect(n.Else, f)
+		}
+	case *ValueSwitch:
+		for _, c := range n.Cases {
+			Inspect(c, f)
+		}
+	case *ValueSwitchCase:
+		Inspect(n.Value, f)
+	case *ValueArm:
+		// leaf
+		// GoBlock, OrderedPair: leaves (no sub-nodes)
 	}
 	f(nil)
 }

@@ -191,9 +191,58 @@ func fprintNode(w io.Writer, node Node, depth int) error {
 			return err
 		}
 		for _, part := range n.Parts {
+			if part.CF != nil {
+				if err := fprintNode(w, part.CF, depth+1); err != nil {
+					return err
+				}
+				continue
+			}
 			if _, err := fmt.Fprintf(w, "%s  ClassPart expr=%q cond=%q\n", indent, part.Expr, part.Cond); err != nil {
 				return err
 			}
+		}
+	case *ValueCF:
+		if n.If != nil {
+			return fprintNode(w, n.If, depth)
+		}
+		return fprintNode(w, n.Switch, depth)
+	case *ValueIf:
+		if _, err := fmt.Fprintf(w, "%sValueIf cond=%q\n", indent, n.Cond); err != nil {
+			return err
+		}
+		if err := fprintNode(w, n.Then, depth+1); err != nil {
+			return err
+		}
+		if n.ElseIf != nil {
+			if err := fprintNode(w, n.ElseIf, depth+1); err != nil {
+				return err
+			}
+		}
+		if n.Else != nil {
+			if _, err := fmt.Fprintf(w, "%s  else:\n", indent); err != nil {
+				return err
+			}
+			if err := fprintNode(w, n.Else, depth+1); err != nil {
+				return err
+			}
+		}
+	case *ValueSwitch:
+		if _, err := fmt.Fprintf(w, "%sValueSwitch tag=%q\n", indent, n.Tag); err != nil {
+			return err
+		}
+		for _, cc := range n.Cases {
+			if err := fprintNode(w, cc, depth+1); err != nil {
+				return err
+			}
+		}
+	case *ValueSwitchCase:
+		if _, err := fmt.Fprintf(w, "%sValueSwitchCase list=%q default=%v\n", indent, n.List, n.Default); err != nil {
+			return err
+		}
+		return fprintNode(w, n.Value, depth+1)
+	case *ValueArm:
+		if _, err := fmt.Fprintf(w, "%sValueArm expr=%q\n", indent, n.Expr); err != nil {
+			return err
 		}
 	case *OrderedAttrsAttr:
 		if _, err := fmt.Fprintf(w, "%sOrderedAttrsAttr name=%s\n", indent, n.Name); err != nil {
