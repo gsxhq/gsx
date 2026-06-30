@@ -107,7 +107,8 @@ shared props type:
 | `{ if/for/switch … { <markup> } }` | control flow contributing children |
 | `{{ stmt }}` | Go statement escape hatch (no output) |
 | `<>…</>` | fragment |
-| `class={ a, "cls": cond }` | composable `class`/`style` (comma list; conditional sugar) |
+| `class={ a, "cls": cond }` | composable `class`/`style` — additive contribution list; conditional guard sugar |
+| `class={ a, switch x { case A: { "b" } default: { "c" } } }` | value-form `if`/`switch` inside `class`/`style` — exclusive selection |
 | `{children}` | explicit children placement |
 | `gsx.Raw(s)` | unescaped HTML |
 
@@ -240,6 +241,132 @@ Values are attribute-escaped identically to `gsx.Attrs` — the same faithful
 (names containing spaces or other forbidden characters) are silently dropped.
 `{{ }}` does not bypass any escaping.
 
+## Composable `class` and `style`
+
+`class` and `style` accept a **composed contribution list** inside `{ … }` — each part is a plain value or a guarded value:
+
+```gsx
+<span class={ "badge", "badge-featured": featured }>…</span>
+<div  style={ "padding: 4px", "color: red": danger }>…</div>
+```
+
+The parts are **additive**: every part whose guard is true is included; multiple parts may fire simultaneously.
+
+### Value-form `if` / `switch` — exclusive selection
+
+The additive default works well for independent flags. But sometimes you need **exclusive selection** — pick exactly one class string from N based on a single discriminant value. Expressing that additively requires a negation default:
+
+```gsx
+{/* before: additive map — fragile negation default */}
+class={
+    "badge-green":  variant == Green,
+    "badge-yellow": variant == Yellow,
+    "badge-red":    variant == Red,
+    "badge-gray":   variant != Green && variant != Yellow && variant != Red,
+}
+```
+
+Adding a new variant means editing the negation. A value-form `switch` expresses the intent directly:
+
+```gsx
+{/* after: value-form switch — exclusive, no negation needed */}
+class={
+    "badge-base",
+    switch variant {
+    case Green:  { "badge-green" }
+    case Yellow: { "badge-yellow" }
+    case Red:    { "badge-red" }
+    default:     { "badge-gray" }
+    },
+}
+```
+
+Exactly one arm fires. Adding a new variant is one new `case` — no other arm changes.
+
+Each arm body is a **braced expression** `{ … }`. Multi-value cases (`case A, B:`) follow Go parity:
+
+```gsx
+class={ "chip", switch status {
+case Active, Pending: { "chip-active" }
+case Archived:        { "chip-archived" }
+default:              { "chip-neutral" }
+} }
+```
+
+The same form works for `style`:
+
+```gsx
+style={
+    "padding: 4px",
+    switch tone {
+    case 1: { "color: red" }
+    default: { "color: gray" }
+    },
+}
+```
+
+### `if` / `else if` / `else`
+
+`if` works the same way:
+
+```gsx
+class={ "btn", if open { "btn-open" } else { "btn-closed" } }
+```
+
+Chains via `else if`:
+
+```gsx
+class={ "label", if rank == 1 { "gold" } else if rank == 2 { "silver" } else { "bronze" } }
+```
+
+A tagless `switch` (boolean case expressions) is also valid:
+
+```gsx
+class={ switch { case v > 0: { "pos" } default: { "nonpos" } } }
+```
+
+### `if` without `else` — additive-guard equivalence
+
+`if cond { "x" }` without an `else` is exactly equivalent to the additive guard form `"x": cond`:
+
+```gsx
+class={ "base", if on { "extra" } }
+{/* identical behavior to: */}
+class={ "base", "extra": on }
+```
+
+When the condition is false — or when a `switch` matches no case and there is no `default` — the contribution is empty (nothing is added to the class list). The value-form is a strict superset of the guard form; use whichever reads better.
+
+### `(T, error)` auto-unwrap in parts and arms
+
+Parts and arms follow gsx's [uniform `(T, error)` auto-unwrap](#error-propagation--automatic-t-error-unwrap). Both positions are supported:
+
+**Plain part returning a tuple:**
+
+```gsx
+class={ "base", cls(v) }    {/* cls(v) (string, error) — error propagates from Render */}
+```
+
+**Arm returning a tuple:**
+
+```gsx
+class={ "base", switch variant {
+case 1:  { cls(variant) }   {/* cls returns (string, error) */}
+default: { "gray" }
+} }
+```
+
+Arm values can also carry a `|>` pipeline — `if on { theme |> upper }` — evaluated at that arm's position.
+
+### Out of scope
+
+| Want | Use instead |
+|------|-------------|
+| Conditionally set any attribute (href, data-x, …) | `{ if cond { attr="val" } }` — the [conditional attribute form](#quick-reference) |
+| `if`/`switch` contributing markup children | `{ if/switch { <tag/> } }` — [markup control flow](#quick-reference) |
+| Guard on a value-form part (`switch x {…}: cond`) | not valid — the switch *is* the selection; trailing guards are rejected |
+| `\|>` pipe on the whole `if`/`switch` result | deferred; pipeline inside an arm is supported (`if on { theme \|> upper }`) |
+
 ## Error propagation — automatic `(T, error)` unwrap
 
 Any Go expression that returns exactly two values where the second is `error` is
@@ -340,6 +467,7 @@ rendered output, all verified on every test run.
 | if / for / switch, fragments | `control_flow/` |
 | `component` decls, props, `{children}`, slots | `components/`, `slots/` |
 | The full attribute system | `attrs/`, `class/`, `style/`, `jsattr/` |
+| Value-form `if`/`switch` in `class`/`style` | `class/value_switch`, `class/value_if_*`, `style/value_switch` |
 | Ordered attributes (`{{ }}` / `gsx.OrderedAttrs`) | `orderedattrs/` |
 | `|>` pipelines & filters | `pipelines/` |
 | Markup-vs-Go corner cases | `parser/` |
