@@ -116,6 +116,9 @@ anywhere a `templ.Component` is expected (structpages and other templ-ecosystem
 tools) **without importing templ**. You can adopt gsx incrementally inside an
 existing templ project.
 
+For a practical side-by-side with templ, `html/template`, JSX, and Jinja-style
+templates, see [Comparisons](./comparisons).
+
 ## What gsx is not
 
 gsx is templating only — no router, no HTTP handlers, no framework. It is a way to

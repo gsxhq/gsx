@@ -2,6 +2,8 @@
 
 gsx components are plain Go values that implement a single interface. That design makes them composable with the wider Go templating ecosystem without any bridging layer.
 
+For a higher-level choice guide, see [Comparisons](../comparisons).
+
 ## Working with templ
 
 `gsx.Node` is declared in `node.go` as:
