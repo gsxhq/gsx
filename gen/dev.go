@@ -105,11 +105,21 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 
 	// --- Go server: initial build + run ---
 	srv := &devServer{dir: workDir, build: dc.build, run: dc.run, env: env, out: serverOut, healthURL: healthURL}
+	startOK := true
+	for _, r := range startup {
+		startOK = startOK && r.OK
+	}
 	if out, err := srv.rebuild(ctx); err != nil {
 		postEvent(viteURL, buildErrorEvent(out))
+		startOK = false
 	} else if waitHealthy(ctx, healthURL, 10*time.Second) {
 		postReload(viteURL)
 	}
+	// overlayUp: an error overlay is currently shown in the browser. A later
+	// successful cycle must reload to clear it even when nothing was written —
+	// e.g. fixing a .gsx error regenerates byte-identical .x.go, so the
+	// hash-gated writer skips it and `wrote` stays false.
+	overlayUp := !startOK
 
 	// --- fsnotify watcher (sources + .env) ---
 	w, err := fsnotify.NewWatcher()
@@ -195,6 +205,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 				viteURL = envValue(env, "VITE_DEV_URL", "http://localhost:5173")
 				if err := srv.restartNoBuild(); err == nil && waitHealthy(ctx, healthURL, 10*time.Second) {
 					postReload(viteURL)
+					overlayUp = false
 				}
 				// fall through: an .env-only fire has empty pending.
 			}
@@ -208,6 +219,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 			if rerr != nil {
 				fmt.Fprintf(serverOut, "regen failed: %v\n", rerr)
 				postEvent(viteURL, buildErrorEvent("regen failed: "+rerr.Error()))
+				overlayUp = true
 				continue // preserve nothing; next event retries
 			}
 			// Overlay state from this cycle.
@@ -219,15 +231,26 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 				wrote = wrote || len(r.Written) > 0
 			}
 			if !ok {
+				overlayUp = true
 				continue // keep last-good server up; overlay shows the error
 			}
+			// Successful cycle. Rebuild when code changed; reload the browser if we
+			// rebuilt OR we're recovering from a shown error overlay — the latter
+			// must clear even when nothing was written (fixed .gsx → identical .x.go).
+			reload := overlayUp
 			if goChanged || wrote {
 				if out, err := srv.rebuild(ctx); err != nil {
 					postEvent(viteURL, buildErrorEvent(out))
+					overlayUp = true
+					continue
 				} else if waitHealthy(ctx, healthURL, 10*time.Second) {
-					postReload(viteURL)
+					reload = true
 				}
 			}
+			if reload {
+				postReload(viteURL)
+			}
+			overlayUp = false
 
 		case werr := <-w.Errors:
 			fmt.Fprintf(stderr, "gsx dev: watch error: %v\n", werr)
