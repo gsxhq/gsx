@@ -265,21 +265,86 @@ func (p *printer) attrDoc(a ast.Attr) pretty.Doc {
 		parts := make([]pretty.Doc, 0, len(v.Parts)*2)
 		for i, part := range v.Parts {
 			if i > 0 {
-				parts = append(parts, pretty.Text(", "))
+				parts = append(parts, pretty.Text(","), pretty.Line)
 			}
-			seg := []pretty.Doc{fmtExprDoc(part.Expr)}
-			for _, s := range part.Stages {
-				seg = append(seg, pretty.Text(" |> "), pretty.Text(pipeStageStr(s)))
-			}
-			if part.Cond != "" {
-				seg = append(seg, pretty.Text(": "), pretty.Text(fmtExpr(part.Cond)))
-			}
-			parts = append(parts, pretty.Concat(seg...))
+			parts = append(parts, p.classPartDoc(part))
 		}
-		return wrapAttrValue(v.Name, pretty.Line, pretty.Concat(parts...))
+		return wrapAttrValue(v.Name, pretty.Line, pretty.Group(pretty.Concat(parts...)))
 	default:
 		return pretty.Text(attrInline(a))
 	}
+}
+
+// classPartDoc renders one composed class/style contribution: `expr`,
+// `expr |> stage`, `expr: cond`, or a value-form if/switch.
+func (p *printer) classPartDoc(part ast.ClassPart) pretty.Doc {
+	if part.CF != nil {
+		return p.valueCFDoc(part.CF)
+	}
+	seg := []pretty.Doc{fmtExprDoc(part.Expr)}
+	for _, s := range part.Stages {
+		seg = append(seg, pretty.Text(" |> "), pretty.Text(pipeStageStr(s)))
+	}
+	if part.Cond != "" {
+		seg = append(seg, pretty.Text(": "), pretty.Text(fmtExpr(part.Cond)))
+	}
+	return pretty.Concat(seg...)
+}
+
+func (p *printer) valueCFDoc(cf *ast.ValueCF) pretty.Doc {
+	if cf.If != nil {
+		return pretty.Group(p.valueIfChain(cf.If))
+	}
+	return pretty.Group(p.valueSwitchDoc(cf.Switch))
+}
+
+func (p *printer) valueIfChain(i *ast.ValueIf) pretty.Doc {
+	parts := []pretty.Doc{
+		pretty.Text("if "), pretty.Text(fmtExpr(i.Cond)),
+		pretty.Text(" {"), p.valueArmBody(i.Then), pretty.Text("}"),
+	}
+	switch {
+	case i.ElseIf != nil:
+		parts = append(parts, pretty.Text(" else "), p.valueIfChain(i.ElseIf))
+	case i.Else != nil:
+		parts = append(parts, pretty.Text(" else {"), p.valueArmBody(i.Else), pretty.Text("}"))
+	}
+	return pretty.Concat(parts...)
+}
+
+// valueArmBody renders ` <expr> ` flat, or newline-indented when the enclosing
+// Group breaks (Line = space when flat, newline+indent when broken).
+func (p *printer) valueArmBody(a *ast.ValueArm) pretty.Doc {
+	return pretty.Concat(pretty.Indent(pretty.Concat(pretty.Line, p.valueArmDoc(a))), pretty.Line)
+}
+
+func (p *printer) valueArmDoc(a *ast.ValueArm) pretty.Doc {
+	seg := []pretty.Doc{fmtExprDoc(a.Expr)}
+	for _, s := range a.Stages {
+		seg = append(seg, pretty.Text(" |> "), pretty.Text(pipeStageStr(s)))
+	}
+	return pretty.Concat(seg...)
+}
+
+func (p *printer) valueSwitchDoc(s *ast.ValueSwitch) pretty.Doc {
+	head := []pretty.Doc{pretty.Text("switch")}
+	if s.Tag != "" {
+		head = append(head, pretty.Text(" "), pretty.Text(fmtExpr(s.Tag)))
+	}
+	head = append(head, pretty.Text(" {"))
+	cases := make([]pretty.Doc, 0, len(s.Cases))
+	for _, c := range s.Cases {
+		label := pretty.Text("default:")
+		if !c.Default {
+			label = pretty.Concat(pretty.Text("case "), pretty.Text(fmtCaseList(c.List)), pretty.Text(":"))
+		}
+		// Each arm value is wrapped in { } so the parser can re-parse it.
+		arm := pretty.Concat(pretty.Text("{ "), p.valueArmDoc(c.Value), pretty.Text(" }"))
+		cases = append(cases,
+			pretty.HardLine, label,
+			pretty.Indent(pretty.Concat(pretty.HardLine, arm)))
+	}
+	return pretty.Concat(pretty.Concat(head...), pretty.Indent(pretty.Concat(cases...)), pretty.HardLine, pretty.Text("}"))
 }
 
 // wrapAttrValue renders `name={<sep>value<sep>}` where sep is the flat padding

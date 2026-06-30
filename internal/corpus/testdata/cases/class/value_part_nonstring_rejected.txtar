@@ -1,0 +1,15 @@
+# A plain unconditional class part whose call returns a non-(T,error) tuple is
+# rejected with an invalid-tuple diagnostic. This pins the diagnostic message for
+# class PARTS (distinct from the value-form ARM rejection in value_arm_tuple_rejected).
+# Note: (T,error) tuples where T is non-string are hoisted but then fail the Go
+# compiler (gsx.Class(intVal)); only non-(T,error) tuples fire a gsx diagnostic.
+-- input.gsx --
+package views
+
+component C(v int) {
+	<span class={ "base", bad(v) }>x</span>
+}
+
+func bad(v int) (int, string) { return 0, "" }
+-- diagnostics.golden --
+4:23: class part "bad(v)" returns (int, string); only (T, error) is supported

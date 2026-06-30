@@ -1,0 +1,16 @@
+# value-form arm returning a non-(T,error) tuple is rejected with a diagnostic.
+-- input.gsx --
+package views
+
+component C(v int) {
+	<span class={ switch v {
+	case 1:
+		{ bad(v) }
+	default:
+		{ "x" }
+	} }>y</span>
+}
+
+func bad(v int) (int, string) { return 0, "" }
+-- diagnostics.golden --
+6:3: class value-form arm "bad(v)" returns (int, string); only (T, error) is supported

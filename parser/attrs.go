@@ -11,11 +11,13 @@ import (
 )
 
 // splitComposed splits the inner source of a `class={ … }` / `style={ … }`
-// value into contributions. Contributions are separated by commas at
+// value into contributions. src is the text between the outer `{` and `}`;
+// base is the absolute byte offset of src[0] within p.src (used so value-form
+// nodes get real positions). Contributions are separated by commas at
 // bracket/brace/paren depth 0; within a contribution a depth-0 ':' separates an
 // `expr : cond` conditional from its condition. A trailing comma yields no empty
 // part.
-func splitComposed(src string) ([]ast.ClassPart, error) {
+func (p *parser) splitComposed(src string, base int) ([]ast.ClassPart, error) {
 	fset := token.NewFileSet()
 	file := fset.AddFile("", fset.Base(), len(src))
 	var s scanner.Scanner
@@ -58,6 +60,36 @@ func splitComposed(src string) ([]ast.ClassPart, error) {
 		if strings.TrimSpace(src[segStart:segEnd]) == "" {
 			continue // empty segment (e.g. trailing comma)
 		}
+
+		// Detect a leading control-flow keyword (if/switch) and parse the value-form
+		// instead of the normal expr:cond pattern.
+		segSrc := src[segStart:segEnd]
+		if kw := leadingKeyword(segSrc); kw == "if" || kw == "switch" {
+			// A depth-0 colon in a value-form segment is a disallowed guard.
+			for _, c := range colons {
+				if c > segStart && c < segEnd {
+					return nil, p.errorf(p.posAt(base+c), "a value-form %s in class/style takes no `: cond` guard", kw)
+				}
+			}
+			// Compute the absolute offset of the keyword's first byte (skip any
+			// leading whitespace so the parsers' at+len("kw") arithmetic is correct).
+			trimOff := len(segSrc) - len(strings.TrimLeft(segSrc, " \t\r\n"))
+			cf, err := p.parseValueCF(base+segStart+trimOff, kw)
+			if err != nil {
+				return nil, err
+			}
+			// Guard: assert nothing meaningful follows the value-form within this
+			// segment. p.offsetOf converts the token.Pos back to a byte offset in
+			// p.src; subtract base to get the offset within src.
+			endOff := p.offsetOf(cf.End()) - base
+			if rest := strings.TrimSpace(src[endOff:segEnd]); rest != "" {
+				return nil, p.errorf(cf.End(), "unexpected %q after value-form %s in class/style; pipe stages on a value-form result are not supported", rest, kw)
+			}
+			parts = append(parts, ast.ClassPart{CF: cf})
+			ast.SetSpan(&parts[len(parts)-1], p.posAt(base+segStart), p.posAt(base+segEnd))
+			continue
+		}
+
 		colon := -1
 		for _, c := range colons {
 			if c > segStart && c < segEnd {
@@ -83,8 +115,21 @@ func splitComposed(src string) ([]ast.ClassPart, error) {
 			return nil, perr
 		}
 		parts = append(parts, ast.ClassPart{Expr: seed, Cond: condSrc, Stages: stages})
+		ast.SetSpan(&parts[len(parts)-1], p.posAt(base+segStart), p.posAt(base+segEnd))
 	}
 	return parts, nil
+}
+
+// leadingKeyword returns "if" or "switch" if seg's first token is that keyword
+// (followed by a non-identifier byte), else "".
+func leadingKeyword(seg string) string {
+	s := strings.TrimLeft(seg, " \t\r\n")
+	for _, kw := range [...]string{"if", "switch"} {
+		if strings.HasPrefix(s, kw) && (len(s) == len(kw) || !isIdentByte(s[len(kw)])) {
+			return kw
+		}
+	}
+	return ""
 }
 
 // parseComposedAttr parses a `class={ … }` / `style={ … }` composable
@@ -94,7 +139,7 @@ func (p *parser) parseComposedAttr(name string, startPos token.Pos) (ast.Attr, e
 	if !ok {
 		return nil, p.errorf(p.pos(), "unterminated `{` in %s value", name)
 	}
-	parts, err := splitComposed(p.src[p.i+1 : end])
+	parts, err := p.splitComposed(p.src[p.i+1:end], p.i+1)
 	if err != nil {
 		return nil, err
 	}

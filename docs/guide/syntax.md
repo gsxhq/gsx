@@ -73,6 +73,7 @@ golden-tested `examples/*.txtar` fixtures.
 | `{{ stmt }}` | Go statement escape hatch (no output) |
 | `<>…</>` | fragment |
 | `class={ a, "cls": cond }` | composable `class`/`style` (comma list; conditional sugar) |
+| `class={ a, switch x { case A: { "b" } default: { "c" } } }` | value-form `if`/`switch` inside `class`/`style` — exclusive selection |
 | `{children}` | explicit children placement |
 | `gsx.Raw(s)` | unescaped HTML |
 :::

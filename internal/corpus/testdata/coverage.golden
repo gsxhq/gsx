@@ -24,16 +24,35 @@ class/merger_composable	diag gen render
 class/merger_fallthrough	diag gen render
 class/merger_no_class	diag gen render
 class/merger_static	diag gen render
+class/multi_part_tuple_order	diag gen render
 class/non_root_class	diag gen render
+class/part_tuple	diag gen render
 class/spread	diag render
 class/style_rejected	diag
+class/value_arm_pipeline	diag gen render
+class/value_arm_tuple_rejected	diag(error)
+class/value_form_evaluation_order	diag gen render
+class/value_if_else	diag gen render
+class/value_if_elseif	diag gen render
+class/value_if_no_else_false	diag gen render
+class/value_if_no_else_true	diag gen render
+class/value_part_nonstring_rejected	diag(error)
+class/value_switch	diag gen render
+class/value_switch_no_default	diag gen render
+class/value_switch_nonroot	diag gen render
+class/value_switch_tagless	diag gen render
+class/value_switch_tuple	diag gen render
 codegen-shape/example12_form	diag render
 codegen-shape/example12_toolbar	diag render
 codegen-shape/greeting	diag gen render
 codegen-shape/style_interp	diag gen render
 codegen-shape/whitespace_collapse	diag gen render
+components/child_class_evaluation_order	diag gen render
 components/child_class_fallthrough	diag render
+components/child_class_part_tuple	diag gen render
 components/child_class_positioned	diag render
+components/child_class_reject_non_error_tuple	diag(error)
+components/child_class_value_arm_tuple	diag gen render
 components/child_hyphen_attr_fallthrough	diag render
 components/child_no_props	diag render
 components/child_prop_attrs_reference	diag gen render
@@ -44,6 +63,7 @@ components/child_props	diag render
 components/child_props_featured_false	diag render
 components/child_props_static	diag render
 components/child_spread_fallthrough	diag render
+components/child_value_switch	diag gen render
 components/children_slot	diag render
 components/children_slot_binding	diag render
 components/children_slot_empty	diag render
@@ -81,6 +101,9 @@ control_flow/if_zero	diag render
 control_flow/switch_default	diag render
 control_flow/switch_err	diag render
 control_flow/switch_warn	diag gen render
+control_flow/value_form_guard_rejected	diag(error)
+control_flow/value_form_trailing_rejected	diag(error)
+control_flow/value_switch_ast	ast diag
 datajson/island_breakout	diag gen render
 datajson/island_multi_hole_rejected	diag(error)
 datajson/island_value	diag gen render
@@ -277,6 +300,10 @@ style/composed_injection	diag gen render
 style/composed_rawcss_optout	diag gen render
 style/loop_var_in_style	diag render
 style/minify_block	diag gen render
+style/part_tuple	diag gen render
+style/value_form_evaluation_order	diag gen render
+style/value_if_else	diag gen render
+style/value_switch	diag gen render
 tuple/bare_call_undefined	diag(error)
 tuple/child_prop_mixed	diag gen render
 tuple/child_prop_multi	diag gen render
@@ -309,4 +336,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 311 cases (render: 235, error: 56, gen-pinned: 113)
+TOTAL: 338 cases (render: 256, error: 61, gen-pinned: 134)

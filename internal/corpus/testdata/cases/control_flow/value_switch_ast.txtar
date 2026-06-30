@@ -1,0 +1,29 @@
+-- input.gsx --
+package views
+
+component Badge(variant int) {
+	<span class={ "base", switch variant {
+	case 1:
+		{ "green" }
+	case 2, 3:
+		{ "amber" }
+	default:
+		{ "gray" }
+	}, "extra": variant > 0 }>x</span>
+}
+-- diagnostics.golden --
+-- ast.golden --
+File package=views
+  Component name=Badge recv="" params="variant int"
+    Element tag=span void=false
+      ClassAttr name=class
+        ClassPart expr="\"base\"" cond=""
+        ValueSwitch tag="variant"
+          ValueSwitchCase list="1" default=false
+            ValueArm expr="\"green\""
+          ValueSwitchCase list="2, 3" default=false
+            ValueArm expr="\"amber\""
+          ValueSwitchCase list="" default=true
+            ValueArm expr="\"gray\""
+        ClassPart expr="\"extra\"" cond="variant > 0"
+      Text value="x"

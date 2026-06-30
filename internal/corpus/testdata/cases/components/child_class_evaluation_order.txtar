@@ -1,0 +1,21 @@
+-- input.gsx --
+package views
+
+var state bool
+
+component Card() { <div>{children}</div> }
+
+component Page() {
+	<Card class={ setState(), if state { "on" } else { "off" } }>x</Card>
+}
+
+func setState() string {
+	state = true
+	return "base"
+}
+-- invoke --
+Page()
+-- render.golden --
+-- diagnostics.golden --
+14:48: unknown field Attrs in struct literal of type CardProps
+-- generated.x.go.golden --

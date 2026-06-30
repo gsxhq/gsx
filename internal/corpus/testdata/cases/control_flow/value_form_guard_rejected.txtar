@@ -1,0 +1,8 @@
+-- input.gsx --
+package views
+
+component C(v int) {
+	<span class={ if v > 0 { "a" } else { "b" }: v > 0 }>x</span>
+}
+-- diagnostics.golden --
+4:45: a value-form if in class/style takes no `: cond` guard

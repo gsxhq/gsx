@@ -16,7 +16,7 @@ generator/CLI may use `golang.org/x/tools`.
 |---|---|
 | Parser + AST | `[x]` Part 2 grammar + pipeline parsing + positioned, recoverable errors |
 | Runtime (`gsx`) | `[x]` done |
-| Codegen | `[~]` interpolation + control flow + full attributes (security core, composable class **and element-level style**, spread, conditional) + pipeline `\|>` + child props/`{children}` + method components + named slots + attribute fallthrough (auto class-merge/spread + manual `{...attrs}`) + custom attribute classification (`WithJSAttrs`/`WithURLAttrs`/`WithCSSAttrs` + `WithAttrClassifier`) + node-prop promotion (`gsx.Val`/`Text`/`Fragment`) + ordered attrs (`{{ }}` / `gsx.OrderedAttrs`) + uniform `(T,error)` auto-unwrap (all expression positions) done; composable `style` **on a component invocation** + `[]string` class parts pending |
+| Codegen | `[~]` interpolation + control flow + full attributes (security core, composable class **and element-level style**, spread, conditional) + pipeline `\|>` + child props/`{children}` + method components + named slots + attribute fallthrough (auto class-merge/spread + manual `{...attrs}`) + custom attribute classification (`WithJSAttrs`/`WithURLAttrs`/`WithCSSAttrs` + `WithAttrClassifier`) + node-prop promotion (`gsx.Val`/`Text`/`Fragment`) + ordered attrs (`{{ }}` / `gsx.OrderedAttrs`) + uniform `(T,error)` auto-unwrap (all expression positions) + value-form `if`/`switch` in `class`/`style` (exclusive selection) done; composable `style` **on a component invocation** + `[]string` class parts pending |
 | Whitespace model | `[x]` JSX-style: `internal/wsnorm.Normalize` (parser lossless) wired into codegen + powers `gsx fmt`. render-faithful + idempotent over the whole corpus. |
 | Pipeline `\|>` end-to-end | `[x]` seed-first forward-application lowering + `std` filters + user filter packages (`gen.WithFilters` + `gen.WithFilter` aliases, multi-pkg last-wins) + `ctx` injection + `(T,error)` implicit auto-unwrap. Works in interp / attr / class / style / spread / child-prop values / `{{ }}` pairs (all expression positions). Initialism-aware naming pending. |
 | CLI (`gsx`) / `gen.Main` | `[~]` `generate` (incl. `--watch`/`--format=ndjson`) · `fmt` · `info` · `init` · `lsp` · `clean --cache` · `version` · `help` ship, with `--json` + structured diagnostics. `vet`/`render`/`explain`/numeric codes pending. `WithClassMerger` + `class_merger` TOML knob shipped. |
@@ -139,6 +139,29 @@ render goldens.
     multi-value shape is a clean gsx diagnostic (`only (T, error) is supported`).
     Multiple hoisted values in one call evaluate in source order. A shared
     `hoistTuple` helper replaces five copy-pasted hoist patterns.
+11. `[x]` **Value-form `if`/`switch` in `class`/`style`** — `2026-06-30`. A
+    **value-producing** form of `if` and `switch` usable inside `class={…}` /
+    `style={…}` contribution lists, providing **exclusive selection** in place of
+    the additive-map negation default. Arms are braced (`case Green: { "cls" }`);
+    multi-value cases (`case A, B:`) and `else if` chains are supported; a tagless
+    `switch { case cond: … }` follows Go. Lowers to an alloc-free hoisted temp
+    (`var _gsxvN string` assigned by a generated Go `switch`/`if`), not an IIFE.
+    `if` without `else` is exactly equivalent to the additive guard form — no
+    match, no `default`/`else` → empty contribution (nothing added). `(T,error)`
+    auto-unwrap applies to both plain parts (`class={ cls(v) }`) and individual
+    arms (`case A: { cls(v) }`), extending the shared `hoistTuple` machinery from
+    item 10. A guard on a value-form part (`switch x {…}: cond`) is a compile-time
+    diagnostic. Corpus coverage: `class/value_switch`, `class/value_if_*`,
+    `class/value_switch_tuple`, `class/value_arm_pipeline`, `style/value_switch`,
+    `class/part_tuple`, and rejection cases.
+12. `[ ]` **Ordered style property bags (deferred)** — consider
+    `style={{ "color": color, "font-size": size }}` only if real-world GSX
+    projects repeatedly construct many dynamic declarations and declaration
+    string composition becomes a material usability problem. The feature would
+    add a second inline-style model plus parser, formatter, codegen, and
+    documentation surface, so current usage does not justify it. If adopted,
+    prefer quoted native CSS property names; do not add JSX camelCase conversion
+    or automatic numeric units.
 
 ## Language server (`gsx lsp`)
 
