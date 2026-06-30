@@ -65,14 +65,15 @@ func Page(_gsxp PageProps) gsx.Node {
 		variant := _gsxp.Variant
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:8:2
-		var _gsxv0 string
+		_gsxv0 := "base"
+		var _gsxv1 string
 		switch variant {
 		case 1:
-			_gsxv0 = "primary"
+			_gsxv1 = "primary"
 		default:
-			_gsxv0 = "secondary"
+			_gsxv1 = "secondary"
 		}
-		_gsxgw.Node(ctx, Card(CardProps{Title: gsx.Text("Hi"), Attrs: gsx.Attrs{"class": gsx.ClassJoin(gsx.Class("base"), gsx.Class(_gsxv0))}}))
+		_gsxgw.Node(ctx, Card(CardProps{Title: gsx.Text("Hi"), Attrs: gsx.Attrs{"class": gsx.ClassJoin(gsx.Class(_gsxv0), gsx.Class(_gsxv1))}}))
 		return _gsxgw.Err()
 	})
 }

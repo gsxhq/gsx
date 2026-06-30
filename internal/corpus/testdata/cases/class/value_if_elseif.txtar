@@ -33,17 +33,18 @@ func Label(_gsxp LabelProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<span")
-		var _gsxv0 string
+		_gsxv0 := "label"
+		var _gsxv1 string
 		if rank == 1 {
-			_gsxv0 = "gold"
+			_gsxv1 = "gold"
 		} else if rank == 2 {
-			_gsxv0 = "silver"
+			_gsxv1 = "silver"
 		} else {
-			_gsxv0 = "bronze"
+			_gsxv1 = "bronze"
 		}
 
 		_gsxgw.S(" class=\"")
-		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class("label"), gsx.Class(_gsxv0), gsx.Class(_gsxp.Attrs.Class()))
+		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class(_gsxv0), gsx.Class(_gsxv1), gsx.Class(_gsxp.Attrs.Class()))
 		_gsxgw.S("\"")
 		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
 		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))

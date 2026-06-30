@@ -59,11 +59,12 @@ func Page(_gsxp PageProps) gsx.Node {
 		v := _gsxp.V
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:6:2
-		_gsxv0, _gsxerr := cls(v)
+		_gsxv0 := "base"
+		_gsxv1, _gsxerr := cls(v)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Card(CardProps{Title: "Hi", Attrs: gsx.Attrs{"class": gsx.ClassJoin(gsx.Class("base"), gsx.Class(_gsxv0))}}))
+		_gsxgw.Node(ctx, Card(CardProps{Title: "Hi", Attrs: gsx.Attrs{"class": gsx.ClassJoin(gsx.Class(_gsxv0), gsx.Class(_gsxv1))}}))
 		return _gsxgw.Err()
 	})
 }

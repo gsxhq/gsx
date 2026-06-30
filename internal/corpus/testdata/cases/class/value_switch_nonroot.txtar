@@ -45,15 +45,16 @@ func Widget(_gsxp WidgetProps) gsx.Node {
 		_gsxgw.S(">")
 //line input.gsx:4:7
 		_gsxgw.S("<span")
-		var _gsxv0 string
+		_gsxv0 := "x"
+		var _gsxv1 string
 		switch variant {
 		case 1:
-			_gsxv0 = "a"
+			_gsxv1 = "a"
 		default:
-			_gsxv0 = "b"
+			_gsxv1 = "b"
 		}
 		_gsxgw.S(" class=\"")
-		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class("x"), gsx.Class(_gsxv0))
+		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class(_gsxv0), gsx.Class(_gsxv1))
 		_gsxgw.S("\">y</span></div>")
 		return _gsxgw.Err()
 	})

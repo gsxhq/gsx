@@ -39,14 +39,15 @@ func C(_gsxp CProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div")
-		var _gsxv0 string
+		_gsxv0 := "base"
+		var _gsxv1 string
 		if on {
-			_gsxv0 = _gsxstd.Upper((theme))
+			_gsxv1 = _gsxstd.Upper((theme))
 		} else {
-			_gsxv0 = "off"
+			_gsxv1 = "off"
 		}
 		_gsxgw.S(" class=\"")
-		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class("base"), gsx.Class(_gsxv0), gsx.Class(_gsxp.Attrs.Class()))
+		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class(_gsxv0), gsx.Class(_gsxv1), gsx.Class(_gsxp.Attrs.Class()))
 		_gsxgw.S("\"")
 		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
 		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))

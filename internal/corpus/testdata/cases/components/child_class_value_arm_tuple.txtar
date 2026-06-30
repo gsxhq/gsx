@@ -61,17 +61,18 @@ func Page(_gsxp PageProps) gsx.Node {
 		flag := _gsxp.Flag
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:6:2
-		var _gsxv0 string
+		_gsxv0 := "base"
+		var _gsxv1 string
 		if flag {
-			_gsxv1, _gsxerr := cls(v)
+			_gsxv2, _gsxerr := cls(v)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
-			_gsxv0 = _gsxv1
+			_gsxv1 = _gsxv2
 		} else {
-			_gsxv0 = "gray"
+			_gsxv1 = "gray"
 		}
-		_gsxgw.Node(ctx, Card(CardProps{Title: "Hi", Attrs: gsx.Attrs{"class": gsx.ClassJoin(gsx.Class("base"), gsx.Class(_gsxv0))}}))
+		_gsxgw.Node(ctx, Card(CardProps{Title: "Hi", Attrs: gsx.Attrs{"class": gsx.ClassJoin(gsx.Class(_gsxv0), gsx.Class(_gsxv1))}}))
 		return _gsxgw.Err()
 	})
 }

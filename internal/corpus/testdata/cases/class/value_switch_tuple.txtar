@@ -40,19 +40,20 @@ func Badge(_gsxp BadgeProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<span")
-		var _gsxv0 string
+		_gsxv0 := "base"
+		var _gsxv1 string
 		switch variant {
 		case 1:
-			_gsxv1, _gsxerr := cls(variant)
+			_gsxv2, _gsxerr := cls(variant)
 			if _gsxerr != nil {
 				return _gsxerr
 			}
-			_gsxv0 = _gsxv1
+			_gsxv1 = _gsxv2
 		default:
-			_gsxv0 = "gray"
+			_gsxv1 = "gray"
 		}
 		_gsxgw.S(" class=\"")
-		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class("base"), gsx.Class(_gsxv0), gsx.Class(_gsxp.Attrs.Class()))
+		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class(_gsxv0), gsx.Class(_gsxv1), gsx.Class(_gsxp.Attrs.Class()))
 		_gsxgw.S("\"")
 		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
 		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))

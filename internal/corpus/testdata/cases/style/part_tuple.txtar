@@ -36,19 +36,16 @@ func C(_gsxp CProps) gsx.Node {
 //line input.gsx:4:2
 		_gsxgw.S("<span")
 		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxv0, _gsxerr := sty(v)
+		_gsxv0 := "padding: 4px"
+		_gsxv1, _gsxerr := sty(v)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
 		if _gsxp.Attrs.Has("style") {
-			_gsxgw.StyleMerged(gsx.StyleString(gsx.Class("padding: 4px"), gsx.Class(gsx.StyleValue(_gsxv0))), _gsxp.Attrs.Style())
+			_gsxgw.StyleMerged(gsx.StyleString(gsx.Class(_gsxv0), gsx.Class(gsx.StyleValue(_gsxv1))), _gsxp.Attrs.Style())
 		} else {
-			_gsxv1, _gsxerr := sty(v)
-			if _gsxerr != nil {
-				return _gsxerr
-			}
 			_gsxgw.S(" style=\"")
-			_gsxgw.Style(gsx.Class("padding: 4px"), gsx.Class(gsx.StyleValue(_gsxv1)))
+			_gsxgw.Style(gsx.Class(_gsxv0), gsx.Class(gsx.StyleValue(_gsxv1)))
 			_gsxgw.S("\"")
 		}
 		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
