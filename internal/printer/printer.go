@@ -342,7 +342,7 @@ func (p *printer) valueSwitchDoc(s *ast.ValueSwitch) pretty.Doc {
 			pretty.Line, label,
 			pretty.Indent(pretty.Concat(pretty.Line, p.valueArmDoc(c.Value))))
 	}
-	return pretty.Group(pretty.Concat(pretty.Concat(head...), pretty.Indent(pretty.Concat(cases...)), pretty.Line, pretty.Text("}")))
+	return pretty.Group(pretty.Concat(pretty.Concat(head...), pretty.Concat(cases...), pretty.Line, pretty.Text("}")))
 }
 
 // wrapAttrValue renders `name={<sep>value<sep>}` where sep is the flat padding

@@ -221,10 +221,10 @@ component C(v int) {
 	<div
 		class={
 			switch v {
-				case 1:
-					"green-green-green-green-green-green-green"
-				default:
-					"gray-gray-gray-gray-gray-gray-gray"
+			case 1:
+				"green-green-green-green-green-green-green"
+			default:
+				"gray-gray-gray-gray-gray-gray-gray"
 			}
 		}
 	>
@@ -1041,10 +1041,10 @@ component C(v int) {
 		class={
 			"base",
 			switch v {
-				case 1:
-					"green-aaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-				default:
-					"gray-bbbbbbbbbbbbbbbbbbbbbbbb"
+			case 1:
+				"green-aaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			default:
+				"gray-bbbbbbbbbbbbbbbbbbbbbbbb"
 			}
 		}
 	>
