@@ -873,10 +873,43 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				if probeErr != nil {
 					return probeErr
 				}
-				// ClassAttr/SpreadAttr part exprs are emitted verbatim by codegen (no
-				// type harvest), so a var used ONLY in `class={ "on": v }` / `{...attrs}`
-				// must still be referenced here or it's "declared and not used". Emit a
-				// liveness `_ = (expr)` — NOT _gsxuse, so the harvest alignment is intact.
+				// Emit _gsxuse probes for value-form CF arm expressions in the SAME
+				// source order collectExprs collects them (attr order → CF-part order
+				// → arm order). harvest maps the k-th _gsxuse to the k-th node,
+				// populating resolved[arm] so hoistValueCF can detect and unwrap
+				// (T, error) return types. _gsxuse(...any) accepts multi-return calls
+				// without a syntax error, and harvest reads the tuple type from the
+				// argument's resolved type. A probe per arm replaces the former
+				// no-liveness behavior for CF parts; _gsxuse also keeps the arm's
+				// identifier references live (avoiding "declared and not used").
+				for _, a := range t.Attrs {
+					ca, ok := a.(*gsxast.ClassAttr)
+					if !ok {
+						continue
+					}
+					for _, p := range ca.Parts {
+						if p.CF == nil {
+							continue
+						}
+						for _, arm := range valueFormArms(p.CF) {
+							probe, perr := probeExpr(arm.Expr, arm.Stages, table, usedFilters)
+							if perr != nil {
+								// Unknown filter: fall back to the bare seed so the skeleton
+								// type-checks (and identifiers stay live); the positioned
+								// unknown-filter diagnostic fires separately.
+								probe = strings.TrimSpace(arm.Expr)
+							}
+							emitSkeletonLine(sb, fset, arm.Pos())
+							fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
+						}
+					}
+				}
+				// ClassAttr/SpreadAttr non-CF part exprs are emitted verbatim by
+				// codegen (no type harvest), so a var used ONLY in `class={ "on": v }`
+				// / `{...attrs}` must still be referenced here or it's "declared and not
+				// used". Emit a liveness `_ = (expr)` — NOT _gsxuse, so the harvest
+				// alignment is intact. CF parts are excluded (their arms got _gsxuse
+				// probes above, which also serve as liveness references).
 				walkLivenessAttrExprs(t.Attrs, table, usedFilters, func(expr string) {
 					fmt.Fprintf(sb, "_ = (%s)\n", expr)
 				})
@@ -1497,6 +1530,26 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 			walkAttrExprs(t.Attrs, func(ea *gsxast.ExprAttr) {
 				*out = append(*out, ea)
 			})
+			// Collect ValueArm nodes for value-form CF parts in source order: for
+			// each ClassAttr in attr order, for each CF part, in arm source order
+			// (if-form: Then, ElseIf chain, Else; switch: case Values). emitProbes
+			// emits _gsxuse probes in the SAME order so the k-th probe aligns with
+			// the k-th node, populating resolved[arm] for hoistValueCF's unwrap.
+			// The liveness path (walkLivenessAttrExprs) does NOT add nodes here.
+			for _, a := range t.Attrs {
+				ca, ok := a.(*gsxast.ClassAttr)
+				if !ok {
+					continue
+				}
+				for _, p := range ca.Parts {
+					if p.CF == nil {
+						continue
+					}
+					for _, arm := range valueFormArms(p.CF) {
+						*out = append(*out, arm)
+					}
+				}
+			}
 			// Then each JS-attribute (e.g. x-data="… @{ x } …") @{ } interp, in
 			// attr source order — emitProbes walks identically (same walkMarkupAttrs).
 			walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
@@ -1879,6 +1932,36 @@ func addValueArmSrc(arm *gsxast.ValueArm, add func(string)) {
 			add(st.Args)
 		}
 	}
+}
+
+// valueFormArms returns the arm value-expression nodes of a value-form part in
+// source order, for type-harvest alignment. For an if-form, the order is:
+// Then, then the ElseIf chain (recursively), then Else. For a switch, each
+// case's Value in case-declaration order. nil arms are skipped.
+func valueFormArms(cf *gsxast.ValueCF) []*gsxast.ValueArm {
+	var out []*gsxast.ValueArm
+	if cf.If != nil {
+		var walk func(vi *gsxast.ValueIf)
+		walk = func(vi *gsxast.ValueIf) {
+			if vi.Then != nil {
+				out = append(out, vi.Then)
+			}
+			if vi.ElseIf != nil {
+				walk(vi.ElseIf)
+			}
+			if vi.Else != nil {
+				out = append(out, vi.Else)
+			}
+		}
+		walk(cf.If)
+		return out
+	}
+	for _, c := range cf.Switch.Cases {
+		if c.Value != nil {
+			out = append(out, c.Value)
+		}
+	}
+	return out
 }
 
 // valueIdents returns the identifiers used in value position in a Go expression

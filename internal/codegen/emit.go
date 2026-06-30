@@ -530,7 +530,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 		// `prop: value` parser would lose (it drops colon-less fragments and dedupes
 		// properties). The empty-bag case takes the else branch → byte-identical output.
 		if styleAttr != nil || staticStyle != nil {
-			styleStr, ok := rootStyleString(b, styleAttr, staticStyle, table, imports, interpTemp, bag)
+			styleStr, ok := rootStyleString(b, styleAttr, staticStyle, table, imports, interpTemp, bag, resolved)
 			if !ok {
 				return false
 			}
@@ -542,7 +542,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 					return false
 				}
 			} else {
-				if !emitStyleAttr(b, styleAttr, table, imports, interpTemp, bag) {
+				if !emitStyleAttr(b, styleAttr, table, imports, interpTemp, bag, resolved) {
 					return false
 				}
 			}
@@ -582,7 +582,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 		switch t := a.(type) {
 		case *ast.ClassAttr:
 			if t == classAttr {
-				if !emitRootComposedClass(b, t, table, imports, interpTemp, bag, mergeExpr) {
+				if !emitRootComposedClass(b, t, table, imports, interpTemp, bag, mergeExpr, resolved) {
 					return false
 				}
 				continue
@@ -702,11 +702,11 @@ func bagSpreadIndex(attrs []ast.Attr) (int, bool, error) {
 // class: ` class="` + gw.Class(<existing parts…>, gsx.Class(_gsxp.Attrs.Class()))
 // + `"`. Mirrors emitClassAttr's part lowering, appending the bag class as a
 // final unconditional part so it merges/dedupes through the merge func.
-func emitRootComposedClass(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag, mergeExpr string) bool {
+func emitRootComposedClass(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag, mergeExpr string, resolved map[ast.Node]types.Type) bool {
 	parts := make([]string, 0, len(a.Parts)+1)
 	for _, p := range a.Parts {
 		if p.CF != nil {
-			tmp, ok := hoistValueCF(b, p.CF, table, imports, interpTemp, false, bag)
+			tmp, ok := hoistValueCF(b, p.CF, table, imports, interpTemp, false, bag, resolved)
 			if !ok {
 				return false
 			}
@@ -763,7 +763,8 @@ func rootAttrName(a ast.Attr) (string, bool) {
 // CSS-value-filtered). With no style attr it is the empty string literal.
 // b and interpTemp are needed when any part is a value-form CF (if/switch): the
 // hoisted var+switch statements are written to b before the StyleMerged call.
-func rootStyleString(b *bytes.Buffer, styleAttr *ast.ClassAttr, staticStyle *ast.StaticAttr, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) (string, bool) {
+// resolved maps each *ast.ValueArm to its harvest type for (T, error) unwrap.
+func rootStyleString(b *bytes.Buffer, styleAttr *ast.ClassAttr, staticStyle *ast.StaticAttr, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type) (string, bool) {
 	switch {
 	case staticStyle != nil:
 		return strconv.Quote(staticStyle.Value), true
@@ -771,7 +772,7 @@ func rootStyleString(b *bytes.Buffer, styleAttr *ast.ClassAttr, staticStyle *ast
 		parts := make([]string, 0, len(styleAttr.Parts))
 		for _, p := range styleAttr.Parts {
 			if p.CF != nil {
-				tmp, ok := hoistValueCF(b, p.CF, table, imports, interpTemp, true, bag)
+				tmp, ok := hoistValueCF(b, p.CF, table, imports, interpTemp, true, bag, resolved)
 				if !ok {
 					return "", false
 				}
@@ -993,7 +994,9 @@ func hoistTuple(b *bytes.Buffer, expr string, interpTemp *int) string {
 // hoistValueCF emits `var _gsxvN string; <if|switch> { … _gsxvN = <arm> … }`
 // before the class/style part list and returns the temp name. style=true wraps
 // each arm value with styleDeclExpr (CSS-value filtering for dynamic arms).
-func hoistValueCF(b *bytes.Buffer, cf *ast.ValueCF, table filterTable, imports map[string]bool, interpTemp *int, style bool, bag *diag.Bag) (string, bool) {
+// resolved maps each *ast.ValueArm to its harvest type; when an arm's type is
+// a (T, error) tuple, armExpr calls hoistTuple to emit the unwrap inline.
+func hoistValueCF(b *bytes.Buffer, cf *ast.ValueCF, table filterTable, imports map[string]bool, interpTemp *int, style bool, bag *diag.Bag, resolved map[ast.Node]types.Type) (string, bool) {
 	tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
 	*interpTemp++
 	fmt.Fprintf(b, "\t\tvar %s string\n", tmp)
@@ -1006,6 +1009,19 @@ func hoistValueCF(b *bytes.Buffer, cf *ast.ValueCF, table filterTable, imports m
 		for _, path := range used {
 			imports[path] = true
 		}
+		// If the arm's harvest type is a (T, error) tuple, unwrap it inline.
+		// hoistTuple writes `_gsxvN, _gsxerr := expr; if _gsxerr != nil { return _gsxerr }`
+		// into b at this point — which is AFTER the if/case label and BEFORE the
+		// _gsxvN = ... assignment, so the hoist lands inside the correct block.
+		if t := resolved[a]; t != nil {
+			if _, isTuple := t.(*types.Tuple); isTuple {
+				if _, ok := tupleUnwrapType(t); !ok {
+					bag.Errorf(a.Pos(), a.End(), "invalid-tuple", "value-form arm %q returns %s; only (T, error) is supported", a.Expr, t)
+					return "", false
+				}
+				expr = hoistTuple(b, expr, interpTemp)
+			}
+		}
 		if style {
 			expr = styleDeclExpr(expr, len(a.Stages) > 0)
 		}
@@ -1017,25 +1033,29 @@ func hoistValueCF(b *bytes.Buffer, cf *ast.ValueCF, table filterTable, imports m
 	return tmp, emitValueSwitch(b, cf.Switch, tmp, armExpr)
 }
 
+// emitValueIf emits an `if … { _gsxvN = arm } [else if … | else { … }]` block.
+// armExpr is called AFTER writing the if/else-if header so any hoist statements
+// it writes (e.g. for tuple unwrap) land inside the block, before the assignment.
 func emitValueIf(b *bytes.Buffer, vi *ast.ValueIf, tmp string, armExpr func(*ast.ValueArm) (string, bool)) bool {
+	fmt.Fprintf(b, "\t\tif %s {\n", vi.Cond)
 	e, ok := armExpr(vi.Then)
 	if !ok {
 		return false
 	}
-	fmt.Fprintf(b, "\t\tif %s {\n\t\t\t%s = %s\n\t\t}", vi.Cond, tmp, e)
+	fmt.Fprintf(b, "\t\t\t%s = %s\n\t\t}", tmp, e)
 	switch {
 	case vi.ElseIf != nil:
 		b.WriteString(" else ")
-		// nested if without the leading "if " (emitValueIf writes it)
 		if !emitValueIf(b, vi.ElseIf, tmp, armExpr) {
 			return false
 		}
 	case vi.Else != nil:
+		b.WriteString(" else {\n")
 		ee, ok := armExpr(vi.Else)
 		if !ok {
 			return false
 		}
-		fmt.Fprintf(b, " else {\n\t\t\t%s = %s\n\t\t}", tmp, ee)
+		fmt.Fprintf(b, "\t\t\t%s = %s\n\t\t}", tmp, ee)
 	}
 	b.WriteString("\n")
 	return true
@@ -1392,11 +1412,11 @@ func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, tab
 		// class -> token merge (gw.Class); style -> '; '-joined declarations
 		// (gw.Style) with dynamic parts CSS-value-filtered.
 		if cls.Context(t.Name) == attrclass.CtxCSS {
-			if !emitStyleAttr(b, t, table, imports, interpTemp, bag) {
+			if !emitStyleAttr(b, t, table, imports, interpTemp, bag, resolved) {
 				return false
 			}
 		} else {
-			if !emitClassAttr(b, t, table, imports, interpTemp, bag, mergeExpr) {
+			if !emitClassAttr(b, t, table, imports, interpTemp, bag, mergeExpr, resolved) {
 				return false
 			}
 		}
@@ -1570,11 +1590,12 @@ func lowerClassPartSeed(p ast.ClassPart, table filterTable) (string, map[string]
 // gw.Class call composing each part (gsx.Class for an unconditional Expr,
 // gsx.ClassIf for a conditional one), and the closing `"`. gw.Class runs the
 // tokens through the passed merge func and writes the attr-escaped value.
-func emitClassAttr(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag, mergeExpr string) bool {
+// resolved maps each *ast.ValueArm to its harvest type for (T, error) unwrap.
+func emitClassAttr(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag, mergeExpr string, resolved map[ast.Node]types.Type) bool {
 	parts := make([]string, 0, len(a.Parts))
 	for _, p := range a.Parts {
 		if p.CF != nil {
-			tmp, ok := hoistValueCF(b, p.CF, table, imports, interpTemp, false, bag)
+			tmp, ok := hoistValueCF(b, p.CF, table, imports, interpTemp, false, bag, resolved)
 			if !ok {
 				return false
 			}
@@ -1602,11 +1623,12 @@ func emitClassAttr(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports
 // trusted and emitted raw; any dynamic part value is wrapped in gsx.FilterCSS so
 // untrusted data cannot inject declarations or break out. gw.Style joins the
 // included parts with "; " and attr-escapes the result.
-func emitStyleAttr(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
+// resolved maps each *ast.ValueArm to its harvest type for (T, error) unwrap.
+func emitStyleAttr(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type) bool {
 	parts := make([]string, 0, len(a.Parts))
 	for _, p := range a.Parts {
 		if p.CF != nil {
-			tmp, ok := hoistValueCF(b, p.CF, table, imports, interpTemp, true, bag)
+			tmp, ok := hoistValueCF(b, p.CF, table, imports, interpTemp, true, bag, resolved)
 			if !ok {
 				return false
 			}
