@@ -433,9 +433,23 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		gsxFiles = map[string]*gsxast.File{} // package-level skip: Generate's loop emits nothing
 	}
 	// Shared _gsxuse/_gsxcompsig helpers, added to every package's overlay.
+	//
+	// _gsxunwrap's trailing parameter is `...any` (not `...error`): it must NOT
+	// reject a non-(T, error) tuple at the unwrap site, because doing so emits a
+	// go/types message mentioning _gsxunwrap that stripGsxunwrap cannot clean
+	// (`… in argument to _gsxunwrap: string does not implement error`). Non-(T,
+	// error) child-prop tuples are instead rejected with a clean gsx diagnostic in
+	// genChildComponent (see emit.go). `...any` keeps the field-type compat check
+	// intact (it still checks the unwrapped first value T against the field) while
+	// swallowing any extra results, so no internal helper name leaks.
+	//
+	// _gsxuseq is the quiet variant of _gsxuse used ONLY for child-prop type
+	// harvest: errors inside its argument are suppressed (the props-literal
+	// _gsxunwrap(...) probe already reports the same expression-internal error), so
+	// a malformed child-prop value is reported once, not twice.
 	helperXgoPath := filepath.Join(dir, "_gsxshared.x.go")
 	helper, _ := goparser.ParseFile(fset, helperXgoPath,
-		"package "+pkgName+"\n\nfunc _gsxuse(...any) {}\nfunc _gsxcompsig(any) {}\n", goparser.SkipObjectResolution)
+		"package "+pkgName+"\n\nfunc _gsxuse(...any) {}\nfunc _gsxuseq(...any) {}\nfunc _gsxcompsig(any) {}\nfunc _gsxunwrap[T any](v T, _ ...any) T { return v }\n", goparser.SkipObjectResolution)
 	goFiles = append(goFiles, helper)
 
 	// Include the package's hand-written .go files (model.go, helper.go, etc.)
@@ -490,12 +504,44 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		pkgPath = ip
 	}
 	pkg, info, typeErrs := checkSkeletonPackage(pkgPath, pkgName, goFiles, fset, mi)
+	// Collect the skeleton byte spans of every _gsxuseq(...) child-prop harvest
+	// probe. Such a probe re-evaluates a child-component prop value ONLY to harvest
+	// its raw type; the props-literal _gsxunwrap(...) probe already reports any
+	// expression-internal error (undefined ident, bad call, wrong arity, missing
+	// method) for the SAME value. Suppressing errors that originate inside a
+	// _gsxuseq argument keeps a malformed child-prop value reported once (from the
+	// props literal) rather than twice. Positions are raw token.Pos in the shared
+	// fset, so they are directly comparable to a types.Error's Pos (the //line
+	// directives only affect Position() resolution, not Pos ordering).
+	var quietSpans []struct{ start, end token.Pos }
+	for _, gf := range goFiles {
+		goast.Inspect(gf, func(n goast.Node) bool {
+			call, ok := n.(*goast.CallExpr)
+			if !ok {
+				return true
+			}
+			if id, ok := call.Fun.(*goast.Ident); ok && id.Name == "_gsxuseq" {
+				quietSpans = append(quietSpans, struct{ start, end token.Pos }{call.Pos(), call.End()})
+			}
+			return true
+		})
+	}
 	for _, e := range typeErrs {
+		suppressed := false
+		for _, s := range quietSpans {
+			if s.start <= e.Pos && e.Pos < s.end {
+				suppressed = true
+				break
+			}
+		}
+		if suppressed {
+			continue // redundant child-prop harvest-probe error; the props literal reports it
+		}
 		p := e.Fset.Position(e.Pos) // e.Fset is the shared fset; //line maps skeleton → .gsx
 		if strings.HasSuffix(p.Filename, ".x.go") {
 			continue // synthetic skeleton position: no //line directive, so no valid .gsx location to report
 		}
-		bag.Add(diag.Diagnostic{Start: p, End: p, Severity: diag.Error, Message: e.Msg, Source: "types"})
+		bag.Add(diag.Diagnostic{Start: p, End: p, Severity: diag.Error, Message: stripGsxunwrap(e.Msg), Source: "types"})
 	}
 	if mi.cycleErr != nil {
 		// A cycle was detected during this package's type-check; propagate
@@ -656,4 +702,39 @@ func (m *Module) parsePackageWithFset(dir string, fset *token.FileSet) (map[stri
 		pkgName = f.Package
 	}
 	return files, pkgName, nil
+}
+
+// stripGsxunwrap removes all occurrences of _gsxunwrap(...) in s, replacing each
+// with its argument. This ensures type error messages from the skeleton
+// type-checker do not expose the internal _gsxunwrap helper name to users.
+// Nested parentheses inside the argument are handled via bracket counting.
+func stripGsxunwrap(s string) string {
+	const prefix = "_gsxunwrap("
+	if !strings.Contains(s, prefix) {
+		return s
+	}
+	var b strings.Builder
+	for {
+		i := strings.Index(s, prefix)
+		if i < 0 {
+			b.WriteString(s)
+			break
+		}
+		b.WriteString(s[:i])
+		depth := 1
+		j := i + len(prefix)
+		for j < len(s) && depth > 0 {
+			switch s[j] {
+			case '(':
+				depth++
+			case ')':
+				depth--
+			}
+			j++
+		}
+		// s[i+len(prefix) : j-1] is the content inside _gsxunwrap(...)
+		b.WriteString(s[i+len(prefix) : j-1])
+		s = s[j:]
+	}
+	return b.String()
 }

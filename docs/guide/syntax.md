@@ -96,7 +96,7 @@ shared props type:
 | `<div>`, `<el-dialog>` | HTML element (lowercase / hyphenated) |
 | `<Card>`, `<ui.Button>` | component (Capitalized / dotted) |
 | `{ expr }` | interpolation in body (auto HTML-escaped) |
-| `{ f() }` where `f` returns `(T, error)` | auto-unwraps to `T`; the error propagates out of the enclosing `Render` (no marker needed) |
+| any expression returning `(T, error)` | auto-unwraps to `T`; error propagates from the enclosing `Render` — no marker needed, applies in all expression positions (text, attrs, child-prop values, `{{ }}` pair values, pipelines) |
 | `name="lit"` | static string attribute |
 | `name={ expr }` | dynamic attribute (Go expression) |
 | `name` (bare) | boolean attribute = `true` |
@@ -168,6 +168,9 @@ The Datastar directives arrive in exactly the order they appear in the literal �
   function call, a composite literal, or any other valid Go expression.
   A `|>` filter pipeline is not supported inside a `{{ }}` value (use a plain
   Go expression; `|>` remains available in normal `name={ expr |> … }` form).
+  A value returning `(T, error)` is **auto-unwrapped** — the error propagates
+  from the enclosing `Render` exactly as in any other expression position (see
+  [Error propagation](#error-propagation--automatic-t-error-unwrap) below).
 - **Boolean values** toggle a bare attribute: `"data-show": true` renders
   `data-show`; `"data-show": false` omits the attribute entirely.
 - A **trailing comma** is allowed (idiomatic Go style). An **empty** literal
@@ -236,6 +239,62 @@ Values are attribute-escaped identically to `gsx.Attrs` — the same faithful
 `html/template` port. Attribute names are validated; structurally unsafe names
 (names containing spaces or other forbidden characters) are silently dropped.
 `{{ }}` does not bypass any escaping.
+
+## Error propagation — automatic `(T, error)` unwrap
+
+Any Go expression that returns exactly two values where the second is `error` is
+automatically unwrapped by gsx: the first value is used as the result and a
+non-nil error is returned from the enclosing component's `Render`, halting
+rendering at that point. No marker is needed — gsx does it unconditionally. (A
+`?` suffix on an expression is in fact a parse error.)
+
+The rule is **uniform**: it applies in every position where an expression is
+allowed.
+
+| Position | Example |
+|----------|---------|
+| Text / body interpolation | `{lookup(key)}` |
+| Element attribute value | `attr={signedURL(p)}` |
+| `<style>` / `<script>` body | interpolated values in raw-text bodies |
+| JS-context attribute value (`onclick`/`@click`/`hx-on*`) | `onclick={ handler(action) }` |
+| `\|>` pipeline stages | each stage's return is unwrapped if `(T, error)` |
+| Children / slot | `{ renderSlot(ctx) }` |
+| **Child-component prop value** | `<Card title={lookup(t)}/>` |
+| **`{{ }}` pair value** | `<Card signals={{ "data-signals": signals(s) }}/>` |
+
+### Child-component prop values
+
+```gsx
+// func lookup(t string) (string, error)
+component Page(t string) {
+    <Card title={lookup(t)}/>
+}
+```
+
+If `lookup` returns a non-nil error, `Render` returns it immediately — no `err`
+variable, no `if err != nil` at the call site.
+
+### `{{ }}` pair values
+
+```gsx
+// func computeSignals(s State) (string, error)
+component Page(s State) {
+    <Card container-attrs={{ "data-signals": computeSignals(s) }}/>
+}
+```
+
+Each pair value in a `{{ }}` literal is an independent expression; they evaluate
+in **source order**, so the first non-nil error wins.
+
+### Constraints
+
+- Only `(T, error)` is supported: **exactly two return values, the second typed
+  `error`**. Any other multi-value shape — `(int, string)`, three values, etc. —
+  is a **compile-time gsx error**: `only (T, error) is supported`.
+- The unwrap is always implicit — there is no opt-in marker and no opt-out.
+- When multiple prop values in a single child-component call each return
+  `(T, error)`, all are hoisted to temporaries in **source order** before the
+  component literal is built.
 
 ## Markup vs Go (the one subtlety)
 

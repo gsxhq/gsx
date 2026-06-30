@@ -76,6 +76,8 @@ func SetSpan(n Node, start, end token.Pos) {
 		v.span = s
 	case *OrderedAttrsAttr:
 		v.span = s
+	case *OrderedPair:
+		v.span = s
 	}
 }
 
@@ -375,11 +377,13 @@ func (*ClassAttr) attrNode() {}
 
 // OrderedPair is one "key": value pair of an OrderedAttrsAttr. Key is the
 // unquoted attribute name (string-literal key, already unquoted). Value is the
-// raw Go expression source; ValuePos is the offset of its first char.
+// raw Go expression source. span covers the value expression (start = first
+// non-space char after the colon, end = last char of the value), so *OrderedPair
+// satisfies ast.Node and can be used as a resolved-map key.
 type OrderedPair struct {
-	Key      string
-	Value    string
-	ValuePos token.Pos
+	span
+	Key   string
+	Value string
 }
 
 // OrderedAttrsAttr is name={{ "k1": v1, "k2": v2 }} — an ordered attribute bag
@@ -463,7 +467,11 @@ func Inspect(node Node, f func(Node) bool) {
 		for _, a := range n.Else {
 			Inspect(a, f)
 		}
-		// GoBlock, ClassAttr: leaves (ClassParts are not Nodes)
+	case *OrderedAttrsAttr:
+		for i := range n.Pairs {
+			Inspect(&n.Pairs[i], f)
+		}
+		// GoBlock, ClassAttr, OrderedPair: leaves (no sub-nodes)
 	}
 	f(nil)
 }
