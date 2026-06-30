@@ -34,6 +34,20 @@ type tomlConfig struct {
 	PrintWidth     int               `toml:"printWidth"`
 	Minify         *tomlMinify       `toml:"minify"`
 	ClassMerger    string            `toml:"class_merger"`
+	Dev            *tomlDev          `toml:"dev"`
+}
+
+// tomlDev is the [dev] table read ONLY by `gsx dev` (runDev) — it is NOT part of
+// the codegen config and is NOT folded into computeKey, because dev knobs never
+// change generated output. It exists on tomlConfig so strict decoding accepts a
+// [dev] table without breaking config-consuming commands (generate/info).
+// Commands are argv arrays for exact quoting.
+type tomlDev struct {
+	Web   []string `toml:"web"`
+	Build []string `toml:"build"`
+	Run   []string `toml:"run"`
+	Log   string   `toml:"log"`
+	NoWeb bool     `toml:"no_web"`
 }
 
 // tomlMinify is the [minify] table: per-asset level spellings. A nil pointer

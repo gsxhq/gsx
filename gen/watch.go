@@ -112,46 +112,19 @@ func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 			}
 			schedule()
 		case <-fire:
-			if depDirty {
-				results, rerr := sess.reopen()
-				if rerr != nil {
-					// Skip this cycle: regenerating against a stale module
-					// would produce output built on the old type graph. Leave
-					// depDirty=true and pending intact so the next fire retries.
-					em.emitError(rerr)
-					continue
-				}
-				// reopen() cold-regenerates every dir (fresh Modules + repopulated
-				// import graph + rewritten .x.go). Emit per-dir cycle results so
-				// diagnostics and notifications are visible to the user.
-				for _, r := range results {
-					em.cycle(r)
-				}
-				// Pending dirs are already regenerated — skip the union-regen
-				// below to avoid a double pass.
-				depDirty = false
-				pending = map[string]bool{}
+			results, rerr := sess.regenPending(pending, depDirty)
+			if rerr != nil {
+				// Regenerating against a stale module would emit output built on
+				// the old type graph. Leave depDirty+pending intact and retry on
+				// the next fire.
+				em.emitError(rerr)
 				continue
 			}
-			affected := map[string]bool{}
-			for dir := range pending {
-				if onlyGeneratedRemains(dir) {
-					continue
-				}
-				m, err := sess.moduleForDir(dir)
-				if err != nil {
-					em.cycle(cycleResult{Dir: dir, Err: err})
-					continue
-				}
-				m.Invalidate(dir)
-				for _, dep := range m.Dependents(dir) {
-					affected[dep] = true
-				}
-			}
-			for dir := range affected {
-				em.cycle(sess.regenDir(dir))
+			for _, r := range results {
+				em.cycle(r)
 			}
 			pending = map[string]bool{}
+			depDirty = false
 		case werr := <-w.Errors:
 			em.emitError(werr)
 		}

@@ -53,8 +53,8 @@ func TestInitInteractiveRunsAllSteps(t *testing.T) {
 	if (*calls)[0][1] != "get" || (*calls)[2][0] != "npm" {
 		t.Fatalf("unexpected order: %v", *calls)
 	}
-	if !strings.Contains(out.String(), "task dev") {
-		t.Fatalf("final 'task dev' missing: %q", out.String())
+	if !strings.Contains(out.String(), "npm run dev") {
+		t.Fatalf("final 'npm run dev' missing: %q", out.String())
 	}
 }
 
@@ -125,7 +125,7 @@ func TestInitDefault(t *testing.T) {
 	if !strings.Contains(string(gomod), "module myapp") {
 		t.Fatalf("module not derived from dir basename: %s", gomod)
 	}
-	if !strings.Contains(out, "task dev") {
+	if !strings.Contains(out, "npm run dev") {
 		t.Fatalf("next steps not printed: %q", out)
 	}
 }
@@ -285,7 +285,7 @@ func TestScaffoldSimpleTemplate(t *testing.T) {
 	}
 	for _, rel := range []string{
 		"go.mod", "main.go", "app.gsx", "vite.config.ts", "package.json",
-		"Taskfile.yml", "web/main.js", "web/style.css", "web/counter.js", "dist/.gitkeep",
+		"web/main.js", "web/style.css", "web/counter.js", "dist/.gitkeep",
 		".gitignore", "README.md", ".env.example", ".env",
 		"public/vite.svg", "public/gsx.svg",
 	} {
@@ -316,25 +316,23 @@ func TestScaffoldSimpleTemplate(t *testing.T) {
 	}
 }
 
-func TestInitTaskfileParses(t *testing.T) {
+func TestInitScaffoldHasDevCommand(t *testing.T) {
 	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping Taskfile-parse gate in -short mode")
-	}
-	if _, err := exec.LookPath("task"); err != nil {
-		t.Skip("task not on PATH")
-	}
-
 	dir := t.TempDir()
-	if code, _, errb := initNI(t, "--module", "taskfiledemo", dir); code != 0 {
+	if code, _, errb := initNI(t, "--module", "devdemo", dir); code != 0 {
 		t.Fatalf("init failed: %d %s", code, errb)
 	}
-
-	cmd := exec.Command("task", "--list")
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("task --list failed: %v\n%s", err, out)
+	// No Taskfile in the migrated scaffold.
+	if _, err := os.Stat(filepath.Join(dir, "Taskfile.yml")); err == nil {
+		t.Error("Taskfile.yml should not be scaffolded anymore")
+	}
+	pkg, _ := os.ReadFile(filepath.Join(dir, "package.json"))
+	if !strings.Contains(string(pkg), "go tool gsx dev") {
+		t.Errorf("package.json dev script should call gsx dev: %s", pkg)
+	}
+	gomod, _ := os.ReadFile(filepath.Join(dir, "go.mod"))
+	if strings.Contains(string(gomod), "wgo") {
+		t.Errorf("go.mod should no longer require wgo: %s", gomod)
 	}
 }
 
