@@ -2705,9 +2705,11 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg st
 			tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
 			*interpTemp++
 			fmt.Fprintf(b, "\t\tvar %s string\n", tmp)
+			var lowerErr error
 			armExpr := func(arm *ast.ValueArm) (string, bool) {
 				expr, used, err := lowerClassPartSeed(ast.ClassPart{Expr: arm.Expr, Stages: arm.Stages}, table)
 				if err != nil {
+					lowerErr = err
 					return "", false
 				}
 				maps.Copy(usedPkgs, used)
@@ -2720,7 +2722,11 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg st
 				cfOK = emitValueSwitch(b, p.CF.Switch, tmp, armExpr)
 			}
 			if !cfOK {
-				return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unresolved-pipeline", msg: "value-form CF arm lowering failed"}
+				msg := "value-form CF arm lowering failed"
+				if lowerErr != nil {
+					msg = strings.TrimPrefix(lowerErr.Error(), "codegen: ")
+				}
+				return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unresolved-pipeline", msg: msg}
 			}
 			parts = append(parts, fmt.Sprintf("%s.Class(%s)", rtPkg, tmp))
 			continue
