@@ -338,6 +338,7 @@ type analyzed struct {
 	propFields   map[string]map[string]bool
 	nodeProps    map[string]map[string]bool
 	orderedProps map[string]map[string]bool
+	attrsProps   map[string]map[string]bool
 	byo          *byoData
 	resolved     map[gsxast.Node]types.Type
 	exprMap      map[gsxast.Node]goast.Expr
@@ -392,7 +393,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	if err != nil {
 		return nil, err
 	}
-	propFields, nodeProps, orderedProps, byo, err := componentPropFieldsFor(dir, gsxFiles)
+	propFields, nodeProps, orderedProps, attrsProps, byo, err := componentPropFieldsFor(dir, gsxFiles)
 	if err != nil {
 		return nil, err
 	}
@@ -402,7 +403,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	var allImportSpecs []importSpec
 	skelErr := false
 	for path, f := range gsxFiles {
-		skel, comps, imps, ctrlOff, berr := buildSkeleton(f, table, propFields, nodeProps, byo, m.opts.FieldMatcher, fset)
+		skel, comps, imps, ctrlOff, berr := buildSkeleton(f, table, propFields, nodeProps, attrsProps, byo, m.opts.FieldMatcher, fset)
 		if berr != nil {
 			// buildSkeleton error handling: a positioned attrError becomes a
 			// diagnostic and skips this file; any other error is also recorded as a
@@ -447,9 +448,18 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// harvest: errors inside its argument are suppressed (the props-literal
 	// _gsxunwrap(...) probe already reports the same expression-internal error), so
 	// a malformed child-prop value is reported once, not twice.
+	//
+	// _gsxbag is the child-prop bag-coercion helper: a generic with a union
+	// constraint admitting EITHER gsx.Attrs (the ordered bag slice) OR map[string]any
+	// (gsx.AttrMap), returning gsx.Attrs. The skeleton wraps every value bound to a
+	// gsx.Attrs-typed child-prop field with _gsxbag(...) so the assignment type-checks
+	// whether the author passes an Attrs or a map[string]any — mirroring the emit-time
+	// gsx.AttrsFromMap(...) conversion (which fires only for the map case, decided
+	// from the harvested resolved type). The union REJECTS any other type (e.g.
+	// map[string]string, int), preserving field-type checking for non-bag values.
 	helperXgoPath := filepath.Join(dir, "_gsxshared.x.go")
 	helper, _ := goparser.ParseFile(fset, helperXgoPath,
-		"package "+pkgName+"\n\nfunc _gsxuse(...any) {}\nfunc _gsxuseq(...any) {}\nfunc _gsxcompsig(any) {}\nfunc _gsxunwrap[T any](v T, _ ...any) T { return v }\n", goparser.SkipObjectResolution)
+		"package "+pkgName+"\n\nimport _gsxrt \"github.com/gsxhq/gsx\"\n\nfunc _gsxuse(...any) {}\nfunc _gsxuseq(...any) {}\nfunc _gsxcompsig(any) {}\nfunc _gsxunwrap[T any](v T, _ ...any) T { return v }\nfunc _gsxbag[T _gsxrt.Attrs | map[string]any](v T) _gsxrt.Attrs { return nil }\n", goparser.SkipObjectResolution)
 	goFiles = append(goFiles, helper)
 
 	// Include the package's hand-written .go files (model.go, helper.go, etc.)
@@ -656,6 +666,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		propFields:   propFields,
 		nodeProps:    nodeProps,
 		orderedProps: orderedProps,
+		attrsProps:   attrsProps,
 		byo:          byo,
 		resolved:     resolved,
 		exprMap:      exprMap,

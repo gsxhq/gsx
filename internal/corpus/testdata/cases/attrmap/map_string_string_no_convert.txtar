@@ -1,0 +1,22 @@
+# Only map[string]any auto-converts to Attrs. A map[string]string bound to an
+# Attrs prop stays a type error (the conversion predicate is exact); the
+# diagnostic names the admitted shapes (gsx.Attrs | map[string]any) and does NOT
+# leak the internal _gsxbag coercion helper.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Card(bag gsx.Attrs) {
+	<div { bag... }>x</div>
+}
+
+component Page() {
+	<Card bag={map[string]string{"id": "x"}}/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+10:26: map[string]string does not satisfy gsx.Attrs | map[string]any (map[string]string missing in github.com/gsxhq/gsx.Attrs | map[string]any)
+-- generated.x.go.golden --
+-- render.golden --
