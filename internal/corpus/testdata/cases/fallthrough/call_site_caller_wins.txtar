@@ -2,7 +2,7 @@
 package views
 
 component Button() {
-	<button type="button">{children}</button>
+	<button type="button" { attrs... }>{children}</button>
 }
 
 component Page() {

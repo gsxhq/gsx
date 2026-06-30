@@ -1,6 +1,6 @@
 -- doc --
-name: Fallthrough attributes
-summary: Undeclared call-site attributes (class, data-*, hx-*) fall through to the component's root element; class merges (caller-wins).
+name: Explicit attribute forwarding
+summary: Components forward undeclared call-site attributes only where the author places the attrs bag with { attrs... }.
 category: Components & composition
 order: 110
 page: composition
@@ -9,7 +9,7 @@ pageOrder: 50
 package views
 
 component Button(variant string) {
-	<button class="btn" data-variant={variant}>{children}</button>
+	<button class="btn" data-variant={variant} { attrs... }>{children}</button>
 }
 
 component Page() {

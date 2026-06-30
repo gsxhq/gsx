@@ -10,7 +10,7 @@ The shape of a component's parameter list determines which model applies:
 |---|---|---|
 | **Single named-struct param** `component Button(p Props)` | **Bring-your-own (byo)** — gsx uses the author's type directly; no wrapper generated | `func Button(p Props) gsx.Node` |
 | **Inline params** — multiple params or a single non-struct param | **Generated** `<Name>Props` — one field per param; `Children`/`Attrs` added when used | `func Greeting(p GreetingProps) gsx.Node` |
-| **Nullary** — zero non-receiver params | **No props struct** — unless `{children}` or fallthrough attrs are present, in which case gsx grows a minimal props type automatically | `func Shell() gsx.Node` |
+| **Nullary** — zero non-receiver params | **No props struct** — unless `{children}` or the explicit `attrs` bag is used, in which case gsx grows a minimal props type automatically | `func Shell() gsx.Node` |
 
 The discriminator is *discoverable*: writing `(p Props)` where `Props` resolves to a named struct in the same package opts you onto the byo path. Receiver params (`component (p Page) Render()`) are not counted.
 
@@ -36,7 +36,7 @@ The byo path activates only for a **single** non-receiver param whose type resol
 
 `Greeting(name string)` has a single non-struct param → gsx generates `GreetingProps{Name string; Attrs gsx.Attrs}`. `Card(title string, n int)` has multiple params → gsx generates `CardProps{Title string; N int; Attrs gsx.Attrs}`. `Panel(p Props)` has a single named-struct param → byo path; `Props` is used directly, no wrapper.
 
-The generated `<Name>Props` struct gets an `Attrs gsx.Attrs` field when the component has a single root element (enabling attribute fallthrough), and a `Children gsx.Node` field when the body uses `{children}` — not unconditionally. The byo struct has neither unless the author declares them.
+The generated `<Name>Props` struct gets an `Attrs gsx.Attrs` field when the component body explicitly references `attrs`, and a `Children gsx.Node` field when the body uses `{children}` — not unconditionally. The byo struct has neither unless the author declares them.
 
 ## Whole-struct splat
 

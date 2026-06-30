@@ -74,12 +74,12 @@ func generateClassFixture(t *testing.T, ref *ClassMergerRef) string {
 	}
 	writeFile(t, mrgDir, "mrg.go", "package mrg\n\nfunc Merge(t []string) string { return \"\" }\n")
 
-	// Write a gsx component with a static root class.
+	// Write a gsx component that explicitly merges forwarded classes.
 	viewsDir := filepath.Join(tmp, "views")
 	if err := os.MkdirAll(viewsDir, 0o755); err != nil {
 		t.Fatalf("mkdir views: %v", err)
 	}
-	writeFile(t, viewsDir, "card.gsx", "package views\n\ncomponent Card() {\n\t<section class=\"card\">{children}</section>\n}\n")
+	writeFile(t, viewsDir, "card.gsx", "package views\n\ncomponent Card() {\n\t<section class=\"card\" { attrs... }>{children}</section>\n}\n")
 
 	res, err := GenerateDirs(tmp, []string{viewsDir}, Options{
 		FilterPkgs:  []string{StdImportPath},
@@ -104,7 +104,7 @@ func generateClassFixture(t *testing.T, ref *ClassMergerRef) string {
 
 func TestGeneratedClassUsesConfiguredMerger(t *testing.T) {
 	t.Parallel()
-	// generate a component with a static root class, ClassMerger set, assert the
+	// generate a component with an explicit attrs spread, ClassMerger set, assert the
 	// emitted .x.go references _gsxcm.Merge and imports the merger pkg under _gsxcm.
 	got := generateClassFixture(t, &ClassMergerRef{PkgPath: "mrgmod/mrg", FuncName: "Merge"})
 	if !strings.Contains(got, `_gsxcm "mrgmod/mrg"`) {

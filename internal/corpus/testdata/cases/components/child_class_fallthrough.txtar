@@ -3,7 +3,7 @@
 -- input.gsx --
 package views
 
-component Card(title string) { <div>{title}</div> }
+component Card(title string) { <div { attrs... }>{title}</div> }
 
 component Page(on bool) { <Card class={ "a", "b": on }/> }
 -- invoke --

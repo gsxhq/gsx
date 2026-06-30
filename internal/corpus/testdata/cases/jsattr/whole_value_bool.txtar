@@ -20,8 +20,7 @@ import (
 )
 
 type PageProps struct {
-	Open  bool
-	Attrs gsx.Attrs
+	Open bool
 }
 
 //line input.gsx:3:1
@@ -30,16 +29,9 @@ func Page(_gsxp PageProps) gsx.Node {
 		open := _gsxp.Open
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<div")
-		if !_gsxp.Attrs.Has("x-show") {
-			_gsxgw.S(" x-show=\"")
-			_gsxgw.JSValAttr(open)
-			_gsxgw.S("\"")
-		}
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">x</div>")
+		_gsxgw.S("<div x-show=\"")
+		_gsxgw.JSValAttr(open)
+		_gsxgw.S("\">x</div>")
 		return _gsxgw.Err()
 	})
 }

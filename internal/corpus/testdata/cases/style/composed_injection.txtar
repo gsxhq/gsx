@@ -22,8 +22,7 @@ import (
 )
 
 type EvilProps struct {
-	U     string
-	Attrs gsx.Attrs
+	U string
 }
 
 //line input.gsx:3:1
@@ -32,17 +31,9 @@ func Evil(_gsxp EvilProps) gsx.Node {
 		u := _gsxp.U
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<span")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		if _gsxp.Attrs.Has("style") {
-			_gsxgw.StyleMerged(gsx.StyleString(gsx.Class(gsx.StyleValue("color: "+u))), _gsxp.Attrs.Style())
-		} else {
-			_gsxgw.S(" style=\"")
-			_gsxgw.Style(gsx.Class(gsx.StyleValue("color: " + u)))
-			_gsxgw.S("\"")
-		}
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">x</span>")
+		_gsxgw.S("<span style=\"")
+		_gsxgw.Style(gsx.Class(gsx.StyleValue("color: " + u)))
+		_gsxgw.S("\">x</span>")
 		return _gsxgw.Err()
 	})
 }

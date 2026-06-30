@@ -28,8 +28,7 @@ import (
 func count(n int) (int, error) { return n * 2, nil }
 
 type CounterProps struct {
-	Val   int
-	Attrs gsx.Attrs
+	Val int
 }
 
 //line input.gsx:5:1
@@ -39,11 +38,7 @@ func Counter(_gsxp CounterProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:5:30
-		_gsxgw.S("<span")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
+		_gsxgw.S("<span>")
 //line input.gsx:5:36
 		_gsxgw.IntInto(_gsxnum[:], int64(val))
 		_gsxgw.S("</span>")

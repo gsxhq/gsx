@@ -49,8 +49,7 @@ type Props struct {
 }
 
 type GreetingProps struct {
-	Name  string
-	Attrs gsx.Attrs
+	Name string
 }
 
 //line input.gsx:7:1
@@ -59,11 +58,7 @@ func Greeting(_gsxp GreetingProps) gsx.Node {
 		name := _gsxp.Name
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.S("<p")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">Hi ")
+		_gsxgw.S("<p>Hi ")
 //line input.gsx:8:8
 		_gsxgw.Text(string(name))
 		_gsxgw.S("</p>")
@@ -74,7 +69,6 @@ func Greeting(_gsxp GreetingProps) gsx.Node {
 type CardProps struct {
 	Title string
 	N     int
-	Attrs gsx.Attrs
 }
 
 //line input.gsx:11:1
@@ -85,11 +79,7 @@ func Card(_gsxp CardProps) gsx.Node {
 		_gsxgw := gsx.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:12:2
-		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">")
+		_gsxgw.S("<div>")
 //line input.gsx:12:7
 		_gsxgw.Text(string(title))
 		_gsxgw.S(": ")

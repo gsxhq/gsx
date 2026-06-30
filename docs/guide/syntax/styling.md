@@ -1,6 +1,6 @@
 # Styling
 
-gsx provides first-class support for composable `class` and `style` attributes. Both follow the same conditional-list pattern: a `{ }` literal whose entries are either always-on strings or `"value": cond` toggles. Caller-supplied class and style attributes are automatically merged into a component's root element — no extra wiring required.
+gsx provides first-class support for composable `class` and `style` attributes. Both follow the same conditional-list pattern: a `{ }` literal whose entries are either always-on strings or `"value": cond` toggles. When a component explicitly places `{ attrs... }`, caller-supplied class and style merge at that position.
 
 ## Composable class
 
@@ -34,7 +34,7 @@ When a caller also supplies a `style` attribute, the component's composed style 
 
 ## Class & style merging {#class-style-merging}
 
-Every gsx component automatically receives an `Attrs` bag that callers can populate with extra attributes. When the bag contains `class` or `style`, gsx merges them into the component's root element rather than blindly overwriting the element's own attributes.
+A component receives an `Attrs` bag only when its body references `attrs`. When `{ attrs... }` places a bag containing `class` or `style`, gsx merges them with the element's own attributes rather than blindly overwriting them.
 
 **Class merge — token-deduped, caller-wins.** The component's class sources (static string, composable list entries) and the caller's `class` string are all collected in source order, with the caller's contribution last. The merge function deduplicates tokens keeping the last occurrence of each — so if both the component and the caller supply the same token, the caller's copy survives (and the component's earlier copy is dropped), while tokens that only one side provides are always kept.
 

@@ -22,8 +22,7 @@ import (
 )
 
 type CProps struct {
-	Raw   []byte
-	Attrs gsx.Attrs
+	Raw []byte
 }
 
 //line input.gsx:3:1
@@ -32,11 +31,7 @@ func C(_gsxp CProps) gsx.Node {
 		raw := _gsxp.Raw
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<style")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
-		_gsxgw.S(">.a{color:")
+		_gsxgw.S("<style>.a{color:")
 		_gsxgw.CSS(string(raw))
 		_gsxgw.S("}</style>")
 		return _gsxgw.Err()
