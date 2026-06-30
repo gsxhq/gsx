@@ -204,13 +204,27 @@ component C(v int) {
 	want := `package p
 
 component C(v int) {
+	<div class={ switch v { case 1: "green" default: "gray" } }>x</div>
+}
+`
+	checkFormat(t, src, want)
+}
+
+func TestValueSwitchBreaksWhenOverWidth(t *testing.T) {
+	src := `package p
+component C(v int) {
+	<div class={ switch v { case 1: "green-green-green-green-green-green-green" default: "gray-gray-gray-gray-gray-gray-gray" } }>x</div>
+}`
+	want := `package p
+
+component C(v int) {
 	<div
 		class={
 			switch v {
 				case 1:
-					"green"
+					"green-green-green-green-green-green-green"
 				default:
-					"gray"
+					"gray-gray-gray-gray-gray-gray-gray"
 			}
 		}
 	>
