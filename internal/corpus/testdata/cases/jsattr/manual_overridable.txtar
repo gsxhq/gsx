@@ -29,16 +29,15 @@ func Box(_gsxp BoxProps) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		children := _gsxp.Children
 		attrs := _gsxp.Attrs
-		_ = attrs
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div")
-		if !_gsxp.Attrs.Has("id") {
+		if !attrs.Has("id") {
 			_gsxgw.S(" id=\"x\"")
 		}
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
+		_gsxgw.ClassMerged(gsx.DefaultClassMerge, attrs.Class())
+		_gsxgw.StyleMerged("", attrs.Style())
+		_gsxgw.Spread(ctx, attrs.Without("class", "style"))
 		_gsxgw.S(">")
 //line input.gsx:4:27
 		_gsxgw.Node(ctx, children)

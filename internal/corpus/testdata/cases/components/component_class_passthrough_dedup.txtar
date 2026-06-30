@@ -32,13 +32,12 @@ func Bare(_gsxp BareProps) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		title := _gsxp.Title
 		attrs := _gsxp.Attrs
-		_ = attrs
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, _gsxp.Attrs.Class())
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
+		_gsxgw.ClassMerged(gsx.DefaultClassMerge, attrs.Class())
+		_gsxgw.StyleMerged("", attrs.Style())
+		_gsxgw.Spread(ctx, attrs.Without("class", "style"))
 		_gsxgw.S(">")
 //line input.gsx:4:20
 		_gsxgw.Text(string(title))

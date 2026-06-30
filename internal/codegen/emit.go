@@ -341,9 +341,8 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 		// MANUAL mode: bind the synthesized bag to a same-named local so the author's
 		// `{...attrs}` element spread (emitted as `gw.Spread(ctx, attrs)`) and any
 		// `attrs.X()` reference resolve. Nil-safe: a nil bag spreads/queries to
-		// nothing. (`_ = attrs` guards the unlikely case where usesAttrs detected a
-		// reference the body no longer reaches after lowering.)
-		b.WriteString("\t\tattrs := _gsxp.Attrs\n\t\t_ = attrs\n")
+		// nothing. usesAttrs guarantees that lowering consumes this binding.
+		b.WriteString("\t\tattrs := _gsxp.Attrs\n")
 	}
 	b.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
 	emitNumScratch(b, c.Body, resolved)
@@ -379,7 +378,7 @@ func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]typ
 	// AUTO mode: there is no author `{...attrs}`, so the bag spreads at the END and
 	// every root attr is overridable. splitIdx == len(el.Attrs) means "all attrs
 	// precede the (synthetic) spread" → all guarded.
-	if !emitFallthroughAttrs(b, el.Attrs, len(el.Attrs), resolved, table, imports, interpTemp, cls, bag, mergeExpr) {
+	if !emitFallthroughAttrs(b, el.Attrs, len(el.Attrs), resolved, table, imports, interpTemp, cls, bag, mergeExpr, "_gsxp.Attrs") {
 		return false
 	}
 	if el.Void {
@@ -426,7 +425,7 @@ func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]typ
 // (ClassMerged / StyleMerged), emitted once at the spread position. The author's
 // `{...attrs}` SpreadAttr itself (when present at splitIdx) is consumed here, not
 // emitted via emitAttr.
-func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, bag *diag.Bag, mergeExpr string) bool {
+func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, bag *diag.Bag, mergeExpr, bagExpr string) bool {
 	// Find a composed/static class attr to merge the bag's class into, and a
 	// composed/static style attr whose declarations the bag's style merges over.
 	var classAttr *ast.ClassAttr    // composed class={ … }
@@ -469,7 +468,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			forcedNames = append(forcedNames, name)
 			return emitAttr(b, a, resolved, table, imports, interpTemp, cls, bag, mergeExpr)
 		}
-		fmt.Fprintf(b, "\t\tif !_gsxp.Attrs.Has(%s) {\n", strconv.Quote(name))
+		fmt.Fprintf(b, "\t\tif !%s.Has(%s) {\n", bagExpr, strconv.Quote(name))
 		if !emitAttr(b, a, resolved, table, imports, interpTemp, cls, bag, mergeExpr) {
 			return false
 		}
@@ -483,7 +482,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 		// If the root had NO class attr at all, emit a merged class in attr position —
 		// writes class only when the bag contributes a non-empty token set.
 		if classAttr == nil && staticClass == nil {
-			fmt.Fprintf(b, "\t\t_gsxgw.ClassMerged(%s, _gsxp.Attrs.Class())\n", mergeExpr)
+			fmt.Fprintf(b, "\t\t_gsxgw.ClassMerged(%s, %s.Class())\n", mergeExpr, bagExpr)
 		}
 		// Style: when the caller set a `style`, merge it OVER the root's style
 		// property-last-wins (StyleMerged, caller-wins). When the caller did NOT set a
@@ -497,8 +496,8 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			if !ok {
 				return false
 			}
-			b.WriteString("\t\tif _gsxp.Attrs.Has(\"style\") {\n")
-			fmt.Fprintf(b, "\t\t\t_gsxgw.StyleMerged(%s, _gsxp.Attrs.Style())\n", styleStr)
+			fmt.Fprintf(b, "\t\tif %s.Has(\"style\") {\n", bagExpr)
+			fmt.Fprintf(b, "\t\t\t_gsxgw.StyleMerged(%s, %s.Style())\n", styleStr, bagExpr)
 			b.WriteString("\t\t} else {\n")
 			if staticStyle != nil {
 				if !emitAttr(b, staticStyle, resolved, table, imports, interpTemp, cls, bag, mergeExpr) {
@@ -513,7 +512,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 		} else {
 			// No root style: emit StyleMerged so a caller-only style still appears (it is
 			// a no-op when the bag has no style either).
-			b.WriteString("\t\t_gsxgw.StyleMerged(\"\", _gsxp.Attrs.Style())\n")
+			fmt.Fprintf(b, "\t\t_gsxgw.StyleMerged(\"\", %s.Style())\n", bagExpr)
 		}
 		// Spread the rest of the bag, dropping class/style (both merged above) plus
 		// any forced names (excluded so the unguarded root emit wins — caller can't
@@ -524,7 +523,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 		for i, n := range without {
 			quoted[i] = strconv.Quote(n)
 		}
-		fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, _gsxp.Attrs.Without(%s))\n", strings.Join(quoted, ", "))
+		fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s.Without(%s))\n", bagExpr, strings.Join(quoted, ", "))
 		return true
 	}
 
@@ -545,7 +544,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 		switch t := a.(type) {
 		case *ast.ClassAttr:
 			if t == classAttr {
-				if !emitRootComposedClass(b, t, table, imports, interpTemp, bag, mergeExpr, resolved) {
+				if !emitRootComposedClass(b, t, table, imports, interpTemp, bag, mergeExpr, bagExpr, resolved) {
 					return false
 				}
 				continue
@@ -555,7 +554,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			}
 		case *ast.StaticAttr:
 			if t == staticClass {
-				emitRootStaticClass(b, t, mergeExpr)
+				emitRootStaticClass(b, t, mergeExpr, bagExpr)
 				continue
 			}
 			if t == staticStyle {
@@ -607,7 +606,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 // unique by the caller).
 func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
 	emitS(b, "<"+el.Tag)
-	if !emitFallthroughAttrs(b, el.Attrs, splitIdx, resolved, table, imports, interpTemp, cls, bag, mergeExpr) {
+	if !emitFallthroughAttrs(b, el.Attrs, splitIdx, resolved, table, imports, interpTemp, cls, bag, mergeExpr, "attrs") {
 		return false
 	}
 	if el.Void {
@@ -658,15 +657,15 @@ func bagSpreadIndex(attrs []ast.Attr) (int, bool, error) {
 }
 
 // emitRootComposedClass emits a composed `class={ … }` merged with the bag's
-// class: ` class="` + gw.Class(<existing parts…>, gsx.Class(_gsxp.Attrs.Class()))
+// class: ` class="` + gw.Class(<existing parts…>, gsx.Class(attrs.Class()))
 // + `"`. Mirrors emitClassAttr's part lowering, appending the bag class as a
 // final unconditional part so it merges/dedupes through the merge func.
-func emitRootComposedClass(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag, mergeExpr string, resolved map[ast.Node]types.Type) bool {
+func emitRootComposedClass(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag, mergeExpr, bagExpr string, resolved map[ast.Node]types.Type) bool {
 	parts, ok := composedParts(b, a, table, imports, interpTemp, bag, resolved, false)
 	if !ok {
 		return false
 	}
-	parts = append(parts, "gsx.Class(_gsxp.Attrs.Class())")
+	parts = append(parts, fmt.Sprintf("gsx.Class(%s.Class())", bagExpr))
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
 	fmt.Fprintf(b, "\t\t_gsxgw.Class(%s, %s)\n", mergeExpr, strings.Join(parts, ", "))
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
@@ -674,10 +673,10 @@ func emitRootComposedClass(b *bytes.Buffer, a *ast.ClassAttr, table filterTable,
 }
 
 // emitRootStaticClass emits a static `class="x"` merged with the bag's class:
-// ` class="` + gw.Class(gsx.Class("x"), gsx.Class(_gsxp.Attrs.Class())) + `"`.
-func emitRootStaticClass(b *bytes.Buffer, a *ast.StaticAttr, mergeExpr string) {
+// ` class="` + gw.Class(gsx.Class("x"), gsx.Class(attrs.Class())) + `"`.
+func emitRootStaticClass(b *bytes.Buffer, a *ast.StaticAttr, mergeExpr, bagExpr string) {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
-	fmt.Fprintf(b, "\t\t_gsxgw.Class(%s, gsx.Class(%s), gsx.Class(_gsxp.Attrs.Class()))\n", mergeExpr, strconv.Quote(a.Value))
+	fmt.Fprintf(b, "\t\t_gsxgw.Class(%s, gsx.Class(%s), gsx.Class(%s.Class()))\n", mergeExpr, strconv.Quote(a.Value), bagExpr)
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
 }
 

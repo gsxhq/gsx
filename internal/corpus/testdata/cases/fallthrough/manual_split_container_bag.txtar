@@ -67,7 +67,6 @@ func Field(_gsxp FieldProps) gsx.Node {
 		label := _gsxp.Label
 		containerAttrs := _gsxp.ContainerAttrs
 		attrs := _gsxp.Attrs
-		_ = attrs
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<div class=\"field\"")
@@ -80,10 +79,10 @@ func Field(_gsxp FieldProps) gsx.Node {
 		_gsxgw.S("</label>")
 //line input.gsx:8:3
 		_gsxgw.S("<input class=\"")
-		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class("field-input"), gsx.Class(_gsxp.Attrs.Class()))
+		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class("field-input"), gsx.Class(attrs.Class()))
 		_gsxgw.S("\"")
-		_gsxgw.StyleMerged("", _gsxp.Attrs.Style())
-		_gsxgw.Spread(ctx, _gsxp.Attrs.Without("class", "style"))
+		_gsxgw.StyleMerged("", attrs.Style())
+		_gsxgw.Spread(ctx, attrs.Without("class", "style"))
 		_gsxgw.S("/></div>")
 		return _gsxgw.Err()
 	})
