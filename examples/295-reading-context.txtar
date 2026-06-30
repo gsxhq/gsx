@@ -1,0 +1,30 @@
+-- doc --
+name: Reading context
+summary: Call a typed helper with the ambient ctx to read request-scoped values; fall back gracefully when absent.
+category: Components
+order: 295
+page: context
+pageOrder: 10
+-- input.gsx --
+package views
+
+import "context"
+
+type ctxKey struct{}
+
+// userName reads an authenticated username from the context, or falls
+// back to "guest" when the value is absent.
+func userName(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxKey{}).(string); ok {
+		return v
+	}
+	return "guest"
+}
+
+component Greeting() {
+	<p>Hello, { userName(ctx) }</p>
+}
+-- invoke --
+Greeting()
+-- render.golden --
+<p>Hello, guest</p>

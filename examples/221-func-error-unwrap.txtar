@@ -1,0 +1,18 @@
+-- doc --
+name: Function (T, error) unwrap
+summary: A function returning (T, error) auto-unwraps in `{ expr }`; the error propagates out of Render.
+category: Basics
+page: interpolation
+pageOrder: 30
+-- input.gsx --
+package views
+
+func lookup(k string) (string, error) { return k, nil }
+
+component Label(key string) {
+	<span>{lookup(key)}</span>
+}
+-- invoke --
+Label(LabelProps{Key: "hello"})
+-- render.golden --
+<span>hello</span>

@@ -3,6 +3,8 @@ name: Forms
 summary: A reusable Field component forwards undeclared attributes ({ attrs... }) onto its input, so callers add type/name/required without Field declaring them.
 category: Interactive & whole-page
 order: 170
+page: forms
+pageOrder: 10
 -- input.gsx --
 package views
 

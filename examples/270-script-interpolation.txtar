@@ -1,0 +1,26 @@
+-- doc --
+name: Script interpolation
+summary: @{ expr } in a <script> body is JSON-encoded and XSS-safe; hostile input cannot escape the script block.
+category: JavaScript
+order: 270
+page: javascript
+pageOrder: 20
+-- input.gsx --
+package views
+
+type AppState struct {
+	Tab  string
+	Open bool
+}
+
+component Shell(state AppState) {
+	<script>
+		const app = @{ state };
+	</script>
+}
+-- invoke --
+Shell(AppState{Tab: "settings", Open: true})
+-- render.golden --
+<script>
+		const app = {"Tab":"settings","Open":true};
+	</script>

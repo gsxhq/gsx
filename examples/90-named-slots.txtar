@@ -3,6 +3,8 @@ name: Named slots
 summary: Pass markup into named gsx.Node props — header and footer slots.
 category: Components & composition
 order: 90
+page: composition
+pageOrder: 30
 -- input.gsx --
 package views
 

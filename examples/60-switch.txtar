@@ -3,6 +3,8 @@ name: Switch
 summary: { switch … } selects one branch of markup; default handles the rest.
 category: Control flow
 order: 60
+page: control-flow
+pageOrder: 30
 -- input.gsx --
 package views
 

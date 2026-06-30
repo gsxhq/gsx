@@ -3,6 +3,8 @@ name: Fragments
 summary: A component can return multiple roots with no wrapper element using <>…</>.
 category: Interactive & whole-page
 order: 160
+page: fragments
+pageOrder: 10
 -- input.gsx --
 package views
 

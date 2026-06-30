@@ -15,10 +15,11 @@ func main() {
 	mdOut := flag.String("md", "docs/guide/examples.md", "docs Markdown output path")
 	docsJSON := flag.String("docs-json", "docs/examples.json", "frontend preset JSON output path")
 	serverJSON := flag.String("server-json", "playground/server/examples.json", "backend preset JSON output path")
+	partials := flag.String("partials", "docs/guide/syntax/_generated", "routed-example partials output dir")
 	flag.Parse()
 
-	if err := examplegen.Generate(*examplesDir, *mdOut, *docsJSON, *serverJSON); err != nil {
+	if err := examplegen.Generate(*examplesDir, *mdOut, *partials, *docsJSON, *serverJSON); err != nil {
 		log.Fatalf("gsx-examples: %v", err)
 	}
-	log.Printf("generated %s, %s, %s", *mdOut, *docsJSON, *serverJSON)
+	log.Printf("generated %s, %s", *docsJSON, *serverJSON)
 }

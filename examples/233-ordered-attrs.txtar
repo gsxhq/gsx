@@ -1,0 +1,22 @@
+-- doc --
+name: Ordered Attributes
+summary: "{{ \"k\": v }}" literal at a component invocation passes a gsx.OrderedAttrs prop that spreads in declaration order, not alphabetical order.
+category: Basics
+page: attributes
+pageOrder: 50
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Counter(signals gsx.OrderedAttrs) {
+	<button { signals... }>{children}</button>
+}
+
+component Page() {
+	<Counter signals={{ "data-signals": "{count:0}", "data-text": "$count", "data-on-click": "$count++" }}>Count</Counter>
+}
+-- invoke --
+Page()
+-- render.golden --
+<button data-signals="{count:0}" data-text="$count" data-on-click="$count++">Count</button>

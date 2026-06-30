@@ -1,15 +1,129 @@
 [
   {
+    "name": "Component declaration",
+    "category": "Basics",
+    "source": "package views\n\ncomponent Greeting(name string, count int) {\n\t<p>Hello, { name }! You have { count } messages.</p>\n}\n",
+    "invoke": "Greeting(GreetingProps{Name: \"World\", Count: 3})"
+  },
+  {
+    "name": "Go code block",
+    "category": "Basics",
+    "source": "package views\n\ncomponent FullName(first string, last string) {\n\t<div>\n\t\t{{ full := first + \" \" + last }}\n\t\t<span>{ full }</span>\n\t</div>\n}\n",
+    "invoke": "FullName(FullNameProps{First: \"Ada\", Last: \"Lovelace\"})"
+  },
+  {
+    "name": "Void elements",
+    "category": "Elements",
+    "source": "package views\n\ncomponent AvatarField(src string, alt string, disabled bool) {\n\t<div>\n\t\t<img src={src} alt={alt}/>\n\t\t<br/>\n\t\t<input type=\"text\" required disabled={disabled}/>\n\t</div>\n}\n",
+    "invoke": "AvatarField(AvatarFieldProps{Src: \"/avatar.png\", Alt: \"User\", Disabled: true})"
+  },
+  {
+    "name": "Raw-text elements",
+    "category": "Elements",
+    "source": "package views\n\ncomponent Tracker() {\n\t<script>\n\t\tconst threshold = 5;\n\t\tif (count < threshold) { track(\"below\"); }\n\t</script>\n}\n",
+    "invoke": "Tracker()"
+  },
+  {
+    "name": "HTML comments",
+    "category": "Elements",
+    "source": "package views\n\ncomponent Layout(name string) {\n\t<div>\n\t\t<!-- header -->\n\t\t<h1>{ name }</h1>\n\t\t<!-- a < b -->\n\t</div>\n}\n",
+    "invoke": "Layout(LayoutProps{Name: \"Ada\"})"
+  },
+  {
+    "name": "Field access",
+    "category": "Basics",
+    "source": "package views\n\ntype User struct {\n\tName string\n\tAge  int\n}\n\ncomponent Profile(user User) {\n\t<p>{ user.Name } is { user.Age }</p>\n}\n",
+    "invoke": "Profile(User{Name: \"Alice\", Age: 30})"
+  },
+  {
+    "name": "Function (T, error) unwrap",
+    "category": "Basics",
+    "source": "package views\n\nfunc lookup(k string) (string, error) { return k, nil }\n\ncomponent Label(key string) {\n\t<span>{ lookup(key) }</span>\n}\n",
+    "invoke": "Label(LabelProps{Key: \"hello\"})"
+  },
+  {
+    "name": "Error unwrap: childprop",
+    "category": "Basics",
+    "source": "package views\n\nfunc lookup(k string) (string, error) { return \"val-\" + k, nil }\n\ncomponent Row(label string) {\n\t<span>{ label }</span>\n}\n\ncomponent Page(k string) {\n\t<Row label={lookup(k)}/>\n}\n",
+    "invoke": "Page(PageProps{K: \"item\"})"
+  },
+  {
+    "name": "Boolean Attributes",
+    "category": "Basics",
+    "source": "package views\n\ncomponent Field(on bool) {\n\t<input type=\"text\" class=\"form-control\" required disabled={on}/>\n}\n",
+    "invoke": "Field(FieldProps{On: true})"
+  },
+  {
+    "name": "Conditional Attributes",
+    "category": "Basics",
+    "source": "package views\n\ncomponent Badge(featured bool) {\n\t<span\n\t\t{ if featured {\n\t\t\tclass=\"featured\"\n\t\t} }\n\t>\n\t\tcontent\n\t</span>\n}\n",
+    "invoke": "Badge(BadgeProps{Featured: true})"
+  },
+  {
+    "name": "Spread Attributes",
+    "category": "Basics",
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Card(extra gsx.Attrs) {\n\t<div { extra... }>content</div>\n}\n",
+    "invoke": "Card(CardProps{Extra: gsx.Attrs{\"id\": \"box\", \"data-active\": \"true\"}})"
+  },
+  {
+    "name": "Ordered Attributes",
+    "category": "Basics",
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Counter(signals gsx.OrderedAttrs) {\n\t<button { signals... }>{ children }</button>\n}\n\ncomponent Page() {\n\t<Counter\n\t\tsignals={{ \"data-signals\": \"{count:0}\", \"data-text\": \"$count\", \"data-on-click\": \"$count++\" }}\n\t>\n\t\tCount\n\t</Counter>\n}\n",
+    "invoke": "Page()"
+  },
+  {
+    "name": "Attribute Contexts",
+    "category": "Basics",
+    "source": "package views\n\ncomponent Link(href string, label string) {\n\t<a href={href}>{ label }</a>\n}\n",
+    "invoke": "Link(LinkProps{Href: \"javascript:alert(1)\", Label: \"click me\"})"
+  },
+  {
+    "name": "Bring-your-own props",
+    "category": "Components",
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ntype Props struct {\n\tVariant  string\n\tChildren gsx.Node\n\tAttrs    gsx.Attrs\n}\n\ncomponent Button(p Props) {\n\t<button class={ \"btn\", p.Variant } { p.Attrs... }>{ p.Children }</button>\n}\n\ncomponent Page() {\n\t<Button variant=\"primary\" data-test=\"save\">Save</Button>\n}\n",
+    "invoke": "Page()"
+  },
+  {
+    "name": "Props heuristic",
+    "category": "Components",
+    "source": "package views\n\ntype Props struct {\n\tTitle string\n}\n\ncomponent Greeting(name string) {\n\t<p>Hi { name }</p>\n}\n\ncomponent Card(title string, n int) {\n\t<div>{ title }: { n }</div>\n}\n\ncomponent Panel(p Props) {\n\t<section>{ p.Title }</section>\n}\n\ncomponent Page() {\n\t<><Greeting name=\"Ann\"/><Card title=\"T\" n={2}/><Panel title=\"P\"/></>\n}\n",
+    "invoke": "Page()"
+  },
+  {
+    "name": "Whole-struct splat",
+    "category": "Components",
+    "source": "package views\n\ntype cardData struct {\n\tTitle string\n}\n\ntype pageData struct {\n\tHeading string\n}\n\ntype Home struct{}\n\ncomponent Card(d cardData) {\n\t<div>{ d.Title }</div>\n}\n\ncomponent Page(d pageData) {\n\t<Card { cardData{Title: d.Heading}... }/>\n}\n\ncomponent (p Home) Content(pd pageData) {\n\t<h1>{ pd.Heading }</h1>\n}\n\ncomponent (p Home) Shell(pd pageData) {\n\t<p.Content { pd... }/>\n}\n",
+    "invoke": "(Home{}).Shell(pageData{Heading: \"Hi\"})"
+  },
+  {
+    "name": "Class & style merging",
+    "category": "Styling",
+    "source": "package views\n\ncomponent Card() {\n\t<div class=\"card\" style=\"color: red\">{ children }</div>\n}\n",
+    "invoke": "Card(CardProps{Attrs: gsx.Attrs{\"class\": \"featured\", \"style\": \"color: blue; margin: 0\"}})"
+  },
+  {
+    "name": "Filter arguments",
+    "category": "Transforming values",
+    "source": "package views\n\ncomponent Stats(s string, count int) {\n\t<p>{ s |> trim |> truncate(5) }</p>\n\t<p>{ count |> format(\"%d comments\") }</p>\n}\n",
+    "invoke": "Stats(StatsProps{S: \"  hello world  \", Count: 42})"
+  },
+  {
+    "name": "Pipelines in attribute context",
+    "category": "Transforming values",
+    "source": "package views\n\ncomponent Link(u string) {\n\t<a href={u |> trim}>x</a>\n}\n",
+    "invoke": "Link(LinkProps{U: \"  javascript:alert(1)  \"})"
+  },
+  {
     "name": "Interpolation & props",
     "category": "Basics",
     "source": "package views\n\ncomponent Greeting(name string, count int) {\n\t<p>Hello, { name }! You have { count } messages.</p>\n}\n",
     "invoke": "Greeting(GreetingProps{Name: \"World\", Count: 3})"
   },
   {
-    "name": "Attributes",
+    "name": "Expression Attributes",
     "category": "Basics",
-    "source": "package views\n\ncomponent Link(url string, label string, external bool, featured bool) {\n\t<a\n\t\thref={url}\n\t\tdata-count={3}\n\t\taria-current={external}\n\t\t{ if featured {\n\t\t\tclass=\"featured\"\n\t\t} }\n\t>\n\t\t{ label }\n\t</a>\n}\n",
-    "invoke": "Link(LinkProps{Url: \"/p?q=a&b\", Label: \"Docs\", External: true, Featured: true})"
+    "source": "package views\n\ncomponent Link(url string, label string, count int) {\n\t<a href={url} data-count={count}>{ label }</a>\n}\n",
+    "invoke": "Link(LinkProps{Url: \"/p?q=a&b\", Label: \"Docs\", Count: 42})"
   },
   {
     "name": "Auto-escaping & safe raw",
@@ -68,8 +182,8 @@
   {
     "name": "Method components",
     "category": "Components & composition",
-    "source": "package views\n\ntype UsersPage struct {\n\tTitle string\n\tSort  string\n}\n\ncomponent (p UsersPage) Grid(sort string) {\n\t<div>{ sort }-{ p.Title }</div>\n}\n",
-    "invoke": "(UsersPage{Title: \"Team\"}).Grid(UsersPageGridProps{Sort: \"name\"})"
+    "source": "package views\n\ntype UsersPage struct {\n\tTitle string\n\tSort  string\n}\n\ncomponent (p UsersPage) Page() {\n\t<div>\n\t\t<p.Grid sort={p.Sort}/>\n\t</div>\n}\n\ncomponent (p UsersPage) Grid(sort string) {\n\t<span>{ sort }-{ p.Title }</span>\n}\n",
+    "invoke": "(UsersPage{Title: \"Team\", Sort: \"name\"}).Page()"
   },
   {
     "name": "Composable class",
@@ -112,5 +226,35 @@
     "category": "Interactive & whole-page",
     "source": "package views\n\ncomponent Page(title string) {\n\t<!DOCTYPE html>\n\t<html lang=\"en\">\n\t\t<head>\n\t\t\t<title>{ title }</title>\n\t\t</head>\n\t\t<body>hi</body>\n\t</html>\n}\n",
     "invoke": "Page(PageProps{Title: \"Home\"})"
+  },
+  {
+    "name": "Init statement",
+    "category": "Control flow",
+    "source": "package views\n\nfunc loadUser(id string) (string, error) { return \"User:\" + id, nil }\n\ncomponent Profile(id string) {\n\t<div>\n\t\t{ if name, err := loadUser(id); err != nil {\n\t\t\t<span class=\"err\">{ err.Error() }</span>\n\t\t} else {\n\t\t\t<span>{ name }</span>\n\t\t} }\n\t</div>\n}\n",
+    "invoke": "Profile(ProfileProps{Id: \"42\"})"
+  },
+  {
+    "name": "Script interpolation",
+    "category": "JavaScript",
+    "source": "package views\n\ntype AppState struct {\n\tTab  string\n\tOpen bool\n}\n\ncomponent Shell(state AppState) {\n\t<script>\n\t\tconst app = @{ state };\n\t</script>\n}\n",
+    "invoke": "Shell(AppState{Tab: \"settings\", Open: true})"
+  },
+  {
+    "name": "RawJS event handler",
+    "category": "JavaScript",
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Menu() {\n\t<button @click={gsx.RawJS(\"openMenu()\")}>Open</button>\n}\n",
+    "invoke": "Menu()"
+  },
+  {
+    "name": "Raw HTML",
+    "category": "Basics",
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\n// ArticleBody renders pre-sanitized HTML from a CMS or Markdown converter.\n// { gsx.Raw(html) } emits the string verbatim — no entity encoding.\ncomponent ArticleBody(html string) {\n\t<article>{ gsx.Raw(html) }</article>\n}\n",
+    "invoke": "ArticleBody(ArticleBodyProps{Html: \"<em>Hello</em> &amp; <strong>World</strong>\"})"
+  },
+  {
+    "name": "Reading context",
+    "category": "Components",
+    "source": "package views\n\nimport \"context\"\n\ntype ctxKey struct{}\n\n// userName reads an authenticated username from the context, or falls\n// back to \"guest\" when the value is absent.\nfunc userName(ctx context.Context) string {\n\tif v, ok := ctx.Value(ctxKey{}).(string); ok {\n\t\treturn v\n\t}\n\treturn \"guest\"\n}\n\ncomponent Greeting() {\n\t<p>Hello, { userName(ctx) }</p>\n}\n",
+    "invoke": "Greeting()"
   }
 ]

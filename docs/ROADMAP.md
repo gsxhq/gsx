@@ -344,6 +344,7 @@ vocabulary remains a design aspiration, not the current API.
 - `[x]` **Examples → Playground links — SHIPPED.** Each example emits an "Open in
   Playground" `#try=` deep-link (std-base64 of `{s:source,i:invoke}`); multi-file
   examples ride the Go-Playground txtar format (`-- file --` separators).
+- `[x]` **Per-topic Syntax and usage pages — SHIPPED.** The guide now has 20 per-topic pages under `docs/guide/syntax/`, each with runnable examples sourced directly from golden-tested `examples/*.txtar` fixtures. `docs/guide/syntax.md` serves as a lightweight overview hub linking to all topic pages.
 - `[ ]` **Getting Started guide** — a narrative onboarding tutorial using `gsx init`
   (scaffold → `task dev` → first live-reload edit → the Vite dev loop → why the build
   step buys compile-time safety). `gsx init` itself is documented in `docs/guide/cli.md`;

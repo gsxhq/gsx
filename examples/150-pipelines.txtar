@@ -3,6 +3,8 @@ name: Pipelines / filters
 summary: Transform values with typed filter pipelines — { x |> trim |> upper } — drawn from the gsx info registry.
 category: Transforming values
 order: 150
+page: pipelines
+pageOrder: 10
 -- input.gsx --
 package views
 
