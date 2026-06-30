@@ -250,6 +250,21 @@ Values are attribute-escaped identically to `gsx.Attrs` — the same faithful
 <div  style={ "padding: 4px", "color: red": danger }>…</div>
 ```
 
+For `style`, each part is a complete CSS declaration. Static declarations,
+dynamic declarations, and independent guards can be mixed:
+
+```gsx
+style={
+    "display: block",
+    "color: " + color,
+    "opacity: 0": hidden,
+}
+```
+
+Parts evaluate strictly from left to right. Dynamic parts pass through GSX's
+CSS value safety filter; use `gsx.RawCSS` only for trusted CSS that deliberately
+bypasses that filter.
+
 The parts are **additive**: every part whose guard is true is included; multiple parts may fire simultaneously.
 
 ### Value-form `if` / `switch` — exclusive selection
@@ -313,6 +328,15 @@ style={
 class={ "btn", if open { "btn-open" } else { "btn-closed" } }
 ```
 
+For styles, each selected arm still produces one complete declaration:
+
+```gsx
+style={
+    "display: block",
+    if active { "color: green" } else { "color: gray" },
+}
+```
+
 Chains via `else if`:
 
 ```gsx
@@ -357,6 +381,23 @@ default: { "gray" }
 ```
 
 Arm values can also carry a `|>` pipeline — `if on { theme |> upper }` — evaluated at that arm's position.
+
+::: v-pre
+### Why not `style={{ "color": color }}`?
+
+GSX currently has one inline-style model: ordered declaration contributions.
+An object-like property/value form would reduce string composition for heavily
+dynamic inline styles, but it would also introduce a second way to express the
+same output, with additional grammar, formatting, code generation, and
+documentation surface. Current project usage has not shown enough repeated
+dynamic declaration construction to justify that cost.
+
+The form is deferred rather than rejected. It can be reconsidered if real
+projects commonly build many dynamic declarations and the native contribution
+syntax becomes a material usability problem. A future design should prefer
+quoted native CSS names such as `"font-size"` and `"--accent"`; it should not
+adopt JSX camelCase conversion or automatic numeric units.
+:::
 
 ### Out of scope
 

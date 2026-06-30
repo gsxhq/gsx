@@ -154,6 +154,14 @@ render goldens.
     diagnostic. Corpus coverage: `class/value_switch`, `class/value_if_*`,
     `class/value_switch_tuple`, `class/value_arm_pipeline`, `style/value_switch`,
     `class/part_tuple`, and rejection cases.
+12. `[ ]` **Ordered style property bags (deferred)** — consider
+    `style={{ "color": color, "font-size": size }}` only if real-world GSX
+    projects repeatedly construct many dynamic declarations and declaration
+    string composition becomes a material usability problem. The feature would
+    add a second inline-style model plus parser, formatter, codegen, and
+    documentation surface, so current usage does not justify it. If adopted,
+    prefer quoted native CSS property names; do not add JSX camelCase conversion
+    or automatic numeric units.
 
 ## Language server (`gsx lsp`)
 
