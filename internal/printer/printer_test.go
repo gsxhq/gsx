@@ -303,6 +303,52 @@ component C(tab string) {
 	checkFormat(t, src, want)
 }
 
+func TestEmbeddedAttrDirectOptionalBraceLiteral(t *testing.T) {
+	src := `package p
+component C(id string) {
+	<button @click=js` + "`" + `save(@{ id })` + "`" + `>Save</button>
+}`
+	want := `package p
+
+component C(id string) {
+	<button @click=js` + "`" + `save(@{id})` + "`" + `>Save</button>
+}
+`
+	checkFormat(t, src, want)
+}
+
+func TestEmbeddedAttrBracedOptionalBraceLiteral(t *testing.T) {
+	src := `package p
+component C(id string) {
+	<button @click={js` + "`" + `save(@{ id })` + "`" + `}>Save</button>
+}`
+	want := `package p
+
+component C(id string) {
+	<button @click=js` + "`" + `save(@{id})` + "`" + `>Save</button>
+}
+`
+	checkFormat(t, src, want)
+}
+
+func TestEmbeddedAttrMultilinePreservesBody(t *testing.T) {
+	src := `package p
+component C(open bool) {
+	<div x-data=js` + "`" + `
+		{ open: @{ open } }
+	` + "`" + `>x</div>
+}`
+	want := `package p
+
+component C(open bool) {
+	<div x-data=js` + "`" + `
+		{ open: @{open} }
+	` + "`" + `>x</div>
+}
+`
+	checkFormat(t, src, want)
+}
+
 func TestEmbeddedAttrEscapedBacktick(t *testing.T) {
 	src := `package p
 component C() {
