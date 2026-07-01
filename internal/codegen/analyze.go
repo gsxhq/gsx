@@ -1750,10 +1750,10 @@ func walkMarkupAttrs(attrs []gsxast.Attr, fn func(value []gsxast.Markup)) {
 		switch t := a.(type) {
 		case *gsxast.MarkupAttr:
 			fn(t.Value)
-		case *gsxast.JSAttr:
-			// A JS-context attribute value (e.g. x-data="{ tab: @{ tab } }") carries
-			// @{ } interps that need types — yield its Segments so they are collected
-			// and probed in the SAME order by collectExprs and emitProbes.
+		case *gsxast.EmbeddedAttr:
+			// Explicit embedded-language attribute values carry @{ } interps that
+			// need types — yield their Segments so they are collected and probed in
+			// the SAME order by collectExprs and emitProbes.
 			fn(t.Segments)
 		}
 	}

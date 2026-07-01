@@ -29,11 +29,11 @@ func Page(_gsxp PageProps) gsx.Node {
 		open := _gsxp.Open
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<div x-show=\"")
-		_gsxgw.JSValAttr(open)
-		_gsxgw.S("\">x</div>")
+		_gsxgw.S("<div")
+		_gsxgw.BoolAttr("x-show", bool(open))
+		_gsxgw.S(">x</div>")
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-<div x-show=" true ">x</div>
+<div x-show>x</div>

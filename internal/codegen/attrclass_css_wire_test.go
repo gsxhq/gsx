@@ -9,12 +9,7 @@ import (
 	"github.com/gsxhq/gsx/internal/attrclass"
 )
 
-// A custom CSS rule must route a custom-framework attribute through CSS-context
-// emission (gw.CSS value-filter), not plain attr escaping. We use the ={ expr }
-// form (ExprAttr) since the parser routes the built-in `style`/`class` to a
-// composable ClassAttr; a user CSS-context attribute reaches emitExprAttr, whose
-// CtxCSS branch was a fail-closed error before this slice unlocked it.
-func TestCustomCSSAttrRuleEmitsCSSContext(t *testing.T) {
+func TestCustomCSSAttrRuleDoesNotChangePlainExprAttr(t *testing.T) {
 	t.Parallel()
 	repoRoot, _ := filepath.Abs("../..")
 	tmp := t.TempDir()
@@ -43,31 +38,25 @@ component Widget(userStyle string) {
 	for _, b := range dr.Files {
 		gen += string(b)
 	}
-	// String value in a CSS-context attribute goes through the gw.CSS value-filter.
-	if !strings.Contains(gen, "_gsxgw.CSS(string(userStyle))") {
-		t.Errorf("expected gw.CSS for data-style string value, generated:\n%s", gen)
+	if !strings.Contains(gen, "_gsxgw.AttrValue(string(userStyle))") {
+		t.Errorf("plain data-style expr should use AttrValue, generated:\n%s", gen)
 	}
-	// Must NOT fall back to plain attr escaping (gw.AttrValue).
-	if strings.Contains(gen, "_gsxgw.AttrValue(userStyle)") {
-		t.Errorf("CSS-context attr must not use plain AttrValue, generated:\n%s", gen)
+	if strings.Contains(gen, "_gsxgw.CSS(string(userStyle))") {
+		t.Errorf("plain data-style expr must not use gw.CSS, generated:\n%s", gen)
 	}
 }
 
-// A gsx.RawCSS value in a custom CSS-context attribute opts out of the value
-// filter: codegen emits it raw via gw.S, the author's vouch.
-func TestCustomCSSAttrRuleRawCSSOptsOut(t *testing.T) {
+func TestExplicitCSSAttrLiteralFiltersInterpolations(t *testing.T) {
 	t.Parallel()
 	repoRoot, _ := filepath.Abs("../..")
 	tmp := t.TempDir()
-	writeFile(t, tmp, "go.mod", "module gsxcssraw\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	writeFile(t, tmp, "go.mod", "module gsxcssliteral\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
 	dir := filepath.Join(tmp, "views")
 	os.MkdirAll(dir, 0o755)
 	src := `package views
 
-import "github.com/gsxhq/gsx"
-
-component Widget(raw gsx.RawCSS) {
-	<div data-style={ raw }></div>
+component Widget(userStyle string) {
+	<div data-style=css` + "`" + `color:@{userStyle}` + "`" + `></div>
 }
 `
 	if err := os.WriteFile(filepath.Join(dir, "views.gsx"), []byte(src), 0o644); err != nil {
@@ -86,10 +75,10 @@ component Widget(raw gsx.RawCSS) {
 	for _, b := range dr2.Files {
 		gen += string(b)
 	}
-	if !strings.Contains(gen, "_gsxgw.S(string(raw))") {
-		t.Errorf("RawCSS value should be emitted raw via gw.S, generated:\n%s", gen)
+	if !strings.Contains(gen, "_gsxgw.AttrValue(gsx.StyleValue(string(userStyle)))") {
+		t.Errorf("explicit CSS attr literal should filter and attr-escape interpolated string, generated:\n%s", gen)
 	}
-	if strings.Contains(gen, "_gsxgw.CSS(string(raw))") {
-		t.Errorf("RawCSS value must not be CSS-filtered, generated:\n%s", gen)
+	if strings.Contains(gen, "_gsxgw.AttrValue(string(userStyle))") {
+		t.Errorf("explicit CSS attr literal must not render its hole as an ordinary attr value, generated:\n%s", gen)
 	}
 }

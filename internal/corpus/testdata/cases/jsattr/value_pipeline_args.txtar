@@ -10,4 +10,4 @@ component Page(name string) {
 Page(PageProps{Name: "ada-extra"})
 -- diagnostics.golden --
 -- render.golden --
-<div x-data="{ n: &#34;ada&#34; }">x</div>
+<div x-data="{ n: @{ name |&gt; truncate(3) } }">x</div>

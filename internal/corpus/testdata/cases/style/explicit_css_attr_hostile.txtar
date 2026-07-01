@@ -1,0 +1,13 @@
+# explicit CSS attr literal rejects unsafe interpolated CSS
+-- input.gsx --
+package p
+component Box(color string) {
+	<div style=css`color:@{color}`>x</div>
+}
+-- input.go --
+package p
+import "github.com/gsxhq/gsx"
+func Render() gsx.Node { return Box(BoxProps{Color: "red;background:url(javascript:alert(1))"}) }
+-- render.golden --
+<div style="color:ZgotmplZ">x</div>
+-- diagnostics.golden --

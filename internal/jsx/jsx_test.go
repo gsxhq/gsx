@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/parser"
 )
 
@@ -297,6 +298,30 @@ func TestResolveJSAttrStringContext(t *testing.T) {
 	ins := interpSegs(segs)
 	if len(ins) != 1 || ins[0].JSCtx != ast.JSCtxString {
 		t.Fatalf("ctx = %v; want JSCtxString", ins[0].JSCtx)
+	}
+}
+
+func TestResolveMarkupEmbeddedJSAttrLiteral(t *testing.T) {
+	segs := jsAttrSegs([]string{"save(", "); label='", "'"}, []string{" id ", " label "})
+	el := &ast.Element{
+		Tag: "button",
+		Attrs: []ast.Attr{
+			&ast.EmbeddedAttr{Name: "@click", Lang: ast.EmbeddedJS, Segments: segs},
+		},
+	}
+	bag := diag.NewBag(nil)
+	if !resolveMarkup([]ast.Markup{el}, bag) {
+		t.Fatalf("resolveMarkup diagnostics: %v", bag.Sorted())
+	}
+	ins := interpSegs(segs)
+	if len(ins) != 2 {
+		t.Fatalf("got %d interps, want 2", len(ins))
+	}
+	if ins[0].JSCtx != ast.JSCtxValue {
+		t.Fatalf("interp[0] JSCtx = %v, want JSCtxValue", ins[0].JSCtx)
+	}
+	if ins[1].JSCtx != ast.JSCtxString {
+		t.Fatalf("interp[1] JSCtx = %v, want JSCtxString", ins[1].JSCtx)
 	}
 }
 

@@ -1,0 +1,13 @@
+# quoted JS-looking attrs are literal strings; @{...} is not special
+-- input.gsx --
+package p
+component Panel() {
+	<div x-data="{ id: @{id} }">x</div>
+}
+-- input.go --
+package p
+import "github.com/gsxhq/gsx"
+func Render() gsx.Node { return Panel() }
+-- render.golden --
+<div x-data="{ id: @{id} }">x</div>
+-- diagnostics.golden --

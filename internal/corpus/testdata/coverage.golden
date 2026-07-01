@@ -173,11 +173,14 @@ interpolation/numeric_contexts	diag gen render
 interpolation/probe_multi_value_expr	diag render
 jsattr/caller_wins	diag render
 jsattr/click_rawjs	diag gen render
+jsattr/explicit_attr_braced	diag render
+jsattr/explicit_attr_literal	diag render
 jsattr/jsattr_breakout	diag gen render
-jsattr/jsattr_identifier_rejected	diag(error)
+jsattr/jsattr_identifier_rejected	diag
 jsattr/manual_forced	diag gen render
 jsattr/manual_multi_spread_rejected	diag(error)
 jsattr/manual_overridable	diag gen render
+jsattr/quoted_attr_literal_no_interp	diag render
 jsattr/regexp_hostile	diag gen render
 jsattr/string_hostile	diag gen render
 jsattr/tmpl_hostile	diag gen render
@@ -309,6 +312,8 @@ style/block_tuple_error	diag gen render
 style/composed_attribute	diag gen render
 style/composed_injection	diag gen render
 style/composed_rawcss_optout	diag gen render
+style/explicit_css_attr_hostile	diag render
+style/explicit_css_attr_literal	diag render
 style/loop_var_in_style	diag render
 style/minify_block	diag gen render
 style/part_tuple	diag gen render
@@ -347,4 +352,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 349 cases (render: 262, error: 66, gen-pinned: 138)
+TOTAL: 354 cases (render: 267, error: 65, gen-pinned: 138)
