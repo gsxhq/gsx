@@ -9,7 +9,7 @@ go install github.com/gsxhq/gsx/cmd/gsx@latest
 
 The stock `gsx` binary uses the hardcoded standard codegen. A project can build
 its own binary that calls `gen.Main` with options to register custom pipeline
-filters and attribute-classification rules — that binary exposes the *same*
+filters and URL attribute rules — that binary exposes the *same*
 commands and flags described here.
 
 ## Usage
@@ -25,7 +25,7 @@ gsx [global flags] <command> [arguments]
 | `fmt [paths...]` | format `.gsx` files (canonical, idempotent) |
 | `init [dir]` | scaffold a gsx + Vite starter app |
 | `clean --cache` | remove the gsx cache directory |
-| `info` | list the resolved pipeline filters and attribute rules |
+| `info` | list the resolved pipeline filters and URL attribute rules |
 | `lsp` | run the language server over stdio (JSON-RPC) |
 | `version` | print the gsx version |
 | `help` | show usage |
@@ -278,9 +278,9 @@ gsx fmt -l . && echo "formatted"
 ## info
 
 Prints the resolved pipeline filters — the table that drives `{ x |> filter }`
-lowering — and any configured attribute-classification rules. Useful for seeing
-which filters are in scope and, when packages shadow each other, which one wins
-(last package wins).
+lowering — and any configured URL attribute rules. Useful for seeing which
+filters are in scope and, when packages shadow each other, which one wins (last
+package wins).
 
 ```bash
 gsx info
