@@ -34,6 +34,8 @@ code or a JavaScript expression.
 <button @click=js`toggle()`>Toggle</button>
 ````
 
+<!--@include: ./_generated/javascript/030-attribute-local-js-handler.md-->
+
 ## `<script>` interpolation
 
 Inside a `<script>` element, `@{ expr }` interpolates a Go value into the JavaScript body. The value is passed through the same JSON-encoding path as `jsValEscaper` from `html/template`: the result is a JSON literal that is also safe to embed inside an HTML `<script>` block — `</script>`, `<!--`, `-->`, and the Unicode line/paragraph separators U+2028/U+2029 are escaped so hostile input cannot terminate the script block or break JSON parsing.
@@ -51,6 +53,11 @@ A common pattern for passing server-side data to client-side JavaScript is a `<s
 ```gsx
 <script type="application/json" id="cfg">@{ cfg }</script>
 ```
+
+The full rendering — including combining an attribute-local JavaScript handler
+and a data island in the same component — is shown below.
+
+<!--@include: ./_generated/javascript/010-js-attributes-data-islands.md-->
 
 The data island is inert HTML — browsers parse it as text, not script — and the
 `id="cfg"` attribute lets client JavaScript retrieve it with

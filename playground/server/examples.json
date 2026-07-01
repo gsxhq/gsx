@@ -218,7 +218,7 @@
   {
     "name": "JS attributes & data islands",
     "category": "Interactive & whole-page",
-    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ntype Config struct {\n\tEnv  string\n\tBeta bool\n}\n\ncomponent Widget(cfg Config) {\n\t<div>\n\t\t<button @click={gsx.RawJS(\"toggle()\")}>Toggle</button>\n\t\t<script type=\"application/json\" id=\"cfg\">@{ cfg }</script>\n\t</div>\n}\n",
+    "source": "package views\n\ntype Config struct {\n\tEnv  string\n\tBeta bool\n}\n\ncomponent Widget(cfg Config) {\n\t<div>\n\t\t<button @click=js`toggle()`>Toggle</button>\n\t\t<script type=\"application/json\" id=\"cfg\">@{ cfg }</script>\n\t</div>\n}\n",
     "invoke": "Widget(Config{Env: \"prod\", Beta: true})"
   },
   {
@@ -240,9 +240,9 @@
     "invoke": "Shell(AppState{Tab: \"settings\", Open: true})"
   },
   {
-    "name": "RawJS event handler",
+    "name": "Attribute-local JS handler",
     "category": "JavaScript",
-    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Menu() {\n\t<button @click={gsx.RawJS(\"openMenu()\")}>Open</button>\n}\n",
+    "source": "package views\n\ncomponent Menu() {\n\t<button @click=js`openMenu()`>Open</button>\n}\n",
     "invoke": "Menu()"
   },
   {

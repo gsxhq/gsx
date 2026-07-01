@@ -1,6 +1,6 @@
 -- doc --
-name: RawJS event handler
-summary: gsx.RawJS vouches for trusted JS in event-handler attributes; values without RawJS are JSON-encoded, not executed as code.
+name: Attribute-local JS handler
+summary: Use js`…` for JavaScript-valued attributes; @{ … } holes inside the literal are escaped for their JavaScript position.
 category: JavaScript
 order: 271
 page: javascript
@@ -8,10 +8,8 @@ pageOrder: 30
 -- input.gsx --
 package views
 
-import "github.com/gsxhq/gsx"
-
 component Menu() {
-	<button @click={ gsx.RawJS("openMenu()") }>Open</button>
+	<button @click=js`openMenu()`>Open</button>
 }
 -- invoke --
 Menu()

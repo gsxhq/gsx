@@ -21,7 +21,7 @@ These are the explicit opt-outs from gsx's context-aware auto-escaping. Each one
 |------|------|-----------------|-------------|
 | `gsx.Raw` | func | `func Raw(html string) Node` | Emits `html` verbatim — no entity encoding, no escaping. Use only for already-safe HTML (e.g. pre-sanitised Markdown). See [Raw HTML](./raw-html). |
 | `gsx.RawURL` | type | `type RawURL string` | A URL whose scheme is trusted. In a URL attribute (`href`, `src`, etc.) a `gsx.RawURL` value skips the scheme allow-list check; the string is still attribute-escaped (it cannot break out of quotes). Use as a conversion: `gsx.RawURL("app://…")`. See [Escaping](./escaping). |
-| `gsx.RawJS` | type | `type RawJS string` | A JavaScript string the author vouches for. In a `<script>` body or JS-context attribute a `gsx.RawJS` value is emitted verbatim, bypassing JSON-encoding. Use as a conversion: `gsx.RawJS("openMenu()")`. See [JavaScript](./javascript). |
+| `gsx.RawJS` | type | `type RawJS string` | A JavaScript string the author vouches for. In a `<script>` body or `` js`...` `` interpolation hole, a `gsx.RawJS` value is emitted verbatim, bypassing JSON-encoding. Use as a conversion around trusted JavaScript only. See [JavaScript](./javascript). |
 | `gsx.RawCSS` | type | `type RawCSS string` | A CSS value the author vouches for. In a `<style>` body or `style=` attribute a `gsx.RawCSS` value is emitted verbatim, bypassing the CSS value-filter. Use as a conversion: `gsx.RawCSS("rgb(0,128,0)")`. See [Styling](./styling). |
 
 `RawURL`, `RawJS`, and `RawCSS` are named **string types**, not functions. Use them as type conversions — `gsx.RawJS(expr)` — not as function calls.

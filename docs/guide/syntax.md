@@ -37,7 +37,7 @@ golden-tested `examples/*.txtar` fixtures.
 | [Components & composition](./syntax/composition) | Invoking components, `{children}`, named slots, explicit attribute forwarding |
 | [Props model](./syntax/props) | Bring-your-own struct, generated props, whole-struct splat |
 | [Styling](./syntax/styling) | Composable `class`/`style`, style blocks, class merger |
-| [JavaScript](./syntax/javascript) | `@{ expr }` in `<script>`, JS-context attributes, data islands |
+| [JavaScript](./syntax/javascript) | `@{ expr }` in `<script>`, `` js`...` `` attribute literals, data islands |
 | [Pipelines](./syntax/pipelines) | `\|>` filter pipelines and `std` filters |
 | [Rendering raw HTML](./syntax/raw-html) | `gsx.Raw` — bypass escaping for trusted HTML strings |
 | [Escaping](./syntax/escaping) | Context-aware auto-escaping and opt-out helpers |
