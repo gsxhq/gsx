@@ -152,11 +152,16 @@ func parsePipeStage(seg string, segBase token.Pos) (ast.PipeStage, error) {
 		namePos = segBase + token.Pos(leadWS)
 	}
 	s := strings.TrimSpace(seg)
+	trailWS := len(seg) - len(strings.TrimRight(seg, " \t\r\n"))
 	if strings.HasSuffix(s, "?") {
 		return ast.PipeStage{}, errTryMarker
 	}
 	if s == "" {
-		return ast.PipeStage{}, fmt.Errorf("empty pipeline stage")
+		var errPos token.Pos
+		if segBase.IsValid() {
+			errPos = segBase + token.Pos(len(seg)-trailWS)
+		}
+		return ast.PipeStage{}, pipeErrorf(errPos, errPos, "empty pipeline stage")
 	}
 	if i := strings.IndexByte(s, '('); i >= 0 {
 		name := strings.TrimSpace(s[:i])
@@ -188,7 +193,11 @@ func parsePipeStage(seg string, segBase token.Pos) (ast.PipeStage, error) {
 		return ast.PipeStage{Name: name, Args: strings.TrimSpace(rawArgs), HasArgs: true, NamePos: namePos, ArgsPos: argsPos}, nil
 	}
 	if !isStageName(s) {
-		return ast.PipeStage{}, fmt.Errorf("invalid pipeline filter name %q", s)
+		var errEnd token.Pos
+		if namePos.IsValid() {
+			errEnd = namePos + token.Pos(len(s))
+		}
+		return ast.PipeStage{}, pipeErrorf(namePos, errEnd, "invalid pipeline filter name %q", s)
 	}
 	return ast.PipeStage{Name: s, NamePos: namePos}, nil
 }

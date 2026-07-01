@@ -266,16 +266,17 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 	// the cursor is positioned exactly at the opening '"' or '{'.
 	switch {
 	case !p.eof() && p.src[p.i] == '"':
+		quotePos := p.posAt(p.i)
 		p.i++ // past opening '"'
 		if p.classifier.Context(name) == attrclass.CtxJS {
-			return p.parseJSAttrValue(name, attrStartPos)
+			return p.parseJSAttrValue(name, attrStartPos, quotePos)
 		}
 		vs := p.i
 		for !p.eof() && p.src[p.i] != '"' {
 			p.i++
 		}
 		if p.eof() {
-			return nil, p.errorf(p.pos(), "unterminated attribute string for %q", name)
+			return nil, p.errorfRange(quotePos, p.pos(), "unterminated attribute string for %q", name)
 		}
 		val := p.src[vs:p.i]
 		p.i++ // past closing quote
@@ -302,7 +303,7 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 // *ast.StaticAttr with the raw value (no behavior change). parseInterp does
 // Go-aware brace-balancing, so a '"' inside a hole (e.g. @{ "v" }) is consumed by
 // the hole and does not prematurely terminate the value.
-func (p *parser) parseJSAttrValue(name string, attrStartPos token.Pos) (ast.Attr, error) {
+func (p *parser) parseJSAttrValue(name string, attrStartPos, quotePos token.Pos) (ast.Attr, error) {
 	valStart := p.i
 	var segments []ast.Markup
 	segStart := p.i
@@ -347,7 +348,7 @@ func (p *parser) parseJSAttrValue(name string, attrStartPos token.Pos) (ast.Attr
 		}
 		p.i++
 	}
-	return nil, p.errorf(p.pos(), "unterminated attribute string for %q", name)
+	return nil, p.errorfRange(quotePos, p.pos(), "unterminated attribute string for %q", name)
 }
 
 // parseAttrsUntilBrace parses an attribute list terminated by '}' (the body of a

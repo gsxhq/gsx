@@ -105,10 +105,7 @@ func ParseFileWithClassifier(fset *token.FileSet, filename string, src any, mode
 			// Error already recorded in p.errs. Resync strictly past this component's
 			// `component` keyword so the next scan can't re-match it (forward progress),
 			// skip the broken component, and continue.
-			resyncFrom := off + len("component")
-			if p.i > resyncFrom {
-				resyncFrom = p.i
-			}
+			resyncFrom := max(off+len("component"), p.i)
 			cursor = resyncFrom
 			continue
 		}
@@ -144,10 +141,10 @@ func scanPackage(file *token.File, src []byte) (name string, kwPos token.Pos, en
 			mappedKwPos := file.Pos(kwOff)
 			_ = lit
 			namePos, tok2, lit2 := s.Scan()
-			if tok2 != token.IDENT {
+			nameOff := localFset.Position(namePos).Offset
+			if tok2 != token.IDENT || localFset.Position(namePos).Line != localFset.Position(pos).Line {
 				return "", mappedKwPos, 0, fmt.Errorf("malformed package clause")
 			}
-			nameOff := localFset.Position(namePos).Offset
 			return lit2, mappedKwPos, nameOff + len(lit2), nil
 		}
 	}

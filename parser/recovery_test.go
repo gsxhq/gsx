@@ -40,6 +40,22 @@ func TestErrorfAccumulatesPositioned(t *testing.T) {
 	}
 }
 
+func TestPackageClauseRequiresNameOnSameLine(t *testing.T) {
+	src := "package\n\ncomponent C() {\n\t<p>hi</p>\n}\n"
+	fset := token.NewFileSet()
+	_, errs := ParseFileWithClassifier(fset, "badpkg.gsx", []byte(src), 0, attrclass.Builtin())
+	if len(errs) == 0 {
+		t.Fatal("expected a package-clause parse error")
+	}
+	if !strings.Contains(errs[0].Msg, "malformed package clause") {
+		t.Fatalf("message = %q, want malformed package clause", errs[0].Msg)
+	}
+	pos := fset.Position(errs[0].Pos)
+	if pos.Line != 1 || pos.Column != 1 {
+		t.Fatalf("position = %d:%d, want 1:1", pos.Line, pos.Column)
+	}
+}
+
 func TestPipelineStageTrailingTextErrorRange(t *testing.T) {
 	src := `package views
 
@@ -61,6 +77,66 @@ component Meter(value int, color string) {
 	wantEnd := strings.Index(src, ` }`+"\n\t/>")
 	if gotStart != wantStart || gotEnd != wantEnd {
 		t.Fatalf("range offsets = %d..%d, want %d..%d (%q)", gotStart, gotEnd, wantStart, wantEnd, src[wantStart:wantEnd])
+	}
+}
+
+func TestPipelineStageInvalidNameErrorRange(t *testing.T) {
+	src := `package views
+
+component C(value string) {
+	<p>{ value |> 123 }</p>
+}
+`
+	fset := token.NewFileSet()
+	_, errs := ParseFileWithClassifier(fset, "badpipe.gsx", []byte(src), 0, attrclass.Builtin())
+	if len(errs) == 0 {
+		t.Fatal("expected a parse error")
+	}
+	gotStart := fset.Position(errs[0].Pos).Offset
+	gotEnd := fset.Position(errs[0].End).Offset
+	wantStart := strings.Index(src, `123`)
+	wantEnd := wantStart + len(`123`)
+	if gotStart != wantStart || gotEnd != wantEnd {
+		t.Fatalf("range offsets = %d..%d, want %d..%d (%q)", gotStart, gotEnd, wantStart, wantEnd, src[wantStart:wantEnd])
+	}
+}
+
+func TestPipelineStageEmptyErrorPosition(t *testing.T) {
+	src := `package views
+
+component C(value string) {
+	<p>{ value |> }</p>
+}
+`
+	fset := token.NewFileSet()
+	_, errs := ParseFileWithClassifier(fset, "emptypipe.gsx", []byte(src), 0, attrclass.Builtin())
+	if len(errs) == 0 {
+		t.Fatal("expected a parse error")
+	}
+	got := fset.Position(errs[0].Pos).Offset
+	want := strings.Index(src, `|>`) + len(`|>`)
+	if got != want {
+		t.Fatalf("position offset = %d, want %d", got, want)
+	}
+}
+
+func TestUnterminatedStaticAttrStringErrorRange(t *testing.T) {
+	src := `package views
+
+component C() {
+	<div title="hi />
+}
+`
+	fset := token.NewFileSet()
+	_, errs := ParseFileWithClassifier(fset, "badattr.gsx", []byte(src), 0, attrclass.Builtin())
+	if len(errs) == 0 {
+		t.Fatal("expected a parse error")
+	}
+	gotStart := fset.Position(errs[0].Pos).Offset
+	gotEnd := fset.Position(errs[0].End).Offset
+	wantStart := strings.Index(src, `"hi />`)
+	if gotStart != wantStart || gotEnd <= gotStart {
+		t.Fatalf("range offsets = %d..%d, want non-empty range starting at %d", gotStart, gotEnd, wantStart)
 	}
 }
 

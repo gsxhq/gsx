@@ -40,9 +40,11 @@ func main() {
 		return transform(stringArg(args, 0))
 	}))
 	js.Global().Set("gsxFormat", js.FuncOf(func(_ js.Value, args []js.Value) any {
-		out, ferr := gen.Format("playground.gsx", []byte(stringArg(args, 0)))
+		src := stringArg(args, 0)
+		out, ferr := gen.Format("playground.gsx", []byte(src))
 		if ferr != nil {
-			return map[string]any{"error": ferr.Error()}
+			res, _ := resolver.GenerateSources(splitSources(src))
+			return map[string]any{"error": ferr.Error(), "diagnostics": jsDiags(res.Diags)}
 		}
 		return map[string]any{"formatted": string(out)}
 	}))
@@ -107,7 +109,7 @@ func splitSources(src string) map[string][]byte {
 			files[cur] = []byte(strings.Join(buf, "\n"))
 		}
 	}
-	for _, ln := range strings.Split(src, "\n") {
+	for ln := range strings.SplitSeq(src, "\n") {
 		t := strings.TrimSpace(ln)
 		if strings.HasPrefix(t, "-- ") && strings.HasSuffix(t, " --") {
 			flush()
