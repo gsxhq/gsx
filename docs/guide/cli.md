@@ -32,8 +32,8 @@ gsx [global flags] <command> [arguments]
 
 ### Global flags
 
-Global flags apply to any command and **must come before the command name**
-(`gsx -v generate`, not `gsx generate -v`):
+These flags are accepted before the command name. `generate` also accepts `-q`
+and `-v` after the path arguments:
 
 | Flag | Effect |
 |------|--------|
@@ -41,7 +41,7 @@ Global flags apply to any command and **must come before the command name**
 | `-q` | quiet: suppress success output |
 | `-v` | verbose: list each written file |
 
-`-q` / `-v` only affect `generate`'s success output; other commands ignore them.
+`-q` / `-v` only affect `generate`'s success output.
 
 ## gsx init
 
@@ -112,7 +112,7 @@ existing `go.mod`/`package.json` without `--force`); `1` on a step failure or
 I/O error. When a step fails the remaining commands are printed to stderr.
 
 > **Planned template:** `structpages` — a struct-based routing starter built on
-> the [structpages](https://github.com/gsxhq/gsx/tree/main/structpages) framework
+> the [structpages](https://github.com/jackielii/structpages) framework
 > (htmx + templ). Not yet available; only `simple` is currently implemented.
 
 ## gsx dev
@@ -259,7 +259,7 @@ Formatting embedded code is **correct-or-verbatim**: if a body can't be parsed
 cleanly, gsx leaves it byte-for-byte untouched rather than risk mangling it —
 the same safety rule as Go-fragment formatting. The built-in CSS formatter is
 deliberately minimal and **replaceable** with your own (e.g. a Prettier
-shell-out) — see [Extending gsx](./extensions.md#custom-css-js-formatter).
+shell-out) — see [Extending gsx](./extensions.md#custom-cssjs-formatter).
 
 > **In development.** Embedded `<style>` CSS formatting is being built now
 > (`<script>` JS after it). On the current release, `<style>` and `<script>`
@@ -331,10 +331,10 @@ as JSON-RPC. It is launched by an editor, not invoked by hand:
 gsx lsp                 # blocks, reading LSP messages on stdin
 ```
 
-The server analyzes each open package with the stock (std-filter) codegen
-pipeline and publishes diagnostics — it never writes `.x.go` to disk. It is an
-early slice: editing existing `.gsx` files is analyzed live, but a new buffer
-that has never been saved to disk is not yet picked up.
+The server analyzes each open package using the resolved configuration and
+provides diagnostics, definition, hover, references, and formatting without
+writing `.x.go` to disk. Existing saved `.gsx` files are analyzed live;
+brand-new unsaved buffers are not yet picked up.
 
 ## version
 
@@ -357,7 +357,6 @@ custom binary configures a CSS/JS minifier (functions are not hashable).
 
 ## Status
 
-> **Alpha.** `generate`, `fmt`, `init`, `info`, `clean`, `version`, and `lsp`
-> (an early diagnostics-only slice) are implemented. A checker (`vet`) and richer
-> language-server features are on the
-> [roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md).
+> **Alpha.** The shipped command set is listed above. Planned commands and
+> deferred diagnostics work are tracked in [Status](./status.md) and the
+> [Roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md).

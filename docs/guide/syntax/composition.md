@@ -28,7 +28,11 @@ When a component needs more than one content hole — a header, a body, a footer
 
 <!--@include: ./_generated/composition/030-named-slots.md-->
 
-`Panel` declares `header gsx.Node` and `footer gsx.Node`. The call site passes markup as `header={ <h1>H</h1> }` (JSX-style expression attribute) and a string literal as `footer="F"`. Strings satisfy `gsx.Node`, so either works. The component renders each slot by interpolating `{header}` and `{footer}` exactly like any other variable.
+`Panel` declares `header gsx.Node` and `footer gsx.Node`. The call site passes
+markup as `header={ <h1>H</h1> }` and a string literal as `footer="F"`. For
+`gsx.Node` params, codegen converts string literals to renderable text nodes.
+The component renders each slot by interpolating `{header}` and `{footer}`
+exactly like any other variable.
 
 This is distinct from `{children}`: a `gsx.Node` param is a named, typed field in the props struct, passed as a named attribute. `{children}` is the implicit content between the open and close tags.
 

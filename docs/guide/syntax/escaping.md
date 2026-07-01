@@ -1,10 +1,13 @@
 # Escaping
 
-gsx uses **escape-by-construction**: the code generator knows *where* every value appears (text node, attribute value, URL attribute, JS-context attribute, `<script>` body, `<style>` body) and emits the correct escaper automatically. You never call an escape function on your data; the template structure itself is the guarantee.
+gsx escapes by position: the code generator knows *where* every value appears
+(text node, attribute value, URL attribute, JS-context attribute, `<script>`
+body, `<style>` body) and emits the matching escaper automatically.
 
-## Escape by construction
+## Escape by default
 
-A plain `{ expr }` in body text or an attribute value is HTML-escaped. No XSS is possible through the normal interpolation path — hostile HTML in a user-supplied string is neutralized at render time.
+A plain `{ expr }` in body text or an attribute value is HTML-escaped. Hostile
+HTML in a user-supplied string renders as text rather than elements.
 
 <!--@include: ./_generated/escaping/010-auto-escaping-safe-raw.md-->
 

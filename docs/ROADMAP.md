@@ -16,12 +16,12 @@ generator/CLI may use `golang.org/x/tools`.
 |---|---|
 | Parser + AST | `[x]` Part 2 grammar + pipeline parsing + positioned, recoverable errors |
 | Runtime (`gsx`) | `[x]` done |
-| Codegen | `[~]` interpolation + control flow + full attributes (security core, composable class **and element-level style**, spread, conditional) + pipeline `\|>` + child props/`{children}` + method components + named slots + attribute fallthrough (auto class-merge/spread + manual `{...attrs}`) + custom attribute classification (`WithJSAttrs`/`WithURLAttrs`/`WithCSSAttrs` + `WithAttrClassifier`) + node-prop promotion (`gsx.Val`/`Text`/`Fragment`) + ordered attrs (`{{ }}` / `gsx.OrderedAttrs`) + uniform `(T,error)` auto-unwrap (all expression positions) + value-form `if`/`switch` in `class`/`style` (exclusive selection) done; composable `style` **on a component invocation** + `[]string` class parts pending |
+| Codegen | `[~]` interpolation + control flow + full attributes (security core, composable class **and element-level style**, spread, conditional) + pipeline `\|>` + child props/`{children}` + method components + named slots + attribute fallthrough (auto class-merge/spread + manual `{...attrs}`) + custom attribute classification (`WithJSAttrs`/`WithURLAttrs`/`WithCSSAttrs` + `WithAttrClassifier`) + node-prop promotion (`gsx.Val`/`Text`/`Fragment`) + ordered attrs (`{{ }}` lowering to `gsx.Attrs`) + uniform `(T,error)` auto-unwrap (all expression positions) + value-form `if`/`switch` in `class`/`style` (exclusive selection) done; composable `style` **on a component invocation** + `[]string` class parts pending |
 | Whitespace model | `[x]` JSX-style: `internal/wsnorm.Normalize` (parser lossless) wired into codegen + powers `gsx fmt`. render-faithful + idempotent over the whole corpus. |
 | Pipeline `\|>` end-to-end | `[x]` seed-first forward-application lowering + `std` filters + user filter packages (`gen.WithFilters` + `gen.WithFilter` aliases, multi-pkg last-wins) + `ctx` injection + `(T,error)` implicit auto-unwrap. Works in interp / attr / class / style / spread / child-prop values / `{{ }}` pairs (all expression positions). Initialism-aware naming pending. |
 | CLI (`gsx`) / `gen.Main` | `[~]` `generate` (incl. `--watch`/`--format=ndjson`) · `fmt` · `info` · `init` · `lsp` · `clean --cache` · `version` · `help` ship, with `--json` + structured diagnostics. `vet`/`render`/`explain`/numeric codes pending. `WithClassMerger` + `class_merger` TOML knob shipped. |
-| Language server (`gsx lsp`) | `[~]` diagnostics (debounced) + go-to-definition (incl. inside pipelines) + hover (incl. pipelines) + find-references + formatting ship; completion / cross-package deferred. |
-| Developer experience (Vite + `init`) | `[x]` `gsx init` scaffold + `@gsxhq/vite-plugin-gsx` (npm v0.2.1) + `github.com/gsxhq/vite` (v0.2.0). |
+| Language server (`gsx lsp`) | `[~]` diagnostics (debounced) + go-to-definition (incl. inside pipelines) + hover (incl. pipelines) + find-references + formatting ship; completion and external/non-project references deferred; references cover project components discovered during module analysis. |
+| Developer experience (Vite + `init`) | `[x]` `gsx init` scaffold + `@gsxhq/vite-plugin-gsx` (npm v0.4.0) + `github.com/gsxhq/vite` (v0.2.0). |
 
 ## Done
 
@@ -36,12 +36,12 @@ recover at the `component` boundary (one diagnostic per broken component).
 
 **Runtime** (`gsx`, module root) — `Node`/`Func`/`Raw`, error-threading `Writer`
 with streaming text/attr/URL/JS/CSS escapers, class/style compose + gen-configured
-class merger (`class_merger` / `gen.WithClassMerger`), `Attrs` bag + deterministic `Spread`. `gsx.Val(any)` /
-`gsx.Text(string)` / `gsx.Fragment(nodes…)` value-Node boxes. `gsx.Raw` /
-`gsx.RawJS` / `gsx.RawCSS` / `gsx.RawURL` typed escape hatches.
-`gsx.OrderedAttrs` (`[]gsx.Attr`) + `Writer.SpreadOrdered` — insertion-ordered,
-duplicate-tolerant attribute bag; renders in slice order (contrast: `Spread` sorts
-`Attrs`). Independent-review SHIP.
+class merger (`class_merger` / `gen.WithClassMerger`), ordered `Attrs` bag
+(`[]gsx.Attr`) + deterministic `Spread` in slice order. `gsx.AttrMap.ToAttrs`
+keeps map-shaped construction explicit and sorts keys before converting to
+`Attrs`. `gsx.Val(any)` / `gsx.Text(string)` / `gsx.Fragment(nodes…)`
+value-Node boxes. `gsx.Raw` / `gsx.RawJS` / `gsx.RawCSS` / `gsx.RawURL` typed
+escape hatches. Independent-review SHIP.
 
 **Codegen phase 1** (`internal/codegen`) — `GeneratePackage(dir)`: `go/packages`
 + `Overlay` skeleton type resolution (cross-file, cross-component); arity-safe
@@ -119,11 +119,11 @@ render goldens.
    the `FProps{…}` convention. Passing attributes or children to a zero-arg component
    is a clean diagnostic (was a raw `undefined: FProps`). **Deferred:** non-`gsx.Node`
    renderable returns; cross-package nullary funcs.
-9. `[x]` **Ordered attributes** (`{{ }}` / `gsx.OrderedAttrs`) — `2026-06-29`.
+9. `[x]` **Ordered attributes** (`{{ }}` lowering to `gsx.Attrs`) — `2026-06-29`.
    A `{{ "key": goExpr, … }}` literal in attribute-value position binds to a
-   declared `gsx.OrderedAttrs` component prop; the bag is spread onto an element with
-   `{ prop... }` via `Writer.SpreadOrdered`, which emits pairs in **slice order** (not
-   sorted). Keys must be quoted string literals (enables kebab/colon names); values
+   declared `gsx.Attrs` component prop; the bag is spread onto an element with
+   `{ prop... }` via `Writer.Spread`, which emits pairs in **slice order**.
+   Keys must be quoted string literals (enables kebab/colon names); values
    are arbitrary Go expressions (`|>` pipelines not supported inside the literal);
    `bool` values toggle bare/omitted. Duplicate keys and trailing commas are allowed;
    an empty `{{ }}` renders nothing. Using `{{ }}` directly on a plain-element
@@ -181,7 +181,7 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
   identifier or expression; component-tag hover shows the component signature
   (answered from the AST even when type-checking fails mid-edit).
 - `[x]` **Find-references** (`textDocument/references`) — `.go` call sites + `.gsx`
-  tag sites for a component, in-package.
+  tag sites for project components discovered during module analysis; external/non-project packages are skipped.
 - `[x]` **Formatting** (`textDocument/formatting`) — canonical form with
   unused-import removal (reuses `gen.Format` / `gsxfmt.FormatRemovingImports`).
 - `[x]` **Pipeline-aware definition + hover** (`internal/lsp/pipe.go`) — go-to-def
@@ -192,8 +192,9 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
 - `[x]` **Debounced diagnostics** (`internal/lsp/server.go`) — a per-directory
   timer (250 ms) coalesces edit bursts; analysis runs off the read loop and
   version-tags its publishes. `didOpen` publishes promptly (no debounce).
-- **Deferred:** completion (needs AST repair + ranking; no importable library);
-  cross-package references; dotted/cross-package component tags (`<ui.Button/>`).
+- **Deferred:** completion and external/non-project references; references cover
+  project components discovered during module analysis. Dotted/cross-package
+  component tags (`<ui.Button/>`) are deferred.
 
 Specs: `2026-06-23-gsx-lsp-design.md`, `2026-06-24-gsx-lsp-slice2a-goto-definition-design.md`,
 `2026-06-24-gsx-lsp-go-to-gsx-design.md`, `2026-06-24-gsx-lsp-hover-design.md`.
@@ -219,10 +220,10 @@ pieces. Save → warm generate → build-then-swap Go server → browser reloads
   process that keeps the type-resolution environment warm (`gen.CachedResolver`)
   and regenerates in-process on each change, streaming NDJSON diagnostics. Measured:
   a warm regenerate is **~1–2 ms** vs **~140 ms** for a cold one-shot `gsx generate`
-  (~70–100×), so the inner save-loop is effectively instant. Rebuilds the resolver
+  (~70–100×). Rebuilds the resolver
   on `.go`/go.mod changes; pure `.gsx` edits take the fast path. Slice 2 (fine-grained
   per-package invalidation) is deferred — the measured warm time made it unnecessary.
-- `[x]` **`@gsxhq/vite-plugin-gsx`** (npm **v0.3.0**, `~/personal/gsxhq/vite-plugin-gsx`) —
+- `[x]` **`@gsxhq/vite-plugin-gsx`** (npm **v0.4.0**, `~/personal/gsxhq/vite-plugin-gsx`) —
   receives generation/build events from `gsx dev`, surfaces diagnostics in the
   Vite error overlay (auto-clears on recovery), and full-reloads after the server
   becomes ready; `devFallback()` serves a self-recovering interstitial while the
@@ -345,7 +346,7 @@ vocabulary remains a design aspiration, not the current API.
   **SHIPPED** (configurable merger seam; Tailwind wrapper idiom; `--watch` validates at
   startup; cache-keyed; corpus + example coverage). **Pending:** GSXnnnn numeric
   codes (codes are string-based today, e.g. `invalid-syntax`); `vet`/`render`/`explain`;
-  `--watch`/incremental.
+  finer-grained incremental invalidation beyond the current warm watcher.
 - `[ ]` **Codegen niceties** — coalesce adjacent `gw.S` static writes; `//line`
   trailing-state reset; `data:image` URL allowance.
 - `[ ]` **Tooling performance measurement on a realistic large corpus** — the
@@ -359,16 +360,14 @@ vocabulary remains a design aspiration, not the current API.
 
 ## Documentation backlog
 
-- `[x]` **Examples gallery — SHIPPED.** A single-source, CI-checked **Examples**
-  gallery (live: <https://gsxhq.github.io/guide/examples>). Each `examples/*.txtar`
-  fixture (a `-- doc --` metadata block + `package views` `.gsx` files + `-- invoke --`
-  + `-- render.golden --`) is the **one source** feeding three consumers: (1) a render
-  test (`internal/corpus` `TestExamples`), (2) the docs page `docs/guide/examples.md`,
-  (3) the playground presets. A generator (`internal/examplegen` + `cmd/gsx-examples`,
-  `make examples`) emits the docs page + byte-identical preset JSONs. **19 examples
-  across 6 sections** — Basics · Control flow · Components & composition · Styling ·
-  Transforming values · Interactive & whole-page. Spec/plan
-  `2026-06-24-gsx-examples-framework*`.
+- `[x]` **Examples framework — SHIPPED.** `examples/*.txtar` fixtures (a `-- doc --`
+  metadata block + `package views` `.gsx` files + `-- invoke --` + `-- render.golden --`)
+  are the single source feeding render tests, per-topic syntax includes under
+  `docs/guide/syntax/_generated/**`, and playground presets. A generator
+  (`internal/examplegen` + `cmd/gsx-examples`, `make examples`) emits the generated
+  snippets + byte-identical preset JSONs. The public site no longer has a separate
+  Examples page; examples live beside the syntax they document and jump to the
+  playground.
 - `[x]` **Examples → Playground links — SHIPPED.** Each example emits an "Open in
   Playground" `#try=` deep-link (std-base64 of `{s:source,i:invoke}`); multi-file
   examples ride the Go-Playground txtar format (`-- file --` separators).

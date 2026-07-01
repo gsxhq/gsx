@@ -30,6 +30,7 @@ Context is a blunt instrument. When a helper function passes a value through fiv
 
 For the data a component **specifically needs**, gsx steers you toward explicit, typed props. A component that receives `user User` as a prop is self-documenting: the call site shows exactly what is being passed, the type is checked by the compiler, and the component is fully testable in isolation with no ambient state.
 
-This preference is a design lean, not a prohibition. The [vision](../vision#type-safe-by-construction) sums it up: "a component's props are a Go struct — either one **you define and own** … or one **gsx generates** from inline params." The struct is yours; the type is explicit.
+This preference is a design lean, not a prohibition. See
+[Why gsx](../vision#checked-by-go) for the props model behind it.
 
 Use context for **cross-cutting, request-scoped values** that are legitimately global to a request — auth, locale, tracing — and explicit props for the data that defines what a component renders. When in doubt, start with props: you can always add a context read inside a helper if the value really is ambient.

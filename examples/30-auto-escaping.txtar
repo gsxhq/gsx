@@ -1,6 +1,6 @@
 -- doc --
 name: Auto-escaping & safe raw
-summary: User input is HTML-escaped by construction — no XSS. Use gsx.Raw / gsx.RawURL to opt out deliberately.
+summary: User input in normal interpolation is HTML-escaped. Use gsx.Raw / gsx.RawURL to opt out deliberately.
 category: Basics
 order: 30
 page: escaping
@@ -8,7 +8,7 @@ pageOrder: 10
 -- input.gsx --
 package views
 
-// User input is HTML-escaped by construction — no XSS.
+// User input in normal interpolation is HTML-escaped.
 component Comment(body string) {
 	<blockquote>{body}</blockquote>
 }

@@ -87,7 +87,9 @@ The production binary embeds the generated `dist/` assets and does not run Vite.
 
 ## Where to go next
 
-- Read the [syntax overview](./syntax) and [basic syntax](./syntax/basic-syntax).
+- Follow [Learn gsx](./learn) for the first component, props, children, attrs, and styling.
+- Keep the [syntax reference](./syntax) open while writing `.gsx`.
+- Use the [playground](/playground) for quick experiments.
 - See the [`gsx dev` CLI reference](./cli#gsx-dev) for custom build, run, log,
   and front-door commands.
 - Configure filters, asset processing, and the dev loop in

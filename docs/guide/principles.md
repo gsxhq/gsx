@@ -6,7 +6,7 @@ decisions you'll meet in the [syntax guide](./syntax).
 ## Stay close to HTML and to Go
 
 Markup looks like HTML/JSX; helpers, variant functions, and everything that isn't a
-template are ordinary Go. There is no third language between them — the seam is the
+template are ordinary Go. There is no third language between them; the boundary is the
 `component` keyword and `{ }` interpolation.
 
 ## Syntax tidiness is the top priority
@@ -26,12 +26,11 @@ surprise.
 
 gsx compiles `.gsx` → `.x.go` → `go build` rather than interpreting templates at
 runtime — that compile step is what makes the type-safety above possible. We treat it
-as a feature, not a tax: `gsx dev` keeps generation warm, safely rebuilds and
-restarts the Go server, and uses Vite for browser errors and reloads. `gsx init`
-wires the whole loop to `npm run dev`, so a build step you never wait on is just
-a faster, safer template.
+as part of the toolchain: `gsx dev` keeps generation warm, rebuilds and restarts
+the Go server, and uses Vite for browser errors and reloads. `gsx init` wires the
+loop to `npm run dev`.
 
-## Secure by construction
+## Escape by default
 
 Interpolation is auto-escaped by default, and escaping is **context-aware**: text,
 attribute, URL, and CSS contexts each get the right treatment — determined at
@@ -41,7 +40,7 @@ value-filter, attribute values are always quoted, and JS contexts with no safe
 encoding yet (bare expressions in `on*`/event handlers) are **compile errors**, not
 runtime surprises.
 
-The opt-outs are explicit and auditable — each a deliberate, grep-able bypass of one
+The opt-outs are explicit and auditable: each is a bypass of one
 specific check: `gsx.Raw(s)` for trusted HTML, `gsx.RawURL(s)` for a URL whose
 scheme you vouch for, and `gsx.RawCSS(s)` for trusted CSS. Type-driven attributes
 mean a `bool` renders as a bare or omitted attribute rather than the string `"true"`.

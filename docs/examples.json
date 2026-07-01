@@ -128,7 +128,7 @@
   {
     "name": "Auto-escaping & safe raw",
     "category": "Basics",
-    "source": "package views\n\n// User input is HTML-escaped by construction — no XSS.\ncomponent Comment(body string) {\n\t<blockquote>{ body }</blockquote>\n}\n",
+    "source": "package views\n\n// User input in normal interpolation is HTML-escaped.\ncomponent Comment(body string) {\n\t<blockquote>{ body }</blockquote>\n}\n",
     "invoke": "Comment(CommentProps{Body: \"<img src=x onerror=alert(1)>\"})"
   },
   {

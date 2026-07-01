@@ -1,11 +1,8 @@
-# Syntax
+# Syntax reference
 
-> **Syntax is roughly fixed, not frozen.** This page is a quick reference and
-> topic hub. The
-> [test corpus](https://github.com/gsxhq/gsx/tree/main/internal/corpus/testdata/cases)
-> is the canonical, always-current reference — every accepted form is a case that
-> parses, generates Go, and pins its rendered output, so it can never drift from
-> what the compiler actually does.
+> **Syntax is alpha.** This page is the compact reference and
+> topic hub. If you are new to gsx, start with [Learn gsx](./learn), then use this
+> page while writing templates.
 
 A `.gsx` file is ordinary Go (package, imports, types, funcs) plus `component`
 declarations. A component has a templ-style header and a JSX-style body — the
@@ -78,6 +75,6 @@ golden-tested `examples/*.txtar` fixtures.
 | `gsx.Raw(s)` | unescaped HTML |
 :::
 
-> **Status — alpha.** `.gsx` compiles to plain Go via `gsx generate`; syntax is
-> stable but still evolving. Follow the
-> [roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md).
+> **Status — alpha.** Follow [Status](./status.md) and the
+> [roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md) before relying
+> on deferred features.

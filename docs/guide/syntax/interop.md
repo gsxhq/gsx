@@ -2,6 +2,8 @@
 
 gsx components are plain Go values that implement a single interface. That design makes them composable with the wider Go templating ecosystem without any bridging layer.
 
+For a higher-level choice guide, see [Comparisons](../comparisons).
+
 ## Working with templ
 
 `gsx.Node` is declared in `node.go` as:
@@ -70,7 +72,9 @@ The `<p>` block is stored in context by templ's runtime but `gsxCard` reads `Chi
 
 ### Framework composition
 
-Any framework that renders a `Render(ctx context.Context, w io.Writer) error` value — including [structpages](https://github.com/gsxhq/structpages) — composes gsx and templ components without knowing which is which. In practice, gsx is commonly used for leaf and subtree components inside templ page layouts; the two coexist in the same page tree with no glue code.
+Any framework that renders a `Render(ctx context.Context, w io.Writer) error`
+value — including [structpages](https://github.com/jackielii/structpages) — can
+render gsx and templ components through the same method shape.
 
 ## Working with html/template
 

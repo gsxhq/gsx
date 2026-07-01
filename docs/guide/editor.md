@@ -28,13 +28,12 @@ gsx lsp                 # blocks, reading LSP messages on stdin
 | **Diagnostics** | `publishDiagnostics` | positioned parse + type errors (with severity, code, help) from the shared diagnostics engine; re-analyzed on every change, with multi-error and component-boundary recovery |
 | **Go-to-definition** | `textDocument/definition` | jump from a Go symbol in a `{ }`/attribute expression to its `.go` definition; from a `<Card/>` tag to its `component` declaration; and from a `.go` component reference back to the `.gsx` |
 | **Hover** | `textDocument/hover` | gopls-style type/signature for an identifier or expression; a component tag shows its signature (answered from the AST even mid-edit when type-checking can't complete) |
-| **Find references** | `textDocument/references` | `.go` call sites and `.gsx` tag sites for a component, within the package |
+| **Find references** | `textDocument/references` | `.go` call sites and `.gsx` tag sites for project components discovered by module analysis; external/non-project packages are skipped |
 | **Formatting** | `textDocument/formatting` | canonical `gsx fmt` form, including unused-import removal — wire it to format-on-save |
 
-**Not yet:** completion, pipeline-aware definition/hover (an expression behind a
-`|>` returns nothing today), cross-package references, and dotted/cross-package
-component tags (`<ui.Button/>`). See the
-[roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md) for status.
+**Deferred:** completion. References cover project components discovered during
+module analysis; external/non-project references are deferred. See [Status](./status.md) and the
+[roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md) for current scope.
 
 ### Configure your editor
 
@@ -119,8 +118,14 @@ formatting work out of the box — no generic LSP client to wire up.
   **gsx: Install/Update Language Server** and **gsx: Restart Language Server**
   help when it's missing or stale.
 
-It is not on the Marketplace yet. For now, build the `.vsix` from the repo and
-install it:
+Install it from the
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=gsxhq.gsx):
+
+```bash
+code --install-extension gsxhq.gsx
+```
+
+To test an unreleased build, package the `.vsix` from the repo:
 
 ```bash
 git clone https://github.com/gsxhq/vscode-gsx && cd vscode-gsx

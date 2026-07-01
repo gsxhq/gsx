@@ -1,6 +1,8 @@
 # Props
 
-gsx's distinctive feature is that the **author owns the props type**. Rather than generating a fixed props class that the framework controls, gsx lets the component author decide: bring your own named struct, let gsx generate one from inline params, or declare no params at all. The param shape at the declaration site is the discriminator — no config, no annotations.
+The component author owns the props type. Bring your own named struct, let gsx
+generate one from inline params, or declare no params at all. The param shape at
+the declaration site is the discriminator: no config, no annotations.
 
 ## The three props models
 
@@ -26,7 +28,9 @@ When the sole non-receiver param is a named struct from the same package, gsx us
 
 <!--@include: ./_generated/props/010-bring-your-own-props.md-->
 
-`Button` declares a `Props` struct with `Variant string`, `Children gsx.Node`, and `Attrs gsx.Attrs`. The call `<Button variant="primary" data-test="save">Save</Button>` maps: `variant` → `Variant: "primary"`, `data-test` (no matching `DataTest` field) → `Attrs: gsx.Attrs{"data-test": "save"}`, and the text content → `Children`. Inside the body, `{ p.Attrs... }` spreads the collected attrs onto the `<button>` element.
+::: v-pre
+`Button` declares a `Props` struct with `Variant string`, `Children gsx.Node`, and `Attrs gsx.Attrs`. The call `<Button variant="primary" data-test="save">Save</Button>` maps: `variant` → `Variant: "primary"`, `data-test` (no matching `DataTest` field) → `Attrs: gsx.Attrs{{Key: "data-test", Value: "save"}}`, and the text content → `Children`. Inside the body, `{ p.Attrs... }` spreads the collected attrs onto the `<button>` element.
+:::
 
 ## The discriminator heuristic
 
@@ -34,7 +38,7 @@ The byo path activates only for a **single** non-receiver param whose type resol
 
 <!--@include: ./_generated/props/020-props-heuristic.md-->
 
-`Greeting(name string)` has a single non-struct param → gsx generates `GreetingProps{Name string; Attrs gsx.Attrs}`. `Card(title string, n int)` has multiple params → gsx generates `CardProps{Title string; N int; Attrs gsx.Attrs}`. `Panel(p Props)` has a single named-struct param → byo path; `Props` is used directly, no wrapper.
+`Greeting(name string)` has a single non-struct param → gsx generates `GreetingProps{Name string}`. `Card(title string, n int)` has multiple params → gsx generates `CardProps{Title string; N int}`. `Panel(p Props)` has a single named-struct param → byo path; `Props` is used directly, no wrapper.
 
 The generated `<Name>Props` struct gets an `Attrs gsx.Attrs` field when the component body explicitly references `attrs`, and a `Children gsx.Node` field when the body uses `{children}` — not unconditionally. The byo struct has neither unless the author declares them.
 
