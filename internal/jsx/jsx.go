@@ -309,7 +309,7 @@ func ResolveJSAttr(name string, segments []ast.Markup) error {
 }
 
 // resolveJSAttr classifies every @{ … } hole in an explicit JS attribute literal
-// (e.g. x-data="{ tab: @{ tab } }"). It builds the same _GSXJSHOLE_ skeleton as
+// (e.g. x-data=js`{tab:@{tab}}`). It builds the same _GSXJSHOLE_ skeleton as
 // resolveScript, runs the same classify, and sets each Interp.JSCtx — so codegen
 // can later escape each hole by its JS context. An attribute value is a single JS
 // expression (not a program), so a hole that lands inside a JS comment is

@@ -43,7 +43,7 @@ When a dynamic value lands in a URL attribute, gsx checks the scheme. Safe schem
 JavaScript in attributes is opt-in with a `` js`...` `` literal:
 
 ````gsx
-<button @click=js`openMenu(@{ id })`>Open</button>
+<button @click=js`openMenu(@{id})`>Open</button>
 ````
 
 Each `@{ }` hole is escaped for its JavaScript position. `gsx.RawJS` can be used

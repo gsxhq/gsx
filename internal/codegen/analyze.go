@@ -1621,7 +1621,7 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 					}
 				}
 			}
-			// Then each JS-attribute (e.g. x-data="… @{ x } …") @{ } interp, in
+			// Then each explicit JS attribute literal (e.g. x-data=js`…@{x}…`) interp, in
 			// attr source order — emitProbes walks identically (same walkMarkupAttrs).
 			walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
 				collectExprs(value, out)

@@ -187,8 +187,8 @@ func TestAttrWS_BoolAttrDisambiguation(t *testing.T) {
 	}
 }
 
-func TestAttrWS_JSContextWithSpace(t *testing.T) {
-	// onclick = "alert(1)" — JS-context attribute with space around =.
+func TestAttrWS_StaticAttrWithSpace(t *testing.T) {
+	// onclick = "alert(1)" with space around = remains a quoted static attr.
 	// Should parse successfully; Name must be "onclick".
 	attrs := parseAttrList(t, `onclick = "alert(1)"`)
 	if len(attrs) != 1 {

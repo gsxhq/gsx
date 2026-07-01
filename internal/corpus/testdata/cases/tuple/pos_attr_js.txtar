@@ -1,4 +1,4 @@
-# (T, error) auto-unwrap in a JS-context attribute value: onclick={ f() } where f
+# (T, error) auto-unwrap in a plain expression attribute value: onclick={ f() } where f
 # returns (string, error). The codegen hoists and feeds the value to JSValAttr.
 -- input.gsx --
 package views

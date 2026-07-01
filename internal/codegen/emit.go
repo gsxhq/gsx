@@ -1461,8 +1461,8 @@ func emitEmbeddedCSSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.
 	return true
 }
 
-// emitJSAttrInterp renders one @{ } hole in a JS-context attribute value through
-// the runtime *Attr escaper chosen by its JSCtx. It mirrors emitJSInterp's
+// emitJSAttrInterp renders one @{ } hole in an explicit JS attribute literal
+// through the runtime *Attr escaper chosen by its JSCtx. It mirrors emitJSInterp's
 // pipeline-stage handling and (T, error) tuple auto-unwrap, but routes to the
 // JS*Attr methods (which additionally HTML-attr-escape).
 func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {

@@ -16,7 +16,7 @@ import (
 // Mode controls optional parser features. Currently a no-op (future parity with go/parser).
 type Mode uint
 
-// ParseFile parses a .gsx source file with gsx's built-in attribute classification.
+// ParseFile parses a .gsx source file with gsx's built-in URL attribute classification.
 //
 // fset is the token.FileSet to record positions in.
 // filename is used for error messages and position recording.
@@ -35,8 +35,8 @@ func ParseFile(fset *token.FileSet, filename string, src any, mode Mode) (*ast.F
 	return f, nil
 }
 
-// ParseFileWithClassifier parses using cls to classify attribute names (which
-// JS-context attributes split @{ } holes). A nil cls means built-ins only.
+// ParseFileWithClassifier parses using cls to classify URL-valued attribute
+// names. A nil cls means built-ins only.
 func ParseFileWithClassifier(fset *token.FileSet, filename string, src any, mode Mode, cls *attrclass.Classifier) (*ast.File, []Error) {
 	if cls == nil {
 		cls = attrclass.Builtin()
