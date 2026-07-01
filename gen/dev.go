@@ -44,8 +44,12 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 
 	// --- env + ports ---
 	env := append(os.Environ(), loadDotEnv(workDir)...)
+	env, viteURL, err := resolveViteDevEnv(env)
+	if err != nil {
+		fmt.Fprintf(stderr, "gsx dev: %v\n", err)
+		return 1
+	}
 	goPort := envPort(env, "GO_PORT", "7777")
-	viteURL := envValue(env, "VITE_DEV_URL", "http://localhost:5173")
 	healthURL := "http://localhost:" + goPort + "/healthz"
 
 	var termMu sync.Mutex
@@ -197,12 +201,18 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 			if envDirty {
 				envDirty = false
 				env = append(os.Environ(), loadDotEnv(workDir)...)
+				var envErr error
+				env, viteURL, envErr = resolveViteDevEnv(env)
+				if envErr != nil {
+					fmt.Fprintf(stderr, "gsx dev: %v\n", envErr)
+					overlayUp = true
+					continue
+				}
 				// Vite reads .env itself (loadEnv + native .env watch), so only the Go server is restarted here.
 				srv.env = env
 				goPort = envPort(env, "GO_PORT", "7777")
 				healthURL = "http://localhost:" + goPort + "/healthz"
 				srv.healthURL = healthURL
-				viteURL = envValue(env, "VITE_DEV_URL", "http://localhost:5173")
 				if err := srv.restartNoBuild(); err == nil && waitHealthy(ctx, healthURL, 10*time.Second) {
 					postReload(viteURL)
 					overlayUp = false

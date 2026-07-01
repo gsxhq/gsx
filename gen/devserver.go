@@ -5,14 +5,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -62,17 +67,86 @@ func loadDotEnv(dir string) []string {
 
 // envPort reads KEY's value from a KEY=VALUE env slice, returning def if absent.
 func envPort(env []string, key, def string) string {
-	pre := key + "="
-	for _, e := range env {
-		if strings.HasPrefix(e, pre) {
-			return strings.TrimPrefix(e, pre)
-		}
+	if v, ok := envLookup(env, key); ok {
+		return v
 	}
 	return def
 }
 
+func envLookup(env []string, key string) (string, bool) {
+	pre := key + "="
+	for _, e := range env {
+		if v, ok := strings.CutPrefix(e, pre); ok {
+			return v, true
+		}
+	}
+	return "", false
+}
+
 // envValue is envPort by another name for non-port keys (VITE_DEV_URL).
 func envValue(env []string, key, def string) string { return envPort(env, key, def) }
+
+func resolveViteDevEnv(env []string) ([]string, string, error) {
+	port, ok := envLookup(env, "VITE_PORT")
+	var err error
+	if ok {
+		if _, err := strconv.Atoi(port); err != nil {
+			return nil, "", fmt.Errorf("invalid VITE_PORT %q", port)
+		}
+		if !portAvailable(port) {
+			return nil, "", fmt.Errorf("VITE_PORT %s is already in use", port)
+		}
+	} else {
+		port, err = nextAvailablePort("5173")
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	viteURL := "http://localhost:" + port
+	env = setEnvValue(env, "VITE_PORT", port)
+	env = setEnvValue(env, "VITE_DEV_URL", viteURL)
+	return env, viteURL, nil
+}
+
+func nextAvailablePort(start string) (string, error) {
+	port, err := strconv.Atoi(start)
+	if err != nil {
+		return "", fmt.Errorf("invalid VITE_PORT %q", start)
+	}
+	for ; port <= 65535; port++ {
+		candidate := strconv.Itoa(port)
+		if portAvailable(candidate) {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("choose Vite dev port: no free port at or above %s", start)
+}
+
+func portAvailable(port string) bool {
+	for _, addr := range []string{"127.0.0.1:" + port, "[::1]:" + port} {
+		l, err := net.Listen("tcp", addr)
+		if err == nil {
+			l.Close()
+			continue
+		}
+		if errors.Is(err, syscall.EADDRINUSE) {
+			return false
+		}
+	}
+	return true
+}
+
+func setEnvValue(env []string, key, value string) []string {
+	pre := key + "="
+	for i, e := range env {
+		if strings.HasPrefix(e, pre) {
+			out := slices.Clone(env)
+			out[i] = pre + value
+			return out
+		}
+	}
+	return append(env, pre+value)
+}
 
 // waitHealthy polls url until it returns any HTTP status (2xx–5xx ⇒ the server
 // is accepting connections) or timeout elapses. A refused connection retries.

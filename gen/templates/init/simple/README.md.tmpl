@@ -17,7 +17,7 @@ npm install
 ```sh
 npm run dev   # = go tool gsx dev
 ```
-Open http://localhost:5173. Edit `app.gsx` or any `.go` file and save — gsx dev
+Open the URL printed by `npm run dev`. Edit `app.gsx` or any `.go` file and save — gsx dev
 regenerates, rebuilds the server, and live-reloads the browser.
 
 ## Production build
@@ -30,6 +30,7 @@ go build -o app # embeds dist/, serves /static/, reads the manifest
 ## How it works
 - `gsx dev` owns the loop: it watches `.gsx`/`.go`/`.env`, regenerates with the
   warm compiler, rebuilds + restarts the Go server, and drives Vite's browser
-  reload + error overlay. Vite is the front door (proxy + HMR for JS/CSS assets).
+  reload + error overlay. It chooses an available Vite front-door port, then Vite
+  serves the proxy + HMR for JS/CSS assets.
 - `main.go` builds a `*vite.Vite` from `VITE_DEV_URL` and injects it into each
   request via `v.Middleware`; `app.gsx` reads the asset bundle from the context.
