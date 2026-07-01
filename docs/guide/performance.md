@@ -25,24 +25,24 @@ The same small template through all three engines:
 
 | engine | time | allocs |
 | --- | --- | --- |
-| **gsx** | **266 ns** | **2** |
-| [templ](https://templ.guide) | 390 ns | 10 |
-| `html/template` | 1412 ns | 24 |
+| **gsx** | **270 ns** | **2** |
+| [templ](https://templ.guide) | 394 ns | 10 |
+| `html/template` | 1428 ns | 24 |
 
 A realistic, component- and class-heavy page (20 rows, nested components):
 
 | engine | time | allocs |
 | --- | --- | --- |
-| **gsx** | **4.7 µs** | **61** |
-| templ | 6.7 µs | 204 |
+| **gsx** | **4.7 µs** | **62** |
+| templ | 6.8 µs | 204 |
 
 Escaping-heavy content (bodies full of `< > & " '`) — gsx's `html/template`-derived
 escaper never allocates:
 
 | engine | time | allocs |
 | --- | --- | --- |
-| **gsx** | **3.7 µs** | **1** |
-| templ | 6.5 µs | 143 |
+| **gsx** | **3.6 µs** | **1** |
+| templ | 6.6 µs | 143 |
 
 ## Notes
 
