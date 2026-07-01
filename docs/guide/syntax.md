@@ -44,7 +44,6 @@ golden-tested `examples/*.txtar` fixtures.
 | [Context](./syntax/context) | `context.Context` threading through render |
 | [Standard functions](./syntax/std-functions) | Built-in filter functions |
 | [Interop](./syntax/interop) | Using gsx components from plain Go |
-| [Render once](./syntax/render-once) | Deduplicating once-per-page output |
 | [Forms](./syntax/forms) | Form elements and helpers |
 :::
 

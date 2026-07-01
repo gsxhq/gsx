@@ -6,7 +6,7 @@ gsx sits between Go template engines and JSX-like markup systems: templates stay
 
 Both gsx and templ compile components to Go values with `Render(ctx, w) error`. gsx differs in surface syntax: component declarations are templ-style, while the body is JSX-style markup. This makes HTML-like structure easier to scan while keeping structural compatibility with `templ.Component`.
 
-Use gsx when you want JSX-like authoring inside Go projects. Use templ directly when you prefer templ's existing syntax, ecosystem, or render-once primitive.
+Use gsx when you want JSX-like authoring inside Go projects. Use templ directly when you prefer templ's existing syntax or ecosystem.
 
 ## gsx and html/template
 

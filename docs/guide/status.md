@@ -19,7 +19,6 @@ gsx is alpha software. It is usable end to end, but the language and APIs may st
 
 ## Known Gaps
 
-- There is no built-in render-once primitive equivalent to `templ.Once`; see [Render-once](./syntax/render-once).
 - CSP nonce threading for emitted `<script>` and `<style>` is not implemented.
 
 ## Detailed Roadmap
