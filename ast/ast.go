@@ -19,8 +19,8 @@ func (s span) End() token.Pos { return s.end }
 
 // Node is the universal base interface for every AST node.
 // All concrete types (File, GoChunk, Component, Element, Fragment, Text,
-// Interp, StaticAttr, ExprAttr, BoolAttr, SpreadAttr, MarkupAttr) implement Node
-// by embedding span.
+// Interp, StaticAttr, ExprAttr, BoolAttr, SpreadAttr, MarkupAttr, EmbeddedAttr)
+// implement Node by embedding span.
 type Node interface {
 	Pos() token.Pos
 	End() token.Pos
@@ -59,6 +59,8 @@ func SetSpan(n Node, start, end token.Pos) {
 	case *SpreadAttr:
 		v.span = s
 	case *MarkupAttr:
+		v.span = s
+	case *EmbeddedAttr:
 		v.span = s
 	case *GoBlock:
 		v.span = s
@@ -291,17 +293,25 @@ type MarkupAttr struct {
 
 func (*MarkupAttr) attrNode() {}
 
-// JSAttr is a JS-context attribute whose quoted value contains @{ } holes:
-// name="… @{ expr } …" (e.g. x-data, onclick). Segments are Text and Interp,
-// like a <script> body. Set only for attrjs.IsJSAttr names with ≥1 hole;
-// hole-free JS attributes stay StaticAttr.
-type JSAttr struct {
+type EmbeddedLang uint8
+
+const (
+	EmbeddedJS EmbeddedLang = iota + 1
+	EmbeddedCSS
+)
+
+// EmbeddedAttr is an explicit embedded-language attribute value:
+// name=js`... @{expr} ...`, name={js`...`}, name=css`...`, or name={css`...`}.
+// Segments contain *Text and *Interp only. JS interps receive JSCtx during
+// internal/jsx resolution; CSS interps use the CSS emitter directly.
+type EmbeddedAttr struct {
 	span
 	Name     string
+	Lang     EmbeddedLang
 	Segments []Markup
 }
 
-func (*JSAttr) attrNode() {}
+func (*EmbeddedAttr) attrNode() {}
 
 // GoBlock is `{{ stmt }}` — a Go-statement escape hatch in a component body.
 // Code is the trimmed Go source between the `{{` and `}}` delimiters.

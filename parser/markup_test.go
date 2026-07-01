@@ -1244,46 +1244,78 @@ func parseSingleElemAttrs(t *testing.T, src string) []ast.Attr {
 	return n.(*ast.Element).Attrs
 }
 
-func TestJSAttrSplitsHoles(t *testing.T) {
+func TestEmbeddedJSAttrDirect(t *testing.T) {
+	attrs := parseSingleElemAttrs(t, "<button @click=js`save(@{id})`></button>")
+	if len(attrs) != 1 {
+		t.Fatalf("got %d attrs, want 1: %#v", len(attrs), attrs)
+	}
+	a, ok := attrs[0].(*ast.EmbeddedAttr)
+	if !ok {
+		t.Fatalf("attr0 = %T, want *ast.EmbeddedAttr", attrs[0])
+	}
+	if a.Name != "@click" || a.Lang != ast.EmbeddedJS {
+		t.Fatalf("attr = %#v, want @click JS", a)
+	}
+	if len(a.Segments) != 3 {
+		t.Fatalf("segments = %d, want 3: %#v", len(a.Segments), a.Segments)
+	}
+	if txt, ok := a.Segments[0].(*ast.Text); !ok || txt.Value != "save(" {
+		t.Fatalf("seg0 = %#v, want Text(save()", a.Segments[0])
+	}
+	if in, ok := a.Segments[1].(*ast.Interp); !ok || in.Expr != "id" {
+		t.Fatalf("seg1 = %#v, want Interp{id}", a.Segments[1])
+	}
+	if txt, ok := a.Segments[2].(*ast.Text); !ok || txt.Value != ")" {
+		t.Fatalf("seg2 = %#v, want Text())", a.Segments[2])
+	}
+}
+
+func TestEmbeddedCSSAttrDirect(t *testing.T) {
+	attrs := parseSingleElemAttrs(t, "<div style=css`width:@{pct}%`></div>")
+	a, ok := attrs[0].(*ast.EmbeddedAttr)
+	if !ok {
+		t.Fatalf("attr0 = %T, want *ast.EmbeddedAttr", attrs[0])
+	}
+	if a.Name != "style" || a.Lang != ast.EmbeddedCSS {
+		t.Fatalf("attr = %#v, want style CSS", a)
+	}
+}
+
+func TestEmbeddedJSAttrBraced(t *testing.T) {
+	attrs := parseSingleElemAttrs(t, "<button @click={js`save(@{id})`}></button>")
+	a, ok := attrs[0].(*ast.EmbeddedAttr)
+	if !ok {
+		t.Fatalf("attr0 = %T, want *ast.EmbeddedAttr", attrs[0])
+	}
+	if a.Name != "@click" || a.Lang != ast.EmbeddedJS {
+		t.Fatalf("attr = %#v, want @click JS", a)
+	}
+}
+
+func TestQuotedJSAttrHoleStaysStatic(t *testing.T) {
+	attrs := parseSingleElemAttrs(t, `<div x-data="{ id: @{id} }"></div>`)
+	a, ok := attrs[0].(*ast.StaticAttr)
+	if !ok || a.Name != "x-data" || a.Value != "{ id: @{id} }" {
+		t.Fatalf("attr0 = %#v, want StaticAttr with literal @{id}", attrs[0])
+	}
+}
+
+func TestQuotedXDataHoleStaysStatic(t *testing.T) {
 	attrs := parseSingleElemAttrs(t, `<div x-data="{ a: @{ x } }"></div>`)
 	if len(attrs) != 1 {
 		t.Fatalf("got %d attrs, want 1: %#v", len(attrs), attrs)
 	}
-	a, ok := attrs[0].(*ast.JSAttr)
-	if !ok || a.Name != "x-data" {
-		t.Fatalf("attr0 = %#v, want JSAttr{x-data}", attrs[0])
-	}
-	if len(a.Segments) != 3 {
-		t.Fatalf("got %d segments: %#v", len(a.Segments), a.Segments)
-	}
-	if txt, ok := a.Segments[0].(*ast.Text); !ok || txt.Value != "{ a: " {
-		t.Fatalf("seg0 = %#v, want Text %q", a.Segments[0], "{ a: ")
-	}
-	if in, ok := a.Segments[1].(*ast.Interp); !ok || in.Expr != "x" {
-		t.Fatalf("seg1 = %#v, want Interp{x}", a.Segments[1])
-	}
-	if txt, ok := a.Segments[2].(*ast.Text); !ok || txt.Value != " }" {
-		t.Fatalf("seg2 = %#v, want Text %q", a.Segments[2], " }")
+	a, ok := attrs[0].(*ast.StaticAttr)
+	if !ok || a.Name != "x-data" || a.Value != "{ a: @{ x } }" {
+		t.Fatalf("attr0 = %#v, want StaticAttr{x-data}", attrs[0])
 	}
 }
 
-func TestJSAttrOnclick(t *testing.T) {
+func TestQuotedOnclickHoleStaysStatic(t *testing.T) {
 	attrs := parseSingleElemAttrs(t, `<div onclick="alert(@{ n })"></div>`)
-	a, ok := attrs[0].(*ast.JSAttr)
-	if !ok || a.Name != "onclick" {
-		t.Fatalf("attr0 = %#v, want JSAttr{onclick}", attrs[0])
-	}
-	if len(a.Segments) != 3 {
-		t.Fatalf("got %d segments: %#v", len(a.Segments), a.Segments)
-	}
-	if txt, ok := a.Segments[0].(*ast.Text); !ok || txt.Value != "alert(" {
-		t.Fatalf("seg0 = %#v, want Text %q", a.Segments[0], "alert(")
-	}
-	if in, ok := a.Segments[1].(*ast.Interp); !ok || in.Expr != "n" {
-		t.Fatalf("seg1 = %#v, want Interp{n}", a.Segments[1])
-	}
-	if txt, ok := a.Segments[2].(*ast.Text); !ok || txt.Value != ")" {
-		t.Fatalf("seg2 = %#v, want Text %q", a.Segments[2], ")")
+	a, ok := attrs[0].(*ast.StaticAttr)
+	if !ok || a.Name != "onclick" || a.Value != "alert(@{ n })" {
+		t.Fatalf("attr0 = %#v, want StaticAttr{onclick}", attrs[0])
 	}
 }
 
@@ -1295,28 +1327,10 @@ func TestNonJSAttrHoleStaysLiteral(t *testing.T) {
 	}
 }
 
-func TestJSAttrNoHoleStaysStatic(t *testing.T) {
+func TestQuotedXDataNoHoleStaysStatic(t *testing.T) {
 	attrs := parseSingleElemAttrs(t, `<div x-data="{ open: false }"></div>`)
 	a, ok := attrs[0].(*ast.StaticAttr)
 	if !ok || a.Name != "x-data" || a.Value != "{ open: false }" {
 		t.Fatalf("attr0 = %#v, want StaticAttr{x-data, { open: false }}", attrs[0])
-	}
-}
-
-func TestJSAttrHoleWithInnerStringLiteral(t *testing.T) {
-	attrs := parseSingleElemAttrs(t, `<div x-data="{ s: @{ "v" } }"></div>`)
-	a, ok := attrs[0].(*ast.JSAttr)
-	if !ok || a.Name != "x-data" {
-		t.Fatalf("attr0 = %#v, want JSAttr{x-data}", attrs[0])
-	}
-	if len(a.Segments) != 3 {
-		t.Fatalf("got %d segments: %#v", len(a.Segments), a.Segments)
-	}
-	in, ok := a.Segments[1].(*ast.Interp)
-	if !ok || in.Expr != `"v"` {
-		t.Fatalf("seg1 = %#v, want Interp{\"v\"}", a.Segments[1])
-	}
-	if txt, ok := a.Segments[2].(*ast.Text); !ok || txt.Value != " }" {
-		t.Fatalf("seg2 = %#v, want trailing Text %q", a.Segments[2], " }")
 	}
 }
