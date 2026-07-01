@@ -663,11 +663,13 @@ func writeAttrInline(b *strings.Builder, a ast.Attr) {
 			b.WriteString(markupInlineString(n))
 		}
 		b.WriteString(" }")
-	case *ast.JSAttr:
+	case *ast.EmbeddedAttr:
 		b.WriteString(v.Name)
-		b.WriteString(`="`)
-		writeRawHoleString(b, v.Segments)
-		b.WriteString(`"`)
+		b.WriteString("=")
+		b.WriteString(embeddedLangName(v.Lang))
+		b.WriteString("`")
+		writeEmbeddedAttrSegments(b, v.Segments)
+		b.WriteString("`")
 	case *ast.OrderedAttrsAttr:
 		b.WriteString(v.Name)
 		if len(v.Pairs) == 0 {
@@ -687,6 +689,36 @@ func writeAttrInline(b *strings.Builder, a ast.Attr) {
 	default:
 		// Attribute types are AST-defined and enumerable; an unrecognized type
 		// here is a programming error, not user input — skip it explicitly.
+	}
+}
+
+func embeddedLangName(lang ast.EmbeddedLang) string {
+	switch lang {
+	case ast.EmbeddedJS:
+		return "js"
+	case ast.EmbeddedCSS:
+		return "css"
+	default:
+		return "unknown"
+	}
+}
+
+func writeEmbeddedAttrSegments(b *strings.Builder, nodes []ast.Markup) {
+	for _, n := range nodes {
+		switch v := n.(type) {
+		case *ast.Text:
+			b.WriteString(strings.ReplaceAll(v.Value, "`", "\\`"))
+		case *ast.Interp:
+			b.WriteString("@{")
+			b.WriteString(fmtExpr(v.Expr))
+			for _, s := range v.Stages {
+				b.WriteString(" |> ")
+				b.WriteString(pipeStageStr(s))
+			}
+			b.WriteString("}")
+		default:
+			b.WriteString(markupInlineString(n))
+		}
 	}
 }
 

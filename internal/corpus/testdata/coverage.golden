@@ -88,6 +88,7 @@ components/component_fallthrough_pipeline	diag gen render
 components/component_prop_pipeline	diag gen render
 components/component_spread	diag gen render
 components/component_spread_with_class	diag gen render
+components/embedded_attr_rejected	diag(error)
 components/handwritten_func_with_props	diag render
 components/named_slot	diag render
 components/named_slot_bad_name	diag(error)
@@ -314,6 +315,7 @@ style/composed_injection	diag gen render
 style/composed_rawcss_optout	diag gen render
 style/explicit_css_attr_hostile	diag render
 style/explicit_css_attr_literal	diag render
+style/explicit_css_attr_pipeline	diag render
 style/loop_var_in_style	diag render
 style/minify_block	diag gen render
 style/part_tuple	diag gen render
@@ -352,4 +354,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 354 cases (render: 267, error: 65, gen-pinned: 138)
+TOTAL: 356 cases (render: 268, error: 66, gen-pinned: 138)

@@ -139,6 +139,10 @@ func zeroSpans(n ast.Node) {
 				}
 			case *ast.GoBlock:
 				v.CodePos = 0
+			case *ast.EmbeddedAttr:
+				for _, m := range v.Segments {
+					zeroSpans(m)
+				}
 			case *ast.OrderedAttrsAttr:
 				for i := range v.Pairs {
 					ast.SetSpan(&v.Pairs[i], 0, 0)
@@ -250,6 +254,10 @@ func canonGoAttr(a ast.Attr) {
 		}
 	case *ast.MarkupAttr:
 		for _, m := range v.Value {
+			canonGo(m)
+		}
+	case *ast.EmbeddedAttr:
+		for _, m := range v.Segments {
 			canonGo(m)
 		}
 	case *ast.OrderedAttrsAttr:

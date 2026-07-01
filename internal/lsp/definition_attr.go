@@ -176,7 +176,7 @@ func attrName(a gsxast.Attr) (string, bool) {
 		return t.Name, true
 	case *gsxast.MarkupAttr:
 		return t.Name, true
-	case *gsxast.JSAttr:
+	case *gsxast.EmbeddedAttr:
 		return t.Name, true
 	default:
 		return "", false

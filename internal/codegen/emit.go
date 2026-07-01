@@ -1404,6 +1404,17 @@ func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, tab
 	return true
 }
 
+func embeddedLangName(lang ast.EmbeddedLang) string {
+	switch lang {
+	case ast.EmbeddedJS:
+		return "js"
+	case ast.EmbeddedCSS:
+		return "css"
+	default:
+		return fmt.Sprintf("unknown(%d)", lang)
+	}
+}
+
 // emitEmbeddedJSAttr emits an explicit JS attribute literal whose quoted value
 // is literal JS with @{ } holes. Static JS text is
 // HTML-attr-escaped at codegen so <,>,& survive the attribute; each hole is
@@ -2703,6 +2714,9 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				oa:        t,
 				oaPairs:   pairEntries,
 			})
+		case *ast.EmbeddedAttr:
+			msg := fmt.Sprintf("embedded %s attribute literal %q cannot be used as a component prop on <%s>; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, el.Tag)
+			return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 		default:
 			msg := fmt.Sprintf("unknown attribute %T on component (<%s>)", a, el.Tag)
 			return nil, "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}
@@ -2949,6 +2963,9 @@ func condBranchAttrs(attrs []ast.Attr, rtPkg, tag string, mergeExpr string, tabl
 			}
 			maps.Copy(usedPkgs, used)
 			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), entry))
+		case *ast.EmbeddedAttr:
+			msg := fmt.Sprintf("embedded %s attribute literal %q cannot be used as a component prop on <%s>; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, tag)
+			return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 		default:
 			msg := fmt.Sprintf("unsupported attribute %T in a conditional branch (<%s>)", a, tag)
 			return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}
