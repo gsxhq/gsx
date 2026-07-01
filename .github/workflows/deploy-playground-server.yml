@@ -1,0 +1,123 @@
+name: Deploy playground server
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/deploy-playground-server.yml'
+      - 'cloudbuild.yaml'
+      - 'playground/server/**'
+      - 'playground/playbundle/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '*.go'
+      - 'ast/**'
+      - 'gen/**'
+      - 'internal/**'
+      - 'parser/**'
+      - 'std/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: playground-server-deploy
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: '1.26.1'
+  ALLOWED_ORIGIN: https://gsxhq.github.io
+
+jobs:
+  deploy:
+    name: build, deploy, smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Verify playground server
+        run: make ci-playground
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Build image with Cloud Build
+        env:
+          IMAGE: gcr.io/${{ vars.GCP_PROJECT_ID }}/${{ vars.CLOUD_RUN_SERVICE }}:${{ github.sha }}
+        run: |
+          gcloud builds submit \
+            --config cloudbuild.yaml \
+            --substitutions "_IMAGE=$IMAGE" \
+            --project "${{ vars.GCP_PROJECT_ID }}" \
+            .
+
+      - name: Deploy to Cloud Run
+        env:
+          IMAGE: gcr.io/${{ vars.GCP_PROJECT_ID }}/${{ vars.CLOUD_RUN_SERVICE }}:${{ github.sha }}
+          RUNTIME_SERVICE_ACCOUNT: gsx-playground-sandbox@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+        run: |
+          gcloud run deploy "${{ vars.CLOUD_RUN_SERVICE }}" \
+            --project "${{ vars.GCP_PROJECT_ID }}" \
+            --region "${{ vars.CLOUD_RUN_REGION }}" \
+            --image "$IMAGE" \
+            --service-account "$RUNTIME_SERVICE_ACCOUNT" \
+            --allow-unauthenticated \
+            --memory 1Gi \
+            --cpu 1 \
+            --concurrency 4 \
+            --timeout 30 \
+            --min-instances 0 \
+            --max-instances 3 \
+            --set-env-vars "ALLOWED_ORIGIN=$ALLOWED_ORIGIN"
+
+      - name: Smoke test deployed renderer
+        env:
+          SERVICE: ${{ vars.CLOUD_RUN_SERVICE }}
+          PROJECT: ${{ vars.GCP_PROJECT_ID }}
+          REGION: ${{ vars.CLOUD_RUN_REGION }}
+        run: |
+          url="$(gcloud run services describe "$SERVICE" \
+            --project "$PROJECT" \
+            --region "$REGION" \
+            --format 'value(status.url)')"
+
+          cat > /tmp/spread-attrs.json <<'JSON'
+          {
+            "gsx": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Card(extra gsx.Attrs) {\n\t<div { extra... }>content</div>\n}\n",
+            "invoke": "Card(CardProps{Extra: gsx.Attrs{{Key: \"id\", Value: \"box\"}, {Key: \"data-active\", Value: \"true\"}}})"
+          }
+          JSON
+
+          python3 - "$url" <<'PY'
+          import json
+          import sys
+          import urllib.request
+
+          url = sys.argv[1].rstrip("/") + "/render"
+          with open("/tmp/spread-attrs.json", "rb") as f:
+              body = f.read()
+          req = urllib.request.Request(
+              url,
+              data=body,
+              headers={"Content-Type": "application/json"},
+              method="POST",
+          )
+          with urllib.request.urlopen(req, timeout=30) as resp:
+              data = json.loads(resp.read().decode("utf-8"))
+          expected = '<div id="box" data-active="true">content</div>'
+          if data.get("error") or data.get("html") != expected:
+              print(json.dumps(data, indent=2), file=sys.stderr)
+              raise SystemExit("spread-attrs smoke test failed")
+          print(f"smoke ok: {data['html']}")
+          PY
