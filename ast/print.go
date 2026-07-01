@@ -197,6 +197,12 @@ func fprintNode(w io.Writer, node Node, depth int) error {
 				}
 				continue
 			}
+			if part.CSSSegments != nil {
+				if _, err := fmt.Fprintf(w, "%s  ClassPart cssSegments=%d cond=%q\n", indent, len(part.CSSSegments), part.Cond); err != nil {
+					return err
+				}
+				continue
+			}
 			if _, err := fmt.Fprintf(w, "%s  ClassPart expr=%q cond=%q\n", indent, part.Expr, part.Cond); err != nil {
 				return err
 			}

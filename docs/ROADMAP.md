@@ -71,7 +71,8 @@ render goldens.
    (URL → scheme-allow-list + entity-escape `gw.URL`; plain → §5 type-aware
    `gw.AttrValue`; CSS `style`/`<style>` → auto value-filter `gw.CSS`/`gw.Style`
    with a `gsx.RawCSS` opt-out; explicit attribute-local JavaScript/CSS literals
-   (`` js`...` `` / `` css`...` ``) with escaped `@{ }` holes — see Security). Plus
+   (`` js`...` `` / `` css`...` ``) with escaped `@{ }` holes and escaped literal
+   delimiters — see Security). Plus
    composable **`class`** (`gw.Class`), composable **`style`** on elements
    (`gw.Style`/`gsx.StyleString`), **element spread** `{...attrs}` (`gw.Spread`),
    and **conditional** `{ if cond { attr } else { attr } }`. Pipelines `|>` work
@@ -258,8 +259,9 @@ security design doc.
   holes. Quoted attributes are literal strings; `attr={expr}` is ordinary
   attribute escaping unless the attr is URL-context by name.
 - **CSS** — `<style>` bodies + composable `style={...}` values + `@{ x }` holes
-  inside explicit attribute-local `` css`...` `` literals route untrusted values
-  through `gw.CSS` / `gw.Style` / `FilterCSS` (faithful port of html/template's
+  inside explicit attribute-local `` css`...` `` literals, including
+  `` css`...` `` contributions inside `style={...}`, route untrusted values through
+  `gw.CSS` / `gw.Style` / `FilterCSS` (faithful port of html/template's
   `cssValueFilter`); numbers are raw; `gsx.RawCSS` opts out. Static `<style>` CSS
   is minified at codegen time (`internal/cssmin`, hole-aware).
 

@@ -18,34 +18,7 @@ import (
 // `expr : cond` conditional from its condition. A trailing comma yields no empty
 // part.
 func (p *parser) splitComposed(name, src string, base int) ([]ast.ClassPart, error) {
-	fset := token.NewFileSet()
-	file := fset.AddFile("", fset.Base(), len(src))
-	var s scanner.Scanner
-	s.Init(file, []byte(src), func(token.Position, string) {}, scanner.ScanComments)
-
-	var commas, colons []int
-	depth := 0
-	for {
-		pos, tok, _ := s.Scan()
-		if tok == token.EOF {
-			break
-		}
-		off := fset.Position(pos).Offset
-		switch tok {
-		case token.LPAREN, token.LBRACK, token.LBRACE:
-			depth++
-		case token.RPAREN, token.RBRACK, token.RBRACE:
-			depth--
-		case token.COMMA:
-			if depth == 0 {
-				commas = append(commas, off)
-			}
-		case token.COLON:
-			if depth == 0 {
-				colons = append(colons, off)
-			}
-		}
-	}
+	commas, colons := composedDelims(src)
 
 	// Segment boundaries: [-1] + commas + [len]. Each segment is (start, end).
 	bounds := make([]int, 0, len(commas)+2)
@@ -64,6 +37,7 @@ func (p *parser) splitComposed(name, src string, base int) ([]ast.ClassPart, err
 		// Detect a leading control-flow keyword (if/switch) and parse the value-form
 		// instead of the normal expr:cond pattern.
 		segSrc := src[segStart:segEnd]
+		trimOff := len(segSrc) - len(strings.TrimLeft(segSrc, " \t\r\n"))
 		if kw := leadingKeyword(segSrc); kw == "if" || kw == "switch" {
 			// A depth-0 colon in a value-form segment is a disallowed guard.
 			for _, c := range colons {
@@ -73,7 +47,6 @@ func (p *parser) splitComposed(name, src string, base int) ([]ast.ClassPart, err
 			}
 			// Compute the absolute offset of the keyword's first byte (skip any
 			// leading whitespace so the parsers' at+len("kw") arithmetic is correct).
-			trimOff := len(segSrc) - len(strings.TrimLeft(segSrc, " \t\r\n"))
 			cf, err := p.parseValueCF(base+segStart+trimOff, kw)
 			if err != nil {
 				return nil, err
@@ -96,6 +69,39 @@ func (p *parser) splitComposed(name, src string, base int) ([]ast.ClassPart, err
 				colon = c
 				break
 			}
+		}
+		if strings.HasPrefix(segSrc[trimOff:], "css`") {
+			if name != "style" {
+				return nil, p.errorf(p.posAt(base+segStart+trimOff), "css literal parts are only valid in style={...}")
+			}
+			literalOff := base + segStart + trimOff
+			old := p.i
+			p.i = literalOff
+			lang, segments, err := p.parseEmbeddedAttrLiteral()
+			literalEnd := p.i
+			p.i = old
+			if err != nil {
+				return nil, err
+			}
+			if lang != ast.EmbeddedCSS {
+				return nil, p.errorf(p.posAt(literalOff), "expected css literal in style={...}")
+			}
+			partEnd := segEnd
+			var condSrc string
+			if colon >= 0 {
+				partEnd = colon
+				condSrc = strings.TrimSpace(src[colon+1 : segEnd])
+				condPos := base + colon + 1 + leadingSpaceLen(src[colon+1:segEnd])
+				if err := validateGoExpr(condSrc); err != nil {
+					return nil, p.errorf(p.posAt(condPos), "invalid %s condition %q: %v", name, condSrc, err)
+				}
+			}
+			if rest := strings.TrimSpace(src[literalEnd-base : partEnd]); rest != "" {
+				return nil, p.errorf(p.posAt(literalEnd), "unexpected %q after css literal in style={...}", rest)
+			}
+			parts = append(parts, ast.ClassPart{CSSSegments: segments, Cond: condSrc})
+			ast.SetSpan(&parts[len(parts)-1], p.posAt(base+segStart), p.posAt(base+segEnd))
+			continue
 		}
 		// The expr segment (before any `: cond` guard) may carry a `|>` pipeline.
 		// The guard Cond is a plain boolean expression and is NEVER piped.
@@ -351,7 +357,7 @@ func (p *parser) parseEmbeddedSegments(lang ast.EmbeddedLang, opener int) ([]ast
 	segStartPos := p.posAt(segStart)
 	flush := func(end int) {
 		if end > segStart {
-			txt := &ast.Text{Value: p.src[segStart:end]}
+			txt := &ast.Text{Value: unescapeEmbeddedBackticks(p.src[segStart:end])}
 			ast.SetSpan(txt, segStartPos, p.posAt(end))
 			segments = append(segments, txt)
 		}
@@ -396,6 +402,27 @@ func (p *parser) embeddedBacktickEscaped(backtick int) bool {
 		n++
 	}
 	return n%2 == 1
+}
+
+func unescapeEmbeddedBackticks(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '`' && backtickEscapedIn(s, i) {
+			if b.Cap() == 0 {
+				b.Grow(len(s))
+				b.WriteString(s[:i-1])
+			}
+			b.WriteByte('`')
+			continue
+		}
+		if b.Cap() != 0 {
+			b.WriteByte(s[i])
+		}
+	}
+	if b.Cap() == 0 {
+		return s
+	}
+	return b.String()
 }
 
 // parseAttrsUntilBrace parses an attribute list terminated by '}' (the body of a

@@ -45,6 +45,21 @@ you control, cast it to `gsx.RawCSS`:
 style={ "color: " + gsx.RawCSS(trustedColor) }
 ```
 
+A `` css`...` `` literal can be one contribution in the same list when a
+declaration is easier to author as CSS text:
+
+````gsx
+style={
+	"display: none": hidden,
+	css`color:@{accent};width:@{width}px`,
+}
+````
+
+`@{...}` holes inside that contribution are CSS-value filtered, then the whole
+style attribute is still merged and attribute-escaped like any other composed
+style. The braces are required here because the literal is part of a larger
+`style={...}` composition.
+
 When a caller also supplies a `style` attribute, the component's composed style and the caller's style are merged per CSS property — the full story is in the [Class & style merging](#class-style-merging) section below.
 
 ## Class & style merging {#class-style-merging}

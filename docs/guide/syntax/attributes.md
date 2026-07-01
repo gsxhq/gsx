@@ -10,6 +10,9 @@ For `js` and `css` attribute literals, braces are optional: `` name=js`...` ``
 and `` name={js`...`} `` are equivalent, as are `` name=css`...` `` and
 `` name={css`...`} ``.
 
+When a CSS literal is one item inside a composed style list, keep the list
+braces: `` style={ "display:none": hidden, css`color:@{color}` } ``.
+
 ## Expression attributes
 
 Write `name={expr}` to bind any Go expression to an attribute. The expression can be a variable, a field access, an arithmetic expression, a function call, or a literal value.
@@ -121,5 +124,9 @@ handlers, Alpine/HTMX expressions, or other JavaScript-valued attributes, and
 position. Plain `hx-on:*={expr}` or `@click={expr}` attributes do not switch to a
 JavaScript context by name; use a `` js`...` `` literal when the attribute value is
 JavaScript.
+
+Inside `` js`...` `` or `` css`...` ``, write `` \` `` for a literal backtick.
+The backslash escapes the gsx delimiter and is not part of the embedded
+JavaScript or CSS source.
 
 For a complete reference of escaping contexts and the opt-out helpers (`gsx.Raw`, `gsx.RawURL`, `gsx.RawJS`, `gsx.RawCSS`), see [Escaping](./escaping).

@@ -5,6 +5,7 @@ import (
 	goparser "go/parser"
 	"go/scanner"
 	"go/token"
+	"strings"
 )
 
 // goExprEnd returns the index of the `}` that matches the `{` at src[open],
@@ -12,29 +13,141 @@ import (
 // comments do not count and (b) any markup prose BEFORE `open` is never
 // tokenized. ok is false if no matching brace is found.
 func goExprEnd(src string, open int) (int, bool) {
-	sub := src[open:]
-	fset := token.NewFileSet()
-	file := fset.AddFile("", fset.Base(), len(sub))
-	var s scanner.Scanner
-	// ScanComments so comment text (which may contain braces) is consumed as a unit.
-	s.Init(file, []byte(sub), nil, scanner.ScanComments)
-
 	depth := 0
-	for {
-		pos, tok, _ := s.Scan()
-		if tok == token.EOF {
-			return 0, false
+	for i := open; i < len(src); {
+		if end, ok := skipGSXEmbeddedLiteral(src, i); ok {
+			i = end
+			continue
 		}
-		switch tok {
-		case token.LBRACE, token.LPAREN, token.LBRACK:
+		if end, ok := skipQuotedOrComment(src, i); ok {
+			i = end
+			continue
+		}
+		switch src[i] {
+		case '{', '(', '[':
 			depth++
-		case token.RBRACE, token.RPAREN, token.RBRACK:
+		case '}', ')', ']':
 			depth--
-			if depth == 0 && tok == token.RBRACE {
-				return open + fset.Position(pos).Offset, true
+			if depth == 0 && src[i] == '}' {
+				return i, true
 			}
 		}
+		i++
 	}
+	return 0, false
+}
+
+func composedDelims(src string) (commas, colons []int) {
+	depth := 0
+	for i := 0; i < len(src); {
+		if end, ok := skipGSXEmbeddedLiteral(src, i); ok {
+			i = end
+			continue
+		}
+		if end, ok := skipQuotedOrComment(src, i); ok {
+			i = end
+			continue
+		}
+		switch src[i] {
+		case '{', '(', '[':
+			depth++
+		case '}', ')', ']':
+			depth--
+		case ',':
+			if depth == 0 {
+				commas = append(commas, i)
+			}
+		case ':':
+			if depth == 0 {
+				colons = append(colons, i)
+			}
+		}
+		i++
+	}
+	return commas, colons
+}
+
+func skipGSXEmbeddedLiteral(src string, i int) (int, bool) {
+	switch {
+	case hasIdentBoundary(src, i) && strings.HasPrefix(src[i:], "js`"):
+		return embeddedLiteralEnd(src, i+len("js`"))
+	case hasIdentBoundary(src, i) && strings.HasPrefix(src[i:], "css`"):
+		return embeddedLiteralEnd(src, i+len("css`"))
+	default:
+		return 0, false
+	}
+}
+
+func hasIdentBoundary(src string, i int) bool {
+	return i == 0 || !isIdentByte(src[i-1])
+}
+
+func embeddedLiteralEnd(src string, i int) (int, bool) {
+	for i < len(src) {
+		if src[i] == '`' && !backtickEscapedIn(src, i) {
+			return i + 1, true
+		}
+		i++
+	}
+	return len(src), true
+}
+
+func backtickEscapedIn(src string, backtick int) bool {
+	n := 0
+	for i := backtick - 1; i >= 0 && src[i] == '\\'; i-- {
+		n++
+	}
+	return n%2 == 1
+}
+
+func skipQuotedOrComment(src string, i int) (int, bool) {
+	switch src[i] {
+	case '"', '\'':
+		quote := src[i]
+		i++
+		for i < len(src) {
+			if src[i] == '\\' {
+				i += 2
+				continue
+			}
+			if src[i] == quote {
+				return i + 1, true
+			}
+			i++
+		}
+		return len(src), true
+	case '`':
+		i++
+		for i < len(src) && src[i] != '`' {
+			i++
+		}
+		if i < len(src) {
+			return i + 1, true
+		}
+		return len(src), true
+	case '/':
+		if i+1 >= len(src) {
+			return 0, false
+		}
+		switch src[i+1] {
+		case '/':
+			i += 2
+			for i < len(src) && src[i] != '\n' {
+				i++
+			}
+			return i, true
+		case '*':
+			i += 2
+			for i+1 < len(src) && !(src[i] == '*' && src[i+1] == '/') {
+				i++
+			}
+			if i+1 < len(src) {
+				return i + 2, true
+			}
+			return len(src), true
+		}
+	}
+	return 0, false
 }
 
 // scanToBlockBrace finds the byte offset of the '{' that opens a control-flow

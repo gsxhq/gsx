@@ -833,7 +833,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 								emitSkeletonLine(sb, fset, arm.Pos())
 								fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 							}
-						} else if ca.Parts[i].Cond == "" {
+						} else if ca.Parts[i].Cond == "" && ca.Parts[i].CSSSegments == nil {
 							probe, perr := probeExpr(ca.Parts[i].Expr, ca.Parts[i].Stages, table, usedFilters)
 							if perr != nil {
 								probe = strings.TrimSpace(ca.Parts[i].Expr)
@@ -934,7 +934,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 								emitSkeletonLine(sb, fset, arm.Pos())
 								fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 							}
-						} else if ca.Parts[i].Cond == "" {
+						} else if ca.Parts[i].Cond == "" && ca.Parts[i].CSSSegments == nil {
 							// Unconditional plain part: harvest its type for (T, error) unwrap.
 							// _gsxuse also serves as a liveness reference (replaces _ = (expr)).
 							probe, perr := probeExpr(ca.Parts[i].Expr, ca.Parts[i].Stages, table, usedFilters)
@@ -1574,7 +1574,7 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 								for _, arm := range valueFormArms(ca.Parts[i].CF) {
 									*out = append(*out, arm)
 								}
-							} else if ca.Parts[i].Cond == "" {
+							} else if ca.Parts[i].Cond == "" && ca.Parts[i].CSSSegments == nil {
 								*out = append(*out, &ca.Parts[i])
 							}
 						}
@@ -1615,7 +1615,7 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 						for _, arm := range valueFormArms(ca.Parts[i].CF) {
 							*out = append(*out, arm)
 						}
-					} else if ca.Parts[i].Cond == "" {
+					} else if ca.Parts[i].Cond == "" && ca.Parts[i].CSSSegments == nil {
 						// Unconditional plain part: harvest its type for (T, error) unwrap.
 						*out = append(*out, &ca.Parts[i])
 					}
@@ -1720,6 +1720,12 @@ func walkLivenessAttrExprs(attrs []gsxast.Attr, table filterTable, usedFilters m
 		switch at := a.(type) {
 		case *gsxast.ClassAttr:
 			for _, p := range at.Parts {
+				if p.CSSSegments != nil {
+					if c := strings.TrimSpace(p.Cond); c != "" {
+						fn(c)
+					}
+					continue
+				}
 				if p.CF == nil && p.Cond == "" {
 					// Unconditional plain parts now get _gsxuse probes in emitProbes
 					// (which also provide liveness). Skip here to avoid a duplicate
@@ -1755,6 +1761,12 @@ func walkMarkupAttrs(attrs []gsxast.Attr, fn func(value []gsxast.Markup)) {
 			// need types — yield their Segments so they are collected and probed in
 			// the SAME order by collectExprs and emitProbes.
 			fn(t.Segments)
+		case *gsxast.ClassAttr:
+			for i := range t.Parts {
+				if t.Parts[i].CSSSegments != nil {
+					fn(t.Parts[i].CSSSegments)
+				}
+			}
 		case *gsxast.CondAttr:
 			walkMarkupAttrs(t.Then, fn)
 			walkMarkupAttrs(t.Else, fn)
@@ -1949,6 +1961,12 @@ func collectAttrSrc(attrs []gsxast.Attr, add func(string)) {
 		switch at := a.(type) {
 		case *gsxast.ClassAttr:
 			for _, p := range at.Parts {
+				if p.CSSSegments != nil {
+					if p.Cond != "" {
+						add(p.Cond)
+					}
+					continue
+				}
 				if p.CF != nil {
 					addValueCFSrc(p.CF, add)
 					continue

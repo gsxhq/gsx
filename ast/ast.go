@@ -377,18 +377,22 @@ type CondAttr struct {
 func (*CondAttr) attrNode() {}
 
 // ClassPart is one contribution in a composable class/style list: an
-// unconditional Expr, or Expr emitted when Cond is true. Cond == "" → always.
+// unconditional Expr, Expr emitted when Cond is true, an explicit CSS literal
+// inside style={...}, or a value-form if/switch. Cond == "" → always.
 // When Stages is non-empty, Expr is the pipeline seed and Stages are applied
 // left-to-right (`seed |> s0 |> s1 ...`), mirroring Interp.Stages; the guard Cond
 // is NEVER piped. It is a Node (span embedded) so *ClassPart can be keyed in the
 // resolved map for (T, error) auto-unwrap on unconditional plain parts.
-// When CF != nil, this is a value-form if/switch; Expr/Cond/Stages are unused.
+// When CSSSegments != nil, this is style={ ..., css`...` }; Expr/Cond/Stages/CF
+// are unused. When CF != nil, this is a value-form if/switch; Expr/Cond/Stages
+// and CSSSegments are unused.
 type ClassPart struct {
 	span
-	Expr   string
-	Cond   string
-	Stages []PipeStage
-	CF     *ValueCF // when non-nil, value-form if/switch; Expr/Cond/Stages unused
+	Expr        string
+	Cond        string
+	Stages      []PipeStage
+	CSSSegments []Markup
+	CF          *ValueCF
 }
 
 // ClassAttr is `class={ … }` / `style={ … }` — a composable contribution list.
@@ -555,6 +559,9 @@ func Inspect(node Node, f func(Node) bool) {
 			Inspect(&n.Parts[i], f)
 		}
 	case *ClassPart:
+		for _, m := range n.CSSSegments {
+			Inspect(m, f)
+		}
 		if n.CF != nil {
 			Inspect(n.CF, f)
 		}

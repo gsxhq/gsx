@@ -281,6 +281,13 @@ func (p *printer) classPartDoc(part ast.ClassPart) pretty.Doc {
 	if part.CF != nil {
 		return p.valueCFDoc(part.CF)
 	}
+	if part.CSSSegments != nil {
+		seg := []pretty.Doc{pretty.Text(embeddedLiteralString(ast.EmbeddedCSS, part.CSSSegments))}
+		if part.Cond != "" {
+			seg = append(seg, pretty.Text(": "), pretty.Text(fmtExpr(part.Cond)))
+		}
+		return pretty.Concat(seg...)
+	}
 	seg := []pretty.Doc{fmtExprDoc(part.Expr)}
 	for _, s := range part.Stages {
 		seg = append(seg, pretty.Text(" |> "), pretty.Text(pipeStageStr(s)))
@@ -641,10 +648,14 @@ func writeAttrInline(b *strings.Builder, a ast.Attr) {
 			if i > 0 {
 				b.WriteString(", ")
 			}
-			b.WriteString(fmtExpr(part.Expr))
-			for _, s := range part.Stages {
-				b.WriteString(" |> ")
-				b.WriteString(pipeStageStr(s))
+			if part.CSSSegments != nil {
+				b.WriteString(embeddedLiteralString(ast.EmbeddedCSS, part.CSSSegments))
+			} else {
+				b.WriteString(fmtExpr(part.Expr))
+				for _, s := range part.Stages {
+					b.WriteString(" |> ")
+					b.WriteString(pipeStageStr(s))
+				}
 			}
 			if part.Cond != "" {
 				b.WriteString(": ")
@@ -720,6 +731,15 @@ func writeEmbeddedAttrSegments(b *strings.Builder, nodes []ast.Markup) {
 			b.WriteString(markupInlineString(n))
 		}
 	}
+}
+
+func embeddedLiteralString(lang ast.EmbeddedLang, nodes []ast.Markup) string {
+	var b strings.Builder
+	b.WriteString(embeddedLangName(lang))
+	b.WriteString("`")
+	writeEmbeddedAttrSegments(&b, nodes)
+	b.WriteString("`")
+	return b.String()
 }
 
 func writeEmbeddedLiteralText(b *strings.Builder, s string) {

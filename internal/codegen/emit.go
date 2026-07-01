@@ -1675,6 +1675,29 @@ func composedParts(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports
 			parts = append(parts, fmt.Sprintf("gsx.Class(%s)", tmp))
 			continue
 		}
+		if p.CSSSegments != nil {
+			if !style {
+				bag.Errorf(p.Pos(), p.End(), "unsupported-class-part", "css literal parts are only valid in style={...}")
+				return nil, false
+			}
+			val, ok := cssLiteralStylePartExpr(b, p.CSSSegments, resolved, table, imports, interpTemp, bag)
+			if !ok {
+				return nil, false
+			}
+			if p.Cond == "" {
+				parts = append(parts, fmt.Sprintf("gsx.Class(%s)", val))
+				continue
+			}
+			cond := strings.TrimSpace(p.Cond)
+			if ordered {
+				tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+				*interpTemp++
+				fmt.Fprintf(b, "\t\t%s := %s\n", tmp, cond)
+				cond = tmp
+			}
+			parts = append(parts, fmt.Sprintf("gsx.ClassIf(%s, %s)", val, cond))
+			continue
+		}
 		expr, ok := classPartExpr(*p, a, table, imports, bag)
 		if !ok {
 			return nil, false
@@ -1713,6 +1736,46 @@ func composedParts(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports
 		parts = append(parts, fmt.Sprintf("gsx.ClassIf(%s, %s)", val, cond))
 	}
 	return parts, true
+}
+
+func cssLiteralStylePartExpr(b *bytes.Buffer, segments []ast.Markup, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) (string, bool) {
+	parts := make([]string, 0, len(segments))
+	for _, seg := range segments {
+		switch s := seg.(type) {
+		case *ast.Text:
+			if s.Value != "" {
+				parts = append(parts, strconv.Quote(s.Value))
+			}
+		case *ast.Interp:
+			expr := strings.TrimSpace(s.Expr)
+			if len(s.Stages) > 0 {
+				lowered, usedPkgs, err := lowerPipe(s.Expr, s.Stages, table)
+				if err != nil {
+					bag.Errorf(s.Pos(), s.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+					return "", false
+				}
+				for _, p := range usedPkgs {
+					imports[p] = true
+				}
+				expr = lowered
+			}
+			if t, ok := resolved[s].(*types.Tuple); ok {
+				if _, ok := tupleUnwrapType(t); !ok {
+					bag.Errorf(s.Pos(), s.End(), "invalid-tuple", "style css literal interpolation %q returns %s; only (T, error) is supported", expr, t)
+					return "", false
+				}
+				expr = hoistTuple(b, expr, interpTemp)
+			}
+			parts = append(parts, "gsx.StyleValue("+expr+")")
+		default:
+			bag.Errorf(seg.Pos(), seg.End(), "unsupported-style-part", "css literal style parts may contain only text and @{ } interpolations, got %T", seg)
+			return "", false
+		}
+	}
+	if len(parts) == 0 {
+		return `""`, true
+	}
+	return strings.Join(parts, " + "), true
 }
 
 // styleDeclExpr returns the Go expression for a composed-style part's value: a

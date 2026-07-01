@@ -22,6 +22,7 @@ func classPartsLogicalEqual(a, b []ast.ClassPart) bool {
 	for i := range a {
 		if a[i].Expr != b[i].Expr || a[i].Cond != b[i].Cond ||
 			!reflect.DeepEqual(a[i].Stages, b[i].Stages) ||
+			!reflect.DeepEqual(a[i].CSSSegments, b[i].CSSSegments) ||
 			a[i].CF != b[i].CF {
 			return false
 		}
@@ -741,6 +742,34 @@ func TestParseComposedStyleSingle(t *testing.T) {
 	}
 }
 
+func TestParseComposedStyleCSSLiteralPart(t *testing.T) {
+	p := testParser("<div style={ \"display:none\": hidden, css`color:@{color};content:\"\\`\"` }></div>")
+	node, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ca := node.(*ast.Element).Attrs[0].(*ast.ClassAttr)
+	if ca.Name != "style" || len(ca.Parts) != 2 {
+		t.Fatalf("got %#v", ca)
+	}
+	if ca.Parts[0].Expr != `"display:none"` || ca.Parts[0].Cond != "hidden" {
+		t.Fatalf("part0 = %#v", ca.Parts[0])
+	}
+	segs := ca.Parts[1].CSSSegments
+	if len(segs) != 3 {
+		t.Fatalf("CSSSegments len = %d, want 3: %#v", len(segs), segs)
+	}
+	if text, ok := segs[0].(*ast.Text); !ok || text.Value != `color:` {
+		t.Fatalf("seg0 = %#v", segs[0])
+	}
+	if in, ok := segs[1].(*ast.Interp); !ok || in.Expr != "color" {
+		t.Fatalf("seg1 = %#v", segs[1])
+	}
+	if text, ok := segs[2].(*ast.Text); !ok || text.Value != ";content:\"`\"" {
+		t.Fatalf("seg2 = %#v", segs[2])
+	}
+}
+
 func TestComposedColonInsideBracketsIsOneExpr(t *testing.T) {
 	// A ':' inside a Go index/slice expr must NOT split expr:cond.
 	p := testParser(`<a class={ m[k], s[1:2] }></a>`)
@@ -1325,8 +1354,8 @@ func TestEmbeddedAttrOddBackslashRunEscapesBacktick(t *testing.T) {
 	if len(a.Segments) != 1 {
 		t.Fatalf("segments = %d, want 1: %#v", len(a.Segments), a.Segments)
 	}
-	if txt, ok := a.Segments[0].(*ast.Text); !ok || txt.Value != "a\\`b" {
-		t.Fatalf("seg0 = %#v, want escaped-backtick text", a.Segments[0])
+	if txt, ok := a.Segments[0].(*ast.Text); !ok || txt.Value != "a`b" {
+		t.Fatalf("seg0 = %#v, want literal-backtick text", a.Segments[0])
 	}
 }
 
