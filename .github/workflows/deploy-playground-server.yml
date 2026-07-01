@@ -5,7 +5,6 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/deploy-playground-server.yml'
-      - 'cloudbuild.yaml'
       - 'playground/server/**'
       - 'playground/playbundle/**'
       - 'go.mod'
@@ -29,6 +28,7 @@ concurrency:
 env:
   GO_VERSION: '1.26.1'
   ALLOWED_ORIGIN: https://gsxhq.github.io
+  ARTIFACT_REPOSITORY: gsx
 
 jobs:
   deploy:
@@ -53,19 +53,22 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v3
 
-      - name: Build image with Cloud Build
+      - name: Configure Docker auth
+        run: gcloud auth configure-docker "${{ vars.CLOUD_RUN_REGION }}-docker.pkg.dev" --quiet
+
+      - name: Build and push image
         env:
-          IMAGE: gcr.io/${{ vars.GCP_PROJECT_ID }}/${{ vars.CLOUD_RUN_SERVICE }}:${{ github.sha }}
+          IMAGE: ${{ vars.CLOUD_RUN_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPOSITORY }}/${{ vars.CLOUD_RUN_SERVICE }}:${{ github.sha }}
         run: |
-          gcloud builds submit \
-            --config cloudbuild.yaml \
-            --substitutions "_IMAGE=$IMAGE" \
-            --project "${{ vars.GCP_PROJECT_ID }}" \
+          docker build \
+            -f playground/server/Dockerfile \
+            -t "$IMAGE" \
             .
+          docker push "$IMAGE"
 
       - name: Deploy to Cloud Run
         env:
-          IMAGE: gcr.io/${{ vars.GCP_PROJECT_ID }}/${{ vars.CLOUD_RUN_SERVICE }}:${{ github.sha }}
+          IMAGE: ${{ vars.CLOUD_RUN_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPOSITORY }}/${{ vars.CLOUD_RUN_SERVICE }}:${{ github.sha }}
           RUNTIME_SERVICE_ACCOUNT: gsx-playground-sandbox@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
         run: |
           gcloud run deploy "${{ vars.CLOUD_RUN_SERVICE }}" \
