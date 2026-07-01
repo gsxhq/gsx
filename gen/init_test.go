@@ -314,6 +314,10 @@ func TestScaffoldSimpleTemplate(t *testing.T) {
 	if !strings.Contains(string(appgsx), "{{ v := vite.FromContext(ctx) }}") {
 		t.Errorf("app.gsx lost its {{ }} block: %s", appgsx)
 	}
+	env, _ := os.ReadFile(filepath.Join(dest, ".env"))
+	if strings.Contains(string(env), "VITE_PORT") || strings.Contains(string(env), "VITE_DEV_URL") {
+		t.Errorf(".env should let gsx dev choose the Vite front-door port: %s", env)
+	}
 }
 
 func TestInitScaffoldHasDevCommand(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -38,6 +39,73 @@ func TestLoadDotEnv(t *testing.T) {
 	env := loadDotEnv(dir)
 	if envPort(env, "GO_PORT", "x") != "7777" {
 		t.Errorf("GO_PORT not parsed: %v", env)
+	}
+}
+
+func TestResolveViteDevEnvSkipsBoundDefaultPort(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:5173")
+	if err != nil {
+		t.Skipf("default Vite port unavailable before test: %v", err)
+	}
+	defer l.Close()
+	wantPort, err := nextAvailablePort("5173")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	env, viteURL, err := resolveViteDevEnv([]string{"PATH=/bin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantURL := "http://localhost:" + wantPort
+	if viteURL != wantURL {
+		t.Fatalf("viteURL = %q, want %s", viteURL, wantURL)
+	}
+	if got := envPort(env, "VITE_PORT", ""); got != wantPort {
+		t.Fatalf("VITE_PORT = %q, want %s", got, wantPort)
+	}
+	if envValue(env, "VITE_DEV_URL", "") != viteURL {
+		t.Fatalf("VITE_DEV_URL env and returned URL differ: env=%q url=%q", envValue(env, "VITE_DEV_URL", ""), viteURL)
+	}
+}
+
+func TestResolveViteDevEnvSkipsIPv6BoundDefaultPort(t *testing.T) {
+	l, err := net.Listen("tcp", "[::1]:5173")
+	if err != nil {
+		t.Skipf("IPv6 default Vite port unavailable before test: %v", err)
+	}
+	defer l.Close()
+	wantPort, err := nextAvailablePort("5173")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	env, viteURL, err := resolveViteDevEnv([]string{"PATH=/bin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantURL := "http://localhost:" + wantPort
+	if viteURL != wantURL {
+		t.Fatalf("viteURL = %q, want %s", viteURL, wantURL)
+	}
+	if got := envPort(env, "VITE_PORT", ""); got != wantPort {
+		t.Fatalf("VITE_PORT = %q, want %s", got, wantPort)
+	}
+}
+
+func TestResolveViteDevEnvRejectsBoundExplicitVitePort(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:5173")
+	if err != nil {
+		t.Skipf("default Vite port unavailable before test: %v", err)
+	}
+	defer l.Close()
+
+	_, _, err = resolveViteDevEnv([]string{"VITE_PORT=5173"})
+	if err == nil {
+		t.Fatal("expected bound explicit VITE_PORT to fail")
+	}
+	if !strings.Contains(err.Error(), "VITE_PORT 5173 is already in use") {
+		t.Fatalf("error = %q, want port-in-use message", err)
 	}
 }
 

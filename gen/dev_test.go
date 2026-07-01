@@ -3,16 +3,41 @@
 package gen
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
 )
+
+func TestDevExitsWhenExplicitVitePortIsInUse(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:5173")
+	if err != nil {
+		t.Skipf("default Vite port unavailable before test: %v", err)
+	}
+	defer l.Close()
+
+	proj := t.TempDir()
+	writeFile(t, proj, ".env", "VITE_PORT=5173\n")
+
+	var stdout, stderr bytes.Buffer
+	code := runDev(nil, &stdout, &stderr, config{}, nil, proj)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "VITE_PORT 5173 is already in use") {
+		t.Fatalf("stderr = %q, want port-in-use error", stderr.String())
+	}
+	if strings.Contains(stdout.String(), "watching") {
+		t.Fatalf("runDev should exit before watching when VITE_PORT is in use; stdout=%q", stdout.String())
+	}
+}
 
 // TestDevTeardownAndRestart is a full-stack integration test for `gsx dev`:
 //   - builds the gsx binary

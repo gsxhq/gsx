@@ -43,9 +43,8 @@ export default defineConfig(({ command, mode }) => {
     ],
     server: {
       port: vitePort,
-      // Fail loudly if VITE_PORT is already taken (e.g. another gsx app),
-      // instead of silently moving to the next port — the Go server's
-      // VITE_DEV_URL and the printed URL both assume this exact port.
+      // `gsx dev` chooses an available VITE_PORT and matching VITE_DEV_URL before
+      // starting Vite. Keep Vite strict so proxy, overlay, and printed URL agree.
       strictPort: true,
       proxy: {
         // Everything except /__vite/ (Vite's own dev-asset namespace) and
