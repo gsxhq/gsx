@@ -137,6 +137,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	}
 	defer w.Close()
 	addWatchTree(w, []string{workDir})
+	sources := newSourceTracker([]string{workDir})
 
 	if dc.web != nil {
 		fmt.Fprintf(stdout, "gsx dev: watching %s — open %s\n", workDir, viteURL)
@@ -183,6 +184,9 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 				continue
 			}
 			if !watchable(ev.Name) {
+				continue
+			}
+			if !sources.changed(ev.Name) {
 				continue
 			}
 			if isDepFile(ev.Name) {

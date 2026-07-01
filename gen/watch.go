@@ -1,6 +1,7 @@
 package gen
 
 import (
+	"crypto/sha256"
 	"io"
 	"os"
 	"os/signal"
@@ -61,6 +62,7 @@ func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 	defer w.Close()
 
 	addWatchTree(w, dirs)
+	sources := newSourceTracker(dirs)
 	// Emit start first so tests/consumers can distinguish the initial cold-
 	// generate cycles (below) from subsequent regen cycles.
 	em.start(sess.root, dirs)
@@ -98,6 +100,9 @@ func runWatchWithStop(cfg watchConfig, stop <-chan struct{}) int {
 			return 0
 		case ev := <-w.Events:
 			if !watchable(ev.Name) {
+				continue
+			}
+			if !sources.changed(ev.Name) {
 				continue
 			}
 			if isDepFile(ev.Name) {
@@ -146,6 +151,68 @@ func addWatchTree(w *fsnotify.Watcher, roots []string) {
 			return nil
 		})
 	}
+}
+
+type sourceTracker struct {
+	files map[string]sourceSnapshot
+}
+
+type sourceSnapshot struct {
+	hash [32]byte
+}
+
+func newSourceTracker(roots []string) *sourceTracker {
+	t := &sourceTracker{files: map[string]sourceSnapshot{}}
+	for _, root := range roots {
+		filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				if excludedDir(p) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if snap, ok := readSourceSnapshot(p); ok {
+				t.files[filepath.Clean(p)] = snap
+			}
+			return nil
+		})
+	}
+	return t
+}
+
+func (t *sourceTracker) changed(path string) bool {
+	if t == nil {
+		return true
+	}
+	path = filepath.Clean(path)
+	snap, ok := readSourceSnapshot(path)
+	prev, had := t.files[path]
+	if !ok {
+		if had {
+			delete(t.files, path)
+			return true
+		}
+		return false
+	}
+	if !had || snap.hash != prev.hash {
+		t.files[path] = snap
+		return true
+	}
+	return false
+}
+
+func readSourceSnapshot(path string) (sourceSnapshot, bool) {
+	if !watchable(path) {
+		return sourceSnapshot{}, false
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return sourceSnapshot{}, false
+	}
+	return sourceSnapshot{hash: sha256.Sum256(b)}, true
 }
 
 func watchable(path string) bool {

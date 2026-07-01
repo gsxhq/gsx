@@ -125,3 +125,43 @@ func TestWatchDepChange_GoMod(t *testing.T) {
 		t.Error("isDepFile(page.x.go) = true, want false")
 	}
 }
+
+func TestSourceTrackerSkipsUnchangedFollowupEvents(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	path := filepath.Join(root, "main.go")
+	writeFileT(t, path, "package main\n\nfunc main() {}\n")
+
+	tracker := newSourceTracker([]string{root})
+	if tracker.changed(path) {
+		t.Fatal("unchanged file event reported as changed")
+	}
+
+	writeFileT(t, path, "package main\n\nfunc main() { println(\"hi\") }\n")
+	if !tracker.changed(path) {
+		t.Fatal("content edit was not reported as changed")
+	}
+	if tracker.changed(path) {
+		t.Fatal("unchanged follow-up event after edit reported as changed")
+	}
+}
+
+func TestSourceTrackerTreatsDeletionAsOneChange(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	path := filepath.Join(root, "page.gsx")
+	writeFileT(t, path, "package main\n\ncomponent Page() { <div/> }\n")
+
+	tracker := newSourceTracker([]string{root})
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove source: %v", err)
+	}
+	if !tracker.changed(path) {
+		t.Fatal("deleted source was not reported as changed")
+	}
+	if tracker.changed(path) {
+		t.Fatal("unchanged follow-up deletion event reported as changed")
+	}
+}
