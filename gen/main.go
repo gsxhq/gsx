@@ -39,11 +39,7 @@ type config struct {
 	jsMin          func(string) (string, error)
 	cssFmt         rawfmt.Formatter
 	jsFmt          rawfmt.Formatter
-	jsRules        []attrclass.Rule
 	urlRules       []attrclass.Rule
-	cssRules       []attrclass.Rule
-	attrPred       func(name string) (attrclass.Context, bool)
-	predLabel      string
 	fieldMatcher   codegen.FieldMatcher
 	errs           []error
 	printWidth     int                     // gsx.toml printWidth; 0 means "unset" → 80 at use
@@ -91,11 +87,7 @@ func (c config) effectiveJSMin() func(string) (string, error) {
 // classifier builds the resolved Classifier from the accumulated options. A
 // config with no attr options yields a built-ins-only Classifier.
 func (cfg *config) classifier() *attrclass.Classifier {
-	return attrclass.New(attrclass.Rules{
-		JS:  cfg.jsRules,
-		URL: cfg.urlRules,
-		CSS: cfg.cssRules,
-	}, cfg.attrPred)
+	return attrclass.New(attrclass.Rules{URL: cfg.urlRules}, nil)
 }
 
 // Main is the gsx process entry point: it builds a config from opts (currently
@@ -215,7 +207,7 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			return 2
 		}
-		return runInfo(stdout, stderr, workDir, configPath, merged.filterPkgs, merged.aliases, merged.classifier(), merged.predLabel, merged.fieldMatcher, cmdArgs, merged.cssMinLevel, merged.jsMinLevel)
+		return runInfo(stdout, stderr, workDir, configPath, merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher, cmdArgs, merged.cssMinLevel, merged.jsMinLevel)
 	case "fmt":
 		// fmt respects gsx.toml printWidth per-dir (via printWidthFor inside
 		// runFmt) and tolerates a malformed config. The CSS/JS formatter

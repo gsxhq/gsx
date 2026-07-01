@@ -11,51 +11,28 @@ import (
 	"github.com/gsxhq/gsx/std"
 )
 
-func TestWithAttrOptionsBuildClassifier(t *testing.T) {
+func TestWithURLAttrsOnly(t *testing.T) {
 	t.Parallel()
 	var cfg config
-	WithJSAttrs(attrclass.Rule{Prefix: "wire:"})(&cfg)
 	WithURLAttrs(attrclass.Rule{Name: "data-href"})(&cfg)
-	WithCSSAttrs(attrclass.Rule{Name: "data-style"})(&cfg)
 	if len(cfg.errs) != 0 {
 		t.Fatalf("unexpected errs: %v", cfg.errs)
 	}
 	cls := cfg.classifier()
-	if cls.Context("wire:click") != attrclass.CtxJS {
-		t.Error("wire:click should be JS")
-	}
 	if cls.Context("data-href") != attrclass.CtxURL {
-		t.Error("data-href should be URL")
+		t.Fatal("data-href should be URL")
 	}
-	if cls.Context("data-style") != attrclass.CtxCSS {
-		t.Error("data-style should be CSS")
+	if cls.Context("wire:click") == attrclass.CtxJS {
+		t.Fatal("wire:click must not be JS-configurable")
 	}
 }
 
-func TestWithAttrsRejectsInvalidRule(t *testing.T) {
+func TestWithURLAttrsRejectsInvalidRule(t *testing.T) {
 	t.Parallel()
 	var cfg config
-	WithJSAttrs(attrclass.Rule{Name: "x", Prefix: "y"})(&cfg) // both set
+	WithURLAttrs(attrclass.Rule{Name: "x", Prefix: "y"})(&cfg) // both set
 	if len(cfg.errs) == 0 {
 		t.Fatal("expected an error for a rule with both Name and Prefix set")
-	}
-}
-
-func TestWithAttrClassifierSetsPredicate(t *testing.T) {
-	t.Parallel()
-	var cfg config
-	WithAttrClassifier("fancy", func(name string) (attrclass.Context, bool) {
-		if name == "fancy-go" {
-			return attrclass.CtxJS, true
-		}
-		return attrclass.CtxPlain, false
-	})(&cfg)
-	cls := cfg.classifier()
-	if !cls.HasPredicate() {
-		t.Fatal("predicate not registered")
-	}
-	if cls.Context("fancy-go") != attrclass.CtxJS {
-		t.Error("predicate fallback not applied")
 	}
 }
 

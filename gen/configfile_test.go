@@ -35,10 +35,6 @@ id     = "github.com/jackielii/structpages.ID"
 
 [[urlAttrs]]
 name = "data-href"
-[[jsAttrs]]
-prefix = "data-on-"
-[[cssAttrs]]
-name = "data-style"
 `)
 	cfg, err := loadConfig(path)
 	if err != nil {
@@ -59,12 +55,6 @@ name = "data-style"
 	}
 	if len(cfg.urlRules) != 1 || cfg.urlRules[0].Name != "data-href" {
 		t.Fatalf("urlRules = %+v", cfg.urlRules)
-	}
-	if len(cfg.jsRules) != 1 || cfg.jsRules[0].Prefix != "data-on-" {
-		t.Fatalf("jsRules = %+v", cfg.jsRules)
-	}
-	if len(cfg.cssRules) != 1 || cfg.cssRules[0].Name != "data-style" {
-		t.Fatalf("cssRules = %+v", cfg.cssRules)
 	}
 }
 
@@ -132,17 +122,37 @@ func TestLoadConfigUnknownKey(t *testing.T) {
 	}
 }
 
+func TestLoadConfigRejectsJSAttrs(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gsx.toml")
+	mkfile(t, path, "[[jsAttrs]]\nname = \"wire:click\"\n")
+	_, err := loadConfig(path)
+	if err == nil || !strings.Contains(err.Error(), "unknown key") || !strings.Contains(err.Error(), "jsAttrs") {
+		t.Fatalf("loadConfig err = %v, want unknown jsAttrs", err)
+	}
+}
+
+func TestLoadConfigRejectsCSSAttrs(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gsx.toml")
+	mkfile(t, path, "[[cssAttrs]]\nname = \"data-style\"\n")
+	_, err := loadConfig(path)
+	if err == nil || !strings.Contains(err.Error(), "unknown key") || !strings.Contains(err.Error(), "cssAttrs") {
+		t.Fatalf("loadConfig err = %v, want unknown cssAttrs", err)
+	}
+}
+
 // TestLoadConfigBothNamePrefix proves a rule with both name+prefix is rejected.
 func TestLoadConfigBothNamePrefix(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "gsx.toml")
-	mkfile(t, path, "[[jsAttrs]]\nname = \"a\"\nprefix = \"b\"\n")
+	mkfile(t, path, "[[urlAttrs]]\nname = \"a\"\nprefix = \"b\"\n")
 	_, err := loadConfig(path)
 	if err == nil {
 		t.Fatal("expected error for both name+prefix")
 	}
-	if !strings.Contains(err.Error(), "jsAttrs") {
+	if !strings.Contains(err.Error(), "urlAttrs") {
 		t.Fatalf("error should name the rule table; got: %v", err)
 	}
 }

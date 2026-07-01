@@ -16,8 +16,8 @@ import (
 const configFileName = "gsx.toml"
 
 // tomlConfig is the on-disk gsx.toml schema (v1). It mirrors the declarative
-// subset of the gen.With* options (named filters, filter packages, attr rules);
-// func-valued options (custom minifier/classifier/field-matcher) stay code-only.
+// subset of the gen.With* options (named filters, filter packages, URL attr
+// rules); func-valued options (custom minifier/field-matcher) stay code-only.
 // Field tags pin the exact TOML keys so strict decoding (Undecoded) can reject
 // typos.
 //
@@ -28,9 +28,7 @@ const configFileName = "gsx.toml"
 type tomlConfig struct {
 	Filters        map[string]string `toml:"filters"`
 	FilterPackages []string          `toml:"filterPackages"`
-	JSAttrs        []tomlRule        `toml:"jsAttrs"`
 	URLAttrs       []tomlRule        `toml:"urlAttrs"`
-	CSSAttrs       []tomlRule        `toml:"cssAttrs"`
 	PrintWidth     int               `toml:"printWidth"`
 	Minify         *tomlMinify       `toml:"minify"`
 	ClassMerger    string            `toml:"class_merger"`
@@ -165,13 +163,7 @@ func loadConfig(path string) (config, error) {
 		cfg.classMerger = &codegen.ClassMergerRef{PkgPath: pkgPath, FuncName: funcName}
 	}
 
-	if cfg.jsRules, err = appendTomlRules(path, "jsAttrs", cfg.jsRules, tc.JSAttrs); err != nil {
-		return config{}, err
-	}
 	if cfg.urlRules, err = appendTomlRules(path, "urlAttrs", cfg.urlRules, tc.URLAttrs); err != nil {
-		return config{}, err
-	}
-	if cfg.cssRules, err = appendTomlRules(path, "cssAttrs", cfg.cssRules, tc.CSSAttrs); err != nil {
 		return config{}, err
 	}
 	if tc.Minify != nil {
@@ -210,10 +202,10 @@ func appendTomlRules(path, who string, dst []attrclass.Rule, add []tomlRule) ([]
 // mergeConfig merges a programmatic opts config ON TOP of a file-loaded base
 // config. The file base comes first; opts are appended after so they win under
 // the existing last-wins resolution: filterPkgs and aliases are base++opts (with
-// filterPkgs deduped), attr rules are concatenated base++opts, and func-valued
-// fields (cssMin/jsMin, attrPred+predLabel, fieldMatcher) are taken from opts
-// when set, else base. errs are concatenated. Slices are freshly allocated so
-// neither input is mutated.
+// filterPkgs deduped), URL attr rules are concatenated base++opts, and
+// func-valued fields (cssMin/jsMin, fieldMatcher) are taken from opts when set,
+// else base. errs are concatenated. Slices are freshly allocated so neither
+// input is mutated.
 func mergeConfig(base, opts config) config {
 	var merged config
 
@@ -225,9 +217,7 @@ func mergeConfig(base, opts config) config {
 	merged.aliases = append(merged.aliases, base.aliases...)
 	merged.aliases = append(merged.aliases, opts.aliases...)
 
-	merged.jsRules = append(append(merged.jsRules, base.jsRules...), opts.jsRules...)
 	merged.urlRules = append(append(merged.urlRules, base.urlRules...), opts.urlRules...)
-	merged.cssRules = append(append(merged.cssRules, base.cssRules...), opts.cssRules...)
 
 	merged.cssMin = base.cssMin
 	if opts.cssMin != nil {
@@ -244,12 +234,6 @@ func mergeConfig(base, opts config) config {
 	merged.jsFmt = base.jsFmt
 	if opts.jsFmt != nil {
 		merged.jsFmt = opts.jsFmt
-	}
-	merged.attrPred = base.attrPred
-	merged.predLabel = base.predLabel
-	if opts.attrPred != nil {
-		merged.attrPred = opts.attrPred
-		merged.predLabel = opts.predLabel
 	}
 	merged.fieldMatcher = base.fieldMatcher
 	if opts.fieldMatcher != nil {

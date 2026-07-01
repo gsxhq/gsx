@@ -246,39 +246,10 @@ func (cfg *config) appendFilterPkg(path string) {
 	}
 }
 
-// WithJSAttrs registers additional JS-context attribute rules (e.g. Vue v-on:,
-// Livewire wire:). Rules are additive over the built-ins; an invalid rule (both
-// or neither of Name/Prefix set) fails the run with a clear message.
-func WithJSAttrs(rules ...Rule) Option {
-	return func(cfg *config) {
-		cfg.jsRules = appendValidRules(cfg, "WithJSAttrs", cfg.jsRules, rules)
-	}
-}
-
 // WithURLAttrs registers additional URL-context attribute rules.
 func WithURLAttrs(rules ...Rule) Option {
 	return func(cfg *config) {
 		cfg.urlRules = appendValidRules(cfg, "WithURLAttrs", cfg.urlRules, rules)
-	}
-}
-
-// WithCSSAttrs registers additional CSS-context attribute rules.
-func WithCSSAttrs(rules ...Rule) Option {
-	return func(cfg *config) {
-		cfg.cssRules = appendValidRules(cfg, "WithCSSAttrs", cfg.cssRules, rules)
-	}
-}
-
-// WithAttrClassifier installs a predicate escape hatch for matching logic the
-// declarative rules cannot express. It is additive (consulted only for names no
-// rule matched) and cannot downgrade a built-in. label is recorded in the
-// manifest so offline tools can name the predicate they cannot evaluate.
-// NOTE: predicate-classified attributes do not survive a broken build — prefer
-// declarative rules where possible.
-func WithAttrClassifier(label string, fn func(name string) (Context, bool)) Option {
-	return func(cfg *config) {
-		cfg.attrPred = fn
-		cfg.predLabel = label
 	}
 }
 
