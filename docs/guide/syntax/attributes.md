@@ -1,6 +1,10 @@
 # Attributes
 
-HTML attributes in gsx accept static string values (`name="value"`) or Go expressions (`name={expr}`). The right-hand side is evaluated at render time and escaped for the attribute's context automatically — no manual encoding needed.
+HTML attributes in gsx accept static string values (`name="value"`), Go
+expressions (`name={expr}`), and explicit embedded-language literals such as
+`` name=js`...` `` or `` name=css`...` ``. The right-hand side is evaluated at
+render time and escaped for its context automatically — no manual encoding
+needed.
 
 ## Expression attributes
 
@@ -11,6 +15,9 @@ Write `name={expr}` to bind any Go expression to an attribute. The expression ca
 `href={url}` is a URL-context attribute: gsx recognises `href`, `src`, `action`, and the htmx method attributes (`hx-get`, `hx-post`, etc.) as URL contexts and scheme-sanitises the value in addition to HTML-escaping it (see [Contextual escaping](#contextual-escaping) below).
 
 `data-count={count}` is a plain attribute: the integer is converted to its decimal string representation and attribute-escaped. Any Go expression whose result converts to a string is valid here.
+
+Quoted attributes are literal strings. gsx does not scan them for `@{}` holes,
+so `x-data="{ open: @{open} }"` renders those characters as written.
 
 ## Boolean attributes
 
@@ -88,10 +95,27 @@ A nil `Attrs` is an empty bag — safe to spread, merge, and call methods on.
 
 ## Contextual escaping
 
-The escaper applied to an attribute value depends on the attribute name, not on the Go type of the expression. gsx knows which attributes are URL contexts, which are JavaScript event handlers, and which are plain text contexts, and applies the appropriate sanitiser automatically.
+For ordinary expression attributes, the only name-based special case is URL
+classification. `href={href}`, `src={src}`, `action={action}`, and configured URL
+attributes are scheme-sanitised and then attribute-escaped; other `attr={expr}`
+values are ordinary attribute-escaped text.
 
 <!--@include: ./_generated/attributes/060-attribute-contexts.md-->
 
 In this example `href={href}` is a URL context. When the value is `"javascript:alert(1)"` — a dangerous scheme — gsx replaces the entire value with `about:invalid#gsx`, rendering a safe but inert link. A normal URL such as `"/search?q=go&page=2"` would be percent-encoded and HTML-attribute-escaped as usual.
+
+JavaScript and CSS in attributes are explicit. Use `` js`...` `` for event
+handlers, Alpine/HTMX expressions, or other JavaScript-valued attributes, and
+`` css`...` `` for CSS-valued attributes:
+
+````gsx
+<button @click=js`save(@{id})`>Save</button>
+<div style=css`color:@{color}`>...</div>
+````
+
+`@{expr}` holes inside those literals are escaped for their embedded-language
+position. Plain `hx-on:*={expr}` or `@click={expr}` attributes do not switch to a
+JavaScript context by name; use a `` js`...` `` literal when the attribute value is
+JavaScript.
 
 For a complete reference of escaping contexts and the opt-out helpers (`gsx.Raw`, `gsx.RawURL`, `gsx.RawJS`, `gsx.RawCSS`), see [Escaping](./escaping).

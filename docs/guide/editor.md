@@ -61,7 +61,7 @@ vim.api.nvim_create_autocmd("FileType", {
 
 **Any LSP client** — the equivalent settings are: command `gsx lsp`, language id
 `gsx`, document selector `*.gsx`, root markers `gsx.toml` / `go.mod`. The server
-reads `gsx.toml` in-process, so the filters and attribute rules you
+reads `gsx.toml` in-process, so the filters and URL attribute rules you
 [configure](./config.md) are reflected in its analysis.
 
 > The `gsx` binary must be on the editor's `PATH` (`go install
@@ -80,10 +80,11 @@ reads `gsx.toml` in-process, so the filters and attribute rules you
 [tree-sitter-gsx](https://github.com/gsxhq/tree-sitter-gsx) is a tree-sitter
 grammar that highlights gsx markup **and** the languages embedded in it: Go
 (the file-level pass-through plus every `{ }` / `@{ }` hole and each `|>`
-pipeline segment), JavaScript (`<script>` and JS attributes), and CSS
-(`<style>` bodies) are highlighted by their own parsers via tree-sitter
-*injection*. So a Go expression inside an interpolation is colored like Go, not
-like a string.
+pipeline segment), JavaScript (`<script>` bodies and `` js`...` `` attribute
+literals), and CSS (`<style>` bodies and `` css`...` `` attribute literals) are
+highlighted by their own parsers via tree-sitter *injection*. `@{expr}` holes
+inside those embedded languages are injected as Go, so an interpolation is
+colored like Go, not like a string.
 
 ### Neovim
 
