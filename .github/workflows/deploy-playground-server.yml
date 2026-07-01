@@ -3,18 +3,6 @@ name: Deploy playground server
 on:
   push:
     branches: [main]
-    paths:
-      - '.github/workflows/deploy-playground-server.yml'
-      - 'playground/server/**'
-      - 'playground/playbundle/**'
-      - 'go.mod'
-      - 'go.sum'
-      - '*.go'
-      - 'ast/**'
-      - 'gen/**'
-      - 'internal/**'
-      - 'parser/**'
-      - 'std/**'
   workflow_dispatch:
 
 permissions:
