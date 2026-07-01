@@ -1,6 +1,6 @@
 -- doc --
 name: Style blocks
-summary: A <style> block interpolates values with @{ … }; interpolated values are CSS-sanitized by construction.
+summary: A <style> block interpolates values with @{ … }; interpolated values are CSS-sanitized.
 category: Styling
 order: 140
 page: styling

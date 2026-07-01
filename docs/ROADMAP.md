@@ -21,7 +21,7 @@ generator/CLI may use `golang.org/x/tools`.
 | Pipeline `\|>` end-to-end | `[x]` seed-first forward-application lowering + `std` filters + user filter packages (`gen.WithFilters` + `gen.WithFilter` aliases, multi-pkg last-wins) + `ctx` injection + `(T,error)` implicit auto-unwrap. Works in interp / attr / class / style / spread / child-prop values / `{{ }}` pairs (all expression positions). Initialism-aware naming pending. |
 | CLI (`gsx`) / `gen.Main` | `[~]` `generate` (incl. `--watch`/`--format=ndjson`) · `fmt` · `info` · `init` · `lsp` · `clean --cache` · `version` · `help` ship, with `--json` + structured diagnostics. `vet`/`render`/`explain`/numeric codes pending. `WithClassMerger` + `class_merger` TOML knob shipped. |
 | Language server (`gsx lsp`) | `[~]` diagnostics (debounced) + go-to-definition (incl. inside pipelines) + hover (incl. pipelines) + find-references + formatting ship; completion and external/non-project references deferred; references cover project components discovered during module analysis. |
-| Developer experience (Vite + `init`) | `[x]` `gsx init` scaffold + `@gsxhq/vite-plugin-gsx` (npm v0.2.1) + `github.com/gsxhq/vite` (v0.2.0). |
+| Developer experience (Vite + `init`) | `[x]` `gsx init` scaffold + `@gsxhq/vite-plugin-gsx` (npm v0.4.0) + `github.com/gsxhq/vite` (v0.2.0). |
 
 ## Done
 
@@ -220,10 +220,10 @@ pieces. Save → warm generate → build-then-swap Go server → browser reloads
   process that keeps the type-resolution environment warm (`gen.CachedResolver`)
   and regenerates in-process on each change, streaming NDJSON diagnostics. Measured:
   a warm regenerate is **~1–2 ms** vs **~140 ms** for a cold one-shot `gsx generate`
-  (~70–100×), so the inner save-loop is effectively instant. Rebuilds the resolver
+  (~70–100×). Rebuilds the resolver
   on `.go`/go.mod changes; pure `.gsx` edits take the fast path. Slice 2 (fine-grained
   per-package invalidation) is deferred — the measured warm time made it unnecessary.
-- `[x]` **`@gsxhq/vite-plugin-gsx`** (npm **v0.3.0**, `~/personal/gsxhq/vite-plugin-gsx`) —
+- `[x]` **`@gsxhq/vite-plugin-gsx`** (npm **v0.4.0**, `~/personal/gsxhq/vite-plugin-gsx`) —
   receives generation/build events from `gsx dev`, surfaces diagnostics in the
   Vite error overlay (auto-clears on recovery), and full-reloads after the server
   becomes ready; `devFallback()` serves a self-recovering interstitial while the

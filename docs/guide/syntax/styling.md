@@ -1,6 +1,8 @@
 # Styling
 
-gsx provides first-class support for composable `class` and `style` attributes. Both follow the same conditional-list pattern: a `{ }` literal whose entries are either always-on strings or `"value": cond` toggles. When a component explicitly places `{ attrs... }`, caller-supplied class and style merge at that position.
+gsx supports composable `class` and `style` attributes. Both use a `{ }` list
+whose entries are always-on strings or `"value": cond` toggles. When a component
+places `{ attrs... }`, caller-supplied class and style merge at that position.
 
 ## Composable class
 
@@ -10,7 +12,9 @@ The `class` attribute accepts a composable list instead of a plain string. Each 
 class={ "base", "modifier": condition }
 ```
 
-This is gsx's built-in equivalent of `clsx` / Vue `:class`. The entries are evaluated at render time; on-entries are collected and merged into the final `class` value. The default merge strategy (`DefaultClassMerge`) deduplicates tokens keeping the last occurrence of each, so if the same token appears more than once across all contributing sources it is included exactly once.
+Entries are evaluated at render time. On-entries are collected into the final
+`class` value. When multiple class sources are merged, the default merge strategy
+(`DefaultClassMerge`) deduplicates tokens and keeps the last occurrence.
 
 <!--@include: ./_generated/styling/010-composable-class.md-->
 
@@ -45,11 +49,17 @@ When a caller also supplies a `style` attribute, the component's composed style 
 
 ## Class & style merging {#class-style-merging}
 
-A component receives an `Attrs` bag only when its body references `attrs`. When `{ attrs... }` places a bag containing `class` or `style`, gsx merges them with the element's own attributes rather than blindly overwriting them.
+A component receives an `Attrs` bag only when its body references `attrs`. When
+`{ attrs... }` places a bag containing `class` or `style`, gsx merges them with
+the element's own attributes.
 
-**Class merge — token-deduped, caller-wins.** The component's class sources (static string, composable list entries) and the caller's `class` string are all collected in source order, with the caller's contribution last. The merge function deduplicates tokens keeping the last occurrence of each — so if both the component and the caller supply the same token, the caller's copy survives (and the component's earlier copy is dropped), while tokens that only one side provides are always kept.
-
-**Style merge — per CSS property, caller-wins.** The component's style declarations and the caller's style declarations are concatenated in the same order (component first, caller last). Property names are compared case-insensitively; when the same property appears on both sides the caller's declaration survives (property-level last-wins). The split is property-aware and will not break on `;` characters inside `url(…)` or quoted strings.
+- **Class:** component classes and caller classes are collected in source order.
+  Caller classes come last. Duplicate tokens keep the last occurrence.
+- **Style:** component declarations and caller declarations are collected in the
+  same order. Property names compare case-insensitively. Duplicate properties
+  keep the caller declaration.
+- **Parsing:** style splitting is property-aware and does not split on `;`
+  inside `url(...)` or quoted strings.
 
 <!--@include: ./_generated/styling/030-class-style-merging.md-->
 
@@ -57,7 +67,9 @@ In the example above the component declares `class="card"` and `style="color: re
 
 ### Tailwind-aware class merging
 
-The default merge strategy (`DefaultClassMerge`) is correct for vanilla CSS but not for Tailwind, where conflicting utility pairs like `px-4 px-8` must collapse to `px-8` rather than both surviving. gsx provides a `class_merger` configuration seam for exactly this case.
+The default merge strategy (`DefaultClassMerge`) deduplicates exact tokens.
+Tailwind needs conflict-aware merging, where utility pairs like `px-4 px-8`
+collapse to `px-8`. Configure `class_merger` for that case.
 
 Set `class_merger` in `gsx.toml` to the fully-qualified name of an exported `func([]string) string` that implements Tailwind-aware merging:
 
@@ -66,11 +78,13 @@ Set `class_merger` in `gsx.toml` to the fully-qualified name of an exported `fun
 class_merger = "myapp/twcfg.Merge"
 ```
 
-A working example that wires `tailwind-merge-go` lives in [`examples/tailwind-merge/`](https://github.com/gsxhq/gsx/tree/main/examples/tailwind-merge). Full configuration reference — including the signature contract and the option-based route (`gen.WithClassMerger`) — is in [Configuration → `class_merger`](../config#class_merger-tailwind-aware-class-merge-strategy).
+A working example that wires `tailwind-merge-go` lives in [`examples/tailwind-merge/`](https://github.com/gsxhq/gsx/tree/main/examples/tailwind-merge). Full configuration reference — including the signature contract and the option-based route (`gen.WithClassMerger`) — is in [Configuration](../config).
 
 ## Exclusive selection — value-form `if` / `switch`
 
-The composable `class={…}` / `style={…}` list is **additive** — every entry whose guard is true contributes, and multiple can fire at once. For **exclusive selection** — pick exactly one string out of N based on a single discriminant — an additive list forces either a fragile negation default (`x != A && x != B && …`) or duplicated tokens. A value-form `if`/`switch` inside the composed list expresses this cleanly.
+The composable `class={...}` / `style={...}` list is additive: every true guard
+contributes. Use value-form `if` or `switch` when exactly one string should be
+selected.
 
 Use a value-form `if` for a binary toggle:
 
@@ -109,34 +123,13 @@ class={
 }
 ```
 
-**Surface syntax.** Switch values follow GSX's markup-switch shape: canonically,
-each expression follows its `case V:` or `default:` label and ends at the next
-label or the switch's closing brace. Explicit `{ expr }` arm blocks are also
-accepted and format back to the canonical unbraced shape. Multi-value
-`case A, B:` arms, a tag expression (`switch x { … }`), and a tagless form
-(`switch { case cond: … }`) are supported. Value-form `if` retains its natural
-branch braces and supports `else if` chains and a final `else`.
+Rules:
 
-**Semantics.** The value-form is **exclusive** — exactly one arm's string is contributed to the list. When no arm matches and there is no `default:` / `else`, the zero value (empty string) is contributed — which means nothing is added to the class or style. This makes `if cond { "x" }` without an `else` exactly equivalent to the additive guard form `"x": cond`; the value-form is a strict superset, not a special case. All arms must be strings; a non-string arm is a compile-time diagnostic.
-
-**Scope.** This value-form is only available inside `class={…}` and `style={…}` composed-list blocks. It does not apply to general attribute values (use the existing cond-attr form `{ if cond { data-x="…" } }` for whole-attribute toggles) or to markup children (which already dispatch `if`/`switch` to markup control-flow). A pipe stage on the value-form result is not supported.
-
-::: v-pre
-## Why not `style={{ "color": color }}`?
-
-GSX currently has one inline-style model: ordered declaration contributions.
-An object-like property/value form would reduce string composition for heavily
-dynamic inline styles, but it would also introduce a second way to express the
-same output, with additional grammar, formatting, code generation, and
-documentation surface. Current project usage has not shown enough repeated
-dynamic declaration construction to justify that cost.
-
-The form is deferred rather than rejected. It can be reconsidered if real
-projects commonly build many dynamic declarations and the native contribution
-syntax becomes a material usability problem. A future design should prefer
-quoted native CSS names such as `"font-size"` and `"--accent"`; it should not
-adopt JSX camelCase conversion or automatic numeric units.
-:::
+- Exactly one matched arm contributes a string.
+- If no arm matches and there is no `default` or `else`, nothing is added.
+- All arms must be strings.
+- This form only works inside composed `class={...}` and `style={...}` lists.
+- A pipe stage on the value-form result is not supported.
 
 ## `<style>` blocks
 

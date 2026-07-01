@@ -32,8 +32,8 @@ gsx [global flags] <command> [arguments]
 
 ### Global flags
 
-Global flags apply to any command and **must come before the command name**
-(`gsx -v generate`, not `gsx generate -v`):
+These flags are accepted before the command name. `generate` also accepts `-q`
+and `-v` after the path arguments:
 
 | Flag | Effect |
 |------|--------|
@@ -41,7 +41,7 @@ Global flags apply to any command and **must come before the command name**
 | `-q` | quiet: suppress success output |
 | `-v` | verbose: list each written file |
 
-`-q` / `-v` only affect `generate`'s success output; other commands ignore them.
+`-q` / `-v` only affect `generate`'s success output.
 
 ## gsx init
 
@@ -259,7 +259,7 @@ Formatting embedded code is **correct-or-verbatim**: if a body can't be parsed
 cleanly, gsx leaves it byte-for-byte untouched rather than risk mangling it —
 the same safety rule as Go-fragment formatting. The built-in CSS formatter is
 deliberately minimal and **replaceable** with your own (e.g. a Prettier
-shell-out) — see [Extending gsx](./extensions.md#custom-css-js-formatter).
+shell-out) — see [Extending gsx](./extensions.md#custom-cssjs-formatter).
 
 > **In development.** Embedded `<style>` CSS formatting is being built now
 > (`<script>` JS after it). On the current release, `<style>` and `<script>`

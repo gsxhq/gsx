@@ -1,27 +1,14 @@
 # Why gsx
 
-Generating HTML from Go has always meant giving something up.
+gsx is a Go template compiler with JSX-style markup, `html/template`-style
+pipelines, and generated Go output.
 
-`html/template` ships in the standard library, auto-escapes, and has the
-ergonomic everyone quietly loves — the **pipe**: <code v-pre>{{ .Name | upper }}</code> reads
-left-to-right and composes cleanly. But it is stringly-typed. Templates parse at
-runtime, errors surface late, and refactoring across templates is unsafe.
+It is for teams that want to keep UI templates inside Go, but still want markup
+that scans like HTML and call sites checked by `go build`.
 
-[JSX](https://react.dev/learn/writing-markup-with-jsx) went the other way on
-ergonomics: markup that *reads like HTML*, with components that nest and compose
-exactly like elements. It made writing UI feel like writing HTML again — but it
-lives in JavaScript/TypeScript, with none of Go's guarantees.
+## Markup That Reads Like HTML
 
-[templ](https://templ.guide) brought type-safety to Go templating by compiling
-templates to Go. It solved the late-errors problem — but its component syntax is
-its own dialect, and writing markup in it never quite feels like writing HTML.
-
-gsx takes the ergonomics people already reach for — **JSX's markup and
-html/template's pipe** — and compiles them to type-safe, auto-escaping Go.
-
-## Ergonomics first: markup that reads like HTML
-
-This is the whole point. You write markup, not a bespoke template dialect:
+Components use a Go-like header and an HTML-like body:
 
 ```gsx
 component Card(title string, featured bool) {
@@ -32,18 +19,11 @@ component Card(title string, featured bool) {
 }
 ```
 
-- **JSX-style inline components.** `<Card>` nests and composes exactly like
-  `<div>`. **Capitalization** decides the meaning — `<div>` is an HTML element,
-  `<Card>` is a component — so there is no inference about what a lowercase tag is.
-- **The pipe, kept.** html/template's <code v-pre>{{ . | f }}</code> is the transform ergonomic gsx
-  preserves as a `|>` filter pipeline — `{ name |> trim |> upper }` — except the
-  filters are real, type-checked Go functions resolved at codegen, not stringly
-  dispatched at runtime.
-- **Everything else is ordinary Go.** Helpers, variant logic, anything that isn't
-  a template is plain Go. The only seam is the `component` keyword and `{ }`
-  interpolation — there is no third language in between.
+- `<div>` is an HTML element; `<Card>` is a component.
+- `{ name |> trim |> upper }` applies registered Go filter functions left to right.
+- Helpers, types, imports, and branching logic outside markup are ordinary Go.
 
-## Type-safe by construction
+## Checked By Go
 
 Components compile to plain Go, and a component's props are a Go struct — either one
 **you define and own** (pass a single struct param and gsx uses your type verbatim)
@@ -56,44 +36,30 @@ Interpolation is auto-escaped, and escaping is **context-aware**: text, attribut
 URL, and CSS contexts each get the right treatment, determined at codegen from where
 the value sits. JS contexts with no safe encoding are compile errors rather than
 silent holes. The opt-outs (`gsx.Raw`, `gsx.RawURL`, `gsx.RawCSS`) are explicit and
-grep-able. This compile-time safety is gsx's core differentiator. See
-[Principles](./principles) for the full model.
+grep-able. See [Principles](./principles) for the full model.
 
-## A build step — and a dev loop that earns it
+## Build Step And Dev Loop
 
-gsx compiles: `.gsx` → `.x.go` → `go build`. That's a real build step, and we don't
-apologize for it — it's exactly what buys compile-time type safety and contextual
-escaping. A build step is only worth paying for if the feedback is instant, so gsx
-ships the loop that makes it disappear.
+gsx compiles: `.gsx` → `.x.go` → `go build`. That build step gives Go type
+checking and generated escaping code.
 
-**`gsx dev`** owns the complete loop in one foreground process: it watches `.gsx`,
-`.go`, and `.env` files, regenerates with a warm compiler, safely rebuilds and swaps
-the Go server, and supervises Vite. The
-[`@gsxhq/vite-plugin-gsx`](https://github.com/gsxhq/vite-plugin-gsx) bridge surfaces
-diagnostics in Vite's error overlay and reloads the browser — the Vite development
-experience front-end developers already reach for, now driving Go HTML. `gsx init`
-wires it up out of the box: `npm run dev`, edit, see it live. The
-`github.com/gsxhq/vite` Go helper resolves development assets and production
-manifests.
+**`gsx dev`** runs that loop in one foreground process: watch `.gsx`, `.go`, and
+`.env` files; regenerate with a warm compiler; rebuild and swap the Go server; and
+supervise Vite. `gsx init` wires the starter project to `npm run dev`.
 
-A build step you never wait on doesn't feel like one. That's the bet.
+## Bounded Symbol Resolution
 
-## The design lesson: bounded symbol resolution
+gsx resolves symbols with `go/packages` and type-checks with `go/types` so it can
+handle type-aware interpolation, context-aware escaping, and props checked against
+real Go types. The design keeps that resolution bounded.
 
-To deliver those ergonomics, gsx *does* resolve symbols — it loads packages with
-`go/packages` and type-checks with `go/types` so it can do type-aware interpolation,
-context-aware escaping, and props checked against real Go types. The question was
-never whether to resolve symbols, but how to keep that resolution from becoming a
-tar pit.
-
-The trap is the open-ended *inference*, not the resolution itself. Try to map markup
+The risk is open-ended *inference*, not resolution itself. Try to map markup
 attributes onto *positional* function parameters, or to infer whether a lowercase
 tag is a component, and the resolver has to chase those guesses across packages —
 straight into overlay module-boundary bugs and performance cliffs. gsx never takes
 that on.
 
-gsx makes design choices that keep its resolution bounded — it asks the type checker
-for facts instead of guessing:
+gsx keeps resolution bounded:
 
 - the **`component` keyword** identifies templates — no inference about what is a
   template;
@@ -101,43 +67,24 @@ for facts instead of guessing:
 - components take a **named props struct** — yours or generated — so attributes bind
   to struct fields, never to reverse-engineered positional parameters.
 
-A related discipline: where markup embeds Go, gsx **finds where the Go expression
-ends and hands it to the real `go/parser`** rather than reimplementing one. And
-`{ <div/> }` (markup) versus `{ a < b }` (Go) is disambiguated positionally — the
-same rule Babel uses for JSX. What's left is plain Go that `go/types` checks
-directly.
-
 ## Relationship to templ
 
 gsx shares no code with templ, but it is built to interoperate. `gsx.Node` — the
 universal renderable — has the **identical method set to `templ.Component`**
 (`Render(ctx, w) error`). Because the method sets match, a `gsx.Node` is accepted
 anywhere a `templ.Component` is expected (structpages and other templ-ecosystem
-tools) **without importing templ**. You can adopt gsx incrementally inside an
-existing templ project.
+tools) **without importing templ**.
 
 For a practical side-by-side with templ, `html/template`, JSX, and Jinja-style
 templates, see [Comparisons](./comparisons).
 
 ## What gsx is not
 
-gsx is templating only — no router, no HTTP handlers, no framework. It is a way to
-write HTML as a first-class, composable Go value. Everything non-template is
-ordinary Go, and the runtime package imports nothing outside the standard library.
+gsx is templating only: no router, no HTTP handlers, no framework. Everything
+non-template is ordinary Go, and the runtime package imports nothing outside the
+standard library.
 
 ---
 
-> **Status — alpha.** gsx is runnable end-to-end, and it's a toolchain, not just a
-> compiler:
->
-> - **CLI** — `gsx generate` compiles `.gsx` → `.x.go`; plus `gsx fmt`, `gsx info`,
->   and `gsx init` to scaffold a ready-to-run project.
-> - **Editor** — `gsx lsp` language server: Go ↔ `.gsx` navigation, formatting, and
->   diagnostics.
-> - **Dev loop** — `gsx dev` performs warm generation, build-then-swap server
->   restarts, and Vite browser feedback; `gsx init` wires it to `npm run dev`.
->
-> Codegen covers interpolation, control flow, attributes with contextual escaping,
-> the `|>` pipeline + filters, components/props/`{children}`, method components,
-> named slots, explicit attribute forwarding, and `style` composition. See the
-> [roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md).
+> **Status — alpha.** See [Status](./status) for shipped commands, partial
+> features, and known gaps.

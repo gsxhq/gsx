@@ -34,6 +34,8 @@ no_web = true
 
 CLI flags override this table. See the [`gsx dev` reference](./cli#gsx-dev).
 
+## Example: pipeline filters
+
 ```toml
 # gsx.toml — typically at the repo root
 [filters]
@@ -42,7 +44,7 @@ id     = "github.com/jackielii/structpages.ID"
 target = "github.com/jackielii/structpages.IDTarget"
 ```
 
-With that file in place, `gsx generate` makes `url`/`id`/`target` available as
+With that config, `gsx generate` makes `url`/`id`/`target` available as
 pipeline filters in any `.gsx` file:
 
 ```gsx
@@ -177,7 +179,7 @@ js  = "full"
 | `none` *(default)* | Emit the asset **verbatim** — no minification. Keeps generated output readable and the incremental cache warm; best for the dev loop. A custom minifier (below) is not called. |
 | `full` | Maximal **safe** compression via a full parse (tdewolff): collapses whitespace *and* newlines (ASI-safe — explicit semicolons are emitted) for the smallest output. It **never renames identifiers and never obfuscates** — variable names are preserved. Best for production builds; note it **bypasses the incremental codegen cache**, so reserve it for prod rather than the dev loop. |
 
-A [custom minifier](./extensions.md#custom-cssjs-minifier)
+A [custom minifier](./extensions.md#minify-level)
 (`gen.WithCSSMinifier` / `gen.WithJSMinifier`), if installed, **replaces** the
 built-in `full` minifier. At `none` no minifier runs.
 

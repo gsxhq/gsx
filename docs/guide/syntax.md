@@ -1,6 +1,6 @@
 # Syntax reference
 
-> **Syntax is roughly fixed, not frozen.** This page is the compact reference and
+> **Syntax is alpha.** This page is the compact reference and
 > topic hub. If you are new to gsx, start with [Learn gsx](./learn), then use this
 > page while writing templates.
 
@@ -75,7 +75,6 @@ golden-tested `examples/*.txtar` fixtures.
 | `gsx.Raw(s)` | unescaped HTML |
 :::
 
-> **Status — alpha.** Syntax is stable enough for real projects, but not frozen.
-> Follow [Status](./status.md) and the
+> **Status — alpha.** Follow [Status](./status.md) and the
 > [roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md) before relying
 > on deferred features.

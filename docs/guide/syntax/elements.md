@@ -33,7 +33,8 @@ A `disabled={disabled}` attribute on the `<input/>` renders as `disabled` when t
 
 <!--@include: ./_generated/elements/030-raw-text-elements.md-->
 
-Note that `<style>` bodies additionally go through a whitespace-only CSS minifier at codegen time, so the rendered output is compacted compared to the source. `<script>` bodies are emitted verbatim with no minification.
+By default, raw-text bodies are emitted without minification. Configure
+`css_minifier` or `js_minifier` to minify `<style>` or `<script>` output.
 
 Both `<script>` and `<style>` support `@{ expr }` interpolation for dynamic values — see [Style blocks](./styling) and [JavaScript](./javascript) for details.
 

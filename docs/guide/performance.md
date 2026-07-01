@@ -46,6 +46,6 @@ escaper never allocates:
 
 ## Notes
 
-- gsx is roughly **5× faster than `html/template`** and consistently ahead of
-  templ, with a fraction of the allocations.
+- In this benchmark snapshot, gsx is faster than `html/template` and templ with
+  fewer allocations.
 - Numbers are machine- and version-specific.

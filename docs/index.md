@@ -7,24 +7,20 @@ a **JSX-style markup body**, compiled to plain Go.
 .gsx → parser → AST → codegen → .x.go → go build → HTML
 ```
 
-> **Status — alpha.** gsx is runnable end-to-end. `gsx init` scaffolds a Go and
-> Vite application, `gsx dev` runs the warm generate/build/reload loop, and
-> `gsx lsp` provides diagnostics, navigation, hover, references, and formatting.
-> The language and APIs are usable but may still change before a stable release.
-> See the [status](./guide/status.md) and [roadmap](./ROADMAP.md).
+> **Status — alpha.** gsx is usable end to end, but the language and APIs may
+> change before a stable release. See [Status](./guide/status.md) and
+> [Roadmap](./ROADMAP.md).
 
 ## Start here
 
-- **[Why gsx](./guide/vision.md)** — the problem it solves and the bet behind it.
+- **[Why gsx](./guide/vision.md)** — where gsx fits and what it avoids.
 - **[Principles](./guide/principles.md)** — the design commitments.
-- **[Syntax](./guide/syntax.md)** — a quick tour; the
+- **[Syntax](./guide/syntax.md)** — the topic hub. The
   [test corpus](https://github.com/gsxhq/gsx/tree/main/internal/corpus/testdata/cases)
-  is the canonical, always-current reference (every accepted form is a case that
-  parses, generates Go, and pins its rendered output).
-- **[Configuration](./guide/config.md)** — the `gsx.toml` file: pipeline filters, filter packages, and attribute rules read by the stock binary.
-- **[Extensions](./guide/extensions.md)** — the code escape hatch (`cmd/gsx` + `gen.Main`) for function-valued options: custom minifier, classifier predicate, field matcher.
+  pins accepted syntax with parse, codegen, and render goldens.
+- **[Configuration](./guide/config.md)** — `gsx.toml` for filters and attribute rules.
+- **[Extensions](./guide/extensions.md)** — code-based setup for function-valued options.
 
 ## Reference
 
 - [Roadmap & status](./ROADMAP.md)
-- [Design docs](./superpowers/specs/) — the internal specifications.

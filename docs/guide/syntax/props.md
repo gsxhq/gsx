@@ -1,6 +1,8 @@
 # Props
 
-gsx's distinctive feature is that the **author owns the props type**. Rather than generating a fixed props class that the framework controls, gsx lets the component author decide: bring your own named struct, let gsx generate one from inline params, or declare no params at all. The param shape at the declaration site is the discriminator — no config, no annotations.
+The component author owns the props type. Bring your own named struct, let gsx
+generate one from inline params, or declare no params at all. The param shape at
+the declaration site is the discriminator: no config, no annotations.
 
 ## The three props models
 

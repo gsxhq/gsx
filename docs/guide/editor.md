@@ -118,8 +118,14 @@ formatting work out of the box — no generic LSP client to wire up.
   **gsx: Install/Update Language Server** and **gsx: Restart Language Server**
   help when it's missing or stale.
 
-It is not on the Marketplace yet. For now, build the `.vsix` from the repo and
-install it:
+Install it from the
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=gsxhq.gsx):
+
+```bash
+code --install-extension gsxhq.gsx
+```
+
+To test an unreleased build, package the `.vsix` from the repo:
 
 ```bash
 git clone https://github.com/gsxhq/vscode-gsx && cd vscode-gsx

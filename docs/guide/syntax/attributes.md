@@ -30,7 +30,8 @@ The `{ if … { … } }` block can contain any combination of attribute bindings
 
 ## Spread `{ x… }` — ordered
 
-To forward a bag of attributes — commonly used for passthrough components — declare a parameter of type `gsx.Attrs` and spread it onto an element with `{ bag… }`.
+To forward a bag of attributes in a passthrough component, declare a parameter of
+type `gsx.Attrs` and spread it onto an element with `{ bag… }`.
 
 <!--@include: ./_generated/attributes/040-spread-attributes.md-->
 
@@ -52,7 +53,7 @@ attrs = gsx.AttrMap(m).ToAttrs()
 ## Ordered-attrs literal `&#123;&#123; "k": v &#125;&#125;`
 
 ::: v-pre
-When attribute order matters — for example, `data-*` directives consumed by Datastar where a signal must be declared before it is read — use the `&#123;&#123; "key": value &#125;&#125;` literal in a **component invocation** to pass an ordered attribute bag. The literal lowers to `gsx.Attrs` (an ordered slice), the same type as any declared `Attrs gsx.Attrs` prop and the `{ bag… }` spread. This removes the old friction where the literal required a separately-typed prop.
+When attribute order matters — for example, `data-*` directives consumed by Datastar where a signal must be declared before it is read — use the `&#123;&#123; "key": value &#125;&#125;` literal in a **component invocation** to pass an ordered attribute bag. The literal lowers to `gsx.Attrs` (an ordered slice), the same type as any declared `Attrs gsx.Attrs` prop and the `{ bag… }` spread.
 
 Use `&#123;&#123; "k": v &#125;&#125;` any time key order matters: Datastar `data-*` directives, JSX-style overrides through duplicate scalar keys, or explicit ordering that a map would scramble.
 :::
