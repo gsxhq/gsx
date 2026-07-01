@@ -88,7 +88,7 @@ embedded-language context." It is not string concatenation.
 Examples:
 
 ```gsx
-<button @click={js`save(@{id})`}>Save</button>
+<button @click=js`save(@{id})`>Save</button>
 ```
 
 If `id` is an integer, the rendered JavaScript receives a numeric literal. If
