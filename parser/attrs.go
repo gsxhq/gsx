@@ -261,8 +261,8 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 		p.i++
 	}
 
-	// Dispatch on the value-start character. Each downstream parser assumes
-	// the cursor is positioned exactly at the opening '"' or '{'.
+	// Dispatch on the value start. Each downstream parser assumes the cursor is
+	// positioned exactly at its literal opener (`js`/`css`, `"`, or `{`).
 	switch {
 	case p.at("js`") || p.at("css`"):
 		return p.parseEmbeddedAttrValue(name, attrStartPos)
@@ -324,24 +324,28 @@ func (p *parser) parseEmbeddedAttrValue(name string, attrStartPos token.Pos) (as
 
 func (p *parser) parseEmbeddedAttrLiteral() (ast.EmbeddedLang, []ast.Markup, error) {
 	var lang ast.EmbeddedLang
+	literalStart := p.i
+	var opener int
 	switch {
 	case p.at("js`"):
 		lang = ast.EmbeddedJS
 		p.i += len("js`")
+		opener = literalStart + len("js")
 	case p.at("css`"):
 		lang = ast.EmbeddedCSS
 		p.i += len("css`")
+		opener = literalStart + len("css")
 	default:
 		return 0, nil, p.errorf(p.pos(), "expected embedded attribute literal")
 	}
-	segments, err := p.parseEmbeddedSegments(lang)
+	segments, err := p.parseEmbeddedSegments(lang, opener)
 	if err != nil {
 		return 0, nil, err
 	}
 	return lang, segments, nil
 }
 
-func (p *parser) parseEmbeddedSegments(lang ast.EmbeddedLang) ([]ast.Markup, error) {
+func (p *parser) parseEmbeddedSegments(lang ast.EmbeddedLang, opener int) ([]ast.Markup, error) {
 	var segments []ast.Markup
 	segStart := p.i
 	segStartPos := p.posAt(segStart)
@@ -353,11 +357,11 @@ func (p *parser) parseEmbeddedSegments(lang ast.EmbeddedLang) ([]ast.Markup, err
 		}
 	}
 	for !p.eof() {
-		if p.src[p.i] == '\\' && p.i+1 < len(p.src) && p.src[p.i+1] == '`' {
-			p.i += 2
-			continue
-		}
 		if p.src[p.i] == '`' {
+			if p.embeddedBacktickEscaped(p.i) {
+				p.i++
+				continue
+			}
 			flush(p.i)
 			p.i++ // past closing backtick
 			return segments, nil
@@ -378,12 +382,20 @@ func (p *parser) parseEmbeddedSegments(lang ast.EmbeddedLang) ([]ast.Markup, err
 	}
 	switch lang {
 	case ast.EmbeddedJS:
-		return nil, p.errorf(p.posAt(segStart), "unterminated js attribute literal")
+		return nil, p.errorf(p.posAt(opener), "unterminated js attribute literal")
 	case ast.EmbeddedCSS:
-		return nil, p.errorf(p.posAt(segStart), "unterminated css attribute literal")
+		return nil, p.errorf(p.posAt(opener), "unterminated css attribute literal")
 	default:
-		return nil, p.errorf(p.posAt(segStart), "unterminated embedded attribute literal")
+		return nil, p.errorf(p.posAt(opener), "unterminated embedded attribute literal")
 	}
+}
+
+func (p *parser) embeddedBacktickEscaped(backtick int) bool {
+	n := 0
+	for i := backtick - 1; i >= 0 && p.src[i] == '\\'; i-- {
+		n++
+	}
+	return n%2 == 1
 }
 
 // parseAttrsUntilBrace parses an attribute list terminated by '}' (the body of a

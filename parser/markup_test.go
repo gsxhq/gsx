@@ -1279,6 +1279,18 @@ func TestEmbeddedCSSAttrDirect(t *testing.T) {
 	if a.Name != "style" || a.Lang != ast.EmbeddedCSS {
 		t.Fatalf("attr = %#v, want style CSS", a)
 	}
+	if len(a.Segments) != 3 {
+		t.Fatalf("segments = %d, want 3: %#v", len(a.Segments), a.Segments)
+	}
+	if txt, ok := a.Segments[0].(*ast.Text); !ok || txt.Value != "width:" {
+		t.Fatalf("seg0 = %#v, want Text(width:)", a.Segments[0])
+	}
+	if in, ok := a.Segments[1].(*ast.Interp); !ok || in.Expr != "pct" {
+		t.Fatalf("seg1 = %#v, want Interp{pct}", a.Segments[1])
+	}
+	if txt, ok := a.Segments[2].(*ast.Text); !ok || txt.Value != "%" {
+		t.Fatalf("seg2 = %#v, want Text(%%)", a.Segments[2])
+	}
 }
 
 func TestEmbeddedJSAttrBraced(t *testing.T) {
@@ -1289,6 +1301,52 @@ func TestEmbeddedJSAttrBraced(t *testing.T) {
 	}
 	if a.Name != "@click" || a.Lang != ast.EmbeddedJS {
 		t.Fatalf("attr = %#v, want @click JS", a)
+	}
+	if len(a.Segments) != 3 {
+		t.Fatalf("segments = %d, want 3: %#v", len(a.Segments), a.Segments)
+	}
+	if txt, ok := a.Segments[0].(*ast.Text); !ok || txt.Value != "save(" {
+		t.Fatalf("seg0 = %#v, want Text(save()", a.Segments[0])
+	}
+	if in, ok := a.Segments[1].(*ast.Interp); !ok || in.Expr != "id" {
+		t.Fatalf("seg1 = %#v, want Interp{id}", a.Segments[1])
+	}
+	if txt, ok := a.Segments[2].(*ast.Text); !ok || txt.Value != ")" {
+		t.Fatalf("seg2 = %#v, want Text())", a.Segments[2])
+	}
+}
+
+func TestEmbeddedAttrOddBackslashRunEscapesBacktick(t *testing.T) {
+	attrs := parseSingleElemAttrs(t, "<button @click=js`a\\`b`></button>")
+	a, ok := attrs[0].(*ast.EmbeddedAttr)
+	if !ok {
+		t.Fatalf("attr0 = %T, want *ast.EmbeddedAttr", attrs[0])
+	}
+	if len(a.Segments) != 1 {
+		t.Fatalf("segments = %d, want 1: %#v", len(a.Segments), a.Segments)
+	}
+	if txt, ok := a.Segments[0].(*ast.Text); !ok || txt.Value != "a\\`b" {
+		t.Fatalf("seg0 = %#v, want escaped-backtick text", a.Segments[0])
+	}
+}
+
+func TestEmbeddedAttrEvenBackslashRunTerminatesBacktick(t *testing.T) {
+	attrs := parseSingleElemAttrs(t, "<button @click=js`a\\\\` data-x=\"rest\"></button>")
+	if len(attrs) != 2 {
+		t.Fatalf("got %d attrs, want 2: %#v", len(attrs), attrs)
+	}
+	a, ok := attrs[0].(*ast.EmbeddedAttr)
+	if !ok {
+		t.Fatalf("attr0 = %T, want *ast.EmbeddedAttr", attrs[0])
+	}
+	if len(a.Segments) != 1 {
+		t.Fatalf("segments = %d, want 1: %#v", len(a.Segments), a.Segments)
+	}
+	if txt, ok := a.Segments[0].(*ast.Text); !ok || txt.Value != `a\\` {
+		t.Fatalf("seg0 = %#v, want text ending with even backslash run", a.Segments[0])
+	}
+	if b, ok := attrs[1].(*ast.StaticAttr); !ok || b.Name != "data-x" || b.Value != "rest" {
+		t.Fatalf("attr1 = %#v, want StaticAttr{data-x, rest}", attrs[1])
 	}
 }
 
