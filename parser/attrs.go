@@ -1,6 +1,7 @@
 package parser
 
 import (
+	goparser "go/parser"
 	"go/scanner"
 	"go/token"
 	"strconv"
@@ -17,7 +18,7 @@ import (
 // bracket/brace/paren depth 0; within a contribution a depth-0 ':' separates an
 // `expr : cond` conditional from its condition. A trailing comma yields no empty
 // part.
-func (p *parser) splitComposed(src string, base int) ([]ast.ClassPart, error) {
+func (p *parser) splitComposed(name, src string, base int) ([]ast.ClassPart, error) {
 	fset := token.NewFileSet()
 	file := fset.AddFile("", fset.Base(), len(src))
 	var s scanner.Scanner
@@ -106,18 +107,37 @@ func (p *parser) splitComposed(src string, base int) ([]ast.ClassPart, error) {
 		} else {
 			exprSrc = strings.TrimSpace(src[segStart:segEnd])
 		}
+		exprPos := base + segStart + leadingSpaceLen(src[segStart:segEnd])
 		// TODO: thread a base token.Pos into splitComposed so ClassPart stages
 		// carry accurate source positions (needed for LSP cursor detection on
 		// class/style pipelines). For now, pass NoPos; the LSP interp/exprattr
 		// paths (parsePipe in markup.go) are already wired correctly.
 		seed, stages, perr := parsePipe(exprSrc, token.NoPos)
 		if perr != nil {
-			return nil, perr
+			return nil, p.errorf(p.posAt(exprPos), "%v", perr)
+		}
+		if err := validateGoExpr(seed); err != nil {
+			return nil, p.errorf(p.posAt(exprPos), "invalid %s expression %q: %v", name, seed, err)
+		}
+		if condSrc != "" {
+			condPos := base + colon + 1 + leadingSpaceLen(src[colon+1:segEnd])
+			if err := validateGoExpr(condSrc); err != nil {
+				return nil, p.errorf(p.posAt(condPos), "invalid %s condition %q: %v", name, condSrc, err)
+			}
 		}
 		parts = append(parts, ast.ClassPart{Expr: seed, Cond: condSrc, Stages: stages})
 		ast.SetSpan(&parts[len(parts)-1], p.posAt(base+segStart), p.posAt(base+segEnd))
 	}
 	return parts, nil
+}
+
+func leadingSpaceLen(s string) int {
+	return len(s) - len(strings.TrimLeft(s, " \t\r\n"))
+}
+
+func validateGoExpr(expr string) error {
+	_, err := goparser.ParseExpr(expr)
+	return err
 }
 
 // leadingKeyword returns "if" or "switch" if seg's first token is that keyword
@@ -139,7 +159,7 @@ func (p *parser) parseComposedAttr(name string, startPos token.Pos) (ast.Attr, e
 	if !ok {
 		return nil, p.errorf(p.pos(), "unterminated `{` in %s value", name)
 	}
-	parts, err := p.splitComposed(p.src[p.i+1:end], p.i+1)
+	parts, err := p.splitComposed(name, p.src[p.i+1:end], p.i+1)
 	if err != nil {
 		return nil, err
 	}

@@ -1,0 +1,11 @@
+-- input.gsx --
+package views
+
+component Meter(value int, color string) {
+	<div
+		class={ "meter", "meter-full": value >= 100 }
+		style={ value |> format("width: %d%%") "color: " + color }
+	/>
+}
+-- diagnostics.golden --
+6:11: trailing text after `)` in pipeline stage " format(\"width: %d%%\") \"color: \" + color"

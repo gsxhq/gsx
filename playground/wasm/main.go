@@ -15,6 +15,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -71,17 +73,26 @@ func transform(src string) any {
 }
 
 func jsDiags(ds []diag.Diagnostic) []any {
-	out := make([]any, len(ds))
-	for i, d := range ds {
-		out[i] = map[string]any{
-			"severity": d.Severity.String(),
-			"code":     d.Code,
-			"message":  d.Message,
-			"help":     d.Help,
-			"line":     d.Start.Line,
-			"column":   d.Start.Column,
-		}
+	var buf bytes.Buffer
+	if err := diag.RenderJSON(&buf, ds); err != nil {
+		return []any{map[string]any{
+			"severity": "error",
+			"code":     "wasm-diagnostics",
+			"message":  "gsx-wasm: encode diagnostics: " + err.Error(),
+			"source":   "wasm",
+		}}
 	}
+
+	var out []any
+	if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
+		return []any{map[string]any{
+			"severity": "error",
+			"code":     "wasm-diagnostics",
+			"message":  "gsx-wasm: decode diagnostics: " + err.Error(),
+			"source":   "wasm",
+		}}
+	}
+
 	return out
 }
 

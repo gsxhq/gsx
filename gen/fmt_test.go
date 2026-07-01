@@ -51,6 +51,23 @@ func TestFmtDefaultStdout(t *testing.T) {
 	}
 }
 
+func TestFormatRejectsMalformedComposedAttributeMissingComma(t *testing.T) {
+	t.Parallel()
+	const src = `package views
+
+component Meter(value int, color string) {
+	<div
+		class={ "meter", "meter-full": value >= 100 }
+		style={ value |> format("width: %d%%") "color: " + color }
+	/>
+}
+`
+	formatted, err := Format("playground.gsx", []byte(src))
+	if err == nil {
+		t.Fatalf("Format succeeded for malformed composed attrs; output:\n%s", formatted)
+	}
+}
+
 // TestFmtListUnformatted proves -l lists an unformatted file and exits 1.
 func TestFmtListUnformatted(t *testing.T) {
 	t.Parallel()

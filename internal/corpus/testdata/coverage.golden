@@ -32,6 +32,7 @@ class/merger_composable	diag gen render
 class/merger_fallthrough	diag gen render
 class/merger_no_class	diag gen render
 class/merger_static	diag gen render
+class/missing_comma_rejected	diag(error)
 class/multi_part_tuple_order	diag gen render
 class/non_root_class	diag gen render
 class/part_tuple	diag gen render
@@ -346,4 +347,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 348 cases (render: 262, error: 65, gen-pinned: 138)
+TOTAL: 349 cases (render: 262, error: 66, gen-pinned: 138)

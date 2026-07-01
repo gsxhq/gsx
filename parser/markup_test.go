@@ -755,6 +755,21 @@ func TestComposedColonInsideBracketsIsOneExpr(t *testing.T) {
 	}
 }
 
+func TestParseRejectsMalformedComposedAttributeMissingComma(t *testing.T) {
+	src := `package views
+
+component Meter(value int, color string) {
+	<div
+		class={ "meter", "meter-full": value >= 100 }
+		style={ value |> format("width: %d%%") "color: " + color }
+	/>
+}
+`
+	if _, err := ParseFile(token.NewFileSet(), "playground.gsx", src, 0); err == nil {
+		t.Fatal("expected malformed composed attribute to be rejected")
+	}
+}
+
 func TestNonClassBraceStaysExprAttr(t *testing.T) {
 	// A non-class/style attribute with a brace value is still an ExprAttr.
 	p := testParser(`<input value={x}/>`)

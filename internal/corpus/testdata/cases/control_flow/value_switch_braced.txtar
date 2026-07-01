@@ -11,3 +11,4 @@ component Badge(variant int) {
 }
 -- render.golden --
 <span class="GREEN">x</span>
+-- diagnostics.golden --
