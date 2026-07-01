@@ -28,15 +28,15 @@ expressions.
 ```gsx
 package views
 
-import "fmt"
-
 component Meter(value int, color string) {
 	<div
 		class={ "meter", "meter-full": value >= 100 }
-		style={ fmt.Sprintf("width: %d%%", value), "color: " + color }
+		style={ value |> format("width: %d%%"), "color: " + color }
 	/>
 }
 ```
+
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgTWV0ZXIodmFsdWUgaW50LCBjb2xvciBzdHJpbmcpIHtcblx0PGRpdlxuXHRcdGNsYXNzPXsgXCJtZXRlclwiLCBcIm1ldGVyLWZ1bGxcIjogdmFsdWUgPj0gMTAwIH1cblx0XHRzdHlsZT17IHZhbHVlIHw+IGZvcm1hdChcIndpZHRoOiAlZCUlXCIpLCBcImNvbG9yOiBcIiArIGNvbG9yIH1cblx0Lz5cbn1cbiIsImkiOiJNZXRlcihNZXRlclByb3Bze1ZhbHVlOiA3MiwgQ29sb3I6IFwicmViZWNjYXB1cnBsZVwifSkifQ==)
 
 Callers pass values with Go syntax:
 
