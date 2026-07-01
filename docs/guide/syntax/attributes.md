@@ -6,6 +6,10 @@ expressions (`name={expr}`), and explicit embedded-language literals such as
 render time and escaped for its context automatically — no manual encoding
 needed.
 
+For `js` and `css` attribute literals, braces are optional: `` name=js`...` ``
+and `` name={js`...`} `` are equivalent, as are `` name=css`...` `` and
+`` name={css`...`} ``.
+
 ## Expression attributes
 
 Write `name={expr}` to bind any Go expression to an attribute. The expression can be a variable, a field access, an arithmetic expression, a function call, or a literal value.
