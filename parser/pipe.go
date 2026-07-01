@@ -131,6 +131,18 @@ func isStageName(s string) bool {
 // than letting `expr?` poison type resolution for the whole file.
 var errTryMarker = fmt.Errorf("the `?` try-marker is not supported; gsx auto-unwraps (T, error) values — remove the `?` (handle the error explicitly with `{ if v, err := f(); err != nil { … } }`)")
 
+type pipeError struct {
+	pos token.Pos
+	end token.Pos
+	msg string
+}
+
+func (e pipeError) Error() string { return e.msg }
+
+func pipeErrorf(pos, end token.Pos, format string, args ...any) error {
+	return pipeError{pos: pos, end: end, msg: fmt.Sprintf(format, args...)}
+}
+
 // parsePipeStage parses one filter segment: `name` or `name(args)`. segBase is
 // the source position of seg[0], so NamePos/ArgsPos resolve to real source.
 func parsePipeStage(seg string, segBase token.Pos) (ast.PipeStage, error) {
@@ -153,7 +165,15 @@ func parsePipeStage(seg string, segBase token.Pos) (ast.PipeStage, error) {
 			return ast.PipeStage{}, fmt.Errorf("unterminated `(` in pipeline stage %q", seg)
 		}
 		if strings.TrimSpace(s[end+1:]) != "" {
-			return ast.PipeStage{}, fmt.Errorf("trailing text after `)` in pipeline stage %q", seg)
+			trailing := s[end+1:]
+			trailingLead := len(trailing) - len(strings.TrimLeft(trailing, " \t\r\n"))
+			trailingEnd := len(strings.TrimRight(s, " \t\r\n"))
+			var errPos, errEnd token.Pos
+			if namePos.IsValid() {
+				errPos = namePos + token.Pos(end+1+trailingLead)
+				errEnd = namePos + token.Pos(trailingEnd)
+			}
+			return ast.PipeStage{}, pipeErrorf(errPos, errEnd, "trailing text after `)` in pipeline stage %q", seg)
 		}
 		if !isStageName(name) {
 			return ast.PipeStage{}, fmt.Errorf("invalid pipeline filter name %q", name)

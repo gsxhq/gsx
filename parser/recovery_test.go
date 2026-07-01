@@ -40,6 +40,30 @@ func TestErrorfAccumulatesPositioned(t *testing.T) {
 	}
 }
 
+func TestPipelineStageTrailingTextErrorRange(t *testing.T) {
+	src := `package views
+
+component Meter(value int, color string) {
+	<div
+		class={ "meter", "meter-full": value >= 100 }
+		style={ value |> format("width: %d%%"); "color: " + color }
+	/>
+}
+`
+	fset := token.NewFileSet()
+	_, errs := ParseFileWithClassifier(fset, "meter.gsx", []byte(src), 0, attrclass.Builtin())
+	if len(errs) == 0 {
+		t.Fatal("expected a parse error")
+	}
+	gotStart := fset.Position(errs[0].Pos).Offset
+	gotEnd := fset.Position(errs[0].End).Offset
+	wantStart := strings.Index(src, `; "color: " + color`)
+	wantEnd := strings.Index(src, ` }`+"\n\t/>")
+	if gotStart != wantStart || gotEnd != wantEnd {
+		t.Fatalf("range offsets = %d..%d, want %d..%d (%q)", gotStart, gotEnd, wantStart, wantEnd, src[wantStart:wantEnd])
+	}
+}
+
 func TestComponentBoundaryRecovery(t *testing.T) {
 	// Two broken components: each has a mismatched close tag. Recovery must
 	// report BOTH (one per component), not just the first.

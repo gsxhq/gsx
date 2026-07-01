@@ -125,8 +125,11 @@ component Meter(value int, color string) {
 		t.Fatal("expected parse error diagnostic, got none")
 	}
 	d := res.Diags[0]
-	if d.Severity != diag.Error || d.Start.Line != 6 || d.Start.Column != 11 {
-		t.Fatalf("diagnostic = %+v, want error at 6:11", d)
+	if d.Severity != diag.Error || d.Start.Line != 6 || d.Start.Column != 41 {
+		t.Fatalf("diagnostic = %+v, want error at 6:41", d)
+	}
+	if d.End.Line != 6 || d.End.Column <= d.Start.Column {
+		t.Fatalf("diagnostic range = %d:%d..%d:%d, want non-empty range on line 6", d.Start.Line, d.Start.Column, d.End.Line, d.End.Column)
 	}
 	if !strings.Contains(d.Message, "trailing text after `)`") {
 		t.Fatalf("diagnostic message = %q", d.Message)

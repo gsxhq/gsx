@@ -108,13 +108,9 @@ func (p *parser) splitComposed(name, src string, base int) ([]ast.ClassPart, err
 			exprSrc = strings.TrimSpace(src[segStart:segEnd])
 		}
 		exprPos := base + segStart + leadingSpaceLen(src[segStart:segEnd])
-		// TODO: thread a base token.Pos into splitComposed so ClassPart stages
-		// carry accurate source positions (needed for LSP cursor detection on
-		// class/style pipelines). For now, pass NoPos; the LSP interp/exprattr
-		// paths (parsePipe in markup.go) are already wired correctly.
-		seed, stages, perr := parsePipe(exprSrc, token.NoPos)
+		seed, stages, perr := parsePipe(exprSrc, p.posAt(exprPos))
 		if perr != nil {
-			return nil, p.errorf(p.posAt(exprPos), "%v", perr)
+			return nil, p.pipeErrorf(p.posAt(exprPos), perr)
 		}
 		if err := validateGoExpr(seed); err != nil {
 			return nil, p.errorf(p.posAt(exprPos), "invalid %s expression %q: %v", name, seed, err)

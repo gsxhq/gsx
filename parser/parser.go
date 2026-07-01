@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"errors"
 	"fmt"
 	"go/token"
 	"strings"
@@ -13,6 +14,7 @@ import (
 // diag.Diagnostic.
 type Error struct {
 	Pos token.Pos
+	End token.Pos
 	Msg string
 }
 
@@ -29,9 +31,21 @@ type parser struct {
 // the message text. Callers only check err != nil; the positioned errors are
 // read from p.errs by the caller.
 func (p *parser) errorf(pos token.Pos, format string, args ...any) error {
+	return p.errorfRange(pos, token.NoPos, format, args...)
+}
+
+func (p *parser) errorfRange(pos, end token.Pos, format string, args ...any) error {
 	msg := fmt.Sprintf(format, args...)
-	p.errs = append(p.errs, Error{Pos: pos, Msg: msg})
+	p.errs = append(p.errs, Error{Pos: pos, End: end, Msg: msg})
 	return fmt.Errorf("%s", msg)
+}
+
+func (p *parser) pipeErrorf(fallback token.Pos, err error) error {
+	var pe pipeError
+	if errors.As(err, &pe) && pe.pos.IsValid() {
+		return p.errorfRange(pe.pos, pe.end, "%s", pe.msg)
+	}
+	return p.errorf(fallback, "%v", err)
 }
 
 // newParser creates a parser for src at absolute offset 0 in file.

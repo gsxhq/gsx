@@ -716,9 +716,13 @@ func (m *Module) parsePackageWithFset(dir string, fset *token.FileSet) (map[stri
 			diags := make([]diag.Diagnostic, 0, len(perrs))
 			for _, perr := range perrs {
 				pos := fset.Position(perr.Pos)
+				end := pos
+				if perr.End.IsValid() {
+					end = fset.Position(perr.End)
+				}
 				diags = append(diags, diag.Diagnostic{
 					Start:    pos,
-					End:      pos,
+					End:      end,
 					Severity: diag.Error,
 					Code:     "parse-error",
 					Message:  perr.Msg,

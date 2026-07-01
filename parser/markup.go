@@ -22,7 +22,7 @@ func (p *parser) parseInterp() (*ast.Interp, error) {
 	inner := strings.TrimSpace(rawInner)
 	seed, stages, perr := parsePipe(inner, exprPos)
 	if perr != nil {
-		return nil, p.errorf(startPos, "%v", perr)
+		return nil, p.pipeErrorf(startPos, perr)
 	}
 	p.i = end + 1
 	n := &ast.Interp{Expr: seed, Stages: stages, ExprPos: exprPos}

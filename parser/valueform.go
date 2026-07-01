@@ -100,7 +100,7 @@ func (p *parser) parseValueArm(braceOff int) (*ast.ValueArm, token.Pos, error) {
 	lead := len(inner) - len(strings.TrimLeft(inner, " \t\r\n"))
 	seed, stages, err := parsePipe(strings.TrimSpace(inner), p.posAt(braceOff+1+lead))
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, p.pipeErrorf(p.posAt(braceOff), err)
 	}
 	arm := &ast.ValueArm{Expr: seed, Stages: stages}
 	ast.SetSpan(arm, p.posAt(braceOff), p.posAt(closeOff+1))
