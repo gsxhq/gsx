@@ -66,15 +66,12 @@ func resolveMarkup(nodes []ast.Markup, bag *diag.Bag) bool {
 	for _, n := range nodes {
 		switch v := n.(type) {
 		case *ast.Element:
-			// Resolve explicit JS attribute literals on EVERY
-			// element, including <script> (it can carry <script onload="@{…}">).
-			// This must run before the holes are type-probed in codegen.
-			for _, a := range v.Attrs {
-				if ea, ok2 := a.(*ast.EmbeddedAttr); ok2 && ea.Lang == ast.EmbeddedJS {
-					if !resolveJSAttr(ea.Name, ea.Segments, bag) {
-						ok = false
-					}
-				}
+			// Resolve explicit JS attribute literals on EVERY element, including
+			// conditional attr branches and <script> tags (they can carry
+			// <script onload={ if ok { js`...` } }>). This must run before the
+			// holes are type-probed in codegen.
+			if !resolveAttrList(v.Attrs, bag) {
+				ok = false
 			}
 			if strings.EqualFold(v.Tag, "script") {
 				if !resolveScript(v, bag) {
@@ -105,6 +102,28 @@ func resolveMarkup(nodes []ast.Markup, bag *diag.Bag) bool {
 				if !resolveMarkup(v.Cases[i].Body, bag) {
 					ok = false
 				}
+			}
+		}
+	}
+	return ok
+}
+
+func resolveAttrList(attrs []ast.Attr, bag *diag.Bag) bool {
+	ok := true
+	for _, a := range attrs {
+		switch at := a.(type) {
+		case *ast.EmbeddedAttr:
+			if at.Lang == ast.EmbeddedJS {
+				if !resolveJSAttr(at.Name, at.Segments, bag) {
+					ok = false
+				}
+			}
+		case *ast.CondAttr:
+			if !resolveAttrList(at.Then, bag) {
+				ok = false
+			}
+			if !resolveAttrList(at.Else, bag) {
+				ok = false
 			}
 		}
 	}

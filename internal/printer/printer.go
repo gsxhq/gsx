@@ -707,7 +707,7 @@ func writeEmbeddedAttrSegments(b *strings.Builder, nodes []ast.Markup) {
 	for _, n := range nodes {
 		switch v := n.(type) {
 		case *ast.Text:
-			b.WriteString(strings.ReplaceAll(v.Value, "`", "\\`"))
+			writeEmbeddedLiteralText(b, v.Value)
 		case *ast.Interp:
 			b.WriteString("@{")
 			b.WriteString(fmtExpr(v.Expr))
@@ -719,6 +719,21 @@ func writeEmbeddedAttrSegments(b *strings.Builder, nodes []ast.Markup) {
 		default:
 			b.WriteString(markupInlineString(n))
 		}
+	}
+}
+
+func writeEmbeddedLiteralText(b *strings.Builder, s string) {
+	for i := 0; i < len(s); i++ {
+		if s[i] == '`' {
+			backslashes := 0
+			for j := i - 1; j >= 0 && s[j] == '\\'; j-- {
+				backslashes++
+			}
+			if backslashes%2 == 0 {
+				b.WriteByte('\\')
+			}
+		}
+		b.WriteByte(s[i])
 	}
 }
 

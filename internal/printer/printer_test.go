@@ -303,6 +303,20 @@ component C(tab string) {
 	checkFormat(t, src, want)
 }
 
+func TestEmbeddedAttrEscapedBacktick(t *testing.T) {
+	src := `package p
+component C() {
+	<div data-x=js` + "`" + `a\` + "`" + `b` + "`" + `>x</div>
+}`
+	want := `package p
+
+component C() {
+	<div data-x=js` + "`" + `a\` + "`" + `b` + "`" + `>x</div>
+}
+`
+	checkFormat(t, src, want)
+}
+
 func TestIfElseIfElse(t *testing.T) {
 	// An if-else-if-else with block children in each arm: the if body has
 	// block-level children so each arm breaks, and the containing <div>

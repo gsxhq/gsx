@@ -1755,6 +1755,9 @@ func walkMarkupAttrs(attrs []gsxast.Attr, fn func(value []gsxast.Markup)) {
 			// need types — yield their Segments so they are collected and probed in
 			// the SAME order by collectExprs and emitProbes.
 			fn(t.Segments)
+		case *gsxast.CondAttr:
+			walkMarkupAttrs(t.Then, fn)
+			walkMarkupAttrs(t.Else, fn)
 		}
 	}
 }
