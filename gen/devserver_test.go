@@ -30,6 +30,31 @@ func TestPrefixWriterLineBuffers(t *testing.T) {
 	}
 }
 
+func TestPrefixWriterNormalizesViteLoggerPrefix(t *testing.T) {
+	var out bytes.Buffer
+	var mu sync.Mutex
+	pw := &prefixWriter{name: "vite", w: &out, mu: &mu}
+	pw.Write([]byte("17:51:41 [vite] [gsx] error /tmp/main.go\n"))
+	pw.Write([]byte("6:02:44 PM [vite] [gsx] error build\n"))
+	got := out.String()
+	want := "" +
+		"[vite] 17:51:41 [gsx] error /tmp/main.go\n" +
+		"[vite] 6:02:44 PM [gsx] error build\n"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestWriteBuildFailureFormatsAsGsxDiagnostic(t *testing.T) {
+	var out bytes.Buffer
+	writeBuildFailure(&out, "# hello-gsx\n./main.go:69:2: undefined: hello\n", nil)
+	got := out.String()
+	want := "error build\n  # hello-gsx\n  ./main.go:69:2: undefined: hello\n"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
 func TestLoadDotEnv(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, ".env"),

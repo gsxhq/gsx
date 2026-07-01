@@ -56,6 +56,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	mkWriter := func(name string) io.Writer { return &prefixWriter{name: name, w: stdout, mu: &termMu} }
 
 	// --- backend log (opt-in) ---
+	gsxOut := mkWriter("gsx")
 	serverOut := mkWriter("server")
 	if dc.logPath != "" {
 		_ = os.MkdirAll(filepath.Dir(dc.logPath), 0o755)
@@ -108,7 +109,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	}
 
 	// --- Go server: initial build + run ---
-	srv := &devServer{dir: workDir, build: dc.build, run: dc.run, env: env, out: serverOut, healthURL: healthURL}
+	srv := &devServer{dir: workDir, build: dc.build, run: dc.run, env: env, out: serverOut, buildOut: gsxOut, healthURL: healthURL}
 	startOK := true
 	for _, r := range startup {
 		startOK = startOK && r.OK

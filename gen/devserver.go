@@ -40,10 +40,18 @@ func (p *prefixWriter) Write(b []byte) (int, error) {
 			break
 		}
 		line := strings.TrimRight(string(p.buf[:i]), "\r")
+		line = normalizePrefixedLine(p.name, line)
 		fmt.Fprintf(p.w, "[%s] %s\n", p.name, line)
 		p.buf = p.buf[i+1:]
 	}
 	return len(b), nil
+}
+
+func normalizePrefixedLine(name, line string) string {
+	if name == "vite" {
+		return strings.Replace(line, " [vite] [gsx]", " [gsx]", 1)
+	}
+	return line
 }
 
 // loadDotEnv parses KEY=VALUE lines from dir/.env (blanks and #-comments
@@ -211,7 +219,7 @@ func postBest(url string, body []byte) {
 	}
 	go func() {
 		client := &http.Client{Timeout: 2 * time.Second}
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			resp, err := client.Post(url, "application/json", bytes.NewReader(body))
 			if err == nil {
 				resp.Body.Close()
@@ -230,6 +238,7 @@ type devServer struct {
 	run       []string // argv to run the built binary
 	env       []string
 	out       io.Writer // combined terminal+log writer for server output
+	buildOut  io.Writer // build diagnostics; defaults to out when nil
 	healthURL string    // e.g. http://localhost:7777/healthz
 
 	mu  sync.Mutex
@@ -242,14 +251,40 @@ type devServer struct {
 // old server and starts the new one.
 func (d *devServer) rebuild(ctx context.Context) (string, error) {
 	var buf bytes.Buffer
-	w := io.MultiWriter(d.out, &buf)
 	bcmd := exec.CommandContext(ctx, d.build[0], d.build[1:]...)
-	bcmd.Dir, bcmd.Env, bcmd.Stdout, bcmd.Stderr = d.dir, d.env, w, w
+	bcmd.Dir, bcmd.Env, bcmd.Stdout, bcmd.Stderr = d.dir, d.env, &buf, &buf
 	if err := bcmd.Run(); err != nil {
-		fmt.Fprintf(d.out, "build failed: %v\n", err)
+		writeBuildFailure(d.effectiveBuildOut(), buf.String(), err)
 		return buf.String(), err
 	}
 	return "", d.restartNoBuild()
+}
+
+func (d *devServer) effectiveBuildOut() io.Writer {
+	if d.buildOut != nil {
+		return d.buildOut
+	}
+	return d.out
+}
+
+func writeBuildFailure(w io.Writer, output string, err error) {
+	if w == nil {
+		return
+	}
+	fmt.Fprintln(w, "error build")
+	output = strings.TrimSpace(output)
+	if output == "" {
+		if err != nil {
+			fmt.Fprintf(w, "  %v\n", err)
+		}
+		return
+	}
+	for line := range strings.SplitSeq(output, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if line != "" {
+			fmt.Fprintf(w, "  %s\n", line)
+		}
+	}
 }
 
 // buildErrorEvent makes an ok:false "generated" event whose single error
