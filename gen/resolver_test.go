@@ -2,6 +2,7 @@ package gen
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/gsxhq/gsx/internal/codegen"
@@ -99,4 +100,35 @@ func TestCachedResolverTypeError(t *testing.T) {
 		cachedDiag.Start.Line, cachedDiag.Start.Column, cachedDiag.Message, cachedDiag.Start.Filename)
 	t.Logf("default diag: line=%d col=%d msg=%q file=%q",
 		defaultDiag.Start.Line, defaultDiag.Start.Column, defaultDiag.Message, defaultDiag.Start.Filename)
+}
+
+func TestCachedResolverParseErrorDiagnostic(t *testing.T) {
+	t.Parallel()
+	const badSrc = `package views
+
+component Meter(value int, color string) {
+	<div
+		class={ "meter", "meter-full": value >= 100 }
+		style={ value |> format("width: %d%%"); "color: " + color }
+	/>
+}
+`
+	r, err := NewCachedResolver(repoRoot(t), DefaultPlaygroundImports)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, _ := r.GenerateSource("meter.gsx", []byte(badSrc))
+	if len(res.Files) != 0 {
+		t.Fatalf("parse error should not produce generated files: %v", res.Files)
+	}
+	if len(res.Diags) == 0 {
+		t.Fatal("expected parse error diagnostic, got none")
+	}
+	d := res.Diags[0]
+	if d.Severity != diag.Error || d.Start.Line != 6 || d.Start.Column != 11 {
+		t.Fatalf("diagnostic = %+v, want error at 6:11", d)
+	}
+	if !strings.Contains(d.Message, "trailing text after `)`") {
+		t.Fatalf("diagnostic message = %q", d.Message)
+	}
 }

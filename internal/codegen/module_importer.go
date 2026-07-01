@@ -93,6 +93,29 @@ type moduleImporter struct {
 	cycleErr error
 }
 
+type parseDiagnosticsError struct {
+	diags []diag.Diagnostic
+}
+
+func (e parseDiagnosticsError) Error() string {
+	if len(e.diags) == 0 {
+		return "parse error"
+	}
+	d := e.diags[0]
+	if d.Start.IsValid() {
+		return fmt.Sprintf("parse error in %s:%d:%d: %s", d.Start.Filename, d.Start.Line, d.Start.Column, d.Message)
+	}
+	return "parse error: " + d.Message
+}
+
+func diagnosticsFromParseError(err error) ([]diag.Diagnostic, bool) {
+	var perr parseDiagnosticsError
+	if !errors.As(err, &perr) {
+		return nil, false
+	}
+	return append([]diag.Diagnostic(nil), perr.diags...), true
+}
+
 func (mi *moduleImporter) Import(path string) (*types.Package, error) {
 	if dir, ok := dirForImportPath(mi.m.opts.ModuleRoot, mi.m.opts.ModulePath, path); ok {
 		if mi.m.isGsxPackage(dir) {
@@ -690,7 +713,19 @@ func (m *Module) parsePackageWithFset(dir string, fset *token.FileSet) (map[stri
 		}
 		f, perrs := gsxparser.ParseFileWithClassifier(fset, p, src, 0, m.opts.Classifier)
 		if len(perrs) > 0 {
-			return nil, "", fmt.Errorf("parse error in %s: %s", p, perrs[0].Msg)
+			diags := make([]diag.Diagnostic, 0, len(perrs))
+			for _, perr := range perrs {
+				pos := fset.Position(perr.Pos)
+				diags = append(diags, diag.Diagnostic{
+					Start:    pos,
+					End:      pos,
+					Severity: diag.Error,
+					Code:     "parse-error",
+					Message:  perr.Msg,
+					Source:   "parser",
+				})
+			}
+			return nil, "", parseDiagnosticsError{diags: diags}
 		}
 		wsnorm.Normalize(f)
 		files[p] = f

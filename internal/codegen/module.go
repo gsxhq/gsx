@@ -373,6 +373,9 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	}
 	a, err := m.analyze(dir, &moduleImporter{m: m, external: ext, seen: map[string]bool{}})
 	if err != nil {
+		if diags, ok := diagnosticsFromParseError(err); ok {
+			return &PackageResult{Files: map[string][]byte{}, Diags: diags}, nil
+		}
 		return nil, err
 	}
 	res := &PackageResult{
@@ -434,6 +437,9 @@ func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, err
 	}
 	a, err := m.analyze(dir, &moduleImporter{m: m, external: ext, seen: map[string]bool{}})
 	if err != nil {
+		if diags, ok := diagnosticsFromParseError(err); ok {
+			return map[string][]byte{}, diags, nil
+		}
 		return nil, nil, err
 	}
 	// Use the bag created in analyze (shares fset, carries script-resolution diags).
