@@ -744,3 +744,123 @@ func TestInferredUnexportedTypeArgRejectedOutputBuilds(t *testing.T) {
 		t.Fatalf("go build of generated output: %v\n%s", berr, bout)
 	}
 }
+
+// TestInferredTypeArgImportCollision reproduces the independent-review probe
+// (finding 1): main.gsx plain-imports "example.com/tic/other/ids" (package
+// ids) and uses it directly in markup, while ALSO calling a generic child
+// component whose type argument is inferred as example.com/tic/ids.ID — a
+// DIFFERENT package that happens to declare the same package name "ids".
+// childTypeArgUse's qf used to print every inferred cross-package type
+// argument's qualifier as plain pkg.Name(), plain-importing the path into
+// `imports` unconditionally — with two DIFFERENT paths both named "ids" that
+// emits two `import "..."` lines both binding the name `ids`, i.e.
+// `ids redeclared in this block` at `go build`, even though generate exited 0
+// — a hard-invariant violation (generate must never emit non-compiling
+// output). qf must now detect the name collision against this file's already
+// -bound import names and allocate a fresh `_gsxti<N>` alias for the
+// inferred type argument's import instead of colliding.
+func TestInferredTypeArgImportCollision(t *testing.T) {
+	if testing.Short() {
+		t.Skip("spawns the go toolchain")
+	}
+	repoRootAbs, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module example.com/tic\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRootAbs+"\n")
+	compDir := filepath.Join(tmp, "components")
+	if err := os.MkdirAll(compDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	idsDir := filepath.Join(tmp, "ids")
+	if err := os.MkdirAll(idsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	otherIDsDir := filepath.Join(tmp, "other", "ids")
+	if err := os.MkdirAll(otherIDsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, idsDir, "id.go", "package ids\n\ntype ID string\n")
+	writeFile(t, otherIDsDir, "id.go", "package ids\n\nfunc Label() string { return \"other\" }\n")
+	writeFile(t, compDir, "button.gsx", "package components\n\nimport \"example.com/tic/ids\"\n\ncomponent Button[T ~string](label T) {\n\t<button>{label}</button>\n}\n\nfunc NewID() ids.ID { return ids.ID(\"abc\") }\n")
+	writeFile(t, tmp, "post.gsx", "package tic\n\nimport (\n\t\"example.com/tic/components\"\n\t\"example.com/tic/other/ids\"\n)\n\ncomponent Post() {\n\t<div>{ids.Label()}</div>\n\t<components.Button label={components.NewID()} />\n}\n")
+
+	res, err := GenerateDirs(tmp, []string{tmp, compDir}, Options{FilterPkgs: []string{stdImportPath}, CSSMinify: true, JSMinify: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diags := res[compDir].Diags; len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics generating components package: %+v", diags)
+	}
+	if diags := res[tmp].Diags; len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics generating root package: %+v", diags)
+	}
+	var root string
+	for p, src := range res[tmp].Files {
+		if strings.HasSuffix(p, "post.gsx") {
+			root = string(src)
+		}
+	}
+	if root == "" {
+		t.Fatalf("post.gsx did not generate; files = %+v", res[tmp].Files)
+	}
+	if !strings.Contains(root, "_gsxti") {
+		t.Fatalf("generated source does not alias the colliding inferred type-arg import; generated:\n%s", root)
+	}
+
+	for _, r := range res {
+		for gsxPath, src := range r.Files {
+			base := strings.TrimSuffix(gsxPath, ".gsx")
+			if werr := os.WriteFile(base+".x.go", src, 0o644); werr != nil {
+				t.Fatal(werr)
+			}
+		}
+	}
+	build := exec.Command("go", "build", "./...")
+	build.Dir = tmp
+	if bout, berr := build.CombinedOutput(); berr != nil {
+		t.Fatalf("go build of generated output: %v\n%s", berr, bout)
+	}
+}
+
+// TestInferredTypeArgImportNoCollision is the control for
+// TestInferredTypeArgImportCollision: with only ONE package anywhere in scope
+// named "ids", the inferred type argument's import must keep today's plain
+// behavior — a plain `"example.com/tinc/ids"` import and a bare `ids.ID`
+// qualifier — and must NEVER emit a `_gsxti` alias, proving the collision
+// fix leaves the non-colliding path byte-identical.
+func TestInferredTypeArgImportNoCollision(t *testing.T) {
+	repoRootAbs, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module example.com/tinc\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRootAbs+"\n")
+	compDir := filepath.Join(tmp, "components")
+	if err := os.MkdirAll(compDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	idsDir := filepath.Join(tmp, "ids")
+	if err := os.MkdirAll(idsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, idsDir, "id.go", "package ids\n\ntype ID string\n")
+	writeFile(t, compDir, "button.gsx", "package components\n\nimport \"example.com/tinc/ids\"\n\ncomponent Button[T ~string](label T) {\n\t<button>{label}</button>\n}\n\nfunc NewID() ids.ID { return ids.ID(\"abc\") }\n")
+	writeFile(t, tmp, "post.gsx", "package tinc\n\nimport \"example.com/tinc/components\"\n\ncomponent Post() {\n\t<components.Button label={components.NewID()} />\n}\n")
+
+	res, err := GenerateDirs(tmp, []string{tmp, compDir}, Options{FilterPkgs: []string{stdImportPath}, CSSMinify: true, JSMinify: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diags := res[tmp].Diags; len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics: %+v", diags)
+	}
+	var root string
+	for _, src := range res[tmp].Files {
+		root = string(src)
+	}
+	if !strings.Contains(root, `"example.com/tinc/ids"`) {
+		t.Fatalf("generated source missing plain inferred type-arg import:\n%s", root)
+	}
+	if !strings.Contains(root, "ids.ID") {
+		t.Fatalf("generated source missing plain ids.ID qualifier:\n%s", root)
+	}
+	if strings.Contains(root, "_gsxti") {
+		t.Fatalf("no-collision case must not emit a _gsxti alias; generated:\n%s", root)
+	}
+}

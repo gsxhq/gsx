@@ -426,4 +426,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 427 cases (render: 335, error: 70, gen-pinned: 178)
+TOTAL: 428 cases (render: 336, error: 70, gen-pinned: 179)
