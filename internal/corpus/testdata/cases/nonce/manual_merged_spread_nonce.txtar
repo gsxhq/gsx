@@ -1,6 +1,6 @@
-# MANUAL bag + a second inline spread on one script element: the guard must
-# check BOTH bags (multi-term && guard) and inject only when neither carries
-# a "nonce" key. Pins the multi-spread guard shape.
+# MANUAL forwarding of a MERGED bag on a script element where the merged-in
+# bag carries an explicit "nonce": the guard reads the hoisted merged bag and
+# suppresses the context-nonce injection (author nonce wins).
 -- support.go --
 package views
 
@@ -21,9 +21,9 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-component Page(other gsx.Attrs) { <script { attrs... } { other... }>init()</script> }
+component Page(other gsx.Attrs) { <script { attrs.Merge(other)... }>init()</script> }
 -- invoke --
 withTestNonce(Page(PageProps{Other: gsx.Attrs{{Key: "nonce", Value: "mine"}}, Attrs: gsx.Attrs{{Key: "defer", Value: true}}}))
 -- diagnostics.golden --
 -- render.golden --
-<script nonce="mine" defer>init()</script>
+<script defer nonce="mine">init()</script>

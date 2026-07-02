@@ -1,0 +1,19 @@
+# The component keeps final say over class by forwarding a derived bag that
+# excludes it: { attrs.Without("class")... } — the root's own class stands
+# alone (the derived bag contributes no class to the merge) and the caller's
+# class is dropped, while everything else still forwards.
+-- input.gsx --
+package views
+
+component Card() {
+	<div class="card" { attrs.Without("class")... }>y</div>
+}
+
+component Page() {
+	<Card class="hl" id="a"/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<div class="card" id="a">y</div>

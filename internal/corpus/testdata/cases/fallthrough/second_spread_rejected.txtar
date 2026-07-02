@@ -1,0 +1,16 @@
+# An element that carries the forwarding spread cannot carry a second spread:
+# a scalar between two spreads has no expressible precedence in the static
+# guard machinery, and two spreads do not key-resolve against each other
+# (before this diagnostic the pair emitted duplicate attributes, with the
+# non-bag spread rendering BEFORE the bag regardless of source order).
+# Compose explicitly instead: { attrs.Merge(extra)... } / { extra.Merge(attrs)... }.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Row(extra gsx.Attrs) {
+	<div { attrs... } { extra... }>r</div>
+}
+-- diagnostics.golden --
+6:20: element with an attrs-forwarding spread cannot carry another spread { extra... }; merge them into one spread ({ attrs.Merge(extra)... } or { extra.Merge(attrs)... }) so precedence is explicit

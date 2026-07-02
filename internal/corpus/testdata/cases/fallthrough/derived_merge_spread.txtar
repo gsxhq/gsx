@@ -1,0 +1,21 @@
+# { attrs.Merge(extra)... } composes another bag into the forwarding spread
+# with runtime Merge (last-wins scalars), and the merged bag drives the
+# caller-wins guard: the root's own data-a is shadowed because the merged bag
+# has the key.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Row(extra gsx.Attrs) {
+	<div data-a="root" { attrs.Merge(extra)... }>r</div>
+}
+
+component Page() {
+	<Row extra={gsx.Attrs{{Key: "data-a", Value: "extra"}}} data-a="bag" id="i"/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<div data-a="extra" id="i">r</div>

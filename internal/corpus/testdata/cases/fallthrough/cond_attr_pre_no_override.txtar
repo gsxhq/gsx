@@ -1,0 +1,17 @@
+# A pre-spread cond-attr with an empty bag: every guard is true (nil-safe
+# Has), so the taken branch emits exactly as on a non-forwarding element.
+-- input.gsx --
+package views
+
+component Box(active bool) {
+	<button { if active { id="mine" data-k="v" } } { attrs... }>x</button>
+}
+
+component Page() {
+	<Box active={true}/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<button id="mine" data-k="v">x</button>

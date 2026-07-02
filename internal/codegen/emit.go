@@ -339,16 +339,16 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 	// method: no params, no children, no fallthrough) gets NO props struct and NO
 	// _gsxp param — emitted as `func Name() gsx.Node`, called as `Name()`. A
 	// component grows a props struct ONLY when it has params, uses `{children}`,
-	// or uses fallthrough attrs (auto single-root or manual `{...attrs}`).
+	// or forwards attrs (references the `attrs` bag).
 	hasChildren := usesChildren(c.Body)
 	// MANUAL mode: a component whose body references the identifier `attrs` (a
-	// `{...attrs}` element spread, or `attrs.X()` in an interp/expr/clause) takes
-	// over fallthrough placement itself. Explicit forwarding is required: we only
-	// synthesize an `Attrs gsx.Attrs` field when the author actually references
-	// `attrs`; there is no implicit single-root auto-injection path.
+	// `{ attrs... }` element spread, or `attrs.X()` in an interp/expr/clause)
+	// takes over fallthrough placement itself. Explicit forwarding is required:
+	// we only synthesize an `Attrs gsx.Attrs` field when the author actually
+	// references `attrs`; there is no implicit single-root auto-injection path
+	// (removed by the 2026-06-30 explicit-forwarding decision).
 	manual := usesAttrs(c.Body)
-	hasFallthrough := manual
-	hasProps := len(params) > 0 || hasChildren || hasFallthrough
+	hasProps := len(params) > 0 || hasChildren || manual
 	if hasProps {
 		fmt.Fprintf(b, "type %s%s struct {\n", propsName, typeParamsDecl)
 		for _, p := range params {
@@ -357,7 +357,7 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 		if hasChildren {
 			b.WriteString("\tChildren gsx.Node\n")
 		}
-		if hasFallthrough {
+		if manual {
 			b.WriteString("\tAttrs gsx.Attrs\n")
 		}
 		fmt.Fprintf(b, "}\n\n")
@@ -400,7 +400,7 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 	}
 	if manual {
 		// MANUAL mode: bind the synthesized bag to a same-named local so the author's
-		// `{...attrs}` element spread (emitted as `gw.Spread(ctx, attrs)`) and any
+		// `{ attrs... }` element spread (emitted as `gw.Spread(ctx, attrs)`) and any
 		// `attrs.X()` reference resolve. Nil-safe: a nil bag spreads/queries to
 		// nothing. usesAttrs guarantees that lowering consumes this binding.
 		b.WriteString("\t\tattrs := _gsxp.Attrs\n")
@@ -419,14 +419,22 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 
 // emitFallthroughAttrs emits the caller-wins attribute section (between `<tag`
 // and the closing `>` / `/>`) for MANUAL mode (emitManualSpreadElement). splitIdx
-// is the position of the author's `{...attrs}` — scalar attrs BEFORE it are
+// is the position of the author's `{ attrs... }` — scalar attrs BEFORE it are
 // overridable (guarded `if !Has(name)`, caller-wins); scalar attrs AFTER it are
 // FORCED (emitted UNGUARDED so the root always wins) and their names are excluded
 // from the bag spread so a same-named bag entry can never emit (root wins).
 //
+// Cond-attrs follow the same positional rule (spec 2026-07-02 D3): a pre-spread
+// `{ if … }` emits each branch leaf under a `!Has(name)` guard inside its
+// branch; a post-spread one is evaluated exactly ONCE before the spread —
+// branch bodies record the taken branch in a bool temp and append their leaf
+// names to a dynamic drop slice the spread excludes — and its leaves render
+// after the spread under the recorded bool. class/style or a spread inside a
+// branch is rejected (the static merge/guard sites cannot account for them).
+//
 // class/style are positional-exempt: wherever they appear they MERGE caller-last
 // (ClassMerged / StyleMerged), emitted once at the spread position. The author's
-// `{...attrs}` SpreadAttr itself (when present at splitIdx) is consumed here, not
+// `{ attrs... }` SpreadAttr itself (when present at splitIdx) is consumed here, not
 // emitted via emitAttr.
 func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, splitIdx int, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, bag *diag.Bag, mergeExpr, bagExpr string, nonce *nonceInjection) bool {
 	// Find a composed/static class attr to merge the bag's class into, and a
@@ -453,22 +461,39 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 			}
 		}
 	}
-	// forcedNames collects the names of post-spread scalar attrs (MANUAL mode) so
-	// the bag spread drops them — the unguarded root emit then wins.
+	// forcedNames are the statically-named post-spread scalar attrs (idx >
+	// splitIdx): the bag spread drops them, so the unguarded root emit wins.
+	// They are pure AST facts, collected up front — emission never feeds back
+	// into this list. class/style are excluded: they are positional-exempt and
+	// merge at the spread site instead.
 	var forcedNames []string
+	for i, a := range attrs {
+		if i <= splitIdx {
+			continue
+		}
+		switch t := a.(type) {
+		case *ast.ClassAttr:
+			if t == classAttr || t == styleAttr {
+				continue
+			}
+		case *ast.StaticAttr:
+			if t == staticClass || t == staticStyle {
+				continue
+			}
+		}
+		if name, ok := rootAttrName(a); ok {
+			forcedNames = append(forcedNames, name)
+		}
+	}
 
 	// emitScalar emits one non-class/style attr, either guarded (overridable) or
 	// unguarded (forced).
 	emitScalar := func(a ast.Attr, guarded bool) bool {
 		name, ok := rootAttrName(a)
-		if !ok {
-			// No single static name (Cond) — no caller-wins shadow target; emit
-			// unguarded. (A SpreadAttr at the split position is consumed below, not
-			// here.)
-			return emitAttr(b, refreshMeta, a, resolved, table, imports, interpTemp, cls, bag, mergeExpr, nonce)
-		}
-		if !guarded {
-			forcedNames = append(forcedNames, name)
+		if !ok || !guarded {
+			// Unguarded: forced (post-spread), or no single static name (Cond) — no
+			// caller-wins shadow target. (A SpreadAttr at the split position is
+			// consumed below, not here.)
 			return emitAttr(b, refreshMeta, a, resolved, table, imports, interpTemp, cls, bag, mergeExpr, nonce)
 		}
 		fmt.Fprintf(b, "\t\tif !%s.Has(%s) {\n", bagExpr, strconv.Quote(name))
@@ -479,9 +504,135 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 		return true
 	}
 
-	// emitSpread emits the class merge, style merge, then the bag spread (dropping
-	// class/style + any forced names). Called once, at the split position.
+	// Cond-attr branch leaves must be plain named scalars: the class/style merge
+	// and the caller-wins guard/drop machinery are emitted at static sites and
+	// cannot account for a conditional class contribution or a spread's unknown
+	// keys. Validate every cond-attr on the element (any position) up front.
+	var validateCondBranch func(as []ast.Attr, encCond string) bool
+	validateCondBranch = func(as []ast.Attr, encCond string) bool {
+		for _, a := range as {
+			switch t := a.(type) {
+			case *ast.CondAttr:
+				if !validateCondBranch(t.Then, t.Cond) || !validateCondBranch(t.Else, "!("+t.Cond+")") {
+					return false
+				}
+				continue
+			case *ast.SpreadAttr:
+				bag.Errorf(t.Pos(), t.End(), "attr-fallthrough",
+					"spread inside { if } on an element with attribute forwarding has statically unknown keys; compose it into the forwarding spread instead (e.g. { attrs.Merge(gsx.AttrsCond(%s, func() gsx.Attrs { return %s }, nil))... })",
+					encCond, strings.TrimSpace(t.Expr))
+				return false
+			}
+			name, _ := rootAttrName(a)
+			if c, ok := a.(*ast.ClassAttr); ok {
+				name = c.Name
+			}
+			if name == "class" || name == "style" {
+				hint := "; use the composable form (style={ … }) with conditional declarations instead"
+				if name == "class" {
+					if s, ok := a.(*ast.StaticAttr); ok {
+						hint = fmt.Sprintf("; use the composable form (class={ %q: %s }) instead", s.Value, encCond)
+					} else {
+						hint = "; use the composable form (class={ <expr>: <cond> }) instead"
+					}
+				}
+				bag.Errorf(a.Pos(), a.End(), "attr-fallthrough",
+					"conditional %s inside { if } on an element with attribute forwarding cannot join the %s merge%s", name, name, hint)
+				return false
+			}
+		}
+		return true
+	}
+	for _, a := range attrs {
+		if t, ok := a.(*ast.CondAttr); ok {
+			if !validateCondBranch(t.Then, t.Cond) || !validateCondBranch(t.Else, "!("+t.Cond+")") {
+				return false
+			}
+		}
+	}
+
+	// emitCondGuarded emits a PRE-spread cond-attr with every branch leaf
+	// caller-overridable: the branch structure is preserved (conditions evaluate
+	// once, in place, with else-if short-circuit), each leaf wrapped in the same
+	// `!Has(name)` guard as a plain pre-spread scalar.
+	var emitCondGuarded func(t *ast.CondAttr) bool
+	emitCondGuarded = func(t *ast.CondAttr) bool {
+		emitBranch := func(as []ast.Attr) bool {
+			for _, inner := range as {
+				if nested, ok := inner.(*ast.CondAttr); ok {
+					if !emitCondGuarded(nested) {
+						return false
+					}
+					continue
+				}
+				if !emitScalar(inner, true) {
+					return false
+				}
+			}
+			return true
+		}
+		fmt.Fprintf(b, "\t\tif %s {\n", t.Cond)
+		if !emitBranch(t.Then) {
+			return false
+		}
+		if len(t.Else) > 0 {
+			b.WriteString("\t\t} else {\n")
+			if !emitBranch(t.Else) {
+				return false
+			}
+		}
+		b.WriteString("\t\t}\n")
+		return true
+	}
+
+	// POST-spread cond-attrs force their taken branch's leaves. Planning walks
+	// each one once: every branch with direct leaves gets a bool temp, and the
+	// leaves are collected into source-ordered runs (a nested cond-attr splits
+	// its parent's run so output order matches the original emission order).
+	// The selector — emitted just before the spread — evaluates the branch
+	// structure exactly once, setting the bools and appending the taken
+	// branch's names to the dynamic drop slice.
+	postRuns := map[*ast.CondAttr][]condRun{}
+	dropVar := ""
+	emitPostCondSelectors := func() {
+		var post []*ast.CondAttr
+		for i, a := range attrs {
+			if i <= splitIdx {
+				continue
+			}
+			if t, ok := a.(*ast.CondAttr); ok {
+				post = append(post, t)
+			}
+		}
+		if len(post) == 0 {
+			return
+		}
+		dropVar = fmt.Sprintf("_gsxv%d", *interpTemp)
+		*interpTemp++
+		base := append([]string{"class", "style"}, forcedNames...)
+		quotedBase := make([]string, len(base))
+		for i, n := range base {
+			quotedBase[i] = strconv.Quote(n)
+		}
+		fmt.Fprintf(b, "\t\t%s := []string{%s}\n", dropVar, strings.Join(quotedBase, ", "))
+		for _, t := range post {
+			var runs []condRun
+			var bools []string
+			root := planPostCond(t, &runs, &bools, interpTemp)
+			postRuns[t] = runs
+			if len(bools) > 0 {
+				fmt.Fprintf(b, "\t\tvar %s bool\n", strings.Join(bools, ", "))
+			}
+			emitPostCondSelector(b, root, dropVar)
+		}
+	}
+
+	// emitSpread emits the post-cond selectors, the class merge, style merge,
+	// then the bag spread (dropping class/style + any forced names — via the
+	// dynamic drop slice when post-spread cond-attrs exist). Called once, at
+	// the split position.
 	emitSpread := func() bool {
+		emitPostCondSelectors()
 		// If the root had NO class attr at all, emit a merged class in attr position —
 		// writes class only when the bag contributes a non-empty token set.
 		if classAttr == nil && staticClass == nil {
@@ -521,6 +672,12 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 		// any forced names (excluded so the unguarded root emit wins — caller can't
 		// override a post-spread attr). Every other bag attr spreads, including one
 		// that shadows a guarded (overridable) root attr (which was then skipped).
+		// With post-spread cond-attrs the drop set is the dynamic slice built by
+		// the selectors above (static names + the taken branches' names).
+		if dropVar != "" {
+			fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s.Without(%s...))\n", bagExpr, dropVar)
+			return true
+		}
 		without := append([]string{"class", "style"}, forcedNames...)
 		quoted := make([]string, len(without))
 		for i, n := range without {
@@ -530,20 +687,14 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 		return true
 	}
 
-	// In MANUAL mode the author's `{...attrs}` lives at splitIdx; collecting the
-	// forced names requires emitting post-spread scalars BEFORE the spread call (so
-	// forcedNames is populated). We therefore emit in three phases:
-	//   1. overridable scalars (idx < splitIdx, guarded)
-	//   2. forced scalars (idx > splitIdx, unguarded, names collected)
-	//   3. the spread (class/style merge + bag, dropping the forced names)
-	// then re-walk to interleave nothing else — class/style are handled by phase 3.
-	// Emission order in the output: overridable scalars, then the spread, then the
-	// forced scalars — matching `<div a {...attrs} b/>` (a, bag, b). We achieve that
-	// by buffering the forced-scalar bytes.
-	var forcedBuf bytes.Buffer
+	// Emission order in the output: overridable scalars, then the spread section,
+	// then the forced scalars — matching `<div a { attrs... } b/>` (a, bag, b).
+	// Walk 1 emits everything EXCEPT post-spread scalars: guarded pre-spread
+	// scalars, the class merge site in place (emitRoot{Composed,Static}Class),
+	// and inline non-bag spreads at their positions; style is skipped here and
+	// merged by emitSpread. class/style handling ignores spread position
+	// (positional-exempt).
 	for i, a := range attrs {
-		// class is merged in place here (emitRoot{Composed,Static}Class); style is
-		// skipped here and merged by emitSpread (phase 3). Both ignore spread position.
 		switch t := a.(type) {
 		case *ast.ClassAttr:
 			if t == classAttr {
@@ -583,42 +734,178 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 			continue
 		}
 		if i < splitIdx {
+			if ca, ok := a.(*ast.CondAttr); ok {
+				if !emitCondGuarded(ca) {
+					return false
+				}
+				continue
+			}
 			if !emitScalar(a, true) {
 				return false
 			}
-			continue
-		}
-		// Post-spread: forced. Buffer it (emitted after the spread) but collect its
-		// name now via emitScalar against forcedBuf.
-		saved := b
-		b = &forcedBuf
-		okScalar := emitScalar(a, false)
-		b = saved
-		if !okScalar {
-			return false
 		}
 	}
-	// Phase 3: the spread (now that forcedNames is fully populated), then flush the
-	// buffered forced scalars after it.
+	// The spread section (post-cond selectors + class/style merge + bag minus
+	// forced names).
 	if !emitSpread() {
 		return false
 	}
-	b.Write(forcedBuf.Bytes())
+	// Walk 2: forced post-spread scalars, unguarded, in source order. A
+	// cond-attr renders its planned runs under the branch bools its selector
+	// recorded before the spread (conditions are NOT re-evaluated).
+	for i, a := range attrs {
+		if i <= splitIdx {
+			continue
+		}
+		switch t := a.(type) {
+		case *ast.ClassAttr:
+			if t == classAttr || t == styleAttr {
+				continue
+			}
+		case *ast.StaticAttr:
+			if t == staticClass || t == staticStyle {
+				continue
+			}
+		case *ast.SpreadAttr:
+			continue
+		case *ast.CondAttr:
+			for _, run := range postRuns[t] {
+				fmt.Fprintf(b, "\t\tif %s {\n", run.boolVar)
+				for _, leaf := range run.leaves {
+					if !emitAttr(b, refreshMeta, leaf, resolved, table, imports, interpTemp, cls, bag, mergeExpr, nonce) {
+						return false
+					}
+				}
+				b.WriteString("\t\t}\n")
+			}
+			continue
+		}
+		if !emitScalar(a, false) {
+			return false
+		}
+	}
 	return true
 }
 
+// condRun is one source-ordered segment of leaf attrs from a post-spread
+// cond-attr, tagged with the bool temp recording whether its branch was taken.
+// The leaves render after the bag spread under `if <boolVar>`.
+type condRun struct {
+	boolVar string
+	leaves  []ast.Attr
+}
+
+// condBranchPlan is one branch (Then or Else list) of a planned post-spread
+// cond-attr: the bool temp set when the branch is taken ("" when the branch
+// has no direct leaves), the direct leaf names it forces out of the spread,
+// and any nested cond-attrs (planned recursively, in source order).
+type condBranchPlan struct {
+	boolVar string
+	names   []string
+	nested  []*condSelNode
+}
+
+// condSelNode mirrors one *ast.CondAttr for selector emission.
+type condSelNode struct {
+	cond      string
+	then, els condBranchPlan
+}
+
+// planPostCond walks one post-spread cond-attr allocating branch bool temps
+// (appended to bools) and collecting its leaves into source-ordered runs
+// (appended to runs; a nested cond-attr splits the enclosing run so the
+// post-spread emission order matches the original branch-body order).
+// Validation has already rejected class/style and spread leaves, so every
+// non-cond leaf has a static rootAttrName.
+func planPostCond(t *ast.CondAttr, runs *[]condRun, bools *[]string, interpTemp *int) *condSelNode {
+	planBranch := func(as []ast.Attr) condBranchPlan {
+		var bp condBranchPlan
+		curIdx := -1 // index into *runs of the open run, -1 = none
+		for _, a := range as {
+			if nested, ok := a.(*ast.CondAttr); ok {
+				curIdx = -1
+				bp.nested = append(bp.nested, planPostCond(nested, runs, bools, interpTemp))
+				continue
+			}
+			name, ok := rootAttrName(a)
+			if !ok {
+				continue // unreachable after validation; defensive
+			}
+			if bp.boolVar == "" {
+				bp.boolVar = fmt.Sprintf("_gsxv%d", *interpTemp)
+				*interpTemp++
+				*bools = append(*bools, bp.boolVar)
+			}
+			bp.names = append(bp.names, name)
+			if curIdx < 0 {
+				*runs = append(*runs, condRun{boolVar: bp.boolVar})
+				curIdx = len(*runs) - 1
+			}
+			(*runs)[curIdx].leaves = append((*runs)[curIdx].leaves, a)
+		}
+		return bp
+	}
+	n := &condSelNode{cond: t.Cond}
+	n.then = planBranch(t.Then)
+	n.els = planBranch(t.Else)
+	return n
+}
+
+// emitPostCondSelector writes the run-once branch selector for a planned
+// post-spread cond-attr: the original if/else structure evaluates each
+// condition exactly once; a taken branch sets its bool temp and appends its
+// direct leaf names to the dynamic drop slice.
+func emitPostCondSelector(b *bytes.Buffer, n *condSelNode, dropVar string) {
+	emitBranch := func(bp condBranchPlan) {
+		if bp.boolVar != "" {
+			fmt.Fprintf(b, "\t\t%s = true\n", bp.boolVar)
+			quoted := make([]string, len(bp.names))
+			for i, name := range bp.names {
+				quoted[i] = strconv.Quote(name)
+			}
+			fmt.Fprintf(b, "\t\t%s = append(%s, %s)\n", dropVar, dropVar, strings.Join(quoted, ", "))
+		}
+		for _, nested := range bp.nested {
+			emitPostCondSelector(b, nested, dropVar)
+		}
+	}
+	fmt.Fprintf(b, "\t\tif %s {\n", n.cond)
+	emitBranch(n.then)
+	if n.els.boolVar != "" || len(n.els.nested) > 0 {
+		b.WriteString("\t\t} else {\n")
+		emitBranch(n.els)
+	}
+	b.WriteString("\t\t}\n")
+}
+
 // emitManualSpreadElement emits a non-component element that carries the author's
-// `{...attrs}` bag spread (MANUAL fallthrough), applying positional precedence:
+// `{ attrs... }` bag spread (MANUAL fallthrough), applying positional precedence:
 // root attrs before the spread are caller-overridable, attrs after are forced
 // (root wins). splitIdx is the bag SpreadAttr's index in el.Attrs (guaranteed
 // unique by the caller).
 func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, importAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+	// The bag expression: the bare `attrs` local is used directly; a DERIVED bag
+	// (`attrs.Without(…)`, `attrs.Merge(…)`, a pipeline) is evaluated exactly
+	// once into a hoisted temp so the caller-wins guards (.Has), the class/style
+	// merges (.Class()/.Style()) and the spread (.Without(…)) all read the same
+	// value and side effects don't repeat.
+	spread := el.Attrs[splitIdx].(*ast.SpreadAttr)
+	bagExpr := strings.TrimSpace(spread.Expr)
+	if bagExpr != "attrs" || len(spread.Stages) > 0 {
+		expr, ok := spreadAttrExpr(spread, table, imports, bag)
+		if !ok {
+			return false
+		}
+		bagExpr = fmt.Sprintf("_gsxv%d", *interpTemp)
+		*interpTemp++
+		fmt.Fprintf(b, "\t\t%s := %s\n", bagExpr, expr)
+	}
 	emitS(b, "<"+el.Tag)
 	ni := newNonceInjection(b, el.Tag, el.Attrs, interpTemp, el.Attrs[splitIdx])
 	if ni != nil {
-		ni.extra = []string{"attrs"}
+		ni.extra = []string{bagExpr}
 	}
-	if !emitFallthroughAttrs(b, isMetaRefreshElement(el.Tag, el.Attrs), el.Attrs, splitIdx, resolved, table, imports, interpTemp, cls, bag, mergeExpr, "attrs", ni) {
+	if !emitFallthroughAttrs(b, isMetaRefreshElement(el.Tag, el.Attrs), el.Attrs, splitIdx, resolved, table, imports, interpTemp, cls, bag, mergeExpr, bagExpr, ni) {
 		return false
 	}
 	ni.emitGuard(b)
@@ -650,19 +937,23 @@ func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, cur
 	return true
 }
 
-// bagSpreadIndex returns the index of the author's `{...attrs}` bag spread in
-// attrs (a SpreadAttr whose trimmed Expr is the bound bag name "attrs"), whether
-// one was found, and an error if more than one is present (precedence ambiguous).
-// A non-bag spread (`{...someOtherExpr}`) is ignored — it keeps its inline emit.
+// bagSpreadIndex returns the index of the element's FORWARDING spread in attrs
+// — a SpreadAttr whose expression references the bound bag identifier `attrs`
+// (token-based, the same valueIdents detector as usesAttrs), so derived bags
+// like `{ attrs.Without("id")... }` and `{ attrs.Merge(extra)... }` get the
+// full caller-wins/class-merge machinery, not just the bare `{ attrs... }` —
+// whether one was found, and an error if more than one is present (precedence
+// ambiguous). A non-bag spread (`{ someOtherExpr... }`) is ignored — it keeps
+// its inline emit.
 func bagSpreadIndex(attrs []ast.Attr) (int, bool, error) {
 	idx, found := -1, false
 	for i, a := range attrs {
 		s, ok := a.(*ast.SpreadAttr)
-		if !ok || strings.TrimSpace(s.Expr) != "attrs" {
+		if !ok || !valueIdents(s.Expr)["attrs"] {
 			continue
 		}
 		if found {
-			return 0, false, fmt.Errorf("codegen: more than one { attrs... } spread on an element; precedence is ambiguous")
+			return 0, false, fmt.Errorf("codegen: more than one attrs-referencing spread on an element; precedence is ambiguous")
 		}
 		idx, found = i, true
 	}
@@ -899,14 +1190,29 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		if isComponentTag(t.Tag) {
 			return genChildComponent(b, t, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)
 		}
-		// MANUAL fallthrough: an element carrying the author's `{...attrs}` bag spread
+		// MANUAL fallthrough: an element carrying the author's `{ attrs... }` bag spread
 		// gets position-aware precedence (pre-spread overridable, post-spread forced).
-		// Detection is the trimmed SpreadAttr Expr == bound bag name "attrs"; a non-bag
-		// spread keeps its inline emit via the normal attr loop below.
+		// Detection is a SpreadAttr expr referencing the bound bag ident `attrs`
+		// (incl. derived bags like attrs.Without(…)); a non-bag spread keeps its
+		// inline emit via the normal attr loop below.
 		if splitIdx, found, err := bagSpreadIndex(t.Attrs); err != nil {
 			bag.Errorf(t.Pos(), t.End(), "attr-fallthrough", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false
 		} else if found {
+			// One spread per forwarding element: a second (non-bag) spread has no
+			// expressible precedence against the guard machinery and would not
+			// key-resolve against the bag — require explicit runtime composition.
+			for i, a := range t.Attrs {
+				s, ok := a.(*ast.SpreadAttr)
+				if !ok || i == splitIdx {
+					continue
+				}
+				expr := strings.TrimSpace(s.Expr)
+				bag.Errorf(s.Pos(), s.End(), "attr-fallthrough",
+					"element with an attrs-forwarding spread cannot carry another spread { %s... }; merge them into one spread ({ attrs.Merge(%s)... } or { %s.Merge(attrs)... }) so precedence is explicit",
+					expr, expr, expr)
+				return false
+			}
 			return emitManualSpreadElement(b, t, splitIdx, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)
 		}
 		emitS(b, "<"+t.Tag)
@@ -2056,7 +2362,7 @@ func emitExprAttr(b *bytes.Buffer, refreshMeta bool, a *ast.ExprAttr, resolved m
 // ANY branch marks the whole element — safe, because refreshContentSanitize is
 // a no-op on values that don't parse as a refresh directive. A runtime-dynamic
 // http-equiv={expr} is out of scope (pinned in
-// corpus security/meta_refresh_dynamic_http_equiv); {...attrs} bags follow the
+// corpus security/meta_refresh_dynamic_http_equiv); { attrs... } bags follow the
 // documented Spread contract (attribute-escaped, not URL-sanitized).
 func isMetaRefreshElement(tag string, attrs []ast.Attr) bool {
 	return strings.EqualFold(tag, "meta") && attrsDeclareRefresh(attrs)
@@ -2227,7 +2533,7 @@ func usesChildren(body []ast.Markup) bool {
 // `attrs` in any value-position Go fragment — the MANUAL-mode trigger. It mirrors
 // usesChildren's recursion (control flow, fragments, non-component and component
 // element children incl. named-slot values) but detects via valueIdents, which is
-// token-based: it matches the bare ident `attrs` (e.g. `{...attrs}` SpreadAttr,
+// token-based: it matches the bare ident `attrs` (e.g. `{ attrs... }` SpreadAttr,
 // `{...attrs.Without("id")}`, `{ attrs.Class() }` interp, an `attrs`-referencing
 // control-flow clause), and crucially does NOT match a longer ident like
 // `attrsList` (a different token) nor a selector field after a `.` (e.g.
@@ -2303,7 +2609,7 @@ func usesAttrs(body []ast.Markup) bool {
 
 // attrsRefAttrs reports whether any verbatim-emitted Go fragment in a (non-
 // component) element's attr list references the identifier `attrs`: a
-// `{...attrs}` SpreadAttr's Expr, a composable-class part Expr/Cond, an ExprAttr
+// `{ attrs... }` SpreadAttr's Expr, a composable-class part Expr/Cond, an ExprAttr
 // Expr or its pipeline args, or — recursing — a CondAttr's Cond and branches.
 // These are exactly the fragments collectAttrSrc feeds to the ident walks, so a
 // manual `attrs` reference anywhere in them is detected.
