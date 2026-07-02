@@ -15,4 +15,4 @@ component Page() {
 }
 -- diagnostics.golden --
 12:2: type inference failed for <Marker>; please instantiate with <Marker[type] ...>
-13:13: type inference failed for <Holder>; please instantiate with <Holder[type] ...>
+13:6: type inference failed for <Holder>; please instantiate with <Holder[type] ...>

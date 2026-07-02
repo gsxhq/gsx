@@ -585,13 +585,18 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	compsByXGo := map[string][]*gsxast.Component{}
 	factsByXGo := map[string]*fileFacts{}
 	ctrlOffByXGo := map[string]map[gsxast.Node]int{}
+	// inferByXGo carries each file's inference-probe registry (built fresh by
+	// buildSkeleton alongside its skeleton source) so harvest can resolve a
+	// probe call's instantiated type back onto the *gsxast.Element it was
+	// emitted for — see infer.go's inferRegistry doc.
+	inferByXGo := map[string]*inferRegistry{}
 	var allImportSpecs []importSpec
 	factsByFile := map[string]*fileFacts{}
 	skelErr := false
 	for path, f := range gsxFiles {
 		ff := m.fileScopedFacts(dir, f, propFields, nodeProps, attrsProps, byo, bag, fset)
 		factsByFile[path] = ff
-		skel, comps, imps, ctrlOff, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, ff.genericProps, ff.byo, m.opts.FieldMatcher, fset)
+		skel, comps, imps, ctrlOff, infReg, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, ff.genericProps, ff.byo, m.opts.FieldMatcher, fset)
 		if berr != nil {
 			// buildSkeleton error handling: a positioned attrError becomes a
 			// diagnostic and skips this file; any other error is also recorded as a
@@ -618,6 +623,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		compsByXGo[absXpath] = comps
 		factsByXGo[absXpath] = ff
 		ctrlOffByXGo[absXpath] = ctrlOff
+		inferByXGo[absXpath] = infReg
 	}
 	if skelErr {
 		gsxFiles = map[string]*gsxast.File{} // package-level skip: Generate's loop emits nothing
@@ -781,10 +787,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		if !ok {
 			continue
 		}
-		ff := factsByXGo[fname]
-		genericProps := genericPropsFor(comps, ff.byo)
-		maps.Copy(genericProps, ff.genericProps)
-		harvest(gf, comps, info, genericProps, ff.byo, resolved, exprMap)
+		harvest(gf, comps, info, resolved, exprMap, inferByXGo[fname])
 		for _, c := range comps {
 			compByKey[componentKey(c)] = c
 		}
