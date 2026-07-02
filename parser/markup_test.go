@@ -1444,3 +1444,19 @@ func TestQuotedXDataNoHoleStaysStatic(t *testing.T) {
 		t.Fatalf("attr0 = %#v, want StaticAttr{x-data, { open: false }}", attrs[0])
 	}
 }
+
+func TestUnterminatedTypeArgsAnchoredAtBracket(t *testing.T) {
+	src := "package v\n\ncomponent Page() {\n\t<Box[int value={7} />\n\t<p>list ] end</p>\n}\n"
+	fset := token.NewFileSet()
+	_, errs := ParseFileWithClassifier(fset, "in.gsx", []byte(src), 0, nil)
+	if len(errs) == 0 {
+		t.Fatal("want a parse error")
+	}
+	pos := fset.Position(errs[0].Pos)
+	if pos.Line != 4 {
+		t.Fatalf("error anchored at line %d (%s), want line 4 (the broken <Box[ tag)", pos.Line, errs[0].Msg)
+	}
+	if !strings.Contains(errs[0].Msg, "unterminated type args") {
+		t.Fatalf("got error %q, want unterminated type args", errs[0].Msg)
+	}
+}

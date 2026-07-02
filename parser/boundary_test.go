@@ -73,3 +73,30 @@ func TestParenEndIgnoresPrecedingProse(t *testing.T) {
 		t.Fatalf("parenEnd end=%d ok=%v, want final ')'", end, ok)
 	}
 }
+
+func TestBracketEndStopsAtMarkup(t *testing.T) {
+	// Missing ']' on the type-arg list; the ']' later in prose must NOT match.
+	src := `<Box[int value={7} /> <p>list ] end</p>`
+	if _, ok := bracketEnd(src, 4); ok {
+		t.Fatal("bracketEnd matched a ']' in unrelated markup prose; want not-found")
+	}
+}
+
+func TestBracketEndValidLists(t *testing.T) {
+	cases := []struct {
+		src  string
+		open int
+		want int // byte offset of the matching ']'
+	}{
+		{`<Box[int] />`, 4, 8},
+		{`<Box[map[string]int] />`, 4, 19},
+		{`<Box[chan<- int] />`, 4, 15}, // ARROW must not trip the LSS stop
+		{`<Box[T, U] />`, 4, 9},
+	}
+	for _, c := range cases {
+		got, ok := bracketEnd(c.src, c.open)
+		if !ok || got != c.want {
+			t.Errorf("bracketEnd(%q, %d) = (%d, %v), want (%d, true)", c.src, c.open, got, ok, c.want)
+		}
+	}
+}
