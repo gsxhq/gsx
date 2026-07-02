@@ -19,6 +19,8 @@ generated props type and component function carry the same type parameters.
 Component tags can pass explicit type arguments with Go-style brackets, or omit
 them when Go can infer the type arguments from the supplied props.
 
+<!--@include: ./_generated/composition/070-generic-components.md-->
+
 ```gsx
 component Box[T string | int](value T) {
 	<span>box</span>
@@ -59,6 +61,8 @@ type inference failed for <Box>; please instantiate with <Box[type] ...>
 Use explicit type arguments when a type parameter does not appear in a supplied
 prop, when the value is ambiguous, or when you want the call site to state the
 instantiation directly.
+
+<!--@include: ./_generated/composition/080-explicit-type-arguments.md-->
 
 ### Renderable type parameters
 
