@@ -110,7 +110,9 @@ The rules:
   conditional `{ if c { nonce="…" } }` — anywhere on the tag turns
   auto-injection off for that tag entirely.
 - **A spread bag carrying a `"nonce"` key wins too**: `<script { attrs... }>`
-  is only auto-decorated when the bag has no `nonce` entry.
+  is only auto-decorated when the bag has no `nonce` entry. The guard matches
+  the canonical lowercase key exactly — bag keys are trusted developer input
+  (see the `gsx.Attrs` contract), so write the key as lowercase `nonce`.
 - The value is attribute-escaped like any quoted attribute; an absent or empty
   context nonce emits nothing (output is byte-identical to not using the
   feature).
