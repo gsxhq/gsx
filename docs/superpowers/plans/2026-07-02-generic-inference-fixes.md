@@ -366,8 +366,8 @@ The `cannot infer` rewrite fires ONLY for errors inside a registered probe's spa
 - Test: `internal/codegen/infer_test.go`; corpus `generic_inference_failed_diag.txtar` regenerated
 
 **Interfaces:**
-- Consumes: `inferRegistry.sites[*].span` (Task 1) — skeleton offsets; the rewrite site has the skeleton fset positions of each type error, so record at probe-emission time the skeleton FILE name + offset span and compare against `e.Pos` offsets directly.
-- Produces: `(r *inferRegistry) siteAt(pos token.Position) (*inferSite, bool)`; hint arity from `genericSig.arity` (Task 4).
+- Consumes: `inferRegistry.sites[*].span` (Task 1) — skeleton offsets. IMPORTANT (Task-1 review finding): probe statements are deliberately emitted UNDER the enclosing tag's `//line` mapping — the diagnostic-survival filter (module_importer.go ~729) silently drops any type error whose position still names the `.x.go` skeleton, so a //line-free probe's errors would vanish entirely. To match an error against a probe span, use the UNADJUSTED position: `fset.PositionFor(e.Pos, false)` (ignores //line remapping, yields the raw skeleton offset) and compare against `inferSite.span`. `TestInferProbeRawSpanRecovery` (infer_test.go, Task 1 fix commit) proves this recovery works — build on it.
+- Produces: `(r *inferRegistry) siteAt(rawOffset int) (*inferSite, bool)` (offset into the skeleton, from PositionFor(false)); hint arity from `genericSig.arity` (Task 4).
 
 - [ ] **Step 1: Failing test A (hijack)** — `TestUserCannotInferErrorNotRewritten`: non-generic `component Card(title string)` used as `<Card title="x">{First(nil)}</Card>` with `func First[T any](v []T) T` in a Go chunk. Expect the diagnostic to CONTAIN `cannot infer T` / mention `First`, and NOT mention `<Card`.
 - [ ] **Step 2: Failing test B (arity)** — `TestCrossPackageInferenceHintArity`: imported `components.Grid[K comparable, V any](rows map[K]V)` invoked with a value Go cannot infer from (`<components.Grid rows={nil} />`); expect the diagnostic `please instantiate with <components.Grid[type, type] ...>` (two placeholders).
