@@ -214,7 +214,7 @@ func delimEnd(src string, open int, close token.Token, stop map[token.Token]bool
 	depth := 0
 	for {
 		pos, tok, _ := s.Scan()
-		if tok == token.EOF || stop[tok] {
+		if tok == token.EOF {
 			return 0, false
 		}
 		switch tok {
@@ -224,6 +224,13 @@ func delimEnd(src string, open int, close token.Token, stop map[token.Token]bool
 			depth--
 			if depth == 0 && tok == close {
 				return open + fset.Position(pos).Offset, true
+			}
+		default:
+			// Stop tokens apply only DIRECTLY inside the scanned list (depth
+			// 1): nested brackets/braces may legally contain them (e.g. the
+			// `/` in an array-length expression `[8/4]byte`).
+			if depth == 1 && stop[tok] {
+				return 0, false
 			}
 		}
 	}
