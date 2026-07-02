@@ -3,6 +3,7 @@ package corpus
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -103,9 +104,7 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 		if merr != nil {
 			return nil, fmt.Errorf("batchCodegen: codegenDirs(%s): %w", cs.c.name, merr)
 		}
-		for k, v := range mergerResults {
-			pkgResults[k] = v
-		}
+		maps.Copy(pkgResults, mergerResults)
 	}
 
 	// Step 4: reassemble per-case results.
@@ -338,12 +337,12 @@ func formatDiagLine(buf *bytes.Buffer, d diag.Diagnostic) {
 
 func splitBatchOutput(out string) map[string]string {
 	res := map[string]string{}
-	for _, p := range strings.Split(out, caseMarkerPrefix) {
-		end := strings.Index(p, caseMarkerSuffix)
-		if end < 0 {
+	for p := range strings.SplitSeq(out, caseMarkerPrefix) {
+		before, after, ok := strings.Cut(p, caseMarkerSuffix)
+		if !ok {
 			continue
 		}
-		res[p[:end]] = strings.TrimPrefix(p[end+len(caseMarkerSuffix):], "\n")
+		res[before] = strings.TrimPrefix(after, "\n")
 	}
 	return res
 }

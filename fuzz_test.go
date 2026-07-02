@@ -69,8 +69,8 @@ func refreshURLRef(s string) (string, bool) {
 	if p < len(s) && (s[p] == '\'' || s[p] == '"') {
 		quote := s[p]
 		rest := s[p+1:]
-		if j := strings.IndexByte(rest, quote); j >= 0 {
-			return rest[:j], true
+		if before, _, ok := strings.Cut(rest, string(quote)); ok {
+			return before, true
 		}
 		return rest, true
 	}

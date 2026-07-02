@@ -204,10 +204,7 @@ func packageClauseLocation(filename string, enc encoding) (Location, bool) {
 		return Location{}, false
 	}
 	p := fset.Position(f.Name.Pos())
-	line := p.Line - 1
-	if line < 0 {
-		line = 0
-	}
+	line := max(p.Line-1, 0)
 	char := charForByteCol(lineAtFunc(string(data))(p.Line), p.Column, enc)
 	pos := Position{Line: line, Character: char}
 	return Location{URI: pathToURI(filename), Range: Range{Start: pos, End: pos}}, true
@@ -466,7 +463,7 @@ func (s *Server) handleGoDefinition(f frame, uri, path string) error {
 // lineStartOffset returns the byte offset of the start of the 0-based line.
 func lineStartOffset(text string, line int) int {
 	off := 0
-	for i := 0; i < line; i++ {
+	for range line {
 		nl := strings.IndexByte(text[off:], '\n')
 		if nl < 0 {
 			return len(text)
@@ -483,10 +480,7 @@ func (s *Server) locationForPos(dp token.Position) Location {
 	if data, err := os.ReadFile(dp.Filename); err == nil {
 		char = charForByteCol(lineAtFunc(string(data))(dp.Line), dp.Column, s.enc)
 	}
-	line := dp.Line - 1
-	if line < 0 {
-		line = 0
-	}
+	line := max(dp.Line-1, 0)
 	pos := Position{Line: line, Character: char}
 	return Location{URI: pathToURI(dp.Filename), Range: Range{Start: pos, End: pos}}
 }

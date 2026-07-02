@@ -41,7 +41,7 @@ func TestRunWatch_NoDirsReturnsCleanly(t *testing.T) {
 		t.Fatalf("runWatch exit = %d, want 0; stderr=%s", code, errb.String())
 	}
 	// stdout in ndjson mode must never contain a non-JSON line.
-	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(out.String()), "\n") {
 		if line != "" && !strings.HasPrefix(line, "{") {
 			t.Fatalf("non-JSON stdout line: %q", line)
 		}

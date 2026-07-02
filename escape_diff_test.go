@@ -79,17 +79,17 @@ var knownDivergences = map[diffKey]string{
 //     In a browser, <a href="#foo:bar"> is a fragment link, not a protocol handler;
 //     no script execution or irreversible side effect can occur.
 func isKnownURLDivergence(s string) bool {
-	i := strings.IndexByte(s, ':')
-	if i < 0 {
+	before, _, ok := strings.Cut(s, ":")
+	if !ok {
 		return false
 	}
 	// Class 1: tel: scheme intentionally allowed by gsx.
-	if strings.EqualFold(s[:i], "tel") {
+	if strings.EqualFold(before, "tel") {
 		return true
 	}
 	// Class 2: '#' or '?' precedes ':' — gsx treats this as non-scheme context.
 	// stdlib blocks conservatively; gsx follows RFC 3986.
-	return strings.ContainsAny(s[:i], "#?")
+	return strings.ContainsAny(before, "#?")
 }
 
 func TestEscaperMatchesStdlib(t *testing.T) {

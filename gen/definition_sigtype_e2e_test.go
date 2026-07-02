@@ -61,12 +61,12 @@ func sigTypeDefLocations(t *testing.T, dir, gsxPath, src string, line, character
 		t.Fatalf("runLSP=%d stderr=%s", code, errBuf.String())
 	}
 	marker := `"id":2,`
-	for _, part := range strings.Split(out.String(), "Content-Length:") {
-		i := strings.Index(part, "\r\n\r\n")
-		if i < 0 {
+	for part := range strings.SplitSeq(out.String(), "Content-Length:") {
+		_, after, ok := strings.Cut(part, "\r\n\r\n")
+		if !ok {
 			continue
 		}
-		body := part[i+4:]
+		body := after
 		if !strings.Contains(body, marker) {
 			continue
 		}

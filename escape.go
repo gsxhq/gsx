@@ -36,10 +36,10 @@ const blockedURL = "about:invalid#gsx"
 // an allow-listed scheme (http, https, mailto, tel — case-insensitive); any
 // other scheme (javascript:, vbscript:, data:, …) yields blockedURL.
 func urlSanitize(s string) string {
-	if i := strings.IndexByte(s, ':'); i >= 0 {
+	if before, _, ok := strings.Cut(s, ":"); ok {
 		// A scheme exists only when no '/', '?', or '#' precedes the ':'.
-		if !strings.ContainsAny(s[:i], "/?#") {
-			switch strings.ToLower(s[:i]) {
+		if !strings.ContainsAny(before, "/?#") {
+			switch strings.ToLower(before) {
 			case "http", "https", "mailto", "tel":
 				// allowed
 			default:
@@ -172,8 +172,8 @@ func isCSSNmchar(r rune) bool {
 
 // decodeCSS decodes CSS3 escape sequences in s.
 func decodeCSS(s []byte) []byte {
-	i := bytes.IndexByte(s, '\\')
-	if i == -1 {
+	found := bytes.Contains(s, []byte{'\\'})
+	if !found {
 		return s
 	}
 	b := make([]byte, 0, len(s))

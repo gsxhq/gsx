@@ -39,7 +39,7 @@ func TestEmitter_NDJSON_OperationalErrorSurfaces(t *testing.T) {
 		t.Fatalf("operational error not surfaced in NDJSON: %q", out.String())
 	}
 	// Every stdout line must still be valid JSON (stream discipline).
-	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(out.String()), "\n") {
 		if line == "" {
 			continue
 		}

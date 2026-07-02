@@ -41,9 +41,10 @@ component X() {
 }
 
 func diagMsgs(dr DirResult) string {
-	var s string
+	var s strings.Builder
 	for _, d := range dr.Diags {
-		s += d.Message + "\n"
+		s.WriteString(d.Message)
+		s.WriteString("\n")
 	}
-	return s
+	return s.String()
 }

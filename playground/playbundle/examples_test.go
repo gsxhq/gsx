@@ -60,7 +60,7 @@ func splitForTest(src string) map[string][]byte {
 			files[cur] = []byte(strings.Join(buf, "\n"))
 		}
 	}
-	for _, ln := range strings.Split(src, "\n") {
+	for ln := range strings.SplitSeq(src, "\n") {
 		t := strings.TrimSpace(ln)
 		if strings.HasPrefix(t, "-- ") && strings.HasSuffix(t, " --") {
 			flush()

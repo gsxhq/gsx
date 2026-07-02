@@ -109,13 +109,13 @@ func TestComponentFuncLineAnchorCodegen(t *testing.T) {
 	if hasDiagErrors(dr.Diags) {
 		t.Fatalf("generate: unexpected errors: %v", dr.Diags)
 	}
-	var gen string
+	var gen strings.Builder
 	for _, b := range dr.Files {
-		gen += string(b)
+		gen.WriteString(string(b))
 	}
 
 	for _, name := range []string{"First", "Page", "Last"} {
-		assertFuncAnchor(t, gen, "views.gsx", name, declLine(t, lineAnchorSrc, name))
+		assertFuncAnchor(t, gen.String(), "views.gsx", name, declLine(t, lineAnchorSrc, name))
 	}
 }
 
@@ -151,10 +151,7 @@ func assertFuncNameAnchorColumn(t *testing.T, skel, src, name string) {
 			// genNameCol: 1-based column of `name` within the generated func line.
 			genNameCol := strings.Index(l, name+"(") + 1
 			// The directive column C satisfies C + (genNameCol-1) == wantNameCol.
-			wantDirectiveCol := wantNameCol - genNameCol + 1
-			if wantDirectiveCol < 1 {
-				wantDirectiveCol = 1
-			}
+			wantDirectiveCol := max(wantNameCol-genNameCol+1, 1)
 			want := fmt.Sprintf(":%d:%d", wantLine, wantDirectiveCol)
 			if !strings.HasPrefix(prev, "//line ") || !strings.Contains(prev, want) {
 				t.Errorf("func %s: anchor = %q, want a //line ending %s (name %q at gen col %d maps to src col %d)",

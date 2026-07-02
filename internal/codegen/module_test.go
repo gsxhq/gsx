@@ -300,11 +300,11 @@ func TestModuleConcurrentPackage(t *testing.T) {
 	var wg sync.WaitGroup
 	errChan := make(chan error, numGoroutines*loopsPerGoroutine)
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for loop := 0; loop < loopsPerGoroutine; loop++ {
+			for loop := range loopsPerGoroutine {
 				// Mix which dir is accessed by rotating through the list.
 				dir := dirs[(id+loop)%len(dirs)]
 				_, err := m.Package(dir)

@@ -102,10 +102,10 @@ func normalizeDiagPaths(diag []byte, tmpDir string) []byte {
 }
 
 func packageNameOf(src []byte) string {
-	for _, line := range strings.Split(string(src), "\n") {
+	for line := range strings.SplitSeq(string(src), "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "package ") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "package "))
+		if after, ok := strings.CutPrefix(line, "package "); ok {
+			return strings.TrimSpace(after)
 		}
 	}
 	return "views"

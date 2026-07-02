@@ -22,7 +22,7 @@ func TestSeverityString(t *testing.T) {
 func TestBagErrorfResolvesAndHasErrors(t *testing.T) {
 	fset := token.NewFileSet()
 	f := fset.AddFile("views.gsx", fset.Base(), 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		if i == 20 || i == 40 {
 			f.AddLine(i)
 		}

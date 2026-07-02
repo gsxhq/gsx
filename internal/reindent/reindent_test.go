@@ -83,7 +83,7 @@ func TestReindentPreservesBlankLines(t *testing.T) {
 		t.Fatalf("got %q want %q", got, want)
 	}
 	// The blank line must carry NO trailing whitespace.
-	for _, ln := range strings.Split(got, "\n") {
+	for ln := range strings.SplitSeq(got, "\n") {
 		if ln != strings.TrimRight(ln, " \t") {
 			t.Fatalf("line %q has trailing whitespace", ln)
 		}

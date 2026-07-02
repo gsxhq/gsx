@@ -46,7 +46,7 @@ func TestFsetGrowthIsBounded(t *testing.T) {
 	// Force frequent rebuilds: tiny threshold.
 	m.fsetRebuildBytes = 4096
 	var maxBase int
-	for i := 0; i < 12; i++ {
+	for i := range 12 {
 		// Each edit changes content (distinct label text) so the dir is marked dirty
 		// and re-parsed, growing the fset.
 		src := fmt.Appendf(nil, "package util\n\ncomponent Y(label string) {\n\t<span>%d:{label}</span>\n}\n", i)
@@ -74,7 +74,7 @@ func TestFsetRebuildDisabledAtZero(t *testing.T) {
 	m.fsetRebuildBytes = 0 // disabled
 	util := filepath.Join(root, "util")
 	utilFile := filepath.Join(util, "util.gsx")
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		m.SetOverride(utilFile, fmt.Appendf(nil, "package util\n\ncomponent Y(label string) {\n\t<b>%d:{label}</b>\n}\n", i))
 		if _, err := m.Package(util); err != nil {
 			t.Fatal(err)
@@ -317,7 +317,7 @@ func TestConcurrentRebuildAndPackage(t *testing.T) {
 	comp := filepath.Join(root, "components")
 	card := filepath.Join(comp, "card.gsx")
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

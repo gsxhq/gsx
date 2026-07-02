@@ -134,7 +134,7 @@ func TestPoolConcurrent(t *testing.T) {
 	const n = 12
 	results := make([]string, n)
 	var wg sync.WaitGroup
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -147,7 +147,7 @@ func TestPoolConcurrent(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
-	for i := 0; i < n; i++ {
+	for i := range n {
 		want := "<p>U" + strconv.Itoa(i) + "</p>"
 		if results[i] != want {
 			t.Errorf("req %d: got %q want %q", i, results[i], want)

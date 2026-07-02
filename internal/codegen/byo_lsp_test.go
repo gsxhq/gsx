@@ -107,10 +107,7 @@ component Page(someVar string, pd Props) {
 	// Decl must point at the 'B' of "Button" in the component declaration.
 	if data, err := os.ReadFile(cr.Decl.Filename); err == nil {
 		if cr.Decl.Offset >= len(data) || data[cr.Decl.Offset] != 'B' {
-			end := cr.Decl.Offset + 8
-			if end > len(data) {
-				end = len(data)
-			}
+			end := min(cr.Decl.Offset+8, len(data))
 			t.Errorf("CrossIndex[.Button].Decl should land on 'B' of component name; Decl=%v src[off]=%q",
 				cr.Decl, string(data[cr.Decl.Offset:end]))
 		}

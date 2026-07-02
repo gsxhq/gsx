@@ -1,6 +1,7 @@
 package printer
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
@@ -81,10 +82,5 @@ func blockLevel(n ast.Markup) bool {
 // hasBlockChild reports whether nodes contains at least one block-level child,
 // i.e. whether the list should break structurally (regardless of width).
 func hasBlockChild(nodes []ast.Markup) bool {
-	for _, n := range nodes {
-		if blockLevel(n) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(nodes, blockLevel)
 }

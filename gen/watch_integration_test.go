@@ -81,7 +81,7 @@ func waitFor(t *testing.T, d time.Duration, cond func() bool) {
 
 func countGenerated(s string, ok bool) int {
 	n := 0
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		var ev map[string]any
 		if json.Unmarshal([]byte(line), &ev) != nil {
 			continue
