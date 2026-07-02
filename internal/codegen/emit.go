@@ -168,7 +168,7 @@ func generateFile(file *ast.File, resolved map[ast.Node]types.Type, table filter
 // excluded — it would corrupt the //line mapping this generator emits.
 func goDirectiveLines(doc string) []string {
 	var out []string
-	for _, line := range strings.Split(doc, "\n") {
+	for line := range strings.SplitSeq(doc, "\n") {
 		l := strings.TrimSpace(line)
 		switch {
 		case strings.HasPrefix(l, "//go:") && len(l) > len("//go:") && l[len("//go:")] != ' ':
