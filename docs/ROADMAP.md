@@ -16,7 +16,7 @@ generator/CLI may use `golang.org/x/tools`.
 |---|---|
 | Parser + AST | `[x]` Part 2 grammar + pipeline parsing + positioned, recoverable errors |
 | Runtime (`gsx`) | `[x]` done |
-| Codegen | `[~]` interpolation + control flow + full attributes (security core, composable class **and element-level style**, spread, conditional) + pipeline `\|>` + child props/`{children}` + method components + named slots + attribute fallthrough (auto class-merge/spread + manual `{...attrs}`) + custom attribute classification (`WithJSAttrs`/`WithURLAttrs`/`WithCSSAttrs` + `WithAttrClassifier`) + node-prop promotion (`gsx.Val`/`Text`/`Fragment`) + ordered attrs (`{{ }}` lowering to `gsx.Attrs`) + uniform `(T,error)` auto-unwrap (all expression positions) + value-form `if`/`switch` in `class`/`style` (exclusive selection) done; composable `style` **on a component invocation** + `[]string` class parts pending |
+| Codegen | `[~]` interpolation + control flow + full attributes (security core, composable class **and element-level style**, spread, conditional, explicit JS/CSS attr literals `` js`...` `` / `` css`...` `` + URL attr classification) + pipeline `\|>` + child props/`{children}` + method components + named slots + attribute fallthrough (auto class-merge/spread + manual `{...attrs}`) + node-prop promotion (`gsx.Val`/`Text`/`Fragment`) + ordered attrs (`{{ }}` lowering to `gsx.Attrs`) + uniform `(T,error)` auto-unwrap (all expression positions) + value-form `if`/`switch` in `class`/`style` (exclusive selection) done; composable `style` **on a component invocation** + `[]string` class parts pending |
 | Whitespace model | `[x]` JSX-style: `internal/wsnorm.Normalize` (parser lossless) wired into codegen + powers `gsx fmt`. render-faithful + idempotent over the whole corpus. |
 | Pipeline `\|>` end-to-end | `[x]` seed-first forward-application lowering + `std` filters + user filter packages (`gen.WithFilters` + `gen.WithFilter` aliases, multi-pkg last-wins) + `ctx` injection + `(T,error)` implicit auto-unwrap. Works in interp / attr / class / style / spread / child-prop values / `{{ }}` pairs (all expression positions). Initialism-aware naming pending. |
 | CLI (`gsx`) / `gen.Main` | `[~]` `generate` (incl. `--watch`/`--format=ndjson`) · `fmt` · `info` · `init` · `lsp` · `clean --cache` · `version` · `help` ship, with `--json` + structured diagnostics. `vet`/`render`/`explain`/numeric codes pending. `WithClassMerger` + `class_merger` TOML knob shipped. |
@@ -30,7 +30,8 @@ generator/CLI may use `golang.org/x/tools`.
 (`{ if/for/switch }`), `{{ }}` Go blocks, conditional attributes, composable
 `class`/`style`, comments, `<!DOCTYPE>`, `<!-- -->` HTML comments, raw-text
 `<script>`/`<style>`, **pipeline `|>` parsing** (`Interp.Stages` / `ExprAttr`
-stages), **`@{ }` JS-context interpolation**. Public go/ast-parity API;
+stages), **`@{ }` interpolation inside embedded JavaScript/CSS**. Public
+go/ast-parity API;
 fuzz-hardened (no crashers). Parser errors carry structured `token.Pos` and
 recover at the `component` boundary (one diagnostic per broken component).
 
@@ -69,8 +70,9 @@ render goldens.
    codegen-escaped), bool, and expr attrs with **structural context-aware escaping**
    (URL → scheme-allow-list + entity-escape `gw.URL`; plain → §5 type-aware
    `gw.AttrValue`; CSS `style`/`<style>` → auto value-filter `gw.CSS`/`gw.Style`
-   with a `gsx.RawCSS` opt-out; **JS `on*`/`@*`/`hx-on*` expr values →
-   JSON-encoded via `gw.JSValAttr`, `gsx.RawJS` opt-out — see Security**). Plus
+   with a `gsx.RawCSS` opt-out; explicit attribute-local JavaScript/CSS literals
+   (`` js`...` `` / `` css`...` ``) with escaped `@{ }` holes and escaped literal
+   delimiters — see Security). Plus
    composable **`class`** (`gw.Class`), composable **`style`** on elements
    (`gw.Style`/`gsx.StyleString`), **element spread** `{...attrs}` (`gw.Spread`),
    and **conditional** `{ if cond { attr } else { attr } }`. Pipelines `|>` work
@@ -249,15 +251,16 @@ security design doc.
 - **HTML / attr / URL** — auto-escaped by structural context (`gw.Text` /
   `gw.AttrValue` / `gw.URL`); URL scheme allow-list (http/https/mailto/tel →
   `about:invalid#gsx` sentinel); always-quoted attribute values.
-- **JS / JSON** — `@{ x }` in `<script>` bodies and JS-context attributes
-  (`onclick`/`@*`/`hx-on*`/`x-data`/…), plus the
+- **JS / JSON** — `@{ x }` in `<script>` bodies, `@{ x }` holes inside explicit
+  attribute-local `` js`...` `` literals, plus the
   `<script type="application/json">@{ data }</script>` data island, **JSON-encode
-  via `gw.JSVal` / `gw.JSValAttr`** (HTML-safe: `< > &`, U+2028/U+2029; numeric
-  token-fusion padding). `gsx.RawJS` opts out. The **only fail-closed JS cases**
-  are holes landing in unsafe *positions* — a hole used as an identifier / binding /
-  comment rather than a value (e.g. `x-on:click="@{ stmt } = 1"`) — which is a
-  compile error, not a runtime `ZgotmplZ`.
-- **CSS** — `<style>` bodies + `style=`/CSS-context attrs value-filter via
+  via `gw.JSVal` / JS attribute-literal escaping** (HTML-safe: `< > &`,
+  U+2028/U+2029; numeric token-fusion padding). `gsx.RawJS` opts out inside
+  holes. Quoted attributes are literal strings; `attr={expr}` is ordinary
+  attribute escaping unless the attr is URL-context by name.
+- **CSS** — `<style>` bodies + composable `style={...}` values + `@{ x }` holes
+  inside explicit attribute-local `` css`...` `` literals, including
+  `` css`...` `` contributions inside `style={...}`, route untrusted values through
   `gw.CSS` / `gw.Style` / `FilterCSS` (faithful port of html/template's
   `cssValueFilter`); numbers are raw; `gsx.RawCSS` opts out. Static `<style>` CSS
   is minified at codegen time (`internal/cssmin`, hole-aware).
@@ -270,16 +273,19 @@ vocabulary remains a design aspiration, not the current API.
 
 **Prioritized work:**
 
-1. `[x]` **Context dispatch in codegen** — attribute escaping is auto-dispatched
-   (`AttrValue`/`URL`/`JSValAttr`/`CSS`) from the *parsed attribute name* +
-   classifier, not author choice. (A full Text/RCDATA/comment-position state
-   machine across all markup positions is broader future work.)
+1. `[x]` **Context dispatch in codegen** — ordinary attributes dispatch to
+   `AttrValue` or `URL` from the parsed attribute name plus URL classifier;
+   JavaScript/CSS attribute contexts are explicit with `` js`...` `` /
+   `` css`...` `` literals, not inferred from event/style-like names. (A full
+   Text/RCDATA/comment-position state machine across all markup positions is
+   broader future work.)
 2. `[x]` **Always-quote emitted attribute values** — kills the Jinja `xmlattr` /
    unquoted-attribute injection class (CVE-2024-22195).
 3. `[x]` **CSS auto-sanitizes; JS contexts safely JSON-encode** — `<style>`/`style={…}`
-   route untrusted values through `FilterCSS` (adversarial-reviewed + fuzzed, 44.7M
-   inputs, no breakout-byte leak); `@{ }` JS contexts JSON-encode (Slices C1–C3).
-   CSS minification on by default.
+   and `` css`...` `` holes route untrusted values through `FilterCSS`
+   (adversarial-reviewed + fuzzed, 44.7M inputs, no breakout-byte leak);
+   `<script>` and `` js`...` `` holes JSON-encode (Slices C1–C3). CSS
+   minification on by default.
 4. `[~]` **Harden `urlSanitize` + complete URL-attr table** — control-char /
    whitespace scheme evasion maps to the sentinel (adversarial-probed); the
    `urlAttrs` table covers `href`/`src`/`action`/`formaction`/`poster`/`cite`/`ping`/
@@ -290,8 +296,9 @@ vocabulary remains a design aspiration, not the current API.
    (`URL` vs `TrustedResourceURL`, à la safehtml; html/template conflates them —
    go#27926).
 6. `[x]` **One obvious data→`<script>` path** — `<script type="application/json">@{ data }</script>`
-   islands + any JS-value context auto JSON-encode via `JSVal`; `gsx.RawJS` opts out.
-   No `|> json` filter. See `2026-06-23-gsx-js-interpolation-design.md` and `datajson/`.
+   islands + `<script>` / `` js`...` `` holes auto JSON-encode via `JSVal`;
+   `gsx.RawJS` opts out. No `|> json` filter. See
+   `2026-06-23-gsx-js-interpolation-design.md` and `datajson/`.
 7. `[ ]` **CSP nonce threading** for emitted `<script>`/`<style>` — thread a
    per-request nonce; do not build a CSP engine (header is the server's job).
 
@@ -307,7 +314,7 @@ vocabulary remains a design aspiration, not the current API.
   way `generate`/`info` do (`mergeConfig(gsx.toml, opts)`) but in-process and
   best-effort (no subprocess, the LSP spawns nothing → no orphan children), so
   `gd`/hover/diagnostics on declarative project filters (`[filters] url = …`,
-  `filterPackages`, attr rules) work in the editor with no Neovim change. A
+  `filterPackages`, URL attr rules) work in the editor with no Neovim change. A
   malformed `gsx.toml` falls back to the std baseline; opts are layered over the
   file (opts win). Spec/plan `2026-06-25-gsx-lsp-reads-config-design.md` /
   `2026-06-26-gsx-lsp-reads-config.md`.
@@ -340,7 +347,7 @@ vocabulary remains a design aspiration, not the current API.
   `lsp` / `clean --cache` / `version` / `help`; public `gen` package + `gen.Main`
   dispatch (`-C`/`-q`/`-v`, exit 0/1/2); `cmd/gsx` stock binary; `//go:generate gsx
   generate`. Extension seam: `WithFilters`/`WithFilter`, `WithCSSMinifier`/`WithJSMinifier`,
-  `WithJSAttrs`/`WithURLAttrs`/`WithCSSAttrs`/`WithAttrClassifier`, `WithFieldMatcher`.
+  `WithURLAttrs`, `WithFieldMatcher`.
   `gsx info --json` config manifest. `generate`/`init` accept flags in any position
   (`fmt`/`info` require flags first). `WithClassMerger` + `class_merger` TOML knob
   **SHIPPED** (configurable merger seam; Tailwind wrapper idiom; `--watch` validates at

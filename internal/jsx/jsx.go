@@ -66,15 +66,12 @@ func resolveMarkup(nodes []ast.Markup, bag *diag.Bag) bool {
 	for _, n := range nodes {
 		switch v := n.(type) {
 		case *ast.Element:
-			// Resolve JS-context attributes (e.g. x-data, onclick) on EVERY
-			// element, including <script> (it can carry <script onload="@{…}">).
-			// This must run before the holes are type-probed in codegen.
-			for _, a := range v.Attrs {
-				if ja, ok2 := a.(*ast.JSAttr); ok2 {
-					if !resolveJSAttr(ja.Name, ja.Segments, bag) {
-						ok = false
-					}
-				}
+			// Resolve explicit JS attribute literals on EVERY element, including
+			// conditional attr branches and <script> tags (they can carry
+			// <script onload={ if ok { js`...` } }>). This must run before the
+			// holes are type-probed in codegen.
+			if !resolveAttrList(v.Attrs, bag) {
+				ok = false
 			}
 			if strings.EqualFold(v.Tag, "script") {
 				if !resolveScript(v, bag) {
@@ -105,6 +102,28 @@ func resolveMarkup(nodes []ast.Markup, bag *diag.Bag) bool {
 				if !resolveMarkup(v.Cases[i].Body, bag) {
 					ok = false
 				}
+			}
+		}
+	}
+	return ok
+}
+
+func resolveAttrList(attrs []ast.Attr, bag *diag.Bag) bool {
+	ok := true
+	for _, a := range attrs {
+		switch at := a.(type) {
+		case *ast.EmbeddedAttr:
+			if at.Lang == ast.EmbeddedJS {
+				if !resolveJSAttr(at.Name, at.Segments, bag) {
+					ok = false
+				}
+			}
+		case *ast.CondAttr:
+			if !resolveAttrList(at.Then, bag) {
+				ok = false
+			}
+			if !resolveAttrList(at.Else, bag) {
+				ok = false
 			}
 		}
 	}
@@ -289,8 +308,8 @@ func ResolveJSAttr(name string, segments []ast.Markup) error {
 	return fmt.Errorf("jsx: attribute %q: unclassifiable @{ } hole", name)
 }
 
-// resolveJSAttr classifies every @{ … } hole in a JS-context attribute value
-// (e.g. x-data="{ tab: @{ tab } }"). It builds the same _GSXJSHOLE_ skeleton as
+// resolveJSAttr classifies every @{ … } hole in an explicit JS attribute literal
+// (e.g. x-data=js`{tab:@{tab}}`). It builds the same _GSXJSHOLE_ skeleton as
 // resolveScript, runs the same classify, and sets each Interp.JSCtx — so codegen
 // can later escape each hole by its JS context. An attribute value is a single JS
 // expression (not a program), so a hole that lands inside a JS comment is

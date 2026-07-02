@@ -3,8 +3,8 @@ package main
 import "testing"
 
 func TestPresetsFromEmbed(t *testing.T) {
-	if len(presets) != 43 {
-		t.Fatalf("want 43 embedded presets, got %d", len(presets))
+	if len(presets) != 45 {
+		t.Fatalf("want 45 embedded presets, got %d", len(presets))
 	}
 	for i, p := range presets {
 		if p.GSX == "" || p.Invoke == "" {

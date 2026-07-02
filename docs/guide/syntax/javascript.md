@@ -1,22 +1,52 @@
 # JavaScript
 
-gsx integrates with JavaScript through three mechanisms: event-handler attributes, `<script>` body interpolation, and JSON data islands. All three share the same safety model — values are JSON-encoded by default and `gsx.RawJS` is the explicit opt-in for trusted, verbatim JavaScript.
+gsx integrates with JavaScript through attribute-local JavaScript literals,
+`<script>` body interpolation, and JSON data islands. Dynamic values are escaped
+for the JavaScript position they occupy, and `gsx.RawJS` remains the explicit
+opt-in for trusted JavaScript inside interpolation holes.
 
-## Event handler attributes & `gsx.RawJS`
+## Attribute-local JavaScript
 
-Attribute names that carry JavaScript — `onclick`, `@click` (Alpine shorthand), `hx-on:*` (HTMX), `x-data`, `x-show`, and others — are classified as **JS-context** attributes. In whole-value form (`attr={ expr }`), the value is JSON-encoded and HTML-attribute-escaped before being written to the output. This is the right behavior for data-binding attributes like `x-data={ someStruct }` or `x-show={ open }`, where the value is data consumed by a framework, not code to execute.
+Use a `` js`...` `` literal when an attribute value is JavaScript:
 
-Event handlers (`onclick`, `@click`, `hx-on:*`) are different: their value is JavaScript code, not data. JSON-encoding a string like `"openMenu()"` produces `"openMenu()"` (with quotes), which a JS engine evaluates as a string expression — harmless, but inert. To emit a value verbatim as JavaScript, wrap it in `gsx.RawJS`:
+````gsx
+<button @click=js`open = !open`>Toggle</button>
+<div x-data=js`{ open: false, initial: @{initial} }`>...</div>
+````
 
-```gsx
-@click={ gsx.RawJS("openMenu()") }
-```
+`@{expr}` inside a `` js`...` `` literal inserts a Go value escaped for the
+JavaScript position where the hole appears. A string becomes a quoted JavaScript
+string literal, a number stays numeric, a struct or map becomes a JavaScript
+object literal, and `gsx.RawJS` bypasses that encoding only for trusted values.
 
-`gsx.RawJS` is a named string type — the `type RawJS string` declaration in the runtime. Passing it to a JS-context attribute (or `@{ }` in a `<script>` body) bypasses JSON encoding and emits the string as-is. It is the author's explicit vouch that the string is trusted JavaScript; never wrap untrusted user input.
+Quoted attributes remain literal strings. gsx does not scan quoted attributes for
+`@{}` interpolation:
 
-<!--@include: ./_generated/javascript/030-rawjs-event-handler.md-->
+````gsx
+<div x-data="{ open: false }">...</div>
+````
 
-The `@click` attribute carries `openMenu()` verbatim in the output. Without `gsx.RawJS`, the string would be JSON-encoded to `"openMenu()"` — a valid JSON string but not a callable expression.
+For ordinary expression attributes, `attr={expr}` uses normal attribute escaping
+unless the attribute is URL-context by name. Use `` js`...` `` when the value is
+code or a JavaScript expression.
+
+````gsx
+<button @click=js`toggle()`>Toggle</button>
+````
+
+<!--@include: ./_generated/javascript/030-attribute-local-js-handler.md-->
+
+Alpine's directive values are JavaScript expressions. The explicit marker keeps
+the intent local to the attribute instead of relying on names like `x-data`,
+`@click`, or `:key`:
+
+<!--@include: ./_generated/javascript/040-alpine-dropdown.md-->
+
+For larger Alpine state objects, keep the JavaScript in a multiline `` js`...` ``
+literal. Other embedded-language attributes can sit beside it, including
+`` css`...` `` contributions inside composed `style={...}`:
+
+<!--@include: ./_generated/javascript/050-complete-alpine-search.md-->
 
 ## `<script>` interpolation
 
@@ -36,8 +66,11 @@ A common pattern for passing server-side data to client-side JavaScript is a `<s
 <script type="application/json" id="cfg">@{ cfg }</script>
 ```
 
-The full rendering — including combining an event handler and a data island in the same component — is shown below.
+The full rendering — including combining an attribute-local JavaScript handler
+and a data island in the same component — is shown below.
 
 <!--@include: ./_generated/javascript/010-js-attributes-data-islands.md-->
 
-`Widget` combines both mechanisms: `@click={ gsx.RawJS("toggle()") }` emits the click handler verbatim, and `@{ cfg }` in the `<script type="application/json">` body serializes the `Config` struct as `{"Env":"prod","Beta":true}`. The data island is inert HTML — browsers parse it as text, not script — and the `id="cfg"` attribute lets client JavaScript retrieve it with `document.getElementById`.
+The data island is inert HTML — browsers parse it as text, not script — and the
+`id="cfg"` attribute lets client JavaScript retrieve it with
+`document.getElementById`.

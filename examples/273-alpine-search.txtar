@@ -1,0 +1,39 @@
+-- doc --
+name: Complete Alpine search
+summary: A larger Alpine component can keep multiline x-data in js`...`, bind inputs and loops with JavaScript literals, and still compose CSS safely.
+category: JavaScript
+order: 273
+page: javascript
+pageOrder: 50
+-- input.gsx --
+package views
+
+component AlpineSearch(maxWidth int) {
+	<div
+		x-data=js`{
+			search: '',
+			items: ['foo', 'bar', 'baz'],
+			get filteredItems() {
+				return this.items.filter(i => i.startsWith(this.search))
+			}
+		}`
+		style={ css`max-width:@{maxWidth}px` }
+	>
+		<input x-model=js`search` placeholder="Search..."/>
+		<ul>
+			<template x-for=js`item in filteredItems` :key=js`item`>
+				<li x-text=js`item`></li>
+			</template>
+		</ul>
+	</div>
+}
+-- invoke --
+AlpineSearch(AlpineSearchProps{MaxWidth: 320})
+-- render.golden --
+<div x-data="{
+			search: &#39;&#39;,
+			items: [&#39;foo&#39;, &#39;bar&#39;, &#39;baz&#39;],
+			get filteredItems() {
+				return this.items.filter(i =&gt; i.startsWith(this.search))
+			}
+		}" style="max-width:320px"><input x-model="search" placeholder="Search..."/><ul><template x-for="item in filteredItems" :key="item"><li x-text="item"></li></template></ul></div>

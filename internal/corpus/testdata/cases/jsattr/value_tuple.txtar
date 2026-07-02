@@ -26,17 +26,11 @@ func Page() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<div x-data=\"{ d: ")
-		_gsxv0, _gsxerr := load()
-		if _gsxerr != nil {
-			return _gsxerr
-		}
-		_gsxgw.JSValAttr(_gsxv0)
-		_gsxgw.S(" }\">x</div>")
+		_gsxgw.S("<div x-data=\"{ d: @{ load() } }\">x</div>")
 		return _gsxgw.Err()
 	})
 }
 
 func load() (string, error) { return "</script>\"", nil }
 -- render.golden --
-<div x-data="{ d: &#34;\u003c/script\u003e\&#34;&#34; }">x</div>
+<div x-data="{ d: @{ load() } }">x</div>

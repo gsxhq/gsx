@@ -281,6 +281,13 @@ func (p *printer) classPartDoc(part ast.ClassPart) pretty.Doc {
 	if part.CF != nil {
 		return p.valueCFDoc(part.CF)
 	}
+	if part.CSSSegments != nil {
+		seg := []pretty.Doc{pretty.Text(embeddedLiteralString(ast.EmbeddedCSS, part.CSSSegments))}
+		if part.Cond != "" {
+			seg = append(seg, pretty.Text(": "), pretty.Text(fmtExpr(part.Cond)))
+		}
+		return pretty.Concat(seg...)
+	}
 	seg := []pretty.Doc{fmtExprDoc(part.Expr)}
 	for _, s := range part.Stages {
 		seg = append(seg, pretty.Text(" |> "), pretty.Text(pipeStageStr(s)))
@@ -641,10 +648,14 @@ func writeAttrInline(b *strings.Builder, a ast.Attr) {
 			if i > 0 {
 				b.WriteString(", ")
 			}
-			b.WriteString(fmtExpr(part.Expr))
-			for _, s := range part.Stages {
-				b.WriteString(" |> ")
-				b.WriteString(pipeStageStr(s))
+			if part.CSSSegments != nil {
+				b.WriteString(embeddedLiteralString(ast.EmbeddedCSS, part.CSSSegments))
+			} else {
+				b.WriteString(fmtExpr(part.Expr))
+				for _, s := range part.Stages {
+					b.WriteString(" |> ")
+					b.WriteString(pipeStageStr(s))
+				}
 			}
 			if part.Cond != "" {
 				b.WriteString(": ")
@@ -663,11 +674,13 @@ func writeAttrInline(b *strings.Builder, a ast.Attr) {
 			b.WriteString(markupInlineString(n))
 		}
 		b.WriteString(" }")
-	case *ast.JSAttr:
+	case *ast.EmbeddedAttr:
 		b.WriteString(v.Name)
-		b.WriteString(`="`)
-		writeRawHoleString(b, v.Segments)
-		b.WriteString(`"`)
+		b.WriteString("=")
+		b.WriteString(embeddedLangName(v.Lang))
+		b.WriteString("`")
+		writeEmbeddedAttrSegments(b, v.Segments)
+		b.WriteString("`")
 	case *ast.OrderedAttrsAttr:
 		b.WriteString(v.Name)
 		if len(v.Pairs) == 0 {
@@ -687,6 +700,60 @@ func writeAttrInline(b *strings.Builder, a ast.Attr) {
 	default:
 		// Attribute types are AST-defined and enumerable; an unrecognized type
 		// here is a programming error, not user input — skip it explicitly.
+	}
+}
+
+func embeddedLangName(lang ast.EmbeddedLang) string {
+	switch lang {
+	case ast.EmbeddedJS:
+		return "js"
+	case ast.EmbeddedCSS:
+		return "css"
+	default:
+		return "unknown"
+	}
+}
+
+func writeEmbeddedAttrSegments(b *strings.Builder, nodes []ast.Markup) {
+	for _, n := range nodes {
+		switch v := n.(type) {
+		case *ast.Text:
+			writeEmbeddedLiteralText(b, v.Value)
+		case *ast.Interp:
+			b.WriteString("@{")
+			b.WriteString(fmtExpr(v.Expr))
+			for _, s := range v.Stages {
+				b.WriteString(" |> ")
+				b.WriteString(pipeStageStr(s))
+			}
+			b.WriteString("}")
+		default:
+			b.WriteString(markupInlineString(n))
+		}
+	}
+}
+
+func embeddedLiteralString(lang ast.EmbeddedLang, nodes []ast.Markup) string {
+	var b strings.Builder
+	b.WriteString(embeddedLangName(lang))
+	b.WriteString("`")
+	writeEmbeddedAttrSegments(&b, nodes)
+	b.WriteString("`")
+	return b.String()
+}
+
+func writeEmbeddedLiteralText(b *strings.Builder, s string) {
+	for i := 0; i < len(s); i++ {
+		if s[i] == '`' {
+			backslashes := 0
+			for j := i - 1; j >= 0 && s[j] == '\\'; j-- {
+				backslashes++
+			}
+			if backslashes%2 == 0 {
+				b.WriteByte('\\')
+			}
+		}
+		b.WriteByte(s[i])
 	}
 }
 

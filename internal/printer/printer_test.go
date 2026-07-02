@@ -275,17 +275,103 @@ component C() {
 }
 
 func TestJSAttr(t *testing.T) {
-	// Two JSAttrs — flat tag is 71 chars, fits within 80; but the full element
-	// including child and closing tag exceeds 80 so children break to their own
-	// indented line. Attrs stay inline. Faithful+idempotent.
+	// Quoted attrs that contain @{ } are plain static attrs.
 	src := `package p
 component C(tab string) {
-	<div x-data="{ tab: @{ tab }, open: false }" onclick="alert(@{ tab })">x</div>
+	<div x-data="{ tab: @{ tab }, open: false }">x</div>
 }`
 	want := `package p
 
 component C(tab string) {
-	<div x-data="{ tab: @{ tab }, open: false }" onclick="alert(@{ tab })">
+	<div x-data="{ tab: @{ tab }, open: false }">x</div>
+}
+`
+	checkFormat(t, src, want)
+}
+
+func TestEmbeddedAttrLiteral(t *testing.T) {
+	src := `package p
+component C(tab string) {
+	<div x-data=js` + "`" + `{ tab: @{tab}, open: false }` + "`" + ` style=css` + "`" + `color:@{tab}` + "`" + `>x</div>
+}`
+	want := `package p
+
+component C(tab string) {
+	<div x-data=js` + "`" + `{ tab: @{tab}, open: false }` + "`" + ` style=css` + "`" + `color:@{tab}` + "`" + `>x</div>
+}
+`
+	checkFormat(t, src, want)
+}
+
+func TestEmbeddedAttrDirectOptionalBraceLiteral(t *testing.T) {
+	src := `package p
+component C(id string) {
+	<button @click=js` + "`" + `save(@{ id })` + "`" + `>Save</button>
+}`
+	want := `package p
+
+component C(id string) {
+	<button @click=js` + "`" + `save(@{id})` + "`" + `>Save</button>
+}
+`
+	checkFormat(t, src, want)
+}
+
+func TestEmbeddedAttrBracedOptionalBraceLiteral(t *testing.T) {
+	src := `package p
+component C(id string) {
+	<button @click={js` + "`" + `save(@{ id })` + "`" + `}>Save</button>
+}`
+	want := `package p
+
+component C(id string) {
+	<button @click=js` + "`" + `save(@{id})` + "`" + `>Save</button>
+}
+`
+	checkFormat(t, src, want)
+}
+
+func TestEmbeddedAttrMultilinePreservesBody(t *testing.T) {
+	src := `package p
+component C(open bool) {
+	<div x-data=js` + "`" + `
+		{ open: @{ open } }
+	` + "`" + `>x</div>
+}`
+	want := `package p
+
+component C(open bool) {
+	<div x-data=js` + "`" + `
+		{ open: @{open} }
+	` + "`" + `>x</div>
+}
+`
+	checkFormat(t, src, want)
+}
+
+func TestEmbeddedAttrEscapedBacktick(t *testing.T) {
+	src := `package p
+component C() {
+	<div data-x=js` + "`" + `a\` + "`" + `b` + "`" + `>x</div>
+}`
+	want := `package p
+
+component C() {
+	<div data-x=js` + "`" + `a\` + "`" + `b` + "`" + `>x</div>
+}
+`
+	checkFormat(t, src, want)
+}
+
+func TestComposedStyleCSSLiteralPart(t *testing.T) {
+	src := `package p
+component C(color string, hidden bool) {
+	<div style={ "display:none": hidden, css` + "`" + `color:@{ color };content:"\` + "`" + `"` + "`" + ` }>x</div>
+}`
+	want := `package p
+
+component C(color string, hidden bool) {
+	<div style={ "display:none": hidden, css` + "`" + `color:@{color};content:"\` + "`" + `"` + "`" + ` }>
 		x
 	</div>
 }

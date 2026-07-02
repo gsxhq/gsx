@@ -31,13 +31,11 @@ func parseAttrType(t *testing.T, src string, cls *attrclass.Classifier) ast.Attr
 	return found
 }
 
-// With a custom JS rule, a holey custom-framework attribute parses as *ast.JSAttr
-// (holes split), not *ast.StaticAttr.
-func TestCustomJSRuleSplitsHoles(t *testing.T) {
+func TestCustomJSRuleDoesNotSplitQuotedAttr(t *testing.T) {
 	cls := attrclass.New(attrclass.Rules{JS: []attrclass.Rule{{Prefix: "wire:"}}}, nil)
-	got := parseAttrType(t, `<div wire:click="@{ action }"></div>`, cls)
-	if _, ok := got.(*ast.JSAttr); !ok {
-		t.Fatalf("with rule: got %T, want *ast.JSAttr", got)
+	got := parseAttrType(t, `<div wire:click="@{action}"></div>`, cls)
+	if a, ok := got.(*ast.StaticAttr); !ok || a.Value != "@{action}" {
+		t.Fatalf("custom JS rule should not split quoted attr, got %#v", got)
 	}
 }
 

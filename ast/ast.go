@@ -19,8 +19,8 @@ func (s span) End() token.Pos { return s.end }
 
 // Node is the universal base interface for every AST node.
 // All concrete types (File, GoChunk, Component, Element, Fragment, Text,
-// Interp, StaticAttr, ExprAttr, BoolAttr, SpreadAttr, MarkupAttr) implement Node
-// by embedding span.
+// Interp, StaticAttr, ExprAttr, BoolAttr, SpreadAttr, MarkupAttr, EmbeddedAttr)
+// implement Node by embedding span.
 type Node interface {
 	Pos() token.Pos
 	End() token.Pos
@@ -59,6 +59,8 @@ func SetSpan(n Node, start, end token.Pos) {
 	case *SpreadAttr:
 		v.span = s
 	case *MarkupAttr:
+		v.span = s
+	case *EmbeddedAttr:
 		v.span = s
 	case *GoBlock:
 		v.span = s
@@ -291,17 +293,25 @@ type MarkupAttr struct {
 
 func (*MarkupAttr) attrNode() {}
 
-// JSAttr is a JS-context attribute whose quoted value contains @{ } holes:
-// name="… @{ expr } …" (e.g. x-data, onclick). Segments are Text and Interp,
-// like a <script> body. Set only for attrjs.IsJSAttr names with ≥1 hole;
-// hole-free JS attributes stay StaticAttr.
-type JSAttr struct {
+type EmbeddedLang uint8
+
+const (
+	EmbeddedJS EmbeddedLang = iota + 1
+	EmbeddedCSS
+)
+
+// EmbeddedAttr is an explicit embedded-language attribute value:
+// name=js`... @{expr} ...`, name={js`...`}, name=css`...`, or name={css`...`}.
+// Segments contain *Text and *Interp only. JS interps receive JSCtx during
+// internal/jsx resolution; CSS interps use the CSS emitter directly.
+type EmbeddedAttr struct {
 	span
 	Name     string
+	Lang     EmbeddedLang
 	Segments []Markup
 }
 
-func (*JSAttr) attrNode() {}
+func (*EmbeddedAttr) attrNode() {}
 
 // GoBlock is `{{ stmt }}` — a Go-statement escape hatch in a component body.
 // Code is the trimmed Go source between the `{{` and `}}` delimiters.
@@ -367,18 +377,22 @@ type CondAttr struct {
 func (*CondAttr) attrNode() {}
 
 // ClassPart is one contribution in a composable class/style list: an
-// unconditional Expr, or Expr emitted when Cond is true. Cond == "" → always.
+// unconditional Expr, Expr emitted when Cond is true, an explicit CSS literal
+// inside style={...}, or a value-form if/switch. Cond == "" → always.
 // When Stages is non-empty, Expr is the pipeline seed and Stages are applied
 // left-to-right (`seed |> s0 |> s1 ...`), mirroring Interp.Stages; the guard Cond
 // is NEVER piped. It is a Node (span embedded) so *ClassPart can be keyed in the
 // resolved map for (T, error) auto-unwrap on unconditional plain parts.
-// When CF != nil, this is a value-form if/switch; Expr/Cond/Stages are unused.
+// When CSSSegments != nil, this is style={ ..., css`...` }; Expr/Cond/Stages/CF
+// are unused. When CF != nil, this is a value-form if/switch; Expr/Cond/Stages
+// and CSSSegments are unused.
 type ClassPart struct {
 	span
-	Expr   string
-	Cond   string
-	Stages []PipeStage
-	CF     *ValueCF // when non-nil, value-form if/switch; Expr/Cond/Stages unused
+	Expr        string
+	Cond        string
+	Stages      []PipeStage
+	CSSSegments []Markup
+	CF          *ValueCF
 }
 
 // ClassAttr is `class={ … }` / `style={ … }` — a composable contribution list.
@@ -545,6 +559,9 @@ func Inspect(node Node, f func(Node) bool) {
 			Inspect(&n.Parts[i], f)
 		}
 	case *ClassPart:
+		for _, m := range n.CSSSegments {
+			Inspect(m, f)
+		}
 		if n.CF != nil {
 			Inspect(n.CF, f)
 		}

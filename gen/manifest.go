@@ -8,7 +8,7 @@ import (
 
 // manifestSchemaVersion is bumped on incompatible manifest layout changes so a
 // reader can reject a manifest it does not understand.
-const manifestSchemaVersion = 1
+const manifestSchemaVersion = 2
 
 // manifest is the resolved, build-independent projection of a project's gsx
 // configuration — the data `gsx info --json` emits. It is computed on demand
@@ -17,13 +17,15 @@ const manifestSchemaVersion = 1
 type manifest struct {
 	SchemaVersion   int              `json:"schemaVersion"`
 	Module          string           `json:"module"`
-	UserRules       attrclass.Rules  `json:"userRules"`
-	HasPredicate    bool             `json:"hasPredicate"`
-	PredicateLabel  string           `json:"predicateLabel,omitempty"`
+	UserRules       manifestRules    `json:"userRules"`
 	HasFieldMatcher bool             `json:"hasFieldMatcher,omitempty"`
 	Filters         []manifestFilter `json:"filters,omitempty"`
 	Minify          manifestMinify   `json:"minify"`
 	Env             []manifestEnv    `json:"env"`
+}
+
+type manifestRules struct {
+	URL []attrclass.Rule `json:"url,omitempty"`
 }
 
 type manifestMinify struct {
@@ -49,7 +51,7 @@ type manifestFilter struct {
 // means the default matcher is in effect; a non-nil custom matcher changes how
 // attr→field resolution works and therefore changes the generated output for
 // projects with kebab or custom-matched attrs).
-func buildManifest(modPath string, cls *attrclass.Classifier, predLabel string, hasFieldMatcher bool, filters []manifestFilter, cssMinLevel, jsMinLevel MinifyLevel) manifest {
+func buildManifest(modPath string, cls *attrclass.Classifier, hasFieldMatcher bool, filters []manifestFilter, cssMinLevel, jsMinLevel MinifyLevel) manifest {
 	envs := make([]manifestEnv, 0, len(envOverrides))
 	for _, o := range envOverrides {
 		e := manifestEnv{
@@ -65,9 +67,7 @@ func buildManifest(modPath string, cls *attrclass.Classifier, predLabel string, 
 	return manifest{
 		SchemaVersion:   manifestSchemaVersion,
 		Module:          modPath,
-		UserRules:       cls.Rules(),
-		HasPredicate:    cls.HasPredicate(),
-		PredicateLabel:  predLabel,
+		UserRules:       manifestRules{URL: cls.Rules().URL},
 		HasFieldMatcher: hasFieldMatcher,
 		Filters:         filters,
 		Minify:          manifestMinify{CSS: cssMinLevel.String(), JS: jsMinLevel.String()},

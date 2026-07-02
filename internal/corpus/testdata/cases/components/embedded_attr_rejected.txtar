@@ -1,0 +1,14 @@
+# Embedded js/css attr literals are element attributes in this task; component
+# props are not supported yet and should get a clear diagnostic.
+-- input.gsx --
+package views
+
+component Card(title string) {
+	<div>{title}</div>
+}
+
+component Page() {
+	<Card title="Hi" @click=js`save()`/>
+}
+-- diagnostics.golden --
+8:19: embedded js attribute literal "@click" cannot be used as a component prop on <Card>; pass an ordinary prop value or move the literal to an element inside the component

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
-	"github.com/gsxhq/gsx/internal/attrclass"
 )
 
 // splitComposed splits the inner source of a `class={ … }` / `style={ … }`
@@ -19,34 +18,7 @@ import (
 // `expr : cond` conditional from its condition. A trailing comma yields no empty
 // part.
 func (p *parser) splitComposed(name, src string, base int) ([]ast.ClassPart, error) {
-	fset := token.NewFileSet()
-	file := fset.AddFile("", fset.Base(), len(src))
-	var s scanner.Scanner
-	s.Init(file, []byte(src), func(token.Position, string) {}, scanner.ScanComments)
-
-	var commas, colons []int
-	depth := 0
-	for {
-		pos, tok, _ := s.Scan()
-		if tok == token.EOF {
-			break
-		}
-		off := fset.Position(pos).Offset
-		switch tok {
-		case token.LPAREN, token.LBRACK, token.LBRACE:
-			depth++
-		case token.RPAREN, token.RBRACK, token.RBRACE:
-			depth--
-		case token.COMMA:
-			if depth == 0 {
-				commas = append(commas, off)
-			}
-		case token.COLON:
-			if depth == 0 {
-				colons = append(colons, off)
-			}
-		}
-	}
+	commas, colons := composedDelims(src)
 
 	// Segment boundaries: [-1] + commas + [len]. Each segment is (start, end).
 	bounds := make([]int, 0, len(commas)+2)
@@ -65,6 +37,7 @@ func (p *parser) splitComposed(name, src string, base int) ([]ast.ClassPart, err
 		// Detect a leading control-flow keyword (if/switch) and parse the value-form
 		// instead of the normal expr:cond pattern.
 		segSrc := src[segStart:segEnd]
+		trimOff := len(segSrc) - len(strings.TrimLeft(segSrc, " \t\r\n"))
 		if kw := leadingKeyword(segSrc); kw == "if" || kw == "switch" {
 			// A depth-0 colon in a value-form segment is a disallowed guard.
 			for _, c := range colons {
@@ -74,7 +47,6 @@ func (p *parser) splitComposed(name, src string, base int) ([]ast.ClassPart, err
 			}
 			// Compute the absolute offset of the keyword's first byte (skip any
 			// leading whitespace so the parsers' at+len("kw") arithmetic is correct).
-			trimOff := len(segSrc) - len(strings.TrimLeft(segSrc, " \t\r\n"))
 			cf, err := p.parseValueCF(base+segStart+trimOff, kw)
 			if err != nil {
 				return nil, err
@@ -97,6 +69,39 @@ func (p *parser) splitComposed(name, src string, base int) ([]ast.ClassPart, err
 				colon = c
 				break
 			}
+		}
+		if strings.HasPrefix(segSrc[trimOff:], "css`") {
+			if name != "style" {
+				return nil, p.errorf(p.posAt(base+segStart+trimOff), "css literal parts are only valid in style={...}")
+			}
+			literalOff := base + segStart + trimOff
+			old := p.i
+			p.i = literalOff
+			lang, segments, err := p.parseEmbeddedAttrLiteral()
+			literalEnd := p.i
+			p.i = old
+			if err != nil {
+				return nil, err
+			}
+			if lang != ast.EmbeddedCSS {
+				return nil, p.errorf(p.posAt(literalOff), "expected css literal in style={...}")
+			}
+			partEnd := segEnd
+			var condSrc string
+			if colon >= 0 {
+				partEnd = colon
+				condSrc = strings.TrimSpace(src[colon+1 : segEnd])
+				condPos := base + colon + 1 + leadingSpaceLen(src[colon+1:segEnd])
+				if err := validateGoExpr(condSrc); err != nil {
+					return nil, p.errorf(p.posAt(condPos), "invalid %s condition %q: %v", name, condSrc, err)
+				}
+			}
+			if rest := strings.TrimSpace(src[literalEnd-base : partEnd]); rest != "" {
+				return nil, p.errorf(p.posAt(literalEnd), "unexpected %q after css literal in style={...}", rest)
+			}
+			parts = append(parts, ast.ClassPart{CSSSegments: segments, Cond: condSrc})
+			ast.SetSpan(&parts[len(parts)-1], p.posAt(base+segStart), p.posAt(base+segEnd))
+			continue
 		}
 		// The expr segment (before any `: cond` guard) may carry a `|>` pipeline.
 		// The guard Cond is a plain boolean expression and is NEVER piped.
@@ -262,15 +267,14 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 		p.i++
 	}
 
-	// Dispatch on the value-start character. Each downstream parser assumes
-	// the cursor is positioned exactly at the opening '"' or '{'.
+	// Dispatch on the value start. Each downstream parser assumes the cursor is
+	// positioned exactly at its literal opener (`js`/`css`, `"`, or `{`).
 	switch {
+	case p.at("js`") || p.at("css`"):
+		return p.parseEmbeddedAttrValue(name, attrStartPos)
 	case !p.eof() && p.src[p.i] == '"':
 		quotePos := p.posAt(p.i)
 		p.i++ // past opening '"'
-		if p.classifier.Context(name) == attrclass.CtxJS {
-			return p.parseJSAttrValue(name, attrStartPos, quotePos)
-		}
 		vs := p.i
 		for !p.eof() && p.src[p.i] != '"' {
 			p.i++
@@ -284,6 +288,9 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 		ast.SetSpan(sa, attrStartPos, p.posAt(p.i))
 		return sa, nil
 	case !p.eof() && p.src[p.i] == '{':
+		if strings.HasPrefix(p.src[p.i+1:], "js`") || strings.HasPrefix(p.src[p.i+1:], "css`") {
+			return p.parseBracedEmbeddedAttrValue(name, attrStartPos)
+		}
 		if p.i+1 < len(p.src) && p.src[p.i+1] == '{' {
 			return p.parseOrderedAttrsLiteral(name, attrStartPos)
 		}
@@ -296,43 +303,75 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 	}
 }
 
-// parseJSAttrValue parses a JS-context attribute's double-quoted value, splitting
-// @{ } holes into Text + Interp segments like a <script> body, bounded by the
-// closing '"'. The cursor must be just past the opening `="`. If the value has at
-// least one hole it returns a *ast.JSAttr; if it is hole-free it returns a
-// *ast.StaticAttr with the raw value (no behavior change). parseInterp does
-// Go-aware brace-balancing, so a '"' inside a hole (e.g. @{ "v" }) is consumed by
-// the hole and does not prematurely terminate the value.
-func (p *parser) parseJSAttrValue(name string, attrStartPos, quotePos token.Pos) (ast.Attr, error) {
-	valStart := p.i
+func (p *parser) parseBracedEmbeddedAttrValue(name string, attrStartPos token.Pos) (ast.Attr, error) {
+	p.i++ // past '{'
+	lang, segments, err := p.parseEmbeddedAttrLiteral()
+	if err != nil {
+		return nil, err
+	}
+	if p.eof() || p.src[p.i] != '}' {
+		return nil, p.errorf(p.pos(), "expected `}` after embedded attribute literal for %q", name)
+	}
+	p.i++ // past '}'
+	ea := &ast.EmbeddedAttr{Name: name, Lang: lang, Segments: segments}
+	ast.SetSpan(ea, attrStartPos, p.posAt(p.i))
+	return ea, nil
+}
+
+func (p *parser) parseEmbeddedAttrValue(name string, attrStartPos token.Pos) (ast.Attr, error) {
+	lang, segments, err := p.parseEmbeddedAttrLiteral()
+	if err != nil {
+		return nil, err
+	}
+	ea := &ast.EmbeddedAttr{Name: name, Lang: lang, Segments: segments}
+	ast.SetSpan(ea, attrStartPos, p.posAt(p.i))
+	return ea, nil
+}
+
+func (p *parser) parseEmbeddedAttrLiteral() (ast.EmbeddedLang, []ast.Markup, error) {
+	var lang ast.EmbeddedLang
+	literalStart := p.i
+	var opener int
+	switch {
+	case p.at("js`"):
+		lang = ast.EmbeddedJS
+		p.i += len("js`")
+		opener = literalStart + len("js")
+	case p.at("css`"):
+		lang = ast.EmbeddedCSS
+		p.i += len("css`")
+		opener = literalStart + len("css")
+	default:
+		return 0, nil, p.errorf(p.pos(), "expected embedded attribute literal")
+	}
+	segments, err := p.parseEmbeddedSegments(lang, opener)
+	if err != nil {
+		return 0, nil, err
+	}
+	return lang, segments, nil
+}
+
+func (p *parser) parseEmbeddedSegments(lang ast.EmbeddedLang, opener int) ([]ast.Markup, error) {
 	var segments []ast.Markup
 	segStart := p.i
-	segStartPos := p.posAt(p.i)
-	hasInterp := false
+	segStartPos := p.posAt(segStart)
 	flush := func(end int) {
 		if end > segStart {
-			txt := &ast.Text{Value: p.src[segStart:end]}
+			txt := &ast.Text{Value: unescapeEmbeddedBackticks(p.src[segStart:end])}
 			ast.SetSpan(txt, segStartPos, p.posAt(end))
 			segments = append(segments, txt)
 		}
 	}
 	for !p.eof() {
-		// Closing quote terminates the value.
-		if p.src[p.i] == '"' {
-			flush(p.i)
-			closeOff := p.i
-			p.i++ // past closing quote
-			if !hasInterp {
-				// Hole-free JS attribute: keep StaticAttr (no behavior change).
-				sa := &ast.StaticAttr{Name: name, Value: p.src[valStart:closeOff]}
-				ast.SetSpan(sa, attrStartPos, p.posAt(p.i))
-				return sa, nil
+		if p.src[p.i] == '`' {
+			if p.embeddedBacktickEscaped(p.i) {
+				p.i++
+				continue
 			}
-			ja := &ast.JSAttr{Name: name, Segments: segments}
-			ast.SetSpan(ja, attrStartPos, p.posAt(p.i))
-			return ja, nil
+			flush(p.i)
+			p.i++ // past closing backtick
+			return segments, nil
 		}
-		// Interpolation hole? (trigger is exactly `@{`.)
 		if p.src[p.i] == '@' && p.i+1 < len(p.src) && p.src[p.i+1] == '{' {
 			flush(p.i)
 			p.i++ // past '@'; cursor now at '{' for parseInterp
@@ -341,14 +380,49 @@ func (p *parser) parseJSAttrValue(name string, attrStartPos, quotePos token.Pos)
 				return nil, err
 			}
 			segments = append(segments, in)
-			hasInterp = true
 			segStart = p.i
 			segStartPos = p.posAt(p.i)
 			continue
 		}
 		p.i++
 	}
-	return nil, p.errorfRange(quotePos, p.pos(), "unterminated attribute string for %q", name)
+	switch lang {
+	case ast.EmbeddedJS:
+		return nil, p.errorf(p.posAt(opener), "unterminated js attribute literal")
+	case ast.EmbeddedCSS:
+		return nil, p.errorf(p.posAt(opener), "unterminated css attribute literal")
+	default:
+		return nil, p.errorf(p.posAt(opener), "unterminated embedded attribute literal")
+	}
+}
+
+func (p *parser) embeddedBacktickEscaped(backtick int) bool {
+	n := 0
+	for i := backtick - 1; i >= 0 && p.src[i] == '\\'; i-- {
+		n++
+	}
+	return n%2 == 1
+}
+
+func unescapeEmbeddedBackticks(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '`' && backtickEscapedIn(s, i) {
+			if b.Cap() == 0 {
+				b.Grow(len(s))
+				b.WriteString(s[:i-1])
+			}
+			b.WriteByte('`')
+			continue
+		}
+		if b.Cap() != 0 {
+			b.WriteByte(s[i])
+		}
+	}
+	if b.Cap() == 0 {
+		return s
+	}
+	return b.String()
 }
 
 // parseAttrsUntilBrace parses an attribute list terminated by '}' (the body of a

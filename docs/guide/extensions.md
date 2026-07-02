@@ -1,14 +1,13 @@
 # Extending gsx
 
 Most projects configure gsx declaratively in a [`gsx.toml`](./config.md) file
-read by the stock binary — pipeline filters and attribute-classification rules
+read by the stock binary — pipeline filters and URL-attribute rules
 need no code. This page covers the **code escape hatch**: a project-owned
 `cmd/gsx/main.go` that calls `gen.Main`, needed only for options whose value is
 a Go *function* and therefore cannot live in TOML:
 
 - a custom CSS/JS minifier (`gen.WithCSSMinifier` / `gen.WithJSMinifier`),
 - a custom CSS/JS **formatter** (`gen.WithCSSFormatter` / `gen.WithJSFormatter`),
-- an attribute-classifier **predicate** (`gen.WithAttrClassifier`),
 - a field matcher (`gen.WithFieldMatcher`).
 
 The **minify level** (`none`/`full`) is configured declaratively in
@@ -18,28 +17,25 @@ both.
 
 `gen.Main` loads `gsx.toml` as the base configuration and applies these
 programmatic options on top, so a code-configured project still keeps its
-filters and declarative rules in `gsx.toml` and writes Go only for the
+filters and declarative URL rules in `gsx.toml` and writes Go only for the
 function-valued options.
 
-> The declarative forms of attribute classification and filter registration
-> below are equivalently expressible in [`gsx.toml`](./config.md); prefer the
-> config file unless you need the predicate/function escape hatch.
+> URL attribute rules and filter registration are equivalently expressible in
+> [`gsx.toml`](./config.md); prefer the config file unless you need a
+> function-valued option.
 
-## Custom attribute classification
+## URL attribute rules
 
-gsx auto-escapes attribute values according to their **security context**
-(JS, URL, CSS, or plain). The built-in set covers the standard HTML attributes,
-Alpine, and HTMX. If your project uses a framework with its own event or URL
-attributes (Vue `v-on:`, Livewire `wire:`, Stimulus `data-action`, etc.), you
-can register additional rules so the escaper — and `@{ }` hole splitting —
-treat those attributes correctly.
+Ordinary `attr={expr}` values are attribute-escaped text unless the attribute is
+URL-context by name. The built-in set covers standard HTML URL attributes and
+htmx method attributes. If your project uses a framework with its own
+URL-bearing attributes, register additional rules so those values get the URL
+scheme check before attribute escaping.
 
-### Declarative rules (recommended)
-
-Register rules via `gen.WithJSAttrs`, `gen.WithURLAttrs`, or `gen.WithCSSAttrs`.
-Each takes one or more `attrclass.Rule` values. A rule matches either by **exact
-name** (`Name` field, case-insensitive) or by **prefix** (`Prefix` field) — set
-exactly one field.
+Prefer `[[urlAttrs]]` in `gsx.toml`; use `gen.WithURLAttrs` only when you already
+maintain a project `cmd/gsx/main.go`. It takes one or more `gen.Rule` values. A
+rule matches either by **exact name** (`Name` field, case-insensitive) or by
+**prefix** (`Prefix` field) — set exactly one field.
 
 ```go
 // cmd/gsx/main.go
@@ -51,16 +47,13 @@ import (
 
 func main() {
 	gen.Main(
-		// Livewire wire: attributes carry JS expressions.
-		gen.WithJSAttrs(
-			gen.Rule{Prefix: "wire:"},
-		),
-		// Vue v-on: event handlers are JS; v-bind: attrs may carry URLs.
-		gen.WithJSAttrs(
-			gen.Rule{Prefix: "v-on:"},
-		),
+		// Vue v-bind:href carries a URL.
 		gen.WithURLAttrs(
 			gen.Rule{Name: "v-bind:href"},
+		),
+		// Project-specific URL-bearing data attributes.
+		gen.WithURLAttrs(
+			gen.Rule{Prefix: "data-url-"},
 		),
 	)
 }
@@ -70,36 +63,9 @@ Rules are **additive** — they extend the built-in set, never replace or downgr
 it. The built-ins are checked first; your rules are consulted only for names that
 the built-ins did not classify.
 
-### Predicate escape hatch
-
-When the matching logic cannot be expressed as a list of rules, install a
-predicate via `gen.WithAttrClassifier`:
-
-```go
-gen.WithAttrClassifier("myFramework", func(name string) (gen.Context, bool) {
-	if strings.HasPrefix(name, "data-js-") {
-		return gen.CtxJS, true
-	}
-	return gen.CtxPlain, false // not handled by this predicate; return false to pass through
-})
-```
-
-The predicate receives the original (non-lowercased) attribute name and is
-consulted **only for attributes no rule matched**. Returning `false` is the
-canonical "not handled / pass through" signal. Returning `(CtxPlain, true)` is
-also treated as plain (a `CtxPlain` result is ignored). Like rules, the predicate
-is additive — it cannot downgrade built-in classifications.
-
-**Offline caveat:** predicate logic is a Go closure and cannot be serialised.
-The manifest (see below) records a `hasPredicate` flag and the label you provide,
-but the classification decisions themselves are only available when the project
-binary can be run. Prefer declarative rules for attributes that need to be visible
-to offline tools (a future LSP or `vet`).
-
-**Cache invalidation:** predicate *bodies* are not part of the codegen cache key
-(closures are not inspectable), consistent with `WithCSSMinifier`/`WithJSMinifier`.
-After changing a predicate's logic, run `gsx clean --cache` to force full
-regeneration.
+JavaScript and CSS-valued attributes are explicit at the template site with
+`` js`...` `` and `` css`...` `` literals, so they do not have classifier
+configuration.
 
 ## Custom CSS/JS formatter
 
@@ -167,14 +133,13 @@ if installed (a custom minifier **replaces** the built-in full pass).
 
 The intended pattern is to maintain a `cmd/gsx/main.go` inside your own
 module's repository that depends on `github.com/gsxhq/gsx/gen` and wires
-options there. All public types (`gen.Rule`, `gen.Context`, `gen.CtxJS`, …)
-are re-exported from the `gen` package — your code never needs to import
-`internal/attrclass` directly:
+options there. Public option types such as `gen.Rule` are exported from the
+`gen` package — your code never needs to import internal packages directly:
 
 ```
 myapp/
   cmd/gsx/
-    main.go    ← gen.Main(gen.WithJSAttrs(...), gen.WithFilters(...))
+    main.go    ← gen.Main(gen.WithURLAttrs(...), gen.WithFilters(...))
   pages/
     home.gsx
 ```
@@ -186,14 +151,14 @@ Build and run this binary in place of the stock `gsx` command, or point
 
 On each successful `gsx generate`, the resolved configuration is written as a
 JSON manifest into the build cache (`~/.cache/gsx`, or `$GSXCACHE`). The manifest
-records `schemaVersion`, `module`, `userRules`, `hasPredicate`, `predicateLabel`,
-and `filters` — enough for offline tools to ground themselves on the last
-successful build without re-running the project binary.
+records `schemaVersion`, `module`, URL attribute rules, and `filters` — enough
+for offline tools to ground themselves on the last successful build without
+re-running the project binary.
 
 ```sh
-gsx info          # human-readable summary (includes "Attribute rules" section)
+gsx info          # human-readable summary (includes URL attribute rules)
 gsx info --json   # machine-readable JSON (same data)
-gsx clean --cache # wipe the cache (needed after changing a predicate's logic)
+gsx clean --cache # wipe the cache
 ```
 
 The manifest is a **derived cache**, not a hand-edited config file — always

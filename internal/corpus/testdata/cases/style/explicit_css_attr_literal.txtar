@@ -1,0 +1,13 @@
+# explicit CSS attr literal filters interpolated values
+-- input.gsx --
+package p
+component Box(w int, color string) {
+	<div data-style=css`width:@{w}px;color:@{color}`>x</div>
+}
+-- input.go --
+package p
+import "github.com/gsxhq/gsx"
+func Render() gsx.Node { return Box(BoxProps{W: 12, Color: "teal"}) }
+-- render.golden --
+<div data-style="width:12px;color:teal">x</div>
+-- diagnostics.golden --

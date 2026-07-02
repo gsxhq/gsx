@@ -1,0 +1,13 @@
+# explicit CSS attr literal supports pipelines on interpolated values
+-- input.gsx --
+package p
+component Box(color string) {
+	<div data-style=css`color:@{color |> upper}`>x</div>
+}
+-- input.go --
+package p
+import "github.com/gsxhq/gsx"
+func Render() gsx.Node { return Box(BoxProps{Color: "teal"}) }
+-- render.golden --
+<div data-style="color:TEAL">x</div>
+-- diagnostics.golden --

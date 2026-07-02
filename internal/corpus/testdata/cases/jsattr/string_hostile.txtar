@@ -26,14 +26,11 @@ type PageProps struct {
 //line input.gsx:3:1
 func Page(_gsxp PageProps) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		v := _gsxp.V
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<div x-data=\"{ s: &#39;")
-		_gsxgw.JSStrAttr(string(v))
-		_gsxgw.S("&#39; }\">x</div>")
+		_gsxgw.S("<div x-data=\"{ s: &#39;@{ v }&#39; }\">x</div>")
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-<div x-data="{ s: &#39;\u0027\u0022\u003c\/script\u003e\u003cx\u003e end&#39; }">x</div>
+<div x-data="{ s: &#39;@{ v }&#39; }">x</div>

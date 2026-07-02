@@ -50,6 +50,42 @@ func TestFormatParseErrorReturnsError(t *testing.T) {
 	}
 }
 
+func TestFormatPreservesMultilineEmbeddedAttrBody(t *testing.T) {
+	src := "package p\n\n" +
+		"component C(open bool) {\n" +
+		"\t<div x-data=js`" + "\n" +
+		"\t\t{ open: @{ open } }\n" +
+		"\t` style=css`" + "\n" +
+		"\t\tcolor : @{ color }\n" +
+		"\t`>x</div>\n" +
+		"}\n"
+	want := "package p\n\n" +
+		"component C(open bool) {\n" +
+		"\t<div x-data=js`" + "\n" +
+		"\t\t{ open: @{open} }\n" +
+		"\t` style=css`" + "\n" +
+		"\t\tcolor : @{color}\n" +
+		"\t`>\n" +
+		"\t\tx\n" +
+		"\t</div>\n" +
+		"}\n"
+
+	out, err := Format("embedded.gsx", []byte(src), 80)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != want {
+		t.Fatalf("format mismatch:\n--- got ---\n%s\n--- want ---\n%s", out, want)
+	}
+	again, err := Format("embedded.gsx", out, 80)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(again) != string(out) {
+		t.Fatalf("Format is not idempotent:\nonce:\n%s\ntwice:\n%s", out, again)
+	}
+}
+
 func contains(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
 		if s[i:i+len(sub)] == sub {

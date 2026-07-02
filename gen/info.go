@@ -23,7 +23,7 @@ import (
 //
 // When asJSON is true it emits the manifest JSON form instead of the human table.
 // cmdArgs are the subcommand arguments (used to parse --json).
-func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, predLabel string, fm codegen.FieldMatcher, cmdArgs []string, cssMinLevel, jsMinLevel MinifyLevel) int {
+func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, cmdArgs []string, cssMinLevel, jsMinLevel MinifyLevel) int {
 	// Parse the info subcommand's own flags.
 	ifs := flag.NewFlagSet("info", flag.ContinueOnError)
 	ifs.SetOutput(stderr)
@@ -48,7 +48,7 @@ func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []stri
 		for _, fi := range infos {
 			mf = append(mf, manifestFilter{Name: fi.Name, Pkg: fi.Pkg, Func: fi.Func})
 		}
-		data, _ := json.MarshalIndent(buildManifest(modPath, cls, predLabel, fm != nil, mf, cssMinLevel, jsMinLevel), "", "  ")
+		data, _ := json.MarshalIndent(buildManifest(modPath, cls, fm != nil, mf, cssMinLevel, jsMinLevel), "", "  ")
 		fmt.Fprintln(stdout, string(data))
 		return 0
 	}
@@ -102,23 +102,13 @@ func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []stri
 	}
 	tw.Flush()
 
-	// Attribute rules section: show user-supplied rules and predicate status.
+	// Attribute rules section: show user-supplied URL rules and field-matcher status.
 	rules := cls.Rules()
-	hasRules := len(rules.JS) > 0 || len(rules.URL) > 0 || len(rules.CSS) > 0
-	hasPred := cls.HasPredicate()
+	hasRules := len(rules.URL) > 0
 	hasFieldMatcher := fm != nil
-	if hasRules || hasPred || hasFieldMatcher {
+	if hasRules || hasFieldMatcher {
 		fmt.Fprintf(stdout, "\nAttribute rules:\n")
-		printRuleSlice(stdout, "JS", rules.JS)
 		printRuleSlice(stdout, "URL", rules.URL)
-		printRuleSlice(stdout, "CSS", rules.CSS)
-		if hasPred {
-			label := predLabel
-			if label == "" {
-				label = "(unnamed)"
-			}
-			fmt.Fprintf(stdout, "  predicate: %s\n", label)
-		}
 		if hasFieldMatcher {
 			fmt.Fprintf(stdout, "  fieldMatcher: custom\n")
 		}

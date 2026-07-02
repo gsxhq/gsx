@@ -9,11 +9,7 @@ import (
 	"github.com/gsxhq/gsx/internal/attrclass"
 )
 
-// A custom JS rule must route a custom-framework attribute through JS-context
-// emission (gw.JSValAttr), not plain attr escaping. We use the ={ expr } form
-// (ExprAttr) since the parser does not yet know about user-defined JS attrs
-// (that is Task 3); codegen classifies the ExprAttr via the custom Classifier.
-func TestCustomJSAttrRuleEmitsJSContext(t *testing.T) {
+func TestCustomJSAttrRuleDoesNotChangePlainExprAttr(t *testing.T) {
 	t.Parallel()
 	repoRoot, _ := filepath.Abs("../..")
 	tmp := t.TempDir()
@@ -42,15 +38,15 @@ component Widget(action string) {
 	for _, b := range dr.Files {
 		gen += string(b)
 	}
-	if !strings.Contains(gen, "JSValAttr") {
-		t.Errorf("expected a gw.JSValAttr call for wire:click, generated:\n%s", gen)
+	if !strings.Contains(gen, "_gsxgw.AttrValue(string(action))") {
+		t.Errorf("plain wire:click expr should use AttrValue, generated:\n%s", gen)
+	}
+	if strings.Contains(gen, "JSValAttr") {
+		t.Errorf("plain wire:click expr must not use JSValAttr, generated:\n%s", gen)
 	}
 }
 
-// Built-ins-only (nil-equivalent) classifier keeps wire:click as a plain attr
-// (AttrValue, not JSValAttr) — proving the rule, not a regression, caused the
-// change above.
-func TestBuiltinClassifierLeavesCustomAttrPlain(t *testing.T) {
+func TestExplicitJSAttrLiteralEmitsJSContext(t *testing.T) {
 	t.Parallel()
 	repoRoot, _ := filepath.Abs("../..")
 	tmp := t.TempDir()
@@ -60,7 +56,7 @@ func TestBuiltinClassifierLeavesCustomAttrPlain(t *testing.T) {
 	src := `package views
 
 component Widget(action string) {
-	<div wire:click={ action }></div>
+	<div wire:click=js` + "`" + `save(@{action})` + "`" + `></div>
 }
 `
 	if err := os.WriteFile(filepath.Join(dir, "views.gsx"), []byte(src), 0o644); err != nil {
@@ -78,7 +74,10 @@ component Widget(action string) {
 	for _, b := range dr.Files {
 		gen += string(b)
 	}
-	if strings.Contains(gen, "JSValAttr") {
-		t.Errorf("built-in classifier must not JS-classify wire:click, generated:\n%s", gen)
+	if !strings.Contains(gen, "JSValAttr(action)") {
+		t.Errorf("explicit JS attr literal should use JSValAttr, generated:\n%s", gen)
+	}
+	if strings.Contains(gen, "_gsxgw.AttrValue(string(action))") {
+		t.Errorf("explicit JS attr literal must not use plain AttrValue for its hole, generated:\n%s", gen)
 	}
 }

@@ -681,7 +681,7 @@ func emitRootStaticClass(b *bytes.Buffer, a *ast.StaticAttr, mergeExpr, bagExpr 
 }
 
 // rootAttrName returns the single static attribute name of a non-class/style root
-// attr that the caller-wins guard brackets. Static/bool/expr/JS attrs each have
+// attr that the caller-wins guard brackets. Static/bool/expr/embedded attrs each have
 // one name; Spread/Cond attrs have none (ok=false), so they emit unguarded.
 func rootAttrName(a ast.Attr) (string, bool) {
 	switch t := a.(type) {
@@ -691,7 +691,7 @@ func rootAttrName(a ast.Attr) (string, bool) {
 		return t.Name, true
 	case *ast.ExprAttr:
 		return t.Name, true
-	case *ast.JSAttr:
+	case *ast.EmbeddedAttr:
 		return t.Name, true
 	}
 	return "", false
@@ -1335,8 +1335,16 @@ func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, tab
 		fmt.Fprintf(b, "\t\t_gsxgw.BoolAttr(%s, true)\n", strconv.Quote(t.Name))
 	case *ast.ExprAttr:
 		return emitExprAttr(b, t, resolved, table, imports, interpTemp, cls, bag)
-	case *ast.JSAttr:
-		return emitJSAttr(b, t, resolved, table, imports, interpTemp, bag)
+	case *ast.EmbeddedAttr:
+		switch t.Lang {
+		case ast.EmbeddedJS:
+			return emitEmbeddedJSAttr(b, t, resolved, table, imports, interpTemp, bag)
+		case ast.EmbeddedCSS:
+			return emitEmbeddedCSSAttr(b, t, resolved, table, imports, interpTemp, bag)
+		default:
+			bag.Errorf(a.Pos(), a.End(), "unsupported-attr", "unknown embedded attribute language %d", t.Lang)
+			return false
+		}
 	case *ast.ClassAttr:
 		// class -> token merge (gw.Class); style -> '; '-joined declarations
 		// (gw.Style) with dynamic parts CSS-value-filtered.
@@ -1396,11 +1404,22 @@ func emitAttr(b *bytes.Buffer, a ast.Attr, resolved map[ast.Node]types.Type, tab
 	return true
 }
 
-// emitJSAttr emits a JS-context attribute whose quoted value is literal JS with
-// @{ } holes (form 2a, e.g. x-data="{ tab: @{ x } }"). Static JS text is
+func embeddedLangName(lang ast.EmbeddedLang) string {
+	switch lang {
+	case ast.EmbeddedJS:
+		return "js"
+	case ast.EmbeddedCSS:
+		return "css"
+	default:
+		return fmt.Sprintf("unknown(%d)", lang)
+	}
+}
+
+// emitEmbeddedJSAttr emits an explicit JS attribute literal whose quoted value
+// is literal JS with @{ } holes. Static JS text is
 // HTML-attr-escaped at codegen so <,>,& survive the attribute; each hole is
 // escaped by its JSCtx and then HTML-attr-escaped (the *Attr escapers do both).
-func emitJSAttr(b *bytes.Buffer, a *ast.JSAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
+func emitEmbeddedJSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
 	for _, seg := range a.Segments {
 		switch s := seg.(type) {
@@ -1419,8 +1438,31 @@ func emitJSAttr(b *bytes.Buffer, a *ast.JSAttr, resolved map[ast.Node]types.Type
 	return true
 }
 
-// emitJSAttrInterp renders one @{ } hole in a JS-context attribute value through
-// the runtime *Attr escaper chosen by its JSCtx. It mirrors emitJSInterp's
+// emitEmbeddedCSSAttr emits an explicit CSS attribute literal whose quoted value
+// is literal CSS with @{ } holes. Static CSS text is HTML-attr-escaped at
+// codegen; each hole is CSS-value-filtered with gsx.StyleValue and then
+// HTML-attr-escaped.
+func emitEmbeddedCSSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
+	for _, seg := range a.Segments {
+		switch s := seg.(type) {
+		case *ast.Text:
+			fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(htmlAttrEscape(s.Value)))
+		case *ast.Interp:
+			if !emitCSSAttrInterp(b, s, resolved, table, imports, interpTemp, bag) {
+				return false
+			}
+		default:
+			bag.Errorf(seg.Pos(), seg.End(), "unsupported-attr", "CSS attribute %q value may contain only text and @{ } interpolations, got %T", a.Name, seg)
+			return false
+		}
+	}
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
+	return true
+}
+
+// emitJSAttrInterp renders one @{ } hole in an explicit JS attribute literal
+// through the runtime *Attr escaper chosen by its JSCtx. It mirrors emitJSInterp's
 // pipeline-stage handling and (T, error) tuple auto-unwrap, but routes to the
 // JS*Attr methods (which additionally HTML-attr-escape).
 func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
@@ -1451,6 +1493,71 @@ func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]type
 		return emitJSAttrValue(b, n.JSCtx, tmp, elemT, n, bag)
 	}
 	return emitJSAttrValue(b, n.JSCtx, expr, t, n, bag)
+}
+
+// emitCSSAttrInterp renders one @{ } hole in an explicit CSS attribute literal.
+// It mirrors emitCSSInterp's pipeline-stage handling and (T, error) tuple
+// auto-unwrap, but routes through gsx.StyleValue followed by AttrValue because
+// the result is inside a quoted HTML attribute.
+func emitCSSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
+	expr := strings.TrimSpace(n.Expr)
+	if len(n.Stages) > 0 {
+		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table)
+		if err != nil {
+			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+			return false
+		}
+		for _, p := range usedPkgs {
+			imports[p] = true
+		}
+		expr = lowered
+	}
+	t, ok := resolved[n]
+	if !ok || t == nil {
+		bag.Errorf(n.Pos(), n.End(), "unresolved-interp", "could not resolve type of CSS attribute interpolation %q", n.Expr)
+		return false
+	}
+	if _, isTuple := t.(*types.Tuple); isTuple {
+		elemT, ok := tupleUnwrapType(t)
+		if !ok {
+			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "CSS attribute interpolation %q returns %s; only (T, error) is supported", expr, t)
+			return false
+		}
+		tmp := hoistTuple(b, expr, interpTemp)
+		return emitRenderCSSAttr(b, tmp, elemT, imports, n, bag)
+	}
+	return emitRenderCSSAttr(b, expr, t, imports, n, bag)
+}
+
+// emitRenderCSSAttr writes a value in an explicit CSS attribute literal. The
+// value is first reduced to a CSS-safe string with gsx.StyleValue, then escaped
+// for the surrounding HTML attribute with gw.AttrValue.
+func emitRenderCSSAttr(b *bytes.Buffer, expr string, t types.Type, imports map[string]bool, n ast.Node, bag *diag.Bag) bool {
+	styleExpr := ""
+	if isRawCSS(t) {
+		styleExpr = expr
+	} else {
+		switch classify(t) {
+		case catInt:
+			imports["strconv"] = true
+			styleExpr = "strconv.FormatInt(int64(" + expr + "), 10)"
+		case catUint:
+			imports["strconv"] = true
+			styleExpr = "strconv.FormatUint(uint64(" + expr + "), 10)"
+		case catFloat:
+			imports["strconv"] = true
+			styleExpr = "strconv.FormatFloat(float64(" + expr + "), 'g', -1, 64)"
+		case catString, catBytes:
+			styleExpr = "string(" + expr + ")"
+		case catStringer:
+			styleExpr = "(" + expr + ").String()"
+		default:
+			bag.Errorf(n.Pos(), n.End(), "unrenderable-css", "value of type %s not renderable in CSS context (need string/number/Stringer or gsx.RawCSS)", t)
+			return false
+		}
+	}
+	fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(gsx.StyleValue(%s))\n", styleExpr)
+	return true
 }
 
 // emitJSAttrValue selects the runtime JS *Attr escaper by JS context, mirroring
@@ -1568,6 +1675,29 @@ func composedParts(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports
 			parts = append(parts, fmt.Sprintf("gsx.Class(%s)", tmp))
 			continue
 		}
+		if p.CSSSegments != nil {
+			if !style {
+				bag.Errorf(p.Pos(), p.End(), "unsupported-class-part", "css literal parts are only valid in style={...}")
+				return nil, false
+			}
+			val, ok := cssLiteralStylePartExpr(b, p.CSSSegments, resolved, table, imports, interpTemp, bag)
+			if !ok {
+				return nil, false
+			}
+			if p.Cond == "" {
+				parts = append(parts, fmt.Sprintf("gsx.Class(%s)", val))
+				continue
+			}
+			cond := strings.TrimSpace(p.Cond)
+			if ordered {
+				tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+				*interpTemp++
+				fmt.Fprintf(b, "\t\t%s := %s\n", tmp, cond)
+				cond = tmp
+			}
+			parts = append(parts, fmt.Sprintf("gsx.ClassIf(%s, %s)", val, cond))
+			continue
+		}
 		expr, ok := classPartExpr(*p, a, table, imports, bag)
 		if !ok {
 			return nil, false
@@ -1608,6 +1738,46 @@ func composedParts(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports
 	return parts, true
 }
 
+func cssLiteralStylePartExpr(b *bytes.Buffer, segments []ast.Markup, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) (string, bool) {
+	parts := make([]string, 0, len(segments))
+	for _, seg := range segments {
+		switch s := seg.(type) {
+		case *ast.Text:
+			if s.Value != "" {
+				parts = append(parts, strconv.Quote(s.Value))
+			}
+		case *ast.Interp:
+			expr := strings.TrimSpace(s.Expr)
+			if len(s.Stages) > 0 {
+				lowered, usedPkgs, err := lowerPipe(s.Expr, s.Stages, table)
+				if err != nil {
+					bag.Errorf(s.Pos(), s.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+					return "", false
+				}
+				for _, p := range usedPkgs {
+					imports[p] = true
+				}
+				expr = lowered
+			}
+			if t, ok := resolved[s].(*types.Tuple); ok {
+				if _, ok := tupleUnwrapType(t); !ok {
+					bag.Errorf(s.Pos(), s.End(), "invalid-tuple", "style css literal interpolation %q returns %s; only (T, error) is supported", expr, t)
+					return "", false
+				}
+				expr = hoistTuple(b, expr, interpTemp)
+			}
+			parts = append(parts, "gsx.StyleValue("+expr+")")
+		default:
+			bag.Errorf(seg.Pos(), seg.End(), "unsupported-style-part", "css literal style parts may contain only text and @{ } interpolations, got %T", seg)
+			return "", false
+		}
+	}
+	if len(parts) == 0 {
+		return `""`, true
+	}
+	return strings.Join(parts, " + "), true
+}
+
 // styleDeclExpr returns the Go expression for a composed-style part's value: a
 // pure string-literal part is trusted (returned verbatim); any other (dynamic)
 // part is wrapped in gsx.FilterCSS so its runtime value is CSS-value-filtered. A
@@ -1638,10 +1808,9 @@ func htmlAttrEscape(s string) string {
 	return r.Replace(s)
 }
 
-// emitExprAttr emits an expr attribute value with context-aware escaping. A CSS
-// context is contextually sanitized (gw.CSS) with a gsx.RawCSS author opt-out; a
-// JS context routes through gw.JSValAttr. Both are handled in the value-emit
-// section below by their respective branches.
+// emitExprAttr emits an expr attribute value. URL attrs keep URL sanitization;
+// all other expr attrs use ordinary attribute rendering. Explicit js`...` and
+// css`...` literals opt into JS/CSS contextual rendering instead.
 func emitExprAttr(b *bytes.Buffer, a *ast.ExprAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, bag *diag.Bag) bool {
 	// (1) value expression: lower a pipeline to nested std calls (same lowerPipe
 	// the probe used, so resolved[a] is already the pipeline's RESULT type), else
@@ -1677,36 +1846,17 @@ func emitExprAttr(b *bytes.Buffer, a *ast.ExprAttr, resolved map[ast.Node]types.
 		t = elemT
 	}
 
-	// A bool-typed value is a boolean attribute regardless of context — EXCEPT in
-	// a JS context, where a bool must JSON-encode to "true"/"false" inside the
-	// attribute value (e.g. Alpine x-show={ b } → x-show="true"), not become a
-	// bare boolean attribute.
-	if classify(t) == catBool && cls.Context(a.Name) != attrclass.CtxJS {
+	if classify(t) == catBool {
 		fmt.Fprintf(b, "\t\t_gsxgw.BoolAttr(%s, bool(%s))\n", strconv.Quote(a.Name), expr)
 		return true
 	}
 
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
-	if cls.Context(a.Name) == attrclass.CtxJS {
-		// JS-context attribute, whole-value form (x-data={ expr }): JSON-encode the
-		// value then HTML-attr-escape. JSValAttr accepts any type (numbers, structs,
-		// maps, bools) and passes gsx.RawJS through. No type-classification needed,
-		// same as a JSCtxValue hole.
-		fmt.Fprintf(b, "\t\t_gsxgw.JSValAttr(%s)\n", expr)
-	} else if cls.Context(a.Name) == attrclass.CtxURL && !isRawURL(t) {
+	if cls.Context(a.Name) == attrclass.CtxURL && !isRawURL(t) {
 		// URL context: value must be string-like; sanitize + escape. A gsx.RawURL
 		// value (isRawURL) is the author's vouch — fall through to gw.AttrValue,
 		// which entity-escapes but skips the scheme allow-list.
 		fmt.Fprintf(b, "\t\t_gsxgw.URL(%s)\n", urlStringExpr(expr, t))
-	} else if cls.Context(a.Name) == attrclass.CtxCSS {
-		// CSS context (the built-in `style` parses to a composable ClassAttr, so this
-		// branch is reached by a user CSS-rule attribute in whole-value ={ } form).
-		// Mirror the <style>-block emission: a gsx.RawCSS value is the author's
-		// opt-out (emitted raw via gw.S), strings/Stringers go through the gw.CSS
-		// value-filter, numbers are formatted raw, any other type is an error.
-		if !emitRenderCSS(b, expr, t, imports, a, bag) {
-			return false
-		}
 	} else {
 		if !emitAttrValue(b, expr, t, imports, a, bag) {
 			return false
@@ -1979,9 +2129,9 @@ func attrsRefAttrs(attrs []ast.Attr) bool {
 			if refsAttrs(at.Cond) || attrsRefAttrs(at.Then) || attrsRefAttrs(at.Else) {
 				return true
 			}
-		case *ast.JSAttr:
-			// A JS-attribute value's @{ } interps render in this scope, so an `attrs`
-			// reference there needs the local bound.
+		case *ast.EmbeddedAttr:
+			// An embedded attribute value's @{ } interps render in this scope, so an
+			// `attrs` reference there needs the local bound.
 			if usesAttrs(at.Segments) {
 				return true
 			}
@@ -2627,6 +2777,9 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				oa:        t,
 				oaPairs:   pairEntries,
 			})
+		case *ast.EmbeddedAttr:
+			msg := fmt.Sprintf("embedded %s attribute literal %q cannot be used as a component prop on <%s>; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, el.Tag)
+			return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 		default:
 			msg := fmt.Sprintf("unknown attribute %T on component (<%s>)", a, el.Tag)
 			return nil, "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}
@@ -2873,6 +3026,9 @@ func condBranchAttrs(attrs []ast.Attr, rtPkg, tag string, mergeExpr string, tabl
 			}
 			maps.Copy(usedPkgs, used)
 			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), entry))
+		case *ast.EmbeddedAttr:
+			msg := fmt.Sprintf("embedded %s attribute literal %q cannot be used as a component prop on <%s>; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, tag)
+			return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 		default:
 			msg := fmt.Sprintf("unsupported attribute %T in a conditional branch (<%s>)", a, tag)
 			return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}

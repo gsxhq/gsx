@@ -2,10 +2,10 @@
 
 A project configures gsx declaratively in a `gsx.toml` file that the **stock
 `gsx` binary** reads. This covers the common cases — registering pipeline
-filters and attribute-classification rules — with no per-project generator
+filters and URL-attribute rules — with no per-project generator
 program. The few options that are Go *functions* (a custom minifier, an
-attribute-classifier predicate, a field matcher) still require a code-based
-setup; see [Extensions](./extensions.md).
+attribute formatter, a field matcher) still require a code-based setup; see
+[Extensions](./extensions.md).
 
 ## `[dev]` — development loop
 
@@ -130,35 +130,38 @@ it. It ships `upper`, `lower`, `trim`, `truncate`, `join`, `default`, and
 `{ price |> format("$%.2f") }`). List `filterPackages` only for your own
 packages, or to set precedence (later packages win on name collisions).
 
-### `[[jsAttrs]]` / `[[urlAttrs]]` / `[[cssAttrs]]` — attribute contexts
+### `[[urlAttrs]]` — URL attribute contexts
 
-gsx auto-escapes attribute values by **security context** (JS, URL, CSS, or
-plain). The built-ins cover standard HTML, Alpine, and HTMX. If your project
-uses a framework with its own event/URL/style attributes, register additional
-rules so the escaper — and `@{ }` hole splitting — treat them correctly.
+gsx treats ordinary `attr={expr}` values as attribute-escaped text, except for
+URL attributes. The built-ins cover standard HTML URL attributes and htmx method
+attributes. If your project uses a framework with its own URL-bearing
+attributes, register additional rules so those values get URL scheme
+sanitization before attribute escaping.
 
 Each rule matches by **exact name** (`name`, case-insensitive) **or by prefix**
 (`prefix`) — set exactly one:
 
 ```toml
-# Livewire wire: attributes carry JS expressions.
-[[jsAttrs]]
-prefix = "wire:"
-
 # A specific URL-bearing attribute.
 [[urlAttrs]]
 name = "data-href"
 
-# A specific style-bearing attribute.
-[[cssAttrs]]
-name = "data-style"
+# A family of URL-bearing attributes.
+[[urlAttrs]]
+prefix = "data-url-"
 ```
 
 Rules are **additive** — they extend the built-ins, never downgrade them. The
 built-ins are checked first; your rules apply only to names they did not already
-classify. (This is the declarative half of [custom attribute
-classification](./extensions.md#custom-attribute-classification); the predicate
-escape hatch remains code-only.)
+classify.
+
+JavaScript and CSS-valued attributes do not need name configuration. Write them
+explicitly with `` js`...` `` or `` css`...` `` at the call site:
+
+````gsx
+<button @click=js`save(@{id})`>Save</button>
+<div data-style=css`color:@{color}`>...</div>
+````
 
 ### `[minify]` — asset minification level
 
@@ -273,9 +276,7 @@ target = "github.com/jackielii/structpages.IDTarget"
 # named by lower-cased func name. std is always available and not listed.
 filterPackages = ["example.com/myproject/templatefuncs"]
 
-# Attribute escaping contexts beyond the built-ins.
-[[jsAttrs]]
-prefix = "wire:"
+# URL attribute contexts beyond the built-ins.
 [[urlAttrs]]
 name = "data-href"
 
@@ -295,12 +296,12 @@ code-only, configured through a project `cmd/gsx/main.go` that calls `gen.Main`
 (see [Extensions](./extensions.md)):
 
 - a custom CSS/JS minifier (`gen.WithCSSMinifier` / `gen.WithJSMinifier`),
-- an attribute-classifier **predicate** (`gen.WithAttrClassifier`),
+- a custom CSS/JS formatter (`gen.WithCSSFormatter` / `gen.WithJSFormatter`),
 - a field matcher (`gen.WithFieldMatcher`).
 
 When a project does use a `cmd/gsx` binary, `gen.Main` loads `gsx.toml` as the
 **base** configuration and applies the programmatic options **on top** (filters
-and rules from code are appended; a code-registered filter overrides a
+and URL rules from code are appended; a code-registered filter overrides a
 same-named config filter). So even a code-configured project keeps its simple
 filters/rules in `gsx.toml` and writes Go only for the function-valued options.
 
@@ -312,13 +313,13 @@ filters/rules in `gsx.toml` and writes Go only for the function-valued options.
 
 `gsx info` is the single source of truth for the configuration in effect. It
 prints the discovered `gsx.toml` path (or `config: none`), the fully-resolved
-filters and attribute rules, the resolved **minify level** per asset, and an
+filters and URL attribute rules, the resolved **minify level** per asset, and an
 **Environment** section listing every `GSX_*` override and whether it is
 currently set — the answer to "which config is active, and is my `GSX_MINIFY`
 actually taking effect":
 
 ```sh
-gsx info          # human-readable: config path + filters/rules + minify + env
+gsx info          # human-readable: config path + filters + URL attrs + minify + env
 gsx info --json   # machine-readable (same data)
 ```
 

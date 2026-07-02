@@ -218,7 +218,7 @@
   {
     "name": "JS attributes & data islands",
     "category": "Interactive & whole-page",
-    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ntype Config struct {\n\tEnv  string\n\tBeta bool\n}\n\ncomponent Widget(cfg Config) {\n\t<div>\n\t\t<button @click={gsx.RawJS(\"toggle()\")}>Toggle</button>\n\t\t<script type=\"application/json\" id=\"cfg\">@{ cfg }</script>\n\t</div>\n}\n",
+    "source": "package views\n\ntype Config struct {\n\tEnv  string\n\tBeta bool\n}\n\ncomponent Widget(cfg Config) {\n\t<div>\n\t\t<button @click=js`toggle()`>Toggle</button>\n\t\t<script type=\"application/json\" id=\"cfg\">@{ cfg }</script>\n\t</div>\n}\n",
     "invoke": "Widget(Config{Env: \"prod\", Beta: true})"
   },
   {
@@ -240,10 +240,22 @@
     "invoke": "Shell(AppState{Tab: \"settings\", Open: true})"
   },
   {
-    "name": "RawJS event handler",
+    "name": "Attribute-local JS handler",
     "category": "JavaScript",
-    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Menu() {\n\t<button @click={gsx.RawJS(\"openMenu()\")}>Open</button>\n}\n",
+    "source": "package views\n\ncomponent Menu() {\n\t<button @click=js`openMenu()`>Open</button>\n}\n",
     "invoke": "Menu()"
+  },
+  {
+    "name": "Alpine dropdown",
+    "category": "JavaScript",
+    "source": "package views\n\ncomponent AlpineDropdown() {\n\t<div x-data=js`{ open: false }`>\n\t\t<button @click=js`open = !open`>Toggle</button>\n\t\t<div x-show=js`open` @click.outside=js`open = false`>Contents...</div>\n\t</div>\n}\n",
+    "invoke": "AlpineDropdown()"
+  },
+  {
+    "name": "Complete Alpine search",
+    "category": "JavaScript",
+    "source": "package views\n\ncomponent AlpineSearch(maxWidth int) {\n\t<div\n\t\tx-data=js`{\n\t\t\tsearch: '',\n\t\t\titems: ['foo', 'bar', 'baz'],\n\t\t\tget filteredItems() {\n\t\t\t\treturn this.items.filter(i => i.startsWith(this.search))\n\t\t\t}\n\t\t}`\n\t\tstyle={ css`max-width:@{maxWidth}px` }\n\t>\n\t\t<input x-model=js`search` placeholder=\"Search...\"/>\n\t\t<ul>\n\t\t\t<template x-for=js`item in filteredItems` :key=js`item`>\n\t\t\t\t<li x-text=js`item`></li>\n\t\t\t</template>\n\t\t</ul>\n\t</div>\n}\n",
+    "invoke": "AlpineSearch(AlpineSearchProps{MaxWidth: 320})"
   },
   {
     "name": "Raw HTML",
