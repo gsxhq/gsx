@@ -383,6 +383,8 @@ tuple/t_nodeslice	diag gen render
 tuple/t_stringer	diag gen render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
+xpkg/go_component_attrs_literal	diag gen render
+xpkg/go_component_attrs_literal_missing	diag render
 xpkg/imported_alias_collision	diag gen render
 xpkg/imported_attrs_fallthrough	diag gen render
 xpkg/imported_attrs_literal_merge	diag gen render
@@ -390,4 +392,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 392 cases (render: 304, error: 66, gen-pinned: 155)
+TOTAL: 394 cases (render: 306, error: 66, gen-pinned: 156)

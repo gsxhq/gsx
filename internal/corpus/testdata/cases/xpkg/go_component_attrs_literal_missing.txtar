@@ -1,0 +1,34 @@
+# attrs={{ }} on a component from a plain Go package (no .gsx → declared ==
+# nil) whose Props type has NO Attrs field: still accepted at generate time
+# (blind-regime acceptance), so the emitted Attrs field literal is caught by
+# go/types at the generated-code-check stage instead. Documents the known
+# rough failure mode the review accepted.
+-- go.mod --
+module example.com/app
+
+go 1.26.1
+-- uigo/widget.go --
+package uigo
+
+import "github.com/gsxhq/gsx"
+
+type WidgetProps struct {
+	Label string
+}
+
+func Widget(p WidgetProps) gsx.Node {
+	return gsx.Raw(p.Label)
+}
+-- pages/home.gsx --
+package pages
+
+import "example.com/app/uigo"
+
+component Home() {
+	<uigo.Widget attrs={{ "data-x": "1" }}/>
+}
+-- invoke --
+pages.Home()
+-- diagnostics.golden --
+6:35: unknown field Attrs in struct literal of type uigo.WidgetProps
+-- render.golden --

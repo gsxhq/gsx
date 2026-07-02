@@ -33,6 +33,39 @@ func TestDefaultFieldMatcher(t *testing.T) {
 	}
 }
 
+func TestMatchOrderedAttrsField(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name     string
+		declared map[string]bool
+		attr     string
+		want     string
+		ok       bool
+	}{
+		{"declared prop field", map[string]bool{"Extra": true}, "extra", "Extra", true},
+		{"synthesized Attrs lowercase", map[string]bool{"Attrs": true}, "attrs", "Attrs", true},
+		{"synthesized Attrs capitalized", map[string]bool{"Attrs": true}, "Attrs", "Attrs", true},
+		{"no Attrs field declared", map[string]bool{"Title": true}, "attrs", "", false},
+		{"nil declared assumes Attrs", nil, "attrs", "Attrs", true},
+		{"nil declared non-attrs identifier", nil, "extra", "Extra", true}, // assume-prop regime
+		{"nil declared kebab falls through", nil, "data-x", "", false},
+		{"kebab never targets Attrs", map[string]bool{"Attrs": true}, "at-trs", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Real call sites always normalize fm via fieldMatcherOrDefault before
+			// calling matchField/matchOrderedAttrsField (see childPropsLiteral);
+			// matchField itself calls fm(...) directly without that guard, so a
+			// literal nil here would panic whenever declared != nil. Pass the
+			// default matcher to match production call shape.
+			got, ok := matchOrderedAttrsField(tc.declared, tc.attr, defaultFieldMatcher)
+			if got != tc.want || ok != tc.ok {
+				t.Errorf("matchOrderedAttrsField(%v, %q) = (%q, %v); want (%q, %v)", tc.declared, tc.attr, got, ok, tc.want, tc.ok)
+			}
+		})
+	}
+}
+
 func TestAttrToFieldCandidate(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
