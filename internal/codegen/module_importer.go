@@ -798,9 +798,10 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		maps.Copy(ctrlMap, sub)
 	}
 
-	// Build SigTypes: per component, the byte span of each parameter TYPE in the
-	// .gsx signature paired with its type-checked skeleton type expression, so the
-	// LSP can resolve go-to-def / hover on identifiers inside a parameter type.
+	// Build SigTypes: per component, the byte span of each navigable signature
+	// region in the .gsx — parameter types, type-parameter names/constraints,
+	// and a method receiver type — paired with its type-checked skeleton
+	// expression, so the LSP can resolve go-to-def / hover on identifiers there.
 	sigTypes := map[*gsxast.Component][]SigTypeRef{}
 	for _, gf := range goFiles {
 		fname := fset.Position(gf.Pos()).Filename

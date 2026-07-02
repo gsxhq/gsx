@@ -2,10 +2,14 @@ package lsp
 
 import (
 	"go/token"
+	"go/types"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/codegen"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
@@ -19,6 +23,107 @@ func parseOnlyPackage(t *testing.T, name, src string) (*Package, string) {
 		t.Fatal(err)
 	}
 	return &Package{GSXFset: fset, Files: map[string]*gsxast.File{name: f}}, name
+}
+
+func writeLSPTestFile(t *testing.T, dir, name, content string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func analyzedLSPPackage(t *testing.T, src string) (*Package, string) {
+	t.Helper()
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeLSPTestFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	storeDir := filepath.Join(root, "store")
+	writeLSPTestFile(t, storeDir, "store.go", "package store\n\ntype ID string\n")
+	pageDir := filepath.Join(root, "page")
+	gsxPath := filepath.Join(pageDir, "page.gsx")
+	writeLSPTestFile(t, pageDir, "page.gsx", src)
+
+	m, err := codegen.Open(codegen.Options{ModuleRoot: root, ModulePath: "example.com/app", FilterPkgs: []string{codegen.StdImportPath}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pr, err := m.Package(pageDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pr.Diags) > 0 {
+		t.Fatalf("unexpected diagnostics: %+v", pr.Diags)
+	}
+	sigTypes := map[*gsxast.Component][]SigTypeRef{}
+	for c, refs := range pr.SigTypes {
+		for _, r := range refs {
+			sigTypes[c] = append(sigTypes[c], SigTypeRef{
+				GSXPos:  r.GSXPos,
+				Len:     r.Len,
+				SkelTyp: r.SkelTyp,
+			})
+		}
+	}
+	return &Package{
+		GSXFset:  pr.GSXFset,
+		Fset:     pr.Fset,
+		Info:     pr.Info,
+		Types:    pr.Types,
+		Files:    pr.GSXFiles,
+		SigTypes: sigTypes,
+	}, gsxPath
+}
+
+func TestSignatureTypeIdentAtTypeParams(t *testing.T) {
+	src := "package page\n\nimport \"example.com/app/store\"\n\ncomponent Box[T store.ID](value T) {\n\t<span>{value}</span>\n}\n"
+	pkg, path := analyzedLSPPackage(t, src)
+
+	idOff := strings.Index(src, "store.ID") + len("store.")
+	obj, gsxStart, idLen, ok := signatureTypeIdentAt(pkg, path, idOff)
+	if !ok {
+		t.Fatal("signatureTypeIdentAt returned false for type-param constraint type")
+	}
+	if _, ok := obj.(*types.TypeName); !ok || obj.Name() != "ID" {
+		t.Fatalf("obj = %T %q, want *types.TypeName ID", obj, obj.Name())
+	}
+	if got := src[gsxStart : gsxStart+idLen]; got != "ID" {
+		t.Fatalf("range = %q, want ID", got)
+	}
+
+	pkgOff := strings.Index(src, "store.ID")
+	obj, gsxStart, idLen, ok = signatureTypeIdentAt(pkg, path, pkgOff)
+	if !ok {
+		t.Fatal("signatureTypeIdentAt returned false for type-param constraint package qualifier")
+	}
+	if _, ok := obj.(*types.PkgName); !ok || obj.Name() != "store" {
+		t.Fatalf("obj = %T %q, want *types.PkgName store", obj, obj.Name())
+	}
+	if got := src[gsxStart : gsxStart+idLen]; got != "store" {
+		t.Fatalf("range = %q, want store", got)
+	}
+
+	tOff := strings.Index(src, "[T store.ID]") + 1
+	obj, gsxStart, idLen, ok = signatureTypeIdentAt(pkg, path, tOff)
+	if !ok {
+		t.Fatal("signatureTypeIdentAt returned false for type-param declaration name")
+	}
+	if _, ok := obj.(*types.TypeName); !ok || obj.Name() != "T" {
+		t.Fatalf("obj = %T %q, want *types.TypeName T", obj, obj.Name())
+	}
+	if got := src[gsxStart : gsxStart+idLen]; got != "T" {
+		t.Fatalf("range = %q, want T", got)
+	}
+
+	outside := strings.Index(src, "component Box")
+	if _, _, _, ok := signatureTypeIdentAt(pkg, path, outside); ok {
+		t.Fatal("signatureTypeIdentAt unexpectedly resolved outside type-param list")
+	}
 }
 
 func TestExprNodeAtOffset(t *testing.T) {
