@@ -98,6 +98,22 @@ func (t filterTable) lookup(name string) (filterEntry, bool) {
 	return e, ok
 }
 
+// aliasForPath returns the reserved import alias registered for a filter
+// package's import path, if ANY filter entry in this table belongs to that
+// package — e.g. "github.com/gsxhq/gsx/std" -> "_gsxstd", a user filter
+// package -> "_gsxf0", etc. Every entry harvested from the same package
+// shares that package's one alias (see filterEntry.alias / filterAliases),
+// so the first match found while ranging over the table is authoritative;
+// there is no need to check every entry once one is found.
+func (t filterTable) aliasForPath(path string) (string, bool) {
+	for _, e := range t {
+		if e.pkgPath == path {
+			return e.alias, true
+		}
+	}
+	return "", false
+}
+
 // stdImportPath is the gsx built-in filter package. It is always available
 // (GenerateDirs defaults to it) and keeps the reserved _gsxstd
 // alias so std-only generation is byte-identical regardless of any added

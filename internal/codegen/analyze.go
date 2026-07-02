@@ -256,7 +256,23 @@ func isGsxNodeType(typ string) bool {
 // resolution: the file's GoChunks, plus each component's real props struct and
 // func signature, with a probe body (used-param locals, each interpolation as
 // `_gsxuse(expr)`, each child component as `_ = Child(ChildProps{})`).
-func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, importedGenericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, fset *token.FileSet, bag *diag.Bag) (string, []*gsxast.Component, []importSpec, map[gsxast.Node]int, *inferRegistry, error) {
+//
+// names is the PACKAGE-WIDE inference-probe-helper name allocator (see
+// inferNameAllocator's doc): module_importer.go's analyze constructs ONE
+// allocator per package and passes the SAME one to every sibling file's
+// buildSkeleton call, so two files that each caller-side-infer against a
+// shared component never both mint the literal helper name "_gsxinfer1" —
+// every sibling skeleton is type-checked together as one package, and a
+// name collision there is a hard `redeclared in this block` failure for the
+// whole package. A nil names (some buildSkeleton callers, e.g. unit tests
+// exercising a single file's skeleton in isolation) gets a private,
+// single-file allocator instead — this file's own names still start at
+// "_gsxinfer1" and never collide with anything, since nothing else shares
+// that private allocator.
+func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, importedGenericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, fset *token.FileSet, bag *diag.Bag, names *inferNameAllocator) (string, []*gsxast.Component, []importSpec, map[gsxast.Node]int, *inferRegistry, error) {
+	if names == nil {
+		names = newInferNameAllocator()
+	}
 	var comps []*gsxast.Component
 	for _, d := range file.Decls {
 		if c, ok := d.(*gsxast.Component); ok {
@@ -325,7 +341,7 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, 
 	combinedSigs := make(map[string]*genericSig, len(genericSigs)+len(importedGenericSigs))
 	maps.Copy(combinedSigs, genericSigs)
 	maps.Copy(combinedSigs, importedGenericSigs)
-	registry := newInferRegistry()
+	registry := newInferRegistry(names)
 	// Keep only the components whose skeletons succeed. A validation error
 	// (errSkipComponent — reserved param/recv, parse failure) means the component
 	// is invalid for codegen; skip its skeleton so the overall file stays valid Go.

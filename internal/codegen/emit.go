@@ -2849,7 +2849,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 				"no-argument component %s accepts no attributes or children", el.Tag)
 			return false
 		}
-		callTypeArgs, argsOK := childTypeArgUse(el, currentPkg, resolved, imports, importAliases, boundNames, typeArgAliases, bag)
+		callTypeArgs, argsOK := childTypeArgUse(el, currentPkg, resolved, table, imports, importAliases, boundNames, typeArgAliases, bag)
 		if !argsOK {
 			return false
 		}
@@ -2869,7 +2869,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 	_, isByoChild := byo.isByoStruct(propsType)
 	isNullaryCall := ((isMethod && !isByoChild) || isNoPropsComponent(structFields, propsType)) && len(el.Attrs) == 0 && len(el.Children) == 0
 	if isNullaryCall {
-		callTypeArgs, argsOK := childTypeArgUse(el, currentPkg, resolved, imports, importAliases, boundNames, typeArgAliases, bag)
+		callTypeArgs, argsOK := childTypeArgUse(el, currentPkg, resolved, table, imports, importAliases, boundNames, typeArgAliases, bag)
 		if !argsOK {
 			return false
 		}
@@ -2910,7 +2910,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 	}
 	if splatExpr != "" {
 		// Whole-struct splat: `<Card { d... }/>` → `Card(d)` (no Props{…} literal).
-		callTypeArgs, argsOK := childTypeArgUse(el, currentPkg, resolved, imports, importAliases, boundNames, typeArgAliases, bag)
+		callTypeArgs, argsOK := childTypeArgUse(el, currentPkg, resolved, table, imports, importAliases, boundNames, typeArgAliases, bag)
 		if !argsOK {
 			return false
 		}
@@ -3046,7 +3046,7 @@ outer:
 	for i, fe := range fieldEntries {
 		strs[i] = fe.str
 	}
-	callTypeArgs, argsOK := childTypeArgUse(el, currentPkg, resolved, imports, importAliases, boundNames, typeArgAliases, bag)
+	callTypeArgs, argsOK := childTypeArgUse(el, currentPkg, resolved, table, imports, importAliases, boundNames, typeArgAliases, bag)
 	if !argsOK {
 		return false
 	}
@@ -3081,7 +3081,27 @@ outer:
 // reference to the SAME path) instead of plain-importing the path — the same
 // hard-invariant concern as the unexported-type case above, just surfacing
 // as a `go build` "redeclared" error instead of an unspeakable identifier.
-func childTypeArgUse(el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, imports map[string]bool, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, bag *diag.Bag) (string, bool) {
+//
+// A SPEAKABLE inferred type argument can ALSO name a type declared in a
+// FILTER package (table, harvested from gen.Options.FilterPkgs) that this
+// file never plain-imports itself — the file only reaches that package
+// through the reserved-alias pipe-filter mechanism (lowerPipe), which sets
+// imports[path] = true WITHOUT ever registering a plain import line for it.
+// The old qf treated `imports[path]` as proof a plain import line would be
+// emitted (see the branch below); for a filter-only path that's false —
+// writeImports emits ONLY the reserved-alias line (`_gsxf0 "path"`) for a
+// path present in `imports` that's also a filter package, unless the user
+// ALSO plain-imported it themselves (userPlainImports). Printing pkg.Name()
+// for such a path names an unbound identifier: `go build` failure with gsx
+// exiting 0 — the final whole-branch review's Critical-2 finding. So qf
+// checks table for the path FIRST (before the plain-imported-path branch)
+// and, when it names a filter package, qualifies with that package's
+// reserved alias instead — the SAME alias the file's own filter calls use,
+// so the reference is always bound regardless of whether this exact path
+// was already in `imports` via a filter call, a plain user import, or (this
+// case) only the inferred type argument itself; imports[path] is set here
+// too so writeImports actually emits the reserved-alias import line for it.
+func childTypeArgUse(el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, bag *diag.Bag) (string, bool) {
 	if el.TypeArgs != "" {
 		return typeArgUse(el.TypeArgs), true
 	}
@@ -3122,6 +3142,18 @@ func childTypeArgUse(el *ast.Element, currentPkg *types.Package, resolved map[as
 		// aliased away for colliding NAME reuses the SAME alias — never mint
 		// a second one for the same path.
 		if alias := typeArgAliases[path]; alias != "" {
+			return alias
+		}
+		// A FILTER package (harvested into table) is qualified with its OWN
+		// reserved alias, never a plain pkg.Name() — see the doc above. This
+		// must run BEFORE the imports[path] branch below: a filter path can
+		// already be present in `imports` (set by an earlier lowerPipe call
+		// in this file) without ever being plain-imported, so that branch's
+		// "already plain-imported" assumption does not hold for it.
+		if alias, ok := table.aliasForPath(path); ok {
+			if imports != nil {
+				imports[path] = true
+			}
 			return alias
 		}
 		// A path already plain-imported (the user's own GoChunk import, or an

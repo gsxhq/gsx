@@ -758,10 +758,18 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	var allImportSpecs []importSpec
 	factsByFile := map[string]*fileFacts{}
 	skelErr := false
+	// inferNames is the ONE package-wide inference-probe-helper name
+	// allocator shared by every file's buildSkeleton call below (see
+	// inferNameAllocator's doc) — without it, two sibling files that each
+	// caller-side-infer against a shared component would independently mint
+	// the literal helper name "_gsxinfer1", and since every sibling
+	// skeleton is type-checked together as one package, that collides:
+	// `_gsxinfer1 redeclared in this block`, failing the whole package.
+	inferNames := newInferNameAllocator()
 	for path, f := range gsxFiles {
 		ff := m.fileScopedFacts(dir, f, propFields, nodeProps, attrsProps, byo, bag, fset)
 		factsByFile[path] = ff
-		skel, comps, imps, ctrlOff, infReg, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, bag)
+		skel, comps, imps, ctrlOff, infReg, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, bag, inferNames)
 		if berr != nil {
 			// buildSkeleton error handling: a positioned attrError becomes a
 			// diagnostic and skips this file; any other error is also recorded as a

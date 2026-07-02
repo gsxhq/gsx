@@ -74,7 +74,11 @@ type genericSig struct {
 // survives the filter; the raw offset falls inside the span) are pinned by
 // TestInferProbeRawSpanRecovery.
 type inferRegistry struct {
-	n     int
+	// names is the PACKAGE-WIDE helper-name allocator shared by every sibling
+	// file's registry (see inferNameAllocator's doc) — nextName delegates to
+	// it instead of counting locally, so two files' registries never both
+	// mint the literal name "_gsxinfer1".
+	names *inferNameAllocator
 	sites map[string]*inferSite // helper name "_gsxinfer3" -> site
 
 	// spans holds EVERY recorded inferSite (every value also reachable via
@@ -212,9 +216,43 @@ func (s *inferSite) argAt(rawOffset int) (string, bool) {
 type inferSpan struct{ start, end int }
 
 // newInferRegistry returns an empty registry ready to record probes for one
-// file's skeleton.
-func newInferRegistry() *inferRegistry {
-	return &inferRegistry{sites: map[string]*inferSite{}, alloc: newAliasAllocator()}
+// file's skeleton. names is the PACKAGE-WIDE helper-name allocator (shared
+// across every sibling file's buildSkeleton call by module_importer.go's
+// analyze — see inferNameAllocator's doc); the registry itself, and every
+// OTHER piece of per-file state (sites, spans, alloc, failed, ...), stays
+// scoped to this one file, since harvest/diagnostic lookups are keyed by the
+// file's own absXpath.
+func newInferRegistry(names *inferNameAllocator) *inferRegistry {
+	return &inferRegistry{sites: map[string]*inferSite{}, alloc: newAliasAllocator(), names: names}
+}
+
+// inferNameAllocator hands out globally-unique "_gsxinferN" probe helper
+// names across EVERY .gsx file in one package. Each emitted helper
+// (inferRegistry.emitInferProbe) is hoisted to PACKAGE scope in its file's
+// skeleton (see inferRegistry's doc), and every sibling file's skeleton is
+// type-checked TOGETHER as one package (module_importer.go's analyze), so
+// per-file numbering would let two files independently mint the literal name
+// "_gsxinfer1" — a `redeclared in this block` go/types error that fails the
+// WHOLE package even though neither file, considered alone, did anything
+// wrong (the final whole-branch review's Critical-1 finding). analyze
+// constructs exactly ONE allocator per package and threads it into every
+// file's buildSkeleton call so names are unique package-wide, while each
+// file still gets its OWN inferRegistry — harvest and the diagnostic
+// rewrite stay keyed by that file's absXpath, unaffected by this change.
+type inferNameAllocator struct{ n int }
+
+// newInferNameAllocator returns a fresh allocator starting its "_gsxinferN"
+// sequence at 1.
+func newInferNameAllocator() *inferNameAllocator {
+	return &inferNameAllocator{}
+}
+
+// next returns the next probe helper name in this allocator's sequence:
+// "_gsxinfer1", "_gsxinfer2", .... Names are 1-indexed and unique across
+// every registry sharing this one allocator.
+func (a *inferNameAllocator) next() string {
+	a.n++
+	return fmt.Sprintf("_gsxinfer%d", a.n)
 }
 
 // requalifyTypeExpr rewrites a single type expression for an IMPORTED
@@ -262,11 +300,12 @@ func (r *inferRegistry) recordFailed(el *gsxast.Element) {
 	}
 }
 
-// nextName returns the next probe helper name: "_gsxinfer1", "_gsxinfer2", ....
-// Names are 1-indexed and unique within this registry (one per file).
+// nextName returns the next probe helper name: "_gsxinfer1", "_gsxinfer2",
+// .... Delegates to the shared, PACKAGE-WIDE names allocator (see
+// inferNameAllocator's doc) so the name is unique across every sibling
+// file's registry, not just this one.
 func (r *inferRegistry) nextName() string {
-	r.n++
-	return fmt.Sprintf("_gsxinfer%d", r.n)
+	return r.names.next()
 }
 
 // record associates a probe helper name with its site, also recording it into

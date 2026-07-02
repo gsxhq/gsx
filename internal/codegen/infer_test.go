@@ -169,7 +169,7 @@ component Page() {
 		t.Fatalf("loadFilterTable: %v", err)
 	}
 	genericSigs := genericSigsFor(files, byo)
-	skel, _, _, _, registry, err := buildSkeleton(file, table, propFields, nodeProps, attrsProps, genericSigs, nil, byo, nil, fset, nil)
+	skel, _, _, _, registry, err := buildSkeleton(file, table, propFields, nodeProps, attrsProps, genericSigs, nil, byo, nil, fset, nil, nil)
 	if err != nil {
 		t.Fatalf("buildSkeleton: %v", err)
 	}
@@ -1351,5 +1351,124 @@ func TestTypeArgNameCollides(t *testing.T) {
 		if got := typeArgNameCollides(bound, tc.name, tc.path); got != tc.want {
 			t.Errorf("%s: typeArgNameCollides(bound, %q, %q) = %v, want %v", tc.desc, tc.name, tc.path, got, tc.want)
 		}
+	}
+}
+
+// TestPackageWideInferHelperNamesAcrossFiles reproduces the final whole-branch
+// review's Critical-1 finding: buildSkeleton used to construct a FRESH
+// inferRegistry per file (one call per .gsx file), and inferRegistry.nextName
+// counted "_gsxinfer1", "_gsxinfer2", ... PER REGISTRY. Two sibling .gsx files
+// in the SAME package (a.gsx and b.gsx below) each caller-side-infer against
+// box.gsx's generic Box WITHOUT type args, so each file's skeleton hoists its
+// own package-level `func _gsxinfer1[...]` — but every file's skeleton is
+// type-checked TOGETHER as one package, so the two identically-named
+// "_gsxinfer1" package-level funcs collide: `_gsxinfer1 redeclared in this
+// block`, failing the WHOLE package even though neither .gsx file individually
+// did anything wrong. The fix makes probe helper names unique PACKAGE-WIDE
+// (module_importer.go's analyze shares one inferNameAllocator across every
+// file's buildSkeleton call for the package) while keeping the registry
+// itself — and its harvest/diagnostic lookups — per file.
+func TestPackageWideInferHelperNamesAcrossFiles(t *testing.T) {
+	if testing.Short() {
+		t.Skip("spawns the go toolchain")
+	}
+	repoRootAbs, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module example.com/twofiles\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRootAbs+"\n")
+	writeFile(t, tmp, "box.gsx", "package views\n\ncomponent Box[T string | int](value T) {\n\t<span>{value}</span>\n}\n")
+	writeFile(t, tmp, "a.gsx", "package views\n\ncomponent A() {\n\t<Box value={1} />\n}\n")
+	writeFile(t, tmp, "b.gsx", "package views\n\ncomponent B() {\n\t<Box value={\"hi\"} />\n}\n")
+
+	res, err := GenerateDirs(tmp, []string{tmp}, Options{FilterPkgs: []string{stdImportPath}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diags := res[tmp].Diags; len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics generating package with two sibling inferring files: %+v", diags)
+	}
+	if len(res[tmp].Files) != 3 {
+		t.Fatalf("expected 3 generated files (box.gsx, a.gsx, b.gsx), got %d: %+v", len(res[tmp].Files), res[tmp].Files)
+	}
+
+	for gsxPath, src := range res[tmp].Files {
+		base := strings.TrimSuffix(gsxPath, ".gsx")
+		if werr := os.WriteFile(base+".x.go", src, 0o644); werr != nil {
+			t.Fatal(werr)
+		}
+	}
+	build := exec.Command("go", "build", "./...")
+	build.Dir = tmp
+	if bout, berr := build.CombinedOutput(); berr != nil {
+		t.Fatalf("go build of generated output (two sibling files each inferring): %v\n%s", berr, bout)
+	}
+}
+
+// TestInferredFilterPackageTypeArgUsesFilterAlias reproduces the final
+// whole-branch review's Critical-2 finding: an inferred generic type argument
+// whose named type belongs to a FILTER package used only through the
+// reserved-alias pipe-filter mechanism (never plain-imported by the user) —
+// childTypeArgUse's qf used to see the path already present in `imports`
+// (registered by the filter-call lowering) and print the bare `pkg.Name()`
+// qualifier, assuming that meant a plain import line would be emitted. But
+// writeImports only emits a package's PLAIN import line when the user's own
+// GoChunk plain-imported it (userPlainImports); a filter package present in
+// `imports` otherwise emits ONLY its reserved-alias line (`_gsxf0 "path"`),
+// so the bare qualifier named an unbound identifier — `go build` failure with
+// gsx exiting 0. The fix makes qf consult the filter-alias table first and
+// qualify with the reserved alias instead.
+func TestInferredFilterPackageTypeArgUsesFilterAlias(t *testing.T) {
+	if testing.Short() {
+		t.Skip("spawns the go toolchain")
+	}
+	repoRootAbs, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module example.com/filtertypearg\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRootAbs+"\n")
+
+	tfDir := filepath.Join(tmp, "tfilters")
+	if err := os.MkdirAll(tfDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, tfDir, "tfilters.go", "package tfilters\n\ntype Kind string\n\nfunc Shout(s string) string { return s + \"!\" }\n\nfunc MakeKind(s string) Kind { return Kind(s) }\n")
+
+	viewsDir := filepath.Join(tmp, "views")
+	if err := os.MkdirAll(viewsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// value is never rendered inside Box: T's constraint is `any`, which
+	// classify's typeparam handling treats as catUnsupported (an empty/`any`
+	// term set), so interpolating {value} directly would fail Box's OWN
+	// generation with an unrelated "unrenderable" diagnostic (see
+	// writeUnexportedTypeArgModule's doc for the same fixture shape). The prop
+	// only needs to exist for inference to run over it.
+	writeFile(t, viewsDir, "page.gsx", "package views\n\ncomponent Box[T any](value T) {\n\t<span>box</span>\n}\n\ncomponent Page() {\n\t<div>{\"hi\" |> shout}</div>\n\t<Box value={\"hi\" |> makeKind} />\n}\n")
+
+	res, err := GenerateDirs(tmp, []string{viewsDir}, Options{FilterPkgs: []string{stdImportPath, "example.com/filtertypearg/tfilters"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diags := res[viewsDir].Diags; len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics: %+v", diags)
+	}
+	var page string
+	for gsxPath, src := range res[viewsDir].Files {
+		if strings.HasSuffix(gsxPath, "page.gsx") {
+			page = string(src)
+		}
+		base := strings.TrimSuffix(gsxPath, ".gsx")
+		if werr := os.WriteFile(base+".x.go", src, 0o644); werr != nil {
+			t.Fatal(werr)
+		}
+	}
+	if page == "" {
+		t.Fatalf("page.gsx did not generate; files = %+v", res[viewsDir].Files)
+	}
+	if !strings.Contains(page, "Box[_gsxf0.Kind]") && !strings.Contains(page, "Box[_gsxf1.Kind]") {
+		t.Fatalf("generated source does not qualify the inferred filter-package type arg with the reserved filter alias; generated:\n%s", page)
+	}
+
+	build := exec.Command("go", "build", "./...")
+	build.Dir = tmp
+	if bout, berr := build.CombinedOutput(); berr != nil {
+		t.Fatalf("go build of generated output (inferred filter-package type arg): %v\n%s", berr, bout)
 	}
 }
