@@ -1,5 +1,5 @@
 # gsx developer tasks. Use tabs for recipe indentation.
-.PHONY: test check cover cover-html examples ci ci-gomod ci-playground ci-examples ci-format ci-tailwind-example ci-tailwind-example-drift reload-probe test-gotip
+.PHONY: test check lint cover cover-html examples ci ci-gomod ci-playground ci-examples ci-format ci-tailwind-example ci-tailwind-example-drift reload-probe test-gotip
 
 # COUNT is the go-test cache control. -count=1 disables the test cache so every
 # run re-executes — the authoritative behaviour `ci` uses to mirror GitHub CI.
@@ -32,6 +32,11 @@ ci:
 # GitHub CI's -count=1 run (and `make ci`) remain the authoritative gate.
 check:
 	$(MAKE) ci COUNT=
+
+lint:
+	golangci-lint run ./...
+	cd playground/server && golangci-lint run ./...
+	cd examples/tailwind-merge && golangci-lint run ./...
 
 # Manual, repeatable local test of `gsx dev`'s browser-reload behavior (NOT in
 # `ci` — it spawns a live dev loop). Asserts that introducing a .gsx/main.go

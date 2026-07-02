@@ -1,12 +1,17 @@
 package gsx
 
 import (
+	"context"
 	"strconv"
 	"strings"
 	"testing"
 )
 
-func renderNode(n Node) string { var b strings.Builder; _ = n.Render(nil, &b); return b.String() }
+func renderNode(n Node) string {
+	var b strings.Builder
+	_ = n.Render(context.Background(), &b)
+	return b.String()
+}
 
 type stringerT struct{}
 
@@ -30,7 +35,7 @@ func TestVal(t *testing.T) {
 }
 func TestValError(t *testing.T) {
 	var b strings.Builder
-	err := Val(struct{}{}).Render(nil, &b)
+	err := Val(struct{}{}).Render(context.Background(), &b)
 	if err == nil {
 		t.Error("Val(struct{}{}) should return error, got nil")
 	}
