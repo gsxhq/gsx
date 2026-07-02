@@ -17,9 +17,9 @@ import (
 // the name is synthesized (never derived from user-visible identifiers), a
 // same-package user function merely sharing the old naming prefix can no
 // longer be mistaken for a probe (finding 3), and because each helper's
-// parameter list is built from
-// exactly the props SUPPLIED at that tag (not every declared prop), omitting
-// an optional prop no longer disables inference for that tag (finding 5).
+// parameter list is built from exactly the props SUPPLIED at that tag (not
+// every declared prop), omitting an optional prop no longer disables
+// inference for that tag (finding 5).
 //
 // One registry is constructed per file by buildSkeleton and threaded through
 // emitComponentSkeleton/emitProbes as probes are emitted, then returned so
@@ -27,6 +27,22 @@ import (
 // (compsByXGo, factsByXGo, ...) to harvest, which maps each probe's
 // go/types-inferred instantiation back onto the *gsxast.Element it was
 // emitted for.
+//
+// POSITION MAPPING — probe call statements are emitted UNDER the enclosing
+// tag's //line directive ON PURPOSE (the emitSkeletonLine(sb, fset, t.Pos())
+// preceding the tag's props-literal probe in emitProbes stays in effect
+// through the probe call). This is load-bearing: module_importer.go's
+// diagnostic loop drops any type error whose //line-ADJUSTED position still
+// names the synthetic .x.go overlay (the `strings.HasSuffix(p.Filename,
+// ".x.go")` filter in its type-error loop), so a //line-free probe would
+// make every inference-failure diagnostic silently vanish instead of
+// surfacing at the tag. A consumer that needs a probe error's RAW skeleton
+// offset (e.g. to match it against inferSite.span) must resolve the error
+// position with fset.PositionFor(pos, false) — adjusted=false ignores //line
+// directives, yielding the byte offset into the skeleton string, directly
+// comparable to the recorded span. Both properties (the adjusted position
+// survives the filter; the raw offset falls inside the span) are pinned by
+// TestInferProbeRawSpanRecovery.
 type inferRegistry struct {
 	n     int
 	sites map[string]*inferSite // helper name "_gsxinfer3" -> site
@@ -144,6 +160,13 @@ func suppliedInDeclOrder(params []param, supplied map[string]string) []param {
 // would for a real call, so a successful check's result type
 // (info.Types[call].Type) is the fully-instantiated props type — harvest
 // reads it back onto the recorded site's element.
+//
+// The call is deliberately NOT //line-free: it inherits the enclosing tag's
+// //line mapping (see the POSITION MAPPING note on inferRegistry), so an
+// inference-failure error survives module_importer.go's synthetic-position
+// filter and reports at the tag in the .gsx. The recorded span covers the
+// call statement's RAW skeleton bytes; recover an error's raw offset with
+// fset.PositionFor(pos, false) to compare against it.
 //
 // Returns false — emitting nothing — when no supplied prop mentions any
 // declared field (an empty arg list gives go/types nothing to infer a type
