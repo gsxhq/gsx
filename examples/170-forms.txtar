@@ -22,4 +22,4 @@ component LoginForm() {
 -- invoke --
 LoginForm()
 -- render.golden --
-<form method="post" action="/login"><div class="field"><label>Email</label><input class="control" name="email" required type="email"/></div><div class="field"><label>Password</label><input class="control" name="password" required type="password"/></div><button type="submit">Sign in</button></form>
+<form method="post" action="/login"><div class="field"><label>Email</label><input class="control" type="email" name="email" required/></div><div class="field"><label>Password</label><input class="control" type="password" name="password" required/></div><button type="submit">Sign in</button></form>

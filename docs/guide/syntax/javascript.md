@@ -36,6 +36,18 @@ code or a JavaScript expression.
 
 <!--@include: ./_generated/javascript/030-attribute-local-js-handler.md-->
 
+Alpine's directive values are JavaScript expressions. The explicit marker keeps
+the intent local to the attribute instead of relying on names like `x-data`,
+`@click`, or `:key`:
+
+<!--@include: ./_generated/javascript/040-alpine-dropdown.md-->
+
+For larger Alpine state objects, keep the JavaScript in a multiline `` js`...` ``
+literal. Other embedded-language attributes can sit beside it, including
+`` css`...` `` contributions inside composed `style={...}`:
+
+<!--@include: ./_generated/javascript/050-complete-alpine-search.md-->
+
 ## `<script>` interpolation
 
 Inside a `<script>` element, `@{ expr }` interpolates a Go value into the JavaScript body. The value is passed through the same JSON-encoding path as `jsValEscaper` from `html/template`: the result is a JSON literal that is also safe to embed inside an HTML `<script>` block — `</script>`, `<!--`, `-->`, and the Unicode line/paragraph separators U+2028/U+2029 are escaped so hostile input cannot terminate the script block or break JSON parsing.
