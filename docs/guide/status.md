@@ -19,7 +19,7 @@ gsx is alpha software. It is usable end to end, but the language and APIs may st
 
 ## Known Gaps
 
-- CSP nonce threading for emitted `<script>` and `<style>` is not implemented.
+- None currently tracked here; see the roadmap below.
 
 ## Detailed Roadmap
 

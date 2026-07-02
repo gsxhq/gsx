@@ -299,8 +299,13 @@ vocabulary remains a design aspiration, not the current API.
    islands + `<script>` / `` js`...` `` holes auto JSON-encode via `JSVal`;
    `gsx.RawJS` opts out. No `|> json` filter. See
    `2026-06-23-gsx-js-interpolation-design.md` and `datajson/`.
-7. [ ] **CSP nonce threading** for emitted `<script>`/`<style>` — thread a
-   per-request nonce; do not build a CSP engine (header is the server's job).
+7. [x] **CSP nonce threading** for emitted `<script>`/`<style>` —
+   `gsx.WithNonce(ctx, nonce)` stores the per-request nonce on the render
+   context; generated code adds `nonce="…"` to every emitted `<script>`/
+   `<style>` open tag (an author-written `nonce` attribute or a spread bag
+   carrying a `"nonce"` key wins). No nonce generation, middleware, or CSP
+   header engine — the header stays the server's job. See
+   `2026-07-02-csp-nonce-injection-design.md`.
 
 ## Tracked debts / deferrals
 

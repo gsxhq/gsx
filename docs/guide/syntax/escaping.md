@@ -74,6 +74,53 @@ A `` css`...` `` literal can also be one contribution inside a composable
 `style={...}` list. The braces are required in this form because the literal is
 part of the style list, not the entire attribute value.
 
+### CSP nonces
+
+Store the per-request CSP nonce on the render context with `gsx.WithNonce`.
+Every `<script>` and `<style>` tag gsx renders with that context automatically
+carries the matching `nonce` attribute:
+
+```go
+func withCSP(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nonce := newNonce() // yours: e.g. 128-bit crypto/rand, base64
+		w.Header().Set("Content-Security-Policy",
+			"script-src 'nonce-"+nonce+"'; style-src 'nonce-"+nonce+"'")
+		next.ServeHTTP(w, r.WithContext(gsx.WithNonce(r.Context(), nonce)))
+	})
+}
+```
+
+```gsx
+component Page() {
+	<script>
+		init()
+	</script>
+}
+```
+
+renders as `<script nonce="…">…</script>` — no template changes needed.
+
+The rules:
+
+- Every native `<script>` and `<style>` tag qualifies: inline, external
+  (`src=…`), and JSON data islands alike. Adding a nonce where CSP ignores it
+  is harmless, and uniformity keeps the rule predictable.
+- **An author-written `nonce` always wins.** Writing `nonce={expr}` — or a
+  conditional `{ if c { nonce="…" } }` — anywhere on the tag turns
+  auto-injection off for that tag entirely.
+- **A spread bag carrying a `"nonce"` key wins too**: `<script { attrs... }>`
+  is only auto-decorated when the bag has no `nonce` entry.
+- The value is attribute-escaped like any quoted attribute; an absent or empty
+  context nonce emits nothing (output is byte-identical to not using the
+  feature).
+- `gsx.NonceFromContext(ctx)` reads the nonce back when you need it by hand
+  (e.g. for markup gsx does not own, like `gsx.Raw`).
+
+gsx does not generate nonce values and does not build the
+`Content-Security-Policy` header — both stay in your server, as in the
+middleware above.
+
 ## Opt-out helpers summary
 
 All opt-out helpers are **for trusted values only**. They vouch that the string is safe for the target context and bypass the automatic safety check.
