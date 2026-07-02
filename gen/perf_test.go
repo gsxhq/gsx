@@ -13,7 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -172,7 +172,7 @@ func TestPerfBaseline(t *testing.T) {
 		const iters = 100000
 		start := time.Now()
 		var sink int
-		for i := 0; i < iters; i++ {
+		for range iters {
 			cr := pkg.CrossIndex[key] // real map lookup
 			sink += len(cr.Refs)
 		}
@@ -183,8 +183,8 @@ func TestPerfBaseline(t *testing.T) {
 	}
 
 	// ---------- report ----------
-	sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
-	sort.Slice(warmLatencies, func(i, j int) bool { return warmLatencies[i] < warmLatencies[j] })
+	slices.Sort(latencies)
+	slices.Sort(warmLatencies)
 	median := func(s []time.Duration) time.Duration { return s[len(s)/2] }
 
 	t.Logf("=== cold Analyze latency ===")

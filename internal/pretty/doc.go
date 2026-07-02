@@ -5,6 +5,8 @@
 // markup today; JS and CSS bodies later).
 package pretty
 
+import "slices"
+
 // kind tags the Doc variant.
 type kind uint8
 
@@ -84,12 +86,7 @@ func containsForcedBreak(d Doc) bool {
 	case kindIndent:
 		return containsForcedBreak(d.parts[0])
 	case kindConcat, kindFill:
-		for _, p := range d.parts {
-			if containsForcedBreak(p) {
-				return true
-			}
-		}
-		return false
+		return slices.ContainsFunc(d.parts, containsForcedBreak)
 	case kindIfBreak:
 		// Only the broken branch (parts[0]) participates in the break decision:
 		// when the enclosing group is flat it renders parts[1], so a forced

@@ -795,7 +795,7 @@ component C(p Props) {
 }
 
 func lineContaining(s, sub string) string {
-	for _, ln := range strings.Split(s, "\n") {
+	for ln := range strings.SplitSeq(s, "\n") {
 		if strings.Contains(ln, sub) {
 			return ln
 		}

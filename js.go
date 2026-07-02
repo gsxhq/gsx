@@ -206,9 +206,10 @@ func jsValEscaper(arg any) string {
 	for i := 0; i < len(b); {
 		r, n := utf8.DecodeRune(b[i:])
 		repl := ""
-		if r == 0x2028 {
+		switch r {
+		case 0x2028:
 			repl = "\\u2028"
-		} else if r == 0x2029 {
+		case 0x2029:
 			repl = "\\u2029"
 		}
 		if repl != "" {

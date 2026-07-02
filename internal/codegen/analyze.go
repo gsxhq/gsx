@@ -474,10 +474,7 @@ func buildCtrlMap(f *goast.File, fset *token.FileSet, ctrlOff map[gsxast.Node]in
 	for node, off := range ctrlOff {
 		text := clauseText[node]
 		start := tf.Pos(off)
-		endOff := off + len(text)
-		if endOff > tf.Size() {
-			endOff = tf.Size()
-		}
+		endOff := min(off+len(text), tf.Size())
 		end := tf.Pos(endOff)
 		var smallest goast.Node
 		goast.Inspect(f, func(n goast.Node) bool {

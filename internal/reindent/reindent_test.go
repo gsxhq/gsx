@@ -20,21 +20,21 @@ func (fake) Tokenize(src []byte) ([]Token, bool) {
 	var toks []Token
 	i := 0
 	for i < len(s) {
-		switch c := s[i]; {
-		case c == '\n':
+		switch c := s[i]; c {
+		case '\n':
 			toks = append(toks, Token{Newline, "\n"})
 			i++
-		case c == ' ' || c == '\t':
+		case ' ', '\t':
 			j := i
 			for j < len(s) && (s[j] == ' ' || s[j] == '\t') {
 				j++
 			}
 			toks = append(toks, Token{Space, s[i:j]})
 			i = j
-		case c == '{':
+		case '{':
 			toks = append(toks, Token{Open, "{"})
 			i++
-		case c == '}':
+		case '}':
 			toks = append(toks, Token{Close, "}"})
 			i++
 		default:
@@ -83,7 +83,7 @@ func TestReindentPreservesBlankLines(t *testing.T) {
 		t.Fatalf("got %q want %q", got, want)
 	}
 	// The blank line must carry NO trailing whitespace.
-	for _, ln := range strings.Split(got, "\n") {
+	for ln := range strings.SplitSeq(got, "\n") {
 		if ln != strings.TrimRight(ln, " \t") {
 			t.Fatalf("line %q has trailing whitespace", ln)
 		}

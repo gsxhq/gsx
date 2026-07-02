@@ -49,13 +49,7 @@ func convertPos(p token.Position, lineAt func(line1 int) string, enc encoding) P
 // charForByteCol converts a 1-based byte column within lineText to a 0-based LSP
 // character offset in enc. A column past the line end clamps to the line length.
 func charForByteCol(lineText string, col int, enc encoding) int {
-	byteOff := col - 1
-	if byteOff < 0 {
-		byteOff = 0
-	}
-	if byteOff > len(lineText) {
-		byteOff = len(lineText)
-	}
+	byteOff := min(max(col-1, 0), len(lineText))
 	prefix := lineText[:byteOff]
 	if enc == encUTF8 {
 		return len(prefix)
@@ -81,7 +75,7 @@ func utf16Len(s string) int {
 // character past the end clamps to the end of the line / text.
 func byteOffsetForPosition(text string, line, character int, enc encoding) int {
 	off := 0
-	for l := 0; l < line; l++ {
+	for range line {
 		nl := strings.IndexByte(text[off:], '\n')
 		if nl < 0 {
 			return len(text)

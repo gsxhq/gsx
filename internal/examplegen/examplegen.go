@@ -136,7 +136,9 @@ func joinSource(files []SourceFile) string {
 	}
 	var b strings.Builder
 	for _, f := range files {
-		b.WriteString("-- " + f.Name + " --\n")
+		b.WriteString("-- ")
+		b.WriteString(f.Name)
+		b.WriteString(" --\n")
 		body := f.Body
 		if !strings.HasSuffix(body, "\n") {
 			body += "\n"
@@ -147,7 +149,7 @@ func joinSource(files []SourceFile) string {
 }
 
 func parseDoc(ex *Example, b []byte) {
-	for _, line := range strings.Split(string(b), "\n") {
+	for line := range strings.SplitSeq(string(b), "\n") {
 		key, val, ok := strings.Cut(strings.TrimSpace(line), ":")
 		if !ok {
 			continue
@@ -175,10 +177,10 @@ func parseDoc(ex *Example, b []byte) {
 }
 
 func packageName(src []byte) string {
-	for _, line := range strings.Split(string(src), "\n") {
+	for line := range strings.SplitSeq(string(src), "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "package ") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "package "))
+		if after, ok := strings.CutPrefix(line, "package "); ok {
+			return strings.TrimSpace(after)
 		}
 	}
 	return ""
@@ -218,18 +220,25 @@ func RenderMarkdown(exs []Example) []byte {
 		}
 	}
 	for _, cat := range order {
-		b.WriteString("## " + proseEscaper.Replace(cat) + "\n\n")
+		b.WriteString("## ")
+		b.WriteString(proseEscaper.Replace(cat))
+		b.WriteString("\n\n")
 		for _, e := range exs {
 			if e.Category != cat {
 				continue
 			}
-			b.WriteString("### " + proseEscaper.Replace(e.Name) + "\n\n")
+			b.WriteString("### ")
+			b.WriteString(proseEscaper.Replace(e.Name))
+			b.WriteString("\n\n")
 			if e.Summary != "" {
-				b.WriteString(proseEscaper.Replace(e.Summary) + "\n\n")
+				b.WriteString(proseEscaper.Replace(e.Summary))
+				b.WriteString("\n\n")
 			}
 			for _, f := range e.Files {
 				if len(e.Files) > 1 {
-					b.WriteString("**" + f.Name + "**\n\n")
+					b.WriteString("**")
+					b.WriteString(f.Name)
+					b.WriteString("**\n\n")
 				}
 				b.WriteString("```gsx\n")
 				body := f.Body
@@ -239,7 +248,9 @@ func RenderMarkdown(exs []Example) []byte {
 				b.WriteString(body)
 				b.WriteString("```\n\n")
 			}
-			b.WriteString("[▶ Open in Playground](/playground#try=" + tryPayload(e.Source, e.Invoke) + ")\n\n")
+			b.WriteString("[▶ Open in Playground](/playground#try=")
+			b.WriteString(tryPayload(e.Source, e.Invoke))
+			b.WriteString(")\n\n")
 		}
 	}
 	return []byte(b.String())
@@ -277,7 +288,9 @@ func RenderPartial(e Example) []byte {
 	b.WriteString("<!-- GENERATED from examples/*.txtar by cmd/gsx-examples — do not edit. -->\n\n")
 	for _, f := range e.Files {
 		if len(e.Files) > 1 {
-			b.WriteString("**" + f.Name + "**\n\n")
+			b.WriteString("**")
+			b.WriteString(f.Name)
+			b.WriteString("**\n\n")
 		}
 		b.WriteString("```gsx\n")
 		body := f.Body
@@ -294,7 +307,9 @@ func RenderPartial(e Example) []byte {
 	}
 	b.WriteString(r)
 	b.WriteString("```\n\n")
-	b.WriteString("[▶ Open in Playground](/playground#try=" + tryPayload(e.Source, e.Invoke) + ")\n")
+	b.WriteString("[▶ Open in Playground](/playground#try=")
+	b.WriteString(tryPayload(e.Source, e.Invoke))
+	b.WriteString(")\n")
 	return []byte(b.String())
 }
 

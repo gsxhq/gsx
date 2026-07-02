@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -208,12 +209,9 @@ func (s *Server) handleInitialize(f frame) error {
 	_ = json.Unmarshal(f.Params, &p) // absent or malformed params -> defaults
 	s.enc = encUTF16
 	encName := "utf-16"
-	for _, e := range p.Capabilities.General.PositionEncodings {
-		if e == "utf-8" {
-			s.enc = encUTF8
-			encName = "utf-8"
-			break
-		}
+	if slices.Contains(p.Capabilities.General.PositionEncodings, "utf-8") {
+		s.enc = encUTF8
+		encName = "utf-8"
 	}
 	return s.reply(f.ID, initializeResult{Capabilities: serverCapabilities{
 		PositionEncoding:           encName,

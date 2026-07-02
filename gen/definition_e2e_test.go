@@ -260,12 +260,12 @@ func declStart(t *testing.T, src, decl string, nameOff int) (line, character int
 func definitionResult(t *testing.T, out string, id int) *lsp.Location {
 	t.Helper()
 	marker := `"id":` + strconv.Itoa(id) + `,`
-	for _, part := range strings.Split(out, "Content-Length:") {
-		i := strings.Index(part, "\r\n\r\n")
-		if i < 0 {
+	for part := range strings.SplitSeq(out, "Content-Length:") {
+		_, after, ok := strings.Cut(part, "\r\n\r\n")
+		if !ok {
 			continue
 		}
-		body := part[i+4:]
+		body := after
 		if !strings.Contains(body, marker) {
 			continue
 		}

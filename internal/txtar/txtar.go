@@ -46,7 +46,9 @@ func Format(a *Archive) []byte {
 	var buf bytes.Buffer
 	buf.Write(fixNL(a.Comment))
 	for _, f := range a.Files {
-		buf.WriteString("-- " + f.Name + " --\n")
+		buf.WriteString("-- ")
+		buf.WriteString(f.Name)
+		buf.WriteString(" --\n")
 		buf.Write(fixNL(f.Data))
 	}
 	return buf.Bytes()
@@ -77,8 +79,8 @@ func findFileMarker(data []byte) (before []byte, name string, after []byte) {
 	var b []byte
 	for len(data) > 0 {
 		var line []byte
-		if i := bytes.IndexByte(data, '\n'); i >= 0 {
-			line, data = data[:i], data[i+1:]
+		if before0, after0, ok := bytes.Cut(data, []byte{'\n'}); ok {
+			line, data = before0, after0
 		} else {
 			line, data = data, nil
 		}

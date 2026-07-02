@@ -12,6 +12,7 @@ name: CI
 #   docs        — build the VitePress site against this checkout (catches gsx docs/guide
 #                 markdown that breaks the site — e.g. raw {{ }} / <tags> in prose)
 #   format      — `make ci-format` (gofmt + gsx fmt)
+#   lint        — conservative golangci-lint suite over each Go module
 
 on:
   push:
@@ -23,6 +24,7 @@ permissions:
 
 env:
   GO_VERSION: '1.26.1'
+  GOLANGCI_LINT_VERSION: 'v2.10.1'
 
 jobs:
   build-test:
@@ -97,6 +99,23 @@ jobs:
           cache: true
       - name: gofmt + gsx fmt
         run: make ci-format
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          install-only: true
+      - name: Run lint
+        run: make lint
 
   go-tip:
     name: go tip (generic-method tests)

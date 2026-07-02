@@ -3,6 +3,7 @@ package codegen
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 
@@ -43,10 +44,8 @@ func setupChainModule(t *testing.T) (*Module, string) {
 
 func assertEdge(t *testing.T, g map[string][]string, from, to string) {
 	t.Helper()
-	for _, s := range g[from] {
-		if s == to {
-			return
-		}
+	if slices.Contains(g[from], to) {
+		return
 	}
 	t.Errorf("expected edge %s -> %s; from-neighbors: %v", from, to, g[from])
 }
@@ -130,12 +129,7 @@ func TestImportGraphIncludesGoFileImports(t *testing.T) {
 }
 
 func contains(ss []string, s string) bool {
-	for _, x := range ss {
-		if x == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ss, s)
 }
 
 func TestImportGraphEdgeReplacedOnImportRemoval(t *testing.T) {
@@ -356,7 +350,7 @@ func TestConcurrentSetOverrideAndPackage(t *testing.T) {
 	m, root := setupChainModule(t)
 	comp := filepath.Join(root, "components")
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		wg.Add(2)
 		go func() { defer wg.Done(); m.SetOverride(filepath.Join(comp, "card.gsx"), componentsEdited) }()
 		go func() { defer wg.Done(); _, _ = m.Package(comp) }()

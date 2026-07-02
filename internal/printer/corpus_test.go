@@ -62,7 +62,7 @@ func corpusGsxSources(t *testing.T) []corpusSource {
 	return out
 }
 
-func normPrint(t *testing.T, src string) (string, error) {
+func normPrint(_ *testing.T, src string) (string, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "x.gsx", src, 0)
 	if err != nil {

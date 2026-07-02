@@ -75,8 +75,8 @@ func txtarFindMarker(data []byte) (before []byte, name string, after []byte) {
 	var b []byte
 	for len(data) > 0 {
 		var line []byte
-		if i := bytes.IndexByte(data, '\n'); i >= 0 {
-			line, data = data[:i], data[i+1:]
+		if before0, after0, ok := bytes.Cut(data, []byte{'\n'}); ok {
+			line, data = before0, after0
 		} else {
 			line, data = data, nil
 		}
@@ -260,7 +260,7 @@ func newPool(gsxMod, work string, size int) (p *pool, err error) {
 	}
 	p = &pool{gocache: gocache, free: make(chan *workspace, size), cache: newRespCache(512)}
 
-	for i := 0; i < size; i++ {
+	for i := range size {
 		ws := &workspace{play: filepath.Join(work, fmt.Sprintf("play%d", i))}
 		ws.viewDir = filepath.Join(ws.play, "views")
 		if err = os.MkdirAll(ws.viewDir, 0o755); err != nil {

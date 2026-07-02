@@ -92,7 +92,7 @@ func TestFormatBlankLinesHaveNoTrailingTabs(t *testing.T) {
 		t.Fatal("unexpected fallback")
 	}
 	out := render(doc)
-	for _, ln := range strings.Split(out, "\n") {
+	for ln := range strings.SplitSeq(out, "\n") {
 		if strings.TrimRight(ln, " \t") == "" && ln != "" {
 			t.Fatalf("blank line has trailing whitespace %q in:\n%s", ln, out)
 		}
