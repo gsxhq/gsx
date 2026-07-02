@@ -21,4 +21,4 @@ component Page(hot bool) { <script { if hot { nonce="manual" } }>init()</script>
 withTestNonce(Page(PageProps{Hot: false}))
 -- diagnostics.golden --
 -- render.golden --
-<script>init()</script>
+<script nonce="r4nd0m">init()</script>
