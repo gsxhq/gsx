@@ -28,12 +28,14 @@ import (
 // interpolation types. It returns (nil, false) if any component failed; all
 // component errors are recorded in bag (component-boundary recovery continues
 // to the next component on failure, so multiple errors are always reported).
-// sunkImports (nil-safe) names the user import paths whose ONLY use in this
-// file was a requalification-failed generic tag (see analyzed.sunkImports):
-// the tag's call is replaced by a sink that drops the package reference, so
-// each such import is rewritten to a blank `_` import — the emitted file
-// compiles, and the import's init side effects are preserved.
-func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, merger *ClassMergerRef, sunkImports map[string]bool) ([]byte, bool) {
+// sunkImports (nil-safe) identifies the user import SPECS — by .gsx line +
+// path (sunkImportKey) — whose ONLY use in this file was a
+// requalification-failed generic tag (see analyzed.sunkImports): the tag's
+// call is replaced by a sink that drops the package reference, so each such
+// spec is rewritten to a blank `_` import — the emitted file compiles, and
+// the import's init side effects are preserved. Position keying means a
+// same-path sibling spec on another line is never touched.
+func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, merger *ClassMergerRef, sunkImports map[sunkImportKey]bool) ([]byte, bool) {
 	if cls == nil {
 		cls = attrclass.Builtin()
 	}
@@ -95,16 +97,30 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 				bag.Errorf(v.Pos(), v.End(), "invalid-syntax", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 				return nil, false
 			}
+			// Resolve each spec's .gsx line (chunk position + intra-chunk
+			// offset, the same arithmetic buildSkeleton's //line block uses)
+			// so sunk-import lookups key on the exact spec — see the
+			// sunkImports param doc. specLine stays nil when positions are
+			// unavailable; no rewrite happens then (fail toward keeping the
+			// user's import verbatim).
+			var specLine func(srcOff int) int
+			if len(sunkImports) > 0 && fset != nil && v.Pos().IsValid() {
+				if tf := fset.File(v.Pos()); tf != nil {
+					base := fset.Position(v.Pos()).Offset
+					specLine = func(srcOff int) int { return fset.Position(tf.Pos(base + srcOff)).Line }
+				}
+			}
 			for _, s := range specs {
-				// A sunk import (its only use was a requalification-failed
-				// generic tag whose call was replaced by a sink — see the
-				// sunkImports param doc) is emitted as a blank import: the
-				// emitted body no longer references it, so a named/plain
+				// A sunk import spec (its only use was a requalification-
+				// failed generic tag whose call was replaced by a sink — see
+				// the sunkImports param doc) is emitted as a blank import:
+				// the emitted body no longer references it, so a named/plain
 				// import would fail `go build` with "imported and not used",
 				// while `_` compiles and keeps init side effects. Dot/blank
 				// user spellings are left untouched (a dotted tag can only
 				// qualify through a named or plain import).
-				if sunkImports[s.path] && s.name != "." && s.name != "_" {
+				if specLine != nil && s.name != "." && s.name != "_" &&
+					sunkImports[sunkImportKey{line: specLine(s.srcOff), path: s.path}] {
 					aliased = append(aliased, importSpec{name: "_", path: s.path})
 					continue
 				}

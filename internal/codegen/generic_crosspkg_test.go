@@ -239,6 +239,81 @@ func TestGenericCrossPackageInferenceFailureSoleImportBuilds(t *testing.T) {
 	writeGeneratedAndBuild(t, tmp, res)
 }
 
+// TestGenericCrossPackageInferenceFailureAliasedSoleImportBuilds is the
+// RENAMED-import variant of the sole-import fail-safe: go/types spells the
+// unused-import error for `import comp "…"` as `"…" imported as comp and not
+// used` (the SECOND errorUnusedPkg form), which the sunk-import filter must
+// match just like the plain form — otherwise the spurious hard error
+// survives, generation exits 1, and the whole file is lost (the original
+// failure mode, spelled with an alias).
+func TestGenericCrossPackageInferenceFailureAliasedSoleImportBuilds(t *testing.T) {
+	if testing.Short() {
+		t.Skip("spawns the go toolchain")
+	}
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module example.com/gcia\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	compDir := filepath.Join(tmp, "components")
+	if err := os.MkdirAll(compDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, compDir, "widget.gsx", "package components\n\ntype secret string\n\ncomponent Widget[T secret | string](label T) {\n\t<span>{string(label)}</span>\n}\n")
+	// Renamed import; the failed tag is its only use.
+	writeFile(t, tmp, "post.gsx", "package gcia\n\nimport comp \"example.com/gcia/components\"\n\ncomponent Post(name string) {\n\t<comp.Widget label={name} />\n}\n")
+
+	res, err := GenerateDirs(tmp, []string{tmp, compDir}, Options{FilterPkgs: []string{stdImportPath}, CSSMinify: true, JSMinify: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertOnlyInferenceUnavailable(t, res[tmp].Diags)
+	var postGen string
+	for p, src := range res[tmp].Files {
+		if strings.HasSuffix(p, "post.gsx") {
+			postGen = string(src)
+		}
+	}
+	if !strings.Contains(postGen, `_ "example.com/gcia/components"`) {
+		t.Fatalf("sole aliased import not rewritten to a blank import; post.gsx generated:\n%s", postGen)
+	}
+	writeGeneratedAndBuild(t, tmp, res)
+}
+
+// TestGenericCrossPackageInferenceFailureDotSiblingKeepsRealError pins the
+// position-keying of the sunk-import filter: a file with TWO specs of the
+// SAME dep path — a genuinely unused dot import AND a renamed alias whose
+// only use is the failed tag — must have ONLY the alias spec's spurious
+// error filtered. The dot spec's REAL `"…" imported and not used` error (a
+// user mistake) must still surface as an Error diagnostic; a path-keyed
+// filter would swallow it too.
+func TestGenericCrossPackageInferenceFailureDotSiblingKeepsRealError(t *testing.T) {
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module example.com/gcid\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	compDir := filepath.Join(tmp, "components")
+	if err := os.MkdirAll(compDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, compDir, "widget.gsx", "package components\n\ntype secret string\n\ncomponent Widget[T secret | string](label T) {\n\t<span>{string(label)}</span>\n}\n")
+	writeFile(t, tmp, "post.gsx", "package gcid\n\nimport (\n\t. \"example.com/gcid/components\"\n\tcomp \"example.com/gcid/components\"\n)\n\ncomponent Post(name string) {\n\t<comp.Widget label={name} />\n}\n")
+
+	res, err := GenerateDirs(tmp, []string{tmp, compDir}, Options{FilterPkgs: []string{stdImportPath}, CSSMinify: true, JSMinify: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundReal := false
+	for _, d := range res[tmp].Diags {
+		if d.Severity == diag.Error && strings.Contains(d.Message, "imported and not used") {
+			foundReal = true
+			if d.Start.Line != 4 {
+				t.Errorf("real unused-import error not positioned at the dot spec (line 4): %+v", d)
+			}
+		}
+	}
+	if !foundReal {
+		t.Fatalf("the dot import's REAL unused-import error was swallowed by the sunk-import filter; diags = %+v", res[tmp].Diags)
+	}
+}
+
 // assertOnlyInferenceUnavailable asserts diags contain at least one
 // inference-unavailable warning and NO Error-severity diagnostic (the failure
 // mode the fail-safe regression tests guard against is a hard error alongside

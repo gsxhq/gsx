@@ -109,7 +109,7 @@ type inferRegistry struct {
 	// qualifier ("components" in <components.Widget ...>) — always non-empty,
 	// since only imported (dotted, non-method) tags can fail requalification.
 	// module_importer.go's analyze resolves each alias to its import PATH
-	// (via fileFacts.depAliasPaths) to decide whether a skeleton
+	// (via fileFacts.depAliasSpecs) to decide whether a skeleton
 	// `"path" imported and not used` type error for this FILE is SPURIOUS:
 	// the import IS used in the .gsx source (the failed tag), but the
 	// skeleton sink dropped its only skeleton reference. Such an error is
