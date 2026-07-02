@@ -163,6 +163,28 @@ explicitly with `` js`...` `` or `` css`...` `` at the call site:
 <div data-style=css`color:@{color}`>...</div>
 ````
 
+### `[formatter]` — `gsx fmt` / editor formatting
+
+The `[formatter]` table configures the gsx formatter — both the `gsx fmt`
+command and editor format-on-save via the language server read it.
+
+```toml
+[formatter]
+print_width = 100   # line width the formatter wraps at (default 80)
+```
+
+`print_width` is the column budget for a line. An opening tag whose attribute
+list fits stays on one line; one that exceeds the width wraps with one
+attribute per line (and its children break onto their own indented lines).
+The default is `80`.
+
+The width is resolved **per directory** from the nearest `gsx.toml` (same
+[discovery walk](#location--discovery) as everything else), so files in
+different modules of a monorepo can format to different widths.
+
+Like `[dev]`, this table only affects formatting — it never changes generated
+output, so it does not participate in the incremental codegen cache.
+
 ### `[minify]` — asset minification level
 
 gsx can minify the CSS inside `<style>` and the JavaScript inside `<script>` at
@@ -279,6 +301,10 @@ filterPackages = ["example.com/myproject/templatefuncs"]
 # URL attribute contexts beyond the built-ins.
 [[urlAttrs]]
 name = "data-href"
+
+# Formatter line width for gsx fmt and editor formatting (default 80).
+[formatter]
+print_width = 100
 
 # Asset minification level (per asset; "none" default, "full" for prod).
 [minify]

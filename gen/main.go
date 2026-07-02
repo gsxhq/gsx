@@ -42,7 +42,7 @@ type config struct {
 	urlRules       []attrclass.Rule
 	fieldMatcher   codegen.FieldMatcher
 	errs           []error
-	printWidth     int                     // gsx.toml printWidth; 0 means "unset" → 80 at use
+	printWidth     int                     // gsx.toml [formatter] print_width; 0 means "unset" → 80 at use
 	cssMinLevel    MinifyLevel             // <style> minification level (zero = MinifyNone)
 	jsMinLevel     MinifyLevel             // <script> minification level (zero = MinifyNone)
 	minifyLevelSet bool                    // true once an option (WithMinifyLevel) pinned the levels
@@ -207,7 +207,7 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			return 2
 		}
-		return runInfo(stdout, stderr, workDir, configPath, merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher, cmdArgs, merged.cssMinLevel, merged.jsMinLevel)
+		return runInfo(stdout, stderr, workDir, configPath, merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher, cmdArgs, merged.cssMinLevel, merged.jsMinLevel, merged.effectivePrintWidth())
 	case "fmt":
 		// fmt respects gsx.toml printWidth per-dir (via printWidthFor inside
 		// runFmt) and tolerates a malformed config. The CSS/JS formatter

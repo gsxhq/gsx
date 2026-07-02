@@ -21,6 +21,7 @@ type manifest struct {
 	HasFieldMatcher bool             `json:"hasFieldMatcher,omitempty"`
 	Filters         []manifestFilter `json:"filters,omitempty"`
 	Minify          manifestMinify   `json:"minify"`
+	Formatter       manifestFmt      `json:"formatter"`
 	Env             []manifestEnv    `json:"env"`
 }
 
@@ -31,6 +32,12 @@ type manifestRules struct {
 type manifestMinify struct {
 	CSS string `json:"css"`
 	JS  string `json:"js"`
+}
+
+// manifestFmt reports the resolved [formatter] table (effective values, so
+// printWidth is 80 when the table or key is absent).
+type manifestFmt struct {
+	PrintWidth int `json:"printWidth"`
 }
 
 type manifestEnv struct {
@@ -51,7 +58,7 @@ type manifestFilter struct {
 // means the default matcher is in effect; a non-nil custom matcher changes how
 // attr→field resolution works and therefore changes the generated output for
 // projects with kebab or custom-matched attrs).
-func buildManifest(modPath string, cls *attrclass.Classifier, hasFieldMatcher bool, filters []manifestFilter, cssMinLevel, jsMinLevel MinifyLevel) manifest {
+func buildManifest(modPath string, cls *attrclass.Classifier, hasFieldMatcher bool, filters []manifestFilter, cssMinLevel, jsMinLevel MinifyLevel, printWidth int) manifest {
 	envs := make([]manifestEnv, 0, len(envOverrides))
 	for _, o := range envOverrides {
 		e := manifestEnv{
@@ -71,6 +78,7 @@ func buildManifest(modPath string, cls *attrclass.Classifier, hasFieldMatcher bo
 		HasFieldMatcher: hasFieldMatcher,
 		Filters:         filters,
 		Minify:          manifestMinify{CSS: cssMinLevel.String(), JS: jsMinLevel.String()},
+		Formatter:       manifestFmt{PrintWidth: printWidth},
 		Env:             envs,
 	}
 }

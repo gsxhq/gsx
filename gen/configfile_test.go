@@ -318,7 +318,7 @@ func TestConfigPrintWidth(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "gsx.toml")
-	if err := os.WriteFile(path, []byte("printWidth = 100\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("[formatter]\nprint_width = 100\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := loadConfig(path)
@@ -326,7 +326,22 @@ func TestConfigPrintWidth(t *testing.T) {
 		t.Fatalf("loadConfig: %v", err)
 	}
 	if got := cfg.effectivePrintWidth(); got != 100 {
-		t.Fatalf("printWidth = %d, want 100", got)
+		t.Fatalf("print_width = %d, want 100", got)
+	}
+}
+
+// TestConfigPrintWidthOldKeyRejected pins the rename: the pre-[formatter]
+// top-level printWidth key is an unknown key, surfaced by strict decoding.
+func TestConfigPrintWidthOldKeyRejected(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gsx.toml")
+	if err := os.WriteFile(path, []byte("printWidth = 100\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := loadConfig(path)
+	if err == nil || !strings.Contains(err.Error(), "printWidth") {
+		t.Fatalf("loadConfig err = %v, want unknown-key error naming printWidth", err)
 	}
 }
 

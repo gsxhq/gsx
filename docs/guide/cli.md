@@ -242,6 +242,11 @@ Path arguments are `.gsx` files or directories (walked recursively, skipping
 `.git`, hidden dirs, `vendor`, `node_modules`, and `testdata`). No arguments
 formats `.` recursively.
 
+**Line width.** The formatter wraps at 80 columns by default; set
+[`[formatter]` `print_width`](./config.md#formatter--gsx-fmt--editor-formatting)
+in `gsx.toml` to change it. The language server reads the same setting, so
+`gsx fmt` and format-on-save always agree.
+
 **Unused imports.** Like `goimports`, `gsx fmt` **removes unused imports** from a
 `.gsx` file's pass-through Go by default — detected via the type-checker, so it
 runs a module analysis (`go list` + type-check). Pass `-no-imports` to format

@@ -144,8 +144,8 @@ func formatGsx(name string, src []byte) ([]byte, error) {
 	return gsxfmt.Format(name, src, printWidthFor("."))
 }
 
-// printWidthFor returns the effective gsx.toml printWidth for dir (default 80),
-// best-effort: discovery/decoding failures fall back to 80.
+// printWidthFor returns the effective gsx.toml [formatter] print_width for dir
+// (default 80), best-effort: discovery/decoding failures fall back to 80.
 func printWidthFor(dir string) int {
 	path, ok := discoverConfig(dir)
 	if !ok {

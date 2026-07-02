@@ -29,10 +29,18 @@ type tomlConfig struct {
 	Filters        map[string]string `toml:"filters"`
 	FilterPackages []string          `toml:"filterPackages"`
 	URLAttrs       []tomlRule        `toml:"urlAttrs"`
-	PrintWidth     int               `toml:"printWidth"`
+	Formatter      *tomlFormatter    `toml:"formatter"`
 	Minify         *tomlMinify       `toml:"minify"`
 	ClassMerger    string            `toml:"class_merger"`
 	Dev            *tomlDev          `toml:"dev"`
+}
+
+// tomlFormatter is the [formatter] table: knobs for `gsx fmt` and LSP
+// formatting. Like [dev], it never changes generated output and is NOT folded
+// into computeKey. A nil pointer (table absent) leaves the defaults
+// (print_width 80).
+type tomlFormatter struct {
+	PrintWidth int `toml:"print_width"`
 }
 
 // tomlDev is the [dev] table read ONLY by `gsx dev` (runDev) — it is NOT part of
@@ -182,7 +190,9 @@ func loadConfig(path string) (config, error) {
 			cfg.jsMinLevel = lvl
 		}
 	}
-	cfg.printWidth = tc.PrintWidth
+	if tc.Formatter != nil {
+		cfg.printWidth = tc.Formatter.PrintWidth
+	}
 	return cfg, nil
 }
 
