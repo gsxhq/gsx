@@ -47,6 +47,9 @@ regenerates Go with a warm compiler, builds and safely swaps the Go server, and
 asks Vite to reload the browser. If generation or compilation fails, the browser
 shows the error while the last working server keeps running.
 
+For the full sequence — what `gsx dev` watches, regenerates, rebuilds, and reloads
+on each save — see [How the dev loop works](./dev-loop).
+
 ## Make the first change
 
 Open `app.gsx`, change some visible text, and save. The browser reloads with the

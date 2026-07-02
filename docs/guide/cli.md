@@ -126,6 +126,7 @@ gsx dev [dir] [--web command] [--no-web] [--build command] [--run command]
 keeps gsx's type information warm, regenerates `.x.go` files, builds and safely
 swaps the Go server, supervises Vite, and drives Vite's browser error overlay and
 reload. A failed generation or build leaves the last working server running.
+[How the dev loop works](./dev-loop) walks through the full sequence.
 
 The generated starter exposes it as:
 
