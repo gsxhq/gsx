@@ -94,6 +94,7 @@ components/generic_children	diag gen render
 components/generic_function_component	diag gen render
 components/generic_tilde_mixed_diag	diag gen render
 components/generic_uniform_constraint	diag gen render
+components/gobuild_directives	diag gen render
 components/handwritten_func_with_props	diag render
 components/named_slot	diag render
 components/named_slot_bad_name	diag(error)
@@ -362,4 +363,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 364 cases (render: 276, error: 66, gen-pinned: 145)
+TOTAL: 365 cases (render: 277, error: 66, gen-pinned: 146)

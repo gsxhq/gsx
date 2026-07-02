@@ -358,6 +358,17 @@ vocabulary remains a design aspiration, not the current API.
   finer-grained incremental invalidation beyond the current warm watcher.
 - [ ] **Codegen niceties** — [x] coalesce adjacent `gw.S` static writes;
   [ ] `//line` trailing-state reset; [ ] `data:image` URL allowance.
+- [x] **`//go:` directive / build-constraint pass-through** — program-significant
+  comment lines before the `package` clause (`//go:build`, `//go:generate`,
+  `//go:debug`, legacy `// +build`) copy verbatim into the generated `.x.go`,
+  between the generated-code marker and the package clause; prose stays
+  `.gsx`-only and `//line` is excluded. Generation stays build-context-independent
+  (every `.gsx` generates regardless of host `GOOS`); constraints take effect at
+  `go build`. See `docs/guide/syntax.md` §Build constraints.
+- [ ] **Tag-aware `.gsx` analysis** — duplicate component names across mutually
+  exclusive build constraints (two `.gsx` files gated by disjoint `//go:build`
+  tags) currently collide, because analysis type-checks a package's `.gsx` files
+  as one unit regardless of build tags.
 - [ ] **Tooling performance measurement on a realistic large corpus** — the
   existing baseline (`gen/perf_test.go`, `GSX_PERF=1`; note
   `2026-06-24-go-to-gsx-perf.md`) uses a *synthetic* 50-package fixture: ~383 ms/package
