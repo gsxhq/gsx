@@ -40,17 +40,24 @@ class/spread	diag render
 class/style_rejected	diag
 class/value_arm_pipeline	diag gen render
 class/value_arm_tuple_rejected	diag(error)
+class/value_cf_condattr_nested_liveness	diag gen render
 class/value_form_evaluation_order	diag gen render
 class/value_if_else	diag gen render
 class/value_if_elseif	diag gen render
+class/value_if_elseif_local_liveness	diag gen render
+class/value_if_local_liveness	diag gen render
 class/value_if_no_else_false	diag gen render
 class/value_if_no_else_true	diag gen render
 class/value_part_nonstring_rejected	diag(error)
 class/value_switch	diag gen render
+class/value_switch_case_const_range	diag gen render
+class/value_switch_case_nil	diag gen render
+class/value_switch_local_liveness	diag gen render
 class/value_switch_no_default	diag gen render
 class/value_switch_nonroot	diag gen render
 class/value_switch_tagless	diag gen render
 class/value_switch_tuple	diag gen render
+class/value_switch_type_switch	diag gen render
 codegen-shape/example12_form	diag render
 codegen-shape/example12_toolbar	diag render
 codegen-shape/greeting	diag gen render
@@ -376,6 +383,7 @@ style/minify_block	diag gen render
 style/part_tuple	diag gen render
 style/value_form_evaluation_order	diag gen render
 style/value_if_else	diag gen render
+style/value_if_local_liveness	diag gen render
 style/value_switch	diag gen render
 tuple/bare_call_undefined	diag(error)
 tuple/child_prop_mixed	diag gen render
@@ -415,4 +423,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 417 cases (render: 325, error: 70, gen-pinned: 169)
+TOTAL: 425 cases (render: 333, error: 70, gen-pinned: 177)

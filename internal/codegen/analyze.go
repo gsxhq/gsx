@@ -907,17 +907,14 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					}
 				}
 				// Probe CF arm exprs and unconditional plain ClassPart exprs AFTER pair
-				// probes — matching collectExprs's ClassPart ordering exactly. _gsxuse
+				// probes — matching collectExprs's ClassPart ordering exactly (the
+				// shared walkClassAttrs recurses CondAttr on both sides). _gsxuse
 				// harvests the raw type so classEntryExpr can detect and hoist (T, error)
 				// tuple call parts and CF arms. Unlike ordinary child-prop expressions,
 				// call-shaped class parts are stubbed in the props-literal probe to
 				// tolerate tuples, so this non-quiet probe is also responsible for
 				// surfacing expression errors such as undefined identifiers.
-				for _, a := range t.Attrs {
-					ca, ok := a.(*gsxast.ClassAttr)
-					if !ok {
-						continue
-					}
+				walkClassAttrs(t.Attrs, func(ca *gsxast.ClassAttr) {
 					for i := range ca.Parts {
 						if ca.Parts[i].CF != nil {
 							// Value-form CF part: probe each arm so harvest populates
@@ -939,7 +936,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 							fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 						}
 					}
-				}
+				})
 				// Probe slot content in the SAME canonical order collectExprs walks:
 				// each markup-attr value (attr order) then the children.
 				var probeErr error
@@ -1013,11 +1010,10 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				// argument's resolved type. A probe per CF arm, and also per
 				// unconditional plain part, replaces the former liveness-only behavior
 				// for those parts; _gsxuse also keeps identifier references live.
-				for _, a := range t.Attrs {
-					ca, ok := a.(*gsxast.ClassAttr)
-					if !ok {
-						continue
-					}
+				// walkClassAttrs recurses CondAttr Then/Else in lockstep with
+				// collectExprs, so arms of a class attr nested in a conditional attr
+				// group are probed (liveness + harvest) too.
+				walkClassAttrs(t.Attrs, func(ca *gsxast.ClassAttr) {
 					for i := range ca.Parts {
 						if ca.Parts[i].CF != nil {
 							for _, arm := range valueFormArms(ca.Parts[i].CF) {
@@ -1042,16 +1038,21 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 							fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 						}
 					}
-				}
-				// ClassAttr/SpreadAttr conditional part exprs and cond guards are
-				// emitted verbatim by codegen (no type harvest), so a var used ONLY in
-				// `class={ "on": v }` or `{ attrs... }` must still be referenced here or
-				// it's "declared and not used". Emit a liveness `_ = (expr)` — NOT
-				// _gsxuse, so the harvest alignment is intact. CF parts and unconditional
-				// plain parts are excluded (they have _gsxuse probes above). Spreads are
-				// excluded too because their _gsxuseq probes above also keep them live.
-				walkLivenessAttrExprs(t.Attrs, table, usedFilters, func(expr string) {
-					fmt.Fprintf(sb, "_ = (%s)\n", expr)
+				})
+				// ClassAttr conditional part exprs, cond guards, and value-form CF
+				// control expressions are emitted verbatim by codegen (no type
+				// harvest), so a var used ONLY in `class={ "on": v }` or in a
+				// value-form if/switch condition must still be referenced here or
+				// it's "declared and not used". The walk yields ready-made liveness
+				// STATEMENTS — `_ = (expr)`, or an empty-bodied if/switch for CF
+				// parts (their tags/case lists are only legal in statement position)
+				// — NOT _gsxuse, so the harvest alignment is intact. CF arms and
+				// unconditional plain parts are excluded (they have _gsxuse probes
+				// above). Spreads are excluded too because their _gsxuseq probes
+				// above also keep them live.
+				walkLivenessAttrExprs(t.Attrs, table, usedFilters, func(stmt string) {
+					sb.WriteString(stmt)
+					sb.WriteByte('\n')
 				})
 				// Then probe each JS-attribute's @{ } interps, in attr source order —
 				// collectExprs walks identically (same walkMarkupAttrs), so the k-th
@@ -1889,22 +1890,21 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 				}
 				// Collect *ValueArm nodes for CF arms and *ClassPart nodes for
 				// unconditional plain parts AFTER all OrderedPair nodes — matching the
-				// _gsxuseq probes emitProbes emits after the pair probes.
+				// _gsxuseq probes emitProbes emits after the pair probes (the shared
+				// walkClassAttrs recurses CondAttr on both sides).
 				// classEntryExpr reads resolved[arm] for (T, error) CF-arm unwrap and
 				// resolved[part] for plain-part tuple unwrap.
-				for _, a := range t.Attrs {
-					if ca, ok := a.(*gsxast.ClassAttr); ok {
-						for i := range ca.Parts {
-							if ca.Parts[i].CF != nil {
-								for _, arm := range valueFormArms(ca.Parts[i].CF) {
-									*out = append(*out, arm)
-								}
-							} else if ca.Parts[i].Cond == "" && ca.Parts[i].CSSSegments == nil {
-								*out = append(*out, &ca.Parts[i])
+				walkClassAttrs(t.Attrs, func(ca *gsxast.ClassAttr) {
+					for i := range ca.Parts {
+						if ca.Parts[i].CF != nil {
+							for _, arm := range valueFormArms(ca.Parts[i].CF) {
+								*out = append(*out, arm)
 							}
+						} else if ca.Parts[i].Cond == "" && ca.Parts[i].CSSSegments == nil {
+							*out = append(*out, &ca.Parts[i])
 						}
 					}
-				}
+				})
 				walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
 					collectExprs(value, out)
 				})
@@ -1930,11 +1930,9 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 			// resolved[part] for (T, error) auto-unwrap on plain unconditional parts.
 			// The liveness path (walkLivenessAttrExprs) skips unconditional plain
 			// parts (they now get _gsxuse probes which also serve as liveness refs).
-			for _, a := range t.Attrs {
-				ca, ok := a.(*gsxast.ClassAttr)
-				if !ok {
-					continue
-				}
+			// walkClassAttrs recurses CondAttr Then/Else in lockstep with emitProbes,
+			// so class attrs nested in a conditional attr group collect too.
+			walkClassAttrs(t.Attrs, func(ca *gsxast.ClassAttr) {
 				for i := range ca.Parts {
 					if ca.Parts[i].CF != nil {
 						for _, arm := range valueFormArms(ca.Parts[i].CF) {
@@ -1945,7 +1943,7 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 						*out = append(*out, &ca.Parts[i])
 					}
 				}
-			}
+			})
 			// Then each explicit JS attribute literal (e.g. x-data=js`…@{x}…`) interp, in
 			// attr source order — emitProbes walks identically (same walkMarkupAttrs).
 			walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
@@ -2004,15 +2002,36 @@ func walkSpreadAttrs(attrs []gsxast.Attr, fn func(*gsxast.SpreadAttr)) {
 	}
 }
 
-// walkLivenessAttrExprs invokes fn for each Go expression in a ClassAttr
-// (recursing CondAttr) — the attr exprs that walkAttrExprs does NOT yield, and that
-// carry no type harvest. (SpreadAttr exprs ARE harvested now, via walkSpreadAttrs +
-// _gsxuseq, which doubles as their liveness reference, so they are no longer handled
-// here.) Codegen emits these verbatim (gsx.Class/ClassIf/StyleString) so they need
-// no type harvest, but the skeleton must still REFERENCE them or a var used ONLY here
-// (e.g. a for-loop var in `class={ "on": v }`) is rejected as "declared and not
-// used". emitProbes emits `_ = (expr)` for each — a liveness reference that, unlike
-// _gsxuse, is invisible to the k-th-probe→k-th-node type-harvest alignment.
+// walkClassAttrs invokes fn for each *ClassAttr in an element's attr list, in
+// canonical source order (recursing *CondAttr Then→Else, like walkAttrExprs).
+// It is the SINGLE walk shared by collectExprs (which appends each CF-arm /
+// unconditional-plain-part node) and emitProbes (which emits one _gsxuse probe
+// per such node), so the k-th probe always maps to the k-th collected node —
+// including for class/style attrs nested inside a conditional attr group.
+func walkClassAttrs(attrs []gsxast.Attr, fn func(*gsxast.ClassAttr)) {
+	for _, a := range attrs {
+		switch at := a.(type) {
+		case *gsxast.ClassAttr:
+			fn(at)
+		case *gsxast.CondAttr:
+			walkClassAttrs(at.Then, fn)
+			walkClassAttrs(at.Else, fn)
+		}
+	}
+}
+
+// walkLivenessAttrExprs invokes fn with a liveness *statement* for each Go
+// fragment in a ClassAttr (recursing CondAttr) — the attr exprs that
+// walkAttrExprs does NOT yield, and that carry no type harvest. (SpreadAttr
+// exprs ARE harvested now, via walkSpreadAttrs + _gsxuseq, which doubles as
+// their liveness reference, so they are no longer handled here.) Codegen emits
+// these verbatim (gsx.Class/ClassIf/StyleString) so they need no type harvest,
+// but the skeleton must still REFERENCE them or a var used ONLY here (e.g. a
+// for-loop var in `class={ "on": v }`) is rejected as "declared and not used".
+// Plain exprs and guard conds become `_ = (expr)`; a value-form CF part
+// becomes an empty-bodied if/switch statement (valueCFControlStmt) because its
+// tag and case lists are only legal in statement position. Both forms are
+// invisible to the k-th-probe→k-th-node type-harvest alignment, unlike _gsxuse.
 // A ClassPart carrying a `|>` pipeline must reference the LOWERED
 // expression — the SAME lowerPipe output emit produces — so type resolution and
 // import harvest match emit exactly (emit ≡ probe). table lowers each pipeline and
@@ -2022,24 +2041,27 @@ func walkSpreadAttrs(attrs []gsxast.Attr, fn func(*gsxast.SpreadAttr)) {
 // referencing the bare seed so type-checking proceeds to the POSITIONED
 // unknown-filter diagnostic generateFile reports (the probe's bare error must not
 // pre-empt it). The guard Cond is never piped, so it is referenced verbatim.
-func walkLivenessAttrExprs(attrs []gsxast.Attr, table filterTable, usedFilters map[string]string, fn func(expr string)) {
+func walkLivenessAttrExprs(attrs []gsxast.Attr, table filterTable, usedFilters map[string]string, fn func(stmt string)) {
+	ref := func(expr string) {
+		fn("_ = (" + expr + ")")
+	}
 	emit := func(seed string, stages []gsxast.PipeStage) {
 		if strings.TrimSpace(seed) == "" {
 			return
 		}
 		if len(stages) == 0 {
-			fn(strings.TrimSpace(seed))
+			ref(strings.TrimSpace(seed))
 			return
 		}
 		lowered, used, err := lowerPipe(seed, stages, table)
 		if err != nil {
 			// Unknown filter: reference the bare seed so the skeleton still type-checks
 			// (and stays "used"); the positioned diagnostic fires in generateFile.
-			fn(strings.TrimSpace(seed))
+			ref(strings.TrimSpace(seed))
 			return
 		}
 		maps.Copy(usedFilters, used)
-		fn(lowered)
+		ref(lowered)
 	}
 	for _, a := range attrs {
 		switch at := a.(type) {
@@ -2047,7 +2069,7 @@ func walkLivenessAttrExprs(attrs []gsxast.Attr, table filterTable, usedFilters m
 			for _, p := range at.Parts {
 				if p.CSSSegments != nil {
 					if c := strings.TrimSpace(p.Cond); c != "" {
-						fn(c)
+						ref(c)
 					}
 					continue
 				}
@@ -2057,14 +2079,20 @@ func walkLivenessAttrExprs(attrs []gsxast.Attr, table filterTable, usedFilters m
 					// `_ = (expr)` that would fail for (T, error) multi-return calls.
 					continue
 				}
+				if p.CF != nil {
+					if stmt := valueCFControlStmt(p.CF); stmt != "" {
+						fn(stmt)
+					}
+					continue
+				}
 				emit(p.Expr, p.Stages)
 				if c := strings.TrimSpace(p.Cond); c != "" {
-					fn(c)
+					ref(c)
 				}
 			}
 		case *gsxast.CondAttr:
 			if c := strings.TrimSpace(at.Cond); c != "" {
-				fn(c)
+				ref(c)
 			}
 			walkLivenessAttrExprs(at.Then, table, usedFilters, fn)
 			walkLivenessAttrExprs(at.Else, table, usedFilters, fn)
@@ -2353,6 +2381,39 @@ func addValueCFSrc(cf *gsxast.ValueCF, add func(string)) {
 			addValueArmSrc(c.Value, add)
 		}
 	}
+}
+
+// valueCFControlStmt returns an empty-bodied skeleton statement that
+// references a value-form CF's control expressions in their natural
+// grammatical positions: `if c {} else if c2 {}` for the condition chain, or
+// `switch tag { case list: default: }` mirroring the source clauses. Statement
+// position (not `_ = (expr)`) is required — case lists may contain `nil`, type
+// names under a `.(type)` tag, or untyped constants that only fit the tag's
+// type, none of which are legal as a bare expression. Arm expressions are
+// excluded: emitProbes harvests them with _gsxuse so value-form arms preserve
+// (T, error) auto-unwrapping without disturbing probe order.
+func valueCFControlStmt(cf *gsxast.ValueCF) string {
+	var sb strings.Builder
+	switch {
+	case cf.If != nil:
+		for vi := cf.If; vi != nil; vi = vi.ElseIf {
+			if vi != cf.If {
+				sb.WriteString(" else ")
+			}
+			fmt.Fprintf(&sb, "if %s {\n}", vi.Cond)
+		}
+	case cf.Switch != nil:
+		fmt.Fprintf(&sb, "switch %s {\n", strings.TrimSpace(cf.Switch.Tag))
+		for _, c := range cf.Switch.Cases {
+			if c.Default {
+				sb.WriteString("default:\n")
+			} else {
+				fmt.Fprintf(&sb, "case %s:\n", c.List)
+			}
+		}
+		sb.WriteString("}")
+	}
+	return sb.String()
 }
 
 func addValueIfSrc(vi *gsxast.ValueIf, add func(string)) {
