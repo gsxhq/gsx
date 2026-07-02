@@ -34,6 +34,15 @@ This lowers to generic Go declarations shaped like
 `func Box[T string | int](p BoxProps[T]) gsx.Node`. A generic tag call lowers to
 `Box[int](BoxProps[int]{...})`; gsx does not infer omitted tag type arguments.
 
+### Renderable type parameters
+
+Interpolating a value of type parameter `T` directly — `{value}` where `value T` — only compiles when `T`'s constraint fits one of two shapes:
+
+- **Same kind**: every term is the same basic kind, tilde or not (`~string`, `int | ~int64`, a single named type like `Slug`). Codegen emits a static conversion (`string(value)`, `int64(value)`, …) that compiles for the whole type set.
+- **Mixed kinds, all dispatchable**: terms mix kinds but every term is either an unnamed predeclared type (`string`, `int`, `bool`, …), an unnamed `[]byte`, or implements `fmt.Stringer` — for example `string | int` or `MyStringer | string`. Codegen emits a runtime type switch that has a matching case for each term.
+
+Anything else — a tilde term mixed with another kind (`~string | int`), or a named scalar term with no `String()` method mixed with another kind (`Slug | int` where `type Slug string`) — is rejected at generate time with `error[unrenderable]`, because neither the static conversion nor the runtime switch covers every type in the set. Convert explicitly in the expression instead, e.g. `{string(value)}`.
+
 ## Children `{children}`
 
 When a component wraps nested markup, it accesses that markup through the special `{children}` placeholder. The caller places any content between the open and close tags; the component decides where it appears by writing `{children}` in its body.

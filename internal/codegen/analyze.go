@@ -1543,11 +1543,16 @@ func classify(t types.Type) category {
 //   - every term classifies to the SAME basic-kind category → that category:
 //     the static conversions the emitter writes (string(v), int64(v), …)
 //     compile for the whole type set, tilde or not.
-//   - terms mix renderable categories and are ALL non-tilde → catAnyMixed:
-//     the dynamic type is exactly one of the listed types, so the runtime
-//     type switch (Writer.TextAny/AttrAny) is total.
-//   - any ~term in a mixed set → catUnsupported: a named concrete type would
-//     fall through the runtime switch, so reject statically.
+//   - terms mix renderable categories, are ALL non-tilde, AND every term is
+//     runtime-dispatchable (isRuntimeDispatchableTerm: an unnamed predeclared
+//     type, an unnamed []byte, or a Stringer) → catAnyMixed: anyRenderString's
+//     dynamic type switch matches every term in the set, so the runtime
+//     dispatch (Writer.TextAny/AttrAny) is total.
+//   - any ~term in a mixed set, or any non-tilde term that is NOT
+//     runtime-dispatchable (e.g. a named scalar like `type Slug string`,
+//     which classifies via Underlying but has no case in anyRenderString's
+//     exact-type switch) → catUnsupported: reject statically rather than
+//     fail mid-render.
 //   - a term classifying to catNode/catNodeSlice/catStringer contributes no
 //     METHOD to T (term ≠ embedded method), so it has no static call path;
 //     Stringer terms are still fine in the runtime switch, Node terms are not
@@ -1561,6 +1566,7 @@ func classifyTypeParam(tp *types.TypeParam) category {
 	}
 	uniform := true
 	hasTilde := false
+	allDispatchable := true
 	var first category
 	for i, tm := range terms {
 		c := classify(tm.Type())
@@ -1571,6 +1577,9 @@ func classifyTypeParam(tp *types.TypeParam) category {
 		if tm.Tilde() {
 			hasTilde = true
 		}
+		if !isRuntimeDispatchableTerm(tm.Type()) {
+			allDispatchable = false
+		}
 		if i == 0 {
 			first = c
 		} else if c != first {
@@ -1580,10 +1589,34 @@ func classifyTypeParam(tp *types.TypeParam) category {
 	if uniform && first != catStringer {
 		return first
 	}
-	if hasTilde {
+	if hasTilde || !allDispatchable {
 		return catUnsupported
 	}
 	return catAnyMixed
+}
+
+// isRuntimeDispatchableTerm reports whether a mixed-constraint term's type
+// has a matching case in anyRenderString's dynamic type switch (writer.go):
+// either an UNNAMED predeclared type (*types.Basic — string, int, float64,
+// …), an unnamed []byte, or any type implementing fmt.Stringer (matched via
+// anyRenderString's `case fmt.Stringer`, which catches named Stringer types
+// too). A *types.Named/alias wrapping a basic kind (e.g. `type Slug
+// string`) is none of these — anyRenderString only has cases for the exact
+// predeclared types, not arbitrary named types with matching Underlying —
+// so it must disqualify the term's constraint from the mixed runtime-dispatch
+// path.
+func isRuntimeDispatchableTerm(t types.Type) bool {
+	if classify(t) == catStringer {
+		return true
+	}
+	switch u := types.Unalias(t).(type) {
+	case *types.Basic:
+		return true
+	case *types.Slice:
+		b, ok := u.Elem().Underlying().(*types.Basic)
+		return ok && b.Kind() == types.Byte
+	}
+	return false
 }
 
 // implementsNode reports whether t has a method Render(context.Context, io.Writer) error.

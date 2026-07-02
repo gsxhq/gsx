@@ -114,10 +114,14 @@ func (gw *Writer) CSS(s string) {
 // anyRenderString converts a dynamically-typed renderable value to its text
 // form, matching the static per-category emit paths byte-for-byte (FormatInt
 // base 10, FormatFloat 'g' -1 64, FormatBool, Stringer.String, string/[]byte
-// verbatim). It matches EXACT types only — a named scalar (type Slug string)
-// returns ok=false, mirroring gsx.Val's documented contract — because codegen
-// only routes here for type parameters whose constraint terms are all
-// non-tilde, where the dynamic type is exactly one of the listed types.
+// verbatim). It matches EXACT predeclared types (string, []byte, the sized
+// int/uint/float kinds, bool) plus the fmt.Stringer interface (which also
+// matches named Stringer types) — a named scalar with no String() method
+// (type Slug string) returns ok=false, mirroring gsx.Val's documented
+// contract. codegen (classifyTypeParam) only routes here for type parameters
+// whose constraint terms are all non-tilde AND individually dispatchable —
+// an unnamed predeclared type, an unnamed []byte, or a Stringer — so every
+// term in the constraint has a matching case here and the dispatch is total.
 func anyRenderString(v any) (string, bool) {
 	switch t := v.(type) {
 	case string:
@@ -160,9 +164,10 @@ func anyRenderString(v any) (string, bool) {
 
 // TextAny writes v as escaped text, dispatching on its dynamic type. Codegen
 // emits it for interpolations whose type is a type parameter with a MIXED
-// non-tilde constraint (e.g. T string | int) — classify proves every term
-// renderable at generate time, so the dispatch is total for generated code.
-// See gsx.Val for the named-types-not-matched contract this mirrors.
+// non-tilde constraint whose terms are all runtime-dispatchable (e.g. T
+// string | int) — classify proves every term has a matching case in
+// anyRenderString at generate time, so the dispatch is total for generated
+// code. See gsx.Val for the named-types-not-matched contract this mirrors.
 func (gw *Writer) TextAny(v any) {
 	s, ok := anyRenderString(v)
 	if !ok {

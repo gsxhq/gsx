@@ -1,0 +1,23 @@
+# A named non-tilde term mixed with another renderable kind (T Slug | int)
+# can't use the static path (not uniform) or the runtime dispatch (Slug's
+# dynamic type has no case in anyRenderString's exact-type switch, only its
+# unnamed underlying `string` would) — rejected with a positioned diagnostic
+# naming the type parameter and its constraint.
+-- input.gsx --
+package views
+
+type Slug string
+
+component Box[T Slug | int](value T) {
+	<span>{value}</span>
+}
+
+component Page() {
+	<Box[Slug] value={Slug("x")} />
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+6:8: interpolation "value" has type parameter T (constraint corpustest/cases/components_generic_named_mixed_diag.Slug | int): only same-kind or all-non-tilde renderable constraints render directly — convert explicitly in the expression
+-- render.golden --
+-- generated.x.go.golden --

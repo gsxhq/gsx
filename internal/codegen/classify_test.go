@@ -174,6 +174,16 @@ import "fmt"
 func F[T fmt.Stringer](v T) {}`, catStringer},
 		{"any", `package x
 func F[T any](v T) {}`, catUnsupported},
+		{"named non-tilde mixed", `package x
+type Slug string
+func F[T Slug | int](v T) {}`, catUnsupported},
+		{"uniform named", `package x
+type Slug string
+func F[T Slug](v T) {}`, catString},
+		{"named Stringer mixed with string", `package x
+type S struct{}
+func (S) String() string { return "" }
+func F[T S | string](v T) {}`, catAnyMixed},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
