@@ -403,8 +403,9 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	// on every call, so there is no previously-mutated tree that could be corrupted
 	// by a concurrent or repeated generateFile pass on the same nodes.
 	if len(a.typeErrs) == 0 {
-		for _, f := range a.gsxFiles {
-			generateFile(f, a.resolved, a.table, a.propFields, a.nodeProps, a.attrsProps, a.byo,
+		for path, f := range a.gsxFiles {
+			ff := a.factsByFile[path]
+			generateFile(f, a.resolved, a.table, ff.propFields, ff.nodeProps, ff.attrsProps, ff.byo,
 				a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, a.bag, nil, nil, true, true, m.opts.ClassMerger)
 		}
 	}
@@ -455,7 +456,8 @@ func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, err
 	// flagged as undefined.
 	if len(a.typeErrs) == 0 {
 		for path, f := range a.gsxFiles {
-			gen, ok := generateFile(f, a.resolved, a.table, a.propFields, a.nodeProps, a.attrsProps, a.byo,
+			ff := a.factsByFile[path]
+			gen, ok := generateFile(f, a.resolved, a.table, ff.propFields, ff.nodeProps, ff.attrsProps, ff.byo,
 				a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.CSSMinify, m.opts.JSMinify, m.opts.ClassMerger)
 			if !ok {
 				continue

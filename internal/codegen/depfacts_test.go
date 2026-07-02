@@ -3,7 +3,10 @@ package codegen
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/gsxhq/gsx/internal/diag"
 )
 
 // writeDepFactsModule lays out a two-package module on disk:
@@ -19,7 +22,8 @@ func writeDepFactsModule(t *testing.T) (root, uiDir, pagesDir string) {
 			t.Fatal(err)
 		}
 	}
-	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n")
+	repoRoot, _ := filepath.Abs("../..")
+	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
 	writeFile(t, uiDir, "card.gsx", `package ui
 
 component Card(title string) {
@@ -74,5 +78,117 @@ component Card(title string, variant string) {
 	}
 	if !f3.propFields["CardProps"]["Variant"] {
 		t.Fatalf("recomputed CardProps fields = %v; want Variant", f3.propFields["CardProps"])
+	}
+}
+
+// TestFileScopedAliasNoCollision: pages/a.gsx imports app/ui as ui;
+// pages/b.gsx imports app/widgets under the SAME alias ui. Both packages
+// define Panel but with different props. Each file must split attrs against
+// ITS OWN import, and output must be stable across repeated generation.
+func TestFileScopedAliasNoCollision(t *testing.T) {
+	root := t.TempDir()
+	mk := func(rel, src string) {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Dir(p), filepath.Base(p), src)
+	}
+	repoRoot, _ := filepath.Abs("../..")
+	mk("go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	// ui.Panel has a Variant prop; widgets.Panel does NOT (variant falls to its bag).
+	mk("ui/panel.gsx", `package ui
+
+component Panel(variant string) {
+	<section data-variant={variant} { attrs... }>{children}</section>
+}
+`)
+	mk("widgets/panel.gsx", `package widgets
+
+component Panel() {
+	<aside { attrs... }>{children}</aside>
+}
+`)
+	mk("pages/a.gsx", `package pages
+
+import "example.com/app/ui"
+
+component A() {
+	<ui.Panel variant="big" class="x">a</ui.Panel>
+}
+`)
+	mk("pages/b.gsx", `package pages
+
+import ui "example.com/app/widgets"
+
+component B() {
+	<ui.Panel variant="big" class="x">b</ui.Panel>
+}
+`)
+	m, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pagesDir := filepath.Join(root, "pages")
+	out, diags, err := m.Generate(pagesDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range diags {
+		t.Logf("diag: %+v", d)
+	}
+	aGen := string(out[filepath.Join(pagesDir, "a.gsx")])
+	bGen := string(out[filepath.Join(pagesDir, "b.gsx")])
+	// a.gsx: ui = app/ui, Panel HAS Variant → caller-set prop, class falls through.
+	if !strings.Contains(aGen, "Variant:") {
+		t.Errorf("a.gsx should set Variant prop on ui.Panel; got:\n%s", aGen)
+	}
+	// b.gsx: ui = app/widgets, Panel has NO Variant → variant AND class fall to the bag.
+	if strings.Contains(bGen, "Variant:") {
+		t.Errorf("b.gsx must NOT set a Variant prop on widgets.Panel; got:\n%s", bGen)
+	}
+	if !strings.Contains(bGen, `{Key: "variant", Value: "big"}`) {
+		t.Errorf("b.gsx should send variant to the Attrs bag; got:\n%s", bGen)
+	}
+	// Determinism: a fresh Module over the same tree yields identical bytes.
+	m2, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out2, _, err := m2.Generate(pagesDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for p := range out {
+		if string(out[p]) != string(out2[p]) {
+			t.Errorf("nondeterministic output for %s", p)
+		}
+	}
+}
+
+// A dep with a transient parse error must degrade VISIBLY: the importer still
+// generates (assume-prop regime) and carries a positioned warning naming the dep.
+func TestImportedPropFactsFailureWarns(t *testing.T) {
+	root, uiDir, pagesDir := writeDepFactsModule(t)
+	m, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.SetOverride(filepath.Join(uiDir, "card.gsx"), []byte("package ui\n\ncomponent Card( {\n"))
+	_, diags, err := m.Generate(pagesDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, d := range diags {
+		if d.Code == "imported-props-unavailable" && d.Severity == diag.Warning {
+			found = true
+			if d.Start.Line == 0 {
+				t.Errorf("warning should be positioned at the import spec; got %+v", d)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected imported-props-unavailable warning; diags = %+v", diags)
 	}
 }
