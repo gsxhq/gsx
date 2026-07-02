@@ -390,6 +390,102 @@ component Page() {
 	}
 }
 
+// TestUserCannotInferInAttrNotRewritten is the ATTR-position variant of the
+// finding-6/7 hijack (TestUserCannotInferErrorNotRewritten covers children):
+// a supplied attr expression is inlined INTO the probe call's arguments, so
+// the user's own failing generic call there (`value={First(nil)}`) positions
+// its error INSIDE the probe span — span matching alone cannot tell it from
+// the probe's own failure. The discriminator: the probe's own cannot-infer
+// messages always carry the "in call to _gsxinferN, " prefix, the user's
+// nested call carries ITS name ("in call to First, ..."). The message must
+// pass through untouched — naming First, never blaming <Wrap> with a hint
+// that cannot fix First.
+func TestUserCannotInferInAttrNotRewritten(t *testing.T) {
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module ucia\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	writeFile(t, tmp, "views.gsx", `package views
+
+func First[T any](v []T) T { return v[0] }
+
+component Wrap[T string | int](value T) {
+	<p>{value}</p>
+}
+
+component Page() {
+	<Wrap value={First(nil)} />
+}
+`)
+	out, err := GenerateDirs(tmp, []string{tmp}, Options{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, d := range out[tmp].Diags {
+		if !strings.Contains(d.Message, "cannot infer") {
+			continue
+		}
+		found = true
+		if !strings.Contains(d.Message, "First") {
+			t.Errorf("diagnostic does not name the user's own First[T] call: %+v", d)
+		}
+		if strings.Contains(d.Message, "<Wrap") {
+			t.Errorf("diagnostic hijacked onto <Wrap> (attr-position finding-6/7 regression): %+v", d)
+		}
+	}
+	if !found {
+		t.Fatalf("no 'cannot infer' diagnostic surfaced; diags=%+v", out[tmp].Diags)
+	}
+}
+
+// TestUserConstraintViolationInAttrNotRewritten is the does-not-satisfy
+// counterpart of TestUserCannotInferInAttrNotRewritten: the user's own
+// generic call in an attr value fails ITS OWN constraint (`Only(1)` with
+// `Only[T ~string]`), positioned inside the probe span at the ARGUMENT. The
+// discriminator (the reviewer-verified position contract): the probe's OWN
+// constraint violations position at the CALLEE while a nested user call's
+// positions inside an argument expression — argAt hit → pass through
+// untouched, never blaming <Wrap>.
+// TestConstraintViolationNamesTagNotProbe still pins the probe's own
+// (callee-positioned) violation getting the tag-naming rewrite.
+func TestUserConstraintViolationInAttrNotRewritten(t *testing.T) {
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module ucva\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	writeFile(t, tmp, "views.gsx", `package views
+
+func Only[T ~string](v T) T { return v }
+
+component Wrap[T any](value T) {
+	<p>ok</p>
+}
+
+component Page() {
+	<Wrap value={Only(1)} />
+}
+`)
+	out, err := GenerateDirs(tmp, []string{tmp}, Options{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, d := range out[tmp].Diags {
+		if !strings.Contains(d.Message, "does not satisfy") {
+			continue
+		}
+		found = true
+		if !strings.Contains(d.Message, "~string") {
+			t.Errorf("diagnostic lost the user's constraint substance: %+v", d)
+		}
+		if strings.Contains(d.Message, "<Wrap") {
+			t.Errorf("diagnostic blames <Wrap> for the user's own constraint violation: %+v", d)
+		}
+	}
+	if !found {
+		t.Fatalf("no 'does not satisfy' diagnostic surfaced; diags=%+v", out[tmp].Diags)
+	}
+}
+
 // TestWrongPropTypeAtInferredTagNamesProp pins rewriteProbeDiag's
 // argument-positioned leak arm (shape 5): a generic tag whose T infers fine
 // from one prop but supplies a WRONG type for a NON-generic prop. go/types
@@ -531,6 +627,52 @@ component Page() {
 		t.Fatalf("no friendly diagnostic surfaced; diags=%+v", out[tmp].Diags)
 	}
 	for _, d := range out[tmp].Diags {
+		if strings.Contains(d.Message, "without instantiation") || strings.Contains(d.Message, "HolderProps") {
+			t.Errorf("raw without-instantiation skeleton error leaked: %+v", d)
+		}
+	}
+}
+
+// TestAliasedImportNoSuppliedPropsFriendlyHint is the ALIAS-imported variant
+// of TestNoSuppliedPropsGenericTagFriendlyHint: the recorded propsType is
+// the CALLER's spelling ("comp.HolderProps") while go/types prints the dep
+// package's own NAME ("cannot use generic type components.HolderProps[T
+// any] without instantiation") — a gate matching the full qualified
+// propsType text therefore missed, and aliased callers got the raw skeleton
+// wording instead of the friendly hint. The gate must match the props type's
+// BASE identifier ("HolderProps"), invariant across both spellings.
+func TestAliasedImportNoSuppliedPropsFriendlyHint(t *testing.T) {
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module example.com/ainsp\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	compDir := filepath.Join(tmp, "components")
+	if err := os.MkdirAll(compDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, compDir, "holder.gsx", "package components\n\ncomponent Holder[T any](value any) {\n\t<p>h</p>\n}\n")
+	writeFile(t, tmp, "post.gsx", "package ainsp\n\nimport comp \"example.com/ainsp/components\"\n\ncomponent Post() {\n\t<comp.Holder />\n}\n")
+
+	res, err := GenerateDirs(tmp, []string{tmp, compDir}, Options{FilterPkgs: []string{stdImportPath}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diags := res[compDir].Diags; len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics generating components package: %+v", diags)
+	}
+	var found bool
+	for _, d := range res[tmp].Diags {
+		if !strings.Contains(d.Message, "type inference failed for <comp.Holder>") {
+			continue
+		}
+		found = true
+		if !strings.Contains(d.Message, "please instantiate with <comp.Holder[type] ...>") {
+			t.Errorf("diagnostic lost the instantiate hint: %+v", d)
+		}
+	}
+	if !found {
+		t.Fatalf("no friendly diagnostic surfaced; diags=%+v", res[tmp].Diags)
+	}
+	for _, d := range res[tmp].Diags {
 		if strings.Contains(d.Message, "without instantiation") || strings.Contains(d.Message, "HolderProps") {
 			t.Errorf("raw without-instantiation skeleton error leaked: %+v", d)
 		}

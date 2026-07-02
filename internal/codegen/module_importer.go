@@ -1149,14 +1149,14 @@ func probeSiteForError(inferByXGo map[string]*inferRegistry, fset *token.FileSet
 // helper. rawOffset is the error's raw skeleton offset (for argAt). The
 // shapes, each pinned by a test in infer_test.go:
 //
-//  1. plain inference failure — "cannot infer T (declared at ...)" (bare, or
-//     behind an "in call to _gsxinferN, "/"in call to _gsxcompsig, " prefix):
-//     the declared-at substance is an internal skeleton artifact, so the
-//     message becomes the tag-naming instantiate hint with the component's
-//     REAL arity.
-//  2. inference failure WITH substance — "mismatched types untyped int and
-//     untyped string (cannot infer T)": the substance names the user's own
-//     conflicting values, so it is preserved: tag + substance + hint.
+//  1. plain inference failure — "in call to _gsxinferN, cannot infer T
+//     (declared at ...)" (or the _gsxcompsig prefix): the declared-at
+//     substance is an internal skeleton artifact, so the message becomes the
+//     tag-naming instantiate hint with the component's REAL arity.
+//  2. inference failure WITH substance — "in call to _gsxinferN, mismatched
+//     types untyped int and untyped string (cannot infer T)": the substance
+//     names the user's own conflicting values, so it is preserved: tag +
+//     substance + hint.
 //  3. constraint violation — "T (type time.Duration) does not satisfy ...":
 //     inference SUCCEEDED and the winning type argument violates the
 //     component's constraint; instantiating explicitly would fail the same
@@ -1165,9 +1165,10 @@ func probeSiteForError(inferByXGo map[string]*inferRegistry, fset *token.FileSet
 //     XxxProps[T any] without instantiation" (the default-branch probe for a
 //     generic tag supplying NO declared prop: there is nothing to infer
 //     FROM, so the instantiate advice is exactly right). Gated on the
-//     message naming THIS site's propsType, so a user's own
-//     without-instantiation error (e.g. passing their own generic func value
-//     as a prop, positioned inside the probe span) passes through verbatim.
+//     message naming THIS site's props type (its BASE identifier — see
+//     below), so a user's own without-instantiation error (e.g. passing
+//     their own generic func value as a prop, positioned inside the probe
+//     span) passes through verbatim.
 //  5. argument-positioned leak — "cannot use 2 (...) as string value in
 //     argument to _gsxinfer1" (wrong type on a NON-generic prop of a generic
 //     tag; go/types positions it AT the offending argument): the probe
@@ -1183,15 +1184,43 @@ func probeSiteForError(inferByXGo map[string]*inferRegistry, fset *token.FileSet
 func rewriteProbeDiag(msg string, site *inferSite, rawOffset int) string {
 	tag := site.el.Tag
 	hint := fmt.Sprintf("please instantiate with <%s[%s] ...>", tag, arityTypeHint(site.arity))
+	// A supplied attr EXPRESSION is inlined into the probe call's arguments,
+	// so a user's own failing generic call there (`value={First(nil)}`)
+	// positions its error INSIDE the probe span too — the span match alone
+	// cannot distinguish the probe's own failure from the user's nested one.
+	// Two extra signals do (both verified live on go 1.26.1):
+	//   - the probe's OWN cannot-infer messages always carry the
+	//     "in call to _gsxinferN, "/"in call to _gsxcompsig, " prefix
+	//     (prefixed below); a user's nested call carries ITS OWN name there
+	//     instead ("in call to First, cannot infer T ..."), so an
+	//     un-prefixed cannot-infer at a probe span is the user's and passes
+	//     through untouched;
+	//   - the probe's OWN constraint violations position at the CALLEE,
+	//     while a user's nested one positions inside an ARGUMENT expression
+	//     (argAt hit) — so an argument-positioned does-not-satisfy passes
+	//     through untouched.
+	prefixed := probeNameLeakRE.MatchString(msg)
 	stripped := probeNameLeakRE.ReplaceAllString(msg, "")
+	// The without-instantiation arm matches the props type's BASE identifier:
+	// for an ALIAS-imported component the recorded propsType is the caller's
+	// spelling ("comp.HolderProps") while go/types prints the dep package's
+	// own NAME ("components.HolderProps") — the base identifier after the
+	// last dot is the invariant part of both spellings.
+	basePropsIdent := site.propsType
+	if i := strings.LastIndexByte(basePropsIdent, '.'); i >= 0 {
+		basePropsIdent = basePropsIdent[i+1:]
+	}
 	switch {
-	case strings.HasPrefix(stripped, "cannot infer"):
+	case prefixed && strings.HasPrefix(stripped, "cannot infer"):
 		return fmt.Sprintf("type inference failed for <%s>; %s", tag, hint)
-	case strings.Contains(stripped, "cannot infer"):
+	case prefixed && strings.Contains(stripped, "cannot infer"):
 		return fmt.Sprintf("type inference failed for <%s>: %s; %s", tag, stripped, hint)
 	case strings.Contains(stripped, "does not satisfy"):
+		if _, isArg := site.argAt(rawOffset); isArg {
+			return msg // argument-positioned: the user's own nested constraint violation
+		}
 		return fmt.Sprintf("type inference for <%s> failed: %s", tag, stripped)
-	case strings.Contains(stripped, "without instantiation") && strings.Contains(stripped, site.propsType):
+	case strings.Contains(stripped, "without instantiation") && strings.Contains(stripped, basePropsIdent):
 		return fmt.Sprintf("type inference failed for <%s>; %s", tag, hint)
 	case probeArgLeakRE.MatchString(stripped):
 		substance := probeArgLeakRE.ReplaceAllString(stripped, "")
