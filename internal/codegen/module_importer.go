@@ -581,6 +581,12 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	if err != nil {
 		return nil, err
 	}
+	// genericComps is the PACKAGE-WIDE props-type-name -> declaring-AST map
+	// (see analyze.go's buildSkeleton doc): built once here from every .gsx
+	// file's components (not just one file's), so a tag in page.gsx can infer
+	// against a generic component declared in a sibling box.gsx of the same
+	// package. The SAME map is passed to every file's buildSkeleton call below.
+	genericComps := genericCompsFor(componentsInFiles(gsxFiles), byo)
 	var goFiles []*goast.File
 	compsByXGo := map[string][]*gsxast.Component{}
 	factsByXGo := map[string]*fileFacts{}
@@ -596,7 +602,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	for path, f := range gsxFiles {
 		ff := m.fileScopedFacts(dir, f, propFields, nodeProps, attrsProps, byo, bag, fset)
 		factsByFile[path] = ff
-		skel, comps, imps, ctrlOff, infReg, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, ff.genericProps, ff.byo, m.opts.FieldMatcher, fset)
+		skel, comps, imps, ctrlOff, infReg, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, genericComps, ff.genericProps, ff.byo, m.opts.FieldMatcher, fset)
 		if berr != nil {
 			// buildSkeleton error handling: a positioned attrError becomes a
 			// diagnostic and skips this file; any other error is also recorded as a

@@ -415,6 +415,7 @@ tuple/t_nodeslice	diag gen render
 tuple/t_stringer	diag gen render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
+xpkg/generic_sibling_file	diag gen render
 xpkg/go_component_attrs_literal	diag gen render
 xpkg/go_component_attrs_literal_missing	diag render
 xpkg/imported_alias_collision	diag gen render

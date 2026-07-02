@@ -255,7 +255,7 @@ func isGsxNodeType(typ string) bool {
 // resolution: the file's GoChunks, plus each component's real props struct and
 // func signature, with a probe body (used-param locals, each interpolation as
 // `_gsxuse(expr)`, each child component as `_ = Child(ChildProps{})`).
-func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, attrsProps map[string]map[string]bool, importedGenericProps map[string]bool, byo *byoData, fm FieldMatcher, fset *token.FileSet) (string, []*gsxast.Component, []importSpec, map[gsxast.Node]int, *inferRegistry, error) {
+func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, attrsProps map[string]map[string]bool, genericComps map[string]*gsxast.Component, importedGenericProps map[string]bool, byo *byoData, fm FieldMatcher, fset *token.FileSet) (string, []*gsxast.Component, []importSpec, map[gsxast.Node]int, *inferRegistry, error) {
 	var comps []*gsxast.Component
 	for _, d := range file.Decls {
 		if c, ok := d.(*gsxast.Component); ok {
@@ -310,18 +310,22 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, 
 	// Offsets are recorded relative to compBuf during emitComponentSkeleton and
 	// adjusted below (after the prefix is assembled into sb) to be file-relative.
 	ctrlOff := map[gsxast.Node]int{}
-	genericProps := genericPropsFor(comps, byo)
-	maps.Copy(genericProps, importedGenericProps)
 	// genericComps maps a SAME-PACKAGE generic component's props-type name to
 	// its declaring AST, so emitProbes can build a caller-side inference probe
-	// (params + type-param decl) at each tag that omits its type args. An
-	// IMPORTED generic component is present in genericProps (via
-	// importedGenericProps, merged above) but absent here — buildSkeleton
-	// currently has no access to its declaring AST, so such a tag's probe is
-	// skipped (see emitProbes below); a later task restores imported inference
-	// via a caller-side helper built from the imported package's exported
-	// signature instead of its AST.
-	genericComps := genericCompsFor(comps, byo)
+	// (params + type-param decl) at each tag that omits its type args. It is
+	// computed PACKAGE-WIDE by the caller (from every .gsx file's components,
+	// not just this file's) so a tag in one file can infer against a generic
+	// component declared in a sibling file of the same package — see
+	// module_importer.go's analyze, which builds it once per package via
+	// componentsInFiles(gsxFiles) + genericCompsFor and passes the SAME map to
+	// every file's buildSkeleton call. An IMPORTED generic component is present
+	// in genericProps (via importedGenericProps, merged below) but absent from
+	// genericComps — buildSkeleton has no access to its declaring AST, so such
+	// a tag's probe is skipped (see emitProbes below); a later task restores
+	// imported inference via a caller-side helper built from the imported
+	// package's exported signature instead of its AST.
+	genericProps := genericPropsFrom(genericComps)
+	maps.Copy(genericProps, importedGenericProps)
 	registry := newInferRegistry()
 	// Keep only the components whose skeletons succeed. A validation error
 	// (errSkipComponent — reserved param/recv, parse failure) means the component
@@ -416,9 +420,28 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, 
 	return sb.String(), comps, imports, ctrlOff, registry, nil
 }
 
+// genericPropsFor computes the bool-only generic-props view directly from a
+// component list; it is still used at module_importer.go's importedPropFacts
+// call site, which needs only the bool set for a DEPENDENCY package's own
+// components (already package-wide there — componentsInFiles(files) covers
+// every file of that dep package). buildSkeleton no longer calls this itself
+// (see genericPropsFrom below): its genericComps arg is computed once, package-
+// wide, by the caller (module_importer.go's analyze).
 func genericPropsFor(comps []*gsxast.Component, byo *byoData) map[string]bool {
 	out := map[string]bool{}
 	for k := range genericCompsFor(comps, byo) {
+		out[k] = true
+	}
+	return out
+}
+
+// genericPropsFrom derives the bool-only view from an already-computed
+// genericComps map (props-type name -> declaring AST) — used by buildSkeleton,
+// which receives genericComps as a package-wide map from its caller instead of
+// computing it from a single file's components.
+func genericPropsFrom(genericComps map[string]*gsxast.Component) map[string]bool {
+	out := make(map[string]bool, len(genericComps))
+	for k := range genericComps {
 		out[k] = true
 	}
 	return out
@@ -430,9 +453,10 @@ func genericPropsFor(comps []*gsxast.Component, byo *byoData) map[string]bool {
 // just a bool. buildSkeleton needs the AST (its full param list + type-param
 // declaration) to emit a caller-side inference probe (emitInferProbe) at each
 // same-package tag that omits its type args; harvest only needs the bool set,
-// so genericPropsFor keeps its original signature (its other call site,
-// module_importer.go, doesn't need the AST) and is now defined in terms of
-// this function.
+// so genericPropsFor keeps its original signature and is defined in terms of
+// this function. module_importer.go's analyze calls this directly (over
+// componentsInFiles(gsxFiles), package-wide) to build the genericComps map it
+// passes to every file's buildSkeleton call.
 func genericCompsFor(comps []*gsxast.Component, byo *byoData) map[string]*gsxast.Component {
 	out := map[string]*gsxast.Component{}
 	for _, c := range comps {

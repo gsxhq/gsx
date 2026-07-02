@@ -164,7 +164,8 @@ component Page() {
 	if err != nil {
 		t.Fatalf("loadFilterTable: %v", err)
 	}
-	skel, _, _, _, registry, err := buildSkeleton(file, table, propFields, nodeProps, attrsProps, nil, byo, nil, fset)
+	genericComps := genericCompsFor(componentsInFiles(files), byo)
+	skel, _, _, _, registry, err := buildSkeleton(file, table, propFields, nodeProps, attrsProps, genericComps, nil, byo, nil, fset)
 	if err != nil {
 		t.Fatalf("buildSkeleton: %v", err)
 	}
