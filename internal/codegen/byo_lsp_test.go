@@ -1,7 +1,6 @@
 package codegen
 
 import (
-	goast "go/ast"
 	"os"
 	"path/filepath"
 	"strings"
@@ -153,8 +152,6 @@ component Page(someVar string, pd Props) {
 	for _, in := range interps {
 		if skel := pr.ExprMap[in]; skel == nil {
 			t.Errorf("ExprMap missing entry for Interp %q (expr=%q)", in.Expr, in.Expr)
-		} else if _, ok := skel.(goast.Expr); !ok {
-			t.Errorf("ExprMap[interp %q] = %T, want goast.Expr", in.Expr, skel)
 		}
 	}
 

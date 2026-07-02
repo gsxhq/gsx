@@ -12,6 +12,63 @@ A tag that starts with an **uppercase letter** (or a dotted package path like `<
 
 The `Page` component itself has params `t string` and `n int`, so `Page(PageProps{T: "Hi", N: 3})` is valid Go at the call site. Component names are just Go identifiers; cross-package calls look like `<ui.Button label="X"/>` where `ui` is an imported package alias.
 
+## Generic components
+
+Components can declare Go type parameters after the component name. The
+generated props type and component function carry the same type parameters.
+Component tags can pass explicit type arguments with Go-style brackets, or omit
+them when Go can infer the type arguments from the supplied props.
+
+```gsx
+component Box[T string | int](value T) {
+	<span>box</span>
+}
+
+component Page() {
+	<Box[int] value={7} />
+	<Box[string] value={"ok"} />
+	<Box value={"inferred"} />
+}
+```
+
+This lowers to generic Go declarations shaped like
+`type BoxProps[T string | int] struct { ... }` and
+`func Box[T string | int](p BoxProps[T]) gsx.Node`. A generic tag call lowers to
+an explicit Go instantiation:
+
+```go
+Box[int](BoxProps[int]{Value: 7})
+Box[string](BoxProps[string]{Value: "ok"})
+```
+
+For omitted tag type arguments, gsx asks Go's type checker to infer them during
+generation and then emits the same explicit shape in the final `.x.go`:
+
+```go
+Box[string](BoxProps[string]{Value: "inferred"})
+```
+
+Inference only uses information available at the component call site. If Go
+cannot infer a type parameter from the supplied props, generation fails with a
+diagnostic asking for an explicit instantiation:
+
+```text
+type inference failed for <Box>; please instantiate with <Box[type] ...>
+```
+
+Use explicit type arguments when a type parameter does not appear in a supplied
+prop, when the value is ambiguous, or when you want the call site to state the
+instantiation directly.
+
+### Renderable type parameters
+
+Interpolating a value of type parameter `T` directly — `{value}` where `value T` — only compiles when `T`'s constraint fits one of two shapes:
+
+- **Same kind**: every term is the same basic kind, tilde or not (`~string`, `int | ~int64`, a single named type like `Slug`). Codegen emits a static conversion (`string(value)`, `int64(value)`, …) that compiles for the whole type set.
+- **Mixed kinds, all dispatchable**: terms mix kinds but every term is either an unnamed predeclared type (`string`, `int`, `bool`, …), an unnamed `[]byte`, or implements `fmt.Stringer` — for example `string | int` or `MyStringer | string`. Codegen emits a runtime type switch that has a matching case for each term.
+
+Anything else — a tilde term mixed with another kind (`~string | int`), or a named scalar term with no `String()` method mixed with another kind (`Slug | int` where `type Slug string`) — is rejected at generate time with `error[unrenderable]`, because neither the static conversion nor the runtime switch covers every type in the set. Convert explicitly in the expression instead, e.g. `{string(value)}`.
+
 ## Children `{children}`
 
 When a component wraps nested markup, it accesses that markup through the special `{children}` placeholder. The caller places any content between the open and close tags; the component decides where it appears by writing `{children}` in its body.
@@ -87,5 +144,13 @@ A component can be declared as a **method** on a named struct, binding it to a r
 `component (p UsersPage) Page()` and `component (p UsersPage) Grid(sort string)` each compile to methods on `UsersPage`. Inside any method component's body, the receiver name (`p`) is in scope for reading page state, and the declared params (`sort`) carry per-call data from the generated props struct.
 
 A method component invokes another method component with `<receiver.Method .../>`, where `receiver` is the receiver variable name. In the example, `Page` calls `<p.Grid sort={p.Sort}/>`: the `p.` prefix routes the call to the `Grid` method on the same receiver value, passing `sort` from the current page state. This is analogous to `<pkg.Name/>` for package-qualified components, except `p` is a local variable rather than an import alias.
+
+Method components may also declare method-owned type parameters, for example
+`component (p Page) Row[T any](value T) { ... }`, and are invoked as
+`<p.Row[int] value={1} />`. Generated Go for that form requires a go1.27+
+toolchain (the first release whose `go/parser` accepts methods with type
+parameters). On an older toolchain, gsx skips the component and reports
+`error[unsupported-toolchain]`; generation continues for the rest of the
+package.
 
 Method components are useful for page handlers: the HTTP handler builds the struct from the request, then the template methods read from it without threading data through every call. Multiple method components on the same receiver share the receiver's fields without any additional passing.

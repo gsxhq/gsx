@@ -2,6 +2,7 @@ package gsx
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strconv"
 )
@@ -117,4 +118,85 @@ func (gw *Writer) Node(ctx context.Context, n Node) {
 // safe and needs no HTML escaping.
 func (gw *Writer) CSS(s string) {
 	gw.writeStr(cssValueFilter(s))
+}
+
+// anyRenderString converts a dynamically-typed renderable value to its text
+// form, matching the static per-category emit paths byte-for-byte (FormatInt
+// base 10, FormatFloat 'g' -1 64, FormatBool, Stringer.String, string/[]byte
+// verbatim). It matches EXACT predeclared types (string, []byte, the sized
+// int/uint/float kinds, bool) plus the fmt.Stringer interface (which also
+// matches named Stringer types) — a named scalar with no String() method
+// (type Slug string) returns ok=false, mirroring gsx.Val's documented
+// contract. codegen (classifyTypeParam) only routes here for type parameters
+// whose constraint terms are all non-tilde AND individually dispatchable —
+// an unnamed predeclared type, an unnamed []byte, or a Stringer — so every
+// term in the constraint has a matching case here and the dispatch is total.
+func anyRenderString(v any) (string, bool) {
+	switch t := v.(type) {
+	case string:
+		return t, true
+	case []byte:
+		return string(t), true
+	case fmt.Stringer:
+		return t.String(), true
+	case bool:
+		return strconv.FormatBool(t), true
+	case int:
+		return strconv.FormatInt(int64(t), 10), true
+	case int8:
+		return strconv.FormatInt(int64(t), 10), true
+	case int16:
+		return strconv.FormatInt(int64(t), 10), true
+	case int32:
+		return strconv.FormatInt(int64(t), 10), true
+	case int64:
+		return strconv.FormatInt(t, 10), true
+	case uint:
+		return strconv.FormatUint(uint64(t), 10), true
+	case uint8:
+		return strconv.FormatUint(uint64(t), 10), true
+	case uint16:
+		return strconv.FormatUint(uint64(t), 10), true
+	case uint32:
+		return strconv.FormatUint(uint64(t), 10), true
+	case uint64:
+		return strconv.FormatUint(t, 10), true
+	case uintptr:
+		return strconv.FormatUint(uint64(t), 10), true
+	case float32:
+		return strconv.FormatFloat(float64(t), 'g', -1, 64), true
+	case float64:
+		return strconv.FormatFloat(t, 'g', -1, 64), true
+	}
+	return "", false
+}
+
+// TextAny writes v as escaped text, dispatching on its dynamic type. Codegen
+// emits it for interpolations whose type is a type parameter with a MIXED
+// non-tilde constraint whose terms are all runtime-dispatchable (e.g. T
+// string | int) — classify proves every term has a matching case in
+// anyRenderString at generate time, so the dispatch is total for generated
+// code. See gsx.Val for the named-types-not-matched contract this mirrors.
+func (gw *Writer) TextAny(v any) {
+	s, ok := anyRenderString(v)
+	if !ok {
+		if gw.err == nil {
+			gw.err = fmt.Errorf("gsx: TextAny: unsupported dynamic type %T", v)
+		}
+		return
+	}
+	gw.Text(s)
+}
+
+// AttrAny is TextAny for attribute-value position (AttrValue escaping).
+// See gsx.Val for the named-types-not-matched contract this mirrors.
+func (gw *Writer) AttrAny(v any) {
+	s, ok := anyRenderString(v)
+	if !ok {
+		if gw.err == nil {
+			gw.err = fmt.Errorf("gsx: AttrAny: unsupported dynamic type %T", v)
+		}
+		return
+	}
+	gw.AttrValue(s)
 }

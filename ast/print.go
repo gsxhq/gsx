@@ -33,7 +33,11 @@ func fprintNode(w io.Writer, node Node, depth int) error {
 			return err
 		}
 	case *Component:
-		if _, err := fmt.Fprintf(w, "%sComponent name=%s recv=%q params=%q\n", indent, n.Name, n.Recv, n.Params); err != nil {
+		typeParams := ""
+		if n.TypeParams != "" {
+			typeParams = fmt.Sprintf(" typeParams=%q", n.TypeParams)
+		}
+		if _, err := fmt.Fprintf(w, "%sComponent name=%s recv=%q%s params=%q\n", indent, n.Name, n.Recv, typeParams, n.Params); err != nil {
 			return err
 		}
 		for _, m := range n.Body {
@@ -42,7 +46,11 @@ func fprintNode(w io.Writer, node Node, depth int) error {
 			}
 		}
 	case *Element:
-		if _, err := fmt.Fprintf(w, "%sElement tag=%s void=%v\n", indent, n.Tag, n.Void); err != nil {
+		typeArgs := ""
+		if n.TypeArgs != "" {
+			typeArgs = fmt.Sprintf(" typeArgs=%q", n.TypeArgs)
+		}
+		if _, err := fmt.Fprintf(w, "%sElement tag=%s%s void=%v\n", indent, n.Tag, typeArgs, n.Void); err != nil {
 			return err
 		}
 		for _, a := range n.Attrs {

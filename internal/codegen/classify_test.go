@@ -141,3 +141,61 @@ func C(s string) {}
 		t.Error("C's first param (string) should NOT be context.Context")
 	}
 }
+
+// typeParamOf type-checks src and returns the first type parameter of func F.
+func typeParamOf(t *testing.T, src string) *types.TypeParam {
+	t.Helper()
+	scope := typeCheckFuncs(t, src)
+	sig := sigOf(t, scope, "F")
+	if sig.TypeParams().Len() == 0 {
+		t.Fatal("F has no type params")
+	}
+	return sig.TypeParams().At(0)
+}
+
+func TestClassifyTypeParam(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want category
+	}{
+		{"mixed string|int", `package x
+func F[T string | int](v T) {}`, catAnyMixed},
+		{"uniform ~string", `package x
+func F[T ~string](v T) {}`, catString},
+		{"uniform int kinds", `package x
+func F[T ~int | ~int64](v T) {}`, catInt},
+		{"mixed with tilde", `package x
+func F[T ~string | int](v T) {}`, catUnsupported},
+		{"unrenderable term", `package x
+func F[T string | []int](v T) {}`, catUnsupported},
+		{"stringer constraint method", `package x
+import "fmt"
+func F[T fmt.Stringer](v T) {}`, catStringer},
+		{"any", `package x
+func F[T any](v T) {}`, catUnsupported},
+		{"named non-tilde mixed", `package x
+type Slug string
+func F[T Slug | int](v T) {}`, catUnsupported},
+		{"uniform named", `package x
+type Slug string
+func F[T Slug](v T) {}`, catString},
+		{"named Stringer mixed with string", `package x
+type S struct{}
+func (S) String() string { return "" }
+func F[T S | string](v T) {}`, catAnyMixed},
+		{"named byte element mixed with string", `package x
+type MyByte byte
+func F[T []MyByte | string](v T) {}`, catUnsupported},
+		{"alias byte element mixed with string", `package x
+type B = byte
+func F[T []B | string](v T) {}`, catAnyMixed},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := classify(typeParamOf(t, c.src)); got != c.want {
+				t.Fatalf("classify = %v, want %v", got, c.want)
+			}
+		})
+	}
+}

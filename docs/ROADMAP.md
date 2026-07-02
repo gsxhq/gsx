@@ -98,8 +98,10 @@ render goldens.
 6. [x] **Method components** — `component (p T) Name(params) { … }` → method
    `func (p T) Name(...)`; invocation `<p.Content/>` (left ident == enclosing
    receiver var) → method call; other dotted tags stay package calls. Also fixed
-   `ctx`-in-interpolation. **Deferred:** `<v.Method/>` for a non-receiver local;
-   generic receivers `(p T[X])`.
+   `ctx`-in-interpolation. Generic function components and generic method-component
+   syntax lower to Go-shaped generic declarations; method-owned type parameters
+   require a Go toolchain with generic method support. **Deferred:** `<v.Method/>`
+   for a non-receiver local; generic receivers `(p T[X])`.
 7. [x] **Attribute fallthrough** — undeclared invocation attrs split (declared
    props matched against an AST-derived prop-name map vs everything else → an
    `Attrs gsx.Attrs` bag). **Auto** single-root: the bag's `class` merges into the
@@ -378,6 +380,17 @@ vocabulary remains a design aspiration, not the current API.
 - [ ] **Codegen niceties** — [x] coalesce adjacent `gw.S` static writes;
   [ ] `//line` trailing-state reset; [ ] `data:image` resource-URL allowance
   after navigational/resource URL contexts are split.
+- [x] **`//go:` directive / build-constraint pass-through** — program-significant
+  comment lines before the `package` clause (`//go:build`, `//go:generate`,
+  `//go:debug`, legacy `// +build`) copy verbatim into the generated `.x.go`,
+  between the generated-code marker and the package clause; prose stays
+  `.gsx`-only and `//line` is excluded. Generation stays build-context-independent
+  (every `.gsx` generates regardless of host `GOOS`); constraints take effect at
+  `go build`. See `docs/guide/syntax.md` §Build constraints.
+- [ ] **Tag-aware `.gsx` analysis** — duplicate component names across mutually
+  exclusive build constraints (two `.gsx` files gated by disjoint `//go:build`
+  tags) currently collide, because analysis type-checks a package's `.gsx` files
+  as one unit regardless of build tags.
 - [ ] **Tooling performance measurement on a realistic large corpus** — the
   existing baseline (`gen/perf_test.go`, `GSX_PERF=1`; note
   `2026-06-24-go-to-gsx-perf.md`) uses a *synthetic* 50-package fixture: ~383 ms/package

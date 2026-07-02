@@ -92,6 +92,16 @@ components/component_prop_pipeline	diag gen render
 components/component_spread	diag gen render
 components/component_spread_with_class	diag gen render
 components/embedded_attr_rejected	diag(error)
+components/generic_attr_typeparam	diag gen render
+components/generic_children	diag gen render
+components/generic_function_component	diag gen render
+components/generic_inference_failed_diag	diag(error)
+components/generic_inferred_tag	diag gen render
+components/generic_named_byteslice_diag	diag gen render
+components/generic_named_mixed_diag	diag gen render
+components/generic_tilde_mixed_diag	diag gen render
+components/generic_uniform_constraint	diag gen render
+components/gobuild_directives	diag gen render
 components/handwritten_func_with_props	diag render
 components/named_slot	diag render
 components/named_slot_bad_name	diag(error)
@@ -393,4 +403,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 395 cases (render: 307, error: 66, gen-pinned: 157)
+TOTAL: 405 cases (render: 316, error: 67, gen-pinned: 166)

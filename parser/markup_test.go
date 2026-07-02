@@ -127,6 +127,29 @@ func TestParseDottedComponentTag(t *testing.T) {
 	}
 }
 
+func TestParseComponentTagTypeArgs(t *testing.T) {
+	p := testParser(`<EditCheckbox[pgtype.Bool] checked={value} />`)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := n.(*ast.Element)
+	if el.Tag != "EditCheckbox" || el.TypeArgs != "pgtype.Bool" {
+		t.Fatalf("got tag=%q typeArgs=%q", el.Tag, el.TypeArgs)
+	}
+}
+
+func TestRejectHTMLElementTypeArgs(t *testing.T) {
+	p := testParser(`<div[int]>x</div>`)
+	_, err := p.parseElement()
+	if err == nil {
+		t.Fatal("expected error for type args on HTML element")
+	}
+	if !strings.Contains(err.Error(), "type arguments are only valid on component tags") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestParseChildrenNested(t *testing.T) {
 	p := testParser(`<div class="card"><h2>{title}</h2>text</div>`)
 	n, err := p.parseElement()
@@ -1419,5 +1442,33 @@ func TestQuotedXDataNoHoleStaysStatic(t *testing.T) {
 	a, ok := attrs[0].(*ast.StaticAttr)
 	if !ok || a.Name != "x-data" || a.Value != "{ open: false }" {
 		t.Fatalf("attr0 = %#v, want StaticAttr{x-data, { open: false }}", attrs[0])
+	}
+}
+
+func TestUnterminatedTypeArgsAnchoredAtBracket(t *testing.T) {
+	src := "package v\n\ncomponent Page() {\n\t<Box[int value={7} />\n\t<p>list ] end</p>\n}\n"
+	fset := token.NewFileSet()
+	_, errs := ParseFileWithClassifier(fset, "in.gsx", []byte(src), 0, nil)
+	if len(errs) == 0 {
+		t.Fatal("want a parse error")
+	}
+	pos := fset.Position(errs[0].Pos)
+	if pos.Line != 4 {
+		t.Fatalf("error anchored at line %d (%s), want line 4 (the broken <Box[ tag)", pos.Line, errs[0].Msg)
+	}
+	if !strings.Contains(errs[0].Msg, "unterminated type args") {
+		t.Fatalf("got error %q, want unterminated type args", errs[0].Msg)
+	}
+}
+
+func TestEmptyTypeArgsRejected(t *testing.T) {
+	src := "package v\n\ncomponent Page() {\n\t<Box[] value={7} />\n}\n"
+	fset := token.NewFileSet()
+	_, errs := ParseFileWithClassifier(fset, "in.gsx", []byte(src), 0, nil)
+	if len(errs) == 0 || !strings.Contains(errs[0].Msg, "empty type argument list") {
+		t.Fatalf("errs = %v, want empty type argument list", errs)
+	}
+	if p := fset.Position(errs[0].Pos); p.Line != 4 {
+		t.Fatalf("anchored at line %d, want 4", p.Line)
 	}
 }

@@ -130,8 +130,11 @@ func (p *printer) component(c *ast.Component) pretty.Doc {
 	if c.Recv != "" {
 		head = append(head, pretty.Text(fmtRecv(c.Recv)), pretty.Text(" "))
 	}
-	head = append(head,
-		pretty.Text(c.Name), pretty.Text("("), pretty.Text(fmtParams(c.Params)), pretty.Text(") {"))
+	head = append(head, pretty.Text(c.Name))
+	if c.TypeParams != "" {
+		head = append(head, pretty.Text("["), pretty.Text(fmtTypeParams(c.TypeParams)), pretty.Text("]"))
+	}
+	head = append(head, pretty.Text("("), pretty.Text(fmtParams(c.Params)), pretty.Text(") {"))
 
 	body := pretty.Text("")
 	if len(c.Body) > 0 {
@@ -175,6 +178,10 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 	for _, a := range e.Attrs {
 		attrs = append(attrs, pretty.Line, p.attrDoc(a))
 	}
+	tag := pretty.Text(e.Tag)
+	if e.TypeArgs != "" {
+		tag = pretty.Concat(tag, pretty.Text("["), pretty.Text(fmtTypeArgs(e.TypeArgs)), pretty.Text("]"))
+	}
 	// Opening tag group: flat → `<tag a b>`; broken → each attr on its own line
 	// with `>` (or `/>`) alone. A forced break inside any attr (CondAttr) breaks
 	// the group; otherwise it breaks only on width overflow.
@@ -185,10 +192,10 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 	}
 	var openGroupBody pretty.Doc
 	if len(e.Attrs) == 0 {
-		openGroupBody = pretty.Concat(pretty.Text("<"), pretty.Text(e.Tag), tail)
+		openGroupBody = pretty.Concat(pretty.Text("<"), tag, tail)
 	} else {
 		openGroupBody = pretty.Concat(
-			pretty.Text("<"), pretty.Text(e.Tag),
+			pretty.Text("<"), tag,
 			pretty.Indent(pretty.Concat(attrs...)),
 			pretty.SoftLine, tail)
 	}
@@ -1034,6 +1041,52 @@ func fmtParams(src string) string {
 	return trimmed
 }
 
+// fmtTypeParams formats a component type-parameter list via `func _m[T any]() {}`,
+// extracting the gofmt-rendered field list (sans the outer brackets).
+func fmtTypeParams(src string) string {
+	trimmed := strings.TrimSpace(src)
+	if trimmed == "" {
+		return ""
+	}
+	f, fset, ok := parseWrapped("package p\nfunc _m[" + trimmed + "]() {}\n")
+	if !ok {
+		return trimmed
+	}
+	fd, ok := f.Decls[0].(*goast.FuncDecl)
+	if !ok || fd.Type.TypeParams == nil {
+		return trimmed
+	}
+	if out, ok := fmtFieldList(fset, fd.Type.TypeParams); ok {
+		return out
+	}
+	return trimmed
+}
+
+// fmtTypeArgs formats a component tag type-argument list via `var _ = _m[ARGS]`,
+// extracting gofmt's normalized bytes inside the brackets.
+func fmtTypeArgs(src string) string {
+	trimmed := strings.TrimSpace(src)
+	if trimmed == "" {
+		return ""
+	}
+	wrapped := "package p\nvar _ = _m[" + trimmed + "]\n"
+	out, err := format.Source([]byte(wrapped))
+	if err != nil {
+		return trimmed
+	}
+	const prefix = "var _ = _m["
+	s := string(out)
+	_, rest, ok := strings.Cut(s, prefix)
+	if !ok {
+		return trimmed
+	}
+	j := strings.LastIndex(rest, "]")
+	if j < 0 {
+		return trimmed
+	}
+	return strings.TrimSpace(rest[:j])
+}
+
 // fmtRecv formats a method receiver via `func (RECV) _m() {}`. Recv is stored
 // including its parentheses, e.g. "(p UsersPage)"; the result is re-parenthesized.
 func fmtRecv(src string) string {
@@ -1224,11 +1277,10 @@ func fmtExprPreserving(src string) string {
 	}
 	s := string(out)
 	const marker = "var _ = "
-	i := strings.Index(s, marker)
-	if i < 0 {
+	_, body, ok := strings.Cut(s, marker)
+	if !ok {
 		return fmtExpr(src)
 	}
-	body := s[i+len(marker):]
 	return strings.TrimRight(body, "\n")
 }
 

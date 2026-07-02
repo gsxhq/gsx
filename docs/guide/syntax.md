@@ -47,15 +47,45 @@ golden-tested `examples/*.txtar` fixtures.
 | [Forms](./syntax/forms) | Form elements and helpers |
 :::
 
+## Build constraints and `//go:` directives
+
+Comment lines the Go toolchain acts on — `//go:build`, `//go:generate`,
+`//go:debug`, and legacy `// +build` — written before the `package` clause of
+a `.gsx` file are copied verbatim into the generated `.x.go`, so build
+constraints work exactly as they do for hand-written Go:
+
+```gsx
+//go:build linux
+
+package views
+
+component LinuxOnly() {
+	<p>linux</p>
+}
+```
+
+`gsx generate` always generates every `.gsx` file regardless of the host
+platform — constraints take effect at `go build`, so one generate pass serves
+cross-compilation. Prose comments (license headers, docs) stay in the `.gsx`
+only. Note the explicit constraint comment is the only mechanism: generated
+file names never acquire Go's implicit `_GOOS` filename constraints.
+
+One current limitation: two `.gsx` files with mutually exclusive constraints
+may not declare the same component name — analysis type-checks a package's
+`.gsx` files as one unit (see ROADMAP).
+
 ## Quick reference
 
 ::: v-pre
 | Form | Meaning |
 |------|---------|
 | `component X(params) { … }` | component declaration (emission body — no return) |
+| `component X[T constraint](params) { … }` | generic component declaration |
 | `component (p T) Name(params) { … }` | method component (receiver) |
+| `component (p T) Name[U constraint](params) { … }` | generic method component; requires a go1.27+ toolchain — older toolchains report `error[unsupported-toolchain]` for the component and generation continues |
 | `<div>`, `<el-dialog>` | HTML element (lowercase / hyphenated) |
 | `<Card>`, `<ui.Button>` | component (Capitalized / dotted) |
+| `<Card[T]>`, `<ui.Button[T]>`, `<p.Row[T]>` | explicit type arguments for a generic component call; omitted type arguments are inferred from supplied props when Go can infer them |
 | `{ expr }` | interpolation in body (auto HTML-escaped) |
 | any expression returning `(T, error)` | auto-unwraps to `T`; error propagates from the enclosing `Render` — no marker needed, applies in all expression positions (text, attrs, child-prop values, `{{ }}` pair values, pipelines) |
 | `name="lit"` | static string attribute |

@@ -263,9 +263,16 @@ func valueSwitchArmEnd(src string, from int) (int, bool) {
 	}
 }
 
-// parenEnd returns the index of the `)` matching the `(` at src[open], scanning
-// Go tokens from `open` so prose before `open` is never tokenized.
-func parenEnd(src string, open int) (int, bool) {
+// delimEnd returns the index of the `close` token matching the opener at
+// src[open], scanning Go tokens from `open` so prose before `open` is never
+// tokenized. `stop` (may be nil) is a set of tokens that terminate the scan
+// as not-found; it applies only to tokens DIRECTLY inside the scanned list
+// (depth 1) — nested brackets/braces may legally contain them (e.g. the `/`
+// in a `[8/4]byte` array length). Callers use it to bound a scan to a
+// syntactic context where those tokens are impossible, so a missing closer
+// fails fast at the opener instead of matching an unrelated closer pages
+// later.
+func delimEnd(src string, open int, close token.Token, stop map[token.Token]bool) (int, bool) {
 	sub := src[open:]
 	fset := token.NewFileSet()
 	file := fset.AddFile("", fset.Base(), len(sub))
@@ -283,9 +290,37 @@ func parenEnd(src string, open int) (int, bool) {
 			depth++
 		case token.RPAREN, token.RBRACE, token.RBRACK:
 			depth--
-			if depth == 0 && tok == token.RPAREN {
+			if depth == 0 && tok == close {
 				return open + fset.Position(pos).Offset, true
+			}
+		default:
+			if depth == 1 && stop[tok] {
+				return 0, false
 			}
 		}
 	}
+}
+
+// typeListStop are tokens that can never occur inside a Go type-argument or
+// type-parameter list: `<` alone (chan's `<-` is the distinct ARROW token),
+// `>`, `/`, an inserted-or-real semicolon (Go itself rejects a bare newline
+// before the `]`), and scanner ILLEGAL. Hitting one means the `[` list is
+// unterminated — the caller anchors its error at the opener.
+var typeListStop = map[token.Token]bool{
+	token.SEMICOLON: true,
+	token.LSS:       true,
+	token.GTR:       true,
+	token.QUO:       true,
+	token.ILLEGAL:   true,
+}
+
+// parenEnd returns the index of the `)` matching the `(` at src[open].
+func parenEnd(src string, open int) (int, bool) {
+	return delimEnd(src, open, token.RPAREN, nil)
+}
+
+// bracketEnd returns the index of the `]` matching the `[` at src[open],
+// bounded by typeListStop (it only ever scans type-arg/type-param lists).
+func bracketEnd(src string, open int) (int, bool) {
+	return delimEnd(src, open, token.RBRACK, typeListStop)
 }

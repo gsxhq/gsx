@@ -42,6 +42,50 @@ func TestParseComponentMethod(t *testing.T) {
 	}
 }
 
+func TestParseComponentTypeParams(t *testing.T) {
+	src := `component EditCheckbox[T bool | pgtype.Bool](value T) {
+		<input checked={value} />
+	}`
+	p := testParser(src)
+	c, err := p.parseComponent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Recv != "" || c.Name != "EditCheckbox" || c.TypeParams != "T bool | pgtype.Bool" || c.Params != "value T" {
+		t.Fatalf("got %+v", c)
+	}
+}
+
+func TestParseComponentTypeParamsNestedSlash(t *testing.T) {
+	// '/' inside a nested bracket (array-length division — legal Go:
+	// func F[T [8/4]byte]() compiles) must not trip the type-list stop set.
+	src := `component Matrix[T [8/4]byte](v T) {
+		<p>x</p>
+	}`
+	p := testParser(src)
+	c, err := p.parseComponent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Recv != "" || c.Name != "Matrix" || c.TypeParams != "T [8/4]byte" || c.Params != "v T" {
+		t.Fatalf("got %+v", c)
+	}
+}
+
+func TestParseMethodComponentTypeParams(t *testing.T) {
+	src := `component (p Page) EditCheckbox[T bool | pgtype.Bool](value T) {
+		<input checked={value} />
+	}`
+	p := testParser(src)
+	c, err := p.parseComponent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Recv != "(p Page)" || c.Name != "EditCheckbox" || c.TypeParams != "T bool | pgtype.Bool" || c.Params != "value T" {
+		t.Fatalf("got %+v", c)
+	}
+}
+
 func TestComponentBodyWithApostrophe(t *testing.T) {
 	// C1: apostrophe in body markup on the same line as a later brace must parse.
 	src := "package p\ncomponent C(n int) {\n\t<p>Today's items: {n}</p>\n}"
@@ -86,5 +130,14 @@ func TestComponentBodyUnterminated(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "component body") {
 		t.Fatalf("error = %v, want mention of `component body`", err)
+	}
+}
+
+func TestEmptyTypeParamsRejected(t *testing.T) {
+	src := "package v\n\ncomponent Box[](value int) {\n\t<p>x</p>\n}\n"
+	fset := token.NewFileSet()
+	_, errs := ParseFileWithClassifier(fset, "in.gsx", []byte(src), 0, nil)
+	if len(errs) == 0 || !strings.Contains(errs[0].Msg, "empty type parameter list") {
+		t.Fatalf("errs = %v, want empty type parameter list", errs)
 	}
 }

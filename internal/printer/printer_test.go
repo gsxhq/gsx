@@ -529,6 +529,27 @@ component (page UsersPage) Render(title string, featured bool) {
 	checkFormat(t, src, want)
 }
 
+func TestComponentTypeParams(t *testing.T) {
+	src := `package p
+component EditCheckbox[T bool|pgtype.Bool](value T) {
+	<input checked={value}/>
+}
+component (page Page) Field[T any](value T) {
+	<EditCheckbox[pgtype.Bool] checked={value} />
+}`
+	want := `package p
+
+component EditCheckbox[T bool | pgtype.Bool](value T) {
+	<input checked={value}/>
+}
+
+component (page Page) Field[T any](value T) {
+	<EditCheckbox[pgtype.Bool] checked={value}/>
+}
+`
+	checkFormat(t, src, want)
+}
+
 func TestPreVerbatim(t *testing.T) {
 	src := "package p\ncomponent C() {\n\t<pre>  line1\n    line2  </pre>\n}"
 	want := "package p\n\ncomponent C() {\n\t<pre>  line1\n    line2  </pre>\n}\n"

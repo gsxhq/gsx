@@ -42,6 +42,23 @@ func (p *parser) parseComponent() (*ast.Component, error) {
 	}
 
 	p.skipSpace()
+	// optional type params
+	if p.peek() == '[' {
+		end, ok := bracketEnd(p.src, p.i)
+		if !ok {
+			return nil, p.errorf(p.pos(), "unterminated type params")
+		}
+		raw := p.src[p.i+1 : end]
+		lead := len(raw) - len(strings.TrimLeft(raw, " \t\r\n"))
+		c.TypeParamsPos = p.posAt(p.i + 1 + lead)
+		c.TypeParams = strings.TrimSpace(raw)
+		if c.TypeParams == "" {
+			return nil, p.errorf(p.pos(), "empty type parameter list")
+		}
+		p.i = end + 1
+		p.skipSpace()
+	}
+
 	// optional params
 	if p.peek() == '(' {
 		end, ok := parenEnd(p.src, p.i)
