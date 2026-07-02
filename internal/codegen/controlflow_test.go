@@ -24,7 +24,7 @@ func TestBuildSkeletonRecordsCtrlOffsets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("propFields: %v", err)
 	}
-	skel, _, _, ctrlOff, err := buildSkeleton(file, table, pf, np, ap, byo, nil, fset)
+	skel, _, _, ctrlOff, err := buildSkeleton(file, table, pf, np, ap, nil, byo, nil, fset)
 	if err != nil {
 		t.Fatalf("buildSkeleton: %v", err)
 	}
@@ -86,5 +86,27 @@ func TestModulePackageBuildsCtrlMap(t *testing.T) {
 	dp := pr.Fset.Position(cr.ClauseStart)
 	if !strings.HasSuffix(dp.Filename, ".gsx") {
 		t.Errorf("ClauseStart maps to %s, want a .gsx position", dp.Filename)
+	}
+}
+
+func TestConditionalBoolAttrCondKeepsLocalLive(t *testing.T) {
+	root := t.TempDir()
+	repoRoot, _ := filepath.Abs("../..")
+	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	writeFile(t, root, "page.gsx", "package app\n\ncomponent Check() {\n\t{{ boolean := true }}\n\t<input { if boolean { checked } } />\n}\n")
+
+	res, err := GenerateDirs(root, []string{root}, Options{FilterPkgs: []string{StdImportPath}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diags := res[root].Diags; len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics: %+v", diags)
+	}
+	var got string
+	for _, src := range res[root].Files {
+		got = string(src)
+	}
+	if !strings.Contains(got, "if boolean") {
+		t.Fatalf("generated source missing conditional bool attr guard:\n%s", got)
 	}
 }

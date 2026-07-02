@@ -255,7 +255,7 @@ func isGsxNodeType(typ string) bool {
 // resolution: the file's GoChunks, plus each component's real props struct and
 // func signature, with a probe body (used-param locals, each interpolation as
 // `_gsxuse(expr)`, each child component as `_ = Child(ChildProps{})`).
-func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, fset *token.FileSet) (string, []*gsxast.Component, []importSpec, map[gsxast.Node]int, error) {
+func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, attrsProps map[string]map[string]bool, importedGenericProps map[string]bool, byo *byoData, fm FieldMatcher, fset *token.FileSet) (string, []*gsxast.Component, []importSpec, map[gsxast.Node]int, error) {
 	var comps []*gsxast.Component
 	for _, d := range file.Decls {
 		if c, ok := d.(*gsxast.Component); ok {
@@ -311,6 +311,7 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, 
 	// adjusted below (after the prefix is assembled into sb) to be file-relative.
 	ctrlOff := map[gsxast.Node]int{}
 	genericProps := genericPropsFor(comps, byo)
+	maps.Copy(genericProps, importedGenericProps)
 	// Keep only the components whose skeletons succeed. A validation error
 	// (errSkipComponent — reserved param/recv, parse failure) means the component
 	// is invalid for codegen; skip its skeleton so the overall file stays valid Go.
@@ -1227,7 +1228,7 @@ func probeExpr(seed string, stages []gsxast.PipeStage, table filterTable, usedFi
 // harvest reads each interpolation's resolved type from a type-checked skeleton
 // file. An interpolation probe is now an ExprStmt whose call target is the
 // identifier `_gsxuse`; harvest the single argument's type.
-func harvest(f *goast.File, comps []*gsxast.Component, info *types.Info, out map[gsxast.Node]types.Type, exprOut map[gsxast.Node]goast.Expr) {
+func harvest(f *goast.File, comps []*gsxast.Component, info *types.Info, genericProps map[string]bool, byo *byoData, out map[gsxast.Node]types.Type, exprOut map[gsxast.Node]goast.Expr) {
 	// Key by receiver-type + method name, not name alone: two method components
 	// with the same method name on different receivers (e.g. (UsersPage) Row and
 	// (OrdersPage) Row) are distinct, and their skeleton funcs are distinct
@@ -1317,6 +1318,17 @@ func harvest(f *goast.File, comps []*gsxast.Component, info *types.Info, out map
 			i := 0
 			forEachComponentTagElement(c.Body, func(el *gsxast.Element) {
 				if el.TypeArgs != "" || i >= len(inferred) {
+					return
+				}
+				recvVar, recvTypeName := "", ""
+				if c.Recv != "" {
+					if rv, _, rt, err := parseRecv(c.Recv); err == nil {
+						recvVar = rv
+						recvTypeName = rt
+					}
+				}
+				_, propsType, _ := childInvocation(el, byo, recvVar, recvTypeName)
+				if !genericProps[propsType] {
 					return
 				}
 				out[el] = inferred[i]
@@ -2018,6 +2030,9 @@ func walkLivenessAttrExprs(attrs []gsxast.Attr, table filterTable, usedFilters m
 				}
 			}
 		case *gsxast.CondAttr:
+			if c := strings.TrimSpace(at.Cond); c != "" {
+				fn(c)
+			}
 			walkLivenessAttrExprs(at.Then, table, usedFilters, fn)
 			walkLivenessAttrExprs(at.Else, table, usedFilters, fn)
 		}

@@ -290,11 +290,12 @@ func (m *Module) recordImports(dir string, paths []string) {
 // still reset there for uniformity. Invalidation: invalidateLocked deletes
 // the entry whenever the dep dir is in the dirty closure.
 type depPropFacts struct {
-	pkgName    string
-	propFields map[string]map[string]bool
-	nodeProps  map[string]map[string]bool
-	attrsProps map[string]map[string]bool
-	byo        *byoData
+	pkgName      string
+	propFields   map[string]map[string]bool
+	nodeProps    map[string]map[string]bool
+	attrsProps   map[string]map[string]bool
+	genericProps map[string]bool
+	byo          *byoData
 }
 
 // importedPropFacts returns dir's prop facts, deriving and caching them on
@@ -315,7 +316,8 @@ func (m *Module) importedPropFacts(depDir string) (*depPropFacts, error) {
 	if err != nil {
 		return nil, err
 	}
-	f := &depPropFacts{pkgName: pkgName, propFields: propFields, nodeProps: nodeProps, attrsProps: attrsProps, byo: byo}
+	comps := componentsInFiles(files)
+	f := &depPropFacts{pkgName: pkgName, propFields: propFields, nodeProps: nodeProps, attrsProps: attrsProps, genericProps: genericPropsFor(comps, byo), byo: byo}
 	m.mu.Lock()
 	if m.depFacts == nil {
 		m.depFacts = map[string]*depPropFacts{}
@@ -325,16 +327,29 @@ func (m *Module) importedPropFacts(depDir string) (*depPropFacts, error) {
 	return f, nil
 }
 
+func componentsInFiles(files map[string]*gsxast.File) []*gsxast.Component {
+	var comps []*gsxast.Component
+	for _, f := range files {
+		for _, d := range f.Decls {
+			if c, ok := d.(*gsxast.Component); ok {
+				comps = append(comps, c)
+			}
+		}
+	}
+	return comps
+}
+
 // fileFacts is the per-.gsx-file view of prop facts: the package's own facts
 // plus, for each gsx package imported BY THIS FILE, the dep's facts qualified
 // under the file's alias. Go import aliases are file-scoped, so these views
 // must be too — a package-wide alias merge collides when two files bind the
 // same alias to different packages.
 type fileFacts struct {
-	propFields map[string]map[string]bool
-	nodeProps  map[string]map[string]bool
-	attrsProps map[string]map[string]bool
-	byo        *byoData
+	propFields   map[string]map[string]bool
+	nodeProps    map[string]map[string]bool
+	attrsProps   map[string]map[string]bool
+	genericProps map[string]bool
+	byo          *byoData
 }
 
 // fileImportSpecs extracts f's hoisted import specs with resolved .gsx
@@ -373,7 +388,7 @@ func fileImportSpecs(f *gsxast.File, fset *token.FileSet) []importSpec {
 // a positioned Warning: its components fall back to the assume-prop regime
 // (declared == nil) instead of silently flip-flopping between regimes.
 func (m *Module) fileScopedFacts(dir string, f *gsxast.File, propFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, bag *diag.Bag, fset *token.FileSet) *fileFacts {
-	out := &fileFacts{propFields: propFields, nodeProps: nodeProps, attrsProps: attrsProps, byo: byo}
+	out := &fileFacts{propFields: propFields, nodeProps: nodeProps, attrsProps: attrsProps, genericProps: nil, byo: byo}
 	cloned := false
 	seen := map[string]bool{} // alias+"\x00"+depDir: dedupe repeated specs
 	for _, spec := range fileImportSpecs(f, fset) {
@@ -406,6 +421,7 @@ func (m *Module) fileScopedFacts(dir string, f *gsxast.File, propFields, nodePro
 			out.propFields = maps.Clone(propFields)
 			out.nodeProps = maps.Clone(nodeProps)
 			out.attrsProps = maps.Clone(attrsProps)
+			out.genericProps = map[string]bool{}
 			out.byo = byo.cloneForFile()
 			cloned = true
 		}
@@ -417,6 +433,9 @@ func (m *Module) fileScopedFacts(dir string, f *gsxast.File, propFields, nodePro
 		}
 		for name, fields := range facts.attrsProps {
 			out.attrsProps[alias+"."+name] = fields
+		}
+		for name := range facts.genericProps {
+			out.genericProps[alias+"."+name] = true
 		}
 		out.byo.mergeQualified(alias, facts.byo)
 	}
@@ -564,6 +583,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	}
 	var goFiles []*goast.File
 	compsByXGo := map[string][]*gsxast.Component{}
+	factsByXGo := map[string]*fileFacts{}
 	ctrlOffByXGo := map[string]map[gsxast.Node]int{}
 	var allImportSpecs []importSpec
 	factsByFile := map[string]*fileFacts{}
@@ -571,7 +591,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	for path, f := range gsxFiles {
 		ff := m.fileScopedFacts(dir, f, propFields, nodeProps, attrsProps, byo, bag, fset)
 		factsByFile[path] = ff
-		skel, comps, imps, ctrlOff, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, ff.byo, m.opts.FieldMatcher, fset)
+		skel, comps, imps, ctrlOff, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, ff.genericProps, ff.byo, m.opts.FieldMatcher, fset)
 		if berr != nil {
 			// buildSkeleton error handling: a positioned attrError becomes a
 			// diagnostic and skips this file; any other error is also recorded as a
@@ -596,6 +616,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		}
 		goFiles = append(goFiles, gf)
 		compsByXGo[absXpath] = comps
+		factsByXGo[absXpath] = ff
 		ctrlOffByXGo[absXpath] = ctrlOff
 	}
 	if skelErr {
@@ -760,7 +781,10 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		if !ok {
 			continue
 		}
-		harvest(gf, comps, info, resolved, exprMap)
+		ff := factsByXGo[fname]
+		genericProps := genericPropsFor(comps, ff.byo)
+		maps.Copy(genericProps, ff.genericProps)
+		harvest(gf, comps, info, genericProps, ff.byo, resolved, exprMap)
 		for _, c := range comps {
 			compByKey[componentKey(c)] = c
 		}
