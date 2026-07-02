@@ -336,6 +336,15 @@ vocabulary remains a design aspiration, not the current API.
 
 ## Tracked debts / deferrals
 
+- [x] **`` json`...` `` tagged literal** — decided (2026-07-02): declined in
+  favor of blessing `` js`...` `` for JSON-valued attributes (htmx `hx-vals`
+  et al.): holes already JSON-encode via the `html/template` port, so `js` output
+  in value position *is* valid JSON, pinned by `jsattr/hxvals_json` and
+  documented in `syntax/javascript.md`. Revisit only if compile-time JSON
+  well-formedness validation (trailing commas, single quotes) or multi-hole
+  JSON data islands become a real pain point; `{{ }}` interpolation was ruled
+  out (collides with composite-literal `{{…}}` and the quoted-attrs-are-literal
+  invariant).
 - [x] **Pipeline codegen + filters/`std`/`gen`** — SHIPPED (seed-first
   forward-application, `ctx` injection, `(T,error)` auto-unwrap, `gen.WithFilters` +
   `gen.WithFilter` aliases, multi-pkg last-wins). Spec

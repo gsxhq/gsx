@@ -1,0 +1,21 @@
+-- doc --
+name: JSON attribute values
+summary: js`...` renders valid JSON for attributes like htmx hx-vals; Go values in @{ ... } holes are serialized as JSON automatically — no manual toJSON helper.
+category: JavaScript
+order: 274
+page: javascript
+pageOrder: 55
+-- input.gsx --
+package views
+
+component EntityFilter(entityType string, opts map[string]string) {
+	<input
+		type="checkbox"
+		hx-post="/filter"
+		hx-vals=js`{"entity_type": @{entityType}, "opts": @{opts}}`
+	/>
+}
+-- invoke --
+EntityFilter(EntityFilterProps{EntityType: "opportunity", Opts: map[string]string{"page": "1"}})
+-- render.golden --
+<input type="checkbox" hx-post="/filter" hx-vals="{&#34;entity_type&#34;: &#34;opportunity&#34;, &#34;opts&#34;: {&#34;page&#34;:&#34;1&#34;}}"/>
