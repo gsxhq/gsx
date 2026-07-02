@@ -1,0 +1,22 @@
+-- doc --
+name: Generic components
+summary: A component can declare Go type parameters; tags instantiate them by inference from the props you pass, exactly like a Go call.
+category: Components & composition
+order: 122
+page: composition
+pageOrder: 70
+-- input.gsx --
+package views
+
+component Badge[T string | int](value T) {
+	<span class="badge">{value}</span>
+}
+
+component Page() {
+	<Badge value={"new"} />
+	<Badge value={42} />
+}
+-- invoke --
+Page()
+-- render.golden --
+<span class="badge">new</span><span class="badge">42</span>

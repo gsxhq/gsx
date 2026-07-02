@@ -1,0 +1,23 @@
+-- doc --
+name: Explicit type arguments
+summary: Inference follows Go's rules — untyped constants pick their default type — so add explicit type arguments when you want a different instantiation.
+category: Components & composition
+order: 124
+page: composition
+pageOrder: 80
+-- input.gsx --
+package views
+
+component Price[T int | float64](amount T, currency string) {
+	<b>{currency}{amount}</b>
+}
+
+component Page() {
+	<Price amount={9.99} currency="$" />
+	<Price amount={42} currency="€" />
+	<Price[float64] amount={4} currency="£" />
+}
+-- invoke --
+Page()
+-- render.golden --
+<b>$9.99</b><b>€42</b><b>£4</b>

@@ -186,6 +186,18 @@
     "invoke": "(UsersPage{Title: \"Team\", Sort: \"name\"}).Page()"
   },
   {
+    "name": "Generic components",
+    "category": "Components & composition",
+    "source": "package views\n\ncomponent Badge[T string | int](value T) {\n\t<span class=\"badge\">{ value }</span>\n}\n\ncomponent Page() {\n\t<Badge value={\"new\"}/>\n\t<Badge value={42}/>\n}\n",
+    "invoke": "Page()"
+  },
+  {
+    "name": "Explicit type arguments",
+    "category": "Components & composition",
+    "source": "package views\n\ncomponent Price[T int | float64](amount T, currency string) {\n\t<b>{ currency }{ amount }</b>\n}\n\ncomponent Page() {\n\t<Price amount={9.99} currency=\"$\"/>\n\t<Price amount={42} currency=\"€\"/>\n\t<Price[float64] amount={4} currency=\"£\"/>\n}\n",
+    "invoke": "Page()"
+  },
+  {
     "name": "Composable class",
     "category": "Styling",
     "source": "package views\n\ncomponent Tag(label string, active bool) {\n\t<span class={ \"tag\", \"tag--active\": active }>{ label }</span>\n}\n",
