@@ -2606,7 +2606,7 @@ outer:
 				// Hoist tuple/call pairs and rebuild the gsx.Attrs{…}
 				// literal; non-call pairs stay inline (see the ExprAttr note).
 				var sb strings.Builder
-				fmt.Fprintf(&sb, "%s: gsx.Attrs{", fe.fieldName)
+				sb.WriteString("gsx.Attrs{")
 				for j, pr := range fe.oaPairs {
 					pairType := resolved[&fe.oa.Pairs[j]]
 					_, isTup := tupleUnwrapType(pairType)
@@ -2625,7 +2625,11 @@ outer:
 					fmt.Fprintf(&sb, "{Key: %s, Value: %s}, ", strconv.Quote(pr.key), valueStr)
 				}
 				sb.WriteString("}")
-				fieldEntries[i].str = sb.String()
+				if fe.oaMergePrefix != "" {
+					fieldEntries[i].str = fmt.Sprintf("Attrs: %s.Merge(%s)", fe.oaMergePrefix, sb.String())
+				} else {
+					fieldEntries[i].str = fmt.Sprintf("%s: %s", fe.fieldName, sb.String())
+				}
 			}
 		}
 	}
@@ -2707,8 +2711,10 @@ type propFieldEntry struct {
 	fieldName   string        // Go field name; used to rebuild the string after hoisting
 	isNodeField bool          // whether the field expects gsx.Node (needs gsx.Val wrapping)
 	// For OrderedAttrsAttr fields:
-	oa      *ast.OrderedAttrsAttr // non-nil iff this entry came from an ordered-attrs attr
-	oaPairs []oaPairEntry         // per-pair info when oa != nil
+	oa            *ast.OrderedAttrsAttr // non-nil iff this entry came from an ordered-attrs attr
+	oaPairs       []oaPairEntry         // per-pair info when oa != nil
+	oaLit         string                // bare `<rtPkg>.Attrs{…}` literal text for an Attrs-targeted ordered-attrs attr (fieldName == "Attrs")
+	oaMergePrefix string                // composed fallthrough-bag expression the literal merges onto; "" when the literal stands alone
 }
 
 // oaPairEntry holds the key and raw value expression for one pair inside an
@@ -2852,6 +2858,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 	usedPkgs = map[string]string{}
 	var bag []string        // fallthrough base-literal entries: `"<rawName>": <value>`
 	var mergeChain []string // `.Merge(<spread>)` / `.Merge(<rtPkg>.AttrsCond(...))` in source order
+	attrsLitIdx := -1       // index into fields of an Attrs-targeted ordered-attrs literal, or -1
 	// recordPkgs merges a lowerPipe usedPkgs result into the shared set.
 	recordPkgs := func(used map[string]string) {
 		maps.Copy(usedPkgs, used)
@@ -2999,13 +3006,17 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 			if verr := validateMatchedField(fn, t.Name, propsType, declared); verr != nil {
 				return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "bad-field-match", msg: verr.Error()}
 			}
+			if fn == "Attrs" && attrsLitIdx >= 0 {
+				msg := fmt.Sprintf("duplicate ordered-attrs literal targeting the Attrs bag on <%s>; combine the pairs into one {{ }} literal", el.Tag)
+				return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "ordered-attrs-duplicate", msg: msg}
+			}
 			// Collect per-pair info for genChildComponent's tuple-hoist pass.
 			pairEntries := make([]oaPairEntry, len(t.Pairs))
 			for i, pr := range t.Pairs {
 				pairEntries[i] = oaPairEntry{key: pr.Key, rawVal: pr.Value}
 			}
 			var sb strings.Builder
-			fmt.Fprintf(&sb, "%s: %s.Attrs{", fn, rtPkg)
+			fmt.Fprintf(&sb, "%s.Attrs{", rtPkg)
 			for _, pr := range t.Pairs {
 				// When probeWrap=true (skeleton path), wrap each CALL pair value
 				// with _gsxunwrap(...) so the skeleton tolerates (T, error) tuples
@@ -3022,11 +3033,16 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				fmt.Fprintf(&sb, "{Key: %s, Value: %s}, ", strconv.Quote(pr.Key), val)
 			}
 			sb.WriteString("}")
+			lit := sb.String()
+			if fn == "Attrs" {
+				attrsLitIdx = len(fields)
+			}
 			fields = append(fields, propFieldEntry{
-				str:       sb.String(),
+				str:       fn + ": " + lit,
 				fieldName: fn,
 				oa:        t,
 				oaPairs:   pairEntries,
+				oaLit:     lit,
 			})
 		case *ast.EmbeddedAttr:
 			msg := fmt.Sprintf("embedded %s attribute literal %q cannot be used as a component prop on <%s>; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, el.Tag)
@@ -3059,7 +3075,17 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 		}
 		attrsExpr := fmt.Sprintf("%s.Attrs{%s}", rtPkg, strings.Join(bag, ", "))
 		attrsExpr += strings.Join(mergeChain, "")
-		fields = append(fields, propFieldEntry{str: "Attrs: " + attrsExpr})
+		if attrsLitIdx >= 0 {
+			// An explicit attrs={{ }} literal coexists with other bag
+			// contributors: fold them into ONE Attrs field — the composed bag
+			// first, the literal merged last — instead of emitting a duplicate
+			// struct field. The hoist pass rebuilds this composition when pair
+			// values are hoisted, keyed off oaMergePrefix.
+			fields[attrsLitIdx].oaMergePrefix = attrsExpr
+			fields[attrsLitIdx].str = fmt.Sprintf("Attrs: %s.Merge(%s)", attrsExpr, fields[attrsLitIdx].oaLit)
+		} else {
+			fields = append(fields, propFieldEntry{str: "Attrs: " + attrsExpr})
+		}
 	}
 	return fields, "", usedPkgs, nil
 }
