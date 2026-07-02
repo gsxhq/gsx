@@ -184,6 +184,12 @@ func F[T Slug](v T) {}`, catString},
 type S struct{}
 func (S) String() string { return "" }
 func F[T S | string](v T) {}`, catAnyMixed},
+		{"named byte element mixed with string", `package x
+type MyByte byte
+func F[T []MyByte | string](v T) {}`, catUnsupported},
+		{"alias byte element mixed with string", `package x
+type B = byte
+func F[T []B | string](v T) {}`, catAnyMixed},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

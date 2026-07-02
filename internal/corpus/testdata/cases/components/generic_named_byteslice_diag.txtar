@@ -1,0 +1,23 @@
+# A slice with a named byte element mixed with another renderable kind
+# (T []MyByte | string) can't use the static path (not uniform) or the runtime
+# dispatch ([]MyByte's dynamic type has no case in anyRenderString's exact-type
+# switch, only []byte does) — rejected with a positioned diagnostic naming the
+# type parameter and its constraint.
+-- input.gsx --
+package views
+
+type MyByte byte
+
+component Box[T []MyByte | string](value T) {
+	<span>{value}</span>
+}
+
+component Page() {
+	<Box[[]MyByte] value={[]MyByte{'x'}} />
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+6:8: interpolation "value" has type parameter T (constraint []corpustest/cases/components_generic_named_byteslice_diag.MyByte | string): only same-kind or all-non-tilde renderable constraints render directly — convert explicitly in the expression
+-- render.golden --
+-- generated.x.go.golden --
