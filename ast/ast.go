@@ -1,7 +1,10 @@
 // Package ast defines the gsx syntax tree produced by the parser.
 package ast
 
-import "go/token"
+import (
+	"go/token"
+	"strings"
+)
 
 // span records the start and end positions of a node within a token.FileSet.
 // Embed span in every concrete node to satisfy the Node interface automatically.
@@ -595,4 +598,19 @@ func Inspect(node Node, f func(Node) bool) {
 		// GoBlock and OrderedPair are also leaves with no child nodes.
 	}
 	f(nil)
+}
+
+// IsComponentTag reports whether a tag names a component (uppercase first
+// letter or dotted, e.g. ui.Button) rather than an HTML element. Single
+// source of truth for the parser (type-arg admission) and codegen (call
+// lowering) — the two MUST agree or type args get rejected on tags codegen
+// lowers as components.
+func IsComponentTag(tag string) bool {
+	if tag == "" {
+		return false
+	}
+	if strings.Contains(tag, ".") {
+		return true
+	}
+	return tag[0] >= 'A' && tag[0] <= 'Z'
 }

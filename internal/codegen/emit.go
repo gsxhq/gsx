@@ -1920,17 +1920,9 @@ func emitAttrValue(b *bytes.Buffer, expr string, t types.Type, imports map[strin
 	return true
 }
 
-// isComponentTag reports whether a tag names a component (uppercase first letter
-// or dotted, e.g. ui.Button) rather than an HTML element.
-func isComponentTag(tag string) bool {
-	if tag == "" {
-		return false
-	}
-	if strings.Contains(tag, ".") {
-		return true
-	}
-	return tag[0] >= 'A' && tag[0] <= 'Z'
-}
+// isComponentTag delegates to ast.IsComponentTag — see that function for the
+// rule. Kept as a local alias for the many existing call sites.
+func isComponentTag(tag string) bool { return ast.IsComponentTag(tag) }
 
 // singleRoot reports the component body's single root element when the body has
 // EXACTLY one meaningful top-level node and that node is a NON-component

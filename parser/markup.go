@@ -631,12 +631,7 @@ func isRawTextTag(tag string) bool {
 	return false
 }
 
-func canHaveTypeArgs(tag string) bool {
-	if tag == "" {
-		return false
-	}
-	return tag[0] >= 'A' && tag[0] <= 'Z' || strings.Contains(tag, ".")
-}
+func canHaveTypeArgs(tag string) bool { return ast.IsComponentTag(tag) }
 
 // parseBang parses a `<!…` construct after the leading `<!` `!` byte: either an
 // HTML comment `<!-- … -->` or a `<!DOCTYPE …>` declaration. The cursor is at the
