@@ -160,6 +160,7 @@ func (m *Module) invalidateLocked(dirs []string) {
 	for d := range m.reverseClosure(dirs) {
 		delete(m.pkgTypes, d)
 		delete(m.pkgResults, d)
+		delete(m.depFacts, d)
 	}
 }
 
@@ -279,6 +280,49 @@ func (m *Module) recordImports(dir string, paths []string) {
 		m.importedBy[dd][dir] = true
 	}
 	m.imports[dir] = newDeps
+}
+
+// depPropFacts is the cached per-dep-dir prop-fact bundle consumed by the
+// per-file qualified merge (fileScopedFacts): everything call-site attr
+// splitting needs to treat an imported component like a same-package one.
+// Derived syntactically by componentPropFieldsFor (plus its BYO external
+// load), so it holds no fset positions and survives fset rebuilds — it is
+// still reset there for uniformity. Invalidation: invalidateLocked deletes
+// the entry whenever the dep dir is in the dirty closure.
+type depPropFacts struct {
+	pkgName    string
+	propFields map[string]map[string]bool
+	nodeProps  map[string]map[string]bool
+	attrsProps map[string]map[string]bool
+	byo        *byoData
+}
+
+// importedPropFacts returns dir's prop facts, deriving and caching them on
+// first use. Callers run under analysisMu (analyze), so derivation is
+// single-flight; m.mu guards the map for Invalidate callers.
+func (m *Module) importedPropFacts(depDir string) (*depPropFacts, error) {
+	m.mu.Lock()
+	if f, ok := m.depFacts[depDir]; ok {
+		m.mu.Unlock()
+		return f, nil
+	}
+	m.mu.Unlock()
+	files, pkgName, err := m.parsePackageWithFset(depDir, m.fset)
+	if err != nil {
+		return nil, err
+	}
+	propFields, nodeProps, attrsProps, byo, err := componentPropFieldsFor(depDir, files)
+	if err != nil {
+		return nil, err
+	}
+	f := &depPropFacts{pkgName: pkgName, propFields: propFields, nodeProps: nodeProps, attrsProps: attrsProps, byo: byo}
+	m.mu.Lock()
+	if m.depFacts == nil {
+		m.depFacts = map[string]*depPropFacts{}
+	}
+	m.depFacts[depDir] = f
+	m.mu.Unlock()
+	return f, nil
 }
 
 // mergeImportedComponentPropFields publishes direct imported gsx package
