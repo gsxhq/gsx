@@ -132,3 +132,12 @@ func TestComponentBodyUnterminated(t *testing.T) {
 		t.Fatalf("error = %v, want mention of `component body`", err)
 	}
 }
+
+func TestEmptyTypeParamsRejected(t *testing.T) {
+	src := "package v\n\ncomponent Box[](value int) {\n\t<p>x</p>\n}\n"
+	fset := token.NewFileSet()
+	_, errs := ParseFileWithClassifier(fset, "in.gsx", []byte(src), 0, nil)
+	if len(errs) == 0 || !strings.Contains(errs[0].Msg, "empty type parameter list") {
+		t.Fatalf("errs = %v, want empty type parameter list", errs)
+	}
+}

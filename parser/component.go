@@ -52,6 +52,9 @@ func (p *parser) parseComponent() (*ast.Component, error) {
 		lead := len(raw) - len(strings.TrimLeft(raw, " \t\r\n"))
 		c.TypeParamsPos = p.posAt(p.i + 1 + lead)
 		c.TypeParams = strings.TrimSpace(raw)
+		if c.TypeParams == "" {
+			return nil, p.errorf(p.pos(), "empty type parameter list")
+		}
 		p.i = end + 1
 		p.skipSpace()
 	}

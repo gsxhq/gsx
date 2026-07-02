@@ -581,6 +581,9 @@ func (p *parser) parseElement() (ast.Markup, error) {
 		lead := len(raw) - len(strings.TrimLeft(raw, " \t\r\n"))
 		typeArgsPos = p.posAt(p.i + 1 + lead)
 		typeArgs = strings.TrimSpace(raw)
+		if typeArgs == "" {
+			return nil, p.errorf(p.pos(), "empty type argument list in <%s[]>", tag)
+		}
 		p.i = end + 1
 	}
 

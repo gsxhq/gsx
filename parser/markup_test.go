@@ -1460,3 +1460,15 @@ func TestUnterminatedTypeArgsAnchoredAtBracket(t *testing.T) {
 		t.Fatalf("got error %q, want unterminated type args", errs[0].Msg)
 	}
 }
+
+func TestEmptyTypeArgsRejected(t *testing.T) {
+	src := "package v\n\ncomponent Page() {\n\t<Box[] value={7} />\n}\n"
+	fset := token.NewFileSet()
+	_, errs := ParseFileWithClassifier(fset, "in.gsx", []byte(src), 0, nil)
+	if len(errs) == 0 || !strings.Contains(errs[0].Msg, "empty type argument list") {
+		t.Fatalf("errs = %v, want empty type argument list", errs)
+	}
+	if p := fset.Position(errs[0].Pos); p.Line != 4 {
+		t.Fatalf("anchored at line %d, want 4", p.Line)
+	}
+}
