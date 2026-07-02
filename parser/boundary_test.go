@@ -92,6 +92,7 @@ func TestBracketEndValidLists(t *testing.T) {
 		{`<Box[map[string]int] />`, 4, 19},
 		{`<Box[chan<- int] />`, 4, 15}, // ARROW must not trip the LSS stop
 		{`<Box[T, U] />`, 4, 9},
+		{`<Box[[8/4]byte] />`, 4, 14}, // '/' nested in an array length must not stop the scan
 	}
 	for _, c := range cases {
 		got, ok := bracketEnd(c.src, c.open)

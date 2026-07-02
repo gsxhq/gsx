@@ -56,6 +56,22 @@ func TestParseComponentTypeParams(t *testing.T) {
 	}
 }
 
+func TestParseComponentTypeParamsNestedSlash(t *testing.T) {
+	// '/' inside a nested bracket (array-length division — legal Go:
+	// func F[T [8/4]byte]() compiles) must not trip the type-list stop set.
+	src := `component Matrix[T [8/4]byte](v T) {
+		<p>x</p>
+	}`
+	p := testParser(src)
+	c, err := p.parseComponent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Recv != "" || c.Name != "Matrix" || c.TypeParams != "T [8/4]byte" || c.Params != "v T" {
+		t.Fatalf("got %+v", c)
+	}
+}
+
 func TestParseMethodComponentTypeParams(t *testing.T) {
 	src := `component (p Page) EditCheckbox[T bool | pgtype.Bool](value T) {
 		<input checked={value} />

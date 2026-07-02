@@ -265,10 +265,13 @@ func valueSwitchArmEnd(src string, from int) (int, bool) {
 
 // delimEnd returns the index of the `close` token matching the opener at
 // src[open], scanning Go tokens from `open` so prose before `open` is never
-// tokenized. `stop` (may be nil) is a set of tokens that terminate the scan as
-// not-found: callers use it to bound a scan to a syntactic context where those
-// tokens are impossible, so a missing closer fails fast at the opener instead
-// of matching an unrelated closer pages later.
+// tokenized. `stop` (may be nil) is a set of tokens that terminate the scan
+// as not-found; it applies only to tokens DIRECTLY inside the scanned list
+// (depth 1) — nested brackets/braces may legally contain them (e.g. the `/`
+// in a `[8/4]byte` array length). Callers use it to bound a scan to a
+// syntactic context where those tokens are impossible, so a missing closer
+// fails fast at the opener instead of matching an unrelated closer pages
+// later.
 func delimEnd(src string, open int, close token.Token, stop map[token.Token]bool) (int, bool) {
 	sub := src[open:]
 	fset := token.NewFileSet()
@@ -279,7 +282,7 @@ func delimEnd(src string, open int, close token.Token, stop map[token.Token]bool
 	depth := 0
 	for {
 		pos, tok, _ := s.Scan()
-		if tok == token.EOF || stop[tok] {
+		if tok == token.EOF {
 			return 0, false
 		}
 		switch tok {
@@ -289,6 +292,10 @@ func delimEnd(src string, open int, close token.Token, stop map[token.Token]bool
 			depth--
 			if depth == 0 && tok == close {
 				return open + fset.Position(pos).Offset, true
+			}
+		default:
+			if depth == 1 && stop[tok] {
+				return 0, false
 			}
 		}
 	}
