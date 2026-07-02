@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 
+	"golang.org/x/exp/typeparams"
+
 	gsxast "github.com/gsxhq/gsx/ast"
 )
 
@@ -1444,6 +1446,7 @@ const (
 	catNode
 	catNodeSlice
 	catStringer
+	catAnyMixed // type param whose non-tilde type set mixes renderable basic kinds → runtime dispatch
 )
 
 // classify maps a resolved type to a render category using structural checks
@@ -1461,6 +1464,9 @@ func classify(t types.Type) category {
 	}
 	if implementsStringer(t) {
 		return catStringer
+	}
+	if tp, ok := types.Unalias(t).(*types.TypeParam); ok {
+		return classifyTypeParam(tp)
 	}
 	switch u := t.Underlying().(type) {
 	case *types.Basic:
@@ -1482,6 +1488,56 @@ func classify(t types.Type) category {
 		}
 	}
 	return catUnsupported
+}
+
+// classifyTypeParam maps a type parameter to a render category from its
+// constraint's normalized term set (typeparams.NormalTerms — real
+// normalization of unions/embeddings, not an approximation).
+//
+//   - every term classifies to the SAME basic-kind category → that category:
+//     the static conversions the emitter writes (string(v), int64(v), …)
+//     compile for the whole type set, tilde or not.
+//   - terms mix renderable categories and are ALL non-tilde → catAnyMixed:
+//     the dynamic type is exactly one of the listed types, so the runtime
+//     type switch (Writer.TextAny/AttrAny) is total.
+//   - any ~term in a mixed set → catUnsupported: a named concrete type would
+//     fall through the runtime switch, so reject statically.
+//   - a term classifying to catNode/catNodeSlice/catStringer contributes no
+//     METHOD to T (term ≠ embedded method), so it has no static call path;
+//     Stringer terms are still fine in the runtime switch, Node terms are not
+//     (rendering needs ctx). Method-BASED constraints (T fmt.Stringer,
+//     T gsx.Node) never reach here — classify's method-set checks above run
+//     first and see constraint methods via types.NewMethodSet.
+func classifyTypeParam(tp *types.TypeParam) category {
+	terms, err := typeparams.NormalTerms(tp)
+	if err != nil || len(terms) == 0 {
+		return catUnsupported // empty/invalid type set, or `any`
+	}
+	uniform := true
+	hasTilde := false
+	var first category
+	for i, tm := range terms {
+		c := classify(tm.Type())
+		switch c {
+		case catUnsupported, catNode, catNodeSlice:
+			return catUnsupported
+		}
+		if tm.Tilde() {
+			hasTilde = true
+		}
+		if i == 0 {
+			first = c
+		} else if c != first {
+			uniform = false
+		}
+	}
+	if uniform && first != catStringer {
+		return first
+	}
+	if hasTilde {
+		return catUnsupported
+	}
+	return catAnyMixed
 }
 
 // implementsNode reports whether t has a method Render(context.Context, io.Writer) error.
