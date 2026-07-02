@@ -28,7 +28,12 @@ import (
 // interpolation types. It returns (nil, false) if any component failed; all
 // component errors are recorded in bag (component-boundary recovery continues
 // to the next component on failure, so multiple errors are always reported).
-func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, merger *ClassMergerRef) ([]byte, bool) {
+// sunkImports (nil-safe) names the user import paths whose ONLY use in this
+// file was a requalification-failed generic tag (see analyzed.sunkImports):
+// the tag's call is replaced by a sink that drops the package reference, so
+// each such import is rewritten to a blank `_` import — the emitted file
+// compiles, and the import's init side effects are preserved.
+func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, merger *ClassMergerRef, sunkImports map[string]bool) ([]byte, bool) {
 	if cls == nil {
 		cls = attrclass.Builtin()
 	}
@@ -91,6 +96,18 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 				return nil, false
 			}
 			for _, s := range specs {
+				// A sunk import (its only use was a requalification-failed
+				// generic tag whose call was replaced by a sink — see the
+				// sunkImports param doc) is emitted as a blank import: the
+				// emitted body no longer references it, so a named/plain
+				// import would fail `go build` with "imported and not used",
+				// while `_` compiles and keeps init side effects. Dot/blank
+				// user spellings are left untouched (a dotted tag can only
+				// qualify through a named or plain import).
+				if sunkImports[s.path] && s.name != "." && s.name != "_" {
+					aliased = append(aliased, importSpec{name: "_", path: s.path})
+					continue
+				}
 				if s.name == "" {
 					imports[s.path] = true
 					userPlainImports[s.path] = true
@@ -2704,16 +2721,21 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 	// analyze time has NO probe anywhere in the skeleton (nothing for
 	// harvest to have populated resolved[el] from) — module_importer.go's
 	// analyze marks it with the types.Invalid sentinel instead, right after
-	// harvest runs (see inferRegistry.failed's doc). Skip emitting a call
-	// for it: any call would necessarily be uninstantiated, invalid Go,
-	// since there is no resolved type arg to use. The positioned
-	// "inference-unavailable" diagnostic was already recorded then, so this
-	// returns true (not false — false would propagate up through genNode
-	// and abort the WHOLE enclosing component, discarding every sibling
-	// node too, which is not what "generation of other tags unaffected"
-	// means): just render nothing for this one element.
+	// harvest runs (see inferRegistry.failed's doc). Emitting a call for it
+	// is impossible (uninstantiated, invalid Go — no resolved type arg to
+	// use), but emitting NOTHING is just as broken: an enclosing local (a
+	// used-param binding like `name := _gsxp.Name`, a loop var, a CF-hoisted
+	// class temp) whose ONLY use sits in this tag's value expressions would
+	// trip "declared and not used" in the OUTPUT — generate would exit 0
+	// having written non-compiling Go. So emit a never-executed SINK that
+	// consumes the tag's value expressions instead (genSkippedTagSink). The
+	// positioned "inference-unavailable" diagnostic was already recorded at
+	// analyze time; the sink returns true (not false — false would propagate
+	// up through genNode and abort the WHOLE enclosing component, discarding
+	// every sibling node too, which is not what "generation of other tags
+	// unaffected" means): the element renders nothing.
 	if basic, ok := resolved[el].(*types.Basic); ok && basic.Kind() == types.Invalid {
-		return true
+		return genSkippedTagSink(b, el, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)
 	}
 	// A bare-call candidate tag (isBareCallCandidate — a hand-written same-package
 	// func, or a .gsx no-props component) was probed via _gsxcompsig, so harvest
@@ -2948,6 +2970,130 @@ func childTypeArgUse(el *ast.Element, currentPkg *types.Package, resolved map[as
 		args = append(args, types.TypeString(typ, qf))
 	}
 	return "[" + strings.Join(args, ", ") + "]"
+}
+
+// genSkippedTagSink emits the fail-safe replacement for a requalification-
+// failed cross-package generic tag (the types.Invalid sentinel in
+// resolved[el] — see genChildComponent's guard): a NEVER-EXECUTED func
+// literal assigned to blank whose body consumes every value expression the
+// tag's normal call would have consumed —
+//
+//	_ = func() {
+//		<CF-hoisted class statements>
+//		_, _ = tupleValuedProp()                      // per (T, error) value
+//		_ = struct{ F0 any; F1 any }{F0: v0, F1: v1}  // everything else
+//	}
+//
+// This mirrors, at emit time, the anonymous-struct sink the SKELETON emits
+// for the same tag (analyze.go's emitProbes fail-safe branch), restoring the
+// probe ≡ emit reference symmetry: any enclosing local (used-param binding,
+// loop var, CF-hoisted temp) whose only use sits in this tag stays used, so
+// the emitted file compiles. Wrapping in a discarded func literal (rather
+// than executing the struct literal inline) means the expressions are never
+// EVALUATED at render time — a skipped tag must not run its prop
+// expressions' side effects — while every identifier reference still counts
+// as a use for the compiler.
+//
+// Values come from the same childPropsLiteral walk the real call path uses
+// (slot closures included, so children references are consumed too, built by
+// the same emitSlotClosure). A (T, error)-tuple-valued prop or ordered-attrs
+// pair cannot sit in a single-value struct field, so it is blank-assigned at
+// its own arity instead; the tag renders nothing either way, so the
+// invalid-tuple diagnostic the normal path raises for non-(T, error) tuples
+// is deliberately not repeated here (the tag already carries its positioned
+// inference-unavailable warning).
+func genSkippedTagSink(b *bytes.Buffer, el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, importAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+	_, propsType, _ := childInvocation(el, byo, recvVar, recvTypeName)
+	// Route CF-hoisted class statements into a temp buffer so they land
+	// INSIDE the discarded func literal (never executed) instead of inline
+	// in the render body (where they would run — and where their temps would
+	// be unused, since the consuming class entry lives in the sink).
+	var hoist bytes.Buffer
+	fieldEntries, splatExpr, usedPkgs, err := childPropsLiteral(el, propsType, "gsx", mergeExpr, table, structFields, nodeProps[propsType], byo, fm, func(nodes []ast.Markup) (string, error) {
+		s, ok := emitSlotClosure(nodes, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)
+		if !ok {
+			return "", fmt.Errorf("slot closure failed")
+		}
+		return s, nil
+	}, false, resolved, &hoist, interpTemp)
+	if err != nil {
+		if ae, ok := errors.AsType[*attrError](err); ok {
+			bag.Errorf(ae.pos, ae.end, ae.code, "%s", ae.msg)
+		} else {
+			bag.Errorf(el.Pos(), el.End(), childPropsErrorCode(err), "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+		}
+		return false
+	}
+	for _, path := range usedPkgs {
+		imports[path] = true
+	}
+
+	var typeParts, litParts []string
+	sinkValue := func(val string) {
+		name := fmt.Sprintf("F%d", len(typeParts))
+		typeParts = append(typeParts, name+" any")
+		litParts = append(litParts, name+": "+val)
+	}
+	// blankAssign writes an arity-matched all-blank assignment for a
+	// multi-value expression (`_, _ = f()`), the only shape that can consume
+	// a tuple-valued call.
+	blankAssign := func(w *bytes.Buffer, n int, expr string) {
+		blanks := make([]string, n)
+		for i := range blanks {
+			blanks[i] = "_"
+		}
+		fmt.Fprintf(w, "\t\t\t%s = %s\n", strings.Join(blanks, ", "), expr)
+	}
+
+	var stmts bytes.Buffer
+	if splatExpr != "" {
+		sinkValue(splatExpr)
+	}
+	for _, fe := range fieldEntries {
+		switch {
+		case fe.ea != nil:
+			if t, ok := resolved[fe.ea].(*types.Tuple); ok && t.Len() > 1 {
+				blankAssign(&stmts, t.Len(), fe.rawVal)
+				continue
+			}
+			if _, val, ok := strings.Cut(fe.str, ":"); ok {
+				sinkValue(strings.TrimSpace(val))
+			}
+		case fe.oa != nil:
+			// Sink each ordered-attrs pair VALUE individually (the keys are
+			// string constants), tuple-aware; the merge-prefix bag expression
+			// (composed from fallthrough attr values) is sunk too so its
+			// references stay used.
+			if fe.oaMergePrefix != "" {
+				sinkValue(fe.oaMergePrefix)
+			}
+			for j, pr := range fe.oaPairs {
+				if t, ok := resolved[&fe.oa.Pairs[j]].(*types.Tuple); ok && t.Len() > 1 {
+					blankAssign(&stmts, t.Len(), pr.rawVal)
+					continue
+				}
+				sinkValue(pr.rawVal)
+			}
+		default:
+			// Slot/Children closures, class entries, boolean props, Attrs
+			// bags — every entry childPropsLiteral produces is "Field: value".
+			if _, val, ok := strings.Cut(fe.str, ":"); ok {
+				sinkValue(strings.TrimSpace(val))
+			}
+		}
+	}
+
+	if hoist.Len() == 0 && stmts.Len() == 0 && len(litParts) == 0 {
+		return true // nothing to consume; the element simply renders nothing
+	}
+	b.WriteString("\t\t_ = func() {\n")
+	b.Write(hoist.Bytes())
+	b.Write(stmts.Bytes())
+	if len(litParts) > 0 {
+		fmt.Fprintf(b, "\t\t\t_ = struct{ %s }{%s}\n", strings.Join(typeParts, "; "), strings.Join(litParts, ", "))
+	}
+	b.WriteString("\t\t}\n")
+	return true
 }
 
 // attrError is an error from childPropsLiteral that carries the offending attr

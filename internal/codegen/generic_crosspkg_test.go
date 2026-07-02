@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -160,6 +161,123 @@ func TestGenericCrossPackageInferenceUnexportedConstraint(t *testing.T) {
 	}
 	if !strings.Contains(root, "Button(ButtonProps{Label: \"ok\"})") && !strings.Contains(root, "components.Button(components.ButtonProps{Label: \"ok\"})") {
 		t.Fatalf("unaffected tag (components.Button) missing from generated root:\n%s", root)
+	}
+}
+
+// TestGenericCrossPackageInferenceFailureOutputBuilds pins the emit-time half
+// of the requalification fail-safe: when a param's ONLY use sits in the failed
+// tag's prop values (`label={name}`), skipping the element entirely at emit
+// time would leave the emitted `name := _gsxp.Name` local unused ("declared
+// and not used" — the .x.go would not compile even though generate exited 0
+// with only a warning). The emitted file must instead consume the skipped
+// element's value expressions in a never-executed sink, so this test asserts
+// the strongest possible property: `go build` of the WRITTEN output succeeds
+// (the TestBuildTagExcludesGeneratedFile pattern).
+func TestGenericCrossPackageInferenceFailureOutputBuilds(t *testing.T) {
+	if testing.Short() {
+		t.Skip("spawns the go toolchain")
+	}
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module example.com/gcib\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	compDir := filepath.Join(tmp, "components")
+	if err := os.MkdirAll(compDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, compDir, "widget.gsx", "package components\n\ntype secret string\n\ncomponent Widget[T secret | string](label T) {\n\t<span>{string(label)}</span>\n}\n\ncomponent Button(label string) {\n\t<button>{label}</button>\n}\n")
+	// name's ONLY use is the failed tag's prop value; the sibling Button tag
+	// keeps the components import alive independently of the failed tag.
+	writeFile(t, tmp, "post.gsx", "package gcib\n\nimport \"example.com/gcib/components\"\n\ncomponent Post(name string) {\n\t<components.Widget label={name} />\n\t<components.Button label=\"ok\" />\n}\n")
+
+	res, err := GenerateDirs(tmp, []string{tmp, compDir}, Options{FilterPkgs: []string{stdImportPath}, CSSMinify: true, JSMinify: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertOnlyInferenceUnavailable(t, res[tmp].Diags)
+	writeGeneratedAndBuild(t, tmp, res)
+}
+
+// TestGenericCrossPackageInferenceFailureSoleImportBuilds pins the sole-import
+// half of the fail-safe: when the failed tag is the file's ONLY reference to
+// the dep import, sinking it must not (a) fail the skeleton with a spurious
+// hard `"…/components" imported and not used` error at the user's import line
+// (which would exit 1 and bury the actionable inference-unavailable warning,
+// losing the whole file), nor (b) leave the emitted .x.go with an unused
+// import (which would not build). Asserts: warning-only diagnostics, a sibling
+// file in the SAME package generates, and the written output `go build`s.
+func TestGenericCrossPackageInferenceFailureSoleImportBuilds(t *testing.T) {
+	if testing.Short() {
+		t.Skip("spawns the go toolchain")
+	}
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module example.com/gcis\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	compDir := filepath.Join(tmp, "components")
+	if err := os.MkdirAll(compDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, compDir, "widget.gsx", "package components\n\ntype secret string\n\ncomponent Widget[T secret | string](label T) {\n\t<span>{string(label)}</span>\n}\n")
+	// The failed tag is the ONLY use of the components import in post.gsx.
+	writeFile(t, tmp, "post.gsx", "package gcis\n\nimport \"example.com/gcis/components\"\n\ncomponent Post(name string) {\n\t<components.Widget label={name} />\n}\n")
+	// A sibling file in the same package must be unaffected by post.gsx's sink.
+	writeFile(t, tmp, "other.gsx", "package gcis\n\ncomponent Other() {\n\t<p>ok</p>\n}\n")
+
+	res, err := GenerateDirs(tmp, []string{tmp, compDir}, Options{FilterPkgs: []string{stdImportPath}, CSSMinify: true, JSMinify: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertOnlyInferenceUnavailable(t, res[tmp].Diags)
+	var otherGen string
+	for p, src := range res[tmp].Files {
+		if strings.HasSuffix(p, "other.gsx") {
+			otherGen = string(src)
+		}
+	}
+	if !strings.Contains(otherGen, "func Other() gsx.Node") {
+		t.Fatalf("sibling file's generation affected by the failed tag's sink; other.gsx generated:\n%s", otherGen)
+	}
+	writeGeneratedAndBuild(t, tmp, res)
+}
+
+// assertOnlyInferenceUnavailable asserts diags contain at least one
+// inference-unavailable warning and NO Error-severity diagnostic (the failure
+// mode the fail-safe regression tests guard against is a hard error alongside
+// — or instead of — the warning).
+func assertOnlyInferenceUnavailable(t *testing.T, diags []diag.Diagnostic) {
+	t.Helper()
+	foundWarn := false
+	for _, d := range diags {
+		if d.Code == "inference-unavailable" && d.Severity == diag.Warning {
+			foundWarn = true
+			continue
+		}
+		if d.Severity == diag.Error {
+			t.Errorf("unexpected error diagnostic alongside the fail-safe warning: %+v", d)
+		}
+	}
+	if !foundWarn {
+		t.Fatalf("expected an inference-unavailable warning; diags = %+v", diags)
+	}
+}
+
+// writeGeneratedAndBuild writes every generated .x.go next to its .gsx (the
+// TestBuildTagExcludesGeneratedFile pattern) and asserts `go build ./...`
+// succeeds from moduleDir — the strongest check that the fail-safe emitted
+// COMPILING Go, not just warning-only diagnostics.
+func writeGeneratedAndBuild(t *testing.T, moduleDir string, results map[string]DirResult) {
+	t.Helper()
+	for _, r := range results {
+		for gsxPath, src := range r.Files {
+			base := strings.TrimSuffix(gsxPath, ".gsx")
+			if werr := os.WriteFile(base+".x.go", src, 0o644); werr != nil {
+				t.Fatal(werr)
+			}
+		}
+	}
+	build := exec.Command("go", "build", "./...")
+	build.Dir = moduleDir
+	if bout, berr := build.CombinedOutput(); berr != nil {
+		t.Fatalf("go build of generated output: %v\n%s", berr, bout)
 	}
 }
 

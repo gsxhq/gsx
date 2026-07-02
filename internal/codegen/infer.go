@@ -99,7 +99,27 @@ type inferRegistry struct {
 	// harvest runs, so genChildComponent's existing `resolved` parameter is
 	// the ONLY new signal it needs — no new parameter threading through
 	// emit.go's generateFile/genComponent/genChildComponent chain.
+	// genChildComponent then emits a never-executed SINK consuming the tag's
+	// value expressions instead of a call — see genSkippedTagSink for why
+	// emitting NOTHING is not an option (an outer local whose only use sits
+	// in the skipped tag would trip "declared and not used" in the output).
 	failed []gsxast.Node
+
+	// failedAliases records, for every failed element, the tag's package
+	// qualifier ("components" in <components.Widget ...>) — always non-empty,
+	// since only imported (dotted, non-method) tags can fail requalification.
+	// module_importer.go's analyze resolves each alias to its import PATH
+	// (via fileFacts.depAliasPaths) to decide whether a skeleton
+	// `"path" imported and not used` type error for this FILE is SPURIOUS:
+	// the import IS used in the .gsx source (the failed tag), but the
+	// skeleton sink dropped its only skeleton reference. Such an error is
+	// filtered out (see the sunk-import filtering in analyze) instead of
+	// hard-failing the whole file, and the emitted file rewrites that import
+	// to a blank `_` import (writeImports via generateFile's sunkImports) so
+	// the output still compiles. An import ALSO used elsewhere in the file
+	// never produces the unused error, so nothing is filtered or rewritten
+	// for it — the named import stays.
+	failedAliases map[string]bool
 
 	// alloc coalesces "_gsxtiN" skeleton-only import aliases (Task 4) across
 	// EVERY requalified probe emitted into this ONE file's skeleton: two
@@ -170,9 +190,18 @@ func (r *inferRegistry) importAssembly() []importSpec {
 }
 
 // recordFailed marks el as a tag whose cross-package generic probe was
-// skipped due to a requalification failure — see the failed field's doc.
-func (r *inferRegistry) recordFailed(el gsxast.Node) {
+// skipped due to a requalification failure — see the failed and
+// failedAliases field docs. The tag of a failed element is always dotted
+// (only imported tags requalify), so its qualifier is recorded as a failed
+// alias for the sunk-import bookkeeping.
+func (r *inferRegistry) recordFailed(el *gsxast.Element) {
 	r.failed = append(r.failed, el)
+	if alias, _, ok := strings.Cut(el.Tag, "."); ok {
+		if r.failedAliases == nil {
+			r.failedAliases = map[string]bool{}
+		}
+		r.failedAliases[alias] = true
+	}
 }
 
 // nextName returns the next probe helper name: "_gsxinfer1", "_gsxinfer2", ....

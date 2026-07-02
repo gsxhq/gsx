@@ -406,7 +406,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 		for path, f := range a.gsxFiles {
 			ff := a.factsByFile[path]
 			generateFile(f, a.pkg, a.resolved, a.table, ff.propFields, ff.nodeProps, ff.attrsProps, ff.byo,
-				a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, a.bag, nil, nil, true, true, m.opts.ClassMerger)
+				a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, a.bag, nil, nil, true, true, m.opts.ClassMerger, a.sunkImports[path])
 		}
 	}
 	res.Diags = a.bag.Sorted()
@@ -458,7 +458,7 @@ func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, err
 		for path, f := range a.gsxFiles {
 			ff := a.factsByFile[path]
 			gen, ok := generateFile(f, a.pkg, a.resolved, a.table, ff.propFields, ff.nodeProps, ff.attrsProps, ff.byo,
-				a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.CSSMinify, m.opts.JSMinify, m.opts.ClassMerger)
+				a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.CSSMinify, m.opts.JSMinify, m.opts.ClassMerger, a.sunkImports[path])
 			if !ok {
 				continue
 			}

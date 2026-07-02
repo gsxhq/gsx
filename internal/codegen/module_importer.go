@@ -409,6 +409,16 @@ type fileFacts struct {
 	attrsProps  map[string]map[string]bool
 	genericSigs map[string]*genericSig
 	byo         *byoData
+
+	// depAliasPaths maps each gsx-dep import's EFFECTIVE alias in this file
+	// (the explicit spec name, or the dep's real declared package name for a
+	// plain import — exactly the alias fileScopedFacts qualifies the dep's
+	// facts under, i.e. the qualifier a dotted tag spells) to its import
+	// path. analyze uses it to resolve a failed generic tag's alias
+	// (inferRegistry.failedAliases) to the import path whose skeleton
+	// "imported and not used" error must be treated as spurious — see the
+	// sunk-import filtering there.
+	depAliasPaths map[string]string
 }
 
 // fileImportSpecs extracts f's hoisted import specs with resolved .gsx
@@ -481,9 +491,11 @@ func (m *Module) fileScopedFacts(dir string, f *gsxast.File, propFields, nodePro
 			out.nodeProps = maps.Clone(nodeProps)
 			out.attrsProps = maps.Clone(attrsProps)
 			out.genericSigs = map[string]*genericSig{}
+			out.depAliasPaths = map[string]string{}
 			out.byo = byo.cloneForFile()
 			cloned = true
 		}
+		out.depAliasPaths[alias] = spec.path
 		for name, fields := range facts.propFields {
 			out.propFields[alias+"."+name] = fields
 		}
@@ -594,6 +606,51 @@ type analyzed struct {
 	bag         *diag.Bag                    // diagnostics from parse + script resolution; used by Generate
 	importSpecs []importSpec                 // hoisted .gsx import specs (for unused-import detection)
 	typeErrs    []types.Error                // raw type errors from checkSkeletonPackage
+
+	// sunkImports maps a .gsx file path to the import paths the type-checker
+	// PROVED were used only by a requalification-failed generic tag (the
+	// skeleton sink dropped that only reference, and the resulting spurious
+	// "imported and not used" error was filtered — see the confirmedSunk
+	// block in analyze). generateFile rewrites each such import to a blank
+	// `_` import so the emitted .x.go compiles (the emitted sink drops the
+	// reference too). An import with ANY other use never lands here — its
+	// named import must stay.
+	sunkImports map[string]map[string]bool
+}
+
+// sunkUnusedImportError reports whether e is a spurious
+// `"path" imported and not used` skeleton error caused by a
+// requalification-failed generic tag's sink dropping the import's only
+// skeleton reference — see the filtering site in analyze for the full story.
+// Exact match only: the error's //line-adjusted position must land in a .gsx
+// file with a sunk set, and the quoted path in the message must be in that
+// set. On a match it returns the .gsx file and import path, so the caller
+// can record the pair as CONFIRMED unused (driving the emitted file's
+// blank-import rewrite).
+func sunkUnusedImportError(e types.Error, sunkImports map[string]map[string]bool) (file, importPath string, ok bool) {
+	if !strings.Contains(e.Msg, "imported and not used") {
+		return "", "", false
+	}
+	file = e.Fset.Position(e.Pos).Filename
+	set := sunkImports[file]
+	if set == nil {
+		return "", "", false
+	}
+	// Extract the quoted path from the message (same parse pickImportByPath
+	// uses): `"example.com/app/ui" imported and not used [as alias]`.
+	i := strings.IndexByte(e.Msg, '"')
+	if i < 0 {
+		return "", "", false
+	}
+	j := strings.IndexByte(e.Msg[i+1:], '"')
+	if j < 0 {
+		return "", "", false
+	}
+	importPath = e.Msg[i+1 : i+1+j]
+	if !set[importPath] {
+		return "", "", false
+	}
+	return file, importPath, true
 }
 
 // analyze performs the shared parse -> skeleton -> type-check pipeline for one
@@ -656,6 +713,11 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// probe call's instantiated type back onto the *gsxast.Element it was
 	// emitted for — see infer.go's inferRegistry doc.
 	inferByXGo := map[string]*inferRegistry{}
+	// sunkImports maps a .gsx file path to the set of import paths whose only
+	// skeleton reference was dropped by a requalification-failed generic
+	// tag's sink — see the failedAliases doc on inferRegistry and the
+	// population site in the buildSkeleton loop below.
+	sunkImports := map[string]map[string]bool{}
 	var allImportSpecs []importSpec
 	factsByFile := map[string]*fileFacts{}
 	skelErr := false
@@ -679,6 +741,26 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 			break
 		}
 		allImportSpecs = append(allImportSpecs, imps...)
+		// A requalification-failed generic tag's SKELETON sink drops the tag's
+		// reference to its dep package (see analyze.go's emitProbes fail-safe
+		// branch), so when that tag was the file's ONLY use of the import, the
+		// skeleton type-check raises a SPURIOUS `"path" imported and not used`
+		// hard error at the user's import line — the import IS used in the
+		// .gsx source. Resolve each failed alias to its import path now
+		// (fileFacts.depAliasPaths) so the type-error loop below can filter
+		// exactly those errors, and Generate can rewrite the emitted import to
+		// a blank `_` import (the emitted file drops the reference too).
+		if len(infReg.failedAliases) > 0 && ff.depAliasPaths != nil {
+			set := map[string]bool{}
+			for alias := range infReg.failedAliases {
+				if p, ok := ff.depAliasPaths[alias]; ok {
+					set[p] = true
+				}
+			}
+			if len(set) > 0 {
+				sunkImports[path] = set
+			}
+		}
 		base := strings.TrimSuffix(filepath.Base(path), ".gsx")
 		absXpath := filepath.Join(dir, base+".x.go")
 		gf, perr := goparser.ParseFile(fset, absXpath, skel, goparser.SkipObjectResolution)
@@ -765,6 +847,44 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		pkgPath = ip
 	}
 	pkg, info, typeErrs := checkSkeletonPackage(pkgPath, pkgName, goFiles, fset, mi)
+	// Filter SPURIOUS unused-import errors caused by a requalification-failed
+	// generic tag's skeleton sink (see the sunkImports doc above): the import
+	// IS used in the .gsx source — the failed tag is its use — but the sink
+	// dropped its only skeleton reference, so go/types reports
+	// `"path" imported and not used` at the user's import line. Left in
+	// typeErrs, that single spurious error would (a) hard-fail generation for
+	// the WHOLE package (the len(typeErrs)==0 gate below and in module.go)
+	// and (b) bury the actionable inference-unavailable warning. Filtering is
+	// exact, not heuristic: only errors whose //line-adjusted position lands
+	// in a file with a sunk set AND whose quoted path is in that set are
+	// dropped; a genuinely unused import of the same path in ANOTHER file
+	// keeps its error (its position names that other file).
+	//
+	// confirmedSunk narrows sunkImports to the (file, path) pairs the
+	// type-checker actually PROVED unused — i.e. exactly the errors filtered
+	// here. Only those imports are rewritten to blank `_` imports in the
+	// emitted file (analyzed.sunkImports → generateFile): a dep referenced by
+	// ANOTHER tag or expression in the same file never produces the unused
+	// error, so its named import must stay (blanking it would break those
+	// other references).
+	var confirmedSunk map[string]map[string]bool
+	if len(sunkImports) > 0 {
+		kept := typeErrs[:0]
+		for _, e := range typeErrs {
+			if file, importPath, ok := sunkUnusedImportError(e, sunkImports); ok {
+				if confirmedSunk == nil {
+					confirmedSunk = map[string]map[string]bool{}
+				}
+				if confirmedSunk[file] == nil {
+					confirmedSunk[file] = map[string]bool{}
+				}
+				confirmedSunk[file][importPath] = true
+				continue
+			}
+			kept = append(kept, e)
+		}
+		typeErrs = kept
+	}
 	// Collect the skeleton byte spans of every _gsxuseq(...) child-prop or
 	// element-spread harvest probe. Each expression is also checked in a native
 	// typed context (the props literal or gsx.Attrs assignment), so suppressing
@@ -950,6 +1070,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		bag:         bag,
 		importSpecs: allImportSpecs,
 		typeErrs:    typeErrs,
+		sunkImports: confirmedSunk,
 	}, nil
 }
 
