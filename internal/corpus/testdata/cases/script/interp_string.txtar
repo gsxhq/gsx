@@ -35,7 +35,9 @@ func Page(_gsxp PageProps) gsx.Node {
 		id := _gsxp.Id
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<script>\n\t\tconst url = \"/api/")
+		_gsxgw.S("<script")
+		_gsxgw.Nonce(ctx)
+		_gsxgw.S(">\n\t\tconst url = \"/api/")
 		_gsxgw.JSStr(string(id))
 		_gsxgw.S("\";\n\t</script>")
 		return _gsxgw.Err()

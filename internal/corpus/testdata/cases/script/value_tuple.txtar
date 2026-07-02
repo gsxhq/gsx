@@ -26,7 +26,9 @@ func Page() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<script>const d = ")
+		_gsxgw.S("<script")
+		_gsxgw.Nonce(ctx)
+		_gsxgw.S(">const d = ")
 		_gsxv0, _gsxerr := load()
 		if _gsxerr != nil {
 			return _gsxerr
