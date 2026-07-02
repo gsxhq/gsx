@@ -985,7 +985,9 @@ git add internal/codegen/analyze.go internal/codegen/generic_typeparam_err_test.
 git commit -m "fix(codegen): surface bad type-param lists as positioned diagnostics, not silent package loss"
 ```
 
----### Task 8: Toolchain guard for generic METHOD components (finding 3)
+---
+
+### Task 8: Toolchain guard for generic METHOD components (finding 3)
 
 On every released toolchain, `component (p Page) Box[T ...]` emits a generic-method skeleton that `go/parser` rejects, and `module_importer.go:449` turns that into a hard whole-run abort. Guard the path: on a toolchain without generic methods, skip the component with a positioned `unsupported-toolchain` diagnostic instead.
 
