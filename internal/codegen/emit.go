@@ -2765,7 +2765,10 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 				"no-argument component %s accepts no attributes or children", el.Tag)
 			return false
 		}
-		callTypeArgs := childTypeArgUse(el, currentPkg, resolved, imports, importAliases)
+		callTypeArgs, argsOK := childTypeArgUse(el, currentPkg, resolved, imports, importAliases, bag)
+		if !argsOK {
+			return false
+		}
 		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s%s())\n", el.Tag, callTypeArgs)
 		return true
 	}
@@ -2782,7 +2785,10 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 	_, isByoChild := byo.isByoStruct(propsType)
 	isNullaryCall := ((isMethod && !isByoChild) || isNoPropsComponent(structFields, propsType)) && len(el.Attrs) == 0 && len(el.Children) == 0
 	if isNullaryCall {
-		callTypeArgs := childTypeArgUse(el, currentPkg, resolved, imports, importAliases)
+		callTypeArgs, argsOK := childTypeArgUse(el, currentPkg, resolved, imports, importAliases, bag)
+		if !argsOK {
+			return false
+		}
 		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s%s())\n", callTarget, callTypeArgs)
 		return true
 	}
@@ -2820,7 +2826,10 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 	}
 	if splatExpr != "" {
 		// Whole-struct splat: `<Card { d... }/>` → `Card(d)` (no Props{…} literal).
-		callTypeArgs := childTypeArgUse(el, currentPkg, resolved, imports, importAliases)
+		callTypeArgs, argsOK := childTypeArgUse(el, currentPkg, resolved, imports, importAliases, bag)
+		if !argsOK {
+			return false
+		}
 		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s%s(%s))\n", callTarget, callTypeArgs, splatExpr)
 		return true
 	}
@@ -2953,18 +2962,48 @@ outer:
 	for i, fe := range fieldEntries {
 		strs[i] = fe.str
 	}
-	callTypeArgs := childTypeArgUse(el, currentPkg, resolved, imports, importAliases)
+	callTypeArgs, argsOK := childTypeArgUse(el, currentPkg, resolved, imports, importAliases, bag)
+	if !argsOK {
+		return false
+	}
 	fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s%s(%s%s{%s}))\n", callTarget, callTypeArgs, propsType, callTypeArgs, strings.Join(strs, ", "))
 	return true
 }
 
-func childTypeArgUse(el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, imports map[string]bool, importAliases map[string]string) string {
+// childTypeArgUse renders the `[T1, T2]` type-argument suffix for a generic
+// child-component call: an explicit `<Comp[int]>` echoes el.TypeArgs
+// verbatim, otherwise the caller-side inference engine already stored the
+// instantiated *types.Named in resolved[el] and the type args come from
+// there.
+//
+// An INFERRED type argument can name a type that is unspeakable at the call
+// site: an unexported type declared in a package other than currentPkg
+// (e.g. a constructor in another package returns an unexported type, and a
+// generic component's type parameter gets inferred as that type). Printing
+// `otherpkg.secret` verbatim is not valid Go outside otherpkg — the emitted
+// .x.go would fail to compile even though generate exited 0, violating the
+// hard invariant that generate never emits non-compiling output. So every
+// inferred type argument is walked (unspeakableTypeArg) BEFORE printing; if
+// any reachable named type is cross-package-unexported, this records a
+// positioned "unrenderable-type-arg" diagnostic and returns ("", false) — the
+// established emission-failure contract: the caller propagates false, this
+// one component fails, siblings continue.
+func childTypeArgUse(el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, imports map[string]bool, importAliases map[string]string, bag *diag.Bag) (string, bool) {
 	if el.TypeArgs != "" {
-		return typeArgUse(el.TypeArgs)
+		return typeArgUse(el.TypeArgs), true
 	}
 	named, ok := resolved[el].(*types.Named)
 	if !ok || named.TypeArgs() == nil || named.TypeArgs().Len() == 0 {
-		return ""
+		return "", true
+	}
+	visited := make(map[types.Type]bool)
+	for typ := range named.TypeArgs().Types() {
+		if offPkg, offName, found := unspeakableTypeArg(typ, currentPkg, visited); found {
+			bag.Errorf(el.Pos(), el.End(), "unrenderable-type-arg",
+				"cannot instantiate %s: inferred type argument %s.%s is unexported outside package %q; pass an exported type, or instantiate %s explicitly (e.g. %s[SomeExportedType])",
+				el.Tag, offPkg.Name(), offName, offPkg.Path(), el.Tag, el.Tag)
+			return "", false
+		}
 	}
 	args := make([]string, 0, named.TypeArgs().Len())
 	qf := func(pkg *types.Package) string {
@@ -2985,7 +3024,88 @@ func childTypeArgUse(el *ast.Element, currentPkg *types.Package, resolved map[as
 	for typ := range named.TypeArgs().Types() {
 		args = append(args, types.TypeString(typ, qf))
 	}
-	return "[" + strings.Join(args, ", ") + "]"
+	return "[" + strings.Join(args, ", ") + "]", true
+}
+
+// unspeakableTypeArg walks t looking for a named type whose identifier is
+// unexported AND declared in a package other than currentPkg — such a type
+// cannot be spelled at all outside its declaring package (`pkg.lowerName` is
+// not valid Go syntax for referring to an unexported identifier), so
+// printing it as an inferred type argument would emit non-compiling Go.
+// Recurses through the composite type kinds a printed type argument can be
+// built from (pointer/slice/array/map/chan element types, struct fields,
+// signature params/results, interface embeddeds, and a nested generic
+// instantiation's own type arguments) so an offender buried in e.g.
+// `[]models.secret` or `map[string]models.secret` is still caught — not just
+// a bare `models.secret`. visited guards against unbounded recursion through
+// self-referential named types (e.g. `type List struct { Next *List }`).
+func unspeakableTypeArg(t types.Type, currentPkg *types.Package, visited map[types.Type]bool) (offendingPkg *types.Package, offendingName string, found bool) {
+	if t == nil || visited[t] {
+		return nil, "", false
+	}
+	visited[t] = true
+	switch tt := t.(type) {
+	case *types.Named:
+		if obj := tt.Obj(); obj != nil && obj.Pkg() != nil &&
+			(currentPkg == nil || obj.Pkg().Path() != currentPkg.Path()) &&
+			!token.IsExported(obj.Name()) {
+			return obj.Pkg(), obj.Name(), true
+		}
+		// A nested generic instantiation (e.g. Box[secret]) can bury the
+		// offender in ITS OWN type arguments.
+		if targs := tt.TypeArgs(); targs != nil {
+			for typ := range targs.Types() {
+				if pkg, name, ok := unspeakableTypeArg(typ, currentPkg, visited); ok {
+					return pkg, name, ok
+				}
+			}
+		}
+		return nil, "", false
+	case *types.Pointer:
+		return unspeakableTypeArg(tt.Elem(), currentPkg, visited)
+	case *types.Slice:
+		return unspeakableTypeArg(tt.Elem(), currentPkg, visited)
+	case *types.Array:
+		return unspeakableTypeArg(tt.Elem(), currentPkg, visited)
+	case *types.Chan:
+		return unspeakableTypeArg(tt.Elem(), currentPkg, visited)
+	case *types.Map:
+		if pkg, name, ok := unspeakableTypeArg(tt.Key(), currentPkg, visited); ok {
+			return pkg, name, ok
+		}
+		return unspeakableTypeArg(tt.Elem(), currentPkg, visited)
+	case *types.Struct:
+		for field := range tt.Fields() {
+			if pkg, name, ok := unspeakableTypeArg(field.Type(), currentPkg, visited); ok {
+				return pkg, name, ok
+			}
+		}
+		return nil, "", false
+	case *types.Tuple:
+		if tt == nil {
+			return nil, "", false
+		}
+		for v := range tt.Variables() {
+			if pkg, name, ok := unspeakableTypeArg(v.Type(), currentPkg, visited); ok {
+				return pkg, name, ok
+			}
+		}
+		return nil, "", false
+	case *types.Signature:
+		if pkg, name, ok := unspeakableTypeArg(tt.Params(), currentPkg, visited); ok {
+			return pkg, name, ok
+		}
+		return unspeakableTypeArg(tt.Results(), currentPkg, visited)
+	case *types.Interface:
+		for et := range tt.EmbeddedTypes() {
+			if pkg, name, ok := unspeakableTypeArg(et, currentPkg, visited); ok {
+				return pkg, name, ok
+			}
+		}
+		return nil, "", false
+	default:
+		return nil, "", false
+	}
 }
 
 // genSkippedTagSink emits the fail-safe replacement for a requalification-

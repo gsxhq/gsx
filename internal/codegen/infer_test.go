@@ -4,12 +4,15 @@ import (
 	goast "go/ast"
 	goparser "go/parser"
 	"go/token"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/diag"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
@@ -474,5 +477,190 @@ func TestRequalifyTypeParams(t *testing.T) {
 				t.Errorf("requalifyTypeParams(%q) = %q, want %q", tt.decl, got, tt.want)
 			}
 		})
+	}
+}
+
+// writeUnexportedTypeArgModule scaffolds the Task 6 fixture: a models
+// package exporting a constructor that returns an UNEXPORTED type
+// (models.secret), a generic components.Box[T any](value T) whose
+// constraint is `any` (so nothing about ITS declaration needs
+// requalification — this is a DIFFERENT path from the Task 4
+// requalification-failed fail-safe, which fires when the DECLARED
+// constraint itself is dep-local-unexported; here the constraint is fine and
+// inference succeeds, but the INFERRED type argument is unspeakable outside
+// models), and a root package with two files: post.gsx (the offending tag)
+// and other.gsx (an unrelated sibling that must be unaffected). valueExpr is
+// the m.New... call whose inferred type argument names (possibly nests) the
+// unexported models.secret. modName must be a valid bare Go package/module
+// name unique to the calling test (keeps each test's temp module import
+// path distinct).
+//
+// models is a plain .go file, not .gsx: it declares no components (only
+// bare type/func decls), and generateFile unconditionally emits the
+// boilerplate context/io/gsx runtime imports for every .x.go regardless of
+// whether any component actually used them — a componentless .gsx would
+// generate a .x.go with those three imports unused, failing `go build` for a
+// reason unrelated to this test. This mirrors modelDir/flag.go in
+// TestGenericCrossPackageTag (generic_crosspkg_test.go), which sidesteps the
+// same issue the same way; models is never passed to GenerateDirs (it has
+// nothing for gsx to generate).
+func writeUnexportedTypeArgModule(t *testing.T, modName, valueExpr string) (tmp, compDir string) {
+	t.Helper()
+	repoRootAbs, _ := filepath.Abs("../..")
+	tmp = t.TempDir()
+	writeFile(t, tmp, "go.mod", "module example.com/"+modName+"\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRootAbs+"\n")
+	compDir = filepath.Join(tmp, "components")
+	if err := os.MkdirAll(compDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	modelsDir := filepath.Join(tmp, "models")
+	if err := os.MkdirAll(modelsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// value is never rendered inside Box: T's constraint is `any`, which
+	// classify's typeparam handling treats as catUnsupported (an empty/`any`
+	// term set), so interpolating {value} directly would fail Box's OWN
+	// generation with an unrelated "unrenderable" diagnostic. The prop only
+	// needs to exist for inference to run over it.
+	writeFile(t, compDir, "box.gsx", "package components\n\ncomponent Box[T any](value T) {\n\t<span>box</span>\n}\n")
+	writeFile(t, modelsDir, "models.go", "package models\n\ntype secret string\n\nfunc NewSecret() secret { return \"shh\" }\n\nfunc NewSecrets() []secret { return []secret{\"shh\"} }\n")
+	writeFile(t, tmp, "post.gsx", "package "+modName+"\n\nimport (\n\t\"example.com/"+modName+"/components\"\n\tm \"example.com/"+modName+"/models\"\n)\n\ncomponent Post() {\n\t<components.Box value={"+valueExpr+"} />\n}\n")
+	writeFile(t, tmp, "other.gsx", "package "+modName+"\n\ncomponent Other() {\n\t<p>ok</p>\n}\n")
+	return tmp, compDir
+}
+
+// assertUnrenderableTypeArg asserts diags contains EXACTLY one
+// unrenderable-type-arg diagnostic, that it is Error-severity and positioned,
+// and that its message names the offending qualified type
+// ("models.secret") — mirrors assertOnlyInferenceUnavailable's shape in
+// generic_crosspkg_test.go for the sibling (Task 4) fail-safe, adapted to
+// this Error-severity, hard-failure diagnostic.
+func assertUnrenderableTypeArg(t *testing.T, diags []diag.Diagnostic) {
+	t.Helper()
+	var found int
+	for _, d := range diags {
+		if d.Code != "unrenderable-type-arg" {
+			if d.Severity == diag.Error {
+				t.Errorf("unexpected error diagnostic alongside unrenderable-type-arg: %+v", d)
+			}
+			continue
+		}
+		found++
+		if d.Severity != diag.Error {
+			t.Errorf("unrenderable-type-arg diagnostic severity = %v, want Error: %+v", d.Severity, d)
+		}
+		if d.Start.Line == 0 {
+			t.Errorf("unrenderable-type-arg diagnostic is not positioned: %+v", d)
+		}
+		if !strings.Contains(d.Message, "models.secret") {
+			t.Errorf("unrenderable-type-arg diagnostic does not name models.secret: %+v", d)
+		}
+	}
+	if found != 1 {
+		t.Fatalf("want exactly 1 unrenderable-type-arg diagnostic, got %d: %+v", found, diags)
+	}
+}
+
+// TestInferredUnexportedTypeArgRejected pins the Task 6 emit-time backstop:
+// an inferred type argument that names a type UNEXPORTED outside its
+// declaring package cannot be printed at all (`models.secret` is not valid
+// Go syntax from outside package models), so childTypeArgUse must refuse to
+// print it and record a positioned diagnostic instead of emitting
+// non-compiling Go. This is the emit-time counterpart to the Task 4
+// requalification-failed fail-safe (generic_crosspkg_test.go) — that one
+// fires when the DECLARED constraint can't be requalified into the caller's
+// context; this one fires when inference SUCCEEDS but the winning type
+// argument is unspeakable at the call site. post.gsx's sole component (Post)
+// fails outright (generateFile aborts the WHOLE FILE when any component
+// fails — see emit.go's file-level ok tracking), so post.gsx has no
+// generated output at all; the sibling other.gsx file in the same package
+// must be unaffected, and the components package (which has no bad tags
+// itself) must generate clean.
+func TestInferredUnexportedTypeArgRejected(t *testing.T) {
+	tmp, compDir := writeUnexportedTypeArgModule(t, "utar", "m.NewSecret()")
+
+	res, err := GenerateDirs(tmp, []string{tmp, compDir}, Options{FilterPkgs: []string{stdImportPath}, CSSMinify: true, JSMinify: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diags := res[compDir].Diags; len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics generating components package: %+v", diags)
+	}
+	assertUnrenderableTypeArg(t, res[tmp].Diags)
+
+	for p := range res[tmp].Files {
+		if strings.HasSuffix(p, "post.gsx") {
+			t.Fatalf("post.gsx must not have generated output; files = %+v", res[tmp].Files)
+		}
+	}
+	var otherGen string
+	for p, src := range res[tmp].Files {
+		if strings.HasSuffix(p, "other.gsx") {
+			otherGen = string(src)
+		}
+	}
+	if !strings.Contains(otherGen, "func Other() gsx.Node") {
+		t.Fatalf("sibling file's generation affected by the rejected tag; other.gsx generated:\n%s", otherGen)
+	}
+}
+
+// TestInferredUnexportedTypeArgRejectedNested is the nested variant: the
+// offending unexported type is buried inside a slice ([]models.secret, from
+// NewSecrets), not the bare top-level type argument. unspeakableTypeArg must
+// recurse into the slice element to catch it — a check that only looked at
+// the top-level *types.Named would miss this.
+func TestInferredUnexportedTypeArgRejectedNested(t *testing.T) {
+	tmp, compDir := writeUnexportedTypeArgModule(t, "utarn", "m.NewSecrets()")
+
+	res, err := GenerateDirs(tmp, []string{tmp, compDir}, Options{FilterPkgs: []string{stdImportPath}, CSSMinify: true, JSMinify: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diags := res[compDir].Diags; len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics generating components package: %+v", diags)
+	}
+	assertUnrenderableTypeArg(t, res[tmp].Diags)
+
+	for p := range res[tmp].Files {
+		if strings.HasSuffix(p, "post.gsx") {
+			t.Fatalf("post.gsx must not have generated output; files = %+v", res[tmp].Files)
+		}
+	}
+}
+
+// TestInferredUnexportedTypeArgRejectedOutputBuilds is the build-proof half:
+// generation SUCCEEDS for every file except the rejected post.gsx (err ==
+// nil, only the positioned diagnostic — never a hard error), and the WRITTEN
+// output for everything that did generate must actually `go build` — the
+// strongest possible property, mirroring
+// TestGenericCrossPackageInferenceFailureOutputBuilds's shape. Unlike that
+// Task 4 fail-safe (which sinks the failed tag's OWN file so it still
+// builds), this Task 6 rejection drops the offending .gsx's output entirely;
+// this test proves that omission alone is enough — the rest of the module
+// builds fine without it.
+func TestInferredUnexportedTypeArgRejectedOutputBuilds(t *testing.T) {
+	if testing.Short() {
+		t.Skip("spawns the go toolchain")
+	}
+	tmp, compDir := writeUnexportedTypeArgModule(t, "utarb", "m.NewSecret()")
+
+	res, err := GenerateDirs(tmp, []string{tmp, compDir}, Options{FilterPkgs: []string{stdImportPath}, CSSMinify: true, JSMinify: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertUnrenderableTypeArg(t, res[tmp].Diags)
+
+	for _, r := range res {
+		for gsxPath, src := range r.Files {
+			base := strings.TrimSuffix(gsxPath, ".gsx")
+			if werr := os.WriteFile(base+".x.go", src, 0o644); werr != nil {
+				t.Fatal(werr)
+			}
+		}
+	}
+	build := exec.Command("go", "build", "./...")
+	build.Dir = tmp
+	if bout, berr := build.CombinedOutput(); berr != nil {
+		t.Fatalf("go build of generated output: %v\n%s", berr, bout)
 	}
 }
