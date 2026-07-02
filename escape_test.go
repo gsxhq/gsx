@@ -75,6 +75,57 @@ func TestWriteURLEscapesAfterSanitize(t *testing.T) {
 	}
 }
 
+func TestRefreshContentSanitize(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"reload integer", "0", "0"},
+		{"reload decimal", "5.25", "5.25"},
+		{"safe relative", "0;url=/next", "0;url=/next"},
+		{"safe absolute", "0; URL=https://example.com/a?b=c", "0; URL=https://example.com/a?b=c"},
+		{"safe quoted query", "0, url='?q=a:b'", "0, url='?q=a:b'"},
+		{"unsafe unquoted", "0;url=javascript:alert(1)", "0;url=" + blockedURL},
+		{"unsafe mixed case", "0;URL=JavaScript:alert(1)", "0;URL=" + blockedURL},
+		{"unsafe after url whitespace", "0; url= \tjavascript:alert(1)", "0; url= \t" + blockedURL},
+		{"unsafe embedded tab", "0;url=java\tscript:alert(1)", "0;url=" + blockedURL},
+		{"unsafe double quoted", `0;url="javascript:alert(1)"`, `0;url="` + blockedURL + `"`},
+		{"unsafe single quoted trailing", "0; url='javascript:alert(1)'; ignored", "0; url='" + blockedURL + "'; ignored"},
+		{"no url assignment", "0; refresh", "0; refresh"},
+		{"non refresh grammar", "url=javascript:alert(1)", "url=javascript:alert(1)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := refreshContentSanitize(tt.in); got != tt.want {
+				t.Fatalf("refreshContentSanitize(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWriterRefreshContentEscapesAfterSanitize(t *testing.T) {
+	var b strings.Builder
+	gw := W(&b)
+	gw.RefreshContent(`0;url=/x?a="b"&c`)
+	if err := gw.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if b.String() != `0;url=/x?a=&#34;b&#34;&amp;c` {
+		t.Fatalf("safe refresh content = %q", b.String())
+	}
+
+	b.Reset()
+	gw = W(&b)
+	gw.RefreshContent(`0;url="javascript:alert(1)"`)
+	if err := gw.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if b.String() != `0;url=&#34;`+blockedURL+`&#34;` {
+		t.Fatalf("blocked refresh content = %q, want quoted blocked URL", b.String())
+	}
+}
+
 func TestStyleValue(t *testing.T) {
 	// RawCSS passthrough: value is emitted verbatim (no filtering).
 	if got := StyleValue(RawCSS("color:blue")); got != "color:blue" {

@@ -160,6 +160,7 @@ func (m *Module) invalidateLocked(dirs []string) {
 	for d := range m.reverseClosure(dirs) {
 		delete(m.pkgTypes, d)
 		delete(m.pkgResults, d)
+		delete(m.depFacts, d)
 	}
 }
 
@@ -281,6 +282,147 @@ func (m *Module) recordImports(dir string, paths []string) {
 	m.imports[dir] = newDeps
 }
 
+// depPropFacts is the cached per-dep-dir prop-fact bundle consumed by the
+// per-file qualified merge (fileScopedFacts): everything call-site attr
+// splitting needs to treat an imported component like a same-package one.
+// Derived syntactically by componentPropFieldsFor (plus its BYO external
+// load), so it holds no fset positions and survives fset rebuilds — it is
+// still reset there for uniformity. Invalidation: invalidateLocked deletes
+// the entry whenever the dep dir is in the dirty closure.
+type depPropFacts struct {
+	pkgName    string
+	propFields map[string]map[string]bool
+	nodeProps  map[string]map[string]bool
+	attrsProps map[string]map[string]bool
+	byo        *byoData
+}
+
+// importedPropFacts returns dir's prop facts, deriving and caching them on
+// first use. Callers run under analysisMu (analyze), so derivation is
+// single-flight; m.mu guards the map for Invalidate callers.
+func (m *Module) importedPropFacts(depDir string) (*depPropFacts, error) {
+	m.mu.Lock()
+	if f, ok := m.depFacts[depDir]; ok {
+		m.mu.Unlock()
+		return f, nil
+	}
+	m.mu.Unlock()
+	files, pkgName, err := m.parsePackageWithFset(depDir, m.fset)
+	if err != nil {
+		return nil, err
+	}
+	propFields, nodeProps, attrsProps, byo, err := componentPropFieldsFor(depDir, files)
+	if err != nil {
+		return nil, err
+	}
+	f := &depPropFacts{pkgName: pkgName, propFields: propFields, nodeProps: nodeProps, attrsProps: attrsProps, byo: byo}
+	m.mu.Lock()
+	if m.depFacts == nil {
+		m.depFacts = map[string]*depPropFacts{}
+	}
+	m.depFacts[depDir] = f
+	m.mu.Unlock()
+	return f, nil
+}
+
+// fileFacts is the per-.gsx-file view of prop facts: the package's own facts
+// plus, for each gsx package imported BY THIS FILE, the dep's facts qualified
+// under the file's alias. Go import aliases are file-scoped, so these views
+// must be too — a package-wide alias merge collides when two files bind the
+// same alias to different packages.
+type fileFacts struct {
+	propFields map[string]map[string]bool
+	nodeProps  map[string]map[string]bool
+	attrsProps map[string]map[string]bool
+	byo        *byoData
+}
+
+// fileImportSpecs extracts f's hoisted import specs with resolved .gsx
+// positions (mirroring buildSkeleton's spec-position block: gc.Src starts
+// exactly at gc.Pos(), so chunk offset + intra-chunk offset is the absolute
+// .gsx offset). Chunk parse errors are skipped here — buildSkeleton surfaces
+// them with a clean diagnostic.
+func fileImportSpecs(f *gsxast.File, fset *token.FileSet) []importSpec {
+	var specs []importSpec
+	for _, d := range f.Decls {
+		gc, ok := d.(*gsxast.GoChunk)
+		if !ok {
+			continue
+		}
+		imps, _, _, err := splitChunk(gc.Src)
+		if err != nil {
+			continue
+		}
+		if fset != nil && gc.Pos().IsValid() {
+			if tf := fset.File(gc.Pos()); tf != nil {
+				base := fset.Position(gc.Pos()).Offset
+				for i := range imps {
+					imps[i].pos = tf.Pos(base + imps[i].srcOff)
+				}
+			}
+		}
+		specs = append(specs, imps...)
+	}
+	return specs
+}
+
+// fileScopedFacts builds the per-file fact view for one parsed .gsx file.
+// base facts are shared (not copied) when the file imports no gsx packages;
+// otherwise shallow clones are extended with alias-qualified dep entries.
+// A dep whose facts cannot be derived (parse/analysis error) is skipped with
+// a positioned Warning: its components fall back to the assume-prop regime
+// (declared == nil) instead of silently flip-flopping between regimes.
+func (m *Module) fileScopedFacts(dir string, f *gsxast.File, propFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, bag *diag.Bag, fset *token.FileSet) *fileFacts {
+	out := &fileFacts{propFields: propFields, nodeProps: nodeProps, attrsProps: attrsProps, byo: byo}
+	cloned := false
+	seen := map[string]bool{} // alias+"\x00"+depDir: dedupe repeated specs
+	for _, spec := range fileImportSpecs(f, fset) {
+		if spec.name == "." || spec.name == "_" {
+			continue // dot/blank imports carry no qualified tags
+		}
+		depDir, ok := dirForImportPath(m.opts.ModuleRoot, m.opts.ModulePath, spec.path)
+		if !ok || depDir == dir || !m.isGsxPackage(depDir) {
+			continue
+		}
+		facts, err := m.importedPropFacts(depDir)
+		if err != nil {
+			pos := fset.Position(spec.pos)
+			bag.Add(diag.Diagnostic{
+				Start: pos, End: pos, Severity: diag.Warning, Code: "imported-props-unavailable", Source: "codegen",
+				Message: fmt.Sprintf("cannot analyze imported gsx package %q: %v; its component props are not discovered (identifier attrs on its components are treated as prop fields)", spec.path, err),
+			})
+			continue
+		}
+		alias := spec.name
+		if alias == "" {
+			alias = facts.pkgName
+		}
+		key := alias + "\x00" + depDir
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		if !cloned {
+			out.propFields = maps.Clone(propFields)
+			out.nodeProps = maps.Clone(nodeProps)
+			out.attrsProps = maps.Clone(attrsProps)
+			out.byo = byo.cloneForFile()
+			cloned = true
+		}
+		for name, fields := range facts.propFields {
+			out.propFields[alias+"."+name] = fields
+		}
+		for name, fields := range facts.nodeProps {
+			out.nodeProps[alias+"."+name] = fields
+		}
+		for name, fields := range facts.attrsProps {
+			out.attrsProps[alias+"."+name] = fields
+		}
+		out.byo.mergeQualified(alias, facts.byo)
+	}
+	return out
+}
+
 // importGraphSnapshot returns deep copies of the forward and reverse import
 // graphs for tests. Reverse edges are flattened (dep -> sorted importer dirs).
 func (m *Module) importGraphSnapshot() (fwd map[string][]string, rev map[string][]string) {
@@ -362,6 +504,7 @@ type analyzed struct {
 	nodeProps   map[string]map[string]bool
 	attrsProps  map[string]map[string]bool
 	byo         *byoData
+	factsByFile map[string]*fileFacts // per-file fact views; propFields/nodeProps/attrsProps/byo keep the package-local base facts
 	resolved    map[gsxast.Node]types.Type
 	exprMap     map[gsxast.Node]goast.Expr
 	ctrlMap     map[gsxast.Node]ctrlRef            // control-flow node -> skeleton clause pos + containing node
@@ -423,9 +566,12 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	compsByXGo := map[string][]*gsxast.Component{}
 	ctrlOffByXGo := map[string]map[gsxast.Node]int{}
 	var allImportSpecs []importSpec
+	factsByFile := map[string]*fileFacts{}
 	skelErr := false
 	for path, f := range gsxFiles {
-		skel, comps, imps, ctrlOff, berr := buildSkeleton(f, table, propFields, nodeProps, attrsProps, byo, m.opts.FieldMatcher, fset)
+		ff := m.fileScopedFacts(dir, f, propFields, nodeProps, attrsProps, byo, bag, fset)
+		factsByFile[path] = ff
+		skel, comps, imps, ctrlOff, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, ff.byo, m.opts.FieldMatcher, fset)
 		if berr != nil {
 			// buildSkeleton error handling: a positioned attrError becomes a
 			// diagnostic and skips this file; any other error is also recorded as a
@@ -681,6 +827,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		nodeProps:   nodeProps,
 		attrsProps:  attrsProps,
 		byo:         byo,
+		factsByFile: factsByFile,
 		resolved:    resolved,
 		exprMap:     exprMap,
 		ctrlMap:     ctrlMap,

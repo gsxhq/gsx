@@ -1,0 +1,11 @@
+# No nonce on the context: output is byte-identical to pre-feature (the
+# injected runtime check writes nothing).
+-- input.gsx --
+package views
+
+component Page() { <script>init()</script> }
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<script>init()</script>

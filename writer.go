@@ -86,6 +86,15 @@ func (gw *Writer) URL(s string) {
 	gw.err = writeURL(gw.w, s)
 }
 
+// RefreshContent writes a meta refresh content value with any embedded redirect
+// URL sanitized, then HTML-escapes the complete attribute value.
+func (gw *Writer) RefreshContent(s string) {
+	if gw.err != nil {
+		return
+	}
+	gw.err = writeHTML(gw.w, refreshContentSanitize(s))
+}
+
 // BoolAttr writes ` name` when on, and nothing otherwise.
 func (gw *Writer) BoolAttr(name string, on bool) {
 	if !on {

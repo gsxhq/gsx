@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,6 +61,40 @@ func newByoData() *byoData {
 		structs:      map[string]byoStruct{},
 		inGsx:        map[string]bool{},
 		nullaryFuncs: map[string]bool{},
+	}
+}
+
+// cloneForFile returns a copy of b whose maps can be extended with imported
+// qualified entries without mutating the package-wide byo shared across files.
+// nullaryFuncs is shared (never extended by the qualified merge — a bare
+// imported func call is not in scope for prop discovery).
+func (b *byoData) cloneForFile() *byoData {
+	return &byoData{
+		compStruct:   maps.Clone(b.compStruct),
+		structs:      maps.Clone(b.structs),
+		inGsx:        maps.Clone(b.inGsx),
+		nullaryFuncs: b.nullaryFuncs,
+	}
+}
+
+// mergeQualified publishes dep's byo facts under a file-scoped import alias.
+// Function-component keys ".Card" become ".<alias>.Card" — exactly what
+// childInvocation looks up for a `<alias.Card>` tag — and struct type names
+// "CardData" become "<alias>.CardData", the qualified type the emitter writes.
+// Method components are skipped (a method tag never resolves through an
+// import alias); nullaryFuncs are not merged (same reason as cloneForFile).
+func (b *byoData) mergeQualified(alias string, dep *byoData) {
+	for key, structName := range dep.compStruct {
+		if !strings.HasPrefix(key, ".") {
+			continue // method component: not invocable through a qualified tag
+		}
+		b.compStruct["."+alias+key] = alias + "." + structName
+	}
+	for name, st := range dep.structs {
+		b.structs[alias+"."+name] = st
+	}
+	for name, in := range dep.inGsx {
+		b.inGsx[alias+"."+name] = in
 	}
 }
 

@@ -1,0 +1,34 @@
+# The spread expression must be evaluated exactly once even though the nonce
+# guard also inspects it — the hoisted temp is assigned once and reused.
+-- support.go --
+package views
+
+import (
+	"context"
+	"fmt"
+	"io"
+
+	"github.com/gsxhq/gsx"
+)
+
+var bagCalls int
+
+func countingBag() gsx.Attrs {
+	bagCalls++
+	return gsx.Attrs{{Key: "data-calls", Value: fmt.Sprint(bagCalls)}}
+}
+
+func withTestNonce(n gsx.Node) gsx.Node {
+	return gsx.Func(func(ctx context.Context, w io.Writer) error {
+		return n.Render(gsx.WithNonce(ctx, "r4nd0m"), w)
+	})
+}
+-- input.gsx --
+package views
+
+component Page() { <script { countingBag()... }>init()</script> }
+-- invoke --
+withTestNonce(Page())
+-- diagnostics.golden --
+-- render.golden --
+<script data-calls="1" nonce="r4nd0m">init()</script>

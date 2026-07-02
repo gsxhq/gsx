@@ -108,10 +108,19 @@ render goldens.
    root's class and the rest spreads at the root, root-wins. **Manual** `{...attrs}`:
    a body referencing `attrs` takes over placement. Covers composable `class={…}`,
    `{...spread}`, conditional `{ if }`, and pipelined values on a `<Card …>`
-   invocation, plus whole-struct splat `{ data... }`.
+   invocation, plus whole-struct splat `{ data... }`. **Cross-package/imported
+   components** (same module) get the same treatment — `2026-07-02`: per-file,
+   import-alias-scoped prop discovery matches declared fields exactly like
+   same-package calls, including the synthesized `Attrs gsx.Attrs` bag targeted
+   via an ordered-attrs literal (`attrs={{ … }}`, canonical lowercase spelling,
+   composing with other bag contributors via `.Merge` — merges last, duplicate
+   literal is a clean error). A dependency gsx cannot analyze (other modules,
+   plain Go packages, or a dep with a parse/type error) falls back to
+   assumed-prop identifier matching with a visible `imported-props-unavailable`
+   warning, replacing the prior best-effort/silent behavior.
    - **Deferred:** composable `style={…}` on a *component* invocation (works on an
-     element, or set a static `style="…"`); cross-package undeclared-identifier split
-     (best-effort); a pretty ambiguity diagnostic (today the raw Go unknown-field error).
+     element, or set a static `style="…"`); a pretty ambiguity diagnostic (today the
+     raw Go unknown-field error).
 8. [x] **Bare nullary func components** — any same-package tag whose backing func
    is nullary-by-construction is invokable as a bare `<F/>`, like a self-contained
    void element, with no `FProps` ceremony: a hand-written `func F() gsx.Node` (not a
@@ -288,12 +297,19 @@ vocabulary remains a design aspiration, not the current API.
    (adversarial-reviewed + fuzzed, 44.7M inputs, no breakout-byte leak);
    `<script>` and `` js`...` `` holes JSON-encode (Slices C1–C3). CSS
    minification on by default.
-4. [~] **Harden `urlSanitize` + complete URL-attr table** — control-char /
+4. [x] **Harden `urlSanitize` + complete URL-attr table** — control-char /
    whitespace scheme evasion maps to the sentinel (adversarial-probed); the
    `urlAttrs` table covers `href`/`src`/`action`/`formaction`/`poster`/`cite`/`ping`/
-   `data`/`background`/`manifest`/`xlink:href`/`hx-*`. **Remaining:** `meta
-   http-equiv=refresh` content (CVE-2026-27142) and `base href` carriers; a
-   dedicated fuzz target seeded from the OWASP filter-evasion sheet.
+   `data`/`background`/`manifest`/`xlink:href`/`hx-*`; a statically-declared
+   `<meta http-equiv="refresh" content={...}>` (static, constant-literal, or
+   conditional-branch `http-equiv`) sanitizes its embedded redirect URL
+   (WHATWG-grammar parser, differential-fuzzed via
+   `FuzzRefreshContentSanitize` against an independent spec port, OWASP
+   filter-evasion seeds); `<base href={...}>` is explicitly covered by the
+   normal `href` URL path. **Residual (accepted):** a runtime-dynamic
+   `http-equiv={expr}` keeps plain attribute escaping (pinned in corpus
+   `security/meta_refresh_dynamic_http_equiv`), and `{...attrs}` bags follow
+   the documented Spread contract (attribute-escaped, never URL-sanitized).
 5. [ ] **Split navigational vs resource URLs** in the type/filter vocabulary
    (`URL` vs `TrustedResourceURL`, à la safehtml; html/template conflates them —
    go#27926).
@@ -301,8 +317,13 @@ vocabulary remains a design aspiration, not the current API.
    islands + `<script>` / `` js`...` `` holes auto JSON-encode via `JSVal`;
    `gsx.RawJS` opts out. No `|> json` filter. See
    `2026-06-23-gsx-js-interpolation-design.md` and `datajson/`.
-7. [ ] **CSP nonce threading** for emitted `<script>`/`<style>` — thread a
-   per-request nonce; do not build a CSP engine (header is the server's job).
+7. [x] **CSP nonce threading** for emitted `<script>`/`<style>` —
+   `gsx.WithNonce(ctx, nonce)` stores the per-request nonce on the render
+   context; generated code adds `nonce="…"` to every emitted `<script>`/
+   `<style>` open tag (an author-written `nonce` attribute or a spread bag
+   carrying a `"nonce"` key wins). No nonce generation, middleware, or CSP
+   header engine — the header stays the server's job. See
+   `2026-07-02-csp-nonce-injection-design.md`.
 
 ## Tracked debts / deferrals
 
@@ -357,7 +378,8 @@ vocabulary remains a design aspiration, not the current API.
   codes (codes are string-based today, e.g. `invalid-syntax`); `vet`/`render`/`explain`;
   finer-grained incremental invalidation beyond the current warm watcher.
 - [ ] **Codegen niceties** — [x] coalesce adjacent `gw.S` static writes;
-  [ ] `//line` trailing-state reset; [ ] `data:image` URL allowance.
+  [ ] `//line` trailing-state reset; [ ] `data:image` resource-URL allowance
+  after navigational/resource URL contexts are split.
 - [x] **`//go:` directive / build-constraint pass-through** — program-significant
   comment lines before the `package` clause (`//go:build`, `//go:generate`,
   `//go:debug`, legacy `// +build`) copy verbatim into the generated `.x.go`,

@@ -28,7 +28,9 @@ func Page() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<style>.card{color: red;margin: 1px 2px}</style>")
+		_gsxgw.S("<style")
+		_gsxgw.Nonce(ctx)
+		_gsxgw.S(">.card{color: red;margin: 1px 2px}</style>")
 		return _gsxgw.Err()
 	})
 }

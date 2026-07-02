@@ -56,6 +56,9 @@ codegen-shape/example12_toolbar	diag render
 codegen-shape/greeting	diag gen render
 codegen-shape/style_interp	diag gen render
 codegen-shape/whitespace_collapse	diag gen render
+components/attrs_literal_duplicate_error	diag gen render
+components/attrs_literal_merge	diag gen render
+components/attrs_literal_merge_tuple	diag gen render
 components/child_class_evaluation_order	diag gen render
 components/child_class_fallthrough	diag render
 components/child_class_part_tuple	diag gen render
@@ -112,6 +115,7 @@ components/nullary_func_control_flow	diag render
 components/nullary_func_in_slot	diag render
 components/nullary_func_mixed_kordering	diag render
 components/nullary_no_props	diag gen render
+components/ordered_attrs_target_attrs	diag gen render
 control_flow/for	diag render
 control_flow/goblock	diag render
 control_flow/if_init_error_handling	diag gen render
@@ -218,6 +222,25 @@ methods/render_method_pointer_receiver	diag render
 methods/render_method_same_name_different_receivers_a	diag render
 methods/render_method_same_name_different_receivers_b	diag render
 methods/render_method_with_param	diag render
+nonce/cond_attr_nonce	diag render
+nonce/div_control	diag render
+nonce/explicit_expr_wins	diag render
+nonce/explicit_static_wins	diag render
+nonce/manual_plus_inline_spread	diag gen render
+nonce/manual_plus_inline_spread_nonce	diag render
+nonce/manual_spread	diag gen render
+nonce/manual_spread_style	diag render
+nonce/manual_spread_with_nonce	diag render
+nonce/no_nonce_ctx	diag render
+nonce/script_basic	diag gen render
+nonce/script_json_island	diag render
+nonce/script_src	diag render
+nonce/spread_eval_once	diag render
+nonce/spread_in_cond_attr_off	diag render
+nonce/spread_in_cond_attr_on	diag gen render
+nonce/spread_with_nonce	diag render
+nonce/spread_without_nonce	diag gen render
+nonce/style_basic	diag render
 orderedattrs/bind_no_field_error	diag gen render
 orderedattrs/bool_pair	diag gen render
 orderedattrs/datastar_example	diag gen render
@@ -304,8 +327,15 @@ script/value_pipeline	diag gen render
 script/value_pipeline_chain	diag render
 script/value_pipeline_param	diag gen render
 script/value_tuple	diag gen render
+security/base_href_url	diag gen render
 security/js_rejected_onclick	diag gen render
 security/js_rejected_style	diag render
+security/meta_refresh_cond_http_equiv	diag render
+security/meta_refresh_dynamic_http_equiv	diag gen render
+security/meta_refresh_expr_http_equiv	diag render
+security/meta_refresh_int_content	diag render
+security/meta_refresh_raw_vouched	diag render
+security/meta_refresh_url	diag gen render
 security/url_blocked	diag render
 security/url_raw_vouched	diag render
 security/xss	diag render
@@ -364,7 +394,13 @@ tuple/t_nodeslice	diag gen render
 tuple/t_stringer	diag gen render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
+xpkg/go_component_attrs_literal	diag gen render
+xpkg/go_component_attrs_literal_missing	diag render
+xpkg/imported_alias_collision	diag gen render
+xpkg/imported_attrs_fallthrough	diag gen render
+xpkg/imported_attrs_literal_merge	diag gen render
+xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 369 cases (render: 280, error: 67, gen-pinned: 149)
+TOTAL: 405 cases (render: 316, error: 67, gen-pinned: 166)

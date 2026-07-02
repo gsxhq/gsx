@@ -127,6 +127,56 @@ func dirSourceHash(dir string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// gsxDepDirs returns every in-module package dir reachable from dir through
+// the union of .gsx-hoisted import edges and go-list dep edges, excluding dir
+// itself. go list alone misses a dep whose only edge is a .gsx import with no
+// .x.go on disk, so the walk follows both edge kinds transitively.
+func gsxDepDirs(dir string, graph map[string]pkgInfo, moduleRoot, modPath string) []string {
+	byDir := map[string]pkgInfo{}
+	for _, p := range graph {
+		if p.Dir != "" {
+			byDir[filepath.Clean(p.Dir)] = p
+		}
+	}
+	dirFor := func(importPath string) (string, bool) {
+		if importPath == modPath {
+			return filepath.Clean(moduleRoot), true
+		}
+		if !strings.HasPrefix(importPath, modPath+"/") {
+			return "", false
+		}
+		rel := strings.TrimPrefix(importPath, modPath+"/")
+		return filepath.Join(moduleRoot, filepath.FromSlash(rel)), true
+	}
+	dir = filepath.Clean(dir)
+	seen := map[string]bool{dir: true}
+	queue := []string{dir}
+	var out []string
+	for len(queue) > 0 {
+		d := queue[0]
+		queue = queue[1:]
+		var neighborPaths []string
+		neighborPaths = append(neighborPaths, codegen.GsxHoistedImportPaths(d)...)
+		if p, ok := byDir[d]; ok {
+			neighborPaths = append(neighborPaths, p.Deps...)
+		}
+		for _, ip := range neighborPaths {
+			dd, ok := dirFor(ip)
+			if !ok || seen[dd] {
+				continue
+			}
+			if _, err := os.Stat(dd); err != nil {
+				continue // import of a not-yet-existing package: nothing to hash
+			}
+			seen[dd] = true
+			out = append(out, dd)
+			queue = append(queue, dd)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // computeKey is the per-package cache key. dir is the absolute package dir;
 // graph maps import paths to info; modPath is the module path; goModHash/
 // goSumHash/buildCtx/filterPkgs are the version pins. buildCtx is the output
@@ -136,38 +186,28 @@ func dirSourceHash(dir string) (string, error) {
 // codegenID is codegenIdentity() — "which generator produced this" — so any
 // change to the gsx binary (emit/lowering) invalidates cached output even when
 // the manual codegen.Version constant is not bumped.
-func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumHash, buildCtx, codegenID string, filterPkgs []string, aliases []codegen.FilterAlias, clsFingerprint string, hasFieldMatcher bool, cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef) (string, error) {
+func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumHash, buildCtx, codegenID string, filterPkgs []string, aliases []codegen.FilterAlias, clsFingerprint string, hasFieldMatcher bool, cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef, moduleRoot string) (string, error) {
 	dir = filepath.Clean(dir)
 	own, err := dirSourceHash(dir)
 	if err != nil {
 		return "", err
 	}
-	// find this package's import path by matching Dir.
-	var self pkgInfo
-	for _, p := range graph {
-		if p.Dir == dir {
-			self = p
-			break
-		}
-	}
-	// transitive in-module deps: self.Deps filtered to the module prefix.
+	// Dep hashes: every in-module package reachable through go-list edges OR
+	// .gsx-hoisted import edges. The .gsx walk (gsxDepDirs) is what keeps the
+	// key honest when a dep's .x.go is not on disk (fresh checkout, cleaned
+	// outputs): the dep's component prop fields drive this package's attr
+	// splitting, so its .gsx content must be an input to the key.
 	var depHashes []string
-	for _, dep := range self.Deps {
-		if dep == self.ImportPath {
-			continue
-		}
-		if dep != modPath && !strings.HasPrefix(dep, modPath+"/") {
-			continue // external / stdlib — pinned by goMod/goSum/goVersion
-		}
-		dp, ok := graph[dep]
-		if !ok || dp.Dir == "" {
-			continue
-		}
-		dh, err := dirSourceHash(dp.Dir)
+	for _, depDir := range gsxDepDirs(dir, graph, moduleRoot, modPath) {
+		dh, err := dirSourceHash(depDir)
 		if err != nil {
 			return "", err
 		}
-		depHashes = append(depHashes, dep+":"+dh)
+		rel, rerr := filepath.Rel(moduleRoot, depDir)
+		if rerr != nil {
+			rel = depDir
+		}
+		depHashes = append(depHashes, filepath.ToSlash(rel)+":"+dh)
 	}
 	sort.Strings(depHashes)
 

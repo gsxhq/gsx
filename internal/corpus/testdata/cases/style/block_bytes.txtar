@@ -31,7 +31,9 @@ func C(_gsxp CProps) gsx.Node {
 		raw := _gsxp.Raw
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<style>.a{color:")
+		_gsxgw.S("<style")
+		_gsxgw.Nonce(ctx)
+		_gsxgw.S(">.a{color:")
 		_gsxgw.CSS(string(raw))
 		_gsxgw.S("}</style>")
 		return _gsxgw.Err()

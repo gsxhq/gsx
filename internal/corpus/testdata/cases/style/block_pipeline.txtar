@@ -33,7 +33,9 @@ func Card(_gsxp CardProps) gsx.Node {
 		userColor := _gsxp.UserColor
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<style>.card{color:")
+		_gsxgw.S("<style")
+		_gsxgw.Nonce(ctx)
+		_gsxgw.S(">.card{color:")
 		_gsxgw.CSS(string(_gsxstd.Upper((userColor))))
 		_gsxgw.S("}</style>")
 		return _gsxgw.Err()

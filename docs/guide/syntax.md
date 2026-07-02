@@ -93,7 +93,7 @@ may not declare the same component name — analysis type-checks a package's
 | `name` (bare) | boolean attribute = `true` |
 | `disabled={ cond }` | type-driven boolean attr (bool → bare/omitted) |
 | `{ expr... }` | spread/splat — on an **element**: spreads `gsx.Attrs` as HTML attrs; on a **component**: whole-struct splat (passes the prebuilt struct as props) |
-| `name={{ "k": v, "k2": v2 }}` | ordered-attrs literal — binds to a `gsx.Attrs` prop; renders in source order |
+| `name={{ "k": v, "k2": v2 }}` | ordered-attrs literal — binds to a `gsx.Attrs` prop; renders in source order. `attrs={{ }}` (lowercase canonical) targets a component's synthesized fallthrough bag and merges last among bag contributors — see [Attributes](./syntax/attributes) |
 | `{ if … }` / `{ for … }` inside a tag | conditional attributes |
 | `{ if/for/switch … { <markup> } }` | control flow contributing children |
 | `{{ stmt }}` | Go statement escape hatch (no output) |

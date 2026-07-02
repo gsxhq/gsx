@@ -1,0 +1,13 @@
+-- input.gsx --
+package views
+
+component ExprRefresh(to string) {
+	<meta http-equiv={"refresh"} content={"0;url=" + to}/>
+}
+
+-- invoke --
+ExprRefresh(ExprRefreshProps{To: "javascript:alert(1)"})
+
+-- render.golden --
+<meta http-equiv="refresh" content="0;url=about:invalid#gsx"/>
+-- diagnostics.golden --
