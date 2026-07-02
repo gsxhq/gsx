@@ -97,3 +97,29 @@ jobs:
           cache: true
       - name: gofmt + gsx fmt
         run: make ci-format
+
+  go-tip:
+    name: go tip (generic-method tests)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    # Non-blocking tip lane: runs the go1.27-gated generic-method tests under
+    # gotip with skip promoted to failure. continue-on-error keeps tip breakage
+    # from blocking merges; the lane exists so the generic-method path is
+    # actually executed somewhere before GO_VERSION reaches 1.27.
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Cache gotip SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/sdk/gotip
+          key: gotip-${{ runner.os }}-${{ github.run_number }}
+          restore-keys: gotip-${{ runner.os }}-
+      - name: Install gotip
+        run: |
+          go install golang.org/dl/gotip@latest
+          gotip download
+      - name: Run generic-method tests under tip
+        run: make test-gotip

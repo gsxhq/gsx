@@ -1,5 +1,5 @@
 # gsx developer tasks. Use tabs for recipe indentation.
-.PHONY: test check cover cover-html examples ci ci-gomod ci-playground ci-examples ci-format ci-tailwind-example ci-tailwind-example-drift reload-probe
+.PHONY: test check cover cover-html examples ci ci-gomod ci-playground ci-examples ci-format ci-tailwind-example ci-tailwind-example-drift reload-probe test-gotip
 
 # COUNT is the go-test cache control. -count=1 disables the test cache so every
 # run re-executes — the authoritative behaviour `ci` uses to mirror GitHub CI.
@@ -93,3 +93,14 @@ cover-html: cover
 
 examples:
 	go run ./cmd/gsx-examples
+
+# Runs the go1.27-gated generic-methods tests under the gotip toolchain, with
+# skip promoted to FAILURE (GSX_REQUIRE_GENERIC_METHODS=1) so the lane can
+# never green-light while silently testing nothing. Requires gotip:
+#   go install golang.org/dl/gotip@latest && gotip download
+test-gotip:
+	@command -v gotip >/dev/null 2>&1 || { \
+		echo "gotip not found — install with:"; \
+		echo "  go install golang.org/dl/gotip@latest && gotip download"; \
+		exit 1; }
+	GSX_REQUIRE_GENERIC_METHODS=1 gotip test ./internal/codegen -run 'Go127|GenericMethod' -count=1 -v
