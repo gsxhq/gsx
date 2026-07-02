@@ -948,6 +948,20 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 			bag.Errorf(t.Pos(), t.End(), "attr-fallthrough", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false
 		} else if found {
+			// One spread per forwarding element: a second (non-bag) spread has no
+			// expressible precedence against the guard machinery and would not
+			// key-resolve against the bag — require explicit runtime composition.
+			for i, a := range t.Attrs {
+				s, ok := a.(*ast.SpreadAttr)
+				if !ok || i == splitIdx {
+					continue
+				}
+				expr := strings.TrimSpace(s.Expr)
+				bag.Errorf(s.Pos(), s.End(), "attr-fallthrough",
+					"element with an attrs-forwarding spread cannot carry another spread { %s... }; merge them into one spread ({ attrs.Merge(%s)... } or { %s.Merge(attrs)... }) so precedence is explicit",
+					expr, expr, expr)
+				return false
+			}
 			return emitManualSpreadElement(b, t, splitIdx, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)
 		}
 		emitS(b, "<"+t.Tag)

@@ -181,6 +181,7 @@ fallthrough/no_class_empty_bag	diag render
 fallthrough/no_class_root_with_bag	diag render
 fallthrough/not_eligible_no_field	diag gen render
 fallthrough/reserved_param_attrs	diag(error)
+fallthrough/second_spread_rejected	diag(error)
 fallthrough/source_order	diag render
 fallthrough/static_class_merge	diag render
 interpolation/field_access	diag render
@@ -228,8 +229,8 @@ nonce/cond_attr_nonce	diag render
 nonce/div_control	diag render
 nonce/explicit_expr_wins	diag render
 nonce/explicit_static_wins	diag render
-nonce/manual_plus_inline_spread	diag gen render
-nonce/manual_plus_inline_spread_nonce	diag render
+nonce/manual_merged_spread	diag gen render
+nonce/manual_merged_spread_nonce	diag render
 nonce/manual_spread	diag gen render
 nonce/manual_spread_style	diag render
 nonce/manual_spread_with_nonce	diag render
@@ -405,4 +406,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 407 cases (render: 318, error: 67, gen-pinned: 167)
+TOTAL: 408 cases (render: 318, error: 68, gen-pinned: 167)
