@@ -297,6 +297,7 @@ script/value_tuple	diag gen render
 security/base_href_url	diag gen render
 security/js_rejected_onclick	diag gen render
 security/js_rejected_style	diag render
+security/meta_refresh_dynamic_http_equiv	diag gen render
 security/meta_refresh_url	diag gen render
 security/url_blocked	diag render
 security/url_raw_vouched	diag render
@@ -359,4 +360,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 361 cases (render: 273, error: 66, gen-pinned: 142)
+TOTAL: 362 cases (render: 274, error: 66, gen-pinned: 143)
