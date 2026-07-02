@@ -12,7 +12,31 @@ import (
 	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/diag"
 )
+
+// genericSig is the ONE representation of an eligible generic component's
+// caller-side-probe-relevant signature — built uniformly for a SAME-PACKAGE
+// component (genericSigsFor over the package's own gsx files) and an
+// IMPORTED one (genericSigsFor over a dep package's files, via
+// module_importer.go's depPropFacts/fileFacts). This replaces the old
+// bool-only genericProps map plus, for same-package components only, the
+// declaring *gsxast.Component AST — Task 4 restores imported-component
+// inference by giving BOTH cases the same struct and ONE emitter code path
+// in emitProbes, branching only on whether requalification is needed.
+type genericSig struct {
+	typeParams string  // raw decl text as written in the declaring file ("T string | int")
+	params     []param // the component's full declared param list (typeSrc in the DECLARING file's context)
+	arity      int     // number of type params (Task 8's hint consumes this)
+
+	// imports is the DECLARING FILE's own hoisted import specs — the
+	// requalification engine's depImports input for an IMPORTED caller (see
+	// requalifyTypeExpr/requalifyTypeParams). A same-package caller never
+	// requalifies (the calling file IS the declaring file, so params/
+	// typeParams already resolve verbatim), so this field goes unused there;
+	// it is still populated uniformly so one construction path serves both.
+	imports []importSpec
+}
 
 // inferRegistry records every inference probe emitted into one file's
 // skeleton. It replaces the old exported, declaring-side inference-helper
@@ -62,6 +86,37 @@ type inferRegistry struct {
 	// there. buildSkeleton appends funcs.String() at package level (after the
 	// component skeletons) once every component's skeleton has been emitted.
 	funcs strings.Builder
+
+	// failed records every *gsxast.Element whose cross-package generic probe
+	// was skipped due to a requalification failure (recordFailed, called
+	// alongside recordInferenceUnavailable — see analyze.go's emitProbes).
+	// Such an element has NO probe call anywhere in the skeleton (harvest
+	// therefore never visits it), yet it must still be marked so emit time
+	// (genChildComponent) skips it too — generating a call for it would
+	// necessarily be invalid, uninstantiated Go (there is no resolved type
+	// arg to use). module_importer.go's analyze marks every entry here with
+	// the types.Invalid sentinel in the shared `resolved` map right after
+	// harvest runs, so genChildComponent's existing `resolved` parameter is
+	// the ONLY new signal it needs — no new parameter threading through
+	// emit.go's generateFile/genComponent/genChildComponent chain.
+	failed []gsxast.Node
+
+	// alloc coalesces "_gsxtiN" skeleton-only import aliases (Task 4) across
+	// EVERY requalified probe emitted into this ONE file's skeleton: two
+	// probes — even for different imported components declared in different
+	// dep files, each with its own import table — that resolve to the SAME
+	// dependency path share ONE alias, so buildSkeleton's import assembly
+	// emits exactly one `import _gsxtiN "path"` line per distinct path. This
+	// is load-bearing, not cosmetic: requalifyTypeExpr/requalifyTypeParams's
+	// OWN per-call aliasMinter restarts its "_gsxti1" counter every call (see
+	// the ALIAS COUNTER SCOPE doc below), so two INDEPENDENT calls emitting
+	// into the same file could otherwise both mint the literal text
+	// "_gsxti1" for two DIFFERENT paths — a Go redeclaration error if each
+	// were also given its own `import` line. Routing every Task-4
+	// requalification call in this file through registry.requalifyTypeExpr/
+	// requalifyTypeParams (which share this ONE allocator) avoids that by
+	// construction.
+	alloc *aliasAllocator
 }
 
 // inferSite is one recorded inference probe: the tag it was emitted for, the
@@ -81,7 +136,43 @@ type inferSpan struct{ start, end int }
 // newInferRegistry returns an empty registry ready to record probes for one
 // file's skeleton.
 func newInferRegistry() *inferRegistry {
-	return &inferRegistry{sites: map[string]*inferSite{}}
+	return &inferRegistry{sites: map[string]*inferSite{}, alloc: newAliasAllocator()}
+}
+
+// requalifyTypeExpr rewrites a single type expression for an IMPORTED
+// generic component's probe (Task 4), sharing this registry's ONE per-file
+// aliasAllocator so repeated calls (one per supplied param, across every
+// probe in the file) coalesce onto one alias per distinct dependency path —
+// see the alloc field doc. Delegates the actual parse/walk/print to
+// requalifyTypeExprWithMinter; depImports is the SPECIFIC dep component's
+// declaring-file import table (each imported generic component may live in
+// a different dep file with a different table — only the alias NAMESPACE is
+// shared, not the qualifier-resolution table).
+func (r *inferRegistry) requalifyTypeExpr(src, depAlias string, depImports []importSpec, declared map[string]bool) (string, error) {
+	mint := newAliasMinterShared(depImports, r.alloc)
+	return requalifyTypeExprWithMinter(src, depAlias, declared, mint)
+}
+
+// requalifyTypeParams rewrites a whole bracketed type-param declaration list
+// for an IMPORTED generic component's probe (Task 4) — the type-param
+// counterpart of requalifyTypeExpr above, sharing the same per-file
+// aliasAllocator.
+func (r *inferRegistry) requalifyTypeParams(decl, depAlias string, depImports []importSpec) (string, error) {
+	mint := newAliasMinterShared(depImports, r.alloc)
+	return requalifyTypeParamsWithMinter(decl, depAlias, mint)
+}
+
+// importAssembly returns the coalesced extra imports registered by every
+// requalified probe emitted into this file (in first-seen order), for
+// buildSkeleton's import-block assembly.
+func (r *inferRegistry) importAssembly() []importSpec {
+	return r.alloc.order
+}
+
+// recordFailed marks el as a tag whose cross-package generic probe was
+// skipped due to a requalification failure — see the failed field's doc.
+func (r *inferRegistry) recordFailed(el gsxast.Node) {
+	r.failed = append(r.failed, el)
 }
 
 // nextName returns the next probe helper name: "_gsxinfer1", "_gsxinfer2", ....
@@ -212,6 +303,46 @@ func (r *inferRegistry) emitInferProbe(sb *strings.Builder, el *gsxast.Element,
 	return true
 }
 
+// importedTagAlias reports whether tag is a package-qualified component
+// invocation (`components.Button`), returning the qualifier as the calling
+// file's import alias for that dependency package. isMethod (from
+// childInvocation) disambiguates a method invocation (`p.Method`, driven by
+// the enclosing receiver var) — its tag text also contains a dot, but it is
+// never package-qualified.
+func importedTagAlias(tag string, isMethod bool) (alias string, ok bool) {
+	if isMethod {
+		return "", false
+	}
+	alias, _, ok = strings.Cut(tag, ".")
+	if !ok {
+		return "", false
+	}
+	return alias, true
+}
+
+// recordInferenceUnavailable records the Task 4 fail-safe diagnostic for an
+// imported generic tag whose type-param decl or a supplied param's type
+// could not be requalified into the calling file's context (an unexported
+// dep-local type, a dot-imported dep-local name, or an unresolvable/
+// ambiguous dep qualifier — see requalifyTypeExpr's doc for the full list),
+// and marks el on registry (registry.recordFailed) so emit time skips it too
+// — see inferRegistry.failed's doc for why: a call for this tag would
+// otherwise need to be emitted uninstantiated (invalid Go), since no probe
+// ever type-checked to harvest a resolved type arg from. Warning severity:
+// the probe for THIS tag is skipped, but the rest of the file/package still
+// generates. A nil bag (some buildSkeleton callers, e.g. unit tests
+// exercising the skeleton directly, pass none) skips the diagnostic but
+// still marks the element failed.
+func recordInferenceUnavailable(bag *diag.Bag, registry *inferRegistry, el *gsxast.Element, cause error) {
+	registry.recordFailed(el)
+	if bag == nil {
+		return
+	}
+	msg := strings.TrimPrefix(cause.Error(), "codegen: ")
+	bag.Report(el.Pos(), el.End(), diag.Warning, "inference-unavailable", "codegen",
+		"type inference for <%s> needs %s; instantiate explicitly with <%s[type] ...>", el.Tag, msg, el.Tag)
+}
+
 // --- Requalification engine (Task 3) ---------------------------------------
 //
 // A generic component's type-param constraints and declared param types are
@@ -317,12 +448,23 @@ func (r *inferRegistry) emitInferProbe(sb *strings.Builder, el *gsxast.Element,
 // specifies, because a type-param FIELD LIST legitimately allows union/tilde
 // constraint syntax in that grammar position.
 func requalifyTypeExpr(src, depAlias string, depImports []importSpec, declared map[string]bool, addImport func(path, alias string)) (string, error) {
+	mint := newAliasMinter(depImports, addImport)
+	return requalifyTypeExprWithMinter(src, depAlias, declared, mint)
+}
+
+// requalifyTypeExprWithMinter is requalifyTypeExpr's implementation, taking
+// an already-constructed *aliasMinter instead of building a fresh one. The
+// public requalifyTypeExpr always passes a private, per-call minter (see
+// newAliasMinter) so its documented per-call alias-counter behavior is
+// unchanged; inferRegistry.requalifyTypeExpr (Task 4) instead passes a
+// minter sharing the registry's ONE per-file aliasAllocator, so several
+// calls coalesce their aliases — see inferRegistry.alloc's doc.
+func requalifyTypeExprWithMinter(src, depAlias string, declared map[string]bool, mint *aliasMinter) (string, error) {
 	src = strings.TrimSpace(src)
 	expr, err := parser.ParseExpr(src)
 	if err != nil {
 		return "", fmt.Errorf("codegen: parse type expr %q: %w", src, err)
 	}
-	mint := newAliasMinter(depImports, addImport)
 	rewritten, err := rewriteTypeNode(expr, depAlias, declared, mint)
 	if err != nil {
 		return "", err
@@ -358,6 +500,15 @@ func requalifyTypeExpr(src, depAlias string, depImports []importSpec, declared m
 // available); dep files whose constraints rely on dot-imported bare names
 // are unsupported (misqualified as <depAlias>.X).
 func requalifyTypeParams(decl, depAlias string, depImports []importSpec, addImport func(path, alias string)) (string, error) {
+	mint := newAliasMinter(depImports, addImport)
+	return requalifyTypeParamsWithMinter(decl, depAlias, mint)
+}
+
+// requalifyTypeParamsWithMinter is requalifyTypeParams's implementation,
+// taking an already-constructed *aliasMinter instead of building a fresh
+// one — see requalifyTypeExprWithMinter's doc for why (inferRegistry's Task
+// 4 wiring shares one allocator across every call in a file).
+func requalifyTypeParamsWithMinter(decl, depAlias string, mint *aliasMinter) (string, error) {
 	decl = strings.TrimSpace(decl)
 	if decl == "" {
 		return "", nil
@@ -377,7 +528,6 @@ func requalifyTypeParams(decl, depAlias string, depImports []importSpec, addImpo
 		}
 	}
 
-	mint := newAliasMinter(depImports, addImport)
 	parts := make([]string, 0, len(tpl.List))
 	for _, field := range tpl.List {
 		rewritten, err := rewriteTypeNode(field.Type, depAlias, declared, mint)
@@ -620,40 +770,88 @@ func printTypeExpr(e goast.Expr) (string, error) {
 	return buf.String(), nil
 }
 
-// aliasMinter allocates fresh "_gsxtiN" import aliases for a single
-// requalifyTypeExpr/requalifyTypeParams call, deduplicated by resolved
-// import PATH so repeated qualifiers for the same dep import within one call
-// share an alias — see the ALIAS COUNTER SCOPE note above for why aliases
-// are never coordinated ACROSS calls.
-type aliasMinter struct {
-	depImports []importSpec
-	addImport  func(path, alias string)
-	n          int
-	byPath     map[string]string
+// aliasAllocator mints fresh "_gsxtiN" import aliases, deduplicated by
+// resolved import PATH: the same path always gets the same alias from one
+// allocator, regardless of how many times or through how many different
+// qualifiers it is resolved. requalifyTypeExpr/requalifyTypeParams each
+// build a PRIVATE, single-call allocator by default (see the ALIAS COUNTER
+// SCOPE note above — every standalone call restarts at "_gsxti1");
+// inferRegistry (Task 4) instead holds ONE allocator for a whole file's
+// worth of probes, so repeated calls coalesce onto it — see
+// inferRegistry.alloc's doc for why that coordination matters.
+type aliasAllocator struct {
+	n      int
+	byPath map[string]string
+	order  []importSpec // first-seen order, for deterministic import assembly
 }
 
+func newAliasAllocator() *aliasAllocator {
+	return &aliasAllocator{byPath: map[string]string{}}
+}
+
+// alloc returns the alias bound to path, minting (and recording in order) a
+// fresh "_gsxtiN" the first time path is seen by this allocator, and
+// returning the SAME alias on every later call for that path.
+func (a *aliasAllocator) alloc(path string) string {
+	if alias, ok := a.byPath[path]; ok {
+		return alias
+	}
+	a.n++
+	alias := fmt.Sprintf("_gsxti%d", a.n)
+	a.byPath[path] = alias
+	a.order = append(a.order, importSpec{name: alias, path: path})
+	return alias
+}
+
+// aliasMinter resolves a dep-file qualifier (e.g. "fmt" or an explicit
+// alias) to the fresh alias registered for its import path, for one
+// requalifyTypeExpr/requalifyTypeParams walk. depImports is the SPECIFIC
+// dep file's own import table (qualifier -> path resolution is always
+// per-call/per-dep-file); alloc is the path -> alias allocator, which may be
+// either private to this call (newAliasMinter) or shared across many calls
+// (newAliasMinterShared) — see aliasAllocator's doc.
+type aliasMinter struct {
+	depImports []importSpec
+	alloc      *aliasAllocator
+	addImport  func(path, alias string) // nil for the shared (Task 4) path; see newAliasMinterShared
+}
+
+// newAliasMinter builds a minter over a fresh, PRIVATE allocator — the
+// standalone requalifyTypeExpr/requalifyTypeParams entry points' behavior,
+// unchanged by Task 4: addImport fires exactly once per NEW path seen by
+// THIS call.
 func newAliasMinter(depImports []importSpec, addImport func(path, alias string)) *aliasMinter {
-	return &aliasMinter{depImports: depImports, addImport: addImport, byPath: map[string]string{}}
+	return &aliasMinter{depImports: depImports, alloc: newAliasAllocator(), addImport: addImport}
+}
+
+// newAliasMinterShared builds a minter over a caller-owned allocator
+// (inferRegistry.alloc, Task 4) instead of a fresh private one, so repeated
+// calls into the SAME allocator coalesce onto one "_gsxtiN" sequence
+// deduplicated by path — see inferRegistry.alloc's doc. There is no
+// addImport callback: the caller reads the coalesced set directly off
+// alloc.order (inferRegistry.importAssembly) once every probe for the file
+// has been emitted, rather than being notified per-registration.
+func newAliasMinterShared(depImports []importSpec, alloc *aliasAllocator) *aliasMinter {
+	return &aliasMinter{depImports: depImports, alloc: alloc}
 }
 
 // resolve returns the fresh alias to use in place of qualifier (a package
 // identifier as it appears in the dep file's source, e.g. "fmt" or an
-// explicit alias), minting and registering (via addImport) a new "_gsxtiN"
-// alias the first time a given import PATH is seen by this minter, and
-// reusing it for any later qualifier that resolves to the same path.
-// Unresolvable and ambiguous qualifiers are errors (see lookupDepImportPath).
+// explicit alias), minting a new "_gsxtiN" alias the first time a given
+// import PATH is seen by this minter's allocator (invoking addImport, when
+// set, exactly once for that new path), and reusing it for any later
+// qualifier that resolves to the same path. Unresolvable and ambiguous
+// qualifiers are errors (see lookupDepImportPath).
 func (m *aliasMinter) resolve(qualifier string) (string, error) {
 	path, err := lookupDepImportPath(m.depImports, qualifier)
 	if err != nil {
 		return "", err
 	}
-	if alias, ok := m.byPath[path]; ok {
-		return alias, nil
+	_, existed := m.alloc.byPath[path]
+	alias := m.alloc.alloc(path)
+	if !existed && m.addImport != nil {
+		m.addImport(path, alias)
 	}
-	m.n++
-	alias := fmt.Sprintf("_gsxti%d", m.n)
-	m.byPath[path] = alias
-	m.addImport(path, alias)
 	return alias, nil
 }
 

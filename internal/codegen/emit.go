@@ -2700,6 +2700,21 @@ func childInvocation(el *ast.Element, byo *byoData, recvVar, recvTypeName string
 // (empty for a function component); they drive the method-vs-package
 // disambiguation via childInvocation.
 func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, importAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+	// Task 4: a cross-package generic tag whose requalification failed at
+	// analyze time has NO probe anywhere in the skeleton (nothing for
+	// harvest to have populated resolved[el] from) — module_importer.go's
+	// analyze marks it with the types.Invalid sentinel instead, right after
+	// harvest runs (see inferRegistry.failed's doc). Skip emitting a call
+	// for it: any call would necessarily be uninstantiated, invalid Go,
+	// since there is no resolved type arg to use. The positioned
+	// "inference-unavailable" diagnostic was already recorded then, so this
+	// returns true (not false — false would propagate up through genNode
+	// and abort the WHOLE enclosing component, discarding every sibling
+	// node too, which is not what "generation of other tags unaffected"
+	// means): just render nothing for this one element.
+	if basic, ok := resolved[el].(*types.Basic); ok && basic.Kind() == types.Invalid {
+		return true
+	}
 	// A bare-call candidate tag (isBareCallCandidate — a hand-written same-package
 	// func, or a .gsx no-props component) was probed via _gsxcompsig, so harvest
 	// stored its real signature in resolved[el]. A nullary func is a bare call

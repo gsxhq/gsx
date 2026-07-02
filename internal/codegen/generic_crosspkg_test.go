@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gsxhq/gsx/internal/diag"
 )
 
 // Pins the dotted cross-package generic-tag paths:
@@ -19,20 +21,17 @@ import (
 // TestGenericMethodComponentGo127 in generic_method_go127_test.go. See
 // CLAUDE.md's per-context corpus coverage rule.
 func TestGenericCrossPackageTag(t *testing.T) {
-	// Task 1 (caller-side per-site inference probes) replaced the exported
-	// declaring-side `GsxInfer<Name>` helper with a probe built from the
-	// SAME-PACKAGE component's own AST (params + type-param decl) — see
-	// infer.go's inferRegistry / analyze.go's genericCompsFor. buildSkeleton
-	// has no access to an IMPORTED component's AST, so an inferred (type-args-
-	// omitted) cross-package tag currently falls through to a plain,
-	// uninstantiated `components.Button(components.ButtonProps{...})` probe,
-	// which go/types rejects ("cannot use generic type ... without
-	// instantiation") — this test's two inferred-arg assertions (the `label="ok"`
-	// and FlagBox tags) now fail that way. The explicit-type-args tag
-	// (`components.Button[int]`) is unaffected. A later task (caller-side
-	// probes built from the imported package's exported signature, not its
-	// AST) restores this; re-enable then.
-	t.Skip("imported-tag inference re-enabled by a later task's caller-side probes (Task 1 only covers same-package components)")
+	// Task 4 restores imported-component inference: an IMPORTED generic
+	// component's genericSig (typeParams/params/imports, from its declaring
+	// FILE) is requalified into the calling file's context (Task 3's engine)
+	// before emitInferProbe builds the caller-side probe — see infer.go's
+	// genericSig doc and analyze.go's emitProbes generic-tag branch. This
+	// test pins the dotted cross-package generic-tag paths:
+	//
+	//   - explicit type args: <components.Button[int]>
+	//   - inferred type args, no dep-qualified constraint: <components.Button>
+	//   - inferred type args WITH a dep-qualified constraint (FlagBox's
+	//     `T string | model.Flag`, requalified via a SECOND dep import)
 	repoRoot, _ := filepath.Abs("../..")
 	tmp := t.TempDir()
 	writeFile(t, tmp, "go.mod", "module example.com/xg\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
@@ -73,6 +72,94 @@ func TestGenericCrossPackageTag(t *testing.T) {
 	}
 	if !strings.Contains(root, `"example.com/xg/model"`) {
 		t.Fatalf("generated root source missing inferred type-arg import:\n%s", root)
+	}
+}
+
+// TestGenericCrossPackageInference is the Task 4 brief's headline case: an
+// IMPORTED generic component called with only SOME of its declared props
+// (partial + imported) must still infer its type arguments — mirroring
+// TestInferPartialProps's same-package finding-5 case, now for the
+// cross-package caller-side probe path.
+func TestGenericCrossPackageInference(t *testing.T) {
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module example.com/gci\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	compDir := filepath.Join(tmp, "components")
+	if err := os.MkdirAll(compDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, compDir, "button.gsx", "package components\n\ncomponent Button[T string | int](label T, size string) {\n\t<button class={size}>{label}</button>\n}\n")
+	writeFile(t, tmp, "post.gsx", "package gci\n\nimport \"example.com/gci/components\"\n\ncomponent Post() {\n\t<components.Button label={7} />\n}\n")
+
+	res, err := GenerateDirs(tmp, []string{tmp, compDir}, Options{FilterPkgs: []string{stdImportPath}, CSSMinify: true, JSMinify: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diags := res[tmp].Diags; len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics generating root package: %+v", diags)
+	}
+	if diags := res[compDir].Diags; len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics generating components package: %+v", diags)
+	}
+	var root string
+	for _, src := range res[tmp].Files {
+		root = string(src)
+	}
+	if !strings.Contains(root, "components.Button[int](components.ButtonProps[int]{Label: 7})") {
+		t.Fatalf("partial-props cross-package inference failed; generated:\n%s", root)
+	}
+}
+
+// TestGenericCrossPackageInferenceUnexportedConstraint pins the Task 4
+// fail-safe path: a dep constraint referencing an UNEXPORTED dep-local type
+// cannot be requalified into the caller's context (it is unspeakable outside
+// the dep package — see requalifyTypeExpr's doc), so the probe is skipped
+// and exactly one positioned "inference-unavailable" diagnostic is recorded
+// naming the offending type. Generation of the REST of the package (another,
+// unrelated tag) is unaffected — the failure is scoped to the one bad tag.
+func TestGenericCrossPackageInferenceUnexportedConstraint(t *testing.T) {
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module example.com/gciu\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	compDir := filepath.Join(tmp, "components")
+	if err := os.MkdirAll(compDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, compDir, "widget.gsx", "package components\n\ntype secret string\n\ncomponent Widget[T secret | string](label T) {\n\t<span>{string(label)}</span>\n}\n\ncomponent Button(label string) {\n\t<button>{label}</button>\n}\n")
+	writeFile(t, tmp, "post.gsx", "package gciu\n\nimport \"example.com/gciu/components\"\n\ncomponent Post() {\n\t<components.Widget label=\"x\" />\n\t<components.Button label=\"ok\" />\n}\n")
+
+	res, err := GenerateDirs(tmp, []string{tmp, compDir}, Options{FilterPkgs: []string{stdImportPath}, CSSMinify: true, JSMinify: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diags := res[compDir].Diags; len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics generating components package: %+v", diags)
+	}
+	var found int
+	for _, d := range res[tmp].Diags {
+		if d.Code != "inference-unavailable" {
+			continue
+		}
+		found++
+		if d.Severity != diag.Warning {
+			t.Errorf("inference-unavailable diagnostic severity = %v, want Warning: %+v", d.Severity, d)
+		}
+		if d.Start.Line == 0 {
+			t.Errorf("inference-unavailable diagnostic is not positioned: %+v", d)
+		}
+		if !strings.Contains(d.Message, "components.Widget") || !strings.Contains(d.Message, "secret") {
+			t.Errorf("inference-unavailable diagnostic does not name the tag/offending type: %+v", d)
+		}
+	}
+	if found != 1 {
+		t.Fatalf("want exactly 1 inference-unavailable diagnostic, got %d: %+v", found, res[tmp].Diags)
+	}
+	var root string
+	for _, src := range res[tmp].Files {
+		root = string(src)
+	}
+	if !strings.Contains(root, "Button(ButtonProps{Label: \"ok\"})") && !strings.Contains(root, "components.Button(components.ButtonProps{Label: \"ok\"})") {
+		t.Fatalf("unaffected tag (components.Button) missing from generated root:\n%s", root)
 	}
 }
 

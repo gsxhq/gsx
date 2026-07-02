@@ -1,0 +1,23 @@
+# A cross-package generic component (Task 4): the caller supplies no type
+# args on the dotted tag, so go/types must infer them from the requalified,
+# caller-side probe built from the dep's genericSig (see infer.go's
+# genericSig doc and analyze.go's emitProbes generic-tag branch).
+-- go.mod --
+module example.com/app
+
+go 1.26.1
+-- ui/button.gsx --
+package ui
+
+component Button[T string | int](label T) { <button class="btn">{label}</button> }
+-- pages/home.gsx --
+package pages
+
+import "example.com/app/ui"
+
+component Home() { <ui.Button label="Go"/> }
+-- invoke --
+pages.Home()
+-- diagnostics.golden --
+-- render.golden --
+<button class="btn">Go</button>

@@ -290,12 +290,12 @@ func (m *Module) recordImports(dir string, paths []string) {
 // still reset there for uniformity. Invalidation: invalidateLocked deletes
 // the entry whenever the dep dir is in the dirty closure.
 type depPropFacts struct {
-	pkgName      string
-	propFields   map[string]map[string]bool
-	nodeProps    map[string]map[string]bool
-	attrsProps   map[string]map[string]bool
-	genericProps map[string]bool
-	byo          *byoData
+	pkgName     string
+	propFields  map[string]map[string]bool
+	nodeProps   map[string]map[string]bool
+	attrsProps  map[string]map[string]bool
+	genericSigs map[string]*genericSig
+	byo         *byoData
 }
 
 // importedPropFacts returns dir's prop facts, deriving and caching them on
@@ -316,8 +316,28 @@ func (m *Module) importedPropFacts(depDir string) (*depPropFacts, error) {
 	if err != nil {
 		return nil, err
 	}
-	comps := componentsInFiles(files)
-	f := &depPropFacts{pkgName: pkgName, propFields: propFields, nodeProps: nodeProps, attrsProps: attrsProps, genericProps: genericPropsFor(comps, byo), byo: byo}
+	sigs := genericSigsFor(files, byo)
+	// Prefer REAL package names over the requalification engine's
+	// last-path-segment heuristic (lookupDepImportPath) for each generic
+	// component's declaring-file imports: an unaliased import's spec.name
+	// is blank at parse time, so lookupDepImportPath would otherwise have to
+	// GUESS the dep-of-a-dep's declared package name from its import path's
+	// last segment — wrong whenever the two differ. Fill it in here, when
+	// resolvable, from an authoritative source instead (see
+	// resolveImportPackageName): this is strictly additive (only blank
+	// names are touched) and never invalidates the heuristic's own
+	// fail-safe behavior for paths that remain unresolved.
+	for _, sig := range sigs {
+		for i := range sig.imports {
+			if sig.imports[i].name != "" {
+				continue
+			}
+			if name, ok := m.resolveImportPackageName(depDir, sig.imports[i].path); ok {
+				sig.imports[i].name = name
+			}
+		}
+	}
+	f := &depPropFacts{pkgName: pkgName, propFields: propFields, nodeProps: nodeProps, attrsProps: attrsProps, genericSigs: sigs, byo: byo}
 	m.mu.Lock()
 	if m.depFacts == nil {
 		m.depFacts = map[string]*depPropFacts{}
@@ -327,16 +347,55 @@ func (m *Module) importedPropFacts(depDir string) (*depPropFacts, error) {
 	return f, nil
 }
 
-func componentsInFiles(files map[string]*gsxast.File) []*gsxast.Component {
-	var comps []*gsxast.Component
-	for _, f := range files {
-		for _, d := range f.Decls {
-			if c, ok := d.(*gsxast.Component); ok {
-				comps = append(comps, c)
-			}
-		}
+// resolveImportPackageName returns the REAL declared package name for path,
+// preferring authoritative sources over infer.go's last-path-segment
+// heuristic: a project-internal path resolves via its own directory's
+// package clause (quickPackageName — exact, not a guess); an external path
+// is resolved best-effort via go/build, which reliably handles GOROOT/
+// stdlib paths but does not understand go.mod module-cache resolution for
+// third-party paths — a failure there is expected and simply leaves the
+// import spec's name blank, falling back to the (still safe, fails-closed-
+// on-ambiguity) heuristic already documented on lookupDepImportPath. srcDir
+// anchors go/build's relative resolution.
+func (m *Module) resolveImportPackageName(srcDir, path string) (string, bool) {
+	if depDir, ok := dirForImportPath(m.opts.ModuleRoot, m.opts.ModulePath, path); ok {
+		return quickPackageName(depDir)
 	}
-	return comps
+	pkg, err := build.Import(path, srcDir, build.IgnoreVendor)
+	if err != nil || pkg.Name == "" {
+		return "", false
+	}
+	return pkg.Name, true
+}
+
+// quickPackageName reads the package name declared in dir by parsing ONLY
+// the package clause (parser.PackageClauseOnly) of its first Go or gsx
+// source file. This is cheap and safe even for a .gsx file: gsx source
+// always opens with a plain `package NAME` line using Go's own package-
+// clause grammar, and PackageClauseOnly stops scanning immediately after
+// that clause, so it never has to tokenize gsx-only syntax (component/JSX)
+// appearing later in the file.
+func quickPackageName(dir string) (string, bool) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", false
+	}
+	fset := token.NewFileSet()
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		if !strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, ".gsx") {
+			continue
+		}
+		f, err := goparser.ParseFile(fset, filepath.Join(dir, name), nil, goparser.PackageClauseOnly)
+		if err != nil || f.Name == nil {
+			continue
+		}
+		return f.Name.Name, true
+	}
+	return "", false
 }
 
 // fileFacts is the per-.gsx-file view of prop facts: the package's own facts
@@ -345,11 +404,11 @@ func componentsInFiles(files map[string]*gsxast.File) []*gsxast.Component {
 // must be too — a package-wide alias merge collides when two files bind the
 // same alias to different packages.
 type fileFacts struct {
-	propFields   map[string]map[string]bool
-	nodeProps    map[string]map[string]bool
-	attrsProps   map[string]map[string]bool
-	genericProps map[string]bool
-	byo          *byoData
+	propFields  map[string]map[string]bool
+	nodeProps   map[string]map[string]bool
+	attrsProps  map[string]map[string]bool
+	genericSigs map[string]*genericSig
+	byo         *byoData
 }
 
 // fileImportSpecs extracts f's hoisted import specs with resolved .gsx
@@ -388,7 +447,7 @@ func fileImportSpecs(f *gsxast.File, fset *token.FileSet) []importSpec {
 // a positioned Warning: its components fall back to the assume-prop regime
 // (declared == nil) instead of silently flip-flopping between regimes.
 func (m *Module) fileScopedFacts(dir string, f *gsxast.File, propFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, bag *diag.Bag, fset *token.FileSet) *fileFacts {
-	out := &fileFacts{propFields: propFields, nodeProps: nodeProps, attrsProps: attrsProps, genericProps: nil, byo: byo}
+	out := &fileFacts{propFields: propFields, nodeProps: nodeProps, attrsProps: attrsProps, genericSigs: nil, byo: byo}
 	cloned := false
 	seen := map[string]bool{} // alias+"\x00"+depDir: dedupe repeated specs
 	for _, spec := range fileImportSpecs(f, fset) {
@@ -421,7 +480,7 @@ func (m *Module) fileScopedFacts(dir string, f *gsxast.File, propFields, nodePro
 			out.propFields = maps.Clone(propFields)
 			out.nodeProps = maps.Clone(nodeProps)
 			out.attrsProps = maps.Clone(attrsProps)
-			out.genericProps = map[string]bool{}
+			out.genericSigs = map[string]*genericSig{}
 			out.byo = byo.cloneForFile()
 			cloned = true
 		}
@@ -434,8 +493,8 @@ func (m *Module) fileScopedFacts(dir string, f *gsxast.File, propFields, nodePro
 		for name, fields := range facts.attrsProps {
 			out.attrsProps[alias+"."+name] = fields
 		}
-		for name := range facts.genericProps {
-			out.genericProps[alias+"."+name] = true
+		for name, sig := range facts.genericSigs {
+			out.genericSigs[alias+"."+name] = sig
 		}
 		out.byo.mergeQualified(alias, facts.byo)
 	}
@@ -581,12 +640,13 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	if err != nil {
 		return nil, err
 	}
-	// genericComps is the PACKAGE-WIDE props-type-name -> declaring-AST map
-	// (see analyze.go's buildSkeleton doc): built once here from every .gsx
-	// file's components (not just one file's), so a tag in page.gsx can infer
-	// against a generic component declared in a sibling box.gsx of the same
-	// package. The SAME map is passed to every file's buildSkeleton call below.
-	genericComps := genericCompsFor(componentsInFiles(gsxFiles), byo)
+	// genericSigs is the PACKAGE-WIDE props-type-name -> *genericSig map (see
+	// analyze.go's genericSig/buildSkeleton doc): built once here from every
+	// .gsx file's components (not just one file's), so a tag in page.gsx can
+	// infer against a generic component declared in a sibling box.gsx of the
+	// same package. The SAME map is passed to every file's buildSkeleton call
+	// below.
+	genericSigs := genericSigsFor(gsxFiles, byo)
 	var goFiles []*goast.File
 	compsByXGo := map[string][]*gsxast.Component{}
 	factsByXGo := map[string]*fileFacts{}
@@ -602,7 +662,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	for path, f := range gsxFiles {
 		ff := m.fileScopedFacts(dir, f, propFields, nodeProps, attrsProps, byo, bag, fset)
 		factsByFile[path] = ff
-		skel, comps, imps, ctrlOff, infReg, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, genericComps, ff.genericProps, ff.byo, m.opts.FieldMatcher, fset)
+		skel, comps, imps, ctrlOff, infReg, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, bag)
 		if berr != nil {
 			// buildSkeleton error handling: a positioned attrError becomes a
 			// diagnostic and skips this file; any other error is also recorded as a
@@ -794,6 +854,23 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 			continue
 		}
 		harvest(gf, comps, info, resolved, exprMap, inferByXGo[fname])
+		// Mark every element whose cross-package generic probe was skipped
+		// due to a requalification failure (Task 4 — see
+		// inferRegistry.failed's doc) with the types.Invalid sentinel: no
+		// probe was ever emitted for it, so harvest never visits it, but
+		// emit time (genChildComponent) must still know to skip it rather
+		// than generate an uninstantiated (invalid) call. Safe as an
+		// out-of-band signal here specifically because generateFile only
+		// ever runs when len(a.typeErrs)==0 (see module.go's Generate/
+		// Package doc), so a LEGITIMATE harvested type can never equal this
+		// sentinel — that only occurs when go/types itself hit a type
+		// error, which would already have aborted generation for the whole
+		// package.
+		if fr := inferByXGo[fname]; fr != nil {
+			for _, el := range fr.failed {
+				resolved[el] = types.Typ[types.Invalid]
+			}
+		}
 		for _, c := range comps {
 			compByKey[componentKey(c)] = c
 		}
