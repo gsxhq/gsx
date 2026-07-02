@@ -416,6 +416,10 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, 
 	for _, s := range registry.spans {
 		s.span.start += compBufStart
 		s.span.end += compBufStart
+		for i := range s.args {
+			s.args[i].span.start += compBufStart
+			s.args[i].span.end += compBufStart
+		}
 	}
 	// The probe helpers' package-level func decls (accumulated in registry.funcs
 	// by emitInferProbe) are appended AFTER the component skeletons, alongside

@@ -390,6 +390,153 @@ component Page() {
 	}
 }
 
+// TestWrongPropTypeAtInferredTagNamesProp pins rewriteProbeDiag's
+// argument-positioned leak arm (shape 5): a generic tag whose T infers fine
+// from one prop but supplies a WRONG type for a NON-generic prop. go/types
+// reports the assignability error AT the offending argument — inside the
+// probe span, with the internal helper name in the message text ("cannot use
+// 2 (untyped int constant) as string value in argument to _gsxinfer1"), and
+// with NEITHER gate substring of the original two-arm rewrite ("cannot
+// infer"/"does not satisfy"), so it used to reach users verbatim. The
+// rewrite must scrub the probe reference and name the exact prop (via
+// inferSite.argAt on the error's raw offset) + the tag, preserving the
+// cannot-use substance.
+func TestWrongPropTypeAtInferredTagNamesProp(t *testing.T) {
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module wptn\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	writeFile(t, tmp, "views.gsx", `package views
+
+component Two[T string | int](value T, name string) {
+	<p>{value}{name}</p>
+}
+
+component Page() {
+	<Two value={1} name={2} />
+}
+`)
+	out, err := GenerateDirs(tmp, []string{tmp}, Options{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, d := range out[tmp].Diags {
+		if !strings.Contains(d.Message, "cannot use 2") {
+			continue
+		}
+		found = true
+		if !strings.Contains(d.Message, `for prop "name" of <Two>`) {
+			t.Errorf("diagnostic does not name the offending prop + tag: %+v", d)
+		}
+		if !strings.Contains(d.Message, "as string value") {
+			t.Errorf("diagnostic lost the cannot-use substance: %+v", d)
+		}
+		if strings.Contains(d.Message, "_gsxinfer") {
+			t.Errorf("diagnostic leaks the internal probe name: %+v", d)
+		}
+	}
+	if !found {
+		t.Fatalf("no wrong-prop-type diagnostic surfaced; diags=%+v", out[tmp].Diags)
+	}
+}
+
+// TestMismatchedInferenceKeepsSubstance pins rewriteProbeDiag's
+// substance-carrying cannot-infer arm (shape 2): two props constraining the
+// SAME type param to conflicting types ("in call to _gsxinferN, mismatched
+// types untyped int and untyped string (cannot infer T)"). The original
+// rewrite matched the "cannot infer" substring and replaced the WHOLE
+// message with the bare instantiate hint, dropping the mismatched-types
+// substance that tells the user WHICH two values conflict. Now: tag +
+// preserved substance + hint.
+func TestMismatchedInferenceKeepsSubstance(t *testing.T) {
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module miks\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	writeFile(t, tmp, "views.gsx", `package views
+
+component Pair[T string | int](a T, b T) {
+	<p>{a}{b}</p>
+}
+
+component Page() {
+	<Pair a={1} b={"x"} />
+}
+`)
+	out, err := GenerateDirs(tmp, []string{tmp}, Options{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, d := range out[tmp].Diags {
+		if !strings.Contains(d.Message, "cannot infer") {
+			continue
+		}
+		found = true
+		if !strings.Contains(d.Message, "type inference failed for <Pair>") {
+			t.Errorf("diagnostic does not name the tag: %+v", d)
+		}
+		if !strings.Contains(d.Message, "mismatched types untyped int and untyped string") {
+			t.Errorf("diagnostic dropped the mismatched-types substance: %+v", d)
+		}
+		if !strings.Contains(d.Message, "please instantiate with <Pair[type] ...>") {
+			t.Errorf("diagnostic lost the instantiate hint: %+v", d)
+		}
+		if strings.Contains(d.Message, "_gsxinfer") {
+			t.Errorf("diagnostic leaks the internal probe name: %+v", d)
+		}
+	}
+	if !found {
+		t.Fatalf("no mismatched-inference diagnostic surfaced; diags=%+v", out[tmp].Diags)
+	}
+}
+
+// TestNoSuppliedPropsGenericTagFriendlyHint pins rewriteProbeDiag's
+// uninstantiated composite-literal arm (shape 4): a generic tag with params
+// DECLARED but NONE supplied. emitInferProbe declines (nothing to infer
+// from), the tag falls through to the plain `_ = Holder(HolderProps{})`
+// probe, and go/types reports "cannot use generic type HolderProps[T any]
+// without instantiation" — which used to pass through verbatim (the
+// default-branch recordProbeSpan was recorded but the rewrite had no arm
+// consuming it). There is genuinely nothing to infer FROM here, so the
+// friendly instantiate hint is exactly the right advice.
+func TestNoSuppliedPropsGenericTagFriendlyHint(t *testing.T) {
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module nspg\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	writeFile(t, tmp, "views.gsx", `package views
+
+component Holder[T any](value any) {
+	<p>{ value }</p>
+}
+
+component Page() {
+	<Holder />
+}
+`)
+	out, err := GenerateDirs(tmp, []string{tmp}, Options{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, d := range out[tmp].Diags {
+		if !strings.Contains(d.Message, "type inference failed for <Holder>") {
+			continue
+		}
+		found = true
+		if !strings.Contains(d.Message, "please instantiate with <Holder[type] ...>") {
+			t.Errorf("diagnostic lost the instantiate hint: %+v", d)
+		}
+	}
+	if !found {
+		t.Fatalf("no friendly diagnostic surfaced; diags=%+v", out[tmp].Diags)
+	}
+	for _, d := range out[tmp].Diags {
+		if strings.Contains(d.Message, "without instantiation") || strings.Contains(d.Message, "HolderProps") {
+			t.Errorf("raw without-instantiation skeleton error leaked: %+v", d)
+		}
+	}
+}
+
 // importCall records one addImport(path, alias) invocation, in call order.
 type importCall struct{ path, alias string }
 

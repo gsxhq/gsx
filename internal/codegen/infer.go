@@ -178,6 +178,34 @@ type inferSite struct {
 	// leak the raw go/types message verbatim. siteAt checks this span
 	// alongside span so such an error still resolves to the RIGHT tag.
 	declSpan inferSpan
+
+	// args records, for emitInferProbe's call-form sites only, each supplied
+	// argument expression's byte span within the probe call plus the prop's
+	// declared name — in the same declaration order the args were written.
+	// rewriteProbeDiag's argument-positioned leak arm (`cannot use ... in
+	// argument to _gsxinferN`, a go/types error reported AT the offending
+	// argument expression) resolves the raw error offset through argAt to
+	// name the exact prop in the user-facing message instead of the internal
+	// helper. Empty for recordProbeSpan's unnamed shapes (no per-arg spans).
+	args []inferProbeArg
+}
+
+// inferProbeArg is one supplied argument of a call-form probe: the declared
+// prop name it carries and its expression's byte span in the skeleton.
+type inferProbeArg struct {
+	name string
+	span inferSpan
+}
+
+// argAt returns the declared prop name of the probe argument whose span
+// contains rawOffset — see inferSite.args.
+func (s *inferSite) argAt(rawOffset int) (string, bool) {
+	for _, a := range s.args {
+		if rawOffset >= a.span.start && rawOffset < a.span.end {
+			return a.name, true
+		}
+	}
+	return "", false
 }
 
 // inferSpan is a byte range into the skeleton string returned by buildSkeleton.
@@ -401,14 +429,17 @@ func (r *inferRegistry) emitInferProbe(sb *strings.Builder, el *gsxast.Element,
 
 	start := sb.Len()
 	fmt.Fprintf(sb, "_ = %s(", name)
+	args := make([]inferProbeArg, 0, len(ordered))
 	for i, p := range ordered {
 		if i > 0 {
 			sb.WriteString(", ")
 		}
+		argStart := sb.Len()
 		sb.WriteString(supplied[fieldName(p.name)])
+		args = append(args, inferProbeArg{name: p.name, span: inferSpan{argStart, sb.Len()}})
 	}
 	sb.WriteString(")\n")
-	r.record(name, &inferSite{el: el, propsType: propsType, span: inferSpan{start, sb.Len()}, arity: arity, declSpan: inferSpan{declStart, declEnd}})
+	r.record(name, &inferSite{el: el, propsType: propsType, span: inferSpan{start, sb.Len()}, arity: arity, declSpan: inferSpan{declStart, declEnd}, args: args})
 	return true
 }
 

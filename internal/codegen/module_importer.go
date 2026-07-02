@@ -956,29 +956,19 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 			continue // synthetic skeleton position: no //line directive, so no valid .gsx location to report
 		}
 		msg := stripGsxunwrap(e.Msg)
-		// Rewrite a "cannot infer"/constraint-violation error ONLY when its RAW
-		// (un-//line-adjusted) skeleton position lands inside one of THIS file's
-		// own recorded inference-probe spans (see infer.go's inferRegistry doc
-		// and inferSite.span) — never by guessing from the tag's overall .gsx
+		// Rewrite an inference-probe error ONLY when its RAW (un-//line-
+		// adjusted) skeleton position lands inside one of THIS file's own
+		// recorded inference-probe spans (see infer.go's inferRegistry doc and
+		// inferSite.span) — never by guessing from the tag's overall .gsx
 		// line/column range (the finding-6/7 hijack: a user's own failing
 		// generic call whose ADJUSTED position merely falls somewhere inside an
 		// unrelated component tag's body used to get blamed on that tag). A
 		// registry miss leaves msg untouched, so every other type error
 		// (including a user's own "cannot infer" from their own generic call)
-		// passes through verbatim.
-		if site, ok := probeSiteForError(inferByXGo, fset, e.Pos); ok {
-			switch {
-			case strings.Contains(msg, "cannot infer"):
-				msg = fmt.Sprintf("type inference failed for <%s>; please instantiate with <%s[%s] ...>",
-					site.el.Tag, site.el.Tag, arityTypeHint(site.arity))
-			case strings.Contains(msg, "does not satisfy"):
-				// A successfully-inferred type argument violating the target
-				// component's own constraint (e.g. an inferred time.Duration
-				// against a `~string | ~int` type param) — keep the
-				// constraint-violation substance, drop the internal probe
-				// helper's name (probeNameLeakRE) and name the real tag instead.
-				msg = fmt.Sprintf("type inference for <%s> failed: %s", site.el.Tag, probeNameLeakRE.ReplaceAllString(msg, ""))
-			}
+		// passes through verbatim. See rewriteProbeDiag for the per-shape
+		// rewrite rules.
+		if site, rawOffset, ok := probeSiteForError(inferByXGo, fset, e.Pos); ok {
+			msg = rewriteProbeDiag(msg, site, rawOffset)
 		}
 		bag.Add(diag.Diagnostic{Start: p, End: p, Severity: diag.Error, Message: msg, Source: "types"})
 	}
@@ -1132,22 +1122,88 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 
 // probeSiteForError resolves a type-checker error's position to the
 // inference-probe site it landed inside, if any — the ONLY signal the
-// cannot-infer/constraint-violation diagnostic rewrite (in analyze, above)
-// trusts. pos is a types.Error's Pos in the shared fset; the lookup uses the
-// UNADJUSTED position (fset.PositionFor(pos, false), ignoring //line
-// directives) to recover the raw skeleton filename + byte offset a probe's
-// span was recorded in — see infer.go's inferRegistry doc (POSITION MAPPING)
-// and TestInferProbeRawSpanRecovery for why the adjusted position (which
-// names the .gsx, not the skeleton) cannot be compared against a span
-// directly. inferByXGo is keyed by the skeleton's own absolute .x.go path,
-// exactly the raw position's Filename.
-func probeSiteForError(inferByXGo map[string]*inferRegistry, fset *token.FileSet, pos token.Pos) (*inferSite, bool) {
+// probe diagnostic rewrite (rewriteProbeDiag, called from analyze's
+// type-error loop) trusts. pos is a types.Error's Pos in the shared fset;
+// the lookup uses the UNADJUSTED position (fset.PositionFor(pos, false),
+// ignoring //line directives) to recover the raw skeleton filename + byte
+// offset a probe's span was recorded in — see infer.go's inferRegistry doc
+// (POSITION MAPPING) and TestInferProbeRawSpanRecovery for why the adjusted
+// position (which names the .gsx, not the skeleton) cannot be compared
+// against a span directly. inferByXGo is keyed by the skeleton's own
+// absolute .x.go path, exactly the raw position's Filename. The raw offset
+// is also returned so rewriteProbeDiag can resolve WHICH probe argument an
+// argument-positioned error names (inferSite.argAt).
+func probeSiteForError(inferByXGo map[string]*inferRegistry, fset *token.FileSet, pos token.Pos) (*inferSite, int, bool) {
 	raw := fset.PositionFor(pos, false)
 	reg := inferByXGo[raw.Filename]
 	if reg == nil {
-		return nil, false
+		return nil, 0, false
 	}
-	return reg.siteAt(raw.Offset)
+	site, ok := reg.siteAt(raw.Offset)
+	return site, raw.Offset, ok
+}
+
+// rewriteProbeDiag rewrites a type-checker error message whose position
+// landed inside a recorded inference-probe span (probeSiteForError) into a
+// user-facing diagnostic that names the TAG and never an internal probe
+// helper. rawOffset is the error's raw skeleton offset (for argAt). The
+// shapes, each pinned by a test in infer_test.go:
+//
+//  1. plain inference failure — "cannot infer T (declared at ...)" (bare, or
+//     behind an "in call to _gsxinferN, "/"in call to _gsxcompsig, " prefix):
+//     the declared-at substance is an internal skeleton artifact, so the
+//     message becomes the tag-naming instantiate hint with the component's
+//     REAL arity.
+//  2. inference failure WITH substance — "mismatched types untyped int and
+//     untyped string (cannot infer T)": the substance names the user's own
+//     conflicting values, so it is preserved: tag + substance + hint.
+//  3. constraint violation — "T (type time.Duration) does not satisfy ...":
+//     inference SUCCEEDED and the winning type argument violates the
+//     component's constraint; instantiating explicitly would fail the same
+//     way, so NO instantiate hint — tag + substance only.
+//  4. uninstantiated composite-literal probe — "cannot use generic type
+//     XxxProps[T any] without instantiation" (the default-branch probe for a
+//     generic tag supplying NO declared prop: there is nothing to infer
+//     FROM, so the instantiate advice is exactly right). Gated on the
+//     message naming THIS site's propsType, so a user's own
+//     without-instantiation error (e.g. passing their own generic func value
+//     as a prop, positioned inside the probe span) passes through verbatim.
+//  5. argument-positioned leak — "cannot use 2 (...) as string value in
+//     argument to _gsxinfer1" (wrong type on a NON-generic prop of a generic
+//     tag; go/types positions it AT the offending argument): the probe
+//     reference is scrubbed and replaced with the prop's declared name +
+//     the tag, resolved via argAt from the error's raw offset.
+//  6. any OTHER message still naming a probe helper: the helper name is
+//     replaced with the tag reference — never invent structure for an
+//     unknown shape, but never leak the internal name either.
+//
+// Anything else (e.g. an "undefined: x" inside a supplied prop expression,
+// which go/types also positions inside the probe span) passes through
+// untouched.
+func rewriteProbeDiag(msg string, site *inferSite, rawOffset int) string {
+	tag := site.el.Tag
+	hint := fmt.Sprintf("please instantiate with <%s[%s] ...>", tag, arityTypeHint(site.arity))
+	stripped := probeNameLeakRE.ReplaceAllString(msg, "")
+	switch {
+	case strings.HasPrefix(stripped, "cannot infer"):
+		return fmt.Sprintf("type inference failed for <%s>; %s", tag, hint)
+	case strings.Contains(stripped, "cannot infer"):
+		return fmt.Sprintf("type inference failed for <%s>: %s; %s", tag, stripped, hint)
+	case strings.Contains(stripped, "does not satisfy"):
+		return fmt.Sprintf("type inference for <%s> failed: %s", tag, stripped)
+	case strings.Contains(stripped, "without instantiation") && strings.Contains(stripped, site.propsType):
+		return fmt.Sprintf("type inference failed for <%s>; %s", tag, hint)
+	case probeArgLeakRE.MatchString(stripped):
+		substance := probeArgLeakRE.ReplaceAllString(stripped, "")
+		if prop, ok := site.argAt(rawOffset); ok {
+			return fmt.Sprintf("%s for prop %q of <%s>", substance, prop, tag)
+		}
+		return fmt.Sprintf("%s for <%s>", substance, tag)
+	case probeNameRefRE.MatchString(stripped):
+		return probeNameRefRE.ReplaceAllString(stripped, "<"+tag+">")
+	default:
+		return msg
+	}
 }
 
 // arityTypeHint renders the `[type, type]` explicit-type-arg hint matching a
@@ -1170,12 +1226,25 @@ func arityTypeHint(n int) string {
 
 // probeNameLeakRE matches the "in call to _gsxinferN, " / "in call to
 // _gsxcompsig, " prefix go/types can attach to an error raised while
-// checking one of infer.go's synthesized probe calls (e.g. a constraint
-// violation on a successfully-inferred type argument: "in call to
+// checking one of infer.go's synthesized probe calls (e.g. "in call to
+// _gsxinfer1, cannot infer T ..." or a constraint violation "in call to
 // _gsxinfer2, U (type time.Duration) does not satisfy ..."). Stripped ONLY
 // from a message whose position already matched a registered probe span
 // (probeSiteForError) — this is never applied to an arbitrary user error.
 var probeNameLeakRE = regexp.MustCompile(`^in call to (_gsxinfer[0-9]+|_gsxcompsig), `)
+
+// probeArgLeakRE matches the " in argument to _gsxinferN" clause go/types
+// appends to an assignability error at a probe-call argument ("cannot use 2
+// (untyped int constant) as string value in argument to _gsxinfer1" — the
+// wrong-type-on-a-NON-generic-prop shape). rewriteProbeDiag scrubs it and
+// names the prop + tag instead — see shape 5 in its doc.
+var probeArgLeakRE = regexp.MustCompile(` in argument to (_gsxinfer[0-9]+|_gsxcompsig)`)
+
+// probeNameRefRE matches ANY remaining reference to a synthesized probe
+// helper's name in an error message — rewriteProbeDiag's last-resort scrub
+// (shape 6): an unknown message shape at a probe span never leaks the
+// internal name, each reference is replaced with the tag.
+var probeNameRefRE = regexp.MustCompile(`_gsxinfer[0-9]+|_gsxcompsig`)
 
 // parsePackageWithFset parses every .gsx in dir into the provided fset so the
 // caller can share it with buildSkeleton (required for valid //line directives).
