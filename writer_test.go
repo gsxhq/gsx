@@ -1,12 +1,17 @@
 package gsx
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"strings"
 	"testing"
 )
+
+type stubStringer struct{}
+
+func (stubStringer) String() string { return "stub" }
 
 func TestWriterHelpers(t *testing.T) {
 	var b strings.Builder
@@ -89,5 +94,55 @@ func TestWriterCSS(t *testing.T) {
 				t.Errorf("got %q, want %q", b.String(), c.want)
 			}
 		})
+	}
+}
+
+func TestTextAny(t *testing.T) {
+	cases := []struct {
+		in   any
+		want string
+	}{
+		{"a<b", "a&lt;b"},
+		{[]byte("x&y"), "x&amp;y"},
+		{7, "7"},
+		{int64(-3), "-3"},
+		{uint8(200), "200"},
+		{1.5, "1.5"},
+		{float32(2.5), "2.5"},
+		{true, "true"},
+		{stubStringer{}, "stub"},
+	}
+	for _, c := range cases {
+		var buf bytes.Buffer
+		gw := W(&buf)
+		gw.TextAny(c.in)
+		if err := gw.Err(); err != nil {
+			t.Fatalf("TextAny(%#v): %v", c.in, err)
+		}
+		if buf.String() != c.want {
+			t.Errorf("TextAny(%#v) = %q, want %q", c.in, buf.String(), c.want)
+		}
+	}
+}
+
+func TestTextAnyUnsupportedSetsErr(t *testing.T) {
+	type named string // named type: NOT matched, mirroring gsx.Val's contract
+	var buf bytes.Buffer
+	gw := W(&buf)
+	gw.TextAny(named("x"))
+	if gw.Err() == nil {
+		t.Fatal("want error for named type through TextAny")
+	}
+}
+
+func TestAttrAnyEscapes(t *testing.T) {
+	var buf bytes.Buffer
+	gw := W(&buf)
+	gw.AttrAny(`a"b`)
+	if err := gw.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if got := buf.String(); got != "a&#34;b" {
+		t.Errorf("AttrAny = %q", got)
 	}
 }
