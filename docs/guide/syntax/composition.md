@@ -62,7 +62,34 @@ Use explicit type arguments when a type parameter does not appear in a supplied
 prop, when the value is ambiguous, or when you want the call site to state the
 instantiation directly.
 
+::: v-pre
+Inference sees exactly the props you supply — like an ordinary Go generic
+function call built from a partial argument list, not a check against the
+component's full declared param list. A non-generic prop that isn't needed to
+pin down the type parameters can be omitted entirely; the call still infers.
+Given `component Button[T string | int](label T, size string)`, the call
+`<Button label={7} />` omits `size` and still infers `T = int`, lowering to
+`Button[int](ButtonProps[int]{Label: 7})` — `Size` takes its zero value.
+Omitting a prop never blocks inference by itself; it only fails when the
+props actually supplied don't mention every type parameter.
+:::
+
 <!--@include: ./_generated/composition/080-explicit-type-arguments.md-->
+
+An inferred call works in any body position — inside `{ for … }` and
+`{ if … }` control flow, and as a child-prop / named-slot value — exactly like
+an explicit instantiation would; inference runs once per call site regardless
+of where the tag sits.
+
+::: v-pre
+Identifiers starting with `_gsx` are **reserved for the generator** — component
+params, method-component receiver names, and any other user-declared
+identifier must not start with that prefix. gsx's own generated code (writer
+locals, per-call-site inference helpers, filter-package aliases, and so on)
+lives exclusively in the `_gsx*` namespace so it can never collide with a name
+you write; a param or receiver named `_gsxSomething` is rejected at generate
+time.
+:::
 
 ### Renderable type parameters
 
