@@ -5,8 +5,14 @@ component Marker[T any]() {
 	<p>marker</p>
 }
 
+component Holder[T any](value any) {
+	<p>{ value |> format("%v") }</p>
+}
+
 component Page() {
 	<Marker />
+	<Holder value="x" />
 }
 -- diagnostics.golden --
-8:2: type inference failed for <Marker>; please instantiate with <Marker[type] ...>
+12:2: type inference failed for <Marker>; please instantiate with <Marker[type] ...>
+13:13: type inference failed for <Holder>; please instantiate with <Holder[type] ...>
