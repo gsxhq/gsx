@@ -482,12 +482,21 @@ func sortedFilterAliases(usedFilters map[string]string) []string {
 // (alias→pkgPath) every filter package the component's probes reference — so the
 // caller imports exactly those packages under those aliases.
 func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filterTable, propFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, fm FieldMatcher, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int) error {
+	// Parse the type-param list ONCE here and thread the result into every
+	// emitComponentStub call site below (instead of each stub re-parsing the
+	// same string and swallowing its own error) — see typeParamNames/tpErr use
+	// a few lines down for the failure shape.
+	typeParamNames, tpErr := parseTypeParamNames(c.TypeParams)
+	typeParamsDecl := typeParamDecl(c.TypeParams)
+	if tpErr != nil {
+		typeParamNames, typeParamsDecl = nil, ""
+	}
 	params, err := parseParams(c.Params)
 	if err != nil {
 		// Emit a minimal stub so the overall skeleton remains valid Go, keeping
 		// any user GoChunk imports used. The parse error will be re-surfaced (with
 		// position) by genComponent at emit time.
-		emitComponentStub(sb, c, nil, true)
+		emitComponentStub(sb, c, nil, true, typeParamNames, typeParamsDecl)
 		return errSkipComponent
 	}
 	if err := checkReservedParams(params); err != nil {
@@ -495,15 +504,19 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 		// like gsx.Node used in the skeleton) so GoChunk imports don't spuriously
 		// trigger "imported and not used". The reserved-param error will be
 		// re-surfaced (with position) by genComponent at emit time.
-		emitComponentStub(sb, c, params, true)
+		emitComponentStub(sb, c, params, true, typeParamNames, typeParamsDecl)
 		return errSkipComponent
 	}
-	typeParamNames, err := parseTypeParamNames(c.TypeParams)
-	if err != nil {
-		emitComponentStub(sb, c, params, true)
+	if tpErr != nil {
+		// Unparsable type-param list: emit the stub with NO params (their types
+		// may reference the now-undeclared type params — an undefined-T type
+		// error here is unmappable and silently kills the whole package's
+		// generation). params=nil matches the parseParams-failure shape above;
+		// genComponent re-parses at emit time and records the positioned
+		// invalid-syntax diagnostic.
+		emitComponentStub(sb, c, nil, true, nil, "")
 		return errSkipComponent
 	}
-	typeParamsDecl := typeParamDecl(c.TypeParams)
 	typeParamsUse := typeParamUse(typeParamNames)
 	// MIRROR genComponent (emit.go): a method component emits a Go method whose
 	// receiver var is in scope (so `p.Field` probes type-check against the real
@@ -522,11 +535,11 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 		if rerr != nil {
 			// Recv parse failed — the receiver clause may be invalid Go; use a bare
 			// function stub (no receiver) to keep the skeleton valid.
-			emitComponentStub(sb, c, params, false)
+			emitComponentStub(sb, c, params, false, typeParamNames, typeParamsDecl)
 			return errSkipComponent
 		}
 		if rerr := checkReservedRecvVar(recvVar); rerr != nil {
-			emitComponentStub(sb, c, params, true)
+			emitComponentStub(sb, c, params, true, typeParamNames, typeParamsDecl)
 			return errSkipComponent
 		}
 		propsName = recvTypeName + c.Name + "Props"
@@ -2453,20 +2466,22 @@ func splitChunk(src string) (imports []importSpec, body string, bodyOff int, err
 // withRecv controls whether the method receiver clause is emitted (true for
 // most cases; false when parseRecv itself failed and c.Recv is bad syntax).
 //
+// typeParamNames/typeParamsDecl are the results of emitComponentSkeleton's
+// SINGLE parseTypeParamNames call, hoisted to the top of that function and
+// threaded through every call site — this function must not re-parse
+// c.TypeParams itself (a second, guaranteed-to-fail parse used to swallow the
+// error and fall through to a non-generic stub whose prop fields still
+// referenced the undeclared type param). Callers pass (nil, "") when the
+// type-param list itself failed to parse.
+//
 // CRITICAL: the stub props struct MUST mirror the Children/Attrs field synthesis
 // that emitComponentSkeleton/genComponent use — otherwise a sibling that
 // instantiates the bad component WITH CHILDREN will get a spurious "unknown field
 // Children" type error from the overlay, masking the real diagnostic. We use the
 // SAME gating (usesChildren / usesAttrs) on the body so the stub
 // struct shape matches what siblings reference.
-func emitComponentStub(sb *strings.Builder, c *gsxast.Component, params []param, withRecv bool) {
+func emitComponentStub(sb *strings.Builder, c *gsxast.Component, params []param, withRecv bool, typeParamNames []string, typeParamsDecl string) {
 	propsName := c.Name + "Props"
-	typeParamNames, typeParamErr := parseTypeParamNames(c.TypeParams)
-	typeParamsDecl := typeParamDecl(c.TypeParams)
-	if typeParamErr != nil {
-		typeParamNames = nil
-		typeParamsDecl = ""
-	}
 	typeParamsUse := typeParamUse(typeParamNames)
 	// MIRROR emitComponentSkeleton: compute Children/Attrs gates from the body.
 	hasChildren := usesChildren(c.Body)
