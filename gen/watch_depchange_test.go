@@ -86,10 +86,6 @@ func TestWatchDepChange(t *testing.T) {
 			if !r.OK {
 				t.Fatalf("reopen cycleResult for blogDir not OK: err=%v diags=%v", r.Err, r.Diags)
 			}
-			if len(r.Written) == 0 && r.Err == nil {
-				// Written may be empty if hash-gated restore found identical
-				// content; that is still a valid (non-silent) cycle result.
-			}
 			break
 		}
 	}
