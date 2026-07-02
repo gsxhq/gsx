@@ -356,10 +356,12 @@ Prints the version embedded by `go install` (a pseudo-version like
 | Variable | Effect |
 |----------|--------|
 | `GSXCACHE` | `off` disables the cache; a path overrides the cache directory. Unset uses the OS user cache dir (`os.UserCacheDir()/gsx`). |
+| `GSX_MINIFY` | `none` or `full` — minify `<style>`/`<script>` at codegen time, applied to **both** assets. Overrides the [`[minify]`](./config.md#minify--asset-minification-level) table; use `full` for production builds, `none` for the dev loop. `full` bypasses the codegen cache. |
 
 `generate` caches output keyed on a content hash so unchanged files are not
-regenerated. The cache is bypassed by `-no-cache`, by `GSXCACHE=off`, or when a
-custom binary configures a CSS/JS minifier (functions are not hashable).
+regenerated. The cache is bypassed by `-no-cache`, by `GSXCACHE=off`, by
+`GSX_MINIFY=full`, or when a custom binary configures a CSS/JS minifier
+(functions are not hashable).
 
 ## Status
 
