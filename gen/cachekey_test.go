@@ -27,11 +27,11 @@ func TestBuildContextKeySensitivity(t *testing.T) {
 	bctxDarwin := "go1.26\ndarwin\namd64\n0\n\n"
 	bctxLinux := "go1.26\nlinux\namd64\n0\n\n"
 
-	k1a, err := computeKey(aDir, graph, "ex/bctx", "", "", bctxDarwin, "gen-test", nil, nil, "", false, false, false, nil)
+	k1a, err := computeKey(aDir, graph, "ex/bctx", "", "", bctxDarwin, "gen-test", nil, nil, "", false, false, false, nil, tmp)
 	if err != nil {
 		t.Fatal(err)
 	}
-	k1b, err := computeKey(aDir, graph, "ex/bctx", "", "", bctxDarwin, "gen-test", nil, nil, "", false, false, false, nil)
+	k1b, err := computeKey(aDir, graph, "ex/bctx", "", "", bctxDarwin, "gen-test", nil, nil, "", false, false, false, nil, tmp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +39,7 @@ func TestBuildContextKeySensitivity(t *testing.T) {
 		t.Error("same buildCtx must produce the same key (unstable)")
 	}
 
-	k2, err := computeKey(aDir, graph, "ex/bctx", "", "", bctxLinux, "gen-test", nil, nil, "", false, false, false, nil)
+	k2, err := computeKey(aDir, graph, "ex/bctx", "", "", bctxLinux, "gen-test", nil, nil, "", false, false, false, nil, tmp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,19 +99,19 @@ func TestComputeKeyDepClosure(t *testing.T) {
 		t.Fatal(err)
 	}
 	bDir := filepath.Join(tmp, "b")
-	key1, err := computeKey(bDir, graph, "ex/app", "", "", "go1.26\nlinux\namd64\n0\n\n", "gen-test", nil, nil, "", false, false, false, nil)
+	key1, err := computeKey(bDir, graph, "ex/app", "", "", "go1.26\nlinux\namd64\n0\n\n", "gen-test", nil, nil, "", false, false, false, nil, tmp)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// edit dependency a -> b's key must change
 	os.WriteFile(filepath.Join(tmp, "a", "a.go"), []byte("package a\n\nfunc A() string { return \"A2\" }\n"), 0o644)
-	key2, _ := computeKey(bDir, loadGraphMust(t, tmp), "ex/app", "", "", "go1.26\nlinux\namd64\n0\n\n", "gen-test", nil, nil, "", false, false, false, nil)
+	key2, _ := computeKey(bDir, loadGraphMust(t, tmp), "ex/app", "", "", "go1.26\nlinux\namd64\n0\n\n", "gen-test", nil, nil, "", false, false, false, nil, tmp)
 	if key1 == key2 {
 		t.Error("editing dependency a must change b's key")
 	}
 	// edit unrelated c -> b's key must NOT change
 	os.WriteFile(filepath.Join(tmp, "c", "c.go"), []byte("package c\n\nfunc C() string { return \"C2\" }\n"), 0o644)
-	key3, _ := computeKey(bDir, loadGraphMust(t, tmp), "ex/app", "", "", "go1.26\nlinux\namd64\n0\n\n", "gen-test", nil, nil, "", false, false, false, nil)
+	key3, _ := computeKey(bDir, loadGraphMust(t, tmp), "ex/app", "", "", "go1.26\nlinux\namd64\n0\n\n", "gen-test", nil, nil, "", false, false, false, nil, tmp)
 	if key3 != key2 {
 		t.Error("editing unrelated c must NOT change b's key")
 	}
@@ -132,7 +132,7 @@ func computeKeyForTest(t *testing.T, classMerger *codegen.ClassMergerRef) (strin
 		return "", err
 	}
 	aDir := filepath.Join(tmp, "a")
-	return computeKey(aDir, graph, "ex/cmtest", "", "", "go1.26\nlinux\namd64\n0\n\n", "gen-test", nil, nil, "", false, false, false, classMerger)
+	return computeKey(aDir, graph, "ex/cmtest", "", "", "go1.26\nlinux\namd64\n0\n\n", "gen-test", nil, nil, "", false, false, false, classMerger, tmp)
 }
 
 // TestComputeKeyVariesByClassMerger is the regression guard for Task 5:
@@ -183,11 +183,11 @@ func TestComputeKeyFingerprintSensitivity(t *testing.T) {
 	fp1 := "fingerprint-aaa"
 	fp2 := "fingerprint-bbb"
 
-	k1a, err := computeKey(aDir, graph, "ex/fptest", "", "", bctx, "gen-test", nil, nil, fp1, false, false, false, nil)
+	k1a, err := computeKey(aDir, graph, "ex/fptest", "", "", bctx, "gen-test", nil, nil, fp1, false, false, false, nil, tmp)
 	if err != nil {
 		t.Fatal(err)
 	}
-	k1b, err := computeKey(aDir, graph, "ex/fptest", "", "", bctx, "gen-test", nil, nil, fp1, false, false, false, nil)
+	k1b, err := computeKey(aDir, graph, "ex/fptest", "", "", bctx, "gen-test", nil, nil, fp1, false, false, false, nil, tmp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,11 +195,60 @@ func TestComputeKeyFingerprintSensitivity(t *testing.T) {
 		t.Error("same fingerprint must produce the same key (unstable)")
 	}
 
-	k2, err := computeKey(aDir, graph, "ex/fptest", "", "", bctx, "gen-test", nil, nil, fp2, false, false, false, nil)
+	k2, err := computeKey(aDir, graph, "ex/fptest", "", "", bctx, "gen-test", nil, nil, fp2, false, false, false, nil, tmp)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if k1a == k2 {
 		t.Error("different clsFingerprint must produce different cache keys")
+	}
+}
+
+// TestComputeKeyGsxOnlyDeps is the regression guard for the stale-cache bug: a
+// dep reachable ONLY through a .gsx-hoisted import (no .x.go on disk, so go
+// list has no edge) must still be folded into the importer's cache key.
+// Editing the dep changes the key. Covers the transitive chain
+// pages -> ui -> icons as well as the direct edge.
+func TestComputeKeyGsxOnlyDeps(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	mk := func(rel, src string) {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("go.mod", "module example.com/app\n\ngo 1.26.1\n")
+	mk("icons/icon.gsx", "package icons\n\ncomponent Dot() {\n\t<i/>\n}\n")
+	mk("ui/card.gsx", "package ui\n\nimport \"example.com/app/icons\"\n\ncomponent Card() {\n\t<icons.Dot/>\n}\n")
+	mk("pages/home.gsx", "package pages\n\nimport \"example.com/app/ui\"\n\ncomponent Home() {\n\t<ui.Card/>\n}\n")
+
+	graph, err := loadGraph(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pagesDir := filepath.Join(root, "pages")
+	key := func() string {
+		k, err := computeKey(pagesDir, graph, "example.com/app", "gm", "gs", "bctx", "cid", nil, nil, "cls", false, false, false, nil, root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return k
+	}
+	k1 := key()
+	// Direct .gsx-only dep edit changes the key.
+	mk("ui/card.gsx", "package ui\n\nimport \"example.com/app/icons\"\n\ncomponent Card(variant string) {\n\t<icons.Dot/>\n}\n")
+	k2 := key()
+	if k1 == k2 {
+		t.Fatal("editing ui (direct .gsx-only dep) did not change pages' cache key")
+	}
+	// Transitive .gsx-only dep edit changes the key.
+	mk("icons/icon.gsx", "package icons\n\ncomponent Dot() {\n\t<b/>\n}\n")
+	k3 := key()
+	if k2 == k3 {
+		t.Fatal("editing icons (transitive .gsx-only dep) did not change pages' cache key")
 	}
 }
