@@ -1,0 +1,24 @@
+-- support.go --
+package views
+
+import (
+	"context"
+	"io"
+
+	"github.com/gsxhq/gsx"
+)
+
+func withTestNonce(n gsx.Node) gsx.Node {
+	return gsx.Func(func(ctx context.Context, w io.Writer) error {
+		return n.Render(gsx.WithNonce(ctx, "r4nd0m"), w)
+	})
+}
+-- input.gsx --
+package views
+
+component Page() { <script { attrs... }>init()</script> }
+-- invoke --
+withTestNonce(Page(PageProps{Attrs: gsx.Attrs{{Key: "nonce", Value: "mine"}}}))
+-- diagnostics.golden --
+-- render.golden --
+<script nonce="mine">init()</script>

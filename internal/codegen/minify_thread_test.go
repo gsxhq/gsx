@@ -65,10 +65,13 @@ func TestMinifyThreading(t *testing.T) {
 	noMin := generate(Options{CSSMinify: false})
 	fullMin := generate(Options{CSSMinify: true, CSSMin: fullmin.CSS})
 
+	// snip returns the line emitting the style body — the open tag itself is
+	// split around the auto-injected CSP nonce guard (_gsxgw.Nonce(ctx)), so
+	// the CSS content starts in a separate _gsxgw.S(">...") call.
 	snip := func(gen, label string) string {
-		start := strings.Index(gen, `_gsxgw.S("<style>`)
+		start := strings.Index(gen, `_gsxgw.S(">`)
 		if start == -1 {
-			t.Fatalf("%s: cannot find _gsxgw.S(\"<style>\") in generated output:\n%s", label, gen)
+			t.Fatalf("%s: cannot find _gsxgw.S(\">\") in generated output:\n%s", label, gen)
 		}
 		end := strings.Index(gen[start:], "\n")
 		if end == -1 {
@@ -87,7 +90,7 @@ func TestMinifyThreading(t *testing.T) {
 
 	// noMin: original CSS preserved verbatim — double spaces intact, semicolon
 	// before closing brace retained, spaces around colon preserved.
-	const wantNoMin = `_gsxgw.S("<style>.a {  color : red ;  }</style>")`
+	const wantNoMin = `_gsxgw.S(">.a {  color : red ;  }</style>")`
 	if !strings.Contains(noMin, wantNoMin) {
 		t.Errorf("noMin: expected verbatim CSS; got snippet: %s", noMinSnip)
 	}
@@ -95,14 +98,14 @@ func TestMinifyThreading(t *testing.T) {
 	// builtinMin: safe whitespace pass — curly-brace-adjacent spaces dropped,
 	// double space collapsed, trailing semicolon before } stripped. Spaces around
 	// the colon are preserved (colon is not a CSS delimiter in this pass).
-	const wantBuiltin = `_gsxgw.S("<style>.a{color : red}</style>")`
+	const wantBuiltin = `_gsxgw.S(">.a{color : red}</style>")`
 	if !strings.Contains(builtinMin, wantBuiltin) {
 		t.Errorf("builtinMin: expected safe-minified CSS; got snippet: %s", builtinSnip)
 	}
 
 	// fullMin: aggressive tdewolff pass — all whitespace around property name,
 	// colon, and value removed.
-	const wantFull = `_gsxgw.S("<style>.a{color:red}</style>")`
+	const wantFull = `_gsxgw.S(">.a{color:red}</style>")`
 	if !strings.Contains(fullMin, wantFull) {
 		t.Errorf("fullMin: expected aggressively-minified CSS; got snippet: %s", fullMinSnip)
 	}

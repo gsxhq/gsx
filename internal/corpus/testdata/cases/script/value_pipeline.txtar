@@ -33,7 +33,9 @@ func Page(_gsxp PageProps) gsx.Node {
 		name := _gsxp.Name
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<script>const n = ")
+		_gsxgw.S("<script")
+		_gsxgw.Nonce(ctx)
+		_gsxgw.S(">const n = ")
 		_gsxgw.JSVal(_gsxstd.Upper((name)))
 		_gsxgw.S(";</script>")
 		return _gsxgw.Err()

@@ -35,7 +35,9 @@ func Page(_gsxp PageProps) gsx.Node {
 		payload := _gsxp.Payload
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<script>\n\t\tconst data = ")
+		_gsxgw.S("<script")
+		_gsxgw.Nonce(ctx)
+		_gsxgw.S(">\n\t\tconst data = ")
 		_gsxgw.JSVal(payload)
 		_gsxgw.S(";\n\t</script>")
 		return _gsxgw.Err()

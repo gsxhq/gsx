@@ -378,7 +378,7 @@ func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]typ
 	// AUTO mode: there is no author `{...attrs}`, so the bag spreads at the END and
 	// every root attr is overridable. splitIdx == len(el.Attrs) means "all attrs
 	// precede the (synthetic) spread" → all guarded.
-	if !emitFallthroughAttrs(b, isMetaRefreshElement(el.Tag, el.Attrs), el.Attrs, len(el.Attrs), resolved, table, imports, interpTemp, cls, bag, mergeExpr, "_gsxp.Attrs") {
+	if !emitFallthroughAttrs(b, isMetaRefreshElement(el.Tag, el.Attrs), el.Attrs, len(el.Attrs), resolved, table, imports, interpTemp, cls, bag, mergeExpr, "_gsxp.Attrs", nil) {
 		return false
 	}
 	if el.Void {
@@ -425,7 +425,7 @@ func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]typ
 // (ClassMerged / StyleMerged), emitted once at the spread position. The author's
 // `{...attrs}` SpreadAttr itself (when present at splitIdx) is consumed here, not
 // emitted via emitAttr.
-func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, splitIdx int, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, bag *diag.Bag, mergeExpr, bagExpr string) bool {
+func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, splitIdx int, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, bag *diag.Bag, mergeExpr, bagExpr string, nonce *nonceInjection) bool {
 	// Find a composed/static class attr to merge the bag's class into, and a
 	// composed/static style attr whose declarations the bag's style merges over.
 	var classAttr *ast.ClassAttr    // composed class={ … }
@@ -462,14 +462,14 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 			// No single static name (Cond) — no caller-wins shadow target; emit
 			// unguarded. (A SpreadAttr at the split position is consumed below, not
 			// here.)
-			return emitAttr(b, refreshMeta, a, resolved, table, imports, interpTemp, cls, bag, mergeExpr)
+			return emitAttr(b, refreshMeta, a, resolved, table, imports, interpTemp, cls, bag, mergeExpr, nonce)
 		}
 		if !guarded {
 			forcedNames = append(forcedNames, name)
-			return emitAttr(b, refreshMeta, a, resolved, table, imports, interpTemp, cls, bag, mergeExpr)
+			return emitAttr(b, refreshMeta, a, resolved, table, imports, interpTemp, cls, bag, mergeExpr, nonce)
 		}
 		fmt.Fprintf(b, "\t\tif !%s.Has(%s) {\n", bagExpr, strconv.Quote(name))
-		if !emitAttr(b, refreshMeta, a, resolved, table, imports, interpTemp, cls, bag, mergeExpr) {
+		if !emitAttr(b, refreshMeta, a, resolved, table, imports, interpTemp, cls, bag, mergeExpr, nonce) {
 			return false
 		}
 		b.WriteString("\t\t}\n")
@@ -500,7 +500,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 			fmt.Fprintf(b, "\t\t\t_gsxgw.StyleMerged(%s, %s.Style())\n", styleStr, bagExpr)
 			b.WriteString("\t\t} else {\n")
 			if staticStyle != nil {
-				if !emitAttr(b, refreshMeta, staticStyle, resolved, table, imports, interpTemp, cls, bag, mergeExpr) {
+				if !emitAttr(b, refreshMeta, staticStyle, resolved, table, imports, interpTemp, cls, bag, mergeExpr, nonce) {
 					return false
 				}
 			} else {
@@ -571,7 +571,12 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 			if !ok {
 				return false
 			}
-			fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", spreadExpr)
+			if tmp, hoisted := nonce.tempFor(t); hoisted {
+				fmt.Fprintf(b, "\t\t%s = %s\n", tmp, spreadExpr)
+				fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", tmp)
+			} else {
+				fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", spreadExpr)
+			}
 			continue
 		}
 		if i < splitIdx {
@@ -606,9 +611,14 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 // unique by the caller).
 func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
 	emitS(b, "<"+el.Tag)
-	if !emitFallthroughAttrs(b, isMetaRefreshElement(el.Tag, el.Attrs), el.Attrs, splitIdx, resolved, table, imports, interpTemp, cls, bag, mergeExpr, "attrs") {
+	ni := newNonceInjection(b, el.Tag, el.Attrs, interpTemp, el.Attrs[splitIdx])
+	if ni != nil {
+		ni.extra = []string{"attrs"}
+	}
+	if !emitFallthroughAttrs(b, isMetaRefreshElement(el.Tag, el.Attrs), el.Attrs, splitIdx, resolved, table, imports, interpTemp, cls, bag, mergeExpr, "attrs", ni) {
 		return false
 	}
+	ni.emitGuard(b)
 	if el.Void {
 		emitS(b, "/>")
 		return true
@@ -697,6 +707,149 @@ func rootAttrName(a ast.Attr) (string, bool) {
 	return "", false
 }
 
+// nonceEligibleTag reports whether tag is one gsx auto-decorates with the
+// context CSP nonce (script/style; HTML tag names are case-insensitive).
+func nonceEligibleTag(tag string) bool {
+	return strings.EqualFold(tag, "script") || strings.EqualFold(tag, "style")
+}
+
+// hasUnconditionalExplicitNonce reports whether attrs carries a top-level
+// author-written nonce. In that case the author owns the attribute and no
+// automatic nonce is needed. Conditional nonce attrs are tracked at runtime by
+// nonceInjection so the context nonce still appears when the branch is untaken.
+func hasUnconditionalExplicitNonce(attrs []ast.Attr) bool {
+	for _, a := range attrs {
+		if attrIsExplicitNonce(a) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasConditionalExplicitNonce(attrs []ast.Attr) bool {
+	for _, a := range attrs {
+		if c, ok := a.(*ast.CondAttr); ok {
+			if attrsContainExplicitNonce(c.Then) || attrsContainExplicitNonce(c.Else) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func attrsContainExplicitNonce(attrs []ast.Attr) bool {
+	for _, a := range attrs {
+		if attrIsExplicitNonce(a) {
+			return true
+		}
+		if c, ok := a.(*ast.CondAttr); ok && (attrsContainExplicitNonce(c.Then) || attrsContainExplicitNonce(c.Else)) {
+			return true
+		}
+	}
+	return false
+}
+
+func attrIsExplicitNonce(a ast.Attr) bool {
+	if name, ok := rootAttrName(a); ok {
+		return strings.EqualFold(name, "nonce")
+	}
+	return false
+}
+
+// nonceInjection carries the state for auto-injecting the context CSP nonce
+// into a <script>/<style> open tag: one hoisted gsx.Attrs temp per spread
+// attr (at any depth, including cond-attr branches) so the post-attr guard
+// can ask each spread whether it already carried a "nonce" key. A nil
+// *nonceInjection means "not eligible" (not script/style, or the author
+// wrote an explicit nonce) and every method is a nil-safe no-op.
+type nonceInjection struct {
+	temps    map[*ast.SpreadAttr]string
+	order    []string // temp names in declaration order
+	extra    []string // extra guard bag exprs (MANUAL fallthrough bag)
+	explicit string   // bool temp set true when a conditional explicit nonce emits
+}
+
+// newNonceInjection decides eligibility and, for an eligible element, writes
+// the hoisted `var _gsxvN gsx.Attrs` declarations to b (they must precede the
+// attr emits: a spread inside an untaken cond branch leaves its temp nil, and
+// a nil Attrs.Has is false, so the guard stays correct). skip excludes one
+// attr from the spread walk — the MANUAL `{ attrs... }` bag spread, which is
+// consumed by emitFallthroughAttrs and guarded via extra instead.
+func newNonceInjection(b *bytes.Buffer, tag string, attrs []ast.Attr, interpTemp *int, skip ast.Attr) *nonceInjection {
+	if !nonceEligibleTag(tag) || hasUnconditionalExplicitNonce(attrs) {
+		return nil
+	}
+	ni := &nonceInjection{temps: map[*ast.SpreadAttr]string{}}
+	if hasConditionalExplicitNonce(attrs) {
+		ni.explicit = fmt.Sprintf("_gsxv%d", *interpTemp)
+		*interpTemp++
+		fmt.Fprintf(b, "\t\tvar %s bool\n", ni.explicit)
+	}
+	var walk func([]ast.Attr)
+	walk = func(as []ast.Attr) {
+		for _, a := range as {
+			if a == skip {
+				continue
+			}
+			switch t := a.(type) {
+			case *ast.SpreadAttr:
+				tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+				*interpTemp++
+				ni.temps[t] = tmp
+				ni.order = append(ni.order, tmp)
+			case *ast.CondAttr:
+				walk(t.Then)
+				walk(t.Else)
+			}
+		}
+	}
+	walk(attrs)
+	for _, tmp := range ni.order {
+		fmt.Fprintf(b, "\t\tvar %s gsx.Attrs\n", tmp)
+	}
+	return ni
+}
+
+// tempFor returns the hoisted temp for spread s (nil-safe).
+func (ni *nonceInjection) tempFor(s *ast.SpreadAttr) (string, bool) {
+	if ni == nil {
+		return "", false
+	}
+	tmp, ok := ni.temps[s]
+	return tmp, ok
+}
+
+func (ni *nonceInjection) markExplicit(b *bytes.Buffer, name string) {
+	if ni == nil || ni.explicit == "" || !strings.EqualFold(name, "nonce") {
+		return
+	}
+	fmt.Fprintf(b, "\t\t%s = true\n", ni.explicit)
+}
+
+// emitGuard writes the nonce injection at the end of the open tag's attrs:
+// unconditional when no spread/bag could have carried a nonce, otherwise
+// guarded on every bag having no "nonce" key.
+func (ni *nonceInjection) emitGuard(b *bytes.Buffer) {
+	if ni == nil {
+		return
+	}
+	guards := make([]string, 0, len(ni.extra)+len(ni.order))
+	if ni.explicit != "" {
+		guards = append(guards, "!"+ni.explicit)
+	}
+	for _, e := range ni.extra {
+		guards = append(guards, "!"+e+".Has(\"nonce\")")
+	}
+	for _, tmp := range ni.order {
+		guards = append(guards, "!"+tmp+".Has(\"nonce\")")
+	}
+	if len(guards) == 0 {
+		b.WriteString("\t\t_gsxgw.Nonce(ctx)\n")
+		return
+	}
+	fmt.Fprintf(b, "\t\tif %s {\n\t\t\t_gsxgw.Nonce(ctx)\n\t\t}\n", strings.Join(guards, " && "))
+}
+
 // rootStyleString returns the Go expression for the root element's own style
 // declarations, passed as StyleMerged's first arg (the bag's Style() is second,
 // caller-wins). For a static `style="x"` it is the quoted literal; for a composed
@@ -762,11 +915,13 @@ func genNode(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, ta
 		}
 		emitS(b, "<"+t.Tag)
 		refreshMeta := isMetaRefreshElement(t.Tag, t.Attrs)
+		ni := newNonceInjection(b, t.Tag, t.Attrs, interpTemp, nil)
 		for _, a := range t.Attrs {
-			if !emitAttr(b, refreshMeta, a, resolved, table, imports, interpTemp, cls, bag, mergeExpr) {
+			if !emitAttr(b, refreshMeta, a, resolved, table, imports, interpTemp, cls, bag, mergeExpr, ni) {
 				return false
 			}
 		}
+		ni.emitGuard(b)
 		if t.Void {
 			emitS(b, "/>")
 			return true
@@ -1328,24 +1483,35 @@ func spreadAttrExpr(a *ast.SpreadAttr, table filterTable, imports map[string]boo
 // emitAttr emits one element attribute. Static values are escaped at codegen and
 // always double-quoted; bool attrs use gw.BoolAttr. Expr attrs are handled in a
 // later task; the deferred attr kinds error clearly.
-func emitAttr(b *bytes.Buffer, refreshMeta bool, a ast.Attr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, bag *diag.Bag, mergeExpr string) bool {
+func emitAttr(b *bytes.Buffer, refreshMeta bool, a ast.Attr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, bag *diag.Bag, mergeExpr string, nonce *nonceInjection) bool {
 	switch t := a.(type) {
 	case *ast.StaticAttr:
 		fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+t.Name+`="`+htmlAttrEscape(t.Value)+`"`))
+		nonce.markExplicit(b, t.Name)
 	case *ast.BoolAttr:
 		fmt.Fprintf(b, "\t\t_gsxgw.BoolAttr(%s, true)\n", strconv.Quote(t.Name))
+		nonce.markExplicit(b, t.Name)
 	case *ast.ExprAttr:
-		return emitExprAttr(b, refreshMeta, t, resolved, table, imports, interpTemp, cls, bag)
+		if !emitExprAttr(b, refreshMeta, t, resolved, table, imports, interpTemp, cls, bag) {
+			return false
+		}
+		nonce.markExplicit(b, t.Name)
+		return true
 	case *ast.EmbeddedAttr:
 		switch t.Lang {
 		case ast.EmbeddedJS:
-			return emitEmbeddedJSAttr(b, t, resolved, table, imports, interpTemp, bag)
+			if !emitEmbeddedJSAttr(b, t, resolved, table, imports, interpTemp, bag) {
+				return false
+			}
 		case ast.EmbeddedCSS:
-			return emitEmbeddedCSSAttr(b, t, resolved, table, imports, interpTemp, bag)
+			if !emitEmbeddedCSSAttr(b, t, resolved, table, imports, interpTemp, bag) {
+				return false
+			}
 		default:
 			bag.Errorf(a.Pos(), a.End(), "unsupported-attr", "unknown embedded attribute language %d", t.Lang)
 			return false
 		}
+		nonce.markExplicit(b, t.Name)
 	case *ast.ClassAttr:
 		// class -> token merge (gw.Class); style -> '; '-joined declarations
 		// (gw.Style) with dynamic parts CSS-value-filtered.
@@ -1370,7 +1536,14 @@ func emitAttr(b *bytes.Buffer, refreshMeta bool, a ast.Attr, resolved map[ast.No
 		if !ok {
 			return false
 		}
-		fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", spreadExpr)
+		if tmp, hoisted := nonce.tempFor(t); hoisted {
+			// Nonce-eligible element: assign the hoisted temp once (single
+			// evaluation) and spread from it; the post-attr guard reads it.
+			fmt.Fprintf(b, "\t\t%s = %s\n", tmp, spreadExpr)
+			fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", tmp)
+		} else {
+			fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", spreadExpr)
+		}
 	case *ast.CondAttr:
 		// Attr emission is a sequence of writer calls between `<tag` and `>`, so
 		// wrapping the branch's attr emits in a real Go `if`/`else` is valid. An
@@ -1379,14 +1552,14 @@ func emitAttr(b *bytes.Buffer, refreshMeta bool, a ast.Attr, resolved map[ast.No
 		// control construct, and each nested attr emit carries its own line map.)
 		fmt.Fprintf(b, "\t\tif %s {\n", t.Cond)
 		for _, inner := range t.Then {
-			if !emitAttr(b, refreshMeta, inner, resolved, table, imports, interpTemp, cls, bag, mergeExpr) {
+			if !emitAttr(b, refreshMeta, inner, resolved, table, imports, interpTemp, cls, bag, mergeExpr, nonce) {
 				return false
 			}
 		}
 		if len(t.Else) > 0 {
 			b.WriteString("\t\t} else {\n")
 			for _, inner := range t.Else {
-				if !emitAttr(b, refreshMeta, inner, resolved, table, imports, interpTemp, cls, bag, mergeExpr) {
+				if !emitAttr(b, refreshMeta, inner, resolved, table, imports, interpTemp, cls, bag, mergeExpr, nonce) {
 					return false
 				}
 			}

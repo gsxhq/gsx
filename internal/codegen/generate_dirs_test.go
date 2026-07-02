@@ -171,20 +171,28 @@ func TestGenerateDirsMinify(t *testing.T) {
 	builtinMin := generate(Options{FilterPkgs: []string{StdImportPath}, CSSMinify: true})
 	fullMin := generate(Options{FilterPkgs: []string{StdImportPath}, CSSMinify: true, CSSMin: fullmin.CSS})
 
-	// noMin: original CSS preserved verbatim.
-	const wantNoMin = `_gsxgw.S("<style>.a {  color : red ;  }</style>")`
+	// noMin: original CSS preserved verbatim. The open tag is split around the
+	// auto-injected CSP nonce guard (_gsxgw.Nonce(ctx)), so the static string
+	// literal starts after "<style" rather than "<style>".
+	const wantNoMin = `_gsxgw.S(">.a {  color : red ;  }</style>")`
 	if !strings.Contains(noMin, wantNoMin) {
 		t.Errorf("noMin: expected verbatim CSS; got:\n%s", noMin)
 	}
 	// builtinMin: built-in safe whitespace pass.
-	const wantBuiltin = `_gsxgw.S("<style>.a{color : red}</style>")`
+	const wantBuiltin = `_gsxgw.S(">.a{color : red}</style>")`
 	if !strings.Contains(builtinMin, wantBuiltin) {
 		t.Errorf("builtinMin: expected safe-minified CSS; got:\n%s", builtinMin)
 	}
 	// fullMin: aggressive tdewolff pass.
-	const wantFull = `_gsxgw.S("<style>.a{color:red}</style>")`
+	const wantFull = `_gsxgw.S(">.a{color:red}</style>")`
 	if !strings.Contains(fullMin, wantFull) {
 		t.Errorf("fullMin: expected aggressively-minified CSS; got:\n%s", fullMin)
+	}
+	const wantOpenTag = `_gsxgw.S("<style")` + "\n\t\t_gsxgw.Nonce(ctx)\n"
+	for name, got := range map[string]string{"noMin": noMin, "builtinMin": builtinMin, "fullMin": fullMin} {
+		if !strings.Contains(got, wantOpenTag) {
+			t.Errorf("%s: expected split open tag with nonce guard; got:\n%s", name, got)
+		}
 	}
 	// All three must differ.
 	if noMin == builtinMin {

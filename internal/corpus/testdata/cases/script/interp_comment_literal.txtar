@@ -38,7 +38,9 @@ func Page(cfg Config) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.S("<script>\n\t\tconst data = ")
+		_gsxgw.S("<script")
+		_gsxgw.Nonce(ctx)
+		_gsxgw.S(">\n\t\tconst data = ")
 		_gsxgw.JSVal(cfg)
 		_gsxgw.S(";  // note: @{ rawNote }\n\t</script>")
 		return _gsxgw.Err()

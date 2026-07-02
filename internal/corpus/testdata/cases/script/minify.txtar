@@ -27,7 +27,9 @@ func Page() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:4:2
-		_gsxgw.S("<script>function init() {\nreturn 1;\n}</script>")
+		_gsxgw.S("<script")
+		_gsxgw.Nonce(ctx)
+		_gsxgw.S(">function init() {\nreturn 1;\n}</script>")
 		return _gsxgw.Err()
 	})
 }
