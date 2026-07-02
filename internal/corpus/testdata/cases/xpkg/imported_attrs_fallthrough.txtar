@@ -23,7 +23,7 @@ component Home() {
 	<ui.DataGrid class="md:grid-cols-2" data-role="main">
 		<span>grid</span>
 	</ui.DataGrid>
-	<ui.Panel Attrs={{ "data-a": "1", "data-b": "2" }}>panel</ui.Panel>
+	<ui.Panel attrs={{ "data-a": "1", "data-b": "2" }}>panel</ui.Panel>
 }
 -- invoke --
 pages.Home()

@@ -105,6 +105,7 @@ components/nullary_func_control_flow	diag render
 components/nullary_func_in_slot	diag render
 components/nullary_func_mixed_kordering	diag render
 components/nullary_no_props	diag gen render
+components/ordered_attrs_target_attrs	diag gen render
 control_flow/for	diag render
 control_flow/goblock	diag render
 control_flow/if_init_error_handling	diag gen render
@@ -392,4 +393,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 394 cases (render: 306, error: 66, gen-pinned: 156)
+TOTAL: 395 cases (render: 307, error: 66, gen-pinned: 157)
