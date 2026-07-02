@@ -633,12 +633,28 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 // (root wins). splitIdx is the bag SpreadAttr's index in el.Attrs (guaranteed
 // unique by the caller).
 func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, importAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+	// The bag expression: the bare `attrs` local is used directly; a DERIVED bag
+	// (`attrs.Without(…)`, `attrs.Merge(…)`, a pipeline) is evaluated exactly
+	// once into a hoisted temp so the caller-wins guards (.Has), the class/style
+	// merges (.Class()/.Style()) and the spread (.Without(…)) all read the same
+	// value and side effects don't repeat.
+	spread := el.Attrs[splitIdx].(*ast.SpreadAttr)
+	bagExpr := strings.TrimSpace(spread.Expr)
+	if bagExpr != "attrs" || len(spread.Stages) > 0 {
+		expr, ok := spreadAttrExpr(spread, table, imports, bag)
+		if !ok {
+			return false
+		}
+		bagExpr = fmt.Sprintf("_gsxv%d", *interpTemp)
+		*interpTemp++
+		fmt.Fprintf(b, "\t\t%s := %s\n", bagExpr, expr)
+	}
 	emitS(b, "<"+el.Tag)
 	ni := newNonceInjection(b, el.Tag, el.Attrs, interpTemp, el.Attrs[splitIdx])
 	if ni != nil {
-		ni.extra = []string{"attrs"}
+		ni.extra = []string{bagExpr}
 	}
-	if !emitFallthroughAttrs(b, isMetaRefreshElement(el.Tag, el.Attrs), el.Attrs, splitIdx, resolved, table, imports, interpTemp, cls, bag, mergeExpr, "attrs", ni) {
+	if !emitFallthroughAttrs(b, isMetaRefreshElement(el.Tag, el.Attrs), el.Attrs, splitIdx, resolved, table, imports, interpTemp, cls, bag, mergeExpr, bagExpr, ni) {
 		return false
 	}
 	ni.emitGuard(b)
@@ -670,19 +686,23 @@ func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, cur
 	return true
 }
 
-// bagSpreadIndex returns the index of the author's `{ attrs... }` bag spread in
-// attrs (a SpreadAttr whose trimmed Expr is the bound bag name "attrs"), whether
-// one was found, and an error if more than one is present (precedence ambiguous).
-// A non-bag spread (`{...someOtherExpr}`) is ignored — it keeps its inline emit.
+// bagSpreadIndex returns the index of the element's FORWARDING spread in attrs
+// — a SpreadAttr whose expression references the bound bag identifier `attrs`
+// (token-based, the same valueIdents detector as usesAttrs), so derived bags
+// like `{ attrs.Without("id")... }` and `{ attrs.Merge(extra)... }` get the
+// full caller-wins/class-merge machinery, not just the bare `{ attrs... }` —
+// whether one was found, and an error if more than one is present (precedence
+// ambiguous). A non-bag spread (`{ someOtherExpr... }`) is ignored — it keeps
+// its inline emit.
 func bagSpreadIndex(attrs []ast.Attr) (int, bool, error) {
 	idx, found := -1, false
 	for i, a := range attrs {
 		s, ok := a.(*ast.SpreadAttr)
-		if !ok || strings.TrimSpace(s.Expr) != "attrs" {
+		if !ok || !valueIdents(s.Expr)["attrs"] {
 			continue
 		}
 		if found {
-			return 0, false, fmt.Errorf("codegen: more than one { attrs... } spread on an element; precedence is ambiguous")
+			return 0, false, fmt.Errorf("codegen: more than one attrs-referencing spread on an element; precedence is ambiguous")
 		}
 		idx, found = i, true
 	}
@@ -921,8 +941,9 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		}
 		// MANUAL fallthrough: an element carrying the author's `{ attrs... }` bag spread
 		// gets position-aware precedence (pre-spread overridable, post-spread forced).
-		// Detection is the trimmed SpreadAttr Expr == bound bag name "attrs"; a non-bag
-		// spread keeps its inline emit via the normal attr loop below.
+		// Detection is a SpreadAttr expr referencing the bound bag ident `attrs`
+		// (incl. derived bags like attrs.Without(…)); a non-bag spread keeps its
+		// inline emit via the normal attr loop below.
 		if splitIdx, found, err := bagSpreadIndex(t.Attrs); err != nil {
 			bag.Errorf(t.Pos(), t.End(), "attr-fallthrough", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false

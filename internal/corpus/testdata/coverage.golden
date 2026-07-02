@@ -170,6 +170,8 @@ fallthrough/caller_wins	diag render
 fallthrough/composed_class_merge	diag render
 fallthrough/cond_attr_root_not_eligible	diag(error)
 fallthrough/cond_attr_root_standalone	diag render
+fallthrough/derived_merge_spread	diag render
+fallthrough/derived_without_spread	diag gen render
 fallthrough/empty_bag_noop	diag render
 fallthrough/manual_nullary_method	diag render
 fallthrough/manual_placement	diag render
@@ -403,4 +405,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 405 cases (render: 316, error: 67, gen-pinned: 166)
+TOTAL: 407 cases (render: 318, error: 67, gen-pinned: 167)
