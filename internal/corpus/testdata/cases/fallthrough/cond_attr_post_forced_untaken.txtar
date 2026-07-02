@@ -1,0 +1,17 @@
+# A post-spread cond-attr whose branch is NOT taken forces nothing: the drop
+# set stays static, so the caller's key spreads normally.
+-- input.gsx --
+package views
+
+component Box(active bool) {
+	<button { attrs... } { if active { id="mine" } }>x</button>
+}
+
+component Page() {
+	<Box active={false} id="caller"/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<button id="caller">x</button>

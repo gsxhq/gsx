@@ -1,0 +1,12 @@
+# class (or style) inside a cond-attr branch on a forwarding element is
+# rejected: the root's class merge is emitted once at a static site and cannot
+# account for a conditional contribution (it would emit a duplicate class
+# attribute next to the merged one). The composable form expresses this.
+-- input.gsx --
+package views
+
+component Box(active bool) {
+	<div { if active { class="on" } } { attrs... }>x</div>
+}
+-- diagnostics.golden --
+4:21: conditional class inside { if } on an element with attribute forwarding cannot join the class merge; use the composable form (class={ "on": active }) instead

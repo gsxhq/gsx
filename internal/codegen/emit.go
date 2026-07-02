@@ -424,6 +424,14 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 // FORCED (emitted UNGUARDED so the root always wins) and their names are excluded
 // from the bag spread so a same-named bag entry can never emit (root wins).
 //
+// Cond-attrs follow the same positional rule (spec 2026-07-02 D3): a pre-spread
+// `{ if … }` emits each branch leaf under a `!Has(name)` guard inside its
+// branch; a post-spread one is evaluated exactly ONCE before the spread —
+// branch bodies record the taken branch in a bool temp and append their leaf
+// names to a dynamic drop slice the spread excludes — and its leaves render
+// after the spread under the recorded bool. class/style or a spread inside a
+// branch is rejected (the static merge/guard sites cannot account for them).
+//
 // class/style are positional-exempt: wherever they appear they MERGE caller-last
 // (ClassMerged / StyleMerged), emitted once at the spread position. The author's
 // `{ attrs... }` SpreadAttr itself (when present at splitIdx) is consumed here, not
@@ -496,9 +504,135 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 		return true
 	}
 
-	// emitSpread emits the class merge, style merge, then the bag spread (dropping
-	// class/style + any forced names). Called once, at the split position.
+	// Cond-attr branch leaves must be plain named scalars: the class/style merge
+	// and the caller-wins guard/drop machinery are emitted at static sites and
+	// cannot account for a conditional class contribution or a spread's unknown
+	// keys. Validate every cond-attr on the element (any position) up front.
+	var validateCondBranch func(as []ast.Attr, encCond string) bool
+	validateCondBranch = func(as []ast.Attr, encCond string) bool {
+		for _, a := range as {
+			switch t := a.(type) {
+			case *ast.CondAttr:
+				if !validateCondBranch(t.Then, t.Cond) || !validateCondBranch(t.Else, "!("+t.Cond+")") {
+					return false
+				}
+				continue
+			case *ast.SpreadAttr:
+				bag.Errorf(t.Pos(), t.End(), "attr-fallthrough",
+					"spread inside { if } on an element with attribute forwarding has statically unknown keys; compose it into the forwarding spread instead (e.g. { attrs.Merge(gsx.AttrsCond(%s, func() gsx.Attrs { return %s }, nil))... })",
+					encCond, strings.TrimSpace(t.Expr))
+				return false
+			}
+			name, _ := rootAttrName(a)
+			if c, ok := a.(*ast.ClassAttr); ok {
+				name = c.Name
+			}
+			if name == "class" || name == "style" {
+				hint := "; use the composable form (style={ … }) with conditional declarations instead"
+				if name == "class" {
+					if s, ok := a.(*ast.StaticAttr); ok {
+						hint = fmt.Sprintf("; use the composable form (class={ %q: %s }) instead", s.Value, encCond)
+					} else {
+						hint = "; use the composable form (class={ <expr>: <cond> }) instead"
+					}
+				}
+				bag.Errorf(a.Pos(), a.End(), "attr-fallthrough",
+					"conditional %s inside { if } on an element with attribute forwarding cannot join the %s merge%s", name, name, hint)
+				return false
+			}
+		}
+		return true
+	}
+	for _, a := range attrs {
+		if t, ok := a.(*ast.CondAttr); ok {
+			if !validateCondBranch(t.Then, t.Cond) || !validateCondBranch(t.Else, "!("+t.Cond+")") {
+				return false
+			}
+		}
+	}
+
+	// emitCondGuarded emits a PRE-spread cond-attr with every branch leaf
+	// caller-overridable: the branch structure is preserved (conditions evaluate
+	// once, in place, with else-if short-circuit), each leaf wrapped in the same
+	// `!Has(name)` guard as a plain pre-spread scalar.
+	var emitCondGuarded func(t *ast.CondAttr) bool
+	emitCondGuarded = func(t *ast.CondAttr) bool {
+		emitBranch := func(as []ast.Attr) bool {
+			for _, inner := range as {
+				if nested, ok := inner.(*ast.CondAttr); ok {
+					if !emitCondGuarded(nested) {
+						return false
+					}
+					continue
+				}
+				if !emitScalar(inner, true) {
+					return false
+				}
+			}
+			return true
+		}
+		fmt.Fprintf(b, "\t\tif %s {\n", t.Cond)
+		if !emitBranch(t.Then) {
+			return false
+		}
+		if len(t.Else) > 0 {
+			b.WriteString("\t\t} else {\n")
+			if !emitBranch(t.Else) {
+				return false
+			}
+		}
+		b.WriteString("\t\t}\n")
+		return true
+	}
+
+	// POST-spread cond-attrs force their taken branch's leaves. Planning walks
+	// each one once: every branch with direct leaves gets a bool temp, and the
+	// leaves are collected into source-ordered runs (a nested cond-attr splits
+	// its parent's run so output order matches the original emission order).
+	// The selector — emitted just before the spread — evaluates the branch
+	// structure exactly once, setting the bools and appending the taken
+	// branch's names to the dynamic drop slice.
+	postRuns := map[*ast.CondAttr][]condRun{}
+	dropVar := ""
+	emitPostCondSelectors := func() {
+		var post []*ast.CondAttr
+		for i, a := range attrs {
+			if i <= splitIdx {
+				continue
+			}
+			if t, ok := a.(*ast.CondAttr); ok {
+				post = append(post, t)
+			}
+		}
+		if len(post) == 0 {
+			return
+		}
+		dropVar = fmt.Sprintf("_gsxv%d", *interpTemp)
+		*interpTemp++
+		base := append([]string{"class", "style"}, forcedNames...)
+		quotedBase := make([]string, len(base))
+		for i, n := range base {
+			quotedBase[i] = strconv.Quote(n)
+		}
+		fmt.Fprintf(b, "\t\t%s := []string{%s}\n", dropVar, strings.Join(quotedBase, ", "))
+		for _, t := range post {
+			var runs []condRun
+			var bools []string
+			root := planPostCond(t, &runs, &bools, interpTemp)
+			postRuns[t] = runs
+			if len(bools) > 0 {
+				fmt.Fprintf(b, "\t\tvar %s bool\n", strings.Join(bools, ", "))
+			}
+			emitPostCondSelector(b, root, dropVar)
+		}
+	}
+
+	// emitSpread emits the post-cond selectors, the class merge, style merge,
+	// then the bag spread (dropping class/style + any forced names — via the
+	// dynamic drop slice when post-spread cond-attrs exist). Called once, at
+	// the split position.
 	emitSpread := func() bool {
+		emitPostCondSelectors()
 		// If the root had NO class attr at all, emit a merged class in attr position —
 		// writes class only when the bag contributes a non-empty token set.
 		if classAttr == nil && staticClass == nil {
@@ -538,6 +672,12 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 		// any forced names (excluded so the unguarded root emit wins — caller can't
 		// override a post-spread attr). Every other bag attr spreads, including one
 		// that shadows a guarded (overridable) root attr (which was then skipped).
+		// With post-spread cond-attrs the drop set is the dynamic slice built by
+		// the selectors above (static names + the taken branches' names).
+		if dropVar != "" {
+			fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s.Without(%s...))\n", bagExpr, dropVar)
+			return true
+		}
 		without := append([]string{"class", "style"}, forcedNames...)
 		quoted := make([]string, len(without))
 		for i, n := range without {
@@ -594,16 +734,25 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 			continue
 		}
 		if i < splitIdx {
+			if ca, ok := a.(*ast.CondAttr); ok {
+				if !emitCondGuarded(ca) {
+					return false
+				}
+				continue
+			}
 			if !emitScalar(a, true) {
 				return false
 			}
 		}
 	}
-	// The spread section (class/style merge + bag minus forced names).
+	// The spread section (post-cond selectors + class/style merge + bag minus
+	// forced names).
 	if !emitSpread() {
 		return false
 	}
-	// Walk 2: forced post-spread scalars, unguarded, in source order.
+	// Walk 2: forced post-spread scalars, unguarded, in source order. A
+	// cond-attr renders its planned runs under the branch bools its selector
+	// recorded before the spread (conditions are NOT re-evaluated).
 	for i, a := range attrs {
 		if i <= splitIdx {
 			continue
@@ -619,12 +768,114 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 			}
 		case *ast.SpreadAttr:
 			continue
+		case *ast.CondAttr:
+			for _, run := range postRuns[t] {
+				fmt.Fprintf(b, "\t\tif %s {\n", run.boolVar)
+				for _, leaf := range run.leaves {
+					if !emitAttr(b, refreshMeta, leaf, resolved, table, imports, interpTemp, cls, bag, mergeExpr, nonce) {
+						return false
+					}
+				}
+				b.WriteString("\t\t}\n")
+			}
+			continue
 		}
 		if !emitScalar(a, false) {
 			return false
 		}
 	}
 	return true
+}
+
+// condRun is one source-ordered segment of leaf attrs from a post-spread
+// cond-attr, tagged with the bool temp recording whether its branch was taken.
+// The leaves render after the bag spread under `if <boolVar>`.
+type condRun struct {
+	boolVar string
+	leaves  []ast.Attr
+}
+
+// condBranchPlan is one branch (Then or Else list) of a planned post-spread
+// cond-attr: the bool temp set when the branch is taken ("" when the branch
+// has no direct leaves), the direct leaf names it forces out of the spread,
+// and any nested cond-attrs (planned recursively, in source order).
+type condBranchPlan struct {
+	boolVar string
+	names   []string
+	nested  []*condSelNode
+}
+
+// condSelNode mirrors one *ast.CondAttr for selector emission.
+type condSelNode struct {
+	cond      string
+	then, els condBranchPlan
+}
+
+// planPostCond walks one post-spread cond-attr allocating branch bool temps
+// (appended to bools) and collecting its leaves into source-ordered runs
+// (appended to runs; a nested cond-attr splits the enclosing run so the
+// post-spread emission order matches the original branch-body order).
+// Validation has already rejected class/style and spread leaves, so every
+// non-cond leaf has a static rootAttrName.
+func planPostCond(t *ast.CondAttr, runs *[]condRun, bools *[]string, interpTemp *int) *condSelNode {
+	planBranch := func(as []ast.Attr) condBranchPlan {
+		var bp condBranchPlan
+		curIdx := -1 // index into *runs of the open run, -1 = none
+		for _, a := range as {
+			if nested, ok := a.(*ast.CondAttr); ok {
+				curIdx = -1
+				bp.nested = append(bp.nested, planPostCond(nested, runs, bools, interpTemp))
+				continue
+			}
+			name, ok := rootAttrName(a)
+			if !ok {
+				continue // unreachable after validation; defensive
+			}
+			if bp.boolVar == "" {
+				bp.boolVar = fmt.Sprintf("_gsxv%d", *interpTemp)
+				*interpTemp++
+				*bools = append(*bools, bp.boolVar)
+			}
+			bp.names = append(bp.names, name)
+			if curIdx < 0 {
+				*runs = append(*runs, condRun{boolVar: bp.boolVar})
+				curIdx = len(*runs) - 1
+			}
+			(*runs)[curIdx].leaves = append((*runs)[curIdx].leaves, a)
+		}
+		return bp
+	}
+	n := &condSelNode{cond: t.Cond}
+	n.then = planBranch(t.Then)
+	n.els = planBranch(t.Else)
+	return n
+}
+
+// emitPostCondSelector writes the run-once branch selector for a planned
+// post-spread cond-attr: the original if/else structure evaluates each
+// condition exactly once; a taken branch sets its bool temp and appends its
+// direct leaf names to the dynamic drop slice.
+func emitPostCondSelector(b *bytes.Buffer, n *condSelNode, dropVar string) {
+	emitBranch := func(bp condBranchPlan) {
+		if bp.boolVar != "" {
+			fmt.Fprintf(b, "\t\t%s = true\n", bp.boolVar)
+			quoted := make([]string, len(bp.names))
+			for i, name := range bp.names {
+				quoted[i] = strconv.Quote(name)
+			}
+			fmt.Fprintf(b, "\t\t%s = append(%s, %s)\n", dropVar, dropVar, strings.Join(quoted, ", "))
+		}
+		for _, nested := range bp.nested {
+			emitPostCondSelector(b, nested, dropVar)
+		}
+	}
+	fmt.Fprintf(b, "\t\tif %s {\n", n.cond)
+	emitBranch(n.then)
+	if n.els.boolVar != "" || len(n.els.nested) > 0 {
+		b.WriteString("\t\t} else {\n")
+		emitBranch(n.els)
+	}
+	b.WriteString("\t\t}\n")
 }
 
 // emitManualSpreadElement emits a non-component element that carries the author's

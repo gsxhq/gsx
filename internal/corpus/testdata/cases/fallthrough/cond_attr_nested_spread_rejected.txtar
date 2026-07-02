@@ -1,0 +1,14 @@
+# A spread inside a cond-attr branch on a forwarding element is rejected: its
+# keys are statically unknown, so neither the caller-wins guards nor the
+# spread's drop set can reconcile it. Compose it into the forwarding spread
+# expression instead.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Box(active bool, extra gsx.Attrs) {
+	<div { if active { { extra... } } } { attrs... }>x</div>
+}
+-- diagnostics.golden --
+6:21: spread inside { if } on an element with attribute forwarding has statically unknown keys; compose it into the forwarding spread instead (e.g. { attrs.Merge(gsx.AttrsCond(active, func() gsx.Attrs { return extra }, nil))... })
