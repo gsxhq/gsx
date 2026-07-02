@@ -1,7 +1,13 @@
 package codegen
 
 import (
+	"bytes"
 	"fmt"
+	goast "go/ast"
+	"go/parser"
+	"go/printer"
+	"go/token"
+	"go/types"
 	"regexp"
 	"strings"
 
@@ -204,4 +210,439 @@ func (r *inferRegistry) emitInferProbe(sb *strings.Builder, el *gsxast.Element,
 	sb.WriteString(")\n")
 	r.record(name, &inferSite{el: el, propsType: propsType, span: inferSpan{start, sb.Len()}})
 	return true
+}
+
+// --- Requalification engine (Task 3) ---------------------------------------
+//
+// A generic component's type-param constraints and declared param types are
+// stored as raw source SNIPPETS captured from the component's OWN file (see
+// param.typeSrc, c.TypeParams). Verbatim, those snippets only resolve inside
+// that file: a bare `Row` means "the Row type declared in (or imported by)
+// THAT file", and `pq.T` qualifies through THAT file's own import table.
+// emitInferProbe already handles the same-package case by splicing such
+// source in verbatim (the calling file IS the dep file). For an IMPORTED
+// generic component (Task 4), the snippet must instead be rewritten so it
+// resolves in the CALLING file's skeleton:
+//
+//   - a bare exported dep-local type (`Row`) becomes `<depAlias>.Row`, using
+//     the same alias the caller already has bound to the dep package;
+//   - a bare unexported dep-local type (`secret`) is unspeakable outside the
+//     dep package and is rejected;
+//   - a qualified dep-local reference (`fmt.Stringer`, i.e. the DEP file
+//     imports "fmt" itself) is re-imported by the caller under a fresh,
+//     collision-proof alias ("_gsxti1", "_gsxti2", ...) registered via the
+//     addImport callback, and the snippet is rewritten to that fresh alias;
+//   - a type-param name declared in the SAME constraint/param list (e.g. `K`
+//     in `K any, V interface{ ~[]K }`) is never qualified — it is a locally
+//     bound name, not a dep-package reference;
+//   - a predeclared universe name (string, int, any, comparable, error, ...)
+//     is never qualified.
+//
+// requalifyTypeExpr handles a single type expression (a param's typeSrc, or
+// one constraint element); requalifyTypeParams handles a whole bracketed
+// type-param declaration list (c.TypeParams — a FIELD LIST, not one expr,
+// because names in the list must be collected before any field's constraint
+// is rewritten). Both are pure: nothing in this package calls them yet —
+// Task 4 wires them into the imported-component probe path.
+//
+// ALIAS COUNTER SCOPE: each call mints its OWN "_gsxti<N>" sequence starting
+// at 1 (an aliasMinter is local to one requalifyTypeExpr/requalifyTypeParams
+// invocation), deduplicated by resolved import PATH so repeated qualifiers
+// for the same dep import within one call share one alias. A caller issuing
+// several calls for one probe helper (e.g. one per supplied param plus one
+// for the type-param decl) will see the "_gsxti1" sequence restart each
+// call — this is deliberately safe rather than coordinated: Go permits
+// importing the same path multiple times under different aliases in one
+// file, so two calls minting independent aliases for the SAME dep path is
+// merely redundant, never a compile error. The only way two calls could
+// collide is the SAME alias text naming two DIFFERENT paths, which cannot
+// happen with per-call addImport callbacks unless a caller merges the
+// callback across calls without namespacing — Task 4 must give each call
+// (or otherwise namespace) its own addImport if it wants to avoid this.
+
+// requalifyTypeExpr rewrites a type expression src (written in the dep
+// package's file context) for use in the calling file's skeleton.
+//
+//	depAlias:   the caller's import alias/name for the dep package ("components")
+//	depImports: the dep FILE's import specs (alias -> path), so `pq.T` in dep
+//	            context can be re-imported by the caller under a fresh alias
+//	addImport:  callback registering an extra skeleton import (path, alias);
+//	            alias "" = plain import
+//
+// Returns an error for any unexported ident that would need qualification
+// (unspeakable outside the dep) and for exprs it cannot parse.
+//
+// Deviation from the brief's suggested implementation: the brief describes
+// parsing src via the `type _t = <src>` file trick (matching
+// parseTypeParamNames's synth style). That trick only accepts src shapes
+// legal as a top-level Type production, which EXCLUDES bare union
+// (`string | int`) and tilde (`~string`) expressions — both appear directly
+// in this function's own test table as constraint elements, and both fail
+// to parse under `type _t = string | int` ("expected ';', found '|'"),
+// confirmed empirically before writing this implementation. go/parser's
+// expression grammar accepts both directly (as *ast.BinaryExpr(token.OR) and
+// *ast.UnaryExpr(token.TILDE) respectively) alongside every other shape the
+// table needs, so requalifyTypeExpr parses src with go/parser.ParseExpr
+// directly instead. requalifyTypeParams still uses the file-trick style
+// (parseTypeParamFieldList, i.e. `func _[<decl>]() {}`) exactly as the brief
+// specifies, because a type-param FIELD LIST legitimately allows union/tilde
+// constraint syntax in that grammar position.
+func requalifyTypeExpr(src, depAlias string, depImports []importSpec, addImport func(path, alias string)) (string, error) {
+	src = strings.TrimSpace(src)
+	expr, err := parser.ParseExpr(src)
+	if err != nil {
+		return "", fmt.Errorf("codegen: parse type expr %q: %w", src, err)
+	}
+	mint := newAliasMinter(depImports, addImport)
+	rewritten, err := rewriteTypeNode(expr, depAlias, nil, mint)
+	if err != nil {
+		return "", err
+	}
+	return printTypeExpr(rewritten)
+}
+
+// requalifyTypeParams rewrites a whole bracketed type-param declaration list
+// (the raw source between a generic component's signature brackets, e.g.
+// "K comparable, V Renderer") for use in the calling file's skeleton, the
+// same way requalifyTypeExpr rewrites one expression. Unlike a single
+// constraint expression, a decl list is a Go FIELD LIST (possibly several
+// comma-separated `names Constraint` groups), so every declared type-param
+// name is collected FIRST — across the whole list — before any field's
+// constraint expression is walked; a constraint may reference a sibling
+// type-param name declared later in the same list (`K any, V interface{
+// ~[]K }`), and that name must stay bare in every field, not just its own.
+//
+// Parses decl via parseTypeParamFieldList (the `func _[<decl>]() {}` synth
+// trick already established by analyze.go's parseTypeParamNames), rewrites
+// each field's constraint with the same walker requalifyTypeExpr uses, and
+// prints each field back as "name1, name2 Constraint", joined by ", " to
+// match the original decl's comma-separated shape.
+func requalifyTypeParams(decl, depAlias string, depImports []importSpec, addImport func(path, alias string)) (string, error) {
+	decl = strings.TrimSpace(decl)
+	if decl == "" {
+		return "", nil
+	}
+	tpl, _, err := parseTypeParamFieldList(decl)
+	if err != nil {
+		return "", err
+	}
+	if tpl == nil {
+		return "", nil
+	}
+
+	declared := map[string]bool{}
+	for _, field := range tpl.List {
+		for _, nm := range field.Names {
+			declared[nm.Name] = true
+		}
+	}
+
+	mint := newAliasMinter(depImports, addImport)
+	parts := make([]string, 0, len(tpl.List))
+	for _, field := range tpl.List {
+		rewritten, err := rewriteTypeNode(field.Type, depAlias, declared, mint)
+		if err != nil {
+			return "", err
+		}
+		typeStr, err := printTypeExpr(rewritten)
+		if err != nil {
+			return "", err
+		}
+		names := make([]string, len(field.Names))
+		for i, nm := range field.Names {
+			names[i] = nm.Name
+		}
+		parts = append(parts, strings.Join(names, ", ")+" "+typeStr)
+	}
+	return strings.Join(parts, ", "), nil
+}
+
+// rewriteTypeNode walks a type expression parsed from the dep file's
+// context, rewriting every dep-local reference for the calling file per the
+// rules documented on requalifyTypeExpr, and recursing structurally through
+// every other Go type-expression shape (pointers, slices, arrays, maps,
+// channels, funcs, structs, interfaces, unions, tildes, parens, ellipses,
+// and generic instantiations). Nodes are mutated and returned in place
+// except for a bare Ident or SelectorExpr that needs qualification, which is
+// replaced with a freshly built SelectorExpr — the parsed AST belongs solely
+// to this call (freshly parsed from src/decl, never shared), so in-place
+// mutation is safe.
+func rewriteTypeNode(e goast.Expr, depAlias string, declared map[string]bool, mint *aliasMinter) (goast.Expr, error) {
+	if e == nil {
+		return nil, nil
+	}
+	switch t := e.(type) {
+	case *goast.Ident:
+		if declared[t.Name] {
+			return t, nil
+		}
+		if types.Universe.Lookup(t.Name) != nil {
+			return t, nil
+		}
+		if !goast.IsExported(t.Name) {
+			return nil, fmt.Errorf("codegen: unexported type %s", t.Name)
+		}
+		return &goast.SelectorExpr{X: goast.NewIdent(depAlias), Sel: goast.NewIdent(t.Name)}, nil
+
+	case *goast.SelectorExpr:
+		qual, ok := t.X.(*goast.Ident)
+		if !ok {
+			s, _ := printTypeExpr(t)
+			return nil, fmt.Errorf("codegen: unsupported qualified type expression %s", s)
+		}
+		if !goast.IsExported(t.Sel.Name) {
+			return nil, fmt.Errorf("codegen: unexported type %s", t.Sel.Name)
+		}
+		alias, err := mint.resolve(qual.Name)
+		if err != nil {
+			return nil, err
+		}
+		return &goast.SelectorExpr{X: goast.NewIdent(alias), Sel: goast.NewIdent(t.Sel.Name)}, nil
+
+	case *goast.StarExpr:
+		x, err := rewriteTypeNode(t.X, depAlias, declared, mint)
+		if err != nil {
+			return nil, err
+		}
+		t.X = x
+		return t, nil
+
+	case *goast.ParenExpr:
+		x, err := rewriteTypeNode(t.X, depAlias, declared, mint)
+		if err != nil {
+			return nil, err
+		}
+		t.X = x
+		return t, nil
+
+	case *goast.ArrayType:
+		elt, err := rewriteTypeNode(t.Elt, depAlias, declared, mint)
+		if err != nil {
+			return nil, err
+		}
+		t.Elt = elt
+		return t, nil
+
+	case *goast.Ellipsis:
+		elt, err := rewriteTypeNode(t.Elt, depAlias, declared, mint)
+		if err != nil {
+			return nil, err
+		}
+		t.Elt = elt
+		return t, nil
+
+	case *goast.MapType:
+		k, err := rewriteTypeNode(t.Key, depAlias, declared, mint)
+		if err != nil {
+			return nil, err
+		}
+		v, err := rewriteTypeNode(t.Value, depAlias, declared, mint)
+		if err != nil {
+			return nil, err
+		}
+		t.Key, t.Value = k, v
+		return t, nil
+
+	case *goast.ChanType:
+		v, err := rewriteTypeNode(t.Value, depAlias, declared, mint)
+		if err != nil {
+			return nil, err
+		}
+		t.Value = v
+		return t, nil
+
+	case *goast.UnaryExpr:
+		if t.Op != token.TILDE {
+			return nil, fmt.Errorf("codegen: unsupported type expression operator %s", t.Op)
+		}
+		x, err := rewriteTypeNode(t.X, depAlias, declared, mint)
+		if err != nil {
+			return nil, err
+		}
+		t.X = x
+		return t, nil
+
+	case *goast.BinaryExpr:
+		if t.Op != token.OR {
+			return nil, fmt.Errorf("codegen: unsupported type expression operator %s", t.Op)
+		}
+		x, err := rewriteTypeNode(t.X, depAlias, declared, mint)
+		if err != nil {
+			return nil, err
+		}
+		y, err := rewriteTypeNode(t.Y, depAlias, declared, mint)
+		if err != nil {
+			return nil, err
+		}
+		t.X, t.Y = x, y
+		return t, nil
+
+	case *goast.StructType:
+		if t.Fields != nil {
+			for _, f := range t.Fields.List {
+				ft, err := rewriteTypeNode(f.Type, depAlias, declared, mint)
+				if err != nil {
+					return nil, err
+				}
+				f.Type = ft
+			}
+		}
+		return t, nil
+
+	case *goast.InterfaceType:
+		if t.Methods != nil {
+			for _, f := range t.Methods.List {
+				ft, err := rewriteTypeNode(f.Type, depAlias, declared, mint)
+				if err != nil {
+					return nil, err
+				}
+				f.Type = ft
+			}
+		}
+		return t, nil
+
+	case *goast.FuncType:
+		if t.TypeParams != nil {
+			for _, f := range t.TypeParams.List {
+				ft, err := rewriteTypeNode(f.Type, depAlias, declared, mint)
+				if err != nil {
+					return nil, err
+				}
+				f.Type = ft
+			}
+		}
+		if t.Params != nil {
+			for _, f := range t.Params.List {
+				ft, err := rewriteTypeNode(f.Type, depAlias, declared, mint)
+				if err != nil {
+					return nil, err
+				}
+				f.Type = ft
+			}
+		}
+		if t.Results != nil {
+			for _, f := range t.Results.List {
+				ft, err := rewriteTypeNode(f.Type, depAlias, declared, mint)
+				if err != nil {
+					return nil, err
+				}
+				f.Type = ft
+			}
+		}
+		return t, nil
+
+	case *goast.IndexExpr:
+		x, err := rewriteTypeNode(t.X, depAlias, declared, mint)
+		if err != nil {
+			return nil, err
+		}
+		idx, err := rewriteTypeNode(t.Index, depAlias, declared, mint)
+		if err != nil {
+			return nil, err
+		}
+		t.X, t.Index = x, idx
+		return t, nil
+
+	case *goast.IndexListExpr:
+		x, err := rewriteTypeNode(t.X, depAlias, declared, mint)
+		if err != nil {
+			return nil, err
+		}
+		for i, idx := range t.Indices {
+			ni, err := rewriteTypeNode(idx, depAlias, declared, mint)
+			if err != nil {
+				return nil, err
+			}
+			t.Indices[i] = ni
+		}
+		t.X = x
+		return t, nil
+
+	default:
+		s, _ := printTypeExpr(e)
+		return nil, fmt.Errorf("codegen: unsupported type expression %s (%T)", s, e)
+	}
+}
+
+// printTypeExpr renders a (possibly rewritten) type expression back to Go
+// source text via go/printer, matching the AST->text convention already used
+// by analyze.go/emit.go for the skeleton generator. Rewritten nodes may mix
+// original positions (unchanged subtrees) with token.NoPos (freshly built
+// SelectorExpr/Ident replacements); go/printer formats both consistently
+// (verified empirically: a fresh, position-free node prints identically to
+// one carrying its original parse position for every shape this engine
+// produces), so no FileSet threading from the original parse is needed here.
+func printTypeExpr(e goast.Expr) (string, error) {
+	var buf bytes.Buffer
+	if err := printer.Fprint(&buf, token.NewFileSet(), e); err != nil {
+		return "", fmt.Errorf("codegen: print type expr: %w", err)
+	}
+	return buf.String(), nil
+}
+
+// aliasMinter allocates fresh "_gsxtiN" import aliases for a single
+// requalifyTypeExpr/requalifyTypeParams call, deduplicated by resolved
+// import PATH so repeated qualifiers for the same dep import within one call
+// share an alias — see the ALIAS COUNTER SCOPE note above for why aliases
+// are never coordinated ACROSS calls.
+type aliasMinter struct {
+	depImports []importSpec
+	addImport  func(path, alias string)
+	n          int
+	byPath     map[string]string
+}
+
+func newAliasMinter(depImports []importSpec, addImport func(path, alias string)) *aliasMinter {
+	return &aliasMinter{depImports: depImports, addImport: addImport, byPath: map[string]string{}}
+}
+
+// resolve returns the fresh alias to use in place of qualifier (a package
+// identifier as it appears in the dep file's source, e.g. "fmt" or an
+// explicit alias), minting and registering (via addImport) a new "_gsxtiN"
+// alias the first time a given import PATH is seen by this minter, and
+// reusing it for any later qualifier that resolves to the same path.
+func (m *aliasMinter) resolve(qualifier string) (string, error) {
+	path, ok := lookupDepImportPath(m.depImports, qualifier)
+	if !ok {
+		return "", fmt.Errorf("codegen: cannot resolve import for type qualifier %s", qualifier)
+	}
+	if alias, ok := m.byPath[path]; ok {
+		return alias, nil
+	}
+	m.n++
+	alias := fmt.Sprintf("_gsxti%d", m.n)
+	m.byPath[path] = alias
+	m.addImport(path, alias)
+	return alias, nil
+}
+
+// lookupDepImportPath resolves qualifier (a package identifier as spelled in
+// the dep file's source) to its import path within depImports. An explicit
+// alias/name match is tried first; failing that, a plain import (name == "")
+// matches if qualifier equals the import path's last "/"-separated segment
+// — the conventional default package identifier for an unaliased import,
+// and the only signal available here short of loading the dep import's own
+// package clause (out of scope for this pure, standalone engine).
+func lookupDepImportPath(depImports []importSpec, qualifier string) (string, bool) {
+	for _, spec := range depImports {
+		if spec.name != "" && spec.name == qualifier {
+			return spec.path, true
+		}
+	}
+	for _, spec := range depImports {
+		if spec.name == "" && pathBase(spec.path) == qualifier {
+			return spec.path, true
+		}
+	}
+	return "", false
+}
+
+// pathBase returns the last "/"-separated segment of an import path (its
+// conventional default package identifier), e.g. "fmt" -> "fmt",
+// "example.com/mod/components" -> "components".
+func pathBase(path string) string {
+	if i := strings.LastIndexByte(path, '/'); i >= 0 {
+		return path[i+1:]
+	}
+	return path
 }

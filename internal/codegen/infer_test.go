@@ -5,6 +5,7 @@ import (
 	goparser "go/parser"
 	"go/token"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -221,5 +222,220 @@ component Page() {
 	}
 	if !found {
 		t.Fatalf("no 'cannot infer' type error surfaced; typeErrs=%v\nskeleton:\n%s", typeErrs, skel)
+	}
+}
+
+// importCall records one addImport(path, alias) invocation, in call order.
+type importCall struct{ path, alias string }
+
+// TestRequalifyTypeExpr is the brief's table test for requalifyTypeExpr: a
+// single type expression written in a dep package's file context, rewritten
+// for the calling file's skeleton. Covers every case in the task-3 brief plus
+// a few edge cases (pointer/func recursion, explicit import alias, alias
+// reuse across repeated qualifiers within one call, unresolvable qualifier,
+// bare predeclared name) exercised beyond the brief's own table.
+func TestRequalifyTypeExpr(t *testing.T) {
+	fmtImport := []importSpec{{name: "", path: "fmt"}}
+	pqImport := []importSpec{{name: "pq", path: "example.com/mod/other"}}
+
+	tests := []struct {
+		name        string
+		src         string
+		depAlias    string
+		depImports  []importSpec
+		want        string
+		wantErr     string // substring; "" means no error expected
+		wantImports []importCall
+	}{
+		{
+			name:     "union of predeclared names is unchanged",
+			src:      "string | int",
+			depAlias: "components",
+			want:     "string | int",
+		},
+		{
+			name:     "tilde of predeclared name is unchanged",
+			src:      "~string",
+			depAlias: "components",
+			want:     "~string",
+		},
+		{
+			name:     "union with a dep-local exported type qualifies only that arm",
+			src:      "MyInt | string",
+			depAlias: "components",
+			want:     "components.MyInt | string",
+		},
+		{
+			name:        "qualified dep-file reference is re-imported under a fresh alias",
+			src:         "fmt.Stringer",
+			depAlias:    "components",
+			depImports:  fmtImport,
+			want:        "_gsxti1.Stringer",
+			wantImports: []importCall{{"fmt", "_gsxti1"}},
+		},
+		{
+			name:     "unexported bare ident is rejected",
+			src:      "secret | int",
+			depAlias: "components",
+			wantErr:  "unexported type secret",
+		},
+		{
+			name:     "slice element type is qualified",
+			src:      "[]Row",
+			depAlias: "components",
+			want:     "[]components.Row",
+		},
+		{
+			name:     "map value type is qualified, predeclared key untouched",
+			src:      "map[string]Cfg",
+			depAlias: "components",
+			want:     "map[string]components.Cfg",
+		},
+		{
+			name:     "bare predeclared name is unchanged",
+			src:      "any",
+			depAlias: "components",
+			want:     "any",
+		},
+		{
+			name:     "pointer recurses into its base type",
+			src:      "*Row",
+			depAlias: "components",
+			want:     "*components.Row",
+		},
+		{
+			name:     "func type recurses into params and results",
+			src:      "func(Row) Cfg",
+			depAlias: "components",
+			want:     "func(components.Row) components.Cfg",
+		},
+		{
+			name:        "explicit dep-file import alias resolves to its path",
+			src:         "pq.T",
+			depAlias:    "components",
+			depImports:  pqImport,
+			want:        "_gsxti1.T",
+			wantImports: []importCall{{"example.com/mod/other", "_gsxti1"}},
+		},
+		{
+			name:        "repeated qualifier for the same path reuses one alias",
+			src:         "fmt.Stringer | fmt.GoStringer",
+			depAlias:    "components",
+			depImports:  fmtImport,
+			want:        "_gsxti1.Stringer | _gsxti1.GoStringer",
+			wantImports: []importCall{{"fmt", "_gsxti1"}},
+		},
+		{
+			name:     "unresolvable qualifier is an error",
+			src:      "pq.T",
+			depAlias: "components",
+			wantErr:  "cannot resolve import",
+		},
+		{
+			name:       "unexported selector member is rejected",
+			src:        "fmt.stringer",
+			depAlias:   "components",
+			depImports: fmtImport,
+			wantErr:    "unexported type stringer",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var calls []importCall
+			addImport := func(path, alias string) { calls = append(calls, importCall{path, alias}) }
+			got, err := requalifyTypeExpr(tt.src, tt.depAlias, tt.depImports, addImport)
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatalf("requalifyTypeExpr(%q) = %q, nil; want error containing %q", tt.src, got, tt.wantErr)
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("requalifyTypeExpr(%q) error = %q, want substring %q", tt.src, err.Error(), tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("requalifyTypeExpr(%q) unexpected error: %v", tt.src, err)
+			}
+			if got != tt.want {
+				t.Errorf("requalifyTypeExpr(%q) = %q, want %q", tt.src, got, tt.want)
+			}
+			if tt.wantImports == nil {
+				if len(calls) != 0 {
+					t.Errorf("requalifyTypeExpr(%q) addImport calls = %+v, want none", tt.src, calls)
+				}
+			} else if !reflect.DeepEqual(calls, tt.wantImports) {
+				t.Errorf("requalifyTypeExpr(%q) addImport calls = %+v, want %+v", tt.src, calls, tt.wantImports)
+			}
+		})
+	}
+}
+
+// TestRequalifyTypeParams is the brief's table test for requalifyTypeParams:
+// a whole bracketed type-param declaration list, rewritten field by field
+// with every declared name collected up front so a later field's constraint
+// can reference an earlier (or later) sibling type-param name without it
+// being mistaken for a dep-local reference.
+func TestRequalifyTypeParams(t *testing.T) {
+	tests := []struct {
+		name       string
+		decl       string
+		depAlias   string
+		depImports []importSpec
+		want       string
+		wantErr    string
+	}{
+		{
+			name:     "two params, one dep-local constraint",
+			decl:     "K comparable, V Renderer",
+			depAlias: "components",
+			want:     "K comparable, V components.Renderer",
+		},
+		{
+			name:     "constraint referencing a sibling type param stays bare",
+			decl:     "K any, V interface{ ~[]K }",
+			depAlias: "components",
+			want:     "K any, V interface{ ~[]K }",
+		},
+		{
+			name:     "single param with a dep-local union arm",
+			decl:     "T MyInt | string",
+			depAlias: "components",
+			want:     "T components.MyInt | string",
+		},
+		{
+			name:     "unexported constraint arm is rejected",
+			decl:     "T secret | int",
+			depAlias: "components",
+			wantErr:  "unexported type secret",
+		},
+		{
+			name:     "empty decl is a no-op",
+			decl:     "",
+			depAlias: "components",
+			want:     "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			addImport := func(path, alias string) {}
+			got, err := requalifyTypeParams(tt.decl, tt.depAlias, tt.depImports, addImport)
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatalf("requalifyTypeParams(%q) = %q, nil; want error containing %q", tt.decl, got, tt.wantErr)
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("requalifyTypeParams(%q) error = %q, want substring %q", tt.decl, err.Error(), tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("requalifyTypeParams(%q) unexpected error: %v", tt.decl, err)
+			}
+			if got != tt.want {
+				t.Errorf("requalifyTypeParams(%q) = %q, want %q", tt.decl, got, tt.want)
+			}
+		})
 	}
 }
