@@ -55,6 +55,73 @@ func writeURL(w io.Writer, s string) error {
 	return writeHTML(w, urlSanitize(s))
 }
 
+func isASCIIWhitespaceByte(c byte) bool {
+	switch c {
+	case '\t', '\n', '\f', '\r', ' ':
+		return true
+	default:
+		return false
+	}
+}
+
+func skipASCIIWhitespace(s string, i int) int {
+	for i < len(s) && isASCIIWhitespaceByte(s[i]) {
+		i++
+	}
+	return i
+}
+
+// refreshContentSanitize parses a meta refresh content value with the WHATWG
+// "shared declarative refresh steps" grammar and applies urlSanitize to the
+// embedded redirect URL. Values that don't parse as a refresh directive with a
+// URL are returned unchanged.
+func refreshContentSanitize(s string) string {
+	i := skipASCIIWhitespace(s, 0)
+	startTime := i
+	for i < len(s) && (('0' <= s[i] && s[i] <= '9') || s[i] == '.') {
+		i++
+	}
+	if i == startTime || i >= len(s) {
+		return s
+	}
+	if s[i] != ';' && s[i] != ',' && !isASCIIWhitespaceByte(s[i]) {
+		return s
+	}
+	i = skipASCIIWhitespace(s, i)
+	if i < len(s) && (s[i] == ';' || s[i] == ',') {
+		i++
+	}
+	i = skipASCIIWhitespace(s, i)
+	if i >= len(s) {
+		return s
+	}
+
+	if i+3 <= len(s) && strings.EqualFold(s[i:i+3], "url") {
+		j := skipASCIIWhitespace(s, i+3)
+		if j < len(s) && s[j] == '=' {
+			i = skipASCIIWhitespace(s, j+1)
+		}
+	}
+
+	if i >= len(s) {
+		return s
+	}
+	urlStart, urlEnd := i, len(s)
+	if s[i] == '\'' || s[i] == '"' {
+		quote := s[i]
+		urlStart++
+		urlEnd = urlStart
+		for urlEnd < len(s) && s[urlEnd] != quote {
+			urlEnd++
+		}
+	}
+	url := s[urlStart:urlEnd]
+	if sanitized := urlSanitize(url); sanitized != url {
+		return s[:urlStart] + sanitized + s[urlEnd:]
+	}
+	return s
+}
+
 // cssFailsafe replaces a CSS value that could break out of its context. It
 // mirrors html/template's "ZgotmplZ" sentinel — a deliberately inert identifier
 // that renders harmlessly.

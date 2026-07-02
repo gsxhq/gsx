@@ -1,0 +1,15 @@
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component VouchedRefresh(u gsx.RawURL) {
+	<meta http-equiv="refresh" content={u}/>
+}
+
+-- invoke --
+VouchedRefresh(VouchedRefreshProps{U: "0;url=app://home"})
+
+-- render.golden --
+<meta http-equiv="refresh" content="0;url=app://home"/>
+-- diagnostics.golden --

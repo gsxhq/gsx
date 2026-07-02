@@ -286,12 +286,19 @@ vocabulary remains a design aspiration, not the current API.
    (adversarial-reviewed + fuzzed, 44.7M inputs, no breakout-byte leak);
    `<script>` and `` js`...` `` holes JSON-encode (Slices C1–C3). CSS
    minification on by default.
-4. [~] **Harden `urlSanitize` + complete URL-attr table** — control-char /
+4. [x] **Harden `urlSanitize` + complete URL-attr table** — control-char /
    whitespace scheme evasion maps to the sentinel (adversarial-probed); the
    `urlAttrs` table covers `href`/`src`/`action`/`formaction`/`poster`/`cite`/`ping`/
-   `data`/`background`/`manifest`/`xlink:href`/`hx-*`. **Remaining:** `meta
-   http-equiv=refresh` content (CVE-2026-27142) and `base href` carriers; a
-   dedicated fuzz target seeded from the OWASP filter-evasion sheet.
+   `data`/`background`/`manifest`/`xlink:href`/`hx-*`; a statically-declared
+   `<meta http-equiv="refresh" content={...}>` (static, constant-literal, or
+   conditional-branch `http-equiv`) sanitizes its embedded redirect URL
+   (WHATWG-grammar parser, differential-fuzzed via
+   `FuzzRefreshContentSanitize` against an independent spec port, OWASP
+   filter-evasion seeds); `<base href={...}>` is explicitly covered by the
+   normal `href` URL path. **Residual (accepted):** a runtime-dynamic
+   `http-equiv={expr}` keeps plain attribute escaping (pinned in corpus
+   `security/meta_refresh_dynamic_http_equiv`), and `{...attrs}` bags follow
+   the documented Spread contract (attribute-escaped, never URL-sanitized).
 5. [ ] **Split navigational vs resource URLs** in the type/filter vocabulary
    (`URL` vs `TrustedResourceURL`, à la safehtml; html/template conflates them —
    go#27926).
@@ -355,7 +362,8 @@ vocabulary remains a design aspiration, not the current API.
   codes (codes are string-based today, e.g. `invalid-syntax`); `vet`/`render`/`explain`;
   finer-grained incremental invalidation beyond the current warm watcher.
 - [ ] **Codegen niceties** — [x] coalesce adjacent `gw.S` static writes;
-  [ ] `//line` trailing-state reset; [ ] `data:image` URL allowance.
+  [ ] `//line` trailing-state reset; [ ] `data:image` resource-URL allowance
+  after navigational/resource URL contexts are split.
 - [ ] **Tooling performance measurement on a realistic large corpus** — the
   existing baseline (`gen/perf_test.go`, `GSX_PERF=1`; note
   `2026-06-24-go-to-gsx-perf.md`) uses a *synthetic* 50-package fixture: ~383 ms/package

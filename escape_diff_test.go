@@ -129,6 +129,10 @@ func diffCorpus() []string {
 		// URL schemes (safety decision)
 		"javascript:alert(1)", "JavaScript:alert(1)", "vbscript:x", "data:text/html,x",
 		"http://ok", "  javascript:x", "/rel?a=b",
+		"java\tscript:alert(1)", "java\nscript:alert(1)", "java\rscript:alert(1)",
+		"\tjavascript:alert(1)", "\njavascript:alert(1)", " javascript:alert(1)",
+		"0;url=javascript:alert(1)", "0; url= java\tscript:alert(1)",
+		"0;url='javascript:alert(1)'", "0, URL=\"JavaScript:alert(1)\"",
 		// CSS (reuse FuzzCSSValueFilter seeds)
 		"rgb(1,2,3)", "<!--", "-->", "</style", "expression(alert(1))", "EXPRESSION",
 		"-moz-binding", `\3c script`, `-expre\69on`, "url(javascript:alert(1))",
