@@ -85,7 +85,7 @@ may not declare the same component name — analysis type-checks a package's
 | `component (p T) Name[U constraint](params) { … }` | generic method component; requires a go1.27+ toolchain — older toolchains report `error[unsupported-toolchain]` for the component and generation continues |
 | `<div>`, `<el-dialog>` | HTML element (lowercase / hyphenated) |
 | `<Card>`, `<ui.Button>` | component (Capitalized / dotted) |
-| `<Card[T]>`, `<ui.Button[T]>`, `<p.Row[T]>` | explicit type arguments for a generic component call |
+| `<Card[T]>`, `<ui.Button[T]>`, `<p.Row[T]>` | explicit type arguments for a generic component call; omitted type arguments are inferred from supplied props when Go can infer them |
 | `{ expr }` | interpolation in body (auto HTML-escaped) |
 | any expression returning `(T, error)` | auto-unwraps to `T`; error propagates from the enclosing `Render` — no marker needed, applies in all expression positions (text, attrs, child-prop values, `{{ }}` pair values, pipelines) |
 | `name="lit"` | static string attribute |

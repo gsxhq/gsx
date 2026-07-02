@@ -14,9 +14,10 @@ The `Page` component itself has params `t string` and `n int`, so `Page(PageProp
 
 ## Generic components
 
-Components can declare Go type parameters after the component name. The generated
-props type and component function carry the same type parameters, and component
-tags pass explicit type arguments with Go-style brackets.
+Components can declare Go type parameters after the component name. The
+generated props type and component function carry the same type parameters.
+Component tags can pass explicit type arguments with Go-style brackets, or omit
+them when Go can infer the type arguments from the supplied props.
 
 ```gsx
 component Box[T string | int](value T) {
@@ -26,13 +27,38 @@ component Box[T string | int](value T) {
 component Page() {
 	<Box[int] value={7} />
 	<Box[string] value={"ok"} />
+	<Box value={"inferred"} />
 }
 ```
 
 This lowers to generic Go declarations shaped like
 `type BoxProps[T string | int] struct { ... }` and
 `func Box[T string | int](p BoxProps[T]) gsx.Node`. A generic tag call lowers to
-`Box[int](BoxProps[int]{...})`; gsx does not infer omitted tag type arguments.
+an explicit Go instantiation:
+
+```go
+Box[int](BoxProps[int]{Value: 7})
+Box[string](BoxProps[string]{Value: "ok"})
+```
+
+For omitted tag type arguments, gsx asks Go's type checker to infer them during
+generation and then emits the same explicit shape in the final `.x.go`:
+
+```go
+Box[string](BoxProps[string]{Value: "inferred"})
+```
+
+Inference only uses information available at the component call site. If Go
+cannot infer a type parameter from the supplied props, generation fails with a
+diagnostic asking for an explicit instantiation:
+
+```text
+type inference failed for <Box>; please instantiate with <Box[type] ...>
+```
+
+Use explicit type arguments when a type parameter does not appear in a supplied
+prop, when the value is ambiguous, or when you want the call site to state the
+instantiation directly.
 
 ### Renderable type parameters
 

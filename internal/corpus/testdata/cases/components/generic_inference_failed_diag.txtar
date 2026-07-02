@@ -1,0 +1,12 @@
+-- input.gsx --
+package views
+
+component Marker[T any]() {
+	<p>marker</p>
+}
+
+component Page() {
+	<Marker />
+}
+-- diagnostics.golden --
+8:2: type inference failed for <Marker>; please instantiate with <Marker[type] ...>

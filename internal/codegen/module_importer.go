@@ -559,7 +559,13 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		if strings.HasSuffix(p.Filename, ".x.go") {
 			continue // synthetic skeleton position: no //line directive, so no valid .gsx location to report
 		}
-		bag.Add(diag.Diagnostic{Start: p, End: p, Severity: diag.Error, Message: stripGsxunwrap(e.Msg), Source: "types"})
+		msg := stripGsxunwrap(e.Msg)
+		if strings.Contains(msg, "cannot infer") {
+			if tag, ok := componentTagAtTypeError(gsxFiles, fset, e.Fset.Position(e.Pos)); ok {
+				msg = fmt.Sprintf("type inference failed for <%s>; please instantiate with <%s[%s] ...>", tag, tag, explicitTypeArgHint(gsxFiles, tag))
+			}
+		}
+		bag.Add(diag.Diagnostic{Start: p, End: p, Severity: diag.Error, Message: msg, Source: "types"})
 	}
 	if mi.cycleErr != nil {
 		// A cycle was detected during this package's type-check; propagate
@@ -687,6 +693,73 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		importSpecs: allImportSpecs,
 		typeErrs:    typeErrs,
 	}, nil
+}
+
+func componentTagAtTypeError(files map[string]*gsxast.File, fset *token.FileSet, target token.Position) (string, bool) {
+	for _, f := range files {
+		for _, d := range f.Decls {
+			c, ok := d.(*gsxast.Component)
+			if !ok {
+				continue
+			}
+			var found string
+			forEachComponentTagElement(c.Body, func(el *gsxast.Element) {
+				if found != "" {
+					return
+				}
+				elStart := fset.Position(el.Pos())
+				elEnd := fset.Position(el.End())
+				if sameFileLineRange(target, elStart, elEnd) {
+					found = el.Tag
+				}
+			})
+			if found != "" {
+				return found, true
+			}
+		}
+	}
+	return "", false
+}
+
+func sameFileLineRange(target, start, end token.Position) bool {
+	if start.Filename != target.Filename || end.Filename != target.Filename {
+		return false
+	}
+	if target.Line < start.Line || target.Line > end.Line {
+		return false
+	}
+	if target.Line == start.Line && target.Column < start.Column {
+		return false
+	}
+	if target.Line == end.Line && target.Column > end.Column {
+		return false
+	}
+	return true
+}
+
+func explicitTypeArgHint(files map[string]*gsxast.File, tag string) string {
+	name := tag
+	if i := strings.LastIndexByte(tag, '.'); i >= 0 {
+		name = tag[i+1:]
+	}
+	for _, f := range files {
+		for _, d := range f.Decls {
+			c, ok := d.(*gsxast.Component)
+			if !ok || c.Name != name || c.TypeParams == "" {
+				continue
+			}
+			names, err := parseTypeParamNames(c.TypeParams)
+			if err != nil || len(names) == 0 {
+				break
+			}
+			parts := make([]string, len(names))
+			for i := range parts {
+				parts[i] = "type"
+			}
+			return strings.Join(parts, ", ")
+		}
+	}
+	return "type"
 }
 
 // parsePackageWithFset parses every .gsx in dir into the provided fset so the

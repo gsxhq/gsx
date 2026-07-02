@@ -2157,7 +2157,8 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 				"no-argument component %s accepts no attributes or children", el.Tag)
 			return false
 		}
-		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s%s())\n", el.Tag, typeArgUse(el.TypeArgs))
+		callTypeArgs := childTypeArgUse(el, resolved)
+		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s%s())\n", el.Tag, callTypeArgs)
 		return true
 	}
 	callTarget, propsType, isMethod := childInvocation(el, byo, recvVar, recvTypeName)
@@ -2173,7 +2174,8 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 	_, isByoChild := byo.isByoStruct(propsType)
 	isNullaryCall := ((isMethod && !isByoChild) || isNoPropsComponent(structFields, propsType)) && len(el.Attrs) == 0 && len(el.Children) == 0
 	if isNullaryCall {
-		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s%s())\n", callTarget, typeArgUse(el.TypeArgs))
+		callTypeArgs := childTypeArgUse(el, resolved)
+		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s%s())\n", callTarget, callTypeArgs)
 		return true
 	}
 
@@ -2210,7 +2212,8 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 	}
 	if splatExpr != "" {
 		// Whole-struct splat: `<Card { d... }/>` → `Card(d)` (no Props{…} literal).
-		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s%s(%s))\n", callTarget, typeArgUse(el.TypeArgs), splatExpr)
+		callTypeArgs := childTypeArgUse(el, resolved)
+		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s%s(%s))\n", callTarget, callTypeArgs, splatExpr)
 		return true
 	}
 
@@ -2338,8 +2341,30 @@ outer:
 	for i, fe := range fieldEntries {
 		strs[i] = fe.str
 	}
-	fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s%s(%s%s{%s}))\n", callTarget, typeArgUse(el.TypeArgs), propsType, typeArgUse(el.TypeArgs), strings.Join(strs, ", "))
+	callTypeArgs := childTypeArgUse(el, resolved)
+	fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s%s(%s%s{%s}))\n", callTarget, callTypeArgs, propsType, callTypeArgs, strings.Join(strs, ", "))
 	return true
+}
+
+func childTypeArgUse(el *ast.Element, resolved map[ast.Node]types.Type) string {
+	if el.TypeArgs != "" {
+		return typeArgUse(el.TypeArgs)
+	}
+	named, ok := resolved[el].(*types.Named)
+	if !ok || named.TypeArgs() == nil || named.TypeArgs().Len() == 0 {
+		return ""
+	}
+	args := make([]string, 0, named.TypeArgs().Len())
+	qf := func(pkg *types.Package) string {
+		if pkg == nil {
+			return ""
+		}
+		return pkg.Name()
+	}
+	for typ := range named.TypeArgs().Types() {
+		args = append(args, types.TypeString(typ, qf))
+	}
+	return "[" + strings.Join(args, ", ") + "]"
 }
 
 // attrError is an error from childPropsLiteral that carries the offending attr
@@ -2412,8 +2437,10 @@ type propFieldEntry struct {
 	fieldName   string        // Go field name; used to rebuild the string after hoisting
 	isNodeField bool          // whether the field expects gsx.Node (needs gsx.Val wrapping)
 	// For OrderedAttrsAttr fields:
-	oa      *ast.OrderedAttrsAttr // non-nil iff this entry came from an ordered-attrs attr
-	oaPairs []oaPairEntry         // per-pair info when oa != nil
+	oa         *ast.OrderedAttrsAttr // non-nil iff this entry came from an ordered-attrs attr
+	oaPairs    []oaPairEntry         // per-pair info when oa != nil
+	inferField string
+	inferArg   string
 }
 
 // oaPairEntry holds the key and raw value expression for one pair inside an
@@ -2571,7 +2598,8 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				if nodeFields[fn] {
 					fields = append(fields, propFieldEntry{str: fmt.Sprintf("%s: %s.Text(%s)", fn, rtPkg, strconv.Quote(t.Value))})
 				} else {
-					fields = append(fields, propFieldEntry{str: fmt.Sprintf("%s: %s", fn, strconv.Quote(t.Value))})
+					q := strconv.Quote(t.Value)
+					fields = append(fields, propFieldEntry{str: fmt.Sprintf("%s: %s", fn, q), inferField: fn, inferArg: q})
 				}
 			} else {
 				bag = append(bag, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), strconv.Quote(t.Value)))
@@ -2620,6 +2648,8 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 					rawVal:      rawVal,
 					fieldName:   fn,
 					isNodeField: isNF,
+					inferField:  fn,
+					inferArg:    fieldVal,
 				})
 			} else {
 				val := strings.TrimSpace(t.Expr)
@@ -2642,7 +2672,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				if nodeFields[fn] {
 					fields = append(fields, propFieldEntry{str: fmt.Sprintf("%s: %s.Val(true)", fn, rtPkg)})
 				} else {
-					fields = append(fields, propFieldEntry{str: fmt.Sprintf("%s: true", fn)})
+					fields = append(fields, propFieldEntry{str: fmt.Sprintf("%s: true", fn), inferField: fn, inferArg: "true"})
 				}
 			} else {
 				bag = append(bag, fmt.Sprintf("{Key: %s, Value: true}", strconv.Quote(t.Name)))
