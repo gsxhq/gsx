@@ -100,8 +100,13 @@ render goldens.
    receiver var) → method call; other dotted tags stay package calls. Also fixed
    `ctx`-in-interpolation. Generic function components and generic method-component
    syntax lower to Go-shaped generic declarations; method-owned type parameters
-   require a Go toolchain with generic method support. **Deferred:** `<v.Method/>`
-   for a non-receiver local; generic receivers `(p T[X])`.
+   require a Go toolchain with generic method support. Tag type-argument
+   inference is caller-side (per-site `_gsxinfer` probes checked by go/types):
+   partial props, sibling files, imports, and method components all infer like
+   an ordinary Go call; failures degrade to positioned diagnostics, never
+   non-compiling output. **Deferred:** `<v.Method/>` for a non-receiver local;
+   generic receivers `(p T[X])`; friendly hint for imported nullary-generic
+   inference failures (raw-but-honest passthrough today).
 7. [x] **Attribute fallthrough** — undeclared invocation attrs split (declared
    props matched against an AST-derived prop-name map vs everything else → an
    `Attrs gsx.Attrs` bag). **Explicit forwarding only** (`2026-06-30`; auto
