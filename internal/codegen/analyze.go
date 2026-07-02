@@ -407,9 +407,13 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, 
 		ctrlOff[k] = v + compBufStart
 	}
 	// Same adjustment for every recorded probe's span (compBuf-relative to
-	// file-relative) — the call statement was written directly into compBuf by
-	// emitInferProbe, at whatever inline position the tag's probe occupied.
-	for _, s := range registry.sites {
+	// file-relative) — the call/probe statement was written directly into
+	// compBuf by emitInferProbe or recordProbeSpan's callers, at whatever
+	// inline position the tag's probe occupied. Ranges over registry.spans
+	// (not registry.sites): spans is the superset — every sites value PLUS the
+	// unnamed probe shapes recordProbeSpan records — so every recorded span is
+	// adjusted exactly once regardless of which path recorded it.
+	for _, s := range registry.spans {
 		s.span.start += compBufStart
 		s.span.end += compBufStart
 	}
@@ -417,8 +421,17 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, 
 	// by emitInferProbe) are appended AFTER the component skeletons, alongside
 	// the user's raw-Go bodies below — Go permits forward references between
 	// top-level decls, so their position relative to the components and bodies
-	// is immaterial to type-checking.
+	// is immaterial to type-checking. Adjust each site's declSpan the same way
+	// (funcs-buffer-relative to file-relative) so siteAt can match a raw offset
+	// landing inside a hoisted decl body — see inferSite.declSpan's doc.
+	funcsStart := sb.Len()
 	sb.WriteString(registry.funcs.String())
+	for _, s := range registry.spans {
+		if s.declSpan.end > s.declSpan.start {
+			s.declSpan.start += funcsStart
+			s.declSpan.end += funcsStart
+		}
+	}
 	for _, b := range bodies {
 		emitSkeletonLine(&sb, fset, b.pos)
 		sb.WriteString(b.src)
@@ -428,19 +441,25 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, 
 }
 
 // genericSigsFor computes the props-type-name -> *genericSig map for every
-// eligible generic component declared across files: same-package generics
-// (module_importer.go's analyze passes every .gsx file of ONE package) and,
-// with the identical filter, a DEPENDENCY package's own components
-// (module_importer.go's importedPropFacts passes one dep package's files).
-// One function serves both cases — see genericSig's doc on why a
-// same-package entry's imports field goes unused.
+// generic component declared across files: same-package generics (module_
+// importer.go's analyze passes every .gsx file of ONE package) and, with the
+// identical filter, a DEPENDENCY package's own components (module_importer.
+// go's importedPropFacts passes one dep package's files). One function
+// serves both cases — see genericSig's doc on why a same-package entry's
+// imports field goes unused.
 //
-// Eligibility (same filter the old genericCompsFor/genericPropsFor used):
-// TypeParams non-empty, not BYO (an author-owns-Props component's sole param
-// is a concrete struct — no type-arg-omitted caller-side probe applies), a
-// parseable param list, and non-nullary (an inference probe needs at least
-// one param to infer from; a childless/attrless zero-param generic component
-// falls through to the plain composite-literal probe like any other).
+// Filter: TypeParams non-empty, not BYO (an author-owns-Props component's
+// sole param is a concrete struct — no type-arg-omitted caller-side probe
+// applies), and a parseable param list. Unlike an earlier version of this
+// function, a NULLARY generic component (zero declared params, and its own
+// body never reads children/attrs — e.g. `component Marker[T any]()`) is NOT
+// excluded: such a component can never reach emitInferProbe's call-form probe
+// (nothing to infer FROM), so its entry is inert at that call site, but Task
+// 8's diagnostic rewrite still needs its arity — a nullary generic tag's own
+// caller-side probe (emitProbes' bare-call-candidate or no-props/method
+// branch, never emitInferProbe) can perfectly legitimately fail to infer, and
+// recordProbeSpan (infer.go) looks up this SAME map to learn the arity for
+// that diagnostic.
 func genericSigsFor(files map[string]*gsxast.File, byo *byoData) map[string]*genericSig {
 	out := map[string]*genericSig{}
 	for _, file := range files {
@@ -455,9 +474,6 @@ func genericSigsFor(files map[string]*gsxast.File, byo *byoData) map[string]*gen
 			}
 			params, err := parseParams(c.Params)
 			if err != nil {
-				continue
-			}
-			if len(params) == 0 && !usesChildren(c.Body) && !usesAttrs(c.Body) {
 				continue
 			}
 			typeParamNames, err := parseTypeParamNames(c.TypeParams)
@@ -852,11 +868,37 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					// props struct and the `F(FProps{})` probe would not compile.
 					// _gsxcompsig(F) type-checks at any arity; harvest reads the signature
 					// back into `resolved[el]` so genChildComponent picks the call shape.
+					//
+					// A bare-call candidate can itself be a GENERIC component with
+					// nothing to supply (e.g. `component Marker[T any]()`, never
+					// eligible for emitInferProbe's call-form probe since it has no
+					// params to infer from — genericSigsFor still records its arity,
+					// see its doc). Passing an uninstantiated generic function VALUE
+					// (Marker, with no explicit type args) as this bare `any` argument
+					// is itself an implicit-instantiation attempt, so it can fail with
+					// its own "cannot infer" here — record the span (Task 8) so that
+					// diagnostic is keyed to THIS tag, not blamed on an unrelated one.
 					emitSkeletonLine(sb, fset, t.Pos())
+					start := sb.Len()
 					fmt.Fprintf(sb, "_gsxcompsig(%s%s)\n", callTarget, typeArgUse(t.TypeArgs))
+					if t.TypeArgs == "" {
+						if sig := genericSigs[propsType]; sig != nil {
+							registry.recordProbeSpan(t, propsType, sig.arity, start, sb.Len())
+						}
+					}
 				} else if ((isMethod && !isByoChild) || isNoPropsComponent(propFields, propsType)) && len(t.Attrs) == 0 && len(t.Children) == 0 {
+					// Same Task 8 concern as the bare-call-candidate branch above: a
+					// generic no-props method/function reaching this nullary `_ = F()`
+					// probe (rather than emitInferProbe) can still fail its own
+					// implicit instantiation attempt.
 					emitSkeletonLine(sb, fset, t.Pos())
+					start := sb.Len()
 					fmt.Fprintf(sb, "_ = %s%s()\n", callTarget, typeArgUse(t.TypeArgs))
+					if t.TypeArgs == "" {
+						if sig := genericSigs[propsType]; sig != nil {
+							registry.recordProbeSpan(t, propsType, sig.arity, start, sb.Len())
+						}
+					}
 				} else {
 					// Build the SAME props literal as the emitter via childPropsLiteral,
 					// but with a typed-nil slotValue: each named-slot and Children field
@@ -966,7 +1008,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 							if !failed {
 								emitted = registry.emitInferProbe(sb, t, propsType,
 									typeParamDecl(typeParamsSrc), typeParamUse(targetTPNames),
-									targetParams, supplied)
+									targetParams, supplied, sig.arity)
 							}
 						}
 						switch {
@@ -1001,11 +1043,19 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 								fmt.Fprintf(sb, "_ = struct{ %s }{%s}\n", strings.Join(typeParts, "; "), strings.Join(litParts, ", "))
 							}
 						default:
+							// No supplied prop matched any declared field (emitInferProbe
+							// itself declined for lack of anything to infer FROM), so the
+							// tag falls through to a plain, uninstantiated composite-
+							// literal probe — go/types' own "cannot infer" against THIS
+							// call is exactly as real as emitInferProbe's call-form one;
+							// record its span (Task 8) so it resolves back to this tag too.
 							strs := make([]string, len(fieldEntries))
 							for i, fe := range fieldEntries {
 								strs[i] = fe.str
 							}
+							start := sb.Len()
 							fmt.Fprintf(sb, "_ = %s(%s{%s})\n", callTarget, propsType, strings.Join(strs, ", "))
+							registry.recordProbeSpan(t, propsType, sig.arity, start, sb.Len())
 						}
 					} else {
 						strs := make([]string, len(fieldEntries))

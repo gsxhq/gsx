@@ -77,6 +77,20 @@ type inferRegistry struct {
 	n     int
 	sites map[string]*inferSite // helper name "_gsxinfer3" -> site
 
+	// spans holds EVERY recorded inferSite (every value also reachable via
+	// sites, PLUS the probe shapes that have no correlating helper NAME to key
+	// a sites entry by — recordProbeSpan's callers: the bare-call-candidate
+	// `_gsxcompsig(F)` probe, the no-props/method nullary `_ = F()` probe, and
+	// emitInferProbe's own no-supplied-args composite-literal fallback). Task
+	// 8's siteAt does a linear scan over this ONE slice to resolve a type
+	// error's raw skeleton offset to the probe it landed inside — module_
+	// importer.go's diagnostic rewrite consumes this instead of guessing from
+	// a tag's overall .gsx line/column range (the finding-6/7 hijack bug).
+	// buildSkeleton's compBuf-relative-to-file-relative span adjustment also
+	// ranges over this slice (not sites) so every recorded span, named or not,
+	// is adjusted exactly once.
+	spans []*inferSite
+
 	// funcs accumulates the hoisted, package-level helper func decls (one per
 	// emitInferProbe call). A helper's own type parameters make it valid at
 	// package scope regardless of where its tag appears (even inside a `for`/
@@ -148,6 +162,22 @@ type inferSite struct {
 	el        *gsxast.Element // the tag this probe infers for
 	propsType string          // e.g. "ButtonProps" or "components.ButtonProps"
 	span      inferSpan       // skeleton byte span of the emitted probe stmt (Task 8 uses it)
+	arity     int             // the target component's type-param count, from genericSig.arity — Task 8's diagnostic hint (arityTypeHint) reads this directly instead of re-parsing the component's TypeParams from a tag name guess.
+
+	// declSpan is the emitted helper func decl's own byte span in the final
+	// skeleton (zero value {0,0} — never a real span, since emitInferProbe
+	// always writes a non-empty decl — for every site recordProbeSpan creates,
+	// which never allocates a helper decl). emitComponentSkeleton's hoisted
+	// helper decls (registry.funcs, appended after every component body) are
+	// NOT followed by a //line reset, so they carry whatever //line was last
+	// in effect from the LAST tag processed — a stale .gsx position that
+	// still survives module_importer's ".x.go"-suffix drop filter (it names a
+	// real, just WRONG, .gsx location). An error genuinely positioned inside
+	// the decl body itself (not the inline call site) would, before this
+	// field existed, either misreport at that unrelated stale tag or (worse)
+	// leak the raw go/types message verbatim. siteAt checks this span
+	// alongside span so such an error still resolves to the RIGHT tag.
+	declSpan inferSpan
 }
 
 // inferSpan is a byte range into the skeleton string returned by buildSkeleton.
@@ -211,9 +241,11 @@ func (r *inferRegistry) nextName() string {
 	return fmt.Sprintf("_gsxinfer%d", r.n)
 }
 
-// record associates a probe helper name with its site.
+// record associates a probe helper name with its site, also recording it into
+// spans (see the field doc) for Task 8's siteAt.
 func (r *inferRegistry) record(name string, s *inferSite) {
 	r.sites[name] = s
+	r.spans = append(r.spans, s)
 }
 
 // lookup finds the site recorded under name. Exact-name match ONLY — this is
@@ -222,6 +254,46 @@ func (r *inferRegistry) record(name string, s *inferSite) {
 func (r *inferRegistry) lookup(name string) (*inferSite, bool) {
 	s, ok := r.sites[name]
 	return s, ok
+}
+
+// recordProbeSpan records a probe site with NO correlating helper name —
+// Task 8's diagnostic rewrite needs the span (and arity) of every OTHER
+// caller-side probe shape emitProbes emits for a generic tag: the
+// bare-call-candidate `_gsxcompsig(F)` probe and the no-props/method nullary
+// `_ = F()` probe (both in emitProbes, for a tag whose target is generic but
+// never reaches emitInferProbe's own call-form path), and emitInferProbe's
+// own no-supplied-args composite-literal fallback (analyze.go's `default:`
+// branch, when every declared param went unsupplied at this tag). None of
+// these shapes ever successfully resolves an instantiation to harvest (each
+// is missing the argument(s) go/types would need to infer from), so unlike
+// emitInferProbe's record there is no name for harvest to look up — this
+// entry exists purely for siteAt's position-based lookup.
+func (r *inferRegistry) recordProbeSpan(el *gsxast.Element, propsType string, arity, start, end int) {
+	r.spans = append(r.spans, &inferSite{el: el, propsType: propsType, arity: arity, span: inferSpan{start, end}})
+}
+
+// siteAt returns the recorded probe site (named call-form or one of
+// recordProbeSpan's unnamed shapes) whose span — the inline call/composite-
+// literal probe (span) OR, for emitInferProbe's call-form sites, the hoisted
+// helper func decl (declSpan; see its field doc for why a decl-body error is
+// possible and would otherwise misreport or leak) — contains rawOffset. This
+// is the RAW (adjusted=false) byte offset of a type-checker error's
+// position, recovered via fset.PositionFor(pos, false) per the POSITION
+// MAPPING doc above. module_importer.go's cannot-infer/constraint-violation
+// diagnostic rewrite uses this as the ONLY signal deciding whether (and how)
+// to rewrite an error: a miss means the error belongs to something other
+// than one of this file's own inference probes and must pass through
+// untouched.
+func (r *inferRegistry) siteAt(rawOffset int) (*inferSite, bool) {
+	for _, s := range r.spans {
+		if rawOffset >= s.span.start && rawOffset < s.span.end {
+			return s, true
+		}
+		if s.declSpan.end > s.declSpan.start && rawOffset >= s.declSpan.start && rawOffset < s.declSpan.end {
+			return s, true
+		}
+	}
+	return nil, false
 }
 
 // isInferProbeNameRE matches EXACTLY the shape nextName produces: the literal
@@ -300,9 +372,15 @@ func suppliedInDeclOrder(params []param, supplied map[string]string) []param {
 // composite-literal probe and surfaces the type-checker's own "without
 // instantiation" error, which a later task rewrites into a positioned
 // diagnostic).
+//
+// arity is the target component's type-param count (genericSig.arity),
+// recorded on the site verbatim for Task 8's diagnostic hint
+// (arityTypeHint) — never re-derived from typeParamsDecl/typeParamsUse here,
+// since for an IMPORTED component those are already requalified text (e.g.
+// "K components.Foo") that arity-by-counting-commas would have to re-parse.
 func (r *inferRegistry) emitInferProbe(sb *strings.Builder, el *gsxast.Element,
 	propsType, typeParamsDecl, typeParamsUse string,
-	params []param, supplied map[string]string) bool {
+	params []param, supplied map[string]string, arity int) bool {
 
 	ordered := suppliedInDeclOrder(params, supplied)
 	if len(ordered) == 0 {
@@ -310,6 +388,7 @@ func (r *inferRegistry) emitInferProbe(sb *strings.Builder, el *gsxast.Element,
 	}
 	name := r.nextName()
 
+	declStart := r.funcs.Len()
 	fmt.Fprintf(&r.funcs, "func %s%s(", name, typeParamsDecl)
 	for i, p := range ordered {
 		if i > 0 {
@@ -318,6 +397,7 @@ func (r *inferRegistry) emitInferProbe(sb *strings.Builder, el *gsxast.Element,
 		fmt.Fprintf(&r.funcs, "_gsxv%d %s", i, p.typeSrc)
 	}
 	fmt.Fprintf(&r.funcs, ") %s%s { return %s%s{} }\n", propsType, typeParamsUse, propsType, typeParamsUse)
+	declEnd := r.funcs.Len()
 
 	start := sb.Len()
 	fmt.Fprintf(sb, "_ = %s(", name)
@@ -328,7 +408,7 @@ func (r *inferRegistry) emitInferProbe(sb *strings.Builder, el *gsxast.Element,
 		sb.WriteString(supplied[fieldName(p.name)])
 	}
 	sb.WriteString(")\n")
-	r.record(name, &inferSite{el: el, propsType: propsType, span: inferSpan{start, sb.Len()}})
+	r.record(name, &inferSite{el: el, propsType: propsType, span: inferSpan{start, sb.Len()}, arity: arity, declSpan: inferSpan{declStart, declEnd}})
 	return true
 }
 

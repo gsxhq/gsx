@@ -9,10 +9,16 @@ component Holder[T any](value any) {
 	<p>{ value |> format("%v") }</p>
 }
 
+component Pair[K any, V any]() {
+	<p>pair</p>
+}
+
 component Page() {
 	<Marker />
 	<Holder value="x" />
+	<Pair />
 }
 -- diagnostics.golden --
-12:2: type inference failed for <Marker>; please instantiate with <Marker[type] ...>
-13:6: type inference failed for <Holder>; please instantiate with <Holder[type] ...>
+16:2: type inference failed for <Marker>; please instantiate with <Marker[type] ...>
+17:6: type inference failed for <Holder>; please instantiate with <Holder[type] ...>
+18:2: type inference failed for <Pair>; please instantiate with <Pair[type, type] ...>

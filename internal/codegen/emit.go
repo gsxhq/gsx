@@ -3092,9 +3092,17 @@ func childTypeArgUse(el *ast.Element, currentPkg *types.Package, resolved map[as
 	visited := make(map[types.Type]bool)
 	for typ := range named.TypeArgs().Types() {
 		if offPkg, offName, found := unspeakableTypeArg(typ, currentPkg, visited); found {
+			// "instantiate <tag> explicitly" is dropped here (Task 8's adjudicated
+			// wording, per Task 6's report): unlike an ordinary inference
+			// failure, this diagnostic fires when inference SUCCEEDED but the
+			// winning type argument is unspeakable from the call site — no
+			// spelling of <tag>[SomeExportedType] at THIS site can name
+			// offPkg's unexported type, so that advice is a dead end. The only
+			// real fixes live in the OTHER package: export the type, or change
+			// the constructor's return type to something exported.
 			bag.Errorf(el.Pos(), el.End(), "unrenderable-type-arg",
-				"cannot instantiate %s: inferred type argument %s.%s is unexported outside package %q; pass an exported type, or instantiate %s explicitly (e.g. %s[SomeExportedType])",
-				el.Tag, offPkg.Name(), offName, offPkg.Path(), el.Tag, el.Tag)
+				"cannot instantiate %s: inferred type argument %s.%s is unexported outside package %q; pass an exported type, or export the type or change the constructor's return type",
+				el.Tag, offPkg.Name(), offName, offPkg.Path())
 			return "", false
 		}
 	}

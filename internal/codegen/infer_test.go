@@ -226,6 +226,168 @@ component Page() {
 	if !found {
 		t.Fatalf("no 'cannot infer' type error surfaced; typeErrs=%v\nskeleton:\n%s", typeErrs, skel)
 	}
+
+	// declSpan / siteAt spot-check (accumulated Task-8 input #1): the hoisted
+	// helper decl carries no //line reset, so an error positioned inside its
+	// OWN body (not the inline call above) would still need to resolve back
+	// to this site. Assert the recorded declSpan actually covers the emitted
+	// "func _gsxinfer1[...]" decl text in the final skeleton, and that siteAt
+	// resolves an offset inside it (which falls OUTSIDE span, the call's own
+	// range) to the SAME site.
+	if declText := skel[site.declSpan.start:site.declSpan.end]; !strings.HasPrefix(declText, "func _gsxinfer1[") {
+		t.Fatalf("declSpan [%d,%d) does not cover the hoisted helper decl; got %q", site.declSpan.start, site.declSpan.end, declText)
+	}
+	if site.declSpan.start >= site.span.start && site.declSpan.start < site.span.end {
+		t.Fatalf("declSpan and span unexpectedly overlap; declSpan=%+v span=%+v", site.declSpan, site.span)
+	}
+	if got, ok := registry.siteAt(site.declSpan.start); !ok || got != site {
+		t.Fatalf("siteAt(declSpan.start) = %+v, %v; want the same site %+v", got, ok, site)
+	}
+}
+
+// TestUserCannotInferErrorNotRewritten is the finding-6/7 headline hijack
+// case: Card is a plain, NON-generic component, but the user's OWN Go code —
+// a real generic func called from inside Card's children — fails to infer
+// its own type parameter. The OLD position-guessing rewrite
+// (componentTagAtTypeError) matched ANY "cannot infer" error whose position
+// fell anywhere within a component tag's overall .gsx line/column span,
+// including its children content, so First(nil)'s failure (nested inside
+// `<Card>...</Card>`) got hijacked and blamed on Card — a diagnostic naming
+// the wrong symbol with a fabricated (and wrong-arity) instantiation hint.
+// The registry-driven rewrite must never fire here: Card has no inference
+// probe recorded at all (it isn't generic), so First's own error must pass
+// through untouched, still naming First and T.
+func TestUserCannotInferErrorNotRewritten(t *testing.T) {
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module ucine\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	writeFile(t, tmp, "views.gsx", `package views
+
+func First[T any](v []T) T { return v[0] }
+
+component Card(title string) {
+	<div>
+		<h1>{title}</h1>
+		{children}
+	</div>
+}
+
+component Page() {
+	<Card title="x">{First(nil)}</Card>
+}
+`)
+	out, err := GenerateDirs(tmp, []string{tmp}, Options{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, d := range out[tmp].Diags {
+		if !strings.Contains(d.Message, "cannot infer") {
+			continue
+		}
+		found = true
+		if !strings.Contains(d.Message, "First") || !strings.Contains(d.Message, "T") {
+			t.Errorf("diagnostic does not name the user's own First[T] call: %+v", d)
+		}
+		if strings.Contains(d.Message, "<Card") {
+			t.Errorf("diagnostic hijacked onto <Card> (finding-6/7 regression): %+v", d)
+		}
+	}
+	if !found {
+		t.Fatalf("no 'cannot infer' diagnostic surfaced; diags=%+v", out[tmp].Diags)
+	}
+}
+
+// TestCrossPackageInferenceHintArity pins Task 8's arity fix for an IMPORTED
+// generic component: components.Grid[K comparable, V any](rows map[K]V),
+// called with a value go/types cannot infer K/V from (rows={nil}), must
+// report a TWO-placeholder hint (`<components.Grid[type, type] ...>`) —
+// the real arity — not the old code's single "[type]" (explicitTypeArgHint
+// only ever counted a SAME-PACKAGE component's own TypeParams text; for a
+// cross-package tag it silently fell back to its "type" default regardless
+// of the real arity).
+func TestCrossPackageInferenceHintArity(t *testing.T) {
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module example.com/cpiha\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	compDir := filepath.Join(tmp, "components")
+	if err := os.MkdirAll(compDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, compDir, "grid.gsx", "package components\n\ncomponent Grid[K comparable, V any](rows map[K]V) {\n\t<table></table>\n}\n")
+	writeFile(t, tmp, "post.gsx", "package cpiha\n\nimport \"example.com/cpiha/components\"\n\ncomponent Post() {\n\t<components.Grid rows={nil} />\n}\n")
+
+	res, err := GenerateDirs(tmp, []string{tmp, compDir}, Options{FilterPkgs: []string{stdImportPath}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diags := res[compDir].Diags; len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics generating components package: %+v", diags)
+	}
+	var found bool
+	for _, d := range res[tmp].Diags {
+		if !strings.Contains(d.Message, "cannot infer") && !strings.Contains(d.Message, "type inference failed") {
+			continue
+		}
+		found = true
+		if !strings.Contains(d.Message, "<components.Grid[type, type] ...>") {
+			t.Errorf("diagnostic does not carry the real 2-arity hint: %+v", d)
+		}
+	}
+	if !found {
+		t.Fatalf("no inference-failure diagnostic surfaced; diags=%+v", res[tmp].Diags)
+	}
+}
+
+// TestConstraintViolationNamesTagNotProbe is the finding-2 probe-name-leak
+// case: Ticker's type param U is successfully INFERRED (as time.Duration,
+// from the supplied value), but then fails ITS OWN constraint (`~string |
+// ~int`; time.Duration's underlying type is int64, not int, so `~int`
+// rejects it) — a different go/types error shape than "cannot infer"
+// ("... does not satisfy ..."), which can carry an "in call to _gsxinferN, "
+// prefix naming the internal caller-side probe helper. Once the error's
+// position matches this tag's recorded probe span, the rewrite must name the
+// TAG and never leak the internal probe name, while preserving the
+// constraint-violation substance (the offending type + constraint).
+func TestConstraintViolationNamesTagNotProbe(t *testing.T) {
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module cvnt\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	writeFile(t, tmp, "views.gsx", `package views
+
+import "time"
+
+component Ticker[U ~string | ~int](value U) {
+	<p>{ value }</p>
+}
+
+component Page() {
+	<Ticker value={time.Second} />
+}
+`)
+	out, err := GenerateDirs(tmp, []string{tmp}, Options{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, d := range out[tmp].Diags {
+		if !strings.Contains(d.Message, "does not satisfy") {
+			continue
+		}
+		found = true
+		if !strings.Contains(d.Message, "Ticker") {
+			t.Errorf("diagnostic does not name the tag: %+v", d)
+		}
+		if strings.Contains(d.Message, "_gsxinfer") {
+			t.Errorf("diagnostic leaks the internal probe name: %+v", d)
+		}
+		if !strings.Contains(d.Message, "time.Duration") {
+			t.Errorf("diagnostic lost the constraint-violation substance: %+v", d)
+		}
+	}
+	if !found {
+		t.Fatalf("no 'does not satisfy' diagnostic surfaced; diags=%+v", out[tmp].Diags)
+	}
 }
 
 // importCall records one addImport(path, alias) invocation, in call order.

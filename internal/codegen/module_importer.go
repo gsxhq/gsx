@@ -11,6 +11,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -955,9 +956,28 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 			continue // synthetic skeleton position: no //line directive, so no valid .gsx location to report
 		}
 		msg := stripGsxunwrap(e.Msg)
-		if strings.Contains(msg, "cannot infer") {
-			if tag, ok := componentTagAtTypeError(gsxFiles, fset, e.Fset.Position(e.Pos)); ok {
-				msg = fmt.Sprintf("type inference failed for <%s>; please instantiate with <%s[%s] ...>", tag, tag, explicitTypeArgHint(gsxFiles, tag))
+		// Rewrite a "cannot infer"/constraint-violation error ONLY when its RAW
+		// (un-//line-adjusted) skeleton position lands inside one of THIS file's
+		// own recorded inference-probe spans (see infer.go's inferRegistry doc
+		// and inferSite.span) — never by guessing from the tag's overall .gsx
+		// line/column range (the finding-6/7 hijack: a user's own failing
+		// generic call whose ADJUSTED position merely falls somewhere inside an
+		// unrelated component tag's body used to get blamed on that tag). A
+		// registry miss leaves msg untouched, so every other type error
+		// (including a user's own "cannot infer" from their own generic call)
+		// passes through verbatim.
+		if site, ok := probeSiteForError(inferByXGo, fset, e.Pos); ok {
+			switch {
+			case strings.Contains(msg, "cannot infer"):
+				msg = fmt.Sprintf("type inference failed for <%s>; please instantiate with <%s[%s] ...>",
+					site.el.Tag, site.el.Tag, arityTypeHint(site.arity))
+			case strings.Contains(msg, "does not satisfy"):
+				// A successfully-inferred type argument violating the target
+				// component's own constraint (e.g. an inferred time.Duration
+				// against a `~string | ~int` type param) — keep the
+				// constraint-violation substance, drop the internal probe
+				// helper's name (probeNameLeakRE) and name the real tag instead.
+				msg = fmt.Sprintf("type inference for <%s> failed: %s", site.el.Tag, probeNameLeakRE.ReplaceAllString(msg, ""))
 			}
 		}
 		bag.Add(diag.Diagnostic{Start: p, End: p, Severity: diag.Error, Message: msg, Source: "types"})
@@ -1110,72 +1130,52 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	}, nil
 }
 
-func componentTagAtTypeError(files map[string]*gsxast.File, fset *token.FileSet, target token.Position) (string, bool) {
-	for _, f := range files {
-		for _, d := range f.Decls {
-			c, ok := d.(*gsxast.Component)
-			if !ok {
-				continue
-			}
-			var found string
-			forEachComponentTagElement(c.Body, func(el *gsxast.Element) {
-				if found != "" {
-					return
-				}
-				elStart := fset.Position(el.Pos())
-				elEnd := fset.Position(el.End())
-				if sameFileLineRange(target, elStart, elEnd) {
-					found = el.Tag
-				}
-			})
-			if found != "" {
-				return found, true
-			}
-		}
+// probeSiteForError resolves a type-checker error's position to the
+// inference-probe site it landed inside, if any — the ONLY signal the
+// cannot-infer/constraint-violation diagnostic rewrite (in analyze, above)
+// trusts. pos is a types.Error's Pos in the shared fset; the lookup uses the
+// UNADJUSTED position (fset.PositionFor(pos, false), ignoring //line
+// directives) to recover the raw skeleton filename + byte offset a probe's
+// span was recorded in — see infer.go's inferRegistry doc (POSITION MAPPING)
+// and TestInferProbeRawSpanRecovery for why the adjusted position (which
+// names the .gsx, not the skeleton) cannot be compared against a span
+// directly. inferByXGo is keyed by the skeleton's own absolute .x.go path,
+// exactly the raw position's Filename.
+func probeSiteForError(inferByXGo map[string]*inferRegistry, fset *token.FileSet, pos token.Pos) (*inferSite, bool) {
+	raw := fset.PositionFor(pos, false)
+	reg := inferByXGo[raw.Filename]
+	if reg == nil {
+		return nil, false
 	}
-	return "", false
+	return reg.siteAt(raw.Offset)
 }
 
-func sameFileLineRange(target, start, end token.Position) bool {
-	if start.Filename != target.Filename || end.Filename != target.Filename {
-		return false
+// arityTypeHint renders the `[type, type]` explicit-type-arg hint matching a
+// generic component's real arity (inferSite.arity, sourced from
+// genericSig.arity — module_importer.go's dep facts for an imported
+// component, parseTypeParamNames for a same-package one; both funnel through
+// the SAME genericSig.arity field, see genericSigsFor). n <= 0 (should not
+// happen for a recorded probe site, but fails safe) renders a single
+// placeholder rather than an empty bracket.
+func arityTypeHint(n int) string {
+	if n <= 0 {
+		n = 1
 	}
-	if target.Line < start.Line || target.Line > end.Line {
-		return false
+	parts := make([]string, n)
+	for i := range parts {
+		parts[i] = "type"
 	}
-	if target.Line == start.Line && target.Column < start.Column {
-		return false
-	}
-	if target.Line == end.Line && target.Column > end.Column {
-		return false
-	}
-	return true
+	return strings.Join(parts, ", ")
 }
 
-func explicitTypeArgHint(files map[string]*gsxast.File, tag string) string {
-	name := tag
-	if i := strings.LastIndexByte(tag, '.'); i >= 0 {
-		name = tag[i+1:]
-	}
-	for _, f := range files {
-		for _, d := range f.Decls {
-			c, ok := d.(*gsxast.Component)
-			if !ok || c.Name != name || c.TypeParams == "" {
-				continue
-			}
-			names, err := parseTypeParamNames(c.TypeParams)
-			if err != nil || len(names) == 0 {
-				break
-			}
-			parts := make([]string, len(names))
-			for i := range parts {
-				parts[i] = "type"
-			}
-			return strings.Join(parts, ", ")
-		}
-	}
-	return "type"
-}
+// probeNameLeakRE matches the "in call to _gsxinferN, " / "in call to
+// _gsxcompsig, " prefix go/types can attach to an error raised while
+// checking one of infer.go's synthesized probe calls (e.g. a constraint
+// violation on a successfully-inferred type argument: "in call to
+// _gsxinfer2, U (type time.Duration) does not satisfy ..."). Stripped ONLY
+// from a message whose position already matched a registered probe span
+// (probeSiteForError) — this is never applied to an arbitrary user error.
+var probeNameLeakRE = regexp.MustCompile(`^in call to (_gsxinfer[0-9]+|_gsxcompsig), `)
 
 // parsePackageWithFset parses every .gsx in dir into the provided fset so the
 // caller can share it with buildSkeleton (required for valid //line directives).
