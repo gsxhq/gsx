@@ -1175,3 +1175,95 @@ component C(b bool) {
 `
 	assertFormat(t, src, want)
 }
+
+// TestInterpMultilineExprReindents pins the fix for multi-line Go expressions
+// inside a `{ }` interpolation: gofmt renders the expression relative to column
+// 0, and the printer must re-indent every continuation line to the surrounding
+// markup depth (previously the lines were emitted verbatim at column 0/1).
+func TestInterpMultilineExprReindents(t *testing.T) {
+	src := `package p
+component C() {
+	<div>
+		<span>
+			{ toc([]Item{
+	{ID: "a", Label: "A"},
+			{ID: "b", Label: "B"},
+}) }
+		</span>
+	</div>
+}`
+	want := `package p
+
+component C() {
+	<div>
+		<span>
+			{ toc([]Item{
+				{ID: "a", Label: "A"},
+				{ID: "b", Label: "B"},
+			}) }
+		</span>
+	</div>
+}
+`
+	checkFormat(t, src, want)
+}
+
+// TestInterpRawStringVerbatim pins raw-string safety in interpolations: the
+// interior lines of a multi-line raw string literal are part of the string's
+// VALUE, so re-indenting them would change program behavior. They must pass
+// through byte-for-byte.
+func TestInterpRawStringVerbatim(t *testing.T) {
+	src := `package p
+component C() {
+	<div>
+		{ f(` + "`line1\nline2\n  line3`" + `) }
+	</div>
+}`
+	want := `package p
+
+component C() {
+	<div>
+		{ f(` + "`line1\nline2\n  line3`" + `) }
+	</div>
+}
+`
+	checkFormat(t, src, want)
+}
+
+// TestAttrExprRawStringVerbatim pins the same raw-string safety on the
+// attribute-value path (fmtExprDoc): multiline() previously re-indented the
+// raw string's interior lines, silently changing the attribute's value.
+func TestAttrExprRawStringVerbatim(t *testing.T) {
+	src := `package p
+component C() {
+	<div data-x={ f(` + "`line1\nline2`" + `) }>x</div>
+}`
+	got := fmtSource(t, src)
+	if !strings.Contains(got, "`line1\nline2`") {
+		t.Fatalf("raw string content was altered by formatting:\n%s", got)
+	}
+	again := fmtSource(t, got)
+	if again != got {
+		t.Fatalf("not idempotent:\n--- pass1 ---\n%s\n--- pass2 ---\n%s", got, again)
+	}
+}
+
+// TestGoBlockRawStringVerbatim pins raw-string safety inside {{ }} Go blocks,
+// which share multiline() with the interpolation and attribute paths.
+func TestGoBlockRawStringVerbatim(t *testing.T) {
+	src := `package p
+component C() {
+	<div>
+		{{ q := ` + "`select 1\nfrom t`" + ` }}
+		{ q }
+	</div>
+}`
+	got := fmtSource(t, src)
+	if !strings.Contains(got, "`select 1\nfrom t`") {
+		t.Fatalf("raw string content was altered by formatting:\n%s", got)
+	}
+	again := fmtSource(t, got)
+	if again != got {
+		t.Fatalf("not idempotent:\n--- pass1 ---\n%s\n--- pass2 ---\n%s", got, again)
+	}
+}

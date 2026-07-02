@@ -16,6 +16,7 @@ import (
 	goast "go/ast"
 	"go/format"
 	goparser "go/parser"
+	goscanner "go/scanner"
 	gotoken "go/token"
 	"io"
 	"strconv"
@@ -265,7 +266,7 @@ func (p *printer) attrDoc(a ast.Attr) pretty.Doc {
 	case *ast.ExprAttr:
 		val := []pretty.Doc{fmtExprDoc(v.Expr)}
 		for _, s := range v.Stages {
-			val = append(val, pretty.Text(" |> "), pretty.Text(pipeStageStr(s)))
+			val = append(val, pretty.Text(" |> "), multiline(pipeStageStr(s)))
 		}
 		return wrapAttrValue(v.Name, pretty.SoftLine, pretty.Concat(val...))
 	case *ast.ClassAttr:
@@ -291,16 +292,16 @@ func (p *printer) classPartDoc(part ast.ClassPart) pretty.Doc {
 	if part.CSSSegments != nil {
 		seg := []pretty.Doc{pretty.Text(embeddedLiteralString(ast.EmbeddedCSS, part.CSSSegments))}
 		if part.Cond != "" {
-			seg = append(seg, pretty.Text(": "), pretty.Text(fmtExpr(part.Cond)))
+			seg = append(seg, pretty.Text(": "), multiline(fmtExpr(part.Cond)))
 		}
 		return pretty.Concat(seg...)
 	}
 	seg := []pretty.Doc{fmtExprDoc(part.Expr)}
 	for _, s := range part.Stages {
-		seg = append(seg, pretty.Text(" |> "), pretty.Text(pipeStageStr(s)))
+		seg = append(seg, pretty.Text(" |> "), multiline(pipeStageStr(s)))
 	}
 	if part.Cond != "" {
-		seg = append(seg, pretty.Text(": "), pretty.Text(fmtExpr(part.Cond)))
+		seg = append(seg, pretty.Text(": "), multiline(fmtExpr(part.Cond)))
 	}
 	return pretty.Concat(seg...)
 }
@@ -314,7 +315,7 @@ func (p *printer) valueCFDoc(cf *ast.ValueCF) pretty.Doc {
 
 func (p *printer) valueIfChain(i *ast.ValueIf) pretty.Doc {
 	parts := []pretty.Doc{
-		pretty.Text("if "), pretty.Text(fmtExpr(i.Cond)),
+		pretty.Text("if "), multiline(fmtExpr(i.Cond)),
 		pretty.Text(" {"), p.valueArmBody(i.Then), pretty.Text("}"),
 	}
 	switch {
@@ -335,7 +336,7 @@ func (p *printer) valueArmBody(a *ast.ValueArm) pretty.Doc {
 func (p *printer) valueArmDoc(a *ast.ValueArm) pretty.Doc {
 	seg := []pretty.Doc{fmtExprDoc(a.Expr)}
 	for _, s := range a.Stages {
-		seg = append(seg, pretty.Text(" |> "), pretty.Text(pipeStageStr(s)))
+		seg = append(seg, pretty.Text(" |> "), multiline(pipeStageStr(s)))
 	}
 	return pretty.Concat(seg...)
 }
@@ -343,7 +344,7 @@ func (p *printer) valueArmDoc(a *ast.ValueArm) pretty.Doc {
 func (p *printer) valueSwitchDoc(s *ast.ValueSwitch) pretty.Doc {
 	head := []pretty.Doc{pretty.Text("switch")}
 	if s.Tag != "" {
-		head = append(head, pretty.Text(" "), pretty.Text(fmtExpr(s.Tag)))
+		head = append(head, pretty.Text(" "), multiline(fmtExpr(s.Tag)))
 	}
 	head = append(head, pretty.Text(" {"))
 	cases := make([]pretty.Doc, 0, len(s.Cases))
@@ -372,7 +373,7 @@ func wrapAttrValue(name string, sep pretty.Doc, value pretty.Doc) pretty.Doc {
 }
 
 func (p *printer) condAttrChainDoc(c *ast.CondAttr) pretty.Doc {
-	parts := []pretty.Doc{pretty.Text("if "), pretty.Text(fmtExpr(c.Cond)), pretty.Text(" {"),
+	parts := []pretty.Doc{pretty.Text("if "), multiline(fmtExpr(c.Cond)), pretty.Text(" {"),
 		p.condAttrListDoc(c.Then), pretty.Text("}")}
 	if len(c.Else) == 0 {
 		return pretty.Concat(parts...)
@@ -445,9 +446,9 @@ func (p *printer) fragment(f *ast.Fragment) pretty.Doc {
 }
 
 func (p *printer) interp(i *ast.Interp) pretty.Doc {
-	parts := []pretty.Doc{pretty.Text("{ "), pretty.Text(fmtExpr(i.Expr))}
+	parts := []pretty.Doc{pretty.Text("{ "), fmtExprDoc(i.Expr)}
 	for _, s := range i.Stages {
-		parts = append(parts, pretty.Text(" |> "), pretty.Text(pipeStageStr(s)))
+		parts = append(parts, pretty.Text(" |> "), multiline(pipeStageStr(s)))
 	}
 	parts = append(parts, pretty.Text(" }"))
 	return pretty.Concat(parts...)
@@ -471,7 +472,7 @@ func (p *printer) ifMarkup(i *ast.IfMarkup) pretty.Doc {
 }
 
 func (p *printer) ifChain(i *ast.IfMarkup) pretty.Doc {
-	parts := []pretty.Doc{pretty.Text("if "), pretty.Text(fmtExpr(i.Cond)), pretty.Text(" {"), p.cfBody(i.Then), pretty.Text("}")}
+	parts := []pretty.Doc{pretty.Text("if "), multiline(fmtExpr(i.Cond)), pretty.Text(" {"), p.cfBody(i.Then), pretty.Text("}")}
 	if len(i.Else) == 0 {
 		return pretty.Concat(parts...)
 	}
@@ -527,7 +528,7 @@ func (p *printer) cfBody(nodes []ast.Markup) pretty.Doc {
 func (p *printer) switchMarkup(s *ast.SwitchMarkup) pretty.Doc {
 	head := []pretty.Doc{pretty.Text("{ switch")}
 	if s.Tag != "" {
-		head = append(head, pretty.Text(" "), pretty.Text(fmtExpr(s.Tag)))
+		head = append(head, pretty.Text(" "), multiline(fmtExpr(s.Tag)))
 	}
 	head = append(head, pretty.Text(" {"))
 
@@ -590,20 +591,70 @@ func (p *printer) caseBody(nodes []ast.Markup) pretty.Doc {
 // multiline turns a possibly multi-line Go fragment into a Doc: lines are
 // joined with HardLine so the engine re-indents continuation lines to the
 // current level (and any multi-line fragment forces its enclosing group to
-// break). A single-line fragment is a plain Text.
+// break). Newlines INSIDE raw string literals are the string's value, not
+// layout — re-indenting them would change program behavior — so those stay
+// verbatim inside a single Text (the engine's column tracking handles embedded
+// newlines), with BreakParent still forcing the enclosing group to break. A
+// single-line fragment is a plain Text.
 func multiline(s string) pretty.Doc {
 	if !strings.Contains(s, "\n") {
 		return pretty.Text(s)
 	}
-	lines := strings.Split(s, "\n")
-	parts := make([]pretty.Doc, 0, len(lines)*2)
-	for i, ln := range lines {
+	segs := splitOutsideRawStrings(s)
+	parts := make([]pretty.Doc, 0, len(segs)*2+1)
+	for i, seg := range segs {
 		if i > 0 {
 			parts = append(parts, pretty.HardLine)
 		}
-		parts = append(parts, pretty.Text(ln))
+		parts = append(parts, pretty.Text(seg))
 	}
+	parts = append(parts, pretty.BreakParent)
 	return pretty.Concat(parts...)
+}
+
+// splitOutsideRawStrings splits s at each newline that does NOT fall inside a
+// raw string literal; raw-string interior newlines remain embedded in their
+// segment. Raw string spans are found by lexing s with go/scanner — exact for
+// any token stream, including the malformed-fragment fallbacks (an
+// unterminated raw string scans to end-of-input, keeping the tail verbatim,
+// the safe choice).
+func splitOutsideRawStrings(s string) []string {
+	fset := gotoken.NewFileSet()
+	file := fset.AddFile("", fset.Base(), len(s))
+	var sc goscanner.Scanner
+	sc.Init(file, []byte(s), nil, 0)
+	type span struct{ start, end int }
+	var raws []span
+	for {
+		pos, tok, lit := sc.Scan()
+		if tok == gotoken.EOF {
+			break
+		}
+		if tok == gotoken.STRING && strings.HasPrefix(lit, "`") {
+			off := file.Offset(pos)
+			raws = append(raws, span{off, off + len(lit)})
+		}
+	}
+	var segs []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] != '\n' {
+			continue
+		}
+		inside := false
+		for _, r := range raws {
+			if i > r.start && i < r.end {
+				inside = true
+				break
+			}
+		}
+		if inside {
+			continue
+		}
+		segs = append(segs, s[start:i])
+		start = i + 1
+	}
+	return append(segs, s[start:])
 }
 
 // --- attributes (inline for now; real wrapping is a later task) -------------
