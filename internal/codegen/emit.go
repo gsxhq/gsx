@@ -381,70 +381,12 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 	return true
 }
 
-// emitRootElement emits a single-root element with CALLER-WINS attribute
-// fallthrough applied: the bag (`_gsxp.Attrs`) merges its class into the root's
-// class (last-wins → caller-wins) and merges its style over the root's style
-// (property last-wins → caller-wins), and every OTHER root attr is emitted under
-// a runtime guard (`if !_gsxp.Attrs.Has(name)`) so a bag entry of the same name
-// SHADOWS it — the guarded attr is skipped and the bag's value spreads instead
-// (caller-wins, D5 flipped). Each guarded attr keeps its own context escaper
-// (gw.URL / gw.JSValAttr / gw.AttrValue …) since its body is exactly the normal
-// emitAttr output. The root's CHILDREN render via normal genNode — the bag does
-// NOT propagate. When the bag is nil/empty, every guard is true (Has is nil-safe),
-// ClassMerged/StyleMerged add nothing, and Spread(empty) writes nothing — so the
-// output is byte-equivalent to the normal Element path.
-//
-// A void root cannot receive fallthrough (it has no place for it to matter beyond
-// attrs, but void roots ARE handled: class/style-merge + guarded attrs + spread
-// then `/>`).
-func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
-	emitLine(b, fset, el.Pos())
-	emitS(b, "<"+el.Tag)
-	// AUTO mode: there is no author `{...attrs}`, so the bag spreads at the END and
-	// every root attr is overridable. splitIdx == len(el.Attrs) means "all attrs
-	// precede the (synthetic) spread" → all guarded.
-	if !emitFallthroughAttrs(b, el.Attrs, len(el.Attrs), resolved, table, imports, interpTemp, cls, bag, mergeExpr, "_gsxp.Attrs") {
-		return false
-	}
-	if el.Void {
-		emitS(b, "/>")
-		return true
-	}
-	emitS(b, ">")
-	if strings.EqualFold(el.Tag, "style") {
-		for _, c := range el.Children {
-			if !genStyleChild(b, c, resolved, table, imports, interpTemp, bag) {
-				return false
-			}
-		}
-	} else if strings.EqualFold(el.Tag, "script") {
-		for _, c := range el.Children {
-			if !genScriptChild(b, c, resolved, table, imports, interpTemp, bag) {
-				return false
-			}
-		}
-	} else {
-		for _, c := range el.Children {
-			if !genNode(b, c, resolved, table, structFields, nodeProps, attrsProps, byo, imports, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
-				return false
-			}
-		}
-	}
-	emitS(b, "</"+el.Tag+">")
-	return true
-}
-
 // emitFallthroughAttrs emits the caller-wins attribute section (between `<tag`
-// and the closing `>` / `/>`) shared by AUTO mode (emitRootElement) and MANUAL
-// mode (emitManualSpreadElement). splitIdx is the index in attrs at which the
-// bag spreads:
-//   - AUTO mode: splitIdx == len(attrs) — the (synthetic) bag spread is at the
-//     end, so EVERY scalar root attr is OVERRIDABLE (guarded `if !Has(name)`,
-//     caller-wins).
-//   - MANUAL mode: splitIdx is the position of the author's `{...attrs}` — scalar
-//     attrs BEFORE it are overridable (guarded); scalar attrs AFTER it are FORCED
-//     (emitted UNGUARDED so the root always wins) and their names are excluded
-//     from the bag spread so a same-named bag entry can never emit (root wins).
+// and the closing `>` / `/>`) for MANUAL mode (emitManualSpreadElement). splitIdx
+// is the position of the author's `{...attrs}` — scalar attrs BEFORE it are
+// overridable (guarded `if !Has(name)`, caller-wins); scalar attrs AFTER it are
+// FORCED (emitted UNGUARDED so the root always wins) and their names are excluded
+// from the bag spread so a same-named bag entry can never emit (root wins).
 //
 // class/style are positional-exempt: wherever they appear they MERGE caller-last
 // (ClassMerged / StyleMerged), emitted once at the spread position. The author's
@@ -1955,54 +1897,6 @@ func emitAttrValue(b *bytes.Buffer, expr string, t types.Type, imports map[strin
 // isComponentTag delegates to ast.IsComponentTag — see that function for the
 // rule. Kept as a local alias for the many existing call sites.
 func isComponentTag(tag string) bool { return ast.IsComponentTag(tag) }
-
-// singleRoot reports the component body's single root element when the body has
-// EXACTLY one meaningful top-level node and that node is a NON-component
-// `*ast.Element`. Pure-whitespace `*ast.Text` (Value is all spaces/newlines) and
-// HTML comments are insignificant and skipped; any other node kind alongside (or
-// as) the candidate — a Doctype, a fragment, multiple elements, a control-flow
-// node, an interp, or a component-tag element — yields (nil, false). It drives
-// child auto-fallthrough eligibility: only a single HTML-element root can receive
-// the synthesized Attrs bag (class-merge + spread at that element).
-func singleRoot(body []ast.Markup) (*ast.Element, bool) {
-	var root *ast.Element
-	for _, n := range body {
-		switch t := n.(type) {
-		case *ast.Text:
-			if strings.TrimSpace(t.Value) == "" {
-				continue // insignificant whitespace
-			}
-			return nil, false // non-whitespace text alongside → not single-root
-		case *ast.HTMLComment:
-			continue // comments are insignificant
-		case *ast.Element:
-			if root != nil || isComponentTag(t.Tag) {
-				return nil, false // a second element, or a component-tag root
-			}
-			root = t
-		default:
-			return nil, false // fragment / control-flow / interp / doctype → not single-root
-		}
-	}
-	if root == nil {
-		return nil, false
-	}
-	// The root is fallthrough-eligible only when ALL its own attributes have
-	// STATICALLY-KNOWN names: caller-wins emit guards each root attr with
-	// `if !_gsxp.Attrs.Has(name)` and merges the bag's class/style — both need the
-	// static name. A *CondAttr (`{ if … { id=… } }`) or *SpreadAttr (`<div {...x}>`) sets attrs
-	// whose names/values are only known at runtime, so neither the drop set nor the
-	// class merge can account for them — a colliding fallthrough would emit a
-	// duplicate attribute (and bypass class-merge). Such a root is NOT auto-eligible;
-	// a fallthrough onto it then fails closed (no Attrs field → Go unknown-field).
-	for _, a := range root.Attrs {
-		switch a.(type) {
-		case *ast.CondAttr, *ast.SpreadAttr:
-			return nil, false
-		}
-	}
-	return root, true
-}
 
 // usesChildren reports whether any interpolation in the markup body is a bare
 // `{children}` reference. It mirrors the markup walks (recursing control flow,
