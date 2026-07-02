@@ -281,6 +281,62 @@ func (m *Module) recordImports(dir string, paths []string) {
 	m.imports[dir] = newDeps
 }
 
+// mergeImportedComponentPropFields publishes direct imported gsx package
+// component prop facts into the importing package under qualified names
+// ("ui.CardProps"). This lets call-site attr splitting treat imported .gsx
+// components like same-package components before the skeleton is type-checked.
+func (m *Module) mergeImportedComponentPropFields(dir string, files map[string]*gsxast.File, propFields, nodeProps, attrsProps map[string]map[string]bool, fset *token.FileSet) {
+	specs := collectImportSpecs(files)
+	for _, spec := range specs {
+		if spec.name == "." || spec.name == "_" {
+			continue
+		}
+		depDir, ok := dirForImportPath(m.opts.ModuleRoot, m.opts.ModulePath, spec.path)
+		if !ok || depDir == dir || !m.isGsxPackage(depDir) {
+			continue
+		}
+		depFiles, depPkgName, err := m.parsePackageWithFset(depDir, fset)
+		if err != nil {
+			continue
+		}
+		alias := spec.name
+		if alias == "" {
+			alias = depPkgName
+		}
+		depFields, depNodeProps, depAttrsProps, _, err := componentPropFieldsFor(depDir, depFiles)
+		if err != nil {
+			continue
+		}
+		mergeQualifiedPropMap(propFields, alias, depFields)
+		mergeQualifiedPropMap(nodeProps, alias, depNodeProps)
+		mergeQualifiedPropMap(attrsProps, alias, depAttrsProps)
+	}
+}
+
+func collectImportSpecs(files map[string]*gsxast.File) []importSpec {
+	var specs []importSpec
+	for _, file := range files {
+		for _, d := range file.Decls {
+			gc, ok := d.(*gsxast.GoChunk)
+			if !ok {
+				continue
+			}
+			imps, _, _, err := splitChunk(gc.Src)
+			if err != nil {
+				continue
+			}
+			specs = append(specs, imps...)
+		}
+	}
+	return specs
+}
+
+func mergeQualifiedPropMap(dst map[string]map[string]bool, alias string, src map[string]map[string]bool) {
+	for name, fields := range src {
+		dst[alias+"."+name] = maps.Clone(fields)
+	}
+}
+
 // importGraphSnapshot returns deep copies of the forward and reverse import
 // graphs for tests. Reverse edges are flattened (dep -> sorted importer dirs).
 func (m *Module) importGraphSnapshot() (fwd map[string][]string, rev map[string][]string) {
@@ -419,6 +475,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	if err != nil {
 		return nil, err
 	}
+	m.mergeImportedComponentPropFields(dir, gsxFiles, propFields, nodeProps, attrsProps, fset)
 	var goFiles []*goast.File
 	compsByXGo := map[string][]*gsxast.Component{}
 	ctrlOffByXGo := map[string]map[gsxast.Node]int{}

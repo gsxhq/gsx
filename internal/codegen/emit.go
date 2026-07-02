@@ -2991,7 +2991,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 			recordPkgs(used)
 			mergeChain = append(mergeChain, fmt.Sprintf(".Merge(%s)", condExpr))
 		case *ast.OrderedAttrsAttr:
-			fn, ok := matchField(declared, t.Name, fm)
+			fn, ok := matchOrderedAttrsField(declared, t.Name, fm)
 			if !ok {
 				msg := fmt.Sprintf("ordered-attrs literal {{ }} on <%s> attribute %q matches no field of %s and cannot fall through to the Attrs bag; declare a gsx.Attrs field to receive it", el.Tag, t.Name, propsType)
 				return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "ordered-attrs-no-field", msg: msg}
