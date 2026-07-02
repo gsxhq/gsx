@@ -718,7 +718,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 		sb.WriteString("\tchildren := _gsxp.Children\n\t_ = children\n")
 	}
 	// MIRROR emit.go: in MANUAL mode bind the synthesized bag to `attrs` so the
-	// probe type-checks the author's `{...attrs}` (probed as `_gsxgw.Spread(ctx,
+	// probe type-checks the author's `{ attrs... }` (probed as `_gsxgw.Spread(ctx,
 	// attrs)`) and any `attrs.X()` reference identically to emitted code.
 	if manual {
 		sb.WriteString("\tattrs := _gsxp.Attrs\n")
@@ -1045,7 +1045,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				}
 				// ClassAttr/SpreadAttr conditional part exprs and cond guards are
 				// emitted verbatim by codegen (no type harvest), so a var used ONLY in
-				// `class={ "on": v }` or `{...attrs}` must still be referenced here or
+				// `class={ "on": v }` or `{ attrs... }` must still be referenced here or
 				// it's "declared and not used". Emit a liveness `_ = (expr)` — NOT
 				// _gsxuse, so the harvest alignment is intact. CF parts and unconditional
 				// plain parts are excluded (they have _gsxuse probes above). Spreads are
