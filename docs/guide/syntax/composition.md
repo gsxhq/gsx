@@ -139,6 +139,41 @@ Here `Button` explicitly forwards `class`, `data-test`, and `hx-post` to its
 the bag on the inner control, split it across elements, or omit it to expose only
 declared props.
 
+### Precedence
+
+The spread's position decides who wins, JSX-style:
+
+- attributes written **before** `{ attrs... }` are defaults — a caller
+  attribute with the same name overrides them;
+- attributes written **after** `{ attrs... }` are forced — the component
+  always wins and the caller's value never renders;
+- a conditional attribute (`{ if cond { … } }`) follows the same rule for
+  whichever branch is taken.
+
+**`class` and `style` are exempt from position**: wherever they appear, they
+always *merge* — the component's tokens first, the caller's appended (then
+deduplicated by the configured class merger). A `class` written after the
+spread is still merged, not forced.
+
+### Derived bags
+
+The forwarded expression doesn't have to be the bare bag. Any expression built
+from `attrs` is forwarded with the same merge-and-override semantics, and is
+evaluated exactly once:
+
+```gsx
+<input { attrs.Without("type")... }/>     // forward everything except type
+<div { attrs.Merge(extra)... }>…</div>    // compose another gsx.Attrs bag in
+```
+
+This is also how a component keeps final say over `class`: forward
+`{ attrs.Without("class")... }` and the root's own `class` stands while the
+caller's is dropped.
+
+An element carries **one** forwarding spread. To combine bags, compose them in
+the spread expression with `Merge` (later bags win per key) rather than writing
+two spreads — a second spread on the same element is a generate-time error.
+
 ## Method components
 
 A component can be declared as a **method** on a named struct, binding it to a receiver. The receiver type carries page-level state (loaded once); the component's params carry per-call data.

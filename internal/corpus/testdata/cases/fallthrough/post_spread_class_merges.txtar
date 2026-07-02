@@ -1,0 +1,20 @@
+# class is positional-EXEMPT: a class after { attrs... } does NOT force the
+# component's value the way a post-spread scalar does — it still merges with
+# the caller's class (component tokens first, caller's appended). A component
+# that wants final say over class forwards a derived bag instead:
+# { attrs.Without("class")... } (see without_class_root_wins).
+-- input.gsx --
+package views
+
+component Box() {
+	<div { attrs... } class="forced">y</div>
+}
+
+component Page() {
+	<Box class="w-full"/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<div class="forced w-full">y</div>

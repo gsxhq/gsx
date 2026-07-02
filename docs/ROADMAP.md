@@ -104,11 +104,20 @@ render goldens.
    for a non-receiver local; generic receivers `(p T[X])`.
 7. [x] **Attribute fallthrough** — undeclared invocation attrs split (declared
    props matched against an AST-derived prop-name map vs everything else → an
-   `Attrs gsx.Attrs` bag). **Auto** single-root: the bag's `class` merges into the
-   root's class and the rest spreads at the root, root-wins. **Manual** `{...attrs}`:
-   a body referencing `attrs` takes over placement. Covers composable `class={…}`,
-   `{...spread}`, conditional `{ if }`, and pipelined values on a `<Card …>`
-   invocation, plus whole-struct splat `{ data... }`. **Cross-package/imported
+   `Attrs gsx.Attrs` bag). **Explicit forwarding only** (`2026-06-30`; auto
+   single-root removed): a body referencing `attrs` receives the bag and places
+   it with `{ attrs... }` — pre-spread attrs caller-overridable, post-spread
+   forced, `class`/`style` positional-exempt (always merge caller-last). Covers
+   composable `class={…}`, `{...spread}`, conditional `{ if }`, and pipelined
+   values on a `<Card …>` invocation, plus whole-struct splat `{ data... }`.
+   `2026-07-02` hardening (spec `2026-07-02-attrs-forwarding-hardening-design`):
+   derived-bag spreads (`{ attrs.Without("id")... }`, `{ attrs.Merge(x)... }`)
+   get the full forwarding machinery via a hoisted once-evaluated temp;
+   cond-attrs join caller-wins (pre-spread branch leaves guarded, post-spread
+   branch selection recorded once + dynamic spread drop set); one forwarding
+   spread per element (compose with `.Merge`, second spread is an error);
+   `class`/`style`/spreads inside cond-attr branches on forwarding elements
+   rejected with pointers to the composable forms. **Cross-package/imported
    components** (same module) get the same treatment — `2026-07-02`: per-file,
    import-alias-scoped prop discovery matches declared fields exactly like
    same-package calls, including the synthesized `Attrs gsx.Attrs` bag targeted

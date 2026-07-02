@@ -187,10 +187,12 @@ fallthrough/manual_without	diag render
 fallthrough/no_class_empty_bag	diag render
 fallthrough/no_class_root_with_bag	diag render
 fallthrough/not_eligible_no_field	diag gen render
+fallthrough/post_spread_class_merges	diag render
 fallthrough/reserved_param_attrs	diag(error)
 fallthrough/second_spread_rejected	diag(error)
 fallthrough/source_order	diag render
 fallthrough/static_class_merge	diag render
+fallthrough/without_class_root_wins	diag render
 interpolation/field_access	diag render
 interpolation/interp_types	diag render
 interpolation/mixed_chunk	diag render
@@ -413,4 +415,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 415 cases (render: 323, error: 70, gen-pinned: 169)
+TOTAL: 417 cases (render: 325, error: 70, gen-pinned: 169)
