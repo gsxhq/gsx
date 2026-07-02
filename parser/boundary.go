@@ -289,3 +289,30 @@ func parenEnd(src string, open int) (int, bool) {
 		}
 	}
 }
+
+// bracketEnd returns the index of the `]` matching the `[` at src[open],
+// scanning Go tokens from `open`.
+func bracketEnd(src string, open int) (int, bool) {
+	sub := src[open:]
+	fset := token.NewFileSet()
+	file := fset.AddFile("", fset.Base(), len(sub))
+	var s scanner.Scanner
+	s.Init(file, []byte(sub), nil, scanner.ScanComments)
+
+	depth := 0
+	for {
+		pos, tok, _ := s.Scan()
+		if tok == token.EOF {
+			return 0, false
+		}
+		switch tok {
+		case token.LPAREN, token.LBRACE, token.LBRACK:
+			depth++
+		case token.RPAREN, token.RBRACE, token.RBRACK:
+			depth--
+			if depth == 0 && tok == token.RBRACK {
+				return open + fset.Position(pos).Offset, true
+			}
+		}
+	}
+}

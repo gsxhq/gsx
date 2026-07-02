@@ -217,6 +217,13 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 		bag.Errorf(c.Pos(), c.End(), "reserved-param", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 		return false
 	}
+	typeParamNames, err := parseTypeParamNames(c.TypeParams)
+	if err != nil {
+		bag.Errorf(c.Pos(), c.End(), "invalid-syntax", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+		return false
+	}
+	typeParamsDecl := typeParamDecl(c.TypeParams)
+	typeParamsUse := typeParamUse(typeParamNames)
 
 	// A method component (non-empty Recv) emits a Go method whose receiver var is
 	// in scope in the body (so `{p.Field}` works); its props struct (if any) is
@@ -254,9 +261,9 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 		// .gsx location, not a line drifted from the previous //line directive.
 		emitLine(b, fset, c.Pos())
 		if c.Recv != "" {
-			fmt.Fprintf(b, "func %s %s(%s) gsx.Node {\n", c.Recv, c.Name, strings.TrimSpace(c.Params))
+			fmt.Fprintf(b, "func %s %s%s(%s) gsx.Node {\n", c.Recv, c.Name, typeParamsDecl, strings.TrimSpace(c.Params))
 		} else {
-			fmt.Fprintf(b, "func %s(%s) gsx.Node {\n", c.Name, strings.TrimSpace(c.Params))
+			fmt.Fprintf(b, "func %s%s(%s) gsx.Node {\n", c.Name, typeParamsDecl, strings.TrimSpace(c.Params))
 		}
 		b.WriteString("\treturn gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {\n")
 		b.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
@@ -289,7 +296,7 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 	hasFallthrough := manual
 	hasProps := len(params) > 0 || hasChildren || hasFallthrough
 	if hasProps {
-		fmt.Fprintf(b, "type %s struct {\n", propsName)
+		fmt.Fprintf(b, "type %s%s struct {\n", propsName, typeParamsDecl)
 		for _, p := range params {
 			fmt.Fprintf(b, "\t%s %s\n", fieldName(p.name), p.typ)
 		}
@@ -310,12 +317,12 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 	// drifted from the previous //line directive).
 	emitLine(b, fset, c.Pos())
 	if c.Recv != "" {
-		fmt.Fprintf(b, "func %s %s(", c.Recv, c.Name)
+		fmt.Fprintf(b, "func %s %s%s(", c.Recv, c.Name, typeParamsDecl)
 	} else {
-		fmt.Fprintf(b, "func %s(", c.Name)
+		fmt.Fprintf(b, "func %s%s(", c.Name, typeParamsDecl)
 	}
 	if hasProps {
-		fmt.Fprintf(b, "_gsxp %s", propsName)
+		fmt.Fprintf(b, "_gsxp %s%s", propsName, typeParamsUse)
 	}
 	b.WriteString(") gsx.Node {\n")
 
@@ -2201,7 +2208,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 				"no-argument component %s accepts no attributes or children", el.Tag)
 			return false
 		}
-		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s())\n", el.Tag)
+		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s%s())\n", el.Tag, typeArgUse(el.TypeArgs))
 		return true
 	}
 	callTarget, propsType, isMethod := childInvocation(el, byo, recvVar, recvTypeName)
@@ -2217,7 +2224,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 	_, isByoChild := byo.isByoStruct(propsType)
 	isNullaryCall := ((isMethod && !isByoChild) || isNoPropsComponent(structFields, propsType)) && len(el.Attrs) == 0 && len(el.Children) == 0
 	if isNullaryCall {
-		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s())\n", callTarget)
+		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s%s())\n", callTarget, typeArgUse(el.TypeArgs))
 		return true
 	}
 
@@ -2254,7 +2261,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]t
 	}
 	if splatExpr != "" {
 		// Whole-struct splat: `<Card { d... }/>` → `Card(d)` (no Props{…} literal).
-		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s(%s))\n", callTarget, splatExpr)
+		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s%s(%s))\n", callTarget, typeArgUse(el.TypeArgs), splatExpr)
 		return true
 	}
 
@@ -2382,7 +2389,7 @@ outer:
 	for i, fe := range fieldEntries {
 		strs[i] = fe.str
 	}
-	fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s(%s{%s}))\n", callTarget, propsType, strings.Join(strs, ", "))
+	fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s%s(%s%s{%s}))\n", callTarget, typeArgUse(el.TypeArgs), propsType, typeArgUse(el.TypeArgs), strings.Join(strs, ", "))
 	return true
 }
 

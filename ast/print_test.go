@@ -131,3 +131,24 @@ func TestFprintHTMLNodes(t *testing.T) {
 		t.Fatalf("Fprint mismatch:\n--- got ---\n%s\n--- want ---\n%s", b.String(), want)
 	}
 }
+
+func TestFprintGenericComponent(t *testing.T) {
+	tree := &ast.Component{
+		Name:       "Box",
+		TypeParams: "T string | int",
+		Params:     "value T",
+		Body: []ast.Markup{
+			&ast.Element{Tag: "Row", TypeArgs: "T", Void: true},
+		},
+	}
+	var b strings.Builder
+	if err := ast.Fprint(&b, tree); err != nil {
+		t.Fatal(err)
+	}
+	want := `Component name=Box recv="" typeParams="T string | int" params="value T"
+  Element tag=Row typeArgs="T" void=true
+`
+	if b.String() != want {
+		t.Fatalf("Fprint mismatch:\n--- got ---\n%s\n--- want ---\n%s", b.String(), want)
+	}
+}

@@ -124,8 +124,10 @@ func zeroSpans(n ast.Node) {
 				v.NamePos = 0
 				v.ParamsPos = 0
 				v.RecvPos = 0
+				v.TypeParamsPos = 0
 			case *ast.Element:
 				v.CloseNamePos = 0
+				v.TypeArgsPos = 0
 			case *ast.ForMarkup:
 				v.ClausePos = 0
 			case *ast.IfMarkup:

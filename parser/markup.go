@@ -567,6 +567,22 @@ func (p *parser) parseElement() (ast.Markup, error) {
 	if tag == "" {
 		return nil, p.errorf(startPos, "expected tag name")
 	}
+	var typeArgs string
+	var typeArgsPos token.Pos
+	if p.peek() == '[' {
+		if !canHaveTypeArgs(tag) {
+			return nil, p.errorf(p.pos(), "type arguments are only valid on component tags")
+		}
+		end, ok := bracketEnd(p.src, p.i)
+		if !ok {
+			return nil, p.errorf(p.pos(), "unterminated type args")
+		}
+		raw := p.src[p.i+1 : end]
+		lead := len(raw) - len(strings.TrimLeft(raw, " \t\r\n"))
+		typeArgsPos = p.posAt(p.i + 1 + lead)
+		typeArgs = strings.TrimSpace(raw)
+		p.i = end + 1
+	}
 
 	attrs, err := p.parseAttrs()
 	if err != nil {
@@ -575,7 +591,7 @@ func (p *parser) parseElement() (ast.Markup, error) {
 
 	if p.at("/>") {
 		p.i += 2
-		el := &ast.Element{Tag: tag, Void: true, Attrs: attrs}
+		el := &ast.Element{Tag: tag, TypeArgs: typeArgs, TypeArgsPos: typeArgsPos, Void: true, Attrs: attrs}
 		ast.SetSpan(el, startPos, p.posAt(p.i))
 		return el, nil
 	}
@@ -591,7 +607,7 @@ func (p *parser) parseElement() (ast.Markup, error) {
 		if err != nil {
 			return nil, err
 		}
-		el := &ast.Element{Tag: tag, Attrs: attrs, Children: children}
+		el := &ast.Element{Tag: tag, TypeArgs: typeArgs, TypeArgsPos: typeArgsPos, Attrs: attrs, Children: children}
 		ast.SetSpan(el, startPos, p.posAt(p.i))
 		return el, nil
 	}
@@ -600,7 +616,7 @@ func (p *parser) parseElement() (ast.Markup, error) {
 	if err != nil {
 		return nil, err
 	}
-	el := &ast.Element{Tag: tag, Attrs: attrs, Children: children, CloseNamePos: closeNamePos}
+	el := &ast.Element{Tag: tag, TypeArgs: typeArgs, TypeArgsPos: typeArgsPos, Attrs: attrs, Children: children, CloseNamePos: closeNamePos}
 	ast.SetSpan(el, startPos, p.posAt(p.i))
 	return el, nil
 }
@@ -613,6 +629,13 @@ func isRawTextTag(tag string) bool {
 		return true
 	}
 	return false
+}
+
+func canHaveTypeArgs(tag string) bool {
+	if tag == "" {
+		return false
+	}
+	return tag[0] >= 'A' && tag[0] <= 'Z' || strings.Contains(tag, ".")
 }
 
 // parseBang parses a `<!…` construct after the leading `<!` `!` byte: either an

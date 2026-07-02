@@ -202,6 +202,11 @@ func renderComponentSig(c *gsxast.Component) string {
 		b.WriteByte(' ')
 	}
 	b.WriteString(c.Name)
+	if c.TypeParams != "" {
+		b.WriteByte('[')
+		b.WriteString(c.TypeParams)
+		b.WriteByte(']')
+	}
 	b.WriteByte('(')
 	b.WriteString(c.Params)
 	b.WriteByte(')')

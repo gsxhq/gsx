@@ -127,6 +127,29 @@ func TestParseDottedComponentTag(t *testing.T) {
 	}
 }
 
+func TestParseComponentTagTypeArgs(t *testing.T) {
+	p := testParser(`<EditCheckbox[pgtype.Bool] checked={value} />`)
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := n.(*ast.Element)
+	if el.Tag != "EditCheckbox" || el.TypeArgs != "pgtype.Bool" {
+		t.Fatalf("got tag=%q typeArgs=%q", el.Tag, el.TypeArgs)
+	}
+}
+
+func TestRejectHTMLElementTypeArgs(t *testing.T) {
+	p := testParser(`<div[int]>x</div>`)
+	_, err := p.parseElement()
+	if err == nil {
+		t.Fatal("expected error for type args on HTML element")
+	}
+	if !strings.Contains(err.Error(), "type arguments are only valid on component tags") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestParseChildrenNested(t *testing.T) {
 	p := testParser(`<div class="card"><h2>{title}</h2>text</div>`)
 	n, err := p.parseElement()

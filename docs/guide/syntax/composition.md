@@ -12,6 +12,28 @@ A tag that starts with an **uppercase letter** (or a dotted package path like `<
 
 The `Page` component itself has params `t string` and `n int`, so `Page(PageProps{T: "Hi", N: 3})` is valid Go at the call site. Component names are just Go identifiers; cross-package calls look like `<ui.Button label="X"/>` where `ui` is an imported package alias.
 
+## Generic components
+
+Components can declare Go type parameters after the component name. The generated
+props type and component function carry the same type parameters, and component
+tags pass explicit type arguments with Go-style brackets.
+
+```gsx
+component Box[T string | int](value T) {
+	<span>box</span>
+}
+
+component Page() {
+	<Box[int] value={7} />
+	<Box[string] value={"ok"} />
+}
+```
+
+This lowers to generic Go declarations shaped like
+`type BoxProps[T string | int] struct { ... }` and
+`func Box[T string | int](p BoxProps[T]) gsx.Node`. A generic tag call lowers to
+`Box[int](BoxProps[int]{...})`; gsx does not infer omitted tag type arguments.
+
 ## Children `{children}`
 
 When a component wraps nested markup, it accesses that markup through the special `{children}` placeholder. The caller places any content between the open and close tags; the component decides where it appears by writing `{children}` in its body.
@@ -68,5 +90,10 @@ A component can be declared as a **method** on a named struct, binding it to a r
 `component (p UsersPage) Page()` and `component (p UsersPage) Grid(sort string)` each compile to methods on `UsersPage`. Inside any method component's body, the receiver name (`p`) is in scope for reading page state, and the declared params (`sort`) carry per-call data from the generated props struct.
 
 A method component invokes another method component with `<receiver.Method .../>`, where `receiver` is the receiver variable name. In the example, `Page` calls `<p.Grid sort={p.Sort}/>`: the `p.` prefix routes the call to the `Grid` method on the same receiver value, passing `sort` from the current page state. This is analogous to `<pkg.Name/>` for package-qualified components, except `p` is a local variable rather than an import alias.
+
+Method components may also declare method-owned type parameters, for example
+`component (p Page) Row[T any](value T) { ... }`, and are invoked as
+`<p.Row[int] value={1} />`. Generated Go for that form requires generic method
+support in the active Go toolchain.
 
 Method components are useful for page handlers: the HTTP handler builds the struct from the request, then the template methods read from it without threading data through every call. Multiple method components on the same receiver share the receiver's fields without any additional passing.

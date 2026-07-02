@@ -98,8 +98,10 @@ render goldens.
 6. [x] **Method components** — `component (p T) Name(params) { … }` → method
    `func (p T) Name(...)`; invocation `<p.Content/>` (left ident == enclosing
    receiver var) → method call; other dotted tags stay package calls. Also fixed
-   `ctx`-in-interpolation. **Deferred:** `<v.Method/>` for a non-receiver local;
-   generic receivers `(p T[X])`.
+   `ctx`-in-interpolation. Generic function components and generic method-component
+   syntax lower to Go-shaped generic declarations; method-owned type parameters
+   require a Go toolchain with generic method support. **Deferred:** `<v.Method/>`
+   for a non-receiver local; generic receivers `(p T[X])`.
 7. [x] **Attribute fallthrough** — undeclared invocation attrs split (declared
    props matched against an AST-derived prop-name map vs everything else → an
    `Attrs gsx.Attrs` bag). **Auto** single-root: the bag's `class` merges into the

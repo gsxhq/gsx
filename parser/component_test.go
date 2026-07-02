@@ -42,6 +42,34 @@ func TestParseComponentMethod(t *testing.T) {
 	}
 }
 
+func TestParseComponentTypeParams(t *testing.T) {
+	src := `component EditCheckbox[T bool | pgtype.Bool](value T) {
+		<input checked={value} />
+	}`
+	p := testParser(src)
+	c, err := p.parseComponent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Recv != "" || c.Name != "EditCheckbox" || c.TypeParams != "T bool | pgtype.Bool" || c.Params != "value T" {
+		t.Fatalf("got %+v", c)
+	}
+}
+
+func TestParseMethodComponentTypeParams(t *testing.T) {
+	src := `component (p Page) EditCheckbox[T bool | pgtype.Bool](value T) {
+		<input checked={value} />
+	}`
+	p := testParser(src)
+	c, err := p.parseComponent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Recv != "(p Page)" || c.Name != "EditCheckbox" || c.TypeParams != "T bool | pgtype.Bool" || c.Params != "value T" {
+		t.Fatalf("got %+v", c)
+	}
+}
+
 func TestComponentBodyWithApostrophe(t *testing.T) {
 	// C1: apostrophe in body markup on the same line as a later brace must parse.
 	src := "package p\ncomponent C(n int) {\n\t<p>Today's items: {n}</p>\n}"

@@ -53,9 +53,12 @@ golden-tested `examples/*.txtar` fixtures.
 | Form | Meaning |
 |------|---------|
 | `component X(params) { … }` | component declaration (emission body — no return) |
+| `component X[T constraint](params) { … }` | generic component declaration |
 | `component (p T) Name(params) { … }` | method component (receiver) |
+| `component (p T) Name[U constraint](params) { … }` | generic method component; requires a Go toolchain with generic method support |
 | `<div>`, `<el-dialog>` | HTML element (lowercase / hyphenated) |
 | `<Card>`, `<ui.Button>` | component (Capitalized / dotted) |
+| `<Card[T]>`, `<ui.Button[T]>`, `<p.Row[T]>` | explicit type arguments for a generic component call |
 | `{ expr }` | interpolation in body (auto HTML-escaped) |
 | any expression returning `(T, error)` | auto-unwraps to `T`; error propagates from the enclosing `Render` — no marker needed, applies in all expression positions (text, attrs, child-prop values, `{{ }}` pair values, pipelines) |
 | `name="lit"` | static string attribute |

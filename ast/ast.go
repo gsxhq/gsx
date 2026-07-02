@@ -134,16 +134,18 @@ type GoChunk struct {
 
 func (*GoChunk) declNode() {}
 
-// Component is a `component [recv] Name(params) { body }` declaration.
+// Component is a `component [recv] Name[typeParams](params) { body }` declaration.
 type Component struct {
 	span
-	Recv      string    // e.g. "(p UsersPage)" or "(f *Form)"; "" if none
-	RecvPos   token.Pos // position of the receiver's opening `(` in source; NoPos if no receiver
-	Name      string
-	NamePos   token.Pos // position of the first char of Name in source
-	Params    string    // raw param-list source, e.g. "title string, featured bool"; "" if none
-	ParamsPos token.Pos // position of the first char of Params in source (after `(` + ws); NoPos if no params
-	Body      []Markup
+	Recv          string    // e.g. "(p UsersPage)" or "(f *Form)"; "" if none
+	RecvPos       token.Pos // position of the receiver's opening `(` in source; NoPos if no receiver
+	Name          string
+	NamePos       token.Pos // position of the first char of Name in source
+	TypeParams    string    // raw type-param-list source, e.g. "T any"; "" if none
+	TypeParamsPos token.Pos // position of the first char of TypeParams in source (after `[` + ws); NoPos if none
+	Params        string    // raw param-list source, e.g. "title string, featured bool"; "" if none
+	ParamsPos     token.Pos // position of the first char of Params in source (after `(` + ws); NoPos if no params
+	Body          []Markup
 }
 
 func (*Component) declNode() {}
@@ -151,10 +153,12 @@ func (*Component) declNode() {}
 // Element is an HTML element or a component tag (Tag may be dotted, e.g. "ui.Button").
 type Element struct {
 	span
-	Tag      string
-	Void     bool // self-closing <tag/> or HTML void element
-	Attrs    []Attr
-	Children []Markup
+	Tag         string
+	TypeArgs    string    // raw type-arg-list source, e.g. "int, string"; "" if none
+	TypeArgsPos token.Pos // position of the first char of TypeArgs in source (after `[` + ws); NoPos if none
+	Void        bool      // self-closing <tag/> or HTML void element
+	Attrs       []Attr
+	Children    []Markup
 	// CloseNamePos is the position of the first char of the name in the closing
 	// tag (the "Card" in "</Card>"); token.NoPos for void/self-closing elements
 	// (which have no closing tag). Tooling (LSP go-to-definition) uses it so a

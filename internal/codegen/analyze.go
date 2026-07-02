@@ -496,6 +496,13 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 		emitComponentStub(sb, c, params, true)
 		return errSkipComponent
 	}
+	typeParamNames, err := parseTypeParamNames(c.TypeParams)
+	if err != nil {
+		emitComponentStub(sb, c, params, true)
+		return errSkipComponent
+	}
+	typeParamsDecl := typeParamDecl(c.TypeParams)
+	typeParamsUse := typeParamUse(typeParamNames)
 	// MIRROR genComponent (emit.go): a method component emits a Go method whose
 	// receiver var is in scope (so `p.Field` probes type-check against the real
 	// receiver type), its props struct is named <RecvTypeName><Name>Props, and a
@@ -544,9 +551,9 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 		// Mirrors genComponent's emit-side anchor for the line; adds column precision.
 		emitSkeletonComponentNameLine(sb, fset, c)
 		if c.Recv != "" {
-			fmt.Fprintf(sb, "func %s %s(_gsxp %s) _gsxrt.Node {\n", c.Recv, c.Name, structName)
+			fmt.Fprintf(sb, "func %s %s%s(_gsxp %s) _gsxrt.Node {\n", c.Recv, c.Name, typeParamsDecl, structName)
 		} else {
-			fmt.Fprintf(sb, "func %s(_gsxp %s) _gsxrt.Node {\n", c.Name, structName)
+			fmt.Fprintf(sb, "func %s%s(_gsxp %s) _gsxrt.Node {\n", c.Name, typeParamsDecl, structName)
 		}
 		sb.WriteString("\tvar ctx _gsxctx.Context\n\t_ = ctx\n")
 		if c.ParamsPos.IsValid() {
@@ -571,7 +578,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 	manual := usesAttrs(c.Body)
 	hasProps := len(params) > 0 || hasChildren || manual
 	if hasProps {
-		fmt.Fprintf(sb, "type %s struct {\n", propsName)
+		fmt.Fprintf(sb, "type %s%s struct {\n", propsName, typeParamsDecl)
 		for _, p := range params {
 			// Emit the param TYPE verbatim from the .gsx (not the printer-normalized
 			// p.typ) so its bytes stay identical to the source — the LSP bridges a
@@ -596,12 +603,12 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 	// the BYO branch above) so same-package go-to-definition reports the name column.
 	emitSkeletonComponentNameLine(sb, fset, c)
 	if c.Recv != "" {
-		fmt.Fprintf(sb, "func %s %s(", c.Recv, c.Name)
+		fmt.Fprintf(sb, "func %s %s%s(", c.Recv, c.Name, typeParamsDecl)
 	} else {
-		fmt.Fprintf(sb, "func %s(", c.Name)
+		fmt.Fprintf(sb, "func %s%s(", c.Name, typeParamsDecl)
 	}
 	if hasProps {
-		fmt.Fprintf(sb, "_gsxp %s", propsName)
+		fmt.Fprintf(sb, "_gsxp %s%s", propsName, typeParamsUse)
 	}
 	sb.WriteString(") _gsxrt.Node {\n")
 	// Bind the ambient `ctx` (matching the emitted closure's
@@ -710,10 +717,10 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					// _gsxcompsig(F) type-checks at any arity; harvest reads the signature
 					// back into `resolved[el]` so genChildComponent picks the call shape.
 					emitSkeletonLine(sb, fset, t.Pos())
-					fmt.Fprintf(sb, "_gsxcompsig(%s)\n", callTarget)
+					fmt.Fprintf(sb, "_gsxcompsig(%s%s)\n", callTarget, typeArgUse(t.TypeArgs))
 				} else if ((isMethod && !isByoChild) || isNoPropsComponent(propFields, propsType)) && len(t.Attrs) == 0 && len(t.Children) == 0 {
 					emitSkeletonLine(sb, fset, t.Pos())
-					fmt.Fprintf(sb, "_ = %s()\n", callTarget)
+					fmt.Fprintf(sb, "_ = %s%s()\n", callTarget, typeArgUse(t.TypeArgs))
 				} else {
 					// Build the SAME props literal as the emitter via childPropsLiteral,
 					// but with a typed-nil slotValue: each named-slot and Children field
@@ -762,13 +769,13 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					sb.WriteString(cfHoistBuf.String())
 					if splatExpr != "" {
 						// Whole-struct splat: mirrors genChildComponent exactly.
-						fmt.Fprintf(sb, "_ = %s(%s)\n", callTarget, splatExpr)
+						fmt.Fprintf(sb, "_ = %s%s(%s)\n", callTarget, typeArgUse(t.TypeArgs), splatExpr)
 					} else {
 						strs := make([]string, len(fieldEntries))
 						for i, fe := range fieldEntries {
 							strs[i] = fe.str
 						}
-						fmt.Fprintf(sb, "_ = %s(%s{%s})\n", callTarget, propsType, strings.Join(strs, ", "))
+						fmt.Fprintf(sb, "_ = %s%s(%s%s{%s})\n", callTarget, typeArgUse(t.TypeArgs), propsType, typeArgUse(t.TypeArgs), strings.Join(strs, ", "))
 					}
 				}
 				// Probe simple ExprAttr values (child-prop values) with _gsxuse so harvest
@@ -1340,11 +1347,11 @@ func paramSkelTypes(gf *goast.File, c *gsxast.Component, fd *goast.FuncDecl, par
 	}
 	// Normal: the skeleton param is `_gsxp <PropsName>`; the props struct's first
 	// len(params) fields carry the param types in declaration order.
-	id, ok := fd.Type.Params.List[0].Type.(*goast.Ident)
-	if !ok {
+	typeName := recvTypeIdent(fd.Type.Params.List[0].Type)
+	if typeName == "" {
 		return nil
 	}
-	st := structByName(gf, id.Name)
+	st := structByName(gf, typeName)
 	if st == nil || st.Fields == nil || len(st.Fields.List) < len(params) {
 		return nil
 	}
@@ -2226,6 +2233,53 @@ func parseParams(src string) ([]param, error) {
 	return out, nil
 }
 
+func parseTypeParamNames(src string) ([]string, error) {
+	src = strings.TrimSpace(src)
+	if src == "" {
+		return nil, nil
+	}
+	fset := token.NewFileSet()
+	synth := "package p\nfunc _[" + src + "]() {}"
+	f, err := parser.ParseFile(fset, "", synth, 0)
+	if err != nil {
+		return nil, fmt.Errorf("codegen: parse type params %q: %w", src, err)
+	}
+	fn := f.Decls[0].(*goast.FuncDecl)
+	if fn.Type.TypeParams == nil {
+		return nil, nil
+	}
+	var names []string
+	for _, field := range fn.Type.TypeParams.List {
+		for _, nm := range field.Names {
+			names = append(names, nm.Name)
+		}
+	}
+	return names, nil
+}
+
+func typeParamDecl(src string) string {
+	src = strings.TrimSpace(src)
+	if src == "" {
+		return ""
+	}
+	return "[" + src + "]"
+}
+
+func typeParamUse(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	return "[" + strings.Join(names, ", ") + "]"
+}
+
+func typeArgUse(src string) string {
+	src = strings.TrimSpace(src)
+	if src == "" {
+		return ""
+	}
+	return "[" + src + "]"
+}
+
 // checkReservedParams rejects param names that would collide with the ambient
 // closure context or the generator's reserved identifier namespace. The
 // generated render closure exposes `ctx` (ambient — user interpolation exprs may
@@ -2351,6 +2405,13 @@ func splitChunk(src string) (imports []importSpec, body string, bodyOff int, err
 // struct shape matches what siblings reference.
 func emitComponentStub(sb *strings.Builder, c *gsxast.Component, params []param, withRecv bool) {
 	propsName := c.Name + "Props"
+	typeParamNames, typeParamErr := parseTypeParamNames(c.TypeParams)
+	typeParamsDecl := typeParamDecl(c.TypeParams)
+	if typeParamErr != nil {
+		typeParamNames = nil
+		typeParamsDecl = ""
+	}
+	typeParamsUse := typeParamUse(typeParamNames)
 	// MIRROR emitComponentSkeleton: compute Children/Attrs gates from the body.
 	hasChildren := usesChildren(c.Body)
 	manual := usesAttrs(c.Body)
@@ -2365,7 +2426,7 @@ func emitComponentStub(sb *strings.Builder, c *gsxast.Component, params []param,
 		paramFields[fieldName(p.name)] = true
 	}
 	if hasProps {
-		fmt.Fprintf(sb, "type %s struct {\n", propsName)
+		fmt.Fprintf(sb, "type %s%s struct {\n", propsName, typeParamsDecl)
 		for _, p := range params {
 			fmt.Fprintf(sb, "\t%s %s\n", fieldName(p.name), p.typ)
 		}
@@ -2377,15 +2438,15 @@ func emitComponentStub(sb *strings.Builder, c *gsxast.Component, params []param,
 		}
 		sb.WriteString("}\n")
 		if withRecv && c.Recv != "" {
-			fmt.Fprintf(sb, "func %s %s(_gsxp %s) _gsxrt.Node { return nil }\n", c.Recv, c.Name, propsName)
+			fmt.Fprintf(sb, "func %s %s%s(_gsxp %s%s) _gsxrt.Node { return nil }\n", c.Recv, c.Name, typeParamsDecl, propsName, typeParamsUse)
 		} else {
-			fmt.Fprintf(sb, "func %s(_gsxp %s) _gsxrt.Node { return nil }\n", c.Name, propsName)
+			fmt.Fprintf(sb, "func %s%s(_gsxp %s%s) _gsxrt.Node { return nil }\n", c.Name, typeParamsDecl, propsName, typeParamsUse)
 		}
 	} else {
 		if withRecv && c.Recv != "" {
-			fmt.Fprintf(sb, "func %s %s() _gsxrt.Node { return nil }\n", c.Recv, c.Name)
+			fmt.Fprintf(sb, "func %s %s%s() _gsxrt.Node { return nil }\n", c.Recv, c.Name, typeParamsDecl)
 		} else {
-			fmt.Fprintf(sb, "func %s() _gsxrt.Node { return nil }\n", c.Name)
+			fmt.Fprintf(sb, "func %s%s() _gsxrt.Node { return nil }\n", c.Name, typeParamsDecl)
 		}
 	}
 }
