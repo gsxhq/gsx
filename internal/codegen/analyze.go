@@ -491,20 +491,29 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 	if tpErr != nil {
 		typeParamNames, typeParamsDecl = nil, ""
 	}
+	// Parse the receiver clause ONCE too (results reused by the recv-handling
+	// section below). Every early-exit stub emits c.Recv verbatim when
+	// withRecv=true, so an unparsable receiver co-occurring with any other
+	// defect (`component (p !) Box[T](v T)`) would break the whole skeleton's
+	// parse — module_importer hard-errors on that, aborting the ENTIRE run.
+	// stubRecv=false makes those stubs fall back to a bare function, exactly
+	// like the parseRecv-failure branch below.
+	//
+	// recvVar/recvTypeName stay "" for a function component; for a method
+	// component they are passed to emitProbes so a dotted child tag whose left ==
+	// recvVar is probed as a method call (mirroring the emitter's childInvocation).
+	var recvVar, recvTypeName string
+	var recvErr error
+	if c.Recv != "" {
+		recvVar, _, recvTypeName, recvErr = parseRecv(c.Recv)
+	}
+	stubRecv := recvErr == nil
 	params, err := parseParams(c.Params)
 	if err != nil {
 		// Emit a minimal stub so the overall skeleton remains valid Go, keeping
 		// any user GoChunk imports used. The parse error will be re-surfaced (with
 		// position) by genComponent at emit time.
-		emitComponentStub(sb, c, nil, true, typeParamNames, typeParamsDecl)
-		return errSkipComponent
-	}
-	if err := checkReservedParams(params); err != nil {
-		// Emit a stub that INCLUDES the props struct (keeping user-imported types
-		// like gsx.Node used in the skeleton) so GoChunk imports don't spuriously
-		// trigger "imported and not used". The reserved-param error will be
-		// re-surfaced (with position) by genComponent at emit time.
-		emitComponentStub(sb, c, params, true, typeParamNames, typeParamsDecl)
+		emitComponentStub(sb, c, nil, stubRecv, typeParamNames, typeParamsDecl)
 		return errSkipComponent
 	}
 	if tpErr != nil {
@@ -514,7 +523,21 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 		// generation). params=nil matches the parseParams-failure shape above;
 		// genComponent re-parses at emit time and records the positioned
 		// invalid-syntax diagnostic.
-		emitComponentStub(sb, c, nil, true, nil, "")
+		//
+		// This MUST precede checkReservedParams: a reserved param name can
+		// co-occur with the broken type-param list (`Box[T](children T)`), and
+		// the reserved-param stub keeps params — whose types may reference the
+		// now-undeclared T — reintroducing the silent collapse. A broken
+		// type-param list makes every param type suspect, so it takes priority.
+		emitComponentStub(sb, c, nil, stubRecv, nil, "")
+		return errSkipComponent
+	}
+	if err := checkReservedParams(params); err != nil {
+		// Emit a stub that INCLUDES the props struct (keeping user-imported types
+		// like gsx.Node used in the skeleton) so GoChunk imports don't spuriously
+		// trigger "imported and not used". The reserved-param error will be
+		// re-surfaced (with position) by genComponent at emit time.
+		emitComponentStub(sb, c, params, stubRecv, typeParamNames, typeParamsDecl)
 		return errSkipComponent
 	}
 	typeParamsUse := typeParamUse(typeParamNames)
@@ -525,16 +548,11 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 	// param. The receiver clause + props-struct name + nullary-no-props must be
 	// byte-identical in shape to emission, else resolution disagrees.
 	propsName := c.Name + "Props"
-	// recvVar/recvTypeName stay "" for a function component; for a method
-	// component they are passed to emitProbes so a dotted child tag whose left ==
-	// recvVar is probed as a method call (mirroring the emitter's childInvocation).
-	var recvVar, recvTypeName string
 	if c.Recv != "" {
-		var rerr error
-		recvVar, _, recvTypeName, rerr = parseRecv(c.Recv)
-		if rerr != nil {
-			// Recv parse failed — the receiver clause may be invalid Go; use a bare
-			// function stub (no receiver) to keep the skeleton valid.
+		if recvErr != nil {
+			// Recv parse failed (hoisted parse above) — the receiver clause may be
+			// invalid Go; use a bare function stub (no receiver) to keep the
+			// skeleton valid.
 			emitComponentStub(sb, c, params, false, typeParamNames, typeParamsDecl)
 			return errSkipComponent
 		}

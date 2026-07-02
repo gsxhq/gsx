@@ -213,13 +213,18 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 		bag.Errorf(c.Pos(), c.End(), "invalid-syntax", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 		return false
 	}
-	if err := checkReservedParams(params); err != nil {
-		bag.Errorf(c.Pos(), c.End(), "reserved-param", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
-		return false
-	}
+	// Type-param validation MUST precede reserved-param validation — MIRRORS
+	// emitComponentSkeleton's priority: when both defects co-occur
+	// (`Box[T](children T)`), the skeleton skips the component on the broken
+	// type-param list (a broken list makes every param type suspect), so the
+	// diagnostic surfaced here must be the same defect.
 	typeParamNames, err := parseTypeParamNames(c.TypeParams)
 	if err != nil {
 		bag.Errorf(c.Pos(), c.End(), "invalid-syntax", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+		return false
+	}
+	if err := checkReservedParams(params); err != nil {
+		bag.Errorf(c.Pos(), c.End(), "reserved-param", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 		return false
 	}
 	typeParamsDecl := typeParamDecl(c.TypeParams)
