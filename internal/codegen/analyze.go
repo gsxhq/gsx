@@ -435,13 +435,13 @@ type ctrlRef struct {
 	Node        goast.Node
 }
 
-// SigTypeRef bridges one TYPE in a component signature (a parameter type or the
-// method receiver type) to its type-checked skeleton type expression. GSXPos is
-// the type's first byte in the .gsx and Len its byte length; SkelTyp is the
-// corresponding skeleton type expression (a props-struct field type, the sole
-// param type of a BYO component, or the receiver type), whose bytes are
-// identical to the .gsx source span — so the LSP bridges a cursor into it by
-// relative offset and resolves via go/types.
+// SigTypeRef bridges one navigable identifier region in a component signature
+// (a parameter type, method receiver type, type-parameter name, or
+// type-parameter constraint) to its type-checked skeleton expression. GSXPos is
+// the region's first byte in the .gsx and Len its byte length; SkelTyp is the
+// corresponding skeleton expression, whose bytes are identical to the .gsx
+// source span — so the LSP bridges a cursor into it by relative offset and
+// resolves via go/types.
 type SigTypeRef struct {
 	GSXPos  token.Pos
 	Len     int
@@ -1480,19 +1480,52 @@ func recvTypeIdent(e goast.Expr) string {
 	return ""
 }
 
-// buildSigTypeRefs pairs each TYPE in component c's signature — its parameter
-// types and (for a method component) its receiver type — with the corresponding
-// type-checked skeleton type expression, for the LSP's go-to-definition / hover.
-// Parameter types live in the generated props struct's fields (in param order),
-// or, for a BYO component, in the sole func parameter; the receiver type is the
-// skeleton method's receiver. Returns nil when c's skeleton shape cannot be
-// located (a skipped/stub component) or it carries no navigable types.
+// buildSigTypeRefs pairs each navigable signature type/name region in component
+// c — parameter types, type-parameter names/constraints, and (for a method
+// component) its receiver type — with the corresponding type-checked skeleton
+// expression, for the LSP's go-to-definition / hover. Parameter types live in
+// the generated props struct's fields (in param order), or, for a BYO component,
+// in the sole func parameter; the receiver type is the skeleton method's
+// receiver. Returns nil when c's skeleton shape cannot be located (a
+// skipped/stub component) or it carries no navigable types.
 func buildSigTypeRefs(gf *goast.File, c *gsxast.Component, byo *byoData) []SigTypeRef {
 	fd := funcDeclForKey(gf, componentKey(c))
 	if fd == nil {
 		return nil
 	}
 	var refs []SigTypeRef
+
+	// Type-parameter names and constraints. The skeleton emits the type-param
+	// list verbatim, so offsets from a synthetic parse of c.TypeParams align with
+	// the matching skeleton TypeParams fields.
+	if c.TypeParams != "" && c.TypeParamsPos.IsValid() && fd.Type.TypeParams != nil {
+		if tpl, tpFset, err := parseTypeParamFieldList(c.TypeParams); err == nil && tpl != nil {
+			off := func(p token.Pos) int { return tpFset.Position(p).Offset - len(typeParamSynthPrefix) }
+			for i, field := range tpl.List {
+				if i >= len(fd.Type.TypeParams.List) {
+					break
+				}
+				skelField := fd.Type.TypeParams.List[i]
+				for j, name := range field.Names {
+					if j >= len(skelField.Names) {
+						break
+					}
+					refs = append(refs, SigTypeRef{
+						GSXPos:  c.TypeParamsPos + token.Pos(off(name.Pos())),
+						Len:     len(name.Name),
+						SkelTyp: skelField.Names[j],
+					})
+				}
+				if field.Type != nil && skelField.Type != nil {
+					refs = append(refs, SigTypeRef{
+						GSXPos:  c.TypeParamsPos + token.Pos(off(field.Type.Pos())),
+						Len:     off(field.Type.End()) - off(field.Type.Pos()),
+						SkelTyp: skelField.Type,
+					})
+				}
+			}
+		}
+	}
 
 	// Parameter types.
 	if params, err := parseParams(c.Params); err == nil && len(params) > 0 {
@@ -2521,23 +2554,40 @@ func parseParams(src string) ([]param, error) {
 	return out, nil
 }
 
-func parseTypeParamNames(src string) ([]string, error) {
+// typeParamSynthPrefix is the synthetic wrapper prepended to a component's raw
+// type-param source so it parses as a generic func declaration. Offsets in the
+// parsed result relate to the trimmed source by subtracting len(typeParamSynthPrefix).
+const typeParamSynthPrefix = "package p\nfunc _["
+
+// parseTypeParamFieldList parses a component's raw type-param source (the text
+// between the signature's brackets) via the synthetic wrapper and returns the
+// type-param field list plus the FileSet that resolves its positions. The
+// FieldList is nil (with a nil error) for an empty or bracket-less list.
+func parseTypeParamFieldList(src string) (*goast.FieldList, *token.FileSet, error) {
 	src = strings.TrimSpace(src)
 	if src == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 	fset := token.NewFileSet()
-	synth := "package p\nfunc _[" + src + "]() {}"
+	synth := typeParamSynthPrefix + src + "]() {}"
 	f, err := parser.ParseFile(fset, "", synth, 0)
 	if err != nil {
-		return nil, fmt.Errorf("codegen: parse type params %q: %w", src, err)
+		return nil, nil, fmt.Errorf("codegen: parse type params %q: %w", src, err)
 	}
-	fn := f.Decls[0].(*goast.FuncDecl)
-	if fn.Type.TypeParams == nil {
-		return nil, nil
+	fd, ok := f.Decls[0].(*goast.FuncDecl)
+	if !ok {
+		return nil, nil, fmt.Errorf("codegen: parse type params %q: unexpected declaration shape", src)
+	}
+	return fd.Type.TypeParams, fset, nil
+}
+
+func parseTypeParamNames(src string) ([]string, error) {
+	tpl, _, err := parseTypeParamFieldList(src)
+	if err != nil || tpl == nil {
+		return nil, err
 	}
 	var names []string
-	for _, field := range fn.Type.TypeParams.List {
+	for _, field := range tpl.List {
 		for _, nm := range field.Names {
 			names = append(names, nm.Name)
 		}

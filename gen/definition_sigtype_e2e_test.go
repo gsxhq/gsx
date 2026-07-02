@@ -219,3 +219,68 @@ func TestDefinitionSignatureParamTypeSamePkg(t *testing.T) {
 		t.Fatalf("`Form` (BYO param) resolved to %v, want types.go", loc)
 	}
 }
+
+// gd on a TYPE-PARAMETER CONSTRAINT in a component signature resolves through
+// the real server pipeline (Module analysis → adaptPackageResult → lsp.SigTypes):
+// `ID` in `component Box[T store.ID]` jumps to the type definition in the
+// imported package, and the `store` qualifier jumps into its package clause.
+func TestDefinitionSignatureTypeParamConstraint(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	dir := t.TempDir()
+	repoRoot, _ := filepath.Abs("..")
+	must := func(p, c string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, p)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, p), []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	must("go.mod", "module example.com/x\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	must("store/store.go", "package store\n\ntype ID string\n")
+	src := "package blog\n\nimport \"example.com/x/store\"\n\ncomponent Box[T store.ID](value T) {\n\t<span>{ value }</span>\n}\n"
+	must("blog/comp.gsx", src)
+	lines := strings.Split(src, "\n")
+
+	var sigLine int
+	for i, l := range lines {
+		if strings.Contains(l, "[T store.ID]") {
+			sigLine = i
+			break
+		}
+	}
+	storeCol := strings.Index(lines[sigLine], "store.ID")
+	idCol := storeCol + len("store.")
+
+	// Case 1: `ID` constraint type → the type definition in store/store.go.
+	loc := sigTypeDefAt(t, dir, "blog/comp.gsx", src, sigLine, idCol)
+	if loc == nil {
+		t.Fatalf("gd on `ID` type-param constraint returned null")
+	}
+	if !strings.HasSuffix(loc.URI, filepath.Join("store", "store.go")) {
+		t.Fatalf("`ID` resolved to %q, want store/store.go", loc.URI)
+	}
+
+	// Case 2: `store` qualifier → the package clause of store/store.go.
+	locs := sigTypeDefLocations(t, dir, "blog/comp.gsx", src, sigLine, storeCol)
+	if len(locs) == 0 {
+		t.Fatalf("gd on `store` qualifier in constraint returned no locations")
+	}
+	found := false
+	for _, l := range locs {
+		if strings.HasSuffix(l.URI, filepath.Join("store", "store.go")) {
+			found = true
+			if l.Range.Start.Line != 0 || l.Range.Start.Character != len("package ") {
+				t.Fatalf("`store` landed at L%d:C%d, want L0:C%d (the package name)",
+					l.Range.Start.Line, l.Range.Start.Character, len("package "))
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("`store` resolved to %v, want store/store.go package clause", locs)
+	}
+}
