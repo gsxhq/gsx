@@ -3131,13 +3131,11 @@ func childTypeArgUse(el *ast.Element, currentPkg *types.Package, resolved map[as
 		// alias (mirroring the skeleton-side aliasAllocator's naming,
 		// infer.go) instead of plain-importing the path.
 		name := pkg.Name()
-		if boundNames != nil && typeArgAliases != nil {
-			if boundPath := boundNames[name]; boundPath != "" && boundPath != path {
-				alias := fmt.Sprintf("_gsxti%d", len(typeArgAliases)+1)
-				typeArgAliases[path] = alias
-				boundNames[alias] = path
-				return alias
-			}
+		if boundNames != nil && typeArgAliases != nil && typeArgNameCollides(boundNames, name, path) {
+			alias := fmt.Sprintf("_gsxti%d", len(typeArgAliases)+1)
+			typeArgAliases[path] = alias
+			boundNames[alias] = path
+			return alias
 		}
 		if imports != nil {
 			imports[path] = true
@@ -3151,6 +3149,22 @@ func childTypeArgUse(el *ast.Element, currentPkg *types.Package, resolved map[as
 		args = append(args, types.TypeString(typ, qf))
 	}
 	return "[" + strings.Join(args, ", ") + "]", true
+}
+
+// typeArgNameCollides reports whether printing an inferred type argument's
+// package under name would collide with a binding this file already holds
+// for a DIFFERENT import path (see generateFile's boundNames doc). PRESENCE
+// in boundNames is what makes a name taken — the comma-ok idiom, never a
+// zero-value check — because a reserved name can be seeded with an EMPTY
+// path sentinel (`boundNames[classMergerAlias] = ""`: the class-merger alias
+// is reserved whether or not a merger is configured) that must collide with
+// EVERY candidate path; a zero-value check would treat that deliberate
+// sentinel as unset, plain-import a package literally named `_gsxcm` (a
+// legal Go identifier), and bind the name twice — `go build`'s "redeclared
+// in this block" with gsx exiting 0.
+func typeArgNameCollides(boundNames map[string]string, name, path string) bool {
+	boundPath, taken := boundNames[name]
+	return taken && boundPath != path
 }
 
 // unspeakableTypeArg walks t looking for a named type (or materialized
