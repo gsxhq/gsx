@@ -49,7 +49,7 @@ writing the header) stays with the server. Naming: `WithNonce`, not
 - **Components**: `<Component/>` tags are unaffected; a component's own
   `<script>`/`<style>` tags get injection inside *its* generated code, and the
   render context flows through `Render(ctx, w)` unchanged.
-- **Raw HTML**: `gsx.RawHTML` (and any markup gsx does not itself emit) is
+- **Raw HTML**: `gsx.Raw` (and any markup gsx does not itself emit) is
   untouched — gsx only decorates tags it owns.
 
 ### Precedence — author always wins
