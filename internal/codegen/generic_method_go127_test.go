@@ -1,8 +1,6 @@
 package codegen
 
 import (
-	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,7 +8,10 @@ import (
 )
 
 func TestGenericMethodComponentGo127(t *testing.T) {
-	if !supportsGenericMethods() {
+	if !toolchainHasGenericMethods() {
+		if os.Getenv("GSX_REQUIRE_GENERIC_METHODS") == "1" {
+			t.Fatal("GSX_REQUIRE_GENERIC_METHODS=1 but the active toolchain does not parse generic methods")
+		}
 		t.Skip("active Go toolchain does not parse generic methods yet")
 	}
 	repoRoot, _ := filepath.Abs("../..")
@@ -49,13 +50,4 @@ component (p Page) Render() {
 			t.Fatalf("generated source missing %q:\n%s", want, got)
 		}
 	}
-}
-
-func supportsGenericMethods() bool {
-	const src = `package p
-type S struct{}
-func (S) M[T any](v T) T { return v }
-`
-	_, err := parser.ParseFile(token.NewFileSet(), "generic_method.go", src, 0)
-	return err == nil
 }

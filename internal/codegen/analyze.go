@@ -513,7 +513,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 		// Emit a minimal stub so the overall skeleton remains valid Go, keeping
 		// any user GoChunk imports used. The parse error will be re-surfaced (with
 		// position) by genComponent at emit time.
-		emitComponentStub(sb, c, nil, stubRecv, typeParamNames, typeParamsDecl)
+		emitComponentStub(sb, c, nil, stubRecv, typeParamNames, typeParamsDecl, false)
 		return errSkipComponent
 	}
 	if tpErr != nil {
@@ -529,7 +529,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 		// the reserved-param stub keeps params — whose types may reference the
 		// now-undeclared T — reintroducing the silent collapse. A broken
 		// type-param list makes every param type suspect, so it takes priority.
-		emitComponentStub(sb, c, nil, stubRecv, nil, "")
+		emitComponentStub(sb, c, nil, stubRecv, nil, "", false)
 		return errSkipComponent
 	}
 	if err := checkReservedParams(params); err != nil {
@@ -537,7 +537,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 		// like gsx.Node used in the skeleton) so GoChunk imports don't spuriously
 		// trigger "imported and not used". The reserved-param error will be
 		// re-surfaced (with position) by genComponent at emit time.
-		emitComponentStub(sb, c, params, stubRecv, typeParamNames, typeParamsDecl)
+		emitComponentStub(sb, c, params, stubRecv, typeParamNames, typeParamsDecl, false)
 		return errSkipComponent
 	}
 	typeParamsUse := typeParamUse(typeParamNames)
@@ -553,14 +553,29 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 			// Recv parse failed (hoisted parse above) — the receiver clause may be
 			// invalid Go; use a bare function stub (no receiver) to keep the
 			// skeleton valid.
-			emitComponentStub(sb, c, params, false, typeParamNames, typeParamsDecl)
+			emitComponentStub(sb, c, params, false, typeParamNames, typeParamsDecl, false)
 			return errSkipComponent
 		}
 		if rerr := checkReservedRecvVar(recvVar); rerr != nil {
-			emitComponentStub(sb, c, params, true, typeParamNames, typeParamsDecl)
+			emitComponentStub(sb, c, params, true, typeParamNames, typeParamsDecl, false)
 			return errSkipComponent
 		}
 		propsName = recvTypeName + c.Name + "Props"
+	}
+	if c.Recv != "" && len(typeParamNames) > 0 && !toolchainHasGenericMethods() {
+		// A generic METHOD skeleton would fail this toolchain's go/parser and
+		// abort the whole run (module_importer hard-errors on skeleton parse
+		// failures). Emit the props struct only — no func — and let
+		// genComponent record the positioned unsupported-toolchain diagnostic.
+		// Sibling call sites of this component get positioned type errors at
+		// their probes, which is the standard broken-component experience.
+		//
+		// Placed after the recv-parsing block above (an invalid receiver or a
+		// reserved receiver var already returned) so this only fires once every
+		// other defect has been ruled out — MIRRORS genComponent's guard
+		// (emit.go), which sits in the same relative position.
+		emitComponentStub(sb, c, params, true, typeParamNames, typeParamsDecl, true /*omitFunc*/)
+		return errSkipComponent
 	}
 	// BYO (author-owns-Props): the sole non-receiver param is an author-declared
 	// struct used DIRECTLY — gsx generates NO props struct. The skeleton emits the
@@ -2498,7 +2513,12 @@ func splitChunk(src string) (imports []importSpec, body string, bodyOff int, err
 // Children" type error from the overlay, masking the real diagnostic. We use the
 // SAME gating (usesChildren / usesAttrs) on the body so the stub
 // struct shape matches what siblings reference.
-func emitComponentStub(sb *strings.Builder, c *gsxast.Component, params []param, withRecv bool, typeParamNames []string, typeParamsDecl string) {
+//
+// omitFunc, when true, stops after emitting the props struct (if any) and
+// skips the func/method declaration entirely — for a generic METHOD component
+// on a toolchain whose go/parser rejects methods with type parameters, even
+// this stub's `func (recv) Name[T ...](...)` signature would fail to parse.
+func emitComponentStub(sb *strings.Builder, c *gsxast.Component, params []param, withRecv bool, typeParamNames []string, typeParamsDecl string, omitFunc bool) {
 	propsName := c.Name + "Props"
 	typeParamsUse := typeParamUse(typeParamNames)
 	// MIRROR emitComponentSkeleton: compute Children/Attrs gates from the body.
@@ -2526,6 +2546,15 @@ func emitComponentStub(sb *strings.Builder, c *gsxast.Component, params []param,
 			sb.WriteString("\tAttrs _gsxrt.Attrs\n")
 		}
 		sb.WriteString("}\n")
+	}
+	if omitFunc {
+		// A generic-method stub would itself fail to parse on a toolchain without
+		// generic methods (see toolchainHasGenericMethods) — keep the props struct
+		// (above, if any) so GoChunk imports stay used, but stop before emitting
+		// any func/method declaration.
+		return
+	}
+	if hasProps {
 		if withRecv && c.Recv != "" {
 			fmt.Fprintf(sb, "func %s %s%s(_gsxp %s%s) _gsxrt.Node { return nil }\n", c.Recv, c.Name, typeParamsDecl, propsName, typeParamsUse)
 		} else {

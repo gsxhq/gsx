@@ -11,6 +11,7 @@ import (
 	"go/types"
 	"maps"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -252,6 +253,18 @@ func genComponent(b *bytes.Buffer, c *ast.Component, resolved map[ast.Node]types
 			return false
 		}
 		propsName = recvTypeName + c.Name + "Props"
+	}
+	if c.Recv != "" && len(typeParamNames) > 0 && !toolchainHasGenericMethods() {
+		// A generic METHOD component needs a toolchain whose go/parser accepts
+		// methods with type parameters (go1.27+); older toolchains reject the
+		// emitted skeleton outright, which would otherwise hard-abort the whole
+		// run (module_importer). Skip this component with a positioned
+		// diagnostic instead — MIRRORS emitComponentSkeleton's guard
+		// (analyze.go), which sits in the same relative position (after the
+		// recv-parsing block, before the BYO check below).
+		bag.Errorf(c.Pos(), c.End(), "unsupported-toolchain",
+			"generic method components require a Go toolchain with generic methods (go1.27+); active toolchain: %s", runtime.Version())
+		return false
 	}
 
 	// BYO (author-owns-Props): the sole non-receiver param is an author-declared

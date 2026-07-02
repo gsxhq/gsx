@@ -93,7 +93,10 @@ A method component invokes another method component with `<receiver.Method .../>
 
 Method components may also declare method-owned type parameters, for example
 `component (p Page) Row[T any](value T) { ... }`, and are invoked as
-`<p.Row[int] value={1} />`. Generated Go for that form requires generic method
-support in the active Go toolchain.
+`<p.Row[int] value={1} />`. Generated Go for that form requires a go1.27+
+toolchain (the first release whose `go/parser` accepts methods with type
+parameters). On an older toolchain, gsx skips the component and reports
+`error[unsupported-toolchain]`; generation continues for the rest of the
+package.
 
 Method components are useful for page handlers: the HTTP handler builds the struct from the request, then the template methods read from it without threading data through every call. Multiple method components on the same receiver share the receiver's fields without any additional passing.

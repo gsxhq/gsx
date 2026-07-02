@@ -55,7 +55,7 @@ golden-tested `examples/*.txtar` fixtures.
 | `component X(params) { … }` | component declaration (emission body — no return) |
 | `component X[T constraint](params) { … }` | generic component declaration |
 | `component (p T) Name(params) { … }` | method component (receiver) |
-| `component (p T) Name[U constraint](params) { … }` | generic method component; requires a Go toolchain with generic method support |
+| `component (p T) Name[U constraint](params) { … }` | generic method component; requires a go1.27+ toolchain — older toolchains report `error[unsupported-toolchain]` for the component and generation continues |
 | `<div>`, `<el-dialog>` | HTML element (lowercase / hyphenated) |
 | `<Card>`, `<ui.Button>` | component (Capitalized / dotted) |
 | `<Card[T]>`, `<ui.Button[T]>`, `<p.Row[T]>` | explicit type arguments for a generic component call |
