@@ -1,0 +1,13 @@
+-- input.gsx --
+package views
+
+component Reload(secs int) {
+	<meta http-equiv="refresh" content={secs}/>
+}
+
+-- invoke --
+Reload(ReloadProps{Secs: 5})
+
+-- render.golden --
+<meta http-equiv="refresh" content="5"/>
+-- diagnostics.golden --

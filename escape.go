@@ -71,23 +71,17 @@ func skipASCIIWhitespace(s string, i int) int {
 	return i
 }
 
+// refreshContentSanitize parses a meta refresh content value with the WHATWG
+// "shared declarative refresh steps" grammar and applies urlSanitize to the
+// embedded redirect URL. Values that don't parse as a refresh directive with a
+// URL are returned unchanged.
 func refreshContentSanitize(s string) string {
 	i := skipASCIIWhitespace(s, 0)
-	startDigits := i
-	for i < len(s) && '0' <= s[i] && s[i] <= '9' {
-		i++
-	}
-	if i == startDigits {
-		if i >= len(s) || s[i] != '.' {
-			return s
-		}
-	} else if i < len(s) && s[i] == '.' {
-		i++
-	}
+	startTime := i
 	for i < len(s) && (('0' <= s[i] && s[i] <= '9') || s[i] == '.') {
 		i++
 	}
-	if i >= len(s) {
+	if i == startTime || i >= len(s) {
 		return s
 	}
 	if s[i] != ';' && s[i] != ',' && !isASCIIWhitespaceByte(s[i]) {
@@ -112,16 +106,20 @@ func refreshContentSanitize(s string) string {
 	if i >= len(s) {
 		return s
 	}
+	urlStart, urlEnd := i, len(s)
 	if s[i] == '\'' || s[i] == '"' {
 		quote := s[i]
-		urlStart := i + 1
-		urlEnd := urlStart
+		urlStart++
+		urlEnd = urlStart
 		for urlEnd < len(s) && s[urlEnd] != quote {
 			urlEnd++
 		}
-		return s[:urlStart] + urlSanitize(s[urlStart:urlEnd]) + s[urlEnd:]
 	}
-	return s[:i] + urlSanitize(s[i:])
+	url := s[urlStart:urlEnd]
+	if sanitized := urlSanitize(url); sanitized != url {
+		return s[:urlStart] + sanitized + s[urlEnd:]
+	}
+	return s
 }
 
 // cssFailsafe replaces a CSS value that could break out of its context. It

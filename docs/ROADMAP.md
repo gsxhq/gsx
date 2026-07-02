@@ -289,9 +289,16 @@ vocabulary remains a design aspiration, not the current API.
 4. [x] **Harden `urlSanitize` + complete URL-attr table** — control-char /
    whitespace scheme evasion maps to the sentinel (adversarial-probed); the
    `urlAttrs` table covers `href`/`src`/`action`/`formaction`/`poster`/`cite`/`ping`/
-   `data`/`background`/`manifest`/`xlink:href`/`hx-*`; dynamic
-   `<meta http-equiv="refresh" content={...}>` sanitizes its embedded redirect
-   URL; `<base href={...}>` is explicitly covered by the normal `href` URL path.
+   `data`/`background`/`manifest`/`xlink:href`/`hx-*`; a statically-declared
+   `<meta http-equiv="refresh" content={...}>` (static, constant-literal, or
+   conditional-branch `http-equiv`) sanitizes its embedded redirect URL
+   (WHATWG-grammar parser, differential-fuzzed via
+   `FuzzRefreshContentSanitize` against an independent spec port, OWASP
+   filter-evasion seeds); `<base href={...}>` is explicitly covered by the
+   normal `href` URL path. **Residual (accepted):** a runtime-dynamic
+   `http-equiv={expr}` keeps plain attribute escaping (pinned in corpus
+   `security/meta_refresh_dynamic_http_equiv`), and `{...attrs}` bags follow
+   the documented Spread contract (attribute-escaped, never URL-sanitized).
 5. [ ] **Split navigational vs resource URLs** in the type/filter vocabulary
    (`URL` vs `TrustedResourceURL`, à la safehtml; html/template conflates them —
    go#27926).
