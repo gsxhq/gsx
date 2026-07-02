@@ -98,6 +98,31 @@ Key points:
 | `Merge(other Attrs) Attrs` | `class`/`style` concat in place on first match; other keys overwrite the last existing match or append |
 
 A nil `Attrs` is an empty bag — safe to spread, merge, and call methods on.
+
+### Targeting the synthesized attrs bag
+
+Every component that spreads `{ attrs… }` gets a generated `Attrs gsx.Attrs`
+prop for the unmatched-attribute fallthrough bag. `attrs=&#123;&#123; "key": value &#125;&#125;`
+targets that field explicitly — the same destination as writing the attrs
+individually or letting them fall through. Lowercase `attrs` is the canonical
+spelling; capitalize-first field matching also accepts `Attrs=&#123;&#123; … &#125;&#125;` (the
+two spell the same target and render identically).
+
+When `attrs=&#123;&#123; … &#125;&#125;` appears alongside other bag contributors on the same
+call site — bare fallthrough attrs, `{ expr… }` spreads, conditional attrs —
+they compose instead of colliding. Bare/fallthrough attrs form the base bag,
+then spreads and conditional attrs merge in source order, then the
+`attrs=&#123;&#123; … &#125;&#125;` literal merges last via `Merge`, regardless of where it
+appears among the other attrs in source. A second `attrs=&#123;&#123; … &#125;&#125;` literal on
+the same element is a clean error (`ordered-attrs-duplicate`) — combine the
+pairs into one literal instead.
+
+Imported components from the same module get this treatment automatically:
+gsx discovers their declared props — including the synthesized `Attrs`
+field — during module analysis, so bare-attr fallthrough and
+`attrs=&#123;&#123; … &#125;&#125;` behave exactly as they do for same-package components. See
+[Composition — cross-file & cross-package](./composition) for what happens
+when a dependency's props cannot be discovered.
 :::
 
 ## Contextual escaping

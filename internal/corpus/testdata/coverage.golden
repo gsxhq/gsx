@@ -56,6 +56,9 @@ codegen-shape/example12_toolbar	diag render
 codegen-shape/greeting	diag gen render
 codegen-shape/style_interp	diag gen render
 codegen-shape/whitespace_collapse	diag gen render
+components/attrs_literal_duplicate_error	diag gen render
+components/attrs_literal_merge	diag gen render
+components/attrs_literal_merge_tuple	diag gen render
 components/child_class_evaluation_order	diag gen render
 components/child_class_fallthrough	diag render
 components/child_class_part_tuple	diag gen render
@@ -102,6 +105,7 @@ components/nullary_func_control_flow	diag render
 components/nullary_func_in_slot	diag render
 components/nullary_func_mixed_kordering	diag render
 components/nullary_no_props	diag gen render
+components/ordered_attrs_target_attrs	diag gen render
 control_flow/for	diag render
 control_flow/goblock	diag render
 control_flow/if_init_error_handling	diag gen render
@@ -380,7 +384,13 @@ tuple/t_nodeslice	diag gen render
 tuple/t_stringer	diag gen render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
+xpkg/go_component_attrs_literal	diag gen render
+xpkg/go_component_attrs_literal_missing	diag render
+xpkg/imported_alias_collision	diag gen render
+xpkg/imported_attrs_fallthrough	diag gen render
+xpkg/imported_attrs_literal_merge	diag gen render
+xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 385 cases (render: 297, error: 66, gen-pinned: 148)
+TOTAL: 395 cases (render: 307, error: 66, gen-pinned: 157)

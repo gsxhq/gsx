@@ -106,10 +106,19 @@ render goldens.
    root's class and the rest spreads at the root, root-wins. **Manual** `{...attrs}`:
    a body referencing `attrs` takes over placement. Covers composable `class={…}`,
    `{...spread}`, conditional `{ if }`, and pipelined values on a `<Card …>`
-   invocation, plus whole-struct splat `{ data... }`.
+   invocation, plus whole-struct splat `{ data... }`. **Cross-package/imported
+   components** (same module) get the same treatment — `2026-07-02`: per-file,
+   import-alias-scoped prop discovery matches declared fields exactly like
+   same-package calls, including the synthesized `Attrs gsx.Attrs` bag targeted
+   via an ordered-attrs literal (`attrs={{ … }}`, canonical lowercase spelling,
+   composing with other bag contributors via `.Merge` — merges last, duplicate
+   literal is a clean error). A dependency gsx cannot analyze (other modules,
+   plain Go packages, or a dep with a parse/type error) falls back to
+   assumed-prop identifier matching with a visible `imported-props-unavailable`
+   warning, replacing the prior best-effort/silent behavior.
    - **Deferred:** composable `style={…}` on a *component* invocation (works on an
-     element, or set a static `style="…"`); cross-package undeclared-identifier split
-     (best-effort); a pretty ambiguity diagnostic (today the raw Go unknown-field error).
+     element, or set a static `style="…"`); a pretty ambiguity diagnostic (today the
+     raw Go unknown-field error).
 8. [x] **Bare nullary func components** — any same-package tag whose backing func
    is nullary-by-construction is invokable as a bare `<F/>`, like a self-contained
    void element, with no `FProps` ceremony: a hand-written `func F() gsx.Node` (not a

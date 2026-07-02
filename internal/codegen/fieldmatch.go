@@ -177,6 +177,31 @@ func matchField(declared map[string]bool, attr string, fm FieldMatcher) (string,
 	return field, true
 }
 
+// matchOrderedAttrsField resolves an ordered-attrs attribute name to a props
+// struct field. Ordered-attrs literals are only valid for gsx.Attrs-like props,
+// and unlike ordinary attrs they may explicitly target the synthesized Attrs
+// field itself:
+//
+//	<Panel Attrs={{ "data-x": "1" }}>
+//
+// Ordinary attr matching still treats Attrs as special so scalar attrs named
+// "Attrs" fall through instead of being caller-set as a prop.
+func matchOrderedAttrsField(declared map[string]bool, attr string, fm FieldMatcher) (string, bool) {
+	if field, ok := matchField(declared, attr, fm); ok {
+		return field, true
+	}
+	if attrToFieldCandidate(attr) != "Attrs" {
+		return "", false
+	}
+	if declared == nil {
+		return "Attrs", true
+	}
+	if declared["Attrs"] {
+		return "Attrs", true
+	}
+	return "", false
+}
+
 // isIdentifierAttr reports whether attr is a valid Go identifier (no hyphens,
 // colons, at-signs etc.). This is used for the cross-package nil-declared path.
 func isIdentifierAttr(attr string) bool {

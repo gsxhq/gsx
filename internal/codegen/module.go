@@ -104,13 +104,14 @@ type Module struct {
 	fset             *token.FileSet             // module-wide shared FileSet (see "FileSet" / "Growth" notes above)
 	pkgTypes         map[string]*types.Package  // abs dir -> checked *types.Package cache
 	pkgResults       map[string]*PackageResult  // abs dir -> cached full analysis result (Package path only)
+	depFacts         map[string]*depPropFacts   // abs dep dir -> cached imported prop facts (see importedPropFacts)
 	imports          map[string][]string        // dir -> its project-gsx dependency dirs (forward edges)
 	importedBy       map[string]map[string]bool // dep dir -> set of importer dirs (reverse edges)
 	dirty            map[string]bool            // dirs with a pending content change (consumed by applyDirty)
 	fsetBaseline     int                        // m.fset.Base() captured after the last packages.Load (growth measured since here)
 	fsetRebuildBytes int                        // rebuild fset when fset.Base()-fsetBaseline exceeds this; 0 disables
 	rebuildCount     int                        // count of fset rebuilds performed (observability; exposed via rebuilds())
-	mu               sync.Mutex                 // guards overrides, ext, pkgTypes, pkgResults, imports, importedBy, dirty
+	mu               sync.Mutex                 // guards overrides, ext, pkgTypes, pkgResults, depFacts, imports, importedBy, dirty
 	analysisMu       sync.Mutex                 // serializes Package/Generate/typesPackage (see concurrency contract)
 }
 
@@ -145,6 +146,7 @@ func Open(opts Options) (*Module, error) {
 		overrides:        map[string][]byte{},
 		fset:             token.NewFileSet(),
 		pkgResults:       map[string]*PackageResult{},
+		depFacts:         map[string]*depPropFacts{},
 		imports:          map[string][]string{},
 		importedBy:       map[string]map[string]bool{},
 		dirty:            map[string]bool{},
@@ -341,6 +343,7 @@ func (m *Module) rebuildFset() {
 	m.filterTbl, m.filterTblErr, m.filterTblDone = filterTable{}, nil, false
 	m.pkgTypes = map[string]*types.Package{}
 	m.pkgResults = map[string]*PackageResult{}
+	m.depFacts = map[string]*depPropFacts{}
 	m.fsetBaseline = 0
 	m.rebuildCount++
 }
@@ -400,8 +403,9 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	// on every call, so there is no previously-mutated tree that could be corrupted
 	// by a concurrent or repeated generateFile pass on the same nodes.
 	if len(a.typeErrs) == 0 {
-		for _, f := range a.gsxFiles {
-			generateFile(f, a.resolved, a.table, a.propFields, a.nodeProps, a.attrsProps, a.byo,
+		for path, f := range a.gsxFiles {
+			ff := a.factsByFile[path]
+			generateFile(f, a.resolved, a.table, ff.propFields, ff.nodeProps, ff.attrsProps, ff.byo,
 				a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, a.bag, nil, nil, true, true, m.opts.ClassMerger)
 		}
 	}
@@ -452,7 +456,8 @@ func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, err
 	// flagged as undefined.
 	if len(a.typeErrs) == 0 {
 		for path, f := range a.gsxFiles {
-			gen, ok := generateFile(f, a.resolved, a.table, a.propFields, a.nodeProps, a.attrsProps, a.byo,
+			ff := a.factsByFile[path]
+			gen, ok := generateFile(f, a.resolved, a.table, ff.propFields, ff.nodeProps, ff.attrsProps, ff.byo,
 				a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.CSSMinify, m.opts.JSMinify, m.opts.ClassMerger)
 			if !ok {
 				continue

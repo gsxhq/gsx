@@ -46,6 +46,25 @@ Multiple `.gsx` files in the same package share a single Go package, so componen
 
 Cross-package calls import the other package and use its alias: `<ui.Button label="Save"/>`. The generator resolves the tag through the Go type system, so refactoring — renaming a type, moving a package — is caught by the compiler like any other Go identifier.
 
+::: v-pre
+Within the same module, gsx also discovers an imported component's declared
+props — including its synthesized `Attrs gsx.Attrs` fallthrough field —
+during module analysis, so a call like `<ui.Panel attrs=&#123;&#123; "data-a": "1" &#125;&#125;>`
+behaves exactly as it would for a same-package component: bare fallthrough
+attrs and the ordered-attrs literal split against the same declared field set
+and merge the same way (see [Attributes — ordered-attrs literal](./attributes)).
+
+For components gsx cannot analyze — packages outside the current module, or
+plain Go packages with no `.gsx` files — call-site identifier attrs are
+assumed to be prop fields instead of discovered ones, and
+`attrs=&#123;&#123; … &#125;&#125;` requires the Props type to declare an `Attrs gsx.Attrs`
+field explicitly (a missing field is a Go compile error at the generated
+call site). When a same-module dependency's props cannot be analyzed (for
+example, a parse or type error in its `.gsx` files), generation continues
+and gsx emits an `imported-props-unavailable` warning naming the dependency,
+falling back to the same assumed-prop treatment for its components.
+:::
+
 ## Explicit attribute forwarding
 
 Undeclared component attributes are rejected unless the component explicitly
