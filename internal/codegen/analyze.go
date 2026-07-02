@@ -601,7 +601,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 		// Emit a minimal stub so the overall skeleton remains valid Go, keeping
 		// any user GoChunk imports used. The parse error will be re-surfaced (with
 		// position) by genComponent at emit time.
-		emitComponentStub(sb, c, nil, stubRecv, typeParamNames, typeParamsDecl, false)
+		emitComponentStub(sb, c, nil, stubRecv, recvTypeName, typeParamNames, typeParamsDecl, false)
 		return errSkipComponent
 	}
 	if tpErr != nil {
@@ -617,7 +617,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 		// the reserved-param stub keeps params — whose types may reference the
 		// now-undeclared T — reintroducing the silent collapse. A broken
 		// type-param list makes every param type suspect, so it takes priority.
-		emitComponentStub(sb, c, nil, stubRecv, nil, "", false)
+		emitComponentStub(sb, c, nil, stubRecv, recvTypeName, nil, "", false)
 		return errSkipComponent
 	}
 	if err := checkReservedParams(params); err != nil {
@@ -625,7 +625,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 		// like gsx.Node used in the skeleton) so GoChunk imports don't spuriously
 		// trigger "imported and not used". The reserved-param error will be
 		// re-surfaced (with position) by genComponent at emit time.
-		emitComponentStub(sb, c, params, stubRecv, typeParamNames, typeParamsDecl, false)
+		emitComponentStub(sb, c, params, stubRecv, recvTypeName, typeParamNames, typeParamsDecl, false)
 		return errSkipComponent
 	}
 	typeParamsUse := typeParamUse(typeParamNames)
@@ -641,11 +641,11 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 			// Recv parse failed (hoisted parse above) — the receiver clause may be
 			// invalid Go; use a bare function stub (no receiver) to keep the
 			// skeleton valid.
-			emitComponentStub(sb, c, params, false, typeParamNames, typeParamsDecl, false)
+			emitComponentStub(sb, c, params, false, "", typeParamNames, typeParamsDecl, false)
 			return errSkipComponent
 		}
 		if rerr := checkReservedRecvVar(recvVar); rerr != nil {
-			emitComponentStub(sb, c, params, true, typeParamNames, typeParamsDecl, false)
+			emitComponentStub(sb, c, params, true, recvTypeName, typeParamNames, typeParamsDecl, false)
 			return errSkipComponent
 		}
 		propsName = recvTypeName + c.Name + "Props"
@@ -662,7 +662,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 		// reserved receiver var already returned) so this only fires once every
 		// other defect has been ruled out — MIRRORS genComponent's guard
 		// (emit.go), which sits in the same relative position.
-		emitComponentStub(sb, c, params, true, typeParamNames, typeParamsDecl, true /*omitFunc*/)
+		emitComponentStub(sb, c, params, true, recvTypeName, typeParamNames, typeParamsDecl, true /*omitFunc*/)
 		return errSkipComponent
 	}
 	// BYO (author-owns-Props): the sole non-receiver param is an author-declared
@@ -2888,8 +2888,22 @@ func splitChunk(src string) (imports []importSpec, body string, bodyOff int, err
 // skips the func/method declaration entirely — for a generic METHOD component
 // on a toolchain whose go/parser rejects methods with type parameters, even
 // this stub's `func (recv) Name[T ...](...)` signature would fail to parse.
-func emitComponentStub(sb *strings.Builder, c *gsxast.Component, params []param, withRecv bool, typeParamNames []string, typeParamsDecl string, omitFunc bool) {
+func emitComponentStub(sb *strings.Builder, c *gsxast.Component, params []param, withRecv bool, recvTypeName string, typeParamNames []string, typeParamsDecl string, omitFunc bool) {
+	// MIRROR emitComponentSkeleton's own propsName computation (and
+	// genComponent's, at emit time): a method component's props struct is
+	// named <RecvTypeName><Name>Props, not just <Name>Props. Every early-exit
+	// stub above threads recvTypeName through so this holds even when the
+	// stub is reached before (or instead of) the main propsName computation —
+	// a mismatch here means a sibling call site's caller-side inference probe
+	// (which always names the receiver-qualified props type, since it mirrors
+	// the real emitter) resolves against an undeclared type, producing a
+	// confusing "undefined: PageRowProps"-shaped hard type error that MASKS
+	// the real, positioned diagnostic (e.g. unsupported-toolchain) instead of
+	// coexisting with it — see TestGenericMethodGuardedCallSiteNoUndefinedSelector.
 	propsName := c.Name + "Props"
+	if withRecv && recvTypeName != "" {
+		propsName = recvTypeName + c.Name + "Props"
+	}
 	typeParamsUse := typeParamUse(typeParamNames)
 	// MIRROR emitComponentSkeleton: compute Children/Attrs gates from the body.
 	hasChildren := usesChildren(c.Body)
