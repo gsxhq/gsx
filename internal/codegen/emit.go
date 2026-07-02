@@ -3027,17 +3027,21 @@ func childTypeArgUse(el *ast.Element, currentPkg *types.Package, resolved map[as
 	return "[" + strings.Join(args, ", ") + "]", true
 }
 
-// unspeakableTypeArg walks t looking for a named type whose identifier is
-// unexported AND declared in a package other than currentPkg — such a type
-// cannot be spelled at all outside its declaring package (`pkg.lowerName` is
-// not valid Go syntax for referring to an unexported identifier), so
-// printing it as an inferred type argument would emit non-compiling Go.
-// Recurses through the composite type kinds a printed type argument can be
-// built from (pointer/slice/array/map/chan element types, struct fields,
-// signature params/results, interface embeddeds, and a nested generic
-// instantiation's own type arguments) so an offender buried in e.g.
-// `[]models.secret` or `map[string]models.secret` is still caught — not just
-// a bare `models.secret`. visited guards against unbounded recursion through
+// unspeakableTypeArg walks t looking for a named type (or materialized
+// alias) whose identifier is unexported AND declared in a package other than
+// currentPkg — such a type cannot be spelled at all outside its declaring
+// package (`pkg.lowerName` is not valid Go syntax for referring to an
+// unexported identifier), so printing it as an inferred type argument would
+// emit non-compiling Go. Recurses through the composite type kinds a printed
+// type argument can be built from (pointer/slice/array/map/chan element
+// types, struct fields, signature params/results, interface embeddeds AND
+// explicit method signatures, and a nested generic instantiation's own type
+// arguments) so an offender buried in e.g. `[]models.secret`,
+// `map[string]models.secret`, or `interface{ Get() models.secret }` is still
+// caught — not just a bare `models.secret`. The walk mirrors what
+// types.TypeString actually PRINTS: a Named/Alias prints only its (possibly
+// qualified) name plus type args — never its underlying/RHS — so those are
+// not recursed into. visited guards against unbounded recursion through
 // self-referential named types (e.g. `type List struct { Next *List }`).
 func unspeakableTypeArg(t types.Type, currentPkg *types.Package, visited map[types.Type]bool) (offendingPkg *types.Package, offendingName string, found bool) {
 	if t == nil || visited[t] {
@@ -3053,6 +3057,29 @@ func unspeakableTypeArg(t types.Type, currentPkg *types.Package, visited map[typ
 		}
 		// A nested generic instantiation (e.g. Box[secret]) can bury the
 		// offender in ITS OWN type arguments.
+		if targs := tt.TypeArgs(); targs != nil {
+			for typ := range targs.Types() {
+				if pkg, name, ok := unspeakableTypeArg(typ, currentPkg, visited); ok {
+					return pkg, name, ok
+				}
+			}
+		}
+		return nil, "", false
+	case *types.Alias:
+		// gotypesalias=1 is unconditional on this repo's Go version, so alias
+		// types are materialized *types.Alias nodes — and types.TypeString
+		// prints an alias by the ALIAS's OWN object name (typestring.go's
+		// `case *Alias: w.typeName(t.obj)`), never its RHS. An unexported
+		// cross-package alias name is therefore exactly as unspeakable as an
+		// unexported Named; mirror that branch. When the alias name itself is
+		// speakable, the printed form is just that name (plus any type args
+		// for a generic alias), so only the TypeArgs need recursing — the RHS
+		// is never printed.
+		if obj := tt.Obj(); obj != nil && obj.Pkg() != nil &&
+			(currentPkg == nil || obj.Pkg().Path() != currentPkg.Path()) &&
+			!token.IsExported(obj.Name()) {
+			return obj.Pkg(), obj.Name(), true
+		}
 		if targs := tt.TypeArgs(); targs != nil {
 			for typ := range targs.Types() {
 				if pkg, name, ok := unspeakableTypeArg(typ, currentPkg, visited); ok {
@@ -3097,6 +3124,17 @@ func unspeakableTypeArg(t types.Type, currentPkg *types.Package, visited map[typ
 		}
 		return unspeakableTypeArg(tt.Results(), currentPkg, visited)
 	case *types.Interface:
+		// An ANONYMOUS interface prints its explicit method SIGNATURES inline
+		// (typestring.go writes `Name(params) results` per explicit method),
+		// so an offender in a method's params or results (e.g. `interface{
+		// Get() models.secret }`) is part of the printed representation —
+		// walk each method's *types.Signature through the Signature case
+		// above, not just the embedded types.
+		for m := range tt.ExplicitMethods() {
+			if pkg, name, ok := unspeakableTypeArg(m.Type(), currentPkg, visited); ok {
+				return pkg, name, ok
+			}
+		}
 		for et := range tt.EmbeddedTypes() {
 			if pkg, name, ok := unspeakableTypeArg(et, currentPkg, visited); ok {
 				return pkg, name, ok

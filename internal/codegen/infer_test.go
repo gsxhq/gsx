@@ -523,7 +523,31 @@ func writeUnexportedTypeArgModule(t *testing.T, modName, valueExpr string) (tmp,
 	// generation with an unrelated "unrenderable" diagnostic. The prop only
 	// needs to exist for inference to run over it.
 	writeFile(t, compDir, "box.gsx", "package components\n\ncomponent Box[T any](value T) {\n\t<span>box</span>\n}\n")
-	writeFile(t, modelsDir, "models.go", "package models\n\ntype secret string\n\nfunc NewSecret() secret { return \"shh\" }\n\nfunc NewSecrets() []secret { return []secret{\"shh\"} }\n")
+	writeFile(t, modelsDir, "models.go", `package models
+
+type secret string
+
+// secretID is an unexported ALIAS (gotypesalias=1 is unconditional on this
+// repo's Go version, so go/types materializes it as *types.Alias and
+// types.TypeString prints the ALIAS's own name, not its RHS) — the walker
+// must treat it exactly like an unexported Named.
+type secretID = string
+
+func NewSecret() secret { return "shh" }
+
+func NewSecrets() []secret { return []secret{"shh"} }
+
+func NewSecretID() secretID { return "id" }
+
+type getter struct{}
+
+func (getter) Get() secret { return "shh" }
+
+// NewGetter returns an ANONYMOUS interface type: types.TypeString prints its
+// explicit method signatures inline (interface{Get() models.secret}), so the
+// walker must descend into explicit methods, not just embedded types.
+func NewGetter() interface{ Get() secret } { return getter{} }
+`)
 	writeFile(t, tmp, "post.gsx", "package "+modName+"\n\nimport (\n\t\"example.com/"+modName+"/components\"\n\tm \"example.com/"+modName+"/models\"\n)\n\ncomponent Post() {\n\t<components.Box value={"+valueExpr+"} />\n}\n")
 	writeFile(t, tmp, "other.gsx", "package "+modName+"\n\ncomponent Other() {\n\t<p>ok</p>\n}\n")
 	return tmp, compDir
@@ -531,11 +555,11 @@ func writeUnexportedTypeArgModule(t *testing.T, modName, valueExpr string) (tmp,
 
 // assertUnrenderableTypeArg asserts diags contains EXACTLY one
 // unrenderable-type-arg diagnostic, that it is Error-severity and positioned,
-// and that its message names the offending qualified type
-// ("models.secret") — mirrors assertOnlyInferenceUnavailable's shape in
+// and that its message names the offending qualified type (wantType, e.g.
+// "models.secret") — mirrors assertOnlyInferenceUnavailable's shape in
 // generic_crosspkg_test.go for the sibling (Task 4) fail-safe, adapted to
 // this Error-severity, hard-failure diagnostic.
-func assertUnrenderableTypeArg(t *testing.T, diags []diag.Diagnostic) {
+func assertUnrenderableTypeArg(t *testing.T, diags []diag.Diagnostic, wantType string) {
 	t.Helper()
 	var found int
 	for _, d := range diags {
@@ -552,8 +576,8 @@ func assertUnrenderableTypeArg(t *testing.T, diags []diag.Diagnostic) {
 		if d.Start.Line == 0 {
 			t.Errorf("unrenderable-type-arg diagnostic is not positioned: %+v", d)
 		}
-		if !strings.Contains(d.Message, "models.secret") {
-			t.Errorf("unrenderable-type-arg diagnostic does not name models.secret: %+v", d)
+		if !strings.Contains(d.Message, wantType) {
+			t.Errorf("unrenderable-type-arg diagnostic does not name %s: %+v", wantType, d)
 		}
 	}
 	if found != 1 {
@@ -586,7 +610,7 @@ func TestInferredUnexportedTypeArgRejected(t *testing.T) {
 	if diags := res[compDir].Diags; len(diags) != 0 {
 		t.Fatalf("unexpected diagnostics generating components package: %+v", diags)
 	}
-	assertUnrenderableTypeArg(t, res[tmp].Diags)
+	assertUnrenderableTypeArg(t, res[tmp].Diags, "models.secret")
 
 	for p := range res[tmp].Files {
 		if strings.HasSuffix(p, "post.gsx") {
@@ -619,7 +643,63 @@ func TestInferredUnexportedTypeArgRejectedNested(t *testing.T) {
 	if diags := res[compDir].Diags; len(diags) != 0 {
 		t.Fatalf("unexpected diagnostics generating components package: %+v", diags)
 	}
-	assertUnrenderableTypeArg(t, res[tmp].Diags)
+	assertUnrenderableTypeArg(t, res[tmp].Diags, "models.secret")
+
+	for p := range res[tmp].Files {
+		if strings.HasSuffix(p, "post.gsx") {
+			t.Fatalf("post.gsx must not have generated output; files = %+v", res[tmp].Files)
+		}
+	}
+}
+
+// TestInferredUnexportedTypeArgRejectedAlias is the ALIAS variant: the
+// constructor returns an unexported cross-package ALIAS (models.secretID =
+// string). Under this repo's Go version, gotypesalias=1 is unconditional, so
+// the inferred type argument is a materialized *types.Alias — and go/types'
+// typestring.go prints an alias by the ALIAS's OWN object name (`case
+// *Alias: w.typeName(t.obj)`), NOT its RHS. `models.secretID` is just as
+// unspeakable outside models as an unexported Named, so unspeakableTypeArg
+// needs a *types.Alias case mirroring the *types.Named one — a walker
+// without it lets the alias fall through to the default (not unspeakable),
+// prints `models.secretID`, and ships non-compiling .x.go with err == nil.
+func TestInferredUnexportedTypeArgRejectedAlias(t *testing.T) {
+	tmp, compDir := writeUnexportedTypeArgModule(t, "utara", "m.NewSecretID()")
+
+	res, err := GenerateDirs(tmp, []string{tmp, compDir}, Options{FilterPkgs: []string{stdImportPath}, CSSMinify: true, JSMinify: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diags := res[compDir].Diags; len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics generating components package: %+v", diags)
+	}
+	assertUnrenderableTypeArg(t, res[tmp].Diags, "models.secretID")
+
+	for p := range res[tmp].Files {
+		if strings.HasSuffix(p, "post.gsx") {
+			t.Fatalf("post.gsx must not have generated output; files = %+v", res[tmp].Files)
+		}
+	}
+}
+
+// TestInferredUnexportedTypeArgRejectedInterfaceMethod is the anonymous-
+// interface variant: the constructor returns an ANONYMOUS `interface{ Get()
+// secret }`, so the inferred type argument prints its explicit method
+// signatures inline (`interface{Get() models.secret}` — typestring.go writes
+// each explicit method's signature for an unnamed interface). The offender
+// hides in a METHOD RESULT, not in an embedded type, so unspeakableTypeArg's
+// Interface case must walk ExplicitMethods() (each method's *types.Signature
+// recursing through the existing Signature case), not just EmbeddedTypes().
+func TestInferredUnexportedTypeArgRejectedInterfaceMethod(t *testing.T) {
+	tmp, compDir := writeUnexportedTypeArgModule(t, "utari", "m.NewGetter()")
+
+	res, err := GenerateDirs(tmp, []string{tmp, compDir}, Options{FilterPkgs: []string{stdImportPath}, CSSMinify: true, JSMinify: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diags := res[compDir].Diags; len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics generating components package: %+v", diags)
+	}
+	assertUnrenderableTypeArg(t, res[tmp].Diags, "models.secret")
 
 	for p := range res[tmp].Files {
 		if strings.HasSuffix(p, "post.gsx") {
@@ -648,7 +728,7 @@ func TestInferredUnexportedTypeArgRejectedOutputBuilds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertUnrenderableTypeArg(t, res[tmp].Diags)
+	assertUnrenderableTypeArg(t, res[tmp].Diags, "models.secret")
 
 	for _, r := range res {
 		for gsxPath, src := range r.Files {
