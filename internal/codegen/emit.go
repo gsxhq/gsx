@@ -378,7 +378,7 @@ func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]typ
 	// AUTO mode: there is no author `{...attrs}`, so the bag spreads at the END and
 	// every root attr is overridable. splitIdx == len(el.Attrs) means "all attrs
 	// precede the (synthetic) spread" → all guarded.
-	if !emitFallthroughAttrs(b, el.Attrs, len(el.Attrs), resolved, table, imports, interpTemp, cls, bag, mergeExpr, "_gsxp.Attrs") {
+	if !emitFallthroughAttrs(b, el.Attrs, len(el.Attrs), resolved, table, imports, interpTemp, cls, bag, mergeExpr, "_gsxp.Attrs", nil) {
 		return false
 	}
 	if el.Void {
@@ -425,7 +425,7 @@ func emitRootElement(b *bytes.Buffer, el *ast.Element, resolved map[ast.Node]typ
 // (ClassMerged / StyleMerged), emitted once at the spread position. The author's
 // `{...attrs}` SpreadAttr itself (when present at splitIdx) is consumed here, not
 // emitted via emitAttr.
-func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, bag *diag.Bag, mergeExpr, bagExpr string) bool {
+func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, bag *diag.Bag, mergeExpr, bagExpr string, nonce *nonceInjection) bool {
 	// Find a composed/static class attr to merge the bag's class into, and a
 	// composed/static style attr whose declarations the bag's style merges over.
 	var classAttr *ast.ClassAttr    // composed class={ … }
@@ -462,14 +462,14 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			// No single static name (Cond) — no caller-wins shadow target; emit
 			// unguarded. (A SpreadAttr at the split position is consumed below, not
 			// here.)
-			return emitAttr(b, a, resolved, table, imports, interpTemp, cls, bag, mergeExpr, nil)
+			return emitAttr(b, a, resolved, table, imports, interpTemp, cls, bag, mergeExpr, nonce)
 		}
 		if !guarded {
 			forcedNames = append(forcedNames, name)
-			return emitAttr(b, a, resolved, table, imports, interpTemp, cls, bag, mergeExpr, nil)
+			return emitAttr(b, a, resolved, table, imports, interpTemp, cls, bag, mergeExpr, nonce)
 		}
 		fmt.Fprintf(b, "\t\tif !%s.Has(%s) {\n", bagExpr, strconv.Quote(name))
-		if !emitAttr(b, a, resolved, table, imports, interpTemp, cls, bag, mergeExpr, nil) {
+		if !emitAttr(b, a, resolved, table, imports, interpTemp, cls, bag, mergeExpr, nonce) {
 			return false
 		}
 		b.WriteString("\t\t}\n")
@@ -500,7 +500,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			fmt.Fprintf(b, "\t\t\t_gsxgw.StyleMerged(%s, %s.Style())\n", styleStr, bagExpr)
 			b.WriteString("\t\t} else {\n")
 			if staticStyle != nil {
-				if !emitAttr(b, staticStyle, resolved, table, imports, interpTemp, cls, bag, mergeExpr, nil) {
+				if !emitAttr(b, staticStyle, resolved, table, imports, interpTemp, cls, bag, mergeExpr, nonce) {
 					return false
 				}
 			} else {
@@ -571,7 +571,12 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			if !ok {
 				return false
 			}
-			fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", spreadExpr)
+			if tmp, hoisted := nonce.tempFor(t); hoisted {
+				fmt.Fprintf(b, "\t\t%s = %s\n", tmp, spreadExpr)
+				fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", tmp)
+			} else {
+				fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", spreadExpr)
+			}
 			continue
 		}
 		if i < splitIdx {
@@ -606,9 +611,14 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 // unique by the caller).
 func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
 	emitS(b, "<"+el.Tag)
-	if !emitFallthroughAttrs(b, el.Attrs, splitIdx, resolved, table, imports, interpTemp, cls, bag, mergeExpr, "attrs") {
+	ni := newNonceInjection(b, el.Tag, el.Attrs, interpTemp, el.Attrs[splitIdx])
+	if ni != nil {
+		ni.extra = []string{"attrs"}
+	}
+	if !emitFallthroughAttrs(b, el.Attrs, splitIdx, resolved, table, imports, interpTemp, cls, bag, mergeExpr, "attrs", ni) {
 		return false
 	}
+	ni.emitGuard(b)
 	if el.Void {
 		emitS(b, "/>")
 		return true

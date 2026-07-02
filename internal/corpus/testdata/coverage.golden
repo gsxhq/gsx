@@ -212,6 +212,9 @@ nonce/cond_attr_nonce	diag render
 nonce/div_control	diag render
 nonce/explicit_expr_wins	diag render
 nonce/explicit_static_wins	diag render
+nonce/manual_spread	diag gen render
+nonce/manual_spread_style	diag render
+nonce/manual_spread_with_nonce	diag render
 nonce/no_nonce_ctx	diag render
 nonce/script_basic	diag gen render
 nonce/script_json_island	diag render
@@ -371,4 +374,4 @@ xpkg/cross_package	diag render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 373 cases (render: 285, error: 66, gen-pinned: 143)
+TOTAL: 376 cases (render: 288, error: 66, gen-pinned: 144)
