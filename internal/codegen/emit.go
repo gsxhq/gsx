@@ -1051,7 +1051,14 @@ func emitRender(b *bytes.Buffer, expr string, t types.Type, imports map[string]b
 		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s)\n", expr)
 	case catNodeSlice:
 		fmt.Fprintf(b, "\t\tfor _, _gsxn := range %s {\n\t\t\t_gsxgw.Node(ctx, _gsxn)\n\t\t}\n", expr)
+	case catAnyMixed:
+		fmt.Fprintf(b, "\t\t_gsxgw.TextAny(%s)\n", expr)
 	default:
+		if tp, ok := types.Unalias(t).(*types.TypeParam); ok {
+			bag.Errorf(n.Pos(), n.End(), "unrenderable",
+				"interpolation %q has type parameter %s (constraint %s): only same-kind or all-non-tilde renderable constraints render directly — convert explicitly in the expression", expr, t, tp.Constraint())
+			return false
+		}
 		bag.Errorf(n.Pos(), n.End(), "unrenderable", "interpolation %q has type %s; not a renderable type", expr, t)
 		return false
 	}
@@ -1913,7 +1920,14 @@ func emitAttrValue(b *bytes.Buffer, expr string, t types.Type, imports map[strin
 		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(strconv.FormatFloat(float64(%s), 'g', -1, 64))\n", expr)
 	case catStringer:
 		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue((%s).String())\n", expr)
+	case catAnyMixed:
+		fmt.Fprintf(b, "\t\t_gsxgw.AttrAny(%s)\n", expr)
 	default:
+		if tp, ok := types.Unalias(t).(*types.TypeParam); ok {
+			bag.Errorf(n.Pos(), n.End(), "unsupported-attr-type",
+				"attribute value %q has type parameter %s (constraint %s): only same-kind or all-non-tilde renderable constraints render directly — convert explicitly in the expression", expr, t, tp.Constraint())
+			return false
+		}
 		bag.Errorf(n.Pos(), n.End(), "unsupported-attr-type", "attribute value type %s not supported (string/number/bool/Stringer only)", t)
 		return false
 	}
