@@ -266,11 +266,40 @@ func (r *inferRegistry) emitInferProbe(sb *strings.Builder, el *gsxast.Element,
 //	depAlias:   the caller's import alias/name for the dep package ("components")
 //	depImports: the dep FILE's import specs (alias -> path), so `pq.T` in dep
 //	            context can be re-imported by the caller under a fresh alias
+//	declared:   type-param names bound in src's scope — for a component
+//	            param's typeSrc, the component's OWN type-param names
+//	            (parseTypeParamNames(c.TypeParams)). These stay bare: `T` in
+//	            `[]T` names the probe helper's type parameter, NOT a dep
+//	            type. The caller MUST supply this set for a generic
+//	            component's param types; with it empty/nil, `[]T` is
+//	            misqualified to `[]<depAlias>.T`, which — if the dep happens
+//	            to export a same-named type — COMPILES pointing at the wrong
+//	            type (silent corruption; the trap is pinned by the
+//	            "shadowing trap" test case).
 //	addImport:  callback registering an extra skeleton import (path, alias);
 //	            alias "" = plain import
 //
 // Returns an error for any unexported ident that would need qualification
-// (unspeakable outside the dep) and for exprs it cannot parse.
+// (unspeakable outside the dep), for exprs it cannot parse, and for a
+// qualifier that cannot be resolved in depImports — including an AMBIGUOUS
+// resolution (two or more unaliased dep imports whose paths end in the same
+// segment): the engine fails safe instead of guessing, because a wrong pick
+// yields a broken (or worse, silently wrong) skeleton with no diagnostic
+// pointing at the cause. See lookupDepImportPath for the resolution rules:
+// unaliased imports are matched by the path's LAST SEGMENT (the conventional
+// default package identifier), which is a heuristic — a package whose
+// declared name differs from its path's last segment is misresolved (or
+// unresolved). Once the cross-package task has go/types-loaded dep packages
+// available, callers should supply types-resolved package names in
+// depImports (spec.name filled from types.Package.Name()) so the heuristic
+// is never consulted.
+//
+// KNOWN LIMITATION — dot imports: a bare ident the dep file pulled in via a
+// dot import (`import . "example.com/x"`) is textually indistinguishable
+// from a dep-local type here, so it is qualified as `<depAlias>.X` — the
+// wrong package. Dep components whose signatures rely on dot-imported names
+// are unsupported by this engine (resolving them needs go/types scope
+// information this pure, standalone pass deliberately does not load).
 //
 // Deviation from the brief's suggested implementation: the brief describes
 // parsing src via the `type _t = <src>` file trick (matching
@@ -287,14 +316,14 @@ func (r *inferRegistry) emitInferProbe(sb *strings.Builder, el *gsxast.Element,
 // (parseTypeParamFieldList, i.e. `func _[<decl>]() {}`) exactly as the brief
 // specifies, because a type-param FIELD LIST legitimately allows union/tilde
 // constraint syntax in that grammar position.
-func requalifyTypeExpr(src, depAlias string, depImports []importSpec, addImport func(path, alias string)) (string, error) {
+func requalifyTypeExpr(src, depAlias string, depImports []importSpec, declared map[string]bool, addImport func(path, alias string)) (string, error) {
 	src = strings.TrimSpace(src)
 	expr, err := parser.ParseExpr(src)
 	if err != nil {
 		return "", fmt.Errorf("codegen: parse type expr %q: %w", src, err)
 	}
 	mint := newAliasMinter(depImports, addImport)
-	rewritten, err := rewriteTypeNode(expr, depAlias, nil, mint)
+	rewritten, err := rewriteTypeNode(expr, depAlias, declared, mint)
 	if err != nil {
 		return "", err
 	}
@@ -317,6 +346,17 @@ func requalifyTypeExpr(src, depAlias string, depImports []importSpec, addImport 
 // each field's constraint with the same walker requalifyTypeExpr uses, and
 // prints each field back as "name1, name2 Constraint", joined by ", " to
 // match the original decl's comma-separated shape.
+//
+// Unlike requalifyTypeExpr there is no declared parameter: the declared set
+// IS the decl list's own names, collected here. Error paths and limits are
+// shared with requalifyTypeExpr and documented there in full: unexported
+// idents needing qualification are rejected; a constraint's qualifier that
+// cannot be resolved in depImports — or resolves ambiguously (two unaliased
+// dep imports sharing a last path segment) — is an error rather than a
+// guess; unaliased dep imports are matched by last path segment (callers
+// should fill spec.name from types.Package.Name() once loaded packages are
+// available); dep files whose constraints rely on dot-imported bare names
+// are unsupported (misqualified as <depAlias>.X).
 func requalifyTypeParams(decl, depAlias string, depImports []importSpec, addImport func(path, alias string)) (string, error) {
 	decl = strings.TrimSpace(decl)
 	if decl == "" {
@@ -601,10 +641,11 @@ func newAliasMinter(depImports []importSpec, addImport func(path, alias string))
 // explicit alias), minting and registering (via addImport) a new "_gsxtiN"
 // alias the first time a given import PATH is seen by this minter, and
 // reusing it for any later qualifier that resolves to the same path.
+// Unresolvable and ambiguous qualifiers are errors (see lookupDepImportPath).
 func (m *aliasMinter) resolve(qualifier string) (string, error) {
-	path, ok := lookupDepImportPath(m.depImports, qualifier)
-	if !ok {
-		return "", fmt.Errorf("codegen: cannot resolve import for type qualifier %s", qualifier)
+	path, err := lookupDepImportPath(m.depImports, qualifier)
+	if err != nil {
+		return "", err
 	}
 	if alias, ok := m.byPath[path]; ok {
 		return alias, nil
@@ -618,23 +659,42 @@ func (m *aliasMinter) resolve(qualifier string) (string, error) {
 
 // lookupDepImportPath resolves qualifier (a package identifier as spelled in
 // the dep file's source) to its import path within depImports. An explicit
-// alias/name match is tried first; failing that, a plain import (name == "")
-// matches if qualifier equals the import path's last "/"-separated segment
-// — the conventional default package identifier for an unaliased import,
-// and the only signal available here short of loading the dep import's own
-// package clause (out of scope for this pure, standalone engine).
-func lookupDepImportPath(depImports []importSpec, qualifier string) (string, bool) {
+// alias/name match is tried first (exact, and unambiguous by construction —
+// Go rejects a file binding one name to two imports); failing that, a plain
+// import (name == "") matches if qualifier equals the import path's last
+// "/"-separated segment — the conventional default package identifier for an
+// unaliased import, and the only signal available here short of loading the
+// dep import's own package clause (out of scope for this pure, standalone
+// engine; callers with go/types-loaded deps should pre-fill spec.name from
+// types.Package.Name() so this heuristic is never consulted).
+//
+// Because the last-segment match IS a heuristic, it fails safe: if MORE THAN
+// ONE unaliased import's path ends in the qualifier's segment (legal in the
+// dep file only when their declared package names differ — e.g.
+// "example.com/a/util" + "example.com/b/util" where one declares `package
+// utilx`), picking either would silently qualify the caller's skeleton
+// against the wrong package with no diagnostic pointing at the cause, so an
+// ambiguity error is returned instead.
+func lookupDepImportPath(depImports []importSpec, qualifier string) (string, error) {
 	for _, spec := range depImports {
 		if spec.name != "" && spec.name == qualifier {
-			return spec.path, true
+			return spec.path, nil
 		}
 	}
+	var matches []string
 	for _, spec := range depImports {
 		if spec.name == "" && pathBase(spec.path) == qualifier {
-			return spec.path, true
+			matches = append(matches, spec.path)
 		}
 	}
-	return "", false
+	switch len(matches) {
+	case 1:
+		return matches[0], nil
+	case 0:
+		return "", fmt.Errorf("codegen: cannot resolve import for type qualifier %s", qualifier)
+	default:
+		return "", fmt.Errorf("codegen: ambiguous import for type qualifier %s: %s", qualifier, strings.Join(matches, ", "))
+	}
 }
 
 // pathBase returns the last "/"-separated segment of an import path (its

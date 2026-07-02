@@ -231,9 +231,11 @@ type importCall struct{ path, alias string }
 // TestRequalifyTypeExpr is the brief's table test for requalifyTypeExpr: a
 // single type expression written in a dep package's file context, rewritten
 // for the calling file's skeleton. Covers every case in the task-3 brief plus
-// a few edge cases (pointer/func recursion, explicit import alias, alias
-// reuse across repeated qualifiers within one call, unresolvable qualifier,
-// bare predeclared name) exercised beyond the brief's own table.
+// edge cases beyond it (pointer/func recursion, explicit import alias, alias
+// reuse across repeated qualifiers within one call, unresolvable and
+// AMBIGUOUS qualifiers, bare predeclared name, and the declared-set contract:
+// a component's own type-param name stays bare when supplied, and the
+// shadowing trap when the caller fails to supply it is pinned explicitly).
 func TestRequalifyTypeExpr(t *testing.T) {
 	fmtImport := []importSpec{{name: "", path: "fmt"}}
 	pqImport := []importSpec{{name: "pq", path: "example.com/mod/other"}}
@@ -243,6 +245,7 @@ func TestRequalifyTypeExpr(t *testing.T) {
 		src         string
 		depAlias    string
 		depImports  []importSpec
+		declared    map[string]bool
 		want        string
 		wantErr     string // substring; "" means no error expected
 		wantImports []importCall
@@ -338,13 +341,47 @@ func TestRequalifyTypeExpr(t *testing.T) {
 			depImports: fmtImport,
 			wantErr:    "unexported type stringer",
 		},
+		{
+			name:       "ambiguous last-segment match across two unaliased imports is an error",
+			src:        "util.Thing",
+			depAlias:   "components",
+			depImports: []importSpec{{name: "", path: "example.com/a/util"}, {name: "", path: "example.com/b/util"}},
+			wantErr:    "ambiguous import for type qualifier util",
+		},
+		{
+			name:     "declared type-param name stays bare",
+			src:      "[]T",
+			depAlias: "components",
+			declared: map[string]bool{"T": true},
+			want:     "[]T",
+		},
+		{
+			name:     "declared type-param name stays bare while dep-locals still qualify",
+			src:      "map[T]Row",
+			depAlias: "components",
+			declared: map[string]bool{"T": true},
+			want:     "map[T]components.Row",
+		},
+		{
+			// The SHADOWING TRAP, pinned deliberately: without the declared set
+			// the engine cannot tell a component's own type-param name from a
+			// dep-local exported type, so `[]T` misqualifies to
+			// `[]components.T` — which COMPILES (pointing at the wrong type) if
+			// the dep exports a T. The caller MUST supply the component's
+			// type-param name set (parseTypeParamNames) for param typeSrc.
+			name:     "shadowing trap: empty declared set misqualifies a type-param name",
+			src:      "[]T",
+			depAlias: "components",
+			declared: map[string]bool{},
+			want:     "[]components.T",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var calls []importCall
 			addImport := func(path, alias string) { calls = append(calls, importCall{path, alias}) }
-			got, err := requalifyTypeExpr(tt.src, tt.depAlias, tt.depImports, addImport)
+			got, err := requalifyTypeExpr(tt.src, tt.depAlias, tt.depImports, tt.declared, addImport)
 			if tt.wantErr != "" {
 				if err == nil {
 					t.Fatalf("requalifyTypeExpr(%q) = %q, nil; want error containing %q", tt.src, got, tt.wantErr)
