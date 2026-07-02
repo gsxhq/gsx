@@ -138,7 +138,7 @@ func skipQuotedOrComment(src string, i int) (int, bool) {
 			return i, true
 		case '*':
 			i += 2
-			for i+1 < len(src) && !(src[i] == '*' && src[i+1] == '/') {
+			for i+1 < len(src) && (src[i] != '*' || src[i+1] != '/') {
 				i++
 			}
 			if i+1 < len(src) {

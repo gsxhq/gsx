@@ -173,9 +173,10 @@ func (gw *Writer) Spread(ctx context.Context, a Attrs) {
 		if last[kv.Key] != i {
 			continue
 		}
-		if kv.Key == "class" {
+		switch kv.Key {
+		case "class":
 			kv.Value = a.Class()
-		} else if kv.Key == "style" {
+		case "style":
 			kv.Value = a.Style()
 		}
 		if b, ok := kv.Value.(bool); ok {

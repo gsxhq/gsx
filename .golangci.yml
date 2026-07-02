@@ -24,6 +24,7 @@ linters:
     staticcheck:
       checks:
         - SA*
+        - QF*
 
 issues:
   max-issues-per-linter: 0

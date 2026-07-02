@@ -158,7 +158,8 @@ func isExportedIdent(s string) bool {
 		return false
 	}
 	for _, c := range s[1:] {
-		if !(c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+		isIdentChar := c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+		if !isIdentChar {
 			return false
 		}
 	}

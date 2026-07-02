@@ -20,6 +20,8 @@ Any syntax change should be accompanied by rigorous tests, documentation and sib
 - ../vscode-gsx
 - ../gsxhq.github.io/ CodeMirror & VitePress syntax
 
+Run `make lint`
+
 ## Testing — the txtar corpus is canonical
 
 `internal/corpus/testdata/cases/**/*.txtar` is the authoritative syntax reference (parsed → generated → rendered → goldens pinned). Learn syntax from there, not from prose; Also `examples/*.txtar`
