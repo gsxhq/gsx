@@ -70,7 +70,7 @@ func TestLoadConfig_Minify(t *testing.T) {
 	}
 
 	// Invalid level → error naming the key.
-	if _, err := loadConfig(writeTOML(t, "[minify]\ncss = \"agressive\"\n")); err == nil {
+	if _, err := loadConfig(writeTOML(t, "[minify]\ncss = \"not-a-level\"\n")); err == nil {
 		t.Fatal("invalid minify.css should error")
 	}
 }
