@@ -285,8 +285,12 @@ func (*BoolAttr) attrNode() {}
 // Interp.Stages — the lowered result is the spread/splat subject.
 type SpreadAttr struct {
 	span
-	Expr   string
-	Stages []PipeStage
+	Expr string
+	// ExprPos is the position of the first char of Expr in source, for LSP
+	// cursor mapping. It is NoPos when Expr's text differs from the source
+	// bytes (a parenthesized pipeline unwrapped by the parser).
+	ExprPos token.Pos
+	Stages  []PipeStage
 }
 
 func (*SpreadAttr) attrNode() {}
@@ -356,8 +360,9 @@ func (*ForMarkup) markupNode() {}
 // SwitchMarkup is `{ switch Tag { Cases } }`. Tag is "" for a tagless switch.
 type SwitchMarkup struct {
 	span
-	Tag   string
-	Cases []*CaseClause
+	Tag    string
+	TagPos token.Pos // first char of Tag in source (NoPos for a tagless switch)
+	Cases  []*CaseClause
 }
 
 func (*SwitchMarkup) markupNode() {}
@@ -368,6 +373,7 @@ func (*SwitchMarkup) markupNode() {}
 type CaseClause struct {
 	span
 	List    string
+	ListPos token.Pos // first char of List in source (NoPos for `default:`)
 	Default bool
 	Body    []Markup
 }
@@ -376,9 +382,10 @@ type CaseClause struct {
 // Then and Else are attribute lists; an `else if` is Else = []Attr{<*CondAttr>}.
 type CondAttr struct {
 	span
-	Cond string
-	Then []Attr
-	Else []Attr
+	Cond    string
+	CondPos token.Pos // first char of Cond text in source (NoPos if unavailable)
+	Then    []Attr
+	Else    []Attr
 }
 
 func (*CondAttr) attrNode() {}
@@ -395,8 +402,14 @@ func (*CondAttr) attrNode() {}
 // and CSSSegments are unused.
 type ClassPart struct {
 	span
-	Expr        string
-	Cond        string
+	Expr string
+	// ExprPos is the position of the first char of Expr (the pipe seed) in
+	// source (NoPos for CSS-literal and value-form parts, which have no Expr).
+	ExprPos token.Pos
+	Cond    string
+	// CondPos is the position of the first char of the `: cond` guard text in
+	// source (NoPos when Cond == "").
+	CondPos     token.Pos
 	Stages      []PipeStage
 	CSSSegments []Markup
 	CF          *ValueCF
@@ -417,8 +430,9 @@ func (*ClassAttr) attrNode() {}
 // type harvest + diagnostics) but neither Markup nor Attr.
 type ValueArm struct {
 	span
-	Expr   string
-	Stages []PipeStage
+	Expr    string
+	ExprPos token.Pos // first char of Expr (the pipe seed) in source
+	Stages  []PipeStage
 }
 
 // ValueIf is the value-producing `if Cond { Then } [else if … | else { Else }]`
@@ -437,8 +451,9 @@ type ValueIf struct {
 // Tag is "" for a tagless switch.
 type ValueSwitch struct {
 	span
-	Tag   string
-	Cases []*ValueSwitchCase
+	Tag    string
+	TagPos token.Pos // first char of Tag in source (NoPos for a tagless switch)
+	Cases  []*ValueSwitchCase
 }
 
 // ValueSwitchCase is one `case List:` / `default:` arm of a ValueSwitch. List is
@@ -446,6 +461,7 @@ type ValueSwitch struct {
 type ValueSwitchCase struct {
 	span
 	List    string
+	ListPos token.Pos // first char of List in source (NoPos for `default:`)
 	Default bool
 	Value   *ValueArm
 }

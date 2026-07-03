@@ -69,6 +69,18 @@ func (s *Server) handleHover(f frame) error {
 	if node == nil {
 		return s.reply(f.ID, nil)
 	}
+	// H3: an identifier inside a CtrlMap-bridged span — a for/if/{{ }} clause,
+	// switch tag or case list, in-tag conditional-attribute cond, class guard
+	// cond, or value-form control expression — hovers like the same identifier
+	// in Go. Checked before the pipeline path: a ClassPart's `: cond` guard is
+	// a ctrl span even when the part's expr carries a pipeline.
+	if isCtrlSpan(node, exprPos) {
+		if obj, idStart, idLen, ok := ctrlObjectAt(pkg, node, exprPos, off); ok {
+			rng := rangeForSpan(text, idStart, idStart+idLen, s.enc)
+			return s.reply(f.ID, Hover{Contents: markdownGo(types.ObjectString(obj, qualifierFor(pkg))), Range: &rng})
+		}
+		return s.reply(f.ID, nil)
+	}
 	if hasPipeStages(node) {
 		if obj, span, ok := pipedTarget(pkg, node, exprPos, off); ok {
 			rng := rangeForSpan(text, span[0], span[1], s.enc)
@@ -120,13 +132,22 @@ func markdownGo(s string) MarkupContent {
 	return MarkupContent{Kind: "markdown", Value: "```go\n" + s + "\n```"}
 }
 
-// exprText returns the Go-expression source of an Interp / ExprAttr node.
+// exprText returns the Go-expression source of an ExprMap-bridged node — the
+// text whose source bytes start at the node's expr span (see nodeNavSpans).
 func exprText(n gsxast.Node) string {
 	switch e := n.(type) {
 	case *gsxast.Interp:
 		return e.Expr
 	case *gsxast.ExprAttr:
 		return e.Expr
+	case *gsxast.SpreadAttr:
+		return e.Expr
+	case *gsxast.ClassPart:
+		return e.Expr
+	case *gsxast.ValueArm:
+		return e.Expr
+	case *gsxast.OrderedPair:
+		return e.Value
 	}
 	return ""
 }

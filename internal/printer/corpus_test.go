@@ -128,13 +128,37 @@ func zeroSpans(n ast.Node) {
 			case *ast.Element:
 				v.CloseNamePos = 0
 				v.TypeArgsPos = 0
+			case *ast.SpreadAttr:
+				v.ExprPos = 0
+				for i := range v.Stages {
+					v.Stages[i].NamePos = 0
+					v.Stages[i].ArgsPos = 0
+				}
+			case *ast.ClassPart:
+				v.ExprPos = 0
+				v.CondPos = 0
+				for i := range v.Stages {
+					v.Stages[i].NamePos = 0
+					v.Stages[i].ArgsPos = 0
+				}
+			case *ast.CondAttr:
+				v.CondPos = 0
 			case *ast.ForMarkup:
 				v.ClausePos = 0
 			case *ast.IfMarkup:
 				v.CondPos = 0
+			case *ast.SwitchMarkup:
+				v.TagPos = 0
+			case *ast.CaseClause:
+				v.ListPos = 0
 			case *ast.ValueIf:
 				v.CondPos = 0
+			case *ast.ValueSwitch:
+				v.TagPos = 0
+			case *ast.ValueSwitchCase:
+				v.ListPos = 0
 			case *ast.ValueArm:
+				v.ExprPos = 0
 				for i := range v.Stages {
 					v.Stages[i].NamePos = 0
 					v.Stages[i].ArgsPos = 0
