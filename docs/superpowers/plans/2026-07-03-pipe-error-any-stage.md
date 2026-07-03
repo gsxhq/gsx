@@ -202,7 +202,7 @@ git commit -m "test(corpus): per-case filterPackages + render-error capture"
 **Interfaces:**
 - Produces: `filterEntry.hasErr bool` — true iff the harvested func's results are `(R, error)`. Task 3 reads it in `lowerPipe`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `internal/codegen/filters_test.go` add a test that harvests a tiny in-memory package (follow the file's existing harvest-test fixture pattern — there are existing tests loading filter packages from a temp module; copy that setup):
 
@@ -238,16 +238,16 @@ func Generic[T any](s []T) (T, error) { var z T; return z, nil }
 
 (`harvestFixture` = whatever helper the existing tests use to build a `filterTable` from source; write a small one against `loadFilterTableMulti` + a temp module if none exists.)
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `go test ./internal/codegen -run TestHarvestHasErr -v`
 Expected: FAIL — `e.hasErr undefined`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `filterEntry` gains `hasErr bool` (comment: the filter returns `(R, error)` and needs stage-hoisting when non-final). In `harvestFilters`, where each entry is built from the classified signature, set `hasErr: sig.Results().Len() == 2` (the contract already validated result shapes in `classifyFilter`). Set it on the `WithFilter` alias path too (same function handles both — verify).
 
-- [ ] **Step 4: Run tests, commit**
+- [x] **Step 4: Run tests, commit**
 
 Run: `go test ./internal/codegen -run 'TestHarvest|TestFilter' && make check`
 Expected: PASS (pure addition, no golden changes).
