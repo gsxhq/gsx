@@ -2243,7 +2243,8 @@ func classPartExpr(p ast.ClassPart, a *ast.ClassAttr, table filterTable, imports
 // piped, so only the part's Expr/Stages are lowered. wrap is the lowerPipe hook
 // for a mid-stage (R, error) filter: callers pass emitPipeWrap in emit mode,
 // probePipeWrap in skeleton mode, or thunkPipeWrap inside a cond-attr branch
-// thunk (b is always a real, non-nil buffer — see classEntryExpr's doc).
+// thunk — always non-nil (the buffer each hoisting wrap closes over is the
+// caller's; see classEntryExpr's doc).
 func lowerClassPartSeed(p ast.ClassPart, table filterTable, wrap func(string) string) (string, map[string]string, error) {
 	if len(p.Stages) == 0 {
 		return strings.TrimSpace(p.Expr), nil, nil

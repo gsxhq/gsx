@@ -87,8 +87,9 @@ branch class parts and value-form CF arms were ALREADY type-harvested —
 the whole `AttrsCond(...)` call in the props probe without a per-value
 harvest probe). The class-part raw-leak was therefore an emit-side bug, not
 a probe gap: `condBranchAttrs` hardcoded `nil, nil, nil` into
-`classEntryExpr`'s `b`/`interpTemp`/`wrap` params for the class path
-regardless of what `resolved` already knew — Task 3 wired those through.
+`classEntryExpr`'s `b`/`interpTemp`/`resolved` params for the class path
+regardless of what the harvest already knew (`wrap` did not exist as a
+parameter until Task 3 added it) — Task 3 wired those through.
 
 ### 4. Out of scope (unchanged)
 
