@@ -8,7 +8,6 @@ package filters
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 )
 
@@ -21,15 +20,6 @@ func First[T any](s []T) (T, error) {
 	return s[0], nil
 }
 
-// Rev reverses a slice (no error) — a generic pass-through stage.
-func Rev[T any](s []T) []T {
-	out := make([]T, len(s))
-	for i, v := range s {
-		out[len(s)-1-i] = v
-	}
-	return out
-}
-
 // Parse splits a comma-separated list; fails on empty input.
 func Parse(s string) ([]string, error) {
 	if s == "" {
@@ -37,8 +27,6 @@ func Parse(s string) ([]string, error) {
 	}
 	return strings.Split(s, ","), nil
 }
-
-var _ = fmt.Sprintf
 -- input.gsx --
 package views
 

@@ -1,0 +1,54 @@
+# A composable class part with a mid-stage (R, error) filter inside a
+# component conditional-attr branch. Unlike an ExprAttr pipeline in the same
+# position (see cond_attr_branch_mid_stage.txtar, which lowers to a
+# statement-form if/else and works), a class part in this position has no
+# working path today: the probe/skeleton phase always lowers a branch via the
+# thunk form (condAttrsExpr), never the statement form, regardless of
+# condBranchNeedsHoist — so classEntryExpr's wrap stays nil and the mid-stage
+# hasErr class part is rejected before the real emitter ever gets a chance to
+# hoist it. This pins the current, positioned rejection message. Full support
+# is tracked as a known gap in docs/ROADMAP.md (same root cause also lets a
+# plain tuple-returning or final-stage-error class part in this position leak
+# a raw go/types error instead of a clean diagnostic — not pinned here, a
+# go/types message is noise to pin).
+-- gsx.toml --
+filterPackages = ["./filters"]
+-- filters/filters.go --
+package filters
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
+
+// Parse splits a comma-separated list; fails on empty input.
+func Parse(s string) ([]string, error) {
+	if s == "" {
+		return nil, errors.New("parse: empty input")
+	}
+	return strings.Split(s, ","), nil
+}
+
+// Pick returns element i; fails when out of range.
+func Pick(s []string, i int) (string, error) {
+	if i < 0 || i >= len(s) {
+		return "", fmt.Errorf("pick: index %d out of range", i)
+	}
+	return s[i], nil
+}
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Card(title gsx.Node) { <div { attrs... }>{title}</div> }
+
+component Page(hot bool, csv string) {
+	<Card title="Hi" { if hot { class={ csv |> parse |> pick(0) } } } />
+}
+-- invoke --
+Page(PageProps{Hot: true, Csv: "a,b"})
+-- diagnostics.golden --
+8:37: class pipelines with a failing stage in a conditional-attr branch on a component are not supported yet
+-- render.golden --

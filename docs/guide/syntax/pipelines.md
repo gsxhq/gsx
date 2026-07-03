@@ -58,7 +58,7 @@ if err != nil {
 // join(v, " ") continues the chain — its result is what gets rendered
 ```
 
-When a stage's error is non-nil, the chain **halts right there**: later stages are never invoked, and the error returns from the component's render — the same semantics as the single-expression `(T, error)` unwrap (see [Interpolation → `(T, error)` unwrap](./interpolation)). This holds in every context a pipeline can appear: text, attributes, composable `class`/`style` parts, spread values, child-component props, and conditional-attribute branches.
+When a stage's error is non-nil, the chain **halts right there**: later stages are never invoked, and the error returns from the component's render — the same semantics as the single-expression `(T, error)` unwrap (see [Interpolation → `(T, error)` unwrap](./interpolation)). This holds in every context a pipeline can appear: text, attributes, composable `class`/`style` parts, spread values, child-component props, and conditional-attribute branches — with one exception: a composable `class` part *nested inside a component's conditional-attribute branch* does not yet support an error-returning stage (plain expression attrs in that same branch position work today).
 
 To handle the error instead of propagating it, skip the pipeline for that stage and fall back to the same explicit form: `{ if v, err := parse(csv); err != nil { … } else { … } }`. The `?` try-marker stays rejected at every stage, not just the last.
 

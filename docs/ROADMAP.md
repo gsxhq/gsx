@@ -380,15 +380,27 @@ vocabulary remains a design aspiration, not the current API.
   laziness). Spec `2026-07-03-pipe-error-any-stage-design.md`.
 - [ ] **Pipeline extensions** — initialism-aware filter naming;
   pipeline-as-filter-argument; ambient `mapEach` (deferred / out of scope).
-- [ ] **Known gap: class-part tuple errors escape as raw Go inside component
-  cond-attr branches** — a plain tuple-returning (`(string, error)`) class part
-  nested inside a *component* conditional-attribute branch surfaces as a raw Go
-  compile error (e.g. `too many arguments in call to _gsxrt.Class; have (string,
-  error), want (string)`) instead of a clean gsx diagnostic. Root cause: the
-  analyze/probe phase harvests no type for class parts nested in component
-  cond-attr branches, so the emit-time tuple-detection check (which consults
-  `resolved`) never fires there. Pre-existing bug, discovered (not introduced)
-  during the any-stage pipeline-error work; deferred follow-up.
+- [ ] **Known gap: class parts inside component cond-attr branches don't
+  support `(R, error)` at all** — a composable `class` part nested inside a
+  *component* conditional-attribute branch (`<Card { if hot { class={ … } }
+  }/>`) has no working path for a filter/call returning `(R, error)`: a plain
+  tuple-returning (`(string, error)`) call, or a pipeline whose *final* stage
+  returns an error, surfaces as a raw Go compile error (e.g. `too many
+  arguments in call to _gsxrt.Class; have (string, error), want (string)`)
+  instead of a clean gsx diagnostic; a pipeline with a *mid*-stage error
+  instead gets rejected with the generic message `filter "parse" returns (R,
+  error); a failing stage is not supported in this position` (safe, but
+  doesn't name the actual restriction). Root cause (same for all three
+  variants): the analyze/probe phase harvests no type for class parts nested
+  in component cond-attr branches, so the emit-time tuple-detection check
+  (which consults `resolved`) never fires there, and the statement-form
+  lowering (which lifts the mid-stage case elsewhere) doesn't trigger for this
+  position either. Expression attrs in the same branch position (e.g.
+  `data-pick={ csv |> parse |> pick(0) }`) are unaffected — they go through
+  the statement-form lowering correctly. Pre-existing bug, discovered (not
+  introduced) during the any-stage pipeline-error work; the mid-stage
+  rejection message is pinned as current behavior by
+  `pipeerr/cond_attr_branch_class_pipe_rejected.txtar`; deferred follow-up.
 - [x] **LSP reads `gsx.toml` in-process** — `gsx lsp` resolves config the same
   way `generate`/`info` do (`mergeConfig(gsx.toml, opts)`) but in-process and
   best-effort (no subprocess, the LSP spawns nothing → no orphan children), so

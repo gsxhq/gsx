@@ -304,10 +304,11 @@ pipeerr/attr_mid_stage	diag gen render
 pipeerr/child_prop_mid_stage	diag gen render
 pipeerr/class_cf_arm_mid_stage	diag gen render
 pipeerr/class_part_mid_stage	diag gen render
+pipeerr/cond_attr_branch_class_pipe_rejected	diag render
 pipeerr/cond_attr_branch_mid_stage	diag gen render
 pipeerr/cond_attr_branch_untaken	diag gen render
 pipeerr/ctx_err_filter	diag gen render
-pipeerr/final_stage_custom_filter	diag render
+pipeerr/final_stage_custom_filter	diag gen render
 pipeerr/generic_final_stage	diag gen render
 pipeerr/generic_mid_stage	diag gen render
 pipeerr/halt_on_error	diag gen render
@@ -447,4 +448,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 449 cases (render: 356, error: 71, gen-pinned: 198)
+TOTAL: 450 cases (render: 357, error: 71, gen-pinned: 199)

@@ -4038,6 +4038,13 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg st
 		}
 		expr, used, err := lowerClassPartSeed(*p, table, wrap)
 		if err != nil {
+			if wrap == nil && errors.Is(err, errFailingStageUnsupported) {
+				// wrap == nil here only in the cond-attr-branch thunk state (no b
+				// to hoist a temp+return into): give the caller-positioned,
+				// position-specific diagnostic instead of the generic
+				// filter-name message from lowerPipe.
+				return "", nil, &attrError{pos: p.Pos(), end: p.End(), code: "unsupported-component-attr", msg: "class pipelines with a failing stage in a conditional-attr branch on a component are not supported yet"}
+			}
 			msg := strings.TrimPrefix(err.Error(), "codegen: ")
 			return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unresolved-pipeline", msg: msg}
 		}

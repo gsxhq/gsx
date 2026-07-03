@@ -95,6 +95,19 @@ edges in cond-attr branches (tuple-returning class parts, ordered class
 parts, value-form CF). `gsx.AttrsCond` remains in the runtime. Promoting
 statement form to the *only* lowering is a possible follow-up cleanup.
 
+> **Correction (2026-07-03, final review):** the claim above — that
+> statement-form lowering "lifts the three pre-existing 'not supported yet'
+> edges" — did not hold as shipped. The statement form triggers only for
+> branches whose lowering already needs a hoist because they contain an
+> error-returning pipeline stage (`hasErr`); the three class-part edges
+> (tuple-returning class parts, ordered class parts, value-form CF) key off
+> resolved-type/ordering information the probe phase never harvests for class
+> parts nested in a component cond-attr branch, not off `hasErr`, so they were
+> not lifted. Class-part error pipelines (mid-stage rejected with a generic
+> message, final-stage/plain-tuple leaking a raw `_gsxrt.Class` go/types
+> error) remain unsupported in that specific position — see the ROADMAP
+> known-gap entry for the current, verified behavior.
+
 ### 4. Contexts
 
 Supported everywhere pipelines are legal: text interp, attr values, class

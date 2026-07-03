@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"errors"
 	"fmt"
 	"go/types"
 	"sort"
@@ -12,6 +13,13 @@ import (
 
 	"github.com/gsxhq/gsx/ast"
 )
+
+// errFailingStageUnsupported is wrapped into lowerPipe's "not supported in
+// this position" error so callers can errors.Is-match it and substitute a
+// more specific, positioned diagnostic than the generic filter-name message
+// (e.g. classEntryExpr does this for a class part's pipeline inside a
+// component conditional-attr branch).
+var errFailingStageUnsupported = errors.New("a failing stage is not supported in this position")
 
 // pipeCtxIdent is the literal ambient render-context identifier that emitted
 // component bodies bind (the `ctx` of `gsx.Func(func(ctx context.Context, …))`).
@@ -71,7 +79,7 @@ func lowerPipe(seed string, stages []ast.PipeStage, table filterTable, wrap func
 		acc = e.alias + "." + e.funcName + "(" + strings.Join(args, ", ") + ")"
 		if e.hasErr && i < len(stages)-1 {
 			if wrap == nil {
-				return "", nil, fmt.Errorf("codegen: filter %q returns (R, error); a failing stage is not supported in this position", st.Name)
+				return "", nil, fmt.Errorf("codegen: filter %q returns (R, error); %w", st.Name, errFailingStageUnsupported)
 			}
 			acc = wrap(acc)
 		}

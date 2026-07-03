@@ -28,11 +28,11 @@ func repoRoot(t *testing.T) string {
 // supports writing tests that verify filter entry properties (like hasErr).
 func harvestFixture(t *testing.T, source string) filterTable {
 	t.Helper()
-	repoRoot := repoRoot(t)
+	root := repoRoot(t)
 	tmp := t.TempDir()
 
 	// Write go.mod with a replace directive pointing to the real gsx repo
-	modContent := "module testfilters\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => " + repoRoot + "\n"
+	modContent := "module testfilters\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => " + root + "\n"
 	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte(modContent), 0o644); err != nil {
 		t.Fatalf("write go.mod: %v", err)
 	}
@@ -133,10 +133,10 @@ func Generic[T any](s []T) (T, error) { var z T; return z, nil }
 // harvestFilters, so it exercises the second, parallel construction site.
 func harvestFixtureFromTypes(t *testing.T, source string) filterTable {
 	t.Helper()
-	repoRoot := repoRoot(t)
+	root := repoRoot(t)
 	tmp := t.TempDir()
 
-	modContent := "module testfilters\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => " + repoRoot + "\n"
+	modContent := "module testfilters\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => " + root + "\n"
 	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte(modContent), 0o644); err != nil {
 		t.Fatalf("write go.mod: %v", err)
 	}
