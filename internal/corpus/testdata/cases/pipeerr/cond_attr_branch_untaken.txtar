@@ -1,8 +1,9 @@
-# Untaken-branch laziness for the statement-form cond-attr lowering: same source
-# as cond_attr_branch_mid_stage but invoked with Hot=false and Csv="" (parse would
-# FAIL on empty input). Because the statement form nests the pipe hoists INSIDE the
-# `if hot { … }` block, the untaken branch never runs — so there is NO render error
-# and the div carries no data-pick attribute. Pins the lazy-eval guarantee.
+# Untaken-branch laziness for the thunk-form cond-attr lowering: same source as
+# cond_attr_branch_mid_stage but invoked with Hot=false and Csv="" (parse would
+# FAIL on empty input). Because the pipe hoists sit INSIDE the AttrsCond thunk
+# body, the untaken branch's thunk is never called — so there is NO render
+# error and the div carries no data-pick attribute. Pins the lazy-eval
+# guarantee (AttrsCond only invokes the taken branch's thunk).
 -- gsx.toml --
 filterPackages = ["./filters"]
 -- filters/filters.go --
@@ -91,19 +92,21 @@ func Page(_gsxp PageProps) gsx.Node {
 		csv := _gsxp.Csv
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:8:2
-		var _gsxv0 gsx.Attrs
-		if hot {
-			_gsxv1, _gsxerr := _gsxf0.Parse((csv))
+		_gsxv2, _gsxerr := gsx.AttrsCond(hot, func() (gsx.Attrs, error) {
+			_gsxv0, _gsxerr := _gsxf0.Parse((csv))
 			if _gsxerr != nil {
-				return _gsxerr
+				return nil, _gsxerr
 			}
-			_gsxv2, _gsxerr := _gsxf0.Pick(_gsxv1, 0)
+			_gsxv1, _gsxerr := _gsxf0.Pick(_gsxv0, 0)
 			if _gsxerr != nil {
-				return _gsxerr
+				return nil, _gsxerr
 			}
-			_gsxv0 = gsx.Attrs{{Key: "data-pick", Value: _gsxv2}}
+			return gsx.Attrs{{Key: "data-pick", Value: _gsxv1}}, nil
+		}, nil)
+		if _gsxerr != nil {
+			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Card(CardProps{Title: gsx.Text("Hi"), Attrs: gsx.Attrs{}.Merge(_gsxv0)}))
+		_gsxgw.Node(ctx, Card(CardProps{Title: gsx.Text("Hi"), Attrs: gsx.Attrs{}.Merge(_gsxv2)}))
 		return _gsxgw.Err()
 	})
 }

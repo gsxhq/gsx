@@ -46,7 +46,7 @@
 - Consumes: existing `emitPipeWrap`, `probePipeWrap`, `lowerPipe(…, wrap)`.
 - Produces (later tasks rely on): runtime `func AttrsCond(cond bool, then, els func() (Attrs, error)) (Attrs, error)`; `hoistTupleReturning(b *bytes.Buffer, expr string, interpTemp *int, errReturn string) string`; `thunkPipeWrap(b *bytes.Buffer, interpTemp *int) func(string) string` (hoists with `return nil, _gsxerr`); `condAttrsExpr(t *ast.CondAttr, rtPkg, tag, mergeExpr string, table filterTable, probeWrap bool, resolved map[ast.Node]types.Type, interpTemp *int) (string, map[string]string, error)` — returns a single expression whose thunk bodies may contain statements; in emit mode the CALLER hoists it with `hoistTuple`; in probe mode the caller wraps it `_gsxunwrap(...)`.
 
-- [ ] **Step 1: Write the failing runtime test**
+- [x] **Step 1: Write the failing runtime test**
 
 In the root package's attrs test file add:
 
@@ -73,12 +73,12 @@ func TestAttrsCondError(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `go test . -run TestAttrsCondError -v`
 Expected: FAIL — compile error (thunk signatures don't match `func() Attrs`).
 
-- [ ] **Step 3: Change the runtime**
+- [x] **Step 3: Change the runtime**
 
 ```go
 // AttrsCond selects one of two attribute-bag thunks for a conditional component
@@ -102,7 +102,7 @@ func AttrsCond(cond bool, then, els func() (Attrs, error)) (Attrs, error) {
 
 Run: `go test . -run TestAttrsCondError -v` → PASS. (`go build ./...` now fails in internal/codegen goldens? No — generated code lives only in corpus temp dirs; the repo itself builds. Verify: `go build ./...` → PASS.)
 
-- [ ] **Step 4: Refactor hoistTuple + add the thunk wrap (emit.go, next to hoistTuple)**
+- [x] **Step 4: Refactor hoistTuple + add the thunk wrap (emit.go, next to hoistTuple)**
 
 ```go
 // hoistTupleReturning is hoistTuple with a caller-chosen error-return statement:
@@ -128,7 +128,7 @@ func thunkPipeWrap(b *bytes.Buffer, interpTemp *int) func(string) string {
 }
 ```
 
-- [ ] **Step 5: Unify the lowering**
+- [x] **Step 5: Unify the lowering**
 
 In `condAttrsExpr` (emit.go:4135): build each branch with a **thunk-local** `var tb bytes.Buffer`; pass `&tb`, `interpTemp`, and (emit mode) `thunkPipeWrap(&tb, interpTemp)` down to `condBranchAttrs`; emit the thunk as
 
@@ -140,12 +140,12 @@ thunk := fmt.Sprintf("func() (%s.Attrs, error) {\n%s\t\treturn %s, nil\n\t}", rt
 
 At the call site (emit.go:3848-3851): delete the `condBranchNeedsHoist` split; always call the new `condAttrsExpr`; in emit mode hoist the result — `condExpr = hoistTuple(b, condExpr, interpTemp)` — and splice the temp into the Merge chain; in probe mode wrap it: `condExpr = "_gsxunwrap(" + condExpr + ")"`. Delete `condAttrsStmt` and `condBranchNeedsHoist` (+ `pipeStagesHaveErr` if unreferenced — `gopls check` / `go vet` will tell).
 
-- [ ] **Step 6: Regenerate goldens, inspect, verify scope**
+- [x] **Step 6: Regenerate goldens, inspect, verify scope**
 
 Run: `go test ./internal/corpus -run TestCorpus -update && go test ./internal/corpus -run TestCorpus && go test ./internal/codegen -count=1`
 Expected: PASS. `git diff --stat` shows ONLY cond-attr-bearing goldens changed (grep the diff for `AttrsCond` — every changed golden should show the `func() (gsx.Attrs, error)` form + call-site hoist; `pipeerr/cond_attr_branch_mid_stage` flips from statement form to thunk form with hoists INSIDE the thunk returning `nil, _gsxerr`; `cond_attr_branch_untaken` still renders `<div>Hi</div>` with no error — laziness preserved; `cond_attr_branch_class_pipe_rejected` diagnostics UNCHANGED). Inspect and quote the new `cond_attr_branch_mid_stage` golden in your report.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add -A && git commit -m "feat(runtime,codegen): AttrsCond thunks return (Attrs, error); one uniform cond-attr lowering"

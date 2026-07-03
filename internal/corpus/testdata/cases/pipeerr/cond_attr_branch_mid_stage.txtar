@@ -1,6 +1,8 @@
 # A mid-stage (R, error) filter inside a component conditional-attr branch.
-# The branch lowers to a statement-form if/else (NOT AttrsCond thunks) so the
-# hoist's `return _gsxerr` is legal; the untaken branch still never evaluates.
+# The branch lowers to an AttrsCond(...) thunk whose body hoists the pipeline
+# error INSIDE the thunk (`return nil, _gsxerr`); the call site then hoists the
+# thunk's own (Attrs, error) result the same way as any other tuple. The
+# untaken branch still never evaluates.
 -- gsx.toml --
 filterPackages = ["./filters"]
 -- filters/filters.go --
@@ -89,19 +91,21 @@ func Page(_gsxp PageProps) gsx.Node {
 		csv := _gsxp.Csv
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:8:2
-		var _gsxv0 gsx.Attrs
-		if hot {
-			_gsxv1, _gsxerr := _gsxf0.Parse((csv))
+		_gsxv2, _gsxerr := gsx.AttrsCond(hot, func() (gsx.Attrs, error) {
+			_gsxv0, _gsxerr := _gsxf0.Parse((csv))
 			if _gsxerr != nil {
-				return _gsxerr
+				return nil, _gsxerr
 			}
-			_gsxv2, _gsxerr := _gsxf0.Pick(_gsxv1, 0)
+			_gsxv1, _gsxerr := _gsxf0.Pick(_gsxv0, 0)
 			if _gsxerr != nil {
-				return _gsxerr
+				return nil, _gsxerr
 			}
-			_gsxv0 = gsx.Attrs{{Key: "data-pick", Value: _gsxv2}}
+			return gsx.Attrs{{Key: "data-pick", Value: _gsxv1}}, nil
+		}, nil)
+		if _gsxerr != nil {
+			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Card(CardProps{Title: gsx.Text("Hi"), Attrs: gsx.Attrs{}.Merge(_gsxv0)}))
+		_gsxgw.Node(ctx, Card(CardProps{Title: gsx.Text("Hi"), Attrs: gsx.Attrs{}.Merge(_gsxv2)}))
 		return _gsxgw.Err()
 	})
 }

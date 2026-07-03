@@ -72,7 +72,13 @@ func Page(_gsxp PageProps) gsx.Node {
 		u := _gsxp.U
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:12:2
-		_gsxgw.Node(ctx, Card(CardProps{Title: gsx.Text("Hi"), Attrs: gsx.Attrs{}.Merge(gsx.AttrsCond(u != nil, func() gsx.Attrs { return gsx.Attrs{{Key: "data-name", Value: u.Name}} }, nil))}))
+		_gsxv0, _gsxerr := gsx.AttrsCond(u != nil, func() (gsx.Attrs, error) {
+			return gsx.Attrs{{Key: "data-name", Value: u.Name}}, nil
+		}, nil)
+		if _gsxerr != nil {
+			return _gsxerr
+		}
+		_gsxgw.Node(ctx, Card(CardProps{Title: gsx.Text("Hi"), Attrs: gsx.Attrs{}.Merge(_gsxv0)}))
 		return _gsxgw.Err()
 	})
 }
