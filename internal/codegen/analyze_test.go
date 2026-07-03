@@ -317,3 +317,64 @@ func Parse(s string) ([]string, error) {
 		t.Errorf("skeleton missing mid-stage-err probe form; got:\n%s", skel)
 	}
 }
+
+// TestResolveCondAttrBranchParts pins Task 2: branch positions inside a COMPONENT
+// cond-attr group must join the probe type-harvest. A plain tuple-returning call
+// used as an expr-attr value AND as a class part inside `{ if hot { … } }` on a
+// component must each get a resolved entry (a *types.Tuple), enabling emit-time
+// hoisting (Task 3 consumer). Before Task 2 the ExprAttr in the branch is never
+// probed (the component ExprAttr collection is top-level only), so it has no
+// resolved entry — RED.
+//
+// The harness drives the real analysis entry (m.Package) and reconstructs the
+// harvested resolved map from ExprMap+Info: resolved[node] == Info.Types[
+// ExprMap[node]].Type, exactly what harvest records. Package returns ExprMap even
+// when the skeleton still has type errors (the un-lifted branch leaks Task 3
+// fixes), and go/types resolves each probe argument's type best-effort regardless.
+func TestResolveCondAttrBranchParts(t *testing.T) {
+	t.Parallel()
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module gsxa\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pkgDir := filepath.Join(tmp, "genpkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, pkgDir, "helpers.go", "package views\n\nfunc cls(v string) (string, error) { return v, nil }\n")
+	src := `package views
+
+import "github.com/gsxhq/gsx"
+
+component Card(title gsx.Node) { <div { attrs... }>{title}</div> }
+
+component Page(hot bool, csv string) {
+	<Card title="Hi" { if hot { class={ cls(csv) } data-x={ cls(csv) } } } />
+}
+`
+	writeFile(t, pkgDir, "views.gsx", src)
+
+	m, err := Open(Options{ModuleRoot: tmp, ModulePath: "gsxa", FilterPkgs: []string{StdImportPath}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pr, err := m.Package(pkgDir)
+	if err != nil {
+		t.Fatalf("package: %v", err)
+	}
+	var gotClassPart, gotExprAttr bool
+	for node, expr := range pr.ExprMap {
+		typ := pr.Info.Types[expr].Type
+		if _, isTuple := typ.(*types.Tuple); !isTuple {
+			continue
+		}
+		switch node.(type) {
+		case *gsxast.ClassPart:
+			gotClassPart = true
+		case *gsxast.ExprAttr:
+			gotExprAttr = true
+		}
+	}
+	if !gotClassPart || !gotExprAttr {
+		t.Fatalf("branch positions not harvested: classPart=%v exprAttr=%v", gotClassPart, gotExprAttr)
+	}
+}

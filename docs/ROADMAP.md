@@ -375,32 +375,23 @@ vocabulary remains a design aspiration, not the current API.
   _gsxerr != nil { return _gsxerr }`, the failing stage halts the chain (later
   filters never run), and the error returns from the component's render —
   identical to the existing `(T, error)` auto-unwrap. Works in every
-  pipeline-legal context, including component cond-attr branches (which lower
-  to a statement-form `if`/`else` only when a branch needs the hoist, preserving
-  laziness). Spec `2026-07-03-pipe-error-any-stage-design.md`.
+  pipeline-legal context, including component cond-attr branches, which lower
+  each side to a `func() (gsx.Attrs, error)` thunk (`gsx.AttrsCond`) with
+  hoists inside the thunk body, preserving laziness — see the follow-up spec
+  below for the uniform thunk lowering that replaced the original
+  statement-form design. Spec `2026-07-03-pipe-error-any-stage-design.md`.
 - [ ] **Pipeline extensions** — initialism-aware filter naming;
   pipeline-as-filter-argument; ambient `mapEach` (deferred / out of scope).
-- [ ] **Known gap: class parts inside component cond-attr branches don't
-  support `(R, error)` at all** — a composable `class` part nested inside a
-  *component* conditional-attribute branch (`<Card { if hot { class={ … } }
-  }/>`) has no working path for a filter/call returning `(R, error)`: a plain
-  tuple-returning (`(string, error)`) call, or a pipeline whose *final* stage
-  returns an error, surfaces as a raw Go compile error (e.g. `too many
-  arguments in call to _gsxrt.Class; have (string, error), want (string)`)
-  instead of a clean gsx diagnostic; a pipeline with a *mid*-stage error
-  instead gets rejected with the generic message `filter "parse" returns (R,
-  error); a failing stage is not supported in this position` (safe, but
-  doesn't name the actual restriction). Root cause (same for all three
-  variants): the analyze/probe phase harvests no type for class parts nested
-  in component cond-attr branches, so the emit-time tuple-detection check
-  (which consults `resolved`) never fires there, and the statement-form
-  lowering (which lifts the mid-stage case elsewhere) doesn't trigger for this
-  position either. Expression attrs in the same branch position (e.g.
-  `data-pick={ csv |> parse |> pick(0) }`) are unaffected — they go through
-  the statement-form lowering correctly. Pre-existing bug, discovered (not
-  introduced) during the any-stage pipeline-error work; the mid-stage
-  rejection message is pinned as current behavior by
-  `pipeerr/cond_attr_branch_class_pipe_rejected.txtar`; deferred follow-up.
+- [x] **Class parts inside component cond-attr branches now support
+  `(R, error)`** — CLOSED (2026-07-03). `AttrsCond`'s thunks return
+  `(Attrs, error)` — one uniform lowering, the statement form deleted — and
+  branch positions (ExprAttr values, class parts, value-form CF arms) join
+  the probe type-harvest, so a plain tuple-returning call, a mid-stage error
+  pipe, and a final-stage error pipe inside a *component* conditional-attribute
+  branch (`<Card { if hot { class={ … } } }/>`) all lower exactly like every
+  other pipeline-legal position — no more raw `too many arguments in call to
+  _gsxrt.Class` leak and no more generic "failing stage is not supported in
+  this position" rejection. Spec `2026-07-03-attrscond-error-design.md`.
 - [x] **LSP reads `gsx.toml` in-process** — `gsx lsp` resolves config the same
   way `generate`/`info` do (`mergeConfig(gsx.toml, opts)`) but in-process and
   best-effort (no subprocess, the LSP spawns nothing → no orphan children), so

@@ -3,6 +3,7 @@ package gsx
 import (
 	"bytes"
 	"context"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -75,11 +76,32 @@ func TestAttrsMergeIncomingWinsOverReceiverDuplicates(t *testing.T) {
 }
 
 func TestAttrsCondThunks(t *testing.T) {
-	if got := AttrsCond(true, func() Attrs { return Attrs{{Key: "a", Value: "1"}} }, nil); !reflect.DeepEqual(got, Attrs{{Key: "a", Value: "1"}}) {
-		t.Fatalf("AttrsCond true = %v", got)
+	if got, err := AttrsCond(true, func() (Attrs, error) { return Attrs{{Key: "a", Value: "1"}}, nil }, nil); err != nil || !reflect.DeepEqual(got, Attrs{{Key: "a", Value: "1"}}) {
+		t.Fatalf("AttrsCond true = %v, %v", got, err)
 	}
-	if got := AttrsCond(false, func() Attrs { return Attrs{{Key: "a", Value: "1"}} }, nil); got != nil {
-		t.Fatalf("AttrsCond false no-else = %v, want nil", got)
+	if got, err := AttrsCond(false, func() (Attrs, error) { return Attrs{{Key: "a", Value: "1"}}, nil }, nil); got != nil || err != nil {
+		t.Fatalf("AttrsCond false no-else = %v, %v, want nil, nil", got, err)
+	}
+}
+
+func TestAttrsCondError(t *testing.T) {
+	boom := errors.New("boom")
+	ok := Attrs{{Key: "class", Value: "hot"}}
+
+	a, err := AttrsCond(true, func() (Attrs, error) { return ok, nil }, nil)
+	if err != nil || len(a) != 1 {
+		t.Fatalf("taken then = %v, %v", a, err)
+	}
+	if _, err := AttrsCond(true, func() (Attrs, error) { return nil, boom }, nil); !errors.Is(err, boom) {
+		t.Fatalf("then error not propagated: %v", err)
+	}
+	if _, err := AttrsCond(false, nil, func() (Attrs, error) { return nil, boom }); !errors.Is(err, boom) {
+		t.Fatalf("els error not propagated: %v", err)
+	}
+	// Untaken branch must never run; nil els yields (nil, nil).
+	a, err = AttrsCond(false, func() (Attrs, error) { panic("untaken branch ran") }, nil)
+	if a != nil || err != nil {
+		t.Fatalf("untaken = %v, %v", a, err)
 	}
 }
 
@@ -171,12 +193,15 @@ func TestSpreadSecurityDropsInvalidNames(t *testing.T) {
 // would panic on the nil path.
 func TestAttrsCondLazyEval(t *testing.T) {
 	thenRan, elsRan := false, false
-	recordThen := func() Attrs { thenRan = true; return Attrs{{Key: "a", Value: "1"}} }
-	recordEls := func() Attrs { elsRan = true; return Attrs{{Key: "b", Value: "2"}} }
+	recordThen := func() (Attrs, error) { thenRan = true; return Attrs{{Key: "a", Value: "1"}}, nil }
+	recordEls := func() (Attrs, error) { elsRan = true; return Attrs{{Key: "b", Value: "2"}}, nil }
 
 	// true branch: only then must run.
 	thenRan, elsRan = false, false
-	got := AttrsCond(true, recordThen, recordEls)
+	got, err := AttrsCond(true, recordThen, recordEls)
+	if err != nil {
+		t.Fatalf("AttrsCond(true) unexpected error: %v", err)
+	}
 	if !thenRan {
 		t.Error("AttrsCond(true): then thunk was not called")
 	}
@@ -189,7 +214,10 @@ func TestAttrsCondLazyEval(t *testing.T) {
 
 	// false branch: only els must run.
 	thenRan, elsRan = false, false
-	got = AttrsCond(false, recordThen, recordEls)
+	got, err = AttrsCond(false, recordThen, recordEls)
+	if err != nil {
+		t.Fatalf("AttrsCond(false) unexpected error: %v", err)
+	}
 	if thenRan {
 		t.Error("AttrsCond(false): then thunk must not be called")
 	}
@@ -202,11 +230,11 @@ func TestAttrsCondLazyEval(t *testing.T) {
 
 	// false + nil els: neither thunk runs, result is nil.
 	thenRan, elsRan = false, false
-	got = AttrsCond(false, recordThen, nil)
+	got, err = AttrsCond(false, recordThen, nil)
 	if thenRan || elsRan {
 		t.Error("AttrsCond(false, ..., nil): no thunk should run")
 	}
-	if got != nil {
-		t.Errorf("AttrsCond(false, ..., nil) = %v, want nil", got)
+	if got != nil || err != nil {
+		t.Errorf("AttrsCond(false, ..., nil) = %v, %v, want nil, nil", got, err)
 	}
 }

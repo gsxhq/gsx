@@ -1173,6 +1173,36 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 						}
 					}
 				})
+				// Probe ExprAttr values nested in a component cond-attr branch
+				// (`{ if C { attr={expr} } }`) with _gsxuseq, AFTER the parts probes —
+				// matching collectExprs's walkBranchAttrExprs pass exactly (Then→Else,
+				// top-level ExprAttrs excluded). childPropsLiteral embeds the whole
+				// AttrsCond(...) expression in the props probe without a per-value
+				// harvest probe, so these probes are what populate resolved for branch
+				// ExprAttrs (Task 3 consumes them for (T, error) tuple detection). These
+				// are TOP-LEVEL skeleton statements: the skeleton is compile-only and
+				// never executed, so probing the branch value UNCONDITIONALLY (outside
+				// any thunk/cond) is safe — laziness is irrelevant here. _gsxuseq (quiet)
+				// harvests the raw type (possibly a tuple); an expression-internal error
+				// is reported by the props-literal probe above, so the quiet suppression
+				// avoids a duplicate. _gsxuseq(...any) also tolerates a multi-value
+				// (T, error) argument that `_ = (expr)` liveness could not.
+				var branchProbeErr error
+				walkBranchAttrExprs(t.Attrs, func(ea *gsxast.ExprAttr) {
+					if branchProbeErr != nil {
+						return
+					}
+					probe, perr := probeExpr(ea.Expr, ea.Stages, table, usedFilters)
+					if perr != nil {
+						branchProbeErr = perr
+						return
+					}
+					emitSkeletonLine(sb, fset, ea.Pos())
+					fmt.Fprintf(sb, "_gsxuseq(%s)\n", probe)
+				})
+				if branchProbeErr != nil {
+					return branchProbeErr
+				}
 				// Probe slot content in the SAME canonical order collectExprs walks:
 				// each markup-attr value (attr order) then the children.
 				var probeErr error
@@ -2042,12 +2072,16 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 			if isComponentTag(t.Tag) {
 				// Child component: collect ExprAttr nodes (prop values) first, then
 				// OrderedPair nodes (pair values, one per pair per OrderedAttrsAttr),
+				// then class-attr CF arms + plain parts (walkClassAttrs, recursing
+				// CondAttr), then cond-attr BRANCH ExprAttr values (walkBranchAttrExprs),
 				// then slot content (markup-attr values and children). emitProbes emits
-				// _gsxuseq probes in the SAME order — ExprAttrs, then pairs, then slot
-				// content — so the k-th probe aligns with the k-th node for ALL
-				// child-component branches. The ExprAttr types in resolved let
-				// genChildComponent detect and hoist (T, error) tuple-valued props;
-				// the OrderedPair types let it detect and hoist tuple pair values.
+				// _gsxuseq/_gsxuse probes in the SAME order — ExprAttrs, pairs, parts,
+				// branch ExprAttrs, then slot content — so the k-th probe aligns with
+				// the k-th node for ALL child-component branches. The ExprAttr types in
+				// resolved let genChildComponent detect and hoist (T, error) tuple-valued
+				// props; the OrderedPair types let it detect and hoist tuple pair values;
+				// the branch ExprAttr / class-part types let a cond-attr branch hoist its
+				// own (T, error) values (Task 3 consumer).
 				for _, a := range t.Attrs {
 					if ea, ok := a.(*gsxast.ExprAttr); ok {
 						*out = append(*out, ea)
@@ -2078,6 +2112,18 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 							*out = append(*out, &ca.Parts[i])
 						}
 					}
+				})
+				// Collect ExprAttr nodes nested in a component cond-attr branch
+				// (`{ if C { attr={expr} } }`) AFTER the parts pass — the leading
+				// ExprAttr pass above is top-level-only, and childPropsLiteral embeds
+				// the whole AttrsCond(...) expression in the props probe without a
+				// per-value harvest probe, so branch ExprAttr values would otherwise
+				// have no resolved entry. emitProbes emits the matching _gsxuseq probes
+				// in the SAME position and Then→Else order. (Branch class parts / CF
+				// arms are already covered by the walkClassAttrs parts pass above, which
+				// recurses CondAttr, so they are NOT re-collected here.)
+				walkBranchAttrExprs(t.Attrs, func(ea *gsxast.ExprAttr) {
+					*out = append(*out, ea)
 				})
 				walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
 					collectExprs(value, out)
@@ -2154,6 +2200,28 @@ func walkAttrExprs(attrs []gsxast.Attr, fn func(*gsxast.ExprAttr)) {
 		case *gsxast.CondAttr:
 			walkAttrExprs(at.Then, fn)
 			walkAttrExprs(at.Else, fn)
+		}
+	}
+}
+
+// walkBranchAttrExprs invokes fn for each *ExprAttr nested inside a component
+// cond-attr group (`{ if C { attr={expr} } else { … } }`) — the Then attr-exprs
+// then the Else attr-exprs of every *CondAttr, recursing nested *CondAttrs via
+// walkAttrExprs so an else-if chain is visited in order. TOP-LEVEL ExprAttrs are
+// deliberately NOT visited (they are collected/probed separately in the
+// component case's leading ExprAttr pass). Branch class parts and value-form CF
+// arms are ALSO not visited here — the shared walkClassAttrs already recurses
+// CondAttr Then/Else, so those branch positions are covered by the component
+// case's parts pass; only branch ExprAttr values need this dedicated walk. It is
+// the SINGLE walk shared by collectExprs (which appends each branch ExprAttr
+// node AFTER the parts pass) and emitProbes (which emits one _gsxuseq harvest
+// probe per branch ExprAttr in the SAME position), so the k-th branch-ExprAttr
+// probe always maps to the k-th collected branch-ExprAttr node.
+func walkBranchAttrExprs(attrs []gsxast.Attr, fn func(*gsxast.ExprAttr)) {
+	for _, a := range attrs {
+		if ca, ok := a.(*gsxast.CondAttr); ok {
+			walkAttrExprs(ca.Then, fn)
+			walkAttrExprs(ca.Else, fn)
 		}
 	}
 }

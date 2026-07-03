@@ -138,11 +138,13 @@ func (a Attrs) Merge(other Attrs) Attrs {
 
 // AttrsCond selects one of two attribute-bag thunks for a conditional component
 // attribute: it calls and returns then() when cond is true, otherwise els(). The
-// branches are THUNKS so the untaken branch is never evaluated — mirroring a real Go
-// if/else, where the untaken block's expressions (e.g. u.Name when u == nil) never run.
-// els may be nil (no else branch); a false cond then yields a nil bag (a nil Attrs
-// merges as empty). Generated code chains this into a bag-building .Merge(...).
-func AttrsCond(cond bool, then, els func() Attrs) Attrs {
+// branches are THUNKS so the untaken branch is never evaluated — mirroring a real
+// Go if/else, where the untaken block's expressions (e.g. u.Name when u == nil)
+// never run. The thunks return (Attrs, error) so a branch body may hoist
+// (T, error) values (e.g. a pipeline stage that can fail) and propagate the
+// error; the generated call site unwraps it like any other (T, error) value.
+// els may be nil (no else branch); an untaken or nil branch yields (nil, nil).
+func AttrsCond(cond bool, then, els func() (Attrs, error)) (Attrs, error) {
 	if cond {
 		if then != nil {
 			return then()
@@ -150,7 +152,7 @@ func AttrsCond(cond bool, then, els func() Attrs) Attrs {
 	} else if els != nil {
 		return els()
 	}
-	return nil
+	return nil, nil
 }
 
 // Spread renders the bag in SLICE ORDER (no sort), with duplicate scalar keys resolved

@@ -11,4 +11,4 @@ component Box(active bool, extra gsx.Attrs) {
 	<div { if active { { extra... } } } { attrs... }>x</div>
 }
 -- diagnostics.golden --
-6:21: spread inside { if } on an element with attribute forwarding has statically unknown keys; compose it into the forwarding spread instead (e.g. { attrs.Merge(gsx.AttrsCond(active, func() gsx.Attrs { return extra }, nil))... })
+6:21: spread inside { if } on an element with attribute forwarding has statically unknown keys; hoist it with a GoBlock instead (e.g. {{ a, err := gsx.AttrsCond(active, func() (gsx.Attrs, error) { return extra, nil }, nil); if err != nil { return err } }} then { attrs.Merge(a)... })

@@ -107,6 +107,11 @@ statement form to the *only* lowering is a possible follow-up cleanup.
 > message, final-stage/plain-tuple leaking a raw `_gsxrt.Class` go/types
 > error) remain unsupported in that specific position — see the ROADMAP
 > known-gap entry for the current, verified behavior.
+>
+> **Superseded (2026-07-03):** the statement-form lowering this section
+> describes is retired by `2026-07-03-attrscond-error-design.md`, which
+> changes `AttrsCond` thunks to return `(Attrs, error)` — restoring one
+> uniform thunk lowering and closing the branch class-part gap entirely.
 
 ### 4. Contexts
 
