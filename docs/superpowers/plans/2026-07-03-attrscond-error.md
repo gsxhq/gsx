@@ -287,7 +287,7 @@ git add -A && git commit -m "feat(codegen): (R, error) class parts and tuples in
 git add docs && git commit -m "docs: close the cond-attr branch class-parts gap (AttrsCond error thunks)"
 ```
 
-- [ ] **Step 5 (controller, not implementer): final adversarial review + finishing-a-development-branch** — probes must include: error pipe in BOTH branches with both conds; nested component in a branch (Card inside Card's branch? cond-attr on inner); `AttrsCond` direct-call compile check for any repo-internal usage; `-race` on codegen; untaken-branch side-effect proof under the new form; a template using cond-attrs WITHOUT any filters (plain path golden shape).
+- [x] **Step 5 (controller, not implementer): final adversarial review + finishing-a-development-branch** — probes must include: error pipe in BOTH branches with both conds; nested component in a branch (Card inside Card's branch? cond-attr on inner); `AttrsCond` direct-call compile check for any repo-internal usage; `-race` on codegen; untaken-branch side-effect proof under the new form; a template using cond-attrs WITHOUT any filters (plain path golden shape).
 
 ---
 
