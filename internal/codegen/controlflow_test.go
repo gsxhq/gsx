@@ -24,7 +24,7 @@ func TestBuildSkeletonRecordsCtrlOffsets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("propFields: %v", err)
 	}
-	skel, _, _, ctrlOff, err := buildSkeleton(file, table, pf, np, ap, nil, byo, nil, fset)
+	skel, _, _, ctrlOff, _, err := buildSkeleton(file, table, pf, np, ap, nil, nil, byo, nil, fset, nil, nil)
 	if err != nil {
 		t.Fatalf("buildSkeleton: %v", err)
 	}

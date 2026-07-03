@@ -103,6 +103,9 @@ components/generic_attr_typeparam	diag gen render
 components/generic_children	diag gen render
 components/generic_function_component	diag gen render
 components/generic_inference_failed_diag	diag(error)
+components/generic_inferred_childprop	diag gen render
+components/generic_inferred_controlflow	diag gen render
+components/generic_inferred_partial_props	diag gen render
 components/generic_inferred_tag	diag gen render
 components/generic_named_byteslice_diag	diag gen render
 components/generic_named_mixed_diag	diag gen render
@@ -415,6 +418,9 @@ tuple/t_nodeslice	diag gen render
 tuple/t_stringer	diag gen render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
+xpkg/generic_inferred_import	diag render
+xpkg/generic_inferred_two_files	diag gen render
+xpkg/generic_sibling_file	diag gen render
 xpkg/go_component_attrs_literal	diag gen render
 xpkg/go_component_attrs_literal_missing	diag render
 xpkg/imported_alias_collision	diag gen render
@@ -424,4 +430,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 426 cases (render: 334, error: 70, gen-pinned: 178)
+TOTAL: 432 cases (render: 340, error: 70, gen-pinned: 183)

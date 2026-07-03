@@ -28,7 +28,14 @@ import (
 // interpolation types. It returns (nil, false) if any component failed; all
 // component errors are recorded in bag (component-boundary recovery continues
 // to the next component on failure, so multiple errors are always reported).
-func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, merger *ClassMergerRef) ([]byte, bool) {
+// sunkImports (nil-safe) identifies the user import SPECS — by .gsx line +
+// path (sunkImportKey) — whose ONLY use in this file was a
+// requalification-failed generic tag (see analyzed.sunkImports): the tag's
+// call is replaced by a sink that drops the package reference, so each such
+// spec is rewritten to a blank `_` import — the emitted file compiles, and
+// the import's init side effects are preserved. Position keying means a
+// same-path sibling spec on another line is never touched.
+func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, merger *ClassMergerRef, sunkImports map[sunkImportKey]bool) ([]byte, bool) {
 	if cls == nil {
 		cls = attrclass.Builtin()
 	}
@@ -76,6 +83,48 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 	// under different names). This mirrors the probe skeleton (analyze.go), keeping
 	// emit ≡ probe.
 	userPlainImports := map[string]bool{}
+	// typeArgAliases records, path→alias, every inferred cross-package type
+	// argument (childTypeArgUse) whose package NAME collided with a name
+	// already bound in this file — see boundNames below. Each colliding path
+	// gets a fresh reserved "_gsxti<N>" alias (mirroring the skeleton-side
+	// aliasAllocator's naming, infer.go), minted once and reused for every
+	// later reference to the SAME path within this file.
+	typeArgAliases := map[string]string{}
+	// boundNames is the live name→path table childTypeArgUse's qf consults to
+	// decide whether an inferred type argument's package can print as plain
+	// pkg.Name(): printing it verbatim when that NAME is already bound to a
+	// DIFFERENT path would emit two import lines under the same identifier —
+	// "name redeclared in this block" at `go build`, even though generate
+	// exited 0 (the hard invariant: generate must never emit non-compiling
+	// output). Seeded here with every name this file's import region ALREADY
+	// binds — this generator's own hardcoded runtime imports, the reserved
+	// filter/class-merger alias family (see writeImports), and the user's own
+	// GoChunk imports (below, resolved to their ACTUAL declared package name
+	// via currentPkg.Imports() — the skeleton's own direct-import list, so
+	// this is exact, never a last-path-segment heuristic) — then kept live by
+	// qf itself as it plain-imports or aliases further paths, so a LATER
+	// same-name collision within the same file is still caught (see
+	// childTypeArgUse's qf).
+	boundNames := map[string]string{
+		"context": "context",
+		"io":      "io",
+		"gsx":     "github.com/gsxhq/gsx",
+	}
+	// Build the path→reserved-alias map for the FILTER packages, harvested from
+	// the table (every entry records its owning package's alias + path) — computed
+	// up front (table doesn't depend on the components below) so boundNames can be
+	// seeded with the reserved alias family before any component generates. A path
+	// in `imports` that is a filter package is emitted under its reserved alias;
+	// std keeps _gsxstd so std-only output is byte-identical to before. The class
+	// merger's reserved alias is ALWAYS reserved here (whether or not the merger
+	// ends up used — see below), so an inferred type argument can never collide
+	// with it either.
+	filterAlias := map[string]string{}
+	for _, e := range table {
+		filterAlias[e.pkgPath] = e.alias
+		boundNames[e.alias] = e.pkgPath
+	}
+	boundNames[classMergerAlias] = ""
 	mergeExpr := "gsx.DefaultClassMerge"
 	if merger != nil {
 		mergeExpr = classMergerAlias + "." + merger.FuncName
@@ -90,14 +139,53 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 				bag.Errorf(v.Pos(), v.End(), "invalid-syntax", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 				return nil, false
 			}
+			// Resolve each spec's .gsx line (chunk position + intra-chunk
+			// offset, the same arithmetic buildSkeleton's //line block uses)
+			// so sunk-import lookups key on the exact spec — see the
+			// sunkImports param doc. specLine stays nil when positions are
+			// unavailable; no rewrite happens then (fail toward keeping the
+			// user's import verbatim).
+			var specLine func(srcOff int) int
+			if len(sunkImports) > 0 && fset != nil && v.Pos().IsValid() {
+				if tf := fset.File(v.Pos()); tf != nil {
+					base := fset.Position(v.Pos()).Offset
+					specLine = func(srcOff int) int { return fset.Position(tf.Pos(base + srcOff)).Line }
+				}
+			}
 			for _, s := range specs {
+				// A sunk import spec (its only use was a requalification-
+				// failed generic tag whose call was replaced by a sink — see
+				// the sunkImports param doc) is emitted as a blank import:
+				// the emitted body no longer references it, so a named/plain
+				// import would fail `go build` with "imported and not used",
+				// while `_` compiles and keeps init side effects. Dot/blank
+				// user spellings are left untouched (a dotted tag can only
+				// qualify through a named or plain import).
+				if specLine != nil && s.name != "." && s.name != "_" &&
+					sunkImports[sunkImportKey{line: specLine(s.srcOff), path: s.path}] {
+					aliased = append(aliased, importSpec{name: "_", path: s.path})
+					continue
+				}
 				if s.name == "" {
 					imports[s.path] = true
 					userPlainImports[s.path] = true
+					// Record the ACTUAL declared package name this plain import
+					// binds (resolved via currentPkg's own direct-import list,
+					// populated by the skeleton type-check — exact, never a
+					// last-path-segment heuristic), so a same-named different-
+					// path inferred type argument is caught as a collision by
+					// childTypeArgUse's qf. A miss (name == "") can't happen on
+					// any path that reaches generateFile: a broken/unresolved
+					// import would have left type errors, and generateFile only
+					// runs once the package's type-check is clean.
+					if name := importedPkgName(currentPkg, s.path); name != "" {
+						boundNames[name] = s.path
+					}
 				} else {
 					aliased = append(aliased, s)
 					if s.name != "." && s.name != "_" {
 						importAliases[s.path] = s.name
+						boundNames[s.name] = s.path
 					}
 				}
 			}
@@ -110,7 +198,7 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 			// On failure, the diagnostic is already in bag — skip this component's
 			// output and continue to the next (report ALL components' errors).
 			var cbuf bytes.Buffer
-			if genComponent(&cbuf, v, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, &interpTemp, fset, cls, fm, bag, mergeExpr) {
+			if genComponent(&cbuf, v, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, &interpTemp, fset, cls, fm, bag, mergeExpr) {
 				body.Write(cbuf.Bytes())
 			} else {
 				ok = false
@@ -122,18 +210,12 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 		return nil, false
 	}
 
-	// Build the path→reserved-alias map for the FILTER packages, harvested from
-	// the table (every entry records its owning package's alias + path). A path in
-	// `imports` that is a filter package is emitted under its reserved alias; std
-	// keeps _gsxstd so std-only output is byte-identical to before.
 	// The class merger package (if configured) is registered here under its
 	// reserved alias _gsxcm so writeImports emits `_gsxcm "<pkgPath>"` — but
 	// only if the body actually contains at least one merge-site reference to
 	// avoid emitting an unused import in files with no class attributes.
-	filterAlias := map[string]string{}
-	for _, e := range table {
-		filterAlias[e.pkgPath] = e.alias
-	}
+	// filterAlias itself (and the classMergerAlias reservation in boundNames)
+	// were already built above, before any component generated — see there.
 	if merger != nil && bytes.Contains(body.Bytes(), []byte(classMergerAlias+".")) {
 		imports[merger.PkgPath] = true
 		filterAlias[merger.PkgPath] = classMergerAlias
@@ -153,7 +235,7 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 		}
 	}
 	fmt.Fprintf(&b, "\npackage %s\n\n", file.Package)
-	writeImports(&b, imports, aliased, filterAlias, userPlainImports)
+	writeImports(&b, imports, aliased, filterAlias, userPlainImports, typeArgAliases)
 	b.Write(body.Bytes())
 	// Merge runs of adjacent static `_gsxgw.S("…")` writes into one before
 	// formatting — fewer generated lines and fewer runtime writes. Done on the AST
@@ -164,6 +246,25 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 		return nil, false
 	}
 	return src, true
+}
+
+// importedPkgName resolves path's ACTUAL declared package name via
+// currentPkg's own direct-import list (currentPkg.Imports(), populated by the
+// skeleton type-check) — the same information the compiler itself used to
+// bind a plain `import "path"` to its package-clause name, so this is exact,
+// never a last-path-segment heuristic (a package's declared name need not
+// match its import path's final element). Returns "" if currentPkg is nil or
+// path isn't one of its direct imports.
+func importedPkgName(currentPkg *types.Package, path string) string {
+	if currentPkg == nil {
+		return ""
+	}
+	for _, imp := range currentPkg.Imports() {
+		if imp.Path() == path {
+			return imp.Name()
+		}
+	}
+	return ""
 }
 
 // goDirectiveLines extracts the program-significant comment lines from a
@@ -189,11 +290,18 @@ func goDirectiveLines(doc string) []string {
 // plain import paths the generator needs; aliased carries verbatim user GoChunk
 // imports; filterAlias (path→reserved alias) names any FILTER package among
 // `imports` so its import line uses the reserved alias the lowered calls
-// reference (e.g. `_gsxstd "<std>"`, `_gsxf0 "<user>"`). Filter imports sort by
-// alias and are emitted after the plain external imports, before user-aliased
-// ones — std-only output keeps its single `_gsxstd "<std>"` line, byte-identical
-// to before.
-func writeImports(b *bytes.Buffer, imports map[string]bool, aliased []importSpec, filterAlias map[string]string, userPlainImports map[string]bool) {
+// reference (e.g. `_gsxstd "<std>"`, `_gsxf0 "<user>"`). typeArgAliases
+// (path→reserved alias) names every inferred cross-package type argument
+// (childTypeArgUse) whose package name collided with a name already bound in
+// this file — see generateFile's boundNames doc — under its own fresh
+// "_gsxti<N>" alias (never plain-imported: they're emitted from this map, not
+// from `imports`). Import-region order: plain std, blank line, plain
+// external, filter aliases (sorted by alias), type-arg aliases (sorted by
+// alias), user-aliased (sorted by path) — std-only output keeps its single
+// `_gsxstd "<std>"` line, byte-identical to before, and a file with no
+// colliding inferred type argument keeps this order unchanged (typeArgAliases
+// is empty, contributing nothing).
+func writeImports(b *bytes.Buffer, imports map[string]bool, aliased []importSpec, filterAlias map[string]string, userPlainImports map[string]bool, typeArgAliases map[string]string) {
 	var std, ext []string
 	type filterImp struct{ alias, path string }
 	var filters []filterImp
@@ -225,11 +333,17 @@ func writeImports(b *bytes.Buffer, imports map[string]bool, aliased []importSpec
 	sort.Strings(ext)
 	sort.Slice(filters, func(i, j int) bool { return filters[i].alias < filters[j].alias })
 	sort.Slice(aliased, func(i, j int) bool { return aliased[i].path < aliased[j].path })
+	type typeArgImp struct{ alias, path string }
+	typeArgImps := make([]typeArgImp, 0, len(typeArgAliases))
+	for path, alias := range typeArgAliases {
+		typeArgImps = append(typeArgImps, typeArgImp{alias: alias, path: path})
+	}
+	sort.Slice(typeArgImps, func(i, j int) bool { return typeArgImps[i].alias < typeArgImps[j].alias })
 	b.WriteString("import (\n")
 	for _, imp := range std {
 		fmt.Fprintf(b, "\t%q\n", imp)
 	}
-	if len(std) > 0 && (len(ext) > 0 || len(aliased) > 0 || len(filters) > 0) {
+	if len(std) > 0 && (len(ext) > 0 || len(aliased) > 0 || len(filters) > 0 || len(typeArgImps) > 0) {
 		b.WriteString("\n")
 	}
 	for _, imp := range ext {
@@ -238,13 +352,16 @@ func writeImports(b *bytes.Buffer, imports map[string]bool, aliased []importSpec
 	for _, f := range filters {
 		fmt.Fprintf(b, "\t%s %q\n", f.alias, f.path)
 	}
+	for _, f := range typeArgImps {
+		fmt.Fprintf(b, "\t%s %q\n", f.alias, f.path)
+	}
 	for _, imp := range aliased {
 		fmt.Fprintf(b, "\t%s %q\n", imp.name, imp.path)
 	}
 	b.WriteString(")\n\n")
 }
 
-func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, importAliases map[string]string, interpTemp *int, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
 	params, err := parseParams(c.Params)
 	if err != nil {
 		bag.Errorf(c.Pos(), c.End(), "invalid-syntax", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
@@ -323,7 +440,7 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 		b.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
 		emitNumScratch(b, c.Body, resolved)
 		for _, m := range c.Body {
-			if !genNode(b, m, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
+			if !genNode(b, m, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
 				return false
 			}
 		}
@@ -408,7 +525,7 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 	b.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
 	emitNumScratch(b, c.Body, resolved)
 	for _, m := range c.Body {
-		if !genNode(b, m, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
+		if !genNode(b, m, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
 			return false
 		}
 	}
@@ -883,7 +1000,7 @@ func emitPostCondSelector(b *bytes.Buffer, n *condSelNode, dropVar string) {
 // root attrs before the spread are caller-overridable, attrs after are forced
 // (root wins). splitIdx is the bag SpreadAttr's index in el.Attrs (guaranteed
 // unique by the caller).
-func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, importAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
 	// The bag expression: the bare `attrs` local is used directly; a DERIVED bag
 	// (`attrs.Without(…)`, `attrs.Merge(…)`, a pipeline) is evaluated exactly
 	// once into a hoisted temp so the caller-wins guards (.Has), the class/style
@@ -928,7 +1045,7 @@ func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, cur
 		}
 	} else {
 		for _, c := range el.Children {
-			if !genNode(b, c, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
+			if !genNode(b, c, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
 				return false
 			}
 		}
@@ -1165,7 +1282,7 @@ func rootStyleString(b *bytes.Buffer, styleAttr *ast.ClassAttr, staticStyle *ast
 // component's receiver var + type name (empty for a function component); they
 // thread down to genChildComponent for the method-vs-package disambiguation of a
 // dotted child-component tag.
-func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, importAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
 	switch t := n.(type) {
 	case *ast.Text:
 		emitS(b, t.Value)
@@ -1188,7 +1305,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 	case *ast.Element:
 		emitLine(b, fset, t.Pos())
 		if isComponentTag(t.Tag) {
-			return genChildComponent(b, t, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)
+			return genChildComponent(b, t, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)
 		}
 		// MANUAL fallthrough: an element carrying the author's `{ attrs... }` bag spread
 		// gets position-aware precedence (pre-spread overridable, post-spread forced).
@@ -1213,7 +1330,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 					expr, expr, expr)
 				return false
 			}
-			return emitManualSpreadElement(b, t, splitIdx, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)
+			return emitManualSpreadElement(b, t, splitIdx, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)
 		}
 		emitS(b, "<"+t.Tag)
 		refreshMeta := isMetaRefreshElement(t.Tag, t.Attrs)
@@ -1243,7 +1360,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 			}
 		} else {
 			for _, c := range t.Children {
-				if !genNode(b, c, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
+				if !genNode(b, c, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
 					return false
 				}
 			}
@@ -1253,7 +1370,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		return genInterp(b, t, resolved, table, imports, interpTemp, fset, bag)
 	case *ast.Fragment:
 		for _, c := range t.Children {
-			if !genNode(b, c, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
+			if !genNode(b, c, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
 				return false
 			}
 		}
@@ -1261,7 +1378,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		emitLine(b, fset, t.Pos())
 		fmt.Fprintf(b, "for %s {\n", t.Clause)
 		for _, c := range t.Body {
-			if !genNode(b, c, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
+			if !genNode(b, c, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
 				return false
 			}
 		}
@@ -1270,7 +1387,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		emitLine(b, fset, t.Pos())
 		fmt.Fprintf(b, "if %s {\n", t.Cond)
 		for _, c := range t.Then {
-			if !genNode(b, c, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
+			if !genNode(b, c, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
 				return false
 			}
 		}
@@ -1278,7 +1395,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		if t.Else != nil {
 			b.WriteString(" else {\n")
 			for _, c := range t.Else {
-				if !genNode(b, c, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
+				if !genNode(b, c, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
 					return false
 				}
 			}
@@ -1295,7 +1412,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 				fmt.Fprintf(b, "case %s:\n", cc.List)
 			}
 			for _, c := range cc.Body {
-				if !genNode(b, c, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
+				if !genNode(b, c, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
 					return false
 				}
 			}
@@ -2699,7 +2816,27 @@ func childInvocation(el *ast.Element, byo *byoData, recvVar, recvTypeName string
 // recvVar/recvTypeName are the ENCLOSING component's receiver var + type name
 // (empty for a function component); they drive the method-vs-package
 // disambiguation via childInvocation.
-func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, importAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+	// Task 4: a cross-package generic tag whose requalification failed at
+	// analyze time has NO probe anywhere in the skeleton (nothing for
+	// harvest to have populated resolved[el] from) — module_importer.go's
+	// analyze marks it with the types.Invalid sentinel instead, right after
+	// harvest runs (see inferRegistry.failed's doc). Emitting a call for it
+	// is impossible (uninstantiated, invalid Go — no resolved type arg to
+	// use), but emitting NOTHING is just as broken: an enclosing local (a
+	// used-param binding like `name := _gsxp.Name`, a loop var, a CF-hoisted
+	// class temp) whose ONLY use sits in this tag's value expressions would
+	// trip "declared and not used" in the OUTPUT — generate would exit 0
+	// having written non-compiling Go. So emit a never-executed SINK that
+	// consumes the tag's value expressions instead (genSkippedTagSink). The
+	// positioned "inference-unavailable" diagnostic was already recorded at
+	// analyze time; the sink returns true (not false — false would propagate
+	// up through genNode and abort the WHOLE enclosing component, discarding
+	// every sibling node too, which is not what "generation of other tags
+	// unaffected" means): the element renders nothing.
+	if basic, ok := resolved[el].(*types.Basic); ok && basic.Kind() == types.Invalid {
+		return genSkippedTagSink(b, el, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)
+	}
 	// A bare-call candidate tag (isBareCallCandidate — a hand-written same-package
 	// func, or a .gsx no-props component) was probed via _gsxcompsig, so harvest
 	// stored its real signature in resolved[el]. A nullary func is a bare call
@@ -2712,7 +2849,10 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 				"no-argument component %s accepts no attributes or children", el.Tag)
 			return false
 		}
-		callTypeArgs := childTypeArgUse(el, currentPkg, resolved, imports, importAliases)
+		callTypeArgs, argsOK := childTypeArgUse(el, currentPkg, resolved, table, imports, importAliases, boundNames, typeArgAliases, bag)
+		if !argsOK {
+			return false
+		}
 		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s%s())\n", el.Tag, callTypeArgs)
 		return true
 	}
@@ -2729,7 +2869,10 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 	_, isByoChild := byo.isByoStruct(propsType)
 	isNullaryCall := ((isMethod && !isByoChild) || isNoPropsComponent(structFields, propsType)) && len(el.Attrs) == 0 && len(el.Children) == 0
 	if isNullaryCall {
-		callTypeArgs := childTypeArgUse(el, currentPkg, resolved, imports, importAliases)
+		callTypeArgs, argsOK := childTypeArgUse(el, currentPkg, resolved, table, imports, importAliases, boundNames, typeArgAliases, bag)
+		if !argsOK {
+			return false
+		}
 		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s%s())\n", callTarget, callTypeArgs)
 		return true
 	}
@@ -2744,7 +2887,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 	// When splatExpr is non-empty, the call is a whole-struct splat: emit
 	// callTarget(splatExpr) directly, bypassing the Props{…} literal.
 	fieldEntries, splatExpr, usedPkgs, err := childPropsLiteral(el, propsType, "gsx", mergeExpr, table, structFields, nodeProps[propsType], byo, fm, func(nodes []ast.Markup) (string, error) {
-		s, ok := emitSlotClosure(nodes, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)
+		s, ok := emitSlotClosure(nodes, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)
 		if !ok {
 			return "", fmt.Errorf("slot closure failed")
 		}
@@ -2767,7 +2910,10 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 	}
 	if splatExpr != "" {
 		// Whole-struct splat: `<Card { d... }/>` → `Card(d)` (no Props{…} literal).
-		callTypeArgs := childTypeArgUse(el, currentPkg, resolved, imports, importAliases)
+		callTypeArgs, argsOK := childTypeArgUse(el, currentPkg, resolved, table, imports, importAliases, boundNames, typeArgAliases, bag)
+		if !argsOK {
+			return false
+		}
 		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s%s(%s))\n", callTarget, callTypeArgs, splatExpr)
 		return true
 	}
@@ -2900,39 +3046,408 @@ outer:
 	for i, fe := range fieldEntries {
 		strs[i] = fe.str
 	}
-	callTypeArgs := childTypeArgUse(el, currentPkg, resolved, imports, importAliases)
+	callTypeArgs, argsOK := childTypeArgUse(el, currentPkg, resolved, table, imports, importAliases, boundNames, typeArgAliases, bag)
+	if !argsOK {
+		return false
+	}
 	fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s%s(%s%s{%s}))\n", callTarget, callTypeArgs, propsType, callTypeArgs, strings.Join(strs, ", "))
 	return true
 }
 
-func childTypeArgUse(el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, imports map[string]bool, importAliases map[string]string) string {
+// childTypeArgUse renders the `[T1, T2]` type-argument suffix for a generic
+// child-component call: an explicit `<Comp[int]>` echoes el.TypeArgs
+// verbatim, otherwise the caller-side inference engine already stored the
+// instantiated *types.Named in resolved[el] and the type args come from
+// there.
+//
+// An INFERRED type argument can name a type that is unspeakable at the call
+// site: an unexported type declared in a package other than currentPkg
+// (e.g. a constructor in another package returns an unexported type, and a
+// generic component's type parameter gets inferred as that type). Printing
+// `otherpkg.secret` verbatim is not valid Go outside otherpkg — the emitted
+// .x.go would fail to compile even though generate exited 0, violating the
+// hard invariant that generate never emits non-compiling output. So every
+// inferred type argument is walked (unspeakableTypeArg) BEFORE printing; if
+// any reachable named type is cross-package-unexported, this records a
+// positioned "unrenderable-type-arg" diagnostic and returns ("", false) — the
+// established emission-failure contract: the caller propagates false, this
+// one component fails, siblings continue.
+//
+// A SPEAKABLE inferred type argument can still collide: its package's own
+// NAME may already be bound to a DIFFERENT import path in this file (see
+// generateFile's boundNames doc). qf (below) prints pkg.Name() verbatim only
+// when that name is free; on a collision it mints a fresh "_gsxti<N>" alias
+// (recorded in typeArgAliases, path→alias, and consulted first on any later
+// reference to the SAME path) instead of plain-importing the path — the same
+// hard-invariant concern as the unexported-type case above, just surfacing
+// as a `go build` "redeclared" error instead of an unspeakable identifier.
+//
+// A SPEAKABLE inferred type argument can ALSO name a type declared in a
+// FILTER package (table, harvested from gen.Options.FilterPkgs) that this
+// file never plain-imports itself — the file only reaches that package
+// through the reserved-alias pipe-filter mechanism (lowerPipe), which sets
+// imports[path] = true WITHOUT ever registering a plain import line for it.
+// The old qf treated `imports[path]` as proof a plain import line would be
+// emitted (see the branch below); for a filter-only path that's false —
+// writeImports emits ONLY the reserved-alias line (`_gsxf0 "path"`) for a
+// path present in `imports` that's also a filter package, unless the user
+// ALSO plain-imported it themselves (userPlainImports). Printing pkg.Name()
+// for such a path names an unbound identifier: `go build` failure with gsx
+// exiting 0 — the final whole-branch review's Critical-2 finding. So qf
+// checks table for the path FIRST (before the plain-imported-path branch)
+// and, when it names a filter package, qualifies with that package's
+// reserved alias instead — the SAME alias the file's own filter calls use,
+// so the reference is always bound regardless of whether this exact path
+// was already in `imports` via a filter call, a plain user import, or (this
+// case) only the inferred type argument itself; imports[path] is set here
+// too so writeImports actually emits the reserved-alias import line for it.
+func childTypeArgUse(el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, bag *diag.Bag) (string, bool) {
 	if el.TypeArgs != "" {
-		return typeArgUse(el.TypeArgs)
+		return typeArgUse(el.TypeArgs), true
 	}
 	named, ok := resolved[el].(*types.Named)
 	if !ok || named.TypeArgs() == nil || named.TypeArgs().Len() == 0 {
-		return ""
+		return "", true
+	}
+	visited := make(map[types.Type]bool)
+	for typ := range named.TypeArgs().Types() {
+		if offPkg, offName, found := unspeakableTypeArg(typ, currentPkg, visited); found {
+			// "instantiate <tag> explicitly" is dropped here (Task 8's adjudicated
+			// wording, per Task 6's report): unlike an ordinary inference
+			// failure, this diagnostic fires when inference SUCCEEDED but the
+			// winning type argument is unspeakable from the call site — no
+			// spelling of <tag>[SomeExportedType] at THIS site can name
+			// offPkg's unexported type, so that advice is a dead end. The only
+			// real fixes live in the OTHER package: export the type, or change
+			// the constructor's return type to something exported.
+			bag.Errorf(el.Pos(), el.End(), "unrenderable-type-arg",
+				"cannot instantiate %s: inferred type argument %s.%s is unexported outside package %q; pass an exported type, or export the type or change the constructor's return type",
+				el.Tag, offPkg.Name(), offName, offPkg.Path())
+			return "", false
+		}
 	}
 	args := make([]string, 0, named.TypeArgs().Len())
 	qf := func(pkg *types.Package) string {
 		if pkg == nil {
 			return ""
 		}
-		if currentPkg != nil && pkg.Path() == currentPkg.Path() {
+		path := pkg.Path()
+		if currentPkg != nil && path == currentPkg.Path() {
 			return ""
 		}
-		if alias := importAliases[pkg.Path()]; alias != "" {
+		if alias := importAliases[path]; alias != "" {
+			return alias
+		}
+		// A path this call (or an earlier tag in this same file) already
+		// aliased away for colliding NAME reuses the SAME alias — never mint
+		// a second one for the same path.
+		if alias := typeArgAliases[path]; alias != "" {
+			return alias
+		}
+		// A FILTER package (harvested into table) is qualified with its OWN
+		// reserved alias, never a plain pkg.Name() — see the doc above. This
+		// must run BEFORE the imports[path] branch below: a filter path can
+		// already be present in `imports` (set by an earlier lowerPipe call
+		// in this file) without ever being plain-imported, so that branch's
+		// "already plain-imported" assumption does not hold for it.
+		if alias, ok := table.aliasForPath(path); ok {
+			if imports != nil {
+				imports[path] = true
+			}
+			return alias
+		}
+		// A path already plain-imported (the user's own GoChunk import, or an
+		// earlier NON-colliding type-arg addition for this SAME path) is
+		// already correctly bound under its own name — reuse it verbatim.
+		if imports != nil && imports[path] {
+			return pkg.Name()
+		}
+		// A genuinely new path: printing pkg.Name() verbatim is only safe if
+		// that name isn't ALREADY bound to some OTHER path in this file (see
+		// generateFile's boundNames doc) — two import lines binding the same
+		// name is `go build`'s "name redeclared in this block", a hard-
+		// invariant violation (generate must never emit non-compiling
+		// output). On a genuine collision, mint a fresh reserved "_gsxti<N>"
+		// alias (mirroring the skeleton-side aliasAllocator's naming,
+		// infer.go) instead of plain-importing the path.
+		name := pkg.Name()
+		if boundNames != nil && typeArgAliases != nil && typeArgNameCollides(boundNames, name, path) {
+			alias := fmt.Sprintf("_gsxti%d", len(typeArgAliases)+1)
+			typeArgAliases[path] = alias
+			boundNames[alias] = path
 			return alias
 		}
 		if imports != nil {
-			imports[pkg.Path()] = true
+			imports[path] = true
 		}
-		return pkg.Name()
+		if boundNames != nil {
+			boundNames[name] = path
+		}
+		return name
 	}
 	for typ := range named.TypeArgs().Types() {
 		args = append(args, types.TypeString(typ, qf))
 	}
-	return "[" + strings.Join(args, ", ") + "]"
+	return "[" + strings.Join(args, ", ") + "]", true
+}
+
+// typeArgNameCollides reports whether printing an inferred type argument's
+// package under name would collide with a binding this file already holds
+// for a DIFFERENT import path (see generateFile's boundNames doc). PRESENCE
+// in boundNames is what makes a name taken — the comma-ok idiom, never a
+// zero-value check — because a reserved name can be seeded with an EMPTY
+// path sentinel (`boundNames[classMergerAlias] = ""`: the class-merger alias
+// is reserved whether or not a merger is configured) that must collide with
+// EVERY candidate path; a zero-value check would treat that deliberate
+// sentinel as unset, plain-import a package literally named `_gsxcm` (a
+// legal Go identifier), and bind the name twice — `go build`'s "redeclared
+// in this block" with gsx exiting 0.
+func typeArgNameCollides(boundNames map[string]string, name, path string) bool {
+	boundPath, taken := boundNames[name]
+	return taken && boundPath != path
+}
+
+// unspeakableTypeArg walks t looking for a named type (or materialized
+// alias) whose identifier is unexported AND declared in a package other than
+// currentPkg — such a type cannot be spelled at all outside its declaring
+// package (`pkg.lowerName` is not valid Go syntax for referring to an
+// unexported identifier), so printing it as an inferred type argument would
+// emit non-compiling Go. Recurses through the composite type kinds a printed
+// type argument can be built from (pointer/slice/array/map/chan element
+// types, struct fields, signature params/results, interface embeddeds AND
+// explicit method signatures, and a nested generic instantiation's own type
+// arguments) so an offender buried in e.g. `[]models.secret`,
+// `map[string]models.secret`, or `interface{ Get() models.secret }` is still
+// caught — not just a bare `models.secret`. The walk mirrors what
+// types.TypeString actually PRINTS: a Named/Alias prints only its (possibly
+// qualified) name plus type args — never its underlying/RHS — so those are
+// not recursed into. visited guards against unbounded recursion through
+// self-referential named types (e.g. `type List struct { Next *List }`).
+func unspeakableTypeArg(t types.Type, currentPkg *types.Package, visited map[types.Type]bool) (offendingPkg *types.Package, offendingName string, found bool) {
+	if t == nil || visited[t] {
+		return nil, "", false
+	}
+	visited[t] = true
+	switch tt := t.(type) {
+	case *types.Named:
+		if obj := tt.Obj(); obj != nil && obj.Pkg() != nil &&
+			(currentPkg == nil || obj.Pkg().Path() != currentPkg.Path()) &&
+			!token.IsExported(obj.Name()) {
+			return obj.Pkg(), obj.Name(), true
+		}
+		// A nested generic instantiation (e.g. Box[secret]) can bury the
+		// offender in ITS OWN type arguments.
+		if targs := tt.TypeArgs(); targs != nil {
+			for typ := range targs.Types() {
+				if pkg, name, ok := unspeakableTypeArg(typ, currentPkg, visited); ok {
+					return pkg, name, ok
+				}
+			}
+		}
+		return nil, "", false
+	case *types.Alias:
+		// gotypesalias=1 is unconditional on this repo's Go version, so alias
+		// types are materialized *types.Alias nodes — and types.TypeString
+		// prints an alias by the ALIAS's OWN object name (typestring.go's
+		// `case *Alias: w.typeName(t.obj)`), never its RHS. An unexported
+		// cross-package alias name is therefore exactly as unspeakable as an
+		// unexported Named; mirror that branch. When the alias name itself is
+		// speakable, the printed form is just that name (plus any type args
+		// for a generic alias), so only the TypeArgs need recursing — the RHS
+		// is never printed.
+		if obj := tt.Obj(); obj != nil && obj.Pkg() != nil &&
+			(currentPkg == nil || obj.Pkg().Path() != currentPkg.Path()) &&
+			!token.IsExported(obj.Name()) {
+			return obj.Pkg(), obj.Name(), true
+		}
+		if targs := tt.TypeArgs(); targs != nil {
+			for typ := range targs.Types() {
+				if pkg, name, ok := unspeakableTypeArg(typ, currentPkg, visited); ok {
+					return pkg, name, ok
+				}
+			}
+		}
+		return nil, "", false
+	case *types.Pointer:
+		return unspeakableTypeArg(tt.Elem(), currentPkg, visited)
+	case *types.Slice:
+		return unspeakableTypeArg(tt.Elem(), currentPkg, visited)
+	case *types.Array:
+		return unspeakableTypeArg(tt.Elem(), currentPkg, visited)
+	case *types.Chan:
+		return unspeakableTypeArg(tt.Elem(), currentPkg, visited)
+	case *types.Map:
+		if pkg, name, ok := unspeakableTypeArg(tt.Key(), currentPkg, visited); ok {
+			return pkg, name, ok
+		}
+		return unspeakableTypeArg(tt.Elem(), currentPkg, visited)
+	case *types.Struct:
+		for field := range tt.Fields() {
+			if pkg, name, ok := unspeakableTypeArg(field.Type(), currentPkg, visited); ok {
+				return pkg, name, ok
+			}
+		}
+		return nil, "", false
+	case *types.Tuple:
+		if tt == nil {
+			return nil, "", false
+		}
+		for v := range tt.Variables() {
+			if pkg, name, ok := unspeakableTypeArg(v.Type(), currentPkg, visited); ok {
+				return pkg, name, ok
+			}
+		}
+		return nil, "", false
+	case *types.Signature:
+		if pkg, name, ok := unspeakableTypeArg(tt.Params(), currentPkg, visited); ok {
+			return pkg, name, ok
+		}
+		return unspeakableTypeArg(tt.Results(), currentPkg, visited)
+	case *types.Interface:
+		// An ANONYMOUS interface prints its explicit method SIGNATURES inline
+		// (typestring.go writes `Name(params) results` per explicit method),
+		// so an offender in a method's params or results (e.g. `interface{
+		// Get() models.secret }`) is part of the printed representation —
+		// walk each method's *types.Signature through the Signature case
+		// above, not just the embedded types.
+		for m := range tt.ExplicitMethods() {
+			if pkg, name, ok := unspeakableTypeArg(m.Type(), currentPkg, visited); ok {
+				return pkg, name, ok
+			}
+		}
+		for et := range tt.EmbeddedTypes() {
+			if pkg, name, ok := unspeakableTypeArg(et, currentPkg, visited); ok {
+				return pkg, name, ok
+			}
+		}
+		return nil, "", false
+	default:
+		return nil, "", false
+	}
+}
+
+// genSkippedTagSink emits the fail-safe replacement for a requalification-
+// failed cross-package generic tag (the types.Invalid sentinel in
+// resolved[el] — see genChildComponent's guard): a NEVER-EXECUTED func
+// literal assigned to blank whose body consumes every value expression the
+// tag's normal call would have consumed —
+//
+//	_ = func() {
+//		<CF-hoisted class statements>
+//		_, _ = tupleValuedProp()                      // per (T, error) value
+//		_ = struct{ F0 any; F1 any }{F0: v0, F1: v1}  // everything else
+//	}
+//
+// This mirrors, at emit time, the anonymous-struct sink the SKELETON emits
+// for the same tag (analyze.go's emitProbes fail-safe branch), restoring the
+// probe ≡ emit reference symmetry: any enclosing local (used-param binding,
+// loop var, CF-hoisted temp) whose only use sits in this tag stays used, so
+// the emitted file compiles. Wrapping in a discarded func literal (rather
+// than executing the struct literal inline) means the expressions are never
+// EVALUATED at render time — a skipped tag must not run its prop
+// expressions' side effects — while every identifier reference still counts
+// as a use for the compiler.
+//
+// Values come from the same childPropsLiteral walk the real call path uses
+// (slot closures included, so children references are consumed too, built by
+// the same emitSlotClosure). A (T, error)-tuple-valued prop or ordered-attrs
+// pair cannot sit in a single-value struct field, so it is blank-assigned at
+// its own arity instead; the tag renders nothing either way, so the
+// invalid-tuple diagnostic the normal path raises for non-(T, error) tuples
+// is deliberately not repeated here (the tag already carries its positioned
+// inference-unavailable warning).
+func genSkippedTagSink(b *bytes.Buffer, el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+	_, propsType, _ := childInvocation(el, byo, recvVar, recvTypeName)
+	// Route CF-hoisted class statements into a temp buffer so they land
+	// INSIDE the discarded func literal (never executed) instead of inline
+	// in the render body (where they would run — and where their temps would
+	// be unused, since the consuming class entry lives in the sink).
+	var hoist bytes.Buffer
+	fieldEntries, splatExpr, usedPkgs, err := childPropsLiteral(el, propsType, "gsx", mergeExpr, table, structFields, nodeProps[propsType], byo, fm, func(nodes []ast.Markup) (string, error) {
+		s, ok := emitSlotClosure(nodes, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)
+		if !ok {
+			return "", fmt.Errorf("slot closure failed")
+		}
+		return s, nil
+	}, false, resolved, &hoist, interpTemp)
+	if err != nil {
+		if ae, ok := errors.AsType[*attrError](err); ok {
+			bag.Errorf(ae.pos, ae.end, ae.code, "%s", ae.msg)
+		} else {
+			bag.Errorf(el.Pos(), el.End(), childPropsErrorCode(err), "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+		}
+		return false
+	}
+	for _, path := range usedPkgs {
+		imports[path] = true
+	}
+
+	var typeParts, litParts []string
+	sinkValue := func(val string) {
+		name := fmt.Sprintf("F%d", len(typeParts))
+		typeParts = append(typeParts, name+" any")
+		litParts = append(litParts, name+": "+val)
+	}
+	// blankAssign writes an arity-matched all-blank assignment for a
+	// multi-value expression (`_, _ = f()`), the only shape that can consume
+	// a tuple-valued call.
+	blankAssign := func(w *bytes.Buffer, n int, expr string) {
+		blanks := make([]string, n)
+		for i := range blanks {
+			blanks[i] = "_"
+		}
+		fmt.Fprintf(w, "\t\t\t%s = %s\n", strings.Join(blanks, ", "), expr)
+	}
+
+	var stmts bytes.Buffer
+	if splatExpr != "" {
+		sinkValue(splatExpr)
+	}
+	for _, fe := range fieldEntries {
+		switch {
+		case fe.ea != nil:
+			if t, ok := resolved[fe.ea].(*types.Tuple); ok && t.Len() > 1 {
+				blankAssign(&stmts, t.Len(), fe.rawVal)
+				continue
+			}
+			if _, val, ok := strings.Cut(fe.str, ":"); ok {
+				sinkValue(strings.TrimSpace(val))
+			}
+		case fe.oa != nil:
+			// Sink each ordered-attrs pair VALUE individually (the keys are
+			// string constants), tuple-aware; the merge-prefix bag expression
+			// (composed from fallthrough attr values) is sunk too so its
+			// references stay used.
+			if fe.oaMergePrefix != "" {
+				sinkValue(fe.oaMergePrefix)
+			}
+			for j, pr := range fe.oaPairs {
+				if t, ok := resolved[&fe.oa.Pairs[j]].(*types.Tuple); ok && t.Len() > 1 {
+					blankAssign(&stmts, t.Len(), pr.rawVal)
+					continue
+				}
+				sinkValue(pr.rawVal)
+			}
+		default:
+			// Slot/Children closures, class entries, boolean props, Attrs
+			// bags — every entry childPropsLiteral produces is "Field: value".
+			if _, val, ok := strings.Cut(fe.str, ":"); ok {
+				sinkValue(strings.TrimSpace(val))
+			}
+		}
+	}
+
+	if hoist.Len() == 0 && stmts.Len() == 0 && len(litParts) == 0 {
+		return true // nothing to consume; the element simply renders nothing
+	}
+	b.WriteString("\t\t_ = func() {\n")
+	b.Write(hoist.Bytes())
+	b.Write(stmts.Bytes())
+	if len(litParts) > 0 {
+		fmt.Fprintf(b, "\t\t\t_ = struct{ %s }{%s}\n", strings.Join(typeParts, "; "), strings.Join(litParts, ", "))
+	}
+	b.WriteString("\t\t}\n")
+	return true
 }
 
 // attrError is an error from childPropsLiteral that carries the offending attr
@@ -2976,13 +3491,13 @@ func childPropsErrorCode(err error) string {
 // EXACTLY — same reserved idents (_gsxw/_gsxgw), gsx.W/gsx.Func, and trailing
 // Err() — so the slot streams to the same output, in THIS (parent) scope. It is
 // shared by the Children slot and every named markup slot so they cannot drift.
-func emitSlotClosure(nodes []ast.Markup, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, importAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) (string, bool) {
+func emitSlotClosure(nodes []ast.Markup, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) (string, bool) {
 	var slot bytes.Buffer
 	slot.WriteString("gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {\n")
 	slot.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
 	emitNumScratch(&slot, nodes, resolved)
 	for _, c := range nodes {
-		if !genNode(&slot, c, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
+		if !genNode(&slot, c, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
 			return "", false
 		}
 	}

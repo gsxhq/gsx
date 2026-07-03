@@ -31,6 +31,7 @@ component (p Page) Box[T string | int](value T) {
 
 component (p Page) Render() {
 	<p.Box[int] value={7} />
+	<p.Box value={7} />
 }
 `)
 	res, err := GenerateDirs(tmp, []string{pkgDir}, Options{FilterPkgs: []string{stdImportPath}, CSSMinify: true, JSMinify: true}, nil)
@@ -49,5 +50,15 @@ component (p Page) Render() {
 		if !strings.Contains(got, want) {
 			t.Fatalf("generated source missing %q:\n%s", want, got)
 		}
+	}
+	// Both the explicit-type-arg call site (<p.Box[int] .../>) and the
+	// omitted-type-arg one (<p.Box .../>, inferred via the caller-side probe
+	// — finding 8's method-component gate) must independently emit this
+	// exact instantiated call; a plain Contains above would already pass if
+	// only ONE of the two sites produced it, so count occurrences to prove
+	// the inference probe path (not just the explicit-type-arg path) worked.
+	const wantCall = "p.Box[int](PageBoxProps[int]{Value: 7})"
+	if n := strings.Count(got, wantCall); n != 2 {
+		t.Fatalf("want 2 occurrences of %q (one per call site), got %d:\n%s", wantCall, n, got)
 	}
 }

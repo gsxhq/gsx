@@ -11,6 +11,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -290,12 +291,12 @@ func (m *Module) recordImports(dir string, paths []string) {
 // still reset there for uniformity. Invalidation: invalidateLocked deletes
 // the entry whenever the dep dir is in the dirty closure.
 type depPropFacts struct {
-	pkgName      string
-	propFields   map[string]map[string]bool
-	nodeProps    map[string]map[string]bool
-	attrsProps   map[string]map[string]bool
-	genericProps map[string]bool
-	byo          *byoData
+	pkgName     string
+	propFields  map[string]map[string]bool
+	nodeProps   map[string]map[string]bool
+	attrsProps  map[string]map[string]bool
+	genericSigs map[string]*genericSig
+	byo         *byoData
 }
 
 // importedPropFacts returns dir's prop facts, deriving and caching them on
@@ -316,8 +317,28 @@ func (m *Module) importedPropFacts(depDir string) (*depPropFacts, error) {
 	if err != nil {
 		return nil, err
 	}
-	comps := componentsInFiles(files)
-	f := &depPropFacts{pkgName: pkgName, propFields: propFields, nodeProps: nodeProps, attrsProps: attrsProps, genericProps: genericPropsFor(comps, byo), byo: byo}
+	sigs := genericSigsFor(files, byo)
+	// Prefer REAL package names over the requalification engine's
+	// last-path-segment heuristic (lookupDepImportPath) for each generic
+	// component's declaring-file imports: an unaliased import's spec.name
+	// is blank at parse time, so lookupDepImportPath would otherwise have to
+	// GUESS the dep-of-a-dep's declared package name from its import path's
+	// last segment — wrong whenever the two differ. Fill it in here, when
+	// resolvable, from an authoritative source instead (see
+	// resolveImportPackageName): this is strictly additive (only blank
+	// names are touched) and never invalidates the heuristic's own
+	// fail-safe behavior for paths that remain unresolved.
+	for _, sig := range sigs {
+		for i := range sig.imports {
+			if sig.imports[i].name != "" {
+				continue
+			}
+			if name, ok := m.resolveImportPackageName(depDir, sig.imports[i].path); ok {
+				sig.imports[i].name = name
+			}
+		}
+	}
+	f := &depPropFacts{pkgName: pkgName, propFields: propFields, nodeProps: nodeProps, attrsProps: attrsProps, genericSigs: sigs, byo: byo}
 	m.mu.Lock()
 	if m.depFacts == nil {
 		m.depFacts = map[string]*depPropFacts{}
@@ -327,16 +348,55 @@ func (m *Module) importedPropFacts(depDir string) (*depPropFacts, error) {
 	return f, nil
 }
 
-func componentsInFiles(files map[string]*gsxast.File) []*gsxast.Component {
-	var comps []*gsxast.Component
-	for _, f := range files {
-		for _, d := range f.Decls {
-			if c, ok := d.(*gsxast.Component); ok {
-				comps = append(comps, c)
-			}
-		}
+// resolveImportPackageName returns the REAL declared package name for path,
+// preferring authoritative sources over infer.go's last-path-segment
+// heuristic: a project-internal path resolves via its own directory's
+// package clause (quickPackageName — exact, not a guess); an external path
+// is resolved best-effort via go/build, which reliably handles GOROOT/
+// stdlib paths but does not understand go.mod module-cache resolution for
+// third-party paths — a failure there is expected and simply leaves the
+// import spec's name blank, falling back to the (still safe, fails-closed-
+// on-ambiguity) heuristic already documented on lookupDepImportPath. srcDir
+// anchors go/build's relative resolution.
+func (m *Module) resolveImportPackageName(srcDir, path string) (string, bool) {
+	if depDir, ok := dirForImportPath(m.opts.ModuleRoot, m.opts.ModulePath, path); ok {
+		return quickPackageName(depDir)
 	}
-	return comps
+	pkg, err := build.Import(path, srcDir, build.IgnoreVendor)
+	if err != nil || pkg.Name == "" {
+		return "", false
+	}
+	return pkg.Name, true
+}
+
+// quickPackageName reads the package name declared in dir by parsing ONLY
+// the package clause (parser.PackageClauseOnly) of its first Go or gsx
+// source file. This is cheap and safe even for a .gsx file: gsx source
+// always opens with a plain `package NAME` line using Go's own package-
+// clause grammar, and PackageClauseOnly stops scanning immediately after
+// that clause, so it never has to tokenize gsx-only syntax (component/JSX)
+// appearing later in the file.
+func quickPackageName(dir string) (string, bool) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", false
+	}
+	fset := token.NewFileSet()
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		if !strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, ".gsx") {
+			continue
+		}
+		f, err := goparser.ParseFile(fset, filepath.Join(dir, name), nil, goparser.PackageClauseOnly)
+		if err != nil || f.Name == nil {
+			continue
+		}
+		return f.Name.Name, true
+	}
+	return "", false
 }
 
 // fileFacts is the per-.gsx-file view of prop facts: the package's own facts
@@ -345,11 +405,37 @@ func componentsInFiles(files map[string]*gsxast.File) []*gsxast.Component {
 // must be too — a package-wide alias merge collides when two files bind the
 // same alias to different packages.
 type fileFacts struct {
-	propFields   map[string]map[string]bool
-	nodeProps    map[string]map[string]bool
-	attrsProps   map[string]map[string]bool
-	genericProps map[string]bool
-	byo          *byoData
+	propFields  map[string]map[string]bool
+	nodeProps   map[string]map[string]bool
+	attrsProps  map[string]map[string]bool
+	genericSigs map[string]*genericSig
+	byo         *byoData
+
+	// depAliasSpecs maps each gsx-dep import's EFFECTIVE alias in this file
+	// (the explicit spec name, or the dep's real declared package name for a
+	// plain import — exactly the alias fileScopedFacts qualifies the dep's
+	// facts under, i.e. the qualifier a dotted tag spells) to its import
+	// SPEC (path + resolved .gsx position). analyze uses it to resolve a
+	// failed generic tag's alias (inferRegistry.failedAliases) to the exact
+	// import spec whose skeleton "imported and not used" error must be
+	// treated as spurious — keyed by the spec's position, not path alone, so
+	// a second spec of the SAME path in the file (e.g. an unused dot import
+	// alongside the sunk named alias) keeps its own, REAL unused error. See
+	// the sunk-import filtering in analyze.
+	depAliasSpecs map[string]importSpec
+}
+
+// sunkImportKey identifies one user import spec within one .gsx file by its
+// source LINE plus import path — the granularity at which a skeleton
+// unused-import error can be correlated back to the spec that produced it
+// (each spec gets its own //line-mapped skeleton import line; the same
+// file+line correlation detectUnusedImports relies on). Both the type-error
+// filter (sunkUnusedImportError) and the emitted file's blank-import rewrite
+// (generateFile) key on this, so only the EXACT sunk spec is filtered and
+// rewritten — never a same-path sibling spec.
+type sunkImportKey struct {
+	line int
+	path string
 }
 
 // fileImportSpecs extracts f's hoisted import specs with resolved .gsx
@@ -388,7 +474,7 @@ func fileImportSpecs(f *gsxast.File, fset *token.FileSet) []importSpec {
 // a positioned Warning: its components fall back to the assume-prop regime
 // (declared == nil) instead of silently flip-flopping between regimes.
 func (m *Module) fileScopedFacts(dir string, f *gsxast.File, propFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, bag *diag.Bag, fset *token.FileSet) *fileFacts {
-	out := &fileFacts{propFields: propFields, nodeProps: nodeProps, attrsProps: attrsProps, genericProps: nil, byo: byo}
+	out := &fileFacts{propFields: propFields, nodeProps: nodeProps, attrsProps: attrsProps, genericSigs: nil, byo: byo}
 	cloned := false
 	seen := map[string]bool{} // alias+"\x00"+depDir: dedupe repeated specs
 	for _, spec := range fileImportSpecs(f, fset) {
@@ -421,10 +507,12 @@ func (m *Module) fileScopedFacts(dir string, f *gsxast.File, propFields, nodePro
 			out.propFields = maps.Clone(propFields)
 			out.nodeProps = maps.Clone(nodeProps)
 			out.attrsProps = maps.Clone(attrsProps)
-			out.genericProps = map[string]bool{}
+			out.genericSigs = map[string]*genericSig{}
+			out.depAliasSpecs = map[string]importSpec{}
 			out.byo = byo.cloneForFile()
 			cloned = true
 		}
+		out.depAliasSpecs[alias] = spec
 		for name, fields := range facts.propFields {
 			out.propFields[alias+"."+name] = fields
 		}
@@ -434,8 +522,8 @@ func (m *Module) fileScopedFacts(dir string, f *gsxast.File, propFields, nodePro
 		for name, fields := range facts.attrsProps {
 			out.attrsProps[alias+"."+name] = fields
 		}
-		for name := range facts.genericProps {
-			out.genericProps[alias+"."+name] = true
+		for name, sig := range facts.genericSigs {
+			out.genericSigs[alias+"."+name] = sig
 		}
 		out.byo.mergeQualified(alias, facts.byo)
 	}
@@ -535,6 +623,69 @@ type analyzed struct {
 	bag         *diag.Bag                    // diagnostics from parse + script resolution; used by Generate
 	importSpecs []importSpec                 // hoisted .gsx import specs (for unused-import detection)
 	typeErrs    []types.Error                // raw type errors from checkSkeletonPackage
+
+	// sunkImports maps a .gsx file path to the import SPECS (line+path keys)
+	// the type-checker PROVED were used only by a requalification-failed
+	// generic tag (the skeleton sink dropped that only reference, and the
+	// resulting spurious "imported [as x] and not used" error was filtered —
+	// see the confirmedSunk block in analyze). generateFile rewrites each
+	// such spec to a blank `_` import so the emitted .x.go compiles (the
+	// emitted sink drops the reference too). An import with ANY other use
+	// never lands here — its named import must stay — and a same-path
+	// SIBLING spec (different line) is never touched.
+	sunkImports map[string]map[sunkImportKey]bool
+}
+
+// sunkUnusedImportError reports whether e is a spurious unused-import
+// skeleton error caused by a requalification-failed generic tag's sink
+// dropping the import's only skeleton reference — see the filtering site in
+// analyze for the full story. go/types spells the error in TWO forms
+// ($GOROOT/src/go/types/resolver.go, errorUnusedPkg):
+//
+//	"path" imported and not used            (plain, dot, or path-named alias)
+//	"path" imported as alias and not used   (renamed import)
+//
+// and both must match — a renamed import (`import comp "…"`) whose only use
+// was the failed tag emits the second form. Match is exact, not heuristic:
+// the error's //line-adjusted position must land on a sunk spec's own .gsx
+// LINE and the quoted path must be that spec's path (sunkImportKey), so a
+// same-path sibling spec on another line — e.g. a genuinely unused dot
+// import next to the sunk alias — keeps its own, REAL error. On a match it
+// returns the .gsx file and key, so the caller can record the pair as
+// CONFIRMED unused (driving the emitted file's blank-import rewrite).
+func sunkUnusedImportError(e types.Error, sunkImports map[string]map[sunkImportKey]bool) (file string, key sunkImportKey, ok bool) {
+	if !isUnusedImportMsg(e.Msg) {
+		return "", sunkImportKey{}, false
+	}
+	pos := e.Fset.Position(e.Pos)
+	set := sunkImports[pos.Filename]
+	if set == nil {
+		return "", sunkImportKey{}, false
+	}
+	// Extract the quoted path from the message (same parse pickImportByPath
+	// uses); it is the first quoted string in both message forms.
+	i := strings.IndexByte(e.Msg, '"')
+	if i < 0 {
+		return "", sunkImportKey{}, false
+	}
+	j := strings.IndexByte(e.Msg[i+1:], '"')
+	if j < 0 {
+		return "", sunkImportKey{}, false
+	}
+	key = sunkImportKey{line: pos.Line, path: e.Msg[i+1 : i+1+j]}
+	if !set[key] {
+		return "", sunkImportKey{}, false
+	}
+	return pos.Filename, key, true
+}
+
+// isUnusedImportMsg matches BOTH go/types unused-import message forms — see
+// sunkUnusedImportError's doc.
+func isUnusedImportMsg(msg string) bool {
+	if strings.Contains(msg, "imported and not used") {
+		return true
+	}
+	return strings.Contains(msg, "imported as ") && strings.Contains(msg, " and not used")
 }
 
 // analyze performs the shared parse -> skeleton -> type-check pipeline for one
@@ -581,17 +732,44 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	if err != nil {
 		return nil, err
 	}
+	// genericSigs is the PACKAGE-WIDE props-type-name -> *genericSig map (see
+	// analyze.go's genericSig/buildSkeleton doc): built once here from every
+	// .gsx file's components (not just one file's), so a tag in page.gsx can
+	// infer against a generic component declared in a sibling box.gsx of the
+	// same package. The SAME map is passed to every file's buildSkeleton call
+	// below.
+	genericSigs := genericSigsFor(gsxFiles, byo)
 	var goFiles []*goast.File
 	compsByXGo := map[string][]*gsxast.Component{}
 	factsByXGo := map[string]*fileFacts{}
 	ctrlOffByXGo := map[string]map[gsxast.Node]int{}
+	// inferByXGo carries each file's inference-probe registry (built fresh by
+	// buildSkeleton alongside its skeleton source) so harvest can resolve a
+	// probe call's instantiated type back onto the *gsxast.Element it was
+	// emitted for — see infer.go's inferRegistry doc.
+	inferByXGo := map[string]*inferRegistry{}
+	// sunkImports maps a .gsx file path to the CANDIDATE import specs
+	// (line+path keys) whose only skeleton reference may have been dropped
+	// by a requalification-failed generic tag's sink — see the failedAliases
+	// doc on inferRegistry and the population site in the buildSkeleton loop
+	// below. Confirmation (the type-checker actually reporting the spec
+	// unused) happens in the confirmedSunk block after the type check.
+	sunkImports := map[string]map[sunkImportKey]bool{}
 	var allImportSpecs []importSpec
 	factsByFile := map[string]*fileFacts{}
 	skelErr := false
+	// inferNames is the ONE package-wide inference-probe-helper name
+	// allocator shared by every file's buildSkeleton call below (see
+	// inferNameAllocator's doc) — without it, two sibling files that each
+	// caller-side-infer against a shared component would independently mint
+	// the literal helper name "_gsxinfer1", and since every sibling
+	// skeleton is type-checked together as one package, that collides:
+	// `_gsxinfer1 redeclared in this block`, failing the whole package.
+	inferNames := newInferNameAllocator()
 	for path, f := range gsxFiles {
 		ff := m.fileScopedFacts(dir, f, propFields, nodeProps, attrsProps, byo, bag, fset)
 		factsByFile[path] = ff
-		skel, comps, imps, ctrlOff, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, ff.genericProps, ff.byo, m.opts.FieldMatcher, fset)
+		skel, comps, imps, ctrlOff, infReg, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, bag, inferNames)
 		if berr != nil {
 			// buildSkeleton error handling: a positioned attrError becomes a
 			// diagnostic and skips this file; any other error is also recorded as a
@@ -608,6 +786,26 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 			break
 		}
 		allImportSpecs = append(allImportSpecs, imps...)
+		// A requalification-failed generic tag's SKELETON sink drops the tag's
+		// reference to its dep package (see analyze.go's emitProbes fail-safe
+		// branch), so when that tag was the file's ONLY use of the import, the
+		// skeleton type-check raises a SPURIOUS `"path" imported and not used`
+		// hard error at the user's import line — the import IS used in the
+		// .gsx source. Resolve each failed alias to its import path now
+		// (fileFacts.depAliasSpecs) so the type-error loop below can filter
+		// exactly those errors, and Generate can rewrite the emitted import to
+		// a blank `_` import (the emitted file drops the reference too).
+		if len(infReg.failedAliases) > 0 && ff.depAliasSpecs != nil {
+			set := map[sunkImportKey]bool{}
+			for alias := range infReg.failedAliases {
+				if spec, ok := ff.depAliasSpecs[alias]; ok && spec.pos.IsValid() {
+					set[sunkImportKey{line: fset.Position(spec.pos).Line, path: spec.path}] = true
+				}
+			}
+			if len(set) > 0 {
+				sunkImports[path] = set
+			}
+		}
 		base := strings.TrimSuffix(filepath.Base(path), ".gsx")
 		absXpath := filepath.Join(dir, base+".x.go")
 		gf, perr := goparser.ParseFile(fset, absXpath, skel, goparser.SkipObjectResolution)
@@ -618,6 +816,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		compsByXGo[absXpath] = comps
 		factsByXGo[absXpath] = ff
 		ctrlOffByXGo[absXpath] = ctrlOff
+		inferByXGo[absXpath] = infReg
 	}
 	if skelErr {
 		gsxFiles = map[string]*gsxast.File{} // package-level skip: Generate's loop emits nothing
@@ -693,6 +892,44 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		pkgPath = ip
 	}
 	pkg, info, typeErrs := checkSkeletonPackage(pkgPath, pkgName, goFiles, fset, mi)
+	// Filter SPURIOUS unused-import errors caused by a requalification-failed
+	// generic tag's skeleton sink (see the sunkImports doc above): the import
+	// IS used in the .gsx source — the failed tag is its use — but the sink
+	// dropped its only skeleton reference, so go/types reports
+	// `"path" imported and not used` at the user's import line. Left in
+	// typeErrs, that single spurious error would (a) hard-fail generation for
+	// the WHOLE package (the len(typeErrs)==0 gate below and in module.go)
+	// and (b) bury the actionable inference-unavailable warning. Filtering is
+	// exact, not heuristic: only errors whose //line-adjusted position lands
+	// in a file with a sunk set AND whose quoted path is in that set are
+	// dropped; a genuinely unused import of the same path in ANOTHER file
+	// keeps its error (its position names that other file).
+	//
+	// confirmedSunk narrows sunkImports to the (file, spec) pairs the
+	// type-checker actually PROVED unused — i.e. exactly the errors filtered
+	// here. Only those specs are rewritten to blank `_` imports in the
+	// emitted file (analyzed.sunkImports → generateFile): a dep referenced by
+	// ANOTHER tag or expression in the same file never produces the unused
+	// error, so its named import must stay (blanking it would break those
+	// other references).
+	var confirmedSunk map[string]map[sunkImportKey]bool
+	if len(sunkImports) > 0 {
+		kept := typeErrs[:0]
+		for _, e := range typeErrs {
+			if file, key, ok := sunkUnusedImportError(e, sunkImports); ok {
+				if confirmedSunk == nil {
+					confirmedSunk = map[string]map[sunkImportKey]bool{}
+				}
+				if confirmedSunk[file] == nil {
+					confirmedSunk[file] = map[sunkImportKey]bool{}
+				}
+				confirmedSunk[file][key] = true
+				continue
+			}
+			kept = append(kept, e)
+		}
+		typeErrs = kept
+	}
 	// Collect the skeleton byte spans of every _gsxuseq(...) child-prop or
 	// element-spread harvest probe. Each expression is also checked in a native
 	// typed context (the props literal or gsx.Attrs assignment), so suppressing
@@ -727,10 +964,19 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 			continue // synthetic skeleton position: no //line directive, so no valid .gsx location to report
 		}
 		msg := stripGsxunwrap(e.Msg)
-		if strings.Contains(msg, "cannot infer") {
-			if tag, ok := componentTagAtTypeError(gsxFiles, fset, e.Fset.Position(e.Pos)); ok {
-				msg = fmt.Sprintf("type inference failed for <%s>; please instantiate with <%s[%s] ...>", tag, tag, explicitTypeArgHint(gsxFiles, tag))
-			}
+		// Rewrite an inference-probe error ONLY when its RAW (un-//line-
+		// adjusted) skeleton position lands inside one of THIS file's own
+		// recorded inference-probe spans (see infer.go's inferRegistry doc and
+		// inferSite.span) — never by guessing from the tag's overall .gsx
+		// line/column range (the finding-6/7 hijack: a user's own failing
+		// generic call whose ADJUSTED position merely falls somewhere inside an
+		// unrelated component tag's body used to get blamed on that tag). A
+		// registry miss leaves msg untouched, so every other type error
+		// (including a user's own "cannot infer" from their own generic call)
+		// passes through verbatim. See rewriteProbeDiag for the per-shape
+		// rewrite rules.
+		if site, rawOffset, ok := probeSiteForError(inferByXGo, fset, e.Pos); ok {
+			msg = rewriteProbeDiag(msg, site, rawOffset)
 		}
 		bag.Add(diag.Diagnostic{Start: p, End: p, Severity: diag.Error, Message: msg, Source: "types"})
 	}
@@ -781,10 +1027,24 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		if !ok {
 			continue
 		}
-		ff := factsByXGo[fname]
-		genericProps := genericPropsFor(comps, ff.byo)
-		maps.Copy(genericProps, ff.genericProps)
-		harvest(gf, comps, info, genericProps, ff.byo, resolved, exprMap)
+		harvest(gf, comps, info, resolved, exprMap, inferByXGo[fname])
+		// Mark every element whose cross-package generic probe was skipped
+		// due to a requalification failure (Task 4 — see
+		// inferRegistry.failed's doc) with the types.Invalid sentinel: no
+		// probe was ever emitted for it, so harvest never visits it, but
+		// emit time (genChildComponent) must still know to skip it rather
+		// than generate an uninstantiated (invalid) call. Safe as an
+		// out-of-band signal here specifically because generateFile only
+		// ever runs when len(a.typeErrs)==0 (see module.go's Generate/
+		// Package doc), so a LEGITIMATE harvested type can never equal this
+		// sentinel — that only occurs when go/types itself hit a type
+		// error, which would already have aborted generation for the whole
+		// package.
+		if fr := inferByXGo[fname]; fr != nil {
+			for _, el := range fr.failed {
+				resolved[el] = types.Typ[types.Invalid]
+			}
+		}
 		for _, c := range comps {
 			compByKey[componentKey(c)] = c
 		}
@@ -864,75 +1124,164 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		bag:         bag,
 		importSpecs: allImportSpecs,
 		typeErrs:    typeErrs,
+		sunkImports: confirmedSunk,
 	}, nil
 }
 
-func componentTagAtTypeError(files map[string]*gsxast.File, fset *token.FileSet, target token.Position) (string, bool) {
-	for _, f := range files {
-		for _, d := range f.Decls {
-			c, ok := d.(*gsxast.Component)
-			if !ok {
-				continue
-			}
-			var found string
-			forEachComponentTagElement(c.Body, func(el *gsxast.Element) {
-				if found != "" {
-					return
-				}
-				elStart := fset.Position(el.Pos())
-				elEnd := fset.Position(el.End())
-				if sameFileLineRange(target, elStart, elEnd) {
-					found = el.Tag
-				}
-			})
-			if found != "" {
-				return found, true
-			}
-		}
+// probeSiteForError resolves a type-checker error's position to the
+// inference-probe site it landed inside, if any — the ONLY signal the
+// probe diagnostic rewrite (rewriteProbeDiag, called from analyze's
+// type-error loop) trusts. pos is a types.Error's Pos in the shared fset;
+// the lookup uses the UNADJUSTED position (fset.PositionFor(pos, false),
+// ignoring //line directives) to recover the raw skeleton filename + byte
+// offset a probe's span was recorded in — see infer.go's inferRegistry doc
+// (POSITION MAPPING) and TestInferProbeRawSpanRecovery for why the adjusted
+// position (which names the .gsx, not the skeleton) cannot be compared
+// against a span directly. inferByXGo is keyed by the skeleton's own
+// absolute .x.go path, exactly the raw position's Filename. The raw offset
+// is also returned so rewriteProbeDiag can resolve WHICH probe argument an
+// argument-positioned error names (inferSite.argAt).
+func probeSiteForError(inferByXGo map[string]*inferRegistry, fset *token.FileSet, pos token.Pos) (*inferSite, int, bool) {
+	raw := fset.PositionFor(pos, false)
+	reg := inferByXGo[raw.Filename]
+	if reg == nil {
+		return nil, 0, false
 	}
-	return "", false
+	site, ok := reg.siteAt(raw.Offset)
+	return site, raw.Offset, ok
 }
 
-func sameFileLineRange(target, start, end token.Position) bool {
-	if start.Filename != target.Filename || end.Filename != target.Filename {
-		return false
+// rewriteProbeDiag rewrites a type-checker error message whose position
+// landed inside a recorded inference-probe span (probeSiteForError) into a
+// user-facing diagnostic that names the TAG and never an internal probe
+// helper. rawOffset is the error's raw skeleton offset (for argAt). The
+// shapes, each pinned by a test in infer_test.go:
+//
+//  1. plain inference failure — "in call to _gsxinferN, cannot infer T
+//     (declared at ...)" (or the _gsxcompsig prefix): the declared-at
+//     substance is an internal skeleton artifact, so the message becomes the
+//     tag-naming instantiate hint with the component's REAL arity.
+//  2. inference failure WITH substance — "in call to _gsxinferN, mismatched
+//     types untyped int and untyped string (cannot infer T)": the substance
+//     names the user's own conflicting values, so it is preserved: tag +
+//     substance + hint.
+//  3. constraint violation — "T (type time.Duration) does not satisfy ...":
+//     inference SUCCEEDED and the winning type argument violates the
+//     component's constraint; instantiating explicitly would fail the same
+//     way, so NO instantiate hint — tag + substance only.
+//  4. uninstantiated composite-literal probe — "cannot use generic type
+//     XxxProps[T any] without instantiation" (the default-branch probe for a
+//     generic tag supplying NO declared prop: there is nothing to infer
+//     FROM, so the instantiate advice is exactly right). Gated on the
+//     message naming THIS site's props type (its BASE identifier — see
+//     below), so a user's own without-instantiation error (e.g. passing
+//     their own generic func value as a prop, positioned inside the probe
+//     span) passes through verbatim.
+//  5. argument-positioned leak — "cannot use 2 (...) as string value in
+//     argument to _gsxinfer1" (wrong type on a NON-generic prop of a generic
+//     tag; go/types positions it AT the offending argument): the probe
+//     reference is scrubbed and replaced with the prop's declared name +
+//     the tag, resolved via argAt from the error's raw offset.
+//  6. any OTHER message still naming a probe helper: the helper name is
+//     replaced with the tag reference — never invent structure for an
+//     unknown shape, but never leak the internal name either.
+//
+// Anything else (e.g. an "undefined: x" inside a supplied prop expression,
+// which go/types also positions inside the probe span) passes through
+// untouched.
+func rewriteProbeDiag(msg string, site *inferSite, rawOffset int) string {
+	tag := site.el.Tag
+	hint := fmt.Sprintf("please instantiate with <%s[%s] ...>", tag, arityTypeHint(site.arity))
+	// A supplied attr EXPRESSION is inlined into the probe call's arguments,
+	// so a user's own failing generic call there (`value={First(nil)}`)
+	// positions its error INSIDE the probe span too — the span match alone
+	// cannot distinguish the probe's own failure from the user's nested one.
+	// Two extra signals do (both verified live on go 1.26.1):
+	//   - the probe's OWN cannot-infer messages always carry the
+	//     "in call to _gsxinferN, "/"in call to _gsxcompsig, " prefix
+	//     (prefixed below); a user's nested call carries ITS OWN name there
+	//     instead ("in call to First, cannot infer T ..."), so an
+	//     un-prefixed cannot-infer at a probe span is the user's and passes
+	//     through untouched;
+	//   - the probe's OWN constraint violations position at the CALLEE,
+	//     while a user's nested one positions inside an ARGUMENT expression
+	//     (argAt hit) — so an argument-positioned does-not-satisfy passes
+	//     through untouched.
+	prefixed := probeNameLeakRE.MatchString(msg)
+	stripped := probeNameLeakRE.ReplaceAllString(msg, "")
+	// The without-instantiation arm matches the props type's BASE identifier:
+	// for an ALIAS-imported component the recorded propsType is the caller's
+	// spelling ("comp.HolderProps") while go/types prints the dep package's
+	// own NAME ("components.HolderProps") — the base identifier after the
+	// last dot is the invariant part of both spellings.
+	basePropsIdent := site.propsType
+	if i := strings.LastIndexByte(basePropsIdent, '.'); i >= 0 {
+		basePropsIdent = basePropsIdent[i+1:]
 	}
-	if target.Line < start.Line || target.Line > end.Line {
-		return false
+	switch {
+	case prefixed && strings.HasPrefix(stripped, "cannot infer"):
+		return fmt.Sprintf("type inference failed for <%s>; %s", tag, hint)
+	case prefixed && strings.Contains(stripped, "cannot infer"):
+		return fmt.Sprintf("type inference failed for <%s>: %s; %s", tag, stripped, hint)
+	case strings.Contains(stripped, "does not satisfy"):
+		if _, isArg := site.argAt(rawOffset); isArg {
+			return msg // argument-positioned: the user's own nested constraint violation
+		}
+		return fmt.Sprintf("type inference for <%s> failed: %s", tag, stripped)
+	case strings.Contains(stripped, "without instantiation") && strings.Contains(stripped, basePropsIdent):
+		return fmt.Sprintf("type inference failed for <%s>; %s", tag, hint)
+	case probeArgLeakRE.MatchString(stripped):
+		substance := probeArgLeakRE.ReplaceAllString(stripped, "")
+		if prop, ok := site.argAt(rawOffset); ok {
+			return fmt.Sprintf("%s for prop %q of <%s>", substance, prop, tag)
+		}
+		return fmt.Sprintf("%s for <%s>", substance, tag)
+	case probeNameRefRE.MatchString(stripped):
+		return probeNameRefRE.ReplaceAllString(stripped, "<"+tag+">")
+	default:
+		return msg
 	}
-	if target.Line == start.Line && target.Column < start.Column {
-		return false
-	}
-	if target.Line == end.Line && target.Column > end.Column {
-		return false
-	}
-	return true
 }
 
-func explicitTypeArgHint(files map[string]*gsxast.File, tag string) string {
-	name := tag
-	if i := strings.LastIndexByte(tag, '.'); i >= 0 {
-		name = tag[i+1:]
+// arityTypeHint renders the `[type, type]` explicit-type-arg hint matching a
+// generic component's real arity (inferSite.arity, sourced from
+// genericSig.arity — module_importer.go's dep facts for an imported
+// component, parseTypeParamNames for a same-package one; both funnel through
+// the SAME genericSig.arity field, see genericSigsFor). n <= 0 (should not
+// happen for a recorded probe site, but fails safe) renders a single
+// placeholder rather than an empty bracket.
+func arityTypeHint(n int) string {
+	if n <= 0 {
+		n = 1
 	}
-	for _, f := range files {
-		for _, d := range f.Decls {
-			c, ok := d.(*gsxast.Component)
-			if !ok || c.Name != name || c.TypeParams == "" {
-				continue
-			}
-			names, err := parseTypeParamNames(c.TypeParams)
-			if err != nil || len(names) == 0 {
-				break
-			}
-			parts := make([]string, len(names))
-			for i := range parts {
-				parts[i] = "type"
-			}
-			return strings.Join(parts, ", ")
-		}
+	parts := make([]string, n)
+	for i := range parts {
+		parts[i] = "type"
 	}
-	return "type"
+	return strings.Join(parts, ", ")
 }
+
+// probeNameLeakRE matches the "in call to _gsxinferN, " / "in call to
+// _gsxcompsig, " prefix go/types can attach to an error raised while
+// checking one of infer.go's synthesized probe calls (e.g. "in call to
+// _gsxinfer1, cannot infer T ..." or a constraint violation "in call to
+// _gsxinfer2, U (type time.Duration) does not satisfy ..."). Stripped ONLY
+// from a message whose position already matched a registered probe span
+// (probeSiteForError) — this is never applied to an arbitrary user error.
+var probeNameLeakRE = regexp.MustCompile(`^in call to (_gsxinfer[0-9]+|_gsxcompsig), `)
+
+// probeArgLeakRE matches the " in argument to _gsxinferN" clause go/types
+// appends to an assignability error at a probe-call argument ("cannot use 2
+// (untyped int constant) as string value in argument to _gsxinfer1" — the
+// wrong-type-on-a-NON-generic-prop shape). rewriteProbeDiag scrubs it and
+// names the prop + tag instead — see shape 5 in its doc.
+var probeArgLeakRE = regexp.MustCompile(` in argument to (_gsxinfer[0-9]+|_gsxcompsig)`)
+
+// probeNameRefRE matches ANY remaining reference to a synthesized probe
+// helper's name in an error message — rewriteProbeDiag's last-resort scrub
+// (shape 6): an unknown message shape at a probe span never leaks the
+// internal name, each reference is replaced with the tag.
+var probeNameRefRE = regexp.MustCompile(`_gsxinfer[0-9]+|_gsxcompsig`)
 
 // parsePackageWithFset parses every .gsx in dir into the provided fset so the
 // caller can share it with buildSkeleton (required for valid //line directives).
