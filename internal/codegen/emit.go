@@ -838,7 +838,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 			if i == splitIdx {
 				continue
 			}
-			spreadExpr, ok := spreadAttrExpr(t, table, imports, bag)
+			spreadExpr, ok := spreadAttrExpr(t, table, imports, b, interpTemp, bag)
 			if !ok {
 				return false
 			}
@@ -1009,7 +1009,7 @@ func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, cur
 	spread := el.Attrs[splitIdx].(*ast.SpreadAttr)
 	bagExpr := strings.TrimSpace(spread.Expr)
 	if bagExpr != "attrs" || len(spread.Stages) > 0 {
-		expr, ok := spreadAttrExpr(spread, table, imports, bag)
+		expr, ok := spreadAttrExpr(spread, table, imports, b, interpTemp, bag)
 		if !ok {
 			return false
 		}
@@ -1514,7 +1514,7 @@ func hoistValueCF(b *bytes.Buffer, cf *ast.ValueCF, table filterTable, imports m
 	*interpTemp++
 	fmt.Fprintf(b, "\t\tvar %s string\n", tmp)
 	armExpr := func(a *ast.ValueArm) (string, bool) {
-		expr, used, err := lowerClassPartSeed(ast.ClassPart{Expr: a.Expr, Stages: a.Stages}, table)
+		expr, used, err := lowerClassPartSeed(ast.ClassPart{Expr: a.Expr, Stages: a.Stages}, table, emitPipeWrap(b, interpTemp))
 		if err != nil {
 			bag.Errorf(a.Pos(), a.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return "", false
@@ -1751,7 +1751,7 @@ func genStyleChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Ty
 func emitCSSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
-		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, nil)
+		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, emitPipeWrap(b, interpTemp))
 		if err != nil {
 			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false
@@ -1830,7 +1830,7 @@ func genScriptChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.T
 func emitJSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
-		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, nil)
+		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, emitPipeWrap(b, interpTemp))
 		if err != nil {
 			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false
@@ -1902,13 +1902,15 @@ func emitJSString(b *bytes.Buffer, method, expr string, t types.Type, n ast.Node
 // filter-call lowering (the SAME lowerPipe every other value context uses) when
 // Stages is present. Lowered filter packages are folded into the caller's import
 // set. A lowering failure (unknown filter) is positioned at the SpreadAttr via
-// the bag with code "unresolved-pipeline" and ok=false.
-func spreadAttrExpr(a *ast.SpreadAttr, table filterTable, imports map[string]bool, bag *diag.Bag) (string, bool) {
+// the bag with code "unresolved-pipeline" and ok=false. b and interpTemp hoist a
+// mid-stage (R, error) filter via emitPipeWrap (all callers are emit-only element
+// contexts; no probe variant of this path exists).
+func spreadAttrExpr(a *ast.SpreadAttr, table filterTable, imports map[string]bool, b *bytes.Buffer, interpTemp *int, bag *diag.Bag) (string, bool) {
 	expr := strings.TrimSpace(a.Expr)
 	if len(a.Stages) == 0 {
 		return expr, true
 	}
-	lowered, usedPkgs, err := lowerPipe(a.Expr, a.Stages, table, nil)
+	lowered, usedPkgs, err := lowerPipe(a.Expr, a.Stages, table, emitPipeWrap(b, interpTemp))
 	if err != nil {
 		bag.Errorf(a.Pos(), a.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 		return "", false
@@ -1971,7 +1973,7 @@ func emitAttr(b *bytes.Buffer, refreshMeta bool, a ast.Attr, resolved map[ast.No
 		// or reject JS-context keys — a bag's keys/values are trusted developer input.
 		// This is deliberately distinct from the composable-style/expr-attr paths,
 		// which fail closed on CSS/JS contexts because their values may be untrusted.
-		spreadExpr, ok := spreadAttrExpr(t, table, imports, bag)
+		spreadExpr, ok := spreadAttrExpr(t, table, imports, b, interpTemp, bag)
 		if !ok {
 			return false
 		}
@@ -2081,7 +2083,7 @@ func emitEmbeddedCSSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.
 func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
-		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, nil)
+		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, emitPipeWrap(b, interpTemp))
 		if err != nil {
 			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false
@@ -2115,7 +2117,7 @@ func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]type
 func emitCSSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
-		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, nil)
+		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, emitPipeWrap(b, interpTemp))
 		if err != nil {
 			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false
@@ -2201,9 +2203,11 @@ func emitJSAttrValue(b *bytes.Buffer, ctx ast.JSCtx, expr string, t types.Type, 
 // the caller's import set so the SAME packages are imported as the probe records.
 // A lowering failure (an unknown filter) is positioned at the owning ClassAttr a
 // via the bag with code "unresolved-pipeline" and ok=false. The `: cond` guard is
-// never piped, so callers lower only the part's Expr/Stages, not its Cond.
-func classPartExpr(p ast.ClassPart, a *ast.ClassAttr, table filterTable, imports map[string]bool, bag *diag.Bag) (string, bool) {
-	lowered, usedPkgs, err := lowerClassPartSeed(p, table)
+// never piped, so callers lower only the part's Expr/Stages, not its Cond. b and
+// interpTemp hoist a mid-stage (R, error) filter via emitPipeWrap (the element
+// class/style path is emit-only; the probe path harvests via probeExpr instead).
+func classPartExpr(p ast.ClassPart, a *ast.ClassAttr, table filterTable, imports map[string]bool, b *bytes.Buffer, interpTemp *int, bag *diag.Bag) (string, bool) {
+	lowered, usedPkgs, err := lowerClassPartSeed(p, table, emitPipeWrap(b, interpTemp))
 	if err != nil {
 		bag.Errorf(a.Pos(), a.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 		return "", false
@@ -2221,12 +2225,14 @@ func classPartExpr(p ast.ClassPart, a *ast.ClassAttr, table filterTable, imports
 // shared by the root/element emitters (classPartExpr, which folds usedPkgs into
 // imports) and the component-class path (classEntryExpr, which threads usedPkgs
 // up as an *attrError-positioned diagnostic instead). The `: cond` guard is never
-// piped, so only the part's Expr/Stages are lowered.
-func lowerClassPartSeed(p ast.ClassPart, table filterTable) (string, map[string]string, error) {
+// piped, so only the part's Expr/Stages are lowered. wrap is the lowerPipe hook
+// for a mid-stage (R, error) filter: callers pass emitPipeWrap in emit mode,
+// probePipeWrap in skeleton mode, or nil in a cond-attr branch context (Task 5).
+func lowerClassPartSeed(p ast.ClassPart, table filterTable, wrap func(string) string) (string, map[string]string, error) {
 	if len(p.Stages) == 0 {
 		return strings.TrimSpace(p.Expr), nil, nil
 	}
-	return lowerPipe(p.Expr, p.Stages, table, nil)
+	return lowerPipe(p.Expr, p.Stages, table, wrap)
 }
 
 // emitClassAttr lowers a composable `class={ … }` to the open ` class="`, a
@@ -2311,7 +2317,7 @@ func composedParts(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports
 			parts = append(parts, fmt.Sprintf("gsx.ClassIf(%s, %s)", val, cond))
 			continue
 		}
-		expr, ok := classPartExpr(*p, a, table, imports, bag)
+		expr, ok := classPartExpr(*p, a, table, imports, b, interpTemp, bag)
 		if !ok {
 			return nil, false
 		}
@@ -2362,7 +2368,7 @@ func cssLiteralStylePartExpr(b *bytes.Buffer, segments []ast.Markup, resolved ma
 		case *ast.Interp:
 			expr := strings.TrimSpace(s.Expr)
 			if len(s.Stages) > 0 {
-				lowered, usedPkgs, err := lowerPipe(s.Expr, s.Stages, table, nil)
+				lowered, usedPkgs, err := lowerPipe(s.Expr, s.Stages, table, emitPipeWrap(b, interpTemp))
 				if err != nil {
 					bag.Errorf(s.Pos(), s.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 					return "", false
@@ -2430,7 +2436,7 @@ func emitExprAttr(b *bytes.Buffer, refreshMeta bool, a *ast.ExprAttr, resolved m
 	// the bare trimmed expr.
 	expr := strings.TrimSpace(a.Expr)
 	if len(a.Stages) > 0 {
-		lowered, usedPkgs, err := lowerPipe(a.Expr, a.Stages, table, nil)
+		lowered, usedPkgs, err := lowerPipe(a.Expr, a.Stages, table, emitPipeWrap(b, interpTemp))
 		if err != nil {
 			bag.Errorf(a.Pos(), a.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false
@@ -3634,14 +3640,27 @@ func isCallExpr(rawVal string) bool {
 // for the real code emitter; pass true for the type-check probe (analyze.go).
 // b and interpTemp are threaded to classEntryExpr so value-form CF (if/switch) parts
 // in a composed class attr on the child element can hoist their var+if/switch
-// statements into b before the Node call. Pass nil for both in contexts that do not
-// support hoisting (e.g. the analyze path passes a local scratch buffer).
+// statements into b before the Node call, and are also used directly (via
+// emitPipeWrap, gated on probeWrap — see pipeWrap below) to hoist a mid-stage
+// (R, error) filter in any prop/fallthrough/splat pipeline. Pass nil for both in
+// contexts that do not support hoisting (e.g. the analyze path passes a local
+// scratch buffer).
 // resolved maps *ClassPart nodes to their harvest type so classEntryExpr can detect
 // and hoist (T, error) tuple-returning unconditional plain parts. Pass nil in the
 // probe path (skeleton does not need resolved; probeWrap wraps call exprs instead).
 func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, table filterTable, propFields map[string]map[string]bool, nodeFields map[string]bool, byo *byoData, fm FieldMatcher, slotValue func(nodes []ast.Markup) (string, error), probeWrap bool, resolved map[ast.Node]types.Type, b *bytes.Buffer, interpTemp *int) (fields []propFieldEntry, splatExpr string, usedPkgs map[string]string, err error) {
 	fm = fieldMatcherOrDefault(fm)    // normalize nil → default matcher
 	declared := propFields[propsType] // nil for cross-package / unknown → graceful
+	// pipeWrap is the lowerPipe hook for a mid-stage (R, error) filter in a prop
+	// pipeline: probeWrap (analyze skeleton) uses probePipeWrap so the composite
+	// literal built below stays a single expression; probeWrap=false (real emit)
+	// uses emitPipeWrap, hoisting into b (always non-nil for this function's real
+	// callers; a nil b here would only be reached by a test driving a filter with
+	// no error-returning stage, so the wrap closure is never invoked).
+	pipeWrap := probePipeWrap
+	if !probeWrap {
+		pipeWrap = emitPipeWrap(b, interpTemp)
+	}
 	// BYO struct facts: when the child is byo, an unmatched attr (→ Attrs bag) or
 	// {children} (→ Children field) is a CLEAR ERROR if the author struct lacks the
 	// corresponding field, rather than silently auto-synthesizing one (the byo path
@@ -3666,7 +3685,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				}
 				splatPkgs := map[string]string{}
 				if len(s.Stages) > 0 {
-					lowered, used, perr := lowerPipe(s.Expr, s.Stages, table, nil)
+					lowered, used, perr := lowerPipe(s.Expr, s.Stages, table, pipeWrap)
 					if perr != nil {
 						msg := strings.TrimPrefix(perr.Error(), "codegen: ")
 						return nil, "", nil, &attrError{pos: s.Pos(), end: s.End(), code: "unresolved-pipeline", msg: msg}
@@ -3711,7 +3730,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				// Compute the lowered expression (pipeline → final expr string).
 				rawVal := strings.TrimSpace(t.Expr)
 				if len(t.Stages) > 0 {
-					lowered, used, perr := lowerPipe(t.Expr, t.Stages, table, nil)
+					lowered, used, perr := lowerPipe(t.Expr, t.Stages, table, pipeWrap)
 					if perr != nil {
 						msg := strings.TrimPrefix(perr.Error(), "codegen: ")
 						return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}
@@ -3753,7 +3772,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 			} else {
 				val := strings.TrimSpace(t.Expr)
 				if len(t.Stages) > 0 {
-					lowered, used, perr := lowerPipe(t.Expr, t.Stages, table, nil)
+					lowered, used, perr := lowerPipe(t.Expr, t.Stages, table, pipeWrap)
 					if perr != nil {
 						msg := strings.TrimPrefix(perr.Error(), "codegen: ")
 						return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}
@@ -3808,7 +3827,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 		case *ast.SpreadAttr:
 			spreadExpr := strings.TrimSpace(t.Expr)
 			if len(t.Stages) > 0 {
-				lowered, used, perr := lowerPipe(t.Expr, t.Stages, table, nil)
+				lowered, used, perr := lowerPipe(t.Expr, t.Stages, table, pipeWrap)
 				if perr != nil {
 					msg := strings.TrimPrefix(perr.Error(), "codegen: ")
 					return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}
@@ -3936,6 +3955,18 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg st
 	parts := make([]string, 0, len(a.Parts))
 	usedPkgs := map[string]string{}
 	ordered := !probeWrap && composedPartsOrdered(a, resolved)
+	// wrap is the lowerPipe hook for a mid-stage (R, error) filter in a class
+	// part's pipeline: probeWrap (skeleton) uses probePipeWrap so the composite-
+	// literal probe stays a single expression; emit mode with a real b uses
+	// emitPipeWrap (statement hoist); the cond-attr branch context (b == nil,
+	// probeWrap == false) stays nil — Task 5 lifts this restriction.
+	var wrap func(string) string
+	switch {
+	case probeWrap:
+		wrap = probePipeWrap
+	case b != nil:
+		wrap = emitPipeWrap(b, interpTemp)
+	}
 	for i := range a.Parts {
 		p := &a.Parts[i]
 		if p.CF != nil {
@@ -3947,7 +3978,7 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg st
 			fmt.Fprintf(b, "\t\tvar %s string\n", tmp)
 			var lowerErr error
 			armExpr := func(arm *ast.ValueArm) (string, bool) {
-				expr, used, err := lowerClassPartSeed(ast.ClassPart{Expr: arm.Expr, Stages: arm.Stages}, table)
+				expr, used, err := lowerClassPartSeed(ast.ClassPart{Expr: arm.Expr, Stages: arm.Stages}, table, wrap)
 				if err != nil {
 					lowerErr = &attrError{pos: a.Pos(), end: a.End(), code: "unresolved-pipeline", msg: err.Error()}
 					return "", false
@@ -3993,7 +4024,7 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg st
 			parts = append(parts, fmt.Sprintf("%s.Class(%s)", rtPkg, tmp))
 			continue
 		}
-		expr, used, err := lowerClassPartSeed(*p, table)
+		expr, used, err := lowerClassPartSeed(*p, table, wrap)
 		if err != nil {
 			msg := strings.TrimPrefix(err.Error(), "codegen: ")
 			return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unresolved-pipeline", msg: msg}

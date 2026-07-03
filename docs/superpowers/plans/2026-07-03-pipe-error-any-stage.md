@@ -448,7 +448,7 @@ git commit -m "feat(codegen): (R, error) filters at non-final pipeline stages (t
 - Consumes: `lowerPipe(..., wrap)`, `emitPipeWrap(b, interpTemp)`, `probePipeWrap` (Task 3).
 - Produces: every pipeline-legal value context accepts mid-stage error filters, except cond-attr branches (Task 5). `lowerClassPartSeed(p ast.ClassPart, table filterTable, wrap func(string) string)`.
 
-- [ ] **Step 1: Add failing corpus cases (one per context; same `filters/filters.go` as Task 3's `Parse` + a `Pick(s []string, i int) (string, error)` filter)**
+- [x] **Step 1: Add failing corpus cases (one per context; same `filters/filters.go` as Task 3's `Parse` + a `Pick(s []string, i int) (string, error)` filter)**
 
 Create under `internal/corpus/testdata/cases/pipeerr/` (each with `gsx.toml` + `filters/filters.go` as in Task 3, plus `Pick`):
 
@@ -469,21 +469,21 @@ func Pick(s []string, i int) (string, error) {
 - `child_prop_mid_stage.txtar` — `<Label text={ csv |> parse |> pick(0) }/>` (upgrades the deferred case; ALSO delete the stale deferral note from `cases/tuple/child_prop_pipeline.txtar`'s header comment).
 - `ordered_attrs_mid_stage.txtar` — two expr attrs where one is a mid-stage-error pipe, pinning hoist order relative to the ordered-attrs temp hoisting (read `emit.go:2932–3030` first; the case pins whatever the correct interleaving is).
 
-- [ ] **Step 2: Run to verify they fail with the friendly nil-wrap diagnostic**
+- [x] **Step 2: Run to verify they fail with the friendly nil-wrap diagnostic**
 
 Run: `go test ./internal/corpus -run TestCorpus 2>&1 | grep pipeerr`
 Expected: each new case fails; diagnostics contain `returns (R, error); a failing stage is not supported in this position` (NOT raw go/types noise). If any context shows raw go/types errors instead, its probe path is reached before emit — fix that context's probe to `probePipeWrap` first.
 
-- [ ] **Step 3: Upgrade each context to `emitPipeWrap`**
+- [x] **Step 3: Upgrade each context to `emitPipeWrap`**
 
 For each site: the enclosing function already has (or is already passed) `b *bytes.Buffer` + `interpTemp *int` for `hoistTuple` — pass `emitPipeWrap(b, interpTemp)`. For `lowerClassPartSeed`, add the `wrap` param and thread from `classEntryExpr`: emit mode (`probeWrap=false`, `b != nil`) → `emitPipeWrap(b, interpTemp)`; skeleton mode (`probeWrap=true`) → `probePipeWrap`; cond-attr branch mode (`b == nil`) → `nil` (Task 5 lifts it). In `hoistValueCF`/`armExpr`, the wrap must capture the CURRENT emit position so hoists land inside the arm's block (the existing `hoistTuple` call there at emit.go:3961 shows the correct `b`). Update the child-prop probe path in `analyze.go` (~:930–1110) to `probePipeWrap`.
 
-- [ ] **Step 4: Regenerate, verify all cases render**
+- [x] **Step 4: Regenerate, verify all cases render**
 
 Run: `go test ./internal/corpus -run TestCorpus -update && go test ./internal/corpus -run TestCorpus && go test ./internal/codegen`
 Expected: PASS; new goldens only. Inspect each new `generated.x.go.golden`: hoists land before the consuming statement (and inside if/case blocks for the CF-arm case).
 
-- [ ] **Step 5: `make check`, commit**
+- [x] **Step 5: `make check`, commit**
 
 ```bash
 git add internal/codegen internal/corpus

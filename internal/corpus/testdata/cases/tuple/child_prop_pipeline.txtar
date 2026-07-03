@@ -1,9 +1,8 @@
 # (T, error) auto-unwrap: pipeline in a child-component prop position.
 # The pipeline `name |> upper` lowers to `_gsxstd0.Upper(name)` and returns a
 # plain string (not a tuple), so no hoisting occurs — verifying non-tuple pipeline
-# props continue to emit unchanged.
-# Note: a pipeline filter returning (R, error) would require corpus infrastructure
-# to register a custom filter package; that case is deferred to Task 4 infra work.
+# props continue to emit unchanged. A mid-stage (R, error) filter in this same
+# position is covered by pipeerr/child_prop_mid_stage.txtar.
 -- input.gsx --
 package views
 
