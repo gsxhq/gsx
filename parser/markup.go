@@ -58,33 +58,67 @@ func isAttrNameByte(b byte) bool {
 		b >= '0' && b <= '9' || b == '_' || b == ':' || b == '@' || b == '.' || b == '-'
 }
 
-// skipTagComment skips one // or /* */ comment in tag-interior position.
-// Returns (true, nil) if a comment was consumed, (false, nil) if not at a comment,
-// or (false, error) for an unterminated block comment.
-func (p *parser) skipTagComment() (bool, error) {
+// parseTagComment recognizes a tag-interior comment at the cursor: bare `//` or
+// `/* */`, or a comment-only `{ … }`. Returns (node, true, nil) when one is
+// consumed, (nil, false, nil) when the cursor is not at a comment, or
+// (nil, false, err) for an unterminated block comment. Trailing is left false;
+// the caller sets it from the preceding whitespace.
+func (p *parser) parseTagComment() (*ast.CommentAttr, bool, error) {
+	start := p.i
 	if p.at("/*") {
-		start := p.i
 		p.i += 2 // past '/*'
 		for !p.eof() {
 			if p.at("*/") {
+				text := strings.TrimSpace(p.src[start+2 : p.i])
 				p.i += 2 // past '*/'
-				return true, nil
+				n := &ast.CommentAttr{Text: text, Block: true}
+				ast.SetSpan(n, p.posAt(start), p.posAt(p.i))
+				return n, true, nil
 			}
 			p.i++
 		}
-		// unterminated
-		startPos := p.posAt(start)
-		return false, p.errorf(startPos, "unterminated block comment")
+		return nil, false, p.errorf(p.posAt(start), "unterminated block comment")
 	}
 	if p.at("//") {
 		p.i += 2 // past '//'
 		for !p.eof() && p.src[p.i] != '\n' {
 			p.i++
 		}
+		text := strings.TrimSpace(p.src[start+2 : p.i])
 		// leave '\n' in place so skipSpace() sees it
-		return true, nil
+		n := &ast.CommentAttr{Text: text, Block: false}
+		ast.SetSpan(n, p.posAt(start), p.posAt(p.i))
+		return n, true, nil
 	}
-	return false, nil
+	if p.peek() == '{' {
+		end, ok := goExprEnd(p.src, p.i)
+		if !ok {
+			return nil, false, nil
+		}
+		inner := p.src[p.i+1 : end]
+		if !commentOnly(inner) {
+			return nil, false, nil
+		}
+		text, block := splitBracedComment(inner)
+		p.i = end + 1 // past '}'
+		n := &ast.CommentAttr{Text: text, Block: block}
+		ast.SetSpan(n, p.posAt(start), p.posAt(p.i))
+		return n, true, nil
+	}
+	return nil, false, nil
+}
+
+// splitBracedComment extracts the inner text and kind of a comment-only `{ … }`
+// body (as verified by commentOnly). Braced comments in attribute position
+// canonicalize to the bare form, so the wrapping braces and delimiters are
+// stripped.
+func splitBracedComment(inner string) (text string, block bool) {
+	trimmed := strings.TrimSpace(inner)
+	if after, ok := strings.CutPrefix(trimmed, "/*"); ok {
+		return strings.TrimSpace(strings.TrimSuffix(after, "*/")), true
+	}
+	after, _ := strings.CutPrefix(trimmed, "//")
+	return strings.TrimSpace(after), false
 }
 
 // commentOnly reports whether src contains only Go comments (no real expression tokens).
@@ -107,24 +141,28 @@ func commentOnly(src string) bool {
 	}
 }
 
-// skipBracedComment checks whether the `{…}` at the current cursor is comment-only.
-// If so, it advances past the closing `}` and returns (true, nil).
-// Otherwise it returns (false, nil) without moving the cursor.
-// Unterminated `{` is not an error here — parseInterp handles that.
-func (p *parser) skipBracedComment() (bool, error) {
+// parseBracedComment builds a *ast.Comment when the `{…}` at the current cursor
+// is comment-only, advancing past the closing `}`. Otherwise it returns
+// (nil, false, nil) without moving the cursor. Unterminated `{` is not an error
+// here — parseInterp handles that.
+func (p *parser) parseBracedComment() (*ast.Comment, bool, error) {
 	if p.peek() != '{' {
-		return false, nil
+		return nil, false, nil
 	}
+	start := p.i
 	end, ok := goExprEnd(p.src, p.i)
 	if !ok {
-		return false, nil
+		return nil, false, nil
 	}
 	inner := p.src[p.i+1 : end]
 	if !commentOnly(inner) {
-		return false, nil
+		return nil, false, nil
 	}
+	text, block := splitBracedComment(inner)
 	p.i = end + 1
-	return true, nil
+	n := &ast.Comment{Text: text, Block: block}
+	ast.SetSpan(n, p.posAt(start), p.posAt(p.i))
+	return n, true, nil
 }
 
 // parseGoBlock parses `{{ stmt }}`. Cursor must be at the first '{' of `{{`.
@@ -461,10 +499,10 @@ func (p *parser) parseBraceNode() (ast.Markup, bool, error) {
 		gb, err := p.parseGoBlock()
 		return gb, false, err
 	}
-	if sk, err := p.skipBracedComment(); err != nil {
+	if c, ok, err := p.parseBracedComment(); err != nil {
 		return nil, false, err
-	} else if sk {
-		return nil, true, nil
+	} else if ok {
+		return c, false, nil
 	}
 	switch p.braceKeyword() {
 	case "if":
@@ -484,6 +522,7 @@ func (p *parser) parseBraceNode() (ast.Markup, bool, error) {
 func (p *parser) parseAttrs() ([]ast.Attr, error) {
 	var attrs []ast.Attr
 	for {
+		wsStart := p.i
 		p.skipSpace()
 		if p.eof() {
 			return nil, p.errorf(p.pos(), "unexpected EOF in attributes")
@@ -491,9 +530,11 @@ func (p *parser) parseAttrs() ([]ast.Attr, error) {
 		if p.peek() == '>' || p.at("/>") {
 			return attrs, nil
 		}
-		if sk, err := p.skipTagComment(); err != nil {
+		if c, ok, err := p.parseTagComment(); err != nil {
 			return nil, err
-		} else if sk {
+		} else if ok {
+			c.Trailing = len(attrs) > 0 && !strings.ContainsRune(p.src[wsStart:p.i], '\n')
+			attrs = append(attrs, c)
 			continue
 		}
 		a, err := p.parseSingleAttr()

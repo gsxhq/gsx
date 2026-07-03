@@ -1,0 +1,15 @@
+# Content-position comments {/* */} (block) and {// } (line) between child nodes
+# are retained in the AST but drop out of the rendered HTML. A bare // in text
+# content is NOT a comment — it renders literally (see the trailing text).
+-- input.gsx --
+package views
+
+component C() {
+	<p>{/* hidden block */}Visible{// hidden line
+	}text // literal slashes</p>
+}
+-- invoke --
+C()
+-- diagnostics.golden --
+-- render.golden --
+<p>Visibletext // literal slashes</p>

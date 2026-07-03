@@ -177,6 +177,19 @@ func (p *printer) segment(s segment) pretty.Doc {
 func (p *printer) element(e *ast.Element) pretty.Doc {
 	attrs := make([]pretty.Doc, 0, len(e.Attrs)*2)
 	for _, a := range e.Attrs {
+		if c, ok := a.(*ast.CommentAttr); ok {
+			sep := pretty.Line
+			if c.Trailing {
+				sep = pretty.Text(" ") // glue to the previous attr's line
+			}
+			attrs = append(attrs, sep, p.attrDoc(a))
+			if !c.Block {
+				// A `//` line comment cannot share a flat line with what follows;
+				// force the opening-tag group to break. Block comments may stay inline.
+				attrs = append(attrs, pretty.BreakParent)
+			}
+			continue
+		}
 		attrs = append(attrs, pretty.Line, p.attrDoc(a))
 	}
 	tag := pretty.Text(e.Tag)
@@ -394,7 +407,11 @@ func (p *printer) condAttrChainDoc(c *ast.CondAttr) pretty.Doc {
 func (p *printer) condAttrListDoc(attrs []ast.Attr) pretty.Doc {
 	inner := make([]pretty.Doc, 0, len(attrs)*2)
 	for _, a := range attrs {
-		inner = append(inner, pretty.HardLine, p.attrDoc(a))
+		sep := pretty.Doc(pretty.HardLine)
+		if c, ok := a.(*ast.CommentAttr); ok && c.Trailing {
+			sep = pretty.Text(" ") // glue a trailing comment to the previous attr's line
+		}
+		inner = append(inner, sep, p.attrDoc(a))
 	}
 	return pretty.Concat(pretty.Indent(pretty.Concat(inner...)), pretty.HardLine)
 }
@@ -427,6 +444,14 @@ func (p *printer) markup(n ast.Markup) pretty.Doc {
 		return pretty.Text(v.Text)
 	case *ast.HTMLComment:
 		return pretty.Concat(pretty.Text("<!--"), pretty.Text(v.Text), pretty.Text("-->"))
+	case *ast.Comment:
+		// Source-only content comment; canonical braced form. The `{// text }`
+		// line form is safe on one line here — the printer controls layout, so
+		// nothing after `}` is on the comment's line to be swallowed.
+		if v.Block {
+			return pretty.Concat(pretty.Text("{/* "), pretty.Text(v.Text), pretty.Text(" */}"))
+		}
+		return pretty.Concat(pretty.Text("{// "), pretty.Text(v.Text), pretty.HardLine, pretty.Text("}"))
 	case *ast.Text:
 		return pretty.Text(v.Value)
 	case *ast.Interp:
@@ -674,6 +699,15 @@ func writeAttrInline(b *strings.Builder, a ast.Attr) {
 		b.WriteString(`="`)
 		b.WriteString(v.Value)
 		b.WriteString(`"`)
+	case *ast.CommentAttr:
+		if v.Block {
+			b.WriteString("/* ")
+			b.WriteString(v.Text)
+			b.WriteString(" */")
+		} else {
+			b.WriteString("// ")
+			b.WriteString(v.Text)
+		}
 	case *ast.BoolAttr:
 		b.WriteString(v.Name)
 	case *ast.ExprAttr:

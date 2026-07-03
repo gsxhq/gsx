@@ -1,0 +1,16 @@
+-- doc --
+name: Content comments
+summary: {/* … */} content comments drop out of the output but are preserved by gsx fmt.
+category: Elements
+page: comments
+pageOrder: 30
+-- input.gsx --
+package views
+
+component Note() {
+	<p>{/* hidden note */}Visible text</p>
+}
+-- invoke --
+Note()
+-- render.golden --
+<p>Visible text</p>
