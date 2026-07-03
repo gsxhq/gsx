@@ -219,6 +219,21 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
 - [x] **Debounced diagnostics** (`internal/lsp/server.go`) — a per-directory
   timer (250 ms) coalesces edit bursts; analysis runs off the read loop and
   version-tags its publishes. `didOpen` publishes promptly (no debounce).
+- [x] **Full expression-position coverage matrix** (2026-07-03) — go-to-def AND
+  hover work for identifiers in EVERY Go-fragment position, via two bridges:
+  the ExprMap byte-identical expr bridge (interps, expr attrs, spreads,
+  ordered-attrs pair values, class plain parts, value-form arms) and the
+  CtrlMap statement-clause bridge (for/if/`{{ }}` clauses, markup + value-form
+  switch tags and case lists, in-tag conditional-attribute conds
+  `{ if cond { … } }`, class guard conds `"on": cond`, value-form if conds).
+  Parser records byte-faithful positions for each span (`parser/navpos_test.go`
+  pins the invariant); `TestDefinitionMatrix`/`TestHoverObjectMatrix` pin the
+  full matrix. Known limitations: the EXPR of a *guarded* class part
+  (`expr: cond` — its cond navigates, the expr doesn't: no type harvest for
+  guarded parts), pipeline-stage spans on spreads (parser records no stage
+  positions there), paren-unwrapped spread pipelines (`{ (x |> f)... }` seed),
+  and ctrl spans inside COMPONENT-tag attributes (`<Kid { if c { … } }/>` —
+  the liveness walk that records ctrl offsets only runs for plain elements).
 - **Deferred:** completion and external/non-project references; references cover
   project components discovered during module analysis. Dotted/cross-package
   component tags (`<ui.Button/>`) are deferred.

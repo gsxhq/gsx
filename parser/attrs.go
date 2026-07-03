@@ -88,18 +88,20 @@ func (p *parser) splitComposed(name, src string, base int) ([]ast.ClassPart, err
 			}
 			partEnd := segEnd
 			var condSrc string
+			condPos := token.NoPos
 			if colon >= 0 {
 				partEnd = colon
 				condSrc = strings.TrimSpace(src[colon+1 : segEnd])
-				condPos := base + colon + 1 + leadingSpaceLen(src[colon+1:segEnd])
+				condOff := base + colon + 1 + leadingSpaceLen(src[colon+1:segEnd])
 				if err := validateGoExpr(condSrc); err != nil {
-					return nil, p.errorf(p.posAt(condPos), "invalid %s condition %q: %v", name, condSrc, err)
+					return nil, p.errorf(p.posAt(condOff), "invalid %s condition %q: %v", name, condSrc, err)
 				}
+				condPos = p.posAt(condOff)
 			}
 			if rest := strings.TrimSpace(src[literalEnd-base : partEnd]); rest != "" {
 				return nil, p.errorf(p.posAt(literalEnd), "unexpected %q after css literal in style={...}", rest)
 			}
-			parts = append(parts, ast.ClassPart{CSSSegments: segments, Cond: condSrc})
+			parts = append(parts, ast.ClassPart{CSSSegments: segments, Cond: condSrc, CondPos: condPos})
 			ast.SetSpan(&parts[len(parts)-1], p.posAt(base+segStart), p.posAt(base+segEnd))
 			continue
 		}
@@ -120,13 +122,15 @@ func (p *parser) splitComposed(name, src string, base int) ([]ast.ClassPart, err
 		if err := validateGoExpr(seed); err != nil {
 			return nil, p.errorf(p.posAt(exprPos), "invalid %s expression %q: %v", name, seed, err)
 		}
+		condPos := token.NoPos
 		if condSrc != "" {
-			condPos := base + colon + 1 + leadingSpaceLen(src[colon+1:segEnd])
+			condOff := base + colon + 1 + leadingSpaceLen(src[colon+1:segEnd])
 			if err := validateGoExpr(condSrc); err != nil {
-				return nil, p.errorf(p.posAt(condPos), "invalid %s condition %q: %v", name, condSrc, err)
+				return nil, p.errorf(p.posAt(condOff), "invalid %s condition %q: %v", name, condSrc, err)
 			}
+			condPos = p.posAt(condOff)
 		}
-		parts = append(parts, ast.ClassPart{Expr: seed, Cond: condSrc, Stages: stages})
+		parts = append(parts, ast.ClassPart{Expr: seed, ExprPos: p.posAt(exprPos), Cond: condSrc, CondPos: condPos, Stages: stages})
 		ast.SetSpan(&parts[len(parts)-1], p.posAt(base+segStart), p.posAt(base+segEnd))
 	}
 	return parts, nil
@@ -189,6 +193,7 @@ func (p *parser) parseSpreadAttr() (ast.Attr, error) {
 		return nil, p.errorf(attrStartPos, "expected `...` trailing spread inside `{ }` attribute")
 	}
 	core := strings.TrimSpace(strings.TrimSuffix(inner, "..."))
+	coreOff := p.i + 1 + leadingSpaceLen(p.src[p.i+1:end])
 	// The spread/splat subject may carry a `|>` pipeline. Its canonical form
 	// parenthesizes the pipeline so the trailing `...` reads unambiguously as the
 	// spread marker on the whole pipeline: `{ (seed |> f)... }`. parsePipe only
@@ -203,15 +208,20 @@ func (p *parser) parseSpreadAttr() (ast.Attr, error) {
 	if perr != nil {
 		return nil, perr
 	}
+	// ExprPos maps the seed back to its source bytes for LSP cursor bridging.
+	// It survives a bare pipeline (the seed is a prefix of the source text) but
+	// not the paren-unwrap below, which rewrites the seed away from the source.
+	exprPos := p.posAt(coreOff)
 	if len(stages) == 0 {
 		if unwrapped, ok := balancedParenUnwrap(core); ok {
 			if s2, st2, err := parsePipe(unwrapped, token.NoPos); err == nil && len(st2) > 0 {
 				seed, stages = s2, st2
+				exprPos = token.NoPos
 			}
 		}
 	}
 	p.i = end + 1
-	sa := &ast.SpreadAttr{Expr: seed, Stages: stages}
+	sa := &ast.SpreadAttr{Expr: seed, ExprPos: exprPos, Stages: stages}
 	ast.SetSpan(sa, attrStartPos, p.posAt(p.i))
 	return sa, nil
 }
@@ -481,12 +491,13 @@ func (p *parser) parseCondAttrTail() (*ast.CondAttr, error) {
 		return nil, p.errorf(p.posAt(p.i), "expected `{` after `if` condition")
 	}
 	cond := strings.TrimSpace(p.src[condStart:braceOff])
+	condPos := p.posAt(condStart + leadingSpaceLen(p.src[condStart:braceOff]))
 	p.i = braceOff + 1 // past body '{'
 	body, err := p.parseAttrsUntilBrace()
 	if err != nil {
 		return nil, err
 	}
-	n := &ast.CondAttr{Cond: cond, Then: body}
+	n := &ast.CondAttr{Cond: cond, CondPos: condPos, Then: body}
 	p.skipSpace()
 	if p.atWord("else") {
 		p.i += len("else")

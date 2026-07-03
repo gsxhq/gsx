@@ -322,7 +322,8 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, 
 	// the skeleton type-check).
 	usedFilters := map[string]string{} // alias -> pkgPath
 	var compBuf strings.Builder
-	// ctrlOff maps each control-flow node (ForMarkup/IfMarkup/GoBlock) to the
+	// ctrlOff maps each control-flow node (ForMarkup/IfMarkup/GoBlock, and each
+	// value-form if condition's *ValueIf) to the
 	// byte offset of its clause/cond/code text within the final skeleton string.
 	// Offsets are recorded relative to compBuf during emitComponentSkeleton and
 	// adjusted below (after the prefix is assembled into sb) to be file-relative.
@@ -546,8 +547,12 @@ type SigTypeRef struct {
 	SkelTyp goast.Expr
 }
 
-// ctrlClauseText returns the clause/cond/code text for a control-flow node:
-// ForMarkup → Clause, IfMarkup → Cond, GoBlock → Code.
+// ctrlClauseText returns the clause/cond/code/tag text a control-flow node
+// contributes verbatim to the skeleton at its recorded ctrlOff: ForMarkup →
+// Clause, IfMarkup → Cond, GoBlock → Code, SwitchMarkup → Tag, CaseClause →
+// List, CondAttr → Cond (in-tag `{ if … }` attribute group), ClassPart → Cond
+// (a `: cond` guard in class/style), ValueIf → Cond, ValueSwitch → Tag,
+// ValueSwitchCase → List (value-form if/switch inside class/style).
 func ctrlClauseText(n gsxast.Node) string {
 	switch t := n.(type) {
 	case *gsxast.ForMarkup:
@@ -556,6 +561,20 @@ func ctrlClauseText(n gsxast.Node) string {
 		return t.Cond
 	case *gsxast.GoBlock:
 		return t.Code
+	case *gsxast.SwitchMarkup:
+		return t.Tag
+	case *gsxast.CaseClause:
+		return t.List
+	case *gsxast.CondAttr:
+		return t.Cond
+	case *gsxast.ClassPart:
+		return t.Cond
+	case *gsxast.ValueIf:
+		return t.Cond
+	case *gsxast.ValueSwitch:
+		return t.Tag
+	case *gsxast.ValueSwitchCase:
+		return t.List
 	}
 	return ""
 }
@@ -1261,15 +1280,21 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				// harvest), so a var used ONLY in `class={ "on": v }` or in a
 				// value-form if/switch condition must still be referenced here or
 				// it's "declared and not used". The walk yields ready-made liveness
-				// STATEMENTS — `_ = (expr)`, or an empty-bodied if/switch for CF
-				// parts (their tags/case lists are only legal in statement position)
-				// — NOT _gsxuse, so the harvest alignment is intact. CF arms and
-				// unconditional plain parts are excluded (they have _gsxuse probes
-				// above). Spreads are excluded too because their _gsxuseq probes
-				// above also keep them live.
+				// STATEMENTS — `_ = (expr)`, or (via emitValueCFControl) an
+				// empty-bodied if/switch for CF parts (their tags/case lists are
+				// only legal in statement position) — NOT _gsxuse, so the harvest
+				// alignment is intact. Each value-form if condition also records a
+				// ctrlOff entry so the LSP can go-to-definition inside it. CF arms
+				// and unconditional plain parts are excluded (they have _gsxuse
+				// probes above). Spreads are excluded too because their _gsxuseq
+				// probes above also keep them live.
 				walkLivenessAttrExprs(t.Attrs, table, usedFilters, func(stmt string) {
 					sb.WriteString(stmt)
 					sb.WriteByte('\n')
+				}, func(cf *gsxast.ValueCF) {
+					emitValueCFControl(sb, fset, cf, ctrlOff)
+				}, func(node gsxast.Node, cond string, condPos token.Pos) {
+					emitCondLiveness(sb, fset, node, cond, condPos, ctrlOff)
 				})
 				// Then probe each JS-attribute's @{ } interps, in attr source order —
 				// collectExprs walks identically (same walkMarkupAttrs), so the k-th
@@ -1316,11 +1341,17 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 			}
 			sb.WriteString("\n")
 		case *gsxast.SwitchMarkup:
+			if strings.TrimSpace(t.Tag) != "" {
+				emitSkeletonClauseLine(sb, fset, t.TagPos, len("switch "))
+				ctrlOff[t] = sb.Len() + len("switch ")
+			}
 			fmt.Fprintf(sb, "switch %s {\n", t.Tag)
 			for _, cc := range t.Cases {
 				if cc.Default {
 					sb.WriteString("default:\n")
 				} else {
+					emitSkeletonClauseLine(sb, fset, cc.ListPos, len("case "))
+					ctrlOff[cc] = sb.Len() + len("case ")
 					fmt.Fprintf(sb, "case %s:\n", cc.List)
 				}
 				if err := emitProbes(sb, cc.Body, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, bag); err != nil {
@@ -2171,9 +2202,13 @@ func walkClassAttrs(attrs []gsxast.Attr, fn func(*gsxast.ClassAttr)) {
 // these verbatim (gsx.Class/ClassIf/StyleString) so they need no type harvest,
 // but the skeleton must still REFERENCE them or a var used ONLY here (e.g. a
 // for-loop var in `class={ "on": v }`) is rejected as "declared and not used".
-// Plain exprs and guard conds become `_ = (expr)`; a value-form CF part
-// becomes an empty-bodied if/switch statement (valueCFControlStmt) because its
-// tag and case lists are only legal in statement position. Both forms are
+// Plain exprs become `_ = (expr)` via fn; guard conds (a ClassPart's `: cond`,
+// incl. on css literals) and in-tag conditional-attribute conds (*CondAttr) are
+// yielded to fnCond with their owning node and source position, so the caller
+// can emit an `if cond {\n}` statement and record a ctrlOff entry (the LSP's
+// CtrlMap bridge); a value-form CF part is yielded whole to fnCF, which emits
+// its empty-bodied control statement(s) (see emitValueCFControl — its tag and
+// case lists are only legal in statement position) the same way. All forms are
 // invisible to the k-th-probe→k-th-node type-harvest alignment, unlike _gsxuse.
 // A ClassPart carrying a `|>` pipeline must reference the LOWERED
 // expression — the SAME lowerPipe output emit produces — so type resolution and
@@ -2184,7 +2219,7 @@ func walkClassAttrs(attrs []gsxast.Attr, fn func(*gsxast.ClassAttr)) {
 // referencing the bare seed so type-checking proceeds to the POSITIONED
 // unknown-filter diagnostic generateFile reports (the probe's bare error must not
 // pre-empt it). The guard Cond is never piped, so it is referenced verbatim.
-func walkLivenessAttrExprs(attrs []gsxast.Attr, table filterTable, usedFilters map[string]string, fn func(stmt string)) {
+func walkLivenessAttrExprs(attrs []gsxast.Attr, table filterTable, usedFilters map[string]string, fn func(stmt string), fnCF func(cf *gsxast.ValueCF), fnCond func(node gsxast.Node, cond string, condPos token.Pos)) {
 	ref := func(expr string) {
 		fn("_ = (" + expr + ")")
 	}
@@ -2209,11 +2244,12 @@ func walkLivenessAttrExprs(attrs []gsxast.Attr, table filterTable, usedFilters m
 	for _, a := range attrs {
 		switch at := a.(type) {
 		case *gsxast.ClassAttr:
-			for _, p := range at.Parts {
+			// Index (not range-copy) so fnCond is keyed by the SAME *ClassPart
+			// pointer ast.Inspect yields — the identity the LSP looks up in CtrlMap.
+			for i := range at.Parts {
+				p := &at.Parts[i]
 				if p.CSSSegments != nil {
-					if c := strings.TrimSpace(p.Cond); c != "" {
-						ref(c)
-					}
+					fnCond(p, p.Cond, p.CondPos)
 					continue
 				}
 				if p.CF == nil && p.Cond == "" {
@@ -2223,22 +2259,16 @@ func walkLivenessAttrExprs(attrs []gsxast.Attr, table filterTable, usedFilters m
 					continue
 				}
 				if p.CF != nil {
-					if stmt := valueCFControlStmt(p.CF); stmt != "" {
-						fn(stmt)
-					}
+					fnCF(p.CF)
 					continue
 				}
 				emit(p.Expr, p.Stages)
-				if c := strings.TrimSpace(p.Cond); c != "" {
-					ref(c)
-				}
+				fnCond(p, p.Cond, p.CondPos)
 			}
 		case *gsxast.CondAttr:
-			if c := strings.TrimSpace(at.Cond); c != "" {
-				ref(c)
-			}
-			walkLivenessAttrExprs(at.Then, table, usedFilters, fn)
-			walkLivenessAttrExprs(at.Else, table, usedFilters, fn)
+			fnCond(at, at.Cond, at.CondPos)
+			walkLivenessAttrExprs(at.Then, table, usedFilters, fn, fnCF, fnCond)
+			walkLivenessAttrExprs(at.Else, table, usedFilters, fn, fnCF, fnCond)
 		}
 	}
 }
@@ -2526,37 +2556,62 @@ func addValueCFSrc(cf *gsxast.ValueCF, add func(string)) {
 	}
 }
 
-// valueCFControlStmt returns an empty-bodied skeleton statement that
-// references a value-form CF's control expressions in their natural
-// grammatical positions: `if c {} else if c2 {}` for the condition chain, or
-// `switch tag { case list: default: }` mirroring the source clauses. Statement
-// position (not `_ = (expr)`) is required — case lists may contain `nil`, type
-// names under a `.(type)` tag, or untyped constants that only fit the tag's
-// type, none of which are legal as a bare expression. Arm expressions are
-// excluded: emitProbes harvests them with _gsxuse so value-form arms preserve
-// (T, error) auto-unwrapping without disturbing probe order.
-func valueCFControlStmt(cf *gsxast.ValueCF) string {
-	var sb strings.Builder
-	switch {
-	case cf.If != nil:
+// emitCondLiveness writes the empty-bodied `if <cond> {\n}` statement that
+// keeps a guard condition's identifiers live in the skeleton, with a
+// compensated //line and a ctrlOff entry keyed by node — the CtrlMap bridge
+// the LSP uses for go-to-definition/hover inside the condition. Used for
+// in-tag conditional-attribute conds (*CondAttr), class/style `: cond` guards
+// (*ClassPart), and value-form if conditions (*ValueIf).
+func emitCondLiveness(sb *strings.Builder, fset *token.FileSet, node gsxast.Node, cond string, condPos token.Pos, ctrlOff map[gsxast.Node]int) {
+	if strings.TrimSpace(cond) == "" {
+		return
+	}
+	emitSkeletonClauseLine(sb, fset, condPos, len("if "))
+	ctrlOff[node] = sb.Len() + len("if ")
+	fmt.Fprintf(sb, "if %s {\n}\n", cond)
+}
+
+// emitValueCFControl writes the empty-bodied skeleton statement(s) that
+// reference a value-form CF part's control expressions in their natural
+// grammatical positions. Statement position (not `_ = (expr)`) is required —
+// case lists may contain `nil`, type names under a `.(type)` tag, or untyped
+// constants that only fit the tag's type, none of which are legal as a bare
+// expression. Arm expressions are excluded: emitProbes harvests them with
+// _gsxuse so value-form arms preserve (T, error) auto-unwrapping without
+// disturbing probe order.
+//
+// The if-form emits each condition in the chain as its OWN `if <cond> {\n}`
+// statement (not an `else if` chain — the conds are independent bool
+// expressions, so type-checking is identical) so every condition carries a
+// compensated //line and a ctrlOff entry keyed by its *ValueIf. The switch
+// form records ctrlOff for the tag (keyed by the *ValueSwitch) and each case
+// list (keyed by its *ValueSwitchCase) the same way. That is the same CtrlMap
+// bridge IfMarkup uses, making go-to-definition (and positioned type errors)
+// work inside value-form control expressions.
+func emitValueCFControl(sb *strings.Builder, fset *token.FileSet, cf *gsxast.ValueCF, ctrlOff map[gsxast.Node]int) {
+	if cf.If != nil {
 		for vi := cf.If; vi != nil; vi = vi.ElseIf {
-			if vi != cf.If {
-				sb.WriteString(" else ")
-			}
-			fmt.Fprintf(&sb, "if %s {\n}", vi.Cond)
+			emitCondLiveness(sb, fset, vi, vi.Cond, vi.CondPos, ctrlOff)
 		}
-	case cf.Switch != nil:
-		fmt.Fprintf(&sb, "switch %s {\n", strings.TrimSpace(cf.Switch.Tag))
-		for _, c := range cf.Switch.Cases {
+		return
+	}
+	if vs := cf.Switch; vs != nil {
+		if strings.TrimSpace(vs.Tag) != "" {
+			emitSkeletonClauseLine(sb, fset, vs.TagPos, len("switch "))
+			ctrlOff[vs] = sb.Len() + len("switch ")
+		}
+		fmt.Fprintf(sb, "switch %s {\n", strings.TrimSpace(vs.Tag))
+		for _, c := range vs.Cases {
 			if c.Default {
 				sb.WriteString("default:\n")
-			} else {
-				fmt.Fprintf(&sb, "case %s:\n", c.List)
+				continue
 			}
+			emitSkeletonClauseLine(sb, fset, c.ListPos, len("case "))
+			ctrlOff[c] = sb.Len() + len("case ")
+			fmt.Fprintf(sb, "case %s:\n", c.List)
 		}
-		sb.WriteString("}")
+		sb.WriteString("}\n")
 	}
-	return sb.String()
 }
 
 func addValueIfSrc(vi *gsxast.ValueIf, add func(string)) {

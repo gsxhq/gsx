@@ -102,7 +102,7 @@ func (p *parser) parseValueArm(braceOff int) (*ast.ValueArm, token.Pos, error) {
 	if err != nil {
 		return nil, 0, p.pipeErrorf(p.posAt(braceOff), err)
 	}
-	arm := &ast.ValueArm{Expr: seed, Stages: stages}
+	arm := &ast.ValueArm{Expr: seed, ExprPos: p.posAt(braceOff + 1 + lead), Stages: stages}
 	ast.SetSpan(arm, p.posAt(braceOff), p.posAt(closeOff+1))
 	return arm, p.posAt(closeOff + 1), nil
 }
@@ -117,6 +117,9 @@ func (p *parser) parseValueSwitch(at int) (*ast.ValueSwitch, token.Pos, error) {
 		return nil, 0, p.errorf(p.posAt(tagStart), "expected `{` after `switch`")
 	}
 	n := &ast.ValueSwitch{Tag: strings.TrimSpace(p.src[tagStart:braceOff])}
+	if n.Tag != "" {
+		n.TagPos = p.posAt(tagStart + leadingSpaceLen(p.src[tagStart:braceOff]))
+	}
 	i := braceOff + 1 // past switch-body `{`
 	for {
 		r := strings.TrimLeft(p.src[i:], " \t\r\n")
@@ -152,6 +155,9 @@ func (p *parser) parseValueSwitchCase(at int) (*ast.ValueSwitchCase, int, error)
 			return nil, 0, p.errorf(p.posAt(listStart), "expected `:` in `case`")
 		}
 		cc.List = strings.TrimSpace(p.src[listStart:colonOff])
+		if cc.List != "" {
+			cc.ListPos = p.posAt(listStart + leadingSpaceLen(p.src[listStart:colonOff]))
+		}
 		rest := strings.TrimLeft(p.src[colonOff+1:], " \t\r\n")
 		valueAt = colonOff + 1 + (len(p.src[colonOff+1:]) - len(rest))
 	case strings.HasPrefix(r, "default") && (len(r) == 7 || !isIdentByte(r[7])):
@@ -188,7 +194,7 @@ func (p *parser) parseValueSwitchCase(at int) (*ast.ValueSwitchCase, int, error)
 	if err != nil {
 		return nil, 0, err
 	}
-	arm := &ast.ValueArm{Expr: seed, Stages: stages}
+	arm := &ast.ValueArm{Expr: seed, ExprPos: p.posAt(valueAt + lead), Stages: stages}
 	trimmedEnd := end - (len(raw) - len(strings.TrimRight(raw, " \t\r\n")))
 	ast.SetSpan(arm, p.posAt(valueAt+lead), p.posAt(trimmedEnd))
 	cc.Value = arm

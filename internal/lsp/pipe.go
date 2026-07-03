@@ -64,6 +64,12 @@ func pipeStages(node gsxast.Node) []gsxast.PipeStage {
 		return e.Stages
 	case *gsxast.ExprAttr:
 		return e.Stages
+	case *gsxast.SpreadAttr:
+		return e.Stages
+	case *gsxast.ClassPart:
+		return e.Stages
+	case *gsxast.ValueArm:
+		return e.Stages
 	}
 	return nil
 }

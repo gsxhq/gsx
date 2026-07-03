@@ -14,12 +14,72 @@ import (
 	gsxast "github.com/gsxhq/gsx/ast"
 )
 
-// exprNodeAtOffset returns the gsx Interp/ExprAttr whose Go-expression span
-// [ExprPos, ExprPos+len(Expr)) contains the byte offset, together with that
-// node's ExprPos (so the caller need not re-discriminate the node type). Returns
-// (nil, token.NoPos) when no expression node covers the offset. Interp/ExprAttr
-// expressions are opaque strings that never nest, so at most one node matches an
-// offset — the walk's last-write-wins is unambiguous.
+// navSpan is one navigable Go-fragment byte span of a gsx node: pos is the
+// first byte of the (trimmed) fragment text in the .gsx, ln its byte length.
+type navSpan struct {
+	pos token.Pos
+	ln  int
+}
+
+// nodeNavSpans returns a node's navigable Go-fragment spans plus its pipeline
+// stages (whose name/args regions are matched separately). Every span's source
+// bytes spell exactly the stored fragment text — the parser's byte-faithful
+// invariant — so cursors bridge into the skeleton by relative offset. A node
+// can carry more than one span (a ClassPart's expr and its `: cond` guard);
+// spans never overlap across nodes, so at most one (node, span) matches an
+// offset. Nodes with no navigable fragment return nil.
+func nodeNavSpans(n gsxast.Node) (spans []navSpan, stages []gsxast.PipeStage) {
+	switch e := n.(type) {
+	case *gsxast.Interp:
+		return []navSpan{{e.ExprPos, len(e.Expr)}}, e.Stages
+	case *gsxast.ExprAttr:
+		return []navSpan{{e.ExprPos, len(e.Expr)}}, e.Stages
+	case *gsxast.SpreadAttr:
+		return []navSpan{{e.ExprPos, len(e.Expr)}}, e.Stages
+	case *gsxast.OrderedPair:
+		return []navSpan{{e.Pos(), len(e.Value)}}, nil
+	case *gsxast.ClassPart:
+		if e.CF != nil {
+			return nil, nil // the CF's own nodes carry the spans
+		}
+		if e.CSSSegments == nil {
+			spans = append(spans, navSpan{e.ExprPos, len(e.Expr)})
+			stages = e.Stages
+		}
+		if e.Cond != "" {
+			spans = append(spans, navSpan{e.CondPos, len(e.Cond)})
+		}
+		return spans, stages
+	case *gsxast.ValueArm:
+		return []navSpan{{e.ExprPos, len(e.Expr)}}, e.Stages
+	case *gsxast.ValueIf:
+		return []navSpan{{e.CondPos, len(e.Cond)}}, nil
+	case *gsxast.ValueSwitch:
+		return []navSpan{{e.TagPos, len(e.Tag)}}, nil
+	case *gsxast.ValueSwitchCase:
+		return []navSpan{{e.ListPos, len(e.List)}}, nil
+	case *gsxast.CondAttr:
+		return []navSpan{{e.CondPos, len(e.Cond)}}, nil
+	case *gsxast.SwitchMarkup:
+		return []navSpan{{e.TagPos, len(e.Tag)}}, nil
+	case *gsxast.CaseClause:
+		return []navSpan{{e.ListPos, len(e.List)}}, nil
+	case *gsxast.ForMarkup:
+		return []navSpan{{e.ClausePos, len(e.Clause)}}, nil
+	case *gsxast.IfMarkup:
+		return []navSpan{{e.CondPos, len(e.Cond)}}, nil
+	case *gsxast.GoBlock:
+		return []navSpan{{e.CodePos, len(e.Code)}}, nil
+	}
+	return nil, nil
+}
+
+// exprNodeAtOffset returns the gsx node one of whose Go-fragment spans (see
+// nodeNavSpans) contains the byte offset, together with the matched span's
+// start position (so the caller can both bridge by relative offset and tell
+// WHICH fragment of a multi-span node matched). Returns (nil, token.NoPos)
+// when no node covers the offset. Fragment spans never nest across nodes, so
+// at most one (node, span) matches — the walk's last-write-wins is unambiguous.
 func exprNodeAtOffset(pkg *Package, path string, off int) (gsxast.Node, token.Pos) {
 	f := pkg.Files[path]
 	if f == nil || pkg.GSXFset == nil {
@@ -31,42 +91,34 @@ func exprNodeAtOffset(pkg *Package, path string, off int) (gsxast.Node, token.Po
 		if n == nil {
 			return false
 		}
-		var exprPos token.Pos
-		var exprLen int
-		var stages []gsxast.PipeStage
-		switch e := n.(type) {
-		case *gsxast.Interp:
-			exprPos, exprLen = e.ExprPos, len(e.Expr)
-			stages = e.Stages
-		case *gsxast.ExprAttr:
-			exprPos, exprLen = e.ExprPos, len(e.Expr)
-			stages = e.Stages
-		case *gsxast.ForMarkup:
-			exprPos, exprLen = e.ClausePos, len(e.Clause)
-		case *gsxast.IfMarkup:
-			exprPos, exprLen = e.CondPos, len(e.Cond)
-		case *gsxast.GoBlock:
-			exprPos, exprLen = e.CodePos, len(e.Code)
-		default:
+		spans, stages := nodeNavSpans(n)
+		if len(spans) == 0 {
 			return true
 		}
-		if !exprPos.IsValid() {
-			return true
-		}
-		start := pkg.GSXFset.Position(exprPos).Offset
-		if off >= start && off < start+exprLen {
-			found = n
-			foundPos = exprPos
-			return true
+		for _, s := range spans {
+			if !s.pos.IsValid() {
+				continue
+			}
+			start := pkg.GSXFset.Position(s.pos).Offset
+			if off >= start && off < start+s.ln {
+				found = n
+				foundPos = s.pos
+				return true
+			}
 		}
 		// Also match pipeline stage positions (filter name, filter args) so that
-		// pipedTarget can be dispatched for those cursor positions too.
+		// pipedTarget can be dispatched for those cursor positions too. The
+		// reported position is the primary (seed) span's start, matching what
+		// pipedTarget expects.
+		if !spans[0].pos.IsValid() {
+			return true
+		}
 		for _, st := range stages {
 			if st.NamePos.IsValid() {
 				nameStart := pkg.GSXFset.Position(st.NamePos).Offset
 				if off >= nameStart && off < nameStart+len(st.Name) {
 					found = n
-					foundPos = exprPos
+					foundPos = spans[0].pos
 					return true
 				}
 			}
@@ -74,7 +126,7 @@ func exprNodeAtOffset(pkg *Package, path string, off int) (gsxast.Node, token.Po
 				argsStart := pkg.GSXFset.Position(st.ArgsPos).Offset
 				if off >= argsStart && off < argsStart+len(st.Args) {
 					found = n
-					foundPos = exprPos
+					foundPos = spans[0].pos
 					return true
 				}
 			}
@@ -286,13 +338,37 @@ func importedPackageByPath(p *types.Package, importPath string) *types.Package {
 
 // hasPipeStages reports whether the gsx expression node carries pipeline stages
 // (`{ x |> f }`). Such nodes lower to a wrapped call in the skeleton, breaking
-// the byte-identical relative-offset bridge go-to-def relies on.
+// the byte-identical relative-offset bridge go-to-def relies on — they resolve
+// through pipedTarget instead.
 func hasPipeStages(n gsxast.Node) bool {
 	switch e := n.(type) {
 	case *gsxast.Interp:
 		return len(e.Stages) > 0
 	case *gsxast.ExprAttr:
 		return len(e.Stages) > 0
+	case *gsxast.SpreadAttr:
+		return len(e.Stages) > 0
+	case *gsxast.ClassPart:
+		return len(e.Stages) > 0
+	case *gsxast.ValueArm:
+		return len(e.Stages) > 0
+	}
+	return false
+}
+
+// isCtrlSpan reports whether the matched span (see exprNodeAtOffset) resolves
+// through the CtrlMap bridge — a control-flow clause emitted verbatim in
+// statement position — rather than the ExprMap expression bridge. For a
+// ClassPart the two coexist: its `: cond` guard is a ctrl span while its expr
+// is an ExprMap span, so the matched position discriminates.
+func isCtrlSpan(node gsxast.Node, matched token.Pos) bool {
+	switch e := node.(type) {
+	case *gsxast.ForMarkup, *gsxast.IfMarkup, *gsxast.GoBlock,
+		*gsxast.ValueIf, *gsxast.ValueSwitch, *gsxast.ValueSwitchCase,
+		*gsxast.CondAttr, *gsxast.SwitchMarkup, *gsxast.CaseClause:
+		return true
+	case *gsxast.ClassPart:
+		return e.CondPos.IsValid() && matched == e.CondPos
 	}
 	return false
 }
@@ -353,47 +429,39 @@ func (s *Server) handleDefinition(f frame) error {
 		return s.reply(f.ID, res)
 	}
 
+	if dp, ok := exprDefinitionAt(pkg, path, off); ok {
+		return s.reply(f.ID, s.locationForPos(dp))
+	}
+	return s.reply(f.ID, nil)
+}
+
+// exprDefinitionAt answers go-to-definition for a cursor inside any Go-fragment
+// span of a .gsx file (see nodeNavSpans): ctrl spans resolve through CtrlMap,
+// pipelined expressions through pipedTarget, and plain expressions through the
+// ExprMap byte-identical bridge. Ctrl spans are checked first: a ClassPart's
+// `: cond` guard must resolve via CtrlMap even when the part's EXPR carries a
+// pipeline. ok=false when no span covers the offset or nothing resolves to a
+// real source location.
+func exprDefinitionAt(pkg *Package, path string, off int) (token.Position, bool) {
 	node, exprPos := exprNodeAtOffset(pkg, path, off)
 	if node == nil {
-		return s.reply(f.ID, nil)
+		return token.Position{}, false
+	}
+	if isCtrlSpan(node, exprPos) {
+		return ctrlDefinitionPos(pkg, node, exprPos, off)
 	}
 	if hasPipeStages(node) {
 		if obj, _, ok := pipedTarget(pkg, node, exprPos, off); ok && obj.Pos().IsValid() {
 			dp := pkg.Fset.Position(obj.Pos())
 			if dp.Filename != "" && !strings.HasSuffix(dp.Filename, ".x.go") {
-				return s.reply(f.ID, s.locationForPos(dp))
+				return dp, true
 			}
 		}
-		return s.reply(f.ID, nil)
-	}
-	switch node.(type) {
-	case *gsxast.ForMarkup, *gsxast.IfMarkup, *gsxast.GoBlock:
-		cr, ok := pkg.CtrlMap[node]
-		if !ok || cr.Node == nil {
-			return s.reply(f.ID, nil)
-		}
-		clauseStart := pkg.GSXFset.Position(exprPos).Offset
-		skelPos := cr.ClauseStart + token.Pos(off-clauseStart)
-		id := innermostIdent(cr.Node, skelPos)
-		if id == nil {
-			return s.reply(f.ID, nil)
-		}
-		obj := pkg.Info.Uses[id]
-		if obj == nil {
-			obj = pkg.Info.Defs[id]
-		}
-		if obj == nil || !obj.Pos().IsValid() {
-			return s.reply(f.ID, nil)
-		}
-		dp := pkg.Fset.Position(obj.Pos())
-		if dp.Filename == "" || strings.HasSuffix(dp.Filename, ".x.go") {
-			return s.reply(f.ID, nil)
-		}
-		return s.reply(f.ID, s.locationForPos(dp))
+		return token.Position{}, false
 	}
 	skel := pkg.ExprMap[node]
 	if skel == nil {
-		return s.reply(f.ID, nil)
+		return token.Position{}, false
 	}
 
 	// Map the cursor into the skeleton expr by relative byte offset (the gsx and
@@ -403,14 +471,14 @@ func (s *Server) handleDefinition(f frame) error {
 
 	id := innermostIdent(skel, skelPos)
 	if id == nil {
-		return s.reply(f.ID, nil)
+		return token.Position{}, false
 	}
 	obj := pkg.Info.Uses[id]
 	if obj == nil {
 		obj = pkg.Info.Defs[id]
 	}
 	if obj == nil || !obj.Pos().IsValid() {
-		return s.reply(f.ID, nil)
+		return token.Position{}, false
 	}
 	dp := pkg.Fset.Position(obj.Pos())
 	// Only surface real source locations. Params resolve back to .gsx via the
@@ -421,16 +489,53 @@ func (s *Server) handleDefinition(f frame) error {
 	// exist on disk. (`.x.go` is gsx's reserved generated suffix; the only false
 	// positive would be a hand-written dependency file literally named `*.x.go`.)
 	if dp.Filename == "" || strings.HasSuffix(dp.Filename, ".x.go") {
-		return s.reply(f.ID, nil)
+		return token.Position{}, false
 	}
-	loc := s.locationFor(dp)
-	return s.reply(f.ID, loc)
+	return dp, true
 }
 
-// locationFor builds an LSP Location from a resolved definition position. Alias
-// of locationForPos (kept for the slice-2a .gsx-side call sites).
-func (s *Server) locationFor(dp token.Position) Location {
-	return s.locationForPos(dp)
+// ctrlObjectAt resolves a cursor inside a CtrlMap-bridged span (see
+// isCtrlSpan: control-flow clauses, switch tags and case lists, in-tag
+// conditional-attribute conds, class guard conds, and value-form control
+// expressions) to the go/types object of the identifier under the cursor,
+// plus that identifier's byte span in the .gsx (for hover highlight ranges).
+// It bridges the cursor into the skeleton via the node's CtrlMap entry — the
+// clause bytes are emitted verbatim, so relative offsets align both ways.
+// ok=false when the node has no CtrlMap entry or no identifier resolves.
+func ctrlObjectAt(pkg *Package, node gsxast.Node, exprPos token.Pos, off int) (obj types.Object, identStart, identLen int, ok bool) {
+	cr, found := pkg.CtrlMap[node]
+	if !found || cr.Node == nil || pkg.Info == nil {
+		return nil, 0, 0, false
+	}
+	clauseStart := pkg.GSXFset.Position(exprPos).Offset
+	skelPos := cr.ClauseStart + token.Pos(off-clauseStart)
+	id := innermostIdent(cr.Node, skelPos)
+	if id == nil {
+		return nil, 0, 0, false
+	}
+	obj = pkg.Info.Uses[id]
+	if obj == nil {
+		obj = pkg.Info.Defs[id]
+	}
+	if obj == nil {
+		return nil, 0, 0, false
+	}
+	return obj, clauseStart + int(id.Pos()-cr.ClauseStart), len(id.Name), true
+}
+
+// ctrlDefinitionPos resolves a cursor inside a CtrlMap-bridged span to the
+// defining object's source position, rejecting positions still inside
+// generated .x.go overlays.
+func ctrlDefinitionPos(pkg *Package, node gsxast.Node, exprPos token.Pos, off int) (token.Position, bool) {
+	obj, _, _, ok := ctrlObjectAt(pkg, node, exprPos, off)
+	if !ok || !obj.Pos().IsValid() {
+		return token.Position{}, false
+	}
+	dp := pkg.Fset.Position(obj.Pos())
+	if dp.Filename == "" || strings.HasSuffix(dp.Filename, ".x.go") {
+		return token.Position{}, false
+	}
+	return dp, true
 }
 
 // handleGoDefinition answers definition for a cursor in a .go file: if the

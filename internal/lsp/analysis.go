@@ -64,7 +64,8 @@ type Package struct {
 	CrossIndex map[string]CrossRef
 	NavIndex   []NavRef // navigable Go references → .gsx targets (func, props-struct, field)
 
-	// CtrlMap maps each control-flow node (ForMarkup/IfMarkup/GoBlock) to its
+	// CtrlMap maps each control-flow node (ForMarkup/IfMarkup/GoBlock, and each
+	// value-form if condition's *ValueIf) to its
 	// skeleton clause position and smallest containing skeleton node. Used by the
 	// LSP for go-to-definition on loop variables and condition identifiers.
 	CtrlMap map[gsxast.Node]CtrlRef

@@ -26,8 +26,8 @@ gsx lsp                 # blocks, reading LSP messages on stdin
 | Feature | LSP method | Notes |
 |---|---|---|
 | **Diagnostics** | `publishDiagnostics` | positioned parse + type errors (with severity, code, help) from the shared diagnostics engine; re-analyzed on every change, with multi-error and component-boundary recovery |
-| **Go-to-definition** | `textDocument/definition` | jump from a Go symbol in a `{ }`/attribute expression to its `.go` definition; from a `<Card/>` tag to its `component` declaration; and from a `.go` component reference back to the `.gsx` |
-| **Hover** | `textDocument/hover` | gopls-style type/signature for an identifier or expression; a component tag shows its signature (answered from the AST even mid-edit when type-checking can't complete) |
+| **Go-to-definition** | `textDocument/definition` | jump from a Go symbol anywhere Go appears — `{ }` interpolations, attribute expressions, spreads, class/style parts and their `: cond` guards, `{ if … }` conditional-attribute conditions, value-form `if`/`switch` control expressions and arms, `for`/`if`/`switch` clauses, and `{{ }}` blocks — to its definition; from a `<Card/>` tag to its `component` declaration; and from a `.go` component reference back to the `.gsx` |
+| **Hover** | `textDocument/hover` | gopls-style type/signature for an identifier or expression in all the same positions as go-to-definition; a component tag shows its signature (answered from the AST even mid-edit when type-checking can't complete) |
 | **Find references** | `textDocument/references` | `.go` call sites and `.gsx` tag sites for project components discovered by module analysis; external/non-project packages are skipped |
 | **Formatting** | `textDocument/formatting` | canonical `gsx fmt` form, including unused-import removal — wire it to format-on-save |
 

@@ -70,12 +70,18 @@ func analyzedLSPPackage(t *testing.T, src string) (*Package, string) {
 			})
 		}
 	}
+	ctrl := map[gsxast.Node]CtrlRef{}
+	for n, cr := range pr.CtrlMap {
+		ctrl[n] = CtrlRef{ClauseStart: cr.ClauseStart, Node: cr.Node}
+	}
 	return &Package{
 		GSXFset:  pr.GSXFset,
 		Fset:     pr.Fset,
 		Info:     pr.Info,
 		Types:    pr.Types,
 		Files:    pr.GSXFiles,
+		ExprMap:  pr.ExprMap,
+		CtrlMap:  ctrl,
 		SigTypes: sigTypes,
 	}, gsxPath
 }
@@ -302,6 +308,77 @@ func TestExprNodeAtOffsetControlFlow(t *testing.T) {
 	node, _ := exprNodeAtOffset(pkg, path, off)
 	if _, ok := node.(*gsxast.ForMarkup); !ok {
 		t.Fatalf("exprNodeAtOffset on a for-clause = %T, want *ForMarkup", node)
+	}
+}
+
+// TestExprNodeAtOffsetValueIfCond verifies that exprNodeAtOffset recognizes a
+// ValueIf node when the cursor sits inside the condition of a value-form
+// `if`/`else if` in a composable class list.
+func TestExprNodeAtOffsetValueIfCond(t *testing.T) {
+	src := "package x\n\ncomponent P(disabled bool, busy bool) {\n\t<input class={\n\t\t\"base\",\n\t\tif disabled { \"off\" } else if busy { \"wait\" }\n\t}/>\n}\n"
+	pkg, path := parseOnlyPackage(t, "p.gsx", src)
+
+	off := strings.Index(src, "if disabled") + len("if ")
+	node, exprPos := exprNodeAtOffset(pkg, path, off)
+	vi, ok := node.(*gsxast.ValueIf)
+	if !ok {
+		t.Fatalf("exprNodeAtOffset on a value-form if cond = %T, want *ValueIf", node)
+	}
+	if vi.Cond != "disabled" {
+		t.Fatalf("matched ValueIf cond = %q, want %q", vi.Cond, "disabled")
+	}
+	if !exprPos.IsValid() || exprPos != vi.CondPos {
+		t.Fatalf("exprPos = %v, want CondPos %v", exprPos, vi.CondPos)
+	}
+
+	// The else-if link is its own ValueIf with its own cond span.
+	off2 := strings.Index(src, "if busy") + len("if ")
+	node2, _ := exprNodeAtOffset(pkg, path, off2)
+	vi2, ok := node2.(*gsxast.ValueIf)
+	if !ok {
+		t.Fatalf("exprNodeAtOffset on an else-if cond = %T, want *ValueIf", node2)
+	}
+	if vi2.Cond != "busy" {
+		t.Fatalf("matched else-if ValueIf cond = %q, want %q", vi2.Cond, "busy")
+	}
+}
+
+// TestCtrlDefinitionValueIfCond verifies the full go-to-definition bridge for
+// an identifier inside a value-form if condition in class={...}: the cursor
+// resolves through CtrlMap + innermostIdent to the identifier's declaration in
+// the .gsx (here a {{ }} Go-block local), mirroring IfMarkup cond navigation.
+func TestCtrlDefinitionValueIfCond(t *testing.T) {
+	src := "package page\n\ncomponent Box() {\n\t{{ disabled := true }}\n\t<input class={\n\t\t\"base\",\n\t\tif disabled { \"off\" } else if !disabled { \"on\" }\n\t}/>\n}\n"
+	pkg, path := analyzedLSPPackage(t, src)
+
+	resolve := func(off int) token.Position {
+		t.Helper()
+		node, exprPos := exprNodeAtOffset(pkg, path, off)
+		if _, ok := node.(*gsxast.ValueIf); !ok {
+			t.Fatalf("exprNodeAtOffset at %d = %T, want *ValueIf", off, node)
+		}
+		dp, ok := ctrlDefinitionPos(pkg, node, exprPos, off)
+		if !ok {
+			t.Fatalf("ctrlDefinitionPos found no definition for cond cursor at %d", off)
+		}
+		return dp
+	}
+
+	declOff := strings.Index(src, "disabled :=")
+	wantLine := strings.Count(src[:declOff], "\n") + 1
+	wantCol := declOff - strings.LastIndexByte(src[:declOff], '\n')
+
+	for _, cursor := range []int{
+		strings.Index(src, "if disabled") + len("if "),   // first cond
+		strings.Index(src, "if !disabled") + len("if !"), // else-if cond
+	} {
+		dp := resolve(cursor)
+		if !strings.HasSuffix(dp.Filename, ".gsx") {
+			t.Errorf("cursor %d: definition in %s, want the .gsx", cursor, dp.Filename)
+		}
+		if dp.Line != wantLine || dp.Column != wantCol {
+			t.Errorf("cursor %d: definition at %d:%d, want %d:%d (the {{ disabled := }} local)", cursor, dp.Line, dp.Column, wantLine, wantCol)
+		}
 	}
 }
 

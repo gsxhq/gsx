@@ -346,6 +346,10 @@ func (p *parser) parseSwitchMarkup() (ast.Markup, error) {
 		return nil, p.errorf(p.posAt(p.i), "expected `{` after `switch`")
 	}
 	tag := strings.TrimSpace(p.src[tagStart:braceOff])
+	tagPos := token.NoPos
+	if tag != "" {
+		tagPos = p.posAt(tagStart + leadingSpaceLen(p.src[tagStart:braceOff]))
+	}
 	p.i = braceOff + 1 // past switch-body '{'
 
 	var cases []*ast.CaseClause
@@ -370,7 +374,7 @@ func (p *parser) parseSwitchMarkup() (ast.Markup, error) {
 		return nil, p.errorf(p.pos(), "expected `}` to close `{ switch … }`")
 	}
 	p.i++ // past outer '}'
-	n := &ast.SwitchMarkup{Tag: tag, Cases: cases}
+	n := &ast.SwitchMarkup{Tag: tag, TagPos: tagPos, Cases: cases}
 	ast.SetSpan(n, startPos, p.posAt(p.i))
 	return n, nil
 }
@@ -389,6 +393,9 @@ func (p *parser) parseCaseClause() (*ast.CaseClause, error) {
 			return nil, p.errorf(p.posAt(p.i), "expected `:` in `case`")
 		}
 		cc.List = strings.TrimSpace(p.src[listStart:colonOff])
+		if cc.List != "" {
+			cc.ListPos = p.posAt(listStart + leadingSpaceLen(p.src[listStart:colonOff]))
+		}
 		p.i = colonOff + 1 // past ':'
 	case p.atWord("default"):
 		p.i += len("default")
