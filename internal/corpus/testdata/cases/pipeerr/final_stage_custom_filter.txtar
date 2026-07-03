@@ -1,0 +1,28 @@
+# A custom filter package wired via per-case gsx.toml filterPackages. The final
+# stage returns (string, error); the existing tuple auto-unwrap handles it —
+# this case pins the ALREADY-SHIPPED behavior end-to-end for the first time.
+-- gsx.toml --
+filterPackages = ["./filters"]
+-- filters/filters.go --
+package filters
+
+import "errors"
+
+// Shout upcases-ish by appending "!"; fails on empty input.
+func Shout(s string) (string, error) {
+	if s == "" {
+		return "", errors.New("shout: empty input")
+	}
+	return s + "!", nil
+}
+-- input.gsx --
+package views
+
+component Hi(name string) {
+	<p>{ name |> shout }</p>
+}
+-- invoke --
+Hi(HiProps{Name: "ada"})
+-- diagnostics.golden --
+-- render.golden --
+<p>ada!</p>
