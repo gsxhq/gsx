@@ -684,7 +684,7 @@ git commit -m "test(corpus): generics, ctx, halt-semantics and diagnostics cover
 - Modify: `docs/guide/syntax/pipelines.md`, `docs/ROADMAP.md`
 - Verify: full `make ci`
 
-- [ ] **Step 1: Document error-returning filters in `docs/guide/syntax/pipelines.md`**
+- [x] **Step 1: Document error-returning filters in `docs/guide/syntax/pipelines.md`**
 
 Read the page first and match its voice/structure. Add a section (adjust heading level to the page):
 
@@ -710,11 +710,11 @@ explicit form: `{ if v, err := parse(csv); err != nil { … } }`.
 
 Check whether `docs/guide/syntax/_generated` content comes from corpus `-- doc --` sections (see `internal/corpus/docmeta.go`); if pipelines examples are generated, add a `-- doc --` section to `pipeerr/text_mid_stage.txtar` following an existing documented case's format instead of hand-writing the example. Remember: literal `{{ }}` in guide prose needs `::: v-pre`.
 
-- [ ] **Step 2: Update `docs/ROADMAP.md`**
+- [x] **Step 2: Update `docs/ROADMAP.md`**
 
 Mark the error-filter/pipeline item (grep ROADMAP for `filter` / `pipeline` / `error`) as shipped with a one-line pointer to the spec.
 
-- [ ] **Step 3: Full CI + commit**
+- [x] **Step 3: Full CI + commit**
 
 Run: `make ci`
 Expected: PASS (build/vet/test both modules, examples drift, gofmt + gsx fmt).

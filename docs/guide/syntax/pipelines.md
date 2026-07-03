@@ -40,6 +40,28 @@ To handle an error inline, use a raw-Go init statement: `{ if v, err := f(); err
 
 The `?` try-marker syntax (e.g., `|> upper?`) is not supported — gsx reports an error — auto-unwrap makes it unnecessary.
 
+## Filters that can fail at any stage
+
+The `(T, error)` unwrap above is not limited to the final stage of a pipeline. Any stage — first, middle, or last — can be a filter matching the contract documented on `std`: `func([ctx context.Context,] subject T, args...) (R, error)`.
+
+```gsx
+<p>{ csv |> parse |> join(" ") }</p>
+```
+
+If `parse` has that shape, its stage lowers to a hoisted temporary with an error check, and the next stage consumes the unwrapped value — equivalent to:
+
+```go
+v, err := parse(csv)
+if err != nil {
+    return err
+}
+// join(v, " ") continues the chain — its result is what gets rendered
+```
+
+When a stage's error is non-nil, the chain **halts right there**: later stages are never invoked, and the error returns from the component's render — the same semantics as the single-expression `(T, error)` unwrap (see [Interpolation → `(T, error)` unwrap](./interpolation)). This holds in every context a pipeline can appear: text, attributes, composable `class`/`style` parts, spread values, child-component props, and conditional-attribute branches.
+
+To handle the error instead of propagating it, skip the pipeline for that stage and fall back to the same explicit form: `{ if v, err := parse(csv); err != nil { … } else { … } }`. The `?` try-marker stays rejected at every stage, not just the last.
+
 ## Pipelines per context
 
 A pipeline can appear anywhere a `{ expr }` interpolation is valid — text content, plain attributes, URL attributes, and so on. Importantly, pipelines do **not** bypass context-aware escaping: the value produced by the final stage is still sanitized for the context it sits in.
