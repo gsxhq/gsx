@@ -270,7 +270,7 @@ git commit -m "feat(codegen): record hasErr on harvested filter entries"
 - Consumes: `filterEntry.hasErr` (Task 2).
 - Produces: `lowerPipe(seed string, stages []ast.PipeStage, table filterTable, wrap func(call string) string) (expr string, usedPkgs map[string]string, err error)`. `wrap` is applied to each error-returning **non-final** stage's call; the final stage is returned as-is (its tuple flows through existing per-context machinery). `wrap == nil` → a mid-pipeline `hasErr` stage returns the error `codegen: filter %q returns (R, error); a failing stage is not supported in this position` (callers position it). Also produces two canonical wraps used by every later task: `emitPipeWrap(b, interpTemp)` and the probe literal `probePipeWrap`.
 
-- [ ] **Step 1: Write failing lowering unit tests**
+- [x] **Step 1: Write failing lowering unit tests**
 
 ```go
 func TestLowerPipeMidStageErr(t *testing.T) {
@@ -304,12 +304,12 @@ func TestLowerPipeMidStageErr(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `go test ./internal/codegen -run TestLowerPipeMidStageErr -v`
 Expected: FAIL — wrong argument count to `lowerPipe`.
 
-- [ ] **Step 3: Implement the new `lowerPipe`**
+- [x] **Step 3: Implement the new `lowerPipe`**
 
 Replace the body (`filters.go:46`), keeping the doc comment updated:
 
@@ -362,7 +362,7 @@ func probePipeWrap(call string) string { return "_gsxunwrap(" + call + ")" }
 
 (`probePipeWrap` is needed from `analyze.go` too — both files are package `codegen`, fine.)
 
-- [ ] **Step 4: Mechanically update ALL existing `lowerPipe` callers to compile**
+- [x] **Step 4: Mechanically update ALL existing `lowerPipe` callers to compile**
 
 Every call site gains a 4th arg. In THIS task set the correct wraps for the **text/probe** paths and `nil` everywhere else (later tasks upgrade them):
 - `emit.go:1445` (`genInterp`): `emitPipeWrap(b, interpTemp)` — verify `interpTemp` is in scope (it's a `genInterp` param).
@@ -372,12 +372,12 @@ Every call site gains a 4th arg. In THIS task set the correct wraps for the **te
 
 Run: `go build ./... && gopls check internal/codegen/*.go` — clean.
 
-- [ ] **Step 5: Verify zero regressions**
+- [x] **Step 5: Verify zero regressions**
 
 Run: `go test ./internal/corpus -run TestCorpus && go test ./internal/codegen`
 Expected: PASS with **zero golden changes** (no existing case uses a mid-stage error filter).
 
-- [ ] **Step 6: Add the two E2E corpus cases**
+- [x] **Step 6: Add the two E2E corpus cases**
 
 `internal/corpus/testdata/cases/pipeerr/text_mid_stage.txtar`:
 
@@ -417,16 +417,16 @@ Tags(TagsProps{Csv: "a,b"})
 
 `pipeerr/text_mid_stage_error.txtar`: same filters + component, but `-- invoke --` is `Tags(TagsProps{Csv: ""})` and `render.golden` pins the partial output + `[render error] parse: empty input` line (exact bytes come from `-update`; INSPECT them — the error must be present and later stages must not have run).
 
-- [ ] **Step 7: Regenerate, verify, and INSPECT the generated code (user checkpoint)**
+- [x] **Step 7: Regenerate, verify, and INSPECT the generated code (user checkpoint)**
 
 Run: `go test ./internal/corpus -run TestCorpus -update && go test ./internal/corpus -run TestCorpus`
 Expected: PASS. Open `text_mid_stage.txtar`'s new `generated.x.go.golden` and confirm it matches the approved Approach-A shape (hoisted `_gsxv0, _gsxerr := _gsxf0.Parse((csv))` before `_gsxgw.Text(...)`). **This golden is the artifact the user asked to see — surface it in the task report.**
 
-- [ ] **Step 8: Skeleton snapshot test (the probe form, second user checkpoint)**
+- [x] **Step 8: Skeleton snapshot test (the probe form, second user checkpoint)**
 
 Add a unit test in `internal/codegen` that generates the skeleton for the `text_mid_stage` source and asserts the probe line contains `_gsxuse(_gsxstd.Join(_gsxunwrap(_gsxf0.Parse((csv))), " "))`. Follow the existing skeleton-dumping test pattern in `analyze_test.go` (there are tests that build skeletons from source; reuse their harness). Name it `TestSkeletonProbeMidStageErrFilter`. Include the skeleton snippet in the task report for user inspection.
 
-- [ ] **Step 9: Run the full inner loop, commit**
+- [x] **Step 9: Run the full inner loop, commit**
 
 Run: `make check`
 Expected: PASS.

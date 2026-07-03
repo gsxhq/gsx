@@ -255,3 +255,65 @@ func TestChildPropPipelineSkeletonImportsStd(t *testing.T) {
 		t.Errorf("skeleton missing lowered pipeline call; got:\n%s", skel)
 	}
 }
+
+// TestSkeletonProbeMidStageErrFilter is the second user checkpoint for
+// stage-aware lowerPipe (Task 3): the probe form of a mid-pipeline (R, error)
+// filter must _gsxunwrap the failing stage's call so the skeleton stays a
+// single expression while still harvesting the RIGHT types for both stages —
+// exactly the shape TestLowerPipeMidStageErr pins for the raw lowering, now
+// proven end-to-end through buildSkeleton (emit ≡ probe).
+func TestSkeletonProbeMidStageErrFilter(t *testing.T) {
+	t.Parallel()
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module gsxskel\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+
+	filtersDir := filepath.Join(tmp, "filters")
+	if err := os.MkdirAll(filtersDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filtersDir, "filters.go", `package filters
+
+import (
+	"errors"
+	"strings"
+)
+
+// Parse splits a comma-separated list; fails on empty input.
+func Parse(s string) ([]string, error) {
+	if s == "" {
+		return nil, errors.New("parse: empty input")
+	}
+	return strings.Split(s, ","), nil
+}
+`)
+
+	pkgDir := filepath.Join(tmp, "genpkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := "package views\n\ncomponent Tags(csv string) {\n\t<p>{ csv |> parse |> join(\" \") }</p>\n}\n"
+	writeFile(t, pkgDir, "views.gsx", src)
+
+	fset := token.NewFileSet()
+	file, err := gsxparser.ParseFile(fset, filepath.Join(pkgDir, "views.gsx"), []byte(src), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]*gsxast.File{filepath.Join(pkgDir, "views.gsx"): file}
+	propFields, nodeProps, attrsProps, byo, err := componentPropFieldsFor(pkgDir, files)
+	if err != nil {
+		t.Fatalf("propFields: %v", err)
+	}
+	table, err := loadFilterTableMulti(pkgDir, []string{stdImportPath, "gsxskel/filters"}, nil)
+	if err != nil {
+		t.Fatalf("loadFilterTableMulti: %v", err)
+	}
+	skel, _, _, _, _, err := buildSkeleton(file, table, propFields, nodeProps, attrsProps, nil, nil, byo, nil, fset, nil, nil)
+	if err != nil {
+		t.Fatalf("buildSkeleton: %v", err)
+	}
+	if !strings.Contains(skel, `_gsxuse(_gsxstd.Join(_gsxunwrap(_gsxf0.Parse((csv))), " "))`) {
+		t.Errorf("skeleton missing mid-stage-err probe form; got:\n%s", skel)
+	}
+}

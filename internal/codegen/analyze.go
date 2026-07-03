@@ -1466,7 +1466,7 @@ func probeExpr(seed string, stages []gsxast.PipeStage, table filterTable, usedFi
 	if len(stages) == 0 {
 		return strings.TrimSpace(seed), nil
 	}
-	lowered, used, err := lowerPipe(seed, stages, table)
+	lowered, used, err := lowerPipe(seed, stages, table, probePipeWrap)
 	if err != nil {
 		return strings.TrimSpace(seed), nil
 	}
@@ -2231,7 +2231,7 @@ func walkLivenessAttrExprs(attrs []gsxast.Attr, table filterTable, usedFilters m
 			ref(strings.TrimSpace(seed))
 			return
 		}
-		lowered, used, err := lowerPipe(seed, stages, table)
+		lowered, used, err := lowerPipe(seed, stages, table, probePipeWrap)
 		if err != nil {
 			// Unknown filter: reference the bare seed so the skeleton still type-checks
 			// (and stays "used"); the positioned diagnostic fires in generateFile.

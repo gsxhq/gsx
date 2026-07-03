@@ -4,9 +4,12 @@ import (
 	"go/types"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/tools/go/packages"
+
+	"github.com/gsxhq/gsx/ast"
 )
 
 // repoRoot resolves the module root from the test's working dir. Tests run in
@@ -194,5 +197,35 @@ func CtxFallible(ctx context.Context, s string) (int, error) { return 0, nil }
 		if e.hasErr != want {
 			t.Errorf("%s: hasErr = %v, want %v", name, e.hasErr, want)
 		}
+	}
+}
+
+func TestLowerPipeMidStageErr(t *testing.T) {
+	table := filterTable{
+		"parse": {funcName: "Parse", alias: "_gsxf0", pkgPath: "m/f", hasErr: true},
+		"join":  {funcName: "Join", alias: "_gsxstd", pkgPath: "github.com/gsxhq/gsx/std"},
+	}
+	stages := []ast.PipeStage{{Name: "parse"}, {Name: "join", HasArgs: true, Args: `" "`}}
+
+	// probe-style wrap
+	got, _, err := lowerPipe("csv", stages, table, func(c string) string { return "_gsxunwrap(" + c + ")" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `_gsxstd.Join(_gsxunwrap(_gsxf0.Parse((csv))), " ")`
+	if got != want {
+		t.Errorf("probe form:\n got %s\nwant %s", got, want)
+	}
+
+	// final-stage hasErr is NOT wrapped
+	got2, _, _ := lowerPipe("csv", []ast.PipeStage{{Name: "parse"}}, table, func(c string) string { return "WRAPPED" })
+	if got2 != "_gsxf0.Parse((csv))" {
+		t.Errorf("final stage must stay unwrapped, got %s", got2)
+	}
+
+	// nil wrap + mid-stage hasErr → friendly error
+	_, _, err = lowerPipe("csv", stages, table, nil)
+	if err == nil || !strings.Contains(err.Error(), `filter "parse" returns (R, error)`) {
+		t.Errorf("nil-wrap error = %v", err)
 	}
 }

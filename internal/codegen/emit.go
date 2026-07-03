@@ -1442,7 +1442,7 @@ func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type,
 		// The lowered expr then falls through to the SAME (T, error) auto-unwrap as
 		// a bare interpolation, so a seed-first filter returning (R, error) unwraps
 		// exactly like any other error-returning value.
-		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table)
+		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, emitPipeWrap(b, interpTemp))
 		if err != nil {
 			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false
@@ -1490,6 +1490,19 @@ func hoistTuple(b *bytes.Buffer, expr string, interpTemp *int) string {
 	fmt.Fprintf(b, "\t\t%s, _gsxerr := %s\n\t\tif _gsxerr != nil {\n\t\t\treturn _gsxerr\n\t\t}\n", tmp, expr)
 	return tmp
 }
+
+// emitPipeWrap returns the lowerPipe wrap for emit contexts: each error-returning
+// non-final stage hoists through hoistTuple (temp + `if _gsxerr != nil { return
+// _gsxerr }`), halting the chain at the failing stage. Statements land in b
+// before the statement that consumes the pipeline's final expression.
+func emitPipeWrap(b *bytes.Buffer, interpTemp *int) func(string) string {
+	return func(call string) string { return hoistTuple(b, call, interpTemp) }
+}
+
+// probePipeWrap is the lowerPipe wrap for skeleton probes: _gsxunwrap keeps the
+// probe a single expression while preserving the stage's result type and any
+// positioned go/types errors inside the user's args (emit ≡ probe).
+func probePipeWrap(call string) string { return "_gsxunwrap(" + call + ")" }
 
 // hoistValueCF emits `var _gsxvN string; <if|switch> { … _gsxvN = <arm> … }`
 // before the class/style part list and returns the temp name. style=true wraps
@@ -1738,7 +1751,7 @@ func genStyleChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Ty
 func emitCSSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
-		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table)
+		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, nil)
 		if err != nil {
 			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false
@@ -1817,7 +1830,7 @@ func genScriptChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.T
 func emitJSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
-		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table)
+		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, nil)
 		if err != nil {
 			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false
@@ -1895,7 +1908,7 @@ func spreadAttrExpr(a *ast.SpreadAttr, table filterTable, imports map[string]boo
 	if len(a.Stages) == 0 {
 		return expr, true
 	}
-	lowered, usedPkgs, err := lowerPipe(a.Expr, a.Stages, table)
+	lowered, usedPkgs, err := lowerPipe(a.Expr, a.Stages, table, nil)
 	if err != nil {
 		bag.Errorf(a.Pos(), a.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 		return "", false
@@ -2068,7 +2081,7 @@ func emitEmbeddedCSSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.
 func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
-		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table)
+		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, nil)
 		if err != nil {
 			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false
@@ -2102,7 +2115,7 @@ func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]type
 func emitCSSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
-		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table)
+		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, nil)
 		if err != nil {
 			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false
@@ -2213,7 +2226,7 @@ func lowerClassPartSeed(p ast.ClassPart, table filterTable) (string, map[string]
 	if len(p.Stages) == 0 {
 		return strings.TrimSpace(p.Expr), nil, nil
 	}
-	return lowerPipe(p.Expr, p.Stages, table)
+	return lowerPipe(p.Expr, p.Stages, table, nil)
 }
 
 // emitClassAttr lowers a composable `class={ … }` to the open ` class="`, a
@@ -2349,7 +2362,7 @@ func cssLiteralStylePartExpr(b *bytes.Buffer, segments []ast.Markup, resolved ma
 		case *ast.Interp:
 			expr := strings.TrimSpace(s.Expr)
 			if len(s.Stages) > 0 {
-				lowered, usedPkgs, err := lowerPipe(s.Expr, s.Stages, table)
+				lowered, usedPkgs, err := lowerPipe(s.Expr, s.Stages, table, nil)
 				if err != nil {
 					bag.Errorf(s.Pos(), s.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 					return "", false
@@ -2417,7 +2430,7 @@ func emitExprAttr(b *bytes.Buffer, refreshMeta bool, a *ast.ExprAttr, resolved m
 	// the bare trimmed expr.
 	expr := strings.TrimSpace(a.Expr)
 	if len(a.Stages) > 0 {
-		lowered, usedPkgs, err := lowerPipe(a.Expr, a.Stages, table)
+		lowered, usedPkgs, err := lowerPipe(a.Expr, a.Stages, table, nil)
 		if err != nil {
 			bag.Errorf(a.Pos(), a.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false
@@ -3653,7 +3666,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				}
 				splatPkgs := map[string]string{}
 				if len(s.Stages) > 0 {
-					lowered, used, perr := lowerPipe(s.Expr, s.Stages, table)
+					lowered, used, perr := lowerPipe(s.Expr, s.Stages, table, nil)
 					if perr != nil {
 						msg := strings.TrimPrefix(perr.Error(), "codegen: ")
 						return nil, "", nil, &attrError{pos: s.Pos(), end: s.End(), code: "unresolved-pipeline", msg: msg}
@@ -3698,7 +3711,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				// Compute the lowered expression (pipeline → final expr string).
 				rawVal := strings.TrimSpace(t.Expr)
 				if len(t.Stages) > 0 {
-					lowered, used, perr := lowerPipe(t.Expr, t.Stages, table)
+					lowered, used, perr := lowerPipe(t.Expr, t.Stages, table, nil)
 					if perr != nil {
 						msg := strings.TrimPrefix(perr.Error(), "codegen: ")
 						return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}
@@ -3740,7 +3753,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 			} else {
 				val := strings.TrimSpace(t.Expr)
 				if len(t.Stages) > 0 {
-					lowered, used, perr := lowerPipe(t.Expr, t.Stages, table)
+					lowered, used, perr := lowerPipe(t.Expr, t.Stages, table, nil)
 					if perr != nil {
 						msg := strings.TrimPrefix(perr.Error(), "codegen: ")
 						return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}
@@ -3795,7 +3808,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 		case *ast.SpreadAttr:
 			spreadExpr := strings.TrimSpace(t.Expr)
 			if len(t.Stages) > 0 {
-				lowered, used, perr := lowerPipe(t.Expr, t.Stages, table)
+				lowered, used, perr := lowerPipe(t.Expr, t.Stages, table, nil)
 				if perr != nil {
 					msg := strings.TrimPrefix(perr.Error(), "codegen: ")
 					return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}

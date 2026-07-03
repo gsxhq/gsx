@@ -301,6 +301,8 @@ parser/e05_empty_pipe_stage	ast diag(error)
 parser/recover_broken_then_valid	diag(error)
 parser/recover_two_broken_components	diag(error)
 pipeerr/final_stage_custom_filter	diag render
+pipeerr/text_mid_stage	diag gen render
+pipeerr/text_mid_stage_error	diag gen render
 pipelines/arity_mismatch	diag(error)
 pipelines/attr_escaped	diag render
 pipelines/attr_js_rejected	diag gen render
@@ -431,4 +433,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 433 cases (render: 341, error: 70, gen-pinned: 183)
+TOTAL: 435 cases (render: 343, error: 70, gen-pinned: 185)

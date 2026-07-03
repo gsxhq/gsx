@@ -43,10 +43,18 @@ const pipeCtxIdent = "ctx"
 // Arity/type mismatches are NOT hand-checked here: a ctx-less zero-arg filter is
 // fine, and wrong/extra args surface as positioned go/types errors via the probe
 // against the resolved signature. Only an unknown filter name is rejected here.
-func lowerPipe(seed string, stages []ast.PipeStage, table filterTable) (expr string, usedPkgs map[string]string, err error) {
+//
+// A non-final stage whose filter hasErr (returns (R, error)) is passed through
+// wrap after lowering, so the caller can hoist the tuple (emit: a temp + early
+// return) or tolerate it (probe: _gsxunwrap) while keeping the SAME lowered
+// string shape across both contexts. The final stage is never wrapped — its
+// tuple flows through the existing per-context machinery unchanged. wrap == nil
+// means the caller does not yet support a failing stage in this position, so a
+// mid-pipeline hasErr stage is rejected with a friendly, caller-positioned error.
+func lowerPipe(seed string, stages []ast.PipeStage, table filterTable, wrap func(call string) string) (expr string, usedPkgs map[string]string, err error) {
 	acc := "(" + strings.TrimSpace(seed) + ")"
 	usedPkgs = map[string]string{}
-	for _, st := range stages {
+	for i, st := range stages {
 		e, ok := table.lookup(st.Name)
 		if !ok {
 			return "", nil, fmt.Errorf("codegen: unknown filter %q", st.Name)
@@ -61,6 +69,12 @@ func lowerPipe(seed string, stages []ast.PipeStage, table filterTable) (expr str
 			args = append(args, st.Args)
 		}
 		acc = e.alias + "." + e.funcName + "(" + strings.Join(args, ", ") + ")"
+		if e.hasErr && i < len(stages)-1 {
+			if wrap == nil {
+				return "", nil, fmt.Errorf("codegen: filter %q returns (R, error); a failing stage is not supported in this position", st.Name)
+			}
+			acc = wrap(acc)
+		}
 	}
 	return acc, usedPkgs, nil
 }
