@@ -2242,7 +2242,8 @@ func classPartExpr(p ast.ClassPart, a *ast.ClassAttr, table filterTable, imports
 // up as an *attrError-positioned diagnostic instead). The `: cond` guard is never
 // piped, so only the part's Expr/Stages are lowered. wrap is the lowerPipe hook
 // for a mid-stage (R, error) filter: callers pass emitPipeWrap in emit mode,
-// probePipeWrap in skeleton mode, or nil in a cond-attr branch context (Task 5).
+// probePipeWrap in skeleton mode, or thunkPipeWrap inside a cond-attr branch
+// thunk (b is always a real, non-nil buffer — see classEntryExpr's doc).
 func lowerClassPartSeed(p ast.ClassPart, table filterTable, wrap func(string) string) (string, map[string]string, error) {
 	if len(p.Stages) == 0 {
 		return strings.TrimSpace(p.Expr), nil, nil

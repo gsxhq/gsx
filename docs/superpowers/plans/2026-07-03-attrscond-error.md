@@ -275,13 +275,13 @@ git add -A && git commit -m "feat(codegen): (R, error) class parts and tuples in
 - Modify: `docs/ROADMAP.md` (close the known-gap row), `docs/guide/syntax/pipelines.md` (remove the branch-class-parts exception sentence)
 - Verify: `make ci`
 
-- [ ] **Step 1: ROADMAP** — find the known-gap entry (grep `_gsxrt.Class` in docs/ROADMAP.md); mark it CLOSED by this change with a one-line pointer to `docs/superpowers/specs/2026-07-03-attrscond-error-design.md`; also update the shipped pipe-error bullet if it references the statement form.
+- [x] **Step 1: ROADMAP** — find the known-gap entry (grep `_gsxrt.Class` in docs/ROADMAP.md); mark it CLOSED by this change with a one-line pointer to `docs/superpowers/specs/2026-07-03-attrscond-error-design.md`; also update the shipped pipe-error bullet if it references the statement form.
 
-- [ ] **Step 2: pipelines.md** — remove/replace the exception sentence added by PR #29's final fix (grep `conditional-attribute` in docs/guide/syntax/pipelines.md); error-returning filters now work in class parts inside cond-attr branches too. Match page voice; no bare `{{ }}` outside `::: v-pre`.
+- [x] **Step 2: pipelines.md** — remove/replace the exception sentence added by PR #29's final fix (grep `conditional-attribute` in docs/guide/syntax/pipelines.md); error-returning filters now work in class parts inside cond-attr branches too. Match page voice; no bare `{{ }}` outside `::: v-pre`.
 
-- [ ] **Step 3: Full gate** — `make ci` → PASS (report tail). Also `make lint`.
+- [x] **Step 3: Full gate** — `make ci` → PASS (report tail). Also `make lint`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs && git commit -m "docs: close the cond-attr branch class-parts gap (AttrsCond error thunks)"

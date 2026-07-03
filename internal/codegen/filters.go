@@ -14,11 +14,13 @@ import (
 	"github.com/gsxhq/gsx/ast"
 )
 
-// errFailingStageUnsupported is wrapped into lowerPipe's "not supported in
-// this position" error so callers can errors.Is-match it and substitute a
-// more specific, positioned diagnostic than the generic filter-name message
-// (e.g. classEntryExpr does this for a class part's pipeline inside a
-// component conditional-attr branch).
+// errFailingStageUnsupported backs lowerPipe's defensive nil-wrap guard: a
+// mid-pipeline (R, error) stage can only hoist if the caller supplies a wrap
+// hook, so a nil wrap fails closed with this sentinel instead of emitting an
+// uncompilable tuple assignment. Every real lowering context now passes a
+// non-nil wrap (emitPipeWrap, probePipeWrap, or thunkPipeWrap inside a
+// cond-attr branch thunk), so as of this writing no caller triggers it — it
+// remains as a guard against a future position that forgets to wire one up.
 var errFailingStageUnsupported = errors.New("a failing stage is not supported in this position")
 
 // pipeCtxIdent is the literal ambient render-context identifier that emitted

@@ -77,6 +77,19 @@ arms. `resolved` is then populated for these nodes, so plain tuple calls
 machinery. Pipeline stages keep the established `probePipeWrap`
 (`_gsxunwrap`) expression form.
 
+**2026-07-03 implementation note:** the Problem/§3 framing above ("the probe
+phase harvests no types for positions nested in component cond-attr
+branches") was only true for branch `ExprAttr` values. Task 2 found that
+branch class parts and value-form CF arms were ALREADY type-harvested —
+`walkClassAttrs` already recurses `*ast.CondAttr`, so those positions had
+`resolved` entries before this work started. The missing probe was
+`walkBranchAttrExprs` for `ExprAttr` values only (`childPropsLiteral` embeds
+the whole `AttrsCond(...)` call in the props probe without a per-value
+harvest probe). The class-part raw-leak was therefore an emit-side bug, not
+a probe gap: `condBranchAttrs` hardcoded `nil, nil, nil` into
+`classEntryExpr`'s `b`/`interpTemp`/`wrap` params for the class path
+regardless of what `resolved` already knew — Task 3 wired those through.
+
 ### 4. Out of scope (unchanged)
 
 Spread and nested cond-attr inside a branch stay rejected. Conditional
