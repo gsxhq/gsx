@@ -1,0 +1,21 @@
+# Source comments in an element's attribute list: own-line //, trailing //,
+# block /* */, and a braced {/* */} (canonicalized to bare by the formatter).
+# All are source-only — the rendered HTML carries none of them.
+-- input.gsx --
+package views
+
+component C(name string) {
+	<input
+		type="checkbox"
+		// own-line note
+		id={name} // trailing note
+		/* block note */
+		{/* braced note */}
+		value="x"
+	/>
+}
+-- invoke --
+C(CProps{Name: "agree"})
+-- diagnostics.golden --
+-- render.golden --
+<input type="checkbox" id="agree" value="x"/>

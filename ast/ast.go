@@ -208,6 +208,18 @@ type HTMLComment struct {
 
 func (*HTMLComment) markupNode() {}
 
+// Comment is a source-only content comment: `{/* text */}` or `{// text }`
+// between child nodes. Unlike HTMLComment it is NOT rendered — codegen drops it,
+// the formatter preserves it. (A bare `//` in text content is literal Text, not
+// a comment; only the braced forms are comments in content position.)
+type Comment struct {
+	span
+	Text  string
+	Block bool // true = /* */, false = //
+}
+
+func (*Comment) markupNode() {}
+
 // Interp is `{ expr }`. When Stages is non-empty, Expr is the pipeline seed and
 // Stages are applied left-to-right (`seed |> s0 |> s1 …`). A `(T, error)` Expr is
 // auto-unwrapped at codegen (the error propagates out of the enclosing Render);
@@ -496,6 +508,19 @@ type OrderedAttrsAttr struct {
 }
 
 func (*OrderedAttrsAttr) attrNode() {}
+
+// CommentAttr is a source-only comment in an element's attribute list: bare
+// `// text` / `/* text */`, or a braced comment-only `{/* */}` / `{// }`. It is
+// never rendered (codegen ignores it); the formatter preserves it. Braced forms
+// canonicalize to bare on output, so no "braced" flag is retained.
+type CommentAttr struct {
+	span
+	Text     string // inner text, delimiters and wrapping braces stripped, trimmed
+	Block    bool   // true = /* */, false = //
+	Trailing bool   // true = same source line as the previous attribute
+}
+
+func (*CommentAttr) attrNode() {}
 
 // Inspect traverses the AST in depth-first order, calling f for each node.
 // If f returns false, Inspect does not recurse into that node's children.

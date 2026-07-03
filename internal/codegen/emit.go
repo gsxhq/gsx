@@ -1422,6 +1422,8 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		emitLine(b, fset, t.Pos())
 		b.WriteString(t.Code)
 		b.WriteString("\n")
+	case *ast.Comment:
+		// Source-only content comment ({/* */} / {// }); never rendered.
 	default:
 		bag.Errorf(n.Pos(), n.End(), "unsupported-node", "unsupported markup node %T", n)
 		return false
@@ -2027,6 +2029,9 @@ func emitAttr(b *bytes.Buffer, refreshMeta bool, a ast.Attr, resolved map[ast.No
 			"ordered-attrs {{ }} is only valid as the value of a declared gsx.Attrs component prop, not plain-element attribute %q; declare a gsx.Attrs prop and spread it with { prop... }",
 			t.Name)
 		return false
+	case *ast.CommentAttr:
+		// Source-only comment (// /* */ or braced {/* */}); never rendered.
+		return true
 	default:
 		bag.Errorf(a.Pos(), a.End(), "unsupported-attr", "unknown attribute %T", a)
 		return false
@@ -3917,6 +3922,8 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				oaPairs:   pairEntries,
 				oaLit:     lit,
 			})
+		case *ast.CommentAttr:
+			// Source-only comment; not a component prop.
 		case *ast.EmbeddedAttr:
 			msg := fmt.Sprintf("embedded %s attribute literal %q cannot be used as a component prop on <%s>; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, el.Tag)
 			return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
@@ -4259,6 +4266,8 @@ func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string,
 			}
 			maps.Copy(usedPkgs, used)
 			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), entry))
+		case *ast.CommentAttr:
+			// Source-only comment; not a component prop.
 		case *ast.EmbeddedAttr:
 			msg := fmt.Sprintf("embedded %s attribute literal %q cannot be used as a component prop on <%s>; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, tag)
 			return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}

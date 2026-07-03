@@ -1,0 +1,18 @@
+# A source comment inside a { if COND { attrs } } conditional-attribute block is
+# retained and never rendered.
+-- input.gsx --
+package views
+
+component C(on bool) {
+	<input
+		{ if on {
+			// enabled path
+			checked
+		} }
+	/>
+}
+-- invoke --
+C(CProps{On: true})
+-- diagnostics.golden --
+-- render.golden --
+<input checked/>

@@ -440,6 +440,7 @@ func unescapeEmbeddedBackticks(s string) string {
 func (p *parser) parseAttrsUntilBrace() ([]ast.Attr, error) {
 	var attrs []ast.Attr
 	for {
+		wsStart := p.i
 		p.skipSpace()
 		if p.eof() {
 			return nil, p.errorf(p.pos(), "unexpected EOF in `{ if … }` attribute body")
@@ -448,9 +449,11 @@ func (p *parser) parseAttrsUntilBrace() ([]ast.Attr, error) {
 			p.i++ // consume '}'
 			return attrs, nil
 		}
-		if sk, err := p.skipTagComment(); err != nil {
+		if c, ok, err := p.parseTagComment(); err != nil {
 			return nil, err
-		} else if sk {
+		} else if ok {
+			c.Trailing = len(attrs) > 0 && !strings.ContainsRune(p.src[wsStart:p.i], '\n')
+			attrs = append(attrs, c)
 			continue
 		}
 		a, err := p.parseSingleAttr()

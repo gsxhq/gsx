@@ -84,6 +84,10 @@ func fprintNode(w io.Writer, node Node, depth int) error {
 		if _, err := fmt.Fprintf(w, "%sHTMLComment text=%q\n", indent, n.Text); err != nil {
 			return err
 		}
+	case *Comment:
+		if _, err := fmt.Fprintf(w, "%sComment block=%t text=%q\n", indent, n.Block, n.Text); err != nil {
+			return err
+		}
 	case *Interp:
 		if _, err := fmt.Fprintf(w, "%sInterp expr=%q\n", indent, n.Expr); err != nil {
 			return err
@@ -269,6 +273,10 @@ func fprintNode(w io.Writer, node Node, depth int) error {
 			if _, err := fmt.Fprintf(w, "%s  OrderedPair key=%q value=%q\n", indent, pair.Key, pair.Value); err != nil {
 				return err
 			}
+		}
+	case *CommentAttr:
+		if _, err := fmt.Fprintf(w, "%sCommentAttr block=%t trailing=%t text=%q\n", indent, n.Block, n.Trailing, n.Text); err != nil {
+			return err
 		}
 	default:
 		if _, err := fmt.Fprintf(w, "%s<unknown node %T>\n", indent, node); err != nil {

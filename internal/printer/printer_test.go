@@ -1267,3 +1267,66 @@ component C() {
 		t.Fatalf("not idempotent:\n--- pass1 ---\n%s\n--- pass2 ---\n%s", got, again)
 	}
 }
+
+// --- source comment preservation (// /* */ {/* */} {// }) ---
+
+func TestFmtAttrOwnLineComment(t *testing.T) {
+	// Comment on its own source line stays on its own line.
+	src := "package p\ncomponent C(name string) {\n\t<input\n\ttype=\"checkbox\"\n\t// hello\n\tid={name} />\n}\n"
+	want := "package p\n\ncomponent C(name string) {\n\t<input\n\t\ttype=\"checkbox\"\n\t\t// hello\n\t\tid={name}\n\t/>\n}\n"
+	checkFormat(t, src, want)
+}
+
+func TestFmtAttrTrailingComment(t *testing.T) {
+	// A comment on the same source line as an attr stays glued to that line.
+	src := "package p\ncomponent C(name string) {\n\t<input id={name} // note\n\tvalue=\"x\" />\n}\n"
+	want := "package p\n\ncomponent C(name string) {\n\t<input\n\t\tid={name} // note\n\t\tvalue=\"x\"\n\t/>\n}\n"
+	checkFormat(t, src, want)
+}
+
+func TestFmtAttrBlockCommentInline(t *testing.T) {
+	// A /* */ block comment may stay inline when the tag fits.
+	src := "package p\ncomponent C() {\n\t<div /* note */ id={x}></div>\n}\n"
+	want := "package p\n\ncomponent C() {\n\t<div /* note */ id={x}></div>\n}\n"
+	checkFormat(t, src, want)
+}
+
+func TestFmtAttrBracedCommentCanonicalizesToBare(t *testing.T) {
+	// A braced {/* */} in attribute position canonicalizes to the bare form.
+	src := "package p\ncomponent C() {\n\t<div {/* note */} id={x}></div>\n}\n"
+	want := "package p\n\ncomponent C() {\n\t<div /* note */ id={x}></div>\n}\n"
+	checkFormat(t, src, want)
+}
+
+func TestFmtContentBlockComment(t *testing.T) {
+	src := "package p\ncomponent C() {\n\t<p>{/* hidden */}Visible</p>\n}\n"
+	want := "package p\n\ncomponent C() {\n\t<p>{/* hidden */}Visible</p>\n}\n"
+	checkFormat(t, src, want)
+}
+
+func TestFmtContentLineComment(t *testing.T) {
+	// The {// } line form must print with } on its own line (a one-line
+	// {// text } would let the // swallow the closing brace on reparse).
+	src := "package p\ncomponent C() {\n\t<p>{// hidden\n\t}Visible</p>\n}\n"
+	want := "package p\n\ncomponent C() {\n\t<p>\n\t\t{// hidden\n\t\t}\n\t\tVisible\n\t</p>\n}\n"
+	checkFormat(t, src, want)
+}
+
+func TestFmtCondAttrComment(t *testing.T) {
+	src := "package p\ncomponent C(on bool) {\n\t<input { if on {\n\t// enabled\n\tchecked\n\t} } />\n}\n"
+	want := "package p\n\ncomponent C(on bool) {\n\t<input\n\t\t{ if on {\n\t\t\t// enabled\n\t\t\tchecked\n\t\t} }\n\t/>\n}\n"
+	checkFormat(t, src, want)
+}
+
+func TestFmtCommentsIdempotentMixed(t *testing.T) {
+	src := "package p\ncomponent C(name string) {\n\t<input\n\t\ttype=\"checkbox\"\n\t\t// a\n\t\tid={name} // b\n\t\t/* c */\n\t\tvalue=\"x\"\n\t/>\n\t<p>{/* d */}Hi</p>\n}\n"
+	once := fmtSource(t, src)
+	twice := fmtSource(t, once)
+	if once != twice {
+		t.Fatalf("not idempotent:\n--- once ---\n%s\n--- twice ---\n%s", once, twice)
+	}
+	if !strings.Contains(once, "// a") || !strings.Contains(once, "// b") ||
+		!strings.Contains(once, "/* c */") || !strings.Contains(once, "{/* d */}") {
+		t.Fatalf("a comment was dropped:\n%s", once)
+	}
+}

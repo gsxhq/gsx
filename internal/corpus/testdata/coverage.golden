@@ -63,6 +63,10 @@ codegen-shape/example12_toolbar	diag render
 codegen-shape/greeting	diag gen render
 codegen-shape/style_interp	diag gen render
 codegen-shape/whitespace_collapse	diag gen render
+comments/attr_comment	diag render
+comments/cond_attr_comment	diag render
+comments/content_comment	diag render
+comments/parse_snapshot	ast diag
 components/attrs_literal_duplicate_error	diag gen render
 components/attrs_literal_merge	diag gen render
 components/attrs_literal_merge_tuple	diag gen render
@@ -453,4 +457,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 455 cases (render: 362, error: 71, gen-pinned: 205)
+TOTAL: 459 cases (render: 365, error: 71, gen-pinned: 205)

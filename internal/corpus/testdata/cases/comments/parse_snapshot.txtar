@@ -1,0 +1,33 @@
+# Parser snapshot: source comments become CommentAttr (attribute position) and
+# Comment (content position) nodes. Bare // in text content is literal Text, not
+# a comment. Braced {/* */} in attribute position also parses to CommentAttr.
+-- input.gsx --
+package p
+
+component Doc(name string) {
+	<input
+		type="checkbox"
+		// own-line note
+		id={name} // trailing note
+		/* block note */
+		{/* braced note */}
+	/>
+	<p>{/* block */}Visible{// line
+	}text // literal</p>
+}
+-- diagnostics.golden --
+-- ast.golden --
+File package=p
+  Component name=Doc recv="" params="name string"
+    Element tag=input void=true
+      StaticAttr name=type value="checkbox"
+      CommentAttr block=false trailing=false text="own-line note"
+      ExprAttr name=id expr="name"
+      CommentAttr block=false trailing=true text="trailing note"
+      CommentAttr block=true trailing=false text="block note"
+      CommentAttr block=true trailing=false text="braced note"
+    Element tag=p void=false
+      Comment block=true text="block"
+      Text value="Visible"
+      Comment block=false text="line"
+      Text value="text // literal"

@@ -30,6 +30,18 @@
     "invoke": "Layout(LayoutProps{Name: \"Ada\"})"
   },
   {
+    "name": "Attribute comments",
+    "category": "Elements",
+    "source": "package views\n\ncomponent Toggle(name string) {\n\t<input\n\t\ttype=\"checkbox\"\n\t\t// source-only note, never rendered\n\t\tid={name}\n\t/>\n}\n",
+    "invoke": "Toggle(ToggleProps{Name: \"agree\"})"
+  },
+  {
+    "name": "Content comments",
+    "category": "Elements",
+    "source": "package views\n\ncomponent Note() {\n\t<p>{/* hidden note */}Visible text</p>\n}\n",
+    "invoke": "Note()"
+  },
+  {
     "name": "Field access",
     "category": "Basics",
     "source": "package views\n\ntype User struct {\n\tName string\n\tAge  int\n}\n\ncomponent Profile(user User) {\n\t<p>{ user.Name } is { user.Age }</p>\n}\n",

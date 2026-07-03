@@ -1,0 +1,20 @@
+-- doc --
+name: Attribute comments
+summary: // and /* */ (and braced {/* */}) inside a tag are source-only and survive gsx fmt.
+category: Elements
+page: comments
+pageOrder: 20
+-- input.gsx --
+package views
+
+component Toggle(name string) {
+	<input
+		type="checkbox"
+		// source-only note, never rendered
+		id={name}
+	/>
+}
+-- invoke --
+Toggle(ToggleProps{Name: "agree"})
+-- render.golden --
+<input type="checkbox" id="agree"/>

@@ -283,8 +283,30 @@ func TestParseSpreadPipeline(t *testing.T) {
 }
 
 func TestTagTrailingLineComment(t *testing.T) {
-	// `<div id={x} // trailing\n class="y">` → div with exactly two attrs (ExprAttr id, StaticAttr class)
+	// `<div id={x} // trailing\n class="y">` → id, CommentAttr(trailing), class.
 	p := testParser("<div id={x} // trailing\n class=\"y\"></div>")
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := n.(*ast.Element)
+	if len(el.Attrs) != 3 {
+		t.Fatalf("got %d attrs, want 3: %#v", len(el.Attrs), el.Attrs)
+	}
+	if a, ok := el.Attrs[0].(*ast.ExprAttr); !ok || a.Name != "id" || a.Expr != "x" {
+		t.Fatalf("attr0 = %#v, want ExprAttr{id, x}", el.Attrs[0])
+	}
+	if c, ok := el.Attrs[1].(*ast.CommentAttr); !ok || c.Block || c.Text != "trailing" || !c.Trailing {
+		t.Fatalf("attr1 = %#v, want CommentAttr{//, trailing, trailing=true}", el.Attrs[1])
+	}
+	if a, ok := el.Attrs[2].(*ast.StaticAttr); !ok || a.Name != "class" || a.Value != "y" {
+		t.Fatalf("attr2 = %#v, want StaticAttr{class, y}", el.Attrs[2])
+	}
+}
+
+func TestTagOwnLineComment(t *testing.T) {
+	// `<div\n // own line\n id={x}>` → CommentAttr(own-line), id.
+	p := testParser("<div\n // own line\n id={x}></div>")
 	n, err := p.parseElement()
 	if err != nil {
 		t.Fatal(err)
@@ -293,43 +315,55 @@ func TestTagTrailingLineComment(t *testing.T) {
 	if len(el.Attrs) != 2 {
 		t.Fatalf("got %d attrs, want 2: %#v", len(el.Attrs), el.Attrs)
 	}
-	if a, ok := el.Attrs[0].(*ast.ExprAttr); !ok || a.Name != "id" || a.Expr != "x" {
-		t.Fatalf("attr0 = %#v, want ExprAttr{id, x}", el.Attrs[0])
+	if c, ok := el.Attrs[0].(*ast.CommentAttr); !ok || c.Block || c.Text != "own line" || c.Trailing {
+		t.Fatalf("attr0 = %#v, want CommentAttr{//, own line, trailing=false}", el.Attrs[0])
 	}
-	if a, ok := el.Attrs[1].(*ast.StaticAttr); !ok || a.Name != "class" || a.Value != "y" {
-		t.Fatalf("attr1 = %#v, want StaticAttr{class, y}", el.Attrs[1])
-	}
-}
-
-func TestTagOwnLineComment(t *testing.T) {
-	// `<div\n // own line\n id={x}>` → div with one attr id
-	p := testParser("<div\n // own line\n id={x}></div>")
-	n, err := p.parseElement()
-	if err != nil {
-		t.Fatal(err)
-	}
-	el := n.(*ast.Element)
-	if len(el.Attrs) != 1 {
-		t.Fatalf("got %d attrs, want 1: %#v", len(el.Attrs), el.Attrs)
-	}
-	if a, ok := el.Attrs[0].(*ast.ExprAttr); !ok || a.Name != "id" || a.Expr != "x" {
-		t.Fatalf("attr0 = %#v, want ExprAttr{id, x}", el.Attrs[0])
+	if a, ok := el.Attrs[1].(*ast.ExprAttr); !ok || a.Name != "id" || a.Expr != "x" {
+		t.Fatalf("attr1 = %#v, want ExprAttr{id, x}", el.Attrs[1])
 	}
 }
 
 func TestTagBlockComment(t *testing.T) {
-	// `<div /* note */ id={x}>` → div with one attr id
+	// `<div /* note */ id={x}>` → CommentAttr(block), id.
 	p := testParser("<div /* note */ id={x}></div>")
 	n, err := p.parseElement()
 	if err != nil {
 		t.Fatal(err)
 	}
 	el := n.(*ast.Element)
-	if len(el.Attrs) != 1 {
-		t.Fatalf("got %d attrs, want 1: %#v", len(el.Attrs), el.Attrs)
+	if len(el.Attrs) != 2 {
+		t.Fatalf("got %d attrs, want 2: %#v", len(el.Attrs), el.Attrs)
 	}
-	if a, ok := el.Attrs[0].(*ast.ExprAttr); !ok || a.Name != "id" || a.Expr != "x" {
-		t.Fatalf("attr0 = %#v, want ExprAttr{id, x}", el.Attrs[0])
+	if c, ok := el.Attrs[0].(*ast.CommentAttr); !ok || !c.Block || c.Text != "note" {
+		t.Fatalf("attr0 = %#v, want CommentAttr{/* */, note}", el.Attrs[0])
+	}
+	if a, ok := el.Attrs[1].(*ast.ExprAttr); !ok || a.Name != "id" || a.Expr != "x" {
+		t.Fatalf("attr1 = %#v, want ExprAttr{id, x}", el.Attrs[1])
+	}
+}
+
+func TestTagBracedCommentInAttrs(t *testing.T) {
+	// Braced comment-only {…} is legal in attr position; parses to CommentAttr.
+	p := testParser("<div {/* braced */} id={x} {// line\n} title=\"t\"></div>")
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	el := n.(*ast.Element)
+	if len(el.Attrs) != 4 {
+		t.Fatalf("got %d attrs, want 4: %#v", len(el.Attrs), el.Attrs)
+	}
+	if c, ok := el.Attrs[0].(*ast.CommentAttr); !ok || !c.Block || c.Text != "braced" {
+		t.Fatalf("attr0 = %#v, want CommentAttr{/* */, braced}", el.Attrs[0])
+	}
+	if _, ok := el.Attrs[1].(*ast.ExprAttr); !ok {
+		t.Fatalf("attr1 = %#v, want ExprAttr{id}", el.Attrs[1])
+	}
+	if c, ok := el.Attrs[2].(*ast.CommentAttr); !ok || c.Block || c.Text != "line" {
+		t.Fatalf("attr2 = %#v, want CommentAttr{//, line}", el.Attrs[2])
+	}
+	if a, ok := el.Attrs[3].(*ast.StaticAttr); !ok || a.Name != "title" {
+		t.Fatalf("attr3 = %#v, want StaticAttr{title}", el.Attrs[3])
 	}
 }
 
@@ -356,7 +390,7 @@ func TestContentIsLiteral(t *testing.T) {
 }
 
 func TestBracedContentComment(t *testing.T) {
-	// {/* comment with <tags> and a } brace */} is skipped; "keep" remains as Text.
+	// {/* comment with <tags> and a } brace */} → *ast.Comment; "keep" remains Text.
 	// goExprEnd handles the } inside the comment (scanner-aware).
 	src := `<div>{/* a content comment with <tags> and a } brace */}keep</div>`
 	p := testParser(src)
@@ -365,20 +399,23 @@ func TestBracedContentComment(t *testing.T) {
 		t.Fatal(err)
 	}
 	el := n.(*ast.Element)
-	if len(el.Children) != 1 {
-		t.Fatalf("got %d children, want 1: %#v", len(el.Children), el.Children)
+	if len(el.Children) != 2 {
+		t.Fatalf("got %d children, want 2: %#v", len(el.Children), el.Children)
 	}
-	txt, ok := el.Children[0].(*ast.Text)
-	if !ok {
-		t.Fatalf("child is %T, want *ast.Text", el.Children[0])
+	c, ok := el.Children[0].(*ast.Comment)
+	if !ok || !c.Block {
+		t.Fatalf("child0 = %#v, want *ast.Comment block", el.Children[0])
 	}
-	if txt.Value != "keep" {
-		t.Fatalf("text value = %q, want %q", txt.Value, "keep")
+	if c.Text != "a content comment with <tags> and a } brace" {
+		t.Fatalf("comment text = %q", c.Text)
+	}
+	if txt, ok := el.Children[1].(*ast.Text); !ok || txt.Value != "keep" {
+		t.Fatalf("child1 = %#v, want Text{keep}", el.Children[1])
 	}
 }
 
 func TestBracedLineComment(t *testing.T) {
-	// {// line comment\n} is skipped; "x" remains as Text.
+	// {// line comment\n} → *ast.Comment line; "x" remains Text.
 	src := "<div>{// just a line comment\n}x</div>"
 	p := testParser(src)
 	n, err := p.parseElement()
@@ -386,15 +423,15 @@ func TestBracedLineComment(t *testing.T) {
 		t.Fatal(err)
 	}
 	el := n.(*ast.Element)
-	if len(el.Children) != 1 {
-		t.Fatalf("got %d children, want 1: %#v", len(el.Children), el.Children)
+	if len(el.Children) != 2 {
+		t.Fatalf("got %d children, want 2: %#v", len(el.Children), el.Children)
 	}
-	txt, ok := el.Children[0].(*ast.Text)
-	if !ok {
-		t.Fatalf("child is %T, want *ast.Text", el.Children[0])
+	c, ok := el.Children[0].(*ast.Comment)
+	if !ok || c.Block || c.Text != "just a line comment" {
+		t.Fatalf("child0 = %#v, want *ast.Comment line 'just a line comment'", el.Children[0])
 	}
-	if txt.Value != "x" {
-		t.Fatalf("text value = %q, want %q", txt.Value, "x")
+	if txt, ok := el.Children[1].(*ast.Text); !ok || txt.Value != "x" {
+		t.Fatalf("child1 = %#v, want Text{x}", el.Children[1])
 	}
 }
 
