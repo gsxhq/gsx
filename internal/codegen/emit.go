@@ -3837,7 +3837,19 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 			}
 			mergeChain = append(mergeChain, fmt.Sprintf(".Merge(%s)", spreadExpr))
 		case *ast.CondAttr:
-			condExpr, used, cerr := condAttrsExpr(t, rtPkg, el.Tag, mergeExpr, table)
+			// A branch whose pipeline has an error-returning stage needs statement-form
+			// hoisting (var/if/else with `return _gsxerr`), which only the real emitter
+			// (probeWrap == false, b non-nil) can produce; the probe skeleton keeps the
+			// thunk form and tolerates the tuple via probePipeWrap. Plain branches (and
+			// the probe) stay the byte-identical AttrsCond expression.
+			var condExpr string
+			var used map[string]string
+			var cerr error
+			if !probeWrap && (condBranchNeedsHoist(t.Then, table) || condBranchNeedsHoist(t.Else, table)) {
+				condExpr, used, cerr = condAttrsStmt(b, interpTemp, t, rtPkg, el.Tag, mergeExpr, table, resolved)
+			} else {
+				condExpr, used, cerr = condAttrsExpr(t, rtPkg, el.Tag, mergeExpr, table, probeWrap)
+			}
 			if cerr != nil {
 				return nil, "", nil, cerr
 			}
@@ -4107,9 +4119,19 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg st
 // via classEntryExpr); the else argument is the bare literal `nil` (not a thunk)
 // when there is no else branch. Nesting stays shallow — a CondAttr nested inside
 // a branch is unsupported.
-func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table filterTable) (string, map[string]string, error) {
+// probeWrap=true (analyze skeleton) lowers a branch pipeline with probePipeWrap
+// so a mid/final (R, error) stage stays a single _gsxunwrap(...) expression inside
+// the thunk (emit ≡ probe type-check); probeWrap=false (real emit) is only reached
+// when NO branch pipeline has an error-returning stage (condBranchNeedsHoist gates
+// the statement form), so its wrap is nil and any pipeline in the branch stays the
+// pre-existing "not supported yet" diagnostic.
+func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table filterTable, probeWrap bool) (string, map[string]string, error) {
 	usedPkgs := map[string]string{}
-	thenLit, thenUsed, err := condBranchAttrs(t.Then, rtPkg, tag, mergeExpr, table)
+	var wrap func(string) string
+	if probeWrap {
+		wrap = probePipeWrap
+	}
+	thenLit, thenUsed, err := condBranchAttrs(nil, nil, wrap, t.Then, rtPkg, tag, mergeExpr, table, nil)
 	if err != nil {
 		return "", nil, err
 	}
@@ -4117,7 +4139,7 @@ func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table f
 	thenThunk := fmt.Sprintf("func() %s.Attrs { return %s }", rtPkg, thenLit)
 	elseArg := "nil"
 	if len(t.Else) > 0 {
-		elseLit, elseUsed, err := condBranchAttrs(t.Else, rtPkg, tag, mergeExpr, table)
+		elseLit, elseUsed, err := condBranchAttrs(nil, nil, wrap, t.Else, rtPkg, tag, mergeExpr, table, nil)
 		if err != nil {
 			return "", nil, err
 		}
@@ -4127,11 +4149,108 @@ func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table f
 	return fmt.Sprintf("%s.AttrsCond(%s, %s, %s)", rtPkg, strings.TrimSpace(t.Cond), thenThunk, elseArg), usedPkgs, nil
 }
 
+// condAttrsStmt is the statement-form counterpart of condAttrsExpr, chosen (via
+// condBranchNeedsHoist) when a branch pipeline has an error-returning stage: a
+// tuple-returning stage cannot live inside an AttrsCond thunk (whose closure
+// cannot `return _gsxerr` from the render func), so the branch is lowered to
+//
+//	var _gsxvN <rtPkg>.Attrs
+//	if <cond> {
+//		<hoists for the taken branch's pipes>   // land INSIDE the block
+//		_gsxvN = <rtPkg>.Attrs{<then>}
+//	} else {                                    // only when Else is non-empty
+//		<hoists for the else branch's pipes>
+//		_gsxvN = <rtPkg>.Attrs{<else>}
+//	}
+//
+// emitted into b BEFORE the consuming statement, with _gsxvN returned so the
+// caller splices `.Merge(_gsxvN)` where the AttrsCond(...) call would have sat.
+// Semantics match the thunk form: <cond> is evaluated once, and the untaken
+// branch (including its pipe hoists) never runs — the emitPipeWrap hoists are
+// nested inside the if/else block, so they execute only on the taken path.
+func condAttrsStmt(b *bytes.Buffer, interpTemp *int, t *ast.CondAttr, rtPkg, tag, mergeExpr string, table filterTable, resolved map[ast.Node]types.Type) (string, map[string]string, error) {
+	usedPkgs := map[string]string{}
+	tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+	*interpTemp++
+	wrap := emitPipeWrap(b, interpTemp)
+	fmt.Fprintf(b, "\t\tvar %s %s.Attrs\n\t\tif %s {\n", tmp, rtPkg, strings.TrimSpace(t.Cond))
+	thenLit, thenUsed, err := condBranchAttrs(b, interpTemp, wrap, t.Then, rtPkg, tag, mergeExpr, table, resolved)
+	if err != nil {
+		return "", nil, err
+	}
+	maps.Copy(usedPkgs, thenUsed)
+	fmt.Fprintf(b, "\t\t%s = %s\n", tmp, thenLit)
+	if len(t.Else) > 0 {
+		fmt.Fprintf(b, "\t\t} else {\n")
+		elseLit, elseUsed, err := condBranchAttrs(b, interpTemp, wrap, t.Else, rtPkg, tag, mergeExpr, table, resolved)
+		if err != nil {
+			return "", nil, err
+		}
+		maps.Copy(usedPkgs, elseUsed)
+		fmt.Fprintf(b, "\t\t%s = %s\n", tmp, elseLit)
+	}
+	fmt.Fprintf(b, "\t\t}\n")
+	return tmp, usedPkgs, nil
+}
+
+// pipeStagesHaveErr reports whether any stage in a pipeline names a filter that
+// returns (R, error) — the trigger for statement-form hoisting in a conditional
+// attribute branch (a tuple stage, final or not, cannot sit in an AttrsCond thunk).
+func pipeStagesHaveErr(stages []ast.PipeStage, table filterTable) bool {
+	for _, st := range stages {
+		if e, ok := table.lookup(st.Name); ok && e.hasErr {
+			return true
+		}
+	}
+	return false
+}
+
+// condBranchNeedsHoist reports whether a conditional-attr branch's attrs contain
+// any pipeline with an error-returning stage (an ExprAttr pipeline, or a
+// composable-class plain-part / value-form-arm pipeline). When true the branch
+// must lower via condAttrsStmt (statement form) rather than an AttrsCond thunk,
+// because a failing stage hoists `return _gsxerr` — illegal inside a closure.
+func condBranchNeedsHoist(attrs []ast.Attr, table filterTable) bool {
+	for _, a := range attrs {
+		switch t := a.(type) {
+		case *ast.ExprAttr:
+			if pipeStagesHaveErr(t.Stages, table) {
+				return true
+			}
+		case *ast.ClassAttr:
+			for i := range t.Parts {
+				p := &t.Parts[i]
+				if p.CF != nil {
+					for _, arm := range valueFormArms(p.CF) {
+						if pipeStagesHaveErr(arm.Stages, table) {
+							return true
+						}
+					}
+				} else if pipeStagesHaveErr(p.Stages, table) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // condBranchAttrs builds a <rtPkg>.Attrs{…} literal from one conditional-attr
 // branch's attrs. Static/expr/bool attrs become bag entries keyed by raw name; a
 // composable class={…} becomes a ClassJoin entry. A spread or nested
 // conditional inside a branch is unsupported (kept shallow).
-func condBranchAttrs(attrs []ast.Attr, rtPkg, tag string, mergeExpr string, table filterTable) (string, map[string]string, error) {
+//
+// wrap is the lowerPipe hook for an error-returning stage in a branch pipeline:
+// nil (expression/emit form) rejects any pipeline with the "not supported yet"
+// diagnostic; probePipeWrap (probe skeleton) keeps every stage a single
+// _gsxunwrap(...) expression inside the thunk; emitPipeWrap (statement form, b !=
+// nil) hoists each error stage as a temp + `if _gsxerr != nil { return _gsxerr }`
+// into b. A final error stage is wrapped the same way (lowerPipe only wraps
+// non-final stages), so a final (R, error) tuple never lands raw in the bag
+// literal. b/interpTemp/resolved are threaded to classEntryExpr so a composable
+// class part in a statement-form branch can hoist too (nil in the thunk form,
+// preserving the pre-existing expression output byte-for-byte).
+func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table filterTable, resolved map[ast.Node]types.Type) (string, map[string]string, error) {
 	var entries []string
 	usedPkgs := map[string]string{}
 	for _, a := range attrs {
@@ -4139,11 +4258,28 @@ func condBranchAttrs(attrs []ast.Attr, rtPkg, tag string, mergeExpr string, tabl
 		case *ast.StaticAttr:
 			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), strconv.Quote(t.Value)))
 		case *ast.ExprAttr:
+			val := strings.TrimSpace(t.Expr)
 			if len(t.Stages) > 0 {
-				msg := fmt.Sprintf("pipeline in a conditional attribute branch (<%s>) not supported yet", tag)
-				return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
+				if wrap == nil {
+					msg := fmt.Sprintf("pipeline in a conditional attribute branch (<%s>) not supported yet", tag)
+					return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
+				}
+				lowered, used, perr := lowerPipe(t.Expr, t.Stages, table, wrap)
+				if perr != nil {
+					msg := strings.TrimPrefix(perr.Error(), "codegen: ")
+					return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}
+				}
+				maps.Copy(usedPkgs, used)
+				// The final stage is never wrapped by lowerPipe; wrap it here too
+				// when it returns (R, error), so a final tuple hoists (emit) /
+				// unwraps (probe) instead of sitting raw in the bag literal.
+				last := t.Stages[len(t.Stages)-1]
+				if e, ok := table.lookup(last.Name); ok && e.hasErr {
+					lowered = wrap(lowered)
+				}
+				val = lowered
 			}
-			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), strings.TrimSpace(t.Expr)))
+			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), val))
 		case *ast.BoolAttr:
 			entries = append(entries, fmt.Sprintf("{Key: %s, Value: true}", strconv.Quote(t.Name)))
 		case *ast.ClassAttr:
@@ -4151,11 +4287,11 @@ func condBranchAttrs(attrs []ast.Attr, rtPkg, tag string, mergeExpr string, tabl
 				msg := fmt.Sprintf("%s attribute in a conditional branch (<%s>) not supported yet", t.Name, tag)
 				return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
-			// nil, nil, nil, false: CF parts in conditional-attr class branches are
-			// unsupported (they require statement-level hoisting into the outer body,
-			// not inside an inline closure); classEntryExpr returns an error if CF is
-			// present. Tuple parts are also unsupported (b=nil prevents hoisting).
-			entry, used, eerr := classEntryExpr(nil, nil, t, rtPkg, mergeExpr, table, nil, false)
+			// Thunk form (b == nil): CF/tuple/ordered parts stay unsupported —
+			// classEntryExpr returns an error since it cannot hoist inside a closure.
+			// Statement form (b != nil): b/interpTemp/resolved let those parts hoist
+			// into the enclosing if/else block, the same as the element-attr path.
+			entry, used, eerr := classEntryExpr(b, interpTemp, t, rtPkg, mergeExpr, table, resolved, false)
 			if eerr != nil {
 				return "", nil, eerr
 			}

@@ -502,7 +502,7 @@ git commit -m "feat(codegen): mid-stage (R, error) filters in attr/class/style/c
 - Consumes: `emitPipeWrap`, `lowerPipe(..., wrap)`.
 - Produces: `condAttrsStmt(b *bytes.Buffer, interpTemp *int, t *ast.CondAttr, rtPkg, tag, mergeExpr string, table filterTable, resolved map[ast.Node]types.Type) (tempName string, usedPkgs map[string]string, err error)` — emits `var _gsxvN gsx.Attrs; if cond { ...hoists...; _gsxvN = gsx.Attrs{...} } else { ... }` and returns `_gsxvN`; plus `condBranchNeedsHoist(attrs []ast.Attr, table filterTable, resolved map[ast.Node]types.Type) bool`.
 
-- [ ] **Step 1: Add the failing corpus case**
+- [x] **Step 1: Add the failing corpus case**
 
 `pipeerr/cond_attr_branch_mid_stage.txtar` (component target; filters as Task 4):
 
@@ -553,12 +553,12 @@ Page(PageProps{Hot: true, Csv: "a,b"})
 
 (FIRST read `cases/components/component_conditional_attr.txtar` and mirror its exact component/attr syntax — the sketch above must be adjusted to the real cond-attr syntax pinned there.)
 
-- [ ] **Step 2: Verify it fails with the friendly diagnostic**
+- [x] **Step 2: Verify it fails with the friendly diagnostic**
 
 Run: `go test ./internal/corpus -run TestCorpus 2>&1 | grep cond_attr_branch`
 Expected: FAIL with the nil-wrap diagnostic from Task 3.
 
-- [ ] **Step 3: Implement `condBranchNeedsHoist` + `condAttrsStmt`**
+- [x] **Step 3: Implement `condBranchNeedsHoist` + `condAttrsStmt`**
 
 `condBranchNeedsHoist`: true when any branch attr (then/else, recursively over its class parts / expr attrs) is a pipeline with a `hasErr` non-final stage (walk `Stages` against `table`), OR hits the existing `b == nil` edges (tuple class part / ordered part / value-form CF — consult the same conditions that produce the three "not supported yet" attrErrors at emit.go:3930/:4008/:4013).
 
@@ -577,12 +577,12 @@ fmt.Fprintf(b, "\t\t%s = %s\n\t\t}\n", tmp, elseLit)
 
 At the `condAttrsExpr` call site(s) (grep `condAttrsExpr(` — find the caller that builds the component Attrs merge chain): when `condBranchNeedsHoist(...)`, call `condAttrsStmt` and splice `tmp` into the merge expression where the `AttrsCond(...)` call would sit; otherwise keep `condAttrsExpr` byte-identical. Indentation of emitted statements must match the surrounding generated code (compare against an `-update` diff).
 
-- [ ] **Step 4: Regenerate + verify + inspect**
+- [x] **Step 4: Regenerate + verify + inspect**
 
 Run: `go test ./internal/corpus -run TestCorpus -update && go test ./internal/corpus -run TestCorpus`
 Expected: PASS. Verify (a) the new case's golden shows `var _gsxvN gsx.Attrs; if hot { ... }`, (b) **every pre-existing cond-attr golden is byte-identical** (`git diff --stat internal/corpus/testdata` shows only `pipeerr/`), (c) the untaken-branch guarantee: add `pipeerr/cond_attr_branch_untaken.txtar` — same source, `Hot: false`, `Csv: ""` (parse would fail!) — render.golden shows the div WITHOUT the attr and WITHOUT a render error, proving the untaken branch never ran.
 
-- [ ] **Step 5: `make check`, commit**
+- [x] **Step 5: `make check`, commit**
 
 ```bash
 git add internal/codegen internal/corpus

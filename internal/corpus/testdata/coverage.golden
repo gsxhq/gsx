@@ -304,6 +304,8 @@ pipeerr/attr_mid_stage	diag gen render
 pipeerr/child_prop_mid_stage	diag gen render
 pipeerr/class_cf_arm_mid_stage	diag gen render
 pipeerr/class_part_mid_stage	diag gen render
+pipeerr/cond_attr_branch_mid_stage	diag gen render
+pipeerr/cond_attr_branch_untaken	diag gen render
 pipeerr/final_stage_custom_filter	diag render
 pipeerr/ordered_attrs_mid_stage	diag gen render
 pipeerr/style_mid_stage	diag gen render
@@ -439,4 +441,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 441 cases (render: 349, error: 70, gen-pinned: 191)
+TOTAL: 443 cases (render: 351, error: 70, gen-pinned: 193)
