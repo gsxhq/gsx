@@ -48,6 +48,7 @@ func harvestFromTypes(byPath map[string]*types.Package, pkgPaths []string, expli
 			harvested[tname] = append(harvested[tname], filterEntry{
 				funcName: name,
 				wantsCtx: wantsCtx,
+				hasErr:   sig.Results().Len() == 2,
 				alias:    alias,
 				pkgPath:  path,
 			})
@@ -78,6 +79,7 @@ func harvestFromTypes(byPath map[string]*types.Package, pkgPaths []string, expli
 		harvested[a.Name] = append(harvested[a.Name], filterEntry{
 			funcName: a.FuncName,
 			wantsCtx: wantsCtx,
+			hasErr:   sig.Results().Len() == 2,
 			alias:    aliases[a.PkgPath],
 			pkgPath:  a.PkgPath,
 		})

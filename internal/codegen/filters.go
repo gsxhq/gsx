@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"errors"
 	"fmt"
 	"go/types"
 	"sort"
@@ -12,6 +13,13 @@ import (
 
 	"github.com/gsxhq/gsx/ast"
 )
+
+// errFailingStageUnsupported is wrapped into lowerPipe's "not supported in
+// this position" error so callers can errors.Is-match it and substitute a
+// more specific, positioned diagnostic than the generic filter-name message
+// (e.g. classEntryExpr does this for a class part's pipeline inside a
+// component conditional-attr branch).
+var errFailingStageUnsupported = errors.New("a failing stage is not supported in this position")
 
 // pipeCtxIdent is the literal ambient render-context identifier that emitted
 // component bodies bind (the `ctx` of `gsx.Func(func(ctx context.Context, …))`).
@@ -43,10 +51,18 @@ const pipeCtxIdent = "ctx"
 // Arity/type mismatches are NOT hand-checked here: a ctx-less zero-arg filter is
 // fine, and wrong/extra args surface as positioned go/types errors via the probe
 // against the resolved signature. Only an unknown filter name is rejected here.
-func lowerPipe(seed string, stages []ast.PipeStage, table filterTable) (expr string, usedPkgs map[string]string, err error) {
+//
+// A non-final stage whose filter hasErr (returns (R, error)) is passed through
+// wrap after lowering, so the caller can hoist the tuple (emit: a temp + early
+// return) or tolerate it (probe: _gsxunwrap) while keeping the SAME lowered
+// string shape across both contexts. The final stage is never wrapped — its
+// tuple flows through the existing per-context machinery unchanged. wrap == nil
+// means the caller does not yet support a failing stage in this position, so a
+// mid-pipeline hasErr stage is rejected with a friendly, caller-positioned error.
+func lowerPipe(seed string, stages []ast.PipeStage, table filterTable, wrap func(call string) string) (expr string, usedPkgs map[string]string, err error) {
 	acc := "(" + strings.TrimSpace(seed) + ")"
 	usedPkgs = map[string]string{}
-	for _, st := range stages {
+	for i, st := range stages {
 		e, ok := table.lookup(st.Name)
 		if !ok {
 			return "", nil, fmt.Errorf("codegen: unknown filter %q", st.Name)
@@ -61,6 +77,12 @@ func lowerPipe(seed string, stages []ast.PipeStage, table filterTable) (expr str
 			args = append(args, st.Args)
 		}
 		acc = e.alias + "." + e.funcName + "(" + strings.Join(args, ", ") + ")"
+		if e.hasErr && i < len(stages)-1 {
+			if wrap == nil {
+				return "", nil, fmt.Errorf("codegen: filter %q returns (R, error); %w", st.Name, errFailingStageUnsupported)
+			}
+			acc = wrap(acc)
+		}
 	}
 	return acc, usedPkgs, nil
 }
@@ -68,12 +90,14 @@ func lowerPipe(seed string, stages []ast.PipeStage, table filterTable) (expr str
 // filterEntry is one harvested filter. funcName is the exported Go name in its
 // owning package (e.g. "Upper"); wantsCtx is true when the filter's first
 // parameter is context.Context (gsx injects the ambient ctx as that argument);
-// alias is that package's reserved import alias (the caller qualifies the call as
-// <alias>.<funcName>); pkgPath is the package's import path (so the caller can
-// emit `<alias> "<pkgPath>"`).
+// hasErr is true when the filter returns (R, error) and needs stage-hoisting for
+// non-final pipes; alias is that package's reserved import alias (the caller
+// qualifies the call as <alias>.<funcName>); pkgPath is the package's import path
+// (so the caller can emit `<alias> "<pkgPath>"`).
 type filterEntry struct {
 	funcName string
 	wantsCtx bool
+	hasErr   bool
 	alias    string
 	pkgPath  string
 }
@@ -259,6 +283,7 @@ func harvestFilters(dir string, pkgPaths []string, explicitAliases []FilterAlias
 			harvested[tname] = append(harvested[tname], filterEntry{
 				funcName: name,
 				wantsCtx: wantsCtx,
+				hasErr:   sig.Results().Len() == 2,
 				alias:    alias,
 				pkgPath:  path,
 			})
@@ -300,6 +325,7 @@ func harvestFilters(dir string, pkgPaths []string, explicitAliases []FilterAlias
 		harvested[a.Name] = append(harvested[a.Name], filterEntry{
 			funcName: a.FuncName,
 			wantsCtx: wantsCtx,
+			hasErr:   sig.Results().Len() == 2,
 			alias:    aliases[a.PkgPath],
 			pkgPath:  a.PkgPath,
 		})

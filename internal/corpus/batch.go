@@ -83,24 +83,24 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 		states[i] = cs
 	}
 
-	// Step 3: codegen. Cases without a class merger are batched into one call;
-	// cases with a per-case merger each get their own call so Options.ClassMerger
-	// can be set independently.
+	// Step 3: codegen. Cases with no per-case codegen options (no class merger,
+	// no filterPackages) are batched into one call; cases with either get their
+	// own call so Options.ClassMerger/FilterPkgs can be set independently.
 	var defaultDirs []string
 	for _, cs := range states {
-		if cs.c.classMerger == nil {
+		if cs.c.classMerger == nil && len(cs.c.filterPkgs) == 0 {
 			defaultDirs = append(defaultDirs, cs.pkgDirs...)
 		}
 	}
-	pkgResults, err := codegenDirs(tmp, defaultDirs, nil)
+	pkgResults, err := codegenDirs(tmp, defaultDirs, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("batchCodegen: codegenDirs: %w", err)
 	}
 	for _, cs := range states {
-		if cs.c.classMerger == nil {
+		if cs.c.classMerger == nil && len(cs.c.filterPkgs) == 0 {
 			continue
 		}
-		mergerResults, merr := codegenDirs(tmp, cs.pkgDirs, cs.c.classMerger)
+		mergerResults, merr := codegenDirs(tmp, cs.pkgDirs, cs.c.classMerger, cs.c.filterPkgs)
 		if merr != nil {
 			return nil, fmt.Errorf("batchCodegen: codegenDirs(%s): %w", cs.c.name, merr)
 		}
@@ -228,12 +228,12 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 		alias := fmt.Sprintf("case%d", built)
 		built++
 		fmt.Fprintf(&imports, "\t%s %q\n", alias, entryPkg)
-		fmt.Fprintf(&dispatch, "\tos.Stdout.WriteString(%q)\n\t_ = %s.GsxEntryRender(ctx, os.Stdout)\n",
+		fmt.Fprintf(&dispatch, "\tos.Stdout.WriteString(%q)\n\tif err := %s.GsxEntryRender(ctx, os.Stdout); err != nil {\n\t\tfmt.Fprintf(os.Stdout, \"\\n[render error] %%v\", err)\n\t}\n",
 			caseMarkerPrefix+c.name+caseMarkerSuffix+"\n", alias)
 	}
 
 	if built > 0 {
-		main := "package main\n\nimport (\n\t\"context\"\n\t\"os\"\n" + imports.String() + ")\n\nfunc main() {\n\tctx := context.Background()\n" + dispatch.String() + "}\n"
+		main := "package main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"os\"\n" + imports.String() + ")\n\nfunc main() {\n\tctx := context.Background()\n" + dispatch.String() + "}\n"
 		if err := os.WriteFile(filepath.Join(tmp, "main.go"), []byte(main), 0o644); err != nil {
 			return nil, err
 		}

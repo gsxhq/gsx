@@ -3,6 +3,7 @@ package corpus
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -47,6 +48,37 @@ func TestLoadCaseMultiPackage(t *testing.T) {
 	}
 	if _, ok := c.files["ui/button.gsx"]; !ok {
 		t.Errorf("missing ui/button.gsx")
+	}
+}
+
+func TestLoadCaseFilterPackages(t *testing.T) {
+	dir := t.TempDir()
+	src := `-- gsx.toml --
+filterPackages = ["./filters", "github.com/gsxhq/gsx/std"]
+-- filters/filters.go --
+package filters
+-- input.gsx --
+package views
+
+component C() { <p>hi</p> }
+`
+	path := filepath.Join(dir, "testdata", "cases", "pipeerr", "fp.txtar")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := loadCase(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"corpustest/cases/pipeerr_fp/filters", "github.com/gsxhq/gsx/std"}
+	if !slices.Equal(c.filterPkgs, want) {
+		t.Fatalf("filterPkgs = %v, want %v", c.filterPkgs, want)
+	}
+	if _, hasToml := c.files["gsx.toml"]; hasToml {
+		t.Fatal("gsx.toml must not be written to disk")
 	}
 }
 

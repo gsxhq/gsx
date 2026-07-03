@@ -23,12 +23,14 @@ type caseDoc struct {
 	multiPkg    bool
 	modulePath  string
 	classMerger *codegen.ClassMergerRef // set when case has a gsx.toml with class_merger
+	filterPkgs  []string                // resolved import paths from gsx.toml filterPackages; "./x" entries resolve against the case import root
 }
 
 // caseToml holds the subset of gsx.toml fields the corpus harness reads.
 // Other fields are allowed but ignored.
 type caseToml struct {
-	ClassMerger string `toml:"class_merger"`
+	ClassMerger    string   `toml:"class_merger"`
+	FilterPackages []string `toml:"filterPackages"`
 }
 
 var goldenSections = map[string]bool{
@@ -85,6 +87,12 @@ func loadCase(path string) (*caseDoc, error) {
 					return nil, fmt.Errorf("gsx.toml: class_merger: %w", err)
 				}
 				c.classMerger = &codegen.ClassMergerRef{PkgPath: pkgPath, FuncName: funcName}
+			}
+			for _, p := range tc.FilterPackages {
+				if strings.HasPrefix(p, "./") {
+					p = caseImportRoot(c) + strings.TrimPrefix(p, ".")
+				}
+				c.filterPkgs = append(c.filterPkgs, p)
 			}
 		default:
 			c.files[f.Name] = f.Data

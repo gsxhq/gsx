@@ -18,7 +18,7 @@ generator/CLI may use `golang.org/x/tools`.
 | Runtime (`gsx`) | [x] done |
 | Codegen | [~] interpolation + control flow + full attributes (security core, composable class **and element-level style**, spread, conditional, explicit JS/CSS attr literals `` js`...` `` / `` css`...` `` + URL attr classification) + pipeline `\|>` + child props/`{children}` + method components + named slots + attribute fallthrough (auto class-merge/spread + manual `{...attrs}`) + node-prop promotion (`gsx.Val`/`Text`/`Fragment`) + ordered attrs (`{{ }}` lowering to `gsx.Attrs`) + uniform `(T,error)` auto-unwrap (all expression positions) + value-form `if`/`switch` in `class`/`style` (exclusive selection) done; composable `style` **on a component invocation** + `[]string` class parts pending |
 | Whitespace model | [x] JSX-style: `internal/wsnorm.Normalize` (parser lossless) wired into codegen + powers `gsx fmt`. render-faithful + idempotent over the whole corpus. |
-| Pipeline `\|>` end-to-end | [x] seed-first forward-application lowering + `std` filters + user filter packages (`gen.WithFilters` + `gen.WithFilter` aliases, multi-pkg last-wins) + `ctx` injection + `(T,error)` implicit auto-unwrap. Works in interp / attr / class / style / spread / child-prop values / `{{ }}` pairs (all expression positions). Initialism-aware naming pending. |
+| Pipeline `\|>` end-to-end | [x] seed-first forward-application lowering + `std` filters + user filter packages (`gen.WithFilters` + `gen.WithFilter` aliases, multi-pkg last-wins) + `ctx` injection + `(T,error)` implicit auto-unwrap **at any stage** (halts the chain on error). Works in interp / attr / class / style / spread / child-prop values / `{{ }}` pairs / cond-attr branches (all pipeline-legal contexts). Initialism-aware naming pending. |
 | CLI (`gsx`) / `gen.Main` | [~] `generate` (incl. `--watch`/`--format=ndjson`) · `fmt` · `info` · `init` · `lsp` · `clean --cache` · `version` · `help` ship, with `--json` + structured diagnostics. `vet`/`render`/`explain`/numeric codes pending. `WithClassMerger` + `class_merger` TOML knob shipped. |
 | Language server (`gsx lsp`) | [~] diagnostics (debounced) + go-to-definition (incl. inside pipelines) + hover (incl. pipelines) + find-references + formatting ship; completion and external/non-project references deferred; references cover project components discovered during module analysis. |
 | Developer experience (Vite + `init`) | [x] `gsx init` scaffold + `@gsxhq/vite-plugin-gsx` (npm v0.4.5) + `github.com/gsxhq/vite` (v0.2.0). |
@@ -369,8 +369,38 @@ vocabulary remains a design aspiration, not the current API.
   forward-application, `ctx` injection, `(T,error)` auto-unwrap, `gen.WithFilters` +
   `gen.WithFilter` aliases, multi-pkg last-wins). Spec
   `2026-06-25-pipeline-forward-application-design.md`.
+- [x] **`(R, error)` filters at any pipeline stage** — SHIPPED (2026-07-03). A
+  filter returning `(R, error)` works at any stage, not just the final one: an
+  error-returning non-final stage hoists to `_gsxvN, _gsxerr := stage(...); if
+  _gsxerr != nil { return _gsxerr }`, the failing stage halts the chain (later
+  filters never run), and the error returns from the component's render —
+  identical to the existing `(T, error)` auto-unwrap. Works in every
+  pipeline-legal context, including component cond-attr branches (which lower
+  to a statement-form `if`/`else` only when a branch needs the hoist, preserving
+  laziness). Spec `2026-07-03-pipe-error-any-stage-design.md`.
 - [ ] **Pipeline extensions** — initialism-aware filter naming;
   pipeline-as-filter-argument; ambient `mapEach` (deferred / out of scope).
+- [ ] **Known gap: class parts inside component cond-attr branches don't
+  support `(R, error)` at all** — a composable `class` part nested inside a
+  *component* conditional-attribute branch (`<Card { if hot { class={ … } }
+  }/>`) has no working path for a filter/call returning `(R, error)`: a plain
+  tuple-returning (`(string, error)`) call, or a pipeline whose *final* stage
+  returns an error, surfaces as a raw Go compile error (e.g. `too many
+  arguments in call to _gsxrt.Class; have (string, error), want (string)`)
+  instead of a clean gsx diagnostic; a pipeline with a *mid*-stage error
+  instead gets rejected with the generic message `filter "parse" returns (R,
+  error); a failing stage is not supported in this position` (safe, but
+  doesn't name the actual restriction). Root cause (same for all three
+  variants): the analyze/probe phase harvests no type for class parts nested
+  in component cond-attr branches, so the emit-time tuple-detection check
+  (which consults `resolved`) never fires there, and the statement-form
+  lowering (which lifts the mid-stage case elsewhere) doesn't trigger for this
+  position either. Expression attrs in the same branch position (e.g.
+  `data-pick={ csv |> parse |> pick(0) }`) are unaffected — they go through
+  the statement-form lowering correctly. Pre-existing bug, discovered (not
+  introduced) during the any-stage pipeline-error work; the mid-stage
+  rejection message is pinned as current behavior by
+  `pipeerr/cond_attr_branch_class_pipe_rejected.txtar`; deferred follow-up.
 - [x] **LSP reads `gsx.toml` in-process** — `gsx lsp` resolves config the same
   way `generate`/`info` do (`mergeConfig(gsx.toml, opts)`) but in-process and
   best-effort (no subprocess, the LSP spawns nothing → no orphan children), so
