@@ -723,7 +723,7 @@ git add docs
 git commit -m "docs: pipeline filters returning (R, error) at any stage"
 ```
 
-- [ ] **Step 4: Adversarial review + merge prep**
+- [x] **Step 4: Adversarial review + merge prep**
 
 Per CLAUDE.md: one independent adversarial reviewer (builds throwaway probe programs — e.g. a scratch module with exotic error filters: generic ctx filter, filter whose R is a named error-ish type, two error stages back-to-back, error filter under `-race`) before merging. Then `superpowers:finishing-a-development-branch`.
 
