@@ -68,12 +68,14 @@ func lowerPipe(seed string, stages []ast.PipeStage, table filterTable) (expr str
 // filterEntry is one harvested filter. funcName is the exported Go name in its
 // owning package (e.g. "Upper"); wantsCtx is true when the filter's first
 // parameter is context.Context (gsx injects the ambient ctx as that argument);
-// alias is that package's reserved import alias (the caller qualifies the call as
-// <alias>.<funcName>); pkgPath is the package's import path (so the caller can
-// emit `<alias> "<pkgPath>"`).
+// hasErr is true when the filter returns (R, error) and needs stage-hoisting for
+// non-final pipes; alias is that package's reserved import alias (the caller
+// qualifies the call as <alias>.<funcName>); pkgPath is the package's import path
+// (so the caller can emit `<alias> "<pkgPath>"`).
 type filterEntry struct {
 	funcName string
 	wantsCtx bool
+	hasErr   bool
 	alias    string
 	pkgPath  string
 }
@@ -259,6 +261,7 @@ func harvestFilters(dir string, pkgPaths []string, explicitAliases []FilterAlias
 			harvested[tname] = append(harvested[tname], filterEntry{
 				funcName: name,
 				wantsCtx: wantsCtx,
+				hasErr:   sig.Results().Len() == 2,
 				alias:    alias,
 				pkgPath:  path,
 			})
@@ -300,6 +303,7 @@ func harvestFilters(dir string, pkgPaths []string, explicitAliases []FilterAlias
 		harvested[a.Name] = append(harvested[a.Name], filterEntry{
 			funcName: a.FuncName,
 			wantsCtx: wantsCtx,
+			hasErr:   sig.Results().Len() == 2,
 			alias:    aliases[a.PkgPath],
 			pkgPath:  a.PkgPath,
 		})
