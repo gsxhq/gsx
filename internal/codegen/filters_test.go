@@ -1,9 +1,12 @@
 package codegen
 
 import (
+	"go/types"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"golang.org/x/tools/go/packages"
 )
 
 // repoRoot resolves the module root from the test's working dir. Tests run in
@@ -105,6 +108,84 @@ func Generic[T any](s []T) (T, error) { var z T; return z, nil }
 `)
 	for name, want := range map[string]bool{
 		"plain": false, "fallible": true, "ctxFallible": true, "generic": true,
+	} {
+		e, ok := table.lookup(name)
+		if !ok {
+			t.Fatalf("filter %q not harvested", name)
+		}
+		if e.hasErr != want {
+			t.Errorf("%s: hasErr = %v, want %v", name, e.hasErr, want)
+		}
+	}
+}
+
+// harvestFixtureFromTypes mirrors harvestFixture but exercises the
+// harvestFromTypes/loadFilterTableFromTypes path (bundle.go) instead of the
+// packages.Load-based harvestFilters. That path is what the WASM playground
+// uses once packages are already type-checked (e.g. reconstructed from an
+// embedded typebundle): it takes a pre-built map[string]*types.Package rather
+// than doing its own packages.Load. Here packages.Load is used ONLY to obtain
+// real *types.Package values for the fixture (standing in for a typebundle
+// reconstruction); the harvest itself goes through harvestFromTypes, not
+// harvestFilters, so it exercises the second, parallel construction site.
+func harvestFixtureFromTypes(t *testing.T, source string) filterTable {
+	t.Helper()
+	repoRoot := repoRoot(t)
+	tmp := t.TempDir()
+
+	modContent := "module testfilters\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => " + repoRoot + "\n"
+	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte(modContent), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	filterDir := filepath.Join(tmp, "filters")
+	if err := os.Mkdir(filterDir, 0o755); err != nil {
+		t.Fatalf("mkdir filters: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(filterDir, "filters.go"), []byte(source), 0o644); err != nil {
+		t.Fatalf("write filters.go: %v", err)
+	}
+
+	cfg := &packages.Config{
+		Mode: packages.NeedName | packages.NeedTypes | packages.NeedImports | packages.NeedDeps,
+		Dir:  tmp,
+	}
+	pkgPath := "testfilters/filters"
+	pkgs, err := packages.Load(cfg, pkgPath)
+	if err != nil {
+		t.Fatalf("packages.Load: %v", err)
+	}
+	byPath := map[string]*types.Package{}
+	packages.Visit(pkgs, nil, func(p *packages.Package) {
+		if p.Types != nil {
+			byPath[p.PkgPath] = p.Types
+		}
+	})
+
+	table, err := loadFilterTableFromTypes(byPath, []string{pkgPath}, nil)
+	if err != nil {
+		t.Fatalf("loadFilterTableFromTypes: %v", err)
+	}
+	return table
+}
+
+// TestHarvestFromTypesHasErr is the bundle-path counterpart to
+// TestHarvestHasErr: same fixture, but harvested through harvestFromTypes
+// (bundle.go) instead of harvestFilters (filters.go). Regression coverage for
+// the bug where bundle.go's filterEntry literals omitted hasErr entirely, so
+// error-returning filters harvested via the WASM/typebundle path silently got
+// hasErr == false.
+func TestHarvestFromTypesHasErr(t *testing.T) {
+	t.Parallel()
+	table := harvestFixtureFromTypes(t, `package filters
+
+import "context"
+
+func Plain(s string) string { return s }
+func Fallible(s string) (string, error) { return s, nil }
+func CtxFallible(ctx context.Context, s string) (int, error) { return 0, nil }
+`)
+	for name, want := range map[string]bool{
+		"plain": false, "fallible": true, "ctxFallible": true,
 	} {
 		e, ok := table.lookup(name)
 		if !ok {
