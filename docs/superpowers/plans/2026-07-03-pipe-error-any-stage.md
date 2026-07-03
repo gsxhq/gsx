@@ -47,7 +47,7 @@
 - Consumes: existing `caseImportRoot(c) == "corpustest/cases/" + c.dir`.
 - Produces: `caseDoc.filterPkgs []string` (resolved absolute import paths); `codegenDirs(moduleDir string, dirs []string, merger *codegen.ClassMergerRef, filterPkgs []string)`; batch main prints `\n[render error] <err>` to stdout when `GsxEntryRender` returns non-nil, so `render.golden` pins partial output + error text.
 
-- [ ] **Step 1: Write the failing loader test**
+- [x] **Step 1: Write the failing loader test**
 
 In `internal/corpus/loader_test.go` add:
 
@@ -86,12 +86,12 @@ component C() { <p>hi</p> }
 
 (Match the existing test file's import style; the case-name→dir mapping `pipeerr/fp` → `pipeerr_fp` follows `loadCase`'s `strings.ReplaceAll(name, "/", "_")`.)
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `go test ./internal/corpus -run TestLoadCaseFilterPackages -v`
 Expected: FAIL — `c.filterPkgs undefined`.
 
-- [ ] **Step 3: Implement loader support**
+- [x] **Step 3: Implement loader support**
 
 In `internal/corpus/loader.go`:
 
@@ -115,7 +115,7 @@ for _, p := range tc.FilterPackages {
 
 NOTE: `caseImportRoot` uses `c.dir`, which is set before the file loop — verify that ordering holds; if not, resolve after the loop.
 
-- [ ] **Step 4: Thread into codegen + batch**
+- [x] **Step 4: Thread into codegen + batch**
 
 `internal/corpus/codegen.go` — extend `codegenDirs`:
 
@@ -132,7 +132,7 @@ func codegenDirs(moduleDir string, dirs []string, merger *codegen.ClassMergerRef
 
 `internal/corpus/batch.go` — update both call sites (default run passes `nil, nil`); extend the existing per-case custom-options rerun (the class-merger path at ~:103) to also trigger when `len(cs.c.filterPkgs) > 0`, passing `cs.c.classMerger, cs.c.filterPkgs`. Grep for any other `codegenDirs(` callers (`coverage.go`, tests) and update.
 
-- [ ] **Step 5: Capture render errors in the batch main**
+- [x] **Step 5: Capture render errors in the batch main**
 
 At `batch.go:~231` replace the discard with an error print, and add `"fmt"` to the generated main's imports (~:236):
 
@@ -143,7 +143,7 @@ fmt.Fprintf(&dispatch, "\tos.Stdout.WriteString(%q)\n\tif err := %s.GsxEntryRend
 	// only the format string changes.
 ```
 
-- [ ] **Step 6: Add the first custom-filter corpus case (final-stage error — works TODAY, proves infra)**
+- [x] **Step 6: Add the first custom-filter corpus case (final-stage error — works TODAY, proves infra)**
 
 Create `internal/corpus/testdata/cases/pipeerr/final_stage_custom_filter.txtar`:
 
@@ -178,12 +178,12 @@ Hi(HiProps{Name: "ada"})
 <p>ada!</p>
 ```
 
-- [ ] **Step 7: Regenerate goldens, verify, inspect**
+- [x] **Step 7: Regenerate goldens, verify, inspect**
 
 Run: `go test ./internal/corpus -run TestCorpus -update && go test ./internal/corpus -run TestCorpus`
 Expected: PASS. The new case gains a `generated.x.go.golden`; **diff the whole tree** — no other `render.golden` may change (if one does, an existing case has a silently-erroring render: STOP and surface it to the user rather than accepting the new golden).
 
-- [ ] **Step 8: Run corpus + loader tests, commit**
+- [x] **Step 8: Run corpus + loader tests, commit**
 
 Run: `go test ./internal/corpus` — PASS.
 ```bash
