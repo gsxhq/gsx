@@ -636,7 +636,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 				continue
 			case *ast.SpreadAttr:
 				bag.Errorf(t.Pos(), t.End(), "attr-fallthrough",
-					"spread inside { if } on an element with attribute forwarding has statically unknown keys; compose it into the forwarding spread instead (e.g. { attrs.Merge(gsx.AttrsCond(%s, func() gsx.Attrs { return %s }, nil))... })",
+					"spread inside { if } on an element with attribute forwarding has statically unknown keys; hoist it with a GoBlock instead (e.g. {{ a, err := gsx.AttrsCond(%s, func() (gsx.Attrs, error) { return %s, nil }, nil); if err != nil { return err } }} then { attrs.Merge(a)... })",
 					encCond, strings.TrimSpace(t.Expr))
 				return false
 			}
