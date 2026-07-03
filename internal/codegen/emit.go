@@ -3833,7 +3833,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				msg := fmt.Sprintf("%s attribute on a component (<%s>) not supported yet", t.Name, el.Tag)
 				return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
-			entry, used, eerr := classEntryExpr(b, interpTemp, t, rtPkg, mergeExpr, table, resolved, probeWrap)
+			entry, used, eerr := classEntryExpr(b, interpTemp, t, rtPkg, mergeExpr, table, resolved, probeWrap, pipeWrap)
 			if eerr != nil {
 				return nil, "", nil, eerr
 			}
@@ -3975,29 +3975,27 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 // positioned at the ClassAttr.
 // b and interpTemp are needed to hoist value-form CF (if/switch) parts: the
 // hoisted var+if/switch statements are written to b before the containing call.
-// When b is nil (conditional-attr branch context), CF parts are unsupported.
-func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg string, mergeExpr string, table filterTable, resolved map[ast.Node]types.Type, probeWrap bool) (string, map[string]string, error) {
+// b is always a real buffer: at element level it is the render closure's
+// statement buffer; inside a component conditional-attr branch (condBranchAttrs)
+// it is that branch's thunk-LOCAL buffer, so a hoisted statement lands inside
+// the enclosing `func() (rtPkg.Attrs, error) { ... }` thunk rather than the
+// caller's statement stream.
+// wrap is the lowerPipe hook for a mid-stage (R, error) filter in a class
+// part's pipeline, and is also reused directly to hoist a tuple-returning
+// PLAIN part (no pipeline) once resolved confirms it: probePipeWrap in probe
+// mode; at element level, emitPipeWrap(b, interpTemp) (single-value
+// `return _gsxerr`); inside a cond-attr branch thunk, thunkPipeWrap(b,
+// interpTemp) (two-value `return nil, _gsxerr`, since the enclosing thunk's
+// signature is (Attrs, error)). The caller selects the variant that matches
+// its own enclosing return arity — classEntryExpr itself stays agnostic to
+// that choice, hoisting exclusively through wrap.
+func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg string, mergeExpr string, table filterTable, resolved map[ast.Node]types.Type, probeWrap bool, wrap func(string) string) (string, map[string]string, error) {
 	parts := make([]string, 0, len(a.Parts))
 	usedPkgs := map[string]string{}
 	ordered := !probeWrap && composedPartsOrdered(a, resolved)
-	// wrap is the lowerPipe hook for a mid-stage (R, error) filter in a class
-	// part's pipeline: probeWrap (skeleton) uses probePipeWrap so the composite-
-	// literal probe stays a single expression; emit mode with a real b uses
-	// emitPipeWrap (statement hoist); the cond-attr branch context (b == nil,
-	// probeWrap == false) stays nil — Task 5 lifts this restriction.
-	var wrap func(string) string
-	switch {
-	case probeWrap:
-		wrap = probePipeWrap
-	case b != nil:
-		wrap = emitPipeWrap(b, interpTemp)
-	}
 	for i := range a.Parts {
 		p := &a.Parts[i]
 		if p.CF != nil {
-			if b == nil || interpTemp == nil {
-				return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: "value-form if/switch in class on a component conditional-attr branch not supported yet"}
-			}
 			tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
 			*interpTemp++
 			fmt.Fprintf(b, "\t\tvar %s string\n", tmp)
@@ -4012,22 +4010,23 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg st
 				if probeWrap && isCallExpr(expr) {
 					// Skeleton mode: wrap call exprs with _gsxunwrap so the
 					// assignment _gsxvN = _gsxunwrap(cls(v)) compiles even when
-					// cls returns (T, error). b and interpTemp are non-nil here
-					// (guarded above). resolved is nil in skeleton mode, so the
-					// emit-mode check below is skipped.
+					// cls returns (T, error). resolved is nil in skeleton mode, so
+					// the emit-mode check below is skipped.
 					expr = fmt.Sprintf("_gsxunwrap(%s)", expr)
 				} else if !probeWrap {
 					// Emit mode: consult resolved to detect and hoist (T, error)
-					// tuples. hoistTuple writes the unwrap into b at this point —
-					// after the if/case label and before the _gsxvN = assignment —
-					// so the hoist lands inside the correct block.
+					// tuples. wrap writes the hoist into b at this point — after the
+					// if/case label and before the _gsxvN = assignment — so it lands
+					// inside the correct block, with the errReturn arity (single-
+					// value at element level, two-value inside a cond-attr thunk)
+					// the caller already baked into wrap.
 					if t := resolved[arm]; t != nil {
 						if _, isTuple := t.(*types.Tuple); isTuple {
 							if _, ok := tupleUnwrapType(t); !ok {
 								lowerErr = &attrError{pos: arm.Pos(), end: arm.End(), code: "invalid-tuple", msg: fmt.Sprintf("class value-form arm %q returns %s; only (T, error) is supported", arm.Expr, t)}
 								return "", false
 							}
-							expr = hoistTuple(b, expr, interpTemp)
+							expr = wrap(expr)
 						}
 					}
 				}
@@ -4051,13 +4050,6 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg st
 		}
 		expr, used, err := lowerClassPartSeed(*p, table, wrap)
 		if err != nil {
-			if wrap == nil && errors.Is(err, errFailingStageUnsupported) {
-				// wrap == nil here only in the cond-attr-branch thunk state (no b
-				// to hoist a temp+return into): give the caller-positioned,
-				// position-specific diagnostic instead of the generic
-				// filter-name message from lowerPipe.
-				return "", nil, &attrError{pos: p.Pos(), end: p.End(), code: "unsupported-component-attr", msg: "class pipelines with a failing stage in a conditional-attr branch on a component are not supported yet"}
-			}
 			msg := strings.TrimPrefix(err.Error(), "codegen: ")
 			return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unresolved-pipeline", msg: msg}
 		}
@@ -4080,14 +4072,8 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg st
 					if _, ok2 := tupleUnwrapType(tup); !ok2 {
 						return "", nil, &attrError{pos: p.Pos(), end: p.End(), code: "invalid-tuple", msg: fmt.Sprintf("class part %q returns %s; only (T, error) is supported", p.Expr, t)}
 					}
-					if b == nil || interpTemp == nil {
-						return "", nil, &attrError{pos: p.Pos(), end: p.End(), code: "unsupported-component-attr", msg: "tuple-returning class part in a conditional-attr branch not supported yet"}
-					}
-					expr = hoistTuple(b, expr, interpTemp)
+					expr = wrap(expr)
 				} else if ordered {
-					if b == nil || interpTemp == nil {
-						return "", nil, &attrError{pos: p.Pos(), end: p.End(), code: "unsupported-component-attr", msg: "ordered class part in a conditional-attr branch not supported yet"}
-					}
 					tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
 					*interpTemp++
 					fmt.Fprintf(b, "\t\t%s := %s\n", tmp, expr)
@@ -4097,14 +4083,11 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg st
 			parts = append(parts, fmt.Sprintf("%s.Class(%s)", rtPkg, expr))
 		} else {
 			if !probeWrap && ordered {
-				if b == nil || interpTemp == nil {
-					return "", nil, &attrError{pos: p.Pos(), end: p.End(), code: "unsupported-component-attr", msg: "ordered class part in a conditional-attr branch not supported yet"}
-				}
 				if t, isTuple := resolved[p].(*types.Tuple); isTuple {
 					if _, ok := tupleUnwrapType(t); !ok {
 						return "", nil, &attrError{pos: p.Pos(), end: p.End(), code: "invalid-tuple", msg: fmt.Sprintf("class part %q returns %s; only (T, error) is supported", p.Expr, t)}
 					}
-					expr = hoistTuple(b, expr, interpTemp)
+					expr = wrap(expr)
 				} else {
 					tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
 					*interpTemp++
@@ -4168,7 +4151,7 @@ func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table f
 		if !probeWrap {
 			wrap = thunkPipeWrap(&tb, interpTemp)
 		}
-		lit, used, err := condBranchAttrs(&tb, interpTemp, wrap, attrs, rtPkg, tag, mergeExpr, table, resolved)
+		lit, used, err := condBranchAttrs(&tb, interpTemp, wrap, probeWrap, attrs, rtPkg, tag, mergeExpr, table, resolved)
 		if err != nil {
 			return "", nil, err
 		}
@@ -4203,17 +4186,23 @@ func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table f
 // ExprAttr path lowers every pipeline through it, hoisting (emit) or unwrapping
 // (probe) any error-returning stage, final or not (lowerPipe only wraps
 // non-final stages, so a final error stage is wrapped again here explicitly).
+// The same wrap also hoists a PLAIN (no-pipeline) ExprAttr value once resolved
+// confirms it is a (T, error) tuple call — mirroring childPropsLiteral's
+// element-level ExprAttr handling, just gated on resolved/wrap instead of the
+// later hoist-all-when-any pass (a branch's bag literal is built inline here,
+// with no later pass to defer to).
 // b/interpTemp are the THUNK-LOCAL buffer/counter from condAttrsExpr, so a
 // hoist lands inside the enclosing thunk body, not the caller's statement
-// stream.
+// stream. probeWrap distinguishes skeleton (resolved is nil; any CALL expr is
+// unconditionally _gsxunwrap'd, generic over arity) from real emit (resolved
+// gates the hoist).
 //
-// The composable-class part of a branch is a narrower case: classEntryExpr's
-// own CF/tuple/ordered rejections key off b == nil, so this always calls it
-// with b=nil, interpTemp=nil, resolved=nil regardless of what this function
-// received — those parts stay rejected with the pre-existing diagnostic until a
-// later task populates resolved for cond-attr branches and lifts the
-// restriction (SCOPE: not this task).
-func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table filterTable, resolved map[ast.Node]types.Type) (string, map[string]string, error) {
+// The composable-class part of a branch reuses classEntryExpr exactly like
+// the element-level path (childPropsLiteral): the same thunk-local b/
+// interpTemp/resolved and the same wrap are threaded through, so CF (if/
+// switch), plain-tuple, and ordered class parts inside a branch hoist their
+// errors into the enclosing thunk precisely like the non-branch case.
+func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string, probeWrap bool, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table filterTable, resolved map[ast.Node]types.Type) (string, map[string]string, error) {
 	var entries []string
 	usedPkgs := map[string]string{}
 	for _, a := range attrs {
@@ -4237,6 +4226,22 @@ func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string,
 					lowered = wrap(lowered)
 				}
 				val = lowered
+			} else if probeWrap {
+				// Plain tuple-returning call, no pipeline: mirror childPropsLiteral's
+				// ExprAttr handling — the skeleton unconditionally wraps any CALL
+				// expr with _gsxunwrap(...) (generic over T vs (T, error), no type
+				// info needed) so the probe compiles regardless of the callee's
+				// return arity.
+				if isCallExpr(val) {
+					val = fmt.Sprintf("_gsxunwrap(%s)", val)
+				}
+			} else if tup, isTuple := resolved[t].(*types.Tuple); isTuple {
+				// Emit mode: resolved says the plain call actually returns
+				// (T, error); hoist it the same way a pipeline's final stage would.
+				if _, ok := tupleUnwrapType(tup); !ok {
+					return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "invalid-tuple", msg: fmt.Sprintf("attribute %q value %q returns %s; only (T, error) is supported", t.Name, t.Expr, tup)}
+				}
+				val = wrap(val)
 			}
 			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), val))
 		case *ast.BoolAttr:
@@ -4246,10 +4251,7 @@ func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string,
 				msg := fmt.Sprintf("%s attribute in a conditional branch (<%s>) not supported yet", t.Name, tag)
 				return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
-			// SCOPE: always b=nil, interpTemp=nil, resolved=nil here — see the
-			// doc comment above. CF/tuple/ordered class parts inside a branch
-			// stay unsupported until a later task lifts the restriction.
-			entry, used, eerr := classEntryExpr(nil, nil, t, rtPkg, mergeExpr, table, nil, false)
+			entry, used, eerr := classEntryExpr(b, interpTemp, t, rtPkg, mergeExpr, table, resolved, probeWrap, wrap)
 			if eerr != nil {
 				return "", nil, eerr
 			}

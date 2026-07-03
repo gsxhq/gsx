@@ -304,7 +304,12 @@ pipeerr/attr_mid_stage	diag gen render
 pipeerr/child_prop_mid_stage	diag gen render
 pipeerr/class_cf_arm_mid_stage	diag gen render
 pipeerr/class_part_mid_stage	diag gen render
-pipeerr/cond_attr_branch_class_pipe_rejected	diag render
+pipeerr/cond_attr_branch_attr_tuple	diag gen render
+pipeerr/cond_attr_branch_cf_arm	diag gen render
+pipeerr/cond_attr_branch_class_pipe	diag gen render
+pipeerr/cond_attr_branch_class_pipe_noerr	diag gen render
+pipeerr/cond_attr_branch_class_tuple	diag gen render
+pipeerr/cond_attr_branch_else_pipe	diag gen render
 pipeerr/cond_attr_branch_mid_stage	diag gen render
 pipeerr/cond_attr_branch_untaken	diag gen render
 pipeerr/ctx_err_filter	diag gen render
@@ -448,4 +453,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 450 cases (render: 357, error: 71, gen-pinned: 199)
+TOTAL: 455 cases (render: 362, error: 71, gen-pinned: 205)

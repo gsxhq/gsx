@@ -238,15 +238,15 @@ git add internal/codegen && git commit -m "feat(codegen): type-harvest probes fo
 - Consumes: Task 1's `thunkPipeWrap` + thunk-local buffer plumbing; Task 2's `resolved` entries for branch nodes.
 - Produces: no new API — branch class parts lower exactly like element-level class parts.
 
-- [ ] **Step 1: Flip the rejected case (failing corpus case first)**
+- [x] **Step 1: Flip the rejected case (failing corpus case first)**
 
 `git mv internal/corpus/testdata/cases/pipeerr/cond_attr_branch_class_pipe_rejected.txtar internal/corpus/testdata/cases/pipeerr/cond_attr_branch_class_pipe.txtar`, rewrite its header comment (now pins the WORKING lowering: hoists inside the `(Attrs, error)` thunk), empty its `diagnostics.golden`, set `render.golden` to `<div class="a">Hi</div>` (invoke stays `Csv: "a,b"` — `parse` → `["a","b"]`, `pick(0)` → `"a"`). Run `go test ./internal/corpus -run 'TestCorpus/pipeerr/cond_attr_branch_class_pipe' ` → FAIL (still rejected) = RED.
 
-- [ ] **Step 2: Wire the class path through**
+- [x] **Step 2: Wire the class path through**
 
 In `condBranchAttrs`' `*ast.ClassAttr` case: pass the thunk-local `b`, `interpTemp`, `resolved`, and `thunkPipeWrap(b, interpTemp)` into `classEntryExpr` (emit mode) instead of `nil`s. In `classEntryExpr`: delete the three branch-mode (`b == nil`) attrError edges — with a real `b` they're unreachable; simplify accordingly (the `b == nil` state disappears entirely — assert/panic-free: make `b` required and remove the nil checks). Delete the emit.go:4041 `errors.Is` message-rewording block. CF arms and ordered parts inside branches now use the same `hoistValueCF`/ordered-hoist machinery with the thunk-local buffer — their `return` statements must be the two-value form: audit every `hoistTuple` call reachable from branch context and route it through `hoistTupleReturning(…, "return nil, _gsxerr")` (thread the errReturn choice, or the wrap, from `condBranchAttrs` — mirror how Task 1 did it for ExprAttrs).
 
-- [ ] **Step 3: Add the remaining matrix cases**
+- [x] **Step 3: Add the remaining matrix cases**
 
 Under `internal/corpus/testdata/cases/pipeerr/` (each mirroring `cond_attr_branch_mid_stage.txtar`'s syntax + a case-local `filters/filters.go`; add a package-level `func cls(v string) (string, error) { return "c-" + v, nil }` helper in `helpers.go` where a direct tuple call is needed):
 
@@ -256,12 +256,12 @@ Under `internal/corpus/testdata/cases/pipeerr/` (each mirroring `cond_attr_branc
 - `cond_attr_branch_else_pipe.txtar` — else-branch carries the error pipe; invoke with cond FALSE → else evaluates, renders; a second invoke-variant case is unnecessary (laziness of the untaken THEN branch is the existing untaken case's job)
 - `cond_attr_branch_cf_arm.txtar` — `class={ if ok { csv |> parse |> pick(0) } else { "z" } }` inside a component cond-attr branch (value-form CF arm; previously "not supported yet")
 
-- [ ] **Step 4: Regenerate, inspect, verify**
+- [x] **Step 4: Regenerate, inspect, verify**
 
 Run: `go test ./internal/corpus -run TestCorpus -update && go test ./internal/corpus -run TestCorpus && go test ./internal/codegen -count=1`
 Expected: PASS. Inspect each new golden: hoists inside the thunk with `return nil, _gsxerr`; CF-arm hoists inside their if/case blocks inside the thunk; call-site `_gsxvN, _gsxerr := gsx.AttrsCond(...)` unwrap. `git diff --stat` scope: only `pipeerr/` + `coverage.golden` + emit.go (+ analyze.go only if Step 2 revealed a probe gap — if so, say so in the report).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A && git commit -m "feat(codegen): (R, error) class parts and tuples inside cond-attr branches"
