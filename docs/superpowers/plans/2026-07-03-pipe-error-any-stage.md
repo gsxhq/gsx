@@ -600,7 +600,7 @@ Note: lifting the three pre-existing "not supported yet" cond-attr edges via thi
 
 **Interfaces:** consumes everything above; produces no new API.
 
-- [ ] **Step 1: Generic filter cases**
+- [x] **Step 1: Generic filter cases**
 
 Shared `-- filters/filters.go --` for these cases:
 
@@ -646,7 +646,7 @@ var _ = fmt.Sprintf
 - `generic_final_stage.txtar` — `{ csv |> parse |> first }` → `a`.
 - `ctx_err_filter.txtar` — `func Who(ctx context.Context, s string) (string, error)` appending `"!"`; `{ name |> who }` → pins `wantsCtx` + `hasErr` together (ctx arg injected before the subject, tuple unwrapped).
 
-- [ ] **Step 2: Halt-semantics case (later stages never run)**
+- [x] **Step 2: Halt-semantics case (later stages never run)**
 
 `halt_on_error.txtar` — filters:
 
@@ -660,13 +660,14 @@ func Detonate(s string) string { panic("detonate: stage ran after error") }
 
 `{ name |> fail |> detonate }`; render.golden pins `[render error] fail: boom`. If codegen ever evaluated later stages after an error, the batch `go run` would panic and the whole corpus run fails loudly.
 
-- [ ] **Step 3: Negative / diagnostics cases**
+- [x] **Step 3: Negative / diagnostics cases**
 
-- `js_attr_still_rejected.txtar` — an error filter piped in a JS attr position; pins that the existing pipeline rejection message is unchanged (copy the shape of `cases/pipelines/attr_js_rejected.txtar`).
-- `try_marker_still_rejected.txtar` — `{ csv |> parse? |> join(" ") }` with a REAL error filter; pins the existing `?` diagnostic text.
-- If Task 5 left any nil-wrap position, add one case per remaining position pinning the friendly `returns (R, error); a failing stage is not supported in this position` diagnostic.
+- `js_attr_still_rejected.txtar` — an error filter piped in a JS attr position; pins that the existing pipeline rejection message is unchanged (copy the shape of `cases/pipelines/attr_js_rejected.txtar`). ACTUAL outcome: renders cleanly (no rejection) — post-JS-unlock, a plain `onclick={…}` ExprAttr has no special JS-context routing (only the explicit `js\`…\`` literal form does), so it goes through the same already-shipped `emitPipeWrap` ExprAttr path as `attr_mid_stage.txtar`. Pinned as such; the filename is a historical label, not a live rejection.
+- `try_marker_still_rejected.txtar` — `{ csv |> parse? |> join(" ") }` with a REAL error filter; pins the existing `?` diagnostic text (fires at parse time, before filter resolution, so identical regardless of the named filter's error-ness).
+- If Task 5 left any nil-wrap position, add one case per remaining position pinning the friendly `returns (R, error); a failing stage is not supported in this position` diagnostic. None added: the one remaining nil-wrap position (a component cond-attr branch pipeline with NO error-returning stage) is pre-existing, out of this feature's matrix per controller guidance.
+- Extra case requested by the Task 5 review, `cond_attr_branch_combined.txtar` (component cond-attr branch with BOTH an error-stage pipe `data-pick={ csv |> parse |> pick(0) }` AND a composable `class={ cls(csv) }` where `cls` is a local `(string, error)` helper): NOT pinned. It surfaces a raw Go compiler diagnostic leaking through as corpus "diagnostics" (`8:279: too many arguments in call to _gsxrt.Class \n\thave (string, error)\n\twant (string)`) instead of either a clean render or a friendly positioned gsx diagnostic — see task-6-report.md for the full repro and root-cause analysis. Left OUT of this commit per instructions (raw compile-error noise is not a valid pin); flagged as DONE_WITH_CONCERNS for the controller.
 
-- [ ] **Step 4: Regenerate, verify, full suite, commit**
+- [x] **Step 4: Regenerate, verify, full suite, commit**
 
 Run: `go test ./internal/corpus -run TestCorpus -update && go test ./internal/corpus && make check`
 Expected: PASS.

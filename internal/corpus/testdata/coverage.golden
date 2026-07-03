@@ -306,11 +306,17 @@ pipeerr/class_cf_arm_mid_stage	diag gen render
 pipeerr/class_part_mid_stage	diag gen render
 pipeerr/cond_attr_branch_mid_stage	diag gen render
 pipeerr/cond_attr_branch_untaken	diag gen render
+pipeerr/ctx_err_filter	diag gen render
 pipeerr/final_stage_custom_filter	diag render
+pipeerr/generic_final_stage	diag gen render
+pipeerr/generic_mid_stage	diag gen render
+pipeerr/halt_on_error	diag gen render
+pipeerr/js_attr_still_rejected	diag gen render
 pipeerr/ordered_attrs_mid_stage	diag gen render
 pipeerr/style_mid_stage	diag gen render
 pipeerr/text_mid_stage	diag gen render
 pipeerr/text_mid_stage_error	diag gen render
+pipeerr/try_marker_still_rejected	diag(error)
 pipelines/arity_mismatch	diag(error)
 pipelines/attr_escaped	diag render
 pipelines/attr_js_rejected	diag gen render
@@ -441,4 +447,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 443 cases (render: 351, error: 70, gen-pinned: 193)
+TOTAL: 449 cases (render: 356, error: 71, gen-pinned: 198)

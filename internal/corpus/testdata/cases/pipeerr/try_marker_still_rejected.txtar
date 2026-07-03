@@ -1,0 +1,30 @@
+# Same `?` try-marker rejection as pipelines/try_rejected.txtar, but with a
+# REAL error-returning filter (parse) instead of an inert one (upper). The `?`
+# diagnostic fires at PARSE time, before any filter is resolved, so the
+# message is identical regardless of whether the named filter actually returns
+# (R, error).
+-- gsx.toml --
+filterPackages = ["./filters"]
+-- filters/filters.go --
+package filters
+
+import (
+	"errors"
+	"strings"
+)
+
+// Parse splits a comma-separated list; fails on empty input.
+func Parse(s string) ([]string, error) {
+	if s == "" {
+		return nil, errors.New("parse: empty input")
+	}
+	return strings.Split(s, ","), nil
+}
+-- input.gsx --
+package views
+
+component Tags(csv string) {
+	<p>{ csv |> parse? |> join(" ") }</p>
+}
+-- diagnostics.golden --
+4:5: the `?` try-marker is not supported; gsx auto-unwraps (T, error) values — remove the `?` (handle the error explicitly with `{ if v, err := f(); err != nil { … } }`)
