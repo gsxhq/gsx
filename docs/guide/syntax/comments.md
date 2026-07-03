@@ -54,6 +54,14 @@ a comment-only `{ }` is unambiguous — and the formatter canonicalises them to 
 bare spelling. The same comments are allowed inside a `{ if COND { … } }`
 conditional-attribute block.
 
+::: tip Line comments break the tag (and its children)
+A `//` line comment can't share a flat line with the closing `>`, so it forces
+the opening tag to wrap — and because a tag and its body break together, the
+element's children reflow onto their own lines too (a `{ if … }` conditional
+attribute does the same). Use a `/* … */` block comment to annotate a tag while
+keeping everything inline.
+:::
+
 ## Content comments `{/* … */}` (source-only)
 
 Between child nodes, a `{/* … */}` block is a **content comment** — the parser
