@@ -163,7 +163,7 @@ git add -A && git commit -m "feat(runtime,codegen): AttrsCond thunks return (Att
 - Consumes: Task 1's `condAttrsExpr` probe form (skeleton embeds `_gsxunwrap(gsx.AttrsCond(...))`).
 - Produces: `resolved[node]` populated for, inside COMPONENT cond-attr branches: `*ast.ExprAttr` values, plain `*ast.ClassPart`s, and `*ast.ValueArm`s — same node classes the non-branch positions already harvest. Task 3 consumes `resolved` for tuple detection.
 
-- [ ] **Step 1: Write the failing harvest test**
+- [x] **Step 1: Write the failing harvest test**
 
 In `analyze_test.go`, following the existing skeleton/analyze test harness pattern (grep `TestSkeletonProbeMidStageErrFilter` for the Task-3-era harness; reuse its fixture builder):
 
@@ -205,22 +205,22 @@ component Page(hot bool, csv string) {
 
 (Adapt the fixture/harness invocation to what `analyze_test.go` actually exposes — the assertion contract is what matters: tuple-typed `resolved` entries exist for both node classes in a component cond-attr branch.)
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `go test ./internal/codegen -run TestResolveCondAttrBranchParts -v`
 Expected: FAIL — no tuple entries for branch nodes (positions not probed). NOTE: if the skeleton currently fails to TYPE-CHECK on this fixture (the plain tuple class part is the known pre-existing leak), the harness may surface a diagnostic instead — that's still RED; record which.
 
-- [ ] **Step 3: Extend collection + probes in matched order**
+- [x] **Step 3: Extend collection + probes in matched order**
 
 In `collectExprs`'s component-tag case (analyze.go:2042-2066): after the existing ExprAttr → OrderedPair → parts passes, walk `*gsxast.CondAttr` attrs (Then, then Else) collecting, per branch, ExprAttrs first, then class-attr plain parts and CF arms — document the ordering in the same comment style as the surrounding passes. In `emitProbes`' matching component branch: emit `_gsxuseq(...)` probes for exactly those nodes in exactly that order (probe expressions use the same probe lowering as their non-branch counterparts: `probeExpr`/`probePipeWrap` for pipes, `_gsxunwrap`-tolerance where the neighboring class-part probes use it — READ the adjacent probe emission for parts and mirror it). Skeleton probes are top-level statements — the skeleton is compile-only, so probing branch expressions unconditionally is safe (no evaluation ever happens); note this in a comment. Check `walkLivenessAttrExprs`' CondAttr case (analyze.go:2236+): if it already liveness-refs the same exprs, ensure no "declared and not used"/duplicate-probe conflict (duplicates of `_ = (x)` alongside `_gsxuseq(x)` are harmless for single-value exprs but `_ = (tuple)` is illegal for multi-value — mirror the existing skip logic at analyze.go:2219-2223 if it applies).
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `go test ./internal/codegen -run 'TestResolveCondAttrBranchParts|TestSkeleton' -v` → PASS.
 Then zero-regression: `go test ./internal/codegen -count=1 && go test ./internal/corpus -run TestCorpus`
 Expected: PASS with **zero golden changes** (probes change the skeleton, not emitted code; `resolved` gains entries nobody consumes yet). If any golden changes, the collection order broke k-th alignment for EXISTING probes — fix before proceeding.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/codegen && git commit -m "feat(codegen): type-harvest probes for component cond-attr branch positions"
