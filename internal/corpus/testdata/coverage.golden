@@ -311,7 +311,7 @@ pipeerr/final_stage_custom_filter	diag render
 pipeerr/generic_final_stage	diag gen render
 pipeerr/generic_mid_stage	diag gen render
 pipeerr/halt_on_error	diag gen render
-pipeerr/js_attr_still_rejected	diag gen render
+pipeerr/js_attr_error_stage	diag gen render
 pipeerr/ordered_attrs_mid_stage	diag gen render
 pipeerr/style_mid_stage	diag gen render
 pipeerr/text_mid_stage	diag gen render

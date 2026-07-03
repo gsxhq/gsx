@@ -34,7 +34,7 @@ import (
 	"context"
 	"io"
 
-	_gsxf0 "corpustest/cases/pipeerr_js_attr_still_rejected/filters"
+	_gsxf0 "corpustest/cases/pipeerr_js_attr_error_stage/filters"
 	"github.com/gsxhq/gsx"
 )
 
