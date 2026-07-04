@@ -115,33 +115,54 @@ it lowers to `f(<assembled string>)`, where the assembled string is built once v
 helper (still one alloc, vs `Sprintf`'s several) and then flows through the normal filtered
 attr-value emit. Per-hole pipelines never materialize the whole value.
 
-## URL-context safety (faithful `html/template` port)
+## URL-context safety (scheme-integrity, gsx-consistent)
 
 Plain attribute-escaping is **not** safe for URL attributes: `` href=`@{u}` `` with
 `u = "javascript:…"` would pass through as a live XSS, because attr-escaping does not stop a
-dangerous scheme. We adopt **Option A — do it right**, faithful to `html/template` (never an
-approximation, per project rule), building on the prior
-[`2026-07-02-url-hardening-refresh-base-design.md`](./2026-07-02-url-hardening-refresh-base-design.md).
+dangerous scheme.
+
+**Correction to the earlier framing:** gsx's URL model is deliberately **scheme-sanitize +
+HTML-entity-escape only** — `_gsxgw.URL` = `urlSanitize` (scheme allow-list →
+`about:invalid#gsx`) then `writeHTML`. There is **no percent-encoder**, and
+[`2026-07-02-url-hardening-refresh-base-design.md`](./2026-07-02-url-hardening-refresh-base-design.md)
+explicitly lists "no `urlPart` sub-context state, no per-region escaper" as an *intentional*
+non-goal. A "faithful `html/template` port" with a percent-encoding `URLPart` helper would
+**contradict that deliberate decision**. So we stay gsx-consistent: no percent-encoding, no new
+escaper. The only thing we must protect is **scheme integrity**, and the scheme can straddle the
+static/dynamic seam.
+
+**The analysis is entirely compile-time** (codegen scans the literal's known static prefix);
+what's emitted per hole is a plain `_gsxgw.URL(…)` or `_gsxgw.AttrValue(…)` call — **identical
+runtime cost to today's `href={expr}`.** No runtime region detection, no state machine.
 
 For URL-context attrs (`href`, `src`, `action`, `formaction`, `poster`, … via the existing
-`internal/attrclass` `Classifier`), port `html/template`'s **URL sub-context state**
-(`urlPart`: none → pre-query → query/fragment). Because a backtick literal exposes its static
-prefix to codegen, we compute each hole's `urlPart` by scanning the **known static prefix**
-before it, then pick the matching escaper:
+`internal/attrclass` `Classifier` — `Context(name) == CtxURL`, respecting `gsx.RawURL`
+bypass), each hole is **regioned by scanning the static prefix before it**:
 
-| Hole position (`urlPart`) | Escaper | Rationale |
+| Hole region (determined at codegen) | Emitted call | Why safe |
 |---|---|---|
-| start of value (pre-scheme) | scheme-sanitize — existing `_gsxgw.URL` semantics | reject `javascript:` etc. |
-| within path / pre-query | normalize (percent-escape unsafe, preserve structure) | faithful to `urlNormalizer` |
-| within query / fragment | percent-escape | faithful to `urlEscaper` |
+| **pre-scheme** — no `/`, `?`, `#`, or static `scheme:` before the hole | `_gsxgw.URL(…)` (scheme-sanitize) | the hole itself carries/determines the scheme; sanitizer rejects `javascript:` etc. (`` href=`@{base}/x` ``) |
+| **post-scheme** — a `/`, `?`, `#`, or static `scheme:` appears in the static prefix | `_gsxgw.AttrValue(…)` (entity-escape) | scheme already committed by static text; matches how gsx treats URL parts today (`` href=`/u/@{id}` ``) |
 
-- Adds one runtime helper — **`_gsxgw.URLPart`** *(DECISION — name; faithful port of
-  `html/template`'s `urlNormalizer`/`urlEscaper`)*.
-- Pinned by a **byte-for-byte diff test** against `html/template` (same discipline as the
-  existing JS-escaper `js_diff_test.go`).
-- `srcset` and meta-refresh `content` are already special-cased (`RefreshContent`, the
-  url-hardening work); confirm they interoperate or are correctly excluded. CSS `url()` in a
-  `style` attribute stays a CSS context (use `` css`…` ``), out of scope here.
+**Seam guard (compile error):** a **pre-scheme hole immediately followed by a static `:`**
+(e.g. `` href=`@{x}://y` ``) is rejected at codegen with a clear diagnostic — the scheme would
+be forged from `hole + static ":"`, which per-segment sanitizing cannot catch. Directs the user
+to `href={ url }` (single expression → whole-value scheme-sanitized). This is the only unsafe
+gap, and it's closed by refusing to compile, never by a runtime check. Rare and precise.
+
+Non-URL attrs are unaffected (holes always entity-escape). `srcset` / meta-refresh `content`
+keep their existing special-casing (`RefreshContent`); confirm interop or correct exclusion.
+CSS `url()` inside a `style` attribute stays a CSS context (use `` css`…` ``), out of scope.
+
+### Fuzzing the scheme-integrity invariant
+
+Because this is security-critical, add a **fuzz target** (alongside the existing codegen fuzz
+harness) asserting the property: *for any static-prefix shape and any hole values, a rendered
+URL-context backtick literal never yields a dangerous effective scheme.* The fuzzer generates
+literal templates (random static segments + hole positions) and hole values (including
+`javascript:`, `data:`, `vbscript:`, whitespace/control-char obfuscations, seam attempts),
+compiles+renders, and fails if the output attribute resolves to a blocked scheme that isn't
+`about:invalid#gsx`. Seam-shaped inputs must be rejected at compile time (no output to check).
 
 ## class / style composable attributes
 
@@ -173,7 +194,9 @@ Per project convention, **every context ships a corpus case** (`input.gsx` +
 `generated.x.go.golden` + `render.golden`) under `internal/corpus/testdata/cases/`:
 
 - plain attr (string + int holes)
-- URL attr: href **start** hole · href **mid-path** hole · href **query** hole
+- URL attr: **pre-scheme** hole (`` href=`@{base}/x` `` → `_gsxgw.URL`) · **post-scheme**
+  path hole (`` href=`/u/@{id}` `` → `AttrValue`) · post-scheme query hole
+- URL **seam** rejected at compile time (`` href=`@{x}://y` `` → diagnostic)
 - class attr (merge interaction) · style attr
 - per-hole pipeline · whole-literal pipeline
 - escaping: `\@{` · `` \` ``
@@ -182,9 +205,10 @@ Per project convention, **every context ships a corpus case** (`input.gsx` +
 
 Plus:
 
-- **Runtime unit:** `URLPart` byte-for-byte diff vs `html/template`; whole-literal materialize
-  helper.
+- **Fuzz (security-critical):** scheme-integrity invariant for URL-context literals (see
+  the fuzzing subsection above) — no hole-value combination yields a dangerous effective scheme.
 - **Parser unit:** dispatch, `\@{` unescape (including js/css inheriting it).
+- **Codegen unit:** URL region classification (pre/post-scheme) + seam-rejection diagnostic.
 - **LSP:** nav-matrix additions.
 - **Formatter:** idempotence.
 
@@ -206,4 +230,7 @@ Tracked as post-merge tasks; not blocking the core:
 
 1. `EmbeddedText` as the lang name.
 2. Include the braced `` {`…`} `` form (recommended: yes).
-3. `_gsxgw.URLPart` helper name.
+
+*(Resolved during planning: URL handling stays gsx-consistent — scheme-sanitize +
+entity-escape, no `URLPart` percent-encoder; region-aware pre/post-scheme routing with a
+compile-time seam guard; fuzzed. See the URL-context section.)*
