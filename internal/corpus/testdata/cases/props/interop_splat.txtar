@@ -1,0 +1,39 @@
+# COVERAGE: a whole-struct splat `{ p... }` on a NON-byo interop component whose
+# func + Props struct live in a hand-written .go file (resolved via the XxxProps
+# convention, NOT as a gsx component's sole param). The interop Props type has no
+# `Attrs gsx.Attrs` bag, so the spread is the whole prop value → Picker(p), NOT a
+# broken `PickerProps{Attrs: …}` merge. Enumerating the interop Props struct (so
+# gsx learns it has no Attrs bag) is what disambiguates splat from attrs-merge.
+-- picker.go --
+package views
+
+import (
+	"context"
+	"io"
+
+	"github.com/gsxhq/gsx"
+)
+
+type PickerProps struct {
+	Name  string
+	Label string
+}
+
+func Picker(p PickerProps) gsx.Node {
+	return gsx.Func(func(ctx context.Context, w io.Writer) error {
+		_, err := io.WriteString(w, "<span>"+p.Label+":"+p.Name+"</span>")
+		return err
+	})
+}
+-- input.gsx --
+package views
+
+component Page() {
+	{{ p := PickerProps{Name: "status", Label: "Status"} }}
+	<Picker { p... }/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<span>Status:status</span>

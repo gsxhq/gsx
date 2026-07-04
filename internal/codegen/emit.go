@@ -3689,13 +3689,23 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 	// is explicit — spec §6).
 	byoStr, isByoChild := byo.isByoStruct(propsType)
 
-	// Whole-struct splat (byo only): `<Card { d... }/>` → `Card(d)`.
-	// A SpreadAttr on a byo component is the whole-prop splat, not an Attrs merge.
-	// Must be all-or-nothing: the sole attr, no children. Error otherwise.
-	if isByoChild {
+	// Whole-struct splat: `<Card { d... }/>` → `Card(d)`. A SpreadAttr passes the
+	// whole prop value, NOT an Attrs merge, when the target component has no
+	// fallthrough `Attrs gsx.Attrs` bag to merge into. Two cases qualify:
+	//   - byo components (isByoChild): the author struct is the prop value, and the
+	//     Attrs bag — if any — is filled by unmatched NAMED attrs, never by a spread.
+	//   - non-byo components whose enumerated Props type has NO Attrs bag field
+	//     (templ-interop / convention structs like CheckboxPopupSelectProps, and
+	//     generated components that never reference `attrs`). Emitting an Attrs
+	//     merge there produces `Props{Attrs: …}` against a struct with no Attrs
+	//     field — a hard compile error. `{ f... }` is unambiguously the prop value.
+	// A component WITH an Attrs bag keeps the spread as an attrs-merge (it may even
+	// mix with field attrs, e.g. `<Card title="Hi" { extra... }/>`), so this branch
+	// is skipped for it. Must be all-or-nothing: the sole attr, no children.
+	if isByoChild || (isKnownPropsType(propFields, propsType) && !hasAttrsBag(propFields, propsType, byoStr)) {
 		for _, a := range el.Attrs {
 			if s, ok := a.(*ast.SpreadAttr); ok {
-				// Found a splat on a byo component. Validate all-or-nothing.
+				// Found a splat on a bag-less component. Validate all-or-nothing.
 				if len(el.Attrs) != 1 || len(el.Children) > 0 {
 					msg := fmt.Sprintf("{ x... } splat on <%s> passes the whole prop value; remove the other attrs or children", el.Tag)
 					return nil, "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "byo-splat-mixed", msg: msg}
