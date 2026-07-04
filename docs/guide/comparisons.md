@@ -4,9 +4,21 @@ gsx sits between Go template engines and JSX-like markup systems: templates stay
 
 ## gsx and templ
 
-Both gsx and templ compile components to Go values with `Render(ctx, w) error`. gsx differs in surface syntax: component declarations are templ-style, while the body is JSX-style markup. This makes HTML-like structure easier to scan while keeping structural compatibility with `templ.Component`.
+Both gsx and templ compile components to Go values with `Render(ctx, w) error`. A `gsx.Node` has the identical method set to `templ.Component`, so it is accepted anywhere a `templ.Component` is expected — gsx interoperates with the templ/HTMX ecosystem without importing templ.
 
-Use gsx when you want JSX-like authoring inside Go projects. Use templ directly when you prefer templ's existing syntax or ecosystem.
+The difference is a deliberate tradeoff. templ keeps a simple, explicit compiler model with syntax close to Go. gsx spends more in the toolchain — it analyzes real Go types with `go/packages` and `go/types` — to make the authoring experience more HTML-like and to push more checks to compile time.
+
+That extra analysis buys ergonomics that are hard to retrofit onto a simpler model:
+
+- **HTML-style component calls** — `<Card title="…"/>` reads like markup, and capitalization alone decides component-vs-element.
+- **Named props checked by Go** — attributes map to struct fields, so a wrong prop name or type is a compile error with a real source location, not a runtime surprise.
+- **Context-aware escaping** across text, attribute, URL, CSS, and JavaScript positions, decided at codegen.
+- **Class and attribute merging** as structured values rather than string concatenation.
+- **Explicit JavaScript-valued attributes** and automatic JSON interpolation for data islands and attributes like `hx-vals`.
+
+Many of these are long-standing requests on templ itself — HTML-style authoring, inline components, passing Go data to JavaScript, JSON helpers, class ergonomics — which are difficult to add incrementally to a model optimised for simplicity. gsx starts from a design where they compose. For the full reasoning, see [Why I built gsx](https://jackieli.dev/posts/why-i-built-gsx/).
+
+Use gsx when you want JSX-like authoring and richer compile-time ergonomics inside Go. Use templ when you prefer its simpler compiler model and established ecosystem.
 
 ## gsx and html/template
 
