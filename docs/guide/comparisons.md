@@ -32,12 +32,6 @@ JSX makes markup part of JavaScript. gsx borrows the readable tag structure, but
 
 Use client-side JSX for interactive browser applications. Use gsx for server-rendered Go components, optionally with JavaScript islands.
 
-## gsx and Jinja-style templates
-
-Jinja-style templates provide a compact template language with filters, blocks, and inheritance. gsx instead leans on Go for data, functions, imports, and control flow, with pipelines for common formatting.
-
-Use Jinja-style templates when a dynamic template language is the product requirement. Use gsx when compile-time checking and Go-native component composition matter more.
-
 ## Interop
 
 See [Interop](./syntax/interop) for examples that compose gsx with templ, `html/template`, and client-side islands.
