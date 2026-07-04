@@ -1,0 +1,209 @@
+# Interpolating attribute-value literals (`` name=`…@{ expr }…` ``)
+
+**Status:** design / awaiting review
+**Date:** 2026-07-04
+**Branch:** `worktree-attr-interp-literal`
+
+## Motivation
+
+gsx's actual interpolation rule is *"you interleave static text with typed, auto-escaped
+holes in text-bearing positions."* That rule holds **everywhere except one place**:
+
+| Position | Interleave static + holes? | Hole syntax |
+|---|---|---|
+| Element body | ✅ `<div>item-{id}-{n}</div>` | `{ }` |
+| `<script>` raw text | ✅ | `@{ }` |
+| `<style>` raw text | ✅ | `@{ }` |
+| `` js`…` `` / `` css`…` `` attr | ✅ | `@{ }` |
+| **plain attribute value** | ❌ single `{ expr }` or fully static | — |
+
+A user who writes `<div>item-{id}-{n}</div>` and reaches for the "same thing" in
+`class="item-{id}-{n}"` hits a wall for no reason they can perceive. This feature
+**removes that arbitrary exception** so the one rule becomes true without asterisks.
+
+This is a language-completeness change, not a performance feature. Two consequences fall
+out for free:
+
+1. **Correctness.** Today's workaround is `class={ fmt.Sprintf("btn %s %s", v, size) }` or
+   `+`-concatenation. `Sprintf` yields `%v` with *no context-aware escaping* and no
+   compile-time type-awareness; concatenation forces manual `strconv` and manual escaping
+   judgement. An interpolating literal escapes and formats **each hole by its type and
+   position** automatically — strictly safer than the workaround.
+2. **Zero allocation.** Because holes lower to direct, per-segment writer calls (numbers via
+   the reused scratch buffer, strings via the escaping writer), the intermediate `Sprintf`
+   string disappears. This resolves the class of unnecessary allocations raised in
+   [templ #1333](https://github.com/a-h/templ/issues/1333) — but it is a side effect of the
+   design, not its justification.
+
+If the uniformity/correctness argument did not hold on its own, we would not add the syntax.
+
+## Surface syntax
+
+A new **backtick string literal** usable in **attribute-value position only**, mirroring the
+two existing `` js`…` ``/`` css`…` `` surface forms:
+
+```gsx
+// direct RHS
+<span class=`btn btn-@{variant} @{size}`>…</span>
+<a href=`/user/@{id}/edit`>…</a>
+
+// braced ("as-expression" entry; takes a trailing pipeline)
+<span class={`btn-@{v}`}>…</span>
+```
+
+- **Holes are `@{ expr }`** — family-consistent with js/css, and reuses the existing
+  `parseEmbeddedSegments` scanner verbatim.
+- Existing forms are **unchanged**: `"…"` stays purely static; `{ expr }` stays a single
+  Go expression.
+- **Two independent pipeline levels**, both inherited from existing machinery:
+  - per-hole: `` @{ v |> upper } `` — filters the hole value, stays zero-alloc.
+  - whole-literal: `` `…` |> upper `` — materializes the assembled string, then filters
+    (you opt into the allocation by composing).
+
+### Scope boundaries (v1)
+
+- Valid **only** in attribute-value position. Not in body (`{ }` already covers it), not as a
+  general Go-expression-position literal.
+- No native `fmt`-verb form (`%.2f`). When you need verbs, use
+  `` @{ x |> format("%.2f") } `` (that hole allocates via `std.Format` — acknowledged).
+- JSON / JS-context attribute values keep using `` js`…` `` (already correct, already escapes).
+
+## AST & parser
+
+- New `ast.EmbeddedLang` value **`EmbeddedText`** *(DECISION — alternatives `EmbeddedPlain`,
+  `EmbeddedHTML`; `EmbeddedText` chosen: the value is plain text, HTML-attribute-escaped)*.
+  Reuses `ast.EmbeddedAttr` (`Name`, `Lang`, `Segments []Markup`) unchanged.
+- **Parser dispatch** (`parser/attrs.go`): add bare `` p.at("`") `` → `EmbeddedText` literal
+  and the braced `` {`…`} `` form, alongside the current `js`` / `css`` dispatch. Reuses
+  `parseEmbeddedAttrLiteral` + `parseEmbeddedSegments`; the scanner's terminal `switch`
+  already has a `default:` arm anticipating a third lang.
+- Holes are ordinary `*ast.Interp` (expr + optional per-hole `Stages`), produced by the same
+  `parseInterp` call — so brace-balancing inside the hole expression is already handled.
+
+### Escaping in the shared scanner
+
+Extend the existing backslash convention; do **not** introduce a second mechanism:
+
+- `` \` `` → literal backtick (already implemented via `embeddedBacktickEscaped`).
+- **New: `\@{` → literal `@{`.** Added to the shared scanner and to
+  `unescapeEmbeddedBackticks`, so `` js`` ``/`` css`` `` inherit the fix (they currently have
+  *no* way to write a literal `@{`).
+- `{{`-doubling is **rejected** as an escape — gsx already means ordered-attrs
+  (`OrderedAttrsAttr`) by `{{ }}` in attribute position; reusing doubling would misread.
+- `}` never needs escaping: only openers trigger; a bare `}` outside a hole is literal, and
+  inside a hole the Go-expression parser balances braces itself.
+
+## Codegen — type-aware, zero-alloc holes
+
+Each hole routes **exactly like the `id={expr}` path** (`emitAttrValue` in
+`internal/codegen/emit.go`):
+
+| Hole type | Writer call | Alloc |
+|---|---|---|
+| `string` / `[]byte` | `_gsxgw.AttrValue(string(x))` | escapes; no alloc if already string |
+| `int` / `uint` / `float` | `_gsxgw.IntInto/UintInto/FloatInto(_gsxnum[:], …)` | zero (reused scratch) |
+| `fmt.Stringer` | `_gsxgw.AttrValue((x).String())` | per `String()` |
+| mixed type-param | `_gsxgw.AttrAny(x)` | dynamic dispatch |
+
+Static segments are HTML-attribute-escaped **at codegen time**
+(`strconv.Quote(htmlAttrEscape(...))`) and merged into a single `_gsxgw.S("…")` run. The whole
+value is wrapped `_gsxgw.S(" name=\"")` … segments … `_gsxgw.S("\"")`. No intermediate string
+is ever built — the zero-alloc property is a direct consequence.
+
+The **whole-literal pipeline** (`` `…` |> f ``) is the one composition point that materializes:
+it lowers to `f(<assembled string>)`, where the assembled string is built once via a small
+helper (still one alloc, vs `Sprintf`'s several) and then flows through the normal filtered
+attr-value emit. Per-hole pipelines never materialize the whole value.
+
+## URL-context safety (faithful `html/template` port)
+
+Plain attribute-escaping is **not** safe for URL attributes: `` href=`@{u}` `` with
+`u = "javascript:…"` would pass through as a live XSS, because attr-escaping does not stop a
+dangerous scheme. We adopt **Option A — do it right**, faithful to `html/template` (never an
+approximation, per project rule), building on the prior
+[`2026-07-02-url-hardening-refresh-base-design.md`](./2026-07-02-url-hardening-refresh-base-design.md).
+
+For URL-context attrs (`href`, `src`, `action`, `formaction`, `poster`, … via the existing
+`internal/attrclass` `Classifier`), port `html/template`'s **URL sub-context state**
+(`urlPart`: none → pre-query → query/fragment). Because a backtick literal exposes its static
+prefix to codegen, we compute each hole's `urlPart` by scanning the **known static prefix**
+before it, then pick the matching escaper:
+
+| Hole position (`urlPart`) | Escaper | Rationale |
+|---|---|---|
+| start of value (pre-scheme) | scheme-sanitize — existing `_gsxgw.URL` semantics | reject `javascript:` etc. |
+| within path / pre-query | normalize (percent-escape unsafe, preserve structure) | faithful to `urlNormalizer` |
+| within query / fragment | percent-escape | faithful to `urlEscaper` |
+
+- Adds one runtime helper — **`_gsxgw.URLPart`** *(DECISION — name; faithful port of
+  `html/template`'s `urlNormalizer`/`urlEscaper`)*.
+- Pinned by a **byte-for-byte diff test** against `html/template` (same discipline as the
+  existing JS-escaper `js_diff_test.go`).
+- `srcset` and meta-refresh `content` are already special-cased (`RefreshContent`, the
+  url-hardening work); confirm they interoperate or are correctly excluded. CSS `url()` in a
+  `style` attribute stays a CSS context (use `` css`…` ``), out of scope here.
+
+## class / style composable attributes
+
+`` class=`btn @{v}` `` produces a class-**string value** that flows into the normal class-merge
+path (composes with a spread `class`, dedups, etc.) — the value-form analogue of
+`class="btn other"`, **not** a `{ if … }` class arm. `style` is analogous, routing through the
+existing style-value handling (`StyleValue`). No new class/style syntax; the literal is just a
+new way to *produce* the value.
+
+## LSP — go-to-definition & hover inside holes
+
+Holes are ordinary `*ast.Interp`, so they **inherit** the PR-#28 nav wiring for Go-fragment
+positions. Expected to be mostly free. Work:
+
+- Add the new position to the **LSP nav-matrix test**: hole identifier, per-hole pipeline stage
+  name, whole-literal pipeline stage name.
+- Confirm gd + hover resolve for each; if a gap surfaces, close it with the established
+  two-bridge recipe (see `gsx-lsp-nav-matrix` memory).
+
+## Formatter
+
+`gsx fmt` formats the literal **idempotently**, normalizing hole spacing to the js/css
+convention (`@{ expr }`). Reuses the embedded-literal print path; no new formatting rules
+beyond recognizing `EmbeddedText`.
+
+## Testing
+
+Per project convention, **every context ships a corpus case** (`input.gsx` +
+`generated.x.go.golden` + `render.golden`) under `internal/corpus/testdata/cases/`:
+
+- plain attr (string + int holes)
+- URL attr: href **start** hole · href **mid-path** hole · href **query** hole
+- class attr (merge interaction) · style attr
+- per-hole pipeline · whole-literal pipeline
+- escaping: `\@{` · `` \` ``
+- type variety: string · int · `Stringer` · mixed type-param
+- error cases: unterminated literal, malformed hole
+
+Plus:
+
+- **Runtime unit:** `URLPart` byte-for-byte diff vs `html/template`; whole-literal materialize
+  helper.
+- **Parser unit:** dispatch, `\@{` unescape (including js/css inheriting it).
+- **LSP:** nav-matrix additions.
+- **Formatter:** idempotence.
+
+Regenerate goldens with `go test ./internal/corpus -run TestCorpus -update` (also rewrites
+`coverage.golden`), then verify without `-update`. Gate the branch with `make ci`.
+
+## Sibling-repo follow-ups (per CLAUDE.md)
+
+Tracked as post-merge tasks; not blocking the core:
+
+- `../tree-sitter-gsx` — grammar: backtick string + `@{ }` holes in attribute position, no
+  lang prefix.
+- `../vscode-gsx` — highlighting (via tree-sitter / TextMate).
+- `../gsxhq.github.io` — CodeMirror + VitePress syntax; a docs section under attribute syntax /
+  interpolation; runnable example.
+- `docs/ROADMAP.md` — reflect shipped feature.
+
+## Open sub-decisions (confirm on review)
+
+1. `EmbeddedText` as the lang name.
+2. Include the braced `` {`…`} `` form (recommended: yes).
+3. `_gsxgw.URLPart` helper name.
