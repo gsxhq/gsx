@@ -25,6 +25,19 @@ log = "tmp/dev.log"
 shell. If `build` changes the output path, update `run` to match it. `log` is
 optional and off by default; a configured path may write into the working tree.
 
+`host` sets the hostname in the generated `VITE_DEV_URL` (default `localhost`),
+for when the dev server must be reachable under a specific name:
+
+```toml
+[dev]
+host = "mstudio"   # → VITE_DEV_URL=http://mstudio:<port>
+```
+
+When `host` is unset, `gsx dev` takes the hostname from an existing
+`VITE_DEV_URL` in the environment (typically a gitignored `.env`), so a
+per-machine dev hostname needs no committed config. Only the host is taken —
+the port still comes from `VITE_PORT` or the auto-picker.
+
 Set `no_web = true` when another process manages Vite:
 
 ```toml
