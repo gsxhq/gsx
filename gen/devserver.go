@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -94,7 +95,18 @@ func envLookup(env []string, key string) (string, bool) {
 // envValue is envPort by another name for non-port keys (VITE_DEV_URL).
 func envValue(env []string, key, def string) string { return envPort(env, key, def) }
 
-func resolveViteDevEnv(env []string) ([]string, string, error) {
+func resolveViteDevEnv(env []string, host string) ([]string, string, error) {
+	// When [dev].host is unset, honor the hostname from an existing VITE_DEV_URL
+	// (typically a gitignored .env) so a per-machine dev hostname needs no
+	// committed config. Only the host is taken — the port still comes from
+	// VITE_PORT or the auto-picker, so a stale URL never pins a busy port.
+	if host == "" {
+		if raw := envValue(env, "VITE_DEV_URL", ""); raw != "" {
+			if u, err := url.Parse(raw); err == nil && u.Hostname() != "" {
+				host = u.Hostname()
+			}
+		}
+	}
 	port, ok := envLookup(env, "VITE_PORT")
 	var err error
 	if ok {
@@ -110,7 +122,10 @@ func resolveViteDevEnv(env []string) ([]string, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	viteURL := "http://localhost:" + port
+	if host == "" {
+		host = "localhost"
+	}
+	viteURL := "http://" + host + ":" + port
 	env = setEnvValue(env, "VITE_PORT", port)
 	env = setEnvValue(env, "VITE_DEV_URL", viteURL)
 	return env, viteURL, nil

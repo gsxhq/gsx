@@ -44,7 +44,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 
 	// --- env + ports ---
 	env := append(os.Environ(), loadDotEnv(workDir)...)
-	env, viteURL, err := resolveViteDevEnv(env)
+	env, viteURL, err := resolveViteDevEnv(env, dc.host)
 	if err != nil {
 		fmt.Fprintf(stderr, "gsx dev: %v\n", err)
 		return 1
@@ -207,7 +207,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 				envDirty = false
 				env = append(os.Environ(), loadDotEnv(workDir)...)
 				var envErr error
-				env, viteURL, envErr = resolveViteDevEnv(env)
+				env, viteURL, envErr = resolveViteDevEnv(env, dc.host)
 				if envErr != nil {
 					fmt.Fprintf(stderr, "gsx dev: %v\n", envErr)
 					overlayUp = true

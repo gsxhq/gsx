@@ -14,6 +14,7 @@ type devConfig struct {
 	build   []string
 	run     []string
 	logPath string
+	host    string // hostname for VITE_DEV_URL; "" means localhost
 }
 
 // devFlags carries the CLI-flag layer for resolveDevConfig. A nil command slice
@@ -74,6 +75,9 @@ func resolveDevConfig(workDir string, td *tomlDev, fl devFlags) devConfig {
 		}
 		if td.Log != "" {
 			dc.logPath = td.Log
+		}
+		if td.Host != "" {
+			dc.host = td.Host
 		}
 	}
 
