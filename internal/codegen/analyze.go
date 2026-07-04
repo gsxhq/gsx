@@ -195,7 +195,70 @@ func componentPropFieldsFor(dir string, files map[string]*gsxast.File) (propFiel
 		// Not a struct (or unresolved) → not byo; take the generated path.
 		genProps(dc.c, dc.params, dc.propsName)
 	}
+
+	// Interop-splat enumeration: a capitalized tag that carries a whole-struct
+	// splat `{ x… }`, is NOT a gsx component, and is NOT byo resolves via the
+	// XxxProps convention to a hand-written (templ-interop / same-package)
+	// `<Tag>Props` struct. Enumerate ONLY those structs so childPropsLiteral learns
+	// whether the struct has an `Attrs gsx.Attrs` bag — the fact that disambiguates
+	// the spread between an attrs-merge (has bag) and a whole-struct splat (no bag,
+	// so `{ x… }` is the prop value). Scoping to splat-bearing tags keeps every
+	// ordinary interop call on the unchanged graceful cross-package path: only a
+	// tag the author actually splatted — which today generates a broken
+	// `Props{Attrs: …}` against a bag-less struct — is enumerated here.
+	gsxCompFuncs := map[string]bool{}
+	for _, file := range files {
+		for _, d := range file.Decls {
+			if c, ok := d.(*gsxast.Component); ok && c.Recv == "" {
+				gsxCompFuncs[c.Name] = true
+			}
+		}
+	}
+	interopWanted := map[string]bool{}
+	for _, file := range files {
+		for _, d := range file.Decls {
+			c, ok := d.(*gsxast.Component)
+			if !ok {
+				continue
+			}
+			forEachComponentTagElement(c.Body, func(el *gsxast.Element) {
+				if !elementHasSpread(el.Attrs) {
+					return // only splat-bearing tags need the bag/no-bag fact
+				}
+				if strings.Contains(el.Tag, ".") || gsxCompFuncs[el.Tag] {
+					return // dotted (cross-pkg/method) or a gsx component — not interop
+				}
+				propsName := el.Tag + "Props"
+				if _, known := out[propsName]; known {
+					return // already gsx-declared / byo / generated / enumerated
+				}
+				interopWanted[propsName] = true
+			})
+		}
+	}
+	if dir != "" && len(interopWanted) > 0 {
+		ef, enf, es := loadExternalStructFields(dir, interopWanted)
+		for name, f := range ef {
+			// Publish the field set (so isKnownPropsType is true and hasAttrsBag can
+			// read the "Attrs" member) WITHOUT registering the struct as byo: an
+			// interop component keeps the convention call shape and the graceful
+			// attr-fallthrough rules, unlike an author-owns-Props byo component.
+			out[name] = f
+			nodeOut[name] = enf[name]
+			if es[name].hasAttrs {
+				attrsOut[name] = map[string]bool{"Attrs": true}
+			}
+		}
+	}
 	return out, nodeOut, attrsOut, byo, nil
+}
+
+// elementHasSpread reports whether an element's attrs include a whole-struct /
+// attrs spread `{ x… }` (recursing conditional-attr groups, like walkSpreadAttrs).
+func elementHasSpread(attrs []gsxast.Attr) bool {
+	found := false
+	walkSpreadAttrs(attrs, func(*gsxast.SpreadAttr) { found = true })
+	return found
 }
 
 // isNoPropsComponent reports whether propsType names a same-package function
