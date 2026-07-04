@@ -125,6 +125,29 @@ func (b *byoData) isByoStruct(propsType string) (byoStruct, bool) {
 	return s, ok
 }
 
+// isKnownPropsType reports whether gsx has ENUMERATED propsType's field set — a
+// same-package generated/byo component, or an external struct whose fields were
+// loaded (loadExternalStructFields / interop convention enumeration). A present
+// key with a nil value is the no-props sentinel (a nullary function component),
+// which has no struct to splat, so it is NOT "known" here. A cross-package or
+// otherwise-unresolved type is absent from the map — the caller keeps the graceful
+// merge fallback rather than assuming a whole-struct splat.
+func isKnownPropsType(propFields map[string]map[string]bool, propsType string) bool {
+	fields, ok := propFields[propsType]
+	return ok && fields != nil
+}
+
+// hasAttrsBag reports whether propsType has a fallthrough `Attrs gsx.Attrs` bag —
+// the field a spread merges into. Two sources, both already computed upstream:
+// byoStr.hasAttrs (byo / external struct whose Attrs field is type-checked as
+// gsx.Attrs) and the "Attrs" member of the enumerated field set (a generated
+// component's synthesized bag, or an enumerated struct's exported Attrs field). A
+// bag-ful component receives a spread as an attrs-merge (and may mix it with field
+// attrs); a bag-less one receives it as a whole-struct splat.
+func hasAttrsBag(propFields map[string]map[string]bool, propsType string, byoStr byoStruct) bool {
+	return byoStr.hasAttrs || propFields[propsType]["Attrs"]
+}
+
 // packageNullaryFuncs parses the package's hand-written .go files (parse-only, no
 // type-check — cheap) and returns the set of top-level funcs that take zero
 // parameters and return exactly one value: the shape that can back a bare `<F/>`
