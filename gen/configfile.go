@@ -54,6 +54,10 @@ type tomlDev struct {
 	Run   []string `toml:"run"`
 	Log   string   `toml:"log"`
 	NoWeb bool     `toml:"no_web"`
+	// Host is the hostname used to build VITE_DEV_URL (default "localhost"). Set
+	// it when the dev server must be reachable under a specific hostname —
+	// e.g. host = "mstudio" yields VITE_DEV_URL=http://mstudio:<port>.
+	Host string `toml:"host"`
 }
 
 // tomlMinify is the [minify] table: per-asset level spellings. A nil pointer

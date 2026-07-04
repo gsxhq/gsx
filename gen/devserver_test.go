@@ -78,7 +78,7 @@ func TestResolveViteDevEnvSkipsBoundDefaultPort(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	env, viteURL, err := resolveViteDevEnv([]string{"PATH=/bin"})
+	env, viteURL, err := resolveViteDevEnv([]string{"PATH=/bin"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,6 +94,42 @@ func TestResolveViteDevEnvSkipsBoundDefaultPort(t *testing.T) {
 	}
 }
 
+func TestResolveViteDevEnvHost(t *testing.T) {
+	env, viteURL, err := resolveViteDevEnv([]string{"VITE_PORT=0", "PATH=/bin"}, "mstudio")
+	if err != nil {
+		// port 0 is "available" (ephemeral); if the platform rejects it, fall back.
+		env, viteURL, err = resolveViteDevEnv([]string{"PATH=/bin"}, "mstudio")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(viteURL, "http://mstudio:") {
+		t.Fatalf("viteURL = %q, want http://mstudio:<port>", viteURL)
+	}
+	if got := envValue(env, "VITE_DEV_URL", ""); got != viteURL {
+		t.Fatalf("VITE_DEV_URL = %q, want %q", got, viteURL)
+	}
+}
+
+func TestResolveViteDevEnvHostFromDevURL(t *testing.T) {
+	// With no [dev].host, the hostname comes from VITE_DEV_URL in the env.
+	_, viteURL, err := resolveViteDevEnv([]string{"VITE_DEV_URL=http://mstudio:4000", "PATH=/bin"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(viteURL, "http://mstudio:") {
+		t.Fatalf("viteURL = %q, want host mstudio from VITE_DEV_URL", viteURL)
+	}
+	// An explicit [dev].host wins over VITE_DEV_URL.
+	_, viteURL2, err := resolveViteDevEnv([]string{"VITE_DEV_URL=http://mstudio:4000", "PATH=/bin"}, "override")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(viteURL2, "http://override:") {
+		t.Fatalf("viteURL = %q, want [dev].host override to win", viteURL2)
+	}
+}
+
 func TestResolveViteDevEnvSkipsIPv6BoundDefaultPort(t *testing.T) {
 	l, err := net.Listen("tcp", "[::1]:5173")
 	if err != nil {
@@ -105,7 +141,7 @@ func TestResolveViteDevEnvSkipsIPv6BoundDefaultPort(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	env, viteURL, err := resolveViteDevEnv([]string{"PATH=/bin"})
+	env, viteURL, err := resolveViteDevEnv([]string{"PATH=/bin"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +161,7 @@ func TestResolveViteDevEnvRejectsBoundExplicitVitePort(t *testing.T) {
 	}
 	defer l.Close()
 
-	_, _, err = resolveViteDevEnv([]string{"VITE_PORT=5173"})
+	_, _, err = resolveViteDevEnv([]string{"VITE_PORT=5173"}, "")
 	if err == nil {
 		t.Fatal("expected bound explicit VITE_PORT to fail")
 	}
