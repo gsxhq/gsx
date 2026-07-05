@@ -1,0 +1,12 @@
+# URL context, scheme seam: a pre-scheme hole immediately followed by a static ':'
+# would forge the scheme from (hole + static ":") -- per-segment sanitizing cannot
+# catch javascript + "://y". Rejected at compile time. Use href={ url } instead.
+# NOTE (red-for-review): exact line:col pinned at -update once implemented.
+-- input.gsx --
+package p
+
+component Link(scheme string) {
+	<a href=`@{scheme}://ex.com`>go</a>
+}
+-- diagnostics.golden --
+4:11: dynamic URL scheme is not allowed here; use href={ url }

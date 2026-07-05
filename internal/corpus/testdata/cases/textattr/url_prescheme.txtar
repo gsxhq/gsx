@@ -1,0 +1,13 @@
+# URL context, pre-scheme hole: nothing commits the scheme before @{base}, so the
+# hole carries the scheme and is scheme-sanitized (_gsxgw.URL). Safe origin passes.
+-- input.gsx --
+package p
+
+component Link(base string) {
+	<a href=`@{base}/edit`>go</a>
+}
+-- invoke --
+Link(LinkProps{Base: "https://ex.com/u"})
+-- diagnostics.golden --
+-- render.golden --
+<a href="https://ex.com/u/edit">go</a>

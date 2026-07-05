@@ -1,0 +1,16 @@
+# scope A (class): a class backtick literal is a first-class merge target — a spread
+# bag's class merges caller-last into the interpolated class value; no duplicate
+# attribute. Mirrors fallthrough/static_class_merge but with an interpolated own-class.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Badge(variant string, attrs gsx.Attrs) {
+	<span class=`badge-@{variant}` { attrs... }>Hi</span>
+}
+-- invoke --
+Badge(BadgeProps{Variant: "x", Attrs: gsx.Attrs{{Key: "class", Value: "hl"}, {Key: "id", Value: "a"}}})
+-- diagnostics.golden --
+-- render.golden --
+<span class="badge-x hl" id="a">Hi</span>
