@@ -321,12 +321,15 @@ type EmbeddedLang uint8
 const (
 	EmbeddedJS EmbeddedLang = iota + 1
 	EmbeddedCSS
+	EmbeddedText // plain backtick literal: name=`…@{expr}…`, HTML-attribute-escaped
 )
 
-// EmbeddedAttr is an explicit embedded-language attribute value:
-// name=js`... @{expr} ...`, name={js`...`}, name=css`...`, or name={css`...`}.
-// Segments contain *Text and *Interp only. JS interps receive JSCtx during
-// internal/jsx resolution; CSS interps use the CSS emitter directly.
+// EmbeddedAttr is an embedded-language attribute value:
+//
+//	name=js`…@{expr}…`, name={js`…`}, name=css`…`, name={css`…`},
+//	name=`…@{expr}…`  (EmbeddedText — plain, HTML-attribute-escaped), name={`…`}.
+//
+// Segments contain *Text and *Interp only.
 type EmbeddedAttr struct {
 	span
 	Name     string
@@ -570,6 +573,10 @@ func Inspect(node Node, f func(Node) bool) {
 		}
 	case *MarkupAttr:
 		for _, m := range n.Value {
+			Inspect(m, f)
+		}
+	case *EmbeddedAttr:
+		for _, m := range n.Segments {
 			Inspect(m, f)
 		}
 	case *IfMarkup:

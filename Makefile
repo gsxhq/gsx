@@ -24,14 +24,17 @@ ci:
 	$(MAKE) ci-tailwind-example-drift
 	$(MAKE) -j4 ci-gomod ci-playground ci-tailwind-example ci-format
 
-# Fast inner-loop check: the SAME checks as `ci`, but lets the Go test cache
-# serve unchanged packages (drops -count=1), so a repeat run after editing one
-# package only re-tests that package and its dependents. The cache is content-
-# keyed over each test binary's import closure, so your edits always re-run the
-# tests they affect — there is no stale-pass risk for code you are changing.
-# GitHub CI's -count=1 run (and `make ci`) remain the authoritative gate.
+# Fast inner-loop check: the SAME checks as `ci` PLUS `lint` (which `ci` omits —
+# it's a separate GitHub job), so the golangci-lint failures that only surface in
+# CI are caught here first. Lets the Go test cache serve unchanged packages (drops
+# -count=1), so a repeat run after editing one package only re-tests that package
+# and its dependents. The cache is content-keyed over each test binary's import
+# closure, so your edits always re-run the tests they affect — no stale-pass risk
+# for code you are changing. GitHub CI's -count=1 run (and `make ci`) remain the
+# authoritative gate.
 check:
 	$(MAKE) ci COUNT=
+	$(MAKE) lint
 
 lint:
 	golangci-lint run ./...
