@@ -386,3 +386,52 @@ func TestParseEmbeddedAttrBracedPipe(t *testing.T) {
 		t.Fatalf("stages=%v want [upper]", ea.Stages)
 	}
 }
+
+// TestParseEmbeddedAttrBracedJSPipeRejected pins the parser-level gate closing
+// a latent codegen gap: a whole-literal `|> f` pipeline is only meaningful on
+// a plain-text “ `…` “ literal, since the codegen only ever consumes Stages
+// for EmbeddedText. Without this gate, a pipe on a js`…` literal parsed
+// cleanly (Stages set) and would be silently dropped at emit — wrong output,
+// no error. It must now be a parse error instead.
+func TestParseEmbeddedAttrBracedJSPipeRejected(t *testing.T) {
+	src := "package p\ncomponent C() { <span class={js`x` |> upper}>h</span> }\n"
+	_, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
+	if err == nil {
+		t.Fatalf("parse succeeded, want error rejecting whole-literal |> on a js`` literal")
+	}
+	if want := "whole-literal pipelines are only supported on plain `…` attribute literals, not js``/css``"; !strings.Contains(err.Error(), want) {
+		t.Fatalf("err = %v, want it to contain %q", err, want)
+	}
+}
+
+// TestParseEmbeddedAttrBracedCSSPipeRejected is the css“ sibling of
+// TestParseEmbeddedAttrBracedJSPipeRejected.
+func TestParseEmbeddedAttrBracedCSSPipeRejected(t *testing.T) {
+	src := "package p\ncomponent C() { <span class={css`color:red` |> upper}>h</span> }\n"
+	_, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
+	if err == nil {
+		t.Fatalf("parse succeeded, want error rejecting whole-literal |> on a css`` literal")
+	}
+	if want := "whole-literal pipelines are only supported on plain `…` attribute literals, not js``/css``"; !strings.Contains(err.Error(), want) {
+		t.Fatalf("err = %v, want it to contain %q", err, want)
+	}
+}
+
+// TestParseEmbeddedAttrBracedJSNoPipeStillParses is the control for
+// TestParseEmbeddedAttrBracedJSPipeRejected: a js“ literal WITHOUT a trailing
+// pipe is unaffected by the gate and still parses as a plain EmbeddedAttr with
+// no Stages.
+func TestParseEmbeddedAttrBracedJSNoPipeStillParses(t *testing.T) {
+	src := "package p\ncomponent C() { <span class={js`x`}>h</span> }\n"
+	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	ea := firstEmbeddedAttr(t, f)
+	if ea.Lang != ast.EmbeddedJS {
+		t.Fatalf("Lang = %d, want EmbeddedJS", ea.Lang)
+	}
+	if len(ea.Stages) != 0 {
+		t.Fatalf("stages=%v want none", ea.Stages)
+	}
+}
