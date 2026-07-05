@@ -214,7 +214,24 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 		// overrides are programmatic options (no gsx.toml entry), so they come
 		// from cfg directly — not resolveConfig (which would hard-fail on a bad
 		// config).
-		return runFmt(stdout, stderr, cmdArgs, cfg.cssFmt, cfg.jsFmt, workDir)
+		//
+		// The syntactic unused-import analysis is best-effort: resolveConfig
+		// only feeds it (Classifier/FieldMatcher/Aliases/FilterPkgs — the knobs
+		// that affect skeleton import references). ClassMerger and minify are
+		// emit-only and are deliberately omitted, to avoid an unwanted extra
+		// package load. On a malformed config we fall back to the builtin
+		// classifier; files using named filters still skeletonize fine
+		// (buildSkeleton tolerates unknown filters).
+		fmtOpts := codegen.Options{Classifier: attrclass.Builtin()}
+		if merged, _, cerr := resolveConfig(cfg, workDir); cerr == nil {
+			fmtOpts = codegen.Options{
+				Classifier:   merged.classifier(),
+				FieldMatcher: merged.fieldMatcher,
+				Aliases:      merged.aliases,
+				FilterPkgs:   merged.filterPkgs,
+			}
+		}
+		return runFmt(stdout, stderr, cmdArgs, cfg.cssFmt, cfg.jsFmt, fmtOpts, workDir)
 	case "init":
 		return runInit(cmdArgs, os.Stdin, stdout, stderr, workDir)
 	case "lsp":

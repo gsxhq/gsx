@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
 	"github.com/gsxhq/gsx/internal/rawfmt"
@@ -42,7 +41,7 @@ import (
 //
 // All logic lives here (runFmt returns an int) so tests can drive it without
 // os.Exit.
-func runFmt(stdout, stderr io.Writer, args []string, cssFmt, jsFmt rawfmt.Formatter, workDir string) int {
+func runFmt(stdout, stderr io.Writer, args []string, cssFmt, jsFmt rawfmt.Formatter, opts codegen.Options, workDir string) int {
 	fs := flag.NewFlagSet("gsx fmt", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
@@ -73,7 +72,7 @@ func runFmt(stdout, stderr io.Writer, args []string, cssFmt, jsFmt rawfmt.Format
 
 	var unusedByPath map[string][]gsxfmt.ImportRef
 	if !noImports {
-		unusedByPath = analyzeUnusedImports(files)
+		unusedByPath = analyzeUnusedImports(files, opts)
 	}
 
 	exit := 0
@@ -158,46 +157,52 @@ func printWidthFor(dir string) int {
 	return cfg.effectivePrintWidth()
 }
 
-// analyzeUnusedImports best-effort computes, per absolute .gsx path, the imports
-// the file declares but does not use, by analyzing each containing directory's
-// package. Directories not in a module, or that fail to load, are skipped — the
-// caller then formats those files syntactically (no removal). Keys are absolute.
-func analyzeUnusedImports(files []string) map[string][]gsxfmt.ImportRef {
+// analyzeUnusedImports computes, per absolute .gsx path, the imports the file
+// declares but does not use — syntactically, via the skeleton (no type-check).
+// It opens ONE codegen.Module per module (not per directory) and reuses it across
+// that module's directories. Directories not in a module, or that fail to open,
+// are skipped (those files are then formatted without import removal). opts
+// carries the resolved codegen config so skeletons match what `generate` emits;
+// a zero/builtin opts still works (buildSkeleton tolerates unknown filters).
+func analyzeUnusedImports(files []string, opts codegen.Options) map[string][]gsxfmt.ImportRef {
 	out := map[string][]gsxfmt.ImportRef{}
-	dirs := map[string]bool{}
+	dirSet := map[string]bool{}
 	for _, f := range files {
-		dirs[filepath.Dir(f)] = true
+		dirSet[filepath.Dir(f)] = true
 	}
-	for dir := range dirs {
-		root, modPath, err := moduleRoot(dir)
+	dirs := make([]string, 0, len(dirSet))
+	for d := range dirSet {
+		dirs = append(dirs, d)
+	}
+	groups, _ := groupByModule(dirs)
+	for _, g := range groups {
+		o := opts
+		o.ModuleRoot = g.root
+		o.ModulePath = g.modPath
+		m, err := codegen.Open(o)
 		if err != nil {
-			continue // not in a module → syntactic fallback
+			continue // not loadable → syntactic-only fallback (no removal)
 		}
-		absDir, err := filepath.Abs(dir)
-		if err != nil {
-			continue
-		}
-		m, err := codegen.Open(codegen.Options{ModuleRoot: root, ModulePath: modPath, Classifier: attrclass.Builtin()})
-		if err != nil {
-			continue
-		}
-		pr, err := m.Package(absDir)
-		if err != nil {
-			continue
-		}
-		if pr == nil {
-			continue
-		}
-		for gsxPath, imps := range pr.UnusedImports {
-			absPath, err := filepath.Abs(gsxPath)
+		for _, dir := range g.dirs {
+			absDir, err := filepath.Abs(dir)
 			if err != nil {
 				continue
 			}
-			refs := make([]gsxfmt.ImportRef, len(imps))
-			for i, u := range imps {
-				refs[i] = gsxfmt.ImportRef{Name: u.Name, Path: u.Path}
+			byPath, err := m.UnusedImports(absDir)
+			if err != nil {
+				continue
 			}
-			out[absPath] = refs
+			for gsxPath, imps := range byPath {
+				absPath, err := filepath.Abs(gsxPath)
+				if err != nil {
+					continue
+				}
+				refs := make([]gsxfmt.ImportRef, len(imps))
+				for i, u := range imps {
+					refs[i] = gsxfmt.ImportRef{Name: u.Name, Path: u.Path}
+				}
+				out[absPath] = refs
+			}
 		}
 	}
 	return out

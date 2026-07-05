@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gsxhq/gsx/internal/attrclass"
+	"github.com/gsxhq/gsx/internal/codegen"
 )
 
 // fmtCapture drives runFmt with captured stdout/stderr and returns code+output.
@@ -13,7 +16,7 @@ func fmtCapture(t *testing.T, args []string) (int, string, string) {
 	t.Helper()
 	var out, errb bytes.Buffer
 	wd, _ := os.Getwd()
-	code := runFmt(&out, &errb, args, nil, nil, wd)
+	code := runFmt(&out, &errb, args, nil, nil, codegen.Options{Classifier: attrclass.Builtin()}, wd)
 	return code, out.String(), errb.String()
 }
 
@@ -301,5 +304,50 @@ func TestFmtOutsideModuleFallsBack(t *testing.T) {
 	}
 	if strings.Contains(string(after), "import   \"strings\"") {
 		t.Fatalf("file was not syntactically formatted:\n%s", after)
+	}
+}
+
+// TestFmtRemovesUnusedKeepsUsed proves the rewired analyzeUnusedImports (one
+// codegen.Module per module, via groupByModule) still removes an unused import
+// while keeping a used one, for a module containing a single directory.
+func TestFmtRemovesUnusedKeepsUsed(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	dir := newModule(t, "fmtmod")
+	src := "package fmtmod\n\nimport (\n\t\"strings\"\n\t\"bytes\"\n)\n\ncomponent Page() {\n\t<div>{strings.ToUpper(\"x\")}</div>\n}\n"
+	page := writeFile(t, dir, "page.gsx", src)
+
+	code, _, errb := fmtCapture(t, []string{"-w", page})
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errb)
+	}
+	got, err := os.ReadFile(page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(got), `"bytes"`) {
+		t.Errorf("unused bytes import should be removed:\n%s", got)
+	}
+	if !strings.Contains(string(got), `"strings"`) {
+		t.Errorf("used strings import must be kept:\n%s", got)
+	}
+}
+
+// TestFmtToleratesMalformedConfig proves that with a builtin-only
+// codegen.Options (the fallback gen/main.go's `fmt` case uses when
+// resolveConfig fails on a malformed gsx.toml), formatting still succeeds.
+func TestFmtToleratesMalformedConfig(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	dir := newModule(t, "fmtmod")
+	page := writeFile(t, dir, "page.gsx", "package fmtmod\n\ncomponent Page() {\n\t<div>hi</div>\n}\n")
+
+	code, _, errb := fmtCapture(t, []string{"-l", page})
+	if code != 0 { // already canonical → no diff → 0
+		t.Fatalf("exit=%d stderr=%s", code, errb)
 	}
 }
