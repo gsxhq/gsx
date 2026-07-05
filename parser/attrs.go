@@ -280,7 +280,7 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 	// Dispatch on the value start. Each downstream parser assumes the cursor is
 	// positioned exactly at its literal opener (`js`/`css`, `"`, or `{`).
 	switch {
-	case p.at("js`") || p.at("css`"):
+	case p.at("js`") || p.at("css`") || p.at("`"):
 		return p.parseEmbeddedAttrValue(name, attrStartPos)
 	case !p.eof() && p.src[p.i] == '"':
 		quotePos := p.posAt(p.i)
@@ -298,7 +298,9 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 		ast.SetSpan(sa, attrStartPos, p.posAt(p.i))
 		return sa, nil
 	case !p.eof() && p.src[p.i] == '{':
-		if strings.HasPrefix(p.src[p.i+1:], "js`") || strings.HasPrefix(p.src[p.i+1:], "css`") {
+		if strings.HasPrefix(p.src[p.i+1:], "js`") ||
+			strings.HasPrefix(p.src[p.i+1:], "css`") ||
+			strings.HasPrefix(p.src[p.i+1:], "`") {
 			return p.parseBracedEmbeddedAttrValue(name, attrStartPos)
 		}
 		if p.i+1 < len(p.src) && p.src[p.i+1] == '{' {
@@ -351,6 +353,10 @@ func (p *parser) parseEmbeddedAttrLiteral() (ast.EmbeddedLang, []ast.Markup, err
 		lang = ast.EmbeddedCSS
 		p.i += len("css`")
 		opener = literalStart + len("css")
+	case p.at("`"):
+		lang = ast.EmbeddedText
+		p.i += len("`")
+		opener = literalStart // the backtick itself
 	default:
 		return 0, nil, p.errorf(p.pos(), "expected embedded attribute literal")
 	}
