@@ -1,6 +1,5 @@
-# URL context, post-scheme hole: the static prefix "/u/" commits the URL as a
-# rooted path, so @{id} is a path part -> entity-escape (_gsxgw.AttrValue), matching
-# how gsx treats URL parts today (no percent-encoding).
+# URL context: the whole value ("/u/" + id + "/edit") is assembled and sanitized
+# by _gsxgw.URL. A rooted relative path passes through unchanged.
 -- input.gsx --
 package p
 

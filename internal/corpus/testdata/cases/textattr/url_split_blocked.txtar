@@ -1,0 +1,15 @@
+# SECURITY: a scheme split across two holes (a="javascript", b=":alert(1)") is
+# assembled into one string "javascript:alert(1)" and sanitized as a whole by
+# _gsxgw.URL -> blocked to about:invalid#gsx. Whole-value sanitization means the
+# scheme can never be forged across a hole boundary.
+-- input.gsx --
+package p
+
+component Link(a string, b string) {
+	<a href=`@{a}@{b}`>go</a>
+}
+-- invoke --
+Link(LinkProps{A: "javascript", B: ":alert(1)"})
+-- diagnostics.golden --
+-- render.golden --
+<a href="about:invalid#gsx">go</a>

@@ -1,0 +1,14 @@
+# SECURITY: a URL-context backtick literal is sanitized as a WHOLE value via
+# _gsxgw.URL. An author-written dangerous static scheme + a hole is blocked to
+# about:invalid#gsx (same as href={ "javascript:" + x } today), not executed.
+-- input.gsx --
+package p
+
+component Link(x string) {
+	<a href=`javascript:@{x}`>go</a>
+}
+-- invoke --
+Link(LinkProps{X: "alert(1)"})
+-- diagnostics.golden --
+-- render.golden --
+<a href="about:invalid#gsx">go</a>
