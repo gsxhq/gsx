@@ -175,6 +175,63 @@ func TestBodyBacktickSubExpressionStaysGo(t *testing.T) {
 	}
 }
 
+// TestParseBodyEmbeddedInterpEscapedBacktick pins a regression: a lone body
+// literal containing an ODD number of gsx-escaped backticks (backslash then
+// backtick) used to desync goExprEnd's naive Go-syntax backtick matching,
+// producing a spurious "unterminated `{`" error on valid syntax. The literal
+// is now bounded by parseEmbeddedAttrLiteral (which understands the gsx
+// backslash-backtick escape) instead of goExprEnd.
+//
+// A literal backtick can't appear in a Go raw string, so the source is built
+// via concatenation: "`" for a bare backtick and "\\`" for the gsx escape (a
+// double-quoted string containing one backslash then a backtick).
+func TestParseBodyEmbeddedInterpEscapedBacktick(t *testing.T) {
+	lit := "`" + "x" + "\\`" + " " + "`" // literal bytes: ` x \ ` <space> `
+	src := "package p\ncomponent C() { <p>{" + lit + "}</p> }\n"
+	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	ei := firstEmbeddedInterp(t, f)
+	if len(ei.Stages) != 0 {
+		t.Fatalf("stages=%d want 0: %#v", len(ei.Stages), ei.Stages)
+	}
+	if len(ei.Segments) != 1 {
+		t.Fatalf("segments=%d want 1: %#v", len(ei.Segments), ei.Segments)
+	}
+	txt, ok := ei.Segments[0].(*ast.Text)
+	if !ok {
+		t.Fatalf("segment[0] = %T, want *ast.Text", ei.Segments[0])
+	}
+	if want := "x` "; txt.Value != want {
+		t.Fatalf("text = %q, want %q", txt.Value, want)
+	}
+}
+
+// TestParseEmbeddedAttrBracedEscapedBacktickPipe is the braced-attr sibling of
+// TestParseBodyEmbeddedInterpEscapedBacktick: an escaped backtick plus a
+// trailing whole-literal `|>` pipeline. parseBracedEmbeddedAttrValue used to
+// bound the whole `{ … }` region with goExprEnd, which desyncs on the odd
+// escaped backtick; it now only Go-scans the post-literal stages tail.
+func TestParseEmbeddedAttrBracedEscapedBacktickPipe(t *testing.T) {
+	lit := "`" + "a" + "\\`" + " " + "`" // literal bytes: ` a \ ` <space> `
+	src := "package p\ncomponent C() { <span class={" + lit + " |> upper}>h</span> }\n"
+	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	ea := firstEmbeddedAttr(t, f)
+	if ea.Lang != ast.EmbeddedText {
+		t.Fatalf("Lang = %d, want EmbeddedText", ea.Lang)
+	}
+	if len(ea.Stages) != 1 || ea.Stages[0].Name != "upper" {
+		t.Fatalf("stages=%v want [upper]", ea.Stages)
+	}
+	if want := "a` "; embeddedText(ea) != want {
+		t.Fatalf("text = %q, want %q", embeddedText(ea), want)
+	}
+}
+
 func TestParseEmbeddedAttrBracedPipe(t *testing.T) {
 	src := "package p\ncomponent C(v string) { <span class={`badge-@{v}` |> upper}>h</span> }\n"
 	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)

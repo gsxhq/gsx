@@ -13,8 +13,32 @@ import (
 // comments do not count and (b) any markup prose BEFORE `open` is never
 // tokenized. ok is false if no matching brace is found.
 func goExprEnd(src string, open int) (int, bool) {
-	depth := 0
-	for i := open; i < len(src); {
+	return goDepth1End(src, open+1)
+}
+
+// goStagesEnd returns the index of the `}` that closes a whole-literal
+// `|> stage |> stage` tail following a gsx embedded backtick literal. `from`
+// is the position right after the literal's closing backtick (NOT an opening
+// delimiter) — the enclosing `{` has already been consumed by the caller, so
+// scanning starts at depth 1, as goExprEnd's does once past its own `{`.
+//
+// This must NOT scan the literal itself: the literal uses gsx's
+// backslash-backtick escape convention (see embeddedBacktickEscaped), which
+// the naive backtick handling in skipQuotedOrComment does not understand — an
+// odd number of escaped backticks would desync it. By starting after the
+// literal, the region this scans is plain pipe-stage/Go-argument syntax,
+// where a Go-aware scan is safe.
+func goStagesEnd(src string, from int) (int, bool) {
+	return goDepth1End(src, from)
+}
+
+// goDepth1End scans src from `from` for the `}` that returns paren/bracket/
+// brace depth to 0, treating `from` as already one level deep (i.e. as if the
+// opening `{` immediately preceding `from` had already been consumed). Braces
+// inside strings, runes, and comments do not count.
+func goDepth1End(src string, from int) (int, bool) {
+	depth := 1
+	for i := from; i < len(src); {
 		if end, ok := skipGSXEmbeddedLiteral(src, i); ok {
 			i = end
 			continue
