@@ -102,6 +102,8 @@ components/component_fallthrough_pipeline	diag gen render
 components/component_prop_pipeline	diag gen render
 components/component_spread	diag gen render
 components/component_spread_with_class	diag gen render
+components/embedded_attr_cond_prop	diag gen render
+components/embedded_attr_prop	diag gen render
 components/embedded_attr_rejected	diag(error)
 components/generic_attr_typeparam	diag gen render
 components/generic_children	diag gen render
@@ -472,4 +474,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 474 cases (render: 380, error: 71, gen-pinned: 218)
+TOTAL: 476 cases (render: 382, error: 71, gen-pinned: 220)

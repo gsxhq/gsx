@@ -2189,6 +2189,28 @@ func embeddedLangName(lang ast.EmbeddedLang) string {
 // is literal JS with @{ } holes. Static JS text is
 // HTML-attr-escaped at codegen so <,>,& survive the attribute; each hole is
 // escaped by its JSCtx and then HTML-attr-escaped (the *Attr escapers do both).
+// embeddedStaticText returns the concatenated literal text of a's segments and
+// true when EVERY segment is static (*ast.Text) — i.e. the js`…`/css`…`/`…`
+// literal has no @{ } interpolation. A hole-free embedded literal is
+// byte-identical to a plain string attribute: the element emitters
+// (emitEmbeddedJSAttr/CSS/Text) all HTML-attr-escape the same raw text and
+// stream it, so in a component-prop or conditional bag it lowers to the SAME
+// {Key, Value: rawtext} entry a plain StaticAttr fallthrough produces
+// (emit.go StaticAttr case), and the runtime HTML-attr-escapes it once on
+// spread. An interpolated literal returns ("", false): forwarding a hole into a
+// bag needs JS/CSS-context-correct per-hole escaping, a separate feature.
+func embeddedStaticText(a *ast.EmbeddedAttr) (string, bool) {
+	var sb strings.Builder
+	for _, seg := range a.Segments {
+		t, ok := seg.(*ast.Text)
+		if !ok {
+			return "", false
+		}
+		sb.WriteString(t.Value)
+	}
+	return sb.String(), true
+}
+
 func emitEmbeddedJSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
 	for _, seg := range a.Segments {
@@ -4261,8 +4283,17 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 		case *ast.CommentAttr:
 			// Source-only comment; not a component prop.
 		case *ast.EmbeddedAttr:
-			msg := fmt.Sprintf("embedded %s attribute literal %q cannot be used as a component prop on <%s>; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, el.Tag)
-			return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
+			// A hole-free js`…`/css`…`/`…` literal forwards to the Attrs bag as
+			// raw text — identical to a plain string attribute (JSX-style
+			// directive forwarding, e.g. x-model=js`pdcaCategory`). Embedded
+			// literals always fall through to the bag; to set a declared prop
+			// use a string or { expr }.
+			text, static := embeddedStaticText(t)
+			if !static {
+				msg := fmt.Sprintf("embedded %s attribute literal %q with @{ } interpolation cannot be used as a component prop on <%s> yet; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, el.Tag)
+				return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
+			}
+			bag = append(bag, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), strconv.Quote(text)))
 		default:
 			msg := fmt.Sprintf("unknown attribute %T on component (<%s>)", a, el.Tag)
 			return nil, "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}
@@ -4605,8 +4636,14 @@ func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string,
 		case *ast.CommentAttr:
 			// Source-only comment; not a component prop.
 		case *ast.EmbeddedAttr:
-			msg := fmt.Sprintf("embedded %s attribute literal %q cannot be used as a component prop on <%s>; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, tag)
-			return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
+			// A hole-free embedded literal forwards to the conditional Attrs bag
+			// as raw text — same lowering as the component-prop path above.
+			text, static := embeddedStaticText(t)
+			if !static {
+				msg := fmt.Sprintf("embedded %s attribute literal %q with @{ } interpolation cannot be used as a component prop on <%s> yet; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, tag)
+				return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
+			}
+			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), strconv.Quote(text)))
 		default:
 			msg := fmt.Sprintf("unsupported attribute %T in a conditional branch (<%s>)", a, tag)
 			return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}
