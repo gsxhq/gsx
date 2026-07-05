@@ -125,6 +125,42 @@ func TestClassifyUnusedImportsSkipsSunk(t *testing.T) {
 	}
 }
 
+// TestUnusedImportsSyntactic exercises Module.UnusedImports end to end: strings
+// is referenced (via strings.ToUpper) and must be kept, bytes is never
+// referenced and must be reported unused.
+func TestUnusedImportsSyntactic(t *testing.T) {
+	dir, m := openTestModule(t, map[string]string{
+		"page.gsx": "package testmod\n\nimport (\n\t\"strings\"\n\t\"bytes\"\n)\n\ncomponent Page() {\n\t<div>{strings.ToUpper(\"x\")}</div>\n}\n",
+	})
+	got, err := m.UnusedImports(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unused := got[filepath.Join(dir, "page.gsx")]
+	if len(unused) != 1 || unused[0].Path != "bytes" {
+		t.Errorf("unused=%+v, want [bytes]; strings is used and must be kept", unused)
+	}
+}
+
+// TestUnusedImportsDefaultNameMismatchKept covers the real-name resolution
+// path: renamedpkg/lib.go declares "package renamed", so the import path's
+// base ("renamedpkg") is never referenced, but the real package name
+// ("renamed") is. A base-only scan would wrongly flag testmod/renamedpkg as
+// unused; resolvePackageNames must resolve it to "renamed" so it is kept.
+func TestUnusedImportsDefaultNameMismatchKept(t *testing.T) {
+	dir, m := openTestModule(t, map[string]string{
+		"renamedpkg/lib.go": "package renamed\n\nfunc Hello() string { return \"hi\" }\n",
+		"page.gsx":          "package testmod\n\nimport \"testmod/renamedpkg\"\n\ncomponent Page() {\n\t<div>{renamed.Hello()}</div>\n}\n",
+	})
+	got, err := m.UnusedImports(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u := got[filepath.Join(dir, "page.gsx")]; len(u) != 0 {
+		t.Errorf("testmod/renamedpkg is used (renamed.Hello) and must be kept; got unused=%+v", u)
+	}
+}
+
 // TestBuildPackageSkeletonsNoExternalLoad proves buildPackageSkeletons is
 // importer-free: it lowers page.gsx to its skeleton AST and reports the
 // hoisted "strings" import as referenced in the skeleton, all WITHOUT
