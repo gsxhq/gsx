@@ -89,6 +89,22 @@ func lowerPipe(seed string, stages []ast.PipeStage, table filterTable, wrap func
 	return acc, usedPkgs, nil
 }
 
+// finalStageErr reports whether the LAST stage of a pipeline is an
+// error-returning filter. lowerPipe leaves that final (R, error) tuple
+// UNWRAPPED (it hoists only NON-final error stages — see its doc), so a caller
+// that splices the lowered expression into single-value position (e.g. an Attrs
+// bag literal entry) must perform the final-stage unwrap itself. Because the
+// final stage of an error pipeline is always a two-value filter call, this
+// condition is exactly equivalent to "the lowered expression is a (T, error)
+// call". An unknown final filter (already rejected by lowerPipe) reports false.
+func finalStageErr(stages []ast.PipeStage, table filterTable) bool {
+	if len(stages) == 0 {
+		return false
+	}
+	e, ok := table.lookup(stages[len(stages)-1].Name)
+	return ok && e.hasErr
+}
+
 // filterEntry is one harvested filter. funcName is the exported Go name in its
 // owning package (e.g. "Upper"); wantsCtx is true when the filter's first
 // parameter is context.Context (gsx injects the ambient ctx as that argument);
