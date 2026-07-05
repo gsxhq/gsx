@@ -378,3 +378,66 @@ component Page(hot bool, csv string) {
 		t.Fatalf("branch positions not harvested: classPart=%v exprAttr=%v", gotClassPart, gotExprAttr)
 	}
 }
+
+// TestResolveEmbeddedWholeLiteralPipeType pins Task 3 (body-interp +
+// whole-literal-pipe plan): a whole-literal pipeline on a body
+// *ast.EmbeddedInterp ({`n=@{n}` |> upper}, n int) and on a braced-attr
+// *ast.EmbeddedAttr (class={`c-@{v}` |> upper}, v int) must each resolve —
+// via harvest, exactly like a plain *ast.Interp with Stages — to the
+// pipeline's RESULT type (upper returns string), even though every hole in
+// the assembled seed is a NON-string type. This is the "emit ≡ probe"
+// invariant: analyze's seed-assembly must reach the same result type
+// codegen's embeddedTextValueExpr-built seed would.
+func TestResolveEmbeddedWholeLiteralPipeType(t *testing.T) {
+	t.Parallel()
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module gsxa\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pkgDir := filepath.Join(tmp, "genpkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := "package views\n\ncomponent Row(n int) {\n" +
+		"\t<p>{`n=@{n}` |> upper}</p>\n" +
+		"\t<p class={`c-@{n}` |> upper}></p>\n" +
+		"}\n"
+	writeFile(t, pkgDir, "views.gsx", src)
+
+	m, err := Open(Options{ModuleRoot: tmp, ModulePath: "gsxa", FilterPkgs: []string{StdImportPath}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pr, err := m.Package(pkgDir)
+	if err != nil {
+		t.Fatalf("package: %v", err)
+	}
+	isString := func(typ types.Type) bool {
+		b, ok := typ.Underlying().(*types.Basic)
+		return ok && b.Info()&types.IsString != 0
+	}
+	var gotInterp, gotAttr bool
+	for node, expr := range pr.ExprMap {
+		typ := pr.Info.Types[expr].Type
+		if typ == nil {
+			continue
+		}
+		switch node.(type) {
+		case *gsxast.EmbeddedInterp:
+			gotInterp = true
+			if !isString(typ) {
+				t.Errorf("EmbeddedInterp whole-pipe resolved type = %s, want string", typ)
+			}
+		case *gsxast.EmbeddedAttr:
+			gotAttr = true
+			if !isString(typ) {
+				t.Errorf("EmbeddedAttr whole-pipe resolved type = %s, want string", typ)
+			}
+		}
+	}
+	if !gotInterp {
+		t.Fatal("no *ast.EmbeddedInterp node resolved (whole-literal pipe not probed)")
+	}
+	if !gotAttr {
+		t.Fatal("no *ast.EmbeddedAttr node resolved (whole-literal pipe not probed)")
+	}
+}

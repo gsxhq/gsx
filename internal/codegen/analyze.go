@@ -947,6 +947,27 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				emitSkeletonLine(sb, fset, t.Pos())
 			}
 			fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
+		case *gsxast.EmbeddedInterp:
+			// Body backtick literal {`…@{expr}…`} [ |> f ]. Probe each hole
+			// first (so every param it references stays live and its own
+			// type is harvested — mirrors an EmbeddedAttr's holes), then, ONLY
+			// when the whole literal itself carries a pipeline, probe the
+			// assembled seed piped through node.Stages — the SAME lowerPipe
+			// call codegen's emitEmbeddedInterp will build (via
+			// embeddedTextValueExpr + lowerPipe), so resolved[t] ends up the
+			// exact type codegen emits (emit ≡ probe).
+			if err := emitProbes(sb, t.Segments, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, bag); err != nil {
+				return err
+			}
+			if len(t.Stages) > 0 {
+				seed := embeddedProbeSeed(t.Segments, table, usedFilters)
+				probe, err := probeExpr(seed, t.Stages, table, usedFilters)
+				if err != nil {
+					return err
+				}
+				emitSkeletonLine(sb, fset, t.Pos())
+				fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
+			}
 		case *gsxast.Element:
 			if isComponentTag(t.Tag) {
 				// Emit the SAME call as genChildComponent (via childInvocation) so the
@@ -1278,6 +1299,25 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				if probeErr != nil {
 					return probeErr
 				}
+				// Probe each braced-attr whole-literal pipeline (`attr={`…` |> f}`)
+				// AFTER the markup-attr/hole probes above — matching collectExprs's
+				// walkEmbeddedAttrStages ordering exactly.
+				walkEmbeddedAttrStages(t.Attrs, func(ea *gsxast.EmbeddedAttr) {
+					if probeErr != nil {
+						return
+					}
+					seed := embeddedProbeSeed(ea.Segments, table, usedFilters)
+					probe, err := probeExpr(seed, ea.Stages, table, usedFilters)
+					if err != nil {
+						probeErr = err
+						return
+					}
+					emitSkeletonLine(sb, fset, ea.Pos())
+					fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
+				})
+				if probeErr != nil {
+					return probeErr
+				}
 				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, bag); err != nil {
 					return err
 				}
@@ -1397,6 +1437,25 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 						return
 					}
 					probeErr = emitProbes(sb, value, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, bag)
+				})
+				if probeErr != nil {
+					return probeErr
+				}
+				// Probe each braced-attr whole-literal pipeline AFTER the
+				// markup-attr/hole probes above — matching collectExprs's
+				// walkEmbeddedAttrStages ordering exactly.
+				walkEmbeddedAttrStages(t.Attrs, func(ea *gsxast.EmbeddedAttr) {
+					if probeErr != nil {
+						return
+					}
+					seed := embeddedProbeSeed(ea.Segments, table, usedFilters)
+					probe, err := probeExpr(seed, ea.Stages, table, usedFilters)
+					if err != nil {
+						probeErr = err
+						return
+					}
+					emitSkeletonLine(sb, fset, ea.Pos())
+					fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 				})
 				if probeErr != nil {
 					return probeErr
@@ -1565,6 +1624,49 @@ func probeExpr(seed string, stages []gsxast.PipeStage, table filterTable, usedFi
 	}
 	maps.Copy(usedFilters, used)
 	return lowered, nil
+}
+
+// embeddedProbeSeed builds the Go source text probed as the SEED for a
+// whole-literal pipeline's `lowerPipe(seed, stages)` call — an
+// EmbeddedInterp's or EmbeddedAttr's node-level `|> f` — mirroring, at the
+// TYPE level, what codegen's embeddedTextValueExpr (emit.go) assembles from
+// the SAME segments: static *Text becomes the identical quoted string
+// literal, joined with " + ".
+//
+// Each *Interp hole becomes _gsxstr(holeProbe), where holeProbe is the SAME
+// probeExpr the individual-hole probe already uses (so a hole's own
+// pipeline/tuple handling is identical, and it stays live/harvested exactly
+// as it would be probed on its own). _gsxstr(any, ...any) string is a
+// package-level skeleton helper (module_importer.go) that always yields a
+// `string` — this is not an approximation: every successful branch of the
+// REAL emit-time holeStringExpr (string(x), strconv.Format*, (x).String())
+// ALSO always yields a Go expression of exactly the built-in `string` type.
+// So this seed and codegen's later, precisely-typed seed differ only in
+// WHICH string-producing snippet appears per hole, never in the resulting
+// static type — the seed's overall type is string either way, which is all
+// lowerPipe's stage lowering (and thus resolved[node]) depends on. This lets
+// the probe resolve the node's piped RESULT type without first knowing each
+// hole's real type, which is impossible at skeleton-build time (hole types
+// are only known once THIS SAME skeleton has been type-checked and
+// harvested — a later, one-shot step, not available mid-build).
+func embeddedProbeSeed(segments []gsxast.Markup, table filterTable, usedFilters map[string]string) string {
+	parts := make([]string, 0, len(segments))
+	for _, seg := range segments {
+		switch s := seg.(type) {
+		case *gsxast.Text:
+			if s.Value == "" {
+				continue
+			}
+			parts = append(parts, strconv.Quote(s.Value))
+		case *gsxast.Interp:
+			probe, _ := probeExpr(s.Expr, s.Stages, table, usedFilters)
+			parts = append(parts, "_gsxstr("+probe+")")
+		}
+	}
+	if len(parts) == 0 {
+		return `""`
+	}
+	return strings.Join(parts, " + ")
 }
 
 // harvest reads each interpolation's resolved type from a type-checked skeleton
@@ -2131,6 +2233,14 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 		switch t := n.(type) {
 		case *gsxast.Interp:
 			*out = append(*out, t)
+		case *gsxast.EmbeddedInterp:
+			// Holes first (matching emitProbes' order), then the node itself
+			// ONLY when it carries a whole-literal pipeline — a Stages-less
+			// literal renders per-segment and needs no node-level type.
+			collectExprs(t.Segments, out)
+			if len(t.Stages) > 0 {
+				*out = append(*out, t)
+			}
 		case *gsxast.Element:
 			if isComponentTag(t.Tag) {
 				// Child component: collect ExprAttr nodes (prop values) first, then
@@ -2191,6 +2301,13 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 				walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
 					collectExprs(value, out)
 				})
+				// Collect each braced-attr whole-literal pipeline node AFTER the
+				// markup-attr/hole nodes above — emitProbes emits the matching
+				// node-level _gsxuse probe in the SAME position (via
+				// walkEmbeddedAttrStages), so the k-th probe stays aligned.
+				walkEmbeddedAttrStages(t.Attrs, func(ea *gsxast.EmbeddedAttr) {
+					*out = append(*out, ea)
+				})
 				collectExprs(t.Children, out)
 				continue
 			}
@@ -2231,6 +2348,11 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 			// attr source order — emitProbes walks identically (same walkMarkupAttrs).
 			walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
 				collectExprs(value, out)
+			})
+			// Collect each braced-attr whole-literal pipeline node AFTER the
+			// markup-attr/hole nodes above — matching emitProbes' ordering.
+			walkEmbeddedAttrStages(t.Attrs, func(ea *gsxast.EmbeddedAttr) {
+				*out = append(*out, ea)
 			})
 			collectExprs(t.Children, out)
 		case *gsxast.Fragment:
@@ -2434,6 +2556,30 @@ func walkMarkupAttrs(attrs []gsxast.Attr, fn func(value []gsxast.Markup)) {
 	}
 }
 
+// walkEmbeddedAttrStages invokes fn for each *EmbeddedAttr in an element's
+// attr list whose Stages (whole-literal `|> f` pipeline) is non-empty, in
+// canonical source order (recursing *CondAttr Then→Else, like
+// walkAttrExprs). A Stages-less EmbeddedAttr is skipped here — its holes are
+// already collected/probed via walkMarkupAttrs, and it needs no node-level
+// type. It is the SINGLE walk shared by collectExprs (which appends each
+// such node, AFTER the element's walkMarkupAttrs pass) and emitProbes
+// (which emits one _gsxuse probe per node, assembling+lowering its Segments
+// the SAME way via embeddedProbeSeed+probeExpr), so the k-th probe always
+// maps to the k-th collected node.
+func walkEmbeddedAttrStages(attrs []gsxast.Attr, fn func(*gsxast.EmbeddedAttr)) {
+	for _, a := range attrs {
+		switch at := a.(type) {
+		case *gsxast.EmbeddedAttr:
+			if len(at.Stages) > 0 {
+				fn(at)
+			}
+		case *gsxast.CondAttr:
+			walkEmbeddedAttrStages(at.Then, fn)
+			walkEmbeddedAttrStages(at.Else, fn)
+		}
+	}
+}
+
 // usedParams reports which params are referenced (in value position) by any
 // interpolation OR by any control-flow clause (for/if/switch/case head and {{ }}
 // Go block), so only those are bound to locals. Control-flow clauses are emitted
@@ -2454,6 +2600,16 @@ func usedParams(c *gsxast.Component, params []param) map[string]bool {
 			expr, stages = v.Expr, v.Stages
 		case *gsxast.ExprAttr:
 			expr, stages = v.Expr, v.Stages
+		case *gsxast.EmbeddedInterp:
+			// A body backtick literal has no single seed expr (its Segments'
+			// own holes are separately collected as *Interp nodes, handled by
+			// the case above); only its whole-literal pipeline's filter args
+			// need this pass — e.g. a param used only as `|> join(sep)`.
+			stages = v.Stages
+		case *gsxast.EmbeddedAttr:
+			// Same reasoning as EmbeddedInterp: only the whole-literal
+			// pipeline's filter args need collecting here.
+			stages = v.Stages
 		}
 		addIdents(expr)
 		// Filter arguments are emitted verbatim into the lowered call
