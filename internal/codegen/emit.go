@@ -1439,6 +1439,8 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		emitS(b, "</"+t.Tag+">")
 	case *ast.Interp:
 		return genInterp(b, t, resolved, table, imports, interpTemp, fset, bag)
+	case *ast.EmbeddedInterp:
+		return emitEmbeddedInterp(b, t, resolved, table, imports, interpTemp, fset, bag)
 	case *ast.Fragment:
 		for _, c := range t.Children {
 			if !genNode(b, c, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
@@ -1541,6 +1543,73 @@ func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type,
 		return emitRender(b, tmp, elemT, imports, n, bag)
 	}
 	return emitRender(b, expr, t, imports, n, bag)
+}
+
+// emitEmbeddedInterp emits a body/child interpolating backtick literal
+// {`…@{expr}…`} [ |> f ]. It is always plain-text (HTML-text-escaped) — no
+// js/css lang is valid in body position (parser guarantee).
+//
+// No stages (len(n.Stages)==0): the literal renders per-segment, preserving the
+// exact zero-alloc form a hand-written mix of static text + {expr} holes would
+// have — NO materialized concat string. Each *ast.Text segment is emitted
+// verbatim via emitS, identically to genNode's *ast.Text case (body static text
+// is trusted source content, not runtime-escaped — see genNode); each *ast.Interp
+// hole is emitted via genInterp, the SAME Text-context renderer a bare {expr}
+// uses (zero-alloc IntInto/UintInto/FloatInto for numeric holes, HTML-escaped
+// Text for string holes).
+//
+// With stages (len(n.Stages)>0): the segments are assembled into ONE Go string
+// expression (embeddedValueExpr — the same assembly embeddedTextValueExpr does
+// for a braced attr literal) and piped through n.Stages via the SAME lowerPipe
+// call analyze.go's probe used to populate resolved[n], so the emitted type
+// matches exactly (emit ≡ probe). The result is then rendered for Text context
+// via emitRender, unwrapping a trailing (T, error) tuple exactly like genInterp.
+func emitEmbeddedInterp(b *bytes.Buffer, n *ast.EmbeddedInterp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, fset *token.FileSet, bag *diag.Bag) bool {
+	if len(n.Stages) == 0 {
+		emitLine(b, fset, n.Pos())
+		for _, seg := range n.Segments {
+			switch s := seg.(type) {
+			case *ast.Text:
+				emitS(b, s.Value)
+			case *ast.Interp:
+				if !genInterp(b, s, resolved, table, imports, interpTemp, fset, bag) {
+					return false
+				}
+			default:
+				bag.Errorf(seg.Pos(), seg.End(), "unsupported-node", "body interpolation literal may contain only text and @{ } interpolations, got %T", seg)
+				return false
+			}
+		}
+		return true
+	}
+	emitLine(b, fset, n.Pos())
+	concat, ok := embeddedValueExpr(b, n.Segments, resolved, table, imports, interpTemp, bag, "unsupported-node", "body interpolation literal")
+	if !ok {
+		return false
+	}
+	lowered, usedPkgs, err := lowerPipe(concat, n.Stages, table, emitPipeWrap(b, interpTemp))
+	if err != nil {
+		bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+		return false
+	}
+	for _, path := range usedPkgs {
+		imports[path] = true
+	}
+	t, ok := resolved[n]
+	if !ok || t == nil {
+		bag.Errorf(n.Pos(), n.End(), "unresolved-interp", "could not resolve type of body interpolation pipeline")
+		return false
+	}
+	if _, isTuple := t.(*types.Tuple); isTuple {
+		elemT, ok := tupleUnwrapType(t)
+		if !ok {
+			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "body interpolation pipeline returns %s; only (T, error) is supported", t)
+			return false
+		}
+		tmp := hoistTuple(b, lowered, interpTemp)
+		return emitRender(b, tmp, elemT, imports, n, bag)
+	}
+	return emitRender(b, lowered, t, imports, n, bag)
 }
 
 // tupleUnwrapType reports whether t is a (T, error) tuple, returning T. Any other
@@ -1762,6 +1831,18 @@ func scopeUsesNumeric(nodes []ast.Markup, resolved map[ast.Node]types.Type) bool
 			if interpIsNumeric(t, resolved) {
 				return true
 			}
+		case *ast.EmbeddedInterp:
+			// Stages>0: the node renders as ONE piped value (emitEmbeddedInterp's
+			// with-stages path) — check resolved[t] itself. Stages==0: it renders
+			// per-segment (each *ast.Interp hole via genInterp), so recurse into
+			// Segments the same way as any other scope.
+			if len(t.Stages) > 0 {
+				if interpIsNumeric(t, resolved) {
+					return true
+				}
+			} else if scopeUsesNumeric(t.Segments, resolved) {
+				return true
+			}
 		case *ast.Element:
 			if isComponentTag(t.Tag) || strings.EqualFold(t.Tag, "style") || strings.EqualFold(t.Tag, "script") {
 				continue
@@ -1792,10 +1873,11 @@ func scopeUsesNumeric(nodes []ast.Markup, resolved map[ast.Node]types.Type) bool
 	return false
 }
 
-// interpIsNumeric reports whether interp n renders as an int/uint/float (the same
-// classification emitRender uses to pick gw.IntInto/UintInto/FloatInto),
-// unwrapping a (T, error) tuple like genInterp does.
-func interpIsNumeric(n *ast.Interp, resolved map[ast.Node]types.Type) bool {
+// interpIsNumeric reports whether node n (an *ast.Interp hole, or an
+// *ast.EmbeddedInterp whole-literal pipeline node) renders as an int/uint/float
+// (the same classification emitRender uses to pick gw.IntInto/UintInto/
+// FloatInto), unwrapping a (T, error) tuple like genInterp/emitEmbeddedInterp do.
+func interpIsNumeric(n ast.Node, resolved map[ast.Node]types.Type) bool {
 	t, ok := resolved[n]
 	if !ok || t == nil {
 		return false
@@ -2148,26 +2230,84 @@ func emitEmbeddedJSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.N
 	return true
 }
 
-// emitEmbeddedTextAttr emits a plain backtick attribute literal name=`…@{expr}…`.
-// A URL-context attribute (cls.Context(a.Name) == attrclass.CtxURL) is sanitized
-// as a WHOLE value: every segment (static text and each hole) is assembled into
-// one Go string expression and passed through a single _gsxgw.URL(...) call — the
-// SAME urlSanitize fail-closed allow-list + entity-escape that href={ expr } uses.
-// This is deliberate: an earlier per-hole classifier had FIVE browser-confirmed
-// XSS bypasses (a dangerous scheme can be split across hole boundaries, e.g.
-// href=`@{a}@{b}` with a="javascript" b=":alert(1)"). There is no per-hole
-// scheme/seam detection here — assembling first and sanitizing once closes that
-// class of bypass entirely. Non-URL attributes keep the Task-4 per-segment path
-// (Text -> S(htmlAttrEscape), Interp -> emitTextAttrInterp) unchanged.
+// emitEmbeddedTextAttr emits a plain backtick attribute literal name=`…@{expr}…`
+// [ |> f ].
+//
+// A whole-literal pipeline (len(a.Stages) > 0) ALWAYS assembles first: the
+// segments are joined into one Go string expression (embeddedTextValueExpr) and
+// piped through a.Stages via the SAME lowerPipe call analyze.go's probe used
+// (so resolved[a] is already the pipeline's result type — emit ≡ probe),
+// unwrapping a trailing (T, error) tuple exactly like genInterp/
+// emitEmbeddedInterp. The piped result then renders for URL or plain-attr
+// context depending on cls.Context(a.Name), below.
+//
+// A URL-context attribute (cls.Context(a.Name) == attrclass.CtxURL) is
+// sanitized as a WHOLE value: every segment (static text and each hole) is
+// assembled into one Go string expression and passed through a single
+// _gsxgw.URL(...) call — the SAME urlSanitize fail-closed allow-list +
+// entity-escape that href={ expr } uses. This is deliberate: an earlier
+// per-hole classifier had FIVE browser-confirmed XSS bypasses (a dangerous
+// scheme can be split across hole boundaries, e.g. href=`@{a}@{b}` with
+// a="javascript" b=":alert(1)"). There is no per-hole scheme/seam detection
+// here — assembling first and sanitizing once closes that class of bypass
+// entirely. This invariant EXTENDS to the piped case: URL() sanitizes the
+// PIPE'S OUTPUT, so a filter that returns a dangerous scheme is still blocked
+// (sanitize-after-pipe, never before). When the pipeline's result type isn't
+// already string, it is converted via stringifyExpr (the same string dispatch
+// holeStringExpr uses) before entering URL(), which requires a string arg.
+//
+// Non-URL attributes keep the per-segment path (Text -> S(htmlAttrEscape),
+// Interp -> emitTextAttrInterp) when Stages is empty; with Stages, the piped
+// result renders via emitAttrValue (string -> AttrValue(string(x)), etc.).
 func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, bag *diag.Bag) bool {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
-	if cls.Context(a.Name) == attrclass.CtxURL {
+	isURL := cls.Context(a.Name) == attrclass.CtxURL
+	switch {
+	case len(a.Stages) > 0:
+		concat, ok := embeddedTextValueExpr(b, a, resolved, table, imports, interpTemp, bag)
+		if !ok {
+			return false
+		}
+		lowered, usedPkgs, err := lowerPipe(concat, a.Stages, table, emitPipeWrap(b, interpTemp))
+		if err != nil {
+			bag.Errorf(a.Pos(), a.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+			return false
+		}
+		for _, path := range usedPkgs {
+			imports[path] = true
+		}
+		t, ok := resolved[a]
+		if !ok || t == nil {
+			bag.Errorf(a.Pos(), a.End(), "unresolved-interp", "could not resolve type of attribute %q pipeline", a.Name)
+			return false
+		}
+		if _, isTuple := t.(*types.Tuple); isTuple {
+			elemT, ok := tupleUnwrapType(t)
+			if !ok {
+				bag.Errorf(a.Pos(), a.End(), "invalid-tuple", "attribute %q pipeline returns %s; only (T, error) is supported", a.Name, t)
+				return false
+			}
+			lowered = hoistTuple(b, lowered, interpTemp)
+			t = elemT
+		}
+		if isURL {
+			// Sanitize AFTER the pipe: URL() runs on the pipeline's OUTPUT, so a
+			// filter returning a dangerous scheme is still blocked, never trusted.
+			strExpr, ok := stringifyExpr(lowered, t, imports, a, bag, fmt.Sprintf("attribute %q pipeline result", a.Name))
+			if !ok {
+				return false
+			}
+			fmt.Fprintf(b, "\t\t_gsxgw.URL(%s)\n", strExpr)
+		} else if !emitAttrValue(b, lowered, t, imports, a, bag) {
+			return false
+		}
+	case isURL:
 		concat, ok := embeddedTextValueExpr(b, a, resolved, table, imports, interpTemp, bag)
 		if !ok {
 			return false
 		}
 		fmt.Fprintf(b, "\t\t_gsxgw.URL(%s)\n", concat)
-	} else {
+	default:
 		for _, seg := range a.Segments {
 			switch s := seg.(type) {
 			case *ast.Text:
@@ -2203,8 +2343,18 @@ func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast
 // which operates on unescaped tokens/declarations before its one final
 // escape).
 func embeddedTextValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) (string, bool) {
-	parts := make([]string, 0, len(a.Segments))
-	for _, seg := range a.Segments {
+	return embeddedValueExpr(b, a.Segments, resolved, table, imports, interpTemp, bag, "unsupported-attr", fmt.Sprintf("attribute %q value", a.Name))
+}
+
+// embeddedValueExpr is embeddedTextValueExpr generalized over a raw segment
+// list, so a body/child *ast.EmbeddedInterp's Segments can be assembled through
+// the SAME logic (static text -> raw quoted literal, each hole -> holeStringExpr)
+// without an *ast.EmbeddedAttr wrapper. errCode/errDesc position and word the
+// "unsupported segment" diagnostic for the caller's context (attribute vs. body
+// literal).
+func embeddedValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag, errCode, errDesc string) (string, bool) {
+	parts := make([]string, 0, len(segs))
+	for _, seg := range segs {
 		switch s := seg.(type) {
 		case *ast.Text:
 			if s.Value == "" {
@@ -2218,7 +2368,7 @@ func embeddedTextValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[as
 			}
 			parts = append(parts, p)
 		default:
-			bag.Errorf(seg.Pos(), seg.End(), "unsupported-attr", "attribute %q value may contain only text and @{ } interpolations, got %T", a.Name, seg)
+			bag.Errorf(seg.Pos(), seg.End(), errCode, "%s may contain only text and @{ } interpolations, got %T", errDesc, seg)
 			return "", false
 		}
 	}
@@ -2267,6 +2417,18 @@ func holeStringExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.
 		expr = hoistTuple(b, expr, interpTemp)
 		t = elemT
 	}
+	return stringifyExpr(expr, t, imports, n, bag, fmt.Sprintf("attribute interpolation %q", n.Expr))
+}
+
+// stringifyExpr converts expr (of resolved type t) to a Go STRING expression,
+// routing by classify(t): string/[]byte -> string(x), int/uint/float ->
+// strconv.Format*, Stringer -> (x).String(). Any other type (bool, catAnyMixed,
+// unresolved) cannot safely carry a URL fragment (or stand in for one) and is
+// rejected with a diagnostic positioned at n, worded with the caller-supplied
+// errPrefix. Shared by holeStringExpr's per-hole dispatch and
+// emitEmbeddedTextAttr's URL-context whole-pipe branch (a piped result whose
+// type isn't already string).
+func stringifyExpr(expr string, t types.Type, imports map[string]bool, n ast.Node, bag *diag.Bag, errPrefix string) (string, bool) {
 	switch classify(t) {
 	case catString, catBytes:
 		return "string(" + expr + ")", true
@@ -2282,7 +2444,7 @@ func holeStringExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.
 	case catStringer:
 		return "(" + expr + ").String()", true
 	default:
-		bag.Errorf(n.Pos(), n.End(), "unsupported-url-type", "attribute interpolation %q has unsupported type %s (need string/number/Stringer)", n.Expr, t)
+		bag.Errorf(n.Pos(), n.End(), "unsupported-url-type", "%s has unsupported type %s (need string/number/Stringer)", errPrefix, t)
 		return "", false
 	}
 }
@@ -2904,6 +3066,13 @@ func usesChildren(body []ast.Markup) bool {
 			if strings.TrimSpace(t.Expr) == "children" {
 				return true
 			}
+		case *ast.EmbeddedInterp:
+			// A body backtick literal's @{ } holes render in this scope (either
+			// per-segment or as the pipeline seed), so a bare `children` hole
+			// (e.g. {`@{children}`}) counts the same as a top-level {children}.
+			if usesChildren(t.Segments) {
+				return true
+			}
 		case *ast.Element:
 			// Recurse children for BOTH plain elements and child components: a
 			// component's slot content renders in this scope, so a `{children}` there
@@ -2953,6 +3122,19 @@ func usesAttrs(body []ast.Markup) bool {
 		switch t := n.(type) {
 		case *ast.Interp:
 			if refsAttrs(t.Expr) {
+				return true
+			}
+			for _, st := range t.Stages {
+				if st.Args != "" && refsAttrs(st.Args) {
+					return true
+				}
+			}
+		case *ast.EmbeddedInterp:
+			// A body backtick literal's @{ } holes render in this scope
+			// (per-segment, or as the whole-literal pipeline's seed), so an
+			// `attrs` reference inside a hole — or inside a node-level `|> f(attrs)`
+			// filter arg — needs the local bound, same as usesAttrs' *ast.Interp case.
+			if usesAttrs(t.Segments) {
 				return true
 			}
 			for _, st := range t.Stages {

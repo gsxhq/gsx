@@ -65,6 +65,8 @@ func SetSpan(n Node, start, end token.Pos) {
 		v.span = s
 	case *EmbeddedAttr:
 		v.span = s
+	case *EmbeddedInterp:
+		v.span = s
 	case *GoBlock:
 		v.span = s
 	case *IfMarkup:
