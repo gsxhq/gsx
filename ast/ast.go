@@ -573,6 +573,10 @@ func Inspect(node Node, f func(Node) bool) {
 		for _, m := range n.Value {
 			Inspect(m, f)
 		}
+	case *EmbeddedAttr:
+		for _, m := range n.Segments {
+			Inspect(m, f)
+		}
 	case *IfMarkup:
 		for _, m := range n.Then {
 			Inspect(m, f)
