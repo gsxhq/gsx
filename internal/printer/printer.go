@@ -801,8 +801,8 @@ func embeddedLangName(lang ast.EmbeddedLang) string {
 		return "js"
 	case ast.EmbeddedCSS:
 		return "css"
-	default:
-		return "unknown"
+	default: // ast.EmbeddedText — bare backtick literal, no lang prefix
+		return ""
 	}
 }
 
@@ -834,19 +834,37 @@ func embeddedLiteralString(lang ast.EmbeddedLang, nodes []ast.Markup) string {
 	return b.String()
 }
 
+// writeEmbeddedLiteralText writes the literal text of an embedded (js/css/text)
+// attribute segment, re-escaping the two sequences the parser treats specially
+// inside such literals: a bare backtick (which would otherwise close the
+// literal) and a literal `@{` (which would otherwise be re-parsed as a hole
+// opener). Both escapes are only needed when the preceding run of backslashes
+// in the (already-unescaped) source text is even — an odd run means the
+// character is already escaped by a backslash written earlier in this loop.
 func writeEmbeddedLiteralText(b *strings.Builder, s string) {
 	for i := 0; i < len(s); i++ {
-		if s[i] == '`' {
-			backslashes := 0
-			for j := i - 1; j >= 0 && s[j] == '\\'; j-- {
-				backslashes++
+		switch {
+		case s[i] == '`':
+			if !embeddedLiteralEscaped(s, i) {
+				b.WriteByte('\\')
 			}
-			if backslashes%2 == 0 {
+		case s[i] == '@' && i+1 < len(s) && s[i+1] == '{':
+			if !embeddedLiteralEscaped(s, i) {
 				b.WriteByte('\\')
 			}
 		}
 		b.WriteByte(s[i])
 	}
+}
+
+// embeddedLiteralEscaped reports whether the character at s[i] is preceded by
+// an odd number of backslashes in the unescaped source text s.
+func embeddedLiteralEscaped(s string, i int) bool {
+	backslashes := 0
+	for j := i - 1; j >= 0 && s[j] == '\\'; j-- {
+		backslashes++
+	}
+	return backslashes%2 == 1
 }
 
 func writeCondAttrChain(b *strings.Builder, c *ast.CondAttr) {
