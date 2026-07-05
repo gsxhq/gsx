@@ -373,7 +373,7 @@ func (p *parser) parseEmbeddedSegments(lang ast.EmbeddedLang, opener int) ([]ast
 	segStartPos := p.posAt(segStart)
 	flush := func(end int) {
 		if end > segStart {
-			txt := &ast.Text{Value: unescapeEmbeddedBackticks(p.src[segStart:end])}
+			txt := &ast.Text{Value: unescapeEmbedded(p.src[segStart:end])}
 			ast.SetSpan(txt, segStartPos, p.posAt(end))
 			segments = append(segments, txt)
 		}
@@ -389,6 +389,10 @@ func (p *parser) parseEmbeddedSegments(lang ast.EmbeddedLang, opener int) ([]ast
 			return segments, nil
 		}
 		if p.src[p.i] == '@' && p.i+1 < len(p.src) && p.src[p.i+1] == '{' {
+			if p.embeddedAtBraceEscaped(p.i) {
+				p.i++ // consume '@'; '{' handled next iteration as literal
+				continue
+			}
 			flush(p.i)
 			p.i++ // past '@'; cursor now at '{' for parseInterp
 			in, err := p.parseInterp()
@@ -420,23 +424,42 @@ func (p *parser) embeddedBacktickEscaped(backtick int) bool {
 	return n%2 == 1
 }
 
-func unescapeEmbeddedBackticks(s string) string {
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		if s[i] == '`' && backtickEscapedIn(s, i) {
-			if b.Cap() == 0 {
-				b.Grow(len(s))
-				b.WriteString(s[:i-1])
-			}
-			b.WriteByte('`')
-			continue
-		}
-		if b.Cap() != 0 {
-			b.WriteByte(s[i])
-		}
+// embeddedAtBraceEscaped reports whether the '@' at p.src[at] (immediately
+// followed by '{') is preceded by an odd number of backslashes, meaning the
+// hole opener is escaped (`\@{`) and should be treated as literal text.
+func (p *parser) embeddedAtBraceEscaped(at int) bool {
+	n := 0
+	for i := at - 1; i >= 0 && p.src[i] == '\\'; i-- {
+		n++
 	}
-	if b.Cap() == 0 {
+	return n%2 == 1
+}
+
+// unescapeEmbedded collapses the two backslash escapes recognized inside
+// embedded literals (text/js/css): a backslash-escaped backtick becomes a
+// literal backtick, and `\@{` becomes a literal `@{`.
+func unescapeEmbedded(s string) string {
+	if !strings.ContainsRune(s, '\\') {
 		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			// \`  -> `
+			if s[i+1] == '`' {
+				b.WriteByte('`')
+				i++
+				continue
+			}
+			// \@{ -> @{
+			if s[i+1] == '@' && i+2 < len(s) && s[i+2] == '{' {
+				b.WriteString("@{")
+				i += 2
+				continue
+			}
+		}
+		b.WriteByte(s[i])
 	}
 	return b.String()
 }
