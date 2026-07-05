@@ -56,3 +56,30 @@ func TestClassifyUnusedImports(t *testing.T) {
 		t.Errorf("candidates=%+v, want only bytes", candidates)
 	}
 }
+
+func TestClassifyUnusedImportsSkipsSunk(t *testing.T) {
+	fset := token.NewFileSet()
+	tf := fset.AddFile("page.gsx", -1, 1000)
+	pos := tf.Pos(0) // offset 0 → line 1
+
+	// A default import whose base name is not referenced: without a sunk entry
+	// it would be a removal candidate.
+	imps := []importSpec{
+		{name: "", path: "github.com/foo/sunk", pos: pos},
+	}
+
+	// Contrast/sanity: with no sunk map it IS a candidate, proving the sunk map
+	// (not something else) is what excludes it below.
+	unused, candidates := classifyUnusedImports(map[string]bool{}, imps, nil, fset)
+	if len(unused) != 0 || len(candidates) != 1 {
+		t.Fatalf("without sunk: unused=%+v candidates=%+v, want 0 unused / 1 candidate", unused, candidates)
+	}
+
+	// With a matching sunk entry the import is used in the .gsx source, so it must
+	// be excluded from BOTH unused and candidates.
+	sunk := map[sunkImportKey]bool{{line: 1, path: "github.com/foo/sunk"}: true}
+	unused, candidates = classifyUnusedImports(map[string]bool{}, imps, sunk, fset)
+	if len(unused) != 0 || len(candidates) != 0 {
+		t.Errorf("with sunk: unused=%+v candidates=%+v, want both empty", unused, candidates)
+	}
+}
