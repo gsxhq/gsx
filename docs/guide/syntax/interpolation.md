@@ -69,6 +69,7 @@ The escaper applied to `{ expr }` depends on **where** the interpolation appears
 
 - **Text content** (`<p>{ x }</p>`) — HTML-escapes the string form of `x`.
 - **Attribute value** (`title={ x }`) — attribute-escapes the value.
+- **Interpolating attribute literal** (`` title=`Item @{ x }` ``) — a backtick literal mixing static text and `@{ }` holes in attribute-value position; each hole is escaped the same way its surrounding attribute would be (attribute-escape, or scheme-sanitize the whole assembled value for a URL attribute). See [Attributes — Interpolating attribute literals](./attributes#interpolating-attribute-literals).
 - **URL attribute** (`href={ x }`, `src={ x }`, `action={ x }`, and htmx method attrs `hx-get`/`hx-post`/`hx-put`/`hx-delete`/`hx-patch`) — scheme-sanitizes and escapes. URL attributes are the only ordinary `attr={ x }` name-based special case; other attributes, including `hx-on*`, are plain attribute text unless written with an explicit embedded-language literal.
 - **Attribute-local JavaScript/CSS** (`` @click=js`save(@{x})` ``, `` style=css`color:@{x}` ``, `` style={ css`color:@{x}` } ``) — escapes each hole for its embedded JavaScript or CSS position.
 - **`<script>` body** (`@{ x }`) — JSON-encodes the Go value to a safe JS literal.

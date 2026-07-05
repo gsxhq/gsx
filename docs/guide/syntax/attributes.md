@@ -154,4 +154,63 @@ Inside `` js`...` `` or `` css`...` ``, write `` \` `` for a literal backtick.
 The backslash escapes the gsx delimiter and is not part of the embedded
 JavaScript or CSS source.
 
+## Interpolating attribute literals
+
+A plain backtick literal in attribute-value position — `` name=`…@{ expr }…` `` —
+mixes static text with typed, auto-escaped holes, the same interleaving
+`{ expr }` already gives you in element bodies. It closes the gap for ordinary
+(non-JS, non-CSS) attribute values: without it, interleaving static text and a
+dynamic value in one attribute means falling back to string concatenation in
+Go.
+
+<!--@include: ./_generated/attributes/070-interpolating-attribute-literals.md-->
+
+Each `@{ expr }` hole is escaped by the Go type of `expr`: a string is
+attribute-escaped, an integer or other numeric type is formatted to its
+decimal string, and a `fmt.Stringer` is rendered via `String()` — the same
+type-aware rules `{ expr }` interpolation uses elsewhere. A hole also accepts a
+pipeline, evaluated before escaping: `` title=`Item @{ id |> upper }` ``.
+
+Two characters need escaping inside the literal: `` \` `` for a literal
+backtick, and `\@{` for a literal `@{` that should not be read as a hole.
+Anywhere else the text is copied through verbatim, exactly like a `` js`...` ``
+or `` css`...` `` literal.
+
+### URL attributes sanitize the whole value
+
+When the attribute is a URL context (`href`, `src`, `action`, and the rest of
+the URL-attribute table — see [Contextual escaping](#contextual-escaping)
+above), the literal's static text and holes are assembled into one string
+first, and *that whole string* is scheme-sanitized — not each hole
+individually. A dangerous scheme is blocked to `about:invalid#gsx` even when
+it is split across a hole boundary, because there is never a partial string to
+sneak a scheme past the check:
+
+<!--@include: ./_generated/attributes/080-url-attribute-literals-are-sanitized-whole.md-->
+
+A safe dynamic scheme still works — `` href=`@{scheme}://example.com` `` with
+`scheme = "https"` renders `href="https://example.com"` unchanged. For a
+value you have already validated and want to bypass the scheme check
+entirely, interpolate `gsx.RawURL(...)` instead of writing the URL as a
+backtick literal: `` href={ gsx.RawURL(trustedURL) } ``.
+
+### `class` and `style` are merge targets
+
+A `class` or `style` backtick literal composes with a forwarded `{ attrs... }`
+bag exactly like a static or composable `class`/`style` value does: the bag's
+class or style merges in caller-last, producing a single merged attribute
+instead of two competing ones. See [Class & style merging](./styling#class-style-merging)
+for the full merge story — the interpolated case is documented alongside it:
+
+<!--@include: ./_generated/styling/040-interpolated-class-literal-merges-with-a-spread-bag.md-->
+
+An interpolated literal with no spread on the element skips the merge
+machinery entirely and emits the assembled value directly — no `gsx.Attrs`
+prop is synthesized unless the component body references `attrs` elsewhere.
+
+`""` (a quoted string) stays a purely static value — gsx does not scan quoted
+attributes for `@{ }` holes, matching quoted `` js`` ``/`` css`` `` attributes.
+`{ expr }` remains a single Go expression; reach for the backtick literal only
+when an attribute value needs static text interleaved with one or more holes.
+
 For a complete reference of escaping contexts and the opt-out helpers (`gsx.Raw`, `gsx.RawURL`, `gsx.RawJS`, `gsx.RawCSS`), see [Escaping](./escaping).

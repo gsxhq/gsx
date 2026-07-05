@@ -21,15 +21,15 @@ import (
 // invariant.
 func FuzzURLLiteralSchemeSafety(f *testing.F) {
 	// Seeds spanning every class the earlier per-hole design failed on.
-	f.Add("/u/", "7", "/edit", "")                          // safe path
-	f.Add("", "https://ex.com", "/p", "")                   // safe origin from hole
-	f.Add("javascript:", "alert(1)", "", "")                // static dangerous scheme
-	f.Add("data:text/html,", "<script>x</script>", "", "")  // static data:
-	f.Add("", "javascript", ":alert(1)", "")                // split across holes
-	f.Add("java\tscript:", "alert(1)", "", "")               // control-byte obfuscation
-	f.Add(" javascript:", "alert(1)", "", "")                // leading-space obfuscation
-	f.Add("", "javascript:alert(1)", "", "")                 // whole-value in a hole
-	f.Add("//", "evil.com", "/p", "")                        // protocol-relative
+	f.Add("/u/", "7", "/edit", "")                         // safe path
+	f.Add("", "https://ex.com", "/p", "")                  // safe origin from hole
+	f.Add("javascript:", "alert(1)", "", "")               // static dangerous scheme
+	f.Add("data:text/html,", "<script>x</script>", "", "") // static data:
+	f.Add("", "javascript", ":alert(1)", "")               // split across holes
+	f.Add("java\tscript:", "alert(1)", "", "")             // control-byte obfuscation
+	f.Add(" javascript:", "alert(1)", "", "")              // leading-space obfuscation
+	f.Add("", "javascript:alert(1)", "", "")               // whole-value in a hole
+	f.Add("//", "evil.com", "/p", "")                      // protocol-relative
 	f.Fuzz(func(t *testing.T, s1, a, s2, b string) {
 		out, ok := tryRenderHref(t, s1, a, s2, b)
 		if !ok {
