@@ -32,6 +32,7 @@ func Box(_gsxp BoxProps) gsx.Node {
 		w := _gsxp.W
 		attrs := _gsxp.Attrs
 		_gsxgw := gsx.W(_gsxw)
+		var _gsxnum [32]byte
 //line input.gsx:4:2
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(gsx.DefaultClassMerge, attrs.Class())
@@ -39,7 +40,7 @@ func Box(_gsxp BoxProps) gsx.Node {
 			_gsxgw.StyleMerged("width:"+strconv.FormatInt(int64(w), 10)+"px", attrs.Style())
 		} else {
 			_gsxgw.S(" style=\"width:")
-			_gsxgw.AttrValue(strconv.FormatInt(int64(w), 10))
+			_gsxgw.IntInto(_gsxnum[:], int64(w))
 			_gsxgw.S("px\"")
 		}
 		_gsxgw.Spread(ctx, attrs.Without("class", "style"))

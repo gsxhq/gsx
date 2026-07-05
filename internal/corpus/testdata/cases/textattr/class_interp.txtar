@@ -19,7 +19,6 @@ package p
 import (
 	"context"
 	"io"
-	"strconv"
 
 	"github.com/gsxhq/gsx"
 )
@@ -35,11 +34,12 @@ func Badge(_gsxp BadgeProps) gsx.Node {
 		variant := _gsxp.Variant
 		n := _gsxp.N
 		_gsxgw := gsx.W(_gsxw)
+		var _gsxnum [32]byte
 //line input.gsx:4:2
 		_gsxgw.S("<span class=\"badge badge-")
 		_gsxgw.AttrValue(string(variant))
 		_gsxgw.S(" n-")
-		_gsxgw.AttrValue(strconv.FormatInt(int64(n), 10))
+		_gsxgw.IntInto(_gsxnum[:], int64(n))
 		_gsxgw.S("\">Hi</span>")
 		return _gsxgw.Err()
 	})
