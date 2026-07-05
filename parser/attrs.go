@@ -316,10 +316,29 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 }
 
 func (p *parser) parseBracedEmbeddedAttrValue(name string, attrStartPos token.Pos) (ast.Attr, error) {
+	braceStart := p.i
 	p.i++ // past '{'
 	lang, segments, err := p.parseEmbeddedAttrLiteral()
 	if err != nil {
 		return nil, err
+	}
+	p.skipSpace()
+	// Optional whole-literal `|> f` pipeline: name={`…` |> f}. Only recognized
+	// when the remainder up to the matching `}` is blank or `|>`-prefixed;
+	// otherwise leave the cursor for the `}` check below to report normally.
+	if end, ok := goExprEnd(p.src, braceStart); ok {
+		slice := p.src[p.i:end]
+		trimmed := strings.TrimSpace(slice)
+		if trimmed == "" || strings.HasPrefix(trimmed, "|>") {
+			stages, perr := parseTrailingStages(slice, p.posAt(p.i))
+			if perr != nil {
+				return nil, p.pipeErrorf(attrStartPos, perr)
+			}
+			ea := &ast.EmbeddedAttr{Name: name, Lang: lang, Segments: segments, Stages: stages}
+			p.i = end + 1 // past '}'
+			ast.SetSpan(ea, attrStartPos, p.posAt(p.i))
+			return ea, nil
+		}
 	}
 	if p.eof() || p.src[p.i] != '}' {
 		return nil, p.errorf(p.pos(), "expected `}` after embedded attribute literal for %q", name)
