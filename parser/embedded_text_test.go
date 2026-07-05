@@ -96,3 +96,96 @@ func TestEmbeddedTextEscapedHole(t *testing.T) {
 		t.Fatalf("literal text = %q, want %q", got, want)
 	}
 }
+
+// firstEmbeddedInterp walks f and returns the first *ast.EmbeddedInterp found,
+// failing the test if none is present.
+func firstEmbeddedInterp(t *testing.T, f *ast.File) *ast.EmbeddedInterp {
+	t.Helper()
+	var found *ast.EmbeddedInterp
+	ast.Inspect(f, func(n ast.Node) bool {
+		if found != nil {
+			return false
+		}
+		if ei, ok := n.(*ast.EmbeddedInterp); ok {
+			found = ei
+			return false
+		}
+		return true
+	})
+	if found == nil {
+		t.Fatalf("no *ast.EmbeddedInterp found in file")
+	}
+	return found
+}
+
+// hasEmbeddedInterp reports whether f contains any *ast.EmbeddedInterp node.
+func hasEmbeddedInterp(f *ast.File) bool {
+	found := false
+	ast.Inspect(f, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		if _, ok := n.(*ast.EmbeddedInterp); ok {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+func TestParseBodyEmbeddedInterp(t *testing.T) {
+	src := "package p\ncomponent C(id string, n int) { <p>{`row-@{id}-@{n}`}</p> }\n"
+	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	ei := firstEmbeddedInterp(t, f) // add helper: walk via ast.Inspect for *ast.EmbeddedInterp
+	// segments: Text("row-"), Interp(id), Text("-"), Interp(n)
+	if len(ei.Segments) != 4 {
+		t.Fatalf("segments=%d want 4: %#v", len(ei.Segments), ei.Segments)
+	}
+	if len(ei.Stages) != 0 {
+		t.Fatalf("stages=%d want 0", len(ei.Stages))
+	}
+}
+
+func TestParseBodyEmbeddedInterpPipe(t *testing.T) {
+	src := "package p\ncomponent C(id string) { <p>{`row-@{id}` |> upper}</p> }\n"
+	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	ei := firstEmbeddedInterp(t, f)
+	if len(ei.Stages) != 1 || ei.Stages[0].Name != "upper" {
+		t.Fatalf("stages=%v want [upper]", ei.Stages)
+	}
+}
+
+func TestBodyBacktickSubExpressionStaysGo(t *testing.T) {
+	// a backtick that is NOT the whole { } value stays a Go raw string.
+	src := "package p\ncomponent C(x string) { <p>{`a` + x}</p> }\n"
+	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	// must NOT be an EmbeddedInterp — it's an ordinary Interp with Expr "`a` + x"
+	if hasEmbeddedInterp(f) {
+		t.Fatalf("`a` + x must stay a Go expression, not EmbeddedInterp")
+	}
+}
+
+func TestParseEmbeddedAttrBracedPipe(t *testing.T) {
+	src := "package p\ncomponent C(v string) { <span class={`badge-@{v}` |> upper}>h</span> }\n"
+	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	ea := firstEmbeddedAttr(t, f)
+	if ea.Lang != ast.EmbeddedText {
+		t.Fatalf("Lang = %d, want EmbeddedText", ea.Lang)
+	}
+	if len(ea.Stages) != 1 || ea.Stages[0].Name != "upper" {
+		t.Fatalf("stages=%v want [upper]", ea.Stages)
+	}
+}

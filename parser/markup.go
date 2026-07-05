@@ -515,8 +515,65 @@ func (p *parser) parseBraceNode() (ast.Markup, bool, error) {
 		n, err := p.parseSwitchMarkup()
 		return n, false, err
 	}
+	if in, ok, err := p.tryParseBodyEmbeddedInterp(); err != nil {
+		return nil, false, err
+	} else if ok {
+		return in, false, nil
+	}
 	in, err := p.parseInterp()
 	return in, false, err
+}
+
+// tryParseBodyEmbeddedInterp recognizes a lone backtick literal — optionally
+// followed by a whole-literal `|>` pipeline — as the *entire* value of a body
+// `{ }`: {`…@{expr}…`} or {`…` |> f}. Cursor must be at the opening `{`.
+//
+// It returns (nil, false, nil) with the cursor rewound to its entry position
+// when the `{ }` is not this shape (no leading backtick, a `js`/`css` literal,
+// or trailing content after the literal that isn't a `|>` pipeline — e.g.
+// `{ `a` + b }`), so the caller falls back to parseInterp and the content
+// stays an ordinary Go expression.
+func (p *parser) tryParseBodyEmbeddedInterp() (*ast.EmbeddedInterp, bool, error) {
+	start := p.i // at '{'
+	startPos := p.posAt(start)
+	end, ok := goExprEnd(p.src, start)
+	if !ok {
+		return nil, false, p.errorf(startPos, "unterminated `{`")
+	}
+	p.i++ // past '{'
+	p.skipSpace()
+	if !p.at("`") {
+		// Bare backtick only — `js`/`css` embedded literals aren't valid in
+		// body position, and anything else isn't a lone literal at all.
+		p.i = start
+		return nil, false, nil
+	}
+	lang, segs, err := p.parseEmbeddedAttrLiteral()
+	if err != nil {
+		return nil, false, err
+	}
+	if lang != ast.EmbeddedText {
+		p.i = start
+		return nil, false, nil
+	}
+	p.skipSpace()
+	// Everything from here to the matching `}` must be blank (no stages) or a
+	// `|>` pipeline; anything else means the backtick was only part of a
+	// larger Go expression (e.g. `` `a` + b ``), so this isn't a lone literal.
+	slice := p.src[p.i:end]
+	trimmed := strings.TrimSpace(slice)
+	if trimmed != "" && !strings.HasPrefix(trimmed, "|>") {
+		p.i = start
+		return nil, false, nil
+	}
+	stages, perr := parseTrailingStages(slice, p.posAt(p.i))
+	if perr != nil {
+		return nil, false, p.pipeErrorf(startPos, perr)
+	}
+	p.i = end + 1 // past '}'
+	node := &ast.EmbeddedInterp{Segments: segs, Stages: stages}
+	ast.SetSpan(node, startPos, p.posAt(p.i))
+	return node, true, nil
 }
 
 func (p *parser) parseAttrs() ([]ast.Attr, error) {
