@@ -43,6 +43,96 @@ func FuzzURLLiteralSchemeSafety(f *testing.F) {
 	})
 }
 
+// FuzzURLWholeLiteralPipeSchemeSafety renders `<a href={`@{u}` |> upper}>` for a
+// fuzzed hole value u, and asserts the browser-effective scheme is never
+// dangerous. This guards the whole-literal-pipe URL invariant (Task 4/5): a
+// braced-attr backtick literal followed by `|> filter` assembles the value,
+// runs the filter, and only THEN sanitizes via a single _gsxgw.URL(...). A
+// filter (upper here) that would turn a hole into a dangerous scheme
+// ("javascript:alert(1)" -> "JAVASCRIPT:ALERT(1)") must still be blocked,
+// because URL() runs on the POST-pipe result — sanitize-after-pipe.
+func FuzzURLWholeLiteralPipeSchemeSafety(f *testing.F) {
+	f.Add("javascript:alert(1)")   // dangerous scheme, whole value in the hole
+	f.Add("JavaScript:alert(1)")   // mixed-case (upper doesn't change the danger)
+	f.Add("data:text/html,<x>")    // data: scheme
+	f.Add("java\tscript:alert(1)") // control-byte obfuscation survives upper
+	f.Add(" javascript:alert(1)")  // leading-space obfuscation
+	f.Add("https://ex.com/p")      // safe origin
+	f.Add("/u/7/edit")             // safe relative path
+	f.Fuzz(func(t *testing.T, u string) {
+		out, ok := tryRenderHrefPiped(t, u)
+		if !ok {
+			return // compile/build error is acceptable (never an XSS)
+		}
+		val := extractHref(out)
+		if sch := effectiveScheme(val); isDangerousScheme(sch) {
+			t.Fatalf("dangerous scheme %q from piped u=%q -> href=%q", sch, u, val)
+		}
+	})
+}
+
+// tryRenderHrefPiped compiles, builds, and renders a one-off component
+//
+//	component L(u string) { <a href={`@{u}` |> upper}>x</a> }
+//
+// with u passed as the component's string prop, driving the same GenerateDirs
+// pipeline as tryRenderHref but exercising the BRACED whole-literal-pipe attr
+// form. The std filter package is wired in via FilterPkgs so `upper` resolves.
+func tryRenderHrefPiped(t *testing.T, u string) (string, bool) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping go-run render fuzz in -short mode")
+	}
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp := t.TempDir()
+	writeMultiFile(t, tmp, "go.mod", "module gsxurlfuzz\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+
+	viewsDir := filepath.Join(tmp, "views")
+	if err := os.MkdirAll(viewsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := "package views\n\ncomponent L(u string) {\n\t<a href={`@{u}` |> upper}>x</a>\n}\n"
+	writeMultiFile(t, viewsDir, "views.gsx", src)
+
+	genRes, err := GenerateDirs(tmp, []string{viewsDir}, Options{FilterPkgs: []string{stdImportPath}}, nil)
+	if err != nil {
+		return "", false
+	}
+	dr := genRes[viewsDir]
+	if hasDiagErrors(dr.Diags) {
+		return "", false
+	}
+	for gsxPath, gen := range dr.Files {
+		base := strings.TrimSuffix(filepath.Base(gsxPath), ".gsx")
+		writeMultiFile(t, viewsDir, base+".x.go", string(gen))
+	}
+
+	writeMultiFile(t, tmp, "main.go", `package main
+
+import (
+	"context"
+	"os"
+
+	p "gsxurlfuzz/views"
+)
+
+func main() {
+	_ = p.L(p.LProps{U: `+strconv.Quote(u)+`}).Render(context.Background(), os.Stdout)
+}
+`)
+
+	cmd := exec.Command("go", "run", ".")
+	cmd.Dir = tmp
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", false
+	}
+	return string(out), true
+}
+
 // tryRenderHref compiles, builds, and renders a one-off component
 //
 //	component L(a string, b string) { <a href=`<s1>@{a}<s2>@{b}`>x</a> }
