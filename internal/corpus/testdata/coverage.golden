@@ -422,6 +422,7 @@ style/value_switch	diag gen render
 textattr/class_interp	diag gen render
 textattr/class_no_spread	diag gen render
 textattr/class_spread_merge	diag gen render
+textattr/expr_attr_numeric	diag gen render
 textattr/plain_attr	diag gen render
 textattr/style_spread_merge	diag gen render
 textattr/url_dangerous_blocked	diag gen render
@@ -471,4 +472,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 473 cases (render: 379, error: 71, gen-pinned: 217)
+TOTAL: 474 cases (render: 380, error: 71, gen-pinned: 218)
