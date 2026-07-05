@@ -2078,25 +2078,120 @@ func emitEmbeddedJSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.N
 }
 
 // emitEmbeddedTextAttr emits a plain backtick attribute literal name=`…@{expr}…`.
-// Static text is HTML-attr-escaped at codegen; each hole is emitted type-aware via
-// emitTextAttrInterp (URL-context regioning is applied there, Task 5).
+// A URL-context attribute (cls.Context(a.Name) == attrclass.CtxURL) is sanitized
+// as a WHOLE value: every segment (static text and each hole) is assembled into
+// one Go string expression and passed through a single _gsxgw.URL(...) call — the
+// SAME urlSanitize fail-closed allow-list + entity-escape that href={ expr } uses.
+// This is deliberate: an earlier per-hole classifier had FIVE browser-confirmed
+// XSS bypasses (a dangerous scheme can be split across hole boundaries, e.g.
+// href=`@{a}@{b}` with a="javascript" b=":alert(1)"). There is no per-hole
+// scheme/seam detection here — assembling first and sanitizing once closes that
+// class of bypass entirely. Non-URL attributes keep the Task-4 per-segment path
+// (Text -> S(htmlAttrEscape), Interp -> emitTextAttrInterp) unchanged.
 func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, bag *diag.Bag) bool {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
-	for _, seg := range a.Segments {
-		switch s := seg.(type) {
-		case *ast.Text:
-			fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(htmlAttrEscape(s.Value)))
-		case *ast.Interp:
-			if !emitTextAttrInterp(b, s, resolved, table, imports, interpTemp, cls, a.Name, bag) {
+	if cls.Context(a.Name) == attrclass.CtxURL {
+		parts := make([]string, 0, len(a.Segments))
+		for _, seg := range a.Segments {
+			switch s := seg.(type) {
+			case *ast.Text:
+				if s.Value == "" {
+					continue
+				}
+				// RAW text, NOT htmlAttrEscape'd: _gsxgw.URL entity-escapes the
+				// whole assembled value itself.
+				parts = append(parts, strconv.Quote(s.Value))
+			case *ast.Interp:
+				p, ok := holeStringExpr(b, s, resolved, table, imports, interpTemp, bag)
+				if !ok {
+					return false
+				}
+				parts = append(parts, p)
+			default:
+				bag.Errorf(seg.Pos(), seg.End(), "unsupported-attr", "attribute %q value may contain only text and @{ } interpolations, got %T", a.Name, seg)
 				return false
 			}
-		default:
-			bag.Errorf(seg.Pos(), seg.End(), "unsupported-attr", "attribute %q value may contain only text and @{ } interpolations, got %T", a.Name, seg)
-			return false
+		}
+		concat := `""`
+		if len(parts) > 0 {
+			concat = strings.Join(parts, " + ")
+		}
+		fmt.Fprintf(b, "\t\t_gsxgw.URL(%s)\n", concat)
+	} else {
+		for _, seg := range a.Segments {
+			switch s := seg.(type) {
+			case *ast.Text:
+				fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(htmlAttrEscape(s.Value)))
+			case *ast.Interp:
+				if !emitTextAttrInterp(b, s, resolved, table, imports, interpTemp, cls, a.Name, bag) {
+					return false
+				}
+			default:
+				bag.Errorf(seg.Pos(), seg.End(), "unsupported-attr", "attribute %q value may contain only text and @{ } interpolations, got %T", a.Name, seg)
+				return false
+			}
 		}
 	}
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
 	return true
+}
+
+// holeStringExpr lowers one @{ } hole inside a URL-context backtick attribute
+// literal to a Go STRING expression, for whole-value assembly by
+// emitEmbeddedTextAttr's CtxURL branch. It mirrors emitTextAttrInterp's pipeline
+// (lowerPipe/emitPipeWrap) and (T, error) tuple auto-unwrap (tupleUnwrapType/
+// hoistTuple) — any hoisting is emitted to b BEFORE this returns, so temps
+// precede the _gsxgw.URL(...) call that consumes the returned expression. Type
+// routing mirrors emitAttrValue's classify(t) categories (emit.go ~2670), but
+// produces an expression instead of a writer call: string/[]byte -> string(x),
+// int/uint/float -> strconv.Format*, Stringer -> (x).String(). Any other type
+// (bool, catAnyMixed, unresolved) cannot safely carry a URL fragment and is
+// rejected with a diagnostic.
+func holeStringExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) (string, bool) {
+	expr := strings.TrimSpace(n.Expr)
+	if len(n.Stages) > 0 {
+		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, emitPipeWrap(b, interpTemp))
+		if err != nil {
+			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+			return "", false
+		}
+		for _, p := range usedPkgs {
+			imports[p] = true
+		}
+		expr = lowered
+	}
+	t, ok := resolved[n]
+	if !ok || t == nil {
+		bag.Errorf(n.Pos(), n.End(), "unresolved-interp", "could not resolve type of URL interpolation %q", n.Expr)
+		return "", false
+	}
+	if _, isTuple := t.(*types.Tuple); isTuple {
+		elemT, ok := tupleUnwrapType(t)
+		if !ok {
+			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "URL interpolation %q returns %s; only (T, error) is supported", expr, t)
+			return "", false
+		}
+		expr = hoistTuple(b, expr, interpTemp)
+		t = elemT
+	}
+	switch classify(t) {
+	case catString, catBytes:
+		return "string(" + expr + ")", true
+	case catInt:
+		imports["strconv"] = true
+		return "strconv.FormatInt(int64(" + expr + "), 10)", true
+	case catUint:
+		imports["strconv"] = true
+		return "strconv.FormatUint(uint64(" + expr + "), 10)", true
+	case catFloat:
+		imports["strconv"] = true
+		return "strconv.FormatFloat(float64(" + expr + "), 'g', -1, 64)", true
+	case catStringer:
+		return "(" + expr + ").String()", true
+	default:
+		bag.Errorf(n.Pos(), n.End(), "unsupported-url-type", "URL interpolation %q has unsupported type %s (need string/number/Stringer)", n.Expr, t)
+		return "", false
+	}
 }
 
 // emitEmbeddedCSSAttr emits an explicit CSS attribute literal whose quoted value
