@@ -280,12 +280,14 @@ func TestBodyBacktickBackslashSubExpressionStaysGo(t *testing.T) {
 
 // TestBracedAttrBacktickBackslashSubExpressionStaysGo is the braced-attr
 // sibling of TestBodyBacktickBackslashSubExpressionStaysGo: a Go raw string
-// ending in a backslash, used as a sub-expression of `class={ … }`, must parse
+// ending in a backslash, used as a sub-expression of `title={ … }`, must parse
 // as an ordinary ExprAttr rather than erroring out of
-// parseBracedEmbeddedAttrValue.
+// parseBracedEmbeddedAttrValue. A plain (non class/style) attribute name is used
+// so the fallback yields ExprAttr — class/style route through parseComposedAttr
+// instead (see TestBracedAttrBacktickBackslashSubExpressionClassComposes).
 func TestBracedAttrBacktickBackslashSubExpressionStaysGo(t *testing.T) {
 	lit := "`" + "a" + "\\" + "`" // literal bytes: ` a \ `
-	src := "package p\ncomponent C(x string) { <span class={" + lit + " + x}>h</span> }\n"
+	src := "package p\ncomponent C(x string) { <span title={" + lit + " + x}>h</span> }\n"
 	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -302,10 +304,43 @@ func TestBracedAttrBacktickBackslashSubExpressionStaysGo(t *testing.T) {
 		return true
 	})
 	if expr == nil {
-		t.Fatalf("no *ast.ExprAttr found in file (want the class attr parsed as an ordinary Go expression)")
+		t.Fatalf("no *ast.ExprAttr found in file (want the title attr parsed as an ordinary Go expression)")
 	}
 	if want := lit + " + x"; expr.Expr != want {
 		t.Fatalf("Expr = %q, want %q", expr.Expr, want)
+	}
+}
+
+// TestBracedAttrBacktickBackslashSubExpressionClassComposes pins the class/style
+// dispatch in parseBracedEmbeddedAttrValue's fallback: when a class value starts
+// with a backtick but is actually a Go sub-expression (so it is NOT a lone gsx
+// literal), it must fall back to parseComposedAttr and remain a *ast.ClassAttr —
+// the node the fallthrough/forwarding merge machinery recognizes — not a plain
+// ExprAttr (which would silently drop the component's own class when a caller
+// forwards class via an attrs bag).
+func TestBracedAttrBacktickBackslashSubExpressionClassComposes(t *testing.T) {
+	lit := "`" + "a" + "\\" + "`" // literal bytes: ` a \ `
+	src := "package p\ncomponent C(x string) { <span class={" + lit + " + x}>h</span> }\n"
+	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	var cls *ast.ClassAttr
+	ast.Inspect(f, func(n ast.Node) bool {
+		if cls != nil {
+			return false
+		}
+		if ca, ok := n.(*ast.ClassAttr); ok {
+			cls = ca
+			return false
+		}
+		return true
+	})
+	if cls == nil {
+		t.Fatalf("no *ast.ClassAttr found (want the class attr parsed as a composed ClassAttr so it merges with forwarded bag classes)")
+	}
+	if cls.Name != "class" {
+		t.Fatalf("ClassAttr.Name = %q, want %q", cls.Name, "class")
 	}
 }
 
