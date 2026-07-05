@@ -316,21 +316,31 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 }
 
 func (p *parser) parseBracedEmbeddedAttrValue(name string, attrStartPos token.Pos) (ast.Attr, error) {
-	braceStart := p.i
 	p.i++ // past '{'
+	// parseEmbeddedAttrLiteral consumes the literal INCLUDING any gsx
+	// backslash-backtick escapes and leaves the cursor right after the closing
+	// backtick. Only the region AFTER the literal (pipe stages, or nothing but
+	// `}`) is bounded by a Go-aware scan below (goStagesEnd) — that region
+	// can't contain a gsx backtick escape, so a Go-aware scan is safe there
+	// even though it is not safe over the literal itself (see goStagesEnd
+	// doc).
 	lang, segments, err := p.parseEmbeddedAttrLiteral()
 	if err != nil {
 		return nil, err
 	}
 	p.skipSpace()
-	// Optional whole-literal `|> f` pipeline: name={`…` |> f}. Only recognized
-	// when the remainder up to the matching `}` is blank or `|>`-prefixed;
-	// otherwise leave the cursor for the `}` check below to report normally.
-	if end, ok := goExprEnd(p.src, braceStart); ok {
-		slice := p.src[p.i:end]
-		trimmed := strings.TrimSpace(slice)
-		if trimmed == "" || strings.HasPrefix(trimmed, "|>") {
-			stages, perr := parseTrailingStages(slice, p.posAt(p.i))
+	afterLiteral := p.i
+	if !p.eof() && p.src[p.i] == '}' {
+		p.i++ // past '}'
+		ea := &ast.EmbeddedAttr{Name: name, Lang: lang, Segments: segments}
+		ast.SetSpan(ea, attrStartPos, p.posAt(p.i))
+		return ea, nil
+	}
+	// Optional whole-literal `|> f` pipeline: name={`…` |> f}.
+	if p.at("|>") {
+		if end, ok := goStagesEnd(p.src, afterLiteral); ok {
+			slice := p.src[afterLiteral:end]
+			stages, perr := parseTrailingStages(slice, p.posAt(afterLiteral))
 			if perr != nil {
 				return nil, p.pipeErrorf(attrStartPos, perr)
 			}
@@ -340,13 +350,7 @@ func (p *parser) parseBracedEmbeddedAttrValue(name string, attrStartPos token.Po
 			return ea, nil
 		}
 	}
-	if p.eof() || p.src[p.i] != '}' {
-		return nil, p.errorf(p.pos(), "expected `}` after embedded attribute literal for %q", name)
-	}
-	p.i++ // past '}'
-	ea := &ast.EmbeddedAttr{Name: name, Lang: lang, Segments: segments}
-	ast.SetSpan(ea, attrStartPos, p.posAt(p.i))
-	return ea, nil
+	return nil, p.errorf(p.pos(), "expected `}` after embedded attribute literal for %q", name)
 }
 
 func (p *parser) parseEmbeddedAttrValue(name string, attrStartPos token.Pos) (ast.Attr, error) {

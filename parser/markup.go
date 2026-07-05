@@ -536,18 +536,22 @@ func (p *parser) parseBraceNode() (ast.Markup, bool, error) {
 func (p *parser) tryParseBodyEmbeddedInterp() (*ast.EmbeddedInterp, bool, error) {
 	start := p.i // at '{'
 	startPos := p.posAt(start)
-	end, ok := goExprEnd(p.src, start)
-	if !ok {
-		return nil, false, p.errorf(startPos, "unterminated `{`")
-	}
 	p.i++ // past '{'
 	p.skipSpace()
 	if !p.at("`") {
 		// Bare backtick only — `js`/`css` embedded literals aren't valid in
-		// body position, and anything else isn't a lone literal at all.
+		// body position, and anything else isn't a lone literal at all. Rewind
+		// and let parseInterp scan (and error on) the whole `{ }` as Go.
 		p.i = start
 		return nil, false, nil
 	}
+	// parseEmbeddedAttrLiteral consumes the literal INCLUDING any gsx
+	// backslash-backtick escapes and leaves the cursor right after the closing
+	// backtick. Only the
+	// region AFTER the literal (pipe stages, or nothing but `}`) is bounded by
+	// a Go-aware scan below — that region can't contain a gsx backtick escape,
+	// so goStagesEnd is safe there even though goExprEnd is not safe over the
+	// literal itself.
 	lang, segs, err := p.parseEmbeddedAttrLiteral()
 	if err != nil {
 		return nil, false, err
@@ -557,16 +561,27 @@ func (p *parser) tryParseBodyEmbeddedInterp() (*ast.EmbeddedInterp, bool, error)
 		return nil, false, nil
 	}
 	p.skipSpace()
-	// Everything from here to the matching `}` must be blank (no stages) or a
-	// `|>` pipeline; anything else means the backtick was only part of a
-	// larger Go expression (e.g. `` `a` + b ``), so this isn't a lone literal.
-	slice := p.src[p.i:end]
-	trimmed := strings.TrimSpace(slice)
-	if trimmed != "" && !strings.HasPrefix(trimmed, "|>") {
+	afterLiteral := p.i
+	if !p.eof() && p.src[p.i] == '}' {
+		p.i++ // past '}'
+		node := &ast.EmbeddedInterp{Segments: segs}
+		ast.SetSpan(node, startPos, p.posAt(p.i))
+		return node, true, nil
+	}
+	if !p.at("|>") {
+		// Anything else (e.g. `+ b`) means the backtick was only part of a
+		// larger Go expression, so this isn't a lone literal.
 		p.i = start
 		return nil, false, nil
 	}
-	stages, perr := parseTrailingStages(slice, p.posAt(p.i))
+	end, ok := goStagesEnd(p.src, afterLiteral)
+	if !ok {
+		// Committed to a `|>` pipeline shape at this point — an unterminated
+		// tail is a real syntax error, not a cue to reinterpret as Go.
+		return nil, false, p.errorf(startPos, "unterminated `{`")
+	}
+	slice := p.src[afterLiteral:end]
+	stages, perr := parseTrailingStages(slice, p.posAt(afterLiteral))
 	if perr != nil {
 		return nil, false, p.pipeErrorf(startPos, perr)
 	}
