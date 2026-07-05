@@ -98,8 +98,8 @@ func TestClassifyUnusedImports(t *testing.T) {
 		{name: ".", path: "math"},           // dot → never removed
 	}
 	unused, candidates := classifyUnusedImports(used, imps, nil, fset)
-	if len(unused) != 1 || unused[0].Path != "os" || unused[0].Name != " al" {
-		t.Errorf("unused=%+v, want only { al os}", unused)
+	if len(unused) != 1 || unused[0].Path != "os" || unused[0].Name != "al" {
+		t.Errorf("unused=%+v, want only {al os}", unused)
 	}
 	if len(candidates) != 1 || candidates[0].path != "bytes" {
 		t.Errorf("candidates=%+v, want only bytes", candidates)
