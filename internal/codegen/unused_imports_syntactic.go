@@ -9,6 +9,7 @@ import (
 
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/jsx"
+	"golang.org/x/tools/go/packages"
 )
 
 // skeletonUsedNames returns the set of identifiers used as the qualifier X in
@@ -149,6 +150,77 @@ func (m *Module) buildPackageSkeletons(dir string) (*packageSkeletons, error) {
 			}
 		}
 		out.byGsx[path] = fileSkeleton{skel: gf, imps: imps, sunk: sunk}
+	}
+	return out, nil
+}
+
+// resolvePackageNames returns the real package name for each import path, via a
+// NeedName-only load (no type-checking, no dependency resolution). Unresolvable
+// paths are simply absent from the result, so the caller keeps those imports.
+func (m *Module) resolvePackageNames(paths []string) map[string]string {
+	out := map[string]string{}
+	if len(paths) == 0 {
+		return out
+	}
+	cfg := &packages.Config{Mode: packages.NeedName, Dir: m.opts.ModuleRoot}
+	pkgs, err := packages.Load(cfg, paths...)
+	if err != nil {
+		return out
+	}
+	for _, p := range pkgs {
+		if p.PkgPath != "" && p.Name != "" {
+			out[p.PkgPath] = p.Name
+		}
+	}
+	return out
+}
+
+// UnusedImports returns, per .gsx file (abs path) in dir, the imports the file
+// declares but never references — determined syntactically from the skeleton,
+// with NO type-checking and NO dependency resolution. Default imports whose path
+// base is not referenced have their real package name resolved via a single
+// cheap NeedName load before removal, so a package whose name differs from its
+// path base (e.g. gopkg.in/yaml.v3 → "yaml") is handled correctly.
+func (m *Module) UnusedImports(dir string) (map[string][]UnusedImport, error) {
+	ps, err := m.buildPackageSkeletons(dir)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string][]UnusedImport{}
+	usedByFile := map[string]map[string]bool{}
+	type pending struct {
+		gsxPath string
+		imp     importSpec
+	}
+	var candidates []pending
+	candPaths := map[string]bool{}
+	for gsxPath, fs := range ps.byGsx {
+		used := skeletonUsedNames(fs.skel)
+		usedByFile[gsxPath] = used
+		unused, cands := classifyUnusedImports(used, fs.imps, fs.sunk, ps.gsxFset)
+		if len(unused) > 0 {
+			out[gsxPath] = unused
+		}
+		for _, c := range cands {
+			candidates = append(candidates, pending{gsxPath, c})
+			candPaths[c.path] = true
+		}
+	}
+	if len(candPaths) > 0 {
+		paths := make([]string, 0, len(candPaths))
+		for p := range candPaths {
+			paths = append(paths, p)
+		}
+		names := m.resolvePackageNames(paths)
+		for _, p := range candidates {
+			realName, ok := names[p.imp.path]
+			if !ok {
+				continue // unresolvable → conservative keep
+			}
+			if !usedByFile[p.gsxPath][realName] {
+				out[p.gsxPath] = append(out[p.gsxPath], UnusedImport{Name: p.imp.name, Path: p.imp.path})
+			}
+		}
 	}
 	return out, nil
 }
