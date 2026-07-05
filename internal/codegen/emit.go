@@ -1546,7 +1546,9 @@ func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type,
 }
 
 // emitEmbeddedInterp emits a body/child interpolating backtick literal
-// {`…@{expr}…`} [ |> f ]. It is always plain-text (HTML-text-escaped) — no
+// {`…@{expr}…`} [ |> f ]. It is always plain-text — the holes and any piped
+// result are Text-context escaped, while trusted static source text is emitted
+// verbatim (gsx's body-text model: statics are raw, holes are escaped). No
 // js/css lang is valid in body position (parser guarantee).
 //
 // No stages (len(n.Stages)==0): the literal renders per-segment, preserving the
