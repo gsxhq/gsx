@@ -18,7 +18,6 @@ package p
 import (
 	"context"
 	"io"
-	"strconv"
 
 	"github.com/gsxhq/gsx"
 	_gsxstd "github.com/gsxhq/gsx/std"
@@ -35,11 +34,12 @@ func Row(_gsxp RowProps) gsx.Node {
 		id := _gsxp.Id
 		n := _gsxp.N
 		_gsxgw := gsx.W(_gsxw)
+		var _gsxnum [32]byte
 //line input.gsx:4:2
 		_gsxgw.S("<div data-key=\"row-")
 		_gsxgw.AttrValue(string(id))
 		_gsxgw.S("-")
-		_gsxgw.AttrValue(strconv.FormatInt(int64(n), 10))
+		_gsxgw.IntInto(_gsxnum[:], int64(n))
 		_gsxgw.S("\" title=\"Item ")
 		_gsxgw.AttrValue(string(_gsxstd.Upper((id))))
 		_gsxgw.S("\">x</div>")
