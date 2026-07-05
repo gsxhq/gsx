@@ -1965,6 +1965,10 @@ func emitAttr(b *bytes.Buffer, refreshMeta bool, a ast.Attr, resolved map[ast.No
 			if !emitEmbeddedCSSAttr(b, t, resolved, table, imports, interpTemp, bag) {
 				return false
 			}
+		case ast.EmbeddedText:
+			if !emitEmbeddedTextAttr(b, t, resolved, table, imports, interpTemp, cls, bag) {
+				return false
+			}
 		default:
 			bag.Errorf(a.Pos(), a.End(), "unsupported-attr", "unknown embedded attribute language %d", t.Lang)
 			return false
@@ -2073,6 +2077,28 @@ func emitEmbeddedJSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.N
 	return true
 }
 
+// emitEmbeddedTextAttr emits a plain backtick attribute literal name=`…@{expr}…`.
+// Static text is HTML-attr-escaped at codegen; each hole is emitted type-aware via
+// emitTextAttrInterp (URL-context regioning is applied there, Task 5).
+func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, bag *diag.Bag) bool {
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
+	for _, seg := range a.Segments {
+		switch s := seg.(type) {
+		case *ast.Text:
+			fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(htmlAttrEscape(s.Value)))
+		case *ast.Interp:
+			if !emitTextAttrInterp(b, s, resolved, table, imports, interpTemp, cls, a.Name, bag) {
+				return false
+			}
+		default:
+			bag.Errorf(seg.Pos(), seg.End(), "unsupported-attr", "attribute %q value may contain only text and @{ } interpolations, got %T", a.Name, seg)
+			return false
+		}
+	}
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
+	return true
+}
+
 // emitEmbeddedCSSAttr emits an explicit CSS attribute literal whose quoted value
 // is literal CSS with @{ } holes. Static CSS text is HTML-attr-escaped at
 // codegen; each hole is CSS-value-filtered with gsx.StyleValue and then
@@ -2128,6 +2154,40 @@ func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]type
 		return emitJSAttrValue(b, n.JSCtx, tmp, elemT, n, bag)
 	}
 	return emitJSAttrValue(b, n.JSCtx, expr, t, n, bag)
+}
+
+// emitTextAttrInterp renders one @{ } hole in a plain attribute literal. Mirrors
+// emitJSAttrInterp's pipeline + (T,error) auto-unwrap, then routes through the
+// type-aware emitAttrValue (string→AttrValue, numbers→strconv, Stringer→.String()).
+// cls/attrName drive URL-context regioning in Task 5; here every hole is a plain value.
+func emitTextAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, attrName string, bag *diag.Bag) bool {
+	expr := strings.TrimSpace(n.Expr)
+	if len(n.Stages) > 0 {
+		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, emitPipeWrap(b, interpTemp))
+		if err != nil {
+			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+			return false
+		}
+		for _, p := range usedPkgs {
+			imports[p] = true
+		}
+		expr = lowered
+	}
+	t, ok := resolved[n]
+	if !ok || t == nil {
+		bag.Errorf(n.Pos(), n.End(), "unresolved-interp", "could not resolve type of attribute interpolation %q", n.Expr)
+		return false
+	}
+	if _, isTuple := t.(*types.Tuple); isTuple {
+		elemT, ok := tupleUnwrapType(t)
+		if !ok {
+			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "attribute interpolation %q returns %s; only (T, error) is supported", expr, t)
+			return false
+		}
+		tmp := hoistTuple(b, expr, interpTemp)
+		return emitAttrValue(b, tmp, elemT, imports, n, bag)
+	}
+	return emitAttrValue(b, expr, t, imports, n, bag)
 }
 
 // emitCSSAttrInterp renders one @{ } hole in an explicit CSS attribute literal.
