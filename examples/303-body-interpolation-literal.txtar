@@ -1,0 +1,16 @@
+-- doc --
+name: Body backtick literals
+summary: A lone backtick literal in body braces interpolates static text and typed @{ } holes per-segment — no Go string concatenation, no materialized string.
+category: Basics
+page: interpolation
+pageOrder: 40
+-- input.gsx --
+package views
+
+component Row(id string, n int) {
+	<p>{`row-@{id}-@{n}`}</p>
+}
+-- invoke --
+Row(RowProps{Id: "a&b", N: 5})
+-- render.golden --
+<p>row-a&amp;b-5</p>

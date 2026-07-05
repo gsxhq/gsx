@@ -14,6 +14,35 @@ The `{ name }` and `{ count }` expressions are evaluated against the component's
 Note that `{ expr }` is **interpolation** — it emits a value. It is not a Go statement block. To run a Go statement that produces no output, use `{{ stmt }}` (a GoBlock). See [Raw Go](./raw-go) for details.
 :::
 
+## Body backtick literals
+
+A lone backtick literal inside body braces — `` {`…@{ expr }…`} `` — interpolates
+static text and typed `@{ }` holes directly in element-body position, the mirror
+image of the [interpolating attribute literal](./attributes#interpolating-attribute-literals).
+It saves you from concatenating a Go string when you want a single run of text
+that interleaves literals and dynamic values.
+
+<!--@include: ./_generated/interpolation/040-body-backtick-literals.md-->
+
+Each `@{ expr }` hole is escaped the same way a bare `{ expr }` hole would be in
+text context: a string is HTML-escaped, a numeric type is formatted to its
+decimal string (via the zero-alloc integer path — no escaper overhead), and a
+`fmt.Stringer` renders via `String()`. The static text between holes is trusted
+source content and is emitted verbatim. There is **no** materialized concat
+string: the literal lowers to the exact per-segment writes a hand-written mix of
+static text and `{ expr }` holes would produce.
+
+Two characters need escaping inside the literal: `` \` `` for a literal backtick,
+and `\@{` for a literal `@{` that should not be read as a hole.
+
+::: v-pre
+The interpolating form applies **only when the backtick is the lone child of the
+braces**. The moment the brace holds a larger Go expression — `` {`a` + x} ``,
+`` {strings.Repeat(`ab`, n)} `` — the backtick reverts to an ordinary Go raw
+string literal and the whole brace is a single `{ expr }` interpolation. This
+keeps every existing use of raw strings in braces working unchanged.
+:::
+
 ## Fields & typed values
 
 You can interpolate any Go expression, including field accesses on a struct passed as a param. The type does not need to be a string: any type that satisfies `fmt.Stringer` is formatted via its `String()` method, and numeric primitives are formatted directly.

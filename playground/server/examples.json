@@ -144,6 +144,18 @@
     "invoke": "Badge(BadgeProps{Variant: \"x\", Attrs: gsx.Attrs{{Key: \"class\", Value: \"hl\"}, {Key: \"id\", Value: \"a\"}}})"
   },
   {
+    "name": "Body backtick literals",
+    "category": "Basics",
+    "source": "package views\n\ncomponent Row(id string, n int) {\n\t<p>{`row-@{id}-@{n}`}</p>\n}\n",
+    "invoke": "Row(RowProps{Id: \"a&b\", N: 5})"
+  },
+  {
+    "name": "Whole-literal pipelines",
+    "category": "Transforming values",
+    "source": "package views\n\ncomponent Item(id string) {\n\t<li>{`item-@{id}` |> upper}</li>\n}\n",
+    "invoke": "Item(ItemProps{Id: \"a&b\"})"
+  },
+  {
     "name": "Interpolation & props",
     "category": "Basics",
     "source": "package views\n\ncomponent Greeting(name string, count int) {\n\t<p>Hello, { name }! You have { count } messages.</p>\n}\n",
