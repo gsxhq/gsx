@@ -190,6 +190,49 @@ render goldens.
     documentation surface, so current usage does not justify it. If adopted,
     prefer quoted native CSS property names; do not add JSX camelCase conversion
     or automatic numeric units.
+13. [x] **Interpolating attribute-value literals** — `2026-07-05`. A plain
+    backtick literal in attribute-value position, `` name=`…@{ expr }…` `` (no
+    language prefix — family-consistent with `` js`...` ``/`` css`...` ``),
+    interleaves static text with typed, auto-escaped `@{ }` holes in an
+    ordinary attribute, closing the interpolation gap that previously forced
+    `fmt.Sprintf`/string concatenation in Go for that case. Per-hole pipelines
+    work (`` @{ v |> upper } ``); holes are escaped by Go type (string →
+    attribute-escaped, int/uint/float → `strconv`-formatted, `fmt.Stringer` →
+    `.String()`). `` \` `` escapes a literal backtick and `\@{` escapes a
+    literal `@{`, mirroring `` js`/css` `` literal escaping (shared
+    `writeEmbeddedLiteralText`/`unescapeEmbedded` machinery). **URL attributes**
+    (`href`/`src`/`action`/…) assemble the whole literal — static text and every
+    hole — into one Go string and sanitize it exactly once via the same
+    allow-list `_gsxgw.URL` path `href={ expr }` uses, closing the
+    split-scheme bypass class a per-hole classifier would have (a dangerous
+    scheme divided across a hole boundary, e.g. `` href=`@{a}@{b}` `` with
+    `a="javascript"`, `b=":alert(1)"`, is blocked to `about:invalid#gsx` the
+    same as a single-expression `javascript:` scheme); `gsx.RawURL` is not
+    usable inside a hole — write the value as `` href={ gsx.RawURL(x) } ``
+    instead. **`class`/`style`** literals are first-class merge targets: a
+    forwarded `{ attrs... }` bag's class/style merges caller-last into the
+    interpolated value through the same `gsx.Class`/`StyleMerged` machinery as
+    a composable or static `class`/`style`, producing one merged attribute, not
+    two. `""` stays purely static (no `@{ }` scanning) and `{ expr }` stays a
+    single expression — the literal is additive, not a replacement for either.
+    The formatter round-trips the literal (idempotent, `\@{` re-escaped on
+    print) and the LSP navigation matrix covers its holes. Corpus:
+    `textattr/*` (11 cases — plain/pipeline holes, class/style merge and
+    no-spread, six URL cases including the split-scheme bypass). Docs:
+    `syntax/attributes.md` §Interpolating attribute literals,
+    `syntax/escaping.md`, `syntax/interpolation.md`, `syntax/javascript.md`
+    cross-reference; playground examples `examples/300-302-attr-interpolation*`.
+    **Deferred follow-ups:** numeric-hole zero-alloc (`emitAttrValue`/
+    `holeStringExpr` route `int`/`uint`/`float` through `strconv.AppendInt`-style
+    `IntInto`/`UintInto`/`FloatInto` instead of an intermediate `string`, same
+    idea as the existing `{ n }` fast path — would touch golden output, kept
+    as a separate change); a `` css`...` ``/`` js`...` `` literal used as a
+    `class`/`style` **merge target** does not yet get the same dup-merge
+    treatment as a plain `EmbeddedText` literal (the finder that detects a
+    merge-target literal does not currently bind to the js/css embedded-attr
+    node — same class of gap, not yet closed); sibling grammars
+    (`../tree-sitter-gsx`, `../vscode-gsx`, `gsxhq.github.io` CodeMirror) do not
+    yet parse/highlight the bare backtick-with-`@{}` attribute form.
 
 ## Language server (`gsx lsp`)
 

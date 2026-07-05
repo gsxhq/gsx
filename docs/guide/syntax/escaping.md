@@ -21,6 +21,7 @@ gsx applies a different escaper depending on the context the value sits in. Each
 | Context | Where it applies | What gsx does | Opt-out (trusted only) |
 |---------|-----------------|---------------|------------------------|
 | **Text / attribute** | `{ x }` in body; `attr={ x }` unless the attr is URL-context by name | HTML / attribute escape — `<`, `>`, `&`, `"`, `'` are entity-encoded; NUL is replaced with U+FFFD | `gsx.Raw(s)` |
+| **Interpolating attribute literal** | `` attr=`…@{ x }…` `` for a non-URL attribute; each hole | Same type-aware attribute escaping as `attr={ x }` (string/number/`fmt.Stringer`), applied per hole | — |
 | **URL attribute** | `href`, `src`, `action`, `formaction`, `poster`, `cite`, `ping`, `data`, `background`, `manifest`, `xlink:href`; htmx method attrs `hx-get` / `hx-post` / `hx-put` / `hx-delete` / `hx-patch` | Scheme-sanitize: non-allowlisted schemes (e.g. `javascript:`) are replaced with `about:invalid#gsx`; value is then attribute-escaped | `gsx.RawURL(s)` |
 | **Attribute-local JavaScript** | `` attr=js`...` `` or `` attr={js`...`} ``; `@{ expr }` holes inside the literal | Preserve the surrounding JavaScript and escape each hole for its JavaScript position | `gsx.RawJS(s)` in a hole |
 | **Attribute-local CSS** | `` attr=css`...` ``, `` attr={css`...`} ``, or a `` css`...` `` contribution inside `style={...}`; `@{ expr }` holes inside the literal | Preserve the surrounding CSS and filter each hole as a CSS value before attribute-escaping the result | `gsx.RawCSS(s)` in a hole |
@@ -40,6 +41,25 @@ backtick.
 When a dynamic value lands in a URL attribute, gsx checks the scheme. Safe schemes (`http`, `https`, `mailto`, `tel`, relative paths, and a small allowlist) pass through; anything else — including `javascript:`, `data:`, and `vbscript:` — is replaced with the blocked-URL sentinel `about:invalid#gsx`. The value is still attribute-escaped after the scheme check, so it cannot break out of the surrounding quotes.
 
 `gsx.RawURL` skips the scheme check entirely. The string is still attribute-escaped (it cannot inject new attributes or break the quote context), but any scheme — including `javascript:` — is preserved verbatim. Use only for URLs you have already validated.
+
+### Interpolating attribute literals
+
+A plain backtick literal in attribute-value position — `` name=`…@{ expr }…` `` —
+mixes static text with `@{ expr }` holes; see [Attributes — Interpolating
+attribute literals](./attributes#interpolating-attribute-literals) for the full
+syntax and examples. Two characters need escaping inside the literal: `` \` ``
+for a literal backtick, and `\@{` for a literal `@{` that should not open a
+hole. Both mirror the escaping rules for `` js`...` ``/`` css`...` `` literals
+below.
+
+When the attribute is URL-context by name, the literal's static text and every
+hole are assembled into one string *before* the scheme check runs, so a
+dangerous scheme cannot be smuggled in by splitting it across a hole boundary
+— the whole value is sanitized once, the same way `href={ expr }` sanitizes
+its single expression. `gsx.RawURL` is not usable inside a hole; write the
+value as an ordinary expression attribute — `` href={ gsx.RawURL(trustedURL) } ``
+— when you need to bypass the scheme check for a value you have already
+validated.
 
 ### Attribute-local JavaScript
 

@@ -1,0 +1,16 @@
+-- doc --
+name: Interpolated class literal merges with a spread bag
+summary: A class backtick literal is a first-class merge target — a forwarded attrs bag's class merges caller-last into the interpolated value, producing one merged class attribute.
+category: Styling
+page: styling
+pageOrder: 40
+-- input.gsx --
+package views
+
+component Badge(variant string) {
+	<span class=`badge-@{variant}` { attrs... }>Hi</span>
+}
+-- invoke --
+Badge(BadgeProps{Variant: "x", Attrs: gsx.Attrs{{Key: "class", Value: "hl"}, {Key: "id", Value: "a"}}})
+-- render.golden --
+<span class="badge-x hl" id="a">Hi</span>
