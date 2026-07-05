@@ -698,28 +698,29 @@ git commit -m "feat(codegen): EmbeddedText class/style literals are first-class 
 
 ---
 
-## Task 7: Fuzz — URL scheme-integrity invariant
+## Task 7: Fuzz — URL scheme-safety invariant (permanent regression guard)
 
 **Files:**
-- Test: `internal/codegen/url_fuzz_test.go` (create) — or extend the existing codegen fuzz harness
-  if one exists (`grep -rln "func Fuzz" internal/codegen`)
+- Test: `internal/codegen/url_fuzz_test.go` (create) — reuse the existing generate→build→render
+  helper the codegen/corpus tests use (`grep -rln "func Fuzz\|compileAndRender\|renderToString\|batchCodegen" internal/codegen internal/corpus`); do NOT build a new pipeline.
 
 **Interfaces:**
-- Consumes: the compile+render pipeline used by existing codegen tests (find the helper the
-  corpus/codegen tests use to compile a `.gsx` snippet and render a component — reuse it; do NOT
-  build a new one).
+- Consumes: the compile+render helper from the corpus/codegen test harness.
 
-**Invariant:** for any static-segment shape and any hole values, a rendered URL-context text
-literal never yields a dangerous effective scheme. Seam-shaped templates must fail to compile.
+**Invariant:** for any static-segment shape and any hole values, a rendered URL-context backtick
+literal never yields a dangerous **browser-effective** scheme; dangerous inputs resolve to
+`about:invalid#gsx`. (Whole-value `_gsxgw.URL` makes this provable; the fuzzer is a permanent
+guard against regression, and its `effectiveScheme` must mimic the browser normalization that
+defeated the earlier per-hole design.)
 
 - [ ] **Step 1: Locate the compile+render test helper**
 
-Run: `grep -rln "func Fuzz\|compileAndRender\|renderToString" internal/codegen internal/corpus`
-Record the helper name/signature to call from the fuzz target. (If none is exported, add a small
-internal test helper in `internal/codegen` that wraps the existing generate→go-build→render flow
-already used by codegen tests.)
+Run: `grep -rln "func Fuzz\|compileAndRender\|renderToString\|batchCodegen\|func render" internal/codegen internal/corpus`
+Record a helper (or a thin wrapper you add in `internal/codegen` test scope) that takes `.gsx`
+source + an invoke expression and returns the rendered HTML string (and whether codegen
+succeeded). Reuse the corpus harness flow; do not reimplement generate/build/render.
 
-- [ ] **Step 2: Write the fuzz target**
+- [ ] **Step 2: Write the fuzz target (multi-hole + static-scheme shapes)**
 
 Create `internal/codegen/url_fuzz_test.go`:
 ```go
@@ -730,48 +731,92 @@ import (
 	"testing"
 )
 
-// FuzzURLLiteralSchemeIntegrity asserts that no static-prefix + hole-value combo
-// yields a dangerous effective scheme in a rendered href built from a text literal.
-func FuzzURLLiteralSchemeIntegrity(f *testing.F) {
-	f.Add("/u/", "7")
-	f.Add("", "https://ex.com")
-	f.Add("", "javascript:alert(1)")
-	f.Add("//", "evil")
-	f.Add("?q=", "javascript:alert(1)")
-	f.Fuzz(func(t *testing.T, staticPrefix, hole string) {
-		// Build: <a href=`<staticPrefix>@{v}`>; compile+render with v=hole.
-		out, compiled := tryCompileRenderHref(t, staticPrefix, hole) // helper from Step 1/3
-		if !compiled {
-			return // seam or invalid template rejected at compile time — acceptable
+// FuzzURLLiteralSchemeSafety renders `<a href=`{s1}@{a}{s2}@{b}`>` for fuzzed
+// static text s1,s2 and hole values a,b, and asserts the browser-effective scheme
+// is never dangerous (whole-value _gsxgw.URL must have neutralized it).
+func FuzzURLLiteralSchemeSafety(f *testing.F) {
+	// seeds spanning every class the per-hole design failed on:
+	f.Add("/u/", "7", "/edit", "")                 // safe path
+	f.Add("", "https://ex.com", "/p", "")          // safe origin from hole
+	f.Add("javascript:", "alert(1)", "", "")       // static dangerous scheme
+	f.Add("data:text/html,", "<script>x</script>", "", "") // static data:
+	f.Add("", "javascript", ":alert(1)", "")       // split across holes
+	f.Add("java\tscript:", "alert(1)", "", "")     // control-byte obfuscation
+	f.Add(" javascript:", "alert(1)", "", "")      // leading-space obfuscation
+	f.Add("", "javascript:alert(1)", "", "")       // whole-value in a hole
+	f.Add("//", "evil.com", "/p", "")              // protocol-relative
+	f.Fuzz(func(t *testing.T, s1, a, s2, b string) {
+		html, ok := tryRenderHref(t, s1, a, s2, b) // Step 1 helper wrapper
+		if !ok {
+			return // compile error is acceptable (never an XSS)
 		}
-		val := extractHref(out)
-		if scheme := effectiveScheme(val); isDangerousScheme(scheme) {
-			t.Fatalf("dangerous scheme %q rendered from prefix=%q hole=%q -> %q", scheme, staticPrefix, hole, val)
+		val := extractHref(html)
+		if sch := effectiveScheme(val); isDangerousScheme(sch) {
+			t.Fatalf("dangerous scheme %q from s1=%q a=%q s2=%q b=%q -> href=%q",
+				sch, s1, a, s2, b, val)
 		}
 	})
 }
+
+// effectiveScheme mimics the WHATWG URL parser's pre-scheme normalization so the
+// fuzzer catches the obfuscations that defeated per-hole classification:
+// remove ALL ASCII tab/LF/CR, strip leading C0-control-or-space, lowercase, then
+// take the run before the first ':' — but only if no '/','?','#' precedes it.
+func effectiveScheme(v string) string {
+	var b strings.Builder
+	for i := 0; i < len(v); i++ {
+		if c := v[i]; c != '\t' && c != '\n' && c != '\r' {
+			b.WriteByte(c)
+		}
+	}
+	s := b.String()
+	for len(s) > 0 && s[0] <= ' ' {
+		s = s[1:]
+	}
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case ':':
+			return strings.ToLower(s[:i])
+		case '/', '?', '#':
+			return "" // relative — no scheme
+		}
+	}
+	return ""
+}
+
+func isDangerousScheme(scheme string) bool {
+	switch scheme {
+	case "", "http", "https", "mailto", "tel", "about": // about = blocked sentinel about:invalid#gsx
+		return false
+	default:
+		return true // javascript, data, vbscript, file, blob, … => must never appear
+	}
+}
 ```
-Implement `tryCompileRenderHref` (wraps the Step-1 helper; returns `compiled=false` on codegen
-diagnostics), `extractHref`, `effectiveScheme` (lowercase text before the first `:` that isn't
-preceded by `/ ? #`), and `isDangerousScheme` (anything not in `{http, https, mailto, tel, ""}`
-and not the blocked sentinel `about` — mirror `urlSanitize`'s allow-list in `escape.go`).
+Implement `tryRenderHref(t, s1,a,s2,b)`: builds a component
+`` component L(a string, b string) { <a href=`<s1>@{a}<s2>@{b}`>x</a> } `` (with s1/s2 spliced
+as raw static text — they may contain tabs/spaces/colons), renders `L(LProps{A:a, B:b})`, and
+returns `(html, compiledOK)`. `extractHref` pulls the `href="…"` value (entity-DECODED, since the
+browser decodes before URL parsing — decode `&amp; &#34; &lt; &gt; &#39;`). Note: because the
+value is entity-encoded in the attribute, decode it before computing the effective scheme.
 
-- [ ] **Step 3: Run the fuzz target briefly**
+- [ ] **Step 3: Run the fuzz target**
 
-Run: `go test ./internal/codegen -run FuzzURLLiteralSchemeIntegrity -fuzz FuzzURLLiteralSchemeIntegrity -fuzztime 30s`
-Expected: no failures; if a crasher is found, it's a real bug — fix Task 5 regioning, don't weaken
-the assertion.
+Run: `go test ./internal/codegen -run FuzzURLLiteralSchemeSafety -fuzz FuzzURLLiteralSchemeSafety -fuzztime 45s`
+Expected: no failures. A crasher is a REAL XSS — do not weaken the assertion; the whole-value
+`_gsxgw.URL` should make all dangerous inputs render `about:invalid#gsx`. If a crasher appears,
+capture the seed and investigate `_gsxgw.URL`/`urlSanitize`.
 
-- [ ] **Step 4: Also run as a normal test (seed corpus only) for CI**
+- [ ] **Step 4: Seed-corpus run for CI**
 
-Run: `go test ./internal/codegen -run FuzzURLLiteralSchemeIntegrity`
-Expected: PASS (seeds execute without `-fuzz`). `make ci` runs this form.
+Run: `go test ./internal/codegen -run FuzzURLLiteralSchemeSafety`
+Expected: PASS (seeds execute without `-fuzz`; `make ci` runs this form).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add internal/codegen/url_fuzz_test.go
-git commit -m "test(codegen): fuzz URL text-literal scheme integrity"
+git commit -m "test(codegen): fuzz whole-value URL literal scheme safety"
 ```
 
 ---
