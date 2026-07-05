@@ -335,6 +335,38 @@ func TestFmtRemovesUnusedKeepsUsed(t *testing.T) {
 	}
 }
 
+// TestFmtTwoDirsOneModule proves analyzeUnusedImports (the grouped
+// one-codegen.Module-per-module path, via groupByModule) returns correct,
+// independent results for two DIFFERENT directories of the SAME module in a
+// single call: a's unused bytes import is reported, b's used strings import is
+// not — confirming the shared Module correctly resolves each directory's own
+// package rather than conflating them.
+func TestFmtTwoDirsOneModule(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	dir := newModule(t, "fmtmod")
+	aSrc := "package a\n\nimport \"bytes\"\n\ncomponent A() {\n\t<p>hi</p>\n}\n"
+	bSrc := "package b\n\nimport \"strings\"\n\ncomponent B() {\n\t<p>{strings.ToUpper(\"x\")}</p>\n}\n"
+	aPath := writeFile(t, filepath.Join(dir, "a"), "a.gsx", aSrc)
+	bPath := writeFile(t, filepath.Join(dir, "b"), "b.gsx", bSrc)
+
+	refs := analyzeUnusedImports(
+		[]string{aPath, bPath},
+		codegen.Options{Classifier: attrclass.Builtin()},
+	)
+
+	aAbs, _ := filepath.Abs(aPath)
+	bAbs, _ := filepath.Abs(bPath)
+	if len(refs[aAbs]) != 1 || refs[aAbs][0].Path != "bytes" {
+		t.Errorf("a: want bytes unused, got %+v", refs[aAbs])
+	}
+	if len(refs[bAbs]) != 0 {
+		t.Errorf("b: strings is used, want none unused, got %+v", refs[bAbs])
+	}
+}
+
 // TestFmtToleratesMalformedConfig proves that with a builtin-only
 // codegen.Options (the fallback gen/main.go's `fmt` case uses when
 // resolveConfig fails on a malformed gsx.toml), formatting still succeeds.
