@@ -317,6 +317,7 @@ pipeerr/cond_attr_branch_else_pipe	diag gen render
 pipeerr/cond_attr_branch_mid_stage	diag gen render
 pipeerr/cond_attr_branch_untaken	diag gen render
 pipeerr/ctx_err_filter	diag gen render
+pipeerr/fallthrough_attr_final_stage/case	diag gen render
 pipeerr/final_stage_custom_filter	diag gen render
 pipeerr/generic_final_stage	diag gen render
 pipeerr/generic_mid_stage	diag gen render
@@ -470,4 +471,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 472 cases (render: 378, error: 71, gen-pinned: 216)
+TOTAL: 473 cases (render: 379, error: 71, gen-pinned: 217)

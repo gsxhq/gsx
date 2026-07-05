@@ -4059,6 +4059,22 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 					}
 					recordPkgs(used)
 					val = lowered
+					// lowerPipe leaves a FINAL (R, error) stage unwrapped (it hoists
+					// only non-final error stages). A fallthrough attr's value is
+					// spliced into the Attrs bag literal in single-value position, so
+					// unwrap the final tuple HERE — this is the one attr context that
+					// lacks a downstream tuple-hoist pass. Probe mode keeps the
+					// skeleton a single expression via _gsxunwrap; emit mode hoists
+					// `v, _gsxerr := call; if _gsxerr != nil { return _gsxerr }`,
+					// mirroring the inline CondAttr hoist and the declared-prop /
+					// ordered-attrs unwrap that genChildComponent defers.
+					if finalStageErr(t.Stages, table) {
+						if probeWrap {
+							val = "_gsxunwrap(" + val + ")"
+						} else {
+							val = hoistTuple(b, val, interpTemp)
+						}
+					}
 				}
 				bag = append(bag, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), val))
 			}
