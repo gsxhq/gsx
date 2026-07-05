@@ -315,7 +315,36 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 	}
 }
 
+// parseBracedEmbeddedAttrValue parses `name={`…`}` / `name={`…` |> f}` — a
+// lone backtick literal (optionally `js`/`css` tagged), optionally followed by
+// a whole-literal `|>` pipeline, as the entire braced value. Cursor must be at
+// the '{' of the value (the caller has already checked the byte right after it
+// starts a `js`/`css`/bare backtick literal).
+//
+// Like tryParseBodyEmbeddedInterp, this function only commits to EmbeddedAttr
+// once the whole shape matches cleanly. On any other outcome — the literal
+// fails to close (e.g. a Go raw string ending in `\`, which gsx's
+// backtick-escape convention misreads as an escape), trailing content that is
+// neither `}` nor a valid `|>` pipeline, or a malformed pipe-stage region — it
+// rewinds to the saved start and falls back to the ordinary braced-value parse
+// (parseAttrBraceValue), so the value is read as an ordinary Go expression
+// instead. A genuinely malformed lone literal then surfaces as a Go-expression
+// parse error rather than an embedded-literal one; that's an acceptable trade
+// for not having to distinguish "meant to be embedded" from "meant to be Go".
 func (p *parser) parseBracedEmbeddedAttrValue(name string, attrStartPos token.Pos) (ast.Attr, error) {
+	start := p.i // at '{'
+	// errMark snapshots p.errs so an abandoned trial can be fully undone:
+	// p.errorf (and p.pipeErrorf) record a diagnostic into p.errs as a side
+	// effect regardless of whether the caller propagates the returned error,
+	// so falling back to parseAttrBraceValue must also truncate p.errs back to
+	// this mark or the abandoned trial's diagnostic would still surface from
+	// ParseFile.
+	errMark := len(p.errs)
+	fallback := func() (ast.Attr, error) {
+		p.i = start
+		p.errs = p.errs[:errMark]
+		return p.parseAttrBraceValue(name, attrStartPos)
+	}
 	p.i++ // past '{'
 	// parseEmbeddedAttrLiteral consumes the literal INCLUDING any gsx
 	// backslash-backtick escapes and leaves the cursor right after the closing
@@ -326,7 +355,7 @@ func (p *parser) parseBracedEmbeddedAttrValue(name string, attrStartPos token.Po
 	// doc).
 	lang, segments, err := p.parseEmbeddedAttrLiteral()
 	if err != nil {
-		return nil, err
+		return fallback()
 	}
 	p.skipSpace()
 	afterLiteral := p.i
@@ -342,7 +371,7 @@ func (p *parser) parseBracedEmbeddedAttrValue(name string, attrStartPos token.Po
 			slice := p.src[afterLiteral:end]
 			stages, perr := parseTrailingStages(slice, p.posAt(afterLiteral))
 			if perr != nil {
-				return nil, p.pipeErrorf(attrStartPos, perr)
+				return fallback()
 			}
 			ea := &ast.EmbeddedAttr{Name: name, Lang: lang, Segments: segments, Stages: stages}
 			p.i = end + 1 // past '}'
@@ -350,7 +379,9 @@ func (p *parser) parseBracedEmbeddedAttrValue(name string, attrStartPos token.Po
 			return ea, nil
 		}
 	}
-	return nil, p.errorf(p.pos(), "expected `}` after embedded attribute literal for %q", name)
+	// Not `}` and not a `|>` pipeline (e.g. `{`a` + x}`, or an unterminated
+	// `|>` tail) — the backtick was only part of a larger Go expression.
+	return fallback()
 }
 
 func (p *parser) parseEmbeddedAttrValue(name string, attrStartPos token.Pos) (ast.Attr, error) {

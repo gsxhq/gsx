@@ -232,6 +232,111 @@ func TestParseEmbeddedAttrBracedEscapedBacktickPipe(t *testing.T) {
 	}
 }
 
+// TestBodyBacktickBackslashSubExpressionStaysGo pins the fix for a parser
+// regression: a Go raw string that ends in a backslash, used as a
+// sub-expression (not the whole `{ }` value), used to be misread by
+// tryParseBodyEmbeddedInterp as a lone embedded literal. gsx's backtick-escape
+// convention treats the trailing `\“ as an escaped backtick, so the literal
+// scan runs off the end and used to surface "unterminated embedded attribute
+// literal" instead of falling back to an ordinary Go expression. It must now
+// rewind and parse as a plain *ast.Interp with Expr “ `a\` + x “.
+//
+// The literal backslash-backtick can't appear in a Go raw string, so the
+// source is built via concatenation.
+func TestBodyBacktickBackslashSubExpressionStaysGo(t *testing.T) {
+	lit := "`" + "a" + "\\" + "`" // literal bytes: ` a \ `
+	src := "package p\ncomponent C(x string) { <p>{" + lit + " + x}</p> }\n"
+	// Sanity-check the constructed bytes really are backtick, a, backslash,
+	// backtick.
+	if lit != "`a\\`" {
+		t.Fatalf("lit = %q, want `a\\` (backtick a backslash backtick)", lit)
+	}
+	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if hasEmbeddedInterp(f) {
+		t.Fatalf("`a\\` + x must stay a Go expression, not EmbeddedInterp")
+	}
+	// Confirm it parsed as an ordinary *ast.Interp with the expected Expr.
+	var interp *ast.Interp
+	ast.Inspect(f, func(n ast.Node) bool {
+		if interp != nil {
+			return false
+		}
+		if in, ok := n.(*ast.Interp); ok {
+			interp = in
+			return false
+		}
+		return true
+	})
+	if interp == nil {
+		t.Fatalf("no *ast.Interp found in file")
+	}
+	if want := lit + " + x"; interp.Expr != want {
+		t.Fatalf("Expr = %q, want %q", interp.Expr, want)
+	}
+}
+
+// TestBracedAttrBacktickBackslashSubExpressionStaysGo is the braced-attr
+// sibling of TestBodyBacktickBackslashSubExpressionStaysGo: a Go raw string
+// ending in a backslash, used as a sub-expression of `class={ … }`, must parse
+// as an ordinary ExprAttr rather than erroring out of
+// parseBracedEmbeddedAttrValue.
+func TestBracedAttrBacktickBackslashSubExpressionStaysGo(t *testing.T) {
+	lit := "`" + "a" + "\\" + "`" // literal bytes: ` a \ `
+	src := "package p\ncomponent C(x string) { <span class={" + lit + " + x}>h</span> }\n"
+	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	var expr *ast.ExprAttr
+	ast.Inspect(f, func(n ast.Node) bool {
+		if expr != nil {
+			return false
+		}
+		if ea, ok := n.(*ast.ExprAttr); ok {
+			expr = ea
+			return false
+		}
+		return true
+	})
+	if expr == nil {
+		t.Fatalf("no *ast.ExprAttr found in file (want the class attr parsed as an ordinary Go expression)")
+	}
+	if want := lit + " + x"; expr.Expr != want {
+		t.Fatalf("Expr = %q, want %q", expr.Expr, want)
+	}
+}
+
+// TestBodyEscapedBacktickLiteralStillEmbedded is the control for
+// TestBodyBacktickBackslashSubExpressionStaysGo: a lone literal whose gsx
+// backtick-escape genuinely terminates (an escaped backtick followed by more
+// literal text and a real closing backtick) must still parse as
+// EmbeddedInterp, not fall back to Go. Distinguishing case: the escape here is
+// followed by further literal content and a true closing backtick, so the
+// literal closes cleanly — unlike the `\` + x case above, which runs off the
+// end.
+func TestBodyEscapedBacktickLiteralStillEmbedded(t *testing.T) {
+	lit := "`" + "x" + "\\`" + " " + "`" // literal bytes: ` x \ ` <space> `
+	src := "package p\ncomponent C() { <p>{" + lit + "}</p> }\n"
+	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	ei := firstEmbeddedInterp(t, f)
+	if len(ei.Segments) != 1 {
+		t.Fatalf("segments=%d want 1: %#v", len(ei.Segments), ei.Segments)
+	}
+	txt, ok := ei.Segments[0].(*ast.Text)
+	if !ok {
+		t.Fatalf("segment[0] = %T, want *ast.Text", ei.Segments[0])
+	}
+	if want := "x` "; txt.Value != want {
+		t.Fatalf("text = %q, want %q", txt.Value, want)
+	}
+}
+
 func TestParseEmbeddedAttrBracedPipe(t *testing.T) {
 	src := "package p\ncomponent C(v string) { <span class={`badge-@{v}` |> upper}>h</span> }\n"
 	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
