@@ -1,5 +1,5 @@
-# URL context, pre-scheme hole: nothing commits the scheme before @{base}, so the
-# hole carries the scheme and is scheme-sanitized (_gsxgw.URL). Safe origin passes.
+# URL context: the whole value (base + "/edit") is assembled and sanitized by
+# _gsxgw.URL. A safe https origin from the hole passes through.
 -- input.gsx --
 package p
 

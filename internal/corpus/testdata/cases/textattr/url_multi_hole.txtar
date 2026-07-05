@@ -1,0 +1,13 @@
+# two holes, assembled and sanitized as one value: a="https://ex.com", b="/p"
+# -> "https://ex.com/p" (allow-listed scheme, passes).
+-- input.gsx --
+package p
+
+component Link(a string, b string) {
+	<a href=`@{a}@{b}`>go</a>
+}
+-- invoke --
+Link(LinkProps{A: "https://ex.com", B: "/p"})
+-- diagnostics.golden --
+-- render.golden --
+<a href="https://ex.com/p">go</a>

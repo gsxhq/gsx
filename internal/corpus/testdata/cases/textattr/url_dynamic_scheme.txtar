@@ -1,0 +1,14 @@
+# A dynamic scheme now simply works when it is safe: the whole value is assembled
+# ("https" + "://ex.com") and sanitized -> https is allow-listed -> passes through.
+# (An unsafe dynamic scheme would be blocked, see url_dangerous_blocked.)
+-- input.gsx --
+package p
+
+component Link(scheme string) {
+	<a href=`@{scheme}://ex.com`>go</a>
+}
+-- invoke --
+Link(LinkProps{Scheme: "https"})
+-- diagnostics.golden --
+-- render.golden --
+<a href="https://ex.com">go</a>

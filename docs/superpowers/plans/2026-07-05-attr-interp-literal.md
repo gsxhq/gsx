@@ -438,185 +438,148 @@ git commit -m "feat(codegen): emit plain EmbeddedText attribute literals via emi
 
 ---
 
-## Task 5: Codegen — URL-context region routing + scheme-seam rejection
+## Task 5: Codegen — whole-value URL sanitization for URL-context literals
 
 **Files:**
-- Modify: `internal/codegen/emit.go` — new `urlHoleRegion` classifier + seam check; wire into
-  `emitEmbeddedTextAttr`/`emitTextAttrInterp`
-- Test: `internal/codegen/url_region_test.go` (create); corpus `url_prescheme`, `url_postscheme`,
-  `url_seam_rejected` (already red)
+- Modify: `internal/codegen/emit.go` — `emitEmbeddedTextAttr`: branch on `CtxURL` and emit one
+  `_gsxgw.URL(<assembled string expr>)`; non-URL keeps the Task-4 per-segment path.
+- Test: corpus `url_*` cases under `internal/corpus/testdata/cases/textattr/`.
 
 **Interfaces:**
-- Consumes: `attrclass.Classifier.Context(name) == attrclass.CtxURL`, `isRawURL`, `urlStringExpr`,
+- Consumes: `attrclass.Classifier.Context(name)`, `lowerPipe`, `hoistTuple`, `tupleUnwrapType`,
+  `emitPipeWrap`, the `classify(t)` type dispatch used by `emitAttrValue` (`emit.go:2610`),
   `_gsxgw.URL` runtime.
-- Produces: `urlHoleRegion(staticPrefix string) urlRegion` where
-  `type urlRegion int; const (urlPreScheme urlRegion = iota; urlPostScheme)`.
+- Produces: for a URL-context `EmbeddedText` literal, a single `_gsxgw.URL(expr)` call where
+  `expr` is a Go string built by concatenating each segment.
 
-**Design:** `emitEmbeddedTextAttr` must track the **assembled static prefix** as it walks
-segments. For a URL-context attr (`cls.Context(a.Name) == CtxURL && no isRawURL hole`), each hole
-is classified by the static text emitted *before* it:
-- `urlPostScheme` if the prefix contains any of `/ ? #`, or a `:` that terminates a scheme
-  (`[a-zA-Z][a-zA-Z0-9+.-]*:` prefix) → emit `emitAttrValue`.
-- `urlPreScheme` otherwise → emit `_gsxgw.URL(urlStringExpr(expr, t))`.
-- **Seam:** a `urlPreScheme` hole whose *immediately following* static segment begins with `:` →
-  `bag.Errorf(... "url-scheme-seam" ...)` and return false.
+**Design (why whole-value):** an earlier per-hole classifier had FIVE browser-confirmed XSS
+bypasses (see the spec's URL section). We do NOT classify per hole. For a `CtxURL` attribute we
+assemble the entire value — static text as quoted literals, each hole as a string-typed
+expression — and pass it through `_gsxgw.URL`, the SAME `urlSanitize` (fail-closed allow-list
+http/https/mailto/tel → `about:invalid#gsx`) that `href={ expr }` uses. Provably as safe as
+`href={ expr }`; no `urlHoleRegion`, no seam logic, no scheme detection.
 
-- [ ] **Step 1: Write the failing unit test for the classifier**
+- [ ] **Step 1: Confirm the red security cases fail**
 
-Create `internal/codegen/url_region_test.go`:
+The baseline `textattr/url_dangerous_blocked` and `url_split_blocked` currently render the
+DANGEROUS url (Task 4 routes URL holes through `AttrValue`).
+Run: `go test ./internal/corpus -run 'TestCorpus/textattr/(url_dangerous_blocked|url_split_blocked)' 2>&1 | tail -20`
+Expected: FAIL — got `href="javascript:alert(1)"`, want `href="about:invalid#gsx"`. This is the
+XSS the task closes.
+
+- [ ] **Step 2: Add a hole→string-expression helper**
+
+Add to `emit.go` a helper that lowers one hole to a Go **string expression** (mirrors
+`emitTextAttrInterp`'s pipeline + `(T,error)` unwrap, but returns an expression instead of
+emitting a writer call), routing by the same `classify(t)` categories `emitAttrValue` uses:
 ```go
-package codegen
-
-import "testing"
-
-func TestURLHoleRegion(t *testing.T) {
-	cases := []struct {
-		prefix string
-		want   urlRegion
-	}{
-		{"", urlPreScheme},              // href=`@{u}`
-		{"//cdn/", urlPostScheme},       // protocol-relative
-		{"/u/", urlPostScheme},          // rooted path
-		{"https://x/", urlPostScheme},   // static scheme committed
-		{"?q=", urlPostScheme},          // query
-		{"#", urlPostScheme},            // fragment
-		{"mailto:", urlPostScheme},      // scheme committed by static ':'
-		{"sub", urlPreScheme},           // still in scheme/authority start
-	}
-	for _, c := range cases {
-		if got := urlHoleRegion(c.prefix); got != c.want {
-			t.Errorf("urlHoleRegion(%q) = %d, want %d", c.prefix, got, c.want)
+// holeStringExpr lowers one @{ } hole to a Go string expression for URL assembly.
+// It emits any pipeline/tuple hoisting to b, then returns the string-conversion expr.
+func holeStringExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) (string, bool) {
+	expr := strings.TrimSpace(n.Expr)
+	if len(n.Stages) > 0 {
+		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, emitPipeWrap(b, interpTemp))
+		if err != nil {
+			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+			return "", false
 		}
+		for _, p := range usedPkgs {
+			imports[p] = true
+		}
+		expr = lowered
 	}
+	t, ok := resolved[n]
+	if !ok || t == nil {
+		bag.Errorf(n.Pos(), n.End(), "unresolved-interp", "could not resolve type of URL interpolation %q", n.Expr)
+		return "", false
+	}
+	if _, isTuple := t.(*types.Tuple); isTuple {
+		elemT, ok := tupleUnwrapType(t)
+		if !ok {
+			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "URL interpolation %q returns %s; only (T, error) is supported", expr, t)
+			return "", false
+		}
+		expr = hoistTuple(b, expr, interpTemp)
+		t = elemT
+	}
+	// Route by the same categories emitAttrValue uses. Read emitAttrValue
+	// (emit.go:2610) + classify() and mirror its string/[]byte/int/uint/float/
+	// Stringer cases, but produce an EXPRESSION:
+	//   string/[]byte -> "string("+expr+")"
+	//   int   -> `strconv.FormatInt(int64(`+expr+`), 10)`   (imports["strconv"]=true)
+	//   uint  -> `strconv.FormatUint(uint64(`+expr+`), 10)`
+	//   float -> `strconv.FormatFloat(float64(`+expr+`), 'g', -1, 64)`
+	//   Stringer -> "("+expr+").String()"
+	//   else  -> bag.Errorf(..., "URL interpolation %q has unsupported type %s", n.Expr, t); return "", false
+	// (fill in using the exact classify() constants from emit.go)
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [ ] **Step 3: Emit whole-value `URL()` for CtxURL attrs**
 
-Run: `go test ./internal/codegen -run TestURLHoleRegion -v`
-Expected: FAIL — `urlHoleRegion`/`urlRegion` undefined.
-
-- [ ] **Step 3: Implement `urlHoleRegion`**
-
-Add to `emit.go` (near `urlStringExpr`):
+In `emitEmbeddedTextAttr`, before the per-segment loop, branch:
 ```go
-type urlRegion int
-
-const (
-	urlPreScheme urlRegion = iota // the hole participates in the scheme/authority
-	urlPostScheme                 // scheme already committed by static text
-)
-
-// urlHoleRegion classifies a hole by the static URL text emitted before it.
-// A hole is post-scheme once the static prefix has committed the scheme: it
-// contains a path/query/fragment delimiter, or a leading "scheme:".
-func urlHoleRegion(prefix string) urlRegion {
-	for i := 0; i < len(prefix); i++ {
-		switch prefix[i] {
-		case '/', '?', '#':
-			return urlPostScheme
-		case ':':
-			// ":" commits the scheme only if what precedes it is a valid scheme name.
-			if isSchemeName(prefix[:i]) {
-				return urlPostScheme
-			}
-		}
-	}
-	return urlPreScheme
-}
-
-// isSchemeName reports whether s matches RFC 3986 scheme: ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ).
-func isSchemeName(s string) bool {
-	if s == "" || !isASCIILetter(s[0]) {
-		return false
-	}
-	for i := 1; i < len(s); i++ {
-		c := s[i]
-		if !isASCIILetter(c) && !(c >= '0' && c <= '9') && c != '+' && c != '-' && c != '.' {
-			return false
-		}
-	}
-	return true
-}
-
-func isASCIILetter(c byte) bool { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') }
-```
-
-- [ ] **Step 4: Run the unit test to verify it passes**
-
-Run: `go test ./internal/codegen -run TestURLHoleRegion -v`
-Expected: PASS.
-
-- [ ] **Step 5: Wire regioning into `emitEmbeddedTextAttr`**
-
-Compute URL-context once, accumulate the static prefix, and pass region + next-segment info to
-the hole emitter. Replace the segment loop body:
-```go
-	isURL := cls.Context(a.Name) == attrclass.CtxURL
-	var prefix strings.Builder
-	for i, seg := range a.Segments {
-		switch s := seg.(type) {
-		case *ast.Text:
-			fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(htmlAttrEscape(s.Value)))
-			prefix.WriteString(s.Value)
-		case *ast.Interp:
-			region := urlPostScheme
-			if isURL {
-				region = urlHoleRegion(prefix.String())
-				if region == urlPreScheme && nextTextStartsWithColon(a.Segments, i) {
-					bag.Errorf(s.Pos(), s.End(), "url-scheme-seam",
-						"dynamic URL scheme is not allowed here; use %s={ url }", a.Name)
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
+	if cls.Context(a.Name) == attrclass.CtxURL {
+		parts := make([]string, 0, len(a.Segments))
+		for _, seg := range a.Segments {
+			switch s := seg.(type) {
+			case *ast.Text:
+				if s.Value == "" {
+					continue
+				}
+				parts = append(parts, strconv.Quote(s.Value)) // RAW text; URL() escapes
+			case *ast.Interp:
+				p, ok := holeStringExpr(b, s, resolved, table, imports, interpTemp, bag)
+				if !ok {
 					return false
 				}
-			}
-			if !emitTextAttrInterp(b, s, resolved, table, imports, interpTemp, isURL, region, a.Name, bag) {
+				parts = append(parts, p)
+			default:
+				bag.Errorf(seg.Pos(), seg.End(), "unsupported-attr", "attribute %q value may contain only text and @{ } interpolations, got %T", a.Name, seg)
 				return false
 			}
-			// A hole contributes unknown text; once inside a URL it is at least
-			// post-authority for anything that follows.
-			prefix.WriteString("\x00") // non-delimiter placeholder keeps subsequent holes post-... see note
+		}
+		concat := `""`
+		if len(parts) > 0 {
+			concat = strings.Join(parts, " + ")
+		}
+		fmt.Fprintf(b, "\t\t_gsxgw.URL(%s)\n", concat)
+	} else {
+		// existing Task-4 per-segment path: Text -> S(htmlAttrEscape), Interp -> emitTextAttrInterp
+		for _, seg := range a.Segments {
+			…unchanged…
 		}
 	}
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
+	return true
 ```
-Note on the placeholder: after any hole, later holes should also be treated relative to the
-now-committed scheme. Writing a non-delimiter byte (`\x00`) is wrong if the *first* hole was
-pre-scheme. Simpler and correct: once a URL hole is emitted, set a local `bool committed = true`
-after the first hole and treat all subsequent holes as `urlPostScheme`. Implement with that bool
-rather than the placeholder. Update `emitTextAttrInterp`'s signature to
-`(…, isURL bool, region urlRegion, attrName string, …)` and, when `isURL && region == urlPreScheme`,
-emit `_gsxgw.URL(urlStringExpr(expr, t))` (guard `isRawURL(t)` → fall back to `emitAttrValue`);
-otherwise `emitAttrValue`.
+Note: `emitTextAttrInterp` (Task 4) is still used by the non-URL branch; keep it. It no longer
+needs URL params — if you simplified its signature in Task 4 leave it; just don't pass URL info.
 
-Add the helper:
-```go
-func nextTextStartsWithColon(segs []ast.Markup, holeIdx int) bool {
-	if holeIdx+1 >= len(segs) {
-		return false
-	}
-	if txt, ok := segs[holeIdx+1].(*ast.Text); ok {
-		return len(txt.Value) > 0 && txt.Value[0] == ':'
-	}
-	return false
-}
-```
+- [ ] **Step 4: Regenerate url_* goldens + verify security**
 
-- [ ] **Step 6: Update goldens for the three URL cases and verify**
+Follow the corpus protocol. These cases need `generated.x.go.golden` sections (add empty ones) so
+the `URL(concat)` shape is pinned. `-update` ONLY the url_* cases, `git checkout` coverage.golden.
+Cases: `url_path`(url_postscheme), `url_base_join`(url_prescheme), `url_dynamic_scheme`,
+`url_multi_hole`, `url_dangerous_blocked`, `url_split_blocked`.
+Run: `go test ./internal/corpus -run 'TestCorpus/textattr/url_' -update` then verify without.
+Confirm: `url_dangerous_blocked` and `url_split_blocked` now render `href="about:invalid#gsx"`;
+`url_dynamic_scheme` renders `https://ex.com`; every url_* generated golden shows a single
+`_gsxgw.URL(...)` call (never `AttrValue` for a URL attr).
 
-Run: `go test ./internal/corpus -run 'TestCorpus/textattr/url_' -update`
-then verify the seam diagnostic line:col landed, and:
-`go test ./internal/corpus -run 'TestCorpus/textattr/url_'`
-Expected: PASS. Confirm `url_prescheme` generated code shows `_gsxgw.URL(string(base))`,
-`url_postscheme` shows `_gsxgw.AttrValue(string(id))`, `url_seam_rejected` shows only the
-diagnostic (no render/generated blocks).
+- [ ] **Step 5: Regression sweep**
 
-- [ ] **Step 7: Commit**
+Run: `go test ./internal/corpus 2>&1 | grep -E '^\s*--- FAIL' | grep -v textattr | grep -v 'TestCorpus (' || echo "no non-textattr failures"`
+Expected: `no non-textattr failures` (still-red `class_spread_merge` is Task 6).
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add internal/codegen/emit.go internal/codegen/url_region_test.go internal/corpus/testdata/cases/textattr/url_*.txtar internal/corpus/testdata/cases/coverage.golden
-git commit -m "feat(codegen): compile-time URL-region routing + scheme-seam rejection for text literals"
+git add internal/codegen/emit.go internal/corpus/testdata/cases/textattr/url_*.txtar
+git commit -m "feat(codegen): whole-value URL sanitization for URL-context text literals"
 ```
-
----
+(Do NOT commit coverage.golden.)
 
 ## Task 6: Codegen — class/style literal as a first-class merge target
 
