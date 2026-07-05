@@ -343,6 +343,14 @@ func (p *parser) parseBracedEmbeddedAttrValue(name string, attrStartPos token.Po
 	fallback := func() (ast.Attr, error) {
 		p.i = start
 		p.errs = p.errs[:errMark]
+		// Mirror parseSingleAttr's class/style dispatch: a non-literal
+		// class/style value must remain a composed ClassAttr so the
+		// fallthrough/forwarding merge machinery recognizes it, not a plain
+		// ExprAttr (which would silently drop the component's own contribution
+		// when a caller forwards class/style via an attrs bag).
+		if name == "class" || name == "style" {
+			return p.parseComposedAttr(name, attrStartPos)
+		}
 		return p.parseAttrBraceValue(name, attrStartPos)
 	}
 	p.i++ // past '{'
