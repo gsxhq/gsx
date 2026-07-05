@@ -3,8 +3,49 @@ package codegen
 import (
 	"go/parser"
 	"go/token"
+	"path/filepath"
 	"testing"
+
+	"github.com/gsxhq/gsx/internal/attrclass"
 )
+
+// openTestModule writes a minimal go.mod plus the given .gsx files (keyed by
+// filename) into a fresh temp module root, opens a Module over it, and
+// returns the package dir (== the module root, since files are written
+// directly into it) and the Module. Shared by the syntactic-unused-import
+// tests (Tasks 2, 3, 5).
+//
+// The go.mod carries a require+replace for github.com/gsxhq/gsx (mirroring
+// unused_imports_test.go's pattern) pointed at this checkout: even a
+// buildPackageSkeletons-only test exercises cachedFilterTable, which always
+// resolves the built-in "github.com/gsxhq/gsx/std" filter package (dedupFilterPkgs
+// defaults to it when Options.FilterPkgs is empty) — without the replace, that
+// packages.Load fails outright since "github.com/gsxhq/gsx" is not a real
+// dependency of the ephemeral "testmod" module. This filter-table load is
+// counted separately (m.filterTableLoads()), not by m.externalLoads(), so it
+// does not contradict the importer-free claim buildPackageSkeletons makes.
+// The go directive must match the real module's (currently 1.26.1, see
+// ci.yml's GO_VERSION) — "go 1.26" alone makes the replaced module's higher
+// go directive trip "go: updates to go.mod needed; to update it: go mod tidy"
+// during the filter-table's packages.Load.
+func openTestModule(t *testing.T, files map[string]string) (string, *Module) {
+	t.Helper()
+	dir := t.TempDir()
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dir, "go.mod",
+		"module testmod\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	for name, src := range files {
+		writeFile(t, dir, name, src)
+	}
+	m, err := Open(Options{ModuleRoot: dir, ModulePath: "testmod", Classifier: attrclass.Builtin()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir, m
+}
 
 func TestSkeletonUsedNames(t *testing.T) {
 	const src = `package p
@@ -81,5 +122,34 @@ func TestClassifyUnusedImportsSkipsSunk(t *testing.T) {
 	unused, candidates = classifyUnusedImports(map[string]bool{}, imps, sunk, fset)
 	if len(unused) != 0 || len(candidates) != 0 {
 		t.Errorf("with sunk: unused=%+v candidates=%+v, want both empty", unused, candidates)
+	}
+}
+
+// TestBuildPackageSkeletonsNoExternalLoad proves buildPackageSkeletons is
+// importer-free: it lowers page.gsx to its skeleton AST and reports the
+// hoisted "strings" import as referenced in the skeleton, all WITHOUT
+// triggering a single external packages.Load (m.externalLoads() stays 0) —
+// the whole point of scanning the skeleton instead of type-checking.
+func TestBuildPackageSkeletonsNoExternalLoad(t *testing.T) {
+	dir, m := openTestModule(t, map[string]string{
+		"page.gsx": "package testmod\n\nimport \"strings\"\n\ncomponent Page() {\n\t<div>{strings.ToUpper(\"x\")}</div>\n}\n",
+	})
+	ps, err := m.buildPackageSkeletons(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs, ok := ps.byGsx[filepath.Join(dir, "page.gsx")]
+	if !ok {
+		t.Fatalf("no skeleton for page.gsx; got %v", ps.byGsx)
+	}
+	if len(fs.imps) != 1 || fs.imps[0].path != "strings" {
+		t.Errorf("imps=%+v, want [strings]", fs.imps)
+	}
+	used := skeletonUsedNames(fs.skel)
+	if !used["strings"] {
+		t.Errorf("expected strings referenced in skeleton; used=%v", used)
+	}
+	if n := m.externalLoads(); n != 0 {
+		t.Errorf("buildPackageSkeletons did %d external loads, want 0 (importer-free)", n)
 	}
 }
