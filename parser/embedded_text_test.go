@@ -88,7 +88,11 @@ func TestEmbeddedTextEscapedHole(t *testing.T) {
 		t.Fatalf("holes = %d, want 1 (\\@{ must be literal)", holes)
 	}
 	// literal text must contain "@{ not a hole }" with the backslash removed
-	if got := embeddedText(ea); !strings.Contains(got, "@{ not a hole }") {
-		t.Fatalf("literal text = %q, want it to contain unescaped %q", got, "@{ not a hole }")
+	got := embeddedText(ea)
+	if strings.Contains(got, "\\@{") {
+		t.Fatalf("literal text %q still contains the escaping backslash; \\@{ must unescape to @{", got)
+	}
+	if want := "lit @{ not a hole } "; got != want {
+		t.Fatalf("literal text = %q, want %q", got, want)
 	}
 }
