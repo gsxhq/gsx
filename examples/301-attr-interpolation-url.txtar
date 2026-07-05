@@ -1,0 +1,16 @@
+-- doc --
+name: URL attribute literals are sanitized whole
+summary: A URL-context backtick literal assembles static text and holes into one string, then sanitizes it as a whole — a dangerous scheme is blocked even when split across holes.
+category: Basics
+page: attributes
+pageOrder: 80
+-- input.gsx --
+package views
+
+component Link(x string) {
+	<a href=`javascript:@{x}`>go</a>
+}
+-- invoke --
+Link(LinkProps{X: "alert(1)"})
+-- render.golden --
+<a href="about:invalid#gsx">go</a>

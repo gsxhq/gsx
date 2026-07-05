@@ -325,8 +325,10 @@ const (
 )
 
 // EmbeddedAttr is an embedded-language attribute value:
-//   name=js`…@{expr}…`, name={js`…`}, name=css`…`, name={css`…`},
-//   name=`…@{expr}…`  (EmbeddedText — plain, HTML-attribute-escaped), name={`…`}.
+//
+//	name=js`…@{expr}…`, name={js`…`}, name=css`…`, name={css`…`},
+//	name=`…@{expr}…`  (EmbeddedText — plain, HTML-attribute-escaped), name={`…`}.
+//
 // Segments contain *Text and *Interp only.
 type EmbeddedAttr struct {
 	span
