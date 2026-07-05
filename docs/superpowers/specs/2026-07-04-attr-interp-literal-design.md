@@ -164,13 +164,27 @@ literal templates (random static segments + hole positions) and hole values (inc
 compiles+renders, and fails if the output attribute resolves to a blocked scheme that isn't
 `about:invalid#gsx`. Seam-shaped inputs must be rejected at compile time (no output to check).
 
-## class / style composable attributes
+## class / style composable attributes (v1 = full merge support)
 
-`` class=`btn @{v}` `` produces a class-**string value** that flows into the normal class-merge
-path (composes with a spread `class`, dedups, etc.) — the value-form analogue of
-`class="btn other"`, **not** a `{ if … }` class arm. `style` is analogous, routing through the
-existing style-value handling (`StyleValue`). No new class/style syntax; the literal is just a
-new way to *produce* the value.
+`` class=`btn btn-@{v}` `` emits the interpolated value as the element's ` class="…"` (the
+value-form analogue of `class="btn other"`), **not** a `{ if … }` class arm. `style` is
+analogous.
+
+**v1 scope decision:** the `EmbeddedText` class/style literal is a **first-class merge target**,
+exactly like a static `class="…"`. The fallthrough machinery (`emitFallthroughAttrs`'s merge-site
+finder, `emitRootStaticClass`/`emitSpread`) currently scans only for `*ast.StaticAttr` and
+`*ast.ClassAttr` named `class`/`style`; we extend it to also recognize an `*ast.EmbeddedAttr`
+(`Lang == EmbeddedText`, name `class`/`style`) as the merge site. A spread bag's `class` then
+merges **caller-last** into the interpolated value, and its `style` merges over the interpolated
+declarations — **no duplicate attribute**. Mirrors `emitRootStaticClass`, but the "own" class
+string is emitted as interpolated segments (`S("badge-")` + hole) rather than a single static
+literal, with the bag's class token(s) appended after.
+
+Example: `` <span class=`badge-@{variant}` { attrs... }> `` with bag `class:"hl", id:"a"` →
+`<span class="badge-x hl" id="a">`.
+
+This is the one place v1 touches the intricate fallthrough/forwarding code, so it gets its own
+task with dedicated corpus coverage (own-only, own+bag-class, own+bag-style, own+bag-scalar).
 
 ## LSP — go-to-definition & hover inside holes
 
@@ -223,7 +237,12 @@ Tracked as post-merge tasks; not blocking the core:
   lang prefix.
 - `../vscode-gsx` — highlighting (via tree-sitter / TextMate).
 - `../gsxhq.github.io` — CodeMirror + VitePress syntax; a docs section under attribute syntax /
-  interpolation; runnable example.
+  interpolation.
+- **Playground examples** (`gsxhq.github.io/playground`) — add runnable snippets that make the
+  feature tangible: (1) headline `` class=`btn btn-@{variant}` `` interpolation, (2) a URL path
+  `` href=`/u/@{id}` ``, (3) the class + spread-bag merge, (4) a "why it's zero-alloc" before/after
+  vs `fmt.Sprintf`. Each should render live in the playground so readers can edit holes and see
+  output. Verify against the playground's WASM-staleness gotcha (rebuild + cache-bust `gsx.wasm`).
 - `docs/ROADMAP.md` — reflect shipped feature.
 
 ## Open sub-decisions (confirm on review)

@@ -1,0 +1,14 @@
+# URL context, post-scheme hole: the static prefix "/u/" commits the URL as a
+# rooted path, so @{id} is a path part -> entity-escape (_gsxgw.AttrValue), matching
+# how gsx treats URL parts today (no percent-encoding).
+-- input.gsx --
+package p
+
+component Link(id string) {
+	<a href=`/u/@{id}/edit`>go</a>
+}
+-- invoke --
+Link(LinkProps{Id: "7"})
+-- diagnostics.golden --
+-- render.golden --
+<a href="/u/7/edit">go</a>

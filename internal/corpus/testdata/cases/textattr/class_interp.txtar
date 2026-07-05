@@ -1,0 +1,13 @@
+# headline: interpolating attribute-value literal (backtick + @{} holes)
+# string holes -> AttrValue (entity-escaped); int holes render like {n}.
+-- input.gsx --
+package p
+
+component Badge(variant string, n int) {
+	<span class=`badge badge-@{variant} n-@{n}`>Hi</span>
+}
+-- invoke --
+Badge(BadgeProps{Variant: "primary", N: 3})
+-- diagnostics.golden --
+-- render.golden --
+<span class="badge badge-primary n-3">Hi</span>
