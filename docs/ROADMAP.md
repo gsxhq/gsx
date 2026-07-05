@@ -232,7 +232,14 @@ render goldens.
     merge-target literal does not currently bind to the js/css embedded-attr
     node — same class of gap, not yet closed); sibling grammars
     (`../tree-sitter-gsx`, `../vscode-gsx`, `gsxhq.github.io` CodeMirror) do not
-    yet parse/highlight the bare backtick-with-`@{}` attribute form.
+    yet parse/highlight the bare backtick-with-`@{}` attribute form. A **hole-free**
+    embedded literal now forwards to a component's `Attrs` bag as raw text
+    (JSX-style directive forwarding, e.g. `` x-model=js`pdcaCategory` ``; corpus
+    `components/embedded_attr_prop.txtar` + `_cond_prop.txtar`); an embedded
+    literal carrying an `@{ }` **hole** as a component prop is still a clear error
+    (`components/embedded_attr_rejected.txtar`) — forwarding a hole into a bag
+    needs JS/CSS-context-correct per-hole escaping (exported string-returning
+    escapers + a value assembler), a separate designed feature.
 
 ## Language server (`gsx lsp`)
 

@@ -166,6 +166,13 @@ Here `Button` explicitly forwards `class`, `data-test`, and `hx-post` to its
 the bag on the inner control, split it across elements, or omit it to expose only
 declared props.
 
+A hole-free embedded-language literal — `` x-model=js`pdcaCategory` ``,
+`` data-tip=`plain text` ``, or `` x-init=css`color:red` `` — forwards exactly
+like a plain string attribute: it always falls through to the `attrs` bag as raw
+text (JSX-style directive forwarding), never binding a declared prop. A literal
+carrying an `@{ }` interpolation cannot yet be a component prop; move it to an
+element inside the component, or forward the value through a declared prop.
+
 ### Precedence
 
 The spread's position decides who wins, JSX-style:

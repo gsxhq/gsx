@@ -1,5 +1,7 @@
-# Embedded js/css attr literals are element attributes in this task; component
-# props are not supported yet and should get a clear diagnostic.
+# A hole-free embedded literal forwards to a component's Attrs bag (see
+# embedded_attr_prop.txtar), but one carrying an @{ } interpolation is still
+# rejected: forwarding a hole into a bag needs JS/CSS-context-correct per-hole
+# escaping, a separate feature. The author moves it to an element inside.
 -- input.gsx --
 package views
 
@@ -7,8 +9,8 @@ component Card(title string) {
 	<div>{title}</div>
 }
 
-component Page() {
-	<Card title="Hi" @click=js`save()`/>
+component Page(id string) {
+	<Card title="Hi" x-model=js`items[@{id}]`/>
 }
 -- diagnostics.golden --
-8:19: embedded js attribute literal "@click" cannot be used as a component prop on <Card>; pass an ordinary prop value or move the literal to an element inside the component
+8:19: embedded js attribute literal "x-model" with @{ } interpolation cannot be used as a component prop on <Card> yet; pass an ordinary prop value or move the literal to an element inside the component
