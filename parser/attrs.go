@@ -375,6 +375,16 @@ func (p *parser) parseBracedEmbeddedAttrValue(name string, attrStartPos token.Po
 	}
 	// Optional whole-literal `|> f` pipeline: name={`…` |> f}.
 	if p.at("|>") {
+		// Whole-literal pipelines only make sense on plain-text literals: the
+		// codegen only ever consumes Stages for EmbeddedText, so a pipe on a
+		// js`…`/css`…` literal would otherwise parse cleanly (Stages set) and
+		// then be silently dropped at emit. Reject it here instead, rather than
+		// falling back to an ordinary Go-expression parse (which would produce
+		// a confusing, unrelated error for what is clearly an attempted
+		// pipeline).
+		if lang != ast.EmbeddedText {
+			return nil, p.errorf(p.pos(), "whole-literal pipelines are only supported on plain `…` attribute literals, not js``/css``")
+		}
 		if end, ok := goStagesEnd(p.src, afterLiteral); ok {
 			slice := p.src[afterLiteral:end]
 			stages, perr := parseTrailingStages(slice, p.posAt(afterLiteral))
