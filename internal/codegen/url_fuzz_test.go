@@ -123,17 +123,15 @@ func main() {
 // value BEFORE parsing it as a URL, so an encoded "&#58;" must be treated as
 // a literal ":" for scheme purposes.
 func extractHref(doc string) string {
-	const marker = `href="`
-	i := strings.Index(doc, marker)
-	if i < 0 {
+	_, rest, found := strings.Cut(doc, `href="`)
+	if !found {
 		return ""
 	}
-	rest := doc[i+len(marker):]
-	j := strings.IndexByte(rest, '"')
-	if j < 0 {
+	val, _, found := strings.Cut(rest, `"`)
+	if !found {
 		return ""
 	}
-	return html.UnescapeString(rest[:j])
+	return html.UnescapeString(val)
 }
 
 // effectiveScheme mimics the WHATWG URL parser's pre-scheme normalization so
