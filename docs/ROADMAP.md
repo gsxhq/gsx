@@ -217,8 +217,8 @@ render goldens.
     single expression — the literal is additive, not a replacement for either.
     The formatter round-trips the literal (idempotent, `\@{` re-escaped on
     print) and the LSP navigation matrix covers its holes. Corpus:
-    `textattr/*` (12 cases — plain/pipeline holes, class/style merge and
-    no-spread, five URL cases including the split-scheme bypass). Docs:
+    `textattr/*` (11 cases — plain/pipeline holes, class/style merge and
+    no-spread, six URL cases including the split-scheme bypass). Docs:
     `syntax/attributes.md` §Interpolating attribute literals,
     `syntax/escaping.md`, `syntax/interpolation.md`, `syntax/javascript.md`
     cross-reference; playground examples `examples/300-302-attr-interpolation*`.

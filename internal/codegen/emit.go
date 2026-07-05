@@ -2173,7 +2173,7 @@ func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast
 			case *ast.Text:
 				fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(htmlAttrEscape(s.Value)))
 			case *ast.Interp:
-				if !emitTextAttrInterp(b, s, resolved, table, imports, interpTemp, cls, a.Name, bag) {
+				if !emitTextAttrInterp(b, s, resolved, table, imports, interpTemp, bag) {
 					return false
 				}
 			default:
@@ -2282,7 +2282,7 @@ func holeStringExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.
 	case catStringer:
 		return "(" + expr + ").String()", true
 	default:
-		bag.Errorf(n.Pos(), n.End(), "unsupported-url-type", "URL interpolation %q has unsupported type %s (need string/number/Stringer)", n.Expr, t)
+		bag.Errorf(n.Pos(), n.End(), "unsupported-url-type", "attribute interpolation %q has unsupported type %s (need string/number/Stringer)", n.Expr, t)
 		return "", false
 	}
 }
@@ -2344,11 +2344,11 @@ func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]type
 	return emitJSAttrValue(b, n.JSCtx, expr, t, n, bag)
 }
 
-// emitTextAttrInterp renders one @{ } hole in a plain attribute literal. Mirrors
-// emitJSAttrInterp's pipeline + (T,error) auto-unwrap, then routes through the
-// type-aware emitAttrValue (string→AttrValue, numbers→strconv, Stringer→.String()).
-// cls/attrName drive URL-context regioning in Task 5; here every hole is a plain value.
-func emitTextAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, attrName string, bag *diag.Bag) bool {
+// emitTextAttrInterp renders one @{ } hole in a plain non-URL attribute literal
+// (the else branch of emitEmbeddedTextAttr). Mirrors emitJSAttrInterp's
+// pipeline + (T,error) auto-unwrap, then routes through the type-aware
+// emitAttrValue (string→AttrValue, numbers→strconv, Stringer→.String()).
+func emitTextAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
 		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, emitPipeWrap(b, interpTemp))
