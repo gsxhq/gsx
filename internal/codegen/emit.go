@@ -556,10 +556,12 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, splitIdx int, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, bag *diag.Bag, mergeExpr, bagExpr string, nonce *nonceInjection) bool {
 	// Find a composed/static class attr to merge the bag's class into, and a
 	// composed/static style attr whose declarations the bag's style merges over.
-	var classAttr *ast.ClassAttr    // composed class={ … }
-	var staticClass *ast.StaticAttr // static class="x"
-	var styleAttr *ast.ClassAttr    // composed style={ … } (CtxCSS ClassAttr)
-	var staticStyle *ast.StaticAttr // static style="x"
+	var classAttr *ast.ClassAttr     // composed class={ … }
+	var staticClass *ast.StaticAttr  // static class="x"
+	var styleAttr *ast.ClassAttr     // composed style={ … } (CtxCSS ClassAttr)
+	var staticStyle *ast.StaticAttr  // static style="x"
+	var embedClass *ast.EmbeddedAttr // class=`…@{…}…` backtick literal
+	var embedStyle *ast.EmbeddedAttr // style=`…@{…}…` backtick literal
 	for _, a := range attrs {
 		switch t := a.(type) {
 		case *ast.ClassAttr:
@@ -575,6 +577,15 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 				staticClass = t
 			case "style":
 				staticStyle = t
+			}
+		case *ast.EmbeddedAttr:
+			if t.Lang == ast.EmbeddedText {
+				switch t.Name {
+				case "class":
+					embedClass = t
+				case "style":
+					embedStyle = t
+				}
 			}
 		}
 	}
@@ -595,6 +606,10 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 			}
 		case *ast.StaticAttr:
 			if t == staticClass || t == staticStyle {
+				continue
+			}
+		case *ast.EmbeddedAttr:
+			if t == embedClass || t == embedStyle {
 				continue
 			}
 		}
@@ -751,8 +766,11 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 	emitSpread := func() bool {
 		emitPostCondSelectors()
 		// If the root had NO class attr at all, emit a merged class in attr position —
-		// writes class only when the bag contributes a non-empty token set.
-		if classAttr == nil && staticClass == nil {
+		// writes class only when the bag contributes a non-empty token set. An
+		// EmbeddedText class literal (embedClass) is emitted in place by Walk 1
+		// (emitRootEmbeddedClass), so it is excluded here the same as
+		// classAttr/staticClass.
+		if classAttr == nil && staticClass == nil && embedClass == nil {
 			fmt.Fprintf(b, "\t\t_gsxgw.ClassMerged(%s, %s.Class())\n", mergeExpr, bagExpr)
 		}
 		// Style: when the caller set a `style`, merge it OVER the root's style
@@ -762,7 +780,8 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 		// for an injection, and intra-style duplicate properties) which StyleMerged's
 		// `prop: value` parser would lose (it drops colon-less fragments and dedupes
 		// properties). The empty-bag case takes the else branch → byte-identical output.
-		if styleAttr != nil || staticStyle != nil {
+		switch {
+		case styleAttr != nil || staticStyle != nil:
 			styleStr, styleParts, ok := rootStyleString(b, styleAttr, staticStyle, table, imports, interpTemp, bag, resolved)
 			if !ok {
 				return false
@@ -780,7 +799,26 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 				fmt.Fprintf(b, "\t\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
 			}
 			b.WriteString("\t\t}\n")
-		} else {
+		case embedStyle != nil:
+			// Same byte-identical-when-bag-empty principle as static/composed style
+			// above: StyleMerged always splits+dedupes by property (unlike Class's
+			// merge, which passes a lone source through verbatim), so an author's
+			// literal with an intra-duplicate declaration would lose one when the bag
+			// doesn't touch style. The else branch re-emits the literal via its normal
+			// standalone path (emitEmbeddedTextAttr), byte-identical to Task 4's
+			// no-fallthrough rendering.
+			ownStyle, ok := embeddedTextValueExpr(b, embedStyle, resolved, table, imports, interpTemp, bag)
+			if !ok {
+				return false
+			}
+			fmt.Fprintf(b, "\t\tif %s.Has(\"style\") {\n", bagExpr)
+			fmt.Fprintf(b, "\t\t\t_gsxgw.StyleMerged(%s, %s.Style())\n", ownStyle, bagExpr)
+			b.WriteString("\t\t} else {\n")
+			if !emitEmbeddedTextAttr(b, embedStyle, resolved, table, imports, interpTemp, cls, bag) {
+				return false
+			}
+			b.WriteString("\t\t}\n")
+		default:
 			// No root style: emit StyleMerged so a caller-only style still appears (it is
 			// a no-op when the bag has no style either).
 			fmt.Fprintf(b, "\t\t_gsxgw.StyleMerged(\"\", %s.Style())\n", bagExpr)
@@ -829,6 +867,16 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 				continue
 			}
 			if t == staticStyle {
+				continue
+			}
+		case *ast.EmbeddedAttr:
+			if t == embedClass {
+				if !emitRootEmbeddedClass(b, t, mergeExpr, bagExpr, resolved, table, imports, interpTemp, bag) {
+					return false
+				}
+				continue
+			}
+			if t == embedStyle {
 				continue
 			}
 		case *ast.SpreadAttr:
@@ -881,6 +929,10 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 			}
 		case *ast.StaticAttr:
 			if t == staticClass || t == staticStyle {
+				continue
+			}
+		case *ast.EmbeddedAttr:
+			if t == embedClass || t == embedStyle {
 				continue
 			}
 		case *ast.SpreadAttr:
@@ -1099,6 +1151,25 @@ func emitRootStaticClass(b *bytes.Buffer, a *ast.StaticAttr, mergeExpr, bagExpr 
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
 	fmt.Fprintf(b, "\t\t_gsxgw.Class(%s, gsx.Class(%s), gsx.Class(%s.Class()))\n", mergeExpr, strconv.Quote(a.Value), bagExpr)
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
+}
+
+// emitRootEmbeddedClass emits an EmbeddedText class/style backtick literal
+// (name=`…@{expr}…`) merged with the bag's class: ` class="` +
+// gw.Class(gsx.Class(<own interpolated value>), gsx.Class(attrs.Class())) +
+// `"`. Mirrors emitRootStaticClass, but the single static token string is
+// replaced by embeddedTextValueExpr's assembled segment expression — the own
+// value is one gsx.Class(...) part alongside the bag's, so a single-source
+// literal (no bag class) still passes through DefaultClassMerge's
+// len(classes)==1 verbatim shortcut, matching the static-class case exactly.
+func emitRootEmbeddedClass(b *bytes.Buffer, a *ast.EmbeddedAttr, mergeExpr, bagExpr string, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
+	val, ok := embeddedTextValueExpr(b, a, resolved, table, imports, interpTemp, bag)
+	if !ok {
+		return false
+	}
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
+	fmt.Fprintf(b, "\t\t_gsxgw.Class(%s, gsx.Class(%s), gsx.Class(%s.Class()))\n", mergeExpr, val, bagExpr)
+	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
+	return true
 }
 
 // rootAttrName returns the single static attribute name of a non-class/style root
@@ -2091,30 +2162,9 @@ func emitEmbeddedJSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.N
 func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, bag *diag.Bag) bool {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
 	if cls.Context(a.Name) == attrclass.CtxURL {
-		parts := make([]string, 0, len(a.Segments))
-		for _, seg := range a.Segments {
-			switch s := seg.(type) {
-			case *ast.Text:
-				if s.Value == "" {
-					continue
-				}
-				// RAW text, NOT htmlAttrEscape'd: _gsxgw.URL entity-escapes the
-				// whole assembled value itself.
-				parts = append(parts, strconv.Quote(s.Value))
-			case *ast.Interp:
-				p, ok := holeStringExpr(b, s, resolved, table, imports, interpTemp, bag)
-				if !ok {
-					return false
-				}
-				parts = append(parts, p)
-			default:
-				bag.Errorf(seg.Pos(), seg.End(), "unsupported-attr", "attribute %q value may contain only text and @{ } interpolations, got %T", a.Name, seg)
-				return false
-			}
-		}
-		concat := `""`
-		if len(parts) > 0 {
-			concat = strings.Join(parts, " + ")
+		concat, ok := embeddedTextValueExpr(b, a, resolved, table, imports, interpTemp, bag)
+		if !ok {
+			return false
 		}
 		fmt.Fprintf(b, "\t\t_gsxgw.URL(%s)\n", concat)
 	} else {
@@ -2136,9 +2186,52 @@ func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast
 	return true
 }
 
-// holeStringExpr lowers one @{ } hole inside a URL-context backtick attribute
-// literal to a Go STRING expression, for whole-value assembly by
-// emitEmbeddedTextAttr's CtxURL branch. It mirrors emitTextAttrInterp's pipeline
+// embeddedTextValueExpr assembles a's segments (static text + @{ } holes) into
+// ONE Go string expression, joining each segment with " + ": static text is a
+// RAW quoted string literal (NOT htmlAttrEscape'd) and each hole is lowered by
+// holeStringExpr to a same-type-routed string conversion (string/[]byte,
+// int/uint/float via strconv, Stringer via .String()). It never runs the whole
+// merged value through any escaper itself — that is the caller's job, done
+// ONCE over the fully assembled string: emitEmbeddedTextAttr's CtxURL branch
+// passes it to _gsxgw.URL (entity-escape + scheme sanitize), and the
+// class/style merge-target emitters (emitRootEmbeddedClass, the embedStyle
+// branch of emitFallthroughAttrs' emitSpread) pass it to gsx.Class(...) /
+// StyleMerged, whose single gw.AttrValue call HTML-attr-escapes the merged
+// result. Escaping per segment here would be wrong in both cases: it would
+// double-escape the static text and leave interpolated values unescaped
+// (URL) or bypass the merge machinery's raw-string contract (class/style,
+// which operates on unescaped tokens/declarations before its one final
+// escape).
+func embeddedTextValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) (string, bool) {
+	parts := make([]string, 0, len(a.Segments))
+	for _, seg := range a.Segments {
+		switch s := seg.(type) {
+		case *ast.Text:
+			if s.Value == "" {
+				continue
+			}
+			parts = append(parts, strconv.Quote(s.Value))
+		case *ast.Interp:
+			p, ok := holeStringExpr(b, s, resolved, table, imports, interpTemp, bag)
+			if !ok {
+				return "", false
+			}
+			parts = append(parts, p)
+		default:
+			bag.Errorf(seg.Pos(), seg.End(), "unsupported-attr", "attribute %q value may contain only text and @{ } interpolations, got %T", a.Name, seg)
+			return "", false
+		}
+	}
+	if len(parts) == 0 {
+		return `""`, true
+	}
+	return strings.Join(parts, " + "), true
+}
+
+// holeStringExpr lowers one @{ } hole inside a backtick attribute literal to a
+// Go STRING expression, for whole-value assembly by embeddedTextValueExpr
+// (used for both a URL-context literal's CtxURL branch and a class/style
+// literal's merge-target emit). It mirrors emitTextAttrInterp's pipeline
 // (lowerPipe/emitPipeWrap) and (T, error) tuple auto-unwrap (tupleUnwrapType/
 // hoistTuple) — any hoisting is emitted to b BEFORE this returns, so temps
 // precede the _gsxgw.URL(...) call that consumes the returned expression. Type
