@@ -438,7 +438,7 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 		}
 		b.WriteString("\treturn gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {\n")
 		b.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
-		emitNumScratch(b, c.Body, resolved)
+		emitNumScratch(b, c.Body, resolved, cls)
 		for _, m := range c.Body {
 			if !genNode(b, m, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
 				return false
@@ -523,7 +523,7 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 		b.WriteString("\t\tattrs := _gsxp.Attrs\n")
 	}
 	b.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
-	emitNumScratch(b, c.Body, resolved)
+	emitNumScratch(b, c.Body, resolved, cls)
 	for _, m := range c.Body {
 		if !genNode(b, m, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
 			return false
@@ -1804,27 +1804,35 @@ func emitRender(b *bytes.Buffer, expr string, t types.Type, imports map[string]b
 }
 
 // emitNumScratch declares the per-render numeric scratch buffer (var _gsxnum) at
-// the head of a render body, but only when this scope directly interpolates an
-// integer/uint/float (the cases that emit gw.IntInto/UintInto/FloatInto). A
-// component with no numeric interpolation gets no declaration.
-func emitNumScratch(b *bytes.Buffer, nodes []ast.Markup, resolved map[ast.Node]types.Type) {
-	if scopeUsesNumeric(nodes, resolved) {
+// the head of a render body, but only when this scope directly emits an
+// integer/uint/float via the IntInto/UintInto/FloatInto primitives. A component
+// with no such numeric emission gets no declaration.
+func emitNumScratch(b *bytes.Buffer, nodes []ast.Markup, resolved map[ast.Node]types.Type, cls *attrclass.Classifier) {
+	if scopeUsesNumeric(nodes, resolved, cls) {
 		b.WriteString("\t\tvar _gsxnum [32]byte\n")
 	}
 }
 
-// scopeUsesNumeric reports whether any text interpolation rendered directly in
-// THIS scope has an integer/uint/float type. It recurses through same-scope
-// constructs (non-component elements, fragments, control flow) but stops at:
-//   - child components — their slots render in their own closure scope, which
-//     declares its own scratch buffer (see emitSlotClosure);
-//   - <style>/<script> — those interpolate via the CSS/JS writers, not the
-//     numeric text path.
+// scopeUsesNumeric reports whether anything rendered directly in THIS scope emits
+// via the numeric scratch buffer (_gsxnum) — an int/uint/float value written by
+// IntInto/UintInto/FloatInto. Those primitives are emitted in three positions:
+//   - text interpolation (emitRender);
+//   - <style>-block interpolation (emitRenderCSS);
+//   - attribute value — both plain attr={n} (emitAttrValue via emitExprAttr) and
+//     a numeric @{ } hole in a backtick literal attr=`…@{n}…` (emitAttrValue via
+//     emitTextAttrInterp); see attrsUseNumericScratch.
 //
-// Mirrors genNode's traversal and genInterp's render-type resolution, so it
-// agrees exactly with where emitRender emits _gsxnum. A mismatch would surface
-// immediately as a compile error (an unused or undefined _gsxnum) in the corpus.
-func scopeUsesNumeric(nodes []ast.Markup, resolved map[ast.Node]types.Type) bool {
+// It recurses through same-scope constructs (non-component elements, fragments,
+// control flow) but stops at:
+//   - child components — their props become struct fields and their slots render
+//     in their own closure scope, which declares its own scratch (see emitSlotClosure);
+//   - <script> — interpolates via the JS writers, not the numeric path.
+//
+// It descends into <style> (block-context numerics DO use _gsxnum). Mirrors
+// genNode's traversal and the emit paths' render-type resolution, so it agrees
+// exactly with where _gsxnum is emitted. A mismatch would surface immediately as
+// a compile error (an unused or undefined _gsxnum) in the corpus.
+func scopeUsesNumeric(nodes []ast.Markup, resolved map[ast.Node]types.Type, cls *attrclass.Classifier) bool {
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *ast.Interp:
@@ -1837,34 +1845,42 @@ func scopeUsesNumeric(nodes []ast.Markup, resolved map[ast.Node]types.Type) bool
 			// per-segment (each *ast.Interp hole via genInterp), so recurse into
 			// Segments the same way as any other scope.
 			if len(t.Stages) > 0 {
-				if interpIsNumeric(t, resolved) {
+				if resolvedTypeIsNumeric(t, resolved) {
 					return true
 				}
-			} else if scopeUsesNumeric(t.Segments, resolved) {
+			} else if scopeUsesNumeric(t.Segments, resolved, cls) {
 				return true
 			}
 		case *ast.Element:
-			if isComponentTag(t.Tag) || strings.EqualFold(t.Tag, "style") || strings.EqualFold(t.Tag, "script") {
+			if isComponentTag(t.Tag) {
+				// Child component: numeric attrs are props (struct fields), and its
+				// slots render in their own scope — neither uses this scope's _gsxnum.
 				continue
 			}
-			if scopeUsesNumeric(t.Children, resolved) {
+			if attrsUseNumericScratch(t.Attrs, resolved, cls) {
+				return true
+			}
+			if strings.EqualFold(t.Tag, "script") {
+				continue
+			}
+			if scopeUsesNumeric(t.Children, resolved, cls) {
 				return true
 			}
 		case *ast.Fragment:
-			if scopeUsesNumeric(t.Children, resolved) {
+			if scopeUsesNumeric(t.Children, resolved, cls) {
 				return true
 			}
 		case *ast.ForMarkup:
-			if scopeUsesNumeric(t.Body, resolved) {
+			if scopeUsesNumeric(t.Body, resolved, cls) {
 				return true
 			}
 		case *ast.IfMarkup:
-			if scopeUsesNumeric(t.Then, resolved) || scopeUsesNumeric(t.Else, resolved) {
+			if scopeUsesNumeric(t.Then, resolved, cls) || scopeUsesNumeric(t.Else, resolved, cls) {
 				return true
 			}
 		case *ast.SwitchMarkup:
 			for _, cc := range t.Cases {
-				if scopeUsesNumeric(cc.Body, resolved) {
+				if scopeUsesNumeric(cc.Body, resolved, cls) {
 					return true
 				}
 			}
@@ -1873,18 +1889,70 @@ func scopeUsesNumeric(nodes []ast.Markup, resolved map[ast.Node]types.Type) bool
 	return false
 }
 
-// interpIsNumeric reports whether node n (an *ast.Interp hole, or an
-// *ast.EmbeddedInterp whole-literal pipeline node) renders as an int/uint/float
-// (the same classification emitRender uses to pick gw.IntInto/UintInto/
-// FloatInto), unwrapping a (T, error) tuple like genInterp/emitEmbeddedInterp do.
-func interpIsNumeric(n ast.Node, resolved map[ast.Node]types.Type) bool {
+// attrsUseNumericScratch reports whether any of an element's attrs (recursing into
+// { if … } cond-attr branches) emits a numeric value through emitAttrValue — the
+// only attribute path that writes via _gsxnum. It mirrors emitExprAttr /
+// emitEmbeddedTextAttr routing:
+//   - a plain attr={n} with numeric value, UNLESS in URL context (routed to
+//     gw.URL, which is string-only — a numeric there would not compile anyway);
+//   - a numeric @{ } hole in an EmbeddedText backtick literal, again excluding URL
+//     context (there the whole value concatenates to one string for gw.URL via
+//     holeStringExpr/FormatInt, never emitAttrValue); and a whole-literal pipe on
+//     an EmbeddedText literal whose piped result is numeric (rendered via
+//     emitAttrValue). js`/css` EmbeddedAttrs (EmbeddedJS/EmbeddedCSS) and
+//     style={…}/class={…} ClassAttrs route through the JS/CSS/merge writers, not
+//     emitAttrValue, and are not matched here.
+func attrsUseNumericScratch(attrs []ast.Attr, resolved map[ast.Node]types.Type, cls *attrclass.Classifier) bool {
+	for _, a := range attrs {
+		switch at := a.(type) {
+		case *ast.ExprAttr:
+			if cls.Context(at.Name) != attrclass.CtxURL && resolvedTypeIsNumeric(at, resolved) {
+				return true
+			}
+		case *ast.EmbeddedAttr:
+			if at.Lang != ast.EmbeddedText || cls.Context(at.Name) == attrclass.CtxURL {
+				continue
+			}
+			if len(at.Stages) > 0 {
+				// Whole-literal pipe: renders one piped value via emitAttrValue.
+				if resolvedTypeIsNumeric(at, resolved) {
+					return true
+				}
+			} else {
+				for _, seg := range at.Segments {
+					if in, ok := seg.(*ast.Interp); ok && resolvedTypeIsNumeric(in, resolved) {
+						return true
+					}
+				}
+			}
+		case *ast.CondAttr:
+			if attrsUseNumericScratch(at.Then, resolved, cls) || attrsUseNumericScratch(at.Else, resolved, cls) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// interpIsNumeric reports whether interp n renders as an int/uint/float (the same
+// classification emitRender uses to pick gw.IntInto/UintInto/FloatInto).
+func interpIsNumeric(n *ast.Interp, resolved map[ast.Node]types.Type) bool {
+	return resolvedTypeIsNumeric(n, resolved)
+}
+
+// resolvedTypeIsNumeric reports whether node n's resolved type renders as an
+// int/uint/float, unwrapping a (T, error) tuple exactly as genInterp/emitExprAttr
+// do. Shared by the text (interpIsNumeric) and attribute (attrsUseNumericScratch)
+// scans in scopeUsesNumeric, plus the *ast.EmbeddedInterp whole-literal-pipe node,
+// so all agree with the emit paths that write through _gsxnum.
+func resolvedTypeIsNumeric(n ast.Node, resolved map[ast.Node]types.Type) bool {
 	t, ok := resolved[n]
 	if !ok || t == nil {
 		return false
 	}
 	if tup, ok := t.(*types.Tuple); ok {
-		// Mirror genInterp's (T, error) unwrap exactly; any other tuple shape is
-		// rejected there with a diagnostic, so it never reaches numeric emission.
+		// Mirror the (T, error) unwrap exactly; any other tuple shape is rejected
+		// at emit with a diagnostic, so it never reaches numeric emission.
 		if tup.Len() != 2 || tup.At(1).Type().String() != "error" {
 			return false
 		}
@@ -1943,29 +2011,30 @@ func emitCSSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.T
 			return false
 		}
 		tmp := hoistTuple(b, expr, interpTemp)
-		return emitRenderCSS(b, tmp, elemT, imports, n, bag)
+		return emitRenderCSS(b, tmp, elemT, n, bag)
 	}
-	return emitRenderCSS(b, expr, t, imports, n, bag)
+	return emitRenderCSS(b, expr, t, n, bag)
 }
 
 // emitRenderCSS writes a value in CSS block context (inside <style>): RawCSS and
 // numbers are emitted raw (safe by construction); strings/Stringers go through
 // gw.CSS (the value-filter). n is the AST node for positioning any error diagnostic.
-func emitRenderCSS(b *bytes.Buffer, expr string, t types.Type, imports map[string]bool, n ast.Node, bag *diag.Bag) bool {
+func emitRenderCSS(b *bytes.Buffer, expr string, t types.Type, n ast.Node, bag *diag.Bag) bool {
 	if isRawCSS(t) {
 		fmt.Fprintf(b, "\t\t_gsxgw.S(string(%s))\n", expr)
 		return true
 	}
 	switch classify(t) {
 	case catInt:
-		imports["strconv"] = true
-		fmt.Fprintf(b, "\t\t_gsxgw.S(strconv.FormatInt(int64(%s), 10))\n", expr)
+		// Digits (and a leading '-') are safe verbatim in a CSS value exactly as
+		// in text/attr context, so write them straight from the per-render scratch
+		// buffer — no string allocation, no filter pass. Matches the `S` (verbatim)
+		// output the FormatInt form produced. See scopeUsesNumeric for _gsxnum's scope.
+		fmt.Fprintf(b, "\t\t_gsxgw.IntInto(_gsxnum[:], int64(%s))\n", expr)
 	case catUint:
-		imports["strconv"] = true
-		fmt.Fprintf(b, "\t\t_gsxgw.S(strconv.FormatUint(uint64(%s), 10))\n", expr)
+		fmt.Fprintf(b, "\t\t_gsxgw.UintInto(_gsxnum[:], uint64(%s))\n", expr)
 	case catFloat:
-		imports["strconv"] = true
-		fmt.Fprintf(b, "\t\t_gsxgw.S(strconv.FormatFloat(float64(%s), 'g', -1, 64))\n", expr)
+		fmt.Fprintf(b, "\t\t_gsxgw.FloatInto(_gsxnum[:], float64(%s))\n", expr)
 	case catString, catBytes:
 		fmt.Fprintf(b, "\t\t_gsxgw.CSS(string(%s))\n", expr)
 	case catStringer:
@@ -2211,6 +2280,28 @@ func embeddedLangName(lang ast.EmbeddedLang) string {
 // is literal JS with @{ } holes. Static JS text is
 // HTML-attr-escaped at codegen so <,>,& survive the attribute; each hole is
 // escaped by its JSCtx and then HTML-attr-escaped (the *Attr escapers do both).
+// embeddedStaticText returns the concatenated literal text of a's segments and
+// true when EVERY segment is static (*ast.Text) — i.e. the js`…`/css`…`/`…`
+// literal has no @{ } interpolation. A hole-free embedded literal is
+// byte-identical to a plain string attribute: the element emitters
+// (emitEmbeddedJSAttr/CSS/Text) all HTML-attr-escape the same raw text and
+// stream it, so in a component-prop or conditional bag it lowers to the SAME
+// {Key, Value: rawtext} entry a plain StaticAttr fallthrough produces
+// (emit.go StaticAttr case), and the runtime HTML-attr-escapes it once on
+// spread. An interpolated literal returns ("", false): forwarding a hole into a
+// bag needs JS/CSS-context-correct per-hole escaping, a separate feature.
+func embeddedStaticText(a *ast.EmbeddedAttr) (string, bool) {
+	var sb strings.Builder
+	for _, seg := range a.Segments {
+		t, ok := seg.(*ast.Text)
+		if !ok {
+			return "", false
+		}
+		sb.WriteString(t.Value)
+	}
+	return sb.String(), true
+}
+
 func emitEmbeddedJSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
 	for _, seg := range a.Segments {
@@ -2298,7 +2389,7 @@ func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast
 				return false
 			}
 			fmt.Fprintf(b, "\t\t_gsxgw.URL(%s)\n", strExpr)
-		} else if !emitAttrValue(b, lowered, t, imports, a, bag) {
+		} else if !emitAttrValue(b, lowered, t, a, bag) {
 			return false
 		}
 	case isURL:
@@ -2535,9 +2626,9 @@ func emitTextAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]ty
 			return false
 		}
 		tmp := hoistTuple(b, expr, interpTemp)
-		return emitAttrValue(b, tmp, elemT, imports, n, bag)
+		return emitAttrValue(b, tmp, elemT, n, bag)
 	}
-	return emitAttrValue(b, expr, t, imports, n, bag)
+	return emitAttrValue(b, expr, t, n, bag)
 }
 
 // emitCSSAttrInterp renders one @{ } hole in an explicit CSS attribute literal.
@@ -2916,7 +3007,7 @@ func emitExprAttr(b *bytes.Buffer, refreshMeta bool, a *ast.ExprAttr, resolved m
 		// which entity-escapes but skips the scheme allow-list.
 		fmt.Fprintf(b, "\t\t_gsxgw.URL(%s)\n", urlStringExpr(expr, t))
 	} else {
-		if !emitAttrValue(b, expr, t, imports, a, bag) {
+		if !emitAttrValue(b, expr, t, a, bag) {
 			return false
 		}
 	}
@@ -3017,21 +3108,23 @@ func urlStringExpr(expr string, t types.Type) string {
 
 // emitAttrValue writes a non-URL attribute value via gw.AttrValue, §5 type-aware.
 // n is the AST node for positioning any error diagnostic.
-func emitAttrValue(b *bytes.Buffer, expr string, t types.Type, imports map[string]bool, n ast.Node, bag *diag.Bag) bool {
+func emitAttrValue(b *bytes.Buffer, expr string, t types.Type, n ast.Node, bag *diag.Bag) bool {
 	switch classify(t) {
 	case catString:
 		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(string(%s))\n", expr)
 	case catBytes:
 		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(string(%s))\n", expr)
 	case catInt:
-		imports["strconv"] = true
-		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(strconv.FormatInt(int64(%s), 10))\n", expr)
+		// Format into the per-render scratch buffer and write the digit bytes
+		// directly — no string allocation, no escaping. A decimal integer is
+		// byte-identical in text and double-quoted attribute contexts (digits and
+		// a leading '-' are never HTML-escaped), so the same primitive the body
+		// path uses is correct here. See scopeUsesNumeric for _gsxnum's scope.
+		fmt.Fprintf(b, "\t\t_gsxgw.IntInto(_gsxnum[:], int64(%s))\n", expr)
 	case catUint:
-		imports["strconv"] = true
-		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(strconv.FormatUint(uint64(%s), 10))\n", expr)
+		fmt.Fprintf(b, "\t\t_gsxgw.UintInto(_gsxnum[:], uint64(%s))\n", expr)
 	case catFloat:
-		imports["strconv"] = true
-		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(strconv.FormatFloat(float64(%s), 'g', -1, 64))\n", expr)
+		fmt.Fprintf(b, "\t\t_gsxgw.FloatInto(_gsxnum[:], float64(%s))\n", expr)
 	case catStringer:
 		fmt.Fprintf(b, "\t\t_gsxgw.AttrValue((%s).String())\n", expr)
 	case catAnyMixed:
@@ -3966,7 +4059,7 @@ func emitSlotClosure(nodes []ast.Markup, currentPkg *types.Package, resolved map
 	var slot bytes.Buffer
 	slot.WriteString("gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {\n")
 	slot.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
-	emitNumScratch(&slot, nodes, resolved)
+	emitNumScratch(&slot, nodes, resolved, cls)
 	for _, c := range nodes {
 		if !genNode(&slot, c, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
 			return "", false
@@ -4241,6 +4334,22 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 					}
 					recordPkgs(used)
 					val = lowered
+					// lowerPipe leaves a FINAL (R, error) stage unwrapped (it hoists
+					// only non-final error stages). A fallthrough attr's value is
+					// spliced into the Attrs bag literal in single-value position, so
+					// unwrap the final tuple HERE — this is the one attr context that
+					// lacks a downstream tuple-hoist pass. Probe mode keeps the
+					// skeleton a single expression via _gsxunwrap; emit mode hoists
+					// `v, _gsxerr := call; if _gsxerr != nil { return _gsxerr }`,
+					// mirroring the inline CondAttr hoist and the declared-prop /
+					// ordered-attrs unwrap that genChildComponent defers.
+					if finalStageErr(t.Stages, table) {
+						if probeWrap {
+							val = "_gsxunwrap(" + val + ")"
+						} else {
+							val = hoistTuple(b, val, interpTemp)
+						}
+					}
 				}
 				bag = append(bag, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), val))
 			}
@@ -4365,8 +4474,17 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 		case *ast.CommentAttr:
 			// Source-only comment; not a component prop.
 		case *ast.EmbeddedAttr:
-			msg := fmt.Sprintf("embedded %s attribute literal %q cannot be used as a component prop on <%s>; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, el.Tag)
-			return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
+			// A hole-free js`…`/css`…`/`…` literal forwards to the Attrs bag as
+			// raw text — identical to a plain string attribute (JSX-style
+			// directive forwarding, e.g. x-model=js`pdcaCategory`). Embedded
+			// literals always fall through to the bag; to set a declared prop
+			// use a string or { expr }.
+			text, static := embeddedStaticText(t)
+			if !static {
+				msg := fmt.Sprintf("embedded %s attribute literal %q with @{ } interpolation cannot be used as a component prop on <%s> yet; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, el.Tag)
+				return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
+			}
+			bag = append(bag, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), strconv.Quote(text)))
 		default:
 			msg := fmt.Sprintf("unknown attribute %T on component (<%s>)", a, el.Tag)
 			return nil, "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}
@@ -4709,8 +4827,14 @@ func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string,
 		case *ast.CommentAttr:
 			// Source-only comment; not a component prop.
 		case *ast.EmbeddedAttr:
-			msg := fmt.Sprintf("embedded %s attribute literal %q cannot be used as a component prop on <%s>; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, tag)
-			return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
+			// A hole-free embedded literal forwards to the conditional Attrs bag
+			// as raw text — same lowering as the component-prop path above.
+			text, static := embeddedStaticText(t)
+			if !static {
+				msg := fmt.Sprintf("embedded %s attribute literal %q with @{ } interpolation cannot be used as a component prop on <%s> yet; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, tag)
+				return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
+			}
+			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), strconv.Quote(text)))
 		default:
 			msg := fmt.Sprintf("unsupported attribute %T in a conditional branch (<%s>)", a, tag)
 			return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}
