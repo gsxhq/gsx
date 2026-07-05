@@ -1,0 +1,16 @@
+-- doc --
+name: Whole-literal pipelines
+summary: A backtick literal followed by |> filter assembles the interpolated string as a unit, then pipes the whole value through the filter before context-aware escaping.
+category: Transforming values
+page: pipelines
+pageOrder: 40
+-- input.gsx --
+package views
+
+component Item(id string) {
+	<li>{`item-@{id}` |> upper}</li>
+}
+-- invoke --
+Item(ItemProps{Id: "a&b"})
+-- render.golden --
+<li>ITEM-A&amp;B</li>

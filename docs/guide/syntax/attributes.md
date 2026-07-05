@@ -176,6 +176,16 @@ backtick, and `\@{` for a literal `@{` that should not be read as a hole.
 Anywhere else the text is copied through verbatim, exactly like a `` js`...` ``
 or `` css`...` `` literal.
 
+::: v-pre
+To pipe the **whole** assembled value through a filter, wrap the literal in
+braces and append a pipeline: `` class={`btn-@{v}` |> upper} ``. The static text
+and holes are interpolated into one string, then that whole value flows through
+the pipeline before the attribute escaper runs — see [Pipelines — whole-literal
+pipelines](./pipelines#whole-literal-pipelines). The pipe is only available in
+the braced form; the bare `` class=`…` `` direct-attribute literal does not take
+a trailing `|>`.
+:::
+
 ### URL attributes sanitize the whole value
 
 When the attribute is a URL context (`href`, `src`, `action`, and the rest of

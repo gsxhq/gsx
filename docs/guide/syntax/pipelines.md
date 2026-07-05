@@ -32,6 +32,51 @@ A filter stage can take extra arguments by appending them in parentheses after t
 
 `s |> trim |> truncate(5)` strips surrounding whitespace first, then cuts to five runes — lowered to `_gsxstd.Truncate(_gsxstd.Trim(s), 5)`. `count |> format("%d comments")` passes `count` as the first `Sprintf` verb and the string literal as the format spec.
 
+## Whole-literal pipelines
+
+A backtick literal followed by `|>` pipes the **entire assembled string** as a
+unit. The literal's static text and `@{ }` holes are interpolated into one Go
+string first, and that whole value flows into the pipeline — not each hole
+separately. It works in body braces (`` {`…` |> f} ``) and in a braced attribute
+value (`` attr={`…` |> f} ``).
+
+<!--@include: ./_generated/pipelines/040-whole-literal-pipelines.md-->
+
+`` `item-@{id}` |> upper `` assembles `item-` + `id` into one string, then applies
+`upper` to the result. This is the ergonomic alternative to a `fmt.Sprintf` +
+pipe: `` {`item-@{id}` |> upper} `` reads far more directly than
+`` { fmt.Sprintf("item-%s", id) |> upper } `` while lowering to the same single
+call chain.
+
+Contrast with a **per-hole** pipeline, where `|>` sits *inside* a hole and
+transforms only that one value: `` `item-@{ id |> upper }` `` upper-cases just
+`id`, leaving the `item-` prefix untouched. The whole-literal form places the
+`|>` *after* the closing backtick, so the filter sees the finished string.
+
+::: v-pre
+The whole-literal pipe is available in body braces and the **braced** attribute
+form (`attr={`…` |> f}`), but not on the bare direct-attribute literal
+(`` attr=`…` ``) — wrap it in braces to add a pipeline. It is also rejected on
+`js` and `css` embedded-language literals, whose holes carry their own
+per-context escaping.
+:::
+
+### URL attributes sanitize after the pipe
+
+When the piped literal sits in a URL-context attribute (`href`, `src`, `action`,
+the htmx method attrs), the scheme check runs on the **pipe's output** — after
+the filter, never before. A filter that produces a dangerous scheme is still
+blocked to `about:invalid#gsx`; the sanitizer always has the final say.
+
+```gsx
+<a href={`@{u}` |> upper}>go</a>
+```
+
+With `u = "javascript:alert(1)"`, `upper` yields `JAVASCRIPT:ALERT(1)`, and the
+URL sanitizer — case-insensitive on the scheme — still rejects it, rendering
+`href="about:invalid#gsx"`. There is no ordering of filter and holes that lets a
+dangerous scheme reach the browser.
+
 ## `(T, error)` auto-unwrap
 
 A filter that returns `(T, error)` — or any bare function call `{ f(x) }` with that return shape — is automatically unwrapped. There is no special syntax needed: the generated code assigns the result, checks the error, and if it is non-nil, returns it from `Render`. The caller receives the error and can handle it (log, serve a 500, etc.). See [Interpolation → `(T, error)` unwrap](./interpolation) for a worked example.
