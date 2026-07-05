@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/wsnorm"
 	"github.com/gsxhq/gsx/parser"
 )
@@ -374,6 +375,35 @@ component C(color string, hidden bool) {
 	<div style={ "display:none": hidden, css` + "`" + `color:@{color};content:"\` + "`" + `"` + "`" + ` }>
 		x
 	</div>
+}
+`
+	checkFormat(t, src, want)
+}
+
+func TestEmbeddedTextLiteralNoLangPrefix(t *testing.T) {
+	if got := embeddedLangName(ast.EmbeddedText); got != "" {
+		t.Fatalf("embeddedLangName(ast.EmbeddedText) = %q, want empty string", got)
+	}
+	if got := embeddedLangName(ast.EmbeddedJS); got != "js" {
+		t.Fatalf("embeddedLangName(ast.EmbeddedJS) = %q, want \"js\"", got)
+	}
+	if got := embeddedLangName(ast.EmbeddedCSS); got != "css" {
+		t.Fatalf("embeddedLangName(ast.EmbeddedCSS) = %q, want \"css\"", got)
+	}
+}
+
+func TestEmbeddedTextLiteralRoundTrip(t *testing.T) {
+	// Bare-backtick EmbeddedText: no lang prefix, and a literal `@{` in the
+	// source (escaped as `\@{`) must round-trip as literal text rather than
+	// turning into a hole.
+	src := `package p
+component C(v string) {
+	<span class=` + "`" + `badge-@{v} \@{lit}` + "`" + `>x</span>
+}`
+	want := `package p
+
+component C(v string) {
+	<span class=` + "`" + `badge-@{v} \@{lit}` + "`" + `>x</span>
 }
 `
 	checkFormat(t, src, want)
