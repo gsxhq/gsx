@@ -156,10 +156,10 @@ func (*GoChunk) declNode() {}
 // GoChunk (verbatim, element-free Go text) would otherwise apply. Parts holds
 // the Go text and element literals in source order; concatenating each part's
 // source (GoText.Src, or an element's own source span) reproduces the
-// original text. GoWithElements is used both as a top-level file item —
-// replacing the GoChunk that would otherwise span this range — and as the
-// body of a Go-expression position that embeds markup (e.g. an interpolation
-// expression).
+// original text. GoWithElements is used as a top-level file item, replacing
+// the GoChunk that would otherwise span this range — it is produced only by
+// the file-level decl loop (parser/file.go's splitGoElements), never nested
+// inside a component body or another Go-expression construct.
 type GoWithElements struct {
 	span
 	Parts []GoPart
