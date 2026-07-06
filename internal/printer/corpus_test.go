@@ -128,6 +128,9 @@ func zeroSpans(n ast.Node) {
 			case *ast.Element:
 				v.CloseNamePos = 0
 				v.TypeArgsPos = 0
+				v.ChildrenMultiline = false
+			case *ast.Fragment:
+				v.ChildrenMultiline = false
 			case *ast.SpreadAttr:
 				v.ExprPos = 0
 				for i := range v.Stages {
@@ -145,8 +148,11 @@ func zeroSpans(n ast.Node) {
 				v.CondPos = 0
 			case *ast.ForMarkup:
 				v.ClausePos = 0
+				v.BodyMultiline = false
 			case *ast.IfMarkup:
 				v.CondPos = 0
+				v.ThenMultiline = false
+				v.ElseMultiline = false
 			case *ast.SwitchMarkup:
 				v.TagPos = 0
 			case *ast.CaseClause:

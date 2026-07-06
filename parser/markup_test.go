@@ -1509,3 +1509,75 @@ func TestEmptyTypeArgsRejected(t *testing.T) {
 		t.Fatalf("anchored at line %d, want 4", p.Line)
 	}
 }
+
+// TestAuthorLineBreakFlags checks that the parser records a line break placed
+// immediately after a control-flow body / element-children opening delimiter
+// (the *Multiline flags the formatter uses to preserve vertical layout).
+func TestAuthorLineBreakFlags(t *testing.T) {
+	firstOf := func(f *ast.File, want func(ast.Node) bool) ast.Node {
+		var found ast.Node
+		for _, d := range f.Decls {
+			if found != nil {
+				break
+			}
+			c, ok := d.(*ast.Component)
+			if !ok {
+				continue
+			}
+			for _, m := range c.Body {
+				ast.Inspect(m, func(n ast.Node) bool {
+					if found == nil && n != nil && want(n) {
+						found = n
+					}
+					return found == nil
+				})
+			}
+		}
+		return found
+	}
+	ifNode := func(src string) *ast.IfMarkup {
+		n := firstOf(parseStringT(t, src), func(n ast.Node) bool { _, ok := n.(*ast.IfMarkup); return ok })
+		if n == nil {
+			t.Fatalf("no IfMarkup in:\n%s", src)
+		}
+		return n.(*ast.IfMarkup)
+	}
+	elemNode := func(src, tag string) *ast.Element {
+		n := firstOf(parseStringT(t, src), func(n ast.Node) bool {
+			e, ok := n.(*ast.Element)
+			return ok && e.Tag == tag
+		})
+		if n == nil {
+			t.Fatalf("no <%s> in:\n%s", tag, src)
+		}
+		return n.(*ast.Element)
+	}
+
+	// then-body broken vs inline
+	if got := ifNode("package p\ncomponent C(x bool) {\n\t<div>{ if x {\n\t{ x }\n\t} }</div>\n}\n"); !got.ThenMultiline {
+		t.Error("ThenMultiline: want true for author-broken then body")
+	}
+	if got := ifNode("package p\ncomponent C(x bool) {\n\t<div>{ if x { { x } } }</div>\n}\n"); got.ThenMultiline {
+		t.Error("ThenMultiline: want false for inline then body")
+	}
+	// CRLF line break after `{` still counts.
+	if got := ifNode("package p\r\ncomponent C(x bool) {\r\n\t<div>{ if x {\r\n\t{ x }\r\n\t} }</div>\r\n}\r\n"); !got.ThenMultiline {
+		t.Error("ThenMultiline: want true for CRLF-broken then body")
+	}
+	// plain else broken.
+	if got := ifNode("package p\ncomponent C(x bool) {\n\t<div>{ if x { { x } } else {\n\t{ x }\n\t} }</div>\n}\n"); !got.ElseMultiline {
+		t.Error("ElseMultiline: want true for author-broken else body")
+	}
+	// else-if must NOT set ElseMultiline (Else is a nested IfMarkup).
+	elseIf := ifNode("package p\ncomponent C(x bool) {\n\t<div>{ if x { { x } } else if !x {\n\t{ x }\n\t} }</div>\n}\n")
+	if elseIf.ElseMultiline {
+		t.Error("ElseMultiline: want false for else-if chain")
+	}
+	// element children broken vs inline.
+	if got := elemNode("package p\ncomponent C(s string) {\n\t<span>\n\t{ s }\n\t</span>\n}\n", "span"); !got.ChildrenMultiline {
+		t.Error("ChildrenMultiline: want true for author-broken children")
+	}
+	if got := elemNode("package p\ncomponent C(s string) {\n\t<span>{ s }</span>\n}\n", "span"); got.ChildrenMultiline {
+		t.Error("ChildrenMultiline: want false for inline children")
+	}
+}

@@ -77,6 +77,24 @@ func (p *parser) skipSpace() {
 	}
 }
 
+// newlineFollows reports whether the whitespace run in src starting at off
+// contains a line break before the next non-whitespace byte — i.e. the author
+// placed the following content on its own line. The formatter uses this to keep
+// a body block-formatted when the source did (see ast.*Multiline fields).
+func newlineFollows(src string, off int) bool {
+	for off < len(src) {
+		switch src[off] {
+		case '\n', '\r':
+			return true
+		case ' ', '\t':
+			off++
+		default:
+			return false
+		}
+	}
+	return false
+}
+
 // pos returns the token.Pos of the current cursor position.
 func (p *parser) pos() token.Pos {
 	return p.file.Pos(p.base + p.i)
