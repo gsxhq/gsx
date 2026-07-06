@@ -2,8 +2,11 @@
 package parser
 
 import (
+	"fmt"
 	"go/scanner"
 	"go/token"
+
+	"github.com/gsxhq/gsx/ast"
 )
 
 // goElemMark is the byte offset (relative to the scanned span) of a '<' that
@@ -218,4 +221,99 @@ func skipAttrQuoted(src string, i int) int {
 		}
 	}
 	return len(src)
+}
+
+// splitGoElements scans src — a verbatim run of Go source that would
+// otherwise become a plain *ast.GoChunk, seated at absolute file position
+// base — for gsx elements at Go operand-start positions (scanGoElementMarks,
+// the Task 1 detector). When none are found, it returns the unchanged
+// *ast.GoChunk: the common case, so every existing GoChunk consumer sees no
+// churn. When one or more marks are found, each is handed to the real
+// element parser (parseElement) seated at its absolute offset, and the
+// result is a *ast.GoWithElements whose Parts interleave GoText runs
+// (verbatim Go source, possibly empty — e.g. two elements back to back) with
+// the parsed *ast.Element nodes, in source order. Concatenating GoText.Src
+// and each element's own source span reproduces src exactly, in every case
+// including the error paths below.
+func (p *parser) splitGoElements(src string, base token.Pos) ast.Decl {
+	marks := scanGoElementMarks(src)
+	if len(marks) == 0 {
+		gc := &ast.GoChunk{Src: src}
+		ast.SetSpan(gc, base, base+token.Pos(len(src)))
+		return gc
+	}
+
+	// subBase is the absolute byte offset (within p.file) of src[0] — what a
+	// sub-parser's `base` field needs so its pos()/posAt() (file.Pos(base+i))
+	// resolve to the right byte in the shared file, exactly as if the whole
+	// file were being parsed at this offset.
+	subBase := p.file.Offset(base)
+
+	var parts []ast.GoPart
+	cursor := 0 // offset within src of the next unconsumed byte
+
+	finish := func() ast.Decl {
+		parts = append(parts, goTextPart(src, cursor, len(src), base))
+		we := &ast.GoWithElements{Parts: parts}
+		ast.SetSpan(we, base, base+token.Pos(len(src)))
+		return we
+	}
+
+	for _, m := range marks {
+		if m.Off < cursor {
+			// The span-skip's estimate of a previous element's end
+			// (elementSpanEnd, used by scanGoElementMarks to resume
+			// tokenizing) disagreed with parseElement's real, name-matched
+			// end for that element, and this mark falls inside text already
+			// consumed. Drop it rather than slice with from > to.
+			continue
+		}
+		parts = append(parts, goTextPart(src, cursor, m.Off, base))
+
+		sub := &parser{file: p.file, src: src, base: subBase, classifier: p.classifier}
+		sub.i = m.Off
+		markup, err := sub.parseElement()
+		p.errs = append(p.errs, sub.errs...)
+		if err != nil {
+			// Forward progress: fold the rest of src back in as verbatim
+			// text and stop; the error is already recorded in p.errs.
+			cursor = m.Off
+			return finish()
+		}
+		el, ok := markup.(*ast.Element)
+		if !ok {
+			// scanGoElementMarks also flags a fragment-open (`<>`) as a
+			// mark, but GoPart only admits *Element (and GoText) — a bare
+			// fragment isn't yet a supported Go-expression value. Surface a
+			// clear error rather than mistyping the part.
+			p.errorf(base+token.Pos(m.Off), "gsx: %s is not supported as a Go expression value here", markupKind(markup))
+			cursor = sub.i
+			continue
+		}
+		parts = append(parts, el)
+		cursor = sub.i
+	}
+	return finish()
+}
+
+// goTextPart builds a GoText part covering src[from:to], positioned at base
+// (the absolute file position of src[0]).
+func goTextPart(src string, from, to int, base token.Pos) ast.GoPart {
+	gt := ast.GoText{Src: src[from:to]}
+	ast.SetSpan(&gt, base+token.Pos(from), base+token.Pos(to))
+	return gt
+}
+
+// markupKind names a parsed ast.Markup for the "unsupported here" error
+// message when parseElement returns something other than *ast.Element for a
+// detected mark (currently only a fragment can reach this, since
+// byteBeginsTag's other candidate bytes — '!' for doctype/comment — are
+// never flagged as marks by scanGoElementMarks).
+func markupKind(m ast.Markup) string {
+	switch m.(type) {
+	case *ast.Fragment:
+		return "a fragment (<>...</>) literal"
+	default:
+		return fmt.Sprintf("a %T", m)
+	}
 }
