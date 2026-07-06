@@ -54,3 +54,45 @@ func TestComponentSignature(t *testing.T) {
 		t.Fatalf("children presence must differ")
 	}
 }
+
+func TestDetectSignatureConflicts(t *testing.T) {
+	filesOf := func(srcs map[string]string) map[string]*gsxast.File {
+		out := map[string]*gsxast.File{}
+		for name, src := range srcs {
+			fset := token.NewFileSet()
+			f, errs := parser.ParseFileWithClassifier(fset, name, []byte(src), 0, nil)
+			if len(errs) > 0 {
+				t.Fatalf("%s: %v", name, errs)
+			}
+			out[name] = f
+		}
+		return out
+	}
+
+	// Same name, same signature, different files → NO conflict (tolerated variant).
+	same := filesOf(map[string]string{
+		"a.gsx": "package v\ncomponent Icon(name string) { <a>{ name }</a> }\n",
+		"b.gsx": "package v\ncomponent Icon(name string) { <b>{ name }</b> }\n",
+	})
+	if got := detectSignatureConflicts(same); len(got) != 0 {
+		t.Fatalf("same-sig variants: want 0 conflicts, got %d", len(got))
+	}
+
+	// Same name, DIFFERENT signature, different files → conflict.
+	diff := filesOf(map[string]string{
+		"a.gsx": "package v\ncomponent Icon(name string) { <a>{ name }</a> }\n",
+		"b.gsx": "package v\ncomponent Icon(name int) { <b>{ name }</b> }\n",
+	})
+	got := detectSignatureConflicts(diff)
+	if len(got) != 1 || got[0].key != ".Icon" || len(got[0].comps) != 2 {
+		t.Fatalf("diff-sig: want 1 conflict on .Icon with 2 comps, got %+v", got)
+	}
+
+	// Same name twice in ONE file → NOT our conflict (within-file; left to raw error).
+	within := filesOf(map[string]string{
+		"a.gsx": "package v\ncomponent Icon(name string) { <a/> }\ncomponent Icon(name int) { <b/> }\n",
+	})
+	if got := detectSignatureConflicts(within); len(got) != 0 {
+		t.Fatalf("within-file dup: want 0 conflicts, got %d", len(got))
+	}
+}
