@@ -14,10 +14,15 @@ import (
 // declaration, and every reference (resolved positions — .go call sites stay
 // .go; .gsx <Card/> tags map to .gsx via the skeleton's child-tag //line).
 // Name's length bounds the cursor-on-reference span check in the LSP.
+//
+// Decls holds every build-tag variant's declaration position (sorted by
+// filename then offset); Decl is kept equal to Decls[0] as the primary
+// position for callers that only care about "the" declaration.
 type CrossRef struct {
-	Name string
-	Decl token.Position
-	Refs []token.Position
+	Name  string
+	Decl  token.Position
+	Decls []token.Position
+	Refs  []token.Position
 }
 
 // NavRef is one navigable Go reference (in a .go or skeleton file) and the .gsx
