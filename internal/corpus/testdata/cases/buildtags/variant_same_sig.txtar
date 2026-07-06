@@ -1,0 +1,27 @@
+-- icon.gsx --
+//go:build !never
+
+package views
+
+component Icon(name string) {
+	<span class="active">{ name }</span>
+}
+-- icon_never.gsx --
+//go:build never
+
+package views
+
+component Icon(name string) {
+	<span class="never">{ name }</span>
+}
+-- page.gsx --
+package views
+
+component Page() {
+	<Icon name="x"/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<span class="active">x</span>

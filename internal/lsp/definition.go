@@ -396,9 +396,19 @@ func (s *Server) handleDefinition(f frame) error {
 
 	off := byteOffsetForPosition(text, p.Position.Line, p.Position.Character, s.enc)
 
-	// D2: cursor on a component tag name in a .gsx file → jump to the component declaration.
-	if decl, ok := componentTagDeclAt(pkg, path, off); ok {
-		return s.reply(f.ID, s.locationForPos(decl))
+	// D2: cursor on a component tag name in a .gsx file → jump to the component
+	// declaration(s). A single variant replies with a plain Location (unchanged
+	// wire shape); multiple build-tag variants (Task 7) reply with a []Location
+	// so the editor shows a picker — both are valid textDocument/definition results.
+	if decls, ok := componentTagDeclAt(pkg, path, off); ok {
+		if len(decls) == 1 {
+			return s.reply(f.ID, s.locationForPos(decls[0]))
+		}
+		locs := make([]Location, 0, len(decls))
+		for _, d := range decls {
+			locs = append(locs, s.locationForPos(d))
+		}
+		return s.reply(f.ID, locs)
 	}
 
 	// B: cursor on a dotted/cross-package component tag → its declaration in the
@@ -607,17 +617,18 @@ func posCoversCursor(r token.Position, path string, curLine, curCol, nameLen int
 // componentTagDeclAt checks whether the byte offset off in the .gsx file at
 // path sits on the name portion of a component element tag (e.g. the "Card" in
 // "<Card .../>"). If so, it looks the component up in pkg.CrossIndex by the
-// function-component key "." + tag, and returns its Decl position and true.
-// Returns (zero, false) if the cursor is not on a component tag.
-func componentTagDeclAt(pkg *Package, path string, off int) (token.Position, bool) {
+// function-component key "." + tag, and returns every build-tag variant's
+// declaration position (Task 7) and true. Returns (nil, false) if the cursor
+// is not on a component tag.
+func componentTagDeclAt(pkg *Package, path string, off int) ([]token.Position, bool) {
 	if pkg == nil || pkg.GSXFset == nil || pkg.Files == nil {
-		return token.Position{}, false
+		return nil, false
 	}
 	f := pkg.Files[path]
 	if f == nil {
-		return token.Position{}, false
+		return nil, false
 	}
-	var result token.Position
+	var result []token.Position
 	found := false
 	gsxast.Inspect(f, func(n gsxast.Node) bool {
 		if found {
@@ -645,12 +656,21 @@ func componentTagDeclAt(pkg *Package, path string, off int) (token.Position, boo
 			onClose = off >= closeStart && off < closeStart+len(tag)
 		}
 		if onOpen || onClose {
-			// Cursor is on the tag name; look up in CrossIndex.
+			// Cursor is on the tag name; look up in CrossIndex. Decls carries every
+			// build-tag variant's declaration (Task 6); fall back to the single
+			// primary Decl for CrossRef values that predate Decls (e.g. synthetic
+			// test fixtures built before Task 7).
 			key := "." + tag
 			cr, ok := pkg.CrossIndex[key]
-			if ok && cr.Decl.IsValid() {
-				result = cr.Decl
-				found = true
+			if ok {
+				decls := cr.Decls
+				if len(decls) == 0 && cr.Decl.IsValid() {
+					decls = []token.Position{cr.Decl}
+				}
+				if len(decls) > 0 {
+					result = decls
+					found = true
+				}
 			}
 		}
 		return true

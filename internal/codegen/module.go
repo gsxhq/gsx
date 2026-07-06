@@ -402,7 +402,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	// Safe despite emit's in-place AST mutation: analyze re-parses a fresh gsx AST
 	// on every call, so there is no previously-mutated tree that could be corrupted
 	// by a concurrent or repeated generateFile pass on the same nodes.
-	if len(a.typeErrs) == 0 {
+	if len(a.typeErrs) == 0 && len(a.signatureConflicts) == 0 {
 		for path, f := range a.gsxFiles {
 			ff := a.factsByFile[path]
 			generateFile(f, a.pkg, a.resolved, a.table, ff.propFields, ff.nodeProps, ff.attrsProps, ff.byo,
@@ -454,7 +454,7 @@ func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, err
 	// package emits spurious secondary diagnostics (e.g. "could not resolve type of
 	// interpolation") because resolved lacks entries for identifiers the type-checker
 	// flagged as undefined.
-	if len(a.typeErrs) == 0 {
+	if len(a.typeErrs) == 0 && len(a.signatureConflicts) == 0 {
 		for path, f := range a.gsxFiles {
 			ff := a.factsByFile[path]
 			gen, ok := generateFile(f, a.pkg, a.resolved, a.table, ff.propFields, ff.nodeProps, ff.attrsProps, ff.byo,

@@ -2,7 +2,9 @@ package lsp
 
 import (
 	"encoding/json"
+	"go/token"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -59,12 +61,30 @@ func (s *Server) handleReferences(f frame) error {
 		return s.reply(f.ID, []Location{})
 	}
 
-	locs := make([]Location, 0, len(found.Refs)+1)
+	locs := make([]Location, 0, len(found.Refs)+len(found.Decls)+1)
 	for _, r := range found.Refs {
 		locs = append(locs, s.locationForPos(r))
 	}
 	if p.Context.IncludeDeclaration {
-		locs = append(locs, s.locationForPos(found.Decl))
+		// Emit every build-tag variant's declaration (found.Decls), not just the
+		// primary found.Decl, deduping by filename+offset since Decls always
+		// contains found.Decl too (Decls[0], see codegen.CrossRef).
+		decls := found.Decls
+		if len(decls) == 0 {
+			decls = []token.Position{found.Decl}
+		}
+		seen := map[string]bool{}
+		for _, d := range decls {
+			if !d.IsValid() {
+				continue
+			}
+			k := d.Filename + ":" + strconv.Itoa(d.Offset)
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			locs = append(locs, s.locationForPos(d))
+		}
 	}
 	return s.reply(f.ID, locs)
 }
@@ -78,6 +98,11 @@ func identifyCrossRef(refs []CrossRef, path string, curLine, curCol int) *CrossR
 		cr := refs[i]
 		if posCoversCursor(cr.Decl, path, curLine, curCol, len(cr.Name)) {
 			return &refs[i]
+		}
+		for _, d := range cr.Decls {
+			if posCoversCursor(d, path, curLine, curCol, len(cr.Name)) {
+				return &refs[i]
+			}
 		}
 		for _, r := range cr.Refs {
 			if strings.HasSuffix(r.Filename, ".go") &&
