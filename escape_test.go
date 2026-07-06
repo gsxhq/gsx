@@ -171,11 +171,16 @@ func TestURLSanitizeImage(t *testing.T) {
 		{"jpeg", "data:image/jpeg;base64,/9j/4AAQ==", "data:image/jpeg;base64,/9j/4AAQ=="},
 		{"webp upper mime", "data:IMAGE/WEBP;base64,UklGRg==", "data:IMAGE/WEBP;base64,UklGRg=="},
 		{"svg", "data:image/svg+xml;base64,PHN2Zz4=", "data:image/svg+xml;base64,PHN2Zz4="},
+		// allowed: an extra parameter before the final ;base64 marker doesn't
+		// change the MIME or the marker, so it's still accepted unchanged.
+		{"png with charset param", "data:image/png;charset=utf-8;base64,iVBORw0KGgo=", "data:image/png;charset=utf-8;base64,iVBORw0KGgo="},
 		// blocked: non-image data URLs
 		{"html", "data:text/html;base64,PHNjcmlwdD4=", blockedURL},
 		{"js", "data:application/javascript;base64,YWxlcnQ=", blockedURL},
 		{"no mime", "data:;base64,AAAA", blockedURL},
 		{"image no base64 marker", "data:image/png,rawbytes", blockedURL},
+		// blocked: marker must be exactly "base64", not a lookalike suffix
+		{"almost base64 marker", "data:image/png;base64x,AAAA", blockedURL},
 		// blocked: other dangerous schemes
 		{"javascript", "javascript:alert(1)", blockedURL},
 		{"vbscript", "vbscript:msgbox(1)", blockedURL},

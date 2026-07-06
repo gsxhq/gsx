@@ -215,7 +215,13 @@ A backtick literal is also how you write a `data:` URL directly, on an
 ```
 
 The scheme, MIME type, and `;base64,` marker are static author text; only the
-payload after the marker is a hole. Encoding is **type-driven**:
+payload after the marker is a hole. Encoding is **type-driven**, and the
+trigger is the literal `;base64,` marker text, not the `data:image` scheme
+specifically: a `[]byte` hole immediately following a static `;base64,`
+marker — in *any* URL-context attribute literal, not only `data:image`
+ones — is auto base64-encoded. This is security-neutral: base64 output is a
+strict subset of URL-safe characters, so encoding it is never a sanitization
+concern regardless of which attribute or scheme it lands in.
 
 - a `[]byte` hole immediately following `;base64,` is auto base64-encoded
   (`base64.StdEncoding`) — pass raw bytes and gsx encodes them;
@@ -224,7 +230,10 @@ payload after the marker is a hole. Encoding is **type-driven**:
 
 So raw bytes held in a `string` need an explicit conversion to opt into
 auto-encoding — `` `data:image/png;base64,@{[]byte(s)}` `` — while an
-already-base64 `string` goes in directly with no conversion.
+already-base64 `string` goes in directly with no conversion. The same
+type-driven encoding applies outside `data:image` too — e.g.
+`` href=`https://example.com/sig?d=;base64,@{sigBytes}` `` — the marker, not
+the scheme, decides whether a `[]byte` hole gets encoded.
 
 Writing a `data:` literal on a **strict** sink (`href` and the rest of the
 [strict-sink table](./escaping#resource-vs-navigational-url-sinks)) is a
