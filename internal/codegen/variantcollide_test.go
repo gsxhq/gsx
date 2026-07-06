@@ -118,7 +118,14 @@ func TestSuppressCrossFileRedeclarations(t *testing.T) {
 		{Fset: fset, Pos: posA3, Msg: "other declaration of Dup"},
 		{Fset: fset, Pos: posA, Msg: "undefined: Whatever"},
 	}
-	got := suppressCrossFileRedeclarations(errs)
+	// Facts as the skeleton ASTs would report them: Icon is a pure cross-file
+	// variant (one decl in each of a/b); Dup is a within-file duplicate (twice
+	// in a.x.go), so its errors must be kept.
+	facts := redeclFacts{
+		crossFile: map[string]bool{"Icon": true, "Dup": false},
+		withinDup: map[string]bool{"Dup": true},
+	}
+	got := suppressCrossFileRedeclarations(errs, facts)
 
 	var msgs []string
 	for _, e := range got {
