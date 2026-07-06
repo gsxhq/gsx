@@ -169,7 +169,7 @@ component Page() {
 		t.Fatalf("loadFilterTable: %v", err)
 	}
 	genericSigs := genericSigsFor(files, byo)
-	skel, _, _, _, registry, err := buildSkeleton(file, table, propFields, nodeProps, attrsProps, genericSigs, nil, byo, nil, fset, nil, nil)
+	skel, _, _, _, registry, _, err := buildSkeleton(file, table, propFields, nodeProps, attrsProps, genericSigs, nil, byo, nil, fset, nil, nil)
 	if err != nil {
 		t.Fatalf("buildSkeleton: %v", err)
 	}

@@ -742,6 +742,12 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	genericSigs := genericSigsFor(gsxFiles, byo)
 	var goFiles []*goast.File
 	compsByXGo := map[string][]*gsxast.Component{}
+	// gwCompsByXGo mirrors compsByXGo but holds the SYNTHETIC, harvest-only
+	// pseudo-components buildSkeleton mints for each top-level GoWithElements'
+	// embedded elements (see buildSkeleton's gwComps doc) — kept in a
+	// SEPARATE map (not unioned into compsByXGo) so LSP/SigTypeRef consumers
+	// of compsByXGo never see a fake declaration.
+	gwCompsByXGo := map[string][]*gsxast.Component{}
 	factsByXGo := map[string]*fileFacts{}
 	ctrlOffByXGo := map[string]map[gsxast.Node]int{}
 	// inferByXGo carries each file's inference-probe registry (built fresh by
@@ -770,7 +776,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	for path, f := range gsxFiles {
 		ff := m.fileScopedFacts(dir, f, propFields, nodeProps, attrsProps, byo, bag, fset)
 		factsByFile[path] = ff
-		skel, comps, imps, ctrlOff, infReg, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, bag, inferNames)
+		skel, comps, imps, ctrlOff, infReg, gwComps, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, bag, inferNames)
 		if berr != nil {
 			// buildSkeleton error handling: a positioned attrError becomes a
 			// diagnostic and skips this file; any other error is also recorded as a
@@ -815,6 +821,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		}
 		goFiles = append(goFiles, gf)
 		compsByXGo[absXpath] = comps
+		gwCompsByXGo[absXpath] = gwComps
 		factsByXGo[absXpath] = ff
 		ctrlOffByXGo[absXpath] = ctrlOff
 		inferByXGo[absXpath] = infReg
@@ -1052,6 +1059,15 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 			continue
 		}
 		harvest(gf, comps, info, resolved, exprMap, inferByXGo[fname])
+		// Second harvest pass for this file's GoWithElements-embedded elements
+		// (see buildSkeleton's gwComps doc): the SAME funcDeclKey/componentKey
+		// matching resolves each synthetic probe func's _gsxuse/_gsxuseq/
+		// _gsxcompsig/inference-probe calls back onto the embedded element's
+		// own nodes, via the SAME inferRegistry (probes for both real
+		// components and embedded elements in this file share one registry).
+		if gwComps := gwCompsByXGo[fname]; len(gwComps) > 0 {
+			harvest(gf, gwComps, info, resolved, exprMap, inferByXGo[fname])
+		}
 		// Mark every element whose cross-package generic probe was skipped
 		// due to a requalification failure (Task 4 — see
 		// inferRegistry.failed's doc) with the types.Invalid sentinel: no

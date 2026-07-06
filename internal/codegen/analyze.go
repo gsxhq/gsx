@@ -333,7 +333,7 @@ func isGsxNodeType(typ string) bool {
 // single-file allocator instead — this file's own names still start at
 // "_gsxinfer1" and never collide with anything, since nothing else shares
 // that private allocator.
-func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, importedGenericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, fset *token.FileSet, bag *diag.Bag, names *inferNameAllocator) (string, []*gsxast.Component, []importSpec, map[gsxast.Node]int, *inferRegistry, error) {
+func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, importedGenericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, fset *token.FileSet, bag *diag.Bag, names *inferNameAllocator) (string, []*gsxast.Component, []importSpec, map[gsxast.Node]int, *inferRegistry, []*gsxast.Component, error) {
 	if names == nil {
 		names = newInferNameAllocator()
 	}
@@ -355,7 +355,7 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, 
 		if gc, ok := d.(*gsxast.GoChunk); ok {
 			imps, body, bodyOff, err := splitChunk(gc.Src)
 			if err != nil {
-				return "", nil, nil, nil, nil, err
+				return "", nil, nil, nil, nil, nil, err
 			}
 			// Resolve each import's .gsx position so the skeleton can emit a //line
 			// directive ahead of it — gc.Src starts exactly at gc.Pos(), so the
@@ -421,11 +421,98 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, 
 				// again (with a positioned diagnostic) during generateFile.
 				continue
 			}
-			return "", nil, nil, nil, nil, err
+			return "", nil, nil, nil, nil, nil, err
 		}
 		validComps = append(validComps, c)
 	}
 	comps = validComps
+
+	// GoWithElements: a top-level Go region with one or more gsx elements
+	// embedded directly in expression position (e.g. `var help = <a
+	// href={u}>{ label }</a>`) — see ast.GoWithElements's doc and emit.go's
+	// *ast.GoWithElements case (Task 4). Mirror emitElementValue's lowering on
+	// the probe side: each *Element Part is replaced, in place, by a call to a
+	// freshly synthesized, package-level, nullary probe func
+	// (`_gsxgweN() _gsxrt.Node`) so the surrounding Go construct (a var
+	// initializer, a return statement, a call argument, …) still sees a real
+	// _gsxrt.Node-typed expression there and type-checks; each GoText Part is
+	// spliced verbatim, identical to a GoChunk body. The probe func's OWN body
+	// probes the element's interpolations/props via emitProbes — the EXACT
+	// same machinery a component body's child elements use — so a wrong-typed
+	// interpolation or component-tag prop is caught exactly as it would be
+	// inside a component.
+	//
+	// A synthesized TOP-LEVEL func decl (rather than an inline func literal)
+	// is used so a plain identifier reference inside the element (`u`,
+	// `label`) resolves by ORDINARY PACKAGE SCOPE: GoWithElements only ever
+	// appears as a top-level file decl (parser/file.go's splitGoElements is
+	// only called from the file-level decl loop), so every name an embedded
+	// interpolation can reference is itself package-level, visible to any
+	// top-level func regardless of declaration order — no closure-capture
+	// machinery is needed on the probe side (unlike emit.go's real gsx.Func
+	// closure, which DOES need real captures since it executes at runtime;
+	// the skeleton only needs to TYPE-CHECK, and go/types resolves a
+	// package-level identifier the same way regardless of which top-level
+	// func mentions it).
+	//
+	// Both the synthesized func decl and the reconstructed call-site text are
+	// written into compBuf (the SAME temp builder emitComponentSkeleton just
+	// filled), so the single compBufStart adjustment below (already needed for
+	// component skeletons) also re-bases every ctrlOff/registry.spans entry
+	// emitProbes records while probing an embedded element — no separate
+	// adjustment pass is needed.
+	//
+	// gwComps collects one synthetic *gsxast.Component per embedded element
+	// (Name: the probe func's name, Body: []gsxast.Markup{el}) — NOT part of
+	// comps (the file's real components; keeping them out avoids polluting
+	// buildSigTypeRefs/LSP consumers of comps with fake declarations). The
+	// caller unions gwComps into a PARALLEL list passed to harvest (alongside
+	// the real comps) so harvest's existing funcDeclKey/componentKey matching
+	// (componentKey of a Recv=="" component is "."+Name, matching
+	// funcDeclKey of a receiver-less func decl of the same name) also resolves
+	// these probe funcs' _gsxuse/_gsxuseq/_gsxcompsig/inference-probe calls
+	// back onto the embedded element's own nodes — zero new code in harvest.
+	//
+	// Unlike GoChunk, this does NOT run splitChunk to hoist a `import` spec
+	// out of a GoText part ahead of the skeleton's own import block — mirrors
+	// emit.go's identical choice (see its *ast.GoWithElements case comment):
+	// a bare top-level `import` co-located in the SAME Go region as an
+	// embedded element is a pathological edge case Go itself permits, but
+	// splitChunk cannot parse text containing markup, so it is accepted here
+	// exactly as it is at emit time (malformed input is not specially
+	// diagnosed; it would surface as a skeleton parse failure, never silently
+	// emitting broken output).
+	var gwComps []*gsxast.Component
+	gwCounter := 0
+	for _, d := range file.Decls {
+		we, ok := d.(*gsxast.GoWithElements)
+		if !ok {
+			continue
+		}
+		var reconstructed strings.Builder
+		for _, part := range we.Parts {
+			switch p := part.(type) {
+			case gsxast.GoText:
+				reconstructed.WriteString(p.Src)
+			case *gsxast.Element:
+				gwCounter++
+				name := fmt.Sprintf("_gsxgwe%d", gwCounter)
+				reconstructed.WriteString(name)
+				reconstructed.WriteString("()")
+				fmt.Fprintf(&compBuf, "func %s() _gsxrt.Node {\n\tvar ctx _gsxctx.Context\n\t_ = ctx\n", name)
+				if err := emitProbes(&compBuf, []gsxast.Markup{p}, table, propFields, nodeProps, attrsProps, combinedSigs, byo, fm, "", "", usedFilters, fset, ctrlOff, registry, bag); err != nil {
+					return "", nil, nil, nil, nil, nil, err
+				}
+				compBuf.WriteString("\treturn nil\n}\n")
+				gwComps = append(gwComps, &gsxast.Component{Name: name, Body: []gsxast.Markup{p}})
+			default:
+				return "", nil, nil, nil, nil, nil, fmt.Errorf("codegen: unsupported Go-expression part %T", part)
+			}
+		}
+		emitSkeletonLine(&compBuf, fset, we.Pos())
+		compBuf.WriteString(reconstructed.String())
+		compBuf.WriteString("\n")
+	}
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "package %s\n", file.Package)
@@ -522,7 +609,7 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, 
 		sb.WriteString(b.src)
 		sb.WriteByte('\n')
 	}
-	return sb.String(), comps, imports, ctrlOff, registry, nil
+	return sb.String(), comps, imports, ctrlOff, registry, gwComps, nil
 }
 
 // genericSigsFor computes the props-type-name -> *genericSig map for every
