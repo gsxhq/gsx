@@ -185,6 +185,50 @@ func TestSplitGoElementsMalformedForwardProgress(t *testing.T) {
 	}
 }
 
+// TestSplitGoElementsFragmentPreservesBytes verifies that a fragment (`<>`) in
+// Go-expression position — out of scope as an expression value in v1 — records
+// an error but preserves the fragment's consumed bytes as a verbatim GoText, so
+// concatenating every part's source still reproduces src exactly.
+func TestSplitGoElementsFragmentPreservesBytes(t *testing.T) {
+	src := `f(<>hi</>, 1)`
+	p, part := splitAt(src)
+	we, ok := part.(*ast.GoWithElements)
+	if !ok {
+		t.Fatalf("want *ast.GoWithElements, got %T", part)
+	}
+	if len(p.errs) == 0 {
+		t.Fatalf("expected a recorded error for the fragment in expression position")
+	}
+
+	// Reconstruct src: GoText verbatim, *Element via its own [Pos,End) span.
+	var got string
+	for _, part := range we.Parts {
+		switch v := part.(type) {
+		case ast.GoText:
+			got += v.Src
+		case *ast.Element:
+			start := p.file.Position(v.Pos()).Offset
+			end := p.file.Position(v.End()).Offset
+			got += src[start:end]
+		}
+	}
+	if got != src {
+		t.Fatalf("reconstructed src = %q, want %q (fragment bytes dropped?)", got, src)
+	}
+
+	// A GoText part must cover the fragment's "<>hi</>" span exactly.
+	found := false
+	for _, part := range we.Parts {
+		if gt, ok := part.(ast.GoText); ok && gt.Src == "<>hi</>" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("no GoText part covering the fragment span %q; parts=%#v", "<>hi</>", we.Parts)
+	}
+}
+
 // TestSplitGoElementsAbsoluteBase verifies positions are correct when the Go
 // region does not start at file offset 0 — i.e. base reflects a real
 // mid-file position, as it would when parser/file.go hands splitGoElements
