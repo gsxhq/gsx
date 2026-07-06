@@ -221,11 +221,10 @@ and passed through unchanged (like any other `string` hole in a URL-context
 literal; see [URL attributes sanitize the whole
 value](#url-attributes-sanitize-the-whole-value) above).
 
-There is no `[]byte` auto-encoding here: a literal hole is a string
-passthrough only. If you're starting from raw `[]byte` image bytes, base64
-them yourself first — either with `encoding/base64` in a Go interpolation, or
-with the built-in `dataURL` filter, which does both the encoding and the
-`data:` URL assembly in one step:
+If you're starting from raw `[]byte` image bytes, base64-encode them first —
+either with `encoding/base64` in a Go interpolation, or with the built-in
+`dataURL` filter, which does both the encoding and the `data:` URL assembly in
+one step:
 
 ```gsx
 <img src={ imageBytes |> dataURL("image/png") } />
