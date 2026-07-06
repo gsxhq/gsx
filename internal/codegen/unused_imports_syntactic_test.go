@@ -252,7 +252,10 @@ func keyedByAbsPath(t *testing.T, m map[string][]UnusedImport) map[string]map[im
 
 // assertSameRemovalSet asserts syn and oracle report the identical set of
 // (Name,Path) unused imports per file, order-independent. dir is included in
-// failure messages only.
+// failure messages only. A file with nothing unused is represented by an ABSENT
+// key on both sides (not a present-but-empty slice), so a case where every
+// import is used asserts via absence-of-disagreement: any false positive on
+// either side injects an asymmetric key that the union loop catches.
 func assertSameRemovalSet(t *testing.T, dir string, syn, oracle map[string][]UnusedImport) {
 	t.Helper()
 	synSet := keyedByAbsPath(t, syn)

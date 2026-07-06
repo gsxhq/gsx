@@ -103,6 +103,14 @@ type packageSkeletons struct {
 // buildSkeleton lowering, but keeps only what unused-import detection needs. A
 // file whose skeleton fails to build (parse/attr error) is simply omitted, so
 // the caller keeps all of that file's imports.
+//
+// Two deliberate divergences from analyze, both safe because unused-import
+// detection is strictly per-file: (1) the ResolveScripts return is ignored
+// (analyze skips the whole package on a script-resolution error) — a resolution
+// failure only preserves references, so it can never cause a false removal; and
+// (2) any buildSkeleton error skips only that file (analyze distinguishes a
+// per-file attrError from a package-aborting error), because skipping one file
+// and still scanning its siblings can only remove genuinely-unused imports.
 func (m *Module) buildPackageSkeletons(dir string) (*packageSkeletons, error) {
 	m.analysisMu.Lock()
 	defer m.analysisMu.Unlock()
