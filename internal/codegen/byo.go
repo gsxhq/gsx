@@ -4,13 +4,10 @@ import (
 	goast "go/ast"
 	"go/parser"
 	"go/token"
-	"go/types"
 	"maps"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"golang.org/x/tools/go/packages"
 
 	gsxast "github.com/gsxhq/gsx/ast"
 )
@@ -316,113 +313,71 @@ func isGsxAttrsType(typ string) bool {
 	return strings.TrimSpace(typ) == "gsx.Attrs"
 }
 
-// loadExternalStructFields does a preliminary go/packages load of the package
-// directory to enumerate the exported fields of each requested struct type. It
-// mirrors the type-resolution discipline of checkSkeletonPackage, but with NO
-// overlay — packages.Load(cfg, ".") loads the package's existing on-disk files
-// (hand-written .go and any previously generated .x.go) without the not-yet-
-// generated .x.go for the current run. The struct's field set is still reliable
-// because struct declarations always live in hand-written .go files; any .x.go
-// present on disk can only add functions (never struct fields). wanted is the
-// set of struct type names to enumerate; the return maps are keyed by type name.
-// A type absent from .go files (e.g. it is declared in a .gsx GoChunk, already
-// handled) is simply absent from the result.
+// loadExternalStructFields enumerates the exported fields of each requested
+// struct type by PARSING the package's hand-written .go files — no type-check,
+// no go/packages load, no dependency resolution. It is the .go-sibling
+// counterpart to gsxStructDecls+fieldsFromGsxStruct (which read structs declared
+// in .gsx GoChunks), and uses the SAME fieldsFromGsxStruct reader, so both paths
+// classify fields identically (field names + gsx.Node/gsx.Attrs by type string).
 //
-// Load failures and type errors are swallowed: at this stage the package's .go
-// files may legitimately be incomplete (they reference funcs the .x.go will
-// provide), so a load error must not abort codegen. The caller already handles a
-// missing field set gracefully (a byo struct whose fields we could not learn
-// falls back to the cross-package isPropField path). Only structs we positively
-// resolve are returned.
+// Struct declarations live only in hand-written .go files; generated .x.go and
+// _test.go files are skipped. wanted is the set of struct type names to
+// enumerate; the returned maps are keyed by type name. A type absent from the
+// .go files (e.g. it is declared in a .gsx GoChunk, already handled) is simply
+// absent from the result. Per-file parse errors are swallowed: the package's .go
+// files may legitimately reference funcs the not-yet-generated .x.go will
+// provide, but that never affects a struct declaration's parseable field shape.
+//
+// Two consequences of being purely syntactic (both intentional, and identical to
+// the .gsx GoChunk path via the shared fieldsFromGsxStruct reader): unnamed
+// EMBEDDED fields are not enumerated (only fields with explicit names), and the
+// gsx package is recognized by the literal type strings gsx.Node/gsx.Attrs (an
+// aliased gsx import is not classified). Build constraints and the package
+// clause are NOT honored — every non-test, non-.x.go file in dir is parsed — so
+// a same-named struct in a build-tag-excluded file could shadow the real one;
+// props structs are not platform-conditional in practice.
 func loadExternalStructFields(dir string, wanted map[string]bool) (fields, nodeFields map[string]map[string]bool, structs map[string]byoStruct) {
 	fields = map[string]map[string]bool{}
 	nodeFields = map[string]map[string]bool{}
 	structs = map[string]byoStruct{}
-	if len(wanted) == 0 {
+	if dir == "" || len(wanted) == 0 {
 		return fields, nodeFields, structs
 	}
-	cfg := &packages.Config{
-		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
-			packages.NeedImports | packages.NeedDeps | packages.NeedTypes |
-			packages.NeedSyntax | packages.NeedTypesInfo,
-		Dir: dir,
-	}
-	pkgs, err := packages.Load(cfg, ".")
-	if err != nil || len(pkgs) == 0 {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
 		return fields, nodeFields, structs
 	}
-	pkg := pkgs[0]
-	if pkg.Types == nil {
-		return fields, nodeFields, structs
-	}
-	scope := pkg.Types.Scope()
-	for name := range wanted {
-		obj := scope.Lookup(name)
-		if obj == nil {
+	fset := token.NewFileSet()
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") ||
+			strings.HasSuffix(name, "_test.go") || strings.HasSuffix(name, ".x.go") {
 			continue
 		}
-		tn, ok := obj.(*types.TypeName)
-		if !ok {
+		f, perr := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
+		if perr != nil {
 			continue
 		}
-		named, ok := tn.Type().(*types.Named)
-		if !ok {
-			continue
-		}
-		st, ok := named.Underlying().(*types.Struct)
-		if !ok {
-			continue
-		}
-		f := map[string]bool{}
-		nf := map[string]bool{}
-		var bs byoStruct
-		for fld := range st.Fields() {
-			if !fld.Exported() {
+		for _, decl := range f.Decls {
+			gd, ok := decl.(*goast.GenDecl)
+			if !ok || gd.Tok != token.TYPE {
 				continue
 			}
-			f[fld.Name()] = true
-			ft := fld.Type()
-			if isGsxNodeNamed(ft) {
-				nf[fld.Name()] = true
-			}
-			if fld.Name() == "Children" && isGsxNodeNamed(ft) {
-				bs.hasChildren = true
-			}
-			if fld.Name() == "Attrs" && isGsxAttrsNamed(ft) {
-				bs.hasAttrs = true
+			for _, spec := range gd.Specs {
+				ts, ok := spec.(*goast.TypeSpec)
+				if !ok || !wanted[ts.Name.Name] {
+					continue
+				}
+				st, ok := ts.Type.(*goast.StructType)
+				if !ok {
+					continue
+				}
+				ff, nf, bs := fieldsFromGsxStruct(st)
+				fields[ts.Name.Name] = ff
+				nodeFields[ts.Name.Name] = nf
+				structs[ts.Name.Name] = bs
 			}
 		}
-		fields[name] = f
-		nodeFields[name] = nf
-		structs[name] = bs
 	}
 	return fields, nodeFields, structs
-}
-
-// isGsxAttrsNamed reports whether a resolved type is github.com/gsxhq/gsx.Attrs.
-func isGsxAttrsNamed(t types.Type) bool {
-	named, ok := types.Unalias(t).(*types.Named)
-	if !ok {
-		return false
-	}
-	obj := named.Obj()
-	return obj != nil && obj.Name() == "Attrs" &&
-		obj.Pkg() != nil && obj.Pkg().Path() == "github.com/gsxhq/gsx"
-}
-
-// isGsxNodeNamed reports whether a resolved type is exactly
-// github.com/gsxhq/gsx.Node — the interface type, not merely something that
-// implements it. This mirrors the syntactic isGsxNodeType check used by the
-// .gsx GoChunk path (fieldsFromGsxStruct), which tests for the literal string
-// "gsx.Node". Using implementsNode here would be WRONG: any concrete type with
-// Render(context.Context, io.Writer) error would be classified as a node-field,
-// causing non-node attrs to be wrapped in gsx.Val — a type mismatch.
-func isGsxNodeNamed(t types.Type) bool {
-	named, ok := types.Unalias(t).(*types.Named)
-	if !ok {
-		return false
-	}
-	obj := named.Obj()
-	return obj != nil && obj.Name() == "Node" &&
-		obj.Pkg() != nil && obj.Pkg().Path() == "github.com/gsxhq/gsx"
 }
