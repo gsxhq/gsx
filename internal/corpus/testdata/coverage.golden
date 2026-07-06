@@ -471,6 +471,7 @@ tuple/reject_three_value_childprop	diag(error)
 tuple/t_int	diag gen render
 tuple/t_nodeslice	diag gen render
 tuple/t_stringer	diag gen render
+url/data_image_bytes	diag gen render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
 xpkg/generic_inferred_import	diag render
@@ -485,4 +486,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 487 cases (render: 393, error: 71, gen-pinned: 230)
+TOTAL: 488 cases (render: 394, error: 71, gen-pinned: 231)
