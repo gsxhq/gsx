@@ -910,8 +910,9 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// dropped its only skeleton reference, so go/types reports
 	// `"path" imported and not used` at the user's import line. Left in
 	// typeErrs, that single spurious error would (a) hard-fail generation for
-	// the WHOLE package (the len(typeErrs)==0 gate below and in module.go)
-	// and (b) bury the actionable inference-unavailable warning. Filtering is
+	// the WHOLE package (the len(typeErrs)==0 && len(signatureConflicts)==0
+	// gate below and in module.go) and (b) bury the actionable
+	// inference-unavailable warning. Filtering is
 	// exact, not heuristic: only errors whose //line-adjusted position lands
 	// in a file with a sunk set AND whose quoted path is in that set are
 	// dropped; a genuinely unused import of the same path in ANOTHER file
@@ -947,8 +948,12 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// build filters by tag and is the arbiter of a real same-config duplicate.
 	// Runs before the diagnostics loop below so a tolerated redeclaration never
 	// becomes a bag diagnostic AND never lands in the stored a.typeErrs (which
-	// gates emission). Same-file redeclarations are untouched.
-	typeErrs = suppressCrossFileRedeclarations(typeErrs)
+	// gates emission). Within-file redeclarations are untouched — the
+	// within-file fact comes from the skeleton ASTs (collectRedeclFacts), not
+	// the go/types error positions, since the checker anchors every
+	// redeclaration to the globally-first decl and gsx's file order is
+	// nondeterministic.
+	typeErrs = suppressCrossFileRedeclarations(typeErrs, collectRedeclFacts(goFiles, fset))
 	// Collect the skeleton byte spans of every _gsxuseq(...) child-prop or
 	// element-spread harvest probe. Each expression is also checked in a native
 	// typed context (the props literal or gsx.Attrs assignment), so suppressing

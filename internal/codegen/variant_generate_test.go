@@ -93,3 +93,93 @@ func TestDiffSigVariantIsCleanError(t *testing.T) {
 		t.Fatalf("diff-sig conflict must block emission, got %v", keysOfGenerated(out))
 	}
 }
+
+// TestMethodVariantSameSigGeneratesAllFiles is the method-component analogue of
+// TestSameSigVariantGeneratesAllFiles. go/types reports a METHOD redeclaration
+// with a different message ("method Form.Field already declared at FILE:L:C")
+// than a func's ("redeclared in this block" + "other declaration" note). Before
+// the fix, suppression did not recognize the method form, so a same-signature
+// method variant under disjoint build tags blocked emission for the WHOLE
+// package. All three files must now generate.
+func TestMethodVariantSameSigGeneratesAllFiles(t *testing.T) {
+	dir, m := openTestModule(t, map[string]string{
+		"field_linux.gsx":   "//go:build linux\n\npackage views\n\ncomponent (f Form) Field(name string) { <span>linux:{ name }</span> }\n",
+		"field_windows.gsx": "//go:build windows\n\npackage views\n\ncomponent (f Form) Field(name string) { <span>win:{ name }</span> }\n",
+		"form.gsx":          "package views\n\ntype Form struct{}\n\ncomponent Page() { <div>page</div> }\n",
+	})
+	out, diags, err := m.Generate(dir)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if hasError(diags) {
+		t.Fatalf("unexpected error diagnostics: %v", diags)
+	}
+	for _, want := range []string{"field_linux.gsx", "field_windows.gsx", "form.gsx"} {
+		if _, ok := out[filepath.Join(dir, want)]; !ok {
+			t.Fatalf("missing generated output for %s; got keys %v", want, keysOfGenerated(out))
+		}
+	}
+	linuxOut := out[filepath.Join(dir, "field_linux.gsx")]
+	if !strings.Contains(string(linuxOut), "//go:build linux") {
+		t.Fatalf("linux variant lost its build constraint:\n%s", linuxOut)
+	}
+}
+
+// TestMethodVariantDiffSigIsCleanError is the method-component analogue of
+// TestDiffSigVariantIsCleanError: differing method signatures are a genuine
+// ambiguity and must surface as a single clean duplicate-component diagnostic,
+// never a raw go/types "already declared"/"redeclared" leak, with emission
+// blocked entirely.
+func TestMethodVariantDiffSigIsCleanError(t *testing.T) {
+	dir, m := openTestModule(t, map[string]string{
+		"field_linux.gsx":   "//go:build linux\n\npackage views\n\ncomponent (f Form) Field(name string) { <span>{ name }</span> }\n",
+		"field_windows.gsx": "//go:build windows\n\npackage views\n\ncomponent (f Form) Field(name int) { <span>{ name }</span> }\n",
+		"form.gsx":          "package views\n\ntype Form struct{}\n",
+	})
+	out, diags, err := m.Generate(dir)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if !hasError(diags) {
+		t.Fatalf("expected a duplicate-component error, got none: %v", diags)
+	}
+	foundClean := false
+	for _, d := range diags {
+		if d.Code == "duplicate-component" {
+			foundClean = true
+		}
+		if strings.Contains(d.Message, "already declared") || strings.Contains(d.Message, "redeclared") {
+			t.Fatalf("raw go/types method-redeclaration error leaked: %q", d.Message)
+		}
+	}
+	if !foundClean {
+		t.Fatalf("no duplicate-component diagnostic in %v", diags)
+	}
+	if len(out) != 0 {
+		t.Fatalf("diff-sig conflict must block emission, got %v", keysOfGenerated(out))
+	}
+}
+
+// TestWithinFileRedeclarationKeptDespiteVariant pins finding #3: a name
+// redeclared BOTH within file A (a real mistake) AND across files A/B (a
+// same-signature variant) must NOT be silently generated — the within-file
+// redeclaration stays a hard error. The over-reaching name+file-count
+// suppression used to drop the within-file error too (its name spanned ≥2
+// files). Detection now comes from the skeleton ASTs (collectRedeclFacts), so
+// it is order-independent and exact.
+func TestWithinFileRedeclarationKeptDespiteVariant(t *testing.T) {
+	dir, m := openTestModule(t, map[string]string{
+		"icon_a.gsx": "package views\n\ncomponent Icon(name string) { <a>{ name }</a> }\ncomponent Icon(name string) { <b>{ name }</b> }\n",
+		"icon_b.gsx": "//go:build windows\n\npackage views\n\ncomponent Icon(name string) { <c>{ name }</c> }\n",
+	})
+	out, diags, err := m.Generate(dir)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if !hasError(diags) {
+		t.Fatalf("within-file redeclaration must stay a hard error, got diags=%v out=%v", diags, keysOfGenerated(out))
+	}
+	if len(out) != 0 {
+		t.Fatalf("within-file redeclaration must block emission, got %v", keysOfGenerated(out))
+	}
+}

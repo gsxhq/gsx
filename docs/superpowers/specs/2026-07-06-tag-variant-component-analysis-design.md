@@ -114,12 +114,31 @@ its props `type`). After `checkSkeletonPackage`, gsx already walks
   gate emission, so this wiring is required, not incidental.
 - **Non-component cross-file duplicates** (top-level `func`/`type`/`const`/`var`
   declared in `.gsx` `GoChunk`s under disjoint tags — e.g. a shared
-  `const iconPath` helper name): the `redeclared` family for **cross-file**
+  `const iconPath` helper name): the redeclaration family for **cross-file**
   collisions is suppressed silently. gsx cannot cheaply compare arbitrary Go
   declarations, so their same-configuration correctness is deferred to
-  `go build` (consistent with the principle). Cross-file is distinguished from
-  within-file by comparing the two decls' file positions.
+  `go build` (consistent with the principle).
 - **Within-file** redeclarations are **never** suppressed.
+
+**How cross-file vs within-file is actually distinguished (shipped, method-aware).**
+go/types (Go 1.26.1) emits redeclarations in two message families:
+
+- Func/var/const/type → a pair: `"<name> redeclared in this block"` (at the 2nd+
+  decl) plus a `"other declaration of <name>"` note (at the first decl).
+- Method → a single self-contained record: `"method <BaseType>.<Method> already
+  declared at <file>:<line>:<col>"`. `<BaseType>` drops the pointer and generic
+  type-args, so `(f *Form)` and `(f Form[T])` both report `"Form.Field"`.
+
+The suppressor recognizes **both** families (`redeclName`) and keys them the same
+way `collectRedeclFacts` keys the skeleton decls (bare name for functions/vars,
+`"<BaseType>.<Method>"` for methods). A redeclaration error is dropped iff its
+name is declared in ≥2 skeleton files (a candidate variant) **and never twice in
+one file**. Crucially, the within-file fact comes from the **skeleton ASTs**, not
+the error positions: go/types anchors *every* redeclaration against the single
+globally-first decl of a name, and gsx feeds skeleton files to the checker in
+nondeterministic (map) order, so a within-file duplicate living in a non-anchor
+file is reported as if it were cross-file. The AST sees every declaration
+regardless of order, so the within-file fact is exact and order-independent.
 
 Optimization (not required for correctness): for a non-canonical tolerated
 variant, `buildSkeleton` can emit only the `func` (needed to type-check the
@@ -172,6 +191,14 @@ invalidates correctly.
 - Cross-tag reference breaks (a file references a component that only exists
   under a different tag) are not flagged by gsx analysis; `go build -tags X`
   reports them. This matches the build-context-independent principle.
+- When a within-file redeclaration **coexists** with a cross-file variant of the
+  same name (e.g. `Icon` twice in `a.gsx` *and* once in `b.gsx`), gsx keeps
+  **all** of that name's redeclaration errors — blocking the whole package —
+  rather than surgically keeping only the within-file one. Disentangling the
+  specific within-file record per-error is unreliable (go/types' global-first
+  anchoring, above), whereas the name-level within-file fact from the skeleton
+  AST is exact. This is strictly safe: the within-file duplicate is a real
+  mistake `go build` would reject under any tag too, so blocking is correct.
 
 ## Tests / docs / siblings
 

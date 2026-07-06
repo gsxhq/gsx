@@ -1,0 +1,23 @@
+-- field.gsx --
+//go:build !never
+
+package views
+
+type Form struct{}
+
+component (f Form) Field(name string) {
+	<span class="active">{ name }</span>
+}
+-- field_never.gsx --
+//go:build never
+
+package views
+
+component (f Form) Field(name string) {
+	<span class="never">{ name }</span>
+}
+-- invoke --
+(Form{}).Field(FormFieldProps{Name: "x"})
+-- diagnostics.golden --
+-- render.golden --
+<span class="active">x</span>
