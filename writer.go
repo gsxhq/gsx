@@ -86,6 +86,18 @@ func (gw *Writer) URL(s string) {
 	gw.err = writeURL(gw.w, s)
 }
 
+// URLImage writes s as an image-resource-sanitized, escaped URL attribute value.
+// It permits data:image/* (raster + svg) in addition to the standard URL()
+// allow-list; codegen emits it only for image-rendering sinks (<img src>,
+// <source src>, <video poster>, background), never for navigational or script
+// sinks.
+func (gw *Writer) URLImage(s string) {
+	if gw.err != nil {
+		return
+	}
+	gw.err = writeURLImage(gw.w, s)
+}
+
 // RefreshContent writes a meta refresh content value with any embedded redirect
 // URL sanitized, then HTML-escapes the complete attribute value.
 func (gw *Writer) RefreshContent(s string) {

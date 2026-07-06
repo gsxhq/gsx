@@ -157,6 +157,38 @@ func TestStyleValue(t *testing.T) {
 	}
 }
 
+func TestURLSanitizeImage(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		// allowed: standard schemes and relative still pass through
+		{"http", "http://example.com/a.png", "http://example.com/a.png"},
+		{"relative", "/img/a.png", "/img/a.png"},
+		// allowed: image data URLs (raster + svg)
+		{"png", "data:image/png;base64,iVBORw0KGgo=", "data:image/png;base64,iVBORw0KGgo="},
+		{"jpeg", "data:image/jpeg;base64,/9j/4AAQ==", "data:image/jpeg;base64,/9j/4AAQ=="},
+		{"webp upper mime", "data:IMAGE/WEBP;base64,UklGRg==", "data:IMAGE/WEBP;base64,UklGRg=="},
+		{"svg", "data:image/svg+xml;base64,PHN2Zz4=", "data:image/svg+xml;base64,PHN2Zz4="},
+		// blocked: non-image data URLs
+		{"html", "data:text/html;base64,PHNjcmlwdD4=", blockedURL},
+		{"js", "data:application/javascript;base64,YWxlcnQ=", blockedURL},
+		{"no mime", "data:;base64,AAAA", blockedURL},
+		{"image no base64 marker", "data:image/png,rawbytes", blockedURL},
+		// blocked: other dangerous schemes
+		{"javascript", "javascript:alert(1)", blockedURL},
+		{"vbscript", "vbscript:msgbox(1)", blockedURL},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := urlSanitizeImage(c.in); got != c.want {
+				t.Fatalf("urlSanitizeImage(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}
+
 func TestCSSValueFilter(t *testing.T) {
 	tests := []struct{ css, want string }{
 		{"", ""},
