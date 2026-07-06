@@ -2354,6 +2354,20 @@ func urlWriterMethod(tag, name string) string {
 	return "URL"
 }
 
+// firstSegIsDataURL reports whether the literal's first segment is static text
+// whose value begins (case-insensitively) with the data: scheme — the compile-
+// time signal that an author wrote a data: URL literal.
+func firstSegIsDataURL(segs []ast.Markup) bool {
+	if len(segs) == 0 {
+		return false
+	}
+	txt, ok := segs[0].(*ast.Text)
+	if !ok {
+		return false
+	}
+	return strings.HasPrefix(strings.TrimSpace(strings.ToLower(txt.Value)), "data:")
+}
+
 // emitEmbeddedTextAttr emits a plain backtick attribute literal name=`…@{expr}…`
 // [ |> f ].
 //
@@ -2386,6 +2400,17 @@ func urlWriterMethod(tag, name string) string {
 func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, tag string, bag *diag.Bag) bool {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
 	isURL := cls.Context(a.Name) == attrclass.CtxURL
+	// A literal that OPENS with data: on a strict sink is author error
+	// regardless of any downstream pipe: reject at compile time (this
+	// inspects the pre-pipe first segment deliberately — unlike Form B's
+	// sanitize-after-pipe runtime path, a static data: prefix here is never
+	// a safe navigational/script value). gsx.RawURL is the vouching opt-out.
+	if isURL && urlWriterMethod(tag, a.Name) == "URL" && firstSegIsDataURL(a.Segments) {
+		bag.Errorf(a.Pos(), a.End(), "data-url-strict-sink",
+			"data: URL literal in attribute %q on <%s> is a navigational/script sink where data: is blocked; use an image sink (<img src>, <video poster>, background) or gsx.RawURL if you have validated it",
+			a.Name, tag)
+		return false
+	}
 	switch {
 	case len(a.Stages) > 0:
 		// Base64 marker detection only applies to the URL-context assembly:
