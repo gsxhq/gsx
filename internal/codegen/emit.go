@@ -203,6 +203,54 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 			} else {
 				ok = false
 			}
+		case *ast.GoWithElements:
+			// A top-level Go region that has one or more gsx elements embedded
+			// directly in expression position (e.g. `var help = <a href={u}>{
+			// label }</a>`). Each GoText part is verbatim Go source (identical to
+			// a GoChunk's own body text); each *Element part is replaced inline by
+			// its lowered gsx.Node VALUE — concatenating the parts reproduces the
+			// original expression with the element replaced by
+			// `gsx.Func(func(ctx context.Context, _gsxw io.Writer) error { … })`,
+			// so whatever Go construct expected an expression there (a var
+			// initializer, a call argument, …) still sees one. Recovery boundary,
+			// like *ast.Component above: on failure the diagnostic is already in
+			// bag, so this decl's (partial) output is dropped and codegen
+			// continues to the next top-level decl.
+			//
+			// Unlike GoChunk, this does NOT run splitChunk to hoist any `import`
+			// spec ahead of the file's own import block — see Task 4's design
+			// note: a GoText part may itself legally contain a plain `import`
+			// (Go permits any number of import blocks, provided each precedes
+			// every non-import top-level declaration in the file), and it is
+			// emitted here verbatim, in its original textual position — which,
+			// for any valid .gsx input, is still ahead of every other body
+			// declaration. Malformed input (an import placed after some other
+			// declaration) is not specially diagnosed here; it surfaces as a
+			// gofmt parse failure from generateFile's closing format.Source call
+			// (fail-safe: never silently emits broken output).
+			var wbuf bytes.Buffer
+			partsOK := true
+			for _, part := range v.Parts {
+				switch p := part.(type) {
+				case ast.GoText:
+					wbuf.WriteString(p.Src)
+				case *ast.Element:
+					if !emitElementValue(&wbuf, p, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, &interpTemp, fset, cls, fm, bag, mergeExpr) {
+						partsOK = false
+					}
+				default:
+					bag.Errorf(part.Pos(), part.End(), "unsupported-node", "unsupported Go-expression part %T", part)
+					partsOK = false
+				}
+				if !partsOK {
+					break
+				}
+			}
+			if partsOK {
+				body.Write(wbuf.Bytes())
+			} else {
+				ok = false
+			}
 		}
 	}
 
@@ -458,14 +506,9 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 			fmt.Fprintf(b, "func %s%s(%s) gsx.Node {\n", c.Name, typeParamsDecl, strings.TrimSpace(c.Params))
 		}
 		b.WriteString("\treturn gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {\n")
-		b.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
-		emitNumScratch(b, c.Body, resolved, cls)
-		for _, m := range c.Body {
-			if !genNode(b, m, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
-				return false
-			}
+		if !emitNodeFuncBody(b, c.Body, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
+			return false
 		}
-		b.WriteString("\t\treturn _gsxgw.Err()\n")
 		b.WriteString("\t})\n}\n\n")
 		return true
 	}
@@ -543,15 +586,64 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 		// nothing. usesAttrs guarantees that lowering consumes this binding.
 		b.WriteString("\t\tattrs := _gsxp.Attrs\n")
 	}
+	if !emitNodeFuncBody(b, c.Body, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
+		return false
+	}
+	b.WriteString("\t})\n}\n\n")
+	return true
+}
+
+// emitNodeFuncBody emits the common body of a gsx.Func render closure: bind
+// _gsxgw, declare the numeric scratch buffer if needed, emit each markup node
+// via genNode (the shared element/markup lowering — the SAME path a
+// component's child elements and an embedded Go-expression element both use),
+// then the trailing `return _gsxgw.Err()`. Shared by genComponent's two render
+// closures (byo and generated) and emitElementValue's element-value lowering
+// so there is exactly one place that assembles this scaffolding.
+func emitNodeFuncBody(b *bytes.Buffer, nodes []ast.Markup, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
 	b.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
-	emitNumScratch(b, c.Body, resolved, cls)
-	for _, m := range c.Body {
+	emitNumScratch(b, nodes, resolved, cls)
+	for _, m := range nodes {
 		if !genNode(b, m, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
 			return false
 		}
 	}
 	b.WriteString("\t\treturn _gsxgw.Err()\n")
-	b.WriteString("\t})\n}\n\n")
+	return true
+}
+
+// emitElementValue lowers a gsx element embedded directly in Go-expression
+// position (one *ast.Element Part of a GoWithElements) to a self-contained
+// gsx.Node VALUE — gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+// … }) — spliced inline in place of the element's own source span, e.g. `var
+// help = <a href={u}>{ label }</a>` becomes `var help =
+// gsx.Func(func(ctx context.Context, _gsxw io.Writer) error { … })`.
+//
+// Unlike a component's render closure, this one has NO surrounding component:
+// recvVar/recvTypeName are passed "" (no method-receiver dotted-tag
+// resolution applies here — there is no receiver in scope) and there is no
+// props/attrs/children binding of any kind. Any interpolation inside the
+// element (`{u}`, `{label}`) is emitted verbatim by genNode/genInterp exactly
+// as it is for a component body, so it resolves by ordinary Go closure
+// capture against whatever the ENCLOSING Go scope binds — the same as a
+// hand-written `gsx.Func(func(...) error { … u … })` literal would.
+//
+// Reuses genNode (via emitNodeFuncBody) — the SAME element/markup lowering a
+// component body's child elements use — so there is exactly one path from
+// *ast.Element to markup-emission code; this function only supplies the
+// closure scaffolding around it.
+func emitElementValue(b *bytes.Buffer, el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+	// No emitLine here (unlike genComponent's declaration line): this wrapper
+	// carries no user-authored token of its own — it's pure generator
+	// boilerplate, same as a GoChunk's own raw body text, which also emits no
+	// //line of its own (see generateFile's *ast.GoChunk case). genNode's OWN
+	// emitLine call (for the *ast.Element case) fires immediately below and
+	// maps the actual markup/interpolation content, which is what matters.
+	b.WriteString("gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {\n")
+	if !emitNodeFuncBody(b, []ast.Markup{el}, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, "", "", cls, fm, bag, mergeExpr) {
+		return false
+	}
+	b.WriteString("\t})")
 	return true
 }
 
