@@ -138,10 +138,32 @@ filterPackages = ["example.com/myproject/templatefuncs"]
 ```
 
 The gsx built-in `std` filter package is **always available** — you do not list
-it. It ships `upper`, `lower`, `trim`, `truncate`, `join`, `default`, and
-`format` (a `fmt.Sprintf` wrapper with the piped value as the first verb:
-`{ price |> format("$%.2f") }`). List `filterPackages` only for your own
+it. It ships `upper`, `lower`, `trim`, `truncate`, `join`, `default`, `format`
+(a `fmt.Sprintf` wrapper with the piped value as the first verb:
+`{ price |> format("$%.2f") }`), and `dataURL` (assembles a base64 `data:` URL —
+see [Pipelines](./syntax/pipelines)). List `filterPackages` only for your own
 packages, or to set precedence (later packages win on name collisions).
+
+#### `std` is the lowest-precedence base
+
+`std` sits at the **bottom** of the filter-precedence stack: it is always
+present, but any later registration with the same name shadows just that one
+built-in — the rest of `std` stays available. So you can override `dataURL`
+(or `truncate`, `format`, …) with your own function without re-declaring the
+whole standard library. Precedence, low → high:
+
+1. `std` — the built-in base, always present.
+2. `filterPackages` (config) / `WithFilters` (code) — listed in order,
+   **last package wins** on a name collision, and each wins over `std`.
+3. `[filters]` aliases (config) / `WithFilter` (code) — a named single-function
+   alias, highest precedence of all.
+
+For example, `[filters] dataURL = "example.com/img.DataURL"` (or
+`gen.WithFilter("dataURL", img.DataURL)`) replaces the built-in `dataURL`
+while `upper`, `trim`, and the rest of `std` keep working. The programmatic
+options layer on top of the config the same way — a code-registered filter
+overrides a same-named config filter (see [What is *not* in
+`gsx.toml`](#what-is-not-in-gsx-toml) below).
 
 ### `[[urlAttrs]]` — URL attribute contexts
 

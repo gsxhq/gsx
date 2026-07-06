@@ -17,6 +17,7 @@ gsx ships a built-in filter library (the `std` package) that is always available
 | `join(sep)` | joins a `[]string` with `sep` |
 | `default(fallback)` | returns `fallback` when the value is the empty string |
 | `format(spec, rest…)` | like `fmt.Sprintf` with the piped value as the first verb |
+| `dataURL(mime)` | assembles a `data:` URL from `[]byte` bytes and a MIME string: `data:<mime>;base64,<base64(bytes)>` |
 
 To register your own named filter, add it to the `[filters]` table in `gsx.toml` — see [Configuration → `[filters]`](../config#filters-named-pipeline-filters). To register every exported function from a package at once, list the package path in `filterPackages`. In both cases the function must have the seed-first shape: the piped value is the first parameter (after an optional `context.Context`), and extra stage arguments follow.
 
@@ -76,6 +77,19 @@ With `u = "javascript:alert(1)"`, `upper` yields `JAVASCRIPT:ALERT(1)`, and the
 URL sanitizer — case-insensitive on the scheme — still rejects it, rendering
 `href="about:invalid#gsx"`. There is no ordering of filter and holes that lets a
 dangerous scheme reach the browser.
+
+### `dataURL` grants no privilege
+
+`dataURL(mime)` (in `std`) is a plain assembly helper, not a trust boundary:
+`{ imageBytes |> dataURL("image/png") }` produces
+`data:image/png;base64,<base64(imageBytes)>`, but that output is still
+re-validated by the sink's sanitizer like any other pipeline result. On an
+[image sink](./escaping#resource-vs-navigational-url-sinks) (`<img src>`,
+`<video poster>`, `background`, …), the sanitizer accepts only the image-MIME
+allow-list — `{ pdfBytes |> dataURL("application/pdf") }` on `<img src>` still
+renders `about:invalid#gsx`. On a strict sink (`href`, `action`, …), any
+`dataURL(...)` output is blocked outright; `dataURL` cannot make a `data:` URL
+safe there. See [Escaping — resource vs navigational URL sinks](./escaping#resource-vs-navigational-url-sinks).
 
 ## `(T, error)` auto-unwrap
 
