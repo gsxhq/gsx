@@ -476,6 +476,7 @@ url/data_image_href_strict	diag(error)
 url/data_image_script_strict	diag(error)
 url/data_image_string	diag gen render
 url/data_image_svg	diag render
+url/data_image_svg_object_blocked	diag render
 url/data_url_filter	diag gen render
 url/data_url_filter_blocked_mime	diag render
 xpkg/cross_file_and_component	diag render
@@ -492,4 +493,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 494 cases (render: 398, error: 73, gen-pinned: 233)
+TOTAL: 495 cases (render: 399, error: 73, gen-pinned: 233)

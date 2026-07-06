@@ -1,0 +1,18 @@
+# object[data] is SinkStrict (not SinkImage): unlike <img src>, an <object>
+# can execute scripts inside an svg document, so data:image/svg+xml must never
+# reach it. A static `data:` literal on a strict sink is already a
+# compile-time error (data-url-strict-sink), so this exercises the RUNTIME
+# guard via a dynamic {u} expression instead: urlSanitize (the strict
+# sanitizer, not urlSanitizeImage) rejects ANY data: scheme regardless of
+# MIME, blocking it to about:invalid#gsx.
+-- input.gsx --
+package p
+
+component Bad(u string) {
+	<object data={u}></object>
+}
+-- invoke --
+Bad(BadProps{U: "data:image/svg+xml;base64,PHN2Zy8+"})
+-- diagnostics.golden --
+-- render.golden --
+<object data="about:invalid#gsx"></object>
