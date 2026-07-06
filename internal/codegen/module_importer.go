@@ -835,9 +835,20 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// _gsxuseq quietly harvests child-prop and element-spread types. Errors inside
 	// it are suppressed because each expression also has a native typed probe that
 	// reports the error once.
+	//
+	// _gsxstr is the whole-literal-pipe seed-probe's per-hole placeholder
+	// conversion (see analyze.go's embeddedProbeSeed): it always returns
+	// `string`, mirroring how EVERY successful branch of the real emit-time
+	// holeStringExpr (string(x), strconv.Format*, (x).String()) ALSO always
+	// yields a `string`-typed expression — so a seed built with _gsxstr
+	// type-checks to the exact same static type as codegen's precisely-typed
+	// seed, without needing each hole's real type known yet (impossible at
+	// skeleton-build time). Its trailing `...any` tolerates a bare (no-pipe)
+	// hole expression that itself returns a (T, error) tuple, exactly like
+	// _gsxunwrap's shape.
 	helperXgoPath := filepath.Join(dir, "_gsxshared.x.go")
 	helper, _ := goparser.ParseFile(fset, helperXgoPath,
-		"package "+pkgName+"\n\nfunc _gsxuse(...any) {}\nfunc _gsxuseq(...any) {}\nfunc _gsxcompsig(any) {}\nfunc _gsxunwrap[T any](v T, _ ...any) T { return v }\n", goparser.SkipObjectResolution)
+		"package "+pkgName+"\n\nfunc _gsxuse(...any) {}\nfunc _gsxuseq(...any) {}\nfunc _gsxcompsig(any) {}\nfunc _gsxunwrap[T any](v T, _ ...any) T { return v }\nfunc _gsxstr(any, ...any) string { return \"\" }\n", goparser.SkipObjectResolution)
 	goFiles = append(goFiles, helper)
 
 	// Include the package's hand-written .go files (model.go, helper.go, etc.)

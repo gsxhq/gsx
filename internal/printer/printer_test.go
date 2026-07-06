@@ -409,6 +409,71 @@ component C(v string) {
 	checkFormat(t, src, want)
 }
 
+func TestBodyEmbeddedInterpRoundTrip(t *testing.T) {
+	// A body backtick literal `{`…@{expr}…`}` prints in its literal form
+	// (preserved, not canonicalized to interleaved Text/Interp nodes).
+	src := `package p
+component C(id string, n int) {
+	<p>{` + "`" + `row-@{ id }-@{n}` + "`" + `}</p>
+}`
+	want := `package p
+
+component C(id string, n int) {
+	<p>{` + "`" + `row-@{id}-@{n}` + "`" + `}</p>
+}
+`
+	checkFormat(t, src, want)
+}
+
+func TestBodyEmbeddedInterpWholePipeRoundTrip(t *testing.T) {
+	// A whole-literal pipeline after the closing backtick prints trailing
+	// ` |> stage`.
+	src := `package p
+component C(id string) {
+	<p>{` + "`" + `row-@{ id }` + "`" + ` |> upper}</p>
+}`
+	want := `package p
+
+component C(id string) {
+	<p>{` + "`" + `row-@{id}` + "`" + ` |> upper}</p>
+}
+`
+	checkFormat(t, src, want)
+}
+
+func TestBodyEmbeddedInterpEscapedHoleRoundTrip(t *testing.T) {
+	// A literal `\@{` inside a body embedded literal re-escapes and round-trips
+	// as literal text rather than turning into a hole.
+	src := `package p
+component C(id string) {
+	<p>{` + "`" + `row-@{id} \@{lit}` + "`" + `}</p>
+}`
+	want := `package p
+
+component C(id string) {
+	<p>{` + "`" + `row-@{id} \@{lit}` + "`" + `}</p>
+}
+`
+	checkFormat(t, src, want)
+}
+
+func TestAttrEmbeddedWholePipeBracedRoundTrip(t *testing.T) {
+	// A whole-literal pipeline on a braced embedded attribute value must keep
+	// its braces on print — the direct/unbraced attr=`…` form never parses a
+	// trailing `|>`, so dropping the braces would make the output unparseable.
+	src := `package p
+component C(v string) {
+	<div class={` + "`" + `btn-@{ v }` + "`" + ` |> upper}>x</div>
+}`
+	want := `package p
+
+component C(v string) {
+	<div class={` + "`" + `btn-@{v}` + "`" + ` |> upper}>x</div>
+}
+`
+	checkFormat(t, src, want)
+}
+
 func TestIfElseIfElse(t *testing.T) {
 	// An if-else-if-else with block children in each arm: the if body has
 	// block-level children so each arm breaks, and the containing <div>

@@ -456,6 +456,8 @@ func (p *printer) markup(n ast.Markup) pretty.Doc {
 		return pretty.Text(v.Value)
 	case *ast.Interp:
 		return p.interp(v)
+	case *ast.EmbeddedInterp:
+		return p.embeddedInterp(v)
 	default:
 		return p.fail("printer: unknown markup type %T", n)
 	}
@@ -477,6 +479,22 @@ func (p *printer) interp(i *ast.Interp) pretty.Doc {
 	}
 	parts = append(parts, pretty.Text(" }"))
 	return pretty.Concat(parts...)
+}
+
+// embeddedInterp renders a body/child backtick literal `{`…@{expr}…` [|> stage…]}`.
+// The form is preserved as-is (not canonicalized to interleaved Interp nodes):
+// a bare backtick literal wrapped in braces, with an optional whole-literal
+// pipeline after the closing backtick.
+func (p *printer) embeddedInterp(v *ast.EmbeddedInterp) pretty.Doc {
+	var b strings.Builder
+	b.WriteString("{")
+	b.WriteString(embeddedLiteralString(ast.EmbeddedText, v.Segments))
+	for _, s := range v.Stages {
+		b.WriteString(" |> ")
+		b.WriteString(pipeStageStr(s))
+	}
+	b.WriteString("}")
+	return pretty.Text(b.String())
 }
 
 func pipeStageStr(s ast.PipeStage) string {
@@ -769,10 +787,25 @@ func writeAttrInline(b *strings.Builder, a ast.Attr) {
 	case *ast.EmbeddedAttr:
 		b.WriteString(v.Name)
 		b.WriteString("=")
+		// A whole-literal pipeline only parses in the braced form
+		// (name={`…` |> f}) — parseEmbeddedAttrValue, the direct/unbraced
+		// path, never sets Stages. Wrap in braces whenever Stages is
+		// present so the printed output re-parses.
+		braced := len(v.Stages) > 0
+		if braced {
+			b.WriteString("{")
+		}
 		b.WriteString(embeddedLangName(v.Lang))
 		b.WriteString("`")
 		writeEmbeddedAttrSegments(b, v.Segments)
 		b.WriteString("`")
+		for _, s := range v.Stages {
+			b.WriteString(" |> ")
+			b.WriteString(pipeStageStr(s))
+		}
+		if braced {
+			b.WriteString("}")
+		}
 	case *ast.OrderedAttrsAttr:
 		b.WriteString(v.Name)
 		if len(v.Pairs) == 0 {

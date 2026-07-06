@@ -241,6 +241,39 @@ render goldens.
     needs JS/CSS-context-correct per-hole escaping (exported string-returning
     escapers + a value assembler), a separate designed feature.
 
+14. [x] **Body interpolation + whole-literal pipe** — `2026-07-05`. Two
+    additions that carry the interpolating backtick literal into body/child
+    position and add a value-assembling pipeline form. **(a) Body backtick
+    literal:** a lone backtick literal inside body braces, `` {`…@{ expr }…`} ``,
+    interpolates static text and typed `@{ }` holes per-segment (mirror of the
+    attribute-value literal), lowering to the exact zero-alloc writes a
+    hand-written mix of static text + `{ expr }` holes produces — NO materialized
+    concat string, string holes HTML-text-escaped, numeric holes via the
+    `IntInto`/`UintInto`/`FloatInto` fast path. The form applies **only** when the
+    backtick is the lone child of the braces; `` {`a` + x} `` (or any larger Go
+    expression) reverts the backtick to an ordinary Go raw string and the brace to
+    a single `{ expr }` interpolation, so existing raw-string-in-braces code is
+    untouched. `` \` `` / `\@{` escape as in the attribute literal; the formatter
+    round-trips the form. **(b) Whole-literal pipe:** a backtick literal followed
+    by `|>`, `` `…` |> f ``, assembles the interpolated string and pipes the whole
+    value as a unit (vs. a per-hole `` `@{ v |> f }` ``). Available in body braces
+    (`` {`…` |> f} ``) and the **braced** attribute form (`` attr={`…` |> f} ``);
+    the pipe assembles via the same `embeddedValueExpr` path and lowers through the
+    same `lowerPipe` the probe uses, so emit ≡ probe. **URL attributes
+    sanitize AFTER the pipe:** the `_gsxgw.URL` scheme check runs on the pipe's
+    output, so a filter that yields `javascript:` is still blocked to
+    `about:invalid#gsx` (guarded by the `FuzzURLWholeLiteralPipeSchemeSafety` fuzz
+    target). Corpus: `bodyinterp/*` (plain, whole_pipe, sub_expression,
+    escaped_hole) + `textattr/whole_pipe_braced` + `textattr/whole_pipe_url_safe`.
+    Docs: `syntax/interpolation.md` §Body backtick literals, `syntax/pipelines.md`
+    §Whole-literal pipelines, `syntax/attributes.md` cross-reference; playground
+    examples `examples/303-304`. LSP navigation covers the body-literal holes.
+    **Deferred:** the whole-literal pipe on the **bare direct-attribute** literal
+    (`` attr=`…` |> f `` without braces) — the direct form takes no trailing `|>`;
+    wrap it in braces to pipe. Sibling grammars (`../tree-sitter-gsx`,
+    `../vscode-gsx`, `gsxhq.github.io` CodeMirror) do not yet highlight the body
+    backtick-with-`@{}` form.
+
 ## Language server (`gsx lsp`)
 
 In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`

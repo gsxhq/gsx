@@ -58,6 +58,10 @@ component Kid(extra gsx.Attrs) {
 component NavText(variant string) {
 	<span class=` + "`badge-@{variant}`" + `>x</span>
 }
+
+component NavBody(variant string) {
+	<p>{` + "`badge-@{variant}`" + `}</p>
+}
 `
 
 // TestDefinitionMatrix asserts go-to-definition resolves the identifier under
@@ -76,6 +80,7 @@ func TestDefinitionMatrix(t *testing.T) {
 	localDisabled := strings.Index(src, "disabled := cond")
 	localBag := strings.Index(src, "bag := gsx.Attrs")
 	paramVariant := strings.Index(src, "variant string")
+	paramVariantBody := strings.LastIndex(src, "variant string")
 
 	lineCol := func(off int) (int, int) {
 		return strings.Count(src[:off], "\n") + 1, off - strings.LastIndexByte(src[:off], '\n')
@@ -109,6 +114,7 @@ func TestDefinitionMatrix(t *testing.T) {
 		{"switch-markup case list", "case m:\n", len("case "), paramM},
 		{"goblock code", "disabled := cond", len("disabled := "), paramCond},
 		{"embedded-text hole interp", "@{variant}", len("@{"), paramVariant},
+		{"body embedded-interp hole", "{`badge-@{variant}`}", len("{`badge-@{"), paramVariantBody},
 	}
 	for _, tc := range cases {
 		idx := strings.Index(src, tc.anchor)
