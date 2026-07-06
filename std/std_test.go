@@ -1,6 +1,9 @@
 package std
 
-import "testing"
+import (
+	"encoding/base64"
+	"testing"
+)
 
 func TestUpper(t *testing.T) {
 	tests := []struct {
@@ -163,5 +166,16 @@ func TestDefault(t *testing.T) {
 				t.Errorf("Default(%q, %q) = %q, want %q", tt.in, tt.fallback, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestDataURL(t *testing.T) {
+	got := DataURL([]byte("PNGDATA"), "image/png")
+	want := "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("PNGDATA"))
+	if got != want {
+		t.Fatalf("DataURL = %q, want %q", got, want)
+	}
+	if empty := DataURL(nil, "image/gif"); empty != "data:image/gif;base64," {
+		t.Fatalf("DataURL(nil) = %q, want %q", empty, "data:image/gif;base64,")
 	}
 }
