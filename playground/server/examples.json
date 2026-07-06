@@ -98,7 +98,7 @@
   {
     "name": "Props heuristic",
     "category": "Components",
-    "source": "package views\n\ntype Props struct {\n\tTitle string\n}\n\ncomponent Greeting(name string) {\n\t<p>Hi { name }</p>\n}\n\ncomponent Card(title string, n int) {\n\t<div>{ title }: { n }</div>\n}\n\ncomponent Panel(p Props) {\n\t<section>{ p.Title }</section>\n}\n\ncomponent Page() {\n\t<><Greeting name=\"Ann\"/><Card title=\"T\" n={2}/><Panel title=\"P\"/></>\n}\n",
+    "source": "package views\n\ntype Props struct {\n\tTitle string\n}\n\ncomponent Greeting(name string) {\n\t<p>Hi { name }</p>\n}\n\ncomponent Card(title string, n int) {\n\t<div>{ title }: { n }</div>\n}\n\ncomponent Panel(p Props) {\n\t<section>{ p.Title }</section>\n}\n\ncomponent Page() {\n\t<>\n\t\t<Greeting name=\"Ann\"/>\n\t\t<Card title=\"T\" n={2}/>\n\t\t<Panel title=\"P\"/>\n\t</>\n}\n",
     "invoke": "Page()"
   },
   {
@@ -242,7 +242,7 @@
   {
     "name": "Composable class",
     "category": "Styling",
-    "source": "package views\n\ncomponent Tag(label string, active bool) {\n\t<span class={ \"tag\", \"tag--active\": active }>{ label }</span>\n}\n",
+    "source": "package views\n\ncomponent Tag(label string, active bool) {\n\t<span class={ \"tag\", \"tag--active\": active }>\n\t\t{ label }\n\t</span>\n}\n",
     "invoke": "Tag(TagProps{Label: \"stable\", Active: true})"
   },
   {

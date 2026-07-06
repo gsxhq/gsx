@@ -291,6 +291,7 @@ func (p *parser) parseForMarkup() (ast.Markup, error) {
 	clausePos := p.posAt(clauseStart + lead)
 	clause := strings.TrimSpace(rawClause)
 	p.i = braceOff + 1 // past body '{'
+	bodyMultiline := newlineFollows(p.src, p.i)
 	body, err := p.parseControlBody()
 	if err != nil {
 		return nil, err
@@ -300,7 +301,7 @@ func (p *parser) parseForMarkup() (ast.Markup, error) {
 		return nil, p.errorf(p.pos(), "expected `}` to close `{ for … }`")
 	}
 	p.i++ // past outer '}'
-	n := &ast.ForMarkup{Clause: clause, ClausePos: clausePos, Body: body}
+	n := &ast.ForMarkup{Clause: clause, ClausePos: clausePos, Body: body, BodyMultiline: bodyMultiline}
 	ast.SetSpan(n, startPos, p.posAt(p.i))
 	return n, nil
 }
@@ -340,11 +341,12 @@ func (p *parser) parseIfTail() (*ast.IfMarkup, error) {
 	condPos := p.posAt(condStart + lead)
 	cond := strings.TrimSpace(rawCond)
 	p.i = braceOff + 1 // past body '{'
+	thenMultiline := newlineFollows(p.src, p.i)
 	body, err := p.parseControlBody()
 	if err != nil {
 		return nil, err
 	}
-	n := &ast.IfMarkup{Cond: cond, CondPos: condPos, Then: body}
+	n := &ast.IfMarkup{Cond: cond, CondPos: condPos, Then: body, ThenMultiline: thenMultiline}
 	p.skipSpace()
 	if p.atWord("else") {
 		p.i += len("else")
@@ -352,6 +354,7 @@ func (p *parser) parseIfTail() (*ast.IfMarkup, error) {
 		switch {
 		case p.peek() == '{':
 			p.i++ // past '{'
+			n.ElseMultiline = newlineFollows(p.src, p.i)
 			elseBody, err := p.parseControlBody()
 			if err != nil {
 				return nil, err
@@ -698,11 +701,12 @@ func (p *parser) parseElement() (ast.Markup, error) {
 	// Fragment: <>…</>
 	if p.peek() == '>' {
 		p.i++ // past '>'
+		childrenMultiline := newlineFollows(p.src, p.i)
 		children, _, err := p.parseChildren("")
 		if err != nil {
 			return nil, err
 		}
-		fr := &ast.Fragment{Children: children}
+		fr := &ast.Fragment{Children: children, ChildrenMultiline: childrenMultiline}
 		ast.SetSpan(fr, startPos, p.posAt(p.i))
 		return fr, nil
 	}
@@ -750,6 +754,7 @@ func (p *parser) parseElement() (ast.Markup, error) {
 		return nil, p.errorf(p.pos(), "expected '>' or '/>' in <%s>", tag)
 	}
 	p.i++ // past '>'
+	childrenMultiline := newlineFollows(p.src, p.i)
 
 	// Raw-text elements (<script>, <style>): content is verbatim until the
 	// matching case-insensitive close tag. No markup/interpolation inside.
@@ -767,7 +772,7 @@ func (p *parser) parseElement() (ast.Markup, error) {
 	if err != nil {
 		return nil, err
 	}
-	el := &ast.Element{Tag: tag, TypeArgs: typeArgs, TypeArgsPos: typeArgsPos, Attrs: attrs, Children: children, CloseNamePos: closeNamePos}
+	el := &ast.Element{Tag: tag, TypeArgs: typeArgs, TypeArgsPos: typeArgsPos, Attrs: attrs, Children: children, CloseNamePos: closeNamePos, ChildrenMultiline: childrenMultiline}
 	ast.SetSpan(el, startPos, p.posAt(p.i))
 	return el, nil
 }

@@ -248,6 +248,14 @@ formats `.` recursively.
 in `gsx.toml` to change it. The language server reads the same setting, so
 `gsx fmt` and format-on-save always agree.
 
+**Your line breaks are preserved.** When you place a line break immediately
+after a control-flow body's opening `{` (`{ if … {`, `else {`, `{ for … {`) or
+an element's opening `>` (or a fragment's `<>`), the formatter keeps that body
+block-formatted instead of collapsing it onto one line — even when it would fit
+the print width. Write it inline and it stays inline; write it multi-line and it
+stays multi-line. (A block-level child, e.g. a nested element, still forces the
+enclosing body to break regardless, so the document hierarchy stays visible.)
+
 **Unused imports.** Like `goimports`, `gsx fmt` **removes unused imports** from a
 `.gsx` file's pass-through Go by default — detected via the type-checker, so it
 runs a module analysis (`go list` + type-check). Pass `-no-imports` to format

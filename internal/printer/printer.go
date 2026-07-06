@@ -259,7 +259,7 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 	// independently, so short attributes stay inline even when children break,
 	// and a CondAttr's BreakParent inside the tag also forces the children open.
 	force := pretty.Text("")
-	if hasBlockChild(e.Children) {
+	if hasBlockChild(e.Children) || e.ChildrenMultiline {
 		force = pretty.BreakParent
 	}
 	return pretty.Group(pretty.Concat(
@@ -468,8 +468,14 @@ func (p *printer) fragment(f *ast.Fragment) pretty.Doc {
 	if !breakable {
 		return pretty.Concat(pretty.Text("<>"), inner, pretty.Text("</>"))
 	}
+	// An author line break after `<>` is preserved (force the group open);
+	// otherwise the fragment breaks only on width overflow.
+	force := pretty.Text("")
+	if f.ChildrenMultiline {
+		force = pretty.BreakParent
+	}
 	body := pretty.Concat(pretty.Indent(pretty.Concat(pretty.SoftLine, inner)), pretty.SoftLine)
-	return pretty.Group(pretty.Concat(pretty.Text("<>"), body, pretty.Text("</>")))
+	return pretty.Group(pretty.Concat(pretty.Text("<>"), force, body, pretty.Text("</>")))
 }
 
 func (p *printer) interp(i *ast.Interp) pretty.Doc {
@@ -515,7 +521,7 @@ func (p *printer) ifMarkup(i *ast.IfMarkup) pretty.Doc {
 }
 
 func (p *printer) ifChain(i *ast.IfMarkup) pretty.Doc {
-	parts := []pretty.Doc{pretty.Text("if "), multiline(fmtExpr(i.Cond)), pretty.Text(" {"), p.cfBody(i.Then), pretty.Text("}")}
+	parts := []pretty.Doc{pretty.Text("if "), multiline(fmtExpr(i.Cond)), pretty.Text(" {"), p.cfBody(i.Then, i.ThenMultiline), pretty.Text("}")}
 	if len(i.Else) == 0 {
 		return pretty.Concat(parts...)
 	}
@@ -525,13 +531,13 @@ func (p *printer) ifChain(i *ast.IfMarkup) pretty.Doc {
 			return pretty.Concat(parts...)
 		}
 	}
-	parts = append(parts, pretty.Text(" else {"), p.cfBody(i.Else), pretty.Text("}"))
+	parts = append(parts, pretty.Text(" else {"), p.cfBody(i.Else, i.ElseMultiline), pretty.Text("}"))
 	return pretty.Concat(parts...)
 }
 
 func (p *printer) forMarkup(f *ast.ForMarkup) pretty.Doc {
 	return pretty.Group(pretty.Concat(
-		pretty.Text("{ for "), pretty.Text(fmtClause(f.Clause)), pretty.Text(" {"), p.cfBody(f.Body), pretty.Text("} }")))
+		pretty.Text("{ for "), pretty.Text(fmtClause(f.Clause)), pretty.Text(" {"), p.cfBody(f.Body, f.BodyMultiline), pretty.Text("} }")))
 }
 
 // cfBody renders a control-flow body between an already-emitted `{` and a
@@ -540,8 +546,10 @@ func (p *printer) forMarkup(f *ast.ForMarkup) pretty.Doc {
 // `{ … }` (Line renders as " "); break mode → newline-indented. This is
 // correct for both short bodies (Group fits → collapses) and long bodies (Group
 // doesn't fit → breaks). Indent is always applied so break-mode content is one
-// tab deeper than the surrounding `{`/`}`.
-func (p *printer) cfBody(nodes []ast.Markup) pretty.Doc {
+// tab deeper than the surrounding `{`/`}`. multiline is true when the source
+// placed a line break after the body's opening `{` (ast.*Multiline), in which
+// case the vertical layout is preserved even for an inline-only body that fits.
+func (p *printer) cfBody(nodes []ast.Markup, multiline bool) pretty.Doc {
 	if len(nodes) == 0 {
 		return pretty.Text("")
 	}
@@ -557,9 +565,10 @@ func (p *printer) cfBody(nodes []ast.Markup) pretty.Doc {
 	body := pretty.Concat(pretty.Indent(pretty.Concat(pretty.Line, inner)), pretty.Line)
 	// Structural rule: a control-flow body containing a block-level child always
 	// breaks (the BreakParent forces the enclosing if/for group open), so e.g.
-	// `{ for … { <Card/> } }` shows its hierarchy. An inline-only body stays on
+	// `{ for … { <Card/> } }` shows its hierarchy. An author line break after `{`
+	// is likewise preserved. An inline-only body the author kept inline stays on
 	// one line and breaks only if it overflows the width.
-	if hasBlockChild(nodes) {
+	if hasBlockChild(nodes) || multiline {
 		return pretty.Concat(pretty.BreakParent, body)
 	}
 	return body

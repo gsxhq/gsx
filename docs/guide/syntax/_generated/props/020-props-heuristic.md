@@ -20,7 +20,11 @@ component Panel(p Props) {
 }
 
 component Page() {
-	<><Greeting name="Ann"/><Card title="T" n={2}/><Panel title="P"/></>
+	<>
+		<Greeting name="Ann"/>
+		<Card title="T" n={2}/>
+		<Panel title="P"/>
+	</>
 }
 ```
 
@@ -30,4 +34,4 @@ Renders:
 <p>Hi Ann</p><div>T: 2</div><section>P</section>
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG50eXBlIFByb3BzIHN0cnVjdCB7XG5cdFRpdGxlIHN0cmluZ1xufVxuXG5jb21wb25lbnQgR3JlZXRpbmcobmFtZSBzdHJpbmcpIHtcblx0XHUwMDNjcFx1MDAzZUhpIHsgbmFtZSB9XHUwMDNjL3BcdTAwM2Vcbn1cblxuY29tcG9uZW50IENhcmQodGl0bGUgc3RyaW5nLCBuIGludCkge1xuXHRcdTAwM2NkaXZcdTAwM2V7IHRpdGxlIH06IHsgbiB9XHUwMDNjL2Rpdlx1MDAzZVxufVxuXG5jb21wb25lbnQgUGFuZWwocCBQcm9wcykge1xuXHRcdTAwM2NzZWN0aW9uXHUwMDNleyBwLlRpdGxlIH1cdTAwM2Mvc2VjdGlvblx1MDAzZVxufVxuXG5jb21wb25lbnQgUGFnZSgpIHtcblx0XHUwMDNjXHUwMDNlXHUwMDNjR3JlZXRpbmcgbmFtZT1cIkFublwiL1x1MDAzZVx1MDAzY0NhcmQgdGl0bGU9XCJUXCIgbj17Mn0vXHUwMDNlXHUwMDNjUGFuZWwgdGl0bGU9XCJQXCIvXHUwMDNlXHUwMDNjL1x1MDAzZVxufVxuIiwiaSI6IlBhZ2UoKSJ9)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG50eXBlIFByb3BzIHN0cnVjdCB7XG5cdFRpdGxlIHN0cmluZ1xufVxuXG5jb21wb25lbnQgR3JlZXRpbmcobmFtZSBzdHJpbmcpIHtcblx0XHUwMDNjcFx1MDAzZUhpIHsgbmFtZSB9XHUwMDNjL3BcdTAwM2Vcbn1cblxuY29tcG9uZW50IENhcmQodGl0bGUgc3RyaW5nLCBuIGludCkge1xuXHRcdTAwM2NkaXZcdTAwM2V7IHRpdGxlIH06IHsgbiB9XHUwMDNjL2Rpdlx1MDAzZVxufVxuXG5jb21wb25lbnQgUGFuZWwocCBQcm9wcykge1xuXHRcdTAwM2NzZWN0aW9uXHUwMDNleyBwLlRpdGxlIH1cdTAwM2Mvc2VjdGlvblx1MDAzZVxufVxuXG5jb21wb25lbnQgUGFnZSgpIHtcblx0XHUwMDNjXHUwMDNlXG5cdFx0XHUwMDNjR3JlZXRpbmcgbmFtZT1cIkFublwiL1x1MDAzZVxuXHRcdFx1MDAzY0NhcmQgdGl0bGU9XCJUXCIgbj17Mn0vXHUwMDNlXG5cdFx0XHUwMDNjUGFuZWwgdGl0bGU9XCJQXCIvXHUwMDNlXG5cdFx1MDAzYy9cdTAwM2Vcbn1cbiIsImkiOiJQYWdlKCkifQ==)
