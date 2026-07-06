@@ -1,0 +1,15 @@
+# URL image sink, Form B with a non-image MIME: std.DataURL will happily
+# assemble a data:text/html;base64,... string, but URLImage re-validates the
+# pipeline's OUTPUT (sanitize-after-pipe, never trust the filter) and blocks
+# any data: MIME outside the image allow-list to about:invalid#gsx.
+-- input.gsx --
+package p
+
+component Danger(bytes []byte) {
+	<img src={ bytes |> dataURL("text/html") } alt="x" />
+}
+-- invoke --
+Danger(DangerProps{Bytes: []byte("<script>alert(1)</script>")})
+-- diagnostics.golden --
+-- render.golden --
+<img src="about:invalid#gsx" alt="x"/>

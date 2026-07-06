@@ -472,6 +472,12 @@ tuple/t_int	diag gen render
 tuple/t_nodeslice	diag gen render
 tuple/t_stringer	diag gen render
 url/data_image_bytes	diag gen render
+url/data_image_href_strict	diag(error)
+url/data_image_script_strict	diag(error)
+url/data_image_string	diag gen render
+url/data_image_svg	diag render
+url/data_url_filter	diag gen render
+url/data_url_filter_blocked_mime	diag render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
 xpkg/generic_inferred_import	diag render
@@ -486,4 +492,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 488 cases (render: 394, error: 71, gen-pinned: 231)
+TOTAL: 494 cases (render: 398, error: 73, gen-pinned: 233)

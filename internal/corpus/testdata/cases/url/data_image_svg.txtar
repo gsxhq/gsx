@@ -1,0 +1,15 @@
+# URL image sink, Form A with image/svg+xml: SinkImage allows svg alongside
+# raster MIMEs (browsers load an <img src> svg in restricted mode — no script,
+# no external fetch), so the []byte hole is base64-encoded and the assembled
+# value renders unblocked, exactly like a raster MIME.
+-- input.gsx --
+package p
+
+component Icon(svg []byte) {
+	<img src=`data:image/svg+xml;base64,@{svg}` alt="i" />
+}
+-- invoke --
+Icon(IconProps{Svg: []byte("<svg/>")})
+-- diagnostics.golden --
+-- render.golden --
+<img src="data:image/svg+xml;base64,PHN2Zy8+" alt="i"/>
