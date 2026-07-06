@@ -1,0 +1,67 @@
+# COVERAGE: the userland "render once" pattern (a port of templ's OnceHandle).
+# A per-request scope (onceState in ctx) plus a *OnceHandle-keyed seen-set lets
+# the <Once> component render its children only the first time a handle is seen.
+# Demo installs the scope via a `{{ ctx = withOnceScope(ctx) }}` GoBlock (the
+# corpus has no HTTP layer, so this stands in for the net/http middleware) then
+# renders the same handle twice; the golden pins that the second render is empty.
+-- once.go --
+package views
+
+import (
+	"context"
+	"sync/atomic"
+)
+
+// OnceHandle dedups a render within a single request. The id field is load
+// bearing: the seen-set is keyed by *OnceHandle and Go may place two zero-size
+// structs at the same address, which would collide distinct handles.
+type OnceHandle struct{ id int64 }
+
+var onceIndex int64
+
+func NewOnce() *OnceHandle { return &OnceHandle{id: atomic.AddInt64(&onceIndex, 1)} }
+
+type onceState struct{ seen map[*OnceHandle]struct{} }
+
+type onceKeyT struct{}
+
+// withOnceScope installs the per-request dedup state; idempotent.
+func withOnceScope(ctx context.Context) context.Context {
+	if ctx.Value(onceKeyT{}) != nil {
+		return ctx
+	}
+	return context.WithValue(ctx, onceKeyT{}, &onceState{seen: map[*OnceHandle]struct{}{}})
+}
+
+// firstRender reports whether h is rendering for the first time this request,
+// marking it seen. With no scope installed it degrades to "always render".
+func (h *OnceHandle) firstRender(ctx context.Context) bool {
+	st, _ := ctx.Value(onceKeyT{}).(*onceState)
+	if st == nil {
+		return true
+	}
+	if _, done := st.seen[h]; done {
+		return false
+	}
+	st.seen[h] = struct{}{}
+	return true
+}
+-- input.gsx --
+package views
+
+var demoOnce = NewOnce()
+
+component Once(handle *OnceHandle) {
+	{ if handle.firstRender(ctx) { { children } } }
+}
+
+component Demo() {
+	{{ ctx = withOnceScope(ctx) }}
+	<Once handle={demoOnce}><span>x</span></Once>
+	<Once handle={demoOnce}><span>x</span></Once>
+}
+-- invoke --
+Demo()
+-- diagnostics.golden --
+-- render.golden --
+<span>x</span>
