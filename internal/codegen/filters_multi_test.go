@@ -145,9 +145,14 @@ component C(n string) {
 	}
 }
 
-// TestMultiFilterStdWinsWhenListedLast proves order matters: with std listed
-// AFTER the user package, std's upper wins for the same name.
-func TestMultiFilterStdWinsWhenListedLast(t *testing.T) {
+// TestMultiFilterUserWinsEvenWhenStdListedLast proves std is unconditionally the
+// lowest-precedence filter base (dedupFilterPkgs always forces it first): listing
+// std AFTER the user package in filterPackages no longer makes std win. This
+// behavior intentionally replaced the older "list std last to win" convention so a
+// user can override an individual built-in (e.g. dataURL) without dropping the
+// rest of std by omission; see docs/superpowers/specs/2026-07-06-data-image-resource-url-design.md
+// ("std as the lowest-precedence filter base").
+func TestMultiFilterUserWinsEvenWhenStdListedLast(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping go-build filter test in -short mode")
@@ -167,8 +172,8 @@ component C(n string) {
 	got := renderWithFilters(t, myfilters, views,
 		[]string{"gsxmf/myfilters", stdImportPath},
 		`p.C(p.CProps{N: "hi"})`)
-	if !strings.Contains(got, "HI") || strings.Contains(got, "USER:") {
-		t.Fatalf("expected std Upper to win (listed last): want \"HI\"; got:\n%s", got)
+	if !strings.Contains(got, "USER:hi") {
+		t.Fatalf("expected user Upper to win regardless of list order (std is always lowest-precedence): want \"USER:hi\"; got:\n%s", got)
 	}
 }
 
