@@ -204,6 +204,35 @@ value you have already validated and want to bypass the scheme check
 entirely, interpolate `gsx.RawURL(...)` instead of writing the URL as a
 backtick literal: `` href={ gsx.RawURL(trustedURL) } ``.
 
+### `data:image` literals
+
+A backtick literal is also how you write a `data:` URL directly, on an
+[image sink](./escaping#resource-vs-navigational-url-sinks) — `<img src>`,
+`<source src>`, `<input src>`, `<video poster>`, or `background`:
+
+```gsx
+<img src=`data:image/png;base64,@{imageBytes}` />
+```
+
+The scheme, MIME type, and `;base64,` marker are static author text; only the
+payload after the marker is a hole. Encoding is **type-driven**:
+
+- a `[]byte` hole immediately following `;base64,` is auto base64-encoded
+  (`base64.StdEncoding`) — pass raw bytes and gsx encodes them;
+- a `string` hole is treated as **already base64-encoded** text and passed
+  through unchanged.
+
+So raw bytes held in a `string` need an explicit conversion to opt into
+auto-encoding — `` `data:image/png;base64,@{[]byte(s)}` `` — while an
+already-base64 `string` goes in directly with no conversion.
+
+Writing a `data:` literal on a **strict** sink (`href` and the rest of the
+[strict-sink table](./escaping#resource-vs-navigational-url-sinks)) is a
+compile-time error (`data-url-strict-sink`): a static `data:` prefix has no
+safe navigational or script use, so gsx rejects the literal instead of
+falling back to the runtime sentinel. Use an image sink instead, or
+`gsx.RawURL` for a value you have already validated.
+
 ### `class` and `style` are merge targets
 
 A `class` or `style` backtick literal composes with a forwarded `{ attrs... }`
