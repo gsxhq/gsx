@@ -211,29 +211,28 @@ A backtick literal is also how you write a `data:` URL directly, on an
 `<source src>`, `<input src>`, `<video poster>`, or `background`:
 
 ```gsx
-<img src=`data:image/png;base64,@{imageBytes}` />
+<img src=`data:image/png;base64,@{b64}` />
 ```
 
-The scheme, MIME type, and `;base64,` marker are static author text; only the
-payload after the marker is a hole. Encoding is **type-driven**, and the
-trigger is the literal `;base64,` marker text, not the `data:image` scheme
-specifically: a `[]byte` hole immediately following a static `;base64,`
-marker — in *any* URL-context attribute literal, not only `data:image`
-ones — is auto base64-encoded. This is security-neutral: base64 output is a
-strict subset of URL-safe characters, so encoding it is never a sanitization
-concern regardless of which attribute or scheme it lands in.
+The scheme, MIME type, and `;base64,` marker are static author text; the hole
+is a plain `string` interpolation — a value the author has **already
+base64-encoded** — assembled with the surrounding static text into one string
+and passed through unchanged (like any other `string` hole in a URL-context
+literal; see [URL attributes sanitize the whole
+value](#url-attributes-sanitize-the-whole-value) above).
 
-- a `[]byte` hole immediately following `;base64,` is auto base64-encoded
-  (`base64.StdEncoding`) — pass raw bytes and gsx encodes them;
-- a `string` hole is treated as **already base64-encoded** text and passed
-  through unchanged.
+There is no `[]byte` auto-encoding here: a literal hole is a string
+passthrough only. If you're starting from raw `[]byte` image bytes, base64
+them yourself first — either with `encoding/base64` in a Go interpolation, or
+with the built-in `dataURL` filter, which does both the encoding and the
+`data:` URL assembly in one step:
 
-So raw bytes held in a `string` need an explicit conversion to opt into
-auto-encoding — `` `data:image/png;base64,@{[]byte(s)}` `` — while an
-already-base64 `string` goes in directly with no conversion. The same
-type-driven encoding applies outside `data:image` too — e.g.
-`` href=`https://example.com/sig?d=;base64,@{sigBytes}` `` — the marker, not
-the scheme, decides whether a `[]byte` hole gets encoded.
+```gsx
+<img src={ imageBytes |> dataURL("image/png") } />
+```
+
+See [Pipelines — `dataURL` grants no privilege](./pipelines#dataurl-grants-no-privilege)
+for what that filter does and does not vouch for.
 
 Writing a `data:` literal on a **strict** sink (`href` and the rest of the
 [strict-sink table](./escaping#resource-vs-navigational-url-sinks)) is a
