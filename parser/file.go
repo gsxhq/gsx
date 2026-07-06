@@ -96,9 +96,7 @@ func ParseFileWithClassifier(fset *token.FileSet, filename string, src any, mode
 			break
 		}
 		if chunk := strings.TrimSpace(srcStr[cursor:off]); chunk != "" {
-			gc := &ast.GoChunk{Src: srcStr[cursor:off]}
-			ast.SetSpan(gc, file.Pos(cursor), file.Pos(off))
-			f.Decls = append(f.Decls, gc)
+			f.Decls = append(f.Decls, p.splitGoElements(srcStr[cursor:off], file.Pos(cursor)))
 		}
 		p.i = off
 		c, err := p.parseComponent()
@@ -114,11 +112,7 @@ func ParseFileWithClassifier(fset *token.FileSet, filename string, src any, mode
 		cursor = p.i
 	}
 	if tail := strings.TrimSpace(srcStr[cursor:]); tail != "" {
-		chunkStart := file.Pos(cursor)
-		chunkEnd := file.Pos(len(srcStr))
-		gc := &ast.GoChunk{Src: srcStr[cursor:]}
-		ast.SetSpan(gc, chunkStart, chunkEnd)
-		f.Decls = append(f.Decls, gc)
+		f.Decls = append(f.Decls, p.splitGoElements(srcStr[cursor:], file.Pos(cursor)))
 	}
 	return f, p.errs
 }

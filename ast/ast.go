@@ -603,6 +603,7 @@ func (*CommentAttr) attrNode() {}
 // After recursing into children, Inspect calls f(nil) for go/ast parity.
 // Children by type:
 //   - *File: each Decl
+//   - *GoWithElements: each Part (GoText leaves; *Element recurses)
 //   - *Component: each Body markup node
 //   - *Element: each Attr, then each Child
 //   - *Fragment: each Child
@@ -628,6 +629,10 @@ func Inspect(node Node, f func(Node) bool) {
 	case *File:
 		for _, d := range n.Decls {
 			Inspect(d, f)
+		}
+	case *GoWithElements:
+		for _, part := range n.Parts {
+			Inspect(part, f)
 		}
 	case *Component:
 		for _, m := range n.Body {

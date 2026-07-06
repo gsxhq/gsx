@@ -173,3 +173,33 @@ func TestInspectPart2(t *testing.T) {
 		t.Fatalf("Inspect order:\n got %v\nwant %v", kinds, want)
 	}
 }
+
+// TestInspectGoWithElements is the Task-2 review follow-up: Inspect must
+// descend into a GoWithElements's Parts (GoText leaves, *Element recurses),
+// or a tree-walker (tooling/codegen) never sees embedded elements at all.
+func TestInspectGoWithElements(t *testing.T) {
+	tree := &File{Decls: []Decl{
+		&GoWithElements{Parts: []GoPart{
+			GoText{Src: "var help = "},
+			&Element{Tag: "a", Void: true},
+			GoText{Src: ""},
+		}},
+	}}
+	var kinds []string
+	Inspect(tree, func(n Node) bool {
+		if n != nil {
+			kinds = append(kinds, fmt.Sprintf("%T", n))
+		}
+		return true
+	})
+	want := []string{
+		"*ast.File",
+		"*ast.GoWithElements",
+		"ast.GoText",
+		"*ast.Element",
+		"ast.GoText",
+	}
+	if !reflect.DeepEqual(kinds, want) {
+		t.Fatalf("Inspect order:\n got %v\nwant %v", kinds, want)
+	}
+}
