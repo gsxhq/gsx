@@ -1,0 +1,14 @@
+-- input.gsx --
+package views
+
+component Icon(name string) {
+	<a/>
+}
+
+component Icon(name string) {
+	<b/>
+}
+-- invoke --
+-- diagnostics.golden --
+3:11: 	other declaration of Icon
+7:11: Icon redeclared in this block

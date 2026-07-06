@@ -1,0 +1,25 @@
+-- icon.gsx --
+//go:build !never
+
+package views
+
+const iconPath = "/active.svg"
+
+component Icon() {
+	<img src={ iconPath }/>
+}
+-- icon_never.gsx --
+//go:build never
+
+package views
+
+const iconPath = "/never.svg"
+
+component IconNever() {
+	<img src={ iconPath }/>
+}
+-- invoke --
+Icon()
+-- diagnostics.golden --
+-- render.golden --
+<img src="/active.svg"/>
