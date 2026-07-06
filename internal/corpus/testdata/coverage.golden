@@ -23,6 +23,7 @@ bodyinterp/escaped_hole	diag gen render
 bodyinterp/plain	diag gen render
 bodyinterp/sub_expression	diag gen render
 bodyinterp/whole_pipe	diag gen render
+byo/external_struct_node_attrs	diag gen render
 class/caller_wins_classstyle	diag render
 class/caller_wins_scalar	diag render
 class/composable_off	diag render
@@ -481,4 +482,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 483 cases (render: 389, error: 71, gen-pinned: 227)
+TOTAL: 484 cases (render: 390, error: 71, gen-pinned: 228)
