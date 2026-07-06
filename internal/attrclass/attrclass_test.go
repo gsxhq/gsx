@@ -104,3 +104,34 @@ func TestFingerprintStable(t *testing.T) {
 		t.Error("presence of predicate must change fingerprint")
 	}
 }
+
+func TestURLSink(t *testing.T) {
+	image := []struct{ tag, name string }{
+		{"img", "src"}, {"IMG", "SRC"},
+		{"source", "src"},
+		{"input", "src"},
+		{"video", "poster"},
+		{"body", "background"},
+		{"table", "background"},
+	}
+	for _, c := range image {
+		if got := URLSink(c.tag, c.name); got != SinkImage {
+			t.Errorf("URLSink(%q,%q) = %v, want SinkImage", c.tag, c.name, got)
+		}
+	}
+	strict := []struct{ tag, name string }{
+		{"a", "href"},
+		{"form", "action"},
+		{"script", "src"},   // script src must stay strict
+		{"iframe", "src"},   // iframe src must stay strict
+		{"object", "data"},
+		{"embed", "src"},
+		{"video", "src"},    // media src, not an image sink
+		{"img", "href"},     // href on img is not a resource sink
+	}
+	for _, c := range strict {
+		if got := URLSink(c.tag, c.name); got != SinkStrict {
+			t.Errorf("URLSink(%q,%q) = %v, want SinkStrict", c.tag, c.name, got)
+		}
+	}
+}
