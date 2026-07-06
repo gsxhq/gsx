@@ -22,6 +22,17 @@ func buildCrossNav(
 	info *types.Info,
 	pkgTypes *types.Package,
 ) (map[string]CrossRef, []NavRef) {
+	// Sort each variant slice in place so every consumer below (Decls, the
+	// info.Uses nav target in Case 1, and the props-struct map) agrees on the
+	// same deterministic "primary" variant, rather than following randomized
+	// map-population order. Safe to mutate in place: these slices belong to
+	// the freshly-built analyzed result, and the only other reader
+	// (module_importer.go's compByKey existence check) doesn't care about
+	// order.
+	for _, comps := range compByKey {
+		sortComponents(comps, gsxFset)
+	}
+
 	index := map[string]CrossRef{}
 	for key, comps := range compByKey {
 		if len(comps) == 0 {
@@ -31,8 +42,9 @@ func buildCrossNav(
 		for _, c := range comps {
 			cr.Decls = append(cr.Decls, gsxFset.Position(c.NamePos)) // gsx fset → .gsx position
 		}
-		sortPositions(cr.Decls) // stable: filename then offset
-		cr.Decl = cr.Decls[0]   // primary — back-compat
+		// cr.Decls is already ordered here: comps was sorted in place above, so no
+		// separate sortPositions(cr.Decls) call is needed (and would be redundant).
+		cr.Decl = cr.Decls[0] // primary — back-compat
 		index[key] = cr
 	}
 
@@ -91,7 +103,7 @@ func buildCrossNav(
 			if len(comps) == 0 {
 				continue
 			}
-			c := comps[0] // any variant's NamePos is a valid jump target
+			c := comps[0] // deterministic primary variant (sorted above); any variant's NamePos is a valid jump target
 			cr := index[key]
 			cr.Refs = append(cr.Refs, p)
 			index[key] = cr
@@ -132,14 +144,19 @@ func buildCrossNav(
 	return index, navIndex
 }
 
-// sortPositions sorts token.Positions deterministically: filename then byte
-// offset. Used to give CrossRef.Decls (and its primary Decl = Decls[0]) a
-// stable order independent of map/file-walk iteration order.
-func sortPositions(ps []token.Position) {
-	sort.Slice(ps, func(i, j int) bool {
-		if ps[i].Filename != ps[j].Filename {
-			return ps[i].Filename < ps[j].Filename
+// sortComponents sorts a compByKey[key] variant slice in place, deterministically,
+// by its NamePos resolved through gsxFset: filename then byte offset. All
+// consumers of compByKey (CrossRef.Decls/Decl, the info.Uses nav target in
+// Case 1, and the props-struct map) must agree on this order so the chosen
+// "primary" variant is stable across runs, independent of Go's randomized
+// map-population order.
+func sortComponents(comps []*gsxast.Component, gsxFset *token.FileSet) {
+	posOf := func(c *gsxast.Component) token.Position { return gsxFset.Position(c.NamePos) }
+	sort.Slice(comps, func(i, j int) bool {
+		pi, pj := posOf(comps[i]), posOf(comps[j])
+		if pi.Filename != pj.Filename {
+			return pi.Filename < pj.Filename
 		}
-		return ps[i].Offset < ps[j].Offset
+		return pi.Offset < pj.Offset
 	})
 }
