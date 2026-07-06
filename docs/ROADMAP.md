@@ -538,9 +538,23 @@ vocabulary remains a design aspiration, not the current API.
   `2026-06-24-go-to-gsx-perf.md`) uses a *synthetic* 50-package fixture: ~383 ms/package
   `Analyze` (dominated by `go/packages.Load`), ~24.7 MiB/package retained. Plan:
   measure a realistic corpus (blog example, then a larger real project) to gauge
-  `Analyze`/codegen latency, retained memory, GC pressure. Also measure `gsx fmt`
-  default (module-loading, for unused-import removal) vs `-no-imports` at scale.
-  Likely mitigations: LSP retained-package LRU cap; slim the `.gsx`-side full-`Info`.
+  `Analyze`/codegen latency, retained memory, GC pressure. Likely mitigations:
+  LSP retained-package LRU cap; slim the `.gsx`-side full-`Info`.
+  **`gsx fmt` unused-import removal — done:** detection was rearchitected off
+  full type-checking onto a syntactic skeleton scan (`internal/codegen/unused_imports_syntactic.go`,
+  `Module.UnusedImports` — parses each file's lowered skeleton, classifies
+  imports by referenced qualifier name, resolving only ambiguous default-import
+  candidates via a cheap `go/packages` `NeedName`-only load; no importer, no
+  dependency type-checking). Measured on a real 91-file/8-package project
+  (`one-learning-gsx`): `fmt -l` over the whole tree dropped from ~16s to ~3s.
+  Behavior change vs the old type-check-gated path: unused imports are now
+  removed even when the package has an unrelated type error, matching
+  gofmt/goimports parity. (The LSP's `textDocument/formatting` handler, noted
+  above, is a separate path and still sources its unused-import list from the
+  full type-checked analysis it already performs for diagnostics — untouched by
+  this change.) Remaining cost on large directories is dominated by genuine
+  skeleton-build compute and per-directory BYO external-struct `go/packages`
+  loads (`internal/codegen/byo.go`), not by this detector.
 
 ## Documentation backlog
 
