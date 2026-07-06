@@ -554,13 +554,32 @@ component C() {
 }
 
 func TestFragment(t *testing.T) {
-	// Two short paragraph children fit on one line: fragment Group collapses.
+	// The author wrote the fragment children on their own lines; that vertical
+	// layout is preserved (the line break after `<>` forces the group open).
 	src := `package p
 component C() {
 	<>
 		<p>a</p>
 		<p>b</p>
 	</>
+}`
+	want := `package p
+
+component C() {
+	<>
+		<p>a</p>
+		<p>b</p>
+	</>
+}
+`
+	checkFormat(t, src, want)
+}
+
+func TestFragmentInlineStaysInline(t *testing.T) {
+	// Authored on one line and fits: the fragment stays collapsed.
+	src := `package p
+component C() {
+	<><p>a</p><p>b</p></>
 }`
 	want := `package p
 
@@ -1424,4 +1443,64 @@ func TestFmtCommentsIdempotentMixed(t *testing.T) {
 		!strings.Contains(once, "/* c */") || !strings.Contains(once, "{/* d */}") {
 		t.Fatalf("a comment was dropped:\n%s", once)
 	}
+}
+
+// --- author line-break preservation (control-flow bodies + element children) ---
+// When the source places a line break immediately after the opening delimiter,
+// the body stays block-formatted even though it is inline-only and would fit.
+
+func TestIfInlineBodyPreservesAuthorLineBreak(t *testing.T) {
+	src := "package p\ncomponent C(viewing *int) {\n\t<div>\n\t\t{ if viewing != nil {\n\t\t\t{ *viewing }\n\t\t} }\n\t</div>\n}\n"
+	want := "package p\n\ncomponent C(viewing *int) {\n\t<div>\n\t\t{ if viewing != nil {\n\t\t\t{ *viewing }\n\t\t} }\n\t</div>\n}\n"
+	checkFormat(t, src, want)
+}
+
+func TestIfInlineBodyStaysInlineWhenAuthorInline(t *testing.T) {
+	// The <div> still breaks structurally (the `if` is a block child), but the
+	// author-inline if body is NOT expanded — only author line breaks are honored.
+	src := "package p\ncomponent C(viewing *int) {\n\t<div>{ if viewing != nil { { *viewing } } }</div>\n}\n"
+	want := "package p\n\ncomponent C(viewing *int) {\n\t<div>\n\t\t{ if viewing != nil { { *viewing } } }\n\t</div>\n}\n"
+	checkFormat(t, src, want)
+}
+
+func TestIfElseInlineBodyPreservesAuthorLineBreak(t *testing.T) {
+	src := "package p\ncomponent C(x int) {\n\t<div>\n\t\t{ if x > 0 {\n\t\t\t{ x }\n\t\t} else {\n\t\t\t{ -x }\n\t\t} }\n\t</div>\n}\n"
+	want := "package p\n\ncomponent C(x int) {\n\t<div>\n\t\t{ if x > 0 {\n\t\t\t{ x }\n\t\t} else {\n\t\t\t{ -x }\n\t\t} }\n\t</div>\n}\n"
+	checkFormat(t, src, want)
+}
+
+func TestForInlineBodyPreservesAuthorLineBreak(t *testing.T) {
+	src := "package p\ncomponent C(items []string) {\n\t<ul>\n\t\t{ for _, it := range items {\n\t\t\t{ it }\n\t\t} }\n\t</ul>\n}\n"
+	want := "package p\n\ncomponent C(items []string) {\n\t<ul>\n\t\t{ for _, it := range items {\n\t\t\t{ it }\n\t\t} }\n\t</ul>\n}\n"
+	checkFormat(t, src, want)
+}
+
+func TestElementInlineChildrenPreserveAuthorLineBreak(t *testing.T) {
+	src := "package p\ncomponent C(name string) {\n\t<span>\n\t\t{ name }\n\t</span>\n}\n"
+	want := "package p\n\ncomponent C(name string) {\n\t<span>\n\t\t{ name }\n\t</span>\n}\n"
+	checkFormat(t, src, want)
+}
+
+func TestElementInlineChildrenStayInlineWhenAuthorInline(t *testing.T) {
+	src := "package p\ncomponent C(name string) {\n\t<span>{ name }</span>\n}\n"
+	want := "package p\n\ncomponent C(name string) {\n\t<span>{ name }</span>\n}\n"
+	checkFormat(t, src, want)
+}
+
+func TestCfBodyAuthorNewlineButEdgeUnsafeStaysInline(t *testing.T) {
+	// Author broke the line after `{`, but the body's Text trails a significant
+	// space (edge-unsafe). The edge guard MUST win over the author-newline flag:
+	// breaking would absorb the trailing space and change the normalized AST.
+	src := "package p\ncomponent C(x bool) {\n\t<p>a{ if x {\n\ttext  } }b</p>\n}\n"
+	want := "package p\n\ncomponent C(x bool) {\n\t<p>\n\t\ta\n\t\t{ if x { text  } }\n\t\tb\n\t</p>\n}\n"
+	checkFormat(t, src, want)
+}
+
+func TestFragmentInlineChildrenPreserveAuthorLineBreak(t *testing.T) {
+	// Once the author line break after `<>` forces the fragment open, its two
+	// adjacent interps (safe-boundary segments) each take their own line — the
+	// normal layout of any broken children list.
+	src := "package p\ncomponent C(a, b string) {\n\t<>\n\t\t{ a }{ b }\n\t</>\n}\n"
+	want := "package p\n\ncomponent C(a, b string) {\n\t<>\n\t\t{ a }\n\t\t{ b }\n\t</>\n}\n"
+	checkFormat(t, src, want)
 }

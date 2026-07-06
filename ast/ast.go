@@ -169,6 +169,10 @@ type Element struct {
 	// (which have no closing tag). Tooling (LSP go-to-definition) uses it so a
 	// cursor on the closing tag resolves like the opening tag.
 	CloseNamePos token.Pos
+	// ChildrenMultiline records that the source placed a line break immediately
+	// after the opening tag's `>`; the formatter preserves that vertical layout,
+	// keeping inline-only children block-formatted instead of collapsing them.
+	ChildrenMultiline bool
 }
 
 func (*Element) markupNode() {}
@@ -177,6 +181,9 @@ func (*Element) markupNode() {}
 type Fragment struct {
 	span
 	Children []Markup
+	// ChildrenMultiline records that the source placed a line break immediately
+	// after the `<>`; the formatter preserves that vertical layout.
+	ChildrenMultiline bool
 }
 
 func (*Fragment) markupNode() {}
@@ -374,6 +381,13 @@ type IfMarkup struct {
 	CondPos token.Pos // first char of Cond text in source (NoPos if unavailable)
 	Then    []Markup
 	Else    []Markup
+	// ThenMultiline/ElseMultiline record that the source placed a line break
+	// immediately after the then/else body's opening `{`. The formatter preserves
+	// that vertical layout (keeping an inline-only body block-formatted) instead of
+	// collapsing it to one line. ElseMultiline is meaningful only for a plain
+	// `else { … }`; an `else if` is a nested IfMarkup carrying its own ThenMultiline.
+	ThenMultiline bool
+	ElseMultiline bool
 }
 
 func (*IfMarkup) markupNode() {}
@@ -384,6 +398,9 @@ type ForMarkup struct {
 	Clause    string
 	ClausePos token.Pos // first char of Clause text in source (NoPos if unavailable)
 	Body      []Markup
+	// BodyMultiline records that the source placed a line break immediately after
+	// the body's opening `{`; the formatter preserves that vertical layout.
+	BodyMultiline bool
 }
 
 func (*ForMarkup) markupNode() {}
