@@ -2413,17 +2413,7 @@ func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast
 	}
 	switch {
 	case len(a.Stages) > 0:
-		// Base64 marker detection only applies to the URL-context assembly:
-		// a non-URL attribute (e.g. a piped style=`...` literal) keeps the
-		// plain embeddedTextValueExpr routing even though it shares this
-		// Stages>0 branch.
-		var concat string
-		var ok bool
-		if isURL {
-			concat, ok = embeddedURLValueExpr(b, a, resolved, table, imports, interpTemp, bag)
-		} else {
-			concat, ok = embeddedTextValueExpr(b, a, resolved, table, imports, interpTemp, bag)
-		}
+		concat, ok := embeddedTextValueExpr(b, a, resolved, table, imports, interpTemp, bag)
 		if !ok {
 			return false
 		}
@@ -2461,7 +2451,7 @@ func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast
 			return false
 		}
 	case isURL:
-		concat, ok := embeddedURLValueExpr(b, a, resolved, table, imports, interpTemp, bag)
+		concat, ok := embeddedTextValueExpr(b, a, resolved, table, imports, interpTemp, bag)
 		if !ok {
 			return false
 		}
@@ -2521,7 +2511,7 @@ func embeddedValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node
 			}
 			parts = append(parts, strconv.Quote(s.Value))
 		case *ast.Interp:
-			p, ok := holeStringExpr(b, s, resolved, table, imports, interpTemp, bag, false)
+			p, ok := holeStringExpr(b, s, resolved, table, imports, interpTemp, bag)
 			if !ok {
 				return "", false
 			}
@@ -2537,74 +2527,19 @@ func embeddedValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node
 	return strings.Join(parts, " + "), true
 }
 
-// precedingIsBase64Marker reports whether the segment before index i is
-// static text ending in ";base64," (case-insensitive) — the marker that
-// makes an immediately-following []byte hole in a URL-context literal a
-// base64 payload rather than raw bytes.
-func precedingIsBase64Marker(segs []ast.Markup, i int) bool {
-	if i == 0 {
-		return false
-	}
-	txt, ok := segs[i-1].(*ast.Text)
-	if !ok {
-		return false
-	}
-	return strings.HasSuffix(strings.ToLower(txt.Value), ";base64,")
-}
-
-// embeddedURLValueExpr is embeddedTextValueExpr specialized for the
-// CtxURL assembly path: it mirrors the same segment-joining logic (static
-// text -> raw quoted literal, each hole -> holeStringExpr) but additionally
-// detects a []byte hole immediately following a `;base64,` marker
-// (precedingIsBase64Marker) and routes it through
-// base64.StdEncoding.EncodeToString instead of the default string(x). This
-// must NOT be used for style/class literals (embeddedTextValueExpr stays
-// their entry point) — base64-encoding a []byte there would be wrong,
-// since those contexts have no such marker convention.
-func embeddedURLValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) (string, bool) {
-	segs := a.Segments
-	parts := make([]string, 0, len(segs))
-	for i, seg := range segs {
-		switch s := seg.(type) {
-		case *ast.Text:
-			if s.Value == "" {
-				continue
-			}
-			parts = append(parts, strconv.Quote(s.Value))
-		case *ast.Interp:
-			p, ok := holeStringExpr(b, s, resolved, table, imports, interpTemp, bag, precedingIsBase64Marker(segs, i))
-			if !ok {
-				return "", false
-			}
-			parts = append(parts, p)
-		default:
-			bag.Errorf(seg.Pos(), seg.End(), "unsupported-attr", "attribute %q value may contain only text and @{ } interpolations, got %T", a.Name, seg)
-			return "", false
-		}
-	}
-	if len(parts) == 0 {
-		return `""`, true
-	}
-	return strings.Join(parts, " + "), true
-}
-
 // holeStringExpr lowers one @{ } hole inside a backtick attribute literal to a
-// Go STRING expression, for whole-value assembly by embeddedTextValueExpr /
-// embeddedURLValueExpr (used for both a URL-context literal's CtxURL branch
-// and a class/style literal's merge-target emit). It mirrors
-// emitTextAttrInterp's pipeline (lowerPipe/emitPipeWrap) and (T, error) tuple
-// auto-unwrap (tupleUnwrapType/hoistTuple) — any hoisting is emitted to b
-// BEFORE this returns, so temps precede the _gsxgw.URL(...) call that
-// consumes the returned expression. Type routing mirrors emitAttrValue's
-// classify(t) categories (emit.go ~2670), but produces an expression instead
-// of a writer call: string -> string(x), []byte -> string(x) (or, when
-// bytesAsBase64 is set, base64.StdEncoding.EncodeToString(x) — used ONLY by
-// embeddedURLValueExpr for a []byte hole immediately following a
-// `;base64,` marker in a URL-context literal), int/uint/float ->
-// strconv.Format*, Stringer -> (x).String(). Any other type (bool,
-// catAnyMixed, unresolved) cannot safely carry a URL fragment and is rejected
-// with a diagnostic.
-func holeStringExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag, bytesAsBase64 bool) (string, bool) {
+// Go STRING expression, for whole-value assembly by embeddedTextValueExpr
+// (used for both a URL-context literal's CtxURL branch and a class/style
+// literal's merge-target emit). It mirrors emitTextAttrInterp's pipeline
+// (lowerPipe/emitPipeWrap) and (T, error) tuple auto-unwrap
+// (tupleUnwrapType/hoistTuple) — any hoisting is emitted to b BEFORE this
+// returns, so temps precede the _gsxgw.URL(...) call that consumes the
+// returned expression. Type routing mirrors emitAttrValue's classify(t)
+// categories (emit.go ~2670), but produces an expression instead of a writer
+// call: string/[]byte -> string(x), int/uint/float -> strconv.Format*,
+// Stringer -> (x).String(). Any other type (bool, catAnyMixed, unresolved)
+// cannot safely carry a URL fragment and is rejected with a diagnostic.
+func holeStringExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) (string, bool) {
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
 		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, emitPipeWrap(b, interpTemp))
@@ -2632,13 +2567,7 @@ func holeStringExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.
 		t = elemT
 	}
 	switch classify(t) {
-	case catString:
-		return "string(" + expr + ")", true
-	case catBytes:
-		if bytesAsBase64 {
-			imports["encoding/base64"] = true
-			return "base64.StdEncoding.EncodeToString(" + expr + ")", true
-		}
+	case catString, catBytes:
 		return "string(" + expr + ")", true
 	default:
 		return stringifyExpr(expr, t, imports, n, bag, fmt.Sprintf("attribute interpolation %q", n.Expr))
