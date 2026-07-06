@@ -220,9 +220,10 @@ func (a lspAnalyzer) AnalyzeModule(dir string, override map[string][]byte) ([]ls
 	for _, e := range entries {
 		for key, v := range e.pr.CrossIndex {
 			cross[ownerKey{e.dir, key}] = lsp.CrossRef{
-				Name: v.Name,
-				Decl: v.Decl,
-				Refs: append(v.Refs[:0:0], v.Refs...),
+				Name:  v.Name,
+				Decl:  v.Decl,
+				Decls: v.Decls,
+				Refs:  append(v.Refs[:0:0], v.Refs...),
 			}
 		}
 	}
