@@ -64,7 +64,8 @@ var errSkipComponent = errors.New("skip")
 // published into propFields/nodeProps under the STRUCT's type name (so
 // childPropsLiteral keys on it exactly as for a generated props type). A struct
 // declared in a .gsx GoChunk is read syntactically (no resolution); an external
-// .go struct is enumerated by a preliminary go/packages load of dir. byo is
+// .go struct is enumerated the same way — by syntactically parsing the sibling
+// .go files (loadExternalStructFields), NOT a go/packages type-load. byo is
 // nil-safe and always returned non-nil.
 func componentPropFieldsFor(dir string, files map[string]*gsxast.File) (propFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, err error) {
 	out := map[string]map[string]bool{}
