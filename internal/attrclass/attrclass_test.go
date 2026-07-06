@@ -122,12 +122,12 @@ func TestURLSink(t *testing.T) {
 	strict := []struct{ tag, name string }{
 		{"a", "href"},
 		{"form", "action"},
-		{"script", "src"},   // script src must stay strict
-		{"iframe", "src"},   // iframe src must stay strict
+		{"script", "src"}, // script src must stay strict
+		{"iframe", "src"}, // iframe src must stay strict
 		{"object", "data"},
 		{"embed", "src"},
-		{"video", "src"},    // media src, not an image sink
-		{"img", "href"},     // href on img is not a resource sink
+		{"video", "src"}, // media src, not an image sink
+		{"img", "href"},  // href on img is not a resource sink
 	}
 	for _, c := range strict {
 		if got := URLSink(c.tag, c.name); got != SinkStrict {
