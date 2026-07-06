@@ -70,9 +70,23 @@ cross-compilation. Prose comments (license headers, docs) stay in the `.gsx`
 only. Note the explicit constraint comment is the only mechanism: generated
 file names never acquire Go's implicit `_GOOS` filename constraints.
 
-One current limitation: two `.gsx` files with mutually exclusive constraints
-may not declare the same component name — analysis type-checks a package's
-`.gsx` files as one unit (see ROADMAP).
+### Build-tag component variants
+
+Two `.gsx` files under mutually exclusive `//go:build` constraints may declare a
+component with the **same name**, as long as they share the **same signature**
+(same props, same generic parameters, same receiver). gsx generates a `.x.go`
+for every file regardless of tags; `go build` then compiles exactly the variant
+whose constraint matches the build, exactly as it does for Go's own
+`foo_linux.go` / `foo_windows.go` files.
+
+gsx does not evaluate build tags itself. If two same-named components have
+**different** signatures, gsx reports a `duplicate-component` error — build-tag
+variants must be drop-in replacements. A genuinely duplicated component with no
+tags is reported by `go build` (the generated files collide), which remains the
+authority on same-configuration duplicates.
+
+Editor go-to-definition and find-references on such a component show **all**
+variants, so you can jump to the platform you care about.
 
 ## Quick reference
 
