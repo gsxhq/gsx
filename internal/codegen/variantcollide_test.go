@@ -1,11 +1,13 @@
 package codegen
 
 import (
+	"strings"
 	"testing"
 
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/parser"
 	"go/token"
+	"go/types"
 )
 
 // mustParseComponent parses a single-component .gsx source and returns the
@@ -94,5 +96,41 @@ func TestDetectSignatureConflicts(t *testing.T) {
 	})
 	if got := detectSignatureConflicts(within); len(got) != 0 {
 		t.Fatalf("within-file dup: want 0 conflicts, got %d", len(got))
+	}
+}
+
+func TestSuppressCrossFileRedeclarations(t *testing.T) {
+	fset := token.NewFileSet()
+	fa := fset.AddFile("a.x.go", -1, 100)
+	fb := fset.AddFile("b.x.go", -1, 100)
+	posA := fa.Pos(10)
+	posB := fb.Pos(10)
+
+	// Cross-file redeclaration of Icon → both dropped.
+	// Within-file redeclaration of Dup (both in a.x.go) → both kept.
+	// An unrelated type error → kept.
+	posA2 := fa.Pos(40)
+	posA3 := fa.Pos(60)
+	errs := []types.Error{
+		{Fset: fset, Pos: posB, Msg: "Icon redeclared in this block"},
+		{Fset: fset, Pos: posA, Msg: "other declaration of Icon"},
+		{Fset: fset, Pos: posA2, Msg: "Dup redeclared in this block"},
+		{Fset: fset, Pos: posA3, Msg: "other declaration of Dup"},
+		{Fset: fset, Pos: posA, Msg: "undefined: Whatever"},
+	}
+	got := suppressCrossFileRedeclarations(errs)
+
+	var msgs []string
+	for _, e := range got {
+		msgs = append(msgs, e.Msg)
+	}
+	// Icon pair gone; Dup pair + undefined kept.
+	for _, e := range got {
+		if strings.Contains(e.Msg, "Icon") {
+			t.Fatalf("cross-file Icon redeclaration should be suppressed, got %q", e.Msg)
+		}
+	}
+	if len(got) != 3 {
+		t.Fatalf("want 3 kept (2 Dup + 1 undefined), got %d: %v", len(got), msgs)
 	}
 }
