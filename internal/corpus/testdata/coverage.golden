@@ -214,6 +214,8 @@ fallthrough/second_spread_rejected	diag(error)
 fallthrough/source_order	diag render
 fallthrough/static_class_merge	diag render
 fallthrough/without_class_root_wins	diag render
+filterimport/user_plain_import_and_filter	diag gen render
+filterimport/user_plain_import_no_filter	diag gen render
 interpolation/field_access	diag render
 interpolation/interp_types	diag render
 interpolation/mixed_chunk	diag render
@@ -483,4 +485,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 485 cases (render: 391, error: 71, gen-pinned: 228)
+TOTAL: 487 cases (render: 393, error: 71, gen-pinned: 230)
