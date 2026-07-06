@@ -311,6 +311,7 @@ parser/e04_nonspread_brace	ast diag(error)
 parser/e05_empty_pipe_stage	ast diag(error)
 parser/recover_broken_then_valid	diag(error)
 parser/recover_two_broken_components	diag(error)
+patterns/render_once	diag render
 pipeerr/attr_mid_stage	diag gen render
 pipeerr/child_prop_mid_stage	diag gen render
 pipeerr/class_cf_arm_mid_stage	diag gen render
@@ -482,4 +483,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 484 cases (render: 390, error: 71, gen-pinned: 228)
+TOTAL: 485 cases (render: 391, error: 71, gen-pinned: 228)
