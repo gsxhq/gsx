@@ -18,37 +18,48 @@ type goElemMark struct{ Off int }
 // than a bare token.LSS at an operand position (LEQ/SHL/ARROW are distinct
 // tokens, and `<` right after an operand like an IDENT or `)` is infix).
 //
-// It does not parse the element — it only locates where one starts and skips
-// past its textual span so the interior isn't re-scanned as Go tokens (which
-// would desync on markup like `class="c"` or nested tags). The real element
-// parse is Task 3's job.
+// It does not parse the element — it only locates where one starts, then
+// skips past its textual span and RESUMES Go tokenization on the far side.
+// The resume (rather than a continuous scan with offset-filtering) is
+// essential: go/scanner is a streaming Go lexer, and an element's prose body
+// is not Go — a lone apostrophe (`it's`) or an unquoted URL (`http://x`) in
+// text would be lexed as an unterminated rune literal / line comment and run
+// the scanner to EOF, swallowing every later element. So after each element
+// we re-init the scanner past the element span, where real Go resumes.
+// The real element parse is Task 3's job.
 func scanGoElementMarks(src string) []goElemMark {
 	var marks []goElemMark
-	fset := token.NewFileSet()
-	file := fset.AddFile("", fset.Base(), len(src))
-	var s scanner.Scanner
-	s.Init(file, []byte(src), nil, scanner.ScanComments)
-
+	buf := []byte(src)
+	base := 0 // absolute offset where the current Go-token segment begins
 	expectOperand := true
-	skipUntil := 0 // tokens starting before this offset are inside an already-marked element span
-	for {
-		pos, tok, _ := s.Scan()
-		if tok == token.EOF {
+	for base < len(buf) {
+		fset := token.NewFileSet()
+		file := fset.AddFile("", fset.Base(), len(buf)-base)
+		var s scanner.Scanner
+		s.Init(file, buf[base:], nil, scanner.ScanComments)
+
+		advanced := false
+		for {
+			pos, tok, _ := s.Scan()
+			if tok == token.EOF {
+				break
+			}
+			off := base + fset.Position(pos).Offset
+			if expectOperand && tok == token.LSS && byteBeginsTag(src, off+1) {
+				marks = append(marks, goElemMark{Off: off})
+				// Skip past the element's textual span and resume Go
+				// tokenization there. After an element we're at a position
+				// expecting an operator (the element was the operand).
+				base = elementSpanEnd(src, off)
+				expectOperand = false
+				advanced = true
+				break
+			}
+			expectOperand = tokenExpectsOperandAfter(tok)
+		}
+		if !advanced {
 			break
 		}
-		off := fset.Position(pos).Offset
-		if off < skipUntil {
-			continue
-		}
-		if expectOperand && tok == token.LSS && byteBeginsTag(src, off+1) {
-			marks = append(marks, goElemMark{Off: off})
-			skipUntil = elementSpanEnd(src, off)
-			// After an element, we're back at a position expecting an
-			// operator (the element itself was the operand).
-			expectOperand = false
-			continue
-		}
-		expectOperand = tokenExpectsOperandAfter(tok)
 	}
 	return marks
 }
@@ -87,15 +98,33 @@ func tokenExpectsOperandAfter(tok token.Token) bool {
 		token.RPAREN, token.RBRACK, token.RBRACE:
 		return false
 	default:
+		// The `break`/`continue`/`fallthrough` keywords also land here and
+		// report "operand expected", which is imprecise — nothing may follow
+		// them. It's harmless: no supported context places an element after
+		// those keywords, so the misclassification is never observable.
 		return true
 	}
 }
 
 // elementSpanEnd returns the offset just past the element beginning at the
 // '<' at src[off] — i.e. just past its matching `/>` or `</tag>`. It tracks
-// nesting depth for same-shaped open/close tags and skips over quoted
-// attribute values and brace-balanced interpolations so a stray '<', '>', or
-// '{' inside them can't desync the walk.
+// nesting depth for same-shaped open/close tags so a stray '<' or '{' inside
+// the span can't desync the walk.
+//
+// The walk alternates between two contexts, which have different lexical
+// rules:
+//
+//   - Inside a tag (between '<' and its closing '>'), a `>` may appear inside
+//     a quoted attribute value (`title="a > b"`) or a `{ }` interpolation, so
+//     those must be skipped when looking for the tag's close — this is
+//     scanTagClose's job.
+//   - In text content between tags, `"` `'` “ ` “ `/` are ordinary prose
+//     bytes, NOT string/rune/comment delimiters. Only `<` (a nested tag) and
+//     `{` (a Go interpolation) are structural. Running a Go-lexical scanner
+//     over prose here is wrong: a lone apostrophe (`it's`) or an unquoted URL
+//     (`http://x`) would be misread as an unterminated rune/comment and run
+//     the skip to end-of-string. This mirrors boundary.go's invariant that
+//     markup prose is never tokenized as Go.
 //
 // It is intentionally not a full element parser: it doesn't validate tag
 // name matching between an open and its close, or reject malformed markup.
@@ -106,42 +135,44 @@ func elementSpanEnd(src string, off int) int {
 	i := off
 	depth := 0
 	for i < len(src) {
-		if end, ok := skipQuotedOrComment(src, i); ok {
-			i = end
-			continue
+		// Invariant: src[i] == '<', the start of a tag (open, close, or
+		// self-close). Guaranteed on entry and re-established by the
+		// text-content advance at the bottom of the loop.
+		closing := i+1 < len(src) && src[i+1] == '/'
+		end, ok := scanTagClose(src, i)
+		if !ok {
+			return len(src)
 		}
-		switch src[i] {
-		case '{':
-			end, ok := goDepth1End(src, i+1)
-			if !ok {
-				return len(src)
+		selfClosing := !closing && src[end-1] == '/'
+		i = end + 1
+		switch {
+		case closing:
+			depth--
+			if depth <= 0 {
+				return i
 			}
-			i = end + 1
-		case '<':
-			closing := i+1 < len(src) && src[i+1] == '/'
-			end, ok := scanTagClose(src, i)
-			if !ok {
-				return len(src)
+		case selfClosing:
+			if depth == 0 {
+				// self-closing outer element (e.g. <div/> with no
+				// children) — the element ends here.
+				return i
 			}
-			selfClosing := !closing && src[end-1] == '/'
-			i = end + 1
-			switch {
-			case closing:
-				depth--
-				if depth <= 0 {
-					return i
-				}
-			case selfClosing:
-				if depth == 0 {
-					// self-closing outer element (e.g. <div/> with no
-					// children) — the element ends here.
-					return i
-				}
-				// nested self-closing child: depth unchanged
-			default:
-				depth++
-			}
+			// nested self-closing child: depth unchanged
 		default:
+			depth++
+		}
+		// Advance through text content to the next tag. Only '<' and '{' are
+		// structural here; every other byte (including quotes, backticks, and
+		// slashes) is literal prose.
+		for i < len(src) && src[i] != '<' {
+			if src[i] == '{' {
+				braceEnd, ok := goDepth1End(src, i+1)
+				if !ok {
+					return len(src)
+				}
+				i = braceEnd + 1
+				continue
+			}
 			i++
 		}
 	}
@@ -150,16 +181,16 @@ func elementSpanEnd(src string, off int) int {
 
 // scanTagClose finds the offset of the '>' that closes the tag opening (or
 // closing) at src[i] (the '<'), skipping quoted attribute values and
-// brace-balanced interpolations so a '>' inside them isn't mistaken for the
-// tag's close.
+// brace-balanced interpolations so a '>' inside either isn't mistaken for the
+// tag's close. Quote handling here is HTML attribute semantics — scan to the
+// matching quote byte, no backslash escapes or comment/raw-string rules — not
+// Go-lexical, since attribute values are not Go strings.
 func scanTagClose(src string, i int) (int, bool) {
 	j := i + 1
 	for j < len(src) {
-		if end, ok := skipQuotedOrComment(src, j); ok {
-			j = end
-			continue
-		}
 		switch src[j] {
+		case '"', '\'':
+			j = skipAttrQuoted(src, j)
 		case '{':
 			end, ok := goDepth1End(src, j+1)
 			if !ok {
@@ -173,4 +204,18 @@ func scanTagClose(src string, i int) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+// skipAttrQuoted returns the offset just past the quoted attribute value that
+// opens at src[i] (a '"' or '\”), i.e. one past its matching close quote.
+// HTML attribute values don't process backslash escapes, so it simply scans
+// to the next occurrence of the opening quote byte.
+func skipAttrQuoted(src string, i int) int {
+	quote := src[i]
+	for j := i + 1; j < len(src); j++ {
+		if src[j] == quote {
+			return j + 1
+		}
+	}
+	return len(src)
 }

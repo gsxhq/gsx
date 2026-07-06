@@ -47,6 +47,11 @@ func TestScanGoElementMarks(t *testing.T) {
 		{"attrs+interp", `x = <a href={u} class="c">{ label }</a>`, []int{4}},
 		{"nested tag not counted twice", `x = <div><span/></div>`, []int{4}}, // outer only; inner is inside the element span
 		{"lt after element", `<Foo/> < 3`, []int{0}},                         // element first, then a real '<'
+		// Regression: text content is prose, not Go source. The lone
+		// apostrophe in "it's" and the "http://" URL must NOT be lexed as a
+		// rune literal / line comment by the span walk — otherwise the skip
+		// runs to EOF and the sibling <b/> is silently dropped.
+		{"text apostrophe and url then sibling", `x = <a href="/help">it's here: http://x</a>, <b/>`, []int{4, 45}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
