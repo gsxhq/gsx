@@ -519,8 +519,10 @@ vocabulary remains a design aspiration, not the current API.
   startup; cache-keyed; corpus + example coverage). **Pending:** GSXnnnn numeric
   codes (codes are string-based today, e.g. `invalid-syntax`); `vet`/`render`/`explain`;
   finer-grained incremental invalidation beyond the current warm watcher.
-- [ ] **Codegen niceties** — [x] coalesce adjacent `gw.S` static writes;
-  [ ] `//line` trailing-state reset; [ ] `data:image` resource-URL allowance
+- [ ] **Codegen niceties**
+  — [x] coalesce adjacent `gw.S` static writes;
+  - [ ] `//line` trailing-state reset;
+  - [ ] `data:image` resource-URL allowance
   after navigational/resource URL contexts are split.
 - [x] **`//go:` directive / build-constraint pass-through** — program-significant
   comment lines before the `package` clause (`//go:build`, `//go:generate`,
