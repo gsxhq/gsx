@@ -1,0 +1,20 @@
+-- icon.gsx --
+//go:build !never
+
+package views
+
+component Icon(name string) {
+	<span>{ name }</span>
+}
+-- icon_never.gsx --
+//go:build never
+
+package views
+
+component Icon(name int) {
+	<span>{ name }</span>
+}
+-- invoke --
+-- diagnostics.golden --
+5:11: component Icon is declared with different signatures across build-tagged files (icon.gsx, icon_never.gsx); build-tag variants must share the same signature — rename the variants or align their parameters
+5:11: component Icon is declared with different signatures across build-tagged files (icon.gsx, icon_never.gsx); build-tag variants must share the same signature — rename the variants or align their parameters
