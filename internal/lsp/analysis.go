@@ -12,10 +12,14 @@ import (
 
 // CrossRef is one component's cross-boundary entry (see the .go->.gsx design):
 // its name, its .gsx declaration, and every reference, as resolved positions.
+// Decls holds every build-tag variant's declaration position (Decl is the
+// primary/first, kept for back-compat with single-decl callers) — see
+// codegen.CrossRef.Decls (Task 6).
 type CrossRef struct {
-	Name string
-	Decl token.Position
-	Refs []token.Position
+	Name  string
+	Decl  token.Position
+	Decls []token.Position
+	Refs  []token.Position
 }
 
 // NavRef is one navigable Go reference (in a .go file) and the .gsx position it

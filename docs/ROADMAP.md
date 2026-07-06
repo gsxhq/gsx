@@ -540,10 +540,16 @@ vocabulary remains a design aspiration, not the current API.
   `.gsx`-only and `//line` is excluded. Generation stays build-context-independent
   (every `.gsx` generates regardless of host `GOOS`); constraints take effect at
   `go build`. See `docs/guide/syntax.md` §Build constraints.
-- [ ] **Tag-aware `.gsx` analysis** — duplicate component names across mutually
-  exclusive build constraints (two `.gsx` files gated by disjoint `//go:build`
-  tags) currently collide, because analysis type-checks a package's `.gsx` files
-  as one unit regardless of build tags.
+- [x] **Tag-aware `.gsx` analysis** — two `.gsx` files gated by disjoint
+  `//go:build` tags may declare the same component when their signatures match:
+  the cross-file `redeclared` type errors are suppressed so `Generate` emits all
+  files (go build filters by tag and arbitrates real same-config duplicates),
+  while a same-name/*different*-signature component collision is a clean
+  `duplicate-component` error that blocks emission. gsx never parses build
+  constraints. LSP go-to-definition / find-references are multi-valued over the
+  variants. Non-component cross-file helper duplicates are tolerated (deferred to
+  go build); within-file redeclarations stay hard errors. Spec
+  `2026-07-06-tag-variant-component-analysis-design.md`.
 - [ ] **Tooling performance measurement on a realistic large corpus** — the
   existing baseline (`gen/perf_test.go`, `GSX_PERF=1`; note
   `2026-06-24-go-to-gsx-perf.md`) uses a *synthetic* 50-package fixture: ~383 ms/package
