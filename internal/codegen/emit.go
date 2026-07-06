@@ -574,7 +574,7 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 // (ClassMerged / StyleMerged), emitted once at the spread position. The author's
 // `{ attrs... }` SpreadAttr itself (when present at splitIdx) is consumed here, not
 // emitted via emitAttr.
-func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, splitIdx int, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, bag *diag.Bag, mergeExpr, bagExpr string, nonce *nonceInjection) bool {
+func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, splitIdx int, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, tag string, bag *diag.Bag, mergeExpr, bagExpr string, nonce *nonceInjection) bool {
 	// Find a composed/static class attr to merge the bag's class into, and a
 	// composed/static style attr whose declarations the bag's style merges over.
 	var classAttr *ast.ClassAttr     // composed class={ … }
@@ -647,10 +647,10 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 			// Unguarded: forced (post-spread), or no single static name (Cond) — no
 			// caller-wins shadow target. (A SpreadAttr at the split position is
 			// consumed below, not here.)
-			return emitAttr(b, refreshMeta, a, resolved, table, imports, interpTemp, cls, bag, mergeExpr, nonce)
+			return emitAttr(b, refreshMeta, a, resolved, table, imports, interpTemp, cls, tag, bag, mergeExpr, nonce)
 		}
 		fmt.Fprintf(b, "\t\tif !%s.Has(%s) {\n", bagExpr, strconv.Quote(name))
-		if !emitAttr(b, refreshMeta, a, resolved, table, imports, interpTemp, cls, bag, mergeExpr, nonce) {
+		if !emitAttr(b, refreshMeta, a, resolved, table, imports, interpTemp, cls, tag, bag, mergeExpr, nonce) {
 			return false
 		}
 		b.WriteString("\t\t}\n")
@@ -811,7 +811,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 			fmt.Fprintf(b, "\t\t\t_gsxgw.StyleMerged(%s, %s.Style())\n", styleStr, bagExpr)
 			b.WriteString("\t\t} else {\n")
 			if staticStyle != nil {
-				if !emitAttr(b, refreshMeta, staticStyle, resolved, table, imports, interpTemp, cls, bag, mergeExpr, nonce) {
+				if !emitAttr(b, refreshMeta, staticStyle, resolved, table, imports, interpTemp, cls, tag, bag, mergeExpr, nonce) {
 					return false
 				}
 			} else {
@@ -835,7 +835,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 			fmt.Fprintf(b, "\t\tif %s.Has(\"style\") {\n", bagExpr)
 			fmt.Fprintf(b, "\t\t\t_gsxgw.StyleMerged(%s, %s.Style())\n", ownStyle, bagExpr)
 			b.WriteString("\t\t} else {\n")
-			if !emitEmbeddedTextAttr(b, embedStyle, resolved, table, imports, interpTemp, cls, bag) {
+			if !emitEmbeddedTextAttr(b, embedStyle, resolved, table, imports, interpTemp, cls, tag, bag) {
 				return false
 			}
 			b.WriteString("\t\t}\n")
@@ -962,7 +962,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, refreshMeta bool, attrs []ast.Attr, s
 			for _, run := range postRuns[t] {
 				fmt.Fprintf(b, "\t\tif %s {\n", run.boolVar)
 				for _, leaf := range run.leaves {
-					if !emitAttr(b, refreshMeta, leaf, resolved, table, imports, interpTemp, cls, bag, mergeExpr, nonce) {
+					if !emitAttr(b, refreshMeta, leaf, resolved, table, imports, interpTemp, cls, tag, bag, mergeExpr, nonce) {
 						return false
 					}
 				}
@@ -1095,7 +1095,7 @@ func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, cur
 	if ni != nil {
 		ni.extra = []string{bagExpr}
 	}
-	if !emitFallthroughAttrs(b, isMetaRefreshElement(el.Tag, el.Attrs), el.Attrs, splitIdx, resolved, table, imports, interpTemp, cls, bag, mergeExpr, bagExpr, ni) {
+	if !emitFallthroughAttrs(b, isMetaRefreshElement(el.Tag, el.Attrs), el.Attrs, splitIdx, resolved, table, imports, interpTemp, cls, el.Tag, bag, mergeExpr, bagExpr, ni) {
 		return false
 	}
 	ni.emitGuard(b)
@@ -1428,7 +1428,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		refreshMeta := isMetaRefreshElement(t.Tag, t.Attrs)
 		ni := newNonceInjection(b, t.Tag, t.Attrs, interpTemp, nil)
 		for _, a := range t.Attrs {
-			if !emitAttr(b, refreshMeta, a, resolved, table, imports, interpTemp, cls, bag, mergeExpr, ni) {
+			if !emitAttr(b, refreshMeta, a, resolved, table, imports, interpTemp, cls, t.Tag, bag, mergeExpr, ni) {
 				return false
 			}
 		}
@@ -2186,7 +2186,7 @@ func spreadAttrExpr(a *ast.SpreadAttr, table filterTable, imports map[string]boo
 // emitAttr emits one element attribute. Static values are escaped at codegen and
 // always double-quoted; bool attrs use gw.BoolAttr. Expr attrs are handled in a
 // later task; the deferred attr kinds error clearly.
-func emitAttr(b *bytes.Buffer, refreshMeta bool, a ast.Attr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, bag *diag.Bag, mergeExpr string, nonce *nonceInjection) bool {
+func emitAttr(b *bytes.Buffer, refreshMeta bool, a ast.Attr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, tag string, bag *diag.Bag, mergeExpr string, nonce *nonceInjection) bool {
 	switch t := a.(type) {
 	case *ast.StaticAttr:
 		fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+t.Name+`="`+htmlAttrEscape(t.Value)+`"`))
@@ -2195,7 +2195,7 @@ func emitAttr(b *bytes.Buffer, refreshMeta bool, a ast.Attr, resolved map[ast.No
 		fmt.Fprintf(b, "\t\t_gsxgw.BoolAttr(%s, true)\n", strconv.Quote(t.Name))
 		nonce.markExplicit(b, t.Name)
 	case *ast.ExprAttr:
-		if !emitExprAttr(b, refreshMeta, t, resolved, table, imports, interpTemp, cls, bag) {
+		if !emitExprAttr(b, refreshMeta, t, resolved, table, imports, interpTemp, cls, tag, bag) {
 			return false
 		}
 		nonce.markExplicit(b, t.Name)
@@ -2211,7 +2211,7 @@ func emitAttr(b *bytes.Buffer, refreshMeta bool, a ast.Attr, resolved map[ast.No
 				return false
 			}
 		case ast.EmbeddedText:
-			if !emitEmbeddedTextAttr(b, t, resolved, table, imports, interpTemp, cls, bag) {
+			if !emitEmbeddedTextAttr(b, t, resolved, table, imports, interpTemp, cls, tag, bag) {
 				return false
 			}
 		default:
@@ -2259,14 +2259,14 @@ func emitAttr(b *bytes.Buffer, refreshMeta bool, a ast.Attr, resolved map[ast.No
 		// control construct, and each nested attr emit carries its own line map.)
 		fmt.Fprintf(b, "\t\tif %s {\n", t.Cond)
 		for _, inner := range t.Then {
-			if !emitAttr(b, refreshMeta, inner, resolved, table, imports, interpTemp, cls, bag, mergeExpr, nonce) {
+			if !emitAttr(b, refreshMeta, inner, resolved, table, imports, interpTemp, cls, tag, bag, mergeExpr, nonce) {
 				return false
 			}
 		}
 		if len(t.Else) > 0 {
 			b.WriteString("\t\t} else {\n")
 			for _, inner := range t.Else {
-				if !emitAttr(b, refreshMeta, inner, resolved, table, imports, interpTemp, cls, bag, mergeExpr, nonce) {
+				if !emitAttr(b, refreshMeta, inner, resolved, table, imports, interpTemp, cls, tag, bag, mergeExpr, nonce) {
 					return false
 				}
 			}
@@ -2344,6 +2344,16 @@ func emitEmbeddedJSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.N
 	return true
 }
 
+// urlWriterMethod returns the generated Writer method for a URL-context
+// attribute: "URLImage" for an image resource sink (data:image/* allowed),
+// "URL" otherwise. Callers must have established CtxURL for name.
+func urlWriterMethod(tag, name string) string {
+	if attrclass.URLSink(tag, name) == attrclass.SinkImage {
+		return "URLImage"
+	}
+	return "URL"
+}
+
 // emitEmbeddedTextAttr emits a plain backtick attribute literal name=`…@{expr}…`
 // [ |> f ].
 //
@@ -2373,7 +2383,7 @@ func emitEmbeddedJSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.N
 // Non-URL attributes keep the per-segment path (Text -> S(htmlAttrEscape),
 // Interp -> emitTextAttrInterp) when Stages is empty; with Stages, the piped
 // result renders via emitAttrValue (string -> AttrValue(string(x)), etc.).
-func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, bag *diag.Bag) bool {
+func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, tag string, bag *diag.Bag) bool {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
 	isURL := cls.Context(a.Name) == attrclass.CtxURL
 	switch {
@@ -2411,7 +2421,7 @@ func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast
 			if !ok {
 				return false
 			}
-			fmt.Fprintf(b, "\t\t_gsxgw.URL(%s)\n", strExpr)
+			fmt.Fprintf(b, "\t\t_gsxgw.%s(%s)\n", urlWriterMethod(tag, a.Name), strExpr)
 		} else if !emitAttrValue(b, lowered, t, a, bag) {
 			return false
 		}
@@ -2420,7 +2430,7 @@ func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast
 		if !ok {
 			return false
 		}
-		fmt.Fprintf(b, "\t\t_gsxgw.URL(%s)\n", concat)
+		fmt.Fprintf(b, "\t\t_gsxgw.%s(%s)\n", urlWriterMethod(tag, a.Name), concat)
 	default:
 		for _, seg := range a.Segments {
 			switch s := seg.(type) {
@@ -2976,7 +2986,7 @@ func htmlAttrEscape(s string) string {
 // emitExprAttr emits an expr attribute value. URL attrs keep URL sanitization;
 // all other expr attrs use ordinary attribute rendering. Explicit js`...` and
 // css`...` literals opt into JS/CSS contextual rendering instead.
-func emitExprAttr(b *bytes.Buffer, refreshMeta bool, a *ast.ExprAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, bag *diag.Bag) bool {
+func emitExprAttr(b *bytes.Buffer, refreshMeta bool, a *ast.ExprAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, tag string, bag *diag.Bag) bool {
 	// (1) value expression: lower a pipeline to nested std calls (same lowerPipe
 	// the probe used, so resolved[a] is already the pipeline's RESULT type), else
 	// the bare trimmed expr.
@@ -3028,7 +3038,7 @@ func emitExprAttr(b *bytes.Buffer, refreshMeta bool, a *ast.ExprAttr, resolved m
 		// URL context: value must be string-like; sanitize + escape. A gsx.RawURL
 		// value (isRawURL) is the author's vouch — fall through to gw.AttrValue,
 		// which entity-escapes but skips the scheme allow-list.
-		fmt.Fprintf(b, "\t\t_gsxgw.URL(%s)\n", urlStringExpr(expr, t))
+		fmt.Fprintf(b, "\t\t_gsxgw.%s(%s)\n", urlWriterMethod(tag, a.Name), urlStringExpr(expr, t))
 	} else {
 		if !emitAttrValue(b, expr, t, a, bag) {
 			return false
