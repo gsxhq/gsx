@@ -3,6 +3,7 @@ package codegen
 import (
 	"go/token"
 	"go/types"
+	"sort"
 	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
@@ -15,15 +16,24 @@ import (
 // .go for hand-written refs). Shared by the Module core (both codegen.GenerateDirs
 // and the LSP path) to produce identical indexes.
 func buildCrossNav(
-	compByKey map[string]*gsxast.Component,
+	compByKey map[string][]*gsxast.Component,
 	objKey map[types.Object]string,
 	gsxFset, skelFset *token.FileSet,
 	info *types.Info,
 	pkgTypes *types.Package,
 ) (map[string]CrossRef, []NavRef) {
 	index := map[string]CrossRef{}
-	for key, c := range compByKey {
-		index[key] = CrossRef{Name: c.Name, Decl: gsxFset.Position(c.NamePos)} // gsx fset → .gsx position
+	for key, comps := range compByKey {
+		if len(comps) == 0 {
+			continue
+		}
+		cr := CrossRef{Name: comps[0].Name}
+		for _, c := range comps {
+			cr.Decls = append(cr.Decls, gsxFset.Position(c.NamePos)) // gsx fset → .gsx position
+		}
+		sortPositions(cr.Decls) // stable: filename then offset
+		cr.Decl = cr.Decls[0]   // primary — back-compat
+		index[key] = cr
 	}
 
 	// Build maps for NavIndex: props-struct objects and field var objects → .gsx targets.
@@ -31,37 +41,39 @@ func buildCrossNav(
 	// fieldObjToPos maps a field *types.Var → the .gsx position of the corresponding param.
 	structObjToComp := map[types.Object]*gsxast.Component{}
 	fieldObjToPos := map[*types.Var]token.Position{}
-	for _, c := range compByKey {
-		// Derive propsName the same way emitComponentSkeleton does.
-		propsName := c.Name + "Props"
-		if c.Recv != "" {
-			_, _, recvTypeName, rerr := parseRecv(c.Recv)
-			if rerr == nil {
-				propsName = recvTypeName + c.Name + "Props"
+	for _, comps := range compByKey {
+		for _, c := range comps {
+			// Derive propsName the same way emitComponentSkeleton does.
+			propsName := c.Name + "Props"
+			if c.Recv != "" {
+				_, _, recvTypeName, rerr := parseRecv(c.Recv)
+				if rerr == nil {
+					propsName = recvTypeName + c.Name + "Props"
+				}
 			}
-		}
-		structObj := pkgTypes.Scope().Lookup(propsName)
-		if structObj == nil {
-			continue
-		}
-		structObjToComp[structObj] = c
+			structObj := pkgTypes.Scope().Lookup(propsName)
+			if structObj == nil {
+				continue
+			}
+			structObjToComp[structObj] = c
 
-		// Map each field var → the .gsx position of its corresponding param.
-		params, err := parseParams(c.Params)
-		if err != nil {
-			continue
-		}
-		st, ok := structObj.Type().Underlying().(*types.Struct)
-		if !ok {
-			continue
-		}
-		for _, p := range params {
-			fname := fieldName(p.name)
-			paramPos := gsxFset.Position(c.ParamsPos + token.Pos(p.nameOff))
-			for fv := range st.Fields() {
-				if fv.Name() == fname {
-					fieldObjToPos[fv] = paramPos
-					break
+			// Map each field var → the .gsx position of its corresponding param.
+			params, err := parseParams(c.Params)
+			if err != nil {
+				continue
+			}
+			st, ok := structObj.Type().Underlying().(*types.Struct)
+			if !ok {
+				continue
+			}
+			for _, p := range params {
+				fname := fieldName(p.name)
+				paramPos := gsxFset.Position(c.ParamsPos + token.Pos(p.nameOff))
+				for fv := range st.Fields() {
+					if fv.Name() == fname {
+						fieldObjToPos[fv] = paramPos
+						break
+					}
 				}
 			}
 		}
@@ -75,7 +87,11 @@ func buildCrossNav(
 		}
 		// Case 1: component func reference → .gsx component decl.
 		if key, ok := objKey[obj]; ok {
-			c := compByKey[key]
+			comps := compByKey[key]
+			if len(comps) == 0 {
+				continue
+			}
+			c := comps[0] // any variant's NamePos is a valid jump target
 			cr := index[key]
 			cr.Refs = append(cr.Refs, p)
 			index[key] = cr
@@ -114,4 +130,16 @@ func buildCrossNav(
 		}
 	}
 	return index, navIndex
+}
+
+// sortPositions sorts token.Positions deterministically: filename then byte
+// offset. Used to give CrossRef.Decls (and its primary Decl = Decls[0]) a
+// stable order independent of map/file-walk iteration order.
+func sortPositions(ps []token.Position) {
+	sort.Slice(ps, func(i, j int) bool {
+		if ps[i].Filename != ps[j].Filename {
+			return ps[i].Filename < ps[j].Filename
+		}
+		return ps[i].Offset < ps[j].Offset
+	})
 }

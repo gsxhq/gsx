@@ -618,12 +618,12 @@ type analyzed struct {
 	sigTypes           map[*gsxast.Component][]SigTypeRef // component -> parameter type spans (go-to-def on a param type)
 	pkg                *types.Package
 	info               *types.Info
-	compByKey          map[string]*gsxast.Component // componentKey -> component (for Name + NamePos)
-	objKey             map[types.Object]string      // component func object -> componentKey
-	bag                *diag.Bag                    // diagnostics from parse + script resolution; used by Generate
-	importSpecs        []importSpec                 // hoisted .gsx import specs (for unused-import detection)
-	typeErrs           []types.Error                // raw type errors from checkSkeletonPackage
-	signatureConflicts []signatureConflict          // same-name different-signature component collisions (block emission)
+	compByKey          map[string][]*gsxast.Component // componentKey -> component(s); >1 = build-tag variants (for Name + NamePos)
+	objKey             map[types.Object]string        // component func object -> componentKey
+	bag                *diag.Bag                      // diagnostics from parse + script resolution; used by Generate
+	importSpecs        []importSpec                   // hoisted .gsx import specs (for unused-import detection)
+	typeErrs           []types.Error                  // raw type errors from checkSkeletonPackage
+	signatureConflicts []signatureConflict            // same-name different-signature component collisions (block emission)
 
 	// sunkImports maps a .gsx file path to the import SPECS (line+path keys)
 	// the type-checker PROVED were used only by a requalification-failed
@@ -1038,8 +1038,8 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// inputs (compByKey / objKey).
 	resolved := map[gsxast.Node]types.Type{}
 	exprMap := map[gsxast.Node]goast.Expr{}
-	compByKey := map[string]*gsxast.Component{} // componentKey -> component
-	compObjByKey := map[string]types.Object{}   // componentKey -> component func object
+	compByKey := map[string][]*gsxast.Component{} // componentKey -> component(s); >1 = build-tag variants
+	compObjByKey := map[string]types.Object{}     // componentKey -> component func object
 	for _, gf := range goFiles {
 		fname := fset.Position(gf.Pos()).Filename
 		comps, ok := compsByXGo[fname]
@@ -1065,7 +1065,8 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 			}
 		}
 		for _, c := range comps {
-			compByKey[componentKey(c)] = c
+			key := componentKey(c)
+			compByKey[key] = append(compByKey[key], c)
 		}
 		for _, decl := range gf.Decls {
 			fd, ok := decl.(*goast.FuncDecl)
