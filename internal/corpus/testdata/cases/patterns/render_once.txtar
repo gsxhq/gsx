@@ -17,9 +17,9 @@ import (
 // structs at the same address, which would collide distinct handles.
 type OnceHandle struct{ id int64 }
 
-var onceIndex int64
+var onceIndex atomic.Int64
 
-func NewOnce() *OnceHandle { return &OnceHandle{id: atomic.AddInt64(&onceIndex, 1)} }
+func NewOnce() *OnceHandle { return &OnceHandle{id: onceIndex.Add(1)} }
 
 type onceState struct{ seen map[*OnceHandle]struct{} }
 

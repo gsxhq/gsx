@@ -35,10 +35,10 @@ import (
 // handle renders; every later render of the same handle is skipped.
 type OnceHandle struct{ id int64 }
 
-var onceIndex int64
+var onceIndex atomic.Int64
 
 // NewOnce creates an OnceHandle. Declare one at package level per singleton.
-func NewOnce() *OnceHandle { return &OnceHandle{id: atomic.AddInt64(&onceIndex, 1)} }
+func NewOnce() *OnceHandle { return &OnceHandle{id: onceIndex.Add(1)} }
 
 // onceState holds the set of handles already rendered this request. Rendering is
 // single-goroutine per request, so the map needs no mutex.
