@@ -163,6 +163,49 @@ var builtinURL = map[string]bool{
 	"hx-delete": true, "hx-patch": true,
 }
 
+// SinkClass distinguishes URL attribute sinks that differ in what schemes are
+// safe. It is only meaningful for attributes already classified CtxURL.
+type SinkClass int
+
+const (
+	// SinkStrict is the default, navigational-strict sink: only the standard
+	// http/https/mailto/tel allow-list; no data:. Covers href, action, script
+	// src, iframe src, object data, media src, etc.
+	SinkStrict SinkClass = iota
+	// SinkImage is an image-rendering resource sink where data:image/* (raster +
+	// svg) is safe: <img src>, <source src>, <input src>, <video poster>, and the
+	// legacy background attribute. Browsers render these as inert images (SVG in
+	// restricted mode), so no script executes.
+	SinkImage
+)
+
+// URLSink classifies a tag+attribute pair (both matched case-insensitively) as
+// an image-rendering resource sink or the strict default. The caller must have
+// already established Context(name) == CtxURL; URLSink assumes it.
+//
+// The image set is intentionally narrow and tag-specific: `src` is an image
+// sink on <img>/<source>/<input> but strict on <script>/<iframe>/<embed>/<video>
+// (where a data: URL is a live document or executable). `poster` is image-only
+// on <video>. `background` (legacy) is an image sink on any tag.
+func URLSink(tag, name string) SinkClass {
+	lt := strings.ToLower(tag)
+	ln := strings.ToLower(name)
+	switch ln {
+	case "src":
+		switch lt {
+		case "img", "source", "input":
+			return SinkImage
+		}
+	case "poster":
+		if lt == "video" {
+			return SinkImage
+		}
+	case "background":
+		return SinkImage
+	}
+	return SinkStrict
+}
+
 // builtinJS reports whether the lowercased attribute name n is a JS-context
 // attribute. Ported verbatim from the historical attrjs.IsJSAttr (input is
 // already lowercased by the caller).

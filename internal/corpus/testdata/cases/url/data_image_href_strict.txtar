@@ -1,0 +1,12 @@
+# A data:image literal on <a href> is a strict (non-image) sink: urlWriterMethod
+# returns "URL", not "URLImage", so a statically-visible `data:` first segment is
+# always author error (the runtime would just fail closed to
+# about:invalid#gsx). Codegen rejects it up front, pointing at gsx.RawURL.
+-- input.gsx --
+package p
+
+component Bad(png []byte) {
+	<a href=`data:image/png;base64,@{png}`>x</a>
+}
+-- diagnostics.golden --
+4:5: data: URL literal in attribute "href" on <a> is a navigational/script sink where data: is blocked; use an image sink (<img src>, <video poster>, background) or gsx.RawURL if you have validated it

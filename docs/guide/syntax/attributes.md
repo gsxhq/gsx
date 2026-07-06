@@ -204,6 +204,42 @@ value you have already validated and want to bypass the scheme check
 entirely, interpolate `gsx.RawURL(...)` instead of writing the URL as a
 backtick literal: `` href={ gsx.RawURL(trustedURL) } ``.
 
+### `data:image` literals
+
+A backtick literal is also how you write a `data:` URL directly, on an
+[image sink](./escaping#resource-vs-navigational-url-sinks) — `<img src>`,
+`<source src>`, `<input src>`, `<video poster>`, or `background`:
+
+```gsx
+<img src=`data:image/png;base64,@{b64}` />
+```
+
+The scheme, MIME type, and `;base64,` marker are static author text; the hole
+is a plain `string` interpolation — a value the author has **already
+base64-encoded** — assembled with the surrounding static text into one string
+and passed through unchanged (like any other `string` hole in a URL-context
+literal; see [URL attributes sanitize the whole
+value](#url-attributes-sanitize-the-whole-value) above).
+
+If you're starting from raw `[]byte` image bytes, base64-encode them first —
+either with `encoding/base64` in a Go interpolation, or with the built-in
+`dataURL` filter, which does both the encoding and the `data:` URL assembly in
+one step:
+
+```gsx
+<img src={ imageBytes |> dataURL("image/png") } />
+```
+
+See [Pipelines — `dataURL` grants no privilege](./pipelines#dataurl-grants-no-privilege)
+for what that filter does and does not vouch for.
+
+Writing a `data:` literal on a **strict** sink (`href` and the rest of the
+[strict-sink table](./escaping#resource-vs-navigational-url-sinks)) is a
+compile-time error (`data-url-strict-sink`): a static `data:` prefix has no
+safe navigational or script use, so gsx rejects the literal instead of
+falling back to the runtime sentinel. Use an image sink instead, or
+`gsx.RawURL` for a value you have already validated.
+
 ### `class` and `style` are merge targets
 
 A `class` or `style` backtick literal composes with a forwarded `{ attrs... }`

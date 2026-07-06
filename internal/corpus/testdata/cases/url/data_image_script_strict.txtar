@@ -1,0 +1,11 @@
+# <script src> is a strict (script-execution) sink — security-critical that
+# data: never reaches it. Same compile-time rejection as href, on a different
+# strict tag/attr pair.
+-- input.gsx --
+package p
+
+component BadScript(js []byte) {
+	<script src=`data:image/png;base64,@{js}`></script>
+}
+-- diagnostics.golden --
+4:10: data: URL literal in attribute "src" on <script> is a navigational/script sink where data: is blocked; use an image sink (<img src>, <video poster>, background) or gsx.RawURL if you have validated it
