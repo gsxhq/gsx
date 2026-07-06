@@ -3058,7 +3058,7 @@ func emitExprAttr(b *bytes.Buffer, attrs []ast.Attr, a *ast.ExprAttr, resolved m
 	// A gsx.RawURL content value is the author's vouch, exactly as in the URL
 	// branch below — fall through to gw.AttrValue. Non-string-like values
 	// (numbers) cannot carry a redirect URL and keep §5 type-aware rendering.
-	isMetaRefreshContent := strings.EqualFold(a.Name, "content") && isMetaRefreshElement(tag, attrs) && !isRawURL(t)
+	isMetaRefreshContent := strings.EqualFold(a.Name, "content") && strings.EqualFold(tag, "meta") && attrsDeclareRefresh(attrs) && !isRawURL(t)
 
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
 	if isMetaRefreshContent && isStringLike(t) {
@@ -3077,18 +3077,14 @@ func emitExprAttr(b *bytes.Buffer, attrs []ast.Attr, a *ast.ExprAttr, resolved m
 	return true
 }
 
-// isMetaRefreshElement reports whether the element is a <meta> whose http-equiv
-// is statically "refresh": a static attr, a constant string-literal expr attr,
-// or either of those inside a conditional attr block. A conditional refresh in
-// ANY branch marks the whole element — safe, because refreshContentSanitize is
-// a no-op on values that don't parse as a refresh directive. A runtime-dynamic
-// http-equiv={expr} is out of scope (pinned in
-// corpus security/meta_refresh_dynamic_http_equiv); { attrs... } bags follow the
-// documented Spread contract (attribute-escaped, not URL-sanitized).
-func isMetaRefreshElement(tag string, attrs []ast.Attr) bool {
-	return strings.EqualFold(tag, "meta") && attrsDeclareRefresh(attrs)
-}
-
+// attrsDeclareRefresh reports whether the sibling attrs statically mark the
+// element as a meta refresh: an http-equiv="refresh" as a static attr, a
+// constant string-literal expr attr, or either inside a conditional attr — a
+// refresh in ANY branch marks the element, which is safe because
+// refreshContentSanitize no-ops on values that aren't a refresh directive. A
+// runtime-dynamic http-equiv={expr} is deliberately out of scope (pinned in
+// corpus security/meta_refresh_dynamic_http_equiv); { attrs... } bags follow
+// the Spread contract (attribute-escaped, not URL-sanitized).
 func attrsDeclareRefresh(attrs []ast.Attr) bool {
 	for _, a := range attrs {
 		switch t := a.(type) {
