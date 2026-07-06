@@ -80,7 +80,7 @@ func (a lspAnalyzer) module(root, modPath string, merged config) (*codegen.Modul
 func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 	cross := make(map[string]lsp.CrossRef, len(pr.CrossIndex))
 	for k, v := range pr.CrossIndex {
-		cross[k] = lsp.CrossRef{Name: v.Name, Decl: v.Decl, Refs: v.Refs}
+		cross[k] = lsp.CrossRef{Name: v.Name, Decl: v.Decl, Decls: v.Decls, Refs: v.Refs}
 	}
 	nav := make([]lsp.NavRef, len(pr.NavIndex))
 	for i, nr := range pr.NavIndex {

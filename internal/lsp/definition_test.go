@@ -177,22 +177,22 @@ func TestComponentTagDeclAtByo(t *testing.T) {
 	}
 
 	// Cursor on 'B' (first char of the tag name).
-	decl, ok := componentTagDeclAt(pkg, path, tagStart)
+	decls, ok := componentTagDeclAt(pkg, path, tagStart)
 	if !ok {
 		t.Fatalf("componentTagDeclAt returned false for cursor on 'B' of Button tag")
 	}
-	if decl != declPos {
-		t.Errorf("componentTagDeclAt decl = %+v, want %+v", decl, declPos)
+	if len(decls) != 1 || decls[0] != declPos {
+		t.Errorf("componentTagDeclAt decls = %+v, want [%+v]", decls, declPos)
 	}
 
 	// Cursor on 't' (middle of the tag name "But|ton") — must also resolve.
 	midCursor := tagStart + 2 // 'B'+'u'+'t' → offset of 't'
-	decl2, ok2 := componentTagDeclAt(pkg, path, midCursor)
+	decls2, ok2 := componentTagDeclAt(pkg, path, midCursor)
 	if !ok2 {
 		t.Fatalf("componentTagDeclAt returned false for cursor in middle of Button tag")
 	}
-	if decl2 != declPos {
-		t.Errorf("componentTagDeclAt (mid) decl = %+v, want %+v", decl2, declPos)
+	if len(decls2) != 1 || decls2[0] != declPos {
+		t.Errorf("componentTagDeclAt (mid) decls = %+v, want [%+v]", decls2, declPos)
 	}
 
 	// Cursor BEFORE the tag name (on the '<') — must NOT resolve (cursor is not
@@ -224,17 +224,17 @@ func TestComponentTagDeclAtClosingTag(t *testing.T) {
 	}
 
 	// Cursor on 'C' of the closing tag name.
-	decl, ok := componentTagDeclAt(pkg, path, closeStart)
+	decls, ok := componentTagDeclAt(pkg, path, closeStart)
 	if !ok {
 		t.Fatalf("componentTagDeclAt returned false for cursor on closing tag </Card>")
 	}
-	if decl != declPos {
-		t.Errorf("closing-tag decl = %+v, want %+v", decl, declPos)
+	if len(decls) != 1 || decls[0] != declPos {
+		t.Errorf("closing-tag decls = %+v, want [%+v]", decls, declPos)
 	}
 
 	// Cursor in the middle of the closing tag name ("Ca|rd") — must also resolve.
-	if decl2, ok2 := componentTagDeclAt(pkg, path, closeStart+2); !ok2 || decl2 != declPos {
-		t.Errorf("closing-tag (mid) ok=%v decl=%+v, want true %+v", ok2, decl2, declPos)
+	if decls2, ok2 := componentTagDeclAt(pkg, path, closeStart+2); !ok2 || len(decls2) != 1 || decls2[0] != declPos {
+		t.Errorf("closing-tag (mid) ok=%v decls=%+v, want true [%+v]", ok2, decls2, declPos)
 	}
 }
 
@@ -395,8 +395,8 @@ func TestComponentTagDeclAtClosingTagWhitespace(t *testing.T) {
 	if closeStart < 2 {
 		t.Fatal("could not find </Card > in src")
 	}
-	decl, ok := componentTagDeclAt(pkg, path, closeStart+1) // cursor on 'a' of Card
-	if !ok || decl != declPos {
-		t.Errorf("whitespace closing tag: ok=%v decl=%+v, want true %+v", ok, decl, declPos)
+	decls, ok := componentTagDeclAt(pkg, path, closeStart+1) // cursor on 'a' of Card
+	if !ok || len(decls) != 1 || decls[0] != declPos {
+		t.Errorf("whitespace closing tag: ok=%v decls=%+v, want true [%+v]", ok, decls, declPos)
 	}
 }
