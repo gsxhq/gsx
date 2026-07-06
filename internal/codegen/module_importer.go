@@ -600,29 +600,30 @@ func (m *Module) typesPackageWith(dir string, mi *moduleImporter) (*types.Packag
 // component cross-index inputs. typesPackage consumes only a.pkg; Module.Package
 // (retained analysis) and Module.Generate (codegen) consume the rest.
 type analyzed struct {
-	pkgName     string
-	gsxFiles    map[string]*gsxast.File        // gsx path -> parsed file
-	gsxFset     *token.FileSet                 // gsx positions
-	skelFset    *token.FileSet                 // skeleton positions (same fset as gsxFset for Module)
-	goFiles     []*goast.File                  // parsed skeletons + shared helper
-	compsByXGo  map[string][]*gsxast.Component // skeleton abs path -> components
-	table       filterTable
-	propFields  map[string]map[string]bool
-	nodeProps   map[string]map[string]bool
-	attrsProps  map[string]map[string]bool
-	byo         *byoData
-	factsByFile map[string]*fileFacts // per-file fact views; propFields/nodeProps/attrsProps/byo keep the package-local base facts
-	resolved    map[gsxast.Node]types.Type
-	exprMap     map[gsxast.Node]goast.Expr
-	ctrlMap     map[gsxast.Node]ctrlRef            // control-flow node -> skeleton clause pos + containing node
-	sigTypes    map[*gsxast.Component][]SigTypeRef // component -> parameter type spans (go-to-def on a param type)
-	pkg         *types.Package
-	info        *types.Info
-	compByKey   map[string]*gsxast.Component // componentKey -> component (for Name + NamePos)
-	objKey      map[types.Object]string      // component func object -> componentKey
-	bag         *diag.Bag                    // diagnostics from parse + script resolution; used by Generate
-	importSpecs []importSpec                 // hoisted .gsx import specs (for unused-import detection)
-	typeErrs    []types.Error                // raw type errors from checkSkeletonPackage
+	pkgName            string
+	gsxFiles           map[string]*gsxast.File        // gsx path -> parsed file
+	gsxFset            *token.FileSet                 // gsx positions
+	skelFset           *token.FileSet                 // skeleton positions (same fset as gsxFset for Module)
+	goFiles            []*goast.File                  // parsed skeletons + shared helper
+	compsByXGo         map[string][]*gsxast.Component // skeleton abs path -> components
+	table              filterTable
+	propFields         map[string]map[string]bool
+	nodeProps          map[string]map[string]bool
+	attrsProps         map[string]map[string]bool
+	byo                *byoData
+	factsByFile        map[string]*fileFacts // per-file fact views; propFields/nodeProps/attrsProps/byo keep the package-local base facts
+	resolved           map[gsxast.Node]types.Type
+	exprMap            map[gsxast.Node]goast.Expr
+	ctrlMap            map[gsxast.Node]ctrlRef            // control-flow node -> skeleton clause pos + containing node
+	sigTypes           map[*gsxast.Component][]SigTypeRef // component -> parameter type spans (go-to-def on a param type)
+	pkg                *types.Package
+	info               *types.Info
+	compByKey          map[string]*gsxast.Component // componentKey -> component (for Name + NamePos)
+	objKey             map[types.Object]string      // component func object -> componentKey
+	bag                *diag.Bag                    // diagnostics from parse + script resolution; used by Generate
+	importSpecs        []importSpec                 // hoisted .gsx import specs (for unused-import detection)
+	typeErrs           []types.Error                // raw type errors from checkSkeletonPackage
+	signatureConflicts []signatureConflict          // same-name different-signature component collisions (block emission)
 
 	// sunkImports maps a .gsx file path to the import SPECS (line+path keys)
 	// the type-checker PROVED were used only by a requalification-failed
@@ -941,6 +942,13 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		}
 		typeErrs = kept
 	}
+	// Tolerate cross-file duplicate top-level decls (same-name build-tag
+	// variants — components or helpers). gsx does not parse build tags; go
+	// build filters by tag and is the arbiter of a real same-config duplicate.
+	// Runs before the diagnostics loop below so a tolerated redeclaration never
+	// becomes a bag diagnostic AND never lands in the stored a.typeErrs (which
+	// gates emission). Same-file redeclarations are untouched.
+	typeErrs = suppressCrossFileRedeclarations(typeErrs)
 	// Collect the skeleton byte spans of every _gsxuseq(...) child-prop or
 	// element-spread harvest probe. Each expression is also checked in a native
 	// typed context (the props literal or gsx.Attrs assignment), so suppressing
@@ -1111,31 +1119,50 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		}
 	}
 
+	// A same-name component declared with DIFFERENT signatures across files is a
+	// genuine ambiguity (its cross-file redeclaration was suppressed above, so
+	// nothing else will flag it). Report a clean duplicate-component error at
+	// each site and record the conflict so emission is blocked (module.go gates
+	// on len(signatureConflicts)==0 as well as len(typeErrs)==0).
+	sigConflicts := detectSignatureConflicts(gsxFiles)
+	for _, sc := range sigConflicts {
+		var files []string
+		for _, cc := range sc.comps {
+			files = append(files, filepath.Base(cc.path))
+		}
+		for _, cc := range sc.comps {
+			bag.Errorf(cc.comp.NamePos, cc.comp.NamePos+token.Pos(len(cc.comp.Name)), "duplicate-component",
+				"component %s is declared with different signatures across build-tagged files (%s); build-tag variants must share the same signature — rename the variants or align their parameters",
+				cc.comp.Name, strings.Join(files, ", "))
+		}
+	}
+
 	return &analyzed{
-		pkgName:     pkgName,
-		gsxFiles:    gsxFiles,
-		gsxFset:     fset,
-		skelFset:    fset,
-		goFiles:     goFiles,
-		compsByXGo:  compsByXGo,
-		table:       table,
-		propFields:  propFields,
-		nodeProps:   nodeProps,
-		attrsProps:  attrsProps,
-		byo:         byo,
-		factsByFile: factsByFile,
-		resolved:    resolved,
-		exprMap:     exprMap,
-		ctrlMap:     ctrlMap,
-		sigTypes:    sigTypes,
-		pkg:         pkg,
-		info:        info,
-		compByKey:   compByKey,
-		objKey:      objKey,
-		bag:         bag,
-		importSpecs: allImportSpecs,
-		typeErrs:    typeErrs,
-		sunkImports: confirmedSunk,
+		pkgName:            pkgName,
+		gsxFiles:           gsxFiles,
+		gsxFset:            fset,
+		skelFset:           fset,
+		goFiles:            goFiles,
+		compsByXGo:         compsByXGo,
+		table:              table,
+		propFields:         propFields,
+		nodeProps:          nodeProps,
+		attrsProps:         attrsProps,
+		byo:                byo,
+		factsByFile:        factsByFile,
+		resolved:           resolved,
+		exprMap:            exprMap,
+		ctrlMap:            ctrlMap,
+		sigTypes:           sigTypes,
+		pkg:                pkg,
+		info:               info,
+		compByKey:          compByKey,
+		objKey:             objKey,
+		bag:                bag,
+		importSpecs:        allImportSpecs,
+		typeErrs:           typeErrs,
+		sunkImports:        confirmedSunk,
+		signatureConflicts: sigConflicts,
 	}, nil
 }
 
