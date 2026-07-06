@@ -327,6 +327,15 @@ func isGsxAttrsType(typ string) bool {
 // absent from the result. Per-file parse errors are swallowed: the package's .go
 // files may legitimately reference funcs the not-yet-generated .x.go will
 // provide, but that never affects a struct declaration's parseable field shape.
+//
+// Two consequences of being purely syntactic (both intentional, and identical to
+// the .gsx GoChunk path via the shared fieldsFromGsxStruct reader): unnamed
+// EMBEDDED fields are not enumerated (only fields with explicit names), and the
+// gsx package is recognized by the literal type strings gsx.Node/gsx.Attrs (an
+// aliased gsx import is not classified). Build constraints and the package
+// clause are NOT honored — every non-test, non-.x.go file in dir is parsed — so
+// a same-named struct in a build-tag-excluded file could shadow the real one;
+// props structs are not platform-conditional in practice.
 func loadExternalStructFields(dir string, wanted map[string]bool) (fields, nodeFields map[string]map[string]bool, structs map[string]byoStruct) {
 	fields = map[string]map[string]bool{}
 	nodeFields = map[string]map[string]bool{}
