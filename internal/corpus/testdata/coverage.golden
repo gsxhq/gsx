@@ -19,6 +19,10 @@ attrs/cond_attr_param_only_in_branch	diag render
 attrs/expr_attrs	diag render
 attrs/spread_leading_rejected	diag(error)
 attrs/spread_trailing	diag render
+bodyinterp/escaped_hole	diag gen render
+bodyinterp/plain	diag gen render
+bodyinterp/sub_expression	diag gen render
+bodyinterp/whole_pipe	diag gen render
 class/caller_wins_classstyle	diag render
 class/caller_wins_scalar	diag render
 class/composable_off	diag render
@@ -421,6 +425,7 @@ style/value_form_evaluation_order	diag gen render
 style/value_if_else	diag gen render
 style/value_if_local_liveness	diag gen render
 style/value_switch	diag gen render
+textattr/class_backtick_sub_expr_merge	diag gen render
 textattr/class_interp	diag gen render
 textattr/class_no_spread	diag gen render
 textattr/class_spread_merge	diag gen render
@@ -433,6 +438,8 @@ textattr/url_multi_hole	diag gen render
 textattr/url_postscheme	diag gen render
 textattr/url_prescheme	diag gen render
 textattr/url_split_blocked	diag gen render
+textattr/whole_pipe_braced	diag gen render
+textattr/whole_pipe_url_safe	diag gen render
 tuple/bare_call_undefined	diag(error)
 tuple/child_prop_mixed	diag gen render
 tuple/child_prop_multi	diag gen render
@@ -474,4 +481,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 476 cases (render: 382, error: 71, gen-pinned: 220)
+TOTAL: 483 cases (render: 389, error: 71, gen-pinned: 227)

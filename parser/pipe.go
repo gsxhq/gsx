@@ -202,6 +202,27 @@ func parsePipeStage(seg string, segBase token.Pos) (ast.PipeStage, error) {
 	return ast.PipeStage{Name: s, NamePos: namePos}, nil
 }
 
+// parseTrailingStages parses a whole-literal `|> stage |> stage ...` pipeline
+// that trails a backtick literal (used by the body EmbeddedInterp and braced
+// EmbeddedAttr forms). slice is the raw source between the end of the literal
+// and the enclosing `}`; base is the token.Pos of slice[0]. The caller must
+// already have confirmed slice's trimmed content is either empty (no trailing
+// pipeline) or `|>`-prefixed — this function does not itself distinguish "no
+// pipeline" from "not a pipeline at all". Returns nil stages for a blank slice.
+func parseTrailingStages(slice string, base token.Pos) ([]ast.PipeStage, error) {
+	trimmed := strings.TrimSpace(slice)
+	if trimmed == "" {
+		return nil, nil
+	}
+	lead := len(slice) - len(strings.TrimLeft(slice, " \t\r\n"))
+	segBase := token.NoPos
+	if base.IsValid() {
+		segBase = base + token.Pos(lead)
+	}
+	_, stages, err := parsePipe(slice[lead:], segBase)
+	return stages, err
+}
+
 // parsePipe splits inner into a seed expression and its filter stages. base is
 // the source position of inner[0]; stage positions are derived from it.
 // With no top-level `|>`, stages is nil and seed is the whole expression. A

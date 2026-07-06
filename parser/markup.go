@@ -515,8 +515,108 @@ func (p *parser) parseBraceNode() (ast.Markup, bool, error) {
 		n, err := p.parseSwitchMarkup()
 		return n, false, err
 	}
+	if in, ok, err := p.tryParseBodyEmbeddedInterp(); err != nil {
+		return nil, false, err
+	} else if ok {
+		return in, false, nil
+	}
 	in, err := p.parseInterp()
 	return in, false, err
+}
+
+// tryParseBodyEmbeddedInterp recognizes a lone backtick literal — optionally
+// followed by a whole-literal `|>` pipeline — as the *entire* value of a body
+// `{ }`: {`…@{expr}…`} or {`…` |> f}. Cursor must be at the opening `{`.
+//
+// It returns (nil, false, nil) with the cursor (and any diagnostics recorded
+// by an abandoned trial) rewound to its entry state whenever the `{ }`
+// doesn't turn out to be this shape — no leading backtick, a `js`/`css`
+// literal, trailing content after the literal that isn't a `|>` pipeline
+// (e.g. `{ `a` + b }`), or ANY parse failure along the way (the literal itself
+// fails to close, e.g. a Go raw string ending in `\` that gsx's
+// backtick-escape convention misreads as an escape; or the trailing pipe-stage
+// region is malformed). This function only ever *commits* to EmbeddedInterp
+// once it has cleanly matched the whole shape; on any other outcome, including
+// an error, it defers to the caller's parseInterp so the content is read as an
+// ordinary Go expression. That does mean a lone literal that really is
+// malformed (e.g. `{`oops`, truly unterminated) surfaces as a Go-expression
+// parse error instead of an embedded-literal one — an acceptable trade for not
+// having to distinguish "meant to be embedded" from "meant to be Go".
+func (p *parser) tryParseBodyEmbeddedInterp() (*ast.EmbeddedInterp, bool, error) {
+	start := p.i // at '{'
+	startPos := p.posAt(start)
+	// errMark snapshots p.errs so a failed trial can be fully undone: p.errorf
+	// (and p.pipeErrorf) record a diagnostic into p.errs as a side effect
+	// regardless of whether the caller propagates the returned error, so
+	// merely discarding the error value here is not enough — rewind must also
+	// truncate p.errs back to this mark or the abandoned trial's diagnostic
+	// would still surface from ParseFile.
+	errMark := len(p.errs)
+	rewind := func() {
+		p.i = start
+		p.errs = p.errs[:errMark]
+	}
+	p.i++ // past '{'
+	p.skipSpace()
+	if !p.at("`") {
+		// Bare backtick only — `js`/`css` embedded literals aren't valid in
+		// body position, and anything else isn't a lone literal at all. Rewind
+		// and let parseInterp scan (and error on) the whole `{ }` as Go.
+		rewind()
+		return nil, false, nil
+	}
+	// parseEmbeddedAttrLiteral consumes the literal INCLUDING any gsx
+	// backslash-backtick escapes and leaves the cursor right after the closing
+	// backtick. Only the
+	// region AFTER the literal (pipe stages, or nothing but `}`) is bounded by
+	// a Go-aware scan below — that region can't contain a gsx backtick escape,
+	// so goStagesEnd is safe there even though goExprEnd is not safe over the
+	// literal itself.
+	lang, segs, err := p.parseEmbeddedAttrLiteral()
+	if err != nil {
+		// The literal didn't close cleanly (e.g. a Go raw string ending in `\`
+		// that the gsx backtick-escape convention swallows as an escape). This
+		// isn't a lone embedded literal after all — rewind and let parseInterp
+		// read the `{ }` as an ordinary Go expression.
+		rewind()
+		return nil, false, nil
+	}
+	if lang != ast.EmbeddedText {
+		rewind()
+		return nil, false, nil
+	}
+	p.skipSpace()
+	afterLiteral := p.i
+	if !p.eof() && p.src[p.i] == '}' {
+		p.i++ // past '}'
+		node := &ast.EmbeddedInterp{Segments: segs}
+		ast.SetSpan(node, startPos, p.posAt(p.i))
+		return node, true, nil
+	}
+	if !p.at("|>") {
+		// Anything else (e.g. `+ b`) means the backtick was only part of a
+		// larger Go expression, so this isn't a lone literal.
+		rewind()
+		return nil, false, nil
+	}
+	end, ok := goStagesEnd(p.src, afterLiteral)
+	if !ok {
+		// The `|>` tail never closes — not a valid embedded-literal pipeline.
+		// Rewind rather than error; the Go-expression fallback will surface its
+		// own (differently worded) parse error if the source really is broken.
+		rewind()
+		return nil, false, nil
+	}
+	slice := p.src[afterLiteral:end]
+	stages, perr := parseTrailingStages(slice, p.posAt(afterLiteral))
+	if perr != nil {
+		rewind()
+		return nil, false, nil
+	}
+	p.i = end + 1 // past '}'
+	node := &ast.EmbeddedInterp{Segments: segs, Stages: stages}
+	ast.SetSpan(node, startPos, p.posAt(p.i))
+	return node, true, nil
 }
 
 func (p *parser) parseAttrs() ([]ast.Attr, error) {

@@ -315,19 +315,91 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 	}
 }
 
+// parseBracedEmbeddedAttrValue parses `name={`…`}` / `name={`…` |> f}` — a
+// lone backtick literal (optionally `js`/`css` tagged), optionally followed by
+// a whole-literal `|>` pipeline, as the entire braced value. Cursor must be at
+// the '{' of the value (the caller has already checked the byte right after it
+// starts a `js`/`css`/bare backtick literal).
+//
+// Like tryParseBodyEmbeddedInterp, this function only commits to EmbeddedAttr
+// once the whole shape matches cleanly. On any other outcome — the literal
+// fails to close (e.g. a Go raw string ending in `\`, which gsx's
+// backtick-escape convention misreads as an escape), trailing content that is
+// neither `}` nor a valid `|>` pipeline, or a malformed pipe-stage region — it
+// rewinds to the saved start and falls back to the ordinary braced-value parse
+// (parseAttrBraceValue), so the value is read as an ordinary Go expression
+// instead. A genuinely malformed lone literal then surfaces as a Go-expression
+// parse error rather than an embedded-literal one; that's an acceptable trade
+// for not having to distinguish "meant to be embedded" from "meant to be Go".
 func (p *parser) parseBracedEmbeddedAttrValue(name string, attrStartPos token.Pos) (ast.Attr, error) {
+	start := p.i // at '{'
+	// errMark snapshots p.errs so an abandoned trial can be fully undone:
+	// p.errorf (and p.pipeErrorf) record a diagnostic into p.errs as a side
+	// effect regardless of whether the caller propagates the returned error,
+	// so falling back to parseAttrBraceValue must also truncate p.errs back to
+	// this mark or the abandoned trial's diagnostic would still surface from
+	// ParseFile.
+	errMark := len(p.errs)
+	fallback := func() (ast.Attr, error) {
+		p.i = start
+		p.errs = p.errs[:errMark]
+		// Mirror parseSingleAttr's class/style dispatch: a non-literal
+		// class/style value must remain a composed ClassAttr so the
+		// fallthrough/forwarding merge machinery recognizes it, not a plain
+		// ExprAttr (which would silently drop the component's own contribution
+		// when a caller forwards class/style via an attrs bag).
+		if name == "class" || name == "style" {
+			return p.parseComposedAttr(name, attrStartPos)
+		}
+		return p.parseAttrBraceValue(name, attrStartPos)
+	}
 	p.i++ // past '{'
+	// parseEmbeddedAttrLiteral consumes the literal INCLUDING any gsx
+	// backslash-backtick escapes and leaves the cursor right after the closing
+	// backtick. Only the region AFTER the literal (pipe stages, or nothing but
+	// `}`) is bounded by a Go-aware scan below (goStagesEnd) — that region
+	// can't contain a gsx backtick escape, so a Go-aware scan is safe there
+	// even though it is not safe over the literal itself (see goStagesEnd
+	// doc).
 	lang, segments, err := p.parseEmbeddedAttrLiteral()
 	if err != nil {
-		return nil, err
+		return fallback()
 	}
-	if p.eof() || p.src[p.i] != '}' {
-		return nil, p.errorf(p.pos(), "expected `}` after embedded attribute literal for %q", name)
+	p.skipSpace()
+	afterLiteral := p.i
+	if !p.eof() && p.src[p.i] == '}' {
+		p.i++ // past '}'
+		ea := &ast.EmbeddedAttr{Name: name, Lang: lang, Segments: segments}
+		ast.SetSpan(ea, attrStartPos, p.posAt(p.i))
+		return ea, nil
 	}
-	p.i++ // past '}'
-	ea := &ast.EmbeddedAttr{Name: name, Lang: lang, Segments: segments}
-	ast.SetSpan(ea, attrStartPos, p.posAt(p.i))
-	return ea, nil
+	// Optional whole-literal `|> f` pipeline: name={`…` |> f}.
+	if p.at("|>") {
+		// Whole-literal pipelines only make sense on plain-text literals: the
+		// codegen only ever consumes Stages for EmbeddedText, so a pipe on a
+		// js`…`/css`…` literal would otherwise parse cleanly (Stages set) and
+		// then be silently dropped at emit. Reject it here instead, rather than
+		// falling back to an ordinary Go-expression parse (which would produce
+		// a confusing, unrelated error for what is clearly an attempted
+		// pipeline).
+		if lang != ast.EmbeddedText {
+			return nil, p.errorf(p.pos(), "whole-literal pipelines are only supported on plain `…` attribute literals, not js``/css``")
+		}
+		if end, ok := goStagesEnd(p.src, afterLiteral); ok {
+			slice := p.src[afterLiteral:end]
+			stages, perr := parseTrailingStages(slice, p.posAt(afterLiteral))
+			if perr != nil {
+				return fallback()
+			}
+			ea := &ast.EmbeddedAttr{Name: name, Lang: lang, Segments: segments, Stages: stages}
+			p.i = end + 1 // past '}'
+			ast.SetSpan(ea, attrStartPos, p.posAt(p.i))
+			return ea, nil
+		}
+	}
+	// Not `}` and not a `|>` pipeline (e.g. `{`a` + x}`, or an unterminated
+	// `|>` tail) — the backtick was only part of a larger Go expression.
+	return fallback()
 }
 
 func (p *parser) parseEmbeddedAttrValue(name string, attrStartPos token.Pos) (ast.Attr, error) {

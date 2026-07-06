@@ -65,6 +65,8 @@ func SetSpan(n Node, start, end token.Pos) {
 		v.span = s
 	case *EmbeddedAttr:
 		v.span = s
+	case *EmbeddedInterp:
+		v.span = s
 	case *GoBlock:
 		v.span = s
 	case *IfMarkup:
@@ -329,15 +331,29 @@ const (
 //	name=js`…@{expr}…`, name={js`…`}, name=css`…`, name={css`…`},
 //	name=`…@{expr}…`  (EmbeddedText — plain, HTML-attribute-escaped), name={`…`}.
 //
-// Segments contain *Text and *Interp only.
+// Segments contain *Text and *Interp only. Stages is the optional whole-literal
+// pipeline applied to the assembled string: name={`…` |> f}.
 type EmbeddedAttr struct {
 	span
 	Name     string
 	Lang     EmbeddedLang
 	Segments []Markup
+	Stages   []PipeStage
 }
 
 func (*EmbeddedAttr) attrNode() {}
+
+// EmbeddedInterp is an interpolating backtick literal used as a body/child
+// expression: {`…@{expr}…`} or {`…` |> f}. Segments contain *Text and *Interp
+// only; Stages is the optional whole-literal pipeline applied to the assembled
+// string. Always plain-text (HTML-text-escaped) — no js/css lang in body.
+type EmbeddedInterp struct {
+	span
+	Segments []Markup
+	Stages   []PipeStage
+}
+
+func (*EmbeddedInterp) markupNode() {}
 
 // GoBlock is `{{ stmt }}` — a Go-statement escape hatch in a component body.
 // Code is the trimmed Go source between the `{{` and `}}` delimiters.
@@ -576,6 +592,10 @@ func Inspect(node Node, f func(Node) bool) {
 			Inspect(m, f)
 		}
 	case *EmbeddedAttr:
+		for _, m := range n.Segments {
+			Inspect(m, f)
+		}
+	case *EmbeddedInterp:
 		for _, m := range n.Segments {
 			Inspect(m, f)
 		}
