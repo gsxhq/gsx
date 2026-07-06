@@ -12,6 +12,7 @@
 package std
 
 import (
+	"encoding/base64"
 	"fmt"
 	"strings"
 )
@@ -75,4 +76,16 @@ func Default(s, fallback string) string {
 		return fallback
 	}
 	return s
+}
+
+// DataURL assembles a base64 data: URL from raw bytes and a MIME type:
+//
+//	{ imageBytes |> dataURL("image/png") }  →  data:image/png;base64,<base64(imageBytes)>
+//
+// It is a plain assembly helper and grants NO privilege by itself: the value it
+// returns is re-validated by the sink's URL sanitizer, so a non-image MIME (or an
+// image data URL in a navigational sink) is still blocked. Use it in an image
+// resource sink (<img src>, <video poster>, …).
+func DataURL(subject []byte, mime string) string {
+	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(subject)
 }
