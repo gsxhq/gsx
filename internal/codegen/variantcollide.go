@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"go/types"
 	"sort"
 	"strings"
 
@@ -118,4 +119,49 @@ func detectSignatureConflicts(files map[string]*gsxast.File) []signatureConflict
 		out = append(out, signatureConflict{key: key, comps: comps})
 	}
 	return out
+}
+
+// redeclName extracts the declared name from a go/types redeclaration-class
+// error message, or ("", false) if the error is not redeclaration-class. It
+// recognizes both records go/types emits: "<name> redeclared in this block"
+// (at the second decl) and "other declaration of <name>" (at the first).
+func redeclName(msg string) (string, bool) {
+	msg = strings.TrimSpace(msg)
+	if i := strings.Index(msg, " redeclared"); i > 0 {
+		return msg[:i], true
+	}
+	const p = "other declaration of "
+	if strings.HasPrefix(msg, p) {
+		return strings.TrimSpace(msg[len(p):]), true
+	}
+	return "", false
+}
+
+// suppressCrossFileRedeclarations drops redeclaration-class errors whose
+// declared name is redeclared ACROSS files (a tolerated cross-tag variant of a
+// component or helper). A same-file redeclaration keeps its error (a real
+// within-file mistake), as do all non-redeclaration errors. gsx does not parse
+// build tags; go build remains the arbiter of whether a cross-file same-name
+// pair is an actual same-configuration duplicate.
+func suppressCrossFileRedeclarations(errs []types.Error) []types.Error {
+	// filesByName[name] = set of distinct filenames where a redeclaration-class
+	// error for that name was reported.
+	filesByName := map[string]map[string]bool{}
+	for _, e := range errs {
+		if name, ok := redeclName(e.Msg); ok {
+			fn := e.Fset.Position(e.Pos).Filename
+			if filesByName[name] == nil {
+				filesByName[name] = map[string]bool{}
+			}
+			filesByName[name][fn] = true
+		}
+	}
+	kept := errs[:0]
+	for _, e := range errs {
+		if name, ok := redeclName(e.Msg); ok && len(filesByName[name]) >= 2 {
+			continue // cross-file variant: tolerate
+		}
+		kept = append(kept, e)
+	}
+	return kept
 }
