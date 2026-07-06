@@ -129,6 +129,22 @@ func TestSetSpanPart2(t *testing.T) {
 	}
 }
 
+func TestGoWithElementsShape(t *testing.T) {
+	n := GoWithElements{Parts: []GoPart{
+		GoText{Src: "x = "},
+		&Element{Tag: "div", Void: true},
+	}}
+	if len(n.Parts) != 2 {
+		t.Fatalf("want 2 parts, got %d", len(n.Parts))
+	}
+	if _, ok := n.Parts[0].(GoText); !ok {
+		t.Fatalf("part 0 not GoText")
+	}
+	if _, ok := n.Parts[1].(*Element); !ok {
+		t.Fatalf("part 1 not *Element")
+	}
+}
+
 func TestInspectPart2(t *testing.T) {
 	// if (then: Text) else (Interp); for (Text); switch (case: Element); cond attr; class attr
 	tree := &Component{Body: []Markup{

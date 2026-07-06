@@ -39,6 +39,10 @@ func SetSpan(n Node, start, end token.Pos) {
 		v.span = s
 	case *GoChunk:
 		v.span = s
+	case *GoWithElements:
+		v.span = s
+	case *GoText:
+		v.span = s
 	case *Component:
 		v.span = s
 	case *Element:
@@ -119,6 +123,14 @@ type Attr interface {
 	attrNode()
 }
 
+// GoPart is one piece of a GoWithElements: either a raw run of Go source text
+// (GoText) or an embedded element (*Element). It refines Node with a sealed
+// marker, mirroring Markup/Decl/Attr.
+type GoPart interface {
+	Node
+	goPartNode()
+}
+
 // File is a parsed .gsx file.
 type File struct {
 	span
@@ -138,6 +150,33 @@ type GoChunk struct {
 }
 
 func (*GoChunk) declNode() {}
+
+// GoWithElements is a run of Go source that has one or more gsx elements
+// embedded directly in expression position (e.g. `x := <div/>`), where a plain
+// GoChunk (verbatim, element-free Go text) would otherwise apply. Parts holds
+// the Go text and element literals in source order; concatenating each part's
+// source (GoText.Src, or an element's own source span) reproduces the
+// original text. GoWithElements is used both as a top-level file item —
+// replacing the GoChunk that would otherwise span this range — and as the
+// body of a Go-expression position that embeds markup (e.g. an interpolation
+// expression).
+type GoWithElements struct {
+	span
+	Parts []GoPart
+}
+
+func (*GoWithElements) declNode() {}
+
+// GoText is a raw run of Go source text inside a GoWithElements — the Go code
+// before, after, or between embedded elements. It may be empty (e.g. two
+// elements back to back with no Go code between them). GoText satisfies
+// GoPart, alongside *Element.
+type GoText struct {
+	span
+	Src string
+}
+
+func (GoText) goPartNode() {}
 
 // Component is a `component [recv] Name[typeParams](params) { body }` declaration.
 type Component struct {
@@ -176,6 +215,7 @@ type Element struct {
 }
 
 func (*Element) markupNode() {}
+func (*Element) goPartNode() {}
 
 // Fragment is <>…</> — siblings without a wrapper.
 type Fragment struct {
