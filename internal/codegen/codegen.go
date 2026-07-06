@@ -14,15 +14,14 @@
 // (HTML/attr/URL/JS-JSON; CSS value-filtered) with typed gsx.Raw* opt-outs.
 package codegen
 
-// dedupFilterPkgs returns filterPkgs with duplicate import paths removed,
-// preserving first-seen order. An empty (or nil) list defaults to just the gsx
-// built-in std filter package, so callers always get std available.
+// dedupFilterPkgs returns filterPkgs with duplicate import paths removed and the
+// built-in std package guaranteed present as the FIRST (lowest-precedence)
+// entry, so callers always have std available and a user package or alias can
+// shadow an individual std filter by name (last-wins) without dropping the rest
+// of std. First-seen order is preserved among the remaining packages.
 func dedupFilterPkgs(filterPkgs []string) []string {
-	if len(filterPkgs) == 0 {
-		return []string{stdImportPath}
-	}
-	seen := map[string]bool{}
-	out := make([]string, 0, len(filterPkgs))
+	seen := map[string]bool{stdImportPath: true}
+	out := []string{stdImportPath}
 	for _, p := range filterPkgs {
 		if seen[p] {
 			continue

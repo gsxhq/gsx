@@ -55,6 +55,72 @@ func writeURL(w io.Writer, s string) error {
 	return writeHTML(w, urlSanitize(s))
 }
 
+// imageDataMIMEs is the allow-list of data: MIME types permitted in an image
+// resource sink (SinkImage). Raster types are inert pixels; image/svg+xml is
+// safe HERE because SinkImage is only <img>/<source>/poster/background, where
+// browsers load SVG in restricted mode (no script, no external fetch). It is
+// NOT permitted on iframe/object/embed/script sinks, which never reach this
+// sanitizer (codegen routes them through urlSanitize). Keys are lowercase.
+var imageDataMIMEs = map[string]bool{
+	"image/png": true, "image/jpeg": true, "image/gif": true,
+	"image/webp": true, "image/avif": true, "image/svg+xml": true,
+}
+
+// isImageDataURL reports whether s is a data: URL whose MIME is in the image
+// allow-list and which is base64-encoded (the ";base64," marker is required so
+// the payload charset is constrained to [A-Za-z0-9+/=], which cannot carry a
+// scheme break). It parses conservatively: data:<mime>[;param]*;base64,<payload>.
+func isImageDataURL(s string) bool {
+	const prefix = "data:"
+	if len(s) < len(prefix) || !strings.EqualFold(s[:len(prefix)], prefix) {
+		return false
+	}
+	rest := s[len(prefix):]
+	meta, _, ok := strings.Cut(rest, ",") // e.g. "image/png;base64" or "image/svg+xml;base64"
+	if !ok {
+		return false
+	}
+	mimePart, params, ok := strings.Cut(meta, ";")
+	if !ok {
+		return false // no ";base64" marker
+	}
+	mime := strings.ToLower(mimePart)
+	if !imageDataMIMEs[mime] {
+		return false
+	}
+	// The remaining meta parameters must include base64 as the final token.
+	return strings.EqualFold(params, "base64") ||
+		strings.HasSuffix(strings.ToLower(params), ";base64")
+}
+
+// urlSanitizeImage is urlSanitize for an image RESOURCE sink: it accepts the
+// same relative/fragment/query and http/https/mailto/tel values, and ALSO
+// accepts a data: URL whose MIME is in the image allow-list. Every other scheme
+// (including non-image data:) yields blockedURL.
+func urlSanitizeImage(s string) string {
+	if before, _, ok := strings.Cut(s, ":"); ok {
+		if !strings.ContainsAny(before, "/?#") {
+			switch strings.ToLower(before) {
+			case "http", "https", "mailto", "tel":
+				// allowed
+			case "data":
+				if isImageDataURL(s) {
+					return s
+				}
+				return blockedURL
+			default:
+				return blockedURL
+			}
+		}
+	}
+	return s
+}
+
+// writeURLImage streams an image-resource-sanitized, attribute-escaped URL to w.
+func writeURLImage(w io.Writer, s string) error {
+	return writeHTML(w, urlSanitizeImage(s))
+}
+
 func isASCIIWhitespaceByte(c byte) bool {
 	switch c {
 	case '\t', '\n', '\f', '\r', ' ':

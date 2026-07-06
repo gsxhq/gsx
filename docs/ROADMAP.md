@@ -522,8 +522,17 @@ vocabulary remains a design aspiration, not the current API.
 - [ ] **Codegen niceties**
   — [x] coalesce adjacent `gw.S` static writes;
   - [ ] `//line` trailing-state reset;
-  - [ ] `data:image` resource-URL allowance
-  after navigational/resource URL contexts are split.
+  - [x] `data:image` resource-URL allowance — URL sinks split into two tiers
+    (`internal/attrclass.URLSink`): image sinks (`<img src>`, `<source src>`,
+    `<input src>`, `<video poster>`, `background`) allow `data:image/*`
+    (raster + `svg+xml`, base64-marked) via the runtime `URLImage` sanitizer;
+    strict sinks (`href`, `<script src>`, `<iframe src>`, `<object data>`, …)
+    keep blocking all `data:`. Authoring: Form A static-prefix literal
+    (`` src=`data:image/png;base64,@{bytes}` `` — `[]byte` auto-encodes,
+    `string` passes through; `data:` on a strict sink is a compile error) +
+    the `dataURL(mime)` std filter (assembly only, re-validated by the sink);
+    `gsx.RawURL` is the vouching escape hatch. **Deferred:** `srcset`
+    per-candidate parsing and CSS `background: url(data:…)`.
 - [x] **`//go:` directive / build-constraint pass-through** — program-significant
   comment lines before the `package` clause (`//go:build`, `//go:generate`,
   `//go:debug`, legacy `// +build`) copy verbatim into the generated `.x.go`,

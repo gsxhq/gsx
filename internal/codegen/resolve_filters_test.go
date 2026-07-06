@@ -122,6 +122,26 @@ func TestResolveFiltersShadowing(t *testing.T) {
 	}
 }
 
+// TestDedupFilterPkgsAlwaysIncludesStd proves dedupFilterPkgs always prepends
+// stdImportPath as the FIRST (lowest-precedence) entry, whether the input is
+// empty, a non-std user list, or already contains std explicitly.
+func TestDedupFilterPkgsAlwaysIncludesStd(t *testing.T) {
+	// Empty -> just std.
+	if got := dedupFilterPkgs(nil); len(got) != 1 || got[0] != stdImportPath {
+		t.Fatalf("dedupFilterPkgs(nil) = %v, want [%s]", got, stdImportPath)
+	}
+	// Non-empty without std -> std is prepended as lowest precedence.
+	got := dedupFilterPkgs([]string{"example.com/userfilters"})
+	if len(got) != 2 || got[0] != stdImportPath || got[1] != "example.com/userfilters" {
+		t.Fatalf("dedupFilterPkgs(user) = %v, want [std, user]", got)
+	}
+	// std listed explicitly (anywhere) -> not duplicated, still first.
+	got = dedupFilterPkgs([]string{"example.com/userfilters", stdImportPath})
+	if len(got) != 2 || got[0] != stdImportPath || got[1] != "example.com/userfilters" {
+		t.Fatalf("dedupFilterPkgs(user,std) = %v, want [std, user]", got)
+	}
+}
+
 // TestResolveFiltersBadPkg proves a non-existent filter package is a clean error.
 func TestResolveFiltersBadPkg(t *testing.T) {
 	t.Parallel()

@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"encoding/base64"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -145,9 +146,14 @@ component C(n string) {
 	}
 }
 
-// TestMultiFilterStdWinsWhenListedLast proves order matters: with std listed
-// AFTER the user package, std's upper wins for the same name.
-func TestMultiFilterStdWinsWhenListedLast(t *testing.T) {
+// TestMultiFilterUserWinsEvenWhenStdListedLast proves std is unconditionally the
+// lowest-precedence filter base (dedupFilterPkgs always forces it first): listing
+// std AFTER the user package in filterPackages no longer makes std win. This
+// behavior intentionally replaced the older "list std last to win" convention so a
+// user can override an individual built-in (e.g. dataURL) without dropping the
+// rest of std by omission; see docs/superpowers/specs/2026-07-06-data-image-resource-url-design.md
+// ("std as the lowest-precedence filter base").
+func TestMultiFilterUserWinsEvenWhenStdListedLast(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping go-build filter test in -short mode")
@@ -167,8 +173,58 @@ component C(n string) {
 	got := renderWithFilters(t, myfilters, views,
 		[]string{"gsxmf/myfilters", stdImportPath},
 		`p.C(p.CProps{N: "hi"})`)
-	if !strings.Contains(got, "HI") || strings.Contains(got, "USER:") {
-		t.Fatalf("expected std Upper to win (listed last): want \"HI\"; got:\n%s", got)
+	if !strings.Contains(got, "USER:hi") {
+		t.Fatalf("expected user Upper to win regardless of list order (std is always lowest-precedence): want \"USER:hi\"; got:\n%s", got)
+	}
+}
+
+// TestUserDataURLOverridesStd proves the user-wins-over-std mechanism (std as
+// the lowest-precedence filter base, see TestMultiFilterUserWinsEvenWhenStdListedLast)
+// applies specifically to the built-in dataURL filter: a user-registered DataURL
+// shadows std.DataURL for `|> dataURL(...)`, while an unrelated std filter
+// (upper) in the SAME component still resolves to std, proving the override is
+// surgical rather than dropping the rest of std by omission. The user's DataURL
+// prepends a "USER:" marker into the encoded payload so its result remains a
+// VALID data:image/...;base64,... URL — passing the runtime's image-resource
+// sanitizer (writer.go's URLImage / escape.go's isImageDataURL, which checks
+// only the data: scheme + MIME allow-list + ";base64" marker, not payload
+// content) — yet is byte-for-byte distinguishable from std.DataURL's plain
+// encoding of the same input.
+func TestUserDataURLOverridesStd(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping go-build filter test in -short mode")
+	}
+	myfilters := `package myfilters
+
+import "encoding/base64"
+
+func DataURL(subject []byte, mime string) string {
+	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(append([]byte("USER:"), subject...))
+}
+`
+	views := map[string]string{
+		"views.gsx": `package views
+
+component C(png []byte, s string) {
+	<p><img src={ png |> dataURL("image/png") } alt="a" /><span>{ s |> upper }</span></p>
+}
+`,
+	}
+	got := renderWithFilters(t, myfilters, views,
+		[]string{stdImportPath, "gsxmf/myfilters"},
+		`p.C(p.CProps{Png: []byte("hi"), S: "hi"})`)
+
+	wantUserDataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("USER:hi"))
+	if !strings.Contains(got, wantUserDataURL) {
+		t.Fatalf("expected user DataURL to shadow std.DataURL: want %q in:\n%s", wantUserDataURL, got)
+	}
+	stdDataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("hi"))
+	if strings.Contains(got, stdDataURL) {
+		t.Fatalf("std.DataURL leaked through despite user override: got:\n%s", got)
+	}
+	if !strings.Contains(got, "HI") {
+		t.Fatalf("expected unrelated std filter upper to still resolve to std: got:\n%s", got)
 	}
 }
 
