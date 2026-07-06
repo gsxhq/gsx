@@ -285,8 +285,12 @@ func (p *parser) splitGoElements(src string, base token.Pos) ast.Decl {
 			// scanGoElementMarks also flags a fragment-open (`<>`) as a
 			// mark, but GoPart only admits *Element (and GoText) — a bare
 			// fragment isn't yet a supported Go-expression value. Surface a
-			// clear error rather than mistyping the part.
+			// clear error rather than mistyping the part, but preserve the
+			// fragment's consumed bytes as a verbatim GoText so the
+			// round-trip invariant (concatenating each part's source
+			// reproduces src) still holds.
 			p.errorf(base+token.Pos(m.Off), "gsx: %s is not supported as a Go expression value here", markupKind(markup))
+			parts = append(parts, goTextPart(src, m.Off, sub.i, base))
 			cursor = sub.i
 			continue
 		}
