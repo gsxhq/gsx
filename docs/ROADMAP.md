@@ -552,9 +552,15 @@ vocabulary remains a design aspiration, not the current API.
   gofmt/goimports parity. (The LSP's `textDocument/formatting` handler, noted
   above, is a separate path and still sources its unused-import list from the
   full type-checked analysis it already performs for diagnostics — untouched by
-  this change.) Remaining cost on large directories is dominated by genuine
-  skeleton-build compute and per-directory BYO external-struct `go/packages`
-  loads (`internal/codegen/byo.go`), not by this detector.
+  this change.) **BYO external-struct field enumeration is now syntactic too:**
+  `loadExternalStructFields` (`internal/codegen/byo.go`) dropped its
+  per-directory `go/packages` type-load and reuses the same syntactic
+  `fieldsFromGsxStruct` scan as the `.gsx`-side path, so it no longer invokes
+  the Go toolchain per BYO directory. On the same `one-learning-gsx` project
+  this was the last remaining bottleneck the note above called out; `fmt -l`
+  over the whole tree now completes in well under 1s (down from ~3s), and
+  `generate`'s cold path speeds up correspondingly. Output is byte-identical
+  (corpus goldens + a real-world `one-learning-gsx generate` diff check).
 
 ## Documentation backlog
 
