@@ -59,6 +59,9 @@ type Server struct {
 	moduleRefs      []CrossRef // whole-module cross-reference index (lazy; find-references)
 	moduleRefsValid bool       // false ⇒ rebuild on next references request
 
+	moduleSyms      []Symbol // whole-module symbol index (lazy; workspace/symbol)
+	moduleSymsValid bool     // false ⇒ rebuild on next workspace/symbol request
+
 	debounce time.Duration
 	// schedule arms a timer that calls f after d, returning a cancel func. It is a
 	// field so tests can drive debouncing deterministically; production uses
@@ -202,6 +205,8 @@ func (s *Server) handle(f frame) error {
 		return s.handleFormatting(f)
 	case "textDocument/documentSymbol":
 		return s.handleDocumentSymbol(f)
+	case "workspace/symbol":
+		return s.handleWorkspaceSymbol(f)
 	default:
 		if len(f.ID) > 0 {
 			return s.replyError(f.ID, -32601, "method not found: "+f.Method)
@@ -227,6 +232,7 @@ func (s *Server) handleInitialize(f frame) error {
 		DocumentFormattingProvider: true,
 		HoverProvider:              true,
 		DocumentSymbolProvider:     true,
+		WorkspaceSymbolProvider:    true,
 	}})
 }
 
@@ -260,11 +266,14 @@ func (s *Server) notify(method string, params any) error {
 	}{"2.0", method, params})
 }
 
-// invalidateModuleRefs drops the cached whole-module reference index; the next
-// references request rebuilds it. Any document mutation may change references.
+// invalidateModuleRefs drops the cached whole-module reference index and symbol
+// index; the next references / workspace/symbol request rebuilds them. Any
+// document mutation may change either.
 func (s *Server) invalidateModuleRefs() {
 	s.moduleRefs = nil
 	s.moduleRefsValid = false
+	s.moduleSyms = nil
+	s.moduleSymsValid = false
 }
 
 func (s *Server) handleDidOpen(f frame) error {

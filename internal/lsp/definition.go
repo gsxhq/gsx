@@ -600,6 +600,22 @@ func (s *Server) locationForPos(dp token.Position) Location {
 	return Location{URI: pathToURI(dp.Filename), Range: Range{Start: pos, End: pos}}
 }
 
+// locationForNameSpan builds a Location covering the name (nameLen bytes) that
+// begins at dp, encoding columns against the target file's on-disk text.
+func (s *Server) locationForNameSpan(dp token.Position, nameLen int) Location {
+	startChar, endChar := dp.Column-1, dp.Column-1+nameLen
+	if data, err := os.ReadFile(dp.Filename); err == nil {
+		lineText := lineAtFunc(string(data))(dp.Line)
+		startChar = charForByteCol(lineText, dp.Column, s.enc)
+		endChar = charForByteCol(lineText, dp.Column+nameLen, s.enc)
+	}
+	line := max(dp.Line-1, 0)
+	return Location{URI: pathToURI(dp.Filename), Range: Range{
+		Start: Position{Line: line, Character: startChar},
+		End:   Position{Line: line, Character: endChar},
+	}}
+}
+
 // posCoversCursor reports whether the token.Position r (a reference in a .go
 // file) covers the given cursor (1-based line and byte column). The reference
 // name has length nameLen bytes; the span is [r.Column, r.Column+nameLen).
