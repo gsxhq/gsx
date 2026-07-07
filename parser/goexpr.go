@@ -255,6 +255,85 @@ func scanGoElementMarks(src string) []goElemMark {
 	return marks
 }
 
+// goSplitItem is one operand-position construct a Go-region split path must
+// carve out: either a gsx element/fragment mark (IsLiteral false, Off is the
+// '<') or a prefixed backtick literal span (IsLiteral true, Off is the
+// f`/js`/css` prefix start, LitEnd is just past its closing backtick). It is
+// the merged, source-ordered stream that scanGoParts reports, so a split path
+// can interleave parsed elements and *EmbeddedInterp literals exactly as they
+// appear.
+type goSplitItem struct {
+	Off       int
+	LitEnd    int // valid only when IsLiteral
+	IsLiteral bool
+}
+
+// scanGoParts tokenizes src with go/scanner and returns, in source order, every
+// operand-position gsx element mark AND every prefixed backtick literal span
+// (f`/js`/css`). It is scanGoElementMarks generalized to also report the
+// literal spans scanGoExpr's Backticks records — the SAME two constructs
+// (element marks, gsx-escape-aware backtick spans) with the SAME resume-past-
+// span discipline, but over a full Go region (no depth/delimiter/close-brace
+// tracking, which region-level splits don't need). A BARE backtick (a plain Go
+// raw string) is NOT a literal — interpolation is opt-in behind the prefix, so
+// backtickPrefixStart returns -1 and it flows through as an ordinary operand.
+func scanGoParts(src string) []goSplitItem {
+	var items []goSplitItem
+	buf := []byte(src)
+	base := 0
+	expectOperand := true
+	for base < len(buf) {
+		fset := token.NewFileSet()
+		file := fset.AddFile("", fset.Base(), len(buf)-base)
+		var s scanner.Scanner
+		s.Init(file, buf[base:], nil, scanner.ScanComments)
+
+		advanced := false
+		for {
+			pos, tok, _ := s.Scan()
+			if tok == token.EOF {
+				break
+			}
+			off := base + fset.Position(pos).Offset
+
+			// Prefixed backtick literal at a Go-expression value position: ONLY the
+			// f`…` (plain-text) form is admitted here — a value renders as a plain
+			// Go string (embeddedValueExpr), with contextual escaping applied where
+			// the string is consumed, so the js`/css` langs (which carry a distinct
+			// escaping context an EmbeddedInterp value cannot represent) are left
+			// UNSPLIT: they remain in verbatim GoText, round-trip faithfully through
+			// the printer, and surface as invalid Go at compile — a clean gate, not
+			// a silent miscompile. A bare backtick (backtickPrefixStart < 0) is a
+			// plain Go raw string and likewise flows through untouched.
+			if tok == token.STRING && off < len(src) && src[off] == '`' {
+				if p := backtickPrefixStart(src, off); p >= 0 && off-p == len("f") {
+					end, _ := embeddedLiteralEnd(src, off+1)
+					items = append(items, goSplitItem{Off: p, LitEnd: end, IsLiteral: true})
+					base = end
+					expectOperand = false
+					advanced = true
+					break
+				}
+			}
+
+			// Operand-position element literal.
+			if expectOperand && tok == token.LSS && byteBeginsTag(src, off+1) {
+				items = append(items, goSplitItem{Off: off})
+				base = elementSpanEnd(src, off)
+				expectOperand = false
+				advanced = true
+				break
+			}
+
+			expectOperand = tokenExpectsOperandAfter(tok)
+		}
+		if !advanced {
+			break
+		}
+	}
+	return items
+}
+
 // byteBeginsTag reports whether the byte at i can start a tag name, a
 // fragment (`<>`), or a close (`</...`) — i.e. startsTag's letter/'>'/'/'
 // classes. It excludes '-' defensively (a channel receive), though go/scanner
@@ -424,8 +503,8 @@ func skipAttrQuoted(src string, i int) int {
 // and each element's own source span reproduces src exactly, in every case
 // including the error paths below.
 func (p *parser) splitGoElements(src string, base token.Pos) []ast.Decl {
-	marks := scanGoElementMarks(src)
-	if len(marks) == 0 {
+	items := scanGoParts(src)
+	if len(items) == 0 {
 		gc := &ast.GoChunk{Src: src}
 		ast.SetSpan(gc, base, base+token.Pos(len(src)))
 		return []ast.Decl{gc}
@@ -465,10 +544,10 @@ func (p *parser) splitGoElements(src string, base token.Pos) []ast.Decl {
 		return []ast.Decl{we}
 	}
 
-	for _, m := range marks {
+	for _, m := range items {
 		if m.Off < cursor {
 			// The span-skip's estimate of a previous element's end
-			// (elementSpanEnd, used by scanGoElementMarks to resume
+			// (elementSpanEnd, used by scanGoParts to resume
 			// tokenizing) disagreed with parseElement's real, name-matched
 			// end for that element, and this mark falls inside text already
 			// consumed. Drop it rather than slice with from > to.
@@ -477,6 +556,22 @@ func (p *parser) splitGoElements(src string, base token.Pos) []ast.Decl {
 		parts = append(parts, goTextPart(src, cursor, m.Off, base))
 
 		sub := &parser{file: p.file, src: src, base: subBase, classifier: p.classifier}
+		if m.IsLiteral {
+			// A prefixed backtick literal (f`/js`/css`) in Go-expression position
+			// → an *ast.EmbeddedInterp value (emit lowers it to a Go string).
+			lit, err := sub.parseEmbeddedInterpPart(m.Off)
+			p.errs = append(p.errs, sub.errs...)
+			if err != nil {
+				// Fold the rest back in as verbatim text (the literal turned out
+				// not to close cleanly as an embedded literal); the error is
+				// recorded in p.errs.
+				cursor = m.Off
+				return finish()
+			}
+			parts = append(parts, lit)
+			cursor = sub.i
+			continue
+		}
 		sub.i = m.Off
 		markup, err := sub.parseElement()
 		p.errs = append(p.errs, sub.errs...)
@@ -527,8 +622,8 @@ func (p *parser) splitGoElements(src string, base token.Pos) []ast.Decl {
 // on error the consumed prefix plus the remaining source (as verbatim GoText) is
 // still returned so callers can fall back to emitting src unchanged.
 func SplitGoExprElements(fset *token.FileSet, src string, base token.Pos, cls *attrclass.Classifier) ([]ast.GoPart, []Error) {
-	marks := scanGoElementMarks(src)
-	if len(marks) == 0 {
+	items := scanGoParts(src)
+	if len(items) == 0 {
 		return nil, nil
 	}
 	if cls == nil {
@@ -549,7 +644,7 @@ func SplitGoExprElements(fset *token.FileSet, src string, base token.Pos, cls *a
 	tail := func() {
 		parts = append(parts, goTextPart(src, cursor, len(src), base))
 	}
-	for _, m := range marks {
+	for _, m := range items {
 		if m.Off < cursor {
 			// The span-skip estimate disagreed with the real parse; this mark
 			// falls inside already-consumed text. Drop it (mirrors splitGoElements).
@@ -558,6 +653,20 @@ func SplitGoExprElements(fset *token.FileSet, src string, base token.Pos, cls *a
 		parts = append(parts, goTextPart(src, cursor, m.Off, base))
 
 		sub := &parser{file: file, src: src, base: subBase, classifier: cls}
+		if m.IsLiteral {
+			// A prefixed backtick literal (f`/js`/css`) at operand position →
+			// an *ast.EmbeddedInterp value (emit lowers it to a Go string).
+			lit, err := sub.parseEmbeddedInterpPart(m.Off)
+			errs = append(errs, sub.errs...)
+			if err != nil {
+				cursor = m.Off
+				tail()
+				return parts, errs
+			}
+			parts = append(parts, lit)
+			cursor = sub.i
+			continue
+		}
 		sub.i = m.Off
 		markup, err := sub.parseElement()
 		errs = append(errs, sub.errs...)

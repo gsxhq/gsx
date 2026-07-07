@@ -123,10 +123,11 @@ type Attr interface {
 	attrNode()
 }
 
-// GoPart is one piece of a GoWithElements: a raw run of Go source text
-// (GoText), an embedded element (*Element), or an embedded fragment
-// (*Fragment). It refines Node with a sealed marker, mirroring
-// Markup/Decl/Attr.
+// GoPart is one piece of a GoWithElements (or an Interp.Embedded split): a raw
+// run of Go source text (GoText), an embedded element (*Element), an embedded
+// fragment (*Fragment), or an interpolating f`/js`/css` literal
+// (*EmbeddedInterp, which lowers to a Go string value). It refines Node with a
+// sealed marker, mirroring Markup/Decl/Attr.
 type GoPart interface {
 	Node
 	goPartNode()
@@ -418,6 +419,14 @@ type EmbeddedInterp struct {
 }
 
 func (*EmbeddedInterp) markupNode() {}
+
+// goPartNode lets an interpolating f-backtick literal ride in Go-expression
+// position — as a Part of a top-level GoWithElements (a var initializer such as
+// f-backtick-hello-at-name) or in an interp's Interp.Embedded split (a call arg
+// such as wrap of an f-backtick literal) — where it lowers to a Go string value
+// (embeddedValueExpr), interleaved in source order with the GoText and
+// element/fragment parts.
+func (*EmbeddedInterp) goPartNode() {}
 
 // GoBlock is `{{ stmt }}` — a Go-statement escape hatch in a component body.
 // Code is the trimmed Go source between the `{{` and `}}` delimiters.

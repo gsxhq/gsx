@@ -240,6 +240,10 @@ fragment-literals/loop-list	diag gen render
 fragment-literals/return	diag gen render
 fragment-literals/struct-field	diag gen render
 fragment-literals/var	diag gen render
+goexpr-f-literal/call-arg	diag gen render
+goexpr-f-literal/interp	diag gen render
+goexpr-f-literal/scope-local	diag gen render
+goexpr-f-literal/var	diag gen render
 goexpr-interp-tag/call-arg	diag gen render
 goexpr-interp-tag/component-tag	diag gen render
 goexpr-interp-tag/scope-local	diag gen render
@@ -523,4 +527,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 525 cases (render: 427, error: 75, gen-pinned: 257)
+TOTAL: 529 cases (render: 431, error: 75, gen-pinned: 261)

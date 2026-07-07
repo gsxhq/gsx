@@ -179,6 +179,12 @@ func (p *printer) goWithElements(v *ast.GoWithElements) pretty.Doc {
 			docs = append(docs, p.element(pt))
 		case *ast.Fragment:
 			docs = append(docs, p.fragment(pt))
+		case *ast.EmbeddedInterp:
+			// A prefixed backtick literal in Go-expression value position: render
+			// the raw f`…@{expr}…` literal (no braces, no whole-literal pipeline —
+			// value-position literals carry no Stages), so it splices back into the
+			// surrounding Go source exactly as authored.
+			docs = append(docs, pretty.Text(embeddedLiteralString(ast.EmbeddedText, pt.Segments)))
 		default:
 			return p.fail("printer: unknown Go-expression part type %T", part)
 		}

@@ -67,6 +67,53 @@ func TestScanGoElementMarks(t *testing.T) {
 	}
 }
 
+// TestScanGoParts locks in the merged element-mark + f`…` literal scan the two
+// Go-region split paths (splitGoElements, SplitGoExprElements) run: a value-
+// position f` literal is reported as a literal item, an element mark as an
+// element item, in source order; and a BARE Go raw string, a js`/css` literal
+// (gated to a verbatim-Go fallthrough), and an operator-position '<' are all
+// NOT items.
+func TestScanGoParts(t *testing.T) {
+	type item struct {
+		off int
+		lit bool
+	}
+	cases := []struct {
+		name string
+		src  string
+		want []item
+	}{
+		{"f literal var", "greeting = f`hi @{name}`", []item{{11, true}}},
+		{"f literal call arg", "wrap(f`id-@{n}`)", []item{{5, true}}},
+		{"bare backtick not split", "x = `raw`", nil},
+		{"js literal gated", "x = js`color`", nil},
+		{"css literal gated", "x = css`c`", nil},
+		{"element only", "x = <Foo/>", []item{{4, false}}},
+		{"element then f literal", "wrap(<Foo/>, f`@{n}`)", []item{{5, false}, {13, true}}},
+		{"f literal then element", "wrap(f`@{n}`, <Foo/>)", []item{{5, true}, {14, false}}},
+		// `xf`…` — the f has no ident boundary (x precedes it), so it is a bare
+		// Go raw string suffixed to the ident, never an f` literal.
+		{"no ident boundary", "a = xf`nope`", nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			parts := scanGoParts(c.src)
+			got := make([]item, len(parts))
+			for i, p := range parts {
+				got[i] = item{p.Off, p.IsLiteral}
+			}
+			if len(got) != len(c.want) {
+				t.Fatalf("scanGoParts(%q) = %v, want %v", c.src, got, c.want)
+			}
+			for i := range got {
+				if got[i] != c.want[i] {
+					t.Fatalf("scanGoParts(%q) = %v, want %v", c.src, got, c.want)
+				}
+			}
+		})
+	}
+}
+
 func equalInts(a, b []int) bool {
 	if len(a) != len(b) {
 		return false
