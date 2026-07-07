@@ -32,6 +32,12 @@ code or a JavaScript expression, and an `f`-prefixed literal — `` name=f`…@{
 when the value is ordinary text with holes rather than code; see
 [Attributes — Interpolating attribute literals](./attributes#interpolating-attribute-literals).
 
+`` js`...` `` also accepts a `"`-delimited form, `js"..."`, semantically
+identical — pick whichever quote your JavaScript doesn't contain. It is the
+natural choice when the code itself is a JS template literal, which is
+already backtick-delimited: `` js"const t = `hi @{x}`" `` writes the
+backtick clean instead of escaping every inner one.
+
 ````gsx
 <button @click=js`toggle()`>Toggle</button>
 ````

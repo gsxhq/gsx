@@ -61,13 +61,16 @@ For anything the allow-list refuses — an exotic MIME on an image sink, or a `d
 
 ### Interpolating attribute literals
 
-An `f`-prefixed backtick literal in attribute-value position —
-`` name=f`…@{ expr }…` `` — mixes static text with `@{ expr }` holes; see [Attributes — Interpolating
+An `f`-prefixed literal in attribute-value position —
+`` name=f`…@{ expr }…` `` or `name=f"…@{ expr }…"` — mixes static text with
+`@{ expr }` holes; see [Attributes — Interpolating
 attribute literals](./attributes#interpolating-attribute-literals) for the full
-syntax and examples. Two characters need escaping inside the literal: `` \` ``
-for a literal backtick, and `\@{` for a literal `@{` that should not open a
-hole. Both mirror the escaping rules for `` js`...` ``/`` css`...` `` literals
-below.
+syntax and examples. Two characters need escaping inside the literal: the
+active delimiter (`` \` `` or `\"`) for a literal delimiter character, and
+`\@{` for a literal `@{` that should not open a hole. Both mirror the
+escaping rules for `` js`...` ``/`` css`...` `` literals below. The
+`` f`…` `` and `f"…"` forms behave identically; the `"` form is the
+escape-hatch for content that already contains a backtick.
 
 When the attribute is URL-context by name, the literal's static text and every
 hole are assembled into one string *before* the scheme check runs, so a
@@ -96,6 +99,19 @@ Write `` \` `` when the JavaScript itself needs a backtick:
 ````gsx
 <button @click=js`save(\`draft @{id}\`)`>Save</button>
 ````
+
+Or reach for the `"`-delimited form instead — the escape-hatch for content
+that already contains a backtick, which is common for JS template literals:
+
+```gsx
+component Button(x string) {
+	<button @click=js"const t = `hi @{x}`; send(t)">Save</button>
+}
+```
+
+renders `` <button @click="const t = `hi abc`; send(t)">Save</button> `` for
+`x = "abc"` — the backtick passes through literally and `@{x}` is still the
+gsx hole. `` css`...` `` accepts the same `"`-delimited form.
 
 ### CSS values
 
