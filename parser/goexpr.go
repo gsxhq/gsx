@@ -110,23 +110,29 @@ func scanGoExpr(src string, from int) goExprScan {
 			}
 			off := base + fset.Position(pos).Offset
 
-			// Backtick literal (bare / js` / css`). go/scanner reports it as a
-			// STRING beginning with '`', but its end is wrong for gsx-escaped
-			// backticks, so take over: record the whole gsx literal span
-			// (embeddedLiteralEnd, escape-aware) and resume past it.
+			// Backtick literal. go/scanner reports it as a STRING beginning with
+			// '`'. A PREFIXED gsx literal (js`/css`; f` once Feature 2 lands) uses
+			// gsx's escape-aware end (embeddedLiteralEnd, which honours the `\``
+			// escape) that differs from go/scanner's raw-string end, so we take
+			// over its span and resume past it. A BARE backtick is a plain Go raw
+			// string — go/scanner already tokenized it correctly (Go raw strings
+			// have no escapes and cannot contain a backtick), so we leave it alone
+			// and let it flow through as an ordinary STRING operand. This is why
+			// gsx never reinterprets a bare Go raw string: interpolation is opt-in
+			// behind a prefix.
 			if tok == token.STRING && off < len(src) && src[off] == '`' {
-				start := off
 				if p := backtickPrefixStart(src, off); p >= 0 {
-					start = p
+					end, _ := embeddedLiteralEnd(src, off+1)
+					res.Backticks = append(res.Backticks, [2]int{p, end})
+					base = end
+					expectOperand = false // a literal is a completed operand
+					prevTok = token.ILLEGAL
+					prevOff = -1
+					advanced = true
+					break
 				}
-				end, _ := embeddedLiteralEnd(src, off+1)
-				res.Backticks = append(res.Backticks, [2]int{start, end})
-				base = end
-				expectOperand = false // a literal is a completed operand
-				prevTok = token.ILLEGAL
-				prevOff = -1
-				advanced = true
-				break
+				// Bare backtick: fall through to the operand-tracking switch
+				// below, treating go/scanner's STRING as a completed Go operand.
 			}
 
 			// Operand-position element literal: record the mark and resume past
