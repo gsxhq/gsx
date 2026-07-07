@@ -274,6 +274,37 @@ render goldens.
     `../vscode-gsx`, `gsxhq.github.io` CodeMirror) do not yet highlight the body
     backtick-with-`@{}` form.
 
+15. [x] **Element literals** — `2026-07-07`. A `<tag>…</tag>` expression now
+    works anywhere a Go expression is expected inside a `.gsx` file — a `var`
+    initializer, a `return`, a call argument (the `RenderComponent(<Foo/>)`
+    shape), a struct-literal field, a slice/map element — not just inside a
+    `component` body. The parser resolves the classic JSX ambiguity (`<` at an
+    operand-start boundary begins a tag; `<` in infix position stays `<`/`<-`/`<<`)
+    via expression-start-position detection over the Go chunks; codegen reuses
+    the existing component-body element-emission machinery
+    (`gsx.Func(func(ctx, w) error {...})`) as an inline expression rather than a
+    function body, and the `analyze.go` skeleton probe type-checks embedded
+    elements (props, interpolated expressions) the same way it type-checks a
+    component body. A `<tag>` in expression position is always an **Element** —
+    a baked `gsx.Node`, the *result* of applying the tag, not the component
+    itself — so render-site attrs never inject into it; this is the existing
+    `<Card>` vs `Card` distinction, now visible outside component bodies too.
+    Primary value: removes throwaway single-use `component` declarations —
+    markup that exists only to be handed to a function or stored in a field can
+    be written where the value is needed (nav-item icons, structpages
+    `RenderComponent`/`RenderTarget` sites, playground snippets). Corpus:
+    `element-literals/*` (var, call-arg, component-tag, return, struct-field,
+    outer-scope interpolation capture, plus an apostrophe/prose-scanning
+    regression and a formatter round-trip case). Docs: `syntax/elements.md`
+    §Elements as values, `syntax/raw-go.md` cross-reference. **Deferred:**
+    component values (`type Component = func(...gsx.Attr) gsx.Node` collapse) —
+    parked; a baked element literal already covers the driving nav-icon use
+    case since its class is constant there, and component values only earn
+    their keep when render-site attrs must vary per call site (rare). Sibling
+    grammars (`../tree-sitter-gsx`, `../vscode-gsx`, `gsxhq.github.io`
+    CodeMirror) do not yet recognize `<tag>` in Go expression position — follow-up,
+    out of scope for this repo. Spec `2026-07-06-element-literals-design.md`.
+
 ## Language server (`gsx lsp`)
 
 In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`

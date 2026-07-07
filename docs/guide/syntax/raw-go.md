@@ -32,3 +32,7 @@ When `{{ … }}` appears as a child of an element or at the top of a component b
 
 There is no ambiguity: the parser knows which context it is in before reading the `{{`.
 :::
+
+## The reverse direction: elements in Go expression position
+
+GoBlock and the ordered-attrs literal both embed **Go inside markup**. The other direction also works: a `<tag>…</tag>` can appear in ordinary Go **expression** position — a `var` initializer, a `return`, a call argument, a struct field — evaluating to a `gsx.Node`, without a `component` body wrapping it. See [Elements — Elements as values](./elements#elements-as-values).
