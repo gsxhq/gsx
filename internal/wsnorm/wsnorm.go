@@ -40,12 +40,17 @@ func Normalize(f *ast.File) {
 			v.Body = normalizeMarkup(v.Body, false)
 		case *ast.GoWithElements:
 			for _, part := range v.Parts {
-				if el, ok := part.(*ast.Element); ok {
+				switch p := part.(type) {
+				case *ast.Element:
 					// Mirrors normalizeMarkup's own *ast.Element case: a
 					// Go-embedded element starts a fresh (preserve=false)
 					// context, same as a top-level component body element.
-					el.Children = normalizeMarkup(el.Children, isPreserveTag(el.Tag))
-					normalizeAttrs(el.Attrs)
+					p.Children = normalizeMarkup(p.Children, isPreserveTag(p.Tag))
+					normalizeAttrs(p.Attrs)
+				case *ast.Fragment:
+					// A fragment has no wrapper tag; its children normalize in a
+					// fresh (preserve=false) context, same as a body fragment.
+					p.Children = normalizeMarkup(p.Children, false)
 				}
 			}
 		}
