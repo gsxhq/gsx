@@ -218,16 +218,16 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 			// continues to the next top-level decl.
 			//
 			// Unlike GoChunk, this does NOT run splitChunk to hoist any `import`
-			// spec ahead of the file's own import block — see Task 4's design
-			// note: a GoText part may itself legally contain a plain `import`
-			// (Go permits any number of import blocks, provided each precedes
-			// every non-import top-level declaration in the file), and it is
-			// emitted here verbatim, in its original textual position — which,
-			// for any valid .gsx input, is still ahead of every other body
-			// declaration. Malformed input (an import placed after some other
-			// declaration) is not specially diagnosed here; it surfaces as a
-			// gofmt parse failure from generateFile's closing format.Source call
-			// (fail-safe: never silently emits broken output).
+			// spec ahead of the file's own import block: a GoText part is emitted
+			// verbatim in its original textual position. It does not need to — the
+			// parser peels a leading run of import declarations off the region into
+			// its own GoChunk before it becomes a GoWithElements (parser/goexpr.go
+			// leadingImportEnd), and that GoChunk's imports ARE hoisted here (the
+			// case above). Only a stray `import` placed AFTER some non-import
+			// declaration in the region reaches this verbatim path — that is invalid
+			// Go, not specially diagnosed here; it surfaces as a gofmt parse failure
+			// from generateFile's closing format.Source call (fail-safe: never
+			// silently emits broken output).
 			var wbuf bytes.Buffer
 			partsOK := true
 			for _, part := range v.Parts {

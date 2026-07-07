@@ -487,14 +487,16 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, 
 	// harvest distinguish an embedded-value probe IIFE from any func literal
 	// the user wrote verbatim in the surrounding Go.
 	//
-	// Unlike GoChunk, this does NOT run splitChunk to hoist a `import` spec
-	// out of a GoText Part ahead of the skeleton's own import block — mirrors
-	// emit.go's identical choice (see its *ast.GoWithElements case comment):
-	// splitChunk cannot parse text containing markup. A user `import` in the
-	// SAME region as an embedded element is therefore not hoisted (a known
-	// limitation shared with emit — a func returning an element whose return
-	// type needs a user-imported package must currently keep that import; see
-	// task-5-report). Malformed input surfaces as a skeleton parse/type error,
+	// Unlike GoChunk, this does NOT run splitChunk to hoist an `import` spec out
+	// of a GoText Part ahead of the skeleton's own import block — mirrors emit.go's
+	// identical choice (see its *ast.GoWithElements case comment): splitChunk
+	// cannot parse text containing markup. It does not need to: the parser peels a
+	// leading run of import declarations off this region into its own GoChunk
+	// before the region becomes a GoWithElements (parser/goexpr.go
+	// leadingImportEnd), so a func returning an element whose return type needs a
+	// user-imported package is hoisted through the normal GoChunk path. Only a
+	// stray `import` placed AFTER a non-import declaration in the region can reach
+	// here — that is invalid Go, and surfaces as a skeleton parse/type error,
 	// never silently-broken output.
 	var gwMarkups [][]gsxast.Markup
 	for _, d := range file.Decls {

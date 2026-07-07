@@ -235,12 +235,30 @@ func skipAttrQuoted(src string, i int) int {
 // the parsed *ast.Element nodes, in source order. Concatenating GoText.Src
 // and each element's own source span reproduces src exactly, in every case
 // including the error paths below.
-func (p *parser) splitGoElements(src string, base token.Pos) ast.Decl {
+func (p *parser) splitGoElements(src string, base token.Pos) []ast.Decl {
 	marks := scanGoElementMarks(src)
 	if len(marks) == 0 {
 		gc := &ast.GoChunk{Src: src}
 		ast.SetSpan(gc, base, base+token.Pos(len(src)))
-		return gc
+		return []ast.Decl{gc}
+	}
+
+	// Peel a leading run of `import` declarations into their own GoChunk. An
+	// embedded element makes this whole region an *ast.GoWithElements, whose
+	// GoText parts are spliced verbatim AFTER the skeleton's (analyze.go) and
+	// output's (emit.go) synthesized declarations — so a user `import` left
+	// inside the region lands after a declaration ("imports must appear before
+	// other declarations"). A plain GoChunk, by contrast, has its imports hoisted
+	// into the file's import block by both sides (via splitChunk); splitting the
+	// leading imports off routes them through that already-correct path. A stray
+	// `import` that FOLLOWS a non-import declaration inside the region is not
+	// peeled (leadingImportEnd stops at the first non-import token) and remains
+	// correctly reported as invalid Go.
+	if impEnd := leadingImportEnd(src); impEnd > 0 {
+		gc := &ast.GoChunk{Src: src[:impEnd]}
+		ast.SetSpan(gc, base, base+token.Pos(impEnd))
+		rest := p.splitGoElements(src[impEnd:], base+token.Pos(impEnd))
+		return append([]ast.Decl{gc}, rest...)
 	}
 
 	// subBase is the absolute byte offset (within p.file) of src[0] — what a
@@ -252,11 +270,11 @@ func (p *parser) splitGoElements(src string, base token.Pos) ast.Decl {
 	var parts []ast.GoPart
 	cursor := 0 // offset within src of the next unconsumed byte
 
-	finish := func() ast.Decl {
+	finish := func() []ast.Decl {
 		parts = append(parts, goTextPart(src, cursor, len(src), base))
 		we := &ast.GoWithElements{Parts: parts}
 		ast.SetSpan(we, base, base+token.Pos(len(src)))
-		return we
+		return []ast.Decl{we}
 	}
 
 	for _, m := range marks {
@@ -302,6 +320,89 @@ func (p *parser) splitGoElements(src string, base token.Pos) ast.Decl {
 		cursor = sub.i
 	}
 	return finish()
+}
+
+// leadingImportEnd returns the byte offset in src at which a leading run of
+// top-level `import` declarations (plus the whitespace trailing them) ends, or 0
+// if src does not begin with one. The remainder — everything from the returned
+// offset on — is what becomes the *ast.GoWithElements.
+//
+// The offset sits just before the first non-whitespace byte after the last
+// import (its `func`/`var`/`type`/`const` keyword, an operand like `<`, or a doc
+// comment). Trailing whitespace is absorbed into the import chunk so it carries
+// the blank-line padding between the imports and the next declaration — the
+// printer derives inter-declaration spacing from a chunk's trailing newlines
+// (see printer.endsWithBlankLine). Stopping BEFORE a comment keeps a doc comment
+// attached to the declaration it documents.
+func leadingImportEnd(src string) int {
+	end := lastLeadingImportEnd(src)
+	if end == 0 {
+		return 0
+	}
+	for end < len(src) {
+		switch src[end] {
+		case ' ', '\t', '\r', '\n':
+			end++
+		default:
+			return end
+		}
+	}
+	return end
+}
+
+// lastLeadingImportEnd tokenizes src with go/scanner and returns the byte offset
+// immediately after the last of a leading run of IMPORT declarations — single
+// (`import "x"`, `import n "x"`, `import . "x"`) or grouped (`import ( … )`) —
+// or 0 if src does not begin with one. It stops at the first token that is not
+// part of such a declaration.
+//
+// A nil scanner error handler is deliberate: the region past the imports may hold
+// element prose that is not valid Go, but the walk never reaches it — it returns
+// at the first non-import token, which always precedes any embedded element.
+func lastLeadingImportEnd(src string) int {
+	fset := token.NewFileSet()
+	file := fset.AddFile("", fset.Base(), len(src))
+	var s scanner.Scanner
+	s.Init(file, []byte(src), nil, 0) // mode 0: skip comments
+
+	end := 0
+	for {
+		_, tok, _ := s.Scan()
+		if tok == token.SEMICOLON {
+			continue // auto-inserted semicolons separate consecutive imports
+		}
+		if tok != token.IMPORT {
+			return end
+		}
+		// Consume one import declaration; advance end to just past it.
+		pos, t, lit := s.Scan()
+		if t == token.LPAREN {
+			depth := 1
+			for depth > 0 {
+				p, tt, _ := s.Scan()
+				switch tt {
+				case token.EOF:
+					return end // malformed group; keep what we have
+				case token.LPAREN:
+					depth++
+				case token.RPAREN:
+					depth--
+					if depth == 0 {
+						end = fset.Position(p).Offset + 1 // past ')'
+					}
+				}
+			}
+			continue
+		}
+		// Single spec: optional alias (IDENT / '.' / '_') then the STRING path.
+		for t != token.STRING {
+			if t == token.EOF || t == token.SEMICOLON || t == token.IMPORT {
+				return end // malformed single import; keep what we have
+			}
+			pos, t, lit = s.Scan()
+		}
+		end = fset.Position(pos).Offset + len(lit)
+	}
 }
 
 // goTextPart builds a GoText part covering src[from:to], positioned at base

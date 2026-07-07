@@ -5,9 +5,9 @@
 # `undefined`. analyze.go lowers the embedded element to an inline scope-
 # capturing IIFE (mirroring emit's inline gsx.Func closure), so the
 # interpolations resolve against the surrounding lexical scope. `Greeting`'s
-# `gsx.Node` return type needs a real gsx import, which — like return.txtar —
-# must sit in its own chunk ahead of a component boundary, since a
-# GoWithElements region does not hoist imports (a documented limitation).
+# `gsx.Node` return type needs a real gsx import; the leading `component` here is
+# one valid arrangement (a leading import directly before the func is also fine
+# now — see element-literals/import-then-embed).
 -- input.gsx --
 package demo
 
