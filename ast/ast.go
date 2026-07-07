@@ -227,6 +227,7 @@ type Fragment struct {
 }
 
 func (*Fragment) markupNode() {}
+func (*Fragment) goPartNode() {}
 
 // Text is literal character data between markup.
 type Text struct {
@@ -603,7 +604,7 @@ func (*CommentAttr) attrNode() {}
 // After recursing into children, Inspect calls f(nil) for go/ast parity.
 // Children by type:
 //   - *File: each Decl
-//   - *GoWithElements: each Part (GoText leaves; *Element recurses)
+//   - *GoWithElements: each Part (GoText leaves; *Element and *Fragment recurse)
 //   - *Component: each Body markup node
 //   - *Element: each Attr, then each Child
 //   - *Fragment: each Child
