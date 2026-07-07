@@ -1083,6 +1083,54 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *gsxast.Interp:
+			if t.Embedded != nil {
+				// The seed carried operand-position <tag>/<> literals (e.g.
+				// `wrap(<b/>)`): build the probe expression by splicing each
+				// embedded element/fragment's inline IIFE (the SAME _gsxelem(N)
+				// marker + probe form the top-level GoWithElements loop emits) in
+				// between the verbatim GoText runs, then _gsxuse the whole
+				// expression so harvest maps its type (e.g. wrap's return type) onto
+				// resolved[t]. The element's own interps are probed INSIDE its IIFE
+				// so they resolve against THIS enclosing component scope (recvVar /
+				// recvTypeName threaded through unchanged), matching emit's closure
+				// capture. Indices are reserved BEFORE probing each element so
+				// nested embedded tags take later indices — harvestEmbeddedElements
+				// resolves them off the shared gw slice for free.
+				var eb strings.Builder
+				for _, part := range t.Embedded {
+					switch p := part.(type) {
+					case gsxast.GoText:
+						emitSkeletonBlockLine(&eb, fset, p.Pos())
+						eb.WriteString(p.Src)
+					case *gsxast.Element:
+						markup := []gsxast.Markup{p}
+						idx := len(*gw)
+						*gw = append(*gw, markup)
+						eb.WriteString("func() _gsxrt.Node {\n")
+						fmt.Fprintf(&eb, "_gsxelem(%d)\n", idx)
+						eb.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
+						if err := emitProbes(&eb, markup, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag); err != nil {
+							return err
+						}
+						eb.WriteString("return nil\n}()")
+					case *gsxast.Fragment:
+						idx := len(*gw)
+						*gw = append(*gw, p.Children)
+						eb.WriteString("func() _gsxrt.Node {\n")
+						fmt.Fprintf(&eb, "_gsxelem(%d)\n", idx)
+						eb.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
+						if err := emitProbes(&eb, p.Children, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag); err != nil {
+							return err
+						}
+						eb.WriteString("return nil\n}()")
+					default:
+						return fmt.Errorf("codegen: unsupported embedded interpolation part %T", part)
+					}
+				}
+				emitSkeletonLine(sb, fset, t.Pos())
+				fmt.Fprintf(sb, "_gsxuse(%s)\n", eb.String())
+				continue
+			}
 			probe, err := probeExpr(t.Expr, t.Stages, table, usedFilters)
 			if err != nil {
 				return err
