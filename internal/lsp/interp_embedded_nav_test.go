@@ -43,7 +43,7 @@ func TestInterpEmbeddedDefinition(t *testing.T) {
 
 	compBadge := strings.Index(src, "component Badge") + len("component ")
 	paramN := strings.Index(src, "n int, label string") // Uses' param n
-	paramLabel := strings.Index(src, "label string")     // Uses' param label
+	paramLabel := strings.Index(src, "label string")    // Uses' param label
 
 	// 1. Embedded component tag name → component Badge declaration.
 	t.Run("embedded component tag", func(t *testing.T) {
