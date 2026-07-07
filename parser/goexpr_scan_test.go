@@ -132,45 +132,51 @@ func TestScanGoExprBacktickSpan(t *testing.T) {
 	}
 }
 
-// TestScanGoExprValueFormInitDivergence documents and tests an intentional,
-// benign divergence between composedDelims (legacy, byte-based) and
-// scanGoExpr (token-based) on a value-form `if`/`switch` with a `;`-separated
-// init inside class={...}/style={...} — e.g.
+// TestScanGoExprValueFormInitDivergence documents and tests a divergence that
+// existed between composedDelims (legacy, byte-based) and scanGoExpr
+// (token-based) on a value-form `if`/`switch` with a `;`-separated init
+// inside class={...}/style={...} — e.g.
 //
 //	<span class={ if x := f(); x { "a" } }>y</span>
 //
 // splitComposed (attrs.go) feeds the value-form segment's source to
-// composedDelims looking for a depth-0 ':' guard colon. composedDelims is a
-// raw byte scan with no token awareness, so it can't distinguish the ':' of a
-// `:=` DEFINE from a `: cond` guard colon: it records the ':=' colon, and
-// splitComposed reports a spurious "value-form if in class/style takes no
-// `: cond` guard" error. This IS a real production path — composedDelims's
-// only production source of a `:=` byte is exactly this construct (a
-// value-form CF init), and today it errors on it, always. (The claim that
+// composedDelims looking for a depth-0 ':' guard colon. A pure byte scan
+// with no token awareness can't distinguish the ':' of a `:=` DEFINE from a
+// `: cond` guard colon: it would record the ':=' colon, and splitComposed
+// would report a spurious "value-form if in class/style takes no `: cond`
+// guard" error. This IS a real production path — composedDelims's only
+// production source of a `:=` byte is exactly this construct (a value-form
+// CF init), and before Task 2 it errored on it, always. (The claim that
 // composedDelims "never sees a `:=` in production" — in an earlier draft of
 // this package's docs — was false; this test is what corrects it.)
 //
-// scanGoExpr tokenizes with go/scanner, so ':=' lexes as a single DEFINE
-// token and is correctly never recorded as a Colon. scanGoExpr is the
-// CORRECT party; composedDelims is the buggy one. The divergence is
-// intentional and benign — spurious-error becomes accept — but it IS a
-// user-visible behavior change: Task 2's reroute of composedDelims's callers
-// onto scanGoExpr silently flips this construct from "always rejected" to
-// "accepted", and must pin the newly-accepted behavior with a corpus case.
+// Task 2 fixed this AT THE SOURCE: composedDelims's own fast-path guard
+// (boundary.go) additionally checks for a ":=" substring and, when present,
+// delegates to scanGoExpr instead of running its byte loop — so
+// composedDelims(inner) no longer reproduces the bug either; it now agrees
+// with scanGoExpr by construction for any ":="-containing input. scanGoExpr
+// tokenizes with go/scanner, so ':=' lexes as a single DEFINE token and is
+// correctly never recorded as a Colon. The result: the construct above went
+// from "always rejected" to "accepted" — an approved, corpus-pinned behavior
+// change (see internal/corpus/testdata/cases/goexpr-valueform-init/).
 func TestScanGoExprValueFormInitDivergence(t *testing.T) {
 	const inner = ` if x := f(); x { "a" } `
-
-	wantCommas, wantColons := composedDelims(inner)
 	defineColon := strings.Index(inner, ":=")
 	if defineColon < 0 {
 		t.Fatalf("test bug: %q has no \":=\"", inner)
 	}
-	if len(wantColons) != 1 || wantColons[0] != defineColon {
-		t.Fatalf("composedDelims(%q) colons = %v, want exactly [%d] (the spurious ':' of ':=') — divergence setup assumption broken",
-			inner, wantColons, defineColon)
+
+	// Post-Task-2, composedDelims(inner) itself routes ":="-containing input
+	// through scanGoExpr (see composedDelims's guard), so it must agree with
+	// a direct scanGoExpr call: no colon recorded for the ':=', not the
+	// spurious one the legacy byte loop used to produce.
+	gotCommas, gotColons := composedDelims(inner)
+	if len(gotColons) != 0 {
+		t.Fatalf("composedDelims(%q) colons = %v, want none — Task 2's composedDelims guard must route ':='-containing input to scanGoExpr, not the legacy byte loop, so it no longer spuriously records the ':=' colon at offset %d",
+			inner, gotColons, defineColon)
 	}
-	if len(wantCommas) != 0 {
-		t.Fatalf("composedDelims(%q) commas = %v, want none", inner, wantCommas)
+	if len(gotCommas) != 0 {
+		t.Fatalf("composedDelims(%q) commas = %v, want none", inner, gotCommas)
 	}
 
 	got := scanGoExpr(inner+"}", 0)
@@ -178,19 +184,19 @@ func TestScanGoExprValueFormInitDivergence(t *testing.T) {
 		t.Fatalf("scanGoExpr(%q).Close = %d, want %d (the appended outer '}')", inner, got.Close, len(inner))
 	}
 	if len(got.Colons) != 0 {
-		t.Errorf("scanGoExpr(%q).Colons = %v, want none — ':=' tokenizes as a single DEFINE token, not a Colon; this is the divergence under test: scanGoExpr correctly does NOT see a guard colon here, where composedDelims spuriously does",
+		t.Errorf("scanGoExpr(%q).Colons = %v, want none — ':=' tokenizes as a single DEFINE token, not a Colon",
 			inner, got.Colons)
 	}
-	if !reflect.DeepEqual(relDelims(got.Commas, 0), wantCommas) {
-		t.Errorf("scanGoExpr(%q).Commas = %v, want %v (agrees with composedDelims here — only Colons diverge)",
-			inner, relDelims(got.Commas, 0), wantCommas)
+	if !reflect.DeepEqual(relDelims(got.Commas, 0), gotCommas) {
+		t.Errorf("scanGoExpr(%q).Commas = %v, want %v (agrees with composedDelims)",
+			inner, relDelims(got.Commas, 0), gotCommas)
 	}
 
 	// Guard-rejection survival: a REAL `: cond` guard colon (one that follows
 	// the value-form's closing `}`, as in `if cond { "a" } : bad`, not one
-	// embedded inside a `:=` init) must still be recorded by scanGoExpr, so
-	// Task 2's reroute doesn't also lose the legitimate rejection alongside
-	// the spurious one above.
+	// embedded inside a `:=` init) must still be recorded by both scanners —
+	// this input has no ":=", so composedDelims still takes its legacy byte
+	// path, and must still agree with scanGoExpr.
 	const guardInner = ` if cond { "a" } : bad `
 	wantGuardCommas, wantGuardColons := composedDelims(guardInner)
 	if len(wantGuardColons) != 1 {
@@ -202,7 +208,7 @@ func TestScanGoExprValueFormInitDivergence(t *testing.T) {
 		t.Fatalf("scanGoExpr(%q).Close = %d, want %d", guardInner, gotGuard.Close, len(guardInner))
 	}
 	if !reflect.DeepEqual(relDelims(gotGuard.Colons, 0), wantGuardColons) {
-		t.Errorf("scanGoExpr(%q).Colons = %v, want %v — a real guard colon after the value-form body must still be seen (composedDelims and scanGoExpr AGREE here; only the ':=' case above diverges)",
+		t.Errorf("scanGoExpr(%q).Colons = %v, want %v — a real guard colon after the value-form body must still be seen (composedDelims and scanGoExpr AGREE here; only the ':=' case above previously diverged)",
 			guardInner, relDelims(gotGuard.Colons, 0), wantGuardColons)
 	}
 	if !reflect.DeepEqual(relDelims(gotGuard.Commas, 0), wantGuardCommas) {
@@ -283,17 +289,17 @@ func TestScanGoExprOpaqueSpanTableCases(t *testing.T) {
 //     all of them.
 //   - composedRegionObserver records every inner passed to composedDelims — the
 //     class/style ordered-attr splitter. Commas/Colons (vs composedDelims) are
-//     compared only on these, because composedDelims is byte-based: on a
-//     general interp body it would count the ':' of a Go `:=` as a delimiter.
-//     composedDelims's real inputs are NOT categorically free of `:=`: a
-//     value-form if/switch with a `;`-separated init inside
-//     class={...}/style={...} is a real composedDelims input containing one,
-//     and scanGoExpr correctly disagrees with composedDelims on it (a known,
-//     intentional, benign divergence — spurious-error becomes accept; see
-//     TestScanGoExprValueFormInitDivergence). The current corpus simply
-//     doesn't happen to contain that shape yet (no `if x := …; …` inside a
-//     class/style value), so this loop's exact-match assertion below is not
-//     contradicted today; Task 2 must add a corpus case exercising it.
+//     compared only on these, because composedDelims's legacy byte loop is
+//     byte-based: on a general interp body it would count the ':' of a Go
+//     `:=` as a delimiter. composedDelims's real inputs are NOT categorically
+//     free of `:=`: a value-form if/switch with a `;`-separated init inside
+//     class={...}/style={...} is a real composedDelims input containing one
+//     (see internal/corpus/testdata/cases/goexpr-valueform-init/). Task 2
+//     fixed this at the source — composedDelims's own fast-path guard
+//     additionally checks for ":=" and delegates to scanGoExpr when present
+//     (TestScanGoExprValueFormInitDivergence) — so composedDelims(inner) and
+//     scanGoExpr agree here too, and this loop's exact-match assertion holds
+//     without exception.
 //
 // Each recorded region is exactly what Task 2's reroute will hand to scanGoExpr,
 // so agreement here is the byte-identical guarantee.
@@ -417,9 +423,6 @@ func TestScanGoExprCorpusDifferential(t *testing.T) {
 
 // snippet returns a short, printable view of a scanned region for error output.
 func snippet(src string, from int) string {
-	end := from + 40
-	if end > len(src) {
-		end = len(src)
-	}
+	end := min(from+40, len(src))
 	return fmt.Sprintf("%q", src[from:end])
 }
