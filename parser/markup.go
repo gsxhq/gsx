@@ -563,12 +563,13 @@ func (p *parser) tryParseBodyEmbeddedInterp() (*ast.EmbeddedInterp, bool, error)
 	}
 	p.i++ // past '{'
 	p.skipSpace()
-	if !p.at("f`") {
-		// Only an f`…` literal interpolates in body position. A bare backtick is
-		// a plain Go raw string (interpolation is opt-in behind the f` prefix);
-		// js`/css` embedded literals aren't valid in body position; and anything
-		// else isn't a lone literal at all. Rewind and let parseInterp scan (and,
-		// where relevant, error on) the whole `{ }` as an ordinary Go expression.
+	if !p.at("f`") && !p.at(`f"`) {
+		// Only an f`…` / f"…" literal interpolates in body position. A bare
+		// backtick or bare `"` is a plain Go string (interpolation is opt-in
+		// behind the f prefix); js`/css` embedded literals aren't valid in body
+		// position; and anything else isn't a lone literal at all. Rewind and let
+		// parseInterp scan (and, where relevant, error on) the whole `{ }` as an
+		// ordinary Go expression.
 		rewind()
 		return nil, false, nil
 	}
@@ -579,7 +580,7 @@ func (p *parser) tryParseBodyEmbeddedInterp() (*ast.EmbeddedInterp, bool, error)
 	// a Go-aware scan below — that region can't contain a gsx backtick escape,
 	// so goStagesEnd is safe there even though goExprEnd is not safe over the
 	// literal itself.
-	lang, segs, err := p.parseEmbeddedAttrLiteral()
+	lang, dquoted, segs, err := p.parseEmbeddedAttrLiteral()
 	if err != nil {
 		// The literal didn't close cleanly (e.g. a Go raw string ending in `\`
 		// that the gsx backtick-escape convention swallows as an escape). This
@@ -596,7 +597,7 @@ func (p *parser) tryParseBodyEmbeddedInterp() (*ast.EmbeddedInterp, bool, error)
 	afterLiteral := p.i
 	if !p.eof() && p.src[p.i] == '}' {
 		p.i++ // past '}'
-		node := &ast.EmbeddedInterp{Segments: segs}
+		node := &ast.EmbeddedInterp{Segments: segs, DoubleQuoted: dquoted}
 		ast.SetSpan(node, startPos, p.posAt(p.i))
 		return node, true, nil
 	}
@@ -621,7 +622,7 @@ func (p *parser) tryParseBodyEmbeddedInterp() (*ast.EmbeddedInterp, bool, error)
 		return nil, false, nil
 	}
 	p.i = end + 1 // past '}'
-	node := &ast.EmbeddedInterp{Segments: segs, Stages: stages}
+	node := &ast.EmbeddedInterp{Segments: segs, Stages: stages, DoubleQuoted: dquoted}
 	ast.SetSpan(node, startPos, p.posAt(p.i))
 	return node, true, nil
 }

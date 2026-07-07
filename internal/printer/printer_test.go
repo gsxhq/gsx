@@ -304,6 +304,41 @@ component C(tab string) {
 	checkFormat(t, src, want)
 }
 
+// TestEmbeddedDquoteAttrPreserved pins that a `"`-delimited literal (the
+// escape-hatch used when the content contains a backtick) round-trips as
+// `"`-delimited — the printer must NOT rewrite it to the backtick form, which
+// would put a bare backtick inside a backtick literal and fail to re-parse.
+func TestEmbeddedDquoteAttrPreserved(t *testing.T) {
+	src := `package p
+component C(n string) {
+	<a t=js"x=` + "`" + `@{n}` + "`" + `">go</a>
+}`
+	want := `package p
+
+component C(n string) {
+	<a t=js"x=` + "`" + `@{n}` + "`" + `">go</a>
+}
+`
+	checkFormat(t, src, want)
+}
+
+// TestEmbeddedDquoteBodyAndEscapePreserved pins delimiter faithfulness for the
+// body form {f"…"} and for the `\"` escape (a literal quote inside a `"`
+// literal), both idempotent under re-format.
+func TestEmbeddedDquoteBodyAndEscapePreserved(t *testing.T) {
+	src := `package p
+component C(n string) {
+	<p title=f"say \"@{n}\"">{f"row-@{n}"}</p>
+}`
+	want := `package p
+
+component C(n string) {
+	<p title=f"say \"@{n}\"">{f"row-@{n}"}</p>
+}
+`
+	checkFormat(t, src, want)
+}
+
 func TestEmbeddedAttrDirectOptionalBraceLiteral(t *testing.T) {
 	src := `package p
 component C(id string) {

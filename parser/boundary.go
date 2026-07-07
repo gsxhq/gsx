@@ -136,11 +136,11 @@ func composedDelims(src string) (commas, colons []int) {
 func skipGSXEmbeddedLiteral(src string, i int) (int, bool) {
 	switch {
 	case hasIdentBoundary(src, i) && strings.HasPrefix(src[i:], "js`"):
-		return embeddedLiteralEnd(src, i+len("js`"))
+		return embeddedLiteralEnd(src, i+len("js`"), '`')
 	case hasIdentBoundary(src, i) && strings.HasPrefix(src[i:], "css`"):
-		return embeddedLiteralEnd(src, i+len("css`"))
+		return embeddedLiteralEnd(src, i+len("css`"), '`')
 	case hasIdentBoundary(src, i) && strings.HasPrefix(src[i:], "f`"):
-		return embeddedLiteralEnd(src, i+len("f`"))
+		return embeddedLiteralEnd(src, i+len("f`"), '`')
 	default:
 		return 0, false
 	}
@@ -150,9 +150,16 @@ func hasIdentBoundary(src string, i int) bool {
 	return i == 0 || !isIdentByte(src[i-1])
 }
 
-func embeddedLiteralEnd(src string, i int) (int, bool) {
+// embeddedLiteralEnd returns the offset just past the closing delim of a gsx
+// embedded literal whose body starts at src[i] (i.e. just after the opening
+// delimiter). It honours gsx's backslash escape convention — a delim preceded
+// by an odd number of backslashes (a backslash-escaped backtick in a backtick
+// literal, `\"` in a '"'-delimited one) is a literal char, not the terminator.
+// delim is a backtick for the f/js/css backtick forms and '"' for the
+// '"'-delimited escape-hatch forms.
+func embeddedLiteralEnd(src string, i int, delim byte) (int, bool) {
 	for i < len(src) {
-		if src[i] == '`' && !backtickEscapedIn(src, i) {
+		if src[i] == delim && !backtickEscapedIn(src, i) {
 			return i + 1, true
 		}
 		i++

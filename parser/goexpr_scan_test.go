@@ -445,6 +445,52 @@ func TestScanGoExprOpaqueSpanTableCases(t *testing.T) {
 	})
 	t.Run("js backtick interior", backtickCase("js`", "js`e}f|>g,h` }"))
 	t.Run("css backtick interior", backtickCase("css`", "css`e}f|>g,h` }"))
+
+	// The `"`-delimited escape-hatch forms (f"/js"/css") are taken over the same
+	// way as the backtick forms: scanGoExpr must NOT trust go/scanner's STRING
+	// tokenization (a `"` inside a hole, or a `\@{` invalid escape, would desync
+	// it) and instead records a gsx span with the escape-aware `"`-end. A free
+	// backtick inside the `"` literal (below) is literal content, not a Go raw
+	// string, so its interior '}','|>',',' stay opaque.
+	dquoteCase := func(name, src string) func(t *testing.T) {
+		return func(t *testing.T) {
+			got := scanGoExpr(src, 0)
+			if got.Close != len(src)-1 {
+				t.Fatalf("Close = %d, want %d (the trailing '}')", got.Close, len(src)-1)
+			}
+			wantSpan := [2]int{0, strings.LastIndex(src, `"`) + 1}
+			if len(got.Backticks) != 1 || got.Backticks[0] != wantSpan {
+				t.Fatalf("Backticks = %v, want one %v covering the whole %s literal (incl. lang prefix)", got.Backticks, wantSpan, name)
+			}
+			if len(got.Pipes) != 0 {
+				t.Errorf("Pipes = %v, want none — the '|>' is inside the %s literal", got.Pipes, name)
+			}
+			if len(got.Commas) != 0 {
+				t.Errorf("Commas = %v, want none — the ',' is inside the %s literal", got.Commas, name)
+			}
+		}
+	}
+	// Content carries a literal backtick (` "`+"`"+`z" `) to prove it is free
+	// inside a `"` literal.
+	t.Run("f dquote interior", dquoteCase(`f"`, "f\"e}f|>g,h"+"`"+"z\" }"))
+	t.Run("js dquote interior", dquoteCase(`js"`, "js\"e}f|>g,h"+"`"+"z\" }"))
+	t.Run("css dquote interior", dquoteCase(`css"`, "css\"e}f|>g,h"+"`"+"z\" }"))
+	t.Run("bare dquote interior", func(t *testing.T) {
+		// A bare `"…"` is a plain Go string, NOT a gsx span (interpolation is
+		// opt-in behind the f/js/css prefix); its interior stays opaque via
+		// go/scanner's own STRING tokenization.
+		const src = `"a}b|>c,d" }`
+		got := scanGoExpr(src, 0)
+		if got.Close != len(src)-1 {
+			t.Fatalf("Close = %d, want %d (the trailing '}')", got.Close, len(src)-1)
+		}
+		if len(got.Backticks) != 0 {
+			t.Errorf("Backticks = %v, want none (bare \"…\" is a Go string, not a gsx span)", got.Backticks)
+		}
+		if len(got.Pipes) != 0 || len(got.Commas) != 0 {
+			t.Errorf("Pipes=%v Commas=%v, want none — interior is inside the Go string", got.Pipes, got.Commas)
+		}
+	})
 }
 
 // TestScanGoExprCorpusDifferential is the risk-gate proof: for every

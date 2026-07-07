@@ -121,8 +121,8 @@ func scanGoExpr(src string, from int) goExprScan {
 			// gsx never reinterprets a bare Go raw string: interpolation is opt-in
 			// behind a prefix.
 			if tok == token.STRING && off < len(src) && src[off] == '`' {
-				if p := backtickPrefixStart(src, off); p >= 0 {
-					end, _ := embeddedLiteralEnd(src, off+1)
+				if p := langPrefixStart(src, off); p >= 0 {
+					end, _ := embeddedLiteralEnd(src, off+1, '`')
 					res.Backticks = append(res.Backticks, [2]int{p, end})
 					base = end
 					expectOperand = false // a literal is a completed operand
@@ -133,6 +133,29 @@ func scanGoExpr(src string, from int) goExprScan {
 				}
 				// Bare backtick: fall through to the operand-tracking switch
 				// below, treating go/scanner's STRING as a completed Go operand.
+			}
+
+			// A `"`-delimited gsx literal (f"/js"/css") — the escape-hatch for
+			// content containing a backtick. go/scanner reports it as an
+			// interpreted STRING, but its tokenization CANNOT be trusted: gsx's
+			// `\@{` is an invalid Go escape, and a `"` inside a hole would
+			// prematurely end go/scanner's string. So, exactly as for the
+			// prefixed backtick form, we take over the span with gsx's
+			// escape-aware `"`-end (embeddedLiteralEnd with delim '"') and resume
+			// past it. A BARE `"…"` (langPrefixStart < 0) is a plain Go string —
+			// interpolation is opt-in behind the prefix — so it flows through as
+			// an ordinary operand.
+			if tok == token.STRING && off < len(src) && src[off] == '"' {
+				if p := langPrefixStart(src, off); p >= 0 {
+					end, _ := embeddedLiteralEnd(src, off+1, '"')
+					res.Backticks = append(res.Backticks, [2]int{p, end})
+					base = end
+					expectOperand = false
+					prevTok = token.ILLEGAL
+					prevOff = -1
+					advanced = true
+					break
+				}
 			}
 
 			// Operand-position element literal: record the mark and resume past
@@ -182,21 +205,24 @@ func scanGoExpr(src string, from int) goExprScan {
 	return res
 }
 
-// backtickPrefixStart reports the start offset of an `f`/`js`/`css` prefix that
-// immediately precedes the backtick at src[backtick], applying the same
-// ident-boundary rule as skipGSXEmbeddedLiteral (so `xjs`…“ is a bare literal,
-// not a js one). Returns -1 when there is no such prefix — i.e. a bare backtick
-// literal whose span starts at the backtick itself (a plain Go raw string —
-// interpolation is opt-in behind an f`/js`/css` prefix).
-func backtickPrefixStart(src string, backtick int) int {
-	if backtick >= 2 && src[backtick-2:backtick] == "js" && hasIdentBoundary(src, backtick-2) {
-		return backtick - 2
+// langPrefixStart reports the start offset of an `f`/`js`/`css` prefix that
+// immediately precedes the literal delimiter at src[delim] (a backtick or a
+// `"`), applying the same ident-boundary rule as skipGSXEmbeddedLiteral (so
+// `xjs`…“ is a bare literal, not a js one). It inspects only the bytes BEFORE
+// src[delim], so it is delimiter-agnostic and serves both the backtick forms
+// (f`/js`/css`) and the `"`-delimited escape-hatch forms (f"/js"/css").
+// Returns -1 when there is no such prefix — i.e. a bare delimiter whose span
+// starts at the delimiter itself (a plain Go raw/interpreted string —
+// interpolation is opt-in behind an f/js/css prefix).
+func langPrefixStart(src string, delim int) int {
+	if delim >= 2 && src[delim-2:delim] == "js" && hasIdentBoundary(src, delim-2) {
+		return delim - 2
 	}
-	if backtick >= 3 && src[backtick-3:backtick] == "css" && hasIdentBoundary(src, backtick-3) {
-		return backtick - 3
+	if delim >= 3 && src[delim-3:delim] == "css" && hasIdentBoundary(src, delim-3) {
+		return delim - 3
 	}
-	if backtick >= 1 && src[backtick-1] == 'f' && hasIdentBoundary(src, backtick-1) {
-		return backtick - 1
+	if delim >= 1 && src[delim-1] == 'f' && hasIdentBoundary(src, delim-1) {
+		return delim - 1
 	}
 	return -1
 }
@@ -276,7 +302,7 @@ type goSplitItem struct {
 // span discipline, but over a full Go region (no depth/delimiter/close-brace
 // tracking, which region-level splits don't need). A BARE backtick (a plain Go
 // raw string) is NOT a literal — interpolation is opt-in behind the prefix, so
-// backtickPrefixStart returns -1 and it flows through as an ordinary operand.
+// langPrefixStart returns -1 and it flows through as an ordinary operand.
 func scanGoParts(src string) []goSplitItem {
 	var items []goSplitItem
 	buf := []byte(src)
@@ -303,11 +329,27 @@ func scanGoParts(src string) []goSplitItem {
 			// escaping context an EmbeddedInterp value cannot represent) are left
 			// UNSPLIT: they remain in verbatim GoText, round-trip faithfully through
 			// the printer, and surface as invalid Go at compile — a clean gate, not
-			// a silent miscompile. A bare backtick (backtickPrefixStart < 0) is a
+			// a silent miscompile. A bare backtick (langPrefixStart < 0) is a
 			// plain Go raw string and likewise flows through untouched.
 			if tok == token.STRING && off < len(src) && src[off] == '`' {
-				if p := backtickPrefixStart(src, off); p >= 0 && off-p == len("f") {
-					end, _ := embeddedLiteralEnd(src, off+1)
+				if p := langPrefixStart(src, off); p >= 0 && off-p == len("f") {
+					end, _ := embeddedLiteralEnd(src, off+1, '`')
+					items = append(items, goSplitItem{Off: p, IsLiteral: true})
+					base = end
+					expectOperand = false
+					advanced = true
+					break
+				}
+			}
+
+			// The `"`-delimited counterpart (f"…") at a Go-expression value
+			// position. Same gate as the backtick form above: ONLY f" is split
+			// (js"/css" carry an escaping context an EmbeddedInterp value cannot
+			// represent, so they are left unsplit — verbatim GoText that surfaces
+			// as invalid Go at compile). A bare "…" is a plain Go string.
+			if tok == token.STRING && off < len(src) && src[off] == '"' {
+				if p := langPrefixStart(src, off); p >= 0 && off-p == len("f") {
+					end, _ := embeddedLiteralEnd(src, off+1, '"')
 					items = append(items, goSplitItem{Off: p, IsLiteral: true})
 					base = end
 					expectOperand = false
