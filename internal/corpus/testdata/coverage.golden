@@ -459,6 +459,7 @@ style/value_form_evaluation_order	diag gen render
 style/value_if_else	diag gen render
 style/value_if_local_liveness	diag gen render
 style/value_switch	diag gen render
+textattr/bare_backtick_class_spread	diag render
 textattr/class_backtick_sub_expr_merge	diag gen render
 textattr/class_interp	diag gen render
 textattr/class_no_spread	diag gen render
@@ -522,4 +523,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 524 cases (render: 426, error: 75, gen-pinned: 257)
+TOTAL: 525 cases (render: 427, error: 75, gen-pinned: 257)

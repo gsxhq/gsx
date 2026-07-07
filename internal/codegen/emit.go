@@ -2472,6 +2472,8 @@ func embeddedLangName(lang ast.EmbeddedLang) string {
 		return "js"
 	case ast.EmbeddedCSS:
 		return "css"
+	case ast.EmbeddedText:
+		return "f"
 	default:
 		return fmt.Sprintf("unknown(%d)", lang)
 	}
