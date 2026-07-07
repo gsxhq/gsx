@@ -96,3 +96,104 @@ func TestGoWithElementsValidInterpGeneratesCleanly(t *testing.T) {
 		t.Fatalf("expected the outer-scope identifier `label` referenced in the generated source, got:\n%s", got)
 	}
 }
+
+// TestGoWithElementsFuncLocalScopeCapture is the final-review CRITICAL repro:
+// an embedded element inside a top-level func body must resolve its
+// interpolations against the SURROUNDING lexical scope — a func parameter
+// (`label`) and a local (`greeting`) — not a separate top-level func scope
+// (which would false-`undefined`). The probe lowers the element to an inline
+// scope-capturing IIFE (mirroring emit's inline gsx.Func closure), so
+// generation is clean and the generated code references both names.
+func TestGoWithElementsFuncLocalScopeCapture(t *testing.T) {
+	t.Parallel()
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module gsxgwprobe3\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pkgDir := filepath.Join(tmp, "genpkg")
+	// Returns string (no user gsx import needed); the generated gsx.Func
+	// import is auto-injected. Element interpolates a param AND a local.
+	writeFile(t, pkgDir, "views.gsx", "package views\n\nfunc Help(label string) string {\n\tgreeting := label + \"!\"\n\t_ = <div>{ greeting }{ label }</div>\n\treturn greeting\n}\n")
+
+	res, err := GenerateDirs(tmp, []string{pkgDir}, Options{FilterPkgs: []string{stdImportPath}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pr := res[pkgDir]
+	if len(pr.Diags) != 0 {
+		t.Fatalf("expected clean generation (no false undefined), got: %v", pr.Diags)
+	}
+	var got string
+	for _, src := range pr.Files {
+		got = string(src)
+	}
+	for _, want := range []string{"greeting", "label", "gsx.Func("} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected %q in generated source, got:\n%s", want, got)
+		}
+	}
+}
+
+// TestGoWithElementsFuncLocalTypeErrorCaught confirms the scope fix did not
+// lose type-checking: a mistyped interpolation inside an embedded element in
+// func-local context (an int on a string-typed child prop) still produces a
+// diagnostic.
+func TestGoWithElementsFuncLocalTypeErrorCaught(t *testing.T) {
+	t.Parallel()
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module gsxgwprobe4\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pkgDir := filepath.Join(tmp, "genpkg")
+	writeFile(t, pkgDir, "views.gsx", "package views\n\ncomponent Child(x string) {\n\t{ x }\n}\n\nfunc Help() string {\n\tn := 5\n\t_ = <Child x={n}/>\n\treturn \"ok\"\n}\n")
+
+	res, err := GenerateDirs(tmp, []string{pkgDir}, Options{FilterPkgs: []string{stdImportPath}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pr := res[pkgDir]
+	found := false
+	for _, d := range pr.Diags {
+		if strings.Contains(d.Message, "cannot use") && strings.Contains(d.Message, "string") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected a 'cannot use ... as string' diagnostic, got: %v", pr.Diags)
+	}
+}
+
+// TestGoWithElementsTwoFilesNoRedeclare guards IMPORTANT #2: two .gsx files
+// in ONE package, each with an element literal, must not collide on any
+// generated skeleton identifier (the inline-IIFE approach declares no named
+// per-file probe func — the only marker, `_gsxelem`, is a shared helper), AND
+// a real type error in one file must still be diagnosed (no cross-file
+// suppression).
+func TestGoWithElementsTwoFilesNoRedeclare(t *testing.T) {
+	t.Parallel()
+	repoRoot, _ := filepath.Abs("../..")
+	tmp := t.TempDir()
+	writeFile(t, tmp, "go.mod", "module gsxgwprobe5\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pkgDir := filepath.Join(tmp, "genpkg")
+	// a.gsx: valid embedded element. b.gsx: embedded element with a type error.
+	writeFile(t, pkgDir, "a.gsx", "package views\n\nvar aLabel = \"A\"\nvar a = <div>{ aLabel }</div>\n")
+	writeFile(t, pkgDir, "b.gsx", "package views\n\ncomponent Child(x string) {\n\t{ x }\n}\n\nvar bN = 7\nvar b = <Child x={bN}/>\n")
+
+	res, err := GenerateDirs(tmp, []string{pkgDir}, Options{FilterPkgs: []string{stdImportPath}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pr := res[pkgDir]
+	for _, d := range pr.Diags {
+		if strings.Contains(d.Message, "redeclared") {
+			t.Fatalf("cross-file redeclare error (IMPORTANT #2 regression): %v", pr.Diags)
+		}
+	}
+	found := false
+	for _, d := range pr.Diags {
+		if strings.Contains(d.Message, "cannot use") && strings.Contains(d.Message, "string") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected b.gsx's type error still diagnosed, got: %v", pr.Diags)
+	}
+}
