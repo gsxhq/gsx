@@ -356,3 +356,46 @@ func TestStyleInterpPreserved(t *testing.T) {
 		t.Fatalf("child0 = %#v, want verbatim leading CSS text", style.Children[0])
 	}
 }
+
+// --- ast.GoWithElements (elements embedded in Go-expression position) ---
+
+// TestGoWithElementsNormalized confirms an element sitting in Go-expression
+// position (e.g. `var help = <div>...</div>`, parsed as *ast.GoWithElements,
+// not *ast.Component) gets the SAME JSX whitespace collapsing as a component
+// body element: cosmetic block indentation is dropped, inline runs collapse
+// to a single space. Before this case existed, Normalize only walked
+// f.Decls for *ast.Component, silently skipping GoWithElements — a gap that
+// left an embedded element's Text children un-normalized (see fmt's
+// idempotence contract in internal/printer).
+func TestGoWithElementsNormalized(t *testing.T) {
+	src := "package p\n\nvar help = <div>\n  <p>a</p>\n  <span>b</span>\n</div>\n"
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "t.gsx", src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	Normalize(f)
+	got := collectText(f)
+	want := []string{"a", "b"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("text nodes = %#v, want %#v", got, want)
+	}
+}
+
+// TestGoWithElementsPreserveTag confirms the preserve-tags rule (pre/textarea/
+// script/style keep whitespace verbatim) also applies inside a
+// GoWithElements-embedded element, not just inside a component body.
+func TestGoWithElementsPreserveTag(t *testing.T) {
+	src := "package p\n\nvar help = <pre>  a\n  b</pre>\n"
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "t.gsx", src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	Normalize(f)
+	got := collectText(f)
+	want := []string{"  a\n  b"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("text nodes = %#v, want %#v", got, want)
+	}
+}

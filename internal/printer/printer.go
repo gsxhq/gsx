@@ -89,8 +89,19 @@ func (p *printer) file(f *ast.File) pretty.Doc {
 		// between them in the source): such a comment stays attached, gofmt-style.
 		blank := true
 		if i > 0 {
-			if prev, ok := f.Decls[i-1].(*ast.GoChunk); ok && !endsWithBlankLine(prev.Src) {
-				blank = false
+			switch prev := f.Decls[i-1].(type) {
+			case *ast.GoChunk:
+				if !endsWithBlankLine(prev.Src) {
+					blank = false
+				}
+			case *ast.GoWithElements:
+				// Mirror the GoChunk check above using the trailing GoText part's
+				// own source (the verbatim Go text after the last embedded
+				// element, up to this next decl) — same "did the source have a
+				// blank line here" question GoChunk answers via its own Src.
+				if last, ok := prev.Parts[len(prev.Parts)-1].(ast.GoText); ok && !endsWithBlankLine(last.Src) {
+					blank = false
+				}
 			}
 		}
 		if blank {
@@ -115,11 +126,78 @@ func (p *printer) decl(d ast.Decl) pretty.Doc {
 	switch v := d.(type) {
 	case *ast.GoChunk:
 		return pretty.Concat(multiline(fmtGoChunk(v.Src)), pretty.HardLine)
+	case *ast.GoWithElements:
+		return pretty.Concat(p.goWithElements(v), pretty.HardLine)
 	case *ast.Component:
 		return p.component(v)
 	default:
 		return p.fail("printer: unknown decl type %T", d)
 	}
+}
+
+// goWithElements renders a *ast.GoWithElements decl: Go source text
+// interleaved with one or more gsx elements sitting in expression position
+// (e.g. `var help = <a href={u}>{ label }</a>`). Each GoText part is an
+// INCOMPLETE Go fragment — the Go code before, after, or between embedded
+// elements (e.g. "var help = ", or "" between two adjacent elements) — so,
+// unlike a GoChunk, it cannot be routed through fmtGoChunk/go-format: that
+// function requires a syntactically complete compilation unit, and a bare
+// "var help = " isn't one.
+//
+// Instead each GoText part is printed verbatim via multiline (which lays out
+// embedded newlines at the CURRENT indent; at this decl's top-level position
+// that indent is zero, so a multi-line fragment's own original indentation —
+// carried as literal bytes inside each line's Text — reproduces unchanged)
+// and each *ast.Element part goes through the ordinary element printer, the
+// exact same one every other element in the file is printed with. The
+// parser's documented round-trip invariant (concatenating every part's own
+// source reproduces the original span exactly, see ast.GoWithElements) is
+// what makes this recombination faithful: this function never has to parse
+// or re-derive the Go text's structure, only relay it.
+//
+// Only the outermost edges are trimmed, mirroring fmtGoChunk's TrimSpace: the
+// leading whitespace of the FIRST part and the trailing whitespace of the
+// LAST part are the blank-line padding between this decl and its neighbors
+// (file's own blank-line-separator logic re-derives that padding, exactly as
+// it does for a GoChunk's leading/trailing whitespace). Internal parts — Go
+// text between two elements, mid-declaration — are left byte-for-byte
+// untouched; go/format cannot safely re-derive their layout without full
+// syntactic context, and the round-trip invariant already guarantees they
+// are exactly what belongs there.
+func (p *printer) goWithElements(v *ast.GoWithElements) pretty.Doc {
+	last := len(v.Parts) - 1
+	docs := make([]pretty.Doc, 0, len(v.Parts))
+	for i, part := range v.Parts {
+		switch pt := part.(type) {
+		case ast.GoText:
+			src := trimGoTextEdges(pt.Src, i == 0, i == last)
+			if src == "" {
+				continue
+			}
+			docs = append(docs, multiline(src))
+		case *ast.Element:
+			docs = append(docs, p.element(pt))
+		default:
+			return p.fail("printer: unknown Go-expression part type %T", part)
+		}
+	}
+	return pretty.Concat(docs...)
+}
+
+// trimGoTextEdges trims leading whitespace from src when first is true, and
+// trailing whitespace when last is true; src is returned unchanged when both
+// are false (an internal GoText part, between two elements). Shared by the
+// printer (goWithElements above) and the printer test suite's Go-fragment
+// canonicalization (canonGo), so both sides of the faithfulness comparison
+// treat a GoWithElements decl's outer edges identically.
+func trimGoTextEdges(src string, first, last bool) string {
+	if first {
+		src = strings.TrimLeft(src, " \t\n\r")
+	}
+	if last {
+		src = strings.TrimRight(src, " \t\n\r")
+	}
+	return src
 }
 
 // component emits `component [recv ]Name(params) {` + body + `}`. The body
