@@ -58,19 +58,9 @@ component Uses() {
 }
 ```
 
-`help` is inferred as `gsx.Node`, exactly as if it had been returned from a component, and interpolates like any other node value. Interpolations inside the element resolve against the surrounding Go scope — `<span class={ cls }>{ label }</span>` reads whatever `cls`/`label` are in scope where the element is written, including local variables inside a function, which the generated closure captures the same way ordinary Go code would.
+`help` is inferred as `gsx.Node` and interpolates like any other node. Interpolations inside the element resolve against the surrounding Go scope, capturing locals just as ordinary Go would.
 
-The same form works as a call argument — the shape `RenderComponent(<Foo/>)` (for example, `structpages.RenderComponent`) uses:
-
-```gsx
-component Foo() {
-	<p>Foo body</p>
-}
-
-var wrapped = Wrap(<Foo/>)
-```
-
-as a `return` value:
+It works the same as a call argument (e.g. `structpages.RenderComponent(<Foo/>)`) or a `return` value:
 
 ```gsx
 package demo
@@ -86,22 +76,14 @@ func Help() gsx.Node {
 }
 ```
 
-The `component Noop()` here isn't decoration: when a `.gsx` file's only package-level `import` exists solely to spell `gsx.Node`, the file needs at least one `component` declaration for the import to hoist correctly. An element-containing top-level Go region (like `func Help`) is emitted as a single unit, and without a preceding `component` boundary the `import` ends up after generated code — `imports must appear before other declarations`. A `component` splits the file into separate chunks and resolves it; this is a current limitation of element literals in top-level Go regions.
+> **Gotcha.** A top-level Go region containing an element (like `func Help`) is emitted as one unit, so a file whose only `import` exists to spell `gsx.Node` needs at least one `component` declaration (`Noop` above) for the import to hoist ahead of generated code.
 
-Element literals also appear as a struct-literal field whose declared type is `gsx.Node` — a nav-item table can bake its own icon inline instead of pointing at a separate component:
+As a struct-literal field of type `gsx.Node` — baking an icon inline instead of pointing at a separate component — and as a component tag in expression position:
 
 ```gsx
 var item = NavItem{Label: "Home", Icon: <svg class="w-5 h-5">
 	<path d="M0 0"/>
 </svg>}
-```
-
-Component tags work in expression position too, lowering through the same attr→prop path a component body's child tags already use:
-
-```gsx
-component Badge(count int) {
-	<span class="badge">{ count }</span>
-}
 
 var badge = <Badge count={12}/>
 ```
