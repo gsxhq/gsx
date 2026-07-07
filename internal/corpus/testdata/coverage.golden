@@ -242,6 +242,8 @@ fragment-literals/var	diag gen render
 goexpr-interp-tag/call-arg	diag gen render
 goexpr-interp-tag/component-tag	diag gen render
 goexpr-interp-tag/scope-local	diag gen render
+goexpr-interp-tag/sibling-mixed-type	diag gen render
+goexpr-interp-tag/stages	diag gen render
 goexpr-valueform-init/value_if_define_init	diag gen render
 interpolation/field_access	diag render
 interpolation/interp_types	diag render
@@ -519,4 +521,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 521 cases (render: 423, error: 75, gen-pinned: 254)
+TOTAL: 523 cases (render: 425, error: 75, gen-pinned: 256)
