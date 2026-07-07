@@ -239,6 +239,7 @@ fragment-literals/loop-list	diag gen render
 fragment-literals/return	diag gen render
 fragment-literals/struct-field	diag gen render
 fragment-literals/var	diag gen render
+goexpr-valueform-init/value_if_define_init	diag gen render
 interpolation/field_access	diag render
 interpolation/interp_types	diag render
 interpolation/mixed_chunk	diag render
@@ -515,4 +516,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 517 cases (render: 419, error: 75, gen-pinned: 250)
+TOTAL: 518 cases (render: 420, error: 75, gen-pinned: 251)
