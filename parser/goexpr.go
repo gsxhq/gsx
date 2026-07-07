@@ -33,15 +33,27 @@ type goExprScan struct {
 // capture the exact interpolation regions the parser scans, so scanGoExpr can be
 // proved byte-identical to the legacy scanners on all of them. It is nil in
 // production — a passive hook, never a reroute (that is Task 2).
+//
+// Lifecycle: this is a PERMANENT regression guard, not a Task-2-and-delete
+// scaffold. Once Task 2 reroutes goDepth1End's/composedDelims's callers onto
+// scanGoExpr directly, the legacy scanners stop being called in production —
+// but they should stay in the tree (dead in prod, alive in tests) precisely
+// so this differential keeps running: it is the only thing that continuously
+// re-proves scanGoExpr's single unified pass still agrees with the four
+// independent byte/token walks it replaced, across the whole corpus, on
+// every future syntax change.
 var scanRegionObserver func(src string, from int)
 
 // composedRegionObserver, when non-nil, is invoked by composedDelims with the
 // inner class/style source it splits. Test-only, like scanRegionObserver: it
 // lets the corpus differential compare scanGoExpr's Commas/Colons against
 // composedDelims on exactly the (class/style) regions composedDelims actually
-// serves in production — where a depth-0 ',' / ':' is a real ordered-attr
-// delimiter, not a byte inside a Go `:=` that only a general-purpose interp body
-// would contain. Nil in production.
+// serves in production — where a depth-0 ',' / ':' is usually a real
+// ordered-attr delimiter, but can also be the ':' of a Go `:=` (a value-form
+// if/switch's `;`-separated init — see TestScanGoExprValueFormInitDivergence
+// in goexpr_scan_test.go for the one construct where composedDelims and
+// scanGoExpr intentionally diverge on this). Nil in production. Same
+// permanent-regression-guard lifecycle as scanRegionObserver above.
 var composedRegionObserver func(src string)
 
 // scanGoExpr scans a Go interpolation body with go/scanner, starting at byte
