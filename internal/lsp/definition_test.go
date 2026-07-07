@@ -74,15 +74,22 @@ func analyzedLSPPackage(t *testing.T, src string) (*Package, string) {
 	for n, cr := range pr.CtrlMap {
 		ctrl[n] = CtrlRef{ClauseStart: cr.ClauseStart, Node: cr.Node}
 	}
+	// Mirror the real server's adaptPackageResult CrossIndex copy so tag→decl
+	// go-to-definition (componentTagDeclAt) resolves in analyzed test packages.
+	cross := make(map[string]CrossRef, len(pr.CrossIndex))
+	for k, v := range pr.CrossIndex {
+		cross[k] = CrossRef{Name: v.Name, Decl: v.Decl, Decls: v.Decls, Refs: v.Refs}
+	}
 	return &Package{
-		GSXFset:  pr.GSXFset,
-		Fset:     pr.Fset,
-		Info:     pr.Info,
-		Types:    pr.Types,
-		Files:    pr.GSXFiles,
-		ExprMap:  pr.ExprMap,
-		CtrlMap:  ctrl,
-		SigTypes: sigTypes,
+		GSXFset:    pr.GSXFset,
+		Fset:       pr.Fset,
+		Info:       pr.Info,
+		Types:      pr.Types,
+		Files:      pr.GSXFiles,
+		ExprMap:    pr.ExprMap,
+		CtrlMap:    ctrl,
+		SigTypes:   sigTypes,
+		CrossIndex: cross,
 	}, gsxPath
 }
 
