@@ -196,6 +196,8 @@ func (s *Server) handle(f frame) error {
 		return s.handleHover(f)
 	case "textDocument/formatting":
 		return s.handleFormatting(f)
+	case "textDocument/documentSymbol":
+		return s.handleDocumentSymbol(f)
 	default:
 		if len(f.ID) > 0 {
 			return s.replyError(f.ID, -32601, "method not found: "+f.Method)
@@ -220,6 +222,7 @@ func (s *Server) handleInitialize(f frame) error {
 		ReferencesProvider:         true,
 		DocumentFormattingProvider: true,
 		HoverProvider:              true,
+		DocumentSymbolProvider:     true,
 	}})
 }
 
