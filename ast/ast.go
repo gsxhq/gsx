@@ -123,9 +123,10 @@ type Attr interface {
 	attrNode()
 }
 
-// GoPart is one piece of a GoWithElements: either a raw run of Go source text
-// (GoText) or an embedded element (*Element). It refines Node with a sealed
-// marker, mirroring Markup/Decl/Attr.
+// GoPart is one piece of a GoWithElements: a raw run of Go source text
+// (GoText), an embedded element (*Element), or an embedded fragment
+// (*Fragment). It refines Node with a sealed marker, mirroring
+// Markup/Decl/Attr.
 type GoPart interface {
 	Node
 	goPartNode()
