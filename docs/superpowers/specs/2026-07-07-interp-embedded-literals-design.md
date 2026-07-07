@@ -141,12 +141,22 @@ current `EmbeddedInterp` body behavior).
 
 ## Compatibility
 
-One behavior change, accepted: **a plain Go raw string literal that contains
-`@{` now interpolates** inside a `.gsx` Go region, because bare backticks become
-interpolating literals. `\@{` keeps a literal `@{`. This is the same
-claim-what-Go-leaves-free move as `|>`; it is source-visible and documented. Go
-raw strings without `@{` are unaffected. (Element/fragment literals introduce no
-compatibility change — operand-position `<` was already claimed.)
+Two behavior changes, both accepted — both instances of gsx claiming the escape
+space Go leaves free inside backticks:
+
+1. **A plain Go raw string containing `@{` now interpolates** inside a `.gsx` Go
+   region, because bare backticks become interpolating literals. `\@{` keeps a
+   literal `@{`.
+2. **A plain Go raw string ending in a backslash before its close — `` `…\` `` —
+   now parse-errors** (later, a gsx literal), because gsx applies its `\``
+   escape convention uniformly to every backtick, so the `\`` reads as an escaped
+   backtick rather than a Go-literal backslash. Narrow (only raw strings ending
+   in `\`, e.g. `` `\` ``/`` `C:\` ``); workaround `"\\"` or restructure.
+
+Both are source-visible and documented, the same claim-what-Go-leaves-free move
+as `|>`. Go raw strings without `@{` and not ending in `\` are unaffected.
+(Element/fragment literals introduce no compatibility change — operand-position
+`<` was already claimed.)
 
 ## Codegen: split + lower at emit time; AST reused
 
