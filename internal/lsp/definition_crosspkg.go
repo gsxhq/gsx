@@ -116,7 +116,7 @@ func crossPkgTagDeclAt(pkg *Package, path string, off int) (token.Position, bool
 	}
 	var result token.Position
 	found := false
-	gsxast.Inspect(f, func(n gsxast.Node) bool {
+	inspectWithEmbedded(f, func(n gsxast.Node) bool {
 		if found {
 			return false
 		}

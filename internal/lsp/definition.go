@@ -87,7 +87,7 @@ func exprNodeAtOffset(pkg *Package, path string, off int) (gsxast.Node, token.Po
 	}
 	var found gsxast.Node
 	var foundPos token.Pos
-	gsxast.Inspect(f, func(n gsxast.Node) bool {
+	inspectWithEmbedded(f, func(n gsxast.Node) bool {
 		if n == nil {
 			return false
 		}
@@ -646,7 +646,7 @@ func componentTagDeclAt(pkg *Package, path string, off int) ([]token.Position, b
 	}
 	var result []token.Position
 	found := false
-	gsxast.Inspect(f, func(n gsxast.Node) bool {
+	inspectWithEmbedded(f, func(n gsxast.Node) bool {
 		if found {
 			return false
 		}

@@ -115,7 +115,7 @@ func componentAttrAtOffset(pkg *Package, path string, off int) (tag, attr string
 	if f == nil || pkg.GSXFset == nil {
 		return "", "", 0, false
 	}
-	gsxast.Inspect(f, func(n gsxast.Node) bool {
+	inspectWithEmbedded(f, func(n gsxast.Node) bool {
 		if tag != "" {
 			return false
 		}
