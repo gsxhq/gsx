@@ -1,6 +1,8 @@
 package lsp
 
 import (
+	goast "go/ast"
+	"go/parser"
 	"go/token"
 	"strings"
 
@@ -64,17 +66,45 @@ func componentSymbol(file *gsxast.File, fset *token.FileSet, c *gsxast.Component
 	}
 }
 
-// receiverTypeName extracts the type name from a component receiver source like
-// "(f *Form)" or "(p UsersPage)" → "Form" / "UsersPage". Falls back to the raw
-// trimmed text if it cannot parse the shape.
+// receiverTypeName extracts the base type name from a component receiver
+// source like "(f *Form)" or "(p UsersPage)" → "Form" / "UsersPage". It
+// parses the receiver as real Go source (mirroring codegen.parseRecv) rather
+// than string-splitting, so it handles pointer receivers, generic type args
+// (e.g. "(f *Form[T, U])" → "Form"), and irregular spacing correctly. Falls
+// back to the raw trimmed text if it cannot parse the shape.
 func receiverTypeName(recv string) string {
-	s := strings.TrimSpace(recv)
-	s = strings.TrimPrefix(s, "(")
-	s = strings.TrimSuffix(s, ")")
-	fields := strings.Fields(s)
-	if len(fields) == 0 {
-		return strings.TrimSpace(recv)
+	trimmed := strings.TrimSpace(recv)
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "", "package _\nfunc "+trimmed+" _m() {}", 0)
+	if err != nil {
+		return trimmed
 	}
-	typ := fields[len(fields)-1] // last field is the type (recv may be name+type or type-only)
-	return strings.TrimPrefix(typ, "*")
+	fn, ok := f.Decls[0].(*goast.FuncDecl)
+	if !ok || fn.Recv == nil || len(fn.Recv.List) != 1 {
+		return trimmed
+	}
+	if name := exprTypeName(fn.Recv.List[0].Type); name != "" {
+		return name
+	}
+	return trimmed
+}
+
+// exprTypeName returns the base type name of a (possibly pointer or
+// generic-instantiated) type expression, e.g. "*Form" → "Form",
+// "Form[T]" → "Form", "*Form[T, U]" → "Form". Returns "" for shapes it
+// doesn't recognize. Shared by receiver-type extraction for gsx component
+// receivers and (future) Go method receivers.
+func exprTypeName(e goast.Expr) string {
+	switch t := e.(type) {
+	case *goast.StarExpr:
+		return exprTypeName(t.X)
+	case *goast.IndexExpr:
+		return exprTypeName(t.X)
+	case *goast.IndexListExpr:
+		return exprTypeName(t.X)
+	case *goast.Ident:
+		return t.Name
+	default:
+		return ""
+	}
 }

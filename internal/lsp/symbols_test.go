@@ -58,3 +58,23 @@ func TestFileSymbolsComponents(t *testing.T) {
 		t.Errorf("Field container = %q, want receiver type %q", field.Container, "Form")
 	}
 }
+
+// TestReceiverTypeName exercises the go/parser-based receiver parsing
+// directly, including shapes a string-splitting heuristic would mis-handle
+// (irregular spacing). See gsx-tag-variant-analysis / review of Task 1.
+func TestReceiverTypeName(t *testing.T) {
+	cases := []struct {
+		recv string
+		want string
+	}{
+		{"(f *Form)", "Form"},
+		{"(p UsersPage)", "UsersPage"},
+		{"( f   *Form )", "Form"},
+	}
+	for _, c := range cases {
+		got := receiverTypeName(c.recv)
+		if got != c.want {
+			t.Errorf("receiverTypeName(%q) = %q, want %q", c.recv, got, c.want)
+		}
+	}
+}
