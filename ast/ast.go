@@ -403,6 +403,12 @@ type EmbeddedAttr struct {
 	Lang     EmbeddedLang
 	Segments []Markup
 	Stages   []PipeStage
+	// DoubleQuoted records the literal's delimiter so the printer round-trips
+	// it: false is the backtick form (name=f`…`), true is the `"`-delimited
+	// escape-hatch form (name=f"…") used when the content contains a backtick.
+	// Both forms are semantically identical; only the boundary char and which
+	// char is `\`-escaped inside differ.
+	DoubleQuoted bool
 }
 
 func (*EmbeddedAttr) attrNode() {}
@@ -416,6 +422,9 @@ type EmbeddedInterp struct {
 	span
 	Segments []Markup
 	Stages   []PipeStage
+	// DoubleQuoted records the delimiter: false is {f`…`}, true is {f"…"}. See
+	// EmbeddedAttr.DoubleQuoted.
+	DoubleQuoted bool
 }
 
 func (*EmbeddedInterp) markupNode() {}
@@ -526,7 +535,10 @@ type ClassPart struct {
 	CondPos     token.Pos
 	Stages      []PipeStage
 	CSSSegments []Markup
-	CF          *ValueCF
+	// CSSDoubleQuoted records the delimiter of a composed CSS literal part
+	// (style={ css`…` } vs style={ css"…" }). See EmbeddedAttr.DoubleQuoted.
+	CSSDoubleQuoted bool
+	CF              *ValueCF
 }
 
 // ClassAttr is `class={ … }` / `style={ … }` — a composable contribution list.

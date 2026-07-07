@@ -336,7 +336,7 @@ func splitInterpEmbedded(file *gsxast.File, cls *attrclass.Classifier, fset *tok
 		// Fast path: no '<' (operand-position tag mark) AND no '`' (prefixed
 		// backtick literal) means nothing to split; and a split needs a valid base
 		// position to seat the sub-parser. A bare Go raw string still contains a
-		// backtick but yields no split item (backtickPrefixStart < 0), so it falls
+		// backtick but yields no split item (langPrefixStart < 0), so it falls
 		// straight back through with Embedded nil.
 		if (!strings.ContainsRune(interp.Expr, '<') && !strings.ContainsRune(interp.Expr, '`')) || !interp.ExprPos.IsValid() {
 			return true
