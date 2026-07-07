@@ -247,24 +247,26 @@ func TestScanGoExprMatchesLegacy(t *testing.T) {
 }
 
 func TestScanGoExprBacktickSpan(t *testing.T) {
-	// A gsx-escaped backtick: go/scanner would end the raw string at the escaped
-	// backtick, but scanGoExpr must treat the WHOLE gsx literal (through the
-	// gsx-escaped closing `) as one opaque span.
-	//
-	// src = `a\`b @{x}` }  (Go source below). Byte layout:
-	//   0:`  1:a  2:\  3:`  4:b  5:sp  6:@  7:{  8:x  9:}  10:`  11:sp  12:}
-	const src = "`a\\`b @{x}` }"
-	got := scanGoExpr(src, 0)
-
-	wantSpan := [2]int{0, 11} // opening ` at 0, one past the closing ` at 10
-	if len(got.Backticks) != 1 || got.Backticks[0] != wantSpan {
-		t.Fatalf("backtick span = %v, want one %v", got.Backticks, wantSpan)
+	// A BARE backtick is a plain Go raw string — interpolation is opt-in behind a
+	// js`/css`/f` prefix — so scanGoExpr records NO gsx span for it and lets
+	// go/scanner's raw-string tokenization stand. (A `\` before the close is a
+	// literal backslash in a Go raw string; the string ends at the next `.)
+	//   src = `hello` }   →  0:` … 6:` 7:sp 8:}
+	{
+		const src = "`hello` }"
+		got := scanGoExpr(src, 0)
+		if len(got.Backticks) != 0 {
+			t.Fatalf("bare backtick: got %d gsx spans, want 0 (plain Go raw string)", len(got.Backticks))
+		}
+		if got.Close != 8 {
+			t.Fatalf("bare backtick: Close = %d, want 8", got.Close)
+		}
 	}
-	if got.Close != 12 { // the '}' after the literal
-		t.Fatalf("Close = %d, want 12", got.Close)
-	}
 
-	// js`/css` prefix inclusion: the span must cover the prefix.
+	// A js`/css` PREFIXED literal IS a gsx escape-aware span: go/scanner would end
+	// the raw string at the escaped backtick, so scanGoExpr takes over the WHOLE
+	// gsx literal (through the gsx-escaped closing `), and the span covers the
+	// prefix.
 	const jssrc = "js`save(\\`hi @{n}\\`)` }"
 	// 0:j 1:s 2:` ... escaped backticks inside ... closing ` then space then }
 	g2 := scanGoExpr(jssrc, 0)
@@ -424,7 +426,23 @@ func TestScanGoExprOpaqueSpanTableCases(t *testing.T) {
 			}
 		}
 	}
-	t.Run("bare backtick interior", backtickCase("bare backtick", "`a}b|>c,d` }"))
+	t.Run("bare backtick interior", func(t *testing.T) {
+		// A bare backtick is a plain Go raw string, NOT a gsx span — but its
+		// interior stays opaque anyway: go/scanner tokenizes the whole `…` as one
+		// STRING, so the interior '}','|>',',' never reach the depth/pipe/comma
+		// scans.
+		const src = "`a}b|>c,d` }"
+		got := scanGoExpr(src, 0)
+		if got.Close != len(src)-1 {
+			t.Fatalf("Close = %d, want %d (the trailing '}')", got.Close, len(src)-1)
+		}
+		if len(got.Backticks) != 0 {
+			t.Errorf("Backticks = %v, want none (bare backtick is a Go raw string, not a gsx span)", got.Backticks)
+		}
+		if len(got.Pipes) != 0 || len(got.Commas) != 0 {
+			t.Errorf("Pipes=%v Commas=%v, want none — interior is inside the Go raw string", got.Pipes, got.Commas)
+		}
+	})
 	t.Run("js backtick interior", backtickCase("js`", "js`e}f|>g,h` }"))
 	t.Run("css backtick interior", backtickCase("css`", "css`e}f|>g,h` }"))
 }
