@@ -20,4 +20,4 @@ component Page() {
 	<div>{undefinedSym}</div>
 }
 -- diagnostics.golden --
-9:15: undefined: undefinedSym
+9:8: undefined: undefinedSym
