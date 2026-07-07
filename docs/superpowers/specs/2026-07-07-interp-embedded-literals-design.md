@@ -1,4 +1,4 @@
-# One tag-aware Go-expression scanner: `<tag>`/`<>` and interpolating backtick literals as values everywhere
+# One tag-aware Go-expression scanner: `<tag>`/`<>` and prefixed interpolating string literals (`f`/`js`/`css`) as values everywhere
 
 **Status:** design · **Date:** 2026-07-07
 
@@ -14,13 +14,15 @@ neither works today:
    <div>{ wrap(<>…</>) }</div>              // fragment as a call argument, inline
    { pick(cond, <A/>, <B/>) }              // element as a conditional operand
    ```
-2. **Interpolating backtick literals** — `` `hello @{name}` `` — the existing
-   `@{ }`-in-backtick construct (`EmbeddedInterp`), lifted out of its gated
-   positions into a first-class value:
+2. **Prefixed interpolating string literals** — `` f`hello @{name}` `` (or
+   `f"hello @{name}"`) — an opt-in `f`/`js`/`css` prefix that turns a string
+   literal into a gsx interpolating literal (`@{}` holes, JS-like escapes), while
+   a bare `"…"`/`` `…` `` stays plain Go:
    ```gsx
-   var greeting = `hello @{name}`          // a string value, anywhere
-   f(`id-@{n}`)                            // as a call argument
-   { emphasize(`@{label}!`) }             // inside an interpolation
+   var greeting = f`hello @{name}`          // a string value, anywhere
+   f(f`id-@{n}`)                            // as a call argument
+   { emphasize(f`@{label}!`) }              // inside an interpolation
+   js"const t = `hi ${x}`"                  // "-delimiter escape-hatch for backtick content
    ```
 
 Both are blocked by the *same* root cause and unlocked by the *same* fix: gsx
@@ -110,53 +112,65 @@ doesn't lower, it emits broken Go. So the coherent choice is to lower at every
 `gsx.Node`-producing emit site (`genInterp`, `genGoBlock`, `ExprAttr`,
 value-form arms). The type system gates the rest.
 
-## Feature 2: interpolating backtick literals as values everywhere
+## Feature 2: prefixed interpolating string literals (`f`, `js`, `css`) as values everywhere
 
-The `@{ }`-in-backtick construct already exists — it is only position-gated:
+**Prefix, not the delimiter, does the interpolation.** An `f`/`js`/`css` prefix
+in front of a string literal turns it into a gsx **interpolating literal** — one
+with `@{ expr }` holes and JS-like escapes. A **bare** `"…"` or `` `…` `` (no
+prefix) stays an ordinary Go string literal, untouched. This is the key to zero
+compatibility cost: gsx never reinterprets Go's own string syntax; it claims only
+the `IDENT`-immediately-before-a-string sequence (`f"…"`, `` f`…` ``, `js"…"`, …),
+which is never valid Go.
 
-- **Body/child:** `` {`…@{expr}…`} `` → `ast.EmbeddedInterp` (`ast.go`), HTML-text
-  context.
-- **Attr value:** `` name=`…@{expr}…` `` / `js`…`/`css`…` → `ast.EmbeddedAttr`
-  (`attrs.go:283`, handling `js` `/`css` `/bare `` ` ``).
-- **Raw-text element interior:** `<script …>@{ cfg }</script>`.
-- Escapes already defined: `\`` → literal backtick, `\@{` → literal `@{`.
+**Two delimiter forms, semantically identical.** Each prefix accepts either
+delimiter — `f"…"` and `` f`…` `` behave the same; you pick whichever quote your
+content does *not* contain, exactly like choosing `'` vs `"` in JS/Python. The
+double-quote form is the escape-hatch for **content that contains backticks** —
+which is common precisely for `js`/`css`, since JS template literals *are*
+backticks: `js"const t = `hi ${x}`"` writes clean where the backtick-delimited
+form would force escaping every inner backtick.
 
-The generalization: **a bare interpolating backtick literal becomes a first-class
-Go-expression value in any position.** It evaluates to a **`string`** — its
-literal text segments concatenated with its `@{expr}` holes, each formatted by
-gsx's standard value formatting (the assembly `embeddedValueExpr` already builds
-for the piped `EmbeddedInterp` path). Escaping stays **contextual at the use
-site**, unchanged from every other interpolation: rendered as HTML text it is
-HTML-escaped, as an attribute value it is attribute-escaped, passed as a plain
-Go `string` argument it is not escaped — the literal itself is just a string
-builder. Reuses `EmbeddedInterp.Segments` + `embeddedValueExpr` wholesale; the
-new work is (a) parsing it in any expression position via the unified scanner's
-backtick-span recognition and (b) emitting its value form there.
+**Always-escaping, JS-like** (unlike Go, where `"…"` escapes and `` `…` `` is
+raw): both delimiters of an f-literal process the same escape set —
+`\n \t \r \\`, the delimiter (`\"` in `f"…"`, `` \` `` in `` f`…` ``), and `\@{`
+for a literal `@{`. So `` f`a\nb` `` yields a newline; it is *not* a Go raw
+string.
 
-Open point for the plan/spike: confirm whether generalizing changes how the
-**static text** of a body-position backtick literal is escaped (a Go raw string's
-text is literal bytes; as a string rendered in HTML text it should be HTML-escaped
-like any string — verify this matches, or is a documented, intended refinement of,
-current `EmbeddedInterp` body behavior).
+**Value & escaping.** An f-literal evaluates to a **`string`** — its literal text
+segments concatenated with its `@{expr}` holes (each via `embeddedValueExpr`,
+already built for the piped `EmbeddedInterp` path). Escaping of the *result* stays
+contextual at the use site, like any interpolation: HTML-escaped as text,
+attr-escaped in an attribute, unescaped as a plain Go `string` arg.
+
+**Reuse & new work.** `js`/`css` (`EmbeddedAttr`) and the body `EmbeddedInterp`
+already implement `@{}` holes + `\`` /`\@{` escapes; this (a) adds `f` as a third
+prefix and the `"…"` delimiter variant to all three, (b) lets an f/js/css literal
+appear as a first-class value in any Go-expression position (recognized as an
+escape-aware span by the unified scanner), and (c) emits its `string` value there.
+
+**One rule, applied everywhere (behavior change to confirm).** With prefixes as
+the interpolation trigger, **bare `` `…` `` stops being an interpolating
+`EmbeddedInterp` in body/attr position too** — interpolation requires `f`/`js`/`css`
+everywhere; a bare backtick is always a literal. This is a change to the current
+body/attr bare-backtick behavior (today a bare `` `…@{x}…` `` in a component body
+interpolates), chosen for one teachable rule ("bare = literal, `f`/`js`/`css` =
+interpolate") over "bare interpolates in body but not in expressions." Existing
+`js`/`css` attr usage is unaffected; bare-backtick body usage migrates to `f`.
 
 ## Compatibility
 
-Two behavior changes, both accepted — both instances of gsx claiming the escape
-space Go leaves free inside backticks:
+**No Go compatibility break.** Because interpolation is opt-in behind an
+`f`/`js`/`css` prefix, bare Go string literals — `"…"` and `` `…` `` — keep their
+exact Go meaning everywhere, including the `@{`-containing and `` `…\` `` cases
+that an earlier "bare backticks interpolate" design would have broken. gsx claims
+only `f"…"` / `` f`…` `` / `js"…"` / … (an `IDENT` immediately before a string,
+never valid Go), the same claim-what-Go-leaves-free move as `|>`. Element/fragment
+literals likewise introduce no break (operand-position `<` was already claimed).
 
-1. **A plain Go raw string containing `@{` now interpolates** inside a `.gsx` Go
-   region, because bare backticks become interpolating literals. `\@{` keeps a
-   literal `@{`.
-2. **A plain Go raw string ending in a backslash before its close — `` `…\` `` —
-   now parse-errors** (later, a gsx literal), because gsx applies its `\``
-   escape convention uniformly to every backtick, so the `\`` reads as an escaped
-   backtick rather than a Go-literal backslash. Narrow (only raw strings ending
-   in `\`, e.g. `` `\` ``/`` `C:\` ``); workaround `"\\"` or restructure.
-
-Both are source-visible and documented, the same claim-what-Go-leaves-free move
-as `|>`. Go raw strings without `@{` and not ending in `\` are unaffected.
-(Element/fragment literals introduce no compatibility change — operand-position
-`<` was already claimed.)
+The **one** behavior change is internal to gsx, not to Go: a bare `` `…@{x}…` ``
+in **body/attr** position no longer interpolates (it did before) — interpolation
+now requires the `f` prefix there too (see Feature 2's "one rule"). `js`/`css`
+attr literals are unchanged.
 
 ## Codegen: split + lower at emit time; AST reused
 
