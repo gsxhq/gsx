@@ -230,7 +230,13 @@ fallthrough/static_class_merge	diag render
 fallthrough/without_class_root_wins	diag render
 filterimport/user_plain_import_and_filter	diag gen render
 filterimport/user_plain_import_no_filter	diag gen render
+fragment-literals/call-arg	diag gen render
 fragment-literals/empty-nop	diag gen render
+fragment-literals/interp-func-local	diag gen render
+fragment-literals/interp-method-receiver	diag gen render
+fragment-literals/loop-list	diag gen render
+fragment-literals/return	diag gen render
+fragment-literals/struct-field	diag gen render
 fragment-literals/var	diag gen render
 interpolation/field_access	diag render
 interpolation/interp_types	diag render
@@ -508,4 +514,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 510 cases (render: 412, error: 75, gen-pinned: 243)
+TOTAL: 516 cases (render: 418, error: 75, gen-pinned: 249)
