@@ -37,25 +37,11 @@ Run `make lint`
 - **Process:** brainstorm → spec → plan → subagent-driven execution with per-task reviews → one **independent adversarial reviewer** (builds throwaway probe programs, not just reads the diff) before merging a subsystem.
 - **No "simple heuristics" in core logic** — real implementations only. Security escaping (HTML/URL/JS/CSS) is a faithful port of `html/template`, never an approximation.
 
-### Configuration — where a new knob goes
-
-Three layers, precedence **option > env > config**. To add a config knob:
-
-1. **Can it be data?** → put it in `gsx.toml` (`tomlConfig` in `gen/configfile.go`)
-   and the resolved `config` struct. This is the default.
-2. **Is it a Go function?** → add a `gen.With*` option in `gen/options.go`
-   (functions can't be named in TOML).
-3. **Does it vary dev↔prod?** → *also* register a `GSX_<THING>` var in
-   `gen/envconfig.go` (`envOverrides`). A knob is never env-only.
-
-Any knob that changes generated output MUST be folded into `computeKey`
-(`gen/cachekey.go`), or the incremental cache will serve stale output. Document
-user-facing knobs in `docs/guide/config.md`. (Internal knobs like `GSXCACHE` are
-not user config.)
-
-Design lives in `docs/superpowers/specs/`. `docs/ROADMAP.md` should be reviewed and updated.
+Three layers, precedence **option > env > config**. Design lives in `docs/superpowers/specs/`. `docs/ROADMAP.md` should be reviewed and updated.
 
 Performance is important: we thrive to keep generation fast, and dev experience smooth.
+
+No workarounds, when we see somethings looks odd, flag it and discuss. Don't just "fix it" with a hack. We want to avoid technical debt.
 
 ## Neighboring repos (siblings under `~/personal/gsxhq/`)
 
