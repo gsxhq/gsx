@@ -24,6 +24,10 @@ func (a *blockingAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef,
 	return nil, nil
 }
 
+func (a *blockingAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol, error) {
+	return nil, nil
+}
+
 func (a *blockingAnalyzer) Analyze(_ string, override map[string][]byte) (*Package, error) {
 	release := make(chan struct{})
 	a.calls <- release
