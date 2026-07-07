@@ -106,6 +106,36 @@ component Badge(count int) {
 var badge = <Badge count={12}/>
 ```
 
+### Fragments as values
+
+A fragment (`<>…</>`) works in every one of those same expression positions — `var`, `return`, a call argument, a struct field, a slice/map element — and lowers to a `gsx.Node` the same way a tagged element does, just without a wrapping tag. The Go-side runtime equivalent is `gsx.Fragment(nodes...)`.
+
+The driving use case is returning a *list* of sibling elements from a plain Go function: an element literal can only ever wrap one tag, but a fragment's children can be a `{ for … }` loop that emits many top-level siblings.
+
+```gsx
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Noop() {
+	<span/>
+}
+
+func Items(xs []string) gsx.Node {
+	return <>{ for _, s := range xs { <li>{ s }</li> } }</>
+}
+
+component Host() {
+	<ul>{ Items([]string{"a", "b"}) }</ul>
+}
+```
+
+An empty fragment, `<></>`, renders nothing — it's the render-nothing nop, the same role `templ.NopComponent` plays in templ, or a `gsx.Fragment()` call with no arguments.
+
+Fragments take no attributes — there's no tag to attach them to. And a fragment's children must be explicitly wrapped in the `<>…</>` delimiters; bare adjacent siblings (`<A/><B/>`) are not legal on their own in expression position, the same "explicit wrapping" rule element expressions already follow.
+
+**Known limitation:** a fragment (or element) literal embedded directly inside a component's `{ … }` interpolation — e.g. `<div>{ wrap(<>…</>) }</div>` — is not supported; an interpolation's expression text is parsed as plain Go without the embedded-element/fragment scan. Write the fragment at a top-level `var`/`return`/field position instead, as in the example above, and interpolate the resulting value.
+
 ### Element, not component
 
 A `<tag>` in expression position is always an **Element** — the baked result of applying a tag, not the component itself. A bare identifier `Badge` is the component (a function you can still call and pass attributes to); `<Badge …/>` is the node that results from applying it, with its attributes already baked in:

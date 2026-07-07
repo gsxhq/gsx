@@ -35,4 +35,4 @@ There is no ambiguity: the parser knows which context it is in before reading th
 
 ## The reverse direction: elements in Go expression position
 
-GoBlock and the ordered-attrs literal both embed **Go inside markup**. The other direction also works: a `<tag>…</tag>` can appear in ordinary Go **expression** position — a `var` initializer, a `return`, a call argument, a struct field — evaluating to a `gsx.Node`, without a `component` body wrapping it. See [Elements — Elements as values](./elements#elements-as-values).
+GoBlock and the ordered-attrs literal both embed **Go inside markup**. The other direction also works: a `<tag>…</tag>` can appear in ordinary Go **expression** position — a `var` initializer, a `return`, a call argument, a struct field — evaluating to a `gsx.Node`, without a `component` body wrapping it. A fragment, `<>…</>`, works in expression position too, evaluating to a `gsx.Node` with no wrapper element. See [Elements — Elements as values](./elements#elements-as-values) and [Fragments as values](./elements#fragments-as-values).
