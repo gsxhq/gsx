@@ -258,13 +258,13 @@ func scanGoElementMarks(src string) []goElemMark {
 // goSplitItem is one operand-position construct a Go-region split path must
 // carve out: either a gsx element/fragment mark (IsLiteral false, Off is the
 // '<') or a prefixed backtick literal span (IsLiteral true, Off is the
-// f`/js`/css` prefix start, LitEnd is just past its closing backtick). It is
-// the merged, source-ordered stream that scanGoParts reports, so a split path
-// can interleave parsed elements and *EmbeddedInterp literals exactly as they
-// appear.
+// f`/js`/css` prefix start). It is the merged, source-ordered stream that
+// scanGoParts reports, so a split path can interleave parsed elements and
+// *EmbeddedInterp literals exactly as they appear. The literal's end is
+// recovered by the split path itself (the sub-parser's cursor), so it is not
+// carried here.
 type goSplitItem struct {
 	Off       int
-	LitEnd    int // valid only when IsLiteral
 	IsLiteral bool
 }
 
@@ -308,7 +308,7 @@ func scanGoParts(src string) []goSplitItem {
 			if tok == token.STRING && off < len(src) && src[off] == '`' {
 				if p := backtickPrefixStart(src, off); p >= 0 && off-p == len("f") {
 					end, _ := embeddedLiteralEnd(src, off+1)
-					items = append(items, goSplitItem{Off: p, LitEnd: end, IsLiteral: true})
+					items = append(items, goSplitItem{Off: p, IsLiteral: true})
 					base = end
 					expectOperand = false
 					advanced = true
