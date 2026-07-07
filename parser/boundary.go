@@ -37,6 +37,9 @@ func goStagesEnd(src string, from int) (int, bool) {
 // opening `{` immediately preceding `from` had already been consumed). Braces
 // inside strings, runes, and comments do not count.
 func goDepth1End(src string, from int) (int, bool) {
+	if scanRegionObserver != nil {
+		scanRegionObserver(src, from)
+	}
 	depth := 1
 	for i := from; i < len(src); {
 		if end, ok := skipGSXEmbeddedLiteral(src, i); ok {
@@ -62,6 +65,9 @@ func goDepth1End(src string, from int) (int, bool) {
 }
 
 func composedDelims(src string) (commas, colons []int) {
+	if composedRegionObserver != nil {
+		composedRegionObserver(src)
+	}
 	depth := 0
 	for i := 0; i < len(src); {
 		if end, ok := skipGSXEmbeddedLiteral(src, i); ok {

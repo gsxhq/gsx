@@ -13,6 +13,171 @@ import (
 // begins a gsx element at a Go operand-start position.
 type goElemMark struct{ Off int }
 
+// goExprScan is the result of scanning one interpolation body (`{ … }`) with
+// scanGoExpr: a single unified pass that reports everything the legacy byte
+// scanners (goDepth1End, splitPipe, composedDelims) and scanGoElementMarks
+// compute across four separate walks. All offsets are absolute within the
+// scanned src.
+type goExprScan struct {
+	Close     int          // offset of the depth-0 '}' closing the expr; -1 if none
+	Pipes     []int        // offsets of the '|' that begins each top-level '|>' operator
+	Commas    []int        // offsets of top-level ',' (ordered/composed attrs)
+	Colons    []int        // offsets of top-level ':' (ordered/composed attrs)
+	Marks     []goElemMark // operand-position tag/fragment starts
+	Backticks [][2]int     // [start,end) spans of backtick literals (bare / js` / css`)
+}
+
+// scanRegionObserver, when non-nil, is invoked by goDepth1End with each
+// (src, from) region it is asked to delimit. It is a test-only choke-point
+// observer used by the corpus differential harness (goexpr_scan_test.go) to
+// capture the exact interpolation regions the parser scans, so scanGoExpr can be
+// proved byte-identical to the legacy scanners on all of them. It is nil in
+// production — a passive hook, never a reroute (that is Task 2).
+var scanRegionObserver func(src string, from int)
+
+// composedRegionObserver, when non-nil, is invoked by composedDelims with the
+// inner class/style source it splits. Test-only, like scanRegionObserver: it
+// lets the corpus differential compare scanGoExpr's Commas/Colons against
+// composedDelims on exactly the (class/style) regions composedDelims actually
+// serves in production — where a depth-0 ',' / ':' is a real ordered-attr
+// delimiter, not a byte inside a Go `:=` that only a general-purpose interp body
+// would contain. Nil in production.
+var composedRegionObserver func(src string)
+
+// scanGoExpr scans a Go interpolation body with go/scanner, starting at byte
+// offset `from` and treating that position as already one level deep — exactly
+// as goDepth1End(src, from) does, i.e. as if the opening `{` immediately before
+// `from` had been consumed. It reports, in one pass, the closing brace, the
+// top-level pipe/comma/colon delimiters, the operand-position element marks,
+// and the backtick-literal spans.
+//
+// It unifies, and is intended to replace (Task 2), these legacy byte/token
+// walks: goDepth1End (Close), splitPipe (Pipes), composedDelims (Commas/Colons),
+// and scanGoElementMarks (Marks) — while adding gsx-escape-aware backtick spans
+// (Backticks) that none of them delimit correctly.
+//
+// The design mirrors scanGoElementMarks's resume-past-span loop: go/scanner is a
+// streaming Go lexer, and neither an element's prose body nor a gsx backtick
+// literal is Go — a lone apostrophe/URL in tag text, or a gsx-escaped backtick
+// (`js`a\`b“ — go/scanner ends the raw string at the escaped backtick), would
+// desync a continuous scan. So on each element (elementSpanEnd) or backtick
+// literal (embeddedLiteralEnd) we record the span, then RE-INIT go/scanner just
+// past it. A span skipped this way is opaque: its interior contributes nothing
+// to depth or to any delimiter.
+//
+// Depth is tracked from the paren/bracket/brace token stream, starting at 1;
+// Close is the RBRACE that returns it to 0. Top-level delimiters are those at
+// depth 1 (the expression's own level) — the same set composedDelims/splitPipe
+// record at their depth 0, since they scan the brace-stripped inner while this
+// scans from inside the brace.
+func scanGoExpr(src string, from int) goExprScan {
+	res := goExprScan{Close: -1}
+	buf := []byte(src)
+	base := from // absolute offset where the current Go-token segment begins
+	depth := 1
+	expectOperand := true
+	// prevTok/prevOff track the immediately-preceding token so a '|>' can be
+	// recognized as an OR at p followed by a GTR at p+1 (no gap), exactly as
+	// splitPipe does. Reset across a span resume so nothing spuriously pairs
+	// with a token on the far side.
+	prevTok := token.ILLEGAL
+	prevOff := -1
+
+	for base < len(buf) {
+		fset := token.NewFileSet()
+		file := fset.AddFile("", fset.Base(), len(buf)-base)
+		var s scanner.Scanner
+		s.Init(file, buf[base:], nil, scanner.ScanComments)
+
+		advanced := false
+		for {
+			pos, tok, _ := s.Scan()
+			if tok == token.EOF {
+				break
+			}
+			off := base + fset.Position(pos).Offset
+
+			// Backtick literal (bare / js` / css`). go/scanner reports it as a
+			// STRING beginning with '`', but its end is wrong for gsx-escaped
+			// backticks, so take over: record the whole gsx literal span
+			// (embeddedLiteralEnd, escape-aware) and resume past it.
+			if tok == token.STRING && off < len(src) && src[off] == '`' {
+				start := off
+				if p := backtickPrefixStart(src, off); p >= 0 {
+					start = p
+				}
+				end, _ := embeddedLiteralEnd(src, off+1)
+				res.Backticks = append(res.Backticks, [2]int{start, end})
+				base = end
+				expectOperand = false // a literal is a completed operand
+				prevTok = token.ILLEGAL
+				prevOff = -1
+				advanced = true
+				break
+			}
+
+			// Operand-position element literal: record the mark and resume past
+			// its textual span (see scanGoElementMarks).
+			if expectOperand && tok == token.LSS && byteBeginsTag(src, off+1) {
+				res.Marks = append(res.Marks, goElemMark{Off: off})
+				base = elementSpanEnd(src, off)
+				expectOperand = false // the element was the operand
+				prevTok = token.ILLEGAL
+				prevOff = -1
+				advanced = true
+				break
+			}
+
+			switch tok {
+			case token.LPAREN, token.LBRACK, token.LBRACE:
+				depth++
+			case token.RPAREN, token.RBRACK:
+				depth--
+			case token.RBRACE:
+				depth--
+				if depth == 0 {
+					res.Close = off
+					return res
+				}
+			case token.COMMA:
+				if depth == 1 {
+					res.Commas = append(res.Commas, off)
+				}
+			case token.COLON:
+				if depth == 1 {
+					res.Colons = append(res.Colons, off)
+				}
+			case token.GTR:
+				if depth == 1 && prevTok == token.OR && off == prevOff+1 {
+					res.Pipes = append(res.Pipes, prevOff)
+				}
+			}
+			expectOperand = tokenExpectsOperandAfter(tok)
+			prevTok = tok
+			prevOff = off
+		}
+		if !advanced {
+			break
+		}
+	}
+	return res
+}
+
+// backtickPrefixStart reports the start offset of a `js`/`css` prefix that
+// immediately precedes the backtick at src[backtick], applying the same
+// ident-boundary rule as skipGSXEmbeddedLiteral (so `xjs`…“ is a bare literal,
+// not a js one). Returns -1 when there is no such prefix — i.e. a bare backtick
+// literal whose span starts at the backtick itself.
+func backtickPrefixStart(src string, backtick int) int {
+	if backtick >= 2 && src[backtick-2:backtick] == "js" && hasIdentBoundary(src, backtick-2) {
+		return backtick - 2
+	}
+	if backtick >= 3 && src[backtick-3:backtick] == "css" && hasIdentBoundary(src, backtick-3) {
+		return backtick - 3
+	}
+	return -1
+}
+
 // scanGoElementMarks tokenizes src with go/scanner and returns, in order,
 // every '<' that begins a gsx element at an operand-start position — i.e. a
 // position where Go grammar expects a value (an operand), not an operator.
