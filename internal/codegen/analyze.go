@@ -333,7 +333,7 @@ func isGsxNodeType(typ string) bool {
 // single-file allocator instead — this file's own names still start at
 // "_gsxinfer1" and never collide with anything, since nothing else shares
 // that private allocator.
-func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, importedGenericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, fset *token.FileSet, bag *diag.Bag, names *inferNameAllocator) (string, []*gsxast.Component, []importSpec, map[gsxast.Node]int, *inferRegistry, []*gsxast.Component, error) {
+func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, importedGenericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, fset *token.FileSet, bag *diag.Bag, names *inferNameAllocator) (string, []*gsxast.Component, []importSpec, map[gsxast.Node]int, *inferRegistry, []*gsxast.Element, error) {
 	if names == nil {
 		names = newInferNameAllocator()
 	}
@@ -429,88 +429,96 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, 
 
 	// GoWithElements: a top-level Go region with one or more gsx elements
 	// embedded directly in expression position (e.g. `var help = <a
-	// href={u}>{ label }</a>`) — see ast.GoWithElements's doc and emit.go's
+	// href={u}>{ label }</a>`, or `func H(label string) gsx.Node { return
+	// <div>{ label }</div> }`) — see ast.GoWithElements's doc and emit.go's
 	// *ast.GoWithElements case (Task 4). Mirror emitElementValue's lowering on
-	// the probe side: each *Element Part is replaced, in place, by a call to a
-	// freshly synthesized, package-level, nullary probe func
-	// (`_gsxgweN() _gsxrt.Node`) so the surrounding Go construct (a var
-	// initializer, a return statement, a call argument, …) still sees a real
-	// _gsxrt.Node-typed expression there and type-checks; each GoText Part is
-	// spliced verbatim, identical to a GoChunk body. The probe func's OWN body
-	// probes the element's interpolations/props via emitProbes — the EXACT
-	// same machinery a component body's child elements use — so a wrong-typed
-	// interpolation or component-tag prop is caught exactly as it would be
-	// inside a component.
+	// the probe side, INLINE: the region's Go text is spliced verbatim and
+	// each *Element Part is replaced, IN PLACE, by an immediately-invoked
+	// func literal (IIFE) of type _gsxrt.Node:
 	//
-	// A synthesized TOP-LEVEL func decl (rather than an inline func literal)
-	// is used so a plain identifier reference inside the element (`u`,
-	// `label`) resolves by ORDINARY PACKAGE SCOPE: GoWithElements only ever
-	// appears as a top-level file decl (parser/file.go's splitGoElements is
-	// only called from the file-level decl loop), so every name an embedded
-	// interpolation can reference is itself package-level, visible to any
-	// top-level func regardless of declaration order — no closure-capture
-	// machinery is needed on the probe side (unlike emit.go's real gsx.Func
-	// closure, which DOES need real captures since it executes at runtime;
-	// the skeleton only needs to TYPE-CHECK, and go/types resolves a
-	// package-level identifier the same way regardless of which top-level
-	// func mentions it).
+	//	func() _gsxrt.Node { _gsxelem(N); var ctx _gsxctx.Context; _ = ctx; <probes>; return nil }()
 	//
-	// Both the synthesized func decl and the reconstructed call-site text are
-	// written into compBuf (the SAME temp builder emitComponentSkeleton just
-	// filled), so the single compBufStart adjustment below (already needed for
-	// component skeletons) also re-bases every ctrlOff/registry.spans entry
-	// emitProbes records while probing an embedded element — no separate
-	// adjustment pass is needed.
+	// so the surrounding Go construct (a var initializer, a return statement,
+	// a call argument, …) still sees a real _gsxrt.Node-typed expression
+	// there and type-checks. The IIFE's OWN body probes the element's
+	// interpolations/props via emitProbes — the EXACT same machinery a
+	// component body's child elements use — so a wrong-typed interpolation or
+	// component-tag prop is caught exactly as inside a component.
 	//
-	// gwComps collects one synthetic *gsxast.Component per embedded element
-	// (Name: the probe func's name, Body: []gsxast.Markup{el}) — NOT part of
-	// comps (the file's real components; keeping them out avoids polluting
-	// buildSigTypeRefs/LSP consumers of comps with fake declarations). The
-	// caller unions gwComps into a PARALLEL list passed to harvest (alongside
-	// the real comps) so harvest's existing funcDeclKey/componentKey matching
-	// (componentKey of a Recv=="" component is "."+Name, matching
-	// funcDeclKey of a receiver-less func decl of the same name) also resolves
-	// these probe funcs' _gsxuse/_gsxuseq/_gsxcompsig/inference-probe calls
-	// back onto the embedded element's own nodes — zero new code in harvest.
+	// INLINE (not a hoisted top-level func) is load-bearing for emit≡probe:
+	// an embedded interpolation can reference the SURROUNDING lexical scope —
+	// a func parameter, a local variable, or a method receiver (`func H(label
+	// string) … { return <div>{ label }</div> }`). A separate top-level probe
+	// func would NOT see those names → a false `undefined: label` that blocks
+	// generation. Because the IIFE is spliced inline inside the region's
+	// (verbatim-spliced) surrounding Go, it captures params/locals/receiver by
+	// ordinary Go closure capture, exactly as emit.go's real gsx.Func closure
+	// does. The inner `var ctx _gsxctx.Context` mirrors the real closure's
+	// `ctx context.Context` param (so an interp referencing `ctx` type-checks,
+	// and — like the real closure — shadows any outer `ctx`); the OUTER scope
+	// remains visible for every other name.
+	//
+	// Everything (verbatim Go + inline IIFEs) is written into compBuf (the
+	// SAME temp builder emitComponentSkeleton just filled), so the single
+	// compBufStart adjustment below (already needed for component skeletons)
+	// also re-bases every ctrlOff/registry.spans entry emitProbes records
+	// while probing an embedded element — no separate adjustment pass needed.
+	// Each verbatim GoText Part is preceded by a `/*line*/` BLOCK-form
+	// directive to its .gsx position (so a type error in the surrounding Go
+	// maps back to source, and the synthetic IIFE lines injected before it
+	// don't shift the mapping). The block form — not `//line` — is required:
+	// an element can sit mid-expression (`Wrap(<Foo/>)`), where the trailing
+	// GoText (`)`) must attach to the IIFE's `}()` on the SAME line; a
+	// `//line` newline there would trigger Go's automatic semicolon insertion
+	// after `}()` ("missing ',' before newline in argument list"). The block
+	// comment carries no newline, so it re-syncs the position without breaking
+	// the enclosing call/operand syntax.
+	//
+	// gwElements collects the embedded elements in source order; index N is
+	// the argument the corresponding IIFE's `_gsxelem(N)` marker carries. The
+	// caller hands this slice to harvestEmbeddedElements, which finds each
+	// marked IIFE in the type-checked skeleton and harvests its
+	// _gsxuse/_gsxuseq/_gsxcompsig/inference-probe results back onto the
+	// element's nodes (via the shared harvestBody). The marker is what lets
+	// harvest distinguish an element-probe IIFE from any func literal the user
+	// wrote verbatim in the surrounding Go.
 	//
 	// Unlike GoChunk, this does NOT run splitChunk to hoist a `import` spec
-	// out of a GoText part ahead of the skeleton's own import block — mirrors
+	// out of a GoText Part ahead of the skeleton's own import block — mirrors
 	// emit.go's identical choice (see its *ast.GoWithElements case comment):
-	// a bare top-level `import` co-located in the SAME Go region as an
-	// embedded element is a pathological edge case Go itself permits, but
-	// splitChunk cannot parse text containing markup, so it is accepted here
-	// exactly as it is at emit time (malformed input is not specially
-	// diagnosed; it would surface as a skeleton parse failure, never silently
-	// emitting broken output).
-	var gwComps []*gsxast.Component
-	gwCounter := 0
+	// splitChunk cannot parse text containing markup. A user `import` in the
+	// SAME region as an embedded element is therefore not hoisted (a known
+	// limitation shared with emit — a func returning an element whose return
+	// type needs a user-imported package must currently keep that import; see
+	// task-5-report). Malformed input surfaces as a skeleton parse/type error,
+	// never silently-broken output.
+	var gwElements []*gsxast.Element
 	for _, d := range file.Decls {
 		we, ok := d.(*gsxast.GoWithElements)
 		if !ok {
 			continue
 		}
-		var reconstructed strings.Builder
 		for _, part := range we.Parts {
 			switch p := part.(type) {
 			case gsxast.GoText:
-				reconstructed.WriteString(p.Src)
+				// Block-form directive (no newline) so an element mid-expression
+				// (`Wrap(<Foo/>)`) keeps its trailing `)` attached to the IIFE's
+				// `}()` — a `//line` newline there would trip ASI.
+				emitSkeletonBlockLine(&compBuf, fset, p.Pos())
+				compBuf.WriteString(p.Src)
 			case *gsxast.Element:
-				gwCounter++
-				name := fmt.Sprintf("_gsxgwe%d", gwCounter)
-				reconstructed.WriteString(name)
-				reconstructed.WriteString("()")
-				fmt.Fprintf(&compBuf, "func %s() _gsxrt.Node {\n\tvar ctx _gsxctx.Context\n\t_ = ctx\n", name)
+				compBuf.WriteString("func() _gsxrt.Node {\n")
+				fmt.Fprintf(&compBuf, "_gsxelem(%d)\n", len(gwElements))
+				compBuf.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
 				if err := emitProbes(&compBuf, []gsxast.Markup{p}, table, propFields, nodeProps, attrsProps, combinedSigs, byo, fm, "", "", usedFilters, fset, ctrlOff, registry, bag); err != nil {
 					return "", nil, nil, nil, nil, nil, err
 				}
-				compBuf.WriteString("\treturn nil\n}\n")
-				gwComps = append(gwComps, &gsxast.Component{Name: name, Body: []gsxast.Markup{p}})
+				compBuf.WriteString("return nil\n}()")
+				gwElements = append(gwElements, p)
 			default:
 				return "", nil, nil, nil, nil, nil, fmt.Errorf("codegen: unsupported Go-expression part %T", part)
 			}
 		}
-		emitSkeletonLine(&compBuf, fset, we.Pos())
-		compBuf.WriteString(reconstructed.String())
 		compBuf.WriteString("\n")
 	}
 
@@ -609,7 +617,7 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, 
 		sb.WriteString(b.src)
 		sb.WriteByte('\n')
 	}
-	return sb.String(), comps, imports, ctrlOff, registry, gwComps, nil
+	return sb.String(), comps, imports, ctrlOff, registry, gwElements, nil
 }
 
 // genericSigsFor computes the props-type-name -> *genericSig map for every
@@ -1659,6 +1667,22 @@ func emitSkeletonLine(sb *strings.Builder, fset *token.FileSet, pos token.Pos) {
 	fmt.Fprintf(sb, "//line %s:%d:%d\n", p.Filename, p.Line, p.Column)
 }
 
+// emitSkeletonBlockLine emits a BLOCK-form `/*line file:line:col*/` directive
+// (no trailing newline), used to re-sync the position of verbatim GoText
+// spliced around a GoWithElements-embedded element's inline IIFE. Unlike the
+// `//line` form (which spans to end of line and needs its own line), the block
+// form is valid mid-expression, so it does not force a newline that would trip
+// Go's automatic semicolon insertion when the GoText attaches to the IIFE's
+// `}()` (e.g. the trailing `)` of `Wrap(<Foo/>)`). It sets the position of the
+// character immediately following the comment — the GoText's first byte.
+func emitSkeletonBlockLine(sb *strings.Builder, fset *token.FileSet, pos token.Pos) {
+	if fset == nil || !pos.IsValid() {
+		return
+	}
+	p := fset.Position(pos)
+	fmt.Fprintf(sb, "/*line %s:%d:%d*/", p.Filename, p.Line, p.Column)
+}
+
 // emitSkeletonLineParam emits a //line for a param binding (`\t<name> := …`). The
 // binding is indented one tab, so the name sits at skeleton column 2 and would
 // map one column past the param's .gsx position; point the directive one column
@@ -1779,91 +1803,147 @@ func harvest(f *goast.File, comps []*gsxast.Component, info *types.Info, out map
 		if !ok || fd.Body == nil {
 			continue
 		}
-		nodes := componentExprs(c)
-		k := 0
-		goast.Inspect(fd.Body, func(node goast.Node) bool {
-			call, ok := node.(*goast.CallExpr)
-			if !ok {
-				return true
-			}
-			id, ok := call.Fun.(*goast.Ident)
-			// _gsxuseq is the quiet child-prop harvest variant; it carries a node's
-			// type identically to _gsxuse and occupies the SAME k-ordering slot
-			// (collectExprs adds child-prop ExprAttr nodes in source order), so both
-			// must be matched here or the k alignment would drift.
-			if !ok || (id.Name != "_gsxuse" && id.Name != "_gsxuseq") || len(call.Args) != 1 {
-				return true
-			}
-			if k < len(nodes) {
-				out[nodes[k]] = info.Types[call.Args[0]].Type
-				if exprOut != nil {
-					exprOut[nodes[k]] = call.Args[0]
-				}
-				k++
-			}
-			return true
-		})
-
-		// Resolve hand-written same-package component tags by their REAL signature:
-		// each `_gsxcompsig(F)` probe carries F's type. Map it back (by tag name — a
-		// tag resolves to one func per package, so no k-ordering is needed) onto
-		// every <F/> element in the body, so genChildComponent branches on arity.
-		sigByName := map[string]types.Type{}
-		goast.Inspect(fd.Body, func(node goast.Node) bool {
-			call, ok := node.(*goast.CallExpr)
-			if !ok {
-				return true
-			}
-			id, ok := call.Fun.(*goast.Ident)
-			if !ok || id.Name != "_gsxcompsig" || len(call.Args) != 1 {
-				return true
-			}
-			arg, ok := call.Args[0].(*goast.Ident)
-			if !ok {
-				return true
-			}
-			if tv, ok := info.Types[arg]; ok && tv.Type != nil {
-				sigByName[arg.Name] = tv.Type
-			}
-			return true
-		})
-		if len(sigByName) > 0 {
-			forEachComponentTagElement(c.Body, func(el *gsxast.Element) {
-				if t, ok := sigByName[el.Tag]; ok {
-					out[el] = t
-				}
-			})
-		}
-
-		// Resolve each caller-side inference probe (emitInferProbe) by its exact,
-		// registry-synthesized name — NOT by a user-spellable prefix like the old
-		// exported-helper convention, which any same-package func sharing that
-		// prefix would also match and silently corrupt this harvest (finding 3). Each
-		// probe call's own instantiated return type IS the resolved props type
-		// for the tag it was emitted for (site.el) — no k-ordering or
-		// genericProps re-check needed, since emitInferProbe already resolved
-		// both at emission time and recorded them on the site.
-		if registry != nil {
-			goast.Inspect(fd.Body, func(node goast.Node) bool {
-				call, ok := node.(*goast.CallExpr)
-				if !ok {
-					return true
-				}
-				id, ok := call.Fun.(*goast.Ident)
-				if !ok || !isInferProbeName(id.Name) {
-					return true
-				}
-				site, ok := registry.lookup(id.Name)
-				if !ok {
-					return true
-				}
-				if tv, ok := info.Types[call]; ok && tv.Type != nil {
-					out[site.el] = tv.Type
-				}
-				return true
-			})
-		}
+		harvestBody(fd.Body, c.Body, info, out, exprOut, registry)
 	}
+}
+
+// harvestBody resolves one skeleton func/closure body's probe calls back onto
+// the gsx nodes of the markup it was generated from. bodyMarkup is the markup
+// whose emitProbes output produced body — a component's Body, or (for an
+// embedded element, via harvestEmbeddedElements) a single-element markup
+// slice. Extracted from harvest so BOTH a component's top-level skeleton func
+// and a GoWithElements-embedded element's inline IIFE share ONE resolution
+// path (emit≡probe: the same probe shapes, harvested the same way).
+func harvestBody(body *goast.BlockStmt, bodyMarkup []gsxast.Markup, info *types.Info, out map[gsxast.Node]types.Type, exprOut map[gsxast.Node]goast.Expr, registry *inferRegistry) {
+	var nodes []gsxast.Node
+	collectExprs(bodyMarkup, &nodes)
+	k := 0
+	goast.Inspect(body, func(node goast.Node) bool {
+		call, ok := node.(*goast.CallExpr)
+		if !ok {
+			return true
+		}
+		id, ok := call.Fun.(*goast.Ident)
+		// _gsxuseq is the quiet child-prop harvest variant; it carries a node's
+		// type identically to _gsxuse and occupies the SAME k-ordering slot
+		// (collectExprs adds child-prop ExprAttr nodes in source order), so both
+		// must be matched here or the k alignment would drift.
+		if !ok || (id.Name != "_gsxuse" && id.Name != "_gsxuseq") || len(call.Args) != 1 {
+			return true
+		}
+		if k < len(nodes) {
+			out[nodes[k]] = info.Types[call.Args[0]].Type
+			if exprOut != nil {
+				exprOut[nodes[k]] = call.Args[0]
+			}
+			k++
+		}
+		return true
+	})
+
+	// Resolve hand-written same-package component tags by their REAL signature:
+	// each `_gsxcompsig(F)` probe carries F's type. Map it back (by tag name — a
+	// tag resolves to one func per package, so no k-ordering is needed) onto
+	// every <F/> element in the body, so genChildComponent branches on arity.
+	sigByName := map[string]types.Type{}
+	goast.Inspect(body, func(node goast.Node) bool {
+		call, ok := node.(*goast.CallExpr)
+		if !ok {
+			return true
+		}
+		id, ok := call.Fun.(*goast.Ident)
+		if !ok || id.Name != "_gsxcompsig" || len(call.Args) != 1 {
+			return true
+		}
+		arg, ok := call.Args[0].(*goast.Ident)
+		if !ok {
+			return true
+		}
+		if tv, ok := info.Types[arg]; ok && tv.Type != nil {
+			sigByName[arg.Name] = tv.Type
+		}
+		return true
+	})
+	if len(sigByName) > 0 {
+		forEachComponentTagElement(bodyMarkup, func(el *gsxast.Element) {
+			if t, ok := sigByName[el.Tag]; ok {
+				out[el] = t
+			}
+		})
+	}
+
+	// Resolve each caller-side inference probe (emitInferProbe) by its exact,
+	// registry-synthesized name — NOT by a user-spellable prefix like the old
+	// exported-helper convention, which any same-package func sharing that
+	// prefix would also match and silently corrupt this harvest (finding 3). Each
+	// probe call's own instantiated return type IS the resolved props type
+	// for the tag it was emitted for (site.el) — no k-ordering or
+	// genericProps re-check needed, since emitInferProbe already resolved
+	// both at emission time and recorded them on the site.
+	if registry != nil {
+		goast.Inspect(body, func(node goast.Node) bool {
+			call, ok := node.(*goast.CallExpr)
+			if !ok {
+				return true
+			}
+			id, ok := call.Fun.(*goast.Ident)
+			if !ok || !isInferProbeName(id.Name) {
+				return true
+			}
+			site, ok := registry.lookup(id.Name)
+			if !ok {
+				return true
+			}
+			if tv, ok := info.Types[call]; ok && tv.Type != nil {
+				out[site.el] = tv.Type
+			}
+			return true
+		})
+	}
+}
+
+// harvestEmbeddedElements resolves the probe calls inside each
+// GoWithElements-embedded element's inline IIFE (see buildSkeleton) back onto
+// that element's nodes. Each such IIFE is a func literal whose FIRST statement
+// is the marker call `_gsxelem(N)`, where N indexes `elements` in source
+// order; the marker is what distinguishes an element-probe IIFE from any func
+// literal the user wrote verbatim in the surrounding Go. For each marked IIFE,
+// harvestBody runs over its body with the single embedded element as the
+// markup — the SAME resolution a component body gets, so a mistyped
+// interpolation/prop inside an embedded element resolves (and is diagnosed)
+// identically.
+func harvestEmbeddedElements(f *goast.File, elements []*gsxast.Element, info *types.Info, out map[gsxast.Node]types.Type, exprOut map[gsxast.Node]goast.Expr, registry *inferRegistry) {
+	if len(elements) == 0 {
+		return
+	}
+	goast.Inspect(f, func(node goast.Node) bool {
+		fl, ok := node.(*goast.FuncLit)
+		if !ok || fl.Body == nil || len(fl.Body.List) == 0 {
+			return true
+		}
+		es, ok := fl.Body.List[0].(*goast.ExprStmt)
+		if !ok {
+			return true
+		}
+		call, ok := es.X.(*goast.CallExpr)
+		if !ok {
+			return true
+		}
+		id, ok := call.Fun.(*goast.Ident)
+		if !ok || id.Name != "_gsxelem" || len(call.Args) != 1 {
+			return true
+		}
+		lit, ok := call.Args[0].(*goast.BasicLit)
+		if !ok || lit.Kind != token.INT {
+			return true
+		}
+		idx, err := strconv.Atoi(lit.Value)
+		if err != nil || idx < 0 || idx >= len(elements) {
+			return true
+		}
+		harvestBody(fl.Body, []gsxast.Markup{elements[idx]}, info, out, exprOut, registry)
+		return true
+	})
 }
 
 // forEachComponentTagElement invokes fn for every component-tag *Element in a
