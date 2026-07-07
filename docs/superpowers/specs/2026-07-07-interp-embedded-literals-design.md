@@ -1,194 +1,216 @@
-# Embedded `<tag>`/`<>` literals inside `{ }` interpolation expressions
+# One tag-aware Go-expression scanner: `<tag>`/`<>` and interpolating backtick literals as values everywhere
 
 **Status:** design · **Date:** 2026-07-07
 
 ## Idea
 
-A `{ … }` interpolation is a Go expression. Now that a `<tag>…</tag>` and a
-`<>…</>` are legal Go-expression *values* (element literals #42, fragment
-literals #44), they should be embeddable **inside** an interpolation too:
+Two constructs should be usable as ordinary Go-expression **values** in every Go
+position inside a `.gsx` file — including *inside* a `{ }` interpolation, where
+neither works today:
 
-```gsx
-<div>{ wrap(<>…</>) }</div>              // pass a fragment to a helper, inline
-<ul>{ items |> render }</ul>            // already works
-<div>{ pick(cond, <A/>, <B/>) }</div>   // choose a node inline
-{ maybe(<></>) }                        // the nop, inline
-```
+1. **Element / fragment literals** — `<div/>`, `<>…</>` (already values at
+   top-level Go since #42/#44, but not inside interpolations):
+   ```gsx
+   <div>{ wrap(<>…</>) }</div>              // fragment as a call argument, inline
+   { pick(cond, <A/>, <B/>) }              // element as a conditional operand
+   ```
+2. **Interpolating backtick literals** — `` `hello @{name}` `` — the existing
+   `@{ }`-in-backtick construct (`EmbeddedInterp`), lifted out of its gated
+   positions into a first-class value:
+   ```gsx
+   var greeting = `hello @{name}`          // a string value, anywhere
+   f(`id-@{n}`)                            // as a call argument
+   { emphasize(`@{label}!`) }             // inside an interpolation
+   ```
 
-Today this fails, and its absence is surprising: the *same* expression works one
-level out — `var x = wrap(<>…</>)` compiles, but `{ wrap(<>…</>) }` does not.
-This closes that gap so a `<tag>`/`<>` literal is valid in **every** Go-expression
-position, including interpolation interiors.
+Both are blocked by the *same* root cause and unlocked by the *same* fix: gsx
+scans interpolation interiors with a separate, tag-blind, backtick-fragile byte
+scanner. Replacing that with the top-level `go/scanner`-based scanner — the one
+that already understands tags and operand position — makes the parser **more
+consistent** (one scanner, no divergence) and unlocks both value forms at once.
 
-**No type-structure change.** Purely parser (one unified scanner) + a codegen
-splice at the interpolation emit/probe sites.
+**No type-structure change.** Purely parser (unify onto one scanner) + a codegen
+splice at the sites that currently emit a raw Go fragment verbatim.
 
 ## Why it fails today: two divergent Go-scanners
 
-gsx scans Go source in two places, and only one understands tags:
+- **Top-level Go regions** are scanned by `scanGoElementMarks` (`parser/goexpr.go`)
+  — a `go/scanner`-based walk with **operand/operator tracking** that recognizes
+  a `<` at operand position as a tag start and skips the tag span. This is why
+  `var x = wrap(<>…</>)` works.
+- **Every interpolation-family boundary** funnels through **one** tag-blind
+  byte scanner, `goDepth1End` (`parser/boundary.go`), via `goExprEnd` /
+  `goStagesEnd`. Its callers: interpolation `{ expr }` (`markup.go:15`), GoBlock
+  `{{ stmt }}` (`markup.go:173,177`), attribute values (`attrs.go:163,182,636`),
+  value-form `{ if … }` / `{ switch … }` (`valueform.go:92`), and pipe-stage
+  tails. Siblings `splitPipe` (on `|>`), `composedDelims` (ordered-attrs `,`/`:`),
+  and `parenEnd` complete the family. These count `{}()[]` depth and skip
+  strings/comments and `js`…`/`css`…` literals, but have **no notion of a tag
+  span** — so embedded-tag prose (an apostrophe, a `</`, a nested `{ }`) misdirects
+  them, and `genInterp` emits the expression verbatim anyway.
 
-- **Top-level Go regions** (between component boundaries) are scanned by
-  `scanGoElementMarks` (`parser/goexpr.go`) — a `go/scanner`-based walk with
-  **operand/operator tracking** that recognizes a `<` at operand position as a
-  tag start and skips the whole tag span. This is why `var x = wrap(<>…</>)`
-  works.
-- **Interpolation interiors** are delimited by a *separate*, **tag-blind**
-  family of byte-level scanners in `parser/boundary.go` / `parser/pipe.go`:
-  - `goDepth1End` — finds the matching `}` (used by `goExprEnd`, `goStagesEnd`).
-  - `composedDelims` — splits an ordered-attrs `{{ }}` literal on depth-0 `,`/`:`.
-  - `splitPipe` — splits on depth-0 `|>`.
-  - `parenEnd` — matches `()` inside a pipe stage.
+The limitation is the divergence, and the boundary logic is a **single
+chokepoint**. Make that chokepoint tag-aware and the fix is uniform across every
+position above.
 
-  These count `{}()[]` depth and skip strings/runes/comments
-  (`skipQuotedOrComment`) and gsx embedded `js`…`/`css`…` literals
-  (`skipGSXEmbeddedLiteral`) — but have **no notion of a tag span**. So a
-  `<>…</>`'s interior prose (an apostrophe, a `</`, a nested `{ }`) misdirects
-  the delimiter scan, and even if delimiting succeeded, `genInterp` emits the
-  expression verbatim → `<>` is invalid Go.
+## Decision: one `go/scanner`-based expression scanner
 
-The limitation is the divergence. The fix is to **unify**: make interpolation
-scanning tag-aware by routing it through the same `go/scanner`-based scanner the
-top level already trusts.
+Promote `scanGoElementMarks` into a fuller **expression scanner** and route all
+interpolation-family delimiting through it. In one operand/operator-aware walk it
+reports: the depth-0 closing `}`, depth-0 `|>` positions, tag/fragment spans,
+backtick-literal spans, and depth-0 `,`/`:` — while skipping strings/runes/
+comments (`go/scanner`), tag spans, and backtick literals. The byte scanners
+retire or become thin callers over this one pass.
 
-## Decision: one `go/scanner`-based expression scanner, taught `|>`
-
-Rather than bolt tag-awareness onto each byte scanner (an operand/operator
-heuristic in byte space — which our "no heuristics in core logic" rule forbids),
-promote `scanGoElementMarks` into a fuller **expression scanner** and route all
-interpolation delimiting through it. In a single operand/operator-aware walk of
-the interp source it reports:
-
-- the depth-0 `}` that closes the interpolation (replaces `goDepth1End`),
-- depth-0 `|>` pipe-operator positions (replaces `splitPipe`),
-- tag/fragment spans (already produced as marks; now consumed for skipping),
-- depth-0 `,`/`:` for the ordered-attrs literal (replaces `composedDelims`),
-
-while skipping strings/runes/comments (`go/scanner`), tag spans, and gsx
-embedded literals (see wrinkle below). The byte scanners retire or become thin
-callers over this one pass.
+Two enabling facts, each the same *shape* of argument — a construct gsx can claim
+because Go assigns it no conflicting meaning:
 
 ### `|>` is unambiguous in `go/scanner` (empirically confirmed)
 
 `go/scanner` tokenizes `|>` as `token.OR` immediately followed by `token.GTR`
-at the next offset, with **zero scan errors**:
+at the next offset, zero scan errors. Adjacent `OR`+`GTR` is **not producible by
+valid Go** (`a|>c` is a syntax error; a bitwise-or always has an operand before
+any `>`). So "`OR`@p, `GTR`@p+1" is a false-positive-free pipe marker. `a |>= b`
+tokenizes `OR` then `GEQ` — correctly *not* a pipe. This also hardens pipe
+splitting: a `|>` inside a string is one token, never miscounted.
 
-| Source | Tokens | Pipe? |
-|---|---|---|
-| `x \|> f` | `OR`@2, `GTR`@3 (adjacent) | yes |
-| `x\|>f` | `OR`@1, `GTR`@2 (adjacent) | yes |
-| `a \| b > c` | `OR`@2, … `GTR`@6 (**not** adjacent) | no — bitwise-or then greater-than |
-| `a \|>= b` | `OR`@2, `GEQ`@3 | no — `GEQ`, not `GTR` |
+### Backtick raw strings carry no Go semantics — so `@{ }` is gsx's to claim
 
-Adjacent `OR`+`GTR` (a `|` immediately followed by `>`) is **not producible by
-valid Go** — a bitwise-or always has an operand between it and any `>`; `a|>c`
-is a Go syntax error. So "OR token at offset `p`, GTR token at offset `p+1`" is
-an exact, false-positive-free pipe marker. This also *hardens* pipe splitting
-over the current byte `splitPipe`: a `|>` inside a string literal is a single
-`STRING` token and is never miscounted.
+Go's `` `…` `` raw string does **no** escaping and **no** interpolation — it is
+the literal bytes between the backticks. So gsx can define `@{ expr }` inside a
+backtick literal as an interpolation hole with zero ambiguity against Go. gsx
+already does exactly this for `js`…@{}…`/`css`…@{}…` and body/attr bare
+backticks (see next section); this generalizes it.
 
-### The wrinkle: gsx embedded literals
+### The scanner must recognize backtick literals as first-class spans
 
-`go/scanner` mis-tokenizes gsx's escaped embedded literals. `js`a\`b`` scans as
-`` IDENT(js) STRING(`a\`) IDENT(b) STRING(`) `` — `go/scanner` ends the raw
-string at the escaped backtick because it doesn't know gsx's `\`` escape
-convention. The byte scanners handle this via `skipGSXEmbeddedLiteral` +
-`embeddedLiteralEnd`; `scanGoElementMarks` currently has **no** such handling
-(it has never needed it — top-level Go regions don't host `js`…`/`css`…`, but
-interp interiors do). So the unified scanner MUST detect a `js`…`/`css`…` span
-and skip it with gsx's escape-aware `embeddedLiteralEnd`, re-initialising
-`go/scanner` past it — the identical "skip span, resume scanning" pattern it
-already uses for tag spans (`elementSpanEnd`). Proving this skip is byte-correct
+`go/scanner` **mis**-tokenizes gsx's escaped backticks: `` js`a\`b` `` scans as
+`` STRING(`a\`) IDENT(b) STRING(`) `` because `go/scanner` ends a raw string at
+the escaped backtick (it doesn't know gsx's `\`` convention). So the unified
+scanner MUST detect a backtick-literal span (bare, `js`, or `css`) and consume
+it with gsx's escape-aware `embeddedLiteralEnd`, re-initialising `go/scanner`
+past it — the identical "recognize span, skip, resume" move it uses for tag
+spans. This recognition is required for correctness *and* is what makes the
+backtick literal emittable as a value (below). Proving the skip is byte-correct
 is part of the risk-gate spike.
 
-## Codegen: split + lower at emit time; `ast.Interp.Expr` stays a string
+## Feature 1: `<tag>`/`<>` literals as values in any Go position
 
-No AST change. `ast.Interp.Expr` (and each `PipeStage`'s expression) remains a
-string holding the verbatim expression source — which may now contain tag
-literals. Only two sites change:
+Once the chokepoint skips tag spans, a `<tag>`/`<>` literal delimits correctly
+inside interpolations, GoBlocks, attr values, value-form arms, and pipe stages.
+Codegen at each of those emit sites runs the existing `splitGoElements` over the
+fragment and lowers embedded tags to their inline `gsx.Func(...)` value — reusing
+the element/fragment-literal machinery, with the scope-capturing IIFE probe
+(emit ≡ probe) mirrored on the analyze side. Nonsense positions (a node in a
+`<script>` JS context) are gated by the type-checker as ordinary type errors.
 
-- **`genInterp`** — instead of emitting `Expr` verbatim, run the existing
-  `splitGoElements` over `Expr` (and each stage expression) and lower every
-  embedded element/fragment to its inline `gsx.Func(...)` value, exactly as the
-  top-level `GoWithElements` emitter does. `wrap(<>…</>)` → `wrap(gsx.Func(func…))`.
-- **The interpolation type-check probe** (`analyze.go`) — mirror it with the
-  same scope-capturing IIFE lowering, preserving emit ≡ probe.
+**Because the boundary finder is shared, partial scope is awkward:** the moment
+the chokepoint is tag-aware, `{{ x := <div/> }}` also *parses*; if its emit site
+doesn't lower, it emits broken Go. So the coherent choice is to lower at every
+`gsx.Node`-producing emit site (`genInterp`, `genGoBlock`, `ExprAttr`,
+value-form arms). The type system gates the rest.
 
-Consequences of keeping `Expr` a string:
+## Feature 2: interpolating backtick literals as values everywhere
 
-- **Printer** prints `Expr` verbatim → round-trips (the source held the tags).
-- **wsnorm** never touches interp Go content → unaffected.
-- **LSP** go-to-definition *inside* an embedded tag degrades gracefully (the
-  tag source is still in the string) — full nav is a follow-up, not a blocker.
-- Applies uniformly to the seed and every `|>` stage argument.
+The `@{ }`-in-backtick construct already exists — it is only position-gated:
+
+- **Body/child:** `` {`…@{expr}…`} `` → `ast.EmbeddedInterp` (`ast.go`), HTML-text
+  context.
+- **Attr value:** `` name=`…@{expr}…` `` / `js`…`/`css`…` → `ast.EmbeddedAttr`
+  (`attrs.go:283`, handling `js` `/`css` `/bare `` ` ``).
+- **Raw-text element interior:** `<script …>@{ cfg }</script>`.
+- Escapes already defined: `\`` → literal backtick, `\@{` → literal `@{`.
+
+The generalization: **a bare interpolating backtick literal becomes a first-class
+Go-expression value in any position.** It evaluates to a **`string`** — its
+literal text segments concatenated with its `@{expr}` holes, each formatted by
+gsx's standard value formatting (the assembly `embeddedValueExpr` already builds
+for the piped `EmbeddedInterp` path). Escaping stays **contextual at the use
+site**, unchanged from every other interpolation: rendered as HTML text it is
+HTML-escaped, as an attribute value it is attribute-escaped, passed as a plain
+Go `string` argument it is not escaped — the literal itself is just a string
+builder. Reuses `EmbeddedInterp.Segments` + `embeddedValueExpr` wholesale; the
+new work is (a) parsing it in any expression position via the unified scanner's
+backtick-span recognition and (b) emitting its value form there.
+
+Open point for the plan/spike: confirm whether generalizing changes how the
+**static text** of a body-position backtick literal is escaped (a Go raw string's
+text is literal bytes; as a string rendered in HTML text it should be HTML-escaped
+like any string — verify this matches, or is a documented, intended refinement of,
+current `EmbeddedInterp` body behavior).
+
+## Compatibility
+
+One behavior change, accepted: **a plain Go raw string literal that contains
+`@{` now interpolates** inside a `.gsx` Go region, because bare backticks become
+interpolating literals. `\@{` keeps a literal `@{`. This is the same
+claim-what-Go-leaves-free move as `|>`; it is source-visible and documented. Go
+raw strings without `@{` are unaffected. (Element/fragment literals introduce no
+compatibility change — operand-position `<` was already claimed.)
+
+## Codegen: split + lower at emit time; AST reused
+
+- **Tags:** `ast.Interp.Expr` (and GoBlock code, attr exprs, value-form arms)
+  stay strings holding verbatim source; the emit site and its probe run
+  `splitGoElements` and lower embedded tags. Minimal AST change; printer
+  round-trips verbatim; LSP nav inside embedded tags degrades gracefully.
+- **Backtick literals:** reuse `ast.EmbeddedInterp` / `Segments`; permit it as an
+  expression value and emit `embeddedValueExpr`'s concatenation (plus optional
+  `|> stages`) at the new positions.
 
 ## Contexts fall out for free
 
-Every `{ }` — child/text, `attr={…}`, value-form `{ if … }`/`{ switch … }`,
-pipe stages, and the ordered-attrs `{{ }}` literal — flows through the same
-delimiting scanners, so the fix is uniform. A tag in a JS/CSS context
-(`<script>{ … }`, `<style>{ … }`) is simply a type error surfaced by the probe
-(a `gsx.Node` where a string/number is expected) — no special-casing needed.
-
-## Semantics (what becomes valid)
-
-- A `<tag>…</tag>` / `<>…</>` may appear anywhere inside a `{ }` interpolation
-  expression where a `gsx.Node` value is valid: a call argument
-  (`{ wrap(<>…</>) }`), a conditional operand (`{ pick(c, <A/>, <B/>) }`), a
-  pipe seed (`{ <A/> |> f }`), etc.
-- Nesting is recursive: `{ f(<>{ g(<B/>) }</>) }` — the tag-span skip already
-  recurses through child interps (via the element parser), so the outer `}` and
-  `|>` scans skip the entire embedded span, nested interps included.
-- The same emit≡probe scope capture element/fragment literals have applies:
-  interps inside an embedded tag resolve against the enclosing scope.
-- Bare adjacency rules are unchanged (a tag literal is a single operand;
-  ordinary Go grouping/commas separate multiple).
+Every `{ }` / `{{ }}` / `name={…}` / value-form / pipe stage flows through the
+same chokepoint, so both features apply uniformly. JS/CSS contexts are gated by
+types.
 
 ## Risk-gate spike (Task 1)
 
-This touches the **most common construct in the language** — every `{ }` is
-delimited by these scanners. The correctness bar: **for any interpolation with
-no embedded tag (the overwhelming majority), delimiting must be byte-identical
-to today.** Safety comes from reusing the operand-aware detector the top level
-already trusts (only an operand-position `<` is a tag, so `a < b` / `x <= y` /
-`<-ch` inside interps stay untouched), but this MUST be proven before anything
-builds on it. The spike:
+This touches the **most common construct in the language** — every interpolation
+is delimited by these scanners. The bar: **for any fragment with no embedded tag
+and no interpolating backtick, delimiting must be byte-identical to today.**
+Safety comes from reusing the operand-aware detector the top level already trusts
+(`a < b`, `x <= y`, `<-ch` stay untouched) and the existing escape-aware backtick
+skip. The spike:
 
-- Implements the unified scanner's boundary + `|>` + delimiter reporting.
-- Runs it against the **entire existing corpus** and asserts the computed
-  interpolation boundaries, pipe splits, and ordered-attrs delimiters match the
-  current byte scanners exactly (a differential harness: old vs new over every
-  `{ }` in `internal/corpus/testdata`).
-- Proves the embedded `js`…`/`css`…` skip is byte-correct (the escaped-backtick
-  case above).
+- Implements the unified scanner's boundary + `|>` + tag-span + backtick-span +
+  `,`/`:` reporting, behind an `IndexByte(src, '<')` / `IndexByte(src, '` + "`" + `')`
+  fast-path so tag-and-backtick-free fragments keep the current fast byte path
+  (and same speed) — `goDepth1End` is the hottest parse-time path.
+- Runs a **differential harness** over the entire corpus: computed interpolation
+  boundaries, pipe splits, and ordered-attrs delimiters must equal the current
+  byte scanners exactly for every existing `{ }`.
+- Proves the escaped-backtick skip (`` `a\`b` ``) is byte-correct.
 
-Only after the spike is green does the interp-lowering work proceed.
+Only after the spike is green does the lowering work proceed.
 
 ## Scope / effort
 
-- **Parser (the bulk):** promote `scanGoElementMarks` into an expression scanner
-  reporting boundary/`|>`/tag-spans/`,`/`:`, with a `js`…`/`css`…` skip; reroute
-  `goExprEnd`/`goStagesEnd`/`splitPipe`/`composedDelims`/`parenEnd` through it (or
-  retire them). The risk is entirely here.
-- **Codegen:** `genInterp` + the interp probe run `splitGoElements` on the seed
-  and stage expressions and lower embedded tags — reusing element/fragment
-  literal machinery. Modest.
-- **Corpus:** cases per interp context (child, attr value, pipe seed, pipe-stage
-  arg, conditional operand, nested) + a JS/CSS-context type-error case.
-- **Docs:** extend the "as values" guide — a tag now works inside `{ }` too;
-  remove the "not supported inside interpolation" limitation.
+- **Parser (the bulk, all the risk):** the unified scanner + reroute
+  `goExprEnd`/`goStagesEnd`/`splitPipe`/`composedDelims`/`parenEnd`; fast-path
+  guard; backtick-span recognition.
+- **Codegen:** split+lower tags at `genInterp`/`genGoBlock`/`ExprAttr`/value-form
+  + their probes (reuse element/fragment machinery); allow/emit `EmbeddedInterp`
+  as an expression value (reuse `embeddedValueExpr`).
+- **Corpus:** cases per position for each feature (interp/GoBlock/attr/value-form/
+  pipe × tag-literal and backtick-literal), the `@{`-in-raw-string compatibility
+  case, a JS/CSS type-error case, and the scope-capture regressions.
+- **Docs:** extend the "as values" guide for both forms; document the one
+  compatibility change; drop the "not supported inside interpolation" limitation.
 
 ## Prerequisites & relationship
 
-Builds on element literals (#42) and fragment literals (#44), both merged to
-`main`. This is the third and final piece that makes `<tag>`/`<>` a uniform
-Go-expression value everywhere.
+Builds on element literals (#42) and fragment literals (#44), both merged. This
+is the unification that makes `<tag>`/`<>` and interpolating backtick literals
+uniform Go-expression values everywhere, and collapses the two-scanner divergence
+into one.
 
 ## Out of scope
 
-- **General Go-expression parsing.** gsx still does not build a Go-expression
-  tree; it scans for tags at operand positions. This extends that scan into
-  interpolation interiors — it does not turn interps into fully-parsed Go.
-- **LSP nav / hover inside embedded tags** — graceful degradation now; a
-  follow-up wires the two-bridge nav recipe into the interp position.
-- **Non-`gsx.Node` embedding.** Only tag/fragment literals are lowered; the rest
-  of the interpolation expression stays opaque Go, as today.
+- **General Go-expression parsing** — gsx still scans for tags/backticks at
+  operand positions; it does not build a Go-expression tree.
+- **LSP nav/hover inside embedded tags** — graceful degradation now; a follow-up
+  wires the nav bridge into the interp position.
+- **Non-`gsx.Node` / non-string embedding** — only tag/fragment literals and
+  interpolating backtick literals are recognized; the rest of a fragment stays
+  opaque Go.
