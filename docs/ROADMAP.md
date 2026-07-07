@@ -305,6 +305,37 @@ render goldens.
     CodeMirror) do not yet recognize `<tag>` in Go expression position — follow-up,
     out of scope for this repo. Spec `2026-07-06-element-literals-design.md`.
 
+16. [x] **Fragments as values** — `2026-07-07`. Closes the "fragments deferred
+    in expression position" boundary item 15 left open: `<>…</>` now works in
+    every Go expression position an element literal does (`var`, `return`, a
+    call argument, a struct field, a slice/map element), lowering to a
+    `gsx.Node` with no wrapper element, through the same
+    `gsx.Func(func(ctx, w) error {...})` closure path as an element literal —
+    codegen's `emitNodeValue`/`emitFragmentValue` and `analyze.go`'s
+    scope-capturing IIFE mirror the element-literal machinery, just keyed on
+    the fragment's child list instead of a single tag. An empty fragment,
+    `<></>`, is a **uniform** no-op closure (not a special-cased
+    `gsx.Fragment()` call) — the render-nothing nop, the `templ.NopComponent`
+    equivalent; the Go-side runtime form is `gsx.Fragment(nodes...)`. The
+    driving use case is returning a *list* of sibling elements from a plain
+    Go function (a fragment's children can be a `{ for … }` loop emitting
+    many top-level siblings, which a single-tag element literal cannot).
+    Multiple bare siblings still require explicit `<>…</>` wrapping;
+    fragments take no attributes. Corpus: `fragment-literals/*` (var,
+    call-arg, struct-field, return, empty-nop, loop-list, plus
+    func-local/method-receiver scope-capture regressions mirroring the
+    element-literals lesson). Docs: `syntax/elements.md` §Fragments as
+    values, `syntax/raw-go.md` cross-reference. **Known limitation (shared
+    with element literals):** a fragment/element literal nested directly
+    inside a component's `{ … }` interpolation (e.g.
+    `<div>{ wrap(<>…</>) }</div>`) is not supported — an interpolation's
+    expression text is parsed as plain Go, with no embedded-element/fragment
+    scan; use a top-level `var`/`return`/field position instead. Sibling
+    grammars (`../tree-sitter-gsx`, `../vscode-gsx`, `gsxhq.github.io`
+    CodeMirror) do not yet recognize `<>…</>` in Go expression position
+    (fragments already highlight in markup/body context) — follow-up, out of
+    scope for this repo.
+
 ## Language server (`gsx lsp`)
 
 In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
