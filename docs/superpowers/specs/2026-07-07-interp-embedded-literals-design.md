@@ -107,10 +107,21 @@ the element/fragment-literal machinery, with the scope-capturing IIFE probe
 `<script>` JS context) are gated by the type-checker as ordinary type errors.
 
 **Because the boundary finder is shared, partial scope is awkward:** the moment
-the chokepoint is tag-aware, `{{ x := <div/> }}` also *parses*; if its emit site
-doesn't lower, it emits broken Go. So the coherent choice is to lower at every
-`gsx.Node`-producing emit site (`genInterp`, `genGoBlock`, `ExprAttr`,
-value-form arms). The type system gates the rest.
+the chokepoint is tag-aware, `{{ x := <div/> }}` also *delimits* correctly; if its
+emit site doesn't lower, it must not silently emit broken Go.
+
+**As shipped, lowering is wired at the two positions that carry the real use
+cases — `{ }` interpolations (`genInterp`) and top-level Go regions
+(`GoWithElements`).** The other `gsx.Node`-producing positions — GoBlock
+statements (`{{ n := <Icon/> }}`), attribute values (`title={<Icon/>}`), and
+value-form arms — are **clean-gated, not lowered**: an embedded tag/f-literal
+there surfaces a parse/type diagnostic (verified by adversarial probing: no
+silent miscompile, no wrong output). Node-typed *child props*
+(`<Card body={<Icon/>}/>`) and body value-form arms (`{ if c { <Icon/> } }`) DO
+render, via the pre-existing markup-attr / body-markup paths. Full lowering of
+the remaining raw-Go-fragment positions (GoBlock statement, string-attr value)
+is a documented future enhancement; today they error cleanly. The type system
+gates genuinely nonsensical positions (a node in a `<script>` JS context).
 
 ## Feature 2: prefixed interpolating string literals (`f`, `js`, `css`) as values everywhere
 
