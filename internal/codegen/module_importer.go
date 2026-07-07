@@ -6,6 +6,7 @@ import (
 	goast "go/ast"
 	"go/build"
 	goparser "go/parser"
+	"go/scanner"
 	"go/token"
 	"go/types"
 	"maps"
@@ -115,6 +116,36 @@ func diagnosticsFromParseError(err error) ([]diag.Diagnostic, bool) {
 		return nil, false
 	}
 	return append([]diag.Diagnostic(nil), perr.diags...), true
+}
+
+// skeletonParseError wraps a go/parser failure on an assembled .x.go skeleton as
+// a positioned diagnostic error. gsx treats user Go as an opaque blob, so Go
+// that is invalid only in context — e.g. an `import` after a declaration, which
+// gsx copies through verbatim — surfaces here, at the skeleton parse. The
+// skeleton carries //line directives, so scanner.Error positions are already
+// resolved back to the .gsx origin; converting them to parseDiagnosticsError
+// routes the failure through the normal diagnostic path (framed overlay, --json)
+// instead of escaping as a bare, frame-less hard error. A non-ErrorList failure
+// (should not occur for a parse error, but be safe) is returned unchanged so a
+// genuine operational fault still fails loudly rather than masquerading as a
+// user diagnostic.
+func skeletonParseError(err error) error {
+	var list scanner.ErrorList
+	if !errors.As(err, &list) {
+		return err
+	}
+	diags := make([]diag.Diagnostic, 0, len(list))
+	for _, e := range list {
+		diags = append(diags, diag.Diagnostic{
+			Start:    e.Pos,
+			End:      e.Pos,
+			Severity: diag.Error,
+			Code:     "parse-error",
+			Message:  e.Msg,
+			Source:   "parser",
+		})
+	}
+	return parseDiagnosticsError{diags: diags}
 }
 
 func (mi *moduleImporter) Import(path string) (*types.Package, error) {
@@ -818,7 +849,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		absXpath := filepath.Join(dir, base+".x.go")
 		gf, perr := goparser.ParseFile(fset, absXpath, skel, goparser.SkipObjectResolution)
 		if perr != nil {
-			return nil, perr
+			return nil, skeletonParseError(perr)
 		}
 		goFiles = append(goFiles, gf)
 		compsByXGo[absXpath] = comps
