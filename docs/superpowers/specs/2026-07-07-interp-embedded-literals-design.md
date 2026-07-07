@@ -229,12 +229,23 @@ is the unification that makes `<tag>`/`<>` and interpolating backtick literals
 uniform Go-expression values everywhere, and collapses the two-scanner divergence
 into one.
 
+## LSP nav (hover + go-to-definition) inside interp holes
+
+**In scope.** Hover and go-to-definition must work inside interpolation holes —
+both on an embedded `<tag>`/`<>` literal (e.g. go-to-def on `Badge` in
+`{ wrap(<Badge count={n}/>) }`, hover on `n`) and inside an `@{ }` hole of an
+f/js/css literal. The groundwork exists after Feature 1: `ast.Interp.Embedded`
+holds the parsed element/interp nodes with real source positions (SplitGoExprElements
+seats them in the shared fset), and harvest populates their resolved types. So
+this is the established **two-bridge wiring** (map a cursor position → the gsx
+node → the corresponding skeleton/type-check position) extended to the interp-hole
+positions, not new resolution logic. Cross-file/external nav keeps the existing
+limits.
+
 ## Out of scope
 
 - **General Go-expression parsing** — gsx still scans for tags/backticks at
   operand positions; it does not build a Go-expression tree.
-- **LSP nav/hover inside embedded tags** — graceful degradation now; a follow-up
-  wires the nav bridge into the interp position.
 - **Non-`gsx.Node` / non-string embedding** — only tag/fragment literals and
-  interpolating backtick literals are recognized; the rest of a fragment stays
+  f/js/css interpolating literals are recognized; the rest of a fragment stays
   opaque Go.
