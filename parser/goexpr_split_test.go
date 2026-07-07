@@ -185,22 +185,41 @@ func TestSplitGoElementsMalformedForwardProgress(t *testing.T) {
 	}
 }
 
-// TestSplitGoElementsFragmentPreservesBytes verifies that a fragment (`<>`) in
-// Go-expression position — out of scope as an expression value in v1 — records
-// an error but preserves the fragment's consumed bytes as a verbatim GoText, so
-// concatenating every part's source still reproduces src exactly.
-func TestSplitGoElementsFragmentPreservesBytes(t *testing.T) {
+// fragmentPart finds the single *ast.Fragment among we.Parts, failing the
+// test if none is found.
+func fragmentPart(t *testing.T, we *ast.GoWithElements) *ast.Fragment {
+	t.Helper()
+	for _, part := range we.Parts {
+		if frag, ok := part.(*ast.Fragment); ok {
+			return frag
+		}
+	}
+	t.Fatalf("no *ast.Fragment part found; parts=%#v", we.Parts)
+	return nil
+}
+
+// TestSplitGoElementsFragmentAdmitted verifies that a non-empty fragment
+// (`<>…</>`) in Go-expression position is admitted as a *ast.Fragment part —
+// no diagnostic, and its children are parsed — and that reconstructing src
+// from each part's own source span (GoText verbatim, *Element/*Fragment via
+// their own [Pos,End) slice) still reproduces src exactly.
+func TestSplitGoElementsFragmentAdmitted(t *testing.T) {
 	src := `f(<>hi</>, 1)`
 	p, part := splitAt(src)
 	we, ok := part.(*ast.GoWithElements)
 	if !ok {
 		t.Fatalf("want *ast.GoWithElements, got %T", part)
 	}
-	if len(p.errs) == 0 {
-		t.Fatalf("expected a recorded error for the fragment in expression position")
+	if len(p.errs) != 0 {
+		t.Fatalf("unexpected errors: %v", p.errs)
+	}
+	frag := fragmentPart(t, we)
+	if len(frag.Children) != 1 {
+		t.Fatalf("fragment children = %d, want 1: %#v", len(frag.Children), frag.Children)
 	}
 
-	// Reconstruct src: GoText verbatim, *Element via its own [Pos,End) span.
+	// Reconstruct src: GoText verbatim, *Element/*Fragment via their own
+	// [Pos,End) span.
 	var got string
 	for _, part := range we.Parts {
 		switch v := part.(type) {
@@ -210,22 +229,80 @@ func TestSplitGoElementsFragmentPreservesBytes(t *testing.T) {
 			start := p.file.Position(v.Pos()).Offset
 			end := p.file.Position(v.End()).Offset
 			got += src[start:end]
+		case *ast.Fragment:
+			start := p.file.Position(v.Pos()).Offset
+			end := p.file.Position(v.End()).Offset
+			got += src[start:end]
 		}
 	}
 	if got != src {
-		t.Fatalf("reconstructed src = %q, want %q (fragment bytes dropped?)", got, src)
+		t.Fatalf("reconstructed src = %q, want %q", got, src)
 	}
+}
 
-	// A GoText part must cover the fragment's "<>hi</>" span exactly.
-	found := false
-	for _, part := range we.Parts {
-		if gt, ok := part.(ast.GoText); ok && gt.Src == "<>hi</>" {
-			found = true
-			break
+// TestSplitGoElementsFragmentInExpressionPosition verifies a non-empty
+// fragment as a var initializer: one GoWithElements decl whose parts include
+// an *ast.Fragment with two element children. No diagnostics.
+func TestSplitGoElementsFragmentInExpressionPosition(t *testing.T) {
+	src := `var list = <><a/><b/></>`
+	p, part := splitAt(src)
+	we, ok := part.(*ast.GoWithElements)
+	if !ok {
+		t.Fatalf("want *ast.GoWithElements, got %T", part)
+	}
+	if len(p.errs) != 0 {
+		t.Fatalf("unexpected errors: %v", p.errs)
+	}
+	frag := fragmentPart(t, we)
+	if got := len(frag.Children); got != 2 {
+		t.Fatalf("fragment children = %d, want 2", got)
+	}
+}
+
+// TestSplitGoElementsEmptyFragmentInExpressionPosition verifies that `<></>`
+// is legal and yields a zero-child fragment (the nop). No diagnostics.
+func TestSplitGoElementsEmptyFragmentInExpressionPosition(t *testing.T) {
+	src := `var nop = <></>`
+	p, part := splitAt(src)
+	we, ok := part.(*ast.GoWithElements)
+	if !ok {
+		t.Fatalf("want *ast.GoWithElements, got %T", part)
+	}
+	if len(p.errs) != 0 {
+		t.Fatalf("unexpected errors: %v", p.errs)
+	}
+	frag := fragmentPart(t, we)
+	if len(frag.Children) != 0 {
+		t.Fatalf("empty fragment has %d children, want 0", len(frag.Children))
+	}
+}
+
+// TestSplitGoElementsBareAdjacentNotAdmittedAsTwoParts documents the JSX
+// rule: a bare adjacent sequence of elements in expression position is NOT
+// admitted as two element parts. scanGoElementMarks only flags a '<' at an
+// operand-start (prefix) position; immediately after consuming an element the
+// scanner sits at an operand-consumed (operator/infix) position, so the
+// second `<B/>` is never flagged as a mark and is never separately parsed —
+// it rides along as part of the trailing GoText, verbatim.
+func TestSplitGoElementsBareAdjacentNotAdmittedAsTwoParts(t *testing.T) {
+	src := `var x = <A/><B/>`
+	_, part := splitAt(src)
+	we, ok := part.(*ast.GoWithElements)
+	if !ok {
+		t.Fatalf("want *ast.GoWithElements, got %T", part)
+	}
+	var elCount int
+	for _, p := range we.Parts {
+		if _, ok := p.(*ast.Element); ok {
+			elCount++
 		}
 	}
-	if !found {
-		t.Fatalf("no GoText part covering the fragment span %q; parts=%#v", "<>hi</>", we.Parts)
+	if elCount != 1 {
+		t.Fatalf("element parts = %d, want 1 (bare-adjacent sequences aren't admitted as multiple element parts): %#v", elCount, we.Parts)
+	}
+	trail, ok := we.Parts[len(we.Parts)-1].(ast.GoText)
+	if !ok || trail.Src != "<B/>" {
+		t.Fatalf("trailing part = %#v, want GoText %q (unparsed second element, verbatim)", we.Parts[len(we.Parts)-1], "<B/>")
 	}
 }
 

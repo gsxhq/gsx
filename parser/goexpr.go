@@ -280,21 +280,25 @@ func (p *parser) splitGoElements(src string, base token.Pos) ast.Decl {
 			cursor = m.Off
 			return finish()
 		}
-		el, ok := markup.(*ast.Element)
-		if !ok {
-			// scanGoElementMarks also flags a fragment-open (`<>`) as a
-			// mark, but GoPart only admits *Element (and GoText) — a bare
-			// fragment isn't yet a supported Go-expression value. Surface a
-			// clear error rather than mistyping the part, but preserve the
-			// fragment's consumed bytes as a verbatim GoText so the
-			// round-trip invariant (concatenating each part's source
-			// reproduces src) still holds.
+		switch node := markup.(type) {
+		case *ast.Element:
+			parts = append(parts, node)
+		case *ast.Fragment:
+			// A <>…</> fragment is a first-class Go-expression value: a
+			// gsx.Node holding its children with no wrapper element. Admitted
+			// as a GoPart alongside *Element; lowered by emit.go to an inline
+			// gsx.Func closure over the children (empty <></> renders nothing).
+			parts = append(parts, node)
+		default:
+			// Any other markup (none reach here today — byteBeginsTag's
+			// remaining candidates are never flagged as marks) is not a
+			// supported Go-expression value. Preserve its bytes as verbatim
+			// GoText so the round-trip invariant holds.
 			p.errorf(base+token.Pos(m.Off), "gsx: %s is not supported as a Go expression value here", markupKind(markup))
 			parts = append(parts, goTextPart(src, m.Off, sub.i, base))
 			cursor = sub.i
 			continue
 		}
-		parts = append(parts, el)
 		cursor = sub.i
 	}
 	return finish()
