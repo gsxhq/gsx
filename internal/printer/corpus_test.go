@@ -171,6 +171,24 @@ func zeroSpans(n ast.Node) {
 				}
 			case *ast.GoBlock:
 				v.CodePos = 0
+			case *ast.GoWithElements:
+				// Parts holds ast.GoText BY VALUE (not *ast.GoText), so the
+				// generic ast.SetSpan(m, 0, 0) dispatch above — which only
+				// matches pointer node types — can never reach a GoText's span
+				// through Inspect's per-leaf callback: Inspect passes a fresh
+				// interface copy for each value-typed part, and mutating that
+				// copy can't write back into v.Parts. Zero it here instead,
+				// where v.Parts is the real slice (accessible because
+				// GoWithElements itself is always a *ast.GoWithElements
+				// pointer). *ast.Element parts need no special handling: they
+				// recurse into the ordinary *ast.Element case below via
+				// Inspect's own GoWithElements traversal.
+				for i, part := range v.Parts {
+					if gt, ok := part.(ast.GoText); ok {
+						ast.SetSpan(&gt, 0, 0)
+						v.Parts[i] = gt
+					}
+				}
 			case *ast.EmbeddedAttr:
 				for _, m := range v.Segments {
 					zeroSpans(m)
@@ -197,6 +215,26 @@ func canonGo(n ast.Node) {
 		}
 	case *ast.GoChunk:
 		v.Src = fmtGoChunk(v.Src)
+	case *ast.GoWithElements:
+		// Unlike GoChunk, a GoText part is an incomplete Go fragment that
+		// fmtGoChunk (go/format) can't parse in isolation, so its Src is left
+		// alone here — mirroring the printer's own goWithElements, which
+		// prints GoText verbatim too (see trimGoTextEdges). Only the outer
+		// edges are trimmed, exactly as the printer trims them, so the
+		// comparison ignores the blank-line padding both sides re-derive
+		// independently rather than preserve verbatim. Embedded *ast.Element
+		// parts recurse into the ordinary *ast.Element case below, so their
+		// attrs/children get the same canonicalization as any other element.
+		last := len(v.Parts) - 1
+		for i, part := range v.Parts {
+			switch pt := part.(type) {
+			case ast.GoText:
+				pt.Src = trimGoTextEdges(pt.Src, i == 0, i == last)
+				v.Parts[i] = pt
+			case *ast.Element:
+				canonGo(pt)
+			}
+		}
 	case *ast.Component:
 		v.Recv = fmtRecv(v.Recv)
 		v.Params = fmtParams(v.Params)

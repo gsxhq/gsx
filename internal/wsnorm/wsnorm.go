@@ -20,13 +20,34 @@ import (
 // Normalize rewrites whitespace in every children list of every component in f,
 // in place. It does not affect Go fragments, static attribute values, raw-text
 // script/style bodies (kept verbatim), or pre/textarea subtrees.
+//
+// Elements embedded directly in Go-expression position (ast.GoWithElements,
+// e.g. `var help = <a href={u}>{ label }</a>`) are reached too: each is a
+// markup subtree exactly like a component's body, just rooted at a
+// GoWithElements Part instead of a Component.Body, so it needs the same JSX
+// whitespace collapsing. Skipping it would leave an embedded element's Text
+// children un-normalized, which surfaces as a real fmt bug: a re-printed,
+// width-broken element's freshly-introduced cosmetic newlines never collapse
+// back out on the next parse/print pass, so fmt fails its idempotence
+// contract (each pass would introduce more literal whitespace than the last).
 func Normalize(f *ast.File) {
 	if f == nil {
 		return
 	}
 	for _, d := range f.Decls {
-		if c, ok := d.(*ast.Component); ok {
-			c.Body = normalizeMarkup(c.Body, false)
+		switch v := d.(type) {
+		case *ast.Component:
+			v.Body = normalizeMarkup(v.Body, false)
+		case *ast.GoWithElements:
+			for _, part := range v.Parts {
+				if el, ok := part.(*ast.Element); ok {
+					// Mirrors normalizeMarkup's own *ast.Element case: a
+					// Go-embedded element starts a fresh (preserve=false)
+					// context, same as a top-level component body element.
+					el.Children = normalizeMarkup(el.Children, isPreserveTag(el.Tag))
+					normalizeAttrs(el.Attrs)
+				}
+			}
 		}
 	}
 }

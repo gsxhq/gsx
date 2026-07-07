@@ -1,5 +1,5 @@
 # Context: element literal whose interpolations reference OUTER (package)
-# scope identifiers — an attr expr `{cls}` and a child interp `{ label }`,
+# scope identifiers — an attr expr `{ cls }` and a child interp `{ label }`,
 # both package-level vars declared before the element. Exercises Task 5's
 # buildSkeleton walk of *ast.GoWithElements: the embedded element's
 # interpolations must type-check against ordinary package scope (there is no
@@ -12,7 +12,7 @@ package demo
 var cls = "text-lg"
 var label = "Home"
 
-var help = <span class={cls}>{ label }</span>
+var help = <span class={ cls }>{ label }</span>
 
 component Uses() {
 	<div>{ help }</div>
@@ -43,7 +43,7 @@ var help = gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 	_gsxgw.S("<span class=\"")
 	_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class(cls))
 	_gsxgw.S("\">")
-//line input.gsx:6:30
+//line input.gsx:6:32
 	_gsxgw.Text(string(label))
 	_gsxgw.S("</span>")
 	return _gsxgw.Err()
