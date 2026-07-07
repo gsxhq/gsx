@@ -179,6 +179,7 @@ doctype/render	diag render
 element-literals/call-arg	diag gen render
 element-literals/component-tag	diag gen render
 element-literals/func-local	diag gen render
+element-literals/import-then-embed	diag gen render
 element-literals/interp-outer-scope	diag gen render
 element-literals/method-receiver	diag gen render
 element-literals/return	diag gen render
@@ -514,4 +515,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 516 cases (render: 418, error: 75, gen-pinned: 249)
+TOTAL: 517 cases (render: 419, error: 75, gen-pinned: 250)

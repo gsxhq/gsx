@@ -2,6 +2,7 @@ package parser
 
 import (
 	"go/token"
+	"strings"
 	"testing"
 
 	"github.com/gsxhq/gsx/ast"
@@ -12,7 +13,11 @@ import (
 // parser's file — mirroring how parser/file.go seats a GoChunk region.
 func splitAt(src string) (*parser, ast.Decl) {
 	p := testParser(src)
-	return p, p.splitGoElements(src, p.file.Pos(0))
+	decls := p.splitGoElements(src, p.file.Pos(0))
+	// These fixtures have no leading imports, so no import-peel GoChunk is split
+	// off; splitGoElements returns exactly one decl. The import-peel path has its
+	// own test (TestSplitGoElementsPeelsLeadingImports).
+	return p, decls[len(decls)-1]
 }
 
 func TestSplitGoElements(t *testing.T) {
@@ -45,6 +50,87 @@ func TestSplitGoElements(t *testing.T) {
 	}
 	if trail.Src != "" {
 		t.Fatalf("trailing text=%q, want empty", trail.Src)
+	}
+}
+
+// A region whose embedded-element func is preceded by import declarations must
+// split those imports into their own leading GoChunk, so both the skeleton and
+// the emitted output hoist them into the file's import block (rather than
+// splicing them after a declaration → "imports must appear before other
+// declarations"). The remainder becomes the GoWithElements.
+func TestSplitGoElementsPeelsLeadingImports(t *testing.T) {
+	src := "import \"a\"\nimport b \"c\"\n\nfunc render() Node {\n\treturn <div/>\n}\n"
+	p := testParser(src)
+	decls := p.splitGoElements(src, p.file.Pos(0))
+	if len(decls) != 2 {
+		t.Fatalf("decls=%d, want 2 (import GoChunk + GoWithElements): %#v", len(decls), decls)
+	}
+	gc, ok := decls[0].(*ast.GoChunk)
+	if !ok {
+		t.Fatalf("decl 0 not *ast.GoChunk, got %T", decls[0])
+	}
+	// The import chunk absorbs the trailing blank line so the printer keeps the
+	// blank line between the imports and the func (see printer.endsWithBlankLine).
+	if gc.Src != "import \"a\"\nimport b \"c\"\n\n" {
+		t.Fatalf("import chunk Src=%q", gc.Src)
+	}
+	we, ok := decls[1].(*ast.GoWithElements)
+	if !ok {
+		t.Fatalf("decl 1 not *ast.GoWithElements, got %T", decls[1])
+	}
+	// The GoWithElements must carry the func region verbatim, with no import in it.
+	lead := we.Parts[0].(ast.GoText)
+	if !strings.HasPrefix(strings.TrimSpace(lead.Src), "func render()") {
+		t.Fatalf("GoWithElements lead=%q, want to start at func render", lead.Src)
+	}
+	// Round-trip: chunk + parts must reproduce src byte-for-byte.
+	got := gc.Src
+	for _, part := range we.Parts {
+		switch v := part.(type) {
+		case ast.GoText:
+			got += v.Src
+		case *ast.Element:
+			got += src[p.file.Offset(v.Pos()):p.file.Offset(v.End())]
+		}
+	}
+	if got != src {
+		t.Fatalf("round-trip mismatch:\n got %q\nwant %q", got, src)
+	}
+}
+
+// A `<div/>` at operand-start with NO preceding import is unaffected: single
+// GoWithElements, no spurious empty import chunk.
+func TestSplitGoElementsNoLeadingImportNoPeel(t *testing.T) {
+	src := "var x = <div/>"
+	p := testParser(src)
+	decls := p.splitGoElements(src, p.file.Pos(0))
+	if len(decls) != 1 {
+		t.Fatalf("decls=%d, want 1 (no peel): %#v", len(decls), decls)
+	}
+	if _, ok := decls[0].(*ast.GoWithElements); !ok {
+		t.Fatalf("decl 0 not *ast.GoWithElements, got %T", decls[0])
+	}
+}
+
+// A stray import that FOLLOWS the embedded-element func stays inside the
+// GoWithElements (it is invalid Go and must remain a reported error); only the
+// leading run is peeled.
+func TestSplitGoElementsDoesNotPeelTrailingImport(t *testing.T) {
+	src := "import \"a\"\n\nfunc render() Node { return <div/> }\n\nimport \"late\"\n"
+	p := testParser(src)
+	decls := p.splitGoElements(src, p.file.Pos(0))
+	if len(decls) != 2 {
+		t.Fatalf("decls=%d, want 2: %#v", len(decls), decls)
+	}
+	we := decls[1].(*ast.GoWithElements)
+	var joined string
+	for _, part := range we.Parts {
+		if gt, ok := part.(ast.GoText); ok {
+			joined += gt.Src
+		}
+	}
+	if !strings.Contains(joined, `import "late"`) {
+		t.Fatalf("trailing import should remain inside GoWithElements; parts text=%q", joined)
 	}
 }
 
@@ -327,7 +413,8 @@ component Foo() { <div/> }
 
 `)
 	src := full[goRegionStart:]
-	part := p.splitGoElements(src, f.Pos(goRegionStart))
+	decls := p.splitGoElements(src, f.Pos(goRegionStart))
+	part := decls[len(decls)-1]
 	we, ok := part.(*ast.GoWithElements)
 	if !ok {
 		t.Fatalf("want *ast.GoWithElements, got %T", part)

@@ -1,13 +1,10 @@
-# Context: element literal in a top-level func's `return` statement. `Help`'s
-# explicit `gsx.Node` return type means this file needs a real `import
-# "github.com/gsxhq/gsx"` — which must sit in its OWN top-level Go chunk,
-# ahead of a `component` boundary, rather than sharing a chunk with `Help`:
-# analyze.go's GoWithElements skeleton probe writes its synthesized probe
-# funcs before the chunk's own reconstructed text, so a user `import` living
-# in the SAME chunk as an embedded element ends up after those probe funcs
-# ("imports must appear before other declarations") — a documented, accepted
-# limitation (see analyze.go's GoWithElements comment). A leading component
-# forces the split, which is also how real code would be structured anyway.
+# Context: element literal in a top-level func's `return` statement, here with a
+# leading `component` before the embedding func. `Help`'s explicit `gsx.Node`
+# return type needs a real `import "github.com/gsxhq/gsx"`. A leading `import`
+# directly before the embedding func (no `component` between) is now handled —
+# the parser peels leading imports into their own GoChunk so they hoist normally
+# (see element-literals/import-then-embed for that arrangement). This case pins
+# the component-first ordering, which stays valid and exercises the same lowering.
 -- input.gsx --
 package demo
 
