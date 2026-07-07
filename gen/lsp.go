@@ -275,6 +275,41 @@ func (a lspAnalyzer) AnalyzeModule(dir string, override map[string][]byte) ([]ls
 	return refs, nil
 }
 
+// ModuleSymbols returns every symbol declared in every .gsx package in the
+// module containing dir, for workspace/symbol. It reuses the warm per-root
+// Module (same instance Analyze/AnalyzeModule use) and calls lsp.FileSymbols on
+// each package's parsed files. Un-analyzable dirs are skipped (partial results
+// tolerated). override supplies unsaved buffers (abs path -> bytes).
+func (a lspAnalyzer) ModuleSymbols(dir string, override map[string][]byte) ([]lsp.Symbol, error) {
+	root, modPath, err := moduleRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	dirs, err := discoverDirs([]string{root})
+	if err != nil {
+		return nil, err
+	}
+	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
+	m, err := a.module(root, modPath, merged)
+	if err != nil {
+		return nil, err
+	}
+	for p, src := range override {
+		m.SetOverride(p, src)
+	}
+	var syms []lsp.Symbol
+	for _, d := range dirs {
+		pr, err := m.Package(d)
+		if err != nil || pr == nil {
+			continue
+		}
+		for path, file := range pr.GSXFiles {
+			syms = append(syms, lsp.FileSymbols(path, file, pr.GSXFset)...)
+		}
+	}
+	return syms, nil
+}
+
 // crossRefKeyForFunc derives the component key for a *types.Func: ".Name" for
 // a plain function component and "RecvType.Name" for a method component.
 // This mirrors componentKey (analyze.go) applied to the already-typed object.

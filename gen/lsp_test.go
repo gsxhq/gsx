@@ -3,6 +3,7 @@ package gen
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -49,5 +50,32 @@ func TestLSPEndToEndDiagnostics(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "publishDiagnostics") || !strings.Contains(out.String(), "nope") {
 		t.Fatalf("expected a diagnostic mentioning 'nope'; out:\n%s", out.String())
+	}
+}
+
+// TestModuleSymbols verifies the real lspAnalyzer.ModuleSymbols walks every
+// .gsx package in the module (not just dir) and returns symbols for both
+// components and top-level Go decls.
+func TestModuleSymbols(t *testing.T) {
+	t.Parallel()
+	root := newModule(t, "gsxmodulesymbols")
+	writeFile(t, filepath.Join(root, "page"), "page.gsx",
+		"package page\n\ntype Widget struct{ N int }\n\ncomponent Card() {\n\t<div/>\n}\n")
+	writeFile(t, filepath.Join(root, "ui"), "ui.gsx",
+		"package ui\n\ncomponent Button() {\n\t<button/>\n}\n")
+
+	a := newLSPAnalyzer(config{}, io.Discard)
+	syms, err := a.ModuleSymbols(filepath.Join(root, "page"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, s := range syms {
+		names[s.Name] = true
+	}
+	for _, want := range []string{"Card", "Widget", "Button"} {
+		if !names[want] {
+			t.Errorf("ModuleSymbols missing %q; got %+v", want, syms)
+		}
 	}
 }
