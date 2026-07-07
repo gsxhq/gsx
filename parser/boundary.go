@@ -383,16 +383,29 @@ var typeListStop = map[token.Token]bool{
 // parenEnd returns the index of the `)` matching the `(` at src[open].
 //
 // Not rerouted onto scanGoExpr (Task 2): scanGoExpr has no general
-// matching-closer facility — only Close, which tracks '}', not ')'. Nor does
-// it need one: both of parenEnd's call sites (a component's receiver/param
-// type list in component.go, and a pipe-filter's Go argument list in
-// pipe.go's parsePipeStage) hand it plain, already-validated Go signature/
-// argument-list source, where a gsx element or backtick literal cannot
-// syntactically appear — those only ever occur inside a `{ }` interpolation
-// body, never as a bare operand in a type list or filter-call argument. So
-// delimEnd's existing go/scanner-based matching (which already skips nested
-// Go string/rune/comment tokens correctly) is exact for every input it is
-// asked to delimit; a tag/backtick-aware guard would be dead code here.
+// matching-closer facility — only Close, which tracks '}', not ')'.
+//
+// parenEnd has two call sites, and they are NOT symmetric. A component's
+// receiver/param type list (component.go) genuinely cannot contain a gsx
+// element or backtick literal — Go type lists have no operand-position
+// `<tag>` — so delimEnd's plain go/scanner-based matching is exact there,
+// unconditionally.
+//
+// A pipe-filter's Go argument list (pipe.go's parsePipeStage), by contrast,
+// CAN contain an element as an argument today: `{ x |> wrap(<b/>) }` parses
+// (the element's own `<`/`>`/`/` bytes don't affect delimEnd's paren/bracket/
+// brace depth, so it still finds the real closing `)` correctly). What
+// delimEnd does NOT understand is an element's opaque text/attribute
+// interior: a `)` inside a quoted attribute value or text content (e.g.
+// `wrap(<b>closing)</b>)`) would be miscounted as the argument list's own
+// close. parenEnd is left unrouted anyway, uninstrumented by a tag/backtick
+// guard, because this fails SAFE rather than silently miscompiling: the
+// premature "close" desyncs parsePipeStage's trailing-content check, which
+// reports a "trailing text after `)`" parse error rather than accepting
+// malformed input. Giving parenEnd real element-span awareness is deferred
+// to whenever elements-as-filter-args are formally wired up and validated
+// (Task 3+ of the embedded-literals work), not required for Task 2's
+// byte-identical reroute.
 func parenEnd(src string, open int) (int, bool) {
 	return delimEnd(src, open, token.RPAREN, nil)
 }

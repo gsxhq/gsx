@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"go/scanner"
 	"go/token"
 	"os"
 	"path/filepath"
@@ -42,6 +43,144 @@ func relDelims(offs []int, from int) []int {
 	return out
 }
 
+// tagOrBacktickFree reports whether s contains no '<' and no '`' — the same
+// fast-path guard condition goDepth1End, splitPipe, and (with one more
+// condition, see composedGuardPasses) composedDelims use in production
+// (parser/boundary.go, parser/pipe.go) to decide whether their legacy,
+// non-scanGoExpr byte/token walk is safe. Used below to classify a region as
+// guard-passing (independently checkable against a frozen legacy reference,
+// since production itself trusts the legacy walk there) or guard-failing
+// (production delegates to scanGoExpr, so scanGoExpr is authoritative and a
+// frozen-reference equality assertion is not guaranteed to hold — see
+// TestScanGoExprCorpusDifferential's doc comment).
+func tagOrBacktickFree(s string) bool {
+	return strings.IndexByte(s, '<') < 0 && strings.IndexByte(s, '`') < 0
+}
+
+// composedGuardPasses is composedDelims's fast-path guard: tagOrBacktickFree
+// plus the additional ":=" exclusion composedDelims needs (a value-form
+// if/switch's `;`-separated init inside class=/style= — see
+// TestScanGoExprValueFormInitDivergence).
+func composedGuardPasses(s string) bool {
+	return tagOrBacktickFree(s) && !strings.Contains(s, ":=")
+}
+
+// oldGoDepth1End is a FROZEN, test-only copy of goDepth1End's pre-Task-2 byte
+// loop (parser/boundary.go, as it existed before commit 9b2e816). It must
+// NEVER be changed to delegate to scanGoExpr — its entire purpose is to stay
+// an independent reference implementation so the differential tests below can
+// prove scanGoExpr agrees with something other than itself. It reuses the
+// unchanged lexical helpers (skipGSXEmbeddedLiteral, skipQuotedOrComment,
+// etc.) from boundary.go, none of which were touched by Task 2's reroute.
+//
+// It is exact only on "guard-passing" input (no '<', no '`' anywhere in
+// src[from:], mirroring goDepth1End's real guard) — see
+// TestScanGoExprCorpusDifferential's doc comment for the guard-failing
+// patterns where this frozen loop is known to diverge from scanGoExpr.
+func oldGoDepth1End(src string, from int) (int, bool) {
+	depth := 1
+	for i := from; i < len(src); {
+		if end, ok := skipGSXEmbeddedLiteral(src, i); ok {
+			i = end
+			continue
+		}
+		if end, ok := skipQuotedOrComment(src, i); ok {
+			i = end
+			continue
+		}
+		switch src[i] {
+		case '{', '(', '[':
+			depth++
+		case '}', ')', ']':
+			depth--
+			if depth == 0 && src[i] == '}' {
+				return i, true
+			}
+		}
+		i++
+	}
+	return 0, false
+}
+
+// oldComposedDelims is a FROZEN, test-only copy of composedDelims's
+// pre-Task-2 byte loop. See oldGoDepth1End's doc comment: same independence
+// requirement, same "exact only on guard-passing input" caveat (here,
+// composedGuardPasses rather than tagOrBacktickFree, since composedDelims's
+// real guard also excludes ":=").
+func oldComposedDelims(src string) (commas, colons []int) {
+	depth := 0
+	for i := 0; i < len(src); {
+		if end, ok := skipGSXEmbeddedLiteral(src, i); ok {
+			i = end
+			continue
+		}
+		if end, ok := skipQuotedOrComment(src, i); ok {
+			i = end
+			continue
+		}
+		switch src[i] {
+		case '{', '(', '[':
+			depth++
+		case '}', ')', ']':
+			depth--
+		case ',':
+			if depth == 0 {
+				commas = append(commas, i)
+			}
+		case ':':
+			if depth == 0 {
+				colons = append(colons, i)
+			}
+		}
+		i++
+	}
+	return commas, colons
+}
+
+// oldSplitPipe is a FROZEN, test-only copy of splitPipe's pre-Task-2
+// go/scanner-based walk (parser/pipe.go, as it existed before commit
+// 9b2e816). Same independence requirement as oldGoDepth1End. It reuses
+// splitPipeSegments — an unchanged, purely mechanical "offsets → segments"
+// builder that does not itself scan or delegate to scanGoExpr — to build its
+// result, exactly as the pre-Task-2 splitPipe did inline.
+//
+// Exact only on guard-passing input (tagOrBacktickFree) — see
+// TestScanGoExprCorpusDifferential's doc comment.
+func oldSplitPipe(src string) []string {
+	if !strings.Contains(src, "|>") {
+		return []string{src}
+	}
+	fset := token.NewFileSet()
+	file := fset.AddFile("", fset.Base(), len(src))
+	var s scanner.Scanner
+	s.Init(file, []byte(src), nil, scanner.ScanComments)
+
+	var splits []int // byte offset of each '|' that begins a top-level '|>'
+	depth := 0
+	prevTok := token.ILLEGAL
+	prevOff := -1
+	for {
+		pos, tok, _ := s.Scan()
+		if tok == token.EOF {
+			break
+		}
+		off := file.Offset(pos)
+		switch tok {
+		case token.LPAREN, token.LBRACK, token.LBRACE:
+			depth++
+		case token.RPAREN, token.RBRACK, token.RBRACE:
+			depth--
+		case token.GTR:
+			if depth == 0 && prevTok == token.OR && off == prevOff+1 {
+				splits = append(splits, prevOff)
+			}
+		}
+		prevTok = tok
+		prevOff = off
+	}
+	return splitPipeSegments(src, splits)
+}
+
 func TestScanGoExprMatchesLegacy(t *testing.T) {
 	cases := []string{
 		`x }`,
@@ -60,10 +199,22 @@ func TestScanGoExprMatchesLegacy(t *testing.T) {
 		`css` + "`c:@{x}`" + ` }`,
 		`(seed |> f)... }`,
 	}
+	// Compared against the FROZEN oldGoDepth1End/oldSplitPipe/oldComposedDelims
+	// reference implementations, not the production goDepth1End/splitPipe/
+	// composedDelims — those now delegate straight to scanGoExpr on
+	// tag/backtick/':='-containing input (Task 2's reroute), which would make
+	// several cases below (the backtick and '<' ones, deliberately included to
+	// probe scanGoExpr's tag/backtick disambiguation) compare scanGoExpr to
+	// itself. None of this table's cases hit the three constructs where the
+	// frozen loops are known to diverge from scanGoExpr (a ':=' short-var-decl
+	// init, a bare backtick raw string ending in a backslash right before its
+	// close, or element text carrying Go-significant bytes — see
+	// TestScanGoExprCorpusDifferential's doc comment), so blanket equality
+	// against the frozen references is the correct check for every case here.
 	for _, c := range cases {
 		got := scanGoExpr(c, 0)
 
-		wantClose, ok := goDepth1End(c, 0)
+		wantClose, ok := oldGoDepth1End(c, 0)
 		if !ok {
 			wantClose = -1
 		}
@@ -76,15 +227,16 @@ func TestScanGoExprMatchesLegacy(t *testing.T) {
 		}
 		inner := c[:got.Close]
 
-		// Pipes: reconstruct segments and compare to splitPipe over the inner.
+		// Pipes: reconstruct segments and compare to the frozen splitPipe walk
+		// over the inner.
 		gotSegs := pipeSegments(inner, 0, got.Pipes)
-		wantSegs := splitPipe(inner)
+		wantSegs := oldSplitPipe(inner)
 		if !reflect.DeepEqual(gotSegs, wantSegs) {
 			t.Errorf("pipe segments(%q) = %q, want %q", c, gotSegs, wantSegs)
 		}
 
-		// Commas/Colons vs composedDelims.
-		wantCommas, wantColons := composedDelims(inner)
+		// Commas/Colons vs the frozen composedDelims walk.
+		wantCommas, wantColons := oldComposedDelims(inner)
 		if !reflect.DeepEqual(relDelims(got.Commas, 0), wantCommas) {
 			t.Errorf("commas(%q) = %v, want %v", c, relDelims(got.Commas, 0), wantCommas)
 		}
@@ -122,10 +274,14 @@ func TestScanGoExprBacktickSpan(t *testing.T) {
 	if g2.Backticks[0][0] != 0 {
 		t.Errorf("js literal span start = %d, want 0 (includes js prefix)", g2.Backticks[0][0])
 	}
-	// The close is the final '}'.
-	if wantClose, ok := goDepth1End(jssrc, 0); ok {
-		// goDepth1End is gsx-escape-aware for js`/css` via skipGSXEmbeddedLiteral,
-		// so both must agree here.
+	// The close is the final '}'. Compared against the FROZEN oldGoDepth1End,
+	// not production goDepth1End — jssrc contains a backtick, so production
+	// goDepth1End now delegates straight to scanGoExpr on this input (Task 2),
+	// which would compare scanGoExpr to itself.
+	if wantClose, ok := oldGoDepth1End(jssrc, 0); ok {
+		// oldGoDepth1End is gsx-escape-aware for js`/css` via
+		// skipGSXEmbeddedLiteral (an unchanged helper both scanners share), so
+		// both must agree here.
 		if g2.Close != wantClose {
 			t.Errorf("js literal Close = %d, want %d", g2.Close, wantClose)
 		}
@@ -274,35 +430,73 @@ func TestScanGoExprOpaqueSpanTableCases(t *testing.T) {
 }
 
 // TestScanGoExprCorpusDifferential is the risk-gate proof: for every
-// interpolation source region the parser actually scans across the whole txtar
-// corpus, scanGoExpr must agree byte-for-byte with the legacy scanners
-// (goDepth1End for Close, splitPipe for Pipes, composedDelims for Commas/Colons).
+// interpolation source region the parser actually scans across the whole
+// txtar corpus, scanGoExpr must agree byte-for-byte with the pre-Task-2
+// legacy scanners on every region where equality is actually guaranteed to
+// hold — i.e. every region where production's OWN fast-path guard (see
+// goDepth1End/composedDelims/splitPipe's doc comments in boundary.go/pipe.go)
+// would have trusted the legacy byte/token walk instead of delegating to
+// scanGoExpr.
 //
-// Extraction method: the corpus inputs are parsed with the real parser while
-// two test-only choke-point observers record the exact regions each legacy
-// scanner is asked to delimit:
+// Why not compare against production goDepth1End/splitPipe/composedDelims
+// directly, as this test did before Task 2's reroute landed: those three
+// functions now DELEGATE straight to scanGoExpr whenever a region contains
+// '<', '`', or (composedDelims only) ':=' — exactly the regions this
+// differential most needs to check, since that's where scanGoExpr's
+// element/backtick-aware behavior actually differs from a plain byte walk.
+// Comparing scanGoExpr's output to a function that internally calls
+// scanGoExpr on that same input is a tautology: it always passes, and proves
+// nothing. This was caught in review — see task-2-report.md.
+//
+// Fix: this differential instead compares scanGoExpr to oldGoDepth1End /
+// oldSplitPipe / oldComposedDelims — FROZEN, test-only copies of the
+// pre-Task-2 byte/token loops (above) that never delegate to scanGoExpr — and
+// ONLY on regions where the corresponding production guard passes
+// (tagOrBacktickFree / composedGuardPasses). That is the exact condition
+// under which production itself considers the legacy walk trustworthy, so
+// it's also the exact condition under which comparing to the frozen legacy
+// walk is a meaningful, guaranteed-to-hold check.
+//
+// Guard-FAILING regions (containing '<', '`', or ':=') are deliberately NOT
+// asserted against the frozen loops here — not because they're unimportant,
+// but because the frozen loops are demonstrably WRONG on three specific
+// guard-failing patterns, so a blanket equality assertion there would be
+// either accidentally true (most guard-failing regions, e.g. a bare '<'
+// comparison operator, don't actually hit a divergent pattern) or actively
+// wrong (a real divergence) — and this loop can't tell which without
+// re-implementing the divergence detection itself:
+//  1. A ':=' short-var-decl init inside class=/style= (composedDelims's
+//     byte loop can't distinguish a DEFINE token's ':' from a real ': cond'
+//     guard colon) — covered by TestScanGoExprValueFormInitDivergence.
+//  2. A bare (non-js/css) backtick raw string that itself ends in a
+//     backslash immediately before the byte that would close it —
+//     oldGoDepth1End's naive raw-string skip (Go semantics: no escaping)
+//     diverges from scanGoExpr's uniform, gsx-escape-aware backtick handling
+//     — see task-2-report.md's "Unanticipated but pre-flagged regression"
+//     and parser/embedded_text_test.go's *Unterminated tests.
+//  3. Operand-position element text carrying Go-significant bytes ('}', ')',
+//     ',', ':') inside a quoted attribute value or text content —
+//     oldGoDepth1End/oldComposedDelims have no concept of an element span and
+//     would count those bytes; scanGoExpr correctly treats them as opaque —
+//     covered by TestScanGoExprOpaqueSpanTableCases.
+//
+// Those three patterns are exhaustively pinned by their own deterministic
+// tests instead, plus end-to-end corpus rendering (internal/corpus). This
+// loop logs guard-passing vs. guard-failing counts (closeGuardPass etc.
+// below) and fails outright if guard-passing coverage ever drops to zero —
+// that would mean the frozen-loop comparison silently stopped checking
+// anything.
+//
+// Extraction method (unchanged from before this fix): the corpus inputs are
+// parsed with the real parser while two test-only choke-point observers
+// record the exact regions each legacy scanner is asked to delimit:
 //   - scanRegionObserver records every (src, from) passed to goDepth1End — the
 //     single point under goExprEnd/goStagesEnd hit for every body/attr `{ … }`,
 //     ordered-attrs `{{ … }}`, control-flow header, comment, spread, and
 //     embedded-literal pipeline (including recursive calls inside element
-//     spans). Close (vs goDepth1End) and Pipes (vs splitPipe) are compared on
-//     all of them.
+//     spans).
 //   - composedRegionObserver records every inner passed to composedDelims — the
-//     class/style ordered-attr splitter. Commas/Colons (vs composedDelims) are
-//     compared only on these, because composedDelims's legacy byte loop is
-//     byte-based: on a general interp body it would count the ':' of a Go
-//     `:=` as a delimiter. composedDelims's real inputs are NOT categorically
-//     free of `:=`: a value-form if/switch with a `;`-separated init inside
-//     class={...}/style={...} is a real composedDelims input containing one
-//     (see internal/corpus/testdata/cases/goexpr-valueform-init/). Task 2
-//     fixed this at the source — composedDelims's own fast-path guard
-//     additionally checks for ":=" and delegates to scanGoExpr when present
-//     (TestScanGoExprValueFormInitDivergence) — so composedDelims(inner) and
-//     scanGoExpr agree here too, and this loop's exact-match assertion holds
-//     without exception.
-//
-// Each recorded region is exactly what Task 2's reroute will hand to scanGoExpr,
-// so agreement here is the byte-identical guarantee.
+//     class/style ordered-attr splitter.
 func TestScanGoExprCorpusDifferential(t *testing.T) {
 	root := filepath.Join("..", "internal", "corpus", "testdata", "cases")
 	var paths []string
@@ -324,11 +518,14 @@ func TestScanGoExprCorpusDifferential(t *testing.T) {
 		from int
 	}
 
-	closeSites := 0    // goDepth1End regions (Close + Pipes compared)
-	pipeSites := 0     // regions with a close, pipes/segments compared
-	composedSites := 0 // composedDelims inputs (Commas/Colons compared)
-	markCount := 0     // operand-position element marks encountered (opaque-span path)
-	backtickCount := 0 // backtick literal spans encountered (opaque-span path)
+	closeSites := 0        // goDepth1End regions observed
+	closeGuardPass := 0    // ...of those, guard-passing (checked against oldGoDepth1End)
+	pipeSites := 0         // regions with a close, eligible for a Pipes comparison
+	pipeGuardPass := 0     // ...of those, guard-passing (checked against oldSplitPipe)
+	composedSites := 0     // composedDelims inputs observed
+	composedGuardPass := 0 // ...of those, guard-passing (checked against oldComposedDelims)
+	markCount := 0         // operand-position element marks encountered (opaque-span path)
+	backtickCount := 0     // backtick literal spans encountered (opaque-span path)
 	for _, p := range paths {
 		data, err := os.ReadFile(p)
 		if err != nil {
@@ -360,21 +557,25 @@ func TestScanGoExprCorpusDifferential(t *testing.T) {
 		scanRegionObserver = nil
 		composedRegionObserver = nil
 
-		// Close (vs goDepth1End) and Pipes (vs splitPipe) on every scanned region.
+		// Close (vs oldGoDepth1End, guard-passing regions only) and Pipes (vs
+		// oldSplitPipe, guard-passing regions only).
 		for _, r := range regions {
 			closeSites++
 			got := scanGoExpr(r.src, r.from)
 			markCount += len(got.Marks)
 			backtickCount += len(got.Backticks)
 
-			wantClose, ok := goDepth1End(r.src, r.from)
-			if !ok {
-				wantClose = -1
-			}
-			if got.Close != wantClose {
-				t.Errorf("%s: Close(from=%d) = %d, want %d\n  region=%s",
-					p, r.from, got.Close, wantClose, snippet(r.src, r.from))
-				continue
+			if tagOrBacktickFree(r.src[r.from:]) {
+				closeGuardPass++
+				wantClose, ok := oldGoDepth1End(r.src, r.from)
+				if !ok {
+					wantClose = -1
+				}
+				if got.Close != wantClose {
+					t.Errorf("%s: Close(from=%d) = %d, want %d\n  region=%s",
+						p, r.from, got.Close, wantClose, snippet(r.src, r.from))
+					continue
+				}
 			}
 			if got.Close < 0 {
 				continue // unterminated region; nothing further to compare
@@ -382,18 +583,21 @@ func TestScanGoExprCorpusDifferential(t *testing.T) {
 			pipeSites++
 			inner := r.src[r.from:got.Close]
 
-			gotSegs := pipeSegments(inner, r.from, got.Pipes)
-			wantSegs := splitPipe(inner)
-			if !reflect.DeepEqual(gotSegs, wantSegs) {
-				t.Errorf("%s: pipe segments(from=%d) = %q, want %q",
-					p, r.from, gotSegs, wantSegs)
+			if tagOrBacktickFree(inner) {
+				pipeGuardPass++
+				gotSegs := pipeSegments(inner, r.from, got.Pipes)
+				wantSegs := oldSplitPipe(inner)
+				if !reflect.DeepEqual(gotSegs, wantSegs) {
+					t.Errorf("%s: pipe segments(from=%d) = %q, want %q",
+						p, r.from, gotSegs, wantSegs)
+				}
 			}
 		}
 
-		// Commas/Colons (vs composedDelims) on composedDelims's real inputs only.
-		// scanGoExpr wants a `{ … }` framing, so run it over the inner with a
-		// synthetic closing brace appended; delimiter offsets are then directly
-		// inner-relative.
+		// Commas/Colons (vs oldComposedDelims, guard-passing inputs only) on
+		// composedDelims's real inputs. scanGoExpr wants a `{ … }` framing, so
+		// run it over the inner with a synthetic closing brace appended;
+		// delimiter offsets are then directly inner-relative.
 		for _, inner := range composed {
 			composedSites++
 			got := scanGoExpr(inner+"}", 0)
@@ -402,7 +606,14 @@ func TestScanGoExprCorpusDifferential(t *testing.T) {
 					p, got.Close, len(inner), inner)
 				continue
 			}
-			wantCommas, wantColons := composedDelims(inner)
+			if !composedGuardPasses(inner) {
+				// Guard-failing (':=' and/or '<'/'`'): oldComposedDelims is
+				// known-divergent on a ':=' init — see
+				// TestScanGoExprValueFormInitDivergence. Not asserted here.
+				continue
+			}
+			composedGuardPass++
+			wantCommas, wantColons := oldComposedDelims(inner)
 			if !reflect.DeepEqual(relDelims(got.Commas, 0), wantCommas) {
 				t.Errorf("%s: composed commas = %v, want %v\n  inner=%q",
 					p, relDelims(got.Commas, 0), wantCommas, inner)
@@ -414,10 +625,16 @@ func TestScanGoExprCorpusDifferential(t *testing.T) {
 		}
 	}
 
-	t.Logf("corpus differential: %d input.gsx files; %d goDepth1End regions (Close), %d with a close (Pipes), %d composedDelims inputs (Commas/Colons); opaque spans exercised: %d element marks, %d backtick literals",
-		len(paths), closeSites, pipeSites, composedSites, markCount, backtickCount)
+	t.Logf("corpus differential: %d input.gsx files; %d goDepth1End regions (%d guard-passing vs oldGoDepth1End), %d with a close (%d guard-passing vs oldSplitPipe), %d composedDelims inputs (%d guard-passing vs oldComposedDelims); opaque spans exercised: %d element marks, %d backtick literals",
+		len(paths), closeSites, closeGuardPass, pipeSites, pipeGuardPass, composedSites, composedGuardPass, markCount, backtickCount)
 	if closeSites == 0 {
 		t.Fatal("no interpolation regions captured — observer never fired")
+	}
+	if closeGuardPass == 0 {
+		t.Fatal("no guard-passing goDepth1End regions found — the independent oldGoDepth1End check never ran")
+	}
+	if markCount == 0 || backtickCount == 0 {
+		t.Fatal("no element marks / backtick spans captured — opaque-span coverage lost")
 	}
 }
 
