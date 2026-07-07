@@ -319,8 +319,9 @@ func isGsxNodeType(typ string) bool {
 }
 
 // splitInterpEmbedded walks every interpolation in the file and, for any whose
-// seed expression carries an operand-position <tag>/<> literal, splits it into
-// interleaved GoText/*Element/*Fragment parts stored on Interp.Embedded — ONCE,
+// seed expression carries an operand-position <tag>/<> literal or a prefixed
+// backtick literal (f`/js`/css`), splits it into interleaved
+// GoText/*Element/*Fragment/*EmbeddedInterp parts stored on Interp.Embedded — ONCE,
 // so the analysis pass (emitProbes) and the emit pass (genInterp) share the same
 // parsed element nodes and resolved types key on one set of pointers. An interp
 // with no embedded element (the common case) keeps Embedded nil and takes the
@@ -332,9 +333,12 @@ func splitInterpEmbedded(file *gsxast.File, cls *attrclass.Classifier, fset *tok
 		if !ok {
 			return true
 		}
-		// Fast path: no '<' means no possible operand-position tag mark; and a
-		// split needs a valid base position to seat the sub-parser.
-		if !strings.ContainsRune(interp.Expr, '<') || !interp.ExprPos.IsValid() {
+		// Fast path: no '<' (operand-position tag mark) AND no '`' (prefixed
+		// backtick literal) means nothing to split; and a split needs a valid base
+		// position to seat the sub-parser. A bare Go raw string still contains a
+		// backtick but yields no split item (backtickPrefixStart < 0), so it falls
+		// straight back through with Embedded nil.
+		if (!strings.ContainsRune(interp.Expr, '<') && !strings.ContainsRune(interp.Expr, '`')) || !interp.ExprPos.IsValid() {
 			return true
 		}
 		if parts, _ := gsxparser.SplitGoExprElements(fset, interp.Expr, interp.ExprPos, cls); len(parts) > 0 {
@@ -580,6 +584,29 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, 
 					return "", nil, nil, nil, nil, nil, err
 				}
 				compBuf.WriteString("return nil\n}()")
+			case *gsxast.EmbeddedInterp:
+				// A prefixed backtick literal (f`/js`/css`) in Go-expression
+				// position → a Go string value. Probe it like an embedded element:
+				// register its segments at index N, splice a string-returning IIFE
+				// marked `_gsxelem(N)` whose body probes each @{…} hole (so it
+				// resolves against THIS region's scope and its type is harvested)
+				// and returns the assembled seed (giving the whole literal the
+				// built-in `string` type the surrounding Go expression sees, exactly
+				// the type emit's embeddedValueExpr produces). harvestEmbeddedElements
+				// resolves the holes off gwMarkups[N]; harvestBody SKIPs the marked
+				// IIFE, so the outer region's k-alignment is undisturbed.
+				if len(p.Stages) > 0 {
+					return "", nil, nil, nil, nil, nil, fmt.Errorf("codegen: whole-literal pipelines on a Go-expression backtick literal are not supported")
+				}
+				idx := len(gwMarkups)
+				gwMarkups = append(gwMarkups, p.Segments)
+				compBuf.WriteString("func() string {\n")
+				fmt.Fprintf(&compBuf, "_gsxelem(%d)\n", idx)
+				compBuf.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
+				if err := emitProbes(&compBuf, p.Segments, table, propFields, nodeProps, attrsProps, combinedSigs, byo, fm, "", "", usedFilters, fset, ctrlOff, registry, &gwMarkups, bag); err != nil {
+					return "", nil, nil, nil, nil, nil, err
+				}
+				fmt.Fprintf(&compBuf, "return %s\n}()", embeddedProbeSeed(p.Segments, table, usedFilters))
 			default:
 				return "", nil, nil, nil, nil, nil, fmt.Errorf("codegen: unsupported Go-expression part %T", part)
 			}
@@ -1123,6 +1150,27 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 							return err
 						}
 						eb.WriteString("return nil\n}()")
+					case *gsxast.EmbeddedInterp:
+						// A prefixed backtick literal (f`/js`/css`) inside this interp's
+						// seed expression → a Go string value. Same string-returning
+						// probe IIFE the top-level GoWithElements loop splices: its holes
+						// resolve against this enclosing component's scope (recvVar /
+						// recvTypeName threaded through) and are harvested off gw[N], while
+						// the outer interp's _gsxuse stays aligned (the marked IIFE is
+						// skipped by harvestBody). The returned seed gives the literal the
+						// `string` type wrap(...) etc. type-check against.
+						if len(p.Stages) > 0 {
+							return fmt.Errorf("codegen: whole-literal pipelines on a Go-expression backtick literal are not supported")
+						}
+						idx := len(*gw)
+						*gw = append(*gw, p.Segments)
+						eb.WriteString("func() string {\n")
+						fmt.Fprintf(&eb, "_gsxelem(%d)\n", idx)
+						eb.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
+						if err := emitProbes(&eb, p.Segments, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag); err != nil {
+							return err
+						}
+						fmt.Fprintf(&eb, "return %s\n}()", embeddedProbeSeed(p.Segments, table, usedFilters))
 					default:
 						return fmt.Errorf("codegen: unsupported embedded interpolation part %T", part)
 					}
@@ -2911,6 +2959,29 @@ func usedParams(c *gsxast.Component, params []param) map[string]bool {
 		switch v := n.(type) {
 		case *gsxast.Interp:
 			expr, stages = v.Expr, v.Stages
+			// A hole inside an embedded backtick literal (Interp.Embedded's
+			// *EmbeddedInterp parts) lives inside a Go raw string within v.Expr, so
+			// valueIdents cannot see it. Collect each such hole's idents (and its
+			// own filter-arg idents) explicitly, so a param used ONLY as `@{param}`
+			// in `{ wrap(f`…@{param}…`) }` is still bound as a local.
+			for _, part := range v.Embedded {
+				lit, ok := part.(*gsxast.EmbeddedInterp)
+				if !ok {
+					continue
+				}
+				for _, seg := range lit.Segments {
+					hole, ok := seg.(*gsxast.Interp)
+					if !ok {
+						continue
+					}
+					addIdents(hole.Expr)
+					for _, st := range hole.Stages {
+						if st.Args != "" {
+							addIdents(st.Args)
+						}
+					}
+				}
+			}
 		case *gsxast.ExprAttr:
 			expr, stages = v.Expr, v.Stages
 		case *gsxast.EmbeddedInterp:

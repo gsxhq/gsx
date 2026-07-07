@@ -242,6 +242,20 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 					if !emitFragmentValue(&wbuf, p, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, &interpTemp, fset, cls, fm, bag, mergeExpr) {
 						partsOK = false
 					}
+				case *ast.EmbeddedInterp:
+					// A prefixed backtick literal in Go-expression position lowers to
+					// a Go string value: embeddedValueExpr assembles its statics +
+					// @{…} holes into ONE string concat (`"hi " + string(name)`), the
+					// SAME assembly the body/attr embedded forms use. Any contextual
+					// escaping is applied where this string is consumed, not here.
+					if len(p.Stages) > 0 {
+						bag.Errorf(p.Pos(), p.End(), "unsupported-node", "whole-literal pipelines on a Go-expression backtick literal are not supported")
+						partsOK = false
+					} else if val, vok := embeddedValueExpr(&wbuf, p.Segments, resolved, table, imports, &interpTemp, bag, "unsupported-node", "backtick literal value"); !vok {
+						partsOK = false
+					} else {
+						wbuf.WriteString(val)
+					}
 				default:
 					bag.Errorf(part.Pos(), part.End(), "unsupported-node", "unsupported Go-expression part %T", part)
 					partsOK = false
@@ -1692,6 +1706,20 @@ func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type,
 				if !emitFragmentValue(&eb, p, ec.currentPkg, resolved, table, ec.structFields, ec.nodeProps, ec.attrsProps, ec.byo, imports, ec.importAliases, ec.boundNames, ec.typeArgAliases, interpTemp, fset, ec.cls, ec.fm, bag, ec.mergeExpr) {
 					return false
 				}
+			case *ast.EmbeddedInterp:
+				// A prefixed backtick literal embedded in this interp's seed → a Go
+				// string value. embeddedValueExpr assembles it to one string concat,
+				// spliced into the seed exactly like an element's gsx.Func value; any
+				// hole tuple-unwrap hoisting lands in b before the consuming stmt.
+				if len(p.Stages) > 0 {
+					bag.Errorf(n.Pos(), n.End(), "unsupported-node", "whole-literal pipelines on a Go-expression backtick literal are not supported")
+					return false
+				}
+				val, vok := embeddedValueExpr(b, p.Segments, resolved, table, imports, interpTemp, bag, "unsupported-node", "backtick literal value")
+				if !vok {
+					return false
+				}
+				eb.WriteString(val)
 			default:
 				bag.Errorf(n.Pos(), n.End(), "unsupported-node", "unsupported embedded interpolation part %T", part)
 				return false

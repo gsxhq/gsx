@@ -456,6 +456,32 @@ func (p *parser) parseBareBacktickAttrValue(name string, attrStartPos token.Pos)
 	return ea, nil
 }
 
+// parseEmbeddedInterpPart parses a prefixed backtick literal (f`/js`/css`)
+// beginning at byte offset off — detected at a Go operand position by
+// scanGoParts — into an *ast.EmbeddedInterp value. It seats the cursor at off,
+// consumes the literal via parseEmbeddedAttrLiteral (holes and gsx escapes
+// included), and leaves the cursor just past the closing backtick.
+//
+// All three langs collapse to the text (HTML/context-escaped-at-use-site)
+// EmbeddedInterp: a literal used as a Go-expression VALUE lowers to a plain Go
+// `string` (embeddedValueExpr), and any contextual escaping is applied where
+// that string is consumed (a body {…}, an attribute sink, a <script>), not
+// here — so a js`…`/css`…` value carries no distinct lowering and is admitted
+// as the same string-producing EmbeddedInterp as f`…`. Whole-literal `|> f`
+// pipelines are NOT parsed in value position (a trailing `|>` there is ordinary
+// Go, e.g. a bitwise-or expression); Stages stays empty.
+func (p *parser) parseEmbeddedInterpPart(off int) (*ast.EmbeddedInterp, error) {
+	p.i = off
+	startPos := p.posAt(off)
+	_, segs, err := p.parseEmbeddedAttrLiteral()
+	if err != nil {
+		return nil, err
+	}
+	node := &ast.EmbeddedInterp{Segments: segs}
+	ast.SetSpan(node, startPos, p.posAt(p.i))
+	return node, nil
+}
+
 func (p *parser) parseEmbeddedAttrLiteral() (ast.EmbeddedLang, []ast.Markup, error) {
 	var lang ast.EmbeddedLang
 	literalStart := p.i
