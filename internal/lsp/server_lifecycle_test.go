@@ -16,7 +16,7 @@ func (nilAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) 
 	return nil, nil
 }
 func (nilAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol, error) { return nil, nil }
-func (nilAnalyzer) PrintWidth(string) int                                    { return 80 }
+func (nilAnalyzer) PrintWidth(string) int                                     { return 80 }
 
 // framed wraps a JSON-RPC body in Content-Length framing.
 func framed(t *testing.T, v any) string {
@@ -95,6 +95,15 @@ func TestServerInitializeDefaultsUTF16(t *testing.T) {
 	}
 	if srv.enc != encUTF16 {
 		t.Fatalf("enc = %v, want encUTF16", srv.enc)
+	}
+}
+
+func TestInitializeAdvertisesSymbolProviders(t *testing.T) {
+	out := drive(t, nilAnalyzer{}, initFrame()+exitFrame())
+	for _, want := range []string{`"documentSymbolProvider":true`, `"workspaceSymbolProvider":true`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("initialize result missing %s:\n%s", want, out)
+		}
 	}
 }
 
