@@ -399,3 +399,40 @@ func TestGoWithElementsPreserveTag(t *testing.T) {
 		t.Fatalf("text nodes = %#v, want %#v", got, want)
 	}
 }
+
+// TestNormalizeFragmentExpressionValue confirms a fragment sitting in
+// Go-expression position (e.g. `var x = <>...</>`, parsed as a
+// *ast.Fragment Go part of a GoWithElements decl, not a Component body) gets
+// the SAME JSX whitespace collapsing as a fragment in a component body: its
+// inter-element cosmetic whitespace text nodes normalize identically either
+// way. Before the GoWithElements branch's type switch grew a *ast.Fragment
+// case, this fragment's children were never normalized at all (the branch
+// only matched *ast.Element), leaving a real fmt idempotence bug for
+// expression-position fragments.
+func TestNormalizeFragmentExpressionValue(t *testing.T) {
+	exprSrc := "package p\n\nvar x = <>  <a>{ v }</a>  </>\n"
+	fset := token.NewFileSet()
+	exprFile, err := parser.ParseFile(fset, "t.gsx", exprSrc, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	Normalize(exprFile)
+	got := collectText(exprFile)
+
+	bodyFile := parse(t, "<>  <a>{ v }</a>  </>")
+	Normalize(bodyFile)
+	want := collectText(bodyFile)
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expression-position fragment text nodes = %#v, want (same as component-body fragment) %#v", got, want)
+	}
+	// The wrapping whitespace around <a>{ v }</a> is all-whitespace with no
+	// newline, so it collapses to a single inline space rather than being
+	// dropped outright — same rule normalizeText applies everywhere else.
+	// (The `{ v }` interpolation itself is an *ast.Interp, not *ast.Text, so
+	// it never shows up in collectText's output.)
+	wantText := []string{" ", " "}
+	if !reflect.DeepEqual(got, wantText) {
+		t.Fatalf("text nodes = %#v, want %#v", got, wantText)
+	}
+}
