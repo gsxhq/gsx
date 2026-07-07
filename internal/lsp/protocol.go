@@ -55,6 +55,7 @@ type serverCapabilities struct {
 	ReferencesProvider         bool   `json:"referencesProvider"`
 	DocumentFormattingProvider bool   `json:"documentFormattingProvider"`
 	HoverProvider              bool   `json:"hoverProvider"`
+	DocumentSymbolProvider     bool   `json:"documentSymbolProvider"`
 }
 
 // TextEdit is a single text replacement: NewText replaces the span at Range.
@@ -134,4 +135,17 @@ type textDocumentIdentifier struct {
 
 type didCloseParams struct {
 	TextDocument textDocumentIdentifier `json:"textDocument"`
+}
+
+type documentSymbolParams struct {
+	TextDocument textDocumentIdentifier `json:"textDocument"`
+}
+
+// DocumentSymbol is the hierarchical textDocument/documentSymbol result. gsx
+// decls do not nest, so Children is always omitted.
+type DocumentSymbol struct {
+	Name           string `json:"name"`
+	Kind           int    `json:"kind"`
+	Range          Range  `json:"range"`
+	SelectionRange Range  `json:"selectionRange"`
 }
