@@ -398,8 +398,8 @@ func TestResolveEmbeddedWholeLiteralPipeType(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := "package views\n\ncomponent Row(n int) {\n" +
-		"\t<p>{`n=@{n}` |> upper}</p>\n" +
-		"\t<p class={`c-@{n}` |> upper}></p>\n" +
+		"\t<p>{f`n=@{n}` |> upper}</p>\n" +
+		"\t<p class={f`c-@{n}` |> upper}></p>\n" +
 		"}\n"
 	writeFile(t, pkgDir, "views.gsx", src)
 

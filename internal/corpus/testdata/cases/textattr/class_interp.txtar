@@ -4,7 +4,7 @@
 package p
 
 component Badge(variant string, n int) {
-	<span class=`badge badge-@{variant} n-@{n}`>Hi</span>
+	<span class=f`badge badge-@{variant} n-@{n}`>Hi</span>
 }
 -- invoke --
 Badge(BadgeProps{Variant: "primary", N: 3})

@@ -21,7 +21,7 @@ gsx applies a different escaper depending on the context the value sits in. Each
 | Context | Where it applies | What gsx does | Opt-out (trusted only) |
 |---------|-----------------|---------------|------------------------|
 | **Text / attribute** | `{ x }` in body; `attr={ x }` unless the attr is URL-context by name | HTML / attribute escape — `<`, `>`, `&`, `"`, `'` are entity-encoded; NUL is replaced with U+FFFD | `gsx.Raw(s)` |
-| **Interpolating attribute literal** | `` attr=`…@{ x }…` `` for a non-URL attribute; each hole | Same type-aware attribute escaping as `attr={ x }` (string/number/`fmt.Stringer`), applied per hole | — |
+| **Interpolating attribute literal** | `` attr=f`…@{ x }…` `` for a non-URL attribute; each hole | Same type-aware attribute escaping as `attr={ x }` (string/number/`fmt.Stringer`), applied per hole | — |
 | **URL attribute** | `href`, `src`, `action`, `formaction`, `poster`, `cite`, `ping`, `data`, `background`, `manifest`, `xlink:href`; htmx method attrs `hx-get` / `hx-post` / `hx-put` / `hx-delete` / `hx-patch` | Scheme-sanitize: non-allowlisted schemes (e.g. `javascript:`) are replaced with `about:invalid#gsx`; value is then attribute-escaped | `gsx.RawURL(s)` |
 | **Attribute-local JavaScript** | `` attr=js`...` `` or `` attr={js`...`} ``; `@{ expr }` holes inside the literal | Preserve the surrounding JavaScript and escape each hole for its JavaScript position | `gsx.RawJS(s)` in a hole |
 | **Attribute-local CSS** | `` attr=css`...` ``, `` attr={css`...`} ``, or a `` css`...` `` contribution inside `style={...}`; `@{ expr }` holes inside the literal | Preserve the surrounding CSS and filter each hole as a CSS value before attribute-escaping the result | `gsx.RawCSS(s)` in a hole |
@@ -61,8 +61,8 @@ For anything the allow-list refuses — an exotic MIME on an image sink, or a `d
 
 ### Interpolating attribute literals
 
-A plain backtick literal in attribute-value position — `` name=`…@{ expr }…` `` —
-mixes static text with `@{ expr }` holes; see [Attributes — Interpolating
+An `f`-prefixed backtick literal in attribute-value position —
+`` name=f`…@{ expr }…` `` — mixes static text with `@{ expr }` holes; see [Attributes — Interpolating
 attribute literals](./attributes#interpolating-attribute-literals) for the full
 syntax and examples. Two characters need escaping inside the literal: `` \` ``
 for a literal backtick, and `\@{` for a literal `@{` that should not open a

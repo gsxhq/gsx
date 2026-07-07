@@ -380,9 +380,9 @@ component C(color string, hidden bool) {
 	checkFormat(t, src, want)
 }
 
-func TestEmbeddedTextLiteralNoLangPrefix(t *testing.T) {
-	if got := embeddedLangName(ast.EmbeddedText); got != "" {
-		t.Fatalf("embeddedLangName(ast.EmbeddedText) = %q, want empty string", got)
+func TestEmbeddedTextLiteralLangPrefix(t *testing.T) {
+	if got := embeddedLangName(ast.EmbeddedText); got != "f" {
+		t.Fatalf("embeddedLangName(ast.EmbeddedText) = %q, want \"f\"", got)
 	}
 	if got := embeddedLangName(ast.EmbeddedJS); got != "js" {
 		t.Fatalf("embeddedLangName(ast.EmbeddedJS) = %q, want \"js\"", got)
@@ -393,17 +393,17 @@ func TestEmbeddedTextLiteralNoLangPrefix(t *testing.T) {
 }
 
 func TestEmbeddedTextLiteralRoundTrip(t *testing.T) {
-	// Bare-backtick EmbeddedText: no lang prefix, and a literal `@{` in the
+	// f`-prefixed EmbeddedText: interpolation opt-in, and a literal `@{` in the
 	// source (escaped as `\@{`) must round-trip as literal text rather than
 	// turning into a hole.
 	src := `package p
 component C(v string) {
-	<span class=` + "`" + `badge-@{v} \@{lit}` + "`" + `>x</span>
+	<span class=f` + "`" + `badge-@{v} \@{lit}` + "`" + `>x</span>
 }`
 	want := `package p
 
 component C(v string) {
-	<span class=` + "`" + `badge-@{v} \@{lit}` + "`" + `>x</span>
+	<span class=f` + "`" + `badge-@{v} \@{lit}` + "`" + `>x</span>
 }
 `
 	checkFormat(t, src, want)
@@ -414,12 +414,12 @@ func TestBodyEmbeddedInterpRoundTrip(t *testing.T) {
 	// (preserved, not canonicalized to interleaved Text/Interp nodes).
 	src := `package p
 component C(id string, n int) {
-	<p>{` + "`" + `row-@{ id }-@{n}` + "`" + `}</p>
+	<p>{f` + "`" + `row-@{ id }-@{n}` + "`" + `}</p>
 }`
 	want := `package p
 
 component C(id string, n int) {
-	<p>{` + "`" + `row-@{id}-@{n}` + "`" + `}</p>
+	<p>{f` + "`" + `row-@{id}-@{n}` + "`" + `}</p>
 }
 `
 	checkFormat(t, src, want)
@@ -430,12 +430,12 @@ func TestBodyEmbeddedInterpWholePipeRoundTrip(t *testing.T) {
 	// ` |> stage`.
 	src := `package p
 component C(id string) {
-	<p>{` + "`" + `row-@{ id }` + "`" + ` |> upper}</p>
+	<p>{f` + "`" + `row-@{ id }` + "`" + ` |> upper}</p>
 }`
 	want := `package p
 
 component C(id string) {
-	<p>{` + "`" + `row-@{id}` + "`" + ` |> upper}</p>
+	<p>{f` + "`" + `row-@{id}` + "`" + ` |> upper}</p>
 }
 `
 	checkFormat(t, src, want)
@@ -446,12 +446,12 @@ func TestBodyEmbeddedInterpEscapedHoleRoundTrip(t *testing.T) {
 	// as literal text rather than turning into a hole.
 	src := `package p
 component C(id string) {
-	<p>{` + "`" + `row-@{id} \@{lit}` + "`" + `}</p>
+	<p>{f` + "`" + `row-@{id} \@{lit}` + "`" + `}</p>
 }`
 	want := `package p
 
 component C(id string) {
-	<p>{` + "`" + `row-@{id} \@{lit}` + "`" + `}</p>
+	<p>{f` + "`" + `row-@{id} \@{lit}` + "`" + `}</p>
 }
 `
 	checkFormat(t, src, want)
@@ -463,12 +463,12 @@ func TestAttrEmbeddedWholePipeBracedRoundTrip(t *testing.T) {
 	// trailing `|>`, so dropping the braces would make the output unparseable.
 	src := `package p
 component C(v string) {
-	<div class={` + "`" + `btn-@{ v }` + "`" + ` |> upper}>x</div>
+	<div class={f` + "`" + `btn-@{ v }` + "`" + ` |> upper}>x</div>
 }`
 	want := `package p
 
 component C(v string) {
-	<div class={` + "`" + `btn-@{v}` + "`" + ` |> upper}>x</div>
+	<div class={f` + "`" + `btn-@{v}` + "`" + ` |> upper}>x</div>
 }
 `
 	checkFormat(t, src, want)

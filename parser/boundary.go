@@ -139,6 +139,8 @@ func skipGSXEmbeddedLiteral(src string, i int) (int, bool) {
 		return embeddedLiteralEnd(src, i+len("js`"))
 	case hasIdentBoundary(src, i) && strings.HasPrefix(src[i:], "css`"):
 		return embeddedLiteralEnd(src, i+len("css`"))
+	case hasIdentBoundary(src, i) && strings.HasPrefix(src[i:], "f`"):
+		return embeddedLiteralEnd(src, i+len("f`"))
 	default:
 		return 0, false
 	}

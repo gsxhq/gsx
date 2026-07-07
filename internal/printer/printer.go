@@ -567,10 +567,10 @@ func (p *printer) interp(i *ast.Interp) pretty.Doc {
 	return pretty.Concat(parts...)
 }
 
-// embeddedInterp renders a body/child backtick literal `{`…@{expr}…` [|> stage…]}`.
-// The form is preserved as-is (not canonicalized to interleaved Interp nodes):
-// a bare backtick literal wrapped in braces, with an optional whole-literal
-// pipeline after the closing backtick.
+// embeddedInterp renders a body/child interpolating literal
+// `{f`…@{expr}…` [|> stage…]}`. The form is preserved as-is (not canonicalized
+// to interleaved Interp nodes): an f`…` literal wrapped in braces, with an
+// optional whole-literal pipeline after the closing backtick.
 func (p *printer) embeddedInterp(v *ast.EmbeddedInterp) pretty.Doc {
 	var b strings.Builder
 	b.WriteString("{")
@@ -923,8 +923,8 @@ func embeddedLangName(lang ast.EmbeddedLang) string {
 		return "js"
 	case ast.EmbeddedCSS:
 		return "css"
-	default: // ast.EmbeddedText — bare backtick literal, no lang prefix
-		return ""
+	default: // ast.EmbeddedText — interpolating plain-text literal, f` prefix
+		return "f"
 	}
 }
 

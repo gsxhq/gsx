@@ -3,7 +3,7 @@
 package views
 
 component Box(w int) {
-	<div style=`width:@{w}px` { attrs... }>x</div>
+	<div style=f`width:@{w}px` { attrs... }>x</div>
 }
 -- invoke --
 Box(BoxProps{W: 10, Attrs: gsx.Attrs{{Key: "style", Value: "color:red"}, {Key: "id", Value: "b"}}})

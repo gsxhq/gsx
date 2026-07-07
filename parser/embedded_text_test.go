@@ -30,7 +30,7 @@ func firstEmbeddedAttr(t *testing.T, f *ast.File) *ast.EmbeddedAttr {
 }
 
 func TestParseEmbeddedTextAttr(t *testing.T) {
-	src := "package p\ncomponent C(v string) { <span class=`badge-@{v} x`>h</span> }\n"
+	src := "package p\ncomponent C(v string) { <span class=f`badge-@{v} x`>h</span> }\n"
 	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -49,7 +49,7 @@ func TestParseEmbeddedTextAttr(t *testing.T) {
 }
 
 func TestParseEmbeddedTextBraced(t *testing.T) {
-	src := "package p\ncomponent C(v string) { <span class={`badge-@{v}`}>h</span> }\n"
+	src := "package p\ncomponent C(v string) { <span class={f`badge-@{v}`}>h</span> }\n"
 	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -71,7 +71,7 @@ func embeddedText(ea *ast.EmbeddedAttr) string {
 }
 
 func TestEmbeddedTextEscapedHole(t *testing.T) {
-	src := "package p\ncomponent C(v string) { <span data-x=`lit \\@{ not a hole } @{v}`>h</span> }\n"
+	src := "package p\ncomponent C(v string) { <span data-x=f`lit \\@{ not a hole } @{v}`>h</span> }\n"
 	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -135,7 +135,7 @@ func hasEmbeddedInterp(f *ast.File) bool {
 }
 
 func TestParseBodyEmbeddedInterp(t *testing.T) {
-	src := "package p\ncomponent C(id string, n int) { <p>{`row-@{id}-@{n}`}</p> }\n"
+	src := "package p\ncomponent C(id string, n int) { <p>{f`row-@{id}-@{n}`}</p> }\n"
 	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -151,7 +151,7 @@ func TestParseBodyEmbeddedInterp(t *testing.T) {
 }
 
 func TestParseBodyEmbeddedInterpPipe(t *testing.T) {
-	src := "package p\ncomponent C(id string) { <p>{`row-@{id}` |> upper}</p> }\n"
+	src := "package p\ncomponent C(id string) { <p>{f`row-@{id}` |> upper}</p> }\n"
 	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -187,7 +187,7 @@ func TestBodyBacktickSubExpressionStaysGo(t *testing.T) {
 // double-quoted string containing one backslash then a backtick).
 func TestParseBodyEmbeddedInterpEscapedBacktick(t *testing.T) {
 	lit := "`" + "x" + "\\`" + " " + "`" // literal bytes: ` x \ ` <space> `
-	src := "package p\ncomponent C() { <p>{" + lit + "}</p> }\n"
+	src := "package p\ncomponent C() { <p>{f" + lit + "}</p> }\n"
 	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -215,7 +215,7 @@ func TestParseBodyEmbeddedInterpEscapedBacktick(t *testing.T) {
 // escaped backtick; it now only Go-scans the post-literal stages tail.
 func TestParseEmbeddedAttrBracedEscapedBacktickPipe(t *testing.T) {
 	lit := "`" + "a" + "\\`" + " " + "`" // literal bytes: ` a \ ` <space> `
-	src := "package p\ncomponent C() { <span class={" + lit + " |> upper}>h</span> }\n"
+	src := "package p\ncomponent C() { <span class={f" + lit + " |> upper}>h</span> }\n"
 	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -354,7 +354,7 @@ func TestBracedAttrBacktickBackslashSubExpressionClassComposes(t *testing.T) {
 // end.
 func TestBodyEscapedBacktickLiteralStillEmbedded(t *testing.T) {
 	lit := "`" + "x" + "\\`" + " " + "`" // literal bytes: ` x \ ` <space> `
-	src := "package p\ncomponent C() { <p>{" + lit + "}</p> }\n"
+	src := "package p\ncomponent C() { <p>{f" + lit + "}</p> }\n"
 	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -372,8 +372,98 @@ func TestBodyEscapedBacktickLiteralStillEmbedded(t *testing.T) {
 	}
 }
 
+// TestBareBacktickAttrValueStaysGoString pins the "one rule": an unbraced bare
+// backtick attribute value is a plain Go raw string (ExprAttr whose Expr is the
+// raw literal, backticks included), NOT an interpolating EmbeddedText literal —
+// interpolation is opt-in behind the f`/js`/css` prefix. A `@{` inside is now
+// ordinary literal text, not a hole.
+func TestBareBacktickAttrValueStaysGoString(t *testing.T) {
+	src := "package p\ncomponent C() { <div data-x=`row-@{id}`>h</div> }\n"
+	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	var ea *ast.ExprAttr
+	ast.Inspect(f, func(n ast.Node) bool {
+		if ea != nil {
+			return false
+		}
+		if a, ok := n.(*ast.ExprAttr); ok {
+			ea = a
+			return false
+		}
+		return true
+	})
+	if ea == nil {
+		t.Fatalf("no *ast.ExprAttr found; bare `…` attr value must parse as a plain Go string")
+	}
+	if want := "`row-@{id}`"; ea.Expr != want {
+		t.Fatalf("Expr = %q, want %q (raw string, no @{ } hole processing)", ea.Expr, want)
+	}
+}
+
+// TestBareBacktickClassAttrValueComposes pins that an unbraced bare backtick on
+// class/style is a plain Go string routed through the composed ClassAttr (so the
+// forwarding/merge machinery still recognizes the component's contribution),
+// never an EmbeddedAttr.
+func TestBareBacktickClassAttrValueComposes(t *testing.T) {
+	src := "package p\ncomponent C() { <span class=`p-4 flex`>h</span> }\n"
+	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	var ca *ast.ClassAttr
+	ast.Inspect(f, func(n ast.Node) bool {
+		if ca != nil {
+			return false
+		}
+		if a, ok := n.(*ast.ClassAttr); ok {
+			ca = a
+			return false
+		}
+		return true
+	})
+	if ca == nil {
+		t.Fatalf("no *ast.ClassAttr found; bare `…` class value must compose")
+	}
+	if len(ca.Parts) != 1 || ca.Parts[0].Expr != "`p-4 flex`" {
+		t.Fatalf("Parts = %#v, want one Expr part `p-4 flex`", ca.Parts)
+	}
+}
+
+// TestBareBacktickBodyStaysGoString pins the body counterpart: a lone bare
+// backtick in `{ }` is a plain Go raw string (*ast.Interp), never an
+// EmbeddedInterp.
+func TestBareBacktickBodyStaysGoString(t *testing.T) {
+	src := "package p\ncomponent C() { <p>{`row-@{id}`}</p> }\n"
+	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if hasEmbeddedInterp(f) {
+		t.Fatalf("bare `…` in body must stay a Go raw string, not EmbeddedInterp")
+	}
+	var in *ast.Interp
+	ast.Inspect(f, func(n ast.Node) bool {
+		if in != nil {
+			return false
+		}
+		if i, ok := n.(*ast.Interp); ok {
+			in = i
+			return false
+		}
+		return true
+	})
+	if in == nil {
+		t.Fatalf("no *ast.Interp found")
+	}
+	if want := "`row-@{id}`"; in.Expr != want {
+		t.Fatalf("Expr = %q, want %q", in.Expr, want)
+	}
+}
+
 func TestParseEmbeddedAttrBracedPipe(t *testing.T) {
-	src := "package p\ncomponent C(v string) { <span class={`badge-@{v}` |> upper}>h</span> }\n"
+	src := "package p\ncomponent C(v string) { <span class={f`badge-@{v}` |> upper}>h</span> }\n"
 	f, err := ParseFile(token.NewFileSet(), "in.gsx", []byte(src), 0)
 	if err != nil {
 		t.Fatalf("parse: %v", err)

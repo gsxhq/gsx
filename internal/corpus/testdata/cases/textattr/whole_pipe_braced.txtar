@@ -5,7 +5,7 @@
 package p
 
 component Widget(v string) {
-	<div class={`btn-@{v}` |> upper}>x</div>
+	<div class={f`btn-@{v}` |> upper}>x</div>
 }
 -- invoke --
 Widget(WidgetProps{V: "x"})

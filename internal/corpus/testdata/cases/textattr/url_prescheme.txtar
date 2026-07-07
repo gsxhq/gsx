@@ -4,7 +4,7 @@
 package p
 
 component Link(base string) {
-	<a href=`@{base}/edit`>go</a>
+	<a href=f`@{base}/edit`>go</a>
 }
 -- invoke --
 Link(LinkProps{Base: "https://ex.com/u"})

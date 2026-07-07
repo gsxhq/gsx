@@ -384,16 +384,18 @@ type EmbeddedLang uint8
 const (
 	EmbeddedJS EmbeddedLang = iota + 1
 	EmbeddedCSS
-	EmbeddedText // plain backtick literal: name=`…@{expr}…`, HTML-attribute-escaped
+	EmbeddedText // interpolating plain-text literal: name=f`…@{expr}…`, HTML-attribute-escaped
 )
 
 // EmbeddedAttr is an embedded-language attribute value:
 //
 //	name=js`…@{expr}…`, name={js`…`}, name=css`…`, name={css`…`},
-//	name=`…@{expr}…`  (EmbeddedText — plain, HTML-attribute-escaped), name={`…`}.
+//	name=f`…@{expr}…`  (EmbeddedText — plain, HTML-attribute-escaped), name={f`…`}.
 //
+// Interpolation is opt-in behind the f`/js`/css` prefix; a bare `…` attribute
+// value is a plain Go raw string (ExprAttr/ClassAttr), never an EmbeddedAttr.
 // Segments contain *Text and *Interp only. Stages is the optional whole-literal
-// pipeline applied to the assembled string: name={`…` |> f}.
+// pipeline applied to the assembled string: name={f`…` |> f}.
 type EmbeddedAttr struct {
 	span
 	Name     string
@@ -404,10 +406,11 @@ type EmbeddedAttr struct {
 
 func (*EmbeddedAttr) attrNode() {}
 
-// EmbeddedInterp is an interpolating backtick literal used as a body/child
-// expression: {`…@{expr}…`} or {`…` |> f}. Segments contain *Text and *Interp
+// EmbeddedInterp is an interpolating f`…` literal used as a body/child
+// expression: {f`…@{expr}…`} or {f`…` |> f}. Segments contain *Text and *Interp
 // only; Stages is the optional whole-literal pipeline applied to the assembled
-// string. Always plain-text (HTML-text-escaped) — no js/css lang in body.
+// string. Always plain-text (HTML-text-escaped) — no js/css lang in body, and a
+// bare `…` in body position is a plain Go raw string, not an EmbeddedInterp.
 type EmbeddedInterp struct {
 	span
 	Segments []Markup

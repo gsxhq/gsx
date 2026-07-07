@@ -8,7 +8,7 @@ pageOrder: 40
 package views
 
 component Row(id string, n int) {
-	<p>{`row-@{id}-@{n}`}</p>
+	<p>{f`row-@{id}-@{n}`}</p>
 }
 -- invoke --
 Row(RowProps{Id: "a&b", N: 5})
