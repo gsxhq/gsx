@@ -28,7 +28,7 @@ golden-tested `examples/*.txtar` fixtures.
 |------|----------------|
 | [Basic syntax](./syntax/basic-syntax) | Component declarations, elements vs components, method components |
 | [Raw Go](./syntax/raw-go) | `{{ stmt }}` Go statement blocks |
-| [Elements](./syntax/elements) | Tags, void elements, raw-text (`<script>`/`<style>`), DOCTYPE |
+| [Elements](./syntax/elements) | Tags, void elements, raw-text (`<script>`/`<style>`), DOCTYPE, elements as values in Go expression position |
 | [Comments](./syntax/comments) | Content comments `{/* … */}` and HTML comments |
 | [Fragments](./syntax/fragments) | `<>…</>` wrapper-free grouping |
 | [Interpolation](./syntax/interpolation) | `{ expr }` value embedding and `(T, error)` auto-unwrap |
