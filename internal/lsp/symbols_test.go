@@ -59,6 +59,52 @@ func TestFileSymbolsComponents(t *testing.T) {
 	}
 }
 
+func TestFileSymbolsGoChunkDecls(t *testing.T) {
+	src := "package page\n\n" +
+		"type Widget struct{ N int }\n\n" +
+		"type Reader interface{ Read() }\n\n" +
+		"type ID string\n\n" +
+		"const Max = 10\n\n" +
+		"var count int\n\n" +
+		"func helper() int { return 1 }\n\n" +
+		"func (w Widget) Size() int { return w.N }\n\n" +
+		"component Card() {\n\t<div/>\n}\n"
+	f, fset := parseGSX(t, "/m/page.gsx", src)
+	syms := FileSymbols("/m/page.gsx", f, fset)
+
+	cases := map[string]int{
+		"Widget": symKindStruct,
+		"Reader": symKindInterface,
+		"ID":     symKindClass,
+		"Max":    symKindConstant,
+		"count":  symKindVariable,
+		"helper": symKindFunction,
+		"Size":   symKindMethod,
+		"Card":   symKindFunction,
+	}
+	for name, wantKind := range cases {
+		s, ok := symByName(syms, name)
+		if !ok {
+			t.Errorf("%s not found in %+v", name, syms)
+			continue
+		}
+		if s.Kind != wantKind {
+			t.Errorf("%s kind = %d, want %d", name, s.Kind, wantKind)
+		}
+	}
+
+	// Position mapping is exact: "Widget" name starts at line 3, column 6.
+	w, _ := symByName(syms, "Widget")
+	if w.NamePos.Line != 3 || w.NamePos.Column != 6 {
+		t.Errorf("Widget NamePos = %d:%d, want 3:6", w.NamePos.Line, w.NamePos.Column)
+	}
+	// Method receiver becomes the container.
+	size, _ := symByName(syms, "Size")
+	if size.Container != "Widget" {
+		t.Errorf("Size container = %q, want %q", size.Container, "Widget")
+	}
+}
+
 // TestReceiverTypeName exercises the go/parser-based receiver parsing
 // directly, including shapes a string-splitting heuristic would mis-handle
 // (irregular spacing). See gsx-tag-variant-analysis / review of Task 1.
