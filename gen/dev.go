@@ -95,6 +95,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	}
 	// Drive the overlay from the cold generate (e.g. a pre-existing codegen error).
 	postEvent(viteURL, aggregateEvent(startup))
+	reportHardErrors(gsxOut, startup)
 
 	// --- Vite (front door), unless --no-web ---
 	var vite *exec.Cmd
@@ -239,6 +240,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 			}
 			// Overlay state from this cycle.
 			postEvent(viteURL, aggregateEvent(results))
+			reportHardErrors(gsxOut, results)
 			ok := true
 			wrote := false
 			for _, r := range results {

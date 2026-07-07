@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -15,6 +16,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/gsxhq/gsx/internal/diag"
 )
 
 func TestPrefixWriterLineBuffers(t *testing.T) {
@@ -198,6 +201,48 @@ func TestAggregateEvent(t *testing.T) {
 	w, _ := json.Marshal(ev["written"])
 	if !strings.Contains(string(w), "a.x.go") || !strings.Contains(string(w), "b.x.go") {
 		t.Errorf("written missing: %s", w)
+	}
+}
+
+// A cycle that fails with a hard operational error (r.Err set, no Diags — e.g.
+// the "imports must appear before other declarations" skeleton error that
+// Module.Generate returns as a plain error, not a parse-diagnostic) must not be
+// dropped: the overlay event has to carry the message, or gsx dev fails silently
+// (ok:false but empty diagnostics → blank Vite overlay). Mirrors watchemit's
+// cycle() fallback for the same case.
+func TestAggregateEventSurfacesHardError(t *testing.T) {
+	results := []cycleResult{
+		{Dir: "a", OK: false, Err: errors.New("app.gsx:3:1: imports must appear before other declarations")},
+	}
+	var ev map[string]any
+	if err := json.Unmarshal(aggregateEvent(results), &ev); err != nil {
+		t.Fatal(err)
+	}
+	if ev["ok"] != false {
+		t.Fatalf("ok = %v, want false", ev["ok"])
+	}
+	diags, _ := json.Marshal(ev["diagnostics"])
+	if !strings.Contains(string(diags), `"severity":"error"`) ||
+		!strings.Contains(string(diags), "imports must appear before other declarations") {
+		t.Errorf("overlay dropped the hard error: diagnostics=%s", diags)
+	}
+}
+
+func TestReportHardErrors(t *testing.T) {
+	var out bytes.Buffer
+	reportHardErrors(&out, []cycleResult{
+		{Dir: "a", OK: true, Written: []string{"a.x.go"}},
+		{Dir: "b", OK: false, Err: errors.New("app.gsx:3:1: imports must appear before other declarations")},
+		// A not-OK result whose failure IS a source diagnostic must not be echoed
+		// here (it reaches the developer via the overlay); only hard errors do.
+		{Dir: "c", OK: false, Diags: []diag.Diagnostic{{Message: "type error"}}},
+	})
+	got := out.String()
+	if !strings.Contains(got, "imports must appear before other declarations") {
+		t.Errorf("hard error not surfaced: %q", got)
+	}
+	if strings.Contains(got, "type error") {
+		t.Errorf("diagnostic-backed failure should not be echoed here: %q", got)
 	}
 }
 

@@ -208,6 +208,17 @@ func aggregateEvent(results []cycleResult) []byte {
 		if json.Unmarshal(raw, &arr) == nil {
 			diags = append(diags, arr...)
 		}
+		// A hard operational error with no diagnostics (e.g. a skeleton parse
+		// error Module.Generate returns as a plain error, not a parse-diagnostic)
+		// would otherwise vanish: the event goes out ok:false with an empty
+		// diagnostics array and the vite overlay shows nothing. Fold it into a
+		// synthetic error diagnostic so the overlay carries the message. Mirrors
+		// watchemit's cycle() fallback for the generate --watch path.
+		if !r.OK && len(r.Diags) == 0 && r.Err != nil {
+			if b, err := json.Marshal(syntheticErrorDiag("gsx", r.Err.Error())); err == nil {
+				diags = append(diags, b)
+			}
+		}
 	}
 	ev := map[string]any{
 		"event":       "generated",
@@ -218,6 +229,20 @@ func aggregateEvent(results []cycleResult) []byte {
 	}
 	b, _ := json.Marshal(ev)
 	return b
+}
+
+// reportHardErrors echoes each cycle's hard operational error (Err set with no
+// Diags) to w. These are the failures aggregateEvent folds into the browser
+// overlay; mirroring them on the terminal keeps gsx dev from appearing to hang
+// silently when codegen returns a plain error (e.g. a skeleton parse error) that
+// isn't a source diagnostic. Type-check diagnostics are not echoed here — they
+// already reach the developer through the overlay.
+func reportHardErrors(w io.Writer, results []cycleResult) {
+	for _, r := range results {
+		if !r.OK && len(r.Diags) == 0 && r.Err != nil {
+			fmt.Fprintf(w, "gsx: %v\n", r.Err)
+		}
+	}
 }
 
 // postEvent best-effort POSTs body to base+/__gsx/event (overlay state).
@@ -302,19 +327,29 @@ func writeBuildFailure(w io.Writer, output string, err error) {
 	}
 }
 
+// syntheticErrorDiag builds a single error-severity diagnostic (line 1, col 1)
+// carrying msg under the given file label, in the shape the vite plugin's
+// overlay consumes. Used for operational failures codegen's type-check doesn't
+// surface as source diagnostics (go-build errors, and hard cycleResult.Err
+// values with no Diags — e.g. a skeleton parse error Module.Generate returns as
+// a plain error rather than a parse-diagnostic).
+func syntheticErrorDiag(file, msg string) map[string]any {
+	return map[string]any{
+		"file":     file,
+		"range":    map[string]any{"start": map[string]int{"line": 1, "col": 1}, "end": map[string]int{"line": 1, "col": 1}},
+		"severity": "error",
+		"message":  strings.TrimSpace(msg),
+	}
+}
+
 // buildErrorEvent makes an ok:false "generated" event whose single error
 // diagnostic carries msg, so the vite plugin renders it in the overlay. Used
 // for go-build and operational failures that codegen's type-check doesn't catch.
 func buildErrorEvent(msg string) []byte {
 	ev := map[string]any{
 		"event": "generated", "ok": false, "durationMs": 0,
-		"written": []string{},
-		"diagnostics": []map[string]any{{
-			"file":     "build",
-			"range":    map[string]any{"start": map[string]int{"line": 1, "col": 1}, "end": map[string]int{"line": 1, "col": 1}},
-			"severity": "error",
-			"message":  strings.TrimSpace(msg),
-		}},
+		"written":     []string{},
+		"diagnostics": []map[string]any{syntheticErrorDiag("build", msg)},
 	}
 	b, _ := json.Marshal(ev)
 	return b
