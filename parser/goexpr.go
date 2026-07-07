@@ -7,6 +7,7 @@ import (
 	"go/token"
 
 	"github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/attrclass"
 )
 
 // goElemMark is the byte offset (relative to the scanned span) of a '<' that
@@ -497,6 +498,85 @@ func (p *parser) splitGoElements(src string, base token.Pos) []ast.Decl {
 		cursor = sub.i
 	}
 	return finish()
+}
+
+// SplitGoExprElements splits src — a Go-expression fragment seated at absolute
+// file position base within fset — into interleaved GoText and *Element/*Fragment
+// parts at its operand-position <tag>/<> marks, using the SHARED fset so every
+// parsed node carries a real source position (its interps then probe and //line
+// against the right .gsx offsets). It returns nil when src holds no element mark
+// (the caller's fast path — an ordinary Go expression). Unlike the file-level
+// splitGoElements it performs NO import hoisting (an expression fragment cannot
+// contain an import declaration) and returns bare []ast.GoPart rather than a
+// *GoWithElements decl. Concatenating each part's source reproduces src exactly.
+//
+// This is codegen's shared split for embedded tags inside a `{ }` interpolation
+// (and other Go-expression positions): the analysis pass stores the result on
+// ast.Interp.Embedded and the emit pass reads the SAME nodes, so resolved types
+// key on one set of pointers. A parse error is returned in the second result;
+// on error the consumed prefix plus the remaining source (as verbatim GoText) is
+// still returned so callers can fall back to emitting src unchanged.
+func SplitGoExprElements(fset *token.FileSet, src string, base token.Pos, cls *attrclass.Classifier) ([]ast.GoPart, []Error) {
+	marks := scanGoElementMarks(src)
+	if len(marks) == 0 {
+		return nil, nil
+	}
+	if cls == nil {
+		cls = attrclass.Builtin()
+	}
+	file := fset.File(base)
+	if file == nil {
+		return nil, []Error{{Pos: base, Msg: "gsx: no file for embedded-element base position"}}
+	}
+	// subBase is the absolute byte offset of src[0] within file — what each
+	// sub-parser's base needs so posAt (file.Pos(base+i)) resolves to the right
+	// byte in the shared file (mirrors splitGoElements's subBase).
+	subBase := file.Offset(base)
+
+	var parts []ast.GoPart
+	var errs []Error
+	cursor := 0
+	tail := func() {
+		parts = append(parts, goTextPart(src, cursor, len(src), base))
+	}
+	for _, m := range marks {
+		if m.Off < cursor {
+			// The span-skip estimate disagreed with the real parse; this mark
+			// falls inside already-consumed text. Drop it (mirrors splitGoElements).
+			continue
+		}
+		parts = append(parts, goTextPart(src, cursor, m.Off, base))
+
+		sub := &parser{file: file, src: src, base: subBase, classifier: cls}
+		sub.i = m.Off
+		markup, err := sub.parseElement()
+		errs = append(errs, sub.errs...)
+		if err != nil {
+			// Forward progress: fold the rest of src back in as verbatim text.
+			cursor = m.Off
+			tail()
+			return parts, errs
+		}
+		switch node := markup.(type) {
+		case *ast.Element:
+			parts = append(parts, node)
+		case *ast.Fragment:
+			parts = append(parts, node)
+		default:
+			// Not a supported Go-expression value (unreachable today: only a
+			// fragment can reach here). Preserve its bytes as verbatim GoText.
+			errs = append(errs, Error{
+				Pos: base + token.Pos(m.Off),
+				Msg: fmt.Sprintf("gsx: %s is not supported as a Go expression value here", markupKind(markup)),
+			})
+			parts = append(parts, goTextPart(src, m.Off, sub.i, base))
+			cursor = sub.i
+			continue
+		}
+		cursor = sub.i
+	}
+	tail()
+	return parts, errs
 }
 
 // leadingImportEnd returns the byte offset in src at which a leading run of
