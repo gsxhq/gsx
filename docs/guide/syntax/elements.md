@@ -58,7 +58,7 @@ component Uses() {
 }
 ```
 
-`help` is inferred as `gsx.Node`, exactly as if it had been returned from a component, and interpolates like any other node value. Interpolations inside the element resolve against the surrounding Go scope — `<span class={ cls }>{ label }</span>` written at package level closes over package-level `cls`/`label` the same way an ordinary Go closure would.
+`help` is inferred as `gsx.Node`, exactly as if it had been returned from a component, and interpolates like any other node value. Interpolations inside the element resolve against the surrounding Go scope — `<span class={ cls }>{ label }</span>` reads whatever `cls`/`label` are in scope where the element is written, including local variables inside a function, which the generated closure captures the same way ordinary Go code would.
 
 The same form works as a call argument — the shape `RenderComponent(<Foo/>)` (for example, `structpages.RenderComponent`) uses:
 
@@ -73,12 +73,22 @@ var wrapped = Wrap(<Foo/>)
 as a `return` value:
 
 ```gsx
+package demo
+
+import "github.com/gsxhq/gsx"
+
+component Noop() {
+	<span/>
+}
+
 func Help() gsx.Node {
 	return <div>hi</div>
 }
 ```
 
-and as a struct-literal field whose declared type is `gsx.Node` — a nav-item table can bake its own icon inline instead of pointing at a separate component:
+The `component Noop()` here isn't decoration: when a `.gsx` file's only package-level `import` exists solely to spell `gsx.Node`, the file needs at least one `component` declaration for the import to hoist correctly. An element-containing top-level Go region (like `func Help`) is emitted as a single unit, and without a preceding `component` boundary the `import` ends up after generated code — `imports must appear before other declarations`. A `component` splits the file into separate chunks and resolves it; this is a current limitation of element literals in top-level Go regions.
+
+Element literals also appear as a struct-literal field whose declared type is `gsx.Node` — a nav-item table can bake its own icon inline instead of pointing at a separate component:
 
 ```gsx
 var item = NavItem{Label: "Home", Icon: <svg class="w-5 h-5">
@@ -98,7 +108,7 @@ var badge = <Badge count={12}/>
 
 ### Element, not component
 
-A `<tag>` in expression position is always an **Element** — the baked result of applying a tag, not the component itself. This is the same distinction [Basic syntax](./basic-syntax#element-vs-component) draws between `<Card>` and `Card`, now visible outside component bodies too:
+A `<tag>` in expression position is always an **Element** — the baked result of applying a tag, not the component itself. A bare identifier `Badge` is the component (a function you can still call and pass attributes to); `<Badge …/>` is the node that results from applying it, with its attributes already baked in:
 
 | Form | Is a | Type | Attrs apply at render? |
 |---|---|---|:--:|
@@ -109,9 +119,9 @@ Because the element is baked, attributes can't be injected into it later — the
 
 ```gsx
 // class is constant across every nav item, so a baked element is enough
-{label: "Dashboard", icon: <HomeIcon class="w-5 h-5"/>}
+var item = NavItem{Label: "Dashboard", Icon: <HomeIcon class="w-5 h-5"/>}
 ```
 
-When attributes must vary per call site, keep it a component call — `<HomeIcon class={ dynamicClass }/>` — inline at the site that needs it, rather than storing the element as a value.
+When attributes must vary per site, don't store the element — write the tag fresh where it's rendered, so each site supplies its own attributes: `<HomeIcon class={ dynamicClass }/>`.
 
 The main payoff is removing throwaway single-use `component` declarations: markup that exists only to be handed to a function or stored in a field can be written where the value is needed, without a separate declaration above it.
