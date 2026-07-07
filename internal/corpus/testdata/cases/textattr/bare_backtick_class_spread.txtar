@@ -1,0 +1,17 @@
+# Coverage for the one-rule migration (Feature 2a): a BARE backtick class literal
+# is a plain Go string — the `@{lit}` inside is LITERAL text, not an interpolation
+# hole — AND it still composes with a spread attribute bag (the bare literal
+# routes to a single-Expr-part ClassAttr, which stays bag-mergeable). Contrast
+# the `f`-prefixed sibling `class_spread_merge.txtar`, where `@{variant}` IS a
+# hole. Interpolation is opt-in behind the `f` prefix; bare stays literal.
+-- input.gsx --
+package views
+
+component Badge() {
+	<span class=`badge @{lit}` { attrs... }>Hi</span>
+}
+-- invoke --
+Badge(BadgeProps{Attrs: gsx.Attrs{{Key: "class", Value: "hl"}, {Key: "id", Value: "a"}}})
+-- diagnostics.golden --
+-- render.golden --
+<span class="badge @{lit} hl" id="a">Hi</span>

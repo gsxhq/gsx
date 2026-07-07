@@ -111,7 +111,7 @@ func scanGoExpr(src string, from int) goExprScan {
 			off := base + fset.Position(pos).Offset
 
 			// Backtick literal. go/scanner reports it as a STRING beginning with
-			// '`'. A PREFIXED gsx literal (js`/css`; f` once Feature 2 lands) uses
+			// '`'. A PREFIXED gsx literal (f`/js`/css`) uses
 			// gsx's escape-aware end (embeddedLiteralEnd, which honours the `\``
 			// escape) that differs from go/scanner's raw-string end, so we take
 			// over its span and resume past it. A BARE backtick is a plain Go raw
