@@ -25,6 +25,10 @@ type Analyzer interface {
 	// whole module). Used by find-references; failure is non-fatal (the server
 	// falls back to the per-package CrossIndex).
 	AnalyzeModule(dir string, override map[string][]byte) ([]CrossRef, error)
+	// ModuleSymbols returns every symbol (component + top-level Go decl) declared
+	// in every .gsx package in the module containing dir. override supplies
+	// unsaved buffers (abs path -> bytes). Used by workspace/symbol.
+	ModuleSymbols(dir string, override map[string][]byte) ([]Symbol, error)
 	// PrintWidth returns the gsx.toml print width for the given directory
 	// (default 80). Used by textDocument/formatting.
 	PrintWidth(dir string) int

@@ -15,7 +15,8 @@ func (nilAnalyzer) Analyze(string, map[string][]byte) (*Package, error) { return
 func (nilAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) {
 	return nil, nil
 }
-func (nilAnalyzer) PrintWidth(string) int { return 80 }
+func (nilAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol, error) { return nil, nil }
+func (nilAnalyzer) PrintWidth(string) int                                    { return 80 }
 
 // framed wraps a JSON-RPC body in Content-Length framing.
 func framed(t *testing.T, v any) string {
