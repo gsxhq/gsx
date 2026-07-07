@@ -176,6 +176,15 @@ diagnostics/reserved_param_stub_masking_attrs	diag(error)
 diagnostics/undefined_interp	diag(error)
 diagnostics/value_node_pointer_receiver_error	diag(error)
 doctype/render	diag render
+element-literals/call-arg	diag gen render
+element-literals/component-tag	diag gen render
+element-literals/func-local	diag gen render
+element-literals/interp-outer-scope	diag gen render
+element-literals/method-receiver	diag gen render
+element-literals/return	diag gen render
+element-literals/struct-field	diag gen render
+element-literals/text-apostrophe-multi	diag gen render
+element-literals/var	diag gen render
 elements/fragment	diag render
 elements/html_comment	diag render
 elements/html_comment_breakout	diag(error)
@@ -497,4 +506,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 499 cases (render: 401, error: 75, gen-pinned: 232)
+TOTAL: 508 cases (render: 410, error: 75, gen-pinned: 241)
