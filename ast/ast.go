@@ -288,6 +288,18 @@ type Interp struct {
 	ExprPos token.Pos
 	// JSCtx is set by internal/jsx for Interps inside a <script>; JSCtxNone otherwise.
 	JSCtx JSCtx
+	// Embedded holds the seed expression (Expr) split at its operand-position
+	// <tag>/<> element literals into interleaved GoText and *Element/*Fragment
+	// parts — e.g. `wrap(<b/>)` → [GoText("wrap("), *Element, GoText(")")].
+	// It is nil when Expr contains no embedded element (the common case) and is
+	// populated ONLY by codegen's analysis pass (buildSkeleton), never by the
+	// parser — so the printer and the fmt faithfulness harness (which re-parse)
+	// never observe it, and Expr remains the single verbatim round-trip source.
+	// The analysis and emit passes share these parsed nodes (the type-checker
+	// resolves each embedded value's interps against the enclosing scope, and
+	// emit lowers each part to its inline gsx.Func(...) value) so resolved types
+	// key on the SAME node pointers.
+	Embedded []GoPart
 }
 
 func (*Interp) markupNode() {}
