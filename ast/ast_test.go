@@ -174,6 +174,28 @@ func TestInspectPart2(t *testing.T) {
 	}
 }
 
+// TestFragmentIsGoPart proves *Fragment is usable as a GoWithElements part
+// (compile-time proof via the slice literal) and that Inspect recurses into
+// its children through GoWithElements.
+func TestFragmentIsGoPart(t *testing.T) {
+	frag := &Fragment{Children: []Markup{&Text{Value: "hi"}}}
+	we := &GoWithElements{Parts: []GoPart{
+		GoText{Src: "var x = "},
+		frag,
+	}}
+
+	var sawText bool
+	Inspect(we, func(n Node) bool {
+		if txt, ok := n.(*Text); ok && txt.Value == "hi" {
+			sawText = true
+		}
+		return true
+	})
+	if !sawText {
+		t.Fatal("Inspect did not reach the fragment's child text through GoWithElements")
+	}
+}
+
 // TestInspectGoWithElements is the Task-2 review follow-up: Inspect must
 // descend into a GoWithElements's Parts (GoText leaves, *Element recurses),
 // or a tree-walker (tooling/codegen) never sees embedded elements at all.

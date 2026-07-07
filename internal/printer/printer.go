@@ -177,6 +177,8 @@ func (p *printer) goWithElements(v *ast.GoWithElements) pretty.Doc {
 			docs = append(docs, multiline(src))
 		case *ast.Element:
 			docs = append(docs, p.element(pt))
+		case *ast.Fragment:
+			docs = append(docs, p.fragment(pt))
 		default:
 			return p.fail("printer: unknown Go-expression part type %T", part)
 		}

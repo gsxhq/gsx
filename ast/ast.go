@@ -123,9 +123,10 @@ type Attr interface {
 	attrNode()
 }
 
-// GoPart is one piece of a GoWithElements: either a raw run of Go source text
-// (GoText) or an embedded element (*Element). It refines Node with a sealed
-// marker, mirroring Markup/Decl/Attr.
+// GoPart is one piece of a GoWithElements: a raw run of Go source text
+// (GoText), an embedded element (*Element), or an embedded fragment
+// (*Fragment). It refines Node with a sealed marker, mirroring
+// Markup/Decl/Attr.
 type GoPart interface {
 	Node
 	goPartNode()
@@ -227,6 +228,7 @@ type Fragment struct {
 }
 
 func (*Fragment) markupNode() {}
+func (*Fragment) goPartNode() {}
 
 // Text is literal character data between markup.
 type Text struct {
@@ -603,7 +605,7 @@ func (*CommentAttr) attrNode() {}
 // After recursing into children, Inspect calls f(nil) for go/ast parity.
 // Children by type:
 //   - *File: each Decl
-//   - *GoWithElements: each Part (GoText leaves; *Element recurses)
+//   - *GoWithElements: each Part (GoText leaves; *Element and *Fragment recurse)
 //   - *Component: each Body markup node
 //   - *Element: each Attr, then each Child
 //   - *Fragment: each Child

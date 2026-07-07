@@ -590,6 +590,17 @@ component C() {
 	checkFormat(t, src, want)
 }
 
+// TestPrintFragmentExpressionValue confirms a fragment sitting in
+// Go-expression position (e.g. `var list = <><a/><b/></>`, parsed as a
+// GoWithElements Go part rather than a Component body) prints via the same
+// p.fragment path as a component-body fragment, instead of hitting
+// goWithElements' default "unknown Go-expression part type" failure.
+func TestPrintFragmentExpressionValue(t *testing.T) {
+	src := "package v\n\nvar list = <><a/><b/></>\n"
+	want := "package v\n\nvar list = <><a/><b/></>\n"
+	checkFormat(t, src, want)
+}
+
 func TestGoBlock(t *testing.T) {
 	src := `package p
 component C() {
