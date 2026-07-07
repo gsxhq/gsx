@@ -326,16 +326,55 @@ render goldens.
     call-arg, struct-field, return, empty-nop, loop-list, plus
     func-local/method-receiver scope-capture regressions mirroring the
     element-literals lesson). Docs: `syntax/elements.md` §Fragments as
-    values, `syntax/raw-go.md` cross-reference. **Known limitation (shared
-    with element literals):** a fragment/element literal nested directly
-    inside a component's `{ … }` interpolation (e.g.
-    `<div>{ wrap(<>…</>) }</div>`) is not supported — an interpolation's
-    expression text is parsed as plain Go, with no embedded-element/fragment
-    scan; use a top-level `var`/`return`/field position instead. Sibling
-    grammars (`../tree-sitter-gsx`, `../vscode-gsx`, `gsxhq.github.io`
-    CodeMirror) do not yet recognize `<>…</>` in Go expression position
-    (fragments already highlight in markup/body context) — follow-up, out of
-    scope for this repo.
+    values, `syntax/raw-go.md` cross-reference. **Known limitation, closed by
+    item 17 below:** a fragment/element literal nested directly inside a
+    component's `{ … }` interpolation was not supported at the time this
+    landed.
+
+17. [x] **Interp-embedded `<tag>`/`<>` literals + `f`/`js`/`css` literals as
+    values everywhere** — `2026-07-07`. Closes the item-16 known limitation
+    and unifies two previously top-level-only Go-expression constructs onto
+    every Go position, including *inside* a `{ … }` interpolation, by routing
+    interpolation-family delimiting (interp `{ }`, GoBlock `{{ }}`, attr
+    values, value-form arms, pipe stages) through the same operand-aware
+    `go/scanner`-based expression scanner the top level already used for
+    embedded tags, instead of a separate tag-blind byte scanner. **(a) Element
+    / fragment literals inside interpolations:** `<div>{ wrap(<>…</>) }</div>`
+    and `{ wrap(<Badge count={n}/>) }` now parse and lower the same way a
+    top-level element/fragment literal does — the embedded literal's own
+    props/interpolations resolve against the *enclosing* component's scope by
+    ordinary closure capture (the emit and probe passes share one split, so
+    resolved types stay consistent even with a differently-typed sibling
+    interp in the same body). **(b) `f`-prefixed interpolating literals as
+    first-class Go values:** an `` f`…@{ expr }…` `` literal is no longer
+    confined to body/attribute braces — it evaluates to an ordinary `string`
+    and is valid in a `var` initializer, a call argument, or referenced by
+    name from inside `{ … }` (e.g. `` var greeting = f`hello @{name}` `` and
+    `` { emphasize(f`@{label}!`) } ``). `` js`...` ``/`` css`...` `` stay
+    attribute-context only; a `` js`...` `` value used as a plain Go value is a
+    clean positioned parse error, not a silent miscompile. **(c) `"`-delimited
+    literals:** every `f`/`js`/`css` literal now also accepts a `"…"`
+    delimiter — `f"…"`, `js"…"`, `css"…"` — semantically identical to the
+    backtick form; pick whichever quote the content doesn't contain. The `"`
+    form is the escape-hatch for content that itself carries a backtick
+    (common for JS template literals: `` js"const t = `hi @{x}`" ``); `\"`
+    escapes the active `"` delimiter the same way `` \` `` escapes the
+    backtick delimiter. No Go compatibility break: gsx claims only an
+    `IDENT` immediately before a string literal (`f"…"`, `` f`…` ``, …), a
+    sequence never valid Go, so bare `"…"`/`` `…` `` keep their exact Go
+    meaning everywhere. LSP hover and go-to-definition work inside both new
+    positions (embedded tags and `@{ }` holes within an interpolation).
+    Corpus: `goexpr-interp-tag/*` (call-arg, component-tag, scope-local,
+    sibling-mixed-type, stages), `goexpr-f-literal/*` (var, call-arg, interp,
+    scope-local, js-value-unsupported), `dquote-literals/*` (f/js/css
+    backtick-content and escaped-quote cases). Docs: `syntax/elements.md`
+    §Inside interpolations, `syntax/interpolation.md` §Two delimiter forms
+    and §As a first-class Go value, `syntax/attributes.md`,
+    `syntax/escaping.md`, `syntax/raw-go.md` cross-references. Spec
+    `2026-07-07-interp-embedded-literals-design.md`. Sibling grammars
+    (`../tree-sitter-gsx`, `../vscode-gsx`, `gsxhq.github.io` CodeMirror) do
+    not yet recognize tags/fragments inside interpolations or the `"…"`
+    literal delimiter form — follow-up, out of scope for this repo.
 
 ## Language server (`gsx lsp`)
 

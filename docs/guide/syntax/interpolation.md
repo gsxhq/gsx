@@ -46,6 +46,49 @@ whole-literal pipeline — `` {f`…` |> upper} ``). This keeps every existing u
 raw strings in braces working unchanged.
 :::
 
+### Two delimiter forms
+
+`` f`…` `` and `f"…"` are the same literal, just spelled with a different
+delimiter — pick whichever quote your content doesn't contain. The `"` form
+is the escape-hatch for text that itself carries a backtick:
+
+```gsx
+component Row(id string, n int) {
+	<p>{f"row-`@{id}`-@{n}"}</p>
+}
+```
+
+`Row(RowProps{Id: "a&b", N: 5})` renders `` <p>row-`a&amp;b`-5</p> `` — the same
+per-segment, type-aware escaping as the backtick form, just with a literal
+backtick in the static text instead of an escaped one.
+
+### As a first-class Go value
+
+An `f` literal isn't limited to body braces — it's an ordinary `string`
+expression, so it can be assigned to a `var`, passed as a call argument, or
+referenced by name from inside `{ }`:
+
+```gsx
+package demo
+
+var name = "world"
+
+var greeting = f`hello @{name}`
+
+component Uses() {
+	<p>{ greeting }</p>
+}
+```
+
+`greeting` is a plain `string`; `{ greeting }` interpolates it like any other
+Go expression, rendering `<p>hello world</p>`. It works as a call argument
+too — `` { emphasize(f`@{label}!`) } `` passes the assembled string straight into
+a function. See [Elements — Elements as values](./elements#elements-as-values)
+and [Raw Go — the reverse direction](./raw-go#the-reverse-direction-elements-in-go-expression-position)
+for the full set of Go-expression positions this and `<tag>`/`<>` literals
+share. `` js`...` `` and `` css`...` `` stay attribute-context only — they are
+not valid as standalone Go values.
+
 ## Fields & typed values
 
 You can interpolate any Go expression, including field accesses on a struct passed as a param. The type does not need to be a string: any type that satisfies `fmt.Stringer` is formatted via its `String()` method, and numeric primitives are formatted directly.

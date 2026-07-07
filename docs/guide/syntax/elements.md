@@ -116,7 +116,42 @@ An empty fragment, `<></>`, renders nothing — it's the render-nothing nop, the
 
 Fragments take no attributes — there's no tag to attach them to. And a fragment's children must be explicitly wrapped in the `<>…</>` delimiters; bare adjacent siblings (`<A/><B/>`) are not legal on their own in expression position, the same "explicit wrapping" rule element expressions already follow.
 
-**Known limitation:** a fragment (or element) literal embedded directly inside a component's `{ … }` interpolation — e.g. `<div>{ wrap(<>…</>) }</div>` — is not supported; an interpolation's expression text is parsed as plain Go without the embedded-element/fragment scan. Write the fragment at a top-level `var`/`return`/field position instead, as in the example above, and interpolate the resulting value.
+### Inside interpolations
+
+An element or fragment literal also works as an operand *inside* a `{ … }`
+interpolation — e.g. a call argument — not just at a top-level
+`var`/`return`/field position. `wrap` below is a plain Go function taking a
+`gsx.Node`:
+
+```gsx
+package demo
+
+import "github.com/gsxhq/gsx"
+
+func wrap(n gsx.Node) gsx.Node { return n }
+
+component Uses() {
+	<div>{ wrap(<><b>hi</b></>) }</div>
+}
+```
+
+renders `<div><b>hi</b></div>`. A component tag composes the same way, and its
+own props and interpolations resolve against the *enclosing* component's
+scope by ordinary closure capture — not `wrap`'s:
+
+```gsx
+component Badge(count int) {
+	<span>{ count }</span>
+}
+
+component Uses(n int) {
+	<div>{ wrap(<Badge count={n}/>) }</div>
+}
+```
+
+`Uses(UsesProps{N: 7})` renders `<div><span>7</span></div>` — `n` is `Uses`'s
+own param, captured exactly as a hand-written `gsx.Func` closure would capture
+it.
 
 ### Element, not component
 

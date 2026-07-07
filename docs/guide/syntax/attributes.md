@@ -154,6 +154,20 @@ Inside `` js`...` `` or `` css`...` ``, write `` \` `` for a literal backtick.
 The backslash escapes the gsx delimiter and is not part of the embedded
 JavaScript or CSS source.
 
+Both also accept the `"`-delimited form — `` js"..." ``, `` css"..." `` — the
+escape-hatch for content that already contains a backtick, common for JS
+template literals:
+
+```gsx
+component Button(x string) {
+	<button @click=js"const t = `hi @{x}`; send(t)">Save</button>
+}
+```
+
+renders `` <button @click="const t = `hi abc`; send(t)">Save</button> `` for
+`x = "abc"` — the backtick is free/literal inside the `"`-delimited form, and
+`@{x}` is still the gsx hole.
+
 ## Interpolating attribute literals
 
 An `f`-prefixed backtick literal in attribute-value position —
@@ -177,6 +191,28 @@ Two characters need escaping inside the literal: `` \` `` for a literal
 backtick, and `\@{` for a literal `@{` that should not be read as a hole.
 Anywhere else the text is copied through verbatim, exactly like a `` js`...` ``
 or `` css`...` `` literal.
+
+`` f`...` `` and `f"..."` are the same literal with a different delimiter —
+pick whichever quote the content doesn't contain. The `"` form is the
+escape-hatch for a value that itself needs a literal backtick:
+
+```gsx
+component Item(name string) {
+	<div data-tag=f"row `@{name}`">x</div>
+}
+```
+
+renders `` <div data-tag="row `a&amp;b`">x</div> `` for `name = "a&b"`. Inside a
+`"`-delimited literal, `\"` escapes the delimiter (the same role `` \` `` plays
+in the backtick form):
+
+```gsx
+component Note(w string) {
+	<div title=f"say \"@{w}\"">n</div>
+}
+```
+
+renders `<div title="say &#34;hi&#34;">n</div>` for `w = "hi"`.
 
 ::: v-pre
 To pipe the **whole** assembled value through a filter, wrap the literal in
