@@ -1047,20 +1047,24 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					// Compensated //line: the probe's first token (at byte offset 8 into
 					// "_gsxuse(expr)") will be reported at ep.Column, matching the source.
 					fmt.Fprintf(sb, "//line %s:%d:%d\n", ep.Filename, ep.Line, col)
+					fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 				} else {
-					// Expr is too near the line start for //line compensation (col < 1 is
-					// invalid). Fall back to the '{'-anchored position — identical to the
-					// pre-column-accuracy behavior — so shallow interps are never worse than
-					// the base. Making shallow interps exact would need a post-type-check
-					// column override keyed to the originating Interp — deferred.
-					// TODO(column-accuracy): exact columns for shallow interps (exprCol ≤ 8).
-					emitSkeletonLine(sb, fset, t.Pos())
+					// Shallow interp (exprCol ≤ 8): a compensated column would be < 1,
+					// which is an invalid //line column. Instead break the probe across
+					// lines and put the expr as the FIRST token on its own line under an
+					// exprCol-anchored //line, so go/types reports the expr at ep.Column
+					// EXACTLY, however shallow. The newline right after "_gsxuse(" is
+					// safe — Go inserts no semicolon after '(' — and the call still
+					// type-checks as _gsxuse(expr). Harvest keys on the k-th _gsxuse call
+					// node (AST order), not the probe's text layout, so the extra line
+					// is transparent to it.
+					fmt.Fprintf(sb, "_gsxuse(\n//line %s:%d:%d\n%s)\n", ep.Filename, ep.Line, ep.Column, probe)
 				}
 			} else {
 				// Staged pipeline or no ExprPos: keep unchanged behavior ('{' pos).
 				emitSkeletonLine(sb, fset, t.Pos())
+				fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 			}
-			fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 		case *gsxast.EmbeddedInterp:
 			// Body backtick literal {`…@{expr}…`} [ |> f ]. Probe each hole
 			// first (so every param it references stays live and its own
