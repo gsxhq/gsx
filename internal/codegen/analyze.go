@@ -1127,8 +1127,17 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 						return fmt.Errorf("codegen: unsupported embedded interpolation part %T", part)
 					}
 				}
+				// Run the assembled seed through t.Stages via the SAME probeExpr /
+				// lowerPipe path the non-embedded interp uses, so resolved[t] is the
+				// POST-pipe type — matching genInterp, which lowers the pipeline over
+				// the spliced seed too (emit ≡ probe). A Stages-less embedded interp
+				// yields the seed unchanged, preserving prior behavior.
+				probe, err := probeExpr(eb.String(), t.Stages, table, usedFilters)
+				if err != nil {
+					return err
+				}
 				emitSkeletonLine(sb, fset, t.Pos())
-				fmt.Fprintf(sb, "_gsxuse(%s)\n", eb.String())
+				fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 				continue
 			}
 			probe, err := probeExpr(t.Expr, t.Stages, table, usedFilters)
@@ -1932,6 +1941,17 @@ func harvestBody(body *goast.BlockStmt, bodyMarkup []gsxast.Markup, info *types.
 	collectExprs(bodyMarkup, &nodes)
 	k := 0
 	goast.Inspect(body, func(node goast.Node) bool {
+		// A GoWithElements-embedded value's probe IIFE (`func() _gsxrt.Node {
+		// _gsxelem(N); … }()`, spliced into a tag-carrying interp's probe) carries
+		// its OWN _gsxuse/_gsxuseq calls for the embedded element's interps.
+		// collectExprs does NOT recurse into Interp.Embedded, so those probes have
+		// no slot in `nodes`; harvestEmbeddedElements resolves them separately
+		// (keyed on the _gsxelem(N) marker). SKIP the IIFE subtree here, or its
+		// inner probes would over-run k and misalign every sibling after a
+		// tag-carrying interp.
+		if fl, ok := node.(*goast.FuncLit); ok && isEmbeddedElemProbeFuncLit(fl) {
+			return false
+		}
 		call, ok := node.(*goast.CallExpr)
 		if !ok {
 			return true
@@ -2025,27 +2045,39 @@ func harvestBody(body *goast.BlockStmt, bodyMarkup []gsxast.Markup, info *types.
 // list — the SAME resolution a component body gets, so a mistyped
 // interpolation/prop inside an embedded element or fragment resolves (and is
 // diagnosed) identically.
+// isEmbeddedElemProbeFuncLit reports whether fl is a GoWithElements-embedded
+// value's probe IIFE — a func literal whose FIRST body statement is the marker
+// call `_gsxelem(N)` (buildSkeleton / emitProbes' Interp.Embedded case). This
+// is the single predicate BOTH harvestEmbeddedElements (which harvests these
+// IIFEs, keyed on the marker) and harvestBody (which SKIPs their subtree to keep
+// its k-counter aligned) use, so the two can never disagree about what counts as
+// an embedded probe IIFE.
+func isEmbeddedElemProbeFuncLit(fl *goast.FuncLit) bool {
+	if fl.Body == nil || len(fl.Body.List) == 0 {
+		return false
+	}
+	es, ok := fl.Body.List[0].(*goast.ExprStmt)
+	if !ok {
+		return false
+	}
+	call, ok := es.X.(*goast.CallExpr)
+	if !ok {
+		return false
+	}
+	id, ok := call.Fun.(*goast.Ident)
+	return ok && id.Name == "_gsxelem" && len(call.Args) == 1
+}
+
 func harvestEmbeddedElements(f *goast.File, markups [][]gsxast.Markup, info *types.Info, out map[gsxast.Node]types.Type, exprOut map[gsxast.Node]goast.Expr, registry *inferRegistry) {
 	if len(markups) == 0 {
 		return
 	}
 	goast.Inspect(f, func(node goast.Node) bool {
 		fl, ok := node.(*goast.FuncLit)
-		if !ok || fl.Body == nil || len(fl.Body.List) == 0 {
+		if !ok || !isEmbeddedElemProbeFuncLit(fl) {
 			return true
 		}
-		es, ok := fl.Body.List[0].(*goast.ExprStmt)
-		if !ok {
-			return true
-		}
-		call, ok := es.X.(*goast.CallExpr)
-		if !ok {
-			return true
-		}
-		id, ok := call.Fun.(*goast.Ident)
-		if !ok || id.Name != "_gsxelem" || len(call.Args) != 1 {
-			return true
-		}
+		call := fl.Body.List[0].(*goast.ExprStmt).X.(*goast.CallExpr)
 		lit, ok := call.Args[0].(*goast.BasicLit)
 		if !ok || lit.Kind != token.INT {
 			return true
