@@ -333,7 +333,7 @@ func isGsxNodeType(typ string) bool {
 // single-file allocator instead — this file's own names still start at
 // "_gsxinfer1" and never collide with anything, since nothing else shares
 // that private allocator.
-func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, importedGenericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, fset *token.FileSet, bag *diag.Bag, names *inferNameAllocator) (string, []*gsxast.Component, []importSpec, map[gsxast.Node]int, *inferRegistry, []*gsxast.Element, error) {
+func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, importedGenericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, fset *token.FileSet, bag *diag.Bag, names *inferNameAllocator) (string, []*gsxast.Component, []importSpec, map[gsxast.Node]int, *inferRegistry, [][]gsxast.Markup, error) {
 	if names == nil {
 		names = newInferNameAllocator()
 	}
@@ -474,14 +474,18 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, 
 	// comment carries no newline, so it re-syncs the position without breaking
 	// the enclosing call/operand syntax.
 	//
-	// gwElements collects the embedded elements in source order; index N is
-	// the argument the corresponding IIFE's `_gsxelem(N)` marker carries. The
-	// caller hands this slice to harvestEmbeddedElements, which finds each
-	// marked IIFE in the type-checked skeleton and harvests its
+	// gwMarkups collects, in source order, the markup list each embedded
+	// value's IIFE probes: one *gsxast.Element becomes a single-element
+	// []Markup{p}; a *gsxast.Fragment contributes its whole Children list (a
+	// fragment probes as one IIFE over all its children, so interps inside it
+	// resolve against the enclosing scope exactly like an element's do).
+	// Index N is the argument the corresponding IIFE's `_gsxelem(N)` marker
+	// carries. The caller hands this slice to harvestEmbeddedElements, which
+	// finds each marked IIFE in the type-checked skeleton and harvests its
 	// _gsxuse/_gsxuseq/_gsxcompsig/inference-probe results back onto the
-	// element's nodes (via the shared harvestBody). The marker is what lets
-	// harvest distinguish an element-probe IIFE from any func literal the user
-	// wrote verbatim in the surrounding Go.
+	// markup's nodes (via the shared harvestBody). The marker is what lets
+	// harvest distinguish an embedded-value probe IIFE from any func literal
+	// the user wrote verbatim in the surrounding Go.
 	//
 	// Unlike GoChunk, this does NOT run splitChunk to hoist a `import` spec
 	// out of a GoText Part ahead of the skeleton's own import block — mirrors
@@ -492,7 +496,7 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, 
 	// type needs a user-imported package must currently keep that import; see
 	// task-5-report). Malformed input surfaces as a skeleton parse/type error,
 	// never silently-broken output.
-	var gwElements []*gsxast.Element
+	var gwMarkups [][]gsxast.Markup
 	for _, d := range file.Decls {
 		we, ok := d.(*gsxast.GoWithElements)
 		if !ok {
@@ -507,14 +511,26 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, 
 				emitSkeletonBlockLine(&compBuf, fset, p.Pos())
 				compBuf.WriteString(p.Src)
 			case *gsxast.Element:
+				markup := []gsxast.Markup{p}
 				compBuf.WriteString("func() _gsxrt.Node {\n")
-				fmt.Fprintf(&compBuf, "_gsxelem(%d)\n", len(gwElements))
+				fmt.Fprintf(&compBuf, "_gsxelem(%d)\n", len(gwMarkups))
 				compBuf.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
-				if err := emitProbes(&compBuf, []gsxast.Markup{p}, table, propFields, nodeProps, attrsProps, combinedSigs, byo, fm, "", "", usedFilters, fset, ctrlOff, registry, bag); err != nil {
+				if err := emitProbes(&compBuf, markup, table, propFields, nodeProps, attrsProps, combinedSigs, byo, fm, "", "", usedFilters, fset, ctrlOff, registry, bag); err != nil {
 					return "", nil, nil, nil, nil, nil, err
 				}
 				compBuf.WriteString("return nil\n}()")
-				gwElements = append(gwElements, p)
+				gwMarkups = append(gwMarkups, markup)
+			case *gsxast.Fragment:
+				// A fragment probes its children list as one IIFE (empty <></> →
+				// no probes, still a valid _gsxrt.Node-returning IIFE — the nop).
+				compBuf.WriteString("func() _gsxrt.Node {\n")
+				fmt.Fprintf(&compBuf, "_gsxelem(%d)\n", len(gwMarkups))
+				compBuf.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
+				if err := emitProbes(&compBuf, p.Children, table, propFields, nodeProps, attrsProps, combinedSigs, byo, fm, "", "", usedFilters, fset, ctrlOff, registry, bag); err != nil {
+					return "", nil, nil, nil, nil, nil, err
+				}
+				compBuf.WriteString("return nil\n}()")
+				gwMarkups = append(gwMarkups, p.Children)
 			default:
 				return "", nil, nil, nil, nil, nil, fmt.Errorf("codegen: unsupported Go-expression part %T", part)
 			}
@@ -617,7 +633,7 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, 
 		sb.WriteString(b.src)
 		sb.WriteByte('\n')
 	}
-	return sb.String(), comps, imports, ctrlOff, registry, gwElements, nil
+	return sb.String(), comps, imports, ctrlOff, registry, gwMarkups, nil
 }
 
 // genericSigsFor computes the props-type-name -> *genericSig map for every
@@ -1903,17 +1919,17 @@ func harvestBody(body *goast.BlockStmt, bodyMarkup []gsxast.Markup, info *types.
 }
 
 // harvestEmbeddedElements resolves the probe calls inside each
-// GoWithElements-embedded element's inline IIFE (see buildSkeleton) back onto
-// that element's nodes. Each such IIFE is a func literal whose FIRST statement
-// is the marker call `_gsxelem(N)`, where N indexes `elements` in source
-// order; the marker is what distinguishes an element-probe IIFE from any func
-// literal the user wrote verbatim in the surrounding Go. For each marked IIFE,
-// harvestBody runs over its body with the single embedded element as the
-// markup — the SAME resolution a component body gets, so a mistyped
-// interpolation/prop inside an embedded element resolves (and is diagnosed)
-// identically.
-func harvestEmbeddedElements(f *goast.File, elements []*gsxast.Element, info *types.Info, out map[gsxast.Node]types.Type, exprOut map[gsxast.Node]goast.Expr, registry *inferRegistry) {
-	if len(elements) == 0 {
+// GoWithElements-embedded value's inline IIFE (see buildSkeleton) back onto
+// that value's markup list. Each such IIFE is a func literal whose FIRST
+// statement is the marker call `_gsxelem(N)`, where N indexes `markups` in
+// source order; the marker is what distinguishes an embedded-value probe IIFE
+// from any func literal the user wrote verbatim in the surrounding Go. For
+// each marked IIFE, harvestBody runs over its body with that entry's markup
+// list — the SAME resolution a component body gets, so a mistyped
+// interpolation/prop inside an embedded element or fragment resolves (and is
+// diagnosed) identically.
+func harvestEmbeddedElements(f *goast.File, markups [][]gsxast.Markup, info *types.Info, out map[gsxast.Node]types.Type, exprOut map[gsxast.Node]goast.Expr, registry *inferRegistry) {
+	if len(markups) == 0 {
 		return
 	}
 	goast.Inspect(f, func(node goast.Node) bool {
@@ -1938,10 +1954,10 @@ func harvestEmbeddedElements(f *goast.File, elements []*gsxast.Element, info *ty
 			return true
 		}
 		idx, err := strconv.Atoi(lit.Value)
-		if err != nil || idx < 0 || idx >= len(elements) {
+		if err != nil || idx < 0 || idx >= len(markups) {
 			return true
 		}
-		harvestBody(fl.Body, []gsxast.Markup{elements[idx]}, info, out, exprOut, registry)
+		harvestBody(fl.Body, markups[idx], info, out, exprOut, registry)
 		return true
 	})
 }

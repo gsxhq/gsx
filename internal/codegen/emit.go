@@ -238,6 +238,10 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 					if !emitElementValue(&wbuf, p, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, &interpTemp, fset, cls, fm, bag, mergeExpr) {
 						partsOK = false
 					}
+				case *ast.Fragment:
+					if !emitFragmentValue(&wbuf, p, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, &interpTemp, fset, cls, fm, bag, mergeExpr) {
+						partsOK = false
+					}
 				default:
 					bag.Errorf(part.Pos(), part.End(), "unsupported-node", "unsupported Go-expression part %T", part)
 					partsOK = false
@@ -598,8 +602,8 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 // via genNode (the shared element/markup lowering — the SAME path a
 // component's child elements and an embedded Go-expression element both use),
 // then the trailing `return _gsxgw.Err()`. Shared by genComponent's two render
-// closures (byo and generated) and emitElementValue's element-value lowering
-// so there is exactly one place that assembles this scaffolding.
+// closures (byo and generated) and emitNodeValue's element/fragment-value
+// lowering so there is exactly one place that assembles this scaffolding.
 func emitNodeFuncBody(b *bytes.Buffer, nodes []ast.Markup, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
 	b.WriteString("\t\t_gsxgw := gsx.W(_gsxw)\n")
 	emitNumScratch(b, nodes, resolved, cls)
@@ -612,39 +616,60 @@ func emitNodeFuncBody(b *bytes.Buffer, nodes []ast.Markup, currentPkg *types.Pac
 	return true
 }
 
-// emitElementValue lowers a gsx element embedded directly in Go-expression
-// position (one *ast.Element Part of a GoWithElements) to a self-contained
-// gsx.Node VALUE — gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-// … }) — spliced inline in place of the element's own source span, e.g. `var
-// help = <a href={u}>{ label }</a>` becomes `var help =
-// gsx.Func(func(ctx context.Context, _gsxw io.Writer) error { … })`.
+// emitNodeValue wraps a markup list as a self-contained gsx.Node VALUE —
+// gsx.Func(func(ctx context.Context, _gsxw io.Writer) error { … }) — spliced
+// inline in place of the original element/fragment's own source span, e.g.
+// `var help = <a href={u}>{ label }</a>` becomes `var help =
+// gsx.Func(func(ctx context.Context, _gsxw io.Writer) error { … })`. Shared
+// by emitElementValue (one *ast.Element Part of a GoWithElements) and
+// emitFragmentValue (one *ast.Fragment Part) — the SAME closure shape either
+// way, keyed only on the markup list being lowered. An empty list (an empty
+// `<></>` fragment's Children) still produces this same closure shape;
+// emitNodeFuncBody simply writes nothing before `return _gsxgw.Err()`, so
+// the fragment lowers to a uniform no-op gsx.Func rather than a special case.
+//
+// No emitLine here (unlike genComponent's declaration line): this wrapper
+// carries no user-authored token of its own — it's pure generator
+// boilerplate, same as a GoChunk's own raw body text, which also emits no
+// //line of its own (see generateFile's *ast.GoChunk case). genNode's OWN
+// emitLine call fires immediately below and maps the actual markup/
+// interpolation content, which is what matters.
 //
 // Unlike a component's render closure, this one has NO surrounding component:
 // recvVar/recvTypeName are passed "" (no method-receiver dotted-tag
 // resolution applies here — there is no receiver in scope) and there is no
 // props/attrs/children binding of any kind. Any interpolation inside the
-// element (`{u}`, `{label}`) is emitted verbatim by genNode/genInterp exactly
+// nodes (`{u}`, `{label}`) is emitted verbatim by genNode/genInterp exactly
 // as it is for a component body, so it resolves by ordinary Go closure
 // capture against whatever the ENCLOSING Go scope binds — the same as a
 // hand-written `gsx.Func(func(...) error { … u … })` literal would.
 //
 // Reuses genNode (via emitNodeFuncBody) — the SAME element/markup lowering a
 // component body's child elements use — so there is exactly one path from
-// *ast.Element to markup-emission code; this function only supplies the
-// closure scaffolding around it.
-func emitElementValue(b *bytes.Buffer, el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
-	// No emitLine here (unlike genComponent's declaration line): this wrapper
-	// carries no user-authored token of its own — it's pure generator
-	// boilerplate, same as a GoChunk's own raw body text, which also emits no
-	// //line of its own (see generateFile's *ast.GoChunk case). genNode's OWN
-	// emitLine call (for the *ast.Element case) fires immediately below and
-	// maps the actual markup/interpolation content, which is what matters.
+// markup to emission code; this function only supplies the closure
+// scaffolding around it.
+func emitNodeValue(b *bytes.Buffer, nodes []ast.Markup, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
 	b.WriteString("gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {\n")
-	if !emitNodeFuncBody(b, []ast.Markup{el}, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, "", "", cls, fm, bag, mergeExpr) {
+	if !emitNodeFuncBody(b, nodes, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, "", "", cls, fm, bag, mergeExpr) {
 		return false
 	}
 	b.WriteString("\t})")
 	return true
+}
+
+// emitElementValue lowers a gsx element embedded directly in Go-expression
+// position (one *ast.Element Part of a GoWithElements) via emitNodeValue.
+func emitElementValue(b *bytes.Buffer, el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+	return emitNodeValue(b, []ast.Markup{el}, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, cls, fm, bag, mergeExpr)
+}
+
+// emitFragmentValue lowers a gsx fragment embedded directly in Go-expression
+// position (one *ast.Fragment Part of a GoWithElements) via emitNodeValue.
+// Empty `<></>` → fr.Children is empty → emitNodeFuncBody writes nothing →
+// the closure is the uniform no-op gsx.Func (renders nothing) — see
+// emitNodeValue's doc comment.
+func emitFragmentValue(b *bytes.Buffer, fr *ast.Fragment, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+	return emitNodeValue(b, fr.Children, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, cls, fm, bag, mergeExpr)
 }
 
 // emitFallthroughAttrs emits the caller-wins attribute section (between `<tag`

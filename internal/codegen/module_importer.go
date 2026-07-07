@@ -742,13 +742,13 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	genericSigs := genericSigsFor(gsxFiles, byo)
 	var goFiles []*goast.File
 	compsByXGo := map[string][]*gsxast.Component{}
-	// gwElementsByXGo holds, per skeleton file, the GoWithElements-embedded
-	// elements in source order (buildSkeleton's gwElements). Each is probed
-	// inline via an `_gsxelem(N)`-marked IIFE in the skeleton;
+	// gwMarkupsByXGo holds, per skeleton file, the GoWithElements-embedded
+	// values' markup lists in source order (buildSkeleton's gwMarkups). Each
+	// is probed inline via an `_gsxelem(N)`-marked IIFE in the skeleton;
 	// harvestEmbeddedElements uses this slice to resolve those probes back
-	// onto the element's nodes. Kept SEPARATE from compsByXGo (these are not
+	// onto the markup's nodes. Kept SEPARATE from compsByXGo (these are not
 	// components) so LSP/SigTypeRef consumers of compsByXGo never see them.
-	gwElementsByXGo := map[string][]*gsxast.Element{}
+	gwMarkupsByXGo := map[string][][]gsxast.Markup{}
 	factsByXGo := map[string]*fileFacts{}
 	ctrlOffByXGo := map[string]map[gsxast.Node]int{}
 	// inferByXGo carries each file's inference-probe registry (built fresh by
@@ -777,7 +777,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	for path, f := range gsxFiles {
 		ff := m.fileScopedFacts(dir, f, propFields, nodeProps, attrsProps, byo, bag, fset)
 		factsByFile[path] = ff
-		skel, comps, imps, ctrlOff, infReg, gwElements, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, bag, inferNames)
+		skel, comps, imps, ctrlOff, infReg, gwMarkups, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, bag, inferNames)
 		if berr != nil {
 			// buildSkeleton error handling: a positioned attrError becomes a
 			// diagnostic and skips this file; any other error is also recorded as a
@@ -822,7 +822,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		}
 		goFiles = append(goFiles, gf)
 		compsByXGo[absXpath] = comps
-		gwElementsByXGo[absXpath] = gwElements
+		gwMarkupsByXGo[absXpath] = gwMarkups
 		factsByXGo[absXpath] = ff
 		ctrlOffByXGo[absXpath] = ctrlOff
 		inferByXGo[absXpath] = infReg
@@ -1060,12 +1060,12 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 			continue
 		}
 		harvest(gf, comps, info, resolved, exprMap, inferByXGo[fname])
-		// Second pass for this file's GoWithElements-embedded elements (see
-		// buildSkeleton's gwElements doc): resolve each inline `_gsxelem(N)`-
-		// marked IIFE's probe calls back onto the embedded element's own nodes,
-		// via the SAME inferRegistry (probes for both real components and
-		// embedded elements in this file share one registry).
-		harvestEmbeddedElements(gf, gwElementsByXGo[fname], info, resolved, exprMap, inferByXGo[fname])
+		// Second pass for this file's GoWithElements-embedded values (see
+		// buildSkeleton's gwMarkups doc): resolve each inline `_gsxelem(N)`-
+		// marked IIFE's probe calls back onto the embedded value's own markup
+		// list, via the SAME inferRegistry (probes for both real components and
+		// embedded elements/fragments in this file share one registry).
+		harvestEmbeddedElements(gf, gwMarkupsByXGo[fname], info, resolved, exprMap, inferByXGo[fname])
 		// Mark every element whose cross-package generic probe was skipped
 		// due to a requalification failure (Task 4 — see
 		// inferRegistry.failed's doc) with the types.Invalid sentinel: no
