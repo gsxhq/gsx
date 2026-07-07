@@ -19,6 +19,7 @@ attrs/cond_attr_param_only_in_branch	diag render
 attrs/expr_attrs	diag render
 attrs/spread_leading_rejected	diag(error)
 attrs/spread_trailing	diag render
+bodyinterp/bare_backtick_no_interp	diag gen render
 bodyinterp/escaped_hole	diag gen render
 bodyinterp/plain	diag gen render
 bodyinterp/sub_expression	diag gen render
@@ -521,4 +522,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 523 cases (render: 425, error: 75, gen-pinned: 256)
+TOTAL: 524 cases (render: 426, error: 75, gen-pinned: 257)

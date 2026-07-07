@@ -8,7 +8,7 @@ pageOrder: 40
 package views
 
 component Badge(variant string) {
-	<span class=`badge-@{variant}` { attrs... }>Hi</span>
+	<span class=f`badge-@{variant}` { attrs... }>Hi</span>
 }
 -- invoke --
 Badge(BadgeProps{Variant: "x", Attrs: gsx.Attrs{{Key: "class", Value: "hl"}, {Key: "id", Value: "a"}}})

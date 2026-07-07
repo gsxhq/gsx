@@ -190,9 +190,10 @@ render goldens.
     documentation surface, so current usage does not justify it. If adopted,
     prefer quoted native CSS property names; do not add JSX camelCase conversion
     or automatic numeric units.
-13. [x] **Interpolating attribute-value literals** — `2026-07-05`. A plain
-    backtick literal in attribute-value position, `` name=`…@{ expr }…` `` (no
-    language prefix — family-consistent with `` js`...` ``/`` css`...` ``),
+13. [x] **Interpolating attribute-value literals** — `2026-07-05`. An
+    `f`-prefixed backtick literal in attribute-value position,
+    `` name=f`…@{ expr }…` `` (opt-in interpolation behind the `f` prefix,
+    family-consistent with `` js`...` ``/`` css`...` ``),
     interleaves static text with typed, auto-escaped `@{ }` holes in an
     ordinary attribute, closing the interpolation gap that previously forced
     `fmt.Sprintf`/string concatenation in Go for that case. Per-hole pipelines
@@ -205,7 +206,7 @@ render goldens.
     hole — into one Go string and sanitize it exactly once via the same
     allow-list `_gsxgw.URL` path `href={ expr }` uses, closing the
     split-scheme bypass class a per-hole classifier would have (a dangerous
-    scheme divided across a hole boundary, e.g. `` href=`@{a}@{b}` `` with
+    scheme divided across a hole boundary, e.g. `` href=f`@{a}@{b}` `` with
     `a="javascript"`, `b=":alert(1)"`, is blocked to `about:invalid#gsx` the
     same as a single-expression `javascript:` scheme); `gsx.RawURL` is not
     usable inside a hole — write the value as `` href={ gsx.RawURL(x) } ``
@@ -244,7 +245,7 @@ render goldens.
 14. [x] **Body interpolation + whole-literal pipe** — `2026-07-05`. Two
     additions that carry the interpolating backtick literal into body/child
     position and add a value-assembling pipeline form. **(a) Body backtick
-    literal:** a lone backtick literal inside body braces, `` {`…@{ expr }…`} ``,
+    literal:** an `f`-prefixed literal inside body braces, `` {f`…@{ expr }…`} ``,
     interpolates static text and typed `@{ }` holes per-segment (mirror of the
     attribute-value literal), lowering to the exact zero-alloc writes a
     hand-written mix of static text + `{ expr }` holes produces — NO materialized
@@ -590,7 +591,7 @@ vocabulary remains a design aspiration, not the current API.
     (raster + `svg+xml`, base64-marked) via the runtime `URLImage` sanitizer;
     strict sinks (`href`, `<script src>`, `<iframe src>`, `<object data>`, …)
     keep blocking all `data:`. Authoring: Form A static-prefix literal
-    (`` src=`data:image/png;base64,@{bytes}` `` — `[]byte` auto-encodes,
+    (`` src=f`data:image/png;base64,@{bytes}` `` — `[]byte` auto-encodes,
     `string` passes through; `data:` on a strict sink is a compile error) +
     the `dataURL(mime)` std filter (assembly only, re-validated by the sink);
     `gsx.RawURL` is the vouching escape hatch. **Deferred:** `srcset`

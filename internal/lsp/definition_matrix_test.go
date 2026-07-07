@@ -56,11 +56,11 @@ component Kid(extra gsx.Attrs) {
 }
 
 component NavText(variant string) {
-	<span class=` + "`badge-@{variant}`" + `>x</span>
+	<span class=f` + "`badge-@{variant}`" + `>x</span>
 }
 
 component NavBody(variant string) {
-	<p>{` + "`badge-@{variant}`" + `}</p>
+	<p>{f` + "`badge-@{variant}`" + `}</p>
 }
 `
 
@@ -114,7 +114,7 @@ func TestDefinitionMatrix(t *testing.T) {
 		{"switch-markup case list", "case m:\n", len("case "), paramM},
 		{"goblock code", "disabled := cond", len("disabled := "), paramCond},
 		{"embedded-text hole interp", "@{variant}", len("@{"), paramVariant},
-		{"body embedded-interp hole", "{`badge-@{variant}`}", len("{`badge-@{"), paramVariantBody},
+		{"body embedded-interp hole", "{f`badge-@{variant}`}", len("{f`badge-@{"), paramVariantBody},
 	}
 	for _, tc := range cases {
 		idx := strings.Index(src, tc.anchor)

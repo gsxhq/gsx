@@ -5,7 +5,7 @@
 package p
 
 component BadScript(js []byte) {
-	<script src=`data:image/png;base64,@{js}`></script>
+	<script src=f`data:image/png;base64,@{js}`></script>
 }
 -- diagnostics.golden --
 4:10: data: URL literal in attribute "src" on <script> is a navigational/script sink where data: is blocked; use an image sink (<img src>, <video poster>, background) or gsx.RawURL if you have validated it

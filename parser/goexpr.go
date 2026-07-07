@@ -182,17 +182,21 @@ func scanGoExpr(src string, from int) goExprScan {
 	return res
 }
 
-// backtickPrefixStart reports the start offset of a `js`/`css` prefix that
+// backtickPrefixStart reports the start offset of an `f`/`js`/`css` prefix that
 // immediately precedes the backtick at src[backtick], applying the same
 // ident-boundary rule as skipGSXEmbeddedLiteral (so `xjs`…“ is a bare literal,
 // not a js one). Returns -1 when there is no such prefix — i.e. a bare backtick
-// literal whose span starts at the backtick itself.
+// literal whose span starts at the backtick itself (a plain Go raw string —
+// interpolation is opt-in behind an f`/js`/css` prefix).
 func backtickPrefixStart(src string, backtick int) int {
 	if backtick >= 2 && src[backtick-2:backtick] == "js" && hasIdentBoundary(src, backtick-2) {
 		return backtick - 2
 	}
 	if backtick >= 3 && src[backtick-3:backtick] == "css" && hasIdentBoundary(src, backtick-3) {
 		return backtick - 3
+	}
+	if backtick >= 1 && src[backtick-1] == 'f' && hasIdentBoundary(src, backtick-1) {
+		return backtick - 1
 	}
 	return -1
 }

@@ -94,7 +94,7 @@ func tryRenderHrefPiped(t *testing.T, u string) (string, bool) {
 	if err := os.MkdirAll(viewsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	src := "package views\n\ncomponent L(u string) {\n\t<a href={`@{u}` |> upper}>x</a>\n}\n"
+	src := "package views\n\ncomponent L(u string) {\n\t<a href={f`@{u}` |> upper}>x</a>\n}\n"
 	writeMultiFile(t, viewsDir, "views.gsx", src)
 
 	genRes, err := GenerateDirs(tmp, []string{viewsDir}, Options{FilterPkgs: []string{stdImportPath}}, nil)
@@ -165,7 +165,7 @@ func tryRenderHref(t *testing.T, s1, a, s2, b string) (string, bool) {
 	if err := os.MkdirAll(viewsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	src := "package views\n\ncomponent L(a string, b string) {\n\t<a href=`" + s1 + "@{a}" + s2 + "@{b}`>x</a>\n}\n"
+	src := "package views\n\ncomponent L(a string, b string) {\n\t<a href=f`" + s1 + "@{a}" + s2 + "@{b}`>x</a>\n}\n"
 	writeMultiFile(t, viewsDir, "views.gsx", src)
 
 	genRes, err := GenerateDirs(tmp, []string{viewsDir}, Options{}, nil)

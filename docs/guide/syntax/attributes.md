@@ -156,12 +156,14 @@ JavaScript or CSS source.
 
 ## Interpolating attribute literals
 
-A plain backtick literal in attribute-value position — `` name=`…@{ expr }…` `` —
-mixes static text with typed, auto-escaped holes, the same interleaving
-`{ expr }` already gives you in element bodies. It closes the gap for ordinary
-(non-JS, non-CSS) attribute values: without it, interleaving static text and a
-dynamic value in one attribute means falling back to string concatenation in
-Go.
+An `f`-prefixed backtick literal in attribute-value position —
+`` name=f`…@{ expr }…` `` — mixes static text with typed, auto-escaped holes, the
+same interleaving `{ expr }` already gives you in element bodies. It closes the
+gap for ordinary (non-JS, non-CSS) attribute values: without it, interleaving
+static text and a dynamic value in one attribute means falling back to string
+concatenation in Go. Interpolation is opt-in behind the `f` prefix — a bare
+`` name=`…` `` value is a plain Go raw string, and a `@{` inside it is literal
+text.
 
 <!--@include: ./_generated/attributes/070-interpolating-attribute-literals.md-->
 
@@ -169,7 +171,7 @@ Each `@{ expr }` hole is escaped by the Go type of `expr`: a string is
 attribute-escaped, an integer or other numeric type is formatted to its
 decimal string, and a `fmt.Stringer` is rendered via `String()` — the same
 type-aware rules `{ expr }` interpolation uses elsewhere. A hole also accepts a
-pipeline, evaluated before escaping: `` title=`Item @{ id |> upper }` ``.
+pipeline, evaluated before escaping: `` title=f`Item @{ id |> upper }` ``.
 
 Two characters need escaping inside the literal: `` \` `` for a literal
 backtick, and `\@{` for a literal `@{` that should not be read as a hole.
@@ -178,11 +180,11 @@ or `` css`...` `` literal.
 
 ::: v-pre
 To pipe the **whole** assembled value through a filter, wrap the literal in
-braces and append a pipeline: `` class={`btn-@{v}` |> upper} ``. The static text
+braces and append a pipeline: `` class={f`btn-@{v}` |> upper} ``. The static text
 and holes are interpolated into one string, then that whole value flows through
 the pipeline before the attribute escaper runs — see [Pipelines — whole-literal
 pipelines](./pipelines#whole-literal-pipelines). The pipe is only available in
-the braced form; the bare `` class=`…` `` direct-attribute literal does not take
+the braced form; the direct (unbraced) `` class=f`…` `` literal does not take
 a trailing `|>`.
 :::
 
@@ -198,20 +200,20 @@ sneak a scheme past the check:
 
 <!--@include: ./_generated/attributes/080-url-attribute-literals-are-sanitized-whole.md-->
 
-A safe dynamic scheme still works — `` href=`@{scheme}://example.com` `` with
+A safe dynamic scheme still works — `` href=f`@{scheme}://example.com` `` with
 `scheme = "https"` renders `href="https://example.com"` unchanged. For a
 value you have already validated and want to bypass the scheme check
-entirely, interpolate `gsx.RawURL(...)` instead of writing the URL as a
-backtick literal: `` href={ gsx.RawURL(trustedURL) } ``.
+entirely, interpolate `gsx.RawURL(...)` instead of writing the URL as an
+`f` literal: `` href={ gsx.RawURL(trustedURL) } ``.
 
 ### `data:image` literals
 
-A backtick literal is also how you write a `data:` URL directly, on an
+An `f` literal is also how you write a `data:` URL directly, on an
 [image sink](./escaping#resource-vs-navigational-url-sinks) — `<img src>`,
 `<source src>`, `<input src>`, `<video poster>`, or `background`:
 
 ```gsx
-<img src=`data:image/png;base64,@{b64}` />
+<img src=f`data:image/png;base64,@{b64}` />
 ```
 
 The scheme, MIME type, and `;base64,` marker are static author text; the hole

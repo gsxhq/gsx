@@ -7,7 +7,7 @@
 package p
 
 component Avatar(b64 string) {
-	<img src=`data:image/png;base64,@{b64}` alt="a" />
+	<img src=f`data:image/png;base64,@{b64}` alt="a" />
 }
 -- invoke --
 Avatar(AvatarProps{B64: "aGVsbG8="})

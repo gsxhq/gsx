@@ -527,9 +527,11 @@ func (p *parser) parseBraceNode() (ast.Markup, bool, error) {
 	return in, false, err
 }
 
-// tryParseBodyEmbeddedInterp recognizes a lone backtick literal — optionally
+// tryParseBodyEmbeddedInterp recognizes a lone f`…` literal — optionally
 // followed by a whole-literal `|>` pipeline — as the *entire* value of a body
-// `{ }`: {`…@{expr}…`} or {`…` |> f}. Cursor must be at the opening `{`.
+// `{ }`: {f`…@{expr}…`} or {f`…` |> f}. Cursor must be at the opening `{`. A
+// bare (unprefixed) backtick is a plain Go raw string, not an interpolating
+// literal, so it is left to parseInterp.
 //
 // It returns (nil, false, nil) with the cursor (and any diagnostics recorded
 // by an abandoned trial) rewound to its entry state whenever the `{ }`
@@ -561,10 +563,12 @@ func (p *parser) tryParseBodyEmbeddedInterp() (*ast.EmbeddedInterp, bool, error)
 	}
 	p.i++ // past '{'
 	p.skipSpace()
-	if !p.at("`") {
-		// Bare backtick only — `js`/`css` embedded literals aren't valid in
-		// body position, and anything else isn't a lone literal at all. Rewind
-		// and let parseInterp scan (and error on) the whole `{ }` as Go.
+	if !p.at("f`") {
+		// Only an f`…` literal interpolates in body position. A bare backtick is
+		// a plain Go raw string (interpolation is opt-in behind the f` prefix);
+		// js`/css` embedded literals aren't valid in body position; and anything
+		// else isn't a lone literal at all. Rewind and let parseInterp scan (and,
+		// where relevant, error on) the whole `{ }` as an ordinary Go expression.
 		rewind()
 		return nil, false, nil
 	}

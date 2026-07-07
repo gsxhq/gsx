@@ -128,31 +128,31 @@
   {
     "name": "Interpolating attribute literals",
     "category": "Basics",
-    "source": "package views\n\ncomponent Row(id string, n int) {\n\t<div data-key=`row-@{id}-@{n}` title=`Item @{id |> upper}`>Row</div>\n}\n",
+    "source": "package views\n\ncomponent Row(id string, n int) {\n\t<div data-key=f`row-@{id}-@{n}` title=f`Item @{id |> upper}`>Row</div>\n}\n",
     "invoke": "Row(RowProps{Id: \"a&b\", N: 5})"
   },
   {
     "name": "URL attribute literals are sanitized whole",
     "category": "Basics",
-    "source": "package views\n\ncomponent Link(x string) {\n\t<a href=`javascript:@{x}`>go</a>\n}\n",
+    "source": "package views\n\ncomponent Link(x string) {\n\t<a href=f`javascript:@{x}`>go</a>\n}\n",
     "invoke": "Link(LinkProps{X: \"alert(1)\"})"
   },
   {
     "name": "Interpolated class literal merges with a spread bag",
     "category": "Styling",
-    "source": "package views\n\ncomponent Badge(variant string) {\n\t<span class=`badge-@{variant}` { attrs... }>Hi</span>\n}\n",
+    "source": "package views\n\ncomponent Badge(variant string) {\n\t<span class=f`badge-@{variant}` { attrs... }>Hi</span>\n}\n",
     "invoke": "Badge(BadgeProps{Variant: \"x\", Attrs: gsx.Attrs{{Key: \"class\", Value: \"hl\"}, {Key: \"id\", Value: \"a\"}}})"
   },
   {
     "name": "Body backtick literals",
     "category": "Basics",
-    "source": "package views\n\ncomponent Row(id string, n int) {\n\t<p>{`row-@{id}-@{n}`}</p>\n}\n",
+    "source": "package views\n\ncomponent Row(id string, n int) {\n\t<p>{f`row-@{id}-@{n}`}</p>\n}\n",
     "invoke": "Row(RowProps{Id: \"a&b\", N: 5})"
   },
   {
     "name": "Whole-literal pipelines",
     "category": "Transforming values",
-    "source": "package views\n\ncomponent Item(id string) {\n\t<li>{`item-@{id}` |> upper}</li>\n}\n",
+    "source": "package views\n\ncomponent Item(id string) {\n\t<li>{f`item-@{id}` |> upper}</li>\n}\n",
     "invoke": "Item(ItemProps{Id: \"a&b\"})"
   },
   {

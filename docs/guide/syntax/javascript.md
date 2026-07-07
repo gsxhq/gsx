@@ -28,9 +28,9 @@ Quoted attributes remain literal strings. gsx does not scan quoted attributes fo
 
 For ordinary expression attributes, `attr={expr}` uses normal attribute escaping
 unless the attribute is URL-context by name. Use `` js`...` `` when the value is
-code or a JavaScript expression, and a plain backtick literal — `` name=`…@{ x }…` ``,
-no language prefix — when the value is ordinary text with holes rather than
-code; see [Attributes — Interpolating attribute literals](./attributes#interpolating-attribute-literals).
+code or a JavaScript expression, and an `f`-prefixed literal — `` name=f`…@{ x }…` `` —
+when the value is ordinary text with holes rather than code; see
+[Attributes — Interpolating attribute literals](./attributes#interpolating-attribute-literals).
 
 ````gsx
 <button @click=js`toggle()`>Toggle</button>
