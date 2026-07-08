@@ -15,9 +15,11 @@ type NavItem struct {
 -- input.gsx --
 package demo
 
-var item = NavItem{Label: "Home", Icon: <svg class="w-5 h-5">
-	<path d="M0 0"/>
-</svg>}
+var item = NavItem{Label: "Home", Icon: (
+	<svg class="w-5 h-5">
+		<path d="M0 0"/>
+	</svg>
+)}
 
 component Uses() {
 	<div>{ item.Label }{ item.Icon }</div>
@@ -41,22 +43,22 @@ import (
 
 var item = NavItem{Label: "Home", Icon: gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 	_gsxgw := gsx.W(_gsxw)
-//line input.gsx:3:41
-	_gsxgw.S("<svg class=\"w-5 h-5\">")
 //line input.gsx:4:2
+	_gsxgw.S("<svg class=\"w-5 h-5\">")
+//line input.gsx:5:3
 	_gsxgw.S("<path d=\"M0 0\"/></svg>")
 	return _gsxgw.Err()
 })}
 
-//line input.gsx:7:1
+//line input.gsx:9:1
 func Uses() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
-//line input.gsx:8:2
+//line input.gsx:10:2
 		_gsxgw.S("<div>")
-//line input.gsx:8:7
+//line input.gsx:10:7
 		_gsxgw.Text(string(item.Label))
-//line input.gsx:8:21
+//line input.gsx:10:21
 		_gsxgw.Node(ctx, item.Icon)
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()

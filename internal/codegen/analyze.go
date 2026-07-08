@@ -20,6 +20,7 @@ import (
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/goexprshape"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
@@ -549,14 +550,32 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, 
 		if !ok {
 			continue
 		}
-		for _, part := range we.Parts {
+		// gsx fmt may have wrapped a bare-operand element/fragment in a
+		// decorative "(" ")" purely for source readability (see internal/
+		// printer's parenWrapDoc) — never a call argument or bare
+		// composite-literal element, where the parens are real call/list
+		// syntax. Those bytes must not reach the skeleton's spliced-in IIFE
+		// any more than emit.go's real closure splice (see its identical
+		// paren-strip and goWithElementsParenShapes' doc): a newline before
+		// the IIFE's own trailing `}()` trips the exact ASI hazard
+		// emitSkeletonBlockLine's block-form directive already works around
+		// for the unrelated `Wrap(<Foo/>)` case below.
+		shapes := goWithElementsParenShapes(we)
+		for i, part := range we.Parts {
 			switch p := part.(type) {
 			case gsxast.GoText:
 				// Block-form directive (no newline) so an element mid-expression
 				// (`Wrap(<Foo/>)`) keeps its trailing `)` attached to the IIFE's
 				// `}()` — a `//line` newline there would trip ASI.
 				emitSkeletonBlockLine(&compBuf, fset, p.Pos())
-				compBuf.WriteString(p.Src)
+				src := p.Src
+				if i > 0 && parenWrappable(we.Parts[i-1], shapes, i-1) {
+					src = goexprshape.StripLeadingParen(src)
+				}
+				if i < len(we.Parts)-1 && parenWrappable(we.Parts[i+1], shapes, i+1) {
+					src = goexprshape.StripTrailingParen(src)
+				}
+				compBuf.WriteString(src)
 			case *gsxast.Element:
 				markup := []gsxast.Markup{p}
 				// Reserve this element's index BEFORE probing its body: emitProbes

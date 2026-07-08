@@ -13,7 +13,13 @@ component Noop() {
 }
 
 func Items(xs []string) gsx.Node {
-	return <>{ for _, s := range xs { <li>{ s }</li> } }</>
+	return (
+		<>
+			{ for _, s := range xs {
+				<li>{ s }</li>
+			} }
+		</>
+	)
 }
 
 component Host() {
@@ -49,11 +55,11 @@ func Noop() gsx.Node {
 func Items(xs []string) gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
-//line input.gsx:10:11
+//line input.gsx:12:4
 		for _, s := range xs {
-//line input.gsx:10:36
+//line input.gsx:13:5
 			_gsxgw.S("<li>")
-//line input.gsx:10:40
+//line input.gsx:13:9
 			_gsxgw.Text(string(s))
 			_gsxgw.S("</li>")
 		}
@@ -61,13 +67,13 @@ func Items(xs []string) gsx.Node {
 	})
 }
 
-//line input.gsx:13:1
+//line input.gsx:19:1
 func Host() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
-//line input.gsx:14:2
+//line input.gsx:20:2
 		_gsxgw.S("<ul>")
-//line input.gsx:14:6
+//line input.gsx:20:6
 		_gsxgw.Node(ctx, Items([]string{"a", "b"}))
 		_gsxgw.S("</ul>")
 		return _gsxgw.Err()
