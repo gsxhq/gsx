@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -71,8 +72,20 @@ func TestCorpus(t *testing.T) {
 		classif[c.name] = cl
 	}
 
-	// Single batchCodegen call for ALL candidate cases (renderable + default-branch).
-	cg, err := batchCodegen(repoRoot, candidates)
+	// Single batchCodegen call for candidate cases that can match this test run.
+	// This keeps focused runs (e.g. -run TestCorpus/attrs/spread_byo) from
+	// paying the full-corpus codegen cost before subtest filtering applies.
+	casesForBatch := candidates
+	if selected := selectedCaseNamesForRun("TestCorpus", cases); selected != nil {
+		casesForBatch = nil
+		for _, c := range candidates {
+			if selected[c.name] {
+				casesForBatch = append(casesForBatch, c)
+			}
+		}
+	}
+
+	cg, err := batchCodegen(repoRoot, casesForBatch)
 	if err != nil {
 		t.Fatalf("batchCodegen: %v", err)
 	}
@@ -182,6 +195,91 @@ func checkOrUpdateCoverage(t *testing.T, cases []*caseDoc) {
 func hasAstGolden(c *caseDoc) bool {
 	_, ok := c.goldens["ast.golden"]
 	return ok
+}
+
+// selectedCaseNamesForRun returns the subset of case names that can match the
+// active -test.run pattern for a given top-level test (e.g. "TestCorpus").
+// It returns nil when there is no subtest filter, meaning "run all".
+func selectedCaseNamesForRun(testName string, cases []*caseDoc) map[string]bool {
+	f := flag.Lookup("test.run")
+	if f == nil {
+		return nil
+	}
+	pattern := strings.TrimSpace(f.Value.String())
+	if pattern == "" {
+		return nil
+	}
+
+	parts := splitRunPattern(pattern)
+	if len(parts) < 2 {
+		return nil // no subtest component in -run
+	}
+	topRE, err := regexp.Compile(parts[0])
+	if err != nil || !topRE.MatchString(testName) {
+		return nil
+	}
+
+	subRE := make([]*regexp.Regexp, 0, len(parts)-1)
+	for _, p := range parts[1:] {
+		re, err := regexp.Compile(p)
+		if err != nil {
+			return nil
+		}
+		subRE = append(subRE, re)
+	}
+
+	selected := map[string]bool{}
+	for _, c := range cases {
+		segments := strings.Split(c.name, "/")
+		if len(subRE) > len(segments) {
+			continue
+		}
+		ok := true
+		for i, re := range subRE {
+			if !re.MatchString(segments[i]) {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			selected[c.name] = true
+		}
+	}
+	return selected
+}
+
+// splitRunPattern splits a go test -run pattern into slash-separated regex
+// components while respecting escaped slashes and character classes.
+func splitRunPattern(pattern string) []string {
+	var (
+		parts   []string
+		buf     strings.Builder
+		escaped bool
+		inClass bool
+	)
+	for _, r := range pattern {
+		switch {
+		case escaped:
+			buf.WriteRune(r)
+			escaped = false
+		case r == '\\':
+			escaped = true
+			buf.WriteRune(r)
+		case r == '[':
+			inClass = true
+			buf.WriteRune(r)
+		case r == ']' && inClass:
+			inClass = false
+			buf.WriteRune(r)
+		case r == '/' && !inClass:
+			parts = append(parts, buf.String())
+			buf.Reset()
+		default:
+			buf.WriteRune(r)
+		}
+	}
+	parts = append(parts, buf.String())
+	return parts
 }
 
 // setSection replaces the Data of the named section if it exists, or appends it.
