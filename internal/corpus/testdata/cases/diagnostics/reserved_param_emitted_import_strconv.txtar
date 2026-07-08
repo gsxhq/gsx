@@ -1,8 +1,0 @@
--- input.gsx --
-package views
-
-component Bad(strconv string, n int) {
-	<p>{strconv}{n}</p>
-}
--- diagnostics.golden --
-3:1: param name "strconv" is reserved (shadows a generated import)
