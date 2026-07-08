@@ -262,6 +262,7 @@ goexpr-interp-tag/scope-local	diag gen render
 goexpr-interp-tag/sibling-mixed-type	diag gen render
 goexpr-interp-tag/stages	diag gen render
 goexpr-valueform-init/value_if_define_init	diag gen render
+imports/component_no_invoke	diag gen
 interpolation/field_access	diag render
 interpolation/interp_types	diag render
 interpolation/mixed_chunk	diag render
@@ -539,4 +540,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 541 cases (render: 441, error: 77, gen-pinned: 270)
+TOTAL: 542 cases (render: 441, error: 77, gen-pinned: 271)
