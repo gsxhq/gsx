@@ -24,10 +24,14 @@ type rtImports map[string]bool
 // gsxRuntimePath is the import path of the gsx runtime.
 const gsxRuntimePath = "github.com/gsxhq/gsx"
 
-// Reserved aliases. The `_gsx` prefix is not a valid identifier for user code
-// (checkReservedParams and checkReservedRecvVar reject it), so these can never
-// collide with anything the user writes — which is what lets a .gsx file bind
-// `gsx`, `context`, `io` or `strconv` to whatever it likes.
+// Reserved aliases. The `_gsx` prefix is not a valid identifier for user code —
+// checkReservedDecls rejects it at package scope (including import aliases),
+// checkReservedParams on component params and checkReservedRecvVar on
+// method-component receiver vars, and the parser's component-name scan admits no
+// `_` at all — so these can never collide with anything the user writes, which is
+// what lets a .gsx file bind `gsx`, `context`, `io` or `strconv` to whatever it
+// likes. See reservedPrefix (analyze.go) for why the whole prefix, not just the
+// four names below, is the reserved unit.
 const (
 	rtAlias  = "_gsxrt"
 	ctxAlias = "_gsxctx"

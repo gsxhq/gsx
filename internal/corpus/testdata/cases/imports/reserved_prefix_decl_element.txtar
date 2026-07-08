@@ -1,0 +1,23 @@
+# Context: the OTHER top-level decl form — a Go region with element literals
+# spliced into expression position (ast.GoWithElements), which is not verbatim Go
+# and so cannot simply be handed to go/parser. checkReservedDecls reconstructs it
+# by substituting each literal with a byte-length- and line-preserving `nil`.
+# The first element deliberately spans several lines: were those newlines blanked
+# along with the rest of the literal, the `var _gsxafter` that follows would be
+# swallowed into the same statement and the region would not parse — this case
+# would then report only the first name (or none).
+-- input.gsx --
+package demo
+
+var _gsxnode = <b>
+	hi
+</b>
+
+var _gsxafter = <i>x</i>
+
+component Uses() {
+	<b>hi</b>
+}
+-- diagnostics.golden --
+3:5: declaration name "_gsxnode" uses the reserved _gsx prefix
+7:5: declaration name "_gsxafter" uses the reserved _gsx prefix

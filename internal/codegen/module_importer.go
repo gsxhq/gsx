@@ -806,6 +806,23 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// `_gsxinfer1 redeclared in this block`, failing the whole package.
 	inferNames := newInferNameAllocator()
 	for path, f := range gsxFiles {
+		// Reserved `_gsx` file-scope names are rejected BEFORE the file's skeleton
+		// is built, not after it is type-checked. A name that happens to collide
+		// with an alias the generator emits today (`var _gsxrt = 1`) would ALSO
+		// draw `_gsxrt already declared through import of package gsx` from the
+		// skeleton type-check, at the very same position — two diagnostics for one
+		// mistake, the useless one first. Skipping the file here (the same per-file
+		// skip an attrError takes below) means its skeleton never reaches
+		// go/types, so the gsx diagnostic is the only one reported; it is also the
+		// only one reported for a name like `_gsxfoo`, which collides with nothing
+		// the generator emits today and would otherwise pass silently.
+		if rds := checkReservedDecls(f, fset); len(rds) > 0 {
+			for _, rd := range rds {
+				bag.Errorf(rd.pos, rd.pos+token.Pos(len(rd.name)), "", "declaration name %q uses the reserved _gsx prefix", rd.name)
+			}
+			delete(gsxFiles, path)
+			continue
+		}
 		ff := m.fileScopedFacts(dir, f, propFields, nodeProps, attrsProps, byo, bag, fset)
 		factsByFile[path] = ff
 		skel, comps, imps, ctrlOff, infReg, gwMarkups, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, m.opts.Classifier, bag, inferNames)
