@@ -57,6 +57,42 @@ func TestClassifyMultipleHoles(t *testing.T) {
 	}
 }
 
+// Regression (found by independent adversarial review, confirmed via a real
+// end-to-end gsx generate failure): when an EARLIER hole's whitespace needs
+// collapsing (X, alone on its own line inside []any{...}), the resulting
+// shrink must not corrupt the byte offset already recorded for it, nor the
+// not-yet-processed offset of a LATER hole (Y, also alone on its own line
+// inside an already-parenthesized keyed composite-literal field) — both must
+// still resolve to their real AST positions afterward.
+func TestClassifyMultipleHolesWhereEarlierOneCollapses(t *testing.T) {
+	src := "package p\n\nvar listing = []any{\n\tX,\n}\nvar item = S{A: (\n\tY\n)}\n"
+	offX := indexOf(src, "X")
+	offY := indexOf(src, "Y")
+	got := Classify(src, []Hole{{Start: offX, End: offX + 1}, {Start: offY, End: offY + 1}})
+	if len(got) != 2 {
+		t.Fatalf("Classify multi-hole = %+v, want 2 results", got)
+	}
+	if got[0].Shape != Plain {
+		t.Errorf("X: got Shape=%v, want Plain (bare composite-lit element)", got[0].Shape)
+	}
+	if got[1].Shape != ParenWrap || !got[1].Wrapped {
+		t.Errorf("Y: got %+v, want Shape=ParenWrap Wrapped=true (keyed field, already parenthesized)", got[1])
+	}
+}
+
+// Regression (independent adversarial review): a bracket-shaped byte that is
+// actually inside a comment must not be mistaken for a real bracket — doing
+// so would collapse a whitespace run that isn't inside any bracket at all,
+// which can merge two real statements onto the comment's line.
+func TestClassifyCommentBracketIsNotReal(t *testing.T) {
+	src := "package p\n\nvar help = SomeCall(a, b, // (\n\tX)\n"
+	off := indexOf(src, "X")
+	got := Classify(src, []Hole{{Start: off, End: off + 1}})
+	if len(got) != 1 || got[0].Shape != Plain {
+		t.Errorf("Classify(%q) = %+v, want [Plain] (call argument)", src, got)
+	}
+}
+
 func indexOf(hay, needle string) int {
 	for i := 0; i+len(needle) <= len(hay); i++ {
 		if hay[i:i+len(needle)] == needle {
