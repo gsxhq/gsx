@@ -189,6 +189,7 @@ element-literals/func-local	diag gen render
 element-literals/import-then-embed	diag gen render
 element-literals/interp-outer-scope	diag gen render
 element-literals/method-receiver	diag gen render
+element-literals/multi-element-region	diag gen render
 element-literals/return	diag gen render
 element-literals/stray-import-after-func	diag(error)
 element-literals/struct-field	diag gen render
@@ -561,4 +562,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 563 cases (render: 452, error: 82, gen-pinned: 287)
+TOTAL: 564 cases (render: 453, error: 82, gen-pinned: 288)

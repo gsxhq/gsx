@@ -1,0 +1,45 @@
+# Context: TWO gsx values in the SAME top-level Go region (parser/goexpr.go's
+# splitGoElements groups a contiguous run of top-level Go text into one
+# ast.GoWithElements, not per-statement) — an EARLIER bare composite-literal
+# element whose own whitespace needs collapsing for shape classification
+# (multi-line, alone on its own line inside []any{...}), followed by a LATER
+# keyed composite-literal field, itself already paren-wrapped and multi-line.
+# Regression case (independent adversarial review, 2026-07-08): an earlier
+# version of goexprshape.collapseHoleWhitespace processed holes right-to-left
+# and never adjusted already-recorded offsets for a rightward hole once a
+# leftward hole's own collapse shrank the string — corrupting the SECOND
+# value's classification (silently misclassified Plain instead of ParenWrap),
+# so codegen never stripped its decorative paren, which then tripped Go's
+# automatic semicolon insertion in the generated .x.go and made `gsx generate`
+# fail outright on this exact shape.
+-- nav.go --
+package demo
+
+import "github.com/gsxhq/gsx"
+
+type NavItem struct {
+	Label string
+	Icon  gsx.Node
+}
+-- input.gsx --
+package demo
+
+var listing = []any{
+	<span>a</span>,
+}
+
+var item = NavItem{Label: "Home", Icon: (
+	<svg class="w-5 h-5">
+		<path d="M0 0"/>
+	</svg>
+)}
+
+component Uses() {
+	<div>{ item.Label }{ item.Icon }</div>
+}
+-- invoke --
+Uses()
+-- diagnostics.golden --
+10:8: expected ')', found newline
+-- render.golden --
+-- generated.x.go.golden --

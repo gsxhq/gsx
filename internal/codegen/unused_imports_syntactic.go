@@ -94,6 +94,11 @@ type fileSkeleton struct {
 type packageSkeletons struct {
 	gsxFset *token.FileSet
 	byGsx   map[string]fileSkeleton // .gsx abs path -> skeleton + import specs + sunk set
+	// goParseDiags holds the Go parse errors the skeletons produced, positioned
+	// back at their .gsx origin by the skeletons' //line directives. gsx copies
+	// user Go through as an opaque blob, so Go that is invalid only in context (an
+	// `import` after a declaration) is detectable nowhere earlier than here.
+	goParseDiags []diag.Diagnostic
 }
 
 // buildPackageSkeletons lowers every .gsx file in dir to its skeleton AST WITHOUT
@@ -147,6 +152,14 @@ func (m *Module) buildPackageSkeletons(dir string) (*packageSkeletons, error) {
 		absXpath := filepath.Join(dir, base+".x.go")
 		gf, perr := goparser.ParseFile(fset, absXpath, skel, goparser.SkipObjectResolution)
 		if perr != nil {
+			// The user's Go does not parse. Keep every import (no entry for this
+			// file), but hand the positioned diagnostics up: this is the only place
+			// the fmt path can see them, and `gsx fmt` must not silently succeed on
+			// Go it could not format. A non-ErrorList fault yields no diagnostics
+			// and is dropped, exactly as before.
+			if ds, ok := diagnosticsFromParseError(skeletonParseError(perr)); ok {
+				out.goParseDiags = append(out.goParseDiags, ds...)
+			}
 			continue
 		}
 		sunk := map[sunkImportKey]bool{}
@@ -189,10 +202,17 @@ func (m *Module) resolvePackageNames(paths []string) map[string]string {
 // base is not referenced have their real package name resolved via a single
 // cheap NeedName load before removal, so a package whose name differs from its
 // path base (e.g. gopkg.in/yaml.v3 → "yaml") is handled correctly.
-func (m *Module) UnusedImports(dir string) (map[string][]UnusedImport, error) {
+//
+// It also returns the Go parse diagnostics the skeletons produced, already
+// positioned at their .gsx origin. They are diagnostics, not an error: a file
+// whose Go does not parse simply keeps all its imports, and its siblings are
+// still analyzed. The returned error stays reserved for faults that make the
+// whole package unanalyzable (a gsx parse failure, an unloadable module), which
+// callers must not present to the user as a Go diagnostic.
+func (m *Module) UnusedImports(dir string) (map[string][]UnusedImport, []diag.Diagnostic, error) {
 	ps, err := m.buildPackageSkeletons(dir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	out := map[string][]UnusedImport{}
 	usedByFile := map[string]map[string]bool{}
@@ -230,5 +250,5 @@ func (m *Module) UnusedImports(dir string) (map[string][]UnusedImport, error) {
 			}
 		}
 	}
-	return out, nil
+	return out, ps.goParseDiags, nil
 }

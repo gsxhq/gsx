@@ -297,7 +297,38 @@ render goldens.
     `element-literals/*` (var, call-arg, component-tag, return, struct-field,
     outer-scope interpolation capture, plus an apostrophe/prose-scanning
     regression and a formatter round-trip case). Docs: `syntax/elements.md`
-    §Elements as values, `syntax/raw-go.md` cross-reference. **Deferred:**
+    §Elements as values, `syntax/raw-go.md` cross-reference.
+    **`gsx fmt` follow-up - done:** an element literal turned its whole
+    surrounding Go region into an `ast.GoWithElements`, whose Go text the printer
+    relayed verbatim - so one `var x = <p/>` left every declaration in the region
+    unformatted, and `fmt -l` called the file clean. The printer now substitutes a
+    placeholder identifier per embedded gsx value (an identifier is a valid Go
+    operand in every position such a value can occupy), hands the resulting
+    ordinary Go to `go/format`, and re-splits the output at the placeholders. Each
+    placeholder is exactly as many runes wide as the value it stands for, so
+    gofmt's end-of-line comment columns are computed against the element rather
+    than the placeholder. gsx still never parses Go - it hands Go something Go can
+    parse, the same claim-what-Go-leaves-free move as `|>`, so this needed no
+    merged Go+gsx grammar. Separately, a multi-line element literal originally
+    hung off its opening tag (`pretty.Align`) instead of breaking to column 0 -
+    children indented one level deeper than `<`, the closing tag lined up under
+    it, at the cost of space-padded (not tab) continuation lines and rename
+    instability (renaming the variable re-indented the element).
+    **Superseded 2026-07-08:** `pretty.Align` is gone. An assignment RHS,
+    `return` operand, or keyed composite-literal field value now wraps in
+    prettier-style `(...)` when it breaks (real Go-AST classification via a new
+    `internal/goexprshape` package, not text-sniffing), indented by real Go
+    nesting depth computed statically from the preceding line's leading tabs
+    (`realTabDepth`) - tabs only, no space padding, stable under renames. Call
+    arguments and bare composite-literal elements (e.g. `Wrap(<Foo/>)`,
+    `[]any{<div>...}`) still get correct real-depth indentation but no parens -
+    see the bracket-reflow deferral below. The paren is purely cosmetic for the
+    `.gsx` source: `internal/codegen`'s two verbatim-`GoText`-splice sites
+    (`emit.go`'s real output and `analyze.go`'s type-checking skeleton) strip it
+    back out before compiling, since every element/fragment lowers to a
+    `gsx.Func(...)`/IIFE closure ending in `})` - leaving the paren in would trip
+    Go's automatic semicolon insertion on that trailing token. Spec
+    `2026-07-08-goexpr-element-paren-indent-design.md`. **Deferred:**
     component values (`type Component = func(...gsx.Attr) gsx.Node` collapse) -
     parked; a baked element literal already covers the driving nav-icon use
     case since its class is constant there, and component values only earn
@@ -715,6 +746,35 @@ vocabulary remains a design aspiration, not the current API.
   variants. Non-component cross-file helper duplicates are tolerated (deferred to
   go build); within-file redeclarations stay hard errors. Spec
   `2026-07-06-tag-variant-component-analysis-design.md`.
+- [ ] **tree-sitter-gsx: unified Go+gsx grammar (tsx approach)** - the
+  `../tree-sitter-gsx` grammar treats Go as an opaque blob and highlights it by
+  *injecting* tree-sitter-go per `go_text` run. This works everywhere *except*
+  where an element/fragment/`f`-literal sits in a Go **value** position
+  (`var x = <Icon/>`, `return <div/>`, `f(<a/>)`): to highlight the element the
+  grammar must split the surrounding Go around it, and injection requires each
+  injected region to be *independently* valid Go - so the split fragments (a
+  bare `var x = `, an orphaned `}`) make the injected Go parser emit an `ERROR`
+  node. The gsx tree itself is clean; only the injected-Go highlight degrades
+  (in practice: the trailing token goes uncolored - no LSP squiggle). This is
+  inherent to injection and **no injection trick escapes it**: `injection.combined`
+  would stitch the Go fragments back, but it combines *all* `go_text` in the file
+  (hole expressions + top-level decls) into one incoherent document; scoping the
+  combine to a Go block would need the grammar to *parse* Go blocks - the very
+  thing we're avoiding. The blob model is fine for gsx's **own** parser because
+  `go/parser`/the Go compiler is the real downstream parser; tree-sitter has no
+  downstream and must emit one coherent tree.
+  **Decision (2026-07-08, jackie):** the complete fix is the **tsx approach** -
+  make gsx a *superset* of Go by vendoring tree-sitter-go's `grammar.js` and
+  adding `element`/`fragment`/`f_literal` as first-class Go expressions (exactly
+  how `tree-sitter-tsx` extends `tree-sitter-javascript` so `<div/>` is a native
+  `jsx_element`), **not** an embed/injection. Deferred: it's a permanent fork of
+  a large upstream grammar plus a *single*-external-scanner merge (Go's automatic
+  semicolon-insertion scanner + gsx's markup/embedded-text scanner into one
+  `scanner.c`) and an ongoing upstream-Go-sync burden. The current cost is one
+  cosmetic `ERROR` node on the token after a raw-Go-position element; the flat
+  highlighters (`../vscode-gsx` TextMate, `gsxhq.github.io` CodeMirror) are
+  unaffected (no tree, no injection-validity requirement). Revisit when a unified
+  grammar is justified by additional wins (structural folding/nav/textobjects).
 - [ ] **Tooling performance measurement on a realistic large corpus** - the
   existing baseline (`gen/perf_test.go`, `GSX_PERF=1`; note
   `2026-06-24-go-to-gsx-perf.md`) uses a *synthetic* 50-package fixture: ~383 ms/package
@@ -743,6 +803,35 @@ vocabulary remains a design aspiration, not the current API.
   over the whole tree now completes in well under 1s (down from ~3s), and
   `generate`'s cold path speeds up correspondingly. Output is byte-identical
   (corpus goldens + a real-world `one-learning-gsx generate` diff check).
+- [ ] **`gsx fmt` bracket-reflow for call-arg / bare composite-lit elements** -
+  follow-up to the 2026-07-08 element-literal paren-wrap fix (item 15 above).
+  A multi-line element/fragment as a call argument (`Wrap(<Foo>...</Foo>)`) or
+  a keyless composite-literal element (`[]any{<div>...}`) gets correct
+  real-depth tab indentation today but not prettier's own treatment for those
+  positions (reflow the enclosing bracket onto its own line, trailing comma,
+  no decorative paren - array/call-arg JSX values never get wrapped in
+  `(...)`, only the bracket itself moves). Deferred: needs the enclosing
+  bracket's literal Go text restructured (move `(`/`[`, insert a comma), not
+  just an indent/paren decision - meaningfully bigger than the printer-only
+  change this was scoped to.
+  **`gsx fmt` no longer silently succeeds on invalid Go - done:** gsx copies user
+  Go through as an opaque blob, so Go that is invalid only in context (an `import`
+  after a declaration) was caught nowhere in the fmt path: `fmt` exited 0, `fmt -l`
+  called the file clean, and `fmt -w` rewrote it. The skeleton parse that
+  unused-import detection already runs *did* detect it and dropped the error on the
+  floor (`buildPackageSkeletons`). `Module.UnusedImports` now returns those
+  positioned diagnostics (the skeleton's `//line` directives map them back to the
+  exact `.gsx` location) and `gsx fmt` renders them through the same
+  `diag.RenderRich`/`RenderCompact` path `generate` uses, exiting 1. The formatter
+  itself is untouched: diagnostics belong to the analyzer, exactly as in the LSP,
+  where `handleFormatting` only formats and `publishDiagnostics` is a separate
+  channel. Deliberate divergence from gofmt: `fmt` **still formats and writes**,
+  because unlike gofmt it produced correct output (the invalid Go relays verbatim);
+  gofmt refuses only because an unparseable file yields nothing. Scope: detection
+  needs a loadable module and no `-no-imports`, so a `.gsx` outside a module stays
+  silent - same as the LSP without analysis. **Behavior change:** a tree with a Go
+  syntax error now fails a `gsx fmt -l` CI gate that previously passed. Design:
+  `docs/superpowers/specs/2026-07-08-fmt-error-reporting-design.md`.
 
 ## Documentation backlog
 

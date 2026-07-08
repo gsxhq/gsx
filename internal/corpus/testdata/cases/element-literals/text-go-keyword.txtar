@@ -12,10 +12,12 @@ package demo
 
 import "github.com/gsxhq/gsx"
 
-var X = <div>
-	<h1>Test</h1>
-	<p>This is a test component.</p>
-</div>
+var X = (
+	<div>
+		<h1>Test</h1>
+		<p>This is a test component.</p>
+	</div>
+)
 
 func local() gsx.Node {
 	n := <em>another component</em>
@@ -36,42 +38,42 @@ Uses()
 package demo
 
 import (
-	_gsxctx "context"
+	"context"
+	"io"
+
 	"github.com/gsxhq/gsx"
-	_gsxrt "github.com/gsxhq/gsx"
-	_gsxio "io"
 )
 
-var X = _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-	_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:5:9
-	_gsxgw.S("<div>")
+var X = gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+	_gsxgw := gsx.W(_gsxw)
 //line input.gsx:6:2
+	_gsxgw.S("<div>")
+//line input.gsx:7:3
 	_gsxgw.S("<h1>Test</h1>")
-//line input.gsx:7:2
+//line input.gsx:8:3
 	_gsxgw.S("<p>This is a test component.</p></div>")
 	return _gsxgw.Err()
 })
 
 func local() gsx.Node {
-	n := _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:11:7
+	n := gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+		_gsxgw := gsx.W(_gsxw)
+//line input.gsx:13:7
 		_gsxgw.S("<em>another component</em>")
 		return _gsxgw.Err()
 	})
 	return n
 }
 
-//line input.gsx:15:1
-func Uses() _gsxrt.Node {
-	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:16:2
+//line input.gsx:17:1
+func Uses() gsx.Node {
+	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+		_gsxgw := gsx.W(_gsxw)
+//line input.gsx:18:2
 		_gsxgw.S("<section>")
-//line input.gsx:16:11
+//line input.gsx:18:11
 		_gsxgw.Node(ctx, X)
-//line input.gsx:16:16
+//line input.gsx:18:16
 		_gsxgw.Node(ctx, local())
 		_gsxgw.S("</section>")
 		return _gsxgw.Err()
