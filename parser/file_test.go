@@ -103,3 +103,50 @@ func TestGoDeclsBetweenComponents(t *testing.T) {
 		t.Fatalf("decl kinds = %v, want %v", kinds, want)
 	}
 }
+
+func TestGoKeywordWordInElementProse(t *testing.T) {
+	// The English word "component" inside an element literal's prose is not Go.
+	// nextTopLevelComponent must skip element spans and resume Go tokenization
+	// past them; otherwise the word lexes as an IDENT at depth 0, is mistaken
+	// for a component declaration, and splits the file mid-element.
+	cases := map[string]string{
+		"var, multi-line": "package p\n" +
+			"var X = <div>\n\t<h1>Test</h1>\n\t<p>This is a test component.</p>\n</div>\n" +
+			"component C() { <b>hi</b> }\n",
+		"func body": "package p\n" +
+			"func f() {\n\tx := <p>a component here</p>\n\t_ = x\n}\n" +
+			"component C() { <b>hi</b> }\n",
+		"interp sibling": "package p\n" +
+			"var n = 1\n" +
+			"var X = <p>{ n } component</p>\n" +
+			"component C() { <b>hi</b> }\n",
+		"attr hole": "package p\n" +
+			"var c = \"x\"\n" +
+			"var X = <p class={ c }>component</p>\n" +
+			"component C() { <b>hi</b> }\n",
+		"fragment": "package p\n" +
+			"var X = <><p>component</p></>\n" +
+			"component C() { <b>hi</b> }\n",
+		// A bare `<` that is not a tag must not be treated as an element mark.
+		"less-than": "package p\n" +
+			"var Y = 1 < 2\n" +
+			"component C() { <b>hi</b> }\n",
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			file, err := ParseFile(token.NewFileSet(), "t.gsx", src, 0)
+			if err != nil {
+				t.Fatalf("parse error: %v", err)
+			}
+			var names []string
+			for _, d := range file.Decls {
+				if c, ok := d.(*ast.Component); ok {
+					names = append(names, c.Name)
+				}
+			}
+			if len(names) != 1 || names[0] != "C" {
+				t.Fatalf("component names = %v, want [C]", names)
+			}
+		})
+	}
+}
