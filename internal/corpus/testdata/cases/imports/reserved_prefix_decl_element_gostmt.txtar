@@ -1,0 +1,25 @@
+# Context: pins WHY goWithElementsSrc's placeholder is a call expression (`_()`)
+# and not a bare operand. Go requires the expression of a `go`/`defer` statement to
+# be a function call, so a literal in that position reconstructs to `go nil` — a
+# parse error — while buildSkeleton's substitute for the same span is an IIFE, a
+# call, which parses and type-checks. With a non-call placeholder the region below
+# fails to reconstruct, checkReservedDecls reports nothing, and `_gsxrt` (declared
+# in the SAME region — the parser keeps a contiguous Go run together) reaches the
+# skeleton, where it collides with the generator's own gsx import alias and draws
+# the raw `_gsxrt already declared through import of package gsx` error this check
+# exists to replace. `_()` is a call, is 3 bytes (the shortest literal, f``, is 3
+# too), and parses wherever the skeleton's IIFE does.
+-- input.gsx --
+package demo
+
+func spawn() {
+	go <b/>
+}
+
+var _gsxrt = 1
+
+component Uses() {
+	<b>hi</b>
+}
+-- diagnostics.golden --
+7:5: declaration name "_gsxrt" uses the reserved _gsx prefix

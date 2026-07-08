@@ -1,6 +1,10 @@
 # js`/css` literals are NOT supported as Go-expression VALUES (only f` is; js`/css`
 # stay attr-context). A js`…` in value position is left verbatim and surfaces as a
 # clean positioned error, never a silent miscompile. This pins that gating.
+#
+# The position is the js` backtick in the .gsx file: checkReservedDecls parses every
+# top-level Go region before the skeleton is built, and reports a region that will
+# not parse as an ordinary positioned parse-error diagnostic.
 -- input.gsx --
 package views
 
@@ -14,5 +18,5 @@ component Host() {
 -- invoke --
 Host(HostProps{})
 -- diagnostics.golden --
-invalid Go in pass-through block: 5:11: expected ';', found `alert(@{x})` (and 1 more errors)
+4:11: expected ';', found `alert(@{x})`
 -- render.golden --

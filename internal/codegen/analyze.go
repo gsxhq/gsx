@@ -3594,43 +3594,69 @@ type reservedDecl struct {
 // name scan (isTagNameByte) accepts no `_`, so `component _gsxX()` is already a
 // parse error.
 //
-// Returning a slice (not an error) lets the caller report every offending name
-// with its own position rather than collapsing to the first.
-func checkReservedDecls(file *gsxast.File, fset *token.FileSet) []reservedDecl {
+// Returning slices (not an error) lets the caller report every offending name
+// with its own position rather than collapsing to the first. The second result
+// carries every region that failed to parse as Go — see goRegionError: a region
+// this pass cannot read is a region whose names it cannot check, so the failure
+// is surfaced rather than swallowed.
+func checkReservedDecls(file *gsxast.File) ([]reservedDecl, []goRegionError) {
 	var out []reservedDecl
+	var errs []goRegionError
 	for _, d := range file.Decls {
+		var src string
 		switch d := d.(type) {
 		case *gsxast.GoChunk:
-			out = append(out, reservedDeclsInGo(d.Src, d.Pos())...)
+			src = d.Src
 		case *gsxast.GoWithElements:
-			if src, ok := goWithElementsSrc(d, fset); ok {
-				out = append(out, reservedDeclsInGo(src, d.Pos())...)
-			}
+			src = goWithElementsSrc(d)
+		default:
+			continue
+		}
+		rds, gerr := reservedDeclsInGo(src, d.Pos())
+		out = append(out, rds...)
+		if gerr != nil {
+			errs = append(errs, *gerr)
 		}
 	}
-	return out
+	return out, errs
 }
 
 // goDeclWrapPrefix makes a top-level Go region parseable as a file. Its byte
 // length is subtracted when mapping a parsed offset back onto the region, whose
-// text is the .gsx source verbatim (byte offsets align 1:1).
+// text is the .gsx source verbatim (byte offsets align 1:1). splitChunk parses
+// with this same prefix, so the two passes agree, byte for byte, on which
+// top-level regions are valid Go.
 const goDeclWrapPrefix = "package _gsxp\n"
+
+// goRegionError is a Go syntax error inside one top-level region of a .gsx file.
+// pos has already been translated out of the parser's wrapped source and back
+// into the .gsx file, so the caller can emit it as an ordinary positioned
+// diagnostic; msg is the bare parser message (no "expected ... (and N more
+// errors)" tail — only the first, left-most error is kept).
+type goRegionError struct {
+	pos token.Pos
+	msg string
+}
 
 // reservedDeclsInGo walks one top-level Go region's declarations and returns the
 // reservedPrefix names it binds. base is the .gsx position of src[0], so a
 // parsed offset maps back by plain byte arithmetic.
 //
-// A region that does not parse yields nothing: invalid Go in a pass-through
-// chunk is already reported, with a position, by splitChunk (and any region the
-// skeleton accepts but this does not would be a skeleton bug, not a user error).
+// A region that does not parse yields a goRegionError instead of silently
+// yielding nothing. Silence here would be a hole in the check, not a harmless
+// early-out: the caller skips a file it cannot read, and a `_gsx` name inside an
+// unparseable region would otherwise reach the generator unremarked. (It also
+// upgrades what the user sees: splitChunk's `invalid Go in pass-through block:
+// 6:1: …` carries a line/column relative to the *block*, not to the .gsx file,
+// and no position at all on the diagnostic itself.)
 //
 // Method declarations are skipped: a method name lives in its receiver type's
 // namespace, not the package's, so it can never collide with an import alias.
-func reservedDeclsInGo(src string, base token.Pos) []reservedDecl {
+func reservedDeclsInGo(src string, base token.Pos) ([]reservedDecl, *goRegionError) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "", goDeclWrapPrefix+src, parser.SkipObjectResolution)
 	if err != nil {
-		return nil
+		return nil, goRegionErrorAt(err, base)
 	}
 	var out []reservedDecl
 	report := func(id *goast.Ident) {
@@ -3661,59 +3687,82 @@ func reservedDeclsInGo(src string, base token.Pos) []reservedDecl {
 			}
 		}
 	}
-	return out
+	return out, nil
 }
 
-// reservedDeclPlaceholder stands in for an element/fragment/backtick literal
-// embedded in a GoWithElements region's expression position. `nil` is a legal
-// Go expression wherever such a literal may appear, and — at 3 bytes — it is
-// never longer than the shortest literal it replaces (`<a/>`, `<></>`, "f“").
-const reservedDeclPlaceholder = "nil"
+// goRegionErrorAt turns a go/parser failure over goDeclWrapPrefix+src into a
+// goRegionError positioned in the .gsx file. base is the .gsx position of src[0].
+//
+// go/parser always fails with a scanner.ErrorList sorted by position, so the
+// first entry is the left-most error — the one worth showing. Its offset is an
+// offset into the wrapped source; subtracting the prefix yields the offset into
+// src, which is .gsx source verbatim. The prefix itself is valid Go, so no error
+// can be positioned inside it and the subtraction never goes negative.
+func goRegionErrorAt(err error, base token.Pos) *goRegionError {
+	var list scanner.ErrorList
+	if errors.As(err, &list) && len(list) > 0 && list[0].Pos.IsValid() {
+		e := list[0]
+		return &goRegionError{pos: base + token.Pos(e.Pos.Offset-len(goDeclWrapPrefix)), msg: e.Msg}
+	}
+	return &goRegionError{pos: base, msg: err.Error()}
+}
+
+// reservedDeclPlaceholder stands in for an element/fragment/f-literal embedded in
+// a GoWithElements region's expression position. Two properties are load-bearing:
+//
+//   - It is a CALL expression. buildSkeleton substitutes the same spans with a
+//     typed IIFE — also a call — so the reconstruction parses exactly when the
+//     skeleton's Go for the region parses. A bare operand such as `nil` would not:
+//     `go <b/>` / `defer <b/>` reconstruct to `go nil`, which go/parser rejects
+//     ("expression in go must be function call") while the skeleton's IIFE is
+//     accepted. That divergence is a hole in the check, not a cosmetic one.
+//   - It is exactly 3 bytes, the length of the shortest literal it can replace.
+//     Elements are at minimum `<a/>` (4), fragments `<></>` (5), and an f-literal
+//     is at minimum 3 — the `f` prefix plus an empty delimiter pair. So the pad
+//     below is never negative, and no literal ever shrinks below the placeholder.
+//     (Do not spell that empty backtick pair out here: gofmt rewrites a doubled
+//     backtick in a doc comment into a smart quote.)
+const reservedDeclPlaceholder = "_()"
 
 // goWithElementsSrc reconstructs a GoWithElements region as plain, parseable Go:
 // each GoText part verbatim, each embedded literal replaced by
-// reservedDeclPlaceholder padded to the literal's EXACT byte length, with the
-// literal's interior line breaks preserved at their original offsets.
+// reservedDeclPlaceholder right-padded with spaces to the literal's EXACT byte
+// length.
 //
-// Length- and line-preservation is what makes this exact rather than approximate:
-// every byte offset in the result is the same byte offset in the .gsx file, so a
-// declaration name parsed out of it maps back by the same arithmetic a plain
-// GoChunk uses. Preserving the line breaks (rather than blanking them too) keeps
-// Go's automatic semicolon insertion seeing the statement boundaries the author
-// wrote — collapsing a multi-line element to one line would run the declaration
-// that follows it into the same statement.
+// BYTE-length preservation is the whole trick, and it is the only preservation
+// needed: every byte offset in the result is the same byte offset in the .gsx
+// file, so a declaration name parsed out of it maps back to its .gsx position by
+// the same `base + offset` arithmetic a plain GoChunk uses (reservedDeclsInGo
+// consumes token.Position.Offset only, never Line or Column).
+//
+// The literal's interior line breaks are blanked along with everything else, and
+// must be: they are interior to a single Go expression, so re-emitting them would
+// invent statement boundaries the author never wrote and Go's automatic semicolon
+// insertion would fire inside the expression — `wrap(<b>\n\tx\n</b>)` would
+// reconstruct as `wrap(_()\n   \n   )` and fail to parse ("missing ',' before
+// newline in argument list"). Nothing outside the literal moves: a declaration
+// that follows the literal keeps its own leading newline, which belongs to the
+// next GoText part, not to the literal.
 //
 // This mirrors what buildSkeleton does for the same regions (splice the Go,
 // substitute each literal with an expression of the right shape); it differs only
 // in substituting a length-preserving placeholder instead of a typed IIFE,
-// because this pass needs positions, not types. Returns false if a part's span is
-// unresolvable or shorter than the placeholder — the region is then skipped
-// rather than mis-mapped.
-func goWithElementsSrc(gw *gsxast.GoWithElements, fset *token.FileSet) (string, bool) {
-	tf := fset.File(gw.Pos())
-	if tf == nil {
-		return "", false
-	}
+// because this pass needs positions, not types.
+func goWithElementsSrc(gw *gsxast.GoWithElements) string {
 	var sb strings.Builder
 	for _, part := range gw.Parts {
 		if gt, ok := part.(gsxast.GoText); ok {
 			sb.WriteString(gt.Src)
 			continue
 		}
-		start, end := tf.Offset(part.Pos()), tf.Offset(part.End())
-		if end-start < len(reservedDeclPlaceholder) {
-			return "", false
-		}
+		// Both positions come from the same token.File, where a token.Pos is
+		// base+offset; the bases cancel, so the difference is the literal's exact
+		// byte length. No FileSet lookup — and so no "file not found" bail-out.
+		n := int(part.End() - part.Pos())
 		sb.WriteString(reservedDeclPlaceholder)
-		for off := start + len(reservedDeclPlaceholder); off < end; off++ {
-			if tf.Position(tf.Pos(off)).Column == 1 {
-				sb.WriteByte('\n')
-			} else {
-				sb.WriteByte(' ')
-			}
-		}
+		sb.WriteString(strings.Repeat(" ", n-len(reservedDeclPlaceholder)))
 	}
-	return sb.String(), true
+	return sb.String()
 }
 
 // checkReservedParams rejects param names that would collide with the ambient
@@ -3767,7 +3816,7 @@ type importSpec struct {
 // after the last import (any comments before/between imports carry no symbols
 // and are dropped); a single //line anchor therefore maps the whole body.
 func splitChunk(src string) (imports []importSpec, body string, bodyOff int, err error) {
-	const prefix = "package _gsxp\n"
+	const prefix = goDeclWrapPrefix
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "", prefix+src, parser.ParseComments)
 	if err != nil {
