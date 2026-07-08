@@ -86,9 +86,12 @@ Identifiers starting with `_gsx` are **reserved for the generator** — componen
 params, method-component receiver names, and any other user-declared
 identifier must not start with that prefix. gsx's own generated code (writer
 locals, per-call-site inference helpers, filter-package aliases, and so on)
-lives exclusively in the `_gsx*` namespace so it can never collide with a name
-you write; a param or receiver named `_gsxSomething` is rejected at generate
-time.
+lives exclusively in the `_gsx*` namespace, so observing that reservation is
+what keeps it from colliding with a name you write. Package-scope declarations,
+component params, and receiver names in that space are rejected at generate
+time; elsewhere — a local, a `{{ }}` GoBlock binding — the prefix is reserved by
+convention only, and using it is unchecked. See
+[Raw Go](./raw-go.md#the-gsx-prefix-is-reserved) for the enforced scopes.
 :::
 
 ### Renderable type parameters
