@@ -1,3 +1,9 @@
+# Context: an `import` after a declaration is invalid Go. The .gsx file's top-level
+# Go regions are parsed once, up front, by checkReservedDecls (the pass that
+# reserves the `_gsx` prefix): a region that will not parse is a region whose
+# declarations cannot be checked, so it is reported right there — positioned at the
+# stray import in the .gsx (5:1), not at a line/column relative to the pass-through
+# block, and the file is skipped before the skeleton is built.
 -- input.gsx --
 package views
 
@@ -11,4 +17,4 @@ component Bad() {
 	<p>{helper()}</p>
 }
 -- diagnostics.golden --
-invalid Go in pass-through block: 6:1: imports must appear before other declarations
+5:1: imports must appear before other declarations

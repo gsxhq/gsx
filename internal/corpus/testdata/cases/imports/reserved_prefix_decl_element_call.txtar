@@ -1,0 +1,24 @@
+# Context: sibling of reserved_prefix_decl_element_composite — the same
+# reconstruction bug, reached through a call argument instead of a composite
+# literal. `wrap(<b>\n\tx\n</b>)` reconstructed with the literal's newlines kept
+# becomes `wrap(_()\n   \n     )`, which go/parser rejects with "missing ',' before
+# newline in argument list"; the region then yielded no names at all. Worse, when
+# the name happens to be one the generator actually emits — see the `_gsxrt` in
+# reserved_prefix_decl — the raw Go error this check exists to replace comes back.
+# Here the name is novel, so nothing downstream would have complained either.
+-- input.gsx --
+package demo
+
+import "github.com/gsxhq/gsx"
+
+func wrap(n gsx.Node) gsx.Node { return n }
+
+var _gsxcall = wrap(<b>
+	x
+</b>)
+
+component Uses() {
+	<b>hi</b>
+}
+-- diagnostics.golden --
+7:5: declaration name "_gsxcall" uses the reserved _gsx prefix

@@ -1,11 +1,13 @@
 # Context: the OTHER top-level decl form — a Go region with element literals
 # spliced into expression position (ast.GoWithElements), which is not verbatim Go
 # and so cannot simply be handed to go/parser. checkReservedDecls reconstructs it
-# by substituting each literal with a byte-length- and line-preserving `nil`.
-# The first element deliberately spans several lines: were those newlines blanked
-# along with the rest of the literal, the `var _gsxafter` that follows would be
-# swallowed into the same statement and the region would not parse — this case
-# would then report only the first name (or none).
+# by blanking each literal to a byte-length-preserving `_()` call. BYTE length is
+# what the reconstruction must preserve, and all it must preserve: the check maps
+# a parsed name back to its .gsx position by byte offset alone, never by line or
+# column. The first element deliberately spans several lines to pin that its
+# interior newlines are blanked with everything else, and that the `var _gsxafter`
+# following it is still reported — the newline that separates them belongs to the
+# GoText part after the literal, not to the literal.
 -- input.gsx --
 package demo
 

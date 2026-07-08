@@ -816,7 +816,21 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		// go/types, so the gsx diagnostic is the only one reported; it is also the
 		// only one reported for a name like `_gsxfoo`, which collides with nothing
 		// the generator emits today and would otherwise pass silently.
-		if rds := checkReservedDecls(f, fset); len(rds) > 0 {
+		//
+		// A top-level region that does not parse as Go is reported here too, and
+		// for the same reason: the check cannot read the region, so the file must
+		// not proceed as if it had been checked. It is reported in the same shape
+		// skeletonParseError uses — bare go/parser message, "parse-error"/"parser"
+		// — because that is exactly what it is, only caught one pass earlier and
+		// therefore positioned in the .gsx directly rather than through the
+		// skeleton's //line directives. Skipping the file means splitChunk never
+		// re-reports it downstream (its message carries a block-relative line, and
+		// no position at all on the diagnostic), so the user sees this one instead.
+		rds, gerrs := checkReservedDecls(f)
+		if len(rds) > 0 || len(gerrs) > 0 {
+			for _, ge := range gerrs {
+				bag.Report(ge.pos, ge.pos, diag.Error, "parse-error", "parser", "%s", ge.msg)
+			}
 			for _, rd := range rds {
 				bag.Errorf(rd.pos, rd.pos+token.Pos(len(rd.name)), "", "declaration name %q uses the reserved _gsx prefix", rd.name)
 			}
