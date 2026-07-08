@@ -86,16 +86,11 @@ too — `` { emphasize(f`@{label}!`) } `` passes the assembled string straight i
 a function.
 
 ::: warning Value vs. body-literal escaping
-As a Go **value**, an `f` literal is a plain `string`, so rendering it with
-`{ … }` escapes the **whole** string — static text included. This differs from a
-**body literal** `` {f`…`} `` (§[Body interpolating literals](#body-interpolating-literals)),
-whose static text is emitted **verbatim**. So `` f`<b>@{x}</b>` `` renders
-`&lt;b&gt;…&lt;/b&gt;` as a value (assigned, then `{ v }`) but `<b>…</b>` as a
-body literal (`` {f`<b>@{x}</b>`} ``) — same source, different output, because the
-value is a *string* and the body literal is a *markup template*. The `@{x}` hole
-is escaped in both. Use the body-literal form when you want the static text to be
-markup; use the value form (or plain markup `<b>{x}</b>`) when you want an
-escaped string.
+The same `f` literal generates different code in the two positions. Written
+directly in body braces (`` {f`<b>@{x}</b>`} ``) it lowers to per-segment writes,
+so the static text is emitted verbatim. Assigned to a variable it builds a plain
+`string`, and interpolating that variable with `{ v }` escapes the whole string —
+static text included. The `@{x}` hole is escaped either way.
 :::
 
 See [Elements — Elements as values](./elements#elements-as-values)
