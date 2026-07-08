@@ -1,0 +1,15 @@
+# Context: the `_gsx` prefix is the generator's reserved identifier space — it is
+# what lets a .gsx file bind gsx/context/io/strconv freely (every generator-emitted
+# import is _gsx-aliased). A file-scope declaration in that space must be a clean,
+# positioned gsx diagnostic, not the raw Go type-check error the skeleton would
+# otherwise produce (`_gsxrt already declared through import of package gsx`).
+-- input.gsx --
+package demo
+
+var _gsxrt = 1
+
+component Uses() {
+	<b>hi</b>
+}
+-- diagnostics.golden --
+3:5: declaration name "_gsxrt" uses the reserved _gsx prefix

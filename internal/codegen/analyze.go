@@ -3415,7 +3415,7 @@ func checkReservedRecvVar(recvVar string) error {
 	if recvVar == "ctx" {
 		return fmt.Errorf("codegen: method-component receiver var %q is reserved (ambient context)", recvVar)
 	}
-	if strings.HasPrefix(recvVar, "_gsx") {
+	if strings.HasPrefix(recvVar, reservedPrefix) {
 		return fmt.Errorf("codegen: method-component receiver var %q uses the reserved _gsx prefix", recvVar)
 	}
 	return nil
@@ -3549,6 +3549,173 @@ func typeArgUse(src string) string {
 	return "[" + src + "]"
 }
 
+// reservedPrefix is the generator's reserved identifier space. EVERY name the
+// generator emits into a .x.go that is not the user's own — the runtime/context/
+// io/strconv import aliases (rtimports.go), the filter and type-arg import
+// aliases, the class merger's alias, the props param, the io.Writer, the
+// gsx.Writer local, the number scratch buffer, the unwrap temps, the hoisted
+// inference-probe helpers — carries it.
+//
+// That is a deliberate trade, and it is the ONLY name-space cost gsx imposes on
+// a .gsx file. The generator never prints a bare package name (see rtImports'
+// doc), so a .gsx file may bind `gsx`, `context`, `io` or `strconv` to whatever
+// it likes; in exchange, `_gsx` is off-limits. Reserving one prefix instead of a
+// growing list of concrete names is what keeps that promise stable: which
+// aliases the generator actually emits is an implementation detail that changes
+// with every codegen feature, and no .gsx file should have to track it.
+const reservedPrefix = "_gsx"
+
+// reservedDecl is one package-scope binding that intrudes on reservedPrefix,
+// with the .gsx position of its NAME (in the shared gsx FileSet) to report at.
+type reservedDecl struct {
+	name string
+	pos  token.Pos
+}
+
+// checkReservedDecls reports every package-scope name a .gsx file binds inside
+// reservedPrefix. Params and method-component receiver vars are checked
+// separately (checkReservedParams / checkReservedRecvVar); this closes file
+// scope, which is where a collision with a generator-emitted import alias would
+// otherwise land.
+//
+// It runs over the .gsx AST, NOT the lowered skeleton: the skeleton is full of
+// legitimate `_gsx` names by construction (`import _gsxrt …`, the `_gsxinferN`
+// probe helpers), so telling generator from user there would mean re-deriving a
+// distinction the .gsx AST already has for free.
+//
+// Only two top-level decl forms can bind a name:
+//
+//   - *GoChunk — verbatim Go; parsed here and walked. Its imports are included:
+//     `import _gsxrt "strings"` binds the name just as `var _gsxrt` does.
+//   - *GoWithElements — Go with elements spliced into expression position;
+//     reconstructed as plain Go by goWithElementsSrc, then walked identically.
+//
+// A *Component cannot reach the reserved space at all: the parser's component
+// name scan (isTagNameByte) accepts no `_`, so `component _gsxX()` is already a
+// parse error.
+//
+// Returning a slice (not an error) lets the caller report every offending name
+// with its own position rather than collapsing to the first.
+func checkReservedDecls(file *gsxast.File, fset *token.FileSet) []reservedDecl {
+	var out []reservedDecl
+	for _, d := range file.Decls {
+		switch d := d.(type) {
+		case *gsxast.GoChunk:
+			out = append(out, reservedDeclsInGo(d.Src, d.Pos())...)
+		case *gsxast.GoWithElements:
+			if src, ok := goWithElementsSrc(d, fset); ok {
+				out = append(out, reservedDeclsInGo(src, d.Pos())...)
+			}
+		}
+	}
+	return out
+}
+
+// goDeclWrapPrefix makes a top-level Go region parseable as a file. Its byte
+// length is subtracted when mapping a parsed offset back onto the region, whose
+// text is the .gsx source verbatim (byte offsets align 1:1).
+const goDeclWrapPrefix = "package _gsxp\n"
+
+// reservedDeclsInGo walks one top-level Go region's declarations and returns the
+// reservedPrefix names it binds. base is the .gsx position of src[0], so a
+// parsed offset maps back by plain byte arithmetic.
+//
+// A region that does not parse yields nothing: invalid Go in a pass-through
+// chunk is already reported, with a position, by splitChunk (and any region the
+// skeleton accepts but this does not would be a skeleton bug, not a user error).
+//
+// Method declarations are skipped: a method name lives in its receiver type's
+// namespace, not the package's, so it can never collide with an import alias.
+func reservedDeclsInGo(src string, base token.Pos) []reservedDecl {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "", goDeclWrapPrefix+src, parser.SkipObjectResolution)
+	if err != nil {
+		return nil
+	}
+	var out []reservedDecl
+	report := func(id *goast.Ident) {
+		if id == nil || !strings.HasPrefix(id.Name, reservedPrefix) {
+			return
+		}
+		off := fset.Position(id.Pos()).Offset - len(goDeclWrapPrefix)
+		out = append(out, reservedDecl{name: id.Name, pos: base + token.Pos(off)})
+	}
+	for _, d := range f.Decls {
+		switch d := d.(type) {
+		case *goast.FuncDecl:
+			if d.Recv == nil {
+				report(d.Name)
+			}
+		case *goast.GenDecl:
+			for _, s := range d.Specs {
+				switch s := s.(type) {
+				case *goast.ImportSpec:
+					report(s.Name) // nil for a default import; `_`/`.` never match the prefix
+				case *goast.ValueSpec:
+					for _, n := range s.Names {
+						report(n)
+					}
+				case *goast.TypeSpec:
+					report(s.Name)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// reservedDeclPlaceholder stands in for an element/fragment/backtick literal
+// embedded in a GoWithElements region's expression position. `nil` is a legal
+// Go expression wherever such a literal may appear, and — at 3 bytes — it is
+// never longer than the shortest literal it replaces (`<a/>`, `<></>`, "f“").
+const reservedDeclPlaceholder = "nil"
+
+// goWithElementsSrc reconstructs a GoWithElements region as plain, parseable Go:
+// each GoText part verbatim, each embedded literal replaced by
+// reservedDeclPlaceholder padded to the literal's EXACT byte length, with the
+// literal's interior line breaks preserved at their original offsets.
+//
+// Length- and line-preservation is what makes this exact rather than approximate:
+// every byte offset in the result is the same byte offset in the .gsx file, so a
+// declaration name parsed out of it maps back by the same arithmetic a plain
+// GoChunk uses. Preserving the line breaks (rather than blanking them too) keeps
+// Go's automatic semicolon insertion seeing the statement boundaries the author
+// wrote — collapsing a multi-line element to one line would run the declaration
+// that follows it into the same statement.
+//
+// This mirrors what buildSkeleton does for the same regions (splice the Go,
+// substitute each literal with an expression of the right shape); it differs only
+// in substituting a length-preserving placeholder instead of a typed IIFE,
+// because this pass needs positions, not types. Returns false if a part's span is
+// unresolvable or shorter than the placeholder — the region is then skipped
+// rather than mis-mapped.
+func goWithElementsSrc(gw *gsxast.GoWithElements, fset *token.FileSet) (string, bool) {
+	tf := fset.File(gw.Pos())
+	if tf == nil {
+		return "", false
+	}
+	var sb strings.Builder
+	for _, part := range gw.Parts {
+		if gt, ok := part.(gsxast.GoText); ok {
+			sb.WriteString(gt.Src)
+			continue
+		}
+		start, end := tf.Offset(part.Pos()), tf.Offset(part.End())
+		if end-start < len(reservedDeclPlaceholder) {
+			return "", false
+		}
+		sb.WriteString(reservedDeclPlaceholder)
+		for off := start + len(reservedDeclPlaceholder); off < end; off++ {
+			if tf.Position(tf.Pos(off)).Column == 1 {
+				sb.WriteByte('\n')
+			} else {
+				sb.WriteByte(' ')
+			}
+		}
+	}
+	return sb.String(), true
+}
+
 // checkReservedParams rejects param names that would collide with the ambient
 // closure context or the generator's reserved identifier namespace. The
 // generated render closure exposes `ctx` (ambient — user interpolation exprs may
@@ -3566,7 +3733,7 @@ func checkReservedParams(params []param) error {
 		if p.name == "attrs" {
 			return fmt.Errorf("codegen: param name %q is reserved (explicit attribute forwarding)", p.name)
 		}
-		if strings.HasPrefix(p.name, "_gsx") {
+		if strings.HasPrefix(p.name, reservedPrefix) {
 			return fmt.Errorf("codegen: param name %q uses the reserved _gsx prefix", p.name)
 		}
 	}
