@@ -1,0 +1,24 @@
+# Context: a stray `import` placed AFTER a declaration is invalid Go ("imports
+# must appear before other declarations"). gsx treats Go as an opaque blob, so
+# this is only caught when the assembled skeleton is parsed. That skeleton parse
+# error used to escape analyze as a raw error and reach the user as a bare,
+# frame-less message (blank vite overlay / plain terminal line). It is now
+# converted into a positioned parse diagnostic — the skeleton's //line directives
+# map the error back to the exact .gsx location (9:1, the stray import) — so it
+# flows through the normal diagnostic path and gets a rich, framed overlay.
+-- input.gsx --
+package demo
+
+import "github.com/gsxhq/gsx"
+
+func render() gsx.Node {
+	return <div>inline JSX</div>
+}
+
+import "strings"
+
+component Index() {
+	<section>{ render() }</section>
+}
+-- diagnostics.golden --
+9:1: imports must appear before other declarations

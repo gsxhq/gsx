@@ -175,6 +175,7 @@ diagnostics/reserved_param_emitted_import_strconv	diag(error)
 diagnostics/reserved_param_gsx_prefix	diag(error)
 diagnostics/reserved_param_stub_masking	diag(error)
 diagnostics/reserved_param_stub_masking_attrs	diag(error)
+diagnostics/shallow_interp_column	diag(error)
 diagnostics/undefined_interp	diag(error)
 diagnostics/value_node_pointer_receiver_error	diag(error)
 doctype/render	diag render
@@ -191,6 +192,7 @@ element-literals/import-then-embed	diag gen render
 element-literals/interp-outer-scope	diag gen render
 element-literals/method-receiver	diag gen render
 element-literals/return	diag gen render
+element-literals/stray-import-after-func	diag(error)
 element-literals/struct-field	diag gen render
 element-literals/text-apostrophe-multi	diag gen render
 element-literals/var	diag gen render
@@ -536,4 +538,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 538 cases (render: 440, error: 75, gen-pinned: 269)
+TOTAL: 540 cases (render: 440, error: 77, gen-pinned: 269)
