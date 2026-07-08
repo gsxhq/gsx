@@ -1,0 +1,19 @@
+# Column accuracy for a SHALLOW interpolation — the expr starts at a column ≤ 8,
+# where the probe's compensated //line (exprCol − len("_gsxuse(")) would be < 1,
+# an invalid //line column. The skeleton instead breaks the probe across lines
+# and anchors the expr's own //line at its source column, so the diagnostic (and
+# go-to-definition, and the dev-overlay caret) land exactly on the identifier.
+#
+# Here the body is indented with TWO SPACES, so `bad` sits at column 4:
+# "  {bad}" = space(1) space(2) {(3) b(4). Before this fix the fallback reported
+# it at column 11 (4 + len("_gsxuse(") − 1), drifting the caret past the value.
+-- input.gsx --
+package views
+
+var _ = 0
+
+component Page() {
+  {bad}
+}
+-- diagnostics.golden --
+6:4: undefined: bad
