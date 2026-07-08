@@ -184,7 +184,12 @@ func (p *printer) goWithElements(v *ast.GoWithElements) pretty.Doc {
 		if !ok {
 			return p.fail("printer: unknown Go-expression part type %T", part)
 		}
-		docs = append(docs, doc)
+		// A gsx value starts partway along its Go line (`n := <div>`), and the Go
+		// text before it is literal bytes inside a Text doc — invisible to the
+		// pretty printer, whose indent level for this decl is zero. Align hangs the
+		// value's breaks off the column its opening tag sits at, so children indent
+		// one level deeper than `<` and the closing tag lines up under it.
+		docs = append(docs, pretty.Align(doc))
 	}
 	return pretty.Concat(docs...)
 }
