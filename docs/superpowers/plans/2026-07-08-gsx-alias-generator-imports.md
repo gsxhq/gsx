@@ -468,45 +468,58 @@ becomes:
 	boundNames := map[string]string{}
 ```
 
-and update `mergeExpr` at `:128`:
+Now `mergeExpr` at `:128`. **This is the subtlest edit in the plan.** Today:
 
 ```go
 	mergeExpr := "gsx.DefaultClassMerge"
+	if merger != nil {
+		mergeExpr = classMergerAlias + "." + merger.FuncName
+	}
 ```
 
-becomes:
+Writing `mergeExpr := rt.rt() + ".DefaultClassMerge"` here would record a runtime
+need in **every** file, including one with no components — silently defeating the
+`no_gsx_parts` case. `mergeExpr` is threaded as a plain `string` through many
+signatures, so it must be *resolved lazily, at the sites that actually use it*.
+
+Do exactly this. In `generateFile`, leave the default unresolved:
 
 ```go
-	mergeExpr := rt.rt() + ".DefaultClassMerge"
-```
-
-Note this records the runtime need unconditionally in `generateFile`, which is
-wrong for a file with no components. Guard it — `mergeExpr` is only *used* when
-a class attribute is emitted:
-
-```go
-	// Resolved lazily: naming the default merger would otherwise record a
-	// runtime need in every file, including files that emit nothing.
+	// Empty means "the runtime's default merger", resolved at each use site by
+	// classMergeExpr. It is NOT spelled out here: naming gsx.DefaultClassMerge
+	// eagerly would record a runtime import need in every file, including files
+	// that emit nothing at all.
 	mergeExpr := ""
 	if merger != nil {
 		mergeExpr = classMergerAlias + "." + merger.FuncName
 	}
 ```
 
-and at each `mergeExpr` **use** site, substitute the default if empty:
+Add one helper beside `writeImports`:
 
 ```go
-	if mergeExpr == "" {
-		mergeExpr = rt.rt() + ".DefaultClassMerge"
+// classMergeExpr resolves the class-merger expression at an emission site. An
+// empty mergeExpr means the configured merger is absent and the runtime default
+// applies — recorded as a runtime need only here, where a class attribute is
+// genuinely being emitted.
+func classMergeExpr(mergeExpr string, rt rtImports) string {
+	if mergeExpr != "" {
+		return mergeExpr
 	}
+	return rt.rt() + ".DefaultClassMerge"
+}
 ```
 
-Locate the use sites with `grep -n mergeExpr internal/codegen/emit.go`. Since
-`mergeExpr` is threaded as a `string` parameter, the cleanest form is to keep
-threading it but resolve it once, immediately before the first component is
-emitted, only if the file has at least one component or element literal. Prefer:
-thread `rt` to the `_gsxgw.Class(...)` emission sites and build the merge
-expression there.
+Then at every site that interpolates `mergeExpr` into generated code, call
+`classMergeExpr(mergeExpr, rt)` instead. Find them all:
+
+```bash
+grep -n 'mergeExpr' internal/codegen/emit.go
+```
+
+Each such site already emits a `_gsxgw.Class(...)` call, so `rt` is in scope
+there once Step 5's threading is done. Do **not** resolve `mergeExpr` at any
+point where a class attribute might not be emitted.
 
 - [ ] **Step 5: Thread `rt rtImports` through emit.go**
 
@@ -819,22 +832,30 @@ Uses()
 
 `shadow_strconv.txtar`:
 
+**Interpolate a `bool`, not an int.** An `int` text-interp lowers to the
+zero-alloc `_gsxgw.IntInto(_gsxnum[:], …)` fast path (`emit.go:2007`) and
+references `strconv` not at all — the case would pass vacuously. `catBool`
+(`emit.go:2014`) is the construct that emits `strconv.FormatBool` in text
+position. Verify the generated golden actually contains `_gsxsc.FormatBool`.
+
 ```
-# Context: the .gsx binds `strconv` AND interpolates a numeric value, which is
-# the only construct that makes the generator reference strconv (as _gsxsc).
+# Context: the .gsx binds `strconv` AND interpolates a bool, which is the text
+# position that makes the generator reference strconv (as _gsxsc.FormatBool).
+# Numeric interps use the zero-alloc IntInto path and touch strconv not at all,
+# so a bool is required to exercise the alias here.
 -- input.gsx --
 package demo
 
 var strconv = "shadowed"
 
-component Uses(n int) {
-	<b>{ n }{ strconv }</b>
+component Uses(b bool) {
+	<b>{ b }{ strconv }</b>
 }
 -- invoke --
-Uses(UsesProps{N: 42})
+Uses(UsesProps{B: true})
 -- diagnostics.golden --
 -- render.golden --
-<b>42shadowed</b>
+<b>trueshadowed</b>
 -- generated.x.go.golden --
 ```
 
