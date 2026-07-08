@@ -664,6 +664,35 @@ vocabulary remains a design aspiration, not the current API.
   variants. Non-component cross-file helper duplicates are tolerated (deferred to
   go build); within-file redeclarations stay hard errors. Spec
   `2026-07-06-tag-variant-component-analysis-design.md`.
+- [ ] **tree-sitter-gsx: unified Go+gsx grammar (tsx approach)** - the
+  `../tree-sitter-gsx` grammar treats Go as an opaque blob and highlights it by
+  *injecting* tree-sitter-go per `go_text` run. This works everywhere *except*
+  where an element/fragment/`f`-literal sits in a Go **value** position
+  (`var x = <Icon/>`, `return <div/>`, `f(<a/>)`): to highlight the element the
+  grammar must split the surrounding Go around it, and injection requires each
+  injected region to be *independently* valid Go - so the split fragments (a
+  bare `var x = `, an orphaned `}`) make the injected Go parser emit an `ERROR`
+  node. The gsx tree itself is clean; only the injected-Go highlight degrades
+  (in practice: the trailing token goes uncolored - no LSP squiggle). This is
+  inherent to injection and **no injection trick escapes it**: `injection.combined`
+  would stitch the Go fragments back, but it combines *all* `go_text` in the file
+  (hole expressions + top-level decls) into one incoherent document; scoping the
+  combine to a Go block would need the grammar to *parse* Go blocks - the very
+  thing we're avoiding. The blob model is fine for gsx's **own** parser because
+  `go/parser`/the Go compiler is the real downstream parser; tree-sitter has no
+  downstream and must emit one coherent tree.
+  **Decision (2026-07-08, jackie):** the complete fix is the **tsx approach** -
+  make gsx a *superset* of Go by vendoring tree-sitter-go's `grammar.js` and
+  adding `element`/`fragment`/`f_literal` as first-class Go expressions (exactly
+  how `tree-sitter-tsx` extends `tree-sitter-javascript` so `<div/>` is a native
+  `jsx_element`), **not** an embed/injection. Deferred: it's a permanent fork of
+  a large upstream grammar plus a *single*-external-scanner merge (Go's automatic
+  semicolon-insertion scanner + gsx's markup/embedded-text scanner into one
+  `scanner.c`) and an ongoing upstream-Go-sync burden. The current cost is one
+  cosmetic `ERROR` node on the token after a raw-Go-position element; the flat
+  highlighters (`../vscode-gsx` TextMate, `gsxhq.github.io` CodeMirror) are
+  unaffected (no tree, no injection-validity requirement). Revisit when a unified
+  grammar is justified by additional wins (structural folding/nav/textobjects).
 - [ ] **Tooling performance measurement on a realistic large corpus** - the
   existing baseline (`gen/perf_test.go`, `GSX_PERF=1`; note
   `2026-06-24-go-to-gsx-perf.md`) uses a *synthetic* 50-package fixture: ~383 ms/package
