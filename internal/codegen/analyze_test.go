@@ -244,7 +244,7 @@ func TestChildPropPipelineSkeletonImportsStd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadFilterTable: %v", err)
 	}
-	skel, _, _, _, _, _, err := buildSkeleton(file, table, propFields, nodeProps, attrsProps, nil, nil, byo, nil, fset, nil, nil)
+	skel, _, _, _, _, _, err := buildSkeleton(file, table, propFields, nodeProps, attrsProps, nil, nil, byo, nil, fset, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("buildSkeleton: %v", err)
 	}
@@ -309,7 +309,7 @@ func Parse(s string) ([]string, error) {
 	if err != nil {
 		t.Fatalf("loadFilterTableMulti: %v", err)
 	}
-	skel, _, _, _, _, _, err := buildSkeleton(file, table, propFields, nodeProps, attrsProps, nil, nil, byo, nil, fset, nil, nil)
+	skel, _, _, _, _, _, err := buildSkeleton(file, table, propFields, nodeProps, attrsProps, nil, nil, byo, nil, fset, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("buildSkeleton: %v", err)
 	}
@@ -398,8 +398,8 @@ func TestResolveEmbeddedWholeLiteralPipeType(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := "package views\n\ncomponent Row(n int) {\n" +
-		"\t<p>{`n=@{n}` |> upper}</p>\n" +
-		"\t<p class={`c-@{n}` |> upper}></p>\n" +
+		"\t<p>{f`n=@{n}` |> upper}</p>\n" +
+		"\t<p class={f`c-@{n}` |> upper}></p>\n" +
 		"}\n"
 	writeFile(t, pkgDir, "views.gsx", src)
 

@@ -4,7 +4,7 @@
 package views
 
 component Item(id string) {
-	<li>{`item-@{id}` |> upper}</li>
+	<li>{f`item-@{id}` |> upper}</li>
 }
 ```
 
@@ -14,4 +14,4 @@ Renders:
 <li>ITEM-A&amp;B</li>
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgSXRlbShpZCBzdHJpbmcpIHtcblx0XHUwMDNjbGlcdTAwM2V7YGl0ZW0tQHtpZH1gIHxcdTAwM2UgdXBwZXJ9XHUwMDNjL2xpXHUwMDNlXG59XG4iLCJpIjoiSXRlbShJdGVtUHJvcHN7SWQ6IFwiYVx1MDAyNmJcIn0pIn0=)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgSXRlbShpZCBzdHJpbmcpIHtcblx0XHUwMDNjbGlcdTAwM2V7ZmBpdGVtLUB7aWR9YCB8XHUwMDNlIHVwcGVyfVx1MDAzYy9saVx1MDAzZVxufVxuIiwiaSI6Ikl0ZW0oSXRlbVByb3Bze0lkOiBcImFcdTAwMjZiXCJ9KSJ9)

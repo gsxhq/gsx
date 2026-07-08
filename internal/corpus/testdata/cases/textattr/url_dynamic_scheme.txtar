@@ -5,7 +5,7 @@
 package p
 
 component Link(scheme string) {
-	<a href=`@{scheme}://ex.com`>go</a>
+	<a href=f`@{scheme}://ex.com`>go</a>
 }
 -- invoke --
 Link(LinkProps{Scheme: "https"})

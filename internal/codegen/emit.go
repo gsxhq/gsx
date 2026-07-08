@@ -242,6 +242,20 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 					if !emitFragmentValue(&wbuf, p, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, &interpTemp, fset, cls, fm, bag, mergeExpr) {
 						partsOK = false
 					}
+				case *ast.EmbeddedInterp:
+					// A prefixed backtick literal in Go-expression position lowers to
+					// a Go string value: embeddedValueExpr assembles its statics +
+					// @{…} holes into ONE string concat (`"hi " + string(name)`), the
+					// SAME assembly the body/attr embedded forms use. Any contextual
+					// escaping is applied where this string is consumed, not here.
+					if len(p.Stages) > 0 {
+						bag.Errorf(p.Pos(), p.End(), "unsupported-node", "whole-literal pipelines on a Go-expression backtick literal are not supported")
+						partsOK = false
+					} else if val, vok := embeddedValueExpr(&wbuf, p.Segments, resolved, table, imports, &interpTemp, bag, "unsupported-node", "backtick literal value"); !vok {
+						partsOK = false
+					} else {
+						wbuf.WriteString(val)
+					}
 				default:
 					bag.Errorf(part.Pos(), part.End(), "unsupported-node", "unsupported Go-expression part %T", part)
 					partsOK = false
@@ -1575,9 +1589,11 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		}
 		emitS(b, "</"+t.Tag+">")
 	case *ast.Interp:
-		return genInterp(b, t, resolved, table, imports, interpTemp, fset, bag)
+		ec := interpEmitCtx{currentPkg, structFields, nodeProps, attrsProps, byo, importAliases, boundNames, typeArgAliases, cls, fm, mergeExpr}
+		return genInterp(b, t, resolved, table, imports, interpTemp, fset, bag, ec)
 	case *ast.EmbeddedInterp:
-		return emitEmbeddedInterp(b, t, resolved, table, imports, interpTemp, fset, bag)
+		ec := interpEmitCtx{currentPkg, structFields, nodeProps, attrsProps, byo, importAliases, boundNames, typeArgAliases, cls, fm, mergeExpr}
+		return emitEmbeddedInterp(b, t, resolved, table, imports, interpTemp, fset, bag, ec)
 	case *ast.Fragment:
 		for _, c := range t.Children {
 			if !genNode(b, c, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
@@ -1641,12 +1657,78 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 	return true
 }
 
+// interpEmitCtx bundles the emit-time context an interpolation needs ONLY when
+// it carries embedded <tag>/<> element literals (n.Embedded != nil): lowering
+// each embedded *Element/*Fragment via emitElementValue/emitFragmentValue
+// requires the full component emit environment (package, prop/field maps, byo
+// data, alias maps, classifier, field matcher, merge expr). It is threaded
+// through genInterp (and emitEmbeddedInterp) so the bare, non-embedded interp
+// path stays untouched while the embedded path has everything emitNodeValue
+// needs. Constructed at the genNode call site where all of these are in scope.
+type interpEmitCtx struct {
+	currentPkg     *types.Package
+	structFields   map[string]map[string]bool
+	nodeProps      map[string]map[string]bool
+	attrsProps     map[string]map[string]bool
+	byo            *byoData
+	importAliases  map[string]string
+	boundNames     map[string]string
+	typeArgAliases map[string]string
+	cls            *attrclass.Classifier
+	fm             FieldMatcher
+	mergeExpr      string
+}
+
 // genInterp emits the type-aware writer call for an interpolation. The type comes
 // from the go/types resolution pass; the expression is emitted verbatim (params
 // are in scope as locals).
-func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, fset *token.FileSet, bag *diag.Bag) bool {
+//
+// When n.Embedded != nil the interp's seed carried operand-position <tag>/<>
+// literals (e.g. `wrap(<b/>)`): expr is rebuilt by splicing each embedded
+// element/fragment's inline gsx.Func(...) value (emitElementValue /
+// emitFragmentValue) between the verbatim GoText runs, then rendered by the
+// interp's resolved type exactly as any other value — so `{ wrap(<b/>) }`
+// lowers to `wrap(gsx.Func(func(ctx, w){…}))` rendered as wrap's return type.
+func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, fset *token.FileSet, bag *diag.Bag, ec interpEmitCtx) bool {
 	emitLine(b, fset, n.Pos())
-	expr := strings.TrimSpace(n.Expr)
+	var expr string
+	if n.Embedded != nil {
+		var eb bytes.Buffer
+		for _, part := range n.Embedded {
+			switch p := part.(type) {
+			case ast.GoText:
+				eb.WriteString(p.Src)
+			case *ast.Element:
+				if !emitElementValue(&eb, p, ec.currentPkg, resolved, table, ec.structFields, ec.nodeProps, ec.attrsProps, ec.byo, imports, ec.importAliases, ec.boundNames, ec.typeArgAliases, interpTemp, fset, ec.cls, ec.fm, bag, ec.mergeExpr) {
+					return false
+				}
+			case *ast.Fragment:
+				if !emitFragmentValue(&eb, p, ec.currentPkg, resolved, table, ec.structFields, ec.nodeProps, ec.attrsProps, ec.byo, imports, ec.importAliases, ec.boundNames, ec.typeArgAliases, interpTemp, fset, ec.cls, ec.fm, bag, ec.mergeExpr) {
+					return false
+				}
+			case *ast.EmbeddedInterp:
+				// A prefixed backtick literal embedded in this interp's seed → a Go
+				// string value. embeddedValueExpr assembles it to one string concat,
+				// spliced into the seed exactly like an element's gsx.Func value; any
+				// hole tuple-unwrap hoisting lands in b before the consuming stmt.
+				if len(p.Stages) > 0 {
+					bag.Errorf(n.Pos(), n.End(), "unsupported-node", "whole-literal pipelines on a Go-expression backtick literal are not supported")
+					return false
+				}
+				val, vok := embeddedValueExpr(b, p.Segments, resolved, table, imports, interpTemp, bag, "unsupported-node", "backtick literal value")
+				if !vok {
+					return false
+				}
+				eb.WriteString(val)
+			default:
+				bag.Errorf(n.Pos(), n.End(), "unsupported-node", "unsupported embedded interpolation part %T", part)
+				return false
+			}
+		}
+		expr = eb.String()
+	} else {
+		expr = strings.TrimSpace(n.Expr)
+	}
 	if len(n.Stages) > 0 {
 		// Lower the pipeline to nested filter calls — the SAME lowerPipe output the
 		// probe used, so resolved[n] is already the pipeline's RESULT type. Record
@@ -1654,7 +1736,15 @@ func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type,
 		// The lowered expr then falls through to the SAME (T, error) auto-unwrap as
 		// a bare interpolation, so a seed-first filter returning (R, error) unwraps
 		// exactly like any other error-returning value.
-		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, emitPipeWrap(b, interpTemp))
+		//
+		// For an embedded-literal seed (n.Embedded != nil) the pipeline seed is the
+		// already-spliced expr (with each <tag>/<> lowered to its gsx.Func value),
+		// not the raw n.Expr (which still holds the un-lowered `<tag>` source).
+		seed := n.Expr
+		if n.Embedded != nil {
+			seed = expr
+		}
+		lowered, usedPkgs, err := lowerPipe(seed, n.Stages, table, emitPipeWrap(b, interpTemp))
 		if err != nil {
 			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false
@@ -1703,7 +1793,7 @@ func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type,
 // call analyze.go's probe used to populate resolved[n], so the emitted type
 // matches exactly (emit ≡ probe). The result is then rendered for Text context
 // via emitRender, unwrapping a trailing (T, error) tuple exactly like genInterp.
-func emitEmbeddedInterp(b *bytes.Buffer, n *ast.EmbeddedInterp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, fset *token.FileSet, bag *diag.Bag) bool {
+func emitEmbeddedInterp(b *bytes.Buffer, n *ast.EmbeddedInterp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, fset *token.FileSet, bag *diag.Bag, ec interpEmitCtx) bool {
 	if len(n.Stages) == 0 {
 		emitLine(b, fset, n.Pos())
 		for _, seg := range n.Segments {
@@ -1711,7 +1801,7 @@ func emitEmbeddedInterp(b *bytes.Buffer, n *ast.EmbeddedInterp, resolved map[ast
 			case *ast.Text:
 				emitS(b, s.Value)
 			case *ast.Interp:
-				if !genInterp(b, s, resolved, table, imports, interpTemp, fset, bag) {
+				if !genInterp(b, s, resolved, table, imports, interpTemp, fset, bag, ec) {
 					return false
 				}
 			default:
@@ -2410,6 +2500,8 @@ func embeddedLangName(lang ast.EmbeddedLang) string {
 		return "js"
 	case ast.EmbeddedCSS:
 		return "css"
+	case ast.EmbeddedText:
+		return "f"
 	default:
 		return fmt.Sprintf("unknown(%d)", lang)
 	}

@@ -179,6 +179,12 @@ func (p *printer) goWithElements(v *ast.GoWithElements) pretty.Doc {
 			docs = append(docs, p.element(pt))
 		case *ast.Fragment:
 			docs = append(docs, p.fragment(pt))
+		case *ast.EmbeddedInterp:
+			// A prefixed backtick literal in Go-expression value position: render
+			// the raw f`…@{expr}…` literal (no braces, no whole-literal pipeline —
+			// value-position literals carry no Stages), so it splices back into the
+			// surrounding Go source exactly as authored.
+			docs = append(docs, pretty.Text(embeddedLiteralString(ast.EmbeddedText, pt.Segments, embeddedDelim(pt.DoubleQuoted))))
 		default:
 			return p.fail("printer: unknown Go-expression part type %T", part)
 		}
@@ -383,7 +389,7 @@ func (p *printer) classPartDoc(part ast.ClassPart) pretty.Doc {
 		return p.valueCFDoc(part.CF)
 	}
 	if part.CSSSegments != nil {
-		seg := []pretty.Doc{pretty.Text(embeddedLiteralString(ast.EmbeddedCSS, part.CSSSegments))}
+		seg := []pretty.Doc{pretty.Text(embeddedLiteralString(ast.EmbeddedCSS, part.CSSSegments, embeddedDelim(part.CSSDoubleQuoted)))}
 		if part.Cond != "" {
 			seg = append(seg, pretty.Text(": "), multiline(fmtExpr(part.Cond)))
 		}
@@ -567,14 +573,14 @@ func (p *printer) interp(i *ast.Interp) pretty.Doc {
 	return pretty.Concat(parts...)
 }
 
-// embeddedInterp renders a body/child backtick literal `{`…@{expr}…` [|> stage…]}`.
-// The form is preserved as-is (not canonicalized to interleaved Interp nodes):
-// a bare backtick literal wrapped in braces, with an optional whole-literal
-// pipeline after the closing backtick.
+// embeddedInterp renders a body/child interpolating literal
+// `{f`…@{expr}…` [|> stage…]}`. The form is preserved as-is (not canonicalized
+// to interleaved Interp nodes): an f`…` literal wrapped in braces, with an
+// optional whole-literal pipeline after the closing backtick.
 func (p *printer) embeddedInterp(v *ast.EmbeddedInterp) pretty.Doc {
 	var b strings.Builder
 	b.WriteString("{")
-	b.WriteString(embeddedLiteralString(ast.EmbeddedText, v.Segments))
+	b.WriteString(embeddedLiteralString(ast.EmbeddedText, v.Segments, embeddedDelim(v.DoubleQuoted)))
 	for _, s := range v.Stages {
 		b.WriteString(" |> ")
 		b.WriteString(pipeStageStr(s))
@@ -848,7 +854,7 @@ func writeAttrInline(b *strings.Builder, a ast.Attr) {
 				b.WriteString(", ")
 			}
 			if part.CSSSegments != nil {
-				b.WriteString(embeddedLiteralString(ast.EmbeddedCSS, part.CSSSegments))
+				b.WriteString(embeddedLiteralString(ast.EmbeddedCSS, part.CSSSegments, embeddedDelim(part.CSSDoubleQuoted)))
 			} else {
 				b.WriteString(fmtExpr(part.Expr))
 				for _, s := range part.Stages {
@@ -884,10 +890,11 @@ func writeAttrInline(b *strings.Builder, a ast.Attr) {
 		if braced {
 			b.WriteString("{")
 		}
+		delim := embeddedDelim(v.DoubleQuoted)
 		b.WriteString(embeddedLangName(v.Lang))
-		b.WriteString("`")
-		writeEmbeddedAttrSegments(b, v.Segments)
-		b.WriteString("`")
+		b.WriteByte(delim)
+		writeEmbeddedAttrSegments(b, v.Segments, delim)
+		b.WriteByte(delim)
 		for _, s := range v.Stages {
 			b.WriteString(" |> ")
 			b.WriteString(pipeStageStr(s))
@@ -923,16 +930,25 @@ func embeddedLangName(lang ast.EmbeddedLang) string {
 		return "js"
 	case ast.EmbeddedCSS:
 		return "css"
-	default: // ast.EmbeddedText — bare backtick literal, no lang prefix
-		return ""
+	default: // ast.EmbeddedText — interpolating plain-text literal, f` prefix
+		return "f"
 	}
 }
 
-func writeEmbeddedAttrSegments(b *strings.Builder, nodes []ast.Markup) {
+// embeddedDelim returns the delimiter byte a literal round-trips to: '"' for the
+// `"`-delimited escape-hatch form, '`' (the default) otherwise.
+func embeddedDelim(dquoted bool) byte {
+	if dquoted {
+		return '"'
+	}
+	return '`'
+}
+
+func writeEmbeddedAttrSegments(b *strings.Builder, nodes []ast.Markup, delim byte) {
 	for _, n := range nodes {
 		switch v := n.(type) {
 		case *ast.Text:
-			writeEmbeddedLiteralText(b, v.Value)
+			writeEmbeddedLiteralText(b, v.Value, delim)
 		case *ast.Interp:
 			b.WriteString("@{")
 			b.WriteString(fmtExpr(v.Expr))
@@ -947,26 +963,27 @@ func writeEmbeddedAttrSegments(b *strings.Builder, nodes []ast.Markup) {
 	}
 }
 
-func embeddedLiteralString(lang ast.EmbeddedLang, nodes []ast.Markup) string {
+func embeddedLiteralString(lang ast.EmbeddedLang, nodes []ast.Markup, delim byte) string {
 	var b strings.Builder
 	b.WriteString(embeddedLangName(lang))
-	b.WriteString("`")
-	writeEmbeddedAttrSegments(&b, nodes)
-	b.WriteString("`")
+	b.WriteByte(delim)
+	writeEmbeddedAttrSegments(&b, nodes, delim)
+	b.WriteByte(delim)
 	return b.String()
 }
 
 // writeEmbeddedLiteralText writes the literal text of an embedded (js/css/text)
 // attribute segment, re-escaping the two sequences the parser treats specially
-// inside such literals: a bare backtick (which would otherwise close the
-// literal) and a literal `@{` (which would otherwise be re-parsed as a hole
-// opener). Both escapes are only needed when the preceding run of backslashes
-// in the (already-unescaped) source text is even — an odd run means the
-// character is already escaped by a backslash written earlier in this loop.
-func writeEmbeddedLiteralText(b *strings.Builder, s string) {
+// inside such literals: a bare occurrence of the delimiter char (which would
+// otherwise close the literal — a backtick for the f`/js`/css` forms, a `"` for
+// the f"/js"/css" forms) and a literal `@{` (which would otherwise be re-parsed
+// as a hole opener). Both escapes are only needed when the preceding run of
+// backslashes in the (already-unescaped) source text is even — an odd run means
+// the character is already escaped by a backslash written earlier in this loop.
+func writeEmbeddedLiteralText(b *strings.Builder, s string, delim byte) {
 	for i := 0; i < len(s); i++ {
 		switch {
-		case s[i] == '`':
+		case s[i] == delim:
 			if !embeddedLiteralEscaped(s, i) {
 				b.WriteByte('\\')
 			}

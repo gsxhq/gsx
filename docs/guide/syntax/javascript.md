@@ -28,9 +28,15 @@ Quoted attributes remain literal strings. gsx does not scan quoted attributes fo
 
 For ordinary expression attributes, `attr={expr}` uses normal attribute escaping
 unless the attribute is URL-context by name. Use `` js`...` `` when the value is
-code or a JavaScript expression, and a plain backtick literal — `` name=`…@{ x }…` ``,
-no language prefix — when the value is ordinary text with holes rather than
-code; see [Attributes — Interpolating attribute literals](./attributes#interpolating-attribute-literals).
+code or a JavaScript expression, and an `f`-prefixed literal — `` name=f`…@{ x }…` `` —
+when the value is ordinary text with holes rather than code; see
+[Attributes — Interpolating attribute literals](./attributes#interpolating-attribute-literals).
+
+`` js`...` `` also accepts a `"`-delimited form, `js"..."`, semantically
+identical — pick whichever quote your JavaScript doesn't contain. It is the
+natural choice when the code itself is a JS template literal, which is
+already backtick-delimited: `` js"const t = `hi @{x}`" `` writes the
+backtick clean instead of escaping every inner one.
 
 ````gsx
 <button @click=js`toggle()`>Toggle</button>

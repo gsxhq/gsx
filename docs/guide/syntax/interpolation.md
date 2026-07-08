@@ -14,11 +14,12 @@ The `{ name }` and `{ count }` expressions are evaluated against the component's
 Note that `{ expr }` is **interpolation** — it emits a value. It is not a Go statement block. To run a Go statement that produces no output, use `{{ stmt }}` (a GoBlock). See [Raw Go](./raw-go) for details.
 :::
 
-## Body backtick literals
+## Body interpolating literals
 
-A lone backtick literal inside body braces — `` {`…@{ expr }…`} `` — interpolates
-static text and typed `@{ }` holes directly in element-body position, the mirror
-image of the [interpolating attribute literal](./attributes#interpolating-attribute-literals).
+An `f`-prefixed backtick literal inside body braces — `` {f`…@{ expr }…`} `` —
+interpolates static text and typed `@{ }` holes directly in element-body
+position, the mirror image of the
+[interpolating attribute literal](./attributes#interpolating-attribute-literals).
 It saves you from concatenating a Go string when you want a single run of text
 that interleaves literals and dynamic values.
 
@@ -36,12 +37,72 @@ Two characters need escaping inside the literal: `` \` `` for a literal backtick
 and `\@{` for a literal `@{` that should not be read as a hole.
 
 ::: v-pre
-The interpolating form applies **only when the backtick is the lone child of the
-braces**. The moment the brace holds a larger Go expression — `` {`a` + x} ``,
-`` {strings.Repeat(`ab`, n)} `` — the backtick reverts to an ordinary Go raw
-string literal and the whole brace is a single `{ expr }` interpolation. This
-keeps every existing use of raw strings in braces working unchanged.
+Interpolation is **opt-in behind the `f` prefix**. A bare (unprefixed) backtick
+in braces is always an ordinary Go raw string with **no** `@{ }` hole processing —
+`` {`a` + x} ``, `` {strings.Repeat(`ab`, n)} ``, `` {`plain @{not-a-hole}`} `` —
+so a `@{` inside a bare literal is literal text. Only `` f`…` `` interpolates,
+and it must be the lone child of the braces (optionally followed by a
+whole-literal pipeline — `` {f`…` |> upper} ``). This keeps every existing use of
+raw strings in braces working unchanged.
 :::
+
+### Two delimiter forms
+
+`` f`…` `` and `f"…"` are the same literal, just spelled with a different
+delimiter — pick whichever quote your content doesn't contain. The `"` form
+is the escape-hatch for text that itself carries a backtick:
+
+```gsx
+component Row(id string, n int) {
+	<p>{f"row-`@{id}`-@{n}"}</p>
+}
+```
+
+`Row(RowProps{Id: "a&b", N: 5})` renders `` <p>row-`a&amp;b`-5</p> `` — the same
+per-segment, type-aware escaping as the backtick form, just with a literal
+backtick in the static text instead of an escaped one.
+
+### As a first-class Go value
+
+An `f` literal isn't limited to body braces — it's an ordinary `string`
+expression, so it can be assigned to a `var`, passed as a call argument, or
+referenced by name from inside `{ }`:
+
+```gsx
+package demo
+
+var name = "world"
+
+var greeting = f`hello @{name}`
+
+component Uses() {
+	<p>{ greeting }</p>
+}
+```
+
+`greeting` is a plain `string`; `{ greeting }` interpolates it like any other
+Go expression, rendering `<p>hello world</p>`. It works as a call argument
+too — `` { emphasize(f`@{label}!`) } `` passes the assembled string straight into
+a function.
+
+::: warning Value vs. body-literal escaping
+As a Go **value**, an `f` literal is a plain `string`, so rendering it with
+`{ … }` escapes the **whole** string — static text included. This differs from a
+**body literal** `` {f`…`} `` (§[Body interpolating literals](#body-interpolating-literals)),
+whose static text is emitted **verbatim**. So `` f`<b>@{x}</b>` `` renders
+`&lt;b&gt;…&lt;/b&gt;` as a value (assigned, then `{ v }`) but `<b>…</b>` as a
+body literal (`` {f`<b>@{x}</b>`} ``) — same source, different output, because the
+value is a *string* and the body literal is a *markup template*. The `@{x}` hole
+is escaped in both. Use the body-literal form when you want the static text to be
+markup; use the value form (or plain markup `<b>{x}</b>`) when you want an
+escaped string.
+:::
+
+See [Elements — Elements as values](./elements#elements-as-values)
+and [Raw Go — the reverse direction](./raw-go#the-reverse-direction-elements-in-go-expression-position)
+for the full set of Go-expression positions this and `<tag>`/`<>` literals
+share. `` js`...` `` and `` css`...` `` stay attribute-context only — they are
+not valid as standalone Go values.
 
 ## Fields & typed values
 
@@ -98,7 +159,7 @@ The escaper applied to `{ expr }` depends on **where** the interpolation appears
 
 - **Text content** (`<p>{ x }</p>`) — HTML-escapes the string form of `x`.
 - **Attribute value** (`title={ x }`) — attribute-escapes the value.
-- **Interpolating attribute literal** (`` title=`Item @{ x }` ``) — a backtick literal mixing static text and `@{ }` holes in attribute-value position; each hole is escaped the same way its surrounding attribute would be (attribute-escape, or scheme-sanitize the whole assembled value for a URL attribute). See [Attributes — Interpolating attribute literals](./attributes#interpolating-attribute-literals).
+- **Interpolating attribute literal** (`` title=f`Item @{ x }` ``) — an `f`-prefixed backtick literal mixing static text and `@{ }` holes in attribute-value position; each hole is escaped the same way its surrounding attribute would be (attribute-escape, or scheme-sanitize the whole assembled value for a URL attribute). See [Attributes — Interpolating attribute literals](./attributes#interpolating-attribute-literals).
 - **URL attribute** (`href={ x }`, `src={ x }`, `action={ x }`, and htmx method attrs `hx-get`/`hx-post`/`hx-put`/`hx-delete`/`hx-patch`) — scheme-sanitizes and escapes. URL attributes are the only ordinary `attr={ x }` name-based special case; other attributes, including `hx-on*`, are plain attribute text unless written with an explicit embedded-language literal.
 - **Attribute-local JavaScript/CSS** (`` @click=js`save(@{x})` ``, `` style=css`color:@{x}` ``, `` style={ css`color:@{x}` } ``) — escapes each hole for its embedded JavaScript or CSS position.
 - **`<script>` body** (`@{ x }`) — JSON-encodes the Go value to a safe JS literal.

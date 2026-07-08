@@ -5,7 +5,7 @@
 package p
 
 component Item(id string) {
-	<p>{`item-@{id}` |> upper}</p>
+	<p>{f`item-@{id}` |> upper}</p>
 }
 -- invoke --
 Item(ItemProps{Id: "a&b"})

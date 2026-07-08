@@ -123,10 +123,11 @@ type Attr interface {
 	attrNode()
 }
 
-// GoPart is one piece of a GoWithElements: a raw run of Go source text
-// (GoText), an embedded element (*Element), or an embedded fragment
-// (*Fragment). It refines Node with a sealed marker, mirroring
-// Markup/Decl/Attr.
+// GoPart is one piece of a GoWithElements (or an Interp.Embedded split): a raw
+// run of Go source text (GoText), an embedded element (*Element), an embedded
+// fragment (*Fragment), or an interpolating f`/js`/css` literal
+// (*EmbeddedInterp, which lowers to a Go string value). It refines Node with a
+// sealed marker, mirroring Markup/Decl/Attr.
 type GoPart interface {
 	Node
 	goPartNode()
@@ -288,6 +289,18 @@ type Interp struct {
 	ExprPos token.Pos
 	// JSCtx is set by internal/jsx for Interps inside a <script>; JSCtxNone otherwise.
 	JSCtx JSCtx
+	// Embedded holds the seed expression (Expr) split at its operand-position
+	// <tag>/<> element literals into interleaved GoText and *Element/*Fragment
+	// parts — e.g. `wrap(<b/>)` → [GoText("wrap("), *Element, GoText(")")].
+	// It is nil when Expr contains no embedded element (the common case) and is
+	// populated ONLY by codegen's analysis pass (buildSkeleton), never by the
+	// parser — so the printer and the fmt faithfulness harness (which re-parse)
+	// never observe it, and Expr remains the single verbatim round-trip source.
+	// The analysis and emit passes share these parsed nodes (the type-checker
+	// resolves each embedded value's interps against the enclosing scope, and
+	// emit lowers each part to its inline gsx.Func(...) value) so resolved types
+	// key on the SAME node pointers.
+	Embedded []GoPart
 }
 
 func (*Interp) markupNode() {}
@@ -372,37 +385,57 @@ type EmbeddedLang uint8
 const (
 	EmbeddedJS EmbeddedLang = iota + 1
 	EmbeddedCSS
-	EmbeddedText // plain backtick literal: name=`…@{expr}…`, HTML-attribute-escaped
+	EmbeddedText // interpolating plain-text literal: name=f`…@{expr}…`, HTML-attribute-escaped
 )
 
 // EmbeddedAttr is an embedded-language attribute value:
 //
 //	name=js`…@{expr}…`, name={js`…`}, name=css`…`, name={css`…`},
-//	name=`…@{expr}…`  (EmbeddedText — plain, HTML-attribute-escaped), name={`…`}.
+//	name=f`…@{expr}…`  (EmbeddedText — plain, HTML-attribute-escaped), name={f`…`}.
 //
+// Interpolation is opt-in behind the f`/js`/css` prefix; a bare `…` attribute
+// value is a plain Go raw string (ExprAttr/ClassAttr), never an EmbeddedAttr.
 // Segments contain *Text and *Interp only. Stages is the optional whole-literal
-// pipeline applied to the assembled string: name={`…` |> f}.
+// pipeline applied to the assembled string: name={f`…` |> f}.
 type EmbeddedAttr struct {
 	span
 	Name     string
 	Lang     EmbeddedLang
 	Segments []Markup
 	Stages   []PipeStage
+	// DoubleQuoted records the literal's delimiter so the printer round-trips
+	// it: false is the backtick form (name=f`…`), true is the `"`-delimited
+	// escape-hatch form (name=f"…") used when the content contains a backtick.
+	// Both forms are semantically identical; only the boundary char and which
+	// char is `\`-escaped inside differ.
+	DoubleQuoted bool
 }
 
 func (*EmbeddedAttr) attrNode() {}
 
-// EmbeddedInterp is an interpolating backtick literal used as a body/child
-// expression: {`…@{expr}…`} or {`…` |> f}. Segments contain *Text and *Interp
+// EmbeddedInterp is an interpolating f`…` literal used as a body/child
+// expression: {f`…@{expr}…`} or {f`…` |> f}. Segments contain *Text and *Interp
 // only; Stages is the optional whole-literal pipeline applied to the assembled
-// string. Always plain-text (HTML-text-escaped) — no js/css lang in body.
+// string. Always plain-text (HTML-text-escaped) — no js/css lang in body, and a
+// bare `…` in body position is a plain Go raw string, not an EmbeddedInterp.
 type EmbeddedInterp struct {
 	span
 	Segments []Markup
 	Stages   []PipeStage
+	// DoubleQuoted records the delimiter: false is {f`…`}, true is {f"…"}. See
+	// EmbeddedAttr.DoubleQuoted.
+	DoubleQuoted bool
 }
 
 func (*EmbeddedInterp) markupNode() {}
+
+// goPartNode lets an interpolating f-backtick literal ride in Go-expression
+// position — as a Part of a top-level GoWithElements (a var initializer such as
+// f-backtick-hello-at-name) or in an interp's Interp.Embedded split (a call arg
+// such as wrap of an f-backtick literal) — where it lowers to a Go string value
+// (embeddedValueExpr), interleaved in source order with the GoText and
+// element/fragment parts.
+func (*EmbeddedInterp) goPartNode() {}
 
 // GoBlock is `{{ stmt }}` — a Go-statement escape hatch in a component body.
 // Code is the trimmed Go source between the `{{` and `}}` delimiters.
@@ -502,7 +535,10 @@ type ClassPart struct {
 	CondPos     token.Pos
 	Stages      []PipeStage
 	CSSSegments []Markup
-	CF          *ValueCF
+	// CSSDoubleQuoted records the delimiter of a composed CSS literal part
+	// (style={ css`…` } vs style={ css"…" }). See EmbeddedAttr.DoubleQuoted.
+	CSSDoubleQuoted bool
+	CF              *ValueCF
 }
 
 // ClassAttr is `class={ … }` / `style={ … }` — a composable contribution list.

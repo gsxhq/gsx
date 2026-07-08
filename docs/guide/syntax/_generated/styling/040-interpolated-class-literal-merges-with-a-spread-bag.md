@@ -4,7 +4,7 @@
 package views
 
 component Badge(variant string) {
-	<span class=`badge-@{variant}` { attrs... }>Hi</span>
+	<span class=f`badge-@{variant}` { attrs... }>Hi</span>
 }
 ```
 
@@ -14,4 +14,4 @@ Renders:
 <span class="badge-x hl" id="a">Hi</span>
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgQmFkZ2UodmFyaWFudCBzdHJpbmcpIHtcblx0XHUwMDNjc3BhbiBjbGFzcz1gYmFkZ2UtQHt2YXJpYW50fWAgeyBhdHRycy4uLiB9XHUwMDNlSGlcdTAwM2Mvc3Bhblx1MDAzZVxufVxuIiwiaSI6IkJhZGdlKEJhZGdlUHJvcHN7VmFyaWFudDogXCJ4XCIsIEF0dHJzOiBnc3guQXR0cnN7e0tleTogXCJjbGFzc1wiLCBWYWx1ZTogXCJobFwifSwge0tleTogXCJpZFwiLCBWYWx1ZTogXCJhXCJ9fX0pIn0=)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgQmFkZ2UodmFyaWFudCBzdHJpbmcpIHtcblx0XHUwMDNjc3BhbiBjbGFzcz1mYGJhZGdlLUB7dmFyaWFudH1gIHsgYXR0cnMuLi4gfVx1MDAzZUhpXHUwMDNjL3NwYW5cdTAwM2Vcbn1cbiIsImkiOiJCYWRnZShCYWRnZVByb3Bze1ZhcmlhbnQ6IFwieFwiLCBBdHRyczogZ3N4LkF0dHJze3tLZXk6IFwiY2xhc3NcIiwgVmFsdWU6IFwiaGxcIn0sIHtLZXk6IFwiaWRcIiwgVmFsdWU6IFwiYVwifX19KSJ9)

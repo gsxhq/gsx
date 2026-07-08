@@ -70,14 +70,14 @@ func (p *parser) splitComposed(name, src string, base int) ([]ast.ClassPart, err
 				break
 			}
 		}
-		if strings.HasPrefix(segSrc[trimOff:], "css`") {
+		if strings.HasPrefix(segSrc[trimOff:], "css`") || strings.HasPrefix(segSrc[trimOff:], `css"`) {
 			if name != "style" {
 				return nil, p.errorf(p.posAt(base+segStart+trimOff), "css literal parts are only valid in style={...}")
 			}
 			literalOff := base + segStart + trimOff
 			old := p.i
 			p.i = literalOff
-			lang, segments, err := p.parseEmbeddedAttrLiteral()
+			lang, dquoted, segments, err := p.parseEmbeddedAttrLiteral()
 			literalEnd := p.i
 			p.i = old
 			if err != nil {
@@ -101,7 +101,7 @@ func (p *parser) splitComposed(name, src string, base int) ([]ast.ClassPart, err
 			if rest := strings.TrimSpace(src[literalEnd-base : partEnd]); rest != "" {
 				return nil, p.errorf(p.posAt(literalEnd), "unexpected %q after css literal in style={...}", rest)
 			}
-			parts = append(parts, ast.ClassPart{CSSSegments: segments, Cond: condSrc, CondPos: condPos})
+			parts = append(parts, ast.ClassPart{CSSSegments: segments, CSSDoubleQuoted: dquoted, Cond: condSrc, CondPos: condPos})
 			ast.SetSpan(&parts[len(parts)-1], p.posAt(base+segStart), p.posAt(base+segEnd))
 			continue
 		}
@@ -280,8 +280,15 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 	// Dispatch on the value start. Each downstream parser assumes the cursor is
 	// positioned exactly at its literal opener (`js`/`css`, `"`, or `{`).
 	switch {
-	case p.at("js`") || p.at("css`") || p.at("`"):
+	case p.at("f`") || p.at("js`") || p.at("css`") ||
+		p.at(`f"`) || p.at(`js"`) || p.at(`css"`):
 		return p.parseEmbeddedAttrValue(name, attrStartPos)
+	case !p.eof() && p.src[p.i] == '`':
+		// A bare (unprefixed) backtick attribute value is a plain Go raw string,
+		// NOT an interpolating literal — interpolation is opt-in behind an
+		// f`/js`/css` prefix. Route it to the ordinary Go-expression attr path
+		// so `name=`foo`` yields the value `foo` with no @{ } hole processing.
+		return p.parseBareBacktickAttrValue(name, attrStartPos)
 	case !p.eof() && p.src[p.i] == '"':
 		quotePos := p.posAt(p.i)
 		p.i++ // past opening '"'
@@ -298,9 +305,12 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 		ast.SetSpan(sa, attrStartPos, p.posAt(p.i))
 		return sa, nil
 	case !p.eof() && p.src[p.i] == '{':
-		if strings.HasPrefix(p.src[p.i+1:], "js`") ||
+		if strings.HasPrefix(p.src[p.i+1:], "f`") ||
+			strings.HasPrefix(p.src[p.i+1:], "js`") ||
 			strings.HasPrefix(p.src[p.i+1:], "css`") ||
-			strings.HasPrefix(p.src[p.i+1:], "`") {
+			strings.HasPrefix(p.src[p.i+1:], `f"`) ||
+			strings.HasPrefix(p.src[p.i+1:], `js"`) ||
+			strings.HasPrefix(p.src[p.i+1:], `css"`) {
 			return p.parseBracedEmbeddedAttrValue(name, attrStartPos)
 		}
 		if p.i+1 < len(p.src) && p.src[p.i+1] == '{' {
@@ -315,11 +325,12 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 	}
 }
 
-// parseBracedEmbeddedAttrValue parses `name={`…`}` / `name={`…` |> f}` — a
-// lone backtick literal (optionally `js`/`css` tagged), optionally followed by
-// a whole-literal `|>` pipeline, as the entire braced value. Cursor must be at
-// the '{' of the value (the caller has already checked the byte right after it
-// starts a `js`/`css`/bare backtick literal).
+// parseBracedEmbeddedAttrValue parses `name={f`…`}` / `name={f`…` |> f}` — a
+// lone prefixed literal (`f`/`js`/`css`), optionally followed by a whole-literal
+// `|>` pipeline, as the entire braced value. Cursor must be at the '{' of the
+// value (the caller has already checked the byte right after it starts an
+// `f`/`js`/`css` literal — a bare `…` in braces is a plain Go raw string, routed
+// to the ordinary braced-value parse, never here).
 //
 // Like tryParseBodyEmbeddedInterp, this function only commits to EmbeddedAttr
 // once the whole shape matches cleanly. On any other outcome — the literal
@@ -361,7 +372,7 @@ func (p *parser) parseBracedEmbeddedAttrValue(name string, attrStartPos token.Po
 	// can't contain a gsx backtick escape, so a Go-aware scan is safe there
 	// even though it is not safe over the literal itself (see goStagesEnd
 	// doc).
-	lang, segments, err := p.parseEmbeddedAttrLiteral()
+	lang, dquoted, segments, err := p.parseEmbeddedAttrLiteral()
 	if err != nil {
 		return fallback()
 	}
@@ -369,7 +380,7 @@ func (p *parser) parseBracedEmbeddedAttrValue(name string, attrStartPos token.Po
 	afterLiteral := p.i
 	if !p.eof() && p.src[p.i] == '}' {
 		p.i++ // past '}'
-		ea := &ast.EmbeddedAttr{Name: name, Lang: lang, Segments: segments}
+		ea := &ast.EmbeddedAttr{Name: name, Lang: lang, Segments: segments, DoubleQuoted: dquoted}
 		ast.SetSpan(ea, attrStartPos, p.posAt(p.i))
 		return ea, nil
 	}
@@ -391,7 +402,7 @@ func (p *parser) parseBracedEmbeddedAttrValue(name string, attrStartPos token.Po
 			if perr != nil {
 				return fallback()
 			}
-			ea := &ast.EmbeddedAttr{Name: name, Lang: lang, Segments: segments, Stages: stages}
+			ea := &ast.EmbeddedAttr{Name: name, Lang: lang, Segments: segments, Stages: stages, DoubleQuoted: dquoted}
 			p.i = end + 1 // past '}'
 			ast.SetSpan(ea, attrStartPos, p.posAt(p.i))
 			return ea, nil
@@ -403,56 +414,144 @@ func (p *parser) parseBracedEmbeddedAttrValue(name string, attrStartPos token.Po
 }
 
 func (p *parser) parseEmbeddedAttrValue(name string, attrStartPos token.Pos) (ast.Attr, error) {
-	lang, segments, err := p.parseEmbeddedAttrLiteral()
+	lang, dquoted, segments, err := p.parseEmbeddedAttrLiteral()
 	if err != nil {
 		return nil, err
 	}
-	ea := &ast.EmbeddedAttr{Name: name, Lang: lang, Segments: segments}
+	ea := &ast.EmbeddedAttr{Name: name, Lang: lang, Segments: segments, DoubleQuoted: dquoted}
 	ast.SetSpan(ea, attrStartPos, p.posAt(p.i))
 	return ea, nil
 }
 
-func (p *parser) parseEmbeddedAttrLiteral() (ast.EmbeddedLang, []ast.Markup, error) {
-	var lang ast.EmbeddedLang
+// parseBareBacktickAttrValue parses an unbraced bare-backtick attribute value
+// `name=`…“ as a plain Go raw string (no @{ } interpolation — that is opt-in
+// behind an f`/js`/css` prefix). The value is the ordinary Go expression `…`
+// (backticks included). Go raw strings contain no escapes and cannot contain a
+// backtick, so the literal ends at the next backtick. Cursor must be at the
+// opening backtick.
+//
+// For a `class`/`style` name the value is emitted as a single-contribution
+// composed ClassAttr (matching parseBracedEmbeddedAttrValue's class/style
+// fallback), so the fallthrough/forwarding merge machinery still recognizes the
+// component's own class/style contribution when a caller forwards an attrs bag.
+// Every other name yields an ordinary ExprAttr.
+func (p *parser) parseBareBacktickAttrValue(name string, attrStartPos token.Pos) (ast.Attr, error) {
+	open := p.i // at '`'
+	exprPos := p.posAt(open)
+	end := open + 1
+	for end < len(p.src) && p.src[end] != '`' {
+		end++
+	}
+	if end >= len(p.src) {
+		return nil, p.errorfRange(exprPos, p.pos(), "unterminated backtick attribute value for %q", name)
+	}
+	end++ // past closing '`'
+	expr := p.src[open:end]
+	p.i = end
+	if name == "class" || name == "style" {
+		part := ast.ClassPart{Expr: expr, ExprPos: exprPos}
+		ast.SetSpan(&part, exprPos, p.posAt(end))
+		ca := &ast.ClassAttr{Name: name, Parts: []ast.ClassPart{part}}
+		ast.SetSpan(ca, attrStartPos, p.posAt(p.i))
+		return ca, nil
+	}
+	ea := &ast.ExprAttr{Name: name, Expr: expr, ExprPos: exprPos}
+	ast.SetSpan(ea, attrStartPos, p.posAt(p.i))
+	return ea, nil
+}
+
+// parseEmbeddedInterpPart parses a prefixed backtick literal (f`/js`/css`)
+// beginning at byte offset off — detected at a Go operand position by
+// scanGoParts — into an *ast.EmbeddedInterp value. It seats the cursor at off,
+// consumes the literal via parseEmbeddedAttrLiteral (holes and gsx escapes
+// included), and leaves the cursor just past the closing backtick.
+//
+// All three langs collapse to the text (HTML/context-escaped-at-use-site)
+// EmbeddedInterp: a literal used as a Go-expression VALUE lowers to a plain Go
+// `string` (embeddedValueExpr), and any contextual escaping is applied where
+// that string is consumed (a body {…}, an attribute sink, a <script>), not
+// here — so a js`…`/css`…` value carries no distinct lowering and is admitted
+// as the same string-producing EmbeddedInterp as f`…`. Whole-literal `|> f`
+// pipelines are NOT parsed in value position (a trailing `|>` there is ordinary
+// Go, e.g. a bitwise-or expression); Stages stays empty.
+func (p *parser) parseEmbeddedInterpPart(off int) (*ast.EmbeddedInterp, error) {
+	p.i = off
+	startPos := p.posAt(off)
+	_, dquoted, segs, err := p.parseEmbeddedAttrLiteral()
+	if err != nil {
+		return nil, err
+	}
+	node := &ast.EmbeddedInterp{Segments: segs, DoubleQuoted: dquoted}
+	ast.SetSpan(node, startPos, p.posAt(p.i))
+	return node, nil
+}
+
+// parseEmbeddedAttrLiteral consumes a prefixed embedded literal at the cursor —
+// f`…`, js`…`, css`…` or their `"`-delimited escape-hatch counterparts f"…",
+// js"…", css"…" — returning the language, whether the `"` delimiter was used
+// (dquoted, for round-trip printing), and the parsed segments. The two delimiter
+// forms are semantically identical; only the boundary char and which char is
+// `\`-escaped inside the body differ.
+func (p *parser) parseEmbeddedAttrLiteral() (lang ast.EmbeddedLang, dquoted bool, segments []ast.Markup, err error) {
 	literalStart := p.i
 	var opener int
+	var delim byte
 	switch {
 	case p.at("js`"):
-		lang = ast.EmbeddedJS
+		lang, delim = ast.EmbeddedJS, '`'
 		p.i += len("js`")
 		opener = literalStart + len("js")
 	case p.at("css`"):
-		lang = ast.EmbeddedCSS
+		lang, delim = ast.EmbeddedCSS, '`'
 		p.i += len("css`")
 		opener = literalStart + len("css")
-	case p.at("`"):
-		lang = ast.EmbeddedText
-		p.i += len("`")
-		opener = literalStart // the backtick itself
+	case p.at("f`"):
+		lang, delim = ast.EmbeddedText, '`'
+		p.i += len("f`")
+		opener = literalStart + len("f")
+	case p.at(`js"`):
+		lang, delim, dquoted = ast.EmbeddedJS, '"', true
+		p.i += len(`js"`)
+		opener = literalStart + len("js")
+	case p.at(`css"`):
+		lang, delim, dquoted = ast.EmbeddedCSS, '"', true
+		p.i += len(`css"`)
+		opener = literalStart + len("css")
+	case p.at(`f"`):
+		lang, delim, dquoted = ast.EmbeddedText, '"', true
+		p.i += len(`f"`)
+		opener = literalStart + len("f")
 	default:
-		return 0, nil, p.errorf(p.pos(), "expected embedded attribute literal")
+		return 0, false, nil, p.errorf(p.pos(), "expected embedded attribute literal")
 	}
-	segments, err := p.parseEmbeddedSegments(lang, opener)
+	segments, err = p.parseEmbeddedSegments(lang, delim, opener)
 	if err != nil {
-		return 0, nil, err
+		return 0, false, nil, err
 	}
-	return lang, segments, nil
+	return lang, dquoted, segments, nil
 }
 
-func (p *parser) parseEmbeddedSegments(lang ast.EmbeddedLang, opener int) ([]ast.Markup, error) {
+// parseEmbeddedSegments parses the body of an embedded literal up to its closing
+// delim (either a backtick or a '"'), splitting it into *Text and *Interp
+// segments. A delim preceded by an odd number of backslashes (a backslash then
+// the delimiter char) is a literal delimiter, not the terminator; `\@{` is a
+// literal `@{`; an unescaped `@{ … }` is an interpolation hole. The
+// non-delimiter quote char is free/literal inside the body (a backtick inside a
+// '"'-delimited literal, a '"' inside a backtick one).
+func (p *parser) parseEmbeddedSegments(lang ast.EmbeddedLang, delim byte, opener int) ([]ast.Markup, error) {
 	var segments []ast.Markup
 	segStart := p.i
 	segStartPos := p.posAt(segStart)
 	flush := func(end int) {
 		if end > segStart {
-			txt := &ast.Text{Value: unescapeEmbedded(p.src[segStart:end])}
+			txt := &ast.Text{Value: unescapeEmbedded(p.src[segStart:end], delim)}
 			ast.SetSpan(txt, segStartPos, p.posAt(end))
 			segments = append(segments, txt)
 		}
 	}
 	for !p.eof() {
-		if p.src[p.i] == '`' {
-			if p.embeddedBacktickEscaped(p.i) {
+		if p.src[p.i] == delim {
+			if p.embeddedDelimEscaped(p.i) {
 				p.i++
 				continue
 			}
@@ -488,9 +587,13 @@ func (p *parser) parseEmbeddedSegments(lang ast.EmbeddedLang, opener int) ([]ast
 	}
 }
 
-func (p *parser) embeddedBacktickEscaped(backtick int) bool {
+// embeddedDelimEscaped reports whether the delimiter char at p.src[delim] is
+// preceded by an odd number of backslashes, meaning it is a backslash-escaped
+// literal delimiter rather than the literal's terminator. The count is
+// delimiter-agnostic, so this serves both the backtick and '"' forms.
+func (p *parser) embeddedDelimEscaped(delim int) bool {
 	n := 0
-	for i := backtick - 1; i >= 0 && p.src[i] == '\\'; i-- {
+	for i := delim - 1; i >= 0 && p.src[i] == '\\'; i-- {
 		n++
 	}
 	return n%2 == 1
@@ -507,10 +610,13 @@ func (p *parser) embeddedAtBraceEscaped(at int) bool {
 	return n%2 == 1
 }
 
-// unescapeEmbedded collapses the two backslash escapes recognized inside
-// embedded literals (text/js/css): a backslash-escaped backtick becomes a
-// literal backtick, and `\@{` becomes a literal `@{`.
-func unescapeEmbedded(s string) string {
+// unescapeEmbedded collapses the two backslash escapes recognized inside an
+// embedded literal (text/js/css) delimited by delim: an escaped delimiter (a
+// backslash then the delimiter char) becomes a literal delimiter char, and
+// `\@{` becomes a literal `@{`. Only the ACTIVE delimiter is an escape: a `\"`
+// inside a backtick literal (or a backslash-backtick inside a '"' literal) is
+// left verbatim, since the non-delimiter quote is free/literal there.
+func unescapeEmbedded(s string, delim byte) string {
 	if !strings.ContainsRune(s, '\\') {
 		return s
 	}
@@ -518,9 +624,9 @@ func unescapeEmbedded(s string) string {
 	b.Grow(len(s))
 	for i := 0; i < len(s); i++ {
 		if s[i] == '\\' && i+1 < len(s) {
-			// \`  -> `
-			if s[i+1] == '`' {
-				b.WriteByte('`')
+			// \<delim>  -> <delim>
+			if s[i+1] == delim {
+				b.WriteByte(delim)
 				i++
 				continue
 			}

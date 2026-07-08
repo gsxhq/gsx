@@ -35,29 +35,29 @@ A filter stage can take extra arguments by appending them in parentheses after t
 
 ## Whole-literal pipelines
 
-A backtick literal followed by `|>` pipes the **entire assembled string** as a
-unit. The literal's static text and `@{ }` holes are interpolated into one Go
+An `f`-prefixed literal followed by `|>` pipes the **entire assembled string** as
+a unit. The literal's static text and `@{ }` holes are interpolated into one Go
 string first, and that whole value flows into the pipeline — not each hole
-separately. It works in body braces (`` {`…` |> f} ``) and in a braced attribute
-value (`` attr={`…` |> f} ``).
+separately. It works in body braces (`` {f`…` |> f} ``) and in a braced attribute
+value (`` attr={f`…` |> f} ``).
 
 <!--@include: ./_generated/pipelines/040-whole-literal-pipelines.md-->
 
-`` `item-@{id}` |> upper `` assembles `item-` + `id` into one string, then applies
+`` f`item-@{id}` |> upper `` assembles `item-` + `id` into one string, then applies
 `upper` to the result. This is the ergonomic alternative to a `fmt.Sprintf` +
-pipe: `` {`item-@{id}` |> upper} `` reads far more directly than
+pipe: `` {f`item-@{id}` |> upper} `` reads far more directly than
 `` { fmt.Sprintf("item-%s", id) |> upper } `` while lowering to the same single
 call chain.
 
 Contrast with a **per-hole** pipeline, where `|>` sits *inside* a hole and
-transforms only that one value: `` `item-@{ id |> upper }` `` upper-cases just
+transforms only that one value: `` f`item-@{ id |> upper }` `` upper-cases just
 `id`, leaving the `item-` prefix untouched. The whole-literal form places the
 `|>` *after* the closing backtick, so the filter sees the finished string.
 
 ::: v-pre
 The whole-literal pipe is available in body braces and the **braced** attribute
-form (`attr={`…` |> f}`), but not on the bare direct-attribute literal
-(`` attr=`…` ``) — wrap it in braces to add a pipeline. It is also rejected on
+form (`attr={f`…` |> f}`), but not on the direct (unbraced) attribute literal
+(`` attr=f`…` ``) — wrap it in braces to add a pipeline. It is also rejected on
 `js` and `css` embedded-language literals, whose holes carry their own
 per-context escaping.
 :::
@@ -70,7 +70,7 @@ the filter, never before. A filter that produces a dangerous scheme is still
 blocked to `about:invalid#gsx`; the sanitizer always has the final say.
 
 ```gsx
-<a href={`@{u}` |> upper}>go</a>
+<a href={f`@{u}` |> upper}>go</a>
 ```
 
 With `u = "javascript:alert(1)"`, `upper` yields `JAVASCRIPT:ALERT(1)`, and the

@@ -7,7 +7,7 @@
 package p
 
 component Icon(svgB64 string) {
-	<img src=`data:image/svg+xml;base64,@{svgB64}` alt="i" />
+	<img src=f`data:image/svg+xml;base64,@{svgB64}` alt="i" />
 }
 -- invoke --
 Icon(IconProps{SvgB64: "PHN2Zy8+"})
