@@ -134,7 +134,7 @@ func TestUnusedImportsSyntactic(t *testing.T) {
 	dir, m := openTestModule(t, map[string]string{
 		"page.gsx": "package testmod\n\nimport (\n\t\"strings\"\n\t\"bytes\"\n)\n\ncomponent Page() {\n\t<div>{strings.ToUpper(\"x\")}</div>\n}\n",
 	})
-	got, err := m.UnusedImports(dir)
+	got, _, err := m.UnusedImports(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestUnusedImportsDefaultNameMismatchKept(t *testing.T) {
 		"renamedpkg/lib.go": "package renamed\n\nfunc Hello() string { return \"hi\" }\n",
 		"page.gsx":          "package testmod\n\nimport \"testmod/renamedpkg\"\n\ncomponent Page() {\n\t<div>{renamed.Hello()}</div>\n}\n",
 	})
-	got, err := m.UnusedImports(dir)
+	got, _, err := m.UnusedImports(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +335,7 @@ func TestSyntacticMatchesTypecheckOracle(t *testing.T) {
 	for name, files := range cases {
 		t.Run(name, func(t *testing.T) {
 			dir, m := openTestModule(t, files)
-			syn, err := m.UnusedImports(dir)
+			syn, _, err := m.UnusedImports(dir)
 			if err != nil {
 				t.Fatal(err)
 			}
