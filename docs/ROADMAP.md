@@ -620,17 +620,47 @@ vocabulary remains a design aspiration, not the current API.
      exception to the accessor⇔emission invariant `rtimports.go` states. Fix:
      delete `mergeExpr` from `childPropsLiteral` / `classEntryExpr` /
      `condAttrsExpr` / `condBranchAttrs`.
+     **Wider than first recorded:** `rt.rt()` is passed as `rtPkg` at those same
+     two call sites (`genChildComponent`, `genSkippedTagSink`) and has the
+     identical property — `childPropsLiteral` emits `rtPkg` only on some prop
+     forms, so the accessor records the runtime need even when nothing prints it.
+     Both are **harmless, not live bugs**: every generated component writes
+     `_gsxrt.Node` into its signature and every element literal bakes
+     `_gsxrt.Func(`, and those two are the only ways to reach `childPropsLiteral`,
+     so `rt[gsxRuntimePath]` is already true at both sites. Confirmed empirically:
+     of the 269 corpus goldens that import `_gsxrt`, none leaves it unreferenced
+     (an over-record would surface as `imported and not used`). Fold `rtPkg` into
+     the same cleanup.
   3. `checkReservedDecls` is a **5th** `go/parser` pass over the same `GoChunk`
      text (also parsed at `analyze.go:388`, `emit.go:143`, `gsximports.go:37`,
      `module_importer.go:484`). Measured cost is negligible (~5 µs/file; +2% on a
      pathological 19k-line package; warm path unchanged), but a shared parse cache
      would pay for all five.
-  4. A file with an unparseable top-level Go region is now skipped per-file rather
-     than aborting the package, so a **sibling** file using its components draws a
-     spurious `undefined: Comp`. Same shape as the pre-existing `attrError`
-     per-file skip, but new for parse errors.
+  4. A file that `checkReservedDecls` rejects is now skipped per-file rather than
+     aborting the package, so a **sibling** file using its components draws a
+     spurious `undefined: Comp`. This fires for **both** failures that pass
+     reports — an unparseable top-level Go region *and* a reserved-decl error
+     (`a.gsx` with `var _gsxfoo = 1` + `b.gsx` using its component yields the
+     correct diagnostic plus `b.gsx:4:14: undefined: Comp`). Same shape as the
+     pre-existing `attrError` per-file skip, but new for both.
   5. `gsx fmt` does not enforce the `_gsx` reservation (only `generate` / the
      analysis path does).
+  6. **Extend the `_gsx` reservation beyond package scope.** Locals and `{{ … }}`
+     GoBlock bindings named `_gsxio` / `_gsxsc` / `_gsxgw` / `_gsxw` / `_gsxnum` /
+     `_gsxcm`, and hand-written sibling `.go` files declaring such names, still
+     yield `generate` exit 0 with non-compiling output. Pre-existing class — the
+     same holds on `main` for `io` / `strconv` / `_gsxgw`; the alias change
+     narrowed the trigger names but did not close the hole. Only names the
+     *skeleton* binds are incidentally caught by `go/types`, and only when the
+     skeleton references them after the user's binding (`_gsxrt`, `_gsxctx`,
+     `_gsxp`, `_gsxstd`/`_gsxf<i>`, `_gsxti<N>`); `_gsxio`/`_gsxsc`/`_gsxcm`/
+     `_gsxgw`/`_gsxw`/`_gsxnum` appear only in the emitted file, so nothing checks
+     them. Cheap partial hardening: make the skeleton bind `_gsxio` and `_gsxsc`
+     unconditionally (`import _gsxio "io"` + `var _ _gsxio.Writer`, likewise for
+     `strconv`), which closes the sibling-`.go` and package-scope halves via
+     `go/types`. The local / GoBlock half needs the reservation extended into
+     function bodies. Documented as undefined behaviour in
+     `docs/guide/syntax/raw-go.md`.
 - [x] **Structured diagnostics - Slice 1 (semantic layer)** - `internal/diag`
   (resolved `token.Position` Start/End, severity, code, message, help, source; `Bag`
   collector; rich/compact/JSON renderers). All `go/types` errors surfaced; codegen

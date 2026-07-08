@@ -3559,10 +3559,19 @@ func typeArgUse(src string) string {
 // That is a deliberate trade, and it is the ONLY name-space cost gsx imposes on
 // a .gsx file. The generator never prints a bare package name (see rtImports'
 // doc), so a .gsx file may bind `gsx`, `context`, `io` or `strconv` to whatever
-// it likes; in exchange, `_gsx` is off-limits. Reserving one prefix instead of a
-// growing list of concrete names is what keeps that promise stable: which
-// aliases the generator actually emits is an implementation detail that changes
-// with every codegen feature, and no .gsx file should have to track it.
+// it likes; in exchange, `_gsx` is off-limits AT PACKAGE SCOPE (checkReservedDecls
+// below), on component params (checkReservedParams) and on method-component
+// receiver vars (checkReservedRecvVar). Reserving one prefix instead of a growing
+// list of concrete names is what keeps that promise stable: which aliases the
+// generator actually emits is an implementation detail that changes with every
+// codegen feature, and no .gsx file should have to track it.
+//
+// Nothing enforces the prefix anywhere else. Function-body locals, `{{ … }}`
+// GoBlock bindings and hand-written sibling .go files may bind `_gsx` names, and
+// when one collides with an alias the generator emits into that scope the result
+// is a .x.go that does not compile, reported by `go build` rather than by gsx.
+// rtimports.go's doc has the exact rule for which names are incidentally caught;
+// the residual gap is tracked in docs/ROADMAP.md.
 const reservedPrefix = "_gsx"
 
 // reservedDecl is one package-scope binding that intrudes on reservedPrefix,
@@ -3604,15 +3613,16 @@ func checkReservedDecls(file *gsxast.File) ([]reservedDecl, []goRegionError) {
 	var errs []goRegionError
 	for _, d := range file.Decls {
 		var src string
+		var spans []replacedSpan
 		switch d := d.(type) {
 		case *gsxast.GoChunk:
 			src = d.Src
 		case *gsxast.GoWithElements:
-			src = goWithElementsSrc(d)
+			src, spans = goWithElementsSrc(d)
 		default:
 			continue
 		}
-		rds, gerr := reservedDeclsInGo(src, d.Pos())
+		rds, gerr := reservedDeclsInGo(src, d.Pos(), spans)
 		out = append(out, rds...)
 		if gerr != nil {
 			errs = append(errs, *gerr)
@@ -3640,7 +3650,9 @@ const goDeclWrapPrefix = "package _gsxp\n"
 // pos has already been translated out of the parser's wrapped source and back
 // into the .gsx file, so the caller can emit it as an ordinary positioned
 // diagnostic; msg is the bare parser message (no "expected ... (and N more
-// errors)" tail — only the first, left-most error is kept).
+// errors)" tail — only the first, left-most error is kept), or, when the parser
+// stopped on a substituted literal, a message naming the user's construct.
+// See goRegionErrorAt: the kept error is the file's SOLE report for the region.
 type goRegionError struct {
 	pos token.Pos
 	msg string
@@ -3648,7 +3660,8 @@ type goRegionError struct {
 
 // reservedDeclsInGo walks one top-level Go region's declarations and returns the
 // reservedPrefix names it binds. base is the .gsx position of src[0], so a
-// parsed offset maps back by plain byte arithmetic.
+// parsed offset maps back by plain byte arithmetic. spans is goWithElementsSrc's
+// placeholder record (nil for a GoChunk), used only to word a parse failure.
 //
 // A region that does not parse yields a goRegionError instead of silently
 // yielding nothing. Silence here would be a hole in the check, not a harmless
@@ -3660,11 +3673,11 @@ type goRegionError struct {
 //
 // Method declarations are skipped: a method name lives in its receiver type's
 // namespace, not the package's, so it can never collide with an import alias.
-func reservedDeclsInGo(src string, base token.Pos) ([]reservedDecl, *goRegionError) {
+func reservedDeclsInGo(src string, base token.Pos, spans []replacedSpan) ([]reservedDecl, *goRegionError) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "", goDeclWrapPrefix+src, parser.SkipObjectResolution)
 	if err != nil {
-		return nil, goRegionErrorAt(err, base)
+		return nil, goRegionErrorAt(err, base, spans)
 	}
 	var out []reservedDecl
 	report := func(id *goast.Ident) {
@@ -3700,17 +3713,37 @@ func reservedDeclsInGo(src string, base token.Pos) ([]reservedDecl, *goRegionErr
 
 // goRegionErrorAt turns a go/parser failure over goDeclWrapPrefix+src into a
 // goRegionError positioned in the .gsx file. base is the .gsx position of src[0].
+// spans are the literal spans goWithElementsSrc replaced (nil for a GoChunk).
 //
 // go/parser always fails with a scanner.ErrorList sorted by position, so the
 // first entry is the left-most error — the one worth showing. Its offset is an
 // offset into the wrapped source; subtracting the prefix yields the offset into
 // src, which is .gsx source verbatim. The prefix itself is valid Go, so no error
 // can be positioned inside it and the subtraction never goes negative.
-func goRegionErrorAt(err error, base token.Pos) *goRegionError {
+//
+// Keeping only list[0] is not "first of many": checkReservedDecls' caller skips
+// the whole file on any goRegionError, so buildSkeleton never re-reports the
+// region and this is the SOLE diagnostic the user sees for it. Later errors in
+// the same region — and in any sibling region of the same file — are dropped.
+// The survivor is the left-most one, which is the error worth showing when a
+// region cannot be parsed at all.
+//
+// When the error lands on a replaced literal, the parser is complaining about
+// reservedDeclPlaceholder — a token the user never wrote ("expected declaration,
+// found _"). Reporting go/parser's message verbatim would name `_` at a byte the
+// .gsx source spells `<` or `f`. Name the user's construct instead, and snap the
+// position to the literal's first byte so the caret lands on it.
+func goRegionErrorAt(err error, base token.Pos, spans []replacedSpan) *goRegionError {
 	var list scanner.ErrorList
 	if errors.As(err, &list) && len(list) > 0 && list[0].Pos.IsValid() {
 		e := list[0]
-		return &goRegionError{pos: base + token.Pos(e.Pos.Offset-len(goDeclWrapPrefix)), msg: e.Msg}
+		off := e.Pos.Offset - len(goDeclWrapPrefix)
+		for _, s := range spans {
+			if off >= s.off && off < s.end {
+				return &goRegionError{pos: base + token.Pos(s.off), msg: s.what + " is not valid in this position"}
+			}
+		}
+		return &goRegionError{pos: base + token.Pos(off), msg: e.Msg}
 	}
 	return &goRegionError{pos: base, msg: err.Error()}
 }
@@ -3756,8 +3789,13 @@ const reservedDeclPlaceholder = "_()"
 // substitute each literal with an expression of the right shape); it differs only
 // in substituting a length-preserving placeholder instead of a typed IIFE,
 // because this pass needs positions, not types.
-func goWithElementsSrc(gw *gsxast.GoWithElements) string {
+//
+// The returned spans record where each placeholder went, so goRegionErrorAt can
+// tell "the parser choked on the user's Go" from "the parser choked on a token we
+// substituted" and word the diagnostic accordingly.
+func goWithElementsSrc(gw *gsxast.GoWithElements) (string, []replacedSpan) {
 	var sb strings.Builder
+	var spans []replacedSpan
 	for _, part := range gw.Parts {
 		if gt, ok := part.(gsxast.GoText); ok {
 			sb.WriteString(gt.Src)
@@ -3767,10 +3805,34 @@ func goWithElementsSrc(gw *gsxast.GoWithElements) string {
 		// base+offset; the bases cancel, so the difference is the literal's exact
 		// byte length. No FileSet lookup — and so no "file not found" bail-out.
 		n := int(part.End() - part.Pos())
+		spans = append(spans, replacedSpan{off: sb.Len(), end: sb.Len() + n, what: goPartWhat(part)})
 		sb.WriteString(reservedDeclPlaceholder)
 		sb.WriteString(strings.Repeat(" ", n-len(reservedDeclPlaceholder)))
 	}
-	return sb.String()
+	return sb.String(), spans
+}
+
+// replacedSpan is one literal goWithElementsSrc swapped for
+// reservedDeclPlaceholder: [off, end) byte offsets into the reconstruction (which
+// are also byte offsets into the .gsx region), and what the user actually wrote
+// there.
+type replacedSpan struct {
+	off, end int
+	what     string
+}
+
+// goPartWhat names a non-GoText GoPart the way the .gsx author would. Used only
+// to word a diagnostic; the placeholder makes all three indistinguishable to
+// go/parser.
+func goPartWhat(part gsxast.GoPart) string {
+	switch part.(type) {
+	case *gsxast.Fragment:
+		return "fragment"
+	case *gsxast.EmbeddedInterp:
+		return "f-literal"
+	default: // *gsxast.Element — the only remaining GoPart (GoText returned above)
+		return "element"
+	}
 }
 
 // checkReservedParams rejects param names that would collide with the ambient
