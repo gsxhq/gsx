@@ -61,34 +61,49 @@ func splitPipe(src string) []string {
 	if !strings.Contains(src, "|>") {
 		return []string{src}
 	}
-	fset := token.NewFileSet()
-	file := fset.AddFile("", fset.Base(), len(src))
-	var s scanner.Scanner
-	s.Init(file, []byte(src), nil, scanner.ScanComments)
+	// Second fast path: no '<' (no element/fragment can start) and no '`' (no
+	// backtick literal can start) anywhere in src → the legacy go/scanner-only
+	// walk below is exact and cheap. Otherwise delegate to scanGoExpr, which
+	// additionally understands element and gsx-escaped-backtick spans — see
+	// composedDelims/goDepth1End for the same guard.
+	if strings.IndexByte(src, '<') < 0 && strings.IndexByte(src, '`') < 0 {
+		fset := token.NewFileSet()
+		file := fset.AddFile("", fset.Base(), len(src))
+		var s scanner.Scanner
+		s.Init(file, []byte(src), nil, scanner.ScanComments)
 
-	var splits []int // byte offset of each `|` that begins a top-level `|>`
-	depth := 0
-	prevTok := token.ILLEGAL
-	prevOff := -1
-	for {
-		pos, tok, _ := s.Scan()
-		if tok == token.EOF {
-			break
-		}
-		off := file.Offset(pos)
-		switch tok {
-		case token.LPAREN, token.LBRACK, token.LBRACE:
-			depth++
-		case token.RPAREN, token.RBRACK, token.RBRACE:
-			depth--
-		case token.GTR:
-			if depth == 0 && prevTok == token.OR && off == prevOff+1 {
-				splits = append(splits, prevOff)
+		var splits []int // byte offset of each `|` that begins a top-level `|>`
+		depth := 0
+		prevTok := token.ILLEGAL
+		prevOff := -1
+		for {
+			pos, tok, _ := s.Scan()
+			if tok == token.EOF {
+				break
 			}
+			off := file.Offset(pos)
+			switch tok {
+			case token.LPAREN, token.LBRACK, token.LBRACE:
+				depth++
+			case token.RPAREN, token.RBRACK, token.RBRACE:
+				depth--
+			case token.GTR:
+				if depth == 0 && prevTok == token.OR && off == prevOff+1 {
+					splits = append(splits, prevOff)
+				}
+			}
+			prevTok = tok
+			prevOff = off
 		}
-		prevTok = tok
-		prevOff = off
+		return splitPipeSegments(src, splits)
 	}
+	res := scanGoExpr(src, 0)
+	return splitPipeSegments(src, res.Pipes)
+}
+
+// splitPipeSegments builds the segment list from src and the byte offsets of
+// each `|` that begins a top-level `|>`, shared by splitPipe's two scan paths.
+func splitPipeSegments(src string, splits []int) []string {
 	if len(splits) == 0 {
 		return []string{src}
 	}

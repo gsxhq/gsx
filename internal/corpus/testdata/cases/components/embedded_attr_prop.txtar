@@ -64,7 +64,7 @@ func Page() gsx.Node {
 	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
 		_gsxgw := gsx.W(_gsxw)
 //line input.gsx:6:2
-		_gsxgw.Node(ctx, Field(FieldProps{Label: "Category", Attrs: gsx.Attrs{{Key: "x-model", Value: "pdcaCategory"}, {Key: "data-tip", Value: "plain text"}, {Key: "x-init", Value: "color:red"}}}))
+		_gsxgw.Node(ctx, Field(FieldProps{Label: "Category", Attrs: gsx.Attrs{{Key: "x-model", Value: "pdcaCategory"}, {Key: "data-tip", Value: `plain text`}, {Key: "x-init", Value: "color:red"}}}))
 		return _gsxgw.Err()
 	})
 }

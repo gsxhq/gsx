@@ -5,7 +5,7 @@
 package p
 
 component Row(id string) {
-	<p>{`a-\@{lit}-@{id}`}</p>
+	<p>{f`a-\@{lit}-@{id}`}</p>
 }
 -- invoke --
 Row(RowProps{Id: "a&b"})
@@ -37,7 +37,7 @@ func Row(_gsxp RowProps) gsx.Node {
 		_gsxgw.S("<p>")
 //line input.gsx:4:5
 		_gsxgw.S("a-@{lit}-")
-//line input.gsx:4:18
+//line input.gsx:4:19
 		_gsxgw.Text(string(id))
 		_gsxgw.S("</p>")
 		return _gsxgw.Err()

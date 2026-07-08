@@ -2,7 +2,7 @@
 -- input.gsx --
 package p
 
-component B(v string) { <span class=`badge-@{v}`>h</span> }
+component B(v string) { <span class=f`badge-@{v}`>h</span> }
 -- invoke --
 B(BProps{V: "x"})
 -- diagnostics.golden --

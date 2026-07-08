@@ -527,9 +527,11 @@ func (p *parser) parseBraceNode() (ast.Markup, bool, error) {
 	return in, false, err
 }
 
-// tryParseBodyEmbeddedInterp recognizes a lone backtick literal — optionally
+// tryParseBodyEmbeddedInterp recognizes a lone f`…` literal — optionally
 // followed by a whole-literal `|>` pipeline — as the *entire* value of a body
-// `{ }`: {`…@{expr}…`} or {`…` |> f}. Cursor must be at the opening `{`.
+// `{ }`: {f`…@{expr}…`} or {f`…` |> f}. Cursor must be at the opening `{`. A
+// bare (unprefixed) backtick is a plain Go raw string, not an interpolating
+// literal, so it is left to parseInterp.
 //
 // It returns (nil, false, nil) with the cursor (and any diagnostics recorded
 // by an abandoned trial) rewound to its entry state whenever the `{ }`
@@ -561,10 +563,13 @@ func (p *parser) tryParseBodyEmbeddedInterp() (*ast.EmbeddedInterp, bool, error)
 	}
 	p.i++ // past '{'
 	p.skipSpace()
-	if !p.at("`") {
-		// Bare backtick only — `js`/`css` embedded literals aren't valid in
-		// body position, and anything else isn't a lone literal at all. Rewind
-		// and let parseInterp scan (and error on) the whole `{ }` as Go.
+	if !p.at("f`") && !p.at(`f"`) {
+		// Only an f`…` / f"…" literal interpolates in body position. A bare
+		// backtick or bare `"` is a plain Go string (interpolation is opt-in
+		// behind the f prefix); js`/css` embedded literals aren't valid in body
+		// position; and anything else isn't a lone literal at all. Rewind and let
+		// parseInterp scan (and, where relevant, error on) the whole `{ }` as an
+		// ordinary Go expression.
 		rewind()
 		return nil, false, nil
 	}
@@ -575,7 +580,7 @@ func (p *parser) tryParseBodyEmbeddedInterp() (*ast.EmbeddedInterp, bool, error)
 	// a Go-aware scan below — that region can't contain a gsx backtick escape,
 	// so goStagesEnd is safe there even though goExprEnd is not safe over the
 	// literal itself.
-	lang, segs, err := p.parseEmbeddedAttrLiteral()
+	lang, dquoted, segs, err := p.parseEmbeddedAttrLiteral()
 	if err != nil {
 		// The literal didn't close cleanly (e.g. a Go raw string ending in `\`
 		// that the gsx backtick-escape convention swallows as an escape). This
@@ -592,7 +597,7 @@ func (p *parser) tryParseBodyEmbeddedInterp() (*ast.EmbeddedInterp, bool, error)
 	afterLiteral := p.i
 	if !p.eof() && p.src[p.i] == '}' {
 		p.i++ // past '}'
-		node := &ast.EmbeddedInterp{Segments: segs}
+		node := &ast.EmbeddedInterp{Segments: segs, DoubleQuoted: dquoted}
 		ast.SetSpan(node, startPos, p.posAt(p.i))
 		return node, true, nil
 	}
@@ -617,7 +622,7 @@ func (p *parser) tryParseBodyEmbeddedInterp() (*ast.EmbeddedInterp, bool, error)
 		return nil, false, nil
 	}
 	p.i = end + 1 // past '}'
-	node := &ast.EmbeddedInterp{Segments: segs, Stages: stages}
+	node := &ast.EmbeddedInterp{Segments: segs, Stages: stages, DoubleQuoted: dquoted}
 	ast.SetSpan(node, startPos, p.posAt(p.i))
 	return node, true, nil
 }

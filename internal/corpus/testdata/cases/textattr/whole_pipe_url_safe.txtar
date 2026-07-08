@@ -6,7 +6,7 @@
 package p
 
 component Link(u string) {
-	<a href={`@{u}` |> upper}>go</a>
+	<a href={f`@{u}` |> upper}>go</a>
 }
 -- invoke --
 Link(LinkProps{U: "javascript:alert(1)"})

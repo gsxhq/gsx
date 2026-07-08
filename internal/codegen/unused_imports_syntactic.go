@@ -139,7 +139,7 @@ func (m *Module) buildPackageSkeletons(dir string) (*packageSkeletons, error) {
 	for path, f := range gsxFiles {
 		ff := m.fileScopedFacts(dir, f, propFields, nodeProps, attrsProps, byo, bag, fset)
 		skel, _, imps, _, infReg, _, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps,
-			genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, bag, inferNames)
+			genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, m.opts.Classifier, bag, inferNames)
 		if berr != nil {
 			continue // unbuildable → keep all imports (no entry)
 		}

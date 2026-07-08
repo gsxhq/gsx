@@ -8,7 +8,7 @@ pageOrder: 40
 package views
 
 component Item(id string) {
-	<li>{`item-@{id}` |> upper}</li>
+	<li>{f`item-@{id}` |> upper}</li>
 }
 -- invoke --
 Item(ItemProps{Id: "a&b"})

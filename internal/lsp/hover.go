@@ -189,7 +189,7 @@ func componentAtTag(pkg *Package, path string, off int) (comp *gsxast.Component,
 		return nil, 0, 0, false
 	}
 	tag := ""
-	gsxast.Inspect(f, func(n gsxast.Node) bool {
+	inspectWithEmbedded(f, func(n gsxast.Node) bool {
 		if tag != "" {
 			return false
 		}

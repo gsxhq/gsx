@@ -36,67 +36,111 @@ func goStagesEnd(src string, from int) (int, bool) {
 // brace depth to 0, treating `from` as already one level deep (i.e. as if the
 // opening `{` immediately preceding `from` had already been consumed). Braces
 // inside strings, runes, and comments do not count.
+//
+// Fast path: when the remaining source has no '<' (no gsx element/fragment
+// can start) and no '`' (no bare/js/css backtick literal can start), the
+// legacy byte loop below is exact and cheap — skip the go/scanner-based
+// scanGoExpr entirely. Otherwise delegate to scanGoExpr, which is
+// byte-identical to this loop on every region either scanner is asked to
+// delimit in production (see TestScanGoExprCorpusDifferential) but is also
+// aware of element and gsx-escaped-backtick spans that this byte loop is not.
 func goDepth1End(src string, from int) (int, bool) {
-	depth := 1
-	for i := from; i < len(src); {
-		if end, ok := skipGSXEmbeddedLiteral(src, i); ok {
-			i = end
-			continue
-		}
-		if end, ok := skipQuotedOrComment(src, i); ok {
-			i = end
-			continue
-		}
-		switch src[i] {
-		case '{', '(', '[':
-			depth++
-		case '}', ')', ']':
-			depth--
-			if depth == 0 && src[i] == '}' {
-				return i, true
-			}
-		}
-		i++
+	if scanRegionObserver != nil {
+		scanRegionObserver(src, from)
 	}
-	return 0, false
+	if strings.IndexByte(src[from:], '<') < 0 && strings.IndexByte(src[from:], '`') < 0 {
+		depth := 1
+		for i := from; i < len(src); {
+			if end, ok := skipGSXEmbeddedLiteral(src, i); ok {
+				i = end
+				continue
+			}
+			if end, ok := skipQuotedOrComment(src, i); ok {
+				i = end
+				continue
+			}
+			switch src[i] {
+			case '{', '(', '[':
+				depth++
+			case '}', ')', ']':
+				depth--
+				if depth == 0 && src[i] == '}' {
+					return i, true
+				}
+			}
+			i++
+		}
+		return 0, false
+	}
+	res := scanGoExpr(src, from)
+	if res.Close < 0 {
+		return 0, false
+	}
+	return res.Close, true
 }
 
+// composedDelims splits the (already brace-stripped) inner class/style source
+// src for top-level ',' and ':' delimiters.
+//
+// Fast path: no '<' and no '`' anywhere in src (same tag/backtick guard as
+// goDepth1End) means the legacy byte loop's *span-skipping* is exact and
+// cheap. But unlike goDepth1End, the byte loop is ALSO wrong on plain Go
+// source containing a top-level ':=' — it can't distinguish that ':' (part of
+// a short-var-decl DEFINE token, e.g. a value-form `if`/`switch`'s
+// `;`-separated init: `if x := f(); x { … }`) from a real `: cond` guard
+// colon, and spuriously reports it as one (see
+// TestScanGoExprValueFormInitDivergence). So the fast path additionally
+// requires no ":=" substring; scanGoExpr tokenizes ':=' as a single DEFINE
+// and never confuses it for a Colon. Otherwise delegate to scanGoExpr(src,
+// 0): scanning from offset 0 with scanGoExpr's depth starting at 1 mirrors
+// this loop's depth starting at 0 (src here has no enclosing brace of its own
+// to balance against), so the two report the same top-level delimiters — see
+// scanGoExpr's doc comment.
 func composedDelims(src string) (commas, colons []int) {
-	depth := 0
-	for i := 0; i < len(src); {
-		if end, ok := skipGSXEmbeddedLiteral(src, i); ok {
-			i = end
-			continue
-		}
-		if end, ok := skipQuotedOrComment(src, i); ok {
-			i = end
-			continue
-		}
-		switch src[i] {
-		case '{', '(', '[':
-			depth++
-		case '}', ')', ']':
-			depth--
-		case ',':
-			if depth == 0 {
-				commas = append(commas, i)
-			}
-		case ':':
-			if depth == 0 {
-				colons = append(colons, i)
-			}
-		}
-		i++
+	if composedRegionObserver != nil {
+		composedRegionObserver(src)
 	}
-	return commas, colons
+	if strings.IndexByte(src, '<') < 0 && strings.IndexByte(src, '`') < 0 && !strings.Contains(src, ":=") {
+		depth := 0
+		for i := 0; i < len(src); {
+			if end, ok := skipGSXEmbeddedLiteral(src, i); ok {
+				i = end
+				continue
+			}
+			if end, ok := skipQuotedOrComment(src, i); ok {
+				i = end
+				continue
+			}
+			switch src[i] {
+			case '{', '(', '[':
+				depth++
+			case '}', ')', ']':
+				depth--
+			case ',':
+				if depth == 0 {
+					commas = append(commas, i)
+				}
+			case ':':
+				if depth == 0 {
+					colons = append(colons, i)
+				}
+			}
+			i++
+		}
+		return commas, colons
+	}
+	res := scanGoExpr(src, 0)
+	return res.Commas, res.Colons
 }
 
 func skipGSXEmbeddedLiteral(src string, i int) (int, bool) {
 	switch {
 	case hasIdentBoundary(src, i) && strings.HasPrefix(src[i:], "js`"):
-		return embeddedLiteralEnd(src, i+len("js`"))
+		return embeddedLiteralEnd(src, i+len("js`"), '`')
 	case hasIdentBoundary(src, i) && strings.HasPrefix(src[i:], "css`"):
-		return embeddedLiteralEnd(src, i+len("css`"))
+		return embeddedLiteralEnd(src, i+len("css`"), '`')
+	case hasIdentBoundary(src, i) && strings.HasPrefix(src[i:], "f`"):
+		return embeddedLiteralEnd(src, i+len("f`"), '`')
 	default:
 		return 0, false
 	}
@@ -106,9 +150,16 @@ func hasIdentBoundary(src string, i int) bool {
 	return i == 0 || !isIdentByte(src[i-1])
 }
 
-func embeddedLiteralEnd(src string, i int) (int, bool) {
+// embeddedLiteralEnd returns the offset just past the closing delim of a gsx
+// embedded literal whose body starts at src[i] (i.e. just after the opening
+// delimiter). It honours gsx's backslash escape convention — a delim preceded
+// by an odd number of backslashes (a backslash-escaped backtick in a backtick
+// literal, `\"` in a '"'-delimited one) is a literal char, not the terminator.
+// delim is a backtick for the f/js/css backtick forms and '"' for the
+// '"'-delimited escape-hatch forms.
+func embeddedLiteralEnd(src string, i int, delim byte) (int, bool) {
 	for i < len(src) {
-		if src[i] == '`' && !backtickEscapedIn(src, i) {
+		if src[i] == delim && !backtickEscapedIn(src, i) {
 			return i + 1, true
 		}
 		i++
@@ -339,6 +390,31 @@ var typeListStop = map[token.Token]bool{
 }
 
 // parenEnd returns the index of the `)` matching the `(` at src[open].
+//
+// Not rerouted onto scanGoExpr (Task 2): scanGoExpr has no general
+// matching-closer facility — only Close, which tracks '}', not ')'.
+//
+// parenEnd has two call sites, and they are NOT symmetric. A component's
+// receiver/param type list (component.go) genuinely cannot contain a gsx
+// element or backtick literal — Go type lists have no operand-position
+// `<tag>` — so delimEnd's plain go/scanner-based matching is exact there,
+// unconditionally.
+//
+// A pipe-filter's Go argument list (pipe.go's parsePipeStage), by contrast,
+// CAN contain an element as an argument today: `{ x |> wrap(<b/>) }` parses
+// (the element's own `<`/`>`/`/` bytes don't affect delimEnd's paren/bracket/
+// brace depth, so it still finds the real closing `)` correctly). What
+// delimEnd does NOT understand is an element's opaque text/attribute
+// interior: a `)` inside a quoted attribute value or text content (e.g.
+// `wrap(<b>closing)</b>)`) would be miscounted as the argument list's own
+// close. parenEnd is left unrouted anyway, uninstrumented by a tag/backtick
+// guard, because this fails SAFE rather than silently miscompiling: the
+// premature "close" desyncs parsePipeStage's trailing-content check, which
+// reports a "trailing text after `)`" parse error rather than accepting
+// malformed input. Giving parenEnd real element-span awareness is deferred
+// to whenever elements-as-filter-args are formally wired up and validated
+// (Task 3+ of the embedded-literals work), not required for Task 2's
+// byte-identical reroute.
 func parenEnd(src string, open int) (int, bool) {
 	return delimEnd(src, open, token.RPAREN, nil)
 }

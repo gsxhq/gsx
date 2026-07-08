@@ -19,7 +19,9 @@ attrs/cond_attr_param_only_in_branch	diag render
 attrs/expr_attrs	diag render
 attrs/spread_leading_rejected	diag(error)
 attrs/spread_trailing	diag render
+bodyinterp/bare_backtick_no_interp	diag gen render
 bodyinterp/escaped_hole	diag gen render
+bodyinterp/f_body_is_markup_template	diag gen render
 bodyinterp/plain	diag gen render
 bodyinterp/sub_expression	diag gen render
 bodyinterp/whole_pipe	diag gen render
@@ -177,6 +179,12 @@ diagnostics/shallow_interp_column	diag(error)
 diagnostics/undefined_interp	diag(error)
 diagnostics/value_node_pointer_receiver_error	diag(error)
 doctype/render	diag render
+dquote-literals/css_attr_backtick_content	diag gen render
+dquote-literals/f_attr_backtick_content	diag gen render
+dquote-literals/f_body_interp	diag gen render
+dquote-literals/f_escaped_quote	diag gen render
+dquote-literals/f_value_var	diag gen render
+dquote-literals/js_attr_backtick_content	diag gen render
 element-literals/call-arg	diag gen render
 element-literals/component-tag	diag gen render
 element-literals/func-local	diag gen render
@@ -241,6 +249,18 @@ fragment-literals/loop-list	diag gen render
 fragment-literals/return	diag gen render
 fragment-literals/struct-field	diag gen render
 fragment-literals/var	diag gen render
+goexpr-f-literal/call-arg	diag gen render
+goexpr-f-literal/f_value_is_escaped_string	diag gen render
+goexpr-f-literal/interp	diag gen render
+goexpr-f-literal/js_value_unsupported	diag render
+goexpr-f-literal/scope-local	diag gen render
+goexpr-f-literal/var	diag gen render
+goexpr-interp-tag/call-arg	diag gen render
+goexpr-interp-tag/component-tag	diag gen render
+goexpr-interp-tag/scope-local	diag gen render
+goexpr-interp-tag/sibling-mixed-type	diag gen render
+goexpr-interp-tag/stages	diag gen render
+goexpr-valueform-init/value_if_define_init	diag gen render
 interpolation/field_access	diag render
 interpolation/interp_types	diag render
 interpolation/mixed_chunk	diag render
@@ -454,6 +474,7 @@ style/value_form_evaluation_order	diag gen render
 style/value_if_else	diag gen render
 style/value_if_local_liveness	diag gen render
 style/value_switch	diag gen render
+textattr/bare_backtick_class_spread	diag render
 textattr/class_backtick_sub_expr_merge	diag gen render
 textattr/class_interp	diag gen render
 textattr/class_no_spread	diag gen render
@@ -517,4 +538,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 519 cases (render: 419, error: 77, gen-pinned: 250)
+TOTAL: 540 cases (render: 440, error: 77, gen-pinned: 269)
