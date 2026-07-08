@@ -309,10 +309,26 @@ render goldens.
     gofmt's end-of-line comment columns are computed against the element rather
     than the placeholder. gsx still never parses Go - it hands Go something Go can
     parse, the same claim-what-Go-leaves-free move as `|>`, so this needed no
-    merged Go+gsx grammar. Separately, a multi-line element literal now hangs off
-    its opening tag (`pretty.Align`) instead of breaking to column 0: children
-    indent one level deeper than `<`, the closing tag lines up under it. Trade-off:
-    renaming the variable re-indents the element. **Deferred:**
+    merged Go+gsx grammar. Separately, a multi-line element literal originally
+    hung off its opening tag (`pretty.Align`) instead of breaking to column 0 -
+    children indented one level deeper than `<`, the closing tag lined up under
+    it, at the cost of space-padded (not tab) continuation lines and rename
+    instability (renaming the variable re-indented the element).
+    **Superseded 2026-07-08:** `pretty.Align` is gone. An assignment RHS,
+    `return` operand, or keyed composite-literal field value now wraps in
+    prettier-style `(...)` when it breaks (real Go-AST classification via a new
+    `internal/goexprshape` package, not text-sniffing), indented by real Go
+    nesting depth computed statically from the preceding line's leading tabs
+    (`realTabDepth`) - tabs only, no space padding, stable under renames. Call
+    arguments and bare composite-literal elements (e.g. `Wrap(<Foo/>)`,
+    `[]any{<div>...}`) still get correct real-depth indentation but no parens -
+    see the bracket-reflow deferral below. The paren is purely cosmetic for the
+    `.gsx` source: `internal/codegen`'s two verbatim-`GoText`-splice sites
+    (`emit.go`'s real output and `analyze.go`'s type-checking skeleton) strip it
+    back out before compiling, since every element/fragment lowers to a
+    `gsx.Func(...)`/IIFE closure ending in `})` - leaving the paren in would trip
+    Go's automatic semicolon insertion on that trailing token. Spec
+    `2026-07-08-goexpr-element-paren-indent-design.md`. **Deferred:**
     component values (`type Component = func(...gsx.Attr) gsx.Node` collapse) -
     parked; a baked element literal already covers the driving nav-icon use
     case since its class is constant there, and component values only earn
@@ -736,6 +752,17 @@ vocabulary remains a design aspiration, not the current API.
   over the whole tree now completes in well under 1s (down from ~3s), and
   `generate`'s cold path speeds up correspondingly. Output is byte-identical
   (corpus goldens + a real-world `one-learning-gsx generate` diff check).
+- [ ] **`gsx fmt` bracket-reflow for call-arg / bare composite-lit elements** -
+  follow-up to the 2026-07-08 element-literal paren-wrap fix (item 15 above).
+  A multi-line element/fragment as a call argument (`Wrap(<Foo>...</Foo>)`) or
+  a keyless composite-literal element (`[]any{<div>...}`) gets correct
+  real-depth tab indentation today but not prettier's own treatment for those
+  positions (reflow the enclosing bracket onto its own line, trailing comma,
+  no decorative paren - array/call-arg JSX values never get wrapped in
+  `(...)`, only the bracket itself moves). Deferred: needs the enclosing
+  bracket's literal Go text restructured (move `(`/`[`, insert a comma), not
+  just an indent/paren decision - meaningfully bigger than the printer-only
+  change this was scoped to.
 
 ## Documentation backlog
 

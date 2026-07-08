@@ -25,6 +25,7 @@ import (
 
 	"github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/cssfmt"
+	"github.com/gsxhq/gsx/internal/goexprshape"
 	"github.com/gsxhq/gsx/internal/jsfmt"
 	"github.com/gsxhq/gsx/internal/pretty"
 	"github.com/gsxhq/gsx/internal/rawfmt"
@@ -166,14 +167,61 @@ func (p *printer) decl(d ast.Decl) pretty.Doc {
 // it does for a GoChunk's leading/trailing whitespace).
 func (p *printer) goWithElements(v *ast.GoWithElements) pretty.Doc {
 	parts := v.Parts
-	if formatted, ok := p.fmtGoExprParts(parts); ok {
+	formatted, shapes, ok := p.fmtGoExprParts(parts)
+	if ok {
 		parts = formatted
 	}
+	// partResult maps each value's classification (shapes is indexed by value
+	// order) onto its parts index, so a GoText run can look at its NEIGHBORING
+	// value (not just the one shapeIdx has reached) to decide whether to strip
+	// a pre-existing decorative paren.
+	partResult := make([]goexprshape.Result, len(parts))
+	shapeIdx := 0
+	for i, part := range parts {
+		if _, ok := part.(ast.GoText); ok {
+			continue
+		}
+		if shapeIdx < len(shapes) {
+			partResult[i] = shapes[shapeIdx]
+		}
+		shapeIdx++
+	}
+	// eligible reports whether parts[i] is an *Element/*Fragment in a position
+	// safe to visually wrap in (...) — the only case that ever carries a
+	// decorative paren. Never an EmbeddedInterp (f`...` literal), which codegen
+	// doesn't lower into a closure and so has no matching strip step (see
+	// internal/codegen's emit.go GoWithElements case).
+	eligible := func(i int) bool {
+		switch parts[i].(type) {
+		case *ast.Element, *ast.Fragment:
+			return partResult[i].Shape == goexprshape.ParenWrap
+		default:
+			return false
+		}
+	}
+	// decoratedParen reports whether parts[i] is ALSO currently sitting inside
+	// a real paren in this source (not just eligible for one) — e.g. a `var
+	// (…)` group's own closing paren can immediately follow an unwrapped,
+	// eligible value with no relation to it, and must be left alone.
+	decoratedParen := func(i int) bool {
+		return eligible(i) && partResult[i].Wrapped
+	}
+
 	last := len(parts) - 1
 	docs := make([]pretty.Doc, 0, len(parts))
+	precedingGoText := ""
 	for i, part := range parts {
 		if gt, ok := part.(ast.GoText); ok {
 			src := trimGoTextEdges(gt.Src, i == 0, i == last)
+			if i > 0 && decoratedParen(i-1) {
+				src = goexprshape.StripLeadingParen(src)
+			}
+			if i < last && decoratedParen(i+1) {
+				src = goexprshape.StripTrailingParen(src)
+			}
+			if src != "" {
+				precedingGoText = src
+			}
 			if src == "" {
 				continue
 			}
@@ -186,12 +234,65 @@ func (p *printer) goWithElements(v *ast.GoWithElements) pretty.Doc {
 		}
 		// A gsx value starts partway along its Go line (`n := <div>`), and the Go
 		// text before it is literal bytes inside a Text doc — invisible to the
-		// pretty printer, whose indent level for this decl is zero. Align hangs the
-		// value's breaks off the column its opening tag sits at, so children indent
-		// one level deeper than `<` and the closing tag lines up under it.
-		docs = append(docs, pretty.Align(doc))
+		// pretty printer, whose indent level for this decl is zero. realTabDepth
+		// recovers the real Go nesting depth from that literal text so children
+		// and the closing tag/paren land at the right tab depth regardless.
+		depth := realTabDepth(precedingGoText)
+		if eligible(i) {
+			doc = parenWrapDoc(doc)
+		}
+		docs = append(docs, indentN(depth, doc))
 	}
 	return pretty.Concat(docs...)
+}
+
+// parenWrapDoc wraps doc in "(" ")" that render only when doc breaks — either
+// because it genuinely can't fit on one line (author-forced multi-line
+// content) or because the line is too wide. Mirrors the element printer's own
+// opening-tag/children Group+SoftLine shape (see the element method):
+// SoftLine never forces a break, so Group's forced flag reduces to whatever
+// doc itself carries, and IfBreak's branches are Text-only (never
+// Line/HardLine) so the parens never spuriously force the group to break.
+//
+// The parens this emits are purely cosmetic for the .gsx source: codegen
+// strips the matching literal "(" / ")" out of the surrounding GoText before
+// splicing in the element's lowered closure (see emit.go), so they never
+// reach the generated .x.go and can't trip Go's automatic semicolon insertion
+// on the closure's own trailing "}" / ")".
+func parenWrapDoc(doc pretty.Doc) pretty.Doc {
+	return pretty.Group(pretty.Concat(
+		pretty.IfBreak(pretty.Text("("), pretty.Text("")),
+		pretty.Indent(pretty.Concat(pretty.SoftLine, doc)),
+		pretty.SoftLine,
+		pretty.IfBreak(pretty.Text(")"), pretty.Text("")),
+	))
+}
+
+// indentN wraps d in n ordinary Indent levels — used to bring a value's
+// break-indentation up to the real Go nesting depth its preceding GoText sits
+// at, which the printer's own indent counter (always 0 for a GoWithElements
+// decl) cannot see on its own. See realTabDepth.
+func indentN(n int, d pretty.Doc) pretty.Doc {
+	for range n {
+		d = pretty.Indent(d)
+	}
+	return d
+}
+
+// realTabDepth returns the leading-tab count on the last line of
+// precedingGoText — the real Go indentation depth the next gsx value sits at,
+// which the enclosing GoWithElements decl's own indent counter (always 0,
+// since its surrounding Go text is emitted as literal bytes) cannot see.
+func realTabDepth(precedingGoText string) int {
+	line := precedingGoText
+	if i := strings.LastIndexByte(line, '\n'); i >= 0 {
+		line = line[i+1:]
+	}
+	n := 0
+	for n < len(line) && line[n] == '\t' {
+		n++
+	}
+	return n
 }
 
 // trimGoTextEdges trims leading whitespace from src when first is true, and
@@ -1253,7 +1354,7 @@ func (p *printer) goExprValue(part ast.GoPart) (pretty.Doc, bool) {
 // placeholder rune is free, or when a placeholder cannot be located in the
 // output. All are degrade-gracefully paths: gsx fmt must never fail on gsx it
 // was able to parse.
-func (p *printer) fmtGoExprParts(parts []ast.GoPart) ([]ast.GoPart, bool) {
+func (p *printer) fmtGoExprParts(parts []ast.GoPart) ([]ast.GoPart, []goexprshape.Result, bool) {
 	var text strings.Builder
 	holeCount := 0
 	for _, part := range parts {
@@ -1264,15 +1365,16 @@ func (p *printer) fmtGoExprParts(parts []ast.GoPart) ([]ast.GoPart, bool) {
 		holeCount++
 	}
 	if holeCount == 0 {
-		return nil, false
+		return nil, nil, false
 	}
 	hole, ok := goExprHoleRune(text.String())
 	if !ok {
-		return nil, false
+		return nil, nil, false
 	}
 
 	var src strings.Builder
 	holes := make([]string, 0, holeCount)
+	shapeHoles := make([]goexprshape.Hole, 0, holeCount)
 	for _, part := range parts {
 		if gt, ok := part.(ast.GoText); ok {
 			src.WriteString(gt.Src)
@@ -1280,26 +1382,29 @@ func (p *printer) fmtGoExprParts(parts []ast.GoPart) ([]ast.GoPart, bool) {
 		}
 		doc, ok := p.goExprValue(part)
 		if !ok {
-			return nil, false
+			return nil, nil, false
 		}
 		width, flat := goExprFlatWidth(doc)
 		if !flat {
 			width = 1
 		}
 		h := strings.Repeat(hole, width)
+		start := len(goExprWrapper) + src.Len()
+		shapeHoles = append(shapeHoles, goexprshape.Hole{Start: start, End: start + len(h)})
 		holes = append(holes, h)
 		src.WriteString(h)
 	}
+	shapes := goexprshape.Classify(goExprWrapper+src.String(), shapeHoles)
 
 	out, err := format.Source([]byte(goExprWrapper + src.String()))
 	if err != nil {
-		return nil, false
+		return nil, shapes, false
 	}
 	// Drop the synthetic package clause. gofmt always emits it as the first line.
 	formatted := string(out)
 	nl := strings.IndexByte(formatted, '\n')
 	if nl < 0 {
-		return nil, false
+		return nil, shapes, false
 	}
 	formatted = formatted[nl+1:]
 
@@ -1312,7 +1417,7 @@ func (p *printer) fmtGoExprParts(parts []ast.GoPart) ([]ast.GoPart, bool) {
 		if _, ok := part.(ast.GoText); !ok {
 			// A gsx value: the cursor must be sitting exactly on its placeholder.
 			if next >= len(holes) || !strings.HasPrefix(formatted[cursor:], holes[next]) {
-				return nil, false
+				return nil, shapes, false
 			}
 			cursor += len(holes[next])
 			next++
@@ -1324,7 +1429,7 @@ func (p *printer) fmtGoExprParts(parts []ast.GoPart) ([]ast.GoPart, bool) {
 		if next < len(holes) {
 			j := strings.Index(formatted[cursor:], holes[next])
 			if j < 0 {
-				return nil, false
+				return nil, shapes, false
 			}
 			end = cursor + j
 		}
@@ -1332,9 +1437,9 @@ func (p *printer) fmtGoExprParts(parts []ast.GoPart) ([]ast.GoPart, bool) {
 		cursor = end
 	}
 	if next != len(holes) {
-		return nil, false
+		return nil, shapes, false
 	}
-	return res, true
+	return res, shapes, true
 }
 
 // fmtNode renders a go/ast node back to canonical Go source via go/format.Node,

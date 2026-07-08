@@ -1,5 +1,11 @@
 # Multi-line element literals in Go-expression position: paren-wrap instead of column-align
 
+> **Status: implemented and verified** (this revision documents what actually
+> shipped, after two design pivots forced by running the real test suite —
+> see "Two hazards found only by running it" below). An earlier revision of
+> this doc proposed a printer-only fix; that design was unsound and never
+> merged. Do not resurrect it without re-reading this document's "why."
+
 ## Problem
 
 PR #49 (`fix(fmt): hang multi-line element literals off their opening tag`)
@@ -41,7 +47,9 @@ someLongName = (
 
 Renaming `someLongName` to anything does not change the indentation of the
 body. This design ports that approach to gsx, scoped to where it applies
-cleanly.
+cleanly, and scoped to `<tag>`/`</tag>` element and fragment values only (an
+explicit user requirement — never an `f\`...\`` embedded-literal value, which
+has no matching codegen convention to strip; see below).
 
 ## Not every position gets the same treatment
 
@@ -73,52 +81,38 @@ paren-wrap. The second needs the enclosing bracket itself restructured
 
 ## Classifying the shape: real AST, not text-sniffing
 
-`internal/printer/printer.go`'s `fmtGoExprParts` (used by `goWithElements`,
-printer.go:1256) already builds a syntactically-complete substituted Go
-source for every `GoWithElements` decl: each gsx value (element, fragment,
-`f\`...\`` literal) is stood in by a placeholder identifier so `go/format` can
-lay out the surrounding Go text. This design adds a sibling classification step
-that reuses that exact substituted source.
-
-Parse it with `go/parser.ParseFile` and, for each placeholder's tracked byte
-offset, find its enclosing node:
+`internal/printer/printer.go`'s `fmtGoExprParts` (used by `goWithElements`)
+already builds a syntactically-complete substituted Go source for every
+`GoWithElements` decl: each gsx value is stood in by a placeholder identifier
+so `go/format` can lay out the surrounding Go text. Classification reuses this
+same idea, parsing a substituted source with `go/parser` and, for each
+placeholder's tracked byte range, finding its enclosing node — implemented in
+a **new shared package, `internal/goexprshape`** (see below; it turned out
+both the printer and codegen need this, for two independent decisions).
 
 ```go
-type goExprShape int
+type Shape int
 
 const (
-    shapePlain     goExprShape = iota // plain, unchanged doc (fallback/default)
-    shapeParenWrap                     // "prefix: value" — wrap in (...) when it breaks
+    Plain     Shape = iota // call arg, keyless composite-lit element, unrecognized, or unparseable
+    ParenWrap               // assignment RHS / return operand / keyed composite-lit field value
 )
 ```
 
-- `shapeParenWrap`: the placeholder is `*ast.ValueSpec.Values[i]`,
+- `ParenWrap`: the placeholder is `*ast.ValueSpec.Values[i]`,
   `*ast.AssignStmt.Rhs[i]`, `*ast.ReturnStmt.Results[i]`, or the `Value` of an
-  `*ast.KeyValueExpr`.
-- `shapePlain`: the placeholder is a `*ast.CallExpr.Args[i]`, a keyless
+  `*ast.KeyValueExpr` (unwrapping any pre-existing `*ast.ParenExpr` layers
+  first, so classification is stable whether or not a decorative paren is
+  already present — see "Idempotence" below for why this matters).
+- `Plain`: the placeholder is a `*ast.CallExpr.Args[i]`, a keyless
   `*ast.CompositeLit.Elts[i]`, anything else, or the substituted source fails
   to parse.
 
-This is real semantic classification via the Go AST already being built for
-formatting purposes — not a heuristic over surrounding text (which the
-project's engineering standard rules out; e.g. "does the preceding GoText end
-in `(`" would misfire on a trailing comment or nested parens). No new parse
-pass beyond what already exists to reformat the surrounding Go text; the
-classification and the `go/format.Source` call both run over the same
-substituted source built once.
-
-`goWithElements` receives the per-part shape alongside the (possibly
-reformatted) parts and picks the Doc construction accordingly. This applies
-uniformly to every `goExprValue` kind — `*ast.Element`, `*ast.Fragment`, and
-`*ast.EmbeddedInterp` (an `f\`...\`` literal in value position) all go through
-the same classify-then-wrap path, since `fmtGoExprParts` already treats them
-identically when building the substituted source. A multi-line `f\`...\``
-literal's width is measured by `fits()`'s existing rune-count-of-`Text`
-handling, which does not special-case embedded `\n` — a pre-existing
-characteristic of `internal/pretty`, not something this design changes;
-`Group.forced` still catches it correctly whenever an *element* is the value,
-since block elements signal their own forced break via `BreakParent`/`HardLine`
-independent of this Text quirk.
+This is real semantic classification via the Go AST — not a heuristic over
+surrounding text (which the project's engineering standard rules out; e.g.
+"does the preceding GoText end in `(`" would misfire on a trailing comment,
+nested parens, or — as discovered during implementation — a `var (...)`
+group's own unrelated closing paren; see "Two hazards" below).
 
 ## The real-nesting-depth trap (verified, and how it's fixed)
 
@@ -170,19 +164,15 @@ func realTabDepth(precedingGoText string) int {
 }
 ```
 
-`goWithElements` wraps each value's Doc — paren-wrap or plain, see below — in
-`realTabDepth` many ordinary `pretty.Indent` calls. Verified with a throwaway
-probe directly against `internal/pretty` (`Indent(wrapped)` for a depth of 1
-in the `func f()` example above): output matches prettier's own shape exactly
-— `<div>` one tab deeper than `someLongName`, `<p>` one deeper again, `</div>`
-and the closing `)` both back at `someLongName`'s own depth. No new `Doc` kind,
-no print-time bookkeeping — plain `Indent`, applied a computed number of
-times, which is exactly what `Indent` is for.
-
-This also means `pretty.Align` is removable, but the reasoning is different
-from the original draft: not "nothing needs a hanging indent anymore," but
-"the hanging-indent's job — reproducing real nesting depth — is now done
-correctly, statically, before Doc construction, by ordinary `Indent`."
+`goWithElements` wraps each value's Doc — paren-wrap or plain — in
+`realTabDepth`-many ordinary `pretty.Indent` calls. Verified with a throwaway
+probe directly against `internal/pretty`: output matches prettier's own shape
+exactly — `<div>` one tab deeper than `someLongName`, `<p>` one deeper again,
+`</div>` and the closing `)` both back at `someLongName`'s own depth. No new
+`Doc` kind, no print-time bookkeeping — plain `Indent`, applied a computed
+number of times, which is exactly what `Indent` is for. `pretty.Align` is
+removed entirely (`internal/pretty/doc.go`, `print.go`, `align_test.go`);
+`Print` reverts to a plain `strings.Builder`, a real simplification.
 
 ## The paren-wrap Doc
 
@@ -193,115 +183,204 @@ inspects an `IfBreak`'s *broken* branch unconditionally — so a bare
 wrapping even values that fit on one line. The existing element/children
 printer avoids exactly this by using `SoftLine` (which never forces a break)
 for the optional break points and reserving `IfBreak` only for literal tokens
-whose branches are `Text`, never `Line`/`HardLine` (see printer.go:353-356,
-the opening-tag/children wrap). This design uses the identical shape, with the
-whole thing wrapped in `realTabDepth`-many `Indent`s:
+whose branches are `Text`, never `Line`/`HardLine`. `parenWrapDoc` uses the
+identical shape:
 
 ```go
-func parenWrapDoc(depth int, doc pretty.Doc) pretty.Doc {
-    wrapped := pretty.Group(pretty.Concat(
-        pretty.IfBreak(pretty.Text("("), pretty.Text("")),
-        pretty.Indent(pretty.Concat(pretty.SoftLine, doc)),
-        pretty.SoftLine,
-        pretty.IfBreak(pretty.Text(")"), pretty.Text("")),
-    ))
-    for range depth {
-        wrapped = pretty.Indent(wrapped)
-    }
-    return wrapped
+func parenWrapDoc(doc pretty.Doc) pretty.Doc {
+	return pretty.Group(pretty.Concat(
+		pretty.IfBreak(pretty.Text("("), pretty.Text("")),
+		pretty.Indent(pretty.Concat(pretty.SoftLine, doc)),
+		pretty.SoftLine,
+		pretty.IfBreak(pretty.Text(")"), pretty.Text("")),
+	))
 }
 ```
 
-`containsForcedBreak` on the inner `Concat` reduces to whatever `doc` itself
-carries (author-written multi-line content propagates a real forced break;
-`SoftLine` and `Text` never do) — so the group is forced only when the value
-genuinely must be multi-line, falls through to `Print`'s width `fits()` check
-otherwise (matching prettier's own width-triggered wrapping, verified
-empirically: a short single-line JSX value still gets paren-wrapped if the
-assignment line itself overflows 80 columns), and renders completely flat —
-parens as `""` — when the value fits. No change to any currently-single-line
-var/return/struct-field output.
+`goWithElements` applies `realTabDepth`-many `Indent`s around the *result* of
+`parenWrapDoc` (for `ParenWrap` values) or around the bare `doc` (for `Plain`
+values) — depth-correction is orthogonal to the paren decision.
 
-Example — `struct-field.txtar`'s `Icon: <svg class="w-5 h-5"><path .../></svg>`
-(already multi-line in its author source, at real depth 0 — top-level `var`)
-becomes:
+## Two hazards found only by running it
+
+Both of the following were caught by actually executing the full test suite
+(`go test ./...`, then `go test ./internal/corpus -run TestCorpus -update`)
+against a real implementation — not by reasoning about the design. Neither
+would have been caught by unit tests scoped to `internal/printer` alone.
+
+### Hazard 1: Go's automatic semicolon insertion breaks codegen
+
+Every gsx element/fragment lowers, via codegen, into
+`gsx.Func(func(ctx context.Context, _gsxw io.Writer) error { ... })` — a
+closure that **always ends in `})`**. Wrapping that in bare `(...)` in the
+*generated* `.x.go`, with the closing paren on its own line, is invalid Go
+**every time**, confirmed with a minimal, non-gsx repro:
 
 ```go
-var item = NavItem{Label: "Home", Icon: (
-	<svg class="w-5 h-5">
-		<path d="M0 0"/>
-	</svg>
-)}
+var n = (
+	func() int {
+		return 1
+	}()
+)
+```
+```
+./main.go:6:5: syntax error: unexpected newline, expected )
 ```
 
-Note the outer `NavItem{...}` braces are **not** reflowed (no trailing comma,
-no brace-per-line) — that's the same bracket-reflow territory deferred for
-call-arg/bare-composite-lit elements, just visible one level out. Only the
-field's own value gets paren-wrapped.
+Go's automatic semicolon insertion is a purely lexical rule — a newline after
+a line ending in `)` (or an identifier, literal, etc.) always inserts an
+implicit semicolon, regardless of bracket nesting. This is not a narrow edge
+case; it breaks every single `ParenWrap` position once codegen substitutes the
+real closure for the placeholder.
+
+**The fix is not to avoid parens in the `.gsx` source** — it's to make them
+purely cosmetic there, invisible to codegen. `internal/codegen`'s two emission
+sites that splice a `GoWithElements`'s `GoText` verbatim —
+`emit.go`'s `*ast.GoWithElements` case (the real `.x.go` output) and
+`analyze.go`'s skeleton builder (a separate, type-checking-only Go file with
+its *own*, pre-existing awareness of this exact hazard class, documented at
+`emitSkeletonBlockLine`'s doc comment for the unrelated `Wrap(<Foo/>)` case) —
+now each classify the `GoWithElements`'s parts (reusing `internal/goexprshape`)
+and strip a decorative paren from the adjacent `GoText` **before** writing it,
+so the spliced closure never has one next to it:
+
+```go
+// parenStripTrailing / parenWrappable — internal/codegen/parenstrip.go
+src := p.Src
+if i > 0 && parenWrappable(v.Parts[i-1], shapes, i-1) {
+	src = goexprshape.StripLeadingParen(src)
+}
+if i < len(v.Parts)-1 && parenWrappable(v.Parts[i+1], shapes, i+1) {
+	src = goexprshape.StripTrailingParen(src)
+}
+```
+
+Printer and codegen make **independent** decisions from the same
+classification: printer decides whether to *add* a decorative paren for
+human readability; codegen decides whether to *strip* one before compiling.
+Neither needs to know why the other exists.
+
+### Hazard 2: the classifier's own substituted source hit the same ASI bug — twice
+
+Building the classify-only substituted source by naively concatenating verbatim
+`GoText` around a placeholder reproduces Hazard 1 **inside the classifier
+itself**, on a re-parse of gsx fmt's own previous output (`Icon: (\n\tX\n)}`
+puts the placeholder alone on its own line): `go/parser` fails to parse,
+`Classify` degrades to all-`Plain`, and codegen never learns there's a paren
+to strip.
+
+The first fix attempt — replace every `\n` in the substituted source with a
+space — was **also wrong**, caught by a printer regression test: it also
+collapses *real, required* statement separators (`n := X\n_ = n` needs that
+newline; Go's own ASI depends on it to parse two separate statements at all).
+
+The actual fix distinguishes the two cases structurally: only collapse
+whitespace touching a hole when it sits **directly inside an open bracket**
+(the nearest non-whitespace byte before the hole is `(`/`[`/`{`, or after it is
+`)`/`]`/`}`). A statement separator has no such bracket adjacent to it; a
+decorative-or-real paren/bracket does. This is `Classify`'s
+`collapseHoleWhitespace`, covered by dedicated regression tests for both
+directions of the bug.
+
+### Idempotence and the `Wrapped` field
+
+Classifying `Shape` alone is not enough to decide whether to *strip* a paren:
+a `var (...)` group's own closing paren can immediately follow an **unwrapped**
+`ParenWrap`-eligible value with no relation to it at all —
+
+```go
+var (
+	hello = "Hello, World!"
+
+	xx = <p>{ hello }</p>
+)
+```
+
+— and naively stripping "the `)` that happens to follow a `ParenWrap` value"
+ate the group's real closing paren, corrupting the output (caught by an
+existing printer test, `TestGoWithElementsEqAlignment`-style cases). `Classify`
+therefore returns a `Result{Shape, Wrapped}` per hole: `Wrapped` reports
+whether the value is *actually* sitting inside a real `*ast.ParenExpr` in the
+given source (the same unwrap loop that stabilizes `Shape` also detects this).
+Both printer and codegen gate their paren-stripping on `Wrapped`, never on
+`Shape` alone. This is also what makes fmt idempotent: re-formatting
+already-wrapped output strips the old paren before recomputing whether to add
+a fresh one, rather than adding a second layer.
+
+## `internal/goexprshape` — the shared package
+
+```go
+package goexprshape
+
+type Shape int
+const (
+	Plain Shape = iota
+	ParenWrap
+)
+
+type Hole struct{ Start, End int } // placeholder's byte range in src
+
+type Result struct {
+	Shape   Shape
+	Wrapped bool // is there ACTUALLY a paren around this value right now
+}
+
+func Classify(src string, holes []Hole) []Result
+func StripTrailingParen(src string) string // drops a decorative "(" + trailing ws
+func StripLeadingParen(src string) string  // drops a decorative ")" + leading ws
+```
+
+Lives outside both `internal/printer` and `internal/codegen` because both need
+it and neither imports the other. `internal/printer` builds its `Hole`s from
+the same width-matched placeholders `fmtGoExprParts` already builds for
+`go/format`; `internal/codegen` (`parenstrip.go`) builds its own
+single-rune-placeholder substituted source, since it never needs gofmt-style
+column alignment.
 
 ## The plain fallback
 
-For `shapePlain` (call-arg, bare composite-lit elements, unclassified,
-unparseable): the value's doc is emitted **unchanged except for the same
-`realTabDepth`-many `Indent` wrapping** — no parens, no `Align`. Because the
-depth fix is applied uniformly regardless of shape, this bucket does **not**
-reintroduce the pre-PR-#49 bug: a multi-line call-arg element nested inside a
-func body still gets its closing tag correctly aligned to the real block
-depth. It just doesn't get the extra parens/bracket-reflow treatment prettier
-gives call arguments and array elements — that part is still deferred (see
-Non-goals), but it's a readability deferral now, not a correctness one.
-
-## Retiring `pretty.Align`
-
-With the real-depth problem solved statically (above) and every position
-resolved to either paren-wrap or plain, nothing uses the runtime
-column-hanging behavior `Align` provided. Remove it entirely:
-
-- `internal/pretty/doc.go` — remove `kindAlign`, `Align()`, and its
-  `containsForcedBreak` case (reverts to `case kindIndent:` alone).
-- `internal/pretty/print.go` — remove `cmd.align`/`cmd.alignCol`, the
-  `kindAlign` case, and `alignPrefix()`. The `[]byte` + `lineStart` bookkeeping
-  in `Print` existed solely so `Align` could read back the current line's
-  leading whitespace; with `Align` gone, `Print` reverts to a plain
-  `strings.Builder` — a real simplification, not just a swap.
-- Delete `internal/pretty/align_test.go` (4 tests, all `Align`-specific).
-- `realTabDepth` and the `Indent`-wrapping loop live in `internal/printer`
-  (next to `goWithElements`), not `internal/pretty` — the "real depth" concept
-  is specific to how `GoWithElements` embeds literal Go text, not a general
-  pretty-printing primitive.
+For `Plain` (call-arg, bare composite-lit elements, unclassified, unparseable):
+the value's doc is emitted **unchanged except for the same
+`realTabDepth`-many `Indent` wrapping** — no parens. Because the depth fix is
+applied uniformly regardless of shape, this bucket does **not** reintroduce
+the pre-PR-#49 bug: a multi-line call-arg element nested inside a func body
+still gets its closing tag correctly aligned to the real block depth. It just
+doesn't get the extra parens/bracket-reflow treatment prettier gives call
+arguments and array elements — deferred, see Non-goals.
 
 ## Testing
 
-- `internal/printer/goexpr_test.go`: replace the four tests pinning the old
-  hanging-indent (`TestGoExprElementHangsOffOpeningTag`, `…AtTopLevel`,
-  `…InVarGroup`, `TestGoExprElementRenameShiftsHangingIndent`) with tests
-  pinning the new behavior:
-  - paren-wrap for a top-level `var`, each covering: author-forced multi-line,
-    width-forced-but-source-single-line, and fits-on-one-line (stays flat, no
-    parens — regression guard).
-  - paren-wrap for an assignment (`:=`) **nested inside a `func` body** —
-    the exact shape that exposed the real-depth bug — asserting the closing
-    paren lands at the assignment's own depth and children one tab deeper,
-    not at column 0 and not at the decl's own (always-zero) baseline.
-  - plain output (no parens) for a multi-line call-arg element, both at
-    top-level and nested inside a `func` body, asserting the same correct
-    real-depth indentation without parens; comment cross-referencing the
-    ROADMAP entry for the deferred bracket-reflow work.
-  - a rename of the `var`/assignment case no longer changes the body's
-    indentation (replaces the intent of the deleted
-    `TestGoExprElementRenameShiftsHangingIndent`, now proving the opposite
-    property).
-- `internal/pretty`: no new tests needed beyond what already exercises
-  `Group`/`IfBreak`/`SoftLine` composition; `align_test.go` is deleted, not
-  replaced (the behavior it pinned no longer exists).
-- Corpus (`internal/corpus`): no changes needed. `generated.x.go.golden` /
-  `render.golden` don't encode whitespace, and
-  `internal/printer.TestCorpusIdempotence` only checks
-  `fmt(fmt(x)) == fmt(x)`, not a byte-for-byte stored golden — it exercises
-  `struct-field.txtar`'s existing multi-line input against the new logic
-  automatically.
-- `make check` / `make ci` must stay green (gofmt + `gsx fmt` drift checks
-  included).
+- `internal/goexprshape/shape_test.go`: `Classify` against every recognized
+  `Shape`/`Wrapped` combination, including the three regressions found during
+  implementation: an already-paren-wrapped multi-line value (Hazard 2), a hole
+  followed by a real statement separator (the newline-collapse overcorrection),
+  and a `var (...)` group's own closing paren not being mistaken for the
+  value's (the `Wrapped` field's reason to exist).
+- `internal/printer/goexpr_test.go`: replaces the four tests pinning the old
+  hanging-indent with tests pinning paren-wrap (top-level, width-forced,
+  fits-flat regression guard, nested-in-func-body real-depth, rename-stability,
+  keyed composite-lit field) and plain-indent (call-arg, top-level and nested)
+  — plus `TestRealTabDepth` directly. `checkFormat`'s built-in idempotence
+  check (format twice, compare) catches the double-wrap regression from
+  Hazard 2/`Wrapped`.
+- `internal/codegen`: existing tests exercise `emit.go`/`analyze.go` through
+  real compilation (`go/packages`), which is what actually caught Hazard 1 —
+  no new codegen-specific unit tests were needed beyond the corpus fixture
+  updates below, since the corpus suite already compiles every case for real.
+- Corpus (`internal/corpus`): **three existing fixtures needed updating** —
+  `element-literals/struct-field.txtar`, `element-literals/text-go-keyword.txtar`,
+  `fragment-literals/loop-list.txtar` — because their `input.gsx` contained a
+  multi-line value in a now-`ParenWrap` position; their checked-in source is
+  updated to the new canonical (paren-wrapped) form and `generated.x.go.golden`
+  regenerated via `go test ./internal/corpus -run TestCorpus -update` (only
+  `//line` numbers shift; the generated closure text itself is byte-identical
+  to before, confirming Hazard 1's fix). `render.golden`/`diagnostics.golden`
+  are unchanged. An earlier version of this doc claimed no corpus changes were
+  needed — wrong; that claim didn't yet account for input.gsx's own canonical
+  form changing.
+- `make check` (build/vet/full test suite across the main module,
+  `playground/server`, and `examples/tailwind-merge`, plus `golangci-lint`)
+  is green.
 
 ## Non-goals (this pass)
 
@@ -310,22 +389,39 @@ column-hanging behavior `Align` provided. Remove it entirely:
   `Wrap(<Foo>...</Foo>)` call argument. These get correct real-depth
   indentation (via `realTabDepth`, same as every other position) but keep
   today's inline/bare shape — no parens, no trailing comma, no bracket moved
-  onto its own line. Tracked as a `docs/ROADMAP.md` follow-up: reflowing the
-  enclosing bracket the way prettier does for call arguments and array
-  elements.
+  onto its own line. Tracked as a `docs/ROADMAP.md` follow-up.
 - **Reflowing an outer composite literal's own braces** when one of its keyed
-  fields' values paren-wraps (the `NavItem{...}` example above) — same
-  deferred territory, orthogonal to this fix.
-- **No syntax change.** This is a whitespace/text-shape formatting change
-  only; parens around a Go operand are already valid, unremarkable Go. No
+  fields' values paren-wraps — same deferred territory, orthogonal to this fix.
+- **`*ast.EmbeddedInterp` (`f\`...\`` literal) values** — never paren-wrapped,
+  per explicit scope: codegen lowers these to a string expression, not a
+  closure, so they have no ASI hazard and no matching strip convention: adding
+  one would be pure scope creep with no bug to fix.
+- **No syntax change.** The decorative paren is ordinary, pre-existing Go
+  syntax (parens around an operand); `internal/goexprshape` and codegen's
+  strip step are purely a formatting/codegen-hygiene concern. No
   `tree-sitter-gsx` / `vscode-gsx` / `gsxhq.github.io` grammar updates needed.
 
 ## Files touched
 
-- `internal/printer/printer.go` — `fmtGoExprParts` gains AST-based shape
-  classification; new `realTabDepth` helper; `goWithElements` branches on
-  shape per part and wraps with `realTabDepth`-many `Indent`s either way.
-- `internal/pretty/doc.go`, `internal/pretty/print.go` — remove `Align`.
+- `internal/goexprshape/` (new package) — `Shape`, `Hole`, `Result`,
+  `Classify`, `StripLeadingParen`, `StripTrailingParen`, `shape_test.go`.
+- `internal/printer/printer.go` — `fmtGoExprParts` returns
+  `[]goexprshape.Result` alongside reformatted parts; `goWithElements`
+  branches on `Shape`/`Wrapped` per part (strip-then-maybe-rewrap), applies
+  `realTabDepth`-many `Indent`s uniformly; new `parenWrapDoc`, `indentN`,
+  `realTabDepth` helpers.
+- `internal/pretty/doc.go`, `internal/pretty/print.go` — `Align` removed.
 - `internal/pretty/align_test.go` — deleted.
-- `internal/printer/goexpr_test.go` — four tests replaced (see Testing).
-- `docs/ROADMAP.md` — new entry for deferred bracket-reflow work.
+- `internal/printer/goexpr_test.go` — old hanging-indent tests replaced; new
+  `TestRealTabDepth`.
+- `internal/codegen/parenstrip.go` (new file) — `goWithElementsParenShapes`,
+  `parenWrappable`.
+- `internal/codegen/emit.go` — `*ast.GoWithElements` case strips decorative
+  parens from adjacent `GoText` before splicing the lowered closure.
+- `internal/codegen/analyze.go` — skeleton builder's `*gsxast.GoWithElements`
+  loop does the same, for the same reason, independently (see Hazard 1).
+- `internal/corpus/testdata/cases/element-literals/struct-field.txtar`,
+  `text-go-keyword.txtar`, `fragment-literals/loop-list.txtar` — updated to
+  new canonical `input.gsx` + regenerated `generated.x.go.golden`.
+- `docs/ROADMAP.md` — new entry for deferred bracket-reflow work (call-arg /
+  bare composite-lit elements).

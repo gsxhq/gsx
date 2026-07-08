@@ -5,46 +5,102 @@ import (
 	"testing"
 )
 
-// A multi-line element literal in Go-expression position hangs off its opening
-// tag: children indent one level deeper than `<`, and the closing tag lines up
-// under it. The prefix is the line's leading whitespace verbatim plus spaces, so
-// the alignment survives any tab width.
+// A multi-line element literal in an assignment/return/keyed-composite-lit-field
+// position — a "prefix: value" shape — wraps in (...) when it breaks, mirroring
+// prettier's JSX formatting (verified against prettier@3.9.4). The real Go
+// nesting depth (which the GoWithElements decl's own indent counter can't see,
+// since its surrounding Go text is literal bytes) comes from realTabDepth
+// reading the leading tabs off the preceding GoText, not from a column anchor —
+// so renaming the value does not reindent it. The parens themselves are purely
+// cosmetic: internal/codegen strips them back out before splicing the element's
+// lowered closure into the generated .x.go (see codegen's own tests), so they
+// never risk Go's automatic semicolon insertion.
 
-func TestGoExprElementHangsOffOpeningTag(t *testing.T) {
-	// "\tsomeLongName := " -> prefix is one tab then 16 spaces.
-	pfx := "\t" + strings.Repeat(" ", len("someLongName := "))
-	src := "package main\n\nfunc f() {\nsomeLongName := <div>\n<p>hi</p>\n</div>\n_ = someLongName\n}\n"
-	want := "package main\n\nfunc f() {\n" +
-		"\tsomeLongName := <div>\n" +
-		pfx + "\t<p>hi</p>\n" +
-		pfx + "</div>\n" +
-		"\t_ = someLongName\n}\n"
-	checkFormat(t, src, want)
-}
-
-func TestGoExprElementHangsOffOpeningTagAtTopLevel(t *testing.T) {
-	// "var n = " has no leading whitespace -> prefix is 8 spaces.
-	pfx := strings.Repeat(" ", len("var n = "))
+func TestGoExprElementParenWrapsAtTopLevel(t *testing.T) {
 	src := "package main\n\nvar n = <div>\n<p>hi</p>\n</div>\n"
-	want := "package main\n\nvar n = <div>\n" + pfx + "\t<p>hi</p>\n" + pfx + "</div>\n"
+	want := "package main\n\nvar n = (\n\t<div>\n\t\t<p>hi</p>\n\t</div>\n)\n"
 	checkFormat(t, src, want)
 }
 
-func TestGoExprElementHangsOffOpeningTagInVarGroup(t *testing.T) {
-	// "\tn = " -> one tab (verbatim) then 4 spaces.
-	pfx := "\t" + strings.Repeat(" ", len("n = "))
-	src := "package main\n\nvar (\nn = <div>\n<p>hi</p>\n</div>\n)\n"
-	want := "package main\n\nvar (\n\tn = <div>\n" + pfx + "\t<p>hi</p>\n" + pfx + "</div>\n)\n"
+func TestGoExprElementParenWrapsOnWidthOverflow(t *testing.T) {
+	// Fits on one line syntactically, but the assignment line alone is 81
+	// columns — prettier wraps here too (verified empirically), not just on a
+	// forced multi-line source.
+	name := strings.Repeat("x", 62)
+	src := "package main\n\nvar " + name + " = <div>x</div>\n"
+	want := "package main\n\nvar " + name + " = (\n\t<div>x</div>\n)\n"
 	checkFormat(t, src, want)
 }
 
-// Renaming the variable re-indents the element, since the hanging indent is
-// anchored to the opening tag's column. Pinned so the trade-off is explicit.
-func TestGoExprElementRenameShiftsHangingIndent(t *testing.T) {
-	pfx := "\t" + strings.Repeat(" ", len("n := "))
+func TestGoExprElementStaysFlatWhenItFits(t *testing.T) {
+	// Regression guard: a short value on a short line never gets parens.
+	src := "package main\n\nvar help = <a href=\"/help\" class=\"text-blue-600\">?</a>\n"
+	checkFormat(t, src, src)
+}
+
+func TestGoExprElementParenWrapsNestedInFuncBody(t *testing.T) {
+	// The real-depth case: the closing paren must land at "someLongName"'s own
+	// depth (one tab), children one tab deeper — not at column 0 (the decl's
+	// own, always-zero baseline).
+	src := "package main\n\nfunc f() {\nsomeLongName := <div>\n<p>hi</p>\n</div>\n_ = someLongName\n}\n"
+	want := "package main\n\nfunc f() {\n\tsomeLongName := (\n\t\t<div>\n\t\t\t<p>hi</p>\n\t\t</div>\n\t)\n\t_ = someLongName\n}\n"
+	checkFormat(t, src, want)
+}
+
+// Renaming the value does not reindent it — the anchor is real block nesting
+// depth (realTabDepth), not the opening tag's column. This replaces the old
+// TestGoExprElementRenameShiftsHangingIndent, which pinned the opposite
+// (pre-existing) property.
+func TestGoExprElementRenameDoesNotShiftIndent(t *testing.T) {
 	src := "package main\n\nfunc f() {\nn := <div>\n<p>hi</p>\n</div>\n_ = n\n}\n"
-	want := "package main\n\nfunc f() {\n\tn := <div>\n" + pfx + "\t<p>hi</p>\n" + pfx + "</div>\n\t_ = n\n}\n"
+	want := "package main\n\nfunc f() {\n\tn := (\n\t\t<div>\n\t\t\t<p>hi</p>\n\t\t</div>\n\t)\n\t_ = n\n}\n"
 	checkFormat(t, src, want)
+}
+
+func TestGoExprElementParenWrapsForKeyedCompositeLitField(t *testing.T) {
+	src := "package main\n\nvar item = NavItem{Label: \"Home\", Icon: <svg class=\"w-5 h-5\">\n<path d=\"M0 0\"/>\n</svg>}\n"
+	want := "package main\n\nvar item = NavItem{Label: \"Home\", Icon: (\n\t<svg class=\"w-5 h-5\">\n\t\t<path d=\"M0 0\"/>\n\t</svg>\n)}\n"
+	checkFormat(t, src, want)
+}
+
+// Call arguments and bare composite-literal elements are the deferred
+// bracket-reflow bucket (see docs/ROADMAP.md): no parens, no trailing comma,
+// no bracket moved onto its own line — but the real-depth fix still applies
+// uniformly, so nesting inside a func body no longer regresses to column 0
+// the way it did before PR #49.
+
+func TestGoExprElementPlainIndentForCallArgAtTopLevel(t *testing.T) {
+	src := "package main\n\nvar wrapped = Wrap(<div>\n<p>hi</p>\n</div>)\n"
+	want := "package main\n\nvar wrapped = Wrap(<div>\n\t<p>hi</p>\n</div>)\n"
+	checkFormat(t, src, want)
+}
+
+func TestGoExprElementPlainIndentForCallArgNestedInFuncBody(t *testing.T) {
+	src := "package main\n\nfunc f() {\nwrapped := Wrap(<div>\n<p>hi</p>\n</div>)\n_ = wrapped\n}\n"
+	want := "package main\n\nfunc f() {\n\twrapped := Wrap(<div>\n\t\t<p>hi</p>\n\t</div>)\n\t_ = wrapped\n}\n"
+	checkFormat(t, src, want)
+}
+
+func TestRealTabDepth(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want int
+	}{
+		{"empty", "", 0},
+		{"no preceding newline, no indent", "var help = ", 0},
+		{"no preceding newline, with indent (defensive)", "\t\tvar help = ", 2},
+		{"one preceding line, no indent", "package main\n\nvar help = ", 0},
+		{"one tab of real Go nesting", "package main\n\nfunc f() {\n\tsomeLongName := ", 1},
+		{"two tabs of real Go nesting", "package main\n\nfunc f() {\n\tif true {\n\t\tx := ", 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := realTabDepth(tt.src); got != tt.want {
+				t.Errorf("realTabDepth(%q) = %d, want %d", tt.src, got, tt.want)
+			}
+		})
+	}
 }
 
 // A GoWithElements decl's Go text is real, complete Go once each embedded
