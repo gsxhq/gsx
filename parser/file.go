@@ -151,30 +151,57 @@ func scanPackage(file *token.File, src []byte) (name string, kwPos token.Pos, en
 // bodies (which contain markup) begin after the `component` keyword and are
 // consumed by parseComponent, never by this scan. found is false if there is no
 // further top-level component.
+//
+// Element literals inside that gap (`var x = <p>…</p>`, `x := <div/>`) are NOT
+// Go, so their spans are skipped and Go tokenization RESUMES on the far side —
+// the same discipline scanGoElementMarks uses, and for the same reason. Without
+// it an element's prose body is lexed as Go: the English word "component" in
+// `<p>This is a test component.</p>` would scan as an IDENT at depth 0 and be
+// mistaken for a component declaration, splitting the file mid-element. (Braces
+// inside the element — interpolations, attribute holes — are likewise skipped,
+// so they can't perturb depth.)
 func nextTopLevelComponent(src string, from int) (int, bool) {
-	sub := src[from:]
-	localFset := token.NewFileSet()
-	localFile := localFset.AddFile("", localFset.Base(), len(sub))
-	var s scanner.Scanner
-	s.Init(localFile, []byte(sub), nil, scanner.ScanComments)
-
+	base := from
 	depth := 0
-	for {
-		pos, tok, lit := s.Scan()
-		if tok == token.EOF {
+	expectOperand := true
+	for base < len(src) {
+		localFset := token.NewFileSet()
+		localFile := localFset.AddFile("", localFset.Base(), len(src)-base)
+		var s scanner.Scanner
+		s.Init(localFile, []byte(src[base:]), nil, scanner.ScanComments)
+
+		resumed := false
+		for {
+			pos, tok, lit := s.Scan()
+			if tok == token.EOF {
+				return 0, false
+			}
+			off := base + localFset.Position(pos).Offset
+			if expectOperand && tok == token.LSS && byteBeginsTag(src, off+1) {
+				// Skip the element's textual span; after it we sit at an
+				// operator position (the element was the operand).
+				base = elementSpanEnd(src, off)
+				expectOperand = false
+				resumed = true
+				break
+			}
+			switch tok {
+			case token.LBRACE:
+				depth++
+			case token.RBRACE:
+				if depth > 0 {
+					depth--
+				}
+			case token.IDENT:
+				if depth == 0 && lit == "component" {
+					return off, true
+				}
+			}
+			expectOperand = tokenExpectsOperandAfter(tok)
+		}
+		if !resumed {
 			return 0, false
 		}
-		switch tok {
-		case token.LBRACE:
-			depth++
-		case token.RBRACE:
-			if depth > 0 {
-				depth--
-			}
-		case token.IDENT:
-			if depth == 0 && lit == "component" {
-				return from + localFset.Position(pos).Offset, true
-			}
-		}
 	}
+	return 0, false
 }
