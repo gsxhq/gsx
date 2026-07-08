@@ -72,22 +72,26 @@ on a separate, debounced channel. In an editor the broken file already gets a
 squiggle *and* still formats.
 
 Meanwhile `gsx fmt` **already runs the analyzer** — `analyzeUnusedImports`
-(`gen/fmt.go:167`) opens a `codegen.Module` per module for unused-import removal —
-and `skeletonParseError` (`internal/codegen/module_importer.go:133`) has already
-converted the skeleton's `scanner.ErrorList` into `.gsx`-positioned diagnostics
-through the skeleton's `//line` directives.
-
-The work is done. Nobody reads the result:
+(`gen/fmt.go`) opens a `codegen.Module` per module for unused-import removal, and
+that path lowers every `.gsx` to a skeleton carrying `//line` directives and parses
+it with `go/parser`. A Go parse error is detected there and thrown away, inside
+`buildPackageSkeletons` (`internal/codegen/unused_imports_syntactic.go:153`):
 
 ```go
-byPath, err := m.UnusedImports(absDir)
-if err != nil {
-    continue        // the positioned parse diagnostic dies here
+gf, perr := goparser.ParseFile(fset, absXpath, skel, goparser.SkipObjectResolution)
+if perr != nil {
+    continue        // the parse error dies here; UnusedImports never sees it
 }
 ```
 
+`skeletonParseError` (`internal/codegen/module_importer.go:133`) already converts
+exactly this `scanner.ErrorList` into `.gsx`-positioned diagnostics — but it serves
+the *type-checking* analyze path that `generate` uses. The syntactic import path
+never calls it, which is why `generate` reports and `fmt` does not.
+
 **The missing piece is not in the formatter. The CLI lacks the diagnostic channel
-the LSP has.**
+the LSP has, and the analyzer's syntactic path drops the diagnostic on the floor
+before the CLI could ask for it.**
 
 ## Design
 
@@ -116,39 +120,37 @@ parse error reports and exits 1, while a good sibling is still formatted to stdo
 
 ### Changes
 
-**`internal/codegen`** — export the extractor that already exists:
+**`internal/codegen/unused_imports_syntactic.go`** — stop dropping the parse error.
+`buildPackageSkeletons` collects it into `packageSkeletons.goParseDiags`, reusing the
+existing `skeletonParseError` → `diagnosticsFromParseError` conversion, and still
+`continue`s (that file keeps all its imports; its siblings are still analyzed).
+`Module.UnusedImports` returns them alongside its map:
 
 ```go
-// ParseDiagnostics reports the positioned .gsx diagnostics carried by err, if err
-// is a skeleton parse failure. Thin export of diagnosticsFromParseError.
-func ParseDiagnostics(err error) ([]diag.Diagnostic, bool)
+func (m *Module) UnusedImports(dir string) (map[string][]UnusedImport, []diag.Diagnostic, error)
 ```
 
-**`gen/fmt.go`** — `analyzeUnusedImports` additionally returns diagnostics keyed
-by absolute `.gsx` path:
+They are **diagnostics, not an error**. The `error` return stays reserved for faults
+that make the whole package unanalyzable.
 
-```go
-byPath, err := m.UnusedImports(absDir)
-if err != nil {
-    if diags, ok := codegen.ParseDiagnostics(err); ok {
-        bucketByFilename(diags)   // a real Go syntax error, already positioned
-    }
-    continue                      // every other failure stays silent, as today
-}
-```
+**`gen/fmt.go`** — `analyzeUnusedImports` buckets those diagnostics by the absolute
+`.gsx` path each one points at, and returns them alongside the import map. They are
+collected even when `UnusedImports` also errored.
 
-**`runFmt`** — render the diagnostics for the files in the format set (sorted by
-file/line/column, as `gen/main.go:405` does), choosing `diag.RenderRich` when
-stderr is a TTY and `diag.RenderCompact` otherwise — the same choice
-`gen/main.go:416-429` makes. Set `exit = 1` if any diagnostic is error-severity.
-Then proceed with formatting unchanged.
+**`runFmt`** — `reportGoDiagnostics` renders the diagnostics for the files in the
+format set (sorted by file/line/column, as `gen/main.go:405` does), choosing
+`diag.RenderRich` when stderr is a TTY and `diag.RenderCompact` otherwise — the same
+choice `gen/main.go:416-429` makes. Sets `exit = 1` if any is error-severity.
+Formatting then proceeds unchanged.
 
 ### Error discrimination — what makes this safe
 
-Only `parseDiagnosticsError` is reported. Every other failure from
-`codegen.Open` / `Module.UnusedImports` — unresolved dependencies, network,
-directory not in a module — keeps its `continue`. A project that cannot load must
-never start failing `gsx fmt`. `errors.As` makes the distinction exact.
+Only a `scanner.ErrorList` from the skeleton parse becomes a diagnostic;
+`skeletonParseError` returns any other fault unchanged and `diagnosticsFromParseError`
+then reports `ok=false`, so it is dropped exactly as before. A failure to
+`codegen.Open` a module — unresolved dependencies, network, not a module — keeps its
+`continue` and produces no diagnostics at all. A project that cannot load must never
+start failing `gsx fmt`.
 
 ### Scope limits
 
