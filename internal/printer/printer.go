@@ -21,6 +21,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/cssfmt"
@@ -144,50 +145,46 @@ func (p *printer) decl(d ast.Decl) pretty.Doc {
 // function requires a syntactically complete compilation unit, and a bare
 // "var help = " isn't one.
 //
-// Instead each GoText part is printed verbatim via multiline (which lays out
+// The parts are NOT relayed verbatim, though. fmtGoExprParts first restores
+// syntactic completeness — standing a placeholder identifier in for each gsx
+// value — so go/format can lay the Go text out exactly as it would any other
+// top-level Go; the formatted text comes back re-split into GoText parts. Only
+// when go/format rejects the substituted source (Go the gsx parser accepted but
+// Go's own parser does not) do the original, unformatted parts flow through.
+//
+// Each resulting GoText part is then printed via multiline (which lays out
 // embedded newlines at the CURRENT indent; at this decl's top-level position
-// that indent is zero, so a multi-line fragment's own original indentation —
-// carried as literal bytes inside each line's Text — reproduces unchanged)
-// and each *ast.Element part goes through the ordinary element printer, the
-// exact same one every other element in the file is printed with. The
-// parser's documented round-trip invariant (concatenating every part's own
-// source reproduces the original span exactly, see ast.GoWithElements) is
-// what makes this recombination faithful: this function never has to parse
-// or re-derive the Go text's structure, only relay it.
+// that indent is zero, so a multi-line fragment's own indentation — carried as
+// literal bytes inside each line's Text — reproduces unchanged) and each
+// *ast.Element part goes through the ordinary element printer, the exact same
+// one every other element in the file is printed with.
 //
 // Only the outermost edges are trimmed, mirroring fmtGoChunk's TrimSpace: the
 // leading whitespace of the FIRST part and the trailing whitespace of the
 // LAST part are the blank-line padding between this decl and its neighbors
 // (file's own blank-line-separator logic re-derives that padding, exactly as
-// it does for a GoChunk's leading/trailing whitespace). Internal parts — Go
-// text between two elements, mid-declaration — are left byte-for-byte
-// untouched; go/format cannot safely re-derive their layout without full
-// syntactic context, and the round-trip invariant already guarantees they
-// are exactly what belongs there.
+// it does for a GoChunk's leading/trailing whitespace).
 func (p *printer) goWithElements(v *ast.GoWithElements) pretty.Doc {
-	last := len(v.Parts) - 1
-	docs := make([]pretty.Doc, 0, len(v.Parts))
-	for i, part := range v.Parts {
-		switch pt := part.(type) {
-		case ast.GoText:
-			src := trimGoTextEdges(pt.Src, i == 0, i == last)
+	parts := v.Parts
+	if formatted, ok := p.fmtGoExprParts(parts); ok {
+		parts = formatted
+	}
+	last := len(parts) - 1
+	docs := make([]pretty.Doc, 0, len(parts))
+	for i, part := range parts {
+		if gt, ok := part.(ast.GoText); ok {
+			src := trimGoTextEdges(gt.Src, i == 0, i == last)
 			if src == "" {
 				continue
 			}
 			docs = append(docs, multiline(src))
-		case *ast.Element:
-			docs = append(docs, p.element(pt))
-		case *ast.Fragment:
-			docs = append(docs, p.fragment(pt))
-		case *ast.EmbeddedInterp:
-			// A prefixed backtick literal in Go-expression value position: render
-			// the raw f`…@{expr}…` literal (no braces, no whole-literal pipeline —
-			// value-position literals carry no Stages), so it splices back into the
-			// surrounding Go source exactly as authored.
-			docs = append(docs, pretty.Text(embeddedLiteralString(ast.EmbeddedText, pt.Segments, embeddedDelim(pt.DoubleQuoted))))
-		default:
+			continue
+		}
+		doc, ok := p.goExprValue(part)
+		if !ok {
 			return p.fail("printer: unknown Go-expression part type %T", part)
 		}
+		docs = append(docs, doc)
 	}
 	return pretty.Concat(docs...)
 }
@@ -1150,6 +1147,189 @@ func fmtGoChunk(src string) string {
 		return strings.TrimSpace(src)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// goExprWrapper is the synthetic package clause prepended to a GoWithElements'
+// Go text to make it a compilation unit go/format will accept. The gap a
+// GoWithElements spans is always a run of complete top-level declarations, so
+// the clause is all that is missing.
+const goExprWrapper = "package _gsxfmt\n"
+
+// goExprHoleRunes are candidate placeholder runes: Unicode modifier letters,
+// which Go accepts as identifier letters (identifier = letter { letter | digit },
+// letter = unicode_letter, which includes category Lm). Repeating one N times
+// yields a valid Go identifier that is exactly N *runes* wide — and go/format's
+// alignment runs through text/tabwriter, which measures cells in runes. That is
+// what lets a placeholder stand in for a gsx value at its true rendered width
+// (see fmtGoExprParts), down to widths no `_gsx`-prefixed name could reach.
+// They are vanishingly unlikely to occur in real source; if one does, the next
+// candidate is tried.
+var goExprHoleRunes = []string{"ᴳ", "ᴴ", "ᴵ", "ᴶ"}
+
+// goExprHoleRune picks a placeholder rune absent from src, so the formatted
+// output can be re-split at the placeholders unambiguously (a rune occurring
+// inside a string literal or comment would misdirect that split).
+func goExprHoleRune(src string) (string, bool) {
+	for _, r := range goExprHoleRunes {
+		if !strings.Contains(src, r) {
+			return r, true
+		}
+	}
+	return "", false
+}
+
+// goExprFlatWidth reports the rune width of doc rendered on a single line, and
+// whether it fits on one line at all. A forced break (a block element) makes a
+// gsx value multi-line no matter the available width; such a value has no single
+// width to hand to gofmt.
+func goExprFlatWidth(doc pretty.Doc) (int, bool) {
+	const wide = 1 << 20 // wider than any real line: nothing breaks unless forced
+	flat := pretty.Print(doc, wide)
+	if strings.Contains(flat, "\n") {
+		return 0, false
+	}
+	return utf8.RuneCountInString(flat), true
+}
+
+// goExprValue builds the doc for one non-GoText part of a GoWithElements — a
+// gsx value sitting in Go-expression position. Shared by fmtGoExprParts (which
+// measures the value's rendered width) and goWithElements (which prints it), so
+// the width gofmt is told and the text finally spliced in can never disagree.
+func (p *printer) goExprValue(part ast.GoPart) (pretty.Doc, bool) {
+	switch pt := part.(type) {
+	case *ast.Element:
+		return p.element(pt), true
+	case *ast.Fragment:
+		return p.fragment(pt), true
+	case *ast.EmbeddedInterp:
+		// A prefixed backtick literal in Go-expression value position: render the
+		// raw f`…@{expr}…` literal (no braces, no whole-literal pipeline — value-
+		// position literals carry no Stages), so it splices back into the
+		// surrounding Go source exactly as authored.
+		return pretty.Text(embeddedLiteralString(ast.EmbeddedText, pt.Segments, embeddedDelim(pt.DoubleQuoted))), true
+	default:
+		return pretty.Doc{}, false
+	}
+}
+
+// fmtGoExprParts gofmt's the Go text of a GoWithElements decl.
+//
+// A GoText part on its own is an INCOMPLETE Go fragment ("var help = ") that
+// go/format cannot parse. But the fragments are incomplete only because a gsx
+// value — an element, a fragment, an f`…` literal — sits between them, and every
+// position such a value can occupy is a Go *operand* position: a call argument, a
+// composite-literal element, the right-hand side of an assignment. An identifier
+// is a valid operand in all of them. So substituting one placeholder identifier
+// per gsx value turns the whole run back into ordinary, complete Go, which
+// go/format lays out exactly as it would anywhere else. This is the same
+// claim-what-Go-leaves-free move the parser makes elsewhere: gsx never has to
+// parse Go, it only has to hand Go something Go can parse.
+//
+// Each placeholder is made exactly as many runes wide as the value it stands for
+// will render (goExprFlatWidth), because gofmt's column arithmetic — the spaces
+// it lays down to align end-of-line comments — is computed from the value's
+// width. A fixed-width placeholder would align those comments to the
+// placeholder, not to the element, and the misalignment would survive the splice.
+//
+// A value that renders multi-line has no single width to report; it gets a
+// one-rune placeholder. Layout is then still correct except for end-of-line
+// comment columns in that value's alignment section, which gofmt (seeing a real
+// multi-line value) would have split. Everything else in the region — indentation,
+// `=` alignment, blank lines — is unaffected, since none of it depends on value
+// width.
+//
+// The formatted text is re-split at the placeholders and returned as a fresh
+// parts slice (the input, which aliases the AST, is never mutated): GoText parts
+// carry the formatted Go, and the gsx values pass through untouched for the
+// caller to print with the ordinary element/fragment printers.
+//
+// Returns ok=false — leaving the caller to relay the original text verbatim, as
+// it always has — when go/format rejects the substituted source, when no
+// placeholder rune is free, or when a placeholder cannot be located in the
+// output. All are degrade-gracefully paths: gsx fmt must never fail on gsx it
+// was able to parse.
+func (p *printer) fmtGoExprParts(parts []ast.GoPart) ([]ast.GoPart, bool) {
+	var text strings.Builder
+	holeCount := 0
+	for _, part := range parts {
+		if gt, ok := part.(ast.GoText); ok {
+			text.WriteString(gt.Src)
+			continue
+		}
+		holeCount++
+	}
+	if holeCount == 0 {
+		return nil, false
+	}
+	hole, ok := goExprHoleRune(text.String())
+	if !ok {
+		return nil, false
+	}
+
+	var src strings.Builder
+	holes := make([]string, 0, holeCount)
+	for _, part := range parts {
+		if gt, ok := part.(ast.GoText); ok {
+			src.WriteString(gt.Src)
+			continue
+		}
+		doc, ok := p.goExprValue(part)
+		if !ok {
+			return nil, false
+		}
+		width, flat := goExprFlatWidth(doc)
+		if !flat {
+			width = 1
+		}
+		h := strings.Repeat(hole, width)
+		holes = append(holes, h)
+		src.WriteString(h)
+	}
+
+	out, err := format.Source([]byte(goExprWrapper + src.String()))
+	if err != nil {
+		return nil, false
+	}
+	// Drop the synthetic package clause. gofmt always emits it as the first line.
+	formatted := string(out)
+	nl := strings.IndexByte(formatted, '\n')
+	if nl < 0 {
+		return nil, false
+	}
+	formatted = formatted[nl+1:]
+
+	// Re-split at the placeholders, left to right. Placeholders of equal width are
+	// identical strings, which is harmless: the cursor has already consumed every
+	// earlier one, and only Go text (never the hole rune) lies between them.
+	res := make([]ast.GoPart, len(parts))
+	cursor, next := 0, 0
+	for i, part := range parts {
+		if _, ok := part.(ast.GoText); !ok {
+			// A gsx value: the cursor must be sitting exactly on its placeholder.
+			if next >= len(holes) || !strings.HasPrefix(formatted[cursor:], holes[next]) {
+				return nil, false
+			}
+			cursor += len(holes[next])
+			next++
+			res[i] = part
+			continue
+		}
+		// Go text runs up to the next placeholder, or to the end of the output.
+		end := len(formatted)
+		if next < len(holes) {
+			j := strings.Index(formatted[cursor:], holes[next])
+			if j < 0 {
+				return nil, false
+			}
+			end = cursor + j
+		}
+		res[i] = ast.GoText{Src: formatted[cursor:end]}
+		cursor = end
+	}
+	if next != len(holes) {
+		return nil, false
+	}
+	return res, true
 }
 
 // fmtNode renders a go/ast node back to canonical Go source via go/format.Node,
