@@ -83,7 +83,22 @@ component Uses() {
 `greeting` is a plain `string`; `{ greeting }` interpolates it like any other
 Go expression, rendering `<p>hello world</p>`. It works as a call argument
 too — `` { emphasize(f`@{label}!`) } `` passes the assembled string straight into
-a function. See [Elements — Elements as values](./elements#elements-as-values)
+a function.
+
+::: warning Value vs. body-literal escaping
+As a Go **value**, an `f` literal is a plain `string`, so rendering it with
+`{ … }` escapes the **whole** string — static text included. This differs from a
+**body literal** `` {f`…`} `` (§[Body interpolating literals](#body-interpolating-literals)),
+whose static text is emitted **verbatim**. So `` f`<b>@{x}</b>` `` renders
+`&lt;b&gt;…&lt;/b&gt;` as a value (assigned, then `{ v }`) but `<b>…</b>` as a
+body literal (`` {f`<b>@{x}</b>`} ``) — same source, different output, because the
+value is a *string* and the body literal is a *markup template*. The `@{x}` hole
+is escaped in both. Use the body-literal form when you want the static text to be
+markup; use the value form (or plain markup `<b>{x}</b>`) when you want an
+escaped string.
+:::
+
+See [Elements — Elements as values](./elements#elements-as-values)
 and [Raw Go — the reverse direction](./raw-go#the-reverse-direction-elements-in-go-expression-position)
 for the full set of Go-expression positions this and `<tag>`/`<>` literals
 share. `` js`...` `` and `` css`...` `` stay attribute-context only — they are
