@@ -195,6 +195,7 @@ element-literals/return	diag gen render
 element-literals/stray-import-after-func	diag(error)
 element-literals/struct-field	diag gen render
 element-literals/text-apostrophe-multi	diag gen render
+element-literals/text-go-keyword	diag gen render
 element-literals/var	diag gen render
 elements/fragment	diag render
 elements/html_comment	diag render
@@ -538,4 +539,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 540 cases (render: 440, error: 77, gen-pinned: 269)
+TOTAL: 541 cases (render: 441, error: 77, gen-pinned: 270)
