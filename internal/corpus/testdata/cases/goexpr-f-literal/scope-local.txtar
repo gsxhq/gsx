@@ -26,10 +26,9 @@ Greeting(GreetingProps{Who: "Ada"})
 package demo
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 func makeGreeting(who string) string {
@@ -41,10 +40,10 @@ type GreetingProps struct {
 }
 
 //line input.gsx:7:1
-func Greeting(_gsxp GreetingProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Greeting(_gsxp GreetingProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		who := _gsxp.Who
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxgw.S("<p>")
 //line input.gsx:8:5

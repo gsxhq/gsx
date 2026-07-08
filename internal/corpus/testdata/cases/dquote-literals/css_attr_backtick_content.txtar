@@ -19,10 +19,9 @@ Box(BoxProps{C: "red"})
 package p
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type BoxProps struct {
@@ -30,13 +29,13 @@ type BoxProps struct {
 }
 
 //line input.gsx:3:1
-func Box(_gsxp BoxProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Box(_gsxp BoxProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		c := _gsxp.C
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div style=\"color: ")
-		_gsxgw.AttrValue(gsx.StyleValue(string(c)))
+		_gsxgw.AttrValue(_gsxrt.StyleValue(string(c)))
 		_gsxgw.S("; content: `x`\">hi</div>")
 		return _gsxgw.Err()
 	})

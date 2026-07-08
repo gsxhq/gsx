@@ -19,10 +19,9 @@ Page(PageProps{Id: "1"})
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 func firstName(id string) (string, error) { return "First-" + id, nil }
@@ -34,11 +33,11 @@ type NameProps struct {
 }
 
 //line input.gsx:6:1
-func Name(_gsxp NameProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Name(_gsxp NameProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		first := _gsxp.First
 		last := _gsxp.Last
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:45
 		_gsxgw.S("<div>")
 //line input.gsx:6:50
@@ -56,10 +55,10 @@ type PageProps struct {
 }
 
 //line input.gsx:8:1
-func Page(_gsxp PageProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Page(_gsxp PageProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		id := _gsxp.Id
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:29
 		_gsxv0, _gsxerr := firstName(id)
 		if _gsxerr != nil {

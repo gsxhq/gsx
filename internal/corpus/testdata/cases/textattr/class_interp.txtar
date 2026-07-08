@@ -17,10 +17,9 @@ Badge(BadgeProps{Variant: "primary", N: 3})
 package p
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type BadgeProps struct {
@@ -29,11 +28,11 @@ type BadgeProps struct {
 }
 
 //line input.gsx:3:1
-func Badge(_gsxp BadgeProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Badge(_gsxp BadgeProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		variant := _gsxp.Variant
 		n := _gsxp.N
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:4:2
 		_gsxgw.S("<span class=\"badge badge-")

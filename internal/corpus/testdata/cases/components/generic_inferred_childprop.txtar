@@ -25,10 +25,10 @@ Page()
 package views
 
 import (
-	"context"
-	"io"
-
+	_gsxctx "context"
 	"github.com/gsxhq/gsx"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type BoxProps[T string | int] struct {
@@ -36,10 +36,10 @@ type BoxProps[T string | int] struct {
 }
 
 //line input.gsx:5:1
-func Box[T string | int](_gsxp BoxProps[T]) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Box[T string | int](_gsxp BoxProps[T]) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		value := _gsxp.Value
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<span>")
 //line input.gsx:6:8
@@ -54,10 +54,10 @@ type PanelProps struct {
 }
 
 //line input.gsx:9:1
-func Panel(_gsxp PanelProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Panel(_gsxp PanelProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		header := _gsxp.Header
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
 		_gsxgw.S("<div class=\"panel\">")
 //line input.gsx:10:21
@@ -70,12 +70,12 @@ func Panel(_gsxp PanelProps) gsx.Node {
 }
 
 //line input.gsx:13:1
-func Page() gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func Page() _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxgw.Node(ctx, Panel(PanelProps{Header: gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-			_gsxgw := gsx.W(_gsxw)
+		_gsxgw.Node(ctx, Panel(PanelProps{Header: _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:18
 			_gsxgw.Node(ctx, Box[int](BoxProps[int]{Value: 7}))
 			return _gsxgw.Err()

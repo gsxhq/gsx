@@ -24,27 +24,26 @@ Page()
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type PanelProps struct {
 	Title string
-	Attrs gsx.Attrs
+	Attrs _gsxrt.Attrs
 }
 
 //line input.gsx:3:1
-func Panel(_gsxp PanelProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Panel(_gsxp PanelProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		title := _gsxp.Title
 		attrs := _gsxp.Attrs
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxv0 := attrs.Without("data-skip")
 		_gsxgw.S("<section class=\"")
-		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class("panel"), gsx.Class(_gsxv0.Class()))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("panel"), _gsxrt.Class(_gsxv0.Class()))
 		_gsxgw.S("\"")
 		if !_gsxv0.Has("data-role") {
 			_gsxgw.S(" data-role=\"box\"")
@@ -60,11 +59,11 @@ func Panel(_gsxp PanelProps) gsx.Node {
 }
 
 //line input.gsx:7:1
-func Page() gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func Page() _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.Node(ctx, Panel(PanelProps{Title: "Hi", Attrs: gsx.Attrs{{Key: "class", Value: "hl"}, {Key: "data-role", Value: "caller"}, {Key: "data-skip", Value: "x"}, {Key: "id", Value: "p1"}}}))
+		_gsxgw.Node(ctx, Panel(PanelProps{Title: "Hi", Attrs: _gsxrt.Attrs{{Key: "class", Value: "hl"}, {Key: "data-role", Value: "caller"}, {Key: "data-skip", Value: "x"}, {Key: "id", Value: "p1"}}}))
 		return _gsxgw.Err()
 	})
 }

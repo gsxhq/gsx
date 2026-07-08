@@ -1074,7 +1074,7 @@ func TestInferredUnexportedTypeArgRejected(t *testing.T) {
 			otherGen = string(src)
 		}
 	}
-	if !strings.Contains(otherGen, "func Other() gsx.Node") {
+	if !strings.Contains(otherGen, "func Other() _gsxrt.Node") {
 		t.Fatalf("sibling file's generation affected by the rejected tag; other.gsx generated:\n%s", otherGen)
 	}
 }

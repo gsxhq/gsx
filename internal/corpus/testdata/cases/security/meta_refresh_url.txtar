@@ -17,10 +17,9 @@ Refresh(RefreshProps{To: "javascript:alert(1)"})
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type RefreshProps struct {
@@ -28,10 +27,10 @@ type RefreshProps struct {
 }
 
 //line input.gsx:3:1
-func Refresh(_gsxp RefreshProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Refresh(_gsxp RefreshProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		to := _gsxp.To
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<meta http-equiv=\"refresh\" content=\"")
 		_gsxgw.RefreshContent(string("0;url=" + to))

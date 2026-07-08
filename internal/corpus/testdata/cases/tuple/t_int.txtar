@@ -19,10 +19,9 @@ Page(PageProps{N: 5})
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 func count(n int) (int, error) { return n * 2, nil }
@@ -32,10 +31,10 @@ type CounterProps struct {
 }
 
 //line input.gsx:5:1
-func Counter(_gsxp CounterProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Counter(_gsxp CounterProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		val := _gsxp.Val
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:5:30
 		_gsxgw.S("<span>")
@@ -51,10 +50,10 @@ type PageProps struct {
 }
 
 //line input.gsx:7:1
-func Page(_gsxp PageProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Page(_gsxp PageProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		n := _gsxp.N
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:7:25
 		_gsxv0, _gsxerr := count(n)
 		if _gsxerr != nil {

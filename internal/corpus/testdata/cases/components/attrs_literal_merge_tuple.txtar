@@ -23,26 +23,25 @@ Page()
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 func f() (string, error) { return "2", nil }
 
 type PanelProps struct {
-	Attrs gsx.Attrs
+	Attrs _gsxrt.Attrs
 }
 
 //line input.gsx:5:1
-func Panel(_gsxp PanelProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Panel(_gsxp PanelProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		attrs := _gsxp.Attrs
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<section")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, attrs.Class())
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, attrs.Without("class", "style"))
 		_gsxgw.S(">x</section>")
@@ -51,15 +50,15 @@ func Panel(_gsxp PanelProps) gsx.Node {
 }
 
 //line input.gsx:9:1
-func Page() gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func Page() _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
 		_gsxv0, _gsxerr := f()
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Panel(PanelProps{Attrs: gsx.Attrs{{Key: "data-a", Value: "1"}}.Merge(gsx.Attrs{{Key: "data-b", Value: _gsxv0}})}))
+		_gsxgw.Node(ctx, Panel(PanelProps{Attrs: _gsxrt.Attrs{{Key: "data-a", Value: "1"}}.Merge(_gsxrt.Attrs{{Key: "data-b", Value: _gsxv0}})}))
 		return _gsxgw.Err()
 	})
 }

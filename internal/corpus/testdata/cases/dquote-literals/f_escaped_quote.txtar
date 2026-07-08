@@ -18,10 +18,9 @@ Note(NoteProps{W: "hi"})
 package p
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type NoteProps struct {
@@ -29,10 +28,10 @@ type NoteProps struct {
 }
 
 //line input.gsx:3:1
-func Note(_gsxp NoteProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Note(_gsxp NoteProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		w := _gsxp.W
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div title=\"say &#34;")
 		_gsxgw.AttrValue(string(w))

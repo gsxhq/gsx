@@ -21,10 +21,9 @@ C(CProps{N: 1 << 63})
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type CProps struct {
@@ -32,10 +31,10 @@ type CProps struct {
 }
 
 //line input.gsx:3:1
-func C(_gsxp CProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func C(_gsxp CProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		n := _gsxp.N
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<span")
 		var _gsxv0 string
@@ -46,7 +45,7 @@ func C(_gsxp CProps) gsx.Node {
 			_gsxv0 = "small"
 		}
 		_gsxgw.S(" class=\"")
-		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class(_gsxv0))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0))
 		_gsxgw.S("\">x</span>")
 		return _gsxgw.Err()
 	})

@@ -26,26 +26,26 @@ Page(PageProps{Extra: gsx.Attrs{{Key: "data-c", Value: "3"}}})
 package views
 
 import (
-	"context"
-	"io"
-
+	_gsxctx "context"
 	"github.com/gsxhq/gsx"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type PanelProps struct {
-	Children gsx.Node
-	Attrs    gsx.Attrs
+	Children _gsxrt.Node
+	Attrs    _gsxrt.Attrs
 }
 
 //line input.gsx:5:1
-func Panel(_gsxp PanelProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Panel(_gsxp PanelProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		children := _gsxp.Children
 		attrs := _gsxp.Attrs
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<section")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, attrs.Class())
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, attrs.Without("class", "style"))
 		_gsxgw.S(">")
@@ -61,13 +61,13 @@ type PageProps struct {
 }
 
 //line input.gsx:9:1
-func Page(_gsxp PageProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Page(_gsxp PageProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		extra := _gsxp.Extra
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Panel(PanelProps{Attrs: gsx.Attrs{{Key: "data-a", Value: "1"}}.Merge(extra).Merge(gsx.Attrs{{Key: "data-b", Value: "2"}}), Children: gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-			_gsxgw := gsx.W(_gsxw)
+		_gsxgw.Node(ctx, Panel(PanelProps{Attrs: _gsxrt.Attrs{{Key: "data-a", Value: "1"}}.Merge(extra).Merge(_gsxrt.Attrs{{Key: "data-b", Value: "2"}}), Children: _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+			_gsxgw := _gsxrt.W(_gsxw)
 			_gsxgw.S("p")
 			return _gsxgw.Err()
 		})}))

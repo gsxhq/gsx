@@ -18,10 +18,9 @@ Page(PageProps{T:"7"})
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 func lookup(s string) (string, error) { return s, nil }
@@ -31,10 +30,10 @@ type CardProps struct {
 }
 
 //line input.gsx:5:1
-func Card(_gsxp CardProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Card(_gsxp CardProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		title := _gsxp.Title
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:5:32
 		_gsxgw.S("<div>")
 //line input.gsx:5:37
@@ -49,10 +48,10 @@ type PageProps struct {
 }
 
 //line input.gsx:7:1
-func Page(_gsxp PageProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Page(_gsxp PageProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		t := _gsxp.T
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:7:28
 		_gsxv0, _gsxerr := lookup(t)
 		if _gsxerr != nil {

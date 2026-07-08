@@ -44,7 +44,7 @@ component (p Page) Render() {
 	}
 	for _, want := range []string{
 		"type PageBoxProps[T string | int] struct",
-		"func (p Page) Box[T string | int](_gsxp PageBoxProps[T]) gsx.Node",
+		"func (p Page) Box[T string | int](_gsxp PageBoxProps[T]) _gsxrt.Node",
 		"p.Box[int](PageBoxProps[int]{Value: 7})",
 	} {
 		if !strings.Contains(got, want) {

@@ -16,26 +16,25 @@ Page()
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type BareProps struct {
 	Title string
-	Attrs gsx.Attrs
+	Attrs _gsxrt.Attrs
 }
 
 //line input.gsx:3:1
-func Bare(_gsxp BareProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Bare(_gsxp BareProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		title := _gsxp.Title
 		attrs := _gsxp.Attrs
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, attrs.Class())
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, attrs.Without("class", "style"))
 		_gsxgw.S(">")
@@ -47,11 +46,11 @@ func Bare(_gsxp BareProps) gsx.Node {
 }
 
 //line input.gsx:7:1
-func Page() gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func Page() _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.Node(ctx, Bare(BareProps{Title: "hi", Attrs: gsx.Attrs{{Key: "class", Value: gsx.ClassJoin(gsx.Class("dup"), gsx.Class("dup"), gsx.Class("keep"))}}}))
+		_gsxgw.Node(ctx, Bare(BareProps{Title: "hi", Attrs: _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class("dup"), _gsxrt.Class("dup"), _gsxrt.Class("keep"))}}}))
 		return _gsxgw.Err()
 	})
 }

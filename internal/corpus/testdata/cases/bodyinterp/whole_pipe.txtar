@@ -18,11 +18,10 @@ Item(ItemProps{Id: "a&b"})
 package p
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
 	_gsxstd "github.com/gsxhq/gsx/std"
+	_gsxio "io"
 )
 
 type ItemProps struct {
@@ -30,10 +29,10 @@ type ItemProps struct {
 }
 
 //line input.gsx:3:1
-func Item(_gsxp ItemProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Item(_gsxp ItemProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		id := _gsxp.Id
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<p>")
 //line input.gsx:4:5
