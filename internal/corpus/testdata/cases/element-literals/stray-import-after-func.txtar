@@ -1,11 +1,21 @@
 # Context: a stray `import` placed AFTER a declaration is invalid Go ("imports
 # must appear before other declarations"). gsx treats Go as an opaque blob, so
-# this is only caught when the assembled skeleton is parsed. That skeleton parse
-# error used to escape analyze as a raw error and reach the user as a bare,
-# frame-less message (blank vite overlay / plain terminal line). It is now
-# converted into a positioned parse diagnostic — the skeleton's //line directives
-# map the error back to the exact .gsx location (9:1, the stray import) — so it
-# flows through the normal diagnostic path and gets a rich, framed overlay.
+# this used to be caught only when the assembled skeleton was parsed, with the
+# skeleton's //line directives mapping the error back to the .gsx origin.
+#
+# func render()'s body embeds an element (`<div>inline JSX</div>`), so this
+# whole region — including both imports — is one *GoWithElements decl, never a
+# plain *GoChunk. checkReservedDecls now parses every top-level Go region (via
+# goWithElementsSrc's byte-length-preserving reconstruction) BEFORE the skeleton
+# is built, so it is the one that hits this parse failure and reports it,
+# positioned directly in the .gsx by plain byte-offset arithmetic — the skeleton
+# is never assembled for this file, and skeletonParseError never runs. The
+# reported position (9:1) is unchanged from before that pass existed only
+# because both mechanisms compute the same .gsx offset for this input; unlike
+# the plain-GoChunk cases (xpkg/interleaved_imports_error,
+# goexpr-f-literal/js_value_unsupported), whose positions actually improved —
+# from block-relative splitChunk output to real .gsx positions — in the same
+# change (commit 87556d8).
 -- input.gsx --
 package demo
 

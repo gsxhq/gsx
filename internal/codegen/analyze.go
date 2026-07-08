@@ -3623,9 +3623,17 @@ func checkReservedDecls(file *gsxast.File) ([]reservedDecl, []goRegionError) {
 
 // goDeclWrapPrefix makes a top-level Go region parseable as a file. Its byte
 // length is subtracted when mapping a parsed offset back onto the region, whose
-// text is the .gsx source verbatim (byte offsets align 1:1). splitChunk parses
-// with this same prefix, so the two passes agree, byte for byte, on which
-// top-level regions are valid Go.
+// text is the .gsx source verbatim (byte offsets align 1:1).
+//
+// splitChunk parses the same prefix+src, but with parser.ParseComments while
+// reservedDeclsInGo uses parser.SkipObjectResolution. That divergence is inert
+// here, not incidental: go/parser's identifier-resolution pass (redeclared
+// names, undefined labels, "no new variables on left side of :=") can only add
+// an error when parser.DeclarationErrors is also set, and neither call site
+// sets it. SkipObjectResolution skips that pass outright; ParseComments leaves
+// it running but mute. So both parses accept or reject on syntax alone, which
+// is what makes the two passes agree, byte for byte, on which top-level
+// regions are valid Go.
 const goDeclWrapPrefix = "package _gsxp\n"
 
 // goRegionError is a Go syntax error inside one top-level region of a .gsx file.

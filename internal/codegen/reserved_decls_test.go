@@ -154,7 +154,10 @@ func TestCheckReservedDeclsFindsNamesAcrossRegionShapes(t *testing.T) {
 				got = append(got, rd.name)
 				// The reported position must land on the name in the .gsx source.
 				off := fset.Position(rd.pos).Offset
-				if off < 0 || off+len(rd.name) > len(tc.src) || tc.src[off:off+len(rd.name)] != rd.name {
+				if off < 0 {
+					t.Fatalf("%s reported at negative offset %d", rd.name, off)
+				}
+				if off+len(rd.name) > len(tc.src) || tc.src[off:off+len(rd.name)] != rd.name {
 					t.Fatalf("%s reported at offset %d, which reads %q", rd.name, off, tc.src[min(off, len(tc.src)):])
 				}
 			}

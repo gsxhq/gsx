@@ -826,6 +826,15 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		// skeleton's //line directives. Skipping the file means splitChunk never
 		// re-reports it downstream (its message carries a block-relative line, and
 		// no position at all on the diagnostic), so the user sees this one instead.
+		//
+		// The skip is per-file, same as the attrError skip below: a SIBLING file
+		// that uses a component declared in this one now draws a spurious
+		// `undefined: Comp` on top of the real diagnostic, because this file's
+		// component never reaches compsByXGo. That cascade is new for parse
+		// errors (it did not exist before this pass ran ahead of buildSkeleton);
+		// it is accepted for the same reason the attrError one is: the correctly
+		// positioned diagnostic on the actual mistake is worth an extra,
+		// obviously-downstream error on a file that did nothing wrong.
 		rds, gerrs := checkReservedDecls(f)
 		if len(rds) > 0 || len(gerrs) > 0 {
 			for _, ge := range gerrs {
