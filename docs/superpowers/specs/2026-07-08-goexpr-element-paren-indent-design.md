@@ -120,39 +120,111 @@ characteristic of `internal/pretty`, not something this design changes;
 since block elements signal their own forced break via `BreakParent`/`HardLine`
 independent of this Text quirk.
 
-## The paren-wrap Doc
+## The real-nesting-depth trap (verified, and how it's fixed)
 
-A naive `IfBreak(HardLine, Text(""))` inside a `Group` is a trap: `Group`
-computes its own `forced` flag via `containsForcedBreak`, which inspects an
-`IfBreak`'s *broken* branch unconditionally — so a bare `HardLine` there would
-make the group report itself as always-forced, wrapping even values that fit
-on one line. The existing element/children printer avoids exactly this by
-using `SoftLine` (which never forces a break) for the optional break points
-and reserving `IfBreak` only for literal tokens whose branches are `Text`,
-never `Line`/`HardLine` (see printer.go:353-356, the opening-tag/children
-wrap). This design uses the identical shape:
+A first draft of this design built the paren-wrap using only `pretty.Indent`/
+`pretty.Group`'s own indent counter, on the theory that `Align` could simply be
+deleted. **That's wrong, verified by actually running the construction**
+(not just reasoning about it) against a value nested inside a `func` body —
+the single most common shape in the corpus (`return.txtar`, `func-local.txtar`,
+`method-receiver.txtar` are all "value inside a func body"):
 
 ```go
-pretty.Group(pretty.Concat(
-    pretty.IfBreak(pretty.Text("("), pretty.Text("")),
-    pretty.Indent(pretty.Concat(pretty.SoftLine, doc)),
-    pretty.SoftLine,
-    pretty.IfBreak(pretty.Text(")"), pretty.Text("")),
-))
+func f() {
+	someLongName := (
+	<div>              // wrong: should be one tab deeper than "someLongName"
+		<p>hi</p>
+	</div>
+)                       // wrong: should align with "someLongName"
+	_ = someLongName
+}
 ```
 
-`containsForcedBreak` on this Concat reduces to whatever `doc` itself carries
-(author-written multi-line content propagates a real forced break; `SoftLine`
-and `Text` never do) — so the group is forced only when the value genuinely
-must be multi-line, falls through to `Print`'s width `fits()` check otherwise
-(matching prettier's own width-triggered wrapping, verified empirically: a
-short single-line JSX value still gets paren-wrapped if the assignment line
-itself overflows 80 columns), and renders completely flat — parens as `""` —
-when the value fits. No change to any currently-single-line var/return/
-struct-field output.
+The reason: a `GoWithElements` decl's own indent counter is **always 0**,
+regardless of real Go nesting — the surrounding Go text (including the real
+leading tab before `someLongName`) is emitted as literal bytes the pretty
+engine never sees as "indent." This is exactly the problem PR #49's `Align`
+solved, by reading back the actual current line's leading whitespace from the
+output buffer at print time.
+
+The fix is **not** to keep `Align` (with or without its space-padding) — the
+real depth is knowable *statically*, without any print-time buffer read-back.
+It's just the leading-tab count on the last line of the `GoText` immediately
+preceding the value — a string already in hand while building the Doc:
+
+```go
+// realTabDepth returns the leading-tab count on the last line of a GoText
+// immediately preceding a gsx value — the real Go indentation depth the
+// value sits at, which the GoWithElements decl's own indent counter (always
+// 0, since its surrounding Go text is literal bytes) cannot see.
+func realTabDepth(precedingGoText string) int {
+	line := precedingGoText
+	if i := strings.LastIndexByte(line, '\n'); i >= 0 {
+		line = line[i+1:]
+	}
+	n := 0
+	for n < len(line) && line[n] == '\t' {
+		n++
+	}
+	return n
+}
+```
+
+`goWithElements` wraps each value's Doc — paren-wrap or plain, see below — in
+`realTabDepth` many ordinary `pretty.Indent` calls. Verified with a throwaway
+probe directly against `internal/pretty` (`Indent(wrapped)` for a depth of 1
+in the `func f()` example above): output matches prettier's own shape exactly
+— `<div>` one tab deeper than `someLongName`, `<p>` one deeper again, `</div>`
+and the closing `)` both back at `someLongName`'s own depth. No new `Doc` kind,
+no print-time bookkeeping — plain `Indent`, applied a computed number of
+times, which is exactly what `Indent` is for.
+
+This also means `pretty.Align` is removable, but the reasoning is different
+from the original draft: not "nothing needs a hanging indent anymore," but
+"the hanging-indent's job — reproducing real nesting depth — is now done
+correctly, statically, before Doc construction, by ordinary `Indent`."
+
+## The paren-wrap Doc
+
+A naive `IfBreak(HardLine, Text(""))` inside a `Group` is a separate trap:
+`Group` computes its own `forced` flag via `containsForcedBreak`, which
+inspects an `IfBreak`'s *broken* branch unconditionally — so a bare
+`HardLine` there would make the group report itself as always-forced,
+wrapping even values that fit on one line. The existing element/children
+printer avoids exactly this by using `SoftLine` (which never forces a break)
+for the optional break points and reserving `IfBreak` only for literal tokens
+whose branches are `Text`, never `Line`/`HardLine` (see printer.go:353-356,
+the opening-tag/children wrap). This design uses the identical shape, with the
+whole thing wrapped in `realTabDepth`-many `Indent`s:
+
+```go
+func parenWrapDoc(depth int, doc pretty.Doc) pretty.Doc {
+    wrapped := pretty.Group(pretty.Concat(
+        pretty.IfBreak(pretty.Text("("), pretty.Text("")),
+        pretty.Indent(pretty.Concat(pretty.SoftLine, doc)),
+        pretty.SoftLine,
+        pretty.IfBreak(pretty.Text(")"), pretty.Text("")),
+    ))
+    for range depth {
+        wrapped = pretty.Indent(wrapped)
+    }
+    return wrapped
+}
+```
+
+`containsForcedBreak` on the inner `Concat` reduces to whatever `doc` itself
+carries (author-written multi-line content propagates a real forced break;
+`SoftLine` and `Text` never do) — so the group is forced only when the value
+genuinely must be multi-line, falls through to `Print`'s width `fits()` check
+otherwise (matching prettier's own width-triggered wrapping, verified
+empirically: a short single-line JSX value still gets paren-wrapped if the
+assignment line itself overflows 80 columns), and renders completely flat —
+parens as `""` — when the value fits. No change to any currently-single-line
+var/return/struct-field output.
 
 Example — `struct-field.txtar`'s `Icon: <svg class="w-5 h-5"><path .../></svg>`
-(already multi-line in its author source) becomes:
+(already multi-line in its author source, at real depth 0 — top-level `var`)
+becomes:
 
 ```go
 var item = NavItem{Label: "Home", Icon: (
@@ -170,24 +242,20 @@ field's own value gets paren-wrapped.
 ## The plain fallback
 
 For `shapePlain` (call-arg, bare composite-lit elements, unclassified,
-unparseable): the value's doc is emitted **unchanged** — no `Align`, no extra
-`Indent`. This is a deliberate, informed reversion to the pre-PR-#49 behavior
-for this bucket specifically: the closing tag lands at column 0 regardless of
-real nesting depth, exactly the bug PR #49 fixed. There is no principled
-partial fix available here without tracking the surrounding Go text's true
-indent depth through `goWithElements` (which the current architecture doesn't
-carry — the enclosing Go text is emitted as literal bytes, and the decl's own
-indent level is always 0), which is exactly the bracket-reflow work being
-deferred. Guessing an indent count instead of doing that properly would be the
-kind of heuristic the project's engineering standard rules out — so this pass
-takes the explicit, honest trade instead: zero space-based indentation
-anywhere, at the cost of leaving this one bucket exactly where it was before
-PR #49.
+unparseable): the value's doc is emitted **unchanged except for the same
+`realTabDepth`-many `Indent` wrapping** — no parens, no `Align`. Because the
+depth fix is applied uniformly regardless of shape, this bucket does **not**
+reintroduce the pre-PR-#49 bug: a multi-line call-arg element nested inside a
+func body still gets its closing tag correctly aligned to the real block
+depth. It just doesn't get the extra parens/bracket-reflow treatment prettier
+gives call arguments and array elements — that part is still deferred (see
+Non-goals), but it's a readability deferral now, not a correctness one.
 
 ## Retiring `pretty.Align`
 
-With every position resolved to either paren-wrap or bare/unchanged, nothing
-uses the column-hanging behavior `Align` provided. Remove it entirely:
+With the real-depth problem solved statically (above) and every position
+resolved to either paren-wrap or plain, nothing uses the runtime
+column-hanging behavior `Align` provided. Remove it entirely:
 
 - `internal/pretty/doc.go` — remove `kindAlign`, `Align()`, and its
   `containsForcedBreak` case (reverts to `case kindIndent:` alone).
@@ -197,6 +265,10 @@ uses the column-hanging behavior `Align` provided. Remove it entirely:
   leading whitespace; with `Align` gone, `Print` reverts to a plain
   `strings.Builder` — a real simplification, not just a swap.
 - Delete `internal/pretty/align_test.go` (4 tests, all `Align`-specific).
+- `realTabDepth` and the `Indent`-wrapping loop live in `internal/printer`
+  (next to `goWithElements`), not `internal/pretty` — the "real depth" concept
+  is specific to how `GoWithElements` embeds literal Go text, not a general
+  pretty-printing primitive.
 
 ## Testing
 
@@ -204,12 +276,18 @@ uses the column-hanging behavior `Align` provided. Remove it entirely:
   hanging-indent (`TestGoExprElementHangsOffOpeningTag`, `…AtTopLevel`,
   `…InVarGroup`, `TestGoExprElementRenameShiftsHangingIndent`) with tests
   pinning the new behavior:
-  - paren-wrap for `var`, `return`, and a keyed composite-literal field, each
-    covering: author-forced multi-line, width-forced-but-source-single-line,
-    and fits-on-one-line (stays flat, no parens — regression guard).
-  - plain/unchanged output for a multi-line call-arg element, with a comment
-    cross-referencing the ROADMAP entry for the deferred bracket-reflow work.
-  - a rename of the `var`/`return` case no longer changes the body's
+  - paren-wrap for a top-level `var`, each covering: author-forced multi-line,
+    width-forced-but-source-single-line, and fits-on-one-line (stays flat, no
+    parens — regression guard).
+  - paren-wrap for an assignment (`:=`) **nested inside a `func` body** —
+    the exact shape that exposed the real-depth bug — asserting the closing
+    paren lands at the assignment's own depth and children one tab deeper,
+    not at column 0 and not at the decl's own (always-zero) baseline.
+  - plain output (no parens) for a multi-line call-arg element, both at
+    top-level and nested inside a `func` body, asserting the same correct
+    real-depth indentation without parens; comment cross-referencing the
+    ROADMAP entry for the deferred bracket-reflow work.
+  - a rename of the `var`/assignment case no longer changes the body's
     indentation (replaces the intent of the deleted
     `TestGoExprElementRenameShiftsHangingIndent`, now proving the opposite
     property).
@@ -229,10 +307,12 @@ uses the column-hanging behavior `Align` provided. Remove it entirely:
 
 - **Bracket-reflow for call-arg / bare composite-literal elements** — e.g. the
   `[]any{<div>...}` case from PR #49's own commit message, and any multi-line
-  `Wrap(<Foo>...</Foo>)` call argument. These keep today's plain/bare
-  behavior (column-0 closing tag). Tracked as a `docs/ROADMAP.md` follow-up:
-  reflowing the enclosing bracket (moving `(`/`[`/`{`, adding a trailing
-  comma) the way prettier does for call arguments and array elements.
+  `Wrap(<Foo>...</Foo>)` call argument. These get correct real-depth
+  indentation (via `realTabDepth`, same as every other position) but keep
+  today's inline/bare shape — no parens, no trailing comma, no bracket moved
+  onto its own line. Tracked as a `docs/ROADMAP.md` follow-up: reflowing the
+  enclosing bracket the way prettier does for call arguments and array
+  elements.
 - **Reflowing an outer composite literal's own braces** when one of its keyed
   fields' values paren-wraps (the `NavItem{...}` example above) — same
   deferred territory, orthogonal to this fix.
@@ -243,8 +323,9 @@ uses the column-hanging behavior `Align` provided. Remove it entirely:
 ## Files touched
 
 - `internal/printer/printer.go` — `fmtGoExprParts` gains AST-based shape
-  classification; `goWithElements` branches on shape per part.
+  classification; new `realTabDepth` helper; `goWithElements` branches on
+  shape per part and wraps with `realTabDepth`-many `Indent`s either way.
 - `internal/pretty/doc.go`, `internal/pretty/print.go` — remove `Align`.
 - `internal/pretty/align_test.go` — deleted.
-- `internal/printer/goexpr_test.go` — four tests replaced.
+- `internal/printer/goexpr_test.go` — four tests replaced (see Testing).
 - `docs/ROADMAP.md` — new entry for deferred bracket-reflow work.
