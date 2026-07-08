@@ -352,7 +352,7 @@ func TestFmtTwoDirsOneModule(t *testing.T) {
 	aPath := writeFile(t, filepath.Join(dir, "a"), "a.gsx", aSrc)
 	bPath := writeFile(t, filepath.Join(dir, "b"), "b.gsx", bSrc)
 
-	refs := analyzeUnusedImports(
+	refs, _ := analyzeUnusedImports(
 		[]string{aPath, bPath},
 		codegen.Options{Classifier: attrclass.Builtin()},
 	)
