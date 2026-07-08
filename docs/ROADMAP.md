@@ -736,6 +736,24 @@ vocabulary remains a design aspiration, not the current API.
   over the whole tree now completes in well under 1s (down from ~3s), and
   `generate`'s cold path speeds up correspondingly. Output is byte-identical
   (corpus goldens + a real-world `one-learning-gsx generate` diff check).
+  **`gsx fmt` no longer silently succeeds on invalid Go - done:** gsx copies user
+  Go through as an opaque blob, so Go that is invalid only in context (an `import`
+  after a declaration) was caught nowhere in the fmt path: `fmt` exited 0, `fmt -l`
+  called the file clean, and `fmt -w` rewrote it. The skeleton parse that
+  unused-import detection already runs *did* detect it and dropped the error on the
+  floor (`buildPackageSkeletons`). `Module.UnusedImports` now returns those
+  positioned diagnostics (the skeleton's `//line` directives map them back to the
+  exact `.gsx` location) and `gsx fmt` renders them through the same
+  `diag.RenderRich`/`RenderCompact` path `generate` uses, exiting 1. The formatter
+  itself is untouched: diagnostics belong to the analyzer, exactly as in the LSP,
+  where `handleFormatting` only formats and `publishDiagnostics` is a separate
+  channel. Deliberate divergence from gofmt: `fmt` **still formats and writes**,
+  because unlike gofmt it produced correct output (the invalid Go relays verbatim);
+  gofmt refuses only because an unparseable file yields nothing. Scope: detection
+  needs a loadable module and no `-no-imports`, so a `.gsx` outside a module stays
+  silent - same as the LSP without analysis. **Behavior change:** a tree with a Go
+  syntax error now fails a `gsx fmt -l` CI gate that previously passed. Design:
+  `docs/superpowers/specs/2026-07-08-fmt-error-reporting-design.md`.
 
 ## Documentation backlog
 
