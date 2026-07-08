@@ -1,6 +1,51 @@
 package printer
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+// A multi-line element literal in Go-expression position hangs off its opening
+// tag: children indent one level deeper than `<`, and the closing tag lines up
+// under it. The prefix is the line's leading whitespace verbatim plus spaces, so
+// the alignment survives any tab width.
+
+func TestGoExprElementHangsOffOpeningTag(t *testing.T) {
+	// "\tsomeLongName := " -> prefix is one tab then 16 spaces.
+	pfx := "\t" + strings.Repeat(" ", len("someLongName := "))
+	src := "package main\n\nfunc f() {\nsomeLongName := <div>\n<p>hi</p>\n</div>\n_ = someLongName\n}\n"
+	want := "package main\n\nfunc f() {\n" +
+		"\tsomeLongName := <div>\n" +
+		pfx + "\t<p>hi</p>\n" +
+		pfx + "</div>\n" +
+		"\t_ = someLongName\n}\n"
+	checkFormat(t, src, want)
+}
+
+func TestGoExprElementHangsOffOpeningTagAtTopLevel(t *testing.T) {
+	// "var n = " has no leading whitespace -> prefix is 8 spaces.
+	pfx := strings.Repeat(" ", len("var n = "))
+	src := "package main\n\nvar n = <div>\n<p>hi</p>\n</div>\n"
+	want := "package main\n\nvar n = <div>\n" + pfx + "\t<p>hi</p>\n" + pfx + "</div>\n"
+	checkFormat(t, src, want)
+}
+
+func TestGoExprElementHangsOffOpeningTagInVarGroup(t *testing.T) {
+	// "\tn = " -> one tab (verbatim) then 4 spaces.
+	pfx := "\t" + strings.Repeat(" ", len("n = "))
+	src := "package main\n\nvar (\nn = <div>\n<p>hi</p>\n</div>\n)\n"
+	want := "package main\n\nvar (\n\tn = <div>\n" + pfx + "\t<p>hi</p>\n" + pfx + "</div>\n)\n"
+	checkFormat(t, src, want)
+}
+
+// Renaming the variable re-indents the element, since the hanging indent is
+// anchored to the opening tag's column. Pinned so the trade-off is explicit.
+func TestGoExprElementRenameShiftsHangingIndent(t *testing.T) {
+	pfx := "\t" + strings.Repeat(" ", len("n := "))
+	src := "package main\n\nfunc f() {\nn := <div>\n<p>hi</p>\n</div>\n_ = n\n}\n"
+	want := "package main\n\nfunc f() {\n\tn := <div>\n" + pfx + "\t<p>hi</p>\n" + pfx + "</div>\n\t_ = n\n}\n"
+	checkFormat(t, src, want)
+}
 
 // A GoWithElements decl's Go text is real, complete Go once each embedded
 // element literal is stood in for by an ordinary Go operand. These tests pin
