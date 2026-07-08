@@ -69,7 +69,7 @@ func TestGoWithElementsSrcIsByteExact(t *testing.T) {
 			for _, gw := range goWithElementsDecls(t, f) {
 				tf := fset.File(gw.Pos())
 				regionStart, regionEnd := tf.Offset(gw.Pos()), tf.Offset(gw.End())
-				got := goWithElementsSrc(gw)
+				got, _ := goWithElementsSrc(gw)
 				if len(got) != regionEnd-regionStart {
 					t.Fatalf("reconstruction is %d bytes, region is %d:\n%q", len(got), regionEnd-regionStart, got)
 				}
@@ -108,7 +108,7 @@ func TestGoWithElementsSrcGoTextVerbatim(t *testing.T) {
 	const src = "package demo\n\nvar a = <b>\n\thi\n</b>\n\nvar b = 1\n"
 	f, _ := parseGsxDecls(t, src)
 	gw := goWithElementsDecls(t, f)[0]
-	got := goWithElementsSrc(gw)
+	got, _ := goWithElementsSrc(gw)
 	for _, part := range gw.Parts {
 		gt, ok := part.(gsxast.GoText)
 		if !ok {
@@ -191,6 +191,28 @@ func TestCheckReservedDeclsReportsUnparseableRegion(t *testing.T) {
 			src:     "package demo\n\nvar a = func() any { if { return <b/> } }()\n",
 			wantMsg: "missing condition in if statement",
 			wantAt:  "{ return",
+		},
+		// When the parser stops ON a substituted literal it is complaining about
+		// reservedDeclPlaceholder, a token the author never typed. go/parser would
+		// say "expected declaration, found _" at a byte that reads `<`. Name the
+		// user's construct instead, and snap the caret to the literal's first byte.
+		{
+			name:    "placeholder: element in declaration position",
+			src:     "package demo\n\n<b/>\n",
+			wantMsg: "element is not valid in this position",
+			wantAt:  "<b/>",
+		},
+		{
+			name:    "placeholder: fragment in declaration position",
+			src:     "package demo\n\n<></>\n",
+			wantMsg: "fragment is not valid in this position",
+			wantAt:  "<></>",
+		},
+		{
+			name:    "placeholder: f-literal in declaration position",
+			src:     "package demo\n\nf`hi`\n",
+			wantMsg: "f-literal is not valid in this position",
+			wantAt:  "f`hi`",
 		},
 	}
 	for _, tc := range cases {
