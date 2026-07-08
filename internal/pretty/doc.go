@@ -14,7 +14,6 @@ const (
 	kindText kind = iota
 	kindConcat
 	kindIndent
-	kindAlign       // breaks inside indent to the column where the child began
 	kindLine        // a soft/space/hard break candidate (see flat, hard)
 	kindGroup       // flat if it fits, else broken
 	kindFill        // greedy per-element wrap (Task 2)
@@ -44,19 +43,6 @@ func Concat(ds ...Doc) Doc { return Doc{kind: kindConcat, parts: ds} }
 
 // Indent renders d with the break-indent increased by one tab level.
 func Indent(d Doc) Doc { return Doc{kind: kindIndent, parts: []Doc{d}} }
-
-// Align renders d as a hanging indent: every break inside d returns to the
-// COLUMN at which d began, instead of to the enclosing tab-indent level. Indent
-// levels inside d stack tabs on top of that column.
-//
-// Use it for a document that starts partway along a line whose earlier text is
-// not part of the document — a gsx element sitting in Go-expression position
-// (`n := <div>`), whose closing tag should line up under its opening tag.
-//
-// The break prefix reproduces the current line's leading whitespace verbatim and
-// pads the remainder with one space per rune, so the alignment holds however the
-// reader's editor renders a tab. Align at column zero is a no-op.
-func Align(d Doc) Doc { return Doc{kind: kindAlign, parts: []Doc{d}} }
 
 // Group renders d flat if it fits the remaining width on the current line,
 // else broken. A group containing any hard break (HardLine/BreakParent, at any
@@ -97,7 +83,7 @@ func containsForcedBreak(d Doc) bool {
 		return true
 	case kindGroup:
 		return d.forced
-	case kindIndent, kindAlign:
+	case kindIndent:
 		return containsForcedBreak(d.parts[0])
 	case kindConcat, kindFill:
 		return slices.ContainsFunc(d.parts, containsForcedBreak)

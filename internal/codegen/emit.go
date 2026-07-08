@@ -21,6 +21,7 @@ import (
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/cssmin"
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/goexprshape"
 	"github.com/gsxhq/gsx/internal/jsmin"
 )
 
@@ -228,12 +229,33 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 			// Go, not specially diagnosed here; it surfaces as a gofmt parse failure
 			// from generateFile's closing format.Source call (fail-safe: never
 			// silently emits broken output).
+			// gsx fmt may have wrapped a bare-operand element/fragment (an
+			// assignment RHS, return operand, or keyed composite-literal field —
+			// never a call argument or bare composite-literal element, where the
+			// parens are real call/list syntax) in a decorative "(" ")" purely for
+			// source readability (see internal/printer's parenWrapDoc). Those bytes
+			// must never reach this closure splice: a newline before the closure's
+			// own trailing "}"/")" trips Go's automatic semicolon insertion (see
+			// emitSkeletonBlockLine's doc comment for the same hazard elsewhere).
+			// goWithElementsParenShapes classifies each element/fragment the same
+			// way the printer does; parenStrip{Trailing,Leading} below drop the
+			// matching decorative paren (plus its surrounding whitespace) from the
+			// adjacent GoText before it's spliced in — the closure text itself is
+			// unaffected either way.
+			shapes := goWithElementsParenShapes(v)
 			var wbuf bytes.Buffer
 			partsOK := true
-			for _, part := range v.Parts {
+			for i, part := range v.Parts {
 				switch p := part.(type) {
 				case ast.GoText:
-					wbuf.WriteString(p.Src)
+					src := p.Src
+					if i > 0 && parenWrappable(v.Parts[i-1], shapes, i-1) {
+						src = goexprshape.StripLeadingParen(src)
+					}
+					if i < len(v.Parts)-1 && parenWrappable(v.Parts[i+1], shapes, i+1) {
+						src = goexprshape.StripTrailingParen(src)
+					}
+					wbuf.WriteString(src)
 				case *ast.Element:
 					if !emitElementValue(&wbuf, p, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, importAliases, boundNames, typeArgAliases, &interpTemp, fset, cls, fm, bag, mergeExpr) {
 						partsOK = false
