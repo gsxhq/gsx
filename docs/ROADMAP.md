@@ -297,7 +297,22 @@ render goldens.
     `element-literals/*` (var, call-arg, component-tag, return, struct-field,
     outer-scope interpolation capture, plus an apostrophe/prose-scanning
     regression and a formatter round-trip case). Docs: `syntax/elements.md`
-    §Elements as values, `syntax/raw-go.md` cross-reference. **Deferred:**
+    §Elements as values, `syntax/raw-go.md` cross-reference.
+    **`gsx fmt` follow-up - done:** an element literal turned its whole
+    surrounding Go region into an `ast.GoWithElements`, whose Go text the printer
+    relayed verbatim - so one `var x = <p/>` left every declaration in the region
+    unformatted, and `fmt -l` called the file clean. The printer now substitutes a
+    placeholder identifier per embedded gsx value (an identifier is a valid Go
+    operand in every position such a value can occupy), hands the resulting
+    ordinary Go to `go/format`, and re-splits the output at the placeholders. Each
+    placeholder is exactly as many runes wide as the value it stands for, so
+    gofmt's end-of-line comment columns are computed against the element rather
+    than the placeholder. gsx still never parses Go - it hands Go something Go can
+    parse, the same claim-what-Go-leaves-free move as `|>`, so this needed no
+    merged Go+gsx grammar. Separately, a multi-line element literal now hangs off
+    its opening tag (`pretty.Align`) instead of breaking to column 0: children
+    indent one level deeper than `<`, the closing tag lines up under it. Trade-off:
+    renaming the variable re-indents the element. **Deferred:**
     component values (`type Component = func(...gsx.Attr) gsx.Node` collapse) -
     parked; a baked element literal already covers the driving nav-icon use
     case since its class is constant there, and component values only earn
