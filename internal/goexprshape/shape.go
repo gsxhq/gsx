@@ -10,6 +10,7 @@ package goexprshape
 import (
 	goast "go/ast"
 	goparser "go/parser"
+	goscanner "go/scanner"
 	gotoken "go/token"
 	"strings"
 )
@@ -134,43 +135,53 @@ func isSpace(b byte) bool {
 }
 
 // collapseHoleWhitespace returns a copy of src where, for every hole whose
-// immediately-preceding non-whitespace byte is an opening bracket, the
-// whitespace before it is collapsed to a single space (if it contains a
-// newline) — and likewise, for every hole whose immediately-following
-// non-whitespace byte is a closing bracket, the whitespace after it. Returns
-// each hole's new Start offset in the returned string, in the same order as
-// holes. Processes holes right-to-left (by Start, descending) so editing one
-// hole's neighborhood never disturbs an as-yet-unprocessed (necessarily
-// earlier) hole's byte offsets.
+// immediately-preceding non-whitespace byte is a REAL (not inside a comment)
+// opening bracket, the whitespace before it is collapsed to a single space
+// (if it contains a newline) — and likewise, for every hole whose
+// immediately-following non-whitespace byte is a real closing bracket, the
+// whitespace after it. Returns each hole's new Start offset in the returned
+// string, in the same order as holes.
+//
+// Processes holes in ascending Start order (left to right), tracking a
+// cumulative shift so far. This is the opposite of the naive-looking
+// right-to-left approach: an edit only ever touches text at or after its own
+// hole's position, so an EARLIER (leftward) hole's edit shrinking the string
+// shifts every position to its right — including any offset already recorded
+// for a LATER (rightward) hole processed first. Left-to-right avoids this
+// because each hole's own Start/End is adjusted by the shift accumulated so
+// far before it is used, and once a hole's offset is recorded, only edits
+// strictly to its right can ever happen afterward, which can't move it.
 func collapseHoleWhitespace(src string, holes []Hole) (string, []int) {
 	order := make([]int, len(holes))
 	for i := range order {
 		order[i] = i
 	}
-	// Simple insertion sort by Start descending — holes is always small (one
+	// Simple insertion sort by Start ascending — holes is always small (one
 	// entry per gsx value in a single GoWithElements decl).
 	for i := 1; i < len(order); i++ {
-		for j := i; j > 0 && holes[order[j-1]].Start < holes[order[j]].Start; j-- {
+		for j := i; j > 0 && holes[order[j-1]].Start > holes[order[j]].Start; j-- {
 			order[j-1], order[j] = order[j], order[j-1]
 		}
 	}
+	comments := commentByteSpans(src)
 	offsets := make([]int, len(holes))
 	s := src
+	shift := 0
 	for _, i := range order {
-		h := holes[i]
-		before := h.Start
+		start, end := holes[i].Start+shift, holes[i].End+shift
+		before := start
 		for before > 0 && isSpace(s[before-1]) {
 			before--
 		}
-		after := h.End
+		after := end
 		for after < len(s) && isSpace(s[after]) {
 			after++
 		}
-		beforeWS, afterWS := s[before:h.Start], s[h.End:after]
-		collapseBefore := before > 0 && isOpenBracket(s[before-1]) && containsNewline(beforeWS)
-		collapseAfter := after < len(s) && isCloseBracket(s[after]) && containsNewline(afterWS)
+		beforeWS, afterWS := s[before:start], s[end:after]
+		collapseBefore := before > 0 && isOpenBracket(s[before-1]) && !insideAny(comments, before-1-shift) && containsNewline(beforeWS)
+		collapseAfter := after < len(s) && isCloseBracket(s[after]) && !insideAny(comments, after-shift) && containsNewline(afterWS)
 		if !collapseBefore && !collapseAfter {
-			offsets[i] = h.Start
+			offsets[i] = start
 			continue
 		}
 		newBefore, newAfter := beforeWS, afterWS
@@ -180,8 +191,9 @@ func collapseHoleWhitespace(src string, holes []Hole) (string, []int) {
 		if collapseAfter {
 			newAfter = " "
 		}
-		s = s[:before] + newBefore + s[h.Start:h.End] + newAfter + s[after:]
+		s = s[:before] + newBefore + s[start:end] + newAfter + s[after:]
 		offsets[i] = before + len(newBefore)
+		shift += (len(newBefore) + (end - start) + len(newAfter)) - (after - before)
 	}
 	return s, offsets
 }
@@ -192,6 +204,40 @@ func isCloseBracket(b byte) bool { return b == ')' || b == ']' || b == '}' }
 func containsNewline(s string) bool {
 	for i := 0; i < len(s); i++ {
 		if s[i] == '\n' {
+			return true
+		}
+	}
+	return false
+}
+
+// commentByteSpans returns the [start, end) byte range of every comment in
+// src. A bracket-shaped byte inside a comment (e.g. a line comment ending in
+// "// (" directly before a hole) is not a real bracket — treating it as one
+// would collapse whitespace that isn't actually inside any bracket, which can
+// merge two real statements onto the comment's line.
+func commentByteSpans(src string) [][2]int {
+	fset := gotoken.NewFileSet()
+	file := fset.AddFile("", fset.Base(), len(src))
+	var spans [][2]int
+	var sc goscanner.Scanner
+	sc.Init(file, []byte(src), func(gotoken.Position, string) {}, goscanner.ScanComments)
+	base := file.Base()
+	for {
+		pos, tok, lit := sc.Scan()
+		if tok == gotoken.EOF {
+			break
+		}
+		if tok == gotoken.COMMENT {
+			start := int(pos) - base
+			spans = append(spans, [2]int{start, start + len(lit)})
+		}
+	}
+	return spans
+}
+
+func insideAny(spans [][2]int, pos int) bool {
+	for _, sp := range spans {
+		if pos >= sp[0] && pos < sp[1] {
 			return true
 		}
 	}
