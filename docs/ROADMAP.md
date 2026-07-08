@@ -596,8 +596,20 @@ vocabulary remains a design aspiration, not the current API.
   literal text, so a bare `//` in content renders verbatim; the braced
   `{/* … */}` form is the content-comment. Printer simplified; faithfulness +
   idempotence re-proven.
-- [ ] **`_gsx`-alias generator-emitted imports** - robust form of the
-  import-shadow guard (currently `gsx`/`strconv` are reserved param names as a stopgap).
+- [~] **`_gsx`-alias generator-emitted imports** - robust form of the
+  import-shadow guard (currently `gsx`/`strconv` are reserved param names as a
+  stopgap). **Designed 2026-07-08**, spec
+  `2026-07-08-gsx-alias-generator-imports-design.md`. Scope grew once probed: the
+  emitter both *hardcodes* the idents `gsx`/`context`/`io`/`strconv` (so
+  `import gsx "strings"` or `var gsx = 1` emits `gsx redeclared in this block`)
+  **and** seeds `context`/`io`/`gsx` unconditionally (so a `.gsx` with no gsx
+  parts emits three unused imports). Six probed sources where `generate` exits 0
+  and `go build` fails. Fix: record each generator import at its emission site
+  (as `strconv` already does), always `_gsx`-alias them, delete
+  `emittedImportIdent`. Establishes the rule **"`gsx` is an ordinary Go package
+  in `.gsx` source: reference it → import it; don't → don't"**. Also closes a
+  corpus blind spot - `internal/corpus/batch.go` never compiles non-renderable
+  cases, which is where all six bugs hid.
 - [x] **Structured diagnostics - Slice 1 (semantic layer)** - `internal/diag`
   (resolved `token.Position` Start/End, severity, code, message, help, source; `Bag`
   collector; rich/compact/JSON renderers). All `go/types` errors surfaced; codegen
