@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/gsxhq/gsx/internal/codegen"
+	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
 	"github.com/gsxhq/gsx/internal/rawfmt"
 )
@@ -71,11 +72,17 @@ func runFmt(stdout, stderr io.Writer, args []string, cssFmt, jsFmt rawfmt.Format
 	}
 
 	var unusedByPath map[string][]gsxfmt.ImportRef
+	var goDiags map[string][]diag.Diagnostic
 	if !noImports {
-		unusedByPath = analyzeUnusedImports(files, opts)
+		unusedByPath, goDiags = analyzeUnusedImports(files, opts)
 	}
 
 	exit := 0
+	// The analyzer's Go parse errors are reported, but never stop formatting: the
+	// invalid Go passes through verbatim and the markup around it still canonicalizes.
+	if reportGoDiagnostics(stderr, files, goDiags) {
+		exit = 1
+	}
 	widthByDir := map[string]int{}
 	for _, path := range files {
 		orig, err := os.ReadFile(path)
@@ -164,8 +171,16 @@ func printWidthFor(dir string) int {
 // are skipped (those files are then formatted without import removal). opts
 // carries the resolved codegen config so skeletons match what `generate` emits;
 // a zero/builtin opts still works (buildSkeleton tolerates unknown filters).
-func analyzeUnusedImports(files []string, opts codegen.Options) map[string][]gsxfmt.ImportRef {
+//
+// It also returns, per absolute .gsx path, the Go parse diagnostics the skeleton
+// surfaced. gsx copies user Go through as an opaque blob, so Go that is invalid
+// only in context (an `import` after a declaration, say) is caught nowhere else in
+// the fmt path; the skeleton's //line directives have already resolved each
+// position back to its .gsx origin. Only genuine parse failures become diagnostics;
+// a project that will not load yields none, so it can never make `gsx fmt` fail.
+func analyzeUnusedImports(files []string, opts codegen.Options) (map[string][]gsxfmt.ImportRef, map[string][]diag.Diagnostic) {
 	out := map[string][]gsxfmt.ImportRef{}
+	diags := map[string][]diag.Diagnostic{}
 	dirSet := map[string]bool{}
 	for _, f := range files {
 		dirSet[filepath.Dir(f)] = true
@@ -181,16 +196,27 @@ func analyzeUnusedImports(files []string, opts codegen.Options) map[string][]gsx
 		o.ModulePath = g.modPath
 		m, err := codegen.Open(o)
 		if err != nil {
-			continue // not loadable → syntactic-only fallback (no removal)
+			continue // not loadable → syntactic-only fallback (no removal, no diagnostics)
 		}
 		for _, dir := range g.dirs {
 			absDir, err := filepath.Abs(dir)
 			if err != nil {
 				continue
 			}
-			byPath, err := m.UnusedImports(absDir)
+			byPath, goDiags, err := m.UnusedImports(absDir)
+			// Bucket by the .gsx path each diagnostic points at: a package's skeletons
+			// can carry diagnostics for any of its files, not only the ones named on
+			// the command line. Collected even when the call errored, so a package that
+			// is unanalyzable for an unrelated reason still reports the Go it could read.
+			for _, d := range goDiags {
+				abs, aerr := filepath.Abs(d.Start.Filename)
+				if aerr != nil {
+					continue
+				}
+				diags[abs] = append(diags[abs], d)
+			}
 			if err != nil {
-				continue
+				continue // unanalyzable package → not a user-facing Go diagnostic
 			}
 			for gsxPath, imps := range byPath {
 				absPath, err := filepath.Abs(gsxPath)
@@ -205,7 +231,60 @@ func analyzeUnusedImports(files []string, opts codegen.Options) map[string][]gsx
 			}
 		}
 	}
-	return out
+	return out, diags
+}
+
+// reportGoDiagnostics prints, to stderr, the analyzer's Go parse diagnostics for
+// the files being formatted, and reports whether any was an error.
+//
+// Unlike gofmt, `gsx fmt` reports and still formats. gofmt refuses to write
+// because an unparseable file yields no output at all; gsx produced correct output
+// (the invalid Go relays through verbatim), so refusing to write would discard
+// work it successfully did — and would disagree with the LSP, which formats the
+// same buffer while publishing the same diagnostic on its own channel. What is
+// borrowed from gofmt is the part that matters: never silently succeed.
+//
+// Diagnostics for files outside the format set are dropped: the skeleton is
+// per-package, and `gsx fmt a.gsx` must not report on its untouched siblings.
+func reportGoDiagnostics(stderr io.Writer, files []string, byPath map[string][]diag.Diagnostic) bool {
+	if len(byPath) == 0 {
+		return false
+	}
+	var all []diag.Diagnostic
+	for _, path := range files {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			continue
+		}
+		all = append(all, byPath[abs]...)
+	}
+	if len(all) == 0 {
+		return false
+	}
+	sort.SliceStable(all, func(i, j int) bool {
+		a, b := all[i].Start, all[j].Start
+		if a.Filename != b.Filename {
+			return a.Filename < b.Filename
+		}
+		if a.Line != b.Line {
+			return a.Line < b.Line
+		}
+		return a.Column < b.Column
+	})
+	if isTTY(stderr) {
+		diag.RenderRich(stderr, all, func(name string) ([]byte, bool) {
+			b, e := os.ReadFile(name)
+			return b, e == nil
+		})
+	} else {
+		diag.RenderCompact(stderr, all)
+	}
+	for _, d := range all {
+		if d.Severity == diag.Error {
+			return true
+		}
+	}
+	return false
 }
 
 // gsxFiles resolves the path args to a sorted, de-duplicated list of .gsx files
