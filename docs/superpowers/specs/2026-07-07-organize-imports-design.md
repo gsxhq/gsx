@@ -1,4 +1,4 @@
-# Import handling modes in `gsx fmt` (gofmt / goimports)
+# Import handling: gofmt / goimports modes in `gsx fmt` + LSP `source.organizeImports`
 
 ## Problem
 
@@ -193,11 +193,50 @@ imports = "goimports"   # "goimports" (default) | "gofmt"
   Only call `analyzeUnusedImports` in `goimports` mode. Pass the resolved
   `Unused` (empty in gofmt mode) and `Reorder` into `gsxfmt.FormatWith`.
 
-### LSP — `internal/lsp/format.go`
+### LSP formatting — `internal/lsp/format.go`
 
-No CLI, so mode comes from resolved config only: map
-`merged.effectiveImportsMode()` through the shared helper and pass `Unused`
-(from analysis, only in goimports mode) and `Reorder` into `FormatWith`.
+`textDocument/formatting` **honors the configured mode**, mirroring the CLI. No
+CLI flag exists in the editor, so the mode comes from resolved config only: add
+an `ImportsMode(dir)` accessor next to the existing `PrintWidth(dir)` on the
+analyzer, map it through the shared mode→options helper, and pass `Unused`
+(from analysis, only in goimports mode) and `Reorder` into `FormatWith`. So in
+`gofmt` mode, format-on-save is gofmt only — it stops removing/reordering
+imports; the organize behavior then comes exclusively from the code action
+below. This is precisely the gopls split: `textDocument/formatting` = gofmt,
+import organizing = a separate action.
+
+### LSP `source.organizeImports` code action — `internal/lsp/codeaction.go` (new)
+
+Add a `textDocument/codeAction` handler that offers `source.organizeImports`,
+the gopls-standard action editors trigger from the lightbulb menu or
+`editor.codeActionsOnSave`. This is what lets a user keep `imports = "gofmt"` for
+format-on-save yet still organize imports via the action — the real gopls
+workflow.
+
+- **Capabilities:** advertise `codeActionProvider` as `CodeActionOptions{
+  CodeActionKinds: ["source.organizeImports"]}` in `serverCapabilities`
+  (a struct, not the bare `true`, so the client knows which source-action kinds
+  we support and can wire `codeActionsOnSave`).
+- **Dispatch:** `case "textDocument/codeAction"` in `server.go` → `handleCodeAction`.
+- **Filter:** honor the request's `context.only` — return the action only when
+  `only` is empty or contains `source.organizeImports` (or the `source` prefix).
+  Non-`.gsx` files return an empty list (gopls owns `.go`).
+- **Behavior:** the action **always** applies the goimports transformation
+  (remove unused + reorder), independent of the configured formatter mode —
+  organizing is the action's entire purpose, exactly as `source.organizeImports`
+  means goimports in gopls even when formatting is plain gofmt. It computes the
+  edit via `FormatWith` with `Unused` (from analysis) and `Reorder: true`.
+- **Edit scope — whole document.** gsx has no partial/region formatter; its
+  canonical form is produced by a whole-document parse → print. So the action
+  returns a single whole-document `TextEdit` (the goimports-organized canonical
+  document), wrapped in a `WorkspaceEdit` on the returned `CodeAction`. This is a
+  minor, deliberate deviation from gopls's import-region-only edits: applying the
+  action also yields canonical gsx formatting for the rest of the document.
+  Returned inline on the `CodeAction.edit` (no `resolveProvider` round-trip).
+- **No-op suppression:** when the organized document equals the current buffer,
+  return an empty list (no action offered / no-op on save). On a parse failure
+  (mid-edit buffer) likewise return an empty list — never a destructive edit,
+  matching `handleFormatting`.
 
 ## Precedence
 
@@ -226,6 +265,17 @@ scoped to what a formatter mode needs.
   untouched and keeps unused imports; default (goimports) merges/dedups/groups
   and removes unused; `-no-imports` behaves as `-imports gofmt`; contradictory
   `-imports goimports -no-imports` errors.
+- **LSP formatting** (`internal/lsp/format_test.go` or existing): `gofmt` mode
+  formats without removing/reordering imports; `goimports` mode does both.
+- **LSP code action** (`internal/lsp/codeaction_test.go`): `textDocument/codeAction`
+  with `only: ["source.organizeImports"]` on a doc with a duplicate + unused
+  import returns a `source.organizeImports` action whose edit is the organized
+  document — **regardless** of the configured mode (assert it organizes even
+  under `imports = "gofmt"`); returns empty when already organized; returns empty
+  for a non-`.gsx` file and for a mid-edit parse failure; honors `context.only`
+  (no action when `only` excludes source/organizeImports). Capabilities test
+  (`server_lifecycle_test.go`) asserts `codeActionProvider` advertises
+  `source.organizeImports`.
 
 ## Out of scope / non-goals
 
@@ -247,7 +297,22 @@ scoped to what a formatter mode needs.
 - `gen/configfile.go` — `Imports` key, parse/validate into mode.
 - `gen/main.go` — `config` mode state + `effectiveImportsMode`, shared
   mode→options helper.
-- `internal/lsp/format.go` — pass `Unused`/`Reorder` from resolved mode.
-- Corpus cases + unit/config/CLI tests as above.
+- `internal/lsp/format.go` — formatting honors config mode (`Unused`/`Reorder`).
+- `internal/lsp/codeaction.go` (new) — `handleCodeAction` for
+  `source.organizeImports` (always goimports transform, whole-doc edit).
+- `internal/lsp/protocol.go` — `CodeActionOptions`, `codeActionProvider`
+  capability, `textDocument/codeAction` param/result types.
+- `internal/lsp/server.go` — dispatch `textDocument/codeAction`; advertise the
+  capability.
+- `internal/lsp/analysis.go` — `ImportsMode(dir)` accessor for the resolved mode.
+- Corpus cases + unit/config/CLI/LSP tests as above.
 - Docs: `[formatter] imports` config reference + `gsx fmt` page (in
-  `gsxhq.github.io`).
+  `gsxhq.github.io`); note editor `codeActionsOnSave: source.organizeImports`
+  usage in the LSP/editor docs.
+
+### Sibling repos
+
+- `vscode-gsx` — the extension can document/enable
+  `"editor.codeActionsOnSave": { "source.organizeImports": true }` for `.gsx`.
+  No grammar change (no syntax change). Verify the extension forwards
+  `textDocument/codeAction` to the server (default LSP client behavior).
