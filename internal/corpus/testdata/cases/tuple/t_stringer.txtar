@@ -28,10 +28,10 @@ Page(PageProps{S: "ok"})
 package views
 
 import (
-	"context"
-	"io"
-
+	_gsxctx "context"
 	"github.com/gsxhq/gsx"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 func makeLabel(s string) (myLabel, error) { return myLabel{text: "[" + s + "]"}, nil }
@@ -41,10 +41,10 @@ type BadgeProps struct {
 }
 
 //line input.gsx:7:1
-func Badge(_gsxp BadgeProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Badge(_gsxp BadgeProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		icon := _gsxp.Icon
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:7:34
 		_gsxgw.S("<span>")
 //line input.gsx:7:40
@@ -59,16 +59,16 @@ type PageProps struct {
 }
 
 //line input.gsx:9:1
-func Page(_gsxp PageProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Page(_gsxp PageProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		s := _gsxp.S
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:9:28
 		_gsxv0, _gsxerr := makeLabel(s)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Badge(BadgeProps{Icon: gsx.Val(_gsxv0)}))
+		_gsxgw.Node(ctx, Badge(BadgeProps{Icon: _gsxrt.Val(_gsxv0)}))
 		return _gsxgw.Err()
 	})
 }

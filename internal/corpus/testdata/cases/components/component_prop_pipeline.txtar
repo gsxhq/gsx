@@ -21,11 +21,11 @@ Page(PageProps{Name: "ada"})
 package views
 
 import (
-	"context"
-	"io"
-
+	_gsxctx "context"
 	"github.com/gsxhq/gsx"
+	_gsxrt "github.com/gsxhq/gsx"
 	_gsxstd "github.com/gsxhq/gsx/std"
+	_gsxio "io"
 )
 
 type CardProps struct {
@@ -33,10 +33,10 @@ type CardProps struct {
 }
 
 //line input.gsx:5:1
-func Card(_gsxp CardProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Card(_gsxp CardProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		title := _gsxp.Title
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:5:34
 		_gsxgw.S("<div class=\"card\">")
 //line input.gsx:5:52
@@ -51,12 +51,12 @@ type PageProps struct {
 }
 
 //line input.gsx:7:1
-func Page(_gsxp PageProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Page(_gsxp PageProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		name := _gsxp.Name
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.Node(ctx, Card(CardProps{Title: gsx.Val(_gsxstd.Upper((name)))}))
+		_gsxgw.Node(ctx, Card(CardProps{Title: _gsxrt.Val(_gsxstd.Upper((name)))}))
 		return _gsxgw.Err()
 	})
 }

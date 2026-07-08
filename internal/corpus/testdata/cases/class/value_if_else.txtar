@@ -15,10 +15,9 @@ Toggle(ToggleProps{On: false})
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type ToggleProps struct {
@@ -26,10 +25,10 @@ type ToggleProps struct {
 }
 
 //line input.gsx:3:1
-func Toggle(_gsxp ToggleProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Toggle(_gsxp ToggleProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		on := _gsxp.On
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<i")
 		_gsxv0 := "ico"
@@ -40,7 +39,7 @@ func Toggle(_gsxp ToggleProps) gsx.Node {
 			_gsxv1 = "ico-off"
 		}
 		_gsxgw.S(" class=\"")
-		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class(_gsxv0), gsx.Class(_gsxv1))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0), _gsxrt.Class(_gsxv1))
 		_gsxgw.S("\">y</i>")
 		return _gsxgw.Err()
 	})

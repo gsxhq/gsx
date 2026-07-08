@@ -24,10 +24,9 @@ Nums(NumsProps{Items: []int{10, 20}, Flag: true})
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type NumsProps struct {
@@ -36,11 +35,11 @@ type NumsProps struct {
 }
 
 //line input.gsx:3:1
-func Nums(_gsxp NumsProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Nums(_gsxp NumsProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		items := _gsxp.Items
 		flag := _gsxp.Flag
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:4:2
 		_gsxgw.S("<div>")

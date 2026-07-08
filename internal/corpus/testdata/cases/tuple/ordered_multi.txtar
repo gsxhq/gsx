@@ -24,10 +24,10 @@ Page(PageProps{K: "q"})
 package views
 
 import (
-	"context"
-	"io"
-
+	_gsxctx "context"
 	"github.com/gsxhq/gsx"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 func f(k string) (string, error) { return "f-" + k, nil }
@@ -38,10 +38,10 @@ type CardProps struct {
 }
 
 //line input.gsx:8:1
-func Card(_gsxp CardProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Card(_gsxp CardProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		bag := _gsxp.Bag
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:9:2
 		_gsxgw.S("<div")
 		_gsxgw.Spread(ctx, bag)
@@ -55,10 +55,10 @@ type PageProps struct {
 }
 
 //line input.gsx:12:1
-func Page(_gsxp PageProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Page(_gsxp PageProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		k := _gsxp.K
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:13:2
 		_gsxv0, _gsxerr := f(k)
 		if _gsxerr != nil {
@@ -68,7 +68,7 @@ func Page(_gsxp PageProps) gsx.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Card(CardProps{Bag: gsx.Attrs{{Key: "x-a", Value: _gsxv0}, {Key: "x-b", Value: _gsxv1}}}))
+		_gsxgw.Node(ctx, Card(CardProps{Bag: _gsxrt.Attrs{{Key: "x-a", Value: _gsxv0}, {Key: "x-b", Value: _gsxv1}}}))
 		return _gsxgw.Err()
 	})
 }

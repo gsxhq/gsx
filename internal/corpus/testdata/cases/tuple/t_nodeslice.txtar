@@ -25,10 +25,10 @@ Page(PageProps{N: 2})
 package views
 
 import (
-	"context"
-	"io"
-
+	_gsxctx "context"
 	"github.com/gsxhq/gsx"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 func makeItems(n int) ([]gsx.Node, error) {
@@ -40,10 +40,10 @@ type ListProps struct {
 }
 
 //line input.gsx:9:1
-func List(_gsxp ListProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func List(_gsxp ListProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		items := _gsxp.Items
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
 		_gsxgw.S("<ul>")
 //line input.gsx:10:6
@@ -60,10 +60,10 @@ type PageProps struct {
 }
 
 //line input.gsx:13:1
-func Page(_gsxp PageProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Page(_gsxp PageProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		n := _gsxp.N
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:13:25
 		_gsxv0, _gsxerr := makeItems(n)
 		if _gsxerr != nil {

@@ -23,10 +23,9 @@ Page()
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type Slug string
@@ -36,10 +35,10 @@ type TagProps[T ~string] struct {
 }
 
 //line input.gsx:5:1
-func Tag[T ~string](_gsxp TagProps[T]) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Tag[T ~string](_gsxp TagProps[T]) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		value := _gsxp.Value
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<b>")
 //line input.gsx:6:5
@@ -50,9 +49,9 @@ func Tag[T ~string](_gsxp TagProps[T]) gsx.Node {
 }
 
 //line input.gsx:9:1
-func Page() gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func Page() _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
 		_gsxgw.Node(ctx, Tag[Slug](TagProps[Slug]{Value: Slug("go")}))
 		return _gsxgw.Err()

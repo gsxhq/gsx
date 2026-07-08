@@ -51,31 +51,31 @@ pages.Both()
 package pages
 
 import (
-	"context"
 	"corpustest/cases/xpkg_imported_alias_collision/ui"
-	"io"
 
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 //line a.gsx:5:1
-func A() gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func A() _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line a.gsx:6:2
-		_gsxgw.Node(ctx, ui.Panel(ui.PanelProps{Variant: "big", Children: gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-			_gsxgw := gsx.W(_gsxw)
+		_gsxgw.Node(ctx, ui.Panel(ui.PanelProps{Variant: "big", Children: _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+			_gsxgw := _gsxrt.W(_gsxw)
 			_gsxgw.S("a")
 			return _gsxgw.Err()
-		}), Attrs: gsx.Attrs{{Key: "class", Value: "x"}}}))
+		}), Attrs: _gsxrt.Attrs{{Key: "class", Value: "x"}}}))
 		return _gsxgw.Err()
 	})
 }
 
 //line a.gsx:9:1
-func Both() gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func Both() _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line a.gsx:10:2
 		_gsxgw.Node(ctx, A())
 //line a.gsx:11:2
@@ -88,23 +88,22 @@ func Both() gsx.Node {
 package pages
 
 import (
-	"context"
-	"io"
-
+	_gsxctx "context"
 	ui "corpustest/cases/xpkg_imported_alias_collision/widgets"
-	"github.com/gsxhq/gsx"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 //line b.gsx:5:1
-func B() gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func B() _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line b.gsx:6:2
-		_gsxgw.Node(ctx, ui.Panel(ui.PanelProps{Children: gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-			_gsxgw := gsx.W(_gsxw)
+		_gsxgw.Node(ctx, ui.Panel(ui.PanelProps{Children: _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+			_gsxgw := _gsxrt.W(_gsxw)
 			_gsxgw.S("b")
 			return _gsxgw.Err()
-		}), Attrs: gsx.Attrs{{Key: "variant", Value: "big"}, {Key: "class", Value: "x"}}}))
+		}), Attrs: _gsxrt.Attrs{{Key: "variant", Value: "big"}, {Key: "class", Value: "x"}}}))
 		return _gsxgw.Err()
 	})
 }
@@ -113,25 +112,24 @@ func B() gsx.Node {
 package ui
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type PanelProps struct {
 	Variant  string
-	Children gsx.Node
-	Attrs    gsx.Attrs
+	Children _gsxrt.Node
+	Attrs    _gsxrt.Attrs
 }
 
 //line panel.gsx:3:1
-func Panel(_gsxp PanelProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Panel(_gsxp PanelProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		variant := _gsxp.Variant
 		children := _gsxp.Children
 		attrs := _gsxp.Attrs
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line panel.gsx:4:2
 		_gsxgw.S("<section")
 		if !attrs.Has("data-variant") {
@@ -139,7 +137,7 @@ func Panel(_gsxp PanelProps) gsx.Node {
 			_gsxgw.AttrValue(string(variant))
 			_gsxgw.S("\"")
 		}
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, attrs.Class())
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, attrs.Without("class", "style"))
 		_gsxgw.S(">")
@@ -154,26 +152,25 @@ func Panel(_gsxp PanelProps) gsx.Node {
 package widgets
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type PanelProps struct {
-	Children gsx.Node
-	Attrs    gsx.Attrs
+	Children _gsxrt.Node
+	Attrs    _gsxrt.Attrs
 }
 
 //line panel.gsx:3:1
-func Panel(_gsxp PanelProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Panel(_gsxp PanelProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		children := _gsxp.Children
 		attrs := _gsxp.Attrs
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line panel.gsx:4:2
 		_gsxgw.S("<aside")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, attrs.Class())
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, attrs.Without("class", "style"))
 		_gsxgw.S(">")

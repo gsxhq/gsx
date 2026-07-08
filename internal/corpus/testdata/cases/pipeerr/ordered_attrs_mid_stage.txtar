@@ -50,11 +50,10 @@ Page(PageProps{Csv: "ada,bob"})
 package views
 
 import (
-	"context"
-	"io"
-
+	_gsxctx "context"
 	_gsxf0 "corpustest/cases/pipeerr_ordered_attrs_mid_stage/filters"
-	"github.com/gsxhq/gsx"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type LabelProps struct {
@@ -63,11 +62,11 @@ type LabelProps struct {
 }
 
 //line input.gsx:3:1
-func Label(_gsxp LabelProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Label(_gsxp LabelProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		a := _gsxp.A
 		b := _gsxp.B
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:3:39
 		_gsxgw.S("<span>")
 //line input.gsx:3:45
@@ -84,10 +83,10 @@ type PageProps struct {
 }
 
 //line input.gsx:5:1
-func Page(_gsxp PageProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Page(_gsxp PageProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		csv := _gsxp.Csv
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxv0, _gsxerr := _gsxf0.Parse((csv))
 		if _gsxerr != nil {

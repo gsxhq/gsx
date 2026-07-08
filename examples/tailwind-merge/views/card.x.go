@@ -3,27 +3,26 @@
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
 	_gsxcm "github.com/gsxhq/gsx/examples/tailwind-merge/twcfg"
+	_gsxio "io"
 )
 
 type CardProps struct {
-	Children gsx.Node
-	Attrs    gsx.Attrs
+	Children _gsxrt.Node
+	Attrs    _gsxrt.Attrs
 }
 
 //line card.gsx:3:1
-func Card(_gsxp CardProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Card(_gsxp CardProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		children := _gsxp.Children
 		attrs := _gsxp.Attrs
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line card.gsx:4:2
 		_gsxgw.S("<section class=\"")
-		_gsxgw.Class(_gsxcm.Merge, gsx.Class("px-4 py-2"), gsx.Class(attrs.Class()))
+		_gsxgw.Class(_gsxcm.Merge, _gsxrt.Class("px-4 py-2"), _gsxrt.Class(attrs.Class()))
 		_gsxgw.S("\"")
 		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, attrs.Without("class", "style"))

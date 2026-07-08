@@ -39,23 +39,23 @@ pages.Home()
 package pages
 
 import (
-	"context"
 	"corpustest/cases/xpkg_imported_byo/ui"
-	"io"
 
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 //line home.gsx:5:1
-func Home() gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func Home() _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line home.gsx:6:2
-		_gsxgw.Node(ctx, ui.Card(ui.CardData{Title: "T", Children: gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-			_gsxgw := gsx.W(_gsxw)
+		_gsxgw.Node(ctx, ui.Card(ui.CardData{Title: "T", Children: _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+			_gsxgw := _gsxrt.W(_gsxw)
 			_gsxgw.S("body")
 			return _gsxgw.Err()
-		}), Attrs: gsx.Attrs{{Key: "class", Value: "x"}}}))
+		}), Attrs: _gsxrt.Attrs{{Key: "class", Value: "x"}}}))
 		return _gsxgw.Err()
 	})
 }
@@ -64,10 +64,10 @@ func Home() gsx.Node {
 package ui
 
 import (
-	"context"
-	"io"
-
+	_gsxctx "context"
 	"github.com/gsxhq/gsx"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type CardData struct {
@@ -77,9 +77,9 @@ type CardData struct {
 }
 
 //line card.gsx:11:1
-func Card(d CardData) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func Card(d CardData) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line card.gsx:12:2
 		_gsxgw.S("<div class=\"card\"")
 		_gsxgw.Spread(ctx, d.Attrs)

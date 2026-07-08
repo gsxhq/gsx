@@ -28,27 +28,26 @@ C(CProps{Attrs: gsx.Attrs{{Key: "class", Value: "btn extra"}}, Children: gsx.Raw
 package views
 
 import (
-	"context"
-	"io"
-
+	_gsxctx "context"
 	_gsxcm "corpustest/cases/class_merger_fallthrough/mrg"
-	"github.com/gsxhq/gsx"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type CProps struct {
-	Children gsx.Node
-	Attrs    gsx.Attrs
+	Children _gsxrt.Node
+	Attrs    _gsxrt.Attrs
 }
 
 //line input.gsx:3:1
-func C(_gsxp CProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func C(_gsxp CProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		children := _gsxp.Children
 		attrs := _gsxp.Attrs
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:3:17
 		_gsxgw.S("<div class=\"")
-		_gsxgw.Class(_gsxcm.Keep, gsx.Class("btn"), gsx.Class(attrs.Class()))
+		_gsxgw.Class(_gsxcm.Keep, _gsxrt.Class("btn"), _gsxrt.Class(attrs.Class()))
 		_gsxgw.S("\"")
 		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, attrs.Without("class", "style"))

@@ -17,10 +17,9 @@ Page(PageProps{K: "x"})
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 func lookup(key string) (string, error) { return "val-" + key, nil }
@@ -30,10 +29,10 @@ type RowProps struct {
 }
 
 //line input.gsx:5:1
-func Row(_gsxp RowProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Row(_gsxp RowProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		label := _gsxp.Label
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:5:31
 		_gsxgw.S("<span>")
 //line input.gsx:5:37
@@ -48,10 +47,10 @@ type PageProps struct {
 }
 
 //line input.gsx:7:1
-func Page(_gsxp PageProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Page(_gsxp PageProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		k := _gsxp.K
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:7:28
 		_gsxv0, _gsxerr := lookup(k)
 		if _gsxerr != nil {

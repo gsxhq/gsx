@@ -21,10 +21,9 @@ Link(LinkProps{Id: "7"})
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 func buildHref(id string) (string, error) { return "/u/" + id, nil }
@@ -35,10 +34,10 @@ type LinkProps struct {
 }
 
 //line input.gsx:6:1
-func Link(_gsxp LinkProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Link(_gsxp LinkProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		id := _gsxp.Id
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:7:2
 		_gsxgw.S("<a")
 		_gsxv0, _gsxerr := buildHref(id)

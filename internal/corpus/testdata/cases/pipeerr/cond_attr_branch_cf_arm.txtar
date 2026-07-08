@@ -50,27 +50,27 @@ Page(PageProps{Hot: true, Ok: true, Csv: "a,b"})
 package views
 
 import (
-	"context"
-	"io"
-
+	_gsxctx "context"
 	_gsxf0 "corpustest/cases/pipeerr_cond_attr_branch_cf_arm/filters"
 	"github.com/gsxhq/gsx"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type CardProps struct {
 	Title gsx.Node
-	Attrs gsx.Attrs
+	Attrs _gsxrt.Attrs
 }
 
 //line input.gsx:5:1
-func Card(_gsxp CardProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Card(_gsxp CardProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		title := _gsxp.Title
 		attrs := _gsxp.Attrs
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:5:34
 		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, attrs.Class())
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, attrs.Without("class", "style"))
 		_gsxgw.S(">")
@@ -88,14 +88,14 @@ type PageProps struct {
 }
 
 //line input.gsx:7:1
-func Page(_gsxp PageProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Page(_gsxp PageProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		hot := _gsxp.Hot
 		ok := _gsxp.Ok
 		csv := _gsxp.Csv
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxv3, _gsxerr := gsx.AttrsCond(hot, func() (gsx.Attrs, error) {
+		_gsxv3, _gsxerr := _gsxrt.AttrsCond(hot, func() (_gsxrt.Attrs, error) {
 			var _gsxv0 string
 			if ok {
 				_gsxv1, _gsxerr := _gsxf0.Parse((csv))
@@ -110,12 +110,12 @@ func Page(_gsxp PageProps) gsx.Node {
 			} else {
 				_gsxv0 = "z"
 			}
-			return gsx.Attrs{{Key: "class", Value: gsx.ClassJoin(gsx.Class(_gsxv0))}}, nil
+			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class(_gsxv0))}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Card(CardProps{Title: gsx.Text("Hi"), Attrs: gsx.Attrs{}.Merge(_gsxv3)}))
+		_gsxgw.Node(ctx, Card(CardProps{Title: _gsxrt.Text("Hi"), Attrs: _gsxrt.Attrs{}.Merge(_gsxv3)}))
 		return _gsxgw.Err()
 	})
 }

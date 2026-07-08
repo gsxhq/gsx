@@ -13,26 +13,25 @@ Dialog(DialogProps{Attrs: gsx.Attrs{{Key: "role", Value: "alert"}, {Key: "data-x
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type DialogProps struct {
-	Children gsx.Node
-	Attrs    gsx.Attrs
+	Children _gsxrt.Node
+	Attrs    _gsxrt.Attrs
 }
 
 //line input.gsx:3:1
-func Dialog(_gsxp DialogProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Dialog(_gsxp DialogProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		children := _gsxp.Children
 		attrs := _gsxp.Attrs
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, attrs.Class())
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, attrs.Without("class", "style", "role"))
 		_gsxgw.S(" role=\"dialog\">")

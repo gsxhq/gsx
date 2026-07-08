@@ -18,10 +18,9 @@ Row(RowProps{Id: "a&b", N: 5})
 package p
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type RowProps struct {
@@ -30,11 +29,11 @@ type RowProps struct {
 }
 
 //line input.gsx:3:1
-func Row(_gsxp RowProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Row(_gsxp RowProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		id := _gsxp.Id
 		n := _gsxp.N
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:4:2
 		_gsxgw.S("<p>")

@@ -17,10 +17,9 @@ C(CProps{V: 1})
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type CProps struct {
@@ -28,10 +27,10 @@ type CProps struct {
 }
 
 //line input.gsx:3:1
-func C(_gsxp CProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func C(_gsxp CProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		v := _gsxp.V
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<span")
 		_gsxv0 := "padding: 4px"
@@ -40,7 +39,7 @@ func C(_gsxp CProps) gsx.Node {
 			return _gsxerr
 		}
 		_gsxgw.S(" style=\"")
-		_gsxgw.Style(gsx.Class(_gsxv0), gsx.Class(gsx.StyleValue(_gsxv1)))
+		_gsxgw.Style(_gsxrt.Class(_gsxv0), _gsxrt.Class(_gsxrt.StyleValue(_gsxv1)))
 		_gsxgw.S("\">x</span>")
 		return _gsxgw.Err()
 	})

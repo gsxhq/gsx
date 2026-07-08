@@ -17,10 +17,9 @@ DynamicRefresh(DynamicRefreshProps{Kind: "refresh", To: "javascript:alert(1)"})
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type DynamicRefreshProps struct {
@@ -29,11 +28,11 @@ type DynamicRefreshProps struct {
 }
 
 //line input.gsx:3:1
-func DynamicRefresh(_gsxp DynamicRefreshProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func DynamicRefresh(_gsxp DynamicRefreshProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		kind := _gsxp.Kind
 		to := _gsxp.To
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<meta http-equiv=\"")
 		_gsxgw.AttrValue(string(kind))

@@ -48,19 +48,19 @@ pages.Home()
 package pages
 
 import (
-	"context"
 	"corpustest/cases/xpkg_go_component_attrs_literal/uigo"
-	"io"
 
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 //line home.gsx:5:1
-func Home() gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func Home() _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line home.gsx:6:2
-		_gsxgw.Node(ctx, uigo.Widget(uigo.WidgetProps{Attrs: gsx.Attrs{{Key: "data-x", Value: "1"}}}))
+		_gsxgw.Node(ctx, uigo.Widget(uigo.WidgetProps{Attrs: _gsxrt.Attrs{{Key: "data-x", Value: "1"}}}))
 		return _gsxgw.Err()
 	})
 }

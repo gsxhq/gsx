@@ -30,10 +30,10 @@ Page()
 package views
 
 import (
-	"context"
-	"io"
-
+	_gsxctx "context"
 	"github.com/gsxhq/gsx"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type Props struct {
@@ -43,9 +43,9 @@ type Props struct {
 }
 
 //line input.gsx:11:1
-func Button(p Props) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func Button(p Props) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
 		_gsxgw.S("<div>")
 //line input.gsx:12:7
@@ -56,11 +56,11 @@ func Button(p Props) gsx.Node {
 }
 
 //line input.gsx:15:1
-func Page() gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func Page() _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:16:2
-		_gsxgw.Node(ctx, Button(Props{FullWidth: true, AriaLabel: "Close", Attrs: gsx.Attrs{{Key: "data-id", Value: "7"}}}))
+		_gsxgw.Node(ctx, Button(Props{FullWidth: true, AriaLabel: "Close", Attrs: _gsxrt.Attrs{{Key: "data-id", Value: "7"}}}))
 		return _gsxgw.Err()
 	})
 }

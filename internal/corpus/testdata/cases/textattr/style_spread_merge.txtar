@@ -14,30 +14,29 @@ Box(BoxProps{W: 10, Attrs: gsx.Attrs{{Key: "style", Value: "color:red"}, {Key: "
 package views
 
 import (
-	"context"
-	"io"
-	"strconv"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
+	_gsxsc "strconv"
 )
 
 type BoxProps struct {
 	W     int
-	Attrs gsx.Attrs
+	Attrs _gsxrt.Attrs
 }
 
 //line input.gsx:3:1
-func Box(_gsxp BoxProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Box(_gsxp BoxProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		w := _gsxp.W
 		attrs := _gsxp.Attrs
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:4:2
 		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, attrs.Class())
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		if attrs.Has("style") {
-			_gsxgw.StyleMerged("width:"+strconv.FormatInt(int64(w), 10)+"px", attrs.Style())
+			_gsxgw.StyleMerged("width:"+_gsxsc.FormatInt(int64(w), 10)+"px", attrs.Style())
 		} else {
 			_gsxgw.S(" style=\"width:")
 			_gsxgw.IntInto(_gsxnum[:], int64(w))
