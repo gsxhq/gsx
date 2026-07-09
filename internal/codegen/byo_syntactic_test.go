@@ -1,9 +1,13 @@
 package codegen
 
 import (
+	"go/token"
 	"os"
 	"path/filepath"
 	"testing"
+
+	gsxast "github.com/gsxhq/gsx/ast"
+	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
 func TestLoadExternalStructFieldsSyntactic(t *testing.T) {
@@ -46,5 +50,38 @@ func Broken() { undefinedSymbol() }
 	}
 	if s := structs["CardProps"]; !s.hasChildren || !s.hasAttrs {
 		t.Errorf("want hasChildren+hasAttrs, got %+v", s)
+	}
+}
+
+func TestByoStructFoundInGoWithElementsRegion(t *testing.T) {
+	t.Parallel()
+	src := `package views
+
+import "github.com/gsxhq/gsx"
+
+type props struct {
+	label gsx.Node
+}
+
+var items = []props{{label: <p>x</p>}}
+
+component C(p props) { <div>{p.label}</div> }
+`
+	file, err := gsxparser.ParseFile(token.NewFileSet(), "views.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	propFields, _, _, byo, err := componentPropFieldsFor("", map[string]*gsxast.File{"views.gsx": file})
+	if err != nil {
+		t.Fatalf("componentPropFieldsFor: %v", err)
+	}
+	if got, ok := byo.structTypeName(".C"); !ok || got != "props" {
+		t.Fatalf("byo struct for .C = (%q, %v), want (props, true)", got, ok)
+	}
+	if _, ok := propFields["props"]; !ok {
+		t.Fatalf("props field set not discovered; keys=%v", keysOf(propFields))
+	}
+	if _, ok := propFields["CProps"]; ok {
+		t.Fatalf("unexpected generated CProps for BYO component; keys=%v", keysOf(propFields))
 	}
 }

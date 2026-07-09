@@ -1,0 +1,23 @@
+# trailing-dots spread: { expr... } is the Go-convention spread syntax
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+type props struct {
+  label gsx.Node
+}
+var items = []props{{label: <p>x</p>}}
+
+component C(p props) { <div>{p.label}</div> }
+component page() {
+  { for _, item := range items {
+    <C {item...} />
+  } }
+}
+
+-- invoke --
+page()
+-- diagnostics.golden --
+-- render.golden --
+<div><p>x</p></div>
