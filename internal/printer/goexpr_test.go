@@ -222,3 +222,18 @@ func indexOf(hay, needle string) int {
 	}
 	return -1
 }
+
+// Feeding gsx fmt its OWN output back in must still gofmt the region. A
+// decorative paren puts the element alone on its line inside a bracket —
+// exactly the shape Go's automatic semicolon insertion rejects once the
+// element is replaced by a placeholder identifier. If the placeholder-
+// substituted source is not sanitized before go/format sees it, format.Source
+// fails, fmtGoExprParts falls back to relaying the region verbatim, and the
+// misindented sibling below never gets fixed.
+func TestGoWithElementsReformatsItsOwnParenWrappedOutput(t *testing.T) {
+	src := "package main\n\nvar items = []T{\n\t{label: \"a\", icon: (\n\t\t<Icon/>\n\t), page: P{}},\n{label: \"b\"},\n}\n"
+	// The paren is stripped and re-derived from width: this line now fits, so
+	// the element goes flat and the parens vanish. The sibling gets indented.
+	want := "package main\n\nvar items = []T{\n\t{label: \"a\", icon: <Icon/>, page: P{}},\n\t{label: \"b\"},\n}\n"
+	checkFormat(t, src, want)
+}

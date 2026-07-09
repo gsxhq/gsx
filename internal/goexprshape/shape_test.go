@@ -1,6 +1,9 @@
 package goexprshape
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestClassify(t *testing.T) {
 	tests := []struct {
@@ -100,4 +103,46 @@ func indexOf(hay, needle string) int {
 		}
 	}
 	return -1
+}
+
+// Sanitize is what lets a consumer hand the substituted source to go/parser or
+// go/format at all: a hole alone on its line inside a bracket otherwise picks up
+// an inserted semicolon. It must also be idempotent, since gsx fmt re-formats
+// its own output.
+func TestSanitizeCollapsesBracketAdjacentNewlines(t *testing.T) {
+	// `icon: (\n\tH\n),` — gsx fmt's own decorative-paren output.
+	src := "package p\nvar x = []T{\n\t{icon: (\n\t\tH\n\t), page: P{}},\n}\n"
+	start := strings.Index(src, "H")
+	holes := []Hole{{Start: start, End: start + 1}}
+
+	got, gotHoles := Sanitize(src, holes)
+	want := "package p\nvar x = []T{\n\t{icon: ( H ), page: P{}},\n}\n"
+	if got != want {
+		t.Errorf("Sanitize:\n got %q\nwant %q", got, want)
+	}
+	if n := len(gotHoles); n != 1 {
+		t.Fatalf("got %d holes, want 1", n)
+	}
+	if got[gotHoles[0].Start:gotHoles[0].End] != "H" {
+		t.Errorf("hole range %v does not cover the placeholder in %q", gotHoles[0], got)
+	}
+
+	again, againHoles := Sanitize(got, gotHoles)
+	if again != got {
+		t.Errorf("Sanitize is not idempotent:\n once %q\ntwice %q", got, again)
+	}
+	if againHoles[0] != gotHoles[0] {
+		t.Errorf("idempotent Sanitize moved the hole: %v -> %v", gotHoles[0], againHoles[0])
+	}
+}
+
+// A newline NOT adjacent to a bracket is a real statement separator that Go's
+// own semicolon insertion needs; collapsing it would break the parse.
+func TestSanitizeLeavesStatementSeparatingNewline(t *testing.T) {
+	src := "package p\nfunc f() {\n\tn := H\n\tg()\n}\n"
+	start := strings.Index(src, "H")
+	got, _ := Sanitize(src, []Hole{{Start: start, End: start + 1}})
+	if got != src {
+		t.Errorf("Sanitize altered a non-bracket-adjacent newline:\n got %q\nwant %q", got, src)
+	}
 }

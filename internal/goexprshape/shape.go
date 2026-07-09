@@ -78,7 +78,11 @@ type Result struct {
 // this function depends on in the other direction.
 func Classify(src string, holes []Hole) []Result {
 	results := make([]Result, len(holes))
-	sanitized, offsets := collapseHoleWhitespace(src, holes)
+	sanitized, sanHoles := Sanitize(src, holes)
+	offsets := make([]int, len(sanHoles))
+	for i, h := range sanHoles {
+		offsets[i] = h.Start
+	}
 	fset := gotoken.NewFileSet()
 	f, err := goparser.ParseFile(fset, "", sanitized, 0)
 	if err != nil {
@@ -126,6 +130,31 @@ func Classify(src string, holes []Hole) []Result {
 		return true
 	})
 	return results
+}
+
+// Sanitize returns src with every bracket-adjacent newline touching a hole
+// collapsed to a single space, plus each hole's range within the returned
+// string (same order as holes; the placeholder text itself is never altered,
+// only the whitespace around it).
+//
+// A hole alone on its own line directly inside a bracket — `(\nHOLE\n)`, the
+// shape gsx fmt's own decorative-paren output takes — makes Go's automatic
+// semicolon insertion place a semicolon after the placeholder identifier, so
+// the source no longer parses. Every consumer that hands the substituted
+// source to go/parser or go/format must sanitize it first, or that consumer
+// silently fails on any file gsx fmt has already formatted once. Classify does
+// this internally; internal/printer calls it directly, because go/format needs
+// the same treatment for the same reason.
+//
+// Sanitize is idempotent: its output has no newline left adjacent to a hole's
+// brackets, so re-running it is a no-op.
+func Sanitize(src string, holes []Hole) (string, []Hole) {
+	sanitized, offsets := collapseHoleWhitespace(src, holes)
+	out := make([]Hole, len(holes))
+	for i, h := range holes {
+		out[i] = Hole{Start: offsets[i], End: offsets[i] + (h.End - h.Start)}
+	}
+	return sanitized, out
 }
 
 // isSpace reports whether b is Go source whitespace (the same set go/scanner
