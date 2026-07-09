@@ -12,4 +12,4 @@ component Uses() {
 	<b>hi</b>
 }
 -- diagnostics.golden --
-3:5: declaration name "_gsxrt" uses the reserved _gsx prefix
+3:5: identifier "_gsxrt" uses the reserved _gsx prefix (reserved for generated code)

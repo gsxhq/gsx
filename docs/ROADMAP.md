@@ -662,36 +662,23 @@ vocabulary remains a design aspiration, not the current API.
      of the 269 corpus goldens that import `_gsxrt`, none leaves it unreferenced
      (an over-record would surface as `imported and not used`). Fold `rtPkg` into
      the same cleanup.
-  3. `checkReservedDecls` is a **5th** `go/parser` pass over the same `GoChunk`
-     text (also parsed at `analyze.go:388`, `emit.go:143`, `gsximports.go:37`,
-     `module_importer.go:484`). Measured cost is negligible (~5 µs/file; +2% on a
-     pathological 19k-line package; warm path unchanged), but a shared parse cache
-     would pay for all five.
-  4. A file that `checkReservedDecls` rejects is now skipped per-file rather than
+  3. A file that `checkReservedDecls` rejects is skipped per-file rather than
      aborting the package, so a **sibling** file using its components draws a
-     spurious `undefined: Comp`. This fires for **both** failures that pass
-     reports — an unparseable top-level Go region *and* a reserved-decl error
-     (`a.gsx` with `var _gsxfoo = 1` + `b.gsx` using its component yields the
-     correct diagnostic plus `b.gsx:4:14: undefined: Comp`). Same shape as the
-     pre-existing `attrError` per-file skip, but new for both.
-  5. `gsx fmt` does not enforce the `_gsx` reservation (only `generate` / the
+     spurious `undefined: Comp` on top of the real diagnostic (`a.gsx` with
+     `var _gsxfoo = 1` + `b.gsx` using its component yields the correct diagnostic
+     plus `b.gsx:4:14: undefined: Comp`). Same shape as the pre-existing
+     `attrError` per-file skip, but new for reserved-decl errors.
+  4. `gsx fmt` does not enforce the `_gsx` reservation (only `generate` / the
      analysis path does).
-  6. **Extend the `_gsx` reservation beyond package scope.** Locals and `{{ … }}`
-     GoBlock bindings named `_gsxio` / `_gsxsc` / `_gsxgw` / `_gsxw` / `_gsxnum` /
-     `_gsxcm`, and hand-written sibling `.go` files declaring such names, still
-     yield `generate` exit 0 with non-compiling output. Pre-existing class — the
-     same holds on `main` for `io` / `strconv` / `_gsxgw`; the alias change
-     narrowed the trigger names but did not close the hole. Only names the
-     *skeleton* binds are incidentally caught by `go/types`, and only when the
-     skeleton references them after the user's binding (`_gsxrt`, `_gsxctx`,
-     `_gsxp`, `_gsxstd`/`_gsxf<i>`, `_gsxti<N>`); `_gsxio`/`_gsxsc`/`_gsxcm`/
-     `_gsxgw`/`_gsxw`/`_gsxnum` appear only in the emitted file, so nothing checks
-     them. Cheap partial hardening: make the skeleton bind `_gsxio` and `_gsxsc`
-     unconditionally (`import _gsxio "io"` + `var _ _gsxio.Writer`, likewise for
-     `strconv`), which closes the sibling-`.go` and package-scope halves via
-     `go/types`. The local / GoBlock half needs the reservation extended into
-     function bodies. Documented as undefined behaviour in
-     `docs/guide/syntax/raw-go.md`.
+  5. **`_gsx` in a hand-written sibling `.go` file** (not a `.gsx` file) is the
+     one place the reservation does not reach: `checkReservedDecls` lexes gsx's
+     own Go fragments, but gsx never reads a plain `.go` file's bodies (only its
+     struct field names, for BYO). A `var _gsxio = 1` there still makes
+     `generate` exit 0 and the emitted `.x.go` fail `go build`. Extremely
+     unlikely, loudly caught by the build, and documented in
+     `docs/guide/syntax/raw-go.md`. Closing it would mean scanning sibling `.go`
+     files for `_gsx` identifiers with the same tokenizer — cheap, deferred only
+     because the payoff is marginal.
 - [x] **Structured diagnostics - Slice 1 (semantic layer)** - `internal/diag`
   (resolved `token.Position` Start/End, severity, code, message, help, source; `Bag`
   collector; rich/compact/JSON renderers). All `go/types` errors surfaced; codegen

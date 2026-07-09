@@ -806,43 +806,28 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// `_gsxinfer1 redeclared in this block`, failing the whole package.
 	inferNames := newInferNameAllocator()
 	for path, f := range gsxFiles {
-		// Reserved `_gsx` file-scope names are rejected BEFORE the file's skeleton
-		// is built, not after it is type-checked. A name that happens to collide
-		// with an alias the generator emits today (`var _gsxrt = 1`) would ALSO
-		// draw `_gsxrt already declared through import of package gsx` from the
-		// skeleton type-check, at the very same position — two diagnostics for one
-		// mistake, the useless one first. Skipping the file here (the same per-file
-		// skip an attrError takes below) means its skeleton never reaches
-		// go/types, so the gsx diagnostic is the only one reported; it is also the
-		// only one reported for a name like `_gsxfoo`, which collides with nothing
-		// the generator emits today and would otherwise pass silently.
-		//
-		// A top-level region that does not parse as Go is reported here too, and
-		// for the same reason: the check cannot read the region, so the file must
-		// not proceed as if it had been checked. It is reported in the same shape
-		// skeletonParseError uses — bare go/parser message, "parse-error"/"parser"
-		// — because that is exactly what it is, only caught one pass earlier and
-		// therefore positioned in the .gsx directly rather than through the
-		// skeleton's //line directives. Skipping the file means splitChunk never
-		// re-reports it downstream (its message carries a block-relative line, and
-		// no position at all on the diagnostic), so the user sees this one instead.
+		// Reserved `_gsx` identifiers are rejected BEFORE the file's skeleton is
+		// built, not after it is type-checked. A name that happens to collide with
+		// an alias the generator emits today (`var _gsxrt = 1`) would ALSO draw
+		// `_gsxrt already declared through import of package gsx` from the skeleton
+		// type-check, at the very same position — two diagnostics for one mistake,
+		// the useless one first. Skipping the file here (the same per-file skip an
+		// attrError takes below) means its skeleton never reaches go/types, so the
+		// gsx diagnostic is the only one reported; it is also the only one reported
+		// for a name like `_gsxfoo`, which collides with nothing the generator
+		// emits today and would otherwise pass silently.
 		//
 		// The skip is per-file, same as the attrError skip below: a SIBLING file
 		// that uses a component declared in this one now draws a spurious
 		// `undefined: Comp` on top of the real diagnostic, because this file's
-		// component never reaches compsByXGo. That cascade is new for BOTH
-		// failures this pass reports — reserved-decl errors and unparseable Go
-		// regions — since neither skipped a file before this pass ran ahead of
-		// buildSkeleton. It is accepted for the same reason the attrError one is:
-		// the correctly positioned diagnostic on the actual mistake is worth an
-		// extra, obviously-downstream error on a file that did nothing wrong.
-		rds, gerrs := checkReservedDecls(f)
-		if len(rds) > 0 || len(gerrs) > 0 {
-			for _, ge := range gerrs {
-				bag.Report(ge.pos, ge.pos, diag.Error, "parse-error", "parser", "%s", ge.msg)
-			}
+		// component never reaches compsByXGo. That cascade is new for this pass
+		// (nothing skipped a file before it ran ahead of buildSkeleton). It is
+		// accepted for the same reason the attrError one is: the correctly
+		// positioned diagnostic on the actual mistake is worth an extra,
+		// obviously-downstream error on a file that did nothing wrong.
+		if rds := checkReservedDecls(f); len(rds) > 0 {
 			for _, rd := range rds {
-				bag.Errorf(rd.pos, rd.pos+token.Pos(len(rd.name)), "", "declaration name %q uses the reserved _gsx prefix", rd.name)
+				bag.Errorf(rd.pos, rd.pos+token.Pos(len(rd.name)), "", "identifier %q uses the reserved _gsx prefix (reserved for generated code)", rd.name)
 			}
 			delete(gsxFiles, path)
 			continue

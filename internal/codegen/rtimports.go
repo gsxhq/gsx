@@ -24,39 +24,22 @@ type rtImports map[string]bool
 // gsxRuntimePath is the import path of the gsx runtime.
 const gsxRuntimePath = "github.com/gsxhq/gsx"
 
-// Reserved aliases. The `_gsx` prefix is reserved for the generator, and that
-// reservation is ENFORCED in three places: checkReservedDecls at package scope
-// (including import aliases), checkReservedParams on component params,
-// checkReservedRecvVar on method-component receiver vars. The parser's
-// component-name scan admits no `_`, so a component can never reach the space
-// either. Together these cover every binding that could collide with a
-// generator-emitted import alias in the .x.go's package scope — which is what
-// lets a .gsx file bind `gsx`, `context`, `io` or `strconv` to whatever it likes.
+// Reserved aliases. The `_gsx` prefix is reserved for the generator: it emits
+// EVERY import and internal binding under a `_gsx`-prefixed name (the four below,
+// plus `_gsxgw`/`_gsxw`/`_gsxnum` in render closures, the filter aliases
+// `_gsxf<i>`/`_gsxstd`, the type-arg aliases `_gsxti<N>`, the props param
+// `_gsxp`, the `_gsxinfer<N>` probes, …). That is what lets a .gsx file bind
+// `gsx`, `context`, `io` or `strconv` to whatever it likes.
 //
-// Enforcement stops there. A `_gsx` name bound in a FUNCTION BODY — a local in a
-// pass-through Go chunk, a `{{ … }}` GoBlock binding — is unchecked, and so is a
-// hand-written sibling .go file in the same package. Such a name is caught only
-// INCIDENTALLY, by go/types over the skeleton, and only when both hold:
-//
-//   - the skeleton itself binds the name. It binds `_gsxrt` and `_gsxctx` (its two
-//     imports), the used filter aliases (`_gsxstd`, `_gsxf<i>`), the requalified
-//     type-arg aliases (`_gsxti<N>`), the props param `_gsxp`, and its probe
-//     helpers (`_gsxelem`, `_gsxuse`, `_gsxinfer<N>`, …). `_gsxio`, `_gsxsc`,
-//     `_gsxcm`, `_gsxgw`, `_gsxw` and `_gsxnum` appear ONLY in the emitted file,
-//     so no shadow of them is ever type-checked.
-//   - the skeleton references it AFTER the user's binding, in the same scope. A
-//     GoBlock `_gsxrt := "z"` is not caught even though the skeleton imports
-//     `_gsxrt`: the skeleton's only reference is the component's `_gsxrt.Node`
-//     return type, which precedes the body.
-//
-// So neither "caught" nor "harmless" is a property of the name alone. When a
-// shadow is not caught, `gsx generate` exits 0 and `go build` rejects the .x.go
-// ("io" imported as _gsxio and not used; _gsxsc.FormatBool undefined; no new
-// variables on left side of :=).
-//
-// Closing that gap is tracked in docs/ROADMAP.md. Until it is closed, an `_gsx`
-// name outside the three enforced scopes is undefined behaviour, not a supported
-// pattern. See reservedPrefix (analyze.go) for why the whole prefix, not just the
+// checkReservedDecls (reserved_scan.go) enforces the prefix directly, by lexing
+// every user Go fragment — top-level declarations, function-body locals, GoBlock
+// statements, and every embedded expression — and reporting any `_gsx`
+// identifier before the skeleton is type-checked. checkReservedParams and
+// checkReservedRecvVar cover component params and receiver vars. So a shadow of
+// any alias below is a clean gsx diagnostic, not an incidental `go build` failure
+// on the emitted .x.go. (A hand-written sibling .go file is the one place gsx does
+// not look — its `_gsx` name is still caught by `go build`; see docs/ROADMAP.md.)
+// See reservedPrefix (reserved_scan.go) for why the whole prefix, not just the
 // four names below, is the reserved unit.
 const (
 	rtAlias  = "_gsxrt"

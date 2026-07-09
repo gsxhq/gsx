@@ -4,7 +4,11 @@
 -- input.gsx --
 package demo
 
-var X = <div><b>hi</b></div>
+var X = (
+	<div>
+		<b>hi</b>
+	</div>
+)
 
 var _ = X
 -- diagnostics.golden --
@@ -21,9 +25,9 @@ import (
 
 var X = _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 	_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:3:9
+//line input.gsx:4:2
 	_gsxgw.S("<div>")
-//line input.gsx:3:14
+//line input.gsx:5:3
 	_gsxgw.S("<b>hi</b></div>")
 	return _gsxgw.Err()
 })

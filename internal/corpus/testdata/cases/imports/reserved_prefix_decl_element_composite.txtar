@@ -1,11 +1,10 @@
-# Context: regression pin for the reconstruction in goWithElementsSrc. A
-# multi-line element literal inside a composite literal is the case an
-# earlier, line-preserving reconstruction got wrong: re-emitting the literal's
-# interior newlines turned `[]gsx.Node{\n_()\n\n,\n}` into statement boundaries
-# Go's automatic semicolon insertion never expected, the region failed to parse,
-# and checkReservedDecls silently reported nothing — `_gsxlist` sailed into the
-# generated .x.go. Blanking the literal to spaces (byte-length preserved, nothing
-# else) keeps the whole composite literal on the lines the author wrote.
+# Context: a `_gsx` name bound to a multi-line element literal inside a composite
+# literal (`var _gsxlist = []gsx.Node{ <b>…</b>, }`). checkReservedDecls tokenizes
+# the region rather than parsing it, so the element's interior newlines and markup
+# are simply skipped and `_gsxlist` is reported at its declaration. This is the
+# shape a parse-based check handled worst: main's formatter wraps such literals
+# across lines, and reconstructing them as standalone Go tripped automatic
+# semicolon insertion.
 -- input.gsx --
 package demo
 
@@ -21,4 +20,4 @@ component Uses() {
 	<b>hi</b>
 }
 -- diagnostics.golden --
-5:5: declaration name "_gsxlist" uses the reserved _gsx prefix
+5:5: identifier "_gsxlist" uses the reserved _gsx prefix (reserved for generated code)

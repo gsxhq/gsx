@@ -11,9 +11,11 @@
 -- input.gsx --
 package demo
 
-var _gsxnode = <b>
-	hi
-</b>
+var _gsxnode = (
+	<b>
+		hi
+	</b>
+)
 
 var _gsxafter = <i>x</i>
 
@@ -21,5 +23,5 @@ component Uses() {
 	<b>hi</b>
 }
 -- diagnostics.golden --
-3:5: declaration name "_gsxnode" uses the reserved _gsx prefix
-7:5: declaration name "_gsxafter" uses the reserved _gsx prefix
+3:5: identifier "_gsxnode" uses the reserved _gsx prefix (reserved for generated code)
+9:5: identifier "_gsxafter" uses the reserved _gsx prefix (reserved for generated code)

@@ -1,14 +1,12 @@
-# Context: pins WHY goWithElementsSrc's placeholder is a call expression (`_()`)
-# and not a bare operand. Go requires the expression of a `go`/`defer` statement to
-# be a function call, so a literal in that position reconstructs to `go nil` — a
-# parse error — while buildSkeleton's substitute for the same span is an IIFE, a
-# call, which parses and type-checks. With a non-call placeholder the region below
-# fails to reconstruct, checkReservedDecls reports nothing, and `_gsxrt` (declared
-# in the SAME region — the parser keeps a contiguous Go run together) reaches the
-# skeleton, where it collides with the generator's own gsx import alias and draws
-# the raw `_gsxrt already declared through import of package gsx` error this check
-# exists to replace. `_()` is a call, is 3 bytes (the shortest literal, f``, is 3
-# too), and parses wherever the skeleton's IIFE does.
+# Context: a `_gsx` name declared in the SAME top-level Go region as an element
+# literal in statement position (`go <b/>`). checkReservedDecls lexes the region
+# with go/scanner — it does not parse — so the element literal is just a run of
+# tokens the scanner steps over, and `_gsxrt` a few lines on is still reported. A
+# parse-based check could not read this region at all: `go <b/>` is not a call, so
+# no standalone-Go reconstruction of it parses. `_gsxrt` also happens to be a name
+# the generator emits, so catching it here is what replaces the raw
+# `_gsxrt already declared through import of package gsx` the skeleton would
+# otherwise draw.
 -- input.gsx --
 package demo
 
@@ -22,4 +20,4 @@ component Uses() {
 	<b>hi</b>
 }
 -- diagnostics.golden --
-7:5: declaration name "_gsxrt" uses the reserved _gsx prefix
+7:5: identifier "_gsxrt" uses the reserved _gsx prefix (reserved for generated code)
