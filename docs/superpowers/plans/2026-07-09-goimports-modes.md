@@ -18,7 +18,7 @@
 - The `gsx` binary name collides with Ghostscript on PATH — always `go run ./cmd/gsx …`.
 - Before merging: `make ci` (authoritative, uncached). Inner loop: `make check`. Also `make lint`.
 - **Behavior preservation:** `Format`, `FormatRemovingImports`, and `FormatRemovingImportsWith` must keep their exact current semantics (`Reorder: false`). `internal/gsxfmt/imports_test.go:TestNoUnusedIsPlainFormat` asserts `FormatRemovingImports(nil unused) == Format`; it must stay green untouched.
-- **Pre-existing gap — preserve, do not fix:** `internal/lsp/format.go` calls the *non-*`With` variant, so LSP formatting does not run the `<style>`/`<script>` css/js formatters that the CLI runs. When moving it to `FormatWith`, pass nil `CSSFmt`/`JSFmt` to preserve today's output byte-for-byte. Closing that gap is a separate change.
+- **Pre-existing gap — preserve, do not fix:** `internal/lsp/format.go` calls the *non-*`With` variant, passing no css/js formatters. Careful: nil does **not** mean "no `<style>`/`<script>` formatting" — `printer.Fprint` delegates to `FprintWith(…, defaultCSSFormatter(width), defaultJSFormatter(width))`, so nil selects the printer's built-in defaults, and LSP output matches the CLI for the stock binary. The real gap is that `runFmt` threads a project's **custom** configured formatters (`cfg.cssFmt`/`cfg.jsFmt`) while the LSP always passes nil. When moving to `FormatWith`, pass nil `CSSFmt`/`JSFmt` to preserve today's output byte-for-byte. Wiring custom formatters through the LSP is a separate change.
 
 ## Design Vocabulary (locked — use these exact names)
 
