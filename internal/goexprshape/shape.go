@@ -164,12 +164,21 @@ func isSpace(b byte) bool {
 }
 
 // collapseHoleWhitespace returns a copy of src where, for every hole whose
-// immediately-preceding non-whitespace byte is a REAL (not inside a comment)
-// opening bracket, the whitespace before it is collapsed to a single space
-// (if it contains a newline) — and likewise, for every hole whose
-// immediately-following non-whitespace byte is a real closing bracket, the
-// whitespace after it. Returns each hole's new Start offset in the returned
+// immediately-following non-whitespace byte is a REAL (not inside a comment)
+// closing bracket, the whitespace after it is collapsed to a single space (if
+// it contains a newline). Returns each hole's new Start offset in the returned
 // string, in the same order as holes.
+//
+// Only the whitespace AFTER a hole is ever touched. Go's automatic semicolon
+// insertion fires on the token that ENDS a line, and a placeholder identifier
+// ending a line directly before a closing bracket picks up a semicolon that
+// breaks the parse (`(\nHOLE\n)` becomes `(HOLE;)`). The whitespace between an
+// opening bracket and a hole cannot cause that: the token ending that line is
+// the opening bracket itself, which is not in ASI's trigger set. Collapsing it
+// anyway would be worse than useless — go/printer reads the line break between
+// a composite literal's `{` and its first element to decide whether the literal
+// prints on one line, so erasing it drags the first element up onto the brace
+// line and silently reflows the author's source.
 //
 // Processes holes in ascending Start order (left to right), tracking a
 // cumulative shift so far. This is the opposite of the naive-looking
@@ -198,36 +207,22 @@ func collapseHoleWhitespace(src string, holes []Hole) (string, []int) {
 	shift := 0
 	for _, i := range order {
 		start, end := holes[i].Start+shift, holes[i].End+shift
-		before := start
-		for before > 0 && isSpace(s[before-1]) {
-			before--
-		}
 		after := end
 		for after < len(s) && isSpace(s[after]) {
 			after++
 		}
-		beforeWS, afterWS := s[before:start], s[end:after]
-		collapseBefore := before > 0 && isOpenBracket(s[before-1]) && !insideAny(comments, before-1-shift) && containsNewline(beforeWS)
+		afterWS := s[end:after]
 		collapseAfter := after < len(s) && isCloseBracket(s[after]) && !insideAny(comments, after-shift) && containsNewline(afterWS)
-		if !collapseBefore && !collapseAfter {
-			offsets[i] = start
+		offsets[i] = start
+		if !collapseAfter {
 			continue
 		}
-		newBefore, newAfter := beforeWS, afterWS
-		if collapseBefore {
-			newBefore = " "
-		}
-		if collapseAfter {
-			newAfter = " "
-		}
-		s = s[:before] + newBefore + s[start:end] + newAfter + s[after:]
-		offsets[i] = before + len(newBefore)
-		shift += (len(newBefore) + (end - start) + len(newAfter)) - (after - before)
+		s = s[:end] + " " + s[after:]
+		shift += 1 - (after - end)
 	}
 	return s, offsets
 }
 
-func isOpenBracket(b byte) bool  { return b == '(' || b == '[' || b == '{' }
 func isCloseBracket(b byte) bool { return b == ')' || b == ']' || b == '}' }
 
 func containsNewline(s string) bool {

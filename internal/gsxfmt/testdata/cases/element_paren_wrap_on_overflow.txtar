@@ -1,0 +1,18 @@
+A keyed composite-literal field whose element pushes the line past the width
+budget wraps in decorative parens and breaks. The parens are cosmetic: codegen
+strips them before splicing the element's lowered closure.
+
+-- input.gsx --
+package ui
+
+var items = []T{
+	{label: "Analytics", icon: <BarChart3Icon/>, page: DashboardLanding{}, pathMatch: "/dashboard/", nonVendor: true},
+}
+-- fmt.golden --
+package ui
+
+var items = []T{
+	{label: "Analytics", icon: (
+		<BarChart3Icon/>
+	), page: DashboardLanding{}, pathMatch: "/dashboard/", nonVendor: true},
+}

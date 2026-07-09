@@ -31,6 +31,12 @@ Run `make lint`
 - Runtime behavior gets unit tests in the root `gsx` package.
 - **Don't hand-edit `.x.go` or golden files** — they're generated; change the `.gsx`/source and regenerate.
 
+### The fmt corpus is separate
+
+`internal/gsxfmt/testdata/cases/*.txtar` pins **layout** (`input.gsx` + `fmt.golden`); the semantic corpus above pins meaning. Keep them apart: a codegen golden must not churn when line-breaking changes, and a layout golden must not churn when generated code changes. Regenerate with `go test ./internal/gsxfmt -run TestFmtCorpus -update`, then verify without `-update`.
+
+**Any formatter change ships a fmt-corpus case.** The property tests in `internal/printer` (faithfulness, idempotence, re-parse safety, no-verbatim-fallback) cannot catch a layout regression — a formatter that reflows the author's source is still faithful, still idempotent, and still re-parses. Only a pinned golden catches that.
+
 ## Conventions
 
 - **Branches:** feature work in a **git worktree** (use the `superpowers:using-git-worktrees` skill).
