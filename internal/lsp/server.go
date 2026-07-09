@@ -209,6 +209,8 @@ func (s *Server) handle(f frame) error {
 		return s.handleHover(f)
 	case "textDocument/formatting":
 		return s.handleFormatting(f)
+	case "textDocument/codeAction":
+		return s.handleCodeAction(f)
 	case "textDocument/documentSymbol":
 		return s.handleDocumentSymbol(f)
 	case "workspace/symbol":
@@ -239,6 +241,7 @@ func (s *Server) handleInitialize(f frame) error {
 		HoverProvider:              true,
 		DocumentSymbolProvider:     true,
 		WorkspaceSymbolProvider:    true,
+		CodeActionProvider:         &CodeActionOptions{CodeActionKinds: []string{organizeImportsKind}},
 	}})
 }
 
