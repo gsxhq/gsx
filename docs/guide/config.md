@@ -218,10 +218,18 @@ The default is `80`.
 declarations in a file's pass-through Go, mirroring the two modes gopls offers:
 
 - **`goimports`** (default) — remove unused imports, then merge every import
-  declaration into one block, dedup identical specs, split the standard library
-  from everything else with a blank line, and sort within each group.
+  declaration into one block, dedup identical specs, and sort within each group.
+  A block with no blank lines is split into a standard-library group and an
+  everything-else group.
 - **`gofmt`** — format only: sort within an existing parenthesized group, but
   never remove, merge, dedup, or regroup imports.
+
+`goimports` mode calls the real `goimports` formatter, so it inherits its
+grouping rule: **blank lines you wrote are group boundaries, and they are never
+merged away.** If you hand-split a block into groups, those groups survive — a
+standard-library import in one and another in a second stay separated, exactly
+as the `goimports` command leaves them. Delete the blank lines to get the plain
+std / everything-else split.
 
 Unlike real `goimports`, `gsx` cannot **add** a missing import: a gsx Go
 chunk's body never references the surrounding template's imports, so there is

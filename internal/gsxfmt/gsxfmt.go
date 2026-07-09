@@ -16,7 +16,9 @@ import (
 // Format parses src (named for diagnostics), normalizes whitespace, and returns
 // the canonical gsx source. A non-nil error is a parse or print failure; callers
 // formatting unsaved buffers should treat that as "leave the buffer untouched"
-// rather than a hard failure. Imports are left exactly as written (gofmt mode).
+// rather than a hard failure. Imports get gofmt mode: no import is removed,
+// merged, deduped or regrouped, though gofmt still sorts within an existing
+// parenthesized group when the printer runs go/format over each Go chunk.
 func Format(name string, src []byte, width int) ([]byte, error) {
 	return FormatWith(name, src, FormatOptions{Width: width})
 }
