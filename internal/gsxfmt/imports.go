@@ -195,7 +195,17 @@ func importTargetChunk(f *gsxast.File) *gsxast.GoChunk {
 	if first != nil {
 		return first
 	}
-	gc := &gsxast.GoChunk{}
+	// A brand-new chunk has no author-written trailing whitespace for
+	// preserveTrailing (in addChunkImports) to carry forward — Src is about to
+	// go from "" to an import block, with nothing upstream to copy a separator
+	// from. Every OTHER GoChunk's Src encodes "a blank line follows" as a
+	// trailing "\n\n" (see endsWithBlankLine); a synthesized chunk must encode
+	// the same default (file's own per-decl default is `blank := true`) or the
+	// printer reads its bare, separator-less Src as "author wrote no gap" and
+	// glues it to the next decl. Seeding Src with "\n\n" up front gives
+	// preserveTrailing a real trailing run to preserve, so the chunk ends up
+	// with the same blank-line marker any authored import block would have.
+	gc := &gsxast.GoChunk{Src: "\n\n"}
 	f.Decls = append([]gsxast.Decl{gc}, f.Decls...)
 	return gc
 }
