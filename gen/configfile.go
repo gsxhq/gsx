@@ -10,6 +10,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/codegen"
+	"github.com/gsxhq/gsx/internal/gsxfmt"
 )
 
 // configFileName is the project config filename gsx discovers (TOML).
@@ -38,9 +39,10 @@ type tomlConfig struct {
 // tomlFormatter is the [formatter] table: knobs for `gsx fmt` and LSP
 // formatting. Like [dev], it never changes generated output and is NOT folded
 // into computeKey. A nil pointer (table absent) leaves the defaults
-// (print_width 80).
+// (print_width 80, imports "goimports").
 type tomlFormatter struct {
-	PrintWidth int `toml:"print_width"`
+	PrintWidth int    `toml:"print_width"`
+	Imports    string `toml:"imports"` // "goimports" (default) | "gofmt"
 }
 
 // tomlDev is the [dev] table read ONLY by `gsx dev` (runDev) — it is NOT part of
@@ -196,6 +198,13 @@ func loadConfig(path string) (config, error) {
 	}
 	if tc.Formatter != nil {
 		cfg.printWidth = tc.Formatter.PrintWidth
+		if s := tc.Formatter.Imports; s != "" {
+			m, err := gsxfmt.ParseImportsMode(s)
+			if err != nil {
+				return config{}, fmt.Errorf("%s: formatter.imports: %w", path, err)
+			}
+			cfg.importsMode = m
+		}
 	}
 	return cfg, nil
 }
@@ -264,6 +273,11 @@ func mergeConfig(base, opts config) config {
 	merged.printWidth = base.printWidth
 	if opts.printWidth > 0 {
 		merged.printWidth = opts.printWidth
+	}
+
+	merged.importsMode = base.importsMode
+	if opts.importsMode != gsxfmt.ImportsUnset {
+		merged.importsMode = opts.importsMode
 	}
 
 	// MinifyLevel fields use minifyLevelSet as the sentinel so opts.MinifyNone

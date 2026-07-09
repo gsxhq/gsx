@@ -14,6 +14,7 @@ import (
 	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/fullmin"
+	"github.com/gsxhq/gsx/internal/gsxfmt"
 	"github.com/gsxhq/gsx/internal/rawfmt"
 )
 
@@ -43,6 +44,7 @@ type config struct {
 	fieldMatcher   codegen.FieldMatcher
 	errs           []error
 	printWidth     int                     // gsx.toml [formatter] print_width; 0 means "unset" → 80 at use
+	importsMode    gsxfmt.ImportsMode      // gsx.toml [formatter] imports; Unset → goimports at use
 	cssMinLevel    MinifyLevel             // <style> minification level (zero = MinifyNone)
 	jsMinLevel     MinifyLevel             // <script> minification level (zero = MinifyNone)
 	minifyLevelSet bool                    // true once an option (WithMinifyLevel) pinned the levels
@@ -56,6 +58,13 @@ func (c config) effectivePrintWidth() int {
 		return 80
 	}
 	return c.printWidth
+}
+
+// effectiveImportsMode returns the configured import-handling mode, defaulting
+// to goimports (remove unused + reorder) when unset — matching gopls, where
+// organizing imports is the norm and plain gofmt is the opt-out.
+func (c config) effectiveImportsMode() gsxfmt.ImportsMode {
+	return c.importsMode.Or(gsxfmt.DefaultImportsMode)
 }
 
 // effectiveCSSMin returns the CSS minifier to thread into codegen when the gate

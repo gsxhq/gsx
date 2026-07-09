@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gsxhq/gsx/internal/codegen"
+	"github.com/gsxhq/gsx/internal/gsxfmt"
 )
 
 // mkfile writes content to path, creating parent dirs.
@@ -378,5 +379,69 @@ func TestLoadConfigClassMergerBadValue(t *testing.T) {
 	mkfile(t, path, `class_merger = "noDotHere"`)
 	if _, err := loadConfig(path); err == nil {
 		t.Fatalf("want error for unqualified ref")
+	}
+}
+
+// TestConfigImportsMode: [formatter] imports selects the mode.
+func TestConfigImportsMode(t *testing.T) {
+	for _, tc := range []struct {
+		toml string
+		want gsxfmt.ImportsMode
+	}{
+		{"[formatter]\nimports = \"gofmt\"\n", gsxfmt.ImportsGofmt},
+		{"[formatter]\nimports = \"goimports\"\n", gsxfmt.ImportsGoimports},
+	} {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "gsx.toml")
+		if err := os.WriteFile(path, []byte(tc.toml), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := loadConfig(path)
+		if err != nil {
+			t.Fatalf("loadConfig: %v", err)
+		}
+		if got := cfg.effectiveImportsMode(); got != tc.want {
+			t.Fatalf("imports = %v, want %v", got, tc.want)
+		}
+	}
+}
+
+// TestConfigImportsModeDefault: absent key ⇒ goimports.
+func TestConfigImportsModeDefault(t *testing.T) {
+	var c config
+	if got := c.effectiveImportsMode(); got != gsxfmt.ImportsGoimports {
+		t.Fatalf("default imports mode = %v, want goimports", got)
+	}
+}
+
+// TestConfigImportsModeInvalid: an unknown spelling errors, naming the key and
+// both valid values.
+func TestConfigImportsModeInvalid(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gsx.toml")
+	if err := os.WriteFile(path, []byte("[formatter]\nimports = \"gofumpt\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := loadConfig(path)
+	if err == nil {
+		t.Fatal("want error for invalid imports mode")
+	}
+	for _, want := range []string{"formatter.imports", "gofmt", "goimports"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q does not mention %q", err, want)
+		}
+	}
+}
+
+// TestConfigImportsModeUnknownKeyRejected: strict decoding still rejects typos
+// inside [formatter].
+func TestConfigImportsModeUnknownKeyRejected(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gsx.toml")
+	if err := os.WriteFile(path, []byte("[formatter]\nimport = \"gofmt\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadConfig(path); err == nil || !strings.Contains(err.Error(), "import") {
+		t.Fatalf("loadConfig err = %v, want unknown-key error naming import", err)
 	}
 }
