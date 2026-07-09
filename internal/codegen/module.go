@@ -86,7 +86,14 @@ type Options struct {
 // one analysis runs on a given Module at a time. mu guards the overrides, ext,
 // and pkgTypes map fields and is acquired independently of analysisMu (it is
 // also acquired inside externalImporter and typesPackageWith, which are called
-// from within a held analysisMu). The internal recursive path
+// from within a held analysisMu). gcImporterMu is a third, narrower lock: it
+// serializes Import calls into the cached gc export-data importer used by
+// ResolveImportCandidates (a user-triggered code-action path, deliberately off
+// the analysisMu path — see its doc in add_imports.go). It is never taken
+// together with analysisMu, and it guards a different thing than mu: mu
+// protects the m.gcImporter field's assignment, gcImporterMu protects the
+// importer's own internal cache across concurrent .Import() calls. The
+// internal recursive path
 // (typesPackageWith → analyze → moduleImporter.Import → typesPackageWith) does
 // NOT acquire analysisMu — those functions run within a held analysisMu and
 // re-acquiring would deadlock. True fine-grained concurrent analysis (multiple
@@ -150,8 +157,20 @@ type Module struct {
 	fsetRebuildBytes  int                         // rebuild fset when fset.Base()-fsetBaseline exceeds this; 0 disables
 	rebuildCount      int                         // count of fset rebuilds performed (observability; exposed via rebuilds())
 	gcImporter        types.Importer              // lazily built export-data importer for ResolveImportCandidates (see exportDataImporter); never used on the Package() hot path
-	mu                sync.Mutex                  // guards overrides, ext, pkgTypes, pkgResults, depFacts, imports, importedBy, dirty, gcImporter
+	mu                sync.Mutex                  // guards overrides, ext, pkgTypes, pkgResults, depFacts, imports, importedBy, dirty, gcImporter (the field itself, not calls into it)
 	analysisMu        sync.Mutex                  // serializes Package/Generate/typesPackage (see concurrency contract)
+	// gcImporterMu serializes calls INTO the cached gc export-data importer
+	// (m.gcImporter.Import), as opposed to mu which only guards the m.gcImporter
+	// field's lazy assignment. go/importer's gc importer (go/internal/gcimporter)
+	// mutates its own internal package cache during Import, so two concurrent
+	// Import calls on the same *importer race even once the field itself is
+	// safely published. This is deliberately its own lock, not mu (Import can
+	// block on file IO and must not stall the fast mu-guarded fields like
+	// overrides/dirty) and never analysisMu (see the concurrency contract above:
+	// Package() holds analysisMu for the duration of an analysis, sync.Mutex is
+	// not reentrant, and ResolveImportCandidates — the only caller that reaches
+	// this — deliberately runs off the analysisMu path).
+	gcImporterMu sync.Mutex
 }
 
 // defaultFsetRebuildBytes bounds the module-lifetime FileSet's project re-parse
@@ -320,14 +339,19 @@ func (m *Module) externalImporter() (types.Importer, error) {
 			errs[p.PkgPath] = p.Errors
 		}
 	})
+	ext := mapImporter(mp)
 	m.mu.Lock()
-	m.ext = mapImporter(mp)
+	m.ext = ext
 	m.extPkgs = mp
 	m.extErrs = errs
 	m.extLoads++
 	m.fsetBaseline = m.fset.Base()
 	m.mu.Unlock()
-	return m.ext, nil
+	// Return the local, not m.ext: a concurrent rebuildFset (which nils m.ext
+	// under m.mu) could otherwise be interleaved between the Unlock above and
+	// an unguarded re-read of the field, racing with that write. ext is a
+	// value we hold outside the map, so reading it needs no lock.
+	return ext, nil
 }
 
 // externalLoads returns the number of external packages.Load calls performed
