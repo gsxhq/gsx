@@ -247,3 +247,42 @@ func TestReorderChunkImportsGoBuildIdempotent(t *testing.T) {
 		t.Fatalf("not idempotent:\nonce:\n%s\ntwice:\n%s", once, twice)
 	}
 }
+
+// TestFormatWithPreservesGoBuildThroughPrinter is the end-to-end regression
+// test for the printer corruption bug: deleteChunkImports/reorderChunkImports
+// preserve a //go:build comment when they rewrite a chunk's imports, but the
+// GoChunk is then printed by internal/printer's Fprint — which independently
+// runs every chunk through go/format via fmtGoChunk. Before fmtGoChunk wrapped
+// the chunk in a synthetic package clause (making format.Source see a valid
+// file, so it never enters its byte-count-stripping fragment mode), that
+// second pass re-corrupted the comment even though gsxfmt's own import
+// rewrite had left it intact. This must hold both with Reorder off (gofmt
+// mode) and on (goimports mode).
+func TestFormatWithPreservesGoBuildThroughPrinter(t *testing.T) {
+	// The //go:build comment must lead a GoChunk that is NOT the file's own
+	// package-clause decl: that first chunk already carries a real package
+	// clause of its own, so format.Source parses it directly and never enters
+	// the byte-stripping fragment path this test guards against. Attaching
+	// the comment to the (import-bearing) second chunk instead reproduces the
+	// shape go/format actually mishandles.
+	src := "package x\n\n" +
+		"//go:build linux\n\n" +
+		"import \"strings\"\n\nimport (\n\t\"fmt\"\n\n\t\"strings\"\n)\n\n" +
+		"component C() {\n\t<p>{ fmt.Sprint(strings.ToUpper(\"x\")) }</p>\n}\n"
+
+	for _, reorder := range []bool{false, true} {
+		out, err := FormatWith("x.gsx", []byte(src), FormatOptions{Width: 80, Reorder: reorder})
+		if err != nil {
+			t.Fatalf("Reorder=%v: FormatWith: %v", reorder, err)
+		}
+		got := string(out)
+		if !strings.Contains(got, "//go:build linux") {
+			t.Fatalf("Reorder=%v: build constraint lost or corrupted:\n%s", reorder, got)
+		}
+		for _, bad := range []string{"_gsxp", "_gsxfmt", "package p"} {
+			if strings.Contains(got, bad) {
+				t.Fatalf("Reorder=%v: synthetic package clause %q leaked:\n%s", reorder, bad, got)
+			}
+		}
+	}
+}

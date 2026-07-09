@@ -10,6 +10,7 @@ import (
 	"golang.org/x/tools/imports"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/printer"
 )
 
 // ImportRef identifies an import to remove from a .gsx file's pass-through Go
@@ -69,58 +70,11 @@ func deleteChunkImports(src string, unused []ImportRef) (string, bool) {
 	if err := goformat.Node(&b, fset, file); err != nil {
 		return src, false
 	}
-	stripped, ok := stripSyntheticPackage([]byte(b.String()))
+	stripped, ok := printer.StripSyntheticPackage([]byte(b.String()))
 	if !ok {
 		return src, false
 	}
-	return preserveTrailing(src, normalizeStripped(stripped)), true
-}
-
-// stripSyntheticPackage removes the synthetic goChunkPkg clause from formatted —
-// the output of a Go formatter fed goChunkPkg+chunk. It locates the clause by
-// PARSING, never by assuming it is the first line: go/printer relocates
-// build-constraint comments (//go:build) above the package clause, and a
-// line-index strip would delete the constraint and leave `package _gsxp` spliced
-// into the user's source.
-//
-// ok is false when formatted does not parse; the caller then leaves the chunk
-// untouched.
-func stripSyntheticPackage(formatted []byte) (string, bool) {
-	fset := token.NewFileSet()
-	file, err := goparser.ParseFile(fset, "", formatted, goparser.PackageClauseOnly|goparser.ParseComments)
-	if err != nil {
-		return "", false
-	}
-	start := fset.Position(file.Package).Offset  // offset of the `package` keyword
-	end := fset.Position(file.Name.End()).Offset // end of the package name
-	for end < len(formatted) && formatted[end] != '\n' {
-		end++
-	}
-	if end < len(formatted) {
-		end++ // consume the newline terminating the clause
-	}
-	return string(formatted[:start]) + string(formatted[end:]), true
-}
-
-// normalizeStripped closes up the blank-line gap that stripSyntheticPackage can
-// leave where the package clause sat: the clause always had a blank line on
-// each side in formatted output, so deleting just the clause line merges those
-// into a double blank line (three consecutive newlines).
-//
-// This is done by mechanical string collapsing, NOT by another go/format pass.
-// go/format.Source contains the identical "insert `package p`, then strip a
-// fixed byte range" logic this file's whole fix removes (see internal.go's
-// parse/sourceAdj) — verified: feeding it a fragment led by a //go:build
-// comment reproduces Finding 1 inside the stdlib helper itself (the comment
-// gets hoisted above the injected clause, and the fixed-offset strip leaks
-// "package p" into the output). A real Go formatter never emits 3+ consecutive
-// newlines on its own, so collapsing them here only ever touches the gap this
-// function created.
-func normalizeStripped(stripped string) string {
-	for strings.Contains(stripped, "\n\n\n") {
-		stripped = strings.ReplaceAll(stripped, "\n\n\n", "\n\n")
-	}
-	return stripped
+	return preserveTrailing(src, stripped), true
 }
 
 // preserveTrailing reattaches orig's trailing whitespace to a rewritten chunk
@@ -182,11 +136,11 @@ func reorderChunkImports(src string) (string, bool) {
 	if err != nil {
 		return src, false // not standalone-valid Go; leave it
 	}
-	stripped, ok := stripSyntheticPackage(out)
+	stripped, ok := printer.StripSyntheticPackage(out)
 	if !ok {
 		return src, false
 	}
-	res := preserveTrailing(src, normalizeStripped(stripped))
+	res := preserveTrailing(src, stripped)
 	if res == src {
 		return src, false
 	}
