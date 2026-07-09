@@ -3,7 +3,7 @@ package corpus
 import (
 	"fmt"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 
 	"golang.org/x/net/html"
@@ -83,7 +83,7 @@ func attrSet(n *html.Node) string {
 		}
 		parts = append(parts, key+"="+a.Val)
 	}
-	sort.Strings(parts)
+	slices.Sort(parts)
 	return strings.Join(parts, " ")
 }
 

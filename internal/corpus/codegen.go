@@ -3,10 +3,12 @@ package corpus
 import (
 	"bytes"
 	"fmt"
+	goparser "go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
@@ -82,11 +84,8 @@ func (c *caseDoc) packageDirs() []string {
 		}
 		seen[filepath.ToSlash(filepath.Dir(name))] = true
 	}
-	var out []string
-	for d := range seen {
-		out = append(out, d)
-	}
-	sort.Strings(out)
+	out := slices.Collect(maps.Keys(seen))
+	slices.Sort(out)
 	return out
 }
 
@@ -102,12 +101,13 @@ func normalizeDiagPaths(diag []byte, tmpDir string) []byte {
 	return bytes.ReplaceAll(diag, []byte(prefix), nil)
 }
 
-func packageNameOf(src []byte) string {
-	for line := range strings.SplitSeq(string(src), "\n") {
-		line = strings.TrimSpace(line)
-		if after, ok := strings.CutPrefix(line, "package "); ok {
-			return strings.TrimSpace(after)
-		}
+// packageNameOf returns the package clause of a .gsx source. PackageClauseOnly
+// stops the parse right after the clause, so the gsx-specific body that follows
+// (component declarations, elements) is never scanned as Go.
+func packageNameOf(src []byte) (string, error) {
+	f, err := goparser.ParseFile(token.NewFileSet(), "input.gsx", src, goparser.PackageClauseOnly)
+	if err != nil {
+		return "", fmt.Errorf("package clause: %w", err)
 	}
-	return "views"
+	return f.Name.Name, nil
 }

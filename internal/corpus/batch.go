@@ -8,11 +8,19 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/gsxhq/gsx/internal/diag"
 )
+
+// genFile is one generated .x.go: the package dir it belongs to, the original
+// .gsx path it came from, and its bytes.
+type genFile struct {
+	dir  string
+	path string
+	data []byte
+}
 
 type caseCodegen struct {
 	gen  []byte // concatenated generated .x.go (sorted by gsx path), for the generated.x.go.golden facet
@@ -52,6 +60,17 @@ func writeCaseSources(moduleDir string, c *caseDoc) error {
 func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodegen, error) {
 	if len(candidates) == 0 {
 		return map[string]*caseCodegen{}, nil
+	}
+
+	// caseDoc.dir flattens the case name ("a/b" → "a_b") to name its directory in
+	// the shared temp module, so "a/b_c" and "a_b/c" would land in the same place
+	// and silently overwrite each other's sources. Reject that up front.
+	byDirName := make(map[string]string, len(candidates))
+	for _, c := range candidates {
+		if prev, dup := byDirName[c.dir]; dup {
+			return nil, fmt.Errorf("case dir collision: %q and %q both map to %q; rename one", prev, c.name, c.dir)
+		}
+		byDirName[c.dir] = c.name
 	}
 
 	tmp := mustTempModule(repoRoot)
@@ -117,21 +136,17 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 
 		// Collect package results for this case.
 		// Check if any package has an error.
-		var allFiles []struct {
-			dir  string
-			path string // original .gsx path
-			data []byte
-		}
+		var allFiles []genFile
 		hasErr := false
 		var diagBuf bytes.Buffer
 
 		for _, pkgDir := range cs.pkgDirs {
 			pr, ok := pkgResults[pkgDir]
 			if !ok {
-				// Shouldn't happen; treat as error.
-				fmt.Fprintf(&diagBuf, "codegen: no result for %s\n", pkgDir)
-				hasErr = true
-				continue
+				// A harness invariant, not a case outcome: every pkgDir was passed
+				// to codegenDirs, so a missing result means the batch is broken.
+				// Never fold this into diagnostics.golden, where a golden could absorb it.
+				return nil, fmt.Errorf("case %s: codegen produced no result for %s", c.name, pkgDir)
 			}
 			// Render diagnostics from pr.Diags.
 			// Format: "line:col: message" for positioned diagnostics (Start.Line > 0),
@@ -147,11 +162,7 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 			for gsxPath, genData := range pr.Files {
 				// Rewrite import paths in generated output (no-op when modulePath=="").
 				out := rewriteImportPath(genData, c.modulePath, root)
-				allFiles = append(allFiles, struct {
-					dir  string
-					path string
-					data []byte
-				}{dir: pkgDir, path: gsxPath, data: out})
+				allFiles = append(allFiles, genFile{dir: pkgDir, path: gsxPath, data: out})
 			}
 		}
 
@@ -163,27 +174,20 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 			orderedDirs := cs.pkgDirs // already in packageDirs() order
 
 			// Group files by dir.
-			byDir := map[string][]struct {
-				path string
-				data []byte
-			}{}
+			byDir := map[string][]genFile{}
 			for _, f := range allFiles {
-				byDir[f.dir] = append(byDir[f.dir], struct {
-					path string
-					data []byte
-				}{f.path, f.data})
+				byDir[f.dir] = append(byDir[f.dir], f)
 			}
 			// Sort within each dir by gsx path.
 			for dir := range byDir {
-				sort.Slice(byDir[dir], func(i, j int) bool {
-					return byDir[dir][i].path < byDir[dir][j].path
+				slices.SortFunc(byDir[dir], func(a, b genFile) int {
+					return strings.Compare(a.path, b.path)
 				})
 			}
 
 			var genBuf bytes.Buffer
 			for _, dir := range orderedDirs {
-				files := byDir[dir]
-				for _, f := range files {
+				for _, f := range byDir[dir] {
 					genBuf.Write(f.data)
 				}
 			}
@@ -304,10 +308,14 @@ func (c *caseDoc) writeEntry(moduleDir, root string) (string, error) {
 		// Import only packages the invoke references, by package name.
 		nameToPath := map[string]string{}
 		for _, dir := range c.packageDirs() {
-			nameToPath[c.packageNameInDir(dir)] = root + "/" + dir
+			pkgName, err := c.packageNameInDir(dir)
+			if err != nil {
+				return "", fmt.Errorf("dir %s: %w", dir, err)
+			}
+			nameToPath[pkgName] = root + "/" + dir
 		}
 		var imps bytes.Buffer
-		for name := range referencedQualifiers(c.invoke) {
+		for _, name := range slices.Sorted(maps.Keys(referencedQualifiers(c.invoke))) {
 			if p, ok := nameToPath[name]; ok {
 				fmt.Fprintf(&imps, "\t%s %q\n", name, p)
 			}
@@ -319,7 +327,13 @@ func (c *caseDoc) writeEntry(moduleDir, root string) (string, error) {
 		return root + "/gsxentry", nil
 	}
 
-	pkgName := packageNameOf(c.files["input.gsx"])
+	// Read the clause from whichever root .gsx exists — single-package cases are
+	// not required to name their file input.gsx (examples/100-template-composition
+	// uses components.gsx + page.gsx).
+	pkgName, err := c.packageNameInDir(".")
+	if err != nil {
+		return "", err
+	}
 	// If the invoke references gsx. (e.g. gsx.Raw, gsx.Attrs), add the import so
 	// the generated entry file compiles. Each Go file in a package needs its own
 	// import declarations even though other files in the package already import gsx.
@@ -334,14 +348,15 @@ func (c *caseDoc) writeEntry(moduleDir, root string) (string, error) {
 	return root, nil
 }
 
-// packageNameInDir returns the package clause of the first .gsx file in dir.
-func (c *caseDoc) packageNameInDir(dir string) string {
-	for name, data := range c.files {
+// packageNameInDir returns the package clause of the first .gsx file in dir,
+// in sorted filename order so the choice is deterministic.
+func (c *caseDoc) packageNameInDir(dir string) (string, error) {
+	for _, name := range slices.Sorted(maps.Keys(c.files)) {
 		if strings.HasSuffix(name, ".gsx") && filepath.ToSlash(filepath.Dir(name)) == dir {
-			return packageNameOf(data)
+			return packageNameOf(c.files[name])
 		}
 	}
-	return "views"
+	return "", fmt.Errorf("no .gsx file in dir %q", dir)
 }
 
 var qualifierRe = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\.`)
