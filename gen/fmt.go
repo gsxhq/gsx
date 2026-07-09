@@ -14,6 +14,7 @@ import (
 	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
+	"github.com/gsxhq/gsx/internal/pretty"
 	"github.com/gsxhq/gsx/internal/rawfmt"
 )
 
@@ -141,7 +142,7 @@ func runFmt(stdout, stderr io.Writer, args []string, cssFmt, jsFmt rawfmt.Format
 	if reportGoDiagnostics(stderr, files, goDiags) {
 		exit = 1
 	}
-	widthByDir := map[string]int{}
+	ec := newEditorConfigResolver()
 	for _, path := range files {
 		orig, err := os.ReadFile(path)
 		if err != nil {
@@ -151,18 +152,15 @@ func runFmt(stdout, stderr io.Writer, args []string, cssFmt, jsFmt rawfmt.Format
 		}
 		abs, _ := filepath.Abs(path)
 		dir := filepath.Dir(path)
-		width, ok := widthByDir[dir]
-		if !ok {
-			width = printWidthFor(dir)
-			widthByDir[dir] = width
-		}
+		fs := formatSettingsFor(dir, abs, ec)
 		mode := modeFor(path)
 		formatted, err := gsxfmt.FormatWith(path, orig, gsxfmt.FormatOptions{
-			Unused:  unusedByPath[abs], // nil for gofmt-mode files
-			Width:   width,
-			CSSFmt:  cssFmt,
-			JSFmt:   jsFmt,
-			Reorder: mode.Reorder(),
+			Unused:   unusedByPath[abs], // nil for gofmt-mode files
+			Width:    fs.Width,
+			TabWidth: fs.TabWidth,
+			CSSFmt:   cssFmt,
+			JSFmt:    jsFmt,
+			Reorder:  mode.Reorder(),
 		})
 		if err != nil {
 			fmt.Fprintf(stderr, "%s: %v\n", path, err)
@@ -212,26 +210,68 @@ func Format(name string, src []byte) ([]byte, error) { return formatGsx(name, sr
 // failure and continues with the other files). It delegates to gsxfmt.Format,
 // the shared engine the language server's textDocument/formatting also uses.
 func formatGsx(name string, src []byte) ([]byte, error) {
-	return gsxfmt.Format(name, src, printWidthFor("."))
+	abs, err := filepath.Abs(name)
+	if err != nil {
+		abs = name
+	}
+	fs := formatSettingsFor(".", abs, newEditorConfigResolver())
+	return gsxfmt.Format(name, src, fs.Width)
 }
 
-// printWidthFor returns the effective gsx.toml [formatter] print_width for dir
-// (default 80), best-effort: discovery/decoding failures fall back to 80.
-func printWidthFor(dir string) int {
-	path, ok := discoverConfig(dir)
-	if !ok {
-		return 80
+// formatSettingsFor resolves the print width and tab width for one file.
+//
+// Precedence, highest first: gsx.toml [formatter] > .editorconfig > built-in.
+// (There is no CLI flag or env var for either knob; print_width has never had
+// one, and tab_width should not grow one alone.) .editorconfig is a cross-tool
+// baseline, so an explicit gsx setting beats it even when the .editorconfig
+// sits closer to the file.
+//
+// dir selects the gsx.toml (discovery is per-directory, memoized on ec —
+// see editorConfigResolver's doc comment); path selects the .editorconfig
+// section (sections are filename globs). path must be ABSOLUTE — the
+// editorconfig library resolves a relative path against the process's
+// current working directory during its upward .editorconfig walk, which
+// silently yields the wrong section when the caller's cwd differs from
+// path's actual directory. Every layer is best-effort: a missing or broken
+// config falls through, never fails.
+func formatSettingsFor(dir, path string, ec *editorConfigResolver) gsxfmt.FormatSettings {
+	es := ec.settingsFor(path)
+	cfg, _ := ec.configFor(dir) // not found/unusable → zero config, falls through below
+	return resolveFormatSettings(cfg, es)
+}
+
+// resolveFormatSettings applies the gsx.toml > .editorconfig > built-in
+// precedence to an already-resolved gsx.toml config and .editorconfig
+// settings, without caring where either came from. This is the ONE place
+// that precedence is encoded: the CLI (formatSettingsFor, above) passes the
+// raw file config; the LSP (lspAnalyzer.FormatSettings, gen/lsp.go) passes
+// the programmatic-opts-over-file-config merge Analyze already computes.
+// Both must resolve identically, or `gsx fmt` and the LSP's format-on-save
+// disagree on the same file.
+//
+// Both cfg and es use zero to mean "unset". A cfg field that is unset MUST
+// fall through to es — not clobber it with 0 — because an unset gsx.toml key
+// is silence, not an override.
+func resolveFormatSettings(cfg config, es editorSettings) gsxfmt.FormatSettings {
+	width, tabWidth := es.printWidth, es.tabWidth
+	if cfg.printWidth > 0 {
+		width = cfg.printWidth
 	}
-	cfg, err := loadConfig(path)
-	if err != nil {
-		return 80
+	if cfg.tabWidth > 0 {
+		tabWidth = cfg.tabWidth
 	}
-	return cfg.effectivePrintWidth()
+	if width <= 0 {
+		width = pretty.DefaultPrintWidth
+	}
+	if tabWidth <= 0 {
+		tabWidth = pretty.DefaultTabWidth
+	}
+	return gsxfmt.FormatSettings{Width: width, TabWidth: tabWidth}
 }
 
 // importsModeFor returns the effective gsx.toml [formatter] imports mode for dir
 // (default goimports), best-effort: discovery/decoding failures fall back to the
-// default, exactly like printWidthFor.
+// default, exactly like formatSettingsFor.
 func importsModeFor(dir string) gsxfmt.ImportsMode {
 	path, ok := discoverConfig(dir)
 	if !ok {
