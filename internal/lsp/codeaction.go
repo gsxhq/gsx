@@ -19,9 +19,12 @@ import (
 //     EXACTLY ONE candidate: this action is meant for format-on-save, so an
 //     ambiguous name is left alone rather than guessed — a wrong import written
 //     unattended is unrecoverable.
-//   - quickfix: one action per candidate for every unresolved qualifier in the
-//     file (e.g. "Add import: crypto/rand", "Add import: math/rand"), so the
-//     user picks when organizeImports could not.
+//   - quickfix: one action per distinct candidate import path across every
+//     unresolved qualifier in the file (e.g. "Add import: crypto/rand",
+//     "Add import: math/rand"), so the user picks when organizeImports could
+//     not. Two qualifiers whose candidate sets overlap (e.g. rand.Int and
+//     rand.Reader both offering crypto/rand) still yield only one action per
+//     path — the loop dedupes request-wide, not per qualifier.
 //
 // Both edits are a single whole-document TextEdit: gsx has no partial
 // formatter, so its canonical form is produced by a whole-document parse →
@@ -73,8 +76,13 @@ func (s *Server) handleCodeAction(f frame) error {
 		// organized == text: already organized, a true no-op.
 	}
 	if wantsKind(p.Context.Only, quickFixKind) {
+		seen := map[string]bool{}
 		for _, mi := range missing {
 			for _, cand := range s.analyzer.ResolveImport(dir, mi.Name, mi.Symbol) {
+				if seen[cand] {
+					continue // same path already offered for an earlier missing qualifier
+				}
+				seen[cand] = true
 				edited, err := gsxfmt.FormatWith(path, []byte(text), gsxfmt.FormatOptions{
 					Unused: unused,
 					// HARD CONTRACT: never pass a Name (alias) here. astutil.AddNamedImport
