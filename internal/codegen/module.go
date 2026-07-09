@@ -639,6 +639,10 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	// trusts (Module.UnusedImports) — never from correlating raw type-error
 	// positions. See docs/superpowers/specs/2026-07-09-lsp-unused-imports-design.md.
 	res.UnusedImports = a.unusedImports
+	// Missing imports come from the same type-checked skeletons, alongside the
+	// unused-import classification above (missingFromSkeletons). See
+	// MissingImport's doc for why the Name is left unresolved to an import path.
+	res.MissingImports = a.missingImports
 	m.mu.Lock()
 	m.pkgResults[dir] = res
 	m.mu.Unlock()

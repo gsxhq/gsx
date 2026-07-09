@@ -657,6 +657,7 @@ type analyzed struct {
 	typeErrs           []types.Error                  // raw type errors from checkSkeletonPackage
 	signatureConflicts []signatureConflict            // same-name different-signature component collisions (block emission)
 	unusedImports      map[string][]UnusedImport      // .gsx abs path -> unused imports (Package's LSP surface; see unusedFromSkeletons)
+	missingImports     map[string][]MissingImport     // .gsx abs path -> undefined qualifiers (Package's LSP surface; see missingFromSkeletons)
 
 	// sunkImports maps a .gsx file path to the import SPECS (line+path keys)
 	// the type-checker PROVED were used only by a requalification-failed
@@ -1235,6 +1236,11 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// (docs/superpowers/specs/2026-07-09-lsp-unused-imports-design.md).
 	unusedImports := unusedFromSkeletons(skelByGsx, fset, pkg)
 
+	// Missing imports for the LSP surface (Package's PackageResult.MissingImports),
+	// computed from the same skeletons and the same type-checked info — no extra
+	// parse, no lock, no packages.Load. See missingFromSkeletons' doc.
+	missingImports := missingFromSkeletons(skelByGsx, fset, info)
+
 	return &analyzed{
 		pkgName:            pkgName,
 		gsxFiles:           gsxFiles,
@@ -1263,6 +1269,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		sunkImports:        confirmedSunk,
 		signatureConflicts: sigConflicts,
 		unusedImports:      unusedImports,
+		missingImports:     missingImports,
 	}, nil
 }
 
