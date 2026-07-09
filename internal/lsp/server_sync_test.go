@@ -10,6 +10,7 @@ import (
 
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
+	"github.com/gsxhq/gsx/internal/pretty"
 )
 
 // fakeAnalyzer returns one error diagnostic for the file it is told about.
@@ -35,7 +36,7 @@ func (a fakeAnalyzer) Analyze(dir string, override map[string][]byte) (*Package,
 	}}}, nil
 }
 
-func (a fakeAnalyzer) PrintWidth(string) int { return 80 }
+func (a fakeAnalyzer) FormatSettings(string) (int, int) { return 80, pretty.DefaultTabWidth }
 func (a fakeAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
 	return gsxfmt.ImportsGoimports
 }

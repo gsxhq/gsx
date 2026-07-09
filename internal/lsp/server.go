@@ -30,9 +30,11 @@ type Analyzer interface {
 	// in every .gsx package in the module containing dir. override supplies
 	// unsaved buffers (abs path -> bytes). Used by workspace/symbol.
 	ModuleSymbols(dir string, override map[string][]byte) ([]Symbol, error)
-	// PrintWidth returns the gsx.toml print width for the given directory
-	// (default 80). Used by textDocument/formatting.
-	PrintWidth(dir string) int
+	// FormatSettings returns the effective print width and tab width for path
+	// (defaults 80, pretty.DefaultTabWidth), applying gsx.toml [formatter] >
+	// .editorconfig > built-in precedence. path must be absolute. Used by
+	// textDocument/formatting and the organizeImports code action.
+	FormatSettings(path string) (width, tabWidth int)
 	// ImportsMode returns the gsx.toml [formatter] imports mode for the given
 	// directory (default goimports). Used by textDocument/formatting; the
 	// source.organizeImports code action deliberately ignores it and always
