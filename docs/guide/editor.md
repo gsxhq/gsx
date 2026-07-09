@@ -30,7 +30,8 @@ gsx lsp                 # blocks, reading LSP messages on stdin
 | **Hover** | `textDocument/hover` | gopls-style type/signature for an identifier or expression in all the same positions as go-to-definition; a component tag shows its signature (answered from the AST even mid-edit when type-checking can't complete) |
 | **Find references** | `textDocument/references` | `.go` call sites and `.gsx` tag sites for project components discovered by module analysis; external/non-project packages are skipped |
 | **Formatting** | `textDocument/formatting` | canonical `gsx fmt` form, honoring the configured [`[formatter] imports`](./config.md#formatter--gsx-fmt--editor-formatting) mode — wire it to format-on-save |
-| **Organize imports** | `textDocument/codeAction` (`source.organizeImports`) | always removes unused imports and reorders, regardless of the configured mode — see [below](#organize-imports-on-save) |
+| **Organize imports** | `textDocument/codeAction` (`source.organizeImports`) | always removes unused imports, reorders, and adds an unambiguous missing import, regardless of the configured mode — see [below](#organize-imports-on-save) |
+| **Add import (quickfix)** | `textDocument/codeAction` (`quickfix`) | one `Add import: <path>` action per candidate package, for an import `source.organizeImports` couldn't add unambiguously — see [below](#organize-imports-on-save) |
 
 **Deferred:** completion. References cover project components discovered during
 module analysis; external/non-project references are deferred. See [Status](./status.md) and the
@@ -53,6 +54,39 @@ action still organizes.
 
 Because gsx has no partial formatter, the action's edit spans the whole
 document: applying it also canonicalizes the rest of the file.
+
+**It also adds a missing import — but only when unambiguous.** If an
+unresolved qualifier like `rand.IntN` maps to exactly one package that could
+supply it, `source.organizeImports` adds that import on save, right alongside
+removing unused ones. If more than one package could supply the name —
+`rand.Read` exists in both `crypto/rand` and `math/rand` — nothing is added on
+save; a wrong import written unattended on every save is worse than none.
+
+For an ambiguous name, use the **`quickfix`** code action instead. It offers
+one `Add import: <path>` action per surviving candidate — `Add import:
+crypto/rand` and `Add import: math/rand` for `rand.Read` — deduplicated by
+resolved import path, so you choose. It shows up wherever your editor surfaces
+quickfixes for the `undefined: rand` diagnostic.
+
+Candidates come from two sources, both plain map lookups — **never a scan of
+the module cache**:
+
+- the standard library, from a table baked into the `gsx` binary at build time; and
+- every package already in your module's dependency graph, which the analyzer
+  has already type-checked as part of ordinary analysis.
+
+A package that is not yet in your `go.mod` is **not** offered — run `go get`
+first. Real `goimports` resolves this case by scanning the module cache,
+measured at roughly 1.4 seconds per unresolved identifier — the normal state
+while you're still mid-edit — so gsx deliberately does not.
+
+Ambiguity is resolved **by symbol**, not just by package name: `rand.IntN`
+offers only `math/rand/v2` (the only one of the three `rand` packages that
+exports `IntN`), and `template.HTML` offers only `html/template`
+(`text/template` has no `HTML` type). Go's `internal` visibility rule is
+honored exactly — your own `myapp/internal/db` is offered from anywhere under
+`myapp`, but `myapp/x/internal/db` is not offered from `myapp/y`, and a
+standard-library `internal` package is never offered at all.
 
 ### Configure your editor
 
