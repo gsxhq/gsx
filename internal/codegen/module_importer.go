@@ -1238,8 +1238,11 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 
 	// Missing imports for the LSP surface (Package's PackageResult.MissingImports),
 	// computed from the same skeletons and the same type-checked info — no extra
-	// parse, no lock, no packages.Load. See missingFromSkeletons' doc.
-	missingImports := missingFromSkeletons(skelByGsx, fset, info)
+	// parse, no lock, no packages.Load. inferByXGo lets it filter out the
+	// inference-harvest probe's own copy of a child-prop expression (the same
+	// registry the type-error loop's probeSiteForError call, above, already
+	// uses). See missingFromSkeletons' doc.
+	missingImports := missingFromSkeletons(skelByGsx, fset, info, inferByXGo)
 
 	return &analyzed{
 		pkgName:            pkgName,

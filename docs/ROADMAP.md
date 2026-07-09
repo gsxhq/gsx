@@ -572,6 +572,22 @@ vocabulary remains a design aspiration, not the current API.
 
 ## Tracked debts / deferrals
 
+- [ ] **Child-prop inference-probe `//line` column points past the expression**
+  - a component child-prop expression (`<Show v={ fmt.Sprint(1) } />`) is
+  emitted TWICE in the skeleton: once at its real site, once as an
+  inference-harvest probe copy stamped with its own `//line` (see
+  `infer.go`'s `inferRegistry` doc). That probe's `//line` column is the
+  tag's own position, not the qualifier's, so an `undefined: fmt` type error
+  landing in the probe copy - and, since PR fixing the
+  `MissingImports` double-report (`missingFromSkeletons` now filters probe-span
+  occurrences via `probeSiteForError` and dedupes by `(Name, Symbol)`), the
+  surviving `MissingImport` entry too - reports a column past the actual
+  qualifier (e.g. at the tag's `/>`, not at `fmt`). Pre-existing, shared by
+  both surfaces; `MissingImports` deliberately mirrors the diagnostic's
+  column for consistency (the future quickfix needs to associate with the
+  client's `context.diagnostics`) rather than correcting it independently.
+  Fixing the underlying `//line` stamp would churn diagnostic-position
+  goldens across the corpus - out of scope here.
 - [x] **`` json`...` `` tagged literal** - decided (2026-07-02): declined in
   favor of blessing `` js`...` `` for JSON-valued attributes (htmx `hx-vals`
   et al.): holes already JSON-encode via the `html/template` port, so `js` output

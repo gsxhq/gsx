@@ -116,3 +116,78 @@ func TestMissingImportsAcrossPositions(t *testing.T) {
 		})
 	}
 }
+
+// TestMissingImportsChildPropNoDuplicate is the adversarial-review regression:
+// analyze emits a SECOND copy of a component child-prop expression, under its
+// own //line stamp, as an inference-harvest probe (see infer.go's
+// inferRegistry doc), so the single source-level `fmt.Sprint` qualifier used
+// to be walked twice by missingFromSkeletons — once at its real site, once
+// inside the probe copy — and reported twice, at two different columns. This
+// must collapse to exactly one entry. Covers both a plain component and a
+// generic one, since the probe is emitted for both (see
+// components/generic_inferred_tag.txtar for the generic skeleton shape).
+func TestMissingImportsChildPropNoDuplicate(t *testing.T) {
+	for name, src := range map[string]string{
+		"plain": "package u\n\ncomponent Show(v string) {\n\t<p>{ v }</p>\n}\n\n" +
+			"component Wrap() {\n\t<Show v={ fmt.Sprint(1) } />\n}\n",
+		"generic": "package u\n\ncomponent Show[T any](v T) {\n\t<p>{ v }</p>\n}\n\n" +
+			"component Wrap() {\n\t<Show value={ fmt.Sprint(1) } />\n}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			m, dir := newMissingModule(t, src)
+			pr, err := m.Package(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mis := pr.MissingImports[filepath.Join(dir, "a.gsx")]
+			if len(mis) != 1 {
+				t.Fatalf("MissingImports = %+v, want exactly 1 entry (was reported twice before the fix)", mis)
+			}
+			if mis[0].Name != "fmt" || mis[0].Symbol != "Sprint" {
+				t.Fatalf("got %s.%s, want fmt.Sprint", mis[0].Name, mis[0].Symbol)
+			}
+		})
+	}
+}
+
+// TestMissingImportsRepeatedGenuineUsesCollapse: fmt.Sprint used TWICE, on two
+// different lines, both in plain interpolation (no child-prop probe
+// involved), still collapses to ONE entry. This is intended, not a
+// regression: organizeImports/the quickfix adds one `fmt` import either way,
+// so a second entry for the same (Name, Symbol) in the same file carries no
+// additional information for the caller.
+func TestMissingImportsRepeatedGenuineUsesCollapse(t *testing.T) {
+	src := "package u\n\ncomponent Wrap() {\n\t<p>{ fmt.Sprint(1) }</p>\n\t<p>{ fmt.Sprint(2) }</p>\n}\n"
+	m, dir := newMissingModule(t, src)
+	got := missingNames(t, m, dir)
+	if len(got) != 1 || got[0] != "fmt.Sprint" {
+		t.Fatalf("missing = %v, want [fmt.Sprint] (repeated genuine uses collapse to one)", got)
+	}
+}
+
+// TestMissingImportsDifferentQualifiersBothReported: two DIFFERENT undefined
+// qualifiers must both survive the (Name, Symbol) dedupe.
+func TestMissingImportsDifferentQualifiersBothReported(t *testing.T) {
+	src := "package u\n\ncomponent Wrap() {\n\t<p>{ fmt.Sprint(1) }</p>\n\t<p>{ rand.IntN(3) }</p>\n}\n"
+	m, dir := newMissingModule(t, src)
+	got := missingNames(t, m, dir)
+	want := []string{"fmt.Sprint", "rand.IntN"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("missing = %v, want %v", got, want)
+	}
+}
+
+// TestMissingImportsDifferentSymbolsSamePackage: fmt.Sprint and fmt.Errorf
+// are DISTINCT (Name, Symbol) pairs, so both are reported — even though they
+// share a qualifier name, they could in principle disambiguate to different
+// packages, and the caller (organizeImports) is the one that resolves a
+// qualifier to a single import path and dedupes further from there.
+func TestMissingImportsDifferentSymbolsSamePackage(t *testing.T) {
+	src := "package u\n\ncomponent Wrap() {\n\t<p>{ fmt.Sprint(1) }</p>\n\t<p>{ fmt.Errorf(\"x\") }</p>\n}\n"
+	m, dir := newMissingModule(t, src)
+	got := missingNames(t, m, dir)
+	want := []string{"fmt.Errorf", "fmt.Sprint"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("missing = %v, want %v", got, want)
+	}
+}
