@@ -12,7 +12,10 @@
 // codegen depending on a generator nested under its own tree.
 package stdpath
 
-import "strings"
+import (
+	"os"
+	"strings"
+)
 
 // internalPrefix reports the path prefix rooted at the parent of path's first
 // "internal" path component, and whether path has one at all. The prefix is
@@ -80,4 +83,32 @@ func InternalVisible(importPath, importerPath string) bool {
 func Importable(path string) bool {
 	_, hasInternal := internalPrefix(path)
 	return !hasInternal && !strings.HasPrefix(path, "vendor/")
+}
+
+// GoListEnv returns the environment to use for every `go list std` invocation
+// that feeds the stdlib index: the current process environment plus a pinned
+// GOOS=linux GOARCH=amd64 CGO_ENABLED=0.
+//
+// `go list std` is host-dependent: with cgo enabled (the darwin/arm64
+// toolchain default), it additionally reports package `cgo` at
+// runtime/cgo, a package that does not exist when cgo is disabled. A table
+// generated on a cgo-enabled machine therefore has one more entry than one
+// generated on a cgo-disabled machine or a different GOOS/GOARCH, and
+// TestStdlibIndexIsFresh — which re-runs `go list std` to diff against the
+// baked table — would only agree with the table by construction on whichever
+// single machine produced it. Pinning the same fixed environment for both the
+// generator (mkstdlibindex/main.go) and the freshness test makes the table a
+// reproducible artifact: identical regardless of who runs `go generate` or
+// where the freshness test runs.
+//
+// The cost is that a GOOS-specific standard-library package that exists only
+// under a different target — e.g. syscall/js (package `js`), built only for
+// js/wasm — is never indexed. That's acceptable: the table is a suggestion
+// index for resolving an unqualified name to an import path, not an
+// exhaustive catalog of every package buildable under every GOOS/GOARCH/cgo
+// combination. Nobody hand-types `import "runtime/cgo"`, and a gsx user
+// targeting wasm can still type `syscall/js`'s import by hand; the index
+// merely won't offer it as a completion.
+func GoListEnv() []string {
+	return append(os.Environ(), "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0")
 }

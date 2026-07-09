@@ -6,6 +6,14 @@ package codegen
 // path(s) that declare it. A name maps to more than one path only for the few
 // genuine collisions (rand, template, scanner, pprof, json, asn1); those are
 // disambiguated by checking which candidate actually exports the wanted symbol.
+//
+// Built from `go list std` under a pinned GOOS=linux GOARCH=amd64
+// CGO_ENABLED=0 (stdpath.GoListEnv), not the host's own environment: `go list
+// std` is itself GOOS/GOARCH/cgo-dependent (e.g. package `cgo` at runtime/cgo
+// appears only when cgo is enabled), so pinning is what makes this table a
+// fixed, reproducible artifact instead of a snapshot of whichever machine ran
+// `go generate`. A GOOS-specific package such as syscall/js is therefore not
+// indexed; see stdpath.GoListEnv's doc comment.
 var stdlibIndex = map[string][]string{
 	"adler32":         {"hash/adler32"},
 	"aes":             {"crypto/aes"},
@@ -24,7 +32,6 @@ var stdlibIndex = map[string][]string{
 	"bytes":           {"bytes"},
 	"bzip2":           {"compress/bzip2"},
 	"cgi":             {"net/http/cgi"},
-	"cgo":             {"runtime/cgo"},
 	"cipher":          {"crypto/cipher"},
 	"cmp":             {"cmp"},
 	"cmplx":           {"math/cmplx"},

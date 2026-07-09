@@ -6,6 +6,17 @@
 // module's dependency graph, which covers only std packages the module already
 // reaches.
 //
+// `go list std` is run under a pinned GOOS=linux/GOARCH=amd64/CGO_ENABLED=0
+// environment (stdpath.GoListEnv) rather than the host's own, because `go
+// list std` is itself host-dependent — most notably, cgo-enabled hosts
+// additionally report package `cgo` at runtime/cgo. Without pinning, the
+// baked table would silently differ depending on which machine ran `go
+// generate`, and TestStdlibIndexIsFresh (which re-derives the table with a
+// live `go list std`) would only agree with it by construction on that same
+// machine. See stdpath.GoListEnv's doc comment for the full rationale and the
+// resulting trade-off (GOOS-specific packages like syscall/js are not
+// indexed).
+//
 // Regenerate with: go generate ./internal/codegen
 package main
 
@@ -23,7 +34,9 @@ import (
 )
 
 func main() {
-	out, err := exec.Command("go", "list", "-f", "{{.Name}} {{.ImportPath}}", "std").Output()
+	cmd := exec.Command("go", "list", "-f", "{{.Name}} {{.ImportPath}}", "std")
+	cmd.Env = stdpath.GoListEnv()
+	out, err := cmd.Output()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "go list std: %v\n", err)
 		os.Exit(1)
@@ -47,6 +60,14 @@ func main() {
 	b.WriteString("// path(s) that declare it. A name maps to more than one path only for the few\n")
 	b.WriteString("// genuine collisions (rand, template, scanner, pprof, json, asn1); those are\n")
 	b.WriteString("// disambiguated by checking which candidate actually exports the wanted symbol.\n")
+	b.WriteString("//\n")
+	b.WriteString("// Built from `go list std` under a pinned GOOS=linux GOARCH=amd64\n")
+	b.WriteString("// CGO_ENABLED=0 (stdpath.GoListEnv), not the host's own environment: `go list\n")
+	b.WriteString("// std` is itself GOOS/GOARCH/cgo-dependent (e.g. package `cgo` at runtime/cgo\n")
+	b.WriteString("// appears only when cgo is enabled), so pinning is what makes this table a\n")
+	b.WriteString("// fixed, reproducible artifact instead of a snapshot of whichever machine ran\n")
+	b.WriteString("// `go generate`. A GOOS-specific package such as syscall/js is therefore not\n")
+	b.WriteString("// indexed; see stdpath.GoListEnv's doc comment.\n")
 	b.WriteString("var stdlibIndex = map[string][]string{\n")
 	for _, name := range slices.Sorted(maps.Keys(index)) {
 		paths := index[name]
