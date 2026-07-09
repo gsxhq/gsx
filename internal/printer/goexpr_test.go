@@ -64,16 +64,15 @@ func TestGoExprWideLiteralBreaksFieldsNotElement(t *testing.T) {
 // single-child `<div>` breaks its child, and no `(`/`)` appears — the removed
 // goExprFlatText short-circuit used to render it as fixed text that silently
 // overflowed the line instead.
-func TestGoExprElementBreaksItsOwnContentNotParens(t *testing.T) {
+func TestGoExprElementStaysFlatOnAWideLine(t *testing.T) {
 	name := strings.Repeat("x", 62)
 	src := "package main\n\nvar " + name + " = <div>x</div>\n" // 81 columns flat
-	want := "package main\n\nvar " + name + " = <div>\n\tx\n</div>\n"
-	got := fmtSource(t, src)
-	if got != want {
-		t.Errorf("format mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
-	}
-	if strings.ContainsAny(got, "()") {
-		t.Errorf("decorative parens must not appear on a flat-value wide line:\n%s", got)
+	// Unchanged. The author did not ask for a break, so they do not get one, and
+	// the line is 81 columns because that is how they wrote it. gofmt leaves an
+	// 81-column expression alone too.
+	checkFormat(t, src, src)
+	if strings.ContainsAny(fmtSource(t, src), "()") {
+		t.Error("no decorative parens: the author did not request a break")
 	}
 }
 
@@ -332,9 +331,11 @@ func indexOf(hay, needle string) int {
 // misindented sibling below never gets fixed.
 func TestGoWithElementsReformatsItsOwnParenWrappedOutput(t *testing.T) {
 	src := "package main\n\nvar items = []T{\n\t{label: \"a\", icon: (\n\t\t<Icon/>\n\t), page: P{}},\n{label: \"b\"},\n}\n"
-	// The paren is stripped and re-derived from width: this line now fits, so
-	// the element goes flat and the parens vanish. The sibling gets indented.
-	want := "package main\n\nvar items = []T{\n\t{label: \"a\", icon: <Icon/>, page: P{}},\n\t{label: \"b\"},\n}\n"
+	// The paren is the author's break request, so it survives and the element
+	// stays broken. What this test is really about is the SIBLING: `{label: "b"}`
+	// starts at column 0 in the input, and only a region that actually reached
+	// gofmt gets it indented.
+	want := "package main\n\nvar items = []T{\n\t{label: \"a\", icon: (\n\t\t<Icon/>\n\t), page: P{}},\n\t{label: \"b\"},\n}\n"
 	checkFormat(t, src, want)
 }
 
@@ -348,4 +349,14 @@ func TestGoWithElementsReformatsItsOwnParenWrappedOutput(t *testing.T) {
 func TestGoWithElementsKeepsBreakAfterOpeningBrace(t *testing.T) {
 	src := "package main\n\nvar icons = []gsx.Node{\n\t<a/>,\n\t<b/>,\n}\n"
 	checkFormat(t, src, src)
+}
+
+// A paren the author wrote IS the break request — the same signal a newline
+// after `>` is for markup. It breaks even though the value would fit, and the
+// parens are never silently deleted: deleting them would erase the request and
+// let the next pass re-derive a different answer.
+func TestGoExprElementBreaksWhenAuthorParenthesizes(t *testing.T) {
+	src := "package main\n\nvar n = (<div>x</div>)\n"
+	want := "package main\n\nvar n = (\n\t<div>x</div>\n)\n"
+	checkFormat(t, src, want)
 }

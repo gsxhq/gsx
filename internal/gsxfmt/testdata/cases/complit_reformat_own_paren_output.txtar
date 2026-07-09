@@ -4,8 +4,9 @@ semicolon insertion rejects once the element is replaced by a placeholder
 identifier. If that source is not sanitized, format.Source fails and the whole
 region is relayed verbatim — leaving the misindented sibling below untouched.
 
-The paren is stripped and re-derived from width: this line now fits, so the
-element goes flat and the parens vanish.
+The paren is the author's break request and survives, so the element stays
+broken. What this case really pins is the SIBLING: `{label: "b"}` starts at
+column 0, and only a region that actually reached gofmt gets it indented.
 
 -- input.gsx --
 package ui
@@ -20,6 +21,8 @@ var items = []T{
 package ui
 
 var items = []T{
-	{label: "a", icon: <Icon/>, page: P{}},
+	{label: "a", icon: (
+		<Icon/>
+	), page: P{}},
 	{label: "b"},
 }

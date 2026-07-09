@@ -247,37 +247,49 @@ func (p *printer) goWithElements(v *ast.GoWithElements) pretty.Doc {
 		// recovers the real Go nesting depth from that literal text so children
 		// and the closing tag/paren land at the right tab depth regardless.
 		depth := realTabDepth(precedingGoText)
-		// A gsx value's own pretty.Doc is a Group that (like any Group) breaks
-		// when it doesn't fit the columns REMAINING on the line — and here that
-		// remaining-width figure is polluted by the literal Go bytes preceding
-		// it (`var someVeryLongName = `), which this printer's column tracker
-		// sees as ordinary Text. If the value fits on one line ALL BY ITSELF,
-		// within the ordinary print width, gofmt would never reflow the Go
-		// around it for being over-long, so the value must not reflow either —
-		// only a value that is genuinely wide on its own merits (still over
-		// budget at column zero) is left to break its own attrs/content as
-		// usual.
-		// Paren-wrap is for an element that is ITSELF multi-line — a block-level
-		// child, or an author's line break. Never for a value merely sitting on a
-		// wide line: the fields around it make the line wide, and breakWideLiterals
-		// breaks those. An element that is flat but does not fit the columns
-		// remaining may still break its own attributes or children, exactly as it
-		// would anywhere else in the document.
-		if _, flat := goExprFlatText(doc); eligible(i) && !flat {
+		// Whether a gsx value in Go-expression position breaks is the AUTHOR's
+		// call, never the width's. gsx already works this way for markup: a
+		// newline after `{` or `>` keeps a body multi-line. Here the decorative
+		// paren is the same signal — write `(` around the value and it breaks;
+		// leave it bare and it stays on one line, however long that line ends up.
+		//
+		// The formatter therefore never guesses, and there is nothing for a
+		// second pass to guess differently. Guessing is what made every earlier
+		// version of this code non-idempotent: a value broken on width re-parses
+		// as an author-broken value, which then breaks for a different reason.
+		//
+		// Three cases, and the width is in none of them:
+		//   - the value cannot be printed flat (a block-level child, or a line
+		//     break the author wrote inside it) — it breaks, and takes parens;
+		//   - the author wrapped it in parens — it breaks, and keeps them;
+		//   - otherwise it is emitted as fixed text, which no Group can reflow.
+		//
+		// A wide line is still fixed, just not here: breakWideLiterals breaks the
+		// composite literal's FIELDS, which is what actually made the line wide.
+		flatText, flat := goExprFlatText(doc)
+		switch {
+		case eligible(i) && (!flat || partResult[i].Wrapped):
 			doc = parenWrapDoc(doc)
+		case flat:
+			doc = pretty.Text(flatText)
 		}
 		docs = append(docs, indentN(depth, doc))
 	}
 	return pretty.Concat(docs...)
 }
 
-// parenWrapDoc wraps doc in "(" ")" that render only when doc breaks — either
-// because it genuinely can't fit on one line (author-forced multi-line
-// content) or because the line is too wide. Mirrors the element printer's own
-// opening-tag/children Group+SoftLine shape (see the element method):
-// SoftLine never forces a break, so Group's forced flag reduces to whatever
-// doc itself carries, and IfBreak's branches are Text-only (never
-// Line/HardLine) so the parens never spuriously force the group to break.
+// parenWrapDoc wraps doc in "(" ")" and ALWAYS breaks. It is only ever called
+// for a value that is already committed to breaking: one that cannot be printed
+// flat, or one the author parenthesized. The paren is the author's break
+// request, the same way a newline after `>` is — so it must not silently vanish
+// when the value happens to fit, or `gsx fmt` would delete the request and then
+// re-derive a different answer on the next pass.
+//
+// BreakParent is what forces it: pretty.Group computes its `forced` flag from
+// any hard break among its children, and a value that is already multi-line
+// carries one of its own. IfBreak's branches stay Text-only so the parens
+// themselves never add a break — they render because the group broke, not the
+// other way around.
 //
 // The parens this emits are purely cosmetic for the .gsx source: codegen
 // strips the matching literal "(" / ")" out of the surrounding GoText before
@@ -286,6 +298,7 @@ func (p *printer) goWithElements(v *ast.GoWithElements) pretty.Doc {
 // on the closure's own trailing "}" / ")".
 func parenWrapDoc(doc pretty.Doc) pretty.Doc {
 	return pretty.Group(pretty.Concat(
+		pretty.BreakParent,
 		pretty.IfBreak(pretty.Text("("), pretty.Text("")),
 		pretty.Indent(pretty.Concat(pretty.SoftLine, doc)),
 		pretty.SoftLine,
