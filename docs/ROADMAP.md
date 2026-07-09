@@ -640,11 +640,12 @@ vocabulary remains a design aspiration, not the current API.
   never compiled non-renderable cases, which is where all six non-compiling-output
   bugs hid. Spec `2026-07-08-gsx-alias-generator-imports-design.md`.
   **Follow-ups (none blocking):**
-  1. `gsx fmt` / LSP `source.organizeImports` do not *add* a missing `gsx` import
-     (goimports mode uses `imports.Process` with `FormatOnly: true`, which skips
-     usage-based add/remove). The type-check already knows the identifier is
-     undefined, so this is tractable against the organize-imports spec. **This is
-     the one ergonomic cost of the rule.**
+  1. `gsx fmt` / LSP `source.organizeImports` do not *add* a missing `gsx` import.
+     Investigated and closed as permanent while shipping the gofmt/goimports
+     import-mode work below: a gsx Go chunk's body never references the
+     surrounding template's imports, so there is no symbol for the formatter to
+     resolve to a package — real `goimports`' add step has nothing to key off of
+     here. **This remains the one ergonomic cost of the rule.**
   2. `classMergeExpr(mergeExpr, rt)` is passed at two sites (`emit.go`, into
      `childPropsLiteral`'s subtree) where the callee provably never emits the
      string — `classEntryExpr` ends with `_ = mergeExpr`. It is the one live
@@ -843,6 +844,24 @@ vocabulary remains a design aspiration, not the current API.
   silent - same as the LSP without analysis. **Behavior change:** a tree with a Go
   syntax error now fails a `gsx fmt -l` CI gate that previously passed. Design:
   `docs/superpowers/specs/2026-07-08-fmt-error-reporting-design.md`.
+- [x] **gofmt/goimports import modes + LSP `source.organizeImports` - SHIPPED
+  (2026-07-09).** `gsx fmt` and the language server now offer the same two
+  import-handling modes gopls does, selected by `gsx.toml` `[formatter]
+  imports = "goimports" | "gofmt"` (default `"goimports"`) or the CLI's
+  `-imports goimports|gofmt`; `-no-imports` is now an alias for `-imports
+  gofmt` (asking for both is a usage error, exit 2). `goimports` removes unused
+  imports and merges every import declaration into one block, dedups identical
+  specs, splits the standard library from third-party with a blank line, and
+  sorts each group; `gofmt` only sorts within an existing group and never
+  removes, merges, dedups, or regroups. Mode resolves **CLI > config >
+  default**, per directory, so one run can span directories with different
+  `gsx.toml`. The LSP's `textDocument/formatting` honors the configured mode; a
+  new `source.organizeImports` code action always organizes regardless of it -
+  exactly like gopls, where formatting can be plain gofmt while the action
+  still organizes - with a whole-document edit (gsx has no partial formatter),
+  so applying it also canonicalizes the rest of the file. As always, `gsx`
+  cannot *add* a missing import (see the follow-up above). Spec
+  `docs/superpowers/specs/2026-07-07-organize-imports-design.md`.
 
 ## Documentation backlog
 
