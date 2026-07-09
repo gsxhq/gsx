@@ -252,6 +252,100 @@ func TestPackageUnusedImportsDoesNotDeleteUsedRandV2(t *testing.T) {
 	}
 }
 
+// TestPackageKeepsUnusedImportOutsideImporterGraph pins the REAL shape of
+// Divergence A (see the design doc's "Behavior when the type-check fails, or
+// an import is unresolved" section): ANY unused default import whose package
+// is outside analyze's importer graph (externalImporter's one-shot preload of
+// the gsx runtime + std filter package + FilterPkgs/LoadPkgs + "./..." — see
+// externalImporter's doc in module.go) is kept by Package(), not just the
+// name != path-base shape TestModuleAndPackageDivergeOnUnresolvableNameNeBase
+// covers. container/ring is unused, outside the importer graph (reachable only
+// from this one .gsx file), AND its declared package name ("ring") equals its
+// path base ("ring") — so importNamesFromTypes' Complete() gate, not a
+// name-mismatch, is what makes it unresolvable here. Module.UnusedImports
+// (CLI, go list) has no such gate and correctly removes it.
+func TestPackageKeepsUnusedImportOutsideImporterGraph(t *testing.T) {
+	dir, m := openTestModule(t, map[string]string{
+		"a.gsx": "package testmod\n\nimport \"container/ring\"\n\ncomponent A() {\n\t<p>hi</p>\n}\n",
+	})
+	pr, err := m.Package(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aPath := filepath.Join(dir, "a.gsx")
+	if u := pr.UnusedImports[aPath]; len(u) != 0 {
+		t.Errorf("Package(): want container/ring conservatively KEPT (outside importer graph, name==base), got reported unused: %+v", u)
+	}
+	syn, _, err := m.UnusedImports(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	su := syn[aPath]
+	if len(su) != 1 || su[0].Path != "container/ring" {
+		t.Errorf(`Module.UnusedImports: want container/ring reported unused (resolved via go list); got %+v`, su)
+	}
+}
+
+// TestPackageRemovesUnusedSiblingGsxImportModuleKeeps pins Divergence B: the
+// opposite direction from every other test in this file. main.gsx imports a
+// sibling gsx-only package ("testmod/foo", no .go files) and never references
+// it. Package() (LSP) type-checks foo from its skeleton via moduleImporter —
+// unlike stdlib/third-party packages, sibling gsx packages route through the
+// warm skeleton graph, not externalImporter — so it resolves foo's real name
+// ("foo") from types and correctly reports the import unused. Module.UnusedImports
+// (CLI) asks `go list -f NeedName` for the same path, which fails ("no Go
+// files in .../foo": verified empirically) since go list cannot resolve a
+// package with zero .go files; the candidate is therefore unresolvable and the
+// CLI conservatively KEEPS it. This is the one shape where Package() is MORE
+// aggressive than the CLI, not less — see TestPackageKeepsUsedSiblingGsxImport
+// for the safety property that makes this acceptable (Package() never removes
+// a sibling import that IS used).
+func TestPackageRemovesUnusedSiblingGsxImportModuleKeeps(t *testing.T) {
+	dir, m := openTestModule(t, map[string]string{
+		"foo/box.gsx": "package foo\n\ncomponent Box() {\n\t<div>box</div>\n}\n",
+		"main.gsx":    "package testmod\n\nimport \"testmod/foo\"\n\ncomponent Main() {\n\t<p>hi</p>\n}\n",
+	})
+	pr, err := m.Package(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainPath := filepath.Join(dir, "main.gsx")
+	u := pr.UnusedImports[mainPath]
+	if len(u) != 1 || u[0].Path != "testmod/foo" {
+		t.Errorf(`Package(): want testmod/foo (unused sibling gsx import, resolved via types) reported unused; got %+v`, u)
+	}
+	syn, _, err := m.UnusedImports(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	su := syn[mainPath]
+	if len(su) != 0 {
+		t.Errorf(`Module.UnusedImports: want testmod/foo conservatively KEPT (go list cannot resolve a .gsx-only sibling with no .go files); got reported unused: %+v`, su)
+	}
+}
+
+// TestPackageKeepsUsedSiblingGsxImport is the safety property for
+// Divergence B: when the same sibling gsx-only import IS used — here via a
+// plain Go function call (foo.Helper()) inside an interpolation, not merely a
+// component tag — Package() must NOT report it unused. Divergence B only ever
+// makes Package() remove a GENUINELY unused sibling import (matching the
+// adversarial review's finding that it was verified safe across tag, plain
+// call, and other used-shapes); it must never misclassify a used one.
+func TestPackageKeepsUsedSiblingGsxImport(t *testing.T) {
+	dir, m := openTestModule(t, map[string]string{
+		"foo/box.gsx": "package foo\n\nfunc Helper() string { return \"x\" }\n\ncomponent Box() {\n\t<div>box</div>\n}\n",
+		"main.gsx":    "package testmod\n\nimport \"testmod/foo\"\n\ncomponent Main() {\n\t<p>{ foo.Helper() }</p>\n}\n",
+	})
+	pr, err := m.Package(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainPath := filepath.Join(dir, "main.gsx")
+	if u := pr.UnusedImports[mainPath]; len(u) != 0 {
+		t.Errorf("Package(): testmod/foo IS used (foo.Helper()) but reported unused (would be deleted by the LSP): %+v", u)
+	}
+}
+
 // TestPackageUnusedImportsHeadlineCaseStillRemoved guards against the
 // Complete()-gating fix over-correcting into never removing anything: context
 // and io are both genuinely unused here AND fully resolvable
