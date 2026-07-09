@@ -1084,7 +1084,10 @@ func breakFirstWideLiteral(src string, width, tabWidth int) (string, bool) {
 			return false
 		}
 		lit, ok := n.(*goast.CompositeLit)
-		if !ok || lit.Incomplete || len(lit.Elts) < 2 {
+		// An outer `[]T{{…}}` has exactly ONE element (the inner literal), and
+		// breaking it is precisely the outermost-first case. Only an empty
+		// literal has nothing to break.
+		if !ok || lit.Incomplete || len(lit.Elts) == 0 {
 			return true
 		}
 		if fset.Position(lit.Lbrace).Line != badLine {
@@ -1170,7 +1173,8 @@ repeat, terminating on no progress. Output is a gofmt fixed point."
 ## Task 8: Wire the pass in and narrow paren-wrap
 
 **Files:**
-- Modify: `internal/printer/printer.go` — `fmtGoChunk`, `fmtGoExprParts`, `goWithElements`; `printer` gains `width`/`tabWidth` fields
+- Modify: `internal/printer/printer.go` — `fmtGoChunk` (gains `width, tabWidth` params), `fmtGoExprParts`, `goWithElements`; `printer` gains `width`/`tabWidth` fields
+- Modify: `internal/printer/gochunk_test.go:19`, `internal/printer/corpus_test.go:217` — `fmtGoChunk` call sites
 - Modify: `internal/printer/goexpr_test.go:25` — delete `TestGoExprElementParenWrapsOnWidthOverflow`
 - Delete: `internal/gsxfmt/testdata/cases/element_paren_wrap_on_overflow.txtar`
 - Modify: `internal/gsxfmt/testdata/cases/element_paren_wrap_no_align_drift.txtar`
@@ -1230,14 +1234,20 @@ func FprintWith(w io.Writer, f *ast.File, width, tabWidth int, cssFmt, jsFmt raw
 	p := printer{cssFmt: cssFmt, jsFmt: jsFmt, width: width, tabWidth: tabWidth}
 ```
 
-`fmtGoChunk` is a package-level function. Make it a method: `func (p *printer) fmtGoChunk(src string) string`, and update its one call site in `decl` (`printer.go:130`).
+`fmtGoChunk` must learn the measure. Keep it a **package-level function** and give it parameters: `func fmtGoChunk(src string, width, tabWidth int) string`.
+
+Do NOT make it a method. It has three call sites, and one of them has no `printer`:
+
+- `internal/printer/printer.go:130` (`decl`) → `p.fmtGoChunk` is unavailable as a method there anyway; pass `p.width, p.tabWidth`.
+- `internal/printer/gochunk_test.go:19` → pass `80, pretty.DefaultTabWidth`.
+- `internal/printer/corpus_test.go:217` → **the faithfulness normalizer.** It canonicalizes each Go chunk so `fmt(S)` and `S` compare equal as ASTs. If the printer applies `breakWideLiterals` and the normalizer does not, every faithfulness assertion in the corpus property test fails. Pass the same values `normPrint` uses (`80, pretty.DefaultTabWidth`). This repo has hit this exact trap before: `attrs/spread_byo.txtar` broke when `canonGo` stopped mirroring the printer's gofmt behavior.
 
 - [ ] **Step 4: Run both passes at both gofmt call sites**
 
 In `fmtGoChunk`, replace `blockFormBraces(goExprWrapper + src)` with:
 
 ```go
-	prepared := breakWideLiterals(goExprWrapper+src, p.width, p.tabWidth)
+	prepared := breakWideLiterals(goExprWrapper+src, width, tabWidth)
 	out, err := format.Source([]byte(blockFormBraces(prepared)))
 ```
 
