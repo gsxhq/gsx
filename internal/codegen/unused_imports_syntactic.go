@@ -4,8 +4,10 @@ import (
 	goast "go/ast"
 	goparser "go/parser"
 	"go/token"
+	"go/types"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/jsx"
@@ -175,10 +177,21 @@ func (m *Module) buildPackageSkeletons(dir string) (*packageSkeletons, error) {
 	return out, nil
 }
 
+// resolvePackageNamesCalls counts invocations of resolvePackageNames — the
+// only place in the unused-import classifier that shells out to `go list`
+// (packages.Load). Test-only instrumentation (see
+// TestPackageUnusedImportsDoesNotCallGoList) proving deterministically, not by
+// timing, that the LSP's Package() path never hits it: candidate names are
+// resolved from the already-type-checked *types.Package instead (see
+// importNamesFromTypes). The CLI path (Module.UnusedImports) has no type
+// information and keeps calling this.
+var resolvePackageNamesCalls atomic.Int64
+
 // resolvePackageNames returns the real package name for each import path, via a
 // NeedName-only load (no type-checking, no dependency resolution). Unresolvable
 // paths are simply absent from the result, so the caller keeps those imports.
 func (m *Module) resolvePackageNames(paths []string) map[string]string {
+	resolvePackageNamesCalls.Add(1)
 	out := map[string]string{}
 	if len(paths) == 0 {
 		return out
@@ -194,6 +207,117 @@ func (m *Module) resolvePackageNames(paths []string) map[string]string {
 		}
 	}
 	return out
+}
+
+// importNamesFromTypes returns pkg's direct-import path -> declared package
+// name, straight from the already-type-checked *types.Package — no
+// packages.Load, no subprocess. types.Package.Imports() lists every directly
+// imported package INCLUDING unused ones (verified: an unused "math/rand/v2"
+// still appears, with name "rand"), which is exactly the candidate-resolution
+// signal unusedFromSkeletons needs. A nil pkg (type-check failed before
+// producing one) yields an empty map, so every candidate is conservatively
+// kept by the caller — mirroring resolvePackageNames' own "absent path ⇒ keep"
+// contract.
+//
+// Completeness gates every entry (imp.Complete()). An import path outside the
+// type-checker's own importer graph (moduleImporter/externalImporter — e.g. it
+// is reachable only via the .gsx source, not via the gsx runtime, the std
+// filter package, FilterPkgs/LoadPkgs, or "./..." — see externalImporter's
+// doc) cannot be loaded by go/types, but it still needs a placeholder
+// *types.Package to keep type-checking the rest of the file. It fabricates
+// one named after the import PATH'S LAST SEGMENT (verified: "math/rand/v2" →
+// placeholder name "v2", real declared name "rand") and leaves it incomplete.
+// This is NOT limited to the name != path-base shape: ANY unused default
+// import outside the importer graph gets this treatment, including one whose
+// name equals its base (verified: container/ring). Trusting the guessed name
+// is exactly the banned "simple heuristic": it would make
+// classifyUnusedImports' candidate check compare the file's used-name set
+// against the fabricated name instead of the real one, so a live reference
+// (e.g. `rand.IntN(3)`) is invisible and the import is reported unused — the
+// LSP then deletes a working import out from under the user. Skipping
+// incomplete imports here means the caller (unusedImportsCore's
+// `!ok → continue`) conservatively KEEPS every such import — the same
+// "absent path ⇒ keep" contract resolvePackageNames already provides for the
+// CLI path. One consequence: `Module.UnusedImports`/`gsx fmt` (which resolves
+// names via a real `go list`, not a guess) may remove an import that Package()
+// keeps. See docs/superpowers/specs/2026-07-09-lsp-unused-imports-design.md
+// for the full divergence matrix, including the (safe) opposite direction —
+// Package() removing an unused sibling gsx-only import `go list` cannot name.
+func importNamesFromTypes(pkg *types.Package) map[string]string {
+	out := map[string]string{}
+	if pkg == nil {
+		return out
+	}
+	for _, imp := range pkg.Imports() {
+		if !imp.Complete() {
+			// Fabricated path-base placeholder — not a fact, do not trust it.
+			continue
+		}
+		out[imp.Path()] = imp.Name()
+	}
+	return out
+}
+
+// unusedImportsCore is the ONE classifier body shared by both unused-import
+// surfaces (Module.UnusedImports for the CLI, unusedFromSkeletons for the
+// LSP's Package()): per file, skeletonUsedNames -> classifyUnusedImports finds
+// definitely-unused imports and removal CANDIDATES (default imports whose path
+// base isn't referenced), then resolveNames is called exactly once with every
+// candidate path across the whole package, and each candidate's real name is
+// checked against the file's used set before it is reported unused. An
+// unresolvable candidate path (resolveNames' result has no entry) is
+// conservatively kept, never removed.
+func unusedImportsCore(byGsx map[string]fileSkeleton, gsxFset *token.FileSet, resolveNames func(paths []string) map[string]string) map[string][]UnusedImport {
+	out := map[string][]UnusedImport{}
+	usedByFile := map[string]map[string]bool{}
+	type pending struct {
+		gsxPath string
+		imp     importSpec
+	}
+	var candidates []pending
+	candPaths := map[string]bool{}
+	for gsxPath, fs := range byGsx {
+		used := skeletonUsedNames(fs.skel)
+		usedByFile[gsxPath] = used
+		unused, cands := classifyUnusedImports(used, fs.imps, fs.sunk, gsxFset)
+		if len(unused) > 0 {
+			out[gsxPath] = unused
+		}
+		for _, c := range cands {
+			candidates = append(candidates, pending{gsxPath, c})
+			candPaths[c.path] = true
+		}
+	}
+	if len(candPaths) == 0 {
+		return out
+	}
+	paths := make([]string, 0, len(candPaths))
+	for p := range candPaths {
+		paths = append(paths, p)
+	}
+	names := resolveNames(paths)
+	for _, p := range candidates {
+		realName, ok := names[p.imp.path]
+		if !ok {
+			continue // unresolvable → conservative keep
+		}
+		if !usedByFile[p.gsxPath][realName] {
+			out[p.gsxPath] = append(out[p.gsxPath], UnusedImport{Name: p.imp.name, Path: p.imp.path})
+		}
+	}
+	return out
+}
+
+// unusedFromSkeletons is the LSP-facing entry point for unused-import
+// detection: given the per-file skeletons analyze already built and the
+// package it already type-checked, it classifies unused imports via
+// unusedImportsCore, resolving candidate names from pkg (importNamesFromTypes)
+// instead of a fresh packages.Load — no extra parse, no lock, no subprocess.
+// See Module.Package's use of a.unusedImports and the design doc
+// (docs/superpowers/specs/2026-07-09-lsp-unused-imports-design.md).
+func unusedFromSkeletons(byGsx map[string]fileSkeleton, gsxFset *token.FileSet, pkg *types.Package) map[string][]UnusedImport {
+	names := importNamesFromTypes(pkg)
+	return unusedImportsCore(byGsx, gsxFset, func([]string) map[string]string { return names })
 }
 
 // UnusedImports returns, per .gsx file (abs path) in dir, the imports the file
@@ -214,41 +338,6 @@ func (m *Module) UnusedImports(dir string) (map[string][]UnusedImport, []diag.Di
 	if err != nil {
 		return nil, nil, err
 	}
-	out := map[string][]UnusedImport{}
-	usedByFile := map[string]map[string]bool{}
-	type pending struct {
-		gsxPath string
-		imp     importSpec
-	}
-	var candidates []pending
-	candPaths := map[string]bool{}
-	for gsxPath, fs := range ps.byGsx {
-		used := skeletonUsedNames(fs.skel)
-		usedByFile[gsxPath] = used
-		unused, cands := classifyUnusedImports(used, fs.imps, fs.sunk, ps.gsxFset)
-		if len(unused) > 0 {
-			out[gsxPath] = unused
-		}
-		for _, c := range cands {
-			candidates = append(candidates, pending{gsxPath, c})
-			candPaths[c.path] = true
-		}
-	}
-	if len(candPaths) > 0 {
-		paths := make([]string, 0, len(candPaths))
-		for p := range candPaths {
-			paths = append(paths, p)
-		}
-		names := m.resolvePackageNames(paths)
-		for _, p := range candidates {
-			realName, ok := names[p.imp.path]
-			if !ok {
-				continue // unresolvable → conservative keep
-			}
-			if !usedByFile[p.gsxPath][realName] {
-				out[p.gsxPath] = append(out[p.gsxPath], UnusedImport{Name: p.imp.name, Path: p.imp.path})
-			}
-		}
-	}
+	out := unusedImportsCore(ps.byGsx, ps.gsxFset, m.resolvePackageNames)
 	return out, ps.goParseDiags, nil
 }

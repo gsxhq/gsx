@@ -65,10 +65,19 @@ func TestUnusedImportsGateOnBrokenImport(t *testing.T) {
 	}
 }
 
-// TestUnusedImportsGateOnOtherError: when the package has a NON-import type
-// error, UnusedImports stays empty even though an unused import is present —
-// removing under uncertainty is unsafe.
-func TestUnusedImportsGateOnOtherError(t *testing.T) {
+// TestUnusedImportsSurvivesOtherError: when the package has a NON-import type
+// error (an undefined symbol), a genuinely unused import elsewhere in the file
+// is STILL reported — the syntactic classifier (see
+// docs/superpowers/specs/2026-07-09-lsp-unused-imports-design.md) determines
+// "unused" from the skeleton's own referenced names, not from correlating
+// go/types error positions, so an unrelated error cannot suppress it.
+//
+// This intentionally reverses the old detectUnusedImports behavior (deleted;
+// see results.go's former doc): that type-error-correlation heuristic bailed to
+// nil the moment it saw ANY error that wasn't a clean "imported and not used"
+// — exactly this scenario — which is why the LSP silently offered no
+// organizeImports/format-strip action on any real multi-file package.
+func TestUnusedImportsSurvivesOtherError(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	repoRoot, _ := filepath.Abs("../..")
@@ -86,7 +95,9 @@ func TestUnusedImportsGateOnOtherError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := len(pr.UnusedImports); n != 0 {
-		t.Errorf("expected NO removals under an unrelated error, got %+v", pr.UnusedImports)
+	gsxPath := filepath.Join(dir, "card.gsx")
+	unused := pr.UnusedImports[gsxPath]
+	if len(unused) != 1 || unused[0].Path != "strings" {
+		t.Errorf("want strings reported unused despite the unrelated Nope() error, got %+v", unused)
 	}
 }
