@@ -5,6 +5,7 @@ import (
 	"go/format"
 	goparser "go/parser"
 	gotoken "go/token"
+	"sort"
 	"strings"
 	"unicode/utf8"
 )
@@ -80,9 +81,7 @@ func breakFirstWideLiteral(src string, width, tabWidth int) (string, bool) {
 			return true
 		}
 		// Already one-per-line? Then breaking it again is not progress.
-		first := fset.Position(lit.Elts[0].Pos()).Line
-		last := fset.Position(lit.Elts[len(lit.Elts)-1].Pos()).Line
-		if last > first {
+		if compositeLitFullyBroken(fset, lit) {
 			return true
 		}
 		target = lit
@@ -92,35 +91,76 @@ func breakFirstWideLiteral(src string, width, tabWidth int) (string, bool) {
 		return src, false
 	}
 
-	// Insert a newline before every element after the first. gofmt supplies the
+	// Insert a newline before every element that still shares its line with
+	// whatever precedes it: the `{` for element 0, the previous element for
+	// everyone else. An element that already starts its own line (this literal
+	// may be PARTIALLY broken -- some elements one-per-line, others not) is left
+	// alone, or a blank line would appear before it. gofmt supplies the
 	// indentation, the alignment, and (with blockFormBraces) the closing brace.
-	// A comma already separates the elements, so no comma is inserted here and
-	// automatic semicolon insertion cannot fire.
-	offsets := make([]int, 0, len(target.Elts)-1)
-	for _, elt := range target.Elts[1:] {
-		offsets = append(offsets, fset.Position(elt.Pos()).Offset)
+	// A comma already separates interior elements, and `{` precedes the first,
+	// so no comma is inserted here and automatic semicolon insertion cannot fire.
+	var offsets []int
+	firstPos := fset.Position(target.Elts[0].Pos())
+	if firstPos.Line == fset.Position(target.Lbrace).Line {
+		offsets = append(offsets, firstPos.Offset)
 	}
+	prevLine := firstPos.Line
+	for _, elt := range target.Elts[1:] {
+		pos := fset.Position(elt.Pos())
+		if pos.Line == prevLine {
+			offsets = append(offsets, pos.Offset)
+		}
+		prevLine = pos.Line
+	}
+	if len(offsets) == 0 {
+		// No element actually shares a line with its predecessor: nothing to
+		// insert. Report no progress rather than claim a no-op round succeeded --
+		// the caller's loop terminates on changed=false, and a false "changed"
+		// here would spin forever reprocessing the identical source.
+		return src, false
+	}
+	// Apply right to left (largest offset first). Every offset was measured
+	// against the pre-mutation src; inserting a "\n" at one offset shifts every
+	// BYTE AFTER it, never before. Descending order guarantees each remaining
+	// offset in the list still points at the same source position when its turn
+	// comes, exactly as the single-offset special case did before this loop was
+	// generalized.
+	sort.Sort(sort.Reverse(sort.IntSlice(offsets)))
 	out := src
-	for i := len(offsets) - 1; i >= 0; i-- {
-		off := offsets[i]
-		// Replace the run of spaces before the element with a newline.
+	for _, off := range offsets {
+		// Replace the run of spaces/tabs before the element with a newline.
 		start := off
 		for start > 0 && (out[start-1] == ' ' || out[start-1] == '\t') {
 			start--
 		}
 		out = out[:start] + "\n" + out[off:]
 	}
-	// The first element must also start its own line, and the brace must close on
-	// one. blockFormBraces does the latter; do the former here.
-	firstOff := fset.Position(target.Elts[0].Pos()).Offset
-	start := firstOff
-	for start > 0 && (out[start-1] == ' ' || out[start-1] == '\t') {
-		start--
-	}
-	if start > 0 && out[start-1] == '{' {
-		out = out[:start] + "\n" + out[firstOff:]
-	}
 	return blockFormBraces(out), true
+}
+
+// compositeLitFullyBroken reports whether lit's elements are already one per
+// line: the first element sits off the `{` line, and each later element sits
+// on a later line than the one before it.
+//
+// An earlier version of this check compared only the FIRST and LAST element's
+// lines, on the theory that "last on a later line than first" meant "already
+// broken". It doesn't: a literal the author broke PARTIALLY -- elements 0 and
+// 1 still sharing the `{` line, element 2 alone on the next -- also satisfies
+// "last > first", so that check mistook it for fully broken and skipped it
+// forever, leaving its over-long line unfixed.
+func compositeLitFullyBroken(fset *gotoken.FileSet, lit *goast.CompositeLit) bool {
+	prevLine := fset.Position(lit.Elts[0].Pos()).Line
+	if prevLine <= fset.Position(lit.Lbrace).Line {
+		return false
+	}
+	for _, elt := range lit.Elts[1:] {
+		line := fset.Position(elt.Pos()).Line
+		if line <= prevLine {
+			return false
+		}
+		prevLine = line
+	}
+	return true
 }
 
 // firstWideLine returns the 1-based number of the first line of src wider than
