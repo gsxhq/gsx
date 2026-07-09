@@ -58,7 +58,10 @@ func (m ImportsMode) RemoveUnused() bool { return m == ImportsGoimports }
 // Only goimports does.
 func (m ImportsMode) Reorder() bool { return m == ImportsGoimports }
 
-// String returns the gsx.toml spelling; it round-trips through ParseImportsMode.
+// String returns the gsx.toml spelling for ImportsGofmt ("gofmt") and ImportsGoimports
+// ("goimports"), which round-trip through ParseImportsMode. ImportsUnset and any
+// out-of-range value stringify to "unset", a diagnostic spelling that ParseImportsMode
+// deliberately does not accept.
 func (m ImportsMode) String() string {
 	switch m {
 	case ImportsGofmt:
