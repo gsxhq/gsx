@@ -21,11 +21,11 @@ C(Color{R: 255, G: 0, B: 0})
 package views
 
 import (
-	"context"
 	"fmt"
-	"io"
 
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type Color struct{ R, G, B int }
@@ -33,9 +33,9 @@ type Color struct{ R, G, B int }
 func (c Color) String() string { return fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B) }
 
 //line input.gsx:9:1
-func C(c Color) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func C(c Color) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
 		_gsxgw.S("<style")
 		_gsxgw.Nonce(ctx)

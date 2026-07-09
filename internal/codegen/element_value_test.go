@@ -38,8 +38,8 @@ func TestElementValueLowersToGsxFunc(t *testing.T) {
 	if got == "" {
 		t.Fatal("no generated output")
 	}
-	if !strings.Contains(got, "var x = gsx.Func(") {
-		t.Fatalf("expected `var x = gsx.Func(` in generated source, got:\n%s", got)
+	if !strings.Contains(got, "var x = _gsxrt.Func(") {
+		t.Fatalf("expected `var x = _gsxrt.Func(` in generated source, got:\n%s", got)
 	}
 	if strings.Contains(got, "var x = <div") {
 		t.Fatalf("element literal was not lowered — bare markup survived into the var initializer:\n%s", got)
@@ -127,8 +127,8 @@ func TestElementValueInterpCapturesOuterScope(t *testing.T) {
 		t.Fatalf("generateFile failed: %v", bag.Sorted())
 	}
 	got := string(out)
-	if !strings.Contains(got, "var help = gsx.Func(") {
-		t.Fatalf("expected `var help = gsx.Func(` in generated source, got:\n%s", got)
+	if !strings.Contains(got, "var help = _gsxrt.Func(") {
+		t.Fatalf("expected `var help = _gsxrt.Func(` in generated source, got:\n%s", got)
 	}
 	// The interpolation must be emitted verbatim (`label`, the outer-scope Go
 	// var), captured by ordinary closure capture — not rebound through any

@@ -83,12 +83,14 @@ of where the tag sits.
 
 ::: v-pre
 Identifiers starting with `_gsx` are **reserved for the generator** — component
-params, method-component receiver names, and any other user-declared
-identifier must not start with that prefix. gsx's own generated code (writer
+params, method-component receiver names, and any other identifier you write in Go
+position must not start with that prefix. gsx's own generated code (writer
 locals, per-call-site inference helpers, filter-package aliases, and so on)
-lives exclusively in the `_gsx*` namespace so it can never collide with a name
-you write; a param or receiver named `_gsxSomething` is rejected at generate
-time.
+lives exclusively in the `_gsx*` namespace, so keeping it clear of your names is
+what avoids collisions. gsx enforces this by lexing your Go: a `_gsx` identifier
+anywhere it can see — a declaration, a local, a `{{ }}` GoBlock, an
+interpolation — is a positioned error at generate time. See
+[Raw Go](./raw-go.md#the-gsx-prefix-is-reserved) for the full rule.
 :::
 
 ### Renderable type parameters

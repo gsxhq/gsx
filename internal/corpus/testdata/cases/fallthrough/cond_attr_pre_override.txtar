@@ -21,23 +21,22 @@ Page()
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type BoxProps struct {
 	Active bool
-	Attrs  gsx.Attrs
+	Attrs  _gsxrt.Attrs
 }
 
 //line input.gsx:3:1
-func Box(_gsxp BoxProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Box(_gsxp BoxProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		active := _gsxp.Active
 		attrs := _gsxp.Attrs
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<button")
 		if active {
@@ -48,7 +47,7 @@ func Box(_gsxp BoxProps) gsx.Node {
 				_gsxgw.S(" data-k=\"v\"")
 			}
 		}
-		_gsxgw.ClassMerged(gsx.DefaultClassMerge, attrs.Class())
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, attrs.Without("class", "style"))
 		_gsxgw.S(">x</button>")
@@ -57,11 +56,11 @@ func Box(_gsxp BoxProps) gsx.Node {
 }
 
 //line input.gsx:7:1
-func Page() gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func Page() _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.Node(ctx, Box(BoxProps{Active: true, Attrs: gsx.Attrs{{Key: "id", Value: "caller"}}}))
+		_gsxgw.Node(ctx, Box(BoxProps{Active: true, Attrs: _gsxrt.Attrs{{Key: "id", Value: "caller"}}}))
 		return _gsxgw.Err()
 	})
 }

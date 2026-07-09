@@ -16,26 +16,25 @@ Box(BoxProps{Variant: "big", Attrs: gsx.Attrs{{Key: "class", Value: "w-full"}, {
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type BoxProps struct {
 	Variant string
-	Attrs   gsx.Attrs
+	Attrs   _gsxrt.Attrs
 }
 
 //line input.gsx:3:1
-func Box(_gsxp BoxProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Box(_gsxp BoxProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		variant := _gsxp.Variant
 		attrs := _gsxp.Attrs
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div class=\"")
-		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class(`box-`+variant), gsx.Class(attrs.Class()))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(`box-`+variant), _gsxrt.Class(attrs.Class()))
 		_gsxgw.S("\"")
 		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, attrs.Without("class", "style"))

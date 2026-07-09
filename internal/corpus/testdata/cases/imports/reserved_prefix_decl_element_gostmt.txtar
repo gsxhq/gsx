@@ -1,0 +1,23 @@
+# Context: a `_gsx` name declared in the SAME top-level Go region as an element
+# literal in statement position (`go <b/>`). checkReservedDecls lexes the region
+# with go/scanner — it does not parse — so the element literal is just a run of
+# tokens the scanner steps over, and `_gsxrt` a few lines on is still reported. A
+# parse-based check could not read this region at all: `go <b/>` is not a call, so
+# no standalone-Go reconstruction of it parses. `_gsxrt` also happens to be a name
+# the generator emits, so catching it here is what replaces the raw
+# `_gsxrt already declared through import of package gsx` the skeleton would
+# otherwise draw.
+-- input.gsx --
+package demo
+
+func spawn() {
+	go <b/>
+}
+
+var _gsxrt = 1
+
+component Uses() {
+	<b>hi</b>
+}
+-- diagnostics.golden --
+7:5: identifier "_gsxrt" uses the reserved _gsx prefix (reserved for generated code)

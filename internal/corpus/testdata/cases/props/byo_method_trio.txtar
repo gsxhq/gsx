@@ -47,10 +47,9 @@ component (p home) Partial(d pageData) {
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type pageData struct {
@@ -61,9 +60,9 @@ type pageData struct {
 type home struct{}
 
 //line input.gsx:10:1
-func (p home) Page(d pageData) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func (p home) Page(d pageData) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:11:2
 		_gsxgw.S("<html>")
 //line input.gsx:12:3
@@ -81,9 +80,9 @@ func (p home) Page(d pageData) gsx.Node {
 }
 
 //line input.gsx:19:1
-func (p home) Content(d pageData) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func (p home) Content(d pageData) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:20:2
 		_gsxgw.S("<main>")
 //line input.gsx:21:3
@@ -99,9 +98,9 @@ func (p home) Content(d pageData) gsx.Node {
 }
 
 //line input.gsx:26:1
-func (p home) Partial(d pageData) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func (p home) Partial(d pageData) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:27:2
 		_gsxgw.S("<section>")
 //line input.gsx:27:11

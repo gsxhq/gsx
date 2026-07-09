@@ -1,0 +1,23 @@
+# Context: a `_gsx` name bound to a multi-line element literal inside a composite
+# literal (`var _gsxlist = []gsx.Node{ <b>…</b>, }`). checkReservedDecls tokenizes
+# the region rather than parsing it, so the element's interior newlines and markup
+# are simply skipped and `_gsxlist` is reported at its declaration. This is the
+# shape a parse-based check handled worst: main's formatter wraps such literals
+# across lines, and reconstructing them as standalone Go tripped automatic
+# semicolon insertion.
+-- input.gsx --
+package demo
+
+import "github.com/gsxhq/gsx"
+
+var _gsxlist = []gsx.Node{
+	<b>
+		x
+	</b>,
+}
+
+component Uses() {
+	<b>hi</b>
+}
+-- diagnostics.golden --
+5:5: identifier "_gsxlist" uses the reserved _gsx prefix (reserved for generated code)

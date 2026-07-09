@@ -98,19 +98,37 @@ component Only() {
 go test ./internal/corpus -run TestCorpus -update 2>&1 | tail -2
 ```
 
-Confirm the golden filled in, then prove the blind spot exists by temporarily
-corrupting the generated output — add a deliberate unused import to the golden:
+Confirm the golden filled in, then prove the blind spot exists by making the
+generator emit output that does not compile.
 
-```bash
-# Insert `"os"` into the generated golden's import block by hand, TEMPORARILY.
-go test ./internal/corpus -run TestCorpus 2>&1 | tail -3
+> **Correction (execution, 2026-07-08).** This step originally said to corrupt
+> `component_no_invoke.txtar`'s `generated.x.go.golden` by hand (insert `"os"`) and
+> watch for a compile error. **That cannot work.** Goldens are comparison targets
+> only — `internal/corpus/loader.go` puts them in `c.goldens`, and `batch.go` writes
+> the tmp module's `.x.go` from `cg.gen` (live codegen output), never from a golden.
+> Corrupting a golden therefore yields a golden **mismatch**, identically before and
+> after the fix, and proves nothing about whether the case is compiled.
+
+The valid diagnostic is to make the *emitter* produce the bad output, gated on the
+case's package name so no other case is disturbed. Temporarily, in `emit.go`'s
+import writer:
+
+```go
+// TEMPORARY diagnostic — remove before committing.
+if pkgName == "demo" { // the package of component_no_invoke's input.gsx
+	imports["os"] = true
+}
 ```
 
-Expected **today**: the corpus **fails on a golden mismatch**, not a compile
-error — proving the case is never built. Revert the hand-edit
-(`git checkout -- internal/corpus/testdata/cases/imports/component_no_invoke.txtar`)
-and regenerate before continuing. (This is a one-off diagnostic; do not commit
-the corrupted golden.)
+Then:
+
+```bash
+go test ./internal/corpus -run TestCorpus/imports/component_no_invoke -count=1 2>&1 | tail -5
+```
+
+Expected **today** (pre-fix): the case passes once its golden is regenerated with
+the stray `"os"` — nothing ever builds it, so `"os" imported and not used` never
+surfaces. Revert the emitter hack and regenerate before continuing.
 
 - [ ] **Step 3: Implement — blank-import non-renderable case packages**
 
@@ -191,19 +209,18 @@ with:
 
 - [ ] **Step 4: Prove the harness now compiles the case**
 
-Re-apply the temporary corruption from Step 2 (add `"os"` to the case's
-generated golden), then:
+Re-apply the temporary **emitter** hack from Step 2 (not a golden edit — see the
+correction there), then:
 
 ```bash
-go test ./internal/corpus -run TestCorpus 2>&1 | tail -5
+go test ./internal/corpus -run TestCorpus/imports/component_no_invoke -count=1 2>&1 | tail -5
 ```
 
-Expected: a **build failure** mentioning `"os" imported and not used`, not a
-golden mismatch. The detector works. Now revert:
-
-```bash
-git checkout -- internal/corpus/testdata/cases/imports/component_no_invoke.txtar
-```
+Expected: a **build failure** mentioning `"os" imported and not used`. Pre-fix the
+same hack passed silently; post-fix it fails. That difference — same injected bug,
+opposite outcome — is what proves the detector, and it is the diagnostic both the
+implementer and the reviewer should run. Now revert the emitter hack and
+regenerate.
 
 - [ ] **Step 5: Full suite green**
 
@@ -468,45 +485,58 @@ becomes:
 	boundNames := map[string]string{}
 ```
 
-and update `mergeExpr` at `:128`:
+Now `mergeExpr` at `:128`. **This is the subtlest edit in the plan.** Today:
 
 ```go
 	mergeExpr := "gsx.DefaultClassMerge"
+	if merger != nil {
+		mergeExpr = classMergerAlias + "." + merger.FuncName
+	}
 ```
 
-becomes:
+Writing `mergeExpr := rt.rt() + ".DefaultClassMerge"` here would record a runtime
+need in **every** file, including one with no components — silently defeating the
+`no_gsx_parts` case. `mergeExpr` is threaded as a plain `string` through many
+signatures, so it must be *resolved lazily, at the sites that actually use it*.
+
+Do exactly this. In `generateFile`, leave the default unresolved:
 
 ```go
-	mergeExpr := rt.rt() + ".DefaultClassMerge"
-```
-
-Note this records the runtime need unconditionally in `generateFile`, which is
-wrong for a file with no components. Guard it — `mergeExpr` is only *used* when
-a class attribute is emitted:
-
-```go
-	// Resolved lazily: naming the default merger would otherwise record a
-	// runtime need in every file, including files that emit nothing.
+	// Empty means "the runtime's default merger", resolved at each use site by
+	// classMergeExpr. It is NOT spelled out here: naming gsx.DefaultClassMerge
+	// eagerly would record a runtime import need in every file, including files
+	// that emit nothing at all.
 	mergeExpr := ""
 	if merger != nil {
 		mergeExpr = classMergerAlias + "." + merger.FuncName
 	}
 ```
 
-and at each `mergeExpr` **use** site, substitute the default if empty:
+Add one helper beside `writeImports`:
 
 ```go
-	if mergeExpr == "" {
-		mergeExpr = rt.rt() + ".DefaultClassMerge"
+// classMergeExpr resolves the class-merger expression at an emission site. An
+// empty mergeExpr means the configured merger is absent and the runtime default
+// applies — recorded as a runtime need only here, where a class attribute is
+// genuinely being emitted.
+func classMergeExpr(mergeExpr string, rt rtImports) string {
+	if mergeExpr != "" {
+		return mergeExpr
 	}
+	return rt.rt() + ".DefaultClassMerge"
+}
 ```
 
-Locate the use sites with `grep -n mergeExpr internal/codegen/emit.go`. Since
-`mergeExpr` is threaded as a `string` parameter, the cleanest form is to keep
-threading it but resolve it once, immediately before the first component is
-emitted, only if the file has at least one component or element literal. Prefer:
-thread `rt` to the `_gsxgw.Class(...)` emission sites and build the merge
-expression there.
+Then at every site that interpolates `mergeExpr` into generated code, call
+`classMergeExpr(mergeExpr, rt)` instead. Find them all:
+
+```bash
+grep -n 'mergeExpr' internal/codegen/emit.go
+```
+
+Each such site already emits a `_gsxgw.Class(...)` call, so `rt` is in scope
+there once Step 5's threading is done. Do **not** resolve `mergeExpr` at any
+point where a class attribute might not be emitted.
 
 - [ ] **Step 5: Thread `rt rtImports` through emit.go**
 
@@ -578,15 +608,39 @@ that user interpolations reference. Only its *type* becomes `_gsxctx.Context`.
 **Do not touch** the eight diagnostic-prose sites (`:806, 2272, 2484, 2618,
 2962, 4697, 4765, 4778`) or `analyze.go:318` / `byo.go:313`.
 
-Verify the conversion is complete and correct:
+Verify the conversion is complete and correct.
 
-```bash
-# Remaining `gsx.` in emit.go must be EXACTLY the 8 diagnostic-prose sites.
-grep -n 'gsx\.' internal/codegen/emit.go | grep -v '_gsx' | grep -v 'rt\.rt()'
+> **Correction (execution, 2026-07-08).** This step originally verified with
+> `grep -n 'gsx\.' internal/codegen/emit.go | grep -v '_gsx' | grep -v 'rt\.rt()'`.
+> **That check is unsound**: `grep -v '_gsx'` drops the whole *line*, so any line
+> also containing `_gsxgw`/`_gsxw`/`_gsxp` disappears. It hid a real leftover —
+> `_gsxgw.AttrValue(gsx.StyleValue(x))`.
+
+Use a token-aware check instead. `gsx.` in a **code** position is exactly an `IDENT`
+named `gsx` followed by `.`; a `go/scanner` pass (without `ScanComments`) sees
+neither comments nor the contents of string literals, so the diagnostic-prose sites
+are invisible to it by construction and the expected count is **zero**:
+
+```go
+// scan.go — throwaway
+s.Init(f, src, nil, 0) // no ScanComments
+for {
+	pos, tok, lit := s.Scan()
+	if tok == token.EOF { break }
+	if tok == token.PERIOD && prevTok == token.IDENT && prevLit == "gsx" {
+		fmt.Printf("%s: gsx. in code position\n", fset.Position(prevPos))
+	}
+	prevPos, prevTok, prevLit = pos, tok, lit
+}
 ```
 
-Expected: only lines 806, 2272, 2484, 2618, 2962, 4697, 4765, 4778 (line numbers
-will have shifted; check each is inside a diagnostic message).
+Expected: no output. At minimum, if scripting a grep, strip comments first and make
+the pattern token-aware: `grep -oE '(^|[^_[:alnum:]])gsx\.[A-Za-z]+'` — never a
+line-level `grep -v '_gsx'`.
+
+(The 8 diagnostic-prose sites — originally lines 806, 2272, 2484, 2618, 2962, 4697,
+4765, 4778 — stay untouched. They live inside string literals, which is why the
+token scan does not report them.)
 
 - [ ] **Step 7: `writeImports` emits the reserved-alias lines**
 
@@ -819,22 +873,30 @@ Uses()
 
 `shadow_strconv.txtar`:
 
+**Interpolate a `bool`, not an int.** An `int` text-interp lowers to the
+zero-alloc `_gsxgw.IntInto(_gsxnum[:], …)` fast path (`emit.go:2007`) and
+references `strconv` not at all — the case would pass vacuously. `catBool`
+(`emit.go:2014`) is the construct that emits `strconv.FormatBool` in text
+position. Verify the generated golden actually contains `_gsxsc.FormatBool`.
+
 ```
-# Context: the .gsx binds `strconv` AND interpolates a numeric value, which is
-# the only construct that makes the generator reference strconv (as _gsxsc).
+# Context: the .gsx binds `strconv` AND interpolates a bool, which is the text
+# position that makes the generator reference strconv (as _gsxsc.FormatBool).
+# Numeric interps use the zero-alloc IntInto path and touch strconv not at all,
+# so a bool is required to exercise the alias here.
 -- input.gsx --
 package demo
 
 var strconv = "shadowed"
 
-component Uses(n int) {
-	<b>{ n }{ strconv }</b>
+component Uses(b bool) {
+	<b>{ b }{ strconv }</b>
 }
 -- invoke --
-Uses(UsesProps{N: 42})
+Uses(UsesProps{B: true})
 -- diagnostics.golden --
 -- render.golden --
-<b>42shadowed</b>
+<b>trueshadowed</b>
 -- generated.x.go.golden --
 ```
 
@@ -1023,23 +1085,49 @@ non-compiling output while generate exited 0."
 ## Task 4: Reserve the `_gsx` prefix at file scope
 
 Aliasing moves the entire collision surface onto one prefix. It is enforced for
-params (`checkReservedParams`) but not for file-scope declarations, so
-`var _gsxrt = 1` would now collide with the generator's import.
+params (`checkReservedParams`) but not for file-scope declarations.
+
+> **Correction (execution, 2026-07-08) — the premise is overstated.** This task
+> originally motivated itself with "`var _gsxrt = 1` would now collide with the
+> generator's import." It would not *silently* collide: the skeleton type-check
+> already rejects it and `generate` already exits 1, with the raw Go error
+> `_gsxrt already declared through import of package gsx`. **The real value of this
+> task is diagnostic quality and independence**: a clean, positioned gsx diagnostic
+> on the author's own line, for the *whole* `_gsx` space — not only the four names
+> the generator happens to emit today. `reserved_prefix_decl_novel.txtar` pins that:
+> `_gsxfoo`/`_gsxT`/`_gsxhelp` collide with nothing, type-check cleanly, and are
+> rejected anyway, because which aliases the generator emits is an implementation
+> detail no `.gsx` file may depend on.
 
 **Files:**
-- Modify: `internal/codegen/analyze.go` (add `checkReservedDecls`, call it per file)
+- Modify: `internal/codegen/analyze.go` (add `checkReservedDecls`)
+- Modify: `internal/codegen/module_importer.go` (call it per file, ahead of `buildSkeleton`)
 - Create: `internal/corpus/testdata/cases/imports/reserved_prefix_decl.txtar`
 
 **Interfaces:**
-- Consumes: nothing from Tasks 2–3 beyond the aliases existing. Reuses the
-  lowered per-file skeleton `*goast.File` that `buildPackageSkeletons`
-  (`internal/codegen/unused_imports_syntactic.go:114`) already produces and
-  stores as `packageSkeletons.skel`; `goast` is that file's alias for `go/ast`.
-- Produces: `func checkReservedDecls(f *goast.File) []reservedDecl` where
-  `type reservedDecl struct { Name string; Pos token.Pos }` — every package-scope
-  binding whose name begins `_gsx`, with its position. Returning a slice (not an
-  error) lets the caller report each one into the `diag.Bag` with a real
-  `.gsx` position rather than collapsing to the first.
+- Consumes: nothing from Tasks 2–3 beyond the aliases existing.
+- Produces: `func checkReservedDecls(file *gsxast.File) ([]reservedDecl, []goRegionError)`
+  where `type reservedDecl struct { name string; pos token.Pos }` — every
+  package-scope binding whose name begins `_gsx`, with its `.gsx` position.
+  Returning a slice (not an error) lets the caller report each one into the
+  `diag.Bag` rather than collapsing to the first. The second result carries every
+  top-level Go region that failed to parse: a region the pass cannot read is a
+  region whose names it cannot check, so the failure is surfaced, not swallowed.
+
+> **Correction (execution, 2026-07-08) — the prescribed approach is unusable.**
+> This task originally said to reuse the lowered per-file skeleton `*goast.File`
+> that `buildPackageSkeletons` (`unused_imports_syntactic.go:114`) produces. Two
+> reasons that fails:
+>
+> 1. `buildPackageSkeletons`' only non-test caller is `Module.UnusedImports` — the
+>    `gsx fmt` path. It is not on the generate path, so there is no skeleton to
+>    reuse where the check must run.
+> 2. The lowered skeleton is *full* of legitimate package-scope `_gsx` names by
+>    construction (`import _gsxrt "github.com/gsxhq/gsx"` at `analyze.go:619`, the
+>    `_gsxinfer<N>` probe helpers). A check over it would flag every file.
+>
+> The shipped implementation walks the **`.gsx` AST**, which carries the
+> generator/user distinction natively. See Step 3 below.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1059,8 +1147,14 @@ component Uses() {
 	<b>hi</b>
 }
 -- diagnostics.golden --
-3:5: error: declaration name "_gsxrt" uses the reserved _gsx prefix
+3:5: declaration name "_gsxrt" uses the reserved _gsx prefix
 ```
+
+> **Correction (execution, 2026-07-08).** The expected golden above originally read
+> `3:5: error: declaration name …`. This corpus's `diagnostics.golden` sections carry
+> **no `error: ` prefix** — compare any existing case, e.g.
+> `imports/unused_gsx_import.txtar`. The prefix appears only in the CLI's rendered
+> output.
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -1068,84 +1162,53 @@ component Uses() {
 go test ./internal/corpus -run 'TestCorpus/imports/reserved_prefix_decl' -count=1 2>&1 | tail -5
 ```
 
-Expected: FAIL — either no diagnostic at all, or a raw Go `_gsxrt redeclared`
-error rather than the clean gsx one.
+Expected: FAIL — the raw Go error (`_gsxrt already declared through import of
+package gsx`) rather than the clean, positioned gsx one. Note this is a *diagnostic
+text* failure, not a silent miscompile; see the premise correction above. Pair it
+with `reserved_prefix_decl_novel.txtar` (`_gsxfoo`, `_gsxT`, …), which today emits
+**no diagnostic at all** — that case is what proves the check does independent work
+rather than front-running a Go error.
 
 - [ ] **Step 3: Implement `checkReservedDecls`**
 
 Add to `internal/codegen/analyze.go`, beside `checkReservedParams`. It walks the
-lowered skeleton `*goast.File` (already built by `buildPackageSkeletons`), so no
-new scanner is written:
+**`.gsx` AST** — not the lowered skeleton (see the correction under **Interfaces**).
+Only two top-level `.gsx` decl forms can bind a package-scope name:
+
+- `*gsxast.GoChunk` — verbatim Go. Parse it (wrapped in a `package …\n` prefix whose
+  byte length is subtracted back out) and walk its decls. Its imports count:
+  `import _gsxrt "strings"` binds the name just as `var _gsxrt` does.
+- `*gsxast.GoWithElements` — Go with elements spliced into expression position.
+  Reconstruct it as plain Go, replacing each embedded literal with a **call**
+  expression (`_()`) right-padded with spaces to the literal's exact byte length.
+  Both properties are load-bearing: a call because `go <b/>` must reconstruct to
+  something `go/parser` accepts, and exact byte length because every offset in the
+  result must still be the same offset in the `.gsx` file.
+
+A `*gsxast.Component` cannot reach the reserved space at all — the parser's
+component-name scan (`isTagNameByte`) admits no `_`.
 
 ```go
-// reservedDecl is one package-scope binding that intrudes on the generator's
-// reserved identifier space, with the position to report it at.
-type reservedDecl struct {
-	Name string
-	Pos  token.Pos
-}
-
-// checkReservedDecls reports file-scope names in the generator's reserved `_gsx`
-// space. Every import the generator emits is `_gsx`-aliased (rtimports.go), which
-// is exactly what allows a .gsx file to bind `gsx`, `context`, `io` or `strconv`
-// to anything it likes. The whole collision surface therefore collapses onto this
-// one prefix, and this is where it is defended. Params are checked separately by
-// checkReservedParams; this closes package scope.
-//
-// Receivers are skipped: a method name lives in its receiver's namespace, not the
-// package's, so it cannot collide with an import.
-func checkReservedDecls(f *goast.File) []reservedDecl {
-	var out []reservedDecl
-	report := func(id *goast.Ident) {
-		if id != nil && strings.HasPrefix(id.Name, "_gsx") {
-			out = append(out, reservedDecl{Name: id.Name, Pos: id.Pos()})
-		}
-	}
-	for _, d := range f.Decls {
-		switch d := d.(type) {
-		case *goast.FuncDecl:
-			if d.Recv == nil {
-				report(d.Name)
-			}
-		case *goast.GenDecl:
-			for _, s := range d.Specs {
-				switch s := s.(type) {
-				case *goast.ImportSpec:
-					report(s.Name) // nil for plain imports; `_`/`.` never match the prefix
-				case *goast.ValueSpec:
-					for _, n := range s.Names {
-						report(n)
-					}
-				case *goast.TypeSpec:
-					report(s.Name)
-				}
-			}
-		}
-	}
-	return out
-}
+func checkReservedDecls(file *gsxast.File) ([]reservedDecl, []goRegionError)
 ```
 
-Wire it where the per-file skeleton is available. `checkReservedParams` is
-invoked per component at `analyze.go:929`; this is per **file**, so call it once
-where `packageSkeletons` yields each file's `skel`. Map each `reservedDecl.Pos`
-back to a `.gsx` position through the same fset the skeleton was parsed with, and
-record:
+Within one region, the walk is the ordinary one: `*goast.FuncDecl` with `Recv == nil`
+(a method name lives in its receiver's namespace, so it cannot collide with an
+import), and `*goast.GenDecl`'s `ImportSpec.Name` / `ValueSpec.Names` / `TypeSpec.Name`.
+`ImportSpec.Name` is nil for a default import, and `_` / `.` never match the prefix.
+Positions map back by plain byte arithmetic: `base + (offset - len(wrapPrefix))`.
 
-```go
-	for _, rd := range checkReservedDecls(skel) {
-		bag.Add(diag.Diagnostic{
-			Severity: diag.Error,
-			Message:  fmt.Sprintf("declaration name %q uses the reserved _gsx prefix", rd.Name),
-			Source:   "codegen",
-			Start:    gsxFset.Position(rd.Pos),
-		})
-	}
-```
+Wire it in `module_importer.go`, per file, **ahead of `buildSkeleton`** — the whole
+point is to report before the skeleton's type-check produces its raw Go error.
+Record each name with `bag.Errorf(rd.pos, rd.pos+token.Pos(len(rd.name)), …)` and
+each unparseable region with `bag.Report(ge.pos, ge.pos, diag.Error, "parse-error",
+"parser", "%s", ge.msg)`.
 
-so the golden's `3:5:` prefix resolves. Confirm the exact `diag.Diagnostic` field
-names against `internal/diag` before writing — `grep -n 'type Diagnostic' -A 12
-internal/diag/*.go`.
+**Known consequence:** a file whose top-level Go does not parse is now skipped
+per-file rather than aborting the package, so a *sibling* file using its components
+draws a spurious `undefined: Comp`. Same shape as the pre-existing `attrError`
+per-file skip, but new for parse errors. Accepted: the correctly positioned
+diagnostic on the actual mistake is worth an obviously-downstream extra error.
 
 - [ ] **Step 4: Run to verify it passes**
 
@@ -1366,6 +1429,12 @@ git commit -m "docs: gsx is an ordinary import; close the _gsx-alias roadmap ite
   invented a `topLevelNames` helper). Corrected to `*goast.File`, walking the
   lowered skeleton `buildPackageSkeletons` already produces, and returning
   `[]reservedDecl` so every offending name is reported rather than only the first.
+  **This self-review conclusion was itself wrong** — see the corrections in Task 4.
+  `buildPackageSkeletons` is not on the generate path, and the lowered skeleton is
+  full of legitimate `_gsx` names by construction. The shipped signature is
+  `checkReservedDecls(file *gsxast.File) ([]reservedDecl, []goRegionError)`,
+  walking the `.gsx` AST — i.e. close to what the *original* draft had. The
+  returning-a-slice half of this note stands.
 
 **Type consistency:** `rtImports` (map type, value semantics — no pointer needed
 for mutation), accessors `rt()`, `ctx()`, `io()`, `sc()`, constants

@@ -16,26 +16,25 @@ Badge(BadgeProps{Variant: "x", Attrs: gsx.Attrs{{Key: "class", Value: "hl"}, {Ke
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type BadgeProps struct {
 	Variant string
-	Attrs   gsx.Attrs
+	Attrs   _gsxrt.Attrs
 }
 
 //line input.gsx:3:1
-func Badge(_gsxp BadgeProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Badge(_gsxp BadgeProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		variant := _gsxp.Variant
 		attrs := _gsxp.Attrs
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<span class=\"")
-		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class("badge-"+string(variant)), gsx.Class(attrs.Class()))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("badge-"+string(variant)), _gsxrt.Class(attrs.Class()))
 		_gsxgw.S("\"")
 		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, attrs.Without("class", "style"))

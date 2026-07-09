@@ -35,14 +35,13 @@ Uses()
 package demo
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
-var item = NavItem{Label: "Home", Icon: gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-	_gsxgw := gsx.W(_gsxw)
+var item = NavItem{Label: "Home", Icon: _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+	_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 	_gsxgw.S("<svg class=\"w-5 h-5\">")
 //line input.gsx:5:3
@@ -51,9 +50,9 @@ var item = NavItem{Label: "Home", Icon: gsx.Func(func(ctx context.Context, _gsxw
 })}
 
 //line input.gsx:9:1
-func Uses() gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func Uses() _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
 		_gsxgw.S("<div>")
 //line input.gsx:10:7

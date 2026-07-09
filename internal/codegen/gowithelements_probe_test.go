@@ -89,8 +89,8 @@ func TestGoWithElementsValidInterpGeneratesCleanly(t *testing.T) {
 	if got == "" {
 		t.Fatalf("no generated output; diags: %v", pr.Diags)
 	}
-	if !strings.Contains(got, "var help = gsx.Func(") {
-		t.Fatalf("expected `var help = gsx.Func(` in generated source, got:\n%s", got)
+	if !strings.Contains(got, "var help = _gsxrt.Func(") {
+		t.Fatalf("expected `var help = _gsxrt.Func(` in generated source, got:\n%s", got)
 	}
 	if !strings.Contains(got, "label") {
 		t.Fatalf("expected the outer-scope identifier `label` referenced in the generated source, got:\n%s", got)
@@ -126,7 +126,7 @@ func TestGoWithElementsFuncLocalScopeCapture(t *testing.T) {
 	for _, src := range pr.Files {
 		got = string(src)
 	}
-	for _, want := range []string{"greeting", "label", "gsx.Func("} {
+	for _, want := range []string{"greeting", "label", "_gsxrt.Func("} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected %q in generated source, got:\n%s", want, got)
 		}

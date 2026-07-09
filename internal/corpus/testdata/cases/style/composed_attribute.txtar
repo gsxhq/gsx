@@ -15,10 +15,9 @@ Badge(BadgeProps{Accent: "blue", Hide: false})
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type BadgeProps struct {
@@ -27,14 +26,14 @@ type BadgeProps struct {
 }
 
 //line input.gsx:3:1
-func Badge(_gsxp BadgeProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Badge(_gsxp BadgeProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		accent := _gsxp.Accent
 		hide := _gsxp.Hide
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<span style=\"")
-		_gsxgw.Style(gsx.Class("color: red"), gsx.Class(gsx.StyleValue("color: "+accent)), gsx.ClassIf("display: none", hide))
+		_gsxgw.Style(_gsxrt.Class("color: red"), _gsxrt.Class(_gsxrt.StyleValue("color: "+accent)), _gsxrt.ClassIf("display: none", hide))
 		_gsxgw.S("\">hi</span>")
 		return _gsxgw.Err()
 	})

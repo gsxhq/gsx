@@ -28,23 +28,23 @@ Page()
 package views
 
 import (
-	"context"
-	"io"
-
+	_gsxctx "context"
 	"github.com/gsxhq/gsx"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type CardProps struct {
 	ContainerAttrs gsx.Attrs
-	Children       gsx.Node
+	Children       _gsxrt.Node
 }
 
 //line input.gsx:5:1
-func Card(_gsxp CardProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Card(_gsxp CardProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		containerAttrs := _gsxp.ContainerAttrs
 		children := _gsxp.Children
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<div")
 		_gsxgw.Spread(ctx, containerAttrs)
@@ -57,15 +57,15 @@ func Card(_gsxp CardProps) gsx.Node {
 }
 
 //line input.gsx:9:1
-func Page() gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func Page() _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Card(CardProps{ContainerAttrs: gsx.Attrs{{Key: "data-signals", Value: "{open:false}"}, {Key: "data-text", Value: "$open"}}, Children: gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-			_gsxgw := gsx.W(_gsxw)
+		_gsxgw.Node(ctx, Card(CardProps{ContainerAttrs: _gsxrt.Attrs{{Key: "data-signals", Value: "{open:false}"}, {Key: "data-text", Value: "$open"}}, Children: _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:13:3
 			_gsxgw.S("<p id=\"tip\" class=\"")
-			_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class("note"))
+			_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("note"))
 			_gsxgw.S("\">hi</p>")
 			return _gsxgw.Err()
 		})}))

@@ -1,0 +1,21 @@
+# Context: a `_gsx` name bound through a call argument carrying a multi-line
+# element literal (`var _gsxcall = wrap(<b>…</b>)`). Sibling of
+# reserved_prefix_decl_element_composite: the scanner steps over the embedded
+# literal and reports `_gsxcall` regardless of whether the surrounding Go would
+# parse as a standalone statement.
+-- input.gsx --
+package demo
+
+import "github.com/gsxhq/gsx"
+
+func wrap(n gsx.Node) gsx.Node { return n }
+
+var _gsxcall = wrap(<b>
+	x
+</b>)
+
+component Uses() {
+	<b>hi</b>
+}
+-- diagnostics.golden --
+7:5: identifier "_gsxcall" uses the reserved _gsx prefix (reserved for generated code)

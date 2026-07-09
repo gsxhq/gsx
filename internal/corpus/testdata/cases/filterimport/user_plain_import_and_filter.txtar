@@ -36,12 +36,12 @@ Tag(TagProps{Name: "bob"})
 package views
 
 import (
-	"context"
 	"corpustest/cases/filterimport_user_plain_import_and_filter/filters"
-	"io"
 
+	_gsxctx "context"
 	_gsxf0 "corpustest/cases/filterimport_user_plain_import_and_filter/filters"
-	"github.com/gsxhq/gsx"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 var label = filters.Label
@@ -51,10 +51,10 @@ type TagProps struct {
 }
 
 //line input.gsx:7:1
-func Tag(_gsxp TagProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Tag(_gsxp TagProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		name := _gsxp.Name
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxgw.S("<div>")
 //line input.gsx:8:7

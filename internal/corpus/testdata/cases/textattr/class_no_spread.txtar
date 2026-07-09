@@ -12,10 +12,9 @@ B(BProps{V: "x"})
 package p
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type BProps struct {
@@ -23,10 +22,10 @@ type BProps struct {
 }
 
 //line input.gsx:3:1
-func B(_gsxp BProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func B(_gsxp BProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		v := _gsxp.V
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:3:25
 		_gsxgw.S("<span class=\"badge-")
 		_gsxgw.AttrValue(string(v))

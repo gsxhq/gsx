@@ -17,10 +17,10 @@ Theme(ThemeProps{W: 8, Accent: "red", Raw: gsx.RawCSS("1px solid")})
 package views
 
 import (
-	"context"
-	"io"
-
+	_gsxctx "context"
 	"github.com/gsxhq/gsx"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type ThemeProps struct {
@@ -30,12 +30,12 @@ type ThemeProps struct {
 }
 
 //line input.gsx:5:1
-func Theme(_gsxp ThemeProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Theme(_gsxp ThemeProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		w := _gsxp.W
 		accent := _gsxp.Accent
 		raw := _gsxp.Raw
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:6:2
 		_gsxgw.S("<style")

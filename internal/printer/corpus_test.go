@@ -216,15 +216,24 @@ func canonGo(n ast.Node) {
 	case *ast.GoChunk:
 		v.Src = fmtGoChunk(v.Src)
 	case *ast.GoWithElements:
-		// Unlike GoChunk, a GoText part is an incomplete Go fragment that
-		// fmtGoChunk (go/format) can't parse in isolation, so its Src is left
-		// alone here — mirroring the printer's own goWithElements, which
-		// prints GoText verbatim too (see trimGoTextEdges). Only the outer
-		// edges are trimmed, exactly as the printer trims them, so the
-		// comparison ignores the blank-line padding both sides re-derive
-		// independently rather than preserve verbatim. Embedded *ast.Element
-		// parts recurse into the ordinary *ast.Element case below, so their
-		// attrs/children get the same canonicalization as any other element.
+		// A GoText part is an incomplete Go fragment that fmtGoChunk (go/format)
+		// can't parse in isolation. The printer's goWithElements does not leave it
+		// verbatim, though: it runs fmtGoExprParts (substitute a placeholder per
+		// embedded value, go/format the now-complete Go, re-split at the
+		// placeholders), so gofmt lays the GoText out — inserting, for instance, a
+		// blank line between a `type` decl and a following element-bearing `var`.
+		// The normalizer MUST apply the same pass, or the faithfulness comparison
+		// reads that gofmt reflow as an AST change: normalize(S) would hold the
+		// author's verbatim GoText while normalize(fmt(S)) holds gofmt's. When
+		// go/format rejects the substituted source (Go the gsx parser accepted but
+		// go/parser does not), the printer keeps the original parts, so we do too.
+		if formatted, _, ok := (&printer{}).fmtGoExprParts(v.Parts); ok {
+			v.Parts = formatted
+		}
+		// Only the outer edges are trimmed, exactly as the printer trims them, so
+		// the comparison ignores the blank-line padding between this decl and its
+		// neighbors (file's blank-line-separator logic re-derives it). Embedded
+		// *ast.Element parts recurse into the ordinary *ast.Element case below.
 		last := len(v.Parts) - 1
 		for i, part := range v.Parts {
 			switch pt := part.(type) {

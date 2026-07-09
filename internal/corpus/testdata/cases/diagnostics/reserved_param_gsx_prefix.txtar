@@ -5,4 +5,4 @@ component Bad(_gsxfoo string) {
 	<p>{_gsxfoo}</p>
 }
 -- diagnostics.golden --
-3:1: param name "_gsxfoo" uses the reserved _gsx prefix
+4:6: identifier "_gsxfoo" uses the reserved _gsx prefix (reserved for generated code)

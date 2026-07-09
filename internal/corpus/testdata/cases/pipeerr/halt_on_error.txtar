@@ -29,11 +29,10 @@ Hi(HiProps{Name: "ada"})
 package views
 
 import (
-	"context"
-	"io"
-
+	_gsxctx "context"
 	_gsxf0 "corpustest/cases/pipeerr_halt_on_error/filters"
-	"github.com/gsxhq/gsx"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type HiProps struct {
@@ -41,10 +40,10 @@ type HiProps struct {
 }
 
 //line input.gsx:3:1
-func Hi(_gsxp HiProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Hi(_gsxp HiProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		name := _gsxp.Name
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<p>")
 //line input.gsx:4:5

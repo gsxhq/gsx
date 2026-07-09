@@ -1,0 +1,14 @@
+# Context: the file imports the gsx runtime but no user Go references it — a
+# component is generated through the reserved _gsxrt alias, which does not use
+# the user's import. So it is unused, exactly as an unused `fmt` would be. This
+# is the load-bearing half of the rule: "reference it -> import it; don't -> don't."
+-- input.gsx --
+package demo
+
+import "github.com/gsxhq/gsx"
+
+component Uses() {
+	<b>hi</b>
+}
+-- diagnostics.golden --
+3:8: "github.com/gsxhq/gsx" imported and not used

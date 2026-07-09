@@ -42,10 +42,9 @@ component (p Home) Shell(pd pageData) {
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type cardData struct {
@@ -59,9 +58,9 @@ type pageData struct {
 type Home struct{}
 
 //line input.gsx:13:1
-func Card(d cardData) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func Card(d cardData) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
 		_gsxgw.S("<div>")
 //line input.gsx:14:7
@@ -72,9 +71,9 @@ func Card(d cardData) gsx.Node {
 }
 
 //line input.gsx:17:1
-func Page(d pageData) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func Page(d pageData) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:18:2
 		_gsxgw.Node(ctx, Card(cardData{Title: d.Heading}))
 		return _gsxgw.Err()
@@ -82,9 +81,9 @@ func Page(d pageData) gsx.Node {
 }
 
 //line input.gsx:21:1
-func (p Home) Content(pd pageData) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func (p Home) Content(pd pageData) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:22:2
 		_gsxgw.S("<h1>")
 //line input.gsx:22:6
@@ -95,9 +94,9 @@ func (p Home) Content(pd pageData) gsx.Node {
 }
 
 //line input.gsx:25:1
-func (p Home) Shell(pd pageData) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func (p Home) Shell(pd pageData) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:26:2
 		_gsxgw.Node(ctx, p.Content(pd))
 		return _gsxgw.Err()
