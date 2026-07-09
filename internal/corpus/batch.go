@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/diag"
 )
 
@@ -102,28 +103,45 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 		states[i] = cs
 	}
 
-	// Step 3: codegen. Cases with no per-case codegen options (no class merger,
-	// no filterPackages) are batched into one call; cases with either get their
-	// own call so Options.ClassMerger/FilterPkgs can be set independently.
-	var defaultDirs []string
+	// Step 3: codegen — ONE call for every dir. Cases carrying a gsx.toml
+	// (class_merger and/or filterPackages) contribute a PerDir entry; their filter
+	// packages go into the shared load set. Previously each such case opened its
+	// own Module, and every Module re-ran packages.Load over the gsx runtime: 27
+	// cases cost 10.7s of the corpus's 13.2s.
+	var allDirs, loadPkgs []string
+	perDir := map[string]codegen.DirOptions{}
+	seenPkg := map[string]bool{}
 	for _, cs := range states {
-		if cs.c.classMerger == nil && len(cs.c.filterPkgs) == 0 {
-			defaultDirs = append(defaultDirs, cs.pkgDirs...)
-		}
-	}
-	pkgResults, err := codegenDirs(tmp, defaultDirs, nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("batchCodegen: codegenDirs: %w", err)
-	}
-	for _, cs := range states {
+		allDirs = append(allDirs, cs.pkgDirs...)
 		if cs.c.classMerger == nil && len(cs.c.filterPkgs) == 0 {
 			continue
 		}
-		mergerResults, merr := codegenDirs(tmp, cs.pkgDirs, cs.c.classMerger, cs.c.filterPkgs)
-		if merr != nil {
-			return nil, fmt.Errorf("batchCodegen: codegenDirs(%s): %w", cs.c.name, merr)
+		var filters []string
+		if len(cs.c.filterPkgs) > 0 {
+			filters = append([]string{codegen.StdImportPath}, cs.c.filterPkgs...)
+			for _, p := range cs.c.filterPkgs {
+				if !seenPkg[p] {
+					seenPkg[p] = true
+					loadPkgs = append(loadPkgs, p)
+				}
+			}
 		}
-		maps.Copy(pkgResults, mergerResults)
+		if cs.c.classMerger != nil && !seenPkg[cs.c.classMerger.PkgPath] {
+			seenPkg[cs.c.classMerger.PkgPath] = true
+			loadPkgs = append(loadPkgs, cs.c.classMerger.PkgPath)
+		}
+		// Every dir of a multi-package case shares that case's options — an
+		// imported sibling must resolve the same filters as the dir importing it.
+		for _, d := range cs.pkgDirs {
+			perDir[filepath.Clean(d)] = codegen.DirOptions{
+				FilterPkgs:  filters, // nil ⇒ inherit the std-only default
+				ClassMerger: cs.c.classMerger,
+			}
+		}
+	}
+	pkgResults, err := codegenDirs(tmp, allDirs, loadPkgs, perDir)
+	if err != nil {
+		return nil, fmt.Errorf("batchCodegen: codegenDirs: %w", err)
 	}
 
 	// Step 4: reassemble per-case results.
