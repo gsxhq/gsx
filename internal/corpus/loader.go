@@ -2,9 +2,10 @@ package corpus
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -38,6 +39,27 @@ var goldenSections = map[string]bool{
 	"render.golden":         true,
 	"generated.x.go.golden": true,
 	"ast.golden":            true,
+}
+
+// txtarFiles returns every *.txtar under root, sorted. Walk errors are
+// reported rather than skipped: a corpus that silently loses cases to an
+// unreadable directory would still pass.
+func txtarFiles(root string) ([]string, error) {
+	var files []string
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(p, ".txtar") {
+			files = append(files, p)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	slices.Sort(files)
+	return files, nil
 }
 
 // loadCase parses one txtar case file. name is derived from path relative to
@@ -129,11 +151,9 @@ func (c *caseDoc) facets() []string {
 	if _, ok := c.goldens["ast.golden"]; ok {
 		out = append(out, "ast")
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
-
-var _ = fmt.Sprintf
 
 // splitCasePkgFunc splits a "pkg/path.FuncName" string into its import path
 // and exported func name by splitting at the last ".". Used to parse

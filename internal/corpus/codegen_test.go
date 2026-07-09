@@ -5,7 +5,10 @@ import (
 )
 
 func TestAstAndParserDiagClean(t *testing.T) {
-	c, _ := loadCase("testdata/loadertest/single.txtar")
+	c, err := loadCase("testdata/loadertest/single.txtar")
+	if err != nil {
+		t.Fatalf("load case: %v", err)
+	}
 	dump, diag, single := c.astAndParserDiag()
 	if !single {
 		t.Fatal("single = false, want true")
