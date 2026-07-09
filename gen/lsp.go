@@ -28,9 +28,10 @@ import (
 // never consulted). Editing existing .gsx files works; unsaved-new files are a
 // slice-2 follow-up.
 type lspAnalyzer struct {
-	optCfg config     // programmatic opts (empty for the stock binary); layered OVER gsx.toml (opts win on conflict)
-	warnw  io.Writer  // best-effort sink for a malformed gsx.toml; nil → discard, never fatal
-	mods   *moduleSet // pointer so the value stored in the Analyzer interface shares state
+	optCfg config                // programmatic opts (empty for the stock binary); layered OVER gsx.toml (opts win on conflict)
+	warnw  io.Writer             // best-effort sink for a malformed gsx.toml; nil → discard, never fatal
+	mods   *moduleSet            // pointer so the value stored in the Analyzer interface shares state
+	ec     *editorConfigResolver // pointer so the value stored in the Analyzer interface shares its .editorconfig cache
 }
 
 // moduleSet holds one warm *codegen.Module per module root, reused across Analyze
@@ -43,7 +44,12 @@ type moduleSet struct {
 
 // newLSPAnalyzer constructs an lspAnalyzer with an empty warm-module cache.
 func newLSPAnalyzer(cfg config, warnw io.Writer) lspAnalyzer {
-	return lspAnalyzer{optCfg: cfg, warnw: warnw, mods: &moduleSet{byRoot: map[string]*codegen.Module{}}}
+	return lspAnalyzer{
+		optCfg: cfg,
+		warnw:  warnw,
+		mods:   &moduleSet{byRoot: map[string]*codegen.Module{}},
+		ec:     newEditorConfigResolver(),
+	}
 }
 
 // module returns the warm *codegen.Module for root (lazy-initialised). merged is
@@ -337,16 +343,29 @@ func crossRefKeyForFunc(fn *types.Func) string {
 	return "." + fn.Name() // fallback: unnamed receiver
 }
 
-// PrintWidth resolves the effective gsx.toml print width for dir, layering the
-// programmatic optCfg over the file config exactly like Analyze. Best-effort:
-// returns 80 on any failure.
-func (a lspAnalyzer) PrintWidth(dir string) int {
+// FormatSettings resolves the effective print width and tab width for path,
+// applying the SAME precedence gsx fmt does (resolveFormatSettings, gen/fmt.go):
+// gsx.toml [formatter] > .editorconfig > built-in. cfg here is the
+// programmatic-optCfg-over-file-config merge Analyze already computes, so a
+// custom binary's WithXxx opts apply to formatting exactly like they do to
+// codegen; es is resolved from path via the resolver's own .editorconfig
+// cache. Without this, the LSP's format-on-save could disagree with `gsx fmt`
+// on the same file — the exact bug class this project guards against.
+//
+// path must be ABSOLUTE: dir is derived from it for gsx.toml discovery, and
+// the .editorconfig resolution itself requires an absolute path (see
+// formatSettingsFor's doc comment for why — the editorconfig library resolves
+// a relative path against the process's cwd). Best-effort throughout: any
+// failure falls through to built-ins (80, pretty.DefaultTabWidth), never fails.
+func (a lspAnalyzer) FormatSettings(path string) gsxfmt.FormatSettings {
+	dir := filepath.Dir(path)
 	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
-	return merged.effectivePrintWidth()
+	es := a.ec.settingsFor(path)
+	return resolveFormatSettings(merged, es)
 }
 
 // ImportsMode resolves the effective gsx.toml [formatter] imports mode for dir,
-// layering the programmatic optCfg over the file config exactly like PrintWidth.
+// layering the programmatic optCfg over the file config exactly like FormatSettings.
 // Best-effort: returns the default (goimports) on any failure.
 func (a lspAnalyzer) ImportsMode(dir string) gsxfmt.ImportsMode {
 	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)

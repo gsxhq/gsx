@@ -12,7 +12,7 @@ import (
 // render prints the body Doc at depth 1 (as if nested one level under a tag),
 // so the re-indent's tab handling is exercised.
 func render(doc pretty.Doc) string {
-	return pretty.Print(pretty.Concat(pretty.Text("<style>"), pretty.Indent(doc), pretty.Text("</style>")), 80)
+	return pretty.Print(pretty.Concat(pretty.Text("<style>"), pretty.Indent(doc), pretty.Text("</style>")), 80, pretty.DefaultTabWidth)
 }
 
 func TestFormatHappyPath(t *testing.T) {

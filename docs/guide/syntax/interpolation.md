@@ -11,7 +11,7 @@ Interpolation embeds a Go value into the output using single braces: `{ expr }`.
 The `{ name }` and `{ count }` expressions are evaluated against the component's params. String values are HTML-escaped (angle brackets, ampersands, and quotes are encoded); numeric values (`int`, `float64`, etc.) are converted to their decimal string representation without escaping, because digits and a decimal point carry no HTML-special meaning.
 
 ::: v-pre
-Note that `{ expr }` is **interpolation** — it emits a value. It is not a Go statement block. To run a Go statement that produces no output, use `{{ stmt }}` (a GoBlock). See [Raw Go](./raw-go) for details.
+Note that `{ expr }` is **interpolation** — it emits a value. It is not a Go statement block. To run a Go statement that produces no output, use `{{ stmt }}` (a GoBlock). See [Raw Go](./raw-go.md) for details.
 :::
 
 ## Body interpolating literals
@@ -19,7 +19,7 @@ Note that `{ expr }` is **interpolation** — it emits a value. It is not a Go s
 An `f`-prefixed backtick literal inside body braces — `` {f`…@{ expr }…`} `` —
 interpolates static text and typed `@{ }` holes directly in element-body
 position, the mirror image of the
-[interpolating attribute literal](./attributes#interpolating-attribute-literals).
+[interpolating attribute literal](./attributes.md#interpolating-attribute-literals).
 It saves you from concatenating a Go string when you want a single run of text
 that interleaves literals and dynamic values.
 
@@ -93,8 +93,8 @@ so the static text is emitted verbatim. Assigned to a variable it builds a plain
 static text included. The `@{x}` hole is escaped either way.
 :::
 
-See [Elements — Elements as values](./elements#elements-as-values)
-and [Raw Go — the reverse direction](./raw-go#the-reverse-direction-elements-in-go-expression-position)
+See [Elements — Elements as values](./elements.md#elements-as-values)
+and [Raw Go — the reverse direction](./raw-go.md#the-reverse-direction-elements-in-go-expression-position)
 for the full set of Go-expression positions this and `<tag>`/`<>` literals
 share. `` js`...` `` and `` css`...` `` stay attribute-context only — they are
 not valid as standalone Go values.
@@ -154,7 +154,7 @@ The escaper applied to `{ expr }` depends on **where** the interpolation appears
 
 - **Text content** (`<p>{ x }</p>`) — HTML-escapes the string form of `x`.
 - **Attribute value** (`title={ x }`) — attribute-escapes the value.
-- **Interpolating attribute literal** (`` title=f`Item @{ x }` ``) — an `f`-prefixed backtick literal mixing static text and `@{ }` holes in attribute-value position; each hole is escaped the same way its surrounding attribute would be (attribute-escape, or scheme-sanitize the whole assembled value for a URL attribute). See [Attributes — Interpolating attribute literals](./attributes#interpolating-attribute-literals).
+- **Interpolating attribute literal** (`` title=f`Item @{ x }` ``) — an `f`-prefixed backtick literal mixing static text and `@{ }` holes in attribute-value position; each hole is escaped the same way its surrounding attribute would be (attribute-escape, or scheme-sanitize the whole assembled value for a URL attribute). See [Attributes — Interpolating attribute literals](./attributes.md#interpolating-attribute-literals).
 - **URL attribute** (`href={ x }`, `src={ x }`, `action={ x }`, and htmx method attrs `hx-get`/`hx-post`/`hx-put`/`hx-delete`/`hx-patch`) — scheme-sanitizes and escapes. URL attributes are the only ordinary `attr={ x }` name-based special case; other attributes, including `hx-on*`, are plain attribute text unless written with an explicit embedded-language literal.
 - **Attribute-local JavaScript/CSS** (`` @click=js`save(@{x})` ``, `` style=css`color:@{x}` ``, `` style={ css`color:@{x}` } ``) — escapes each hole for its embedded JavaScript or CSS position.
 - **`<script>` body** (`@{ x }`) — JSON-encodes the Go value to a safe JS literal.
@@ -162,11 +162,11 @@ The escaper applied to `{ expr }` depends on **where** the interpolation appears
 
 Numeric values in text context (`{ count }` where `count` is `int`) are formatted as their decimal representation and do not require escaping — no HTML-special characters can appear in a plain integer string. This means numeric interpolation has no overhead from the escaper.
 
-For a complete reference of escaping contexts and opt-out helpers (`gsx.Raw`, `gsx.RawURL`, `gsx.RawJS`, `gsx.RawCSS`), see [Escaping](./escaping).
+For a complete reference of escaping contexts and opt-out helpers (`gsx.Raw`, `gsx.RawURL`, `gsx.RawJS`, `gsx.RawCSS`), see [Escaping](./escaping.md).
 
 ## Markup or Go in braces
 
-In **attribute-value position** (`name={…}`), `{…}` can hold either a Go expression or markup. gsx resolves the ambiguity positionally — the Babel rule: if the first non-space character after `{` is `<` followed by a tag-name character, the content is parsed as markup; otherwise it is a Go expression. So `header={ <h1>Title</h1> }` is a markup-valued attribute (see [Composition — named slots](./composition#named-slots)), while `disabled={ a < b }` is a boolean expression where `<` is the less-than operator.
+In **attribute-value position** (`name={…}`), `{…}` can hold either a Go expression or markup. gsx resolves the ambiguity positionally — the Babel rule: if the first non-space character after `{` is `<` followed by a tag-name character, the content is parsed as markup; otherwise it is a Go expression. So `header={ <h1>Title</h1> }` is a markup-valued attribute (see [Composition — named slots](./composition.md#named-slots)), while `disabled={ a < b }` is a boolean expression where `<` is the less-than operator.
 
 ::: v-pre
 In body and text context the ambiguity does not arise: markup is written as bare elements (`<span>…</span>`), and `{…}` holds interpolation, a GoBlock (`{{ }}`), or a control-flow construct (`{ if … }`, `{ for … }`, `{ switch … }`) — the latter dispatched by keyword, not by `<`.

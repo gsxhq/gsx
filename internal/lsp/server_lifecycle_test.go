@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gsxhq/gsx/internal/gsxfmt"
+	"github.com/gsxhq/gsx/internal/pretty"
 )
 
 // nilAnalyzer satisfies Analyzer and returns nothing.
@@ -18,9 +19,11 @@ func (nilAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) 
 	return nil, nil
 }
 func (nilAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol, error) { return nil, nil }
-func (nilAnalyzer) PrintWidth(string) int                                     { return 80 }
-func (nilAnalyzer) ImportsMode(string) gsxfmt.ImportsMode                     { return gsxfmt.ImportsGoimports }
-func (nilAnalyzer) ResolveImport(string, string, string) []string             { return nil }
+func (nilAnalyzer) FormatSettings(string) gsxfmt.FormatSettings {
+	return gsxfmt.FormatSettings{Width: 80, TabWidth: pretty.DefaultTabWidth}
+}
+func (nilAnalyzer) ImportsMode(string) gsxfmt.ImportsMode         { return gsxfmt.ImportsGoimports }
+func (nilAnalyzer) ResolveImport(string, string, string) []string { return nil }
 
 // framed wraps a JSON-RPC body in Content-Length framing.
 func framed(t *testing.T, v any) string {

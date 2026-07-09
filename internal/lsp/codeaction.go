@@ -55,15 +55,18 @@ func (s *Server) handleCodeAction(f frame) error {
 		unused = pkg.UnusedImports[path] // nil when analysis is unavailable
 	}
 	missing := s.missingImportsFor(dir, path)
-	width := s.analyzer.PrintWidth(dir)
+	// FormatSettings (gsx.toml [formatter] > .editorconfig > built-in) supplies the
+	// layout budget for every edit this handler produces.
+	fs := s.analyzer.FormatSettings(path)
 
 	var actions []CodeAction
 	if wantsKind(p.Context.Only, organizeImportsKind) {
 		organized, err := gsxfmt.FormatWith(path, []byte(text), gsxfmt.FormatOptions{
-			Unused:  unused,
-			Add:     s.addsForOrganize(dir, missing),
-			Width:   width,
-			Reorder: true, // always: this action IS goimports
+			Unused:   unused,
+			Add:      s.addsForOrganize(dir, missing),
+			Width:    fs.Width,
+			TabWidth: fs.TabWidth,
+			Reorder:  true, // always: this action IS goimports
 		})
 		if err == nil && string(organized) != text {
 			actions = append(actions, CodeAction{
@@ -90,9 +93,10 @@ func (s *Server) handleCodeAction(f frame) error {
 					// to a different path, it would emit invalid Go (two imports aliased to
 					// the same short name). A bare ImportRef{Path: cand} always binds the
 					// import's own package name.
-					Add:     []gsxfmt.ImportRef{{Path: cand}},
-					Width:   width,
-					Reorder: true,
+					Add:      []gsxfmt.ImportRef{{Path: cand}},
+					Width:    fs.Width,
+					TabWidth: fs.TabWidth,
+					Reorder:  true,
 				})
 				if err != nil || string(edited) == text {
 					continue // unparseable mid-edit, or this candidate changed nothing

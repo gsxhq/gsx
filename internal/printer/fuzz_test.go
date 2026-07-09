@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/pretty"
 	"github.com/gsxhq/gsx/internal/wsnorm"
 	"github.com/gsxhq/gsx/parser"
 )
@@ -79,7 +80,7 @@ func FuzzStyleRoundTrip(f *testing.F) {
 		}
 		wsnorm.Normalize(file)
 		var b strings.Builder
-		if err := Fprint(&b, file, 80); err != nil {
+		if err := Fprint(&b, file, 80, pretty.DefaultTabWidth); err != nil {
 			return
 		}
 		// Faithfulness: the formatted output must itself re-parse.

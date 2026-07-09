@@ -142,7 +142,7 @@ props — including its synthesized `Attrs gsx.Attrs` fallthrough field —
 during module analysis, so a call like `<ui.Panel attrs=&#123;&#123; "data-a": "1" &#125;&#125;>`
 behaves exactly as it would for a same-package component: bare fallthrough
 attrs and the ordered-attrs literal split against the same declared field set
-and merge the same way (see [Attributes — ordered-attrs literal](./attributes)).
+and merge the same way (see [Attributes — ordered-attrs literal](./attributes.md)).
 
 For components gsx cannot analyze — packages outside the current module, or
 plain Go packages with no `.gsx` files — call-site identifier attrs are

@@ -4,7 +4,7 @@
 gsx lets you embed arbitrary Go code inside a component body when you need to compute a local value, call a function for its side-effect, or otherwise run a Go statement that produces no markup output. The raw-Go form is the `{{ stmt }}` **GoBlock** — double braces signal "this is a Go statement, not an interpolation".
 :::
 
-Note: single-brace `{ expr }` is **interpolation** (it emits an escaped value into the output) — a different feature. See [Interpolation](./interpolation) for details.
+Note: single-brace `{ expr }` is **interpolation** (it emits an escaped value into the output) — a different feature. See [Interpolation](./interpolation.md) for details.
 
 ## GoBlock
 
@@ -35,9 +35,9 @@ There is no ambiguity: the parser knows which context it is in before reading th
 
 ## The reverse direction: elements in Go expression position
 
-GoBlock and the ordered-attrs literal both embed **Go inside markup**. The other direction also works: a `<tag>…</tag>` can appear in ordinary Go **expression** position — a `var` initializer, a `return`, a call argument, a struct field, or as an operand inside a `{ … }` interpolation — evaluating to a `gsx.Node`, without a `component` body wrapping it. A fragment, `<>…</>`, works in every one of those positions too, evaluating to a `gsx.Node` with no wrapper element. See [Elements — Elements as values](./elements#elements-as-values), [Fragments as values](./elements#fragments-as-values), and [Inside interpolations](./elements#inside-interpolations).
+GoBlock and the ordered-attrs literal both embed **Go inside markup**. The other direction also works: a `<tag>…</tag>` can appear in ordinary Go **expression** position — a `var` initializer, a `return`, a call argument, a struct field, or as an operand inside a `{ … }` interpolation — evaluating to a `gsx.Node`, without a `component` body wrapping it. A fragment, `<>…</>`, works in every one of those positions too, evaluating to a `gsx.Node` with no wrapper element. See [Elements — Elements as values](./elements.md#elements-as-values), [Fragments as values](./elements.md#fragments-as-values), and [Inside interpolations](./elements.md#inside-interpolations).
 
-An `f`-prefixed interpolating literal (`` f`…@{ expr }…` `` or `f"…@{ expr }…"`) is a first-class Go **value** the same way — it evaluates to a `string` and is valid anywhere a `string` expression is, including a `var` initializer, a call argument, or a name referenced from inside `{ … }`. See [Interpolation — As a first-class Go value](./interpolation#as-a-first-class-go-value). `` js`...` `` and `` css`...` `` stay attribute-context literals; they are not valid as standalone Go expression values.
+An `f`-prefixed interpolating literal (`` f`…@{ expr }…` `` or `f"…@{ expr }…"`) is a first-class Go **value** the same way — it evaluates to a `string` and is valid anywhere a `string` expression is, including a `var` initializer, a call argument, or a name referenced from inside `{ … }`. See [Interpolation — As a first-class Go value](./interpolation.md#as-a-first-class-go-value). `` js`...` `` and `` css`...` `` stay attribute-context literals; they are not valid as standalone Go expression values.
 
 ## The `gsx` package is an ordinary import
 

@@ -8,8 +8,8 @@ The runtime is **standard-library only** — no external dependencies. Generated
 
 | Name | Kind | Signature | Description |
 |------|------|-----------|-------------|
-| `gsx.Node` | interface | `Render(ctx context.Context, w io.Writer) error` | The rendering interface every gsx component satisfies. Any value implementing this method is renderable in a `gsx.Node` prop or `{children}`. See [Composition](./composition). |
-| `gsx.Func` | type | `type Func func(ctx context.Context, w io.Writer) error` | Adapts a plain function to `gsx.Node`; implements `Render` by calling itself. Useful when writing a one-off Node in Go without declaring a struct. See [Raw HTML](./raw-html). |
+| `gsx.Node` | interface | `Render(ctx context.Context, w io.Writer) error` | The rendering interface every gsx component satisfies. Any value implementing this method is renderable in a `gsx.Node` prop or `{children}`. See [Composition](./composition.md). |
+| `gsx.Func` | type | `type Func func(ctx context.Context, w io.Writer) error` | Adapts a plain function to `gsx.Node`; implements `Render` by calling itself. Useful when writing a one-off Node in Go without declaring a struct. See [Raw HTML](./raw-html.md). |
 
 `gsx.Node`'s method set is identical to `templ.Component`'s (as of templ ≥ v0.3), so a `gsx.Node` satisfies `templ.Component` structurally and vice-versa — no adapter or import needed.
 
@@ -19,10 +19,10 @@ These are the explicit opt-outs from gsx's context-aware auto-escaping. Each one
 
 | Name | Kind | Signature / type | Description |
 |------|------|-----------------|-------------|
-| `gsx.Raw` | func | `func Raw(html string) Node` | Emits `html` verbatim — no entity encoding, no escaping. Use only for already-safe HTML (e.g. pre-sanitised Markdown). See [Raw HTML](./raw-html). |
-| `gsx.RawURL` | type | `type RawURL string` | A URL whose scheme is trusted. In a URL attribute (`href`, `src`, etc.) a `gsx.RawURL` value skips the scheme allow-list check; the string is still attribute-escaped (it cannot break out of quotes). Use as a conversion: `gsx.RawURL("app://…")`. See [Escaping](./escaping). |
-| `gsx.RawJS` | type | `type RawJS string` | A JavaScript string the author vouches for. In a `<script>` body or `` js`...` `` interpolation hole, a `gsx.RawJS` value is emitted verbatim, bypassing JSON-encoding. Use as a conversion around trusted JavaScript only. See [JavaScript](./javascript). |
-| `gsx.RawCSS` | type | `type RawCSS string` | A CSS value the author vouches for. In a `<style>` body or `style=` attribute a `gsx.RawCSS` value is emitted verbatim, bypassing the CSS value-filter. Use as a conversion: `gsx.RawCSS("rgb(0,128,0)")`. See [Styling](./styling). |
+| `gsx.Raw` | func | `func Raw(html string) Node` | Emits `html` verbatim — no entity encoding, no escaping. Use only for already-safe HTML (e.g. pre-sanitised Markdown). See [Raw HTML](./raw-html.md). |
+| `gsx.RawURL` | type | `type RawURL string` | A URL whose scheme is trusted. In a URL attribute (`href`, `src`, etc.) a `gsx.RawURL` value skips the scheme allow-list check; the string is still attribute-escaped (it cannot break out of quotes). Use as a conversion: `gsx.RawURL("app://…")`. See [Escaping](./escaping.md). |
+| `gsx.RawJS` | type | `type RawJS string` | A JavaScript string the author vouches for. In a `<script>` body or `` js`...` `` interpolation hole, a `gsx.RawJS` value is emitted verbatim, bypassing JSON-encoding. Use as a conversion around trusted JavaScript only. See [JavaScript](./javascript.md). |
+| `gsx.RawCSS` | type | `type RawCSS string` | A CSS value the author vouches for. In a `<style>` body or `style=` attribute a `gsx.RawCSS` value is emitted verbatim, bypassing the CSS value-filter. Use as a conversion: `gsx.RawCSS("rgb(0,128,0)")`. See [Styling](./styling.md). |
 
 `RawURL`, `RawJS`, and `RawCSS` are named **string types**, not functions. Use them as type conversions — `gsx.RawJS(expr)` — not as function calls.
 
@@ -31,9 +31,9 @@ These are the explicit opt-outs from gsx's context-aware auto-escaping. Each one
 ::: v-pre
 | Name | Kind | Signature / type | Description |
 |------|------|-----------------|-------------|
-| `gsx.Attrs` | type | `type Attrs []Attr` | Ordered attribute bag — the default bag type. Pairs render in slice order (source order). Used for `{ bag… }` spread and every declared `Attrs gsx.Attrs` prop. The `{{ "k": v }}` literal lowers to this type. See [Attributes](./attributes). |
+| `gsx.Attrs` | type | `type Attrs []Attr` | Ordered attribute bag — the default bag type. Pairs render in slice order (source order). Used for `{ bag… }` spread and every declared `Attrs gsx.Attrs` prop. The `{{ "k": v }}` literal lowers to this type. See [Attributes](./attributes.md). |
 | `gsx.Attr` | type | `type Attr struct{ Key string; Value any }` | A single key-value attribute pair. The element type of `gsx.Attrs`. |
-| `gsx.AttrMap` | type | `type AttrMap map[string]any` | Optional map-backed construction helper. Templates accept `gsx.Attrs`, so call `ToAttrs` before passing map-shaped data to a bag prop or spread. See [Attributes](./attributes). |
+| `gsx.AttrMap` | type | `type AttrMap map[string]any` | Optional map-backed construction helper. Templates accept `gsx.Attrs`, so call `ToAttrs` before passing map-shaped data to a bag prop or spread. See [Attributes](./attributes.md). |
 | `gsx.AttrMap.ToAttrs` | method | `func (m AttrMap) ToAttrs() Attrs` | Converts the map to an ordered `Attrs` slice with keys sorted ascending for deterministic output. Construct `Attrs` directly when insertion order matters. |
 :::
 
@@ -43,9 +43,9 @@ These helpers box ordinary Go values into `gsx.Node` so they can be passed to a 
 
 | Name | Kind | Signature | Description |
 |------|------|-----------|-------------|
-| `gsx.Val` | func | `func Val(v any) Node` | Boxes any renderable value as a Node. Accepts `Node`, `string`, `[]byte`, `fmt.Stringer`, numeric types, and `bool`; returns a render-time error (propagated out of `Render`) for other types. See [Props](./props). |
+| `gsx.Val` | func | `func Val(v any) Node` | Boxes any renderable value as a Node. Accepts `Node`, `string`, `[]byte`, `fmt.Stringer`, numeric types, and `bool`; returns a render-time error (propagated out of `Render`) for other types. See [Props](./props.md). |
 | `gsx.Text` | func | `func Text(s string) Node` | Boxes a plain string as an HTML-escaped text Node. Equivalent to `{ s }` inline but usable as a value in Go code. |
-| `gsx.Fragment` | func | `func Fragment(nodes ...Node) Node` | Groups multiple Nodes into a single Node that renders them in order with no wrapper element. The value-level equivalent of `<> … </>`. See [Fragments](./fragments). |
+| `gsx.Fragment` | func | `func Fragment(nodes ...Node) Node` | Groups multiple Nodes into a single Node that renders them in order with no wrapper element. The value-level equivalent of `<> … </>`. See [Fragments](./fragments.md). |
 
 ## Class and style helpers (generated; rarely called directly)
 
@@ -57,4 +57,4 @@ The following helpers are what `class={ … }` and `style={ … }` sugar compile
 | `gsx.ClassIf` | func | `func ClassIf(s string, on bool) ClassPart` | Returns a conditional class contribution included only when `on` is true. |
 | `gsx.StyleValue` | func | `func StyleValue(v any) string` | Returns a CSS-safe string: a `gsx.RawCSS` value passes through verbatim; any other value is run through the CSS value-filter. |
 
-See [Styling](./styling) for the full composable `class`/`style` reference.
+See [Styling](./styling.md) for the full composable `class`/`style` reference.

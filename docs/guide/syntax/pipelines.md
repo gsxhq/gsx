@@ -19,7 +19,7 @@ gsx ships a built-in filter library (the `std` package) that is always available
 | `format(spec, rest…)` | like `fmt.Sprintf` with the piped value as the first verb |
 | `dataURL(mime)` | assembles a `data:` URL from `[]byte` bytes and a MIME string: `data:<mime>;base64,<base64(bytes)>` |
 
-To register your own named filter, add it to the `[filters]` table in `gsx.toml` — see [Configuration → `[filters]`](../config#filters-named-pipeline-filters). To register every exported function from a package at once, list the package path in `filterPackages`. In both cases the function must have the seed-first shape: the piped value is the first parameter (after an optional `context.Context`), and extra stage arguments follow.
+To register your own named filter, add it to the `[filters]` table in `gsx.toml` — see [Configuration → `[filters]`](../config.md#filters-named-pipeline-filters). To register every exported function from a package at once, list the package path in `filterPackages`. In both cases the function must have the seed-first shape: the piped value is the first parameter (after an optional `context.Context`), and extra stage arguments follow.
 
 <!--@include: ./_generated/pipelines/010-pipelines-filters.md-->
 
@@ -84,16 +84,16 @@ dangerous scheme reach the browser.
 `{ imageBytes |> dataURL("image/png") }` produces
 `data:image/png;base64,<base64(imageBytes)>`, but that output is still
 re-validated by the sink's sanitizer like any other pipeline result. On an
-[image sink](./escaping#resource-vs-navigational-url-sinks) (`<img src>`,
+[image sink](./escaping.md#resource-vs-navigational-url-sinks) (`<img src>`,
 `<video poster>`, `background`, …), the sanitizer accepts only the image-MIME
 allow-list — `{ pdfBytes |> dataURL("application/pdf") }` on `<img src>` still
 renders `about:invalid#gsx`. On a strict sink (`href`, `action`, …), any
 `dataURL(...)` output is blocked outright; `dataURL` cannot make a `data:` URL
-safe there. See [Escaping — resource vs navigational URL sinks](./escaping#resource-vs-navigational-url-sinks).
+safe there. See [Escaping — resource vs navigational URL sinks](./escaping.md#resource-vs-navigational-url-sinks).
 
 ## `(T, error)` auto-unwrap
 
-A filter that returns `(T, error)` — or any bare function call `{ f(x) }` with that return shape — is automatically unwrapped. There is no special syntax needed: the generated code assigns the result, checks the error, and if it is non-nil, returns it from `Render`. The caller receives the error and can handle it (log, serve a 500, etc.). See [Interpolation → `(T, error)` unwrap](./interpolation) for a worked example.
+A filter that returns `(T, error)` — or any bare function call `{ f(x) }` with that return shape — is automatically unwrapped. There is no special syntax needed: the generated code assigns the result, checks the error, and if it is non-nil, returns it from `Render`. The caller receives the error and can handle it (log, serve a 500, etc.). See [Interpolation → `(T, error)` unwrap](./interpolation.md) for a worked example.
 
 To handle an error inline, use a raw-Go init statement: `{ if v, err := f(); err != nil { … } else { … } }`.
 
@@ -117,7 +117,7 @@ if err != nil {
 // join(v, " ") continues the chain — its result is what gets rendered
 ```
 
-When a stage's error is non-nil, the chain **halts right there**: later stages are never invoked, and the error returns from the component's render — the same semantics as the single-expression `(T, error)` unwrap (see [Interpolation → `(T, error)` unwrap](./interpolation)). This holds in every context a pipeline can appear: text, attributes, composable `class`/`style` parts, spread values, child-component props, and conditional-attribute branches — including a composable `class` part nested inside a component's conditional-attribute branch.
+When a stage's error is non-nil, the chain **halts right there**: later stages are never invoked, and the error returns from the component's render — the same semantics as the single-expression `(T, error)` unwrap (see [Interpolation → `(T, error)` unwrap](./interpolation.md)). This holds in every context a pipeline can appear: text, attributes, composable `class`/`style` parts, spread values, child-component props, and conditional-attribute branches — including a composable `class` part nested inside a component's conditional-attribute branch.
 
 To handle the error instead of propagating it, skip the pipeline for that stage and fall back to the same explicit form: `{ if v, err := parse(csv); err != nil { … } else { … } }`. The `?` try-marker stays rejected at every stage, not just the last.
 

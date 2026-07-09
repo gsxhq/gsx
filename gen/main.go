@@ -15,6 +15,7 @@ import (
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/fullmin"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
+	"github.com/gsxhq/gsx/internal/pretty"
 	"github.com/gsxhq/gsx/internal/rawfmt"
 )
 
@@ -43,7 +44,8 @@ type config struct {
 	urlRules       []attrclass.Rule
 	fieldMatcher   codegen.FieldMatcher
 	errs           []error
-	printWidth     int                     // gsx.toml [formatter] print_width; 0 means "unset" → 80 at use
+	printWidth     int                     // gsx.toml [formatter] print_width; 0 means "unset" → pretty.DefaultPrintWidth at use
+	tabWidth       int                     // gsx.toml [formatter] tab_width; 0 means "unset" → pretty.DefaultTabWidth at use
 	importsMode    gsxfmt.ImportsMode      // gsx.toml [formatter] imports; Unset → goimports at use
 	cssMinLevel    MinifyLevel             // <style> minification level (zero = MinifyNone)
 	jsMinLevel     MinifyLevel             // <script> minification level (zero = MinifyNone)
@@ -51,11 +53,11 @@ type config struct {
 	classMerger    *codegen.ClassMergerRef // configured class merger (option or toml); nil = default
 }
 
-// effectivePrintWidth returns the configured print width, defaulting to 80 when
-// unset (zero or negative).
+// effectivePrintWidth returns the configured print width, defaulting to
+// pretty.DefaultPrintWidth when unset (zero or negative).
 func (c config) effectivePrintWidth() int {
 	if c.printWidth <= 0 {
-		return 80
+		return pretty.DefaultPrintWidth
 	}
 	return c.printWidth
 }
@@ -218,8 +220,8 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 		}
 		return runInfo(stdout, stderr, workDir, configPath, merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher, cmdArgs, merged.cssMinLevel, merged.jsMinLevel, merged.effectivePrintWidth())
 	case "fmt":
-		// fmt respects gsx.toml printWidth per-dir (via printWidthFor inside
-		// runFmt) and tolerates a malformed config. The CSS/JS formatter
+		// fmt respects gsx.toml printWidth/tabWidth per-file (via formatSettingsFor
+		// inside runFmt) and tolerates a malformed config. The CSS/JS formatter
 		// overrides are programmatic options (no gsx.toml entry), so they come
 		// from cfg directly — not resolveConfig (which would hard-fail on a bad
 		// config).

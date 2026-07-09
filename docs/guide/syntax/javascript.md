@@ -30,7 +30,7 @@ For ordinary expression attributes, `attr={expr}` uses normal attribute escaping
 unless the attribute is URL-context by name. Use `` js`...` `` when the value is
 code or a JavaScript expression, and an `f`-prefixed literal — `` name=f`…@{ x }…` `` —
 when the value is ordinary text with holes rather than code; see
-[Attributes — Interpolating attribute literals](./attributes#interpolating-attribute-literals).
+[Attributes — Interpolating attribute literals](./attributes.md#interpolating-attribute-literals).
 
 `` js`...` `` also accepts a `"`-delimited form, `js"..."`, semantically
 identical — pick whichever quote your JavaScript doesn't contain. It is the

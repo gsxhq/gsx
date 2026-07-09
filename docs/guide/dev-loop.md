@@ -80,7 +80,7 @@ The last-good-server guarantee only holds once a server has built at least once.
 the server fails to build on the **first** start, there is no previous binary to fall
 back to, so the browser shows a generic "backend down" page rather than a source-level
 overlay. `gsx dev` mirrors the server's build and run output to a log file
-(`tmp/dev.log` in the starter, enabled with [`--log`](./cli#gsx-dev)), and the "backend
+(`tmp/dev.log` in the starter, enabled with [`--log`](./cli.md#gsx-dev)), and the "backend
 down" page tails it — so that first-build compiler error is visible there. If the log
 file is absent, the page still shows, but with no log to display; enable the log to see
 why the server did not build.
@@ -94,5 +94,5 @@ also replaces the classic multi-tool setup — a generic file watcher, a separat
 codegen watcher, and a log multiplexer — with a single command that tears down
 cleanly.
 
-See the [CLI reference](./cli#gsx-dev) for `gsx dev`'s flags, and
-[Getting started](./getting-started) to scaffold a project and run the loop.
+See the [CLI reference](./cli.md#gsx-dev) for `gsx dev`'s flags, and
+[Getting started](./getting-started.md) to scaffold a project and run the loop.

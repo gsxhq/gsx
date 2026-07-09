@@ -32,20 +32,21 @@ import (
 )
 
 // Fprint writes the canonical gsx rendering of f to w, wrapping lists that
-// exceed width columns. width <= 0 uses pretty's default (80).
-func Fprint(w io.Writer, f *ast.File, width int) error {
-	return FprintWith(w, f, width, defaultCSSFormatter(width), defaultJSFormatter(width))
+// exceed width columns. width <= 0 uses pretty.DefaultPrintWidth; tabWidth <= 0
+// uses pretty.DefaultTabWidth.
+func Fprint(w io.Writer, f *ast.File, width, tabWidth int) error {
+	return FprintWith(w, f, width, tabWidth, defaultCSSFormatter(width), defaultJSFormatter(width))
 }
 
 // FprintWith is Fprint with explicit CSS and JS formatters for <style>/<script>
 // bodies. A nil formatter leaves that body verbatim.
-func FprintWith(w io.Writer, f *ast.File, width int, cssFmt, jsFmt rawfmt.Formatter) error {
+func FprintWith(w io.Writer, f *ast.File, width, tabWidth int, cssFmt, jsFmt rawfmt.Formatter) error {
 	p := printer{cssFmt: cssFmt, jsFmt: jsFmt}
 	doc := p.file(f)
 	if p.err != nil {
 		return p.err
 	}
-	_, err := io.WriteString(w, pretty.Print(doc, width))
+	_, err := io.WriteString(w, pretty.Print(doc, width, tabWidth))
 	return err
 }
 
@@ -1145,7 +1146,7 @@ func writeCondAttrList(b *strings.Builder, attrs []ast.Attr) {
 // prints it flat at a very wide margin so no Line ever breaks.
 func markupInlineString(n ast.Markup) string {
 	var p printer
-	return pretty.Print(p.markup(n), 1<<30)
+	return pretty.Print(p.markup(n), 1<<30, pretty.DefaultTabWidth)
 }
 
 // rawHoleChildren renders <style>/<script> children: Text verbatim, Interp with
@@ -1330,7 +1331,7 @@ func goExprHoleRune(src string) (string, bool) {
 // width to hand to gofmt.
 func goExprFlatWidth(doc pretty.Doc) (int, bool) {
 	const wide = 1 << 20 // wider than any real line: nothing breaks unless forced
-	flat := pretty.Print(doc, wide)
+	flat := pretty.Print(doc, wide, pretty.DefaultTabWidth)
 	if strings.Contains(flat, "\n") {
 		return 0, false
 	}

@@ -7,10 +7,7 @@ component Layout(title string) {
 	<html lang="en">
 		<head>
 			<meta charset="UTF-8"/>
-			<meta
-				name="viewport"
-				content="width=device-width, initial-scale=1.0"
-			/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			<title>{ title }</title>
 			{{ v := vite.FromContext(ctx) }}
 			{ if v.Dev() {
@@ -67,11 +64,7 @@ component Index(title string) {
 			<a href="https://vite.dev" target="_blank" rel="noreferrer">
 				<img src="/public/vite.svg" class="logo" alt="Vite logo"/>
 			</a>
-			<a
-				href="https://github.com/gsxhq/gsx"
-				target="_blank"
-				rel="noreferrer"
-			>
+			<a href="https://github.com/gsxhq/gsx" target="_blank" rel="noreferrer">
 				<img src="/public/gsx.svg" class="logo gsx" alt="gsx logo"/>
 			</a>
 			<h1>gsx + Vite</h1>
