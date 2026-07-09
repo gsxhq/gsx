@@ -213,6 +213,23 @@ func TestBuildPackageSkeletonsNoExternalLoad(t *testing.T) {
 // LSP side's candidate-name resolution (which needs a.pkg.Imports()) diverges
 // from the CLI's independent packages.Load, and this test's job is comparing
 // the two syntactic classifiers, not re-litigating that edge.
+//
+// Known blind spot (confirmed by adversarial review): this skip fires
+// precisely on the class of input where the two name sources diverge — an
+// import path outside analyze's own importer graph produces a go/types
+// "could not import" error (error severity, message not "imported and not
+// used"), which trips this guard and skips the whole case before
+// assertSameRemovalSet ever runs. Concretely, adding a math/rand/v2-shaped
+// case (default import, real name != path base, unresolvable via the
+// importer graph) to the cases map above would silently no-op, not exercise
+// anything — this oracle structurally cannot see that divergence. That gap
+// is deliberately NOT closed here; it is covered directly, with an oracle
+// that does not depend on a.pkg's completeness, by
+// TestPackageUnusedImportsDoesNotDeleteUsedRandV2 (the Critical false-positive
+// this divergence caused), TestPackageUnusedImportsKeepsUnresolvableCandidate,
+// TestPackageUnusedImportsHeadlineCaseStillRemoved, and
+// TestModuleAndPackageDivergeOnUnresolvableNameNeBase (all in
+// unused_imports_lsp_test.go).
 func anyErrorDiagCodegen(diags []diag.Diagnostic) bool {
 	for _, d := range diags {
 		if d.Severity == diag.Error && !strings.Contains(d.Message, "imported and not used") {
