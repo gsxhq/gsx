@@ -34,7 +34,7 @@ func newEditorConfigResolver() *editorConfigResolver {
 }
 
 // settingsFor never fails: a missing, unreadable, or malformed .editorconfig
-// yields the zero editorSettings, exactly like printWidthFor's own
+// yields the zero editorSettings, exactly like formatSettingsFor's own
 // discovery/decode fallbacks. gsx fmt must not die on someone else's config.
 func (r *editorConfigResolver) settingsFor(path string) editorSettings {
 	r.mu.Lock()
