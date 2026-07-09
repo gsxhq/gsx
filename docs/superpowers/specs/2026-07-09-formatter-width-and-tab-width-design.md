@@ -231,8 +231,11 @@ Change B:
 
 - Corpus cases: break at depth; outermost-first with a nested literal that then
   fits; a nested literal that does *not* fit and must also break; a literal with
-  a multi-line element; a single field wider than the budget (no progress →
-  leave it); an element-free Go chunk (proving the rule is not element-gated).
+  a multi-line element; a single field wider than the budget (it still breaks
+  once — no break can bring its own line under budget, but the pass breaks
+  unconditionally once the flat form doesn't fit, same as prettier — and the
+  pass must terminate after that one round rather than looping); an
+  element-free Go chunk (proving the rule is not element-gated).
 - A `breakWideLiterals` output-is-a-gofmt-fixed-point test, mirroring
   `TestBlockFormBracesOutputIsGofmtFixedPoint`.
 - Every new corpus golden must be checked to *discriminate*: revert the pass,

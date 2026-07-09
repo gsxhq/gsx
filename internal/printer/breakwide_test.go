@@ -15,10 +15,22 @@ func TestBreakWideLiterals(t *testing.T) {
 		src:  "package p\n\nvar x = []T{\n\t{a: 1, b: 2},\n}\n",
 		want: "package p\n\nvar x = []T{\n\t{a: 1, b: 2},\n}\n",
 	}, {
+		// The outer break ALONE brings the inner under budget, so the inner stays
+		// inline. An innermost-first implementation would explode the inner literal
+		// here; this is the case that tells the two apart. Inner literal text is 77
+		// columns; "var x = []T{" + 77 + "}" = 90 (over budget, so the outer
+		// breaks); after the outer break, one tab + 77 + a trailing comma = 79
+		// (under budget, so the inner is left alone).
+		name: "outermost first: outer break alone suffices, inner stays inline",
+		src:  "package p\n\nvar x = []T{{alpha: \"aaaaaaaaaaaaaaa\", beta: \"bbbbbbbbbbbbbbb\", gamma: \"ccccccccccccccc\"}}\n",
+		want: "package p\n\nvar x = []T{\n\t{alpha: \"aaaaaaaaaaaaaaa\", beta: \"bbbbbbbbbbbbbbb\", gamma: \"ccccccccccccccc\"},\n}\n",
+	}, {
 		// The inner literal on its own line is 82 columns at tabWidth 1 (still
 		// over an 80 budget), so the outer break alone is not enough: the inner
-		// literal's fields get broken too, on the next round.
-		name: "outermost first: inner still over budget, so it breaks too",
+		// literal's fields get broken too, on the next round. This does NOT
+		// distinguish outermost-first from innermost-first (both would arrive
+		// here) -- see the case above for that.
+		name: "nested: inner still over budget after the outer break, so it breaks too",
 		src:  "package p\n\nvar x = []T{{alpha: \"aaaaaaaaaaaaaaaa\", beta: \"bbbbbbbbbbbbbbbb\", gamma: \"cccccccccccccccc\"}}\n",
 		want: "package p\n\nvar x = []T{\n\t{\n\t\talpha: \"aaaaaaaaaaaaaaaa\",\n\t\tbeta:  \"bbbbbbbbbbbbbbbb\",\n\t\tgamma: \"cccccccccccccccc\",\n\t},\n}\n",
 	}, {
@@ -26,9 +38,12 @@ func TestBreakWideLiterals(t *testing.T) {
 		// width, but go/printer's grouping breaks unconditionally once the flat
 		// form doesn't fit — mirroring prettier, which breaks a single-property
 		// object the same way even when the property's own line still overflows.
-		// The pass still must not loop: round two can't relocate the (now split)
-		// literal onto the bad line again, so it stops after one round.
-		name: "single over-long field breaks once, then stops (no infinite loop)",
+		// Breaking here is correct, not something to guard against — the
+		// invariant this pins is termination, not "leave the unsplittable field
+		// alone": round two can't relocate the (now split) literal onto the bad
+		// line again, so it stops after one round. See
+		// TestBreakWideLiteralsTerminates for the direct fixed-point check.
+		name: "unsplittable field: breaks once, then stops",
 		src:  "package p\n\nvar x = T{a: \"" + strings.Repeat("z", 100) + "\"}\n",
 		want: "package p\n\nvar x = T{\n\ta: \"" + strings.Repeat("z", 100) + "\",\n}\n",
 	}, {
@@ -68,6 +83,24 @@ func TestBreakWideLiteralsOutputIsGofmtFixedPoint(t *testing.T) {
 		}
 		if got := breakWideLiterals(string(out), 80, 1); got != string(out) {
 			t.Errorf("breakWideLiterals re-fires on gofmt's output for %q:\n got %q\nwant %q", src, got, out)
+		}
+	}
+}
+
+// The loop ends on no progress, never on a round count. A field wider than the
+// budget cannot be fixed by breaking, and must not loop forever. Assert both
+// that the pass returns and that its output is a fixed point of itself — a pass
+// that oscillated between two layouts would hang the formatter.
+func TestBreakWideLiteralsTerminates(t *testing.T) {
+	cases := map[string]string{
+		"single over-long field": "package p\n\nvar x = T{a: \"" + strings.Repeat("z", 100) + "\"}\n",
+		"nested unfixable":       "package p\n\nvar x = O{i: I{a: \"" + strings.Repeat("z", 100) + "\"}}\n",
+		"deep nest":              "package p\n\nvar x = A{b: B{c: C{d: D{e: \"" + strings.Repeat("z", 90) + "\"}}}}\n",
+	}
+	for name, src := range cases {
+		out := breakWideLiterals(src, 80, 1)
+		if again := breakWideLiterals(out, 80, 1); again != out {
+			t.Errorf("%s: not a fixed point of itself\n once %q\ntwice %q", name, out, again)
 		}
 	}
 }
