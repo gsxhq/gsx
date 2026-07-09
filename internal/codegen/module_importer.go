@@ -1039,18 +1039,13 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// typed context (the props literal or gsx.Attrs assignment), so suppressing
 	// errors inside _gsxuseq avoids duplicate diagnostics. Positions are raw
 	// token.Pos in the shared fset, directly comparable to a types.Error's Pos.
-	var quietSpans []struct{ start, end token.Pos }
+	// missingFromSkeletons (add_imports.go) filters on these same spans
+	// (recomputed per-file via the shared harvestProbeSpans helper below) for
+	// the same reason: the diagnostic the user sees anchors at the
+	// props-literal copy, so MissingImport.Pos must match it too.
+	var quietSpans []posSpan
 	for _, gf := range goFiles {
-		goast.Inspect(gf, func(n goast.Node) bool {
-			call, ok := n.(*goast.CallExpr)
-			if !ok {
-				return true
-			}
-			if id, ok := call.Fun.(*goast.Ident); ok && id.Name == "_gsxuseq" {
-				quietSpans = append(quietSpans, struct{ start, end token.Pos }{call.Pos(), call.End()})
-			}
-			return true
-		})
+		quietSpans = append(quietSpans, harvestProbeSpans(gf)...)
 	}
 	for _, e := range typeErrs {
 		suppressed := false
@@ -1238,11 +1233,11 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 
 	// Missing imports for the LSP surface (Package's PackageResult.MissingImports),
 	// computed from the same skeletons and the same type-checked info — no extra
-	// parse, no lock, no packages.Load. inferByXGo lets it filter out the
-	// inference-harvest probe's own copy of a child-prop expression (the same
-	// registry the type-error loop's probeSiteForError call, above, already
-	// uses). See missingFromSkeletons' doc.
-	missingImports := missingFromSkeletons(skelByGsx, fset, info, inferByXGo)
+	// parse, no lock, no packages.Load. Filters out each file's harvest-probe
+	// copy of a child-prop expression using harvestProbeSpans, the same helper
+	// the type-error loop's quietSpans, above, is built from. See
+	// missingFromSkeletons' doc.
+	missingImports := missingFromSkeletons(skelByGsx, fset, info)
 
 	return &analyzed{
 		pkgName:            pkgName,
@@ -1274,6 +1269,39 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		unusedImports:      unusedImports,
 		missingImports:     missingImports,
 	}, nil
+}
+
+// posSpan is a byte-range [start, end) of token.Pos values in a shared
+// token.FileSet — comparable directly against another token.Pos from the same
+// fset without going through Position()/PositionFor(), since a raw token.Pos
+// is just an offset into the fset regardless of any //line directive.
+type posSpan struct{ start, end token.Pos }
+
+// harvestProbeSpans returns the skeleton byte spans of f's _gsxuseq(...)
+// child-prop and element-spread harvest probes. Each probed expression is
+// ALSO checked in a native typed context (the props literal / gsx.Attrs
+// assignment), so the probe copy is redundant: type errors inside it are
+// suppressed (the type-error loop, above), and the diagnostic the user sees
+// anchors at the props-literal copy. Anything that must agree with that
+// diagnostic — MissingImport.Pos, notably (missingFromSkeletons, in
+// add_imports.go) — must skip these spans too, or it will point at the
+// _gsxuseq copy instead of wherever the diagnostic actually landed.
+//
+// One AST walk per file; callers that need every file's spans (the type-error
+// loop) accumulate this per goFiles entry rather than re-walking.
+func harvestProbeSpans(f *goast.File) []posSpan {
+	var spans []posSpan
+	goast.Inspect(f, func(n goast.Node) bool {
+		call, ok := n.(*goast.CallExpr)
+		if !ok {
+			return true
+		}
+		if id, ok := call.Fun.(*goast.Ident); ok && id.Name == "_gsxuseq" {
+			spans = append(spans, posSpan{call.Pos(), call.End()})
+		}
+		return true
+	})
+	return spans
 }
 
 // probeSiteForError resolves a type-checker error's position to the
