@@ -1,6 +1,10 @@
 package gsxfmt
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/gsxhq/gsx/internal/pretty"
+)
 
 const messy = `package views
 
@@ -83,6 +87,41 @@ func TestFormatPreservesMultilineEmbeddedAttrBody(t *testing.T) {
 	}
 	if string(again) != string(out) {
 		t.Fatalf("Format is not idempotent:\nonce:\n%s\ntwice:\n%s", out, again)
+	}
+}
+
+// Tab width changes where a line overflows, so the same source lays out
+// differently at 2 and at 4. Nothing pinned this before: changing tabWidth
+// broke zero tests, which measured coverage, not safety.
+func TestFormatWithTabWidthChangesLayout(t *testing.T) {
+	// A deeply-indented element whose line sits between the two budgets.
+	src := []byte("package ui\n\ncomponent C() {\n\t<div>\n\t\t<span class=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\">x</span>\n\t</div>\n}\n")
+
+	at2, err := FormatWith("x.gsx", src, FormatOptions{Width: 80, TabWidth: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	at4, err := FormatWith("x.gsx", src, FormatOptions{Width: 80, TabWidth: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(at2) == string(at4) {
+		t.Errorf("tab width had no effect on layout:\n%s", at2)
+	}
+}
+
+func TestFormatOptionsTabWidthZeroIsDefault(t *testing.T) {
+	src := []byte("package ui\n\ncomponent C() {\n\t<p>hi</p>\n}\n")
+	zero, err := FormatWith("x.gsx", src, FormatOptions{Width: 80, TabWidth: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	def, err := FormatWith("x.gsx", src, FormatOptions{Width: 80, TabWidth: pretty.DefaultTabWidth})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(zero) != string(def) {
+		t.Error("TabWidth 0 must mean DefaultTabWidth")
 	}
 }
 
