@@ -47,6 +47,43 @@ func TestBreakWideLiterals(t *testing.T) {
 		src:  "package p\n\nvar x = T{a: \"" + strings.Repeat("z", 100) + "\"}\n",
 		want: "package p\n\nvar x = T{\n\ta: \"" + strings.Repeat("z", 100) + "\",\n}\n",
 	}, {
+		// A literal the author broke PARTIALLY: alpha, beta, and gamma still share
+		// the `{` line (101 columns -- over the 80 budget), delta sits alone on
+		// the next. Comparing only the first (alpha) and last (delta) element's
+		// lines mistakes this for "already one per line" -- last (4) > first (3)
+		// -- and leaves the 101-column line alone forever.
+		//
+		// NOTE: the spec's suggested src/want for this case (alpha+beta sharing
+		// the line, gamma alone) gofmts to a 70-column first line -- under the
+		// 80-column budget, so firstWideLine never fires and the case would pass
+		// even against the unfixed code. Widened here to alpha+beta+gamma sharing
+		// the line (the exact repro from the bug report) so the case actually
+		// exercises, and fails against, the buggy guard.
+		name: "partially broken literal is finished, not skipped",
+		src:  "package p\n\nvar x = T{alpha: \"aaaaaaaaaaaaaaaaaaaa\", beta: \"bbbbbbbbbbbbbbbbbbbb\", gamma: \"cccccccccccccccccccc\",\n\tdelta: \"d\"}\n",
+		want: "package p\n\nvar x = T{\n\talpha: \"aaaaaaaaaaaaaaaaaaaa\",\n\tbeta:  \"bbbbbbbbbbbbbbbbbbbb\",\n\tgamma: \"cccccccccccccccccccc\",\n\tdelta: \"d\",\n}\n",
+	}, {
+		// A literal already one element per line, with the first element already
+		// off the `{` line: fully broken, so there is no progress to make. Must be
+		// left byte-identical -- no blank lines inserted.
+		name: "fully broken literal left as-is",
+		src:  "package p\n\nvar x = T{\n\talpha: \"aaaaaaaaaaaaaaaaaaaa\",\n\tbeta:  \"bbbbbbbbbbbbbbbbbbbb\",\n\tgamma: \"cccccccccccccccccccc\",\n}\n",
+		want: "package p\n\nvar x = T{\n\talpha: \"aaaaaaaaaaaaaaaaaaaa\",\n\tbeta:  \"bbbbbbbbbbbbbbbbbbbb\",\n\tgamma: \"cccccccccccccccccccc\",\n}\n",
+	}, {
+		// The case above never actually reaches the fully-broken guard: every line
+		// is under budget, so firstWideLine returns 0 and breakFirstWideLiteral
+		// exits before Inspect ever runs. Here the `var` line is independently
+		// wide (a long identifier, nothing to do with the literal), so its line
+		// number IS badLine on every round, and the literal's Lbrace sits on it
+		// too -- the guard is actually exercised, every round, on an already
+		// fully-broken multi-field literal. A guard that answered "not fully
+		// broken" here would either splice in a blank line or -- for the
+		// single-field variant -- report changed=true despite writing no bytes,
+		// spinning forever.
+		name: "fully broken literal with independently wide brace line stays put",
+		src:  "package p\n\nvar " + strings.Repeat("x", 80) + " = T{\n\talpha: \"a\",\n\tbeta:  \"b\",\n}\n",
+		want: "package p\n\nvar " + strings.Repeat("x", 80) + " = T{\n\talpha: \"a\",\n\tbeta:  \"b\",\n}\n",
+	}, {
 		name: "unparseable source passes through",
 		src:  "package p\n\nvar x = T{{{\n",
 		want: "package p\n\nvar x = T{{{\n",
