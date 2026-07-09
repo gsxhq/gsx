@@ -3,11 +3,9 @@ package corpus
 import (
 	"bytes"
 	"flag"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"testing"
 
@@ -17,15 +15,14 @@ import (
 var update = flag.Bool("update", false, "regenerate golden sections in testdata/cases")
 
 func TestCorpus(t *testing.T) {
-	repoRoot, _ := filepath.Abs("../..")
-	var files []string
-	filepath.WalkDir("testdata/cases", func(p string, d fs.DirEntry, err error) error {
-		if err == nil && !d.IsDir() && strings.HasSuffix(p, ".txtar") {
-			files = append(files, p)
-		}
-		return nil
-	})
-	sort.Strings(files)
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatalf("resolve repo root: %v", err)
+	}
+	files, err := txtarFiles("testdata/cases")
+	if err != nil {
+		t.Fatalf("walk testdata/cases: %v", err)
+	}
 	if len(files) == 0 {
 		t.Fatal("no testdata/cases/**/*.txtar")
 	}
@@ -44,32 +41,25 @@ func TestCorpus(t *testing.T) {
 	// Classify cases and collect codegen candidates for ONE batchCodegen call.
 	// A candidate is any case that is NOT a parse-error case and NOT a parser-layer case.
 	type classification struct {
-		single      bool
-		parserDiag  []byte
-		astDump     []byte
-		isCandidate bool
+		single     bool
+		parserDiag []byte
+		astDump    []byte
 	}
 	classif := make(map[string]*classification, len(cases))
 	var candidates []*caseDoc
 
 	for _, c := range cases {
 		astDump, parserDiag, single := c.astAndParserDiag()
-		cl := &classification{
+		classif[c.name] = &classification{
 			single:     single,
 			parserDiag: parserDiag,
 			astDump:    astDump,
 		}
-		if single && len(parserDiag) > 0 {
-			// parse-error case — no codegen
-			cl.isCandidate = false
-		} else if single && hasAstGolden(c) {
-			// parser-layer snapshot — no codegen
-			cl.isCandidate = false
-		} else {
-			cl.isCandidate = true
+		parseError := single && len(parserDiag) > 0
+		parserSnapshot := single && hasAstGolden(c)
+		if !parseError && !parserSnapshot {
 			candidates = append(candidates, c)
 		}
-		classif[c.name] = cl
 	}
 
 	// Single batchCodegen call for candidate cases that can match this test run.
@@ -296,7 +286,7 @@ func setSection(arc *txtar.Archive, name string, data []byte) {
 // writeArchive writes the archive back to path.
 func writeArchive(t *testing.T, path string, arc *txtar.Archive) {
 	t.Helper()
-	if err := os.WriteFile(path, txtar.Format(arc), 0644); err != nil {
+	if err := os.WriteFile(path, txtar.Format(arc), 0o644); err != nil {
 		t.Fatalf("writeArchive %s: %v", path, err)
 	}
 }

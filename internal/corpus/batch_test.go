@@ -9,9 +9,18 @@ func TestBatchCodegenSingleAndMulti(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skip batch build in -short")
 	}
-	repoRoot, _ := filepath.Abs("../..")
-	single, _ := loadCase("testdata/loadertest/single.txtar")
-	multi, _ := loadCase("testdata/loadertest/multi.txtar")
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatalf("resolve repo root: %v", err)
+	}
+	single, err := loadCase("testdata/loadertest/single.txtar")
+	if err != nil {
+		t.Fatalf("load single: %v", err)
+	}
+	multi, err := loadCase("testdata/loadertest/multi.txtar")
+	if err != nil {
+		t.Fatalf("load multi: %v", err)
+	}
 	out, err := batchCodegen(repoRoot, []*caseDoc{single, multi})
 	if err != nil {
 		t.Fatal(err)

@@ -1,10 +1,7 @@
 package corpus
 
 import (
-	"io/fs"
 	"path/filepath"
-	"sort"
-	"strings"
 	"testing"
 )
 
@@ -12,17 +9,16 @@ import (
 // pipeline (codegen + go run) and asserts its render.golden — the same harness
 // TestCorpus uses. Run with -update to (re)generate the render.golden sections.
 func TestExamples(t *testing.T) {
-	repoRoot, _ := filepath.Abs("../..")
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatalf("resolve repo root: %v", err)
+	}
 	examplesDir := filepath.Join(repoRoot, "examples")
 
-	var files []string
-	filepath.WalkDir(examplesDir, func(p string, d fs.DirEntry, err error) error {
-		if err == nil && !d.IsDir() && strings.HasSuffix(p, ".txtar") {
-			files = append(files, p)
-		}
-		return nil
-	})
-	sort.Strings(files)
+	files, err := txtarFiles(examplesDir)
+	if err != nil {
+		t.Fatalf("walk examples: %v", err)
+	}
 	if len(files) == 0 {
 		t.Fatal("no examples/*.txtar found")
 	}
