@@ -32,6 +32,13 @@
 //	                its Unused list from full module analysis (type-checking,
 //	                `go list`), which this suite deliberately avoids to stay
 //	                quick — the corpus case supplies the same list by hand.
+//	-- add --       newline-separated import refs to insert before formatting,
+//	                same `path` / `alias path` syntax as -- unused --. Absent
+//	                means Add is nil. This section exists for the same reason as
+//	                -- unused --: the real `gsx fmt` CLI derives its Add list from
+//	                the language server's missing-qualifier analysis (type-
+//	                checking against the module), which this suite avoids to stay
+//	                quick — the corpus case supplies the same list by hand.
 //
 // Regenerate with: go test ./internal/gsxfmt -run TestFmtCorpus -update
 // Then re-run without -update to verify.
@@ -88,14 +95,23 @@ func TestFmtCorpus(t *testing.T) {
 
 			var unused []ImportRef
 			if raw, ok := archiveFile(ar, "unused"); ok {
-				refs, err := parseUnusedRefs(string(raw))
+				refs, err := parseImportRefs(string(raw))
 				if err != nil {
 					t.Fatalf("case %s: %v", path, err)
 				}
 				unused = refs
 			}
 
-			opts := FormatOptions{Unused: unused, Width: fmtWidth, Reorder: mode.Reorder()}
+			var add []ImportRef
+			if raw, ok := archiveFile(ar, "add"); ok {
+				refs, err := parseImportRefs(string(raw))
+				if err != nil {
+					t.Fatalf("case %s: %v", path, err)
+				}
+				add = refs
+			}
+
+			opts := FormatOptions{Unused: unused, Add: add, Width: fmtWidth, Reorder: mode.Reorder()}
 
 			got, err := FormatWith("input.gsx", input, opts)
 			if err != nil {
@@ -136,10 +152,10 @@ func TestFmtCorpus(t *testing.T) {
 	}
 }
 
-// parseUnusedRefs parses a "-- unused --" section body into ImportRefs, one per
-// non-blank, non-comment line, each spelled `path` (default import) or
-// `alias path` (aliased import).
-func parseUnusedRefs(raw string) ([]ImportRef, error) {
+// parseImportRefs parses a "-- unused --" or "-- add --" section body into
+// ImportRefs, one per non-blank, non-comment line, each spelled `path` (default
+// import) or `alias path` (aliased import).
+func parseImportRefs(raw string) ([]ImportRef, error) {
 	var refs []ImportRef
 	for line := range strings.SplitSeq(raw, "\n") {
 		line = strings.TrimSpace(line)
