@@ -218,12 +218,42 @@ func (m *Module) resolvePackageNames(paths []string) map[string]string {
 // producing one) yields an empty map, so every candidate is conservatively
 // kept by the caller — mirroring resolvePackageNames' own "absent path ⇒ keep"
 // contract.
+//
+// Completeness gates every entry (imp.Complete()). When an import path is not
+// in the type-checker's own importer graph (moduleImporter/externalImporter —
+// e.g. it is reachable only via the .gsx source, not via the gsx runtime, the
+// std filter package, or the module's other Go files), go/types cannot load
+// it, but it still needs a placeholder *types.Package to keep type-checking
+// the rest of the file. It fabricates one named after the import PATH'S LAST
+// SEGMENT (verified: "math/rand/v2" → placeholder name "v2", real declared
+// name "rand") and leaves it incomplete. Trusting that guessed name is exactly
+// the banned "simple heuristic": it makes classifyUnusedImports' candidate
+// check compare the file's used-name set against "v2" instead of "rand", so a
+// live `rand.IntN(3)` reference is invisible and the import is reported
+// unused — the LSP then deletes a working import out from under the user.
+// Skipping incomplete imports here means their real name is simply
+// unresolvable from types alone, so unusedImportsCore's `!ok → continue`
+// conservatively keeps them — the same "absent path ⇒ keep" contract
+// resolvePackageNames already provides for the CLI path.
+//
+// Accepted trade-off: a candidate import that is BOTH genuinely unused AND
+// outside the importer graph (so its real name can only be a guess) is now
+// KEPT by the LSP even though `Module.UnusedImports`/`gsx fmt` (which resolves
+// names via a real `go list`, not a guess) still correctly removes it. This
+// under-removal is deliberate and asymmetric: failing to flag a genuinely
+// unused import is a missed cleanup opportunity; deleting a used one breaks
+// the user's build. See docs/superpowers/specs/2026-07-09-lsp-unused-imports-
+// design.md.
 func importNamesFromTypes(pkg *types.Package) map[string]string {
 	out := map[string]string{}
 	if pkg == nil {
 		return out
 	}
 	for _, imp := range pkg.Imports() {
+		if !imp.Complete() {
+			// Fabricated path-base placeholder — not a fact, do not trust it.
+			continue
+		}
 		out[imp.Path()] = imp.Name()
 	}
 	return out

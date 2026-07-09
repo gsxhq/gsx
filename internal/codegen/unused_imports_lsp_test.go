@@ -56,10 +56,14 @@ func TestPackageUnusedImportsSurvivesOtherError(t *testing.T) {
 // TestPackageParityWithModuleUnusedImports proves Package(dir).UnusedImports
 // (the LSP surface, now computed from analyze's already-type-checked skeletons)
 // agrees exactly with Module.UnusedImports(dir) (the CLI's independent
-// packages.Load-based syntactic classifier) across every import-spec shape:
-// plain default, aliased, blank `_`, dot `.`, a name that differs from its
-// path's base (math/rand/v2 declares package "rand"), and a genuinely used
-// import (must be absent from both).
+// packages.Load-based syntactic classifier) across every import-spec shape
+// where the two ARE expected to agree: plain default, aliased, blank `_`, dot
+// `.`, and a genuinely used import (must be absent from both).
+//
+// A default import whose real name differs from its path base
+// (math/rand/v2 declares package "rand", base "v2") is deliberately NOT a case
+// here: see TestModuleAndPackageDivergeOnUnresolvableNameNeBase below, which
+// documents and asserts that the two surfaces now legitimately DISAGREE on it.
 func TestPackageParityWithModuleUnusedImports(t *testing.T) {
 	cases := map[string]map[string]string{
 		"default": {
@@ -73,9 +77,6 @@ func TestPackageParityWithModuleUnusedImports(t *testing.T) {
 		},
 		"dot": {
 			"a.gsx": "package testmod\n\nimport . \"bytes\"\n\ncomponent A() {\n\t<p>hi</p>\n}\n",
-		},
-		"name_ne_base": {
-			"a.gsx": "package testmod\n\nimport \"math/rand/v2\"\n\ncomponent A() {\n\t<p>hi</p>\n}\n",
 		},
 		"used": {
 			"a.gsx": "package testmod\n\nimport \"strings\"\n\ncomponent A() {\n\t<p>{strings.ToUpper(\"x\")}</p>\n}\n",
@@ -94,6 +95,52 @@ func TestPackageParityWithModuleUnusedImports(t *testing.T) {
 			}
 			assertSameRemovalSet(t, dir, pr.UnusedImports, syn)
 		})
+	}
+}
+
+// TestModuleAndPackageDivergeOnUnresolvableNameNeBase documents and asserts
+// the one input shape where Package() (LSP) and Module.UnusedImports (CLI) now
+// legitimately disagree, as a direct consequence of this file's Complete()
+// fix: a default import whose real package name differs from its path base
+// AND is outside the type-checker's own importer graph (math/rand/v2, unused,
+// declares package "rand", path base "v2").
+//
+//   - Module.UnusedImports resolves the candidate's real name via
+//     resolvePackageNames — a fresh, targeted `go list` (NeedName-only) that
+//     always finds the real name regardless of what analyze's importer graph
+//     happens to already contain. It correctly resolves "rand" and reports the
+//     (unused) import removed.
+//   - Package() resolves candidate names from the already-type-checked
+//     *types.Package (importNamesFromTypes) with NO extra go-list call, for
+//     LSP hot-path performance. Here go/types never loaded math/rand/v2 (nothing
+//     else in the importer graph — the gsx runtime, the std filter package, the
+//     module's other Go files — reaches it), so it fabricates an incomplete
+//     placeholder named after the path base ("v2"), which importNamesFromTypes
+//     now deliberately skips (Complete()==false) rather than trust as a guess.
+//     The candidate is therefore unresolvable and conservatively KEPT.
+//
+// This is the documented, accepted trade-off: under-removal (LSP keeps a
+// genuinely unused import it can't safely name-resolve) is safe; the
+// alternative — trusting the fabricated name — is what let the LSP delete a
+// USED import (see TestPackageUnusedImportsDoesNotDeleteUsedRandV2).
+func TestModuleAndPackageDivergeOnUnresolvableNameNeBase(t *testing.T) {
+	dir, m := openTestModule(t, map[string]string{
+		"a.gsx": "package testmod\n\nimport \"math/rand/v2\"\n\ncomponent A() {\n\t<p>hi</p>\n}\n",
+	})
+	pr, err := m.Package(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u := pr.UnusedImports[filepath.Join(dir, "a.gsx")]; len(u) != 0 {
+		t.Errorf("Package(): want math/rand/v2 conservatively KEPT (unresolvable via types), got reported unused: %+v", u)
+	}
+	syn, _, err := m.UnusedImports(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	su := syn[filepath.Join(dir, "a.gsx")]
+	if len(su) != 1 || su[0].Path != "math/rand/v2" {
+		t.Errorf(`Module.UnusedImports: want math/rand/v2 (resolved to "rand" via go list) reported unused; got %+v`, su)
 	}
 }
 
@@ -137,13 +184,28 @@ func TestPackageUnusedImportsDoesNotCallGoList(t *testing.T) {
 	}
 }
 
-// TestPackageUnusedImportsNameNeBaseViaTypes covers the case
-// resolvePackageNames exists to handle for the CLI: a default import whose real
-// package name differs from its path's last segment (math/rand/v2 declares
-// package "rand", not "v2"). Package() must resolve this correctly from
-// a.pkg.Imports() (populated by the skeleton type-check) without calling
-// resolvePackageNames at all.
-func TestPackageUnusedImportsNameNeBaseViaTypes(t *testing.T) {
+// TestPackageUnusedImportsKeepsUnresolvableCandidate covers the false-positive
+// this file's Critical fix removes. math/rand/v2 is outside the type-checker's
+// own importer graph (moduleImporter/externalImporter never load it here: it's
+// reached only from this .gsx file, not from the gsx runtime, the std filter
+// package, or any other Go file in the module), so go/types cannot resolve it
+// and fabricates an incomplete placeholder package NAMED AFTER THE PATH'S LAST
+// SEGMENT ("v2") — not its real declared name ("rand"). That guessed name used
+// to be trusted outright (importNamesFromTypes had no Complete() gate), which
+// happened to give the RIGHT answer here only because the import is genuinely
+// unused: "v2" is absent from the used-set for the same reason "rand" would
+// have been. TestPackageUnusedImportsDoesNotDeleteUsedRandV2 (in the same
+// file) proves that agreement was a coincidence, not a correct mechanism — the
+// moment the import IS used (`rand.IntN(3)`), the guessed name still isn't in
+// the used-set and the old code deleted a working import.
+//
+// The corrected contract: an import whose package is !Complete() has no
+// resolvable real name from types alone, so Package() conservatively KEEPS it
+// (matching resolvePackageNames' own "absent path ⇒ keep" contract for the CLI
+// path) — even though it is, in fact, unused. This is the documented
+// under-removal trade-off; see importNamesFromTypes' doc comment and
+// docs/superpowers/specs/2026-07-09-lsp-unused-imports-design.md.
+func TestPackageUnusedImportsKeepsUnresolvableCandidate(t *testing.T) {
 	dir, m := openTestModule(t, map[string]string{
 		"a.gsx": "package testmod\n\nimport \"math/rand/v2\"\n\ncomponent A() {\n\t<p>hi</p>\n}\n",
 	})
@@ -153,8 +215,68 @@ func TestPackageUnusedImportsNameNeBaseViaTypes(t *testing.T) {
 		t.Fatal(err)
 	}
 	u := pr.UnusedImports[filepath.Join(dir, "a.gsx")]
-	if len(u) != 1 || u[0].Path != "math/rand/v2" {
-		t.Errorf(`want math/rand/v2 (declared package "rand", base "v2") reported unused via types alone; got %+v`, u)
+	if len(u) != 0 {
+		t.Errorf(`want math/rand/v2 conservatively KEPT (unresolvable via types alone, real name "rand" != fabricated "v2"); got reported unused: %+v`, u)
+	}
+	if got := resolvePackageNamesCalls.Load(); got != before {
+		t.Errorf("go list (resolvePackageNames) was called %d time(s); want types-only resolution", got-before)
+	}
+}
+
+// TestPackageUnusedImportsDoesNotDeleteUsedRandV2 is the Critical regression
+// test: before the Complete()-gating fix, importNamesFromTypes trusted
+// go/types' fabricated placeholder name for an import outside the importer
+// graph — the path's last segment ("v2" for "math/rand/v2"), not its real
+// declared name ("rand"). classifyUnusedImports makes math/rand/v2 a removal
+// CANDIDATE because its path base "v2" is never referenced (the source
+// references it as "rand"), and the old code then resolved that candidate's
+// name to the same wrong "v2", which is ALSO absent from the used-set — so a
+// live `rand.IntN(3)` reference was invisible and Package() reported the
+// import unused. The LSP's format/organizeImports handlers act on exactly that
+// signal and would delete a working import, leaving `rand.IntN(3)` undefined.
+//
+// This must FAIL before the fix (verified) and PASS after it.
+func TestPackageUnusedImportsDoesNotDeleteUsedRandV2(t *testing.T) {
+	dir, m := openTestModule(t, map[string]string{
+		"a.gsx": "package testmod\n\nimport \"math/rand/v2\"\n\ncomponent A() {\n\t<p>{rand.IntN(3)}</p>\n}\n",
+	})
+	pr, err := m.Package(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := pr.UnusedImports[filepath.Join(dir, "a.gsx")]
+	for _, imp := range u {
+		if imp.Path == "math/rand/v2" {
+			t.Fatalf("math/rand/v2 is USED (rand.IntN(3)) but Package() reported it unused (would be deleted by the LSP): unused=%+v", u)
+		}
+	}
+}
+
+// TestPackageUnusedImportsHeadlineCaseStillRemoved guards against the
+// Complete()-gating fix over-correcting into never removing anything: context
+// and io are both genuinely unused here AND fully resolvable
+// (types.Package.Complete()==true, since the gsx runtime itself imports both,
+// so they are always in analyze's importer graph) — Package() must still
+// report them unused via types alone, exactly as before the fix.
+func TestPackageUnusedImportsHeadlineCaseStillRemoved(t *testing.T) {
+	dir, m := openTestModule(t, map[string]string{
+		"a.gsx": "package testmod\n\nimport (\n\t\"context\"\n\t\"io\"\n)\n\ncomponent A() {\n\t<p>hi</p>\n}\n",
+	})
+	before := resolvePackageNamesCalls.Load()
+	pr, err := m.Package(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := pr.UnusedImports[filepath.Join(dir, "a.gsx")]
+	if len(u) != 2 {
+		t.Fatalf("want both context and io reported unused via types alone; got %+v", u)
+	}
+	gotPaths := map[string]bool{}
+	for _, imp := range u {
+		gotPaths[imp.Path] = true
+	}
+	if !gotPaths["context"] || !gotPaths["io"] {
+		t.Errorf("want context and io both reported unused; got %+v", u)
 	}
 	if got := resolvePackageNamesCalls.Load(); got != before {
 		t.Errorf("go list (resolvePackageNames) was called %d time(s); want types-only resolution", got-before)
