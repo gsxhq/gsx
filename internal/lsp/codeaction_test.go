@@ -170,3 +170,18 @@ func TestInitializeAdvertisesOrganizeImports(t *testing.T) {
 type gofmtAnalyzer struct{ nilAnalyzer }
 
 func (gofmtAnalyzer) ImportsMode(string) gsxfmt.ImportsMode { return gsxfmt.ImportsGofmt }
+
+// TestMissingImportsReachTheLSP: the adapter must carry MissingImports through,
+// and the Analyzer must expose ResolveImport.
+func TestMissingImportsReachTheLSP(t *testing.T) {
+	var a Analyzer = nilAnalyzer{}
+	if got := a.ResolveImport("/tmp", "fmt", "Sprintf"); got != nil {
+		t.Fatalf("nilAnalyzer.ResolveImport = %v, want nil", got)
+	}
+	p := &Package{MissingImports: map[string][]MissingImport{
+		"/tmp/a.gsx": {{Name: "fmt", Symbol: "Sprintf"}},
+	}}
+	if len(p.MissingImports["/tmp/a.gsx"]) != 1 {
+		t.Fatal("Package.MissingImports not carried")
+	}
+}

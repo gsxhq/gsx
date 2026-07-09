@@ -94,6 +94,14 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 		}
 		unused[path] = refs
 	}
+	missing := make(map[string][]lsp.MissingImport, len(pr.MissingImports))
+	for path, mis := range pr.MissingImports {
+		out := make([]lsp.MissingImport, len(mis))
+		for i, mi := range mis {
+			out[i] = lsp.MissingImport{Name: mi.Name, Symbol: mi.Symbol, Pos: mi.Pos}
+		}
+		missing[path] = out
+	}
 	ctrl := make(map[gsxast.Node]lsp.CtrlRef, len(pr.CtrlMap))
 	for k, v := range pr.CtrlMap {
 		ctrl[k] = lsp.CtrlRef{ClauseStart: v.ClauseStart, Node: v.Node}
@@ -107,18 +115,19 @@ func adaptPackageResult(pr *codegen.PackageResult) *lsp.Package {
 		sig[c] = lr
 	}
 	return &lsp.Package{
-		Diags:         pr.Diags,
-		GSXFset:       pr.GSXFset,
-		Fset:          pr.Fset,
-		Info:          pr.Info,
-		Types:         pr.Types,
-		ExprMap:       pr.ExprMap,
-		Files:         pr.GSXFiles,
-		CrossIndex:    cross,
-		NavIndex:      nav,
-		CtrlMap:       ctrl,
-		SigTypes:      sig,
-		UnusedImports: unused,
+		Diags:          pr.Diags,
+		GSXFset:        pr.GSXFset,
+		Fset:           pr.Fset,
+		Info:           pr.Info,
+		Types:          pr.Types,
+		ExprMap:        pr.ExprMap,
+		Files:          pr.GSXFiles,
+		CrossIndex:     cross,
+		NavIndex:       nav,
+		CtrlMap:        ctrl,
+		SigTypes:       sig,
+		UnusedImports:  unused,
+		MissingImports: missing,
 	}
 }
 
@@ -342,6 +351,22 @@ func (a lspAnalyzer) PrintWidth(dir string) int {
 func (a lspAnalyzer) ImportsMode(dir string) gsxfmt.ImportsMode {
 	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
 	return merged.effectiveImportsMode()
+}
+
+// ResolveImport maps an undefined qualifier to candidate import paths. Best-effort
+// like PrintWidth/ImportsMode: a module that cannot be opened yields no candidates
+// rather than an error, so a code action degrades to offering nothing.
+func (a lspAnalyzer) ResolveImport(dir, name, symbol string) []string {
+	root, modPath, err := moduleRoot(dir)
+	if err != nil {
+		return nil
+	}
+	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
+	m, err := a.module(root, modPath, merged)
+	if err != nil {
+		return nil
+	}
+	return m.ResolveImportCandidates(dir, name, symbol)
 }
 
 // resolveConfigBestEffort resolves the LSP's effective config: it discovers a

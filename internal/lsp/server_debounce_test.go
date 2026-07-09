@@ -50,6 +50,7 @@ func (a *countingAnalyzer) PrintWidth(string) int { return 80 }
 func (a *countingAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
 	return gsxfmt.ImportsGoimports
 }
+func (a *countingAnalyzer) ResolveImport(string, string, string) []string { return nil }
 
 func (a *countingAnalyzer) calls() int {
 	a.mu.Lock()
