@@ -149,7 +149,8 @@ type Module struct {
 	fsetBaseline      int                         // m.fset.Base() captured after the last packages.Load (growth measured since here)
 	fsetRebuildBytes  int                         // rebuild fset when fset.Base()-fsetBaseline exceeds this; 0 disables
 	rebuildCount      int                         // count of fset rebuilds performed (observability; exposed via rebuilds())
-	mu                sync.Mutex                  // guards overrides, ext, pkgTypes, pkgResults, depFacts, imports, importedBy, dirty
+	gcImporter        types.Importer              // lazily built export-data importer for ResolveImportCandidates (see exportDataImporter); never used on the Package() hot path
+	mu                sync.Mutex                  // guards overrides, ext, pkgTypes, pkgResults, depFacts, imports, importedBy, dirty, gcImporter
 	analysisMu        sync.Mutex                  // serializes Package/Generate/typesPackage (see concurrency contract)
 }
 
