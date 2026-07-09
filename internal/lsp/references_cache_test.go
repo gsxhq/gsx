@@ -40,7 +40,9 @@ func (a *moduleRefsAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRe
 func (a *moduleRefsAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol, error) {
 	return nil, nil
 }
-func (a *moduleRefsAnalyzer) FormatSettings(string) (int, int) { return 80, pretty.DefaultTabWidth }
+func (a *moduleRefsAnalyzer) FormatSettings(string) gsxfmt.FormatSettings {
+	return gsxfmt.FormatSettings{Width: 80, TabWidth: pretty.DefaultTabWidth}
+}
 func (a *moduleRefsAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
 	return gsxfmt.ImportsGoimports
 }

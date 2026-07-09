@@ -54,9 +54,9 @@ func TestFormatSettingsPrecedence(t *testing.T) {
 			if err := os.Chdir(root); err != nil {
 				t.Fatal(err)
 			}
-			w, tw := formatSettingsFor(".", filepath.Join(root, "a.gsx"), newEditorConfigResolver())
-			if w != tt.wantWidth || tw != tt.wantTabWidth {
-				t.Errorf("got width=%d tabWidth=%d, want width=%d tabWidth=%d", w, tw, tt.wantWidth, tt.wantTabWidth)
+			fs := formatSettingsFor(".", filepath.Join(root, "a.gsx"), newEditorConfigResolver())
+			if fs.Width != tt.wantWidth || fs.TabWidth != tt.wantTabWidth {
+				t.Errorf("got width=%d tabWidth=%d, want width=%d tabWidth=%d", fs.Width, fs.TabWidth, tt.wantWidth, tt.wantTabWidth)
 			}
 		})
 	}
@@ -77,9 +77,9 @@ func TestFormatSettingsCachesConfigDecodePerDir(t *testing.T) {
 	})
 	ec := newEditorConfigResolver()
 	for _, name := range []string{"a.gsx", "b.gsx", "c.gsx"} {
-		w, _ := formatSettingsFor(root, filepath.Join(root, name), ec)
-		if w != 111 {
-			t.Fatalf("%s: width = %d, want 111", name, w)
+		fs := formatSettingsFor(root, filepath.Join(root, name), ec)
+		if fs.Width != 111 {
+			t.Fatalf("%s: width = %d, want 111", name, fs.Width)
 		}
 	}
 	if got := len(ec.configByPath); got != 1 {
@@ -105,10 +105,10 @@ func TestFormatSettingsCachesConfigDecodeAcrossDirs(t *testing.T) {
 	ec := newEditorConfigResolver()
 	dirA := filepath.Join(root, "a")
 	dirB := filepath.Join(root, "b")
-	w1, _ := formatSettingsFor(dirA, filepath.Join(dirA, "x.gsx"), ec)
-	w2, _ := formatSettingsFor(dirB, filepath.Join(dirB, "y.gsx"), ec)
-	if w1 != 111 || w2 != 111 {
-		t.Fatalf("width = %d, %d, want 111, 111", w1, w2)
+	fs1 := formatSettingsFor(dirA, filepath.Join(dirA, "x.gsx"), ec)
+	fs2 := formatSettingsFor(dirB, filepath.Join(dirB, "y.gsx"), ec)
+	if fs1.Width != 111 || fs2.Width != 111 {
+		t.Fatalf("width = %d, %d, want 111, 111", fs1.Width, fs2.Width)
 	}
 	if got := len(ec.cfgPathByDir); got != 2 {
 		t.Errorf("cfgPathByDir has %d entries, want 2 (one per directory discovered)", got)

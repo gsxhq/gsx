@@ -44,14 +44,14 @@ func (s *Server) handleFormatting(f frame) error {
 			unused = pkg.UnusedImports[path] // nil when analysis is unavailable/unreliable
 		}
 	}
-	width, tabWidth := s.analyzer.FormatSettings(path)
+	fs := s.analyzer.FormatSettings(path)
 	// CSSFmt/JSFmt nil selects the printer's built-in <style>/<script> formatters,
 	// producing output identical to the CLI default. The LSP does not thread a
 	// project's custom configured formatters; gsx fmt does. Wiring is separate.
 	formatted, err := gsxfmt.FormatWith(path, []byte(text), gsxfmt.FormatOptions{
 		Unused:   unused,
-		Width:    width,
-		TabWidth: tabWidth,
+		Width:    fs.Width,
+		TabWidth: fs.TabWidth,
 		Reorder:  mode.Reorder(),
 	})
 	if err != nil || string(formatted) == text {

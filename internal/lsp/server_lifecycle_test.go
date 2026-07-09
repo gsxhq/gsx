@@ -19,8 +19,10 @@ func (nilAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) 
 	return nil, nil
 }
 func (nilAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol, error) { return nil, nil }
-func (nilAnalyzer) FormatSettings(string) (int, int)                          { return 80, pretty.DefaultTabWidth }
-func (nilAnalyzer) ImportsMode(string) gsxfmt.ImportsMode                     { return gsxfmt.ImportsGoimports }
+func (nilAnalyzer) FormatSettings(string) gsxfmt.FormatSettings {
+	return gsxfmt.FormatSettings{Width: 80, TabWidth: pretty.DefaultTabWidth}
+}
+func (nilAnalyzer) ImportsMode(string) gsxfmt.ImportsMode { return gsxfmt.ImportsGoimports }
 
 // framed wraps a JSON-RPC body in Content-Length framing.
 func framed(t *testing.T, v any) string {

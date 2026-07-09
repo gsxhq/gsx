@@ -45,7 +45,9 @@ func (a *blockingAnalyzer) Analyze(_ string, override map[string][]byte) (*Packa
 	}}}, nil
 }
 
-func (a *blockingAnalyzer) FormatSettings(string) (int, int) { return 80, pretty.DefaultTabWidth }
+func (a *blockingAnalyzer) FormatSettings(string) gsxfmt.FormatSettings {
+	return gsxfmt.FormatSettings{Width: 80, TabWidth: pretty.DefaultTabWidth}
+}
 func (a *blockingAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
 	return gsxfmt.ImportsGoimports
 }

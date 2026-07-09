@@ -40,7 +40,9 @@ func (symbolFileAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, 
 func (symbolFileAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol, error) {
 	return nil, nil
 }
-func (symbolFileAnalyzer) FormatSettings(string) (int, int) { return 80, pretty.DefaultTabWidth }
+func (symbolFileAnalyzer) FormatSettings(string) gsxfmt.FormatSettings {
+	return gsxfmt.FormatSettings{Width: 80, TabWidth: pretty.DefaultTabWidth}
+}
 func (symbolFileAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
 	return gsxfmt.ImportsGoimports
 }

@@ -30,7 +30,9 @@ func (a *wsSymAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol, erro
 	a.calls++
 	return a.syms, nil
 }
-func (a *wsSymAnalyzer) FormatSettings(string) (int, int) { return 80, pretty.DefaultTabWidth }
+func (a *wsSymAnalyzer) FormatSettings(string) gsxfmt.FormatSettings {
+	return gsxfmt.FormatSettings{Width: 80, TabWidth: pretty.DefaultTabWidth}
+}
 func (a *wsSymAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
 	return gsxfmt.ImportsGoimports
 }

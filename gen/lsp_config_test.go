@@ -165,24 +165,24 @@ func TestLSPFormatSettingsHonorsEditorConfig(t *testing.T) {
 	a := newLSPAnalyzer(config{}, nil)
 
 	// No gsx.toml: .editorconfig alone governs.
-	w, tw := a.FormatSettings(path)
-	if w != 100 || tw != 3 {
-		t.Fatalf("no gsx.toml: FormatSettings = (%d,%d), want (100,3) from .editorconfig", w, tw)
+	fs := a.FormatSettings(path)
+	if fs.Width != 100 || fs.TabWidth != 3 {
+		t.Fatalf("no gsx.toml: FormatSettings = (%d,%d), want (100,3) from .editorconfig", fs.Width, fs.TabWidth)
 	}
 
 	// gsx.toml sets only print_width: tab_width must still fall through to
 	// .editorconfig, not reset to the built-in default.
 	must("gsx.toml", "[formatter]\nprint_width = 120\n")
-	w, tw = a.FormatSettings(path)
-	if w != 120 || tw != 3 {
-		t.Fatalf("gsx.toml print_width only: FormatSettings = (%d,%d), want (120,3) (tab_width falls through to .editorconfig)", w, tw)
+	fs = a.FormatSettings(path)
+	if fs.Width != 120 || fs.TabWidth != 3 {
+		t.Fatalf("gsx.toml print_width only: FormatSettings = (%d,%d), want (120,3) (tab_width falls through to .editorconfig)", fs.Width, fs.TabWidth)
 	}
 
 	// gsx.toml sets both: gsx.toml wins outright.
 	must("gsx.toml", "[formatter]\nprint_width = 120\ntab_width = 8\n")
-	w, tw = a.FormatSettings(path)
-	if w != 120 || tw != 8 {
-		t.Fatalf("gsx.toml full override: FormatSettings = (%d,%d), want (120,8)", w, tw)
+	fs = a.FormatSettings(path)
+	if fs.Width != 120 || fs.TabWidth != 8 {
+		t.Fatalf("gsx.toml full override: FormatSettings = (%d,%d), want (120,8)", fs.Width, fs.TabWidth)
 	}
 }
 

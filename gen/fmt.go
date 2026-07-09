@@ -152,12 +152,12 @@ func runFmt(stdout, stderr io.Writer, args []string, cssFmt, jsFmt rawfmt.Format
 		}
 		abs, _ := filepath.Abs(path)
 		dir := filepath.Dir(path)
-		width, tabWidth := formatSettingsFor(dir, abs, ec)
+		fs := formatSettingsFor(dir, abs, ec)
 		mode := modeFor(path)
 		formatted, err := gsxfmt.FormatWith(path, orig, gsxfmt.FormatOptions{
 			Unused:   unusedByPath[abs], // nil for gofmt-mode files
-			Width:    width,
-			TabWidth: tabWidth,
+			Width:    fs.Width,
+			TabWidth: fs.TabWidth,
 			CSSFmt:   cssFmt,
 			JSFmt:    jsFmt,
 			Reorder:  mode.Reorder(),
@@ -214,8 +214,8 @@ func formatGsx(name string, src []byte) ([]byte, error) {
 	if err != nil {
 		abs = name
 	}
-	w, _ := formatSettingsFor(".", abs, newEditorConfigResolver())
-	return gsxfmt.Format(name, src, w)
+	fs := formatSettingsFor(".", abs, newEditorConfigResolver())
+	return gsxfmt.Format(name, src, fs.Width)
 }
 
 // formatSettingsFor resolves the print width and tab width for one file.
@@ -234,7 +234,7 @@ func formatGsx(name string, src []byte) ([]byte, error) {
 // silently yields the wrong section when the caller's cwd differs from
 // path's actual directory. Every layer is best-effort: a missing or broken
 // config falls through, never fails.
-func formatSettingsFor(dir, path string, ec *editorConfigResolver) (width, tabWidth int) {
+func formatSettingsFor(dir, path string, ec *editorConfigResolver) gsxfmt.FormatSettings {
 	es := ec.settingsFor(path)
 	cfg, _ := ec.configFor(dir) // not found/unusable → zero config, falls through below
 	return resolveFormatSettings(cfg, es)
@@ -252,8 +252,8 @@ func formatSettingsFor(dir, path string, ec *editorConfigResolver) (width, tabWi
 // Both cfg and es use zero to mean "unset". A cfg field that is unset MUST
 // fall through to es — not clobber it with 0 — because an unset gsx.toml key
 // is silence, not an override.
-func resolveFormatSettings(cfg config, es editorSettings) (width, tabWidth int) {
-	width, tabWidth = es.printWidth, es.tabWidth
+func resolveFormatSettings(cfg config, es editorSettings) gsxfmt.FormatSettings {
+	width, tabWidth := es.printWidth, es.tabWidth
 	if cfg.printWidth > 0 {
 		width = cfg.printWidth
 	}
@@ -266,7 +266,7 @@ func resolveFormatSettings(cfg config, es editorSettings) (width, tabWidth int) 
 	if tabWidth <= 0 {
 		tabWidth = pretty.DefaultTabWidth
 	}
-	return width, tabWidth
+	return gsxfmt.FormatSettings{Width: width, TabWidth: tabWidth}
 }
 
 // importsModeFor returns the effective gsx.toml [formatter] imports mode for dir
