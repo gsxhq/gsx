@@ -23,29 +23,43 @@ import (
 // analyze deliberately emits a SECOND copy of a component child-prop
 // expression, under its own //line stamp, as an inference-harvest probe (see
 // infer.go's inferRegistry doc) — so one source-level qualifier can appear
-// TWICE in the skeleton: once at its real site, once inside the probe. The
-// probe copy is identified the same way the type-error loop already
-// disambiguates a probe-landed error (module_importer.go's probeSiteForError,
-// called from analyze's type-error loop) — never by guessing at column
-// numbers or scanning skeleton text. inferByXGo is keyed by the skeleton's
-// absolute .x.go path; a nil registry entry (no probes recorded for that
-// file) simply never matches, so every real file still gets reported.
+// TWICE in the skeleton: once at its real site (the props literal / gsx.Attrs
+// assignment), once inside a _gsxuseq(...) probe call. The type-error loop
+// (module_importer.go) suppresses type errors landing inside a probe span
+// because "the props literal reports it" — so the ONE diagnostic the user
+// actually sees anchors at the props-literal copy, never the probe copy.
+// MissingImport.Pos is documented to mirror that diagnostic, so this function
+// must skip the same probe spans, computed by the same harvestProbeSpans
+// helper the type-error loop's quietSpans is built from
+// (module_importer.go). This is NOT the same thing as probeSiteForError:
+// that reports membership in an inferRegistry TYPE-INFERENCE span, which for
+// a GENERIC tag covers the props-literal occurrence (it is the one
+// participating in inference) — the occurrence we must KEEP — so filtering
+// on it used to drop the wrong copy for generics while accidentally working
+// for plain tags (where it never matched anything, and the (Name, Symbol)
+// dedupe below did all the work by keeping whichever copy ast.Inspect visited
+// first).
 //
 // A second layer of dedupe collapses by (Name, Symbol) per file: two
 // GENUINE uses of the same qualifier+symbol (e.g. fmt.Sprint on two
 // different lines, neither inside a probe) still collapse to one entry,
 // because the caller (organizeImports / the quickfix) adds one import either
 // way — see add_imports_test.go's TestMissingImportsRepeatedGenuineUsesCollapse.
+// With the probe copies now filtered out up front, the surviving Pos for a
+// deduped (Name, Symbol) is always the FIRST non-probe occurrence in
+// ast.Inspect order — for the child-prop case, that is the props-literal
+// occurrence, matching the diagnostic.
 //
 // Pure: walks ASTs analyze already parsed. No IO, no lock, no packages.Load, no
-// importer call. probeSiteForError is a pure map/offset lookup. Safe on the
-// Package() hot path.
-func missingFromSkeletons(byGsx map[string]fileSkeleton, gsxFset *token.FileSet, info *types.Info, inferByXGo map[string]*inferRegistry) map[string][]MissingImport {
+// importer call. harvestProbeSpans is a single linear AST walk per file. Safe
+// on the Package() hot path.
+func missingFromSkeletons(byGsx map[string]fileSkeleton, gsxFset *token.FileSet, info *types.Info) map[string][]MissingImport {
 	if info == nil {
 		return nil
 	}
 	out := map[string][]MissingImport{}
 	for gsxPath, fs := range byGsx {
+		probeSpans := harvestProbeSpans(fs.skel)
 		var found []MissingImport
 		seen := map[string]bool{} // name+symbol: one report per distinct qualifier+symbol per file
 		goast.Inspect(fs.skel, func(n goast.Node) bool {
@@ -60,11 +74,27 @@ func missingFromSkeletons(byGsx map[string]fileSkeleton, gsxFset *token.FileSet,
 			if _, used := info.Uses[id]; used {
 				return true // an imported package, a local, a field...
 			}
+			// Defensive, and unreachable by construction (a coverage profile
+			// confirms it never fires): go/types populates info.Defs[id] only
+			// at an identifier's OWN syntactic declaration point (a var/func/
+			// type/const name, a package name at its import spec, a dot "."
+			// import, or blank "_") — never at a plain reference occurrence.
+			// se.X is, by definition of *goast.SelectorExpr, always a
+			// reference occurrence (you select a field/method *off of*
+			// something already bound), so the same Ident node can never be
+			// simultaneously "the X of a selector" and "a declaration site":
+			// those are different AST positions for different Ident node
+			// instances even when they share a name. Kept anyway because the
+			// alternative — asserting this can never happen — would be a
+			// silent correctness dependency on go/types internals; if a
+			// future Go version ever changed that, this guard fails safe by
+			// treating the identifier as resolved rather than misreporting a
+			// declaration as a missing import.
 			if _, defined := info.Defs[id]; defined {
 				return true
 			}
-			if _, _, ok := probeSiteForError(inferByXGo, gsxFset, id.Pos()); ok {
-				return true // inference-harvest probe copy of a child-prop expr; the real source occurrence is reported on its own
+			if inHarvestProbe(probeSpans, id.Pos()) {
+				return true // _gsxuseq harvest-probe copy of a child-prop expr; the props-literal occurrence is reported instead
 			}
 			key := id.Name + "." + se.Sel.Name
 			if seen[key] {
@@ -79,4 +109,15 @@ func missingFromSkeletons(byGsx map[string]fileSkeleton, gsxFset *token.FileSet,
 		}
 	}
 	return out
+}
+
+// inHarvestProbe reports whether pos falls inside one of spans (each a
+// harvestProbeSpans result for the same file/fset — see that function's doc).
+func inHarvestProbe(spans []posSpan, pos token.Pos) bool {
+	for _, s := range spans {
+		if s.start <= pos && pos < s.end {
+			return true
+		}
+	}
+	return false
 }

@@ -117,6 +117,19 @@ func TestMissingImportsAcrossPositions(t *testing.T) {
 	}
 }
 
+// TestMissingImportsScriptInterpolation: an undefined qualifier used ONLY
+// inside a <script> `@{ ... }` interpolation is reported, same as any other
+// position. The `@{ }` script-interpolation syntax is confirmed against the
+// real corpus case internal/corpus/testdata/cases/script/interp_value.txtar.
+func TestMissingImportsScriptInterpolation(t *testing.T) {
+	src := "package u\n\ncomponent C() {\n\t<script>\n\t\tconst x = @{ fmt.Sprint(1) };\n\t</script>\n}\n"
+	m, dir := newMissingModule(t, src)
+	got := missingNames(t, m, dir)
+	if len(got) != 1 || got[0] != "fmt.Sprint" {
+		t.Fatalf("missing = %v, want [fmt.Sprint]", got)
+	}
+}
+
 // TestMissingImportsChildPropNoDuplicate is the adversarial-review regression:
 // analyze emits a SECOND copy of a component child-prop expression, under its
 // own //line stamp, as an inference-harvest probe (see infer.go's
@@ -175,6 +188,60 @@ func TestMissingImportsDifferentQualifiersBothReported(t *testing.T) {
 	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("missing = %v, want %v", got, want)
 	}
+}
+
+// TestMissingImportsPosMatchesDiagnostic: MissingImport.Pos is documented to
+// mirror the diagnostic the user actually sees for the same undefined
+// qualifier, so a future quickfix can associate with the client's
+// context.diagnostics. Checked against the REAL shipped diagnostic (pr.Diags),
+// not a hardcoded column, for both a plain and a generic child-prop tag.
+//
+// The generic case is the reviewer-found regression: analyze emits the
+// child-prop expression twice (props literal + _gsxuseq harvest probe); for a
+// GENERIC tag, probeSiteForError's inferRegistry span covers the PROPS
+// LITERAL occurrence (it is the one participating in type inference), so
+// filtering on it dropped the wrong copy and kept the _gsxuseq one instead —
+// MissingImport.Pos pointed at a position with NO diagnostic at all.
+func TestMissingImportsPosMatchesDiagnostic(t *testing.T) {
+	for name, src := range map[string]string{
+		"plain": "package u\n\ncomponent Show(v string) {\n\t<p>{ v }</p>\n}\n\n" +
+			"component Wrap() {\n\t<Show v={ fmt.Sprint(1) } />\n}\n",
+		"generic": "package u\n\ncomponent Show[T any](v T) {\n\t<p>{ v }</p>\n}\n\n" +
+			"component Wrap() {\n\t<Show value={ fmt.Sprint(1) } />\n}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			m, dir := newMissingModule(t, src)
+			pr, err := m.Package(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mis := pr.MissingImports[filepath.Join(dir, "a.gsx")]
+			if len(mis) != 1 {
+				t.Fatalf("MissingImports = %+v, want exactly 1 entry", mis)
+			}
+			var diag *diagPos
+			for i := range pr.Diags {
+				d := &pr.Diags[i]
+				if strings.Contains(d.Message, "undefined: fmt") {
+					diag = &diagPos{line: d.Start.Line, col: d.Start.Column}
+					break
+				}
+			}
+			if diag == nil {
+				t.Fatalf("no shipped diagnostic contains %q; Diags = %+v", "undefined: fmt", pr.Diags)
+			}
+			if mis[0].Pos.Line != diag.line || mis[0].Pos.Column != diag.col {
+				t.Fatalf("MissingImport.Pos = %d:%d, want it to match the shipped diagnostic at %d:%d",
+					mis[0].Pos.Line, mis[0].Pos.Column, diag.line, diag.col)
+			}
+		})
+	}
+}
+
+// diagPos is a minimal line/column pair used only to compare MissingImport.Pos
+// against a diag.Diagnostic's Start without importing the diag package twice.
+type diagPos struct {
+	line, col int
 }
 
 // TestMissingImportsDifferentSymbolsSamePackage: fmt.Sprint and fmt.Errorf
