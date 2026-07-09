@@ -121,10 +121,20 @@ primitive:
 func AddNamedImport(fset *token.FileSet, f *ast.File, name, path string) (added bool)
 ```
 
-`gsxfmt.FormatOptions` gains `Add []ImportRef`. For the `GoChunk` that carries the file's
-imports (or, when the file has none, the first chunk), wrap it in the synthetic
-`package _gsxp` clause exactly as `deleteChunkImports` does, run `AddNamedImport` per ref,
-reprint, and strip the clause via `printer.StripSyntheticPackage`.
+`gsxfmt.FormatOptions` gains `Add []ImportRef`. Pick the target chunk:
+
+1. the leading `GoChunk` that already declares imports; else
+2. the file's first `*ast.GoChunk`; else
+3. **none exists** — every decl is a `GoWithElements` or `Component` (e.g. `package main`
+   followed only by `var xx = <p>hi</p>`). Synthesize `&ast.GoChunk{Src: ""}` and insert it
+   as `Decls[0]`, then treat it as case 2.
+
+`GoWithElements` and `Component` decls are never targets: astutil operates on parsed Go, and
+those are not standalone-valid Go. Case 3 is why the target cannot simply be `Decls[0]`.
+
+Wrap the target chunk in the synthetic `package _gsxp` clause exactly as
+`deleteChunkImports` does, run `AddNamedImport` per ref, reprint, and strip the clause via
+`printer.StripSyntheticPackage`.
 
 Verified behavior, on chunks wrapped this way:
 
@@ -221,6 +231,7 @@ Both edits reuse the existing whole-document `TextEdit` path.
   method.
 - **Stdlib table freshness** against live `go list std`.
 - **Splicing:** file with no imports (astutil creates the decl before the first Go decl),
+  a file whose only decls are `GoWithElements`/`Component` so a `GoChunk` must be synthesized,
   file with a leading import block (inserts into the right group), an added import that
   duplicates an existing one (`added == false`, no-op), a third-party add into a std-only
   block (astutil puts it in-group; `reorderImports` must then split the groups), an aliased
