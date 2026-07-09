@@ -126,7 +126,7 @@ gsx dev [dir] [--web command] [--no-web] [--build command] [--run command]
 keeps gsx's type information warm, regenerates `.x.go` files, builds and safely
 swaps the Go server, supervises Vite, and drives Vite's browser error overlay and
 reload. A failed generation or build leaves the last working server running.
-[How the dev loop works](./dev-loop) walks through the full sequence.
+[How the dev loop works](./dev-loop.md) walks through the full sequence.
 
 The generated starter exposes it as:
 
@@ -137,7 +137,7 @@ go tool gsx dev    # equivalent direct command
 
 Vite requires Node.js and a package manager. The default front-door command is
 `npx vite`; npm can be replaced with pnpm, Yarn, or another compatible tool by
-setting `web` in [`gsx.toml`](./config#dev-development-loop), or with `--web`.
+setting `web` in [`gsx.toml`](./config.md#dev-development-loop), or with `--web`.
 
 | Flag | Effect |
 |------|--------|

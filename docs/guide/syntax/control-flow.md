@@ -13,7 +13,7 @@ Control flow is real Go: the branches are ordinary Go branches, the loop variabl
 Both branches can contain any markup — elements, interpolations, nested components, even further control-flow blocks. The `else` clause is optional; omitting it means no output is produced when the condition is false.
 
 ::: v-pre
-`{ if cond { … } }` is distinct from `{{ stmt }}` (a GoBlock): the GoBlock runs a Go statement and produces **no** HTML output. The control-flow form here produces markup from whichever branch is taken. See [Raw Go](./raw-go) for GoBlocks.
+`{ if cond { … } }` is distinct from `{{ stmt }}` (a GoBlock): the GoBlock runs a Go statement and produces **no** HTML output. The control-flow form here produces markup from whichever branch is taken. See [Raw Go](./raw-go.md) for GoBlocks.
 :::
 
 ## For / range

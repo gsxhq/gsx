@@ -93,7 +93,7 @@ Set `class_merger` in `gsx.toml` to the fully-qualified name of an exported `fun
 class_merger = "myapp/twcfg.Merge"
 ```
 
-A working example that wires `tailwind-merge-go` lives in [`examples/tailwind-merge/`](https://github.com/gsxhq/gsx/tree/main/examples/tailwind-merge). Full configuration reference — including the signature contract and the option-based route (`gen.WithClassMerger`) — is in [Configuration](../config).
+A working example that wires `tailwind-merge-go` lives in [`examples/tailwind-merge/`](https://github.com/gsxhq/gsx/tree/main/examples/tailwind-merge). Full configuration reference — including the signature contract and the option-based route (`gen.WithClassMerger`) — is in [Configuration](../config.md).
 
 ## Exclusive selection — value-form `if` / `switch`
 

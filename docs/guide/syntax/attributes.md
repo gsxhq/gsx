@@ -83,7 +83,7 @@ Key points:
 - Keys are quoted string literals (`"data-signals"`, not bare identifiers). This is required so that kebab and colon names such as `"hx-on:click"` round-trip safely.
 - A bool value (`"data-show": true`) renders the bare attribute `data-show`; `false` omits it entirely.
 - `"class"` or `"style"` pairs in an `Attrs` bag render verbatim in their slot position. At the element level, `class=` and `style=` use the bag's `Class()` / `Style()` aggregate methods for merging.
-- A pair value that returns `(T, error)` — e.g. `{{ "data-signals": sig(t) }}` where `sig` returns `(string, error)` — is auto-unwrapped: the error propagates from `Render`. See [auto-unwrap](./interpolation#functions-t-error-auto-unwrap).
+- A pair value that returns `(T, error)` — e.g. `{{ "data-signals": sig(t) }}` where `sig` returns `(string, error)` — is auto-unwrapped: the error propagates from `Render`. See [auto-unwrap](./interpolation.md#functions-t-error-auto-unwrap).
 
 `gsx.Attrs` tolerates duplicate keys — the `{{ }}` literal can repeat a key. Scalar duplicates are last-wins when spread, matching JSX-style override order. `class` and `style` are special aggregate keys. Methods on `gsx.Attrs`:
 
@@ -121,7 +121,7 @@ Imported components from the same module get this treatment automatically:
 gsx discovers their declared props — including the synthesized `Attrs`
 field — during module analysis, so bare-attr fallthrough and
 `attrs={{ … }}` behave exactly as they do for same-package components. See
-[Composition — cross-file & cross-package](./composition) for what happens
+[Composition — cross-file & cross-package](./composition.md) for what happens
 when a dependency's props cannot be discovered.
 :::
 
@@ -219,7 +219,7 @@ To pipe the **whole** assembled value through a filter, wrap the literal in
 braces and append a pipeline: `` class={f`btn-@{v}` |> upper} ``. The static text
 and holes are interpolated into one string, then that whole value flows through
 the pipeline before the attribute escaper runs — see [Pipelines — whole-literal
-pipelines](./pipelines#whole-literal-pipelines). The pipe is only available in
+pipelines](./pipelines.md#whole-literal-pipelines). The pipe is only available in
 the braced form; the direct (unbraced) `` class=f`…` `` literal does not take
 a trailing `|>`.
 :::
@@ -245,7 +245,7 @@ entirely, interpolate `gsx.RawURL(...)` instead of writing the URL as an
 ### `data:image` literals
 
 An `f` literal is also how you write a `data:` URL directly, on an
-[image sink](./escaping#resource-vs-navigational-url-sinks) — `<img src>`,
+[image sink](./escaping.md#resource-vs-navigational-url-sinks) — `<img src>`,
 `<source src>`, `<input src>`, `<video poster>`, or `background`:
 
 ```gsx
@@ -268,11 +268,11 @@ one step:
 <img src={ imageBytes |> dataURL("image/png") } />
 ```
 
-See [Pipelines — `dataURL` grants no privilege](./pipelines#dataurl-grants-no-privilege)
+See [Pipelines — `dataURL` grants no privilege](./pipelines.md#dataurl-grants-no-privilege)
 for what that filter does and does not vouch for.
 
 Writing a `data:` literal on a **strict** sink (`href` and the rest of the
-[strict-sink table](./escaping#resource-vs-navigational-url-sinks)) is a
+[strict-sink table](./escaping.md#resource-vs-navigational-url-sinks)) is a
 compile-time error (`data-url-strict-sink`): a static `data:` prefix has no
 safe navigational or script use, so gsx rejects the literal instead of
 falling back to the runtime sentinel. Use an image sink instead, or
@@ -283,7 +283,7 @@ falling back to the runtime sentinel. Use an image sink instead, or
 A `class` or `style` backtick literal composes with a forwarded `{ attrs... }`
 bag exactly like a static or composable `class`/`style` value does: the bag's
 class or style merges in caller-last, producing a single merged attribute
-instead of two competing ones. See [Class & style merging](./styling#class-style-merging)
+instead of two competing ones. See [Class & style merging](./styling.md#class-style-merging)
 for the full merge story — the interpolated case is documented alongside it:
 
 <!--@include: ./_generated/styling/040-interpolated-class-literal-merges-with-a-spread-bag.md-->
@@ -297,4 +297,4 @@ attributes for `@{ }` holes, matching quoted `` js`` ``/`` css`` `` attributes.
 `{ expr }` remains a single Go expression; reach for the backtick literal only
 when an attribute value needs static text interleaved with one or more holes.
 
-For a complete reference of escaping contexts and the opt-out helpers (`gsx.Raw`, `gsx.RawURL`, `gsx.RawJS`, `gsx.RawCSS`), see [Escaping](./escaping).
+For a complete reference of escaping contexts and the opt-out helpers (`gsx.Raw`, `gsx.RawURL`, `gsx.RawJS`, `gsx.RawCSS`), see [Escaping](./escaping.md).

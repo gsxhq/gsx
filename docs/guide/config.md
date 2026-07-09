@@ -45,7 +45,7 @@ Set `no_web = true` when another process manages Vite:
 no_web = true
 ```
 
-CLI flags override this table. See the [`gsx dev` reference](./cli#gsx-dev).
+CLI flags override this table. See the [`gsx dev` reference](./cli.md#gsx-dev).
 
 ## Example: pipeline filters
 
@@ -141,7 +141,7 @@ The gsx built-in `std` filter package is **always available** — you do not lis
 it. It ships `upper`, `lower`, `trim`, `truncate`, `join`, `default`, `format`
 (a `fmt.Sprintf` wrapper with the piped value as the first verb:
 `{ price |> format("$%.2f") }`), and `dataURL` (assembles a base64 `data:` URL —
-see [Pipelines](./syntax/pipelines)). List `filterPackages` only for your own
+see [Pipelines](./syntax/pipelines.md)). List `filterPackages` only for your own
 packages, or to set precedence (later packages win on name collisions).
 
 #### `std` is the lowest-precedence base

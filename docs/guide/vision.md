@@ -36,7 +36,7 @@ Interpolation is auto-escaped, and escaping is **context-aware**: text, attribut
 URL, and CSS contexts each get the right treatment, determined at codegen from where
 the value sits. JS contexts with no safe encoding are compile errors rather than
 silent holes. The opt-outs (`gsx.Raw`, `gsx.RawURL`, `gsx.RawCSS`) are explicit and
-grep-able. See [Principles](./principles) for the full model.
+grep-able. See [Principles](./principles.md) for the full model.
 
 ## Build Step And Dev Loop
 
@@ -85,5 +85,5 @@ standard library.
 
 ---
 
-> **Status — alpha.** See [Status](./status) for shipped commands, partial
+> **Status — alpha.** See [Status](./status.md) for shipped commands, partial
 > features, and known gaps.

@@ -1,6 +1,6 @@
 # Elements
 
-HTML elements in gsx follow the same rules as HTML: tag names are lowercase (or hyphenated for custom elements), attributes appear in the opening tag, and children nest inside. The only additions are dynamic attribute values (`{expr}`) and the component capitalization rule explained in [Basic Syntax](./basic-syntax#element-vs-component).
+HTML elements in gsx follow the same rules as HTML: tag names are lowercase (or hyphenated for custom elements), attributes appear in the opening tag, and children nest inside. The only additions are dynamic attribute values (`{expr}`) and the component capitalization rule explained in [Basic Syntax](./basic-syntax.md#element-vs-component).
 
 ## Tags and nesting
 
@@ -36,7 +36,7 @@ A `disabled={disabled}` attribute on the `<input/>` renders as `disabled` when t
 By default, raw-text bodies are emitted without minification. Configure
 `css_minifier` or `js_minifier` to minify `<style>` or `<script>` output.
 
-Both `<script>` and `<style>` support `@{ expr }` interpolation for dynamic values — see [Style blocks](./styling) and [JavaScript](./javascript) for details.
+Both `<script>` and `<style>` support `@{ expr }` interpolation for dynamic values — see [Style blocks](./styling.md) and [JavaScript](./javascript.md) for details.
 
 ## Documents and DOCTYPE
 

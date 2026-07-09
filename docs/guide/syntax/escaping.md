@@ -55,7 +55,7 @@ On an image sink, gsx additionally accepts a `data:` URL whose MIME type is one 
 
 Why the split is safe: `<img>`/`<source>`/`background` render their target as an inert raster — or, for `image/svg+xml`, as an SVG document in the browser's restricted image mode (no script execution, no external subresource fetches). `<iframe>`, `<object>`, and `<embed>` are different: they can load a live, scriptable document, so `data:` — including `data:image/svg+xml` — stays blocked on those strict sinks. This is also why `<video poster>` (a still-image preview, image sink) and `<video src>` (a fetched media resource, strict sink) get different treatment on the same element.
 
-This is a deliberate divergence from `html/template`, which blocks `data:` on every URL attribute uniformly with no resource/navigational distinction. gsx narrows the exception to tag+attribute combinations that are provably inert, and to an explicit image-MIME allow-list, rather than opening `data:` up everywhere. See [Attributes — `data:image` literals](./attributes#data-image-literals) for the author-facing syntax, and [Pipelines](./pipelines) for the `dataURL` filter.
+This is a deliberate divergence from `html/template`, which blocks `data:` on every URL attribute uniformly with no resource/navigational distinction. gsx narrows the exception to tag+attribute combinations that are provably inert, and to an explicit image-MIME allow-list, rather than opening `data:` up everywhere. See [Attributes — `data:image` literals](./attributes.md#data-image-literals) for the author-facing syntax, and [Pipelines](./pipelines.md) for the `dataURL` filter.
 
 For anything the allow-list refuses — an exotic MIME on an image sink, or a `data:` URL you have separately validated for a strict sink — `gsx.RawURL` remains the escape hatch: it skips the scheme check entirely (the value is still attribute-escaped) and is the author's explicit vouch that the URL is safe.
 
@@ -64,7 +64,7 @@ For anything the allow-list refuses — an exotic MIME on an image sink, or a `d
 An `f`-prefixed literal in attribute-value position —
 `` name=f`…@{ expr }…` `` or `name=f"…@{ expr }…"` — mixes static text with
 `@{ expr }` holes; see [Attributes — Interpolating
-attribute literals](./attributes#interpolating-attribute-literals) for the full
+attribute literals](./attributes.md#interpolating-attribute-literals) for the full
 syntax and examples. Two characters need escaping inside the literal: the
 active delimiter (`` \` `` or `\"`) for a literal delimiter character, and
 `\@{` for a literal `@{` that should not open a hole. Both mirror the

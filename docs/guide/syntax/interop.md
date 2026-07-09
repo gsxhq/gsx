@@ -2,7 +2,7 @@
 
 gsx components are plain Go values that implement a single interface. That design makes them composable with the wider Go templating ecosystem without any bridging layer.
 
-For a higher-level choice guide, see [Comparisons](../comparisons).
+For a higher-level choice guide, see [Comparisons](../comparisons.md).
 
 ## Working with templ
 

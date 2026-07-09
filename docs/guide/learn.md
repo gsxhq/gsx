@@ -110,7 +110,7 @@ browser.
 
 ## Next
 
-- Keep the [syntax reference](./syntax) open while writing `.gsx`.
+- Keep the [syntax reference](./syntax.md) open while writing `.gsx`.
 - Use the [playground](/playground) to try small components.
-- Configure the dev loop, filters, minification, and class merging in [`gsx.toml`](./config).
-- Check [Status](./status) before relying on alpha or deferred features.
+- Configure the dev loop, filters, minification, and class merging in [`gsx.toml`](./config.md).
+- Check [Status](./status.md) before relying on alpha or deferred features.

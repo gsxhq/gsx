@@ -1,7 +1,7 @@
 # Principles
 
 gsx's design follows a few firm commitments. They explain most of the syntax
-decisions you'll meet in the [syntax guide](./syntax).
+decisions you'll meet in the [syntax guide](./syntax.md).
 
 ## Stay close to HTML and to Go
 
