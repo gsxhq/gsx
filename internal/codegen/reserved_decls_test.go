@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -58,7 +59,7 @@ func TestReservedPrefixCaughtInEveryGoContext(t *testing.T) {
 	for name, src := range cases {
 		t.Run(name, func(t *testing.T) {
 			got := checkReservedNames(t, src)
-			if len(got) == 0 || !hasStr(got, firstReservedName(src)) {
+			if len(got) == 0 || !slices.Contains(got, firstReservedName(src)) {
 				t.Fatalf("expected a _gsx identifier reported for %q, got %v", name, got)
 			}
 		})
@@ -101,7 +102,7 @@ func TestReservedPrefixParenWrappedElement(t *testing.T) {
 
 	hostile := "package views\nimport \"github.com/gsxhq/gsx\"\n" +
 		"func Items(xs []string) gsx.Node {\n\t_gsxio := 0\n\t_ = _gsxio\n\treturn (\n\t\t<>\n\t\t\t{ for _, s := range xs { <li>{ s }</li> } }\n\t\t</>\n\t)\n}\n"
-	if got := checkReservedNames(t, hostile); !hasStr(got, "_gsxio") {
+	if got := checkReservedNames(t, hostile); !slices.Contains(got, "_gsxio") {
 		t.Fatalf("expected _gsxio reported inside a paren-wrapped-return func; got %v", got)
 	}
 }
@@ -114,15 +115,6 @@ func TestReservedPrefixDedupPerName(t *testing.T) {
 	if len(got) != 1 || got[0] != "_gsxfoo" {
 		t.Fatalf("expected exactly one _gsxfoo report, got %v", got)
 	}
-}
-
-func hasStr(xs []string, x string) bool {
-	for _, s := range xs {
-		if s == x {
-			return true
-		}
-	}
-	return false
 }
 
 // firstReservedName returns the first `_gsx…` identifier-looking token in src,
