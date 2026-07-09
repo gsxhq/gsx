@@ -176,6 +176,47 @@ func TestPerDirClassMergerApplies(t *testing.T) {
 	}
 }
 
+// TestPerDirBadMergerFailsOnGeneratePath: an invalid per-dir merger must be
+// caught by Generate itself, not only by GenerateDirs. Otherwise the Open+Generate
+// path (watch, LSP) emits `_gsxcm.<Missing>` into the .x.go and exits 0, moving
+// the failure to `go build`, far from its cause.
+func TestPerDirBadMergerFailsOnGeneratePath(t *testing.T) {
+	if testing.Short() {
+		t.Skip()
+	}
+	m, root := setupPerDirModule(t, map[string]DirOptions{
+		"a": {
+			FilterPkgs:  []string{StdImportPath, "example.com/x/afilters"},
+			ClassMerger: &ClassMergerRef{PkgPath: "example.com/x/mrg", FuncName: "NoSuchFunc"},
+		},
+	}, []string{"example.com/x/afilters", "example.com/x/mrg"})
+
+	out, _, err := m.Generate(filepath.Join(root, "a"))
+	if err == nil {
+		t.Fatalf("Generate accepted a merger naming a missing func; emitted %d file(s)", len(out))
+	}
+	if !strings.Contains(err.Error(), "NoSuchFunc") {
+		t.Fatalf("wrong error: %v", err)
+	}
+}
+
+// TestBundleRejectsPerDir: a Bundle carries ONE prebuilt filter table, so a
+// PerDir narrowing has nothing to narrow. Accepting both would hand the dir the
+// Bundle's entire table — the union leak this design prevents.
+func TestBundleRejectsPerDir(t *testing.T) {
+	_, err := Open(Options{
+		ModuleRoot: t.TempDir(),
+		Bundle:     &Bundle{},
+		PerDir:     map[string]DirOptions{"a": {FilterPkgs: []string{StdImportPath}}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "incompatible") {
+		t.Fatalf("Open(Bundle+PerDir) = %v; want an incompatibility error", err)
+	}
+	if _, err := Open(Options{ModuleRoot: t.TempDir(), Bundle: &Bundle{}}); err != nil {
+		t.Fatalf("Bundle alone must still open: %v", err)
+	}
+}
+
 // TestPerDirUnloadedMergerIsHardError guards the merger half the same way.
 func TestPerDirUnloadedMergerIsHardError(t *testing.T) {
 	if testing.Short() {
