@@ -199,19 +199,20 @@ func TestBuildPackageSkeletonsNoExternalLoad(t *testing.T) {
 // Error, full stop): an unused import is ITSELF surfaced as a go/types
 // "<path>" imported and not used error (verified empirically — see
 // module_importer.go's analyze loop, which adds every type error to the bag
-// as diag.Error with no special-casing for this message). detectUnusedImports
-// (results.go) treats that EXACT class of error as the safe, expected case —
-// it returns the populated map when EVERY type error matches "imported and
-// not used"; it returns nil (removes nothing) only when some OTHER error is
-// present. The old type-check-based analyzeUnusedImports (pre-Task-1, see
-// commit 56c4787) read pr.UnusedImports directly with no Diags gate at all,
-// confirming this: the "unused import" diagnostic was never meant to block
-// removal. So the oracle's documented divergence is specifically "some
-// unrelated (non-unused-import) error exists, ⇒ oracle removes nothing" —
-// gating on ANY error diagnostic (including the unused-import ones the two
-// detectors are supposed to agree on) would skip the interp/allunused cases
-// this test exists to exercise. Matching on the message substring mirrors
-// detectUnusedImports' own criterion exactly (results.go:120).
+// as diag.Error with no special-casing for this message), and that class of
+// error is expected/harmless for this oracle comparison. Since the syntactic
+// classifier now backs BOTH Module.UnusedImports (CLI) and Package()'s
+// UnusedImports (LSP; see unusedFromSkeletons/unusedImportsCore) — neither
+// gates on unrelated type errors the way the old, now-deleted
+// detectUnusedImports did (that heuristic bailed to nil the instant it saw any
+// error that wasn't a clean "imported and not used", which is exactly the
+// regression TestPackageUnusedImportsSurvivesOtherError in
+// unused_imports_lsp_test.go pins) — this skip is expected to be a no-op for
+// every case below. It is kept as a defensive guard: an unrelated error can
+// still mean the type-checked package (a.pkg) is incomplete enough that the
+// LSP side's candidate-name resolution (which needs a.pkg.Imports()) diverges
+// from the CLI's independent packages.Load, and this test's job is comparing
+// the two syntactic classifiers, not re-litigating that edge.
 func anyErrorDiagCodegen(diags []diag.Diagnostic) bool {
 	for _, d := range diags {
 		if d.Severity == diag.Error && !strings.Contains(d.Message, "imported and not used") {
