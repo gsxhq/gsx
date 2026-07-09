@@ -61,3 +61,59 @@ func TestFormatSettingsPrecedence(t *testing.T) {
 		})
 	}
 }
+
+// TestFormatSettingsCachesConfigDecodePerDir proves formatSettingsFor decodes
+// a directory's gsx.toml ONCE no matter how many files in that directory are
+// resolved against the same *editorConfigResolver — the regression this
+// guards against decoded gsx.toml once PER FILE (discoverConfig+loadConfig
+// were called inline, with no cache), so N files in one directory cost N full
+// TOML decodes instead of 1.
+func TestFormatSettingsCachesConfigDecodePerDir(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"gsx.toml": "[formatter]\nprint_width = 111\n",
+		"a.gsx":    "",
+		"b.gsx":    "",
+		"c.gsx":    "",
+	})
+	ec := newEditorConfigResolver()
+	for _, name := range []string{"a.gsx", "b.gsx", "c.gsx"} {
+		w, _ := formatSettingsFor(root, filepath.Join(root, name), ec)
+		if w != 111 {
+			t.Fatalf("%s: width = %d, want 111", name, w)
+		}
+	}
+	if got := len(ec.configByPath); got != 1 {
+		t.Errorf("configByPath has %d entries after 3 files in one directory, want 1 (gsx.toml decoded once, not once per file)", got)
+	}
+	if got := len(ec.cfgPathByDir); got != 1 {
+		t.Errorf("cfgPathByDir has %d entries, want 1 (one directory resolved)", got)
+	}
+}
+
+// TestFormatSettingsCachesConfigDecodeAcrossDirs proves that directories which
+// discover the SAME ancestor gsx.toml share one decode, keyed by the resolved
+// cfgPath rather than by directory: keying only by directory (a plausible but
+// weaker fix) would still decode once per directory even when they all
+// resolve to the same file.
+func TestFormatSettingsCachesConfigDecodeAcrossDirs(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"go.mod":   "module ex\n\ngo 1.26.1\n",
+		"gsx.toml": "[formatter]\nprint_width = 111\n",
+		"a/x.gsx":  "",
+		"b/y.gsx":  "",
+	})
+	ec := newEditorConfigResolver()
+	dirA := filepath.Join(root, "a")
+	dirB := filepath.Join(root, "b")
+	w1, _ := formatSettingsFor(dirA, filepath.Join(dirA, "x.gsx"), ec)
+	w2, _ := formatSettingsFor(dirB, filepath.Join(dirB, "y.gsx"), ec)
+	if w1 != 111 || w2 != 111 {
+		t.Fatalf("width = %d, %d, want 111, 111", w1, w2)
+	}
+	if got := len(ec.cfgPathByDir); got != 2 {
+		t.Errorf("cfgPathByDir has %d entries, want 2 (one per directory discovered)", got)
+	}
+	if got := len(ec.configByPath); got != 1 {
+		t.Errorf("configByPath has %d entries, want 1 (both directories share the same ancestor gsx.toml, decoded once)", got)
+	}
+}

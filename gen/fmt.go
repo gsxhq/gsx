@@ -226,26 +226,39 @@ func formatGsx(name string, src []byte) ([]byte, error) {
 // baseline, so an explicit gsx setting beats it even when the .editorconfig
 // sits closer to the file.
 //
-// dir selects the gsx.toml (discovery is per-directory); path selects the
-// .editorconfig section (sections are filename globs). path must be
-// ABSOLUTE — the editorconfig library resolves a relative path against the
-// process's current working directory during its upward .editorconfig walk,
-// which silently yields the wrong section when the caller's cwd differs from
+// dir selects the gsx.toml (discovery is per-directory, memoized on ec —
+// see editorConfigResolver's doc comment); path selects the .editorconfig
+// section (sections are filename globs). path must be ABSOLUTE — the
+// editorconfig library resolves a relative path against the process's
+// current working directory during its upward .editorconfig walk, which
+// silently yields the wrong section when the caller's cwd differs from
 // path's actual directory. Every layer is best-effort: a missing or broken
 // config falls through, never fails.
 func formatSettingsFor(dir, path string, ec *editorConfigResolver) (width, tabWidth int) {
 	es := ec.settingsFor(path)
-	width, tabWidth = es.printWidth, es.tabWidth
+	cfg, _ := ec.configFor(dir) // not found/unusable → zero config, falls through below
+	return resolveFormatSettings(cfg, es)
+}
 
-	if cfgPath, ok := discoverConfig(dir); ok {
-		if cfg, err := loadConfig(cfgPath); err == nil {
-			if cfg.printWidth > 0 {
-				width = cfg.printWidth
-			}
-			if cfg.tabWidth > 0 {
-				tabWidth = cfg.tabWidth
-			}
-		}
+// resolveFormatSettings applies the gsx.toml > .editorconfig > built-in
+// precedence to an already-resolved gsx.toml config and .editorconfig
+// settings, without caring where either came from. This is the ONE place
+// that precedence is encoded: the CLI (formatSettingsFor, above) passes the
+// raw file config; the LSP (lspAnalyzer.FormatSettings, gen/lsp.go) passes
+// the programmatic-opts-over-file-config merge Analyze already computes.
+// Both must resolve identically, or `gsx fmt` and the LSP's format-on-save
+// disagree on the same file.
+//
+// Both cfg and es use zero to mean "unset". A cfg field that is unset MUST
+// fall through to es — not clobber it with 0 — because an unset gsx.toml key
+// is silence, not an override.
+func resolveFormatSettings(cfg config, es editorSettings) (width, tabWidth int) {
+	width, tabWidth = es.printWidth, es.tabWidth
+	if cfg.printWidth > 0 {
+		width = cfg.printWidth
+	}
+	if cfg.tabWidth > 0 {
+		tabWidth = cfg.tabWidth
 	}
 	if width <= 0 {
 		width = 80

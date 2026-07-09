@@ -24,13 +24,69 @@ type editorSettings struct {
 // filename globs ([*.gsx]). The library's CachedParser memoizes each
 // .editorconfig file it reads, which is what keeps `gsx fmt ./...` from
 // re-reading the same file once per source file.
+//
+// It ALSO memoizes the gsx.toml half of formatSettingsFor: discoverConfig(dir)
+// (keyed by dir — discovery walks up from each directory independently) and
+// loadConfig(cfgPath) (keyed by the resolved cfgPath — several directories
+// commonly discover the same ancestor gsx.toml, so keying the decode by path
+// shares the cache across them, not just within one directory). Without this,
+// formatting N files in one directory decoded gsx.toml N times. Both maps are
+// guarded by mu: `gsx fmt` formats concurrently.
 type editorConfigResolver struct {
 	mu  sync.Mutex
 	cfg *editorconfig.Config
+
+	cfgPathByDir map[string]configDiscovery
+	configByPath map[string]configDecode
+}
+
+// configDiscovery is the memoized result of discoverConfig(dir).
+type configDiscovery struct {
+	path string
+	ok   bool
+}
+
+// configDecode is the memoized result of loadConfig(path).
+type configDecode struct {
+	cfg config
+	err error
 }
 
 func newEditorConfigResolver() *editorConfigResolver {
-	return &editorConfigResolver{cfg: &editorconfig.Config{Parser: editorconfig.NewCachedParser()}}
+	return &editorConfigResolver{
+		cfg:          &editorconfig.Config{Parser: editorconfig.NewCachedParser()},
+		cfgPathByDir: map[string]configDiscovery{},
+		configByPath: map[string]configDecode{},
+	}
+}
+
+// configFor returns the gsx.toml config discovered from dir, decoding it at
+// most once per resolved path regardless of how many directories or files
+// share it. ok is false when no gsx.toml was found, or it failed to decode
+// (a malformed config is never fatal here — formatSettingsFor falls through
+// to .editorconfig/built-ins exactly as it did before this cache existed).
+func (r *editorConfigResolver) configFor(dir string) (cfg config, ok bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	disc, ok := r.cfgPathByDir[dir]
+	if !ok {
+		path, found := discoverConfig(dir)
+		disc = configDiscovery{path: path, ok: found}
+		r.cfgPathByDir[dir] = disc
+	}
+	if !disc.ok {
+		return config{}, false
+	}
+	dec, ok := r.configByPath[disc.path]
+	if !ok {
+		c, err := loadConfig(disc.path)
+		dec = configDecode{cfg: c, err: err}
+		r.configByPath[disc.path] = dec
+	}
+	if dec.err != nil {
+		return config{}, false
+	}
+	return dec.cfg, true
 }
 
 // settingsFor never fails: a missing, unreadable, or malformed .editorconfig
