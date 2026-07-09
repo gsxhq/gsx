@@ -45,9 +45,9 @@ func (s *Server) handleFormatting(f frame) error {
 		}
 	}
 	width := s.analyzer.PrintWidth(dir)
-	// CSSFmt/JSFmt stay nil: LSP formatting has never run the <style>/<script>
-	// formatters that the CLI runs. Preserving that here keeps output identical;
-	// closing the gap is a separate change.
+	// CSSFmt/JSFmt nil selects the printer's built-in <style>/<script> formatters,
+	// producing output identical to the CLI default. The LSP does not thread a
+	// project's custom configured formatters; gsx fmt does. Wiring is separate.
 	formatted, err := gsxfmt.FormatWith(path, []byte(text), gsxfmt.FormatOptions{
 		Unused:  unused,
 		Width:   width,
