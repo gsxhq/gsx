@@ -49,10 +49,12 @@ func (s *Server) handleCodeAction(f frame) error {
 	if pkg := s.pkgs[dir]; pkg != nil {
 		unused = pkg.UnusedImports[path] // nil when analysis is unavailable
 	}
+	width, tabWidth := s.analyzer.FormatSettings(path)
 	organized, err := gsxfmt.FormatWith(path, []byte(text), gsxfmt.FormatOptions{
-		Unused:  unused,
-		Width:   s.analyzer.PrintWidth(dir),
-		Reorder: true, // always: this action IS goimports
+		Unused:   unused,
+		Width:    width,
+		TabWidth: tabWidth,
+		Reorder:  true, // always: this action IS goimports
 	})
 	if err != nil || string(organized) == text {
 		return s.reply(f.ID, []CodeAction{}) // unparseable mid-edit, or already organized

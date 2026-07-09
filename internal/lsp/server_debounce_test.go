@@ -12,6 +12,7 @@ import (
 
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
+	"github.com/gsxhq/gsx/internal/pretty"
 )
 
 // countingAnalyzer behaves like fakeAnalyzer (one diag for its file) but counts
@@ -46,7 +47,7 @@ func (a *countingAnalyzer) Analyze(_ string, override map[string][]byte) (*Packa
 	}}}, nil
 }
 
-func (a *countingAnalyzer) PrintWidth(string) int { return 80 }
+func (a *countingAnalyzer) FormatSettings(string) (int, int) { return 80, pretty.DefaultTabWidth }
 func (a *countingAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
 	return gsxfmt.ImportsGoimports
 }

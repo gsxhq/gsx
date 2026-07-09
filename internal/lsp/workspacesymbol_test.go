@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gsxhq/gsx/internal/gsxfmt"
+	"github.com/gsxhq/gsx/internal/pretty"
 )
 
 func wsSymFrame(id int, query string) string {
@@ -29,7 +30,7 @@ func (a *wsSymAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol, erro
 	a.calls++
 	return a.syms, nil
 }
-func (a *wsSymAnalyzer) PrintWidth(string) int { return 80 }
+func (a *wsSymAnalyzer) FormatSettings(string) (int, int) { return 80, pretty.DefaultTabWidth }
 func (a *wsSymAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
 	return gsxfmt.ImportsGoimports
 }

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/gsxhq/gsx/internal/gsxfmt"
+	"github.com/gsxhq/gsx/internal/pretty"
 )
 
 // errFake is a sentinel error returned by moduleRefsAnalyzer to exercise the
@@ -39,7 +40,7 @@ func (a *moduleRefsAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRe
 func (a *moduleRefsAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol, error) {
 	return nil, nil
 }
-func (a *moduleRefsAnalyzer) PrintWidth(string) int { return 80 }
+func (a *moduleRefsAnalyzer) FormatSettings(string) (int, int) { return 80, pretty.DefaultTabWidth }
 func (a *moduleRefsAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
 	return gsxfmt.ImportsGoimports
 }

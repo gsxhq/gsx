@@ -8,6 +8,7 @@ import (
 
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
+	"github.com/gsxhq/gsx/internal/pretty"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
@@ -39,7 +40,7 @@ func (symbolFileAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, 
 func (symbolFileAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol, error) {
 	return nil, nil
 }
-func (symbolFileAnalyzer) PrintWidth(string) int { return 80 }
+func (symbolFileAnalyzer) FormatSettings(string) (int, int) { return 80, pretty.DefaultTabWidth }
 func (symbolFileAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
 	return gsxfmt.ImportsGoimports
 }
