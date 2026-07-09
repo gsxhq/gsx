@@ -75,8 +75,7 @@ universal renderable — has the **identical method set to `templ.Component`**
 anywhere a `templ.Component` is expected (structpages and other templ-ecosystem
 tools) **without importing templ**.
 
-For a practical side-by-side with templ, `html/template`, JSX, and Jinja-style
-templates, see [Comparisons](./comparisons).
+For a practical side-by-side with templ, `html/template`, JSX, see [Comparisons](./comparisons.md).
 
 ## What gsx is not
 
