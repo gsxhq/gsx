@@ -3,13 +3,13 @@ package corpus
 import (
 	"bytes"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 )
 
 func coverageReport(cases []*caseDoc) []byte {
-	sorted := append([]*caseDoc(nil), cases...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].name < sorted[j].name })
+	sorted := slices.Clone(cases)
+	slices.SortFunc(sorted, func(a, b *caseDoc) int { return strings.Compare(a.name, b.name) })
 	var buf bytes.Buffer
 	var render, errc, gen int
 	for _, c := range sorted {
