@@ -88,7 +88,10 @@ Create `internal/gsxfmt/mode_test.go`:
 ```go
 package gsxfmt
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseImportsMode(t *testing.T) {
 	for _, tc := range []struct {
@@ -115,23 +118,10 @@ func TestParseImportsModeRejectsUnknown(t *testing.T) {
 		t.Fatal("want error for unknown mode")
 	}
 	for _, want := range []string{"gofumpt", "gofmt", "goimports"} {
-		if !contains(err.Error(), want) {
+		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error %q does not mention %q", err, want)
 		}
 	}
-}
-
-func contains(s, sub string) bool {
-	return len(sub) == 0 || (len(s) >= len(sub) && indexOf(s, sub) >= 0)
-}
-
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
 }
 
 // TestImportsModeZeroIsUnset: the zero value must be ImportsUnset so an absent
@@ -459,7 +449,7 @@ func deleteChunkImports(src string, unused []ImportRef) (string, bool) {
 	file, err := goparser.ParseFile(fset, "", goChunkPkg+src, goparser.ParseComments)
 ```
 
-and further down replace `out = out[nl+1:]` block's comment reference to `"package _gsxp"` if it names the literal.
+Leave the rest of `deleteChunkImports` (including its `// Drop the synthetic "package _gsxp" line we prepended.` comment) exactly as-is. The only change is that the local `const pkg` is gone in favor of the shared `goChunkPkg`.
 
 Now append to `internal/gsxfmt/imports.go`:
 
@@ -1361,9 +1351,16 @@ import (
 	"testing"
 )
 
-// codeActions drives one textDocument/codeAction request over a server whose
-// buffer holds src, and returns the decoded result.
+// codeActions drives one textDocument/codeAction request against a server backed
+// by nilAnalyzer, and returns the decoded result.
 func codeActions(t *testing.T, uri, src string, only []string) []CodeAction {
+	t.Helper()
+	return codeActionsWith(t, uri, src, only, nilAnalyzer{})
+}
+
+// codeActionsWith is codeActions with an explicit Analyzer, so a test can vary
+// the reported [formatter] imports mode.
+func codeActionsWith(t *testing.T, uri, src string, only []string, a Analyzer) []CodeAction {
 	t.Helper()
 	in := framed(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}})
 	in += framed(t, map[string]any{
@@ -1385,7 +1382,7 @@ func codeActions(t *testing.T, uri, src string, only []string) []CodeAction {
 	in += framed(t, map[string]any{"jsonrpc": "2.0", "method": "exit"})
 
 	var out bytes.Buffer
-	srv := NewServer(strings.NewReader(in), &out, nilAnalyzer{})
+	srv := NewServer(strings.NewReader(in), &out, a)
 	if err := srv.Run(); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -1511,23 +1508,17 @@ func TestInitializeAdvertisesOrganizeImports(t *testing.T) {
 }
 ```
 
-Add to the bottom of `internal/lsp/codeaction_test.go` the analyzer variant and the parameterized driver:
+Add to the bottom of `internal/lsp/codeaction_test.go` the analyzer variant used by `TestCodeActionOrganizeImportsIgnoresGofmtMode`:
 
 ```go
-// gofmtAnalyzer reports gofmt mode, to prove the code action ignores it.
+// gofmtAnalyzer reports gofmt mode, to prove the code action ignores it and
+// organizes anyway. It embeds nilAnalyzer for every other Analyzer method.
 type gofmtAnalyzer struct{ nilAnalyzer }
 
 func (gofmtAnalyzer) ImportsMode(string) gsxfmt.ImportsMode { return gsxfmt.ImportsGofmt }
-
-// codeActionsWith is codeActions with an explicit Analyzer.
-func codeActionsWith(t *testing.T, uri, src string, only []string, a Analyzer) []CodeAction {
-	t.Helper()
-	// (same body as codeActions, but passing `a` to NewServer)
-	...
-}
 ```
 
-**Implementer note:** rather than duplicating the body, refactor `codeActions` to delegate to `codeActionsWith(t, uri, src, only, nilAnalyzer{})` and put the single implementation in `codeActionsWith`. Import `"github.com/gsxhq/gsx/internal/gsxfmt"`.
+Import `"github.com/gsxhq/gsx/internal/gsxfmt"` in this file.
 
 - [ ] **Step 2: Run test to verify it fails**
 
