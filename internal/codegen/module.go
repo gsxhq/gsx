@@ -2,12 +2,14 @@ package codegen
 
 import (
 	"bytes"
+	"fmt"
 	"go/token"
 	"go/types"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 
 	"golang.org/x/tools/go/packages"
@@ -16,12 +18,43 @@ import (
 	"github.com/gsxhq/gsx/internal/diag"
 )
 
+// DirOptions overrides Module-level options for a single package dir. The zero
+// value means "inherit from Options".
+//
+// FilterPkgs, when non-nil, replaces Options.FilterPkgs for this dir's filter
+// table. It must name only packages the Module already loaded — i.e. packages
+// reachable from Options.FilterPkgs, Options.LoadPkgs, or the module's own
+// "./..." — because the table is harvested from the loaded types with NO
+// packages.Load. Naming an unloaded package is a hard error, never an empty
+// table: a silently-empty table would make a "this filter must be rejected"
+// test pass for the wrong reason.
+type DirOptions struct {
+	FilterPkgs  []string        // nil = inherit Options.FilterPkgs
+	ClassMerger *ClassMergerRef // nil = inherit Options.ClassMerger
+}
+
 // Options configures a Module. ModuleRoot is the absolute module root (dir
 // containing go.mod); ModulePath is its declared module path (from go.mod).
 type Options struct {
-	ModuleRoot   string
-	ModulePath   string
-	FilterPkgs   []string
+	ModuleRoot string
+	ModulePath string
+	// FilterPkgs is the module-wide filter set: it is both loaded into the
+	// external importer AND harvested into the default filter table.
+	FilterPkgs []string
+	// LoadPkgs names extra packages to load into the external importer WITHOUT
+	// giving them filter semantics. It is the union half of the union/per-dir
+	// split: a caller that needs several dirs to see different filter tables
+	// lists every filter package here (one load) and narrows each dir's table
+	// via PerDir. A superset here is inert — it only makes more packages
+	// importable — whereas a superset in a dir's table silently widens the
+	// filter whitelist.
+	LoadPkgs []string
+	// PerDir maps a package dir to its option overrides. Keys are matched
+	// against the dir strings passed to Generate/Package (cleaned), and are
+	// also consulted for dirs reached transitively through imports, so an
+	// imported sibling package resolves its own filter table. Unsupported in
+	// Bundle mode (the Bundle carries exactly one prebuilt table).
+	PerDir       map[string]DirOptions
 	Aliases      []FilterAlias
 	FieldMatcher FieldMatcher
 	Classifier   *attrclass.Classifier
@@ -96,11 +129,13 @@ type Module struct {
 	opts             Options
 	overrides        map[string][]byte          // abs .gsx path -> in-memory source
 	ext              types.Importer             // lazily built external importer (stdlib + third-party)
+	extPkgs          map[string]*types.Package  // the types behind ext, kept for subprocess-free filter-table harvests
 	extLoads         int                        // count of external packages.Load calls (observability; test hook)
 	filterTbl        filterTable                // lazily built filter table (see cachedFilterTable)
 	filterTblErr     error                      // error from the filter-table load (cached alongside filterTbl)
 	filterTblDone    bool                       // true once the filter table has been loaded (success or error)
 	filterLoads      int                        // count of filter-table loads performed (observability; test hook)
+	dirFilterTbls    map[string]filterTable     // per-dir filter-table memo, keyed by canonical FilterPkgs key
 	fset             *token.FileSet             // module-wide shared FileSet (see "FileSet" / "Growth" notes above)
 	pkgTypes         map[string]*types.Package  // abs dir -> checked *types.Package cache
 	pkgResults       map[string]*PackageResult  // abs dir -> cached full analysis result (Package path only)
@@ -145,6 +180,7 @@ func Open(opts Options) (*Module, error) {
 		opts:             opts,
 		overrides:        map[string][]byte{},
 		fset:             token.NewFileSet(),
+		dirFilterTbls:    map[string]filterTable{},
 		pkgResults:       map[string]*PackageResult{},
 		depFacts:         map[string]*depPropFacts{},
 		imports:          map[string][]string{},
@@ -251,6 +287,7 @@ func (m *Module) externalImporter() (types.Importer, error) {
 	// so the importer must carry that package. This mirrors newCachedResolver
 	// (resolver.go) which lists "github.com/gsxhq/gsx" first for the same reason.
 	loadPaths := append([]string{"github.com/gsxhq/gsx", stdImportPath}, m.opts.FilterPkgs...)
+	loadPaths = append(loadPaths, m.opts.LoadPkgs...)
 	loadPaths = append(loadPaths, "./...")
 	pkgs, err := packages.Load(cfg, loadPaths...)
 	if err != nil {
@@ -264,6 +301,7 @@ func (m *Module) externalImporter() (types.Importer, error) {
 	})
 	m.mu.Lock()
 	m.ext = mapImporter(mp)
+	m.extPkgs = mp
 	m.extLoads++
 	m.fsetBaseline = m.fset.Base()
 	m.mu.Unlock()
@@ -317,6 +355,100 @@ func (m *Module) filterTableLoads() int {
 	return m.filterLoads
 }
 
+// validatePerDirMergers type-checks every PerDir class merger against the
+// external importer's already-loaded types. It is a no-op when no dir overrides
+// the merger, so the common path pays nothing.
+func (m *Module) validatePerDirMergers() error {
+	var refs []*ClassMergerRef
+	for _, d := range m.opts.PerDir {
+		if d.ClassMerger != nil {
+			refs = append(refs, d.ClassMerger)
+		}
+	}
+	if len(refs) == 0 {
+		return nil
+	}
+	if _, err := m.externalImporter(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	extPkgs := m.extPkgs
+	m.mu.Unlock()
+	for _, ref := range refs {
+		if err := validateClassMergerFromTypes(extPkgs, ref); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// dirOptionsFor returns the PerDir entry for dir, if any.
+func (m *Module) dirOptionsFor(dir string) (DirOptions, bool) {
+	if len(m.opts.PerDir) == 0 {
+		return DirOptions{}, false
+	}
+	d, ok := m.opts.PerDir[filepath.Clean(dir)]
+	return d, ok
+}
+
+// classMergerFor returns the class merger that applies to dir.
+func (m *Module) classMergerFor(dir string) *ClassMergerRef {
+	if d, ok := m.dirOptionsFor(dir); ok && d.ClassMerger != nil {
+		return d.ClassMerger
+	}
+	return m.opts.ClassMerger
+}
+
+// filterTableFor returns the filter table that applies to dir.
+//
+// Without a PerDir override this is cachedFilterTable — one packages.Load per
+// Module, shared by every dir. With one, the table is harvested from the types
+// the external importer already loaded, so N dirs with N different filter sets
+// cost ONE load between them rather than N. That is the whole point of the
+// union/per-dir split: Options.LoadPkgs is loaded once, DirOptions.FilterPkgs
+// only narrows what that dir may see.
+//
+// A dir naming a filter package the importer never loaded is an error. It must
+// never degrade to an empty table — a corpus case that asserts "this filter is
+// rejected because its package is not whitelisted" would then pass while
+// testing nothing.
+func (m *Module) filterTableFor(dir string) (filterTable, error) {
+	if m.opts.Bundle != nil {
+		return m.opts.Bundle.filters(), nil
+	}
+	d, ok := m.dirOptionsFor(dir)
+	if !ok || d.FilterPkgs == nil {
+		return m.cachedFilterTable()
+	}
+	pkgs := dedupFilterPkgs(d.FilterPkgs)
+	key := strings.Join(pkgs, "\x00")
+
+	m.mu.Lock()
+	if tbl, hit := m.dirFilterTbls[key]; hit {
+		m.mu.Unlock()
+		return tbl, nil
+	}
+	m.mu.Unlock()
+
+	// The importer's types are the harvest source, so it must be loaded first.
+	// Generate/Package already did this; the call is a cache hit there.
+	if _, err := m.externalImporter(); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	extPkgs := m.extPkgs
+	m.mu.Unlock()
+
+	tbl, err := loadFilterTableFromTypes(extPkgs, pkgs, m.opts.Aliases)
+	if err != nil {
+		return nil, fmt.Errorf("codegen: filter table for %s: %w", dir, err)
+	}
+	m.mu.Lock()
+	m.dirFilterTbls[key] = tbl
+	m.mu.Unlock()
+	return tbl, nil
+}
+
 // maybeRebuildFset rebuilds the FileSet (and ext/pkgTypes/pkgResults) when project re-parse
 // growth since the last load exceeds fsetRebuildBytes. A zero threshold disables it.
 // Called at the start of Package/Generate (under analysisMu), before applyDirty.
@@ -340,7 +472,9 @@ func (m *Module) rebuildFset() {
 	defer m.mu.Unlock()
 	m.fset = token.NewFileSet()
 	m.ext = nil
+	m.extPkgs = nil
 	m.filterTbl, m.filterTblErr, m.filterTblDone = filterTable{}, nil, false
+	m.dirFilterTbls = map[string]filterTable{}
 	m.pkgTypes = map[string]*types.Package{}
 	m.pkgResults = map[string]*PackageResult{}
 	m.depFacts = map[string]*depPropFacts{}
@@ -406,7 +540,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 		for path, f := range a.gsxFiles {
 			ff := a.factsByFile[path]
 			generateFile(f, a.pkg, a.resolved, a.table, ff.propFields, ff.nodeProps, ff.attrsProps, ff.byo,
-				a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, a.bag, nil, nil, true, true, m.opts.ClassMerger, a.sunkImports[path])
+				a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, a.bag, nil, nil, true, true, a.merger, a.sunkImports[path])
 		}
 	}
 	res.Diags = a.bag.Sorted()
@@ -458,7 +592,7 @@ func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, err
 		for path, f := range a.gsxFiles {
 			ff := a.factsByFile[path]
 			gen, ok := generateFile(f, a.pkg, a.resolved, a.table, ff.propFields, ff.nodeProps, ff.attrsProps, ff.byo,
-				a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.CSSMinify, m.opts.JSMinify, m.opts.ClassMerger, a.sunkImports[path])
+				a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.CSSMinify, m.opts.JSMinify, a.merger, a.sunkImports[path])
 			if !ok {
 				continue
 			}

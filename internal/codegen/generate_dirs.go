@@ -40,6 +40,12 @@ func GenerateDirs(moduleRoot string, dirs []string, opts Options, override map[s
 	if err != nil {
 		return nil, fmt.Errorf("codegen: GenerateDirs: open module: %w", err)
 	}
+	// Per-dir mergers are validated against the types the external importer
+	// loads anyway, so N of them cost zero extra packages.Load — the whole
+	// reason ValidateClassMerger's own load is not called per dir here.
+	if err := m.validatePerDirMergers(); err != nil {
+		return nil, fmt.Errorf("codegen: GenerateDirs: %w", err)
+	}
 	for path, src := range override {
 		m.SetOverride(path, src)
 	}

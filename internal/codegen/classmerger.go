@@ -37,7 +37,25 @@ func ValidateClassMerger(dir string, ref *ClassMergerRef) error {
 	if len(pkgs) == 0 || pkgs[0].Types == nil {
 		return fmt.Errorf("class_merger: package %q not found", ref.PkgPath)
 	}
-	obj := pkgs[0].Types.Scope().Lookup(ref.FuncName)
+	return validateClassMergerObj(pkgs[0].Types, ref)
+}
+
+// validateClassMergerFromTypes is ValidateClassMerger against packages the
+// caller already loaded — no packages.Load, no subprocess. Used for per-dir
+// mergers, where one packages.Load per dir is exactly the cost being removed.
+// A merger package the importer never loaded is an error, not a skipped check.
+func validateClassMergerFromTypes(byPath map[string]*types.Package, ref *ClassMergerRef) error {
+	pkg, ok := byPath[ref.PkgPath]
+	if !ok || pkg == nil {
+		return fmt.Errorf("class_merger: package %q was not loaded (add it to Options.LoadPkgs)", ref.PkgPath)
+	}
+	return validateClassMergerObj(pkg, ref)
+}
+
+// validateClassMergerObj holds the check shared by both validators: ref.FuncName
+// must name an exported package-level func([]string) string.
+func validateClassMergerObj(pkg *types.Package, ref *ClassMergerRef) error {
+	obj := pkg.Scope().Lookup(ref.FuncName)
 	if obj == nil || !obj.Exported() {
 		return fmt.Errorf("class_merger: %q has no exported %s", ref.PkgPath, ref.FuncName)
 	}
