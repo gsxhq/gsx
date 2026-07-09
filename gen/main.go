@@ -15,7 +15,6 @@ import (
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/fullmin"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
-	"github.com/gsxhq/gsx/internal/pretty"
 	"github.com/gsxhq/gsx/internal/rawfmt"
 )
 
@@ -60,15 +59,6 @@ func (c config) effectivePrintWidth() int {
 		return 80
 	}
 	return c.printWidth
-}
-
-// effectiveTabWidth returns the configured tab width, defaulting to
-// pretty.DefaultTabWidth when unset (zero or negative).
-func (c config) effectiveTabWidth() int {
-	if c.tabWidth <= 0 {
-		return pretty.DefaultTabWidth
-	}
-	return c.tabWidth
 }
 
 // effectiveImportsMode returns the configured import-handling mode, defaulting
