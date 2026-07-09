@@ -25,8 +25,8 @@ component Uses() {
 	<b>hi</b>
 }
 -- diagnostics.golden --
-3:8: declaration name "_gsxstrings" uses the reserved _gsx prefix
-5:5: declaration name "_gsxfoo" uses the reserved _gsx prefix
-7:7: declaration name "_gsxbar" uses the reserved _gsx prefix
-9:6: declaration name "_gsxT" uses the reserved _gsx prefix
-11:6: declaration name "_gsxhelp" uses the reserved _gsx prefix
+3:8: identifier "_gsxstrings" uses the reserved _gsx prefix (reserved for generated code)
+5:5: identifier "_gsxfoo" uses the reserved _gsx prefix (reserved for generated code)
+7:7: identifier "_gsxbar" uses the reserved _gsx prefix (reserved for generated code)
+9:6: identifier "_gsxT" uses the reserved _gsx prefix (reserved for generated code)
+11:6: identifier "_gsxhelp" uses the reserved _gsx prefix (reserved for generated code)

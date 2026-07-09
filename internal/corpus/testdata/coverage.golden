@@ -279,6 +279,7 @@ imports/reserved_prefix_decl_element_call	diag(error)
 imports/reserved_prefix_decl_element_composite	diag(error)
 imports/reserved_prefix_decl_element_gostmt	diag(error)
 imports/reserved_prefix_decl_novel	diag(error)
+imports/reserved_prefix_local	diag(error)
 imports/shadow_context	diag gen render
 imports/shadow_gsx_decl	diag gen render
 imports/shadow_gsx_import	diag gen render
@@ -562,4 +563,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 564 cases (render: 453, error: 82, gen-pinned: 288)
+TOTAL: 565 cases (render: 453, error: 83, gen-pinned: 288)

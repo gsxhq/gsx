@@ -80,62 +80,36 @@ The same freedom extends to component parameters and to method-component receive
 
 That freedom is a trade. The generator gave the plain names back by retreating into a single reserved identifier space: any name beginning `_gsx`. Reserving one prefix rather than a list of concrete names is what makes the promise durable — which aliases the generator emits is an implementation detail that grows with every codegen feature, and your file should never have to track it.
 
-Declaring a **package-scope** name that begins `_gsx` is an error. That covers `var`, `const`, `func`, and `type` declarations, and import aliases:
+Writing a `_gsx` identifier **anywhere gsx sees your Go** is an error, reported with a clean, positioned diagnostic. That is every Go fragment in a `.gsx` file: top-level `var`/`const`/`func`/`type` declarations and import aliases, function-body locals, `{{ }}` GoBlock statements, `{ if/for/switch }` clauses, interpolations, attribute and `class`/`style` expressions, and pipe-stage arguments.
 
 ```gsx
 package ui
 
-import _gsxstrings "strings" // error: declaration name "_gsxstrings" uses the reserved _gsx prefix
+import _gsxstrings "strings" // error: identifier "_gsxstrings" uses the reserved _gsx prefix
 
 var _gsxfoo = 1              // error
-const _gsxbar = 2            // error
-type _gsxT struct{}          // error
-func _gsxhelp() {}           // error
-```
 
-The prefix is reserved on components too, for a related reason: a **component parameter** or a **method-component receiver variable** may not begin `_gsx`, because the generated render closure binds its own machinery under that prefix. Neither may be named `ctx` — that is the ambient context your interpolations reference. Component parameters additionally may not be named `children` (the implicit children slot) or `attrs` (explicit attribute forwarding).
+func helper() gsx.Node {
+	_gsxio := 4              // error — a local counts too
+	_ = _gsxio
+	return <b/>
+}
 
-Those three positions — package scope, component params, receiver variables — are the ones `gsx generate` **checks**. Everywhere else the prefix is reserved *by convention*, and nothing enforces it.
-
-Three positions genuinely cannot collide, so they are safe by construction:
-
-- **Method names** — a method lives in its receiver type's namespace, not the package's, so `func (t T) _gsxMethod()` cannot collide with an import alias.
-- **Blank and dot imports** — `import _ "x"` and `import . "x"` bind no name that could begin `_gsx` (a dot import introduces only *exported* names, which start with an uppercase letter).
-- A **component** name cannot reach the space at all: the parser's component-name scan admits no `_`, so `component _gsxX()` is already a syntax error.
-
-::: warning Locals, GoBlocks and sibling `.go` files are not checked
-A `_gsx` name bound **inside a function body**, bound **inside a GoBlock**, or declared in a **hand-written `.go` file** in the same package is *not* rejected. If it collides with an alias the generator emits into that scope, `gsx generate` still prints `wrote 1 file(s)` and exits `0` — and the generated Go then fails to compile.
-
-A local shadowing the generator's `io` alias:
-
-```gsx
-package p
-
-import "github.com/gsxhq/gsx"
-
-// gsx generate: exit 0.
-// go build:  "io" imported as _gsxio and not used
-//            _gsxio.Writer is not a type
-func helper() gsx.Node { _gsxio := 4; _ = _gsxio; return <b/> }
-```
-
-A GoBlock shadowing the generator's `strconv` alias:
-
-```gsx
-package p
-
-component C(b bool) {
-	// gsx generate: exit 0.
-	// go build:  _gsxsc.FormatBool undefined (type int has no field or method FormatBool)
-	{{ _gsxsc := 4; _ = _gsxsc }}
-	<b>{ b }</b>
+component C() {
+	{{ _gsxgw := "z" }}      // error — a GoBlock binding counts too
+	<b>{ _gsxbar }</b>       // error — even a reference
 }
 ```
 
-Whether a given name bites depends on which aliases the generator emits into *that* scope, so it varies by position as well as by name: `_gsxio` breaks the local above but is harmless in a GoBlock, while `_gsxgw`, `_gsxw` and `_gsxnum` are the other way round. `_gsxlocal := "x"` collides with nothing today and compiles anywhere. The alias set — `_gsxio`, `_gsxsc`, `_gsxgw`, `_gsxw`, `_gsxnum`, `_gsxcm` and more — grows with every codegen feature, and your file is not meant to track it.
+Component parameters and method-component receiver variables are covered by the same rule (a param or receiver beginning `_gsx` is rejected). Two more names are reserved on component parameters for a related reason — the generated render closure binds them: `ctx` (the ambient context your interpolations reference), `children` (the implicit children slot), and `attrs` (explicit attribute forwarding).
 
-**Treat the whole `_gsx` prefix as off-limits everywhere.** Using it outside the three checked positions is undefined behaviour: it may compile today, and it may produce generated code that does not compile.
-:::
+gsx enforces the prefix by lexing your Go, so the reservation is on *identifiers* only. These are **not** affected, because they are not Go identifiers gsx can see:
+
+- **Text that isn't Go** — the string `_gsxfoo` inside a Go string literal (`"_gsxfoo"`), inside a Go comment, or in markup prose (`<p>_gsxfoo</p>`) is not an identifier and is left alone.
+- **Blank and dot imports** — `import _ "x"` and `import . "x"` bind no `_gsx` name.
+- A **component** name cannot reach the space at all: the parser's component-name scan admits no `_`, so `component _gsxX()` is already a syntax error.
+
+The one place the reservation does *not* reach is a **hand-written `.go` file** in the same package: gsx never reads its bodies (only its struct field names, for [BYO props](./composition.md)), so a `var _gsxio = 1` there is caught by `go build`, not by gsx. Don't write `_gsx` names there either.
 
 ::: tip
 `gsx fmt` will not add a missing `gsx` import for you. Writing `gsx.Node` without importing the package yields `undefined: gsx` from `gsx generate`; add the import by hand.

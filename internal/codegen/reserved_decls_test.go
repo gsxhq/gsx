@@ -1,236 +1,144 @@
 package codegen
 
 import (
-	"go/parser"
-	"go/token"
 	"strings"
 	"testing"
 
-	gsxast "github.com/gsxhq/gsx/ast"
+	"go/token"
+
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
-// parseGsxDecls parses src as a .gsx file and returns its top-level decls.
-func parseGsxDecls(t *testing.T, src string) (*gsxast.File, *token.FileSet) {
+// checkReservedNames parses src as a .gsx file, runs checkReservedDecls, and
+// returns the offending identifier names it reports (deduped, first-occurrence).
+func checkReservedNames(t *testing.T, src string) []string {
 	t.Helper()
 	fset := token.NewFileSet()
 	f, err := gsxparser.ParseFile(fset, "views.gsx", []byte(src), 0)
 	if err != nil {
 		t.Fatalf("parse %q: %v", src, err)
 	}
-	return f, fset
+	rds := checkReservedDecls(f)
+	var names []string
+	for _, rd := range rds {
+		names = append(names, rd.name)
+	}
+	return names
 }
 
-// goWithElementsDecls returns every *gsxast.GoWithElements in f, failing if none.
-func goWithElementsDecls(t *testing.T, f *gsxast.File) []*gsxast.GoWithElements {
-	t.Helper()
-	var out []*gsxast.GoWithElements
-	for _, d := range f.Decls {
-		if gw, ok := d.(*gsxast.GoWithElements); ok {
-			out = append(out, gw)
-		}
+// TestReservedPrefixCaughtInEveryGoContext pins that a `_gsx` identifier is
+// rejected wherever gsx sees user Go — the whole point of the scanner-based
+// check (it replaced a parse-based one that saw only top-level declarations and,
+// worse, could not read a region the formatter paren-wrapped). Each case names a
+// distinct Go-fragment context.
+func TestReservedPrefixCaughtInEveryGoContext(t *testing.T) {
+	cases := map[string]string{
+		"top-level var (GoChunk)":  "package views\nvar _gsxfoo = 1\n",
+		"top-level func (GoChunk)": "package views\nfunc _gsxfoo() {}\n",
+		"func-body local (GoChunk)": "package views\nimport \"github.com/gsxhq/gsx\"\n" +
+			"func f() gsx.Node { _gsxio := 4; _ = _gsxio; return nil }\n",
+		"func-body local + element (GoWithElements)": "package views\nimport \"github.com/gsxhq/gsx\"\n" +
+			"func f() gsx.Node { _gsxio := 4; _ = _gsxio; return <b/> }\n",
+		"import alias":   "package views\nimport _gsxfoo \"strings\"\nvar _ = _gsxfoo.Count\n",
+		"GoBlock {{ }}":  "package views\ncomponent C() {\n\t{{ _gsxgw := \"z\"; _ = _gsxgw }}\n\t<b/>\n}\n",
+		"interpolation":  "package views\ncomponent C() { <b>{ _gsxfoo }</b> }\n",
+		"expr attr":      "package views\ncomponent C() { <b id={ _gsxfoo }/> }\n",
+		"spread attr":    "package views\ncomponent C() { <b { _gsxfoo... }/> }\n",
+		"if cond":        "package views\ncomponent C() { { if _gsxfoo { <b/> } } }\n",
+		"for clause":     "package views\ncomponent C() { { for _gsxfoo := range xs { <b/> } } }\n",
+		"switch tag":     "package views\ncomponent C() { { switch _gsxfoo { } } }\n",
+		"class part":     "package views\ncomponent C() { <b class={ _gsxfoo }/> }\n",
+		"pipe stage arg": "package views\ncomponent C() { <b>{ x |> f(_gsxfoo) }</b> }\n",
+		// A method name is a `_gsx` identifier in Go position like any other. It
+		// cannot collide with a generator import (the generator emits no methods),
+		// but the rule is blanket — no `_gsx` identifier anywhere gsx sees Go — so
+		// it is reported for consistency rather than carved out as a special case.
+		"method name": "package views\ntype T struct{}\nfunc (t T) _gsxMethod() {}\n",
 	}
-	if len(out) == 0 {
-		t.Fatal("no *gsxast.GoWithElements decl produced")
-	}
-	return out
-}
-
-// TestGoWithElementsSrcIsByteExact pins the one property the reconstruction owes
-// its caller: every byte offset in the reconstructed Go is the same byte offset in
-// the .gsx source. reservedDeclsInGo maps a parsed name's position back with
-// `base + offset` and nothing else, so a single byte of drift silently mis-positions
-// (or, if the drift breaks the parse, silently drops) every diagnostic after it.
-//
-// It also covers the placeholder's length floor: `_()` is 3 bytes, and the shortest
-// literal that can appear in a GoWithElements part — an empty f-literal — is 3 too.
-// A shorter part would make the space padding negative.
-func TestGoWithElementsSrcIsByteExact(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name string
-		src  string
-	}{
-		{"shortest element", "package demo\n\nvar a = <a/>\n"},
-		{"shortest fragment", "package demo\n\nvar b = <></>\n"},
-		{"shortest f-literal backtick", "package demo\n\nvar c = f``\n"},
-		{"shortest f-literal quoted", "package demo\n\nvar d = f\"\"\n"},
-		{"multiline element", "package demo\n\nvar e = <b>\n\thi\n</b>\n"},
-		{"multiline in composite literal", "package demo\n\nvar g = []any{\n\t<b>\n\t\tx\n\t</b>,\n}\n"},
-		{"multiline in call argument", "package demo\n\nfunc wrap(v any) any { return v }\n\nvar h = wrap(<b>\n\tx\n</b>)\n"},
-		{"element in go statement", "package demo\n\nfunc spawn() {\n\tgo <b/>\n}\n"},
-		{"element in defer statement", "package demo\n\nfunc later() {\n\tdefer <b/>\n}\n"},
-		{"two literals plus trailing decl", "package demo\n\nvar i = <b>\n\thi\n</b>\n\nvar j = <i>x</i>\n"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			f, fset := parseGsxDecls(t, tc.src)
-			for _, gw := range goWithElementsDecls(t, f) {
-				tf := fset.File(gw.Pos())
-				regionStart, regionEnd := tf.Offset(gw.Pos()), tf.Offset(gw.End())
-				got, _ := goWithElementsSrc(gw)
-				if len(got) != regionEnd-regionStart {
-					t.Fatalf("reconstruction is %d bytes, region is %d:\n%q", len(got), regionEnd-regionStart, got)
-				}
-				// Every non-GoText part must sit at its own offset, replaced by the
-				// placeholder and nothing but spaces after it.
-				for _, part := range gw.Parts {
-					if _, ok := part.(gsxast.GoText); ok {
-						continue
-					}
-					off := tf.Offset(part.Pos()) - regionStart
-					n := tf.Offset(part.End()) - tf.Offset(part.Pos())
-					if n < len(reservedDeclPlaceholder) {
-						t.Fatalf("part at offset %d spans %d bytes, below the %d-byte placeholder floor", off, n, len(reservedDeclPlaceholder))
-					}
-					blanked := got[off : off+n]
-					if want := reservedDeclPlaceholder + strings.Repeat(" ", n-len(reservedDeclPlaceholder)); blanked != want {
-						t.Fatalf("part at offset %d reconstructed as %q, want %q", off, blanked, want)
-					}
-				}
-				// And the whole thing must be Go the parser accepts — the reason the
-				// reconstruction exists at all.
-				if _, err := parser.ParseFile(token.NewFileSet(), "", goDeclWrapPrefix+got, parser.SkipObjectResolution); err != nil {
-					t.Fatalf("reconstruction does not parse: %v\n%q", err, got)
-				}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := checkReservedNames(t, src)
+			if len(got) == 0 || !hasStr(got, firstReservedName(src)) {
+				t.Fatalf("expected a _gsx identifier reported for %q, got %v", name, got)
 			}
 		})
 	}
 }
 
-// TestGoWithElementsSrcGoTextVerbatim pins that only the literals are rewritten:
-// the Go the author wrote is spliced through byte for byte, newlines included. A
-// reconstruction that touched GoText would break the enclosing statement structure
-// rather than the literal's.
-func TestGoWithElementsSrcGoTextVerbatim(t *testing.T) {
-	t.Parallel()
-	const src = "package demo\n\nvar a = <b>\n\thi\n</b>\n\nvar b = 1\n"
-	f, _ := parseGsxDecls(t, src)
-	gw := goWithElementsDecls(t, f)[0]
-	got, _ := goWithElementsSrc(gw)
-	for _, part := range gw.Parts {
-		gt, ok := part.(gsxast.GoText)
-		if !ok {
-			continue
-		}
-		if !strings.Contains(got, gt.Src) {
-			t.Fatalf("GoText %q missing from reconstruction %q", gt.Src, got)
-		}
+// TestReservedPrefixNoFalsePositives pins that go/scanner's token classification
+// is what does the work: a `_gsx` sequence that is NOT a Go identifier — string
+// literal, comment, markup prose — must not be reported. A text-scan would fail
+// every one of these.
+func TestReservedPrefixNoFalsePositives(t *testing.T) {
+	cases := map[string]string{
+		"inside a Go string literal": "package views\nvar s = \"_gsxfoo\"\n",
+		"inside a Go comment":        "package views\n// _gsxfoo is not an identifier\nvar x = 1\n",
+		"markup text content":        "package views\ncomponent C() { <p>_gsxfoo</p> }\n",
+		"static attribute value":     "package views\ncomponent C() { <p data-x=\"_gsxfoo\"/> }\n",
+		"blank import":               "package views\nimport _ \"strings\"\ncomponent C() { <b/> }\n",
 	}
-	if !strings.Contains(got, "\n\nvar b = 1\n") {
-		t.Fatalf("declaration after the literal lost its own line break: %q", got)
-	}
-}
-
-// TestCheckReservedDeclsFindsNamesAcrossRegionShapes is the unit-level companion of
-// the imports/reserved_prefix_decl_element_* corpus cases: a multi-line literal in
-// a composite literal, in a call argument, and in `go`/`defer` position must not
-// hide the names declared in the same region.
-func TestCheckReservedDeclsFindsNamesAcrossRegionShapes(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name string
-		src  string
-		want []string
-	}{
-		{"composite literal", "package demo\n\nvar _gsxlist = []any{\n\t<b>\n\t\tx\n\t</b>,\n}\n", []string{"_gsxlist"}},
-		{"call argument", "package demo\n\nfunc wrap(v any) any { return v }\n\nvar _gsxcall = wrap(<b>\n\tx\n</b>)\n", []string{"_gsxcall"}},
-		{"go statement", "package demo\n\nfunc spawn() {\n\tgo <b/>\n}\n\nvar _gsxrt = 1\n", []string{"_gsxrt"}},
-		{"defer statement", "package demo\n\nfunc later() {\n\tdefer <b/>\n}\n\nvar _gsxrt = 1\n", []string{"_gsxrt"}},
-		{"literal then decl", "package demo\n\nvar _gsxnode = <b>\n\thi\n</b>\n\nvar _gsxafter = <i>x</i>\n", []string{"_gsxnode", "_gsxafter"}},
-		{"clean file", "package demo\n\nvar list = []any{\n\t<b>\n\t\tx\n\t</b>,\n}\n", nil},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			f, fset := parseGsxDecls(t, tc.src)
-			rds, gerrs := checkReservedDecls(f)
-			if len(gerrs) != 0 {
-				t.Fatalf("region failed to reconstruct: %+v", gerrs)
-			}
-			var got []string
-			for _, rd := range rds {
-				got = append(got, rd.name)
-				// The reported position must land on the name in the .gsx source.
-				off := fset.Position(rd.pos).Offset
-				if off < 0 {
-					t.Fatalf("%s reported at negative offset %d", rd.name, off)
-				}
-				if off+len(rd.name) > len(tc.src) || tc.src[off:off+len(rd.name)] != rd.name {
-					t.Fatalf("%s reported at offset %d, which reads %q", rd.name, off, tc.src[min(off, len(tc.src)):])
-				}
-			}
-			if strings.Join(got, ",") != strings.Join(tc.want, ",") {
-				t.Fatalf("names = %v, want %v", got, tc.want)
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := checkReservedNames(t, src); len(got) != 0 {
+				t.Fatalf("expected NO reserved-name report for %q, got %v", name, got)
 			}
 		})
 	}
 }
 
-// TestCheckReservedDeclsReportsUnparseableRegion pins that a region the check
-// cannot read is reported, not skipped. Silence here was the shape of the bug this
-// pass keeps re-acquiring: no names found, no error, generation proceeds.
-func TestCheckReservedDeclsReportsUnparseableRegion(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name    string
-		src     string
-		wantMsg string
-		// wantAt is the exact text the reported position must sit on.
-		wantAt string
-	}{
-		{
-			name:    "go chunk: import after decl",
-			src:     "package demo\n\nfunc helper() string { return \"x\" }\n\nimport \"fmt\"\n",
-			wantMsg: "imports must appear before other declarations",
-			wantAt:  "import \"fmt\"",
-		},
-		{
-			name:    "go-with-elements: missing if condition",
-			src:     "package demo\n\nvar a = func() any { if { return <b/> } }()\n",
-			wantMsg: "missing condition in if statement",
-			wantAt:  "{ return",
-		},
-		// When the parser stops ON a substituted literal it is complaining about
-		// reservedDeclPlaceholder, a token the author never typed. go/parser would
-		// say "expected declaration, found _" at a byte that reads `<`. Name the
-		// user's construct instead, and snap the caret to the literal's first byte.
-		{
-			name:    "placeholder: element in declaration position",
-			src:     "package demo\n\n<b/>\n",
-			wantMsg: "element is not valid in this position",
-			wantAt:  "<b/>",
-		},
-		{
-			name:    "placeholder: fragment in declaration position",
-			src:     "package demo\n\n<></>\n",
-			wantMsg: "fragment is not valid in this position",
-			wantAt:  "<></>",
-		},
-		{
-			name:    "placeholder: f-literal in declaration position",
-			src:     "package demo\n\nf`hi`\n",
-			wantMsg: "f-literal is not valid in this position",
-			wantAt:  "f`hi`",
-		},
+// TestReservedPrefixParenWrappedElement is the exact regression that motivated
+// the rewrite: main's formatter wraps a multi-line element literal as
+// `return ( <>…</> )`, and `return (\n x \n)` is not a valid Go statement under
+// automatic semicolon insertion. The old parse-based check rejected this legal
+// gsx; the scanner must accept it (no `_gsx` name → no report) AND still catch a
+// `_gsx` name in the surrounding Go.
+func TestReservedPrefixParenWrappedElement(t *testing.T) {
+	legal := "package views\nimport \"github.com/gsxhq/gsx\"\n" +
+		"func Items(xs []string) gsx.Node {\n\treturn (\n\t\t<>\n\t\t\t{ for _, s := range xs { <li>{ s }</li> } }\n\t\t</>\n\t)\n}\n"
+	if got := checkReservedNames(t, legal); len(got) != 0 {
+		t.Fatalf("paren-wrapped element literal must not be rejected; got %v", got)
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			f, fset := parseGsxDecls(t, tc.src)
-			_, gerrs := checkReservedDecls(f)
-			if len(gerrs) != 1 {
-				t.Fatalf("got %d region errors, want 1: %+v", len(gerrs), gerrs)
-			}
-			ge := gerrs[0]
-			if ge.msg != tc.wantMsg {
-				t.Fatalf("msg = %q, want %q", ge.msg, tc.wantMsg)
-			}
-			off := fset.Position(ge.pos).Offset
-			if !strings.HasPrefix(tc.src[off:], tc.wantAt) {
-				t.Fatalf("position %d reads %q, want it to start %q", off, tc.src[off:], tc.wantAt)
-			}
-		})
+
+	hostile := "package views\nimport \"github.com/gsxhq/gsx\"\n" +
+		"func Items(xs []string) gsx.Node {\n\t_gsxio := 0\n\t_ = _gsxio\n\treturn (\n\t\t<>\n\t\t\t{ for _, s := range xs { <li>{ s }</li> } }\n\t\t</>\n\t)\n}\n"
+	if got := checkReservedNames(t, hostile); !hasStr(got, "_gsxio") {
+		t.Fatalf("expected _gsxio reported inside a paren-wrapped-return func; got %v", got)
 	}
+}
+
+// TestReservedPrefixDedupPerName pins that one offending name is reported once,
+// even when it is declared and then used — one mistake, one diagnostic.
+func TestReservedPrefixDedupPerName(t *testing.T) {
+	src := "package views\nvar _gsxfoo = 1\nvar _ = _gsxfoo + _gsxfoo\n"
+	got := checkReservedNames(t, src)
+	if len(got) != 1 || got[0] != "_gsxfoo" {
+		t.Fatalf("expected exactly one _gsxfoo report, got %v", got)
+	}
+}
+
+func hasStr(xs []string, x string) bool {
+	for _, s := range xs {
+		if s == x {
+			return true
+		}
+	}
+	return false
+}
+
+// firstReservedName returns the first `_gsx…` identifier-looking token in src,
+// used only to assert the expected name in the multi-context table.
+func firstReservedName(src string) string {
+	i := strings.Index(src, reservedPrefix)
+	if i < 0 {
+		return reservedPrefix
+	}
+	j := i
+	for j < len(src) && (isIdentByte(src[j])) {
+		j++
+	}
+	return src[i:j]
+}
+
+func isIdentByte(b byte) bool {
+	return b == '_' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9'
 }
