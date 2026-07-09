@@ -4,9 +4,7 @@
 package views
 
 component Button(variant string) {
-	<button class="btn" data-variant={variant} { attrs... }>
-		{ children }
-	</button>
+	<button class="btn" data-variant={variant} { attrs... }>{ children }</button>
 }
 
 component Page() {
@@ -22,4 +20,4 @@ Renders:
 <button class="btn w-full" data-variant="primary" data-test="x" hx-post="/go">Save</button>
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgQnV0dG9uKHZhcmlhbnQgc3RyaW5nKSB7XG5cdFx1MDAzY2J1dHRvbiBjbGFzcz1cImJ0blwiIGRhdGEtdmFyaWFudD17dmFyaWFudH0geyBhdHRycy4uLiB9XHUwMDNlXG5cdFx0eyBjaGlsZHJlbiB9XG5cdFx1MDAzYy9idXR0b25cdTAwM2Vcbn1cblxuY29tcG9uZW50IFBhZ2UoKSB7XG5cdFx1MDAzY0J1dHRvbiB2YXJpYW50PVwicHJpbWFyeVwiIGNsYXNzPVwidy1mdWxsXCIgZGF0YS10ZXN0PVwieFwiIGh4LXBvc3Q9XCIvZ29cIlx1MDAzZVxuXHRcdFNhdmVcblx0XHUwMDNjL0J1dHRvblx1MDAzZVxufVxuIiwiaSI6IlBhZ2UoKSJ9)
+[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgQnV0dG9uKHZhcmlhbnQgc3RyaW5nKSB7XG5cdFx1MDAzY2J1dHRvbiBjbGFzcz1cImJ0blwiIGRhdGEtdmFyaWFudD17dmFyaWFudH0geyBhdHRycy4uLiB9XHUwMDNleyBjaGlsZHJlbiB9XHUwMDNjL2J1dHRvblx1MDAzZVxufVxuXG5jb21wb25lbnQgUGFnZSgpIHtcblx0XHUwMDNjQnV0dG9uIHZhcmlhbnQ9XCJwcmltYXJ5XCIgY2xhc3M9XCJ3LWZ1bGxcIiBkYXRhLXRlc3Q9XCJ4XCIgaHgtcG9zdD1cIi9nb1wiXHUwMDNlXG5cdFx0U2F2ZVxuXHRcdTAwM2MvQnV0dG9uXHUwMDNlXG59XG4iLCJpIjoiUGFnZSgpIn0=)
