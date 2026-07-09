@@ -18,11 +18,24 @@ import (
 // test cannot silently agree with a broken exclusion rule by re-implementing
 // it inline — see TestStdlibIndexHasNoUnimportablePaths below for a check that
 // does NOT share that implementation, and so actually exercises the rule.
+//
+// It also shares stdpath.GoListEnv with the generator, pinning `go list std`
+// to GOOS=linux GOARCH=amd64 CGO_ENABLED=0 rather than the host's own
+// environment — `go list std` is itself host-dependent (e.g. package `cgo` at
+// runtime/cgo appears only when cgo is enabled), so without a shared pinned
+// environment this test would only agree with the table by construction on
+// whichever machine generated it, and disagree everywhere else (this is
+// exactly what broke CI: a table generated on a cgo-enabled darwin/arm64
+// machine had one more entry than linux/amd64 CI saw). A failure here now
+// means either the table is stale (regenerate it) or stdpath.GoListEnv drifted
+// out of sync between the generator and this test (it must not).
 func TestStdlibIndexIsFresh(t *testing.T) {
 	if testing.Short() {
 		t.Skip("runs `go list std`")
 	}
-	out, err := exec.Command("go", "list", "-f", "{{.Name}} {{.ImportPath}}", "std").Output()
+	cmd := exec.Command("go", "list", "-f", "{{.Name}} {{.ImportPath}}", "std")
+	cmd.Env = stdpath.GoListEnv()
+	out, err := cmd.Output()
 	if err != nil {
 		t.Skipf("go list std: %v", err)
 	}
