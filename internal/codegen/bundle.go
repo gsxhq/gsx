@@ -23,7 +23,7 @@ func harvestFromTypes(byPath map[string]*types.Package, pkgPaths []string, expli
 	for _, path := range pkgPaths {
 		pkg, ok := byPath[path]
 		if !ok || pkg == nil {
-			return nil, fmt.Errorf("codegen: filter package %q has no type information in bundle", path)
+			return nil, fmt.Errorf("codegen: filter package %q was not loaded (add it to Options.FilterPkgs or Options.LoadPkgs)", path)
 		}
 		alias := aliases[path]
 		scope := pkg.Scope()
@@ -58,7 +58,7 @@ func harvestFromTypes(byPath map[string]*types.Package, pkgPaths []string, expli
 	for _, a := range explicitAliases {
 		pkg, ok := byPath[a.PkgPath]
 		if !ok || pkg == nil {
-			return nil, fmt.Errorf("codegen: WithFilter %q: package %q has no type information in bundle", a.Name, a.PkgPath)
+			return nil, fmt.Errorf("codegen: WithFilter %q: package %q was not loaded", a.Name, a.PkgPath)
 		}
 		obj := pkg.Scope().Lookup(a.FuncName)
 		if obj == nil {

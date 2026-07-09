@@ -638,6 +638,7 @@ type analyzed struct {
 	goFiles            []*goast.File                  // parsed skeletons + shared helper
 	compsByXGo         map[string][]*gsxast.Component // skeleton abs path -> components
 	table              filterTable
+	merger             *ClassMergerRef // the class merger for this dir (Options.ClassMerger, or its PerDir override)
 	propFields         map[string]map[string]bool
 	nodeProps          map[string]map[string]bool
 	attrsProps         map[string]map[string]bool
@@ -756,7 +757,9 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	if scriptErr {
 		gsxFiles = nil // package-level skip: Generate's loop emits nothing
 	}
-	table, err := m.cachedFilterTable()
+	// Per-dir: an imported sibling package resolves its OWN filter table here,
+	// because analyze is the recursion point for the import graph.
+	table, err := m.filterTableFor(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -1222,6 +1225,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		goFiles:            goFiles,
 		compsByXGo:         compsByXGo,
 		table:              table,
+		merger:             m.classMergerFor(dir),
 		propFields:         propFields,
 		nodeProps:          nodeProps,
 		attrsProps:         attrsProps,
