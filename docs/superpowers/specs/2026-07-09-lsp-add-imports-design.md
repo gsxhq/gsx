@@ -104,9 +104,14 @@ only packages that actually export `symbol`:
   ```
 
 An importer failure drops that candidate (conservative: offer fewer, never add a wrong
-import). In `Bundle`/WASM mode there is no `GOROOT` export data; table-only candidates are
-then simply not symbol-checked, so an ambiguous name yields multiple quickfixes and no
-automatic add. Graceful degradation, not an error.
+import). `Bundle.importer()` returns a `mapImporter` in every current Bundle constructor
+(`bundle.go`, `resolver.go`), so the dependency graph (source 1 above) is fully enumerable in
+Bundle mode too — that is not a source of degradation. The real gap is narrower and
+WASM-specific: `exportDataImporter`'s `importer.ForCompiler(fset, "gc", nil)` reads on-disk
+`GOROOT` export data, which is unavailable when gsx runs compiled to `js/wasm` (the
+playground). There, a table-only candidate not already in the bundle's graph is simply not
+symbol-checked, so an ambiguous name yields multiple quickfixes and no automatic add.
+Graceful degradation, not an error.
 
 **Nothing here scans the filesystem.** An unknown name resolves to the empty slice and we
 offer nothing — the user runs `go get`, which they would have had to do anyway.

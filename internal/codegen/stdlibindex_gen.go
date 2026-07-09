@@ -84,7 +84,6 @@ var stdlibIndex = map[string][]string{
 	"httputil":        {"net/http/httputil"},
 	"image":           {"image"},
 	"importer":        {"go/importer"},
-	"internal":        {"encoding/json/internal", "log/internal", "log/slog/internal", "net/http/internal"},
 	"io":              {"io"},
 	"iotest":          {"testing/iotest"},
 	"ioutil":          {"io/ioutil"},

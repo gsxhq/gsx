@@ -9,6 +9,8 @@ import (
 	"go/types"
 	"slices"
 	"sync/atomic"
+
+	"github.com/gsxhq/gsx/internal/codegen/stdpath"
 )
 
 // missingFromSkeletons finds, per .gsx file, every qualifier used in a selector
@@ -195,6 +197,21 @@ func (m *Module) ResolveImportCandidates(name, symbol string) []string {
 // the actual gating and is exercised directly by
 // TestDepGraphPackagesSkipsIncomplete since a real mapImporter here always
 // comes from a live packages.Load).
+//
+// Also excludes any path with an `internal` component or a `vendor/` prefix —
+// packages.Load's NeedDeps hands back the FULL transitive closure, not just
+// the packages a caller explicitly requested, so this graph always contains
+// std-internal packages incidentally reached through something else in the
+// graph (e.g. the gsx runtime imports "encoding/json", which imports
+// "encoding/json/internal": that package is in every Module's dep graph, and
+// is named "internal", making it a false candidate for an undefined `internal`
+// qualifier — same failure mode as Bug 1's stdlib-table leak, same fix). This
+// necessarily also excludes a legitimately same-tree project-local `internal`
+// package: ResolveImportCandidates has no per-call knowledge of which .gsx
+// package is asking, so it cannot check Go's actual "importer must be rooted
+// at the parent of internal" condition — conservative exclusion (offer fewer,
+// never offer one the compiler rejects) is the correct default here, matching
+// packageExports' existing "an importer failure drops the candidate" stance.
 func (m *Module) depGraphPackages() map[string]*types.Package {
 	ext, err := m.externalImporter()
 	if err != nil {
@@ -202,9 +219,20 @@ func (m *Module) depGraphPackages() map[string]*types.Package {
 	}
 	mi, ok := ext.(mapImporter)
 	if !ok {
-		return map[string]*types.Package{} // bundle mode: not enumerable
+		// Defensive, not a documented bundle-mode gap: every current Bundle
+		// constructor (bundle.go, resolver.go) sets Bundle.imp to a mapImporter,
+		// so this assertion succeeds in bundle mode too and the graph IS
+		// enumerable there. A future importer.Importer that is not a mapImporter
+		// would land here and yield an empty (not panicking) graph instead.
+		return map[string]*types.Package{}
 	}
-	return completeDepGraphPackages(mi)
+	out := completeDepGraphPackages(mi)
+	for path := range out {
+		if !stdpath.Importable(path) {
+			delete(out, path)
+		}
+	}
+	return out
 }
 
 // completeDepGraphPackages filters mi down to path -> *types.Package for every
