@@ -42,6 +42,7 @@ type tomlConfig struct {
 // (print_width 80, imports "goimports").
 type tomlFormatter struct {
 	PrintWidth int    `toml:"print_width"`
+	TabWidth   int    `toml:"tab_width"`
 	Imports    string `toml:"imports"` // "goimports" (default) | "gofmt"
 }
 
@@ -198,6 +199,7 @@ func loadConfig(path string) (config, error) {
 	}
 	if tc.Formatter != nil {
 		cfg.printWidth = tc.Formatter.PrintWidth
+		cfg.tabWidth = tc.Formatter.TabWidth
 		if s := tc.Formatter.Imports; s != "" {
 			m, err := gsxfmt.ParseImportsMode(s)
 			if err != nil {
@@ -273,6 +275,11 @@ func mergeConfig(base, opts config) config {
 	merged.printWidth = base.printWidth
 	if opts.printWidth > 0 {
 		merged.printWidth = opts.printWidth
+	}
+
+	merged.tabWidth = base.tabWidth
+	if opts.tabWidth > 0 {
+		merged.tabWidth = opts.tabWidth
 	}
 
 	merged.importsMode = base.importsMode
