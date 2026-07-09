@@ -126,7 +126,7 @@ gsx dev [dir] [--web command] [--no-web] [--build command] [--run command]
 keeps gsx's type information warm, regenerates `.x.go` files, builds and safely
 swaps the Go server, supervises Vite, and drives Vite's browser error overlay and
 reload. A failed generation or build leaves the last working server running.
-[How the dev loop works](./dev-loop) walks through the full sequence.
+[How the dev loop works](./dev-loop.md) walks through the full sequence.
 
 The generated starter exposes it as:
 
@@ -137,7 +137,7 @@ go tool gsx dev    # equivalent direct command
 
 Vite requires Node.js and a package manager. The default front-door command is
 `npx vite`; npm can be replaced with pnpm, Yarn, or another compatible tool by
-setting `web` in [`gsx.toml`](./config#dev-development-loop), or with `--web`.
+setting `web` in [`gsx.toml`](./config.md#dev-development-loop), or with `--web`.
 
 | Flag | Effect |
 |------|--------|
@@ -247,8 +247,9 @@ formats `.` recursively.
 
 **Line width.** The formatter wraps at 80 columns by default; set
 [`[formatter]` `print_width`](./config.md#formatter--gsx-fmt--editor-formatting)
-in `gsx.toml` to change it. The language server reads the same setting, so
-`gsx fmt` and format-on-save always agree.
+in `gsx.toml` to change it, or `max_line_length` in `.editorconfig`. The
+language server reads the same settings, so `gsx fmt` and format-on-save
+always agree.
 
 **Your line breaks are preserved.** When you place a line break immediately
 after a control-flow body's opening `{` (`{ if … {`, `else {`, `{ for … {`) or
@@ -285,6 +286,13 @@ Braces are all-or-nothing; fields are not. The `Admin` item keeps its `{` inline
 so it stays entirely inline, and the `Export` item's fields stay packed on the
 one line the author wrote them on — `gsx fmt` never introduces a break *between*
 fields.
+
+**Indentation is always tabs.** `gsx fmt` never emits spaces for indentation,
+regardless of configuration. `[formatter] tab_width` (in `gsx.toml`) and
+`.editorconfig`'s `tab_width`/`indent_size` change only how wide a tab is
+*counted* when the formatter decides whether a line overflows `print_width` —
+they do not change what gets emitted. See [`.editorconfig`
+support](./config.md#editorconfig) for the full resolution order.
 
 This is the one place `gsx fmt` adds a rule gofmt does not have: gofmt honours a
 break after `{` but never propagates it to the matching `}`. Everything after

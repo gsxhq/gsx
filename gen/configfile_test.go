@@ -9,6 +9,7 @@ import (
 
 	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
+	"github.com/gsxhq/gsx/internal/pretty"
 )
 
 // mkfile writes content to path, creating parent dirs.
@@ -349,8 +350,8 @@ func TestConfigPrintWidthOldKeyRejected(t *testing.T) {
 func TestConfigPrintWidthDefault(t *testing.T) {
 	t.Parallel()
 	var c config
-	if got := c.effectivePrintWidth(); got != 80 {
-		t.Fatalf("default printWidth = %d, want 80", got)
+	if got := c.effectivePrintWidth(); got != pretty.DefaultPrintWidth {
+		t.Fatalf("default printWidth = %d, want pretty.DefaultPrintWidth (%d)", got, pretty.DefaultPrintWidth)
 	}
 }
 

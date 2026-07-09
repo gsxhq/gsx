@@ -39,6 +39,11 @@
 //	                the language server's missing-qualifier analysis (type-
 //	                checking against the module), which this suite avoids to stay
 //	                quick — the corpus case supplies the same list by hand.
+//	-- tab_width -- a positive integer, the column width of one tab when
+//	                measuring line overflow (FormatOptions.TabWidth). Absent
+//	                means 0, i.e. pretty.DefaultTabWidth. Indentation is always
+//	                emitted as tabs regardless of this value — it only changes
+//	                where a line is judged to overflow the width budget.
 //
 // Regenerate with: go test ./internal/gsxfmt -run TestFmtCorpus -update
 // Then re-run without -update to verify.
@@ -51,6 +56,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -62,6 +68,11 @@ var update = flag.Bool("update", false, "rewrite fmt.golden files from actual ou
 
 // fmtWidth is the column budget every corpus case is formatted at. Pinned here
 // (not per-case) so a golden's line breaks mean one thing across the suite.
+//
+// It is deliberately NOT pretty.DefaultPrintWidth. The product default is what a
+// user gets; this is the budget the goldens were written against, chosen narrow
+// so a case can exercise an overflow without a 120-character input line. Moving
+// the product default must not silently reflow every golden in the corpus.
 const fmtWidth = 80
 
 func TestFmtCorpus(t *testing.T) {
@@ -111,7 +122,16 @@ func TestFmtCorpus(t *testing.T) {
 				add = refs
 			}
 
-			opts := FormatOptions{Unused: unused, Add: add, Width: fmtWidth, Reorder: mode.Reorder()}
+			tabWidth := 0
+			if raw, ok := archiveFile(ar, "tab_width"); ok {
+				n, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+				if err != nil || n <= 0 {
+					t.Fatalf("case %s: bad tab_width %q", path, raw)
+				}
+				tabWidth = n
+			}
+
+			opts := FormatOptions{Unused: unused, Add: add, Width: fmtWidth, TabWidth: tabWidth, Reorder: mode.Reorder()}
 
 			got, err := FormatWith("input.gsx", input, opts)
 			if err != nil {

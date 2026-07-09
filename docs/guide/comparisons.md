@@ -34,4 +34,4 @@ Use client-side JSX for interactive browser applications. Use gsx for server-ren
 
 ## Interop
 
-See [Interop](./syntax/interop) for examples that compose gsx with templ, `html/template`, and client-side islands.
+See [Interop](./syntax/interop.md) for examples that compose gsx with templ, `html/template`, and client-side islands.

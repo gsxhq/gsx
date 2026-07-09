@@ -48,7 +48,7 @@ asks Vite to reload the browser. If generation or compilation fails, the browser
 shows the error while the last working server keeps running.
 
 For the full sequence — what `gsx dev` watches, regenerates, rebuilds, and reloads
-on each save — see [How the dev loop works](./dev-loop).
+on each save — see [How the dev loop works](./dev-loop.md).
 
 ## Make the first change
 
@@ -90,10 +90,10 @@ The production binary embeds the generated `dist/` assets and does not run Vite.
 
 ## Where to go next
 
-- Follow [Learn gsx](./learn) for the first component, props, children, attrs, and styling.
-- Keep the [syntax reference](./syntax) open while writing `.gsx`.
+- Follow [Learn gsx](./learn.md) for the first component, props, children, attrs, and styling.
+- Keep the [syntax reference](./syntax.md) open while writing `.gsx`.
 - Use the [playground](/playground) for quick experiments.
-- See the [`gsx dev` CLI reference](./cli#gsx-dev) for custom build, run, log,
+- See the [`gsx dev` CLI reference](./cli.md#gsx-dev) for custom build, run, log,
   and front-door commands.
 - Configure filters, asset processing, and the dev loop in
-  [`gsx.toml`](./config).
+  [`gsx.toml`](./config.md).

@@ -10,6 +10,7 @@ import (
 
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
+	"github.com/gsxhq/gsx/internal/pretty"
 )
 
 // blockingAnalyzer parks inside Analyze until the test releases that specific
@@ -44,7 +45,9 @@ func (a *blockingAnalyzer) Analyze(_ string, override map[string][]byte) (*Packa
 	}}}, nil
 }
 
-func (a *blockingAnalyzer) PrintWidth(string) int { return 80 }
+func (a *blockingAnalyzer) FormatSettings(string) gsxfmt.FormatSettings {
+	return gsxfmt.FormatSettings{Width: 80, TabWidth: pretty.DefaultTabWidth}
+}
 func (a *blockingAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
 	return gsxfmt.ImportsGoimports
 }

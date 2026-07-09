@@ -45,7 +45,7 @@ Set `no_web = true` when another process manages Vite:
 no_web = true
 ```
 
-CLI flags override this table. See the [`gsx dev` reference](./cli#gsx-dev).
+CLI flags override this table. See the [`gsx dev` reference](./cli.md#gsx-dev).
 
 ## Example: pipeline filters
 
@@ -141,7 +141,7 @@ The gsx built-in `std` filter package is **always available** — you do not lis
 it. It ships `upper`, `lower`, `trim`, `truncate`, `join`, `default`, `format`
 (a `fmt.Sprintf` wrapper with the piped value as the first verb:
 `{ price |> format("$%.2f") }`), and `dataURL` (assembles a base64 `data:` URL —
-see [Pipelines](./syntax/pipelines)). List `filterPackages` only for your own
+see [Pipelines](./syntax/pipelines.md)). List `filterPackages` only for your own
 packages, or to set precedence (later packages win on name collisions).
 
 #### `std` is the lowest-precedence base
@@ -205,14 +205,50 @@ command and editor format-on-save via the language server read it.
 
 ```toml
 [formatter]
-print_width = 100   # line width the formatter wraps at (default 80)
-imports = "goimports"   # "goimports" (default) or "gofmt"
+print_width = 100   # line width the formatter wraps at (default 120)
+tab_width   = 4     # columns one tab counts as, for measuring line width (default 2)
+imports     = "goimports"   # "goimports" (default) or "gofmt"
 ```
 
 `print_width` is the column budget for a line. An opening tag whose attribute
 list fits stays on one line; one that exceeds the width wraps with one
 attribute per line (and its children break onto their own indented lines).
-The default is `80`.
+The default is `120`. gsx markup nests, and each level of nesting spends part of the budget on indentation before a single character of content is printed; at `80` an element six levels deep has almost nothing left.
+
+`tab_width` does **not** change how indentation is emitted — `gsx fmt` always
+indents with tabs, never spaces. It only changes how wide a tab **counts** as
+when the formatter measures a line against `print_width`. The default is `2`.
+
+#### `.editorconfig`
+
+`gsx fmt` also reads [`.editorconfig`](https://editorconfig.org/), honoring
+exactly two keys:
+
+| Key | Effect |
+|-----|--------|
+| `tab_width` | how many columns one tab counts as when measuring a line (falls back to `indent_size`, per the EditorConfig spec) |
+| `max_line_length` | feeds `print_width`; `off` means "use gsx's default", since gsx has no unbounded width |
+
+`indent_style` is **not** honored. gofmt always emits tabs for Go, and gsx
+does not re-indent gofmt's output.
+
+Resolution order, highest first:
+
+```
+option (programmatic) > gsx.toml [formatter] > .editorconfig > built-in (print_width 120, tab_width 2)
+```
+
+There is no CLI flag or environment variable for either setting — same as
+`print_width`, which has never had one. An explicit `gsx.toml` setting wins
+even when an `.editorconfig` sits closer to the file being formatted:
+`.editorconfig` is a cross-tool baseline shared with other editors and
+formatters, while `gsx.toml [formatter]` is gsx's own, more specific answer. A
+key left **unset** in `gsx.toml` falls through to `.editorconfig` rather than
+clobbering it with the built-in default. A missing or malformed
+`.editorconfig` is ignored, never an error.
+
+The language server resolves the same precedence per document, so
+format-on-save always agrees with `gsx fmt`.
 
 `imports` selects how `gsx fmt` and the language server treat the import
 declarations in a file's pass-through Go, mirroring the two modes gopls offers:
@@ -235,10 +271,10 @@ Unlike real `goimports`, `gsx` cannot **add** a missing import: a gsx Go
 chunk's body never references the surrounding template's imports, so there is
 no symbol for the formatter to resolve to a package.
 
-Both `print_width` and `imports` are resolved **per directory** from the
-nearest `gsx.toml` (same [discovery walk](#location--discovery) as everything
-else), so files in different modules of a monorepo can format with different
-settings.
+`print_width`, `tab_width`, and `imports` are all resolved **per directory**
+from the nearest `gsx.toml` (same [discovery walk](#location--discovery) as
+everything else), so files in different modules of a monorepo can format with
+different settings.
 
 Like `[dev]`, this table only affects formatting — it never changes generated
 output, so it does not participate in the incremental codegen cache.
@@ -363,7 +399,8 @@ name = "data-href"
 # Formatter settings for gsx fmt and editor formatting.
 [formatter]
 print_width = 100
-imports = "goimports"
+tab_width   = 2
+imports     = "goimports"
 
 # Asset minification level (per asset; "none" default, "full" for prod).
 [minify]
