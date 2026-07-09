@@ -22,14 +22,21 @@ func TestGoExprElementParenWrapsAtTopLevel(t *testing.T) {
 	checkFormat(t, src, want)
 }
 
-func TestGoExprElementParenWrapsOnWidthOverflow(t *testing.T) {
-	// Fits on one line syntactically, but the assignment line alone is 81
-	// columns — prettier wraps here too (verified empirically), not just on a
-	// forced multi-line source.
+// The element is 12 characters and fits anywhere. The line is 103 columns
+// because of the Go fields around it. Breaking the element's parens does not
+// address that; breaking the literal's fields does.
+func TestGoExprWideLiteralBreaksFieldsNotElement(t *testing.T) {
+	src := "package main\n\nvar nav = []item{\n\t{label: \"Team View\", icon: <UsersIcon/>, page: TeamViewPage{}, pathMatch: \"/team\", nonVendor: true},\n}\n"
+	want := "package main\n\nvar nav = []item{\n\t{\n\t\tlabel:     \"Team View\",\n\t\ticon:      <UsersIcon/>,\n\t\tpage:      TeamViewPage{},\n\t\tpathMatch: \"/team\",\n\t\tnonVendor: true,\n\t},\n}\n"
+	checkFormat(t, src, want)
+}
+
+// A short element on a short line never wraps, and a genuinely multi-line one
+// still does. Paren-wrap is for multi-line elements, not for wide lines.
+func TestGoExprElementNeverParenWrapsOnWidthAlone(t *testing.T) {
 	name := strings.Repeat("x", 62)
 	src := "package main\n\nvar " + name + " = <div>x</div>\n"
-	want := "package main\n\nvar " + name + " = (\n\t<div>x</div>\n)\n"
-	checkFormat(t, src, want)
+	checkFormat(t, src, src) // 81 columns, and it stays flat — gofmt would too
 }
 
 func TestGoExprElementStaysFlatWhenItFits(t *testing.T) {

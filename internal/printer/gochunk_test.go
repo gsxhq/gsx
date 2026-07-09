@@ -3,6 +3,8 @@ package printer
 import (
 	"strings"
 	"testing"
+
+	"github.com/gsxhq/gsx/internal/pretty"
 )
 
 // TestFmtGoChunkPreservesBuildComment guards the corruption bug fixed by
@@ -16,7 +18,7 @@ import (
 // package declaration leaks into the printed chunk.
 func TestFmtGoChunkPreservesBuildComment(t *testing.T) {
 	src := "//go:build linux\n\nimport (\n\t\"fmt\"\n)\n\nvar _ = fmt.Sprint"
-	got := fmtGoChunk(src)
+	got := fmtGoChunk(src, 80, pretty.DefaultTabWidth)
 
 	if !strings.Contains(got, "//go:build linux") {
 		t.Fatalf("build comment not preserved verbatim; got:\n%s", got)
