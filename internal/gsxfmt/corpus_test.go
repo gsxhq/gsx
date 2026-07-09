@@ -141,7 +141,7 @@ func TestFmtCorpus(t *testing.T) {
 // `alias path` (aliased import).
 func parseUnusedRefs(raw string) ([]ImportRef, error) {
 	var refs []ImportRef
-	for _, line := range strings.Split(raw, "\n") {
+	for line := range strings.SplitSeq(raw, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
