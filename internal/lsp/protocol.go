@@ -49,14 +49,49 @@ type initializeResult struct {
 }
 
 type serverCapabilities struct {
-	PositionEncoding           string `json:"positionEncoding"`
-	TextDocumentSync           int    `json:"textDocumentSync"`
-	DefinitionProvider         bool   `json:"definitionProvider"`
-	ReferencesProvider         bool   `json:"referencesProvider"`
-	DocumentFormattingProvider bool   `json:"documentFormattingProvider"`
-	HoverProvider              bool   `json:"hoverProvider"`
-	DocumentSymbolProvider     bool   `json:"documentSymbolProvider"`
-	WorkspaceSymbolProvider    bool   `json:"workspaceSymbolProvider"`
+	PositionEncoding           string             `json:"positionEncoding"`
+	TextDocumentSync           int                `json:"textDocumentSync"`
+	DefinitionProvider         bool               `json:"definitionProvider"`
+	ReferencesProvider         bool               `json:"referencesProvider"`
+	DocumentFormattingProvider bool               `json:"documentFormattingProvider"`
+	HoverProvider              bool               `json:"hoverProvider"`
+	DocumentSymbolProvider     bool               `json:"documentSymbolProvider"`
+	WorkspaceSymbolProvider    bool               `json:"workspaceSymbolProvider"`
+	CodeActionProvider         *CodeActionOptions `json:"codeActionProvider,omitempty"`
+}
+
+// CodeActionOptions advertises which code-action kinds the server produces. It
+// is a struct rather than a bare `true` so clients know they can wire
+// editor.codeActionsOnSave to source.organizeImports.
+type CodeActionOptions struct {
+	CodeActionKinds []string `json:"codeActionKinds"`
+}
+
+// organizeImportsKind is the LSP kind for the organize-imports source action.
+const organizeImportsKind = "source.organizeImports"
+
+type codeActionContext struct {
+	// Only restricts the kinds the client wants. Empty means "any".
+	Only []string `json:"only"`
+}
+
+type codeActionParams struct {
+	TextDocument textDocumentIdentifier `json:"textDocument"`
+	Range        Range                  `json:"range"`
+	Context      codeActionContext      `json:"context"`
+}
+
+// WorkspaceEdit maps a document URI to the edits to apply to it.
+type WorkspaceEdit struct {
+	Changes map[string][]TextEdit `json:"changes"`
+}
+
+// CodeAction is one entry of the textDocument/codeAction result. Edit is carried
+// inline, so the server advertises no resolveProvider.
+type CodeAction struct {
+	Title string         `json:"title"`
+	Kind  string         `json:"kind"`
+	Edit  *WorkspaceEdit `json:"edit,omitempty"`
 }
 
 // TextEdit is a single text replacement: NewText replaces the span at Range.

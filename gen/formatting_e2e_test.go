@@ -111,6 +111,65 @@ func TestFormattingRemovesUnusedImport(t *testing.T) {
 	}
 }
 
+// TestFormattingGoimportsModeMergesImports: with no gsx.toml (default
+// goimports), textDocument/formatting merges and dedups import declarations.
+func TestFormattingGoimportsModeMergesImports(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	dir := t.TempDir()
+	repoRoot, _ := filepath.Abs("..")
+	must := func(p, c string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, p), []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	must("go.mod", "module example.com/u\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	src := "package u\n\nimport \"strings\"\n\nimport (\n\t\"fmt\"\n\n\t\"strings\"\n)\n\n" +
+		"component C() {\n\t<p>{ fmt.Sprint(strings.ToUpper(\"x\")) }</p>\n}\n"
+	must("c.gsx", src)
+	uri := "file://" + filepath.Join(dir, "c.gsx")
+
+	edits := formattingEdits(t, uri, src)
+	if len(edits) != 1 {
+		t.Fatalf("want 1 edit, got %d", len(edits))
+	}
+	if n := strings.Count(edits[0].NewText, "\"strings\""); n != 1 {
+		t.Fatalf("formatting did not dedup strings (%d):\n%s", n, edits[0].NewText)
+	}
+}
+
+// TestFormattingGofmtModeLeavesImportsAlone: [formatter] imports = "gofmt" makes
+// textDocument/formatting stop removing AND stop reordering imports.
+func TestFormattingGofmtModeLeavesImportsAlone(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	dir := t.TempDir()
+	repoRoot, _ := filepath.Abs("..")
+	must := func(p, c string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, p), []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	must("go.mod", "module example.com/u\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	must("gsx.toml", "[formatter]\nimports = \"gofmt\"\n")
+	// An unused import: goimports mode would drop it, gofmt mode must not.
+	src := "package u\n\nimport \"strings\"\n\ncomponent C() {\n\t<p>hi</p>\n}\n"
+	must("c.gsx", src)
+	uri := "file://" + filepath.Join(dir, "c.gsx")
+
+	edits := formattingEdits(t, uri, src)
+	// Already canonical under gofmt mode ⇒ no edits at all.
+	if len(edits) != 0 {
+		t.Fatalf("gofmt mode must not touch imports, got edit:\n%s", edits[0].NewText)
+	}
+}
+
 // formattingEdits opens uri with the given text and returns the edits from a
 // textDocument/formatting request (id 2).
 func formattingEdits(t *testing.T, uri, text string) []lsp.TextEdit {

@@ -206,6 +206,7 @@ command and editor format-on-save via the language server read it.
 ```toml
 [formatter]
 print_width = 100   # line width the formatter wraps at (default 80)
+imports = "goimports"   # "goimports" (default) or "gofmt"
 ```
 
 `print_width` is the column budget for a line. An opening tag whose attribute
@@ -213,9 +214,31 @@ list fits stays on one line; one that exceeds the width wraps with one
 attribute per line (and its children break onto their own indented lines).
 The default is `80`.
 
-The width is resolved **per directory** from the nearest `gsx.toml` (same
-[discovery walk](#location--discovery) as everything else), so files in
-different modules of a monorepo can format to different widths.
+`imports` selects how `gsx fmt` and the language server treat the import
+declarations in a file's pass-through Go, mirroring the two modes gopls offers:
+
+- **`goimports`** (default) — remove unused imports, then merge every import
+  declaration into one block, dedup identical specs, and sort within each group.
+  A block with no blank lines is split into a standard-library group and an
+  everything-else group.
+- **`gofmt`** — format only: sort within an existing parenthesized group, but
+  never remove, merge, dedup, or regroup imports.
+
+`goimports` mode calls the real `goimports` formatter, so it inherits its
+grouping rule: **blank lines you wrote are group boundaries, and they are never
+merged away.** If you hand-split a block into groups, those groups survive — a
+standard-library import in one and another in a second stay separated, exactly
+as the `goimports` command leaves them. Delete the blank lines to get the plain
+std / everything-else split.
+
+Unlike real `goimports`, `gsx` cannot **add** a missing import: a gsx Go
+chunk's body never references the surrounding template's imports, so there is
+no symbol for the formatter to resolve to a package.
+
+Both `print_width` and `imports` are resolved **per directory** from the
+nearest `gsx.toml` (same [discovery walk](#location--discovery) as everything
+else), so files in different modules of a monorepo can format with different
+settings.
 
 Like `[dev]`, this table only affects formatting — it never changes generated
 output, so it does not participate in the incremental codegen cache.
@@ -337,9 +360,10 @@ filterPackages = ["example.com/myproject/templatefuncs"]
 [[urlAttrs]]
 name = "data-href"
 
-# Formatter line width for gsx fmt and editor formatting (default 80).
+# Formatter settings for gsx fmt and editor formatting.
 [formatter]
 print_width = 100
+imports = "goimports"
 
 # Asset minification level (per asset; "none" default, "full" for prod).
 [minify]

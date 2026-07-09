@@ -383,3 +383,155 @@ func TestFmtToleratesMalformedConfig(t *testing.T) {
 		t.Fatalf("exit=%d stderr=%s", code, errb)
 	}
 }
+
+// newFmtModule creates a temp dir containing a go.mod that replaces gsx with the
+// repo under test, ready for module-resolving fmt runs.
+func newFmtModule(t *testing.T) string {
+	t.Helper()
+	return newModule(t, "example.com/u")
+}
+
+func readFile(t *testing.T, p string) string {
+	t.Helper()
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// TestFmtGoimportsMergesAndDedups: the default mode merges a single-line import
+// with a grouped one and drops the duplicate.
+func TestFmtGoimportsMergesAndDedups(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	dir := newFmtModule(t)
+	src := "package u\n\nimport \"strings\"\n\nimport (\n\t\"fmt\"\n\n\t\"strings\"\n)\n\n" +
+		"component C() {\n\t<p>{ fmt.Sprint(strings.ToUpper(\"x\")) }</p>\n}\n"
+	p := filepath.Join(dir, "c.gsx")
+	if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if code := runFmt(&out, &errb, []string{"-w", p}, nil, nil, codegen.Options{}, dir); code != 0 {
+		t.Fatalf("runFmt=%d stderr=%s", code, errb.String())
+	}
+	got := readFile(t, p)
+	if n := strings.Count(got, "\"strings\""); n != 1 {
+		t.Fatalf("duplicate not deduped (%d):\n%s", n, got)
+	}
+	if n := strings.Count(got, "import"); n != 1 {
+		t.Fatalf("declarations not merged (%d import keywords):\n%s", n, got)
+	}
+}
+
+// TestFmtImportsGofmtLeavesImportsAlone: -imports gofmt keeps the duplicate, the
+// two declarations, AND an unused import (gofmt never removes).
+func TestFmtImportsGofmtLeavesImportsAlone(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	dir := newFmtModule(t)
+	src := "package u\n\nimport \"bytes\"\n\nimport (\n\t\"fmt\"\n\n\t\"bytes\"\n)\n\n" +
+		"component C() {\n\t<p>{ fmt.Sprint(1) }</p>\n}\n"
+	p := filepath.Join(dir, "c.gsx")
+	if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if code := runFmt(&out, &errb, []string{"-w", "-imports", "gofmt", p}, nil, nil, codegen.Options{}, dir); code != 0 {
+		t.Fatalf("runFmt=%d stderr=%s", code, errb.String())
+	}
+	got := readFile(t, p)
+	if n := strings.Count(got, "\"bytes\""); n != 2 {
+		t.Fatalf("gofmt mode must keep the unused duplicate (%d):\n%s", n, got)
+	}
+	if n := strings.Count(got, "import"); n != 2 {
+		t.Fatalf("gofmt mode must keep both declarations (%d):\n%s", n, got)
+	}
+}
+
+// TestFmtNoImportsIsGofmtAlias: -no-imports behaves exactly like -imports gofmt.
+func TestFmtNoImportsIsGofmtAlias(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	src := "package u\n\nimport \"bytes\"\n\nimport (\n\t\"fmt\"\n\n\t\"bytes\"\n)\n\n" +
+		"component C() {\n\t<p>{ fmt.Sprint(1) }</p>\n}\n"
+	run := func(args ...string) string {
+		dir := newFmtModule(t)
+		p := filepath.Join(dir, "c.gsx")
+		if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		var out, errb bytes.Buffer
+		if code := runFmt(&out, &errb, append(args, p), nil, nil, codegen.Options{}, dir); code != 0 {
+			t.Fatalf("runFmt=%d stderr=%s", code, errb.String())
+		}
+		return readFile(t, p)
+	}
+	if a, b := run("-w", "-no-imports"), run("-w", "-imports", "gofmt"); a != b {
+		t.Fatalf("-no-imports != -imports gofmt:\n%s\n---\n%s", a, b)
+	}
+}
+
+// TestFmtImportsFlagConflict: -imports goimports with -no-imports is a usage
+// error (exit 2), not a silent winner.
+func TestFmtImportsFlagConflict(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	var out, errb bytes.Buffer
+	code := runFmt(&out, &errb, []string{"-imports", "goimports", "-no-imports", dir}, nil, nil, codegen.Options{}, dir)
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2; stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(errb.String(), "-no-imports") {
+		t.Fatalf("stderr must explain the conflict: %s", errb.String())
+	}
+}
+
+// TestFmtImportsFlagInvalid: an unknown -imports value is exit 2 naming both
+// valid spellings.
+func TestFmtImportsFlagInvalid(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	var out, errb bytes.Buffer
+	code := runFmt(&out, &errb, []string{"-imports", "gofumpt", dir}, nil, nil, codegen.Options{}, dir)
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2", code)
+	}
+	for _, want := range []string{"gofmt", "goimports"} {
+		if !strings.Contains(errb.String(), want) {
+			t.Fatalf("stderr %q must name %q", errb.String(), want)
+		}
+	}
+}
+
+// TestFmtConfigGofmtModeHonored: [formatter] imports = "gofmt" in gsx.toml is
+// honored with no CLI flag.
+func TestFmtConfigGofmtModeHonored(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	dir := newFmtModule(t)
+	if err := os.WriteFile(filepath.Join(dir, "gsx.toml"), []byte("[formatter]\nimports = \"gofmt\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := "package u\n\nimport \"bytes\"\n\ncomponent C() {\n\t<p>hi</p>\n}\n"
+	p := filepath.Join(dir, "c.gsx")
+	if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if code := runFmt(&out, &errb, []string{"-w", p}, nil, nil, codegen.Options{}, dir); code != 0 {
+		t.Fatalf("runFmt=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(readFile(t, p), "\"bytes\"") {
+		t.Fatal("gofmt mode from gsx.toml must keep the unused import")
+	}
+}

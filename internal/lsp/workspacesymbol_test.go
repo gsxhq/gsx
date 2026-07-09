@@ -4,6 +4,8 @@ import (
 	"go/token"
 	"strings"
 	"testing"
+
+	"github.com/gsxhq/gsx/internal/gsxfmt"
 )
 
 func wsSymFrame(id int, query string) string {
@@ -28,6 +30,9 @@ func (a *wsSymAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol, erro
 	return a.syms, nil
 }
 func (a *wsSymAnalyzer) PrintWidth(string) int { return 80 }
+func (a *wsSymAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
+	return gsxfmt.ImportsGoimports
+}
 
 func TestWorkspaceSymbolQueryAndCache(t *testing.T) {
 	uri := "file:///m/a.gsx"

@@ -19,6 +19,20 @@
 //	-- input.gsx --    the source to format
 //	-- fmt.golden --   the expected output
 //
+// Two more sections are optional:
+//
+//	-- imports --   "gofmt" (default when absent) or "goimports", parsed with
+//	                this package's own ParseImportsMode. Selects the import
+//	                handling mode the case formats under (FormatOptions.Reorder).
+//	-- unused --    newline-separated import refs to delete before formatting,
+//	                one per line as `path` or `alias path`; blank lines and lines
+//	                starting with # are ignored. Absent means Unused is nil.
+//	                This section exists so unused-import removal can be pinned
+//	                deterministically and fast: the real `gsx fmt` CLI derives
+//	                its Unused list from full module analysis (type-checking,
+//	                `go list`), which this suite deliberately avoids to stay
+//	                quick — the corpus case supplies the same list by hand.
+//
 // Regenerate with: go test ./internal/gsxfmt -run TestFmtCorpus -update
 // Then re-run without -update to verify.
 package gsxfmt
@@ -26,6 +40,7 @@ package gsxfmt
 import (
 	"bytes"
 	"flag"
+	"fmt"
 	"go/token"
 	"os"
 	"path/filepath"
@@ -62,9 +77,29 @@ func TestFmtCorpus(t *testing.T) {
 				t.Fatal("case has no input.gsx")
 			}
 
-			got, err := Format("input.gsx", input, fmtWidth)
+			modeStr := "gofmt"
+			if raw, ok := archiveFile(ar, "imports"); ok {
+				modeStr = strings.TrimSpace(string(raw))
+			}
+			mode, err := ParseImportsMode(modeStr)
 			if err != nil {
-				t.Fatalf("Format: %v", err)
+				t.Fatalf("case %s: %v", path, err)
+			}
+
+			var unused []ImportRef
+			if raw, ok := archiveFile(ar, "unused"); ok {
+				refs, err := parseUnusedRefs(string(raw))
+				if err != nil {
+					t.Fatalf("case %s: %v", path, err)
+				}
+				unused = refs
+			}
+
+			opts := FormatOptions{Unused: unused, Width: fmtWidth, Reorder: mode.Reorder()}
+
+			got, err := FormatWith("input.gsx", input, opts)
+			if err != nil {
+				t.Fatalf("FormatWith: %v", err)
 			}
 
 			if *update {
@@ -82,10 +117,12 @@ func TestFmtCorpus(t *testing.T) {
 				t.Errorf("fmt output differs from fmt.golden\n--- got ---\n%s\n--- want ---\n%s", got, want)
 			}
 
-			// Idempotence: the golden is a fixed point of the formatter.
-			again, err := Format("input.gsx", want, fmtWidth)
+			// Idempotence: the golden is a fixed point of the formatter under the
+			// case's own mode (an "unused" list already gone from the golden must
+			// still be a no-op re-applied to it).
+			again, err := FormatWith("input.gsx", want, opts)
 			if err != nil {
-				t.Fatalf("re-Format of golden: %v", err)
+				t.Fatalf("re-FormatWith of golden: %v", err)
 			}
 			if !bytes.Equal(again, want) {
 				t.Errorf("fmt is not idempotent on its own golden\n--- once ---\n%s\n--- twice ---\n%s", want, again)
@@ -97,6 +134,29 @@ func TestFmtCorpus(t *testing.T) {
 			}
 		})
 	}
+}
+
+// parseUnusedRefs parses a "-- unused --" section body into ImportRefs, one per
+// non-blank, non-comment line, each spelled `path` (default import) or
+// `alias path` (aliased import).
+func parseUnusedRefs(raw string) ([]ImportRef, error) {
+	var refs []ImportRef
+	for line := range strings.SplitSeq(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Fields(line)
+		switch len(fields) {
+		case 1:
+			refs = append(refs, ImportRef{Path: fields[0]})
+		case 2:
+			refs = append(refs, ImportRef{Name: fields[0], Path: fields[1]})
+		default:
+			return nil, fmt.Errorf("malformed unused-import line %q (want `path` or `alias path`)", line)
+		}
+	}
+	return refs, nil
 }
 
 func archiveFile(ar *txtar.Archive, name string) ([]byte, bool) {

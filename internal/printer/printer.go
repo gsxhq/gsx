@@ -1248,11 +1248,18 @@ func isExecutableScript(e *ast.Element) bool {
 
 // fmtGoChunk formats a top-level Go declaration chunk (imports/types/funcs/etc.).
 func fmtGoChunk(src string) string {
-	out, err := format.Source([]byte(src))
+	// Format the chunk as a VALID FILE, not a fragment: go/format.Source's
+	// fragment mode strips a fixed byte count off its output, which shears a
+	// //go:build comment that go/printer hoisted above the injected clause.
+	out, err := format.Source([]byte(goExprWrapper + src))
 	if err != nil {
 		return strings.TrimSpace(src)
 	}
-	return strings.TrimSpace(string(out))
+	stripped, ok := StripSyntheticPackage(out)
+	if !ok {
+		return strings.TrimSpace(src)
+	}
+	return strings.TrimSpace(stripped)
 }
 
 // goExprWrapper is the synthetic package clause prepended to a GoWithElements'
@@ -1260,6 +1267,39 @@ func fmtGoChunk(src string) string {
 // GoWithElements spans is always a run of complete top-level declarations, so
 // the clause is all that is missing.
 const goExprWrapper = "package _gsxfmt\n"
+
+// StripSyntheticPackage removes the synthetic package clause from formatted —
+// the output of a Go formatter that was fed a synthetic clause + a GoChunk's
+// text. It locates the clause by PARSING, never by assuming it is the first
+// line: go/printer relocates build-constraint comments (//go:build) above the
+// package clause, so a line- or byte-index strip would shear the constraint and
+// leave the synthetic `package` declaration spliced into the user's source.
+//
+// The single blank line the formatter always places between the package clause
+// and the following declaration is removed too — it is separation we introduced
+// by adding the clause, not layout the author wrote.
+//
+// ok is false when formatted does not parse; the caller then leaves the text
+// untouched.
+func StripSyntheticPackage(formatted []byte) (string, bool) {
+	fset := gotoken.NewFileSet()
+	file, err := goparser.ParseFile(fset, "", formatted, goparser.PackageClauseOnly|goparser.ParseComments)
+	if err != nil {
+		return "", false
+	}
+	start := fset.Position(file.Package).Offset  // offset of the `package` keyword
+	end := fset.Position(file.Name.End()).Offset // end of the package name
+	for end < len(formatted) && formatted[end] != '\n' {
+		end++
+	}
+	if end < len(formatted) {
+		end++ // the newline terminating the clause
+	}
+	if end < len(formatted) && formatted[end] == '\n' {
+		end++ // the single blank line the formatter puts after the clause
+	}
+	return string(formatted[:start]) + string(formatted[end:]), true
+}
 
 // goExprHoleRunes are candidate placeholder runes: Unicode modifier letters,
 // which Go accepts as identifier letters (identifier = letter { letter | digit },
@@ -1407,13 +1447,14 @@ func (p *printer) fmtGoExprParts(parts []ast.GoPart) ([]ast.GoPart, []goexprshap
 	if err != nil {
 		return nil, shapes, false
 	}
-	// Drop the synthetic package clause. gofmt always emits it as the first line.
-	formatted := string(out)
-	nl := strings.IndexByte(formatted, '\n')
-	if nl < 0 {
+	// Drop the synthetic package clause. It is NOT reliably the first line:
+	// go/printer hoists a //go:build comment above the package clause, so a
+	// line-index strip would shear the constraint and splice `package
+	// _gsxfmt` into the user's source. Locate it by parsing instead.
+	formatted, ok := StripSyntheticPackage(out)
+	if !ok {
 		return nil, shapes, false
 	}
-	formatted = formatted[nl+1:]
 
 	// Re-split at the placeholders, left to right. Placeholders of equal width are
 	// identical strings, which is harmless: the cursor has already consumed every

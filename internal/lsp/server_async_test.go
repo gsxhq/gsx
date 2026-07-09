@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/gsxfmt"
 )
 
 // blockingAnalyzer parks inside Analyze until the test releases that specific
@@ -44,6 +45,9 @@ func (a *blockingAnalyzer) Analyze(_ string, override map[string][]byte) (*Packa
 }
 
 func (a *blockingAnalyzer) PrintWidth(string) int { return 80 }
+func (a *blockingAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
+	return gsxfmt.ImportsGoimports
+}
 
 // TestAnalysisIsAsyncAndSupersededResultsDiscarded proves two Phase-2 properties
 // deterministically (no sleeps): (1) the Run loop answers requests while an

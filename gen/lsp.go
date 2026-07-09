@@ -336,6 +336,14 @@ func (a lspAnalyzer) PrintWidth(dir string) int {
 	return merged.effectivePrintWidth()
 }
 
+// ImportsMode resolves the effective gsx.toml [formatter] imports mode for dir,
+// layering the programmatic optCfg over the file config exactly like PrintWidth.
+// Best-effort: returns the default (goimports) on any failure.
+func (a lspAnalyzer) ImportsMode(dir string) gsxfmt.ImportsMode {
+	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)
+	return merged.effectiveImportsMode()
+}
+
 // resolveConfigBestEffort resolves the LSP's effective config: it discovers a
 // gsx.toml from dir (walking up, bounded by .git/module root) and merges it under
 // optCfg — exactly as resolveConfig does for generate/info — but for the LSP it

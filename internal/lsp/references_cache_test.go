@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/gsxhq/gsx/internal/gsxfmt"
 )
 
 // errFake is a sentinel error returned by moduleRefsAnalyzer to exercise the
@@ -38,6 +40,9 @@ func (a *moduleRefsAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol,
 	return nil, nil
 }
 func (a *moduleRefsAnalyzer) PrintWidth(string) int { return 80 }
+func (a *moduleRefsAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
+	return gsxfmt.ImportsGoimports
+}
 
 // drive runs the given pre-framed messages through a fresh server over the
 // analyzer and returns the raw output. Helper mirrors the existing

@@ -1,0 +1,29 @@
+goimports mode splits a single blank-line-free import block into a standard-
+library group and an everything-else group, separated by a blank line, even
+though the author wrote no blank line at all.
+
+-- imports --
+goimports
+-- input.gsx --
+package ui
+
+import (
+	"fmt"
+	"github.com/gsxhq/gsx"
+)
+
+func Describe() string {
+	return fmt.Sprintf("%s", gsx.Version)
+}
+-- fmt.golden --
+package ui
+
+import (
+	"fmt"
+
+	"github.com/gsxhq/gsx"
+)
+
+func Describe() string {
+	return fmt.Sprintf("%s", gsx.Version)
+}

@@ -1,0 +1,35 @@
+A Go chunk (the region after the .gsx file's own `package` clause) that carries
+a //go:build comment above its import block must survive gofmt's chunk-local
+formatting. go/format wraps the chunk in a synthetic `package _gsxfmt` clause
+before formatting it, and go/printer hoists a //go:build comment above that
+clause when it reprints — a line-index strip (the old implementation) sheared
+the build tag and spliced "package _gsxfmt" straight into the output. Stripping
+the clause by parsing (the fix) keeps the tag intact and never leaks the
+synthetic package name or a second package declaration into the golden.
+
+-- imports --
+gofmt
+-- input.gsx --
+package ui
+
+//go:build linux
+
+import (
+	"fmt"
+)
+
+func Only() string {
+	return fmt.Sprintf("linux")
+}
+-- fmt.golden --
+package ui
+
+//go:build linux
+
+import (
+	"fmt"
+)
+
+func Only() string {
+	return fmt.Sprintf("linux")
+}

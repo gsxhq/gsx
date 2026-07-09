@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/gsxfmt"
 )
 
 // fakeAnalyzer returns one error diagnostic for the file it is told about.
@@ -35,6 +36,9 @@ func (a fakeAnalyzer) Analyze(dir string, override map[string][]byte) (*Package,
 }
 
 func (a fakeAnalyzer) PrintWidth(string) int { return 80 }
+func (a fakeAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
+	return gsxfmt.ImportsGoimports
+}
 
 func TestDidOpenPublishesDiagnostics(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "page.gsx")
