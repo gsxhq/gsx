@@ -759,7 +759,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	}
 	// Per-dir: an imported sibling package resolves its OWN filter table here,
 	// because analyze is the recursion point for the import graph.
-	table, err := m.filterTableFor(dir)
+	table, err := m.filterTableFor(dir, true)
 	if err != nil {
 		return nil, err
 	}

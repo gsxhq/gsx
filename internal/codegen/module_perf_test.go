@@ -26,13 +26,13 @@ func TestWarmRegenDoesNoGoListReloads(t *testing.T) {
 	comp := filepath.Join(root, "components")
 	card := filepath.Join(comp, "card.gsx")
 
-	// Cold generate the whole chain: this is where the one allowed go-list pair
-	// (ext + filter) happens.
+	// Cold generate the whole chain: this is where the ONE allowed go-list happens.
+	// The filter table is harvested from that load's types, so it costs zero.
 	if _, _, err := m.Generate(pages); err != nil {
 		t.Fatalf("cold generate: %v", err)
 	}
-	if el, fl := m.externalLoads(), m.filterTableLoads(); el != 1 || fl != 1 {
-		t.Fatalf("after cold generate: externalLoads=%d filterTableLoads=%d; want 1,1", el, fl)
+	if el, fl := m.externalLoads(), m.filterTableLoads(); el != 1 || fl != 0 {
+		t.Fatalf("after cold generate: externalLoads=%d filterTableLoads=%d; want 1,0", el, fl)
 	}
 
 	// 10 edit-driven warm regens of the components package. Each is a real
@@ -44,8 +44,8 @@ func TestWarmRegenDoesNoGoListReloads(t *testing.T) {
 			t.Fatalf("warm regen #%d: %v", i, err)
 		}
 	}
-	if el, fl := m.externalLoads(), m.filterTableLoads(); el != 1 || fl != 1 {
-		t.Fatalf("after 10 warm regens: externalLoads=%d filterTableLoads=%d; want 1,1 "+
+	if el, fl := m.externalLoads(), m.filterTableLoads(); el != 1 || fl != 0 {
+		t.Fatalf("after 10 warm regens: externalLoads=%d filterTableLoads=%d; want 1,0 "+
 			"(a value > 1 means a per-edit go-list crept back in — the watch/LSP slowdown)", el, fl)
 	}
 
@@ -54,7 +54,7 @@ func TestWarmRegenDoesNoGoListReloads(t *testing.T) {
 	if _, _, err := m.Generate(pages); err != nil {
 		t.Fatalf("regen pages: %v", err)
 	}
-	if el, fl := m.externalLoads(), m.filterTableLoads(); el != 1 || fl != 1 {
-		t.Fatalf("after cross-package regen: externalLoads=%d filterTableLoads=%d; want 1,1", el, fl)
+	if el, fl := m.externalLoads(), m.filterTableLoads(); el != 1 || fl != 0 {
+		t.Fatalf("after cross-package regen: externalLoads=%d filterTableLoads=%d; want 1,0", el, fl)
 	}
 }
