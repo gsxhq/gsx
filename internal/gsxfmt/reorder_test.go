@@ -139,3 +139,111 @@ func TestReorderChunkImportsLeavesInvalidGoUntouched(t *testing.T) {
 		t.Fatalf("invalid Go must be left untouched, got changed=%v:\n%s", changed, got)
 	}
 }
+
+// TestDeleteChunkImportsPreservesGoBuild: go/printer relocates a //go:build
+// comment ABOVE the synthetic package clause used internally to make a
+// GoChunk parse standalone. deleteChunkImports must locate that clause by
+// parsing, not by stripping "the first line" — otherwise the build constraint
+// is deleted and "package _gsxp" leaks into the user's source.
+func TestDeleteChunkImportsPreservesGoBuild(t *testing.T) {
+	const src = "//go:build linux\n\nimport (\n\t\"bytes\"\n\t\"fmt\"\n)\n"
+	got, changed := deleteChunkImports(src, []ImportRef{{Path: "bytes"}})
+	if !changed {
+		t.Fatalf("expected a change (bytes import removed)")
+	}
+	if !strings.Contains(got, "//go:build linux") {
+		t.Fatalf("build constraint lost:\n%s", got)
+	}
+	if strings.Contains(got, "_gsxp") {
+		t.Fatalf("synthetic package clause leaked:\n%s", got)
+	}
+	if strings.Contains(got, "\"bytes\"") {
+		t.Fatalf("bytes import not removed:\n%s", got)
+	}
+}
+
+// TestReorderChunkImportsPreservesGoBuild: the same relocation hazard as
+// TestDeleteChunkImportsPreservesGoBuild, but through the goimports
+// (imports.Process) path.
+func TestReorderChunkImportsPreservesGoBuild(t *testing.T) {
+	const src = "//go:build linux\n\nimport (\n\t\"bytes\"\n\n\t\"fmt\"\n)\n"
+	got, _ := reorderChunkImports(src)
+	if !strings.Contains(got, "//go:build linux") {
+		t.Fatalf("build constraint lost:\n%s", got)
+	}
+	if strings.Contains(got, "_gsxp") {
+		t.Fatalf("synthetic package clause leaked:\n%s", got)
+	}
+	if !strings.Contains(got, "\"bytes\"") || !strings.Contains(got, "\"fmt\"") {
+		t.Fatalf("imports lost:\n%s", got)
+	}
+}
+
+// TestReorderPreservesBlankLineBeforeNextDecl: a GoChunk's trailing blank line
+// is a layout fact (internal/printer's endsWithBlankLine), not slack. A reorder
+// that actually rewrites the chunk (here: the motivating dup-import case) must
+// not collapse the blank line the author left before the next declaration.
+func TestReorderPreservesBlankLineBeforeNextDecl(t *testing.T) {
+	src := "package x\n\n" +
+		"import \"strings\"\n\nimport (\n\t\"fmt\"\n\n\t\"strings\"\n)\n\n" +
+		"component C() {\n\t<p>{ fmt.Sprint(strings.ToUpper(\"x\")) }</p>\n}\n"
+	got := reorder(t, src)
+	if !strings.Contains(got, ")\n\ncomponent C()") {
+		t.Fatalf("blank line before component C() lost:\n%s", got)
+	}
+}
+
+// TestRemovePreservesBlankLineBeforeNextDecl: same layout-fact requirement as
+// TestReorderPreservesBlankLineBeforeNextDecl, but through the unused-import
+// removal path (deleteChunkImports / FormatRemovingImports).
+func TestRemovePreservesBlankLineBeforeNextDecl(t *testing.T) {
+	src := "package x\n\nimport (\n\t\"strings\"\n\t\"fmt\"\n)\n\ncomponent C() {\n\t<p>{ fmt.Sprint(1) }</p>\n}\n"
+	got := mustFormat(t, src, []ImportRef{{Path: "strings"}})
+	if !strings.Contains(got, ")\n\ncomponent C()") {
+		t.Fatalf("blank line before component C() lost:\n%s", got)
+	}
+}
+
+// TestRemoveNoBlankLineStaysNoBlankLine: a chunk with NO trailing blank line
+// (the import block runs straight into the next declaration) must not gain one
+// after a rewrite — preserveTrailing must not manufacture layout that wasn't
+// there.
+func TestRemoveNoBlankLineStaysNoBlankLine(t *testing.T) {
+	src := "package x\n\nimport (\n\t\"strings\"\n\t\"fmt\"\n)\ncomponent C() {\n\t<p>{ fmt.Sprint(1) }</p>\n}\n"
+	got := mustFormat(t, src, []ImportRef{{Path: "strings"}})
+	if strings.Contains(got, ")\n\ncomponent C()") {
+		t.Fatalf("blank line wrongly introduced before component C():\n%s", got)
+	}
+	if !strings.Contains(got, ")\ncomponent C()") {
+		t.Fatalf("expected no blank line between import block and component C():\n%s", got)
+	}
+}
+
+// TestDeleteChunkImportsGoBuildIdempotent: re-running the go:build-preserving
+// removal on its own output is a no-op.
+func TestDeleteChunkImportsGoBuildIdempotent(t *testing.T) {
+	const src = "//go:build linux\n\nimport (\n\t\"bytes\"\n\t\"fmt\"\n)\n"
+	once, _ := deleteChunkImports(src, []ImportRef{{Path: "bytes"}})
+	twice, changed := deleteChunkImports(once, []ImportRef{{Path: "bytes"}})
+	if changed {
+		t.Fatalf("second pass should find nothing left to remove")
+	}
+	if once != twice {
+		t.Fatalf("not idempotent:\nonce:\n%s\ntwice:\n%s", once, twice)
+	}
+}
+
+// TestReorderChunkImportsGoBuildIdempotent: re-running the go:build-preserving
+// reorder on its own output is a no-op (goimports never regroups what it just
+// grouped).
+func TestReorderChunkImportsGoBuildIdempotent(t *testing.T) {
+	const src = "//go:build linux\n\nimport (\n\t\"bytes\"\n\n\t\"fmt\"\n)\n"
+	once, _ := reorderChunkImports(src)
+	twice, changed := reorderChunkImports(once)
+	if changed {
+		t.Fatalf("second pass should find nothing left to reorder:\nonce:\n%s\ntwice:\n%s", once, twice)
+	}
+	if once != twice {
+		t.Fatalf("not idempotent:\nonce:\n%s\ntwice:\n%s", once, twice)
+	}
+}
