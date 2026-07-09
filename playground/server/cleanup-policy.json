@@ -1,0 +1,12 @@
+[
+  {
+    "name": "keep-recent-deploys",
+    "action": { "type": "Keep" },
+    "mostRecentVersions": { "keepCount": 5 }
+  },
+  {
+    "name": "delete-stale",
+    "action": { "type": "Delete" },
+    "condition": { "olderThan": "1d" }
+  }
+]

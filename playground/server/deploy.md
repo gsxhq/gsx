@@ -41,7 +41,7 @@ gcloud iam service-accounts create "$SA" --project "$PROJECT" \
 
 # Deploy under the zero-permission SA.
 gcloud run deploy "$SERVICE" --project "$PROJECT" --region "$REGION" \
-  --image "gcr.io/$PROJECT/$SERVICE" \
+  --image "$REGION-docker.pkg.dev/$PROJECT/gsx/$SERVICE" \
   --service-account "${SA}@${PROJECT}.iam.gserviceaccount.com" \
   --allow-unauthenticated \
   --memory 1Gi --cpu 1 --concurrency 4 --timeout 30 \
@@ -101,7 +101,8 @@ Run these from the **gsx repo root**:
 PROJECT=<your-gcp-project-id>
 REGION=us-central1           # free-tier eligible
 SERVICE=gsx-playground
-IMAGE="gcr.io/$PROJECT/$SERVICE"
+REPO=gsx                     # Artifact Registry repo (see "Image retention" below)
+IMAGE="$REGION-docker.pkg.dev/$PROJECT/$REPO/$SERVICE"
 
 # 1. Build the container image with Cloud Build.
 gcloud builds submit --config cloudbuild.yaml \
@@ -158,5 +159,40 @@ gcloud run services describe "$SERVICE" --region "$REGION" --project "$PROJECT"
 
 ## Re-deploying
 
-After code changes, repeat steps 1 and 2 above.  Cloud Build tags overwrite the
-previous image and Cloud Run performs a zero-downtime rollout.
+After code changes, repeat steps 1 and 2 above.  Cloud Run performs a
+zero-downtime rollout.
+
+CI (`.github/workflows/deploy-playground-server.yml`) tags each image with the
+commit sha, so images do **not** overwrite one another — every deploy adds one.
+See "Image retention" below.
+
+## Image retention
+
+Each deploy pushes a new `:$GITHUB_SHA` image (~100 MB of unique layers). Left
+alone, Artifact Registry grows without bound. Two things hold it down:
+
+1. **A cleanup policy on the `gsx` repo** (`cleanup-policy.json`). It keeps the
+   5 most recent versions unconditionally and deletes anything older than a day.
+   `Keep` rules take precedence over `Delete`, so the serving image can never be
+   pruned — even if nobody deploys for a month. The cost is that traffic can only
+   be rolled back about five deploys.
+
+   Apply or update it with:
+
+   ```bash
+   gcloud artifacts repositories set-cleanup-policies gsx \
+     --location=us-central1 \
+     --policy=playground/server/cleanup-policy.json \
+     --no-dry-run
+   ```
+
+   Swap `--no-dry-run` for `--dry-run` to have Artifact Registry log what it
+   *would* delete without deleting it. Policies run asynchronously (roughly
+   daily), so they do not reclaim space the instant they are applied.
+
+2. **A `paths-ignore` filter on the deploy workflow.** The Dockerfile does
+   `COPY . /gsx` because the playground compiles visitor code against the live
+   gsx module — so a parser or codegen change genuinely does need a redeploy, and
+   only inert paths (`docs/`, `skills/`, `*.md`) may be ignored. Never narrow
+   this to `playground/**`; that would leave the playground running a stale
+   compiler.
