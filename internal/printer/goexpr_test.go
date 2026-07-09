@@ -210,6 +210,33 @@ func TestGoWithElementsInvalidGoLeftVerbatim(t *testing.T) {
 	}
 }
 
+// TestGoWithElementsPreservesBuildComment guards the twin of the fmtGoChunk
+// corruption bug (see TestFmtGoChunkPreservesBuildComment): fmtGoExprParts
+// wraps a GoWithElements region's Go text in the same goExprWrapper synthetic
+// package clause, and go/printer hoists a //go:build comment ABOVE that
+// clause. The old strip assumed the clause was always the first line of
+// gofmt's output, so it deleted the hoisted build comment instead and spliced
+// `package _gsxfmt` into the user's source — silently, with exit 0. The strip
+// must locate the clause by parsing (StripSyntheticPackage) so the comment
+// survives and nothing leaks.
+func TestGoWithElementsPreservesBuildComment(t *testing.T) {
+	src := "package probe\n\n//go:build linux\nvar greeting = <a href=\"x\">hi</a>\n"
+	want := "package probe\n\n//go:build linux\n\nvar greeting = <a href=\"x\">hi</a>\n"
+	checkFormat(t, src, want)
+}
+
+// TestGoWithElementsNoBuildCommentUnchanged pins that an ordinary
+// GoWithElements region (no hoisted build comment) is unaffected by routing
+// the clause-strip through StripSyntheticPackage: it removes the clause line
+// AND the following blank line, one more byte than the old first-line strip
+// removed, but goWithElements' own trimGoTextEdges already trims the first
+// part's leading whitespace regardless — so the extra removed byte is
+// invisible here. This guards against a regression in that assumption.
+func TestGoWithElementsNoBuildCommentUnchanged(t *testing.T) {
+	src := "package main\n\nvar greeting = <a href=\"x\">hi</a>\n"
+	checkFormat(t, src, src)
+}
+
 func contains(hay, needle string) bool {
 	return len(hay) >= len(needle) && indexOf(hay, needle) >= 0
 }

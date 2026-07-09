@@ -1447,13 +1447,14 @@ func (p *printer) fmtGoExprParts(parts []ast.GoPart) ([]ast.GoPart, []goexprshap
 	if err != nil {
 		return nil, shapes, false
 	}
-	// Drop the synthetic package clause. gofmt always emits it as the first line.
-	formatted := string(out)
-	nl := strings.IndexByte(formatted, '\n')
-	if nl < 0 {
+	// Drop the synthetic package clause. It is NOT reliably the first line:
+	// go/printer hoists a //go:build comment above the package clause, so a
+	// line-index strip would shear the constraint and splice `package
+	// _gsxfmt` into the user's source. Locate it by parsing instead.
+	formatted, ok := StripSyntheticPackage(out)
+	if !ok {
 		return nil, shapes, false
 	}
-	formatted = formatted[nl+1:]
 
 	// Re-split at the placeholders, left to right. Placeholders of equal width are
 	// identical strings, which is harmless: the cursor has already consumed every
