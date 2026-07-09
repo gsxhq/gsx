@@ -1251,7 +1251,7 @@ func fmtGoChunk(src string) string {
 	// Format the chunk as a VALID FILE, not a fragment: go/format.Source's
 	// fragment mode strips a fixed byte count off its output, which shears a
 	// //go:build comment that go/printer hoisted above the injected clause.
-	out, err := format.Source([]byte(goExprWrapper + src))
+	out, err := format.Source([]byte(blockFormBraces(goExprWrapper + src)))
 	if err != nil {
 		return strings.TrimSpace(src)
 	}
@@ -1443,7 +1443,11 @@ func (p *printer) fmtGoExprParts(parts []ast.GoPart) ([]ast.GoPart, []goexprshap
 	sanitized, sanHoles := goexprshape.Sanitize(goExprWrapper+src.String(), shapeHoles)
 	shapes := goexprshape.Classify(sanitized, sanHoles)
 
-	out, err := format.Source([]byte(sanitized))
+	// blockFormBraces only ever inserts text before a composite literal's `}`,
+	// so it cannot move a hole across a token boundary, reorder holes, or change
+	// any hole's classification — shapes stays valid, and the placeholders are
+	// still found in output order by the re-split below.
+	out, err := format.Source([]byte(blockFormBraces(sanitized)))
 	if err != nil {
 		return nil, shapes, false
 	}

@@ -1,0 +1,17 @@
+The comma that decides "is there already a terminating comma" must be a real Go
+token. A comma inside a /*…*/ comment between the last element and the closing
+brace is not one — treating it as a terminating comma would emit `1 /*,*/\n}`,
+where Go's automatic semicolon insertion puts a `;` after `1` and the literal
+stops parsing.
+
+-- input.gsx --
+package ui
+
+var a = []int{
+	1 /* , */}
+-- fmt.golden --
+package ui
+
+var a = []int{
+	1, /* , */
+}
