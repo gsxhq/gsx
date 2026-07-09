@@ -7,8 +7,14 @@ import (
 
 const (
 	defaultWidth = 80
-	tabWidth     = 4
 )
+
+// DefaultTabWidth is the column width of one tab when nothing is configured.
+// Indentation is emitted as tabs; this is how many columns each one occupies
+// when deciding whether a group fits. It applies both to the printer's own
+// indent levels and to literal tabs inside a Text doc — the same physical tab
+// in the same output file, which must be measured the same way.
+const DefaultTabWidth = 2
 
 type mode uint8
 
@@ -26,9 +32,12 @@ type cmd struct {
 // Print renders d at the given right margin (columns). width <= 0 uses 80.
 // Indentation is emitted as tabs; each tab counts as tabWidth columns when
 // measuring fit.
-func Print(d Doc, width int) string {
+func Print(d Doc, width, tabWidth int) string {
 	if width <= 0 {
 		width = defaultWidth
+	}
+	if tabWidth <= 0 {
+		tabWidth = DefaultTabWidth
 	}
 	var b strings.Builder
 	pos := 0
@@ -39,13 +48,13 @@ func Print(d Doc, width int) string {
 		switch c.doc.kind {
 		case kindText:
 			b.WriteString(c.doc.text)
-			pos = advance(pos, c.doc.text)
+			pos = advance(pos, c.doc.text, tabWidth)
 		case kindConcat:
 			for i := len(c.doc.parts) - 1; i >= 0; i-- {
 				stack = append(stack, cmd{c.indent, c.mode, c.doc.parts[i]})
 			}
 		case kindFill:
-			stack = fillStep(stack, c, width-pos)
+			stack = fillStep(stack, c, width-pos, tabWidth)
 		case kindIndent:
 			stack = append(stack, cmd{c.indent + 1, c.mode, c.doc.parts[0]})
 		case kindLine:
@@ -63,7 +72,7 @@ func Print(d Doc, width int) string {
 			child := c.doc.parts[0]
 			if c.doc.forced {
 				stack = append(stack, cmd{c.indent, modeBreak, child})
-			} else if fits(width-pos, cmd{c.indent, modeFlat, child}, stack) {
+			} else if fits(width-pos, cmd{c.indent, modeFlat, child}, stack, tabWidth) {
 				stack = append(stack, cmd{c.indent, modeFlat, child})
 			} else {
 				stack = append(stack, cmd{c.indent, modeBreak, child})
@@ -83,13 +92,13 @@ func Print(d Doc, width int) string {
 
 // fillStep implements one step of the greedy Fill layout, pushing onto stack
 // (LIFO) the commands to process next. parts alternate content/separator.
-func fillStep(stack []cmd, c cmd, remaining int) []cmd {
+func fillStep(stack []cmd, c cmd, remaining int, tabWidth int) []cmd {
 	parts := c.doc.parts
 	if len(parts) == 0 {
 		return stack
 	}
 	content := cmd{c.indent, modeFlat, parts[0]}
-	contentFits := fits(remaining, content, nil)
+	contentFits := fits(remaining, content, nil, tabWidth)
 	if len(parts) == 1 {
 		m := modeBreak
 		if contentFits {
@@ -108,7 +117,7 @@ func fillStep(stack []cmd, c cmd, remaining int) []cmd {
 	}
 	rest := cmd{c.indent, c.mode, Doc{kind: kindFill, parts: parts[2:]}}
 	pair := cmd{c.indent, modeFlat, Concat(parts[0], sep, parts[2])}
-	pairFits := fits(remaining, pair, nil)
+	pairFits := fits(remaining, pair, nil, tabWidth)
 	// Push in reverse so content is processed first, then separator, then rest.
 	stack = append(stack, rest)
 	switch {
@@ -125,13 +134,15 @@ func fillStep(stack []cmd, c cmd, remaining int) []cmd {
 	return stack
 }
 
-// advance returns the new column after writing s, accounting for embedded
-// newlines in verbatim (preserved) Text.
-func advance(pos int, s string) int {
+// advance returns the column after writing s starting at column pos. A literal
+// tab counts as tabWidth columns, matching how the printer's own indent levels
+// are measured — otherwise the same tab is one column here and tabWidth there.
+func advance(pos int, s string, tabWidth int) int {
 	if i := strings.LastIndexByte(s, '\n'); i >= 0 {
-		return utf8.RuneCountInString(s[i+1:])
+		s = s[i+1:]
+		pos = 0
 	}
-	return pos + utf8.RuneCountInString(s)
+	return pos + utf8.RuneCountInString(s) + (tabWidth-1)*strings.Count(s, "\t")
 }
 
 // fits reports whether next (a group's child, in flat mode) followed by the
@@ -139,7 +150,7 @@ func advance(pos int, s string) int {
 // the current line. It stops — returning true — at the first break it would
 // emit (a hard line, or a line in break mode), so trailing same-line content
 // after the group is correctly counted. rest is a LIFO stack (last = next).
-func fits(remaining int, next cmd, rest []cmd) bool {
+func fits(remaining int, next cmd, rest []cmd, tabWidth int) bool {
 	if remaining < 0 {
 		return false
 	}
@@ -158,7 +169,7 @@ func fits(remaining int, next cmd, rest []cmd) bool {
 		local = local[:len(local)-1]
 		switch c.doc.kind {
 		case kindText:
-			remaining -= utf8.RuneCountInString(c.doc.text)
+			remaining -= utf8.RuneCountInString(c.doc.text) + (tabWidth-1)*strings.Count(c.doc.text, "\t")
 			if remaining < 0 {
 				return false
 			}
@@ -178,7 +189,7 @@ func fits(remaining int, next cmd, rest []cmd) bool {
 			if c.doc.hard || c.mode == modeBreak {
 				return true
 			}
-			remaining -= utf8.RuneCountInString(c.doc.text)
+			remaining -= utf8.RuneCountInString(c.doc.text) + (tabWidth-1)*strings.Count(c.doc.text, "\t")
 			if remaining < 0 {
 				return false
 			}

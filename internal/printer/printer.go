@@ -45,7 +45,7 @@ func FprintWith(w io.Writer, f *ast.File, width int, cssFmt, jsFmt rawfmt.Format
 	if p.err != nil {
 		return p.err
 	}
-	_, err := io.WriteString(w, pretty.Print(doc, width))
+	_, err := io.WriteString(w, pretty.Print(doc, width, pretty.DefaultTabWidth))
 	return err
 }
 
@@ -1145,7 +1145,7 @@ func writeCondAttrList(b *strings.Builder, attrs []ast.Attr) {
 // prints it flat at a very wide margin so no Line ever breaks.
 func markupInlineString(n ast.Markup) string {
 	var p printer
-	return pretty.Print(p.markup(n), 1<<30)
+	return pretty.Print(p.markup(n), 1<<30, pretty.DefaultTabWidth)
 }
 
 // rawHoleChildren renders <style>/<script> children: Text verbatim, Interp with
@@ -1330,7 +1330,7 @@ func goExprHoleRune(src string) (string, bool) {
 // width to hand to gofmt.
 func goExprFlatWidth(doc pretty.Doc) (int, bool) {
 	const wide = 1 << 20 // wider than any real line: nothing breaks unless forced
-	flat := pretty.Print(doc, wide)
+	flat := pretty.Print(doc, wide, pretty.DefaultTabWidth)
 	if strings.Contains(flat, "\n") {
 		return 0, false
 	}
