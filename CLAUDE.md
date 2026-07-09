@@ -47,6 +47,8 @@ No workarounds, when we see somethings looks odd, flag it and discuss. Don't jus
 
 If you need a paragraph-long comment to justify why the workaround is OIK, the code is wrong - fix the code.
 
+`golang.org/x/tools/go/packages.Load` is expensive. Make sure you understand the performance implications before calling it.
+
 ## Neighboring repos (siblings under `~/personal/gsxhq/`)
 
 `gsxhq.github.io` (VitePress docs, local dir `website`) · `tree-sitter-gsx` (grammar) · `vite-plugin-gsx` (`@gsxhq/vite-plugin-gsx`) · `vite` (`github.com/gsxhq/vite`). The dev loop (`gsx init` scaffold + Vite plugin + `vite` Go helper) is shipped/closed. Playground backend (`playground/server/`) deploys to Cloud Run; docs site to GitHub Pages via `deploy-docs.yml`.
