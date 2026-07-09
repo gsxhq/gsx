@@ -113,18 +113,48 @@ offer nothing — the user runs `go get`, which they would have had to do anyway
 
 ## Splicing the import into the `.gsx`
 
-`ast.File` is `{Doc, Package string, Decls []Decl}` — the package clause is not a decl, and
-the parser peels a leading run of imports into a single `GoChunk`.
+**No hand-rolled text insertion.** `golang.org/x/tools/go/ast/astutil` — already a
+dependency, and already how removal works (`DeleteNamedImport`) — exports the exact
+primitive:
 
-`gsxfmt.FormatOptions` gains `Add []ImportRef`:
+```go
+func AddNamedImport(fset *token.FileSet, f *ast.File, name, path string) (added bool)
+```
 
-- If the file has a leading import `GoChunk`, insert the new spec text at its top.
-- Otherwise prepend a new `GoChunk{Src: "import \"fmt\""}` as `Decls[0]` — the `test.gsx`
-  case, which has no imports at all. It must be `Decls[0]`: an `import` after a `var` is
-  invalid Go.
+`gsxfmt.FormatOptions` gains `Add []ImportRef`. For the `GoChunk` that carries the file's
+imports (or, when the file has none, the first chunk), wrap it in the synthetic
+`package _gsxp` clause exactly as `deleteChunkImports` does, run `AddNamedImport` per ref,
+reprint, and strip the clause via `printer.StripSyntheticPackage`.
 
-Then the existing `reorderImports` (goimports `FormatOnly`) merges, dedups, groups, and
-sorts. No new formatting machinery, and adds compose with removes in one edit.
+Verified behavior, on chunks wrapped this way:
+
+| input chunk | `AddNamedImport(_, "fmt")` |
+|---|---|
+| `var hello = "hi"` (no imports — the `test.gsx` case) | emits `import "fmt"` **before** the `var` |
+| `import ( "strings" \n\n "github.com/gsxhq/gsx" )` | inserts into the std group |
+| `import "fmt"` (already present) | `added == false`, no-op — **dedup for free** |
+| aliased `AddNamedImport(_, "sx", "strings")` | emits `sx "strings"` |
+
+astutil places a third-party import into a std-only block **without** opening a new group.
+That is fine, and is why the passes compose: `reorderImports` (goimports `FormatOnly`) then
+splits a blank-line-free block into std / everything-else and sorts each group.
+
+So the pipeline is **insert (astutil) → remove unused (existing) → reorder (goimports
+FormatOnly) → print**. Each upstream primitive does the part it is good at; gsx writes no
+import-manipulation logic of its own.
+
+### Why goimports at all, if we only use `FormatOnly`
+
+Because ordering *is* the hard part. `FormatOnly` merges separate `import` declarations,
+dedups across them, assigns std/third-party groups, and sorts each — honoring
+author-written blank-line groups and comment attachment. Reimplementing it means porting
+~250 lines of `internal/imports/sortimports.go` and owning the drift from an upstream we
+have verified byte-identical to the `goimports` binary.
+
+It costs nothing to keep: `FormatOnly` is a **pure function** — measured at **7 µs/call**,
+and it runs correctly against a nonexistent path with no `go.mod`, no filesystem access and
+no environment lookup. `golang.org/x/tools` is already a module requirement (+1,811 bytes to
+`gsx.wasm`). The resolver we cannot use was never the reason to depend on it.
 
 ## Hot-path contract
 
@@ -163,7 +193,7 @@ Both edits reuse the existing whole-document `TextEdit` path.
 | `internal/codegen` (analyze) | Detect missing qualifiers from skeleton + `types.Info`. Hot path. |
 | `internal/codegen` (resolver) | `stdlibIndex` (baked) + `depGraphIndex` (from `mapImporter`); symbol disambiguation. Off hot path. |
 | `internal/codegen/stdlibindex.go` | Generated `name -> []path` table + `go:generate` directive. |
-| `internal/gsxfmt` | `FormatOptions.Add`; splice into or create the leading import chunk. |
+| `internal/gsxfmt` | `FormatOptions.Add`; insert via `astutil.AddNamedImport`, then let `reorderImports` regroup. |
 | `internal/lsp` | `quickfix` handler; `organizeImports` gains unambiguous adds. |
 | `gen/lsp.go` | Implement the new `Analyzer` resolve method on `lspAnalyzer`. |
 
@@ -190,8 +220,13 @@ Both edits reuse the existing whole-document `TextEdit` path.
 - **Hot-path counter:** 0 resolution calls from `Package()`; non-zero from the resolve
   method.
 - **Stdlib table freshness** against live `go list std`.
-- **Splicing:** file with no imports (prepend), file with a leading import block (splice +
-  merge), file where the added import duplicates an existing one (dedup), add + remove in
-  one edit.
+- **Splicing:** file with no imports (astutil creates the decl before the first Go decl),
+  file with a leading import block (inserts into the right group), an added import that
+  duplicates an existing one (`added == false`, no-op), a third-party add into a std-only
+  block (astutil puts it in-group; `reorderImports` must then split the groups), an aliased
+  add, and add + remove in a single edit.
+- **`//go:build` guard:** a chunk carrying a `//go:build` comment must survive an add — the
+  same synthetic-clause hazard PR #59 fixed (`go/printer` hoists the comment above the
+  clause; strip it by parse, never by line index).
 - **End-to-end:** drive the real LSP on `test.gsx`; assert `undefined: fmt` yields both a
   quickfix and an `organizeImports` edit producing `import "fmt"`.
