@@ -1,9 +1,14 @@
 package codegen
 
+//go:generate go run ./mkstdlibindex
+
 import (
 	goast "go/ast"
+	"go/importer"
 	"go/token"
 	"go/types"
+	"slices"
+	"sync/atomic"
 )
 
 // missingFromSkeletons finds, per .gsx file, every qualifier used in a selector
@@ -109,4 +114,144 @@ func inHarvestProbe(spans []posSpan, pos token.Pos) bool {
 		}
 	}
 	return false
+}
+
+// resolveImportCandidatesCalls counts ResolveImportCandidates invocations. Import
+// resolution may read package export data, which must never happen on the
+// Package() hot path (the LSP calls Package per debounced analysis). Test-only
+// instrumentation: TestPackageDoesNotResolveImports asserts this counter does not
+// move across Package(), and DOES move for a direct resolve — so the zero
+// assertion cannot be vacuous.
+var resolveImportCandidatesCalls atomic.Int64
+
+// ResolveImportCandidates maps an undefined qualifier to the import path(s) that
+// could supply it, most-likely-first is NOT implied — the caller decides what to
+// do with 0, 1, or many.
+//
+// Two sources, both lookups, never a filesystem scan:
+//
+//   - the module's dependency graph, which analyze already type-checked, giving
+//     each package's REAL declared name and a populated scope; and
+//   - a baked stdlib name -> path table, for std packages the module does not
+//     already reach.
+//
+// When more than one candidate survives, keep only those that actually export
+// `symbol` — this is what collapses `rand` to math/rand/v2 for rand.IntN. A
+// candidate already in the graph is checked for free via its scope; one known
+// only from the table needs its export data, which the go/importer caches
+// (~30-50ms cold, ~25us warm). If NO candidate exports the symbol (a typo, or an
+// unloadable package), all candidates are kept: the caller then offers one
+// quickfix each rather than guessing.
+//
+// This is why it must never run on the Package() hot path. It is called only from
+// user-triggered code-action handlers.
+//
+// An unknown name returns nil. goimports would scan the module cache here — a
+// measured 1.4s per unresolved identifier, which is the normal mid-typing state.
+// We do not.
+func (m *Module) ResolveImportCandidates(name, symbol string) []string {
+	resolveImportCandidatesCalls.Add(1)
+	if name == "" {
+		return nil
+	}
+	graph := m.depGraphPackages()
+
+	var cands []string
+	seen := map[string]bool{}
+	for path, pkg := range graph {
+		if pkg.Name() == name && !seen[path] {
+			seen[path] = true
+			cands = append(cands, path)
+		}
+	}
+	for _, path := range stdlibIndex[name] {
+		if !seen[path] {
+			seen[path] = true
+			cands = append(cands, path)
+		}
+	}
+	slices.Sort(cands)
+	if len(cands) <= 1 {
+		return cands
+	}
+
+	// Ambiguous: keep only candidates that export the symbol.
+	var exact []string
+	for _, path := range cands {
+		if m.packageExports(graph, path, symbol) {
+			exact = append(exact, path)
+		}
+	}
+	if len(exact) > 0 {
+		return exact
+	}
+	return cands // nothing eliminated it; let the caller offer them all
+}
+
+// depGraphPackages returns path -> *types.Package for every package the module's
+// external importer loaded, keyed by import path.
+//
+// Only COMPLETE packages are returned (see completeDepGraphPackages, which does
+// the actual gating and is exercised directly by
+// TestDepGraphPackagesSkipsIncomplete since a real mapImporter here always
+// comes from a live packages.Load).
+func (m *Module) depGraphPackages() map[string]*types.Package {
+	ext, err := m.externalImporter()
+	if err != nil {
+		return map[string]*types.Package{}
+	}
+	mi, ok := ext.(mapImporter)
+	if !ok {
+		return map[string]*types.Package{} // bundle mode: not enumerable
+	}
+	return completeDepGraphPackages(mi)
+}
+
+// completeDepGraphPackages filters mi down to path -> *types.Package for every
+// COMPLETE package. go/types fabricates an incomplete placeholder named after
+// the import path's last segment for any path its importer never loaded
+// ("math/rand/v2" -> name "v2"). That name is a guess, and trusting it once
+// made the LSP delete a used import (PR #64). Never read Name() off an
+// incomplete package — skip it instead.
+func completeDepGraphPackages(mi mapImporter) map[string]*types.Package {
+	out := map[string]*types.Package{}
+	for path, pkg := range mi {
+		if pkg == nil || !pkg.Complete() {
+			continue
+		}
+		out[path] = pkg
+	}
+	return out
+}
+
+// packageExports reports whether path's package declares an exported `symbol`. A
+// package already in the graph answers from its scope for free; otherwise its
+// export data is read (and cached) via the gc importer. A load failure reports
+// false: better to offer one fewer candidate than to add a wrong import.
+func (m *Module) packageExports(graph map[string]*types.Package, path, symbol string) bool {
+	if pkg, ok := graph[path]; ok {
+		return pkg.Scope().Lookup(symbol) != nil
+	}
+	pkg, err := m.exportDataImporter().Import(path)
+	if err != nil || !pkg.Complete() {
+		return false
+	}
+	return pkg.Scope().Lookup(symbol) != nil
+}
+
+// exportDataImporter lazily builds and caches a gc export-data importer, used
+// only by ResolveImportCandidates (a user-triggered code-action path, never
+// Package()'s hot path) to answer "does this stdlib table candidate export
+// symbol X" without a fresh packages.Load. Guarded by m.mu, NOT analysisMu:
+// Package() holds analysisMu for the duration of an analysis, and sync.Mutex is
+// not reentrant, so taking it here would self-deadlock any caller that (however
+// indirectly) reached this from within a held analysisMu. ResolveImportCandidates
+// never runs on that path, so m.mu is the correct, narrower lock.
+func (m *Module) exportDataImporter() types.Importer {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.gcImporter == nil {
+		m.gcImporter = importer.ForCompiler(m.fset, "gc", nil)
+	}
+	return m.gcImporter
 }

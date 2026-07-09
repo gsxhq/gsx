@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"go/types"
 	"os"
 	"path/filepath"
 	"sort"
@@ -235,6 +236,120 @@ func TestMissingImportsPosMatchesDiagnostic(t *testing.T) {
 					mis[0].Pos.Line, mis[0].Pos.Column, diag.line, diag.col)
 			}
 		})
+	}
+}
+
+// TestResolveUnambiguousStdlib: `fmt` resolves to exactly one path.
+func TestResolveUnambiguousStdlib(t *testing.T) {
+	m, _ := newMissingModule(t, "package u\n\nvar xx = <p>hi</p>\n")
+	got := m.ResolveImportCandidates("fmt", "Sprintf")
+	if len(got) != 1 || got[0] != "fmt" {
+		t.Fatalf("resolve(fmt, Sprintf) = %v, want [fmt]", got)
+	}
+}
+
+// TestResolveDisambiguatesBySymbol: only math/rand/v2 exports IntN.
+func TestResolveDisambiguatesBySymbol(t *testing.T) {
+	m, _ := newMissingModule(t, "package u\n\nvar xx = <p>hi</p>\n")
+	got := m.ResolveImportCandidates("rand", "IntN")
+	if len(got) != 1 || got[0] != "math/rand/v2" {
+		t.Fatalf("resolve(rand, IntN) = %v, want [math/rand/v2]", got)
+	}
+	// html/template exports HTML; text/template does not.
+	got = m.ResolveImportCandidates("template", "HTML")
+	if len(got) != 1 || got[0] != "html/template" {
+		t.Fatalf("resolve(template, HTML) = %v, want [html/template]", got)
+	}
+}
+
+// TestResolveAmbiguousKeepsAll: when no candidate can be eliminated by symbol,
+// every candidate survives so the caller can offer one quickfix each (and
+// organizeImports adds nothing).
+func TestResolveAmbiguousKeepsAll(t *testing.T) {
+	m, _ := newMissingModule(t, "package u\n\nvar xx = <p>hi</p>\n")
+	got := m.ResolveImportCandidates("rand", "NoSuchSymbolAnywhere")
+	if len(got) < 2 {
+		t.Fatalf("resolve(rand, <none>) = %v, want all candidates kept", got)
+	}
+}
+
+// TestResolveUnknownNameYieldsNothing: no scan, no guess, no candidates.
+func TestResolveUnknownNameYieldsNothing(t *testing.T) {
+	m, _ := newMissingModule(t, "package u\n\nvar xx = <p>hi</p>\n")
+	if got := m.ResolveImportCandidates("zzznotapkg", "Thing"); len(got) != 0 {
+		t.Fatalf("resolve(zzznotapkg) = %v, want []", got)
+	}
+}
+
+// TestResolveFindsDepGraphPackage: a package already in the module's dep graph
+// resolves from types alone (no stdlib table entry exists for it).
+func TestResolveFindsDepGraphPackage(t *testing.T) {
+	m, _ := newMissingModule(t, "package u\n\nvar xx = <p>hi</p>\n")
+	got := m.ResolveImportCandidates("gsx", "Node")
+	if len(got) != 1 || got[0] != "github.com/gsxhq/gsx" {
+		t.Fatalf("resolve(gsx, Node) = %v, want [github.com/gsxhq/gsx]", got)
+	}
+}
+
+// TestResolveNeverUsesFabricatedName: `v2` is the placeholder name go/types
+// fabricates for math/rand/v2 when its importer never loaded it. It must resolve
+// to nothing.
+//
+// HONEST SCOPE: this is an ABSENCE guard — `v2` is in neither stdlibIndex (whose
+// key is the real name `rand`) nor the dep graph — so it does not by itself
+// exercise depGraphPackages' Complete() gate. That gate is still required:
+// packages.Load hands back PARTIAL Types for a package with errors (see the note
+// at module.go:505), and reading Name() off such a package is the PR #64 Critical.
+// The implementer MUST additionally assert, in a direct unit test of
+// depGraphPackages, that an incomplete *types.Package in the mapImporter is
+// skipped. Construct one with types.NewPackage (never marked complete).
+func TestResolveNeverUsesFabricatedName(t *testing.T) {
+	m, _ := newMissingModule(t, "package u\n\nvar xx = <p>hi</p>\n")
+	if got := m.ResolveImportCandidates("v2", "IntN"); len(got) != 0 {
+		t.Fatalf("resolve(v2) = %v, want [] — a fabricated path-base name must not resolve", got)
+	}
+}
+
+// TestDepGraphPackagesSkipsIncomplete: the Complete() gate, tested directly
+// against completeDepGraphPackages (the function depGraphPackages delegates
+// the actual filtering to) rather than re-implementing the check inline —
+// re-implementing it would pass unconditionally regardless of whether the
+// production gate exists at all. types.NewPackage returns a package that is
+// NOT complete; its Name() is whatever we pass, standing in for go/types'
+// fabricated path-base name. A sibling COMPLETE package is included too, so
+// the assertion cannot pass simply because the output happens to be empty.
+func TestDepGraphPackagesSkipsIncomplete(t *testing.T) {
+	incomplete := types.NewPackage("math/rand/v2", "v2") // never MarkComplete()d
+	if incomplete.Complete() {
+		t.Fatal("precondition: types.NewPackage must not be complete")
+	}
+	complete := types.NewPackage("fmt", "fmt")
+	complete.MarkComplete()
+
+	mi := mapImporter{"math/rand/v2": incomplete, "fmt": complete}
+	got := completeDepGraphPackages(mi)
+	if _, ok := got["math/rand/v2"]; ok {
+		t.Fatal("an incomplete package must never contribute its (fabricated) name")
+	}
+	if _, ok := got["fmt"]; !ok {
+		t.Fatal("a complete package must still be returned")
+	}
+}
+
+// TestPackageDoesNotResolveImports: the hot path never resolves. The second half
+// proves the counter can move, so the zero assertion is not vacuous.
+func TestPackageDoesNotResolveImports(t *testing.T) {
+	m, dir := newMissingModule(t, "package u\n\nvar xx = <p>{ fmt.Sprintf(\"x\") }</p>\n")
+	before := resolveImportCandidatesCalls.Load()
+	if _, err := m.Package(dir); err != nil {
+		t.Fatal(err)
+	}
+	if got := resolveImportCandidatesCalls.Load(); got != before {
+		t.Errorf("Package() resolved %d time(s); want 0 — resolution must stay off the hot path", got-before)
+	}
+	m.ResolveImportCandidates("fmt", "Sprintf")
+	if got := resolveImportCandidatesCalls.Load(); got == before {
+		t.Error("counter never moved; the zero assertion above is vacuous")
 	}
 }
 
