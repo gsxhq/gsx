@@ -48,6 +48,7 @@ func (a *blockingAnalyzer) PrintWidth(string) int { return 80 }
 func (a *blockingAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
 	return gsxfmt.ImportsGoimports
 }
+func (a *blockingAnalyzer) ResolveImport(string, string, string) []string { return nil }
 
 // TestAnalysisIsAsyncAndSupersededResultsDiscarded proves two Phase-2 properties
 // deterministically (no sleeps): (1) the Run loop answers requests while an

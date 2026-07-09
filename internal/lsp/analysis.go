@@ -83,4 +83,18 @@ type Package struct {
 	// UnusedImports lists, per .gsx file path, imports that file declares but does
 	// not use — what formatting may safely drop. Empty when analysis is unreliable.
 	UnusedImports map[string][]gsxfmt.ImportRef
+
+	// MissingImports lists, per .gsx file path, qualifiers that resolve to nothing
+	// — candidates for an added import. Unresolved: the code-action handler calls
+	// Analyzer.ResolveImport, which may read export data and must stay off the
+	// analysis path.
+	MissingImports map[string][]MissingImport
+}
+
+// MissingImport is a qualifier the file uses that resolves to nothing. Symbol is
+// the selector on it, which disambiguates an ambiguous name (`rand.IntN`).
+type MissingImport struct {
+	Name   string
+	Symbol string
+	Pos    token.Position
 }

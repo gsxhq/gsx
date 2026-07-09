@@ -20,6 +20,7 @@ func (nilAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) 
 func (nilAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol, error) { return nil, nil }
 func (nilAnalyzer) PrintWidth(string) int                                     { return 80 }
 func (nilAnalyzer) ImportsMode(string) gsxfmt.ImportsMode                     { return gsxfmt.ImportsGoimports }
+func (nilAnalyzer) ResolveImport(string, string, string) []string             { return nil }
 
 // framed wraps a JSON-RPC body in Content-Length framing.
 func framed(t *testing.T, v any) string {
