@@ -259,6 +259,30 @@ the print width. Write it inline and it stays inline; write it multi-line and it
 stays multi-line. (A block-level child, e.g. a nested element, still forces the
 enclosing body to break regardless, so the document hierarchy stays visible.)
 
+**An element inside a Go expression breaks only when you ask it to.** Write it
+bare and it stays on one line, however long that line ends up:
+
+```go
+var navIcon = <a href="/help" class="text-blue-600" title="Get help">?</a>
+```
+
+Wrap it in parentheses and it breaks, and keeps them:
+
+```go
+var navIcon = (
+    <a href="/help" class="text-blue-600" title="Get help">?</a>
+)
+```
+
+The parenthesis is a break request, exactly as a newline after `>` is. `gsx fmt`
+never adds one to chase the print width and never deletes one you wrote. An
+element that *cannot* print flat — one with a block-level child, or a line break
+you put inside it — breaks regardless, and takes parentheses.
+
+When a line is too long, the fix is the Go around the element, not the element:
+`gsx fmt` breaks the composite literal's fields (below), which is what made the
+line long.
+
 The same principle reaches the Go you embed. **A composite literal whose opening
 `{` ends a line gets its closing `}` on a line of its own**, so a literal written
 in block form closes in block form:
