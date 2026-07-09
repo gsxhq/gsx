@@ -89,6 +89,40 @@ the std/third-party grouping shown above. The `TabIndent: true, TabWidth: 8,
 Comments: true` options are required so `FormatOnly` matches gofmt's tabbed
 chunk formatting (otherwise it emits spaces).
 
+### Interaction with recent main work (verified at HEAD f6fbd8c)
+
+Checked because PR #51/#52 churned adjacent code. All clear:
+
+- **`d813a1e` "tokenize for the `_gsx` reservation instead of parsing"** does
+  *not* constrain this design. Its rule targets **element-bearing** Go regions,
+  which codegen used to reconstruct by substituting a padded `_()` placeholder
+  and parsing — and fmt's new paren-wrap (`return ( <>…</> )`) made those
+  reconstructions invalid Go under automatic semicolon insertion. A `GoChunk` is
+  by definition **element-free, complete top-level Go**; the shipped
+  `deleteChunkImports` already parses one (wrapped in `package _gsxp`) on every
+  `gsx fmt`, and `d813a1e` touched only `internal/codegen`, never
+  `internal/gsxfmt`. So `reorderImports` may parse its chunk exactly as
+  `deleteChunkImports` does.
+- **Imports never live in a `GoWithElements`.** `parser/goexpr.go
+  splitGoElements` peels a leading import run into its own plain `GoChunk`
+  before building the element region. A per-`GoChunk` walk therefore misses no
+  import, and skipping `GoWithElements` (as `removeImports` already does via its
+  type switch) is correct.
+- **`435a91c` / PR #51 / `internal/goexprshape`** all operate solely on
+  element-literal positions inside `GoWithElements` (paren wrap/strip,
+  placeholder gofmt round-trip). Disjoint decl types — they cannot fight the
+  reorder pass. `435a91c` changed `canonGo` in `corpus_test.go`, a test
+  normalizer, not the printer.
+- **`fmtGoChunk` still runs `format.Source` on every chunk** (`printer.go:1250`),
+  so "gofmt mode = zero new formatting code" holds, as does reorder idempotency
+  (gofmt sorts within a group but never merges or regroups, so the goimports
+  std/third-party split survives the printer's re-gofmt).
+- **WASM cost is negligible.** `gsxfmt` is in the `playground/wasm` dep graph
+  (it exposes `gsxFormat`), but linking `golang.org/x/tools/imports` adds only 4
+  packages and **+1,811 bytes** to a 17.3 MB `gsx.wasm` (0.01%) — `go/packages`
+  machinery is already linked via `gen`. `golang.org/x/tools v0.46.0` is already
+  a module requirement, so no new dependency.
+
 ## Pipeline ordering (goimports mode)
 
 Within one `gsx fmt` invocation: **remove-unused → reorder → normalize/print.**
@@ -197,13 +231,24 @@ imports = "goimports"   # "goimports" (default) | "gofmt"
 
 `textDocument/formatting` **honors the configured mode**, mirroring the CLI. No
 CLI flag exists in the editor, so the mode comes from resolved config only: add
-an `ImportsMode(dir)` accessor next to the existing `PrintWidth(dir)` on the
-analyzer, map it through the shared mode→options helper, and pass `Unused`
-(from analysis, only in goimports mode) and `Reorder` into `FormatWith`. So in
+an `ImportsMode(dir)` accessor next to the existing `PrintWidth(dir)` — declared
+on the `Analyzer` interface in `internal/lsp/server.go` and implemented on
+`lspAnalyzer` in `gen/lsp.go` (that is where `PrintWidth` actually lives, *not*
+`internal/lsp/analysis.go`). Map it through the shared mode→options helper, and
+pass `Unused` (from analysis, only in goimports mode) and `Reorder` into
+`FormatWith`. So in
 `gofmt` mode, format-on-save is gofmt only — it stops removing/reordering
 imports; the organize behavior then comes exclusively from the code action
 below. This is precisely the gopls split: `textDocument/formatting` = gofmt,
 import organizing = a separate action.
+
+**Pre-existing gap, preserve don't fix:** `handleFormatting` today calls
+`FormatRemovingImports` — the *non*-`With` variant — so LSP formatting does not
+run the `<style>`/`<script>` css/js formatters that the CLI runs. Moving it to
+`FormatWith` makes that gap explicit (`CSSFmt`/`JSFmt` become visible nil
+fields). Keep current behavior: pass nil formatters, preserving today's LSP
+output byte-for-byte. Closing the gap is a separate change with its own tests —
+do not fold it into this effort.
 
 ### LSP `source.organizeImports` code action — `internal/lsp/codeaction.go` (new)
 
@@ -303,8 +348,9 @@ scoped to what a formatter mode needs.
 - `internal/lsp/protocol.go` — `CodeActionOptions`, `codeActionProvider`
   capability, `textDocument/codeAction` param/result types.
 - `internal/lsp/server.go` — dispatch `textDocument/codeAction`; advertise the
-  capability.
-- `internal/lsp/analysis.go` — `ImportsMode(dir)` accessor for the resolved mode.
+  capability; declare `ImportsMode(dir)` on the `Analyzer` interface.
+- `gen/lsp.go` — implement `lspAnalyzer.ImportsMode(dir)` (next to
+  `PrintWidth`, via `resolveConfigBestEffort(...).effectiveImportsMode()`).
 - Corpus cases + unit/config/CLI/LSP tests as above.
 - Docs: `[formatter] imports` config reference + `gsx fmt` page (in
   `gsxhq.github.io`); note editor `codeActionsOnSave: source.organizeImports`
