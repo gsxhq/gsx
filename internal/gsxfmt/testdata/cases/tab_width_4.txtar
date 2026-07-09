@@ -1,0 +1,31 @@
+The same source, formatted at tab width 4 and 2 (see tab_width_2.txtar), must lay
+out differently: a tab's column count decides where a line overflows. Nothing
+pinned this before — changing pretty's tabWidth broke zero tests, which measured
+coverage, not safety.
+
+Indentation is emitted as tabs either way. tab_width changes only the measure.
+
+-- tab_width --
+4
+-- input.gsx --
+package ui
+
+component C() {
+	<div>
+		<section>
+			<span class="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">x</span>
+		</section>
+	</div>
+}
+-- fmt.golden --
+package ui
+
+component C() {
+	<div>
+		<section>
+			<span class="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">
+				x
+			</span>
+		</section>
+	</div>
+}
