@@ -895,9 +895,50 @@ vocabulary remains a design aspiration, not the current API.
   new `source.organizeImports` code action always organizes regardless of it -
   exactly like gopls, where formatting can be plain gofmt while the action
   still organizes - with a whole-document edit (gsx has no partial formatter),
-  so applying it also canonicalizes the rest of the file. As always, `gsx`
-  cannot *add* a missing import (see the follow-up above). Spec
+  so applying it also canonicalizes the rest of the file. At this point
+  neither `gsx fmt`/`textDocument/formatting` nor `source.organizeImports`
+  could yet *add* a missing import (see the follow-up above, which is
+  specifically about the reserved `_gsx`/`gsx`-package case and remains
+  permanent). The general add-import gap closed next - see below. Spec
   `docs/superpowers/specs/2026-07-07-organize-imports-design.md`.
+- [x] **LSP add-import: `source.organizeImports` adds an unambiguous missing
+  import + a `quickfix` for ambiguity - SHIPPED (2026-07-09).**
+  `source.organizeImports` now adds a missing qualifier's import in the same
+  pass as removing unused ones, but only when `Analyzer.ResolveImport`
+  resolves it to **exactly one** candidate - format-on-save never guesses, since
+  a wrong import written unattended on every save is unrecoverable. A new
+  `quickfix` code action covers the ambiguous case: one `Add import: <path>`
+  action per surviving candidate, deduplicated by resolved import path (e.g.
+  `rand.Read` - present in both `crypto/rand` and `math/rand` - offers both;
+  `rand.IntN` resolves to the single `math/rand/v2` candidate and so is added
+  automatically by `organizeImports` instead). Candidates come from two
+  sources, both map lookups, **never a module-cache scan**: a stdlib
+  name -> path table baked at build time (`internal/codegen/stdpath`,
+  `mkstdlibindex`), and every package already in the module's dependency
+  graph, which `analyze` has already type-checked - `ResolveImportCandidates`
+  reads only what analysis already loaded plus (on ambiguity) cached gc export
+  data, never `packages.Load`, so it stays off the `Package()` hot path
+  (`resolveImportCandidatesCalls` is an atomic counter a test asserts against).
+  Ambiguity resolves **by symbol**: a candidate that does not export the used
+  symbol is eliminated first, which is what collapses `rand.IntN` to
+  `math/rand/v2` and `template.HTML` to `html/template`. Go's `internal`
+  visibility rule (`stdpath.InternalVisible`) is honored exactly, for both the
+  stdlib table and the dependency graph: a project's own `myapp/internal/db`
+  is offered from anywhere under `myapp`, `myapp/x/internal/db` is not offered
+  from `myapp/y`, and a standard-library `internal` package is never offered.
+  **Deliberate boundary: a package not yet in `go.mod` is never offered** -
+  reaching it means `go get`ting it first, not the LSP. Real `goimports`
+  covers this by scanning the module cache, measured at ~1.4s per unresolved
+  identifier - the normal state while mid-typing - so gsx does not; closing
+  that gap for real needs a background-refreshed index (what `gopls`
+  maintains), which is a separate project, not a quick follow-up. This also
+  means the dependency-graph half of resolution can only see what the
+  module's own `externalImporter` preload already reached - see the
+  `externalImporter` preload-gap entry above, which is the same limitation
+  from the other direction (a package reachable only from a `.gsx` file's own
+  `import` line is invisible to both the unused-import check and this
+  resolver). Docs: `docs/guide/editor.md` §Organize imports on save. Spec
+  `docs/superpowers/specs/2026-07-09-lsp-add-imports-design.md`.
 
 ## Documentation backlog
 
