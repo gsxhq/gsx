@@ -273,6 +273,21 @@ func TestResolveAmbiguousKeepsAll(t *testing.T) {
 	}
 }
 
+// TestResolveExcludesUnimportableInternal: `internal` collides across four std
+// packages (encoding/json/internal, log/internal, log/slog/internal,
+// net/http/internal) whose LAST path component is `internal`, but none of
+// them is importable from user code — that is a Go visibility rule on the
+// path COMPONENT, not on the declared package NAME. A prior substring filter
+// on "internal/" missed exactly this shape (nothing follows the last
+// "internal/"), so stdlibIndex["internal"] leaked all four and the LSP would
+// have offered a quickfix the compiler rejects. This must resolve to nothing.
+func TestResolveExcludesUnimportableInternal(t *testing.T) {
+	m, _ := newMissingModule(t, "package u\n\nvar xx = <p>hi</p>\n")
+	if got := m.ResolveImportCandidates("internal", "Anything"); len(got) != 0 {
+		t.Fatalf("resolve(internal, Anything) = %v, want [] — no std `internal` package is importable", got)
+	}
+}
+
 // TestResolveUnknownNameYieldsNothing: no scan, no guess, no candidates.
 func TestResolveUnknownNameYieldsNothing(t *testing.T) {
 	m, _ := newMissingModule(t, "package u\n\nvar xx = <p>hi</p>\n")

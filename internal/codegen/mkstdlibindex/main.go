@@ -18,6 +18,8 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+
+	"github.com/gsxhq/gsx/internal/codegen/stdpath"
 )
 
 func main() {
@@ -33,8 +35,7 @@ func main() {
 			continue
 		}
 		name, path := f[0], f[1]
-		// `internal/…` is unimportable; `vendor/…` is not a real std package.
-		if strings.Contains(path, "internal/") || strings.HasPrefix(path, "vendor/") {
+		if !stdpath.Importable(path) {
 			continue
 		}
 		index[name] = append(index[name], path)
