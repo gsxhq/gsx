@@ -22,4 +22,4 @@ Use `{ gsx.Raw(html) }` when the string is already safe HTML that must be render
 
 Never pass unvalidated user input to `gsx.Raw`. A hostile string like `<script>stealCookies()</script>` would be written verbatim into the page.
 
-If the trusted value is a URL rather than HTML, use `gsx.RawURL`. For trusted JavaScript, use `gsx.RawJS`. For trusted CSS, use `gsx.RawCSS`. See [Escaping](./escaping) for the full context-aware escaping reference.
+If the trusted value is a URL rather than HTML, use `gsx.RawURL`. For trusted JavaScript, use `gsx.RawJS`. For trusted CSS, use `gsx.RawCSS`. See [Escaping](./escaping.md) for the full context-aware escaping reference.
