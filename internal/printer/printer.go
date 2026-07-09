@@ -1394,9 +1394,16 @@ func (p *printer) fmtGoExprParts(parts []ast.GoPart) ([]ast.GoPart, []goexprshap
 		holes = append(holes, h)
 		src.WriteString(h)
 	}
-	shapes := goexprshape.Classify(goExprWrapper+src.String(), shapeHoles)
+	// go/format, like go/parser, chokes on a placeholder sitting alone on its
+	// own line inside a bracket — the shape this printer's OWN decorative-paren
+	// output takes. Sanitize collapses exactly those newlines, so re-formatting
+	// an already-formatted file reaches gofmt instead of falling back to a
+	// verbatim relay. Classify sees the same source, so the paren it reports as
+	// Wrapped is the paren that survives into `formatted` for the caller to strip.
+	sanitized, sanHoles := goexprshape.Sanitize(goExprWrapper+src.String(), shapeHoles)
+	shapes := goexprshape.Classify(sanitized, sanHoles)
 
-	out, err := format.Source([]byte(goExprWrapper + src.String()))
+	out, err := format.Source([]byte(sanitized))
 	if err != nil {
 		return nil, shapes, false
 	}
