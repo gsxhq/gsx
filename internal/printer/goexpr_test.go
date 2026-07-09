@@ -237,3 +237,15 @@ func TestGoWithElementsReformatsItsOwnParenWrappedOutput(t *testing.T) {
 	want := "package main\n\nvar items = []T{\n\t{label: \"a\", icon: <Icon/>, page: P{}},\n\t{label: \"b\"},\n}\n"
 	checkFormat(t, src, want)
 }
+
+// Sanitize collapses the whitespace between a hole and an ADJACENT CLOSING
+// bracket, because a placeholder identifier ending a line makes Go's automatic
+// semicolon insertion break the parse. The whitespace between an OPENING
+// bracket and a hole must survive: an opening bracket never ends a line in a
+// way that triggers ASI, and go/printer reads the `{`-to-first-element line
+// break to decide whether the literal prints on one line. Collapsing it drags
+// the first element up onto the brace line.
+func TestGoWithElementsKeepsBreakAfterOpeningBrace(t *testing.T) {
+	src := "package main\n\nvar icons = []gsx.Node{\n\t<a/>,\n\t<b/>,\n}\n"
+	checkFormat(t, src, src)
+}

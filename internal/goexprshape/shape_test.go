@@ -106,9 +106,9 @@ func indexOf(hay, needle string) int {
 }
 
 // Sanitize is what lets a consumer hand the substituted source to go/parser or
-// go/format at all: a hole alone on its line inside a bracket otherwise picks up
-// an inserted semicolon. It must also be idempotent, since gsx fmt re-formats
-// its own output.
+// go/format at all: a hole ending a line directly before a closing bracket
+// otherwise picks up an inserted semicolon. It must also be idempotent, since
+// gsx fmt re-formats its own output.
 func TestSanitizeCollapsesBracketAdjacentNewlines(t *testing.T) {
 	// `icon: (\n\tH\n),` — gsx fmt's own decorative-paren output.
 	src := "package p\nvar x = []T{\n\t{icon: (\n\t\tH\n\t), page: P{}},\n}\n"
@@ -116,7 +116,9 @@ func TestSanitizeCollapsesBracketAdjacentNewlines(t *testing.T) {
 	holes := []Hole{{Start: start, End: start + 1}}
 
 	got, gotHoles := Sanitize(src, holes)
-	want := "package p\nvar x = []T{\n\t{icon: ( H ), page: P{}},\n}\n"
+	// Only the newline AFTER the hole is collapsed: the one after `(` is left
+	// alone, because an opening bracket cannot trigger semicolon insertion.
+	want := "package p\nvar x = []T{\n\t{icon: (\n\t\tH ), page: P{}},\n}\n"
 	if got != want {
 		t.Errorf("Sanitize:\n got %q\nwant %q", got, want)
 	}
@@ -144,5 +146,19 @@ func TestSanitizeLeavesStatementSeparatingNewline(t *testing.T) {
 	got, _ := Sanitize(src, []Hole{{Start: start, End: start + 1}})
 	if got != src {
 		t.Errorf("Sanitize altered a non-bracket-adjacent newline:\n got %q\nwant %q", got, src)
+	}
+}
+
+// The newline between an opening bracket and a hole must survive Sanitize: an
+// opening bracket never ends a line in a way that triggers semicolon insertion,
+// and go/printer reads that break to decide whether a composite literal prints
+// on one line. Collapsing it reflows the author's source.
+func TestSanitizeKeepsNewlineAfterOpeningBracket(t *testing.T) {
+	src := "package p\nvar x = []gsx.Node{\n\tH,\n\tI,\n}\n"
+	h := strings.Index(src, "H")
+	i := strings.Index(src, "I")
+	got, _ := Sanitize(src, []Hole{{Start: h, End: h + 1}, {Start: i, End: i + 1}})
+	if got != src {
+		t.Errorf("Sanitize collapsed a newline after an opening bracket:\n got %q\nwant %q", got, src)
 	}
 }

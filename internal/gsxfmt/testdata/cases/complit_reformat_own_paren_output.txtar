@@ -1,0 +1,25 @@
+Feeding gsx fmt its OWN decorative-paren output back in must still reach gofmt.
+The element sits alone on a line inside parens, which is the shape Go's automatic
+semicolon insertion rejects once the element is replaced by a placeholder
+identifier. If that source is not sanitized, format.Source fails and the whole
+region is relayed verbatim — leaving the misindented sibling below untouched.
+
+The paren is stripped and re-derived from width: this line now fits, so the
+element goes flat and the parens vanish.
+
+-- input.gsx --
+package ui
+
+var items = []T{
+	{label: "a", icon: (
+		<Icon/>
+	), page: P{}},
+{label: "b"},
+}
+-- fmt.golden --
+package ui
+
+var items = []T{
+	{label: "a", icon: <Icon/>, page: P{}},
+	{label: "b"},
+}
