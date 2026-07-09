@@ -733,8 +733,32 @@ vocabulary remains a design aspiration, not the current API.
   variants. Non-component cross-file helper duplicates are tolerated (deferred to
   go build); within-file redeclarations stay hard errors. Spec
   `2026-07-06-tag-variant-component-analysis-design.md`.
-- [ ] **tree-sitter-gsx: unified Go+gsx grammar (tsx approach)** - the
-  `../tree-sitter-gsx` grammar treats Go as an opaque blob and highlights it by
+- [x] **tree-sitter-gsx: unified Go+gsx grammar (tsx approach) - SHIPPED
+  (2026-07-09, PR #4 merged to `tree-sitter-gsx` main).** The tsx approach was
+  built and cut over: gsx is now a syntactic *superset* of Go, composed over
+  the real `tree-sitter-go@0.25.0` npm package via `grammar(base, overrides)`
+  (vendored, not a forked copy - upstream sync is `npm update` + regenerate,
+  and the one hand-maintained surface is Go's 8 internal `conflicts` +
+  `_expression`/`_top_level_declaration` alternative lists, re-checked per
+  bump). Go is **native**, so `var x = <Icon/>` / `return <div/>` parse as one
+  coherent tree - the injected-Go `ERROR` this entry was about is gone. The
+  feared "single-scanner merge" turned out unnecessary: tree-sitter-go has no
+  external scanner (pure-grammar ASI), so gsx's markup/embedded-text scanner is
+  the only one. **Feature-complete**: elements/fragments (dotted + hyphenated +
+  generic-type-arg tags), children, all attribute kinds, composable class/style
+  (incl. value-forms), f/js/css literals, `component` decls (Go-native
+  params/generics), go-blocks, ordered-attrs, comments, `<script>`/`<style>`
+  raw-text, pipelines. Gated by the gsx repo's own authoritative corpus vendored
+  as a 535/535 zero-ERROR parse gate (`tree-sitter-gsx` `npm run
+  test:authoritative`, synced from `../gsx` by `scripts/sync-authoritative-corpus.mjs`)
+  - no known valid-gsx construct fails to parse. `highlights.scm` +
+  `injections.scm` shipped (Neovim native). Two real bugs caught + fixed by the
+  adversarial-review process (if-with-initializer; a pre-existing
+  `f`/`js`/`css`-token shadowing a Go identifier named `f`). Design +
+  per-phase findings in `tree-sitter-gsx`'s `docs/superpowers/` and `NOTES.md`.
+  Original analysis (why the old blob+injection model was wrong) retained below.
+
+  The `../tree-sitter-gsx` grammar treats Go as an opaque blob and highlights it by
   *injecting* tree-sitter-go per `go_text` run. This works everywhere *except*
   where an element/fragment/`f`-literal sits in a Go **value** position
   (`var x = <Icon/>`, `return <div/>`, `f(<a/>)`): to highlight the element the
