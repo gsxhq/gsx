@@ -215,7 +215,7 @@ func canonGo(n ast.Node) {
 			canonGo(d)
 		}
 	case *ast.GoChunk:
-		v.Src = fmtGoChunk(v.Src)
+		v.Src = fmtGoChunk(v.Src, 80, pretty.DefaultTabWidth)
 	case *ast.GoWithElements:
 		// A GoText part is an incomplete Go fragment that fmtGoChunk (go/format)
 		// can't parse in isolation. The printer's goWithElements does not leave it
@@ -228,7 +228,7 @@ func canonGo(n ast.Node) {
 		// author's verbatim GoText while normalize(fmt(S)) holds gofmt's. When
 		// go/format rejects the substituted source (Go the gsx parser accepted but
 		// go/parser does not), the printer keeps the original parts, so we do too.
-		if formatted, _, ok := (&printer{}).fmtGoExprParts(v.Parts); ok {
+		if formatted, _, ok := (&printer{width: 80, tabWidth: pretty.DefaultTabWidth}).fmtGoExprParts(v.Parts); ok {
 			v.Parts = formatted
 		}
 		// Only the outer edges are trimmed, exactly as the printer trims them, so
