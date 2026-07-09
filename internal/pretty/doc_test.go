@@ -32,7 +32,7 @@ func TestGroupOverflowBreaks(t *testing.T) {
 func TestNestedGroupInnerStaysFlat(t *testing.T) {
 	// At width 12 the outer group's flat form "function (x, y)" (15) does not
 	// fit, so it breaks; the inner group "(x, y)" (6) still fits on its own
-	// indented line (tab=4 → 4+6=10 ≤ 12) and stays flat.
+	// indented line (1 tab at tabWidth 2 → 2+6=8 ≤ 12) and stays flat.
 	inner := Group(Concat(Text("("), Text("x,"), Line, Text("y"), Text(")")))
 	d := Group(Concat(Text("function "), Indent(Concat(SoftLine, inner)), SoftLine))
 	got := Print(d, 12, DefaultTabWidth)
