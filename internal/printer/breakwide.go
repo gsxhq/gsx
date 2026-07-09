@@ -32,15 +32,23 @@ import (
 // so re-running the pass on its own output is a no-op, and gsx fmt extends gofmt
 // without ever fighting it. See TestBreakWideLiteralsOutputIsGofmtFixedPoint.
 //
+// forceMarker names a placeholder substring that stands for a gsx value whose
+// real rendered width is unknowable (a multi-line element reaches gofmt as a
+// single-rune placeholder — see fmtGoExprParts). A line holding it is treated as
+// over budget regardless of its measured width: the value forces a break and can
+// never be a one-liner, so the literal around it must break its fields exactly as
+// a genuinely over-long one would. forceMarker == "" disables this (the pure-Go
+// path, fmtGoChunk, has no holes and passes "").
+//
 // src must be a complete Go file. On any parse or format error it is returned
 // unchanged: this is a layout nicety, never a reason for gsx fmt to fail.
-func breakWideLiterals(src string, width, tabWidth int) string {
+func breakWideLiterals(src string, width, tabWidth int, forceMarker string) string {
 	for {
 		formatted, err := format.Source([]byte(src))
 		if err != nil {
 			return src
 		}
-		next, changed := breakFirstWideLiteral(string(formatted), width, tabWidth)
+		next, changed := breakFirstWideLiteral(string(formatted), width, tabWidth, forceMarker)
 		if !changed {
 			return string(formatted)
 		}
@@ -48,36 +56,59 @@ func breakWideLiterals(src string, width, tabWidth int) string {
 	}
 }
 
-// breakFirstWideLiteral finds the first line of src exceeding width and breaks
-// the outermost composite literal that starts on it, returning changed=false
-// when there is no such line or no literal to break (no progress).
-func breakFirstWideLiteral(src string, width, tabWidth int) (string, bool) {
+// breakFirstWideLiteral breaks the outermost composite literal whose opening-
+// brace line is over budget and whose fields are not already broken, returning
+// changed=false when there is no such literal (no progress).
+func breakFirstWideLiteral(src string, width, tabWidth int, forceMarker string) (string, bool) {
 	fset := gotoken.NewFileSet()
 	file, err := goparser.ParseFile(fset, "", src, goparser.SkipObjectResolution)
 	if err != nil {
 		return src, false
 	}
-	badLine := firstWideLine(src, width, tabWidth)
-	if badLine == 0 {
-		return src, false
+	lines := strings.Split(src, "\n")
+
+	// braceLineOverBudget reports whether the line holding lit's opening brace is
+	// over budget: measured wider than width, or -- when forceMarker is set --
+	// holding the marker. The marker stands for a multi-line gsx value whose real
+	// width is unknowable and which can never be a one-liner (it forces a break),
+	// so a literal still holding it PACKED on its brace line must break its fields
+	// regardless of the line's measured width.
+	//
+	// The test is keyed on the BRACE line specifically, not on any line of the
+	// literal, and that is what makes the pass converge. Once a literal's fields
+	// break, the marker moves off the brace line onto its own field line; the
+	// literal then reads as fully broken and is skipped. Were the marker allowed to
+	// flag ANY line it sits on, a broken literal's marker field line would stay
+	// permanently "over budget" with no literal to break there -- wedging the loop
+	// on the first such line and starving every later literal (e.g. the sibling
+	// items of a nav slice) of its turn.
+	braceLineOverBudget := func(lit *goast.CompositeLit) bool {
+		ln := fset.Position(lit.Lbrace).Line
+		if ln < 1 || ln > len(lines) {
+			return false
+		}
+		line := lines[ln-1]
+		cols := utf8.RuneCountInString(line) + (tabWidth-1)*strings.Count(line, "\t")
+		if cols > width {
+			return true
+		}
+		return forceMarker != "" && strings.Contains(line, forceMarker)
 	}
 
-	// The outermost literal whose opening brace is on badLine and whose fields
-	// are not already broken. goast.Inspect visits parents before children, so
-	// the first match is the outermost.
+	// The outermost over-budget literal whose fields are not already broken.
+	// goast.Inspect visits parents before children, so the first match is the
+	// outermost; an outer `[]T{{…}}` has exactly ONE element (the inner literal),
+	// and breaking it is precisely the outermost-first case.
 	var target *goast.CompositeLit
 	goast.Inspect(file, func(n goast.Node) bool {
 		if target != nil {
 			return false
 		}
 		lit, ok := n.(*goast.CompositeLit)
-		// An outer `[]T{{…}}` has exactly ONE element (the inner literal), and
-		// breaking it is precisely the outermost-first case. Only an empty
-		// literal has nothing to break.
 		if !ok || lit.Incomplete || len(lit.Elts) == 0 {
 			return true
 		}
-		if fset.Position(lit.Lbrace).Line != badLine {
+		if !braceLineOverBudget(lit) {
 			return true
 		}
 		// Already one-per-line? Then breaking it again is not progress.
@@ -161,16 +192,4 @@ func compositeLitFullyBroken(fset *gotoken.FileSet, lit *goast.CompositeLit) boo
 		prevLine = line
 	}
 	return true
-}
-
-// firstWideLine returns the 1-based number of the first line of src wider than
-// width, or 0. A tab counts as tabWidth columns, matching internal/pretty.
-func firstWideLine(src string, width, tabWidth int) int {
-	for i, line := range strings.Split(src, "\n") {
-		cols := utf8.RuneCountInString(line) + (tabWidth-1)*strings.Count(line, "\t")
-		if cols > width {
-			return i + 1
-		}
-	}
-	return 0
 }

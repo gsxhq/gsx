@@ -2,10 +2,14 @@ A composite literal whose `{` opens a line closes on its own line too. gofmt
 never does this: go/printer decides the `}` break solely from whether the SOURCE
 already put `}` on a later line (nodes.go:294), so `{\n\ta: 1}` stays welded shut.
 
-Braces are block-form all-or-nothing; fields are not. The Analytics and Admin
-items keep their `{` inline, so they stay entirely inline. The Import / Export
-item's fields stay packed on one line, because gsx fmt never breaks BETWEEN
-fields — only the closing brace moves.
+Block-form braces and field-breaking are independent, and breakWideLiterals keys
+on the BRACE line. The Import / Export item's `{` opens its own (short) line, so
+its fields stay packed even though their line overflows — only the closing brace
+moves. The Analytics and Admin items are written fully inline, and at width 80
+their brace lines (96 and 90 columns) are over budget, so breakWideLiterals
+breaks their fields one per line — the ordinary wide-literal remedy, reached now
+that an unsplittable wide line earlier in the slice no longer starves later
+literals of their turn.
 
 -- input.gsx --
 package ui
@@ -31,8 +35,18 @@ var appShellNavSections = []appShellNavSection{
 			{
 				label: "Import / Export", page: ImportExportPage{}, pathMatch: "/import-export/", nonVendor: true, vendorVisible: func(u *db.UserInfo) bool { return u.HasGrantPrefix("", "import") },
 			},
-			{label: "Analytics", page: DashboardLanding{}, pathMatch: "/dashboard/", nonVendor: true},
-			{label: "Admin", page: AdminDashboardPage{}, pathMatch: "/admin/", adminOnly: true},
+			{
+				label:     "Analytics",
+				page:      DashboardLanding{},
+				pathMatch: "/dashboard/",
+				nonVendor: true,
+			},
+			{
+				label:     "Admin",
+				page:      AdminDashboardPage{},
+				pathMatch: "/admin/",
+				adminOnly: true,
+			},
 		},
 	},
 }
