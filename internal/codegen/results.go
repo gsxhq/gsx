@@ -4,7 +4,6 @@ import (
 	goast "go/ast"
 	"go/token"
 	"go/types"
-	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/diag"
@@ -77,59 +76,4 @@ type PackageResult struct {
 type UnusedImport struct {
 	Name string
 	Path string
-}
-
-// pickImportByPath disambiguates several imports sharing one .gsx line using the
-// path go/types names in the error (`"<path>" imported ...`). Falls back to the
-// first spec if the path is not found.
-func pickImportByPath(specs []importSpec, msg string) importSpec {
-	if i := strings.IndexByte(msg, '"'); i >= 0 {
-		if j := strings.IndexByte(msg[i+1:], '"'); j >= 0 {
-			path := msg[i+1 : i+1+j]
-			for _, s := range specs {
-				if s.path == path {
-					return s
-				}
-			}
-		}
-	}
-	return specs[0]
-}
-
-// detectUnusedImports correlates raw go/types type errors (from
-// checkSkeletonPackage) with the hoisted .gsx import specs to identify unused
-// imports, using the conservative logic: returns nil if any error is not a clean
-// unused-import error, or when there are no type errors (nothing unused). Never
-// removes imports under uncertainty.
-func detectUnusedImports(typeErrs []types.Error, imports []importSpec, gsxFset *token.FileSet) map[string][]UnusedImport {
-	if len(typeErrs) == 0 || len(imports) == 0 {
-		return nil
-	}
-	type posKey struct {
-		file string
-		line int
-	}
-	byPos := map[posKey][]importSpec{}
-	for _, imp := range imports {
-		if !imp.pos.IsValid() {
-			continue // unresolved position: cannot correlate safely
-		}
-		p := gsxFset.Position(imp.pos)
-		k := posKey{p.Filename, p.Line}
-		byPos[k] = append(byPos[k], imp)
-	}
-	out := map[string][]UnusedImport{}
-	for _, e := range typeErrs {
-		ep := e.Fset.Position(e.Pos)
-		specs, ok := byPos[posKey{ep.Filename, ep.Line}]
-		if !ok || !strings.Contains(e.Msg, "imported and not used") {
-			return nil // not a clean unused-import error → analysis unreliable, remove nothing
-		}
-		spec := specs[0]
-		if len(specs) > 1 {
-			spec = pickImportByPath(specs, e.Msg)
-		}
-		out[ep.Filename] = append(out[ep.Filename], UnusedImport{Name: spec.name, Path: spec.path})
-	}
-	return out
 }

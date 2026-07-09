@@ -634,7 +634,11 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	}
 	res.Diags = a.bag.Sorted()
 	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.gsxFset, a.skelFset, a.info, a.pkg)
-	res.UnusedImports = detectUnusedImports(a.typeErrs, a.importSpecs, a.gsxFset)
+	// Unused imports come from analyze's syntactic classifier (unusedFromSkeletons,
+	// computed alongside the type-check) — the same classifier the `gsx fmt` CLI
+	// trusts (Module.UnusedImports) — never from correlating raw type-error
+	// positions. See docs/superpowers/specs/2026-07-09-lsp-unused-imports-design.md.
+	res.UnusedImports = a.unusedImports
 	m.mu.Lock()
 	m.pkgResults[dir] = res
 	m.mu.Unlock()

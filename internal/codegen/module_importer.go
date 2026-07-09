@@ -656,6 +656,7 @@ type analyzed struct {
 	importSpecs        []importSpec                   // hoisted .gsx import specs (for unused-import detection)
 	typeErrs           []types.Error                  // raw type errors from checkSkeletonPackage
 	signatureConflicts []signatureConflict            // same-name different-signature component collisions (block emission)
+	unusedImports      map[string][]UnusedImport      // .gsx abs path -> unused imports (Package's LSP surface; see unusedFromSkeletons)
 
 	// sunkImports maps a .gsx file path to the import SPECS (line+path keys)
 	// the type-checker PROVED were used only by a requalification-failed
@@ -799,6 +800,15 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	sunkImports := map[string]map[sunkImportKey]bool{}
 	var allImportSpecs []importSpec
 	factsByFile := map[string]*fileFacts{}
+	// skelByGsx captures exactly what unused_imports_syntactic.go's
+	// buildPackageSkeletons builds from a SEPARATE, importer-free parse: this
+	// loop already has each file's skeleton AST, hoisted import specs, and
+	// sunk set (sunkImports[path], pre-confirmation — same as
+	// buildPackageSkeletons' own, which never confirms via type errors
+	// either). Reusing it after type-checking (unusedFromSkeletons, below)
+	// means Package()'s unused-import detection costs no extra parse, no
+	// extra lock, and no re-entry into applyDirty.
+	skelByGsx := map[string]fileSkeleton{}
 	skelErr := false
 	// inferNames is the ONE package-wide inference-probe-helper name
 	// allocator shared by every file's buildSkeleton call below (see
@@ -886,6 +896,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		factsByXGo[absXpath] = ff
 		ctrlOffByXGo[absXpath] = ctrlOff
 		inferByXGo[absXpath] = infReg
+		skelByGsx[path] = fileSkeleton{skel: gf, imps: imps, sunk: sunkImports[path]}
 	}
 	if skelErr {
 		gsxFiles = map[string]*gsxast.File{} // package-level skip: Generate's loop emits nothing
@@ -1217,6 +1228,13 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		}
 	}
 
+	// Unused imports for the LSP surface (Package's PackageResult.UnusedImports),
+	// computed from the skeletons this loop already built and the package
+	// already type-checked above — no extra parse, no lock, no packages.Load.
+	// See unusedFromSkeletons' doc and the design doc
+	// (docs/superpowers/specs/2026-07-09-lsp-unused-imports-design.md).
+	unusedImports := unusedFromSkeletons(skelByGsx, fset, pkg)
+
 	return &analyzed{
 		pkgName:            pkgName,
 		gsxFiles:           gsxFiles,
@@ -1244,6 +1262,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		typeErrs:           typeErrs,
 		sunkImports:        confirmedSunk,
 		signatureConflicts: sigConflicts,
+		unusedImports:      unusedImports,
 	}, nil
 }
 
