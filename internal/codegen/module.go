@@ -634,15 +634,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 	}
 	res.Diags = a.bag.Sorted()
 	res.CrossIndex, res.NavIndex = buildCrossNav(a.compByKey, a.objKey, a.gsxFset, a.skelFset, a.info, a.pkg)
-	// Unused imports (consumed only by the LSP's formatting/organizeImports) come
-	// from the syntactic classifier — the same one the `gsx fmt` CLI trusts —
-	// rather than detectUnusedImports. The type-error correlation returns nil the
-	// moment the package's raw type errors include anything beyond clean
-	// unused-import errors, which is the norm in a real multi-file package, so the
-	// LSP would silently offer no organizeImports action / no import removal.
-	if unused, _, err := m.UnusedImports(dir); err == nil {
-		res.UnusedImports = unused
-	}
+	res.UnusedImports = detectUnusedImports(a.typeErrs, a.importSpecs, a.gsxFset)
 	m.mu.Lock()
 	m.pkgResults[dir] = res
 	m.mu.Unlock()
