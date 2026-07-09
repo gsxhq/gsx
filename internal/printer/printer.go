@@ -32,20 +32,21 @@ import (
 )
 
 // Fprint writes the canonical gsx rendering of f to w, wrapping lists that
-// exceed width columns. width <= 0 uses pretty's default (80).
-func Fprint(w io.Writer, f *ast.File, width int) error {
-	return FprintWith(w, f, width, defaultCSSFormatter(width), defaultJSFormatter(width))
+// exceed width columns. width <= 0 uses pretty's default (80); tabWidth <= 0
+// uses pretty.DefaultTabWidth.
+func Fprint(w io.Writer, f *ast.File, width, tabWidth int) error {
+	return FprintWith(w, f, width, tabWidth, defaultCSSFormatter(width), defaultJSFormatter(width))
 }
 
 // FprintWith is Fprint with explicit CSS and JS formatters for <style>/<script>
 // bodies. A nil formatter leaves that body verbatim.
-func FprintWith(w io.Writer, f *ast.File, width int, cssFmt, jsFmt rawfmt.Formatter) error {
+func FprintWith(w io.Writer, f *ast.File, width, tabWidth int, cssFmt, jsFmt rawfmt.Formatter) error {
 	p := printer{cssFmt: cssFmt, jsFmt: jsFmt}
 	doc := p.file(f)
 	if p.err != nil {
 		return p.err
 	}
-	_, err := io.WriteString(w, pretty.Print(doc, width, pretty.DefaultTabWidth))
+	_, err := io.WriteString(w, pretty.Print(doc, width, tabWidth))
 	return err
 }
 

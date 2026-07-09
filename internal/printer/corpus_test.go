@@ -13,6 +13,7 @@ import (
 	"github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/cssfmt"
 	"github.com/gsxhq/gsx/internal/jsfmt"
+	"github.com/gsxhq/gsx/internal/pretty"
 	"github.com/gsxhq/gsx/internal/txtar"
 	"github.com/gsxhq/gsx/internal/wsnorm"
 	"github.com/gsxhq/gsx/parser"
@@ -70,7 +71,7 @@ func normPrint(_ *testing.T, src string) (string, error) {
 	}
 	wsnorm.Normalize(f)
 	var b strings.Builder
-	err = Fprint(&b, f, 80)
+	err = Fprint(&b, f, 80, pretty.DefaultTabWidth)
 	return b.String(), err
 }
 func TestCorpusIdempotence(t *testing.T) {

@@ -45,6 +45,10 @@ type FormatOptions struct {
 	Unused []ImportRef
 	// Width is the printer's target line width (0 → printer default).
 	Width int
+	// TabWidth is how many columns one tab occupies when measuring a line
+	// (0 → pretty.DefaultTabWidth). It does not change what is emitted —
+	// indentation is always tabs — only where lines are judged too long.
+	TabWidth int
 	// CSSFmt/JSFmt format <style>/<script> bodies; nil uses the printer default.
 	CSSFmt rawfmt.Formatter
 	JSFmt  rawfmt.Formatter
@@ -73,11 +77,11 @@ func FormatWith(name string, src []byte, opts FormatOptions) ([]byte, error) {
 	wsnorm.Normalize(f)
 	var b bytes.Buffer
 	if opts.CSSFmt == nil && opts.JSFmt == nil {
-		if err := printer.Fprint(&b, f, opts.Width); err != nil {
+		if err := printer.Fprint(&b, f, opts.Width, opts.TabWidth); err != nil {
 			return nil, err
 		}
 	} else {
-		if err := printer.FprintWith(&b, f, opts.Width, opts.CSSFmt, opts.JSFmt); err != nil {
+		if err := printer.FprintWith(&b, f, opts.Width, opts.TabWidth, opts.CSSFmt, opts.JSFmt); err != nil {
 			return nil, err
 		}
 	}
