@@ -1,9 +1,34 @@
 package printer
 
 import (
+	"go/token"
 	"strings"
 	"testing"
+
+	"github.com/gsxhq/gsx/internal/pretty"
+	"github.com/gsxhq/gsx/internal/wsnorm"
+	"github.com/gsxhq/gsx/parser"
 )
+
+// fmtSourceWidth parses, normalizes, and prints src at an EXPLICIT print width.
+// The corpus and the rest of this suite format at width 80; some idempotency
+// bugs only manifest at a width where a packed composite-literal item straddles
+// the budget, and structurally cannot be seen at 80 (the item breaks on both
+// passes there). See TestGoExprCompositeLitMultilineElementIdempotentAt120.
+func fmtSourceWidth(t *testing.T, src string, width int) string {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "test.gsx", src, 0)
+	if err != nil {
+		t.Fatalf("parse error: %v\nsrc:\n%s", err, src)
+	}
+	wsnorm.Normalize(f)
+	var b strings.Builder
+	if err := Fprint(&b, f, width, pretty.DefaultTabWidth); err != nil {
+		t.Fatalf("Fprint error: %v", err)
+	}
+	return b.String()
+}
 
 // A multi-line element literal in an assignment/return/keyed-composite-lit-field
 // position — a "prefix: value" shape — wraps in (...) when it breaks, mirroring
@@ -31,12 +56,25 @@ func TestGoExprWideLiteralBreaksFieldsNotElement(t *testing.T) {
 	checkFormat(t, src, want)
 }
 
-// A short element on a short line never wraps, and a genuinely multi-line one
-// still does. Paren-wrap is for multi-line elements, not for wide lines.
-func TestGoExprElementNeverParenWrapsOnWidthAlone(t *testing.T) {
+// A flat element on a wide line never gets DECORATIVE PARENS — those are for a
+// genuinely multi-line element (a block child or an author line break) only. When
+// there are no fields around it to break (a bare `var name = <div>x</div>`), the
+// only way to respect the width is for the element to break its OWN content,
+// exactly as it would anywhere else in the document. So at 81 columns the
+// single-child `<div>` breaks its child, and no `(`/`)` appears — the removed
+// goExprFlatText short-circuit used to render it as fixed text that silently
+// overflowed the line instead.
+func TestGoExprElementBreaksItsOwnContentNotParens(t *testing.T) {
 	name := strings.Repeat("x", 62)
-	src := "package main\n\nvar " + name + " = <div>x</div>\n"
-	checkFormat(t, src, src) // 81 columns, and it stays flat — gofmt would too
+	src := "package main\n\nvar " + name + " = <div>x</div>\n" // 81 columns flat
+	want := "package main\n\nvar " + name + " = <div>\n\tx\n</div>\n"
+	got := fmtSource(t, src)
+	if got != want {
+		t.Errorf("format mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+	if strings.ContainsAny(got, "()") {
+		t.Errorf("decorative parens must not appear on a flat-value wide line:\n%s", got)
+	}
 }
 
 func TestGoExprElementStaysFlatWhenItFits(t *testing.T) {
@@ -64,9 +102,13 @@ func TestGoExprElementRenameDoesNotShiftIndent(t *testing.T) {
 	checkFormat(t, src, want)
 }
 
+// A multi-line element in a keyed composite-literal field paren-wraps AND forces
+// the literal's other fields one-per-line: its true width is unknowable and it can
+// never be a one-liner, so breakWideLiterals (fed the multi-line placeholder as
+// its forceMarker) treats the field's line as over budget without measuring it.
 func TestGoExprElementParenWrapsForKeyedCompositeLitField(t *testing.T) {
 	src := "package main\n\nvar item = NavItem{Label: \"Home\", Icon: <svg class=\"w-5 h-5\">\n<path d=\"M0 0\"/>\n</svg>}\n"
-	want := "package main\n\nvar item = NavItem{Label: \"Home\", Icon: (\n\t<svg class=\"w-5 h-5\">\n\t\t<path d=\"M0 0\"/>\n\t</svg>\n)}\n"
+	want := "package main\n\nvar item = NavItem{\n\tLabel: \"Home\",\n\tIcon:  (\n\t\t<svg class=\"w-5 h-5\">\n\t\t\t<path d=\"M0 0\"/>\n\t\t</svg>\n\t),\n}\n"
 	checkFormat(t, src, want)
 }
 
@@ -242,6 +284,30 @@ func TestGoWithElementsPreservesBuildComment(t *testing.T) {
 func TestGoWithElementsNoBuildCommentUnchanged(t *testing.T) {
 	src := "package main\n\nvar greeting = <a href=\"x\">hi</a>\n"
 	checkFormat(t, src, src)
+}
+
+// TestGoExprCompositeLitMultilineElementIdempotentAt120 is the width-120
+// regression the corpus (which formats only at 80) structurally cannot see. A
+// composite-literal item packing a wide label next to a MULTI-LINE element used
+// to break asymmetrically: pass 1 measured the element as a single rune, so the
+// packed item fit under 120 and stayed packed (the element decorative-paren-
+// wrapped); pass 2 saw those literal `(`/`)` as ordinary text, crossed 120, and
+// exploded every field. fmt(x) != fmt(fmt(x)).
+//
+// The fix hands breakWideLiterals the multi-line placeholder as a forceMarker, so
+// a line holding a multi-line value is over budget without measuring — the value
+// forces a break and can never be a one-liner. Both passes now break the fields.
+func TestGoExprCompositeLitMultilineElementIdempotentAt120(t *testing.T) {
+	label := "T" + strings.Repeat("x", 84)
+	src := "package main\n\nvar nav = []item{\n\t{label: \"" + label + "\", icon: <UsersIcon><title>u</title></UsersIcon>, page: P{}},\n}\n"
+	want := "package main\n\nvar nav = []item{\n\t{\n\t\tlabel: \"" + label + "\",\n\t\ticon:  (\n\t\t\t<UsersIcon>\n\t\t\t\t<title>u</title>\n\t\t\t</UsersIcon>\n\t\t),\n\t\tpage:  P{},\n\t},\n}\n"
+	got := fmtSourceWidth(t, src, 120)
+	if got != want {
+		t.Errorf("format mismatch at width 120:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+	if again := fmtSourceWidth(t, got, 120); again != got {
+		t.Errorf("not idempotent at width 120:\n--- pass1 ---\n%s\n--- pass2 ---\n%s", got, again)
+	}
 }
 
 func contains(hay, needle string) bool {

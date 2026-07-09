@@ -90,7 +90,7 @@ func TestBreakWideLiterals(t *testing.T) {
 	}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := breakWideLiterals(tt.src, 80, 1); got != tt.want {
+			if got := breakWideLiterals(tt.src, 80, 1, ""); got != tt.want {
 				t.Errorf("breakWideLiterals:\n got %q\nwant %q", got, tt.want)
 			}
 		})
@@ -107,7 +107,7 @@ func TestBreakWideLiteralsOutputIsGofmtFixedPoint(t *testing.T) {
 		"package p\n\nvar x = T{a: \"" + strings.Repeat("z", 100) + "\"}\n",
 	}
 	for _, src := range srcs {
-		rewritten := breakWideLiterals(src, 80, 1)
+		rewritten := breakWideLiterals(src, 80, 1, "")
 		out, err := format.Source([]byte(rewritten))
 		if err != nil {
 			t.Errorf("gofmt rejected breakWideLiterals output for %q: %v\n%s", src, err, rewritten)
@@ -118,7 +118,7 @@ func TestBreakWideLiteralsOutputIsGofmtFixedPoint(t *testing.T) {
 			t.Errorf("gofmt not stable on breakWideLiterals output for %q", src)
 			continue
 		}
-		if got := breakWideLiterals(string(out), 80, 1); got != string(out) {
+		if got := breakWideLiterals(string(out), 80, 1, ""); got != string(out) {
 			t.Errorf("breakWideLiterals re-fires on gofmt's output for %q:\n got %q\nwant %q", src, got, out)
 		}
 	}
@@ -135,8 +135,8 @@ func TestBreakWideLiteralsTerminates(t *testing.T) {
 		"deep nest":              "package p\n\nvar x = A{b: B{c: C{d: D{e: \"" + strings.Repeat("z", 90) + "\"}}}}\n",
 	}
 	for name, src := range cases {
-		out := breakWideLiterals(src, 80, 1)
-		if again := breakWideLiterals(out, 80, 1); again != out {
+		out := breakWideLiterals(src, 80, 1, "")
+		if again := breakWideLiterals(out, 80, 1, ""); again != out {
 			t.Errorf("%s: not a fixed point of itself\n once %q\ntwice %q", name, out, again)
 		}
 	}

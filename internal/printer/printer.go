@@ -257,14 +257,13 @@ func (p *printer) goWithElements(v *ast.GoWithElements) pretty.Doc {
 		// only a value that is genuinely wide on its own merits (still over
 		// budget at column zero) is left to break its own attrs/content as
 		// usual.
-		if flatText, flat := goExprFlatText(doc); flat && utf8.RuneCountInString(flatText) <= p.width {
-			doc = pretty.Text(flatText)
-		} else if eligible(i) && !flat {
-			// Paren-wrap is for an element that is ITSELF multi-line — a
-			// block-level child, or an author's line break. Never for a value
-			// merely sitting on a wide line: the fields around it make the
-			// line wide, and breakWideLiterals breaks those. Wrapping the
-			// element instead moves the ink without moving the problem.
+		// Paren-wrap is for an element that is ITSELF multi-line — a block-level
+		// child, or an author's line break. Never for a value merely sitting on a
+		// wide line: the fields around it make the line wide, and breakWideLiterals
+		// breaks those. An element that is flat but does not fit the columns
+		// remaining may still break its own attributes or children, exactly as it
+		// would anywhere else in the document.
+		if _, flat := goExprFlatText(doc); eligible(i) && !flat {
 			doc = parenWrapDoc(doc)
 		}
 		docs = append(docs, indentN(depth, doc))
@@ -1284,7 +1283,9 @@ func fmtGoChunk(src string, width, tabWidth int) string {
 	// Format the chunk as a VALID FILE, not a fragment: go/format.Source's
 	// fragment mode strips a fixed byte count off its output, which shears a
 	// //go:build comment that go/printer hoisted above the injected clause.
-	prepared := breakWideLiterals(goExprWrapper+src, width, tabWidth)
+	// forceMarker is "" here: a GoChunk is ordinary top-level Go with no gsx
+	// values, so it holds no placeholder standing in for an unmeasurable value.
+	prepared := breakWideLiterals(goExprWrapper+src, width, tabWidth, "")
 	out, err := format.Source([]byte(blockFormBraces(prepared)))
 	if err != nil {
 		return strings.TrimSpace(src)
@@ -1335,27 +1336,39 @@ func StripSyntheticPackage(formatted []byte) (string, bool) {
 	return string(formatted[:start]) + string(formatted[end:]), true
 }
 
-// goExprHoleRunes are candidate placeholder runes: Unicode modifier letters,
-// which Go accepts as identifier letters (identifier = letter { letter | digit },
-// letter = unicode_letter, which includes category Lm). Repeating one N times
-// yields a valid Go identifier that is exactly N *runes* wide — and go/format's
-// alignment runs through text/tabwriter, which measures cells in runes. That is
-// what lets a placeholder stand in for a gsx value at its true rendered width
-// (see fmtGoExprParts), down to widths no `_gsx`-prefixed name could reach.
-// They are vanishingly unlikely to occur in real source; if one does, the next
-// candidate is tried.
-var goExprHoleRunes = []string{"ᴳ", "ᴴ", "ᴵ", "ᴶ"}
+// goExprHoleRuneCandidates are candidate placeholder runes: Unicode modifier
+// letters, which Go accepts as identifier letters (identifier = letter { letter |
+// digit }, letter = unicode_letter, which includes category Lm). Repeating one N
+// times yields a valid Go identifier that is exactly N *runes* wide — and
+// go/format's alignment runs through text/tabwriter, which measures cells in
+// runes. That is what lets a placeholder stand in for a gsx value at its true
+// rendered width (see fmtGoExprParts), down to widths no `_gsx`-prefixed name
+// could reach. They are vanishingly unlikely to occur in real source; if one
+// does, the next candidate is tried.
+var goExprHoleRuneCandidates = []string{"ᴳ", "ᴴ", "ᴵ", "ᴶ"}
 
-// goExprHoleRune picks a placeholder rune absent from src, so the formatted
-// output can be re-split at the placeholders unambiguously (a rune occurring
-// inside a string literal or comment would misdirect that split).
-func goExprHoleRune(src string) (string, bool) {
-	for _, r := range goExprHoleRunes {
+// goExprHoleRunes picks TWO distinct placeholder runes absent from src: flat
+// stands in for a value with a known one-line width (repeated to that width);
+// multi stands in for a multi-line value, always a SINGLE rune (its true width
+// is unknowable). The two runes must differ so the re-split below can never
+// confuse a one-rune flat placeholder (flat value of width 1) with the one-rune
+// multi-line marker, and so breakWideLiterals can recognise the marker as a
+// forced break. Both must be absent from src, so the formatted output can be
+// re-split at the placeholders unambiguously (a rune occurring inside a string
+// literal or comment would misdirect that split). If two free runes cannot be
+// found, ok is false and the caller relays the region verbatim, exactly as when
+// one free rune could not be found before.
+func goExprHoleRunes(src string) (flat, multi string, ok bool) {
+	var free []string
+	for _, r := range goExprHoleRuneCandidates {
 		if !strings.Contains(src, r) {
-			return r, true
+			free = append(free, r)
+			if len(free) == 2 {
+				return free[0], free[1], true
+			}
 		}
 	}
-	return "", false
+	return "", "", false
 }
 
 // goExprFlatText renders doc as it would appear on a single line, and reports
@@ -1422,11 +1435,14 @@ func (p *printer) goExprValue(part ast.GoPart) (pretty.Doc, bool) {
 // placeholder, not to the element, and the misalignment would survive the splice.
 //
 // A value that renders multi-line has no single width to report; it gets a
-// one-rune placeholder. Layout is then still correct except for end-of-line
-// comment columns in that value's alignment section, which gofmt (seeing a real
-// multi-line value) would have split. Everything else in the region — indentation,
-// `=` alignment, blank lines — is unaffected, since none of it depends on value
-// width.
+// one-rune placeholder drawn from a rune DISTINCT from the flat one, so it can
+// double as breakWideLiterals' forceMarker (a line holding it is over budget
+// however short it measures — the value forces a break and can never be a
+// one-liner, so the enclosing literal breaks its fields). Layout is then still
+// correct except for end-of-line comment columns in that value's alignment
+// section, which gofmt (seeing a real multi-line value) would have split.
+// Everything else in the region — indentation, `=` alignment, blank lines — is
+// unaffected, since none of it depends on value width.
 //
 // The formatted text is re-split at the placeholders and returned as a fresh
 // parts slice (the input, which aliases the AST, is never mutated): GoText parts
@@ -1451,7 +1467,7 @@ func (p *printer) fmtGoExprParts(parts []ast.GoPart) ([]ast.GoPart, []goexprshap
 	if holeCount == 0 {
 		return nil, nil, false
 	}
-	hole, ok := goExprHoleRune(text.String())
+	flatHole, multiHole, ok := goExprHoleRunes(text.String())
 	if !ok {
 		return nil, nil, false
 	}
@@ -1468,23 +1484,21 @@ func (p *printer) fmtGoExprParts(parts []ast.GoPart) ([]ast.GoPart, []goexprshap
 		if !ok {
 			return nil, nil, false
 		}
-		width, flat := goExprFlatWidth(doc)
-		if !flat {
-			// Multi-line: it can never be a one-liner, and its real width is
-			// unknowable. A wider placeholder was tried here (to make the
-			// line measure as over-budget for breakWideLiterals) and reverted:
-			// it over-measures the ENCLOSING literal too, so breakWideLiterals
-			// also breaks sibling fields that already fit on the packed line
-			// (see TestGoExprElementParenWrapsForKeyedCompositeLitField, and
-			// gsxfmt's element_paren_wrap_no_align_drift.txtar) — a literal
-			// holding a multi-line, paren-wrapped value doesn't need its OTHER
-			// fields broken out too. The element printer lays the value out
-			// regardless of this placeholder's width; only gofmt's alignment
-			// of the surrounding Go depends on it, and a 1-rune placeholder
-			// keeps that alignment as tight as it was before this pass existed.
-			width = 1
+		// A flat value's placeholder is the flat rune repeated to its rendered
+		// width, so gofmt aligns end-of-line comments to the value's true column.
+		// A multi-line value's real width is unknowable, so it gets a SINGLE
+		// multi-line rune — distinct from the flat rune. That distinct rune is
+		// handed to breakWideLiterals as forceMarker: a multi-line value forces a
+		// break and can never be a one-liner, so the literal holding it must break
+		// its fields even though this 1-rune placeholder measures short. The
+		// element printer lays the value out regardless of the placeholder's width;
+		// only gofmt's alignment of the surrounding Go ever reads it.
+		var h string
+		if width, flat := goExprFlatWidth(doc); flat {
+			h = strings.Repeat(flatHole, width)
+		} else {
+			h = multiHole
 		}
-		h := strings.Repeat(hole, width)
 		start := len(goExprWrapper) + src.Len()
 		shapeHoles = append(shapeHoles, goexprshape.Hole{Start: start, End: start + len(h)})
 		holes = append(holes, h)
@@ -1503,7 +1517,7 @@ func (p *printer) fmtGoExprParts(parts []ast.GoPart) ([]ast.GoPart, []goexprshap
 	// so it cannot move a hole across a token boundary, reorder holes, or change
 	// any hole's classification — shapes stays valid, and the placeholders are
 	// still found in output order by the re-split below.
-	prepared := breakWideLiterals(sanitized, p.width, p.tabWidth)
+	prepared := breakWideLiterals(sanitized, p.width, p.tabWidth, multiHole)
 	out, err := format.Source([]byte(blockFormBraces(prepared)))
 	if err != nil {
 		return nil, shapes, false
@@ -1517,9 +1531,16 @@ func (p *printer) fmtGoExprParts(parts []ast.GoPart) ([]ast.GoPart, []goexprshap
 		return nil, shapes, false
 	}
 
-	// Re-split at the placeholders, left to right. Placeholders of equal width are
-	// identical strings, which is harmless: the cursor has already consumed every
-	// earlier one, and only Go text (never the hole rune) lies between them.
+	// Re-split at the placeholders, left to right. Two values can share an
+	// identical placeholder string — two flat values of equal width, or two
+	// multi-line values (both the single multi rune) — which is harmless: the
+	// cursor advances strictly left to right, consuming holes[next] in value
+	// order, and neither hole rune ever appears in the surrounding Go text (both
+	// were chosen absent from src). So the next placeholder the cursor meets is
+	// always this value's own. The flat and multi runes being DISTINCT is what
+	// keeps a width-1 flat placeholder from being mistaken for the multi marker
+	// when firstWideLine scans for the latter — a re-split search never even
+	// compares across the two, since it only ever looks for the exact holes[next].
 	res := make([]ast.GoPart, len(parts))
 	cursor, next := 0, 0
 	for i, part := range parts {

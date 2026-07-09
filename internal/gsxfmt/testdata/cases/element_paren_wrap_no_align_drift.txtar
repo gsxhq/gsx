@@ -1,25 +1,22 @@
-Two items in one gofmt alignment section, each with a genuinely multi-line
-element that paren-wraps. Elements no longer paren-wrap merely for being on a
-wide line (see internal/printer's breakWideLiterals wiring), so this case uses
-elements that are themselves multi-line to keep exercising the paren shape.
+Two items, each with a genuinely multi-line element. Elements no longer paren-
+wrap merely for being on a wide line (see internal/printer's breakWideLiterals
+wiring), so this case uses elements that are themselves multi-line to keep
+exercising the paren shape.
 
-Re-formatting fmt's own output must not drift: the decorative paren puts the
-element alone on its line, the shape that historically (#62) made `page` gain
-a stray alignment cell on re-format, growing wider on every run.
-goexprshape.Sanitize's before-hole collapse (guarded directly by
-TestSanitizeBeforeCollapseIsParenOnly in internal/goexprshape/shape_test.go) is
-still the fix for that. This case's own idempotence check no longer isolates
-that one mechanism, though: internal/printer's fmtGoExprParts now runs
-breakWideLiterals ahead of its final format.Source call, and breakWideLiterals
-itself opens with a format.Source pass — so every reformat already goes through
-gofmt twice, and the second pass re-parses text with no embedded newline left
-near the hole to mis-align on, self-healing the single-pass artifact regardless
-of the before-collapse. Verified by temporarily forcing Sanitize's inParens
-condition to false: internal/goexprshape's own unit tests fail immediately, but
-this corpus case keeps passing either way. The case is kept anyway — it still
-pins that a genuinely multi-line, paren-wrapped, two-item literal formats and
-reformats without drifting — just not as a discriminator for the historical
-mechanism specifically.
+A multi-line element reaches gofmt as a single-rune placeholder handed to
+breakWideLiterals as its forceMarker: its true width is unknowable and it can
+never be a one-liner, so a literal holding it PACKED is over budget without
+measuring. Each item therefore breaks its fields one per line AND paren-wraps its
+element — so each item becomes its own gofmt alignment section, and the
+cross-item alignment that historically (#62) let `page` gain a stray alignment
+cell on re-format no longer even exists.
+
+Re-formatting fmt's own output must not drift: the decorative paren still puts the
+element alone on its line, and goexprshape.Sanitize's before-hole collapse
+(guarded directly by TestSanitizeBeforeCollapseIsParenOnly in
+internal/goexprshape/shape_test.go) is still the fix for the single-pass artifact
+that shape once caused. This case pins that a two-item literal whose fields break
+and whose elements paren-wrap formats and reformats without drifting.
 
 -- input.gsx --
 package ui
@@ -36,14 +33,24 @@ var nav = []item{
 package ui
 
 var nav = []item{
-	{label: "Team View", icon: (
-		<UsersIcon>
-			<title>users</title>
-		</UsersIcon>
-	), page: TeamViewPage{}, pathMatch: "/team"},
-	{label: "Search", icon: (
-		<SearchIcon>
-			<title>search</title>
-		</SearchIcon>
-	), page: ListPage{}, pathMatch: "/list/"},
+	{
+		label:     "Team View",
+		icon:      (
+			<UsersIcon>
+				<title>users</title>
+			</UsersIcon>
+		),
+		page:      TeamViewPage{},
+		pathMatch: "/team",
+	},
+	{
+		label:     "Search",
+		icon:      (
+			<SearchIcon>
+				<title>search</title>
+			</SearchIcon>
+		),
+		page:      ListPage{},
+		pathMatch: "/list/",
+	},
 }
