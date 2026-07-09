@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/gsxfmt"
 )
 
 // countingAnalyzer behaves like fakeAnalyzer (one diag for its file) but counts
@@ -46,6 +47,9 @@ func (a *countingAnalyzer) Analyze(_ string, override map[string][]byte) (*Packa
 }
 
 func (a *countingAnalyzer) PrintWidth(string) int { return 80 }
+func (a *countingAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
+	return gsxfmt.ImportsGoimports
+}
 
 func (a *countingAnalyzer) calls() int {
 	a.mu.Lock()

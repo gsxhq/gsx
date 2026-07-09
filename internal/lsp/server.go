@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gsxhq/gsx/internal/diag"
+	"github.com/gsxhq/gsx/internal/gsxfmt"
 )
 
 // defaultDebounce is how long the server waits for typing to settle before
@@ -32,6 +33,11 @@ type Analyzer interface {
 	// PrintWidth returns the gsx.toml print width for the given directory
 	// (default 80). Used by textDocument/formatting.
 	PrintWidth(dir string) int
+	// ImportsMode returns the gsx.toml [formatter] imports mode for the given
+	// directory (default goimports). Used by textDocument/formatting; the
+	// source.organizeImports code action deliberately ignores it and always
+	// organizes.
+	ImportsMode(dir string) gsxfmt.ImportsMode
 }
 
 // Server is a stdio LSP server that publishes gsx diagnostics. It owns the
