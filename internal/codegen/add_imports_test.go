@@ -12,6 +12,17 @@ import (
 // newMissingModule writes a temp module whose single .gsx package is `src`.
 func newMissingModule(t *testing.T, src string) (*Module, string) {
 	t.Helper()
+	return newMissingModuleFiles(t, "", src, nil)
+}
+
+// newMissingModuleFiles is newMissingModule extended for the internal-visibility
+// tests: it places the sole .gsx package's source (`src`) in gsxDir (a path
+// relative to the module root; "" means the module root itself, matching
+// newMissingModule), and writes each entry of extra (a path relative to the
+// module root -> file content) alongside it — e.g. a same-module
+// "internal/db/db.go" the .gsx package should or shouldn't be allowed to see.
+func newMissingModuleFiles(t *testing.T, gsxDir, src string, extra map[string]string) (*Module, string) {
+	t.Helper()
 	dir := t.TempDir()
 	repoRoot, err := filepath.Abs("../..")
 	if err != nil {
@@ -21,14 +32,30 @@ func newMissingModule(t *testing.T, src string) (*Module, string) {
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(mod), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "a.gsx"), []byte(src), 0o644); err != nil {
+	gsxAbsDir := dir
+	if gsxDir != "" {
+		gsxAbsDir = filepath.Join(dir, gsxDir)
+		if err := os.MkdirAll(gsxAbsDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(gsxAbsDir, "a.gsx"), []byte(src), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	for rel, content := range extra {
+		full := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	m, err := Open(Options{ModuleRoot: dir, ModulePath: "example.com/u"})
 	if err != nil {
 		t.Skipf("Open: %v", err)
 	}
-	return m, dir
+	return m, gsxAbsDir
 }
 
 // missingNames returns the sorted "name.Symbol" pairs Package() reports for a.gsx.
@@ -241,8 +268,8 @@ func TestMissingImportsPosMatchesDiagnostic(t *testing.T) {
 
 // TestResolveUnambiguousStdlib: `fmt` resolves to exactly one path.
 func TestResolveUnambiguousStdlib(t *testing.T) {
-	m, _ := newMissingModule(t, "package u\n\nvar xx = <p>hi</p>\n")
-	got := m.ResolveImportCandidates("fmt", "Sprintf")
+	m, dir := newMissingModule(t, "package u\n\nvar xx = <p>hi</p>\n")
+	got := m.ResolveImportCandidates(dir, "fmt", "Sprintf")
 	if len(got) != 1 || got[0] != "fmt" {
 		t.Fatalf("resolve(fmt, Sprintf) = %v, want [fmt]", got)
 	}
@@ -250,13 +277,13 @@ func TestResolveUnambiguousStdlib(t *testing.T) {
 
 // TestResolveDisambiguatesBySymbol: only math/rand/v2 exports IntN.
 func TestResolveDisambiguatesBySymbol(t *testing.T) {
-	m, _ := newMissingModule(t, "package u\n\nvar xx = <p>hi</p>\n")
-	got := m.ResolveImportCandidates("rand", "IntN")
+	m, dir := newMissingModule(t, "package u\n\nvar xx = <p>hi</p>\n")
+	got := m.ResolveImportCandidates(dir, "rand", "IntN")
 	if len(got) != 1 || got[0] != "math/rand/v2" {
 		t.Fatalf("resolve(rand, IntN) = %v, want [math/rand/v2]", got)
 	}
 	// html/template exports HTML; text/template does not.
-	got = m.ResolveImportCandidates("template", "HTML")
+	got = m.ResolveImportCandidates(dir, "template", "HTML")
 	if len(got) != 1 || got[0] != "html/template" {
 		t.Fatalf("resolve(template, HTML) = %v, want [html/template]", got)
 	}
@@ -266,8 +293,8 @@ func TestResolveDisambiguatesBySymbol(t *testing.T) {
 // every candidate survives so the caller can offer one quickfix each (and
 // organizeImports adds nothing).
 func TestResolveAmbiguousKeepsAll(t *testing.T) {
-	m, _ := newMissingModule(t, "package u\n\nvar xx = <p>hi</p>\n")
-	got := m.ResolveImportCandidates("rand", "NoSuchSymbolAnywhere")
+	m, dir := newMissingModule(t, "package u\n\nvar xx = <p>hi</p>\n")
+	got := m.ResolveImportCandidates(dir, "rand", "NoSuchSymbolAnywhere")
 	if len(got) < 2 {
 		t.Fatalf("resolve(rand, <none>) = %v, want all candidates kept", got)
 	}
@@ -282,16 +309,61 @@ func TestResolveAmbiguousKeepsAll(t *testing.T) {
 // "internal/"), so stdlibIndex["internal"] leaked all four and the LSP would
 // have offered a quickfix the compiler rejects. This must resolve to nothing.
 func TestResolveExcludesUnimportableInternal(t *testing.T) {
-	m, _ := newMissingModule(t, "package u\n\nvar xx = <p>hi</p>\n")
-	if got := m.ResolveImportCandidates("internal", "Anything"); len(got) != 0 {
+	m, dir := newMissingModule(t, "package u\n\nvar xx = <p>hi</p>\n")
+	if got := m.ResolveImportCandidates(dir, "internal", "Anything"); len(got) != 0 {
 		t.Fatalf("resolve(internal, Anything) = %v, want [] — no std `internal` package is importable", got)
+	}
+}
+
+// TestResolveOwnInternalPackageIsOffered: Go permits a module importing its OWN
+// internal/... package (e.g. myapp/internal/db from anything under myapp), so
+// unlike a std internal/... package, this one MUST resolve. This is the
+// motivating bug: before threading dir/importerPath through
+// ResolveImportCandidates, depGraphPackages excluded EVERY path with an
+// `internal` component unconditionally (see its old doc comment), so this
+// resolved to [] even though `go build` accepts the import.
+func TestResolveOwnInternalPackageIsOffered(t *testing.T) {
+	m, dir := newMissingModuleFiles(t, "", "package u\n\nvar xx = <p>hi</p>\n", map[string]string{
+		"internal/db/db.go": "package db\n\nfunc Q() string { return \"q\" }\n",
+	})
+	got := m.ResolveImportCandidates(dir, "db", "Q")
+	if len(got) != 1 || got[0] != "example.com/u/internal/db" {
+		t.Fatalf("resolve(db, Q) from module root = %v, want [example.com/u/internal/db]", got)
+	}
+}
+
+// TestResolveOwnInternalPackageOfferedFromNestedPackage: the importer need not
+// be the internal package's own immediate parent — anything under that parent
+// qualifies. Here db lives at example.com/u/internal/db (parent
+// example.com/u) and the asking .gsx package is example.com/u/views, which has
+// that parent as a PREFIX (not the parent itself), so it must still resolve.
+func TestResolveOwnInternalPackageOfferedFromNestedPackage(t *testing.T) {
+	m, dir := newMissingModuleFiles(t, "views", "package u\n\nvar xx = <p>hi</p>\n", map[string]string{
+		"internal/db/db.go": "package db\n\nfunc Q() string { return \"q\" }\n",
+	})
+	got := m.ResolveImportCandidates(dir, "db", "Q")
+	if len(got) != 1 || got[0] != "example.com/u/internal/db" {
+		t.Fatalf("resolve(db, Q) from example.com/u/views = %v, want [example.com/u/internal/db]", got)
+	}
+}
+
+// TestResolveInternalPackageNotOfferedOutsideSubtree: db lives at
+// example.com/u/x/internal/db, whose visibility parent is example.com/u/x. The
+// asking .gsx package is example.com/u/y — a SIBLING of x, not under it — so
+// the candidate must NOT be offered, even though both are in the same module.
+func TestResolveInternalPackageNotOfferedOutsideSubtree(t *testing.T) {
+	m, dir := newMissingModuleFiles(t, "y", "package u\n\nvar xx = <p>hi</p>\n", map[string]string{
+		"x/internal/db/db.go": "package db\n\nfunc Q() string { return \"q\" }\n",
+	})
+	if got := m.ResolveImportCandidates(dir, "db", "Q"); len(got) != 0 {
+		t.Fatalf("resolve(db, Q) from example.com/u/y = %v, want [] — x/internal/db is not visible outside x's subtree", got)
 	}
 }
 
 // TestResolveUnknownNameYieldsNothing: no scan, no guess, no candidates.
 func TestResolveUnknownNameYieldsNothing(t *testing.T) {
-	m, _ := newMissingModule(t, "package u\n\nvar xx = <p>hi</p>\n")
-	if got := m.ResolveImportCandidates("zzznotapkg", "Thing"); len(got) != 0 {
+	m, dir := newMissingModule(t, "package u\n\nvar xx = <p>hi</p>\n")
+	if got := m.ResolveImportCandidates(dir, "zzznotapkg", "Thing"); len(got) != 0 {
 		t.Fatalf("resolve(zzznotapkg) = %v, want []", got)
 	}
 }
@@ -299,8 +371,8 @@ func TestResolveUnknownNameYieldsNothing(t *testing.T) {
 // TestResolveFindsDepGraphPackage: a package already in the module's dep graph
 // resolves from types alone (no stdlib table entry exists for it).
 func TestResolveFindsDepGraphPackage(t *testing.T) {
-	m, _ := newMissingModule(t, "package u\n\nvar xx = <p>hi</p>\n")
-	got := m.ResolveImportCandidates("gsx", "Node")
+	m, dir := newMissingModule(t, "package u\n\nvar xx = <p>hi</p>\n")
+	got := m.ResolveImportCandidates(dir, "gsx", "Node")
 	if len(got) != 1 || got[0] != "github.com/gsxhq/gsx" {
 		t.Fatalf("resolve(gsx, Node) = %v, want [github.com/gsxhq/gsx]", got)
 	}
@@ -319,8 +391,8 @@ func TestResolveFindsDepGraphPackage(t *testing.T) {
 // depGraphPackages, that an incomplete *types.Package in the mapImporter is
 // skipped. Construct one with types.NewPackage (never marked complete).
 func TestResolveNeverUsesFabricatedName(t *testing.T) {
-	m, _ := newMissingModule(t, "package u\n\nvar xx = <p>hi</p>\n")
-	if got := m.ResolveImportCandidates("v2", "IntN"); len(got) != 0 {
+	m, dir := newMissingModule(t, "package u\n\nvar xx = <p>hi</p>\n")
+	if got := m.ResolveImportCandidates(dir, "v2", "IntN"); len(got) != 0 {
 		t.Fatalf("resolve(v2) = %v, want [] — a fabricated path-base name must not resolve", got)
 	}
 }
@@ -362,7 +434,7 @@ func TestPackageDoesNotResolveImports(t *testing.T) {
 	if got := resolveImportCandidatesCalls.Load(); got != before {
 		t.Errorf("Package() resolved %d time(s); want 0 — resolution must stay off the hot path", got-before)
 	}
-	m.ResolveImportCandidates("fmt", "Sprintf")
+	m.ResolveImportCandidates(dir, "fmt", "Sprintf")
 	if got := resolveImportCandidatesCalls.Load(); got == before {
 		t.Error("counter never moved; the zero assertion above is vacuous")
 	}
