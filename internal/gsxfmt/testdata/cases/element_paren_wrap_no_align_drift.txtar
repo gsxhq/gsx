@@ -1,0 +1,27 @@
+Two items in one gofmt alignment section, each with an element that paren-wraps.
+
+Re-formatting fmt's own output must not drift. The decorative paren puts the
+element alone on its line, which makes `page` start a new SOURCE line. gofmt then
+emits an alignment cell for `page:` even though it joins the line back up, and the
+padding grows on every run. Collapsing the newline between `(` and the hole keeps
+gofmt's view of the value inline — which is exactly what the flat-width
+placeholder already promises it.
+
+-- input.gsx --
+package ui
+
+var nav = []item{
+	{label: "Team View", icon: <UsersIcon/>, page: TeamViewPage{}, pathMatch: "/team", nonVendor: true},
+	{label: "Search", icon: <SearchIcon/>, page: ListPage{}, pathMatch: "/list/", excludeQuery: "entity_type"},
+}
+-- fmt.golden --
+package ui
+
+var nav = []item{
+	{label: "Team View", icon: (
+		<UsersIcon/>
+	), page: TeamViewPage{}, pathMatch: "/team", nonVendor: true},
+	{label: "Search", icon: (
+		<SearchIcon/>
+	), page: ListPage{}, pathMatch: "/list/", excludeQuery: "entity_type"},
+}

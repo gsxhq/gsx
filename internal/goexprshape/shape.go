@@ -163,22 +163,36 @@ func isSpace(b byte) bool {
 	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
 }
 
-// collapseHoleWhitespace returns a copy of src where, for every hole whose
-// immediately-following non-whitespace byte is a REAL (not inside a comment)
-// closing bracket, the whitespace after it is collapsed to a single space (if
-// it contains a newline). Returns each hole's new Start offset in the returned
-// string, in the same order as holes.
+// collapseHoleWhitespace returns a copy of src where whitespace runs touching a
+// hole are collapsed to a single space, under two separate rules. Returns each
+// hole's new Start offset in the returned string, in the same order as holes.
 //
-// Only the whitespace AFTER a hole is ever touched. Go's automatic semicolon
-// insertion fires on the token that ENDS a line, and a placeholder identifier
-// ending a line directly before a closing bracket picks up a semicolon that
-// breaks the parse (`(\nHOLE\n)` becomes `(HOLE;)`). The whitespace between an
-// opening bracket and a hole cannot cause that: the token ending that line is
-// the opening bracket itself, which is not in ASI's trigger set. Collapsing it
-// anyway would be worse than useless — go/printer reads the line break between
-// a composite literal's `{` and its first element to decide whether the literal
-// prints on one line, so erasing it drags the first element up onto the brace
-// line and silently reflows the author's source.
+// AFTER a hole, whenever the next non-whitespace byte is a REAL (not inside a
+// comment) closing bracket. This one is about parsing. Go's automatic semicolon
+// insertion fires on the token that ENDS a line, so a placeholder identifier
+// ending a line directly before a closing bracket picks up a semicolon and
+// `(\nHOLE\n)` becomes `(HOLE;)`, which does not parse.
+//
+// BEFORE a hole, only when the hole is ALONE INSIDE PARENS — the previous
+// non-whitespace byte is a real "(" and the next one is a real ")". This one is
+// about layout, and it is deliberately narrow.
+//
+// A hole is presented to gofmt as a placeholder identifier exactly as wide as
+// the value will render flat (see internal/printer's fmtGoExprParts). That is a
+// promise that the value occupies one line. `(\n\tHOLE )` breaks the promise:
+// the following key:value pair now starts a new SOURCE line, so go/printer emits
+// an alignment cell for it (nodes.go:271) even though it joins the line back up
+// — and gsx fmt's own decorative-paren output has exactly this shape, so the
+// padding reappears and grows on every run. Collapsing restores the inline view.
+//
+// It must NOT extend to "(", "[" or "{" generally. go/printer reads the line
+// break between a composite literal's "{" and its first element to decide
+// whether the literal prints on one line (nodes.go:145), and the same break
+// between a call's "(" and its first argument for the argument list. Erasing
+// those drags the first element up onto the bracket line and silently reflows
+// the author's source. A hole sitting alone between "(" and ")" has no list to
+// lay out: it is a parenthesized single expression, and gofmt joins it either
+// way.
 //
 // Processes holes in ascending Start order (left to right), tracking a
 // cumulative shift so far. This is the opposite of the naive-looking
@@ -211,14 +225,33 @@ func collapseHoleWhitespace(src string, holes []Hole) (string, []int) {
 		for after < len(s) && isSpace(s[after]) {
 			after++
 		}
-		afterWS := s[end:after]
-		collapseAfter := after < len(s) && isCloseBracket(s[after]) && !insideAny(comments, after-shift) && containsNewline(afterWS)
-		offsets[i] = start
-		if !collapseAfter {
+		before := start
+		for before > 0 && isSpace(s[before-1]) {
+			before--
+		}
+		beforeWS, afterWS := s[before:start], s[end:after]
+
+		closerOK := after < len(s) && !insideAny(comments, after-shift)
+		collapseAfter := closerOK && isCloseBracket(s[after]) && containsNewline(afterWS)
+		// Alone inside parens: "(" directly before and ")" directly after.
+		inParens := before > 0 && s[before-1] == '(' && !insideAny(comments, before-1-shift) &&
+			closerOK && s[after] == ')'
+		collapseBefore := inParens && containsNewline(beforeWS)
+
+		if !collapseBefore && !collapseAfter {
+			offsets[i] = start
 			continue
 		}
-		s = s[:end] + " " + s[after:]
-		shift += 1 - (after - end)
+		newBefore, newAfter := beforeWS, afterWS
+		if collapseBefore {
+			newBefore = " "
+		}
+		if collapseAfter {
+			newAfter = " "
+		}
+		s = s[:before] + newBefore + s[start:end] + newAfter + s[after:]
+		offsets[i] = before + len(newBefore)
+		shift += (len(newBefore) + (end - start) + len(newAfter)) - (after - before)
 	}
 	return s, offsets
 }
