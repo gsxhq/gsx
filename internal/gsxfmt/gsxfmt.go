@@ -38,6 +38,18 @@ func FormatRemovingImportsWith(name string, src []byte, unused []ImportRef, widt
 	return FormatWith(name, src, FormatOptions{Unused: unused, Width: width, CSSFmt: cssFmt, JSFmt: jsFmt})
 }
 
+// FormatSettings are the layout settings resolved for one file: how wide a line
+// may be, and how wide a tab counts when measuring one. Indentation is always
+// emitted as tabs; TabWidth changes only the measure.
+//
+// A zero field means "unresolved" — callers apply their own default.
+type FormatSettings struct {
+	// Width is the target line width in columns.
+	Width int
+	// TabWidth is how many columns one tab occupies when measuring a line.
+	TabWidth int
+}
+
 // FormatOptions carries the knobs of FormatWith. The zero value is the safe one:
 // no imports removed, no reorder, printer defaults for <style>/<script>.
 type FormatOptions struct {

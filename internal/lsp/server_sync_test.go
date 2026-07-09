@@ -36,7 +36,9 @@ func (a fakeAnalyzer) Analyze(dir string, override map[string][]byte) (*Package,
 	}}}, nil
 }
 
-func (a fakeAnalyzer) FormatSettings(string) (int, int) { return 80, pretty.DefaultTabWidth }
+func (a fakeAnalyzer) FormatSettings(string) gsxfmt.FormatSettings {
+	return gsxfmt.FormatSettings{Width: 80, TabWidth: pretty.DefaultTabWidth}
+}
 func (a fakeAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
 	return gsxfmt.ImportsGoimports
 }
