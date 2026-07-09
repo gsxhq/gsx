@@ -598,6 +598,19 @@ vocabulary remains a design aspiration, not the current API.
   statement-form design. Spec `2026-07-03-pipe-error-any-stage-design.md`.
 - [ ] **Pipeline extensions** - initialism-aware filter naming;
   pipeline-as-filter-argument; ambient `mapEach` (deferred / out of scope).
+- [ ] **`externalImporter` preload gap: package imported only from a `.gsx`
+  import line** - `externalImporter` (`internal/codegen/module.go`) preloads
+  its importer graph once, from `"./..."` + the gsx runtime + the std filter
+  package + configured `FilterPkgs`/`LoadPkgs`. A package reachable only via a
+  `.gsx` file's own `import` line (not from any of those roots) is never in
+  that preload, so `go/types` cannot load it: `mapImporter.Import` fails,
+  producing a spurious `could not import <path>` **error** diagnostic, and the
+  LSP's `Package()` cannot resolve the import's real name and conservatively
+  keeps it even when it's genuinely unused (see
+  `docs/superpowers/specs/2026-07-09-lsp-unused-imports-design.md`'s
+  Divergence A). The CLI (`gsx fmt` / `Module.UnusedImports`) is unaffected -
+  it resolves names via a targeted `go list`, not the type-checker's importer
+  graph.
 - [x] **Class parts inside component cond-attr branches now support
   `(R, error)`** - CLOSED (2026-07-03). `AttrsCond`'s thunks return
   `(Attrs, error)` - one uniform lowering, the statement form deleted - and
