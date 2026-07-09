@@ -1,0 +1,30 @@
+Add inserts a third-party import into a std-only block; astutil places it in
+the same group, and the reorder pass then splits it into its own group with a
+blank line.
+
+-- imports --
+goimports
+-- add --
+github.com/gsxhq/gsx
+-- input.gsx --
+package ui
+
+import (
+	"fmt"
+)
+
+func Describe() string {
+	return fmt.Sprintf("hi")
+}
+-- fmt.golden --
+package ui
+
+import (
+	"fmt"
+
+	"github.com/gsxhq/gsx"
+)
+
+func Describe() string {
+	return fmt.Sprintf("hi")
+}
