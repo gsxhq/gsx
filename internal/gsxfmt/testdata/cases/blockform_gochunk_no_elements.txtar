@@ -1,0 +1,24 @@
+The rule applies to EVERY Go region, not just those containing gsx elements.
+A Go declaration chunk with no element in it goes through the same pre-pass, so a
+file does not get two different composite-literal layouts depending on whether an
+element happens to appear somewhere in the decl.
+
+-- input.gsx --
+package ui
+
+var defaults = map[string]string{
+	"a": "1", "b": "2"}
+
+component Index() {
+	<p>hi</p>
+}
+-- fmt.golden --
+package ui
+
+var defaults = map[string]string{
+	"a": "1", "b": "2",
+}
+
+component Index() {
+	<p>hi</p>
+}

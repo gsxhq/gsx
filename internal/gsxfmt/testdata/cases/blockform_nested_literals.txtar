@@ -1,0 +1,27 @@
+Nested literals each get their own closing-brace break, innermost first. The
+insertions are applied right to left so a nested `}` never invalidates its
+parent's offset.
+
+`inline` keeps its `{` on the value's line, so it is left alone even though it
+sits inside a literal that is being block-formed.
+
+-- input.gsx --
+package ui
+
+var cfg = Config{
+	outer: Outer{
+		inner: Inner{
+			a: 1, b: 2}},
+	inline: Inline{c: 3},
+}
+-- fmt.golden --
+package ui
+
+var cfg = Config{
+	outer: Outer{
+		inner: Inner{
+			a: 1, b: 2,
+		},
+	},
+	inline: Inline{c: 3},
+}

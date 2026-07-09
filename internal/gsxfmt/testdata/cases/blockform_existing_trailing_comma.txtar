@@ -1,0 +1,15 @@
+When the source already ends the last element with a comma, only the newline is
+inserted — never a second comma. A bare newline is what gsx fmt inserts here, and
+gofmt then reprints the terminating comma itself.
+
+-- input.gsx --
+package ui
+
+var a = []int{
+	1, 2, 3,}
+-- fmt.golden --
+package ui
+
+var a = []int{
+	1, 2, 3,
+}

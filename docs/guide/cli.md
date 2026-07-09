@@ -258,6 +258,40 @@ the print width. Write it inline and it stays inline; write it multi-line and it
 stays multi-line. (A block-level child, e.g. a nested element, still forces the
 enclosing body to break regardless, so the document hierarchy stays visible.)
 
+The same principle reaches the Go you embed. **A composite literal whose opening
+`{` ends a line gets its closing `}` on a line of its own**, so a literal written
+in block form closes in block form:
+
+```go
+items: []navItem{
+    {label: "Admin", page: AdminPage{}, adminOnly: true},
+    {
+        label: "Export", page: ExportPage{}, nonVendor: true },
+}
+```
+
+becomes
+
+```go
+items: []navItem{
+    {label: "Admin", page: AdminPage{}, adminOnly: true},
+    {
+        label: "Export", page: ExportPage{}, nonVendor: true,
+    },
+}
+```
+
+Braces are all-or-nothing; fields are not. The `Admin` item keeps its `{` inline,
+so it stays entirely inline, and the `Export` item's fields stay packed on the
+one line the author wrote them on — `gsx fmt` never introduces a break *between*
+fields.
+
+This is the one place `gsx fmt` adds a rule gofmt does not have: gofmt honours a
+break after `{` but never propagates it to the matching `}`. Everything after
+that break — the terminating comma, the indentation, the key alignment — is still
+gofmt's. And the output is a gofmt fixed point: run `gofmt` over it and nothing
+moves. `gsx fmt` extends gofmt here; it never fights it.
+
 **Import handling.** `gsx fmt` has two import modes, mirroring gopls's own
 gofmt/goimports split:
 
