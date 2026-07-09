@@ -247,7 +247,7 @@ func (s *Server) handleInitialize(f frame) error {
 		HoverProvider:              true,
 		DocumentSymbolProvider:     true,
 		WorkspaceSymbolProvider:    true,
-		CodeActionProvider:         &CodeActionOptions{CodeActionKinds: []string{organizeImportsKind}},
+		CodeActionProvider:         &CodeActionOptions{CodeActionKinds: []string{organizeImportsKind, quickFixKind}},
 	}})
 }
 
