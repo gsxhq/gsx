@@ -76,8 +76,13 @@ const quickFixKind = "quickfix"
 type codeActionContext struct {
 	// Only restricts the kinds the client wants. Empty means "any".
 	Only []string `json:"only"`
-	// Diagnostics are the diagnostics the client believes overlap Range. A
-	// quickfix echoes back the ones it addresses so the editor can associate them.
+	// Diagnostics are the diagnostics the client believes overlap Range. Decoded
+	// for protocol completeness and deliberately ignored: handleCodeAction offers
+	// a quickfix for every missing qualifier in the whole file rather than
+	// scoping to this set, because the only position available to match against
+	// (MissingImport.Pos) carries a deliberately-wrong column for child-prop
+	// expressions — matching on it, or on Diagnostic.Message text, would be
+	// exactly the kind of unsound heuristic this project rejects.
 	Diagnostics []Diagnostic `json:"diagnostics"`
 }
 
@@ -95,10 +100,9 @@ type WorkspaceEdit struct {
 // CodeAction is one entry of the textDocument/codeAction result. Edit is carried
 // inline, so the server advertises no resolveProvider.
 type CodeAction struct {
-	Title       string         `json:"title"`
-	Kind        string         `json:"kind"`
-	Diagnostics []Diagnostic   `json:"diagnostics,omitempty"`
-	Edit        *WorkspaceEdit `json:"edit,omitempty"`
+	Title string         `json:"title"`
+	Kind  string         `json:"kind"`
+	Edit  *WorkspaceEdit `json:"edit,omitempty"`
 }
 
 // TextEdit is a single text replacement: NewText replaces the span at Range.

@@ -236,6 +236,63 @@ func TestQuickfixOffersOneActionPerCandidate(t *testing.T) {
 	}
 }
 
+// randAnalyzer resolves rand.Int to two overlapping candidates and rand.Reader
+// to one of the same two, for TestQuickfixDedupesByResolvedPath: it reproduces
+// two undefined selectors sharing a qualifier, whose candidate sets overlap on
+// crypto/rand.
+type randAnalyzer struct {
+	nilAnalyzer
+	missing map[string][]MissingImport
+}
+
+func (a randAnalyzer) Analyze(dir string, _ map[string][]byte) (*Package, error) {
+	return &Package{MissingImports: a.missing}, nil
+}
+
+func (randAnalyzer) ResolveImport(_, name, symbol string) []string {
+	if name != "rand" {
+		return nil
+	}
+	switch symbol {
+	case "Int":
+		return []string{"crypto/rand", "math/rand"}
+	case "Reader":
+		return []string{"crypto/rand"}
+	}
+	return nil
+}
+
+// TestQuickfixDedupesByResolvedPath: two MissingImport entries sharing a
+// qualifier (rand.Int, rand.Reader) whose candidate sets overlap on
+// crypto/rand must not produce two "Add import: crypto/rand" actions — one per
+// distinct resolved path, across the whole request, not per MissingImport.
+func TestQuickfixDedupesByResolvedPath(t *testing.T) {
+	a := randAnalyzer{missing: map[string][]MissingImport{
+		"/tmp/c.gsx": {
+			{Name: "rand", Symbol: "Int"},
+			{Name: "rand", Symbol: "Reader"},
+		},
+	}}
+	src := "package x\n\ncomponent C() {\n\t<p>{ rand.Int() }{ rand.Reader }</p>\n}\n"
+	got := codeActionsWith(t, "file:///tmp/c.gsx", src, []string{quickFixKind}, a)
+
+	seen := map[string]int{}
+	var titles []string
+	for _, ca := range got {
+		seen[ca.Title]++
+		titles = append(titles, ca.Title)
+	}
+	if len(got) != 2 {
+		t.Fatalf("want 2 quickfixes (crypto/rand once, math/rand once), got %d: %v", len(got), titles)
+	}
+	if seen["Add import: crypto/rand"] != 1 {
+		t.Fatalf(`want exactly one "Add import: crypto/rand", got %d in %v`, seen["Add import: crypto/rand"], titles)
+	}
+	if seen["Add import: math/rand"] != 1 {
+		t.Fatalf(`want exactly one "Add import: math/rand", got %d in %v`, seen["Add import: math/rand"], titles)
+	}
+}
+
 // TestQuickfixNoneWhenUnresolvable.
 func TestQuickfixNoneWhenUnresolvable(t *testing.T) {
 	a := addAnalyzer{
