@@ -43,6 +43,8 @@ Performance is important: we thrive to keep generation fast, and dev experience 
 
 No workarounds, when we see somethings looks odd, flag it and discuss. Don't just "fix it" with a hack. We want to avoid technical debt.
 
+If you need a paragraph-long comment to justify why the workaround is OIK, the code is wrong - fix the code.
+
 ## Neighboring repos (siblings under `~/personal/gsxhq/`)
 
 `gsxhq.github.io` (VitePress docs, local dir `website`) · `tree-sitter-gsx` (grammar) · `vite-plugin-gsx` (`@gsxhq/vite-plugin-gsx`) · `vite` (`github.com/gsxhq/vite`). The dev loop (`gsx init` scaffold + Vite plugin + `vite` Go helper) is shipped/closed. Playground backend (`playground/server/`) deploys to Cloud Run; docs site to GitHub Pages via `deploy-docs.yml`.
