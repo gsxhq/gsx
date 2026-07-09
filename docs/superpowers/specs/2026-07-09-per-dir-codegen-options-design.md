@@ -38,8 +38,9 @@ Each `Module` pays up to **three** `packages.Load` (`go list`) invocations:
 
 That is ~60–80 subprocess `go list` runs to generate 27 directories.
 
-Loads 1 and 2 are **not** corpus-only. Every `codegen.Open` consumer pays #2 on
-first `Generate` — the LSP, `gsx fmt`, and the warm-core `--watch` path included.
+Every `codegen.Open` consumer pays #2 once per Module, so this is not purely a
+corpus problem — but it is **one** load per Module, not 27. Only the corpus opens
+Modules in bulk.
 
 ## Two hypotheses, both measured false
 
@@ -124,35 +125,38 @@ a scope walk over already-type-checked packages, microseconds.
 
 ### API
 
-Add a per-dir override carried alongside the dir, leaving `Generate(dir)`
-untouched:
-
 ```go
-// DirOptions overrides Module-level options for a single Generate call.
+// DirOptions overrides Module-level options for a single package dir.
 // Zero value means "inherit from Options".
 type DirOptions struct {
 	FilterPkgs  []string        // nil = inherit Options.FilterPkgs
 	ClassMerger *ClassMergerRef // nil = inherit Options.ClassMerger
 }
 
-// GenerateWith is Generate with per-dir option overrides. FilterPkgs must be a
-// subset of the Module's loaded filter packages (Options.FilterPkgs); the table
-// is harvested from loaded types with no packages.Load.
-func (m *Module) GenerateWith(dir string, over DirOptions) (map[string][]byte, []diag.Diagnostic, error)
+type Options struct {
+	FilterPkgs []string             // loaded AND harvested into the default table
+	LoadPkgs   []string             // loaded, NO filter semantics (the union half)
+	PerDir     map[string]DirOptions // per-dir narrowing (the table half)
+	// ...
+}
 ```
 
-`Generate(dir)` becomes `GenerateWith(dir, DirOptions{})`.
+An earlier draft proposed `Module.GenerateWith(dir, DirOptions)` — a per-call
+override. That does not work. `analyze(dir)` is the recursion point for the
+import graph: a multi-package case's imported sibling is analyzed through
+`moduleImporter → typesPackageWith → analyze`, never through a top-level
+`Generate`, so a per-call override never reaches it and the sibling would
+type-check its pipes against the wrong table. The override must be addressable
+by dir, hence the map, consulted inside `analyze`.
 
-`ClassMerger` already reaches `generateFile` as a plain parameter
-(module.go:409, module.go:461), so threading a per-dir value is a parameter
-change, not a redesign.
+Relatedly, the table is **not** an emit-time concern: `buildSkeleton(f, table, …)`
+consumes it during skeleton construction, so it cannot be swapped in at
+`generateFile`. `ClassMerger` *is* emit-only, and rides on `analyzed.merger`.
 
-Filter tables are memoized per distinct `FilterPkgs` key (sorted, deduped, joined)
-rather than once per Module — `cachedFilterTable` becomes
-`filterTableFor(pkgs []string)` over a `map[string]filterTable`. The existing
-`filterTableLoads` test hook keeps guarding the warm-regen invariant (a warm
-regeneration must trigger **zero** go-list reloads); it should now also assert
-zero reloads across *differing* per-dir filter sets.
+Filter tables are memoized per distinct `FilterPkgs` key (deduped, joined). The
+key is order-sensitive on purpose: filter precedence is last-wins, so
+`[std, a, b]` and `[std, b, a]` are different tables and must not share a memo
+entry.
 
 **Invariant:** `Options.FilterPkgs` is the union (the load set);
 `DirOptions.FilterPkgs` is a subset (the table). `GenerateWith` returns an error
@@ -193,11 +197,19 @@ entirely, which is precisely why the 10.7s never surfaced.
 
 ## Beneficiaries beyond the corpus
 
-- **LSP / `fmt` / warm `--watch`**: drop `packages.Load` #2 (the filter-table
-  load) on first `Generate` of every Module.
-- **`gsx generate` with a class merger**: drops `packages.Load` #3.
+- **`gsx generate` with a per-dir class merger**: drops `packages.Load` #3,
+  validating from the types the importer already loaded.
 - **Multi-root analysis (Module Phase 2)**: per-dir option scoping is a
   prerequisite for one warm graph serving dirs with differing `gsx.toml`.
+
+**Correction (post-implementation).** An earlier draft claimed `fmt` and the LSP
+would also drop load #2. They will not, and must not. `buildPackageSkeletons` —
+the syntactic-imports fast path that took `gsx fmt -l` from ~16s to 0.58s —
+deliberately never calls `externalImporter`. Harvesting its table from loaded
+types would *add* the full `./...` load it exists to avoid. So `filterTableFor`
+falls back to `cachedFilterTable()` whenever a dir has no `PerDir` entry, which
+is every dir on the `fmt`/LSP path: their behavior is byte-identical and no
+faster. The win here is bulk-Module callers only.
 
 ## Non-goals
 
@@ -220,3 +232,25 @@ entirely, which is precisely why the 10.7s never surfaced.
   Module — assert `externalLoads() == 1`, `filterTableLoads() == 0`, and that
   each dir sees only its own filters.
 - Wall-clock gate: corpus `TestCorpus` under 4s on CI hardware.
+
+## Outcome (implemented in #56)
+
+`TestCorpus` 13.2s → **2.4s**; `go test ./internal/corpus` 14.1s → 3.5s. Zero
+golden churn. `make ci` and `make lint` exit 0; `-race` clean.
+
+Every guard was mutation-tested: making `filterTableFor` return the union turns
+three unit tests red **plus** a corpus golden.
+
+Adversarial review found two silent-wrong-answer gaps, both fixed:
+`validatePerDirMergers` ran only in `GenerateDirs`, so `Open`+`Generate`
+(watch/LSP) emitted `_gsxcm.<Missing>` and exited 0; and `filterTableFor`
+returned `Bundle.filters()` before consulting `PerDir`, handing a dir the
+Bundle's whole table. `Open` now rejects `Bundle` + `PerDir`/`LoadPkgs`.
+
+**This does not speed up `make ci`.** Its lanes run `-j4` and `go test ./...`
+runs packages in parallel, so wall time (~120s) is set by the slowest package —
+`internal/codegen`'s own suite (~91s), which the 13.2s corpus never gated. That
+suite makes ~78 `GenerateDirs` calls across 52 test files, each opening its own
+temp module and paying its own `packages.Load`: **the same disease, now the
+dominant one.** ~730 CPU-seconds. Fixing it means sharing a Module fixture
+across tests, and is the natural next step.
