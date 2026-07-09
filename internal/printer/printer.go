@@ -32,7 +32,7 @@ import (
 )
 
 // Fprint writes the canonical gsx rendering of f to w, wrapping lists that
-// exceed width columns. width <= 0 uses pretty's default (80); tabWidth <= 0
+// exceed width columns. width <= 0 uses pretty.DefaultPrintWidth; tabWidth <= 0
 // uses pretty.DefaultTabWidth.
 func Fprint(w io.Writer, f *ast.File, width, tabWidth int) error {
 	return FprintWith(w, f, width, tabWidth, defaultCSSFormatter(width), defaultJSFormatter(width))

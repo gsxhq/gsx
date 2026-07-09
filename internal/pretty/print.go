@@ -5,9 +5,16 @@ import (
 	"unicode/utf8"
 )
 
-const (
-	defaultWidth = 80
-)
+// DefaultPrintWidth is the target line width when nothing is configured. It is
+// the ONLY default: the sites that used to spell 80 in-line (this package's own
+// fallback, gen's config fallback, and effectivePrintWidth) all read it, so they
+// cannot drift apart.
+//
+// 120 rather than 80 because gsx markup nests, and every level of nesting spends
+// part of the budget on indentation before one character of content is printed.
+// At 80 an element six levels deep has almost nothing left and gets broken one
+// attribute per line for a reason no reader would recognize.
+const DefaultPrintWidth = 120
 
 // DefaultTabWidth is the column width of one tab when nothing is configured.
 // Indentation is emitted as tabs; this is how many columns each one occupies
@@ -29,12 +36,12 @@ type cmd struct {
 	doc    Doc
 }
 
-// Print renders d at the given right margin (columns). width <= 0 uses 80.
-// Indentation is emitted as tabs; each tab counts as tabWidth columns when
-// measuring fit.
+// Print renders d at the given right margin (columns). width <= 0 uses
+// DefaultPrintWidth. Indentation is emitted as tabs; each tab counts as
+// tabWidth columns when measuring fit.
 func Print(d Doc, width, tabWidth int) string {
 	if width <= 0 {
-		width = defaultWidth
+		width = DefaultPrintWidth
 	}
 	if tabWidth <= 0 {
 		tabWidth = DefaultTabWidth
