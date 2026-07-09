@@ -244,6 +244,47 @@ type diagPos struct {
 	line, col int
 }
 
+// TestMissingImportsSpreadPosMatchesDiagnostic pins the inHarvestProbe filter
+// for an ELEMENT SPREAD, `{ expr... }` (syntax confirmed against the real
+// corpus, e.g. internal/corpus/testdata/cases/fallthrough/caller_wins.txtar's
+// `{ attrs... }`). Unlike the child-prop case (TestMissingImportsPosMatchesDiagnostic),
+// analyze.go emits the spread's _gsxuseq(...) harvest probe BEFORE the native
+// `var _ _gsxrt.Attrs = (...)` recheck (see analyze.go's walkSpreadAttrs
+// emission, ~1649), so ast.Inspect visits the probe copy FIRST. The
+// (Name, Symbol) dedupe alone would therefore keep the probe copy — the
+// inHarvestProbe filter is what makes it skip ahead to the native copy
+// instead, which is where the shipped "undefined: fmt" diagnostic anchors.
+// This test FAILS if the inHarvestProbe skip in missingFromSkeletons is
+// removed (verified by temporarily deleting it): MissingImport.Pos then
+// points at the probe copy, which has no diagnostic of its own.
+func TestMissingImportsSpreadPosMatchesDiagnostic(t *testing.T) {
+	src := "package u\n\ncomponent Wrap() {\n\t<div { fmt.Sprint(1)... }>x</div>\n}\n"
+	m, dir := newMissingModule(t, src)
+	pr, err := m.Package(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mis := pr.MissingImports[filepath.Join(dir, "a.gsx")]
+	if len(mis) != 1 {
+		t.Fatalf("MissingImports = %+v, want exactly 1 entry", mis)
+	}
+	var diag *diagPos
+	for i := range pr.Diags {
+		d := &pr.Diags[i]
+		if strings.Contains(d.Message, "undefined: fmt") {
+			diag = &diagPos{line: d.Start.Line, col: d.Start.Column}
+			break
+		}
+	}
+	if diag == nil {
+		t.Fatalf("no shipped diagnostic contains %q; Diags = %+v", "undefined: fmt", pr.Diags)
+	}
+	if mis[0].Pos.Line != diag.line || mis[0].Pos.Column != diag.col {
+		t.Fatalf("MissingImport.Pos = %d:%d, want it to match the shipped diagnostic at %d:%d",
+			mis[0].Pos.Line, mis[0].Pos.Column, diag.line, diag.col)
+	}
+}
+
 // TestMissingImportsDifferentSymbolsSamePackage: fmt.Sprint and fmt.Errorf
 // are DISTINCT (Name, Symbol) pairs, so both are reported — even though they
 // share a qualifier name, they could in principle disambiguate to different

@@ -9,12 +9,14 @@ import (
 // missingFromSkeletons finds, per .gsx file, every qualifier used in a selector
 // expression that go/types could not resolve to anything.
 //
-// The test is exact, not a heuristic: go/types records an object in info.Uses for
-// an imported package (a *types.PkgName) and for a local variable, and in
-// info.Defs for a declaration. An identifier at the root of a selector with NO
-// entry in either map resolved to nothing — it is an undefined qualifier, which
-// is what a missing import looks like. The alternative, scraping "undefined: fmt"
-// out of type-error message text, is a heuristic and is not used.
+// The test is exact, not a heuristic: go/types records an object in info.Uses
+// for an imported package (a *types.PkgName), a local variable, or any other
+// resolved reference. A selector root is always a reference occurrence (never
+// a declaration site, so info.Defs is not relevant here), so an identifier at
+// the root of a selector with no entry in info.Uses resolved to nothing — it
+// is an undefined qualifier, which is what a missing import looks like. The
+// alternative, scraping "undefined: fmt" out of type-error message text, is a
+// heuristic and is not used.
 //
 // Positions are reported in the .gsx source: the skeleton carries //line
 // directives, so gsxFset maps a skeleton position back to its .gsx origin, the
@@ -51,15 +53,19 @@ import (
 // occurrence, matching the diagnostic.
 //
 // Pure: walks ASTs analyze already parsed. No IO, no lock, no packages.Load, no
-// importer call. harvestProbeSpans is a single linear AST walk per file. Safe
+// importer call. spansByFile is computed once per file by analyze (shared with
+// the type-error loop's quietSpans) and passed in, so this function itself does
+// no AST walk of its own beyond the SelectorExpr inspection below; per ident,
+// inHarvestProbe scans that file's span slice, so the cost is O(idents × spans)
+// — spans are few (one per child-prop/spread probe), so this stays cheap. Safe
 // on the Package() hot path.
-func missingFromSkeletons(byGsx map[string]fileSkeleton, gsxFset *token.FileSet, info *types.Info) map[string][]MissingImport {
+func missingFromSkeletons(byGsx map[string]fileSkeleton, gsxFset *token.FileSet, info *types.Info, spansByFile map[*goast.File][]posSpan) map[string][]MissingImport {
 	if info == nil {
 		return nil
 	}
 	out := map[string][]MissingImport{}
 	for gsxPath, fs := range byGsx {
-		probeSpans := harvestProbeSpans(fs.skel)
+		probeSpans := spansByFile[fs.skel]
 		var found []MissingImport
 		seen := map[string]bool{} // name+symbol: one report per distinct qualifier+symbol per file
 		goast.Inspect(fs.skel, func(n goast.Node) bool {
@@ -74,25 +80,8 @@ func missingFromSkeletons(byGsx map[string]fileSkeleton, gsxFset *token.FileSet,
 			if _, used := info.Uses[id]; used {
 				return true // an imported package, a local, a field...
 			}
-			// Defensive, and unreachable by construction (a coverage profile
-			// confirms it never fires): go/types populates info.Defs[id] only
-			// at an identifier's OWN syntactic declaration point (a var/func/
-			// type/const name, a package name at its import spec, a dot "."
-			// import, or blank "_") — never at a plain reference occurrence.
-			// se.X is, by definition of *goast.SelectorExpr, always a
-			// reference occurrence (you select a field/method *off of*
-			// something already bound), so the same Ident node can never be
-			// simultaneously "the X of a selector" and "a declaration site":
-			// those are different AST positions for different Ident node
-			// instances even when they share a name. Kept anyway because the
-			// alternative — asserting this can never happen — would be a
-			// silent correctness dependency on go/types internals; if a
-			// future Go version ever changed that, this guard fails safe by
-			// treating the identifier as resolved rather than misreporting a
-			// declaration as a missing import.
-			if _, defined := info.Defs[id]; defined {
-				return true
-			}
+			// A selector root (se.X) is always a reference occurrence, never a
+			// declaration site, so only info.Uses (checked above) can resolve it.
 			if inHarvestProbe(probeSpans, id.Pos()) {
 				return true // _gsxuseq harvest-probe copy of a child-prop expr; the props-literal occurrence is reported instead
 			}

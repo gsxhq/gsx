@@ -1039,13 +1039,20 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// typed context (the props literal or gsx.Attrs assignment), so suppressing
 	// errors inside _gsxuseq avoids duplicate diagnostics. Positions are raw
 	// token.Pos in the shared fset, directly comparable to a types.Error's Pos.
-	// missingFromSkeletons (add_imports.go) filters on these same spans
-	// (recomputed per-file via the shared harvestProbeSpans helper below) for
-	// the same reason: the diagnostic the user sees anchors at the
-	// props-literal copy, so MissingImport.Pos must match it too.
+	//
+	// Computed ONCE per *goast.File here (spansByFile), keyed by pointer: every
+	// .gsx-derived skeleton in goFiles is the SAME *goast.File instance stored in
+	// skelByGsx[path].skel (see the file loop above), so missingFromSkeletons
+	// (add_imports.go) looks its file up in this same map instead of re-walking
+	// it — the diagnostic the user sees anchors at the props-literal copy, so
+	// MissingImport.Pos must match it too, without a second linear pass over
+	// every skeleton.
+	spansByFile := make(map[*goast.File][]posSpan, len(goFiles))
 	var quietSpans []posSpan
 	for _, gf := range goFiles {
-		quietSpans = append(quietSpans, harvestProbeSpans(gf)...)
+		spans := harvestProbeSpans(gf)
+		spansByFile[gf] = spans
+		quietSpans = append(quietSpans, spans...)
 	}
 	for _, e := range typeErrs {
 		suppressed := false
@@ -1234,10 +1241,10 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// Missing imports for the LSP surface (Package's PackageResult.MissingImports),
 	// computed from the same skeletons and the same type-checked info — no extra
 	// parse, no lock, no packages.Load. Filters out each file's harvest-probe
-	// copy of a child-prop expression using harvestProbeSpans, the same helper
+	// copy of a child-prop expression using spansByFile, the same per-file spans
 	// the type-error loop's quietSpans, above, is built from. See
 	// missingFromSkeletons' doc.
-	missingImports := missingFromSkeletons(skelByGsx, fset, info)
+	missingImports := missingFromSkeletons(skelByGsx, fset, info, spansByFile)
 
 	return &analyzed{
 		pkgName:            pkgName,
