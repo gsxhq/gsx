@@ -130,6 +130,19 @@ var resolveImportCandidatesCalls atomic.Int64
 // could supply it, most-likely-first is NOT implied — the caller decides what to
 // do with 0, 1, or many.
 //
+// dir is the absolute directory of the .gsx package doing the asking (the LSP's
+// planned Analyzer.ResolveImport(dir, name, symbol) surface lines up with this).
+// It is resolved to that package's own import path via importPathForDir, then
+// used to apply Go's internal-visibility rule (stdpath.InternalVisible) to every
+// candidate from both sources below: a path with an "internal" component is
+// offered only when dir's package is in the tree rooted at that component's
+// parent. This is what lets a project's own myapp/internal/db be offered to
+// myapp or myapp/views, while encoding/json/internal never is (no importer
+// outside GOROOT is ever under "encoding/json"). If dir cannot be resolved to an
+// import path (e.g. outside the module), importerPath is "", which
+// InternalVisible treats like any other path not under the required prefix —
+// conservative, not a special case.
+//
 // Two sources, both lookups, never a filesystem scan:
 //
 //   - the module's dependency graph, which analyze already type-checked, giving
@@ -151,23 +164,24 @@ var resolveImportCandidatesCalls atomic.Int64
 // An unknown name returns nil. goimports would scan the module cache here — a
 // measured 1.4s per unresolved identifier, which is the normal mid-typing state.
 // We do not.
-func (m *Module) ResolveImportCandidates(name, symbol string) []string {
+func (m *Module) ResolveImportCandidates(dir, name, symbol string) []string {
 	resolveImportCandidatesCalls.Add(1)
 	if name == "" {
 		return nil
 	}
+	importerPath, _ := importPathForDir(m.opts.ModuleRoot, m.opts.ModulePath, dir)
 	graph := m.depGraphPackages()
 
 	var cands []string
 	seen := map[string]bool{}
 	for path, pkg := range graph {
-		if pkg.Name() == name && !seen[path] {
+		if pkg.Name() == name && !seen[path] && stdpath.InternalVisible(path, importerPath) {
 			seen[path] = true
 			cands = append(cands, path)
 		}
 	}
 	for _, path := range stdlibIndex[name] {
-		if !seen[path] {
+		if !seen[path] && stdpath.InternalVisible(path, importerPath) {
 			seen[path] = true
 			cands = append(cands, path)
 		}
@@ -190,28 +204,25 @@ func (m *Module) ResolveImportCandidates(name, symbol string) []string {
 	return cands // nothing eliminated it; let the caller offer them all
 }
 
-// depGraphPackages returns path -> *types.Package for every package the module's
-// external importer loaded, keyed by import path.
+// depGraphPackages returns path -> *types.Package for every COMPLETE package
+// the module's external importer loaded, keyed by import path (see
+// completeDepGraphPackages, which does the actual Complete() gating and is
+// exercised directly by TestDepGraphPackagesSkipsIncomplete since a real
+// mapImporter here always comes from a live packages.Load).
 //
-// Only COMPLETE packages are returned (see completeDepGraphPackages, which does
-// the actual gating and is exercised directly by
-// TestDepGraphPackagesSkipsIncomplete since a real mapImporter here always
-// comes from a live packages.Load).
-//
-// Also excludes any path with an `internal` component or a `vendor/` prefix —
 // packages.Load's NeedDeps hands back the FULL transitive closure, not just
 // the packages a caller explicitly requested, so this graph always contains
 // std-internal packages incidentally reached through something else in the
 // graph (e.g. the gsx runtime imports "encoding/json", which imports
 // "encoding/json/internal": that package is in every Module's dep graph, and
 // is named "internal", making it a false candidate for an undefined `internal`
-// qualifier — same failure mode as Bug 1's stdlib-table leak, same fix). This
-// necessarily also excludes a legitimately same-tree project-local `internal`
-// package: ResolveImportCandidates has no per-call knowledge of which .gsx
-// package is asking, so it cannot check Go's actual "importer must be rooted
-// at the parent of internal" condition — conservative exclusion (offer fewer,
-// never offer one the compiler rejects) is the correct default here, matching
-// packageExports' existing "an importer failure drops the candidate" stance.
+// qualifier). It also contains a legitimate same-tree project-local `internal`
+// package the same way. Neither is filtered HERE: this function has no
+// per-call knowledge of which .gsx package is asking, so it cannot apply Go's
+// "importer must be rooted at the parent of internal" rule. Its caller,
+// ResolveImportCandidates, has that context (the dir argument) and applies
+// stdpath.InternalVisible to every candidate from this graph (and from
+// stdlibIndex) before returning.
 func (m *Module) depGraphPackages() map[string]*types.Package {
 	ext, err := m.externalImporter()
 	if err != nil {
@@ -226,13 +237,7 @@ func (m *Module) depGraphPackages() map[string]*types.Package {
 		// would land here and yield an empty (not panicking) graph instead.
 		return map[string]*types.Package{}
 	}
-	out := completeDepGraphPackages(mi)
-	for path := range out {
-		if !stdpath.Importable(path) {
-			delete(out, path)
-		}
-	}
-	return out
+	return completeDepGraphPackages(mi)
 }
 
 // completeDepGraphPackages filters mi down to path -> *types.Package for every
