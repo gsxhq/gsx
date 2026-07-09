@@ -10,14 +10,20 @@ import (
 // values (e.g. reconstructed from an embedded typebundle), so the gsx transform
 // can run in a WASM build with no `go list`.
 //
-// NOTE: harvestFromTypes duplicates the scope-iteration of harvestFilters
-// (which is coupled to *packages.Package for its Errors/dir-specific messages).
-// Worth DRYing once the WASM path is settled.
-
-// harvestFromTypes harvests filters from already-type-checked packages keyed by
-// import path — no packages.Load. aliases maps each package path to its reserved
-// import alias (filterAliases). Mirrors harvestFilters' precedence: whole-package
-// paths in order (last-wins), then explicit aliases.
+// harvestFromTypes is THE filter harvest. Every path that builds a filter table
+// funnels here: harvestFilters (go list) validates *packages.Package errors and
+// then delegates; Module.filterTableFromExt harvests the external importer's
+// already-loaded types; NewCachedResolverFromTypes serves the WASM Bundle.
+//
+// One implementation is not a tidiness preference. Precedence (whole-package
+// paths in order, last-wins, then explicit aliases), signature classification,
+// and `_gsxf<i>` alias assignment all feed the emitted .x.go, so two harvests
+// that disagree produce different generated code from the same input. They did:
+// only the go-list copy recognized the removed curried shape, so the same bad
+// WithFilter got a migration hint or an unhelpful contract error depending on
+// which path ran.
+//
+// aliases maps each package path to its reserved import alias (filterAliases).
 func harvestFromTypes(byPath map[string]*types.Package, pkgPaths []string, explicitAliases []FilterAlias, aliases map[string]string) (map[string][]filterEntry, error) {
 	harvested := map[string][]filterEntry{}
 	for _, path := range pkgPaths {
@@ -74,6 +80,11 @@ func harvestFromTypes(byPath map[string]*types.Package, pkgPaths []string, expli
 		}
 		wantsCtx, ok := classifyFilter(sig)
 		if !ok {
+			// The curried shape gets its own migration message: it was once valid,
+			// so "does not match the contract" would not tell an author what to do.
+			if isCurriedShape(sig) {
+				return nil, fmt.Errorf("codegen: WithFilter %q: filter %q uses the removed curried shape func(args) func(T) R; rewrite as seed-first func([ctx,] subject, args...)", a.Name, a.FuncName)
+			}
 			return nil, fmt.Errorf("codegen: WithFilter %q: func %q does not match the seed-first filter contract func([ctx,] subject, args...) (R[, error])", a.Name, a.FuncName)
 		}
 		harvested[a.Name] = append(harvested[a.Name], filterEntry{

@@ -264,91 +264,47 @@ func harvestFilters(dir string, pkgPaths []string, explicitAliases []FilterAlias
 		byPath[pkg.PkgPath] = pkg
 	}
 
-	harvested := map[string][]filterEntry{}
+	// Validate what only *packages.Package can tell us (load errors, dir context),
+	// then hand the plain types to the ONE harvest implementation. Every path that
+	// builds a filter table — go list, a WASM Bundle, or the Module's external
+	// importer — must agree on precedence, classification, and alias assignment, so
+	// there is exactly one place that decides them.
+	typesByPath := make(map[string]*types.Package, len(byPath))
 	for _, path := range pkgPaths {
-		pkg, ok := byPath[path]
-		if !ok {
-			return nil, fmt.Errorf("codegen: filter package %q not found in %s", path, dir)
+		if err := checkFilterPkg(byPath[path], path, dir, ""); err != nil {
+			return nil, err
 		}
-		if len(pkg.Errors) > 0 {
-			return nil, fmt.Errorf("codegen: filter package %q type resolution failed: %s", path, pkg.Errors[0])
-		}
-		if pkg.Types == nil {
-			return nil, fmt.Errorf("codegen: filter package %q has no type information", path)
-		}
-		alias := aliases[path]
-		scope := pkg.Types.Scope()
-		for _, name := range scope.Names() {
-			obj := scope.Lookup(name)
-			if !obj.Exported() {
-				continue
-			}
-			fn, ok := obj.(*types.Func)
-			if !ok {
-				continue
-			}
-			sig, ok := fn.Type().(*types.Signature)
-			if !ok {
-				continue
-			}
-			wantsCtx, ok := classifyFilter(sig)
-			if !ok {
-				// A non-conforming func (incl. the removed curried shape) is simply
-				// skipped during whole-package harvest, as before.
-				continue
-			}
-			tname := lowerFirst(name)
-			harvested[tname] = append(harvested[tname], filterEntry{
-				funcName: name,
-				wantsCtx: wantsCtx,
-				hasErr:   sig.Results().Len() == 2,
-				alias:    alias,
-				pkgPath:  path,
-			})
-		}
+		typesByPath[path] = byPath[path].Types
 	}
-
-	// Register explicit aliases AFTER whole-package harvest, in option order, so
-	// an alias can intentionally override a harvested same-named filter (last-wins).
+	// An alias package's failure is reported against the WithFilter that named it.
+	// "package X not found" is far less actionable when nothing else in the config
+	// mentions X — only the alias pulled it in.
 	for _, a := range explicitAliases {
-		pkg, ok := byPath[a.PkgPath]
-		if !ok {
-			return nil, fmt.Errorf("codegen: WithFilter %q: package %q not found in %s", a.Name, a.PkgPath, dir)
+		if err := checkFilterPkg(byPath[a.PkgPath], a.PkgPath, dir, a.Name); err != nil {
+			return nil, err
 		}
-		if len(pkg.Errors) > 0 {
-			return nil, fmt.Errorf("codegen: WithFilter %q: package %q type resolution failed: %s", a.Name, a.PkgPath, pkg.Errors[0])
-		}
-		if pkg.Types == nil {
-			return nil, fmt.Errorf("codegen: WithFilter %q: package %q has no type information", a.Name, a.PkgPath)
-		}
-		obj := pkg.Types.Scope().Lookup(a.FuncName)
-		if obj == nil {
-			return nil, fmt.Errorf("codegen: WithFilter %q: func %q not found in package %q", a.Name, a.FuncName, a.PkgPath)
-		}
-		fn, ok := obj.(*types.Func)
-		if !ok {
-			return nil, fmt.Errorf("codegen: WithFilter %q: %q in package %q is not a function", a.Name, a.FuncName, a.PkgPath)
-		}
-		sig, ok := fn.Type().(*types.Signature)
-		if !ok {
-			return nil, fmt.Errorf("codegen: WithFilter %q: %q in package %q has no signature", a.Name, a.FuncName, a.PkgPath)
-		}
-		wantsCtx, ok := classifyFilter(sig)
-		if !ok {
-			if isCurriedShape(sig) {
-				return nil, fmt.Errorf("codegen: WithFilter %q: filter %q uses the removed curried shape func(args) func(T) R; rewrite as seed-first func([ctx,] subject, args...)", a.Name, a.FuncName)
-			}
-			return nil, fmt.Errorf("codegen: WithFilter %q: func %q does not match the seed-first filter contract func([ctx,] subject, args...) (R[, error])", a.Name, a.FuncName)
-		}
-		harvested[a.Name] = append(harvested[a.Name], filterEntry{
-			funcName: a.FuncName,
-			wantsCtx: wantsCtx,
-			hasErr:   sig.Results().Len() == 2,
-			alias:    aliases[a.PkgPath],
-			pkgPath:  a.PkgPath,
-		})
+		typesByPath[a.PkgPath] = byPath[a.PkgPath].Types
 	}
-	return harvested, nil
+	return harvestFromTypes(typesByPath, pkgPaths, explicitAliases, aliases)
+}
+
+// checkFilterPkg reports the load-level failures only *packages.Package can see.
+// aliasName, when non-empty, frames the error against the WithFilter that named
+// the package rather than against the package alone.
+func checkFilterPkg(pkg *packages.Package, path, dir, aliasName string) error {
+	where := fmt.Sprintf("filter package %q", path)
+	if aliasName != "" {
+		where = fmt.Sprintf("WithFilter %q: package %q", aliasName, path)
+	}
+	switch {
+	case pkg == nil:
+		return fmt.Errorf("codegen: %s not found in %s", where, dir)
+	case len(pkg.Errors) > 0:
+		return fmt.Errorf("codegen: %s type resolution failed: %s", where, pkg.Errors[0])
+	case pkg.Types == nil:
+		return fmt.Errorf("codegen: %s has no type information", where)
+	}
+	return nil
 }
 
 // FilterInfo describes one resolved pipeline filter, for `gsx info`.

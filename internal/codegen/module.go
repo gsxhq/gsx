@@ -127,29 +127,30 @@ type Options struct {
 // while keeping ext, pkgTypes, or pkgResults: that would orphan their positions.
 type Module struct {
 	opts              Options
-	overrides         map[string][]byte          // abs .gsx path -> in-memory source
-	ext               types.Importer             // lazily built external importer (stdlib + third-party)
-	extPkgs           map[string]*types.Package  // the types behind ext, kept for subprocess-free filter-table harvests
-	extLoads          int                        // count of external packages.Load calls (observability; test hook)
-	filterTbl         filterTable                // lazily built filter table (see cachedFilterTable)
-	filterTblErr      error                      // error from the filter-table load (cached alongside filterTbl)
-	filterTblDone     bool                       // true once the filter table has been loaded (success or error)
-	filterLoads       int                        // count of filter-table loads performed (observability; test hook)
-	dirFilterTbls     map[string]filterTable     // per-dir filter-table memo, keyed by canonical FilterPkgs key
-	perDirMergersErr  error                      // cached result of validatePerDirMergers
-	perDirMergersDone bool                       // true once the PerDir mergers have been validated
-	fset              *token.FileSet             // module-wide shared FileSet (see "FileSet" / "Growth" notes above)
-	pkgTypes          map[string]*types.Package  // abs dir -> checked *types.Package cache
-	pkgResults        map[string]*PackageResult  // abs dir -> cached full analysis result (Package path only)
-	depFacts          map[string]*depPropFacts   // abs dep dir -> cached imported prop facts (see importedPropFacts)
-	imports           map[string][]string        // dir -> its project-gsx dependency dirs (forward edges)
-	importedBy        map[string]map[string]bool // dep dir -> set of importer dirs (reverse edges)
-	dirty             map[string]bool            // dirs with a pending content change (consumed by applyDirty)
-	fsetBaseline      int                        // m.fset.Base() captured after the last packages.Load (growth measured since here)
-	fsetRebuildBytes  int                        // rebuild fset when fset.Base()-fsetBaseline exceeds this; 0 disables
-	rebuildCount      int                        // count of fset rebuilds performed (observability; exposed via rebuilds())
-	mu                sync.Mutex                 // guards overrides, ext, pkgTypes, pkgResults, depFacts, imports, importedBy, dirty
-	analysisMu        sync.Mutex                 // serializes Package/Generate/typesPackage (see concurrency contract)
+	overrides         map[string][]byte           // abs .gsx path -> in-memory source
+	ext               types.Importer              // lazily built external importer (stdlib + third-party)
+	extPkgs           map[string]*types.Package   // the types behind ext, kept for subprocess-free filter-table harvests
+	extErrs           map[string][]packages.Error // per-package load/type errors from the ext load (filter packages must not be silently partial)
+	extLoads          int                         // count of external packages.Load calls (observability; test hook)
+	filterTbl         filterTable                 // lazily built filter table (see cachedFilterTable)
+	filterTblErr      error                       // error from the filter-table load (cached alongside filterTbl)
+	filterTblDone     bool                        // true once the filter table has been loaded (success or error)
+	filterLoads       int                         // count of filter-table loads performed (observability; test hook)
+	dirFilterTbls     map[string]filterTable      // per-dir filter-table memo, keyed by canonical FilterPkgs key
+	perDirMergersErr  error                       // cached result of validatePerDirMergers
+	perDirMergersDone bool                        // true once the PerDir mergers have been validated
+	fset              *token.FileSet              // module-wide shared FileSet (see "FileSet" / "Growth" notes above)
+	pkgTypes          map[string]*types.Package   // abs dir -> checked *types.Package cache
+	pkgResults        map[string]*PackageResult   // abs dir -> cached full analysis result (Package path only)
+	depFacts          map[string]*depPropFacts    // abs dep dir -> cached imported prop facts (see importedPropFacts)
+	imports           map[string][]string         // dir -> its project-gsx dependency dirs (forward edges)
+	importedBy        map[string]map[string]bool  // dep dir -> set of importer dirs (reverse edges)
+	dirty             map[string]bool             // dirs with a pending content change (consumed by applyDirty)
+	fsetBaseline      int                         // m.fset.Base() captured after the last packages.Load (growth measured since here)
+	fsetRebuildBytes  int                         // rebuild fset when fset.Base()-fsetBaseline exceeds this; 0 disables
+	rebuildCount      int                         // count of fset rebuilds performed (observability; exposed via rebuilds())
+	mu                sync.Mutex                  // guards overrides, ext, pkgTypes, pkgResults, depFacts, imports, importedBy, dirty
+	analysisMu        sync.Mutex                  // serializes Package/Generate/typesPackage (see concurrency contract)
 }
 
 // defaultFsetRebuildBytes bounds the module-lifetime FileSet's project re-parse
@@ -297,20 +298,31 @@ func (m *Module) externalImporter() (types.Importer, error) {
 	// (resolver.go) which lists "github.com/gsxhq/gsx" first for the same reason.
 	loadPaths := append([]string{"github.com/gsxhq/gsx", stdImportPath}, m.opts.FilterPkgs...)
 	loadPaths = append(loadPaths, m.opts.LoadPkgs...)
+	// Explicit WithFilter aliases name packages that need not appear anywhere
+	// else. They must be in the load set for filterTableFromExt to classify their
+	// target func's signature without a second packages.Load.
+	for _, a := range m.opts.Aliases {
+		loadPaths = append(loadPaths, a.PkgPath)
+	}
 	loadPaths = append(loadPaths, "./...")
 	pkgs, err := packages.Load(cfg, loadPaths...)
 	if err != nil {
 		return nil, err
 	}
 	mp := map[string]*types.Package{}
+	errs := map[string][]packages.Error{}
 	packages.Visit(pkgs, nil, func(p *packages.Package) {
 		if p.Types != nil {
 			mp[p.PkgPath] = p.Types
+		}
+		if len(p.Errors) > 0 {
+			errs[p.PkgPath] = p.Errors
 		}
 	})
 	m.mu.Lock()
 	m.ext = mapImporter(mp)
 	m.extPkgs = mp
+	m.extErrs = errs
 	m.extLoads++
 	m.fsetBaseline = m.fset.Base()
 	m.mu.Unlock()
@@ -431,26 +443,38 @@ func (m *Module) classMergerFor(dir string) *ClassMergerRef {
 
 // filterTableFor returns the filter table that applies to dir.
 //
-// Without a PerDir override this is cachedFilterTable — one packages.Load per
-// Module, shared by every dir. With one, the table is harvested from the types
-// the external importer already loaded, so N dirs with N different filter sets
-// cost ONE load between them rather than N. That is the whole point of the
-// union/per-dir split: Options.LoadPkgs is loaded once, DirOptions.FilterPkgs
-// only narrows what that dir may see.
+// withExt says whether the caller is on a path that loads the external importer.
+// Every such caller (Generate, Package, typesPackage → analyze) already paid one
+// packages.Load that includes the gsx runtime, FilterPkgs, LoadPkgs, and the
+// Aliases' packages — so the table is HARVESTED from those types rather than
+// re-loaded. That kills a second `go list` per Module: filter-table loads were
+// running 1:1 with importer loads (148 vs 127 across the gen suite alone).
+//
+// buildPackageSkeletons passes withExt=false. That path is `gsx fmt`'s syntactic
+// fast lane, which deliberately never loads the importer (it is what took
+// `gsx fmt -l` from ~16s to 0.58s); harvesting from types there would ADD the
+// full "./..." load it exists to avoid. It keeps the standalone
+// loadFilterTableMulti, which loads only the filter packages.
+//
+// A PerDir override always harvests from types, forcing the importer if needed:
+// N dirs with N different filter sets then cost ONE load between them.
 //
 // A dir naming a filter package the importer never loaded is an error. It must
 // never degrade to an empty table — a corpus case that asserts "this filter is
 // rejected because its package is not whitelisted" would then pass while
 // testing nothing.
-func (m *Module) filterTableFor(dir string) (filterTable, error) {
+func (m *Module) filterTableFor(dir string, withExt bool) (filterTable, error) {
 	if m.opts.Bundle != nil {
 		return m.opts.Bundle.filters(), nil
 	}
-	d, ok := m.dirOptionsFor(dir)
-	if !ok || d.FilterPkgs == nil {
+	pkgs := m.opts.FilterPkgs
+	if d, ok := m.dirOptionsFor(dir); ok && d.FilterPkgs != nil {
+		pkgs, withExt = d.FilterPkgs, true
+	}
+	if !withExt {
 		return m.cachedFilterTable()
 	}
-	pkgs := dedupFilterPkgs(d.FilterPkgs)
+	pkgs = dedupFilterPkgs(pkgs)
 	key := strings.Join(pkgs, "\x00")
 
 	m.mu.Lock()
@@ -465,11 +489,7 @@ func (m *Module) filterTableFor(dir string) (filterTable, error) {
 	if _, err := m.externalImporter(); err != nil {
 		return nil, err
 	}
-	m.mu.Lock()
-	extPkgs := m.extPkgs
-	m.mu.Unlock()
-
-	tbl, err := loadFilterTableFromTypes(extPkgs, pkgs, m.opts.Aliases)
+	tbl, err := m.filterTableFromExt(pkgs)
 	if err != nil {
 		return nil, fmt.Errorf("codegen: filter table for %s: %w", dir, err)
 	}
@@ -477,6 +497,40 @@ func (m *Module) filterTableFor(dir string) (filterTable, error) {
 	m.dirFilterTbls[key] = tbl
 	m.mu.Unlock()
 	return tbl, nil
+}
+
+// filterTableFromExt harvests a filter table from the external importer's
+// already-loaded types. It reproduces harvestFilters' error semantics — a filter
+// package that is absent, or that failed to type-check, is an error rather than a
+// silently-thinner table — because packages.Load hands back partial Types for a
+// broken package and a missing filter would otherwise surface as a confusing
+// "unknown filter" diagnostic at the pipe site.
+func (m *Module) filterTableFromExt(pkgs []string) (filterTable, error) {
+	m.mu.Lock()
+	extPkgs, extErrs := m.extPkgs, m.extErrs
+	m.mu.Unlock()
+
+	check := func(path, aliasName string) error {
+		errs := extErrs[path]
+		if len(errs) == 0 {
+			return nil
+		}
+		if aliasName != "" {
+			return fmt.Errorf("codegen: WithFilter %q: package %q type resolution failed: %s", aliasName, path, errs[0])
+		}
+		return fmt.Errorf("codegen: filter package %q type resolution failed: %s", path, errs[0])
+	}
+	for _, p := range pkgs {
+		if err := check(p, ""); err != nil {
+			return nil, err
+		}
+	}
+	for _, a := range m.opts.Aliases {
+		if err := check(a.PkgPath, a.Name); err != nil {
+			return nil, err
+		}
+	}
+	return loadFilterTableFromTypes(extPkgs, pkgs, m.opts.Aliases)
 }
 
 // maybeRebuildFset rebuilds the FileSet (and ext/pkgTypes/pkgResults) when project re-parse
@@ -503,6 +557,7 @@ func (m *Module) rebuildFset() {
 	m.fset = token.NewFileSet()
 	m.ext = nil
 	m.extPkgs = nil
+	m.extErrs = nil
 	m.filterTbl, m.filterTblErr, m.filterTblDone = filterTable{}, nil, false
 	m.dirFilterTbls = map[string]filterTable{}
 	m.perDirMergersErr, m.perDirMergersDone = nil, false
