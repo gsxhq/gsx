@@ -1368,7 +1368,7 @@ removed behavior and are deleted."
 - Create: `internal/gsxfmt/testdata/cases/breakwide_outermost_first.txtar`
 - Create: `internal/gsxfmt/testdata/cases/breakwide_nested_also_breaks.txtar`
 - Create: `internal/gsxfmt/testdata/cases/breakwide_multiline_element.txtar`
-- Create: `internal/gsxfmt/testdata/cases/breakwide_no_progress.txtar`
+- Create: `internal/gsxfmt/testdata/cases/breakwide_unsplittable_field.txtar`
 - Create: `internal/gsxfmt/testdata/cases/breakwide_gochunk_no_elements.txtar`
 - Modify: `docs/guide/cli.md`
 
@@ -1380,13 +1380,13 @@ Each is a txtar with a prose header stating the layout fact it pins, and an `-- 
 2. `breakwide_outermost_first` — one over-long line with a nested literal; breaking the outer brings the inner under budget, so the inner stays inline. Header must say so.
 3. `breakwide_nested_also_breaks` — the inner literal is *still* over budget after the outer break, so it breaks too.
 4. `breakwide_multiline_element` — a literal holding an element with a block child: broken without measuring, element paren-wrapped inside.
-5. `breakwide_no_progress` — a single field wider than the budget: nothing breaks, the line stays long. Pins termination.
+5. `breakwide_unsplittable_field` — a single field wider than the budget: no break can bring its own line under budget, but the pass still breaks it once (unconditionally, once the flat form doesn't fit — mirroring prettier), then stops rather than looping. Pins termination, not "leave it alone".
 6. `breakwide_gochunk_no_elements` — an over-long `map[string]string{…}` in a decl with no gsx element anywhere, proving the rule is not element-gated.
 
 - [ ] **Step 2: Generate and verify**
 
 Run: `go test ./internal/gsxfmt -run TestFmtCorpus -update && go test ./internal/gsxfmt -count=1`
-Expected: PASS. Read all six goldens. `breakwide_no_progress`'s golden must still contain the long line — if it doesn't, the pass is breaking something it cannot fix, and it may not be terminating for the right reason.
+Expected: PASS. Read all six goldens. `breakwide_unsplittable_field`'s golden must show the literal broken once, with the over-long field still on its own over-long line — if the literal is left flat, the pass isn't breaking what it should; if the field's line is no longer over budget, something other than a literal break shortened it, and the "no further round" termination story needs re-checking.
 
 - [ ] **Step 3: Prove they discriminate**
 
@@ -1398,7 +1398,7 @@ git stash apply "$SHA"
 git stash list --format='%gd %gs' | grep breakwide-discriminate-check | head -1 | cut -d' ' -f1 | xargs -r git stash drop
 ```
 
-Expected: at least 5 of the 6 fail without the pass. (`breakwide_no_progress` legitimately passes either way — it asserts nothing changes. That is fine, and is *why* the other five must fail.)
+Expected: all 6 fail without the pass — `breakwide_unsplittable_field` discriminates too, since the pass breaks the literal once even though the field's own line stays over budget; only a genuine no-op case would pass either way, and this isn't one.
 
 Never use bare `git stash` / `git stash pop` — the stash stack is shared across worktrees.
 
