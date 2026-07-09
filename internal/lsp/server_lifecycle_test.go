@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/gsxhq/gsx/internal/gsxfmt"
 )
 
 // nilAnalyzer satisfies Analyzer and returns nothing.
@@ -17,6 +19,7 @@ func (nilAnalyzer) AnalyzeModule(string, map[string][]byte) ([]CrossRef, error) 
 }
 func (nilAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol, error) { return nil, nil }
 func (nilAnalyzer) PrintWidth(string) int                                     { return 80 }
+func (nilAnalyzer) ImportsMode(string) gsxfmt.ImportsMode                     { return gsxfmt.ImportsGoimports }
 
 // framed wraps a JSON-RPC body in Content-Length framing.
 func framed(t *testing.T, v any) string {

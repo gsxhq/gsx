@@ -13,6 +13,10 @@ import (
 // whole-document TextEdit. It operates on the live buffer text, so unsaved edits
 // are formatted. Only .gsx files are handled; gopls owns .go formatting.
 //
+// It honors the resolved gsx.toml [formatter] imports mode: goimports mode
+// removes unused imports and reorders/merges import declarations, gofmt mode
+// does neither.
+//
 // On a parse failure (the buffer is mid-edit and not valid gsx) it returns no
 // edits rather than a destructive whole-file replacement; the same for a buffer
 // that is already canonical.
@@ -30,12 +34,25 @@ func (s *Server) handleFormatting(f frame) error {
 		return s.reply(f.ID, []TextEdit{})
 	}
 	path := uriToPath(uri)
+	dir := filepath.Dir(path)
+	mode := s.analyzer.ImportsMode(dir)
+
+	// Only goimports mode removes unused imports; gofmt mode leaves them.
 	var unused []gsxfmt.ImportRef
-	if pkg := s.pkgs[filepath.Dir(path)]; pkg != nil {
-		unused = pkg.UnusedImports[path] // nil when analysis is unavailable/unreliable
+	if mode.RemoveUnused() {
+		if pkg := s.pkgs[dir]; pkg != nil {
+			unused = pkg.UnusedImports[path] // nil when analysis is unavailable/unreliable
+		}
 	}
-	width := s.analyzer.PrintWidth(filepath.Dir(path))
-	formatted, err := gsxfmt.FormatRemovingImports(path, []byte(text), unused, width)
+	width := s.analyzer.PrintWidth(dir)
+	// CSSFmt/JSFmt nil selects the printer's built-in <style>/<script> formatters,
+	// producing output identical to the CLI default. The LSP does not thread a
+	// project's custom configured formatters; gsx fmt does. Wiring is separate.
+	formatted, err := gsxfmt.FormatWith(path, []byte(text), gsxfmt.FormatOptions{
+		Unused:  unused,
+		Width:   width,
+		Reorder: mode.Reorder(),
+	})
 	if err != nil || string(formatted) == text {
 		return s.reply(f.ID, []TextEdit{}) // invalid mid-edit, or already canonical
 	}

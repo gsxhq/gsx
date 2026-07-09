@@ -1,0 +1,34 @@
+gofmt mode (the default when -- imports -- is absent, spelled out here for
+clarity) never merges, dedups, or regroups imports — only sorts within an
+existing parenthesized group. Same source as imports_goimports_merge_dedup:
+the lone `import "strings"` and the separate block that redundantly imports
+"strings" again both survive untouched, duplicate included.
+
+-- imports --
+gofmt
+-- input.gsx --
+package ui
+
+import "strings"
+
+import (
+	"fmt"
+	"strings"
+)
+
+func Shout(s string) string {
+	return fmt.Sprintf("%s!", strings.ToUpper(s))
+}
+-- fmt.golden --
+package ui
+
+import "strings"
+
+import (
+	"fmt"
+	"strings"
+)
+
+func Shout(s string) string {
+	return fmt.Sprintf("%s!", strings.ToUpper(s))
+}

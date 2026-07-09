@@ -29,11 +29,30 @@ gsx lsp                 # blocks, reading LSP messages on stdin
 | **Go-to-definition** | `textDocument/definition` | jump from a Go symbol anywhere Go appears — `{ }` interpolations, attribute expressions, spreads, class/style parts and their `: cond` guards, `{ if … }` conditional-attribute conditions, value-form `if`/`switch` control expressions and arms, `for`/`if`/`switch` clauses, and `{{ }}` blocks — to its definition; from a `<Card/>` tag to its `component` declaration; and from a `.go` component reference back to the `.gsx` |
 | **Hover** | `textDocument/hover` | gopls-style type/signature for an identifier or expression in all the same positions as go-to-definition; a component tag shows its signature (answered from the AST even mid-edit when type-checking can't complete) |
 | **Find references** | `textDocument/references` | `.go` call sites and `.gsx` tag sites for project components discovered by module analysis; external/non-project packages are skipped |
-| **Formatting** | `textDocument/formatting` | canonical `gsx fmt` form, including unused-import removal — wire it to format-on-save |
+| **Formatting** | `textDocument/formatting` | canonical `gsx fmt` form, honoring the configured [`[formatter] imports`](./config.md#formatter--gsx-fmt--editor-formatting) mode — wire it to format-on-save |
+| **Organize imports** | `textDocument/codeAction` (`source.organizeImports`) | always removes unused imports and reorders, regardless of the configured mode — see [below](#organize-imports-on-save) |
 
 **Deferred:** completion. References cover project components discovered during
 module analysis; external/non-project references are deferred. See [Status](./status.md) and the
 [roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md) for current scope.
+
+### Organize imports on save
+
+The gsx language server offers the standard `source.organizeImports` code
+action. It always organizes — remove unused, merge, dedup, group, sort — even
+when [`[formatter] imports`](./config.md#formatter--gsx-fmt--editor-formatting)
+is `"gofmt"`, exactly like gopls, where formatting can be plain gofmt while the
+action still organizes.
+
+```json
+"[gsx]": {
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": { "source.organizeImports": "explicit" }
+}
+```
+
+Because gsx has no partial formatter, the action's edit spans the whole
+document: applying it also canonicalizes the rest of the file.
 
 ### Configure your editor
 

@@ -242,13 +242,16 @@ imports; the organize behavior then comes exclusively from the code action
 below. This is precisely the gopls split: `textDocument/formatting` = gofmt,
 import organizing = a separate action.
 
-**Pre-existing gap, preserve don't fix:** `handleFormatting` today calls
-`FormatRemovingImports` — the *non*-`With` variant — so LSP formatting does not
-run the `<style>`/`<script>` css/js formatters that the CLI runs. Moving it to
-`FormatWith` makes that gap explicit (`CSSFmt`/`JSFmt` become visible nil
-fields). Keep current behavior: pass nil formatters, preserving today's LSP
-output byte-for-byte. Closing the gap is a separate change with its own tests —
-do not fold it into this effort.
+**Pre-existing gap, preserve don't fix:** `handleFormatting` calls the *non*-`With`
+variant, so it passes no css/js formatters. Note what nil actually means here:
+`printer.Fprint` delegates to `FprintWith(…, defaultCSSFormatter(width),
+defaultJSFormatter(width))`, so nil selects the printer's **built-in default**
+`<style>`/`<script>` formatters — *not* "no formatting". LSP and CLI therefore
+produce identical output for the stock binary. The real, narrower gap is that
+`runFmt` threads a project's **custom** configured formatters (`cfg.cssFmt` /
+`cfg.jsFmt`, from `gen.WithCSSFormatter`/`WithJSFormatter`) while the LSP always
+passes nil. Keep that behavior: pass nil, preserving today's LSP output
+byte-for-byte. Wiring custom formatters through the LSP is a separate change.
 
 ### LSP `source.organizeImports` code action — `internal/lsp/codeaction.go` (new)
 

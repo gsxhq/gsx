@@ -1,0 +1,31 @@
+goimports mode merges every import declaration into a single block and dedups
+identical specs. The author wrote a lone `import "strings"` and a separate
+parenthesized block that redundantly imports "strings" again; both collapse
+into one block with "strings" appearing once.
+
+-- imports --
+goimports
+-- input.gsx --
+package ui
+
+import "strings"
+
+import (
+	"fmt"
+	"strings"
+)
+
+func Shout(s string) string {
+	return fmt.Sprintf("%s!", strings.ToUpper(s))
+}
+-- fmt.golden --
+package ui
+
+import (
+	"fmt"
+	"strings"
+)
+
+func Shout(s string) string {
+	return fmt.Sprintf("%s!", strings.ToUpper(s))
+}

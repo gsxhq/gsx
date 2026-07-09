@@ -224,11 +224,12 @@ Formats `.gsx` files to their canonical, idempotent form. The flag surface is
 faithful to `gofmt`:
 
 ```bash
-gsx fmt                 # print formatted "." to stdout
-gsx fmt -w ./web        # rewrite files in place
-gsx fmt -l              # list files whose formatting differs
-gsx fmt -d file.gsx     # show a unified diff of the changes
-gsx fmt -w -no-imports  # rewrite, but keep unused imports
+gsx fmt                     # print formatted "." to stdout
+gsx fmt -w ./web            # rewrite files in place
+gsx fmt -l                  # list files whose formatting differs
+gsx fmt -d file.gsx         # show a unified diff of the changes
+gsx fmt -w -imports gofmt   # rewrite; keep unused imports, don't reorder
+gsx fmt -w -no-imports      # same as above — -no-imports is an alias
 ```
 
 | Flag | Effect |
@@ -237,7 +238,8 @@ gsx fmt -w -no-imports  # rewrite, but keep unused imports
 | `-w` | rewrite each changed file in place |
 | `-l` | list the paths of files whose formatting differs |
 | `-d` | write a unified diff of the changes to stdout |
-| `-no-imports` | keep unused imports (skip the module analysis that finds them) |
+| `-imports goimports\|gofmt` | override `[formatter] imports` for this run |
+| `-no-imports` | alias for `-imports gofmt` |
 
 Path arguments are `.gsx` files or directories (walked recursively, skipping
 `.git`, hidden dirs, `vendor`, `node_modules`, and `testdata`). No arguments
@@ -256,12 +258,30 @@ the print width. Write it inline and it stays inline; write it multi-line and it
 stays multi-line. (A block-level child, e.g. a nested element, still forces the
 enclosing body to break regardless, so the document hierarchy stays visible.)
 
-**Unused imports.** Like `goimports`, `gsx fmt` **removes unused imports** from a
-`.gsx` file's pass-through Go by default — detected via the type-checker, so it
-runs a module analysis (`go list` + type-check). Pass `-no-imports` to format
-whitespace only and skip that analysis (faster, and works outside a resolvable
-module). The language server's format action drops unused imports too, so
-format-on-save in an editor keeps imports tidy.
+**Import handling.** `gsx fmt` has two import modes, mirroring gopls's own
+gofmt/goimports split:
+
+- **`goimports`** (default) — remove unused imports (detected via a module
+  analysis), then merge every import declaration into one block, dedup
+  identical specs, split the standard library from everything else, and sort
+  within each group.
+- **`gofmt`** — format only: sort within an existing group, but never remove,
+  merge, dedup, or regroup. Skips the module analysis entirely, so it's faster
+  and works outside a resolvable module.
+
+The mode resolves with **CLI flag > `gsx.toml` `[formatter] imports` > default
+`goimports`**, per directory — one `gsx fmt` invocation can span directories
+governed by different `gsx.toml` files. `-imports goimports` combined with
+`-no-imports` is a usage error (exit `2`), since they ask for opposite modes.
+
+`gsx` cannot **add** a missing import the way real `goimports` does: a gsx Go
+chunk's body never references the surrounding template's imports, so there's no
+symbol for the formatter to resolve to a package.
+
+The language server's `textDocument/formatting` honors the same
+`[formatter] imports` setting, so `gsx fmt` and format-on-save always agree —
+see [Organize imports on save](./editor.md#organize-imports-on-save) for the
+code action that always organizes regardless of the configured mode.
 
 **Embedded CSS & JS.** `gsx fmt` also formats the languages embedded in your
 markup — the CSS inside `<style>`, and (in a follow-up) the JavaScript inside

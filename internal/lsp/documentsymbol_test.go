@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/gsxfmt"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
@@ -39,6 +40,9 @@ func (symbolFileAnalyzer) ModuleSymbols(string, map[string][]byte) ([]Symbol, er
 	return nil, nil
 }
 func (symbolFileAnalyzer) PrintWidth(string) int { return 80 }
+func (symbolFileAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
+	return gsxfmt.ImportsGoimports
+}
 
 func TestDocumentSymbol(t *testing.T) {
 	uri := "file:///m/page.gsx"
