@@ -261,7 +261,7 @@ func resolveFormatSettings(cfg config, es editorSettings) gsxfmt.FormatSettings 
 		tabWidth = cfg.tabWidth
 	}
 	if width <= 0 {
-		width = 80
+		width = pretty.DefaultPrintWidth
 	}
 	if tabWidth <= 0 {
 		tabWidth = pretty.DefaultTabWidth

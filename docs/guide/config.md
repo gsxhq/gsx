@@ -205,7 +205,7 @@ command and editor format-on-save via the language server read it.
 
 ```toml
 [formatter]
-print_width = 100   # line width the formatter wraps at (default 80)
+print_width = 100   # line width the formatter wraps at (default 120)
 tab_width   = 4     # columns one tab counts as, for measuring line width (default 2)
 imports     = "goimports"   # "goimports" (default) or "gofmt"
 ```
@@ -213,7 +213,7 @@ imports     = "goimports"   # "goimports" (default) or "gofmt"
 `print_width` is the column budget for a line. An opening tag whose attribute
 list fits stays on one line; one that exceeds the width wraps with one
 attribute per line (and its children break onto their own indented lines).
-The default is `80`.
+The default is `120`. gsx markup nests, and each level of nesting spends part of the budget on indentation before a single character of content is printed; at `80` an element six levels deep has almost nothing left.
 
 `tab_width` does **not** change how indentation is emitted — `gsx fmt` always
 indents with tabs, never spaces. It only changes how wide a tab **counts** as
@@ -235,7 +235,7 @@ does not re-indent gofmt's output.
 Resolution order, highest first:
 
 ```
-option (programmatic) > gsx.toml [formatter] > .editorconfig > built-in (print_width 80, tab_width 2)
+option (programmatic) > gsx.toml [formatter] > .editorconfig > built-in (print_width 120, tab_width 2)
 ```
 
 There is no CLI flag or environment variable for either setting — same as

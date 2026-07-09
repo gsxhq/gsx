@@ -61,6 +61,11 @@ var update = flag.Bool("update", false, "rewrite fmt.golden files from actual ou
 
 // fmtWidth is the column budget every corpus case is formatted at. Pinned here
 // (not per-case) so a golden's line breaks mean one thing across the suite.
+//
+// It is deliberately NOT pretty.DefaultPrintWidth. The product default is what a
+// user gets; this is the budget the goldens were written against, chosen narrow
+// so a case can exercise an overflow without a 120-character input line. Moving
+// the product default must not silently reflow every golden in the corpus.
 const fmtWidth = 80
 
 func TestFmtCorpus(t *testing.T) {

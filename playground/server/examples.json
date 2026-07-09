@@ -80,7 +80,7 @@
   {
     "name": "Ordered Attributes",
     "category": "Basics",
-    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Counter(signals gsx.Attrs) {\n\t<button { signals... }>{ children }</button>\n}\n\ncomponent Page() {\n\t<Counter\n\t\tsignals={{ \"data-signals\": \"{count:0}\", \"data-text\": \"$count\", \"data-on-click\": \"$count++\" }}\n\t>\n\t\tCount\n\t</Counter>\n}\n",
+    "source": "package views\n\nimport \"github.com/gsxhq/gsx\"\n\ncomponent Counter(signals gsx.Attrs) {\n\t<button { signals... }>{ children }</button>\n}\n\ncomponent Page() {\n\t<Counter signals={{ \"data-signals\": \"{count:0}\", \"data-text\": \"$count\", \"data-on-click\": \"$count++\" }}>Count</Counter>\n}\n",
     "invoke": "Page()"
   },
   {
@@ -218,7 +218,7 @@
   {
     "name": "Explicit attribute forwarding",
     "category": "Components & composition",
-    "source": "package views\n\ncomponent Button(variant string) {\n\t<button class=\"btn\" data-variant={variant} { attrs... }>{ children }</button>\n}\n\ncomponent Page() {\n\t<Button variant=\"primary\" class=\"w-full\" data-test=\"x\" hx-post=\"/go\">\n\t\tSave\n\t</Button>\n}\n",
+    "source": "package views\n\ncomponent Button(variant string) {\n\t<button class=\"btn\" data-variant={variant} { attrs... }>{ children }</button>\n}\n\ncomponent Page() {\n\t<Button variant=\"primary\" class=\"w-full\" data-test=\"x\" hx-post=\"/go\">Save</Button>\n}\n",
     "invoke": "Page()"
   },
   {
@@ -314,7 +314,7 @@
   {
     "name": "JSON attribute values",
     "category": "JavaScript",
-    "source": "package views\n\ncomponent EntityFilter(entityType string, opts map[string]string) {\n\t<input\n\t\ttype=\"checkbox\"\n\t\thx-post=\"/filter\"\n\t\thx-vals=js`{\"entity_type\": @{entityType}, \"opts\": @{opts}}`\n\t/>\n}\n",
+    "source": "package views\n\ncomponent EntityFilter(entityType string, opts map[string]string) {\n\t<input type=\"checkbox\" hx-post=\"/filter\" hx-vals=js`{\"entity_type\": @{entityType}, \"opts\": @{opts}}`/>\n}\n",
     "invoke": "EntityFilter(EntityFilterProps{EntityType: \"opportunity\", Opts: map[string]string{\"page\": \"1\"}})"
   },
   {

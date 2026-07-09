@@ -17,7 +17,7 @@ func TestFormatSettingsPrecedence(t *testing.T) {
 	}{{
 		name:         "nothing configured: built-in defaults",
 		files:        map[string]string{"a.gsx": ""},
-		wantWidth:    80,
+		wantWidth:    pretty.DefaultPrintWidth,
 		wantTabWidth: pretty.DefaultTabWidth,
 	}, {
 		name: "editorconfig alone",
@@ -31,10 +31,12 @@ func TestFormatSettingsPrecedence(t *testing.T) {
 		name: "gsx.toml overrides editorconfig",
 		files: map[string]string{
 			".editorconfig": "root = true\n\n[*.gsx]\ntab_width = 3\nmax_line_length = 100\n",
-			"gsx.toml":      "[formatter]\nprint_width = 120\ntab_width = 8\n",
-			"a.gsx":         "",
+			// 140, not 120: 120 is now pretty.DefaultPrintWidth, so a fixture using
+			// it could not tell "gsx.toml won" from "nothing was configured".
+			"gsx.toml": "[formatter]\nprint_width = 140\ntab_width = 8\n",
+			"a.gsx":    "",
 		},
-		wantWidth:    120,
+		wantWidth:    140,
 		wantTabWidth: 8,
 	}, {
 		name: "gsx.toml partial: unset keys still fall through to editorconfig",
