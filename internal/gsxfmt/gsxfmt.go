@@ -72,3 +72,49 @@ func FormatRemovingImportsWith(name string, src []byte, unused []ImportRef, widt
 	}
 	return b.Bytes(), nil
 }
+
+// FormatOptions carries the knobs of FormatWith. The zero value is the safe one:
+// no imports removed, no reorder, printer defaults for <style>/<script>.
+type FormatOptions struct {
+	// Unused lists imports to delete from the file's Go chunks; nil removes none.
+	Unused []ImportRef
+	// Width is the printer's target line width (0 → printer default).
+	Width int
+	// CSSFmt/JSFmt format <style>/<script> bodies; nil uses the printer default.
+	CSSFmt rawfmt.Formatter
+	JSFmt  rawfmt.Formatter
+	// Reorder runs the goimports pass (merge/dedup/group/sort). It is a plain
+	// bool, not an ImportsMode: gsxfmt stays mechanical, and callers map
+	// ImportsMode.Reorder() onto it.
+	Reorder bool
+}
+
+// FormatWith is the one formatting entry point: parse → remove unused imports →
+// (optionally) reorder imports → whitespace-normalize → print. A non-nil error is
+// a parse or print failure; callers formatting unsaved buffers should treat that
+// as "leave the buffer untouched".
+func FormatWith(name string, src []byte, opts FormatOptions) ([]byte, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, name, src, 0)
+	if err != nil {
+		return nil, err
+	}
+	// Remove first, then reorder: an import that was both unused and duplicated is
+	// gone before the merge, so reorder only canonicalizes what survives.
+	removeImports(f, opts.Unused)
+	if opts.Reorder {
+		reorderImports(f)
+	}
+	wsnorm.Normalize(f)
+	var b bytes.Buffer
+	if opts.CSSFmt == nil && opts.JSFmt == nil {
+		if err := printer.Fprint(&b, f, opts.Width); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := printer.FprintWith(&b, f, opts.Width, opts.CSSFmt, opts.JSFmt); err != nil {
+			return nil, err
+		}
+	}
+	return b.Bytes(), nil
+}
