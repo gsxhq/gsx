@@ -172,6 +172,29 @@ params; extend the check to file-scope declarations (`var`/`const`/`func`/`type`
 and import names beginning `_gsx`). This is the one thing a user may not do, and
 it replaces four ad-hoc reservations with one documented rule.
 
+**As shipped, that check (`checkReservedDecls`) walks the `.gsx` AST, not the
+lowered skeleton.** The obvious-looking alternative — reuse the `*goast.File` that
+`buildPackageSkeletons` produces — is unusable on two counts, both found in
+implementation:
+
+- `buildPackageSkeletons`' only non-test caller is `Module.UnusedImports`, i.e. the
+  `gsx fmt` path. It is not on the generate path at all, so there is no skeleton to
+  reuse where the check has to run.
+- The lowered skeleton is *full* of legitimate package-scope `_gsx` names by
+  construction (`import _gsxrt "github.com/gsxhq/gsx"`, the `_gsxinfer<N>` probe
+  helpers). A check run over it would flag every file. Telling generator from user
+  there means re-deriving a distinction the `.gsx` AST already carries for free.
+
+So the check parses each top-level Go region of the `.gsx` file (a `GoChunk`
+verbatim; a `GoWithElements` reconstructed byte-for-byte with a length-preserving
+placeholder for each embedded literal, so parsed offsets still map back to `.gsx`
+positions) and walks its declarations. Method declarations are skipped — a method
+name lives in its receiver type's namespace, not the package's. It runs in
+`module_importer.go`, ahead of `buildSkeleton`, and reports every offending name
+with its own position rather than collapsing to the first. A region that fails to
+parse is reported as a positioned parse error rather than silently yielding no
+names, since a region the pass cannot read is a region whose names it cannot check.
+
 ### D3 — The user's own `gsx` import
 
 Emitted **plain**, verbatim from the Go chunk, when and only when the user's Go
@@ -229,9 +252,20 @@ diagnostics (`diag(error)`), which are not meant to compile.
 This is load-bearing: without it, matrix rows 1–3 below would pass while emitting
 broken code.
 
-**Risk:** enabling it may surface pre-existing breakage in other non-renderable
-corpus cases. Triage each explicitly — fix, or quarantine with a recorded reason.
-Do not silence.
+**Measured surface:** exactly one existing case is gen-pinned and non-renderable
+(`components/child_prop_attrs_reference`), and it is `diag(error)`, which this
+skips. Expect zero pre-existing breakage; the check exists to compile the *new*
+cases. If a case does newly fail, triage it explicitly — fix, or quarantine with a
+recorded reason. Do not silence.
+
+**Measured cost (post-implementation).** The extra `go build` is amortized across
+the whole corpus (one build over the tmp module) and did not move the suite's wall
+clock materially. The other new per-file cost is `checkReservedDecls`' own
+`go/parser` pass over each top-level Go region — ~5 µs/file, +2% on a pathological
+19k-line package, warm path unchanged. It is a **5th** parse of the same `GoChunk`
+text (also parsed at `analyze.go:388`, `emit.go:143`, `gsximports.go:37`,
+`module_importer.go:484`, all via `splitChunk`). Individually negligible; a shared
+parse cache would pay for all five and is recorded as a follow-up in the roadmap.
 
 ## Non-goals
 
@@ -267,12 +301,20 @@ compiles:
 | 10 | component + `var gsx = 1` | three aliases; `var gsx` intact |
 | 11 | component + `import context "mypkg"` used | three aliases + `context "mypkg"` |
 | 12 | component + `var io = 1` | three aliases |
-| 13 | numeric interp + `var strconv = 1` | three aliases + `_gsxsc` |
+| 13 | **bool** interp + `var strconv = "shadowed"` | three aliases + `_gsxsc` |
 | 14 | element literal in `var`, no component | `_gsxrt`, `_gsxctx`, `_gsxio` |
 | 15 | `component Foo(gsx string)` | legal now — pins the deleted stopgap |
 
+Row 13 originally read "numeric interp + `var strconv = 1`". That is wrong: an
+`int` text-interpolation lowers to the zero-alloc `_gsxgw.IntInto(…)` fast path and
+references `strconv` not at all. Only a `bool` interpolation (`catBool` →
+`strconv.FormatBool`) makes the generator reach for `_gsxsc` in text position. The
+shipped case `imports/shadow_strconv.txtar` uses a bool.
+
 Unit tests: blank (`_`) and dot (`.`) imports of the gsx path; a file-scope decl
-named `_gsxrt` rejected by the extended reserved-prefix check.
+named `_gsxrt` rejected by the extended reserved-prefix check. (Shipped as corpus
+cases instead — cheaper, and they pin generated output, which a unit test would
+not.)
 
 ## Blast radius
 
@@ -296,10 +338,12 @@ chose this trade.
 2. **A user Go chunk referencing `_gsx*`.** Newly rejected by the extended
    reserved-prefix check. Previously it would have miscompiled silently, so this
    converts a latent break into a clean diagnostic.
-3. **Golden regeneration hides a real regression.** Mitigate: regenerate in a
-   commit that touches *only* goldens, and review its diff for anything other
-   than `gsx.`→`_gsxrt.`, `context.`→`_gsxctx.`, `io.`→`_gsxio.`,
-   `strconv.`→`_gsxsc.`, and removed import blocks.
+3. **Golden regeneration hides a real regression.** Code and goldens must land in
+   one commit (tests fail otherwise), so the mitigation is a filtered diff review:
+   after `-update`, the golden diff must contain *nothing* except
+   `gsx.`→`_gsxrt.`, `context.`→`_gsxctx.`, `io.`→`_gsxio.`,
+   `strconv.`→`_gsxsc.`, and removed import lines. The plan gives the exact
+   `git diff | grep -vE …` invocation. Investigate every surviving line.
 4. **`//line` column accuracy.** `column_accuracy_test.go` pins `.gsx` positions,
    which are unaffected by generated-side identifier width. Verify, don't assume.
 

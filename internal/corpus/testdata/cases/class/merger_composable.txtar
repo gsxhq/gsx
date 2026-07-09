@@ -28,11 +28,10 @@ C(CProps{On: true})
 package views
 
 import (
-	"context"
-	"io"
-
+	_gsxctx "context"
 	_gsxcm "corpustest/cases/class_merger_composable/mrg"
-	"github.com/gsxhq/gsx"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type CProps struct {
@@ -40,13 +39,13 @@ type CProps struct {
 }
 
 //line input.gsx:3:1
-func C(_gsxp CProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func C(_gsxp CProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		on := _gsxp.On
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:3:24
 		_gsxgw.S("<div class=\"")
-		_gsxgw.Class(_gsxcm.Keep, gsx.Class("btn"), gsx.ClassIf("btn-on", on))
+		_gsxgw.Class(_gsxcm.Keep, _gsxrt.Class("btn"), _gsxrt.ClassIf("btn-on", on))
 		_gsxgw.S("\">y</div>")
 		return _gsxgw.Err()
 	})

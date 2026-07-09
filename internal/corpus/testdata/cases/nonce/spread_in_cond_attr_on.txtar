@@ -30,10 +30,10 @@ withTestNonce(Page(PageProps{Hot: true, Extra: gsx.Attrs{{Key: "id", Value: "s"}
 package views
 
 import (
-	"context"
-	"io"
-
+	_gsxctx "context"
 	"github.com/gsxhq/gsx"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type PageProps struct {
@@ -42,14 +42,14 @@ type PageProps struct {
 }
 
 //line input.gsx:5:1
-func Page(_gsxp PageProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Page(_gsxp PageProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		hot := _gsxp.Hot
 		extra := _gsxp.Extra
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:5:45
 		_gsxgw.S("<script")
-		var _gsxv0 gsx.Attrs
+		var _gsxv0 _gsxrt.Attrs
 		if hot {
 			_gsxv0 = extra
 			_gsxgw.Spread(ctx, _gsxv0)

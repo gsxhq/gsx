@@ -22,10 +22,9 @@ Page()
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type FieldProps[T string | int] struct {
@@ -33,10 +32,10 @@ type FieldProps[T string | int] struct {
 }
 
 //line input.gsx:3:1
-func Field[T string | int](_gsxp FieldProps[T]) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Field[T string | int](_gsxp FieldProps[T]) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		value := _gsxp.Value
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<input value=\"")
 		_gsxgw.AttrAny(value)
@@ -46,9 +45,9 @@ func Field[T string | int](_gsxp FieldProps[T]) gsx.Node {
 }
 
 //line input.gsx:7:1
-func Page() gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func Page() _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxgw.Node(ctx, Field[int](FieldProps[int]{Value: 7}))
 //line input.gsx:9:2

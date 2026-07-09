@@ -1,0 +1,32 @@
+# Context: sibling of reserved_prefix_decl. None of these names collides with an
+# alias the generator actually emits today, so nothing else in the pipeline would
+# ever complain about them — the skeleton type-checks and the .x.go compiles. They
+# are rejected purely because the whole `_gsx` space is reserved: which aliases the
+# generator emits is an implementation detail that grows with every codegen
+# feature, and a .gsx file must never depend on which names happen to be taken.
+# This case therefore pins that checkReservedDecls does INDEPENDENT work rather
+# than front-running a Go error. It covers every package-scope binding form a
+# GoChunk can produce: import alias, var, const, type, func. (A component name
+# cannot reach the space at all — the parser's name scan admits no `_`.)
+-- input.gsx --
+package demo
+
+import _gsxstrings "strings"
+
+var _gsxfoo = 1
+
+const _gsxbar = 2
+
+type _gsxT struct{}
+
+func _gsxhelp() string { return _gsxstrings.ToUpper("x") }
+
+component Uses() {
+	<b>hi</b>
+}
+-- diagnostics.golden --
+3:8: identifier "_gsxstrings" uses the reserved _gsx prefix (reserved for generated code)
+5:5: identifier "_gsxfoo" uses the reserved _gsx prefix (reserved for generated code)
+7:7: identifier "_gsxbar" uses the reserved _gsx prefix (reserved for generated code)
+9:6: identifier "_gsxT" uses the reserved _gsx prefix (reserved for generated code)
+11:6: identifier "_gsxhelp" uses the reserved _gsx prefix (reserved for generated code)

@@ -17,10 +17,9 @@ Filter(FilterProps{EntityType: `deal "x" </tag>`, Extra: map[string]string{"page
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type FilterProps struct {
@@ -29,11 +28,11 @@ type FilterProps struct {
 }
 
 //line input.gsx:3:1
-func Filter(_gsxp FilterProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Filter(_gsxp FilterProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		entityType := _gsxp.EntityType
 		extra := _gsxp.Extra
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<input hx-vals=\"{&#34;entity_type&#34;: ")
 		_gsxgw.JSValAttr(entityType)

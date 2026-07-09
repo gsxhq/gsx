@@ -15,10 +15,9 @@ Greeting(GreetingProps{Name: "World", Count: 3})
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type GreetingProps struct {
@@ -27,11 +26,11 @@ type GreetingProps struct {
 }
 
 //line input.gsx:3:1
-func Greeting(_gsxp GreetingProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Greeting(_gsxp GreetingProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		name := _gsxp.Name
 		count := _gsxp.Count
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:4:2
 		_gsxgw.S("<p>Hello, ")

@@ -22,10 +22,9 @@ C(CProps{Label: "x"})
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 var calls int
@@ -35,10 +34,10 @@ type CProps struct {
 }
 
 //line input.gsx:5:1
-func C(_gsxp CProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func C(_gsxp CProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		label := _gsxp.Label
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<div")
 		_gsxv0 := setState()
@@ -49,7 +48,7 @@ func C(_gsxp CProps) gsx.Node {
 			_gsxv1 = "color: red"
 		}
 		_gsxgw.S(" style=\"")
-		_gsxgw.Style(gsx.Class(gsx.StyleValue(_gsxv0)), gsx.Class(_gsxv1))
+		_gsxgw.Style(_gsxrt.Class(_gsxrt.StyleValue(_gsxv0)), _gsxrt.Class(_gsxv1))
 		_gsxgw.S("\">")
 //line input.gsx:6:84
 		_gsxgw.Text(string(label))

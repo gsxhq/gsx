@@ -19,10 +19,9 @@ Button(ButtonProps{Action: "save"})
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 func handler(action string) (string, error) { return "doThing('" + action + "')", nil }
@@ -32,10 +31,10 @@ type ButtonProps struct {
 }
 
 //line input.gsx:5:1
-func Button(_gsxp ButtonProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Button(_gsxp ButtonProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		action := _gsxp.Action
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<button")
 		_gsxv0, _gsxerr := handler(action)

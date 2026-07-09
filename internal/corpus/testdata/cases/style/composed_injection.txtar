@@ -15,10 +15,9 @@ Evil(EvilProps{U: "red; pointer-events: none; background: url(javascript:alert(1
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type EvilProps struct {
@@ -26,13 +25,13 @@ type EvilProps struct {
 }
 
 //line input.gsx:3:1
-func Evil(_gsxp EvilProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Evil(_gsxp EvilProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		u := _gsxp.U
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<span style=\"")
-		_gsxgw.Style(gsx.Class(gsx.StyleValue("color: " + u)))
+		_gsxgw.Style(_gsxrt.Class(_gsxrt.StyleValue("color: " + u)))
 		_gsxgw.S("\">x</span>")
 		return _gsxgw.Err()
 	})

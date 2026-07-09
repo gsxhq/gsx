@@ -30,19 +30,18 @@ Plain()
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 // No class attribute anywhere — _gsxcm import must be omitted even though
 // class_merger is configured in gsx.toml.
 
 //line input.gsx:5:1
-func Plain() gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func Plain() _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:5:21
 		_gsxgw.S("<p>hello</p>")
 		return _gsxgw.Err()

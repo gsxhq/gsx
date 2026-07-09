@@ -1,8 +1,0 @@
--- input.gsx --
-package views
-
-component Bad(gsx string, n int) {
-	<p>{gsx}{n}</p>
-}
--- diagnostics.golden --
-3:1: param name "gsx" is reserved (shadows a generated import)

@@ -22,10 +22,9 @@ Page()
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type Count int
@@ -40,10 +39,10 @@ type GaugeProps struct {
 }
 
 //line input.gsx:7:1
-func Gauge(_gsxp GaugeProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Gauge(_gsxp GaugeProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		value := _gsxp.Value
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 		var _gsxnum [32]byte
 //line input.gsx:7:62
 		_gsxgw.S("<div>")
@@ -55,9 +54,9 @@ func Gauge(_gsxp GaugeProps) gsx.Node {
 }
 
 //line input.gsx:9:1
-func Page() gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func Page() _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:9:20
 		_gsxgw.Node(ctx, Gauge(GaugeProps{Value: 100, N: 3, C: 5, On: true}))
 		return _gsxgw.Err()

@@ -1,0 +1,27 @@
+# Context: the OTHER top-level decl form — a Go region with element literals
+# spliced into expression position (ast.GoWithElements), which is not verbatim Go
+# and so cannot simply be handed to go/parser. checkReservedDecls reconstructs it
+# by blanking each literal to a byte-length-preserving `_()` call. BYTE length is
+# what the reconstruction must preserve, and all it must preserve: the check maps
+# a parsed name back to its .gsx position by byte offset alone, never by line or
+# column. The first element deliberately spans several lines to pin that its
+# interior newlines are blanked with everything else, and that the `var _gsxafter`
+# following it is still reported — the newline that separates them belongs to the
+# GoText part after the literal, not to the literal.
+-- input.gsx --
+package demo
+
+var _gsxnode = (
+	<b>
+		hi
+	</b>
+)
+
+var _gsxafter = <i>x</i>
+
+component Uses() {
+	<b>hi</b>
+}
+-- diagnostics.golden --
+3:5: identifier "_gsxnode" uses the reserved _gsx prefix (reserved for generated code)
+9:5: identifier "_gsxafter" uses the reserved _gsx prefix (reserved for generated code)

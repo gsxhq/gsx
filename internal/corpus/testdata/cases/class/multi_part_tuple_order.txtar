@@ -38,18 +38,17 @@ C()
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 var trace []string
 
 //line input.gsx:5:1
-func C() gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func C() _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<span")
 		_gsxv0 := first()
@@ -59,7 +58,7 @@ func C() gsx.Node {
 		}
 		_gsxv2 := last()
 		_gsxgw.S(" class=\"")
-		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class(_gsxv0), gsx.Class(_gsxv1), gsx.Class(_gsxv2))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0), _gsxrt.Class(_gsxv1), _gsxrt.Class(_gsxv2))
 		_gsxgw.S("\">x</span>")
 		return _gsxgw.Err()
 	})

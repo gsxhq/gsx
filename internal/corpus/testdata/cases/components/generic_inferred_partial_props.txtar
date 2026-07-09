@@ -19,10 +19,9 @@ Page()
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type ButtonProps[T string | int] struct {
@@ -31,14 +30,14 @@ type ButtonProps[T string | int] struct {
 }
 
 //line input.gsx:3:1
-func Button[T string | int](_gsxp ButtonProps[T]) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Button[T string | int](_gsxp ButtonProps[T]) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		label := _gsxp.Label
 		size := _gsxp.Size
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<button class=\"")
-		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class(size))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(size))
 		_gsxgw.S("\">")
 //line input.gsx:4:23
 		_gsxgw.TextAny(label)
@@ -48,9 +47,9 @@ func Button[T string | int](_gsxp ButtonProps[T]) gsx.Node {
 }
 
 //line input.gsx:7:1
-func Page() gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func Page() _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxgw.Node(ctx, Button[int](ButtonProps[int]{Label: 7}))
 		return _gsxgw.Err()

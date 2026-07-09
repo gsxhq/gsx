@@ -627,20 +627,58 @@ vocabulary remains a design aspiration, not the current API.
   literal text, so a bare `//` in content renders verbatim; the braced
   `{/* … */}` form is the content-comment. Printer simplified; faithfulness +
   idempotence re-proven.
-- [~] **`_gsx`-alias generator-emitted imports** - robust form of the
-  import-shadow guard (currently `gsx`/`strconv` are reserved param names as a
-  stopgap). **Designed 2026-07-08**, spec
-  `2026-07-08-gsx-alias-generator-imports-design.md`. Scope grew once probed: the
-  emitter both *hardcodes* the idents `gsx`/`context`/`io`/`strconv` (so
-  `import gsx "strings"` or `var gsx = 1` emits `gsx redeclared in this block`)
-  **and** seeds `context`/`io`/`gsx` unconditionally (so a `.gsx` with no gsx
-  parts emits three unused imports). Six probed sources where `generate` exits 0
-  and `go build` fails. Fix: record each generator import at its emission site
-  (as `strconv` already does), always `_gsx`-alias them, delete
-  `emittedImportIdent`. Establishes the rule **"`gsx` is an ordinary Go package
-  in `.gsx` source: reference it → import it; don't → don't"**. Also closes a
-  corpus blind spot - `internal/corpus/batch.go` never compiles non-renderable
-  cases, which is where all six bugs hid.
+- [x] **`_gsx`-alias generator-emitted imports** - SHIPPED (2026-07-08). Every
+  generator-emitted import (`gsx`, `context`, `io`, `strconv`) is recorded at its
+  emission site and referenced through a reserved `_gsx` alias, so a `.gsx` may
+  bind any of those names freely and a file with no gsx parts emits no import
+  block. Removes the `gsx`/`strconv` reserved-param stopgap; a method-component
+  receiver var may be named `gsx`/`strconv` too. In exchange, `_gsx` is reserved
+  at package scope (`var`/`const`/`func`/`type` names and import aliases) — a
+  clean, positioned diagnostic, checked over the `.gsx` AST. Establishes the rule
+  **"`gsx` is an ordinary Go package in `.gsx` source: reference it → import it;
+  don't → don't"**. Also closed a corpus blind spot: `internal/corpus/batch.go`
+  never compiled non-renderable cases, which is where all six non-compiling-output
+  bugs hid. Spec `2026-07-08-gsx-alias-generator-imports-design.md`.
+  **Follow-ups (none blocking):**
+  1. `gsx fmt` / LSP `source.organizeImports` do not *add* a missing `gsx` import
+     (goimports mode uses `imports.Process` with `FormatOnly: true`, which skips
+     usage-based add/remove). The type-check already knows the identifier is
+     undefined, so this is tractable against the organize-imports spec. **This is
+     the one ergonomic cost of the rule.**
+  2. `classMergeExpr(mergeExpr, rt)` is passed at two sites (`emit.go`, into
+     `childPropsLiteral`'s subtree) where the callee provably never emits the
+     string — `classEntryExpr` ends with `_ = mergeExpr`. It is the one live
+     exception to the accessor⇔emission invariant `rtimports.go` states. Fix:
+     delete `mergeExpr` from `childPropsLiteral` / `classEntryExpr` /
+     `condAttrsExpr` / `condBranchAttrs`.
+     **Wider than first recorded:** `rt.rt()` is passed as `rtPkg` at those same
+     two call sites (`genChildComponent`, `genSkippedTagSink`) and has the
+     identical property — `childPropsLiteral` emits `rtPkg` only on some prop
+     forms, so the accessor records the runtime need even when nothing prints it.
+     Both are **harmless, not live bugs**: every generated component writes
+     `_gsxrt.Node` into its signature and every element literal bakes
+     `_gsxrt.Func(`, and those two are the only ways to reach `childPropsLiteral`,
+     so `rt[gsxRuntimePath]` is already true at both sites. Confirmed empirically:
+     of the 269 corpus goldens that import `_gsxrt`, none leaves it unreferenced
+     (an over-record would surface as `imported and not used`). Fold `rtPkg` into
+     the same cleanup.
+  3. A file that `checkReservedDecls` rejects is skipped per-file rather than
+     aborting the package, so a **sibling** file using its components draws a
+     spurious `undefined: Comp` on top of the real diagnostic (`a.gsx` with
+     `var _gsxfoo = 1` + `b.gsx` using its component yields the correct diagnostic
+     plus `b.gsx:4:14: undefined: Comp`). Same shape as the pre-existing
+     `attrError` per-file skip, but new for reserved-decl errors.
+  4. `gsx fmt` does not enforce the `_gsx` reservation (only `generate` / the
+     analysis path does).
+  5. **`_gsx` in a hand-written sibling `.go` file** (not a `.gsx` file) is the
+     one place the reservation does not reach: `checkReservedDecls` lexes gsx's
+     own Go fragments, but gsx never reads a plain `.go` file's bodies (only its
+     struct field names, for BYO). A `var _gsxio = 1` there still makes
+     `generate` exit 0 and the emitted `.x.go` fail `go build`. Extremely
+     unlikely, loudly caught by the build, and documented in
+     `docs/guide/syntax/raw-go.md`. Closing it would mean scanning sibling `.go`
+     files for `_gsx` identifiers with the same tokenizer — cheap, deferred only
+     because the payoff is marginal.
 - [x] **Structured diagnostics - Slice 1 (semantic layer)** - `internal/diag`
   (resolved `token.Position` Start/End, severity, code, message, help, source; `Bag`
   collector; rich/compact/JSON renderers). All `go/types` errors surfaced; codegen

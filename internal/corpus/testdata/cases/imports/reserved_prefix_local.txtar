@@ -1,0 +1,20 @@
+# Context: a `_gsx` name bound as a FUNCTION-BODY LOCAL — the hole the
+# scanner-based checkReservedDecls closes. `_gsxio` shadows the reserved alias
+# the generator emits for the "io" import into that same function's render
+# closure, so before this pass ran over every Go fragment (not just top-level
+# declarations) `gsx generate` exited 0 and the emitted .x.go failed `go build`
+# with `"io" imported as _gsxio and not used`. Now it is a clean, positioned
+# diagnostic. Pins that the reservation reaches inside a func body, not only
+# package scope.
+-- input.gsx --
+package demo
+
+import "github.com/gsxhq/gsx"
+
+func helper() gsx.Node {
+	_gsxio := 4
+	_ = _gsxio
+	return <b>hi</b>
+}
+-- diagnostics.golden --
+6:2: identifier "_gsxio" uses the reserved _gsx prefix (reserved for generated code)

@@ -19,10 +19,9 @@ Page(Cfg{Note: "</script><script>alert(1)</script>"})
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type Cfg struct {
@@ -30,9 +29,9 @@ type Cfg struct {
 }
 
 //line input.gsx:7:1
-func Page(cfg Cfg) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
-		_gsxgw := gsx.W(_gsxw)
+func Page(cfg Cfg) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxgw.S("<script type=\"application/json\" id=\"cfg\"")
 		_gsxgw.Nonce(ctx)

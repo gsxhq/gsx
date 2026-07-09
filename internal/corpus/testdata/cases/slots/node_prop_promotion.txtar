@@ -21,10 +21,10 @@ Page(PageProps{N: 5})
 package views
 
 import (
-	"context"
-	"io"
-
+	_gsxctx "context"
 	"github.com/gsxhq/gsx"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type CardProps struct {
@@ -33,11 +33,11 @@ type CardProps struct {
 }
 
 //line input.gsx:5:1
-func Card(_gsxp CardProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Card(_gsxp CardProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		title := _gsxp.Title
 		content := _gsxp.Content
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
 		_gsxgw.S("<div class=\"card\">")
 //line input.gsx:6:20
@@ -59,12 +59,12 @@ type PageProps struct {
 }
 
 //line input.gsx:9:1
-func Page(_gsxp PageProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Page(_gsxp PageProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		n := _gsxp.N
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Card(CardProps{Title: gsx.Text("Card Title"), Content: gsx.Val(n)}))
+		_gsxgw.Node(ctx, Card(CardProps{Title: _gsxrt.Text("Card Title"), Content: _gsxrt.Val(n)}))
 		return _gsxgw.Err()
 	})
 }

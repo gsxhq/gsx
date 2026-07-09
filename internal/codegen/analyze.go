@@ -3426,19 +3426,16 @@ func parseRecv(recv string) (recvVar, recvType, recvTypeName string, err error) 
 }
 
 // checkReservedRecvVar rejects a method-component receiver var that would
-// collide with the ambient closure context (`ctx`), the generator's reserved
-// `_gsx` namespace, or a package ident the emitter references in the body
-// (gsx/strconv) — any of which would break the emitted method body where the
-// receiver var is in scope.
+// collide with the ambient closure context (`ctx`) or the generator's reserved
+// `_gsx` namespace — either of which would break the emitted method body where
+// the receiver var is in scope. (Generator-emitted package references are
+// _gsx-aliased, so a receiver var can no longer shadow one — see rtImports.)
 func checkReservedRecvVar(recvVar string) error {
 	if recvVar == "ctx" {
 		return fmt.Errorf("codegen: method-component receiver var %q is reserved (ambient context)", recvVar)
 	}
-	if strings.HasPrefix(recvVar, "_gsx") {
+	if strings.HasPrefix(recvVar, reservedPrefix) {
 		return fmt.Errorf("codegen: method-component receiver var %q uses the reserved _gsx prefix", recvVar)
-	}
-	if emittedImportIdent[recvVar] {
-		return fmt.Errorf("codegen: method-component receiver var %q is reserved (shadows a generated import)", recvVar)
 	}
 	return nil
 }
@@ -3571,6 +3568,12 @@ func typeArgUse(src string) string {
 	return "[" + src + "]"
 }
 
+// goDeclWrapPrefix wraps a top-level Go region as a parseable file for
+// splitChunk, which peels the region's leading imports off to hoist them ahead
+// of all other declarations. Its byte length is subtracted when mapping a parsed
+// offset back onto the region, whose text is the .gsx source verbatim.
+const goDeclWrapPrefix = "package _gsxp\n"
+
 // checkReservedParams rejects param names that would collide with the ambient
 // closure context or the generator's reserved identifier namespace. The
 // generated render closure exposes `ctx` (ambient — user interpolation exprs may
@@ -3588,24 +3591,12 @@ func checkReservedParams(params []param) error {
 		if p.name == "attrs" {
 			return fmt.Errorf("codegen: param name %q is reserved (explicit attribute forwarding)", p.name)
 		}
-		if strings.HasPrefix(p.name, "_gsx") {
+		if strings.HasPrefix(p.name, reservedPrefix) {
 			return fmt.Errorf("codegen: param name %q uses the reserved _gsx prefix", p.name)
-		}
-		// Package identifiers the emitter references inside the closure body: a
-		// same-named param would shadow them via local-binding and break the
-		// generated code. (The runtime import and strconv are the only package
-		// idents emitted into bodies today; a more robust fix would _gsx-alias
-		// generator-emitted imports — tracked for phase 2.)
-		if emittedImportIdent[p.name] {
-			return fmt.Errorf("codegen: param name %q is reserved (shadows a generated import)", p.name)
 		}
 	}
 	return nil
 }
-
-// emittedImportIdent is the set of package identifiers the emitter references in
-// a render closure body (see genInterp/emitRender and genComponent).
-var emittedImportIdent = map[string]bool{"gsx": true, "strconv": true}
 
 // importSpec is one parsed import hoisted from a pass-through Go chunk: an
 // import path with an optional explicit name ("", a package alias, "." or "_").
@@ -3634,7 +3625,7 @@ type importSpec struct {
 // after the last import (any comments before/between imports carry no symbols
 // and are dropped); a single //line anchor therefore maps the whole body.
 func splitChunk(src string) (imports []importSpec, body string, bodyOff int, err error) {
-	const prefix = "package _gsxp\n"
+	const prefix = goDeclWrapPrefix
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "", prefix+src, parser.ParseComments)
 	if err != nil {

@@ -208,8 +208,14 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 	}
 
 	// Step 5: build and run all renderable cases with a single `go run`.
+	// Non-renderable cases that produced generated output are blank-imported into
+	// the same main.go so they COMPILE too. A .gsx with no component has nothing
+	// to invoke, so before this its .x.go was golden-pinned but never built — the
+	// blind spot that hid `generate` emitting unused imports and redeclared
+	// identifiers while exiting 0.
 	var imports, dispatch bytes.Buffer
 	built := 0
+	compiled := 0
 
 	for _, c := range candidates {
 		if !c.renderable() {
@@ -232,8 +238,37 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 			caseMarkerPrefix+c.name+caseMarkerSuffix+"\n", alias)
 	}
 
-	if built > 0 {
-		main := "package main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"os\"\n" + imports.String() + ")\n\nfunc main() {\n\tctx := context.Background()\n" + dispatch.String() + "}\n"
+	for _, c := range candidates {
+		if c.renderable() {
+			continue // already imported (and thus compiled) by the loop above
+		}
+		cg := results[c.name]
+		if cg == nil || len(cg.gen) == 0 || len(cg.diag) > 0 {
+			// No generated output, or the case pins expected diagnostics — an
+			// error case is not meant to compile.
+			continue
+		}
+		root := caseImportRoot(c)
+		pkgs := []string{root}
+		if c.multiPkg {
+			pkgs = pkgs[:0]
+			for _, dir := range c.packageDirs() {
+				pkgs = append(pkgs, root+"/"+dir)
+			}
+		}
+		for _, p := range pkgs {
+			fmt.Fprintf(&imports, "\t_ %q\n", p)
+			compiled++
+		}
+	}
+
+	if built > 0 || compiled > 0 {
+		// With no renderable case, context/fmt/os would be unused imports in the
+		// harness's own main.go — emit the minimal program instead.
+		main := "package main\n\nimport (\n" + imports.String() + ")\n\nfunc main() {}\n"
+		if built > 0 {
+			main = "package main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"os\"\n" + imports.String() + ")\n\nfunc main() {\n\tctx := context.Background()\n" + dispatch.String() + "}\n"
+		}
 		if err := os.WriteFile(filepath.Join(tmp, "main.go"), []byte(main), 0o644); err != nil {
 			return nil, err
 		}

@@ -20,10 +20,10 @@ Page(PageProps{Name: "star"})
 package views
 
 import (
-	"context"
-	"io"
-
+	_gsxctx "context"
 	"github.com/gsxhq/gsx"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 func makeIcon(name string) (gsx.Node, error) { return gsx.Text("<" + name + ">"), nil }
@@ -33,10 +33,10 @@ type BadgeProps struct {
 }
 
 //line input.gsx:7:1
-func Badge(_gsxp BadgeProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Badge(_gsxp BadgeProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		icon := _gsxp.Icon
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:7:34
 		_gsxgw.S("<div class=\"badge\">")
 //line input.gsx:7:53
@@ -51,16 +51,16 @@ type PageProps struct {
 }
 
 //line input.gsx:9:1
-func Page(_gsxp PageProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Page(_gsxp PageProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		name := _gsxp.Name
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:9:31
 		_gsxv0, _gsxerr := makeIcon(name)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Badge(BadgeProps{Icon: gsx.Val(_gsxv0)}))
+		_gsxgw.Node(ctx, Badge(BadgeProps{Icon: _gsxrt.Val(_gsxv0)}))
 		return _gsxgw.Err()
 	})
 }

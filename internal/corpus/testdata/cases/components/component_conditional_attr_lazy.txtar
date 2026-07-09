@@ -27,10 +27,10 @@ Page(PageProps{U: nil})
 package views
 
 import (
-	"context"
-	"io"
-
+	_gsxctx "context"
 	"github.com/gsxhq/gsx"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type User struct {
@@ -39,18 +39,18 @@ type User struct {
 
 type CardProps struct {
 	Title gsx.Node
-	Attrs gsx.Attrs
+	Attrs _gsxrt.Attrs
 }
 
 //line input.gsx:9:1
-func Card(_gsxp CardProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Card(_gsxp CardProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		title := _gsxp.Title
 		attrs := _gsxp.Attrs
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:9:34
 		_gsxgw.S("<div class=\"")
-		_gsxgw.Class(gsx.DefaultClassMerge, gsx.Class("card"), gsx.Class(attrs.Class()))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("card"), _gsxrt.Class(attrs.Class()))
 		_gsxgw.S("\"")
 		_gsxgw.StyleMerged("", attrs.Style())
 		_gsxgw.Spread(ctx, attrs.Without("class", "style"))
@@ -67,18 +67,18 @@ type PageProps struct {
 }
 
 //line input.gsx:11:1
-func Page(_gsxp PageProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Page(_gsxp PageProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		u := _gsxp.U
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
-		_gsxv0, _gsxerr := gsx.AttrsCond(u != nil, func() (gsx.Attrs, error) {
-			return gsx.Attrs{{Key: "data-name", Value: u.Name}}, nil
+		_gsxv0, _gsxerr := _gsxrt.AttrsCond(u != nil, func() (_gsxrt.Attrs, error) {
+			return _gsxrt.Attrs{{Key: "data-name", Value: u.Name}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Card(CardProps{Title: gsx.Text("Hi"), Attrs: gsx.Attrs{}.Merge(_gsxv0)}))
+		_gsxgw.Node(ctx, Card(CardProps{Title: _gsxrt.Text("Hi"), Attrs: _gsxrt.Attrs{}.Merge(_gsxv0)}))
 		return _gsxgw.Err()
 	})
 }

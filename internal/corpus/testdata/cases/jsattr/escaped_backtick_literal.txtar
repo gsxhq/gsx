@@ -15,10 +15,9 @@ Button(ButtonProps{Name: "Ada"})
 package p
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
+	_gsxio "io"
 )
 
 type ButtonProps struct {
@@ -26,10 +25,10 @@ type ButtonProps struct {
 }
 
 //line input.gsx:2:1
-func Button(_gsxp ButtonProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Button(_gsxp ButtonProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		name := _gsxp.Name
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:3:2
 		_gsxgw.S("<button @click=\"save(`hi ")
 		_gsxgw.JSTmplAttr(string(name))

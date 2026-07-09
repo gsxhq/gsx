@@ -18,11 +18,10 @@ Page(PageProps{Name: "ada"})
 package views
 
 import (
-	"context"
-	"io"
-
-	"github.com/gsxhq/gsx"
+	_gsxctx "context"
+	_gsxrt "github.com/gsxhq/gsx"
 	_gsxstd "github.com/gsxhq/gsx/std"
+	_gsxio "io"
 )
 
 type LabelProps struct {
@@ -30,10 +29,10 @@ type LabelProps struct {
 }
 
 //line input.gsx:3:1
-func Label(_gsxp LabelProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Label(_gsxp LabelProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		text := _gsxp.Text
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:3:32
 		_gsxgw.S("<span>")
 //line input.gsx:3:38
@@ -48,10 +47,10 @@ type PageProps struct {
 }
 
 //line input.gsx:5:1
-func Page(_gsxp PageProps) gsx.Node {
-	return gsx.Func(func(ctx context.Context, _gsxw io.Writer) error {
+func Page(_gsxp PageProps) _gsxrt.Node {
+	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		name := _gsxp.Name
-		_gsxgw := gsx.W(_gsxw)
+		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:5:31
 		_gsxgw.Node(ctx, Label(LabelProps{Text: _gsxstd.Upper((name))}))
 		return _gsxgw.Err()
