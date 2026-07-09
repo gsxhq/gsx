@@ -43,14 +43,28 @@ func TestEditorConfigIndentSizeFallback(t *testing.T) {
 	}
 }
 
-// A [*] section must not leak into .gsx when a [*.gsx] section overrides it.
-func TestEditorConfigGlobSpecificity(t *testing.T) {
+// EditorConfig has no glob-specificity concept: per the upstream doc comment,
+// "the last section has preference over the priors". Whichever section is
+// written last in the file wins, regardless of how specific its glob is. Both
+// orderings are asserted here so a "more specific glob wins" implementation
+// would fail this test. Do NOT "fix" fixture B to expect 2 — the less
+// specific [*] section winning is the correct, spec-mandated behavior because
+// it comes last.
+func TestEditorConfigLastSectionWins(t *testing.T) {
 	root := writeTree(t, map[string]string{
 		".editorconfig": "root = true\n\n[*]\ntab_width = 8\n\n[*.gsx]\ntab_width = 2\n",
 		"ui/a.gsx":      "",
 	})
 	if got := newEditorConfigResolver().settingsFor(filepath.Join(root, "ui/a.gsx")); got.tabWidth != 2 {
-		t.Errorf("tabWidth = %d, want 2", got.tabWidth)
+		t.Errorf("[*] then [*.gsx]: tabWidth = %d, want 2 (last section, [*.gsx], wins)", got.tabWidth)
+	}
+
+	root2 := writeTree(t, map[string]string{
+		".editorconfig": "root = true\n\n[*.gsx]\ntab_width = 2\n\n[*]\ntab_width = 8\n",
+		"ui/a.gsx":      "",
+	})
+	if got := newEditorConfigResolver().settingsFor(filepath.Join(root2, "ui/a.gsx")); got.tabWidth != 8 {
+		t.Errorf("[*.gsx] then [*]: tabWidth = %d, want 8 (last section, [*], wins despite being less specific)", got.tabWidth)
 	}
 }
 
@@ -76,11 +90,22 @@ func TestEditorConfigMaxLineLengthOff(t *testing.T) {
 	}
 }
 
-func TestEditorConfigAbsentIsUnset(t *testing.T) {
-	root := writeTree(t, map[string]string{"ui/a.gsx": ""})
+// Resolution walks UP the directory tree until it finds "root = true" or
+// reaches the filesystem root. t.TempDir() lives under the system temp dir,
+// so without an anchor this test would keep walking past the fixture into
+// ancestor directories the test has no control over; any .editorconfig that
+// ever appeared there would silently change the result. Placing a bare
+// "root = true" (no keys) at the top of the fixture tree stops the walk right
+// there, so the assertion tests "a reachable section sets no keys", not the
+// untestable "no .editorconfig file exists anywhere".
+func TestEditorConfigNoKeysIsUnset(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		".editorconfig": "root = true\n",
+		"ui/a.gsx":      "",
+	})
 	got := newEditorConfigResolver().settingsFor(filepath.Join(root, "ui/a.gsx"))
 	if got.tabWidth != 0 || got.printWidth != 0 {
-		t.Errorf("no .editorconfig: got %+v, want zero", got)
+		t.Errorf("no keys: got %+v, want zero", got)
 	}
 }
 
