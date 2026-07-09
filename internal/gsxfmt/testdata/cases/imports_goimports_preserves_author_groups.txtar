@@ -1,0 +1,31 @@
+goimports mode never merges away a blank-line group the author already wrote,
+even when both groups are standard library. This is real goimports semantics
+(imports.Process with FormatOnly), verified byte-identical against the
+goimports binary on this exact input — do not "fix" it into one group.
+
+-- imports --
+goimports
+-- input.gsx --
+package ui
+
+import (
+	"fmt"
+
+	"strings"
+)
+
+func F() string {
+	return fmt.Sprintf("%s", strings.ToUpper("x"))
+}
+-- fmt.golden --
+package ui
+
+import (
+	"fmt"
+
+	"strings"
+)
+
+func F() string {
+	return fmt.Sprintf("%s", strings.ToUpper("x"))
+}

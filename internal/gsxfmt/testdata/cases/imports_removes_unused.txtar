@@ -1,0 +1,32 @@
+goimports mode removes an import named in the case's -- unused -- list. The
+component never references "strings", so it is dropped while "fmt" (which the
+component does use) survives, and the blank line the author left between the
+import block and the following func declaration is preserved (pins the
+preserveTrailing fix — a naive TrimSpace on the rewritten chunk body would
+silently swallow that blank line).
+
+-- imports --
+goimports
+-- unused --
+strings
+-- input.gsx --
+package ui
+
+import (
+	"fmt"
+	"strings"
+)
+
+func Greet(name string) string {
+	return fmt.Sprintf("Hello, %s", name)
+}
+-- fmt.golden --
+package ui
+
+import (
+	"fmt"
+)
+
+func Greet(name string) string {
+	return fmt.Sprintf("Hello, %s", name)
+}
