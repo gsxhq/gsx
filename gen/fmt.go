@@ -25,6 +25,18 @@ import (
 //	-w         rewrite each file in place (only when its content changed)
 //	-l         list the paths of files whose formatting differs
 //	-d         write a unified diff of the changes to stdout
+//	-imports   import handling: "goimports" (default) or "gofmt"
+//	-no-imports  alias for -imports gofmt
+//
+// Import handling has two modes, resolved per directory (a CLI flag, when
+// given, overrides every directory's gsx.toml):
+//
+//	goimports (default)  remove unused imports; merge every import declaration
+//	                      into one block, dedup identical specs, group the
+//	                      standard library separately from everything else,
+//	                      and sort within each group
+//	gofmt                 format only: imports are never removed, merged,
+//	                      deduped, or grouped
 //
 // Path args are .gsx FILES or DIRECTORIES; directories are walked recursively
 // for .gsx files, skipping the same junk dirs as discovery (.git, hidden dirs,
@@ -34,6 +46,8 @@ import (
 //
 //	0  success: all files parsed, and for default/-w no errors occurred
 //	1  a parse error on any file, OR (with -l or -d) any file differs
+//	2  a usage error: an unparseable flag, an invalid -imports value, or
+//	   -imports goimports combined with -no-imports
 //
 // The -l/-d non-zero-on-difference choice is deliberately CI-friendly: it lets
 // a build fail when sources are not canonically formatted (like `gofmt -l` used
@@ -46,20 +60,42 @@ func runFmt(stdout, stderr io.Writer, args []string, cssFmt, jsFmt rawfmt.Format
 	fs := flag.NewFlagSet("gsx fmt", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
-		write     bool
-		list      bool
-		diff      bool
-		noImports bool
+		write       bool
+		list        bool
+		diff        bool
+		noImports   bool
+		importsFlag string
 	)
 	fs.BoolVar(&write, "w", false, "write result to (source) file instead of stdout")
 	fs.BoolVar(&list, "l", false, "list files whose formatting differs")
 	fs.BoolVar(&diff, "d", false, "display diffs instead of rewriting files")
-	fs.BoolVar(&noImports, "no-imports", false, "do not remove unused imports (skip module analysis)")
+	fs.StringVar(&importsFlag, "imports", "", `import handling: "goimports" (default; remove unused + merge/dedup/group) or "gofmt" (format only)`)
+	fs.BoolVar(&noImports, "no-imports", false, `alias for -imports gofmt`)
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0
 		}
 		return 2
+	}
+
+	// CLI mode: -imports wins; -no-imports is its "gofmt" alias. Asking for both
+	// goimports and no-imports is contradictory, so it is a usage error rather
+	// than a silent precedence rule.
+	var cliMode gsxfmt.ImportsMode
+	if importsFlag != "" {
+		m, err := gsxfmt.ParseImportsMode(importsFlag)
+		if err != nil {
+			fmt.Fprintf(stderr, "gsx: -imports: %v\n", err)
+			return 2
+		}
+		cliMode = m
+	}
+	if noImports {
+		if cliMode == gsxfmt.ImportsGoimports {
+			fmt.Fprintf(stderr, "gsx: -no-imports conflicts with -imports goimports\n")
+			return 2
+		}
+		cliMode = gsxfmt.ImportsGofmt
 	}
 
 	// Anchor relative path arguments (and the default ".") at workDir so fmt never
@@ -71,10 +107,32 @@ func runFmt(stdout, stderr io.Writer, args []string, cssFmt, jsFmt rawfmt.Format
 		return 2
 	}
 
+	// Mode is resolved per directory (gsx.toml is discovered by walking up from
+	// each file), with the CLI flag — when given — overriding every directory.
+	modeByDir := map[string]gsxfmt.ImportsMode{}
+	modeFor := func(path string) gsxfmt.ImportsMode {
+		dir := filepath.Dir(path)
+		m, ok := modeByDir[dir]
+		if !ok {
+			m = cliMode.Or(importsModeFor(dir))
+			modeByDir[dir] = m
+		}
+		return m
+	}
+
+	// Only files whose mode removes unused imports need the (expensive) module
+	// analysis; gofmt-mode files are excluded so no codegen.Module is opened for
+	// them.
+	var removalFiles []string
+	for _, p := range files {
+		if modeFor(p).RemoveUnused() {
+			removalFiles = append(removalFiles, p)
+		}
+	}
 	var unusedByPath map[string][]gsxfmt.ImportRef
 	var goDiags map[string][]diag.Diagnostic
-	if !noImports {
-		unusedByPath, goDiags = analyzeUnusedImports(files, opts)
+	if len(removalFiles) > 0 {
+		unusedByPath, goDiags = analyzeUnusedImports(removalFiles, opts)
 	}
 
 	exit := 0
@@ -98,7 +156,14 @@ func runFmt(stdout, stderr io.Writer, args []string, cssFmt, jsFmt rawfmt.Format
 			width = printWidthFor(dir)
 			widthByDir[dir] = width
 		}
-		formatted, err := gsxfmt.FormatRemovingImportsWith(path, orig, unusedByPath[abs], width, cssFmt, jsFmt)
+		mode := modeFor(path)
+		formatted, err := gsxfmt.FormatWith(path, orig, gsxfmt.FormatOptions{
+			Unused:  unusedByPath[abs], // nil for gofmt-mode files
+			Width:   width,
+			CSSFmt:  cssFmt,
+			JSFmt:   jsFmt,
+			Reorder: mode.Reorder(),
+		})
 		if err != nil {
 			fmt.Fprintf(stderr, "%s: %v\n", path, err)
 			exit = 1
@@ -162,6 +227,21 @@ func printWidthFor(dir string) int {
 		return 80
 	}
 	return cfg.effectivePrintWidth()
+}
+
+// importsModeFor returns the effective gsx.toml [formatter] imports mode for dir
+// (default goimports), best-effort: discovery/decoding failures fall back to the
+// default, exactly like printWidthFor.
+func importsModeFor(dir string) gsxfmt.ImportsMode {
+	path, ok := discoverConfig(dir)
+	if !ok {
+		return gsxfmt.DefaultImportsMode
+	}
+	cfg, err := loadConfig(path)
+	if err != nil {
+		return gsxfmt.DefaultImportsMode
+	}
+	return cfg.effectiveImportsMode()
 }
 
 // analyzeUnusedImports computes, per absolute .gsx path, the imports the file
