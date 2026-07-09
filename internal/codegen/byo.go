@@ -229,32 +229,45 @@ func soleParamTypeName(params []param) string {
 // own is skipped (buildSkeleton re-parses and surfaces a clean diagnostic).
 func gsxStructDecls(files map[string]*gsxast.File) map[string]*goast.StructType {
 	out := map[string]*goast.StructType{}
-	for _, file := range files {
-		for _, d := range file.Decls {
-			gc, ok := d.(*gsxast.GoChunk)
-			if !ok {
+	parseDecls := func(src string) {
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, "", "package _gsxp\n"+src, 0)
+		// Keep partial trees on parse errors: a top-level GoWithElements region can
+		// contain valid leading type declarations followed by an expression split by
+		// an embedded element, and we still need those type declarations for BYO.
+		if err != nil && f == nil {
+			return
+		}
+		for _, decl := range f.Decls {
+			gd, ok := decl.(*goast.GenDecl)
+			if !ok || gd.Tok != token.TYPE {
 				continue
 			}
-			fset := token.NewFileSet()
-			f, err := parser.ParseFile(fset, "", "package _gsxp\n"+gc.Src, 0)
-			if err != nil {
-				continue
-			}
-			for _, decl := range f.Decls {
-				gd, ok := decl.(*goast.GenDecl)
-				if !ok || gd.Tok != token.TYPE {
+			for _, spec := range gd.Specs {
+				ts, ok := spec.(*goast.TypeSpec)
+				if !ok {
 					continue
 				}
-				for _, spec := range gd.Specs {
-					ts, ok := spec.(*goast.TypeSpec)
-					if !ok {
+				st, ok := ts.Type.(*goast.StructType)
+				if !ok {
+					continue
+				}
+				out[ts.Name.Name] = st
+			}
+		}
+	}
+	for _, file := range files {
+		for _, d := range file.Decls {
+			switch t := d.(type) {
+			case *gsxast.GoChunk:
+				parseDecls(t.Src)
+			case *gsxast.GoWithElements:
+				for _, p := range t.Parts {
+					txt, ok := p.(gsxast.GoText)
+					if !ok || strings.TrimSpace(txt.Src) == "" {
 						continue
 					}
-					st, ok := ts.Type.(*goast.StructType)
-					if !ok {
-						continue
-					}
-					out[ts.Name.Name] = st
+					parseDecls(txt.Src)
 				}
 			}
 		}
