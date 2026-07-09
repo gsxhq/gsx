@@ -1,0 +1,19 @@
+Elements as bare composite-literal elements, one per line. The newline between
+`{` and the first element must survive: go/printer reads it to decide whether the
+literal prints on one line. A formatter that collapses it drags <a/> onto the
+brace line.
+
+-- input.gsx --
+package ui
+
+var icons = []gsx.Node{
+	<a/>,
+	<b/>,
+}
+-- fmt.golden --
+package ui
+
+var icons = []gsx.Node{
+	<a/>,
+	<b/>,
+}
