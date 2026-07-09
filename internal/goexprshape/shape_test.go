@@ -116,9 +116,11 @@ func TestSanitizeCollapsesBracketAdjacentNewlines(t *testing.T) {
 	holes := []Hole{{Start: start, End: start + 1}}
 
 	got, gotHoles := Sanitize(src, holes)
-	// Only the newline AFTER the hole is collapsed: the one after `(` is left
-	// alone, because an opening bracket cannot trigger semicolon insertion.
-	want := "package p\nvar x = []T{\n\t{icon: (\n\t\tH ), page: P{}},\n}\n"
+	// The hole is alone inside parens, so BOTH sides collapse: the after-side to
+	// keep semicolon insertion from breaking the parse, the before-side to keep
+	// gofmt seeing the value inline (otherwise `page` looks like it starts a new
+	// source line and picks up an alignment cell).
+	want := "package p\nvar x = []T{\n\t{icon: ( H ), page: P{}},\n}\n"
 	if got != want {
 		t.Errorf("Sanitize:\n got %q\nwant %q", got, want)
 	}
@@ -149,16 +151,57 @@ func TestSanitizeLeavesStatementSeparatingNewline(t *testing.T) {
 	}
 }
 
-// The newline between an opening bracket and a hole must survive Sanitize: an
-// opening bracket never ends a line in a way that triggers semicolon insertion,
-// and go/printer reads that break to decide whether a composite literal prints
-// on one line. Collapsing it reflows the author's source.
-func TestSanitizeKeepsNewlineAfterOpeningBracket(t *testing.T) {
+// The newline between a composite literal's `{` and its first element must
+// survive Sanitize: go/printer reads that break to decide whether the literal
+// prints on one line. Collapsing it drags the first element up onto the brace
+// line and reflows the author's source.
+func TestSanitizeKeepsNewlineAfterOpeningBrace(t *testing.T) {
 	src := "package p\nvar x = []gsx.Node{\n\tH,\n\tI,\n}\n"
 	h := strings.Index(src, "H")
 	i := strings.Index(src, "I")
 	got, _ := Sanitize(src, []Hole{{Start: h, End: h + 1}, {Start: i, End: i + 1}})
 	if got != src {
 		t.Errorf("Sanitize collapsed a newline after an opening bracket:\n got %q\nwant %q", got, src)
+	}
+}
+
+// The before-hole collapse is narrow: it fires only when the hole is alone
+// inside parens. go/printer reads the break between a composite literal's `{`
+// (or a call's `(`) and its first element to lay the list out; erasing it
+// reflows the author's source.
+func TestSanitizeBeforeCollapseIsParenOnly(t *testing.T) {
+	tests := []struct {
+		name, src, want string
+	}{{
+		name: "composite-literal brace: newline preserved",
+		src:  "package p\nvar x = []gsx.Node{\n\tH,\n}\n",
+		want: "package p\nvar x = []gsx.Node{\n\tH,\n}\n",
+	}, {
+		// `{` before and `}` after, but a brace is not a paren.
+		name: "sole composite-literal element: only the after side collapses",
+		src:  "package p\nvar x = []gsx.Node{\n\tH\n}\n",
+		want: "package p\nvar x = []gsx.Node{\n\tH }\n",
+	}, {
+		name: "call argument list: newline preserved",
+		src:  "package p\nvar x = Wrap(\n\tH,\n\ty,\n)\n",
+		want: "package p\nvar x = Wrap(\n\tH,\n\ty,\n)\n",
+	}, {
+		name: "hole alone inside parens: both sides collapse",
+		src:  "package p\nvar x = S{a: (\n\tH\n)}\n",
+		want: "package p\nvar x = S{a: ( H )}\n",
+	}, {
+		// A "(" that is really a comment's last byte is not a real paren.
+		name: "paren inside a comment is not a real paren",
+		src:  "package p\nvar x = Wrap(a, // (\n\tH)\n",
+		want: "package p\nvar x = Wrap(a, // (\n\tH)\n",
+	}}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			start := strings.Index(tt.src, "H")
+			got, _ := Sanitize(tt.src, []Hole{{Start: start, End: start + 1}})
+			if got != tt.want {
+				t.Errorf("Sanitize:\n got %q\nwant %q", got, tt.want)
+			}
+		})
 	}
 }
