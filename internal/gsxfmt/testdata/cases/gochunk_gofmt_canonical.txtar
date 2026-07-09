@@ -1,0 +1,35 @@
+A Go region with no elements in it is plain gofmt: indentation, alignment, and
+import grouping, with author line breaks preserved.
+
+-- input.gsx --
+package ui
+
+import (
+"fmt"
+	"strings"
+)
+
+type navItem struct {
+label string
+	pathMatch string
+adminOnly bool
+}
+
+func (i navItem) String() string { return fmt.Sprintf("%s %s", strings.TrimSpace(i.label), i.pathMatch) }
+-- fmt.golden --
+package ui
+
+import (
+	"fmt"
+	"strings"
+)
+
+type navItem struct {
+	label     string
+	pathMatch string
+	adminOnly bool
+}
+
+func (i navItem) String() string {
+	return fmt.Sprintf("%s %s", strings.TrimSpace(i.label), i.pathMatch)
+}

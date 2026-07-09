@@ -1,0 +1,31 @@
+gofmt owns the layout of embedded Go: it preserves the author's line breaks and
+column-aligns keyed composite-literal fields. Fields the author put on one line
+stay on one line (nonVendor + vendorVisible); fields on their own lines get
+aligned. gsx fmt never introduces a break here.
+
+-- input.gsx --
+package ui
+
+var sections = []appShellNavItem{
+	{
+	label: "Import / Export", 
+	icon: <UploadDownloadIcon/>, 
+page: ImportExportPage{}, 
+pathMatch: "/import-export/", 
+ nonVendor: true, vendorVisible: func(u *db.UserInfo) bool {
+		return u.HasGrantPrefix("", "import")
+	}},
+}
+-- fmt.golden --
+package ui
+
+var sections = []appShellNavItem{
+	{
+		label:     "Import / Export",
+		icon:      <UploadDownloadIcon/>,
+		page:      ImportExportPage{},
+		pathMatch: "/import-export/",
+		nonVendor: true, vendorVisible: func(u *db.UserInfo) bool {
+			return u.HasGrantPrefix("", "import")
+		}},
+}
