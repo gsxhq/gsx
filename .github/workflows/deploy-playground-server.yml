@@ -3,6 +3,17 @@ name: Deploy playground server
 on:
   push:
     branches: [main]
+    # The image bakes the whole repo (Dockerfile does `COPY . /gsx`) because the
+    # playground compiles visitor code against the live gsx module. So a parser or
+    # codegen change does need a redeploy — only paths that cannot reach the
+    # running compiler belong here.
+    paths-ignore:
+      - 'docs/**'
+      - 'skills/**'
+      - '**.md'
+      - 'LICENSE'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/deploy-docs.yml'
   workflow_dispatch:
 
 permissions:
