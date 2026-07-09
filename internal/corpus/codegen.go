@@ -61,16 +61,21 @@ func (c *caseDoc) astAndParserDiag() (astDump []byte, parserDiag []byte, single 
 	return dump.Bytes(), diag.Bytes(), true
 }
 
-// codegenDirs generates .x.go for every .gsx across the given package dirs via
-// codegen.GenerateDirs. Options: std filter (plus any case-local filterPkgs),
-// CSS+JS minify on. merger is the per-case class merger (nil means use the
-// built-in DefaultClassMerge path).
-func codegenDirs(moduleDir string, dirs []string, merger *codegen.ClassMergerRef, filterPkgs []string) (map[string]codegen.DirResult, error) {
+// codegenDirs generates .x.go for every .gsx across the given package dirs in ONE
+// codegen.Module. Options: std filter, CSS+JS minify on.
+//
+// loadPkgs is the union of every case's filter packages: they are loaded once,
+// into one importer. perDir then narrows each dir to its OWN filter table and
+// class merger, harvested from those loaded types with no further packages.Load.
+// The union must not leak into the tables — a case that asserts a non-whitelisted
+// package is rejected as a filter source would otherwise pass while testing nothing.
+func codegenDirs(moduleDir string, dirs []string, loadPkgs []string, perDir map[string]codegen.DirOptions) (map[string]codegen.DirResult, error) {
 	return codegen.GenerateDirs(moduleDir, dirs, codegen.Options{
-		FilterPkgs:  append([]string{codegen.StdImportPath}, filterPkgs...),
-		CSSMinify:   true,
-		JSMinify:    true,
-		ClassMerger: merger,
+		FilterPkgs: []string{codegen.StdImportPath},
+		LoadPkgs:   loadPkgs,
+		PerDir:     perDir,
+		CSSMinify:  true,
+		JSMinify:   true,
 	}, nil)
 }
 
