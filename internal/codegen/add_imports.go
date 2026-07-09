@@ -265,7 +265,7 @@ func (m *Module) packageExports(graph map[string]*types.Package, path, symbol st
 	if pkg, ok := graph[path]; ok {
 		return pkg.Scope().Lookup(symbol) != nil
 	}
-	pkg, err := m.exportDataImporter().Import(path)
+	pkg, err := m.importExportData(path)
 	if err != nil || !pkg.Complete() {
 		return false
 	}
@@ -280,6 +280,10 @@ func (m *Module) packageExports(graph map[string]*types.Package, path, symbol st
 // not reentrant, so taking it here would self-deadlock any caller that (however
 // indirectly) reached this from within a held analysisMu. ResolveImportCandidates
 // never runs on that path, so m.mu is the correct, narrower lock.
+//
+// m.mu here guards only the lazy field assignment, not any use of the returned
+// importer — see importExportData, which is the only caller and which
+// additionally serializes the actual .Import() call under m.gcImporterMu.
 func (m *Module) exportDataImporter() types.Importer {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -287,4 +291,23 @@ func (m *Module) exportDataImporter() types.Importer {
 		m.gcImporter = importer.ForCompiler(m.fset, "gc", nil)
 	}
 	return m.gcImporter
+}
+
+// importExportData calls Import on the cached gc export-data importer,
+// serialized by m.gcImporterMu. go/importer's gc importer
+// (go/internal/gcimporter) mutates its own internal package cache during
+// Import, so two goroutines resolving different ambiguous names concurrently
+// (both hitting the "not already in the dep graph" branch of packageExports)
+// corrupt that cache even though the *importer value itself is safely
+// published by exportDataImporter's m.mu-guarded lazy init. gcImporterMu is a
+// dedicated lock for exactly this call — never m.mu (Import performs file IO
+// and must not block the fast mu-guarded fields like overrides/dirty) and
+// never analysisMu (ResolveImportCandidates deliberately runs off that path;
+// see the package doc above and the Module "Concurrency contract" comment in
+// module.go).
+func (m *Module) importExportData(path string) (*types.Package, error) {
+	imp := m.exportDataImporter()
+	m.gcImporterMu.Lock()
+	defer m.gcImporterMu.Unlock()
+	return imp.Import(path)
 }
