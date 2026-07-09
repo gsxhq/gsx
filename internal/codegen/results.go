@@ -66,6 +66,11 @@ type PackageResult struct {
 	// errors are unused-import errors (else removal is unsafe).
 	UnusedImports map[string][]UnusedImport
 
+	// MissingImports lists, per .gsx file path, the qualifiers the file uses that
+	// resolve to nothing — candidates for an added import. Unresolved by design;
+	// see MissingImport.
+	MissingImports map[string][]MissingImport
+
 	// Types is the analyzed package's go/types.Package, retained for the LSP
 	// (e.g. hover's qualifier). nil when the package failed before type-checking.
 	Types *types.Package
@@ -76,4 +81,20 @@ type PackageResult struct {
 type UnusedImport struct {
 	Name string
 	Path string
+}
+
+// MissingImport is a qualifier used in a .gsx file that resolves to nothing: no
+// local, no import. Name is the qualifier ("fmt"), Symbol is the selector on it
+// ("Sprintf") — Symbol is what lets an ambiguous name like `rand` be resolved to
+// the one candidate that actually exports it. Pos is the qualifier's position in
+// the .gsx source.
+//
+// Deliberately UNRESOLVED: turning a Name into an import path may read package
+// export data, which must never happen on the Package() hot path. The LSP
+// resolves it in a user-triggered code-action handler via
+// Module.ResolveImportCandidates.
+type MissingImport struct {
+	Name   string
+	Symbol string
+	Pos    token.Position
 }
