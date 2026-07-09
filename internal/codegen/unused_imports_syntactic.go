@@ -130,7 +130,7 @@ func (m *Module) buildPackageSkeletons(dir string) (*packageSkeletons, error) {
 	for _, f := range gsxFiles {
 		jsx.ResolveScripts(f, bag) // best-effort; failure just means we may skip that file below
 	}
-	table, err := m.filterTableFor(dir)
+	table, err := m.filterTableFor(dir, false)
 	if err != nil {
 		return nil, err
 	}
