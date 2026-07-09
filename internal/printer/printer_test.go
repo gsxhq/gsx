@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/pretty"
 	"github.com/gsxhq/gsx/internal/wsnorm"
 	"github.com/gsxhq/gsx/parser"
 )
@@ -22,7 +23,7 @@ func fmtSource(t *testing.T, src string) string {
 	}
 	wsnorm.Normalize(f)
 	var b strings.Builder
-	if err := Fprint(&b, f, 80); err != nil {
+	if err := Fprint(&b, f, 80, pretty.DefaultTabWidth); err != nil {
 		t.Fatalf("Fprint error: %v", err)
 	}
 	return b.String()
@@ -52,7 +53,7 @@ func assertFormat(t *testing.T, src, want string) {
 	}
 	wsnorm.Normalize(f)
 	var b bytes.Buffer
-	if err := Fprint(&b, f, 80); err != nil {
+	if err := Fprint(&b, f, 80, pretty.DefaultTabWidth); err != nil {
 		t.Fatalf("print: %v", err)
 	}
 	got := b.String()
@@ -918,7 +919,7 @@ func format80(t *testing.T, src string) string {
 	}
 	wsnorm.Normalize(f)
 	var b bytes.Buffer
-	if err := Fprint(&b, f, 80); err != nil {
+	if err := Fprint(&b, f, 80, pretty.DefaultTabWidth); err != nil {
 		t.Fatalf("print: %v", err)
 	}
 	return b.String()
