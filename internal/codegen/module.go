@@ -29,8 +29,9 @@ import (
 // table: a silently-empty table would make a "this filter must be rejected"
 // test pass for the wrong reason.
 type DirOptions struct {
-	FilterPkgs  []string        // nil = inherit Options.FilterPkgs
-	ClassMerger *ClassMergerRef // nil = inherit Options.ClassMerger
+	FilterPkgs  []string              // nil = inherit Options.FilterPkgs
+	ClassMerger *ClassMergerRef       // nil = inherit Options.ClassMerger
+	Classifier  *attrclass.Classifier // nil = inherit Options.Classifier
 }
 
 // Options configures a Module. ModuleRoot is the absolute module root (dir
@@ -466,6 +467,18 @@ func (m *Module) classMergerFor(dir string) *ClassMergerRef {
 	return m.opts.ClassMerger
 }
 
+// classifierFor returns the attrclass.Classifier that applies to dir, mirroring
+// classMergerFor: a PerDir entry with a non-nil Classifier overrides
+// Options.Classifier for that dir only; every other dir keeps the module-wide
+// default (Open always resolves opts.Classifier to attrclass.Builtin() when the
+// caller leaves it nil, so this never returns nil).
+func (m *Module) classifierFor(dir string) *attrclass.Classifier {
+	if d, ok := m.dirOptionsFor(dir); ok && d.Classifier != nil {
+		return d.Classifier
+	}
+	return m.opts.Classifier
+}
+
 // filterTableFor returns the filter table that applies to dir.
 //
 // withExt says whether the caller is on a path that loads the external importer.
@@ -654,7 +667,7 @@ func (m *Module) Package(dir string) (*PackageResult, error) {
 		for path, f := range a.gsxFiles {
 			ff := a.factsByFile[path]
 			generateFile(f, a.pkg, a.resolved, a.table, ff.propFields, ff.nodeProps, ff.attrsProps, ff.byo,
-				a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, a.bag, nil, nil, true, true, a.merger, a.sunkImports[path])
+				a.gsxFset, a.classifier, m.opts.FieldMatcher, a.bag, nil, nil, true, true, a.merger, a.sunkImports[path])
 		}
 	}
 	res.Diags = a.bag.Sorted()
@@ -717,7 +730,7 @@ func (m *Module) Generate(dir string) (map[string][]byte, []diag.Diagnostic, err
 		for path, f := range a.gsxFiles {
 			ff := a.factsByFile[path]
 			gen, ok := generateFile(f, a.pkg, a.resolved, a.table, ff.propFields, ff.nodeProps, ff.attrsProps, ff.byo,
-				a.gsxFset, m.opts.Classifier, m.opts.FieldMatcher, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.CSSMinify, m.opts.JSMinify, a.merger, a.sunkImports[path])
+				a.gsxFset, a.classifier, m.opts.FieldMatcher, bag, m.opts.CSSMin, m.opts.JSMin, m.opts.CSSMinify, m.opts.JSMinify, a.merger, a.sunkImports[path])
 			if !ok {
 				continue
 			}
