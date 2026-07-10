@@ -139,12 +139,37 @@ set. Therefore:
 ## Invalidation
 
 A package's generated `.x.go` now depends on the package's **declared-name
-set**, not just its own `.gsx` sources. New dependency edge:
+set**, not just its own `.gsx` sources. Verified against the current code:
+**this edge already exists and is already handled — no new machinery.**
 
-- Watch mode regenerates a package's `.gsx` files when a sibling `.go`
-  file's top-level declaration set changes. Fingerprint the decl-name set so
-  body-only edits to `.go` files do not trigger regeneration.
-- Non-watch `gsx generate` already scans the package; no change.
+- Watch mode already treats every hand-written `.go` file as a dep file
+  (`gen/watch.go` `watchable`/`isDepFile`); any change sets `depDirty`,
+  which `regenPending` answers with a full module reopen + regeneration
+  (`gen/watchsession.go`). The dependency is not new: type-aware
+  interpolation already makes generated output depend on sibling `.go`
+  types. Lowercase-tag resolution rides the same trigger.
+- The generate cache key already folds the package's `.gsx` + `.go` sources
+  (and reachable dep dirs) into every key (`gen/cachekey.go`
+  `dirSourceHash`) — a decl added to a sibling `.go` busts the cache today.
+
+Decl-set fingerprinting (skipping regen on body-only `.go` edits) would be
+an *optimization over the status quo*, not a requirement of this change —
+explicitly out of scope so the feature is additive-only here.
+
+## Risk gates
+
+This feature is worth having only if it stays cheap. Abort criteria agreed
+up front:
+
+- **Perf:** no measurable regression in `gsx generate` wall time or watch
+  cycle latency. The decl-name scan must reuse already-parsed `.gsx`
+  skeletons and at most add a syntax-only `go/parser` pass over package
+  `.go` files (no `packages.Load`, no type checking).
+- **Complexity:** the component decision moves from `ast.IsComponentTag` to
+  a resolver carrying (package name set, enclosing-decl name). If threading
+  that context through codegen/analyze/LSP call sites turns into deep
+  structural surgery rather than a mechanical audit, stop and reassess
+  rather than land it.
 
 ## Compatibility
 
