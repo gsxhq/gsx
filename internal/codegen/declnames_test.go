@@ -38,21 +38,31 @@ const limit = 3
 	os.WriteFile(filepath.Join(dir, "x_test.go"), []byte("package views\nfunc testOnly() {}\n"), 0o644)
 	os.WriteFile(filepath.Join(dir, "gen.x.go"), []byte("package views\nfunc generated() {}\n"), 0o644)
 
+	// The element-free Go run (chunkFunc + chunkLimit) parses as a GoChunk;
+	// the run holding help + card2 has embedded elements and parses as a
+	// GoWithElements. The component between them keeps the runs separate —
+	// contiguous top-level Go merges into a single decl.
 	gsx := parseGSXForTest(t, `package views
 
 component card() {
 	<div>x</div>
 }
 
+func chunkFunc() string { return "" }
+
+const chunkLimit = 9
+
 component (p page) row() {
 	<li>x</li>
 }
 
-func chunkFunc() string { return "" }
+var help = <a href="/help">?</a>
+
+func card2() any { return <div>x</div> }
 `)
 	got := packageDeclNames(dir, map[string]*gsxast.File{"a.gsx": gsx})
 
-	for _, want := range []string{"data", "count", "page", "limit", "card", "chunkFunc"} {
+	for _, want := range []string{"data", "count", "page", "limit", "card", "chunkFunc", "chunkLimit", "help", "card2"} {
 		if !got[want] {
 			t.Errorf("missing %q", want)
 		}

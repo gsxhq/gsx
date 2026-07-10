@@ -42,23 +42,6 @@ func packageDeclNames(dir string, files map[string]*gsxast.File) map[string]bool
 			}
 		}
 	}
-	if dir != "" {
-		if entries, err := os.ReadDir(dir); err == nil {
-			fset := token.NewFileSet()
-			for _, e := range entries {
-				name := e.Name()
-				if e.IsDir() || !strings.HasSuffix(name, ".go") ||
-					strings.HasSuffix(name, "_test.go") || strings.HasSuffix(name, ".x.go") {
-					continue
-				}
-				f, perr := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
-				if perr != nil || f == nil {
-					continue
-				}
-				collectGoDecls(f)
-			}
-		}
-	}
 	scanChunk := func(src string) {
 		fset := token.NewFileSet()
 		f, err := parser.ParseFile(fset, "", "package _gsxp\n"+src, 0)
@@ -90,6 +73,26 @@ func packageDeclNames(dir string, files map[string]*gsxast.File) map[string]bool
 				scanChunk(b.String())
 			}
 		}
+	}
+	if dir == "" {
+		return out
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return out
+	}
+	fset := token.NewFileSet()
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") ||
+			strings.HasSuffix(name, "_test.go") || strings.HasSuffix(name, ".x.go") {
+			continue
+		}
+		f, perr := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
+		if perr != nil || f == nil {
+			continue
+		}
+		collectGoDecls(f)
 	}
 	return out
 }
