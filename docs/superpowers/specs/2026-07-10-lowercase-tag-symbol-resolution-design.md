@@ -26,7 +26,11 @@ A tag resolves in exactly one of three ways:
 
 1. **Capital-first or dotted tag** — component, unchanged. Codegen emits the
    call and `go build` resolves the name (including function-local names,
-   which is why capital tags work for element-literal locals today).
+   which is why capital tags work for element-literal locals today). This
+   already covers **lowercase struct methods**: `<p.content/>` on the
+   enclosing receiver generates `p.content()` today, unexported type and
+   method included (verified by probe). Methods therefore need no symbol
+   resolution at all — they ride the dotted rule.
 2. **Lowercase simple tag whose name matches a package-level declaration**
    — component. Codegen lowers it as a component invocation of that name.
 3. **Lowercase simple tag with no matching declaration** — leaf element,
@@ -42,7 +46,14 @@ declaration and are always leaves.
 The name set is gathered **syntactically** from all `.gsx` and `.go` files in
 the package directory — skeleton scan via the existing `FileSymbols`-style
 machinery (internal/lsp/symbols.go, surfaced to gen through
-`Analyzer.ModuleSymbols`). No `packages.Load`, no type checking.
+`Analyzer.ModuleSymbols`). No `packages.Load`, no type checking — and none
+is needed: a package scope's bare names are exactly its declared names, so
+the syntactic scan is *complete* for simple-tag resolution, not an
+approximation. go/types would only add method sets and locals; methods are
+covered by the dotted rule and locals are out of scope. (Type-aware
+interpolation's existing load happens downstream of this decision and stays
+untouched — resolution feeding the skeleton that the load consumes is
+exactly why resolution must not depend on the load.)
 
 - **Counted:** every package-level `func`, `var`, `type`, and `const` name.
 - **Not counted:** import names (`import "time"` must not capture `<time>`),
@@ -82,6 +93,11 @@ component div() {
 - Recursion for a lowercase component uses the Go call form in a hole
   (`{item(...)}`) or a capital name. Mutual recursion via tags resolves to
   components and may loop — see the cycle diagnostic below.
+- Exclusion is keyed by the enclosing declaration's **name**, methods
+  included: inside `component (p page) div()`, tag `<div>` is a leaf even if
+  a package-level `div` is also declared — least surprise; the package
+  component remains reachable via the call form. Dotted self-invocation
+  (`<p.div>`) is unaffected (dotted is always a component).
 
 **Self-reference diagnostic (warning):** a self-named tag whose name is
 *not* a spec HTML element name almost certainly intended recursion — warn:
@@ -132,13 +148,15 @@ set**, not just its own `.gsx` sources. New dependency edge:
 
 ## Compatibility
 
-**This is a breaking change.** Any package where a lowercase tag in use
-collides with an existing package-level name flips from leaf to component
-invocation — usually a loud build error (non-invocable symbol), occasionally
-a silent semantic change (symbol happens to be renderable). Ship with:
+**Technically breaking, practically pre-release.** Any package where a
+lowercase tag in use collides with an existing package-level name flips from
+leaf to component invocation — usually a loud build error (non-invocable
+symbol), occasionally a silent semantic change (symbol happens to be
+renderable). gsx has made no release yet, so no migration tooling is
+warranted; ship with:
 
-- A prominent changelog/migration note listing the rule and the common
-  collision names (`data`, `time`, `form`, `header`, `section`, ...).
+- A changelog note stating the rule and the common collision names
+  (`data`, `time`, `form`, `header`, `section`, ...).
 - The self-reference and cycle diagnostics above, which catch the two
   runtime-surprise shapes.
 
@@ -185,3 +203,9 @@ expected. Fmt corpus untouched (layout is orthogonal).
   if a real need emerges; self-exclusion covers the known use case.
 - Cross-package lowercase tags — unexported names are uncallable across
   packages, so the shadowing layer cannot leak by construction.
+- **Pre-existing gap found while probing (not introduced here):** a dotted
+  tag whose qualifier is an ordinary local/param rather than the enclosing
+  receiver (`component List(p page) { <p.Item/> }`) is mislowered as a
+  package-qualified component (`p.ItemProps{}` — "p.ItemProps is not a
+  type"). Method invocation currently only recognizes the enclosing
+  receiver's name. Tracked separately; candidate for ROADMAP.
