@@ -1095,6 +1095,13 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 		//   - forced (post-spread) static: it owns the attribute (emitted unguarded
 		//     in Walk 2), so we SKIP extraction; the fold-drop below removes every
 		//     bag case-variant, leaving only the root's author-controlled value.
+		//   - forced (post-spread) CONDITIONAL: a `{ if cond { href=… } }` branch
+		//     owns the attribute ONLY when taken. The selector already recorded that
+		//     per-branch bool, so extraction is guarded on `!<bool>` (all branches
+		//     that force the name): taken → the forced attr is the sole value; not
+		//     taken → the bag's sanitized copy is the sole value. Without the guard
+		//     both would render (duplicate attribute; the browser honours the first,
+		//     so the forced value would LOSE).
 		//   - guarded (pre-spread) static: Walk 1 emitted it under `!bag.Has(name)`
 		//     so it renders only when the bag lacks the name; extraction's GetFold
 		//     renders only when the bag HAS it — for a same-case key exactly one of
@@ -1109,9 +1116,38 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 		for _, n := range forcedNames {
 			forcedLower[strings.ToLower(n)] = true
 		}
+		// Per URL name, the distinct per-branch bools of every post-spread
+		// cond-attr run that FORCES it (source-lowercased to match urlNames). The
+		// selectors above already declared and set these bools; extraction of the
+		// name is guarded on `!<bool>` for each so the forced branch owns the attr
+		// when taken (no duplicate) and the bag's sanitized copy renders otherwise.
+		postForcedGuards := map[string][]string{}
+		for _, runs := range postRuns {
+			for _, run := range runs {
+				for _, leaf := range run.leaves {
+					name, ok := rootAttrName(leaf)
+					if !ok {
+						continue
+					}
+					lname := strings.ToLower(name)
+					guards := postForcedGuards[lname]
+					if !slices.Contains(guards, run.boolVar) {
+						postForcedGuards[lname] = append(guards, run.boolVar)
+					}
+				}
+			}
+		}
 		for _, name := range urlNames {
 			if forcedLower[name] {
 				continue // forced static owns it; the fold-drop still removes bag copies
+			}
+			guards := postForcedGuards[name]
+			if len(guards) > 0 {
+				conds := make([]string, len(guards))
+				for i, g := range guards {
+					conds[i] = "!" + g
+				}
+				fmt.Fprintf(b, "\t\tif %s {\n", strings.Join(conds, " && "))
 			}
 			tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
 			*interpTemp++
@@ -1121,6 +1157,9 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			fmt.Fprintf(b, "\t\t\t_gsxgw.%s(%s)\n", method, tmp)
 			fmt.Fprintf(b, "\t\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
 			b.WriteString("\t\t}\n")
+			if len(guards) > 0 {
+				b.WriteString("\t\t}\n")
+			}
 		}
 		// Prefix URL rules (e.g. `prefix = "data-url-"`) cannot be enumerated into
 		// Get blocks; only when the project configures them do we walk the bag and
@@ -5096,8 +5135,8 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 			// One uniform lowering: condAttrsExpr always emits an AttrsCond(...) call
 			// whose branches are (Attrs, error) thunks with thunk-local hoists for any
 			// error-returning pipeline stage. In emit mode the call is hoisted here via
-			// hoistTuple (splicing the temp into the Merge chain); in probe mode it is
-			// wrapped in _gsxunwrap(...) to stay a single expression (emit ≡ probe).
+			// hoistTuple (the temp is appended as a `segments` entry); in probe mode it
+			// is wrapped in _gsxunwrap(...) to stay a single expression (emit ≡ probe).
 			condExpr, used, cerr := condAttrsExpr(t, rtPkg, el.Tag, mergeExpr, table, probeWrap, resolved, interpTemp)
 			if cerr != nil {
 				return nil, "", nil, cerr

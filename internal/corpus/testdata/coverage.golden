@@ -245,6 +245,7 @@ fallthrough/cond_attr_else_if_override	diag render
 fallthrough/cond_attr_nested_spread_rejected	diag(error)
 fallthrough/cond_attr_post_forced_taken	diag gen render
 fallthrough/cond_attr_post_forced_untaken	diag render
+fallthrough/cond_attr_post_forced_url	diag gen render
 fallthrough/cond_attr_pre_no_override	diag render
 fallthrough/cond_attr_pre_override	diag gen render
 fallthrough/cond_attr_root_not_eligible	diag(error)
@@ -600,4 +601,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 602 cases (render: 482, error: 91, gen-pinned: 308)
+TOTAL: 603 cases (render: 483, error: 91, gen-pinned: 309)
