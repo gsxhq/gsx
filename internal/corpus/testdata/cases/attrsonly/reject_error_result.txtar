@@ -1,0 +1,17 @@
+# func(gsx.Attrs) (gsx.Node, error) — a two-result signature — is NOT
+# tag-callable: attrsOnlySig requires exactly one result. Same diagnostic
+# family as the unnamed-slice rejection.
+-- bad.go --
+package views
+
+import "github.com/gsxhq/gsx"
+
+func Bad2(attrs gsx.Attrs) (gsx.Node, error) { return nil, nil }
+-- input.gsx --
+package views
+
+component Page() {
+	<Bad2 class="x"/>
+}
+-- diagnostics.golden --
+4:2: <Bad2> is not tag-callable: its type is func(attrs gsx.Attrs) (gsx.Node, error), not func(gsx.Attrs) gsx.Node or func(...gsx.Attr) gsx.Node, and no Bad2Props struct was found
