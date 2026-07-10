@@ -245,7 +245,7 @@ Path arguments are `.gsx` files or directories (walked recursively, skipping
 `.git`, hidden dirs, `vendor`, `node_modules`, and `testdata`). No arguments
 formats `.` recursively.
 
-**Line width.** The formatter wraps at 80 columns by default; set
+**Line width.** The formatter wraps at 120 columns by default; set
 [`[formatter]` `print_width`](./config.md#formatter--gsx-fmt--editor-formatting)
 in `gsx.toml` to change it, or `max_line_length` in `.editorconfig`. The
 language server reads the same settings, so `gsx fmt` and format-on-save
