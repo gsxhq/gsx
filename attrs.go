@@ -24,9 +24,25 @@ type Attr struct {
 //
 // Security contract: keys are HTML attribute NAMES emitted (after a validity check,
 // see Spread) without entity-encoding — they must come from generated code or trusted
-// developer input, never from untrusted strings. Values are HTML-attribute-escaped but
-// NOT URL-sanitized: a URL-typed attribute (href, src, action, formaction, …) carrying
-// an untrusted value must be written with gw.URL, not passed through Spread.
+// developer input, never from untrusted strings. Values are HTML-attribute-escaped.
+//
+// URL sanitization happens at the FORWARDING ELEMENT, not in the bag itself. Generated
+// code recognizes three forwarding-bag spellings spread onto an element — the implicit
+// fallthrough bag, a byo component's declared Attrs field (p.Attrs), and a generated
+// component's own named Attrs param — and, for each, emits a Get-extraction block ahead
+// of the residual Spread: every URL-classified attribute name (built-in urlAttrs table +
+// gsx.toml rules + gen.WithURLAttrs, resolved at generate time) is pulled out
+// case-insensitively (GetFold) and written through the same tag-aware sink a static
+// attribute of that name would use (URLVal for navigational, URLImageVal for image
+// resources), with a gsx.RawURL value passed verbatim. The residual Spread then omits
+// those keys (WithoutFold) so no unsanitized copy survives. See Spread for what it does
+// on its own, and composition.md §Precedence for the full forwarding-element rule.
+//
+// This does NOT cover a LOCAL Attrs variable — one assigned inside a component body
+// rather than a declared forwarding field/param — or a byo struct's second Attrs field
+// alongside the classified one; both still spread inline with no extraction (tracked in
+// ROADMAP.md). A hand-written gw.Spread call outside gsx's generated forwarding code
+// owns its own sinks entirely, exactly as before.
 type Attrs []Attr
 
 // AttrMap is a map-form attribute bag for ergonomic Go literals; convert it to Attrs
@@ -94,6 +110,21 @@ func (a Attrs) Has(key string) bool {
 	return ok
 }
 
+// GetFold is Get with ASCII-case-insensitive key matching (last occurrence
+// wins). key must already be lowercase. Exported for any caller — hand-written
+// Spread call sites, tests — that needs to look up a bag key the same
+// case-insensitive way a sanitizing sink does (a case-variant key like HREF
+// must not smuggle an unsanitized value past it); SpreadForwarding itself
+// folds case via its own attrNameExcluded helper rather than calling GetFold.
+func (a Attrs) GetFold(key string) (any, bool) {
+	for i := len(a) - 1; i >= 0; i-- {
+		if strings.EqualFold(a[i].Key, key) {
+			return a[i].Value, true
+		}
+	}
+	return nil, false
+}
+
 // Without returns a copy of a without ANY pair whose key is in keys (a is not mutated);
 // the order of the rest is preserved. An empty result (or empty input) yields nil.
 func (a Attrs) Without(keys ...string) Attrs {
@@ -112,6 +143,53 @@ func (a Attrs) Without(keys ...string) Attrs {
 	return out
 }
 
+// WithoutFold is Without with ASCII-case-insensitive key matching: it drops any
+// pair whose key case-folds to one of keys (which must already be lowercase),
+// preserving the order of the rest. No generated code calls it — a forwarding
+// element's URL-classified keys render in place via SpreadForwarding rather
+// than being extracted and dropped from the bag first — but it remains public
+// API for hand-written bag manipulation that needs the same fold semantics.
+func (a Attrs) WithoutFold(keys ...string) Attrs {
+	return a.WithoutFunc(func(k string) bool {
+		return slices.ContainsFunc(keys, func(want string) bool {
+			return strings.EqualFold(k, want)
+		})
+	})
+}
+
+// WithoutFunc returns a copy of a dropping every pair whose key satisfies drop
+// (a is not mutated); the order of the rest is preserved. An empty result (or
+// empty input) yields nil.
+func (a Attrs) WithoutFunc(drop func(key string) bool) Attrs {
+	if len(a) == 0 {
+		return nil
+	}
+	out := make(Attrs, 0, len(a))
+	for _, kv := range a {
+		if !drop(kv.Key) {
+			out = append(out, kv)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// URLPrefixMatch reports whether key (ASCII-case-folded) begins with any of the
+// prefixes, which must already be lowercase. It is the single source of truth
+// for URL prefix-rule matching, used by SpreadForwarding to route a prefix-matched
+// bag key through the strict navigational URL sink.
+func URLPrefixMatch(key string, prefixes []string) bool {
+	lk := strings.ToLower(key)
+	for _, p := range prefixes {
+		if strings.HasPrefix(lk, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // Take returns Get(key)'s last value and a copy of a without ALL occurrences of key.
 func (a Attrs) Take(key string) (any, Attrs) {
 	v, _ := a.Get(key)
@@ -123,6 +201,11 @@ func (a Attrs) Take(key string) (any, Attrs) {
 // the result (or appended if none). Any other key OVERWRITES the last existing
 // occurrence in place and drops earlier duplicates, so the incoming bag wins under the
 // last-wins scalar rule; absent keys append.
+//
+// Merge is for userland eager composition, where you want duplicates resolved
+// immediately rather than at render time. Generated call sites use ConcatAttrs instead
+// (one allocation, no eager scan) because Spread resolves duplicates at render time
+// anyway; see ConcatAttrs for why the two are observably equivalent there.
 func (a Attrs) Merge(other Attrs) Attrs {
 	out := make(Attrs, len(a))
 	copy(out, a)
@@ -132,6 +215,29 @@ func (a Attrs) Merge(other Attrs) Attrs {
 			continue
 		}
 		out = mergeScalarAttr(out, kv)
+	}
+	return out
+}
+
+// ConcatAttrs concatenates bags in order into one new bag, preserving every
+// pair (duplicates included). It does NOT dedupe or class-merge: rendering
+// resolves duplicates at the leaf (Spread is last-wins on scalar keys and
+// aggregates class/style), and Get/Has are last-wins by contract — so
+// concatenation is observably equivalent to eager Merge for every consumer
+// of the documented Attrs semantics. Generated call sites use it instead of
+// .Merge() chains (one allocation instead of one per link). nil segments are
+// skipped; a zero-entry result is nil.
+func ConcatAttrs(bags ...Attrs) Attrs {
+	n := 0
+	for _, b := range bags {
+		n += len(b)
+	}
+	if n == 0 {
+		return nil
+	}
+	out := make(Attrs, 0, n)
+	for _, b := range bags {
+		out = append(out, b...)
 	}
 	return out
 }
@@ -160,9 +266,15 @@ func AttrsCond(cond bool, then, els func() (Attrs, error)) (Attrs, error) {
 // position. A bool value uses boolean-attribute semantics (true → bare attribute,
 // false → omitted); everything else is written as key="value" with attribute escaping.
 // A key that is not a structurally valid HTML attribute name (see validAttrName) is
-// SKIPPED rather than emitted. Values are attribute-escaped but NOT URL-sanitized (see
-// Attrs). ctx is reserved for
-// forward-compatibility.
+// SKIPPED rather than emitted. Values are attribute-escaped only — Spread itself never
+// URL-sanitizes. At a forwarding element (see Attrs), generated code does not call
+// Spread at all: it calls SpreadForwarding, which classifies and sanitizes
+// URL-classified keys in the same single ordered walk that writes the bag (see
+// SpreadForwarding). A hand-written Spread call made outside that generated
+// machinery gets no such extraction and owns its own sinks: a
+// URL-typed attribute (href, src, action, …) carrying an untrusted value must be
+// sanitized (or wrapped as gsx.RawURL, if pre-validated) before it reaches this bag.
+// ctx is reserved for forward-compatibility.
 func (gw *Writer) Spread(ctx context.Context, a Attrs) {
 	if gw.err != nil || len(a) == 0 {
 		return
@@ -191,6 +303,86 @@ func (gw *Writer) Spread(ctx context.Context, a Attrs) {
 		gw.AttrValue(toStr(kv.Value))
 		gw.writeStr(`"`)
 	}
+}
+
+// SpreadForwarding is the single-pass writer for a forwarding element's residual
+// fallthrough bag: in ONE ordered walk it renders the plain attributes AND routes
+// every URL-classified key through its sanitizing sink, replacing the older
+// unrolled per-name GetFold extraction + prefix-matched URL pass + residual Spread.
+// Generated code emits exactly one call, after the class/style merge site.
+//
+// It walks a in slice order, honoring lastValidAttrIndexes (scalar last-wins) and
+// validAttrName (structurally unsafe names dropped). excluded carries the names a
+// FORCED root attr owns at this element (class/style — merged separately; static
+// forced names — always; a post-spread conditional's names — only when its branch
+// was taken, which is why codegen passes the runtime drop slice); such a key is
+// SKIPPED so the owning site is the sole value. For each surviving key, matching
+// case-insensitively (HTML attr names fold, so a smuggled HREF/SRC cannot slip
+// past the sink):
+//   - a name in imageNames → URLImageVal (image-resource sink; data:image/* ok).
+//     Checked FIRST so a name that is both nav- and image-classified (e.g. src)
+//     takes the image sink.
+//   - a name in navNames, OR a key matching a URL prefix rule (URLPrefixMatch) →
+//     URLVal (strict navigational sink; prefix rules are user rules, always strict).
+//   - anything else → the plain Spread write (bool → BoolAttr, else key="value"
+//     attribute-escaped).
+//
+// navNames, imageNames and prefixes must already be lowercase. A RawURL value is
+// the author's vouch and is emitted verbatim (still attribute-escaped) by the URL
+// sinks. URL keys render IN their bag position — not hoisted ahead of the residual
+// as the old unrolled extraction did — so the bag's authored attribute order is
+// preserved. ctx is reserved for forward-compatibility.
+func (gw *Writer) SpreadForwarding(ctx context.Context, a Attrs, navNames, imageNames, prefixes, excluded []string) {
+	if gw.err != nil || len(a) == 0 {
+		return
+	}
+	last := lastValidAttrIndexes(a)
+	for i, kv := range a {
+		if !validAttrName(kv.Key) || last[kv.Key] != i {
+			continue
+		}
+		if attrNameExcluded(kv.Key, excluded) {
+			continue // class/style/forced/dropVar owns this name
+		}
+		switch {
+		case attrNameExcluded(kv.Key, imageNames):
+			gw.writeStr(" ")
+			gw.writeStr(kv.Key)
+			gw.writeStr(`="`)
+			gw.URLImageVal(kv.Value)
+			gw.writeStr(`"`)
+		case attrNameExcluded(kv.Key, navNames) || URLPrefixMatch(kv.Key, prefixes):
+			gw.writeStr(" ")
+			gw.writeStr(kv.Key)
+			gw.writeStr(`="`)
+			gw.URLVal(kv.Value)
+			gw.writeStr(`"`)
+		default:
+			if b, ok := kv.Value.(bool); ok {
+				gw.BoolAttr(kv.Key, b)
+				continue
+			}
+			gw.writeStr(" ")
+			gw.writeStr(kv.Key)
+			gw.writeStr(`="`)
+			gw.AttrValue(toStr(kv.Value))
+			gw.writeStr(`"`)
+		}
+	}
+}
+
+// attrNameExcluded reports whether key matches any name in excluded, comparing
+// ASCII-case-insensitively (HTML attribute names fold), so a force-owned name
+// suppresses a case-variant bag key. SpreadForwarding uses it both for the
+// excluded (force-owned) set and, via the same fold, for its URL-classified
+// name sets — the same fold semantics GetFold/WithoutFold expose publicly.
+func attrNameExcluded(key string, excluded []string) bool {
+	for _, e := range excluded {
+		if strings.EqualFold(key, e) {
+			return true
+		}
+	}
+	return false
 }
 
 func mergeScalarAttr(out Attrs, kv Attr) Attrs {

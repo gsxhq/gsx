@@ -45,7 +45,7 @@ func Field(_gsxp FieldProps) _gsxrt.Node {
 		}
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs.Without("class", "style"))
+		_gsxgw.SpreadForwarding(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "xlink:href"}, []string{"background", "src"}, nil, []string{"class", "style"})
 		_gsxgw.S("/>")
 		return _gsxgw.Err()
 	})
@@ -67,7 +67,7 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Field(FieldProps{Label: "Category", Attrs: _gsxrt.Attrs{}.Merge(_gsxv0)}))
+		_gsxgw.Node(ctx, Field(FieldProps{Label: "Category", Attrs: _gsxrt.ConcatAttrs(_gsxv0)}))
 		return _gsxgw.Err()
 	})
 }

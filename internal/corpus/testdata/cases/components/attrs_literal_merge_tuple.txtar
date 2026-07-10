@@ -43,7 +43,7 @@ func Panel(_gsxp PanelProps) _gsxrt.Node {
 		_gsxgw.S("<section")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs.Without("class", "style"))
+		_gsxgw.SpreadForwarding(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, nil, []string{"class", "style"})
 		_gsxgw.S(">x</section>")
 		return _gsxgw.Err()
 	})
@@ -58,7 +58,7 @@ func Page() _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Panel(PanelProps{Attrs: _gsxrt.Attrs{{Key: "data-a", Value: "1"}}.Merge(_gsxrt.Attrs{{Key: "data-b", Value: _gsxv0}})}))
+		_gsxgw.Node(ctx, Panel(PanelProps{Attrs: _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-a", Value: "1"}}, _gsxrt.Attrs{{Key: "data-b", Value: _gsxv0}})}))
 		return _gsxgw.Err()
 	})
 }

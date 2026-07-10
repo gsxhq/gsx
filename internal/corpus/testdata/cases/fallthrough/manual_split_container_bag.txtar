@@ -69,8 +69,12 @@ func Field(_gsxp FieldProps) _gsxrt.Node {
 		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
-		_gsxgw.S("<div class=\"field\"")
-		_gsxgw.Spread(ctx, containerAttrs)
+		_gsxv0 := containerAttrs
+		_gsxgw.S("<div class=\"")
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("field"), _gsxrt.Class(_gsxv0.Class()))
+		_gsxgw.S("\"")
+		_gsxgw.StyleMerged("", _gsxv0.Style())
+		_gsxgw.SpreadForwarding(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, nil, []string{"class", "style"})
 		_gsxgw.S(">")
 //line input.gsx:7:3
 		_gsxgw.S("<label>")
@@ -82,7 +86,7 @@ func Field(_gsxp FieldProps) _gsxrt.Node {
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("field-input"), _gsxrt.Class(attrs.Class()))
 		_gsxgw.S("\"")
 		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs.Without("class", "style"))
+		_gsxgw.SpreadForwarding(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "xlink:href"}, []string{"background", "src"}, nil, []string{"class", "style"})
 		_gsxgw.S("/></div>")
 		return _gsxgw.Err()
 	})

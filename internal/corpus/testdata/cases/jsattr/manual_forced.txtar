@@ -33,7 +33,7 @@ func Dialog(_gsxp DialogProps) _gsxrt.Node {
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs.Without("class", "style", "role"))
+		_gsxgw.SpreadForwarding(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, nil, []string{"class", "style", "role"})
 		_gsxgw.S(" role=\"dialog\">")
 //line input.gsx:4:34
 		_gsxgw.Node(ctx, children)

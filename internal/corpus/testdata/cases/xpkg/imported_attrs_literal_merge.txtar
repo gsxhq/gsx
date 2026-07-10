@@ -43,7 +43,7 @@ func Home() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line home.gsx:6:2
-		_gsxgw.Node(ctx, ui.Panel(ui.PanelProps{Attrs: _gsxrt.Attrs{{Key: "data-a", Value: "1"}}.Merge(_gsxrt.Attrs{{Key: "data-b", Value: "2"}}), Children: _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw.Node(ctx, ui.Panel(ui.PanelProps{Attrs: _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-a", Value: "1"}}, _gsxrt.Attrs{{Key: "data-b", Value: "2"}}), Children: _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 			_gsxgw.S("p")
 			return _gsxgw.Err()
@@ -76,7 +76,7 @@ func Panel(_gsxp PanelProps) _gsxrt.Node {
 		_gsxgw.S("<section")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs.Without("class", "style"))
+		_gsxgw.SpreadForwarding(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, nil, []string{"class", "style"})
 		_gsxgw.S(">")
 //line panel.gsx:4:24
 		_gsxgw.Node(ctx, children)

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/txtar"
 )
@@ -25,13 +26,23 @@ type caseDoc struct {
 	modulePath  string
 	classMerger *codegen.ClassMergerRef // set when case has a gsx.toml with class_merger
 	filterPkgs  []string                // resolved import paths from gsx.toml filterPackages; "./x" entries resolve against the case import root
+	classifier  *attrclass.Classifier   // set when case has a gsx.toml with [[urlAttrs]] rules
 }
 
 // caseToml holds the subset of gsx.toml fields the corpus harness reads.
 // Other fields are allowed but ignored.
 type caseToml struct {
-	ClassMerger    string   `toml:"class_merger"`
-	FilterPackages []string `toml:"filterPackages"`
+	ClassMerger    string        `toml:"class_merger"`
+	FilterPackages []string      `toml:"filterPackages"`
+	URLAttrs       []caseURLRule `toml:"urlAttrs"`
+	URLPresets     []string      `toml:"url_presets"`
+}
+
+// caseURLRule mirrors attrclass.Rule's toml shape for a case's [[urlAttrs]]
+// entries: exactly one of Name/Prefix must be set (validated via Rule.Valid).
+type caseURLRule struct {
+	Name   string `toml:"name"`
+	Prefix string `toml:"prefix"`
 }
 
 var goldenSections = map[string]bool{
@@ -115,6 +126,24 @@ func loadCase(path string) (*caseDoc, error) {
 					p = caseImportRoot(c) + strings.TrimPrefix(p, ".")
 				}
 				c.filterPkgs = append(c.filterPkgs, p)
+			}
+			var rules []attrclass.Rule
+			for i, u := range tc.URLAttrs {
+				r := attrclass.Rule{Name: u.Name, Prefix: u.Prefix}
+				if err := r.Valid(); err != nil {
+					return nil, fmt.Errorf("gsx.toml: urlAttrs[%d]: %w", i, err)
+				}
+				rules = append(rules, r)
+			}
+			for _, name := range tc.URLPresets {
+				pr, ok := attrclass.Preset(name)
+				if !ok {
+					return nil, fmt.Errorf("gsx.toml: url_presets: unknown preset %q", name)
+				}
+				rules = append(rules, pr.URL...)
+			}
+			if len(rules) > 0 {
+				c.classifier = attrclass.New(attrclass.Rules{URL: rules}, nil)
 			}
 		default:
 			c.files[f.Name] = f.Data

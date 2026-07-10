@@ -87,22 +87,22 @@ func componentPropFieldsFor(dir string, files map[string]*gsxast.File) (propFiel
 	// Discover author structs: those declared in .gsx GoChunks are read from the
 	// AST now; any candidate struct NOT found in the .gsx is enumerated via a
 	// preliminary external (.go) type-load below.
-	gsxStructs := gsxStructDecls(files)
+	gsxStructs, gsxStructQuals := gsxStructDecls(files)
 	externalWanted := map[string]bool{}
 
 	// genProps derives the GENERATED-path prop-field map + node-field map +
 	// attrs-field map for a component (the historical AST-derived behavior),
 	// keyed by propsName/compKey.
-	genProps := func(c *gsxast.Component, params []param, propsName string) {
+	genProps := func(c *gsxast.Component, params []param, propsName string, quals map[string]bool) {
 		fields := map[string]bool{}
 		nodeFields := map[string]bool{}
 		attrsFields := map[string]bool{}
 		for _, p := range params {
 			fields[fieldName(p.name)] = true
-			if isGsxNodeType(p.typ) {
+			if isGsxQualifiedType(p.typ, quals, "Node") {
 				nodeFields[fieldName(p.name)] = true
 			}
-			if isGsxAttrsType(p.typ) {
+			if isGsxQualifiedType(p.typ, quals, "Attrs") {
 				attrsFields[fieldName(p.name)] = true
 			}
 		}
@@ -138,10 +138,12 @@ func componentPropFieldsFor(dir string, files map[string]*gsxast.File) (propFiel
 		propsName  string
 		compKey    string
 		structName string
+		quals      map[string]bool
 	}
 	var deferred []deferredComp
 
 	for _, file := range files {
+		quals := gsxParamQualifiers(fileImportSpecs(file, nil))
 		for _, d := range file.Decls {
 			c, ok := d.(*gsxast.Component)
 			if !ok {
@@ -166,7 +168,7 @@ func componentPropFieldsFor(dir string, files map[string]*gsxast.File) (propFiel
 			// GoChunk decl when present; otherwise defer pending the external load.
 			if structName := soleParamTypeName(params); structName != "" {
 				if st, ok := gsxStructs[structName]; ok {
-					f, nf, bs := fieldsFromGsxStruct(st)
+					f, nf, bs := fieldsFromGsxStruct(st, gsxStructQuals[structName])
 					out[structName] = f
 					nodeOut[structName] = nf
 					byo.structs[structName] = bs
@@ -175,10 +177,10 @@ func componentPropFieldsFor(dir string, files map[string]*gsxast.File) (propFiel
 					continue
 				}
 				externalWanted[structName] = true
-				deferred = append(deferred, deferredComp{c, params, propsName, compKey, structName})
+				deferred = append(deferred, deferredComp{c, params, propsName, compKey, structName, quals})
 				continue
 			}
-			genProps(c, params, propsName)
+			genProps(c, params, propsName, quals)
 		}
 	}
 
@@ -201,7 +203,7 @@ func componentPropFieldsFor(dir string, files map[string]*gsxast.File) (propFiel
 			continue
 		}
 		// Not a struct (or unresolved) → not byo; take the generated path.
-		genProps(dc.c, dc.params, dc.propsName)
+		genProps(dc.c, dc.params, dc.propsName, dc.quals)
 	}
 
 	// Interop-splat enumeration: a capitalized tag that carries a whole-struct
@@ -317,10 +319,55 @@ func isBareCallCandidate(el *gsxast.Element, propFields map[string]map[string]bo
 	return byo.isNullaryFunc(el.Tag)
 }
 
-// isGsxNodeType reports whether a param's declared type string is exactly
-// gsx.Node (ignoring surrounding whitespace).
-func isGsxNodeType(typ string) bool {
-	return strings.TrimSpace(typ) == "gsx.Node"
+// gsxParamQualifiers returns the local qualifiers that name the gsx runtime
+// package in a file: the default "gsx" plus any explicit alias the file bound to
+// the runtime import path (`import g "github.com/gsxhq/gsx"` → "g"). A param type
+// spelled `<qualifier>.Attrs` / `<qualifier>.Node` names the runtime type
+// regardless of which spelling the file chose, so bag/node classification (and
+// thus URL sanitization on a `{ extra… }` forwarding spread) must honour the
+// aliased form, not just the literal "gsx." prefix.
+func gsxParamQualifiers(specs []importSpec) map[string]bool {
+	q := map[string]bool{"gsx": true}
+	for _, s := range specs {
+		if s.path == gsxRuntimePath && s.name != "" && s.name != "." && s.name != "_" {
+			q[s.name] = true
+		}
+	}
+	return q
+}
+
+// gsxQualifiersFromGoFile derives the gsx runtime qualifiers of a parsed
+// hand-written .go file (loadExternalStructFields' byo-struct source) by feeding
+// its resolved imports through gsxParamQualifiers, so a sibling struct's
+// `Attrs g.Attrs` field is classified against that file's own alias — exactly as
+// a .gsx GoChunk struct is classified against its declaring file's imports.
+func gsxQualifiersFromGoFile(f *goast.File) map[string]bool {
+	var specs []importSpec
+	for _, imp := range f.Imports {
+		path, err := strconv.Unquote(imp.Path.Value)
+		if err != nil {
+			continue
+		}
+		s := importSpec{path: path}
+		if imp.Name != nil {
+			s.name = imp.Name.Name
+		}
+		specs = append(specs, s)
+	}
+	return gsxParamQualifiers(specs)
+}
+
+// isGsxQualifiedType reports whether a param's declared type string is
+// `<qualifier>.<sel>` for some gsx runtime qualifier in quals — e.g. sel="Attrs"
+// matches "gsx.Attrs" and an aliased "g.Attrs". A pointer/other form (no bare
+// selector) never matches, matching the exact-string predicates it generalizes.
+func isGsxQualifiedType(typ string, quals map[string]bool, sel string) bool {
+	typ = strings.TrimSpace(typ)
+	dot := strings.LastIndex(typ, ".")
+	if dot < 0 {
+		return false
+	}
+	return typ[dot+1:] == sel && quals[typ[:dot]]
 }
 
 // splitInterpEmbedded walks every interpolation in the file and, for any whose
