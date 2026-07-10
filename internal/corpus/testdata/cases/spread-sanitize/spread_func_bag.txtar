@@ -1,4 +1,6 @@
-# VULN (issue #75): a bag returned from a function spreads onto <a> unsanitized.
+# A spread onto an element sanitizes URL keys regardless of provenance (issue
+# #75): a bag returned from a function spread onto <a> routes through the leaf
+# URL sink, so a javascript: href becomes about:invalid#gsx.
 -- input.gsx --
 package views
 
@@ -13,4 +15,4 @@ component Link(userHref string) {
 Link(LinkProps{UserHref: "javascript:alert(1)"})
 -- diagnostics.golden --
 -- render.golden --
-<a href="javascript:alert(1)">click</a>
+<a href="about:invalid#gsx">click</a>

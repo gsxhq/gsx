@@ -7,7 +7,6 @@ import (
 	goast "go/ast"
 	"go/format"
 	goparser "go/parser"
-	"go/scanner"
 	"go/token"
 	"go/types"
 	"maps"
@@ -611,11 +610,10 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 	// used param (the `used[p.name]` loop below), so `{ extra... }` (and derived
 	// forms like `{ extra.Without("id")... }`) must route through the
 	// caller-wins/class-merge machinery — not the duplicate-producing inline
-	// Spread path bagBases exists to avoid. spreadMatchesBase's bare-base branch
-	// already does whole-token matching (go/scanner, not substring), so `extra`
-	// cannot false-match `extraX`. Skipped on the byo branch above: a byo
-	// component's sole param there is the author's struct type name, never
-	// literally "gsx.Attrs".
+	// Spread path. (Every element spread now routes through that machinery
+	// regardless, so bagBases is vestigial pending its removal.) Skipped on the
+	// byo branch above: a byo component's sole param there is the author's struct
+	// type name, never literally "gsx.Attrs".
 	for _, p := range params {
 		if isGsxQualifiedType(p.typ, gsxQuals, "Attrs") {
 			bagBases = append(bagBases, p.name)
@@ -1111,31 +1109,12 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 		// post-spread conditional that FORCES a URL name thus suppresses the bag's copy
 		// exactly when its branch is taken — the runtime membership in the drop slice
 		// does it, no `!<bool>` guard — and otherwise the bag's sanitized value renders.
-		sliceLit := func(names []string) string {
-			if len(names) == 0 {
-				return "nil"
-			}
-			q := make([]string, len(names))
-			for i, n := range names {
-				q[i] = strconv.Quote(n)
-			}
-			return fmt.Sprintf("[]string{%s}", strings.Join(q, ", "))
-		}
-		var navNames, imageNames []string
-		for _, name := range cls.URLExactNames() {
-			if urlWriterMethod(tag, name) == "URLImage" {
-				imageNames = append(imageNames, name)
-			} else {
-				navNames = append(navNames, name)
-			}
-		}
 		excludedExpr := dropVar
 		if excludedExpr == "" {
 			excl := append([]string{"class", "style"}, forcedNames...)
-			excludedExpr = sliceLit(excl)
+			excludedExpr = goStringSliceLit(excl)
 		}
-		fmt.Fprintf(b, "\t\t_gsxgw.SpreadForwarding(ctx, %s, %s, %s, %s, %s)\n",
-			bagExpr, sliceLit(navNames), sliceLit(imageNames), sliceLit(cls.URLPrefixes()), excludedExpr)
+		emitSpreadForwardingCall(b, bagExpr, tag, cls, excludedExpr)
 		return true
 	}
 
@@ -1179,7 +1158,8 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 		case *ast.SpreadAttr:
 			// The bag spread at the split position is consumed here. A non-bag spread
 			// (handled by the caller's detection) never reaches this helper at splitIdx;
-			// a stray SpreadAttr at any other index is emitted inline (unchanged).
+			// a stray SpreadAttr at any other index is still a leaf URL sink — it routes
+			// through SpreadForwarding (excluded=nil) so its URL keys sanitize too.
 			if i == splitIdx {
 				continue
 			}
@@ -1189,9 +1169,9 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			}
 			if tmp, hoisted := nonce.tempFor(t); hoisted {
 				fmt.Fprintf(b, "\t\t%s = %s\n", tmp, spreadExpr)
-				fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", tmp)
+				emitSpreadForwardingCall(b, tmp, tag, cls, "nil")
 			} else {
-				fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", spreadExpr)
+				emitSpreadForwardingCall(b, spreadExpr, tag, cls, "nil")
 			}
 			continue
 		}
@@ -1403,93 +1383,23 @@ func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, cur
 	return true
 }
 
-// bagSpreadIndex returns the index of the element's FORWARDING spread in attrs
-// — a SpreadAttr whose expression references one of the current component's bag
-// bases (bagBases): the bound bag identifier `attrs` for a generated/manual
-// component, plus each byo component's declared `<param>.Attrs` field. Matching
-// is token-based, so derived bags like `{ attrs.Without("id")... }`,
-// `{ attrs.Merge(extra)... }`, `{ p.Attrs... }` and `{ p.Attrs.Without("id")... }`
-// all get the full caller-wins/class-merge machinery, not just the bare forms.
-// Returns whether one was found, and an error if more than one is present
-// (precedence ambiguous). A non-bag spread (`{ someOtherExpr... }`) is ignored —
-// it keeps its inline emit.
-func bagSpreadIndex(attrs []ast.Attr, bagBases []string) (int, bool, error) {
+// bagSpreadIndex returns the index of THE element spread, and whether one is
+// present. Every element spread is a forwarding spread (a sink): it routes
+// through emitManualSpreadElement's URL-sanitizing / class-merge machinery
+// regardless of what the bag expression is. An element carries at most one
+// spread; a second is a precedence-ambiguous error.
+func bagSpreadIndex(attrs []ast.Attr) (int, bool, error) {
 	idx, found := -1, false
 	for i, a := range attrs {
-		s, ok := a.(*ast.SpreadAttr)
-		if !ok || !spreadMatchesAnyBase(s.Expr, bagBases) {
+		if _, ok := a.(*ast.SpreadAttr); !ok {
 			continue
 		}
 		if found {
-			return 0, false, fmt.Errorf("codegen: more than one attrs-referencing spread on an element; precedence is ambiguous")
+			return 0, false, fmt.Errorf("codegen: more than one spread on an element; precedence is ambiguous")
 		}
 		idx, found = i, true
 	}
 	return idx, found, nil
-}
-
-// spreadMatchesAnyBase reports whether a spread expression references any of the
-// component's forwarding bag bases.
-func spreadMatchesAnyBase(exprSrc string, bagBases []string) bool {
-	for _, base := range bagBases {
-		if spreadMatchesBase(exprSrc, base) {
-			return true
-		}
-	}
-	return false
-}
-
-// spreadMatchesBase reports whether the spread expression exprSrc references the
-// forwarding bag identified by base. A bare base ("attrs") matches when the
-// expression uses that identifier not as a selector field (the historical
-// valueIdents detector). A dotted base ("p.Attrs") matches when the expression
-// contains the selector `<param>.<field>` where `<param>` is itself a bare
-// identifier (not a selector field) — so `p.Attrs`, `p.Attrs.Without(x)`,
-// `extra.Merge(p.Attrs)` match, while `pp.Attrs` and `p.AttrsX` do not (token
-// equality supplies the word boundary the plan requires).
-func spreadMatchesBase(exprSrc, base string) bool {
-	param, field, dotted := strings.Cut(base, ".")
-	if !dotted {
-		return valueIdents(exprSrc)[base]
-	}
-	toks := scanGoTokens(exprSrc)
-	for i := 0; i+2 < len(toks); i++ {
-		if toks[i].tok != token.IDENT || toks[i].lit != param {
-			continue
-		}
-		if i > 0 && toks[i-1].tok == token.PERIOD {
-			continue // a selector field (item.p...), not the bare param
-		}
-		if toks[i+1].tok == token.PERIOD && toks[i+2].tok == token.IDENT && toks[i+2].lit == field {
-			return true
-		}
-	}
-	return false
-}
-
-// scanGoToken is one lexical token of an embedded Go expression.
-type scanGoToken struct {
-	tok token.Token
-	lit string
-}
-
-// scanGoTokens tokenizes a Go expression source into its lexical tokens (the
-// same go/scanner pass valueIdents uses), so callers can match multi-token
-// patterns like the `<param>.<field>` selector precisely.
-func scanGoTokens(src string) []scanGoToken {
-	fset := token.NewFileSet()
-	f := fset.AddFile("", fset.Base(), len(src))
-	var s scanner.Scanner
-	s.Init(f, []byte(src), nil, 0)
-	var out []scanGoToken
-	for {
-		_, tok, lit := s.Scan()
-		if tok == token.EOF {
-			break
-		}
-		out = append(out, scanGoToken{tok, lit})
-	}
-	return out
 }
 
 // emitRootComposedClass emits a composed `class={ … }` merged with the bag's
@@ -1741,29 +1651,15 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		if isComponentTag(t.Tag) {
 			return genChildComponent(b, t, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, bagBases, cls, fm, bag, mergeExpr)
 		}
-		// MANUAL fallthrough: an element carrying the author's `{ attrs... }` bag spread
-		// gets position-aware precedence (pre-spread overridable, post-spread forced).
-		// Detection is a SpreadAttr expr referencing the bound bag ident `attrs`
-		// (incl. derived bags like attrs.Without(…)); a non-bag spread keeps its
-		// inline emit via the normal attr loop below.
-		if splitIdx, found, err := bagSpreadIndex(t.Attrs, bagBases); err != nil {
+		// MANUAL fallthrough: EVERY element spread `{ x... }` is a leaf sink — it
+		// routes through emitManualSpreadElement's URL-sanitizing / class-merge
+		// machinery regardless of the bag's provenance (declared forwarding param,
+		// local `:=` bag, func result, byo field, arbitrary expr). An element
+		// carries at most one spread; bagSpreadIndex errors on a second.
+		if splitIdx, found, err := bagSpreadIndex(t.Attrs); err != nil {
 			bag.Errorf(t.Pos(), t.End(), "attr-fallthrough", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false
 		} else if found {
-			// One spread per forwarding element: a second (non-bag) spread has no
-			// expressible precedence against the guard machinery and would not
-			// key-resolve against the bag — require explicit runtime composition.
-			for i, a := range t.Attrs {
-				s, ok := a.(*ast.SpreadAttr)
-				if !ok || i == splitIdx {
-					continue
-				}
-				expr := strings.TrimSpace(s.Expr)
-				bag.Errorf(s.Pos(), s.End(), "attr-fallthrough",
-					"element with an attrs-forwarding spread cannot carry another spread { %s... }; merge them into one spread ({ attrs.Merge(%s)... } or { %s.Merge(attrs)... }) so precedence is explicit",
-					expr, expr, expr)
-				return false
-			}
 			return emitManualSpreadElement(b, t, splitIdx, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, bagBases, cls, fm, bag, mergeExpr)
 		}
 		emitS(b, "<"+t.Tag)
@@ -2651,11 +2547,11 @@ func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.No
 	case *ast.SpreadAttr:
 		// emitAttr runs only for non-component elements (genNode routes component
 		// tags to genChildComponent before the attr loop), so a SpreadAttr here is
-		// always an element spread. Spread entity-escapes values and drops invalid
-		// attr names, but (per the gsx.Attrs trust contract) does NOT URL/CSS-sanitize
-		// or reject JS-context keys — a bag's keys/values are trusted developer input.
-		// This is deliberately distinct from the composable-style/expr-attr paths,
-		// which fail closed on CSS/JS contexts because their values may be untrusted.
+		// always an element spread — e.g. one nested inside a `{ if c { { x... } } }`
+		// cond-attr, which never reaches the top-level bagSpreadIndex dispatch. It is
+		// still a leaf URL sink: it routes through SpreadForwarding (excluded=nil, so
+		// nothing is force-owned) so URL-classified keys sanitize regardless of
+		// provenance/nesting, exactly like a top-level element spread.
 		spreadExpr, ok := spreadAttrExpr(t, table, imports, b, interpTemp, bag)
 		if !ok {
 			return false
@@ -2664,9 +2560,9 @@ func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.No
 			// Nonce-eligible element: assign the hoisted temp once (single
 			// evaluation) and spread from it; the post-attr guard reads it.
 			fmt.Fprintf(b, "\t\t%s = %s\n", tmp, spreadExpr)
-			fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", tmp)
+			emitSpreadForwardingCall(b, tmp, tag, cls, "nil")
 		} else {
-			fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", spreadExpr)
+			emitSpreadForwardingCall(b, spreadExpr, tag, cls, "nil")
 		}
 	case *ast.CondAttr:
 		// Attr emission is a sequence of writer calls between `<tag` and `>`, so
@@ -2771,6 +2667,39 @@ func urlWriterMethod(tag, name string) string {
 		return "URLImage"
 	}
 	return "URL"
+}
+
+// goStringSliceLit renders names as a Go `[]string{…}` literal, or "nil" when
+// empty — the argument form SpreadForwarding's name-set params expect.
+func goStringSliceLit(names []string) string {
+	if len(names) == 0 {
+		return "nil"
+	}
+	q := make([]string, len(names))
+	for i, n := range names {
+		q[i] = strconv.Quote(n)
+	}
+	return fmt.Sprintf("[]string{%s}", strings.Join(q, ", "))
+}
+
+// emitSpreadForwardingCall emits `_gsxgw.SpreadForwarding(ctx, expr, …)` for bag
+// expression expr on element tag: the classifier's URL-exact names split into
+// the nav vs image sinks via urlWriterMethod, prefix URL rules pass through, and
+// excludedExpr is the names a forced site owns ("nil" when nothing is forced —
+// the standalone / nested-cond-attr spread case). Every element spread routes
+// through here so URL-classified keys sanitize at the leaf regardless of the
+// bag's provenance or nesting.
+func emitSpreadForwardingCall(b *bytes.Buffer, expr, tag string, cls *attrclass.Classifier, excludedExpr string) {
+	var navNames, imageNames []string
+	for _, name := range cls.URLExactNames() {
+		if urlWriterMethod(tag, name) == "URLImage" {
+			imageNames = append(imageNames, name)
+		} else {
+			navNames = append(navNames, name)
+		}
+	}
+	fmt.Fprintf(b, "\t\t_gsxgw.SpreadForwarding(ctx, %s, %s, %s, %s, %s)\n",
+		expr, goStringSliceLit(navNames), goStringSliceLit(imageNames), goStringSliceLit(cls.URLPrefixes()), excludedExpr)
 }
 
 // firstSegIsDataURL reports whether the literal's first segment is static text

@@ -1,5 +1,6 @@
-# VULN (issue #75): local bag spread onto <img src> — resource sink,
-# javascript: reaches it raw (should be about:invalid#gsx via URLImage).
+# A spread onto an element sanitizes URL keys regardless of provenance (issue
+# #75): a local bag spread onto <img src> — a resource sink — routes through
+# URLImage at the leaf, so a javascript: src becomes about:invalid#gsx.
 -- input.gsx --
 package views
 
@@ -13,4 +14,4 @@ component Pic(userSrc string) {
 Pic(PicProps{UserSrc: "javascript:alert(1)"})
 -- diagnostics.golden --
 -- render.golden --
-<img src="javascript:alert(1)"/>
+<img src="about:invalid#gsx"/>

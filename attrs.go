@@ -324,8 +324,9 @@ func (gw *Writer) Spread(ctx context.Context, a Attrs) {
 //     takes the image sink.
 //   - a name in navNames, OR a key matching a URL prefix rule (URLPrefixMatch) →
 //     URLVal (strict navigational sink; prefix rules are user rules, always strict).
-//   - anything else → the plain Spread write (bool → BoolAttr, else key="value"
-//     attribute-escaped).
+//   - anything else → the plain Spread write (a non-excluded class/style key
+//     aggregates via a.Class()/a.Style(); bool → BoolAttr; else key="value"
+//     attribute-escaped) — SpreadForwarding is a strict superset of Spread.
 //
 // navNames, imageNames and prefixes must already be lowercase. A RawURL value is
 // the author's vouch and is emitted verbatim (still attribute-escaped) by the URL
@@ -358,6 +359,17 @@ func (gw *Writer) SpreadForwarding(ctx context.Context, a Attrs, navNames, image
 			gw.URLVal(kv.Value)
 			gw.writeStr(`"`)
 		default:
+			// A non-excluded class/style key aggregates exactly as Spread does
+			// (a.Class()/a.Style() over the whole bag) — SpreadForwarding is a
+			// strict superset of Spread. The forwarding-residual caller excludes
+			// class/style (owned by the merge site), so this only fires for a
+			// standalone spread that carries them (e.g. a nested cond-attr spread).
+			switch kv.Key {
+			case "class":
+				kv.Value = a.Class()
+			case "style":
+				kv.Value = a.Style()
+			}
 			if b, ok := kv.Value.(bool); ok {
 				gw.BoolAttr(kv.Key, b)
 				continue

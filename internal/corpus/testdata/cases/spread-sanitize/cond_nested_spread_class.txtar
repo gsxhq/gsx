@@ -1,0 +1,17 @@
+# A spread nested in a conditional attr aggregates class through the leaf sink
+# (issue #75): SpreadForwarding is a strict superset of Spread, so a bag with two
+# class entries merges to `class="a b"` (via a.Class()) rather than emitting two
+# raw class attributes.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component CondSpread(on bool, extra gsx.Attrs) {
+	<a { if on { { extra... } } }>x</a>
+}
+-- invoke --
+CondSpread(CondSpreadProps{On: true, Extra: gsx.Attrs{{Key: "class", Value: "a"}, {Key: "class", Value: "b"}}})
+-- diagnostics.golden --
+-- render.golden --
+<a class="a b">x</a>
