@@ -1126,9 +1126,20 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 		// selectors above already declared and set these bools; extraction of the
 		// name is guarded on `!<bool>` for each so the forced branch owns the attr
 		// when taken (no duplicate) and the bag's sanitized copy renders otherwise.
+		// Walk the post-spread cond-attrs in SOURCE ORDER (not by ranging the
+		// postRuns map, whose iteration order is randomized) so the emitted guard
+		// terms are byte-stable across regenerations — generate idempotence and
+		// content-hash caching are repo invariants.
 		postForcedGuards := map[string][]string{}
-		for _, runs := range postRuns {
-			for _, run := range runs {
+		for i, a := range attrs {
+			if i <= splitIdx {
+				continue
+			}
+			t, ok := a.(*ast.CondAttr)
+			if !ok {
+				continue
+			}
+			for _, run := range postRuns[t] {
 				for _, leaf := range run.leaves {
 					name, ok := rootAttrName(leaf)
 					if !ok {
