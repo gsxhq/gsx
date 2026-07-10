@@ -250,7 +250,7 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 			wrote := false
 			for _, r := range results {
 				ok = ok && r.OK
-				wrote = wrote || len(r.Written) > 0
+				wrote = wrote || len(r.Written) > 0 || len(r.Removed) > 0
 			}
 			if !ok {
 				overlayUp = true
