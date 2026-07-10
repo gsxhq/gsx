@@ -475,3 +475,34 @@ func TestWatchSession_PoisonOnRegenError(t *testing.T) {
 		t.Error("poison not overwritten after fix")
 	}
 }
+
+// TestNewWatchSession_NoGsxAnywhere proves that newWatchSession returns a
+// clear error — not a panic — when discoverDirs finds no .gsx anywhere under
+// the watched paths (e.g. a module dir whose only .gsx was deleted, leaving a
+// gsx-owned orphan .x.go). Before the fix, groupByModule(dirs) returned zero
+// groups for an empty dirs slice, and the `len(groups) == 0` branch indexed
+// dirs[0] unconditionally — a panic. The orphan .x.go must still be swept:
+// there's nothing to watch, so no per-dir regenDir sweep would ever visit it.
+func TestNewWatchSession_NoGsxAnywhere(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeMod(t, root)
+	// old/ has ONLY a gsx-owned orphan .x.go — no .gsx anywhere in the tree,
+	// as if the last .gsx was deleted before this watch session ever started.
+	oldXgo := filepath.Join(root, "old", "old.x.go")
+	writeFileT(t, oldXgo, gsxGeneratedHeader+"\n\npackage old\n\nfunc unused() {}\n")
+
+	s, _, err := newWatchSession(watchConfig{paths: []string{root}})
+	if err == nil {
+		t.Fatal("expected an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "no .gsx") {
+		t.Fatalf("error does not mention the no-.gsx condition: %v", err)
+	}
+	if s != nil {
+		t.Fatalf("expected a nil session on error, got %+v", s)
+	}
+	if _, statErr := os.Stat(oldXgo); !os.IsNotExist(statErr) {
+		t.Fatalf("old/old.x.go (orphan, no .gsx anywhere) survived newWatchSession cold start (err=%v)", statErr)
+	}
+}
