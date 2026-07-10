@@ -1,0 +1,42 @@
+# Cross-package attrs-only component value: a dotted tag <ui.HomeIcon/> whose
+# selector names an exported func(gsx.Attrs) gsx.Node value in an imported gsx
+# package (no ui.HomeIconProps type exists) is gated onto the _gsxcompsig probe
+# and lowered to a bag call, exactly like the same-package factory_var case.
+-- go.mod --
+module example.com/app
+
+go 1.26.1
+-- ui/icons.gsx --
+package ui
+
+import "github.com/gsxhq/gsx"
+
+type iconProps struct {
+	Name  string
+	Attrs gsx.Attrs
+}
+
+component renderIcon(p iconProps) {
+	<svg { p.Attrs... }>{p.Name}</svg>
+}
+
+func namedIcon(name string) func(gsx.Attrs) gsx.Node {
+	return func(attrs gsx.Attrs) gsx.Node {
+		return renderIcon(iconProps{Name: name, Attrs: attrs})
+	}
+}
+
+var HomeIcon = namedIcon("house")
+-- pages/home.gsx --
+package pages
+
+import "example.com/app/ui"
+
+component Home() {
+	<ui.HomeIcon class="h-3 w-3"/>
+}
+-- invoke --
+pages.Home()
+-- diagnostics.golden --
+-- render.golden --
+<svg class="h-3 w-3">house</svg>

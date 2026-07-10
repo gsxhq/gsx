@@ -43,6 +43,23 @@ type byoData struct {
 	// hand-written func keeps the XxxProps convention (and its generate-time prop
 	// type-check) rather than being mis-treated as a bare call.
 	nullaryFuncs map[string]bool
+	// typeNames is the set of package-level type names (any TypeSpec — struct,
+	// alias, defined type) declared anywhere in the package: sibling hand-written
+	// .go files (packageTypeNames) plus .gsx GoChunk type declarations. Populated
+	// by componentPropFieldsFor; consulted by the attrs-only gate (hasTypeName) to
+	// decide whether a tag's <Name>Props type name exists anywhere in the package.
+	// In a file-scoped clone, mergeQualified additionally publishes each imported
+	// gsx dep's type names under the file's import alias ("ui.iconProps"), so the
+	// gate can ask hasTypeName("ui.HomeIconProps") for a dotted tag.
+	typeNames map[string]bool
+	// depAliases is the set of file-scoped import aliases that resolve to a
+	// project-internal gsx dependency whose facts were successfully merged
+	// (mergeQualified). It is what the attrs-only gate consults to distinguish a
+	// dotted tag whose qualifier is a KNOWN package import (<ui.HomeIcon> —
+	// gateable) from one whose qualifier is a local/receiver/field
+	// (<item.Icon> — never gated). Empty on the shared package-wide byo (only a
+	// file-scoped clone imports deps).
+	depAliases map[string]bool
 }
 
 // byoStruct is one author struct's field facts.
@@ -58,19 +75,25 @@ func newByoData() *byoData {
 		structs:      map[string]byoStruct{},
 		inGsx:        map[string]bool{},
 		nullaryFuncs: map[string]bool{},
+		typeNames:    map[string]bool{},
+		depAliases:   map[string]bool{},
 	}
 }
 
 // cloneForFile returns a copy of b whose maps can be extended with imported
 // qualified entries without mutating the package-wide byo shared across files.
-// nullaryFuncs is shared (never extended by the qualified merge — a bare
-// imported func call is not in scope for prop discovery).
+// Every map is cloned: mergeQualified publishes each imported gsx dep's
+// typeNames and nullaryFuncs under the file's import alias (needed by the
+// dotted-tag attrs-only gate), so those maps can no longer be shared by
+// reference or the extension would leak back onto the package-wide byo.
 func (b *byoData) cloneForFile() *byoData {
 	return &byoData{
 		compStruct:   maps.Clone(b.compStruct),
 		structs:      maps.Clone(b.structs),
 		inGsx:        maps.Clone(b.inGsx),
-		nullaryFuncs: b.nullaryFuncs,
+		nullaryFuncs: maps.Clone(b.nullaryFuncs),
+		typeNames:    maps.Clone(b.typeNames),
+		depAliases:   map[string]bool{},
 	}
 }
 
@@ -79,8 +102,11 @@ func (b *byoData) cloneForFile() *byoData {
 // childInvocation looks up for a `<alias.Card>` tag — and struct type names
 // "CardData" become "<alias>.CardData", the qualified type the emitter writes.
 // Method components are skipped (a method tag never resolves through an
-// import alias); nullaryFuncs are not merged (same reason as cloneForFile).
+// import alias). dep typeNames and nullaryFuncs are also republished under the
+// alias ("iconProps" -> "ui.iconProps") so the dotted-tag attrs-only gate can
+// consult the DEP package's type/func facts for a qualified <ui.HomeIcon> tag.
 func (b *byoData) mergeQualified(alias string, dep *byoData) {
+	b.depAliases[alias] = true
 	for key, structName := range dep.compStruct {
 		if !strings.HasPrefix(key, ".") {
 			continue // method component: not invocable through a qualified tag
@@ -93,12 +119,33 @@ func (b *byoData) mergeQualified(alias string, dep *byoData) {
 	for name, in := range dep.inGsx {
 		b.inGsx[alias+"."+name] = in
 	}
+	for name := range dep.typeNames {
+		b.typeNames[alias+"."+name] = true
+	}
+	for name := range dep.nullaryFuncs {
+		b.nullaryFuncs[alias+"."+name] = true
+	}
 }
 
 // isNullaryFunc reports whether name is a same-package hand-written func that
 // takes zero params (the shape that backs a bare `<name/>` call). nil-safe.
 func (b *byoData) isNullaryFunc(name string) bool {
 	return b != nil && b.nullaryFuncs[name]
+}
+
+// hasTypeName reports whether name is declared as a package-level type in
+// this package (sibling .go files or .gsx GoChunks). nil-safe.
+func (b *byoData) hasTypeName(name string) bool {
+	return b != nil && b.typeNames[name]
+}
+
+// isDepAlias reports whether alias is a file-scoped import alias that resolves
+// to a project-internal gsx dependency whose facts were merged (mergeQualified).
+// The dotted-tag attrs-only gate uses it to require that a `<alias.Name>` tag's
+// qualifier is a KNOWN package import before gating (a local/receiver/field
+// qualifier is never a dep alias and is left on its existing path). nil-safe.
+func (b *byoData) isDepAlias(alias string) bool {
+	return b != nil && b.depAliases[alias]
 }
 
 // structTypeName returns the byo struct type name for a component, or "" if the
@@ -185,6 +232,93 @@ func packageNullaryFuncs(dir string) map[string]bool {
 				continue // must return exactly one value (the rendered node)
 			}
 			out[fd.Name.Name] = true
+		}
+	}
+	return out
+}
+
+// packageTypeNames parses the package's hand-written .go files (parse-only, no
+// type-check — cheap, same file-walk skeleton as packageNullaryFuncs, identical
+// skip rules) and returns the set of package-level declared type names (any
+// TypeSpec — struct, alias, defined type). Consumed by the attrs-only gate: a
+// tag whose <Name>Props type name exists anywhere in the package keeps the
+// XxxProps convention probe (and its generate-time attr diagnostics); only a
+// tag with NO such type is gated onto the _gsxcompsig probe.
+func packageTypeNames(dir string) map[string]bool {
+	out := map[string]bool{}
+	if dir == "" {
+		return out
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return out
+	}
+	fset := token.NewFileSet()
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") ||
+			strings.HasSuffix(name, "_test.go") || strings.HasSuffix(name, ".x.go") {
+			continue
+		}
+		f, perr := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
+		if perr != nil {
+			continue
+		}
+		for _, decl := range f.Decls {
+			gd, ok := decl.(*goast.GenDecl)
+			if !ok || gd.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				if ts, ok := spec.(*goast.TypeSpec); ok {
+					out[ts.Name.Name] = true
+				}
+			}
+		}
+	}
+	return out
+}
+
+// gsxChunkTypeNames scans every GoChunk in the .gsx files for top-level
+// `type X ...` declarations of ANY shape (struct, alias, defined type) and
+// returns their names. It reuses gsxStructDecls' parse approach (parse each
+// chunk standalone under a throwaway package clause; keep partial trees on
+// error) but is not restricted to *goast.StructType, since a type-name FACT
+// (unlike a byo struct's field set) has to cover non-struct declarations too.
+func gsxChunkTypeNames(files map[string]*gsxast.File) map[string]bool {
+	out := map[string]bool{}
+	scan := func(src string) {
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, "", "package _gsxp\n"+src, 0)
+		if err != nil && f == nil {
+			return
+		}
+		for _, decl := range f.Decls {
+			gd, ok := decl.(*goast.GenDecl)
+			if !ok || gd.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				if ts, ok := spec.(*goast.TypeSpec); ok {
+					out[ts.Name.Name] = true
+				}
+			}
+		}
+	}
+	for _, file := range files {
+		for _, d := range file.Decls {
+			switch t := d.(type) {
+			case *gsxast.GoChunk:
+				scan(t.Src)
+			case *gsxast.GoWithElements:
+				for _, p := range t.Parts {
+					txt, ok := p.(gsxast.GoText)
+					if !ok || strings.TrimSpace(txt.Src) == "" {
+						continue
+					}
+					scan(txt.Src)
+				}
+			}
 		}
 	}
 	return out

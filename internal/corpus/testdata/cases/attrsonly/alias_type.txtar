@@ -1,0 +1,35 @@
+# The userland alias spelling from the element-literals deferred note:
+# aliases are transparent to go/types, so this is recognized with no
+# alias-specific code.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+type Component = func(...gsx.Attr) gsx.Node
+
+type thingProps struct {
+	Label string
+	Attrs gsx.Attrs
+}
+
+component renderThing(p thingProps) {
+	<span { p.Attrs... }>{p.Label}</span>
+}
+
+func namedThing(label string) Component {
+	return func(attrs ...gsx.Attr) gsx.Node {
+		return renderThing(thingProps{Label: label, Attrs: gsx.Attrs(attrs)})
+	}
+}
+
+var Hello = namedThing("hello")
+
+component Page() {
+	<Hello class="w"/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<span class="w">hello</span>

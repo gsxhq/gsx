@@ -53,6 +53,8 @@ type `gsx.Attrs` and spread it onto an element with `{ bag… }`.
 
 Boolean values in an `Attrs` slice follow the same rule as attribute-level booleans: `true` renders as the bare attribute name; `false` omits the attribute entirely.
 
+A spread is a forwarding position, not a fresh sink: values are HTML-attribute-escaped but **not** URL-sanitized on the way through, so a URL-typed attribute (`href`, `src`, `action`, …) carrying an untrusted value must already be sanitized before it enters the bag — see [Attrs-only component values — the security note](./props.md#attrs-only-component-values) for the full contract.
+
 `map[string]any` and `gsx.AttrMap` are not implicit template bag types. When starting from map-shaped data in Go, convert it explicitly before passing it to a template:
 
 ```go
@@ -63,6 +65,14 @@ attrs = gsx.AttrMap(m).ToAttrs()
 ```
 
 `ToAttrs` sorts keys ascending because maps do not preserve insertion order. When order matters, construct `gsx.Attrs` directly instead.
+
+::: v-pre
+On an [attrs-only component value](./props.md#attrs-only-component-values) —
+a tag callee with no declared props struct at all — there's no field to match
+against, so every call-site attribute (named, `{ x… }` spread, conditional,
+and the `attrs={{ … }}` ordered literal below) lands in that one bag argument,
+merging in the same source order as the synthesized `Attrs` bag.
+:::
 
 ## Ordered-attrs literal <code v-pre>{{ "k": v }}</code>
 

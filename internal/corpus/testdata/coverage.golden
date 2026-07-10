@@ -20,6 +20,25 @@ attrs/expr_attrs	diag render
 attrs/spread_byo	diag render
 attrs/spread_leading_rejected	diag(error)
 attrs/spread_trailing	diag render
+attrsonly/alias_type	diag render
+attrsonly/element_literal_interp	diag render
+attrsonly/empty_children_ok	diag render
+attrsonly/factory_var	diag render
+attrsonly/func_named_attrs	diag gen render
+attrsonly/func_variadic	diag render
+attrsonly/generic_named_instantiated	diag render
+attrsonly/imported	diag render
+attrsonly/imported_undefined	diag(error)
+attrsonly/interp_desync	diag render
+attrsonly/merge_order	diag gen render
+attrsonly/named_slice_type	diag gen render
+attrsonly/reject_children	diag(error)
+attrsonly/reject_error_result	diag(error)
+attrsonly/reject_field_callee	diag(error)
+attrsonly/reject_named_elem_type	diag(error)
+attrsonly/reject_shadowed_qualifier	diag(error)
+attrsonly/reject_undefined	diag(error)
+attrsonly/unnamed_slice	diag gen render
 bodyinterp/bare_backtick_no_interp	diag gen render
 bodyinterp/escaped_hole	diag gen render
 bodyinterp/f_body_is_markup_template	diag gen render
@@ -564,4 +583,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 566 cases (render: 454, error: 83, gen-pinned: 288)
+TOTAL: 585 cases (render: 466, error: 90, gen-pinned: 292)
