@@ -105,7 +105,7 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Card(CardProps{Title: _gsxrt.Text("Hi"), Attrs: _gsxrt.Attrs{}.Merge(_gsxv2)}))
+		_gsxgw.Node(ctx, Card(CardProps{Title: _gsxrt.Text("Hi"), Attrs: _gsxrt.ConcatAttrs(_gsxv2)}))
 		return _gsxgw.Err()
 	})
 }

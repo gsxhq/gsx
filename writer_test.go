@@ -148,7 +148,10 @@ func TestAttrAnyEscapes(t *testing.T) {
 }
 
 func TestURLVal(t *testing.T) {
-	cases := []struct{ v any; want string }{
+	cases := []struct {
+		v    any
+		want string
+	}{
 		{"https://x/y", "https://x/y"},
 		{"javascript:alert(1)", "about:invalid#gsx"},
 		{RawURL("app://z"), "app://z"},

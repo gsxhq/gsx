@@ -72,7 +72,7 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Box(_gsxrt.Attrs{{Key: "data-a", Value: "1"}, {Key: "data-b", Value: "2"}}.Merge(extra).Merge(_gsxv0).Merge(_gsxrt.Attrs{{Key: "data-z", Value: "9"}})))
+		_gsxgw.Node(ctx, Box(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-a", Value: "1"}, {Key: "data-b", Value: "2"}}, extra, _gsxv0, _gsxrt.Attrs{{Key: "data-z", Value: "9"}})))
 		return _gsxgw.Err()
 	})
 }
