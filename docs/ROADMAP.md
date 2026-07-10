@@ -606,8 +606,8 @@ vocabulary remains a design aspiration, not the current API.
    filter-evasion seeds); `<base href={...}>` is explicitly covered by the
    normal `href` URL path. **Residual (accepted):** a runtime-dynamic
    `http-equiv={expr}` keeps plain attribute escaping (pinned in corpus
-   `security/meta_refresh_dynamic_http_equiv`), and `{...attrs}` bags follow
-   the documented Spread contract (attribute-escaped, never URL-sanitized).
+   `security/meta_refresh_dynamic_http_equiv`). `{...attrs}` bags no longer
+   carry a blanket "never URL-sanitized" caveat - see item 8 below.
 5. [ ] **Split navigational vs resource URLs** in the type/filter vocabulary
    (`URL` vs `TrustedResourceURL`, à la safehtml; html/template conflates them -
    go#27926).
@@ -622,6 +622,58 @@ vocabulary remains a design aspiration, not the current API.
    carrying a `"nonce"` key wins). No nonce generation, middleware, or CSP
    header engine - the header stays the server's job. See
    `2026-07-02-csp-nonce-injection-design.md`.
+8. [x] **Bag hardening - resolve everything at the leaf** (2026-07-10). Three
+   parts, per `2026-07-10-bag-spread-hardening-design.md`: **(A) URL
+   sanitization at the leaf** - every forwarding element now emits a
+   `Get`-extraction block for each `[[urlAttrs]]`-classified name (built-ins +
+   `gsx.toml` rules + `gen.WithURLAttrs`, resolved at generate time),
+   case-insensitively (`GetFold`/`WithoutFold`, so a smuggled `HREF` cannot
+   bypass the check and is normalized to lowercase on output), through the
+   same tag-aware sinks static attrs use (`URLVal` nav / `URLImageVal`
+   image-resource, `about:invalid#gsx` on failure); `gsx.RawURL` still passes
+   verbatim. Extracted attrs render at the guard block, not their bag
+   position; a project `prefix = "…"` rule routes through a generated
+   `SpreadURLPrefixed` matcher instead (cannot be enumerated into `Get`s).
+   **(B) forwarding precedence now covers every declared bag** - not just the
+   implicit `attrs` token: a byo component's `p.Attrs` field and a generated
+   component's own named `gsx.Attrs` param(s) get the same `Has`-guarded
+   defaults / forced-after / `class`/`style`-always-merges machinery and
+   one-spread-per-element rule, including derived forms
+   (`p.Attrs.Without(…)`). **(C) call sites concatenate, not `.Merge()`
+   chain** - `gsx.ConcatAttrs` replaces the per-link `.Merge()` composition at
+   every generated call site (base literal, spreads, conditional bags in
+   source order, `attrs={{ … }}` literal still concatenated last); semantics
+   are unchanged because render already resolves duplicates at the leaf
+   (last-wins scalars, aggregating class/style) - the only observable
+   difference is that a component iterating its raw bag can see duplicates,
+   which the type's documented contract already permitted. `Attrs.Merge`
+   remains for userland eager composition. Corpus:
+   `internal/corpus/testdata/cases/{urlattrs,fallthrough,attrs}/`. Docs:
+   `attrs.go` godoc, `composition.md` §Precedence/§Derived bags,
+   `attributes.md`/`props.md`. **Follow-ups (not implemented here):**
+   - **Local `gsx.Attrs` variables stay inline-emitted** - a variable declared
+     and assigned inside a component body (not a declared prop field/param)
+     spread with `{ b... }` still emits a bare `Spread` with no caller-wins
+     guards, no class merge, and no URL extraction, so a duplicate attribute
+     or an unsanitized URL value is possible (`fallthrough/local_bag_inline`
+     pins the duplicate). Closing this needs body-local type tracking to
+     recognize a `gsx.Attrs`-typed local as a forwarding position.
+   - **A byo struct's second `gsx.Attrs` field** (e.g. `Extra gsx.Attrs`
+     alongside the classified `Attrs` field) also stays inline-emitted -
+     `analyze.go`'s byo path only classifies the exact `Attrs` field name
+     (`byoStruct.hasAttrs`) before `genProps` ever runs, so `attrsProps` is
+     never populated for byo structs. Recognizing a second field needs new
+     analysis facts, not just a wider `bagBases` scan.
+   - **Call-site literal trust-marking** - the URL allow-list passes every
+     conventional scheme through the extraction machinery; an author who
+     wants an exotic literal scheme trusted without per-value `gsx.RawURL`
+     wrapping still has no call-site-level "trust this bag's URLs" marker.
+     Considered and deferred alongside Part A; `gsx.RawURL` remains the only
+     opt-out.
+   - **Two-spread diagnostic DX** - "more than one attrs-referencing spread on
+     an element; precedence is ambiguous" names the rule but not a fix. A
+     friendlier diagnostic would point at both spread positions and suggest
+     the `{ a.Merge(b)... }` composition inline.
 
 ## Tracked debts / deferrals
 

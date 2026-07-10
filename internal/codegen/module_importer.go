@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/jsx"
 	"github.com/gsxhq/gsx/internal/wsnorm"
@@ -638,7 +639,8 @@ type analyzed struct {
 	goFiles            []*goast.File                  // parsed skeletons + shared helper
 	compsByXGo         map[string][]*gsxast.Component // skeleton abs path -> components
 	table              filterTable
-	merger             *ClassMergerRef // the class merger for this dir (Options.ClassMerger, or its PerDir override)
+	merger             *ClassMergerRef       // the class merger for this dir (Options.ClassMerger, or its PerDir override)
+	classifier         *attrclass.Classifier // the attrclass.Classifier for this dir (Options.Classifier, or its PerDir override)
 	propFields         map[string]map[string]bool
 	nodeProps          map[string]map[string]bool
 	attrsProps         map[string]map[string]bool
@@ -1271,6 +1273,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		compsByXGo:         compsByXGo,
 		table:              table,
 		merger:             m.classMergerFor(dir),
+		classifier:         m.classifierFor(dir),
 		propFields:         propFields,
 		nodeProps:          nodeProps,
 		attrsProps:         attrsProps,

@@ -16,6 +16,7 @@ attrs/cond_attr_else_typed_exprs_false	diag render
 attrs/cond_attr_else_typed_exprs_true	diag render
 attrs/cond_attr_interleaved	diag render
 attrs/cond_attr_param_only_in_branch	diag render
+attrs/dup_iteration	diag gen render
 attrs/expr_attrs	diag render
 attrs/spread_byo	diag render
 attrs/spread_leading_rejected	diag(error)
@@ -224,6 +225,11 @@ elements/named_scalar_types	diag render
 elements/node_slice	diag render
 elements/static_and_bool_attrs_off	diag render
 elements/static_and_bool_attrs_on	diag render
+fallthrough/byo_bag_class_merge	diag gen render
+fallthrough/byo_bag_defaults	diag gen render
+fallthrough/byo_bag_derived	diag gen render
+fallthrough/byo_bag_forced	diag gen render
+fallthrough/byo_bag_two_spreads	diag(error)
 fallthrough/call_site_button	diag(error)
 fallthrough/call_site_caller_wins	diag render
 fallthrough/call_site_class_merge	diag render
@@ -239,6 +245,8 @@ fallthrough/cond_attr_else_if_override	diag render
 fallthrough/cond_attr_nested_spread_rejected	diag(error)
 fallthrough/cond_attr_post_forced_taken	diag gen render
 fallthrough/cond_attr_post_forced_untaken	diag render
+fallthrough/cond_attr_post_forced_url	diag gen render
+fallthrough/cond_attr_post_forced_url_multi	diag gen render
 fallthrough/cond_attr_pre_no_override	diag render
 fallthrough/cond_attr_pre_override	diag gen render
 fallthrough/cond_attr_root_not_eligible	diag(error)
@@ -246,10 +254,12 @@ fallthrough/cond_attr_root_standalone	diag render
 fallthrough/derived_merge_spread	diag render
 fallthrough/derived_without_spread	diag gen render
 fallthrough/empty_bag_noop	diag render
+fallthrough/local_bag_inline	diag gen render
 fallthrough/manual_nullary_method	diag render
 fallthrough/manual_placement	diag render
 fallthrough/manual_split_container_bag	diag gen render
 fallthrough/manual_without	diag render
+fallthrough/named_bag_param	diag gen render
 fallthrough/no_class_empty_bag	diag render
 fallthrough/no_class_root_with_bag	diag render
 fallthrough/not_eligible_no_field	diag gen render
@@ -570,6 +580,20 @@ url/data_image_svg	diag render
 url/data_image_svg_object_blocked	diag render
 url/data_url_filter	diag gen render
 url/data_url_filter_blocked_mime	diag render
+urlattrs/aliased_gsx_bag	diag gen render
+urlattrs/aliased_gsx_bag_field	diag gen render
+urlattrs/bag_case_variant	diag gen render
+urlattrs/bag_custom_rule	diag gen render
+urlattrs/bag_href_nav	diag gen render
+urlattrs/bag_hx_get	diag gen render
+urlattrs/bag_prefix_forced	diag gen render
+urlattrs/bag_prefix_rule	diag gen render
+urlattrs/bag_rawurl	diag gen render
+urlattrs/bag_src_image_split	diag gen render
+urlattrs/element_custom_rule	diag gen render
+urlattrs/htmx_preset	diag gen render
+urlattrs/hx_default_plain	diag gen render
+urlattrs/static_plus_case_variant	diag gen render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
 xpkg/generic_inferred_import	diag render
@@ -584,4 +608,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 586 cases (render: 467, error: 90, gen-pinned: 292)
+TOTAL: 610 cases (render: 490, error: 91, gen-pinned: 315)

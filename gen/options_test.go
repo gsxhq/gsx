@@ -36,6 +36,38 @@ func TestWithURLAttrsRejectsInvalidRule(t *testing.T) {
 	}
 }
 
+func TestWithURLPreset(t *testing.T) {
+	t.Parallel()
+	var cfg config
+	WithURLPreset("htmx")(&cfg)
+	if len(cfg.errs) != 0 {
+		t.Fatalf("unexpected errs: %v", cfg.errs)
+	}
+	cls := cfg.classifier()
+	// The five method attrs are re-enabled as URL sinks.
+	for _, n := range []string{"hx-get", "hx-post", "hx-put", "hx-delete", "hx-patch"} {
+		if cls.Context(n) != attrclass.CtxURL {
+			t.Errorf("with htmx preset: Context(%q) != CtxURL", n)
+		}
+	}
+	// Non-URL hx-* attrs stay plain.
+	if cls.Context("hx-target") != attrclass.CtxPlain {
+		t.Error("hx-target must stay plain (not a URL attr)")
+	}
+}
+
+func TestWithURLPresetUnknownRecorded(t *testing.T) {
+	t.Parallel()
+	var cfg config
+	WithURLPreset("nope")(&cfg)
+	if len(cfg.errs) == 0 {
+		t.Fatal("expected an error for an unknown preset name")
+	}
+	if len(cfg.urlRules) != 0 {
+		t.Fatalf("unknown preset must add no rules, got %v", cfg.urlRules)
+	}
+}
+
 const stdPath = "github.com/gsxhq/gsx/std"
 
 // applyOpts is a tiny internal seam: it builds a config from options so the

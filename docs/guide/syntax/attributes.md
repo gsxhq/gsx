@@ -19,7 +19,7 @@ Write `name={expr}` to bind any Go expression to an attribute. The expression ca
 
 <!--@include: ./_generated/attributes/010-expression-attributes.md-->
 
-`href={url}` is a URL-context attribute: gsx recognises `href`, `src`, `action`, and the htmx method attributes (`hx-get`, `hx-post`, etc.) as URL contexts and scheme-sanitises the value in addition to HTML-escaping it (see [Contextual escaping](#contextual-escaping) below).
+`href={url}` is a URL-context attribute: gsx recognises `href`, `src`, `action`, and the rest of the 11 built-in URL attribute names as URL contexts and scheme-sanitises the value in addition to HTML-escaping it (see [Contextual escaping](#contextual-escaping) below). The htmx method attributes (`hx-get`, `hx-post`, etc.) are not part of that built-in set — a project opts them in with `url_presets = ["htmx"]` in `gsx.toml` (or `gen.WithURLPreset("htmx")`).
 
 `data-count={count}` is a plain attribute: the integer is converted to its decimal string representation and attribute-escaped. Any Go expression whose result converts to a string is valid here.
 
@@ -53,7 +53,9 @@ type `gsx.Attrs` and spread it onto an element with `{ bag… }`.
 
 Boolean values in an `Attrs` slice follow the same rule as attribute-level booleans: `true` renders as the bare attribute name; `false` omits the attribute entirely.
 
-A spread is a forwarding position, not a fresh sink: values are HTML-attribute-escaped but **not** URL-sanitized on the way through, so a URL-typed attribute (`href`, `src`, `action`, …) carrying an untrusted value must already be sanitized before it enters the bag — see [Attrs-only component values — the security note](./props.md#attrs-only-component-values) for the full contract.
+A spread onto a **forwarding element** — one receiving the implicit `attrs` bag, a byo component's declared `Attrs` field, or a generated component's own named `gsx.Attrs` param — sanitizes URL-typed attributes exactly like a static attribute of the same name would: generated code emits a single `gsx.SpreadForwarding(...)` call that, in one ordered walk over the bag, matches every URL-classified key (`href`, `src`, `action`, and the rest of the [URL-attribute table](#contextual-escaping), plus any project `[[urlAttrs]]` rule) case-insensitively and writes it through the matching tag-aware sink (navigational or image-resource) in place — at the bag's own authored position, not hoisted ahead of the rest of the bag. Wrap an already-validated value in `gsx.RawURL(...)` to skip the scheme check for that one attribute.
+
+This sanitization is generated-code behavior at a forwarding element specifically — it does not reach any spread expression that is not the forwarding bag: a **local variable** (a `gsx.Attrs` declared and assigned inside the component body, not a declared field/param), a **function call** (`{ Source()... }`, whatever `Source` returns), a **byo struct's second `gsx.Attrs` field** (a field other than the one named `Attrs` — only that exact field name is recognized as the forwarding bag), or a **hand-written `gw.Spread` call** made outside gsx's generated forwarding code — all of these still spread inline with no extraction, and a hand-written `Spread` owns its own sinks entirely, same as before. See [Composition — Precedence](./composition.md#precedence) and the security note on `gsx.Attrs`'s doc comment for the full contract.
 
 `map[string]any` and `gsx.AttrMap` are not implicit template bag types. When starting from map-shaped data in Go, convert it explicitly before passing it to a template:
 
@@ -121,11 +123,18 @@ two spell the same target and render identically).
 When `attrs={{ … }}` appears alongside other bag contributors on the same
 call site — bare fallthrough attrs, `{ expr… }` spreads, conditional attrs —
 they compose instead of colliding. Bare/fallthrough attrs form the base bag,
-then spreads and conditional attrs merge in source order, then the
-`attrs={{ … }}` literal merges last via `Merge`, regardless of where it
-appears among the other attrs in source. A second `attrs={{ … }}` literal on
-the same element is a clean error (`ordered-attrs-duplicate`) — combine the
-pairs into one literal instead.
+then spreads and conditional attrs concatenate in source order (`gsx.ConcatAttrs`,
+not an eager `Merge` chain — see [`gsx.ConcatAttrs`'s doc comment](https://pkg.go.dev/github.com/gsxhq/gsx#ConcatAttrs)),
+then the `attrs={{ … }}` literal is concatenated last, regardless of where it
+appears among the other attrs in source. Duplicate keys across the
+concatenated pieces are resolved the same way `Spread` always resolved them —
+last-wins for scalars, aggregating for `class`/`style` — so this reads
+identically to the old eager-merge behavior; `Get`/`Has` stay last-wins as
+always. The one observable difference is that a component iterating its own
+bag directly — `len(attrs)`, a manual range loop — can see duplicate entries
+that an eager `Merge` would have already resolved away. A second
+`attrs={{ … }}` literal on the same element is a clean error
+(`ordered-attrs-duplicate`) — combine the pairs into one literal instead.
 
 Imported components from the same module get this treatment automatically:
 gsx discovers their declared props — including the synthesized `Attrs`

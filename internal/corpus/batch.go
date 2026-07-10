@@ -104,16 +104,16 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 	}
 
 	// Step 3: codegen — ONE call for every dir. Cases carrying a gsx.toml
-	// (class_merger and/or filterPackages) contribute a PerDir entry; their filter
-	// packages go into the shared load set. Previously each such case opened its
-	// own Module, and every Module re-ran packages.Load over the gsx runtime: 27
-	// cases cost 10.7s of the corpus's 13.2s.
+	// (class_merger, filterPackages, and/or urlAttrs) contribute a PerDir entry;
+	// their filter packages go into the shared load set. Previously each such
+	// case opened its own Module, and every Module re-ran packages.Load over the
+	// gsx runtime: 27 cases cost 10.7s of the corpus's 13.2s.
 	var allDirs, loadPkgs []string
 	perDir := map[string]codegen.DirOptions{}
 	seenPkg := map[string]bool{}
 	for _, cs := range states {
 		allDirs = append(allDirs, cs.pkgDirs...)
-		if cs.c.classMerger == nil && len(cs.c.filterPkgs) == 0 {
+		if cs.c.classMerger == nil && len(cs.c.filterPkgs) == 0 && cs.c.classifier == nil {
 			continue
 		}
 		var filters []string
@@ -132,10 +132,13 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 		}
 		// Every dir of a multi-package case shares that case's options — an
 		// imported sibling must resolve the same filters as the dir importing it.
+		// classifier needs no packages.Load contribution: attrclass.New builds it
+		// entirely in-process from the case's own toml rules.
 		for _, d := range cs.pkgDirs {
 			perDir[filepath.Clean(d)] = codegen.DirOptions{
 				FilterPkgs:  filters, // nil ⇒ inherit the std-only default
 				ClassMerger: cs.c.classMerger,
+				Classifier:  cs.c.classifier,
 			}
 		}
 	}

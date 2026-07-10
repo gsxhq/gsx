@@ -146,3 +146,38 @@ func TestAttrAnyEscapes(t *testing.T) {
 		t.Errorf("AttrAny = %q", got)
 	}
 }
+
+func TestURLVal(t *testing.T) {
+	cases := []struct {
+		v    any
+		want string
+	}{
+		{"https://x/y", "https://x/y"},
+		{"javascript:alert(1)", "about:invalid#gsx"},
+		{RawURL("app://z"), "app://z"},
+		{RawURL(`a"b`), "a&#34;b"}, // RawURL still attribute-escaped
+	}
+	for _, c := range cases {
+		var buf bytes.Buffer
+		gw := W(&buf)
+		gw.URLVal(c.v)
+		if err := gw.Err(); err != nil || buf.String() != c.want {
+			t.Fatalf("URLVal(%v) = %q, %v; want %q", c.v, buf.String(), err, c.want)
+		}
+	}
+}
+
+func TestURLImageVal(t *testing.T) {
+	var buf bytes.Buffer
+	gw := W(&buf)
+	gw.URLImageVal("data:image/png;base64,AAAA")
+	if got := buf.String(); got != "data:image/png;base64,AAAA" {
+		t.Fatalf("got %q", got)
+	}
+	buf.Reset()
+	gw = W(&buf)
+	gw.URLVal("data:image/png;base64,AAAA") // nav sink rejects data:
+	if got := buf.String(); got != "about:invalid#gsx" {
+		t.Fatalf("nav sink must reject data:image, got %q", got)
+	}
+}

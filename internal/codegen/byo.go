@@ -358,12 +358,17 @@ func soleParamTypeName(params []param) string {
 }
 
 // gsxStructDecls scans every GoChunk in the .gsx files for top-level
-// `type X struct { … }` declarations and returns them keyed by type name. The
-// chunk Go source is parsed with go/parser; a chunk that does not parse on its
-// own is skipped (buildSkeleton re-parses and surfaces a clean diagnostic).
-func gsxStructDecls(files map[string]*gsxast.File) map[string]*goast.StructType {
+// `type X struct { … }` declarations and returns them keyed by type name, plus
+// the gsx runtime qualifiers of each struct's DECLARING file (default "gsx" plus
+// any runtime-path alias). fieldsFromGsxStruct classifies the struct's bag/node
+// fields against those qualifiers, so an aliased `Attrs g.Attrs` field is
+// recognized as the runtime bag. The chunk Go source is parsed with go/parser; a
+// chunk that does not parse on its own is skipped (buildSkeleton re-parses and
+// surfaces a clean diagnostic).
+func gsxStructDecls(files map[string]*gsxast.File) (map[string]*goast.StructType, map[string]map[string]bool) {
 	out := map[string]*goast.StructType{}
-	parseDecls := func(src string) {
+	quals := map[string]map[string]bool{}
+	parseDecls := func(src string, fileQuals map[string]bool) {
 		fset := token.NewFileSet()
 		f, err := parser.ParseFile(fset, "", "package _gsxp\n"+src, 0)
 		// Keep partial trees on parse errors: a top-level GoWithElements region can
@@ -387,34 +392,41 @@ func gsxStructDecls(files map[string]*gsxast.File) map[string]*goast.StructType 
 					continue
 				}
 				out[ts.Name.Name] = st
+				quals[ts.Name.Name] = fileQuals
 			}
 		}
 	}
 	for _, file := range files {
+		fileQuals := gsxParamQualifiers(fileImportSpecs(file, nil))
 		for _, d := range file.Decls {
 			switch t := d.(type) {
 			case *gsxast.GoChunk:
-				parseDecls(t.Src)
+				parseDecls(t.Src, fileQuals)
 			case *gsxast.GoWithElements:
 				for _, p := range t.Parts {
 					txt, ok := p.(gsxast.GoText)
 					if !ok || strings.TrimSpace(txt.Src) == "" {
 						continue
 					}
-					parseDecls(txt.Src)
+					parseDecls(txt.Src, fileQuals)
 				}
 			}
 		}
 	}
-	return out
+	return out, quals
 }
 
 // fieldsFromGsxStruct enumerates a GoChunk-declared struct's exported fields from
 // its AST: the exported field set (capitalized field names → true), the node
-// field set (fields whose type is exactly gsx.Node), and whether it has the
-// special Children gsx.Node / Attrs gsx.Attrs fields. No type resolution is
-// needed — the field shape is read syntactically, exactly as the author wrote it.
-func fieldsFromGsxStruct(st *goast.StructType) (fields, nodeFields map[string]bool, s byoStruct) {
+// field set (fields whose type names gsx.Node), and whether it has the special
+// Children gsx.Node / Attrs gsx.Attrs fields. No type resolution is needed — the
+// field shape is read syntactically, exactly as the author wrote it. quals are
+// the local qualifiers that name the gsx runtime package in the struct's
+// DECLARING file (default "gsx" plus any alias the file bound to the runtime
+// import path, from gsxParamQualifiers), so an aliased `Attrs g.Attrs` /
+// `Children g.Node` field is classified as the runtime bag/node — not treated as
+// a plain field, which would spread a caller's bag UNSANITIZED past the leaf.
+func fieldsFromGsxStruct(st *goast.StructType, quals map[string]bool) (fields, nodeFields map[string]bool, s byoStruct) {
 	fields = map[string]bool{}
 	nodeFields = map[string]bool{}
 	for _, f := range st.Fields.List {
@@ -424,13 +436,13 @@ func fieldsFromGsxStruct(st *goast.StructType) (fields, nodeFields map[string]bo
 				continue
 			}
 			fields[nm.Name] = true
-			if isGsxNodeType(typ) {
+			if isGsxQualifiedType(typ, quals, "Node") {
 				nodeFields[nm.Name] = true
 			}
-			if nm.Name == "Children" && isGsxNodeType(typ) {
+			if nm.Name == "Children" && isGsxQualifiedType(typ, quals, "Node") {
 				s.hasChildren = true
 			}
-			if nm.Name == "Attrs" && isGsxAttrsType(typ) {
+			if nm.Name == "Attrs" && isGsxQualifiedType(typ, quals, "Attrs") {
 				s.hasAttrs = true
 			}
 		}
@@ -454,12 +466,6 @@ func typeString(e goast.Expr) string {
 	return ""
 }
 
-// isGsxAttrsType reports whether a field's declared type string is exactly
-// gsx.Attrs (ignoring surrounding whitespace).
-func isGsxAttrsType(typ string) bool {
-	return strings.TrimSpace(typ) == "gsx.Attrs"
-}
-
 // loadExternalStructFields enumerates the exported fields of each requested
 // struct type by PARSING the package's hand-written .go files — no type-check,
 // no go/packages load, no dependency resolution. It is the .go-sibling
@@ -475,14 +481,16 @@ func isGsxAttrsType(typ string) bool {
 // files may legitimately reference funcs the not-yet-generated .x.go will
 // provide, but that never affects a struct declaration's parseable field shape.
 //
-// Two consequences of being purely syntactic (both intentional, and identical to
-// the .gsx GoChunk path via the shared fieldsFromGsxStruct reader): unnamed
-// EMBEDDED fields are not enumerated (only fields with explicit names), and the
-// gsx package is recognized by the literal type strings gsx.Node/gsx.Attrs (an
-// aliased gsx import is not classified). Build constraints and the package
-// clause are NOT honored — every non-test, non-.x.go file in dir is parsed — so
-// a same-named struct in a build-tag-excluded file could shadow the real one;
-// props structs are not platform-conditional in practice.
+// One consequence of being purely syntactic (intentional, and identical to the
+// .gsx GoChunk path via the shared fieldsFromGsxStruct reader): unnamed EMBEDDED
+// fields are not enumerated (only fields with explicit names). The gsx package is
+// recognized by the declaring file's own import qualifiers — the default "gsx"
+// plus any alias it bound to the runtime path — so an aliased `Attrs g.Attrs`
+// field IS classified as the bag (parity with a named-type param). Build
+// constraints and the package clause are NOT honored — every non-test, non-.x.go
+// file in dir is parsed — so a same-named struct in a build-tag-excluded file
+// could shadow the real one; props structs are not platform-conditional in
+// practice.
 func loadExternalStructFields(dir string, wanted map[string]bool) (fields, nodeFields map[string]map[string]bool, structs map[string]byoStruct) {
 	fields = map[string]map[string]bool{}
 	nodeFields = map[string]map[string]bool{}
@@ -505,6 +513,7 @@ func loadExternalStructFields(dir string, wanted map[string]bool) (fields, nodeF
 		if perr != nil {
 			continue
 		}
+		fileQuals := gsxQualifiersFromGoFile(f)
 		for _, decl := range f.Decls {
 			gd, ok := decl.(*goast.GenDecl)
 			if !ok || gd.Tok != token.TYPE {
@@ -519,7 +528,7 @@ func loadExternalStructFields(dir string, wanted map[string]bool) (fields, nodeF
 				if !ok {
 					continue
 				}
-				ff, nf, bs := fieldsFromGsxStruct(st)
+				ff, nf, bs := fieldsFromGsxStruct(st, fileQuals)
 				fields[ts.Name.Name] = ff
 				nodeFields[ts.Name.Name] = nf
 				structs[ts.Name.Name] = bs

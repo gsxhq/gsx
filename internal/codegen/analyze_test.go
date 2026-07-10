@@ -119,26 +119,35 @@ func keysOf(m map[string]map[string]bool) []string {
 	return out
 }
 
-// TestIsGsxNodeType checks that isGsxNodeType recognises exactly "gsx.Node"
-// (with optional surrounding whitespace) and nothing else.
-func TestIsGsxNodeType(t *testing.T) {
+// TestIsGsxQualifiedType checks that isGsxQualifiedType recognises the runtime
+// selector under the default "gsx" qualifier AND any aliased qualifier, and
+// nothing else. This is the sole bag/node type predicate (param + byo struct
+// field classification); an aliased `g.Attrs` MUST match so a forwarding spread
+// stays sanitized.
+func TestIsGsxQualifiedType(t *testing.T) {
 	t.Parallel()
+	quals := map[string]bool{"gsx": true, "g": true}
 	cases := []struct {
 		typ  string
+		sel  string
 		want bool
 	}{
-		{"gsx.Node", true},
-		{" gsx.Node ", true},
-		{"string", false},
-		{"int", false},
-		{"[]gsx.Node", false},
-		{"gsx.Node2", false},
-		{"", false},
+		{"gsx.Node", "Node", true},
+		{" gsx.Node ", "Node", true},
+		{"g.Node", "Node", true}, // aliased runtime import
+		{"gsx.Attrs", "Attrs", true},
+		{"g.Attrs", "Attrs", true}, // aliased runtime import
+		{"string", "Node", false},
+		{"int", "Node", false},
+		{"[]gsx.Node", "Node", false}, // slice form has no bare selector
+		{"gsx.Node2", "Node", false},
+		{"other.Attrs", "Attrs", false}, // unrelated qualifier
+		{"", "Node", false},
 	}
 	for _, tc := range cases {
-		got := isGsxNodeType(tc.typ)
+		got := isGsxQualifiedType(tc.typ, quals, tc.sel)
 		if got != tc.want {
-			t.Errorf("isGsxNodeType(%q) = %v, want %v", tc.typ, got, tc.want)
+			t.Errorf("isGsxQualifiedType(%q, quals, %q) = %v, want %v", tc.typ, tc.sel, got, tc.want)
 		}
 	}
 }
