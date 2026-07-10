@@ -2,6 +2,7 @@ package gen
 
 import (
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -123,7 +124,14 @@ func newWatchSession(cfg watchConfig) (*watchSession, []cycleResult, error) {
 		s.modules[g.root] = m
 	}
 
-	var startup []cycleResult
+	// Walk-level orphan sweep: mirrors generateCached's sweepOrphanDirs call in
+	// gen/cache.go. discoverDirs only returns dirs that still directly contain
+	// a .gsx, so a directory whose sole .gsx was deleted before `gsx dev` ever
+	// started drops out of `dirs` entirely and the per-dir sweep inside
+	// regenDir below never fires for it — its stale gsx-owned .x.go would
+	// otherwise survive indefinitely. Must run before the per-dir regen loop,
+	// same ordering as the batch path.
+	startup := sweepOrphanStartup(cfg.paths, dirs)
 	for _, dir := range dirs {
 		startup = append(startup, s.regenDir(dir))
 	}
@@ -150,11 +158,51 @@ func (s *watchSession) reopen() ([]cycleResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	var results []cycleResult
+	// Walk-level orphan sweep — see the matching call in newWatchSession for
+	// why this can't be left to the per-dir sweep inside regenDir alone.
+	results := sweepOrphanStartup(s.cfg.paths, dirs)
 	for _, dir := range dirs {
 		results = append(results, s.regenDir(dir))
 	}
 	return results, nil
+}
+
+// sweepOrphanStartup runs the walk-level orphan sweep (sweepOrphanDirs) over
+// paths, treating kept as the currently discovered dirs (dirs that still
+// directly contain a .gsx — never swept). It's the watch-session cold-start
+// counterpart to generateCached's call in gen/cache.go, and exists because
+// newWatchSession/reopen only regenerate discovered dirs: a directory whose
+// only .gsx is already gone drops out of discovery and would never be visited
+// by regenDir's dir-scoped sweep.
+//
+// Removed paths are converted into cycleResults grouped by their real parent
+// directory — never a fabricated Dir — mirroring regenPending's
+// onlyGeneratedRemains branch (gen/watch.go) so callers (dev's overlay/log
+// output, the watch emitter) see and report the removal exactly like any
+// other warm-loop orphan sweep. A sweep I/O error (e.g. a permission-denied
+// os.Remove) is folded into one Err-only cycleResult rather than treated as
+// fatal to session startup — the same non-fatal handling generateCached gives
+// the identical error.
+func sweepOrphanStartup(paths, kept []string) []cycleResult {
+	removed, err := sweepOrphanDirs(paths, kept)
+	byDir := map[string][]string{}
+	for _, p := range removed {
+		d := filepath.Dir(p)
+		byDir[d] = append(byDir[d], p)
+	}
+	dirs := make([]string, 0, len(byDir))
+	for d := range byDir {
+		dirs = append(dirs, d)
+	}
+	sort.Strings(dirs)
+	results := make([]cycleResult, 0, len(dirs)+1)
+	for _, d := range dirs {
+		results = append(results, cycleResult{Dir: d, Removed: byDir[d], OK: true})
+	}
+	if err != nil {
+		results = append(results, cycleResult{Err: err})
+	}
+	return results
 }
 
 // regenDir warm-regenerates one package dir using its module's warm Module. It
