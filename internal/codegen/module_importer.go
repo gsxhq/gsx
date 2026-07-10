@@ -917,6 +917,14 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// it are suppressed because each expression also has a native typed probe that
 	// reports the error once.
 	//
+	// _gsxusen is the QUIET, ALIGNMENT-NEUTRAL keep-alive: like _gsxuseq its
+	// errors are suppressed (harvestProbeSpans matches it too), but unlike
+	// _gsxuse/_gsxuseq it is NOT counted by harvest's k-ordering (harvestBody
+	// only advances on _gsxuse/_gsxuseq). It carries an attrs-only bag expression
+	// purely to keep its identifiers and filter imports live and type-checked —
+	// the bag has no single interp node to harvest onto, and counting it would
+	// shift every later interp's harvested type by one slot.
+	//
 	// _gsxstr is the whole-literal-pipe seed-probe's per-hole placeholder
 	// conversion (see analyze.go's embeddedProbeSeed): it always returns
 	// `string`, mirroring how EVERY successful branch of the real emit-time
@@ -929,7 +937,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// _gsxunwrap's shape.
 	helperXgoPath := filepath.Join(dir, "_gsxshared.x.go")
 	helper, _ := goparser.ParseFile(fset, helperXgoPath,
-		"package "+pkgName+"\n\nfunc _gsxuse(...any) {}\nfunc _gsxuseq(...any) {}\nfunc _gsxcompsig(any) {}\nfunc _gsxunwrap[T any](v T, _ ...any) T { return v }\nfunc _gsxstr(any, ...any) string { return \"\" }\nfunc _gsxelem(int) {}\n", goparser.SkipObjectResolution)
+		"package "+pkgName+"\n\nfunc _gsxuse(...any) {}\nfunc _gsxuseq(...any) {}\nfunc _gsxusen(...any) {}\nfunc _gsxcompsig(any) {}\nfunc _gsxunwrap[T any](v T, _ ...any) T { return v }\nfunc _gsxstr(any, ...any) string { return \"\" }\nfunc _gsxelem(int) {}\n", goparser.SkipObjectResolution)
 	goFiles = append(goFiles, helper)
 
 	// Include the package's hand-written .go files (model.go, helper.go, etc.)
@@ -1293,9 +1301,10 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 type posSpan struct{ start, end token.Pos }
 
 // harvestProbeSpans returns the skeleton byte spans of f's _gsxuseq(...)
-// child-prop and element-spread harvest probes. Each probed expression is
+// child-prop / element-spread harvest probes and _gsxusen(...) attrs-only bag
+// keep-alives. Each probed expression is
 // ALSO checked in a native typed context (the props literal / gsx.Attrs
-// assignment), so the probe copy is redundant: type errors inside it are
+// assignment / the emit pass's own bag build), so the probe copy is redundant: type errors inside it are
 // suppressed (the type-error loop, above), and the diagnostic the user sees
 // anchors at the props-literal copy. Anything that must agree with that
 // diagnostic — MissingImport.Pos, notably (missingFromSkeletons, in
@@ -1311,7 +1320,7 @@ func harvestProbeSpans(f *goast.File) []posSpan {
 		if !ok {
 			return true
 		}
-		if id, ok := call.Fun.(*goast.Ident); ok && id.Name == "_gsxuseq" {
+		if id, ok := call.Fun.(*goast.Ident); ok && (id.Name == "_gsxuseq" || id.Name == "_gsxusen") {
 			spans = append(spans, posSpan{call.Pos(), call.End()})
 		}
 		return true
