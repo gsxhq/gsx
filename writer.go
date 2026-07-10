@@ -98,6 +98,33 @@ func (gw *Writer) URLImage(s string) {
 	gw.err = writeURLImage(gw.w, s)
 }
 
+// URLVal writes v as a navigational-URL attribute value: a gsx.RawURL is the
+// author's vouch and is emitted verbatim (still attribute-escaped); any other
+// value is stringified and scheme-sanitized like URL. Generated code uses it
+// for URL-classified bag attributes, where the value is dynamic (any).
+func (gw *Writer) URLVal(v any) {
+	if gw.err != nil {
+		return
+	}
+	if r, ok := v.(RawURL); ok {
+		gw.err = writeHTML(gw.w, string(r))
+		return
+	}
+	gw.err = writeURL(gw.w, toStr(v))
+}
+
+// URLImageVal is URLVal for image-resource sinks (data:image/* permitted).
+func (gw *Writer) URLImageVal(v any) {
+	if gw.err != nil {
+		return
+	}
+	if r, ok := v.(RawURL); ok {
+		gw.err = writeHTML(gw.w, string(r))
+		return
+	}
+	gw.err = writeURLImage(gw.w, toStr(v))
+}
+
 // RefreshContent writes a meta refresh content value with any embedded redirect
 // URL sanitized, then HTML-escapes the complete attribute value.
 func (gw *Writer) RefreshContent(s string) {

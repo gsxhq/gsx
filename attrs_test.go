@@ -238,3 +238,21 @@ func TestAttrsCondLazyEval(t *testing.T) {
 		t.Errorf("AttrsCond(false, ..., nil) = %v, %v, want nil, nil", got, err)
 	}
 }
+
+func TestConcatAttrs(t *testing.T) {
+	a := Attrs{{Key: "a", Value: "1"}}
+	b := Attrs{{Key: "b", Value: "2"}, {Key: "a", Value: "3"}}
+	got := ConcatAttrs(a, nil, b)
+	want := Attrs{{Key: "a", Value: "1"}, {Key: "b", Value: "2"}, {Key: "a", Value: "3"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+	if ConcatAttrs() != nil || ConcatAttrs(nil, Attrs{}) != nil {
+		t.Fatalf("empty concat must be nil")
+	}
+	// input bags must not be aliased: mutating the result must not touch a or b
+	got[0].Value = "mut"
+	if a[0].Value != "1" {
+		t.Fatalf("ConcatAttrs aliased its input")
+	}
+}
