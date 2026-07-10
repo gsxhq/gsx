@@ -4,7 +4,7 @@ Pipelines transform a value through a chain of named filters using the `|>` oper
 
 ## Filters & chaining
 
-The pipeline syntax is `{ value |> filter }` for a single stage, or `{ value |> f1 |> f2 }` for a chain. Each filter is a registered Go function applied in left-to-right order. A stage can also take additional arguments: `{ value |> truncate(10) }` or `{ count |> format("%d items") }`.
+The pipeline syntax is `{ value |> filter }` for a single stage, or `{ value |> f1 |> f2 }` for a chain. Each filter is a registered Go function applied in left-to-right order. A stage can also take additional arguments: `{ value |> truncate(10) }` or `{ count |> printf("%d items") }`.
 
 gsx ships a built-in filter library (the `std` package) that is always available without any configuration:
 
@@ -16,8 +16,11 @@ gsx ships a built-in filter library (the `std` package) that is always available
 | `truncate(n)` | cuts to at most `n` runes |
 | `join(sep)` | joins a `[]string` with `sep` |
 | `default(fallback)` | returns `fallback` when the value is the empty string |
-| `format(spec, rest…)` | like `fmt.Sprintf` with the piped value as the first verb |
+| `printf(spec, rest…)` | like `fmt.Sprintf` with the piped value as the first verb |
+| `urlquery` | percent-encodes the value for a URL query component (`url.QueryEscape`) — html/template's `urlquery` |
 | `dataURL(mime)` | assembles a `data:` URL from `[]byte` bytes and a MIME string: `data:<mime>;base64,<base64(bytes)>` |
+
+When assembling a URL in an `f`-literal, encode each query component in its hole: URL attributes sanitize the **assembled whole** (scheme allow-list + attribute escaping) but never rewrite the bytes inside a hole, so `` f`/search?q=@{ q |> urlquery }` `` is what keeps a `q` containing `&`, `=`, `%` or spaces from changing the URL's meaning.
 
 To register your own named filter, add it to the `[filters]` table in `gsx.toml` — see [Configuration → `[filters]`](../config.md#filters-named-pipeline-filters). To register every exported function from a package at once, list the package path in `filterPackages`. In both cases the function must have the seed-first shape: the piped value is the first parameter (after an optional `context.Context`), and extra stage arguments follow.
 
@@ -27,11 +30,11 @@ To register your own named filter, add it to the `[filters]` table in `gsx.toml`
 
 ## Filter arguments
 
-A filter stage can take extra arguments by appending them in parentheses after the filter name: `{ value |> truncate(10) }` or `{ count |> format("%d comments") }`. The piped value is always the first argument; the parenthesised values are appended after it. Stages with and without arguments can be freely mixed in a chain.
+A filter stage can take extra arguments by appending them in parentheses after the filter name: `{ value |> truncate(10) }` or `{ count |> printf("%d comments") }`. The piped value is always the first argument; the parenthesised values are appended after it. Stages with and without arguments can be freely mixed in a chain.
 
 <!--@include: ./_generated/pipelines/020-filter-arguments.md-->
 
-`s |> trim |> truncate(5)` strips surrounding whitespace first, then cuts to five runes — lowered to `_gsxstd.Truncate(_gsxstd.Trim(s), 5)`. `count |> format("%d comments")` passes `count` as the first `Sprintf` verb and the string literal as the format spec.
+`s |> trim |> truncate(5)` strips surrounding whitespace first, then cuts to five runes — lowered to `_gsxstd.Truncate(_gsxstd.Trim(s), 5)`. `count |> printf("%d comments")` passes `count` as the first `Sprintf` verb and the string literal as the format spec.
 
 ## Whole-literal pipelines
 

@@ -4,8 +4,8 @@ package views
 component Meter(value int, color string) {
 	<div
 		class={ "meter", "meter-full": value >= 100 }
-		style={ value |> format("width: %d%%") "color: " + color }
+		style={ value |> printf("width: %d%%") "color: " + color }
 	/>
 }
 -- diagnostics.golden --
-6:42: trailing text after `)` in pipeline stage " format(\"width: %d%%\") \"color: \" + color"
+6:42: trailing text after `)` in pipeline stage " printf(\"width: %d%%\") \"color: \" + color"

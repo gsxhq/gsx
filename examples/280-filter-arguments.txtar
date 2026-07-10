@@ -1,6 +1,6 @@
 -- doc --
 name: Filter arguments
-summary: Filters can take extra arguments in parentheses — { count |> format("%d comments") } or { s |> trim |> truncate(5) }.
+summary: Filters can take extra arguments in parentheses — { count |> printf("%d comments") } or { s |> trim |> truncate(5) }.
 category: Transforming values
 page: pipelines
 pageOrder: 20
@@ -9,7 +9,7 @@ package views
 
 component Stats(s string, count int) {
 	<p>{ s |> trim |> truncate(5) }</p>
-	<p>{ count |> format("%d comments") }</p>
+	<p>{ count |> printf("%d comments") }</p>
 }
 -- invoke --
 Stats(StatsProps{S: "  hello world  ", Count: 42})

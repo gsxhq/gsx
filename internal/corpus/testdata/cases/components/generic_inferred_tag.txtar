@@ -3,7 +3,7 @@ package views
 
 component Greeting[V ~string, W any](v V, w W) {
 	<p>{ v }</p>
-	<p>{ w |> format("%v") }</p>
+	<p>{ w |> printf("%v") }</p>
 }
 
 type MyByte byte
@@ -52,7 +52,7 @@ func Greeting[V ~string, W any](_gsxp GreetingProps[V, W]) _gsxrt.Node {
 //line input.gsx:5:2
 		_gsxgw.S("<p>")
 //line input.gsx:5:5
-		_gsxgw.Text(string(_gsxstd.Format((w), "%v")))
+		_gsxgw.Text(string(_gsxstd.Printf((w), "%v")))
 		_gsxgw.S("</p>")
 		return _gsxgw.Err()
 	})

@@ -441,15 +441,16 @@ pipelines/bare	diag render
 pipelines/chain	diag render
 pipelines/chain_args	diag gen render
 pipelines/class_pipeline	diag gen render
-pipelines/format	diag render
 pipelines/join	diag render
 pipelines/loop_var	diag render
 pipelines/param	diag render
 pipelines/param_arg	diag render
+pipelines/printf	diag render
 pipelines/style_pipeline	diag render
 pipelines/try_rejected	diag(error)
 pipelines/try_unwrap	diag render
 pipelines/unknown_filter	diag(error)
+pipelines/urlquery	diag render
 props/byo_attrs_missing	diag(error)
 props/byo_children_missing	diag(error)
 props/byo_external_node_vs_renderable	diag gen render
@@ -583,4 +584,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 585 cases (render: 466, error: 90, gen-pinned: 292)
+TOTAL: 586 cases (render: 467, error: 90, gen-pinned: 292)
