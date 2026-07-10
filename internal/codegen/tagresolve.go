@@ -137,7 +137,7 @@ func goWithElementsExcludes(g *gsxast.GoWithElements) map[int]string {
 	if f == nil && err != nil {
 		return out
 	}
-	declName := func(d goast.Decl) (string, bool) {
+	declName := func(d goast.Decl, pos token.Pos) (string, bool) {
 		switch dd := d.(type) {
 		case *goast.FuncDecl:
 			if dd.Name != nil {
@@ -146,11 +146,17 @@ func goWithElementsExcludes(g *gsxast.GoWithElements) map[int]string {
 				return dd.Name.Name, true
 			}
 		case *goast.GenDecl:
-			// var x = <el/>: one spec's first name is the exclusion. Multi-name
-			// specs (var a, b = ..., ...) use the first name — good enough for
-			// a diagnostic-grade exclusion; document if it ever matters.
+			// A GenDecl may group several specs (var ( a = 1; b = <el/> )):
+			// the exclusion is the name of the SPEC containing pos, never the
+			// group's first spec. Multi-NAME specs (var a, b = ..., ...) use
+			// the containing spec's first name — good enough for a
+			// diagnostic-grade exclusion; document if it ever matters.
 			for _, spec := range dd.Specs {
-				if vs, ok := spec.(*goast.ValueSpec); ok && len(vs.Names) > 0 {
+				vs, ok := spec.(*goast.ValueSpec)
+				if !ok || len(vs.Names) == 0 {
+					continue
+				}
+				if vs.Pos() <= pos && pos < vs.End() {
 					return vs.Names[0].Name, true
 				}
 			}
@@ -167,7 +173,7 @@ func goWithElementsExcludes(g *gsxast.GoWithElements) map[int]string {
 		pos := tf.Pos(partOff[i])
 		for _, d := range f.Decls {
 			if d.Pos() <= pos && pos < d.End() {
-				if name, ok := declName(d); ok {
+				if name, ok := declName(d, pos); ok {
 					out[i] = name
 				}
 				break

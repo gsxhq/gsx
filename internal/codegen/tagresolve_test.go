@@ -147,6 +147,30 @@ var pair = <><chip/><pair/></>
 	}
 }
 
+func TestResolveComponentTagsGroupedVarSpec(t *testing.T) {
+	// A grouped var (...) block: the element lives in the SECOND ValueSpec, so
+	// the exclusion must be keyed by THAT spec's name (mywidget), not the
+	// group's first spec (unrelated). Pins both directions: <mywidget> under
+	// var mywidget self-excludes (leaf), while a sibling tag naming the OTHER
+	// spec's var (<unrelated/>) still resolves to a component.
+	f := parseGSXForTest(t, `package views
+
+var (
+	unrelated = 1
+	mywidget  = <mywidget><unrelated/></mywidget>
+)
+`)
+	bag := diag.NewBag(token.NewFileSet())
+	resolveComponentTags(f, map[string]bool{"unrelated": true, "mywidget": true}, bag)
+	got := collectStamps(f)
+	if got["mywidget"] {
+		t.Error("inside var mywidget: <mywidget> must be leaf (self-exclusion keyed by the containing spec, not the group's first spec)")
+	}
+	if !got["unrelated"] {
+		t.Error("inside var mywidget: <unrelated/> should resolve to the unrelated declaration")
+	}
+}
+
 func TestForEachElementCompleteness(t *testing.T) {
 	f := parseGSXForTest(t, `package views
 
