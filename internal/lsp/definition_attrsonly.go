@@ -113,8 +113,8 @@ func attrsOnlyTagObject(pkg *Package, tag string) types.Object {
 }
 
 // attrsOnlyTagDeclAt resolves a cursor on a component tag name that names an
-// attrs-only component value — a package-level var/func of one of the two
-// shapes isAttrsOnlyValueType recognizes (docs/superpowers/specs/2026-07-07-
+// attrs-only component value — a package-level var/func of one of the shapes
+// isAttrsOnlyValueType recognizes (docs/superpowers/specs/2026-07-07-
 // attrs-only-component-values-design.md) — rather than a `component`
 // declaration. componentTagDeclAt/crossPkgTagDeclAt only recognize
 // gsxast.Component decls (CrossIndex's compByKey, built from `component`
@@ -126,7 +126,7 @@ func attrsOnlyTagObject(pkg *Package, tag string) types.Object {
 // maps back to — exactly the resolution buildCrossNav already relies on for
 // every other cross-index position. Returns ok=false when the cursor isn't on
 // a tag name, the tag doesn't resolve to a package-scope func/var, that
-// object's type isn't one of the two attrs-only shapes, or its position
+// object's type isn't an attrs-only shape, or its position
 // doesn't land in real source — so a typo'd/undefined tag or an unrelated
 // same-named symbol never produces a false jump.
 func attrsOnlyTagDeclAt(pkg *Package, path string, off int) (token.Position, bool) {
