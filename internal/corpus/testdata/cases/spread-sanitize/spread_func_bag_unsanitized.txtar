@@ -1,0 +1,16 @@
+# VULN (issue #75): a bag returned from a function spreads onto <a> unsanitized.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+func mkBag(h string) gsx.Attrs { return gsx.Attrs{{Key: "href", Value: h}} }
+
+component Link(userHref string) {
+	<a { mkBag(userHref)... }>click</a>
+}
+-- invoke --
+Link(LinkProps{UserHref: "javascript:alert(1)"})
+-- diagnostics.golden --
+-- render.golden --
+<a href="javascript:alert(1)">click</a>

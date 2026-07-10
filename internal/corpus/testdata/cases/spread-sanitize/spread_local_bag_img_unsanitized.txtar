@@ -1,0 +1,16 @@
+# VULN (issue #75): local bag spread onto <img src> — resource sink,
+# javascript: reaches it raw (should be about:invalid#gsx via URLImage).
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Pic(userSrc string) {
+	{{ b := gsx.Attrs{{Key: "src", Value: userSrc}} }}
+	<img { b... }/>
+}
+-- invoke --
+Pic(PicProps{UserSrc: "javascript:alert(1)"})
+-- diagnostics.golden --
+-- render.golden --
+<img src="javascript:alert(1)"/>

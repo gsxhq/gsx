@@ -1,0 +1,17 @@
+# VULN (issue #75): a bag built as a body-local `:=` var spreads onto <a>
+# WITHOUT URL sanitization — a javascript: href reaches the sink raw.
+# Current render.golden pins the HOLE; the fix flips it to about:invalid#gsx.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Link(userHref string) {
+	{{ b := gsx.Attrs{{Key: "href", Value: userHref}} }}
+	<a { b... }>click</a>
+}
+-- invoke --
+Link(LinkProps{UserHref: "javascript:alert(1)"})
+-- diagnostics.golden --
+-- render.golden --
+<a href="javascript:alert(1)">click</a>

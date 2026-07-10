@@ -1,0 +1,19 @@
+# VULN (issue #75): a byo struct's second gsx.Attrs field (not named Attrs)
+# spreads onto <a> unsanitized — reachable from pure template source.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+type props struct {
+	Extra gsx.Attrs
+}
+
+component Link(p props) {
+	<a { p.Extra... }>click</a>
+}
+-- invoke --
+Link(props{Extra: gsx.Attrs{{Key: "href", Value: "javascript:alert(1)"}}})
+-- diagnostics.golden --
+-- render.golden --
+<a href="javascript:alert(1)">click</a>
