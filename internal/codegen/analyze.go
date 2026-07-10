@@ -1294,9 +1294,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					// is itself an implicit-instantiation attempt, so it can fail with
 					// its own "cannot infer" here — record the span (Task 8) so that
 					// diagnostic is keyed to THIS tag, not blamed on an unrelated one.
-					emitSkeletonLine(sb, fset, t.Pos())
-					start := sb.Len()
-					fmt.Fprintf(sb, "_gsxcompsig(%s%s)\n", callTarget, typeArgUse(t.TypeArgs))
+					start := emitSkeletonLineCompsig(sb, fset, t.Pos(), callTarget+typeArgUse(t.TypeArgs))
 					if t.TypeArgs == "" {
 						if sig := genericSigs[propsType]; sig != nil {
 							registry.recordProbeSpan(t, propsType, sig.arity, start, sb.Len())
@@ -1310,8 +1308,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					// because the plain _gsxuse harvest maps calls to interp nodes
 					// POSITIONALLY (k-th) and an extra _gsxuse here would corrupt every
 					// later interp's harvested type.
-					emitSkeletonLine(sb, fset, t.Pos())
-					fmt.Fprintf(sb, "_gsxcompsig(%s)\n", t.Tag)
+					emitSkeletonLineCompsig(sb, fset, t.Pos(), t.Tag)
 					// The bag builds the SAME expression the emit pass will (probeWrap so
 					// (T, error) tuples are _gsxunwrap-wrapped, not hoisted). cfHoistBuf
 					// captures any value-form-CF class hoists so the _gsxuseq(expr)
@@ -1887,6 +1884,46 @@ func emitSkeletonLine(sb *strings.Builder, fset *token.FileSet, pos token.Pos) {
 	}
 	p := fset.Position(pos)
 	fmt.Fprintf(sb, "//line %s:%d:%d\n", p.Filename, p.Line, p.Column)
+}
+
+// emitSkeletonLineCompsig emits a `_gsxcompsig(target)` probe call (the
+// bare-call and attrs-only-candidate probes above) with a //line directive
+// compensated for the `_gsxcompsig(` wrapper, so a diagnostic INSIDE target
+// (an "undefined: X" for an unresolved tag, or a "cannot infer" for an
+// unresolved generic instantiation) resolves to its TRUE source column. The
+// two diagnostics anchor to two DIFFERENT tokens of the emitted call, so one
+// //line directive cannot compensate for both: a "cannot infer" (the probe's
+// own generic-instantiation failure) reports at the CALLEE — the
+// "_gsxcompsig" identifier itself, i.e. elPos, the element's Pos() (the
+// opening `<`), matching prior (pre-fix) behavior, which must NOT shift — while
+// an "undefined: X" (or any other error inside target, e.g. X itself failing
+// its own implicit instantiation) reports at target's first token, which
+// should resolve to the tag NAME's column: one byte past elPos, since
+// parseElement never allows whitespace between `<` and the tag name.
+// A plain compensated //line (subtracting len("_gsxcompsig(") from the
+// column, as emitSkeletonLine's other callers do) can't express both
+// positions from a single directive — the byte distance between the two
+// tokens (12, len("_gsxcompsig(")) never matches the desired column distance
+// between them (1). Instead, two directives: a //line at elPos for the
+// callee (unchanged), then a mid-expression BLOCK directive
+// (emitSkeletonBlockLine) re-anchoring immediately before target to elPos+1,
+// exactly like the GoWithElements-embedded-IIFE splice uses it to re-sync
+// position without an ASI-unsafe line break.
+// Returns the byte offset in sb where the "_gsxcompsig(" text begins, for a
+// caller's recordProbeSpan span tracking (which keys on generated-buffer byte
+// offsets, unaffected by the //line column compensation above).
+func emitSkeletonLineCompsig(sb *strings.Builder, fset *token.FileSet, elPos token.Pos, target string) int {
+	if fset == nil || !elPos.IsValid() {
+		start := sb.Len()
+		fmt.Fprintf(sb, "_gsxcompsig(%s)\n", target)
+		return start
+	}
+	emitSkeletonLine(sb, fset, elPos)
+	start := sb.Len()
+	sb.WriteString("_gsxcompsig(")
+	emitSkeletonBlockLine(sb, fset, elPos+1) // tag name: one byte past the opening '<'
+	fmt.Fprintf(sb, "%s)\n", target)
+	return start
 }
 
 // emitSkeletonBlockLine emits a BLOCK-form `/*line file:line:col*/` directive
