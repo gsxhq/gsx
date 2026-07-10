@@ -1,0 +1,263 @@
+package gen
+
+import (
+	"bytes"
+	"fmt"
+	"go/parser"
+	"go/token"
+	"maps"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"github.com/gsxhq/gsx/internal/diag"
+)
+
+// Poisoning: when a .gsx fails to generate, its .x.go is overwritten with a
+// deliberately non-compiling file that carries the real error. The invariant:
+// a package whose generation failed can never `go build` successfully, and the
+// build error points at the broken .gsx. See
+// docs/superpowers/specs/2026-07-10-poison-xgo-on-failure-design.md.
+
+// poisonPkgOutput builds poison .x.go bytes for the blamed .gsx files in dir.
+// Error diagnostics whose filename matches a .gsx in dir blame that file;
+// error diagnostics that match none (empty filename, a .go file, another dir)
+// are package-level and conservatively blame EVERY .gsx in dir — the invariant
+// must hold even when blame is fuzzy. Non-error severities never poison.
+func poisonPkgOutput(dir string, diags []diag.Diagnostic) (pkgOutput, error) {
+	gsxFiles, err := gsxFilesIn(dir)
+	if err != nil {
+		return nil, err
+	}
+	byFile := map[string][]diag.Diagnostic{}
+	var pkgLevel []diag.Diagnostic
+	for _, d := range diags {
+		if d.Severity != diag.Error {
+			continue
+		}
+		if p, ok := matchGsx(gsxFiles, d.Start.Filename); ok {
+			byFile[p] = append(byFile[p], d)
+			continue
+		}
+		pkgLevel = append(pkgLevel, d)
+	}
+	if len(byFile) == 0 && len(pkgLevel) == 0 {
+		return pkgOutput{}, nil
+	}
+	targets := map[string][]diag.Diagnostic{}
+	if len(pkgLevel) > 0 {
+		for _, p := range gsxFiles {
+			targets[p] = append(byFile[p], pkgLevel...)
+		}
+	} else {
+		maps.Copy(targets, byFile)
+	}
+	po := pkgOutput{}
+	for gsxPath, ds := range targets {
+		base := strings.TrimSuffix(filepath.Base(gsxPath), ".gsx")
+		po[base+".x.go"] = poisonFile(dir, gsxPath, ds)
+	}
+	return po, nil
+}
+
+// gsxFilesIn lists the .gsx files directly in dir (absolute paths, sorted).
+func gsxFilesIn(dir string) ([]string, error) {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("poison: %s: %w", dir, err)
+	}
+	var out []string
+	for _, e := range ents {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".gsx") {
+			continue
+		}
+		out = append(out, filepath.Join(dir, e.Name()))
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// matchGsx reports which of gsxFiles a diagnostic filename refers to. Exact
+// cleaned-path match only; anything else is treated as package-level by the
+// caller (conservative, invariant-preserving).
+func matchGsx(gsxFiles []string, name string) (string, bool) {
+	if name == "" {
+		return "", false
+	}
+	c := filepath.Clean(name)
+	for _, p := range gsxFiles {
+		if filepath.Clean(p) == c {
+			return p, true
+		}
+	}
+	return "", false
+}
+
+// poisonFile renders the poison .x.go for one .gsx. fileDiags are the
+// error-severity diagnostics blamed on it (already includes any package-level
+// ones). Output is deterministic, syntactically valid, gofmt-clean Go whose
+// only compile failure is the undefined GSX_GENERATION_FAILED identifier.
+func poisonFile(dir, gsxPath string, fileDiags []diag.Diagnostic) []byte {
+	ds := append([]diag.Diagnostic(nil), fileDiags...)
+	sort.SliceStable(ds, func(i, j int) bool {
+		a, b := ds[i].Start, ds[j].Start
+		if a.Filename != b.Filename {
+			return a.Filename < b.Filename
+		}
+		if a.Line != b.Line {
+			return a.Line < b.Line
+		}
+		if a.Column != b.Column {
+			return a.Column < b.Column
+		}
+		return ds[i].Message < ds[j].Message
+	})
+
+	pkg, directives := poisonHeader(dir, gsxPath)
+	base := filepath.Base(gsxPath)
+
+	var b bytes.Buffer
+	b.WriteString(gsxGeneratedHeader + "\n")
+	if len(directives) > 0 {
+		b.WriteString("\n")
+		for _, d := range directives {
+			b.WriteString(d)
+			b.WriteString("\n")
+		}
+	}
+	fmt.Fprintf(&b, "\npackage %s\n\n", pkg)
+	fmt.Fprintf(&b, "// GSX GENERATION FAILED for %s. Fix the errors below and re-run gsx generate.\n//\n", base)
+	var rendered bytes.Buffer
+	diag.RenderCompact(&rendered, ds)
+	for line := range strings.SplitSeq(strings.TrimRight(rendered.String(), "\n"), "\n") {
+		line = sanitizePoisonLine(line)
+		if line == "" {
+			// A blank/empty message line still needs a comment marker, but a
+			// trailing-tab "//\t" would itself be non-gofmt-clean trailing
+			// whitespace — emit a bare "//".
+			b.WriteString("//\n")
+			continue
+		}
+		fmt.Fprintf(&b, "//\t%s\n", line)
+	}
+	b.WriteString("\n")
+	// //line makes `go build` report the undefined identifier at the first
+	// blamed .gsx position. The filename is emitted verbatim as the diagnostic
+	// rendered it, so build output and gsx output agree. Package-level poison
+	// (no positioned diag for this file) gets no directive.
+	if first, ok := firstPositioned(ds, gsxPath); ok {
+		fmt.Fprintf(&b, "//line %s:%d:%d\n", first.Start.Filename, first.Start.Line, first.Start.Column)
+	}
+	fmt.Fprintf(&b, "var _ = GSX_GENERATION_FAILED__see_%s\n", identFrom(base))
+	return b.Bytes()
+}
+
+// sanitizePoisonLine makes one diagnostic-message line safe to embed verbatim
+// in a "//\t..." comment line: C0 control characters other than tab are
+// dropped (a NUL would make the output syntactically invalid Go; a bare \r
+// would end the // comment early on a CRLF-contaminated message), and
+// trailing spaces/tabs are trimmed so the emitted file is gofmt-clean
+// regardless of what the underlying message contains.
+func sanitizePoisonLine(line string) string {
+	var b strings.Builder
+	for _, r := range line {
+		if r < 0x20 && r != '\t' {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return strings.TrimRight(b.String(), " \t")
+}
+
+// firstPositioned returns the first diagnostic positioned in gsxPath itself
+// (not a package-level one attached from elsewhere).
+func firstPositioned(ds []diag.Diagnostic, gsxPath string) (diag.Diagnostic, bool) {
+	c := filepath.Clean(gsxPath)
+	for _, d := range ds {
+		if d.Start.IsValid() && filepath.Clean(d.Start.Filename) == c {
+			return d, true
+		}
+	}
+	return diag.Diagnostic{}, false
+}
+
+// poisonHeader resolves the package name and pass-through //go: directive
+// lines for a poison file. Sources, in order: the .gsx itself (its opening is
+// valid Go for a PackageClauseOnly parse, and it is the source of truth for
+// //go:build variants), the existing gsx-owned .x.go, any sibling .go file,
+// and finally the sanitized directory base name.
+func poisonHeader(dir, gsxPath string) (pkg string, directives []string) {
+	if name, dirs, ok := packageClauseOf(gsxPath); ok {
+		return name, dirs
+	}
+	base := strings.TrimSuffix(filepath.Base(gsxPath), ".gsx")
+	if name, dirs, ok := packageClauseOf(filepath.Join(dir, base+".x.go")); ok {
+		return name, dirs
+	}
+	if ents, err := os.ReadDir(dir); err == nil {
+		for _, e := range ents {
+			n := e.Name()
+			// A _test.go sibling may declare an external test package
+			// (package foo_test) — that clause must never leak into a
+			// poison file's package name.
+			if e.IsDir() || !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, ".x.go") || strings.HasSuffix(n, "_test.go") {
+				continue
+			}
+			if name, _, ok := packageClauseOf(filepath.Join(dir, n)); ok {
+				return name, nil // sibling: package name only, not its directives
+			}
+		}
+	}
+	return identFrom(filepath.Base(dir)), nil
+}
+
+// packageClauseOf parses just the package clause (plus leading comments) of a
+// Go or .gsx file — a .gsx opening (comments, //go: directives, package
+// clause) is valid Go as far as PackageClauseOnly reads. Returns the package
+// name and any //go: directive lines from the doc block.
+func packageClauseOf(path string) (string, []string, bool) {
+	src, err := os.ReadFile(path)
+	if err != nil {
+		return "", nil, false
+	}
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, path, src, parser.PackageClauseOnly|parser.ParseComments)
+	if err != nil || f.Name == nil {
+		return "", nil, false
+	}
+	var directives []string
+	for _, cg := range f.Comments {
+		if cg.End() >= f.Package {
+			break
+		}
+		for _, c := range cg.List {
+			if strings.HasPrefix(c.Text, "//go:") {
+				directives = append(directives, c.Text)
+			}
+		}
+	}
+	return f.Name.Name, directives, true
+}
+
+// identFrom sanitizes a filename into a Go identifier fragment.
+func identFrom(s string) string {
+	var b strings.Builder
+	for i, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '_':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			if i == 0 {
+				b.WriteByte('_')
+			}
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	if b.Len() == 0 {
+		return "_"
+	}
+	return b.String()
+}

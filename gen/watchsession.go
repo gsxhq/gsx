@@ -1,7 +1,9 @@
 package gen
 
 import (
+	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -17,6 +19,11 @@ import (
 type cycleResult struct {
 	Dir     string
 	Written []string
+	// Removed holds the gsx-owned orphan .x.go paths deleted in this dir this
+	// cycle (see gen/orphan.go). Populated both by regenDir's dir-scoped sweep
+	// and by regenPending's onlyGeneratedRemains branch (the dir has no .gsx
+	// left at all, so there is nothing to regenerate — only to sweep).
+	Removed []string
 	Diags   []diag.Diagnostic
 	OK      bool
 	Err     error
@@ -90,6 +97,16 @@ func newWatchSession(cfg watchConfig) (*watchSession, []cycleResult, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	if len(dirs) == 0 {
+		// No .gsx anywhere under the watched paths — indexing dirs[0] below
+		// would panic. Still run the walk-level orphan sweep: a tree whose
+		// only .gsx was deleted before this session ever started leaves a
+		// gsx-owned orphan .x.go that would otherwise survive indefinitely
+		// (there's nothing left to watch, so no per-dir regenDir sweep will
+		// ever visit it either). Then fail clearly instead of panicking.
+		startup := sweepOrphanStartup(cfg.paths, nil)
+		return nil, startup, fmt.Errorf("no .gsx files found under %s", strings.Join(cfg.paths, ", "))
+	}
 	groups, _ := groupByModule(dirs)
 	if len(groups) == 0 {
 		// No enclosing module for any discovered dir — surface the lookup error.
@@ -118,7 +135,14 @@ func newWatchSession(cfg watchConfig) (*watchSession, []cycleResult, error) {
 		s.modules[g.root] = m
 	}
 
-	var startup []cycleResult
+	// Walk-level orphan sweep: mirrors generateCached's sweepOrphanDirs call in
+	// gen/cache.go. discoverDirs only returns dirs that still directly contain
+	// a .gsx, so a directory whose sole .gsx was deleted before `gsx dev` ever
+	// started drops out of `dirs` entirely and the per-dir sweep inside
+	// regenDir below never fires for it — its stale gsx-owned .x.go would
+	// otherwise survive indefinitely. Must run before the per-dir regen loop,
+	// same ordering as the batch path.
+	startup := sweepOrphanStartup(cfg.paths, dirs)
 	for _, dir := range dirs {
 		startup = append(startup, s.regenDir(dir))
 	}
@@ -145,11 +169,51 @@ func (s *watchSession) reopen() ([]cycleResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	var results []cycleResult
+	// Walk-level orphan sweep — see the matching call in newWatchSession for
+	// why this can't be left to the per-dir sweep inside regenDir alone.
+	results := sweepOrphanStartup(s.cfg.paths, dirs)
 	for _, dir := range dirs {
 		results = append(results, s.regenDir(dir))
 	}
 	return results, nil
+}
+
+// sweepOrphanStartup runs the walk-level orphan sweep (sweepOrphanDirs) over
+// paths, treating kept as the currently discovered dirs (dirs that still
+// directly contain a .gsx — never swept). It's the watch-session cold-start
+// counterpart to generateCached's call in gen/cache.go, and exists because
+// newWatchSession/reopen only regenerate discovered dirs: a directory whose
+// only .gsx is already gone drops out of discovery and would never be visited
+// by regenDir's dir-scoped sweep.
+//
+// Removed paths are converted into cycleResults grouped by their real parent
+// directory — never a fabricated Dir — mirroring regenPending's
+// onlyGeneratedRemains branch (gen/watch.go) so callers (dev's overlay/log
+// output, the watch emitter) see and report the removal exactly like any
+// other warm-loop orphan sweep. A sweep I/O error (e.g. a permission-denied
+// os.Remove) is folded into one Err-only cycleResult rather than treated as
+// fatal to session startup — the same non-fatal handling generateCached gives
+// the identical error.
+func sweepOrphanStartup(paths, kept []string) []cycleResult {
+	removed, err := sweepOrphanDirs(paths, kept)
+	byDir := map[string][]string{}
+	for _, p := range removed {
+		d := filepath.Dir(p)
+		byDir[d] = append(byDir[d], p)
+	}
+	dirs := make([]string, 0, len(byDir))
+	for d := range byDir {
+		dirs = append(dirs, d)
+	}
+	sort.Strings(dirs)
+	results := make([]cycleResult, 0, len(dirs)+1)
+	for _, d := range dirs {
+		results = append(results, cycleResult{Dir: d, Removed: byDir[d], OK: true})
+	}
+	if err != nil {
+		results = append(results, cycleResult{Err: err})
+	}
+	return results
 }
 
 // regenDir warm-regenerates one package dir using its module's warm Module. It
@@ -161,24 +225,48 @@ func (s *watchSession) regenDir(dir string) cycleResult {
 	if err != nil {
 		return cycleResult{Dir: dir, Err: err, DurMs: time.Since(start).Milliseconds()}
 	}
+	// Dir-scoped orphan sweep: a .gsx sibling deletion in dir is independent
+	// of what this cycle regenerates for the .gsx files still present, so it
+	// runs unconditionally (mirrors writeDirOutcome in gen/cache.go).
+	removed, remErr := removeOrphanXgo(dir)
 	out, diags, gerr := m.Generate(dir)
 	files := make(map[string][]byte, len(out))
 	for gsxPath, b := range out {
 		files[strings.TrimSuffix(gsxPath, ".gsx")+".x.go"] = b
+	}
+	// Error diagnostics: the module skipped emitting this package, so `out` is
+	// empty for the blamed files. Write poison instead of leaving stale .x.go —
+	// same invariant as the batch path (see gen/poison.go). A poisoning failure
+	// (e.g. os.ReadDir erroring) must not be silently dropped: it's surfaced via
+	// Err below so stale .x.go left in place is at least visible.
+	var poisonErr error
+	if anyErrorDiag(diags) {
+		if po, perr := poisonPkgOutput(dir, diags); perr == nil {
+			for rel, b := range po {
+				files[filepath.Join(dir, rel)] = b
+			}
+		} else {
+			poisonErr = perr
+		}
 	}
 	written, werr := writeFiles(dir, files)
 	var finalErr error
 	switch {
 	case gerr != nil && !anyErrorDiag(diags):
 		finalErr = gerr
+	case poisonErr != nil:
+		finalErr = poisonErr
+	case remErr != nil:
+		finalErr = remErr
 	case werr != nil:
 		finalErr = werr
 	}
 	return cycleResult{
 		Dir:     dir,
 		Written: written,
+		Removed: removed,
 		Diags:   diags,
-		OK:      gerr == nil && !anyErrorDiag(diags) && werr == nil,
+		OK:      gerr == nil && !anyErrorDiag(diags) && werr == nil && remErr == nil,
 		Err:     finalErr,
 		DurMs:   time.Since(start).Milliseconds(),
 	}
@@ -210,6 +298,19 @@ func (s *watchSession) regenPending(pending map[string]bool, depDirty bool) ([]c
 	var results []cycleResult
 	for dir := range pending {
 		if onlyGeneratedRemains(dir) {
+			// Nothing left to regenerate in dir, but a .gsx that used to live
+			// here may have just been deleted, leaving its .x.go orphaned. This
+			// is the walk-level sweep's job for the watch loop: unlike the batch
+			// path (sweepOrphanDirs walks the tree), fsnotify already told us
+			// exactly which dir changed, so a plain dir-scoped sweep suffices.
+			removed, rerr := removeOrphanXgo(dir)
+			if rerr != nil {
+				results = append(results, cycleResult{Dir: dir, Err: rerr})
+				continue
+			}
+			if len(removed) > 0 {
+				results = append(results, cycleResult{Dir: dir, Removed: removed, OK: true})
+			}
 			continue
 		}
 		m, err := s.moduleForDir(dir)

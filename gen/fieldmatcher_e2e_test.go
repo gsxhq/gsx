@@ -126,8 +126,13 @@ component Page() {
 	if !foundBadFieldMatch {
 		t.Fatalf("expected a bad-field-match diagnostic; got diags: %v", res.Diags)
 	}
-	// No file should be written when codegen errors occur.
-	if len(res.Written) != 0 {
-		t.Fatalf("expected no written files for a bad matcher, got %v", res.Written)
+	// A codegen error poisons the dir's .x.go rather than leaving nothing
+	// written — the package must never silently build stale output.
+	if len(res.Written) != 1 {
+		t.Fatalf("expected 1 written (poison) for a bad matcher, got %v", res.Written)
+	}
+	xgo, rerr := os.ReadFile(filepath.Join(pkgDir, "page.x.go"))
+	if rerr != nil || !strings.Contains(string(xgo), "GSX GENERATION FAILED") {
+		t.Fatalf("expected page.x.go to be poisoned (err=%v):\n%s", rerr, xgo)
 	}
 }

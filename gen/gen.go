@@ -146,6 +146,10 @@ type Result struct {
 	// identical, so no write happened). Lets the CLI report "N up to date"
 	// instead of falling silent when a run produces no writes.
 	UpToDate int
+	// Removed holds the paths of gsx-owned orphan .x.go files deleted this run
+	// — a .x.go whose corresponding .gsx no longer exists (see
+	// removeOrphanXgo/sweepOrphanDirs in gen/orphan.go). Sorted.
+	Removed []string
 }
 
 // Generate discovers .gsx files under the given paths (default ["."]), runs

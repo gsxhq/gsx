@@ -14,21 +14,23 @@ package std
 import (
 	"encoding/base64"
 	"fmt"
+	"net/url"
 	"strings"
 )
 
-// Format formats the piped value v with a fmt format spec, returning the
+// Printf formats the piped value v with a fmt format spec, returning the
 // resulting string. The piped value is the FIRST verb argument; any extra
 // args follow, so a multi-verb spec works too:
 //
-//	{ price |> format("$%.2f") }        → fmt.Sprintf("$%.2f", price)
-//	{ count |> format("%d items") }     → fmt.Sprintf("%d items", count)
-//	{ x |> format("%d/%d", total) }     → fmt.Sprintf("%d/%d", x, total)
+//	{ price |> printf("$%.2f") }        → fmt.Sprintf("$%.2f", price)
+//	{ count |> printf("%d items") }     → fmt.Sprintf("%d items", count)
+//	{ x |> printf("%d/%d", total) }     → fmt.Sprintf("%d/%d", x, total)
 //
-// It exists because fmt.Sprintf takes the spec FIRST and so cannot be a
-// seed-first filter directly; Format flips the argument order. The result is a
-// plain string and is escaped for its rendering context like any other value.
-func Format(v any, spec string, rest ...any) string {
+// The name matches html/template's printf builtin. It exists because
+// fmt.Sprintf takes the spec FIRST and so cannot be a seed-first filter
+// directly; Printf flips the argument order. The result is a plain string and
+// is escaped for its rendering context like any other value.
+func Printf(v any, spec string, rest ...any) string {
 	return fmt.Sprintf(spec, append([]any{v}, rest...)...)
 }
 
@@ -76,6 +78,25 @@ func Default(s, fallback string) string {
 		return fallback
 	}
 	return s
+}
+
+// Urlquery percent-encodes s so it can be safely placed inside a URL query
+// component, exactly like html/template's urlquery builtin (both delegate to
+// url.QueryEscape):
+//
+//	<a href=f`/search?q=@{ q |> urlquery }`>
+//
+// gsx's URL sinks sanitize the WHOLE assembled value (scheme allow-list +
+// attribute escaping) but never rewrite the bytes inside a hole, so a query
+// value containing '&', '=', '#', '%' or spaces would otherwise change the
+// URL's meaning. Encode the component with urlquery; the sink still sanitizes
+// the assembled whole.
+//
+// The spelling Urlquery (not URLQuery) is load-bearing: the pipe name is the
+// func name with its first rune lowered, and it must come out as html/template's
+// exact builtin name, urlquery.
+func Urlquery(s string) string {
+	return url.QueryEscape(s)
 }
 
 // DataURL assembles a base64 data: URL from raw bytes and a MIME type:
