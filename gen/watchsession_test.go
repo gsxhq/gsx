@@ -205,3 +205,57 @@ func gsxModuleDir(t *testing.T) string {
 	}
 	return filepath.Dir(wd)
 }
+
+// TestWatchSession_PoisonOnRegenError: a failed warm regen writes a poison
+// .x.go (OK=false, Written non-empty), and the following fixed regen
+// overwrites it with clean output.
+func TestWatchSession_PoisonOnRegenError(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeMod(t, root)
+	viewsDir := filepath.Join(root, "views")
+	gsxPath := filepath.Join(viewsDir, "page.gsx")
+	writeFileT(t, gsxPath, "package views\n\ncomponent Page() {\n\t<h1>ok</h1>\n}\n")
+
+	s, startup, err := newWatchSession(watchConfig{paths: []string{viewsDir}})
+	if err != nil {
+		t.Fatalf("newWatchSession: %v", err)
+	}
+	for _, r := range startup {
+		if !r.OK {
+			t.Fatalf("clean startup not OK: %v %v", r.Err, r.Diags)
+		}
+	}
+
+	// Break it → warm regen must poison.
+	writeFileT(t, gsxPath, "package views\n\ncomponent Page() {\n\t<h1>{undefinedSym}</h1>\n}\n")
+	r := s.regenDir(viewsDir)
+	if r.OK {
+		t.Fatal("expected OK=false")
+	}
+	if len(r.Written) == 0 {
+		t.Fatal("failed cycle wrote no poison")
+	}
+	b, err := os.ReadFile(filepath.Join(viewsDir, "page.x.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "GSX GENERATION FAILED") {
+		t.Errorf("page.x.go not poisoned:\n%s", b)
+	}
+
+	// Fix it → warm regen overwrites the poison (gqlgen-trap regression:
+	// the poison on disk must not block the warm Module's regeneration).
+	writeFileT(t, gsxPath, "package views\n\ncomponent Page() {\n\t<h1>ok</h1>\n}\n")
+	r = s.regenDir(viewsDir)
+	if !r.OK {
+		t.Fatalf("regen after fix not OK (sticky poison): %v %v", r.Err, r.Diags)
+	}
+	b, err = os.ReadFile(filepath.Join(viewsDir, "page.x.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "GSX GENERATION FAILED") {
+		t.Error("poison not overwritten after fix")
+	}
+}
