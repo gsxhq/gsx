@@ -578,6 +578,7 @@ url/data_image_svg	diag render
 url/data_image_svg_object_blocked	diag render
 url/data_url_filter	diag gen render
 url/data_url_filter_blocked_mime	diag render
+urlattrs/aliased_gsx_bag	diag gen render
 urlattrs/bag_case_variant	diag gen render
 urlattrs/bag_custom_rule	diag gen render
 urlattrs/bag_href_nav	diag gen render
@@ -601,4 +602,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 603 cases (render: 483, error: 91, gen-pinned: 309)
+TOTAL: 604 cases (render: 484, error: 91, gen-pinned: 310)

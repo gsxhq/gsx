@@ -137,6 +137,11 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 	if merger != nil {
 		mergeExpr = classMergerAlias + "." + merger.FuncName
 	}
+	// The gsx runtime qualifiers this file binds ("gsx" + any alias like `g`), so
+	// a named `<alias>.Attrs` bag param classifies as a forwarding bag (and
+	// sanitizes on spread) exactly like `gsx.Attrs`. MIRRORS the skeleton side
+	// (analyze.go genProps) so emit ≡ probe.
+	gsxQuals := gsxParamQualifiers(fileImportSpecs(file, nil))
 	var body bytes.Buffer
 	ok := true
 	for _, d := range file.Decls {
@@ -206,7 +211,7 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 			// On failure, the diagnostic is already in bag — skip this component's
 			// output and continue to the next (report ALL components' errors).
 			var cbuf bytes.Buffer
-			if genComponent(&cbuf, v, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, &interpTemp, fset, cls, fm, bag, mergeExpr) {
+			if genComponent(&cbuf, v, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, &interpTemp, fset, cls, fm, bag, mergeExpr, gsxQuals) {
 				body.Write(cbuf.Bytes())
 			} else {
 				ok = false
@@ -526,7 +531,7 @@ func writeImports(b *bytes.Buffer, imports map[string]bool, rt rtImports, aliase
 	b.WriteString(")\n\n")
 }
 
-func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string, gsxQuals map[string]bool) bool {
 	params, err := parseParams(c.Params)
 	if err != nil {
 		bag.Errorf(c.Pos(), c.End(), "invalid-syntax", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
@@ -612,7 +617,7 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 	// component's sole param there is the author's struct type name, never
 	// literally "gsx.Attrs".
 	for _, p := range params {
-		if isGsxAttrsType(p.typ) {
+		if isGsxQualifiedType(p.typ, gsxQuals, "Attrs") {
 			bagBases = append(bagBases, p.name)
 		}
 	}
