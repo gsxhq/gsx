@@ -166,6 +166,18 @@ func (s *watchSession) regenDir(dir string) cycleResult {
 	for gsxPath, b := range out {
 		files[strings.TrimSuffix(gsxPath, ".gsx")+".x.go"] = b
 	}
+	// Error diagnostics: the module skipped emitting this package, so `out` is
+	// empty for the blamed files. Write poison instead of leaving stale .x.go —
+	// same invariant as the batch path (see gen/poison.go).
+	if anyErrorDiag(diags) {
+		if po, perr := poisonPkgOutput(dir, diags); perr == nil {
+			for rel, b := range po {
+				files[filepath.Join(dir, rel)] = b
+			}
+		} else if gerr == nil {
+			gerr = perr
+		}
+	}
 	written, werr := writeFiles(dir, files)
 	var finalErr error
 	switch {
