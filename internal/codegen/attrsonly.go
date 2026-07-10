@@ -8,15 +8,29 @@ import (
 )
 
 // isAttrsOnlyCandidate reports whether a component tag should be resolved as a
-// potential attrs-only component value: a same-package (non-dotted, non-generic)
-// tag that is not component-declared, not byo, not a method, not a bare-call
-// nullary candidate, and whose <Name>Props type does not exist anywhere in the
-// package. That region is guaranteed to fail today (undefined: <Name>Props), so
-// gating it onto the _gsxcompsig probe is a pure capability addition. emitProbes
-// and genChildComponent both branch on this so emit ≡ probe.
+// potential attrs-only component value: a tag that is not component-declared,
+// not byo, not a method, not a bare-call nullary candidate, and whose
+// <Name>Props type does not exist anywhere in scope. That region is guaranteed
+// to fail today (undefined: <Name>Props), so gating it onto the _gsxcompsig
+// probe is a pure capability addition. emitProbes and genChildComponent both
+// branch on this so emit ≡ probe.
+//
+// A dotted tag <alias.Name> is gated ONLY when alias is a known project-internal
+// gsx import (byo.isDepAlias) — so <ui.HomeIcon> against an imported gsx package
+// is eligible, while a local/receiver/field qualifier (<item.Icon>) is not a dep
+// alias and is left untouched on its existing path (preserving today's
+// behavior). The remaining checks then run against the alias-qualified facts
+// (propFields["ui.HomeIconProps"], byo type/func facts republished under the
+// alias by mergeQualified), identically in both passes since both receive the
+// same file-scoped propFields + byo.
 func isAttrsOnlyCandidate(el *gsxast.Element, propFields map[string]map[string]bool, byo *byoData, recvVar, recvTypeName string) bool {
-	if !isComponentTag(el.Tag) || strings.Contains(el.Tag, ".") || el.TypeArgs != "" {
+	if !isComponentTag(el.Tag) || el.TypeArgs != "" {
 		return false
+	}
+	if dot := strings.IndexByte(el.Tag, '.'); dot >= 0 {
+		if !byo.isDepAlias(el.Tag[:dot]) {
+			return false // local/receiver/field qualifier: never gated
+		}
 	}
 	_, propsType, isMethod := childInvocation(el, byo, recvVar, recvTypeName)
 	if isMethod {
