@@ -94,6 +94,19 @@ func (a Attrs) Has(key string) bool {
 	return ok
 }
 
+// GetFold is Get with ASCII-case-insensitive key matching (last occurrence
+// wins). key must already be lowercase. Generated code uses it to extract
+// URL-classified attributes from a fallthrough bag so a case-variant key
+// (e.g. HREF) cannot smuggle an unsanitized value past the leaf's sanitizer.
+func (a Attrs) GetFold(key string) (any, bool) {
+	for i := len(a) - 1; i >= 0; i-- {
+		if strings.EqualFold(a[i].Key, key) {
+			return a[i].Value, true
+		}
+	}
+	return nil, false
+}
+
 // Without returns a copy of a without ANY pair whose key is in keys (a is not mutated);
 // the order of the rest is preserved. An empty result (or empty input) yields nil.
 func (a Attrs) Without(keys ...string) Attrs {
@@ -110,6 +123,53 @@ func (a Attrs) Without(keys ...string) Attrs {
 		return nil
 	}
 	return out
+}
+
+// WithoutFold is Without with ASCII-case-insensitive key matching: it drops any
+// pair whose key case-folds to one of keys (which must already be lowercase),
+// preserving the order of the rest. Generated code uses it in the residual
+// spread to remove every case-variant of a URL-classified name that the leaf
+// already extracted and sanitized, so no unsanitized copy survives.
+func (a Attrs) WithoutFold(keys ...string) Attrs {
+	return a.WithoutFunc(func(k string) bool {
+		return slices.ContainsFunc(keys, func(want string) bool {
+			return strings.EqualFold(k, want)
+		})
+	})
+}
+
+// WithoutFunc returns a copy of a dropping every pair whose key satisfies drop
+// (a is not mutated); the order of the rest is preserved. An empty result (or
+// empty input) yields nil.
+func (a Attrs) WithoutFunc(drop func(key string) bool) Attrs {
+	if len(a) == 0 {
+		return nil
+	}
+	out := make(Attrs, 0, len(a))
+	for _, kv := range a {
+		if !drop(kv.Key) {
+			out = append(out, kv)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// URLPrefixMatch reports whether key (ASCII-case-folded) begins with any of the
+// prefixes, which must already be lowercase. It is the single source of truth
+// for URL prefix-rule matching, consulted both by SpreadURLPrefixed (to write
+// prefix-matched bag keys through the strict URL sink) and by the residual
+// spread's WithoutFunc drop.
+func URLPrefixMatch(key string, prefixes []string) bool {
+	lk := strings.ToLower(key)
+	for _, p := range prefixes {
+		if strings.HasPrefix(lk, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // Take returns Get(key)'s last value and a copy of a without ALL occurrences of key.
@@ -212,6 +272,33 @@ func (gw *Writer) Spread(ctx context.Context, a Attrs) {
 		gw.writeStr(kv.Key)
 		gw.writeStr(`="`)
 		gw.AttrValue(toStr(kv.Value))
+		gw.writeStr(`"`)
+	}
+}
+
+// SpreadURLPrefixed writes the bag entries whose key matches a URL prefix rule
+// (URLPrefixMatch) through the strict navigational URL sink (URLVal), with the
+// same validity check and last-wins duplicate handling as Spread. It is emitted
+// at a forwarding element ONLY when the project configures URL prefix rules;
+// the residual Spread then excludes these keys. Prefix rules are user rules, so
+// they always use the strict sink — the built-in image-sink split (URLImageVal)
+// applies only to the built-in resource names.
+func (gw *Writer) SpreadURLPrefixed(ctx context.Context, a Attrs, prefixes []string) {
+	if gw.err != nil || len(a) == 0 {
+		return
+	}
+	last := lastValidAttrIndexes(a)
+	for i, kv := range a {
+		if !validAttrName(kv.Key) || last[kv.Key] != i {
+			continue
+		}
+		if !URLPrefixMatch(kv.Key, prefixes) {
+			continue
+		}
+		gw.writeStr(" ")
+		gw.writeStr(kv.Key)
+		gw.writeStr(`="`)
+		gw.URLVal(kv.Value)
 		gw.writeStr(`"`)
 	}
 }

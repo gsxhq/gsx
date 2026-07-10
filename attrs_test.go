@@ -256,3 +256,98 @@ func TestConcatAttrs(t *testing.T) {
 		t.Fatalf("ConcatAttrs aliased its input")
 	}
 }
+
+func TestAttrsGetFold(t *testing.T) {
+	a := Attrs{{Key: "HREF", Value: "x"}, {Key: "Href", Value: "y"}}
+	// last-wins across case variants; lookup key is lowercase.
+	if v, ok := a.GetFold("href"); !ok || v != "y" {
+		t.Fatalf("GetFold(href) = %v,%v want y,true", v, ok)
+	}
+	if _, ok := a.GetFold("src"); ok {
+		t.Fatalf("GetFold(src) should be absent")
+	}
+	if _, ok := (Attrs)(nil).GetFold("href"); ok {
+		t.Fatalf("GetFold on nil should be absent")
+	}
+}
+
+func TestAttrsWithoutFold(t *testing.T) {
+	a := Attrs{
+		{Key: "HREF", Value: "1"},
+		{Key: "data-x", Value: "2"},
+		{Key: "Src", Value: "3"},
+		{Key: "id", Value: "4"},
+	}
+	got := a.WithoutFold("href", "src")
+	want := Attrs{{Key: "data-x", Value: "2"}, {Key: "id", Value: "4"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("WithoutFold = %v want %v", got, want)
+	}
+	if a.WithoutFold("href", "data-x", "src", "id") != nil {
+		t.Fatalf("WithoutFold dropping everything should be nil")
+	}
+	// input not mutated
+	if a[0].Key != "HREF" {
+		t.Fatalf("WithoutFold mutated its input")
+	}
+}
+
+func TestAttrsWithoutFunc(t *testing.T) {
+	a := Attrs{{Key: "keep", Value: "1"}, {Key: "drop", Value: "2"}, {Key: "keep2", Value: "3"}}
+	got := a.WithoutFunc(func(k string) bool { return k == "drop" })
+	want := Attrs{{Key: "keep", Value: "1"}, {Key: "keep2", Value: "3"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("WithoutFunc = %v want %v", got, want)
+	}
+	if a.WithoutFunc(func(string) bool { return true }) != nil {
+		t.Fatalf("WithoutFunc dropping all should be nil")
+	}
+}
+
+func TestURLPrefixMatch(t *testing.T) {
+	prefixes := []string{"data-url-", "hx-"}
+	for _, k := range []string{"data-url-next", "Data-URL-Prev", "hx-get", "HX-Boost"} {
+		if !URLPrefixMatch(k, prefixes) {
+			t.Errorf("URLPrefixMatch(%q) = false, want true", k)
+		}
+	}
+	for _, k := range []string{"data-x", "href", "data-url", "onhx-"} {
+		if URLPrefixMatch(k, prefixes) {
+			t.Errorf("URLPrefixMatch(%q) = true, want false", k)
+		}
+	}
+	if URLPrefixMatch("anything", nil) {
+		t.Errorf("URLPrefixMatch with no prefixes must be false")
+	}
+}
+
+func TestSpreadURLPrefixed(t *testing.T) {
+	var buf bytes.Buffer
+	gw := W(&buf)
+	gw.SpreadURLPrefixed(context.Background(), Attrs{
+		{Key: "data-url-next", Value: "javascript:alert(1)"}, // sanitized via strict sink
+		{Key: "data-x", Value: "kept-elsewhere"},             // not a prefix match → skipped
+		{Key: "Data-URL-Prev", Value: "/ok"},                 // case-variant key matches
+		{Key: "data-url-next", Value: "/last"},               // last-wins duplicate
+		{Key: "bad key", Value: "y"},                         // invalid name → dropped
+	}, []string{"data-url-"})
+	got := buf.String()
+	if strings.Contains(got, "javascript:") {
+		t.Fatalf("SpreadURLPrefixed leaked a javascript: URL: %q", got)
+	}
+	want := ` Data-URL-Prev="/ok" data-url-next="/last"`
+	if got != want {
+		t.Fatalf("SpreadURLPrefixed = %q want %q", got, want)
+	}
+}
+
+func TestSpreadURLPrefixedRawURL(t *testing.T) {
+	var buf bytes.Buffer
+	gw := W(&buf)
+	gw.SpreadURLPrefixed(context.Background(), Attrs{
+		{Key: "data-url-x", Value: RawURL("app://z")}, // author vouch passes verbatim
+	}, []string{"data-url-"})
+	if got := buf.String(); got != ` data-url-x="app://z"` {
+		t.Fatalf("SpreadURLPrefixed RawURL = %q", got)
+	}
+}
