@@ -1,9 +1,9 @@
 # Attrs-only component values — un-deferring `gsx.Component`
 
 **Status:** design
-**Date:** 2026-07-07 (revised 2026-07-10 after probe review: recognition rule made
-syntactic and explicit, worked example corrected, class-merge fidelity addressed,
-forwarding alternative recorded)
+**Date:** 2026-07-07 (revised 2026-07-10 after probe review: recognition made
+probe-based on the existing `_gsxcompsig` emit≡probe loop, worked example
+corrected, class-merge fidelity addressed, forwarding alternative recorded)
 **Follow-up to:** `2026-07-06-element-literals-design.md`, "Deferred: component values (`gsx.Component`)"
 
 ## Why this was parked, and why that reasoning breaks down
@@ -55,6 +55,10 @@ fails with `error: undefined: ZZThingProps`. The convention-component resolver
 unconditionally expects a `<Name>Props` struct for any tag callee it doesn't
 recognize as `component`-declared; it does not special-case a bare-attrs func
 signature. This is real, currently-unimplemented codegen work — not a doc gap.
+(Under the probe-based recognition rule below, this exact alias spelling
+*becomes* valid — `go/types` resolves through the alias — so the deferred
+note's claim ends up true once this spec ships, rather than being permanently
+superseded.)
 
 ## Proposal
 
@@ -68,53 +72,61 @@ func(gsx.Attrs) gsx.Node
 func(...gsx.Attr) gsx.Node
 ```
 
-### Recognition rule — syntactic, closed list of declaration shapes
+### Recognition rule — probe-based, real `go/types` resolution
 
-An earlier draft claimed resolution happens "by static type via `go/types`,
-same as the rest of tag resolution". That is not how tag resolution works.
-The call-*shape* decision — what Go expression to emit at the tag — is made
-by the syntactic prop-facts layer (`componentPropFieldsFor` /
-`depPropFacts`), which deliberately runs without `packages.Load` and without
-type-checking; `go/types` runs later, on the skeleton generated *from* those
-decisions, so it cannot inform them. (`composition.md`'s "resolves the tag
-through the Go type system" describes the compile-time safety net — emitted
-`.x.go` is ordinary Go, so a wrong callee fails `go build` — not a
-type-inference step inside the generator.)
+An earlier draft of this revision proposed a syntactic closed list of
+declaration shapes, on the grounds that the call-shape decision is made by
+the syntactic prop-facts layer and `go/types` "runs too late" to inform it.
+That was wrong about the codebase: gsx already has an **emit ≡ probe**
+feedback loop for exactly this problem. The analysis pass emits
+`_gsxcompsig(F)` probes into the type-checked skeleton
+(`analyze.go:1276-1295`), the harvest maps each probe's real `types.Type`
+back onto the tag elements (`analyze.go:2049`, `sigByName` →
+`resolved[el]`), and the emitter branches on the harvested
+`*types.Signature` (`emit.go:3741`). Today this resolves hand-written
+same-package **nullary** funcs (`isBareCallCandidate`). This model extends
+the same loop; recognition really is "the identifier's static type is
+exactly one of the two signatures", checked by `go/types` on the skeleton —
+no new syntactic machinery, no `packages.Load`, no closed list.
 
-So, like the byo discriminator ("sole non-receiver param is a named struct
-declared in the same package"), this model is recognized from a **closed
-list of declaration shapes**, readable off the AST of the declaring package
-(same-package `.gsx` GoChunks + sibling `.go` files, or a dep package's
-files via the existing `importedPropFacts` parse):
+**Gate (who gets probed).** The probe pass must decide *before* type-check
+whether to emit the assumed-`<Name>Props` literal probe (the convention
+path's generate-time attr checking, which must not regress) or a
+`_gsxcompsig` probe. The gate is: a component tag that is not
+`component`-declared, not byo, not a method, not a bare-call nullary
+candidate, **and whose `<Name>Props` struct is not discoverable** in the
+callee package's already-parsed facts (same-package: `gsxStructDecls` +
+sibling-`.go` enumeration; dotted: `depPropFacts`). That region is
+*guaranteed to fail* today (`undefined: <Name>Props`), so gating it onto the
+probe is a pure capability addition — no existing working code changes
+behavior, and convention components with real props structs keep their
+literal probes and generate-time diagnostics untouched.
 
-1. A package-level **func declaration** whose signature is literally one of
-   the two accepted shapes (param name irrelevant):
-   `func HomeIcon(attrs gsx.Attrs) gsx.Node { … }`.
-2. A package-level **`var` with an explicit type** that is literally one of
-   the two func types: `var HomeIcon func(gsx.Attrs) gsx.Node = …`
-   (initializer not inspected).
-3. A package-level **`var` initialized by a single call** to a package-level
-   func — declared in the same package, or in one of the declaring package's
-   own imports — whose declared result type is literally one of the two
-   shapes: `var HomeIcon = namedIcon("house")`. Exactly **one hop**: the
-   factory's result type must be spelled literally; no chasing through
-   further indirection (a factory that itself returns another factory's
-   result, a conditional expression, a method value, etc. all fall through).
+**Match (what the harvest accepts).** The harvested type's underlying
+`*types.Signature` must have exactly one parameter and one result, the
+result the named `gsx.Node`, and the parameter either the named `gsx.Attrs`
+(non-variadic) or `...gsx.Attr` (`sig.Variadic()` with element the named
+`gsx.Attr`). Named-type identity is checked against the gsx package path,
+so:
 
-"Literally" means the type is spelled with the `gsx` package qualifier —
-under whatever alias the declaring *file* imports it — as `gsx.Attrs`,
-`gsx.Attr`, `gsx.Node`. **Type aliases are not recognized in v1**: a
-`type Component = func(...gsx.Attr) gsx.Node` spelling falls through to the
-convention path (corpus-pinned rejection), exactly like any other
-unrecognized shape. This deliberately narrows the deferred note's original
-alias idea: alias chasing is another syntactic hop with its own
-cross-package questions, and the icon driver doesn't need it. It can be
-added later without breaking anything recognized today.
+- any initializer works — `var HomeIcon = namedIcon("house")`, chained
+  factories, conditionals — because `go/types` infers the var's type;
+- **type aliases work for free** (`type Component = func(...gsx.Attr)
+  gsx.Node`; aliases are transparent to `go/types`), un-rejecting the
+  deferred note's original spelling;
+- the bare unnamed `func([]gsx.Attr) gsx.Node` is excluded precisely
+  (unnamed slice ≠ named `gsx.Attrs`), with no spelling analysis.
 
-An identifier matching none of the three shapes falls through to the
-existing convention path unchanged (assumed `<Name>Props`, failing
-`go build` with `undefined: <Name>Props` if wrong) — new capability, no new
-failure modes for existing code.
+**Probed-but-no-match is a new, required diagnostic.** For gated tags the
+`_gsxcompsig` probe *replaces* the assumed-props literal probe, so the old
+generate-time `undefined: <Name>Props` no longer surfaces from the skeleton.
+A probed identifier whose type matches neither signature therefore gets a
+clean positioned diagnostic at generate time ("`<X>` is not tag-callable:
+its type is `T`, not `func(gsx.Attrs) gsx.Node` or `func(...gsx.Attr)
+gsx.Node`, and no `XProps` struct was found") — strictly better than
+today's raw `undefined: XProps`, and required so diagnostics don't regress
+to `go build` time. A gated identifier that doesn't exist at all still
+surfaces as `undefined: X` from the probe itself, positioned at the tag.
 
 No `(gsx.Node, error)` variants. `component`-declared functions never return
 an error — always single-return `gsx.Node` — so this would be introducing a
@@ -154,9 +166,8 @@ detecting either shape is one check on the underlying element type, not two
 disjoint code paths. What *does* differ is call-site emission: a
 variadic-declared identifier needs `Ident(bag...)`; a `gsx.Attrs`-declared one
 needs `Ident(bag)` (Go does not allow passing a slice to a variadic parameter
-without `...`). One check on the declared parameter picks the emission form —
-syntactically, `*ast.Ellipsis` on the param type vs. the `gsx.Attrs`
-selector — cheap.
+without `...`). One `types.Signature.Variadic()` check on the harvested
+signature picks the emission form — cheap.
 
 The two shapes earn their keep on different axes:
 - `func(gsx.Attrs) gsx.Node` matches the *only* documented attrs-bag type and
@@ -172,15 +183,16 @@ The two shapes earn their keep on different axes:
 
 Bare unnamed `func([]gsx.Attr) gsx.Node` (non-variadic, unnamed slice) is
 assignable to `gsx.Attrs` by the same rule and would be swept in "for free" by
-a naive underlying-type check. Under the syntactic recognition rule above the
-exclusion is automatic — the literal spelling `gsx.Attrs` is required — but it
-stays a *stated* rule, not an accident of the mechanism: require the *named*
-type `gsx.Attrs` for the non-variadic form. It buys nothing over `gsx.Attrs` (same
+a naive underlying-type check. Exclude it explicitly: the harvest's match
+requires the *named* type `gsx.Attrs` (a `*types.Named` whose object lives in
+the gsx package) for the non-variadic form, never a structural
+underlying-type comparison. It buys nothing over `gsx.Attrs` (same
 data, worse readability, no method access without a conversion either) and
 existing only as an assignability accident, not a deliberate spelling. A corpus
-case should pin this as a rejection (falls through to the existing "assumed
-prop fields" convention path, which then correctly fails to find a
-`FooProps` — the identical failure mode as today, not a new error class).
+case should pin this as a rejection: the identifier is gated onto the probe
+(no `FooProps` struct exists), the harvest finds a non-matching signature,
+and the new "not tag-callable" diagnostic fires with the offending type
+spelled out.
 
 ### `{children}` is not supported
 
@@ -232,14 +244,18 @@ new outcome of *tag-callee resolution* for identifiers that are **not**
 `composition.md` under "For components gsx cannot analyze... call-site
 identifier attrs are assumed to be prop fields" and the cross-package
 resolution machinery in `internal/codegen/module_importer.go`
-(`depPropFacts`/`importedPropFacts`, `module_importer.go:324-391`). The
-recognition scan (the three declaration shapes above) runs in the same
-syntactic pass that already parses these files — `componentPropFieldsFor` for
-the same-package case, `importedPropFacts` for deps — and its result is
-cached in the same fact bundles; no new file reads, no `packages.Load`. Exact
-hook point (whether both paths need the check or one shared point they both
-call through) needs confirming during implementation — this spec fixes the
-*signature contract and semantics*, not the precise call graph.
+(`depPropFacts`/`importedPropFacts`, `module_importer.go:324-391`). Concretely
+(see "Recognition rule"): the *gate* consults the already-parsed struct facts
+(same-package and `depPropFacts`) — no new file reads, no `packages.Load`;
+the *probe* rides the existing `_gsxcompsig` emission at
+`analyze.go:1276-1295`; the *harvest* extends `sigByName` at
+`analyze.go:2049` (which today only accepts `*ast.Ident` probe args and must
+also accept `*ast.SelectorExpr` for dotted tags, keyed by the full tag
+string); the *emitter* adds a branch beside the existing
+`resolved[el].(*types.Signature)` nullary check at `emit.go:3741`. The bag
+expression reuses `childPropsLiteral`'s fallthrough assembly (`bag` /
+`mergeChain` / `attrsLitIdx`) — every attr unmatched — rather than new merge
+code.
 
 `internal/codegen/fieldmatch.go`'s `FieldMatcher`/`matchField` do not apply to
 this model at all — there are no declared fields to match attrs against, by
@@ -394,24 +410,21 @@ work. Nothing in this spec blocks or depends on it.
 - **Package-level identifiers only**, plain (`<HomeIcon/>`) or
   package-qualified (`<ui.HomeIcon/>`). Struct fields, locals, and params
   (`<item.Icon/>` where `Icon` is a field of type `func(gsx.Attrs) gsx.Node`)
-  are NOT tag-callable in this model — corpus-pinned rejection. The
-  element-literals spec's nav-config-struct case stays answered by baked
-  element literals, not by this.
-- Recognition is the closed three-shape list above; **type aliases are not
-  recognized in v1** (corpus-pinned rejection; see "Recognition rule").
+  are NOT tag-callable in this model: a dotted tag's gate resolves the
+  qualifier as a package import, so `item.Icon` never reaches the probe —
+  corpus-pinned rejection. The element-literals spec's nav-config-struct case
+  stays answered by baked element literals, not by this.
+- Recognition is the probe-based rule above. Because `go/types` decides, the
+  deferred note's `type Component = func(...gsx.Attr) gsx.Node` alias
+  spelling is **recognized** (aliases are transparent); `Component any` and
+  `Component[T]` remain rejected for the reasons already recorded there.
 - No `{children}` support for this model.
 - No codegen-inserted conversion inside the callee body — `gsx.Attrs(attrs)`
   is an authoring idiom, documented, not synthesized.
-- Revises the deferred note's proposal rather than adopting it verbatim: the
-  accepted spellings are the two literal signatures; the note's
-  `type Component = func(...gsx.Attr) gsx.Node` alias is deliberately NOT
-  recognized in v1; `Component any` and `Component[T]` remain rejected for
-  the reasons already recorded there.
-- The rejection failure mode stays the convention path's `undefined:
-  <Name>Props` (no new error class in v1). A targeted analyzer diagnostic for
-  *near-miss* shapes — e.g. `func([]gsx.Attr) gsx.Node` param, or an extra
-  `error` result — telling the author how to spell the signature is a listed
-  follow-up, not part of this change.
+- The "not tag-callable" diagnostic for a probed identifier whose type
+  matches neither signature is **part of v1** (see "Recognition rule" — it
+  replaces the skeleton's `undefined: <Name>Props` for gated tags, so
+  omitting it would regress generate-time diagnostics to `go build` time).
 
 ## Deliverables beyond codegen
 
@@ -429,18 +442,21 @@ work. Nothing in this spec blocks or depends on it.
 ## Testing
 
 - **Corpus** (`internal/corpus/testdata/cases/attrs-only-components/` or
-  similar), acceptance cases: each of the three recognition shapes (func
-  decl, typed `var`, one-hop factory `var`) for both accepted signatures; a
-  cross-package/imported version of each to exercise the module-importer
-  resolution path; zero-attr tag call for both signatures (pinning
-  `Ident(nil)`/`Ident()` emission or whatever form codegen picks); an
-  attrs-merge-order case (bare + spread + conditional + ordered-literal
-  together) pinning that they land in one bag in source order.
-- **Corpus rejection cases** (each falls to the convention path, pinned):
-  bare unnamed `func([]gsx.Attr) gsx.Node`; a type-alias spelling; a two-hop
-  factory (`var X = f()` where `f`'s result type is itself an alias or
-  another call); a non-package-level callee (`<item.Icon/>` struct field); a
-  children-supplied-but-unsupported error case with its diagnostic.
+  similar), acceptance cases: direct func decl, factory-initialized `var`
+  (`var HomeIcon = namedIcon("house")`), and type-alias spelling
+  (`type Component = func(...gsx.Attr) gsx.Node`), covering both accepted
+  signatures; a cross-package/imported version to exercise the dotted-tag
+  probe + `SelectorExpr` harvest; zero-attr tag call for both signatures
+  (pinning `Ident(nil)`/`Ident()` emission); an attrs-merge-order case
+  (bare + spread + conditional + ordered-literal together) pinning that they
+  land in one bag in source order.
+- **Corpus rejection cases** (each pinned with its diagnostic): bare unnamed
+  `func([]gsx.Attr) gsx.Node`-typed var and an extra-`error`-result func —
+  both gated onto the probe, both hitting the new "not tag-callable"
+  diagnostic; a non-package-level callee (`<item.Icon/>` struct field, never
+  gated); a children-supplied-but-unsupported error case with its
+  diagnostic; an undefined-identifier tag pinning the positioned
+  `undefined: X` from the probe.
 - **Worked-example fidelity case**: a byo component with a
   default-class-in-bag `Merge` spread (the corrected `renderNamedIcon`
   pattern) pinning that exactly ONE `class` attribute renders, default
