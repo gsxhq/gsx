@@ -1,0 +1,39 @@
+# attrs-only value recognized through a factory-initialized var: go/types
+# infers the var's type; no syntactic initializer-chasing exists or is needed.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+type iconProps struct {
+	Name  string
+	Attrs gsx.Attrs
+}
+
+component renderIcon(p iconProps) {
+	<svg { gsx.Attrs{{Key: "class", Value: "w-5 h-5"}}.Merge(p.Attrs)... }>{p.Name}</svg>
+}
+
+component Page() {
+	<div>
+		<HomeIcon class="h-3 w-3"/>
+		<HomeIcon/>
+	</div>
+}
+-- icons.go --
+package views
+
+import "github.com/gsxhq/gsx"
+
+func namedIcon(name string) func(gsx.Attrs) gsx.Node {
+	return func(attrs gsx.Attrs) gsx.Node {
+		return renderIcon(iconProps{Name: name, Attrs: attrs})
+	}
+}
+
+var HomeIcon = namedIcon("house")
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<div><svg class="w-5 h-5 h-3 w-3">house</svg><svg class="w-5 h-5">house</svg></div>
