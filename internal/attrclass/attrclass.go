@@ -202,13 +202,47 @@ func (c *Classifier) URLPrefixes() []string {
 	return out
 }
 
-// builtinURL is the URL-context attribute set (ported verbatim from
-// codegen.urlAttrs). Keys are lowercase.
+// builtinURL is the URL-context attribute set (ported from codegen.urlAttrs).
+// Keys are lowercase. The htmx method attributes are NOT here — they moved to
+// the opt-in "htmx" preset (see Preset) so the safety floor stays pure-HTML and
+// projects that never touch htmx don't sanitize hx-* by default.
 var builtinURL = map[string]bool{
 	"href": true, "src": true, "action": true, "formaction": true, "poster": true,
 	"cite": true, "ping": true, "data": true, "background": true, "manifest": true,
-	"xlink:href": true, "hx-get": true, "hx-post": true, "hx-put": true,
-	"hx-delete": true, "hx-patch": true,
+	"xlink:href": true,
+}
+
+// presets maps a named opt-in ruleset to the classification Rules it contributes.
+// Presets compose additively over the built-in floor, exactly like user rules;
+// they are enabled via gen.WithURLPreset / gsx.toml url_presets.
+//
+// "htmx": the five htmx method attributes as URL rules, matched by EXACT name.
+// A "hx-" prefix would be wrong — it would also classify hx-swap/hx-target/
+// hx-trigger (and every other hx-* attribute), none of which carry URLs.
+var presets = map[string]Rules{
+	"htmx": {URL: []Rule{
+		{Name: "hx-get"}, {Name: "hx-post"}, {Name: "hx-put"},
+		{Name: "hx-delete"}, {Name: "hx-patch"},
+	}},
+}
+
+// Preset returns the classification Rules contributed by the named preset and
+// true, or the zero Rules and false when no preset by that name exists. Callers
+// (gen config, corpus harness) surface an unknown name as a clear config error.
+func Preset(name string) (Rules, bool) {
+	r, ok := presets[name]
+	return r, ok
+}
+
+// PresetNames returns the known preset names, sorted — for listing valid choices
+// in an unknown-preset config error.
+func PresetNames() []string {
+	out := make([]string, 0, len(presets))
+	for n := range presets {
+		out = append(out, n)
+	}
+	slices.Sort(out)
+	return out
 }
 
 // SinkClass distinguishes URL attribute sinks that differ in what schemes are

@@ -169,9 +169,10 @@ overrides a same-named config filter (see [What is *not* in
 ### `[[urlAttrs]]` — URL attribute contexts
 
 gsx treats ordinary `attr={expr}` values as attribute-escaped text, except for
-URL attributes. The built-ins cover standard HTML URL attributes and htmx method
-attributes. If your project uses a framework with its own URL-bearing
-attributes, register additional rules so those values get URL scheme
+URL attributes. The built-ins cover the standard HTML URL attributes (`href`,
+`src`, `action`, `formaction`, `poster`, `cite`, `ping`, `data`, `background`,
+`manifest`, `xlink:href`). If your project uses a framework with its own
+URL-bearing attributes, register additional rules so those values get URL scheme
 sanitization before attribute escaping.
 
 Each rule matches by **exact name** (`name`, case-insensitive) **or by prefix**
@@ -190,6 +191,30 @@ prefix = "data-url-"
 Rules are **additive** — they extend the built-ins, never downgrade them. The
 built-ins are checked first; your rules apply only to names they did not already
 classify.
+
+#### `url_presets` — named opt-in rulesets
+
+Presets bundle a family of URL rules under a name. The only preset today is
+`htmx`, which classifies the five htmx method attributes — `hx-get`, `hx-post`,
+`hx-put`, `hx-delete`, `hx-patch` — as URL sinks so their values are
+scheme-sanitized just like `href`:
+
+```toml
+url_presets = ["htmx"]
+```
+
+::: warning Default change
+The htmx method attributes are **off by default** — the safety floor is pure
+HTML. A project that renders htmx URLs from untrusted data must opt in with
+`url_presets = ["htmx"]` (or `gen.WithURLPreset("htmx")` in a custom generator
+binary). Without the preset, `hx-get={expr}` is written as plain
+attribute-escaped text, not URL-sanitized. Only the five method attributes are
+covered; `hx-swap` / `hx-target` / `hx-trigger` and other `hx-*` attributes are
+not URLs and are never sanitized.
+:::
+
+Presets compose additively with `[[urlAttrs]]` and with `gen.WithURLPreset`; an
+unknown preset name is a hard config error.
 
 JavaScript and CSS-valued attributes do not need name configuration. Write them
 explicitly with `` js`...` `` or `` css`...` `` at the call site:

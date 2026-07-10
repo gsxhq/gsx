@@ -61,7 +61,7 @@ func Btn(_gsxp BtnProps) _gsxrt.Node {
 		}
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.SpreadForwarding(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "hx-delete", "hx-get", "hx-patch", "hx-post", "hx-put", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, nil, _gsxv0)
+		_gsxgw.SpreadForwarding(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, nil, _gsxv0)
 		if _gsxv1 {
 			_gsxgw.S(" formaction=\"/x\"")
 		}

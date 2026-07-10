@@ -30,6 +30,7 @@ type tomlConfig struct {
 	Filters        map[string]string `toml:"filters"`
 	FilterPackages []string          `toml:"filterPackages"`
 	URLAttrs       []tomlRule        `toml:"urlAttrs"`
+	URLPresets     []string          `toml:"url_presets"`
 	Formatter      *tomlFormatter    `toml:"formatter"`
 	Minify         *tomlMinify       `toml:"minify"`
 	ClassMerger    string            `toml:"class_merger"`
@@ -180,6 +181,13 @@ func loadConfig(path string) (config, error) {
 
 	if cfg.urlRules, err = appendTomlRules(path, "urlAttrs", cfg.urlRules, tc.URLAttrs); err != nil {
 		return config{}, err
+	}
+	for _, name := range tc.URLPresets {
+		rules, ok := attrclass.Preset(name)
+		if !ok {
+			return config{}, fmt.Errorf("%s: url_presets: unknown preset %q (known: %s)", path, name, strings.Join(attrclass.PresetNames(), ", "))
+		}
+		cfg.urlRules = append(cfg.urlRules, rules.URL...)
 	}
 	if tc.Minify != nil {
 		if tc.Minify.CSS != "" {

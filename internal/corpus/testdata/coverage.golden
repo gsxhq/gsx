@@ -591,6 +591,8 @@ urlattrs/bag_prefix_rule	diag gen render
 urlattrs/bag_rawurl	diag gen render
 urlattrs/bag_src_image_split	diag gen render
 urlattrs/element_custom_rule	diag gen render
+urlattrs/htmx_preset	diag gen render
+urlattrs/hx_default_plain	diag gen render
 urlattrs/static_plus_case_variant	diag gen render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
@@ -606,4 +608,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 608 cases (render: 488, error: 91, gen-pinned: 313)
+TOTAL: 610 cases (render: 490, error: 91, gen-pinned: 315)
