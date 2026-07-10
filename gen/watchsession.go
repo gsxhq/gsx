@@ -1,6 +1,7 @@
 package gen
 
 import (
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -95,6 +96,16 @@ func newWatchSession(cfg watchConfig) (*watchSession, []cycleResult, error) {
 	dirs, err := discoverDirs(cfg.paths)
 	if err != nil {
 		return nil, nil, err
+	}
+	if len(dirs) == 0 {
+		// No .gsx anywhere under the watched paths — indexing dirs[0] below
+		// would panic. Still run the walk-level orphan sweep: a tree whose
+		// only .gsx was deleted before this session ever started leaves a
+		// gsx-owned orphan .x.go that would otherwise survive indefinitely
+		// (there's nothing left to watch, so no per-dir regenDir sweep will
+		// ever visit it either). Then fail clearly instead of panicking.
+		startup := sweepOrphanStartup(cfg.paths, nil)
+		return nil, startup, fmt.Errorf("no .gsx files found under %s", strings.Join(cfg.paths, ", "))
 	}
 	groups, _ := groupByModule(dirs)
 	if len(groups) == 0 {
