@@ -79,6 +79,10 @@ func componentPropFieldsFor(dir string, files map[string]*gsxast.File) (propFiel
 	attrsOut := map[string]map[string]bool{}
 	byo = newByoData()
 	byo.nullaryFuncs = packageNullaryFuncs(dir)
+	byo.typeNames = packageTypeNames(dir)
+	for name := range gsxChunkTypeNames(files) {
+		byo.typeNames[name] = true
+	}
 
 	// Discover author structs: those declared in .gsx GoChunks are read from the
 	// AST now; any candidate struct NOT found in the .gsx is enumerated via a
@@ -1290,14 +1294,40 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					// is itself an implicit-instantiation attempt, so it can fail with
 					// its own "cannot infer" here — record the span (Task 8) so that
 					// diagnostic is keyed to THIS tag, not blamed on an unrelated one.
-					emitSkeletonLine(sb, fset, t.Pos())
-					start := sb.Len()
-					fmt.Fprintf(sb, "_gsxcompsig(%s%s)\n", callTarget, typeArgUse(t.TypeArgs))
+					start := emitSkeletonLineCompsig(sb, fset, t.Pos(), callTarget+typeArgUse(t.TypeArgs))
 					if t.TypeArgs == "" {
 						if sig := genericSigs[propsType]; sig != nil {
 							registry.recordProbeSpan(t, propsType, sig.arity, start, sb.Len())
 						}
 					}
+				} else if isAttrsOnlyCandidate(t, propFields, byo, recvVar, recvTypeName) {
+					// Attrs-only component value candidate (no <Name>Props type exists —
+					// the convention literal probe would be a guaranteed `undefined:`
+					// error). _gsxcompsig(F) carries F's real type to the harvest (mapped
+					// by tag name, not k-order). The bag expression rides _gsxusen — the
+					// QUIET, ALIGNMENT-NEUTRAL keep-alive — NOT _gsxuse/_gsxuseq: those
+					// ARE counted by harvest's k-ordering, and the bag has no single
+					// interp node to harvest onto (each attr expression inside it already
+					// gets its own counted probe via the shared per-component ExprAttr /
+					// class-part / spread probes below, aligned with collectExprs). A
+					// counted bag probe would shift every later interp's harvested type
+					// by one slot per attrs-only tag — the FAIL 5 / 4b desync.
+					emitSkeletonLineCompsig(sb, fset, t.Pos(), t.Tag)
+					// The bag builds the SAME expression the emit pass will (probeWrap so
+					// (T, error) tuples are _gsxunwrap-wrapped, not hoisted). cfHoistBuf
+					// captures any value-form-CF class hoists so the _gsxusen(expr)
+					// reference stays valid; usedPkgs feeds usedFilters exactly as the
+					// props-literal branch does, so a bag pipeline's filter is imported.
+					var cfHoistBuf bytes.Buffer
+					cfInterpTemp := 0
+					if expr, usedPkgs, berr := attrsOnlyBagExpr(t, "_gsxrt", "_gsxrt.DefaultClassMerge", table, byo, fm, true, nil, &cfHoistBuf, &cfInterpTemp); berr == nil && expr != "" {
+						maps.Copy(usedFilters, usedPkgs)
+						emitSkeletonLine(sb, fset, t.Pos())
+						sb.WriteString(cfHoistBuf.String())
+						fmt.Fprintf(sb, "_gsxusen(%s)\n", expr)
+					}
+					// a bag-build error here is NOT reported from the probe pass: the emit
+					// pass builds the same expression and owns the positioned diagnostic.
 				} else if ((isMethod && !isByoChild) || isNoPropsComponent(propFields, propsType)) && len(t.Attrs) == 0 && len(t.Children) == 0 {
 					// Same Task 8 concern as the bare-call-candidate branch above: a
 					// generic no-props method/function reaching this nullary `_ = F()`
@@ -1860,6 +1890,46 @@ func emitSkeletonLine(sb *strings.Builder, fset *token.FileSet, pos token.Pos) {
 	fmt.Fprintf(sb, "//line %s:%d:%d\n", p.Filename, p.Line, p.Column)
 }
 
+// emitSkeletonLineCompsig emits a `_gsxcompsig(target)` probe call (the
+// bare-call and attrs-only-candidate probes above) with a //line directive
+// compensated for the `_gsxcompsig(` wrapper, so a diagnostic INSIDE target
+// (an "undefined: X" for an unresolved tag, or a "cannot infer" for an
+// unresolved generic instantiation) resolves to its TRUE source column. The
+// two diagnostics anchor to two DIFFERENT tokens of the emitted call, so one
+// //line directive cannot compensate for both: a "cannot infer" (the probe's
+// own generic-instantiation failure) reports at the CALLEE — the
+// "_gsxcompsig" identifier itself, i.e. elPos, the element's Pos() (the
+// opening `<`), matching prior (pre-fix) behavior, which must NOT shift — while
+// an "undefined: X" (or any other error inside target, e.g. X itself failing
+// its own implicit instantiation) reports at target's first token, which
+// should resolve to the tag NAME's column: one byte past elPos, since
+// parseElement never allows whitespace between `<` and the tag name.
+// A plain compensated //line (subtracting len("_gsxcompsig(") from the
+// column, as emitSkeletonLine's other callers do) can't express both
+// positions from a single directive — the byte distance between the two
+// tokens (12, len("_gsxcompsig(")) never matches the desired column distance
+// between them (1). Instead, two directives: a //line at elPos for the
+// callee (unchanged), then a mid-expression BLOCK directive
+// (emitSkeletonBlockLine) re-anchoring immediately before target to elPos+1,
+// exactly like the GoWithElements-embedded-IIFE splice uses it to re-sync
+// position without an ASI-unsafe line break.
+// Returns the byte offset in sb where the "_gsxcompsig(" text begins, for a
+// caller's recordProbeSpan span tracking (which keys on generated-buffer byte
+// offsets, unaffected by the //line column compensation above).
+func emitSkeletonLineCompsig(sb *strings.Builder, fset *token.FileSet, elPos token.Pos, target string) int {
+	if fset == nil || !elPos.IsValid() {
+		start := sb.Len()
+		fmt.Fprintf(sb, "_gsxcompsig(%s)\n", target)
+		return start
+	}
+	emitSkeletonLine(sb, fset, elPos)
+	start := sb.Len()
+	sb.WriteString("_gsxcompsig(")
+	emitSkeletonBlockLine(sb, fset, elPos+1) // tag name: one byte past the opening '<'
+	fmt.Fprintf(sb, "%s)\n", target)
+	return start
+}
+
 // emitSkeletonBlockLine emits a BLOCK-form `/*line file:line:col*/` directive
 // (no trailing newline), used to re-sync the position of verbatim GoText
 // spliced around a GoWithElements-embedded element's inline IIFE. Unlike the
@@ -2050,6 +2120,14 @@ func harvestBody(body *goast.BlockStmt, bodyMarkup []gsxast.Markup, info *types.
 	// tag resolves to one func per package, so no k-ordering is needed) onto
 	// every <F/> element in the body, so genChildComponent branches on arity.
 	sigByName := map[string]types.Type{}
+	// A dotted tag (<ui.Icon>) is gated onto the attrs-only path by name
+	// (byo.isDepAlias sees the import alias). But Go scoping can make the
+	// skeleton's _gsxcompsig(ui.Icon) resolve its qualifier to a same-named
+	// LOCAL/PARAM that shadows the import — then the selector picks that value's
+	// field, not the package's component. shadowedByName records those tags so
+	// the emitter rejects them (attrsonly-shadowed-qualifier) rather than
+	// silently bag-calling the field (FAIL 7).
+	shadowedByName := map[string]bool{}
 	goast.Inspect(body, func(node goast.Node) bool {
 		call, ok := node.(*goast.CallExpr)
 		if !ok {
@@ -2059,17 +2137,41 @@ func harvestBody(body *goast.BlockStmt, bodyMarkup []gsxast.Markup, info *types.
 		if !ok || id.Name != "_gsxcompsig" || len(call.Args) != 1 {
 			return true
 		}
-		arg, ok := call.Args[0].(*goast.Ident)
-		if !ok {
+		// The probe target is emitted byte-verbatim from t.Tag: a same-package tag
+		// is a bare Ident (`_gsxcompsig(HomeIcon)`), a cross-package dotted tag is a
+		// SelectorExpr (`_gsxcompsig(ui.HomeIcon)`). Key sigByName by the full tag
+		// string so forEachComponentTagElement matches el.Tag for both.
+		var key string
+		switch a := call.Args[0].(type) {
+		case *goast.Ident:
+			key = a.Name
+		case *goast.SelectorExpr:
+			if x, ok := a.X.(*goast.Ident); ok {
+				key = x.Name + "." + a.Sel.Name
+				// Only a *types.PkgName qualifier is a genuine package selector.
+				// Any other resolution (a *types.Var param/local of the same name)
+				// means the import is shadowed in this body's scope.
+				if u := info.Uses[x]; u != nil {
+					if _, isPkg := u.(*types.PkgName); !isPkg {
+						shadowedByName[key] = true
+					}
+				}
+			}
+		}
+		if key == "" {
 			return true
 		}
-		if tv, ok := info.Types[arg]; ok && tv.Type != nil {
-			sigByName[arg.Name] = tv.Type
+		if tv, ok := info.Types[call.Args[0]]; ok && tv.Type != nil {
+			sigByName[key] = tv.Type
 		}
 		return true
 	})
-	if len(sigByName) > 0 {
+	if len(sigByName) > 0 || len(shadowedByName) > 0 {
 		forEachComponentTagElement(bodyMarkup, func(el *gsxast.Element) {
+			if shadowedByName[el.Tag] {
+				out[el] = shadowedQualifierType
+				return
+			}
 			if t, ok := sigByName[el.Tag]; ok {
 				out[el] = t
 			}

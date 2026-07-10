@@ -1,0 +1,24 @@
+# An attrs-only component value has no Children slot: passing children to
+# Chip (the variadic func shape from func_variadic.txtar) is a clean error.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+type chipProps struct {
+	Attrs gsx.Attrs
+}
+
+component renderChip(p chipProps) {
+	<span { p.Attrs... }>chip</span>
+}
+
+func Chip(attrs ...gsx.Attr) gsx.Node {
+	return renderChip(chipProps{Attrs: gsx.Attrs(attrs)})
+}
+
+component Page() {
+	<Chip>text</Chip>
+}
+-- diagnostics.golden --
+18:2: component values do not support children — declare a Children slot on a named-struct component instead
