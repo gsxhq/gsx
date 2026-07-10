@@ -452,17 +452,27 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 		for _, w := range res.Written {
 			fmt.Fprintln(stdout, w)
 		}
+		for _, r := range res.Removed {
+			fmt.Fprintf(stdout, "removed %s\n", r)
+		}
 	}
 	// Always report what happened — including a no-op run where everything was
 	// already current — so a bare or -v run is never silently empty.
-	n, u := len(res.Written), res.UpToDate
-	switch {
-	case n > 0 && u > 0:
-		fmt.Fprintf(stdout, "gsx: wrote %d file(s), %d up to date\n", n, u)
-	case n > 0:
-		fmt.Fprintf(stdout, "gsx: wrote %d file(s)\n", n)
-	case u > 0:
-		fmt.Fprintf(stdout, "gsx: %d file(s) already up to date\n", u)
+	n, u, rm := len(res.Written), res.UpToDate, len(res.Removed)
+	var parts []string
+	if n > 0 {
+		parts = append(parts, fmt.Sprintf("wrote %d file(s)", n))
+	}
+	// Removed gsx-owned orphan .x.go (their .gsx was deleted) — reported
+	// alongside written/up-to-date, following the same style.
+	if rm > 0 {
+		parts = append(parts, fmt.Sprintf("removed %d file(s)", rm))
+	}
+	if u > 0 {
+		parts = append(parts, fmt.Sprintf("%d up to date", u))
+	}
+	if len(parts) > 0 {
+		fmt.Fprintf(stdout, "gsx: %s\n", strings.Join(parts, ", "))
 	}
 	return 0
 }

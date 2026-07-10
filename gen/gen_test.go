@@ -127,8 +127,9 @@ func TestGenerateNestedDirs(t *testing.T) {
 }
 
 // TestGeneratePartialFailure proves a codegen error in one dir is reported
-// (as an error-severity diagnostic naming the bad file) and writes nothing for
-// that dir, while a good dir in the same call IS written.
+// (as an error-severity diagnostic naming the bad file), poisons that dir's
+// .x.go (see gen/poison.go — the package can never silently build stale
+// output), while a good dir in the same call IS written normally.
 func TestGeneratePartialFailure(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
@@ -156,16 +157,21 @@ func TestGeneratePartialFailure(t *testing.T) {
 	if !badFileDiag {
 		t.Fatalf("expected an error diagnostic with a file path under the bad dir %q; diags: %v", badDir, res.Diags)
 	}
-	// Bad dir: nothing written.
-	if _, statErr := os.Stat(filepath.Join(badDir, "bad.x.go")); statErr == nil {
-		t.Fatal("expected NO .x.go written for the bad dir")
+	// Bad dir: poisoned, not skipped — the .x.go exists but carries the
+	// GSX_GENERATION_FAILED banner, so the package can never build stale output.
+	badXgo, statErr := os.ReadFile(filepath.Join(badDir, "bad.x.go"))
+	if statErr != nil {
+		t.Fatalf("expected a poison .x.go for the bad dir: %v", statErr)
+	}
+	if !strings.Contains(string(badXgo), "GSX GENERATION FAILED") {
+		t.Fatalf("expected bad dir .x.go to be poisoned, got:\n%s", badXgo)
 	}
 	// Good dir: written.
 	if _, statErr := os.Stat(filepath.Join(goodDir, "hi.x.go")); statErr != nil {
 		t.Fatalf("expected good dir .x.go written: %v", statErr)
 	}
-	if len(res.Written) != 1 {
-		t.Fatalf("expected 1 written (good dir), got %d: %v", len(res.Written), res.Written)
+	if len(res.Written) != 2 {
+		t.Fatalf("expected 2 written (good dir output + bad dir poison), got %d: %v", len(res.Written), res.Written)
 	}
 	// Operational errors (I/O, load failures) must be empty — codegen errors are in res.Diags.
 	if len(res.Errs) != 0 {
