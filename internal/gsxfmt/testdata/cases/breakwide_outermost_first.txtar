@@ -1,0 +1,18 @@
+One over-long line holds a nested literal, but breaking the OUTER literal alone
+brings the inner under the 80-column budget — so the inner is left inline. This
+is the case that tells outermost-first apart from innermost-first: an
+innermost-first implementation would explode the inner literal too, because it
+never re-measures after the outer break decides the inner no longer needs it.
+goast.Inspect visits the outer literal first and breakFirstWideLiteral stops at
+the first match per round, so only the outer breaks here.
+
+-- input.gsx --
+package ui
+
+var rows = []Row{{alpha: "aaaaaaaaaaaaaaa", beta: "bbbbbbbbbbbbbbb", gamma: "ccccccccccccccc"}}
+-- fmt.golden --
+package ui
+
+var rows = []Row{
+	{alpha: "aaaaaaaaaaaaaaa", beta: "bbbbbbbbbbbbbbb", gamma: "ccccccccccccccc"},
+}
