@@ -199,8 +199,9 @@ func anyErrorDiag(diags []diag.Diagnostic) bool {
 }
 
 // restore writes a package's output to disk, skipping files whose bytes already
-// match (hash-gated). Returns the paths it actually wrote and the count of
-// outputs that were already current (byte-identical, so skipped).
+// match (hash-gated). Writes are temp+rename in the target dir: a poison file
+// (Task 3) that lands truncated is a *parse* error that would confuse the LSP
+// and skeleton scanner, so partial writes must be impossible.
 func restore(dir string, out pkgOutput) (written []string, upToDate int, err error) {
 	for rel, data := range out {
 		target := filepath.Join(dir, rel)
@@ -208,12 +209,34 @@ func restore(dir string, out pkgOutput) (written []string, upToDate int, err err
 			upToDate++ // already current — no write
 			continue
 		}
-		if werr := os.WriteFile(target, data, 0o644); werr != nil {
+		if werr := writeFileAtomic(target, data); werr != nil {
 			return written, upToDate, fmt.Errorf("%s: %w", target, werr)
 		}
 		written = append(written, target)
 	}
 	return written, upToDate, nil
+}
+
+// writeFileAtomic writes data to target via a same-dir temp file + rename, so
+// readers never observe a partial file. Mode 0644 to match os.WriteFile use.
+func writeFileAtomic(target string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(target), ".gsx-w-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name()) // no-op after successful rename
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), target)
 }
 
 // toPkgOutput converts codegen's gsxPath->bytes (absolute .gsx paths) into the
