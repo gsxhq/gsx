@@ -2120,6 +2120,14 @@ func harvestBody(body *goast.BlockStmt, bodyMarkup []gsxast.Markup, info *types.
 	// tag resolves to one func per package, so no k-ordering is needed) onto
 	// every <F/> element in the body, so genChildComponent branches on arity.
 	sigByName := map[string]types.Type{}
+	// A dotted tag (<ui.Icon>) is gated onto the attrs-only path by name
+	// (byo.isDepAlias sees the import alias). But Go scoping can make the
+	// skeleton's _gsxcompsig(ui.Icon) resolve its qualifier to a same-named
+	// LOCAL/PARAM that shadows the import — then the selector picks that value's
+	// field, not the package's component. shadowedByName records those tags so
+	// the emitter rejects them (attrsonly-shadowed-qualifier) rather than
+	// silently bag-calling the field (FAIL 7).
+	shadowedByName := map[string]bool{}
 	goast.Inspect(body, func(node goast.Node) bool {
 		call, ok := node.(*goast.CallExpr)
 		if !ok {
@@ -2140,6 +2148,14 @@ func harvestBody(body *goast.BlockStmt, bodyMarkup []gsxast.Markup, info *types.
 		case *goast.SelectorExpr:
 			if x, ok := a.X.(*goast.Ident); ok {
 				key = x.Name + "." + a.Sel.Name
+				// Only a *types.PkgName qualifier is a genuine package selector.
+				// Any other resolution (a *types.Var param/local of the same name)
+				// means the import is shadowed in this body's scope.
+				if u := info.Uses[x]; u != nil {
+					if _, isPkg := u.(*types.PkgName); !isPkg {
+						shadowedByName[key] = true
+					}
+				}
 			}
 		}
 		if key == "" {
@@ -2150,8 +2166,12 @@ func harvestBody(body *goast.BlockStmt, bodyMarkup []gsxast.Markup, info *types.
 		}
 		return true
 	})
-	if len(sigByName) > 0 {
+	if len(sigByName) > 0 || len(shadowedByName) > 0 {
 		forEachComponentTagElement(bodyMarkup, func(el *gsxast.Element) {
+			if shadowedByName[el.Tag] {
+				out[el] = shadowedQualifierType
+				return
+			}
 			if t, ok := sigByName[el.Tag]; ok {
 				out[el] = t
 			}

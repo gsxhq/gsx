@@ -1,10 +1,27 @@
 package codegen
 
 import (
+	"go/token"
 	"go/types"
 	"strings"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+)
+
+// shadowedQualifierType is the sentinel harvest stores in resolved[el] for a
+// gated dotted attrs-only tag (<ui.Icon>) whose qualifier resolves — in the
+// skeleton's Go scope — to a local/param that SHADOWS the like-named import,
+// not to the package itself. The name-based gate (isAttrsOnlyCandidate →
+// byo.isDepAlias) fires on the import alias, but Go scoping makes the probe's
+// _gsxcompsig(ui.Icon) resolve through the param's struct field; without this
+// signal the emitter would silently bag-call that field (FAIL 7: a region that
+// is a hard build error on main). genChildComponent recognizes this exact
+// sentinel (pointer identity) and emits a positioned attrsonly-shadowed-qualifier
+// diagnostic instead. It is only ever read for the one element node harvest
+// tagged, so a fabricated Named with an Invalid underlying is safe.
+var shadowedQualifierType types.Type = types.NewNamed(
+	types.NewTypeName(token.NoPos, nil, "_gsxShadowedQualifier", nil),
+	types.Typ[types.Invalid], nil,
 )
 
 // isAttrsOnlyCandidate reports whether a component tag should be resolved as a

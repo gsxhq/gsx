@@ -3763,6 +3763,21 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 	// F(bag) / F(bag...) instead of the (nonexistent) FProps convention. emit ≡
 	// probe: emitProbes gates the identical predicate.
 	if isAttrsOnlyCandidate(el, structFields, byo, recvVar, recvTypeName) {
+		// The name-based gate fired on a dotted tag whose qualifier is a known
+		// gsx import alias, but harvest found that alias SHADOWED by a same-named
+		// local/param in scope — the probe's selector resolved to that value's
+		// field, not the package. Bag-calling the field would silently miscompile
+		// (or nil-panic) a region that is a hard build error on main; reject it.
+		if resolved[el] == shadowedQualifierType {
+			qual := el.Tag
+			if dot := strings.IndexByte(el.Tag, '.'); dot >= 0 {
+				qual = el.Tag[:dot]
+			}
+			bag.Errorf(el.Pos(), el.End(), "attrsonly-shadowed-qualifier",
+				"<%s> is not tag-callable: %s is shadowed by a local declaration; component values must be package-level",
+				el.Tag, qual)
+			return false
+		}
 		if t, probed := resolved[el]; probed {
 			if variadic, match := attrsOnlySig(t); match {
 				if len(el.Children) > 0 {
