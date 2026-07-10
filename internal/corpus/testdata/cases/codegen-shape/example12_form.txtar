@@ -22,4 +22,4 @@ func variantClass(v string) string { return "btn-" + v }
 LoginForm()
 -- diagnostics.golden --
 -- render.golden --
-<form><div class="field"><label>Email</label><input class="control" name="email" required hx-get="/check-email"/></div></form>
+<form><div class="field"><label>Email</label><input class="control" hx-get="/check-email" name="email" required/></div></form>

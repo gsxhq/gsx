@@ -74,7 +74,87 @@ func Field(_gsxp FieldProps) _gsxrt.Node {
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("field"), _gsxrt.Class(_gsxv0.Class()))
 		_gsxgw.S("\"")
 		_gsxgw.StyleMerged("", _gsxv0.Style())
-		_gsxgw.Spread(ctx, _gsxv0.Without("class", "style"))
+		if _gsxv1, ok := _gsxv0.GetFold("action"); ok {
+			_gsxgw.S(" action=\"")
+			_gsxgw.URLVal(_gsxv1)
+			_gsxgw.S("\"")
+		}
+		if _gsxv2, ok := _gsxv0.GetFold("background"); ok {
+			_gsxgw.S(" background=\"")
+			_gsxgw.URLImageVal(_gsxv2)
+			_gsxgw.S("\"")
+		}
+		if _gsxv3, ok := _gsxv0.GetFold("cite"); ok {
+			_gsxgw.S(" cite=\"")
+			_gsxgw.URLVal(_gsxv3)
+			_gsxgw.S("\"")
+		}
+		if _gsxv4, ok := _gsxv0.GetFold("data"); ok {
+			_gsxgw.S(" data=\"")
+			_gsxgw.URLVal(_gsxv4)
+			_gsxgw.S("\"")
+		}
+		if _gsxv5, ok := _gsxv0.GetFold("formaction"); ok {
+			_gsxgw.S(" formaction=\"")
+			_gsxgw.URLVal(_gsxv5)
+			_gsxgw.S("\"")
+		}
+		if _gsxv6, ok := _gsxv0.GetFold("href"); ok {
+			_gsxgw.S(" href=\"")
+			_gsxgw.URLVal(_gsxv6)
+			_gsxgw.S("\"")
+		}
+		if _gsxv7, ok := _gsxv0.GetFold("hx-delete"); ok {
+			_gsxgw.S(" hx-delete=\"")
+			_gsxgw.URLVal(_gsxv7)
+			_gsxgw.S("\"")
+		}
+		if _gsxv8, ok := _gsxv0.GetFold("hx-get"); ok {
+			_gsxgw.S(" hx-get=\"")
+			_gsxgw.URLVal(_gsxv8)
+			_gsxgw.S("\"")
+		}
+		if _gsxv9, ok := _gsxv0.GetFold("hx-patch"); ok {
+			_gsxgw.S(" hx-patch=\"")
+			_gsxgw.URLVal(_gsxv9)
+			_gsxgw.S("\"")
+		}
+		if _gsxv10, ok := _gsxv0.GetFold("hx-post"); ok {
+			_gsxgw.S(" hx-post=\"")
+			_gsxgw.URLVal(_gsxv10)
+			_gsxgw.S("\"")
+		}
+		if _gsxv11, ok := _gsxv0.GetFold("hx-put"); ok {
+			_gsxgw.S(" hx-put=\"")
+			_gsxgw.URLVal(_gsxv11)
+			_gsxgw.S("\"")
+		}
+		if _gsxv12, ok := _gsxv0.GetFold("manifest"); ok {
+			_gsxgw.S(" manifest=\"")
+			_gsxgw.URLVal(_gsxv12)
+			_gsxgw.S("\"")
+		}
+		if _gsxv13, ok := _gsxv0.GetFold("ping"); ok {
+			_gsxgw.S(" ping=\"")
+			_gsxgw.URLVal(_gsxv13)
+			_gsxgw.S("\"")
+		}
+		if _gsxv14, ok := _gsxv0.GetFold("poster"); ok {
+			_gsxgw.S(" poster=\"")
+			_gsxgw.URLVal(_gsxv14)
+			_gsxgw.S("\"")
+		}
+		if _gsxv15, ok := _gsxv0.GetFold("src"); ok {
+			_gsxgw.S(" src=\"")
+			_gsxgw.URLVal(_gsxv15)
+			_gsxgw.S("\"")
+		}
+		if _gsxv16, ok := _gsxv0.GetFold("xlink:href"); ok {
+			_gsxgw.S(" xlink:href=\"")
+			_gsxgw.URLVal(_gsxv16)
+			_gsxgw.S("\"")
+		}
+		_gsxgw.Spread(ctx, _gsxv0.Without("class", "style").WithoutFold("action", "background", "cite", "data", "formaction", "href", "hx-delete", "hx-get", "hx-patch", "hx-post", "hx-put", "manifest", "ping", "poster", "src", "xlink:href"))
 		_gsxgw.S(">")
 //line input.gsx:7:3
 		_gsxgw.S("<label>")
@@ -86,7 +166,87 @@ func Field(_gsxp FieldProps) _gsxrt.Node {
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("field-input"), _gsxrt.Class(attrs.Class()))
 		_gsxgw.S("\"")
 		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs.Without("class", "style"))
+		if _gsxv17, ok := attrs.GetFold("action"); ok {
+			_gsxgw.S(" action=\"")
+			_gsxgw.URLVal(_gsxv17)
+			_gsxgw.S("\"")
+		}
+		if _gsxv18, ok := attrs.GetFold("background"); ok {
+			_gsxgw.S(" background=\"")
+			_gsxgw.URLImageVal(_gsxv18)
+			_gsxgw.S("\"")
+		}
+		if _gsxv19, ok := attrs.GetFold("cite"); ok {
+			_gsxgw.S(" cite=\"")
+			_gsxgw.URLVal(_gsxv19)
+			_gsxgw.S("\"")
+		}
+		if _gsxv20, ok := attrs.GetFold("data"); ok {
+			_gsxgw.S(" data=\"")
+			_gsxgw.URLVal(_gsxv20)
+			_gsxgw.S("\"")
+		}
+		if _gsxv21, ok := attrs.GetFold("formaction"); ok {
+			_gsxgw.S(" formaction=\"")
+			_gsxgw.URLVal(_gsxv21)
+			_gsxgw.S("\"")
+		}
+		if _gsxv22, ok := attrs.GetFold("href"); ok {
+			_gsxgw.S(" href=\"")
+			_gsxgw.URLVal(_gsxv22)
+			_gsxgw.S("\"")
+		}
+		if _gsxv23, ok := attrs.GetFold("hx-delete"); ok {
+			_gsxgw.S(" hx-delete=\"")
+			_gsxgw.URLVal(_gsxv23)
+			_gsxgw.S("\"")
+		}
+		if _gsxv24, ok := attrs.GetFold("hx-get"); ok {
+			_gsxgw.S(" hx-get=\"")
+			_gsxgw.URLVal(_gsxv24)
+			_gsxgw.S("\"")
+		}
+		if _gsxv25, ok := attrs.GetFold("hx-patch"); ok {
+			_gsxgw.S(" hx-patch=\"")
+			_gsxgw.URLVal(_gsxv25)
+			_gsxgw.S("\"")
+		}
+		if _gsxv26, ok := attrs.GetFold("hx-post"); ok {
+			_gsxgw.S(" hx-post=\"")
+			_gsxgw.URLVal(_gsxv26)
+			_gsxgw.S("\"")
+		}
+		if _gsxv27, ok := attrs.GetFold("hx-put"); ok {
+			_gsxgw.S(" hx-put=\"")
+			_gsxgw.URLVal(_gsxv27)
+			_gsxgw.S("\"")
+		}
+		if _gsxv28, ok := attrs.GetFold("manifest"); ok {
+			_gsxgw.S(" manifest=\"")
+			_gsxgw.URLVal(_gsxv28)
+			_gsxgw.S("\"")
+		}
+		if _gsxv29, ok := attrs.GetFold("ping"); ok {
+			_gsxgw.S(" ping=\"")
+			_gsxgw.URLVal(_gsxv29)
+			_gsxgw.S("\"")
+		}
+		if _gsxv30, ok := attrs.GetFold("poster"); ok {
+			_gsxgw.S(" poster=\"")
+			_gsxgw.URLVal(_gsxv30)
+			_gsxgw.S("\"")
+		}
+		if _gsxv31, ok := attrs.GetFold("src"); ok {
+			_gsxgw.S(" src=\"")
+			_gsxgw.URLImageVal(_gsxv31)
+			_gsxgw.S("\"")
+		}
+		if _gsxv32, ok := attrs.GetFold("xlink:href"); ok {
+			_gsxgw.S(" xlink:href=\"")
+			_gsxgw.URLVal(_gsxv32)
+			_gsxgw.S("\"")
+		}
+		_gsxgw.Spread(ctx, attrs.Without("class", "style").WithoutFold("action", "background", "cite", "data", "formaction", "href", "hx-delete", "hx-get", "hx-patch", "hx-post", "hx-put", "manifest", "ping", "poster", "src", "xlink:href"))
 		_gsxgw.S("/></div>")
 		return _gsxgw.Err()
 	})

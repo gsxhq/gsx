@@ -72,7 +72,87 @@ func Card(_gsxp CardProps) _gsxrt.Node {
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs.Without("class", "style"))
+		if _gsxv0, ok := attrs.GetFold("action"); ok {
+			_gsxgw.S(" action=\"")
+			_gsxgw.URLVal(_gsxv0)
+			_gsxgw.S("\"")
+		}
+		if _gsxv1, ok := attrs.GetFold("background"); ok {
+			_gsxgw.S(" background=\"")
+			_gsxgw.URLImageVal(_gsxv1)
+			_gsxgw.S("\"")
+		}
+		if _gsxv2, ok := attrs.GetFold("cite"); ok {
+			_gsxgw.S(" cite=\"")
+			_gsxgw.URLVal(_gsxv2)
+			_gsxgw.S("\"")
+		}
+		if _gsxv3, ok := attrs.GetFold("data"); ok {
+			_gsxgw.S(" data=\"")
+			_gsxgw.URLVal(_gsxv3)
+			_gsxgw.S("\"")
+		}
+		if _gsxv4, ok := attrs.GetFold("formaction"); ok {
+			_gsxgw.S(" formaction=\"")
+			_gsxgw.URLVal(_gsxv4)
+			_gsxgw.S("\"")
+		}
+		if _gsxv5, ok := attrs.GetFold("href"); ok {
+			_gsxgw.S(" href=\"")
+			_gsxgw.URLVal(_gsxv5)
+			_gsxgw.S("\"")
+		}
+		if _gsxv6, ok := attrs.GetFold("hx-delete"); ok {
+			_gsxgw.S(" hx-delete=\"")
+			_gsxgw.URLVal(_gsxv6)
+			_gsxgw.S("\"")
+		}
+		if _gsxv7, ok := attrs.GetFold("hx-get"); ok {
+			_gsxgw.S(" hx-get=\"")
+			_gsxgw.URLVal(_gsxv7)
+			_gsxgw.S("\"")
+		}
+		if _gsxv8, ok := attrs.GetFold("hx-patch"); ok {
+			_gsxgw.S(" hx-patch=\"")
+			_gsxgw.URLVal(_gsxv8)
+			_gsxgw.S("\"")
+		}
+		if _gsxv9, ok := attrs.GetFold("hx-post"); ok {
+			_gsxgw.S(" hx-post=\"")
+			_gsxgw.URLVal(_gsxv9)
+			_gsxgw.S("\"")
+		}
+		if _gsxv10, ok := attrs.GetFold("hx-put"); ok {
+			_gsxgw.S(" hx-put=\"")
+			_gsxgw.URLVal(_gsxv10)
+			_gsxgw.S("\"")
+		}
+		if _gsxv11, ok := attrs.GetFold("manifest"); ok {
+			_gsxgw.S(" manifest=\"")
+			_gsxgw.URLVal(_gsxv11)
+			_gsxgw.S("\"")
+		}
+		if _gsxv12, ok := attrs.GetFold("ping"); ok {
+			_gsxgw.S(" ping=\"")
+			_gsxgw.URLVal(_gsxv12)
+			_gsxgw.S("\"")
+		}
+		if _gsxv13, ok := attrs.GetFold("poster"); ok {
+			_gsxgw.S(" poster=\"")
+			_gsxgw.URLVal(_gsxv13)
+			_gsxgw.S("\"")
+		}
+		if _gsxv14, ok := attrs.GetFold("src"); ok {
+			_gsxgw.S(" src=\"")
+			_gsxgw.URLVal(_gsxv14)
+			_gsxgw.S("\"")
+		}
+		if _gsxv15, ok := attrs.GetFold("xlink:href"); ok {
+			_gsxgw.S(" xlink:href=\"")
+			_gsxgw.URLVal(_gsxv15)
+			_gsxgw.S("\"")
+		}
+		_gsxgw.Spread(ctx, attrs.Without("class", "style").WithoutFold("action", "background", "cite", "data", "formaction", "href", "hx-delete", "hx-get", "hx-patch", "hx-post", "hx-put", "manifest", "ping", "poster", "src", "xlink:href"))
 		_gsxgw.S(">")
 //line input.gsx:5:52
 		_gsxgw.Node(ctx, title)
@@ -93,23 +173,23 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		csv := _gsxp.Csv
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxv2, _gsxerr := _gsxrt.AttrsCond(hot, func() (_gsxrt.Attrs, error) {
+		_gsxv18, _gsxerr := _gsxrt.AttrsCond(hot, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "data-x", Value: "on"}}, nil
 		}, func() (_gsxrt.Attrs, error) {
-			_gsxv0, _gsxerr := _gsxf0.Parse((csv))
+			_gsxv16, _gsxerr := _gsxf0.Parse((csv))
 			if _gsxerr != nil {
 				return nil, _gsxerr
 			}
-			_gsxv1, _gsxerr := _gsxf0.Pick(_gsxv0, 0)
+			_gsxv17, _gsxerr := _gsxf0.Pick(_gsxv16, 0)
 			if _gsxerr != nil {
 				return nil, _gsxerr
 			}
-			return _gsxrt.Attrs{{Key: "data-pick", Value: _gsxv1}}, nil
+			return _gsxrt.Attrs{{Key: "data-pick", Value: _gsxv17}}, nil
 		})
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Card(CardProps{Title: _gsxrt.Text("Hi"), Attrs: _gsxrt.ConcatAttrs(_gsxv2)}))
+		_gsxgw.Node(ctx, Card(CardProps{Title: _gsxrt.Text("Hi"), Attrs: _gsxrt.ConcatAttrs(_gsxv18)}))
 		return _gsxgw.Err()
 	})
 }

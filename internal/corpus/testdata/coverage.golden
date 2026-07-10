@@ -577,6 +577,13 @@ url/data_image_svg	diag render
 url/data_image_svg_object_blocked	diag render
 url/data_url_filter	diag gen render
 url/data_url_filter_blocked_mime	diag render
+urlattrs/bag_case_variant	diag gen render
+urlattrs/bag_custom_rule	diag gen render
+urlattrs/bag_href_nav	diag gen render
+urlattrs/bag_hx_get	diag gen render
+urlattrs/bag_prefix_rule	diag gen render
+urlattrs/bag_rawurl	diag gen render
+urlattrs/bag_src_image_split	diag gen render
 urlattrs/element_custom_rule	diag gen render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
@@ -592,4 +599,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 594 cases (render: 474, error: 91, gen-pinned: 300)
+TOTAL: 601 cases (render: 481, error: 91, gen-pinned: 307)

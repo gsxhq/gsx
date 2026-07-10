@@ -1,6 +1,9 @@
 package attrclass
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestBuiltinParity(t *testing.T) {
 	c := Builtin()
@@ -133,5 +136,46 @@ func TestURLSink(t *testing.T) {
 		if got := URLSink(c.tag, c.name); got != SinkStrict {
 			t.Errorf("URLSink(%q,%q) = %v, want SinkStrict", c.tag, c.name, got)
 		}
+	}
+}
+
+func TestURLExactNames(t *testing.T) {
+	// Builtin: the 16 built-in URL names, lowercased and sorted, no prefixes.
+	wantBuiltin := []string{
+		"action", "background", "cite", "data", "formaction", "href",
+		"hx-delete", "hx-get", "hx-patch", "hx-post", "hx-put",
+		"manifest", "ping", "poster", "src", "xlink:href",
+	}
+	if got := Builtin().URLExactNames(); !reflect.DeepEqual(got, wantBuiltin) {
+		t.Errorf("Builtin().URLExactNames() = %v, want %v", got, wantBuiltin)
+	}
+	if got := Builtin().URLPrefixes(); len(got) != 0 {
+		t.Errorf("Builtin().URLPrefixes() = %v, want empty", got)
+	}
+	// nil classifier is the built-in floor.
+	if got := (*Classifier)(nil).URLExactNames(); !reflect.DeepEqual(got, wantBuiltin) {
+		t.Errorf("nil.URLExactNames() = %v, want %v", got, wantBuiltin)
+	}
+
+	// New with exact + prefix URL rules: the exact name unions with the built-ins
+	// (deduped, sorted); a duplicate/case-variant of a built-in does not double it.
+	// Prefixes are lowercased, deduped and sorted; exact rules are excluded.
+	c := New(Rules{URL: []Rule{
+		{Name: "Data-Href"}, // case-variant user exact rule → data-href
+		{Name: "HREF"},      // duplicate of a built-in → no double
+		{Prefix: "Data-URL-"},
+		{Prefix: "hx-"},
+	}}, nil)
+	wantExact := []string{
+		"action", "background", "cite", "data", "data-href", "formaction", "href",
+		"hx-delete", "hx-get", "hx-patch", "hx-post", "hx-put",
+		"manifest", "ping", "poster", "src", "xlink:href",
+	}
+	if got := c.URLExactNames(); !reflect.DeepEqual(got, wantExact) {
+		t.Errorf("New().URLExactNames() = %v, want %v", got, wantExact)
+	}
+	wantPrefixes := []string{"data-url-", "hx-"}
+	if got := c.URLPrefixes(); !reflect.DeepEqual(got, wantPrefixes) {
+		t.Errorf("New().URLPrefixes() = %v, want %v", got, wantPrefixes)
 	}
 }

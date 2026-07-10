@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -152,6 +153,53 @@ func (c *Classifier) Fingerprint() string {
 	b, _ := json.Marshal(fp{Rules: c.Rules(), HasPredicate: c.HasPredicate()})
 	sum := sha256.Sum256(b)
 	return fmt.Sprintf("%x", sum[:])
+}
+
+// URLExactNames returns every exact-name URL-classified attribute — the
+// built-in set unioned with the user's exact-Name URL rules — lowercased,
+// deduplicated, and sorted. Codegen enumerates these into per-name
+// Get-extraction blocks at forwarding elements so a URL attribute smuggled
+// through a fallthrough bag is sanitized at the leaf; the deterministic sort
+// keeps generated code stable.
+func (c *Classifier) URLExactNames() []string {
+	set := make(map[string]bool, len(builtinURL))
+	for n := range builtinURL {
+		set[n] = true
+	}
+	if c != nil {
+		for _, r := range c.rules.URL {
+			if r.Name != "" {
+				set[strings.ToLower(r.Name)] = true
+			}
+		}
+	}
+	out := make([]string, 0, len(set))
+	for n := range set {
+		out = append(out, n)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// URLPrefixes returns the user's URL prefix rules, lowercased, deduplicated and
+// sorted. Prefix rules cannot be enumerated into Get blocks; codegen consults
+// them with a runtime matcher in the residual spread, and only when this is
+// non-empty. Built-ins contribute no prefixes.
+func (c *Classifier) URLPrefixes() []string {
+	if c == nil {
+		return nil
+	}
+	var out []string
+	for _, r := range c.rules.URL {
+		if r.Prefix != "" {
+			p := strings.ToLower(r.Prefix)
+			if !slices.Contains(out, p) {
+				out = append(out, p)
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // builtinURL is the URL-context attribute set (ported verbatim from

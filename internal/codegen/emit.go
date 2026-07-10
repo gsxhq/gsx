@@ -1085,22 +1085,90 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			// a no-op when the bag has no style either).
 			fmt.Fprintf(b, "\t\t_gsxgw.StyleMerged(\"\", %s.Style())\n", bagExpr)
 		}
+		// URL-classified bag attributes sanitize at the leaf (bag hardening Part A).
+		// The caller's bag may carry ANY URL attribute; this forwarding element is
+		// where it becomes real HTML, so each URL-classified name is extracted here
+		// and written through the same tag-aware sink a static attr uses (URLVal for
+		// navigational, URLImageVal for image resources; a dangerous scheme →
+		// about:invalid#gsx). Interplay with the root's own statics, per URL name —
+		// the invariant is that no UNSANITIZED URL ever renders:
+		//   - forced (post-spread) static: it owns the attribute (emitted unguarded
+		//     in Walk 2), so we SKIP extraction; the fold-drop below removes every
+		//     bag case-variant, leaving only the root's author-controlled value.
+		//   - guarded (pre-spread) static: Walk 1 emitted it under `!bag.Has(name)`
+		//     so it renders only when the bag lacks the name; extraction's GetFold
+		//     renders only when the bag HAS it — for a same-case key exactly one of
+		//     the pair fires. (A case-variant bag key can make BOTH fire — Has is
+		//     case-sensitive — but both values are then safe: the static's literal
+		//     and the bag's sanitized copy; the browser takes the first. No payload.)
+		//   - no root static: extraction alone renders the bag's value, sanitized.
+		// Matching is case-insensitive (GetFold / WithoutFold): a smuggled `HREF`
+		// key is caught and normalized to `href` on output, never passed through raw.
+		urlNames := cls.URLExactNames()
+		forcedLower := make(map[string]bool, len(forcedNames))
+		for _, n := range forcedNames {
+			forcedLower[strings.ToLower(n)] = true
+		}
+		for _, name := range urlNames {
+			if forcedLower[name] {
+				continue // forced static owns it; the fold-drop still removes bag copies
+			}
+			tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+			*interpTemp++
+			method := urlWriterMethod(tag, name) + "Val" // URLVal / URLImageVal
+			fmt.Fprintf(b, "\t\tif %s, ok := %s.GetFold(%s); ok {\n", tmp, bagExpr, strconv.Quote(name))
+			fmt.Fprintf(b, "\t\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+name+`="`))
+			fmt.Fprintf(b, "\t\t\t_gsxgw.%s(%s)\n", method, tmp)
+			fmt.Fprintf(b, "\t\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
+			b.WriteString("\t\t}\n")
+		}
+		// Prefix URL rules (e.g. `prefix = "data-url-"`) cannot be enumerated into
+		// Get blocks; only when the project configures them do we walk the bag and
+		// write each prefix-matched key through the STRICT nav sink (prefix rules are
+		// user rules; the image-sink split applies only to built-in resource names).
+		prefixes := cls.URLPrefixes()
+		prefixVar := ""
+		if len(prefixes) > 0 {
+			prefixVar = fmt.Sprintf("_gsxv%d", *interpTemp)
+			*interpTemp++
+			qp := make([]string, len(prefixes))
+			for i, p := range prefixes {
+				qp[i] = strconv.Quote(p)
+			}
+			fmt.Fprintf(b, "\t\t%s := []string{%s}\n", prefixVar, strings.Join(qp, ", "))
+			fmt.Fprintf(b, "\t\t_gsxgw.SpreadURLPrefixed(ctx, %s, %s)\n", bagExpr, prefixVar)
+		}
 		// Spread the rest of the bag, dropping class/style (both merged above) plus
 		// any forced names (excluded so the unguarded root emit wins — caller can't
 		// override a post-spread attr). Every other bag attr spreads, including one
 		// that shadows a guarded (overridable) root attr (which was then skipped).
-		// With post-spread cond-attrs the drop set is the dynamic slice built by
-		// the selectors above (static names + the taken branches' names).
+		// With post-spread cond-attrs the drop set is the dynamic slice built by the
+		// selectors above (static names + the taken branches' names). The residual
+		// additionally drops — case-insensitively — every URL exact name (extracted
+		// and sanitized above) and every prefix-matched key (written above), so no
+		// unsanitized copy survives.
+		var residual string
 		if dropVar != "" {
-			fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s.Without(%s...))\n", bagExpr, dropVar)
-			return true
+			residual = fmt.Sprintf("%s.Without(%s...)", bagExpr, dropVar)
+		} else {
+			without := append([]string{"class", "style"}, forcedNames...)
+			quoted := make([]string, len(without))
+			for i, n := range without {
+				quoted[i] = strconv.Quote(n)
+			}
+			residual = fmt.Sprintf("%s.Without(%s)", bagExpr, strings.Join(quoted, ", "))
 		}
-		without := append([]string{"class", "style"}, forcedNames...)
-		quoted := make([]string, len(without))
-		for i, n := range without {
-			quoted[i] = strconv.Quote(n)
+		if len(urlNames) > 0 {
+			qn := make([]string, len(urlNames))
+			for i, n := range urlNames {
+				qn[i] = strconv.Quote(n)
+			}
+			residual += fmt.Sprintf(".WithoutFold(%s)", strings.Join(qn, ", "))
 		}
-		fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s.Without(%s))\n", bagExpr, strings.Join(quoted, ", "))
+		if prefixVar != "" {
+			residual += fmt.Sprintf(".WithoutFunc(func(_gsxk string) bool { return %s.URLPrefixMatch(_gsxk, %s) })", rt.rt(), prefixVar)
+		}
+		fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", residual)
 		return true
 	}
 
