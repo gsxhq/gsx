@@ -234,6 +234,17 @@ func collapseHoleWhitespace(src string, holes []Hole) (string, []int) {
 		closerOK := after < len(s) && !insideAny(comments, after-shift)
 		collapseAfter := closerOK && isCloseBracket(s[after]) && containsNewline(afterWS)
 		// Alone inside parens: "(" directly before and ")" directly after.
+		//
+		// The before-collapse this branch enables (see collapseHoleWhitespace's doc
+		// for the alignment-drift it fixed, PR #62) is DEAD in production today:
+		// internal/printer's breakWideLiterals runs format.Source an extra time over
+		// the region, and that pass incidentally normalizes the same drift away.
+		// Neutering this branch leaves internal/printer, internal/gsxfmt, and
+		// internal/codegen all green; only goexprshape's OWN unit tests fail — so
+		// those tests are now this branch's only guard. Do NOT remove it casually:
+		// the normalization above is incidental, and if that second format.Source
+		// ever goes away this branch becomes load-bearing again with zero
+		// integration coverage to catch the regression.
 		inParens := before > 0 && s[before-1] == '(' && !insideAny(comments, before-1-shift) &&
 			closerOK && s[after] == ')'
 		collapseBefore := inParens && containsNewline(beforeWS)

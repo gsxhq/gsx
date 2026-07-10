@@ -356,7 +356,8 @@ func crossRefKeyForFunc(fn *types.Func) string {
 // the .editorconfig resolution itself requires an absolute path (see
 // formatSettingsFor's doc comment for why — the editorconfig library resolves
 // a relative path against the process's cwd). Best-effort throughout: any
-// failure falls through to built-ins (80, pretty.DefaultTabWidth), never fails.
+// failure falls through to built-ins (pretty.DefaultPrintWidth,
+// pretty.DefaultTabWidth), never fails.
 func (a lspAnalyzer) FormatSettings(path string) gsxfmt.FormatSettings {
 	dir := filepath.Dir(path)
 	merged := resolveConfigBestEffort(dir, a.optCfg, a.warnw)

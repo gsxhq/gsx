@@ -63,6 +63,17 @@ func TestBreakWideLiterals(t *testing.T) {
 		src:  "package p\n\nvar x = T{alpha: \"aaaaaaaaaaaaaaaaaaaa\", beta: \"bbbbbbbbbbbbbbbbbbbb\", gamma: \"cccccccccccccccccccc\",\n\tdelta: \"d\"}\n",
 		want: "package p\n\nvar x = T{\n\talpha: \"aaaaaaaaaaaaaaaaaaaa\",\n\tbeta:  \"bbbbbbbbbbbbbbbbbbbb\",\n\tgamma: \"cccccccccccccccccccc\",\n\tdelta: \"d\",\n}\n",
 	}, {
+		// A literal the author partially broke the OTHER way: the `{` sits on its
+		// own line (brace line under budget), but two fields are packed onto one
+		// 81-column field line (over budget). Keying "needs breaking" on the brace
+		// line alone -- as an earlier version did -- measured only `var x = T{`
+		// (10 columns, under budget) and skipped the literal, leaving the packed
+		// beta line over budget forever. Spanning every line the literal covers
+		// catches it: beta gets its own line.
+		name: "packed field line over budget with under-budget brace line is broken",
+		src:  "package p\n\nvar x = T{\n\talpha: \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", beta: \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\n\tgamma: \"cccccccccccccccccccc\",\n}\n",
+		want: "package p\n\nvar x = T{\n\talpha: \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\n\tbeta:  \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\n\tgamma: \"cccccccccccccccccccc\",\n}\n",
+	}, {
 		// A literal already one element per line, with the first element already
 		// off the `{` line: fully broken, so there is no progress to make. Must be
 		// left byte-identical -- no blank lines inserted.

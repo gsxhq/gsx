@@ -2,14 +2,14 @@ A composite literal whose `{` opens a line closes on its own line too. gofmt
 never does this: go/printer decides the `}` break solely from whether the SOURCE
 already put `}` on a later line (nodes.go:294), so `{\n\ta: 1}` stays welded shut.
 
-Block-form braces and field-breaking are independent, and breakWideLiterals keys
-on the BRACE line. The Import / Export item's `{` opens its own (short) line, so
-its fields stay packed even though their line overflows — only the closing brace
-moves. The Analytics and Admin items are written fully inline, and at width 80
-their brace lines (96 and 90 columns) are over budget, so breakWideLiterals
-breaks their fields one per line — the ordinary wide-literal remedy, reached now
-that an unsplittable wide line earlier in the slice no longer starves later
-literals of their turn.
+Block-form braces and field-breaking are independent. breakWideLiterals treats a
+literal as over budget when ANY line it spans overflows, not just its brace line.
+The Import / Export item's `{` opens its own (short) line, but its fields are
+packed onto one overflowing line, so that line is over budget and the fields
+break one per line — the closing brace moves too, in block form. The Analytics
+and Admin items are written fully inline, and at width 80 their brace lines (96
+and 90 columns) are over budget, so breakWideLiterals breaks their fields the
+same way.
 
 -- input.gsx --
 package ui
@@ -33,7 +33,11 @@ var appShellNavSections = []appShellNavSection{
 		label: "TOOLS",
 		items: []appShellNavItem{
 			{
-				label: "Import / Export", page: ImportExportPage{}, pathMatch: "/import-export/", nonVendor: true, vendorVisible: func(u *db.UserInfo) bool { return u.HasGrantPrefix("", "import") },
+				label:         "Import / Export",
+				page:          ImportExportPage{},
+				pathMatch:     "/import-export/",
+				nonVendor:     true,
+				vendorVisible: func(u *db.UserInfo) bool { return u.HasGrantPrefix("", "import") },
 			},
 			{
 				label:     "Analytics",
