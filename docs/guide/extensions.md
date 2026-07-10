@@ -27,10 +27,15 @@ function-valued options.
 ## URL attribute rules
 
 Ordinary `attr={expr}` values are attribute-escaped text unless the attribute is
-URL-context by name. The built-in set covers standard HTML URL attributes and
-htmx method attributes. If your project uses a framework with its own
-URL-bearing attributes, register additional rules so those values get the URL
-scheme check before attribute escaping.
+URL-context by name. The built-in set covers the 11 standard HTML URL
+attributes only (`href`, `src`, `action`, `formaction`, `poster`, `cite`,
+`ping`, `data`, `background`, `manifest`, `xlink:href`); the five htmx method
+attributes (`hx-get`, `hx-post`, `hx-put`, `hx-delete`, `hx-patch`) are opt-in
+via the `htmx` [URL preset](./config.md#url_presets-named-opt-in-rulesets)
+(`url_presets = ["htmx"]` in `gsx.toml`, or `gen.WithURLPreset("htmx")` here).
+If your project uses a framework with its own URL-bearing attributes, register
+additional rules so those values get the URL scheme check before attribute
+escaping.
 
 Prefer `[[urlAttrs]]` in `gsx.toml`; use `gen.WithURLAttrs` only when you already
 maintain a project `cmd/gsx/main.go`. It takes one or more `gen.Rule` values. A
