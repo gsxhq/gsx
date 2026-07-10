@@ -225,6 +225,11 @@ elements/named_scalar_types	diag render
 elements/node_slice	diag render
 elements/static_and_bool_attrs_off	diag render
 elements/static_and_bool_attrs_on	diag render
+fallthrough/byo_bag_class_merge	diag gen render
+fallthrough/byo_bag_defaults	diag gen render
+fallthrough/byo_bag_derived	diag gen render
+fallthrough/byo_bag_forced	diag gen render
+fallthrough/byo_bag_two_spreads	diag(error)
 fallthrough/call_site_button	diag(error)
 fallthrough/call_site_caller_wins	diag render
 fallthrough/call_site_class_merge	diag render
@@ -247,6 +252,7 @@ fallthrough/cond_attr_root_standalone	diag render
 fallthrough/derived_merge_spread	diag render
 fallthrough/derived_without_spread	diag gen render
 fallthrough/empty_bag_noop	diag render
+fallthrough/local_bag_inline	diag gen render
 fallthrough/manual_nullary_method	diag render
 fallthrough/manual_placement	diag render
 fallthrough/manual_split_container_bag	diag gen render
@@ -584,4 +590,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 586 cases (render: 467, error: 90, gen-pinned: 293)
+TOTAL: 592 cases (render: 472, error: 91, gen-pinned: 298)

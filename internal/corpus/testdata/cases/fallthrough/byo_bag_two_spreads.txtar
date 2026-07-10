@@ -1,0 +1,17 @@
+# One forwarding spread per element holds for a byo declared bag exactly as for
+# the generated `attrs` bag: two { p.Attrs... } spreads on one element have no
+# expressible precedence against the guard machinery — a generate-time error.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+type props struct {
+	Attrs gsx.Attrs
+}
+
+component Row(p props) {
+	<div { p.Attrs... } { p.Attrs... }>r</div>
+}
+-- diagnostics.golden --
+10:2: more than one attrs-referencing spread on an element; precedence is ambiguous
