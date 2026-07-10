@@ -191,8 +191,10 @@ func anyErrorDiag(diags []diag.Diagnostic) bool {
 
 // restore writes a package's output to disk, skipping files whose bytes already
 // match (hash-gated). Writes are temp+rename in the target dir: a poison file
-// (Task 3) that lands truncated is a *parse* error that would confuse the LSP
-// and skeleton scanner, so partial writes must be impossible.
+// that lands truncated is a *parse* error that would confuse the LSP and
+// skeleton scanner, so partial writes must be impossible.
+// Returns the paths it actually wrote and the count of outputs that were
+// already current (byte-identical, so skipped).
 func restore(dir string, out pkgOutput) (written []string, upToDate int, err error) {
 	for rel, data := range out {
 		target := filepath.Join(dir, rel)

@@ -195,6 +195,9 @@ func TestPoison_E2E_NewFileNoPriorXgo(t *testing.T) {
 // it previously wrote.
 func TestPoison_LSPIgnoresPoisonOnDisk(t *testing.T) {
 	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
 	mod := newModule(t, "example.com/poison5")
 	gsxPath := filepath.Join(mod, "page.gsx")
 	pageGsx := "package x\n\ncomponent Page() {\n\t<div>hi</div>\n}\n"
@@ -268,6 +271,9 @@ var _ = GSX_GENERATION_FAILED__see_page_gsx
 // from .gsx source), never the on-disk poison bytes.
 func TestPoison_AttrsOnlyProbeUnaffected(t *testing.T) {
 	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
 	mod := newModule(t, "example.com/poison6")
 	ui := filepath.Join(mod, "ui")
 	writeFile(t, ui, "button.gsx", "package ui\n\ncomponent Button[T string | int](label T) {\n\t<button>{label}</button>\n}\n")

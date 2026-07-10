@@ -131,8 +131,15 @@ func poisonFile(dir, gsxPath string, fileDiags []diag.Diagnostic) []byte {
 	var rendered bytes.Buffer
 	diag.RenderCompact(&rendered, ds)
 	for line := range strings.SplitSeq(strings.TrimRight(rendered.String(), "\n"), "\n") {
-		// \r would end the // comment early on a CRLF-contaminated message.
-		fmt.Fprintf(&b, "//\t%s\n", strings.ReplaceAll(line, "\r", " "))
+		line = sanitizePoisonLine(line)
+		if line == "" {
+			// A blank/empty message line still needs a comment marker, but a
+			// trailing-tab "//\t" would itself be non-gofmt-clean trailing
+			// whitespace — emit a bare "//".
+			b.WriteString("//\n")
+			continue
+		}
+		fmt.Fprintf(&b, "//\t%s\n", line)
 	}
 	b.WriteString("\n")
 	// //line makes `go build` report the undefined identifier at the first
@@ -144,6 +151,23 @@ func poisonFile(dir, gsxPath string, fileDiags []diag.Diagnostic) []byte {
 	}
 	fmt.Fprintf(&b, "var _ = GSX_GENERATION_FAILED__see_%s\n", identFrom(base))
 	return b.Bytes()
+}
+
+// sanitizePoisonLine makes one diagnostic-message line safe to embed verbatim
+// in a "//\t..." comment line: C0 control characters other than tab are
+// dropped (a NUL would make the output syntactically invalid Go; a bare \r
+// would end the // comment early on a CRLF-contaminated message), and
+// trailing spaces/tabs are trimmed so the emitted file is gofmt-clean
+// regardless of what the underlying message contains.
+func sanitizePoisonLine(line string) string {
+	var b strings.Builder
+	for _, r := range line {
+		if r < 0x20 && r != '\t' {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return strings.TrimRight(b.String(), " \t")
 }
 
 // firstPositioned returns the first diagnostic positioned in gsxPath itself
@@ -174,7 +198,10 @@ func poisonHeader(dir, gsxPath string) (pkg string, directives []string) {
 	if ents, err := os.ReadDir(dir); err == nil {
 		for _, e := range ents {
 			n := e.Name()
-			if e.IsDir() || !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, ".x.go") {
+			// A _test.go sibling may declare an external test package
+			// (package foo_test) — that clause must never leak into a
+			// poison file's package name.
+			if e.IsDir() || !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, ".x.go") || strings.HasSuffix(n, "_test.go") {
 				continue
 			}
 			if name, _, ok := packageClauseOf(filepath.Join(dir, n)); ok {
