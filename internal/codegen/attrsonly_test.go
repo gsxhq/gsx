@@ -48,7 +48,8 @@ func TestAttrsOnlySig(t *testing.T) {
 	}{
 		{"named-attrs", sig(false, attrs, node), false, true},
 		{"variadic-attr", sig(true, types.NewSlice(attr), node), true, true},
-		{"unnamed-slice", sig(false, types.NewSlice(attr), node), false, false},
+		{"unnamed-slice", sig(false, types.NewSlice(attr), node), false, true},
+		{"user-named-slice", sig(false, types.NewNamed(types.NewTypeName(token.NoPos, otherPkg, "MyAttrs", nil), types.NewSlice(attr), nil), node), false, false},
 		{"extra-error", sig(false, attrs, node, types.Universe.Lookup("error").Type()), false, false},
 		{"wrong-result", sig(false, attrs, types.Typ[types.String]), false, false},
 		{"wrong-pkg-attrs", sig(false, otherAttrs, node), false, false},

@@ -3759,7 +3759,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 	}
 	// Attrs-only component value: a same-package tag with no <Name>Props type,
 	// gated onto the _gsxcompsig probe (isAttrsOnlyCandidate). When harvest
-	// resolved its type to one of the two attrs-only signatures, emit a bag call
+	// resolved its type to one of the three attrs-only signatures, emit a bag call
 	// F(bag) / F(bag...) instead of the (nonexistent) FProps convention. emit ≡
 	// probe: emitProbes gates the identical predicate.
 	if isAttrsOnlyCandidate(el, structFields, byo, recvVar, recvTypeName) {
@@ -3822,7 +3822,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 				return p.Name()
 			}
 			bag.Errorf(el.Pos(), el.End(), "attrsonly-bad-type",
-				"<%s> is not tag-callable: its type is %s, not func(gsx.Attrs) gsx.Node or func(...gsx.Attr) gsx.Node, and no %sProps struct was found",
+				"<%s> is not tag-callable: its type is %s, not func(gsx.Attrs) gsx.Node, func([]gsx.Attr) gsx.Node, or func(...gsx.Attr) gsx.Node, and no %sProps struct was found",
 				el.Tag, types.TypeString(t, qual), el.Tag)
 			return false
 		}

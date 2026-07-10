@@ -156,8 +156,8 @@ falling back to the same assumed-prop treatment for its components.
 :::
 
 A capitalized or dotted tag can also resolve to a package-level *value* —
-a `var` or `func` typed exactly `func(gsx.Attrs) gsx.Node` or
-`func(...gsx.Attr) gsx.Node` — rather than a `component` declaration, as long
+a `var` or `func` typed `func(gsx.Attrs) gsx.Node`, `func([]gsx.Attr) gsx.Node`,
+or `func(...gsx.Attr) gsx.Node` — rather than a `component` declaration, as long
 as the callee's package has no matching `<Name>Props` type. See
 [Props — attrs-only component values](./props.md#attrs-only-component-values)
 for the recognition rule and how call-site attrs merge in that case.
