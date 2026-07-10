@@ -1012,9 +1012,11 @@ vocabulary remains a design aspiration, not the current API.
   type-check: it overwrites the sibling `.x.go` with a deliberately
   non-compiling file carrying the real error (banner + `//line`-redirected
   `GSX_GENERATION_FAILED__see_<file>` reference), so `go build` cannot
-  silently compile stale output - the build fails with a module-relative
-  error pointing at the broken `.gsx` (e.g.
-  `views/broken.gsx:4:14: undefined: GSX_GENERATION_FAILED__see_broken_gsx`; path shown relative to where you run go build; the //line directive itself carries the absolute path).
+  silently compile stale output - the build fails with an error pointing at
+  the broken `.gsx`, path as rendered by `go build` from the invoking
+  directory (e.g.
+  `views/broken.gsx:4:14: undefined: GSX_GENERATION_FAILED__see_broken_gsx`);
+  the `//line` directive itself carries the absolute path.
   Operational failures (I/O, a broken `go.mod`) leave files untouched. Spec
   `docs/superpowers/specs/2026-07-10-poison-xgo-on-failure-design.md`.
   **Follow-up (optional complement, not required):** a `gsx generate -check`

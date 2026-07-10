@@ -68,6 +68,47 @@ func TestPoisonFile_Format(t *testing.T) {
 	}
 }
 
+// TestPoisonFile_MessageSanitization pins that arbitrary diagnostic-message
+// content — trailing whitespace, empty messages, embedded CRLF, interior
+// blank lines, NUL bytes — never produces a non-gofmt-clean or syntactically
+// invalid poison file. A NUL byte would make the file invalid Go (defeating
+// the LSP-safety property); trailing whitespace, empty comment lines, and
+// blank interior lines would make it non-gofmt-clean (format-on-save churn).
+func TestPoisonFile_MessageSanitization(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		msg  string
+	}{
+		{"trailing space", "boom "},
+		{"trailing tab", "boom\t"},
+		{"empty message", ""},
+		{"embedded CRLF", "boom\r\nmore"},
+		{"interior blank line", "a\n\nb"},
+		{"NUL byte", "boom\x00more"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir, gsxPath := mkGsxDir(t, "app.gsx", "package ui\n\ncomponent App() {}\n")
+			d := errDiag(gsxPath, 3, 1, tc.msg)
+			b := poisonFile(dir, gsxPath, []diag.Diagnostic{d})
+
+			fset := token.NewFileSet()
+			if _, err := parser.ParseFile(fset, "app.x.go", b, parser.ParseComments|parser.SkipObjectResolution); err != nil {
+				t.Fatalf("poison file is not valid Go syntax: %v\n---\n%s", err, b)
+			}
+			formatted, err := format.Source(b)
+			if err != nil {
+				t.Fatalf("format.Source: %v", err)
+			}
+			if !bytes.Equal(formatted, b) {
+				t.Errorf("poison file is not gofmt-clean:\n--- got ---\n%s\n--- formatted ---\n%s", b, formatted)
+			}
+		})
+	}
+}
+
 func TestPoisonFile_Deterministic(t *testing.T) {
 	t.Parallel()
 	dir, gsxPath := mkGsxDir(t, "app.gsx", "package ui\n\ncomponent App() {}\n")
@@ -130,6 +171,28 @@ func TestPoisonFile_PackageNameFallbacks(t *testing.T) {
 	src3 := string(poisonFile(dir3, gsxPath3, []diag.Diagnostic{errDiag(gsxPath3, 1, 1, "boom")}))
 	if !strings.Contains(src3, "package my_views") {
 		t.Errorf("expected sanitized dir-name package, got:\n%s", src3)
+	}
+
+	// 4. Unparseable .gsx, no .x.go, ONLY a _test.go sibling (external test
+	//    package): its "package views_test" clause must never be used — fall
+	//    through to the sanitized dir base name instead.
+	dir4 := filepath.Join(t.TempDir(), "views")
+	if err := os.MkdirAll(dir4, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gsxPath4 := filepath.Join(dir4, "app.gsx")
+	if err := os.WriteFile(gsxPath4, []byte("pack !!! garbage\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir4, "foo_test.go"), []byte("package views_test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src4 := string(poisonFile(dir4, gsxPath4, []diag.Diagnostic{errDiag(gsxPath4, 1, 1, "boom")}))
+	if strings.Contains(src4, "package views_test") {
+		t.Errorf("poison file must never use a _test.go sibling's package clause, got:\n%s", src4)
+	}
+	if !strings.Contains(src4, "package views\n") {
+		t.Errorf("expected sanitized dir-name package (no non-test sibling), got:\n%s", src4)
 	}
 }
 

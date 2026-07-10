@@ -88,7 +88,7 @@ var _ = GSX_GENERATION_FAILED__see_app_gsx
   go/parser, the skeleton scanner, gofmt, and editors handle the file without
   choking; only compilation fails.
 - Standard gsx header, so the file is recognized as gsx-owned and freely
-  overwritten on the next successful generate (and handled by `gsx clean`).
+  overwritten on the next successful generate.
 - Same `//go:build` pass-through directives as a normal emit, so build-tag
   variants stay consistent.
 - The identifier embeds a sanitized form of the source filename
