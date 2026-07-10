@@ -197,11 +197,13 @@ func waitHealthy(ctx context.Context, url string, timeout time.Duration) bool {
 func aggregateEvent(results []cycleResult) []byte {
 	ok := true
 	written := []string{}
+	removed := []string{}
 	diags := []json.RawMessage{}
 	var dur int64
 	for _, r := range results {
 		ok = ok && r.OK
 		written = append(written, baseNames(r.Written)...)
+		removed = append(removed, baseNames(r.Removed)...)
 		dur += r.durationMs()
 		raw := rawDiagnostics(r.Diags) // a JSON array
 		var arr []json.RawMessage
@@ -225,6 +227,7 @@ func aggregateEvent(results []cycleResult) []byte {
 		"ok":          ok,
 		"durationMs":  dur,
 		"written":     written,
+		"removed":     removed,
 		"diagnostics": diags,
 	}
 	b, _ := json.Marshal(ev)

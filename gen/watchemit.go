@@ -37,12 +37,17 @@ func (e *emitter) cycle(r cycleResult) {
 			"ok":          r.OK,
 			"durationMs":  r.durationMs(),
 			"written":     baseNames(r.Written),
+			"removed":     baseNames(r.Removed),
 			"diagnostics": rawDiagnostics(r.Diags),
 		}
 		e.line(ev)
 		return
 	}
 	if r.OK {
+		if len(r.Removed) > 0 {
+			fmt.Fprintf(e.stderr, "regenerated %s — %d file(s), %d removed, %dms\n", r.Dir, len(r.Written), len(r.Removed), r.durationMs())
+			return
+		}
 		fmt.Fprintf(e.stderr, "regenerated %s — %d file(s), %dms\n", r.Dir, len(r.Written), r.durationMs())
 		return
 	}
