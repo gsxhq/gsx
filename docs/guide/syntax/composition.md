@@ -155,6 +155,13 @@ and gsx emits an `imported-props-unavailable` warning naming the dependency,
 falling back to the same assumed-prop treatment for its components.
 :::
 
+A capitalized or dotted tag can also resolve to a package-level *value* —
+a `var` or `func` typed exactly `func(gsx.Attrs) gsx.Node` or
+`func(...gsx.Attr) gsx.Node` — rather than a `component` declaration, as long
+as the callee's package has no matching `<Name>Props` type. See
+[Props — attrs-only component values](./props.md#attrs-only-component-values)
+for the recognition rule and how call-site attrs merge in that case.
+
 ## Explicit attribute forwarding
 
 Undeclared component attributes are rejected unless the component explicitly

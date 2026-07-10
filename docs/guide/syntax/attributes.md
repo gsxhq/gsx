@@ -64,6 +64,14 @@ attrs = gsx.AttrMap(m).ToAttrs()
 
 `ToAttrs` sorts keys ascending because maps do not preserve insertion order. When order matters, construct `gsx.Attrs` directly instead.
 
+::: v-pre
+On an [attrs-only component value](./props.md#attrs-only-component-values) —
+a tag callee with no declared props struct at all — there's no field to match
+against, so every call-site attribute (named, `{ x… }` spread, conditional,
+and the `attrs={{ … }}` ordered literal below) lands in that one bag argument,
+merging in the same source order as the synthesized `Attrs` bag.
+:::
+
 ## Ordered-attrs literal <code v-pre>{{ "k": v }}</code>
 
 ::: v-pre
