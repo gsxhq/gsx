@@ -148,17 +148,11 @@ set**, not just its own `.gsx` sources. New dependency edge:
 
 ## Compatibility
 
-**Technically breaking, practically pre-release.** Any package where a
-lowercase tag in use collides with an existing package-level name flips from
-leaf to component invocation — usually a loud build error (non-invocable
-symbol), occasionally a silent semantic change (symbol happens to be
-renderable). gsx has made no release yet, so no migration tooling is
-warranted; ship with:
-
-- A changelog note stating the rule and the common collision names
-  (`data`, `time`, `form`, `header`, `section`, ...).
-- The self-reference and cycle diagnostics above, which catch the two
-  runtime-surprise shapes.
+No compatibility work: gsx is pre-release with no users — the new rule
+simply replaces the old one. In-repo collisions (corpus, examples,
+playground) get fixed as part of the change. The self-reference and cycle
+diagnostics above are the ongoing safety net for the two runtime-surprise
+shapes.
 
 **Tooling:** surface syntax is unchanged, so tree-sitter / vscode /
 CodeMirror grammars need no structural changes — but static highlighters
