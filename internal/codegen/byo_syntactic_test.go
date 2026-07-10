@@ -53,6 +53,68 @@ func Broken() { undefinedSymbol() }
 	}
 }
 
+// TestTypeNames pins package-level type-name facts (byoData.typeNames /
+// hasTypeName): every package-level TypeSpec (struct, alias, defined type)
+// declared in a sibling hand-written .go file OR a .gsx GoChunk is visible,
+// a func name is not, and _test.go/.x.go declarations are excluded — mirroring
+// packageNullaryFuncs' skip rules exactly.
+func TestTypeNames(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeFile(t, dir, "types.go", `package views
+
+type FooProps struct{}
+
+type Alias = int
+
+func Helper() string { return "" }
+`)
+	// _test.go and .x.go declarations must be excluded, same as packageNullaryFuncs.
+	writeFile(t, dir, "types_test.go", `package views
+
+type ShouldSkipTest struct{}
+`)
+	writeFile(t, dir, "types.x.go", `package views
+
+type ShouldSkipGen struct{}
+`)
+
+	src := `package views
+
+type GsxAlias = int
+
+type Widget struct {
+	Label string
+}
+
+component C(w Widget) { <div>{w.Label}</div> }
+`
+	file, err := gsxparser.ParseFile(token.NewFileSet(), "views.gsx", []byte(src), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, _, byo, err := componentPropFieldsFor(dir, map[string]*gsxast.File{"views.gsx": file})
+	if err != nil {
+		t.Fatalf("componentPropFieldsFor: %v", err)
+	}
+
+	for _, name := range []string{"FooProps", "Alias", "GsxAlias", "Widget"} {
+		if !byo.hasTypeName(name) {
+			t.Errorf("hasTypeName(%q) = false, want true", name)
+		}
+	}
+	for _, name := range []string{"Helper", "ShouldSkipTest", "ShouldSkipGen"} {
+		if byo.hasTypeName(name) {
+			t.Errorf("hasTypeName(%q) = true, want false", name)
+		}
+	}
+
+	var nilByo *byoData
+	if nilByo.hasTypeName("FooProps") {
+		t.Errorf("nil *byoData.hasTypeName must be nil-safe (false)")
+	}
+}
+
 func TestByoStructFoundInGoWithElementsRegion(t *testing.T) {
 	t.Parallel()
 	src := `package views

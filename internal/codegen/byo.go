@@ -43,6 +43,12 @@ type byoData struct {
 	// hand-written func keeps the XxxProps convention (and its generate-time prop
 	// type-check) rather than being mis-treated as a bare call.
 	nullaryFuncs map[string]bool
+	// typeNames is the set of package-level type names (any TypeSpec — struct,
+	// alias, defined type) declared anywhere in the package: sibling hand-written
+	// .go files (packageTypeNames) plus .gsx GoChunk type declarations. Populated
+	// by componentPropFieldsFor; consulted by the attrs-only gate (hasTypeName) to
+	// decide whether a tag's <Name>Props type name exists anywhere in the package.
+	typeNames map[string]bool
 }
 
 // byoStruct is one author struct's field facts.
@@ -58,19 +64,22 @@ func newByoData() *byoData {
 		structs:      map[string]byoStruct{},
 		inGsx:        map[string]bool{},
 		nullaryFuncs: map[string]bool{},
+		typeNames:    map[string]bool{},
 	}
 }
 
 // cloneForFile returns a copy of b whose maps can be extended with imported
 // qualified entries without mutating the package-wide byo shared across files.
-// nullaryFuncs is shared (never extended by the qualified merge — a bare
-// imported func call is not in scope for prop discovery).
+// nullaryFuncs and typeNames are shared (never extended by the qualified
+// merge — a bare imported func call or an imported type name is not in scope
+// for same-package prop discovery).
 func (b *byoData) cloneForFile() *byoData {
 	return &byoData{
 		compStruct:   maps.Clone(b.compStruct),
 		structs:      maps.Clone(b.structs),
 		inGsx:        maps.Clone(b.inGsx),
 		nullaryFuncs: b.nullaryFuncs,
+		typeNames:    b.typeNames,
 	}
 }
 
@@ -99,6 +108,12 @@ func (b *byoData) mergeQualified(alias string, dep *byoData) {
 // takes zero params (the shape that backs a bare `<name/>` call). nil-safe.
 func (b *byoData) isNullaryFunc(name string) bool {
 	return b != nil && b.nullaryFuncs[name]
+}
+
+// hasTypeName reports whether name is declared as a package-level type in
+// this package (sibling .go files or .gsx GoChunks). nil-safe.
+func (b *byoData) hasTypeName(name string) bool {
+	return b != nil && b.typeNames[name]
 }
 
 // structTypeName returns the byo struct type name for a component, or "" if the
@@ -185,6 +200,93 @@ func packageNullaryFuncs(dir string) map[string]bool {
 				continue // must return exactly one value (the rendered node)
 			}
 			out[fd.Name.Name] = true
+		}
+	}
+	return out
+}
+
+// packageTypeNames parses the package's hand-written .go files (parse-only, no
+// type-check — cheap, same file-walk skeleton as packageNullaryFuncs, identical
+// skip rules) and returns the set of package-level declared type names (any
+// TypeSpec — struct, alias, defined type). Consumed by the attrs-only gate: a
+// tag whose <Name>Props type name exists anywhere in the package keeps the
+// XxxProps convention probe (and its generate-time attr diagnostics); only a
+// tag with NO such type is gated onto the _gsxcompsig probe.
+func packageTypeNames(dir string) map[string]bool {
+	out := map[string]bool{}
+	if dir == "" {
+		return out
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return out
+	}
+	fset := token.NewFileSet()
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") ||
+			strings.HasSuffix(name, "_test.go") || strings.HasSuffix(name, ".x.go") {
+			continue
+		}
+		f, perr := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
+		if perr != nil {
+			continue
+		}
+		for _, decl := range f.Decls {
+			gd, ok := decl.(*goast.GenDecl)
+			if !ok || gd.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				if ts, ok := spec.(*goast.TypeSpec); ok {
+					out[ts.Name.Name] = true
+				}
+			}
+		}
+	}
+	return out
+}
+
+// gsxChunkTypeNames scans every GoChunk in the .gsx files for top-level
+// `type X ...` declarations of ANY shape (struct, alias, defined type) and
+// returns their names. It reuses gsxStructDecls' parse approach (parse each
+// chunk standalone under a throwaway package clause; keep partial trees on
+// error) but is not restricted to *goast.StructType, since a type-name FACT
+// (unlike a byo struct's field set) has to cover non-struct declarations too.
+func gsxChunkTypeNames(files map[string]*gsxast.File) map[string]bool {
+	out := map[string]bool{}
+	scan := func(src string) {
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, "", "package _gsxp\n"+src, 0)
+		if err != nil && f == nil {
+			return
+		}
+		for _, decl := range f.Decls {
+			gd, ok := decl.(*goast.GenDecl)
+			if !ok || gd.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				if ts, ok := spec.(*goast.TypeSpec); ok {
+					out[ts.Name.Name] = true
+				}
+			}
+		}
+	}
+	for _, file := range files {
+		for _, d := range file.Decls {
+			switch t := d.(type) {
+			case *gsxast.GoChunk:
+				scan(t.Src)
+			case *gsxast.GoWithElements:
+				for _, p := range t.Parts {
+					txt, ok := p.(gsxast.GoText)
+					if !ok || strings.TrimSpace(txt.Src) == "" {
+						continue
+					}
+					scan(txt.Src)
+				}
+			}
 		}
 	}
 	return out
