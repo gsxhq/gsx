@@ -1,0 +1,18 @@
+# the std `urlquery` filter: url.QueryEscape, matching html/template's
+# urlquery builtin. URL sinks sanitize the assembled whole value but never
+# rewrite hole bytes, so query components with '&', '=', '%' or spaces must be
+# encoded in the hole. Covered in a URL f-literal hole (the motivating case),
+# text, and a plain attribute.
+-- input.gsx --
+package views
+
+component C(q string) {
+	<a href=f`/search?q=@{ q |> urlquery }`>go</a>
+	<p>{ q |> urlquery }</p>
+	<span title={ q |> urlquery }>x</span>
+}
+-- invoke --
+C(CProps{Q: "cats&dogs 50%"})
+-- diagnostics.golden --
+-- render.golden --
+<a href="/search?q=cats%26dogs+50%25">go</a><p>cats%26dogs+50%25</p><span title="cats%26dogs+50%25">x</span>

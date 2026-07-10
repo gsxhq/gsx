@@ -125,7 +125,7 @@ func TestJoin(t *testing.T) {
 	}
 }
 
-func TestFormat(t *testing.T) {
+func TestPrintf(t *testing.T) {
 	tests := []struct {
 		name string
 		v    any
@@ -141,8 +141,31 @@ func TestFormat(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := Format(tt.v, tt.spec, tt.rest...); got != tt.want {
-				t.Errorf("Format(%v, %q, %v) = %q, want %q", tt.v, tt.spec, tt.rest, got, tt.want)
+			if got := Printf(tt.v, tt.spec, tt.rest...); got != tt.want {
+				t.Errorf("Printf(%v, %q, %v) = %q, want %q", tt.v, tt.spec, tt.rest, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestUrlquery(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"empty", "", ""},
+		{"plain", "cats", "cats"},
+		{"ampersand and equals", "a&b=c", "a%26b%3Dc"},
+		{"space becomes plus", "50% off", "50%25+off"},
+		{"fragment and question", "x#y?z", "x%23y%3Fz"},
+		{"plus is encoded", "a+b", "a%2Bb"},
+		{"unicode", "héllo", "h%C3%A9llo"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Urlquery(tt.in); got != tt.want {
+				t.Errorf("Urlquery(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
 	}

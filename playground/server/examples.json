@@ -116,7 +116,7 @@
   {
     "name": "Filter arguments",
     "category": "Transforming values",
-    "source": "package views\n\ncomponent Stats(s string, count int) {\n\t<p>{ s |> trim |> truncate(5) }</p>\n\t<p>{ count |> format(\"%d comments\") }</p>\n}\n",
+    "source": "package views\n\ncomponent Stats(s string, count int) {\n\t<p>{ s |> trim |> truncate(5) }</p>\n\t<p>{ count |> printf(\"%d comments\") }</p>\n}\n",
     "invoke": "Stats(StatsProps{S: \"  hello world  \", Count: 42})"
   },
   {

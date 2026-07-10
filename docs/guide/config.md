@@ -138,10 +138,11 @@ filterPackages = ["example.com/myproject/templatefuncs"]
 ```
 
 The gsx built-in `std` filter package is **always available** — you do not list
-it. It ships `upper`, `lower`, `trim`, `truncate`, `join`, `default`, `format`
+it. It ships `upper`, `lower`, `trim`, `truncate`, `join`, `default`, `printf`
 (a `fmt.Sprintf` wrapper with the piped value as the first verb:
-`{ price |> format("$%.2f") }`), and `dataURL` (assembles a base64 `data:` URL —
-see [Pipelines](./syntax/pipelines.md)). List `filterPackages` only for your own
+`{ price |> printf("$%.2f") }`), `urlquery` (percent-encodes a URL query
+component, like html/template's `urlquery`), and `dataURL` (assembles a base64
+`data:` URL — see [Pipelines](./syntax/pipelines.md)). List `filterPackages` only for your own
 packages, or to set precedence (later packages win on name collisions).
 
 #### `std` is the lowest-precedence base
@@ -149,7 +150,7 @@ packages, or to set precedence (later packages win on name collisions).
 `std` sits at the **bottom** of the filter-precedence stack: it is always
 present, but any later registration with the same name shadows just that one
 built-in — the rest of `std` stays available. So you can override `dataURL`
-(or `truncate`, `format`, …) with your own function without re-declaring the
+(or `truncate`, `printf`, …) with your own function without re-declaring the
 whole standard library. Precedence, low → high:
 
 1. `std` — the built-in base, always present.
