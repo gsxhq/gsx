@@ -103,6 +103,48 @@ iterating its bag sees duplicates, which the contract already permits.
 case rendering identically before/after) and the duplicate-visible iteration
 behavior.
 
+### Emission as shipped — one `SpreadForwarding` call
+
+Part A's per-name `Get`-extraction sketch above was **superseded during
+implementation** by a single-pass runtime helper (the shape the sketch
+implies, unrolled, was ~16 `GetFold` blocks + a prefix loop + a residual
+`Spread` per forwarding element — verbose and O(16×bag)). Each forwarding
+element now compiles to one call:
+
+```go
+_gsxv0 := p.Attrs
+_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
+_gsxgw.StyleMerged("", _gsxv0.Style())
+_gsxgw.SpreadForwarding(ctx, _gsxv0, navNames, imageNames, prefixes, excluded)
+```
+
+`SpreadForwarding` iterates the bag **once**, routing each key by the
+name-set literals codegen resolves at generate time (the tag is static, so
+the nav/image sink split is done in codegen and passed as sorted `[]string`
+literals — the runtime helper stays stdlib-only, no `internal/attrclass`
+import). Match is case-insensitive; `RawURL`, forced/excluded suppression,
+and last-wins are preserved. Net: URL attrs render in bag position (order
+fidelity) and ~6.9k generated lines removed corpus-wide. **htmx URL attrs
+(`hx-get/post/put/delete/patch`) moved off the always-on default into an
+opt-in `url_presets = ["htmx"]` preset** (gsx core no longer assumes htmx);
+built-ins are the 11 pure-HTML URL names.
+
+**Hoist / temp-var decision (do not "optimize" the binding away).** The bag
+is always hoisted into a uniform `_gsxvN` temp (reserved namespace, never
+collides with author identifiers), so `.Class()`/`.Style()`/`SpreadForwarding`
+read one value and a *derived* base (`p.Attrs.Without(…)`, a pipeline)
+evaluates exactly once. For a generated component that binds a named
+`gsx.Attrs` param, the source shows `bag := _gsxp.Bag` then `_gsxv0 := bag` —
+an apparently redundant intermediate. It is **not** removed: verified 2026-07-10
+that the Go compiler fully elides it — `bag := _gsxp.Bag; _gsxv0 := bag; …`
+and `_gsxv0 := _gsxp.Bag; …` compile to byte-identical functions (same size,
+same instruction stream, `locals=0x0` in both — the intermediate never
+materializes). Since the redundancy has zero cost in the compiled binary and
+the uniform temp keeps the emitted body independent of the author's parameter
+name, the generation stays as-is. (The byo path already hoists straight from
+the field — `_gsxv0 := p.Attrs` — with no intermediate, because byo passes the
+author struct directly with no per-field binding.)
+
 ## Testing
 
 - **Corpus B:** byo `p.Attrs` with statics before/after + collisions
