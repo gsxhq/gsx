@@ -1738,7 +1738,7 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		emitS(b, "<!--"+t.Text+"-->")
 	case *ast.Element:
 		emitLine(b, fset, t.Pos())
-		if isComponentTag(t.Tag) {
+		if t.IsComponent {
 			return genChildComponent(b, t, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, bagBases, cls, fm, bag, mergeExpr)
 		}
 		// MANUAL fallthrough: an element carrying the author's `{ attrs... }` bag spread
@@ -2292,7 +2292,7 @@ func scopeUsesNumeric(nodes []ast.Markup, resolved map[ast.Node]types.Type, cls 
 				return true
 			}
 		case *ast.Element:
-			if isComponentTag(t.Tag) {
+			if t.IsComponent {
 				// Child component: numeric attrs are props (struct fields), and its
 				// slots render in their own scope — neither uses this scope's _gsxnum.
 				continue
@@ -3613,10 +3613,6 @@ func emitAttrValue(b *bytes.Buffer, expr string, t types.Type, n ast.Node, bag *
 	return true
 }
 
-// isComponentTag delegates to ast.IsComponentTag — see that function for the
-// rule. Kept as a local alias for the many existing call sites.
-func isComponentTag(tag string) bool { return ast.IsComponentTag(tag) }
-
 // usesChildren reports whether any interpolation in the markup body is a bare
 // `{children}` reference. It mirrors the markup walks (recursing control flow,
 // non-component element children, and fragments); a child component's OWN attrs
@@ -3712,7 +3708,7 @@ func usesAttrs(body []ast.Markup) bool {
 			// `attrs` reference. A component element: skip its SIMPLE attrs (props) but
 			// recurse named-slot values, which render in this scope. Both recurse
 			// children.
-			if !isComponentTag(t.Tag) {
+			if !t.IsComponent {
 				if attrsRefAttrs(t.Attrs) {
 					return true
 				}

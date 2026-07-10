@@ -298,7 +298,7 @@ func isNoPropsComponent(propFields map[string]map[string]bool, propsType string)
 // (arity-agnostic) and the emitter reads the harvested *types.Signature from
 // `resolved[el]`.
 func isBareCallCandidate(el *gsxast.Element, propFields map[string]map[string]bool, byo *byoData, recvVar, recvTypeName string) bool {
-	if !isComponentTag(el.Tag) || strings.Contains(el.Tag, ".") {
+	if !el.IsComponent || strings.Contains(el.Tag, ".") {
 		return false
 	}
 	_, propsType, isMethod := childInvocation(el, byo, recvVar, recvTypeName)
@@ -379,25 +379,94 @@ func isGsxQualifiedType(typ string, quals map[string]bool, sel string) bool {
 // with no embedded element (the common case) keeps Embedded nil and takes the
 // existing verbatim-Expr path. Parse errors from the split are ignored here; the
 // generation pass re-parses the same source and surfaces them positionally.
-func splitInterpEmbedded(file *gsxast.File, cls *attrclass.Classifier, fset *token.FileSet) {
-	gsxast.Inspect(file, func(n gsxast.Node) bool {
-		interp, ok := n.(*gsxast.Interp)
-		if !ok {
-			return true
-		}
+//
+// Every *Element materialized by a split is stamped with Element.IsComponent
+// (resolveTag, tagresolve.go) using declNames and the SAME enclosing top-level
+// declaration's exclusion name resolveComponentTags already used for the REST
+// of the file — these nodes did not exist when that earlier pass ran (see
+// tagresolve.go's forEachElement doc: Interp.Embedded is nil on the freshly
+// parsed AST), so the resolve rule is (re-)applied here, at the moment they
+// are materialized, reusing resolveTag rather than duplicating its logic.
+//
+// A materialized element/fragment can itself contain further `{ }`
+// interpolations whose seed carries ANOTHER operand-position tag (arbitrary
+// nesting depth), so this walks into every materialized subtree looking for
+// more splittable interps, mirroring forEachElement's traversal completeness
+// (Element attrs+children, Fragment children, EmbeddedInterp segments) plus
+// the two markup shapes forEachElement doesn't need but this does — bare
+// *Interp and *EmbeddedInterp nodes themselves, since those (not *Element)
+// are what carry a splittable seed/segments.
+func splitInterpEmbedded(file *gsxast.File, cls *attrclass.Classifier, fset *token.FileSet, declNames map[string]bool) {
+	var walk func(nodes []gsxast.Markup, exclude string)
+	splitOne := func(interp *gsxast.Interp, exclude string) {
 		// Fast path: no '<' (operand-position tag mark) AND no '`' (prefixed
 		// backtick literal) means nothing to split; and a split needs a valid base
 		// position to seat the sub-parser. A bare Go raw string still contains a
 		// backtick but yields no split item (langPrefixStart < 0), so it falls
 		// straight back through with Embedded nil.
 		if (!strings.ContainsRune(interp.Expr, '<') && !strings.ContainsRune(interp.Expr, '`')) || !interp.ExprPos.IsValid() {
-			return true
+			return
 		}
-		if parts, _ := gsxparser.SplitGoExprElements(fset, interp.Expr, interp.ExprPos, cls); len(parts) > 0 {
-			interp.Embedded = parts
+		parts, _ := gsxparser.SplitGoExprElements(fset, interp.Expr, interp.ExprPos, cls)
+		if len(parts) == 0 {
+			return
 		}
-		return true
-	})
+		interp.Embedded = parts
+		for _, part := range parts {
+			switch p := part.(type) {
+			case *gsxast.Element:
+				p.IsComponent = resolveTag(p.Tag, declNames, exclude)
+				walkMarkupAttrs(p.Attrs, func(value []gsxast.Markup) { walk(value, exclude) })
+				walk(p.Children, exclude)
+			case *gsxast.Fragment:
+				walk(p.Children, exclude)
+			case *gsxast.EmbeddedInterp:
+				walk(p.Segments, exclude)
+			}
+		}
+	}
+	walk = func(nodes []gsxast.Markup, exclude string) {
+		for _, n := range nodes {
+			switch t := n.(type) {
+			case *gsxast.Interp:
+				splitOne(t, exclude)
+			case *gsxast.EmbeddedInterp:
+				walk(t.Segments, exclude)
+			case *gsxast.Element:
+				walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) { walk(value, exclude) })
+				walk(t.Children, exclude)
+			case *gsxast.Fragment:
+				walk(t.Children, exclude)
+			case *gsxast.ForMarkup:
+				walk(t.Body, exclude)
+			case *gsxast.IfMarkup:
+				walk(t.Then, exclude)
+				walk(t.Else, exclude)
+			case *gsxast.SwitchMarkup:
+				for _, cc := range t.Cases {
+					walk(cc.Body, exclude)
+				}
+			}
+		}
+	}
+	for _, d := range file.Decls {
+		switch t := d.(type) {
+		case *gsxast.Component:
+			walk(t.Body, t.Name)
+		case *gsxast.GoWithElements:
+			excludes := goWithElementsExcludes(t)
+			for i, p := range t.Parts {
+				exclude := excludes[i]
+				switch pt := p.(type) {
+				case *gsxast.Element:
+					walkMarkupAttrs(pt.Attrs, func(value []gsxast.Markup) { walk(value, exclude) })
+					walk(pt.Children, exclude)
+				case *gsxast.Fragment:
+					walk(pt.Children, exclude)
+				}
+			}
+		}
+	}
 }
 
 // buildSkeleton synthesizes a Go file standing in for the gsx file during type
@@ -417,7 +486,19 @@ func splitInterpEmbedded(file *gsxast.File, cls *attrclass.Classifier, fset *tok
 // single-file allocator instead — this file's own names still start at
 // "_gsxinfer1" and never collide with anything, since nothing else shares
 // that private allocator.
-func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, importedGenericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, fset *token.FileSet, cls *attrclass.Classifier, bag *diag.Bag, names *inferNameAllocator) (string, []*gsxast.Component, []importSpec, map[gsxast.Node]int, *inferRegistry, [][]gsxast.Markup, error) {
+//
+// declNames is the package-level declared-name set (packageDeclNames) used
+// ONLY to resolve/stamp Element.IsComponent on elements splitInterpEmbedded
+// materializes from an interpolation's embedded `<tag>` literal — those
+// nodes don't exist yet when the caller's own resolveComponentTags pass
+// stamps the REST of the file (see tagresolve.go), so buildSkeleton finishes
+// the job at the moment they're created. It does NOT re-stamp the original
+// tree: the caller remains responsible for calling resolveComponentTags on
+// file before buildSkeleton, exactly as module_importer.go's analyze and
+// unused_imports_syntactic.go's buildPackageSkeletons already do. A nil
+// declNames is safe (every lookup misses) for callers with no embedded-tag
+// interpolations to resolve.
+func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, importedGenericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, fset *token.FileSet, cls *attrclass.Classifier, bag *diag.Bag, names *inferNameAllocator, declNames map[string]bool) (string, []*gsxast.Component, []importSpec, map[gsxast.Node]int, *inferRegistry, [][]gsxast.Markup, error) {
 	if names == nil {
 		names = newInferNameAllocator()
 	}
@@ -504,7 +585,7 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, 
 	// using the same classifier the file was parsed with — so the analysis pass
 	// (emitProbes, below) and the emit pass (genInterp) share the SAME parsed
 	// element nodes and resolved types key on one set of pointers.
-	splitInterpEmbedded(file, cls, fset)
+	splitInterpEmbedded(file, cls, fset, declNames)
 	// Keep only the components whose skeletons succeed. A validation error
 	// (errSkipComponent — reserved param/recv, parse failure) means the component
 	// is invalid for codegen; skip its skeleton so the overall file stays valid Go.
@@ -1309,7 +1390,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 			}
 		case *gsxast.Element:
-			if isComponentTag(t.Tag) {
+			if t.IsComponent {
 				// Emit the SAME call as genChildComponent (via childInvocation) so the
 				// assignment type-checks each prop expr against the child's/method's real
 				// field type. The shared childPropsLiteral builder guarantees the attr +
@@ -2319,7 +2400,7 @@ func forEachComponentTagElement(nodes []gsxast.Markup, fn func(*gsxast.Element))
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *gsxast.Element:
-			if isComponentTag(t.Tag) {
+			if t.IsComponent {
 				fn(t)
 			}
 			walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
@@ -2775,7 +2856,7 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 				*out = append(*out, t)
 			}
 		case *gsxast.Element:
-			if isComponentTag(t.Tag) {
+			if t.IsComponent {
 				// Child component: collect ExprAttr nodes (prop values) first, then
 				// OrderedPair nodes (pair values, one per pair per OrderedAttrsAttr),
 				// then class-attr CF arms + plain parts (walkClassAttrs, recursing
@@ -3240,13 +3321,13 @@ func collectClauseSrc(nodes []gsxast.Markup, add func(string)) {
 // composable-class part source (each Expr and Cond) and element-spread expr to
 // add. These fragments are emitted verbatim into the render closure, so the
 // idents they reference must be in scope wherever the markup renders. Component
-// tags are skipped (their attrs are props, handled elsewhere — and isComponentTag
+// tags are skipped (their attrs are props, handled elsewhere — and IsComponent
 // routes them away from emitAttr).
 func collectAttrExprSrc(nodes []gsxast.Markup, add func(string)) {
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *gsxast.Element:
-			if isComponentTag(t.Tag) {
+			if t.IsComponent {
 				// A component's SIMPLE attrs are props (handled via childPropsLiteral),
 				// so they are skipped — but its named-slot (markup-attr) values AND its
 				// slot children render in THIS parent scope, so a composable-class/
@@ -3287,7 +3368,7 @@ func collectChildPropExprSrc(nodes []gsxast.Markup, add func(string)) {
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *gsxast.Element:
-			if isComponentTag(t.Tag) {
+			if t.IsComponent {
 				// Every verbatim-emitted attr fragment childPropsLiteral places into the
 				// props literal — prop/fallthrough *ExprAttr exprs (+ pipeline stage
 				// args), composable-class part Expr/Cond, spread Expr, conditional-attr
