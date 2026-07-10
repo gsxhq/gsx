@@ -412,16 +412,15 @@ func splitInterpEmbedded(file *gsxast.File, cls *attrclass.Classifier, fset *tok
 			return
 		}
 		interp.Embedded = parts
+		// Hand every markup part (Element/Fragment/EmbeddedInterp — GoText
+		// carries no markup and fails the assertion) to walk, so the SINGLE
+		// stamping/recursion path below covers materialized nodes at every
+		// depth. Stamping must not live here as well: a second, partial copy
+		// of the recursion is exactly how nested elements inside a
+		// materialized literal previously escaped the stamp.
 		for _, part := range parts {
-			switch p := part.(type) {
-			case *gsxast.Element:
-				p.IsComponent = resolveTag(p.Tag, declNames, exclude)
-				walkMarkupAttrs(p.Attrs, func(value []gsxast.Markup) { walk(value, exclude) })
-				walk(p.Children, exclude)
-			case *gsxast.Fragment:
-				walk(p.Children, exclude)
-			case *gsxast.EmbeddedInterp:
-				walk(p.Segments, exclude)
+			if m, ok := part.(gsxast.Markup); ok {
+				walk([]gsxast.Markup{m}, exclude)
 			}
 		}
 	}
@@ -433,6 +432,13 @@ func splitInterpEmbedded(file *gsxast.File, cls *attrclass.Classifier, fset *tok
 			case *gsxast.EmbeddedInterp:
 				walk(t.Segments, exclude)
 			case *gsxast.Element:
+				// Stamp BEFORE recursing: this element may be a node splitOne
+				// just materialized (the literal itself, or any element nested
+				// inside one at arbitrary depth) that the file-level
+				// resolveComponentTags pass never saw. For original-tree
+				// elements the re-stamp is idempotent — same resolveTag, same
+				// declNames, same exclude as that pass.
+				t.IsComponent = resolveTag(t.Tag, declNames, exclude)
 				walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) { walk(value, exclude) })
 				walk(t.Children, exclude)
 			case *gsxast.Fragment:
