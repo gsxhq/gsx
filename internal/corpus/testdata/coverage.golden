@@ -344,6 +344,14 @@ jsattr/whole_value_bool	diag gen render
 jsattr/whole_value_map	diag gen render
 jsattr/xdata_literal_holes	diag gen render
 jsattr/xdata_whole_value	diag gen render
+lowertags/embedded_interp_resolution	diag render
+lowertags/leaf_fallback	diag render
+lowertags/noncapture_and_error	diag render
+lowertags/resolves_crossfile	diag render
+lowertags/resolves_func	diag gen render
+lowertags/resolves_var_value	diag render
+lowertags/wrapper_composition	diag render
+lowertags/wrapper_self_exclusion	diag gen render
 methods/method_only_file_generates	diag
 methods/method_reserved_recv_var_ctx	diag(error)
 methods/method_unnamed_receiver_error	diag(error)
@@ -608,4 +616,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 610 cases (render: 490, error: 91, gen-pinned: 315)
+TOTAL: 618 cases (render: 498, error: 91, gen-pinned: 317)

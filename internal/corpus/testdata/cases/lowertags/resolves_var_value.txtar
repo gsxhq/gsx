@@ -1,0 +1,15 @@
+# A lowercase tag resolves to a package-level VAR holding a component value
+# (element-literal var), not just funcs — "any decl counts".
+-- input.gsx --
+package views
+
+var chip = <em class="chip">c</em>
+
+component Page() {
+	<chip/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+6:2: <chip> is not tag-callable: its type is gsx.Node, not a component-value signature (one parameter with underlying type []gsx.Attr, result gsx.Node), and no chipProps struct was found
+-- render.golden --

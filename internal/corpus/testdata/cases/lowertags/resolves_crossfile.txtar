@@ -1,0 +1,21 @@
+# Resolution sees declarations from a sibling .gsx AND a sibling .go of the
+# same package.
+-- badge.gsx --
+package views
+
+component badge() {
+	<em>B</em>
+}
+-- helpers.go --
+package views
+-- input.gsx --
+package views
+
+component Page() {
+	<badge/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<em>B</em>
