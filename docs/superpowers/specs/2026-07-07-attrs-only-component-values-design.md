@@ -418,6 +418,12 @@ work. Nothing in this spec blocks or depends on it.
   deferred note's `type Component = func(...gsx.Attr) gsx.Node` alias
   spelling is **recognized** (aliases are transparent); `Component any` and
   `Component[T]` remain rejected for the reasons already recorded there.
+  Clarification: an *instantiated* generic named type used as a value — e.g.
+  `type C[T any] func(...gsx.Attr) gsx.Node` with `var Y C[int] = …` — IS
+  recognized, because its static type's substituted underlying is exactly the
+  accepted shape (the `Component[T]` rejection concerns a generic API design,
+  not concrete values); an *uninstantiated* generic is not expressible as a
+  value and so stays rejected naturally.
 - No `{children}` support for this model.
 - No codegen-inserted conversion inside the callee body — `gsx.Attrs(attrs)`
   is an authoring idiom, documented, not synthesized.
