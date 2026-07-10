@@ -627,27 +627,38 @@ func (p *parser) tryParseBodyEmbeddedInterp() (*ast.EmbeddedInterp, bool, error)
 	return node, true, nil
 }
 
-func (p *parser) parseAttrs() ([]ast.Attr, error) {
-	var attrs []ast.Attr
+// parseAttrs consumes an element's attribute list up to (but not past) the
+// closing `>` or `/>`. multiline reports whether the author placed a line break
+// inside the opening tag's inter-token whitespace — between the tag name and an
+// attribute, between two attributes, or before the closing delimiter — so the
+// formatter can preserve that vertical layout. A newline inside an attribute's
+// value is consumed by parseSingleAttr, never by these whitespace skips, so it
+// does not set the flag; and with zero attributes there is no list to break, so
+// the flag stays false even for `<div\n>`.
+func (p *parser) parseAttrs() (attrs []ast.Attr, multiline bool, err error) {
+	sawNewline := false
 	for {
 		wsStart := p.i
 		p.skipSpace()
+		if strings.ContainsAny(p.src[wsStart:p.i], "\n\r") {
+			sawNewline = true
+		}
 		if p.eof() {
-			return nil, p.errorf(p.pos(), "unexpected EOF in attributes")
+			return nil, false, p.errorf(p.pos(), "unexpected EOF in attributes")
 		}
 		if p.peek() == '>' || p.at("/>") {
-			return attrs, nil
+			return attrs, sawNewline && len(attrs) > 0, nil
 		}
-		if c, ok, err := p.parseTagComment(); err != nil {
-			return nil, err
+		if c, ok, cerr := p.parseTagComment(); cerr != nil {
+			return nil, false, cerr
 		} else if ok {
 			c.Trailing = len(attrs) > 0 && !strings.ContainsRune(p.src[wsStart:p.i], '\n')
 			attrs = append(attrs, c)
 			continue
 		}
-		a, err := p.parseSingleAttr()
-		if err != nil {
-			return nil, err
+		a, aerr := p.parseSingleAttr()
+		if aerr != nil {
+			return nil, false, aerr
 		}
 		attrs = append(attrs, a)
 	}
@@ -744,14 +755,14 @@ func (p *parser) parseElement() (ast.Markup, error) {
 		p.i = end + 1
 	}
 
-	attrs, err := p.parseAttrs()
+	attrs, attrsMultiline, err := p.parseAttrs()
 	if err != nil {
 		return nil, err
 	}
 
 	if p.at("/>") {
 		p.i += 2
-		el := &ast.Element{Tag: tag, TypeArgs: typeArgs, TypeArgsPos: typeArgsPos, Void: true, Attrs: attrs}
+		el := &ast.Element{Tag: tag, TypeArgs: typeArgs, TypeArgsPos: typeArgsPos, Void: true, Attrs: attrs, AttrsMultiline: attrsMultiline}
 		ast.SetSpan(el, startPos, p.posAt(p.i))
 		return el, nil
 	}
@@ -768,7 +779,7 @@ func (p *parser) parseElement() (ast.Markup, error) {
 		if err != nil {
 			return nil, err
 		}
-		el := &ast.Element{Tag: tag, TypeArgs: typeArgs, TypeArgsPos: typeArgsPos, Attrs: attrs, Children: children}
+		el := &ast.Element{Tag: tag, TypeArgs: typeArgs, TypeArgsPos: typeArgsPos, Attrs: attrs, Children: children, AttrsMultiline: attrsMultiline}
 		ast.SetSpan(el, startPos, p.posAt(p.i))
 		return el, nil
 	}
@@ -777,7 +788,7 @@ func (p *parser) parseElement() (ast.Markup, error) {
 	if err != nil {
 		return nil, err
 	}
-	el := &ast.Element{Tag: tag, TypeArgs: typeArgs, TypeArgsPos: typeArgsPos, Attrs: attrs, Children: children, CloseNamePos: closeNamePos, ChildrenMultiline: childrenMultiline}
+	el := &ast.Element{Tag: tag, TypeArgs: typeArgs, TypeArgsPos: typeArgsPos, Attrs: attrs, Children: children, CloseNamePos: closeNamePos, ChildrenMultiline: childrenMultiline, AttrsMultiline: attrsMultiline}
 	ast.SetSpan(el, startPos, p.posAt(p.i))
 	return el, nil
 }

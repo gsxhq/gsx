@@ -1,0 +1,20 @@
+A single field whose value alone is wider than the 80-column budget: no break
+can bring its own line under budget. The pass still breaks the literal once —
+onto its own line, unconditionally, once the flat form doesn't fit, mirroring
+prettier — then stops rather than looping forever re-discovering the same
+over-long line. The golden below STILL contains an over-long line (the detail
+field). That is correct: the guarantee this case pins is TERMINATION, not
+"leave the literal alone" — an unsplittable field is broken once, same as a
+splittable one, and the pass only refuses a SECOND round once breaking again
+would not be progress.
+
+-- input.gsx --
+package ui
+
+var errMsg = errInfo{detail: "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"}
+-- fmt.golden --
+package ui
+
+var errMsg = errInfo{
+	detail: "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+}

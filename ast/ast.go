@@ -214,6 +214,15 @@ type Element struct {
 	// after the opening tag's `>`; the formatter preserves that vertical layout,
 	// keeping inline-only children block-formatted instead of collapsing them.
 	ChildrenMultiline bool
+	// AttrsMultiline records that the source placed a line break inside the
+	// opening tag — in the whitespace between the tag name and an attribute,
+	// between two attributes, or before the closing `>`/`/>`. The formatter
+	// preserves that vertical layout, keeping the attribute list block-formatted
+	// (one attribute per line, `>` alone) instead of collapsing it onto one line.
+	// A line break occurring inside an attribute's value does not set this; that
+	// is the value's own layout, not a request to break the list. Elements with
+	// no attributes never set it — there is no list to break.
+	AttrsMultiline bool
 }
 
 func (*Element) markupNode() {}

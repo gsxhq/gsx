@@ -1,0 +1,23 @@
+Layout fact: in Go-expression position an attribute-broken opening tag makes the
+element non-flat, so goWithElements wraps it in decorative parens with the tag on
+its own line — curing the ragged indent of a bare attr-broken value hanging off
+`var navIcon = `. The parens are cosmetic (codegen strips them).
+
+-- input.gsx --
+package main
+
+var navIcon = <a
+	href="/help"
+	class="text-blue-600"
+>?</a>
+-- fmt.golden --
+package main
+
+var navIcon = (
+	<a
+		href="/help"
+		class="text-blue-600"
+	>
+		?
+	</a>
+)

@@ -386,6 +386,18 @@ component C(open bool) {
 	checkFormat(t, src, want)
 }
 
+// An author-broken attribute list stays broken even though it fits the print
+// width — the opening-tag symmetry of ChildrenMultiline. An inline list is left
+// inline. checkFormat also asserts idempotence.
+func TestElementAttrsMultilinePreserved(t *testing.T) {
+	broken := "package p\n\ncomponent C() {\n\t<a\n\t\thref=\"/help\"\n\t\tclass=\"x\"\n\t>?</a>\n}\n"
+	brokenWant := "package p\n\ncomponent C() {\n\t<a\n\t\thref=\"/help\"\n\t\tclass=\"x\"\n\t>\n\t\t?\n\t</a>\n}\n"
+	checkFormat(t, broken, brokenWant)
+
+	inline := "package p\n\ncomponent C() {\n\t<a href=\"/help\" class=\"x\">?</a>\n}\n"
+	checkFormat(t, inline, inline)
+}
+
 func TestEmbeddedAttrEscapedBacktick(t *testing.T) {
 	src := `package p
 component C() {

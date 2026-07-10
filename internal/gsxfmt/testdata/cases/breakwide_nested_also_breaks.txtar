@@ -1,0 +1,20 @@
+Same shape as breakwide_outermost_first, one field wider per name so the inner
+literal is STILL over the 80-column budget after the outer breaks. The pass
+re-measures on the next round, finds the inner literal's brace line still over
+budget, and breaks its fields too — one composite literal broken per round,
+converging on the fewest breaks that bring every line under the limit.
+
+-- input.gsx --
+package ui
+
+var rows = []Row{{alpha: "aaaaaaaaaaaaaaaa", beta: "bbbbbbbbbbbbbbbb", gamma: "cccccccccccccccc"}}
+-- fmt.golden --
+package ui
+
+var rows = []Row{
+	{
+		alpha: "aaaaaaaaaaaaaaaa",
+		beta:  "bbbbbbbbbbbbbbbb",
+		gamma: "cccccccccccccccc",
+	},
+}

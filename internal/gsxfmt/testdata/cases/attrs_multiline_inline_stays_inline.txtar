@@ -1,0 +1,16 @@
+Layout fact: the source kept the opening tag on one line, so AttrsMultiline is
+false and the attribute list is left inline — the formatter never introduces an
+attribute break on its own.
+
+-- input.gsx --
+package p
+
+component C() {
+	<a href="/help" class="text-blue-600">?</a>
+}
+-- fmt.golden --
+package p
+
+component C() {
+	<a href="/help" class="text-blue-600">?</a>
+}
