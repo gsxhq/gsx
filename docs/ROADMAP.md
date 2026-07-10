@@ -431,7 +431,7 @@ render goldens.
     dotted tag's qualifier must resolve as a package import, so a struct
     field or local (`<item.Icon/>`) never reaches the probe and stays on the
     `<Name>Props` convention path. No `{children}` support (a clear
-    diagnostic: "component values do not support children - declare a
+    diagnostic: "component values do not support children — declare a
     Children slot on a named-struct component instead"). No `(gsx.Node,
     error)` variants - `component`-declared functions never return an error,
     and there's no existing plumbing for a tag *callee* itself failing before
@@ -503,7 +503,9 @@ In-process LSP over JSON-RPC on stdio (`internal/lsp`, wired at `gen/main.go`
   the liveness walk that records ctrl offsets only runs for plain elements).
 - **Deferred:** completion and external/non-project references; references cover
   project components discovered during module analysis. Dotted/cross-package
-  component tags (`<ui.Button/>`) are deferred.
+  component tags (`<ui.Button/>`) are deferred. Hover on attrs-only
+  component-value tags (item 18) shows nothing - go-to-definition ships for
+  these tags, but hover is a separate follow-up.
 
 Specs: `2026-06-23-gsx-lsp-design.md`, `2026-06-24-gsx-lsp-slice2a-goto-definition-design.md`,
 `2026-06-24-gsx-lsp-go-to-gsx-design.md`, `2026-06-24-gsx-lsp-hover-design.md`.

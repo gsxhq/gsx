@@ -14,7 +14,7 @@ The shape of a component's parameter list determines which model applies:
 | **Single named-struct param** `component Button(p Props)` | **Bring-your-own (byo)** — gsx uses the author's type directly; no wrapper generated | `func Button(p Props) gsx.Node` |
 | **Inline params** — multiple params or a single non-struct param | **Generated** `<Name>Props` — one field per param; `Children`/`Attrs` added when used | `func Greeting(p GreetingProps) gsx.Node` |
 | **Nullary** — zero non-receiver params | **No props struct** — unless `{children}` or the explicit `attrs` bag is used, in which case gsx grows a minimal props type automatically | `func Shell() gsx.Node` |
-| **Attrs-only func value** — a package-level `var`/`func` of type `func(gsx.Attrs) gsx.Node` or `func(...gsx.Attr) gsx.Node` | **Component value** — no props struct; every call-site attribute merges into one `gsx.Attrs` bag | `HomeIcon(gsx.Attrs{{Key: "class", Value: "w-5 h-5"}})` |
+| **Attrs-only func value** — a package-level `var`/`func` of type `func(gsx.Attrs) gsx.Node` or `func(...gsx.Attr) gsx.Node` | **Component value** — no props struct; every call-site attribute merges into one `gsx.Attrs` bag | The value's own type: `func(gsx.Attrs) gsx.Node` |
 :::
 
 The discriminator is *discoverable*: writing `(p Props)` where `Props` resolves to a named struct in the same package opts you onto the byo path. Receiver params (`component (p Page) Render()`) are not counted. The fourth model is different in kind from the other three — it isn't a `component` declaration at all, just a package-level value gsx recognizes by its static type; see [Attrs-only component values](#attrs-only-component-values) below.
@@ -74,6 +74,10 @@ There's no field-matching step for this model — no struct, so nothing to match
 
 ::: v-pre
 bare attrs and `{ x... }` spreads and conditional attrs merge in source order, and the `attrs={{ "k": v }}` ordered literal merges last regardless of where it appears — see [Attributes — targeting the synthesized attrs bag](./attributes.md#targeting-the-synthesized-attrs-bag). `<HomeIcon class="w-5 h-5"/>` compiles to `HomeIcon(gsx.Attrs{{Key: "class", Value: "w-5 h-5"}})` (the variadic form takes a trailing `...`); a call with no attrs compiles to `HomeIcon(nil)` or `HomeIcon()` respectively.
+:::
+
+::: v-pre
+Every attribute on an attrs-only tag — bare, spread, conditional, or the `attrs={{ … }}` literal — lands in that one `gsx.Attrs` bag. Unlike `href={url}` on a plain element, which gsx scheme-sanitizes automatically, a bag [spread](./attributes.md#spread) onto an element is a forwarding position and is **not** URL-sanitized — the same contract every byo/generated component with an `Attrs` bag already carries (see the security note on `gsx.Attrs`'s doc comment). A URL-typed attribute (`href`, `src`, `action`, …) carrying an untrusted value must therefore be sanitized by the component that finally spreads the bag onto an element — write it through that element's own URL-typed attribute there, or validate it yourself and pass `gsx.RawURL(...)` — not trusted to the tag call site. Attrs-only component values don't change this contract; they just make the bag the only shape a call site of theirs can pass through.
 :::
 
 Component values don't support `{children}` — there's no field to receive it. Content between the tags on one of these is a generate-time error: "component values do not support children — declare a Children slot on a named-struct component instead." Struct fields, locals, and params are never tag-callable this way either: `<item.Icon/>` resolves `item` as a value rather than a package, so it stays on the `<Name>Props` convention path and fails there if no such struct exists.

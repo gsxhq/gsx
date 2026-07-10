@@ -53,6 +53,8 @@ type `gsx.Attrs` and spread it onto an element with `{ bag… }`.
 
 Boolean values in an `Attrs` slice follow the same rule as attribute-level booleans: `true` renders as the bare attribute name; `false` omits the attribute entirely.
 
+A spread is a forwarding position, not a fresh sink: values are HTML-attribute-escaped but **not** URL-sanitized on the way through, so a URL-typed attribute (`href`, `src`, `action`, …) carrying an untrusted value must already be sanitized before it enters the bag — see [Attrs-only component values — the security note](./props.md#attrs-only-component-values) for the full contract.
+
 `map[string]any` and `gsx.AttrMap` are not implicit template bag types. When starting from map-shaped data in Go, convert it explicitly before passing it to a template:
 
 ```go
