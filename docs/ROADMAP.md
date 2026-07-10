@@ -328,14 +328,14 @@ render goldens.
     back out before compiling, since every element/fragment lowers to a
     `gsx.Func(...)`/IIFE closure ending in `})` - leaving the paren in would trip
     Go's automatic semicolon insertion on that trailing token. Spec
-    `2026-07-08-goexpr-element-paren-indent-design.md`. **Deferred:**
-    component values (`type Component = func(...gsx.Attr) gsx.Node` collapse) -
-    parked; a baked element literal already covers the driving nav-icon use
-    case since its class is constant there, and component values only earn
-    their keep when render-site attrs must vary per call site (rare). Sibling
-    grammars (`../tree-sitter-gsx`, `../vscode-gsx`, `gsxhq.github.io`
-    CodeMirror) do not yet recognize `<tag>` in Go expression position - follow-up,
-    out of scope for this repo. Spec `2026-07-06-element-literals-design.md`.
+    `2026-07-08-goexpr-element-paren-indent-design.md`. **Un-deferred
+    2026-07-10:** the "component values" deferral below was reopened once the
+    driving `one-learning-gsx/ui/icons.gsx` case showed render-site attrs
+    varying at nearly every call site, not the rare case this entry assumed -
+    see item 18. Sibling grammars (`../tree-sitter-gsx`, `../vscode-gsx`,
+    `gsxhq.github.io` CodeMirror) do not yet recognize `<tag>` in Go expression
+    position - follow-up, out of scope for this repo. Spec
+    `2026-07-06-element-literals-design.md`.
 
 16. [x] **Fragments as values** - `2026-07-07`. Closes the "fragments deferred
     in expression position" boundary item 15 left open: `<>…</>` now works in
@@ -406,6 +406,57 @@ render goldens.
     (`../tree-sitter-gsx`, `../vscode-gsx`, `gsxhq.github.io` CodeMirror) do
     not yet recognize tags/fragments inside interpolations or the `"…"`
     literal delimiter form - follow-up, out of scope for this repo.
+
+18. [x] **Attrs-only component values** - `2026-07-10`. Un-defers the
+    "component values" item parked in 15 above: a package-level `var`/`func`
+    whose static type is exactly `func(gsx.Attrs) gsx.Node` or
+    `func(...gsx.Attr) gsx.Node` is now tag-callable - `<HomeIcon
+    class="w-5 h-5"/>` lowers to `HomeIcon(gsx.Attrs{{Key: "class", Value:
+    "w-5 h-5"}})` (`...`-spread for the variadic shape; a zero-attr call
+    lowers to `HomeIcon(nil)`/`HomeIcon()`). Recognition rides the existing
+    emit-≡-probe loop: the analysis pass emits a `_gsxcompsig` probe for any
+    tag callee that isn't `component`-declared, byo, a method, or a bare-call
+    nullary candidate, and whose package has no matching `<Name>Props` type;
+    `go/types` decides the match on the harvested signature, so any
+    initializer works (`var HomeIcon = namedIcon("house")`) and a type alias
+    (`type Component = func(...gsx.Attr) gsx.Node`) is recognized for free -
+    aliases are transparent to the type checker. The bare unnamed
+    `func([]gsx.Attr) gsx.Node` is deliberately excluded (named `gsx.Attrs`
+    required). Because there's no props struct, there's no field-matching
+    step at all: every call-site attribute (bare, `{ x... }` spread,
+    conditional, and the `attrs={{ … }}` ordered literal) is fallthrough into
+    one bag via the same bag-assembly code the synthesized `Attrs` field
+    already uses, merging in the same source order. **Scope:**
+    package-level identifiers only, plain or dotted (`<ui.HomeIcon/>`) - a
+    dotted tag's qualifier must resolve as a package import, so a struct
+    field or local (`<item.Icon/>`) never reaches the probe and stays on the
+    `<Name>Props` convention path. No `{children}` support (a clear
+    diagnostic: "component values do not support children - declare a
+    Children slot on a named-struct component instead"). No `(gsx.Node,
+    error)` variants - `component`-declared functions never return an error,
+    and there's no existing plumbing for a tag *callee* itself failing before
+    its Node is constructed. A probed identifier whose type matches neither
+    signature gets a new, required diagnostic ("`<X>` is not tag-callable:
+    its type is `T`, not `func(gsx.Attrs) gsx.Node` or `func(...gsx.Attr)
+    gsx.Node`, and no `XProps` struct was found") in place of the raw
+    `undefined: XProps` this region used to surface. **LSP:** go-to-definition
+    works on these tags, same-package and cross-package, via the same
+    two-bridge wiring recipe as the rest of the nav matrix (PR #28). No
+    surface syntax change - capitalized/qualified tags already parsed, so
+    the sibling grammars are unaffected. Corpus:
+    `internal/corpus/testdata/cases/attrsonly/*` (direct func decl,
+    factory-initialized var, type-alias spelling, cross-package/dotted,
+    zero-attr calls for both signatures, bare+spread+conditional+ordered-literal
+    merge order, and rejection cases for the unnamed slice, an
+    extra-`error`-result func, a non-package-level callee, unsupported
+    children, and an undefined identifier). Docs: `syntax/props.md` §Attrs-only
+    component values (props model table grows a fourth row), `syntax/
+    composition.md` cross-reference, `syntax/attributes.md` cross-reference.
+    **Follow-up (not blocking, tracked in "Tracked debts / deferrals"
+    below):** fallthrough forwarding through nested component calls
+    (`<Inner { attrs... }/>`) is a related but separate gap this spec
+    identified and deliberately left open. Spec
+    `2026-07-07-attrs-only-component-values-design.md`.
 
 ## Language server (`gsx lsp`)
 
@@ -572,6 +623,21 @@ vocabulary remains a design aspiration, not the current API.
 
 ## Tracked debts / deferrals
 
+- [ ] **Fallthrough forwarding through nested component calls** - the
+  attrs-only component values spec (item 18 above, "Alternative considered")
+  named this as the competing design for the icon-wrapper use case and
+  deliberately left it open: `{ attrs... }` fallthrough is only recognized
+  when spread onto a plain element, not when spread onto a *nested component
+  call* - `<Inner { attrs... }/>` inside a component body still fails with
+  `error: undefined: attrs`. Fixing this would let a wrapper component forward
+  its own implicit bag straight into a callee's synthesized bag (`component
+  SearchIcon() { <dsicon.Icon name="search" class="w-5 h-5" { attrs... }/> }`),
+  closing a composability hole that reaches beyond icons. It is its own
+  semantic feature with its own merge-order questions (where the caller's bag
+  joins the callee's, whose `class_merger` site applies, how cond-attrs
+  interleave) and deserves its own spec - complementary to, not blocked by or
+  blocking, attrs-only component values. Spec
+  `2026-07-07-attrs-only-component-values-design.md` §"Alternative considered".
 - [ ] **Child-prop inference-probe `//line` column points past the expression**
   - a component child-prop expression (`<Show v={ fmt.Sprint(1) } />`) is
   emitted TWICE in the skeleton: once in the generated props literal (its
