@@ -238,30 +238,13 @@ var _ = GSX_GENERATION_FAILED__see_page_gsx
 	}
 }
 
-// TestPoison_AttrsOnlyProbeUnaffected pins the same self-reference safety
-// property as TestPoison_LSPIgnoresPoisonOnDisk, but for Generate's
-// cross-package probe-based go/types recognition path instead of the LSP.
-//
-// The task brief for this test asked for a fixture using the "attrs-only
-// component-values" feature (component tags consumed as func(gsx.Attrs)
-// gsx.Node values, gated by the _gsxcompsig probe; see gen/attrtypes_test.go
-// and internal/codegen's attrsonly.go). That feature does NOT exist on this
-// branch: this worktree (worktree-poison-xgo) forked from main at 9b957cb,
-// which predates PR #72 ("attrs-only component values", merged as 52c9750)
-// — internal/codegen/attrsonly.go and the corpus's attrsonly/ cases are
-// simply absent here (confirmed via `git log`/`git ls-tree`). Per the brief's
-// own escalation clause ("If the attrs-only feature shape in tests is
-// materially different from this description, adapt the scenario to
-// exercise the real probe path and explain in your report"), this test
-// instead uses the cross-package GENERIC component tag path
-// (TestGenericCrossPackageTag in internal/codegen/generic_crosspkg_test.go),
-// which is driven by the exact same _gsxcompsig/_gsxinferN probe machinery
-// and the exact same module_importer skeleton-overlay (module_importer.go's
-// key-presence check at :964) that attrs-only would have exercised. The
-// safety property under test is identical: a stale poison .x.go for one
-// (now-fixed) .gsx in a dependency package must never be read as
-// authoritative by the probe/type-check machinery resolving a sibling
-// package's cross-package reference.
+// TestPoison_GenericCrossPkgProbeUnaffected pins the same self-reference
+// safety property as TestPoison_LSPIgnoresPoisonOnDisk, but for Generate's
+// cross-package probe-based go/types recognition path instead of the LSP: it
+// pins the GENERIC cross-package component tag probe
+// (_gsxcompsig/_gsxinferN, module_importer.go's skeleton-overlay key-presence
+// check at :964) specifically, as distinct from the attrs-only probe pinned
+// by TestPoison_AttrsOnlyProbeUnaffected below.
 //
 // Fixture: package "ui" has button.gsx (a generic component, resolved
 // cross-package purely through the probe/skeleton path) and icon.gsx (valid,
@@ -269,7 +252,7 @@ var _ = GSX_GENERATION_FAILED__see_page_gsx
 // regenerated"). Sibling package "app" has post.gsx, which references
 // ui.Button generically — a probe that must see ui's real skeleton (built
 // from .gsx source), never the on-disk poison bytes.
-func TestPoison_AttrsOnlyProbeUnaffected(t *testing.T) {
+func TestPoison_GenericCrossPkgProbeUnaffected(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping module-resolution test in -short mode")
@@ -305,5 +288,96 @@ var _ = GSX_GENERATION_FAILED__see_icon_gsx
 	// a stale poison file that Generate silently left in place).
 	if b, err := os.ReadFile(filepath.Join(ui, "icon.x.go")); err != nil || strings.Contains(string(b), "GSX GENERATION FAILED") {
 		t.Errorf("icon.x.go poison not overwritten by clean output (err=%v)", err)
+	}
+}
+
+// TestPoison_AttrsOnlyProbeUnaffected pins the same self-reference safety
+// property as TestPoison_LSPIgnoresPoisonOnDisk and
+// TestPoison_GenericCrossPkgProbeUnaffected above, but for the ATTRS-ONLY
+// component-values probe path (PR #72, internal/codegen/attrsonly.go —
+// merged as 52c9750 and now present after this branch's rebase). A
+// cross-package dotted tag <ui.HomeIcon/> whose selector is a
+// func(gsx.Attrs) gsx.Node value (no ui.HomeIconProps type exists) is
+// resolved via isAttrsOnlyCandidate's _gsxcompsig probe against the imported
+// package's SKELETON (module_importer.go's key-presence check at :964) — not
+// against whatever real .x.go bytes happen to be on disk for ui. This
+// fixture is taken directly from PR #72's own corpus case
+// (internal/corpus/testdata/cases/attrsonly/imported.txtar), which is the
+// canonical shape for "attrs-only value consumed cross-package".
+//
+// Fixture: package "ui" has icons.gsx (the attrs-only value: a same-package
+// renderIcon component wrapped by namedIcon into var HomeIcon
+// func(gsx.Attrs) gsx.Node — imported.txtar's exact shape) and banner.gsx
+// (valid, unrelated), with a stale poison banner.x.go on disk simulating
+// "fixed but not yet regenerated". Sibling package "app" has post.gsx, which
+// references ui.HomeIcon via the attrs-only tag form — a probe that must see
+// ui's real skeleton (built from .gsx source), never banner.x.go's on-disk
+// poison bytes.
+func TestPoison_AttrsOnlyProbeUnaffected(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	mod := newModule(t, "example.com/poison7")
+	ui := filepath.Join(mod, "ui")
+	writeFile(t, ui, "icons.gsx", `package ui
+
+import "github.com/gsxhq/gsx"
+
+type iconProps struct {
+	Name  string
+	Attrs gsx.Attrs
+}
+
+component renderIcon(p iconProps) {
+	<svg { p.Attrs... }>{p.Name}</svg>
+}
+
+func namedIcon(name string) func(gsx.Attrs) gsx.Node {
+	return func(attrs gsx.Attrs) gsx.Node {
+		return renderIcon(iconProps{Name: name, Attrs: attrs})
+	}
+}
+
+var HomeIcon = namedIcon("house")
+`)
+	writeFile(t, ui, "banner.gsx", "package ui\n\ncomponent Banner() {\n\t<div>ok</div>\n}\n")
+	// Stale poison for banner.gsx, structurally matching poisonFile's real
+	// output — as if a prior generate failed on banner.gsx and the user has
+	// since fixed it but not regenerated.
+	writeFile(t, ui, "banner.x.go", `// Code generated by gsx; DO NOT EDIT.
+
+package ui
+
+// GSX GENERATION FAILED for banner.gsx. Fix the errors below and re-run gsx generate.
+//
+//	banner.gsx:3:1: error: boom
+
+//line banner.gsx:3:1
+var _ = GSX_GENERATION_FAILED__see_banner_gsx
+`)
+	app := filepath.Join(mod, "app")
+	writeFile(t, app, "post.gsx", "package app\n\nimport \"example.com/poison7/ui\"\n\ncomponent Post() {\n\t<ui.HomeIcon class=\"h-3 w-3\"/>\n}\n")
+
+	if _, err := Generate([]string{mod}); err != nil {
+		t.Fatalf("Generate failed — the attrs-only cross-package probe treated ui's on-disk poison as authoritative instead of its synthetic skeleton (sticky poison): %v", err)
+	}
+	goBuild(t, mod)
+
+	// The poison must have been overwritten by clean output too (Task 3/4's
+	// invariant, reasserted here so a probe-path regression can't hide behind
+	// a stale poison file that Generate silently left in place).
+	if b, err := os.ReadFile(filepath.Join(ui, "banner.x.go")); err != nil || strings.Contains(string(b), "GSX GENERATION FAILED") {
+		t.Errorf("banner.x.go poison not overwritten by clean output (err=%v)", err)
+	}
+
+	// Confirm the attrs-only probe path was genuinely exercised (not silently
+	// downgraded to some other lowering): post.x.go must bag-call ui.HomeIcon.
+	postXgo, err := os.ReadFile(filepath.Join(app, "post.x.go"))
+	if err != nil {
+		t.Fatalf("post.x.go not written: %v", err)
+	}
+	if !strings.Contains(string(postXgo), "ui.HomeIcon") {
+		t.Errorf("post.x.go does not reference ui.HomeIcon:\n%s", postXgo)
 	}
 }
