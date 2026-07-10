@@ -1,0 +1,27 @@
+# All call-site attr forms merge into ONE bag in source order; the
+# attrs={{ }} ordered literal merges last regardless of position.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+type boxProps struct {
+	Attrs gsx.Attrs
+}
+
+component renderBox(p boxProps) {
+	<div { p.Attrs... }>box</div>
+}
+
+func Box(attrs gsx.Attrs) gsx.Node {
+	return renderBox(boxProps{Attrs: attrs})
+}
+
+component Page(on bool, extra gsx.Attrs) {
+	<Box data-a="1" attrs={{ "data-z": "9" }} { extra... } { if on { data-c="3" } } data-b="2"/>
+}
+-- invoke --
+Page(PageProps{On: true, Extra: gsx.Attrs{{Key: "data-x", Value: "8"}}})
+-- diagnostics.golden --
+-- render.golden --
+<div data-a="1" data-b="2" data-x="8" data-c="3" data-z="9">box</div>
