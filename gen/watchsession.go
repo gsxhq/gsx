@@ -168,14 +168,17 @@ func (s *watchSession) regenDir(dir string) cycleResult {
 	}
 	// Error diagnostics: the module skipped emitting this package, so `out` is
 	// empty for the blamed files. Write poison instead of leaving stale .x.go —
-	// same invariant as the batch path (see gen/poison.go).
+	// same invariant as the batch path (see gen/poison.go). A poisoning failure
+	// (e.g. os.ReadDir erroring) must not be silently dropped: it's surfaced via
+	// Err below so stale .x.go left in place is at least visible.
+	var poisonErr error
 	if anyErrorDiag(diags) {
 		if po, perr := poisonPkgOutput(dir, diags); perr == nil {
 			for rel, b := range po {
 				files[filepath.Join(dir, rel)] = b
 			}
-		} else if gerr == nil {
-			gerr = perr
+		} else {
+			poisonErr = perr
 		}
 	}
 	written, werr := writeFiles(dir, files)
@@ -183,6 +186,8 @@ func (s *watchSession) regenDir(dir string) cycleResult {
 	switch {
 	case gerr != nil && !anyErrorDiag(diags):
 		finalErr = gerr
+	case poisonErr != nil:
+		finalErr = poisonErr
 	case werr != nil:
 		finalErr = werr
 	}
