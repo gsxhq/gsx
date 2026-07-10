@@ -3,6 +3,7 @@ package gen
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gsxhq/gsx/internal/attrclass"
@@ -88,5 +89,44 @@ func TestNoCacheBypassesCache(t *testing.T) {
 	}
 	if len(res.Errs) != 0 {
 		t.Fatalf("--no-cache: unexpected errors: %v", res.Errs)
+	}
+}
+
+func TestRestore_AtomicNoTempLeftovers(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	po := pkgOutput{"a.x.go": []byte("package a\n"), "b.x.go": []byte("package a\n")}
+	written, upToDate, err := restore(dir, po)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(written) != 2 || upToDate != 0 {
+		t.Fatalf("written=%v upToDate=%d", written, upToDate)
+	}
+	// Second run: byte-identical, no writes.
+	written, upToDate, err = restore(dir, po)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(written) != 0 || upToDate != 2 {
+		t.Fatalf("expected 0 writes / 2 up-to-date, got written=%v upToDate=%d", written, upToDate)
+	}
+	// No temp files left behind.
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range ents {
+		if !strings.HasSuffix(e.Name(), ".x.go") {
+			t.Errorf("leftover non-output file: %s", e.Name())
+		}
+	}
+	// Output files are world-readable (0644-equivalent), not CreateTemp's 0600.
+	fi, err := os.Stat(filepath.Join(dir, "a.x.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm()&0o044 == 0 {
+		t.Errorf("output not group/world readable: %v", fi.Mode())
 	}
 }
