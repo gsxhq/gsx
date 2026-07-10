@@ -1,6 +1,38 @@
 package codegen
 
-import "go/types"
+import (
+	"go/types"
+	"strings"
+
+	gsxast "github.com/gsxhq/gsx/ast"
+)
+
+// isAttrsOnlyCandidate reports whether a component tag should be resolved as a
+// potential attrs-only component value: a same-package (non-dotted, non-generic)
+// tag that is not component-declared, not byo, not a method, not a bare-call
+// nullary candidate, and whose <Name>Props type does not exist anywhere in the
+// package. That region is guaranteed to fail today (undefined: <Name>Props), so
+// gating it onto the _gsxcompsig probe is a pure capability addition. emitProbes
+// and genChildComponent both branch on this so emit ≡ probe.
+func isAttrsOnlyCandidate(el *gsxast.Element, propFields map[string]map[string]bool, byo *byoData, recvVar, recvTypeName string) bool {
+	if !isComponentTag(el.Tag) || strings.Contains(el.Tag, ".") || el.TypeArgs != "" {
+		return false
+	}
+	_, propsType, isMethod := childInvocation(el, byo, recvVar, recvTypeName)
+	if isMethod {
+		return false
+	}
+	if _, isByo := byo.isByoStruct(propsType); isByo {
+		return false
+	}
+	if _, known := propFields[propsType]; known {
+		return false // component-declared or enumerated props type
+	}
+	if byo.isNullaryFunc(el.Tag) {
+		return false // bare-call candidate keeps its existing probe
+	}
+	return !byo.hasTypeName(propsType)
+}
 
 // attrsOnlySig reports whether t is exactly one of the two attrs-only
 // component-value shapes (spec:

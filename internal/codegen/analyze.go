@@ -1302,6 +1302,31 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 							registry.recordProbeSpan(t, propsType, sig.arity, start, sb.Len())
 						}
 					}
+				} else if isAttrsOnlyCandidate(t, propFields, byo, recvVar, recvTypeName) {
+					// Attrs-only component value candidate (no <Name>Props type exists —
+					// the convention literal probe would be a guaranteed `undefined:`
+					// error). _gsxcompsig(F) carries F's real type to the harvest; the bag
+					// expression rides _gsxuseq — the alignment-NEUTRAL keep-alive —
+					// because the plain _gsxuse harvest maps calls to interp nodes
+					// POSITIONALLY (k-th) and an extra _gsxuse here would corrupt every
+					// later interp's harvested type.
+					emitSkeletonLine(sb, fset, t.Pos())
+					fmt.Fprintf(sb, "_gsxcompsig(%s)\n", t.Tag)
+					// The bag builds the SAME expression the emit pass will (probeWrap so
+					// (T, error) tuples are _gsxunwrap-wrapped, not hoisted). cfHoistBuf
+					// captures any value-form-CF class hoists so the _gsxuseq(expr)
+					// reference stays valid; usedPkgs feeds usedFilters exactly as the
+					// props-literal branch does, so a bag pipeline's filter is imported.
+					var cfHoistBuf bytes.Buffer
+					cfInterpTemp := 0
+					if expr, usedPkgs, berr := attrsOnlyBagExpr(t, "_gsxrt", "_gsxrt.DefaultClassMerge", table, byo, fm, true, nil, &cfHoistBuf, &cfInterpTemp); berr == nil && expr != "" {
+						maps.Copy(usedFilters, usedPkgs)
+						emitSkeletonLine(sb, fset, t.Pos())
+						sb.WriteString(cfHoistBuf.String())
+						fmt.Fprintf(sb, "_gsxuseq(%s)\n", expr)
+					}
+					// a bag-build error here is NOT reported from the probe pass: the emit
+					// pass builds the same expression and owns the positioned diagnostic.
 				} else if ((isMethod && !isByoChild) || isNoPropsComponent(propFields, propsType)) && len(t.Attrs) == 0 && len(t.Children) == 0 {
 					// Same Task 8 concern as the bare-call-candidate branch above: a
 					// generic no-props method/function reaching this nullary `_ = F()`

@@ -3757,6 +3757,52 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 		fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s%s())\n", el.Tag, callTypeArgs)
 		return true
 	}
+	// Attrs-only component value: a same-package tag with no <Name>Props type,
+	// gated onto the _gsxcompsig probe (isAttrsOnlyCandidate). When harvest
+	// resolved its type to one of the two attrs-only signatures, emit a bag call
+	// F(bag) / F(bag...) instead of the (nonexistent) FProps convention. emit ≡
+	// probe: emitProbes gates the identical predicate.
+	if isAttrsOnlyCandidate(el, structFields, byo, recvVar, recvTypeName) {
+		if t, probed := resolved[el]; probed {
+			if variadic, match := attrsOnlySig(t); match {
+				if len(el.Children) > 0 {
+					bag.Errorf(el.Pos(), el.End(), "attrsonly-children",
+						"component values do not support children — declare a Children slot on a named-struct component instead")
+					return false
+				}
+				expr, usedPkgs, err := attrsOnlyBagExpr(el, rt.rt(), classMergeExpr(mergeExpr, rt), table, byo, fm, false, resolved, b, interpTemp)
+				if err != nil {
+					if ae, ok := errors.AsType[*attrError](err); ok {
+						bag.Errorf(ae.pos, ae.end, ae.code, "%s", ae.msg)
+					} else {
+						bag.Errorf(el.Pos(), el.End(), "attrsonly-bag", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+					}
+					return false
+				}
+				for _, path := range usedPkgs {
+					imports[path] = true
+				}
+				switch {
+				case expr == "" && variadic:
+					fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s())\n", el.Tag)
+				case expr == "":
+					fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s(nil))\n", el.Tag)
+				case variadic:
+					fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s(%s...))\n", el.Tag, expr)
+				default:
+					fmt.Fprintf(b, "\t\t_gsxgw.Node(ctx, %s(%s))\n", el.Tag, expr)
+				}
+				return true
+			}
+			bag.Errorf(el.Pos(), el.End(), "attrsonly-bad-type",
+				"<%s> is not tag-callable: its type is %s, not func(gsx.Attrs) gsx.Node or func(...gsx.Attr) gsx.Node, and no %sProps struct was found",
+				el.Tag, types.TypeString(t, nil), el.Tag)
+			return false
+		}
+		// not harvested: the skeleton already reported the underlying error
+		// (e.g. undefined: <Tag>); fall through to the convention emission,
+		// which is never reached in a successful generation.
+	}
 	callTarget, propsType, isMethod := childInvocation(el, byo, recvVar, recvTypeName)
 	// A nullary call — no attrs, no children — emits a bare call with no props
 	// literal. This applies to:
@@ -4460,6 +4506,99 @@ func isCallExpr(rawVal string) bool {
 	}
 	_, ok := expr.(*goast.CallExpr)
 	return ok
+}
+
+// attrsOnlyPropsKey is a synthetic props-type key for attrsOnlyBagExpr's
+// childPropsLiteral call. It contains a '.' so it can never collide with a real
+// same-package <Name>Props key, and never escapes into emitted code.
+const attrsOnlyPropsKey = "attrsonly.bag"
+
+// attrsOnlyBagExpr builds the single gsx.Attrs expression for an attrs-only
+// component-value call site by reusing childPropsLiteral's fallthrough assembly
+// with a synthetic declared-field set of {"Attrs"}: every call-site attr is
+// fallthrough; spreads become .Merge(...) links; an attrs={{ }} ordered literal
+// targets the bag and merges last — all existing behavior, no new merge code.
+// Returns "" when the tag has no attrs at all.
+//
+// The single returned entry is run through the SAME (T, error) tuple rejection +
+// hoist genChildComponent applies to a real props literal, so a pipeline stage
+// (or a matched attrs={ } value) that returns a tuple is handled identically —
+// hoisted before the call in emit mode, or rejected with a positioned *attrError.
+func attrsOnlyBagExpr(el *ast.Element, rtPkg, mergeExpr string, table filterTable, byo *byoData, fm FieldMatcher, probeWrap bool, resolved map[ast.Node]types.Type, b *bytes.Buffer, interpTemp *int) (expr string, usedPkgs map[string]string, err error) {
+	synthetic := map[string]map[string]bool{attrsOnlyPropsKey: {"Attrs": true}}
+	fields, splat, used, err := childPropsLiteral(el, attrsOnlyPropsKey, rtPkg, mergeExpr, table, synthetic, nil, byo, fm,
+		func([]ast.Markup) (string, error) { return "", fmt.Errorf("attrs-only components take no slots") },
+		probeWrap, resolved, b, interpTemp)
+	if err != nil {
+		return "", nil, err
+	}
+	if splat != "" {
+		// cannot happen: the synthetic set has an Attrs bag, so the
+		// whole-struct-splat branch is skipped; guard anyway.
+		return "", nil, fmt.Errorf("codegen: unexpected splat on attrs-only component <%s>", el.Tag)
+	}
+	if len(fields) == 0 {
+		return "", used, nil
+	}
+	if len(fields) != 1 || !strings.HasPrefix(fields[0].str, "Attrs: ") {
+		return "", nil, fmt.Errorf("codegen: attrs-only bag for <%s> produced unexpected fields %v", el.Tag, fields)
+	}
+	// Mirror genChildComponent's (T, error) tuple handling for this one entry: a
+	// matched attrs={call()} ExprAttr or an attrs={{ … }} ordered-attrs literal
+	// can carry a tuple-returning value. In probe mode resolved is nil, so both
+	// checks are no-ops (the skeleton uses _gsxunwrap wrapping instead).
+	fe := &fields[0]
+	if fe.ea != nil {
+		if t, ok := resolved[fe.ea].(*types.Tuple); ok {
+			if _, unwrappable := tupleUnwrapType(t); !unwrappable {
+				return "", nil, &attrError{pos: fe.ea.Pos(), end: fe.ea.End(), code: "invalid-tuple",
+					msg: fmt.Sprintf("child prop %q value %q returns %s; only (T, error) is supported", fe.ea.Name, fe.ea.Expr, t)}
+			}
+			tmp := hoistTuple(b, fe.rawVal, interpTemp)
+			fe.str = fmt.Sprintf("%s: %s", fe.fieldName, tmp)
+		}
+	}
+	if fe.oa != nil {
+		anyTuple := false
+		for j := range fe.oaPairs {
+			pairType := resolved[&fe.oa.Pairs[j]]
+			if t, ok := pairType.(*types.Tuple); ok {
+				if _, unwrappable := tupleUnwrapType(t); !unwrappable {
+					return "", nil, &attrError{pos: fe.oa.Pairs[j].Pos(), end: fe.oa.Pairs[j].End(), code: "invalid-tuple",
+						msg: fmt.Sprintf("ordered-attrs pair %q value %q returns %s; only (T, error) is supported", fe.oaPairs[j].key, fe.oaPairs[j].rawVal, t)}
+				}
+				anyTuple = true
+			}
+		}
+		if anyTuple {
+			var sb strings.Builder
+			fmt.Fprintf(&sb, "%s.Attrs{", rtPkg)
+			for j, pr := range fe.oaPairs {
+				pairType := resolved[&fe.oa.Pairs[j]]
+				_, isTup := tupleUnwrapType(pairType)
+				var valueStr string
+				switch {
+				case isTup:
+					valueStr = hoistTuple(b, pr.rawVal, interpTemp)
+				case isCallExpr(pr.rawVal):
+					tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+					*interpTemp++
+					fmt.Fprintf(b, "\t\t%s := %s\n", tmp, pr.rawVal)
+					valueStr = tmp
+				default:
+					valueStr = pr.rawVal
+				}
+				fmt.Fprintf(&sb, "{Key: %s, Value: %s}, ", strconv.Quote(pr.key), valueStr)
+			}
+			sb.WriteString("}")
+			if fe.oaMergePrefix != "" {
+				fe.str = fmt.Sprintf("Attrs: %s.Merge(%s)", fe.oaMergePrefix, sb.String())
+			} else {
+				fe.str = fmt.Sprintf("%s: %s", fe.fieldName, sb.String())
+			}
+		}
+	}
+	return strings.TrimPrefix(fe.str, "Attrs: "), used, nil
 }
 
 // childPropsLiteral builds the per-field list for a child component's props
