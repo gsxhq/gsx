@@ -1303,15 +1303,19 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 				} else if isAttrsOnlyCandidate(t, propFields, byo, recvVar, recvTypeName) {
 					// Attrs-only component value candidate (no <Name>Props type exists —
 					// the convention literal probe would be a guaranteed `undefined:`
-					// error). _gsxcompsig(F) carries F's real type to the harvest; the bag
-					// expression rides _gsxuseq — the alignment-NEUTRAL keep-alive —
-					// because the plain _gsxuse harvest maps calls to interp nodes
-					// POSITIONALLY (k-th) and an extra _gsxuse here would corrupt every
-					// later interp's harvested type.
+					// error). _gsxcompsig(F) carries F's real type to the harvest (mapped
+					// by tag name, not k-order). The bag expression rides _gsxusen — the
+					// QUIET, ALIGNMENT-NEUTRAL keep-alive — NOT _gsxuse/_gsxuseq: those
+					// ARE counted by harvest's k-ordering, and the bag has no single
+					// interp node to harvest onto (each attr expression inside it already
+					// gets its own counted probe via the shared per-component ExprAttr /
+					// class-part / spread probes below, aligned with collectExprs). A
+					// counted bag probe would shift every later interp's harvested type
+					// by one slot per attrs-only tag — the FAIL 5 / 4b desync.
 					emitSkeletonLineCompsig(sb, fset, t.Pos(), t.Tag)
 					// The bag builds the SAME expression the emit pass will (probeWrap so
 					// (T, error) tuples are _gsxunwrap-wrapped, not hoisted). cfHoistBuf
-					// captures any value-form-CF class hoists so the _gsxuseq(expr)
+					// captures any value-form-CF class hoists so the _gsxusen(expr)
 					// reference stays valid; usedPkgs feeds usedFilters exactly as the
 					// props-literal branch does, so a bag pipeline's filter is imported.
 					var cfHoistBuf bytes.Buffer
@@ -1320,7 +1324,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 						maps.Copy(usedFilters, usedPkgs)
 						emitSkeletonLine(sb, fset, t.Pos())
 						sb.WriteString(cfHoistBuf.String())
-						fmt.Fprintf(sb, "_gsxuseq(%s)\n", expr)
+						fmt.Fprintf(sb, "_gsxusen(%s)\n", expr)
 					}
 					// a bag-build error here is NOT reported from the probe pass: the emit
 					// pass builds the same expression and owns the positioned diagnostic.

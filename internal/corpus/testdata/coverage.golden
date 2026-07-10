@@ -21,11 +21,13 @@ attrs/spread_byo	diag render
 attrs/spread_leading_rejected	diag(error)
 attrs/spread_trailing	diag render
 attrsonly/alias_type	diag render
+attrsonly/element_literal_interp	diag render
 attrsonly/factory_var	diag render
 attrsonly/func_named_attrs	diag gen render
 attrsonly/func_variadic	diag render
 attrsonly/imported	diag render
 attrsonly/imported_undefined	diag(error)
+attrsonly/interp_desync	diag render
 attrsonly/merge_order	diag gen render
 attrsonly/reject_children	diag(error)
 attrsonly/reject_error_result	diag(error)
@@ -576,4 +578,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 578 cases (render: 460, error: 89, gen-pinned: 290)
+TOTAL: 580 cases (render: 462, error: 89, gen-pinned: 290)
