@@ -2125,12 +2125,24 @@ func harvestBody(body *goast.BlockStmt, bodyMarkup []gsxast.Markup, info *types.
 		if !ok || id.Name != "_gsxcompsig" || len(call.Args) != 1 {
 			return true
 		}
-		arg, ok := call.Args[0].(*goast.Ident)
-		if !ok {
+		// The probe target is emitted byte-verbatim from t.Tag: a same-package tag
+		// is a bare Ident (`_gsxcompsig(HomeIcon)`), a cross-package dotted tag is a
+		// SelectorExpr (`_gsxcompsig(ui.HomeIcon)`). Key sigByName by the full tag
+		// string so forEachComponentTagElement matches el.Tag for both.
+		var key string
+		switch a := call.Args[0].(type) {
+		case *goast.Ident:
+			key = a.Name
+		case *goast.SelectorExpr:
+			if x, ok := a.X.(*goast.Ident); ok {
+				key = x.Name + "." + a.Sel.Name
+			}
+		}
+		if key == "" {
 			return true
 		}
-		if tv, ok := info.Types[arg]; ok && tv.Type != nil {
-			sigByName[arg.Name] = tv.Type
+		if tv, ok := info.Types[call.Args[0]]; ok && tv.Type != nil {
+			sigByName[key] = tv.Type
 		}
 		return true
 	})

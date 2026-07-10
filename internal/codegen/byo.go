@@ -48,7 +48,18 @@ type byoData struct {
 	// .go files (packageTypeNames) plus .gsx GoChunk type declarations. Populated
 	// by componentPropFieldsFor; consulted by the attrs-only gate (hasTypeName) to
 	// decide whether a tag's <Name>Props type name exists anywhere in the package.
+	// In a file-scoped clone, mergeQualified additionally publishes each imported
+	// gsx dep's type names under the file's import alias ("ui.iconProps"), so the
+	// gate can ask hasTypeName("ui.HomeIconProps") for a dotted tag.
 	typeNames map[string]bool
+	// depAliases is the set of file-scoped import aliases that resolve to a
+	// project-internal gsx dependency whose facts were successfully merged
+	// (mergeQualified). It is what the attrs-only gate consults to distinguish a
+	// dotted tag whose qualifier is a KNOWN package import (<ui.HomeIcon> —
+	// gateable) from one whose qualifier is a local/receiver/field
+	// (<item.Icon> — never gated). Empty on the shared package-wide byo (only a
+	// file-scoped clone imports deps).
+	depAliases map[string]bool
 }
 
 // byoStruct is one author struct's field facts.
@@ -65,21 +76,24 @@ func newByoData() *byoData {
 		inGsx:        map[string]bool{},
 		nullaryFuncs: map[string]bool{},
 		typeNames:    map[string]bool{},
+		depAliases:   map[string]bool{},
 	}
 }
 
 // cloneForFile returns a copy of b whose maps can be extended with imported
 // qualified entries without mutating the package-wide byo shared across files.
-// nullaryFuncs and typeNames are shared (never extended by the qualified
-// merge — a bare imported func call or an imported type name is not in scope
-// for same-package prop discovery).
+// Every map is cloned: mergeQualified publishes each imported gsx dep's
+// typeNames and nullaryFuncs under the file's import alias (needed by the
+// dotted-tag attrs-only gate), so those maps can no longer be shared by
+// reference or the extension would leak back onto the package-wide byo.
 func (b *byoData) cloneForFile() *byoData {
 	return &byoData{
 		compStruct:   maps.Clone(b.compStruct),
 		structs:      maps.Clone(b.structs),
 		inGsx:        maps.Clone(b.inGsx),
-		nullaryFuncs: b.nullaryFuncs,
-		typeNames:    b.typeNames,
+		nullaryFuncs: maps.Clone(b.nullaryFuncs),
+		typeNames:    maps.Clone(b.typeNames),
+		depAliases:   map[string]bool{},
 	}
 }
 
@@ -88,8 +102,11 @@ func (b *byoData) cloneForFile() *byoData {
 // childInvocation looks up for a `<alias.Card>` tag — and struct type names
 // "CardData" become "<alias>.CardData", the qualified type the emitter writes.
 // Method components are skipped (a method tag never resolves through an
-// import alias); nullaryFuncs are not merged (same reason as cloneForFile).
+// import alias). dep typeNames and nullaryFuncs are also republished under the
+// alias ("iconProps" -> "ui.iconProps") so the dotted-tag attrs-only gate can
+// consult the DEP package's type/func facts for a qualified <ui.HomeIcon> tag.
 func (b *byoData) mergeQualified(alias string, dep *byoData) {
+	b.depAliases[alias] = true
 	for key, structName := range dep.compStruct {
 		if !strings.HasPrefix(key, ".") {
 			continue // method component: not invocable through a qualified tag
@@ -101,6 +118,12 @@ func (b *byoData) mergeQualified(alias string, dep *byoData) {
 	}
 	for name, in := range dep.inGsx {
 		b.inGsx[alias+"."+name] = in
+	}
+	for name := range dep.typeNames {
+		b.typeNames[alias+"."+name] = true
+	}
+	for name := range dep.nullaryFuncs {
+		b.nullaryFuncs[alias+"."+name] = true
 	}
 }
 
@@ -114,6 +137,15 @@ func (b *byoData) isNullaryFunc(name string) bool {
 // this package (sibling .go files or .gsx GoChunks). nil-safe.
 func (b *byoData) hasTypeName(name string) bool {
 	return b != nil && b.typeNames[name]
+}
+
+// isDepAlias reports whether alias is a file-scoped import alias that resolves
+// to a project-internal gsx dependency whose facts were merged (mergeQualified).
+// The dotted-tag attrs-only gate uses it to require that a `<alias.Name>` tag's
+// qualifier is a KNOWN package import before gating (a local/receiver/field
+// qualifier is never a dep alias and is left on its existing path). nil-safe.
+func (b *byoData) isDepAlias(alias string) bool {
+	return b != nil && b.depAliases[alias]
 }
 
 // structTypeName returns the byo struct type name for a component, or "" if the
