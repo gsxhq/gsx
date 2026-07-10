@@ -136,6 +136,29 @@ func (a Attrs) Merge(other Attrs) Attrs {
 	return out
 }
 
+// ConcatAttrs concatenates bags in order into one new bag, preserving every
+// pair (duplicates included). It does NOT dedupe or class-merge: rendering
+// resolves duplicates at the leaf (Spread is last-wins on scalar keys and
+// aggregates class/style), and Get/Has are last-wins by contract — so
+// concatenation is observably equivalent to eager Merge for every consumer
+// of the documented Attrs semantics. Generated call sites use it instead of
+// .Merge() chains (one allocation instead of one per link). nil segments are
+// skipped; a zero-entry result is nil.
+func ConcatAttrs(bags ...Attrs) Attrs {
+	n := 0
+	for _, b := range bags {
+		n += len(b)
+	}
+	if n == 0 {
+		return nil
+	}
+	out := make(Attrs, 0, n)
+	for _, b := range bags {
+		out = append(out, b...)
+	}
+	return out
+}
+
 // AttrsCond selects one of two attribute-bag thunks for a conditional component
 // attribute: it calls and returns then() when cond is true, otherwise els(). The
 // branches are THUNKS so the untaken branch is never evaluated — mirroring a real
