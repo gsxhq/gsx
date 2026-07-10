@@ -1091,155 +1091,51 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			fmt.Fprintf(b, "\t\t_gsxgw.StyleMerged(\"\", %s.Style())\n", bagExpr)
 		}
 		// URL-classified bag attributes sanitize at the leaf (bag hardening Part A).
-		// The caller's bag may carry ANY URL attribute; this forwarding element is
-		// where it becomes real HTML, so each URL-classified name is extracted here
-		// and written through the same tag-aware sink a static attr uses (URLVal for
-		// navigational, URLImageVal for image resources; a dangerous scheme →
-		// about:invalid#gsx). Interplay with the root's own statics, per URL name —
-		// the invariant is that no UNSANITIZED URL ever renders:
-		//   - forced (post-spread) static: it owns the attribute (emitted unguarded
-		//     in Walk 2), so we SKIP extraction; the fold-drop below removes every
-		//     bag case-variant, leaving only the root's author-controlled value.
-		//   - forced (post-spread) CONDITIONAL: a `{ if cond { href=… } }` branch
-		//     owns the attribute ONLY when taken. The selector already recorded that
-		//     per-branch bool, so extraction is guarded on `!<bool>` (all branches
-		//     that force the name): taken → the forced attr is the sole value; not
-		//     taken → the bag's sanitized copy is the sole value. Without the guard
-		//     both would render (duplicate attribute; the browser honours the first,
-		//     so the forced value would LOSE).
-		//   - guarded (pre-spread) static: Walk 1 emitted it under `!bag.Has(name)`
-		//     so it renders only when the bag lacks the name; extraction's GetFold
-		//     renders only when the bag HAS it — for a same-case key exactly one of
-		//     the pair fires. (A case-variant bag key can make BOTH fire — Has is
-		//     case-sensitive — but both values are then safe: the static's literal
-		//     and the bag's sanitized copy; the browser takes the first. No payload.)
-		//   - no root static: extraction alone renders the bag's value, sanitized.
-		// Matching is case-insensitive (GetFold / WithoutFold): a smuggled `HREF`
-		// key is caught and normalized to `href` on output, never passed through raw.
-		urlNames := cls.URLExactNames()
-		forcedLower := make(map[string]bool, len(forcedNames))
-		for _, n := range forcedNames {
-			forcedLower[strings.ToLower(n)] = true
+		// This forwarding element is where the caller's bag becomes real HTML, so a
+		// single SpreadForwarding call writes the residual bag AND routes every
+		// URL-classified name through the same tag-aware sink a static attr uses
+		// (URLVal for navigational, URLImageVal for image resources; a dangerous
+		// scheme → about:invalid#gsx) in ONE ordered pass, matching case-insensitively
+		// so a smuggled `HREF`/`SRC` cannot slip an unsanitized value past the leaf.
+		// The exact URL names, known statically (the tag is fixed), split into the
+		// strict-nav and image-resource sets via urlWriterMethod; prefix URL rules
+		// (e.g. `prefix = "data-url-"`) always take the strict nav sink (user rules
+		// never get the image-sink allowance). URL keys render IN their bag position,
+		// so the caller's authored attribute order is preserved.
+		//
+		// excluded is the names a forced root attr owns, which SpreadForwarding skips
+		// (the class/style merge above and the unguarded forced emit in Walk 2 own
+		// those). It is the dynamic drop slice when post-spread cond-attrs exist (built
+		// by the selectors above: class/style + static forced + each taken branch's
+		// names, appended at runtime), else the static class/style+forced set. A
+		// post-spread conditional that FORCES a URL name thus suppresses the bag's copy
+		// exactly when its branch is taken — the runtime membership in the drop slice
+		// does it, no `!<bool>` guard — and otherwise the bag's sanitized value renders.
+		sliceLit := func(names []string) string {
+			if len(names) == 0 {
+				return "nil"
+			}
+			q := make([]string, len(names))
+			for i, n := range names {
+				q[i] = strconv.Quote(n)
+			}
+			return fmt.Sprintf("[]string{%s}", strings.Join(q, ", "))
 		}
-		// Per URL name, the distinct per-branch bools of every post-spread
-		// cond-attr run that FORCES it (source-lowercased to match urlNames). The
-		// selectors above already declared and set these bools; extraction of the
-		// name is guarded on `!<bool>` for each so the forced branch owns the attr
-		// when taken (no duplicate) and the bag's sanitized copy renders otherwise.
-		// Walk the post-spread cond-attrs in SOURCE ORDER (not by ranging the
-		// postRuns map, whose iteration order is randomized) so the emitted guard
-		// terms are byte-stable across regenerations — generate idempotence and
-		// content-hash caching are repo invariants.
-		postForcedGuards := map[string][]string{}
-		for i, a := range attrs {
-			if i <= splitIdx {
-				continue
-			}
-			t, ok := a.(*ast.CondAttr)
-			if !ok {
-				continue
-			}
-			for _, run := range postRuns[t] {
-				for _, leaf := range run.leaves {
-					name, ok := rootAttrName(leaf)
-					if !ok {
-						continue
-					}
-					lname := strings.ToLower(name)
-					guards := postForcedGuards[lname]
-					if !slices.Contains(guards, run.boolVar) {
-						postForcedGuards[lname] = append(guards, run.boolVar)
-					}
-				}
+		var navNames, imageNames []string
+		for _, name := range cls.URLExactNames() {
+			if urlWriterMethod(tag, name) == "URLImage" {
+				imageNames = append(imageNames, name)
+			} else {
+				navNames = append(navNames, name)
 			}
 		}
-		for _, name := range urlNames {
-			if forcedLower[name] {
-				continue // forced static owns it; the fold-drop still removes bag copies
-			}
-			guards := postForcedGuards[name]
-			if len(guards) > 0 {
-				conds := make([]string, len(guards))
-				for i, g := range guards {
-					conds[i] = "!" + g
-				}
-				fmt.Fprintf(b, "\t\tif %s {\n", strings.Join(conds, " && "))
-			}
-			tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-			*interpTemp++
-			method := urlWriterMethod(tag, name) + "Val" // URLVal / URLImageVal
-			fmt.Fprintf(b, "\t\tif %s, ok := %s.GetFold(%s); ok {\n", tmp, bagExpr, strconv.Quote(name))
-			fmt.Fprintf(b, "\t\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+name+`="`))
-			fmt.Fprintf(b, "\t\t\t_gsxgw.%s(%s)\n", method, tmp)
-			fmt.Fprintf(b, "\t\t\t_gsxgw.S(%s)\n", strconv.Quote(`"`))
-			b.WriteString("\t\t}\n")
-			if len(guards) > 0 {
-				b.WriteString("\t\t}\n")
-			}
+		excludedExpr := dropVar
+		if excludedExpr == "" {
+			excl := append([]string{"class", "style"}, forcedNames...)
+			excludedExpr = sliceLit(excl)
 		}
-		// Prefix URL rules (e.g. `prefix = "data-url-"`) cannot be enumerated into
-		// Get blocks; only when the project configures them do we walk the bag and
-		// write each prefix-matched key through the STRICT nav sink (prefix rules are
-		// user rules; the image-sink split applies only to built-in resource names).
-		prefixes := cls.URLPrefixes()
-		prefixVar := ""
-		if len(prefixes) > 0 {
-			prefixVar = fmt.Sprintf("_gsxv%d", *interpTemp)
-			*interpTemp++
-			qp := make([]string, len(prefixes))
-			for i, p := range prefixes {
-				qp[i] = strconv.Quote(p)
-			}
-			fmt.Fprintf(b, "\t\t%s := []string{%s}\n", prefixVar, strings.Join(qp, ", "))
-			// Force-ownership exclusion: a prefix-matched bag key whose name a
-			// forced root attr owns (static — always; a post-spread cond branch —
-			// when taken) must NOT be written here, or it would duplicate the
-			// forced attr and win over it (first-wins). The dynamic drop slice
-			// already carries class/style + static forced + taken-branch names; with
-			// no post-spread cond-attrs it is the static forced-name set (class/style
-			// harmlessly included — never prefix-matched, always separately merged).
-			excludedExpr := dropVar
-			if excludedExpr == "" {
-				excl := append([]string{"class", "style"}, forcedNames...)
-				q := make([]string, len(excl))
-				for i, n := range excl {
-					q[i] = strconv.Quote(n)
-				}
-				excludedExpr = fmt.Sprintf("[]string{%s}", strings.Join(q, ", "))
-			}
-			fmt.Fprintf(b, "\t\t_gsxgw.SpreadURLPrefixed(ctx, %s, %s, %s)\n", bagExpr, prefixVar, excludedExpr)
-		}
-		// Spread the rest of the bag, dropping class/style (both merged above) plus
-		// any forced names (excluded so the unguarded root emit wins — caller can't
-		// override a post-spread attr). Every other bag attr spreads, including one
-		// that shadows a guarded (overridable) root attr (which was then skipped).
-		// With post-spread cond-attrs the drop set is the dynamic slice built by the
-		// selectors above (static names + the taken branches' names). The residual
-		// additionally drops — case-insensitively — every URL exact name (extracted
-		// and sanitized above) and every prefix-matched key (written above), so no
-		// unsanitized copy survives.
-		var residual string
-		if dropVar != "" {
-			residual = fmt.Sprintf("%s.Without(%s...)", bagExpr, dropVar)
-		} else {
-			without := append([]string{"class", "style"}, forcedNames...)
-			quoted := make([]string, len(without))
-			for i, n := range without {
-				quoted[i] = strconv.Quote(n)
-			}
-			residual = fmt.Sprintf("%s.Without(%s)", bagExpr, strings.Join(quoted, ", "))
-		}
-		if len(urlNames) > 0 {
-			qn := make([]string, len(urlNames))
-			for i, n := range urlNames {
-				qn[i] = strconv.Quote(n)
-			}
-			residual += fmt.Sprintf(".WithoutFold(%s)", strings.Join(qn, ", "))
-		}
-		if prefixVar != "" {
-			residual += fmt.Sprintf(".WithoutFunc(func(_gsxk string) bool { return %s.URLPrefixMatch(_gsxk, %s) })", rt.rt(), prefixVar)
-		}
-		fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s)\n", residual)
+		fmt.Fprintf(b, "\t\t_gsxgw.SpreadForwarding(ctx, %s, %s, %s, %s, %s)\n",
+			bagExpr, sliceLit(navNames), sliceLit(imageNames), sliceLit(cls.URLPrefixes()), excludedExpr)
 		return true
 	}
 

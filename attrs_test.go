@@ -321,51 +321,96 @@ func TestURLPrefixMatch(t *testing.T) {
 	}
 }
 
-func TestSpreadURLPrefixed(t *testing.T) {
+// TestSpreadForwarding drives the single-pass forwarding-element writer through
+// every routing case at once: nav (href), image (src), prefix (data-url-x),
+// excluded (class/forced), plain (data-n), a case-variant unsafe key (HREF), a
+// RawURL vouch, and a scalar duplicate — asserting one ordered pass routes each
+// to the right sink, sanitizes the smuggled HREF, resolves last-wins, and
+// preserves the bag's authored order (URL keys render IN position).
+func TestSpreadForwarding(t *testing.T) {
 	var buf bytes.Buffer
 	gw := W(&buf)
-	gw.SpreadURLPrefixed(context.Background(), Attrs{
-		{Key: "data-url-next", Value: "javascript:alert(1)"}, // sanitized via strict sink
-		{Key: "data-x", Value: "kept-elsewhere"},             // not a prefix match → skipped
-		{Key: "Data-URL-Prev", Value: "/ok"},                 // case-variant key matches
-		{Key: "data-url-next", Value: "/last"},               // last-wins duplicate
-		{Key: "bad key", Value: "y"},                         // invalid name → dropped
-	}, []string{"data-url-"}, nil)
+	navNames := []string{"action", "href", "src"} // "src" here would be nav…
+	imageNames := []string{"src"}                 // …but image wins (checked first)
+	prefixes := []string{"data-url-"}
+	excluded := []string{"class", "style", "id"} // class/style merged elsewhere; id forced
+	gw.SpreadForwarding(context.Background(), Attrs{
+		{Key: "data-n", Value: "1"},                       // plain, first position
+		{Key: "href", Value: "/nav"},                      // nav sink
+		{Key: "src", Value: "data:image/png;base64,AAAA"}, // image sink (data:image ok)
+		{Key: "data-url-x", Value: "javascript:alert(1)"}, // prefix → strict nav sink, sanitized
+		{Key: "class", Value: "c"},                        // excluded → skipped (merged separately)
+		{Key: "id", Value: "forced"},                      // excluded (forced) → skipped
+		{Key: "HREF", Value: "javascript:alert(2)"},       // case-variant nav → sanitized, not smuggled
+		{Key: "data-n", Value: "last"},                    // scalar duplicate → last-wins
+		{Key: "aria-x", Value: RawURL("app://ok")},        // RawURL but not URL-classified → plain string, escaped verbatim
+		{Key: "action", Value: RawURL("app://vouch")},     // RawURL through nav sink → verbatim
+		{Key: "checked", Value: true},                     // bool → BoolAttr
+		{Key: "bad key", Value: "x"},                      // invalid name → dropped
+	}, navNames, imageNames, prefixes, excluded)
 	got := buf.String()
+	// Security: neither the case-variant HREF nor the prefix key smuggles a scheme.
 	if strings.Contains(got, "javascript:") {
-		t.Fatalf("SpreadURLPrefixed leaked a javascript: URL: %q", got)
+		t.Fatalf("SpreadForwarding leaked a javascript: URL: %q", got)
 	}
-	want := ` Data-URL-Prev="/ok" data-url-next="/last"`
+	// data: image URL survives the image sink (would be blocked by the strict nav sink).
+	if !strings.Contains(got, `src="data:image/png;base64,AAAA"`) {
+		t.Fatalf("SpreadForwarding dropped a valid data:image URL: %q", got)
+	}
+	// One pass, bag order preserved: URL keys render in position; the duplicate
+	// data-n is last-wins so it renders at its LAST slot (like Spread); class/style
+	// /id excluded; the case-variant HREF sanitized in place.
+	want := ` href="/nav" src="data:image/png;base64,AAAA"` +
+		` data-url-x="about:invalid#gsx" HREF="about:invalid#gsx" data-n="last"` +
+		` aria-x="app://ok" action="app://vouch" checked`
 	if got != want {
-		t.Fatalf("SpreadURLPrefixed = %q want %q", got, want)
+		t.Fatalf("SpreadForwarding =\n  %q\nwant\n  %q", got, want)
 	}
 }
 
-func TestSpreadURLPrefixedExcluded(t *testing.T) {
+// TestSpreadForwardingImageBeatsNav pins the routing precedence: a name in BOTH
+// navNames and imageNames takes the image sink (imageNames is checked first), so
+// an <img src=data:image/*> forwarded through a bag keeps its data: URL.
+func TestSpreadForwardingImageBeatsNav(t *testing.T) {
 	var buf bytes.Buffer
 	gw := W(&buf)
-	// A force-owned prefix key must be SKIPPED (its forced attr owns it), matched
-	// case-insensitively; a non-excluded prefix key still writes (sanitized).
-	gw.SpreadURLPrefixed(context.Background(), Attrs{
-		{Key: "data-url-next", Value: "javascript:alert(1)"}, // force-owned → skipped
-		{Key: "Data-URL-Keep", Value: "/ok"},                 // not excluded → written
-	}, []string{"data-url-"}, []string{"data-url-next"})
+	gw.SpreadForwarding(context.Background(), Attrs{
+		{Key: "src", Value: "data:image/gif;base64,R0lGOD"},
+	}, []string{"src"}, []string{"src"}, nil, nil)
+	if want := ` src="data:image/gif;base64,R0lGOD"`; buf.String() != want {
+		t.Fatalf("SpreadForwarding image-beats-nav = %q want %q", buf.String(), want)
+	}
+}
+
+// TestSpreadForwardingNavRejectsDataImage confirms a data:image URL on a
+// NAV-classified key (not in imageNames) is rejected by the strict sink — the
+// image allowance is name-scoped, never global.
+func TestSpreadForwardingNavRejectsDataImage(t *testing.T) {
+	var buf bytes.Buffer
+	gw := W(&buf)
+	gw.SpreadForwarding(context.Background(), Attrs{
+		{Key: "href", Value: "data:image/png;base64,AAAA"},
+	}, []string{"href"}, nil, nil, nil)
+	if got := buf.String(); got != ` href="about:invalid#gsx"` {
+		t.Fatalf("SpreadForwarding nav must reject data:image = %q", got)
+	}
+}
+
+// TestSpreadForwardingExcludedCaseInsensitive verifies excluded matches fold
+// (HTML attr names fold), so a case-variant of a force-owned name is skipped —
+// the forced attr, emitted unguarded elsewhere, is the sole value.
+func TestSpreadForwardingExcludedCaseInsensitive(t *testing.T) {
+	var buf bytes.Buffer
+	gw := W(&buf)
+	gw.SpreadForwarding(context.Background(), Attrs{
+		{Key: "HREF", Value: "javascript:alert(1)"}, // force-owned via excluded → skipped entirely
+		{Key: "data-keep", Value: "ok"},
+	}, []string{"href"}, nil, nil, []string{"href"})
 	got := buf.String()
-	if strings.Contains(got, "data-url-next") {
-		t.Fatalf("SpreadURLPrefixed wrote a force-owned key: %q", got)
+	if strings.Contains(got, "HREF") || strings.Contains(got, "javascript:") {
+		t.Fatalf("SpreadForwarding wrote a force-owned case-variant key: %q", got)
 	}
-	if want := ` Data-URL-Keep="/ok"`; got != want {
-		t.Fatalf("SpreadURLPrefixed = %q want %q", got, want)
-	}
-}
-
-func TestSpreadURLPrefixedRawURL(t *testing.T) {
-	var buf bytes.Buffer
-	gw := W(&buf)
-	gw.SpreadURLPrefixed(context.Background(), Attrs{
-		{Key: "data-url-x", Value: RawURL("app://z")}, // author vouch passes verbatim
-	}, []string{"data-url-"}, nil)
-	if got := buf.String(); got != ` data-url-x="app://z"` {
-		t.Fatalf("SpreadURLPrefixed RawURL = %q", got)
+	if want := ` data-keep="ok"`; got != want {
+		t.Fatalf("SpreadForwarding = %q want %q", got, want)
 	}
 }

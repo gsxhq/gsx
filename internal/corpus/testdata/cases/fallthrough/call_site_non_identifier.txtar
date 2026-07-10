@@ -12,4 +12,4 @@ component Page() {
 Page()
 -- diagnostics.golden --
 -- render.golden --
-<button hx-post="/x" data-test="t">Go</button>
+<button data-test="t" hx-post="/x">Go</button>

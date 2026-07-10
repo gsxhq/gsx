@@ -22,4 +22,4 @@ func variantClass(v string) string { return "btn-" + v }
 Toolbar()
 -- diagnostics.golden --
 -- render.golden --
-<div><button type="button" class="btn btn-primary w-full" hx-post="/save" data-test="save" @click="go()">Save</button></div>
+<div><button type="button" class="btn btn-primary w-full" data-test="save" hx-post="/save" @click="go()">Save</button></div>
