@@ -28,21 +28,22 @@ func isGsxNamedType(t types.Type, name string) bool {
 }
 
 // isAttrsOnlyValueType reports whether t is one of the three attrs-only
-// component-value shapes gated by codegen.isAttrsOnlyCandidate /
-// codegen.attrsOnlySig at codegen time:
+// component-value shape gated by codegen.isAttrsOnlyCandidate /
+// codegen.attrsOnlySig at codegen time: a func with exactly one parameter and
+// one result, the result the named gsx.Node, and the parameter's underlying
+// type a *types.Slice whose element is exactly the named gsx.Attr (variadic
+// `...gsx.Attr`, or non-variadic — including a user-defined named slice type
+// sharing that underlying, e.g. `type MyAttrs []gsx.Attr`; codegen makes that
+// spelling sound with a call-site conversion, so go-to-definition must
+// recognize it too, not just gsx.Attrs/[]gsx.Attr).
 //
-//	func(gsx.Attrs) gsx.Node
-//	func([]gsx.Attr) gsx.Node
-//	func(...gsx.Attr) gsx.Node
-//
-// Mirrors codegen.attrsOnlySig exactly: the non-variadic param must be
-// assignable from gsx.Attrs (the named gsx.Attrs, or the unnamed []gsx.Attr —
-// identical underlying, one side unnamed), never a user-defined named type
-// sharing that underlying (two named types are not mutually assignable, so
-// codegen never resolves those tags as attrs-only values and go-to-definition
-// must not either). Alias-unwrapped, no generics, so go-to-definition
-// recognizes precisely the tags codegen resolves as attrs-only values — never
-// a same-named unrelated func/var.
+// Mirrors codegen.attrsOnlySig exactly, structurally — this function only
+// needs the ok signal (codegen's needsConvert only matters for emission,
+// never for whether a tag resolves as an attrs-only value at all). The
+// element check stays strict: a slice of a distinct defined type merely
+// sharing gsx.Attr's underlying is rejected. Alias-unwrapped, no generics, so
+// go-to-definition recognizes precisely the tags codegen resolves as
+// attrs-only values, never a same-named unrelated func/var.
 func isAttrsOnlyValueType(t types.Type) bool {
 	sig, ok := types.Unalias(t).(*types.Signature)
 	if !ok {
@@ -69,8 +70,16 @@ func isAttrsOnlyValueType(t types.Type) bool {
 	if isGsxNamedType(p, "Attrs") {
 		return true
 	}
-	sl, isSlice := types.Unalias(p).(*types.Slice)
-	return isSlice && isGsxNamedType(sl.Elem(), "Attr")
+	pu := types.Unalias(p)
+	if sl, isSlice := pu.(*types.Slice); isSlice && isGsxNamedType(sl.Elem(), "Attr") {
+		return true
+	}
+	if n, isNamed := pu.(*types.Named); isNamed {
+		if sl, isSlice := n.Underlying().(*types.Slice); isSlice && isGsxNamedType(sl.Elem(), "Attr") {
+			return true
+		}
+	}
+	return false
 }
 
 // attrsOnlyTagObject resolves a component tag name to its package-scope
