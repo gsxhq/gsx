@@ -38,15 +38,24 @@ loses nothing.
 
 ### B — declared bags get the forwarding machinery
 
-The forwarding classification extends from the token `attrs` to any spread
-whose base is a **declared `gsx.Attrs` prop field** (byo `p.Attrs`; the
-`attrsProps` facts already identify them), including derived forms
-(`.Without(…)`, `.Merge(…)`). Classified elements get the existing machinery
-unchanged: `Has`-guarded defaults before the spread, forced statics after,
-position-exempt `ClassMerged`/`StyleMerged`, one forwarding spread per
-element (second is the existing generate-time error). Emit ≡ probe: probe and
-emitter share the classifier. Local `gsx.Attrs` variables stay inline-emitted
-(follow-up; needs body-local type tracking).
+The forwarding classification extends from the token `attrs` to two more
+declared-bag spellings, each with its own fact source: a byo component's
+`p.Attrs` field (classified via `byoStruct.hasAttrs`, which gates on that
+exact field name — `analyze.go`'s byo path) and a **generated** component's
+own named `gsx.Attrs` param(s) (classified via the parsed param list with
+`isGsxAttrsType`, at the same point genComponent already builds the props
+struct). Both get derived forms too (`.Without(…)`, `.Merge(…)`). Classified
+elements get the existing machinery unchanged: `Has`-guarded defaults before
+the spread, forced statics after, position-exempt `ClassMerged`/
+`StyleMerged`, one forwarding spread per element (second is the existing
+generate-time error). Emit ≡ probe: probe and emitter share the classifier.
+Follow-ups (not implemented here): local `gsx.Attrs` variables stay
+inline-emitted (needs body-local type tracking); a byo struct's **second**
+`gsx.Attrs` field alongside `Attrs` (e.g. `Extra gsx.Attrs`) also stays
+inline-emitted — `attrsProps` is never populated for byo structs
+(`analyze.go:168-176` short-circuits to the byo branch before `genProps` runs,
+so only the `Attrs` field is classified, via `byoStruct.hasAttrs`); recognizing
+a second field needs new analysis facts, not just a wider `bagBases` scan.
 
 ### A — URL sanitization at the leaf, in generated code
 

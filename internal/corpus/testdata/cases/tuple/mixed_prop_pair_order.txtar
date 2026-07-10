@@ -56,8 +56,11 @@ func Card(_gsxp CardProps) _gsxrt.Node {
 //line input.gsx:10:7
 		_gsxgw.Text(string(a))
 //line input.gsx:10:10
+		_gsxv0 := bag
 		_gsxgw.S("<span")
-		_gsxgw.Spread(ctx, bag)
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
+		_gsxgw.StyleMerged("", _gsxv0.Style())
+		_gsxgw.Spread(ctx, _gsxv0.Without("class", "style"))
 		_gsxgw.S("/>")
 //line input.gsx:10:28
 		_gsxgw.Text(string(b))
@@ -76,19 +79,19 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		k := _gsxp.K
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxv0, _gsxerr := f(k)
+		_gsxv1, _gsxerr := f(k)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv1, _gsxerr := g(k)
+		_gsxv2, _gsxerr := g(k)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv2, _gsxerr := h(k)
+		_gsxv3, _gsxerr := h(k)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Card(CardProps{A: _gsxv0, Bag: _gsxrt.Attrs{{Key: "x", Value: _gsxv1}}, B: _gsxv2}))
+		_gsxgw.Node(ctx, Card(CardProps{A: _gsxv1, Bag: _gsxrt.Attrs{{Key: "x", Value: _gsxv2}}, B: _gsxv3}))
 		return _gsxgw.Err()
 	})
 }

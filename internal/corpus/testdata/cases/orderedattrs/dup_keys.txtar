@@ -37,8 +37,11 @@ func Card(_gsxp CardProps) _gsxrt.Node {
 		dupAttrs := _gsxp.DupAttrs
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
+		_gsxv0 := dupAttrs
 		_gsxgw.S("<div")
-		_gsxgw.Spread(ctx, dupAttrs)
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
+		_gsxgw.StyleMerged("", _gsxv0.Style())
+		_gsxgw.Spread(ctx, _gsxv0.Without("class", "style"))
 		_gsxgw.S("></div>")
 		return _gsxgw.Err()
 	})

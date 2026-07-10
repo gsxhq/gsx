@@ -257,6 +257,7 @@ fallthrough/manual_nullary_method	diag render
 fallthrough/manual_placement	diag render
 fallthrough/manual_split_container_bag	diag gen render
 fallthrough/manual_without	diag render
+fallthrough/named_bag_param	diag gen render
 fallthrough/no_class_empty_bag	diag render
 fallthrough/no_class_root_with_bag	diag render
 fallthrough/not_eligible_no_field	diag gen render
@@ -590,4 +591,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 592 cases (render: 472, error: 91, gen-pinned: 298)
+TOTAL: 593 cases (render: 473, error: 91, gen-pinned: 299)
