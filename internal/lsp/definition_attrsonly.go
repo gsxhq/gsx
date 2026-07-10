@@ -27,9 +27,9 @@ func isGsxNamedType(t types.Type, name string) bool {
 	return obj != nil && obj.Pkg() != nil && obj.Pkg().Path() == gsxRuntimePath && obj.Name() == name
 }
 
-// isAttrsOnlyValueType reports whether t is one of the three attrs-only
-// component-value shape gated by codegen.isAttrsOnlyCandidate /
-// codegen.attrsOnlySig at codegen time: a func with exactly one parameter and
+// isAttrsOnlyValueType reports whether t is an attrs-only component-value
+// shape: a func with exactly one parameter and one result, the result the
+// named gsx.Node, and the parameter's underlying type a *types.Slice whose
 // one result, the result the named gsx.Node, and the parameter's underlying
 // type a *types.Slice whose element is exactly the named gsx.Attr (variadic
 // `...gsx.Attr`, or non-variadic — including a user-defined named slice type
