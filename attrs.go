@@ -175,9 +175,8 @@ func (a Attrs) WithoutFunc(drop func(key string) bool) Attrs {
 
 // URLPrefixMatch reports whether key (ASCII-case-folded) begins with any of the
 // prefixes, which must already be lowercase. It is the single source of truth
-// for URL prefix-rule matching, consulted both by SpreadURLPrefixed (to write
-// prefix-matched bag keys through the strict URL sink) and by the residual
-// spread's WithoutFunc drop.
+// for URL prefix-rule matching, used by SpreadForwarding to route a prefix-matched
+// bag key through the strict navigational URL sink.
 func URLPrefixMatch(key string, prefixes []string) bool {
 	lk := strings.ToLower(key)
 	for _, p := range prefixes {
@@ -302,23 +301,34 @@ func (gw *Writer) Spread(ctx context.Context, a Attrs) {
 	}
 }
 
-// SpreadURLPrefixed writes the bag entries whose key matches a URL prefix rule
-// (URLPrefixMatch) through the strict navigational URL sink (URLVal), with the
-// same validity check and last-wins duplicate handling as Spread. It is emitted
-// at a forwarding element ONLY when the project configures URL prefix rules;
-// the residual Spread then excludes these keys. Prefix rules are user rules, so
-// they always use the strict sink — the built-in image-sink split (URLImageVal)
-// applies only to the built-in resource names.
+// SpreadForwarding is the single-pass writer for a forwarding element's residual
+// fallthrough bag: in ONE ordered walk it renders the plain attributes AND routes
+// every URL-classified key through its sanitizing sink, replacing the older
+// unrolled per-name GetFold extraction + SpreadURLPrefixed + residual Spread.
+// Generated code emits exactly one call, after the class/style merge site.
 //
-// excluded lists the attribute names a FORCED root attr owns at this element
-// (static forced names — always; a post-spread conditional's names — only when
-// its branch was taken, which is why codegen passes the runtime drop slice).
-// A prefix-matched key whose name is excluded (ASCII-case-insensitively) is
-// SKIPPED: the forced attr, emitted unguarded after the spread, is the sole
-// value. Without this a force-owned prefix key would render twice (this
-// sanitized bag copy plus the forced value) and the browser would honour the
-// first — the forced value would LOSE.
-func (gw *Writer) SpreadURLPrefixed(ctx context.Context, a Attrs, prefixes, excluded []string) {
+// It walks a in slice order, honoring lastValidAttrIndexes (scalar last-wins) and
+// validAttrName (structurally unsafe names dropped). excluded carries the names a
+// FORCED root attr owns at this element (class/style — merged separately; static
+// forced names — always; a post-spread conditional's names — only when its branch
+// was taken, which is why codegen passes the runtime drop slice); such a key is
+// SKIPPED so the owning site is the sole value. For each surviving key, matching
+// case-insensitively (HTML attr names fold, so a smuggled HREF/SRC cannot slip
+// past the sink):
+//   - a name in imageNames → URLImageVal (image-resource sink; data:image/* ok).
+//     Checked FIRST so a name that is both nav- and image-classified (e.g. src)
+//     takes the image sink.
+//   - a name in navNames, OR a key matching a URL prefix rule (URLPrefixMatch) →
+//     URLVal (strict navigational sink; prefix rules are user rules, always strict).
+//   - anything else → the plain Spread write (bool → BoolAttr, else key="value"
+//     attribute-escaped).
+//
+// navNames, imageNames and prefixes must already be lowercase. A RawURL value is
+// the author's vouch and is emitted verbatim (still attribute-escaped) by the URL
+// sinks. URL keys render IN their bag position — not hoisted ahead of the residual
+// as the old unrolled extraction did — so the bag's authored attribute order is
+// preserved. ctx is reserved for forward-compatibility.
+func (gw *Writer) SpreadForwarding(ctx context.Context, a Attrs, navNames, imageNames, prefixes, excluded []string) {
 	if gw.err != nil || len(a) == 0 {
 		return
 	}
@@ -327,17 +337,33 @@ func (gw *Writer) SpreadURLPrefixed(ctx context.Context, a Attrs, prefixes, excl
 		if !validAttrName(kv.Key) || last[kv.Key] != i {
 			continue
 		}
-		if !URLPrefixMatch(kv.Key, prefixes) {
-			continue
-		}
 		if attrNameExcluded(kv.Key, excluded) {
-			continue
+			continue // class/style/forced/dropVar owns this name
 		}
-		gw.writeStr(" ")
-		gw.writeStr(kv.Key)
-		gw.writeStr(`="`)
-		gw.URLVal(kv.Value)
-		gw.writeStr(`"`)
+		switch {
+		case attrNameExcluded(kv.Key, imageNames):
+			gw.writeStr(" ")
+			gw.writeStr(kv.Key)
+			gw.writeStr(`="`)
+			gw.URLImageVal(kv.Value)
+			gw.writeStr(`"`)
+		case attrNameExcluded(kv.Key, navNames) || URLPrefixMatch(kv.Key, prefixes):
+			gw.writeStr(" ")
+			gw.writeStr(kv.Key)
+			gw.writeStr(`="`)
+			gw.URLVal(kv.Value)
+			gw.writeStr(`"`)
+		default:
+			if b, ok := kv.Value.(bool); ok {
+				gw.BoolAttr(kv.Key, b)
+				continue
+			}
+			gw.writeStr(" ")
+			gw.writeStr(kv.Key)
+			gw.writeStr(`="`)
+			gw.AttrValue(toStr(kv.Value))
+			gw.writeStr(`"`)
+		}
 	}
 }
 
