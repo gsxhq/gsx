@@ -79,6 +79,10 @@ func componentPropFieldsFor(dir string, files map[string]*gsxast.File) (propFiel
 	attrsOut := map[string]map[string]bool{}
 	byo = newByoData()
 	byo.nullaryFuncs = packageNullaryFuncs(dir)
+	byo.typeNames = packageTypeNames(dir)
+	for name := range gsxChunkTypeNames(files) {
+		byo.typeNames[name] = true
+	}
 
 	// Discover author structs: those declared in .gsx GoChunks are read from the
 	// AST now; any candidate struct NOT found in the .gsx is enumerated via a
