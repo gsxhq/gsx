@@ -47,6 +47,17 @@ func TestGoExprElementParenWrapsAtTopLevel(t *testing.T) {
 	checkFormat(t, src, want)
 }
 
+// An attribute-broken element in Go-expression position is no longer flat, so
+// goWithElements wraps it in decorative parens with the tag on its own line —
+// fixing the ragged indent of a bare attr-broken value hanging off `var x = `.
+// The opening-tag BreakParent propagates to the children too (same as a CondAttr
+// or `//`-comment attr). checkFormat also asserts idempotence.
+func TestGoExprElementAttrBreakGetsParens(t *testing.T) {
+	src := "package main\n\nvar navIcon = <a\n\thref=\"/help\"\n\tclass=\"text-blue-600\"\n>?</a>\n"
+	want := "package main\n\nvar navIcon = (\n\t<a\n\t\thref=\"/help\"\n\t\tclass=\"text-blue-600\"\n\t>\n\t\t?\n\t</a>\n)\n"
+	checkFormat(t, src, want)
+}
+
 // The element is 12 characters and fits anywhere. The line is 103 columns
 // because of the Go fields around it. Breaking the element's parens does not
 // address that; breaking the literal's fields does.

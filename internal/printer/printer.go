@@ -419,6 +419,14 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 		}
 		attrs = append(attrs, pretty.Line, p.attrDoc(a))
 	}
+	if e.AttrsMultiline {
+		// The author broke the opening tag across lines; keep the attribute list
+		// block-formatted (one per line, `>` alone) instead of collapsing it onto
+		// a single line. Same mechanism as the `//` line-comment attr above. With
+		// no attributes there is no list to break (the parser never sets
+		// AttrsMultiline then), so this is a no-op for the len(e.Attrs)==0 branch.
+		attrs = append(attrs, pretty.BreakParent)
+	}
 	tag := pretty.Text(e.Tag)
 	if e.TypeArgs != "" {
 		tag = pretty.Concat(tag, pretty.Text("["), pretty.Text(fmtTypeArgs(e.TypeArgs)), pretty.Text("]"))
