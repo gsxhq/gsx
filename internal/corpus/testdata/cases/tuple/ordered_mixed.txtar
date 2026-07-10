@@ -42,8 +42,11 @@ func Card(_gsxp CardProps) _gsxrt.Node {
 		bag := _gsxp.Bag
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
+		_gsxv0 := bag
 		_gsxgw.S("<div")
-		_gsxgw.Spread(ctx, bag)
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
+		_gsxgw.StyleMerged("", _gsxv0.Style())
+		_gsxgw.Spread(ctx, _gsxv0.Without("class", "style"))
 		_gsxgw.S("/>")
 		return _gsxgw.Err()
 	})
@@ -59,11 +62,11 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		k := _gsxp.K
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
-		_gsxv0, _gsxerr := f(k)
+		_gsxv1, _gsxerr := f(k)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Card(CardProps{Bag: _gsxrt.Attrs{{Key: "x-a", Value: _gsxv0}, {Key: "x-b", Value: "lit"}}}))
+		_gsxgw.Node(ctx, Card(CardProps{Bag: _gsxrt.Attrs{{Key: "x-a", Value: _gsxv1}, {Key: "x-b", Value: "lit"}}}))
 		return _gsxgw.Err()
 	})
 }

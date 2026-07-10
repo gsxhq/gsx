@@ -39,8 +39,11 @@ func Box(_gsxp BoxProps) _gsxrt.Node {
 		bag := _gsxp.Bag
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
+		_gsxv0 := bag
 		_gsxgw.S("<div")
-		_gsxgw.Spread(ctx, bag)
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
+		_gsxgw.StyleMerged("", _gsxv0.Style())
+		_gsxgw.Spread(ctx, _gsxv0.Without("class", "style"))
 		_gsxgw.S(">x</div>")
 		return _gsxgw.Err()
 	})

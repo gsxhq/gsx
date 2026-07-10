@@ -13,4 +13,4 @@ component Row(extra gsx.Attrs) {
 	<div { attrs... } { extra... }>r</div>
 }
 -- diagnostics.golden --
-6:20: element with an attrs-forwarding spread cannot carry another spread { extra... }; merge them into one spread ({ attrs.Merge(extra)... } or { extra.Merge(attrs)... }) so precedence is explicit
+6:2: more than one attrs-referencing spread on an element; precedence is ambiguous

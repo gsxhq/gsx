@@ -587,7 +587,8 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 
 	// bagBases are the spread-base spellings that mark a FORWARDING spread on an
 	// element in THIS component's body: the bound `attrs` bag (generated/manual
-	// components, unchanged) plus a byo component's declared `<param>.Attrs` field.
+	// components, unchanged), a byo component's declared `<param>.Attrs` field,
+	// and (below) a generated component's own named `gsx.Attrs` param(s).
 	// Publishing `p.Attrs` here routes `{ p.Attrs... }` (and derived forms like
 	// `{ p.Attrs.Without("id")... }`) through the caller-wins / class-merge
 	// machinery instead of a duplicate-producing inline Spread. The byo bag field
@@ -597,6 +598,22 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 	if structName, isByo := byo.structTypeName(componentKey(c)); isByo {
 		if bs, ok := byo.isByoStruct(structName); ok && bs.hasAttrs && len(params) == 1 {
 			bagBases = append(bagBases, params[0].name+".Attrs")
+		}
+	}
+	// A GENERATED component's own named `gsx.Attrs` param (e.g.
+	// `component Chip(extra gsx.Attrs)`) is ALSO a forwarding base, under its
+	// bound body name: the param binds to a same-named local just like any other
+	// used param (the `used[p.name]` loop below), so `{ extra... }` (and derived
+	// forms like `{ extra.Without("id")... }`) must route through the
+	// caller-wins/class-merge machinery — not the duplicate-producing inline
+	// Spread path bagBases exists to avoid. spreadMatchesBase's bare-base branch
+	// already does whole-token matching (go/scanner, not substring), so `extra`
+	// cannot false-match `extraX`. Skipped on the byo branch above: a byo
+	// component's sole param there is the author's struct type name, never
+	// literally "gsx.Attrs".
+	for _, p := range params {
+		if isGsxAttrsType(p.typ) {
+			bagBases = append(bagBases, p.name)
 		}
 	}
 
