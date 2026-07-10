@@ -1007,6 +1007,20 @@ vocabulary remains a design aspiration, not the current API.
   `import` line is invisible to both the unused-import check and this
   resolver). Docs: `docs/guide/editor.md` §Organize imports on save. Spec
   `docs/superpowers/specs/2026-07-09-lsp-add-imports-design.md`.
+- [x] **Poison `.x.go` on generation failure - SHIPPED.** `gsx generate` no
+  longer leaves a stale `.x.go` on disk when a `.gsx` fails to parse or
+  type-check: it overwrites the sibling `.x.go` with a deliberately
+  non-compiling file carrying the real error (banner + `//line`-redirected
+  `GSX_GENERATION_FAILED__see_<file>` reference), so `go build` cannot
+  silently compile stale output - the build fails with a module-relative
+  error pointing at the broken `.gsx` (e.g.
+  `views/broken.gsx:4:14: undefined: GSX_GENERATION_FAILED__see_broken_gsx`).
+  Operational failures (I/O, a broken `go.mod`) leave files untouched. Spec
+  `docs/superpowers/specs/2026-07-10-poison-xgo-on-failure-design.md`.
+  **Follow-up (optional complement, not required):** a `gsx generate -check`
+  flag (templ-parity CI drift flag) that fails when a committed `.x.go` does
+  not match what generation would produce, for projects that want an explicit
+  CI gate in addition to (not instead of) poison files.
 
 ## Documentation backlog
 
