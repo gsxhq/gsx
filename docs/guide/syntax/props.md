@@ -14,7 +14,7 @@ The shape of a component's parameter list determines which model applies:
 | **Single named-struct param** `component Button(p Props)` | **Bring-your-own (byo)** — gsx uses the author's type directly; no wrapper generated | `func Button(p Props) gsx.Node` |
 | **Inline params** — multiple params or a single non-struct param | **Generated** `<Name>Props` — one field per param; `Children`/`Attrs` added when used | `func Greeting(p GreetingProps) gsx.Node` |
 | **Nullary** — zero non-receiver params | **No props struct** — unless `{children}` or the explicit `attrs` bag is used, in which case gsx grows a minimal props type automatically | `func Shell() gsx.Node` |
-| **Attrs-only func value** — a package-level `var`/`func` of type `func(gsx.Attrs) gsx.Node` or `func(...gsx.Attr) gsx.Node` | **Component value** — no props struct; every call-site attribute merges into one `gsx.Attrs` bag | The value's own type: `func(gsx.Attrs) gsx.Node` |
+| **Attrs-only func value** — a package-level `var`/`func` whose param is `gsx.Attrs`, `[]gsx.Attr`, or variadic `...gsx.Attr` | **Component value** — no props struct; every call-site attribute merges into one `gsx.Attrs` bag | The value's own type: `func(gsx.Attrs) gsx.Node` |
 :::
 
 The discriminator is *discoverable*: writing `(p Props)` where `Props` resolves to a named struct in the same package opts you onto the byo path. Receiver params (`component (p Page) Render()`) are not counted. The fourth model is different in kind from the other three — it isn't a `component` declaration at all, just a package-level value gsx recognizes by its static type; see [Attrs-only component values](#attrs-only-component-values) below.
@@ -61,19 +61,20 @@ When a field-by-field prop value returns `(T, error)` — for example `<Row labe
 
 ## Attrs-only component values
 
-A package-level `var` or `func` is tag-callable with no `<Name>Props` struct at all when its static type is exactly one of two shapes: `func(gsx.Attrs) gsx.Node` or `func(...gsx.Attr) gsx.Node`. This is the fourth model, a **component value** — the tag resolves to a plain Go value rather than a `component` declaration. It only applies when the callee's package has no `<Name>Props` type; when one exists, the byo/generated/nullary discriminator above wins exactly as before.
+A package-level `var` or `func` is tag-callable with no `<Name>Props` struct at all when its static type is one of three accepted shapes: `func(gsx.Attrs) gsx.Node`, `func([]gsx.Attr) gsx.Node`, or `func(...gsx.Attr) gsx.Node`. This is the fourth model, a **component value** — the tag resolves to a plain Go value rather than a `component` declaration. It only applies when the callee's package has no `<Name>Props` type; when one exists, the byo/generated/nullary discriminator above wins exactly as before.
 
-Recognition is by the identifier's real static type, not by matching a declaration shape. Any initializer works — `var HomeIcon = namedIcon("house")`, a factory call, a conditional expression — because gsx asks what type the identifier actually resolves to. A type alias works too: `type Component = func(...gsx.Attr) gsx.Node` is transparent to the type system, so a `var` declared through the alias is recognized the same way. The bare unnamed `func([]gsx.Attr) gsx.Node` is deliberately excluded — it's assignable to `gsx.Attrs` under the same underlying-slice-type rule, but only the *named* `gsx.Attrs` spelling is recognized.
+Recognition is by the identifier's real static type, not by matching a declaration shape. Any initializer works — `var HomeIcon = namedIcon("house")`, a factory call, a conditional expression — because gsx asks what type the identifier actually resolves to. A type alias works too: `type Component = func(...gsx.Attr) gsx.Node` is transparent to the type system, so a `var` declared through the alias is recognized the same way. The non-variadic param is accepted whenever it's *assignable from* `gsx.Attrs`: the named `gsx.Attrs` itself, or the unnamed slice `[]gsx.Attr` (an alias of `[]gsx.Attr` is likewise the unnamed slice and is accepted). A separately **named** type sharing that same underlying slice — `type MyAttrs []gsx.Attr` — is **not** tag-callable: `gsx.Attrs` isn't assignable to a second distinct named type, so gsx would have to emit a call that doesn't compile. Only `gsx.Attrs`, `[]gsx.Attr`, and `...gsx.Attr` are recognized; other named types are not.
 
-Both shapes are accepted because they serve different call sites:
+Three spellings are accepted because they serve different needs:
 
 - `func(gsx.Attrs) gsx.Node` takes the named bag type directly, so `.Has`, `.Merge`, and the rest of `gsx.Attrs`'s methods are available inside the function body with no conversion.
-- `func(...gsx.Attr) gsx.Node` is callable with zero arguments — `HomeIcon()` — which matters because most call sites, tag or plain Go, pass no attrs at all. The non-variadic form always needs an explicit `HomeIcon(nil)`.
+- `func([]gsx.Attr) gsx.Node` behaves identically to the `gsx.Attrs` shape at the call site (`Ident(bag)` / `Ident(nil)`) — a caller's `gsx.Attrs` value is assignable straight in — but the function body receives the unnamed slice, so `gsx.Attrs` methods need an explicit conversion (`gsx.Attrs(attrs)`) first.
+- `func(...gsx.Attr) gsx.Node` is callable with zero arguments — `HomeIcon()` — which matters because most call sites, tag or plain Go, pass no attrs at all. Both non-variadic forms always need an explicit `HomeIcon(nil)`.
 
 There's no field-matching step for this model — no struct, so nothing to match against. **Every** call-site attribute is fallthrough into one bag, merging in the same order as the synthesized `Attrs` bag above:
 
 ::: v-pre
-bare attrs and `{ x... }` spreads and conditional attrs merge in source order, and the `attrs={{ "k": v }}` ordered literal merges last regardless of where it appears — see [Attributes — targeting the synthesized attrs bag](./attributes.md#targeting-the-synthesized-attrs-bag). `<HomeIcon class="w-5 h-5"/>` compiles to `HomeIcon(gsx.Attrs{{Key: "class", Value: "w-5 h-5"}})` (the variadic form takes a trailing `...`); a call with no attrs compiles to `HomeIcon(nil)` or `HomeIcon()` respectively.
+bare attrs and `{ x... }` spreads and conditional attrs merge in source order, and the `attrs={{ "k": v }}` ordered literal merges last regardless of where it appears — see [Attributes — targeting the synthesized attrs bag](./attributes.md#targeting-the-synthesized-attrs-bag). `<HomeIcon class="w-5 h-5"/>` compiles to `HomeIcon(gsx.Attrs{{Key: "class", Value: "w-5 h-5"}})` for both non-variadic shapes (the variadic form takes a trailing `...`); a call with no attrs compiles to `HomeIcon(nil)` or `HomeIcon()` respectively.
 :::
 
 ::: v-pre
@@ -82,7 +83,7 @@ Every attribute on an attrs-only tag — bare, spread, conditional, or the `attr
 
 Component values don't support `{children}` — there's no field to receive it. Content between the tags on one of these is a generate-time error: "component values do not support children — declare a Children slot on a named-struct component instead." Struct fields, locals, and params are never tag-callable this way either: `<item.Icon/>` resolves `item` as a value rather than a package, so it stays on the `<Name>Props` convention path and fails there if no such struct exists.
 
-A type that matches neither signature gets a clean diagnostic naming what it actually found: `<X> is not tag-callable: its type is T, not func(gsx.Attrs) gsx.Node or func(...gsx.Attr) gsx.Node, and no XProps struct was found`.
+A type that matches none of the three shapes gets a clean diagnostic naming what it actually found: `<X> is not tag-callable: its type is T, not func(gsx.Attrs) gsx.Node, func([]gsx.Attr) gsx.Node, or func(...gsx.Attr) gsx.Node, and no XProps struct was found`.
 
 This is the escape from writing one wrapper `component` per call-site variation. A file of near-identical icon wrappers — one per icon, differing only in the name and the default `class` — collapses to one shared component plus a thin factory:
 

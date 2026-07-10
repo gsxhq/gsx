@@ -1,12 +1,55 @@
 package lsp
 
 import (
+	"go/token"
+	"go/types"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/gsxhq/gsx/internal/codegen"
 )
+
+// TestIsAttrsOnlyValueType mirrors codegen's TestAttrsOnlySig
+// (internal/codegen/attrsonly_test.go) shape-for-shape: isAttrsOnlyValueType
+// must recognize precisely the same three signatures attrsOnlySig accepts —
+// named gsx.Attrs, unnamed []gsx.Attr, and the variadic ...gsx.Attr — and
+// keep rejecting a user-defined named slice type sharing that underlying
+// (two named types are never mutually assignable, so codegen never resolves
+// such a tag as an attrs-only value and go-to-definition must not jump to it
+// either).
+func TestIsAttrsOnlyValueType(t *testing.T) {
+	pkg := types.NewPackage(gsxRuntimePath, "gsx")
+	attr := types.NewNamed(types.NewTypeName(token.NoPos, pkg, "Attr", nil), types.NewStruct(nil, nil), nil)
+	attrs := types.NewNamed(types.NewTypeName(token.NoPos, pkg, "Attrs", nil), types.NewSlice(attr), nil)
+	node := types.NewNamed(types.NewTypeName(token.NoPos, pkg, "Node", nil), types.NewInterfaceType(nil, nil), nil)
+	otherPkg := types.NewPackage("example.com/other", "other")
+	myAttrs := types.NewNamed(types.NewTypeName(token.NoPos, otherPkg, "MyAttrs", nil), types.NewSlice(attr), nil)
+
+	sig := func(variadic bool, param types.Type) *types.Signature {
+		params := types.NewTuple(types.NewVar(token.NoPos, nil, "attrs", param))
+		results := types.NewTuple(types.NewVar(token.NoPos, nil, "", node))
+		return types.NewSignatureType(nil, nil, nil, params, results, variadic)
+	}
+
+	cases := []struct {
+		name string
+		typ  types.Type
+		want bool
+	}{
+		{"named-attrs", sig(false, attrs), true},
+		{"unnamed-slice", sig(false, types.NewSlice(attr)), true},
+		{"variadic-attr", sig(true, types.NewSlice(attr)), true},
+		{"user-named-slice", sig(false, myAttrs), false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := isAttrsOnlyValueType(c.typ); got != c.want {
+				t.Errorf("isAttrsOnlyValueType(%s) = %v, want %v", c.typ, got, c.want)
+			}
+		})
+	}
+}
 
 // TestAttrsOnlyTagDeclAtSamePackage mirrors
 // internal/corpus/testdata/cases/attrsonly/factory_var.txtar: HomeIcon is a

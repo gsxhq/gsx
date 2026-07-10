@@ -65,17 +65,25 @@ func isAttrsOnlyCandidate(el *gsxast.Element, propFields map[string]map[string]b
 	return !byo.hasTypeName(propsType)
 }
 
-// attrsOnlySig reports whether t is exactly one of the two attrs-only
+// attrsOnlySig reports whether t is one of the three attrs-only
 // component-value shapes (spec:
 // docs/superpowers/specs/2026-07-07-attrs-only-component-values-design.md):
 //
 //	func(gsx.Attrs) gsx.Node
+//	func([]gsx.Attr) gsx.Node
 //	func(...gsx.Attr) gsx.Node
 //
-// Matching is by NAMED-type identity against the gsx package (path + name),
-// never structural: the assignability-accident spelling
-// func([]gsx.Attr) gsx.Node is deliberately excluded (spec §"The one shape
-// deliberately excluded"). Aliases are unwrapped first, so a userland
+// The non-variadic param must be ASSIGNABLE FROM gsx.Attrs: either the named
+// gsx.Attrs itself, or the unnamed slice type []gsx.Attr (identical
+// underlying, one side unnamed — the same rule Go's assignability check
+// applies). A user-defined named type sharing that underlying (type MyAttrs
+// []gsx.Attr) is NOT assignable from gsx.Attrs (two distinct named types) and
+// stays rejected: accepting it would emit an F(bag) call that fails to
+// compile. This used to exclude the unnamed-slice spelling too, as spelling
+// discipline left over from an abandoned syntactic (regex-based) design; under
+// go/types recognition only types exist, and the variadic form already hands
+// the component body an unnamed []gsx.Attr, so that ergonomic argument was
+// void. Aliases are unwrapped first, so a userland
 // `type Component = func(...gsx.Attr) gsx.Node` matches. Generic signatures
 // never match.
 func attrsOnlySig(t types.Type) (variadic, ok bool) {
@@ -102,10 +110,13 @@ func attrsOnlySig(t types.Type) (variadic, ok bool) {
 		}
 		return true, true
 	}
-	if !isGsxNamed(p, "Attrs") {
-		return false, false
+	if isGsxNamed(p, "Attrs") {
+		return false, true
 	}
-	return false, true
+	if sl, isSlice := types.Unalias(p).(*types.Slice); isSlice && isGsxNamed(sl.Elem(), "Attr") {
+		return false, true
+	}
+	return false, false
 }
 
 // isGsxNamed reports whether t is the named type gsx.<name> (matched by the

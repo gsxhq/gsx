@@ -3,7 +3,10 @@
 **Status:** design
 **Date:** 2026-07-07 (revised 2026-07-10 after probe review: recognition made
 probe-based on the existing `_gsxcompsig` emit≡probe loop, worked example
-corrected, class-merge fidelity addressed, forwarding alternative recorded)
+corrected, class-merge fidelity addressed, forwarding alternative recorded;
+further revised 2026-07-10: the unnamed `[]gsx.Attr` shape un-excluded and
+accepted, with a user-defined named slice type still rejected — see "The
+unnamed-slice shape — initially excluded, then accepted")
 **Follow-up to:** `2026-07-06-element-literals-design.md`, "Deferred: component values (`gsx.Component`)"
 
 ## Why this was parked, and why that reasoning breaks down
@@ -65,12 +68,17 @@ superseded.)
 Add a **4th props model** alongside byo / generated / nullary
 (`docs/guide/syntax/props.md`'s three-row table): **attrs-only func value**. A
 package-level identifier — `var` or `func` — is tag-callable if its type is
-exactly one of:
+one of:
 
 ```go
 func(gsx.Attrs) gsx.Node
+func([]gsx.Attr) gsx.Node
 func(...gsx.Attr) gsx.Node
 ```
+
+(The middle spelling — unnamed `[]gsx.Attr`, non-variadic — was initially
+excluded and later accepted; see "The unnamed-slice shape — initially
+excluded, then accepted" below for why.)
 
 ### Recognition rule — probe-based, real `go/types` resolution
 
@@ -85,9 +93,9 @@ back onto the tag elements (`analyze.go:2049`, `sigByName` →
 `resolved[el]`), and the emitter branches on the harvested
 `*types.Signature` (`emit.go:3741`). Today this resolves hand-written
 same-package **nullary** funcs (`isBareCallCandidate`). This model extends
-the same loop; recognition really is "the identifier's static type is
-exactly one of the two signatures", checked by `go/types` on the skeleton —
-no new syntactic machinery, no `packages.Load`, no closed list.
+the same loop; recognition really is "the identifier's static type is one of
+the accepted signatures", checked by `go/types` on the skeleton — no new
+syntactic machinery, no `packages.Load`, no closed list.
 
 **Gate (who gets probed).** The probe pass must decide *before* type-check
 whether to emit the assumed-`<Name>Props` literal probe (the convention
@@ -104,26 +112,40 @@ literal probes and generate-time diagnostics untouched.
 
 **Match (what the harvest accepts).** The harvested type's underlying
 `*types.Signature` must have exactly one parameter and one result, the
-result the named `gsx.Node`, and the parameter either the named `gsx.Attrs`
-(non-variadic) or `...gsx.Attr` (`sig.Variadic()` with element the named
-`gsx.Attr`). Named-type identity is checked against the gsx package path,
-so:
+result the named `gsx.Node`, and the parameter either:
+
+- variadic `...gsx.Attr` (`sig.Variadic()` with element the named `gsx.Attr`), or
+- non-variadic and **assignable from `gsx.Attrs`** — either the named
+  `gsx.Attrs` itself, or the unnamed slice `[]gsx.Attr` (identical
+  underlying type, one side unnamed — the same rule Go's assignability
+  check applies).
+
+The boundary is assignability, not a fixed enumeration: a user-defined named
+type sharing that underlying (`type MyAttrs []gsx.Attr`) is deliberately
+**not** matched, because `gsx.Attrs` is not assignable to a second distinct
+named type (two named types are never mutually assignable regardless of a
+shared underlying type) — matching it would emit an `F(bag)` call that
+fails to compile. Named-type identity (`gsx.Attrs`/`gsx.Attr`/`gsx.Node`) is
+checked against the gsx package path throughout, so:
 
 - any initializer works — `var HomeIcon = namedIcon("house")`, chained
   factories, conditionals — because `go/types` infers the var's type;
 - **type aliases work for free** (`type Component = func(...gsx.Attr)
   gsx.Node`; aliases are transparent to `go/types`), un-rejecting the
-  deferred note's original spelling;
-- the bare unnamed `func([]gsx.Attr) gsx.Node` is excluded precisely
-  (unnamed slice ≠ named `gsx.Attrs`), with no spelling analysis.
+  deferred note's original spelling; an alias *of* `[]gsx.Attr` is likewise
+  the unnamed slice and is accepted;
+- a user-defined **named** slice type is excluded precisely (it is not
+  assignable from `gsx.Attrs`), with no spelling analysis — the underlying
+  shape is irrelevant, only the named-vs-unnamed assignability fact is.
 
 **Probed-but-no-match is a new, required diagnostic.** For gated tags the
 `_gsxcompsig` probe *replaces* the assumed-props literal probe, so the old
 generate-time `undefined: <Name>Props` no longer surfaces from the skeleton.
-A probed identifier whose type matches neither signature therefore gets a
-clean positioned diagnostic at generate time ("`<X>` is not tag-callable:
-its type is `T`, not `func(gsx.Attrs) gsx.Node` or `func(...gsx.Attr)
-gsx.Node`, and no `XProps` struct was found") — strictly better than
+A probed identifier whose type matches none of the accepted shapes therefore
+gets a clean positioned diagnostic at generate time ("`<X>` is not
+tag-callable: its type is `T`, not `func(gsx.Attrs) gsx.Node`,
+`func([]gsx.Attr) gsx.Node`, or `func(...gsx.Attr) gsx.Node`, and no
+`XProps` struct was found") — strictly better than
 today's raw `undefined: XProps`, and required so diagnostics don't regress
 to `go build` time. A gated identifier that doesn't exist at all still
 surfaces as `undefined: X` from the probe itself, positioned at the tag.
@@ -179,19 +201,51 @@ The two shapes earn their keep on different axes:
   call sites — both tag call sites and any plain-Go call sites outside
   `.gsx` files — pass no attrs at all.
 
-### The one shape deliberately excluded
+### The unnamed-slice shape — initially excluded, then accepted
 
 Bare unnamed `func([]gsx.Attr) gsx.Node` (non-variadic, unnamed slice) is
-assignable to `gsx.Attrs` by the same rule and would be swept in "for free" by
-a naive underlying-type check. Exclude it explicitly: the harvest's match
-requires the *named* type `gsx.Attrs` (a `*types.Named` whose object lives in
-the gsx package) for the non-variadic form, never a structural
-underlying-type comparison. It buys nothing over `gsx.Attrs` (same
-data, worse readability, no method access without a conversion either) and
-existing only as an assignability accident, not a deliberate spelling. A corpus
-case should pin this as a rejection: the identifier is gated onto the probe
-(no `FooProps` struct exists), the harvest finds a non-matching signature,
-and the new "not tag-callable" diagnostic fires with the offending type
+assignable to `gsx.Attrs` by the same rule the variadic shape already relies
+on ("Why both shapes, not one" above). An earlier revision of this spec
+excluded it explicitly, requiring the harvest's non-variadic match to be the
+*named* type `gsx.Attrs` specifically (a `*types.Named` whose object lives in
+the gsx package), never a structural underlying-type comparison — reasoning
+that it "buys nothing over `gsx.Attrs`" and "exists only as an
+assignability accident, not a deliberate spelling."
+
+That exclusion was a holdover from an earlier, abandoned design for this
+same feature: a *syntactic* closed list of declaration shapes, where
+"spelling discipline" was a meaningful concept because the matcher worked on
+source text. That design was rejected in favor of the probe-based
+`go/types` recognition rule actually shipped above ("Recognition rule —
+probe-based, real `go/types` resolution") — and under real type-checking,
+spellings don't exist, only types do. The variadic shape already hands the
+component body an *unnamed* `[]gsx.Attr` (the parameter collapses; see "Why
+both shapes, not one"), so "the unnamed spelling is worse ergonomically"
+was never true of the feature as shipped — it was only ever true of the
+named non-variadic declaration, which coexists with the unnamed one anyway.
+Once the actual boundary is stated as an assignability rule instead of a
+named-vs-unnamed spelling preference, excluding the unnamed slice took *more*
+code than accepting it (an extra special case carved out of the general
+rule), for a benefit ("discourage a worse spelling") the type system already
+provides for free, since nothing stops an author preferring `gsx.Attrs` for
+its method access regardless of what the matcher accepts.
+
+**The real, still-enforced boundary:** the non-variadic parameter must be
+*assignable from* `gsx.Attrs` — the named `gsx.Attrs` itself, or the unnamed
+`[]gsx.Attr` (one side unnamed, identical underlying — ordinary Go
+assignability). A **user-defined named** type sharing that underlying
+(`type MyAttrs []gsx.Attr`) remains rejected, and this is not a stylistic
+choice: `gsx.Attrs` is not assignable to a second, distinct named type (Go
+never treats two named types as mutually assignable no matter how their
+underlying types relate), so matching `MyAttrs` would make the emitter emit
+`F(bag)` where `bag` has type `gsx.Attrs` against a parameter of type
+`MyAttrs` — a call that fails to compile. This is corpus-pinned: an
+acceptance case for the unnamed slice
+(`internal/corpus/testdata/cases/attrsonly/unnamed_slice.txtar`) and a
+rejection case for the user-named slice type
+(`internal/corpus/testdata/cases/attrsonly/reject_named_slice_type.txtar`),
+the latter still gated onto the probe (no `FooProps` struct exists) and
+still hitting the "not tag-callable" diagnostic with the offending type
 spelled out.
 
 ### `{children}` is not supported
@@ -415,11 +469,15 @@ work. Nothing in this spec blocks or depends on it.
 
 - Does not change the existing byo / generated / nullary discriminator or any
   existing corpus case for `component`-declared identifiers.
-- Exactly two accepted signatures — `func(gsx.Attrs) gsx.Node` and
-  `func(...gsx.Attr) gsx.Node` — not a general "anything assignable to
-  `[]gsx.Attr`" rule, and no `(gsx.Node, error)` variants (see "Proposal"
-  above). The bare unnamed `[]gsx.Attr` exclusion is deliberate and
-  corpus-pinned.
+- Three accepted param spellings — named `gsx.Attrs`, unnamed `[]gsx.Attr`,
+  and variadic `...gsx.Attr` — governed by one rule, "assignable from
+  `gsx.Attrs`" (plus variadic), not a fixed enumeration and not a general
+  "anything with the same underlying type" rule: a user-defined named slice
+  type (`type MyAttrs []gsx.Attr`) stays rejected because `gsx.Attrs` is not
+  assignable to it (see "The unnamed-slice shape — initially excluded, then
+  accepted" above). No `(gsx.Node, error)` variants (see "Proposal" above).
+  Both the acceptance (unnamed slice) and the rejection (user-named slice
+  type) are corpus-pinned.
 - **Package-level identifiers only**, plain (`<HomeIcon/>`) or
   package-qualified (`<ui.HomeIcon/>`). Struct fields, locals, and params
   (`<item.Icon/>` where `Icon` is a field of type `func(gsx.Attrs) gsx.Node`)
@@ -469,13 +527,15 @@ work. Nothing in this spec blocks or depends on it.
   (pinning `Ident(nil)`/`Ident()` emission); an attrs-merge-order case
   (bare + spread + conditional + ordered-literal together) pinning that they
   land in one bag in source order.
-- **Corpus rejection cases** (each pinned with its diagnostic): bare unnamed
-  `func([]gsx.Attr) gsx.Node`-typed var and an extra-`error`-result func —
-  both gated onto the probe, both hitting the new "not tag-callable"
-  diagnostic; a non-package-level callee (`<item.Icon/>` struct field, never
-  gated); a children-supplied-but-unsupported error case with its
-  diagnostic; an undefined-identifier tag pinning the positioned
-  `undefined: X` from the probe.
+- **Corpus rejection cases** (each pinned with its diagnostic): a
+  user-defined named slice type (`type MyAttrs []gsx.Attr`)-typed var and an
+  extra-`error`-result func — both gated onto the probe, both hitting the
+  new "not tag-callable" diagnostic; a non-package-level callee
+  (`<item.Icon/>` struct field, never gated); a children-supplied-but-
+  unsupported error case with its diagnostic; an undefined-identifier tag
+  pinning the positioned `undefined: X` from the probe. The bare unnamed
+  `func([]gsx.Attr) gsx.Node`-typed var moved to an **acceptance** case (it
+  is now a matched shape, not a rejection).
 - **Worked-example fidelity case**: a byo component with a
   default-class-in-bag `Merge` spread (the corrected `renderNamedIcon`
   pattern) pinning that exactly ONE `class` attribute renders, default

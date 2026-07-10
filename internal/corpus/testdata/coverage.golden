@@ -34,9 +34,10 @@ attrsonly/merge_order	diag gen render
 attrsonly/reject_children	diag(error)
 attrsonly/reject_error_result	diag(error)
 attrsonly/reject_field_callee	diag(error)
+attrsonly/reject_named_slice_type	diag(error)
 attrsonly/reject_shadowed_qualifier	diag(error)
 attrsonly/reject_undefined	diag(error)
-attrsonly/reject_unnamed_slice	diag(error)
+attrsonly/unnamed_slice	diag gen render
 bodyinterp/bare_backtick_no_interp	diag gen render
 bodyinterp/escaped_hole	diag gen render
 bodyinterp/f_body_is_markup_template	diag gen render
@@ -581,4 +582,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 583 cases (render: 464, error: 90, gen-pinned: 290)
+TOTAL: 584 cases (render: 465, error: 90, gen-pinned: 291)

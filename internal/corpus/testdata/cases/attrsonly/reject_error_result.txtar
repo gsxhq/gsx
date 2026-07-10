@@ -14,4 +14,4 @@ component Page() {
 	<Bad2 class="x"/>
 }
 -- diagnostics.golden --
-4:2: <Bad2> is not tag-callable: its type is func(attrs gsx.Attrs) (gsx.Node, error), not func(gsx.Attrs) gsx.Node or func(...gsx.Attr) gsx.Node, and no Bad2Props struct was found
+4:2: <Bad2> is not tag-callable: its type is func(attrs gsx.Attrs) (gsx.Node, error), not func(gsx.Attrs) gsx.Node, func([]gsx.Attr) gsx.Node, or func(...gsx.Attr) gsx.Node, and no Bad2Props struct was found
