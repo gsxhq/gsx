@@ -66,7 +66,7 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		extra := _gsxp.Extra
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Panel(PanelProps{Attrs: _gsxrt.Attrs{{Key: "data-a", Value: "1"}}.Merge(extra).Merge(_gsxrt.Attrs{{Key: "data-b", Value: "2"}}), Children: _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
+		_gsxgw.Node(ctx, Panel(PanelProps{Attrs: _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-a", Value: "1"}}, extra, _gsxrt.Attrs{{Key: "data-b", Value: "2"}}), Children: _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 			_gsxgw.S("p")
 			return _gsxgw.Err()

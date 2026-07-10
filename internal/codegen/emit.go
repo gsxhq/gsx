@@ -4022,7 +4022,7 @@ outer:
 				}
 				sb.WriteString("}")
 				if fe.oaMergePrefix != "" {
-					fieldEntries[i].str = fmt.Sprintf("Attrs: %s.Merge(%s)", fe.oaMergePrefix, sb.String())
+					fieldEntries[i].str = fmt.Sprintf("Attrs: %s.ConcatAttrs(%s, %s)", rt.rt(), fe.oaMergePrefix, sb.String())
 				} else {
 					fieldEntries[i].str = fmt.Sprintf("%s: %s", fe.fieldName, sb.String())
 				}
@@ -4402,11 +4402,12 @@ func genSkippedTagSink(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 			}
 		case fe.oa != nil:
 			// Sink each ordered-attrs pair VALUE individually (the keys are
-			// string constants), tuple-aware; the merge-prefix bag expression
-			// (composed from fallthrough attr values) is sunk too so its
-			// references stay used.
+			// string constants), tuple-aware; the concat-prefix bag args
+			// (composed from fallthrough attr values) are sunk too so their
+			// references stay used. oaMergePrefix is the comma-separated arg
+			// list, so wrap it back into a single ConcatAttrs call expression.
 			if fe.oaMergePrefix != "" {
-				sinkValue(fe.oaMergePrefix)
+				sinkValue(fmt.Sprintf("%s.ConcatAttrs(%s)", rt.rt(), fe.oaMergePrefix))
 			}
 			for j, pr := range fe.oaPairs {
 				if t, ok := resolved[&fe.oa.Pairs[j]].(*types.Tuple); ok && t.Len() > 1 {
@@ -4510,7 +4511,7 @@ type propFieldEntry struct {
 	oa            *ast.OrderedAttrsAttr // non-nil iff this entry came from an ordered-attrs attr
 	oaPairs       []oaPairEntry         // per-pair info when oa != nil
 	oaLit         string                // bare `<rtPkg>.Attrs{…}` literal text for an Attrs-targeted ordered-attrs attr (fieldName == "Attrs")
-	oaMergePrefix string                // composed fallthrough-bag expression the literal merges onto; "" when the literal stands alone
+	oaMergePrefix string                // comma-separated ConcatAttrs prefix args (base literal + spread/cond segments) the literal concatenates after; "" when the literal stands alone. The full field is `<rtPkg>.ConcatAttrs(<oaMergePrefix>, <oaLit>)`.
 	inferField    string
 	inferArg      string
 }
@@ -4556,8 +4557,8 @@ const attrsOnlyPropsKey = "attrsonly.bag"
 // attrsOnlyBagExpr builds the single gsx.Attrs expression for an attrs-only
 // component-value call site by reusing childPropsLiteral's fallthrough assembly
 // with a synthetic declared-field set of {"Attrs"}: every call-site attr is
-// fallthrough; spreads become .Merge(...) links; an attrs={{ }} ordered literal
-// targets the bag and merges last — all existing behavior, no new merge code.
+// fallthrough; spreads become ConcatAttrs(...) segments; an attrs={{ }} ordered
+// literal targets the bag and concatenates last — all existing behavior.
 // Returns "" when the tag has no attrs at all.
 //
 // The single returned entry is run through the SAME (T, error) tuple rejection +
@@ -4632,7 +4633,7 @@ func attrsOnlyBagExpr(el *ast.Element, rtPkg, mergeExpr string, table filterTabl
 			}
 			sb.WriteString("}")
 			if fe.oaMergePrefix != "" {
-				fe.str = fmt.Sprintf("Attrs: %s.Merge(%s)", fe.oaMergePrefix, sb.String())
+				fe.str = fmt.Sprintf("Attrs: %s.ConcatAttrs(%s, %s)", rtPkg, fe.oaMergePrefix, sb.String())
 			} else {
 				fe.str = fmt.Sprintf("%s: %s", fe.fieldName, sb.String())
 			}
@@ -4770,9 +4771,9 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 	}
 
 	usedPkgs = map[string]string{}
-	var bag []string        // fallthrough base-literal entries: `"<rawName>": <value>`
-	var mergeChain []string // `.Merge(<spread>)` / `.Merge(<rtPkg>.AttrsCond(...))` in source order
-	attrsLitIdx := -1       // index into fields of an Attrs-targeted ordered-attrs literal, or -1
+	var bag []string      // fallthrough base-literal entries: `"<rawName>": <value>`
+	var segments []string // bare ConcatAttrs segment exprs (<spread> / <rtPkg>.AttrsCond(...)) in source order
+	attrsLitIdx := -1     // index into fields of an Attrs-targeted ordered-attrs literal, or -1
 	// recordPkgs merges a lowerPipe usedPkgs result into the shared set.
 	recordPkgs := func(used map[string]string) {
 		maps.Copy(usedPkgs, used)
@@ -4922,7 +4923,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				recordPkgs(used)
 				spreadExpr = lowered
 			}
-			mergeChain = append(mergeChain, fmt.Sprintf(".Merge(%s)", spreadExpr))
+			segments = append(segments, spreadExpr)
 		case *ast.CondAttr:
 			// One uniform lowering: condAttrsExpr always emits an AttrsCond(...) call
 			// whose branches are (Attrs, error) thunks with thunk-local hoists for any
@@ -4939,7 +4940,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 			} else {
 				condExpr = hoistTuple(b, condExpr, interpTemp)
 			}
-			mergeChain = append(mergeChain, fmt.Sprintf(".Merge(%s)", condExpr))
+			segments = append(segments, condExpr)
 		case *ast.OrderedAttrsAttr:
 			fn, ok := matchOrderedAttrsField(declared, t.Name, fm)
 			if !ok {
@@ -5020,24 +5021,38 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 		}
 		fields = append(fields, propFieldEntry{str: "Children: " + val})
 	}
-	if len(bag) > 0 || len(mergeChain) > 0 {
+	if len(bag) > 0 || len(segments) > 0 {
 		// BYO: unmatched attrs route to an explicit `Attrs gsx.Attrs` field. Missing
 		// → a clear error (the author adds it and spreads it in the markup).
 		if isByoChild && !byoStr.hasAttrs {
 			msg := fmt.Sprintf("attribute on <%s> matches no field of its Props type %s and %s has no `Attrs gsx.Attrs` field", el.Tag, propsType, propsType)
 			return nil, "", nil, &attrError{pos: el.Pos(), end: el.End(), code: "byo-missing-attrs", msg: msg}
 		}
-		attrsExpr := fmt.Sprintf("%s.Attrs{%s}", rtPkg, strings.Join(bag, ", "))
-		attrsExpr += strings.Join(mergeChain, "")
+		// Call-site bags CONCATENATE — last-wins/aggregation is resolved at the
+		// leaf, so the composition never eagerly merges (a component may iterate
+		// its raw bag). parts = base literal (omitted when the bag is empty) +
+		// each spread/cond segment in source order; an attrs={{ }} ordered literal
+		// is always concatenated LAST (merge-last rule).
+		var parts []string
+		if len(bag) > 0 {
+			parts = append(parts, fmt.Sprintf("%s.Attrs{%s}", rtPkg, strings.Join(bag, ", ")))
+		}
+		parts = append(parts, segments...) // parts is non-empty (block guard)
 		if attrsLitIdx >= 0 {
 			// An explicit attrs={{ }} literal coexists with other bag
 			// contributors: fold them into ONE Attrs field — the composed bag
-			// first, the literal merged last — instead of emitting a duplicate
-			// struct field. The hoist pass rebuilds this composition when pair
-			// values are hoisted, keyed off oaMergePrefix.
-			fields[attrsLitIdx].oaMergePrefix = attrsExpr
-			fields[attrsLitIdx].str = fmt.Sprintf("Attrs: %s.Merge(%s)", attrsExpr, fields[attrsLitIdx].oaLit)
+			// first, the literal concatenated last — instead of emitting a
+			// duplicate struct field. The hoist pass rebuilds this composition
+			// when pair values are hoisted, keyed off oaMergePrefix (the
+			// comma-separated prefix args before the literal).
+			prefix := strings.Join(parts, ", ")
+			fields[attrsLitIdx].oaMergePrefix = prefix
+			fields[attrsLitIdx].str = fmt.Sprintf("Attrs: %s.ConcatAttrs(%s, %s)", rtPkg, prefix, fields[attrsLitIdx].oaLit)
+		} else if len(segments) == 0 {
+			// base literal only — keep the plain form (no wrapper), zero churn.
+			fields = append(fields, propFieldEntry{str: "Attrs: " + parts[0]})
 		} else {
+			attrsExpr := fmt.Sprintf("%s.ConcatAttrs(%s)", rtPkg, strings.Join(parts, ", "))
 			fields = append(fields, propFieldEntry{str: "Attrs: " + attrsExpr})
 		}
 	}

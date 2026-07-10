@@ -62,7 +62,7 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		extra := _gsxp.Extra
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.Node(ctx, Card(CardProps{Title: _gsxrt.Text("Hi"), Attrs: _gsxrt.Attrs{}.Merge(extra)}))
+		_gsxgw.Node(ctx, Card(CardProps{Title: _gsxrt.Text("Hi"), Attrs: _gsxrt.ConcatAttrs(extra)}))
 		return _gsxgw.Err()
 	})
 }

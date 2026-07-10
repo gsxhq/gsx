@@ -67,7 +67,7 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Field(FieldProps{Label: "Category", Attrs: _gsxrt.Attrs{}.Merge(_gsxv0)}))
+		_gsxgw.Node(ctx, Field(FieldProps{Label: "Category", Attrs: _gsxrt.ConcatAttrs(_gsxv0)}))
 		return _gsxgw.Err()
 	})
 }
