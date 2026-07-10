@@ -12,12 +12,15 @@ import (
 
 // TestIsAttrsOnlyValueType mirrors codegen's TestAttrsOnlySig
 // (internal/codegen/attrsonly_test.go) shape-for-shape: isAttrsOnlyValueType
-// must recognize precisely the same three signatures attrsOnlySig accepts —
-// named gsx.Attrs, unnamed []gsx.Attr, and the variadic ...gsx.Attr — and
-// keep rejecting a user-defined named slice type sharing that underlying
-// (two named types are never mutually assignable, so codegen never resolves
-// such a tag as an attrs-only value and go-to-definition must not jump to it
-// either).
+// must recognize precisely the same signatures attrsOnlySig accepts: named
+// gsx.Attrs, unnamed []gsx.Attr, the variadic ...gsx.Attr, and any
+// user-defined named slice type sharing that underlying (codegen makes that
+// spelling sound via a call-site conversion — see attrsOnlySig's
+// needsConvert — and go-to-definition only needs the ok signal, not the
+// conversion decision) — while still rejecting a slice whose ELEMENT is a
+// distinct defined type merely sharing gsx.Attr's underlying (slice
+// conversions require identical element types, not just identical underlying
+// element types).
 func TestIsAttrsOnlyValueType(t *testing.T) {
 	pkg := types.NewPackage(gsxRuntimePath, "gsx")
 	attr := types.NewNamed(types.NewTypeName(token.NoPos, pkg, "Attr", nil), types.NewStruct(nil, nil), nil)
@@ -25,6 +28,10 @@ func TestIsAttrsOnlyValueType(t *testing.T) {
 	node := types.NewNamed(types.NewTypeName(token.NoPos, pkg, "Node", nil), types.NewInterfaceType(nil, nil), nil)
 	otherPkg := types.NewPackage("example.com/other", "other")
 	myAttrs := types.NewNamed(types.NewTypeName(token.NoPos, otherPkg, "MyAttrs", nil), types.NewSlice(attr), nil)
+	// type myAttr gsx.Attr; type MyAttrs2 []myAttr — the element is a distinct
+	// defined type sharing gsx.Attr's underlying, not gsx.Attr itself.
+	definedElem := types.NewNamed(types.NewTypeName(token.NoPos, otherPkg, "myAttr", nil), attr.Underlying(), nil)
+	namedSliceOfDefinedElem := types.NewNamed(types.NewTypeName(token.NoPos, otherPkg, "MyAttrs2", nil), types.NewSlice(definedElem), nil)
 
 	sig := func(variadic bool, param types.Type) *types.Signature {
 		params := types.NewTuple(types.NewVar(token.NoPos, nil, "attrs", param))
@@ -40,7 +47,8 @@ func TestIsAttrsOnlyValueType(t *testing.T) {
 		{"named-attrs", sig(false, attrs), true},
 		{"unnamed-slice", sig(false, types.NewSlice(attr)), true},
 		{"variadic-attr", sig(true, types.NewSlice(attr)), true},
-		{"user-named-slice", sig(false, myAttrs), false},
+		{"user-named-slice", sig(false, myAttrs), true},
+		{"named-slice-defined-elem", sig(false, namedSliceOfDefinedElem), false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -65,58 +65,68 @@ func isAttrsOnlyCandidate(el *gsxast.Element, propFields map[string]map[string]b
 	return !byo.hasTypeName(propsType)
 }
 
-// attrsOnlySig reports whether t is one of the three attrs-only
-// component-value shapes (spec:
-// docs/superpowers/specs/2026-07-07-attrs-only-component-values-design.md):
-//
-//	func(gsx.Attrs) gsx.Node
-//	func([]gsx.Attr) gsx.Node
-//	func(...gsx.Attr) gsx.Node
-//
-// The non-variadic param must be ASSIGNABLE FROM gsx.Attrs: either the named
-// gsx.Attrs itself, or the unnamed slice type []gsx.Attr (identical
-// underlying, one side unnamed — the same rule Go's assignability check
-// applies). A user-defined named type sharing that underlying (type MyAttrs
-// []gsx.Attr) is NOT assignable from gsx.Attrs (two distinct named types) and
-// stays rejected: accepting it would emit an F(bag) call that fails to
-// compile. This used to exclude the unnamed-slice spelling too, as spelling
-// discipline left over from an abandoned syntactic (regex-based) design; under
-// go/types recognition only types exist, and the variadic form already hands
-// the component body an unnamed []gsx.Attr, so that ergonomic argument was
-// void. Aliases are unwrapped first, so a userland
-// `type Component = func(...gsx.Attr) gsx.Node` matches. Generic signatures
-// never match.
-func attrsOnlySig(t types.Type) (variadic, ok bool) {
+// attrsOnlySig reports whether t is an attrs-only component-value shape
+// (spec: docs/superpowers/specs/2026-07-07-attrs-only-component-values-design.md):
+// a func with exactly one parameter and one result, the result the named
+// gsx.Node, and the parameter's underlying type (types.Unalias, then — for a
+// defined param type — Named.Underlying(), which already resolves
+// transitively through a chain of defined types) a *types.Slice whose element
+// is exactly the named gsx.Attr — or, variadically, `...gsx.Attr`. The
+// boundary is purely structural now: element and result identity are the only
+// checks. This subsumes the earlier "assignable from gsx.Attrs" rule (which
+// rejected any user-defined named slice type) — accepting a defined param
+// type is made SOUND by a call-site conversion (attrsonly-bag emission wraps
+// the bag: `F([]gsx.Attr(bag))`; []gsx.Attr assigns to any named type sharing
+// that underlying, one side unnamed, same rule Go's assignability check
+// applies), so there is no longer a compile-failure risk to guard against.
+// needsConvert reports whether the emitter must insert that conversion: true
+// exactly when the match is non-variadic AND the param is neither the named
+// gsx.Attrs itself nor an unnamed []gsx.Attr (both already assign directly,
+// so wrapping them would be redundant, and — for gsx.Attrs — would change
+// nothing since it's already the bag's own type). The element check stays
+// strict: a slice of a DEFINED type sharing gsx.Attr's underlying (e.g. type
+// myAttr gsx.Attr) is rejected, because slice conversions in Go require
+// identical element types, not merely identical underlying element types —
+// []myAttr(bag) does not compile when bag is gsx.Attrs. Aliases are unwrapped
+// first, so a userland `type Component = func(...gsx.Attr) gsx.Node` matches.
+// Generic signatures never match.
+func attrsOnlySig(t types.Type) (variadic, needsConvert, ok bool) {
 	sig, isSig := types.Unalias(t).(*types.Signature)
 	if !isSig {
 		if n, isNamed := types.Unalias(t).(*types.Named); isNamed {
 			sig, isSig = n.Underlying().(*types.Signature)
 		}
 		if !isSig {
-			return false, false
+			return false, false, false
 		}
 	}
 	if sig.TypeParams().Len() != 0 || sig.Params().Len() != 1 || sig.Results().Len() != 1 {
-		return false, false
+		return false, false, false
 	}
 	if !isGsxNamed(sig.Results().At(0).Type(), "Node") {
-		return false, false
+		return false, false, false
 	}
 	p := sig.Params().At(0).Type()
 	if sig.Variadic() {
 		sl, isSlice := types.Unalias(p).(*types.Slice)
 		if !isSlice || !isGsxNamed(sl.Elem(), "Attr") {
-			return false, false
+			return false, false, false
 		}
-		return true, true
+		return true, false, true
 	}
 	if isGsxNamed(p, "Attrs") {
-		return false, true
+		return false, false, true
 	}
-	if sl, isSlice := types.Unalias(p).(*types.Slice); isSlice && isGsxNamed(sl.Elem(), "Attr") {
-		return false, true
+	pu := types.Unalias(p)
+	if sl, isSlice := pu.(*types.Slice); isSlice && isGsxNamed(sl.Elem(), "Attr") {
+		return false, false, true
 	}
-	return false, false
+	if n, isNamed := pu.(*types.Named); isNamed {
+		if sl, isSlice := n.Underlying().(*types.Slice); isSlice && isGsxNamed(sl.Elem(), "Attr") {
+			return false, true, true
+		}
+	}
+	return false, false, false
 }
 
 // isGsxNamed reports whether t is the named type gsx.<name> (matched by the

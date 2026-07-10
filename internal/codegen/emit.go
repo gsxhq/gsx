@@ -3759,9 +3759,11 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 	}
 	// Attrs-only component value: a same-package tag with no <Name>Props type,
 	// gated onto the _gsxcompsig probe (isAttrsOnlyCandidate). When harvest
-	// resolved its type to one of the three attrs-only signatures, emit a bag call
-	// F(bag) / F(bag...) instead of the (nonexistent) FProps convention. emit ≡
-	// probe: emitProbes gates the identical predicate.
+	// resolved its type to an attrs-only signature (attrsOnlySig), emit a bag
+	// call F(bag) / F(bag...) instead of the (nonexistent) FProps convention —
+	// wrapped in a []gsx.Attr conversion (needsConvert) when the param is a
+	// user-defined named slice type. emit ≡ probe: emitProbes gates the
+	// identical predicate.
 	if isAttrsOnlyCandidate(el, structFields, byo, recvVar, recvTypeName) {
 		// The name-based gate fired on a dotted tag whose qualifier is a known
 		// gsx import alias, but harvest found that alias SHADOWED by a same-named
@@ -3779,7 +3781,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 			return false
 		}
 		if t, probed := resolved[el]; probed {
-			if variadic, match := attrsOnlySig(t); match {
+			if variadic, needsConvert, match := attrsOnlySig(t); match {
 				if len(el.Children) > 0 {
 					bag.Errorf(el.Pos(), el.End(), "attrsonly-children",
 						"component values do not support children — declare a Children slot on a named-struct component instead")
@@ -3796,6 +3798,17 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 				}
 				for _, path := range usedPkgs {
 					imports[path] = true
+				}
+				// needsConvert (set only for a non-variadic, defined param
+				// type other than the named gsx.Attrs — see attrsOnlySig's
+				// doc comment) wraps the bag expression in a conversion to
+				// the unnamed []gsx.Attr, which assigns to ANY named type
+				// sharing that underlying (one side unnamed, same rule Go's
+				// assignability check applies) — this is what makes accepting
+				// an arbitrary user-defined named slice type sound. nil
+				// already assigns to any slice type with no conversion.
+				if needsConvert && expr != "" {
+					expr = fmt.Sprintf("[]%s.Attr(%s)", rt.rt(), expr)
 				}
 				switch {
 				case expr == "" && variadic:
@@ -3822,7 +3835,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 				return p.Name()
 			}
 			bag.Errorf(el.Pos(), el.End(), "attrsonly-bad-type",
-				"<%s> is not tag-callable: its type is %s, not func(gsx.Attrs) gsx.Node, func([]gsx.Attr) gsx.Node, or func(...gsx.Attr) gsx.Node, and no %sProps struct was found",
+				"<%s> is not tag-callable: its type is %s, not a component-value signature (one parameter with underlying type []gsx.Attr, result gsx.Node), and no %sProps struct was found",
 				el.Tag, types.TypeString(t, qual), el.Tag)
 			return false
 		}
