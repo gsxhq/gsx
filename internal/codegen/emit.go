@@ -3797,6 +3797,9 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 			// Package-name qualifier (same-package types unqualified): the
 			// full-path default prints func(attrs []github.com/gsxhq/gsx.Attr),
 			// which buries the shape the message is contrasting against.
+			// Bare package names suffice for diagnostic text: unlike emitted code
+			// (see qf), a same-name package collision here only cosmetically
+			// ambiguates an error message, never miscompiles.
 			qual := func(p *types.Package) string {
 				if p == currentPkg {
 					return ""

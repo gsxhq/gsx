@@ -8,4 +8,4 @@ component Page() {
 	<NopeIcon class="x"/>
 }
 -- diagnostics.golden --
-4:14: undefined: NopeIcon
+4:3: undefined: NopeIcon
