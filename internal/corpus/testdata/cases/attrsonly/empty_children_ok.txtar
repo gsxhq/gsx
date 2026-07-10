@@ -1,0 +1,35 @@
+# An empty non-self-closing attrs-only tag <Chip></Chip> carries no children
+# (len(el.Children) == 0, same as structural newline/indent which the parser
+# trims), so it is NOT the children-rejection case: it lowers to the identical
+# Chip(nil...) call as the self-closing <Chip/>. This matches nullary-component
+# behavior (<Nullary></Nullary> is accepted; only a real or literal-space child
+# is rejected — see reject_children.txtar). Regression guard for the
+# empty-vs-self-closing consistency (CONCERN 9).
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+type chipProps struct {
+	Attrs gsx.Attrs
+}
+
+component renderChip(p chipProps) {
+	<span { p.Attrs... }>chip</span>
+}
+
+func Chip(attrs ...gsx.Attr) gsx.Node {
+	return renderChip(chipProps{Attrs: gsx.Attrs(attrs)})
+}
+
+component Page() {
+	<div>
+		<Chip/>
+		<Chip></Chip>
+	</div>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<div><span>chip</span><span>chip</span></div>
