@@ -761,6 +761,14 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	if scriptErr {
 		gsxFiles = nil // package-level skip: Generate's loop emits nothing
 	}
+	// Resolve component-vs-leaf for every tag BEFORE any skeleton/probe/emit
+	// walk consults it (analyze.go's emitProbes reads the stamp). Lowercase
+	// tags resolve against the package's declared names; see tagresolve.go
+	// and docs/superpowers/specs/2026-07-10-lowercase-tag-symbol-resolution-design.md.
+	declNames := packageDeclNames(dir, gsxFiles)
+	for _, f := range gsxFiles {
+		resolveComponentTags(f, declNames, bag)
+	}
 	// Per-dir: an imported sibling package resolves its OWN filter table here,
 	// because analyze is the recursion point for the import graph.
 	table, err := m.filterTableFor(dir, true)
