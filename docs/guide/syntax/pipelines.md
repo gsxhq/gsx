@@ -68,9 +68,11 @@ per-context escaping.
 ### URL attributes sanitize after the pipe
 
 When the piped literal sits in a URL-context attribute (`href`, `src`, `action`,
-the htmx method attrs), the scheme check runs on the **pipe's output** — after
-the filter, never before. A filter that produces a dangerous scheme is still
-blocked to `about:invalid#gsx`; the sanitizer always has the final say.
+and the rest of the 11 built-in names, plus the htmx method attrs if
+`url_presets = ["htmx"]` is opted in), the scheme check runs on the **pipe's
+output** — after the filter, never before. A filter that produces a dangerous
+scheme is still blocked to `about:invalid#gsx`; the sanitizer always has the
+final say.
 
 ```gsx
 <a href={f`@{u}` |> upper}>go</a>
@@ -128,7 +130,7 @@ To handle the error instead of propagating it, skip the pipeline for that stage 
 
 A pipeline can appear anywhere a `{ expr }` interpolation is valid — text content, plain attributes, URL attributes, and so on. Importantly, pipelines do **not** bypass context-aware escaping: the value produced by the final stage is still sanitized for the context it sits in.
 
-In particular, a URL-context attribute (`href`, `src`, `action`, and the htmx method attributes) always scheme-sanitizes its value. A dangerous scheme like `javascript:` is replaced with `about:invalid#gsx` even when the value was first passed through a pipeline. Trimming whitespace does not make a dangerous URL safe.
+In particular, a URL-context attribute (`href`, `src`, `action`, and the rest of the 11 built-in URL attribute names; the htmx method attributes join this set only with `url_presets = ["htmx"]` opted in) always scheme-sanitizes its value. A dangerous scheme like `javascript:` is replaced with `about:invalid#gsx` even when the value was first passed through a pipeline. Trimming whitespace does not make a dangerous URL safe.
 
 <!--@include: ./_generated/pipelines/030-pipelines-in-attribute-context.md-->
 

@@ -111,9 +111,11 @@ func (a Attrs) Has(key string) bool {
 }
 
 // GetFold is Get with ASCII-case-insensitive key matching (last occurrence
-// wins). key must already be lowercase. Generated code uses it to extract
-// URL-classified attributes from a fallthrough bag so a case-variant key
-// (e.g. HREF) cannot smuggle an unsanitized value past the leaf's sanitizer.
+// wins). key must already be lowercase. Exported for any caller — hand-written
+// Spread call sites, tests — that needs to look up a bag key the same
+// case-insensitive way a sanitizing sink does (a case-variant key like HREF
+// must not smuggle an unsanitized value past it); SpreadForwarding itself
+// folds case via its own attrNameExcluded helper rather than calling GetFold.
 func (a Attrs) GetFold(key string) (any, bool) {
 	for i := len(a) - 1; i >= 0; i-- {
 		if strings.EqualFold(a[i].Key, key) {
@@ -143,9 +145,10 @@ func (a Attrs) Without(keys ...string) Attrs {
 
 // WithoutFold is Without with ASCII-case-insensitive key matching: it drops any
 // pair whose key case-folds to one of keys (which must already be lowercase),
-// preserving the order of the rest. Generated code uses it in the residual
-// spread to remove every case-variant of a URL-classified name that the leaf
-// already extracted and sanitized, so no unsanitized copy survives.
+// preserving the order of the rest. No generated code calls it — a forwarding
+// element's URL-classified keys render in place via SpreadForwarding rather
+// than being extracted and dropped from the bag first — but it remains public
+// API for hand-written bag manipulation that needs the same fold semantics.
 func (a Attrs) WithoutFold(keys ...string) Attrs {
 	return a.WithoutFunc(func(k string) bool {
 		return slices.ContainsFunc(keys, func(want string) bool {
@@ -264,10 +267,11 @@ func AttrsCond(cond bool, then, els func() (Attrs, error)) (Attrs, error) {
 // false → omitted); everything else is written as key="value" with attribute escaping.
 // A key that is not a structurally valid HTML attribute name (see validAttrName) is
 // SKIPPED rather than emitted. Values are attribute-escaped only — Spread itself never
-// URL-sanitizes. At a forwarding element (see Attrs), generated code extracts and
-// sanitizes URL-classified keys BEFORE calling Spread with the residual bag, so by the
-// time Spread runs there those keys are already gone. A hand-written Spread call made
-// outside that generated machinery gets no such extraction and owns its own sinks: a
+// URL-sanitizes. At a forwarding element (see Attrs), generated code does not call
+// Spread at all: it calls SpreadForwarding, which classifies and sanitizes
+// URL-classified keys in the same single ordered walk that writes the bag (see
+// SpreadForwarding). A hand-written Spread call made outside that generated
+// machinery gets no such extraction and owns its own sinks: a
 // URL-typed attribute (href, src, action, …) carrying an untrusted value must be
 // sanitized (or wrapped as gsx.RawURL, if pre-validated) before it reaches this bag.
 // ctx is reserved for forward-compatibility.
@@ -369,8 +373,9 @@ func (gw *Writer) SpreadForwarding(ctx context.Context, a Attrs, navNames, image
 
 // attrNameExcluded reports whether key matches any name in excluded, comparing
 // ASCII-case-insensitively (HTML attribute names fold), so a force-owned name
-// suppresses a case-variant bag key just as GetFold/WithoutFold do for the
-// enumerated URL names.
+// suppresses a case-variant bag key. SpreadForwarding uses it both for the
+// excluded (force-owned) set and, via the same fold, for its URL-classified
+// name sets — the same fold semantics GetFold/WithoutFold expose publicly.
 func attrNameExcluded(key string, excluded []string) bool {
 	for _, e := range excluded {
 		if strings.EqualFold(key, e) {
