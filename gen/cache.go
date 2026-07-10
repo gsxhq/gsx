@@ -20,7 +20,23 @@ func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, c
 	if err != nil {
 		return res, err
 	}
+
+	// Walk-level orphan sweep: a directory whose only .gsx was just deleted
+	// drops out of `dirs` entirely (discoverDirs only returns dirs that still
+	// directly contain a .gsx), so the per-dir sweep inside
+	// generateModule/writeDirOutcome below — which only runs for dirs in `dirs`
+	// — never fires for it. This must run even when `dirs` ends up empty (e.g.
+	// the requested path's ONLY .gsx was just deleted). See gen/orphan.go.
+	if removed, swErr := sweepOrphanDirs(paths, dirs); swErr != nil {
+		res.Errs = append(res.Errs, swErr)
+	} else {
+		res.Removed = removed
+	}
+
 	if len(dirs) == 0 {
+		if len(res.Errs) > 0 {
+			return res, errors.Join(res.Errs...)
+		}
 		return res, nil
 	}
 
@@ -38,6 +54,7 @@ func generateCached(paths, filterPkgs []string, aliases []codegen.FilterAlias, c
 	}
 
 	sort.Strings(res.Written)
+	sort.Strings(res.Removed)
 	if len(res.Errs) > 0 {
 		return res, errors.Join(res.Errs...)
 	}
@@ -68,7 +85,28 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 		out.Errs = append(out.Errs, res.Errs...)
 		out.Diags = append(out.Diags, res.Diags...)
 		out.UpToDate += res.UpToDate
+		out.Removed = append(out.Removed, res.Removed...)
 	}()
+
+	// Dir-scoped orphan sweep: runs for every dir in this module BEFORE any
+	// generation happens below, not after. codegen.GenerateDirs (and Tier 0's
+	// mustGen) type-check each dir's real on-disk files, and a gsx-owned orphan
+	// .x.go left over from a just-deleted .gsx is NOT covered by the skeleton
+	// overlay (which only replaces a .x.go that still has a matching .gsx) — it
+	// would be read as ordinary Go source, and if it happens to be a stale
+	// poison file its own undefined-identifier tripwire would fail the CURRENT
+	// generate for the whole dir. That is the exact sticky-poison trap this
+	// feature exists to close, so the sweep must complete before either
+	// generation path (contrast with regenDir in watchsession.go, which sweeps
+	// immediately before its own Module.Generate call for the same reason).
+	for _, dir := range dirs {
+		removed, rerr := removeOrphanXgo(dir)
+		if rerr != nil {
+			res.Errs = append(res.Errs, rerr)
+			continue
+		}
+		res.Removed = append(res.Removed, removed...)
+	}
 
 	cdir, enabled := cacheDir()
 	if !useCache {
@@ -278,6 +316,10 @@ func writeAll(dirs []string, out map[string]codegen.DirResult, res *Result) {
 // write-free and the next success overwrites by ordinary byte inequality.
 // Returns the pkgOutput that was written (for the success-path cache put),
 // or nil when the dir failed.
+//
+// The dir-scoped orphan sweep for dir already ran in generateModule BEFORE
+// generation (it must precede the type-check that reads dir's real on-disk
+// files — see the comment there); this function does not repeat it.
 func writeDirOutcome(dir string, dr codegen.DirResult, res *Result) pkgOutput {
 	if anyErrorDiag(dr.Diags) {
 		po, perr := poisonPkgOutput(dir, dr.Diags)

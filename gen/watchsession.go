@@ -17,6 +17,11 @@ import (
 type cycleResult struct {
 	Dir     string
 	Written []string
+	// Removed holds the gsx-owned orphan .x.go paths deleted in this dir this
+	// cycle (see gen/orphan.go). Populated both by regenDir's dir-scoped sweep
+	// and by regenPending's onlyGeneratedRemains branch (the dir has no .gsx
+	// left at all, so there is nothing to regenerate — only to sweep).
+	Removed []string
 	Diags   []diag.Diagnostic
 	OK      bool
 	Err     error
@@ -161,6 +166,10 @@ func (s *watchSession) regenDir(dir string) cycleResult {
 	if err != nil {
 		return cycleResult{Dir: dir, Err: err, DurMs: time.Since(start).Milliseconds()}
 	}
+	// Dir-scoped orphan sweep: a .gsx sibling deletion in dir is independent
+	// of what this cycle regenerates for the .gsx files still present, so it
+	// runs unconditionally (mirrors writeDirOutcome in gen/cache.go).
+	removed, remErr := removeOrphanXgo(dir)
 	out, diags, gerr := m.Generate(dir)
 	files := make(map[string][]byte, len(out))
 	for gsxPath, b := range out {
@@ -188,14 +197,17 @@ func (s *watchSession) regenDir(dir string) cycleResult {
 		finalErr = gerr
 	case poisonErr != nil:
 		finalErr = poisonErr
+	case remErr != nil:
+		finalErr = remErr
 	case werr != nil:
 		finalErr = werr
 	}
 	return cycleResult{
 		Dir:     dir,
 		Written: written,
+		Removed: removed,
 		Diags:   diags,
-		OK:      gerr == nil && !anyErrorDiag(diags) && werr == nil,
+		OK:      gerr == nil && !anyErrorDiag(diags) && werr == nil && remErr == nil,
 		Err:     finalErr,
 		DurMs:   time.Since(start).Milliseconds(),
 	}
@@ -227,6 +239,19 @@ func (s *watchSession) regenPending(pending map[string]bool, depDirty bool) ([]c
 	var results []cycleResult
 	for dir := range pending {
 		if onlyGeneratedRemains(dir) {
+			// Nothing left to regenerate in dir, but a .gsx that used to live
+			// here may have just been deleted, leaving its .x.go orphaned. This
+			// is the walk-level sweep's job for the watch loop: unlike the batch
+			// path (sweepOrphanDirs walks the tree), fsnotify already told us
+			// exactly which dir changed, so a plain dir-scoped sweep suffices.
+			removed, rerr := removeOrphanXgo(dir)
+			if rerr != nil {
+				results = append(results, cycleResult{Dir: dir, Err: rerr})
+				continue
+			}
+			if len(removed) > 0 {
+				results = append(results, cycleResult{Dir: dir, Removed: removed, OK: true})
+			}
 			continue
 		}
 		m, err := s.moduleForDir(dir)

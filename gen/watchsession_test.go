@@ -194,6 +194,114 @@ func TestWatchSession_BadMergerRefused(t *testing.T) {
 	}
 }
 
+// TestRegenPending_RemovesOrphanOnSoleGsxDeleted: a dir whose only .gsx is
+// deleted is skipped by regenPending's onlyGeneratedRemains branch (nothing
+// left to regenerate) — but its now-orphaned .x.go must still be removed and
+// reported via cycleResult.Removed, not silently left on disk.
+func TestRegenPending_RemovesOrphanOnSoleGsxDeleted(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeMod(t, root)
+	viewsDir := filepath.Join(root, "views")
+	gsxPath := filepath.Join(viewsDir, "page.gsx")
+	writeFileT(t, gsxPath, "package views\n\ncomponent Page() {\n\t<h1>ok</h1>\n}\n")
+
+	s, startup, err := newWatchSession(watchConfig{paths: []string{viewsDir}})
+	if err != nil {
+		t.Fatalf("newWatchSession: %v", err)
+	}
+	for _, r := range startup {
+		if !r.OK {
+			t.Fatalf("startup not OK: %v %v", r.Err, r.Diags)
+		}
+	}
+	xgo := filepath.Join(viewsDir, "page.x.go")
+	if _, err := os.Stat(xgo); err != nil {
+		t.Fatalf("page.x.go not written by startup: %v", err)
+	}
+
+	if err := os.Remove(gsxPath); err != nil {
+		t.Fatal(err)
+	}
+	results, err := s.regenPending(map[string]bool{viewsDir: true}, false)
+	if err != nil {
+		t.Fatalf("regenPending: %v", err)
+	}
+	if _, err := os.Stat(xgo); !os.IsNotExist(err) {
+		t.Fatalf("orphaned page.x.go not removed by regenPending (err=%v)", err)
+	}
+	var found bool
+	for _, r := range results {
+		for _, rm := range r.Removed {
+			if rm == xgo {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("cycleResult.Removed does not report page.x.go; results=%+v", results)
+	}
+}
+
+// TestRegenPending_MultiFileDirRegeneratesSiblingAndRemovesOrphan: the
+// multi-file variant — deleting one of two .gsx in a dir keeps the dir in
+// discovery (its sibling still exists), so regenPending routes it through the
+// normal Invalidate/Dependents/regenDir path. regenDir's dir-scoped sweep must
+// remove the orphan while the sibling regenerates cleanly.
+func TestRegenPending_MultiFileDirRegeneratesSiblingAndRemovesOrphan(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeMod(t, root)
+	viewsDir := filepath.Join(root, "views")
+	keepPath := filepath.Join(viewsDir, "keep.gsx")
+	dropPath := filepath.Join(viewsDir, "drop.gsx")
+	writeFileT(t, keepPath, "package views\n\ncomponent Keep() {\n\t<h1>keep</h1>\n}\n")
+	writeFileT(t, dropPath, "package views\n\ncomponent Drop() {\n\t<h1>drop</h1>\n}\n")
+
+	s, startup, err := newWatchSession(watchConfig{paths: []string{viewsDir}})
+	if err != nil {
+		t.Fatalf("newWatchSession: %v", err)
+	}
+	for _, r := range startup {
+		if !r.OK {
+			t.Fatalf("startup not OK: %v %v", r.Err, r.Diags)
+		}
+	}
+	dropXgo := filepath.Join(viewsDir, "drop.x.go")
+	keepXgo := filepath.Join(viewsDir, "keep.x.go")
+	if _, err := os.Stat(dropXgo); err != nil {
+		t.Fatalf("drop.x.go not written by startup: %v", err)
+	}
+
+	if err := os.Remove(dropPath); err != nil {
+		t.Fatal(err)
+	}
+	results, err := s.regenPending(map[string]bool{viewsDir: true}, false)
+	if err != nil {
+		t.Fatalf("regenPending: %v", err)
+	}
+	if _, err := os.Stat(dropXgo); !os.IsNotExist(err) {
+		t.Fatalf("orphaned drop.x.go not removed (err=%v)", err)
+	}
+	if _, err := os.Stat(keepXgo); err != nil {
+		t.Fatalf("sibling keep.x.go missing after regen: %v", err)
+	}
+	var found bool
+	for _, r := range results {
+		if !r.OK {
+			t.Fatalf("regen not OK: err=%v diags=%v", r.Err, r.Diags)
+		}
+		for _, rm := range r.Removed {
+			if rm == dropXgo {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("cycleResult.Removed does not report drop.x.go; results=%+v", results)
+	}
+}
+
 // gsxModuleDir returns the absolute path of this gsx module checkout, for the
 // test fixture's replace directive.
 func gsxModuleDir(t *testing.T) string {
