@@ -1,0 +1,35 @@
+# A dotted attrs-only tag whose qualifier is a KNOWN gsx import alias but is
+# SHADOWED by a same-named param in scope must be rejected, not silently
+# bag-called against the param's struct field. The name-based gate
+# (byo.isDepAlias) fires on the import "ui", yet Go scoping makes the skeleton's
+# _gsxcompsig(ui.Icon) probe resolve "ui" to the param — harvest detects the
+# non-package qualifier (info.Uses is a *types.Var, not *types.PkgName) and the
+# emitter reports attrsonly-shadowed-qualifier. This restores the hard
+# generate-time failure the region would otherwise miscompile past (FAIL 7).
+-- go.mod --
+module example.com/app
+
+go 1.26.1
+-- ui/other.gsx --
+package ui
+
+component Other() { <i>other</i> }
+-- pages/home.gsx --
+package pages
+
+import (
+	"github.com/gsxhq/gsx"
+	"example.com/app/ui"
+)
+
+type holder struct {
+	Icon func(gsx.Attrs) gsx.Node
+}
+
+var _ = ui.Other
+
+component Widget(ui holder) {
+	<ui.Icon class="x"/>
+}
+-- diagnostics.golden --
+15:2: <ui.Icon> is not tag-callable: ui is shadowed by a local declaration; component values must be package-level
