@@ -184,12 +184,17 @@ element inside the component, or forward the value through a declared prop.
 
 ### Precedence
 
-The spread's position decides who wins, JSX-style:
+This precedence rule applies to every **declared forwarding bag**, not only
+the implicit `attrs` bag: a byo component's declared `Attrs gsx.Attrs` field
+(spread as `{ p.Attrs... }`) and a generated component's own named `gsx.Attrs`
+param (e.g. `extra` in `component Chip(extra gsx.Attrs)`, spread as
+`{ extra... }`) get identical treatment. Whichever spelling is spread onto an
+element, the spread's position decides who wins, JSX-style:
 
-- attributes written **before** `{ attrs... }` are defaults — a caller
-  attribute with the same name overrides them;
-- attributes written **after** `{ attrs... }` are forced — the component
-  always wins and the caller's value never renders;
+- attributes written **before** the spread are defaults — a caller attribute
+  with the same name overrides them;
+- attributes written **after** the spread are forced — the component always
+  wins and the caller's value never renders;
 - a conditional attribute (`{ if cond { … } }`) follows the same rule for
   whichever branch is taken.
 
@@ -198,15 +203,28 @@ always *merge* — the component's tokens first, the caller's appended (then
 deduplicated by the configured class merger). A `class` written after the
 spread is still merged, not forced.
 
+A **local** `gsx.Attrs` variable — one you declare and assign inside the
+component body, rather than a declared prop field or param — is *not* a
+forwarding bag: `{ b... }` spreads it with a bare, position-blind `Spread`
+(no caller-wins guards, no class merge, no URL extraction — see
+[Attributes — Spread](./attributes.md#spread)), so a static
+attribute before it and a same-key entry in the local bag both render as
+duplicate attributes. Compose a local bag yourself (`Merge`/`ConcatAttrs`)
+before spreading it. Giving local bags the same forwarding treatment is a
+tracked follow-up — see the
+[Roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md).
+
 ### Derived bags
 
 The forwarded expression doesn't have to be the bare bag. Any expression built
-from `attrs` is forwarded with the same merge-and-override semantics, and is
+from a forwarding bag — `attrs`, a byo `p.Attrs` field, or a named `gsx.Attrs`
+param — is forwarded with the same merge-and-override semantics, and is
 evaluated exactly once:
 
 ```gsx
-<input { attrs.Without("type")... }/>     // forward everything except type
-<div { attrs.Merge(extra)... }>…</div>    // compose another gsx.Attrs bag in
+<input { attrs.Without("type")... }/>        // forward everything except type
+<div { attrs.Merge(extra)... }>…</div>       // compose another gsx.Attrs bag in
+<span { p.Attrs.Without("id")... }>x</span>  // byo declared bag, derived the same way
 ```
 
 This is also how a component keeps final say over `class`: forward
@@ -215,7 +233,9 @@ caller's is dropped.
 
 An element carries **one** forwarding spread. To combine bags, compose them in
 the spread expression with `Merge` (later bags win per key) rather than writing
-two spreads — a second spread on the same element is a generate-time error.
+two spreads — a second spread on the same element is a generate-time error,
+whether both spreads reference `attrs`, a byo `Attrs` field, or a named
+`gsx.Attrs` param.
 
 ## Method components
 
