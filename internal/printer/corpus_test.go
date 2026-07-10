@@ -130,6 +130,7 @@ func zeroSpans(n ast.Node) {
 				v.CloseNamePos = 0
 				v.TypeArgsPos = 0
 				v.ChildrenMultiline = false
+				v.AttrsMultiline = false
 			case *ast.Fragment:
 				v.ChildrenMultiline = false
 			case *ast.SpreadAttr:
