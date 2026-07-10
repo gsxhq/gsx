@@ -364,6 +364,19 @@ forwarding-position merge treatment like derived `attrs` bags do is a real
 question, but a separate one: it changes existing byo semantics and deserves
 its own spec. This one neither depends on nor blocks it.)
 
+Validated against the real tree (2026-07-10, throwaway worktree, full
+`gsx generate` + `go build` + `go test ./ui/...` + a 16-variant render-
+equivalence harness — all pass): two refinements over the sketch above.
+The per-icon defaults are NOT uniform (four default-class shapes plus four
+class-less icons), so the adapter takes the default as a parameter
+(`namedIconClass(name, class string)`); and an in-body dynamic
+`class={twcfg.Merge(…)}` renders `class=""` for the class-less icons (gsx
+does not omit an empty dynamic class attribute), so the merge moves into
+the adapter and the body guards with
+`{ if p.Class != "" { class={p.Class} } }`. Fidelity is then exact:
+16/16 rendered variants byte-equivalent modulo attribute order. Measured
+collapse: 1191 lines → 134 (−88.8%).
+
 Collapses ~1190 lines (62 × ~19-line `component` bodies, measured on the live
 file) to one shared `iconProps`/`renderNamedIcon` pair plus 62 one-line `var`
 declarations. A future tweak to the shared `<svg>` wrapper touches one place
