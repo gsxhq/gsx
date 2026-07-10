@@ -858,7 +858,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		}
 		ff := m.fileScopedFacts(dir, f, propFields, nodeProps, attrsProps, byo, bag, fset)
 		factsByFile[path] = ff
-		skel, comps, imps, ctrlOff, infReg, gwMarkups, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, m.opts.Classifier, bag, inferNames)
+		skel, comps, imps, ctrlOff, infReg, gwMarkups, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, m.opts.Classifier, bag, inferNames, declNames)
 		if berr != nil {
 			// buildSkeleton error handling: a positioned attrError becomes a
 			// diagnostic and skips this file; any other error is also recorded as a
