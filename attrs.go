@@ -309,7 +309,16 @@ func (gw *Writer) Spread(ctx context.Context, a Attrs) {
 // the residual Spread then excludes these keys. Prefix rules are user rules, so
 // they always use the strict sink — the built-in image-sink split (URLImageVal)
 // applies only to the built-in resource names.
-func (gw *Writer) SpreadURLPrefixed(ctx context.Context, a Attrs, prefixes []string) {
+//
+// excluded lists the attribute names a FORCED root attr owns at this element
+// (static forced names — always; a post-spread conditional's names — only when
+// its branch was taken, which is why codegen passes the runtime drop slice).
+// A prefix-matched key whose name is excluded (ASCII-case-insensitively) is
+// SKIPPED: the forced attr, emitted unguarded after the spread, is the sole
+// value. Without this a force-owned prefix key would render twice (this
+// sanitized bag copy plus the forced value) and the browser would honour the
+// first — the forced value would LOSE.
+func (gw *Writer) SpreadURLPrefixed(ctx context.Context, a Attrs, prefixes, excluded []string) {
 	if gw.err != nil || len(a) == 0 {
 		return
 	}
@@ -321,12 +330,28 @@ func (gw *Writer) SpreadURLPrefixed(ctx context.Context, a Attrs, prefixes []str
 		if !URLPrefixMatch(kv.Key, prefixes) {
 			continue
 		}
+		if attrNameExcluded(kv.Key, excluded) {
+			continue
+		}
 		gw.writeStr(" ")
 		gw.writeStr(kv.Key)
 		gw.writeStr(`="`)
 		gw.URLVal(kv.Value)
 		gw.writeStr(`"`)
 	}
+}
+
+// attrNameExcluded reports whether key matches any name in excluded, comparing
+// ASCII-case-insensitively (HTML attribute names fold), so a force-owned name
+// suppresses a case-variant bag key just as GetFold/WithoutFold do for the
+// enumerated URL names.
+func attrNameExcluded(key string, excluded []string) bool {
+	for _, e := range excluded {
+		if strings.EqualFold(key, e) {
+			return true
+		}
+	}
+	return false
 }
 
 func mergeScalarAttr(out Attrs, kv Attr) Attrs {
