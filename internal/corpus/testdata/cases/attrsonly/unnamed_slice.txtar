@@ -54,8 +54,11 @@ func renderBadge(p badgeProps) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
+		_gsxv0 := p.Attrs
 		_gsxgw.S("<span")
-		_gsxgw.Spread(ctx, p.Attrs)
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
+		_gsxgw.StyleMerged("", _gsxv0.Style())
+		_gsxgw.Spread(ctx, _gsxv0.Without("class", "style"))
 		_gsxgw.S(">badge</span>")
 		return _gsxgw.Err()
 	})

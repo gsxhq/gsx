@@ -43,8 +43,11 @@ func renderBox(p boxProps) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
+		_gsxv0 := p.Attrs
 		_gsxgw.S("<div")
-		_gsxgw.Spread(ctx, p.Attrs)
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
+		_gsxgw.StyleMerged("", _gsxv0.Style())
+		_gsxgw.Spread(ctx, _gsxv0.Without("class", "style"))
 		_gsxgw.S(">box</div>")
 		return _gsxgw.Err()
 	})
@@ -66,13 +69,13 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		extra := _gsxp.Extra
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:18:2
-		_gsxv0, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
+		_gsxv1, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "data-c", Value: "3"}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Box(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-a", Value: "1"}, {Key: "data-b", Value: "2"}}, extra, _gsxv0, _gsxrt.Attrs{{Key: "data-z", Value: "9"}})))
+		_gsxgw.Node(ctx, Box(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-a", Value: "1"}, {Key: "data-b", Value: "2"}}, extra, _gsxv1, _gsxrt.Attrs{{Key: "data-z", Value: "9"}})))
 		return _gsxgw.Err()
 	})
 }
