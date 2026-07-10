@@ -1191,7 +1191,23 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 				qp[i] = strconv.Quote(p)
 			}
 			fmt.Fprintf(b, "\t\t%s := []string{%s}\n", prefixVar, strings.Join(qp, ", "))
-			fmt.Fprintf(b, "\t\t_gsxgw.SpreadURLPrefixed(ctx, %s, %s)\n", bagExpr, prefixVar)
+			// Force-ownership exclusion: a prefix-matched bag key whose name a
+			// forced root attr owns (static — always; a post-spread cond branch —
+			// when taken) must NOT be written here, or it would duplicate the
+			// forced attr and win over it (first-wins). The dynamic drop slice
+			// already carries class/style + static forced + taken-branch names; with
+			// no post-spread cond-attrs it is the static forced-name set (class/style
+			// harmlessly included — never prefix-matched, always separately merged).
+			excludedExpr := dropVar
+			if excludedExpr == "" {
+				excl := append([]string{"class", "style"}, forcedNames...)
+				q := make([]string, len(excl))
+				for i, n := range excl {
+					q[i] = strconv.Quote(n)
+				}
+				excludedExpr = fmt.Sprintf("[]string{%s}", strings.Join(q, ", "))
+			}
+			fmt.Fprintf(b, "\t\t_gsxgw.SpreadURLPrefixed(ctx, %s, %s, %s)\n", bagExpr, prefixVar, excludedExpr)
 		}
 		// Spread the rest of the bag, dropping class/style (both merged above) plus
 		// any forced names (excluded so the unguarded root emit wins — caller can't

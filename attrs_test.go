@@ -330,7 +330,7 @@ func TestSpreadURLPrefixed(t *testing.T) {
 		{Key: "Data-URL-Prev", Value: "/ok"},                 // case-variant key matches
 		{Key: "data-url-next", Value: "/last"},               // last-wins duplicate
 		{Key: "bad key", Value: "y"},                         // invalid name → dropped
-	}, []string{"data-url-"})
+	}, []string{"data-url-"}, nil)
 	got := buf.String()
 	if strings.Contains(got, "javascript:") {
 		t.Fatalf("SpreadURLPrefixed leaked a javascript: URL: %q", got)
@@ -341,12 +341,30 @@ func TestSpreadURLPrefixed(t *testing.T) {
 	}
 }
 
+func TestSpreadURLPrefixedExcluded(t *testing.T) {
+	var buf bytes.Buffer
+	gw := W(&buf)
+	// A force-owned prefix key must be SKIPPED (its forced attr owns it), matched
+	// case-insensitively; a non-excluded prefix key still writes (sanitized).
+	gw.SpreadURLPrefixed(context.Background(), Attrs{
+		{Key: "data-url-next", Value: "javascript:alert(1)"}, // force-owned → skipped
+		{Key: "Data-URL-Keep", Value: "/ok"},                 // not excluded → written
+	}, []string{"data-url-"}, []string{"data-url-next"})
+	got := buf.String()
+	if strings.Contains(got, "data-url-next") {
+		t.Fatalf("SpreadURLPrefixed wrote a force-owned key: %q", got)
+	}
+	if want := ` Data-URL-Keep="/ok"`; got != want {
+		t.Fatalf("SpreadURLPrefixed = %q want %q", got, want)
+	}
+}
+
 func TestSpreadURLPrefixedRawURL(t *testing.T) {
 	var buf bytes.Buffer
 	gw := W(&buf)
 	gw.SpreadURLPrefixed(context.Background(), Attrs{
 		{Key: "data-url-x", Value: RawURL("app://z")}, // author vouch passes verbatim
-	}, []string{"data-url-"})
+	}, []string{"data-url-"}, nil)
 	if got := buf.String(); got != ` data-url-x="app://z"` {
 		t.Fatalf("SpreadURLPrefixed RawURL = %q", got)
 	}
