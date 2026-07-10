@@ -3794,9 +3794,18 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 				}
 				return true
 			}
+			// Package-name qualifier (same-package types unqualified): the
+			// full-path default prints func(attrs []github.com/gsxhq/gsx.Attr),
+			// which buries the shape the message is contrasting against.
+			qual := func(p *types.Package) string {
+				if p == currentPkg {
+					return ""
+				}
+				return p.Name()
+			}
 			bag.Errorf(el.Pos(), el.End(), "attrsonly-bad-type",
 				"<%s> is not tag-callable: its type is %s, not func(gsx.Attrs) gsx.Node or func(...gsx.Attr) gsx.Node, and no %sProps struct was found",
-				el.Tag, types.TypeString(t, nil), el.Tag)
+				el.Tag, types.TypeString(t, qual), el.Tag)
 			return false
 		}
 		// not harvested: the skeleton already reported the underlying error
