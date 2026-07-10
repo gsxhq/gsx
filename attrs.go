@@ -24,9 +24,25 @@ type Attr struct {
 //
 // Security contract: keys are HTML attribute NAMES emitted (after a validity check,
 // see Spread) without entity-encoding — they must come from generated code or trusted
-// developer input, never from untrusted strings. Values are HTML-attribute-escaped but
-// NOT URL-sanitized: a URL-typed attribute (href, src, action, formaction, …) carrying
-// an untrusted value must be written with gw.URL, not passed through Spread.
+// developer input, never from untrusted strings. Values are HTML-attribute-escaped.
+//
+// URL sanitization happens at the FORWARDING ELEMENT, not in the bag itself. Generated
+// code recognizes three forwarding-bag spellings spread onto an element — the implicit
+// fallthrough bag, a byo component's declared Attrs field (p.Attrs), and a generated
+// component's own named Attrs param — and, for each, emits a Get-extraction block ahead
+// of the residual Spread: every URL-classified attribute name (built-in urlAttrs table +
+// gsx.toml rules + gen.WithURLAttrs, resolved at generate time) is pulled out
+// case-insensitively (GetFold) and written through the same tag-aware sink a static
+// attribute of that name would use (URLVal for navigational, URLImageVal for image
+// resources), with a gsx.RawURL value passed verbatim. The residual Spread then omits
+// those keys (WithoutFold) so no unsanitized copy survives. See Spread for what it does
+// on its own, and composition.md §Precedence for the full forwarding-element rule.
+//
+// This does NOT cover a LOCAL Attrs variable — one assigned inside a component body
+// rather than a declared forwarding field/param — or a byo struct's second Attrs field
+// alongside the classified one; both still spread inline with no extraction (tracked in
+// ROADMAP.md). A hand-written gw.Spread call outside gsx's generated forwarding code
+// owns its own sinks entirely, exactly as before.
 type Attrs []Attr
 
 // AttrMap is a map-form attribute bag for ergonomic Go literals; convert it to Attrs
@@ -183,6 +199,11 @@ func (a Attrs) Take(key string) (any, Attrs) {
 // the result (or appended if none). Any other key OVERWRITES the last existing
 // occurrence in place and drops earlier duplicates, so the incoming bag wins under the
 // last-wins scalar rule; absent keys append.
+//
+// Merge is for userland eager composition, where you want duplicates resolved
+// immediately rather than at render time. Generated call sites use ConcatAttrs instead
+// (one allocation, no eager scan) because Spread resolves duplicates at render time
+// anyway; see ConcatAttrs for why the two are observably equivalent there.
 func (a Attrs) Merge(other Attrs) Attrs {
 	out := make(Attrs, len(a))
 	copy(out, a)
@@ -243,9 +264,14 @@ func AttrsCond(cond bool, then, els func() (Attrs, error)) (Attrs, error) {
 // position. A bool value uses boolean-attribute semantics (true → bare attribute,
 // false → omitted); everything else is written as key="value" with attribute escaping.
 // A key that is not a structurally valid HTML attribute name (see validAttrName) is
-// SKIPPED rather than emitted. Values are attribute-escaped but NOT URL-sanitized (see
-// Attrs). ctx is reserved for
-// forward-compatibility.
+// SKIPPED rather than emitted. Values are attribute-escaped only — Spread itself never
+// URL-sanitizes. At a forwarding element (see Attrs), generated code extracts and
+// sanitizes URL-classified keys BEFORE calling Spread with the residual bag, so by the
+// time Spread runs there those keys are already gone. A hand-written Spread call made
+// outside that generated machinery gets no such extraction and owns its own sinks: a
+// URL-typed attribute (href, src, action, …) carrying an untrusted value must be
+// sanitized (or wrapped as gsx.RawURL, if pre-validated) before it reaches this bag.
+// ctx is reserved for forward-compatibility.
 func (gw *Writer) Spread(ctx context.Context, a Attrs) {
 	if gw.err != nil || len(a) == 0 {
 		return
