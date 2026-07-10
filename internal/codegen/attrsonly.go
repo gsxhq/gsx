@@ -2,13 +2,9 @@ package codegen
 
 import "go/types"
 
-// Attrs-only component values (spec:
-// docs/superpowers/specs/2026-07-07-attrs-only-component-values-design.md).
-
-const gsxModulePath = "github.com/gsxhq/gsx"
-
 // attrsOnlySig reports whether t is exactly one of the two attrs-only
-// component-value shapes:
+// component-value shapes (spec:
+// docs/superpowers/specs/2026-07-07-attrs-only-component-values-design.md):
 //
 //	func(gsx.Attrs) gsx.Node
 //	func(...gsx.Attr) gsx.Node
@@ -57,5 +53,5 @@ func isGsxNamed(t types.Type, name string) bool {
 		return false
 	}
 	obj := n.Obj()
-	return obj != nil && obj.Pkg() != nil && obj.Pkg().Path() == gsxModulePath && obj.Name() == name
+	return obj != nil && obj.Pkg() != nil && obj.Pkg().Path() == gsxRuntimePath && obj.Name() == name
 }
