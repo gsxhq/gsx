@@ -1,0 +1,36 @@
+# An INSTANTIATED generic named func type is a valid attrs-only component value:
+# `type C[T any] func(...gsx.Attr) gsx.Node` + `var Y C[int]` has a static type
+# whose underlying — after type-arg substitution — is exactly
+# func(...gsx.Attr) gsx.Node, so attrsOnlySig unwraps the Named and matches. This
+# is a concrete VALUE, not a generic API: the type params are already bound, and
+# attrsOnlySig's TypeParams().Len() == 0 guard still holds on the substituted
+# signature. (Uninstantiated generics can't be expressed as a value, so they stay
+# rejected naturally — see the spec's Scope boundaries.)
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+type iconProps struct {
+	Name  string
+	Attrs gsx.Attrs
+}
+
+component renderIcon(p iconProps) {
+	<svg { p.Attrs... }>{p.Name}</svg>
+}
+
+type Component[T any] func(...gsx.Attr) gsx.Node
+
+var Y Component[int] = func(attrs ...gsx.Attr) gsx.Node {
+	return renderIcon(iconProps{Name: "y", Attrs: gsx.Attrs(attrs)})
+}
+
+component Page() {
+	<Y class="c"/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<svg class="c">y</svg>
