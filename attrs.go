@@ -304,7 +304,7 @@ func (gw *Writer) Spread(ctx context.Context, a Attrs) {
 // SpreadForwarding is the single-pass writer for a forwarding element's residual
 // fallthrough bag: in ONE ordered walk it renders the plain attributes AND routes
 // every URL-classified key through its sanitizing sink, replacing the older
-// unrolled per-name GetFold extraction + SpreadURLPrefixed + residual Spread.
+// unrolled per-name GetFold extraction + prefix-matched URL pass + residual Spread.
 // Generated code emits exactly one call, after the class/style merge site.
 //
 // It walks a in slice order, honoring lastValidAttrIndexes (scalar last-wins) and

@@ -35,6 +35,7 @@ type caseToml struct {
 	ClassMerger    string        `toml:"class_merger"`
 	FilterPackages []string      `toml:"filterPackages"`
 	URLAttrs       []caseURLRule `toml:"urlAttrs"`
+	URLPresets     []string      `toml:"url_presets"`
 }
 
 // caseURLRule mirrors attrclass.Rule's toml shape for a case's [[urlAttrs]]
@@ -126,15 +127,22 @@ func loadCase(path string) (*caseDoc, error) {
 				}
 				c.filterPkgs = append(c.filterPkgs, p)
 			}
-			if len(tc.URLAttrs) > 0 {
-				rules := make([]attrclass.Rule, len(tc.URLAttrs))
-				for i, u := range tc.URLAttrs {
-					r := attrclass.Rule{Name: u.Name, Prefix: u.Prefix}
-					if err := r.Valid(); err != nil {
-						return nil, fmt.Errorf("gsx.toml: urlAttrs[%d]: %w", i, err)
-					}
-					rules[i] = r
+			var rules []attrclass.Rule
+			for i, u := range tc.URLAttrs {
+				r := attrclass.Rule{Name: u.Name, Prefix: u.Prefix}
+				if err := r.Valid(); err != nil {
+					return nil, fmt.Errorf("gsx.toml: urlAttrs[%d]: %w", i, err)
 				}
+				rules = append(rules, r)
+			}
+			for _, name := range tc.URLPresets {
+				pr, ok := attrclass.Preset(name)
+				if !ok {
+					return nil, fmt.Errorf("gsx.toml: url_presets: unknown preset %q", name)
+				}
+				rules = append(rules, pr.URL...)
+			}
+			if len(rules) > 0 {
 				c.classifier = attrclass.New(attrclass.Rules{URL: rules}, nil)
 			}
 		default:

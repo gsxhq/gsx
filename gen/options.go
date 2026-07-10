@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/rawfmt"
 )
@@ -251,6 +252,25 @@ func (cfg *config) appendFilterPkg(path string) {
 func WithURLAttrs(rules ...Rule) Option {
 	return func(cfg *config) {
 		cfg.urlRules = appendValidRules(cfg, "WithURLAttrs", cfg.urlRules, rules)
+	}
+}
+
+// WithURLPreset enables one or more named URL-attribute presets, appending each
+// preset's URL rules onto the config (additive over the built-in floor, exactly
+// like WithURLAttrs). The only preset today is "htmx", which re-classifies the
+// five htmx method attributes (hx-get/post/put/delete/patch) as URL sinks — they
+// are OFF by default. An unknown preset name is recorded as a config error so the
+// run fails with a clear message instead of silently doing nothing.
+func WithURLPreset(names ...string) Option {
+	return func(cfg *config) {
+		for _, name := range names {
+			rules, ok := attrclass.Preset(name)
+			if !ok {
+				cfg.errs = append(cfg.errs, fmt.Errorf("WithURLPreset: unknown preset %q (known: %s)", name, strings.Join(attrclass.PresetNames(), ", ")))
+				continue
+			}
+			cfg.urlRules = append(cfg.urlRules, rules.URL...)
+		}
 	}
 }
 

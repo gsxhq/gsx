@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/codegen"
 	"github.com/gsxhq/gsx/internal/gsxfmt"
 	"github.com/gsxhq/gsx/internal/pretty"
@@ -156,6 +157,42 @@ func TestLoadConfigBothNamePrefix(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "urlAttrs") {
 		t.Fatalf("error should name the rule table; got: %v", err)
+	}
+}
+
+// TestLoadConfigURLPreset proves url_presets = ["htmx"] resolves the preset's
+// URL rules into the classifier, additively with [[urlAttrs]].
+func TestLoadConfigURLPreset(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "gsx.toml")
+	mkfile(t, path, "url_presets = [\"htmx\"]\n\n[[urlAttrs]]\nname = \"data-href\"\n")
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	cls := cfg.classifier()
+	if cls.Context("hx-get") != attrclass.CtxURL {
+		t.Error("htmx preset should classify hx-get as URL")
+	}
+	if cls.Context("data-href") != attrclass.CtxURL {
+		t.Error("[[urlAttrs]] rule should still apply alongside the preset")
+	}
+	if cls.Context("hx-target") != attrclass.CtxPlain {
+		t.Error("hx-target must stay plain (not covered by the htmx preset)")
+	}
+}
+
+// TestLoadConfigUnknownPreset proves an unknown preset name is a clear config
+// error naming the offending key.
+func TestLoadConfigUnknownPreset(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "gsx.toml")
+	mkfile(t, path, "url_presets = [\"nope\"]\n")
+	_, err := loadConfig(path)
+	if err == nil || !strings.Contains(err.Error(), "url_presets") || !strings.Contains(err.Error(), "nope") {
+		t.Fatalf("loadConfig err = %v, want an unknown-preset error naming url_presets/nope", err)
 	}
 }
 

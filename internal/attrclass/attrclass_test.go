@@ -21,7 +21,11 @@ func TestBuiltinParity(t *testing.T) {
 		{"online", CtxJS}, // "on"+lowercase letter — matches today's IsJSAttr exactly
 		// URL (ported from urlAttrs)
 		{"href", CtxURL}, {"src", CtxURL}, {"HREF", CtxURL},
-		{"hx-get", CtxURL}, {"xlink:href", CtxURL},
+		{"xlink:href", CtxURL},
+		// htmx method attrs are NO LONGER built-in URLs — they moved to the opt-in
+		// "htmx" preset (see TestPreset). The default classifies them plain.
+		{"hx-get", CtxPlain}, {"hx-post", CtxPlain}, {"hx-put", CtxPlain},
+		{"hx-delete", CtxPlain}, {"hx-patch", CtxPlain},
 		// CSS
 		{"style", CtxCSS}, {"STYLE", CtxCSS},
 		// plain
@@ -108,6 +112,42 @@ func TestFingerprintStable(t *testing.T) {
 	}
 }
 
+func TestPreset(t *testing.T) {
+	// The "htmx" preset re-enables the five htmx method attrs as URL rules —
+	// the five EXACT names, never a "hx-" prefix (which would wrongly capture
+	// hx-swap/hx-target/hx-trigger, none of which are URLs).
+	rules, ok := Preset("htmx")
+	if !ok {
+		t.Fatal(`Preset("htmx") not found`)
+	}
+	want := Rules{URL: []Rule{
+		{Name: "hx-get"}, {Name: "hx-post"}, {Name: "hx-put"},
+		{Name: "hx-delete"}, {Name: "hx-patch"},
+	}}
+	if !reflect.DeepEqual(rules, want) {
+		t.Errorf(`Preset("htmx") = %+v, want %+v`, rules, want)
+	}
+
+	// A classifier built from the preset's rules classifies the method attrs as
+	// URL again, but leaves the non-URL hx-* attrs plain.
+	c := New(rules, nil)
+	for _, n := range []string{"hx-get", "hx-post", "hx-put", "hx-delete", "hx-patch"} {
+		if got := c.Context(n); got != CtxURL {
+			t.Errorf("with htmx preset: Context(%q) = %v, want CtxURL", n, got)
+		}
+	}
+	for _, n := range []string{"hx-swap", "hx-target", "hx-trigger"} {
+		if got := c.Context(n); got != CtxPlain {
+			t.Errorf("with htmx preset: Context(%q) = %v, want CtxPlain (not a URL attr)", n, got)
+		}
+	}
+
+	// Unknown preset → (zero, false).
+	if got, ok := Preset("nope"); ok || !reflect.DeepEqual(got, Rules{}) {
+		t.Errorf(`Preset("nope") = (%+v, %v), want (Rules{}, false)`, got, ok)
+	}
+}
+
 func TestURLSink(t *testing.T) {
 	image := []struct{ tag, name string }{
 		{"img", "src"}, {"IMG", "SRC"},
@@ -140,10 +180,10 @@ func TestURLSink(t *testing.T) {
 }
 
 func TestURLExactNames(t *testing.T) {
-	// Builtin: the 16 built-in URL names, lowercased and sorted, no prefixes.
+	// Builtin: the 11 built-in URL names, lowercased and sorted, no prefixes.
+	// (htmx method attrs moved to the opt-in "htmx" preset.)
 	wantBuiltin := []string{
 		"action", "background", "cite", "data", "formaction", "href",
-		"hx-delete", "hx-get", "hx-patch", "hx-post", "hx-put",
 		"manifest", "ping", "poster", "src", "xlink:href",
 	}
 	if got := Builtin().URLExactNames(); !reflect.DeepEqual(got, wantBuiltin) {
@@ -168,7 +208,6 @@ func TestURLExactNames(t *testing.T) {
 	}}, nil)
 	wantExact := []string{
 		"action", "background", "cite", "data", "data-href", "formaction", "href",
-		"hx-delete", "hx-get", "hx-patch", "hx-post", "hx-put",
 		"manifest", "ping", "poster", "src", "xlink:href",
 	}
 	if got := c.URLExactNames(); !reflect.DeepEqual(got, wantExact) {

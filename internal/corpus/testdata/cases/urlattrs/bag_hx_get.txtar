@@ -1,7 +1,10 @@
-# Bag hardening Part A: a built-in URL attribute carrying a safe relative value
-# survives unchanged. hx-get="/path" forwarded through a bag is extracted and
+# Bag hardening Part A: a URL attribute carrying a safe relative value survives
+# unchanged. hx-get is no longer a built-in URL sink, so this case opts into the
+# "htmx" preset; hx-get="/path" forwarded through a bag is then extracted and
 # written through URLVal, which passes the relative path as-is (it renders at the
 # guard block, before the residual spread).
+-- gsx.toml --
+url_presets = ["htmx"]
 -- input.gsx --
 package views
 
