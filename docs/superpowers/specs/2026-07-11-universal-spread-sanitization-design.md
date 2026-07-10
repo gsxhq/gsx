@@ -78,17 +78,43 @@ machinery removed). Emit-only change; the probe/skeleton path is unaffected
 
 ### Runtime and contract
 
-- `gw.Spread` (exported) stays for hand-written rendering, documented plainly as
-  **not** URL-sanitizing — a manual writer owns its own context sinks. Generated
-  element code no longer calls it; it is the deliberate raw primitive.
+- **`gw.Spread` is removed entirely.** Under this design, `SpreadForwarding` is
+  the sole spread emission and codegen emits zero `Spread` calls (both plain-
+  `Spread` emit sites die: `emitAttr`'s SpreadAttr case becomes unreachable —
+  every element with a spread routes to `emitManualSpreadElement` — and
+  `emitFallthroughAttrs`'s non-splitIdx SpreadAttr becomes the existing
+  one-spread error, below). Leaving a public, unsanitizing `Spread` primitive
+  around while nothing generates it is exactly the pre-adoption tech debt to
+  avoid — a silent footgun with no consumer. The only non-generated callers are
+  three root-package tests/benches (`gsx_test.go:36`,
+  `root_attr_bench_test.go:36,69`), migrated to `SpreadForwarding` (or covered by
+  the existing `BenchmarkForwardingLeafNoURL`).
+- `class`/`style` aggregation that `Spread` performed (`a.Class()`/`a.Style()`)
+  is preserved with no special handling: the forwarding path already emits
+  `ClassMerged(…, bag.Class())` / `StyleMerged(…, bag.Style())` upstream of
+  `SpreadForwarding` (which excludes them), so a standalone bag's duplicate
+  `class`/`style` keys still aggregate — and now also merge with any static
+  `class`/`style` on the element.
 - `gsx.Attrs` godoc + the `emit.go:2655` comment are rewritten: the "values are
   NOT URL-sanitized / trusted developer input" language becomes "a spread onto
-  an element sanitizes URL-classified keys by context (`RawURL` opts out); only
-  a hand-written `gw.Spread` is unsanitized."
+  an element sanitizes URL-classified keys by context; `RawURL` (per value) opts
+  out." There is no unsanitizing spread primitive.
 - `attributes.md`/`props.md`/`composition.md` drop the provenance caveats — the
   local-var, byo-second-field, and dot-imported-runtime cases are no longer
   exceptions. The matching #75 items (and their ROADMAP entries) are struck as
   fixed; the byo-second-field and dot-import notes become "covered."
+
+### Behavior change: at most one spread per element
+
+Because every element spread is now a forwarding spread, an element may carry
+**at most one**. Today an element can carry one *recognized* forwarding spread
+plus a second *non-recognized* spread emitted inline (the unsanitized path this
+spec closes); under this design the second spread hits the existing one-spread
+diagnostic (`element with an attrs-forwarding spread cannot carry another
+spread … merge them into one spread ({ a.Merge(b)... })`). This turns a
+currently-generating combination into a generate-time error with a clear fix —
+a deliberate consistency gain (the second spread was precisely the ambiguous,
+unsanitized case). Pinned by a corpus diagnostic case.
 
 ### Scope boundaries
 
@@ -115,8 +141,14 @@ machinery removed). Emit-only change; the probe/skeleton path is unaffected
   (gaining class-merge + URL sanitization). Each changed render golden must be
   verifiable as exactly one of: duplicate-attr → merged, or unsafe-URL →
   `about:invalid#gsx`. Any other movement is a bug — stop and diagnose.
-- Runtime unit tests unchanged (`SpreadForwarding` already tested); confirm
-  `gw.Spread` retains its documented non-sanitizing behavior for manual callers.
+- Runtime: `SpreadForwarding` already tested; the `Spread` unit test/benches are
+  migrated to it (or removed if redundant with `BenchmarkForwardingLeafNoURL`).
+  Two existing corpus cases that pin `_gsxgw.Spread(` — `fallthrough/
+  local_bag_inline` (which pinned local bags *staying* inline — the exact
+  behavior this spec inverts) and `nonce/spread_in_cond_attr_on` — flip to
+  `SpreadForwarding`; re-pin them and verify the nonce+spread interaction still
+  emits correctly through the forwarding path. Add the one-spread-per-element
+  diagnostic case.
 - Fresh **adversarial probe pass** (security core): multi-hop laundering through
   a local bag, case-variant keys, `RawURL` at each position, an element with a
   static URL attr + a local-bag URL attr (precedence), two-spread rejection.
