@@ -70,9 +70,20 @@ type CodeActionOptions struct {
 // organizeImportsKind is the LSP kind for the organize-imports source action.
 const organizeImportsKind = "source.organizeImports"
 
+// quickFixKind is the LSP kind for a quick fix attached to a diagnostic.
+const quickFixKind = "quickfix"
+
 type codeActionContext struct {
 	// Only restricts the kinds the client wants. Empty means "any".
 	Only []string `json:"only"`
+	// Diagnostics are the diagnostics the client believes overlap Range. Decoded
+	// for protocol completeness and deliberately ignored: handleCodeAction offers
+	// a quickfix for every missing qualifier in the whole file rather than
+	// scoping to this set, because the only position available to match against
+	// (MissingImport.Pos) carries a deliberately-wrong column for child-prop
+	// expressions — matching on it, or on Diagnostic.Message text, would be
+	// exactly the kind of unsound heuristic this project rejects.
+	Diagnostics []Diagnostic `json:"diagnostics"`
 }
 
 type codeActionParams struct {

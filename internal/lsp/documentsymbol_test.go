@@ -46,6 +46,7 @@ func (symbolFileAnalyzer) FormatSettings(string) gsxfmt.FormatSettings {
 func (symbolFileAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
 	return gsxfmt.ImportsGoimports
 }
+func (symbolFileAnalyzer) ResolveImport(string, string, string) []string { return nil }
 
 func TestDocumentSymbol(t *testing.T) {
 	uri := "file:///m/page.gsx"

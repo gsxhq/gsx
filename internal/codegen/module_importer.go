@@ -657,6 +657,7 @@ type analyzed struct {
 	typeErrs           []types.Error                  // raw type errors from checkSkeletonPackage
 	signatureConflicts []signatureConflict            // same-name different-signature component collisions (block emission)
 	unusedImports      map[string][]UnusedImport      // .gsx abs path -> unused imports (Package's LSP surface; see unusedFromSkeletons)
+	missingImports     map[string][]MissingImport     // .gsx abs path -> undefined qualifiers (Package's LSP surface; see missingFromSkeletons)
 
 	// sunkImports maps a .gsx file path to the import SPECS (line+path keys)
 	// the type-checker PROVED were used only by a requalification-failed
@@ -1038,18 +1039,20 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// typed context (the props literal or gsx.Attrs assignment), so suppressing
 	// errors inside _gsxuseq avoids duplicate diagnostics. Positions are raw
 	// token.Pos in the shared fset, directly comparable to a types.Error's Pos.
-	var quietSpans []struct{ start, end token.Pos }
+	//
+	// Computed ONCE per *goast.File here (spansByFile), keyed by pointer: every
+	// .gsx-derived skeleton in goFiles is the SAME *goast.File instance stored in
+	// skelByGsx[path].skel (see the file loop above), so missingFromSkeletons
+	// (add_imports.go) looks its file up in this same map instead of re-walking
+	// it — the diagnostic the user sees anchors at the props-literal copy, so
+	// MissingImport.Pos must match it too, without a second linear pass over
+	// every skeleton.
+	spansByFile := make(map[*goast.File][]posSpan, len(goFiles))
+	var quietSpans []posSpan
 	for _, gf := range goFiles {
-		goast.Inspect(gf, func(n goast.Node) bool {
-			call, ok := n.(*goast.CallExpr)
-			if !ok {
-				return true
-			}
-			if id, ok := call.Fun.(*goast.Ident); ok && id.Name == "_gsxuseq" {
-				quietSpans = append(quietSpans, struct{ start, end token.Pos }{call.Pos(), call.End()})
-			}
-			return true
-		})
+		spans := harvestProbeSpans(gf)
+		spansByFile[gf] = spans
+		quietSpans = append(quietSpans, spans...)
 	}
 	for _, e := range typeErrs {
 		suppressed := false
@@ -1235,6 +1238,14 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// (docs/superpowers/specs/2026-07-09-lsp-unused-imports-design.md).
 	unusedImports := unusedFromSkeletons(skelByGsx, fset, pkg)
 
+	// Missing imports for the LSP surface (Package's PackageResult.MissingImports),
+	// computed from the same skeletons and the same type-checked info — no extra
+	// parse, no lock, no packages.Load. Filters out each file's harvest-probe
+	// copy of a child-prop expression using spansByFile, the same per-file spans
+	// the type-error loop's quietSpans, above, is built from. See
+	// missingFromSkeletons' doc.
+	missingImports := missingFromSkeletons(skelByGsx, fset, info, spansByFile)
+
 	return &analyzed{
 		pkgName:            pkgName,
 		gsxFiles:           gsxFiles,
@@ -1263,7 +1274,41 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		sunkImports:        confirmedSunk,
 		signatureConflicts: sigConflicts,
 		unusedImports:      unusedImports,
+		missingImports:     missingImports,
 	}, nil
+}
+
+// posSpan is a byte-range [start, end) of token.Pos values in a shared
+// token.FileSet — comparable directly against another token.Pos from the same
+// fset without going through Position()/PositionFor(), since a raw token.Pos
+// is just an offset into the fset regardless of any //line directive.
+type posSpan struct{ start, end token.Pos }
+
+// harvestProbeSpans returns the skeleton byte spans of f's _gsxuseq(...)
+// child-prop and element-spread harvest probes. Each probed expression is
+// ALSO checked in a native typed context (the props literal / gsx.Attrs
+// assignment), so the probe copy is redundant: type errors inside it are
+// suppressed (the type-error loop, above), and the diagnostic the user sees
+// anchors at the props-literal copy. Anything that must agree with that
+// diagnostic — MissingImport.Pos, notably (missingFromSkeletons, in
+// add_imports.go) — must skip these spans too, or it will point at the
+// _gsxuseq copy instead of wherever the diagnostic actually landed.
+//
+// One AST walk per file; callers that need every file's spans (the type-error
+// loop) accumulate this per goFiles entry rather than re-walking.
+func harvestProbeSpans(f *goast.File) []posSpan {
+	var spans []posSpan
+	goast.Inspect(f, func(n goast.Node) bool {
+		call, ok := n.(*goast.CallExpr)
+		if !ok {
+			return true
+		}
+		if id, ok := call.Fun.(*goast.Ident); ok && id.Name == "_gsxuseq" {
+			spans = append(spans, posSpan{call.Pos(), call.End()})
+		}
+		return true
+	})
+	return spans
 }
 
 // probeSiteForError resolves a type-checker error's position to the
