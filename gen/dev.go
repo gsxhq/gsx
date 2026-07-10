@@ -115,16 +115,21 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 	for _, r := range startup {
 		startOK = startOK && r.OK
 	}
-	if out, err := srv.rebuild(ctx); err != nil {
-		postEvent(viteURL, buildErrorEvent(out))
-		startOK = false
-	} else if waitHealthy(ctx, healthURL, 10*time.Second) {
-		postReload(viteURL)
+	// A failed cold generate wrote poison .x.go — the build cannot succeed, and
+	// its buildErrorEvent would replace the rich gsx overlay already posted
+	// above. Skip the initial build; the first successful cycle rebuilds and
+	// starts the server (poison→good always changes bytes, so `wrote` fires).
+	if startOK {
+		if out, err := srv.rebuild(ctx); err != nil {
+			postEvent(viteURL, buildErrorEvent(out))
+			startOK = false
+		} else if waitHealthy(ctx, healthURL, 10*time.Second) {
+			postReload(viteURL)
+		}
 	}
 	// overlayUp: an error overlay is currently shown in the browser. A later
 	// successful cycle must reload to clear it even when nothing was written —
-	// e.g. fixing a .gsx error regenerates byte-identical .x.go, so the
-	// hash-gated writer skips it and `wrote` stays false.
+	// still needed for build-error and .env recovery paths.
 	overlayUp := !startOK
 
 	// --- fsnotify watcher (sources + .env) ---
