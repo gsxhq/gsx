@@ -20,10 +20,17 @@ import (
 // with the same object literal, breaks its properties — and that, not wrapping
 // the element that happens to sit inside it, is the remedy the line needs.
 //
-// Each round gofmt's the source, finds the first over-long line, and breaks the
-// OUTERMOST composite literal on it. A nested literal is only reached on a later
-// round, and only if its own line is still over budget after the outer break —
-// which converges on the fewest breaks that bring every line under the limit.
+// Each round gofmt's the source, then breaks EVERY outermost composite literal
+// that is over budget. A nested literal is only reached on a later round, and
+// only if its own line is still over budget after the outer break — which
+// converges on the fewest breaks that bring every line under the limit.
+//
+// Breaking every eligible literal per round (not one) is what keeps the pass
+// linear. gofmt is re-run once per ROUND, and rounds are bounded by nesting
+// DEPTH, not by the literal count: N over-budget sibling literals all break in
+// a single round, so a literal-heavy file costs a handful of gofmt passes, not
+// one per literal. Breaking a single literal per round made this pass quadratic
+// (N gofmt passes over the whole region for N literals).
 //
 // Termination is on NO PROGRESS, never on a round count: a single field wider
 // than the budget cannot be fixed by breaking, and must not loop forever.
@@ -48,7 +55,7 @@ func breakWideLiterals(src string, width, tabWidth int, forceMarker string) stri
 		if err != nil {
 			return src
 		}
-		next, changed := breakFirstWideLiteral(string(formatted), width, tabWidth, forceMarker)
+		next, changed := breakWideLiteralsOnce(string(formatted), width, tabWidth, forceMarker)
 		if !changed {
 			return string(formatted)
 		}
@@ -56,10 +63,12 @@ func breakWideLiterals(src string, width, tabWidth int, forceMarker string) stri
 	}
 }
 
-// breakFirstWideLiteral breaks the outermost composite literal whose opening-
-// brace line is over budget and whose fields are not already broken, returning
-// changed=false when there is no such literal (no progress).
-func breakFirstWideLiteral(src string, width, tabWidth int, forceMarker string) (string, bool) {
+// breakWideLiteralsOnce breaks, in a single AST walk, every outermost composite
+// literal that is over budget and not already fully broken, returning
+// changed=false when there is no such literal (no progress). One call breaks all
+// eligible SIBLINGS at once; nesting is descended one level per call by the
+// caller's loop, so N over-budget sibling literals cost one round, not N.
+func breakWideLiteralsOnce(src string, width, tabWidth int, forceMarker string) (string, bool) {
 	fset := gotoken.NewFileSet()
 	file, err := goparser.ParseFile(fset, "", src, goparser.SkipObjectResolution)
 	if err != nil {
@@ -67,23 +76,13 @@ func breakFirstWideLiteral(src string, width, tabWidth int, forceMarker string) 
 	}
 	lines := strings.Split(src, "\n")
 
-	// braceLineOverBudget reports whether the line holding lit's opening brace is
-	// over budget: measured wider than width, or -- when forceMarker is set --
-	// holding the marker. The marker stands for a multi-line gsx value whose real
-	// width is unknowable and which can never be a one-liner (it forces a break),
-	// so a literal still holding it PACKED on its brace line must break its fields
-	// regardless of the line's measured width.
-	//
-	// The test is keyed on the BRACE line specifically, not on any line of the
-	// literal, and that is what makes the pass converge. Once a literal's fields
-	// break, the marker moves off the brace line onto its own field line; the
-	// literal then reads as fully broken and is skipped. Were the marker allowed to
-	// flag ANY line it sits on, a broken literal's marker field line would stay
-	// permanently "over budget" with no literal to break there -- wedging the loop
-	// on the first such line and starving every later literal (e.g. the sibling
-	// items of a nav slice) of its turn.
-	braceLineOverBudget := func(lit *goast.CompositeLit) bool {
-		ln := fset.Position(lit.Lbrace).Line
+	// lineOverBudget reports whether source line ln (1-based) is over budget:
+	// measured wider than width, or -- when forceMarker is set -- holding the
+	// marker. The marker stands for a multi-line gsx value whose real width is
+	// unknowable and which can never be a one-liner (it forces a break), so a
+	// literal still holding it must break its fields regardless of the line's
+	// measured width.
+	lineOverBudget := func(ln int) bool {
 		if ln < 1 || ln > len(lines) {
 			return false
 		}
@@ -95,53 +94,78 @@ func breakFirstWideLiteral(src string, width, tabWidth int, forceMarker string) 
 		return forceMarker != "" && strings.Contains(line, forceMarker)
 	}
 
-	// The outermost over-budget literal whose fields are not already broken.
-	// goast.Inspect visits parents before children, so the first match is the
-	// outermost; an outer `[]T{{…}}` has exactly ONE element (the inner literal),
-	// and breaking it is precisely the outermost-first case.
-	var target *goast.CompositeLit
-	goast.Inspect(file, func(n goast.Node) bool {
-		if target != nil {
-			return false
+	// litOverBudget reports whether ANY line lit spans -- from its opening brace
+	// through its last element's end -- is over budget. Keying on the brace line
+	// alone (an earlier version's mistake) skipped a literal the author partially
+	// broke with the `{` on its own line but two fields packed onto one over-long
+	// field line: that line then stayed over budget forever. Spanning every line
+	// still converges, because the "already fully broken" guard (below) skips a
+	// literal whose fields are one-per-line -- so an over-budget line that no
+	// remaining break can shorten (a fully broken literal, or a single field
+	// wider than the budget) never re-triggers a break.
+	litOverBudget := func(lit *goast.CompositeLit) bool {
+		start := fset.Position(lit.Lbrace).Line
+		end := fset.Position(lit.Elts[len(lit.Elts)-1].End()).Line
+		for ln := start; ln <= end; ln++ {
+			if lineOverBudget(ln) {
+				return true
+			}
 		}
+		return false
+	}
+
+	// Collect every outermost over-budget literal whose fields are not already
+	// broken. goast.Inspect visits parents before children; when a literal is
+	// accepted we return false to SKIP its descendants, because breaking the
+	// parent's fields may bring the children back under budget -- descending in
+	// the same round is exactly what would over-break. A skipped literal (under
+	// budget, or already fully broken) returns true so a child that still needs
+	// breaking is reached: an outer `[]T{{…}}` already broken one-per-line is
+	// itself fully broken, and its inner literal is the next round's target.
+	var targets []*goast.CompositeLit
+	goast.Inspect(file, func(n goast.Node) bool {
 		lit, ok := n.(*goast.CompositeLit)
 		if !ok || lit.Incomplete || len(lit.Elts) == 0 {
 			return true
 		}
-		if !braceLineOverBudget(lit) {
+		if !litOverBudget(lit) {
 			return true
 		}
-		// Already one-per-line? Then breaking it again is not progress.
+		// Already one-per-line? Then breaking it again is not progress; descend
+		// to reach a nested literal that may still need breaking.
 		if compositeLitFullyBroken(fset, lit) {
 			return true
 		}
-		target = lit
+		targets = append(targets, lit)
 		return false
 	})
-	if target == nil {
-		return src, false
-	}
 
-	// Insert a newline before every element that still shares its line with
-	// whatever precedes it: the `{` for element 0, the previous element for
-	// everyone else. An element that already starts its own line (this literal
+	// Collect the insertion offset before every element that still shares its
+	// line with whatever precedes it: the `{` for element 0, the previous element
+	// for everyone else. An element that already starts its own line (a literal
 	// may be PARTIALLY broken -- some elements one-per-line, others not) is left
 	// alone, or a blank line would appear before it. gofmt supplies the
 	// indentation, the alignment, and (with blockFormBraces) the closing brace.
 	// A comma already separates interior elements, and `{` precedes the first,
 	// so no comma is inserted here and automatic semicolon insertion cannot fire.
+	//
+	// Offsets are gathered across ALL targets. Targets are never nested in one
+	// another (an accepted literal's descendants are skipped), so their offsets
+	// are disjoint positions in the single pre-mutation src.
 	var offsets []int
-	firstPos := fset.Position(target.Elts[0].Pos())
-	if firstPos.Line == fset.Position(target.Lbrace).Line {
-		offsets = append(offsets, firstPos.Offset)
-	}
-	prevLine := firstPos.Line
-	for _, elt := range target.Elts[1:] {
-		pos := fset.Position(elt.Pos())
-		if pos.Line == prevLine {
-			offsets = append(offsets, pos.Offset)
+	for _, target := range targets {
+		firstPos := fset.Position(target.Elts[0].Pos())
+		if firstPos.Line == fset.Position(target.Lbrace).Line {
+			offsets = append(offsets, firstPos.Offset)
 		}
-		prevLine = pos.Line
+		prevLine := firstPos.Line
+		for _, elt := range target.Elts[1:] {
+			pos := fset.Position(elt.Pos())
+			if pos.Line == prevLine {
+				offsets = append(offsets, pos.Offset)
+			}
+			prevLine = pos.Line
+		}
 	}
 	if len(offsets) == 0 {
 		// No element actually shares a line with its predecessor: nothing to
@@ -154,8 +178,7 @@ func breakFirstWideLiteral(src string, width, tabWidth int, forceMarker string) 
 	// against the pre-mutation src; inserting a "\n" at one offset shifts every
 	// BYTE AFTER it, never before. Descending order guarantees each remaining
 	// offset in the list still points at the same source position when its turn
-	// comes, exactly as the single-offset special case did before this loop was
-	// generalized.
+	// comes. This is the same argument blockFormBraces relies on.
 	sort.Sort(sort.Reverse(sort.IntSlice(offsets)))
 	out := src
 	for _, off := range offsets {
