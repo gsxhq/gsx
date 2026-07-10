@@ -946,6 +946,14 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// (helperXgoPath). Hand-written .x.go files (e.g. gsxshared.x.go) and
 	// orphaned .x.go files (from a deleted .gsx) are intentionally included —
 	// they are visible to the type-checker as on-disk .go files.
+	//
+	// The skeleton test is KEY PRESENCE, not a non-nil value. compsByXGo's value
+	// is the file's component slice, and a .gsx that declares no `component` at
+	// all — say an element-valued `var` beside a plain func — stores a nil slice
+	// under a present key. Testing the value let that file's real .x.go be parsed
+	// alongside its own skeleton, so every declaration in it existed twice and
+	// the second `gsx generate` failed with "redeclared in this block".
+	//
 	// goImportPaths collects the imports of the hand-written .go files so the import
 	// graph (recordImports) also tracks sibling gsx packages reached only through a
 	// companion .go (e.g. a model.go), not just through .gsx-hoisted imports.
@@ -953,7 +961,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	if bp, berr := build.ImportDir(dir, 0); berr == nil {
 		for _, name := range bp.GoFiles {
 			absPath := filepath.Join(dir, name)
-			if compsByXGo[absPath] != nil || absPath == helperXgoPath {
+			if _, hasSkeleton := compsByXGo[absPath]; hasSkeleton || absPath == helperXgoPath {
 				continue // already represented as a synthetic overlay
 			}
 			src, readErr := os.ReadFile(absPath)
