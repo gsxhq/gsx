@@ -1,0 +1,25 @@
+Add inserts a brand-new import block before the first declaration when the
+file has none at all.
+
+-- imports --
+goimports
+-- add --
+fmt
+-- input.gsx --
+package ui
+
+var hello = "hi"
+
+func Describe() string {
+	return hello
+}
+-- fmt.golden --
+package ui
+
+import "fmt"
+
+var hello = "hi"
+
+func Describe() string {
+	return hello
+}

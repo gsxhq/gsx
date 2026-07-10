@@ -1,0 +1,25 @@
+Add inserts a brand-new import block before the first declaration when the
+file has none at all, AND that first declaration is immediately followed by
+an element literal (var xx = <p>...) rather than a plain func/type/const. This
+is the shape that regressed: with no import chunk to reuse, `var hello` merges
+into the SAME GoWithElements decl as `var xx`, so the synthesized import chunk
+must still carry a blank-line separator to the next decl.
+
+-- imports --
+goimports
+-- add --
+fmt
+-- input.gsx --
+package ui
+
+var hello = "hi"
+
+var xx = <p>{ fmt.Sprintf(hello) }</p>
+-- fmt.golden --
+package ui
+
+import "fmt"
+
+var hello = "hi"
+
+var xx = <p>{ fmt.Sprintf(hello) }</p>

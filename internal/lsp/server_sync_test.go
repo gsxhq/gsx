@@ -42,6 +42,7 @@ func (a fakeAnalyzer) FormatSettings(string) gsxfmt.FormatSettings {
 func (a fakeAnalyzer) ImportsMode(string) gsxfmt.ImportsMode {
 	return gsxfmt.ImportsGoimports
 }
+func (a fakeAnalyzer) ResolveImport(string, string, string) []string { return nil }
 
 func TestDidOpenPublishesDiagnostics(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "page.gsx")

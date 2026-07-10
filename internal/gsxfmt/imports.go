@@ -147,6 +147,103 @@ func reorderChunkImports(src string) (string, bool) {
 	return res, true
 }
 
+// addImports inserts each ref into the file's import block, creating one when the
+// file has none. Insertion is delegated to astutil.AddNamedImport (the same
+// package that supplies DeleteNamedImport for removal): it places the spec in the
+// right existing group, creates the declaration when there is none, and is a
+// no-op when the path is already imported — so duplicates cost nothing.
+//
+// astutil will put a third-party import into a std-only block without opening a
+// new group. That is fine: reorderImports (goimports FormatOnly) runs afterwards
+// and splits std from everything else.
+func addImports(f *gsxast.File, add []ImportRef) {
+	if len(add) == 0 {
+		return
+	}
+	gc := importTargetChunk(f)
+	if gc == nil {
+		return // no chunk could be created; leave the file alone
+	}
+	src, ok := addChunkImports(gc.Src, add)
+	if ok {
+		gc.Src = src
+	}
+}
+
+// importTargetChunk returns the GoChunk that should hold the file's imports,
+// creating one if necessary.
+//
+// Preference: the leading chunk that already declares imports, else the first
+// GoChunk, else a fresh empty chunk inserted at Decls[0]. A GoWithElements or
+// Component is never a target — astutil parses Go, and neither is standalone-valid
+// Go. That last case is real: `package main` followed only by
+// `var xx = <p>hi</p>` has no GoChunk at all.
+func importTargetChunk(f *gsxast.File) *gsxast.GoChunk {
+	var first *gsxast.GoChunk
+	for _, d := range f.Decls {
+		gc, ok := d.(*gsxast.GoChunk)
+		if !ok {
+			continue
+		}
+		if chunkHasImports(gc.Src) {
+			return gc
+		}
+		if first == nil {
+			first = gc
+		}
+	}
+	if first != nil {
+		return first
+	}
+	// A brand-new chunk has no author-written trailing whitespace for
+	// preserveTrailing (in addChunkImports) to carry forward — Src is about to
+	// go from "" to an import block, with nothing upstream to copy a separator
+	// from. Every OTHER GoChunk's Src encodes "a blank line follows" as a
+	// trailing "\n\n" (see endsWithBlankLine); a synthesized chunk must encode
+	// the same default (file's own per-decl default is `blank := true`) or the
+	// printer reads its bare, separator-less Src as "author wrote no gap" and
+	// glues it to the next decl. Seeding Src with "\n\n" up front gives
+	// preserveTrailing a real trailing run to preserve, so the chunk ends up
+	// with the same blank-line marker any authored import block would have.
+	gc := &gsxast.GoChunk{Src: "\n\n"}
+	f.Decls = append([]gsxast.Decl{gc}, f.Decls...)
+	return gc
+}
+
+// addChunkImports wraps one chunk in the synthetic package clause, runs
+// astutil.AddNamedImport per ref, and reprints. Returns the rewritten chunk and
+// whether anything changed.
+//
+// The clause is removed by PARSING (printer.StripSyntheticPackage), never by line
+// index: go/printer hoists a //go:build comment above the clause, and a
+// line-index strip would shear the constraint and splice `package _gsxp` into the
+// user's source.
+func addChunkImports(src string, add []ImportRef) (string, bool) {
+	fset := token.NewFileSet()
+	file, err := goparser.ParseFile(fset, "", goChunkPkg+src, goparser.ParseComments)
+	if err != nil {
+		return src, false // not standalone-valid Go; leave it
+	}
+	changed := false
+	for _, r := range add {
+		if astutil.AddNamedImport(fset, file, r.Name, r.Path) {
+			changed = true
+		}
+	}
+	if !changed {
+		return src, false
+	}
+	var b strings.Builder
+	if err := goformat.Node(&b, fset, file); err != nil {
+		return src, false
+	}
+	stripped, ok := printer.StripSyntheticPackage([]byte(b.String()))
+	if !ok {
+		return src, false
+	}
+	return preserveTrailing(src, stripped), true
+}
+
 // reorderImports rewrites the imports of every GoChunk in f, in place, to
 // goimports' canonical form. Non-GoChunk decls are skipped: imports never live
 // in a GoWithElements region, because the parser peels a leading import run into

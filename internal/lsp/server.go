@@ -40,6 +40,12 @@ type Analyzer interface {
 	// source.organizeImports code action deliberately ignores it and always
 	// organizes.
 	ImportsMode(dir string) gsxfmt.ImportsMode
+	// ResolveImport maps an undefined qualifier (name, and the selector symbol used
+	// on it) to the import path(s) that could supply it. Exactly one candidate means
+	// organizeImports may add it unattended; several means the user picks via a
+	// quickfix; none means we offer nothing. It may read package export data, so it
+	// is called ONLY from user-triggered code-action handlers, never during analysis.
+	ResolveImport(dir, name, symbol string) []string
 }
 
 // Server is a stdio LSP server that publishes gsx diagnostics. It owns the
@@ -243,7 +249,7 @@ func (s *Server) handleInitialize(f frame) error {
 		HoverProvider:              true,
 		DocumentSymbolProvider:     true,
 		WorkspaceSymbolProvider:    true,
-		CodeActionProvider:         &CodeActionOptions{CodeActionKinds: []string{organizeImportsKind}},
+		CodeActionProvider:         &CodeActionOptions{CodeActionKinds: []string{organizeImportsKind, quickFixKind}},
 	}})
 }
 

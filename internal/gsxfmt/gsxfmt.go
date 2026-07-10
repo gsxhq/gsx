@@ -68,6 +68,10 @@ type FormatOptions struct {
 	// bool, not an ImportsMode: gsxfmt stays mechanical, and callers map
 	// ImportsMode.Reorder() onto it.
 	Reorder bool
+	// Add lists imports to insert (astutil.AddNamedImport). Already-present paths
+	// are no-ops. Applied after Unused removal and before Reorder, so the reorder
+	// pass groups and sorts whatever the insert produced.
+	Add []ImportRef
 }
 
 // FormatWith is the one formatting entry point: parse → remove unused imports →
@@ -80,9 +84,11 @@ func FormatWith(name string, src []byte, opts FormatOptions) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Remove first, then reorder: an import that was both unused and duplicated is
-	// gone before the merge, so reorder only canonicalizes what survives.
+	// Remove, then add, then reorder: an import that was both unused and
+	// duplicated is gone before the merge, so reorder only canonicalizes what
+	// survives.
 	removeImports(f, opts.Unused)
+	addImports(f, opts.Add)
 	if opts.Reorder {
 		reorderImports(f)
 	}
