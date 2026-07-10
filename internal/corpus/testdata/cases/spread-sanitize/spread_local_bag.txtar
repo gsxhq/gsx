@@ -1,6 +1,6 @@
-# VULN (issue #75): a bag built as a body-local `:=` var spreads onto <a>
-# WITHOUT URL sanitization — a javascript: href reaches the sink raw.
-# Current render.golden pins the HOLE; the fix flips it to about:invalid#gsx.
+# A spread onto an element sanitizes URL keys regardless of provenance (issue
+# #75): a bag built as a body-local `:=` var spread onto <a> routes through the
+# leaf URL sink, so a javascript: href becomes about:invalid#gsx.
 -- input.gsx --
 package views
 
@@ -14,4 +14,4 @@ component Link(userHref string) {
 Link(LinkProps{UserHref: "javascript:alert(1)"})
 -- diagnostics.golden --
 -- render.golden --
-<a href="javascript:alert(1)">click</a>
+<a href="about:invalid#gsx">click</a>

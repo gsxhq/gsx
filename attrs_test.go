@@ -414,3 +414,32 @@ func TestSpreadForwardingExcludedCaseInsensitive(t *testing.T) {
 		t.Fatalf("SpreadForwarding = %q want %q", got, want)
 	}
 }
+
+// TestSpreadForwardingAggregatesClassStyle pins the strict-superset property: with
+// excluded=nil (a standalone spread — e.g. one nested in a cond-attr — where no
+// forced site owns class/style), a non-excluded class/style key aggregates via
+// a.Class()/a.Style() exactly like Spread, not rendered raw per-entry.
+func TestSpreadForwardingAggregatesClassStyle(t *testing.T) {
+	var buf bytes.Buffer
+	gw := W(&buf)
+	gw.SpreadForwarding(context.Background(), Attrs{
+		{Key: "class", Value: "a"},
+		{Key: "class", Value: "b"},
+		{Key: "style", Value: "color:red"},
+		{Key: "style", Value: "margin:0"},
+	}, nil, nil, nil, nil)
+	// Compare against plain Spread over the same bag: SpreadForwarding must match it.
+	var ref bytes.Buffer
+	W(&ref).Spread(context.Background(), Attrs{
+		{Key: "class", Value: "a"},
+		{Key: "class", Value: "b"},
+		{Key: "style", Value: "color:red"},
+		{Key: "style", Value: "margin:0"},
+	})
+	if got := buf.String(); got != ref.String() {
+		t.Fatalf("SpreadForwarding class/style aggregation = %q, want Spread parity %q", got, ref.String())
+	}
+	if got := buf.String(); !strings.Contains(got, `class="a b"`) {
+		t.Fatalf("SpreadForwarding did not aggregate class: %q", got)
+	}
+}

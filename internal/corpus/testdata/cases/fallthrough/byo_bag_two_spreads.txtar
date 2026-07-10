@@ -14,4 +14,4 @@ component Row(p props) {
 	<div { p.Attrs... } { p.Attrs... }>r</div>
 }
 -- diagnostics.golden --
-10:2: more than one attrs-referencing spread on an element; precedence is ambiguous
+10:2: more than one spread on an element; precedence is ambiguous

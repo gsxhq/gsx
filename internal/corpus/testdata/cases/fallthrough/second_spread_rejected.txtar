@@ -13,4 +13,4 @@ component Row(extra gsx.Attrs) {
 	<div { attrs... } { extra... }>r</div>
 }
 -- diagnostics.golden --
-6:2: more than one attrs-referencing spread on an element; precedence is ambiguous
+6:2: more than one spread on an element; precedence is ambiguous

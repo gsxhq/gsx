@@ -1,5 +1,6 @@
-# VULN (issue #75): a byo struct's second gsx.Attrs field (not named Attrs)
-# spreads onto <a> unsanitized — reachable from pure template source.
+# A spread onto an element sanitizes URL keys regardless of provenance (issue
+# #75): a byo struct's second gsx.Attrs field (not named Attrs) spread onto <a>
+# routes through the leaf URL sink, so a javascript: href becomes about:invalid#gsx.
 -- input.gsx --
 package views
 
@@ -16,4 +17,4 @@ component Link(p props) {
 Link(props{Extra: gsx.Attrs{{Key: "href", Value: "javascript:alert(1)"}}})
 -- diagnostics.golden --
 -- render.golden --
-<a href="javascript:alert(1)">click</a>
+<a href="about:invalid#gsx">click</a>
