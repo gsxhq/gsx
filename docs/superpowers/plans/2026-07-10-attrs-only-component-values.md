@@ -625,7 +625,9 @@ The exact `types.TypeString` rendering (package-path qualification) and position
 
 - [ ] **Step 3: Commit** — `git commit -m "test(corpus): attrs-only rejection diagnostics (unnamed slice, error result, children, undefined)"`.
 
----### Task 6: merge-order corpus case
+---
+
+### Task 6: merge-order corpus case
 
 **Files:**
 - Create: `internal/corpus/testdata/cases/attrsonly/merge_order.txtar`
