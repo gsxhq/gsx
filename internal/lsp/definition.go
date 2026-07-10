@@ -417,6 +417,17 @@ func (s *Server) handleDefinition(f frame) error {
 		return s.reply(f.ID, s.locationForPos(dp))
 	}
 
+	// D4: cursor on an attrs-only component-value tag (a var/func of type
+	// func(gsx.Attrs) gsx.Node / func(...gsx.Attr) gsx.Node, not a `component`
+	// declaration — see docs/superpowers/specs/2026-07-07-attrs-only-component-
+	// values-design.md) → its own var/func declaration, same-package or
+	// cross-package (dotted). Checked after D2/B since those cover the more
+	// common `component`-declared tags first; falls through to null when the
+	// tag isn't an attrs-only value either.
+	if dp, ok := attrsOnlyTagDeclAt(pkg, path, off); ok {
+		return s.reply(f.ID, s.locationForPos(dp))
+	}
+
 	// A/C: cursor on a component-invocation attribute name → the matching component
 	// parameter (same-package function components and cross-package dotted tags).
 	if dp, ok := componentAttrParamAt(pkg, path, off); ok {
