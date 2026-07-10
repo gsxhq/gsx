@@ -1,0 +1,30 @@
+# attrs-only component value: package-level func with the variadic signature.
+# Zero-attr call must emit Chip() (variadic needs no nil argument).
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+type chipProps struct {
+	Attrs gsx.Attrs
+}
+
+component renderChip(p chipProps) {
+	<span { p.Attrs... }>chip</span>
+}
+
+func Chip(attrs ...gsx.Attr) gsx.Node {
+	return renderChip(chipProps{Attrs: gsx.Attrs(attrs)})
+}
+
+component Page() {
+	<div>
+		<Chip class="c1" data-k="v"/>
+		<Chip/>
+	</div>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<div><span class="c1" data-k="v">chip</span><span>chip</span></div>
