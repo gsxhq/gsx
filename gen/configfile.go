@@ -39,7 +39,7 @@ type tomlConfig struct {
 // tomlFormatter is the [formatter] table: knobs for `gsx fmt` and LSP
 // formatting. Like [dev], it never changes generated output and is NOT folded
 // into computeKey. A nil pointer (table absent) leaves the defaults
-// (print_width 80, imports "goimports").
+// (print_width pretty.DefaultPrintWidth, imports "goimports").
 type tomlFormatter struct {
 	PrintWidth int    `toml:"print_width"`
 	TabWidth   int    `toml:"tab_width"`

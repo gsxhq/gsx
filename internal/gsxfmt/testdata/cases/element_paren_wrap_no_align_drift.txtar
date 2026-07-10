@@ -1,27 +1,56 @@
-Two items in one gofmt alignment section, each with an element that paren-wraps.
+Two items, each with a genuinely multi-line element. Elements no longer paren-
+wrap merely for being on a wide line (see internal/printer's breakWideLiterals
+wiring), so this case uses elements that are themselves multi-line to keep
+exercising the paren shape.
 
-Re-formatting fmt's own output must not drift. The decorative paren puts the
-element alone on its line, which makes `page` start a new SOURCE line. gofmt then
-emits an alignment cell for `page:` even though it joins the line back up, and the
-padding grows on every run. Collapsing the newline between `(` and the hole keeps
-gofmt's view of the value inline — which is exactly what the flat-width
-placeholder already promises it.
+A multi-line element reaches gofmt as a single-rune placeholder handed to
+breakWideLiterals as its forceMarker: its true width is unknowable and it can
+never be a one-liner, so a literal holding it PACKED is over budget without
+measuring. Each item therefore breaks its fields one per line AND paren-wraps its
+element — so each item becomes its own gofmt alignment section, and the
+cross-item alignment that historically (#62) let `page` gain a stray alignment
+cell on re-format no longer even exists.
+
+Re-formatting fmt's own output must not drift: the decorative paren still puts the
+element alone on its line, and goexprshape.Sanitize's before-hole collapse
+(guarded directly by TestSanitizeBeforeCollapseIsParenOnly in
+internal/goexprshape/shape_test.go) is still the fix for the single-pass artifact
+that shape once caused. This case pins that a two-item literal whose fields break
+and whose elements paren-wrap formats and reformats without drifting.
 
 -- input.gsx --
 package ui
 
 var nav = []item{
-	{label: "Team View", icon: <UsersIcon/>, page: TeamViewPage{}, pathMatch: "/team", nonVendor: true},
-	{label: "Search", icon: <SearchIcon/>, page: ListPage{}, pathMatch: "/list/", excludeQuery: "entity_type"},
+	{label: "Team View", icon: <UsersIcon>
+		<title>users</title>
+	</UsersIcon>, page: TeamViewPage{}, pathMatch: "/team"},
+	{label: "Search", icon: <SearchIcon>
+		<title>search</title>
+	</SearchIcon>, page: ListPage{}, pathMatch: "/list/"},
 }
 -- fmt.golden --
 package ui
 
 var nav = []item{
-	{label: "Team View", icon: (
-		<UsersIcon/>
-	), page: TeamViewPage{}, pathMatch: "/team", nonVendor: true},
-	{label: "Search", icon: (
-		<SearchIcon/>
-	), page: ListPage{}, pathMatch: "/list/", excludeQuery: "entity_type"},
+	{
+		label:     "Team View",
+		icon:      (
+			<UsersIcon>
+				<title>users</title>
+			</UsersIcon>
+		),
+		page:      TeamViewPage{},
+		pathMatch: "/team",
+	},
+	{
+		label:     "Search",
+		icon:      (
+			<SearchIcon>
+				<title>search</title>
+			</SearchIcon>
+		),
+		page:      ListPage{},
+		pathMatch: "/list/",
+	},
 }

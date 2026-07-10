@@ -47,7 +47,7 @@ depth, so gsx's width behavior is currently unverified.
 | Question | Decision |
 |---|---|
 | Which literals break? | Every composite literal in embedded Go, element-bearing or not. |
-| Paren-wrap on width? | Dropped. Paren-wrap survives only for genuinely multi-line elements. |
+| When does a value break? | The author decides, never the width. A value that cannot print flat breaks; a value the author parenthesized breaks; anything else is emitted as fixed text. |
 | Nesting | Outermost first, re-measure, repeat. Descend only if the inner line is still over. |
 | Literal holding a multi-line element | Treated as over-budget without measuring. |
 | Ragged siblings | Accepted. A width rule means a 79-column literal stays inline next to an 85-column one that breaks. |
@@ -170,10 +170,28 @@ a no-op. gsx fmt extends gofmt; it never fights it. This is the same property
 `blockFormBraces` holds, and it is the invariant that makes both rules
 defensible rather than a fork of gofmt.
 
-#### Paren-wrap narrows
+#### Paren-wrap is the author's break request
 
-`parenWrapDoc` fires only when the element's own doc is multi-line — a
-block-level child, or an author's line break. Never on width.
+**Revised after implementation.** The original decision — "paren-wrap only a
+multi-line element, never on width" — assumed there are always fields to break.
+There are not: `var xxx… = <div>x</div>` at 81 columns has none, so the element
+either broke its own children (and then re-parsed as author-broken, and
+paren-wrapped on the second pass — non-idempotent) or was pinned flat and
+silently overflowed.
+
+The rule that survives contact: **the author decides when a value breaks, never
+the width.** gsx already works this way for markup, where a newline after `{` or
+`>` keeps a body multi-line. The decorative paren is the same signal.
+
+- A value that cannot be printed flat breaks, and takes parens.
+- A value the author parenthesized breaks, and keeps them. `parenWrapDoc`
+  carries `BreakParent` so the parens are never silently deleted when the value
+  happens to fit — deleting them would erase the request.
+- Anything else is emitted as fixed `Text`, which no `Group` can reflow.
+
+The width is in none of the three. A wide line is still fixed, by
+`breakWideLiterals` breaking the composite literal's FIELDS — which is what made
+the line wide. The element never was.
 
 Consequences:
 
@@ -231,8 +249,11 @@ Change B:
 
 - Corpus cases: break at depth; outermost-first with a nested literal that then
   fits; a nested literal that does *not* fit and must also break; a literal with
-  a multi-line element; a single field wider than the budget (no progress →
-  leave it); an element-free Go chunk (proving the rule is not element-gated).
+  a multi-line element; a single field wider than the budget (it still breaks
+  once — no break can bring its own line under budget, but the pass breaks
+  unconditionally once the flat form doesn't fit, same as prettier — and the
+  pass must terminate after that one round rather than looping); an
+  element-free Go chunk (proving the rule is not element-gated).
 - A `breakWideLiterals` output-is-a-gofmt-fixed-point test, mirroring
   `TestBlockFormBracesOutputIsGofmtFixedPoint`.
 - Every new corpus golden must be checked to *discriminate*: revert the pass,

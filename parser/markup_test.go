@@ -76,7 +76,7 @@ func TestParseText(t *testing.T) {
 
 func TestParseAttrs(t *testing.T) {
 	p := testParser(`class="card" id={x} disabled { rest... } data-y={z}>`)
-	attrs, err := p.parseAttrs()
+	attrs, _, err := p.parseAttrs()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestParseSpreadWhitespace(t *testing.T) {
 	// { rest... }, {rest...}, and {  rest  ...  } must all parse as one spread.
 	for _, src := range []string{`{ rest... }>`, `{rest...}>`, `{  rest  ...  }>`} {
 		p := testParser(src)
-		attrs, err := p.parseAttrs()
+		attrs, _, err := p.parseAttrs()
 		if err != nil {
 			t.Fatalf("%q: %v", src, err)
 		}
@@ -261,7 +261,7 @@ func TestParseSpreadPipeline(t *testing.T) {
 	}
 	for _, tc := range cases {
 		p := testParser(tc.src)
-		attrs, err := p.parseAttrs()
+		attrs, _, err := p.parseAttrs()
 		if err != nil {
 			t.Fatalf("%q: %v", tc.src, err)
 		}
@@ -1579,5 +1579,25 @@ func TestAuthorLineBreakFlags(t *testing.T) {
 	}
 	if got := elemNode("package p\ncomponent C(s string) {\n\t<span>{ s }</span>\n}\n", "span"); got.ChildrenMultiline {
 		t.Error("ChildrenMultiline: want false for inline children")
+	}
+	// opening-tag attr list broken vs inline.
+	if got := elemNode("package p\ncomponent C() {\n\t<a\n\t\thref=\"/help\"\n\t\tclass=\"x\"\n\t>?</a>\n}\n", "a"); !got.AttrsMultiline {
+		t.Error("AttrsMultiline: want true for author-broken attr list")
+	}
+	if got := elemNode("package p\ncomponent C() {\n\t<a href=\"/help\" class=\"x\">?</a>\n}\n", "a"); got.AttrsMultiline {
+		t.Error("AttrsMultiline: want false for inline attr list")
+	}
+	// CRLF line break inside the opening tag still counts.
+	if got := elemNode("package p\r\ncomponent C() {\r\n\t<a\r\n\t\thref=\"/help\"\r\n\t>?</a>\r\n}\r\n", "a"); !got.AttrsMultiline {
+		t.Error("AttrsMultiline: want true for CRLF-broken attr list")
+	}
+	// A newline INSIDE an attribute value is the value's business, not a request
+	// to break the attribute list.
+	if got := elemNode("package p\ncomponent C() {\n\t<div id={foo(a,\n\t\tb)}>{ a }</div>\n}\n", "div"); got.AttrsMultiline {
+		t.Error("AttrsMultiline: want false for newline inside an attr value")
+	}
+	// Zero attributes: `<div\n>` has no attribute list to break.
+	if got := elemNode("package p\ncomponent C() {\n\t<div\n\t>x</div>\n}\n", "div"); got.AttrsMultiline {
+		t.Error("AttrsMultiline: want false for zero-attribute element")
 	}
 }

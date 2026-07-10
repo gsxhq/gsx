@@ -314,7 +314,7 @@
   {
     "name": "JSON attribute values",
     "category": "JavaScript",
-    "source": "package views\n\ncomponent EntityFilter(entityType string, opts map[string]string) {\n\t<input type=\"checkbox\" hx-post=\"/filter\" hx-vals=js`{\"entity_type\": @{entityType}, \"opts\": @{opts}}`/>\n}\n",
+    "source": "package views\n\ncomponent EntityFilter(entityType string, opts map[string]string) {\n\t<input\n\t\ttype=\"checkbox\"\n\t\thx-post=\"/filter\"\n\t\thx-vals=js`{\"entity_type\": @{entityType}, \"opts\": @{opts}}`\n\t/>\n}\n",
     "invoke": "EntityFilter(EntityFilterProps{EntityType: \"opportunity\", Opts: map[string]string{\"page\": \"1\"}})"
   },
   {

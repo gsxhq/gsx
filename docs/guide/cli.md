@@ -245,7 +245,7 @@ Path arguments are `.gsx` files or directories (walked recursively, skipping
 `.git`, hidden dirs, `vendor`, `node_modules`, and `testdata`). No arguments
 formats `.` recursively.
 
-**Line width.** The formatter wraps at 80 columns by default; set
+**Line width.** The formatter wraps at 120 columns by default; set
 [`[formatter]` `print_width`](./config.md#formatter--gsx-fmt--editor-formatting)
 in `gsx.toml` to change it, or `max_line_length` in `.editorconfig`. The
 language server reads the same settings, so `gsx fmt` and format-on-save
@@ -258,6 +258,30 @@ block-formatted instead of collapsing it onto one line — even when it would fi
 the print width. Write it inline and it stays inline; write it multi-line and it
 stays multi-line. (A block-level child, e.g. a nested element, still forces the
 enclosing body to break regardless, so the document hierarchy stays visible.)
+
+**An element inside a Go expression breaks only when you ask it to.** Write it
+bare and it stays on one line, however long that line ends up:
+
+```go
+var navIcon = <a href="/help" class="text-blue-600" title="Get help">?</a>
+```
+
+Wrap it in parentheses and it breaks, and keeps them:
+
+```go
+var navIcon = (
+    <a href="/help" class="text-blue-600" title="Get help">?</a>
+)
+```
+
+The parenthesis is a break request, exactly as a newline after `>` is. `gsx fmt`
+never adds one to chase the print width and never deletes one you wrote. An
+element that *cannot* print flat — one with a block-level child, or a line break
+you put inside it — breaks regardless, and takes parentheses.
+
+When a line is too long, the fix is the Go around the element, not the element:
+`gsx fmt` breaks the composite literal's fields (below), which is what made the
+line long.
 
 The same principle reaches the Go you embed. **A composite literal whose opening
 `{` ends a line gets its closing `}` on a line of its own**, so a literal written
@@ -286,6 +310,61 @@ Braces are all-or-nothing; fields are not. The `Admin` item keeps its `{` inline
 so it stays entirely inline, and the `Export` item's fields stay packed on the
 one line the author wrote them on — `gsx fmt` never introduces a break *between*
 fields.
+
+**A line over `print_width` breaks the outermost composite literal on it, one
+field per line.** gofmt itself never does this — `go/printer` copies the breaks
+between a literal's fields straight from the source and invents none, so an
+over-long `{a: 1, b: 2, …}` stays over-long forever. `gsx fmt` breaks the fields
+of the *outermost* literal that starts on the bad line, then re-measures and
+repeats: a nested literal only gets its own turn if it is *still* over budget
+once the outer break has landed. The loop ends the moment every line fits, or —
+for a single field wider than the budget on its own — after breaking it once,
+since a further round could not help.
+
+Given
+
+```go
+var sections = []appShellNavItem{
+	{label: "Home", icon: <HomeIcon/>, page: HomePage{}, pathMatch: "/"},
+	{label: "Import / Export", icon: <UploadDownloadIcon/>, page: ImportExportPage{}, pathMatch: "/import-export/", nonVendor: true},
+	{label: "User Management Console", icon: <UsersIcon/>, page: UserManagementPage{}, pathMatch: "/users/manage/", vendorVisible: true},
+}
+```
+
+`gsx fmt` produces
+
+```go
+var sections = []appShellNavItem{
+	{label: "Home", icon: <HomeIcon/>, page: HomePage{}, pathMatch: "/"},
+	{
+		label:     "Import / Export",
+		icon:      <UploadDownloadIcon/>,
+		page:      ImportExportPage{},
+		pathMatch: "/import-export/",
+		nonVendor: true,
+	},
+	{
+		label:         "User Management Console",
+		icon:          <UsersIcon/>,
+		page:          UserManagementPage{},
+		pathMatch:     "/users/manage/",
+		vendorVisible: true,
+	},
+}
+```
+
+The `Home` item already fits under `print_width` and is left exactly as
+written; the other two didn't, so their fields broke one per line. Ragged
+siblings like this are what a *per-line* width rule produces — nothing here
+re-flows every item to match its widest sibling.
+
+Elements are never wrapped in parentheses merely because their line is long —
+that stays the author's decision (above). A composite literal holding a
+genuinely multi-line element (one with a block-level child, or an author line
+break inside it) is a separate case: the element's true width can't be measured
+before it's laid out, so the literal around it is treated as over budget and
+broken regardless, and the element itself still only parenthesizes because it
+*can't print flat*, never because the literal's line was long.
 
 **Indentation is always tabs.** `gsx fmt` never emits spaces for indentation,
 regardless of configuration. `[formatter] tab_width` (in `gsx.toml`) and

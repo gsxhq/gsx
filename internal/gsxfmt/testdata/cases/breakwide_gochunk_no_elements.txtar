@@ -1,0 +1,17 @@
+An over-long map literal in a declaration with no gsx element anywhere. The
+break rule is not element-gated: fmtGoChunk hands breakWideLiterals an empty
+forceMarker (there are no gsx holes to force a break for), and the pass still
+breaks this map's entries one per line purely on measured width.
+
+-- input.gsx --
+package ui
+
+var labels = map[string]string{"home": "Home Dashboard Overview", "import": "Import and Export Data", "users": "User Management Console"}
+-- fmt.golden --
+package ui
+
+var labels = map[string]string{
+	"home":   "Home Dashboard Overview",
+	"import": "Import and Export Data",
+	"users":  "User Management Console",
+}

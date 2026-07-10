@@ -1,0 +1,33 @@
+The motivating shape: a slice of nav-item literals, each over the 80-column
+budget except one. gsx fmt breaks the over-budget items' fields one per line;
+the item that already fits — Home, with its short self-closing icon — stays
+packed on one line. Ragged siblings (some broken, some not) are exactly what a
+per-line width rule produces; nothing here re-flows every item to match its
+widest sibling.
+
+-- input.gsx --
+package ui
+
+var sections = []appShellNavItem{
+	{label: "Home", icon: <HomeIcon/>, page: HomePage{}, pathMatch: "/"},
+	{label: "Import / Export", icon: <UploadDownloadIcon/>, page: ImportExportPage{}, pathMatch: "/import-export/"},
+	{label: "User Management", icon: <UsersIcon/>, page: UserManagementPage{}, pathMatch: "/users/manage/"},
+}
+-- fmt.golden --
+package ui
+
+var sections = []appShellNavItem{
+	{label: "Home", icon: <HomeIcon/>, page: HomePage{}, pathMatch: "/"},
+	{
+		label:     "Import / Export",
+		icon:      <UploadDownloadIcon/>,
+		page:      ImportExportPage{},
+		pathMatch: "/import-export/",
+	},
+	{
+		label:     "User Management",
+		icon:      <UsersIcon/>,
+		page:      UserManagementPage{},
+		pathMatch: "/users/manage/",
+	},
+}

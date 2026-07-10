@@ -1,9 +1,34 @@
 package printer
 
 import (
+	"go/token"
 	"strings"
 	"testing"
+
+	"github.com/gsxhq/gsx/internal/pretty"
+	"github.com/gsxhq/gsx/internal/wsnorm"
+	"github.com/gsxhq/gsx/parser"
 )
+
+// fmtSourceWidth parses, normalizes, and prints src at an EXPLICIT print width.
+// The corpus and the rest of this suite format at width 80; some idempotency
+// bugs only manifest at a width where a packed composite-literal item straddles
+// the budget, and structurally cannot be seen at 80 (the item breaks on both
+// passes there). See TestGoExprCompositeLitMultilineElementIdempotentAt120.
+func fmtSourceWidth(t *testing.T, src string, width int) string {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "test.gsx", src, 0)
+	if err != nil {
+		t.Fatalf("parse error: %v\nsrc:\n%s", err, src)
+	}
+	wsnorm.Normalize(f)
+	var b strings.Builder
+	if err := Fprint(&b, f, width, pretty.DefaultTabWidth); err != nil {
+		t.Fatalf("Fprint error: %v", err)
+	}
+	return b.String()
+}
 
 // A multi-line element literal in an assignment/return/keyed-composite-lit-field
 // position — a "prefix: value" shape — wraps in (...) when it breaks, mirroring
@@ -22,14 +47,44 @@ func TestGoExprElementParenWrapsAtTopLevel(t *testing.T) {
 	checkFormat(t, src, want)
 }
 
-func TestGoExprElementParenWrapsOnWidthOverflow(t *testing.T) {
-	// Fits on one line syntactically, but the assignment line alone is 81
-	// columns — prettier wraps here too (verified empirically), not just on a
-	// forced multi-line source.
-	name := strings.Repeat("x", 62)
-	src := "package main\n\nvar " + name + " = <div>x</div>\n"
-	want := "package main\n\nvar " + name + " = (\n\t<div>x</div>\n)\n"
+// An attribute-broken element in Go-expression position is no longer flat, so
+// goWithElements wraps it in decorative parens with the tag on its own line —
+// fixing the ragged indent of a bare attr-broken value hanging off `var x = `.
+// The opening-tag BreakParent propagates to the children too (same as a CondAttr
+// or `//`-comment attr). checkFormat also asserts idempotence.
+func TestGoExprElementAttrBreakGetsParens(t *testing.T) {
+	src := "package main\n\nvar navIcon = <a\n\thref=\"/help\"\n\tclass=\"text-blue-600\"\n>?</a>\n"
+	want := "package main\n\nvar navIcon = (\n\t<a\n\t\thref=\"/help\"\n\t\tclass=\"text-blue-600\"\n\t>\n\t\t?\n\t</a>\n)\n"
 	checkFormat(t, src, want)
+}
+
+// The element is 12 characters and fits anywhere. The line is 103 columns
+// because of the Go fields around it. Breaking the element's parens does not
+// address that; breaking the literal's fields does.
+func TestGoExprWideLiteralBreaksFieldsNotElement(t *testing.T) {
+	src := "package main\n\nvar nav = []item{\n\t{label: \"Team View\", icon: <UsersIcon/>, page: TeamViewPage{}, pathMatch: \"/team\", nonVendor: true},\n}\n"
+	want := "package main\n\nvar nav = []item{\n\t{\n\t\tlabel:     \"Team View\",\n\t\ticon:      <UsersIcon/>,\n\t\tpage:      TeamViewPage{},\n\t\tpathMatch: \"/team\",\n\t\tnonVendor: true,\n\t},\n}\n"
+	checkFormat(t, src, want)
+}
+
+// A flat element on a wide line never gets DECORATIVE PARENS — those are for a
+// genuinely multi-line element (a block child or an author line break) only. When
+// there are no fields around it to break (a bare `var name = <div>x</div>`), the
+// only way to respect the width is for the element to break its OWN content,
+// exactly as it would anywhere else in the document. So at 81 columns the
+// single-child `<div>` breaks its child, and no `(`/`)` appears — the removed
+// goExprFlatText short-circuit used to render it as fixed text that silently
+// overflowed the line instead.
+func TestGoExprElementStaysFlatOnAWideLine(t *testing.T) {
+	name := strings.Repeat("x", 62)
+	src := "package main\n\nvar " + name + " = <div>x</div>\n" // 81 columns flat
+	// Unchanged. The author did not ask for a break, so they do not get one, and
+	// the line is 81 columns because that is how they wrote it. gofmt leaves an
+	// 81-column expression alone too.
+	checkFormat(t, src, src)
+	if strings.ContainsAny(fmtSource(t, src), "()") {
+		t.Error("no decorative parens: the author did not request a break")
+	}
 }
 
 func TestGoExprElementStaysFlatWhenItFits(t *testing.T) {
@@ -57,9 +112,13 @@ func TestGoExprElementRenameDoesNotShiftIndent(t *testing.T) {
 	checkFormat(t, src, want)
 }
 
+// A multi-line element in a keyed composite-literal field paren-wraps AND forces
+// the literal's other fields one-per-line: its true width is unknowable and it can
+// never be a one-liner, so breakWideLiterals (fed the multi-line placeholder as
+// its forceMarker) treats the field's line as over budget without measuring it.
 func TestGoExprElementParenWrapsForKeyedCompositeLitField(t *testing.T) {
 	src := "package main\n\nvar item = NavItem{Label: \"Home\", Icon: <svg class=\"w-5 h-5\">\n<path d=\"M0 0\"/>\n</svg>}\n"
-	want := "package main\n\nvar item = NavItem{Label: \"Home\", Icon: (\n\t<svg class=\"w-5 h-5\">\n\t\t<path d=\"M0 0\"/>\n\t</svg>\n)}\n"
+	want := "package main\n\nvar item = NavItem{\n\tLabel: \"Home\",\n\tIcon:  (\n\t\t<svg class=\"w-5 h-5\">\n\t\t\t<path d=\"M0 0\"/>\n\t\t</svg>\n\t),\n}\n"
 	checkFormat(t, src, want)
 }
 
@@ -237,6 +296,30 @@ func TestGoWithElementsNoBuildCommentUnchanged(t *testing.T) {
 	checkFormat(t, src, src)
 }
 
+// TestGoExprCompositeLitMultilineElementIdempotentAt120 is the width-120
+// regression the corpus (which formats only at 80) structurally cannot see. A
+// composite-literal item packing a wide label next to a MULTI-LINE element used
+// to break asymmetrically: pass 1 measured the element as a single rune, so the
+// packed item fit under 120 and stayed packed (the element decorative-paren-
+// wrapped); pass 2 saw those literal `(`/`)` as ordinary text, crossed 120, and
+// exploded every field. fmt(x) != fmt(fmt(x)).
+//
+// The fix hands breakWideLiterals the multi-line placeholder as a forceMarker, so
+// a line holding a multi-line value is over budget without measuring — the value
+// forces a break and can never be a one-liner. Both passes now break the fields.
+func TestGoExprCompositeLitMultilineElementIdempotentAt120(t *testing.T) {
+	label := "T" + strings.Repeat("x", 84)
+	src := "package main\n\nvar nav = []item{\n\t{label: \"" + label + "\", icon: <UsersIcon><title>u</title></UsersIcon>, page: P{}},\n}\n"
+	want := "package main\n\nvar nav = []item{\n\t{\n\t\tlabel: \"" + label + "\",\n\t\ticon:  (\n\t\t\t<UsersIcon>\n\t\t\t\t<title>u</title>\n\t\t\t</UsersIcon>\n\t\t),\n\t\tpage:  P{},\n\t},\n}\n"
+	got := fmtSourceWidth(t, src, 120)
+	if got != want {
+		t.Errorf("format mismatch at width 120:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+	if again := fmtSourceWidth(t, got, 120); again != got {
+		t.Errorf("not idempotent at width 120:\n--- pass1 ---\n%s\n--- pass2 ---\n%s", got, again)
+	}
+}
+
 func contains(hay, needle string) bool {
 	return len(hay) >= len(needle) && indexOf(hay, needle) >= 0
 }
@@ -259,9 +342,11 @@ func indexOf(hay, needle string) int {
 // misindented sibling below never gets fixed.
 func TestGoWithElementsReformatsItsOwnParenWrappedOutput(t *testing.T) {
 	src := "package main\n\nvar items = []T{\n\t{label: \"a\", icon: (\n\t\t<Icon/>\n\t), page: P{}},\n{label: \"b\"},\n}\n"
-	// The paren is stripped and re-derived from width: this line now fits, so
-	// the element goes flat and the parens vanish. The sibling gets indented.
-	want := "package main\n\nvar items = []T{\n\t{label: \"a\", icon: <Icon/>, page: P{}},\n\t{label: \"b\"},\n}\n"
+	// The paren is the author's break request, so it survives and the element
+	// stays broken. What this test is really about is the SIBLING: `{label: "b"}`
+	// starts at column 0 in the input, and only a region that actually reached
+	// gofmt gets it indented.
+	want := "package main\n\nvar items = []T{\n\t{label: \"a\", icon: (\n\t\t<Icon/>\n\t), page: P{}},\n\t{label: \"b\"},\n}\n"
 	checkFormat(t, src, want)
 }
 
@@ -275,4 +360,14 @@ func TestGoWithElementsReformatsItsOwnParenWrappedOutput(t *testing.T) {
 func TestGoWithElementsKeepsBreakAfterOpeningBrace(t *testing.T) {
 	src := "package main\n\nvar icons = []gsx.Node{\n\t<a/>,\n\t<b/>,\n}\n"
 	checkFormat(t, src, src)
+}
+
+// A paren the author wrote IS the break request — the same signal a newline
+// after `>` is for markup. It breaks even though the value would fit, and the
+// parens are never silently deleted: deleting them would erase the request and
+// let the next pass re-derive a different answer.
+func TestGoExprElementBreaksWhenAuthorParenthesizes(t *testing.T) {
+	src := "package main\n\nvar n = (<div>x</div>)\n"
+	want := "package main\n\nvar n = (\n\t<div>x</div>\n)\n"
+	checkFormat(t, src, want)
 }

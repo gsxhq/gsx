@@ -1,0 +1,35 @@
+A composite literal holds one field whose value is a genuinely multi-line
+element (a block child forces the author's line break). The element's true
+rendered width is unknowable to breakFirstWideLiteral — it reaches gofmt as a
+single-rune placeholder (forceMarker) — so a literal packing it onto its brace
+line is treated as over budget without measuring, and its fields break.
+
+This is unrelated to the element's OWN layout rule: the element paren-wraps
+because it is genuinely multi-line (an author line break inside it), never
+because its line was long. A flat element on a long line would not paren-wrap
+at all — see breakwide_nav_items, where <UploadDownloadIcon/> and <UsersIcon/>
+stay bare on their broken lines despite those lines being the reason the
+literal broke.
+
+-- input.gsx --
+package ui
+
+var nav = []item{
+	{label: "Team View", icon: <UsersIcon>
+		<title>users</title>
+	</UsersIcon>, page: TeamViewPage{}},
+}
+-- fmt.golden --
+package ui
+
+var nav = []item{
+	{
+		label: "Team View",
+		icon:  (
+			<UsersIcon>
+				<title>users</title>
+			</UsersIcon>
+		),
+		page:  TeamViewPage{},
+	},
+}

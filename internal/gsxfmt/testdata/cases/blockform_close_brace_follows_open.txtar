@@ -2,10 +2,14 @@ A composite literal whose `{` opens a line closes on its own line too. gofmt
 never does this: go/printer decides the `}` break solely from whether the SOURCE
 already put `}` on a later line (nodes.go:294), so `{\n\ta: 1}` stays welded shut.
 
-Braces are block-form all-or-nothing; fields are not. The Analytics and Admin
-items keep their `{` inline, so they stay entirely inline. The Import / Export
-item's fields stay packed on one line, because gsx fmt never breaks BETWEEN
-fields — only the closing brace moves.
+Block-form braces and field-breaking are independent. breakWideLiterals treats a
+literal as over budget when ANY line it spans overflows, not just its brace line.
+The Import / Export item's `{` opens its own (short) line, but its fields are
+packed onto one overflowing line, so that line is over budget and the fields
+break one per line — the closing brace moves too, in block form. The Analytics
+and Admin items are written fully inline, and at width 80 their brace lines (96
+and 90 columns) are over budget, so breakWideLiterals breaks their fields the
+same way.
 
 -- input.gsx --
 package ui
@@ -29,10 +33,24 @@ var appShellNavSections = []appShellNavSection{
 		label: "TOOLS",
 		items: []appShellNavItem{
 			{
-				label: "Import / Export", page: ImportExportPage{}, pathMatch: "/import-export/", nonVendor: true, vendorVisible: func(u *db.UserInfo) bool { return u.HasGrantPrefix("", "import") },
+				label:         "Import / Export",
+				page:          ImportExportPage{},
+				pathMatch:     "/import-export/",
+				nonVendor:     true,
+				vendorVisible: func(u *db.UserInfo) bool { return u.HasGrantPrefix("", "import") },
 			},
-			{label: "Analytics", page: DashboardLanding{}, pathMatch: "/dashboard/", nonVendor: true},
-			{label: "Admin", page: AdminDashboardPage{}, pathMatch: "/admin/", adminOnly: true},
+			{
+				label:     "Analytics",
+				page:      DashboardLanding{},
+				pathMatch: "/dashboard/",
+				nonVendor: true,
+			},
+			{
+				label:     "Admin",
+				page:      AdminDashboardPage{},
+				pathMatch: "/admin/",
+				adminOnly: true,
+			},
 		},
 	},
 }
