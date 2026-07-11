@@ -209,7 +209,7 @@ func (c *Classifier) URLPrefixes() []string {
 var builtinURL = map[string]bool{
 	"href": true, "src": true, "action": true, "formaction": true, "poster": true,
 	"cite": true, "ping": true, "data": true, "background": true, "manifest": true,
-	"xlink:href": true,
+	"xlink:href": true, "srcset": true, "imagesrcset": true,
 }
 
 // presets maps a named opt-in ruleset to the classification Rules it contributes.
