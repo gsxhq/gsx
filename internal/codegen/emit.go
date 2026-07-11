@@ -879,11 +879,6 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 					return false
 				}
 				continue
-			case *ast.SpreadAttr:
-				bag.Errorf(t.Pos(), t.End(), "attr-fallthrough",
-					"spread inside { if } on an element with attribute forwarding has statically unknown keys; hoist it with a GoBlock instead (e.g. {{ a, err := gsx.AttrsCond(%s, func() (gsx.Attrs, error) { return %s, nil }, nil); if err != nil { return err } }} then { attrs.Merge(a)... })",
-					encCond, strings.TrimSpace(t.Expr))
-				return false
 			}
 			name, _ := rootAttrName(a)
 			if c, ok := a.(*ast.ClassAttr); ok {
@@ -1370,12 +1365,17 @@ func bagSpreadIndex(attrs []ast.Attr) (idx int, found bool) {
 // positions the ambiguity diagnostic at `second` and names both spread
 // expressions.
 //
+// It also reports each spread's enclosing cond-attr condition (empty when the
+// spread is top-level), used to choose the diagnostic's recommended fix: a
+// plain .Merge() when both spreads are top-level, or gsx.AttrsCond when
+// either is conditionally nested (merging would silently drop the guard).
+//
 // Named distinctly from analyze.go's walkSpreadAttrs (a callback-style visitor
 // over every spread, used by probe/collect passes) to avoid redeclaring that
 // existing function in the same package.
-func firstTwoSpreadAttrs(attrs []ast.Attr) (first, second *ast.SpreadAttr) {
-	var visit func(list []ast.Attr)
-	visit = func(list []ast.Attr) {
+func firstTwoSpreadAttrs(attrs []ast.Attr) (first, second *ast.SpreadAttr, firstCond, secondCond string) {
+	var visit func(list []ast.Attr, cond string)
+	visit = func(list []ast.Attr, cond string) {
 		for _, a := range list {
 			if second != nil {
 				return
@@ -1383,18 +1383,18 @@ func firstTwoSpreadAttrs(attrs []ast.Attr) (first, second *ast.SpreadAttr) {
 			switch t := a.(type) {
 			case *ast.SpreadAttr:
 				if first == nil {
-					first = t
+					first, firstCond = t, cond
 				} else {
-					second = t
+					second, secondCond = t, cond
 				}
 			case *ast.CondAttr:
-				visit(t.Then)
-				visit(t.Else)
+				visit(t.Then, t.Cond)
+				visit(t.Else, "!("+t.Cond+")")
 			}
 		}
 	}
-	visit(attrs)
-	return first, second
+	visit(attrs, "")
+	return first, second, firstCond, secondCond
 }
 
 // emitRootComposedClass emits a composed `class={ … }` merged with the bag's
@@ -1654,9 +1654,23 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		// so firstTwoSpreadAttrs hands back the offending second spread
 		// (descending into cond-attrs) and the diagnostic is positioned there
 		// (not at the element) with a merge-hint naming both spreads.
-		if first, second := firstTwoSpreadAttrs(t.Attrs); second != nil {
+		if first, second, firstCond, secondCond := firstTwoSpreadAttrs(t.Attrs); second != nil {
 			firstExpr := strings.TrimSpace(first.Expr)
 			secondExpr := strings.TrimSpace(second.Expr)
+			if firstCond != "" || secondCond != "" {
+				// At least one spread is inside a { if }: its keys are statically
+				// unknown, so it cannot be reconciled with a plain .Merge()
+				// against the other spread (that would drop the condition). Point
+				// at the conditional spread and recommend gsx.AttrsCond.
+				condSpread, condExpr, cond := second, secondExpr, secondCond
+				if firstCond != "" {
+					condSpread, condExpr, cond = first, firstExpr, firstCond
+				}
+				bag.Errorf(condSpread.Pos(), condSpread.End(), "attr-fallthrough",
+					"a spread inside { if } ({ %s... }) has statically unknown keys and cannot be merged with another spread on the same element; build it as a conditional bag with gsx.AttrsCond(%s, func() (gsx.Attrs, error) { return %s, nil }, nil) in a {{ }} block, then spread the merged result",
+					condExpr, cond, condExpr)
+				return false
+			}
 			bag.Errorf(second.Pos(), second.End(), "attr-fallthrough",
 				"element with a spread { %s... } cannot carry another spread { %s... }; merge them into one spread ({ %s.Merge(%s)... } or { %s.Merge(%s)... }) so precedence is explicit",
 				firstExpr, secondExpr, firstExpr, secondExpr, secondExpr, firstExpr)
