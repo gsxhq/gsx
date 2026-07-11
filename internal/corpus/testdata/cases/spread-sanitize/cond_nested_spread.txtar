@@ -44,13 +44,13 @@ func CondSpread(_gsxp CondSpreadProps) _gsxrt.Node {
 //line input.gsx:7:3
 		_gsxgw.S("<a")
 		if on {
-			_gsxgw.Spread(ctx, extra, []string{"action", "cite", "data", "formaction", "href", "imagesrcset", "manifest", "ping", "poster", "src", "srcset", "xlink:href"}, []string{"background"}, nil, nil)
+			_gsxgw.Spread(ctx, extra, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, nil)
 		}
 		_gsxgw.S(">on</a>")
 //line input.gsx:8:3
 		_gsxgw.S("<a")
 		if !on {
-			_gsxgw.Spread(ctx, extra, []string{"action", "cite", "data", "formaction", "href", "imagesrcset", "manifest", "ping", "poster", "src", "srcset", "xlink:href"}, []string{"background"}, nil, nil)
+			_gsxgw.Spread(ctx, extra, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, nil)
 		}
 		_gsxgw.S(">off</a></div>")
 		return _gsxgw.Err()

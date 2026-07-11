@@ -2666,22 +2666,26 @@ func goStringSliceLit(names []string) string {
 
 // emitSpreadCall emits `_gsxgw.Spread(ctx, expr, …)` for bag
 // expression expr on element tag: the classifier's URL-exact names split into
-// the nav vs image sinks via urlWriterMethod, prefix URL rules pass through, and
-// excludedExpr is the names a forced site owns ("nil" when nothing is forced —
-// the standalone / nested-cond-attr spread case). Every element spread routes
-// through here so URL-classified keys sanitize at the leaf regardless of the
-// bag's provenance or nesting.
+// the nav vs image vs srcset sinks via urlWriterMethod, prefix URL rules pass
+// through, and excludedExpr is the names a forced site owns ("nil" when
+// nothing is forced — the standalone / nested-cond-attr spread case). Every
+// element spread routes through here so URL-classified keys sanitize at the
+// leaf regardless of the bag's provenance or nesting.
 func emitSpreadCall(b *bytes.Buffer, expr, tag string, cls *attrclass.Classifier, excludedExpr string) {
-	var navNames, imageNames []string
+	var navNames, imageNames, srcsetNames []string
 	for _, name := range cls.URLExactNames() {
-		if urlWriterMethod(tag, name) == "URLImage" {
+		switch urlWriterMethod(tag, name) {
+		case "URLImage":
 			imageNames = append(imageNames, name)
-		} else {
+		case "Srcset":
+			srcsetNames = append(srcsetNames, name)
+		default:
 			navNames = append(navNames, name)
 		}
 	}
-	fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s, %s, %s, %s, %s)\n",
-		expr, goStringSliceLit(navNames), goStringSliceLit(imageNames), goStringSliceLit(cls.URLPrefixes()), excludedExpr)
+	fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s, %s, %s, %s, %s, %s)\n",
+		expr, goStringSliceLit(navNames), goStringSliceLit(imageNames),
+		goStringSliceLit(srcsetNames), goStringSliceLit(cls.URLPrefixes()), excludedExpr)
 }
 
 // firstSegIsDataURL reports whether the literal's first segment is static text
