@@ -132,6 +132,17 @@ func (m *Module) buildPackageSkeletons(dir string) (*packageSkeletons, error) {
 	for _, f := range gsxFiles {
 		jsx.ResolveScripts(f, bag) // best-effort; failure just means we may skip that file below
 	}
+	// Stamp Element.IsComponent BEFORE buildSkeleton (emitProbes/collectExprs/etc.
+	// all read the stamp) — mirrors analyze's identical wiring
+	// (module_importer.go). Without this, every element in this importer-free
+	// path would see IsComponent's zero value (false), lowering EVERY tag —
+	// including dotted/capitalized component tags — as an HTML leaf here, so a
+	// dotted component tag's package qualifier would look unreferenced and its
+	// USED import would be misclassified as unused.
+	declNames := packageDeclNames(dir, gsxFiles)
+	for _, f := range gsxFiles {
+		resolveComponentTags(f, declNames, bag)
+	}
 	table, err := m.filterTableFor(dir, false)
 	if err != nil {
 		return nil, err
@@ -146,7 +157,7 @@ func (m *Module) buildPackageSkeletons(dir string) (*packageSkeletons, error) {
 	for path, f := range gsxFiles {
 		ff := m.fileScopedFacts(dir, f, propFields, nodeProps, attrsProps, byo, bag, fset)
 		skel, _, imps, _, infReg, _, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps,
-			genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, m.opts.Classifier, bag, inferNames)
+			genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, m.opts.Classifier, bag, inferNames, declNames)
 		if berr != nil {
 			continue // unbuildable → keep all imports (no entry)
 		}

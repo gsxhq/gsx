@@ -738,9 +738,6 @@ func (p *parser) parseElement() (ast.Markup, error) {
 	var typeArgs string
 	var typeArgsPos token.Pos
 	if p.peek() == '[' {
-		if !canHaveTypeArgs(tag) {
-			return nil, p.errorf(p.pos(), "type arguments are only valid on component tags")
-		}
 		end, ok := bracketEnd(p.src, p.i)
 		if !ok {
 			return nil, p.errorf(p.pos(), "unterminated type args")
@@ -802,8 +799,6 @@ func isRawTextTag(tag string) bool {
 	}
 	return false
 }
-
-func canHaveTypeArgs(tag string) bool { return ast.IsComponentTag(tag) }
 
 // parseBang parses a `<!…` construct after the leading `<!` `!` byte: either an
 // HTML comment `<!-- … -->` or a `<!DOCTYPE …>` declaration. The cursor is at the

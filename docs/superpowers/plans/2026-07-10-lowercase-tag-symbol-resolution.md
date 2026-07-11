@@ -967,7 +967,9 @@ git add internal/corpus/batch.go
 git commit -m "fix(corpus): warnings no longer suppress gen/render facets; severity prefix in diagnostics goldens"
 ```
 
----### Task 6: Self-reference warning (WHATWG-table diagnostic)
+---
+
+### Task 6: Self-reference warning (WHATWG-table diagnostic)
 
 **Files:**
 - Create: `internal/codegen/htmlnames.go` (spec element-name table — DIAGNOSTIC-ONLY per spec)

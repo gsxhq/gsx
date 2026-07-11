@@ -144,6 +144,81 @@ func TestAttrsOnlyTagDeclAtSamePackage(t *testing.T) {
 	}
 }
 
+// TestAttrsOnlyTagDeclAtSamePackageLowercase mirrors
+// TestAttrsOnlyTagDeclAtSamePackage but with a LOWERCASE attrs-only value
+// name (homeIcon, not HomeIcon): under the lowercase-tag-resolution rule
+// (docs/superpowers/specs/2026-07-10-lowercase-tag-symbol-resolution-
+// design.md) a lowercase tag matching ANY package-level declaration —
+// including a plain var/func of an attrs-only shape, not just a `component`
+// decl — resolves as a component. attrsOnlyTagObject's non-dotted branch used
+// to require an upper-initial tag (isSimpleComponentTag); it must now trust
+// the caller's el.IsComponent gate instead, so this same-package lookup finds
+// `var homeIcon` too.
+func TestAttrsOnlyTagDeclAtSamePackageLowercase(t *testing.T) {
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeLSPTestFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	viewsDir := filepath.Join(root, "views")
+	pageSrc := "package views\n\n" +
+		"import \"github.com/gsxhq/gsx\"\n\n" +
+		"type iconProps struct {\n\tName  string\n\tAttrs gsx.Attrs\n}\n\n" +
+		"component renderIcon(p iconProps) {\n\t<svg { gsx.Attrs{{Key: \"class\", Value: \"w-5 h-5\"}}.Merge(p.Attrs)... }>{p.Name}</svg>\n}\n\n" +
+		"component Page() {\n\t<div>\n\t\t<homeIcon class=\"h-3 w-3\"/>\n\t</div>\n}\n"
+	writeLSPTestFile(t, viewsDir, "page.gsx", pageSrc)
+	iconsSrc := "package views\n\n" +
+		"import \"github.com/gsxhq/gsx\"\n\n" +
+		"func namedIcon(name string) func(gsx.Attrs) gsx.Node {\n" +
+		"\treturn func(attrs gsx.Attrs) gsx.Node {\n" +
+		"\t\treturn renderIcon(iconProps{Name: name, Attrs: attrs})\n\t}\n}\n\n" +
+		"var homeIcon = namedIcon(\"house\")\n"
+	writeLSPTestFile(t, viewsDir, "icons.go", iconsSrc)
+
+	m, err := codegen.Open(codegen.Options{ModuleRoot: root, ModulePath: "example.com/app", FilterPkgs: []string{codegen.StdImportPath}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pr, err := m.Package(viewsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pr.Diags) > 0 {
+		t.Fatalf("unexpected diagnostics: %+v", pr.Diags)
+	}
+	cross := make(map[string]CrossRef, len(pr.CrossIndex))
+	for k, v := range pr.CrossIndex {
+		cross[k] = CrossRef{Name: v.Name, Decl: v.Decl, Decls: v.Decls, Refs: v.Refs}
+	}
+	pkg := &Package{
+		GSXFset:    pr.GSXFset,
+		Fset:       pr.Fset,
+		Info:       pr.Info,
+		Types:      pr.Types,
+		Files:      pr.GSXFiles,
+		ExprMap:    pr.ExprMap,
+		CrossIndex: cross,
+	}
+	gsxPath := filepath.Join(viewsDir, "page.gsx")
+
+	tagStart := strings.Index(pageSrc, "<homeIcon") + 1 // +1 to skip '<'
+	if tagStart < 1 {
+		t.Fatal("could not find <homeIcon in src")
+	}
+	dp, ok := attrsOnlyTagDeclAt(pkg, gsxPath, tagStart)
+	if !ok {
+		t.Fatalf("attrsOnlyTagDeclAt returned false for cursor on 'h' of lowercase homeIcon tag")
+	}
+	if !strings.HasSuffix(dp.Filename, "icons.go") {
+		t.Errorf("attrsOnlyTagDeclAt filename = %q, want suffix icons.go", dp.Filename)
+	}
+	wantLine := strings.Count(iconsSrc[:strings.Index(iconsSrc, "var homeIcon")], "\n") + 1
+	if dp.Line != wantLine {
+		t.Errorf("attrsOnlyTagDeclAt line = %d, want %d (the `var homeIcon` decl line)", dp.Line, wantLine)
+	}
+}
+
 // TestAttrsOnlyTagDeclAtCrossPackage mirrors
 // internal/corpus/testdata/cases/attrsonly/imported.txtar: a dotted tag
 // <ui.HomeIcon/> resolves to the `var HomeIcon` declared (via a top-level Go

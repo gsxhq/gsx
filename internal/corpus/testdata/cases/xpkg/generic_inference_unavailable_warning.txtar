@@ -1,0 +1,41 @@
+# Cross-package generic inference fail-safe (Task 4): the caller-side probe
+# for <components.Widget> cannot requalify the dep's `secret | string`
+# constraint into the calling file's context (secret is unexported and
+# unspeakable outside the components package — see infer.go's
+# recordInferenceUnavailable doc). That ONE tag is skipped with a Warning
+# diagnostic ("inference-unavailable"); the rest of the file — the sibling
+# <components.Button> tag — still generates and renders. This is the
+# reachable end-to-end proof that batchCodegen's cg.diag is populated for a
+# warning-only case (no error diagnostics) while the case still builds and
+# renders, per internal/corpus/batch.go's caseCodegen.diag/hasErr contract.
+-- go.mod --
+module example.com/app
+
+go 1.26.1
+-- components/widget.gsx --
+package components
+
+type secret string
+
+component Widget[T secret | string](label T) {
+	<span>{string(label)}</span>
+}
+
+component Button(label string) {
+	<button>{label}</button>
+}
+-- pages/home.gsx --
+package pages
+
+import "example.com/app/components"
+
+component Home() {
+	<components.Widget label="x" />
+	<components.Button label="ok" />
+}
+-- invoke --
+pages.Home()
+-- diagnostics.golden --
+6:2: warning: type inference for <components.Widget> needs unexported type secret; instantiate explicitly with <components.Widget[type] ...>
+-- render.golden --
+<button>ok</button>

@@ -192,6 +192,38 @@ func TestBuildPackageSkeletonsNoExternalLoad(t *testing.T) {
 	}
 }
 
+// TestBuildPackageSkeletonsDottedComponentKeepsImport pins Hazard A from the
+// lowercase-tag-resolution review: buildPackageSkeletons (the importer-free
+// unused-import path) must stamp Element.IsComponent BEFORE building
+// skeletons, exactly like analyze() does. Without that stamp, EVERY element on
+// this path sees IsComponent's zero value (false) — including a dotted
+// component tag like <uix.Button/> — so the skeleton probe would lower it as a
+// plain HTML element instead of emitting `uix.Button(...)`, "uix" would never
+// appear as a referenced selector in the skeleton, and a genuinely-used import
+// would be misclassified as unused.
+//
+// The import is EXPLICITLY ALIASED (`uix "testmod/ui"`) so classifyUnusedImports
+// takes the direct used[imp.name] branch (an aliased import's name is
+// authoritative) rather than the default-import candidate path, which would
+// route through resolvePackageNames' real `go list` — and a subpackage that is
+// only .gsx (no plain .go file) is not `go list`-resolvable, so that path's
+// "unresolvable → conservative keep" would pass this test vacuously regardless
+// of the hazard. Keying off the alias directly exercises exactly the stamp this
+// test is pinning.
+func TestBuildPackageSkeletonsDottedComponentKeepsImport(t *testing.T) {
+	dir, m := openTestModule(t, map[string]string{
+		"ui/button.gsx": "package ui\n\ncomponent Button() {\n\t<button>hi</button>\n}\n",
+		"page.gsx":      "package testmod\n\nimport uix \"testmod/ui\"\n\ncomponent Page() {\n\t<uix.Button/>\n}\n",
+	})
+	got, _, err := m.UnusedImports(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u := got[filepath.Join(dir, "page.gsx")]; len(u) != 0 {
+		t.Errorf("testmod/ui is used via <uix.Button/> and must be kept; got unused=%+v", u)
+	}
+}
+
 // anyErrorDiagCodegen reports whether diags contains an error-severity
 // diagnostic that is NOT a clean "imported and not used" error.
 //

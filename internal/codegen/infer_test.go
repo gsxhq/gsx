@@ -169,7 +169,13 @@ component Page() {
 		t.Fatalf("loadFilterTable: %v", err)
 	}
 	genericSigs := genericSigsFor(files, byo)
-	skel, _, _, _, registry, _, err := buildSkeleton(file, table, propFields, nodeProps, attrsProps, genericSigs, nil, byo, nil, fset, nil, nil, nil)
+	// Stamp Element.IsComponent before buildSkeleton — mirrors the production
+	// wiring (module_importer.go's analyze): without it, <Box .../> would be
+	// misclassified as a plain HTML element and never reach the inference-probe
+	// path this test is pinning.
+	declNames := packageDeclNames(dir, files)
+	resolveComponentTags(file, declNames, diag.NewBag(fset))
+	skel, _, _, _, registry, _, err := buildSkeleton(file, table, propFields, nodeProps, attrsProps, genericSigs, nil, byo, nil, fset, nil, nil, nil, declNames)
 	if err != nil {
 		t.Fatalf("buildSkeleton: %v", err)
 	}

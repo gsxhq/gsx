@@ -1,0 +1,19 @@
+# Positive twin of typeargs_on_leaf.txtar: a LOWERCASE tag that resolves to a
+# component (package-level decl of the same name) composes with explicit
+# type args exactly like a capitalized generic component tag does (modeled
+# on xpkg/generic_* + components/generic_attr_typeparam.txtar).
+-- input.gsx --
+package views
+
+component list[T string | int](v T) {
+	<span>{v}</span>
+}
+
+component Page() {
+	<list[int] v={1}/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<span>1</span>

@@ -44,9 +44,9 @@ declaration and are always leaves.
 ### What counts as a package-level declaration
 
 The name set is gathered **syntactically** from all `.gsx` and `.go` files in
-the package directory — skeleton scan via the existing `FileSymbols`-style
-machinery (internal/lsp/symbols.go, surfaced to gen through
-`Analyzer.ModuleSymbols`). No `packages.Load`, no type checking — and none
+the package directory — a standalone `go/parser`-based scan
+(`internal/codegen/declnames.go`, `packageDeclNames`), same guarantees as the
+existing skeleton machinery: no `packages.Load`, no type checking — and none
 is needed: a package scope's bare names are exactly its declared names, so
 the syntactic scan is *complete* for simple-tag resolution, not an
 approximation. go/types would only add method sets and locals; methods are
@@ -209,10 +209,15 @@ Corpus cases (semantic corpus, per context where applicable):
 - cycle diagnostic: unconditional two-wrapper cycle warns; conditional edge
   does not
 
-Unit tests: decl-name-set extraction (imports/test-file/build-tag cases),
-watch invalidation on sibling `.go` decl-set change (and non-invalidation on
-body-only edit). Runtime behavior unchanged — no root-package changes
-expected. Fmt corpus untouched (layout is orthogonal).
+Unit tests: decl-name-set extraction (imports/test-file/build-tag cases).
+Cache-key honesty on sibling `.go` decl-set changes rides the pre-existing
+`dirSourceHash` (gen/cachekey.go) — already covered, no new test — and was
+probe-verified end to end (leaf→call→leaf flips on sibling decl add/remove
+with the cache on). No fingerprint test: decl-set fingerprinting (skipping
+regen on body-only `.go` edits) is explicitly out of scope (see
+Invalidation), so there is no non-invalidation case to pin. Runtime behavior
+unchanged — no root-package changes expected. Fmt corpus untouched (layout is
+orthogonal).
 
 ## Out of scope
 

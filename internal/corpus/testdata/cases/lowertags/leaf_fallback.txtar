@@ -1,0 +1,13 @@
+# Undeclared lowercase and dashed custom-element tags render as-is.
+-- input.gsx --
+package views
+
+component Page() {
+	<article>a</article>
+	<my-widget attr="1">w</my-widget>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<article>a</article><my-widget attr="1">w</my-widget>

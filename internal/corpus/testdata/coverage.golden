@@ -348,6 +348,21 @@ jsattr/whole_value_bool	diag gen render
 jsattr/whole_value_map	diag gen render
 jsattr/xdata_literal_holes	diag gen render
 jsattr/xdata_whole_value	diag gen render
+lowertags/cycle_conditional_ok	diag render
+lowertags/cycle_warning	diag render
+lowertags/embedded_interp_resolution	diag render
+lowertags/embedded_nested_component	diag gen render
+lowertags/leaf_fallback	diag render
+lowertags/noncapture_and_error	diag render
+lowertags/resolves_crossfile	diag render
+lowertags/resolves_func	diag gen render
+lowertags/resolves_var_value	diag render
+lowertags/selfref_warning	diag render
+lowertags/typeargs_on_leaf	diag render
+lowertags/typeargs_on_leaf_embedded	diag render
+lowertags/typeargs_on_resolved	diag render
+lowertags/wrapper_composition	diag render
+lowertags/wrapper_self_exclusion	diag gen render
 methods/method_only_file_generates	diag
 methods/method_reserved_recv_var_ctx	diag(error)
 methods/method_unnamed_receiver_error	diag(error)
@@ -611,6 +626,7 @@ urlattrs/hx_default_plain	diag gen render
 urlattrs/static_plus_case_variant	diag gen render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
+xpkg/generic_inference_unavailable_warning	diag render
 xpkg/generic_inferred_import	diag render
 xpkg/generic_inferred_two_files	diag gen render
 xpkg/generic_sibling_file	diag gen render
@@ -623,4 +639,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 625 cases (render: 504, error: 92, gen-pinned: 321)
+TOTAL: 641 cases (render: 520, error: 92, gen-pinned: 324)

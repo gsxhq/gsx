@@ -1,0 +1,21 @@
+# Inside one wrapper, ANOTHER wrapped element name still resolves to its
+# component (exclusion covers exactly one name); each bottoms out at its leaf.
+-- input.gsx --
+package views
+
+component div() {
+	<div class="d"><span>{children}</span></div>
+}
+
+component span() {
+	<span class="s">{children}</span>
+}
+
+component Page() {
+	<div>hi</div>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<div class="d"><span class="s">hi</span></div>
