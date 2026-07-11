@@ -1,7 +1,11 @@
 # A spread inside a cond-attr branch, combined with a top-level forwarding
 # spread, is a second spread on the element (the at-most-one-spread count
-# descends into cond-attr branches, issue #78): rejected as a precedence
-# ambiguity between the two spreads, same as two top-level spreads.
+# descends into cond-attr branches, issue #78): rejected because the
+# conditional spread's keys are statically unknown, so merging it into the
+# other spread would silently drop the { if } guard. The diagnostic is
+# conditional-aware: it anchors on the nested spread and recommends building
+# a gsx.AttrsCond bag instead of the generic .Merge() hint (which is reserved
+# for two top-level spreads, see two_spreads_error.txtar).
 -- input.gsx --
 package views
 
@@ -11,4 +15,4 @@ component Box(active bool, extra gsx.Attrs) {
 	<div { if active { { extra... } } } { attrs... }>x</div>
 }
 -- diagnostics.golden --
-6:38: element with a spread { extra... } cannot carry another spread { attrs... }; merge them into one spread ({ extra.Merge(attrs)... } or { attrs.Merge(extra)... }) so precedence is explicit
+6:21: a spread inside { if } ({ extra... }) has statically unknown keys and cannot be merged with another spread on the same element; build it as a conditional bag with gsx.AttrsCond(active, func() (gsx.Attrs, error) { return extra, nil }, nil) in a {{ }} block, then spread the merged result

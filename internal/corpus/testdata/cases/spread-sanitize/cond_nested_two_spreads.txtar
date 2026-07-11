@@ -9,4 +9,4 @@ component Bad(c bool, d bool, x gsx.Attrs, y gsx.Attrs) {
 	<a { if c { { x... } } } { if d { { y... } } }>hi</a>
 }
 -- diagnostics.golden --
-6:36: element with a spread { x... } cannot carry another spread { y... }; merge them into one spread ({ x.Merge(y)... } or { y.Merge(x)... }) so precedence is explicit
+6:14: a spread inside { if } ({ x... }) has statically unknown keys and cannot be merged with another spread on the same element; build it as a conditional bag with gsx.AttrsCond(c, func() (gsx.Attrs, error) { return x, nil }, nil) in a {{ }} block, then spread the merged result
