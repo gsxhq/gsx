@@ -62,37 +62,19 @@ For anything the allow-list refuses — an exotic MIME on an image sink, or a `d
 
 #### Image-candidate lists (`srcset`)
 
-`srcset` and `imagesrcset` are URL-context attributes with a third shape: not
-a single URL, but a comma-separated list of image candidates (`url
-[descriptor]`, e.g. `photo.jpg 1x, photo-2x.jpg 2x`). gsx parses the value
-with the **WHATWG `srcset` grammar** — the same candidate-splitting rules
-browsers use — rather than treating it as one URL or reusing
-`html/template`'s `srcset` sanitizer, which is a conservative
-over-approximation that rejects valid input (it blocks `photo.jpg 1.5x`
-outright and mangles `data:image/png;base64,...` candidates by splitting on
-every comma). Descriptors (`1x`, `2x`, `320w`, …) are inert text — they are
-never parsed as a URL and are HTML-escaped along with the rest of the
-attribute, so they cannot break out of the value.
+`srcset` and `imagesrcset` are a comma-separated list of image candidates
+(`url [descriptor]`), not a single URL. gsx parses the list with the WHATWG
+`srcset` grammar and sanitizes each candidate's URL as an **image sink** (like
+`<img src>`): a disallowed scheme collapses only that candidate to
+`about:invalid#gsx`, leaving the rest of the list intact. `data:image/*`
+candidates and fractional descriptors (`1.5x`) are preserved; descriptors are
+inert (HTML-escaped, never parsed as URLs). Same for static attributes and
+spread bags; `gsx.RawURL` vouches for the whole value.
 
-Each candidate's URL is sanitized independently as an **image sink** — the
-same allow-list as `<img src>`: `http`/`https`/`mailto`/`tel`, relative
-paths, and `data:image/*` with the `;base64,` marker. A disallowed scheme in
-one candidate collapses only that candidate to `about:invalid#gsx`; sibling
-candidates are unaffected — this is per-candidate sanitization, not a
-whole-value replacement. Fractional density descriptors (`1.5x`) and
-`data:image/*;base64,...` candidates pass through unchanged. The same
-sanitization applies identically whether `srcset` is written as a static
-attribute (`srcset={ expr }`, `` srcset=f`…` ``) or arrives through a spread
-bag. `gsx.RawURL(s)` bypasses this entirely and vouches for the whole
-attribute value, exactly as it does for single-URL attributes.
-
-This is one instance of a general rule: single-value URL attributes are
-faithful `html/template` ports, but **structured URL carriers** — a value
-that is a list of URLs, or embeds a URL inside a larger grammar — are
-faithful ports of *that* grammar instead, with each embedded URL still
-routed through gsx's scheme-allow-list sink. `srcset`'s WHATWG candidate list
-and the `<meta http-equiv="refresh" content="…">` `content` attribute (parsed
-as `time; url=URL`) are both structured carriers handled this way.
+Such structured URL carriers — a list of URLs, or a URL embedded in a larger
+grammar (also `<meta refresh content>`) — are sanitized per their own grammar,
+each embedded URL still scheme-checked. Single-URL attributes stay faithful
+`html/template` ports.
 
 ### Interpolating attribute literals
 

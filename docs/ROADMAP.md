@@ -943,20 +943,14 @@ vocabulary remains a design aspiration, not the current API.
     the `dataURL(mime)` std filter (assembly only, re-validated by the sink);
     `gsx.RawURL` is the vouching escape hatch. **Deferred:** CSS
     `background: url(data:…)` (separate CSS-context subsystem — issue #82).
-  - [x] `srcset`/`imagesrcset` sanitized as URL-lists (static + spread), WHATWG
-    grammar port. Each candidate of the comma-separated image-candidate list
-    is parsed per the WHATWG `srcset` grammar and its URL sanitized
-    individually as an image resource (`about:invalid#gsx` on a disallowed
-    scheme, scoped to that one candidate); `data:image/*` candidates and
-    fractional descriptors (`1.5x`) survive intact — a deliberate port of the
-    browser's own grammar rather than `html/template`'s `srcset` filter, which
-    breaks both. Structured-carrier principle established: single-value
-    URL/JS/CSS/HTML attributes are faithful `html/template` ports; structured
-    URL carriers (a list, or an embedded URL with its own grammar) are
-    faithful WHATWG-grammar ports — `refreshContentSanitize` (meta refresh)
-    and now `srcset`. Follow-ups tracked: `ping` (space-separated URL list,
-    non-security) — issue #81; CSS `url()` in `style` (separate context) —
-    issue #82. Spec `2026-07-11-srcset-sanitization-design.md`.
+  - [x] `srcset`/`imagesrcset` sanitized as URL-lists (static + spread): each
+    candidate's URL scheme-checked as an image resource, parsed with the WHATWG
+    `srcset` grammar (not `html/template`'s, which breaks `1.5x` + `data:image`).
+    Establishes the structured-carrier principle: single-value URL/JS/CSS/HTML
+    attrs are faithful `html/template` ports; structured URL carriers (list, or
+    embedded-URL grammar) are faithful WHATWG-grammar ports — `srcset` joins
+    `refreshContentSanitize`. Follow-ups: `ping` #81, CSS `url()` #82. Spec
+    `2026-07-11-srcset-sanitization-design.md`.
 - [x] **`//go:` directive / build-constraint pass-through** - program-significant
   comment lines before the `package` clause (`//go:build`, `//go:generate`,
   `//go:debug`, legacy `// +build`) copy verbatim into the generated `.x.go`,
