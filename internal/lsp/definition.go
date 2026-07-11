@@ -642,11 +642,14 @@ func posCoversCursor(r token.Position, path string, curLine, curCol, nameLen int
 }
 
 // componentTagDeclAt checks whether the byte offset off in the .gsx file at
-// path sits on the name portion of a component element tag (e.g. the "Card" in
-// "<Card .../>"). If so, it looks the component up in pkg.CrossIndex by the
-// function-component key "." + tag, and returns every build-tag variant's
-// declaration position (Task 7) and true. Returns (nil, false) if the cursor
-// is not on a component tag.
+// path sits on the name portion of a same-package component element tag (e.g.
+// the "Card" in "<Card .../>", or a lowercase "card" resolving to a
+// package-level declaration — el.IsComponent is the codegen-stamped answer,
+// not a syntactic capital-letter guess). Dotted tags are excluded here (they
+// go through crossPkgTagDeclAt instead). If so, it looks the component up in
+// pkg.CrossIndex by the function-component key "." + tag, and returns every
+// build-tag variant's declaration position (Task 7) and true. Returns (nil,
+// false) if the cursor is not on a component tag.
 func componentTagDeclAt(pkg *Package, path string, off int) ([]token.Position, bool) {
 	if pkg == nil || pkg.GSXFset == nil || pkg.Files == nil {
 		return nil, false
@@ -666,8 +669,8 @@ func componentTagDeclAt(pkg *Package, path string, off int) ([]token.Position, b
 			return true
 		}
 		tag := el.Tag
-		if tag == "" || strings.Contains(tag, ".") || tag[0] < 'A' || tag[0] > 'Z' {
-			// not a simple function component tag
+		if tag == "" || strings.Contains(tag, ".") || !el.IsComponent {
+			// not a same-package function component tag
 			return true
 		}
 		// The opening tag name starts right after the '<': nameStart is the byte
