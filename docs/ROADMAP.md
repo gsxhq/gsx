@@ -467,12 +467,12 @@ render goldens.
     in resolution - `<div>` is a leaf only because nothing declares `div`.
     The declared-name set is gathered **syntactically** (no `packages.Load`,
     no type checking) from every `.gsx` and `.go` file in the package
-    directory via the existing `FileSymbols`-style skeleton scan, surfaced to
-    `gen` through `Analyzer.ModuleSymbols`; import names and `_test.go`-only
-    names don't count, and build-tag variants count regardless of tags
-    (consistent with the PR #43 stance: gsx never evaluates build tags). A
-    matched-but-non-invocable declaration (`var data int` + `<data>`) still
-    lowers as a call and lets `go build` report the mismatch - resolution
+    directory via a standalone `go/parser`-based scan
+    (`internal/codegen/declnames.go`, `packageDeclNames`); import names and
+    `_test.go`-only names don't count, and build-tag variants count regardless
+    of tags (consistent with the PR #43 stance: gsx never evaluates build
+    tags). A matched-but-non-invocable declaration (`var data int` + `<data>`)
+    still lowers as a call and lets `go build` report the mismatch - resolution
     never silently falls back to leaf. **Self-exclusion:** inside the body of
     the declaration that declares name `x`, `<x>` is always a leaf - this is
     what makes the zero-syntax wrapper pattern work

@@ -388,8 +388,8 @@ func isGsxQualifiedType(typ string, quals map[string]bool, sel string) bool {
 // parsed AST), so the resolve rule is (re-)applied here, at the moment they
 // are materialized, reusing resolveTag rather than duplicating its logic.
 // Type-args-on-leaf is a codegen error just like resolveComponentTags reports
-// for the rest of the file (tagresolve.go): SplitGoExprElements parses an
-// embedded `<tag[T]>` literal with the SAME parser.parseElement used
+// for the rest of the file (tagresolve.go, reportLeafTypeArgs): SplitGoExprElements
+// parses an embedded `<tag[T]>` literal with the SAME parser.parseElement used
 // everywhere else, so a leaf tag with type args CAN occur inside a `{ }`
 // hole, and must be reported here too — bag is threaded in for exactly that.
 // The error is only emitted for elements a split just MATERIALIZED (tracked
@@ -470,8 +470,7 @@ func splitInterpEmbedded(file *gsxast.File, cls *attrclass.Classifier, fset *tok
 					reportSelfRefWarning(bag, t, exclude)
 				}
 				if materialized && !t.IsComponent && t.TypeArgs != "" {
-					bag.Errorf(t.Pos(), t.End(), "type-args-on-element",
-						"type arguments on HTML element <%s>: type args are only valid on component tags", t.Tag)
+					reportLeafTypeArgs(bag, t)
 				}
 				walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) { walk(value, exclude, materialized) })
 				walk(t.Children, exclude, materialized)

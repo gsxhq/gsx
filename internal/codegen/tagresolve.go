@@ -102,6 +102,17 @@ func reportSelfRefWarning(bag *diag.Bag, el *gsxast.Element, exclude string) {
 		el.Tag, exclude, el.Tag)
 }
 
+// reportLeafTypeArgs emits the type-args-on-element codegen error for el: the
+// parser admits `[...]` on any tag (resolution alone can tell a component tag
+// from an HTML/leaf one), so a leaf element carrying type args is always a
+// mistake. Shared by resolveComponentTags (original tree) and
+// splitInterpEmbedded (analyze.go, elements materialized from an embedded
+// `<tag>` literal) — same message both places.
+func reportLeafTypeArgs(bag *diag.Bag, el *gsxast.Element) {
+	bag.Errorf(el.Pos(), el.End(), "type-args-on-element",
+		"type arguments on HTML element <%s>: type args are only valid on component tags", el.Tag)
+}
+
 // resolveComponentTags stamps Element.IsComponent on every element in file.
 // exclude for a Component body is the component's bare name (methods included
 // — exclusion is keyed by name); for a GoWithElements, each element/fragment
@@ -128,8 +139,7 @@ func resolveComponentTags(file *gsxast.File, declNames map[string]bool, bag *dia
 			reportSelfRefWarning(bag, el, exclude)
 		}
 		if !el.IsComponent && el.TypeArgs != "" {
-			bag.Errorf(el.Pos(), el.End(), "type-args-on-element",
-				"type arguments on HTML element <%s>: type args are only valid on component tags", el.Tag)
+			reportLeafTypeArgs(bag, el)
 		}
 	}
 	stampAll := func(nodes []gsxast.Markup, exclude string) {

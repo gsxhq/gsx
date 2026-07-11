@@ -92,9 +92,9 @@ a package-level `div` component is also declared (the package component
 remains reachable via the call form), and inside `var card = ...`, the tag
 `<card>` is a leaf. Recursion for a lowercase component uses the Go call
 form in a hole (`{item(...)}`) or gives the component a capital name — a
-self-named tag never recurses. A lowercase tag whose name isn't a standard HTML element name is
-almost always a recursion mistake rather than an intentional wrapper, so gsx
-warns on it:
+self-named tag never recurses. A self-named lowercase tag whose name isn't a
+standard HTML element name is almost always a recursion mistake rather than
+an intentional wrapper, so gsx warns on it:
 
 ```text
 <item> inside component item renders as a leaf element; for recursion call item(...).
