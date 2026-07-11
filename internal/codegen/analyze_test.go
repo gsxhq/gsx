@@ -314,7 +314,7 @@ func Parse(s string) ([]string, error) {
 	if err != nil {
 		t.Fatalf("propFields: %v", err)
 	}
-	table, err := loadFilterTableMulti(pkgDir, []string{stdImportPath, "gsxskel/filters"}, nil)
+	table, _, err := loadFilterTableMulti(pkgDir, []string{stdImportPath, "gsxskel/filters"}, nil, nil)
 	if err != nil {
 		t.Fatalf("loadFilterTableMulti: %v", err)
 	}

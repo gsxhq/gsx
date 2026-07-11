@@ -52,7 +52,7 @@ func TestFilterTableFromExtMatchesGoList(t *testing.T) {
 	aliases := []FilterAlias{{Name: "url", PkgPath: "example.com/x/aliasonly", FuncName: "URLFor"}}
 
 	// Path 1: the standalone packages.Load harvest (the old behavior).
-	viaGoList, err := loadFilterTableMulti(root, dedupFilterPkgs(filterPkgs), aliases)
+	viaGoList, _, err := loadFilterTableMulti(root, dedupFilterPkgs(filterPkgs), aliases, nil)
 	if err != nil {
 		t.Fatalf("loadFilterTableMulti: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestFilterHarvestErrorsMatch(t *testing.T) {
 			filterPkgs := []string{stdImportPath}
 			aliases := []FilterAlias{tc.alias}
 
-			_, goListErr := loadFilterTableMulti(root, dedupFilterPkgs(filterPkgs), aliases)
+			_, _, goListErr := loadFilterTableMulti(root, dedupFilterPkgs(filterPkgs), aliases, nil)
 
 			m, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/x", FilterPkgs: filterPkgs, Aliases: aliases})
 			if err != nil {

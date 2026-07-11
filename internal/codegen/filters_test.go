@@ -47,7 +47,7 @@ func harvestFixture(t *testing.T, source string) filterTable {
 	}
 
 	// Load and harvest the filter package
-	table, err := loadFilterTableMulti(tmp, []string{"testfilters/filters"}, nil)
+	table, _, err := loadFilterTableMulti(tmp, []string{"testfilters/filters"}, nil, nil)
 	if err != nil {
 		t.Fatalf("loadFilterTableMulti: %v", err)
 	}
@@ -164,7 +164,7 @@ func harvestFixtureFromTypes(t *testing.T, source string) filterTable {
 		}
 	})
 
-	table, err := loadFilterTableFromTypes(byPath, []string{pkgPath}, nil)
+	table, _, err := loadFilterTableFromTypes(byPath, []string{pkgPath}, nil, nil)
 	if err != nil {
 		t.Fatalf("loadFilterTableFromTypes: %v", err)
 	}
