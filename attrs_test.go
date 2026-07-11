@@ -105,42 +105,48 @@ func TestAttrsCondError(t *testing.T) {
 	}
 }
 
+// TestSpreadOrderAndDrop exercises SpreadForwarding with no forwarding args
+// (navNames/imageNames/prefixes/excluded all nil) — the standalone-spread shape
+// a hand-written call or a nested cond-attr spread uses now that the old
+// non-sanitizing Spread method is gone. Order/last-wins/drop semantics are
+// unchanged: SpreadForwarding is the sole spread implementation.
 func TestSpreadOrderAndDrop(t *testing.T) {
 	var buf bytes.Buffer
 	gw := W(&buf)
-	gw.Spread(context.Background(), Attrs{
+	gw.SpreadForwarding(context.Background(), Attrs{
 		{Key: "data-b", Value: "2"},
 		{Key: "data-a", Value: "1"},
 		{Key: "data-b", Value: "last"},
 		{Key: "checked", Value: true},
 		{Key: "skip me", Value: "x"}, // invalid name → dropped
 		{Key: "off", Value: false},   // false bool → omitted
-	})
+	}, nil, nil, nil, nil)
 	if got := buf.String(); got != ` data-a="1" data-b="last" checked` {
-		t.Fatalf("Spread = %q", got)
+		t.Fatalf("SpreadForwarding = %q", got)
 	}
 }
 
 func TestSpreadAggregatesDuplicateClassStyle(t *testing.T) {
 	var buf bytes.Buffer
 	gw := W(&buf)
-	gw.Spread(context.Background(), Attrs{
+	gw.SpreadForwarding(context.Background(), Attrs{
 		{Key: "data-a", Value: "1"},
 		{Key: "class", Value: "first"},
 		{Key: "data-b", Value: "2"},
 		{Key: "class", Value: "second"},
 		{Key: "style", Value: "color: red"},
 		{Key: "style", Value: "display: block"},
-	})
+	}, nil, nil, nil, nil)
 	if got := buf.String(); got != ` data-a="1" data-b="2" class="first second" style="color: red; display: block"` {
-		t.Fatalf("Spread = %q", got)
+		t.Fatalf("SpreadForwarding = %q", got)
 	}
 }
 
-// TestSpreadSecurityDropsInvalidNames verifies that Spread drops structurally
-// unsafe attribute names (tag-breakout, whitespace, prohibited chars) while
-// keeping legitimate special names used by frameworks.  This is a regression
-// guard for the validAttrName contract (a port of html/template name-safety).
+// TestSpreadSecurityDropsInvalidNames verifies that SpreadForwarding (with no
+// forwarding args — the standalone-spread shape) drops structurally unsafe
+// attribute names (tag-breakout, whitespace, prohibited chars) while keeping
+// legitimate special names used by frameworks. This is a regression guard for
+// the validAttrName contract (a port of html/template name-safety).
 func TestSpreadSecurityDropsInvalidNames(t *testing.T) {
 	unsafe := []string{
 		"x onmouseover=y", // space → could inject a second attribute
@@ -150,9 +156,9 @@ func TestSpreadSecurityDropsInvalidNames(t *testing.T) {
 	// Empty key is also invalid; check separately since strings.Contains("", "") is always true.
 	emptyKeyBag := Attrs{{Key: "", Value: "evil"}}
 	var emptyBuf bytes.Buffer
-	W(&emptyBuf).Spread(context.Background(), emptyKeyBag)
+	W(&emptyBuf).SpreadForwarding(context.Background(), emptyKeyBag, nil, nil, nil, nil)
 	if emptyBuf.Len() != 0 {
-		t.Errorf("Spread with empty key should emit nothing, got: %q", emptyBuf.String())
+		t.Errorf("SpreadForwarding with empty key should emit nothing, got: %q", emptyBuf.String())
 	}
 	kept := []string{
 		"hx-on::click",
@@ -172,17 +178,17 @@ func TestSpreadSecurityDropsInvalidNames(t *testing.T) {
 
 	var buf bytes.Buffer
 	gw := W(&buf)
-	gw.Spread(context.Background(), bag)
+	gw.SpreadForwarding(context.Background(), bag, nil, nil, nil, nil)
 	out := buf.String()
 
 	for _, k := range unsafe {
 		if strings.Contains(out, k) {
-			t.Errorf("Spread should have dropped unsafe key %q, but output contains it: %s", k, out)
+			t.Errorf("SpreadForwarding should have dropped unsafe key %q, but output contains it: %s", k, out)
 		}
 	}
 	for _, k := range kept {
 		if !strings.Contains(out, k) {
-			t.Errorf("Spread should have kept legitimate key %q, but output is: %s", k, out)
+			t.Errorf("SpreadForwarding should have kept legitimate key %q, but output is: %s", k, out)
 		}
 	}
 }
@@ -415,10 +421,10 @@ func TestSpreadForwardingExcludedCaseInsensitive(t *testing.T) {
 	}
 }
 
-// TestSpreadForwardingAggregatesClassStyle pins the strict-superset property: with
-// excluded=nil (a standalone spread — e.g. one nested in a cond-attr — where no
-// forced site owns class/style), a non-excluded class/style key aggregates via
-// a.Class()/a.Style() exactly like Spread, not rendered raw per-entry.
+// TestSpreadForwardingAggregatesClassStyle pins the standalone-spread shape: with
+// excluded=nil (e.g. a spread nested in a cond-attr, where no forced site owns
+// class/style), a non-excluded class/style key aggregates via a.Class()/a.Style()
+// at its last source position rather than being rendered raw per-entry.
 func TestSpreadForwardingAggregatesClassStyle(t *testing.T) {
 	var buf bytes.Buffer
 	gw := W(&buf)
@@ -428,16 +434,8 @@ func TestSpreadForwardingAggregatesClassStyle(t *testing.T) {
 		{Key: "style", Value: "color:red"},
 		{Key: "style", Value: "margin:0"},
 	}, nil, nil, nil, nil)
-	// Compare against plain Spread over the same bag: SpreadForwarding must match it.
-	var ref bytes.Buffer
-	W(&ref).Spread(context.Background(), Attrs{
-		{Key: "class", Value: "a"},
-		{Key: "class", Value: "b"},
-		{Key: "style", Value: "color:red"},
-		{Key: "style", Value: "margin:0"},
-	})
-	if got := buf.String(); got != ref.String() {
-		t.Fatalf("SpreadForwarding class/style aggregation = %q, want Spread parity %q", got, ref.String())
+	if got, want := buf.String(), ` class="a b" style="color:red; margin:0"`; got != want {
+		t.Fatalf("SpreadForwarding class/style aggregation = %q, want %q", got, want)
 	}
 	if got := buf.String(); !strings.Contains(got, `class="a b"`) {
 		t.Fatalf("SpreadForwarding did not aggregate class: %q", got)
