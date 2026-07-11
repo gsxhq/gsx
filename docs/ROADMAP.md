@@ -1191,6 +1191,68 @@ vocabulary remains a design aspiration, not the current API.
   elements) would let an author suppress the warning for a genuine wrapper
   without renaming; not needed by any known in-repo case, so deferred until
   one shows up.
+- [x] **`[renderers]` registry - SHIPPED.** A `[renderers]` table in
+  `gsx.toml` (+ `gen.WithRenderer` option layer, last-wins over the file per
+  type key) maps a fully-qualified named type (`"pkgPath.TypeName"`,
+  optionally `*`-prefixed for the pointer type; unexported names allowed) to a
+  renderer func (`func(T) R` or `func(T) (R, error)`), resolved in the same
+  `packages.Load` pass as filter resolution. Applied at every render boundary
+  - text, attribute, URL-attribute, style/script holes and their `` f`...` ``/
+  `` js`...` ``/`` css`...` `` literals, composable `class`/`style` parts,
+  conditional-attribute branches, and values landing in a component's
+  fallthrough attrs bag or an ordered-attrs (`{{ }}`) literal, including a
+  component's own `class` prop expression - never at a plain component
+  argument (that stays ordinary Go). Registration always wins over a type's
+  own `String()` method; renderers apply once and never chain (a renderer
+  whose result type is itself registered, including `func(T) T`, is a
+  generation-time error, not a second application); matching is exact
+  `go/types` identity, so a pointer and its value type are distinct
+  registrations. `(R, error)` renderers ride the existing pipe-error-any-stage
+  machinery (hoist + halt on error), same for both harvest paths. Folded into
+  `computeKey` (a registration change busts the codegen cache). **Deferred:**
+  type-parameter holes do not consult the registry; values that only exist as
+  runtime `any` (attr-map entries, spreads) never see a renderer. Spec
+  `2026-07-11-renderers-registry-design.md`. Docs:
+  `docs/guide/config.md#renderers-type-directed-value-rendering`.
+  **Follow-ups (tracked below):** LSP hover on a hole showing the applied
+  renderer; type-param holes consulting the registry when the type set is a
+  single registered named type; a documented pgx/`pgtype` converter recipe
+  (or `preset = "pgx"` à la the htmx URL preset).
+- [ ] **LSP hover: show the applied renderer** - a hole whose value is
+  rendered through a `[renderers]` registration currently hovers the same as
+  any other typed expression; hover should additionally surface `rendered via
+  <pkg>.<Func>` when a renderer applies, so the registry's effect is visible
+  in the editor without reading `gsx.toml`. Spec
+  `2026-07-11-renderers-registry-design.md`, "Follow-ups".
+- [ ] **Type-param holes consulting `[renderers]`** - a hole whose static type
+  is a type parameter does not consult the registry in v1, even when every
+  type in the type set is the same registered named type. Classifying such a
+  hole via the registry (rather than only the existing type-param
+  classification rules) is deferred - it needs its own matching-rule design
+  (single-type-set vs. union) rather than piggybacking on the concrete-type
+  matcher. Spec `2026-07-11-renderers-registry-design.md`, "Follow-ups".
+- [ ] **A documented pgx/`pgtype` converter recipe or `preset = "pgx"`** - the
+  renderers registry makes `pgtype.Text`/`pgtype.Timestamp`/etc. renderable,
+  but each project still hand-writes its own `PgText`/`PgDateTime`-style
+  converters and NULL/format policy. A recipe page (or a bundled preset
+  mirroring the `url_presets = ["htmx"]` shape) would ship sane defaults
+  instead of every project rediscovering them. Spec
+  `2026-07-11-renderers-registry-design.md`, "Follow-ups".
+- [ ] **`classEntryExpr` bare-identifier probe gap (pre-existing, independent
+  of renderers)** - a component `class={ expr }` prop lowers through
+  `classEntryExpr`'s probe/skeleton pass, which stubs a **call** expression to
+  `""` before harvest, but embeds a **bare identifier** directly into the
+  skeleton. A bare identifier of a non-string, non-renderable type (e.g. a
+  plain struct-typed local, registered or not) therefore fails the skeleton's
+  own `go/types` check before harvest/rendering logic ever runs - reproduces
+  identically with a `[renderers]`-registered type and with an ordinary
+  unregistered struct, confirming it is a probe-stage gap, not a renderers
+  defect. Discovered while pinning
+  `internal/corpus/testdata/cases/renderers/class_part_component.txtar` (which
+  works around it by using a **call** expression, `class={ mkText(name,
+  true) }`, the reachable form). Fixing it means teaching
+  `classEntryExpr`'s probe stage the same call-vs-identifier stubbing
+  `composedParts` already does at the element level.
 
 ## Documentation backlog
 
