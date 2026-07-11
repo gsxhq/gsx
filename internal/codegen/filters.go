@@ -301,14 +301,16 @@ func harvestFilters(dir string, pkgPaths []string, explicitAliases []FilterAlias
 		}
 		typesByPath[a.PkgPath] = byPath[a.PkgPath].Types
 	}
-	// Renderer packages are validated by harvestRenderers itself (it reports
-	// "was not loaded" for a byPath miss), so a load failure here is left for
-	// it to see as a missing entry rather than re-validated twice: only add a
-	// types entry when the load actually produced one.
+	// A renderer package gets the SAME load-level validation as a filter
+	// package, framed against the [renderers] registration that pulled it in.
+	// packages.Load returns best-effort non-nil Types even for a package with
+	// compile errors, so skipping this check would silently admit a broken
+	// renderer package and fail later with a misleading "func not found".
 	for _, r := range renderers {
-		if pkg, ok := byPath[r.PkgPath]; ok && pkg != nil && pkg.Types != nil {
-			typesByPath[r.PkgPath] = pkg.Types
+		if err := checkRendererPkg(byPath[r.PkgPath], r.PkgPath, dir, r.TypeKey); err != nil {
+			return nil, nil, err
 		}
+		typesByPath[r.PkgPath] = byPath[r.PkgPath].Types
 	}
 	harvested, err := harvestFromTypes(typesByPath, pkgPaths, explicitAliases, aliases)
 	if err != nil {
@@ -329,6 +331,23 @@ func checkFilterPkg(pkg *packages.Package, path, dir, aliasName string) error {
 	if aliasName != "" {
 		where = fmt.Sprintf("WithFilter %q: package %q", aliasName, path)
 	}
+	return checkLoadedPkg(pkg, where, dir)
+}
+
+// checkRendererPkg is checkFilterPkg's renderer counterpart: it frames the
+// same load-level validation against the [renderers] registration that pulled
+// the package in, since nothing else in the config may mention it.
+func checkRendererPkg(pkg *packages.Package, path, dir, typeKey string) error {
+	where := fmt.Sprintf("renderer for %q: package %q", typeKey, path)
+	return checkLoadedPkg(pkg, where, dir)
+}
+
+// checkLoadedPkg is the shared load-level validation for every package pulled
+// in by the one filter/renderer packages.Load. packages.Load hands back
+// best-effort non-nil Types even when pkg.Errors is populated, so a broken
+// package must be rejected HERE with the caller-supplied framing — admitting
+// its partial types would surface later as a misleading "func not found".
+func checkLoadedPkg(pkg *packages.Package, where, dir string) error {
 	switch {
 	case pkg == nil:
 		return fmt.Errorf("codegen: %s not found in %s", where, dir)

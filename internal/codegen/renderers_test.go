@@ -3,6 +3,8 @@ package codegen
 import (
 	"go/token"
 	"go/types"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -23,6 +25,9 @@ func TestRendererKey(t *testing.T) {
 		{"named", text, "github.com/jackc/pgx/v5/pgtype.Text"},
 		{"pointer", types.NewPointer(text), "*github.com/jackc/pgx/v5/pgtype.Text"},
 		{"alias", types.NewAlias(types.NewTypeName(token.NoPos, types.NewPackage("p", "p"), "A", nil), text), "github.com/jackc/pgx/v5/pgtype.Text"},
+		// *T where the pointer elem is an alias to a named type pins the doc
+		// claim that aliases are unwrapped on BOTH levels (outer and elem).
+		{"pointer to alias", types.NewPointer(types.NewAlias(types.NewTypeName(token.NoPos, types.NewPackage("p", "p"), "PA", nil), text)), "*github.com/jackc/pgx/v5/pgtype.Text"},
 		{"basic", types.Typ[types.String], ""},
 		{"unnamed struct", types.NewStruct(nil, nil), ""},
 	}
@@ -262,4 +267,54 @@ func TestHarvestRenderers(t *testing.T) {
 			t.Errorf("table = %+v, want empty", table)
 		}
 	})
+}
+
+// TestRendererPkgLoadError pins the load-level validation of renderer packages
+// on the packages.Load path (harvestFilters → checkRendererPkg): go/packages
+// hands back best-effort non-nil Types even when pkg.Errors is populated, so
+// without the check a renderer package with compile errors would be silently
+// admitted and fail later with a misleading "func not found". Mirrors the
+// broken_alias_pkg fixture in TestFilterHarvestErrorsMatch, framed against the
+// [renderers] registration that pulled the package in — nothing else in the
+// config mentions it.
+func TestRendererPkgLoadError(t *testing.T) {
+	if testing.Short() {
+		t.Skip()
+	}
+	root := t.TempDir()
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	must := func(p, c string) {
+		t.Helper()
+		full := filepath.Join(root, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	must("go.mod", "module example.com/x\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	must("badrender/bad.go", "package badrender\n\nfunc RenderText(s string) string { return undefinedIdent(s) }\n")
+
+	renderers := []RendererAlias{{
+		TypeKey:  "example.com/x/pg.Text",
+		PkgPath:  "example.com/x/badrender",
+		FuncName: "RenderText",
+	}}
+	_, _, err = loadFilterTableMulti(root, []string{stdImportPath}, nil, renderers)
+	if err == nil {
+		t.Fatal("expected error for broken renderer package, got nil")
+	}
+	for _, want := range []string{
+		`renderer for "example.com/x/pg.Text"`,
+		`package "example.com/x/badrender"`,
+		"type resolution failed",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
 }
