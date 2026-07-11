@@ -83,8 +83,9 @@ func runDev(args []string, stdout, stderr io.Writer, merged config, td *tomlDev,
 
 	wcfg := watchConfig{
 		paths: []string{workDir}, stdout: stdout, stderr: stderr,
-		filterPkgs: merged.filterPkgs, aliases: merged.aliases, cls: merged.classifier(),
-		fm: merged.fieldMatcher, cssMin: merged.effectiveCSSMin(), jsMin: merged.effectiveJSMin(),
+		filterPkgs: merged.filterPkgs, aliases: merged.aliases, renderers: merged.renderers,
+		cls: merged.classifier(),
+		fm:  merged.fieldMatcher, cssMin: merged.effectiveCSSMin(), jsMin: merged.effectiveJSMin(),
 		cssMinify: merged.cssMinLevel.enabled(), jsMinify: merged.jsMinLevel.enabled(),
 		classMerger: merged.classMerger,
 	}

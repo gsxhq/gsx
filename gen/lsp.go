@@ -69,6 +69,7 @@ func (a lspAnalyzer) module(root, modPath string, merged config) (*codegen.Modul
 		ModulePath:   modPath,
 		FilterPkgs:   merged.filterPkgs,
 		Aliases:      merged.aliases,
+		Renderers:    merged.renderers,
 		FieldMatcher: merged.fieldMatcher,
 		Classifier:   merged.classifier(),
 	})

@@ -206,12 +206,13 @@ func Open(opts Options) (*Module, error) {
 		cls = attrclass.Builtin()
 		opts.Classifier = cls
 	}
-	// A Bundle carries exactly one prebuilt importer and one prebuilt filter
-	// table, so per-dir narrowing has nothing to narrow. Silently ignoring PerDir
-	// here would hand a dir the Bundle's whole table — the union leak this design
-	// exists to prevent — so reject the combination outright.
+	// A Bundle carries exactly one prebuilt importer and one prebuilt set of
+	// func tables (filters + renderers), so per-dir narrowing has nothing to
+	// narrow. Silently ignoring PerDir here would hand a dir the Bundle's whole
+	// table — the union leak this design exists to prevent — so reject the
+	// combination outright.
 	if opts.Bundle != nil && (len(opts.PerDir) > 0 || len(opts.LoadPkgs) > 0) {
-		return nil, fmt.Errorf("codegen: Options.Bundle is incompatible with PerDir/LoadPkgs (a Bundle carries one prebuilt filter table)")
+		return nil, fmt.Errorf("codegen: Options.Bundle is incompatible with PerDir/LoadPkgs (a Bundle carries one prebuilt set of func tables — filters and renderers)")
 	}
 	return &Module{
 		opts:             opts,
