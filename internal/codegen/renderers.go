@@ -72,7 +72,7 @@ func harvestRenderers(byPath map[string]*types.Package, renderers []RendererAlia
 		sig := fn.Type().(*types.Signature)
 		if sig.Recv() != nil || sig.Variadic() || sig.TypeParams().Len() != 0 ||
 			sig.Params().Len() != 1 || sig.Results().Len() < 1 || sig.Results().Len() > 2 ||
-			(sig.Results().Len() == 2 && sig.Results().At(1).Type().String() != "error") {
+			(sig.Results().Len() == 2 && !isErrorType(sig.Results().At(1).Type())) {
 			return nil, fmt.Errorf("codegen: renderer %q for %q does not match the renderer contract func(T) R or func(T) (R, error)", r.FuncName, r.TypeKey)
 		}
 		if pk := rendererKey(sig.Params().At(0).Type()); pk != r.TypeKey {
