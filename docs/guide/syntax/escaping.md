@@ -18,6 +18,8 @@ The `<img src=x onerror=alert(1)>` string is rendered as `&lt;img src=x onerror=
 
 gsx applies a different escaper depending on the context the value sits in. Each context is safe by default; the opt-out helpers are for explicitly trusted values only.
 
+A `[renderers]`-registered type ([Config](../config.md#renderers-type-directed-value-rendering)) is resolved to a renderable value *before* any of the escaping below runs — the renderer only decides what string/number a wrapper type like `pgtype.Text` renders as; the context table and its sanitization are unchanged.
+
 | Context | Where it applies | What gsx does | Opt-out (trusted only) |
 |---------|-----------------|---------------|------------------------|
 | **Text / attribute** | `{ x }` in body; `attr={ x }` unless the attr is URL-context by name | HTML / attribute escape — `<`, `>`, `&`, `"`, `'` are entity-encoded; NUL is replaced with U+FFFD | `gsx.Raw(s)` |
