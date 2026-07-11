@@ -139,14 +139,18 @@ func TestParseComponentTagTypeArgs(t *testing.T) {
 	}
 }
 
-func TestRejectHTMLElementTypeArgs(t *testing.T) {
+func TestHTMLElementTypeArgsParse(t *testing.T) {
+	// The parser admits `[...]` on any tag now — resolution (codegen) decides
+	// whether type args on a leaf/HTML tag are an error, since the parser
+	// alone can't know a lowercase tag resolves to a leaf vs. a component.
 	p := testParser(`<div[int]>x</div>`)
-	_, err := p.parseElement()
-	if err == nil {
-		t.Fatal("expected error for type args on HTML element")
+	n, err := p.parseElement()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "type arguments are only valid on component tags") {
-		t.Fatalf("error = %v", err)
+	el := n.(*ast.Element)
+	if el.Tag != "div" || el.TypeArgs != "int" {
+		t.Fatalf("got tag=%q typeArgs=%q", el.Tag, el.TypeArgs)
 	}
 }
 
