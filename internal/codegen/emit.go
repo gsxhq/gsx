@@ -1659,16 +1659,24 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 			secondExpr := strings.TrimSpace(second.Expr)
 			if firstCond != "" || secondCond != "" {
 				// At least one spread is inside a { if }: its keys are statically
-				// unknown, so it cannot be reconciled with a plain .Merge()
-				// against the other spread (that would drop the condition). Point
-				// at the conditional spread and recommend gsx.AttrsCond.
-				condSpread, condExpr, cond := second, secondExpr, secondCond
-				if firstCond != "" {
-					condSpread, condExpr, cond = first, firstExpr, firstCond
+				// unknown, so it cannot be a plain .Merge() with the other spread
+				// (that would drop the condition, or drop the other spread's
+				// attributes). Recommend gsx.AttrsCond, naming both spreads and the
+				// merge base so no spread is silently lost.
+				switch {
+				case secondCond == "": // first is conditional, second is the top-level merge base
+					bag.Errorf(first.Pos(), first.End(), "attr-fallthrough",
+						"a spread inside { if } ({ %s... }) has statically unknown keys and cannot be a separate spread alongside { %s... }; build it as a bag with gsx.AttrsCond(%s, func() (gsx.Attrs, error) { return %s, nil }, nil) in a {{ }} block, then spread a single { %s.Merge(a)... }",
+						firstExpr, secondExpr, firstCond, firstExpr, secondExpr)
+				case firstCond == "": // second is conditional, first is the top-level merge base
+					bag.Errorf(second.Pos(), second.End(), "attr-fallthrough",
+						"a spread inside { if } ({ %s... }) has statically unknown keys and cannot be a separate spread alongside { %s... }; build it as a bag with gsx.AttrsCond(%s, func() (gsx.Attrs, error) { return %s, nil }, nil) in a {{ }} block, then spread a single { %s.Merge(a)... }",
+						secondExpr, firstExpr, secondCond, secondExpr, firstExpr)
+				default: // both conditional — no unconditional merge base
+					bag.Errorf(second.Pos(), second.End(), "attr-fallthrough",
+						"element carries two conditional spreads ({ %s... } and { %s... }) whose keys are statically unknown; build each as a bag with gsx.AttrsCond(cond, func() (gsx.Attrs, error) { return bag, nil }, nil) in a {{ }} block, then spread a single merged result ({ a.Merge(b)... })",
+						firstExpr, secondExpr)
 				}
-				bag.Errorf(condSpread.Pos(), condSpread.End(), "attr-fallthrough",
-					"a spread inside { if } ({ %s... }) has statically unknown keys and cannot be merged with another spread on the same element; build it as a conditional bag with gsx.AttrsCond(%s, func() (gsx.Attrs, error) { return %s, nil }, nil) in a {{ }} block, then spread the merged result",
-					condExpr, cond, condExpr)
 				return false
 			}
 			bag.Errorf(second.Pos(), second.End(), "attr-fallthrough",

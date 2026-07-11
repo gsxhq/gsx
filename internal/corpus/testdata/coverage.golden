@@ -528,6 +528,7 @@ slots/node_prop_promotion	diag gen render
 slots/node_prop_realworld	diag render
 slots/node_prop_stringer	diag gen render
 spread-sanitize/cond_nested_spread	diag gen render
+spread-sanitize/cond_nested_spread_after_toplevel	diag(error)
 spread-sanitize/cond_nested_spread_class	diag render
 spread-sanitize/cond_nested_two_spreads	diag(error)
 spread-sanitize/derived_local_bag	diag gen render
@@ -644,4 +645,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 646 cases (render: 524, error: 93, gen-pinned: 328)
+TOTAL: 647 cases (render: 524, error: 94, gen-pinned: 328)
