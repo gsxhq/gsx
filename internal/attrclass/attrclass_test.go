@@ -180,11 +180,11 @@ func TestURLSink(t *testing.T) {
 }
 
 func TestURLExactNames(t *testing.T) {
-	// Builtin: the 11 built-in URL names, lowercased and sorted, no prefixes.
+	// Builtin: the 13 built-in URL names, lowercased and sorted, no prefixes.
 	// (htmx method attrs moved to the opt-in "htmx" preset.)
 	wantBuiltin := []string{
 		"action", "background", "cite", "data", "formaction", "href",
-		"manifest", "ping", "poster", "src", "xlink:href",
+		"imagesrcset", "manifest", "ping", "poster", "src", "srcset", "xlink:href",
 	}
 	if got := Builtin().URLExactNames(); !reflect.DeepEqual(got, wantBuiltin) {
 		t.Errorf("Builtin().URLExactNames() = %v, want %v", got, wantBuiltin)
@@ -208,7 +208,7 @@ func TestURLExactNames(t *testing.T) {
 	}}, nil)
 	wantExact := []string{
 		"action", "background", "cite", "data", "data-href", "formaction", "href",
-		"manifest", "ping", "poster", "src", "xlink:href",
+		"imagesrcset", "manifest", "ping", "poster", "src", "srcset", "xlink:href",
 	}
 	if got := c.URLExactNames(); !reflect.DeepEqual(got, wantExact) {
 		t.Errorf("New().URLExactNames() = %v, want %v", got, wantExact)
@@ -216,5 +216,14 @@ func TestURLExactNames(t *testing.T) {
 	wantPrefixes := []string{"data-url-", "hx-"}
 	if got := c.URLPrefixes(); !reflect.DeepEqual(got, wantPrefixes) {
 		t.Errorf("New().URLPrefixes() = %v, want %v", got, wantPrefixes)
+	}
+}
+
+func TestSrcsetClassifiedURL(t *testing.T) {
+	c := Builtin()
+	for _, name := range []string{"srcset", "imagesrcset", "SrcSet"} {
+		if got := c.Context(name); got != CtxURL {
+			t.Errorf("Context(%q) = %v, want CtxURL", name, got)
+		}
 	}
 }

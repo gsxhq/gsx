@@ -1,0 +1,14 @@
+# Top-level forwarding spread first, then a spread nested in a cond-attr: still
+# two spreads (the at-most-one-spread count descends into cond branches). The
+# conditional spread can't be separate; the diagnostic anchors at it, names the
+# top-level { attrs... } as the merge base, and recommends gsx.AttrsCond.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Box(active bool, extra gsx.Attrs) {
+	<div { attrs... } { if active { { extra... } } }>x</div>
+}
+-- diagnostics.golden --
+6:34: a spread inside { if } ({ extra... }) has statically unknown keys and cannot be a separate spread alongside { attrs... }; build it as a bag with gsx.AttrsCond(active, func() (gsx.Attrs, error) { return extra, nil }, nil) in a {{ }} block, then spread a single { attrs.Merge(a)... }

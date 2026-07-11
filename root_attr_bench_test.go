@@ -33,7 +33,7 @@ func BenchmarkRootAttrMachineryEmpty(b *testing.B) {
 	ctx := context.Background()
 	for b.Loop() {
 		gw.StyleMerged("", a.Style())
-		gw.Spread(ctx, a, nil, nil, nil, []string{"class", "style"})
+		gw.Spread(ctx, a, nil, nil, nil, nil, []string{"class", "style"})
 	}
 }
 
@@ -66,7 +66,7 @@ func BenchmarkForwardingLeafNoURL(b *testing.B) {
 	for b.Loop() {
 		gw.ClassMerged(DefaultClassMerge, a.Class())
 		gw.StyleMerged("", a.Style())
-		gw.Spread(ctx, a, navNames, imageNames, nil, []string{"class", "style"})
+		gw.Spread(ctx, a, navNames, imageNames, nil, nil, []string{"class", "style"})
 	}
 }
 

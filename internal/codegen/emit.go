@@ -886,11 +886,6 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 					return false
 				}
 				continue
-			case *ast.SpreadAttr:
-				bag.Errorf(t.Pos(), t.End(), "attr-fallthrough",
-					"spread inside { if } on an element with attribute forwarding has statically unknown keys; hoist it with a GoBlock instead (e.g. {{ a, err := gsx.AttrsCond(%s, func() (gsx.Attrs, error) { return %s, nil }, nil); if err != nil { return err } }} then { attrs.Merge(a)... })",
-					encCond, strings.TrimSpace(t.Expr))
-				return false
 			}
 			name, _ := rootAttrName(a)
 			if c, ok := a.(*ast.ClassAttr); ok {
@@ -1355,27 +1350,58 @@ func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, cur
 	return true
 }
 
-// bagSpreadIndex returns the index of THE element spread, and whether one is
-// present. Every element spread is a forwarding spread (a sink): it routes
-// through emitManualSpreadElement's URL-sanitizing / class-merge machinery
-// regardless of what the bag expression is. An element carries at most one
-// spread; second is the offending second *ast.SpreadAttr when the element
-// carries more than one (nil otherwise), so the caller can position the
-// precedence-ambiguous diagnostic at it and name both spread expressions in
-// the merge-hint, rather than pointing at the element.
-func bagSpreadIndex(attrs []ast.Attr) (idx int, found bool, second *ast.SpreadAttr) {
-	idx = -1
+// bagSpreadIndex returns the index of the (single) top-level element spread
+// and whether one is present. Enforcing at-most-one-spread — including
+// spreads nested in cond-attr branches — is done by walkSpreadAttrs before
+// this is consulted; by the time bagSpreadIndex is called, at most one
+// top-level spread can exist.
+func bagSpreadIndex(attrs []ast.Attr) (idx int, found bool) {
 	for i, a := range attrs {
-		s, ok := a.(*ast.SpreadAttr)
-		if !ok {
-			continue
+		if _, ok := a.(*ast.SpreadAttr); ok {
+			return i, true
 		}
-		if found {
-			return idx, found, s
-		}
-		idx, found = i, true
 	}
-	return idx, found, nil
+	return -1, false
+}
+
+// firstTwoSpreadAttrs returns the first two spread attrs on an element in
+// depth-first source order, descending into cond-attr branches. An element
+// carries at most one spread total — top-level OR nested in a
+// `{ if … { { x... } } }` cond-attr — because a second spread anywhere has no
+// expressible precedence against the forwarding/guard machinery. The caller
+// positions the ambiguity diagnostic at `second` and names both spread
+// expressions.
+//
+// It also reports each spread's enclosing cond-attr condition (empty when the
+// spread is top-level), used to choose the diagnostic's recommended fix: a
+// plain .Merge() when both spreads are top-level, or gsx.AttrsCond when
+// either is conditionally nested (merging would silently drop the guard).
+//
+// Named distinctly from analyze.go's walkSpreadAttrs (a callback-style visitor
+// over every spread, used by probe/collect passes) to avoid redeclaring that
+// existing function in the same package.
+func firstTwoSpreadAttrs(attrs []ast.Attr) (first, second *ast.SpreadAttr, firstCond, secondCond string) {
+	var visit func(list []ast.Attr, cond string)
+	visit = func(list []ast.Attr, cond string) {
+		for _, a := range list {
+			if second != nil {
+				return
+			}
+			switch t := a.(type) {
+			case *ast.SpreadAttr:
+				if first == nil {
+					first, firstCond = t, cond
+				} else {
+					second, secondCond = t, cond
+				}
+			case *ast.CondAttr:
+				visit(t.Then, t.Cond)
+				visit(t.Else, "!("+t.Cond+")")
+			}
+		}
+	}
+	visit(attrs, "")
+	return first, second, firstCond, secondCond
 }
 
 // emitRootComposedClass emits a composed `class={ … }` merged with the bag's
@@ -1631,19 +1657,45 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		// routes through emitManualSpreadElement's URL-sanitizing / class-merge
 		// machinery regardless of the bag's provenance (declared forwarding param,
 		// local `:=` bag, func result, byo field, arbitrary expr). An element
-		// carries at most one spread; a second spread has no expressible
-		// precedence against the guard machinery, so bagSpreadIndex hands back
-		// the offending second spread and the diagnostic is positioned there
+		// carries at most one spread — top-level OR nested in a cond-attr branch —
+		// so firstTwoSpreadAttrs hands back the offending second spread
+		// (descending into cond-attrs) and the diagnostic is positioned there
 		// (not at the element) with a merge-hint naming both spreads.
-		if splitIdx, found, second := bagSpreadIndex(t.Attrs); second != nil {
-			first := t.Attrs[splitIdx].(*ast.SpreadAttr)
+		if first, second, firstCond, secondCond := firstTwoSpreadAttrs(t.Attrs); second != nil {
 			firstExpr := strings.TrimSpace(first.Expr)
 			secondExpr := strings.TrimSpace(second.Expr)
+			if firstCond != "" || secondCond != "" {
+				// At least one spread is inside a { if }: its keys are statically
+				// unknown, so it cannot be a plain .Merge() with the other spread
+				// (that would drop the condition, or drop the other spread's
+				// attributes). Recommend gsx.AttrsCond, naming both spreads and the
+				// merge base so no spread is silently lost.
+				//
+				// Precedence: the recommended fix always makes the conditional spread
+				// the `.Merge(a)` overlay, so it wins over the top-level/base spread —
+				// two spreads was never a valid runtime, so the fix ratifies
+				// "conditional overrides base" explicitly rather than leaving it implicit.
+				switch {
+				case secondCond == "": // first is conditional, second is the top-level merge base
+					bag.Errorf(first.Pos(), first.End(), "attr-fallthrough",
+						"a spread inside { if } ({ %s... }) has statically unknown keys and cannot be a separate spread alongside { %s... }; build it as a bag with gsx.AttrsCond(%s, func() (gsx.Attrs, error) { return %s, nil }, nil) in a {{ }} block, then spread a single { %s.Merge(a)... }",
+						firstExpr, secondExpr, firstCond, firstExpr, secondExpr)
+				case firstCond == "": // second is conditional, first is the top-level merge base
+					bag.Errorf(second.Pos(), second.End(), "attr-fallthrough",
+						"a spread inside { if } ({ %s... }) has statically unknown keys and cannot be a separate spread alongside { %s... }; build it as a bag with gsx.AttrsCond(%s, func() (gsx.Attrs, error) { return %s, nil }, nil) in a {{ }} block, then spread a single { %s.Merge(a)... }",
+						secondExpr, firstExpr, secondCond, secondExpr, firstExpr)
+				default: // both conditional — no unconditional merge base
+					bag.Errorf(second.Pos(), second.End(), "attr-fallthrough",
+						"element carries two conditional spreads ({ %s... } and { %s... }) whose keys are statically unknown; build each as a bag with gsx.AttrsCond(cond, func() (gsx.Attrs, error) { return bag, nil }, nil) in a {{ }} block, then spread a single merged result ({ a.Merge(b)... })",
+						firstExpr, secondExpr)
+				}
+				return false
+			}
 			bag.Errorf(second.Pos(), second.End(), "attr-fallthrough",
 				"element with a spread { %s... } cannot carry another spread { %s... }; merge them into one spread ({ %s.Merge(%s)... } or { %s.Merge(%s)... }) so precedence is explicit",
 				firstExpr, secondExpr, firstExpr, secondExpr, secondExpr, firstExpr)
 			return false
-		} else if found {
+		} else if splitIdx, found := bagSpreadIndex(t.Attrs); found {
 			return emitManualSpreadElement(b, t, splitIdx, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)
 		}
 		emitS(b, "<"+t.Tag)
@@ -2666,9 +2718,15 @@ func emitEmbeddedJSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.N
 }
 
 // urlWriterMethod returns the generated Writer method for a URL-context
-// attribute: "URLImage" for an image resource sink (data:image/* allowed),
-// "URL" otherwise. Callers must have established CtxURL for name.
+// attribute: "Srcset" for srcset/imagesrcset (a comma-separated image-
+// candidate list, sanitized per candidate), "URLImage" for an image resource
+// sink (data:image/* allowed), "URL" otherwise. Callers must have established
+// CtxURL for name.
 func urlWriterMethod(tag, name string) string {
+	switch strings.ToLower(name) {
+	case "srcset", "imagesrcset":
+		return "Srcset"
+	}
 	if attrclass.URLSink(tag, name) == attrclass.SinkImage {
 		return "URLImage"
 	}
@@ -2690,22 +2748,26 @@ func goStringSliceLit(names []string) string {
 
 // emitSpreadCall emits `_gsxgw.Spread(ctx, expr, …)` for bag
 // expression expr on element tag: the classifier's URL-exact names split into
-// the nav vs image sinks via urlWriterMethod, prefix URL rules pass through, and
-// excludedExpr is the names a forced site owns ("nil" when nothing is forced —
-// the standalone / nested-cond-attr spread case). Every element spread routes
-// through here so URL-classified keys sanitize at the leaf regardless of the
-// bag's provenance or nesting.
+// the nav vs image vs srcset sinks via urlWriterMethod, prefix URL rules pass
+// through, and excludedExpr is the names a forced site owns ("nil" when
+// nothing is forced — the standalone / nested-cond-attr spread case). Every
+// element spread routes through here so URL-classified keys sanitize at the
+// leaf regardless of the bag's provenance or nesting.
 func emitSpreadCall(b *bytes.Buffer, expr, tag string, cls *attrclass.Classifier, excludedExpr string) {
-	var navNames, imageNames []string
+	var navNames, imageNames, srcsetNames []string
 	for _, name := range cls.URLExactNames() {
-		if urlWriterMethod(tag, name) == "URLImage" {
+		switch urlWriterMethod(tag, name) {
+		case "URLImage":
 			imageNames = append(imageNames, name)
-		} else {
+		case "Srcset":
+			srcsetNames = append(srcsetNames, name)
+		default:
 			navNames = append(navNames, name)
 		}
 	}
-	fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s, %s, %s, %s, %s)\n",
-		expr, goStringSliceLit(navNames), goStringSliceLit(imageNames), goStringSliceLit(cls.URLPrefixes()), excludedExpr)
+	fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s, %s, %s, %s, %s, %s)\n",
+		expr, goStringSliceLit(navNames), goStringSliceLit(imageNames),
+		goStringSliceLit(srcsetNames), goStringSliceLit(cls.URLPrefixes()), excludedExpr)
 }
 
 // firstSegIsDataURL reports whether the literal's first segment is static text

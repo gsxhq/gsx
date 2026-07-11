@@ -279,15 +279,20 @@ func packageTypeNames(dir string) map[string]bool {
 	return out
 }
 
-// gsxChunkTypeNames scans every GoChunk in the .gsx files for top-level
-// `type X ...` declarations of ANY shape (struct, alias, defined type) and
-// returns their names. It reuses gsxStructDecls' parse approach (parse each
-// chunk standalone under a throwaway package clause; keep partial trees on
-// error) but is not restricted to *goast.StructType, since a type-name FACT
-// (unlike a byo struct's field set) has to cover non-struct declarations too.
-func gsxChunkTypeNames(files map[string]*gsxast.File) map[string]bool {
-	out := map[string]bool{}
-	scan := func(src string) {
+// parseGsxTypeDecls scans every GoChunk (and GoWithElements GoText part) in
+// the .gsx files for top-level `type X ...` declarations of ANY shape
+// (struct, alias, defined type). Each chunk is parsed standalone under a
+// throwaway package clause; a chunk that does not parse on its own is
+// skipped, but a partial tree is kept on error (a top-level GoWithElements
+// region can contain valid leading type declarations followed by an
+// expression split by an embedded element, and callers still need those type
+// declarations for BYO). fn is called once per file, with that file's
+// TypeSpecs in source order — callers that need the file's gsx runtime
+// qualifiers (gsxParamQualifiers(fileImportSpecs(file, nil))) compute them
+// from the *gsxast.File argument, so gsxChunkTypeNames (which ignores it)
+// pays no cost for that lookup.
+func parseGsxTypeDecls(files map[string]*gsxast.File, fn func(file *gsxast.File, specs []*goast.TypeSpec)) {
+	scan := func(src string, out *[]*goast.TypeSpec) {
 		fset := token.NewFileSet()
 		f, err := parser.ParseFile(fset, "", "package _gsxp\n"+src, 0)
 		if err != nil && f == nil {
@@ -300,27 +305,47 @@ func gsxChunkTypeNames(files map[string]*gsxast.File) map[string]bool {
 			}
 			for _, spec := range gd.Specs {
 				if ts, ok := spec.(*goast.TypeSpec); ok {
-					out[ts.Name.Name] = true
+					*out = append(*out, ts)
 				}
 			}
 		}
 	}
 	for _, file := range files {
+		var specs []*goast.TypeSpec
 		for _, d := range file.Decls {
 			switch t := d.(type) {
 			case *gsxast.GoChunk:
-				scan(t.Src)
+				scan(t.Src, &specs)
 			case *gsxast.GoWithElements:
 				for _, p := range t.Parts {
 					txt, ok := p.(gsxast.GoText)
 					if !ok || strings.TrimSpace(txt.Src) == "" {
 						continue
 					}
-					scan(txt.Src)
+					scan(txt.Src, &specs)
 				}
 			}
 		}
+		if len(specs) > 0 {
+			fn(file, specs)
+		}
 	}
+}
+
+// gsxChunkTypeNames scans every GoChunk in the .gsx files for top-level
+// `type X ...` declarations of ANY shape (struct, alias, defined type) and
+// returns their names. It reuses parseGsxTypeDecls' parse approach (parse
+// each chunk standalone under a throwaway package clause; keep partial trees
+// on error) but is not restricted to *goast.StructType, since a type-name
+// FACT (unlike a byo struct's field set) has to cover non-struct
+// declarations too.
+func gsxChunkTypeNames(files map[string]*gsxast.File) map[string]bool {
+	out := map[string]bool{}
+	parseGsxTypeDecls(files, func(_ *gsxast.File, specs []*goast.TypeSpec) {
+		for _, ts := range specs {
+			out[ts.Name.Name] = true
+		}
+	})
 	return out
 }
 
@@ -362,57 +387,26 @@ func soleParamTypeName(params []param) string {
 // the gsx runtime qualifiers of each struct's DECLARING file (default "gsx" plus
 // any runtime-path alias). fieldsFromGsxStruct classifies the struct's bag/node
 // fields against those qualifiers, so an aliased `Attrs g.Attrs` field is
-// recognized as the runtime bag. The chunk Go source is parsed with go/parser; a
-// chunk that does not parse on its own is skipped (buildSkeleton re-parses and
-// surfaces a clean diagnostic).
+// recognized as the runtime bag. The chunk Go source is parsed with go/parser
+// (via parseGsxTypeDecls); a chunk that does not parse on its own is skipped
+// (buildSkeleton re-parses and surfaces a clean diagnostic).
 func gsxStructDecls(files map[string]*gsxast.File) (map[string]*goast.StructType, map[string]map[string]bool) {
 	out := map[string]*goast.StructType{}
 	quals := map[string]map[string]bool{}
-	parseDecls := func(src string, fileQuals map[string]bool) {
-		fset := token.NewFileSet()
-		f, err := parser.ParseFile(fset, "", "package _gsxp\n"+src, 0)
-		// Keep partial trees on parse errors: a top-level GoWithElements region can
-		// contain valid leading type declarations followed by an expression split by
-		// an embedded element, and we still need those type declarations for BYO.
-		if err != nil && f == nil {
-			return
-		}
-		for _, decl := range f.Decls {
-			gd, ok := decl.(*goast.GenDecl)
-			if !ok || gd.Tok != token.TYPE {
+	parseGsxTypeDecls(files, func(file *gsxast.File, specs []*goast.TypeSpec) {
+		var fileQuals map[string]bool
+		for _, ts := range specs {
+			st, ok := ts.Type.(*goast.StructType)
+			if !ok {
 				continue
 			}
-			for _, spec := range gd.Specs {
-				ts, ok := spec.(*goast.TypeSpec)
-				if !ok {
-					continue
-				}
-				st, ok := ts.Type.(*goast.StructType)
-				if !ok {
-					continue
-				}
-				out[ts.Name.Name] = st
-				quals[ts.Name.Name] = fileQuals
+			if fileQuals == nil {
+				fileQuals = gsxParamQualifiers(fileImportSpecs(file, nil))
 			}
+			out[ts.Name.Name] = st
+			quals[ts.Name.Name] = fileQuals
 		}
-	}
-	for _, file := range files {
-		fileQuals := gsxParamQualifiers(fileImportSpecs(file, nil))
-		for _, d := range file.Decls {
-			switch t := d.(type) {
-			case *gsxast.GoChunk:
-				parseDecls(t.Src, fileQuals)
-			case *gsxast.GoWithElements:
-				for _, p := range t.Parts {
-					txt, ok := p.(gsxast.GoText)
-					if !ok || strings.TrimSpace(txt.Src) == "" {
-						continue
-					}
-					parseDecls(txt.Src, fileQuals)
-				}
-			}
-		}
-	}
+	})
 	return out, quals
 }
 
