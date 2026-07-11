@@ -2006,8 +2006,9 @@ func hoistValueCF(b *bytes.Buffer, cf *ast.ValueCF, table funcTables, imports ma
 		// into b at this point — which is AFTER the if/case label and BEFORE the
 		// _gsxvN = ... assignment, so the hoist lands inside the correct block.
 		if t := resolved[a]; t != nil {
-			if _, isTuple := t.(*types.Tuple); isTuple {
-				if _, ok := tupleUnwrapType(t); !ok {
+			if tup, isTuple := t.(*types.Tuple); isTuple {
+				elemT, ok := tupleUnwrapType(tup)
+				if !ok {
 					kind := "class"
 					if style {
 						kind = "style"
@@ -2016,7 +2017,14 @@ func hoistValueCF(b *bytes.Buffer, cf *ast.ValueCF, table funcTables, imports ma
 					return "", false
 				}
 				expr = hoistTuple(b, expr, interpTemp)
+				t = elemT
 			}
+			// The arm's value is assigned directly to the CF's own temp var
+			// inside this if/switch branch (see emitValueIf/emitValueSwitch), so
+			// no extra position-preserving capture is needed here — unlike
+			// composedParts' plain-part list, which joins several parts into ONE
+			// final call.
+			expr, _ = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
 		}
 		if style {
 			expr = styleDeclExpr(expr, rt, len(a.Stages) > 0)
@@ -3004,8 +3012,10 @@ func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]type
 			return false
 		}
 		tmp := hoistTuple(b, expr, interpTemp)
+		tmp, elemT = applyRenderer(b, tmp, elemT, table, imports, interpTemp, "return _gsxerr")
 		return emitJSAttrValue(b, n.JSCtx, tmp, elemT, n, bag)
 	}
+	expr, t = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
 	return emitJSAttrValue(b, n.JSCtx, expr, t, n, bag)
 }
 
@@ -3073,8 +3083,10 @@ func emitCSSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]typ
 			return false
 		}
 		tmp := hoistTuple(b, expr, interpTemp)
+		tmp, elemT = applyRenderer(b, tmp, elemT, table, imports, interpTemp, "return _gsxerr")
 		return emitRenderCSSAttr(b, tmp, elemT, rt, n, bag)
 	}
+	expr, t = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
 	return emitRenderCSSAttr(b, expr, t, rt, n, bag)
 }
 
@@ -3254,8 +3266,10 @@ func composedParts(b *bytes.Buffer, a *ast.ClassAttr, table funcTables, imports 
 		if !ok {
 			return nil, false
 		}
-		if t, isTuple := resolved[p].(*types.Tuple); isTuple {
-			if _, ok := tupleUnwrapType(t); !ok {
+		t := resolved[p]
+		if tup, isTuple := t.(*types.Tuple); isTuple {
+			elemT, ok := tupleUnwrapType(tup)
+			if !ok {
 				kind := "class"
 				if style {
 					kind = "style"
@@ -3264,11 +3278,34 @@ func composedParts(b *bytes.Buffer, a *ast.ClassAttr, table funcTables, imports 
 				return nil, false
 			}
 			expr = hoistTuple(b, expr, interpTemp)
-		} else if ordered {
-			tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-			*interpTemp++
-			fmt.Fprintf(b, "\t\t%s := %s\n", tmp, expr)
-			expr = tmp
+			t = elemT
+			// The part's own tuple hoist already lands expr in a position-
+			// preserving temp; applyRenderer may turn it back into a bare call
+			// (a no-error renderer), which — since composedPartsOrdered forces
+			// ordered=true whenever ANY part is itself tuple-typed — must be
+			// re-captured to stay pinned at this source position, exactly like
+			// the ordered branch below does for a non-tuple part. A renderer
+			// registry miss, or a hasErr renderer (already a hoisted temp),
+			// leaves expr as a bare identifier and skips the extra capture.
+			expr, _ = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
+			if isCallExpr(expr) {
+				tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+				*interpTemp++
+				fmt.Fprintf(b, "\t\t%s := %s\n", tmp, expr)
+				expr = tmp
+			}
+		} else {
+			// Renderer FIRST (mirrors every other render boundary), THEN the
+			// ordered capture — so a renderer's call (or its own error hoist)
+			// evaluates at this part's SOURCE position, not deferred to the
+			// final gw.Class/ClassJoin call site.
+			expr, _ = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
+			if ordered {
+				tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+				*interpTemp++
+				fmt.Fprintf(b, "\t\t%s := %s\n", tmp, expr)
+				expr = tmp
+			}
 		}
 		val := expr
 		if style && (len(p.Stages) > 0 || !isStringLiteralExpr(strings.TrimSpace(p.Expr))) {
@@ -3311,13 +3348,19 @@ func cssLiteralStylePartExpr(b *bytes.Buffer, segments []ast.Markup, resolved ma
 				}
 				expr = lowered
 			}
-			if t, ok := resolved[s].(*types.Tuple); ok {
-				if _, ok := tupleUnwrapType(t); !ok {
+			t := resolved[s]
+			if tup, isTuple := t.(*types.Tuple); isTuple {
+				elemT, ok := tupleUnwrapType(tup)
+				if !ok {
 					bag.Errorf(s.Pos(), s.End(), "invalid-tuple", "style css literal interpolation %q returns %s; only (T, error) is supported", expr, t)
 					return "", false
 				}
 				expr = hoistTuple(b, expr, interpTemp)
+				t = elemT
 			}
+			// Renderer FIRST: StyleValue(any) would otherwise fmt.Sprint the raw
+			// registered-type value instead of the author's rendered string.
+			expr, _ = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
 			parts = append(parts, rt.rt()+".StyleValue("+expr+")")
 		default:
 			bag.Errorf(seg.Pos(), seg.End(), "unsupported-style-part", "css literal style parts may contain only text and @{ } interpolations, got %T", seg)
@@ -5071,7 +5114,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				msg := fmt.Sprintf("%s attribute on a component (<%s>) not supported yet", t.Name, el.Tag)
 				return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
-			entry, used, eerr := classEntryExpr(b, interpTemp, t, rtPkg, mergeExpr, table, resolved, probeWrap, pipeWrap)
+			entry, used, eerr := classEntryExpr(b, interpTemp, t, rtPkg, mergeExpr, table, resolved, probeWrap, pipeWrap, bagErrReturn)
 			if eerr != nil {
 				return nil, "", nil, eerr
 			}
@@ -5252,10 +5295,58 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 // signature is (Attrs, error)). The caller selects the variant that matches
 // its own enclosing return arity — classEntryExpr itself stays agnostic to
 // that choice, hoisting exclusively through wrap.
-func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg string, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, probeWrap bool, wrap func(string) string) (string, map[string]string, error) {
+//
+// errReturn enables [renderers] application at this component-class-prop
+// boundary, mirroring childPropsLiteral's bagErrReturn: a part value whose
+// type is registered is converted to its renderer's string BEFORE it becomes
+// a <rtPkg>.Class(...)/.ClassIf(...) argument — the SAME string constraint
+// gsx.Class(s string) imposes at element level (composedParts). Non-empty
+// errReturn is the applyRenderer error-return matching the caller's own
+// arity ("return _gsxerr" from childPropsLiteral's element-level bagErrReturn;
+// "return nil, _gsxerr" from condBranchAttrs' thunk). Pass "" to disable: the
+// probe (skeleton never dispatches renderers; also gated on probeWrap) and
+// genSkippedTagSink's discarded nullary func literal (mirrors
+// childPropsLiteral's own "" precedent). applyRenderer wants an
+// `imports map[string]bool`, but usedPkgs (alias->pkgPath) is this
+// function's only import-bookkeeping channel back to the caller — bridged
+// through a scratch map whose keys are ignored, same as condBranchAttrs.
+func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg string, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, probeWrap bool, wrap func(string) string, errReturn string) (string, map[string]string, error) {
 	parts := make([]string, 0, len(a.Parts))
 	usedPkgs := map[string]string{}
 	ordered := !probeWrap && composedPartsOrdered(a, resolved)
+	// applyClassRenderer applies the registered [renderers] entry for t (if
+	// any) to expr, folding any imported renderer package into usedPkgs.
+	// A no-op in probe mode, when disabled (errReturn == ""), or when t is
+	// unresolved — the same disable conditions childPropsLiteral documents.
+	applyClassRenderer := func(expr string, t types.Type) string {
+		if probeWrap || errReturn == "" || t == nil {
+			return expr
+		}
+		scratch := map[string]bool{}
+		rendered, _ := applyRenderer(b, expr, t, table, scratch, interpTemp, errReturn)
+		for path := range scratch {
+			usedPkgs[path] = path
+		}
+		return rendered
+	}
+	// captureIfCall re-pins a possibly-rewritten (by applyClassRenderer) call
+	// expression at its current source position with a fresh temp — needed
+	// only after a tuple part's OWN hoist already produced a bare identifier
+	// that applyClassRenderer then turned back into a call (a no-error
+	// renderer): composedPartsOrdered forces ordered=true whenever any part is
+	// itself tuple-typed, so that call must not float down to the final
+	// ClassJoin(...) argument list. A registry miss, or a hasErr renderer
+	// (already its own hoisted temp), leaves expr a bare identifier and this
+	// is a no-op.
+	captureIfCall := func(expr string) string {
+		if !isCallExpr(expr) {
+			return expr
+		}
+		tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+		*interpTemp++
+		fmt.Fprintf(b, "\t\t%s := %s\n", tmp, expr)
+		return tmp
+	}
 	for i := range a.Parts {
 		p := &a.Parts[i]
 		if p.CF != nil {
@@ -5284,13 +5375,21 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg st
 					// value at element level, two-value inside a cond-attr thunk)
 					// the caller already baked into wrap.
 					if t := resolved[arm]; t != nil {
-						if _, isTuple := t.(*types.Tuple); isTuple {
-							if _, ok := tupleUnwrapType(t); !ok {
+						if tup, isTuple := t.(*types.Tuple); isTuple {
+							elemT, ok := tupleUnwrapType(tup)
+							if !ok {
 								lowerErr = &attrError{pos: arm.Pos(), end: arm.End(), code: "invalid-tuple", msg: fmt.Sprintf("class value-form arm %q returns %s; only (T, error) is supported", arm.Expr, t)}
 								return "", false
 							}
 							expr = wrap(expr)
+							t = elemT
 						}
+						// The arm's value is assigned directly to the CF's own
+						// tmp var inside this if/switch branch, so no extra
+						// position-preserving capture is needed here (unlike the
+						// plain-part list below, which joins several parts into
+						// ONE final ClassJoin(...) call).
+						expr = applyClassRenderer(expr, t)
 					}
 				}
 				return expr, true
@@ -5332,26 +5431,34 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg st
 			} else if !probeWrap {
 				t := resolved[p]
 				if tup, isAny := t.(*types.Tuple); isAny {
-					if _, ok2 := tupleUnwrapType(tup); !ok2 {
+					elemT, ok2 := tupleUnwrapType(tup)
+					if !ok2 {
 						return "", nil, &attrError{pos: p.Pos(), end: p.End(), code: "invalid-tuple", msg: fmt.Sprintf("class part %q returns %s; only (T, error) is supported", p.Expr, t)}
 					}
 					expr = wrap(expr)
-				} else if ordered {
-					tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-					*interpTemp++
-					fmt.Fprintf(b, "\t\t%s := %s\n", tmp, expr)
-					expr = tmp
+					expr = captureIfCall(applyClassRenderer(expr, elemT))
+				} else {
+					expr = applyClassRenderer(expr, t)
+					if ordered {
+						tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+						*interpTemp++
+						fmt.Fprintf(b, "\t\t%s := %s\n", tmp, expr)
+						expr = tmp
+					}
 				}
 			}
 			parts = append(parts, fmt.Sprintf("%s.Class(%s)", rtPkg, expr))
 		} else {
 			if !probeWrap && ordered {
 				if t, isTuple := resolved[p].(*types.Tuple); isTuple {
-					if _, ok := tupleUnwrapType(t); !ok {
+					elemT, ok := tupleUnwrapType(t)
+					if !ok {
 						return "", nil, &attrError{pos: p.Pos(), end: p.End(), code: "invalid-tuple", msg: fmt.Sprintf("class part %q returns %s; only (T, error) is supported", p.Expr, t)}
 					}
 					expr = wrap(expr)
+					expr = captureIfCall(applyClassRenderer(expr, elemT))
 				} else {
+					expr = applyClassRenderer(expr, resolved[p])
 					tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
 					*interpTemp++
 					fmt.Fprintf(b, "\t\t%s := %s\n", tmp, expr)
@@ -5362,6 +5469,9 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg st
 				fmt.Fprintf(b, "\t\t%s := %s\n", condTmp, strings.TrimSpace(p.Cond))
 				parts = append(parts, fmt.Sprintf("%s.ClassIf(%s, %s)", rtPkg, expr, condTmp))
 			} else {
+				if !probeWrap {
+					expr = applyClassRenderer(expr, resolved[p])
+				}
 				parts = append(parts, fmt.Sprintf("%s.ClassIf(%s, %s)", rtPkg, expr, strings.TrimSpace(p.Cond)))
 			}
 		}
@@ -5543,7 +5653,7 @@ func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string,
 				msg := fmt.Sprintf("%s attribute in a conditional branch (<%s>) not supported yet", t.Name, tag)
 				return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
-			entry, used, eerr := classEntryExpr(b, interpTemp, t, rtPkg, mergeExpr, table, resolved, probeWrap, wrap)
+			entry, used, eerr := classEntryExpr(b, interpTemp, t, rtPkg, mergeExpr, table, resolved, probeWrap, wrap, "return nil, _gsxerr")
 			if eerr != nil {
 				return "", nil, eerr
 			}
