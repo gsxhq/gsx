@@ -261,50 +261,6 @@ func AttrsCond(cond bool, then, els func() (Attrs, error)) (Attrs, error) {
 	return nil, nil
 }
 
-// Spread renders the bag in SLICE ORDER (no sort), with duplicate scalar keys resolved
-// last-wins. Duplicate class/style keys aggregate and emit once at their last source
-// position. A bool value uses boolean-attribute semantics (true → bare attribute,
-// false → omitted); everything else is written as key="value" with attribute escaping.
-// A key that is not a structurally valid HTML attribute name (see validAttrName) is
-// SKIPPED rather than emitted. Values are attribute-escaped only — Spread itself never
-// URL-sanitizes. At a forwarding element (see Attrs), generated code does not call
-// Spread at all: it calls SpreadForwarding, which classifies and sanitizes
-// URL-classified keys in the same single ordered walk that writes the bag (see
-// SpreadForwarding). A hand-written Spread call made outside that generated
-// machinery gets no such extraction and owns its own sinks: a
-// URL-typed attribute (href, src, action, …) carrying an untrusted value must be
-// sanitized (or wrapped as gsx.RawURL, if pre-validated) before it reaches this bag.
-// ctx is reserved for forward-compatibility.
-func (gw *Writer) Spread(ctx context.Context, a Attrs) {
-	if gw.err != nil || len(a) == 0 {
-		return
-	}
-	last := lastValidAttrIndexes(a)
-	for i, kv := range a {
-		if !validAttrName(kv.Key) {
-			continue // unsafe/invalid attribute name — drop it
-		}
-		if last[kv.Key] != i {
-			continue
-		}
-		switch kv.Key {
-		case "class":
-			kv.Value = a.Class()
-		case "style":
-			kv.Value = a.Style()
-		}
-		if b, ok := kv.Value.(bool); ok {
-			gw.BoolAttr(kv.Key, b)
-			continue
-		}
-		gw.writeStr(" ")
-		gw.writeStr(kv.Key)
-		gw.writeStr(`="`)
-		gw.AttrValue(toStr(kv.Value))
-		gw.writeStr(`"`)
-	}
-}
-
 // SpreadForwarding is the single-pass writer for a forwarding element's residual
 // fallthrough bag: in ONE ordered walk it renders the plain attributes AND routes
 // every URL-classified key through its sanitizing sink, replacing the older
