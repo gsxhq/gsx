@@ -125,6 +125,30 @@ func (gw *Writer) URLImageVal(v any) {
 	gw.err = writeURLImage(gw.w, toStr(v))
 }
 
+// Srcset writes s as a sanitized, escaped srcset attribute value: a
+// comma-separated image-candidate list, each candidate URL sanitized as an
+// image resource. Codegen emits it for srcset/imagesrcset attributes.
+func (gw *Writer) Srcset(s string) {
+	if gw.err != nil {
+		return
+	}
+	gw.err = writeSrcset(gw.w, s)
+}
+
+// SrcsetVal is Srcset for a dynamically-typed bag value: a gsx.RawURL is the
+// author's whole-value vouch and is emitted verbatim (still attribute-escaped);
+// any other value is stringified then sanitized.
+func (gw *Writer) SrcsetVal(v any) {
+	if gw.err != nil {
+		return
+	}
+	if r, ok := v.(RawURL); ok {
+		gw.err = writeHTML(gw.w, string(r))
+		return
+	}
+	gw.err = writeSrcset(gw.w, toStr(v))
+}
+
 // RefreshContent writes a meta refresh content value with any embedded redirect
 // URL sanitized, then HTML-escapes the complete attribute value.
 func (gw *Writer) RefreshContent(s string) {

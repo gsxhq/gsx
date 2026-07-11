@@ -120,7 +120,7 @@ func TestSpreadOrderAndDrop(t *testing.T) {
 		{Key: "checked", Value: true},
 		{Key: "skip me", Value: "x"}, // invalid name → dropped
 		{Key: "off", Value: false},   // false bool → omitted
-	}, nil, nil, nil, nil)
+	}, nil, nil, nil, nil, nil)
 	if got := buf.String(); got != ` data-a="1" data-b="last" checked` {
 		t.Fatalf("Spread = %q", got)
 	}
@@ -136,7 +136,7 @@ func TestSpreadAggregatesDuplicateClassStyle(t *testing.T) {
 		{Key: "class", Value: "second"},
 		{Key: "style", Value: "color: red"},
 		{Key: "style", Value: "display: block"},
-	}, nil, nil, nil, nil)
+	}, nil, nil, nil, nil, nil)
 	if got := buf.String(); got != ` data-a="1" data-b="2" class="first second" style="color: red; display: block"` {
 		t.Fatalf("Spread = %q", got)
 	}
@@ -156,7 +156,7 @@ func TestSpreadSecurityDropsInvalidNames(t *testing.T) {
 	// Empty key is also invalid; check separately since strings.Contains("", "") is always true.
 	emptyKeyBag := Attrs{{Key: "", Value: "evil"}}
 	var emptyBuf bytes.Buffer
-	W(&emptyBuf).Spread(context.Background(), emptyKeyBag, nil, nil, nil, nil)
+	W(&emptyBuf).Spread(context.Background(), emptyKeyBag, nil, nil, nil, nil, nil)
 	if emptyBuf.Len() != 0 {
 		t.Errorf("Spread with empty key should emit nothing, got: %q", emptyBuf.String())
 	}
@@ -178,7 +178,7 @@ func TestSpreadSecurityDropsInvalidNames(t *testing.T) {
 
 	var buf bytes.Buffer
 	gw := W(&buf)
-	gw.Spread(context.Background(), bag, nil, nil, nil, nil)
+	gw.Spread(context.Background(), bag, nil, nil, nil, nil, nil)
 	out := buf.String()
 
 	for _, k := range unsafe {
@@ -353,7 +353,7 @@ func TestSpread(t *testing.T) {
 		{Key: "action", Value: RawURL("app://vouch")},     // RawURL through nav sink → verbatim
 		{Key: "checked", Value: true},                     // bool → BoolAttr
 		{Key: "bad key", Value: "x"},                      // invalid name → dropped
-	}, navNames, imageNames, prefixes, excluded)
+	}, navNames, imageNames, nil, prefixes, excluded)
 	got := buf.String()
 	// Security: neither the case-variant HREF nor the prefix key smuggles a scheme.
 	if strings.Contains(got, "javascript:") {
@@ -382,7 +382,7 @@ func TestSpreadImageBeatsNav(t *testing.T) {
 	gw := W(&buf)
 	gw.Spread(context.Background(), Attrs{
 		{Key: "src", Value: "data:image/gif;base64,R0lGOD"},
-	}, []string{"src"}, []string{"src"}, nil, nil)
+	}, []string{"src"}, []string{"src"}, nil, nil, nil)
 	if want := ` src="data:image/gif;base64,R0lGOD"`; buf.String() != want {
 		t.Fatalf("Spread image-beats-nav = %q want %q", buf.String(), want)
 	}
@@ -396,7 +396,7 @@ func TestSpreadNavRejectsDataImage(t *testing.T) {
 	gw := W(&buf)
 	gw.Spread(context.Background(), Attrs{
 		{Key: "href", Value: "data:image/png;base64,AAAA"},
-	}, []string{"href"}, nil, nil, nil)
+	}, []string{"href"}, nil, nil, nil, nil)
 	if got := buf.String(); got != ` href="about:invalid#gsx"` {
 		t.Fatalf("Spread nav must reject data:image = %q", got)
 	}
@@ -411,7 +411,7 @@ func TestSpreadExcludedCaseInsensitive(t *testing.T) {
 	gw.Spread(context.Background(), Attrs{
 		{Key: "HREF", Value: "javascript:alert(1)"}, // force-owned via excluded → skipped entirely
 		{Key: "data-keep", Value: "ok"},
-	}, []string{"href"}, nil, nil, []string{"href"})
+	}, []string{"href"}, nil, nil, nil, []string{"href"})
 	got := buf.String()
 	if strings.Contains(got, "HREF") || strings.Contains(got, "javascript:") {
 		t.Fatalf("Spread wrote a force-owned case-variant key: %q", got)
@@ -433,11 +433,19 @@ func TestSpreadAggregatesClassStyle(t *testing.T) {
 		{Key: "class", Value: "b"},
 		{Key: "style", Value: "color:red"},
 		{Key: "style", Value: "margin:0"},
-	}, nil, nil, nil, nil)
+	}, nil, nil, nil, nil, nil)
 	if got, want := buf.String(), ` class="a b" style="color:red; margin:0"`; got != want {
 		t.Fatalf("Spread class/style aggregation = %q, want %q", got, want)
 	}
 	if got := buf.String(); !strings.Contains(got, `class="a b"`) {
 		t.Fatalf("Spread did not aggregate class: %q", got)
+	}
+}
+
+// TestToStrBytes pins that toStr renders []byte as text (matching
+// anyRenderString in writer.go), not fmt.Sprint's decimal-array form.
+func TestToStrBytes(t *testing.T) {
+	if got := toStr([]byte("hi")); got != "hi" {
+		t.Errorf("toStr([]byte) = %q, want %q", got, "hi")
 	}
 }
