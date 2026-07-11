@@ -50,7 +50,7 @@ func C(_gsxp CProps) _gsxrt.Node {
 		_gsxgw.Class(_gsxcm.Keep, _gsxrt.Class("btn"), _gsxrt.Class(attrs.Class()))
 		_gsxgw.S("\"")
 		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, nil, []string{"class", "style"})
+		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "imagesrcset", "manifest", "ping", "poster", "src", "srcset", "xlink:href"}, []string{"background"}, nil, []string{"class", "style"})
 		_gsxgw.S(">")
 //line input.gsx:3:51
 		_gsxgw.Node(ctx, children)
