@@ -2341,8 +2341,10 @@ func emitCSSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.T
 			return false
 		}
 		tmp := hoistTuple(b, expr, interpTemp)
-		return emitRenderCSS(b, tmp, elemT, n, bag)
+		expr, t = applyRenderer(b, tmp, elemT, table, imports, interpTemp, "return _gsxerr")
+		return emitRenderCSS(b, expr, t, n, bag)
 	}
+	expr, t = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
 	return emitRenderCSS(b, expr, t, n, bag)
 }
 
@@ -2422,8 +2424,10 @@ func emitJSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Ty
 			return false
 		}
 		tmp := hoistTuple(b, expr, interpTemp)
-		return emitJSValue(b, n.JSCtx, tmp, elemT, n, bag)
+		expr, t = applyRenderer(b, tmp, elemT, table, imports, interpTemp, "return _gsxerr")
+		return emitJSValue(b, n.JSCtx, expr, t, n, bag)
 	}
+	expr, t = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
 	return emitJSValue(b, n.JSCtx, expr, t, n, bag)
 }
 
