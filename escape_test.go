@@ -194,6 +194,32 @@ func TestURLSanitizeImage(t *testing.T) {
 	}
 }
 
+func TestSrcsetSanitize(t *testing.T) {
+	tests := []struct{ name, in, want string }{
+		{"single relative", "a.jpg", "a.jpg"},
+		{"single with descriptor", "a.jpg 2x", "a.jpg 2x"},
+		{"multi candidate", "a.jpg 1x, b.jpg 2x", "a.jpg 1x, b.jpg 2x"},
+		{"width descriptors", "s-320.jpg 320w, s-640.jpg 640w", "s-320.jpg 320w, s-640.jpg 640w"},
+		{"fractional density kept", "a.jpg 1.5x", "a.jpg 1.5x"},
+		{"leading/trailing space kept", " a.jpg 1x , b.jpg 2x ", " a.jpg 1x , b.jpg 2x "},
+		{"javascript candidate blocked", "javascript:alert(1) 1x", "about:invalid#gsx"},
+		{"one bad candidate blocks only itself", "ok.jpg 1x, javascript:alert(1) 2x", "ok.jpg 1x, about:invalid#gsx"},
+		{"data image intact", "data:image/png;base64,iVBOR 1x", "data:image/png;base64,iVBOR 1x"},
+		{"data image intact multi", "data:image/png;base64,iVBOR 1x, x.jpg 2x", "data:image/png;base64,iVBOR 1x, x.jpg 2x"},
+		{"data non-image one clean block", "data:text/html,<script> 1x", "about:invalid#gsx"},
+		{"no-space commas single misparse", "a.jpg,b.jpg", "a.jpg,b.jpg"},
+		{"http passes", "http://x/a.jpg 1x", "http://x/a.jpg 1x"},
+		{"empty", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := srcsetSanitize(tt.in); got != tt.want {
+				t.Errorf("srcsetSanitize(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCSSValueFilter(t *testing.T) {
 	tests := []struct{ css, want string }{
 		{"", ""},
