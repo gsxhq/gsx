@@ -110,10 +110,15 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 	// case opened its own Module, and every Module re-ran packages.Load over the
 	// gsx runtime: 27 cases cost 10.7s of the corpus's 13.2s.
 	var allDirs, loadPkgs []string
+	var renderers []codegen.RendererAlias
 	perDir := map[string]codegen.DirOptions{}
 	seenPkg := map[string]bool{}
 	for _, cs := range states {
 		allDirs = append(allDirs, cs.pkgDirs...)
+		// Renderers are module-wide (no PerDir override — see codegenDirs), so
+		// every candidate case's registrations fold into the ONE shared list
+		// regardless of whether it also needs a DirOptions entry below.
+		renderers = append(renderers, cs.c.renderers...)
 		if cs.c.classMerger == nil && len(cs.c.filterPkgs) == 0 && cs.c.classifier == nil {
 			continue
 		}
@@ -143,7 +148,7 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 			}
 		}
 	}
-	pkgResults, err := codegenDirs(tmp, allDirs, loadPkgs, perDir)
+	pkgResults, err := codegenDirs(tmp, allDirs, loadPkgs, perDir, renderers)
 	if err != nil {
 		return nil, fmt.Errorf("batchCodegen: codegenDirs: %w", err)
 	}

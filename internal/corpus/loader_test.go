@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/gsxhq/gsx/internal/codegen"
 )
 
 func TestLoadCaseSinglePackage(t *testing.T) {
@@ -79,6 +81,66 @@ component C() { <p>hi</p> }
 	}
 	if _, hasToml := c.files["gsx.toml"]; hasToml {
 		t.Fatal("gsx.toml must not be written to disk")
+	}
+}
+
+// TestLoadCaseRenderers pins the [renderers] resolution rules: "./"-prefixed
+// package parts resolve against caseImportRoot on BOTH the key's package part
+// (respecting an optional "*" pointer prefix) and the value's package part,
+// absolute import paths pass through untouched, and the resulting list is
+// sorted by TypeKey (TOML map iteration order is random).
+func TestLoadCaseRenderers(t *testing.T) {
+	dir := t.TempDir()
+	src := `-- gsx.toml --
+[renderers]
+"./model.User" = "./render.RenderUser"
+"*./model.Card" = "./render.RenderCardPtr"
+"example.com/ext.Thing" = "example.com/ext.RenderThing"
+-- model/model.go --
+package model
+-- render/render.go --
+package render
+-- input.gsx --
+package views
+
+component C() { <p>hi</p> }
+`
+	path := filepath.Join(dir, "testdata", "cases", "renderers", "rl.txtar")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := loadCase(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := "corpustest/cases/renderers_rl"
+	want := []codegen.RendererAlias{
+		{TypeKey: "*" + root + "/model.Card", PkgPath: root + "/render", FuncName: "RenderCardPtr"},
+		{TypeKey: root + "/model.User", PkgPath: root + "/render", FuncName: "RenderUser"},
+		{TypeKey: "example.com/ext.Thing", PkgPath: "example.com/ext", FuncName: "RenderThing"},
+	}
+	if !slices.Equal(c.renderers, want) {
+		t.Fatalf("renderers = %v, want %v", c.renderers, want)
+	}
+}
+
+// TestLoadCaseRenderersBadEntry: an entry side with no package-qualified name
+// must be a load error (never a silently dropped registration).
+func TestLoadCaseRenderersBadEntry(t *testing.T) {
+	dir := t.TempDir()
+	src := "-- gsx.toml --\n[renderers]\n\"NoDotAtAll\" = \"./render.RenderUser\"\n-- input.gsx --\npackage views\n\ncomponent C() { <p>hi</p> }\n"
+	path := filepath.Join(dir, "testdata", "cases", "renderers", "bad.txtar")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadCase(path); err == nil {
+		t.Fatal("expected an error for a renderer key with no package-qualified name")
 	}
 }
 

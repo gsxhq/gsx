@@ -125,6 +125,7 @@ func generateModule(g moduleGroup, filterPkgs []string, aliases []codegen.Filter
 		ModulePath:   modPath,
 		FilterPkgs:   filterPkgs,
 		Aliases:      aliases,
+		Renderers:    renderers,
 		Classifier:   cls,
 		FieldMatcher: fm,
 		CSSMin:       cssMin,

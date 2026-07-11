@@ -9,7 +9,7 @@ import (
 // TestWarmRegenDoesNoGoListReloads is a performance regression guard. The two
 // expensive, non-incremental costs in analyze() are go-list / packages.Load
 // calls: the external importer (externalImporter) and the filter table
-// (cachedFilterTable). Each is ~150ms; they depend only on Module-immutable
+// (cachedFuncTables). Each is ~150ms; they depend only on Module-immutable
 // inputs, so they MUST be loaded once and reused across every warm regen. If a
 // future change reintroduces a per-edit go-list, a `gsx generate --watch` cycle
 // (or an LSP keystroke) regresses from ~10ms back to hundreds of ms.

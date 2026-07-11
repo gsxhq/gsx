@@ -191,7 +191,7 @@ func TestComponentFuncNameColumnAnchorSkeleton(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadFilterTable: %v", err)
 	}
-	skel, _, _, _, _, _, err := buildSkeleton(file, table, propFields, nodeProps, attrsProps, nil, nil, byo, nil, fset, nil, nil, nil, nil)
+	skel, _, _, _, _, _, err := buildSkeleton(file, funcTables{filters: table}, propFields, nodeProps, attrsProps, nil, nil, byo, nil, fset, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("buildSkeleton: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestComponentFuncLineAnchorSkeleton(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadFilterTable: %v", err)
 	}
-	skel, _, _, _, _, _, err := buildSkeleton(file, table, propFields, nodeProps, attrsProps, nil, nil, byo, nil, fset, nil, nil, nil, nil)
+	skel, _, _, _, _, _, err := buildSkeleton(file, funcTables{filters: table}, propFields, nodeProps, attrsProps, nil, nil, byo, nil, fset, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("buildSkeleton: %v", err)
 	}

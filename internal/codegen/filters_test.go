@@ -201,10 +201,10 @@ func CtxFallible(ctx context.Context, s string) (int, error) { return 0, nil }
 }
 
 func TestLowerPipeMidStageErr(t *testing.T) {
-	table := filterTable{
+	table := funcTables{filters: filterTable{
 		"parse": {funcName: "Parse", alias: "_gsxf0", pkgPath: "m/f", hasErr: true},
 		"join":  {funcName: "Join", alias: "_gsxstd", pkgPath: "github.com/gsxhq/gsx/std"},
-	}
+	}}
 	stages := []ast.PipeStage{{Name: "parse"}, {Name: "join", HasArgs: true, Args: `" "`}}
 
 	// probe-style wrap

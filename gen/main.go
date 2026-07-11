@@ -40,9 +40,10 @@ type config struct {
 	// renderers is the ordered [renderers]/WithRenderer registration list: the
 	// file layer's registrations come first, option-layer ones appended after
 	// (last-wins per TypeKey at harvest, matching aliases' convention). It is
-	// carried on the config and folded into computeKey (see cachekey.go); the
-	// codegen.Options wiring that actually applies renderers at render
-	// boundaries lands separately.
+	// carried on the config, folded into computeKey (see cachekey.go), and
+	// threaded into codegen.Options.Renderers (generateModule's genOpts,
+	// gen/cache.go); actually CONSULTING the harvested renderers at a render
+	// boundary lands separately.
 	renderers      []codegen.RendererAlias
 	cssMin         func(string) (string, error)
 	jsMin          func(string) (string, error)
@@ -352,9 +353,11 @@ func runClean(args []string, stdout, stderr io.Writer) int {
 // discovery fails → exit 2) from a codegen error (one or more error-severity
 // diagnostics → exit 1). Success returns 0.
 // noCache bypasses the content-hash cache and forces a full regeneration.
-// renderers is threaded through ONLY as far as the cache key (computeKey, via
-// generateCached): applying renderers at render boundaries is codegen's job
-// and is wired separately.
+// renderers flows into both the cache key (computeKey, via generateCached) and
+// codegen.Options.Renderers (generateModule's genOpts, gen/cache.go): a
+// registered renderer's package now joins the module's ONE packages.Load and
+// its rendererTable is harvested, but nothing yet CONSULTS that table at a
+// render boundary — that consumer lands in a later slice.
 func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef, workDir string) int {
 	gfs := flag.NewFlagSet("generate", flag.ContinueOnError)
 	gfs.SetOutput(stderr)

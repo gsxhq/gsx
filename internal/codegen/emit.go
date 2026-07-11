@@ -36,7 +36,7 @@ import (
 // spec is rewritten to a blank `_` import — the emitted file compiles, and
 // the import's init side effects are preserved. Position keying means a
 // same-path sibling spec on another line is never touched.
-func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, merger *ClassMergerRef, sunkImports map[sunkImportKey]bool) ([]byte, bool) {
+func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, merger *ClassMergerRef, sunkImports map[sunkImportKey]bool) ([]byte, bool) {
 	if cls == nil {
 		cls = attrclass.Builtin()
 	}
@@ -113,17 +113,24 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 	// inferred type argument's package name can never begin with `_gsx` — so
 	// nothing is pre-bound here.
 	boundNames := map[string]string{}
-	// Build the path→reserved-alias map for the FILTER packages, harvested from
-	// the table (every entry records its owning package's alias + path) — computed
-	// up front (table doesn't depend on the components below) so boundNames can be
-	// seeded with the reserved alias family before any component generates. A path
-	// in `imports` that is a filter package is emitted under its reserved alias;
-	// std keeps _gsxstd so std-only output is byte-identical to before. The class
+	// Build the path→reserved-alias map for the FILTER and RENDERER packages,
+	// harvested from the table (every entry in EITHER map records its owning
+	// package's alias + path) — computed up front (table doesn't depend on the
+	// components below) so boundNames can be seeded with the reserved alias
+	// family before any component generates. A path in `imports` that is a
+	// filter or renderer package is emitted under its reserved alias; std
+	// keeps _gsxstd so std-only output is byte-identical to before. The class
 	// merger's reserved alias is ALWAYS reserved here (whether or not the merger
 	// ends up used — see below), so an inferred type argument can never collide
-	// with it either.
+	// with it either. Renderer packages join filterAlias/boundNames here (not
+	// just aliasForPath) so a renderer-only package that a later render-boundary
+	// task references can be import-emitted the same way a filter package is.
 	filterAlias := map[string]string{}
-	for _, e := range table {
+	for _, e := range table.filters {
+		filterAlias[e.pkgPath] = e.alias
+		boundNames[e.alias] = e.pkgPath
+	}
+	for _, e := range table.renderers {
 		filterAlias[e.pkgPath] = e.alias
 		boundNames[e.alias] = e.pkgPath
 	}
@@ -525,7 +532,7 @@ func writeImports(b *bytes.Buffer, imports map[string]bool, rt rtImports, aliase
 	b.WriteString(")\n\n")
 }
 
-func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
 	params, err := parseParams(c.Params)
 	if err != nil {
 		bag.Errorf(c.Pos(), c.End(), "invalid-syntax", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
@@ -696,7 +703,7 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 // then the trailing `return _gsxgw.Err()`. Shared by genComponent's two render
 // closures (byo and generated) and emitNodeValue's element/fragment-value
 // lowering so there is exactly one place that assembles this scaffolding.
-func emitNodeFuncBody(b *bytes.Buffer, nodes []ast.Markup, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+func emitNodeFuncBody(b *bytes.Buffer, nodes []ast.Markup, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
 	fmt.Fprintf(b, "\t\t_gsxgw := %s.W(_gsxw)\n", rt.rt())
 	emitNumScratch(b, nodes, resolved, cls)
 	for _, m := range nodes {
@@ -740,7 +747,7 @@ func emitNodeFuncBody(b *bytes.Buffer, nodes []ast.Markup, currentPkg *types.Pac
 // component body's child elements use — so there is exactly one path from
 // markup to emission code; this function only supplies the closure
 // scaffolding around it.
-func emitNodeValue(b *bytes.Buffer, nodes []ast.Markup, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+func emitNodeValue(b *bytes.Buffer, nodes []ast.Markup, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
 	fmt.Fprintf(b, "%s.Func(func(ctx %s.Context, _gsxw %s.Writer) error {\n", rt.rt(), rt.ctx(), rt.io())
 	if !emitNodeFuncBody(b, nodes, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, "", "", cls, fm, bag, mergeExpr) {
 		return false
@@ -751,7 +758,7 @@ func emitNodeValue(b *bytes.Buffer, nodes []ast.Markup, currentPkg *types.Packag
 
 // emitElementValue lowers a gsx element embedded directly in Go-expression
 // position (one *ast.Element Part of a GoWithElements) via emitNodeValue.
-func emitElementValue(b *bytes.Buffer, el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+func emitElementValue(b *bytes.Buffer, el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
 	return emitNodeValue(b, []ast.Markup{el}, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, cls, fm, bag, mergeExpr)
 }
 
@@ -760,7 +767,7 @@ func emitElementValue(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packag
 // Empty `<></>` → fr.Children is empty → emitNodeFuncBody writes nothing →
 // the closure is the uniform no-op gsx.Func (renders nothing) — see
 // emitNodeValue's doc comment.
-func emitFragmentValue(b *bytes.Buffer, fr *ast.Fragment, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+func emitFragmentValue(b *bytes.Buffer, fr *ast.Fragment, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
 	return emitNodeValue(b, fr.Children, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, cls, fm, bag, mergeExpr)
 }
 
@@ -783,7 +790,7 @@ func emitFragmentValue(b *bytes.Buffer, fr *ast.Fragment, currentPkg *types.Pack
 // (ClassMerged / StyleMerged), emitted once at the spread position. The author's
 // `{ attrs... }` SpreadAttr itself (when present at splitIdx) is consumed here, not
 // emitted via emitAttr.
-func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, rt rtImports, interpTemp *int, cls *attrclass.Classifier, tag string, bag *diag.Bag, mergeExpr, bagExpr string, nonce *nonceInjection) bool {
+func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, cls *attrclass.Classifier, tag string, bag *diag.Bag, mergeExpr, bagExpr string, nonce *nonceInjection) bool {
 	// Find a composed/static class attr to merge the bag's class into, and a
 	// composed/static style attr whose declarations the bag's style merges over.
 	var classAttr *ast.ClassAttr     // composed class={ … }
@@ -1294,7 +1301,7 @@ func emitPostCondSelector(b *bytes.Buffer, n *condSelNode, dropVar string) {
 // root attrs before the spread are caller-overridable, attrs after are forced
 // (root wins). splitIdx is the bag SpreadAttr's index in el.Attrs (guaranteed
 // unique by the caller).
-func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
 	// The bag expression: the bare `attrs` local is used directly; a DERIVED bag
 	// (`attrs.Without(…)`, `attrs.Merge(…)`, a pipeline) is evaluated exactly
 	// once into a hoisted temp so the caller-wins guards (.Has), the class/style
@@ -1375,7 +1382,7 @@ func bagSpreadIndex(attrs []ast.Attr) (idx int, found bool, second *ast.SpreadAt
 // class: ` class="` + gw.Class(<existing parts…>, gsx.Class(attrs.Class()))
 // + `"`. Mirrors emitClassAttr's part lowering, appending the bag class as a
 // final unconditional part so it merges/dedupes through the merge func.
-func emitRootComposedClass(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, mergeExpr, bagExpr string, resolved map[ast.Node]types.Type) bool {
+func emitRootComposedClass(b *bytes.Buffer, a *ast.ClassAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, mergeExpr, bagExpr string, resolved map[ast.Node]types.Type) bool {
 	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, false)
 	if !ok {
 		return false
@@ -1403,7 +1410,7 @@ func emitRootStaticClass(b *bytes.Buffer, a *ast.StaticAttr, rt rtImports, merge
 // value is one gsx.Class(...) part alongside the bag's, so a single-source
 // literal (no bag class) still passes through DefaultClassMerge's
 // len(classes)==1 verbatim shortcut, matching the static-class case exactly.
-func emitRootEmbeddedClass(b *bytes.Buffer, a *ast.EmbeddedAttr, mergeExpr, bagExpr string, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) bool {
+func emitRootEmbeddedClass(b *bytes.Buffer, a *ast.EmbeddedAttr, mergeExpr, bagExpr string, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) bool {
 	val, ok := embeddedTextValueExpr(b, a, resolved, table, imports, rt, interpTemp, bag)
 	if !ok {
 		return false
@@ -1576,7 +1583,7 @@ func (ni *nonceInjection) emitGuard(b *bytes.Buffer) {
 // b and interpTemp are needed when any part is a value-form CF (if/switch): the
 // hoisted var+switch statements are written to b before the StyleMerged call.
 // resolved maps each *ast.ValueArm to its harvest type for (T, error) unwrap.
-func rootStyleString(b *bytes.Buffer, styleAttr *ast.ClassAttr, staticStyle *ast.StaticAttr, table filterTable, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type) (string, []string, bool) {
+func rootStyleString(b *bytes.Buffer, styleAttr *ast.ClassAttr, staticStyle *ast.StaticAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type) (string, []string, bool) {
 	switch {
 	case staticStyle != nil:
 		return strconv.Quote(staticStyle.Value), nil, true
@@ -1595,7 +1602,7 @@ func rootStyleString(b *bytes.Buffer, styleAttr *ast.ClassAttr, staticStyle *ast
 // component's receiver var + type name (empty for a function component); they
 // thread down to genChildComponent for the method-vs-package disambiguation of a
 // dotted child-component tag.
-func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
 	switch t := n.(type) {
 	case *ast.Text:
 		emitS(b, t.Value)
@@ -1773,7 +1780,7 @@ type interpEmitCtx struct {
 // emitFragmentValue) between the verbatim GoText runs, then rendered by the
 // interp's resolved type exactly as any other value — so `{ wrap(<b/>) }`
 // lowers to `wrap(gsx.Func(func(ctx, w){…}))` rendered as wrap's return type.
-func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, rt rtImports, interpTemp *int, fset *token.FileSet, bag *diag.Bag, ec interpEmitCtx) bool {
+func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, fset *token.FileSet, bag *diag.Bag, ec interpEmitCtx) bool {
 	emitLine(b, fset, n.Pos())
 	var expr string
 	if n.Embedded != nil {
@@ -1877,7 +1884,7 @@ func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type,
 // call analyze.go's probe used to populate resolved[n], so the emitted type
 // matches exactly (emit ≡ probe). The result is then rendered for Text context
 // via emitRender, unwrapping a trailing (T, error) tuple exactly like genInterp.
-func emitEmbeddedInterp(b *bytes.Buffer, n *ast.EmbeddedInterp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, rt rtImports, interpTemp *int, fset *token.FileSet, bag *diag.Bag, ec interpEmitCtx) bool {
+func emitEmbeddedInterp(b *bytes.Buffer, n *ast.EmbeddedInterp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, fset *token.FileSet, bag *diag.Bag, ec interpEmitCtx) bool {
 	if len(n.Stages) == 0 {
 		emitLine(b, fset, n.Pos())
 		for _, seg := range n.Segments {
@@ -1979,7 +1986,7 @@ func probePipeWrap(call string) string { return "_gsxunwrap(" + call + ")" }
 // each arm value with styleDeclExpr (CSS-value filtering for dynamic arms).
 // resolved maps each *ast.ValueArm to its harvest type; when an arm's type is
 // a (T, error) tuple, armExpr calls hoistTuple to emit the unwrap inline.
-func hoistValueCF(b *bytes.Buffer, cf *ast.ValueCF, table filterTable, imports map[string]bool, rt rtImports, interpTemp *int, style bool, bag *diag.Bag, resolved map[ast.Node]types.Type) (string, bool) {
+func hoistValueCF(b *bytes.Buffer, cf *ast.ValueCF, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, style bool, bag *diag.Bag, resolved map[ast.Node]types.Type) (string, bool) {
 	tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
 	*interpTemp++
 	fmt.Fprintf(b, "\t\tvar %s string\n", tmp)
@@ -2284,7 +2291,7 @@ func emitS(b *bytes.Buffer, s string) {
 // genStyleChild emits one child of a <style> element. Text is raw CSS (verbatim);
 // an Interp is rendered in CSS context (auto-sanitized). <style> bodies contain
 // only Text and @{ } interps (parser guarantee).
-func genStyleChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
+func genStyleChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
 	switch t := n.(type) {
 	case *ast.Text:
 		emitS(b, t.Value)
@@ -2298,7 +2305,7 @@ func genStyleChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Ty
 }
 
 // emitCSSInterp renders a <style> interpolation value in CSS block context.
-func emitCSSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
+func emitCSSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
 		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, emitPipeWrap(b, interpTemp))
@@ -2362,7 +2369,7 @@ func emitRenderCSS(b *bytes.Buffer, expr string, t types.Type, n ast.Node, bag *
 // (verbatim); an Interp is rendered through the JS escaper selected by its
 // JSCtx (set by internal/jsx). Comment-context holes were already un-split to
 // Text by jsx.ResolveScripts, so they arrive here as Text.
-func genScriptChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
+func genScriptChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
 	switch t := n.(type) {
 	case *ast.Text:
 		emitS(b, t.Value)
@@ -2378,7 +2385,7 @@ func genScriptChild(b *bytes.Buffer, n ast.Markup, resolved map[ast.Node]types.T
 // emitJSInterp renders a <script> interpolation value through the runtime JS
 // escaper chosen by its JSCtx. It mirrors emitCSSInterp's pipeline-stage handling
 // and (T, error) tuple auto-unwrap.
-func emitJSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
+func emitJSInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
 		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, emitPipeWrap(b, interpTemp))
@@ -2456,7 +2463,7 @@ func emitJSString(b *bytes.Buffer, method, expr string, t types.Type, n ast.Node
 // the bag with code "unresolved-pipeline" and ok=false. b and interpTemp hoist a
 // mid-stage (R, error) filter via emitPipeWrap (all callers are emit-only element
 // contexts; no probe variant of this path exists).
-func spreadAttrExpr(a *ast.SpreadAttr, table filterTable, imports map[string]bool, b *bytes.Buffer, interpTemp *int, bag *diag.Bag) (string, bool) {
+func spreadAttrExpr(a *ast.SpreadAttr, table funcTables, imports map[string]bool, b *bytes.Buffer, interpTemp *int, bag *diag.Bag) (string, bool) {
 	expr := strings.TrimSpace(a.Expr)
 	if len(a.Stages) == 0 {
 		return expr, true
@@ -2475,7 +2482,7 @@ func spreadAttrExpr(a *ast.SpreadAttr, table filterTable, imports map[string]boo
 // emitAttr emits one element attribute. Static values are escaped at codegen and
 // always double-quoted; bool attrs use gw.BoolAttr. Expr attrs are handled in a
 // later task; the deferred attr kinds error clearly.
-func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, rt rtImports, interpTemp *int, cls *attrclass.Classifier, tag string, bag *diag.Bag, mergeExpr string, nonce *nonceInjection) bool {
+func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, cls *attrclass.Classifier, tag string, bag *diag.Bag, mergeExpr string, nonce *nonceInjection) bool {
 	switch t := a.(type) {
 	case *ast.StaticAttr:
 		fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+t.Name+`="`+htmlAttrEscape(t.Value)+`"`))
@@ -2616,7 +2623,7 @@ func embeddedStaticText(a *ast.EmbeddedAttr) (string, bool) {
 	return sb.String(), true
 }
 
-func emitEmbeddedJSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
+func emitEmbeddedJSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
 	for _, seg := range a.Segments {
 		switch s := seg.(type) {
@@ -2721,7 +2728,7 @@ func firstSegIsDataURL(segs []ast.Markup) bool {
 // Non-URL attributes keep the per-segment path (Text -> S(htmlAttrEscape),
 // Interp -> emitTextAttrInterp) when Stages is empty; with Stages, the piped
 // result renders via emitAttrValue (string -> AttrValue(string(x)), etc.).
-func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, rt rtImports, interpTemp *int, cls *attrclass.Classifier, tag string, bag *diag.Bag) bool {
+func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, cls *attrclass.Classifier, tag string, bag *diag.Bag) bool {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
 	isURL := cls.Context(a.Name) == attrclass.CtxURL
 	// A literal that OPENS with data: on a strict sink is author error
@@ -2815,7 +2822,7 @@ func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast
 // (URL) or bypass the merge machinery's raw-string contract (class/style,
 // which operates on unescaped tokens/declarations before its one final
 // escape).
-func embeddedTextValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) (string, bool) {
+func embeddedTextValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) (string, bool) {
 	return embeddedValueExpr(b, a.Segments, resolved, table, imports, rt, interpTemp, bag, "unsupported-attr", fmt.Sprintf("attribute %q value", a.Name))
 }
 
@@ -2825,7 +2832,7 @@ func embeddedTextValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[as
 // without an *ast.EmbeddedAttr wrapper. errCode/errDesc position and word the
 // "unsupported segment" diagnostic for the caller's context (attribute vs. body
 // literal).
-func embeddedValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errCode, errDesc string) (string, bool) {
+func embeddedValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errCode, errDesc string) (string, bool) {
 	parts := make([]string, 0, len(segs))
 	for _, seg := range segs {
 		switch s := seg.(type) {
@@ -2863,7 +2870,7 @@ func embeddedValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node
 // call: string/[]byte -> string(x), int/uint/float -> strconv.Format*,
 // Stringer -> (x).String(). Any other type (bool, catAnyMixed, unresolved)
 // cannot safely carry a URL fragment and is rejected with a diagnostic.
-func holeStringExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) (string, bool) {
+func holeStringExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) (string, bool) {
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
 		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, emitPipeWrap(b, interpTemp))
@@ -2928,7 +2935,7 @@ func stringifyExpr(expr string, t types.Type, rt rtImports, n ast.Node, bag *dia
 // is literal CSS with @{ } holes. Static CSS text is HTML-attr-escaped at
 // codegen; each hole is CSS-value-filtered with gsx.StyleValue and then
 // HTML-attr-escaped.
-func emitEmbeddedCSSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) bool {
+func emitEmbeddedCSSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) bool {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
 	for _, seg := range a.Segments {
 		switch s := seg.(type) {
@@ -2951,7 +2958,7 @@ func emitEmbeddedCSSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.
 // through the runtime *Attr escaper chosen by its JSCtx. It mirrors emitJSInterp's
 // pipeline-stage handling and (T, error) tuple auto-unwrap, but routes to the
 // JS*Attr methods (which additionally HTML-attr-escape).
-func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
+func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
 		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, emitPipeWrap(b, interpTemp))
@@ -2985,7 +2992,7 @@ func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]type
 // (the else branch of emitEmbeddedTextAttr). Mirrors emitJSAttrInterp's
 // pipeline + (T,error) auto-unwrap, then routes through the type-aware
 // emitAttrValue (string→AttrValue, numbers→strconv, Stringer→.String()).
-func emitTextAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
+func emitTextAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
 		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, emitPipeWrap(b, interpTemp))
@@ -3019,7 +3026,7 @@ func emitTextAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]ty
 // It mirrors emitCSSInterp's pipeline-stage handling and (T, error) tuple
 // auto-unwrap, but routes through gsx.StyleValue followed by AttrValue because
 // the result is inside a quoted HTML attribute.
-func emitCSSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) bool {
+func emitCSSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) bool {
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
 		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, emitPipeWrap(b, interpTemp))
@@ -3108,7 +3115,7 @@ func emitJSAttrValue(b *bytes.Buffer, ctx ast.JSCtx, expr string, t types.Type, 
 // never piped, so callers lower only the part's Expr/Stages, not its Cond. b and
 // interpTemp hoist a mid-stage (R, error) filter via emitPipeWrap (the element
 // class/style path is emit-only; the probe path harvests via probeExpr instead).
-func classPartExpr(p ast.ClassPart, a *ast.ClassAttr, table filterTable, imports map[string]bool, b *bytes.Buffer, interpTemp *int, bag *diag.Bag) (string, bool) {
+func classPartExpr(p ast.ClassPart, a *ast.ClassAttr, table funcTables, imports map[string]bool, b *bytes.Buffer, interpTemp *int, bag *diag.Bag) (string, bool) {
 	lowered, usedPkgs, err := lowerClassPartSeed(p, table, emitPipeWrap(b, interpTemp))
 	if err != nil {
 		bag.Errorf(a.Pos(), a.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
@@ -3132,7 +3139,7 @@ func classPartExpr(p ast.ClassPart, a *ast.ClassAttr, table filterTable, imports
 // probePipeWrap in skeleton mode, or thunkPipeWrap inside a cond-attr branch
 // thunk — always non-nil (the buffer each hoisting wrap closes over is the
 // caller's; see classEntryExpr's doc).
-func lowerClassPartSeed(p ast.ClassPart, table filterTable, wrap func(string) string) (string, map[string]string, error) {
+func lowerClassPartSeed(p ast.ClassPart, table funcTables, wrap func(string) string) (string, map[string]string, error) {
 	if len(p.Stages) == 0 {
 		return strings.TrimSpace(p.Expr), nil, nil
 	}
@@ -3144,7 +3151,7 @@ func lowerClassPartSeed(p ast.ClassPart, table filterTable, wrap func(string) st
 // gsx.ClassIf for a conditional one), and the closing `"`. gw.Class runs the
 // tokens through the passed merge func and writes the attr-escaped value.
 // resolved maps each *ast.ValueArm to its harvest type for (T, error) unwrap.
-func emitClassAttr(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, mergeExpr string, resolved map[ast.Node]types.Type) bool {
+func emitClassAttr(b *bytes.Buffer, a *ast.ClassAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, mergeExpr string, resolved map[ast.Node]types.Type) bool {
 	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, false)
 	if !ok {
 		return false
@@ -3161,7 +3168,7 @@ func emitClassAttr(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports
 // untrusted data cannot inject declarations or break out. gw.Style joins the
 // included parts with "; " and attr-escapes the result.
 // resolved maps each *ast.ValueArm to its harvest type for (T, error) unwrap.
-func emitStyleAttr(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type) bool {
+func emitStyleAttr(b *bytes.Buffer, a *ast.ClassAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type) bool {
 	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, true)
 	if !ok {
 		return false
@@ -3185,7 +3192,7 @@ func composedPartsOrdered(a *ast.ClassAttr, resolved map[ast.Node]types.Type) bo
 	return false
 }
 
-func composedParts(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type, style bool) ([]string, bool) {
+func composedParts(b *bytes.Buffer, a *ast.ClassAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type, style bool) ([]string, bool) {
 	parts := make([]string, 0, len(a.Parts))
 	ordered := composedPartsOrdered(a, resolved)
 	for i := range a.Parts {
@@ -3261,7 +3268,7 @@ func composedParts(b *bytes.Buffer, a *ast.ClassAttr, table filterTable, imports
 	return parts, true
 }
 
-func cssLiteralStylePartExpr(b *bytes.Buffer, segments []ast.Markup, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) (string, bool) {
+func cssLiteralStylePartExpr(b *bytes.Buffer, segments []ast.Markup, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) (string, bool) {
 	parts := make([]string, 0, len(segments))
 	for _, seg := range segments {
 		switch s := seg.(type) {
@@ -3334,7 +3341,7 @@ func htmlAttrEscape(s string) string {
 // emitExprAttr emits an expr attribute value. URL attrs keep URL sanitization;
 // all other expr attrs use ordinary attribute rendering. Explicit js`...` and
 // css`...` literals opt into JS/CSS contextual rendering instead.
-func emitExprAttr(b *bytes.Buffer, attrs []ast.Attr, a *ast.ExprAttr, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, tag string, bag *diag.Bag) bool {
+func emitExprAttr(b *bytes.Buffer, attrs []ast.Attr, a *ast.ExprAttr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, interpTemp *int, cls *attrclass.Classifier, tag string, bag *diag.Bag) bool {
 	// (1) value expression: lower a pipeline to nested std calls (same lowerPipe
 	// the probe used, so resolved[a] is already the pipeline's RESULT type), else
 	// the bare trimmed expr.
@@ -3756,7 +3763,7 @@ func childInvocation(el *ast.Element, byo *byoData, recvVar, recvTypeName string
 // recvVar/recvTypeName are the ENCLOSING component's receiver var + type name
 // (empty for a function component); they drive the method-vs-package
 // disambiguation via childInvocation.
-func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
 	// Task 4: a cross-package generic tag whose requalification failed at
 	// analyze time has NO probe anywhere in the skeleton (nothing for
 	// harvest to have populated resolved[el] from) — module_importer.go's
@@ -4127,7 +4134,7 @@ outer:
 // was already in `imports` via a filter call, a plain user import, or (this
 // case) only the inferred type argument itself; imports[path] is set here
 // too so writeImports actually emits the reserved-alias import line for it.
-func childTypeArgUse(el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, imports map[string]bool, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, bag *diag.Bag) (string, bool) {
+func childTypeArgUse(el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, bag *diag.Bag) (string, bool) {
 	if el.TypeArgs != "" {
 		return typeArgUse(el.TypeArgs), true
 	}
@@ -4382,7 +4389,7 @@ func unspeakableTypeArg(t types.Type, currentPkg *types.Package, visited map[typ
 // invalid-tuple diagnostic the normal path raises for non-(T, error) tuples
 // is deliberately not repeated here (the tag already carries its positioned
 // inference-unavailable warning).
-func genSkippedTagSink(b *bytes.Buffer, el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+func genSkippedTagSink(b *bytes.Buffer, el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
 	_, propsType, _ := childInvocation(el, byo, recvVar, recvTypeName)
 	// Route CF-hoisted class statements into a temp buffer so they land
 	// INSIDE the discarded func literal (never executed) instead of inline
@@ -4518,7 +4525,7 @@ func childPropsErrorCode(err error) string {
 // EXACTLY — same reserved idents (_gsxw/_gsxgw), gsx.W/gsx.Func, and trailing
 // Err() — so the slot streams to the same output, in THIS (parent) scope. It is
 // shared by the Children slot and every named markup slot so they cannot drift.
-func emitSlotClosure(nodes []ast.Markup, currentPkg *types.Package, resolved map[ast.Node]types.Type, table filterTable, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) (string, bool) {
+func emitSlotClosure(nodes []ast.Markup, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) (string, bool) {
 	var slot bytes.Buffer
 	fmt.Fprintf(&slot, "%s.Func(func(ctx %s.Context, _gsxw %s.Writer) error {\n", rt.rt(), rt.ctx(), rt.io())
 	fmt.Fprintf(&slot, "\t\t_gsxgw := %s.W(_gsxw)\n", rt.rt())
@@ -4604,7 +4611,7 @@ const attrsOnlyPropsKey = "attrsonly.bag"
 // hoist genChildComponent applies to a real props literal, so a pipeline stage
 // (or a matched attrs={ } value) that returns a tuple is handled identically —
 // hoisted before the call in emit mode, or rejected with a positioned *attrError.
-func attrsOnlyBagExpr(el *ast.Element, rtPkg, mergeExpr string, table filterTable, byo *byoData, fm FieldMatcher, probeWrap bool, resolved map[ast.Node]types.Type, b *bytes.Buffer, interpTemp *int) (expr string, usedPkgs map[string]string, err error) {
+func attrsOnlyBagExpr(el *ast.Element, rtPkg, mergeExpr string, table funcTables, byo *byoData, fm FieldMatcher, probeWrap bool, resolved map[ast.Node]types.Type, b *bytes.Buffer, interpTemp *int) (expr string, usedPkgs map[string]string, err error) {
 	synthetic := map[string]map[string]bool{attrsOnlyPropsKey: {"Attrs": true}}
 	fields, splat, used, err := childPropsLiteral(el, attrsOnlyPropsKey, rtPkg, mergeExpr, table, synthetic, nil, byo, fm,
 		func([]ast.Markup) (string, error) { return "", fmt.Errorf("attrs-only components take no slots") },
@@ -4749,7 +4756,7 @@ func attrsOnlyBagExpr(el *ast.Element, rtPkg, mergeExpr string, table filterTabl
 // resolved maps *ClassPart nodes to their harvest type so classEntryExpr can detect
 // and hoist (T, error) tuple-returning unconditional plain parts. Pass nil in the
 // probe path (skeleton does not need resolved; probeWrap wraps call exprs instead).
-func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, table filterTable, propFields map[string]map[string]bool, nodeFields map[string]bool, byo *byoData, fm FieldMatcher, slotValue func(nodes []ast.Markup) (string, error), probeWrap bool, resolved map[ast.Node]types.Type, b *bytes.Buffer, interpTemp *int) (fields []propFieldEntry, splatExpr string, usedPkgs map[string]string, err error) {
+func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, table funcTables, propFields map[string]map[string]bool, nodeFields map[string]bool, byo *byoData, fm FieldMatcher, slotValue func(nodes []ast.Markup) (string, error), probeWrap bool, resolved map[ast.Node]types.Type, b *bytes.Buffer, interpTemp *int) (fields []propFieldEntry, splatExpr string, usedPkgs map[string]string, err error) {
 	fm = fieldMatcherOrDefault(fm)    // normalize nil → default matcher
 	declared := propFields[propsType] // nil for cross-package / unknown → graceful
 	// pipeWrap is the lowerPipe hook for a mid-stage (R, error) filter in a prop
@@ -5126,7 +5133,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 // signature is (Attrs, error)). The caller selects the variant that matches
 // its own enclosing return arity — classEntryExpr itself stays agnostic to
 // that choice, hoisting exclusively through wrap.
-func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg string, mergeExpr string, table filterTable, resolved map[ast.Node]types.Type, probeWrap bool, wrap func(string) string) (string, map[string]string, error) {
+func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg string, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, probeWrap bool, wrap func(string) string) (string, map[string]string, error) {
 	parts := make([]string, 0, len(a.Parts))
 	usedPkgs := map[string]string{}
 	ordered := !probeWrap && composedPartsOrdered(a, resolved)
@@ -5276,7 +5283,7 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg st
 // Either way this returns ONE expression: the *ast.CondAttr call site hoists it
 // with hoistTuple in emit mode, or wraps it in _gsxunwrap(...) in probe mode —
 // emit ≡ probe, differing only by that tolerance wrap, never by structure.
-func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table filterTable, probeWrap bool, resolved map[ast.Node]types.Type, interpTemp *int) (string, map[string]string, error) {
+func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table funcTables, probeWrap bool, resolved map[ast.Node]types.Type, interpTemp *int) (string, map[string]string, error) {
 	usedPkgs := map[string]string{}
 
 	// branchThunk builds one branch's `func() (rtPkg.Attrs, error) { ...; return
@@ -5339,7 +5346,7 @@ func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table f
 // interpTemp/resolved and the same wrap are threaded through, so CF (if/
 // switch), plain-tuple, and ordered class parts inside a branch hoist their
 // errors into the enclosing thunk precisely like the non-branch case.
-func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string, probeWrap bool, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table filterTable, resolved map[ast.Node]types.Type) (string, map[string]string, error) {
+func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string, probeWrap bool, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type) (string, map[string]string, error) {
 	var entries []string
 	usedPkgs := map[string]string{}
 	for _, a := range attrs {
@@ -5359,7 +5366,7 @@ func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string,
 				// when it returns (R, error), so a final tuple hoists (emit) /
 				// unwraps (probe) instead of sitting raw in the bag literal.
 				last := t.Stages[len(t.Stages)-1]
-				if e, ok := table.lookup(last.Name); ok && e.hasErr {
+				if e, ok := table.filters.lookup(last.Name); ok && e.hasErr {
 					lowered = wrap(lowered)
 				}
 				val = lowered

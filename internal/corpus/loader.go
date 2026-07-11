@@ -27,6 +27,7 @@ type caseDoc struct {
 	classMerger *codegen.ClassMergerRef // set when case has a gsx.toml with class_merger
 	filterPkgs  []string                // resolved import paths from gsx.toml filterPackages; "./x" entries resolve against the case import root
 	classifier  *attrclass.Classifier   // set when case has a gsx.toml with [[urlAttrs]] rules
+	renderers   []codegen.RendererAlias // resolved from gsx.toml [renderers]; "./x" package parts (on either side) resolve against the case import root; sorted by TypeKey
 }
 
 // caseToml holds the subset of gsx.toml fields the corpus harness reads.
@@ -36,6 +37,11 @@ type caseToml struct {
 	FilterPackages []string      `toml:"filterPackages"`
 	URLAttrs       []caseURLRule `toml:"urlAttrs"`
 	URLPresets     []string      `toml:"url_presets"`
+	// Renderers maps a canonical type key ("[*]pkgPart.TypeName") to its
+	// renderer func ("pkgPart.FuncName"). A "./"-prefixed package part on
+	// EITHER side resolves against the case's own import root
+	// (caseImportRoot), mirroring FilterPackages — see resolveRendererAlias.
+	Renderers map[string]string `toml:"renderers"`
 }
 
 // caseURLRule mirrors attrclass.Rule's toml shape for a case's [[urlAttrs]]
@@ -127,6 +133,19 @@ func loadCase(path string) (*caseDoc, error) {
 				}
 				c.filterPkgs = append(c.filterPkgs, p)
 			}
+			for k, v := range tc.Renderers {
+				ra, err := resolveRendererAlias(k, v, caseImportRoot(c))
+				if err != nil {
+					return nil, fmt.Errorf("gsx.toml: renderers: %w", err)
+				}
+				c.renderers = append(c.renderers, ra)
+			}
+			// Map iteration order is random; sort so a case's renderer list
+			// (and anything downstream that folds it into a corpus-wide
+			// union — see batch.go) is deterministic across test runs.
+			slices.SortFunc(c.renderers, func(a, b codegen.RendererAlias) int {
+				return strings.Compare(a.TypeKey, b.TypeKey)
+			})
 			var rules []attrclass.Rule
 			for i, u := range tc.URLAttrs {
 				r := attrclass.Rule{Name: u.Name, Prefix: u.Prefix}
@@ -193,4 +212,44 @@ func splitCasePkgFunc(s string) (pkgPath, funcName string, err error) {
 		return "", "", fmt.Errorf("%q has no package-qualified name", s)
 	}
 	return s[:dot], s[dot+1:], nil
+}
+
+// resolveRendererAlias parses one gsx.toml [renderers] entry: key is the
+// canonical type key "[*]pkg/path.TypeName" (an optional leading "*" marks a
+// pointer-type registration, preserved verbatim — see rendererKey), value is
+// "pkg/path.FuncName". Both sides split at their last "." (mirroring
+// splitCasePkgFunc/class_merger); a "./"-prefixed package part on EITHER side
+// resolves against root (caseImportRoot), exactly like a FilterPackages entry,
+// so a case can register a renderer for one of its own locally declared
+// types/funcs without spelling out corpustest/cases/<dir> by hand.
+func resolveRendererAlias(key, value, root string) (codegen.RendererAlias, error) {
+	starPrefix := ""
+	k := key
+	if strings.HasPrefix(k, "*") {
+		starPrefix = "*"
+		k = k[1:]
+	}
+	keyPkg, typeName, err := splitCasePkgFunc(k)
+	if err != nil {
+		return codegen.RendererAlias{}, fmt.Errorf("key %q: %w", key, err)
+	}
+	valPkg, funcName, err := splitCasePkgFunc(value)
+	if err != nil {
+		return codegen.RendererAlias{}, fmt.Errorf("value %q: %w", value, err)
+	}
+	return codegen.RendererAlias{
+		TypeKey:  starPrefix + resolveCasePkgPart(keyPkg, root) + "." + typeName,
+		PkgPath:  resolveCasePkgPart(valPkg, root),
+		FuncName: funcName,
+	}, nil
+}
+
+// resolveCasePkgPart rewrites a "./"-prefixed package part against root
+// (caseImportRoot(c)), exactly like the gsx.toml FilterPackages block above;
+// any other package part (an ordinary import path) passes through unchanged.
+func resolveCasePkgPart(pkgPart, root string) string {
+	if strings.HasPrefix(pkgPart, "./") {
+		return root + strings.TrimPrefix(pkgPart, ".")
+	}
+	return pkgPart
 }

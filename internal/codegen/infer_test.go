@@ -175,7 +175,7 @@ component Page() {
 	// path this test is pinning.
 	declNames := packageDeclNames(dir, files)
 	resolveComponentTags(file, declNames, diag.NewBag(fset))
-	skel, _, _, _, registry, _, err := buildSkeleton(file, table, propFields, nodeProps, attrsProps, genericSigs, nil, byo, nil, fset, nil, nil, nil, declNames)
+	skel, _, _, _, registry, _, err := buildSkeleton(file, funcTables{filters: table}, propFields, nodeProps, attrsProps, genericSigs, nil, byo, nil, fset, nil, nil, nil, declNames)
 	if err != nil {
 		t.Fatalf("buildSkeleton: %v", err)
 	}

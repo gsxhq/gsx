@@ -61,11 +61,11 @@ const pipeCtxIdent = "ctx"
 // tuple flows through the existing per-context machinery unchanged. wrap == nil
 // means the caller does not yet support a failing stage in this position, so a
 // mid-pipeline hasErr stage is rejected with a friendly, caller-positioned error.
-func lowerPipe(seed string, stages []ast.PipeStage, table filterTable, wrap func(call string) string) (expr string, usedPkgs map[string]string, err error) {
+func lowerPipe(seed string, stages []ast.PipeStage, table funcTables, wrap func(call string) string) (expr string, usedPkgs map[string]string, err error) {
 	acc := "(" + strings.TrimSpace(seed) + ")"
 	usedPkgs = map[string]string{}
 	for i, st := range stages {
-		e, ok := table.lookup(st.Name)
+		e, ok := table.filters.lookup(st.Name)
 		if !ok {
 			return "", nil, fmt.Errorf("codegen: unknown filter %q", st.Name)
 		}
@@ -97,11 +97,11 @@ func lowerPipe(seed string, stages []ast.PipeStage, table filterTable, wrap func
 // final stage of an error pipeline is always a two-value filter call, this
 // condition is exactly equivalent to "the lowered expression is a (T, error)
 // call". An unknown final filter (already rejected by lowerPipe) reports false.
-func finalStageErr(stages []ast.PipeStage, table filterTable) bool {
+func finalStageErr(stages []ast.PipeStage, table funcTables) bool {
 	if len(stages) == 0 {
 		return false
 	}
-	e, ok := table.lookup(stages[len(stages)-1].Name)
+	e, ok := table.filters.lookup(stages[len(stages)-1].Name)
 	return ok && e.hasErr
 }
 
@@ -140,15 +140,33 @@ func (t filterTable) lookup(name string) (filterEntry, bool) {
 	return e, ok
 }
 
-// aliasForPath returns the reserved import alias registered for a filter
-// package's import path, if ANY filter entry in this table belongs to that
-// package — e.g. "github.com/gsxhq/gsx/std" -> "_gsxstd", a user filter
+// funcTables carries every configured func table the emit layer consults: pipe
+// filters (by template name, filterTable) and renderers (by canonical type
+// key, rendererTable — see renderers.go). It is threaded BY VALUE through
+// emit.go/analyze.go exactly where a bare filterTable used to be, so a future
+// func-table kind (or a renderer-consuming render boundary) never needs to
+// grow any of those ~20 signatures again — it just adds a field here.
+type funcTables struct {
+	filters   filterTable
+	renderers rendererTable
+}
+
+// aliasForPath returns the reserved import alias registered for a filter OR
+// renderer package's import path, if ANY entry in either table belongs to
+// that package — e.g. "github.com/gsxhq/gsx/std" -> "_gsxstd", a user filter
 // package -> "_gsxf0", etc. Every entry harvested from the same package
-// shares that package's one alias (see filterEntry.alias / filterAliases),
-// so the first match found while ranging over the table is authoritative;
-// there is no need to check every entry once one is found.
-func (t filterTable) aliasForPath(path string) (string, bool) {
-	for _, e := range t {
+// shares that package's one alias (see filterEntry.alias/rendererEntry.alias
+// and filterAliases), so the first match found while ranging over a table is
+// authoritative; there is no need to check every entry once one is found.
+// Filters are checked before renderers; a package registered as both shares
+// one alias either way, so the order does not change the result.
+func (t funcTables) aliasForPath(path string) (string, bool) {
+	for _, e := range t.filters {
+		if e.pkgPath == path {
+			return e.alias, true
+		}
+	}
+	for _, e := range t.renderers {
 		if e.pkgPath == path {
 			return e.alias, true
 		}
