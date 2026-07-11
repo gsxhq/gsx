@@ -9,7 +9,7 @@ import (
 
 // TestSpreadPipelineElement proves a `|>` pipeline works in an element HTML-attr
 // spread `<div { attrs |> f... }>`: the spread subject is lowered through the SAME
-// lowerPipe every other value context uses, then handed to _gsxgw.SpreadForwarding. The custom
+// lowerPipe every other value context uses, then handed to _gsxgw.Spread. The custom
 // filter operates on gsx.Attrs (std has no Attrs filter), so this exercises a real
 // filter package via the multi-filter render harness.
 func TestSpreadPipelineElement(t *testing.T) {

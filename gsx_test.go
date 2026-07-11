@@ -33,7 +33,7 @@ func box(padded, disabled bool, attrs Attrs, children Node) Node {
 		if !padded {
 			gw.S(` data-tight`)
 		}
-		gw.SpreadForwarding(ctx, attrs, nil, nil, nil, nil)
+		gw.Spread(ctx, attrs, nil, nil, nil, nil)
 		gw.S(`>`)
 		gw.Node(ctx, children)
 		gw.S(`</div>`)

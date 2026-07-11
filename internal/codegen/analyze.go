@@ -1155,7 +1155,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 	}
 	// MIRROR emit.go: in MANUAL mode bind the synthesized bag to `attrs` so the
 	// probe type-checks the author's `{ attrs... }` (probed as
-	// `_gsxgw.SpreadForwarding(ctx, attrs, …)`) and any `attrs.X()` reference
+	// `_gsxgw.Spread(ctx, attrs, …)`) and any `attrs.X()` reference
 	// identically to emitted code.
 	if manual {
 		sb.WriteString("\tattrs := _gsxp.Attrs\n")
@@ -3190,7 +3190,7 @@ func usedParams(c *gsxast.Component, params []param) map[string]bool {
 	}
 	collectClauseSrc(c.Body, addIdents)
 	// Composable class parts (Expr + Cond) and element-spread exprs are emitted
-	// verbatim into the render closure (gsx.Class/ClassIf args, the SpreadForwarding
+	// verbatim into the render closure (gsx.Class/ClassIf args, the Spread
 	// bag arg), so a param referenced ONLY there must be bound as a local too —
 	// otherwise the generated code fails type-check with `undefined: x`.
 	collectAttrExprSrc(c.Body, addIdents)

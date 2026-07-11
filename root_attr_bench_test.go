@@ -33,15 +33,15 @@ func BenchmarkRootAttrMachineryEmpty(b *testing.B) {
 	ctx := context.Background()
 	for b.Loop() {
 		gw.StyleMerged("", a.Style())
-		gw.SpreadForwarding(ctx, a, nil, nil, nil, []string{"class", "style"})
+		gw.Spread(ctx, a, nil, nil, nil, []string{"class", "style"})
 	}
 }
 
 // BenchmarkForwardingLeafNoURL measures the full leaf-forwarding shape codegen
 // now emits per forwarding element: ClassMerged/StyleMerged followed by a
-// single SpreadForwarding call carrying the built-in nav/image URL name sets,
+// single Spread call carrying the built-in nav/image URL name sets,
 // on a 4-entry bag that carries NO URL-classified key (the common case).
-// SpreadForwarding IS the extraction — one ordered walk that matches each key
+// Spread IS the extraction — one ordered walk that matches each key
 // against navNames/imageNames and writes plain attrs inline — there is no
 // separate pre-scan or residual pass to warm up first (that unrolled
 // per-name-GetFold-then-WithoutFold shape predates issue #75's
@@ -55,7 +55,7 @@ func BenchmarkForwardingLeafNoURL(b *testing.B) {
 		{Key: "data-n", Value: "1"},
 		{Key: "role", Value: "button"},
 	}
-	// The built-in URL name sets a generated SpreadForwarding call carries
+	// The built-in URL name sets a generated Spread call carries
 	// (attrclass's builtinURL floor), split nav vs image exactly as codegen
 	// emits them — see e.g. spread-sanitize/derived_local_bag.txtar's
 	// generated.x.go.golden.
@@ -66,7 +66,7 @@ func BenchmarkForwardingLeafNoURL(b *testing.B) {
 	for b.Loop() {
 		gw.ClassMerged(DefaultClassMerge, a.Class())
 		gw.StyleMerged("", a.Style())
-		gw.SpreadForwarding(ctx, a, navNames, imageNames, nil, []string{"class", "style"})
+		gw.Spread(ctx, a, navNames, imageNames, nil, []string{"class", "style"})
 	}
 }
 

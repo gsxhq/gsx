@@ -676,7 +676,7 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 	}
 	if manual {
 		// MANUAL mode: bind the synthesized bag to a same-named local so the author's
-		// `{ attrs... }` element spread (emitted via `_gsxgw.SpreadForwarding(ctx,
+		// `{ attrs... }` element spread (emitted via `_gsxgw.Spread(ctx,
 		// attrs, …)`) and any `attrs.X()` reference resolve. Nil-safe: a nil bag
 		// spreads/queries to nothing. usesAttrs guarantees that lowering consumes
 		// this binding.
@@ -1055,7 +1055,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 		}
 		// URL-classified bag attributes sanitize at the leaf (bag hardening Part A).
 		// This forwarding element is where the caller's bag becomes real HTML, so a
-		// single SpreadForwarding call writes the residual bag AND routes every
+		// single Spread call writes the residual bag AND routes every
 		// URL-classified name through the same tag-aware sink a static attr uses
 		// (URLVal for navigational, URLImageVal for image resources; a dangerous
 		// scheme → about:invalid#gsx) in ONE ordered pass, matching case-insensitively
@@ -1066,7 +1066,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 		// never get the image-sink allowance). URL keys render IN their bag position,
 		// so the caller's authored attribute order is preserved.
 		//
-		// excluded is the names a forced root attr owns, which SpreadForwarding skips
+		// excluded is the names a forced root attr owns, which Spread skips
 		// (the class/style merge above and the unguarded forced emit in Walk 2 own
 		// those). It is the dynamic drop slice when post-spread cond-attrs exist (built
 		// by the selectors above: class/style + static forced + each taken branch's
@@ -1079,7 +1079,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			excl := append([]string{"class", "style"}, forcedNames...)
 			excludedExpr = goStringSliceLit(excl)
 		}
-		emitSpreadForwardingCall(b, bagExpr, tag, cls, excludedExpr)
+		emitSpreadCall(b, bagExpr, tag, cls, excludedExpr)
 		return true
 	}
 
@@ -1124,7 +1124,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			// The bag spread at the split position is consumed here. A non-bag spread
 			// (handled by the caller's detection) never reaches this helper at splitIdx;
 			// a stray SpreadAttr at any other index is still a leaf URL sink — it routes
-			// through SpreadForwarding (excluded=nil) so its URL keys sanitize too.
+			// through Spread (excluded=nil) so its URL keys sanitize too.
 			if i == splitIdx {
 				continue
 			}
@@ -1134,9 +1134,9 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			}
 			if tmp, hoisted := nonce.tempFor(t); hoisted {
 				fmt.Fprintf(b, "\t\t%s = %s\n", tmp, spreadExpr)
-				emitSpreadForwardingCall(b, tmp, tag, cls, "nil")
+				emitSpreadCall(b, tmp, tag, cls, "nil")
 			} else {
-				emitSpreadForwardingCall(b, spreadExpr, tag, cls, "nil")
+				emitSpreadCall(b, spreadExpr, tag, cls, "nil")
 			}
 			continue
 		}
@@ -2525,7 +2525,7 @@ func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.No
 		// tags to genChildComponent before the attr loop), so a SpreadAttr here is
 		// always an element spread — e.g. one nested inside a `{ if c { { x... } } }`
 		// cond-attr, which never reaches the top-level bagSpreadIndex dispatch. It is
-		// still a leaf URL sink: it routes through SpreadForwarding (excluded=nil, so
+		// still a leaf URL sink: it routes through Spread (excluded=nil, so
 		// nothing is force-owned) so URL-classified keys sanitize regardless of
 		// provenance/nesting, exactly like a top-level element spread.
 		spreadExpr, ok := spreadAttrExpr(t, table, imports, b, interpTemp, bag)
@@ -2536,9 +2536,9 @@ func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.No
 			// Nonce-eligible element: assign the hoisted temp once (single
 			// evaluation) and spread from it; the post-attr guard reads it.
 			fmt.Fprintf(b, "\t\t%s = %s\n", tmp, spreadExpr)
-			emitSpreadForwardingCall(b, tmp, tag, cls, "nil")
+			emitSpreadCall(b, tmp, tag, cls, "nil")
 		} else {
-			emitSpreadForwardingCall(b, spreadExpr, tag, cls, "nil")
+			emitSpreadCall(b, spreadExpr, tag, cls, "nil")
 		}
 	case *ast.CondAttr:
 		// Attr emission is a sequence of writer calls between `<tag` and `>`, so
@@ -2646,7 +2646,7 @@ func urlWriterMethod(tag, name string) string {
 }
 
 // goStringSliceLit renders names as a Go `[]string{…}` literal, or "nil" when
-// empty — the argument form SpreadForwarding's name-set params expect.
+// empty — the argument form Spread's name-set params expect.
 func goStringSliceLit(names []string) string {
 	if len(names) == 0 {
 		return "nil"
@@ -2658,14 +2658,14 @@ func goStringSliceLit(names []string) string {
 	return fmt.Sprintf("[]string{%s}", strings.Join(q, ", "))
 }
 
-// emitSpreadForwardingCall emits `_gsxgw.SpreadForwarding(ctx, expr, …)` for bag
+// emitSpreadCall emits `_gsxgw.Spread(ctx, expr, …)` for bag
 // expression expr on element tag: the classifier's URL-exact names split into
 // the nav vs image sinks via urlWriterMethod, prefix URL rules pass through, and
 // excludedExpr is the names a forced site owns ("nil" when nothing is forced —
 // the standalone / nested-cond-attr spread case). Every element spread routes
 // through here so URL-classified keys sanitize at the leaf regardless of the
 // bag's provenance or nesting.
-func emitSpreadForwardingCall(b *bytes.Buffer, expr, tag string, cls *attrclass.Classifier, excludedExpr string) {
+func emitSpreadCall(b *bytes.Buffer, expr, tag string, cls *attrclass.Classifier, excludedExpr string) {
 	var navNames, imageNames []string
 	for _, name := range cls.URLExactNames() {
 		if urlWriterMethod(tag, name) == "URLImage" {
@@ -2674,7 +2674,7 @@ func emitSpreadForwardingCall(b *bytes.Buffer, expr, tag string, cls *attrclass.
 			navNames = append(navNames, name)
 		}
 	}
-	fmt.Fprintf(b, "\t\t_gsxgw.SpreadForwarding(ctx, %s, %s, %s, %s, %s)\n",
+	fmt.Fprintf(b, "\t\t_gsxgw.Spread(ctx, %s, %s, %s, %s, %s)\n",
 		expr, goStringSliceLit(navNames), goStringSliceLit(imageNames), goStringSliceLit(cls.URLPrefixes()), excludedExpr)
 }
 
@@ -3405,7 +3405,7 @@ func emitExprAttr(b *bytes.Buffer, attrs []ast.Attr, a *ast.ExprAttr, resolved m
 // corpus security/meta_refresh_dynamic_http_equiv); an http-equiv carried
 // inside an `{ attrs... }` element spread is likewise not detected here, so
 // its "content" key never gets the refresh-content sanitizer — it renders
-// through SpreadForwarding's ordinary per-key routing instead (URL-sanitized
+// through Spread's ordinary per-key routing instead (URL-sanitized
 // if URL-classified, attribute-escaped otherwise).
 func attrsDeclareRefresh(attrs []ast.Attr) bool {
 	for _, a := range attrs {
