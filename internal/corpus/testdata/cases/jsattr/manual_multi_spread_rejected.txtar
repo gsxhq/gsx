@@ -5,4 +5,4 @@ component Box() {
 	<div { attrs... } id="x" { attrs... }>{children}</div>
 }
 -- diagnostics.golden --
-4:2: more than one spread on an element; precedence is ambiguous
+4:27: element with a spread { attrs... } cannot carry another spread { attrs... }; merge them into one spread ({ attrs.Merge(attrs)... } or { attrs.Merge(attrs)... }) so precedence is explicit

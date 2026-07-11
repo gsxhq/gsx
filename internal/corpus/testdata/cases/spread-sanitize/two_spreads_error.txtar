@@ -12,4 +12,4 @@ component Link() {
 	<a { b1... } { b2... }>click</a>
 }
 -- diagnostics.golden --
-8:2: more than one spread on an element; precedence is ambiguous
+8:15: element with a spread { b1... } cannot carry another spread { b2... }; merge them into one spread ({ b1.Merge(b2)... } or { b2.Merge(b1)... }) so precedence is explicit

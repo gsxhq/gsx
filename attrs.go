@@ -290,7 +290,12 @@ func AttrsCond(cond bool, then, els func() (Attrs, error)) (Attrs, error) {
 // the author's vouch and is emitted verbatim (still attribute-escaped) by the URL
 // sinks. URL keys render IN their bag position — not hoisted ahead of the residual
 // as the old unrolled extraction did — so the bag's authored attribute order is
-// preserved. ctx is reserved for forward-compatibility.
+// preserved. ctx is reserved for forward-compatibility. The URL classification
+// policy lives in these caller-supplied name sets, not in this method: a
+// hand-written caller passing nil navNames/imageNames/prefixes gets NO URL
+// sanitization at all (every key falls through to the plain-attribute write) —
+// generated code always supplies the built-in + configured name sets, so only a
+// caller bypassing codegen needs to worry about this.
 func (gw *Writer) SpreadForwarding(ctx context.Context, a Attrs, navNames, imageNames, prefixes, excluded []string) {
 	if gw.err != nil || len(a) == 0 {
 		return
