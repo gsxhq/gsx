@@ -1857,9 +1857,10 @@ func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type,
 			return false
 		}
 		// v, err := expr; if err != nil { return err }; then render v by its type.
-		tmp := hoistTuple(b, expr, interpTemp)
-		return emitRender(b, tmp, elemT, rt, n, bag)
+		expr = hoistTuple(b, expr, interpTemp)
+		t = elemT
 	}
+	expr, t = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
 	return emitRender(b, expr, t, rt, n, bag)
 }
 
@@ -1926,9 +1927,10 @@ func emitEmbeddedInterp(b *bytes.Buffer, n *ast.EmbeddedInterp, resolved map[ast
 			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "body interpolation pipeline returns %s; only (T, error) is supported", t)
 			return false
 		}
-		tmp := hoistTuple(b, lowered, interpTemp)
-		return emitRender(b, tmp, elemT, rt, n, bag)
+		lowered = hoistTuple(b, lowered, interpTemp)
+		t = elemT
 	}
+	lowered, t = applyRenderer(b, lowered, t, table, imports, interpTemp, "return _gsxerr")
 	return emitRender(b, lowered, t, rt, n, bag)
 }
 

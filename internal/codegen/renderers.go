@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"bytes"
 	"fmt"
 	"go/types"
 )
@@ -106,4 +107,25 @@ func harvestRenderers(byPath map[string]*types.Package, renderers []RendererAlia
 		}
 	}
 	return table, nil
+}
+
+// applyRenderer wraps expr in its registered renderer call when t's canonical
+// key is registered, marking the renderer package as imported. An error
+// renderer hoists through hoistTupleReturning with the caller's error-return
+// statement (the same per-context shapes pipe filters use: "return _gsxerr"
+// in a render closure, "return nil, _gsxerr" in an (Attrs, error) thunk).
+// Returns the (possibly hoisted) expr and the type the boundary classifies;
+// a registry miss returns the inputs unchanged. Renderers apply exactly once
+// (harvest rejects chains), so this never recurses.
+func applyRenderer(b *bytes.Buffer, expr string, t types.Type, table funcTables, imports map[string]bool, interpTemp *int, errReturn string) (string, types.Type) {
+	e, ok := table.renderers[rendererKey(t)]
+	if !ok {
+		return expr, t
+	}
+	imports[e.pkgPath] = true
+	call := e.alias + "." + e.funcName + "((" + expr + "))"
+	if e.hasErr {
+		return hoistTupleReturning(b, call, interpTemp, errReturn), e.result
+	}
+	return call, e.result
 }

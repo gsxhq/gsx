@@ -495,6 +495,12 @@ props/byo_splat_mixed_rejected	diag(error)
 props/heuristic_boundaries	diag gen render
 props/interop_splat	diag render
 props/splat_composition	diag render
+renderers/component_arg_negative	diag gen render
+renderers/pipe_result	diag gen render
+renderers/pointer	diag gen render
+renderers/text_basic	diag gen render
+renderers/text_error	diag gen render
+renderers/wins_over_stringer	diag gen render
 script/interp_breakout	diag gen render
 script/interp_comment_literal	diag gen render
 script/interp_identifier_rejected	diag(error)
@@ -639,4 +645,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 641 cases (render: 520, error: 92, gen-pinned: 324)
+TOTAL: 647 cases (render: 526, error: 92, gen-pinned: 330)
