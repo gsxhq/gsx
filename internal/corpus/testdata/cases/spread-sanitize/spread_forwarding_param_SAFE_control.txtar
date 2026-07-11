@@ -1,0 +1,16 @@
+# CONTROL: identical javascript: href through a DECLARED forwarding param
+# is sanitized at the leaf (about:invalid#gsx) — the behavior the 4 VULN
+# cases above should match but don't.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Link(bag gsx.Attrs) {
+	<a { bag... }>click</a>
+}
+-- invoke --
+Link(LinkProps{Bag: gsx.Attrs{{Key: "href", Value: "javascript:alert(1)"}}})
+-- diagnostics.golden --
+-- render.golden --
+<a href="about:invalid#gsx">click</a>

@@ -45,7 +45,7 @@ func Field(_gsxp FieldProps) _gsxrt.Node {
 		}
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, attrs.Class())
 		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.SpreadForwarding(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "xlink:href"}, []string{"background", "src"}, nil, []string{"class", "style"})
+		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "xlink:href"}, []string{"background", "src"}, nil, []string{"class", "style"})
 		_gsxgw.S("/>")
 		return _gsxgw.Err()
 	})

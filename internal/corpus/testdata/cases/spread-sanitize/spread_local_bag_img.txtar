@@ -1,0 +1,17 @@
+# A spread onto an element sanitizes URL keys regardless of provenance (issue
+# #75): a local bag spread onto <img src> — a resource sink — routes through
+# URLImage at the leaf, so a javascript: src becomes about:invalid#gsx.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Pic(userSrc string) {
+	{{ b := gsx.Attrs{{Key: "src", Value: userSrc}} }}
+	<img { b... }/>
+}
+-- invoke --
+Pic(PicProps{UserSrc: "javascript:alert(1)"})
+-- diagnostics.golden --
+-- render.golden --
+<img src="about:invalid#gsx"/>

@@ -184,12 +184,12 @@ element inside the component, or forward the value through a declared prop.
 
 ### Precedence
 
-This precedence rule applies to every **declared forwarding bag**, not only
-the implicit `attrs` bag: a byo component's declared `Attrs gsx.Attrs` field
-(spread as `{ p.Attrs... }`) and a generated component's own named `gsx.Attrs`
-param (e.g. `extra` in `component Chip(extra gsx.Attrs)`, spread as
-`{ extra... }`) get identical treatment. Whichever spelling is spread onto an
-element, the spread's position decides who wins, JSX-style:
+This precedence rule applies to **every element spread** `{ x… }`, whatever
+`gsx.Attrs` expression is spread — the implicit `attrs` bag, a byo component's
+declared `Attrs` field, a generated component's own named param, a local
+variable, a function result, or any other `gsx.Attrs`-typed expression all get
+identical treatment. Whichever expression is spread onto an element, the
+spread's position decides who wins, JSX-style:
 
 - attributes written **before** the spread are defaults — a caller attribute
   with the same name overrides them;
@@ -203,22 +203,19 @@ always *merge* — the component's tokens first, the caller's appended (then
 deduplicated by the configured class merger). A `class` written after the
 spread is still merged, not forced.
 
-A **local** `gsx.Attrs` variable — one you declare and assign inside the
-component body, rather than a declared prop field or param — is *not* a
-forwarding bag: `{ b... }` spreads it with a bare, position-blind `Spread`
-(no caller-wins guards, no class merge, no URL extraction — see
-[Attributes — Spread](./attributes.md#spread)), so a static
-attribute before it and a same-key entry in the local bag both render as
-duplicate attributes. Compose a local bag yourself (`Merge`/`ConcatAttrs`)
-before spreading it. Giving local bags the same forwarding treatment is a
-tracked follow-up — see the
-[Roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md).
+Every element spread also sanitizes URL-classified attribute keys at the leaf,
+for any bag, with no exceptions and no unsanitizing spread — see
+[Attributes — Spread](./attributes.md#spread) for the full contract.
+`gsx.RawURL` is the only, per-value opt-out. Compose a bag yourself
+(`Merge`/`ConcatAttrs`) before spreading it if you want duplicate keys
+resolved eagerly rather than at render time.
 
 ### Derived bags
 
-The forwarded expression doesn't have to be the bare bag. Any expression built
-from a forwarding bag — `attrs`, a byo `p.Attrs` field, or a named `gsx.Attrs`
-param — is forwarded with the same merge-and-override semantics, and is
+The spread expression doesn't have to be a bare bag. Any expression that
+evaluates to `gsx.Attrs` — the implicit `attrs` bag, a byo `p.Attrs` field, a
+named `gsx.Attrs` param, a local variable, or something derived from any of
+those — is forwarded with the same merge-and-override semantics, and is
 evaluated exactly once:
 
 ```gsx

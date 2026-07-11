@@ -258,7 +258,7 @@ fallthrough/cond_attr_root_standalone	diag render
 fallthrough/derived_merge_spread	diag render
 fallthrough/derived_without_spread	diag gen render
 fallthrough/empty_bag_noop	diag render
-fallthrough/local_bag_inline	diag gen render
+fallthrough/local_bag_merges	diag gen render
 fallthrough/manual_nullary_method	diag render
 fallthrough/manual_placement	diag render
 fallthrough/manual_split_container_bag	diag gen render
@@ -512,6 +512,17 @@ slots/node_prop_escaping	diag render
 slots/node_prop_promotion	diag gen render
 slots/node_prop_realworld	diag render
 slots/node_prop_stringer	diag gen render
+spread-sanitize/cond_nested_spread	diag gen render
+spread-sanitize/cond_nested_spread_class	diag render
+spread-sanitize/derived_local_bag	diag gen render
+spread-sanitize/merge_not_duplicate	diag render
+spread-sanitize/rawurl_local_bag	diag render
+spread-sanitize/spread_byo_second_field	diag render
+spread-sanitize/spread_forwarding_param_SAFE_control	diag render
+spread-sanitize/spread_func_bag	diag render
+spread-sanitize/spread_local_bag	diag render
+spread-sanitize/spread_local_bag_img	diag render
+spread-sanitize/two_spreads_error	diag(error)
 style/attr_expr_sanitized	diag render
 style/block_bytes	diag gen render
 style/block_import_injection	diag gen render
@@ -612,4 +623,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 614 cases (render: 494, error: 91, gen-pinned: 319)
+TOTAL: 625 cases (render: 504, error: 92, gen-pinned: 321)
