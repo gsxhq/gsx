@@ -2772,6 +2772,11 @@ func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast
 			lowered = hoistTuple(b, lowered, interpTemp)
 			t = elemT
 		}
+		// Renderer FIRST, then whichever classification/sanitization follows
+		// (URL sink or plain emitAttrValue) — same order as emitExprAttr and
+		// emitTextAttrInterp: the URL sanitizer below always runs on the
+		// renderer's OUTPUT, never on the pre-renderer registered type.
+		lowered, t = applyRenderer(b, lowered, t, table, imports, interpTemp, "return _gsxerr")
 		if isURL {
 			// Sanitize AFTER the pipe: URL() runs on the pipeline's OUTPUT, so a
 			// filter returning a dangerous scheme is still blocked, never trusted.
@@ -2899,6 +2904,7 @@ func holeStringExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.
 		expr = hoistTuple(b, expr, interpTemp)
 		t = elemT
 	}
+	expr, t = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
 	switch classify(t) {
 	case catString, catBytes:
 		return "string(" + expr + ")", true
@@ -3018,9 +3024,10 @@ func emitTextAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]ty
 			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "attribute interpolation %q returns %s; only (T, error) is supported", expr, t)
 			return false
 		}
-		tmp := hoistTuple(b, expr, interpTemp)
-		return emitAttrValue(b, tmp, elemT, n, bag)
+		expr = hoistTuple(b, expr, interpTemp)
+		t = elemT
 	}
+	expr, t = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
 	return emitAttrValue(b, expr, t, n, bag)
 }
 
@@ -3377,6 +3384,16 @@ func emitExprAttr(b *bytes.Buffer, attrs []ast.Attr, a *ast.ExprAttr, resolved m
 		expr = hoistTuple(b, expr, interpTemp)
 		t = elemT
 	}
+
+	// (2b) apply a registered [renderers] entry, if t is one: expr becomes the
+	// renderer's call (hoisted through the caller's error-return "return
+	// _gsxerr" when the renderer itself returns (R, error)) and t becomes the
+	// renderer's result type. A registry miss returns (expr, t) unchanged. This
+	// runs BEFORE every classification below (bool/meta-refresh/URL/plain), so
+	// a renderer's result — including a URL-context string — is what the URL
+	// sanitizer downstream ever sees: renderer FIRST, sanitize AFTER, never the
+	// reverse.
+	expr, t = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
 
 	if classify(t) == catBool {
 		fmt.Fprintf(b, "\t\t_gsxgw.BoolAttr(%s, bool(%s))\n", strconv.Quote(a.Name), expr)
@@ -5388,6 +5405,35 @@ func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string,
 					return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "invalid-tuple", msg: fmt.Sprintf("attribute %q value %q returns %s; only (T, error) is supported", t.Name, t.Expr, tup)}
 				}
 				val = wrap(val)
+			}
+			if !probeWrap {
+				// Apply a registered [renderers] entry, if the attr's value type is
+				// one, BEFORE the value enters the Attrs bag as `any` — this is the
+				// last point codegen still knows the value's concrete registered
+				// type; once it's `Value: val` in the literal, the runtime Spread
+				// only sees `any` and falls back to fmt.Sprint (or the URL sink's
+				// own toStr), never a registered renderer. Skipped entirely in
+				// probe/skeleton mode: resolved is nil there (any lookup returns the
+				// zero types.Type), and the skeleton never dispatches through a
+				// renderer call anyway — it only needs to type-check.
+				attrType := resolved[t]
+				if tup, isTuple := attrType.(*types.Tuple); isTuple {
+					if elemT, ok := tupleUnwrapType(tup); ok {
+						attrType = elemT
+					}
+				}
+				// applyRenderer wants an `imports map[string]bool`, but this deep in
+				// the bag-literal lowering the only import bookkeeping channel back
+				// to the caller is usedPkgs (map[string]string, alias->pkgPath,
+				// consumed only by its VALUES — see childPropsLiteral's
+				// `for _, path := range usedPkgs { imports[path] = true }`). Bridge
+				// through a scratch map and fold pkgPath in as both key and value;
+				// the key is never read downstream, only deduped on.
+				scratch := map[string]bool{}
+				val, _ = applyRenderer(b, val, attrType, table, scratch, interpTemp, "return nil, _gsxerr")
+				for path := range scratch {
+					usedPkgs[path] = path
+				}
 			}
 			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), val))
 		case *ast.BoolAttr:

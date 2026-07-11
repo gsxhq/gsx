@@ -1,10 +1,13 @@
-# A renderer func(pg.Text) (string, error): the hoist shape is
-# `_gsxvN, _gsxerr := _gsxf0.PgText((val)); if _gsxerr != nil { return _gsxerr }`
-# — the SAME per-context error-return applyRenderer's caller passes as any
-# other hoisted tuple. Invoked with an invalid value so the renderer's own
-# error propagates as a render error (halting output right after the partial
-# "<div>" already written), pinning that a hasErr renderer flows through
-# hoistTupleReturning exactly like a hasErr pipe filter.
+# A renderer func(pg.Text) (string, error) at a plain attribute-value
+# boundary: the hoist shape is `_gsxvN, _gsxerr := _gsxf<i>.PgText((val)); if
+# _gsxerr != nil { return _gsxerr }` — the SAME single-value errReturn a
+# hasErr text-position renderer uses (text_error.txtar), just spliced in
+# before emitAttrValue's classify switch instead of emitRender's. The hoist
+# lands BEFORE the attribute name/opening quote are written (emitExprAttr
+# resolves the value ahead of writing ` name="`, exactly as a plain (T,
+# error) attr value already did pre-renderer), so invoking with an invalid
+# value halts output right after the open tag's `<div`, before any attribute
+# text at all.
 -- gsx.toml --
 [renderers]
 "./pg.Text" = "./rend.PgText"
@@ -21,7 +24,7 @@ package rend
 import (
 	"errors"
 
-	"corpustest/cases/renderers_text_error/pg"
+	"corpustest/cases/renderers_attr_error/pg"
 )
 
 func PgText(t pg.Text) (string, error) {
@@ -33,12 +36,12 @@ func PgText(t pg.Text) (string, error) {
 -- input.gsx --
 package views
 
-import "corpustest/cases/renderers_text_error/pg"
+import "corpustest/cases/renderers_attr_error/pg"
 
 func mkText(s string, valid bool) pg.Text { return pg.Text{String: s, Valid: valid} }
 
 component Tag(val pg.Text) {
-	<div>{ val }</div>
+	<div data-x={ val }>ok</div>
 }
 -- invoke --
 Tag(TagProps{Val: mkText("hi", false)})
@@ -49,10 +52,10 @@ Tag(TagProps{Val: mkText("hi", false)})
 package views
 
 import (
-	"corpustest/cases/renderers_text_error/pg"
+	"corpustest/cases/renderers_attr_error/pg"
 
 	_gsxctx "context"
-	_gsxf8 "corpustest/cases/renderers_text_error/rend"
+	_gsxf1 "corpustest/cases/renderers_attr_error/rend"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
@@ -69,17 +72,17 @@ func Tag(_gsxp TagProps) _gsxrt.Node {
 		val := _gsxp.Val
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxgw.S("<div>")
-//line input.gsx:8:7
-		_gsxv0, _gsxerr := _gsxf8.PgText((val))
+		_gsxgw.S("<div")
+		_gsxv0, _gsxerr := _gsxf1.PgText((val))
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Text(string(_gsxv0))
-		_gsxgw.S("</div>")
+		_gsxgw.S(" data-x=\"")
+		_gsxgw.AttrValue(string(_gsxv0))
+		_gsxgw.S("\">ok</div>")
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-<div>
+<div
 [render error] pgtext: invalid value
