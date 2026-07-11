@@ -705,7 +705,7 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 // lowering so there is exactly one place that assembles this scaffolding.
 func emitNodeFuncBody(b *bytes.Buffer, nodes []ast.Markup, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
 	fmt.Fprintf(b, "\t\t_gsxgw := %s.W(_gsxw)\n", rt.rt())
-	emitNumScratch(b, nodes, resolved, cls)
+	emitNumScratch(b, nodes, resolved, table, cls)
 	for _, m := range nodes {
 		if !genNode(b, m, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
 			return false
@@ -2128,8 +2128,8 @@ func emitRender(b *bytes.Buffer, expr string, t types.Type, rt rtImports, n ast.
 // the head of a render body, but only when this scope directly emits an
 // integer/uint/float via the IntInto/UintInto/FloatInto primitives. A component
 // with no such numeric emission gets no declaration.
-func emitNumScratch(b *bytes.Buffer, nodes []ast.Markup, resolved map[ast.Node]types.Type, cls *attrclass.Classifier) {
-	if scopeUsesNumeric(nodes, resolved, cls) {
+func emitNumScratch(b *bytes.Buffer, nodes []ast.Markup, resolved map[ast.Node]types.Type, table funcTables, cls *attrclass.Classifier) {
+	if scopeUsesNumeric(nodes, resolved, table, cls) {
 		b.WriteString("\t\tvar _gsxnum [32]byte\n")
 	}
 }
@@ -2153,11 +2153,11 @@ func emitNumScratch(b *bytes.Buffer, nodes []ast.Markup, resolved map[ast.Node]t
 // genNode's traversal and the emit paths' render-type resolution, so it agrees
 // exactly with where _gsxnum is emitted. A mismatch would surface immediately as
 // a compile error (an unused or undefined _gsxnum) in the corpus.
-func scopeUsesNumeric(nodes []ast.Markup, resolved map[ast.Node]types.Type, cls *attrclass.Classifier) bool {
+func scopeUsesNumeric(nodes []ast.Markup, resolved map[ast.Node]types.Type, table funcTables, cls *attrclass.Classifier) bool {
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *ast.Interp:
-			if interpIsNumeric(t, resolved) {
+			if interpIsNumeric(t, resolved, table) {
 				return true
 			}
 		case *ast.EmbeddedInterp:
@@ -2166,10 +2166,10 @@ func scopeUsesNumeric(nodes []ast.Markup, resolved map[ast.Node]types.Type, cls 
 			// per-segment (each *ast.Interp hole via genInterp), so recurse into
 			// Segments the same way as any other scope.
 			if len(t.Stages) > 0 {
-				if resolvedTypeIsNumeric(t, resolved) {
+				if resolvedTypeIsNumeric(t, resolved, table) {
 					return true
 				}
-			} else if scopeUsesNumeric(t.Segments, resolved, cls) {
+			} else if scopeUsesNumeric(t.Segments, resolved, table, cls) {
 				return true
 			}
 		case *ast.Element:
@@ -2178,30 +2178,30 @@ func scopeUsesNumeric(nodes []ast.Markup, resolved map[ast.Node]types.Type, cls 
 				// slots render in their own scope — neither uses this scope's _gsxnum.
 				continue
 			}
-			if attrsUseNumericScratch(t.Attrs, resolved, cls) {
+			if attrsUseNumericScratch(t.Attrs, resolved, table, cls) {
 				return true
 			}
 			if strings.EqualFold(t.Tag, "script") {
 				continue
 			}
-			if scopeUsesNumeric(t.Children, resolved, cls) {
+			if scopeUsesNumeric(t.Children, resolved, table, cls) {
 				return true
 			}
 		case *ast.Fragment:
-			if scopeUsesNumeric(t.Children, resolved, cls) {
+			if scopeUsesNumeric(t.Children, resolved, table, cls) {
 				return true
 			}
 		case *ast.ForMarkup:
-			if scopeUsesNumeric(t.Body, resolved, cls) {
+			if scopeUsesNumeric(t.Body, resolved, table, cls) {
 				return true
 			}
 		case *ast.IfMarkup:
-			if scopeUsesNumeric(t.Then, resolved, cls) || scopeUsesNumeric(t.Else, resolved, cls) {
+			if scopeUsesNumeric(t.Then, resolved, table, cls) || scopeUsesNumeric(t.Else, resolved, table, cls) {
 				return true
 			}
 		case *ast.SwitchMarkup:
 			for _, cc := range t.Cases {
-				if scopeUsesNumeric(cc.Body, resolved, cls) {
+				if scopeUsesNumeric(cc.Body, resolved, table, cls) {
 					return true
 				}
 			}
@@ -2223,11 +2223,11 @@ func scopeUsesNumeric(nodes []ast.Markup, resolved map[ast.Node]types.Type, cls 
 //     emitAttrValue). js`/css` EmbeddedAttrs (EmbeddedJS/EmbeddedCSS) and
 //     style={…}/class={…} ClassAttrs route through the JS/CSS/merge writers, not
 //     emitAttrValue, and are not matched here.
-func attrsUseNumericScratch(attrs []ast.Attr, resolved map[ast.Node]types.Type, cls *attrclass.Classifier) bool {
+func attrsUseNumericScratch(attrs []ast.Attr, resolved map[ast.Node]types.Type, table funcTables, cls *attrclass.Classifier) bool {
 	for _, a := range attrs {
 		switch at := a.(type) {
 		case *ast.ExprAttr:
-			if cls.Context(at.Name) != attrclass.CtxURL && resolvedTypeIsNumeric(at, resolved) {
+			if cls.Context(at.Name) != attrclass.CtxURL && resolvedTypeIsNumeric(at, resolved, table) {
 				return true
 			}
 		case *ast.EmbeddedAttr:
@@ -2236,18 +2236,18 @@ func attrsUseNumericScratch(attrs []ast.Attr, resolved map[ast.Node]types.Type, 
 			}
 			if len(at.Stages) > 0 {
 				// Whole-literal pipe: renders one piped value via emitAttrValue.
-				if resolvedTypeIsNumeric(at, resolved) {
+				if resolvedTypeIsNumeric(at, resolved, table) {
 					return true
 				}
 			} else {
 				for _, seg := range at.Segments {
-					if in, ok := seg.(*ast.Interp); ok && resolvedTypeIsNumeric(in, resolved) {
+					if in, ok := seg.(*ast.Interp); ok && resolvedTypeIsNumeric(in, resolved, table) {
 						return true
 					}
 				}
 			}
 		case *ast.CondAttr:
-			if attrsUseNumericScratch(at.Then, resolved, cls) || attrsUseNumericScratch(at.Else, resolved, cls) {
+			if attrsUseNumericScratch(at.Then, resolved, table, cls) || attrsUseNumericScratch(at.Else, resolved, table, cls) {
 				return true
 			}
 		}
@@ -2257,16 +2257,22 @@ func attrsUseNumericScratch(attrs []ast.Attr, resolved map[ast.Node]types.Type, 
 
 // interpIsNumeric reports whether interp n renders as an int/uint/float (the same
 // classification emitRender uses to pick gw.IntInto/UintInto/FloatInto).
-func interpIsNumeric(n *ast.Interp, resolved map[ast.Node]types.Type) bool {
-	return resolvedTypeIsNumeric(n, resolved)
+func interpIsNumeric(n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables) bool {
+	return resolvedTypeIsNumeric(n, resolved, table)
 }
 
 // resolvedTypeIsNumeric reports whether node n's resolved type renders as an
 // int/uint/float, unwrapping a (T, error) tuple exactly as genInterp/emitExprAttr
-// do. Shared by the text (interpIsNumeric) and attribute (attrsUseNumericScratch)
-// scans in scopeUsesNumeric, plus the *ast.EmbeddedInterp whole-literal-pipe node,
-// so all agree with the emit paths that write through _gsxnum.
-func resolvedTypeIsNumeric(n ast.Node, resolved map[ast.Node]types.Type) bool {
+// do, then rewriting through a registered [renderers] entry exactly as
+// applyRenderer does (effectiveRenderType — a renderer returning int/uint/float
+// makes the emit path take the IntInto/UintInto/FloatInto arm on the
+// renderer's RESULT type, so the prescan must classify that same type or the
+// scratch declaration would be skipped and the generated code would not
+// compile). Shared by the text (interpIsNumeric) and attribute
+// (attrsUseNumericScratch) scans in scopeUsesNumeric, plus the
+// *ast.EmbeddedInterp whole-literal-pipe node, so all agree with the emit
+// paths that write through _gsxnum.
+func resolvedTypeIsNumeric(n ast.Node, resolved map[ast.Node]types.Type, table funcTables) bool {
 	t, ok := resolved[n]
 	if !ok || t == nil {
 		return false
@@ -2279,6 +2285,9 @@ func resolvedTypeIsNumeric(n ast.Node, resolved map[ast.Node]types.Type) bool {
 		}
 		t = tup.At(0).Type()
 	}
+	// Same order as every emit boundary: tuple-unwrap FIRST, renderer AFTER
+	// (the renderer is registered for T, not (T, error)).
+	t = effectiveRenderType(t, table)
 	switch classify(t) {
 	case catInt, catUint, catFloat:
 		return true
@@ -4548,7 +4557,7 @@ func emitSlotClosure(nodes []ast.Markup, currentPkg *types.Package, resolved map
 	var slot bytes.Buffer
 	fmt.Fprintf(&slot, "%s.Func(func(ctx %s.Context, _gsxw %s.Writer) error {\n", rt.rt(), rt.ctx(), rt.io())
 	fmt.Fprintf(&slot, "\t\t_gsxgw := %s.W(_gsxw)\n", rt.rt())
-	emitNumScratch(&slot, nodes, resolved, cls)
+	emitNumScratch(&slot, nodes, resolved, table, cls)
 	for _, c := range nodes {
 		if !genNode(&slot, c, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
 			return "", false
