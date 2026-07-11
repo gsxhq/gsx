@@ -441,3 +441,11 @@ func TestSpreadAggregatesClassStyle(t *testing.T) {
 		t.Fatalf("Spread did not aggregate class: %q", got)
 	}
 }
+
+// TestToStrBytes pins that toStr renders []byte as text (matching
+// anyRenderString in writer.go), not fmt.Sprint's decimal-array form.
+func TestToStrBytes(t *testing.T) {
+	if got := toStr([]byte("hi")); got != "hi" {
+		t.Errorf("toStr([]byte) = %q, want %q", got, "hi")
+	}
+}

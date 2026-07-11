@@ -461,6 +461,8 @@ func toStr(v any) string {
 	switch t := v.(type) {
 	case string:
 		return t
+	case []byte:
+		return string(t)
 	case []string:
 		return strings.Join(t, " ")
 	case fmt.Stringer:
