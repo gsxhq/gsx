@@ -398,7 +398,7 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 		return runWatch(watchConfig{
 			paths: paths, format: formatFlag,
 			stdout: stdout, stderr: stderr, quiet: quiet, verbose: verbose,
-			filterPkgs: filterPkgs, aliases: aliases, cls: cls,
+			filterPkgs: filterPkgs, aliases: aliases, renderers: renderers, cls: cls,
 			fm: fm, cssMin: cssMin, jsMin: jsMin, cssMinify: cssMinify, jsMinify: jsMinify,
 			classMerger: classMerger,
 		})

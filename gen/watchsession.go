@@ -58,6 +58,7 @@ func (s *watchSession) openModule(root string) (*codegen.Module, error) {
 		ModulePath:   modPath,
 		FilterPkgs:   s.cfg.filterPkgs,
 		Aliases:      s.cfg.aliases,
+		Renderers:    s.cfg.renderers,
 		FieldMatcher: s.cfg.fm,
 		Classifier:   s.cfg.cls,
 		CSSMin:       s.cfg.cssMin,
