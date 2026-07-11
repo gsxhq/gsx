@@ -24,7 +24,7 @@ func Widget(p WidgetProps) gsx.Node {
 	return gsx.Func(func(ctx context.Context, w io.Writer) error {
 		gw := gsx.W(w)
 		gw.S("<span")
-		gw.Spread(ctx, p.Attrs)
+		gw.Spread(ctx, p.Attrs, nil, nil, nil, nil)
 		gw.S("></span>")
 		return gw.Err()
 	})

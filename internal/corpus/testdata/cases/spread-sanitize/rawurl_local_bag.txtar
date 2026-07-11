@@ -1,0 +1,17 @@
+# RawURL opt-out survives the leaf URL sink (issue #75): a local bag whose href
+# is gsx.RawURL("app://ok") spreads onto <a> and renders verbatim (app://ok),
+# NOT about:invalid#gsx — the author explicitly vouched for the value.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Link() {
+	{{ b := gsx.Attrs{{Key: "href", Value: gsx.RawURL("app://ok")}} }}
+	<a { b... }>click</a>
+}
+-- invoke --
+Link()
+-- diagnostics.golden --
+-- render.golden --
+<a href="app://ok">click</a>

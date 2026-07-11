@@ -74,8 +74,8 @@ render goldens.
    (`` js`...` `` / `` css`...` ``) with escaped `@{ }` holes and escaped literal
    delimiters - see Security). Plus
    composable **`class`** (`gw.Class`), composable **`style`** on elements
-   (`gw.Style`/`gsx.StyleString`), **element spread** `{...attrs}` (`gw.Spread`),
-   and **conditional** `{ if cond { attr } else { attr } }`. Pipelines `|>` work
+   (`gw.Style`/`gsx.StyleString`), **element spread** `{...attrs}`
+   (`Spread`), and **conditional** `{ if cond { attr } else { attr } }`. Pipelines `|>` work
    in every interpolation/attr/class/style/spread context. **Deferred:** `[]string`
    class parts; non-string-value-in-URL-attr clean compile error.
 4. [x] **Pipeline `|>` + filters.** Seed-first forward-application: `subject |> name(args…)`
@@ -149,9 +149,9 @@ render goldens.
 9. [x] **Ordered attributes** (`{{ }}` lowering to `gsx.Attrs`) - `2026-06-29`.
    A `{{ "key": goExpr, … }}` literal in attribute-value position binds to a
    declared `gsx.Attrs` component prop; the bag is spread onto an element with
-   `{ prop... }` via `Writer.Spread`, which emits pairs in **slice order**.
-   Keys must be quoted string literals (enables kebab/colon names); values
-   are arbitrary Go expressions (`|>` pipelines not supported inside the literal);
+   `{ prop... }` via `Writer.Spread`, which emits pairs in **slice
+   order**. Keys must be quoted string literals (enables kebab/colon names);
+   values are arbitrary Go expressions (`|>` pipelines not supported inside the literal);
    `bool` values toggle bare/omitted. Duplicate keys and trailing commas are allowed;
    an empty `{{ }}` renders nothing. Using `{{ }}` directly on a plain-element
    attribute is a clean diagnostic. The bag does not participate in class/style
@@ -704,30 +704,46 @@ vocabulary remains a design aspiration, not the current API.
    remains for userland eager composition. Corpus:
    `internal/corpus/testdata/cases/{urlattrs,fallthrough,attrs}/`. Docs:
    `attrs.go` godoc, `composition.md` §Precedence/§Derived bags,
-   `attributes.md`/`props.md`. **Follow-ups (not implemented here):**
-   - **Local `gsx.Attrs` variables stay inline-emitted** - a variable declared
-     and assigned inside a component body (not a declared prop field/param)
-     spread with `{ b... }` still emits a bare `Spread` with no caller-wins
-     guards, no class merge, and no URL extraction, so a duplicate attribute
-     or an unsanitized URL value is possible (`fallthrough/local_bag_inline`
-     pins the duplicate). Closing this needs body-local type tracking to
-     recognize a `gsx.Attrs`-typed local as a forwarding position.
+   `attributes.md`/`props.md`. **Follow-ups from this round, now RESOLVED**
+   (2026-07-11, closing issue #75 - `2026-07-10-bag-spread-hardening-design.md`'s
+   remaining gaps): every element spread `{ x... }` is now a forwarding spread
+   regardless of the bag expression - `bagSpreadIndex` matches *any* `SpreadAttr`
+   on an element (not a recognized set of bag spellings), and the dead
+   `bagBases`/`spreadMatchesAnyBase`/`spreadMatchesBase`/`scanGoTokens`
+   recognition machinery is deleted. The old unsanitizing 2-arg `gw.Spread`
+   itself is gone - the single-pass `Spread` is the sole spread primitive,
+   so there is no unsanitizing spread call left to fall back to. Concretely:
+   - **Local `gsx.Attrs` variables** now sanitize and forward exactly like a
+     declared bag: caller-wins guards, `class`/`style` merge, and leaf URL
+     extraction all apply to `{ b... }` for a body-local `b`. Corpus:
+     `spread-sanitize/{derived_local_bag,spread_local_bag,spread_local_bag_img,rawurl_local_bag}`,
+     `fallthrough/local_bag_merges` (replaces the old, now-deleted
+     `local_bag_inline`, which pinned the vulnerable behavior).
    - **A byo struct's second `gsx.Attrs` field** (e.g. `Extra gsx.Attrs`
-     alongside the classified `Attrs` field) also stays inline-emitted -
-     `analyze.go`'s byo path only classifies the exact `Attrs` field name
-     (`byoStruct.hasAttrs`) before `genProps` ever runs, so `attrsProps` is
-     never populated for byo structs. Recognizing a second field needs new
-     analysis facts, not just a wider `bagBases` scan.
+     alongside a classified `Attrs` field) gets the same treatment when
+     spread - the fix isn't a targeted recognition of a second field name, it's
+     that recognition no longer gates the behavior at all. Corpus:
+     `spread-sanitize/spread_byo_second_field`.
+   - A bag returned from a **function call** or any other `gsx.Attrs`-typed
+     expression is covered the same way. Corpus: `spread-sanitize/spread_func_bag`.
+
+   **Still open:**
    - **Call-site literal trust-marking** - the URL allow-list passes every
      conventional scheme through the extraction machinery; an author who
      wants an exotic literal scheme trusted without per-value `gsx.RawURL`
      wrapping still has no call-site-level "trust this bag's URLs" marker.
      Considered and deferred alongside Part A; `gsx.RawURL` remains the only
      opt-out.
-   - **Two-spread diagnostic DX** - "more than one attrs-referencing spread on
-     an element; precedence is ambiguous" names the rule but not a fix. A
-     friendlier diagnostic would point at both spread positions and suggest
-     the `{ a.Merge(b)... }` composition inline.
+
+   **Two-spread diagnostic DX - RESOLVED** (2026-07-11,
+   universal-spread-sanitization branch). The diagnostic now positions at the
+   *second* spread (not the element) and names both spread expressions with
+   the merge recipe: `element with a spread { a... } cannot carry another
+   spread { b... }; merge them into one spread ({ a.Merge(b)... } or {
+   b.Merge(a)... }) so precedence is explicit`. Corpus:
+   `spread-sanitize/two_spreads_error`,
+   `fallthrough/{second_spread_rejected,byo_bag_two_spreads}`,
+   `jsattr/manual_multi_spread_rejected`.
 
 ## Tracked debts / deferrals
 
