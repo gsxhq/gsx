@@ -500,6 +500,8 @@ renderers/attr_error	diag gen render
 renderers/attr_error_cond	diag gen render
 renderers/attr_url	diag gen render
 renderers/component_arg_negative	diag gen render
+renderers/fallthrough_attr	diag gen render
+renderers/fallthrough_ordered_attr	diag gen render
 renderers/numeric_result	diag gen render
 renderers/pipe_result	diag gen render
 renderers/pointer	diag gen render
@@ -651,4 +653,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 653 cases (render: 532, error: 92, gen-pinned: 336)
+TOTAL: 655 cases (render: 534, error: 92, gen-pinned: 338)

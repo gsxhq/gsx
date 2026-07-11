@@ -3953,7 +3953,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 			return "", fmt.Errorf("slot closure failed")
 		}
 		return s, nil
-	}, false, resolved, b, interpTemp)
+	}, false, resolved, b, interpTemp, "return _gsxerr")
 	if err != nil {
 		// Convert the childPropsLiteral error to a positioned diagnostic.
 		// An attrError carries the specific attr's position; fall back to the element.
@@ -4026,6 +4026,14 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 	// `tmp, _gsxerr := expr; if _gsxerr != nil { return _gsxerr }`. Non-call values
 	// (literals/idents) have no side effects and stay INLINE, preserving their
 	// untyped-constant assignability.
+	//
+	// An OrderedAttrsAttr pair whose value type has a registered [renderers]
+	// entry ALSO triggers the pass: the pair renders as an HTML attribute at
+	// the leaf, so its renderer call must be spliced into the rebuilt literal
+	// (and a hasErr renderer's error hoisted) before the value degrades to
+	// `any`. childPropsLiteral's inline literal is renderer-free by design —
+	// it cannot know whether this pass will rebuild, and a hoist emitted there
+	// would be orphaned (double-evaluated) by the rebuild.
 	anyTuple := false
 outer:
 	for _, fe := range fieldEntries {
@@ -4037,7 +4045,12 @@ outer:
 		}
 		if fe.oa != nil {
 			for j := range fe.oaPairs {
-				if _, ok := tupleUnwrapType(resolved[&fe.oa.Pairs[j]]); ok {
+				pt := resolved[&fe.oa.Pairs[j]]
+				if _, ok := tupleUnwrapType(pt); ok {
+					anyTuple = true
+					break outer
+				}
+				if _, ok := table.renderers[rendererKey(pt)]; ok {
 					anyTuple = true
 					break outer
 				}
@@ -4092,6 +4105,16 @@ outer:
 					default:
 						valueStr = pr.rawVal // inline non-call value
 					}
+					// Apply a registered [renderers] entry before the pair value
+					// enters the literal as `any` — the pair renders as an HTML
+					// attribute at the leaf. Tuple-unwrap for the key lookup (a
+					// hoisted tuple pair's valueStr already has type T); a
+					// registry miss leaves valueStr unchanged.
+					attrType := pairType
+					if elemT, ok := tupleUnwrapType(pairType); ok {
+						attrType = elemT
+					}
+					valueStr, _ = applyRenderer(b, valueStr, attrType, table, imports, interpTemp, "return _gsxerr")
 					fmt.Fprintf(&sb, "{Key: %s, Value: %s}, ", strconv.Quote(pr.key), valueStr)
 				}
 				sb.WriteString("}")
@@ -4423,6 +4446,10 @@ func genSkippedTagSink(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 	// INSIDE the discarded func literal (never executed) instead of inline
 	// in the render body (where they would run — and where their temps would
 	// be unused, since the consuming class entry lives in the sink).
+	// bagErrReturn is "" — a skipped tag renders nothing, so fallthrough
+	// values are sunk RAW (reference consumption only, no renderer): the
+	// discarded literal is a nullary func and cannot host a renderer's
+	// `return _gsxerr` hoist.
 	var hoist bytes.Buffer
 	fieldEntries, splatExpr, usedPkgs, err := childPropsLiteral(el, propsType, rt.rt(), classMergeExpr(mergeExpr, rt), table, structFields, nodeProps[propsType], byo, fm, func(nodes []ast.Markup) (string, error) {
 		s, ok := emitSlotClosure(nodes, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)
@@ -4430,7 +4457,7 @@ func genSkippedTagSink(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 			return "", fmt.Errorf("slot closure failed")
 		}
 		return s, nil
-	}, false, resolved, &hoist, interpTemp)
+	}, false, resolved, &hoist, interpTemp, "")
 	if err != nil {
 		if ae, ok := errors.AsType[*attrError](err); ok {
 			bag.Errorf(ae.pos, ae.end, ae.code, "%s", ae.msg)
@@ -4641,9 +4668,16 @@ const attrsOnlyPropsKey = "attrsonly.bag"
 // hoisted before the call in emit mode, or rejected with a positioned *attrError.
 func attrsOnlyBagExpr(el *ast.Element, rtPkg, mergeExpr string, table funcTables, byo *byoData, fm FieldMatcher, probeWrap bool, resolved map[ast.Node]types.Type, b *bytes.Buffer, interpTemp *int) (expr string, usedPkgs map[string]string, err error) {
 	synthetic := map[string]map[string]bool{attrsOnlyPropsKey: {"Attrs": true}}
+	// Attrs-only call sites always emit inside a render closure, so fallthrough
+	// renderer hoists use the single-value error return (probe mode disables
+	// renderer application inside childPropsLiteral regardless).
+	bagErrReturn := ""
+	if !probeWrap {
+		bagErrReturn = "return _gsxerr"
+	}
 	fields, splat, used, err := childPropsLiteral(el, attrsOnlyPropsKey, rtPkg, mergeExpr, table, synthetic, nil, byo, fm,
 		func([]ast.Markup) (string, error) { return "", fmt.Errorf("attrs-only components take no slots") },
-		probeWrap, resolved, b, interpTemp)
+		probeWrap, resolved, b, interpTemp, bagErrReturn)
 	if err != nil {
 		return "", nil, err
 	}
@@ -4674,7 +4708,12 @@ func attrsOnlyBagExpr(el *ast.Element, rtPkg, mergeExpr string, table funcTables
 		}
 	}
 	if fe.oa != nil {
-		anyTuple := false
+		// A registered-renderer pair also forces the rebuild (same rule and
+		// reasoning as genChildComponent's hoist-all pass): the renderer call
+		// must be spliced into the literal before the value degrades to `any`.
+		// Probe mode never rebuilds — resolved is nil there and the skeleton
+		// does not dispatch renderers.
+		rebuild := false
 		for j := range fe.oaPairs {
 			pairType := resolved[&fe.oa.Pairs[j]]
 			if t, ok := pairType.(*types.Tuple); ok {
@@ -4682,10 +4721,15 @@ func attrsOnlyBagExpr(el *ast.Element, rtPkg, mergeExpr string, table funcTables
 					return "", nil, &attrError{pos: fe.oa.Pairs[j].Pos(), end: fe.oa.Pairs[j].End(), code: "invalid-tuple",
 						msg: fmt.Sprintf("ordered-attrs pair %q value %q returns %s; only (T, error) is supported", fe.oaPairs[j].key, fe.oaPairs[j].rawVal, t)}
 				}
-				anyTuple = true
+				rebuild = true
+			}
+			if !probeWrap {
+				if _, ok := table.renderers[rendererKey(pairType)]; ok {
+					rebuild = true
+				}
 			}
 		}
-		if anyTuple {
+		if rebuild {
 			var sb strings.Builder
 			fmt.Fprintf(&sb, "%s.Attrs{", rtPkg)
 			for j, pr := range fe.oaPairs {
@@ -4702,6 +4746,17 @@ func attrsOnlyBagExpr(el *ast.Element, rtPkg, mergeExpr string, table funcTables
 					valueStr = tmp
 				default:
 					valueStr = pr.rawVal
+				}
+				// Renderer application, identical to genChildComponent's rebuild;
+				// imports bridge through `used` (values-folded by the caller).
+				attrType := pairType
+				if elemT, ok := tupleUnwrapType(pairType); ok {
+					attrType = elemT
+				}
+				scratch := map[string]bool{}
+				valueStr, _ = applyRenderer(b, valueStr, attrType, table, scratch, interpTemp, "return _gsxerr")
+				for path := range scratch {
+					used[path] = path
 				}
 				fmt.Fprintf(&sb, "{Key: %s, Value: %s}, ", strconv.Quote(pr.key), valueStr)
 			}
@@ -4784,7 +4839,22 @@ func attrsOnlyBagExpr(el *ast.Element, rtPkg, mergeExpr string, table funcTables
 // resolved maps *ClassPart nodes to their harvest type so classEntryExpr can detect
 // and hoist (T, error) tuple-returning unconditional plain parts. Pass nil in the
 // probe path (skeleton does not need resolved; probeWrap wraps call exprs instead).
-func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, table funcTables, propFields map[string]map[string]bool, nodeFields map[string]bool, byo *byoData, fm FieldMatcher, slotValue func(nodes []ast.Markup) (string, error), probeWrap bool, resolved map[ast.Node]types.Type, b *bytes.Buffer, interpTemp *int) (fields []propFieldEntry, splatExpr string, usedPkgs map[string]string, err error) {
+//
+// bagErrReturn enables [renderers] application at the FALLTHROUGH-bag boundary:
+// an unmatched ExprAttr's value renders as an HTML attribute at the leaf, so a
+// registered type is wrapped in its renderer call BEFORE the value enters the
+// bag literal as `any` (past that point the runtime only sees `any` and falls
+// back to fmt.Sprint — the renderer, and a hasErr renderer's error, would be
+// silently lost). Non-empty bagErrReturn is the applyRenderer error-return for
+// the enclosing context ("return _gsxerr" — the render closure). Pass "" to
+// disable: the probe (skeleton never dispatches renderers) and the skipped-tag
+// sink (genSkippedTagSink — values are reference-sinks inside a DISCARDED
+// nullary func literal, which is never executed and cannot host a `return
+// _gsxerr` hoist). DECLARED props never route through renderers (they are Go
+// values passed to Go code — pinned by renderers/component_arg_negative);
+// ordered-attrs {{ }} pair values are handled by the callers' literal-rebuild
+// passes, not here (see genChildComponent / attrsOnlyBagExpr).
+func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, table funcTables, propFields map[string]map[string]bool, nodeFields map[string]bool, byo *byoData, fm FieldMatcher, slotValue func(nodes []ast.Markup) (string, error), probeWrap bool, resolved map[ast.Node]types.Type, b *bytes.Buffer, interpTemp *int, bagErrReturn string) (fields []propFieldEntry, splatExpr string, usedPkgs map[string]string, err error) {
 	fm = fieldMatcherOrDefault(fm)    // normalize nil → default matcher
 	declared := propFields[propsType] // nil for cross-package / unknown → graceful
 	// pipeWrap is the lowerPipe hook for a mid-stage (R, error) filter in a prop
@@ -4940,6 +5010,23 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 						} else {
 							val = hoistTuple(b, val, interpTemp)
 						}
+					}
+				}
+				if !probeWrap && bagErrReturn != "" {
+					// Apply a registered [renderers] entry BEFORE the value enters
+					// the bag literal as `any` — mirroring condBranchAttrs (the
+					// cond-attr thunk sibling of this boundary). Same usedPkgs
+					// bridge: the caller folds usedPkgs VALUES into imports.
+					attrType := resolved[t]
+					if tup, isTuple := attrType.(*types.Tuple); isTuple {
+						if elemT, ok := tupleUnwrapType(tup); ok {
+							attrType = elemT
+						}
+					}
+					scratch := map[string]bool{}
+					val, _ = applyRenderer(b, val, attrType, table, scratch, interpTemp, bagErrReturn)
+					for path := range scratch {
+						usedPkgs[path] = path
 					}
 				}
 				bag = append(bag, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), val))

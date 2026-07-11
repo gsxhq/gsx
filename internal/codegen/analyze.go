@@ -1541,7 +1541,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 					var cfHoistBuf bytes.Buffer
 					fieldEntries, splatExpr, usedPkgs, err := childPropsLiteral(t, propsType, "_gsxrt", "_gsxrt.DefaultClassMerge", table, propFields, nodeProps[propsType], byo, fm, func(nodes []gsxast.Markup) (string, error) {
 						return "_gsxrt.Node(nil)", nil
-					}, true, nil, &cfHoistBuf, cfTemp)
+					}, true, nil, &cfHoistBuf, cfTemp, "")
 					if err != nil {
 						// childPropsLiteral returns an *attrError with the offending attr's
 						// position embedded. Propagate it as-is so the caller can emit
