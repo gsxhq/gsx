@@ -761,6 +761,19 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	if scriptErr {
 		gsxFiles = nil // package-level skip: Generate's loop emits nothing
 	}
+	// Resolve component-vs-leaf for every tag BEFORE any skeleton/probe/emit
+	// walk consults it (analyze.go's emitProbes reads the stamp). Lowercase
+	// tags resolve against the package's declared names; see tagresolve.go
+	// and docs/superpowers/specs/2026-07-10-lowercase-tag-symbol-resolution-design.md.
+	declNames := packageDeclNames(dir, gsxFiles)
+	for _, f := range gsxFiles {
+		resolveComponentTags(f, declNames, bag)
+	}
+	// Mutual wrapper cycles (A unconditionally renders <B>, B unconditionally
+	// renders <A>) compile clean — self-exclusion only breaks a DIRECT
+	// self-loop — but recurse forever at render. Must run after every
+	// element's IsComponent is stamped (the loop above).
+	reportWrapperCycles(gsxFiles, bag)
 	// Per-dir: an imported sibling package resolves its OWN filter table here,
 	// because analyze is the recursion point for the import graph.
 	table, err := m.filterTableFor(dir, true)
@@ -850,7 +863,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		}
 		ff := m.fileScopedFacts(dir, f, propFields, nodeProps, attrsProps, byo, bag, fset)
 		factsByFile[path] = ff
-		skel, comps, imps, ctrlOff, infReg, gwMarkups, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, m.opts.Classifier, bag, inferNames)
+		skel, comps, imps, ctrlOff, infReg, gwMarkups, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, m.opts.Classifier, bag, inferNames, declNames)
 		if berr != nil {
 			// buildSkeleton error handling: a positioned attrError becomes a
 			// diagnostic and skips this file; any other error is also recorded as a

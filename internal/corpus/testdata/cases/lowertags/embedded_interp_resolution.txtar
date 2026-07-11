@@ -1,0 +1,25 @@
+# Regression for Hazard B (lowercase-tag-resolution review): a lowercase tag
+# embedded inside a `{ }` interpolation's Go-expression (Interp.Embedded,
+# materialized by splitInterpEmbedded AFTER the file-level resolveComponentTags
+# pass already ran over the rest of the file — see tagresolve.go) must still
+# resolve against the package's declared names, exactly like a same-tag
+# element sitting directly in a component body would.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+func wrap(n gsx.Node) gsx.Node { return n }
+
+component card() {
+	<em class="card">c</em>
+}
+
+component Page() {
+	<div>{ wrap(<card/>) }</div>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<div><em class="card">c</em></div>

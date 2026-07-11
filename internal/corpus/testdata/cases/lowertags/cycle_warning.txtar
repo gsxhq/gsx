@@ -1,0 +1,24 @@
+# Two wrappers whose bodies UNCONDITIONALLY render each other's element name:
+# self-exclusion only breaks a DIRECT self-loop, not this mutual A→B→A shape,
+# so it compiles clean and would recurse forever at render — warn. Page()
+# uses NEITHER wrapper, so rendering must not actually recurse.
+-- input.gsx --
+package views
+
+component div() {
+	<div><span>{children}</span></div>
+}
+
+component span() {
+	<span><div>{children}</div></span>
+}
+
+component Page() {
+	<p>hi</p>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+4:7: warning: wrapper cycle div → span → div will recurse infinitely at render
+-- render.golden --
+<p>hi</p>

@@ -1,8 +1,13 @@
 package corpus
 
 import (
+	"bytes"
+	"go/token"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/gsxhq/gsx/internal/diag"
 )
 
 func TestBatchCodegenSingleAndMulti(t *testing.T) {
@@ -33,5 +38,106 @@ func TestBatchCodegenSingleAndMulti(t *testing.T) {
 	}
 	if d, _ := htmlStructuralDiff(out["loadertest/multi"].html, "<button>Go</button>"); d != "" {
 		t.Errorf("multi: %s\ngot %q", d, out["loadertest/multi"].html)
+	}
+}
+
+// TestFormatDiagLine pins the three diagBuf line shapes formatDiagLine
+// produces: a positioned error (no severity prefix, so existing
+// diagnostics.golden files pinned before severity prefixes were added stay
+// unchanged), a positioned warning ("warning: " prefix), and a positionless
+// error (message only, no "0:0:").
+func TestFormatDiagLine(t *testing.T) {
+	tests := []struct {
+		name string
+		d    diag.Diagnostic
+		want string
+	}{
+		{
+			name: "positioned error has no severity prefix",
+			d: diag.Diagnostic{
+				Start:    token.Position{Line: 3, Column: 5},
+				Severity: diag.Error,
+				Message:  "boom",
+			},
+			want: "3:5: boom\n",
+		},
+		{
+			name: "positioned warning gets a warning prefix",
+			d: diag.Diagnostic{
+				Start:    token.Position{Line: 6, Column: 2},
+				Severity: diag.Warning,
+				Message:  "needs an explicit type arg",
+			},
+			want: "6:2: warning: needs an explicit type arg\n",
+		},
+		{
+			name: "positionless diagnostic has no line:col",
+			d: diag.Diagnostic{
+				Severity: diag.Error,
+				Message:  "package-level failure",
+			},
+			want: "package-level failure\n",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			formatDiagLine(&buf, tc.d)
+			if got := buf.String(); got != tc.want {
+				t.Errorf("formatDiagLine: got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestBatchCodegenWarningOnlyCasePopulatesDiagAndBuilds is the end-to-end
+// proof for the fix in batch.go: a case whose only diagnostic is a Warning
+// (not an Error) must still get a non-empty caseCodegen.diag — the field's
+// doc says "empty if clean", and a warning-only case is not clean — while
+// remaining buildable/renderable (cg.hasErr must stay false, gating
+// buildability separately from diag's emptiness). Before the fix, cg.diag
+// was only ever populated inside the `if hasErr` branch, so a warning-only
+// case silently wrote an empty diagnostics.golden.
+//
+// xpkg/generic_inference_unavailable_warning.txtar exercises the one
+// reachable warning path in codegen (infer.go's recordInferenceUnavailable,
+// "inference-unavailable"): an imported generic component's type-param
+// constraint references an unexported dep-local type, so the ONE offending
+// tag's probe is skipped with a Warning while the sibling tag in the same
+// file still generates and renders.
+func TestBatchCodegenWarningOnlyCasePopulatesDiagAndBuilds(t *testing.T) {
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatalf("resolve repo root: %v", err)
+	}
+	c, err := loadCase("testdata/cases/xpkg/generic_inference_unavailable_warning.txtar")
+	if err != nil {
+		t.Fatalf("load case: %v", err)
+	}
+	out, err := batchCodegen(repoRoot, []*caseDoc{c})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cg := out[c.name]
+	if cg == nil {
+		t.Fatalf("batchCodegen returned no result for %s", c.name)
+	}
+	if cg.hasErr {
+		t.Errorf("hasErr = true for a warning-only case; want false (an error-only gate must not treat warnings as errors)")
+	}
+	if len(cg.diag) == 0 {
+		t.Fatalf("cg.diag is empty for a warning-only case; want the formatted warning line (empty means \"clean\", and a warning is not clean)")
+	}
+	if !strings.Contains(string(cg.diag), "warning: ") {
+		t.Errorf("cg.diag = %q; want a \"warning: \" prefixed line", cg.diag)
+	}
+	if !strings.Contains(string(cg.diag), "components.Widget") {
+		t.Errorf("cg.diag = %q; want it to name the offending tag <components.Widget>", cg.diag)
+	}
+	if len(cg.gen) == 0 {
+		t.Errorf("cg.gen is empty; a warning-only case must still generate the unaffected sibling tag")
+	}
+	if d, _ := htmlStructuralDiff(cg.html, "<button>ok</button>"); d != "" {
+		t.Errorf("render: %s\ngot %q", d, cg.html)
 	}
 }

@@ -457,6 +457,60 @@ render goldens.
     (`<Inner { attrs... }/>`) is a related but separate gap this spec
     identified and deliberately left open. Spec
     `2026-07-07-attrs-only-component-values-design.md`.
+19. [x] **Lowercase tags resolve to package symbols** - `2026-07-10`. A tag
+    resolves in exactly one of three ways: capital-first/dotted tags stay
+    components unchanged (`go build` resolves the name, including
+    function-local element-literal locals and struct methods); a **lowercase
+    simple tag whose name matches a package-level `func`/`var`/`type`/`const`
+    is now also a component call**; a lowercase simple tag with no match is a
+    leaf element, exactly as before. There is no reserved HTML-element table
+    in resolution - `<div>` is a leaf only because nothing declares `div`.
+    The declared-name set is gathered **syntactically** (no `packages.Load`,
+    no type checking) from every `.gsx` and `.go` file in the package
+    directory via a standalone `go/parser`-based scan
+    (`internal/codegen/declnames.go`, `packageDeclNames`); import names and
+    `_test.go`-only names don't count, and build-tag variants count regardless
+    of tags (consistent with the PR #43 stance: gsx never evaluates build
+    tags). A matched-but-non-invocable declaration (`var data int` + `<data>`)
+    still lowers as a call and lets `go build` report the mismatch - resolution
+    never silently falls back to leaf. **Self-exclusion:** inside the body of
+    the declaration that declares name `x`, `<x>` is always a leaf - this is
+    what makes the zero-syntax wrapper pattern work
+    (`component div() { <div { attrs... }>{children}</div> }`), keyed by the
+    enclosing declaration's name (methods included). Two new diagnostics
+    guard the runtime-surprise shapes this opens: a **warning** when a
+    self-named tag isn't a spec HTML element name (almost certainly an
+    accidental leaf instead of intended recursion - use the call form
+    `item(...)` to recurse), and a **wrapper-cycle warning** on the
+    component-tags-in-body directed graph, per package, for any cycle whose
+    edges are all unconditional (a tag under `if`/`for` legitimately breaks a
+    static cycle, so any conditional edge exempts it). **Parser:** type-arg
+    admission loosens to any tag (`<list[int]>` parses whether or not `list`
+    resolves); codegen errors if a type-arg-carrying tag resolves to a leaf.
+    `ast.IsComponentTag` stays authoritative for capital/dotted tags only -
+    every caller (codegen emit/analyze/attrsonly, LSP definition/hover) was
+    audited to take the resolved answer instead of the syntactic guess for
+    lowercase tags. **Invalidation:** rides the existing dependency edge - a
+    package's `.x.go` already depends on sibling `.go` sources via
+    `gen/watch.go`'s `isDepFile` and `gen/cachekey.go`'s `dirSourceHash`, so
+    no new invalidation machinery was needed. **Perf-gated:** the added work
+    is one syntax-only `go/parser` pass over package `.go` files (reusing
+    already-parsed `.gsx` skeletons) plus an AST walk; measured within noise
+    of pre-feature `gsx generate` wall time on a representative multi-file
+    package (5 alternating runs, baseline vs. feature binary). Corpus:
+    `internal/corpus/testdata/cases/lowertags/*` (func/var-value resolution
+    same-file and cross-file, non-invocable capture, leaf fallback + dashed
+    custom elements, self-exclusion wrapper, wrapper composition, import/
+    `_test.go` non-capture, type-args-on-leaf, self-reference warning,
+    unconditional-cycle warning + conditional-edge exemption). Docs:
+    `syntax/basic-syntax.md` §Element vs component (the resolution rule +
+    wrapper pattern), `syntax/composition.md` cross-reference. **Follow-ups
+    (tracked in "Tracked debts / deferrals" below):** param-qualifier dotted
+    method tags mislowering (pre-existing gap found while probing, not
+    introduced here), LSP semantic tokens for lowercase component tags,
+    element-literal `var` values not being tag-invocable, and an optional
+    explicit allowlist for intentional obsolete-element wrapper names. Spec
+    `2026-07-10-lowercase-tag-symbol-resolution-design.md`.
 
 ## Language server (`gsx lsp`)
 
@@ -1102,6 +1156,41 @@ vocabulary remains a design aspiration, not the current API.
   discovery. `gen.Result.Removed`/`cycleResult.Removed` report what was
   deleted. Spec: `docs/superpowers/specs/2026-07-10-poison-xgo-on-failure-design.md`,
   "Orphaned `.x.go`".
+- [ ] **Param-qualifier dotted method tags mislower** - pre-existing gap found
+  while probing the lowercase-tag-resolution design (not introduced by it): a
+  dotted tag whose qualifier is an ordinary local/param rather than the
+  enclosing receiver - `component List(p page) { <p.Item/> }` - is mislowered
+  as a package-qualified component (`p.ItemProps{}`, producing `p.ItemProps is
+  not a type`). Method invocation currently only recognizes the enclosing
+  receiver's own name as a dotted qualifier. Spec
+  `2026-07-10-lowercase-tag-symbol-resolution-design.md`, "Out of scope".
+- [ ] **LSP semantic tokens for lowercase component tags** - static syntax
+  highlighters (tree-sitter, CodeMirror) cannot run symbol resolution, so a
+  lowercase tag that resolves to a component still highlights as a plain
+  element outside the editor's LSP session. `gsx lsp` needs to emit a
+  component-classified semantic token for a resolved lowercase tag so
+  in-editor highlighting matches codegen's actual resolution instead of the
+  syntactic guess. Spec
+  `2026-07-10-lowercase-tag-symbol-resolution-design.md`, "Tooling".
+- [ ] **Element-literal `var` values are not tag-invocable** - a package-level
+  `var` holding an element literal (`var chip = <em class="chip">c</em>`, type
+  `gsx.Node`) counts as a declaration for lowercase-tag resolution, so `<chip>`
+  lowers as a component call - but `gsx.Node` doesn't match either component-value
+  signature (`func(gsx.Attrs) gsx.Node` etc.) or a `<Name>Props` struct, so it's a
+  loud `go build`-arbiter-style diagnostic at generate time, not a silent leaf
+  fallback. Pinned by `internal/corpus/testdata/cases/lowertags/resolves_var_value.txtar`.
+  Making element-literal vars genuinely tag-invocable (e.g. treating a bare
+  `gsx.Node` var as a zero-arg component value) is a potential future feature,
+  not required by the current design.
+- [ ] **Optional: explicit allowlist for intentional obsolete-element wrapper
+  names** - the self-reference diagnostic warns when a self-named tag isn't a
+  spec HTML element name, on the theory that it's almost always an accidental
+  leaf rather than intended recursion. A component deliberately named after an
+  obsolete/rare HTML element outside the WHATWG table it doesn't know about
+  would false-positive. A tiny explicit allowlist (marquee-style rare
+  elements) would let an author suppress the warning for a genuine wrapper
+  without renaming; not needed by any known in-repo case, so deferred until
+  one shows up.
 
 ## Documentation backlog
 

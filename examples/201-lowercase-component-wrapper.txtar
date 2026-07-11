@@ -1,0 +1,21 @@
+-- doc --
+name: Wrapper pattern
+summary: A lowercase tag resolves to the package's matching declaration; inside that declaration's own body, the self-named tag is excluded and stays a plain element.
+category: Basics
+order: 201
+page: basic-syntax
+pageOrder: 20
+-- input.gsx --
+package views
+
+component div() {
+	<div { attrs... }>{children}</div>
+}
+
+component Page() {
+	<div class="card">Hello</div>
+}
+-- invoke --
+Page()
+-- render.golden --
+<div class="card">Hello</div>

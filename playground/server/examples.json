@@ -282,6 +282,12 @@
     "invoke": "Page(PageProps{Title: \"Home\"})"
   },
   {
+    "name": "Wrapper pattern",
+    "category": "Basics",
+    "source": "package views\n\ncomponent div() {\n\t<div { attrs... }>{ children }</div>\n}\n\ncomponent Page() {\n\t<div class=\"card\">Hello</div>\n}\n",
+    "invoke": "Page()"
+  },
+  {
     "name": "Init statement",
     "category": "Control flow",
     "source": "package views\n\nfunc loadUser(id string) (string, error) { return \"User:\" + id, nil }\n\ncomponent Profile(id string) {\n\t<div>\n\t\t{ if name, err := loadUser(id); err != nil {\n\t\t\t<span class=\"err\">{ err.Error() }</span>\n\t\t} else {\n\t\t\t<span>{ name }</span>\n\t\t} }\n\t</div>\n}\n",

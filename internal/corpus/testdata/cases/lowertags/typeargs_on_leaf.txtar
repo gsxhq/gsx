@@ -1,0 +1,13 @@
+# Type args on a tag that resolves to a leaf are a codegen error (the parser
+# now admits `[...]` on any tag; resolution — not the parser — decides).
+-- input.gsx --
+package views
+
+component Page() {
+	<list[int]>x</list>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+4:2: type arguments on HTML element <list>: type args are only valid on component tags
+-- render.golden --

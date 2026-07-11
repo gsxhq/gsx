@@ -24,9 +24,10 @@ type genFile struct {
 }
 
 type caseCodegen struct {
-	gen  []byte // concatenated generated .x.go (sorted by gsx path), for the generated.x.go.golden facet
-	diag []byte // normalized codegen diagnostics (empty if clean)
-	html string // rendered HTML (renderable cases only; empty otherwise)
+	gen    []byte // concatenated generated .x.go (sorted by gsx path), for the generated.x.go.golden facet
+	diag   []byte // normalized codegen diagnostics (empty if clean; non-empty for warnings too, not just errors)
+	hasErr bool   // true iff any diagnostic was error-severity; gates buildability (diag being non-empty does not, since warnings don't block a build)
+	html   string // rendered HTML (renderable cases only; empty otherwise)
 }
 
 const caseMarkerPrefix = "\x00CASE "
@@ -169,15 +170,26 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 				// Never fold this into diagnostics.golden, where a golden could absorb it.
 				return nil, fmt.Errorf("case %s: codegen produced no result for %s", c.name, pkgDir)
 			}
+			// Check if this package has any error-level diagnostics.
+			pkgHasErr := false
+			for _, d := range pr.Diags {
+				if d.Severity == diag.Error {
+					pkgHasErr = true
+					break
+				}
+			}
 			// Render diagnostics from pr.Diags.
 			// Format: "line:col: message" for positioned diagnostics (Start.Line > 0),
 			// or just "message" for positionless ones (so codegen goldens stay unchanged).
+			// Non-error severities get a prefix: "warning: ", "info: ", "hint: ".
 			if len(pr.Diags) > 0 {
 				for _, d := range pr.Diags {
 					formatDiagLine(&diagBuf, d)
 				}
-				hasErr = true
-				continue
+				if pkgHasErr {
+					hasErr = true
+					continue
+				}
 			}
 			// Collect files for this dir.
 			for gsxPath, genData := range pr.Files {
@@ -187,9 +199,11 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 			}
 		}
 
-		if hasErr {
+		cg.hasErr = hasErr
+		if diagBuf.Len() > 0 {
 			cg.diag = normalizeDiagPaths(diagBuf.Bytes(), tmp)
-		} else {
+		}
+		if !hasErr {
 			// Sort files: by pkgDir order (matching packageDirs() order), then by gsx path.
 			// Build ordered dir list to match concatByDir behaviour.
 			orderedDirs := cs.pkgDirs // already in packageDirs() order
@@ -247,7 +261,7 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 			continue
 		}
 		cg := results[c.name]
-		if cg == nil || len(cg.diag) > 0 {
+		if cg == nil || cg.hasErr {
 			continue // codegen failed; not buildable
 		}
 		moduleDir := caseModuleDir(tmp, c)
@@ -268,8 +282,8 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 			continue // already imported (and thus compiled) by the loop above
 		}
 		cg := results[c.name]
-		if cg == nil || len(cg.gen) == 0 || len(cg.diag) > 0 {
-			// No generated output, or the case pins expected diagnostics — an
+		if cg == nil || len(cg.gen) == 0 || cg.hasErr {
+			// No generated output, or the case pins an error diagnostic — an
 			// error case is not meant to compile.
 			continue
 		}
@@ -397,10 +411,16 @@ func referencedQualifiers(src []byte) map[string]bool {
 // Positioned diagnostics (Start.Line > 0) get "line:col: message\n".
 // Positionless ones (e.g. codegen-layer errors in Task 2) get just "message\n",
 // matching the old pr.Err.Error() format so existing codegen goldens are unchanged.
+// Non-error severities are prefixed: "warning: ", "info: ", "hint: ".
 func formatDiagLine(buf *bytes.Buffer, d diag.Diagnostic) {
+	sev := ""
+	if d.Severity != diag.Error {
+		sev = d.Severity.String() + ": "
+	}
 	if d.Start.Line > 0 {
-		fmt.Fprintf(buf, "%d:%d: %s\n", d.Start.Line, d.Start.Column, d.Message)
+		fmt.Fprintf(buf, "%d:%d: %s%s\n", d.Start.Line, d.Start.Column, sev, d.Message)
 	} else {
+		buf.WriteString(sev)
 		buf.WriteString(d.Message)
 		buf.WriteByte('\n')
 	}

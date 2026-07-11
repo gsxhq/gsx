@@ -1,0 +1,26 @@
+# Same mutual div/span shape, but div's <span> is gated by `if deep` — a
+# conditional edge exempts the whole cycle from the warning (the graph the
+# cycle detector runs over only contains UNCONDITIONAL edges, and this one
+# never enters it).
+-- input.gsx --
+package views
+
+component div(deep bool) {
+	if deep {
+		<span>{children}</span>
+	}
+	<div>{children}</div>
+}
+
+component span() {
+	<span><div>{children}</div></span>
+}
+
+component Page() {
+	<p>hi</p>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<p>hi</p>

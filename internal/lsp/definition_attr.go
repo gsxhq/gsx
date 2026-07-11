@@ -96,20 +96,12 @@ func paramDeclIn(params, attr string) (string, bool) {
 	return "", false
 }
 
-// isComponentTag reports whether tag names a component invocation — a simple
-// upper-initial tag (Card) or a dotted qualifier.Name (components.Input).
-func isComponentTag(tag string) bool {
-	if isSimpleComponentTag(tag) {
-		return true
-	}
-	_, _, ok := splitDottedTag(tag)
-	return ok
-}
-
 // componentAttrAtOffset finds a cursor on a component-invocation attribute NAME.
-// It walks the in-memory gsx AST for an element whose tag is a component (simple
-// or dotted) and whose named attr's name span [attr.Pos(), +len(name)) covers off.
-// Returns the tag, the attr name, and the attr-name byte start (edited-file offset).
+// It walks the in-memory gsx AST for an element whose tag resolves as a
+// component (el.IsComponent — the codegen-stamped answer, covering capital,
+// dotted, AND lowercase-matching-a-declaration tags) and whose named attr's
+// name span [attr.Pos(), +len(name)) covers off. Returns the tag, the attr
+// name, and the attr-name byte start (edited-file offset).
 func componentAttrAtOffset(pkg *Package, path string, off int) (tag, attr string, attrStart int, ok bool) {
 	f := pkg.Files[path]
 	if f == nil || pkg.GSXFset == nil {
@@ -120,7 +112,7 @@ func componentAttrAtOffset(pkg *Package, path string, off int) (tag, attr string
 			return false
 		}
 		el, isEl := n.(*gsxast.Element)
-		if !isEl || !isComponentTag(el.Tag) {
+		if !isEl || !el.IsComponent {
 			return true
 		}
 		for _, a := range el.Attrs {
@@ -155,13 +147,6 @@ func componentAttrParamAt(pkg *Package, path string, off int) (token.Position, b
 		return token.Position{}, false
 	}
 	return fset.Position(comp.ParamsPos + token.Pos(rel)), true
-}
-
-// isSimpleComponentTag reports whether tag is a same-package function-component
-// tag (non-empty, undotted, upper-initial) — the inverse of the dotted/lowercase
-// exclusion in componentTagDeclAt. Dotted (cross-package) tags are Phase 2.
-func isSimpleComponentTag(tag string) bool {
-	return tag != "" && !strings.Contains(tag, ".") && tag[0] >= 'A' && tag[0] <= 'Z'
 }
 
 // attrName returns the attribute's name and true for the named attr kinds; a

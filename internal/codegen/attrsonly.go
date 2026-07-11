@@ -41,7 +41,7 @@ var shadowedQualifierType types.Type = types.NewNamed(
 // alias by mergeQualified), identically in both passes since both receive the
 // same file-scoped propFields + byo.
 func isAttrsOnlyCandidate(el *gsxast.Element, propFields map[string]map[string]bool, byo *byoData, recvVar, recvTypeName string) bool {
-	if !isComponentTag(el.Tag) || el.TypeArgs != "" {
+	if !el.IsComponent || el.TypeArgs != "" {
 		return false
 	}
 	if dot := strings.IndexByte(el.Tag, '.'); dot >= 0 {

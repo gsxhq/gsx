@@ -1,0 +1,25 @@
+# Sibling of typeargs_on_leaf.txtar: type args on a leaf tag materialized
+# INSIDE a `{ }` interpolation's Go expression (Interp.Embedded, via
+# splitInterpEmbedded — see analyze.go) rather than sitting directly in a
+# component body. SplitGoExprElements parses the embedded `<list[int]/>`
+# literal with the same parser.parseElement used everywhere else, so the
+# error must fire here too, exactly once (a prior version of this check
+# double-reported: splitInterpEmbedded's walk also revisits every
+# ORIGINAL-tree element while hunting for further splittable interps, so
+# naively emitting from there duplicated resolveComponentTags' own report —
+# see splitInterpEmbedded's materialized-flag doc).
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+func wrap(n gsx.Node) gsx.Node { return n }
+
+component Page() {
+	<div>{ wrap(<list[int]/>) }</div>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+8:14: type arguments on HTML element <list>: type args are only valid on component tags
+-- render.golden --

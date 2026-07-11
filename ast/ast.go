@@ -223,6 +223,13 @@ type Element struct {
 	// is the value's own layout, not a request to break the list. Elements with
 	// no attributes never set it — there is no list to break.
 	AttrsMultiline bool
+	// IsComponent is the resolved component-vs-leaf decision for this tag:
+	// true for capital-first/dotted tags, and for lowercase tags that match a
+	// package-level declaration (with self-exclusion inside the declaration of
+	// the same name). Set by codegen's resolveComponentTags pass — NEVER by the
+	// parser — so formatter round-trip equality is unaffected. Codegen and LSP
+	// read this field instead of re-deriving component-ness from the tag string.
+	IsComponent bool
 }
 
 func (*Element) markupNode() {}
@@ -777,11 +784,12 @@ func Inspect(node Node, f func(Node) bool) {
 	f(nil)
 }
 
-// IsComponentTag reports whether a tag names a component (uppercase first
-// letter or dotted, e.g. ui.Button) rather than an HTML element. Single
-// source of truth for the parser (type-arg admission) and codegen (call
-// lowering) — the two MUST agree or type args get rejected on tags codegen
-// lowers as components.
+// IsComponentTag reports the SYNTACTIC component rule: dotted (ui.Button,
+// p.item) or ASCII-uppercase-first tags are always components. It is one
+// input to codegen's resolveComponentTags pass, which additionally resolves
+// lowercase tags against the package's declared names and stamps the result
+// on Element.IsComponent. Read the stamp, not this function, when deciding
+// how a specific element lowers.
 func IsComponentTag(tag string) bool {
 	if tag == "" {
 		return false
