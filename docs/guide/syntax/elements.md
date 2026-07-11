@@ -1,6 +1,6 @@
 # Elements
 
-HTML elements in gsx follow the same rules as HTML: tag names are lowercase (or hyphenated for custom elements), attributes appear in the opening tag, and children nest inside. The only additions are dynamic attribute values (`{expr}`) and the component capitalization rule explained in [Basic Syntax](./basic-syntax.md#element-vs-component).
+HTML elements in gsx follow the same rules as HTML: tag names are lowercase (or hyphenated for custom elements), attributes appear in the opening tag, and children nest inside. The only additions are dynamic attribute values (`{expr}`) and the tag resolution rule explained in [Basic Syntax](./basic-syntax.md#element-vs-component) — a lowercase tag is only an element when its name doesn't match a package-level declaration.
 
 ## Tags and nesting
 
