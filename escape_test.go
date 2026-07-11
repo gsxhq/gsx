@@ -210,6 +210,8 @@ func TestSrcsetSanitize(t *testing.T) {
 		{"no-space commas single misparse", "a.jpg,b.jpg", "a.jpg,b.jpg"},
 		{"http passes", "http://x/a.jpg 1x", "http://x/a.jpg 1x"},
 		{"empty", "", ""},
+		{"separator-only commas", ",,,", ",,,"},
+		{"comma in query preserved", "a.jpg?x=1,2 1x", "a.jpg?x=1,2 1x"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
