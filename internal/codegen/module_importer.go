@@ -769,6 +769,11 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	for _, f := range gsxFiles {
 		resolveComponentTags(f, declNames, bag)
 	}
+	// Mutual wrapper cycles (A unconditionally renders <B>, B unconditionally
+	// renders <A>) compile clean — self-exclusion only breaks a DIRECT
+	// self-loop — but recurse forever at render. Must run after every
+	// element's IsComponent is stamped (the loop above).
+	reportWrapperCycles(gsxFiles, bag)
 	// Per-dir: an imported sibling package resolves its OWN filter table here,
 	// because analyze is the recursion point for the import graph.
 	table, err := m.filterTableFor(dir, true)
