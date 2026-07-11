@@ -52,7 +52,7 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		var _gsxv0 _gsxrt.Attrs
 		if hot {
 			_gsxv0 = extra
-			_gsxgw.Spread(ctx, _gsxv0)
+			_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, nil, nil)
 		}
 		if !_gsxv0.Has("nonce") {
 			_gsxgw.Nonce(ctx)

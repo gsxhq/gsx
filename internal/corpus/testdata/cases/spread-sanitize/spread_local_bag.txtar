@@ -1,0 +1,17 @@
+# A spread onto an element sanitizes URL keys regardless of provenance (issue
+# #75): a bag built as a body-local `:=` var spread onto <a> routes through the
+# leaf URL sink, so a javascript: href becomes about:invalid#gsx.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Link(userHref string) {
+	{{ b := gsx.Attrs{{Key: "href", Value: userHref}} }}
+	<a { b... }>click</a>
+}
+-- invoke --
+Link(LinkProps{UserHref: "javascript:alert(1)"})
+-- diagnostics.golden --
+-- render.golden --
+<a href="about:invalid#gsx">click</a>
