@@ -15,4 +15,4 @@ component Box(active bool, extra gsx.Attrs) {
 	<div { if active { { extra... } } } { attrs... }>x</div>
 }
 -- diagnostics.golden --
-6:21: a spread inside { if } ({ extra... }) has statically unknown keys and cannot be merged with another spread on the same element; build it as a conditional bag with gsx.AttrsCond(active, func() (gsx.Attrs, error) { return extra, nil }, nil) in a {{ }} block, then spread the merged result
+6:21: a spread inside { if } ({ extra... }) has statically unknown keys and cannot be a separate spread alongside { attrs... }; build it as a bag with gsx.AttrsCond(active, func() (gsx.Attrs, error) { return extra, nil }, nil) in a {{ }} block, then spread a single { attrs.Merge(a)... }

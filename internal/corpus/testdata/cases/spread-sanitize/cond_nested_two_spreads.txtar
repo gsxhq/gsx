@@ -9,4 +9,4 @@ component Bad(c bool, d bool, x gsx.Attrs, y gsx.Attrs) {
 	<a { if c { { x... } } } { if d { { y... } } }>hi</a>
 }
 -- diagnostics.golden --
-6:14: a spread inside { if } ({ x... }) has statically unknown keys and cannot be merged with another spread on the same element; build it as a conditional bag with gsx.AttrsCond(c, func() (gsx.Attrs, error) { return x, nil }, nil) in a {{ }} block, then spread the merged result
+6:36: element carries two conditional spreads ({ x... } and { y... }) whose keys are statically unknown; build each as a bag with gsx.AttrsCond(cond, func() (gsx.Attrs, error) { return bag, nil }, nil) in a {{ }} block, then spread a single merged result ({ a.Merge(b)... })
