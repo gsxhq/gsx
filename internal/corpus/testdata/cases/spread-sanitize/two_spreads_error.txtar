@@ -1,0 +1,15 @@
+# Two spreads on one element is a precedence-ambiguous error (issue #75), even
+# for two local bags: every spread is a forwarding sink and an element carries at
+# most one, so the pair is rejected at generate time rather than silently ordered.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Link() {
+	{{ b1 := gsx.Attrs{{Key: "href", Value: "/a"}} }}
+	{{ b2 := gsx.Attrs{{Key: "id", Value: "x"}} }}
+	<a { b1... } { b2... }>click</a>
+}
+-- diagnostics.golden --
+8:15: element with a spread { b1... } cannot carry another spread { b2... }; merge them into one spread ({ b1.Merge(b2)... } or { b2.Merge(b1)... }) so precedence is explicit

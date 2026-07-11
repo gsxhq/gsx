@@ -25,7 +25,7 @@ func Card(_gsxp CardProps) _gsxrt.Node {
 		_gsxgw.Class(_gsxcm.Merge, _gsxrt.Class("px-4 py-2"), _gsxrt.Class(attrs.Class()))
 		_gsxgw.S("\"")
 		_gsxgw.StyleMerged("", attrs.Style())
-		_gsxgw.SpreadForwarding(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, nil, []string{"class", "style"})
+		_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, nil, []string{"class", "style"})
 		_gsxgw.S(">")
 //line card.gsx:4:42
 		_gsxgw.Node(ctx, children)

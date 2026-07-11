@@ -1,0 +1,17 @@
+# Every element spread merges class instead of duplicating (issue #75): a local
+# bag with a `class` entry spread onto <a class="base"> merges to `class="base x"`
+# through the class-aggregation path, not two separate class attributes.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Link() {
+	{{ b := gsx.Attrs{{Key: "class", Value: "x"}} }}
+	<a class="base" { b... }>click</a>
+}
+-- invoke --
+Link()
+-- diagnostics.golden --
+-- render.golden --
+<a class="base x">click</a>
