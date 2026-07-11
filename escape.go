@@ -121,6 +121,63 @@ func writeURLImage(w io.Writer, s string) error {
 	return writeHTML(w, urlSanitizeImage(s))
 }
 
+// srcsetSanitize sanitizes a srcset attribute value using the WHATWG srcset
+// grammar: a comma-separated list of image candidates ("url [descriptor]").
+// Each candidate's URL is the run of non-whitespace bytes (commas inside a URL —
+// a data: URL's ";base64," separator, a query's "?a=1,2" — stay part of the
+// URL); a run's trailing commas are candidate boundaries; the rest up to the
+// next comma is an inert descriptor. Each URL is sanitized as an image resource
+// (urlSanitizeImage); a blocked URL collapses its whole candidate to blockedURL.
+// The descriptor needs no validation — writeSrcset HTML-escapes the whole
+// result, so descriptor content can never break out of the attribute. This is a
+// faithful port of the WHATWG grammar, not html/template's srcset code (which
+// over-blocks valid inputs like "a.jpg 1.5x" and mangles data: URLs).
+func srcsetSanitize(s string) string {
+	var b strings.Builder
+	i := 0
+	for i < len(s) {
+		// 1. Candidate separators (leading whitespace + commas) copied verbatim.
+		sep := i
+		for i < len(s) && (isASCIIWhitespaceByte(s[i]) || s[i] == ',') {
+			i++
+		}
+		b.WriteString(s[sep:i])
+		if i >= len(s) {
+			break
+		}
+		// 2. URL = run of non-whitespace bytes (commas inside a URL stay).
+		urlStart := i
+		for i < len(s) && !isASCIIWhitespaceByte(s[i]) {
+			i++
+		}
+		run := s[urlStart:i]
+		url := strings.TrimRight(run, ",") // trailing commas are boundaries
+		i -= len(run) - len(url)           // re-consume them as separators
+		// 3. Descriptor: rest up to the next comma, only when the URL run had no
+		//    trailing-comma boundary. Inert (HTML-escaped downstream).
+		descStart := i
+		if len(url) == len(run) {
+			for i < len(s) && s[i] != ',' {
+				i++
+			}
+		}
+		desc := s[descStart:i]
+		// 4. A blocked URL collapses the whole candidate; else URL + descriptor.
+		if urlSanitizeImage(url) == blockedURL {
+			b.WriteString(blockedURL)
+		} else {
+			b.WriteString(url)
+			b.WriteString(desc)
+		}
+	}
+	return b.String()
+}
+
+// writeSrcset streams a sanitized, attribute-escaped srcset value to w.
+func writeSrcset(w io.Writer, s string) error {
+	return writeHTML(w, srcsetSanitize(s))
+}
+
 func isASCIIWhitespaceByte(c byte) bool {
 	switch c {
 	case '\t', '\n', '\f', '\r', ' ':
