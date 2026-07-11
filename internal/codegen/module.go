@@ -387,7 +387,7 @@ func (m *Module) cachedFilterTable() (filterTable, error) {
 		return m.filterTbl, m.filterTblErr
 	}
 	m.mu.Unlock()
-	tbl, err := loadFilterTableMulti(m.opts.ModuleRoot, dedupFilterPkgs(m.opts.FilterPkgs), m.opts.Aliases)
+	tbl, _, err := loadFilterTableMulti(m.opts.ModuleRoot, dedupFilterPkgs(m.opts.FilterPkgs), m.opts.Aliases, nil)
 	m.mu.Lock()
 	m.filterTbl, m.filterTblErr, m.filterTblDone = tbl, err, true
 	m.filterLoads++
@@ -568,7 +568,8 @@ func (m *Module) filterTableFromExt(pkgs []string) (filterTable, error) {
 			return nil, err
 		}
 	}
-	return loadFilterTableFromTypes(extPkgs, pkgs, m.opts.Aliases)
+	table, _, err := loadFilterTableFromTypes(extPkgs, pkgs, m.opts.Aliases, nil)
+	return table, err
 }
 
 // maybeRebuildFset rebuilds the FileSet (and ext/pkgTypes/pkgResults) when project re-parse

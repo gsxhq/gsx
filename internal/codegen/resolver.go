@@ -56,7 +56,7 @@ func newCachedResolver(moduleDir string, filterPkgs []string, aliases []FilterAl
 			m[p.PkgPath] = p.Types
 		}
 	})
-	table, err := loadFilterTableMulti(moduleDir, filterPkgs, aliases)
+	table, _, err := loadFilterTableMulti(moduleDir, filterPkgs, aliases, nil)
 	if err != nil {
 		return nil, err
 	}
