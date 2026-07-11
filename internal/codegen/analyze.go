@@ -1154,8 +1154,9 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 		sb.WriteString("\tchildren := _gsxp.Children\n\t_ = children\n")
 	}
 	// MIRROR emit.go: in MANUAL mode bind the synthesized bag to `attrs` so the
-	// probe type-checks the author's `{ attrs... }` (probed as `_gsxgw.Spread(ctx,
-	// attrs)`) and any `attrs.X()` reference identically to emitted code.
+	// probe type-checks the author's `{ attrs... }` (probed as
+	// `_gsxgw.SpreadForwarding(ctx, attrs, …)`) and any `attrs.X()` reference
+	// identically to emitted code.
 	if manual {
 		sb.WriteString("\tattrs := _gsxp.Attrs\n")
 	}
@@ -3189,9 +3190,9 @@ func usedParams(c *gsxast.Component, params []param) map[string]bool {
 	}
 	collectClauseSrc(c.Body, addIdents)
 	// Composable class parts (Expr + Cond) and element-spread exprs are emitted
-	// verbatim into the render closure (gsx.Class/ClassIf args, gw.Spread arg), so
-	// a param referenced ONLY there must be bound as a local too — otherwise the
-	// generated code fails type-check with `undefined: x`.
+	// verbatim into the render closure (gsx.Class/ClassIf args, the SpreadForwarding
+	// bag arg), so a param referenced ONLY there must be bound as a local too —
+	// otherwise the generated code fails type-check with `undefined: x`.
 	collectAttrExprSrc(c.Body, addIdents)
 	// Child-component prop exprs (each <Child attr={expr}/>) are emitted verbatim
 	// into the props literal — both the skeleton probe (`_ = Child(ChildProps{Attr:
