@@ -2,6 +2,7 @@ package gen
 
 import (
 	"fmt"
+	"go/token"
 	"reflect"
 	"runtime"
 	"slices"
@@ -171,15 +172,20 @@ func isExportedIdent(s string) bool {
 // optional leading * registering the pointer type. The returned key is the
 // canonical form codegen.rendererKey produces ("pkgPath.TypeName", optionally
 // *-prefixed), so config keys and resolved hole types meet on the same
-// string. It shares isExportedIdent with splitPkgFunc rather than duplicating
-// identifier validation.
+// string. The type name only needs to be a valid Go identifier — NOT
+// exported: rendererKey imposes no export requirement, and a project may
+// legitimately register one of its own unexported types (e.g.
+// "example.com/app.myType").
 func splitPkgType(s string) (string, error) {
 	t := strings.TrimPrefix(s, "*")
+	// At most ONE pointer level: rendererKey only ever produces zero or one
+	// leading *, so a doubled prefix ("**pkg.T") could never match — it would
+	// be a silently dead registration. Reject it here.
 	i := strings.LastIndex(t, ".")
-	if i <= 0 || i == len(t)-1 {
+	if strings.HasPrefix(t, "*") || i <= 0 || i == len(t)-1 {
 		return "", fmt.Errorf("gsx: renderer type %q must be \"pkgPath.TypeName\" (optionally *-prefixed)", s)
 	}
-	if !isExportedIdent(t[i+1:]) {
+	if !token.IsIdentifier(t[i+1:]) {
 		return "", fmt.Errorf("gsx: renderer type %q: %q is not a valid type name", s, t[i+1:])
 	}
 	return s, nil

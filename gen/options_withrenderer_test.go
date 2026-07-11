@@ -52,16 +52,33 @@ func TestWithRendererOrder(t *testing.T) {
 	}
 }
 
-// TestWithRendererRejectsBadTypeKey proves a malformed TypeKey (no dot) is
-// rejected with a clear config error and adds no renderer.
+// TestWithRendererUnexportedTypeKey proves a TypeKey naming an UNEXPORTED
+// type is accepted: codegen.rendererKey imposes no export requirement on the
+// type name, so a project may register one of its own unexported types.
+func TestWithRendererUnexportedTypeKey(t *testing.T) {
+	t.Parallel()
+	cfg := applyOpts(WithRenderer("example.com/app.myType", SampleFilter))
+	if len(cfg.errs) != 0 {
+		t.Fatalf("unexpected errs for an unexported type key: %v", cfg.errs)
+	}
+	if len(cfg.renderers) != 1 || cfg.renderers[0].TypeKey != "example.com/app.myType" {
+		t.Fatalf("renderers = %+v", cfg.renderers)
+	}
+}
+
+// TestWithRendererRejectsBadTypeKey proves a malformed TypeKey is rejected
+// with a clear config error and adds no renderer: no dot, and a doubled
+// pointer prefix (which could never match a rendererKey — at most one *).
 func TestWithRendererRejectsBadTypeKey(t *testing.T) {
 	t.Parallel()
-	cfg := applyOpts(WithRenderer("nodothere", SampleFilter))
-	if len(cfg.errs) == 0 {
-		t.Fatal("expected an error for a malformed TypeKey, got none")
-	}
-	if len(cfg.renderers) != 0 {
-		t.Fatalf("expected no renderers from a malformed TypeKey, got %+v", cfg.renderers)
+	for _, key := range []string{"nodothere", "**example.com/app/pgtype.Text"} {
+		cfg := applyOpts(WithRenderer(key, SampleFilter))
+		if len(cfg.errs) == 0 {
+			t.Fatalf("expected an error for malformed TypeKey %q, got none", key)
+		}
+		if len(cfg.renderers) != 0 {
+			t.Fatalf("expected no renderers from malformed TypeKey %q, got %+v", key, cfg.renderers)
+		}
 	}
 }
 
