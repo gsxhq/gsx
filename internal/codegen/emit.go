@@ -1832,6 +1832,11 @@ type interpEmitCtx struct {
 // emitFragmentValue) between the verbatim GoText runs, then rendered by the
 // interp's resolved type exactly as any other value — so `{ wrap(<b/>) }`
 // lowers to `wrap(gsx.Func(func(ctx, w){…}))` rendered as wrap's return type.
+//
+// Between the tuple-unwrap and emitRender, applyRenderer rewrites both expr
+// and t when the value's type has a registered [renderers] entry: the
+// renderer call replaces expr, and t becomes the renderer's result type, so
+// emitRender classifies and renders the REWRITTEN type, not the original one.
 func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, fset *token.FileSet, bag *diag.Bag, ec interpEmitCtx) bool {
 	emitLine(b, fset, n.Pos())
 	var expr string
@@ -1908,10 +1913,15 @@ func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type,
 			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "interpolation %q returns %s; only (T, error) is supported", expr, t)
 			return false
 		}
-		// v, err := expr; if err != nil { return err }; then render v by its type.
+		// v, err := expr; if err != nil { return err }; then render v by its
+		// type — or, if that type has a registered renderer, by applyRenderer's
+		// rewritten call and result type below.
 		expr = hoistTuple(b, expr, interpTemp)
 		t = elemT
 	}
+	// A registered [renderers] entry for t rewrites expr into the renderer
+	// call and t into the renderer's result type; emitRender then classifies
+	// and renders THAT type, not the original.
 	expr, t = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
 	return emitRender(b, expr, t, rt, n, bag)
 }
@@ -1935,8 +1945,10 @@ func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type,
 // expression (embeddedValueExpr — the same assembly embeddedTextValueExpr does
 // for a braced attr literal) and piped through n.Stages via the SAME lowerPipe
 // call analyze.go's probe used to populate resolved[n], so the emitted type
-// matches exactly (emit ≡ probe). The result is then rendered for Text context
-// via emitRender, unwrapping a trailing (T, error) tuple exactly like genInterp.
+// matches exactly (emit ≡ probe). After the tuple-unwrap, applyRenderer rewrites
+// the piped result and its type when a registered [renderers] entry matches, and
+// the (possibly rewritten) value is then rendered for Text context via
+// emitRender, unwrapping a trailing (T, error) tuple exactly like genInterp.
 func emitEmbeddedInterp(b *bytes.Buffer, n *ast.EmbeddedInterp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, fset *token.FileSet, bag *diag.Bag, ec interpEmitCtx) bool {
 	if len(n.Stages) == 0 {
 		emitLine(b, fset, n.Pos())

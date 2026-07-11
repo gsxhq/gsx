@@ -183,6 +183,10 @@ func TestHarvestRenderers(t *testing.T) {
 	})
 
 	t.Run("result not renderable", func(t *testing.T) {
+		// The result is an UNNAMED struct: rendererKey returns "" for it (no
+		// registration can ever key on it), so this can never reach the chain
+		// branch — it's neither registered nor natively renderable, so the
+		// plain message applies.
 		pkg := rendererFixturePkg("example.com/render", map[string]*types.Signature{
 			"RenderText": rendererSig([]*types.Var{rparam(text)}, []*types.Var{rresult(types.NewStruct(nil, nil))}, false),
 		})
@@ -198,9 +202,11 @@ func TestHarvestRenderers(t *testing.T) {
 		// renderable (catString) — the chain-rejection guard is meant for
 		// exactly this case: a renderer's result type IS renderable on its
 		// own, but that type ALSO carries its own [renderers] registration,
-		// so which rendering applies is ambiguous. A perpetually-unsupported
-		// struct result would already fail the earlier "not a renderable
-		// type" check regardless of registration, so it can't reach here.
+		// so which rendering applies is ambiguous. See "chain rejected when
+		// intermediate result is unrenderable" below for the companion case
+		// where the intermediate type is NOT independently renderable — the
+		// chain message must still win there, since the type DOES have a
+		// renderer registered.
 		loopy := namedType("example.com/pgtype", "Loopy", types.Typ[types.String])
 		loopyKey := "example.com/pgtype.Loopy"
 		pkg := rendererFixturePkg("example.com/render", map[string]*types.Signature{
@@ -230,6 +236,51 @@ func TestHarvestRenderers(t *testing.T) {
 		_, err := harvestRenderers(byPath, []RendererAlias{{TypeKey: loopyKey, PkgPath: "example.com/render", FuncName: "Identity"}}, nil)
 		if err == nil || !strings.Contains(err.Error(), "returns its own registered type") {
 			t.Fatalf("err = %v, want substring %q", err, "returns its own registered type")
+		}
+	})
+
+	t.Run("self chain rejected when result is unrenderable", func(t *testing.T) {
+		// st is a struct: classify(st) == catUnsupported on its own. But
+		// Identity IS registered for st, so the type DOES have a renderer —
+		// the chain message ("renderers apply once and never chain") must
+		// win over the plain "not a renderable type" message, which would be
+		// actively misleading here. This is the common real-world shape: a
+		// non-renderable wrapper struct that itself carries a registration.
+		st := namedType("example.com/pgtype", "Struct", types.NewStruct(nil, nil))
+		stKey := "example.com/pgtype.Struct"
+		pkg := rendererFixturePkg("example.com/render", map[string]*types.Signature{
+			"Identity": rendererSig([]*types.Var{rparam(st)}, []*types.Var{rresult(st)}, false),
+		})
+		byPath := map[string]*types.Package{"example.com/render": pkg}
+		_, err := harvestRenderers(byPath, []RendererAlias{{TypeKey: stKey, PkgPath: "example.com/render", FuncName: "Identity"}}, nil)
+		if err == nil || !strings.Contains(err.Error(), "returns its own registered type") {
+			t.Fatalf("err = %v, want substring %q", err, "returns its own registered type")
+		}
+		if strings.Contains(err.Error(), "not a renderable type") {
+			t.Fatalf("err = %v, masked by the plain unrenderable message", err)
+		}
+	})
+
+	t.Run("chain rejected when intermediate result is unrenderable", func(t *testing.T) {
+		// B is a struct (classify(B) == catUnsupported on its own) but IS
+		// registered (RenderB), so RenderA's A→B chain must report the chain
+		// message, not "not a renderable type" — B DOES have a renderer.
+		b := namedType("example.com/pgtype", "B", types.NewStruct(nil, nil))
+		bKey := "example.com/pgtype.B"
+		pkg := rendererFixturePkg("example.com/render", map[string]*types.Signature{
+			"RenderA": rendererSig([]*types.Var{rparam(text)}, []*types.Var{rresult(b)}, false),
+			"RenderB": rendererSig([]*types.Var{rparam(b)}, []*types.Var{rresult(types.Typ[types.String])}, false),
+		})
+		byPath := map[string]*types.Package{"example.com/render": pkg}
+		_, err := harvestRenderers(byPath, []RendererAlias{
+			{TypeKey: textKey, PkgPath: "example.com/render", FuncName: "RenderA"},
+			{TypeKey: bKey, PkgPath: "example.com/render", FuncName: "RenderB"},
+		}, nil)
+		if err == nil || !strings.Contains(err.Error(), "never chain") {
+			t.Fatalf("err = %v, want substring %q", err, "never chain")
+		}
+		if strings.Contains(err.Error(), "not a renderable type") {
+			t.Fatalf("err = %v, masked by the plain unrenderable message", err)
 		}
 	})
 

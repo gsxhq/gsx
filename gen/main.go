@@ -226,7 +226,7 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			return 2
 		}
-		return runInfo(stdout, stderr, workDir, configPath, merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher, cmdArgs, merged.cssMinLevel, merged.jsMinLevel, merged.effectivePrintWidth())
+		return runInfo(stdout, stderr, workDir, configPath, merged.filterPkgs, merged.aliases, merged.renderers, merged.classifier(), merged.fieldMatcher, cmdArgs, merged.cssMinLevel, merged.jsMinLevel, merged.effectivePrintWidth())
 	case "fmt":
 		// fmt respects gsx.toml printWidth/tabWidth per-file (via formatSettingsFor
 		// inside runFmt) and tolerates a malformed config. The CSS/JS formatter

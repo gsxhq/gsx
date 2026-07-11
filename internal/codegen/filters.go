@@ -386,17 +386,33 @@ type FilterInfo struct {
 	Shadows []string // import paths of EARLIER same-named filters this one overrides
 }
 
+// RendererInfo describes one resolved [renderers] registration, for `gsx info`.
+// Unlike FilterInfo there is no Shadows: harvestRenderers keeps only the
+// last-wins entry per TypeKey (see rendererTable), so an earlier registration
+// for the same key leaves no trace to report.
+type RendererInfo struct {
+	TypeKey string // registered type key ("pkgPath.TypeName", optionally *-prefixed)
+	Pkg     string // renderer func's package import path
+	Func    string // exported Go func name
+	HasErr  bool   // true when the renderer returns (R, error)
+}
+
 // ResolveFilters harvests the filter packages (in order, last-wins) plus the
-// explicit WithFilter aliases (appended after, in option order) and returns the
-// resolved table sorted by Name, recording which earlier same-named filters each
-// winner shadows. An empty filterPkgs defaults to [stdImportPath], matching
-// GenerateDirs. dir anchors the go/packages load against the
+// explicit WithFilter aliases (appended after, in option order) and the
+// registered [renderers] (last-wins per TypeKey), all from the ONE
+// packages.Load harvestFilters performs — renderer package paths ride the
+// same load as the filter packages (see harvestFilters's doc comment), so a
+// caller needing both must pass renderers here rather than issue a second,
+// redundant load. Returns the filter table sorted by Name (recording which
+// earlier same-named filters each winner shadows) and the renderer table
+// sorted by TypeKey. An empty filterPkgs defaults to [stdImportPath],
+// matching GenerateDirs. dir anchors the go/packages load against the
 // module's go.mod.
-func ResolveFilters(dir string, filterPkgs []string, aliases []FilterAlias) ([]FilterInfo, error) {
+func ResolveFilters(dir string, filterPkgs []string, aliases []FilterAlias, renderers []RendererAlias) ([]FilterInfo, []RendererInfo, error) {
 	filterPkgs = dedupFilterPkgs(filterPkgs)
-	harvested, _, err := harvestFilters(dir, filterPkgs, aliases, nil)
+	harvested, rt, err := harvestFilters(dir, filterPkgs, aliases, renderers)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	infos := make([]FilterInfo, 0, len(harvested))
 	for name, entries := range harvested {
@@ -414,7 +430,14 @@ func ResolveFilters(dir string, filterPkgs []string, aliases []FilterAlias) ([]F
 		})
 	}
 	sort.Slice(infos, func(i, j int) bool { return infos[i].Name < infos[j].Name })
-	return infos, nil
+
+	rinfos := make([]RendererInfo, 0, len(rt))
+	for key, e := range rt {
+		rinfos = append(rinfos, RendererInfo{TypeKey: key, Pkg: e.pkgPath, Func: e.funcName, HasErr: e.hasErr})
+	}
+	sort.Slice(rinfos, func(i, j int) bool { return rinfos[i].TypeKey < rinfos[j].TypeKey })
+
+	return infos, rinfos, nil
 }
 
 // classifyFilter inspects a func signature against the seed-first filter
