@@ -2636,9 +2636,15 @@ func emitEmbeddedJSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.N
 }
 
 // urlWriterMethod returns the generated Writer method for a URL-context
-// attribute: "URLImage" for an image resource sink (data:image/* allowed),
-// "URL" otherwise. Callers must have established CtxURL for name.
+// attribute: "Srcset" for srcset/imagesrcset (a comma-separated image-
+// candidate list, sanitized per candidate), "URLImage" for an image resource
+// sink (data:image/* allowed), "URL" otherwise. Callers must have established
+// CtxURL for name.
 func urlWriterMethod(tag, name string) string {
+	switch strings.ToLower(name) {
+	case "srcset", "imagesrcset":
+		return "Srcset"
+	}
 	if attrclass.URLSink(tag, name) == attrclass.SinkImage {
 		return "URLImage"
 	}
