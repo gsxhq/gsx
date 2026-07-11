@@ -1,0 +1,12 @@
+# Two spreads on one element are a precedence-ambiguity error even when each is
+# nested in a separate cond-attr (the count descends into cond branches).
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Bad(c bool, d bool, x gsx.Attrs, y gsx.Attrs) {
+	<a { if c { { x... } } } { if d { { y... } } }>hi</a>
+}
+-- diagnostics.golden --
+6:36: element carries two conditional spreads ({ x... } and { y... }) whose keys are statically unknown; build each as a bag with gsx.AttrsCond(cond, func() (gsx.Attrs, error) { return bag, nil }, nil) in a {{ }} block, then spread a single merged result ({ a.Merge(b)... })
