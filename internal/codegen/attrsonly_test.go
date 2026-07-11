@@ -82,8 +82,12 @@ func TestAttrsOnlySig(t *testing.T) {
 		// Additional cases
 		{"zero-param", sigCustom(false, []*types.Var{}, node), false, false, false},
 		{"two-param", sigCustom(false, []*types.Var{types.NewVar(token.NoPos, nil, "a", attrs), types.NewVar(token.NoPos, nil, "b", attrs)}, node), false, false, false},
-		// Defined (non-alias) named func type that matches
-		{"named-sig-underlying", types.NewNamed(types.NewTypeName(token.NoPos, types.NewPackage("github.com/gsxhq/gsx", "gsx"), "Component", nil), sig(true, types.NewSlice(attr), node), nil), true, false, true},
+		// Defined (non-alias) named func type that matches. The wrapper itself
+		// is not a real gsx type — attrsOnlySig only unwraps its Underlying()
+		// to reach the *types.Signature and never inspects the wrapper's own
+		// package, so it is fabricated in the neutral otherPkg rather than
+		// the fake gsx package.
+		{"named-sig-underlying", types.NewNamed(types.NewTypeName(token.NoPos, otherPkg, "Component", nil), sig(true, types.NewSlice(attr), node), nil), true, false, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -93,4 +97,24 @@ func TestAttrsOnlySig(t *testing.T) {
 			}
 		})
 	}
+
+	// attrsOnlySig rejects generic signatures outright (sig.TypeParams().Len()
+	// != 0), before any param/result shape check runs. Pin that guard
+	// directly: a signature that otherwise matches exactly (one gsx.Attrs
+	// param, one gsx.Node result) but carries a non-empty type-parameter list
+	// must still be rejected.
+	t.Run("type-parameterized signature rejected", func(t *testing.T) {
+		constraint := types.NewInterfaceType(nil, nil)
+		constraint.Complete()
+		tp := types.NewTypeParam(types.NewTypeName(token.NoPos, nil, "T", nil), constraint)
+		genericSig := types.NewSignatureType(
+			nil, nil, []*types.TypeParam{tp},
+			types.NewTuple(types.NewVar(token.NoPos, nil, "a", attrs)),
+			types.NewTuple(types.NewVar(token.NoPos, nil, "", node)),
+			false,
+		)
+		if _, _, ok := attrsOnlySig(genericSig); ok {
+			t.Error("attrsOnlySig accepted a type-parameterized signature")
+		}
+	})
 }

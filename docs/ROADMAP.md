@@ -941,8 +941,16 @@ vocabulary remains a design aspiration, not the current API.
     (`` src=f`data:image/png;base64,@{bytes}` `` - `[]byte` auto-encodes,
     `string` passes through; `data:` on a strict sink is a compile error) +
     the `dataURL(mime)` std filter (assembly only, re-validated by the sink);
-    `gsx.RawURL` is the vouching escape hatch. **Deferred:** `srcset`
-    per-candidate parsing and CSS `background: url(data:…)`.
+    `gsx.RawURL` is the vouching escape hatch. **Deferred:** CSS
+    `background: url(data:…)` (separate CSS-context subsystem — issue #82).
+  - [x] `srcset`/`imagesrcset` sanitized as URL-lists (static + spread): each
+    candidate's URL scheme-checked as an image resource, parsed with the WHATWG
+    `srcset` grammar (not `html/template`'s, which breaks `1.5x` + `data:image`).
+    Establishes the structured-carrier principle: single-value URL/JS/CSS/HTML
+    attrs are faithful `html/template` ports; structured URL carriers (list, or
+    embedded-URL grammar) are faithful WHATWG-grammar ports — `srcset` joins
+    `refreshContentSanitize`. Follow-ups: `ping` #81, CSS `url()` #82. Spec
+    `2026-07-11-srcset-sanitization-design.md`.
 - [x] **`//go:` directive / build-constraint pass-through** - program-significant
   comment lines before the `package` clause (`//go:build`, `//go:generate`,
   `//go:debug`, legacy `// +build`) copy verbatim into the generated `.x.go`,

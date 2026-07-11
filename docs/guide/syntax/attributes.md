@@ -153,6 +153,8 @@ values are ordinary attribute-escaped text.
 
 In this example `href={href}` is a URL context. When the value is `"javascript:alert(1)"` — a dangerous scheme — gsx replaces the entire value with `about:invalid#gsx`, rendering a safe but inert link. A normal URL such as `"/search?q=go&page=2"` would be percent-encoded and HTML-attribute-escaped as usual.
 
+`srcset` (and `imagesrcset`) is a comma-separated list of image candidates, not a single URL. gsx sanitizes each candidate's URL as an [image resource](./escaping.md#image-candidate-lists-srcset): a bad scheme collapses just that candidate to `about:invalid#gsx`, leaving the rest intact. `data:image/*` and fractional descriptors (`1.5x`) are kept. Same for static attributes and `{ bag… }` spreads.
+
 JavaScript and CSS in attributes are explicit. Use `` js`...` `` for event
 handlers, Alpine/HTMX expressions, or other JavaScript-valued attributes, and
 `` css`...` `` for CSS-valued attributes:

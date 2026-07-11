@@ -280,23 +280,26 @@ func AttrsCond(cond bool, then, els func() (Attrs, error)) (Attrs, error) {
 //   - a name in imageNames → URLImageVal (image-resource sink; data:image/* ok).
 //     Checked FIRST so a name that is both nav- and image-classified (e.g. src)
 //     takes the image sink.
+//   - a name in srcsetNames → SrcsetVal (comma-separated image-candidate list,
+//     sanitized per candidate). Checked SECOND, before the nav sink.
 //   - a name in navNames, OR a key matching a URL prefix rule (URLPrefixMatch) →
 //     URLVal (strict navigational sink; prefix rules are user rules, always strict).
 //   - anything else → a plain attribute write (a non-excluded class/style key
 //     aggregates via a.Class()/a.Style(); bool → BoolAttr; else key="value"
 //     attribute-escaped).
 //
-// navNames, imageNames and prefixes must already be lowercase. A RawURL value is
-// the author's vouch and is emitted verbatim (still attribute-escaped) by the URL
-// sinks. URL keys render IN their bag position — not hoisted ahead of the residual
-// as the old unrolled extraction did — so the bag's authored attribute order is
-// preserved. ctx is reserved for forward-compatibility. The URL classification
-// policy lives in these caller-supplied name sets, not in this method: a
-// hand-written caller passing nil navNames/imageNames/prefixes gets NO URL
-// sanitization at all (every key falls through to the plain-attribute write) —
-// generated code always supplies the built-in + configured name sets, so only a
-// caller bypassing codegen needs to worry about this.
-func (gw *Writer) Spread(ctx context.Context, a Attrs, navNames, imageNames, prefixes, excluded []string) {
+// navNames, imageNames, srcsetNames and prefixes must already be lowercase. A
+// RawURL value is the author's vouch and is emitted verbatim (still attribute-
+// escaped) by the URL sinks. URL keys render IN their bag position — not hoisted
+// ahead of the residual as the old unrolled extraction did — so the bag's
+// authored attribute order is preserved. ctx is reserved for forward-
+// compatibility. The URL classification policy lives in these caller-supplied
+// name sets, not in this method: a hand-written caller passing nil
+// navNames/imageNames/srcsetNames/prefixes gets NO URL sanitization at all
+// (every key falls through to the plain-attribute write) — generated code
+// always supplies the built-in + configured name sets, so only a caller
+// bypassing codegen needs to worry about this.
+func (gw *Writer) Spread(ctx context.Context, a Attrs, navNames, imageNames, srcsetNames, prefixes, excluded []string) {
 	if gw.err != nil || len(a) == 0 {
 		return
 	}
@@ -314,6 +317,12 @@ func (gw *Writer) Spread(ctx context.Context, a Attrs, navNames, imageNames, pre
 			gw.writeStr(kv.Key)
 			gw.writeStr(`="`)
 			gw.URLImageVal(kv.Value)
+			gw.writeStr(`"`)
+		case attrNameExcluded(kv.Key, srcsetNames):
+			gw.writeStr(" ")
+			gw.writeStr(kv.Key)
+			gw.writeStr(`="`)
+			gw.SrcsetVal(kv.Value)
 			gw.writeStr(`"`)
 		case attrNameExcluded(kv.Key, navNames) || URLPrefixMatch(kv.Key, prefixes):
 			gw.writeStr(" ")
@@ -452,6 +461,8 @@ func toStr(v any) string {
 	switch t := v.(type) {
 	case string:
 		return t
+	case []byte:
+		return string(t)
 	case []string:
 		return strings.Join(t, " ")
 	case fmt.Stringer:

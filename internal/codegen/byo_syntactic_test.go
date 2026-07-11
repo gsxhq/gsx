@@ -83,6 +83,8 @@ type ShouldSkipGen struct{}
 
 type GsxAlias = int
 
+type GsxDefined int
+
 type Widget struct {
 	Label string
 }
@@ -98,7 +100,7 @@ component C(w Widget) { <div>{w.Label}</div> }
 		t.Fatalf("componentPropFieldsFor: %v", err)
 	}
 
-	for _, name := range []string{"FooProps", "Alias", "GsxAlias", "Widget"} {
+	for _, name := range []string{"FooProps", "Alias", "GsxAlias", "GsxDefined", "Widget"} {
 		if !byo.hasTypeName(name) {
 			t.Errorf("hasTypeName(%q) = false, want true", name)
 		}

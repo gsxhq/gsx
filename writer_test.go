@@ -181,3 +181,26 @@ func TestURLImageVal(t *testing.T) {
 		t.Fatalf("nav sink must reject data:image, got %q", got)
 	}
 }
+
+func TestSrcsetSinks(t *testing.T) {
+	var sb strings.Builder
+	gw := &Writer{w: &sb}
+	gw.Srcset("ok.jpg 1x, javascript:alert(1) 2x")
+	if got := sb.String(); got != "ok.jpg 1x, about:invalid#gsx" {
+		t.Fatalf("Srcset = %q", got)
+	}
+	// SrcsetVal: RawURL vouch passes verbatim (still attribute-escaped)
+	sb.Reset()
+	gw = &Writer{w: &sb}
+	gw.SrcsetVal(RawURL("javascript:whatever 1x"))
+	if got := sb.String(); got != "javascript:whatever 1x" {
+		t.Fatalf("SrcsetVal(RawURL) = %q", got)
+	}
+	// SrcsetVal: non-RawURL string sanitizes
+	sb.Reset()
+	gw = &Writer{w: &sb}
+	gw.SrcsetVal("javascript:alert(1) 1x")
+	if got := sb.String(); got != "about:invalid#gsx" {
+		t.Fatalf("SrcsetVal(string) = %q", got)
+	}
+}
