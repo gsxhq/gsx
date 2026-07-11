@@ -397,7 +397,12 @@ func isGsxQualifiedType(typ string, quals map[string]bool, sel string) bool {
 // materialized part): the top-level walk also revisits every ORIGINAL-tree
 // element to find further splittable interps, and resolveComponentTags
 // already reported (or didn't need to) for those — re-emitting here as well
-// would double the diagnostic for the exact same element.
+// would double the diagnostic for the exact same element. The
+// self-reference-leaf warning (isSelfExcluded/reportSelfRefWarning,
+// tagresolve.go) follows the identical materialized-only rule and for the
+// identical reason: a materialized element CAN be self-excluded (an embedded
+// `<tag>` literal naming its own enclosing declaration), and only that case
+// is new information this pass needs to surface.
 //
 // A materialized element/fragment can itself contain further `{ }`
 // interpolations whose seed carries ANOTHER operand-position tag (arbitrary
@@ -449,7 +454,21 @@ func splitInterpEmbedded(file *gsxast.File, cls *attrclass.Classifier, fset *tok
 				// resolveComponentTags pass never saw. For original-tree
 				// elements the re-stamp is idempotent — same resolveTag, same
 				// declNames, same exclude as that pass.
+				excluded := isSelfExcluded(t.Tag, declNames, exclude)
 				t.IsComponent = resolveTag(t.Tag, declNames, exclude)
+				// Same double-fire guard as the type-args-on-element check
+				// below: only a MATERIALIZED element is new to this pass. An
+				// original-tree element hitting self-exclusion was already
+				// warned about by resolveComponentTags; re-warning here would
+				// double the diagnostic for the exact same element. A
+				// materialized element CAN be self-excluded — e.g. a
+				// recursive `{ <item></item> }` embedded literal inside
+				// component item's own body — exclude threads through
+				// splitOne unchanged, so it reaches the same tag==exclude
+				// check resolveComponentTags applies to the rest of the file.
+				if materialized && excluded {
+					reportSelfRefWarning(bag, t, exclude)
+				}
 				if materialized && !t.IsComponent && t.TypeArgs != "" {
 					bag.Errorf(t.Pos(), t.End(), "type-args-on-element",
 						"type arguments on HTML element <%s>: type args are only valid on component tags", t.Tag)

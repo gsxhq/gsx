@@ -171,6 +171,45 @@ var (
 	}
 }
 
+func TestResolveComponentTagsSelfReferenceWarning(t *testing.T) {
+	f := parseGSXForTest(t, `package views
+
+component item() {
+	<item>x</item>
+}
+`)
+	bag := diag.NewBag(token.NewFileSet())
+	resolveComponentTags(f, map[string]bool{"item": true}, bag)
+	diags := bag.Sorted()
+	if len(diags) != 1 {
+		t.Fatalf("got %d diagnostics, want 1: %+v", len(diags), diags)
+	}
+	d := diags[0]
+	if d.Severity != diag.Warning || d.Code != "self-reference-leaf" {
+		t.Errorf("diag = %+v, want severity=Warning code=self-reference-leaf", d)
+	}
+	got := collectStamps(f)
+	if got["item"] {
+		t.Error("<item> inside component item must be the leaf (self-exclusion)")
+	}
+}
+
+func TestResolveComponentTagsWrapperNoWarning(t *testing.T) {
+	// div/span ARE real HTML elements — the wrapper pattern (Task 5's
+	// wrapper_self_exclusion.txtar) must stay silent.
+	f := parseGSXForTest(t, `package views
+
+component div() {
+	<div class="wrapped">{children}</div>
+}
+`)
+	bag := diag.NewBag(token.NewFileSet())
+	resolveComponentTags(f, map[string]bool{"div": true}, bag)
+	if diags := bag.Sorted(); len(diags) != 0 {
+		t.Errorf("got %d diagnostics, want 0 (div is a real HTML element): %+v", len(diags), diags)
+	}
+}
+
 func TestForEachElementCompleteness(t *testing.T) {
 	f := parseGSXForTest(t, `package views
 
