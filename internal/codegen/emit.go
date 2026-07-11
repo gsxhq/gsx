@@ -1663,6 +1663,11 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 				// (that would drop the condition, or drop the other spread's
 				// attributes). Recommend gsx.AttrsCond, naming both spreads and the
 				// merge base so no spread is silently lost.
+				//
+				// Precedence: the recommended fix always makes the conditional spread
+				// the `.Merge(a)` overlay, so it wins over the top-level/base spread —
+				// two spreads was never a valid runtime, so the fix ratifies
+				// "conditional overrides base" explicitly rather than leaving it implicit.
 				switch {
 				case secondCond == "": // first is conditional, second is the top-level merge base
 					bag.Errorf(first.Pos(), first.End(), "attr-fallthrough",
