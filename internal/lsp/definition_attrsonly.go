@@ -128,6 +128,54 @@ func attrsOnlyTagObject(pkg *Package, tag string) types.Object {
 	}
 }
 
+// attrsOnlyTagNameAt locates the component tag whose name span (open tag, or
+// close tag for a paired element) contains the cursor offset off, and returns
+// its tag string plus the name span's byte offset and length. Shared by
+// attrsOnlyTagDeclAt (go-to-definition) and attrsOnlyTagAt (hover) so both
+// features match the SAME tag position — only what each does with the
+// resolved tag differs (jump to the value's own declaration vs. show its
+// type/signature). Returns found=false when off isn't on any component tag's
+// name.
+func attrsOnlyTagNameAt(pkg *Package, path string, off int) (tag string, nameStart, nameLen int, found bool) {
+	if pkg == nil || pkg.GSXFset == nil || pkg.Files == nil {
+		return "", 0, 0, false
+	}
+	f := pkg.Files[path]
+	if f == nil {
+		return "", 0, 0, false
+	}
+	inspectWithEmbedded(f, func(n gsxast.Node) bool {
+		if found {
+			return false
+		}
+		el, ok := n.(*gsxast.Element)
+		if !ok || !el.IsComponent {
+			return true
+		}
+		t := el.Tag
+		elOff := pkg.GSXFset.Position(el.Pos()).Offset
+		start := elOff + 1 // skip '<'
+		onOpen := off >= start && off < start+len(t)
+		onClose := false
+		closeStart := 0
+		if el.CloseNamePos.IsValid() {
+			closeStart = pkg.GSXFset.Position(el.CloseNamePos).Offset
+			onClose = off >= closeStart && off < closeStart+len(t)
+		}
+		if !onOpen && !onClose {
+			return true
+		}
+		tag, nameLen, found = t, len(t), true
+		if onOpen {
+			nameStart = start
+		} else {
+			nameStart = closeStart
+		}
+		return false
+	})
+	return tag, nameStart, nameLen, found
+}
+
 // attrsOnlyTagDeclAt resolves a cursor on a component tag name that names an
 // attrs-only component value — a package-level var/func of one of the shapes
 // isAttrsOnlyValueType recognizes (docs/superpowers/specs/2026-07-07-
@@ -146,46 +194,48 @@ func attrsOnlyTagObject(pkg *Package, tag string) types.Object {
 // doesn't land in real source — so a typo'd/undefined tag or an unrelated
 // same-named symbol never produces a false jump.
 func attrsOnlyTagDeclAt(pkg *Package, path string, off int) (token.Position, bool) {
-	if pkg == nil || pkg.GSXFset == nil || pkg.Files == nil || pkg.Types == nil || pkg.Fset == nil {
+	if pkg == nil || pkg.Types == nil || pkg.Fset == nil {
 		return token.Position{}, false
 	}
-	f := pkg.Files[path]
-	if f == nil {
+	tag, _, _, found := attrsOnlyTagNameAt(pkg, path, off)
+	if !found {
 		return token.Position{}, false
 	}
-	var result token.Position
-	found := false
-	inspectWithEmbedded(f, func(n gsxast.Node) bool {
-		if found {
-			return false
-		}
-		el, ok := n.(*gsxast.Element)
-		if !ok || !el.IsComponent {
-			return true
-		}
-		tag := el.Tag
-		elOff := pkg.GSXFset.Position(el.Pos()).Offset
-		nameStart := elOff + 1 // skip '<'
-		onOpen := off >= nameStart && off < nameStart+len(tag)
-		onClose := false
-		if el.CloseNamePos.IsValid() {
-			closeStart := pkg.GSXFset.Position(el.CloseNamePos).Offset
-			onClose = off >= closeStart && off < closeStart+len(tag)
-		}
-		if !onOpen && !onClose {
-			return true
-		}
-		obj := attrsOnlyTagObject(pkg, tag)
-		if obj == nil || !isAttrsOnlyValueType(obj.Type()) || !obj.Pos().IsValid() {
-			return true
-		}
-		dp := pkg.Fset.Position(obj.Pos())
-		if dp.Filename == "" || strings.HasSuffix(dp.Filename, ".x.go") {
-			return true
-		}
-		result = dp
-		found = true
-		return false
-	})
-	return result, found
+	obj := attrsOnlyTagObject(pkg, tag)
+	if obj == nil || !isAttrsOnlyValueType(obj.Type()) || !obj.Pos().IsValid() {
+		return token.Position{}, false
+	}
+	dp := pkg.Fset.Position(obj.Pos())
+	if dp.Filename == "" || strings.HasSuffix(dp.Filename, ".x.go") {
+		return token.Position{}, false
+	}
+	return dp, true
+}
+
+// attrsOnlyTagAt resolves a cursor on an attrs-only component-value tag name
+// to the value's own types.Object (a *types.Func or *types.Var) plus the
+// byte offset/length of the tag-name span — hover's counterpart to
+// attrsOnlyTagDeclAt. It reuses the exact same tag-position match
+// (attrsOnlyTagNameAt) and resolution (attrsOnlyTagObject +
+// isAttrsOnlyValueType) go-to-definition uses; only the returned shape
+// differs, since hover renders the object's own signature (via
+// types.ObjectString) rather than jumping to its declaration position.
+// Returns ok=false under exactly the same conditions attrsOnlyTagDeclAt
+// declines to resolve (tag not found, doesn't resolve to a package-scope
+// func/var, or that object's type isn't an attrs-only shape) — a
+// declaration-position check is unnecessary here since hover never needs a
+// jump target.
+func attrsOnlyTagAt(pkg *Package, path string, off int) (obj types.Object, nameStart, nameLen int, ok bool) {
+	if pkg == nil || pkg.Types == nil {
+		return nil, 0, 0, false
+	}
+	tag, nameStart, nameLen, found := attrsOnlyTagNameAt(pkg, path, off)
+	if !found {
+		return nil, 0, 0, false
+	}
+	o := attrsOnlyTagObject(pkg, tag)
+	if o == nil || !isAttrsOnlyValueType(o.Type()) {
+		return nil, 0, 0, false
+	}
+	return o, nameStart, nameLen, true
 }
