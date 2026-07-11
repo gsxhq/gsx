@@ -185,8 +185,9 @@ func gsxDepDirs(dir string, graph map[string]pkgInfo, moduleRoot, modPath string
 // it ensures a changed attribute classification rule invalidates cached output.
 // codegenID is codegenIdentity() — "which generator produced this" — so any
 // change to the gsx binary (emit/lowering) invalidates cached output even when
-// the manual codegen.Version constant is not bumped.
-func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumHash, buildCtx, codegenID string, filterPkgs []string, aliases []codegen.FilterAlias, clsFingerprint string, hasFieldMatcher bool, cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef, moduleRoot string) (string, error) {
+// the manual codegen.Version constant is not bumped. renderers is the merged
+// [renderers]/WithRenderer registration list (see the renderers= pin below).
+func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumHash, buildCtx, codegenID string, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, clsFingerprint string, hasFieldMatcher bool, cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef, moduleRoot string) (string, error) {
 	dir = filepath.Clean(dir)
 	own, err := dirSourceHash(dir)
 	if err != nil {
@@ -224,6 +225,25 @@ func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumH
 	for _, a := range aliases {
 		aliasPins = append(aliasPins, a.Name+"="+a.PkgPath+"."+a.FuncName)
 	}
+	// renderers= pin: last-wins per TypeKey resolved FIRST, then sorted by
+	// TypeKey — UNLIKE aliases= above (registration order is meaning there),
+	// the renderer table is a per-key map, so two configs with the same final
+	// table (regardless of file/option split or registration order) must hash
+	// identically.
+	finalRenderers := map[string]codegen.RendererAlias{}
+	for _, r := range renderers {
+		finalRenderers[r.TypeKey] = r
+	}
+	rendererTypeKeys := make([]string, 0, len(finalRenderers))
+	for k := range finalRenderers {
+		rendererTypeKeys = append(rendererTypeKeys, k)
+	}
+	sort.Strings(rendererTypeKeys)
+	var rendererPins []string
+	for _, k := range rendererTypeKeys {
+		r := finalRenderers[k]
+		rendererPins = append(rendererPins, k+"="+r.PkgPath+"."+r.FuncName)
+	}
 	cm := "cm="
 	if classMerger != nil {
 		cm += classMerger.PkgPath + "." + classMerger.FuncName
@@ -233,7 +253,7 @@ func computeKey(dir string, graph map[string]pkgInfo, modPath, goModHash, goSumH
 	// gsx binary hash, so it supersedes a bare Version() pin: any emit/lowering
 	// change auto-invalidates even when the constant is not bumped.
 	fmt.Fprintf(h, "gsxcache-v1\x00%s\x00%s\x00%s\x00%s\x00", codegenID, buildCtx, goModHash, goSumHash)
-	fmt.Fprintf(h, "filters=%s\x00aliases=%s\x00cls=%s\x00fm=%s\x00minify=css:%d,js:%d\x00%s\x00own=%s\x00", strings.Join(pins, "\x00"), strings.Join(aliasPins, "\x00"), clsFingerprint, fmStr, b2i(cssMinify), b2i(jsMinify), cm, own)
+	fmt.Fprintf(h, "filters=%s\x00aliases=%s\x00renderers=%s\x00cls=%s\x00fm=%s\x00minify=css:%d,js:%d\x00%s\x00own=%s\x00", strings.Join(pins, "\x00"), strings.Join(aliasPins, "\x00"), strings.Join(rendererPins, "\x00"), clsFingerprint, fmStr, b2i(cssMinify), b2i(jsMinify), cm, own)
 	for _, d := range depHashes {
 		fmt.Fprintf(h, "dep=%s\x00", d)
 	}

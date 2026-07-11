@@ -35,8 +35,15 @@ type Option func(*config)
 // errs collects option-construction problems (e.g. a bad WithFilters marker) so
 // the run can fail with a clear message instead of silently dropping the option.
 type config struct {
-	filterPkgs     []string
-	aliases        []codegen.FilterAlias
+	filterPkgs []string
+	aliases    []codegen.FilterAlias
+	// renderers is the ordered [renderers]/WithRenderer registration list: the
+	// file layer's registrations come first, option-layer ones appended after
+	// (last-wins per TypeKey at harvest, matching aliases' convention). It is
+	// carried on the config and folded into computeKey (see cachekey.go); the
+	// codegen.Options wiring that actually applies renderers at render
+	// boundaries lands separately.
+	renderers      []codegen.RendererAlias
 	cssMin         func(string) (string, error)
 	jsMin          func(string) (string, error)
 	cssFmt         rawfmt.Formatter
@@ -196,7 +203,7 @@ func runConfig(args []string, stdout, stderr io.Writer, cfg config) int {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			return 2
 		}
-		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.filterPkgs, merged.aliases, merged.classifier(), merged.fieldMatcher, merged.effectiveCSSMin(), merged.effectiveJSMin(), merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled(), merged.classMerger, workDir)
+		return runGenerate(cmdArgs, stdout, stderr, quiet, verbose, false, merged.filterPkgs, merged.aliases, merged.renderers, merged.classifier(), merged.fieldMatcher, merged.effectiveCSSMin(), merged.effectiveJSMin(), merged.cssMinLevel.enabled(), merged.jsMinLevel.enabled(), merged.classMerger, workDir)
 	case "dev":
 		devWorkDir := workDir
 		if len(cmdArgs) > 0 && !strings.HasPrefix(cmdArgs[0], "-") {
@@ -345,7 +352,10 @@ func runClean(args []string, stdout, stderr io.Writer) int {
 // discovery fails → exit 2) from a codegen error (one or more error-severity
 // diagnostics → exit 1). Success returns 0.
 // noCache bypasses the content-hash cache and forces a full regeneration.
-func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef, workDir string) int {
+// renderers is threaded through ONLY as far as the cache key (computeKey, via
+// generateCached): applying renderers at render boundaries is codegen's job
+// and is wired separately.
+func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCache bool, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, cssMin, jsMin func(string) (string, error), cssMinify, jsMinify bool, classMerger *codegen.ClassMergerRef, workDir string) int {
 	gfs := flag.NewFlagSet("generate", flag.ContinueOnError)
 	gfs.SetOutput(stderr)
 	var nocacheFlag bool
@@ -395,7 +405,7 @@ func runGenerate(args []string, stdout, stderr io.Writer, quiet, verbose, noCach
 	// Bypass the cache when a custom field matcher is installed: funcs are not
 	// hashable, so the cache cannot key on fm. Mirror the minifier bypass pattern.
 	useCache := !nocacheFlag && cssMin == nil && jsMin == nil && fm == nil
-	res, err := generateCached(paths, filterPkgs, aliases, cls, fm, useCache, cssMin, jsMin, cssMinify, jsMinify, classMerger)
+	res, err := generateCached(paths, filterPkgs, aliases, renderers, cls, fm, useCache, cssMin, jsMin, cssMinify, jsMinify, classMerger)
 
 	// Operational errors (I/O, module-graph failures): these are not diagnostics.
 	// Print each with the gsx: prefix and return early.
