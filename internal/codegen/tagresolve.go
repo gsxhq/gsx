@@ -74,10 +74,44 @@ func resolveTag(tag string, declNames map[string]bool, exclude string) bool {
 	return tag != exclude && declNames[tag]
 }
 
+// isSelfExcluded reports whether tag hits resolveTag's self-exclusion branch
+// specifically (as opposed to simply not being a declared name at all): tag
+// equals the enclosing declaration's own name, is a plain Go identifier
+// (never a component-tag shape), and IS a real package-level declaration.
+// Split out from resolveTag so callers (resolveComponentTags,
+// splitInterpEmbedded) can tell self-exclusion apart from an ordinary leaf
+// and drive the self-reference-leaf warning below.
+func isSelfExcluded(tag string, declNames map[string]bool, exclude string) bool {
+	return tag == exclude && token.IsIdentifier(tag) && !gsxast.IsComponentTag(tag) && declNames[tag]
+}
+
+// reportSelfRefWarning emits the self-reference-leaf diagnostic for a
+// self-excluded element (isSelfExcluded(el.Tag, ...) == true) whose tag is
+// NOT a real HTML element (htmlnames.go): a self-named tag that isn't a
+// living-standard element almost certainly meant recursion, not the
+// wrapper-pattern div/span shape. Called from both resolveComponentTags (the
+// original tree) and splitInterpEmbedded (elements materialized from an
+// embedded `<tag>` literal inside a Go hole) — see each call site for why
+// double-firing can't happen.
+func reportSelfRefWarning(bag *diag.Bag, el *gsxast.Element, exclude string) {
+	if htmlElementNames[el.Tag] {
+		return
+	}
+	bag.Report(el.Pos(), el.End(), diag.Warning, "self-reference-leaf", "codegen",
+		"<%s> inside the declaration of %q renders as a leaf element; for recursion call %s(...) in a Go hole",
+		el.Tag, exclude, el.Tag)
+}
+
 // resolveComponentTags stamps Element.IsComponent on every element in file.
 // exclude for a Component body is the component's bare name (methods included
 // — exclusion is keyed by name); for a GoWithElements, each element/fragment
 // part's enclosing top-level declaration name.
+//
+// Self-exclusion (isSelfExcluded) is observed here, not just applied: a
+// self-named tag that is NOT a real HTML element (htmlnames.go) almost
+// certainly meant recursion rather than the deliberate wrapper pattern, so
+// it gets a self-reference-leaf warning (reportSelfRefWarning) — a self-named
+// wrapper like div/span stays silent.
 //
 // Type args on a tag that resolves to a leaf (not a component) are a codegen
 // error: the parser admits `[...]` on any tag (resolution alone can tell a
@@ -85,10 +119,14 @@ func resolveTag(tag string, declNames map[string]bool, exclude string) bool {
 // report it for every element this pass stamps. Elements materialized LATER
 // from an interpolation's embedded `<tag>` literal (Interp.Embedded) never
 // reach this pass — see splitInterpEmbedded (analyze.go), which carries the
-// same check for those.
+// same checks (self-reference warning included) for those.
 func resolveComponentTags(file *gsxast.File, declNames map[string]bool, bag *diag.Bag) {
 	resolve := func(el *gsxast.Element, exclude string) {
-		el.IsComponent = resolveTag(el.Tag, declNames, exclude)
+		excluded := isSelfExcluded(el.Tag, declNames, exclude)
+		el.IsComponent = !excluded && resolveTag(el.Tag, declNames, exclude)
+		if excluded {
+			reportSelfRefWarning(bag, el, exclude)
+		}
 		if !el.IsComponent && el.TypeArgs != "" {
 			bag.Errorf(el.Pos(), el.End(), "type-args-on-element",
 				"type arguments on HTML element <%s>: type args are only valid on component tags", el.Tag)

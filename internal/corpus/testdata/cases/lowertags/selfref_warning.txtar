@@ -1,0 +1,19 @@
+# A self-named tag that is NOT a real HTML element almost certainly intended
+# recursion — warn, render as leaf. A self-named tag that IS an HTML element
+# (the wrapper pattern) must NOT warn (wrapper_self_exclusion.txtar).
+-- input.gsx --
+package views
+
+component item() {
+	<item>x</item>
+}
+
+component Page() {
+	<item/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+4:2: warning: <item> inside the declaration of "item" renders as a leaf element; for recursion call item(...) in a Go hole
+-- render.golden --
+<item>x</item>
