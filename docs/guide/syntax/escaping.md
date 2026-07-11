@@ -23,6 +23,7 @@ gsx applies a different escaper depending on the context the value sits in. Each
 | **Text / attribute** | `{ x }` in body; `attr={ x }` unless the attr is URL-context by name | HTML / attribute escape — `<`, `>`, `&`, `"`, `'` are entity-encoded; NUL is replaced with U+FFFD | `gsx.Raw(s)` |
 | **Interpolating attribute literal** | `` attr=f`…@{ x }…` `` for a non-URL attribute; each hole | Same type-aware attribute escaping as `attr={ x }` (string/number/`fmt.Stringer`), applied per hole | — |
 | **URL attribute** | `href`, `src`, `action`, `formaction`, `poster`, `cite`, `ping`, `data`, `background`, `manifest`, `xlink:href` (built-in; the htmx method attrs `hx-get`/`hx-post`/`hx-put`/`hx-delete`/`hx-patch` join this set only with `url_presets = ["htmx"]`, see [Config](../config.md#url_presets-named-opt-in-rulesets)) | Scheme-sanitize: non-allowlisted schemes (e.g. `javascript:`) are replaced with `about:invalid#gsx`; value is then attribute-escaped | `gsx.RawURL(s)` |
+| **URL attribute — image-candidate list** | `srcset`, `imagesrcset` (built-in) | Same URL-context attribute, but the value is a comma-separated list of image candidates, not a single URL — see [Image-candidate lists](#image-candidate-lists-srcset) below | `gsx.RawURL(s)` (vouches for the whole value) |
 | **Attribute-local JavaScript** | `` attr=js`...` `` or `` attr={js`...`} ``; `@{ expr }` holes inside the literal | Preserve the surrounding JavaScript and escape each hole for its JavaScript position | `gsx.RawJS(s)` in a hole |
 | **Attribute-local CSS** | `` attr=css`...` ``, `` attr={css`...`} ``, or a `` css`...` `` contribution inside `style={...}`; `@{ expr }` holes inside the literal | Preserve the surrounding CSS and filter each hole as a CSS value before attribute-escaping the result | `gsx.RawCSS(s)` in a hole |
 | **`<script>` body** | `@{ expr }` inside a `<script>` element | JSON-encode; also escapes `</script>`, `<!--`, U+2028/U+2029 so the value cannot terminate the script block | `gsx.RawJS(s)` |
@@ -58,6 +59,40 @@ Why the split is safe: `<img>`/`<source>`/`background` render their target as an
 This is a deliberate divergence from `html/template`, which blocks `data:` on every URL attribute uniformly with no resource/navigational distinction. gsx narrows the exception to tag+attribute combinations that are provably inert, and to an explicit image-MIME allow-list, rather than opening `data:` up everywhere. See [Attributes — `data:image` literals](./attributes.md#data-image-literals) for the author-facing syntax, and [Pipelines](./pipelines.md) for the `dataURL` filter.
 
 For anything the allow-list refuses — an exotic MIME on an image sink, or a `data:` URL you have separately validated for a strict sink — `gsx.RawURL` remains the escape hatch: it skips the scheme check entirely (the value is still attribute-escaped) and is the author's explicit vouch that the URL is safe.
+
+#### Image-candidate lists (`srcset`)
+
+`srcset` and `imagesrcset` are URL-context attributes with a third shape: not
+a single URL, but a comma-separated list of image candidates (`url
+[descriptor]`, e.g. `photo.jpg 1x, photo-2x.jpg 2x`). gsx parses the value
+with the **WHATWG `srcset` grammar** — the same candidate-splitting rules
+browsers use — rather than treating it as one URL or reusing
+`html/template`'s `srcset` sanitizer, which is a conservative
+over-approximation that rejects valid input (it blocks `photo.jpg 1.5x`
+outright and mangles `data:image/png;base64,...` candidates by splitting on
+every comma). Descriptors (`1x`, `2x`, `320w`, …) are inert text — they are
+never parsed as a URL and are HTML-escaped along with the rest of the
+attribute, so they cannot break out of the value.
+
+Each candidate's URL is sanitized independently as an **image sink** — the
+same allow-list as `<img src>`: `http`/`https`/`mailto`/`tel`, relative
+paths, and `data:image/*` with the `;base64,` marker. A disallowed scheme in
+one candidate collapses only that candidate to `about:invalid#gsx`; sibling
+candidates are unaffected — this is per-candidate sanitization, not a
+whole-value replacement. Fractional density descriptors (`1.5x`) and
+`data:image/*;base64,...` candidates pass through unchanged. The same
+sanitization applies identically whether `srcset` is written as a static
+attribute (`srcset={ expr }`, `` srcset=f`…` ``) or arrives through a spread
+bag. `gsx.RawURL(s)` bypasses this entirely and vouches for the whole
+attribute value, exactly as it does for single-URL attributes.
+
+This is one instance of a general rule: single-value URL attributes are
+faithful `html/template` ports, but **structured URL carriers** — a value
+that is a list of URLs, or embeds a URL inside a larger grammar — are
+faithful ports of *that* grammar instead, with each embedded URL still
+routed through gsx's scheme-allow-list sink. `srcset`'s WHATWG candidate list
+and the `<meta http-equiv="refresh" content="…">` `content` attribute (parsed
+as `time; url=URL`) are both structured carriers handled this way.
 
 ### Interpolating attribute literals
 
