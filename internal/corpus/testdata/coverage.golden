@@ -538,6 +538,8 @@ spread-sanitize/spread_func_bag	diag render
 spread-sanitize/spread_local_bag	diag render
 spread-sanitize/spread_local_bag_img	diag render
 spread-sanitize/two_spreads_error	diag(error)
+srcset-sanitize/cond_nested_spread	diag gen render
+srcset-sanitize/spread	diag gen render
 srcset-sanitize/static_expr	diag gen render
 srcset-sanitize/static_fliteral	diag gen render
 style/attr_expr_sanitized	diag render
@@ -641,4 +643,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 643 cases (render: 522, error: 92, gen-pinned: 326)
+TOTAL: 645 cases (render: 524, error: 92, gen-pinned: 328)
