@@ -25,6 +25,25 @@ func parseOnlyPackage(t *testing.T, name, src string) (*Package, string) {
 	return &Package{GSXFset: fset, Files: map[string]*gsxast.File{name: f}}, name
 }
 
+// stampSyntacticComponents sets el.IsComponent per the syntactic capital/dotted
+// rule (gsxast.IsComponentTag) on every element in f. parseOnlyPackage bypasses
+// codegen's resolveComponentTags pass — real stamping needs the package's
+// declared-name set, which a bare parse doesn't have — so tests exercising
+// element-gated LSP lookups (componentTagDeclAt etc.) against a
+// parseOnlyPackage tree must stamp by hand. This covers exactly the
+// capital/dotted case those tests use, where IsComponent is unconditionally
+// true regardless of any declaration; it is NOT a substitute for
+// resolveComponentTags's lowercase-against-declared-names resolution (tests
+// exercising THAT need a real codegen.Module.Package, e.g. analyzedLSPPackage).
+func stampSyntacticComponents(f *gsxast.File) {
+	gsxast.Inspect(f, func(n gsxast.Node) bool {
+		if el, ok := n.(*gsxast.Element); ok {
+			el.IsComponent = gsxast.IsComponentTag(el.Tag)
+		}
+		return true
+	})
+}
+
 func writeLSPTestFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -167,6 +186,7 @@ func TestComponentTagDeclAtByo(t *testing.T) {
 	// elsewhere (not in this file), so CrossIndex is supplied artificially.
 	src := "package x\n\ncomponent Page(v string) {\n\t<Button variant={v}/>\n}\n"
 	pkg, path := parseOnlyPackage(t, "page.gsx", src)
+	stampSyntacticComponents(pkg.Files[path])
 
 	// Build a synthetic CrossIndex pointing ".Button" to a fake .gsx location.
 	declPos := token.Position{Filename: "button.gsx", Line: 5, Column: 11, Offset: 42}
@@ -218,6 +238,7 @@ func TestComponentTagDeclAtClosingTag(t *testing.T) {
 	// Card has children, so the element has an explicit closing tag </Card>.
 	src := "package x\n\ncomponent Page() {\n\t<Card title=\"hi\">body</Card>\n}\n"
 	pkg, path := parseOnlyPackage(t, "page.gsx", src)
+	stampSyntacticComponents(pkg.Files[path])
 
 	declPos := token.Position{Filename: "card.gsx", Line: 3, Column: 11, Offset: 24}
 	pkg.CrossIndex = map[string]CrossRef{
@@ -395,6 +416,7 @@ func TestCtrlDefinitionValueIfCond(t *testing.T) {
 func TestComponentTagDeclAtClosingTagWhitespace(t *testing.T) {
 	src := "package x\n\ncomponent Page() {\n\t<Card>body</Card >\n}\n"
 	pkg, path := parseOnlyPackage(t, "page.gsx", src)
+	stampSyntacticComponents(pkg.Files[path])
 	declPos := token.Position{Filename: "card.gsx", Line: 3, Column: 11, Offset: 24}
 	pkg.CrossIndex = map[string]CrossRef{".Card": {Name: "Card", Decl: declPos}}
 

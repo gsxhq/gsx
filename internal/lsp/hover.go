@@ -176,10 +176,12 @@ func positionForByteOffset(text string, off int, enc encoding) Position {
 	return Position{Line: line, Character: char}
 }
 
-// componentAtTag reports whether off sits on the name of a component tag (simple
-// <Card/> or dotted <pkg.Comp/>) and returns the resolved component declaration,
-// the byte offset of the tag name, and the tag length. Cross-package tags resolve
-// via the imported package's .gsx. Method-receiver tags (<p.Content/>) resolve false.
+// componentAtTag reports whether off sits on the name of a component tag —
+// simple <Card/>, lowercase <card/> resolving to a package-level declaration,
+// or dotted <pkg.Comp/> — per el.IsComponent, the codegen-stamped answer, and
+// returns the resolved component declaration, the byte offset of the tag
+// name, and the tag length. Cross-package tags resolve via the imported
+// package's .gsx. Method-receiver tags (<p.Content/>) resolve false.
 func componentAtTag(pkg *Package, path string, off int) (comp *gsxast.Component, nameStart, nameLen int, ok bool) {
 	if pkg == nil || pkg.GSXFset == nil || pkg.Files == nil {
 		return nil, 0, 0, false
@@ -194,7 +196,7 @@ func componentAtTag(pkg *Package, path string, off int) (comp *gsxast.Component,
 			return false
 		}
 		el, isEl := n.(*gsxast.Element)
-		if !isEl || !isComponentTag(el.Tag) {
+		if !isEl || !el.IsComponent {
 			return true
 		}
 		start := pkg.GSXFset.Position(el.Pos()).Offset + 1 // skip '<'

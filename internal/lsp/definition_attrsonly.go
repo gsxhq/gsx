@@ -11,8 +11,7 @@ import (
 // gsxRuntimePath is the gsx runtime's import path. Mirrors
 // codegen.gsxRuntimePath (internal/codegen/rtimports.go) — duplicated rather
 // than imported, since internal/lsp deliberately does not depend on
-// internal/codegen in production code (see Package's doc comment); the same
-// pattern already duplicates isComponentTag/isSimpleComponentTag.
+// internal/codegen in production code (see Package's doc comment).
 const gsxRuntimePath = "github.com/gsxhq/gsx"
 
 // isGsxNamedType reports whether t is the named type gsx.<name>, matched by
@@ -92,6 +91,14 @@ func isAttrsOnlyValueType(t types.Type) bool {
 // a *types.Func or *types.Var is returned (never a type name, const, or
 // package name) — an attrs-only component value is always one of those two.
 // Returns nil when the tag doesn't resolve.
+//
+// The non-dotted branch does not re-derive component-ness from the tag's
+// case (that would miss a lowercase tag resolving to a package-level
+// var/func under the lowercase-tag-resolution rule): its sole caller,
+// attrsOnlyTagDeclAt, already gated on el.IsComponent before calling here, so
+// any non-dotted tag reaching this point is a resolved same-package
+// component name — capital or lowercase — and Scope().Lookup naturally
+// returns nil for anything that isn't actually declared.
 func attrsOnlyTagObject(pkg *Package, tag string) types.Object {
 	var obj types.Object
 	if qualifier, name, ok := splitDottedTag(tag); ok {
@@ -108,7 +115,7 @@ func attrsOnlyTagObject(pkg *Package, tag string) types.Object {
 			return nil
 		}
 		obj = imp.Scope().Lookup(name)
-	} else if isSimpleComponentTag(tag) {
+	} else if tag != "" && !strings.Contains(tag, ".") {
 		obj = pkg.Types.Scope().Lookup(tag)
 	} else {
 		return nil
@@ -153,7 +160,7 @@ func attrsOnlyTagDeclAt(pkg *Package, path string, off int) (token.Position, boo
 			return false
 		}
 		el, ok := n.(*gsxast.Element)
-		if !ok || !isComponentTag(el.Tag) {
+		if !ok || !el.IsComponent {
 			return true
 		}
 		tag := el.Tag

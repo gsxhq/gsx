@@ -26,21 +26,3 @@ func TestSplitDottedTag(t *testing.T) {
 		}
 	}
 }
-
-func TestIsComponentTag(t *testing.T) {
-	cases := []struct {
-		tag  string
-		want bool
-	}{
-		{"Card", true},
-		{"components.Input", true},
-		{"div", false},   // lowercase simple tag
-		{"a.b.c", false}, // multi-dot rejected
-		{"", false},
-	}
-	for _, tc := range cases {
-		if got := isComponentTag(tc.tag); got != tc.want {
-			t.Errorf("isComponentTag(%q) = %v; want %v", tc.tag, got, tc.want)
-		}
-	}
-}
