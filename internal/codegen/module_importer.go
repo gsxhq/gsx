@@ -638,9 +638,9 @@ type analyzed struct {
 	skelFset           *token.FileSet                 // skeleton positions (same fset as gsxFset for Module)
 	goFiles            []*goast.File                  // parsed skeletons + shared helper
 	compsByXGo         map[string][]*gsxast.Component // skeleton abs path -> components
-	table              filterTable
-	merger             *ClassMergerRef       // the class merger for this dir (Options.ClassMerger, or its PerDir override)
-	classifier         *attrclass.Classifier // the attrclass.Classifier for this dir (Options.Classifier, or its PerDir override)
+	table              funcTables                     // filters + renderers this dir's pipes/render boundaries consult (see filters.go's funcTables)
+	merger             *ClassMergerRef                // the class merger for this dir (Options.ClassMerger, or its PerDir override)
+	classifier         *attrclass.Classifier          // the attrclass.Classifier for this dir (Options.Classifier, or its PerDir override)
 	propFields         map[string]map[string]bool
 	nodeProps          map[string]map[string]bool
 	attrsProps         map[string]map[string]bool

@@ -138,9 +138,9 @@ func loadFilterTableFromTypes(byPath map[string]*types.Package, pkgPaths []strin
 // defaults to the built-in std filter package.
 func NewCachedResolverFromTypes(pkgs map[string]*types.Package, filterPkgs []string, aliases []FilterAlias) (*Bundle, error) {
 	filterPkgs = dedupFilterPkgs(filterPkgs)
-	table, _, err := loadFilterTableFromTypes(pkgs, filterPkgs, aliases, nil)
+	table, rt, err := loadFilterTableFromTypes(pkgs, filterPkgs, aliases, nil)
 	if err != nil {
 		return nil, err
 	}
-	return &Bundle{imp: mapImporter(pkgs), table: table}, nil
+	return &Bundle{imp: mapImporter(pkgs), table: funcTables{filters: table, renderers: rt}}, nil
 }

@@ -54,9 +54,9 @@ component C(extra gsx.Attrs) {
 // lowering itself (the unit under test) is package-agnostic.
 func TestSplatPipelineComponent(t *testing.T) {
 	t.Parallel()
-	table := filterTable{
+	table := funcTables{filters: filterTable{
 		"loud": {funcName: "Loud", alias: "_gsxf0", pkgPath: "gsxmf/myfilters"},
-	}
+	}}
 	byo := newByoData()
 	byo.structs["cardData"] = byoStruct{} // mark cardData as a byo struct (no fields needed)
 
