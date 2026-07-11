@@ -680,10 +680,16 @@ vocabulary remains a design aspiration, not the current API.
      wrapping still has no call-site-level "trust this bag's URLs" marker.
      Considered and deferred alongside Part A; `gsx.RawURL` remains the only
      opt-out.
-   - **Two-spread diagnostic DX** - "more than one spread on an element;
-     precedence is ambiguous" names the rule but not a fix. A friendlier
-     diagnostic would point at both spread positions and suggest the
-     `{ a.Merge(b)... }` composition inline.
+
+   **Two-spread diagnostic DX - RESOLVED** (2026-07-11,
+   universal-spread-sanitization branch). The diagnostic now positions at the
+   *second* spread (not the element) and names both spread expressions with
+   the merge recipe: `element with a spread { a... } cannot carry another
+   spread { b... }; merge them into one spread ({ a.Merge(b)... } or {
+   b.Merge(a)... }) so precedence is explicit`. Corpus:
+   `spread-sanitize/two_spreads_error`,
+   `fallthrough/{second_spread_rejected,byo_bag_two_spreads}`,
+   `jsattr/manual_multi_spread_rejected`.
 
 ## Tracked debts / deferrals
 

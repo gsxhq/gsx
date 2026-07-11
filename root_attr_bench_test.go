@@ -38,13 +38,15 @@ func BenchmarkRootAttrMachineryEmpty(b *testing.B) {
 }
 
 // BenchmarkForwardingLeafNoURL measures the full leaf-forwarding shape codegen
-// now emits per forwarding element — the URL-name GetFold extraction scan plus
-// the case-insensitive WithoutFold residual — on a 4-entry bag that carries NO
-// URL-classified key (the common case). This is the render-time cost of
-// leaf-side URL sanitization: it runs the extraction machinery unconditionally,
-// so the bag is scanned once per built-in URL name and the residual is rebuilt.
-// It exists to keep that cost visible and regression-gated; the design accepts
-// it as the price of no-silent-hole URL safety on forwarded bags.
+// now emits per forwarding element: ClassMerged/StyleMerged followed by a
+// single SpreadForwarding call carrying the built-in nav/image URL name sets,
+// on a 4-entry bag that carries NO URL-classified key (the common case).
+// SpreadForwarding IS the extraction — one ordered walk that matches each key
+// against navNames/imageNames and writes plain attrs inline — there is no
+// separate pre-scan or residual pass to warm up first (that unrolled
+// per-name-GetFold-then-WithoutFold shape predates issue #75's
+// universal-spread-sanitization pass and is no longer what codegen emits).
+// It exists to keep this per-render cost visible and regression-gated.
 func BenchmarkForwardingLeafNoURL(b *testing.B) {
 	b.ReportAllocs()
 	a := Attrs{
@@ -53,20 +55,18 @@ func BenchmarkForwardingLeafNoURL(b *testing.B) {
 		{Key: "data-n", Value: "1"},
 		{Key: "role", Value: "button"},
 	}
-	urlNames := []string{
-		"action", "background", "cite", "data", "formaction", "href",
-		"hx-delete", "hx-get", "hx-patch", "hx-post", "hx-put",
-		"manifest", "ping", "poster", "src", "xlink:href",
-	}
+	// The built-in URL name sets a generated SpreadForwarding call carries
+	// (attrclass's builtinURL floor), split nav vs image exactly as codegen
+	// emits them — see e.g. spread-sanitize/derived_local_bag.txtar's
+	// generated.x.go.golden.
+	navNames := []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}
+	imageNames := []string{"background"}
 	gw := W(io.Discard)
 	ctx := context.Background()
 	for b.Loop() {
-		for _, n := range urlNames {
-			_, _ = a.GetFold(n)
-		}
 		gw.ClassMerged(DefaultClassMerge, a.Class())
 		gw.StyleMerged("", a.Style())
-		gw.SpreadForwarding(ctx, a, nil, nil, nil, []string{"class", "style"})
+		gw.SpreadForwarding(ctx, a, navNames, imageNames, nil, []string{"class", "style"})
 	}
 }
 

@@ -1352,15 +1352,19 @@ func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, cur
 // present. Every element spread is a forwarding spread (a sink): it routes
 // through emitManualSpreadElement's URL-sanitizing / class-merge machinery
 // regardless of what the bag expression is. An element carries at most one
-// spread; a second is a precedence-ambiguous error.
-func bagSpreadIndex(attrs []ast.Attr) (int, bool, error) {
-	idx, found := -1, false
+// spread; second is the offending second *ast.SpreadAttr when the element
+// carries more than one (nil otherwise), so the caller can position the
+// precedence-ambiguous diagnostic at it and name both spread expressions in
+// the merge-hint, rather than pointing at the element.
+func bagSpreadIndex(attrs []ast.Attr) (idx int, found bool, second *ast.SpreadAttr) {
+	idx = -1
 	for i, a := range attrs {
-		if _, ok := a.(*ast.SpreadAttr); !ok {
+		s, ok := a.(*ast.SpreadAttr)
+		if !ok {
 			continue
 		}
 		if found {
-			return 0, false, fmt.Errorf("codegen: more than one spread on an element; precedence is ambiguous")
+			return idx, found, s
 		}
 		idx, found = i, true
 	}
@@ -1620,9 +1624,17 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		// routes through emitManualSpreadElement's URL-sanitizing / class-merge
 		// machinery regardless of the bag's provenance (declared forwarding param,
 		// local `:=` bag, func result, byo field, arbitrary expr). An element
-		// carries at most one spread; bagSpreadIndex errors on a second.
-		if splitIdx, found, err := bagSpreadIndex(t.Attrs); err != nil {
-			bag.Errorf(t.Pos(), t.End(), "attr-fallthrough", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+		// carries at most one spread; a second spread has no expressible
+		// precedence against the guard machinery, so bagSpreadIndex hands back
+		// the offending second spread and the diagnostic is positioned there
+		// (not at the element) with a merge-hint naming both spreads.
+		if splitIdx, found, second := bagSpreadIndex(t.Attrs); second != nil {
+			first := t.Attrs[splitIdx].(*ast.SpreadAttr)
+			firstExpr := strings.TrimSpace(first.Expr)
+			secondExpr := strings.TrimSpace(second.Expr)
+			bag.Errorf(second.Pos(), second.End(), "attr-fallthrough",
+				"element with a spread { %s... } cannot carry another spread { %s... }; merge them into one spread ({ %s.Merge(%s)... } or { %s.Merge(%s)... }) so precedence is explicit",
+				firstExpr, secondExpr, firstExpr, secondExpr, secondExpr, firstExpr)
 			return false
 		} else if found {
 			return emitManualSpreadElement(b, t, splitIdx, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)

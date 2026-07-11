@@ -14,4 +14,4 @@ component Row(p props) {
 	<div { p.Attrs... } { p.Attrs... }>r</div>
 }
 -- diagnostics.golden --
-10:2: more than one spread on an element; precedence is ambiguous
+10:22: element with a spread { p.Attrs... } cannot carry another spread { p.Attrs... }; merge them into one spread ({ p.Attrs.Merge(p.Attrs)... } or { p.Attrs.Merge(p.Attrs)... }) so precedence is explicit
