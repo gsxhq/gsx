@@ -1,7 +1,7 @@
-# A spread inside a cond-attr branch on a forwarding element is rejected: its
-# keys are statically unknown, so neither the caller-wins guards nor the
-# spread's drop set can reconcile it. Compose it into the forwarding spread
-# expression instead.
+# A spread inside a cond-attr branch, combined with a top-level forwarding
+# spread, is a second spread on the element (the at-most-one-spread count
+# descends into cond-attr branches, issue #78): rejected as a precedence
+# ambiguity between the two spreads, same as two top-level spreads.
 -- input.gsx --
 package views
 
@@ -11,4 +11,4 @@ component Box(active bool, extra gsx.Attrs) {
 	<div { if active { { extra... } } } { attrs... }>x</div>
 }
 -- diagnostics.golden --
-6:21: spread inside { if } on an element with attribute forwarding has statically unknown keys; hoist it with a GoBlock instead (e.g. {{ a, err := gsx.AttrsCond(active, func() (gsx.Attrs, error) { return extra, nil }, nil); if err != nil { return err } }} then { attrs.Merge(a)... })
+6:38: element with a spread { extra... } cannot carry another spread { attrs... }; merge them into one spread ({ extra.Merge(attrs)... } or { attrs.Merge(extra)... }) so precedence is explicit

@@ -1348,27 +1348,53 @@ func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, cur
 	return true
 }
 
-// bagSpreadIndex returns the index of THE element spread, and whether one is
-// present. Every element spread is a forwarding spread (a sink): it routes
-// through emitManualSpreadElement's URL-sanitizing / class-merge machinery
-// regardless of what the bag expression is. An element carries at most one
-// spread; second is the offending second *ast.SpreadAttr when the element
-// carries more than one (nil otherwise), so the caller can position the
-// precedence-ambiguous diagnostic at it and name both spread expressions in
-// the merge-hint, rather than pointing at the element.
-func bagSpreadIndex(attrs []ast.Attr) (idx int, found bool, second *ast.SpreadAttr) {
-	idx = -1
+// bagSpreadIndex returns the index of the (single) top-level element spread
+// and whether one is present. Enforcing at-most-one-spread — including
+// spreads nested in cond-attr branches — is done by walkSpreadAttrs before
+// this is consulted; by the time bagSpreadIndex is called, at most one
+// top-level spread can exist.
+func bagSpreadIndex(attrs []ast.Attr) (idx int, found bool) {
 	for i, a := range attrs {
-		s, ok := a.(*ast.SpreadAttr)
-		if !ok {
-			continue
+		if _, ok := a.(*ast.SpreadAttr); ok {
+			return i, true
 		}
-		if found {
-			return idx, found, s
-		}
-		idx, found = i, true
 	}
-	return idx, found, nil
+	return -1, false
+}
+
+// firstTwoSpreadAttrs returns the first two spread attrs on an element in
+// depth-first source order, descending into cond-attr branches. An element
+// carries at most one spread total — top-level OR nested in a
+// `{ if … { { x... } } }` cond-attr — because a second spread anywhere has no
+// expressible precedence against the forwarding/guard machinery. The caller
+// positions the ambiguity diagnostic at `second` and names both spread
+// expressions.
+//
+// Named distinctly from analyze.go's walkSpreadAttrs (a callback-style visitor
+// over every spread, used by probe/collect passes) to avoid redeclaring that
+// existing function in the same package.
+func firstTwoSpreadAttrs(attrs []ast.Attr) (first, second *ast.SpreadAttr) {
+	var visit func(list []ast.Attr)
+	visit = func(list []ast.Attr) {
+		for _, a := range list {
+			if second != nil {
+				return
+			}
+			switch t := a.(type) {
+			case *ast.SpreadAttr:
+				if first == nil {
+					first = t
+				} else {
+					second = t
+				}
+			case *ast.CondAttr:
+				visit(t.Then)
+				visit(t.Else)
+			}
+		}
+	}
+	visit(attrs)
+	return first, second
 }
 
 // emitRootComposedClass emits a composed `class={ … }` merged with the bag's
@@ -1624,19 +1650,18 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		// routes through emitManualSpreadElement's URL-sanitizing / class-merge
 		// machinery regardless of the bag's provenance (declared forwarding param,
 		// local `:=` bag, func result, byo field, arbitrary expr). An element
-		// carries at most one spread; a second spread has no expressible
-		// precedence against the guard machinery, so bagSpreadIndex hands back
-		// the offending second spread and the diagnostic is positioned there
+		// carries at most one spread — top-level OR nested in a cond-attr branch —
+		// so firstTwoSpreadAttrs hands back the offending second spread
+		// (descending into cond-attrs) and the diagnostic is positioned there
 		// (not at the element) with a merge-hint naming both spreads.
-		if splitIdx, found, second := bagSpreadIndex(t.Attrs); second != nil {
-			first := t.Attrs[splitIdx].(*ast.SpreadAttr)
+		if first, second := firstTwoSpreadAttrs(t.Attrs); second != nil {
 			firstExpr := strings.TrimSpace(first.Expr)
 			secondExpr := strings.TrimSpace(second.Expr)
 			bag.Errorf(second.Pos(), second.End(), "attr-fallthrough",
 				"element with a spread { %s... } cannot carry another spread { %s... }; merge them into one spread ({ %s.Merge(%s)... } or { %s.Merge(%s)... }) so precedence is explicit",
 				firstExpr, secondExpr, firstExpr, secondExpr, secondExpr, firstExpr)
 			return false
-		} else if found {
+		} else if splitIdx, found := bagSpreadIndex(t.Attrs); found {
 			return emitManualSpreadElement(b, t, splitIdx, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)
 		}
 		emitS(b, "<"+t.Tag)
