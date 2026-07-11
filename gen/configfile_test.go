@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -91,6 +92,77 @@ func TestSplitPkgFunc(t *testing.T) {
 		if pkg != c.pkg || fn != c.fn {
 			t.Fatalf("splitPkgFunc(%q) = (%q,%q), want (%q,%q)", c.in, pkg, fn, c.pkg, c.fn)
 		}
+	}
+}
+
+// TestLoadConfigRenderers proves a [renderers] table decodes into
+// cfg.renderers, keyed by the canonical TypeKey (optionally *-prefixed) and
+// sorted by TypeKey for a deterministic slice (TOML maps are unordered).
+func TestLoadConfigRenderers(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gsx.toml")
+	toml := `
+[renderers]
+"github.com/jackc/pgx/v5/pgtype.Text" = "example.com/app/filters.PgText"
+"*github.com/jackc/pgx/v5/pgtype.Int4" = "example.com/app/filters.PgInt4Ptr"
+`
+	mkfile(t, path, toml)
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []codegen.RendererAlias{
+		{TypeKey: "*github.com/jackc/pgx/v5/pgtype.Int4", PkgPath: "example.com/app/filters", FuncName: "PgInt4Ptr"},
+		{TypeKey: "github.com/jackc/pgx/v5/pgtype.Text", PkgPath: "example.com/app/filters", FuncName: "PgText"},
+	}
+	if !reflect.DeepEqual(cfg.renderers, want) {
+		t.Errorf("renderers = %#v, want %#v", cfg.renderers, want)
+	}
+}
+
+// TestLoadConfigRenderersBadFuncValue proves the alias-value side reuses
+// splitPkgFunc's validation (here: an unexported target).
+func TestLoadConfigRenderersBadFuncValue(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gsx.toml")
+	mkfile(t, path, "[renderers]\n\"example.com/app/pgtype.Text\" = \"example.com/app/filters.helper\"\n")
+	_, err := loadConfig(path)
+	if err == nil {
+		t.Fatal("expected error for non-exported renderer func")
+	}
+	if !strings.Contains(err.Error(), "example.com/app/pgtype.Text") || !strings.Contains(err.Error(), path) {
+		t.Fatalf("error should name the path + renderer key; got: %v", err)
+	}
+}
+
+// TestLoadConfigRenderersBadKey covers the [renderers] KEY-side validation
+// failures: no dot, a non-identifier type name, and a key that is only "*".
+func TestLoadConfigRenderersBadKey(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		key  string
+	}{
+		{"no dot", "nodothere"},
+		{"non-identifier type name", "example.com/app/pgtype.1Bad"},
+		{"only star", "*"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			path := filepath.Join(dir, "gsx.toml")
+			mkfile(t, path, "[renderers]\n\""+c.key+"\" = \"example.com/app/filters.PgText\"\n")
+			_, err := loadConfig(path)
+			if err == nil {
+				t.Fatalf("expected error for bad renderer key %q", c.key)
+			}
+			if !strings.Contains(err.Error(), c.key) {
+				t.Fatalf("error should name the bad key %q; got: %v", c.key, err)
+			}
+		})
 	}
 }
 

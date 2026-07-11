@@ -81,7 +81,7 @@ func TestWatchEquiv(t *testing.T) {
 	// One-shot generate on dir1. useCache=false avoids any stale cache entry
 	// that could mask a real byte difference. cssMinify=true/jsMinify=true
 	// matches what the public Generate function uses.
-	osRes, osErr := generateCached([]string{dir1}, nil, nil, attrclass.Builtin(), nil, false, nil, nil, true, true, nil)
+	osRes, osErr := generateCached([]string{dir1}, nil, nil, nil, attrclass.Builtin(), nil, false, nil, nil, true, true, nil)
 	if osErr != nil {
 		t.Fatalf("one-shot generateCached: %v; diags=%v", osErr, osRes.Diags)
 	}
@@ -157,7 +157,7 @@ func TestWatchEquiv(t *testing.T) {
 	dir3 := t.TempDir()
 	equivWriteFixture(t, dir3)
 	writeFileT(t, filepath.Join(dir3, "comp", "card.gsx"), updatedCard)
-	os3Res, os3Err := generateCached([]string{dir3}, nil, nil, attrclass.Builtin(), nil, false, nil, nil, true, true, nil)
+	os3Res, os3Err := generateCached([]string{dir3}, nil, nil, nil, attrclass.Builtin(), nil, false, nil, nil, true, true, nil)
 	if os3Err != nil {
 		t.Fatalf("post-edit one-shot: %v; diags=%v", os3Err, os3Res.Diags)
 	}
@@ -196,7 +196,7 @@ func TestWatchEquiv_MinifyNone(t *testing.T) {
 	equivWriteFixture(t, dir2)
 
 	// One-shot with minify disabled (cssMinify=false, jsMinify=false).
-	osRes, osErr := generateCached([]string{dir1}, nil, nil, attrclass.Builtin(), nil, false, nil, nil, false, false, nil)
+	osRes, osErr := generateCached([]string{dir1}, nil, nil, nil, attrclass.Builtin(), nil, false, nil, nil, false, false, nil)
 	if osErr != nil {
 		t.Fatalf("one-shot (minify-none): %v; diags=%v", osErr, osRes.Diags)
 	}

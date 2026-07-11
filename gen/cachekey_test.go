@@ -27,11 +27,11 @@ func TestBuildContextKeySensitivity(t *testing.T) {
 	bctxDarwin := "go1.26\ndarwin\namd64\n0\n\n"
 	bctxLinux := "go1.26\nlinux\namd64\n0\n\n"
 
-	k1a, err := computeKey(aDir, graph, "ex/bctx", "", "", bctxDarwin, "gen-test", nil, nil, "", false, false, false, nil, tmp)
+	k1a, err := computeKey(aDir, graph, "ex/bctx", "", "", bctxDarwin, "gen-test", nil, nil, nil, "", false, false, false, nil, tmp)
 	if err != nil {
 		t.Fatal(err)
 	}
-	k1b, err := computeKey(aDir, graph, "ex/bctx", "", "", bctxDarwin, "gen-test", nil, nil, "", false, false, false, nil, tmp)
+	k1b, err := computeKey(aDir, graph, "ex/bctx", "", "", bctxDarwin, "gen-test", nil, nil, nil, "", false, false, false, nil, tmp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +39,7 @@ func TestBuildContextKeySensitivity(t *testing.T) {
 		t.Error("same buildCtx must produce the same key (unstable)")
 	}
 
-	k2, err := computeKey(aDir, graph, "ex/bctx", "", "", bctxLinux, "gen-test", nil, nil, "", false, false, false, nil, tmp)
+	k2, err := computeKey(aDir, graph, "ex/bctx", "", "", bctxLinux, "gen-test", nil, nil, nil, "", false, false, false, nil, tmp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,19 +99,19 @@ func TestComputeKeyDepClosure(t *testing.T) {
 		t.Fatal(err)
 	}
 	bDir := filepath.Join(tmp, "b")
-	key1, err := computeKey(bDir, graph, "ex/app", "", "", "go1.26\nlinux\namd64\n0\n\n", "gen-test", nil, nil, "", false, false, false, nil, tmp)
+	key1, err := computeKey(bDir, graph, "ex/app", "", "", "go1.26\nlinux\namd64\n0\n\n", "gen-test", nil, nil, nil, "", false, false, false, nil, tmp)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// edit dependency a -> b's key must change
 	os.WriteFile(filepath.Join(tmp, "a", "a.go"), []byte("package a\n\nfunc A() string { return \"A2\" }\n"), 0o644)
-	key2, _ := computeKey(bDir, loadGraphMust(t, tmp), "ex/app", "", "", "go1.26\nlinux\namd64\n0\n\n", "gen-test", nil, nil, "", false, false, false, nil, tmp)
+	key2, _ := computeKey(bDir, loadGraphMust(t, tmp), "ex/app", "", "", "go1.26\nlinux\namd64\n0\n\n", "gen-test", nil, nil, nil, "", false, false, false, nil, tmp)
 	if key1 == key2 {
 		t.Error("editing dependency a must change b's key")
 	}
 	// edit unrelated c -> b's key must NOT change
 	os.WriteFile(filepath.Join(tmp, "c", "c.go"), []byte("package c\n\nfunc C() string { return \"C2\" }\n"), 0o644)
-	key3, _ := computeKey(bDir, loadGraphMust(t, tmp), "ex/app", "", "", "go1.26\nlinux\namd64\n0\n\n", "gen-test", nil, nil, "", false, false, false, nil, tmp)
+	key3, _ := computeKey(bDir, loadGraphMust(t, tmp), "ex/app", "", "", "go1.26\nlinux\namd64\n0\n\n", "gen-test", nil, nil, nil, "", false, false, false, nil, tmp)
 	if key3 != key2 {
 		t.Error("editing unrelated c must NOT change b's key")
 	}
@@ -132,7 +132,7 @@ func computeKeyForTest(t *testing.T, classMerger *codegen.ClassMergerRef) (strin
 		return "", err
 	}
 	aDir := filepath.Join(tmp, "a")
-	return computeKey(aDir, graph, "ex/cmtest", "", "", "go1.26\nlinux\namd64\n0\n\n", "gen-test", nil, nil, "", false, false, false, classMerger, tmp)
+	return computeKey(aDir, graph, "ex/cmtest", "", "", "go1.26\nlinux\namd64\n0\n\n", "gen-test", nil, nil, nil, "", false, false, false, classMerger, tmp)
 }
 
 // TestComputeKeyVariesByClassMerger is the regression guard for Task 5:
@@ -151,6 +151,59 @@ func TestComputeKeyVariesByClassMerger(t *testing.T) {
 	b := base(&codegen.ClassMergerRef{PkgPath: "x/twcfg", FuncName: "Other"})
 	if none == a || a == b {
 		t.Fatalf("cache key must vary by merger: none=%s a=%s b=%s", none, a, b)
+	}
+}
+
+// computeKeyForRenderersTest invokes computeKey with a minimal fixed
+// graph/module setup, varying only the renderers parameter. The fixed content
+// ensures the key is stable across calls (same own hash, no in-module deps),
+// so only renderers can cause the key to differ.
+func computeKeyForRenderersTest(t *testing.T, renderers []codegen.RendererAlias) string {
+	t.Helper()
+	tmp := t.TempDir()
+	os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module ex/rndtest\n\ngo 1.26\n"), 0o644)
+	os.MkdirAll(filepath.Join(tmp, "a"), 0o755)
+	os.WriteFile(filepath.Join(tmp, "a", "a.go"), []byte("package a\n"), 0o644)
+	graph, err := loadGraph(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aDir := filepath.Join(tmp, "a")
+	k, err := computeKey(aDir, graph, "ex/rndtest", "", "", "go1.26\nlinux\namd64\n0\n\n", "gen-test", nil, nil, renderers, "", false, false, false, nil, tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return k
+}
+
+// TestComputeKeyRenderers is the regression guard for the renderers= pin: a
+// changed registration must bust the cache, but the pin is resolved
+// last-wins-per-TypeKey and then sorted by TypeKey, so swapping the
+// REGISTRATION ORDER of two distinct TypeKeys must NOT change the key (the
+// renderer table is a per-key map — unlike aliases=, order there is not
+// itself meaning).
+func TestComputeKeyRenderers(t *testing.T) {
+	t.Parallel()
+	rA := codegen.RendererAlias{TypeKey: "example.com/p.A", PkgPath: "example.com/f", FuncName: "RenderA"}
+	rB := codegen.RendererAlias{TypeKey: "example.com/p.B", PkgPath: "example.com/f", FuncName: "RenderB"}
+	rBOther := codegen.RendererAlias{TypeKey: "example.com/p.B", PkgPath: "example.com/f", FuncName: "RenderBOther"}
+
+	none := computeKeyForRenderersTest(t, nil)
+	withA := computeKeyForRenderersTest(t, []codegen.RendererAlias{rA})
+	if none == withA {
+		t.Fatal("registering a renderer must change the cache key")
+	}
+
+	withAThenOther := computeKeyForRenderersTest(t, []codegen.RendererAlias{rA, rBOther})
+	withAThenB := computeKeyForRenderersTest(t, []codegen.RendererAlias{rA, rB})
+	if withAThenOther == withAThenB {
+		t.Fatal("changing a renderer registration (same TypeKey, different func) must change the cache key")
+	}
+
+	orderAB := computeKeyForRenderersTest(t, []codegen.RendererAlias{rA, rB})
+	orderBA := computeKeyForRenderersTest(t, []codegen.RendererAlias{rB, rA})
+	if orderAB != orderBA {
+		t.Fatal("swapping registration order of two distinct TypeKeys must NOT change the cache key (order-independent pin)")
 	}
 }
 
@@ -183,11 +236,11 @@ func TestComputeKeyFingerprintSensitivity(t *testing.T) {
 	fp1 := "fingerprint-aaa"
 	fp2 := "fingerprint-bbb"
 
-	k1a, err := computeKey(aDir, graph, "ex/fptest", "", "", bctx, "gen-test", nil, nil, fp1, false, false, false, nil, tmp)
+	k1a, err := computeKey(aDir, graph, "ex/fptest", "", "", bctx, "gen-test", nil, nil, nil, fp1, false, false, false, nil, tmp)
 	if err != nil {
 		t.Fatal(err)
 	}
-	k1b, err := computeKey(aDir, graph, "ex/fptest", "", "", bctx, "gen-test", nil, nil, fp1, false, false, false, nil, tmp)
+	k1b, err := computeKey(aDir, graph, "ex/fptest", "", "", bctx, "gen-test", nil, nil, nil, fp1, false, false, false, nil, tmp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +248,7 @@ func TestComputeKeyFingerprintSensitivity(t *testing.T) {
 		t.Error("same fingerprint must produce the same key (unstable)")
 	}
 
-	k2, err := computeKey(aDir, graph, "ex/fptest", "", "", bctx, "gen-test", nil, nil, fp2, false, false, false, nil, tmp)
+	k2, err := computeKey(aDir, graph, "ex/fptest", "", "", bctx, "gen-test", nil, nil, nil, fp2, false, false, false, nil, tmp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +285,7 @@ func TestComputeKeyGsxOnlyDeps(t *testing.T) {
 	}
 	pagesDir := filepath.Join(root, "pages")
 	key := func() string {
-		k, err := computeKey(pagesDir, graph, "example.com/app", "gm", "gs", "bctx", "cid", nil, nil, "cls", false, false, false, nil, root)
+		k, err := computeKey(pagesDir, graph, "example.com/app", "gm", "gs", "bctx", "cid", nil, nil, nil, "cls", false, false, false, nil, root)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -26,9 +26,15 @@ const configFileName = "gsx.toml"
 // common case used as `{ value |> name(args) }`. FilterPackages is the bulk
 // form: every exported func of each listed package is registered as a filter,
 // named by its lower-cased func name (std.Upper → `upper`).
+//
+// Renderers is the [renderers] table: a fully-qualified Go named type
+// ("pkgPath.TypeName", optionally *-prefixed for a pointer type) → a
+// "<pkgPath>.<Func>" target, applied at render boundaries by codegen (see
+// gen.WithRenderer and codegen.RendererAlias).
 type tomlConfig struct {
 	Filters        map[string]string `toml:"filters"`
 	FilterPackages []string          `toml:"filterPackages"`
+	Renderers      map[string]string `toml:"renderers"`
 	URLAttrs       []tomlRule        `toml:"urlAttrs"`
 	URLPresets     []string          `toml:"url_presets"`
 	Formatter      *tomlFormatter    `toml:"formatter"`
@@ -171,6 +177,29 @@ func loadConfig(path string) (config, error) {
 		cfg.aliases = append(cfg.aliases, codegen.FilterAlias{Name: n, PkgPath: pkgPath, FuncName: funcName})
 	}
 
+	// Renderers: sort by TypeKey for a deterministic slice (TOML maps are
+	// unordered), same shape as the named-filters loop above. Unlike aliases,
+	// registration ORDER here is not itself meaning — computeKey's renderers=
+	// pin resolves last-wins-per-TypeKey first and then re-sorts by TypeKey —
+	// but the config-level slice is still emitted sorted for a stable,
+	// diffable cfg.renderers regardless of TOML map iteration order.
+	rendererKeys := make([]string, 0, len(tc.Renderers))
+	for k := range tc.Renderers {
+		rendererKeys = append(rendererKeys, k)
+	}
+	sort.Strings(rendererKeys)
+	for _, k := range rendererKeys {
+		key, err := splitPkgType(k)
+		if err != nil {
+			return config{}, fmt.Errorf("%s: %w", path, err)
+		}
+		pkgPath, funcName, err := splitPkgFunc(tc.Renderers[k])
+		if err != nil {
+			return config{}, fmt.Errorf("%s: renderer for %q: %w", path, k, err)
+		}
+		cfg.renderers = append(cfg.renderers, codegen.RendererAlias{TypeKey: key, PkgPath: pkgPath, FuncName: funcName})
+	}
+
 	if tc.ClassMerger != "" {
 		pkgPath, funcName, err := splitPkgFunc(tc.ClassMerger)
 		if err != nil {
@@ -234,11 +263,11 @@ func appendTomlRules(path, who string, dst []attrclass.Rule, add []tomlRule) ([]
 
 // mergeConfig merges a programmatic opts config ON TOP of a file-loaded base
 // config. The file base comes first; opts are appended after so they win under
-// the existing last-wins resolution: filterPkgs and aliases are base++opts (with
-// filterPkgs deduped), URL attr rules are concatenated base++opts, and
-// func-valued fields (cssMin/jsMin, fieldMatcher) are taken from opts when set,
-// else base. errs are concatenated. Slices are freshly allocated so neither
-// input is mutated.
+// the existing last-wins resolution: filterPkgs, aliases, and renderers are
+// base++opts (with filterPkgs deduped), URL attr rules are concatenated
+// base++opts, and func-valued fields (cssMin/jsMin, fieldMatcher) are taken
+// from opts when set, else base. errs are concatenated. Slices are freshly
+// allocated so neither input is mutated.
 func mergeConfig(base, opts config) config {
 	var merged config
 
@@ -249,6 +278,11 @@ func mergeConfig(base, opts config) config {
 
 	merged.aliases = append(merged.aliases, base.aliases...)
 	merged.aliases = append(merged.aliases, opts.aliases...)
+
+	// renderers: file layer first, option layer appended after — last-wins
+	// per TypeKey resolves at harvest, matching aliases' convention.
+	merged.renderers = append(merged.renderers, base.renderers...)
+	merged.renderers = append(merged.renderers, opts.renderers...)
 
 	merged.urlRules = append(append(merged.urlRules, base.urlRules...), opts.urlRules...)
 
