@@ -32,7 +32,7 @@ func TestSplatComponentNonByo(t *testing.T) {
 		Attrs: []ast.Attr{&ast.SpreadAttr{Expr: "f"}},
 	}
 	fields, splatExpr, _, err := childPropsLiteral(el, "CProps", "gsx", "gsx.DefaultClassMerge", funcTables{}, propFields, nil, byo, nil,
-		func(nodes []ast.Markup) (string, error) { return "", nil }, false, nil, nil, nil)
+		func(nodes []ast.Markup) (string, error) { return "", nil }, false, nil, nil, nil, "")
 	if err != nil {
 		t.Fatalf("childPropsLiteral: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestSplatComponentNonByoMixedErrors(t *testing.T) {
 		},
 	}
 	_, _, _, err := childPropsLiteral(el, "CProps", "gsx", "gsx.DefaultClassMerge", funcTables{}, propFields, nil, byo, nil,
-		func(nodes []ast.Markup) (string, error) { return "", nil }, false, nil, nil, nil)
+		func(nodes []ast.Markup) (string, error) { return "", nil }, false, nil, nil, nil, "")
 	if err == nil {
 		t.Fatalf("expected an error for a splat mixed with other attrs, got nil")
 	}
