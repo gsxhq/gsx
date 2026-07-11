@@ -63,6 +63,57 @@ component span() {
 	}
 }
 
+// TestWrapperCycleDetourSingleWitness pins the CURRENT single-witness
+// behavior on an overlapping-cycle "detour" topology — it documents the
+// guarantee reportWrapperCycles actually makes, NOT an ideal. Edges a→b,
+// a→c, b→c, c→e, e→a contain TWO elementary cycles (a→b→c→e→a and
+// a→c→e→a); the DFS deterministically witnesses only the first (sorted edge
+// order visits b before c, so by the time the a→c edge is examined, c is
+// already black and no back edge ever fires for the shorter cycle). Exactly
+// one warning, the same one every run. If a future algorithm change makes
+// this report both cycles (or a different witness), this test failing is the
+// signal that the documented single-witness guarantee is being consciously
+// changed — update the reportWrapperCycles doc comment together with this
+// pin.
+func TestWrapperCycleDetourSingleWitness(t *testing.T) {
+	src := `package views
+
+component a() {
+	<b>x</b>
+	<c>x</c>
+}
+
+component b() {
+	<c>x</c>
+}
+
+component c() {
+	<e>x</e>
+}
+
+component e() {
+	<a>x</a>
+}
+`
+	declNames := map[string]bool{"a": true, "b": true, "c": true, "e": true}
+	want := []string{"wrapper cycle a → b → c → e → a will recurse infinitely at render"}
+	for i := 0; i < 20; i++ {
+		f := parseGSXForTest(t, src)
+		bag := diag.NewBag(token.NewFileSet())
+		resolveComponentTags(f, declNames, bag)
+		reportWrapperCycles(map[string]*gsxast.File{"a.gsx": f}, bag)
+		var got []string
+		for _, d := range bag.Sorted() {
+			if d.Code == "wrapper-cycle" {
+				got = append(got, d.Message)
+			}
+		}
+		if len(got) != 1 || got[0] != want[0] {
+			t.Fatalf("iteration %d: single-witness pin broken\n  want: %q\n  got:  %q", i, want, got)
+		}
+	}
+}
+
 // TestWrapperCycleDeterministic asserts that repeated detection over the same
 // input produces byte-identical diagnostics, even though nodes/edges/files
 // are built from maps: map iteration order is intentionally NOT allowed to

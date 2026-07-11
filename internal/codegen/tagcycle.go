@@ -91,6 +91,22 @@ func canonicalizeCycle(path []string) []string {
 // edges are sorted (by target name, then source position), and the reported
 // cycle is canonicalized (canonicalizeCycle) before it is deduped/reported —
 // so the same input always yields byte-identical diagnostics.
+//
+// GUARANTEE (single witness, not full enumeration): every package with at
+// least one unconditional wrapper cycle gets at least one deterministic
+// warning per affected traversal region — but the DFS reports only the
+// cycles its back edges happen to witness, NOT every elementary cycle. Two
+// overlapping cycles sharing nodes ("detour" topologies, e.g. edges a→b,
+// a→c, b→c, c→e, e→a: elementary cycles a→b→c→e→a and a→c→e→a) can yield a
+// single warning, because an edge of the second cycle (a→c) is examined only
+// once its target is already black, so no back edge ever witnesses that
+// cycle — the same edge every run, the miss is itself deterministic, never
+// flaky. This is deliberate: full
+// elementary-cycle enumeration (Johnson's algorithm) is exponential in
+// output and adds noise for a warning-grade diagnostic. Convergence is
+// iterative: fixing the reported cycle and regenerating surfaces any
+// remaining ones. TestWrapperCycleDetourSingleWitness pins this behavior so
+// any future algorithm change is a conscious one.
 func reportWrapperCycles(files map[string]*gsxast.File, bag *diag.Bag) {
 	nodes := map[string]bool{}
 	for _, f := range files {
