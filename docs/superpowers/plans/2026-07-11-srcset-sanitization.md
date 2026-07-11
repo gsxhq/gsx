@@ -2,16 +2,16 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Sanitize `srcset` as a URL-list sink (faithful `html/template` port) on both the static and spread paths, and clear the remaining #78/#71 follow-ups (nested-cond spread count, `[]byte` URL rendering, attrs-only test debt, LSP hover).
+**Goal:** Sanitize `srcset` as a URL-list sink (WHATWG srcset grammar) on both the static and spread paths, and clear the remaining #78/#71 follow-ups (nested-cond spread count, `[]byte` URL rendering, attrs-only test debt, LSP hover).
 
-**Architecture:** `srcset`/`imagesrcset` become `CtxURL` in `attrclass`; codegen's existing `urlWriterMethod(tag,name)` seam gains a `"Srcset"` arm so static and spread paths both route to a new `gw.Srcset`/`gw.SrcsetVal` sink backed by a `srcsetSanitize` port that sanitizes each comma-separated candidate as an image resource (`urlSanitizeImage`). Companion cleanups are independent mechanical tasks.
+**Architecture:** `srcset`/`imagesrcset` become `CtxURL` in `attrclass`; codegen's existing `urlWriterMethod(tag,name)` seam gains a `"Srcset"` arm so static and spread paths both route to a new `gw.Srcset`/`gw.SrcsetVal` sink backed by a `srcsetSanitize` parser. `srcsetSanitize` ports the **WHATWG srcset grammar** (candidate URL = non-whitespace run; trailing commas = boundaries; descriptor inert), sanitizing each candidate URL as an image resource (`urlSanitizeImage`) — NOT html/template's srcset code, which over-blocks valid inputs. Companion cleanups are independent mechanical tasks.
 
 **Tech Stack:** Go 1.26.1, stdlib-only runtime (root `gsx` package), `internal/codegen`, `internal/attrclass`, `internal/lsp`, txtar corpus.
 
 ## Global Constraints
 
 - Runtime (root `gsx` package) is **stdlib-only** — no `internal/` or third-party imports in `attrs.go`/`writer.go`/`escape.go`.
-- Security escaping is a **faithful port of `html/template`, never an approximation** — no "simple heuristics".
+- Security escaping is a **faithful port of `html/template`, never an approximation** — no "simple heuristics". **Exception (documented in the spec):** `srcset` ports the **WHATWG srcset grammar**, not html/template's srcset code, because html/template's srcset sanitizer is a broken over-approximation (blocks `a.jpg 1.5x`, mangles data URLs — proven by probe). The security-critical per-URL scheme sanitization (`urlSanitizeImage`) stays a faithful port; only the candidate split follows WHATWG.
 - gsx sanitizes URLs by **scheme allow-list only, no percent-normalization** (a deliberate gsx-wide choice). Per-candidate srcset sanitization reuses `urlSanitizeImage`; the failsafe is gsx's `blockedURL` (`about:invalid#gsx`), not `html/template`'s `#ZgotmplZ`.
 - **Every syntax/codegen change ships a corpus case**; new syntax valid in multiple contexts needs a case per context. Regenerate goldens with `go test ./internal/corpus -run TestCorpus -update`, then verify **without** `-update`. Never hand-edit `.x.go`/golden files.
 - Pin Go to `GO_VERSION` (1.26.1); a different minor re-introduces gofmt drift.
@@ -23,19 +23,22 @@
 
 ### Task 1: srcset runtime sanitizer (`srcsetSanitize`)
 
-Faithful port of `html/template`'s `srcsetFilterAndEscaper` (plain-string path) + `filterSrcsetElement`, adapted to gsx's image sink and `blockedURL` failsafe. Pure string→string; no codegen, no writer wiring.
+Port the **WHATWG srcset grammar** to a pure string→string sanitizer; no codegen, no writer wiring. NOT html/template's srcset code (see Approach below).
+
+**Approach:** Port the **WHATWG `srcset` grammar**, NOT `html/template`'s `srcset` code. `html/template`'s sanitizer is a broken over-approximation (it blocks `a.jpg 1.5x` → `#ZgotmplZ` and mangles `data:image/…,X 1x`), proven by probe. The security-critical part — per-URL scheme sanitization — stays a faithful port (`urlSanitizeImage`); only the candidate SPLIT follows WHATWG. See the spec's "Why not a faithful html/template port" and "Behavior table" sections.
 
 **Files:**
-- Modify: `escape.go` (add `isASCIIAlnumByte`, `srcsetSanitize`, `filterSrcsetElement`, `writeSrcset`)
-- Test: `escape_test.go` (or the existing sanitizer test file — grep for `TestRefreshContent`/`urlSanitize` tests and colocate)
+- Modify: `escape.go` (add `srcsetSanitize`, `writeSrcset`)
+- Test: `escape_test.go` (the existing sanitizer test cluster — grep for `TestURLSanitizeImage`/`TestRefreshContent` and colocate)
 
 **Interfaces:**
 - Consumes: existing `urlSanitizeImage(s string) string`, `blockedURL` const, `isASCIIWhitespaceByte(c byte) bool`, `writeHTML(w io.Writer, s string) error` (all in `escape.go`).
 - Produces: `srcsetSanitize(s string) string`; `writeSrcset(w io.Writer, s string) error`.
+- Note: does NOT add `filterSrcsetElement` or `isASCIIAlnumByte` — the WHATWG parser has no descriptor-metadata gate (that gate is what broke `1.5x`, and it carries no security value once the whole output is HTML-escaped).
 
 - [ ] **Step 1: Write the failing unit test**
 
-In the sanitizer test file (root package):
+In the sanitizer test cluster (root `gsx` package). Every row is from the spec's Behavior table:
 
 ```go
 func TestSrcsetSanitize(t *testing.T) {
@@ -44,12 +47,14 @@ func TestSrcsetSanitize(t *testing.T) {
 		{"single with descriptor", "a.jpg 2x", "a.jpg 2x"},
 		{"multi candidate", "a.jpg 1x, b.jpg 2x", "a.jpg 1x, b.jpg 2x"},
 		{"width descriptors", "s-320.jpg 320w, s-640.jpg 640w", "s-320.jpg 320w, s-640.jpg 640w"},
+		{"fractional density kept", "a.jpg 1.5x", "a.jpg 1.5x"},
 		{"leading/trailing space kept", " a.jpg 1x , b.jpg 2x ", " a.jpg 1x , b.jpg 2x "},
 		{"javascript candidate blocked", "javascript:alert(1) 1x", "about:invalid#gsx"},
-		{"one bad candidate blocks only itself", "ok.jpg 1x, javascript:alert(1) 2x", "ok.jpg 1x,about:invalid#gsx"},
-		{"data image passes", "data:image/png;base64,iVBOR 1x", "data:image/png;base64,iVBOR 1x"},
-		{"data non-image blocked", "data:text/html,<script> 1x", "about:invalid#gsx"},
-		{"bad descriptor blocks candidate", "a.jpg 1x=(evil)", "about:invalid#gsx"},
+		{"one bad candidate blocks only itself", "ok.jpg 1x, javascript:alert(1) 2x", "ok.jpg 1x, about:invalid#gsx"},
+		{"data image intact", "data:image/png;base64,iVBOR 1x", "data:image/png;base64,iVBOR 1x"},
+		{"data image intact multi", "data:image/png;base64,iVBOR 1x, x.jpg 2x", "data:image/png;base64,iVBOR 1x, x.jpg 2x"},
+		{"data non-image one clean block", "data:text/html,<script> 1x", "about:invalid#gsx"},
+		{"no-space commas single misparse", "a.jpg,b.jpg", "a.jpg,b.jpg"},
 		{"http passes", "http://x/a.jpg 1x", "http://x/a.jpg 1x"},
 		{"empty", "", ""},
 	}
@@ -68,70 +73,59 @@ func TestSrcsetSanitize(t *testing.T) {
 Run: `go test . -run TestSrcsetSanitize -v`
 Expected: FAIL — `undefined: srcsetSanitize`.
 
-- [ ] **Step 3: Write the implementation in `escape.go`**
+- [ ] **Step 3: Write the implementation in `escape.go`** (place beside `writeURLImage`/`urlSanitizeImage`)
 
 ```go
-// isASCIIAlnumByte reports whether c is an ASCII letter or digit.
-func isASCIIAlnumByte(c byte) bool {
-	return ('0' <= c && c <= '9') || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')
-}
-
-// srcsetSanitize sanitizes a srcset attribute value — a comma-separated list of
-// image candidates ("url [descriptor]"). Each candidate URL is sanitized as an
-// image resource (urlSanitizeImage); a disallowed scheme, or a descriptor with
-// any non-HTML-space/non-ASCII-alnum byte, blocks the whole candidate
-// (blockedURL). Faithful port of html/template's srcsetFilterAndEscaper
-// plain-string path, using gsx's scheme-only image sink and blockedURL failsafe
-// in place of html/template's URL normalization and #ZgotmplZ.
+// srcsetSanitize sanitizes a srcset attribute value using the WHATWG srcset
+// grammar: a comma-separated list of image candidates ("url [descriptor]").
+// Each candidate's URL is the run of non-whitespace bytes (commas inside a URL —
+// a data: URL's ";base64," separator, a query's "?a=1,2" — stay part of the
+// URL); a run's trailing commas are candidate boundaries; the rest up to the
+// next comma is an inert descriptor. Each URL is sanitized as an image resource
+// (urlSanitizeImage); a blocked URL collapses its whole candidate to blockedURL.
+// The descriptor needs no validation — writeSrcset HTML-escapes the whole
+// result, so descriptor content can never break out of the attribute. This is a
+// faithful port of the WHATWG grammar, not html/template's srcset code (which
+// over-blocks valid inputs like "a.jpg 1.5x" and mangles data: URLs).
 func srcsetSanitize(s string) string {
 	var b strings.Builder
-	written := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == ',' {
-			filterSrcsetElement(s, written, i, &b)
-			b.WriteByte(',')
-			written = i + 1
+	i := 0
+	for i < len(s) {
+		// 1. Candidate separators (leading whitespace + commas) copied verbatim.
+		sep := i
+		for i < len(s) && (isASCIIWhitespaceByte(s[i]) || s[i] == ',') {
+			i++
 		}
-	}
-	filterSrcsetElement(s, written, len(s), &b)
-	return b.String()
-}
-
-// filterSrcsetElement sanitizes the candidate s[left:right] onto b: skip leading
-// HTML space, take the URL up to the next HTML space, treat the remainder as
-// descriptor metadata. The candidate passes iff its URL survives
-// urlSanitizeImage and its metadata is only HTML-space/ASCII-alnum; otherwise
-// the whole candidate is replaced with blockedURL. Port of html/template's
-// filterSrcsetElement.
-func filterSrcsetElement(s string, left, right int, b *strings.Builder) {
-	start := left
-	for start < right && isASCIIWhitespaceByte(s[start]) {
-		start++
-	}
-	end := right
-	for i := start; i < right; i++ {
-		if isASCIIWhitespaceByte(s[i]) {
-			end = i
+		b.WriteString(s[sep:i])
+		if i >= len(s) {
 			break
 		}
-	}
-	url := s[start:end]
-	if urlSanitizeImage(url) != blockedURL {
-		metadataOk := true
-		for i := end; i < right; i++ {
-			if !isASCIIWhitespaceByte(s[i]) && !isASCIIAlnumByte(s[i]) {
-				metadataOk = false
-				break
+		// 2. URL = run of non-whitespace bytes (commas inside a URL stay).
+		urlStart := i
+		for i < len(s) && !isASCIIWhitespaceByte(s[i]) {
+			i++
+		}
+		run := s[urlStart:i]
+		url := strings.TrimRight(run, ",") // trailing commas are boundaries
+		i -= len(run) - len(url)           // re-consume them as separators
+		// 3. Descriptor: rest up to the next comma, only when the URL run had no
+		//    trailing-comma boundary. Inert (HTML-escaped downstream).
+		descStart := i
+		if len(url) == len(run) {
+			for i < len(s) && s[i] != ',' {
+				i++
 			}
 		}
-		if metadataOk {
-			b.WriteString(s[left:start])
+		desc := s[descStart:i]
+		// 4. A blocked URL collapses the whole candidate; else URL + descriptor.
+		if urlSanitizeImage(url) == blockedURL {
+			b.WriteString(blockedURL)
+		} else {
 			b.WriteString(url)
-			b.WriteString(s[end:right])
-			return
+			b.WriteString(desc)
 		}
 	}
-	b.WriteString(blockedURL)
+	return b.String()
 }
 
 // writeSrcset streams a sanitized, attribute-escaped srcset value to w.
@@ -143,13 +137,13 @@ func writeSrcset(w io.Writer, s string) error {
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `go test . -run TestSrcsetSanitize -v`
-Expected: PASS (all subtests).
+Expected: PASS (all 14 subtests). Then `go test .` once — no root-package regression.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add escape.go escape_test.go
-git commit -m "feat(runtime): srcsetSanitize — faithful html/template srcset port"
+git commit -m "feat(runtime): srcsetSanitize — WHATWG srcset grammar port"
 ```
 
 ---
@@ -171,7 +165,7 @@ func TestSrcsetSinks(t *testing.T) {
 	var sb strings.Builder
 	gw := &Writer{w: &sb}
 	gw.Srcset("ok.jpg 1x, javascript:alert(1) 2x")
-	if got := sb.String(); got != "ok.jpg 1x,about:invalid#gsx" {
+	if got := sb.String(); got != "ok.jpg 1x, about:invalid#gsx" {
 		t.Fatalf("Srcset = %q", got)
 	}
 	// SrcsetVal: RawURL vouch passes verbatim (still attribute-escaped)
@@ -320,7 +314,7 @@ component Pic(a string, b string) {
 Pic(PicProps{A: "ok.jpg 1x, javascript:alert(1) 2x", B: "data:image/png;base64,iVBOR 2x"})
 -- diagnostics.golden --
 -- render.golden --
-<img srcset="ok.jpg 1x,about:invalid#gsx" alt="x"/><source srcset="data:image/png;base64,iVBOR 2x"/>
+<img srcset="ok.jpg 1x, about:invalid#gsx" alt="x"/><source srcset="data:image/png;base64,iVBOR 2x"/>
 ```
 
 Create `internal/codegen/testdata/.../srcset-sanitize/static_fliteral.txtar` under the same `cases/srcset-sanitize/` dir:
@@ -337,7 +331,7 @@ component Pic(u string) {
 Pic(PicProps{U: "javascript:alert(1)"})
 -- diagnostics.golden --
 -- render.golden --
-<img srcset="about:invalid#gsx,fallback.jpg 2x"/>
+<img srcset="about:invalid#gsx, fallback.jpg 2x"/>
 ```
 
 - [ ] **Step 2: Run to verify the cases fail**
@@ -408,7 +402,7 @@ component Pic(s string) {
 Pic(PicProps{S: "ok.jpg 1x, javascript:alert(1) 2x"})
 -- diagnostics.golden --
 -- render.golden --
-<img alt="x" srcset="ok.jpg 1x,about:invalid#gsx"/>
+<img alt="x" srcset="ok.jpg 1x, about:invalid#gsx"/>
 ```
 
 `internal/corpus/testdata/cases/srcset-sanitize/cond_nested_spread.txtar`:
@@ -500,11 +494,11 @@ git commit -m "feat(codegen): srcset sanitizes through element spreads"
 
 - [ ] **Step 1: Document srcset in `attributes.md`**
 
-Add to the URL-attribute section a sentence: `srcset` (and `imagesrcset`) are sanitized as comma-separated image-candidate lists — each candidate URL is sanitized exactly as `<img src>`, a disallowed scheme in any candidate becomes `about:invalid#gsx`, and this holds identically for static attributes and spread bags. (Wrap any literal `{{ }}` in a `::: v-pre` block.)
+Add to the URL-attribute section a sentence: `srcset` (and `imagesrcset`) are parsed as comma-separated image-candidate lists (the WHATWG srcset grammar) and each candidate URL is sanitized as an image resource — a disallowed scheme in any candidate becomes `about:invalid#gsx` — identically for static attributes and spread bags. `data:image/*` candidates and fractional descriptors (`1.5x`) are preserved. (Wrap any literal `{{ }}` in a `::: v-pre` block.)
 
-- [ ] **Step 2: Flip ROADMAP**
+- [ ] **Step 2: Flip ROADMAP + record the structured-carrier principle**
 
-In `docs/ROADMAP.md` line ~890, change the `srcset` **Deferred** note to shipped, one-line summary: "`srcset`/`imagesrcset` sanitized as URL-lists (static + spread), faithful html/template port."
+In `docs/ROADMAP.md` (~line 890), change the `srcset` **Deferred** note to shipped, one line: "`srcset`/`imagesrcset` sanitized as URL-lists (static + spread), WHATWG grammar port." Add one line recording the structured-carrier principle (single-value URL/JS/CSS/HTML = faithful html/template ports; structured URL carriers = faithful WHATWG-grammar ports — `refreshContentSanitize` and `srcset`) and the two tracked follow-ups: **ping** (space-separated URL list, non-security) and **CSS `url()` in `style`** (separate context).
 
 - [ ] **Step 3: Commit**
 
