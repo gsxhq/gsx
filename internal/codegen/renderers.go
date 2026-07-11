@@ -109,6 +109,23 @@ func harvestRenderers(byPath map[string]*types.Package, renderers []RendererAlia
 	return table, nil
 }
 
+// effectiveRenderType returns the type a render boundary actually classifies
+// for a value of type t: the registered renderer's result type when t's
+// canonical key is in the registry, t itself otherwise. It is the type-only
+// shadow of applyRenderer (below, which additionally rewrites the expression
+// and hoists an error-returning renderer) — kept adjacent so the two can
+// never disagree on the registry lookup. The _gsxnum scratch-declaration
+// prescan (scopeUsesNumeric / attrsUseNumericScratch / resolvedTypeIsNumeric)
+// uses it so a renderer returning int/uint/float triggers the `var _gsxnum
+// [32]byte` declaration exactly when the emit path's post-applyRenderer
+// classification takes the IntInto/UintInto/FloatInto arm.
+func effectiveRenderType(t types.Type, table funcTables) types.Type {
+	if e, ok := table.renderers[rendererKey(t)]; ok {
+		return e.result
+	}
+	return t
+}
+
 // applyRenderer wraps expr in its registered renderer call when t's canonical
 // key is registered, marking the renderer package as imported. An error
 // renderer hoists through hoistTupleReturning with the caller's error-return
