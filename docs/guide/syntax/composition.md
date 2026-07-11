@@ -185,14 +185,11 @@ element inside the component, or forward the value through a declared prop.
 ### Precedence
 
 This precedence rule applies to **every element spread** `{ x… }`, whatever
-the bag's provenance: the implicit `attrs` bag, a byo component's declared
-`Attrs gsx.Attrs` field (spread as `{ p.Attrs... }`), a generated component's
-own named `gsx.Attrs` param (e.g. `extra` in `component Chip(extra
-gsx.Attrs)`, spread as `{ extra... }`), a **local** `gsx.Attrs` variable
-declared and assigned inside the component body, a function call's result, a
-byo struct's second `gsx.Attrs` field, or any other `gsx.Attrs`-typed
-expression — all get identical treatment. Whichever expression is spread onto
-an element, the spread's position decides who wins, JSX-style:
+`gsx.Attrs` expression is spread — the implicit `attrs` bag, a byo component's
+declared `Attrs` field, a generated component's own named param, a local
+variable, a function result, or any other `gsx.Attrs`-typed expression all get
+identical treatment. Whichever expression is spread onto an element, the
+spread's position decides who wins, JSX-style:
 
 - attributes written **before** the spread are defaults — a caller attribute
   with the same name overrides them;
@@ -206,12 +203,12 @@ always *merge* — the component's tokens first, the caller's appended (then
 deduplicated by the configured class merger). A `class` written after the
 spread is still merged, not forced.
 
-Every element spread also sanitizes URL-classified attribute keys at the leaf
-(see [Attributes — Spread](./attributes.md#spread)): there is no unsanitizing
-spread primitive, and no bag provenance — local variable, function result, byo
-second field, or otherwise — that skips it. `gsx.RawURL` is the only, per-value
-opt-out. Compose a bag yourself (`Merge`/`ConcatAttrs`) before spreading it if
-you want duplicate keys resolved eagerly rather than at render time.
+Every element spread also sanitizes URL-classified attribute keys at the leaf,
+for any bag, with no exceptions and no unsanitizing spread — see
+[Attributes — Spread](./attributes.md#spread) for the full contract.
+`gsx.RawURL` is the only, per-value opt-out. Compose a bag yourself
+(`Merge`/`ConcatAttrs`) before spreading it if you want duplicate keys
+resolved eagerly rather than at render time.
 
 ### Derived bags
 

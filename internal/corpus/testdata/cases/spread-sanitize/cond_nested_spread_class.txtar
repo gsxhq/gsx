@@ -1,5 +1,6 @@
 # A spread nested in a conditional attr aggregates class through the leaf sink
-# (issue #75): SpreadForwarding is a strict superset of Spread, so a bag with two
+# (issue #75): the single-pass Spread writer is a strict superset of the old
+# unsanitizing 2-arg Spread it replaced, so a bag with two
 # class entries merges to `class="a b"` (via a.Class()) rather than emitting two
 # raw class attributes.
 -- input.gsx --

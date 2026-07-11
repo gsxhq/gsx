@@ -38,7 +38,7 @@ recover at the `component` boundary (one diagnostic per broken component).
 **Runtime** (`gsx`, module root) - `Node`/`Func`/`Raw`, error-threading `Writer`
 with streaming text/attr/URL/JS/CSS escapers, class/style compose + gen-configured
 class merger (`class_merger` / `gen.WithClassMerger`), ordered `Attrs` bag
-(`[]gsx.Attr`) + deterministic `SpreadForwarding` in slice order. `gsx.AttrMap.ToAttrs`
+(`[]gsx.Attr`) + deterministic `Spread` in slice order. `gsx.AttrMap.ToAttrs`
 keeps map-shaped construction explicit and sorts keys before converting to
 `Attrs`. `gsx.Val(any)` / `gsx.Text(string)` / `gsx.Fragment(nodes…)`
 value-Node boxes. `gsx.Raw` / `gsx.RawJS` / `gsx.RawCSS` / `gsx.RawURL` typed
@@ -75,7 +75,7 @@ render goldens.
    delimiters - see Security). Plus
    composable **`class`** (`gw.Class`), composable **`style`** on elements
    (`gw.Style`/`gsx.StyleString`), **element spread** `{...attrs}`
-   (`SpreadForwarding`), and **conditional** `{ if cond { attr } else { attr } }`. Pipelines `|>` work
+   (`Spread`), and **conditional** `{ if cond { attr } else { attr } }`. Pipelines `|>` work
    in every interpolation/attr/class/style/spread context. **Deferred:** `[]string`
    class parts; non-string-value-in-URL-attr clean compile error.
 4. [x] **Pipeline `|>` + filters.** Seed-first forward-application: `subject |> name(args…)`
@@ -149,13 +149,13 @@ render goldens.
 9. [x] **Ordered attributes** (`{{ }}` lowering to `gsx.Attrs`) - `2026-06-29`.
    A `{{ "key": goExpr, … }}` literal in attribute-value position binds to a
    declared `gsx.Attrs` component prop; the bag is spread onto an element with
-   `{ prop... }` via `Writer.SpreadForwarding`, which emits pairs in **slice
+   `{ prop... }` via `Writer.Spread`, which emits pairs in **slice
    order**. Keys must be quoted string literals (enables kebab/colon names);
    values are arbitrary Go expressions (`|>` pipelines not supported inside the literal);
    `bool` values toggle bare/omitted. Duplicate keys and trailing commas are allowed;
    an empty `{{ }}` renders nothing. Using `{{ }}` directly on a plain-element
    attribute is a clean diagnostic. The bag does not participate in class/style
-   merging. Escaping and unsafe-name validation mirror `SpreadForwarding` exactly.
+   merging. Escaping and unsafe-name validation mirror `Spread` exactly.
 10. [x] **Uniform `(T, error)` auto-unwrap** - `2026-06-29`. The implicit
     two-value unwrap (first value used; second `error` → returned from `Render` on
     non-nil) now applies in **every expression position**: child-component prop values
@@ -656,9 +656,9 @@ vocabulary remains a design aspiration, not the current API.
    regardless of the bag expression - `bagSpreadIndex` matches *any* `SpreadAttr`
    on an element (not a recognized set of bag spellings), and the dead
    `bagBases`/`spreadMatchesAnyBase`/`spreadMatchesBase`/`scanGoTokens`
-   recognition machinery is deleted. `gw.Spread` itself is gone -
-   `SpreadForwarding` is the sole spread primitive, so there is no unsanitizing
-   spread call left to fall back to. Concretely:
+   recognition machinery is deleted. The old unsanitizing 2-arg `gw.Spread`
+   itself is gone - the single-pass `Spread` is the sole spread primitive,
+   so there is no unsanitizing spread call left to fall back to. Concretely:
    - **Local `gsx.Attrs` variables** now sanitize and forward exactly like a
      declared bag: caller-wins guards, `class`/`style` merge, and leaf URL
      extraction all apply to `{ b... }` for a body-local `b`. Corpus:
