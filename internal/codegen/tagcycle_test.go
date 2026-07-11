@@ -97,7 +97,7 @@ component e() {
 `
 	declNames := map[string]bool{"a": true, "b": true, "c": true, "e": true}
 	want := []string{"wrapper cycle a → b → c → e → a will recurse infinitely at render"}
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		f := parseGSXForTest(t, src)
 		bag := diag.NewBag(token.NewFileSet())
 		resolveComponentTags(f, declNames, bag)
@@ -132,7 +132,7 @@ component span() {
 }
 `
 	var first string
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		f := parseGSXForTest(t, src)
 		bag := diag.NewBag(token.NewFileSet())
 		declNames := map[string]bool{"div": true, "span": true}

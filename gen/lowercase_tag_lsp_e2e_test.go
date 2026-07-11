@@ -163,9 +163,9 @@ func TestDefinitionLowercaseComponentAttrParam(t *testing.T) {
 // markup — see TestHoverNonExprNull).
 func TestHoverUndeclaredLowercaseTagIsPlainElement(t *testing.T) {
 	t.Parallel()
-	dir, pageSrc := lowercaseTagModule(t)
+	dir, _ := lowercaseTagModule(t)
 	// Rewrite page.gsx to also contain an undeclared <span/> leaf tag.
-	pageSrc = "package lc\n\ncomponent Page() {\n\t<main><span>hi</span><card title=\"hi\"/></main>\n}\n"
+	pageSrc := "package lc\n\ncomponent Page() {\n\t<main><span>hi</span><card title=\"hi\"/></main>\n}\n"
 	if err := os.WriteFile(filepath.Join(dir, "page.gsx"), []byte(pageSrc), 0o644); err != nil {
 		t.Fatal(err)
 	}
