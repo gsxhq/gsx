@@ -121,6 +121,27 @@ func TestLoadConfigRenderers(t *testing.T) {
 	}
 }
 
+// TestLoadConfigRenderersUnexportedType proves a [renderers] key naming an
+// UNEXPORTED type is accepted: codegen.rendererKey imposes no export
+// requirement on the type name (a project may register one of its own
+// unexported same-package types), so config-time validation must not either.
+func TestLoadConfigRenderersUnexportedType(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gsx.toml")
+	mkfile(t, path, "[renderers]\n\"example.com/app.myType\" = \"example.com/app/filters.RenderMyType\"\n")
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatalf("loadConfig rejected an unexported type key: %v", err)
+	}
+	want := []codegen.RendererAlias{
+		{TypeKey: "example.com/app.myType", PkgPath: "example.com/app/filters", FuncName: "RenderMyType"},
+	}
+	if !reflect.DeepEqual(cfg.renderers, want) {
+		t.Errorf("renderers = %#v, want %#v", cfg.renderers, want)
+	}
+}
+
 // TestLoadConfigRenderersBadFuncValue proves the alias-value side reuses
 // splitPkgFunc's validation (here: an unexported target).
 func TestLoadConfigRenderersBadFuncValue(t *testing.T) {
@@ -138,7 +159,9 @@ func TestLoadConfigRenderersBadFuncValue(t *testing.T) {
 }
 
 // TestLoadConfigRenderersBadKey covers the [renderers] KEY-side validation
-// failures: no dot, a non-identifier type name, and a key that is only "*".
+// failures: no dot, a non-identifier type name, a key that is only "*", and
+// a doubled pointer prefix (rendererKey only ever produces zero or one
+// leading *, so "**pkg.T" would be a silently dead registration).
 func TestLoadConfigRenderersBadKey(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -148,6 +171,7 @@ func TestLoadConfigRenderersBadKey(t *testing.T) {
 		{"no dot", "nodothere"},
 		{"non-identifier type name", "example.com/app/pgtype.1Bad"},
 		{"only star", "*"},
+		{"doubled pointer prefix", "**example.com/app/pgtype.Text"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
