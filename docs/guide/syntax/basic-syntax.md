@@ -64,6 +64,11 @@ import names and names declared only in `_test.go` files). Tags that aren't
 valid Go identifiers — dashed custom elements like `<my-widget>` — can never
 match a declaration and are always elements.
 
+Note the asymmetry: capital tags resolve function-local names too (`go build`
+resolves the emitted call), but lowercase tags resolve **only** package-level
+declarations — a local `item := ...` inside a component body does not make
+`<item>` a component.
+
 If a lowercase tag matches a declaration that isn't invocable as a component
 (`var data int`, `type data string`), codegen still lowers it as a call and Go
 reports the mismatch — resolution never consults type information, so a
@@ -80,9 +85,14 @@ wrapper components work with zero extra syntax:
 
 Every other lowercase tag in that body still resolves normally: inside
 `div`'s body, `<span>` would call the package's `span` component if one were
-declared. Recursion for a lowercase component uses the Go call form in a hole
-(`{item(...)}`) or gives the component a capital name — a self-named tag never
-recurses. A lowercase tag whose name isn't a standard HTML element name is
+declared. Exclusion is keyed by the enclosing declaration's **name** and
+covers its whole body — methods and `var` initializers included: inside
+`component (p page) div()`, the tag `<div>` is still the leaf element even if
+a package-level `div` component is also declared (the package component
+remains reachable via the call form), and inside `var card = ...`, the tag
+`<card>` is a leaf. Recursion for a lowercase component uses the Go call
+form in a hole (`{item(...)}`) or gives the component a capital name — a
+self-named tag never recurses. A lowercase tag whose name isn't a standard HTML element name is
 almost always a recursion mistake rather than an intentional wrapper, so gsx
 warns on it:
 
@@ -101,6 +111,8 @@ wrapper cycle div → span → div will recurse infinitely at render.
 ```
 
 Static syntax highlighters (tree-sitter, CodeMirror) can't run symbol
-resolution, so a lowercase component tag highlights as a plain element in an
-editor without the gsx LSP. The LSP resolves the same rule as codegen and
-highlights it as a component in-editor.
+resolution, so a lowercase component tag highlights as a plain element.
+The gsx LSP resolves the same rule as codegen, so hover and go-to-definition
+on a lowercase component tag work correctly today; correcting the
+*highlighting* in-editor via LSP semantic tokens is a tracked follow-up (see
+the [Roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md)).
