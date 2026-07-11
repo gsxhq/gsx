@@ -39,6 +39,7 @@ attrsonly/reject_field_callee	diag(error)
 attrsonly/reject_named_elem_type	diag(error)
 attrsonly/reject_shadowed_qualifier	diag(error)
 attrsonly/reject_undefined	diag(error)
+attrsonly/sibling_cf_class	diag gen render
 attrsonly/unnamed_slice	diag gen render
 bodyinterp/bare_backtick_no_interp	diag gen render
 bodyinterp/escaped_hole	diag gen render
@@ -52,6 +53,8 @@ buildtags/redeclare_within_file	diag(error)
 buildtags/variant_diff_sig	diag(error)
 buildtags/variant_same_sig	diag render
 byo/external_struct_node_attrs	diag gen render
+class/body_local_in_class	diag gen render
+class/body_local_pipe_class	diag gen render
 class/caller_wins_classstyle	diag render
 class/caller_wins_scalar	diag render
 class/composable_off	diag render
@@ -69,6 +72,7 @@ class/missing_comma_rejected	diag(error)
 class/multi_part_tuple_order	diag gen render
 class/non_root_class	diag gen render
 class/part_tuple	diag gen render
+class/sibling_cf_class_generated	diag gen render
 class/spread	diag render
 class/style_rejected	diag
 class/value_arm_pipeline	diag gen render
@@ -624,4 +628,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 626 cases (render: 506, error: 91, gen-pinned: 318)
+TOTAL: 630 cases (render: 510, error: 91, gen-pinned: 322)
