@@ -54,16 +54,17 @@ handle type-aware interpolation, context-aware escaping, and props checked again
 real Go types. The design keeps that resolution bounded.
 
 The risk is open-ended *inference*, not resolution itself. Try to map markup
-attributes onto *positional* function parameters, or to infer whether a lowercase
-tag is a component, and the resolver has to chase those guesses across packages —
-straight into overlay module-boundary bugs and performance cliffs. gsx never takes
-that on.
+attributes onto *positional* function parameters, or chase a lowercase tag's
+meaning across package boundaries, and the resolver runs straight into overlay
+module-boundary bugs and performance cliffs. gsx never takes that on.
 
 gsx keeps resolution bounded:
 
 - the **`component` keyword** identifies templates — no inference about what is a
   template;
-- **capitalization** decides component-vs-element at the tag, with no type lookup;
+- a tag's **capitalization, dots, and (for lowercase tags) a syntactic match
+  against the package's own declared names** decide component-vs-element —
+  a same-package name lookup, never a type lookup or a cross-package guess;
 - components take a **named props struct** — yours or generated — so attributes bind
   to struct fields, never to reverse-engineered positional parameters.
 

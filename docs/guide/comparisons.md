@@ -10,7 +10,7 @@ The difference is a deliberate tradeoff. templ keeps a simple, explicit compiler
 
 That extra analysis buys ergonomics that are hard to retrofit onto a simpler model:
 
-- **HTML-style component calls** — `<Card title="…"/>` reads like markup, and capitalization alone decides component-vs-element.
+- **HTML-style component calls** — `<Card title="…"/>` reads like markup, and the tag itself (capitalization, dots, or a same-package name match) decides component-vs-element with no separate registration step.
 - **Named props checked by Go** — attributes map to struct fields, so a wrong prop name or type is a compile error with a real source location, not a runtime surprise.
 - **Context-aware escaping** across text, attribute, URL, CSS, and JavaScript positions, decided at codegen.
 - **Class and attribute merging** as structured values rather than string concatenation.

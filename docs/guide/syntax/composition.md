@@ -4,7 +4,7 @@ gsx components are ordinary Go values — they compose by calling each other. A 
 
 ## Calling components
 
-A tag that starts with an **uppercase letter** (or a dotted package path like `<ui.Button>`) is a component call; lowercase and hyphenated tags are HTML elements. The component's declared params become a generated `<Name>Props` struct, and each attribute at the call site sets the corresponding field.
+A tag that starts with an **uppercase letter** (or a dotted package path like `<ui.Button>`) is always a component call. A lowercase tag is also a component call when its name matches a package-level declaration — otherwise it's a plain HTML element. See [Basic Syntax — Element vs component](./basic-syntax.md#element-vs-component) for the full resolution rule and the wrapper pattern it enables. The component's declared params become a generated `<Name>Props` struct, and each attribute at the call site sets the corresponding field.
 
 <!--@include: ./_generated/composition/010-components-props.md-->
 
