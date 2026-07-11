@@ -24,9 +24,10 @@ type genFile struct {
 }
 
 type caseCodegen struct {
-	gen  []byte // concatenated generated .x.go (sorted by gsx path), for the generated.x.go.golden facet
-	diag []byte // normalized codegen diagnostics (empty if clean)
-	html string // rendered HTML (renderable cases only; empty otherwise)
+	gen    []byte // concatenated generated .x.go (sorted by gsx path), for the generated.x.go.golden facet
+	diag   []byte // normalized codegen diagnostics (empty if clean; non-empty for warnings too, not just errors)
+	hasErr bool   // true iff any diagnostic was error-severity; gates buildability (diag being non-empty does not, since warnings don't block a build)
+	html   string // rendered HTML (renderable cases only; empty otherwise)
 }
 
 const caseMarkerPrefix = "\x00CASE "
@@ -198,9 +199,11 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 			}
 		}
 
-		if hasErr {
+		cg.hasErr = hasErr
+		if diagBuf.Len() > 0 {
 			cg.diag = normalizeDiagPaths(diagBuf.Bytes(), tmp)
-		} else {
+		}
+		if !hasErr {
 			// Sort files: by pkgDir order (matching packageDirs() order), then by gsx path.
 			// Build ordered dir list to match concatByDir behaviour.
 			orderedDirs := cs.pkgDirs // already in packageDirs() order
@@ -258,7 +261,7 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 			continue
 		}
 		cg := results[c.name]
-		if cg == nil || len(cg.diag) > 0 {
+		if cg == nil || cg.hasErr {
 			continue // codegen failed; not buildable
 		}
 		moduleDir := caseModuleDir(tmp, c)
@@ -279,8 +282,8 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 			continue // already imported (and thus compiled) by the loop above
 		}
 		cg := results[c.name]
-		if cg == nil || len(cg.gen) == 0 || len(cg.diag) > 0 {
-			// No generated output, or the case pins expected diagnostics — an
+		if cg == nil || len(cg.gen) == 0 || cg.hasErr {
+			// No generated output, or the case pins an error diagnostic — an
 			// error case is not meant to compile.
 			continue
 		}

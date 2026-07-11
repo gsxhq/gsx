@@ -608,6 +608,7 @@ urlattrs/hx_default_plain	diag gen render
 urlattrs/static_plus_case_variant	diag gen render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
+xpkg/generic_inference_unavailable_warning	diag render
 xpkg/generic_inferred_import	diag render
 xpkg/generic_inferred_two_files	diag gen render
 xpkg/generic_sibling_file	diag gen render
@@ -620,4 +621,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 622 cases (render: 502, error: 91, gen-pinned: 318)
+TOTAL: 623 cases (render: 503, error: 91, gen-pinned: 318)
