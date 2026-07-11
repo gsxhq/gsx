@@ -676,9 +676,10 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 	}
 	if manual {
 		// MANUAL mode: bind the synthesized bag to a same-named local so the author's
-		// `{ attrs... }` element spread (emitted as `gw.Spread(ctx, attrs)`) and any
-		// `attrs.X()` reference resolve. Nil-safe: a nil bag spreads/queries to
-		// nothing. usesAttrs guarantees that lowering consumes this binding.
+		// `{ attrs... }` element spread (emitted via `_gsxgw.SpreadForwarding(ctx,
+		// attrs, …)`) and any `attrs.X()` reference resolve. Nil-safe: a nil bag
+		// spreads/queries to nothing. usesAttrs guarantees that lowering consumes
+		// this binding.
 		b.WriteString("\t\tattrs := _gsxp.Attrs\n")
 	}
 	if !emitNodeFuncBody(b, c.Body, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr) {
@@ -3389,8 +3390,11 @@ func emitExprAttr(b *bytes.Buffer, attrs []ast.Attr, a *ast.ExprAttr, resolved m
 // refresh in ANY branch marks the element, which is safe because
 // refreshContentSanitize no-ops on values that aren't a refresh directive. A
 // runtime-dynamic http-equiv={expr} is deliberately out of scope (pinned in
-// corpus security/meta_refresh_dynamic_http_equiv); { attrs... } bags follow
-// the Spread contract (attribute-escaped, not URL-sanitized).
+// corpus security/meta_refresh_dynamic_http_equiv); an http-equiv carried
+// inside an `{ attrs... }` element spread is likewise not detected here, so
+// its "content" key never gets the refresh-content sanitizer — it renders
+// through SpreadForwarding's ordinary per-key routing instead (URL-sanitized
+// if URL-classified, attribute-escaped otherwise).
 func attrsDeclareRefresh(attrs []ast.Attr) bool {
 	for _, a := range attrs {
 		switch t := a.(type) {
