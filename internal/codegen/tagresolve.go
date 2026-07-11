@@ -78,10 +78,25 @@ func resolveTag(tag string, declNames map[string]bool, exclude string) bool {
 // exclude for a Component body is the component's bare name (methods included
 // — exclusion is keyed by name); for a GoWithElements, each element/fragment
 // part's enclosing top-level declaration name.
+//
+// Type args on a tag that resolves to a leaf (not a component) are a codegen
+// error: the parser admits `[...]` on any tag (resolution alone can tell a
+// component tag from an HTML/leaf one), so this is the natural place to
+// report it for every element this pass stamps. Elements materialized LATER
+// from an interpolation's embedded `<tag>` literal (Interp.Embedded) never
+// reach this pass — see splitInterpEmbedded (analyze.go), which carries the
+// same check for those.
 func resolveComponentTags(file *gsxast.File, declNames map[string]bool, bag *diag.Bag) {
+	resolve := func(el *gsxast.Element, exclude string) {
+		el.IsComponent = resolveTag(el.Tag, declNames, exclude)
+		if !el.IsComponent && el.TypeArgs != "" {
+			bag.Errorf(el.Pos(), el.End(), "type-args-on-element",
+				"type arguments on HTML element <%s>: type args are only valid on component tags", el.Tag)
+		}
+	}
 	stampAll := func(nodes []gsxast.Markup, exclude string) {
 		forEachElement(nodes, func(el *gsxast.Element) {
-			el.IsComponent = resolveTag(el.Tag, declNames, exclude)
+			resolve(el, exclude)
 		})
 	}
 	for _, d := range file.Decls {
@@ -94,7 +109,7 @@ func resolveComponentTags(file *gsxast.File, declNames map[string]bool, bag *dia
 				exclude := excludes[i]
 				switch pt := p.(type) {
 				case *gsxast.Element:
-					pt.IsComponent = resolveTag(pt.Tag, declNames, exclude)
+					resolve(pt, exclude)
 					walkMarkupAttrs(pt.Attrs, func(value []gsxast.Markup) {
 						stampAll(value, exclude)
 					})

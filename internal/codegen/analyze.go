@@ -387,6 +387,17 @@ func isGsxQualifiedType(typ string, quals map[string]bool, sel string) bool {
 // tagresolve.go's forEachElement doc: Interp.Embedded is nil on the freshly
 // parsed AST), so the resolve rule is (re-)applied here, at the moment they
 // are materialized, reusing resolveTag rather than duplicating its logic.
+// Type-args-on-leaf is a codegen error just like resolveComponentTags reports
+// for the rest of the file (tagresolve.go): SplitGoExprElements parses an
+// embedded `<tag[T]>` literal with the SAME parser.parseElement used
+// everywhere else, so a leaf tag with type args CAN occur inside a `{ }`
+// hole, and must be reported here too — bag is threaded in for exactly that.
+// The error is only emitted for elements a split just MATERIALIZED (tracked
+// via walk's materialized flag, propagated to every node reached through a
+// materialized part): the top-level walk also revisits every ORIGINAL-tree
+// element to find further splittable interps, and resolveComponentTags
+// already reported (or didn't need to) for those — re-emitting here as well
+// would double the diagnostic for the exact same element.
 //
 // A materialized element/fragment can itself contain further `{ }`
 // interpolations whose seed carries ANOTHER operand-position tag (arbitrary
@@ -396,8 +407,8 @@ func isGsxQualifiedType(typ string, quals map[string]bool, sel string) bool {
 // the two markup shapes forEachElement doesn't need but this does — bare
 // *Interp and *EmbeddedInterp nodes themselves, since those (not *Element)
 // are what carry a splittable seed/segments.
-func splitInterpEmbedded(file *gsxast.File, cls *attrclass.Classifier, fset *token.FileSet, declNames map[string]bool) {
-	var walk func(nodes []gsxast.Markup, exclude string)
+func splitInterpEmbedded(file *gsxast.File, cls *attrclass.Classifier, fset *token.FileSet, declNames map[string]bool, bag *diag.Bag) {
+	var walk func(nodes []gsxast.Markup, exclude string, materialized bool)
 	splitOne := func(interp *gsxast.Interp, exclude string) {
 		// Fast path: no '<' (operand-position tag mark) AND no '`' (prefixed
 		// backtick literal) means nothing to split; and a split needs a valid base
@@ -420,17 +431,17 @@ func splitInterpEmbedded(file *gsxast.File, cls *attrclass.Classifier, fset *tok
 		// materialized literal previously escaped the stamp.
 		for _, part := range parts {
 			if m, ok := part.(gsxast.Markup); ok {
-				walk([]gsxast.Markup{m}, exclude)
+				walk([]gsxast.Markup{m}, exclude, true)
 			}
 		}
 	}
-	walk = func(nodes []gsxast.Markup, exclude string) {
+	walk = func(nodes []gsxast.Markup, exclude string, materialized bool) {
 		for _, n := range nodes {
 			switch t := n.(type) {
 			case *gsxast.Interp:
 				splitOne(t, exclude)
 			case *gsxast.EmbeddedInterp:
-				walk(t.Segments, exclude)
+				walk(t.Segments, exclude, materialized)
 			case *gsxast.Element:
 				// Stamp BEFORE recursing: this element may be a node splitOne
 				// just materialized (the literal itself, or any element nested
@@ -439,18 +450,22 @@ func splitInterpEmbedded(file *gsxast.File, cls *attrclass.Classifier, fset *tok
 				// elements the re-stamp is idempotent — same resolveTag, same
 				// declNames, same exclude as that pass.
 				t.IsComponent = resolveTag(t.Tag, declNames, exclude)
-				walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) { walk(value, exclude) })
-				walk(t.Children, exclude)
+				if materialized && !t.IsComponent && t.TypeArgs != "" {
+					bag.Errorf(t.Pos(), t.End(), "type-args-on-element",
+						"type arguments on HTML element <%s>: type args are only valid on component tags", t.Tag)
+				}
+				walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) { walk(value, exclude, materialized) })
+				walk(t.Children, exclude, materialized)
 			case *gsxast.Fragment:
-				walk(t.Children, exclude)
+				walk(t.Children, exclude, materialized)
 			case *gsxast.ForMarkup:
-				walk(t.Body, exclude)
+				walk(t.Body, exclude, materialized)
 			case *gsxast.IfMarkup:
-				walk(t.Then, exclude)
-				walk(t.Else, exclude)
+				walk(t.Then, exclude, materialized)
+				walk(t.Else, exclude, materialized)
 			case *gsxast.SwitchMarkup:
 				for _, cc := range t.Cases {
-					walk(cc.Body, exclude)
+					walk(cc.Body, exclude, materialized)
 				}
 			}
 		}
@@ -458,17 +473,17 @@ func splitInterpEmbedded(file *gsxast.File, cls *attrclass.Classifier, fset *tok
 	for _, d := range file.Decls {
 		switch t := d.(type) {
 		case *gsxast.Component:
-			walk(t.Body, t.Name)
+			walk(t.Body, t.Name, false)
 		case *gsxast.GoWithElements:
 			excludes := goWithElementsExcludes(t)
 			for i, p := range t.Parts {
 				exclude := excludes[i]
 				switch pt := p.(type) {
 				case *gsxast.Element:
-					walkMarkupAttrs(pt.Attrs, func(value []gsxast.Markup) { walk(value, exclude) })
-					walk(pt.Children, exclude)
+					walkMarkupAttrs(pt.Attrs, func(value []gsxast.Markup) { walk(value, exclude, false) })
+					walk(pt.Children, exclude, false)
 				case *gsxast.Fragment:
-					walk(pt.Children, exclude)
+					walk(pt.Children, exclude, false)
 				}
 			}
 		}
@@ -591,7 +606,7 @@ func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, 
 	// using the same classifier the file was parsed with — so the analysis pass
 	// (emitProbes, below) and the emit pass (genInterp) share the SAME parsed
 	// element nodes and resolved types key on one set of pointers.
-	splitInterpEmbedded(file, cls, fset, declNames)
+	splitInterpEmbedded(file, cls, fset, declNames, bag)
 	// Keep only the components whose skeletons succeed. A validation error
 	// (errSkipComponent — reserved param/recv, parse failure) means the component
 	// is invalid for codegen; skip its skeleton so the overall file stays valid Go.
