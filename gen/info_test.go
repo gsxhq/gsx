@@ -21,7 +21,7 @@ func TestRunInfoStd(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	code := runInfo(&out, &bytes.Buffer{}, repoRoot, "", []string{stdImportPath}, nil, attrclass.Builtin(), nil, nil, MinifyNone, MinifyNone, 80)
+	code := runInfo(&out, &bytes.Buffer{}, repoRoot, "", []string{stdImportPath}, nil, nil, attrclass.Builtin(), nil, nil, MinifyNone, MinifyNone, 80)
 	if code != 0 {
 		t.Fatalf("runInfo exit = %d, want 0", code)
 	}
@@ -43,7 +43,7 @@ func TestRunInfoVersionSingleLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	code := runInfo(&out, &bytes.Buffer{}, repoRoot, "", []string{stdImportPath}, nil, attrclass.Builtin(), nil, nil, MinifyNone, MinifyNone, 80)
+	code := runInfo(&out, &bytes.Buffer{}, repoRoot, "", []string{stdImportPath}, nil, nil, attrclass.Builtin(), nil, nil, MinifyNone, MinifyNone, 80)
 	if code != 0 {
 		t.Fatalf("runInfo exit = %d, want 0", code)
 	}
@@ -74,12 +74,76 @@ func TestRunInfoShadow(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	code := runInfo(&out, &bytes.Buffer{}, tmp, "", []string{stdImportPath, "gsxmf/myfilters"}, nil, attrclass.Builtin(), nil, nil, MinifyNone, MinifyNone, 80)
+	code := runInfo(&out, &bytes.Buffer{}, tmp, "", []string{stdImportPath, "gsxmf/myfilters"}, nil, nil, attrclass.Builtin(), nil, nil, MinifyNone, MinifyNone, 80)
 	if code != 0 {
 		t.Fatalf("runInfo exit = %d, want 0", code)
 	}
 	if !strings.Contains(out.String(), "(shadows ") {
 		t.Fatalf("expected a shadow marker in output:\n%s", out.String())
+	}
+}
+
+// TestRunInfoRenderers proves gsx info lists a registered [renderers] entry
+// (typeKey → pkgPath.Func), the same "invisible config surface" gap fixed for
+// filters/urlAttrs/minify/class_merger — before this, renderers had no info
+// section at all.
+func TestRunInfoRenderers(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping module-load renderer test in -short mode")
+	}
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module gsxmf\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pgDir := filepath.Join(tmp, "pg")
+	if err := os.MkdirAll(pgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pgDir, "pg.go"), []byte("package pg\n\ntype Text struct {\n\tString string\n\tValid  bool\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rendDir := filepath.Join(tmp, "rend")
+	if err := os.MkdirAll(rendDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rendDir, "rend.go"), []byte("package rend\n\nimport \"gsxmf/pg\"\n\nfunc PgText(t pg.Text) string { return t.String }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	renderers := []codegen.RendererAlias{{TypeKey: "gsxmf/pg.Text", PkgPath: "gsxmf/rend", FuncName: "PgText"}}
+	var out bytes.Buffer
+	code := runInfo(&out, &bytes.Buffer{}, tmp, "", []string{stdImportPath}, nil, renderers, attrclass.Builtin(), nil, nil, MinifyNone, MinifyNone, 80)
+	if code != 0 {
+		t.Fatalf("runInfo exit = %d, want 0", code)
+	}
+	got := out.String()
+	for _, want := range []string{"Renderers (1)", "gsxmf/pg.Text", "rend.PgText"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("runInfo output missing %q:\n%s", want, got)
+		}
+	}
+}
+
+// TestRunInfoNoRenderersOmitsSection proves the Renderers section is omitted
+// entirely (not printed empty) when no [renderers] are configured — the same
+// convention as the Attribute rules section.
+func TestRunInfoNoRenderersOmitsSection(t *testing.T) {
+	t.Parallel()
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	code := runInfo(&out, &bytes.Buffer{}, repoRoot, "", []string{stdImportPath}, nil, nil, attrclass.Builtin(), nil, nil, MinifyNone, MinifyNone, 80)
+	if code != 0 {
+		t.Fatalf("runInfo exit = %d, want 0", code)
+	}
+	if strings.Contains(out.String(), "Renderers (") {
+		t.Fatalf("runInfo should omit the Renderers section when none are configured:\n%s", out.String())
 	}
 }
 
@@ -91,7 +155,7 @@ func TestRunInfoBadPkg(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errBuf bytes.Buffer
-	code := runInfo(&out, &errBuf, repoRoot, "", []string{"github.com/gsxhq/gsx/does-not-exist"}, nil, attrclass.Builtin(), nil, nil, MinifyNone, MinifyNone, 80)
+	code := runInfo(&out, &errBuf, repoRoot, "", []string{"github.com/gsxhq/gsx/does-not-exist"}, nil, nil, attrclass.Builtin(), nil, nil, MinifyNone, MinifyNone, 80)
 	if code != 1 {
 		t.Fatalf("runInfo exit = %d, want 1", code)
 	}
@@ -110,7 +174,7 @@ func TestRunInfoPrintsConfigBeforeFilterError(t *testing.T) {
 	cfgPath := filepath.Join(repoRoot, "gsx.toml")
 	aliases := []codegen.FilterAlias{{Name: "x", PkgPath: "github.com/gsxhq/gsx/does-not-exist", FuncName: "F"}}
 	var out, errBuf bytes.Buffer
-	code := runInfo(&out, &errBuf, repoRoot, cfgPath, nil, aliases, attrclass.Builtin(), nil, nil, MinifyNone, MinifyNone, 80)
+	code := runInfo(&out, &errBuf, repoRoot, cfgPath, nil, aliases, nil, attrclass.Builtin(), nil, nil, MinifyNone, MinifyNone, 80)
 	if code != 1 {
 		t.Fatalf("runInfo exit = %d, want 1 (alias targets a non-resolvable package)", code)
 	}
@@ -126,7 +190,7 @@ func TestRunInfo_MinifyAndEnv(t *testing.T) {
 	var out, errb bytes.Buffer
 	// css=none/js=none reflect the explicitly-passed MinifyNone levels; GSX_MINIFY
 	// appears in the Environment section because it is set.
-	code := runInfo(&out, &errb, ".", "", nil, nil, nil, nil,
+	code := runInfo(&out, &errb, ".", "", nil, nil, nil, nil, nil,
 		[]string{}, MinifyNone, MinifyNone, 100)
 	if code != 0 {
 		t.Fatalf("runInfo exit %d, stderr=%s", code, errb.String())

@@ -80,9 +80,11 @@ func harvestRenderers(byPath map[string]*types.Package, renderers []RendererAlia
 			return nil, fmt.Errorf("codegen: renderer %q takes %s; registered for %q", r.FuncName, sig.Params().At(0).Type(), r.TypeKey)
 		}
 		res := sig.Results().At(0).Type()
-		if classify(res) == catUnsupported {
-			return nil, fmt.Errorf("codegen: renderer %q for %q returns %s, which is not a renderable type", r.FuncName, r.TypeKey, res)
-		}
+		// The unrenderable-result rejection is deferred to the chain-check
+		// pass below: whether res is "not a renderable type" or "chains to
+		// another registered renderer" can only be told apart once every
+		// registration has been read (last-wins means the full key set isn't
+		// known here — a later entry may still register res's key).
 		table[r.TypeKey] = rendererEntry{
 			funcName: r.FuncName,
 			alias:    aliases[r.PkgPath],
@@ -93,17 +95,24 @@ func harvestRenderers(byPath map[string]*types.Package, renderers []RendererAlia
 	}
 	// Renderers apply exactly once: a result type that is itself registered
 	// (including the renderer's own param type) would silently chain or loop,
-	// so it is rejected here where all registrations are visible.
+	// so it is rejected here where all registrations are visible — BEFORE the
+	// plain unrenderable check, so a chained-but-structurally-unsupported
+	// result (e.g. a non-renderable wrapper struct that itself carries a
+	// [renderers] registration — the common case) reports the chain message,
+	// not the misleading "not a renderable type" (the type DOES have a
+	// renderer). A result that is neither registered nor natively renderable
+	// still gets the plain message.
 	for key, e := range table {
-		rk := rendererKey(e.result)
-		if rk == "" {
-			continue
-		}
-		if _, chained := table[rk]; chained {
-			if rk == key {
-				return nil, fmt.Errorf("codegen: renderer %q for %q returns its own registered type; renderers apply once and never chain", e.funcName, key)
+		if rk := rendererKey(e.result); rk != "" {
+			if _, chained := table[rk]; chained {
+				if rk == key {
+					return nil, fmt.Errorf("codegen: renderer %q for %q returns its own registered type; renderers apply once and never chain", e.funcName, key)
+				}
+				return nil, fmt.Errorf("codegen: renderer %q for %q returns %q, which has its own renderer; renderers apply once and never chain — return a natively renderable type", e.funcName, key, rk)
 			}
-			return nil, fmt.Errorf("codegen: renderer %q for %q returns %q, which has its own renderer; renderers apply once and never chain — return a natively renderable type", e.funcName, key, rk)
+		}
+		if classify(e.result) == catUnsupported {
+			return nil, fmt.Errorf("codegen: renderer %q for %q returns %s, which is not a renderable type", e.funcName, key, e.result)
 		}
 	}
 	return table, nil

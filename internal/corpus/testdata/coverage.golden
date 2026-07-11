@@ -513,6 +513,7 @@ renderers/numeric_result	diag gen render
 renderers/pipe_result	diag gen render
 renderers/pointer	diag gen render
 renderers/script_hole	diag gen render
+renderers/srcset_hole	diag gen render
 renderers/style_css_literal_part	diag gen render
 renderers/style_error	diag gen render
 renderers/style_hole	diag gen render
@@ -672,4 +673,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 674 cases (render: 551, error: 94, gen-pinned: 355)
+TOTAL: 675 cases (render: 552, error: 94, gen-pinned: 356)
