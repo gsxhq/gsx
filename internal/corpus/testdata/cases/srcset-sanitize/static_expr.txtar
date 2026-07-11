@@ -1,0 +1,14 @@
+# srcset on a static element is a URL-list sink: a javascript: candidate is
+# neutralized to about:invalid#gsx; safe candidates (incl data:image) pass.
+-- input.gsx --
+package views
+
+component Pic(a string, b string) {
+	<img srcset={ a } alt="x"/>
+	<source srcset={ b }/>
+}
+-- invoke --
+Pic(PicProps{A: "ok.jpg 1x, javascript:alert(1) 2x", B: "data:image/png;base64,iVBOR 2x"})
+-- diagnostics.golden --
+-- render.golden --
+<img srcset="ok.jpg 1x, about:invalid#gsx" alt="x"/><source srcset="data:image/png;base64,iVBOR 2x"/>
