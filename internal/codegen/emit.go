@@ -1446,7 +1446,13 @@ func hasCondClassStyle(attrs []ast.Attr) bool {
 					return true
 				}
 			case *ast.EmbeddedAttr:
-				if t.Lang == ast.EmbeddedText && (t.Name == "class" || t.Name == "style") {
+				// Lang-agnostic: a class/style written as an embedded css/js literal
+				// (e.g. style=css"…@{}…") must fold too, so the cond-attr routes
+				// through composeBag (merge, or a positioned fail-closed diagnostic)
+				// rather than the inline emitFallthroughAttrs path — which would emit
+				// the conditional style as a SECOND, duplicate attribute. Mirrors the
+				// breadth of D3's old rootAttrName check (name only, any Lang).
+				if t.Name == "class" || t.Name == "style" {
 					return true
 				}
 			}
@@ -1487,7 +1493,11 @@ func hasRootClassStyle(attrs []ast.Attr) bool {
 				return true
 			}
 		case *ast.EmbeddedAttr:
-			if t.Lang == ast.EmbeddedText && (t.Name == "class" || t.Name == "style") {
+			// Lang-agnostic (mirrors hasCondClassStyle): a top-level style=css"…" /
+			// class=js"…" must gate the lone-cond fold too, otherwise the inline path
+			// emits it as a SEPARATE attribute alongside the folded bag's — a silent
+			// duplicate. Folding routes both through the shared leaf bag.
+			if t.Name == "class" || t.Name == "style" {
 				return true
 			}
 		}
@@ -5292,7 +5302,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 			// error-returning pipeline stage. In emit mode the call is hoisted here via
 			// hoistTuple (the temp is appended as a `segments` entry); in probe mode it
 			// is wrapped in _gsxunwrap(...) to stay a single expression (emit ≡ probe).
-			condExpr, used, cerr := condAttrsExpr(t, rtPkg, el.Tag, mergeExpr, table, probeWrap, resolved, imports, rt, diagBag, interpTemp)
+			condExpr, used, cerr := condAttrsExpr(t, rtPkg, el.Tag, mergeExpr, table, probeWrap, resolved, imports, rt, diagBag, interpTemp, bagComponentCond)
 			if cerr != nil {
 				return nil, "", nil, cerr
 			}
@@ -5679,7 +5689,7 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg st
 // Either way this returns ONE expression: the *ast.CondAttr call site hoists it
 // with hoistTuple in emit mode, or wraps it in _gsxunwrap(...) in probe mode —
 // emit ≡ probe, differing only by that tolerance wrap, never by structure.
-func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table funcTables, probeWrap bool, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, interpTemp *int) (string, map[string]string, error) {
+func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table funcTables, probeWrap bool, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, interpTemp *int, ctx bagContext) (string, map[string]string, error) {
 	usedPkgs := map[string]string{}
 
 	// branchThunk builds one branch's `func() (rtPkg.Attrs, error) { ...; return
@@ -5691,7 +5701,7 @@ func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table f
 		if !probeWrap {
 			wrap = thunkPipeWrap(&tb, interpTemp)
 		}
-		lit, used, err := condBranchAttrs(&tb, interpTemp, wrap, probeWrap, attrs, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag)
+		lit, used, err := condBranchAttrs(&tb, interpTemp, wrap, probeWrap, attrs, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, ctx)
 		if err != nil {
 			return "", nil, err
 		}
@@ -5744,8 +5754,8 @@ func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table f
 // interpTemp/resolved and the same wrap are threaded through, so CF (if/
 // switch), plain-tuple, and ordered class parts inside a branch hoist their
 // errors into the enclosing thunk precisely like the non-branch case.
-func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string, probeWrap bool, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag) (string, map[string]string, error) {
-	return composeBag(b, interpTemp, wrap, probeWrap, attrs, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, "return nil, _gsxerr", bagComponentCond)
+func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string, probeWrap bool, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, ctx bagContext) (string, map[string]string, error) {
+	return composeBag(b, interpTemp, wrap, probeWrap, attrs, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, "return nil, _gsxerr", ctx)
 }
 
 // bagContext tells composeBag which caller it is lowering for, so a residual
@@ -5840,7 +5850,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			parts = append(parts, expr)
 		case *ast.CondAttr:
 			materializePrior()
-			condExpr, used, cerr := condAttrsExpr(t, rtPkg, tag, mergeExpr, table, probeWrap, resolved, imports, rt, bag, interpTemp)
+			condExpr, used, cerr := condAttrsExpr(t, rtPkg, tag, mergeExpr, table, probeWrap, resolved, imports, rt, bag, interpTemp, ctx)
 			if cerr != nil {
 				return "", nil, cerr
 			}

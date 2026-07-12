@@ -1,0 +1,21 @@
+# A css`…@{}…` embedded-hole STYLE inside a cond-attr branch on a forwarding
+# element. hasCondClassStyle is Lang-agnostic, so the css-lang literal folds the
+# element (rather than the old EmbeddedText-only gate missing it and letting the
+# inline path emit a SECOND, duplicate style attribute). The fold routes the
+# cond-attr through composeBag, which cannot yet lower a css @{ } hole into the
+# shared bag (#92) and fail-closes with a POSITIONED diagnostic — with ELEMENT
+# wording ("on an element that merges its attributes"), NOT the component-prop
+# wording (M1). Clean error, no duplicate, no miscompile.
+-- input.gsx --
+package views
+
+component Box(active bool, c string) {
+	<div style="color:red" { attrs... } { if active { style=css"margin:@{c}" } }>x</div>
+}
+-- invoke --
+gsx.Fragment(
+	Box(BoxProps{Active: true, C: "5px", Attrs: gsx.Attrs{{Key: "style", Value: "padding:1px"}}}),
+)
+-- diagnostics.golden --
+4:52: embedded css attribute literal "style" with @{ } interpolation is not yet supported on an element that merges its attributes (<div>); each @{ } hole needs css-context escaping into the shared bag, which is not yet ported
+-- render.golden --
