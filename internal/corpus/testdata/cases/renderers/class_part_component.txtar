@@ -8,15 +8,15 @@
 # Card has no class prop of its own, so the rendered string reaches the leaf
 # via the fallthrough Attrs bag and Attrs.Class() merge.
 #
-# A CALL expression, not a bare identifier: classEntryExpr's probe/skeleton
-# pass (probeWrap=true, which harvests resolved[] BEFORE any renderer is
-# known) only stubs CALL expressions to `""` — a bare identifier of a
-# non-string type is embedded directly into the skeleton and fails the
-# skeleton's own go/types check before harvest ever runs, independent of
-# renderers (confirmed: the SAME failure reproduces with a plain
-# non-registered struct-typed bare identifier). That pre-existing probe-stage
-# gap is out of this task's scope (documented in the report); this case
-# exercises the boundary that IS reachable today.
+# A CALL expression, not a bare identifier: this case predates #85, which
+# closed the gap this comment used to document (classEntryExpr's probe/
+# skeleton pass previously only stubbed CALL expressions to `""`, so a bare
+# identifier/selector of a non-string type failed the skeleton's own go/types
+# check before harvest ever ran, independent of renderers). The probe now
+# stubs EVERY class-part value expr regardless of shape; the bare-identifier
+# and bare-selector cases are pinned by class_bare_ident.txtar, the
+# conditional-part case by class_bare_cond.txtar, and the value-form CF-arm
+# case by class_bare_cfarm.txtar.
 -- gsx.toml --
 [renderers]
 "./pg.Text" = "./rend.PgText"
