@@ -56,7 +56,7 @@ import (
 	"corpustest/cases/renderers_ctx_error/pg"
 
 	_gsxctx "context"
-	_gsxf14 "corpustest/cases/renderers_ctx_error/rend"
+	_gsxf15 "corpustest/cases/renderers_ctx_error/rend"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
@@ -75,7 +75,7 @@ func Tag(_gsxp TagProps) _gsxrt.Node {
 //line input.gsx:8:2
 		_gsxgw.S("<div>")
 //line input.gsx:8:7
-		_gsxv0, _gsxerr := _gsxf14.PgText(ctx, (val))
+		_gsxv0, _gsxerr := _gsxf15.PgText(ctx, (val))
 		if _gsxerr != nil {
 			return _gsxerr
 		}
