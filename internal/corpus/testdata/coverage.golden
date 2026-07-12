@@ -24,6 +24,8 @@ attrs/spread_nil	diag render
 attrs/spread_trailing	diag render
 attrsonly/alias_type	diag render
 attrsonly/direct_factory_attrs_identifier	diag gen render
+attrsonly/direct_factory_derived_forwarding	diag gen render
+attrsonly/direct_factory_pipelined_forwarding	diag gen render
 attrsonly/direct_factory_variadic_forwarding	diag gen render
 attrsonly/element_literal_interp	diag render
 attrsonly/empty_children_ok	diag render
@@ -426,6 +428,7 @@ multispread/style_cond_two_spreads	diag gen render
 multispread/three_spreads	diag gen render
 multispread/two_bags_merge	diag gen render
 multispread/two_bags_source_order	diag gen render
+multispread/variadic_attrs_operand	diag gen render
 multispread/void_and_children	diag gen render
 nonce/cond_attr_nonce	diag render
 nonce/div_control	diag render
@@ -737,4 +740,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 739 cases (render: 621, error: 88, gen-pinned: 405)
+TOTAL: 742 cases (render: 624, error: 88, gen-pinned: 408)
