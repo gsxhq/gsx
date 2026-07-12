@@ -201,7 +201,9 @@ spread's position decides who wins, JSX-style:
 **`class` and `style` are exempt from position**: wherever they appear, they
 always *merge* — the component's tokens first, the caller's appended (then
 deduplicated by the configured class merger). A `class` written after the
-spread is still merged, not forced.
+spread is still merged, not forced. This holds inside `{ if cond { class=… }
+else { class=… } }` too: a conditional `class`/`style` on an element carrying
+a spread merges with the root and the spread, same as the unconditional form.
 
 Every element spread also sanitizes URL-classified attribute keys at the leaf,
 for any bag, with no exceptions and no unsanitizing spread — see
