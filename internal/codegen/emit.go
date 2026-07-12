@@ -5663,6 +5663,15 @@ func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table f
 // switch), plain-tuple, and ordered class parts inside a branch hoist their
 // errors into the enclosing thunk precisely like the non-branch case.
 func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string, probeWrap bool, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type) (string, map[string]string, error) {
+	return composeBag(b, interpTemp, wrap, probeWrap, attrs, rtPkg, tag, mergeExpr, table, resolved, "return nil, _gsxerr")
+}
+
+// composeBag lowers attrs into a single Go expression evaluating to
+// rtPkg.Attrs — currently always a `rtPkg.Attrs{…}` literal. errReturn is
+// threaded through to applyRenderer and classEntryExpr for their error-hoist
+// site; callers pass whatever return-statement shape matches their enclosing
+// function's signature.
+func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, probeWrap bool, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, errReturn string) (string, map[string]string, error) {
 	var entries []string
 	usedPkgs := map[string]string{}
 	for _, a := range attrs {
@@ -5727,7 +5736,7 @@ func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string,
 				// through a scratch map and fold pkgPath in as both key and value;
 				// the key is never read downstream, only deduped on.
 				scratch := map[string]bool{}
-				val, _ = applyRenderer(b, val, attrType, table, scratch, interpTemp, "return nil, _gsxerr")
+				val, _ = applyRenderer(b, val, attrType, table, scratch, interpTemp, errReturn)
 				for path := range scratch {
 					usedPkgs[path] = path
 				}
@@ -5740,7 +5749,7 @@ func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string,
 				msg := fmt.Sprintf("%s attribute in a conditional branch (<%s>) not supported yet", t.Name, tag)
 				return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
-			entry, used, eerr := classEntryExpr(b, interpTemp, t, rtPkg, mergeExpr, table, resolved, probeWrap, wrap, "return nil, _gsxerr")
+			entry, used, eerr := classEntryExpr(b, interpTemp, t, rtPkg, mergeExpr, table, resolved, probeWrap, wrap, errReturn)
 			if eerr != nil {
 				return "", nil, eerr
 			}
