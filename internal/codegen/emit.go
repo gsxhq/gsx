@@ -1351,9 +1351,14 @@ func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, cur
 }
 
 // foldElementSpreads renders a non-component element carrying ≥2 spreads
-// (counting cond-nested) by folding ALL its attributes into one source-ordered
-// ConcatAttrs(...) bag and rendering that through the single-bag leaf. This is
-// the reference full-fold: last writer wins per key, class/style aggregate.
+// (counting cond-nested), OR exactly one spread that is cond-nested, by
+// folding ALL its attributes into one source-ordered ConcatAttrs(...) bag and
+// rendering that through the single-bag leaf. This is the reference
+// full-fold: last writer wins per key, class/style aggregate. The lone-cond
+// case is included because the alternative (inline emitAttr's bare
+// `if cond { Spread(bag, excluded=nil) }`) never learns about a sibling root
+// class/style attr and would emit a second raw class/style instead of
+// aggregating (O1, issue #75).
 //
 // It builds the fold via composeBag (which emits any AttrsCond/pipe hoists into
 // b in order), then temporarily swaps el.Attrs for a single synthetic spread
@@ -1431,6 +1436,21 @@ func firstTwoSpreadAttrs(attrs []ast.Attr) (first, second *ast.SpreadAttr, first
 	}
 	visit(attrs, "")
 	return first, second, firstCond, secondCond
+}
+
+// elementFolds reports whether genNode's *ast.Element case routes attrs
+// through foldElementSpreads: ≥2 spreads (counting cond-nested), or exactly
+// one spread that is itself cond-nested (O1: it would otherwise emit via the
+// inline emitAttr `if cond { Spread(bag, excluded=nil) }` path, which cannot
+// merge with a sibling root class/style). This is the SINGLE source of truth
+// for the fold trigger, shared with scopeUsesNumeric/attrsUseNumericScratch
+// so the numeric-scratch prescan agrees with where composeBag actually
+// emits — composeBag never writes through _gsxnum (a numeric ExprAttr lowers
+// to a plain `{Key, Value: <expr>}` bag entry), so a folded element's attrs
+// must never be scanned as needing the scratch buffer.
+func elementFolds(attrs []ast.Attr) bool {
+	first, second, firstCond, _ := firstTwoSpreadAttrs(attrs)
+	return second != nil || (first != nil && firstCond != "")
 }
 
 // emitRootComposedClass emits a composed `class={ … }` merged with the bag's
@@ -1688,9 +1708,15 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		// local `:=` bag, func result, byo field, arbitrary expr). An element
 		// carrying ≥2 spreads (counting cond-nested) folds ALL its attributes into
 		// one source-ordered ConcatAttrs(...) bag (last writer wins per key,
-		// class/style aggregate) and renders that through the single-bag leaf;
-		// exactly one spread routes straight to the leaf.
-		if _, second, _, _ := firstTwoSpreadAttrs(t.Attrs); second != nil {
+		// class/style aggregate) and renders that through the single-bag leaf. A
+		// LONE cond-nested spread (exactly one spread total, but nested in a
+		// `{ if c { { x... } } }` cond-attr) also folds: its inline emitAttr path
+		// (a bare `if cond { Spread(bag, excluded=nil) }`) never learns about a
+		// sibling root class/style attr, so a root `class="root"` next to it would
+		// emit a SECOND raw `class="…"` from the bag instead of aggregating (O1,
+		// issue #75) — folding routes it through the same merge site as everything
+		// else. Only a top-level-only single spread routes straight to the leaf.
+		if elementFolds(t.Attrs) {
 			return foldElementSpreads(b, t, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)
 		} else if splitIdx, found := bagSpreadIndex(t.Attrs); found {
 			return emitManualSpreadElement(b, t, splitIdx, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)
@@ -2247,7 +2273,12 @@ func scopeUsesNumeric(nodes []ast.Markup, resolved map[ast.Node]types.Type, tabl
 				// slots render in their own scope — neither uses this scope's _gsxnum.
 				continue
 			}
-			if attrsUseNumericScratch(t.Attrs, resolved, table, cls) {
+			// A folded element (elementFolds) bakes every attr into one
+			// composeBag expression, which never routes a numeric ExprAttr
+			// through _gsxnum (see elementFolds' doc) — skip the scan entirely
+			// so a numeric attr on such an element doesn't fabricate an unused
+			// _gsxnum declaration.
+			if !elementFolds(t.Attrs) && attrsUseNumericScratch(t.Attrs, resolved, table, cls) {
 				return true
 			}
 			if strings.EqualFold(t.Tag, "script") {

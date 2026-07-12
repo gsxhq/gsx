@@ -379,8 +379,19 @@ methods/render_method_pointer_receiver	diag render
 methods/render_method_same_name_different_receivers_a	diag render
 methods/render_method_same_name_different_receivers_b	diag render
 methods/render_method_with_param	diag render
+multispread/O1_lone_cond_spread_root_class	diag gen render
+multispread/cond_interposed_static	diag gen render
+multispread/cond_spread_else	diag gen render
+multispread/cond_spread_else_untaken	diag gen render
+multispread/interposed_bool_scalar	diag gen render
+multispread/interposed_class_style	diag gen render
+multispread/interposed_pipe_hole	diag gen render
+multispread/interposed_url	diag gen render
+multispread/nonce_script_two_spreads	diag gen render
+multispread/three_spreads	diag gen render
 multispread/two_bags_merge	diag gen render
 multispread/two_bags_source_order	diag gen render
+multispread/void_and_children	diag gen render
 nonce/cond_attr_nonce	diag render
 nonce/div_control	diag render
 nonce/explicit_expr_wins	diag render
@@ -685,4 +696,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 687 cases (render: 571, error: 87, gen-pinned: 375)
+TOTAL: 698 cases (render: 582, error: 87, gen-pinned: 386)

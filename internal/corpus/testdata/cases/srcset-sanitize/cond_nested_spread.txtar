@@ -39,10 +39,17 @@ func Pic(_gsxp PicProps) _gsxrt.Node {
 //line input.gsx:6:2
 		b := gsx.Attrs{{Key: "srcset", Value: s}}
 //line input.gsx:7:2
-		_gsxgw.S("<img alt=\"x\"")
-		if on {
-			_gsxgw.Spread(ctx, b, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "xlink:href"}, []string{"background", "src"}, []string{"imagesrcset", "srcset"}, nil, nil)
+		_gsxv0, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
+			return b, nil
+		}, nil)
+		if _gsxerr != nil {
+			return _gsxerr
 		}
+		_gsxv1 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "alt", Value: "x"}}, _gsxv0)
+		_gsxgw.S("<img")
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv1.Class())
+		_gsxgw.StyleMerged("", _gsxv1.Style())
+		_gsxgw.Spread(ctx, _gsxv1, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "xlink:href"}, []string{"background", "src"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
 		_gsxgw.S("/>")
 		return _gsxgw.Err()
 	})
