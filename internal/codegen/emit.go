@@ -5793,10 +5793,10 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 	// statement immediately. Materialize contributors already encountered so
 	// those statements cannot move the later expression ahead of source order.
 	materializePrior := func() {
+		flush()
 		if probeWrap {
 			return
 		}
-		flush()
 		if len(parts) == 0 {
 			return
 		}
@@ -5893,6 +5893,9 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 						attrType = elemT
 					}
 				}
+				if _, ok := table.renderers[rendererKey(attrType)]; ok {
+					materializePrior()
+				}
 				// applyRenderer wants an `imports map[string]bool`, but this deep in
 				// the bag-literal lowering the only import bookkeeping channel back
 				// to the caller is usedPkgs (map[string]string, alias->pkgPath,
@@ -5910,6 +5913,10 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 		case *ast.BoolAttr:
 			entries = append(entries, fmt.Sprintf("{Key: %s, Value: true}", strconv.Quote(t.Name)))
 		case *ast.ClassAttr:
+			// Class/style lowering may emit value-form, tuple, or renderer
+			// statements directly rather than through orderedWrap. Pin everything
+			// already encountered before entering those lowering paths.
+			materializePrior()
 			if t.Name == "style" && ctx == bagElementFold {
 				// A composable/conditional style={ … } on a folded element: lower it
 				// exactly like the inline element path (composedParts with style=true —

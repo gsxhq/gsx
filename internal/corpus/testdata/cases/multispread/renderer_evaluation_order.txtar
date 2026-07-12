@@ -1,0 +1,80 @@
+# Direct renderer hoists in folded expression and class attributes cannot run
+# ahead of a preceding spread, and their errors prevent later spreads.
+-- gsx.toml --
+[renderers]
+"./pg.Text" = "./rend.PgText"
+-- pg/pg.go --
+package pg
+
+type Text struct{ Value string }
+-- rend/rend.go --
+package rend
+
+import (
+	"errors"
+
+	"corpustest/cases/multispread_renderer_evaluation_order/pg"
+)
+
+func PgText(pg.Text) (string, error) { return "", errors.New("renderer sentinel") }
+-- helpers.go --
+package views
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"strings"
+
+	"corpustest/cases/multispread_renderer_evaluation_order/pg"
+	"github.com/gsxhq/gsx"
+)
+
+func checkedRendererOrder() gsx.Node {
+	return gsx.Func(func(ctx context.Context, w io.Writer) error {
+		for _, tc := range []struct {
+			name string
+			node gsx.Node
+			want string
+		}{
+			{"expr", ExprPage(ExprPageProps{Val: pg.Text{Value: "x"}}), "expr-prior"},
+			{"class", ClassPage(ClassPageProps{Val: pg.Text{Value: "x"}}), "class-prior"},
+		} {
+			calls = nil
+			err := tc.node.Render(ctx, io.Discard)
+			if err == nil || !strings.Contains(err.Error(), "renderer sentinel") {
+				return fmt.Errorf("%s render error = %v, want renderer sentinel", tc.name, err)
+			}
+			if got := strings.Join(calls, ","); got != tc.want {
+				return fmt.Errorf("%s evaluation order = %s, want %s", tc.name, got, tc.want)
+			}
+		}
+		return nil
+	})
+}
+-- input.gsx --
+package views
+
+import (
+	"corpustest/cases/multispread_renderer_evaluation_order/pg"
+	"github.com/gsxhq/gsx"
+)
+
+var calls []string
+
+func bag(mark string) gsx.Attrs {
+	calls = append(calls, mark)
+	return gsx.Attrs{{Key: "data-k", Value: mark}}
+}
+
+component ExprPage(val pg.Text) {
+	<div { bag("expr-prior")... } data-x={ val } { bag("expr-late")... }>x</div>
+}
+
+component ClassPage(val pg.Text) {
+	<div { bag("class-prior")... } class={ val } { bag("class-late")... }>x</div>
+}
+-- invoke --
+checkedRendererOrder()
+-- diagnostics.golden --
+-- render.golden --
