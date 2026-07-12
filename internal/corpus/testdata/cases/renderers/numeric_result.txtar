@@ -51,7 +51,7 @@ import (
 	"corpustest/cases/renderers_numeric_result/pg"
 
 	_gsxctx "context"
-	_gsxf27 "corpustest/cases/renderers_numeric_result/rend"
+	_gsxf29 "corpustest/cases/renderers_numeric_result/rend"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
@@ -70,10 +70,10 @@ func Tag(_gsxp TagProps) _gsxrt.Node {
 		var _gsxnum [32]byte
 //line input.gsx:8:2
 		_gsxgw.S("<div data-n=\"")
-		_gsxgw.IntInto(_gsxnum[:], int64(_gsxf27.CountVal((val))))
+		_gsxgw.IntInto(_gsxnum[:], int64(_gsxf29.CountVal((val))))
 		_gsxgw.S("\">")
 //line input.gsx:8:22
-		_gsxgw.IntInto(_gsxnum[:], int64(_gsxf27.CountVal((val))))
+		_gsxgw.IntInto(_gsxnum[:], int64(_gsxf29.CountVal((val))))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})

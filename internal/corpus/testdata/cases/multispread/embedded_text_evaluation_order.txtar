@@ -1,0 +1,54 @@
+# A fallible embedded-text hole in a folded bag evaluates after an earlier
+# spread and stops evaluation before a later spread.
+-- helpers.go --
+package views
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"strings"
+
+	"github.com/gsxhq/gsx"
+)
+
+var sentinel = errors.New("embedded sentinel")
+
+func failHole() (string, error) {
+	calls = append(calls, "error")
+	return "", sentinel
+}
+
+func checkedEmbeddedOrder() gsx.Node {
+	return gsx.Func(func(ctx context.Context, w io.Writer) error {
+		calls = nil
+		err := Page().Render(ctx, w)
+		if !errors.Is(err, sentinel) {
+			return fmt.Errorf("render error = %v, want embedded sentinel", err)
+		}
+		if got := strings.Join(calls, ","); got != "prior,error" {
+			return fmt.Errorf("embedded evaluation order = %s, want prior,error", got)
+		}
+		return nil
+	})
+}
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+var calls []string
+
+func bag(mark string) gsx.Attrs {
+	calls = append(calls, mark)
+	return gsx.Attrs{{Key: "data-k", Value: mark}}
+}
+
+component Page() {
+	<div { bag("prior")... } title=f"value @{failHole()}" { bag("late")... }>x</div>
+}
+-- invoke --
+checkedEmbeddedOrder()
+-- diagnostics.golden --
+-- render.golden --

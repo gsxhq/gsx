@@ -120,7 +120,8 @@ render goldens.
    get the full forwarding machinery via a hoisted once-evaluated temp;
    cond-attrs join caller-wins (pre-spread branch leaves guarded, post-spread
    branch selection recorded once + dynamic spread drop set); one forwarding
-   spread per element (compose with `.Merge`, second spread is an error);
+   spread per element (compose with `.Merge`, second spread is an error;
+   superseded 2026-07-12 - see Security item 8's multi-spread-merge entry);
    `class`/`style`/spreads inside cond-attr branches on forwarding elements
    rejected with pointers to the composable forms. **Cross-package/imported
    components** (same module) get the same treatment - `2026-07-02`: per-file,
@@ -692,8 +693,9 @@ vocabulary remains a design aspiration, not the current API.
    implicit `attrs` token: a byo component's `p.Attrs` field and a generated
    component's own named `gsx.Attrs` param(s) get the same `Has`-guarded
    defaults / forced-after / `class`/`style`-always-merges machinery and
-   one-spread-per-element rule, including derived forms
-   (`p.Attrs.Without(…)`). **(C) call sites concatenate, not `.Merge()`
+   (then) the one-spread-per-element rule, including derived forms
+   (`p.Attrs.Without(…)`) - that rule is superseded 2026-07-12, below.
+   **(C) call sites concatenate, not `.Merge()`
    chain** - `gsx.ConcatAttrs` replaces the per-link `.Merge()` composition at
    every generated call site (base literal, spreads, conditional bags in
    source order, `attrs={{ … }}` literal still concatenated last); semantics
@@ -735,15 +737,19 @@ vocabulary remains a design aspiration, not the current API.
      Considered and deferred alongside Part A; `gsx.RawURL` remains the only
      opt-out.
 
-   **Two-spread diagnostic DX - RESOLVED** (2026-07-11,
-   universal-spread-sanitization branch). The diagnostic now positions at the
-   *second* spread (not the element) and names both spread expressions with
-   the merge recipe: `element with a spread { a... } cannot carry another
-   spread { b... }; merge them into one spread ({ a.Merge(b)... } or {
-   b.Merge(a)... }) so precedence is explicit`. Corpus:
-   `spread-sanitize/two_spreads_error`,
-   `fallthrough/{second_spread_rejected,byo_bag_two_spreads}`,
-   `jsattr/manual_multi_spread_rejected`.
+   **Two-spread diagnostic DX - RESOLVED, then superseded** (2026-07-11,
+   universal-spread-sanitization branch; superseded 2026-07-12 below). The
+   diagnostic positioned at the *second* spread and named both spread
+   expressions with a merge recipe - removed once multi-spread merge shipped.
+
+   **Multi-spread merge - SHIPPED** (2026-07-12,
+   `2026-07-12-multi-spread-merge-design.md`). The one-spread-per-element
+   restriction and its generate-time error are gone: multiple attribute
+   spreads on an element merge by source order (later spread wins per key,
+   `class`/`style` aggregate), same as any two same-named attributes -
+   interposed statics and conditional spreads/statics participate, including
+   embedded-hole attrs. Docs: `composition.md` §Derived bags. Corpus:
+   `multispread/*`.
 
 ## Tracked debts / deferrals
 

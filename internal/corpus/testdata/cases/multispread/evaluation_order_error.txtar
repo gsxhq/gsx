@@ -1,0 +1,54 @@
+# A failing conditional attribute stops evaluation before a later spread while
+# preserving evaluation of the spread that precedes it.
+-- helpers.go --
+package views
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"strings"
+
+	"github.com/gsxhq/gsx"
+)
+
+var sentinel = errors.New("sentinel")
+
+func fail(mark string) (string, error) {
+	calls = append(calls, mark)
+	return "", sentinel
+}
+
+func checkedErrorPage() gsx.Node {
+	return gsx.Func(func(ctx context.Context, w io.Writer) error {
+		calls = nil
+		err := Page(PageProps{On: true}).Render(ctx, w)
+		if !errors.Is(err, sentinel) {
+			return fmt.Errorf("render error = %v, want sentinel", err)
+		}
+		if got := strings.Join(calls, ","); got != "early,error" {
+			return fmt.Errorf("error evaluation order = %s, want early,error", got)
+		}
+		return nil
+	})
+}
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+var calls []string
+
+func bag(mark string) gsx.Attrs {
+	calls = append(calls, mark)
+	return gsx.Attrs{{Key: "data-k", Value: mark}}
+}
+
+component Page(on bool) {
+	<div { bag("early")... } { if on { data-x={ fail("error") } } } { bag("late")... }>x</div>
+}
+-- invoke --
+checkedErrorPage()
+-- diagnostics.golden --
+-- render.golden --

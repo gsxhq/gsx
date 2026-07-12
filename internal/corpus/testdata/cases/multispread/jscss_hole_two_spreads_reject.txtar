@@ -1,0 +1,17 @@
+# A js`…@{}…` embedded-hole attribute on a ≥2-spread element folds through
+# composeBag, which cannot yet lower a js/css hole into the shared bag (each
+# @{ } hole needs JS/CSS-context escaping into the bag value — a security-
+# careful, separate feature). This is a NON-regression gap: a js/css hole on a
+# ≥2-spread element was always an error. Part C makes the diagnostic accurate
+# for the element-fold context — it no longer claims the attribute "cannot be
+# used as a component prop" (there is no component here).
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component JSCssHoleTwoSpreads(u string, p gsx.Attrs, q gsx.Attrs) {
+	<button { p... } onclick=js"do(@{u})" { q... }>go</button>
+}
+-- diagnostics.golden --
+6:19: embedded js attribute literal "onclick" with @{ } interpolation is not yet supported on an element carrying multiple spreads (<button>); each @{ } hole needs js-context escaping into the shared bag, which is not yet ported

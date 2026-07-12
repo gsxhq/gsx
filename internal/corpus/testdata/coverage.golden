@@ -131,7 +131,8 @@ components/children_slot_interleaved	diag render
 components/component_class_and_spread	diag gen render
 components/component_class_passthrough_dedup	diag gen render
 components/component_composable_class	diag gen render
-components/component_cond_branch_spread_rejected	diag(error)
+components/component_cond_branch_nested_cond	diag gen render
+components/component_cond_branch_spread	diag gen render
 components/component_conditional_attr	diag gen render
 components/component_conditional_attr_else	diag gen render
 components/component_conditional_attr_lazy	diag gen render
@@ -139,6 +140,7 @@ components/component_fallthrough_pipeline	diag gen render
 components/component_prop_pipeline	diag gen render
 components/component_spread	diag gen render
 components/component_spread_with_class	diag gen render
+components/cond_branch_embedded_hole	diag gen render
 components/embedded_attr_cond_prop	diag gen render
 components/embedded_attr_prop	diag gen render
 components/embedded_attr_rejected	diag(error)
@@ -234,7 +236,7 @@ fallthrough/byo_bag_class_merge	diag gen render
 fallthrough/byo_bag_defaults	diag gen render
 fallthrough/byo_bag_derived	diag gen render
 fallthrough/byo_bag_forced	diag gen render
-fallthrough/byo_bag_two_spreads	diag(error)
+fallthrough/byo_bag_two_spreads	diag gen render
 fallthrough/call_site_button	diag(error)
 fallthrough/call_site_caller_wins	diag render
 fallthrough/call_site_class_merge	diag render
@@ -247,7 +249,7 @@ fallthrough/caller_wins	diag render
 fallthrough/composed_class_merge	diag render
 fallthrough/cond_attr_class_rejected	diag(error)
 fallthrough/cond_attr_else_if_override	diag render
-fallthrough/cond_attr_nested_spread_rejected	diag(error)
+fallthrough/cond_attr_nested_spread_rejected	diag gen render
 fallthrough/cond_attr_post_forced_taken	diag gen render
 fallthrough/cond_attr_post_forced_untaken	diag render
 fallthrough/cond_attr_post_forced_url	diag gen render
@@ -270,7 +272,7 @@ fallthrough/no_class_root_with_bag	diag render
 fallthrough/not_eligible_no_field	diag gen render
 fallthrough/post_spread_class_merges	diag render
 fallthrough/reserved_param_attrs	diag(error)
-fallthrough/second_spread_rejected	diag(error)
+fallthrough/second_spread_rejected	diag gen render
 fallthrough/source_order	diag render
 fallthrough/static_class_merge	diag render
 fallthrough/without_class_root_wins	diag render
@@ -336,7 +338,7 @@ jsattr/hxvals_json	diag gen render
 jsattr/jsattr_breakout	diag gen render
 jsattr/jsattr_identifier_rejected	diag
 jsattr/manual_forced	diag gen render
-jsattr/manual_multi_spread_rejected	diag(error)
+jsattr/manual_multi_spread_rejected	diag gen render
 jsattr/manual_overridable	diag gen render
 jsattr/quoted_attr_literal_no_interp	diag render
 jsattr/regexp_hostile	diag gen render
@@ -378,6 +380,30 @@ methods/render_method_pointer_receiver	diag render
 methods/render_method_same_name_different_receivers_a	diag render
 methods/render_method_same_name_different_receivers_b	diag render
 methods/render_method_with_param	diag render
+multispread/O1_lone_cond_spread_root_class	diag gen render
+multispread/cond_class_part_renderer	diag gen render
+multispread/cond_interposed_static	diag gen render
+multispread/cond_spread_else	diag gen render
+multispread/cond_spread_else_untaken	diag gen render
+multispread/embedded_text_evaluation_order	diag render
+multispread/evaluation_order	diag render
+multispread/evaluation_order_error	diag render
+multispread/interposed_bool_scalar	diag gen render
+multispread/interposed_class_style	diag gen render
+multispread/interposed_embedded_hole	diag gen render
+multispread/interposed_pipe_hole	diag gen render
+multispread/interposed_url	diag gen render
+multispread/jscss_hole_lone_spread_inline	diag gen render
+multispread/jscss_hole_two_spreads_reject	diag(error)
+multispread/nonce_script_two_spreads	diag gen render
+multispread/probe_expr_before_cond	diag render
+multispread/renderer_evaluation_order	diag render
+multispread/style_cond_lone_spread	diag gen render
+multispread/style_cond_two_spreads	diag gen render
+multispread/three_spreads	diag gen render
+multispread/two_bags_merge	diag gen render
+multispread/two_bags_source_order	diag gen render
+multispread/void_and_children	diag gen render
 nonce/cond_attr_nonce	diag render
 nonce/div_control	diag render
 nonce/explicit_expr_wins	diag render
@@ -571,9 +597,9 @@ slots/node_prop_promotion	diag gen render
 slots/node_prop_realworld	diag render
 slots/node_prop_stringer	diag gen render
 spread-sanitize/cond_nested_spread	diag gen render
-spread-sanitize/cond_nested_spread_after_toplevel	diag(error)
+spread-sanitize/cond_nested_spread_after_toplevel	diag gen render
 spread-sanitize/cond_nested_spread_class	diag render
-spread-sanitize/cond_nested_two_spreads	diag(error)
+spread-sanitize/cond_nested_two_spreads	diag gen render
 spread-sanitize/derived_local_bag	diag gen render
 spread-sanitize/merge_not_duplicate	diag render
 spread-sanitize/rawurl_local_bag	diag render
@@ -582,7 +608,6 @@ spread-sanitize/spread_forwarding_param_SAFE_control	diag render
 spread-sanitize/spread_func_bag	diag render
 spread-sanitize/spread_local_bag	diag render
 spread-sanitize/spread_local_bag_img	diag render
-spread-sanitize/two_spreads_error	diag(error)
 srcset-sanitize/cond_nested_spread	diag gen render
 srcset-sanitize/spread	diag gen render
 srcset-sanitize/static_expr	diag gen render
@@ -688,4 +713,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 690 cases (render: 566, error: 95, gen-pinned: 370)
+TOTAL: 715 cases (render: 598, error: 88, gen-pinned: 397)

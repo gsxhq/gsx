@@ -228,11 +228,10 @@ This is also how a component keeps final say over `class`: forward
 `{ attrs.Without("class")... }` and the root's own `class` stands while the
 caller's is dropped.
 
-An element carries **one** forwarding spread. To combine bags, compose them in
-the spread expression with `Merge` (later bags win per key) rather than writing
-two spreads — a second spread on the same element is a generate-time error,
-whether both spreads reference `attrs`, a byo `Attrs` field, or a named
-`gsx.Attrs` param.
+An element may carry multiple attribute spreads. They merge by source
+order — later spreads win per key, `class`/`style` aggregate — the same rule
+as any two attributes of the same name. `{ a... } { b... }` is `b` overriding
+`a`.
 
 ## Method components
 

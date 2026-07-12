@@ -1,0 +1,26 @@
+Layout fact: multiple spreads on one element ({ a... } { b... }, adjacent or
+with a static attr interposed between them) are just more attrs in the
+opening-tag attr list — the formatter has no special-cased "spread" layout
+rule, so they follow the same flat/inline-vs-block decision as any other attr
+run (all on one line here since the tag stays short).
+
+-- input.gsx --
+package p
+
+component C(a gsx.Attrs, b gsx.Attrs) {
+	<div { a... } { b... }>x</div>
+}
+
+component D(a gsx.Attrs, b gsx.Attrs) {
+	<div { a... } class="mid" { b... }>y</div>
+}
+-- fmt.golden --
+package p
+
+component C(a gsx.Attrs, b gsx.Attrs) {
+	<div { a... } { b... }>x</div>
+}
+
+component D(a gsx.Attrs, b gsx.Attrs) {
+	<div { a... } class="mid" { b... }>y</div>
+}
