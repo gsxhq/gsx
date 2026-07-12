@@ -1723,14 +1723,19 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 						fmt.Fprintf(sb, "_gsxuseq(%s)\n", oa.Pairs[i].Value)
 					}
 				}
-				// Probe CF arm exprs and unconditional plain ClassPart exprs AFTER pair
-				// probes — matching collectExprs's ClassPart ordering exactly (the
-				// shared walkClassAttrs recurses CondAttr on both sides). _gsxuse
-				// harvests the raw type so classEntryExpr can detect and hoist (T, error)
-				// tuple call parts and CF arms. Unlike ordinary child-prop expressions,
-				// call-shaped class parts are stubbed in the props-literal probe to
-				// tolerate tuples, so this non-quiet probe is also responsible for
-				// surfacing expression errors such as undefined identifiers.
+				// Probe CF arm exprs and EVERY plain ClassPart expr (conditional or
+				// not) AFTER pair probes — matching collectExprs's ClassPart ordering
+				// exactly (the shared walkClassAttrs recurses CondAttr on both
+				// sides). _gsxuse harvests the raw type so classEntryExpr can detect
+				// and hoist (T, error) tuple call parts and CF arms, AND (#85) so its
+				// applyClassRenderer call for a conditional part's value has a non-nil
+				// resolved[part] to dispatch on — a conditional part's value expr is
+				// stubbed in the props-literal probe exactly like an unconditional
+				// one, so without this probe resolved[part] would stay nil and the
+				// renderer would silently never apply. Unlike ordinary child-prop
+				// expressions, call-shaped class parts are stubbed in the props-literal
+				// probe to tolerate tuples, so this non-quiet probe is also responsible
+				// for surfacing expression errors such as undefined identifiers.
 				walkClassAttrs(t.Attrs, func(ca *gsxast.ClassAttr) {
 					for i := range ca.Parts {
 						if ca.Parts[i].CF != nil {
@@ -1744,7 +1749,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 								emitSkeletonLine(sb, fset, arm.Pos())
 								fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 							}
-						} else if ca.Parts[i].Cond == "" && ca.Parts[i].CSSSegments == nil {
+						} else if ca.Parts[i].CSSSegments == nil {
 							probe, perr := probeExpr(ca.Parts[i].Expr, ca.Parts[i].Stages, table, usedFilters)
 							if perr != nil {
 								probe = strings.TrimSpace(ca.Parts[i].Expr)
@@ -2933,19 +2938,23 @@ func collectExprs(nodes []gsxast.Markup, out *[]gsxast.Node) {
 						}
 					}
 				}
-				// Collect *ValueArm nodes for CF arms and *ClassPart nodes for
-				// unconditional plain parts AFTER all OrderedPair nodes — matching the
-				// _gsxuseq probes emitProbes emits after the pair probes (the shared
-				// walkClassAttrs recurses CondAttr on both sides).
-				// classEntryExpr reads resolved[arm] for (T, error) CF-arm unwrap and
-				// resolved[part] for plain-part tuple unwrap.
+				// Collect *ValueArm nodes for CF arms and *ClassPart nodes for EVERY
+				// plain part (conditional or not) AFTER all OrderedPair nodes —
+				// matching the _gsxuse probes emitProbes emits after the pair probes
+				// (the shared walkClassAttrs recurses CondAttr on both sides).
+				// classEntryExpr reads resolved[arm] for (T, error) CF-arm unwrap,
+				// resolved[part] for plain-part tuple unwrap, AND (#85)
+				// resolved[part] to dispatch applyClassRenderer for a conditional
+				// part's value — a conditional part is stubbed in the props-literal
+				// probe exactly like an unconditional one, so it needs the same
+				// harvest.
 				walkClassAttrs(t.Attrs, func(ca *gsxast.ClassAttr) {
 					for i := range ca.Parts {
 						if ca.Parts[i].CF != nil {
 							for _, arm := range valueFormArms(ca.Parts[i].CF) {
 								*out = append(*out, arm)
 							}
-						} else if ca.Parts[i].Cond == "" && ca.Parts[i].CSSSegments == nil {
+						} else if ca.Parts[i].CSSSegments == nil {
 							*out = append(*out, &ca.Parts[i])
 						}
 					}

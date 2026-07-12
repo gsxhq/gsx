@@ -66,7 +66,7 @@ import (
 	"errors"
 
 	_gsxctx "context"
-	_gsxf25 "corpustest/cases/renderers_tuple_then_renderer/rend"
+	_gsxf28 "corpustest/cases/renderers_tuple_then_renderer/rend"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
@@ -96,7 +96,7 @@ func Tag(_gsxp TagProps) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv1, _gsxerr := _gsxf25.PgText((_gsxv0))
+		_gsxv1, _gsxerr := _gsxf28.PgText((_gsxv0))
 		if _gsxerr != nil {
 			return _gsxerr
 		}

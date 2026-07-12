@@ -5441,6 +5441,11 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg st
 					// cls returns (T, error). resolved is nil in skeleton mode, so
 					// the emit-mode check below is skipped.
 					expr = fmt.Sprintf("_gsxunwrap(%s)", expr)
+				} else if probeWrap {
+					// Non-call arm expr: stub with "" (#85) — the _gsxvN string
+					// assignment must not impose the string constraint in the
+					// skeleton.
+					expr = `""`
 				} else if !probeWrap {
 					// Emit mode: consult resolved to detect and hoist (T, error)
 					// tuples. wrap writes the hoist into b at this point — after the
@@ -5491,18 +5496,21 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg st
 		}
 		maps.Copy(usedPkgs, used)
 		if p.Cond == "" {
-			// Unconditional plain part: in probe mode stub call exprs with "" so
-			// the skeleton's gsx.Class("") compiles regardless of the call's return
-			// type. The string constraint IS re-imposed by gsx.Class in the emitted
-			// code, so a wrong type still fails to compile — the stub only defers
-			// that check out of the skeleton so the clean emit-time "invalid-tuple"
+			// Unconditional plain part: in probe mode stub EVERY part value expr
+			// (call or not) with "" so the skeleton never imposes gsx.Class's
+			// string constraint — a bare identifier/selector of a non-string
+			// (e.g. registered) type must not fail the skeleton's own
+			// type-check (#85). Liveness and type harvest ride the counted
+			// per-part probes (_gsxuseq, emitProbes); the string constraint IS
+			// re-imposed by gsx.Class in the emitted code, so a wrong type
+			// still fails to compile there — the stub only defers that check
+			// out of the skeleton so the clean emit-time "invalid-tuple"
 			// diagnostic can fire first for ALL non-(T,error) tuples.
-			// _gsxuseq probe (emitProbes) handles both liveness and type harvest.
 			//
 			// In emit mode, check resolved for a tuple and hoist it.
-			if probeWrap && isCallExpr(expr) {
+			if probeWrap {
 				expr = `""`
-			} else if !probeWrap {
+			} else {
 				t := resolved[p]
 				if tup, isAny := t.(*types.Tuple); isAny {
 					elemT, ok2 := tupleUnwrapType(tup)
@@ -5543,7 +5551,12 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg st
 				fmt.Fprintf(b, "\t\t%s := %s\n", condTmp, strings.TrimSpace(p.Cond))
 				parts = append(parts, fmt.Sprintf("%s.ClassIf(%s, %s)", rtPkg, expr, condTmp))
 			} else {
-				if !probeWrap {
+				if probeWrap {
+					// Same #85 stub as the unconditional arm: the value expr
+					// must not impose the string constraint in the skeleton.
+					// The cond expr is a bool guard and stays as-is.
+					expr = `""`
+				} else {
 					expr = applyClassRenderer(expr, resolved[p])
 				}
 				parts = append(parts, fmt.Sprintf("%s.ClassIf(%s, %s)", rtPkg, expr, strings.TrimSpace(p.Cond)))

@@ -499,6 +499,9 @@ renderers/attr_basic	diag gen render
 renderers/attr_error	diag gen render
 renderers/attr_error_cond	diag gen render
 renderers/attr_url	diag gen render
+renderers/class_bare_cfarm	diag gen render
+renderers/class_bare_cond	diag gen render
+renderers/class_bare_ident	diag gen render
 renderers/class_part	diag gen render
 renderers/class_part_component	diag gen render
 renderers/component_arg_negative	diag gen render
@@ -673,4 +676,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 675 cases (render: 552, error: 94, gen-pinned: 356)
+TOTAL: 678 cases (render: 555, error: 94, gen-pinned: 359)
