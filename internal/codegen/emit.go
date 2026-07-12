@@ -1396,14 +1396,20 @@ func firstTwoSpreadAttrs(attrs []ast.Attr) (first, second *ast.SpreadAttr, first
 }
 
 // elementFolds reports whether genNode's *ast.Element case routes attrs
-// through foldElementSpreads: ≥2 spreads (counting cond-nested), OR exactly one
-// spread that is itself cond-nested AND the element carries a top-level class/
-// style attr (O1: such an inline lone-cond spread emits via the inline emitAttr
-// `if cond { Spread(bag, excluded=nil) }` path, which cannot aggregate the bag's
-// class/style with the sibling root class/style — issue #75). A lone cond-nested
-// spread WITHOUT a root class/style has no such aggregation to perform, so it
-// stays on the inline path (which supports the FULL element attr subset,
-// e.g. conditional style and js/css embedded holes that composeBag does not).
+// through foldElementSpreads. It is true when:
+//   - the element carries ≥2 spreads (counting cond-nested); OR
+//   - exactly one spread that is itself cond-nested AND a top-level class/style
+//     attr (O1: the inline `if cond { Spread(bag, excluded=nil) }` path cannot
+//     aggregate the bag's class/style with the sibling root class/style — #75); OR
+//   - a spread AND a class/style inside a cond-attr branch (D3 lift: the inline
+//     path once rejected such a conditional class/style as unable to join the
+//     static merge; the fold merges it via an AttrsCond bag entry aggregated at
+//     the leaf — see hasCondClassStyle).
+//
+// A forwarding element with NONE of these (e.g. a lone cond-nested spread with no
+// root or cond-attr class/style) stays on the inline emitAttr path, which
+// supports the full element attr subset (incl. js/css embedded holes composeBag
+// does not).
 //
 // This is the SINGLE source of truth for the fold trigger, shared with
 // scopeUsesNumeric/attrsUseNumericScratch so the numeric-scratch prescan agrees
@@ -1463,8 +1469,9 @@ func hasCondClassStyle(attrs []ast.Attr) bool {
 // attribute — a composable class={…}/style={…} (*ast.ClassAttr), a static
 // class="…"/style="…" (*ast.StaticAttr), or a hole-bearing backtick literal
 // (*ast.EmbeddedAttr) — mirroring emitFallthroughAttrs' root class/style scan.
-// A cond-NESTED class/style is not root (it is invalid at the leaf and rejected
-// separately), so this does not recurse into cond-attr branches. It gates the
+// A cond-NESTED class/style is not root (it folds separately via
+// hasCondClassStyle — the D3 lift), so this does not recurse into cond-attr
+// branches. It gates the
 // lone-cond-nested-spread fold: that fold exists only to aggregate a root
 // class/style with the conditional bag, so with none present the element takes
 // the inline path instead.
