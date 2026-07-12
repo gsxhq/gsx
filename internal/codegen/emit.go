@@ -5717,7 +5717,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			if probeWrap {
 				condExpr = fmt.Sprintf("_gsxunwrap(%s)", condExpr)
 			} else {
-				condExpr = hoistTuple(b, condExpr, interpTemp)
+				condExpr = hoistTupleReturning(b, condExpr, interpTemp, errReturn)
 			}
 			parts = append(parts, condExpr)
 		case *ast.StaticAttr:
