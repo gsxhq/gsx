@@ -1,0 +1,17 @@
+# Form 2 cond-attr STYLE on a forwarding element (lift D3): both branches merge
+# root static style + the spread's style + the taken branch's style, property-
+# level "; " aggregate in source order (root, spread, cond).
+-- input.gsx --
+package views
+
+component Box(active bool) {
+	<div style="color:red" { attrs... } { if active { style="font-weight:bold" } else { style="font-weight:normal" } }>x</div>
+}
+-- invoke --
+gsx.Fragment(
+	Box(BoxProps{Active: true, Attrs: gsx.Attrs{{Key: "style", Value: "margin:0"}}}),
+	Box(BoxProps{Active: false, Attrs: gsx.Attrs{{Key: "style", Value: "margin:0"}}}),
+)
+-- diagnostics.golden --
+-- render.golden --
+<div style="color:red; margin:0; font-weight:bold">x</div><div style="color:red; margin:0; font-weight:normal">x</div>

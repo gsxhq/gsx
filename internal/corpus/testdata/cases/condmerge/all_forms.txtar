@@ -1,0 +1,17 @@
+# All three conditional-class forms plus a spread on ONE element: composable
+# `:bool` (ClassIf) + composable `switch` (value-form) + Form-2 `{ if }`
+# cond-attr class, merged with a spread. The composable class={…} lowers to a
+# SINGLE bag entry ("base on pos", already ClassJoin-ed); the spread and the
+# Form-2 cond each contribute their own entry; Attrs.Class() aggregates all
+# three space-joined in source order: "base on pos sp hot".
+-- input.gsx --
+package views
+
+component Box(active bool, v int, hot bool) {
+	<div class={ "base", "on": active, switch { case v > 0: "pos" default: "neg" } } { attrs... } { if hot { class="hot" } }>x</div>
+}
+-- invoke --
+Box(BoxProps{Active: true, V: 1, Hot: true, Attrs: gsx.Attrs{{Key: "class", Value: "sp"}}})
+-- diagnostics.golden --
+-- render.golden --
+<div class="base on pos sp hot">x</div>
