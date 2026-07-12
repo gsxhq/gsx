@@ -94,7 +94,7 @@ func (gw *Writer) StyleMerged(rootStyle, bagStyle string) {
 			unique = false
 			break
 		}
-		for j := 0; j < i; j++ {
+		for j := range i {
 			if declProp(decls[j]) == p {
 				unique = false
 				break
