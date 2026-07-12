@@ -18,8 +18,13 @@ package views
 
 import "fmt"
 
-component Generic[T any](value T) { <p>{fmt.Sprint(value)}</p> }
-component Header(subtitle string) { <h1>{subtitle}</h1> }
+component Generic[T any](value T) {
+	<p>{ fmt.Sprint(value) }</p>
+}
+
+component Header(subtitle string) {
+	<h1>{ subtitle }</h1>
+}
 
 component Page(n int, label string) {
 	<Generic value=f`item-@{n}`/>
@@ -55,9 +60,9 @@ func Generic[T any](_gsxp GenericProps[T]) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		value := _gsxp.Value
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:5:37
+//line input.gsx:6:2
 		_gsxgw.S("<p>")
-//line input.gsx:5:40
+//line input.gsx:6:5
 		_gsxgw.Text(string(fmt.Sprint(value)))
 		_gsxgw.S("</p>")
 		return _gsxgw.Err()
@@ -68,14 +73,14 @@ type HeaderProps struct {
 	Subtitle string
 }
 
-//line input.gsx:6:1
+//line input.gsx:9:1
 func Header(_gsxp HeaderProps) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		subtitle := _gsxp.Subtitle
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:6:37
+//line input.gsx:10:2
 		_gsxgw.S("<h1>")
-//line input.gsx:6:41
+//line input.gsx:10:6
 		_gsxgw.Text(string(subtitle))
 		_gsxgw.S("</h1>")
 		return _gsxgw.Err()
@@ -87,19 +92,19 @@ type PageProps struct {
 	Label string
 }
 
-//line input.gsx:8:1
+//line input.gsx:13:1
 func Page(_gsxp PageProps) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		n := _gsxp.N
 		label := _gsxp.Label
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:9:2
+//line input.gsx:14:2
 		_gsxgw.Node(ctx, Generic[string](GenericProps[string]{Value: "item-" + _gsxsc.FormatInt(int64(n), 10)}))
-//line input.gsx:10:2
+//line input.gsx:15:2
 		_gsxgw.Node(ctx, Header(HeaderProps{Subtitle: string(_gsxstd.Upper(("item-" + _gsxsc.FormatInt(int64(n), 10))))}))
-//line input.gsx:11:2
+//line input.gsx:16:2
 		_gsxgw.Node(ctx, Header(HeaderProps{Subtitle: "label-" + string(_gsxstd.Upper((label)))}))
-//line input.gsx:12:2
+//line input.gsx:17:2
 		_gsxv0, _gsxerr := _gsxf0.Check(("checked-" + _gsxsc.FormatInt(int64(n), 10)))
 		if _gsxerr != nil {
 			return _gsxerr
