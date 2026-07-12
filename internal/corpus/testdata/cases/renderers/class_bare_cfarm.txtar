@@ -50,7 +50,7 @@ import (
 	"corpustest/cases/renderers_class_bare_cfarm/pg"
 
 	_gsxctx "context"
-	_gsxf4 "corpustest/cases/renderers_class_bare_cfarm/rend"
+	_gsxf6 "corpustest/cases/renderers_class_bare_cfarm/rend"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
@@ -74,9 +74,9 @@ func Tag(_gsxp TagProps) _gsxrt.Node {
 		_gsxgw.S("<div")
 		var _gsxv0 string
 		if on {
-			_gsxv0 = _gsxf4.PgText((val))
+			_gsxv0 = _gsxf6.PgText((val))
 		} else {
-			_gsxv0 = _gsxf4.PgText((other))
+			_gsxv0 = _gsxf6.PgText((other))
 		}
 		_gsxgw.S(" class=\"")
 		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxv0))

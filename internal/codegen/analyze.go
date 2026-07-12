@@ -1497,7 +1497,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 					// reference stays valid; usedPkgs feeds usedFilters exactly as the
 					// props-literal branch does, so a bag pipeline's filter is imported.
 					var cfHoistBuf bytes.Buffer
-					if expr, usedPkgs, berr := attrsOnlyBagExpr(t, "_gsxrt", "_gsxrt.DefaultClassMerge", table, byo, fm, true, nil, &cfHoistBuf, cfTemp); berr == nil && expr != "" {
+					if expr, usedPkgs, berr := attrsOnlyBagExpr(t, "_gsxrt", "_gsxrt.DefaultClassMerge", table, byo, fm, true, nil, map[string]bool{}, rtImports{}, bag, &cfHoistBuf, cfTemp); berr == nil && expr != "" {
 						maps.Copy(usedFilters, usedPkgs)
 						emitSkeletonLine(sb, fset, t.Pos())
 						sb.WriteString(cfHoistBuf.String())
@@ -1541,7 +1541,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 					var cfHoistBuf bytes.Buffer
 					fieldEntries, splatExpr, usedPkgs, err := childPropsLiteral(t, propsType, "_gsxrt", "_gsxrt.DefaultClassMerge", table, propFields, nodeProps[propsType], byo, fm, func(nodes []gsxast.Markup) (string, error) {
 						return "_gsxrt.Node(nil)", nil
-					}, true, nil, &cfHoistBuf, cfTemp, "")
+					}, true, nil, map[string]bool{}, rtImports{}, bag, &cfHoistBuf, cfTemp, "")
 					if err != nil {
 						// childPropsLiteral returns an *attrError with the offending attr's
 						// position embedded. Propagate it as-is so the caller can emit
