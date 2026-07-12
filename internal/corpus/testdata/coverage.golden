@@ -185,6 +185,7 @@ control_flow/value_switch_braced	diag render
 datajson/island_breakout	diag gen render
 datajson/island_multi_hole_rejected	diag(error)
 datajson/island_value	diag gen render
+diagnostics/class_part_undefined_ident	diag(error)
 diagnostics/ctx_in_interp	diag render
 diagnostics/handwritten_func_bad_attr	diag(error)
 diagnostics/noprops_component_with_attrs	diag(error)
@@ -676,4 +677,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 678 cases (render: 555, error: 94, gen-pinned: 359)
+TOTAL: 679 cases (render: 555, error: 95, gen-pinned: 359)
