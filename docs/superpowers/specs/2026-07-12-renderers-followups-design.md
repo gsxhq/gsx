@@ -90,8 +90,9 @@ func(ctx context.Context, T) (R, error)
 
 - **Harvest** (`harvestRenderers`): params len 1 or 2. Len 2 → param 0 must
   be `context.Context` (`isContextContext`, shared with `classifyFilter`) and
-  param 1 is the subject `T`; len 1 → param 0 is `T` (even if it is itself
-  `context.Context`, same as filters). `rendererEntry` gains `wantsCtx bool`.
+  param 1 is the subject `T`; len 1 → param 0 is `T`, except a lone
+  `context.Context` param, which is rejected as ctx-without-subject (same as
+  `classifyFilter`). `rendererEntry` gains `wantsCtx bool`.
   The contract diagnostic message lists all four shapes.
 - **Emit** (`applyRenderer`): when `wantsCtx`, the call becomes
   `alias.Fn(ctx, (expr))` using `pipeCtxIdent` — every applyRenderer site
