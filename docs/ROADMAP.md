@@ -773,8 +773,9 @@ vocabulary remains a design aspiration, not the current API.
    `style` contributors. Multiple same-name contributors anywhere in the
    source tree, including conditional branches, fold into one attribute;
    class tokens aggregate in source order and style declarations use
-   source-order last-wins per property. Unrelated class/style pairs and lone
-   conditional contributors retain the direct inline path. Corpus:
+   source-order last-wins per property. On elements with no spread, unrelated
+   class/style pairs and lone conditional contributors retain the direct
+   inline path. Corpus:
    `condmerge/nonforwarding_*`.
 
 ## Tracked debts / deferrals
