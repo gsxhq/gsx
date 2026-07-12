@@ -17,6 +17,7 @@ func TestStyleMerged(t *testing.T) {
 		{"color: red", "", ` style="color: red"`},
 		{"", "", ""}, // empty -> no attr
 		{"", "color: blue", ` style="color: blue"`},
+		{"", "content:ZgotmplZ;x:color:red", ` style="content:ZgotmplZ;x:color:red"`}, // unique declarations preserve authored separators
 		// robust splitter: ; and : inside url()/quotes are NOT boundaries
 		{"background: url(data:image/png;base64,AA;BB)", "", ` style="background: url(data:image/png;base64,AA;BB)"`},
 		{`content: "a; b"; color: red`, "color: blue", ` style="content: &#34;a; b&#34;; color: blue"`},
