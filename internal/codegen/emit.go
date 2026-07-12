@@ -5984,6 +5984,9 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 				entries = append(entries, fmt.Sprintf("{Key: %s, Value: \"\"}", strconv.Quote(t.Name)))
 				break
 			}
+			// Hole lowering can emit tuple, pipeline, or renderer hoists directly.
+			// Evaluate all earlier bag contributors before those statements.
+			materializePrior()
 			val, ok := embeddedTextValueExpr(b, t, resolved, table, imports, rt, interpTemp, bag)
 			if !ok {
 				// embeddedTextValueExpr has already emitted the positioned
