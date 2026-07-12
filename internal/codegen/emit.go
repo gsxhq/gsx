@@ -3096,9 +3096,64 @@ func componentEmbeddedTextValueExpr(
 	bag *diag.Bag,
 	errReturn string,
 ) (string, bool) {
-	value, ok := embeddedTextValueExpr(b, a, resolved, table, imports, rt, interpTemp, bag, errReturn)
-	if !ok || len(a.Stages) == 0 {
-		return value, ok
+	// Lower each hole into its own buffer first. holeStringExpr may need to emit
+	// statements for a tuple/error pipeline, renderer, or AttrString conversion.
+	// If those statements were written directly to b, a later hole's hoist would
+	// run before an earlier ordinary call left inline in the final concat.
+	type part struct {
+		expr  string
+		hole  bool
+		hoist bytes.Buffer
+	}
+	parts := make([]part, 0, len(a.Segments))
+	ordered := false
+	for _, seg := range a.Segments {
+		switch s := seg.(type) {
+		case *ast.Text:
+			if s.Value != "" {
+				parts = append(parts, part{expr: strconv.Quote(s.Value)})
+			}
+		case *ast.Interp:
+			var hoist bytes.Buffer
+			expr, ok := holeStringExpr(&hoist, s, resolved, table, imports, rt, interpTemp, bag, errReturn)
+			if !ok {
+				return "", false
+			}
+			if hoist.Len() > 0 {
+				ordered = true
+			}
+			parts = append(parts, part{expr: expr, hole: true, hoist: hoist})
+		default:
+			bag.Errorf(seg.Pos(), seg.End(), "unsupported-attr", "attribute %q value may contain only text and @{ } interpolations, got %T", a.Name, seg)
+			return "", false
+		}
+	}
+
+	valueParts := make([]string, 0, len(parts))
+	for i := range parts {
+		p := &parts[i]
+		if ordered && p.hole {
+			// Emit every hole's own hoists at its authored segment position. Pin
+			// call-shaped string expressions too, so an earlier ordinary call is
+			// complete before a later fallible hole and a failure prevents only
+			// subsequent holes. isCallExpr parses Go AST; this is not a source-text
+			// pattern heuristic.
+			b.Write(p.hoist.Bytes())
+			if isCallExpr(p.expr) {
+				tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+				*interpTemp++
+				fmt.Fprintf(b, "\t\t%s := %s\n", tmp, p.expr)
+				p.expr = tmp
+			}
+		}
+		valueParts = append(valueParts, p.expr)
+	}
+	value := `""`
+	if len(valueParts) > 0 {
+		value = strings.Join(valueParts, " + ")
+	}
+	if len(a.Stages) == 0 {
+		return value, true
 	}
 
 	lowered, usedPkgs, err := lowerPipe(value, a.Stages, table, pipeWrapReturning(b, interpTemp, errReturn))
