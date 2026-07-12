@@ -1,0 +1,36 @@
+-- helpers.go --
+package views
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"strings"
+	"github.com/gsxhq/gsx"
+)
+
+var sentinel = errors.New("context sentinel")
+func failHole() (string, error) { calls = append(calls, "error"); return "", sentinel }
+func checkedOrder() gsx.Node { return gsx.Func(func(ctx context.Context, w io.Writer) error {
+	calls = nil
+	err := Page().Render(ctx, w)
+	if !errors.Is(err, sentinel) { return fmt.Errorf("render error = %v", err) }
+	if got := strings.Join(calls, ","); got != "prior,error" { return fmt.Errorf("calls = %s", got) }
+	return nil
+}) }
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+var calls []string
+func bag(mark string) gsx.Attrs { calls = append(calls, mark); return nil }
+
+component Page() {
+	<div { bag("prior")... } style=css"color:@{failHole()}" { bag("late")... }>x</div>
+}
+-- invoke --
+checkedOrder()
+-- diagnostics.golden --
+-- render.golden --

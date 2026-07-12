@@ -1,0 +1,16 @@
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Page(v string, a gsx.Attrs, b gsx.Attrs) {
+	<div data-x=js`v=@{v};s='@{v}';t=\`@{v}\`;r=/@{v}/`>inline</div>
+	<div { a... } data-x=js`v=@{v};s='@{v}';t=\`@{v}\`;r=/@{v}/` { b... }>fold</div>
+	<div style=css`content:@{v}`>inline</div>
+	<div { a... } style=css`content:@{v}` { b... }>fold</div>
+}
+-- invoke --
+Page(PageProps{V: "'\"</script><x>&\u2028\u2029"})
+-- diagnostics.golden --
+-- render.golden --
+<div data-x="v=&#34;&#39;\&#34;\u003c/script\u003e\u003cx\u003e\u0026\u2028\u2029&#34;;s=&#39;\u0027\u0022\u003c\/script\u003e\u003cx\u003e\u0026\u2028\u2029&#39;;t=`\u0027\u0022\u003c\/script\u003e\u003cx\u003e\u0026\u2028\u2029`;r=/\u0027\u0022\u003c\/script\u003e\u003cx\u003e\u0026\u2028\u2029/">inline</div><div data-x="v=&#34;&#39;\&#34;\u003c/script\u003e\u003cx\u003e\u0026\u2028\u2029&#34;;s=&#39;\u0027\u0022\u003c\/script\u003e\u003cx\u003e\u0026\u2028\u2029&#39;;t=`\u0027\u0022\u003c\/script\u003e\u003cx\u003e\u0026\u2028\u2029`;r=/\u0027\u0022\u003c\/script\u003e\u003cx\u003e\u0026\u2028\u2029/">fold</div><div style="content:ZgotmplZ">inline</div><div style="content:ZgotmplZ">fold</div>
