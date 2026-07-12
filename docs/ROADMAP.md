@@ -1203,7 +1203,9 @@ vocabulary remains a design aspiration, not the current API.
   `gsx.toml` (+ `gen.WithRenderer` option layer, last-wins over the file per
   type key) maps a fully-qualified named type (`"pkgPath.TypeName"`,
   optionally `*`-prefixed for the pointer type; unexported names allowed) to a
-  renderer func (`func(T) R` or `func(T) (R, error)`), resolved in the same
+  renderer func (`func(T) R` or `func(T) (R, error)`, optionally with a
+  leading `context.Context` receiving the render ctx like a ctx-taking filter
+  - shipped `2026-07-12`, #87), resolved in the same
   `packages.Load` pass as filter resolution. Applied at every render boundary
   - text, attribute, URL-attribute, style/script holes and their `` f`...` ``/
   `` js`...` ``/`` css`...` `` literals, composable `class`/`style` parts,
@@ -1246,21 +1248,17 @@ vocabulary remains a design aspiration, not the current API.
   mirroring the `url_presets = ["htmx"]` shape) would ship sane defaults
   instead of every project rediscovering them. Spec
   `2026-07-11-renderers-registry-design.md`, "Follow-ups".
-- [ ] **`classEntryExpr` bare-identifier probe gap (pre-existing, independent
-  of renderers)** - a component `class={ expr }` prop lowers through
-  `classEntryExpr`'s probe/skeleton pass, which stubs a **call** expression to
-  `""` before harvest, but embeds a **bare identifier** directly into the
-  skeleton. A bare identifier of a non-string, non-renderable type (e.g. a
-  plain struct-typed local, registered or not) therefore fails the skeleton's
-  own `go/types` check before harvest/rendering logic ever runs - reproduces
-  identically with a `[renderers]`-registered type and with an ordinary
-  unregistered struct, confirming it is a probe-stage gap, not a renderers
-  defect. Discovered while pinning
-  `internal/corpus/testdata/cases/renderers/class_part_component.txtar` (which
-  works around it by using a **call** expression, `class={ mkText(name,
-  true) }`, the reachable form). Fixing it means teaching
-  `classEntryExpr`'s probe stage the same call-vs-identifier stubbing
-  `composedParts` already does at the element level.
+- [x] **`classEntryExpr` bare-identifier probe gap - FIXED `2026-07-12`
+  (#85).** A component `class={ expr }` prop's probe/skeleton pass stubbed
+  only **call** expressions, so a bare identifier/selector of any non-string
+  type failed the skeleton's own `go/types` check before harvest ever ran.
+  Probe mode now stubs every class-part value expr (unconditional,
+  conditional, and value-form CF arms), and the harvest tracks conditional
+  component-class parts so renderers apply there too. Pinned by
+  `renderers/class_bare_{ident,cond,cfarm}.txtar` and
+  `diagnostics/class_part_undefined_ident.txtar`. The **element-level**
+  counterpart (renderer not applied to a conditional `class={ v: cond }` /
+  style part on an element) remains open - issue #88.
 
 ## Documentation backlog
 
