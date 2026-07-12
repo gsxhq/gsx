@@ -202,6 +202,14 @@ renderers work), so an error in an earlier span entry returns before a later one
 is evaluated. `AttrsCond` thunks preserve untaken-branch non-evaluation
 (`{ if u != nil { {u.Attrs...} } }` never touches `u.Attrs` when `u == nil`).
 
+Source order governs evaluation as well as final key precedence. Before
+emitting a hoisted conditional or error-returning contributor, codegen must
+materialize every earlier contributor whose expression would otherwise remain
+inline in the final `ConcatAttrs(...)` call. For example, `a()`, conditional
+`b()`, `c()` must execute as `a, b, c`, never `b, a, c`. This applies to side
+effects, panics, and error selection; preserving only the final last-writer-wins
+bag is insufficient. Untaken conditional branches remain lazy.
+
 ### Escaping is byte-identical
 
 An interposed static becomes a bag value sanitized at the leaf by key context
@@ -342,6 +350,12 @@ the split)**
   decoupled from codegen. Also assert the classic invariants: last-wins per key,
   class/style aggregation, untaken `AttrsCond` contributes nothing, empty/nil
   bags vanish.
+- *Codegen evaluation order.* Generate contributors through functions that
+  append stable markers before returning their bags. Assert mixed plain,
+  conditional, and piped contributors record strict source order, that an
+  earlier error prevents later contributors from running, and that an untaken
+  conditional branch records no marker. These assertions target evaluation
+  order separately from the existing byte-output differential.
 - *Tier 2 — codegen dispatch differential (batched, bounded, CI).* A generator
   emits many element/component shapes (spanning E0–E7, C0–C2) into **one** `.gsx`
   package so `packages.Load`/build runs **once**, then renders every shape and
