@@ -1,0 +1,15 @@
+# A js`…@{}…` embedded-hole attribute alongside a Form-2 cond-attr class on a
+# forwarding element: the cond class now folds this element (D3 lift), routing
+# it through composeBag — which cannot yet lower a js/css hole into the shared
+# bag (each @{ } hole needs JS/CSS-context escaping into the bag value, a
+# separate follow-up, #92). This pins that the new fold trigger surfaces the
+# SAME known diagnostic as the multi-spread case, rather than silently
+# miscompiling.
+-- input.gsx --
+package views
+
+component JSCssHoleCondClass(u string, active bool) {
+	<button onclick=js"go(@{u})" { attrs... } { if active { class="on" } }>go</button>
+}
+-- diagnostics.golden --
+4:10: embedded js attribute literal "onclick" with @{ } interpolation is not yet supported on an element that merges its attributes (<button>); each @{ } hole needs js-context escaping into the shared bag, which is not yet ported

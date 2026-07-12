@@ -122,8 +122,9 @@ render goldens.
    branch selection recorded once + dynamic spread drop set); one forwarding
    spread per element (compose with `.Merge`, second spread is an error;
    superseded 2026-07-12 - see Security item 8's multi-spread-merge entry);
-   `class`/`style`/spreads inside cond-attr branches on forwarding elements
-   rejected with pointers to the composable forms. **Cross-package/imported
+   `class`/`style` inside cond-attr branches on forwarding elements rejected
+   with pointers to the composable forms (superseded 2026-07-12 - see Security
+   item 8's D3-lift entry: such a class/style now merges). **Cross-package/imported
    components** (same module) get the same treatment - `2026-07-02`: per-file,
    import-alias-scoped prop discovery matches declared fields exactly like
    same-package calls, including the synthesized `Attrs gsx.Attrs` bag targeted
@@ -750,6 +751,13 @@ vocabulary remains a design aspiration, not the current API.
    interposed statics and conditional spreads/statics participate, including
    embedded-hole attrs. Docs: `composition.md` §Derived bags. Corpus:
    `multispread/*`.
+
+   **Lift D3 (conditional class/style on a forwarding element) - SHIPPED**
+   (2026-07-12, `2026-07-12-lift-d3-conditional-class-merge-design.md`). D3's
+   generate-time rejection is gone: a `class`/`style` inside `{ if }` on an
+   element carrying a spread now folds and merges (root, spread, and
+   conditional contributions aggregate) instead of erroring toward the
+   composable form. Corpus: `condmerge/*`.
 
 ## Tracked debts / deferrals
 
