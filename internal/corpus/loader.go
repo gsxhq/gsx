@@ -25,8 +25,8 @@ type caseDoc struct {
 	multiPkg    bool
 	modulePath  string
 	classMerger *codegen.ClassMergerRef // set when case has a gsx.toml with class_merger
-	filterPkgs  []string                // resolved import paths from gsx.toml filterPackages; "./x" entries resolve against the case import root
-	classifier  *attrclass.Classifier   // set when case has a gsx.toml with [[urlAttrs]] rules
+	filterPkgs  []string                // resolved import paths from gsx.toml filter_packages; "./x" entries resolve against the case import root
+	classifier  *attrclass.Classifier   // set when case has a gsx.toml with [[url_attrs]] rules
 	renderers   []codegen.RendererAlias // resolved from gsx.toml [renderers]; "./x" package parts (on either side) resolve against the case import root; sorted by TypeKey
 }
 
@@ -34,8 +34,8 @@ type caseDoc struct {
 // Other fields are allowed but ignored.
 type caseToml struct {
 	ClassMerger    string        `toml:"class_merger"`
-	FilterPackages []string      `toml:"filterPackages"`
-	URLAttrs       []caseURLRule `toml:"urlAttrs"`
+	FilterPackages []string      `toml:"filter_packages"`
+	URLAttrs       []caseURLRule `toml:"url_attrs"`
 	URLPresets     []string      `toml:"url_presets"`
 	// Renderers maps a canonical type key ("[*]pkgPart.TypeName") to its
 	// renderer func ("pkgPart.FuncName"). A "./"-prefixed package part on
@@ -44,7 +44,7 @@ type caseToml struct {
 	Renderers map[string]string `toml:"renderers"`
 }
 
-// caseURLRule mirrors attrclass.Rule's toml shape for a case's [[urlAttrs]]
+// caseURLRule mirrors attrclass.Rule's toml shape for a case's [[url_attrs]]
 // entries: exactly one of Name/Prefix must be set (validated via Rule.Valid).
 type caseURLRule struct {
 	Name   string `toml:"name"`
@@ -150,7 +150,7 @@ func loadCase(path string) (*caseDoc, error) {
 			for i, u := range tc.URLAttrs {
 				r := attrclass.Rule{Name: u.Name, Prefix: u.Prefix}
 				if err := r.Valid(); err != nil {
-					return nil, fmt.Errorf("gsx.toml: urlAttrs[%d]: %w", i, err)
+					return nil, fmt.Errorf("gsx.toml: url_attrs[%d]: %w", i, err)
 				}
 				rules = append(rules, r)
 			}

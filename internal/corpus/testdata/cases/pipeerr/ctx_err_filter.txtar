@@ -2,7 +2,7 @@
 # is injected before the subject, and the resulting tuple auto-unwraps through
 # the existing per-context machinery — pins wantsCtx + hasErr together.
 -- gsx.toml --
-filterPackages = ["./filters"]
+filter_packages = ["./filters"]
 -- filters/filters.go --
 package filters
 

@@ -5,7 +5,7 @@
 # any other attribute, so the error stage hoists and renders cleanly, same as
 # attr_mid_stage.txtar.
 -- gsx.toml --
-filterPackages = ["./filters"]
+filter_packages = ["./filters"]
 -- filters/filters.go --
 package filters
 

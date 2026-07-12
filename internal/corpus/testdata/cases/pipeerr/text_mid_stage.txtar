@@ -2,7 +2,7 @@
 # hoists to `_gsxvN, _gsxerr := ...; if _gsxerr != nil { return _gsxerr }` and
 # the next stage consumes the temp. Success path.
 -- gsx.toml --
-filterPackages = ["./filters"]
+filter_packages = ["./filters"]
 -- filters/filters.go --
 package filters
 

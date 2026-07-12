@@ -8,7 +8,7 @@
 # result is a `string` (distinct from the seed's gsx.Node) and, as a text-context
 # hole, is HTML-escaped on the way out — proving both the wiring and the type.
 -- gsx.toml --
-filterPackages = ["./filters"]
+filter_packages = ["./filters"]
 -- filters/filters.go --
 package filters
 

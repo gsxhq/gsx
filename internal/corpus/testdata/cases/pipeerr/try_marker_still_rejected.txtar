@@ -4,7 +4,7 @@
 # message is identical regardless of whether the named filter actually returns
 # (R, error).
 -- gsx.toml --
-filterPackages = ["./filters"]
+filter_packages = ["./filters"]
 -- filters/filters.go --
 package filters
 

@@ -4,7 +4,7 @@
 # existing tuple machinery). Upgrades the case deferred in
 # tuple/child_prop_pipeline.txtar now that per-case filter packages exist.
 -- gsx.toml --
-filterPackages = ["./filters"]
+filter_packages = ["./filters"]
 -- filters/filters.go --
 package filters
 

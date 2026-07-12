@@ -148,7 +148,7 @@ component C(n string) {
 
 // TestMultiFilterUserWinsEvenWhenStdListedLast proves std is unconditionally the
 // lowest-precedence filter base (dedupFilterPkgs always forces it first): listing
-// std AFTER the user package in filterPackages no longer makes std win. This
+// std AFTER the user package in filter_packages no longer makes std win. This
 // behavior intentionally replaced the older "list std last to win" convention so a
 // user can override an individual built-in (e.g. dataURL) without dropping the
 // rest of std by omission; see docs/superpowers/specs/2026-07-06-data-image-resource-url-design.md

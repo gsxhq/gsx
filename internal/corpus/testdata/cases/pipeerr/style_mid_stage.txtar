@@ -3,7 +3,7 @@
 # via emitPipeWrap) feeds pick (final stage, a (T, error) tuple that
 # auto-unwraps through the existing per-context CSS machinery).
 -- gsx.toml --
-filterPackages = ["./filters"]
+filter_packages = ["./filters"]
 -- filters/filters.go --
 package filters
 

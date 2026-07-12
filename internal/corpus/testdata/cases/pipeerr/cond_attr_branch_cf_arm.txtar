@@ -6,7 +6,7 @@
 # _gsxvN string` + if/else land inside the thunk body, and armExpr's mid-stage
 # hoist inside the taken arm returns the thunk's two-value `nil, _gsxerr` form.
 -- gsx.toml --
-filterPackages = ["./filters"]
+filter_packages = ["./filters"]
 -- filters/filters.go --
 package filters
 
