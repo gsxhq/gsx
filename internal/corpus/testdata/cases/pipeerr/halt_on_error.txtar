@@ -3,7 +3,7 @@
 # invoked, so a clean pass here proves the chain halted at fail and the batch
 # render never evaluates the later stage.
 -- gsx.toml --
-filterPackages = ["./filters"]
+filter_packages = ["./filters"]
 -- filters/filters.go --
 package filters
 

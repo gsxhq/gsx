@@ -2,7 +2,7 @@
 # parse and pick hoist (each returns (R, error) as a non-final stage); lower
 # (std) is the final stage and stays an ordinary nested call. Success path.
 -- gsx.toml --
-filterPackages = ["./filters"]
+filter_packages = ["./filters"]
 -- filters/filters.go --
 package filters
 

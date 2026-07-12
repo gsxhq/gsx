@@ -37,7 +37,7 @@ If your project uses a framework with its own URL-bearing attributes, register
 additional rules so those values get the URL scheme check before attribute
 escaping.
 
-Prefer `[[urlAttrs]]` in `gsx.toml`; use `gen.WithURLAttrs` only when you already
+Prefer `[[url_attrs]]` in `gsx.toml`; use `gen.WithURLAttrs` only when you already
 maintain a project `cmd/gsx/main.go`. It takes one or more `gen.Rule` values. A
 rule matches either by **exact name** (`Name` field, case-insensitive) or by
 **prefix** (`Prefix` field) — set exactly one field.

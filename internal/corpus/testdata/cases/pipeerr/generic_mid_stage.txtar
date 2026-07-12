@@ -4,7 +4,7 @@
 # ordinary Go argument-based type inference — codegen needs no generics-aware
 # handling beyond the existing lowerPipe seed-first call shape.
 -- gsx.toml --
-filterPackages = ["./filters"]
+filter_packages = ["./filters"]
 -- filters/filters.go --
 package filters
 

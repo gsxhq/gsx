@@ -6,7 +6,7 @@
 # gating the alias on body usage must NOT drop it here (companion to
 # user_plain_import_no_filter, which asserts the alias is dropped when unused).
 -- gsx.toml --
-filterPackages = ["./filters"]
+filter_packages = ["./filters"]
 -- filters/filters.go --
 package filters
 

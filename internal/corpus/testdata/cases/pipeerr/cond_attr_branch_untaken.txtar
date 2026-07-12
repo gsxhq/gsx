@@ -5,7 +5,7 @@
 # error and the div carries no data-pick attribute. Pins the lazy-eval
 # guarantee (AttrsCond only invokes the taken branch's thunk).
 -- gsx.toml --
-filterPackages = ["./filters"]
+filter_packages = ["./filters"]
 -- filters/filters.go --
 package filters
 

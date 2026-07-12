@@ -4,7 +4,7 @@
 # thunk's own (Attrs, error) result the same way as any other tuple. The
 # untaken branch still never evaluates.
 -- gsx.toml --
-filterPackages = ["./filters"]
+filter_packages = ["./filters"]
 -- filters/filters.go --
 package filters
 

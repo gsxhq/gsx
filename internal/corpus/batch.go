@@ -105,7 +105,7 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 	}
 
 	// Step 3: codegen — ONE call for every dir. Cases carrying a gsx.toml
-	// (class_merger, filterPackages, and/or urlAttrs) contribute a PerDir entry;
+	// (class_merger, filter_packages, and/or url_attrs) contribute a PerDir entry;
 	// their filter packages go into the shared load set. Previously each such
 	// case opened its own Module, and every Module re-ran packages.Load over the
 	// gsx runtime: 27 cases cost 10.7s of the corpus's 13.2s.

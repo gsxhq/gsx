@@ -6,7 +6,7 @@
 # thunk's pipeline never evaluates — laziness holds per-branch regardless of
 # which arm carries the fallible pipeline.
 -- gsx.toml --
-filterPackages = ["./filters"]
+filter_packages = ["./filters"]
 -- filters/filters.go --
 package filters
 

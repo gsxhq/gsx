@@ -56,7 +56,7 @@ func TestLoadCaseMultiPackage(t *testing.T) {
 func TestLoadCaseFilterPackages(t *testing.T) {
 	dir := t.TempDir()
 	src := `-- gsx.toml --
-filterPackages = ["./filters", "github.com/gsxhq/gsx/std"]
+filter_packages = ["./filters", "github.com/gsxhq/gsx/std"]
 -- filters/filters.go --
 package filters
 -- input.gsx --

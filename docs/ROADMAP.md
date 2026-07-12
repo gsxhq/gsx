@@ -651,7 +651,7 @@ vocabulary remains a design aspiration, not the current API.
    minification on by default.
 4. [x] **Harden `urlSanitize` + complete URL-attr table** - control-char /
    whitespace scheme evasion maps to the sentinel (adversarial-probed); the
-   `urlAttrs` table covers `href`/`src`/`action`/`formaction`/`poster`/`cite`/`ping`/
+   `url_attrs` table covers `href`/`src`/`action`/`formaction`/`poster`/`cite`/`ping`/
    `data`/`background`/`manifest`/`xlink:href`/`hx-*`; a statically-declared
    `<meta http-equiv="refresh" content={...}>` (static, constant-literal, or
    conditional-branch `http-equiv`) sanitizes its embedded redirect URL
@@ -679,7 +679,7 @@ vocabulary remains a design aspiration, not the current API.
 8. [x] **Bag hardening - resolve everything at the leaf** (2026-07-10). Three
    parts, per `2026-07-10-bag-spread-hardening-design.md`: **(A) URL
    sanitization at the leaf** - every forwarding element now emits a
-   `Get`-extraction block for each `[[urlAttrs]]`-classified name (built-ins +
+   `Get`-extraction block for each `[[url_attrs]]`-classified name (built-ins +
    `gsx.toml` rules + `gen.WithURLAttrs`, resolved at generate time),
    case-insensitively (`GetFold`/`WithoutFold`, so a smuggled `HREF` cannot
    bypass the check and is normalized to lowercase on output), through the
@@ -838,7 +838,7 @@ vocabulary remains a design aspiration, not the current API.
   way `generate`/`info` do (`mergeConfig(gsx.toml, opts)`) but in-process and
   best-effort (no subprocess, the LSP spawns nothing → no orphan children), so
   `gd`/hover/diagnostics on declarative project filters (`[filters] url = …`,
-  `filterPackages`, URL attr rules) work in the editor with no Neovim change. A
+  `filter_packages`, URL attr rules) work in the editor with no Neovim change. A
   malformed `gsx.toml` falls back to the std baseline; opts are layered over the
   file (opts win). Spec/plan `2026-06-25-gsx-lsp-reads-config-design.md` /
   `2026-06-26-gsx-lsp-reads-config.md`.

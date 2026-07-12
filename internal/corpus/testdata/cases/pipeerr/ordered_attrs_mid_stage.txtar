@@ -6,7 +6,7 @@
 # after childPropsLiteral returns), which preserves left-to-right evaluation
 # order once ANY prop value is a tuple.
 -- gsx.toml --
-filterPackages = ["./filters"]
+filter_packages = ["./filters"]
 -- filters/filters.go --
 package filters
 

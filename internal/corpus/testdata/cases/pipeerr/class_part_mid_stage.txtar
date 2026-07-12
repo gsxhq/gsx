@@ -3,7 +3,7 @@
 # stage, a (T, error) tuple that auto-unwraps through the existing per-context
 # machinery).
 -- gsx.toml --
-filterPackages = ["./filters"]
+filter_packages = ["./filters"]
 -- filters/filters.go --
 package filters
 

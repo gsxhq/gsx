@@ -31,13 +31,13 @@ func TestLoadConfigAllKeys(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "gsx.toml")
 	mkfile(t, path, `
-filterPackages = ["github.com/gsxhq/gsx/std", "example.com/myfilters"]
+filter_packages = ["github.com/gsxhq/gsx/std", "example.com/myfilters"]
 
 [filters]
 url    = "github.com/jackielii/structpages.URLFor"
 id     = "github.com/jackielii/structpages.ID"
 
-[[urlAttrs]]
+[[url_attrs]]
 name = "data-href"
 `)
 	cfg, err := loadConfig(path)
@@ -246,23 +246,23 @@ func TestLoadConfigBothNamePrefix(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "gsx.toml")
-	mkfile(t, path, "[[urlAttrs]]\nname = \"a\"\nprefix = \"b\"\n")
+	mkfile(t, path, "[[url_attrs]]\nname = \"a\"\nprefix = \"b\"\n")
 	_, err := loadConfig(path)
 	if err == nil {
 		t.Fatal("expected error for both name+prefix")
 	}
-	if !strings.Contains(err.Error(), "urlAttrs") {
+	if !strings.Contains(err.Error(), "url_attrs") {
 		t.Fatalf("error should name the rule table; got: %v", err)
 	}
 }
 
 // TestLoadConfigURLPreset proves url_presets = ["htmx"] resolves the preset's
-// URL rules into the classifier, additively with [[urlAttrs]].
+// URL rules into the classifier, additively with [[url_attrs]].
 func TestLoadConfigURLPreset(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "gsx.toml")
-	mkfile(t, path, "url_presets = [\"htmx\"]\n\n[[urlAttrs]]\nname = \"data-href\"\n")
+	mkfile(t, path, "url_presets = [\"htmx\"]\n\n[[url_attrs]]\nname = \"data-href\"\n")
 	cfg, err := loadConfig(path)
 	if err != nil {
 		t.Fatalf("loadConfig: %v", err)
@@ -272,7 +272,7 @@ func TestLoadConfigURLPreset(t *testing.T) {
 		t.Error("htmx preset should classify hx-get as URL")
 	}
 	if cls.Context("data-href") != attrclass.CtxURL {
-		t.Error("[[urlAttrs]] rule should still apply alongside the preset")
+		t.Error("[[url_attrs]] rule should still apply alongside the preset")
 	}
 	if cls.Context("hx-target") != attrclass.CtxPlain {
 		t.Error("hx-target must stay plain (not covered by the htmx preset)")

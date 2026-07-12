@@ -8,7 +8,7 @@
 # The taken branch's hoists land before its trailing `return gsx.Attrs{...},
 # nil`; the untaken branch still never evaluates.
 -- gsx.toml --
-filterPackages = ["./filters"]
+filter_packages = ["./filters"]
 -- filters/filters.go --
 package filters
 
