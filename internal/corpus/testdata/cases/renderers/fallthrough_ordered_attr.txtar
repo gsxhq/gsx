@@ -56,7 +56,7 @@ import (
 	"corpustest/cases/renderers_fallthrough_ordered_attr/pg"
 
 	_gsxctx "context"
-	_gsxf9 "corpustest/cases/renderers_fallthrough_ordered_attr/rend"
+	_gsxf12 "corpustest/cases/renderers_fallthrough_ordered_attr/rend"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
@@ -92,7 +92,7 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		val := _gsxp.Val
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
-		_gsxgw.Node(ctx, Panel(PanelProps{Attrs: _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-a", Value: "1"}}, _gsxrt.Attrs{{Key: "data-b", Value: _gsxf9.PgText((val))}, {Key: "data-c", Value: "9"}})}))
+		_gsxgw.Node(ctx, Panel(PanelProps{Attrs: _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-a", Value: "1"}}, _gsxrt.Attrs{{Key: "data-b", Value: _gsxf12.PgText((val))}, {Key: "data-c", Value: "9"}})}))
 		return _gsxgw.Err()
 	})
 }
