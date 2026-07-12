@@ -1366,7 +1366,7 @@ func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, cur
 // splitIdx=0 — keeping el's real span/Pos()/Void/Children and node identity for
 // nonce / emitFallthroughAttrs (they compare against el.Attrs[splitIdx]).
 func foldElementSpreads(b *bytes.Buffer, el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
-	expr, used, err := composeBag(b, interpTemp, emitPipeWrap(b, interpTemp), false, el.Attrs, rt.rt(), el.Tag, classMergeExpr(mergeExpr, rt), table, resolved, imports, rt, bag, "return _gsxerr")
+	expr, used, err := composeBag(b, interpTemp, emitPipeWrap(b, interpTemp), false, el.Attrs, rt.rt(), el.Tag, classMergeExpr(mergeExpr, rt), table, resolved, imports, rt, bag, "return _gsxerr", bagElementFold)
 	if err != nil {
 		if errors.Is(err, errBagDiagReported) {
 			return false // embeddedTextValueExpr already reported it
@@ -1402,22 +1402,19 @@ func bagSpreadIndex(attrs []ast.Attr) (idx int, found bool) {
 }
 
 // firstTwoSpreadAttrs returns the first two spread attrs on an element in
-// depth-first source order, descending into cond-attr branches. An element
-// carries at most one spread total — top-level OR nested in a
-// `{ if … { { x... } } }` cond-attr — because a second spread anywhere has no
-// expressible precedence against the forwarding/guard machinery. The caller
-// positions the ambiguity diagnostic at `second` and names both spread
-// expressions.
-//
-// It also reports each spread's enclosing cond-attr condition (empty when the
-// spread is top-level), used to choose the diagnostic's recommended fix: a
-// plain .Merge() when both spreads are top-level, or gsx.AttrsCond when
-// either is conditionally nested (merging would silently drop the guard).
+// depth-first source order, descending into cond-attr branches, plus the
+// enclosing cond-attr condition of the FIRST spread (empty when it is
+// top-level). It is the fold trigger's probe: an element carries at most one
+// spread total — a second spread anywhere is rejected upstream
+// (walkSpreadAttrs) — so `second` being non-nil means the caller
+// (elementFolds) is looking at that already-rejected ≥2-spread state, while
+// firstCond lets elementFolds detect a lone cond-NESTED spread (empty firstCond
+// = top-level spread; non-empty = nested in a `{ if … { { x... } } }`).
 //
 // Named distinctly from analyze.go's walkSpreadAttrs (a callback-style visitor
 // over every spread, used by probe/collect passes) to avoid redeclaring that
 // existing function in the same package.
-func firstTwoSpreadAttrs(attrs []ast.Attr) (first, second *ast.SpreadAttr, firstCond, secondCond string) {
+func firstTwoSpreadAttrs(attrs []ast.Attr) (first, second *ast.SpreadAttr, firstCond string) {
 	var visit func(list []ast.Attr, cond string)
 	visit = func(list []ast.Attr, cond string) {
 		for _, a := range list {
@@ -1429,7 +1426,7 @@ func firstTwoSpreadAttrs(attrs []ast.Attr) (first, second *ast.SpreadAttr, first
 				if first == nil {
 					first, firstCond = t, cond
 				} else {
-					second, secondCond = t, cond
+					second = t
 				}
 			case *ast.CondAttr:
 				visit(t.Then, t.Cond)
@@ -1438,22 +1435,57 @@ func firstTwoSpreadAttrs(attrs []ast.Attr) (first, second *ast.SpreadAttr, first
 		}
 	}
 	visit(attrs, "")
-	return first, second, firstCond, secondCond
+	return first, second, firstCond
 }
 
 // elementFolds reports whether genNode's *ast.Element case routes attrs
-// through foldElementSpreads: ≥2 spreads (counting cond-nested), or exactly
-// one spread that is itself cond-nested (O1: it would otherwise emit via the
-// inline emitAttr `if cond { Spread(bag, excluded=nil) }` path, which cannot
-// merge with a sibling root class/style). This is the SINGLE source of truth
-// for the fold trigger, shared with scopeUsesNumeric/attrsUseNumericScratch
-// so the numeric-scratch prescan agrees with where composeBag actually
-// emits — composeBag never writes through _gsxnum (a numeric ExprAttr lowers
-// to a plain `{Key, Value: <expr>}` bag entry), so a folded element's attrs
-// must never be scanned as needing the scratch buffer.
+// through foldElementSpreads: ≥2 spreads (counting cond-nested), OR exactly one
+// spread that is itself cond-nested AND the element carries a top-level class/
+// style attr (O1: such an inline lone-cond spread emits via the inline emitAttr
+// `if cond { Spread(bag, excluded=nil) }` path, which cannot aggregate the bag's
+// class/style with the sibling root class/style — issue #75). A lone cond-nested
+// spread WITHOUT a root class/style has no such aggregation to perform, so it
+// stays on the inline path (which supports the FULL element attr subset,
+// e.g. conditional style and js/css embedded holes that composeBag does not).
+//
+// This is the SINGLE source of truth for the fold trigger, shared with
+// scopeUsesNumeric/attrsUseNumericScratch so the numeric-scratch prescan agrees
+// with where composeBag actually emits — composeBag never writes through
+// _gsxnum (a numeric ExprAttr lowers to a plain `{Key, Value: <expr>}` bag
+// entry), so a folded element's attrs must never be scanned as needing the
+// scratch buffer, while a non-folded lone-cond element (inline path) may.
 func elementFolds(attrs []ast.Attr) bool {
-	first, second, firstCond, _ := firstTwoSpreadAttrs(attrs)
-	return second != nil || (first != nil && firstCond != "")
+	first, second, firstCond := firstTwoSpreadAttrs(attrs)
+	return second != nil || (first != nil && firstCond != "" && hasRootClassStyle(attrs))
+}
+
+// hasRootClassStyle reports whether attrs carries a TOP-LEVEL class or style
+// attribute — a composable class={…}/style={…} (*ast.ClassAttr), a static
+// class="…"/style="…" (*ast.StaticAttr), or a hole-bearing backtick literal
+// (*ast.EmbeddedAttr) — mirroring emitFallthroughAttrs' root class/style scan.
+// A cond-NESTED class/style is not root (it is invalid at the leaf and rejected
+// separately), so this does not recurse into cond-attr branches. It gates the
+// lone-cond-nested-spread fold: that fold exists only to aggregate a root
+// class/style with the conditional bag, so with none present the element takes
+// the inline path instead.
+func hasRootClassStyle(attrs []ast.Attr) bool {
+	for _, a := range attrs {
+		switch t := a.(type) {
+		case *ast.ClassAttr:
+			if t.Name == "class" || t.Name == "style" {
+				return true
+			}
+		case *ast.StaticAttr:
+			if t.Name == "class" || t.Name == "style" {
+				return true
+			}
+		case *ast.EmbeddedAttr:
+			if t.Lang == ast.EmbeddedText && (t.Name == "class" || t.Name == "style") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // emitRootComposedClass emits a composed `class={ … }` merged with the bag's
@@ -5706,8 +5738,21 @@ func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table f
 // switch), plain-tuple, and ordered class parts inside a branch hoist their
 // errors into the enclosing thunk precisely like the non-branch case.
 func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string, probeWrap bool, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag) (string, map[string]string, error) {
-	return composeBag(b, interpTemp, wrap, probeWrap, attrs, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, "return nil, _gsxerr")
+	return composeBag(b, interpTemp, wrap, probeWrap, attrs, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, "return nil, _gsxerr", bagComponentCond)
 }
+
+// bagContext tells composeBag which caller it is lowering for, so a residual
+// rejection is worded for the right surface. The two are genuinely different:
+// the component path folds a conditional-attr branch's attrs into a child's
+// prop bag (a component prop / conditional branch), whereas the element path
+// folds a plain element's attrs (≥2 spreads, or a lone cond-nested spread + a
+// root class/style) into one leaf bag — there is no component and no prop.
+type bagContext int
+
+const (
+	bagComponentCond bagContext = iota // a component conditional-attr branch (condBranchAttrs)
+	bagElementFold                     // a multi-spread / lone-cond element fold (foldElementSpreads)
+)
 
 // errBagDiagReported is a sentinel composeBag returns when a hole-bearing
 // embedded attribute's assembly (embeddedTextValueExpr) has already reported a
@@ -5733,7 +5778,7 @@ var errBagDiagReported = errors.New("bag diagnostic already reported")
 // reporting any positioned diagnostic to bag). In probe mode that arm emits a
 // string placeholder instead (the hole's type is harvested by a separate
 // _gsxuse probe), so imports/rt/bag go unused there.
-func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, probeWrap bool, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, errReturn string) (string, map[string]string, error) {
+func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, probeWrap bool, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, errReturn string, ctx bagContext) (string, map[string]string, error) {
 	var entries []string
 	usedPkgs := map[string]string{}
 	var parts []string
@@ -5844,8 +5889,32 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 		case *ast.BoolAttr:
 			entries = append(entries, fmt.Sprintf("{Key: %s, Value: true}", strconv.Quote(t.Name)))
 		case *ast.ClassAttr:
+			if t.Name == "style" && ctx == bagElementFold {
+				// A composable/conditional style={ … } on a folded element: lower it
+				// exactly like the inline element path (composedParts with style=true —
+				// CSS-filtering each dynamic declaration, trusting string literals)
+				// but as the VALUE form (gsx.StyleString, the "; "-join without the
+				// attr-escape gw.Style applies) so the leaf's Attrs.Style() aggregates
+				// it and the single leaf write escapes once. Element-fold is emit-only
+				// (foldElementSpreads passes probeWrap=false, single-value errReturn),
+				// which is exactly what composedParts assumes — the component path,
+				// with its thunk arity and probe pass, still rejects style below.
+				parts, ok := composedParts(b, t, table, imports, rt, interpTemp, bag, resolved, true)
+				if !ok {
+					// composedParts already reported the positioned diagnostic.
+					return "", nil, errBagDiagReported
+				}
+				entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s.StyleString(%s)}", strconv.Quote(t.Name), rtPkg, strings.Join(parts, ", ")))
+				break
+			}
 			if t.Name != "class" {
-				msg := fmt.Sprintf("%s attribute in a conditional branch (<%s>) not supported yet", t.Name, tag)
+				var msg string
+				switch ctx {
+				case bagElementFold:
+					msg = fmt.Sprintf("composable %s={ … } attribute is not yet supported on an element carrying multiple spreads (<%s>)", t.Name, tag)
+				default:
+					msg = fmt.Sprintf("%s attribute in a conditional branch (<%s>) not supported yet", t.Name, tag)
+				}
 				return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
 			entry, used, eerr := classEntryExpr(b, interpTemp, t, rtPkg, mergeExpr, table, resolved, probeWrap, wrap, errReturn)
@@ -5870,7 +5939,13 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			// literal escapes each hole by its own grammar (a distinct lowering),
 			// so it stays rejected until that path is ported.
 			if t.Lang != ast.EmbeddedText {
-				msg := fmt.Sprintf("embedded %s attribute literal %q with @{ } interpolation cannot be used as a component prop on <%s> yet; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, tag)
+				var msg string
+				switch ctx {
+				case bagElementFold:
+					msg = fmt.Sprintf("embedded %s attribute literal %q with @{ } interpolation is not yet supported on an element carrying multiple spreads (<%s>); each @{ } hole needs %s-context escaping into the shared bag, which is not yet ported", embeddedLangName(t.Lang), t.Name, tag, embeddedLangName(t.Lang))
+				default:
+					msg = fmt.Sprintf("embedded %s attribute literal %q with @{ } interpolation cannot be used as a component prop on <%s> yet; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, tag)
+				}
 				return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
 			if probeWrap {
@@ -5889,7 +5964,13 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			}
 			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), val))
 		default:
-			msg := fmt.Sprintf("unsupported attribute %T in a conditional branch (<%s>)", a, tag)
+			var msg string
+			switch ctx {
+			case bagElementFold:
+				msg = fmt.Sprintf("unsupported attribute %T on an element carrying multiple spreads (<%s>)", a, tag)
+			default:
+				msg = fmt.Sprintf("unsupported attribute %T in a conditional branch (<%s>)", a, tag)
+			}
 			return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}
 		}
 	}

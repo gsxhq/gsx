@@ -48,18 +48,13 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		extra := _gsxp.Extra
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:5:45
-		_gsxv0, _gsxerr := _gsxrt.AttrsCond(hot, func() (_gsxrt.Attrs, error) {
-			return extra, nil
-		}, nil)
-		if _gsxerr != nil {
-			return _gsxerr
-		}
-		_gsxv1 := _gsxv0
 		_gsxgw.S("<script")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv1.Class())
-		_gsxgw.StyleMerged("", _gsxv1.Style())
-		_gsxgw.Spread(ctx, _gsxv1, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
-		if !_gsxv1.Has("nonce") {
+		var _gsxv0 _gsxrt.Attrs
+		if hot {
+			_gsxv0 = extra
+			_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, nil)
+		}
+		if !_gsxv0.Has("nonce") {
 			_gsxgw.Nonce(ctx)
 		}
 		_gsxgw.S(">init()</script>")
