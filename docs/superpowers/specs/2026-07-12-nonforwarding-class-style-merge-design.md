@@ -71,6 +71,37 @@ embedded JS/CSS URL-sink diagnostics, contextual filtering, renderer/tuple
 hoists, and source evaluation order must not regress when the new no-spread
 shape enters `composeBag`.
 
+### Static URL provenance through a fold
+
+Folding must not change the trust policy of an unrelated author-written static
+URL attribute. Inline `href="javascript:void(0)"` is trusted template text. In
+an **element-fold** bag, every `StaticAttr` string is therefore carried as
+`gsx.RawURL("…")`, the runtime's existing per-value provenance marker, rather
+than a plain string. For non-URL keys `Spread` already converts `RawURL` through
+the normal string/HTML-attribute path, so output is unchanged; when the winning
+key is URL-classified, the leaf recognizes the marker and skips scheme
+filtering while retaining HTML attribute escaping. Component-prop bags keep
+ordinary strings and are unaffected.
+
+Trust is per contribution and source-order last-wins:
+
+- static URL followed by a dynamic/forwarded URL: the later plain value wins
+  and is URL-sanitized;
+- dynamic/forwarded URL followed by a static URL: the later trusted literal
+  wins and is emitted verbatim (with HTML escaping);
+- two static URL contributions: the later trusted literal wins;
+- JS/CSS contextual literals on URL-sink keys remain rejected as specified by
+  PR #99; they are not converted to `RawURL`.
+
+Only codegen-authored `StaticAttr` values in `bagElementFold` gain this marker.
+Expression attrs,
+embedded literals, spreads, pipelines, and conditional bags preserve their
+existing dynamic sanitization unless their leaf is itself a `StaticAttr`.
+Codegen does not classify the attribute name or duplicate URL tables: the
+existing `Spread` leaf remains the single authority for navigational, image,
+srcset, prefix, and custom configured URL sinks and consults the value marker
+only after the winning entry is selected.
+
 ## Tests
 
 Canonical corpus cases cover:
@@ -85,6 +116,9 @@ Canonical corpus cases cover:
 - negative controls: one conditional contribution only, and root class plus
   conditional style (different names) remain inline;
 - exact generated shape and render goldens.
+- static URL provenance and override order: trusted static vs later dynamic,
+  dynamic vs later trusted static, two statics, conditional static branches,
+  image/srcset/custom URL sinks, and HTML-special characters.
 
 Add the no-spread shapes to the codegen fold differential matrix and a focused
 benchmark comparing the unchanged single-style fast path with the new merge
