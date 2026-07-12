@@ -183,8 +183,11 @@ condmerge/cond_style_css_embedded_static	diag render
 condmerge/else_if	diag render
 condmerge/jscss_hole_edge	diag
 condmerge/nonforwarding_merge	diag gen render
+condmerge/nonforwarding_merge_error	diag gen render
 condmerge/nonforwarding_merge_forms	diag gen render
 condmerge/nonforwarding_merge_order	diag gen render
+condmerge/nonforwarding_merge_pipeline_error	diag gen render
+condmerge/nonforwarding_merge_renderer	diag gen render
 condmerge/nonforwarding_unchanged	diag gen render
 condmerge/root_style_css_embedded_hole	diag render
 condmerge/root_style_css_embedded_static	diag render
@@ -737,4 +740,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 739 cases (render: 621, error: 88, gen-pinned: 406)
+TOTAL: 742 cases (render: 624, error: 88, gen-pinned: 409)

@@ -54,7 +54,7 @@ import (
 	"corpustest/cases/renderers_js_attr_hole/pg"
 
 	_gsxctx "context"
-	_gsxf29 "corpustest/cases/renderers_js_attr_hole/rend"
+	_gsxf30 "corpustest/cases/renderers_js_attr_hole/rend"
 	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
@@ -77,11 +77,11 @@ func Tag(_gsxp TagProps) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:11:2
 		_gsxgw.S("<button @click=\"save(")
-		_gsxgw.JSValAttr(_gsxf29.PgJS((val)))
+		_gsxgw.JSValAttr(_gsxf30.PgJS((val)))
 		_gsxgw.S(")\">inline</button>")
 //line input.gsx:12:2
 		_gsxv0 := a
-		_gsxv1 := _gsxrt.EscapeJSVal(_gsxf29.PgJS((val)))
+		_gsxv1 := _gsxrt.EscapeJSVal(_gsxf30.PgJS((val)))
 		_gsxv2 := _gsxrt.ConcatAttrs(_gsxv0, _gsxrt.Attrs{{Key: "@click", Value: "save(" + _gsxv1 + ")"}}, b)
 		_gsxgw.S("<button")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv2.Class())

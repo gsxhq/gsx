@@ -13,7 +13,8 @@ component Forms(which int, gap string) {
 	<div class="base" { if which == 1 { class="one" } else if which == 2 { class="two" } else { class="other" } }>branch</div>
 	<div style=css"color:red" { if which > 0 { style=css"margin:@{gap}" } }>css</div>
 	<div class={ "base" } { if which > 0 { class={ strings.ToUpper("on") } } }>class</div>
-	<div style={ decl("color:red") } { if which > 0 { style="margin:0" } }>tuple</div>
+	<div style="color:red" { if which > 0 { style={ decl("margin:0") } } }>tuple</div>
+	<div style="color:red" { if which > 0 { style={ "margin:" + gap |> upper } } }>pipeline</div>
 }
 -- invoke --
 gsx.Fragment(
@@ -31,6 +32,7 @@ import (
 
 	_gsxctx "context"
 	_gsxrt "github.com/gsxhq/gsx"
+	_gsxstd "github.com/gsxhq/gsx/std"
 	_gsxio "io"
 )
 
@@ -108,25 +110,39 @@ func Forms(_gsxp FormsProps) _gsxrt.Node {
 		_gsxgw.Spread(ctx, _gsxv11, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
 		_gsxgw.S(">class</div>")
 //line input.gsx:12:2
-		_gsxv12, _gsxerr := decl("color:red")
-		if _gsxerr != nil {
-			return _gsxerr
-		}
-		_gsxv13 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Class(_gsxrt.StyleValue(_gsxv12)))}}
+		_gsxv12 := _gsxrt.Attrs{{Key: "style", Value: "color:red"}}
 		_gsxv14, _gsxerr := _gsxrt.AttrsCond(which > 0, func() (_gsxrt.Attrs, error) {
-			return _gsxrt.Attrs{{Key: "style", Value: "margin:0"}}, nil
+			_gsxv13, _gsxerr := decl("margin:0")
+			if _gsxerr != nil {
+				return nil, _gsxerr
+			}
+			return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Class(_gsxrt.StyleValue(_gsxv13)))}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv15 := _gsxrt.ConcatAttrs(_gsxv13, _gsxv14)
+		_gsxv15 := _gsxrt.ConcatAttrs(_gsxv12, _gsxv14)
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv15.Class())
 		_gsxgw.StyleMerged("", _gsxv15.Style())
 		_gsxgw.Spread(ctx, _gsxv15, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
 		_gsxgw.S(">tuple</div>")
+//line input.gsx:13:2
+		_gsxv16 := _gsxrt.Attrs{{Key: "style", Value: "color:red"}}
+		_gsxv17, _gsxerr := _gsxrt.AttrsCond(which > 0, func() (_gsxrt.Attrs, error) {
+			return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Class(_gsxrt.StyleValue(_gsxstd.Upper(("margin:" + gap)))))}}, nil
+		}, nil)
+		if _gsxerr != nil {
+			return _gsxerr
+		}
+		_gsxv18 := _gsxrt.ConcatAttrs(_gsxv16, _gsxv17)
+		_gsxgw.S("<div")
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv18.Class())
+		_gsxgw.StyleMerged("", _gsxv18.Style())
+		_gsxgw.Spread(ctx, _gsxv18, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+		_gsxgw.S(">pipeline</div>")
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-<div style="margin:0; color:blue">top</div><div class="base two">branch</div><div style="color:red; margin:5px">css</div><div class="base ON">class</div><div style="color:red; margin:0">tuple</div><div style="margin:0; color:blue">top</div><div class="base other">branch</div><div style="color:red">css</div><div class="base">class</div><div style="color:red">tuple</div>
+<div style="margin:0; color:blue">top</div><div class="base two">branch</div><div style="color:red; margin:5px">css</div><div class="base ON">class</div><div style="color:red; margin:0">tuple</div><div style="color:red; MARGIN:5PX">pipeline</div><div style="margin:0; color:blue">top</div><div class="base other">branch</div><div style="color:red">css</div><div class="base">class</div><div style="color:red">tuple</div><div style="color:red">pipeline</div>
