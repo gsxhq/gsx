@@ -24,6 +24,11 @@ type rendererEntry struct {
 	alias    string
 	pkgPath  string
 	hasErr   bool
+	// wantsCtx is true for func(ctx context.Context, T) R / (R, error); false
+	// for the ctx-less func(T) R / (R, error) shapes. Harvested here but not
+	// yet consumed at emission — applyRenderer threading ctx through the call
+	// site is a follow-up (#87 pt. 2).
+	wantsCtx bool
 	result   types.Type
 }
 
@@ -71,13 +76,23 @@ func harvestRenderers(byPath map[string]*types.Package, renderers []RendererAlia
 			return nil, fmt.Errorf("codegen: renderer for %q: %q in package %q is not a function", r.TypeKey, r.FuncName, r.PkgPath)
 		}
 		sig := fn.Type().(*types.Signature)
+		// The subject param is normally the only param (func(T) R); a leading
+		// context.Context is also accepted, in which case the subject is the
+		// param immediately after it (func(ctx context.Context, T) R). A ctx
+		// param with nothing after it (no subject) or in any other position
+		// is a contract violation, same as any other wrong arity/shape.
+		params := sig.Params()
+		firstIsCtx := params.Len() >= 1 && isContextContext(params.At(0).Type())
+		wantsCtx := firstIsCtx && params.Len() == 2
+		subjectOK := wantsCtx || (params.Len() == 1 && !firstIsCtx)
 		if sig.Recv() != nil || sig.Variadic() || sig.TypeParams().Len() != 0 ||
-			sig.Params().Len() != 1 || sig.Results().Len() < 1 || sig.Results().Len() > 2 ||
+			!subjectOK || sig.Results().Len() < 1 || sig.Results().Len() > 2 ||
 			(sig.Results().Len() == 2 && !isErrorType(sig.Results().At(1).Type())) {
-			return nil, fmt.Errorf("codegen: renderer %q for %q does not match the renderer contract func(T) R or func(T) (R, error)", r.FuncName, r.TypeKey)
+			return nil, fmt.Errorf("codegen: renderer %q for %q does not match the renderer contract func(T) R, func(T) (R, error), func(ctx context.Context, T) R, or func(ctx context.Context, T) (R, error)", r.FuncName, r.TypeKey)
 		}
-		if pk := rendererKey(sig.Params().At(0).Type()); pk != r.TypeKey {
-			return nil, fmt.Errorf("codegen: renderer %q takes %s; registered for %q", r.FuncName, sig.Params().At(0).Type(), r.TypeKey)
+		subject := params.At(params.Len() - 1)
+		if pk := rendererKey(subject.Type()); pk != r.TypeKey {
+			return nil, fmt.Errorf("codegen: renderer %q takes %s; registered for %q", r.FuncName, subject.Type(), r.TypeKey)
 		}
 		res := sig.Results().At(0).Type()
 		// The unrenderable-result rejection is deferred to the chain-check
@@ -90,6 +105,7 @@ func harvestRenderers(byPath map[string]*types.Package, renderers []RendererAlia
 			alias:    aliases[r.PkgPath],
 			pkgPath:  r.PkgPath,
 			hasErr:   sig.Results().Len() == 2,
+			wantsCtx: wantsCtx,
 			result:   res,
 		}
 	}
