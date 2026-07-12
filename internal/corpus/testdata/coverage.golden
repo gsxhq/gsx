@@ -141,6 +141,7 @@ components/component_cond_branch_spread	diag gen render
 components/component_conditional_attr	diag gen render
 components/component_conditional_attr_else	diag gen render
 components/component_conditional_attr_lazy	diag gen render
+components/component_f_literal_values	diag gen render
 components/component_fallthrough_pipeline	diag gen render
 components/component_prop_pipeline	diag gen render
 components/component_spread	diag gen render
@@ -740,4 +741,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 742 cases (render: 624, error: 88, gen-pinned: 408)
+TOTAL: 743 cases (render: 625, error: 88, gen-pinned: 409)
