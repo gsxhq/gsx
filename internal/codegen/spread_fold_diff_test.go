@@ -30,6 +30,11 @@ import (
 //	E7  >=2 spreads + interposed conditional static
 //	E8  1 spread + root class + Form-2 conditional class (the D3-lift shape:
 //	    { if c { class="on8" } else { class="off8" } } on a forwarding element)
+//	E9  0 spreads, root style + conditional style   (no-spread same-name fold)
+//	E10 0 spreads, root class + if/else class       (no-spread same-name fold)
+//	E11 0 spreads, LONE if/else class — branches are mutually exclusive, so the
+//	    contributor count max-combines to 1 and the element stays on the inline
+//	    per-branch path; the matrix proves that path matches the fold reference
 //
 // E1 and E4 additionally carry a "class"/"href" pair (E1 with a javascript:
 // value) so the differential also exercises class aggregation and leaf URL
@@ -92,6 +97,10 @@ component E9(c bool) {
 
 component E10(c bool) {
 	<a class="base10" { if c { class="on10" } else { class="off10" } }>e10</a>
+}
+
+component E11(c bool) {
+	<a { if c { class="on11" } else { class="off11" } }>e11</a>
 }
 `
 
@@ -171,6 +180,8 @@ func main() {
 	render(ctx, "E9false", p.E9(p.E9Props{C: false}))
 	render(ctx, "E10true", p.E10(p.E10Props{C: true}))
 	render(ctx, "E10false", p.E10(p.E10Props{C: false}))
+	render(ctx, "E11true", p.E11(p.E11Props{C: true}))
+	render(ctx, "E11false", p.E11(p.E11Props{C: false}))
 }
 `)
 
@@ -350,6 +361,8 @@ func TestSpreadFoldDiffMatrix(t *testing.T) {
 			gsx.Attrs{{Key: "class", Value: "base10"}},
 			gsx.Attrs{{Key: "class", Value: "off10"}},
 		), "e10"},
+		{"E11true", gsx.Attrs{{Key: "class", Value: "on11"}}, "e11"},
+		{"E11false", gsx.Attrs{{Key: "class", Value: "off11"}}, "e11"},
 	}
 
 	// runSpreadFoldMatrix's harness renders all scenarios (E0 plus the
