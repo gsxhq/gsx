@@ -1579,7 +1579,7 @@ func hasRootClassStyle(attrs []ast.Attr) bool {
 // + `"`. Mirrors emitClassAttr's part lowering, appending the bag class as a
 // final unconditional part so it merges/dedupes through the merge func.
 func emitRootComposedClass(b *bytes.Buffer, a *ast.ClassAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, mergeExpr, bagExpr string, resolved map[ast.Node]types.Type) bool {
-	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, false)
+	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, false, emitPipeWrap(b, interpTemp), "return _gsxerr")
 	if !ok {
 		return false
 	}
@@ -1784,7 +1784,7 @@ func rootStyleString(b *bytes.Buffer, styleAttr *ast.ClassAttr, staticStyle *ast
 	case staticStyle != nil:
 		return strconv.Quote(staticStyle.Value), nil, true
 	case styleAttr != nil:
-		parts, ok := composedParts(b, styleAttr, table, imports, rt, interpTemp, bag, resolved, true)
+		parts, ok := composedParts(b, styleAttr, table, imports, rt, interpTemp, bag, resolved, true, emitPipeWrap(b, interpTemp), "return _gsxerr")
 		if !ok {
 			return "", nil, false
 		}
@@ -3523,8 +3523,8 @@ func emitJSAttrValue(b *bytes.Buffer, ctx ast.JSCtx, expr string, t types.Type, 
 // never piped, so callers lower only the part's Expr/Stages, not its Cond. b and
 // interpTemp hoist a mid-stage (R, error) filter via emitPipeWrap (the element
 // class/style path is emit-only; the probe path harvests via probeExpr instead).
-func classPartExpr(p ast.ClassPart, a *ast.ClassAttr, table funcTables, imports map[string]bool, b *bytes.Buffer, interpTemp *int, bag *diag.Bag) (string, bool) {
-	lowered, usedPkgs, err := lowerClassPartSeed(p, table, emitPipeWrap(b, interpTemp))
+func classPartExpr(p ast.ClassPart, a *ast.ClassAttr, table funcTables, imports map[string]bool, wrap func(string) string, bag *diag.Bag) (string, bool) {
+	lowered, usedPkgs, err := lowerClassPartSeed(p, table, wrap)
 	if err != nil {
 		bag.Errorf(a.Pos(), a.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 		return "", false
@@ -3560,7 +3560,7 @@ func lowerClassPartSeed(p ast.ClassPart, table funcTables, wrap func(string) str
 // tokens through the passed merge func and writes the attr-escaped value.
 // resolved maps each *ast.ValueArm to its harvest type for (T, error) unwrap.
 func emitClassAttr(b *bytes.Buffer, a *ast.ClassAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, mergeExpr string, resolved map[ast.Node]types.Type) bool {
-	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, false)
+	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, false, emitPipeWrap(b, interpTemp), "return _gsxerr")
 	if !ok {
 		return false
 	}
@@ -3577,7 +3577,7 @@ func emitClassAttr(b *bytes.Buffer, a *ast.ClassAttr, table funcTables, imports 
 // included parts with "; " and attr-escapes the result.
 // resolved maps each *ast.ValueArm to its harvest type for (T, error) unwrap.
 func emitStyleAttr(b *bytes.Buffer, a *ast.ClassAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type) bool {
-	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, true)
+	parts, ok := composedParts(b, a, table, imports, rt, interpTemp, bag, resolved, true, emitPipeWrap(b, interpTemp), "return _gsxerr")
 	if !ok {
 		return false
 	}
@@ -3600,7 +3600,7 @@ func composedPartsOrdered(a *ast.ClassAttr, resolved map[ast.Node]types.Type) bo
 	return false
 }
 
-func composedParts(b *bytes.Buffer, a *ast.ClassAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type, style bool) ([]string, bool) {
+func composedParts(b *bytes.Buffer, a *ast.ClassAttr, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, resolved map[ast.Node]types.Type, style bool, wrap func(string) string, errReturn string) ([]string, bool) {
 	parts := make([]string, 0, len(a.Parts))
 	ordered := composedPartsOrdered(a, resolved)
 	for i := range a.Parts {
@@ -3636,7 +3636,7 @@ func composedParts(b *bytes.Buffer, a *ast.ClassAttr, table funcTables, imports 
 			parts = append(parts, fmt.Sprintf("%s.ClassIf(%s, %s)", rt.rt(), val, cond))
 			continue
 		}
-		expr, ok := classPartExpr(*p, a, table, imports, b, interpTemp, bag)
+		expr, ok := classPartExpr(*p, a, table, imports, wrap, bag)
 		if !ok {
 			return nil, false
 		}
@@ -3651,7 +3651,7 @@ func composedParts(b *bytes.Buffer, a *ast.ClassAttr, table funcTables, imports 
 				bag.Errorf(p.Pos(), p.End(), "invalid-tuple", "%s part %q returns %s; only (T, error) is supported", kind, p.Expr, t)
 				return nil, false
 			}
-			expr = hoistTuple(b, expr, interpTemp)
+			expr = hoistTupleReturning(b, expr, interpTemp, errReturn)
 			t = elemT
 			// The part's own tuple hoist already lands expr in a position-
 			// preserving temp; applyRenderer may turn it back into a bare call
@@ -3661,7 +3661,7 @@ func composedParts(b *bytes.Buffer, a *ast.ClassAttr, table funcTables, imports 
 			// the ordered branch below does for a non-tuple part. A renderer
 			// registry miss, or a hasErr renderer (already a hoisted temp),
 			// leaves expr as a bare identifier and skips the extra capture.
-			expr, _ = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
+			expr, _ = applyRenderer(b, expr, t, table, imports, interpTemp, errReturn)
 			if isCallExpr(expr) {
 				tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
 				*interpTemp++
@@ -3673,7 +3673,7 @@ func composedParts(b *bytes.Buffer, a *ast.ClassAttr, table funcTables, imports 
 			// ordered capture — so a renderer's call (or its own error hoist)
 			// evaluates at this part's SOURCE position, not deferred to the
 			// final gw.Class/ClassJoin call site.
-			expr, _ = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
+			expr, _ = applyRenderer(b, expr, t, table, imports, interpTemp, errReturn)
 			if ordered {
 				tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
 				*interpTemp++
@@ -6168,7 +6168,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 				// (foldElementSpreads passes probeWrap=false, single-value errReturn),
 				// which is exactly what composedParts assumes — the component path,
 				// with its thunk arity and probe pass, still rejects style below.
-				parts, ok := composedParts(b, t, table, imports, rt, interpTemp, bag, resolved, true)
+				parts, ok := composedParts(b, t, table, imports, rt, interpTemp, bag, resolved, true, orderedWrap, errReturn)
 				if !ok {
 					// composedParts already reported the positioned diagnostic.
 					return "", nil, errBagDiagReported

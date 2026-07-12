@@ -46,7 +46,7 @@ import (
 	"corpustest/cases/renderers_script_hole/pg"
 
 	_gsxctx "context"
-	_gsxf33 "corpustest/cases/renderers_script_hole/rend"
+	_gsxf34 "corpustest/cases/renderers_script_hole/rend"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
@@ -66,7 +66,7 @@ func Tag(_gsxp TagProps) _gsxrt.Node {
 		_gsxgw.S("<script")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">const s = \"x")
-		_gsxgw.JSStr(string(_gsxf33.PgJS((val))))
+		_gsxgw.JSStr(string(_gsxf34.PgJS((val))))
 		_gsxgw.S("\";</script>")
 		return _gsxgw.Err()
 	})
