@@ -1,0 +1,19 @@
+# A component class={} plain part referencing an undefined identifier must
+# still surface a POSITIONED "undefined: nosuch" diagnostic — not a raw,
+# unpositioned go/types skeleton error — proving classEntryExpr's #85 probe
+# stub (which now replaces EVERY part value expr with `""` in probe mode,
+# including bare idents) does not accidentally swallow a genuine undefined-
+# identifier error along with the type constraint it exists to relax. The
+# _gsxuse harvest probe (analyze.go's walkClassAttrs) still references the
+# REAL expr (not the stub), so it remains the one responsible for surfacing
+# this error, exactly as documented in emitProbes' comment.
+-- input.gsx --
+package views
+
+component Card(title string) { <div { attrs... }>{title}</div> }
+
+component Page() {
+	<Card title="hi" class={ nosuch }/>
+}
+-- diagnostics.golden --
+6:34: undefined: nosuch

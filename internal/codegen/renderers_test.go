@@ -320,6 +320,103 @@ func TestHarvestRenderers(t *testing.T) {
 	})
 }
 
+// TestHarvestRenderersCtx pins the #87 harvest of the two ctx-taking renderer
+// shapes (func(ctx context.Context, T) R and func(ctx context.Context, T)
+// (R, error)), mirroring classifyFilter's contract (see TestClassifyFilter in
+// classify_test.go): a leading real context.Context is accepted only when
+// followed by exactly one subject param. Real context.Context comes from
+// typeCheckFuncs (classify_test.go) rather than a synthetic namedType, since
+// isContextContext checks the actual stdlib package identity.
+func TestHarvestRenderersCtx(t *testing.T) {
+	t.Parallel()
+	const src = `package x
+
+import "context"
+
+type Text struct{}
+
+func Plain(t Text) string { return "" }
+func Ctx(ctx context.Context, t Text) string { return "" }
+func CtxErr(ctx context.Context, t Text) (string, error) { return "", nil }
+func CtxOnly(ctx context.Context) string { return "" }
+func CtxNotFirst(t Text, ctx context.Context) string { return "" }
+func CtxThree(ctx context.Context, a, b Text) string { return "" }
+`
+	scope := typeCheckFuncs(t, src)
+	pkg := scope.Lookup("Text").Pkg()
+	textKey := pkg.Path() + ".Text"
+	byPath := map[string]*types.Package{pkg.Path(): pkg}
+
+	t.Run("ctx-taking string result", func(t *testing.T) {
+		table, err := harvestRenderers(byPath, []RendererAlias{{TypeKey: textKey, PkgPath: pkg.Path(), FuncName: "Ctx"}}, nil)
+		if err != nil {
+			t.Fatalf("harvestRenderers: %v", err)
+		}
+		e, ok := table[textKey]
+		if !ok {
+			t.Fatalf("missing entry for %q", textKey)
+		}
+		if !e.wantsCtx {
+			t.Errorf("wantsCtx = false, want true")
+		}
+		if e.hasErr {
+			t.Errorf("hasErr = true, want false")
+		}
+	})
+
+	t.Run("ctx-taking string,error result", func(t *testing.T) {
+		table, err := harvestRenderers(byPath, []RendererAlias{{TypeKey: textKey, PkgPath: pkg.Path(), FuncName: "CtxErr"}}, nil)
+		if err != nil {
+			t.Fatalf("harvestRenderers: %v", err)
+		}
+		e := table[textKey]
+		if !e.wantsCtx {
+			t.Errorf("wantsCtx = false, want true")
+		}
+		if !e.hasErr {
+			t.Errorf("hasErr = false, want true")
+		}
+	})
+
+	t.Run("no ctx unchanged, wantsCtx false", func(t *testing.T) {
+		table, err := harvestRenderers(byPath, []RendererAlias{{TypeKey: textKey, PkgPath: pkg.Path(), FuncName: "Plain"}}, nil)
+		if err != nil {
+			t.Fatalf("harvestRenderers: %v", err)
+		}
+		if e := table[textKey]; e.wantsCtx {
+			t.Errorf("wantsCtx = true, want false")
+		}
+	})
+
+	rejectCases := []struct {
+		name string
+		fn   string
+	}{
+		{"ctx only, no subject after ctx", "CtxOnly"},
+		{"ctx not first", "CtxNotFirst"},
+		{"three params (ctx + two subjects)", "CtxThree"},
+	}
+	wantShapes := []string{
+		"func(T) R",
+		"func(T) (R, error)",
+		"func(ctx context.Context, T) R",
+		"func(ctx context.Context, T) (R, error)",
+	}
+	for _, c := range rejectCases {
+		t.Run("contract violation: "+c.name, func(t *testing.T) {
+			_, err := harvestRenderers(byPath, []RendererAlias{{TypeKey: textKey, PkgPath: pkg.Path(), FuncName: c.fn}}, nil)
+			if err == nil || !strings.Contains(err.Error(), "renderer contract") {
+				t.Fatalf("err = %v, want substring %q", err, "renderer contract")
+			}
+			for _, shape := range wantShapes {
+				if !strings.Contains(err.Error(), shape) {
+					t.Errorf("err = %v, missing contract shape %q", err, shape)
+				}
+			}
+		})
+	}
+}
+
 // TestRendererPkgLoadError pins the load-level validation of renderer packages
 // on the packages.Load path (harvestFilters → checkRendererPkg): go/packages
 // hands back best-effort non-nil Types even when pkg.Errors is populated, so
@@ -366,6 +463,72 @@ func TestRendererPkgLoadError(t *testing.T) {
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+}
+
+// TestClassPartBareIdentUnregisteredParity pins the #85 fix's probe-parity
+// claim for a class-part value that is a BARE IDENTIFIER of a plain struct
+// type with NO [renderers] registration at all: before the fix, classEntryExpr's
+// probe-mode stub only covered CALL exprs, so a bare non-string identifier
+// flowed straight into the skeleton's _gsxrt.Class(expr) and failed go/types
+// there — surfacing as a raw, unpositioned "cannot use val ... as string
+// value" diagnostic instead of generating successfully. After the fix, the
+// probe stubs the value regardless of shape, so generation SUCCEEDS with no
+// diagnostics (parity with a call expr) and the wrong type is left to surface
+// at `go build` of the emitted .x.go — exactly like a call-shaped part that
+// returns a non-string with no renderer registered.
+func TestClassPartBareIdentUnregisteredParity(t *testing.T) {
+	t.Parallel()
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp := t.TempDir()
+	writeMultiFile(t, tmp, "go.mod", "module gsxcb\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+
+	viewsDir := filepath.Join(tmp, "views")
+	if err := os.MkdirAll(viewsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// box carries no [renderers] registration whatsoever — the probe must not
+	// special-case "is this type registered", only "is this a call expr", so a
+	// plain unregistered struct-typed bare identifier is the strongest witness
+	// that the stub is now unconditional.
+	writeMultiFile(t, viewsDir, "views.gsx", `package views
+
+type box struct{ S string }
+
+component Card(title string) { <div { attrs... }>{title}</div> }
+
+component Page(val box) {
+	<Card title="hi" class={ val }/>
+}
+`)
+
+	genRes, err := GenerateDirs(tmp, []string{viewsDir}, Options{FilterPkgs: []string{stdImportPath}, CSSMinify: true, JSMinify: true}, nil)
+	if err != nil {
+		t.Fatalf("GenerateDirs: %v", err)
+	}
+	dr := genRes[viewsDir]
+	if hasDiagErrors(dr.Diags) {
+		t.Fatalf("GenerateDirs: unexpected diagnostics for a bare non-string, unregistered class part (probe must stub it, #85): %v", dr.Diags)
+	}
+	var genSrc string
+	for _, src := range dr.Files {
+		genSrc += string(src)
+	}
+	// Parity with a call-expr part: the wrong type reaches _gsxrt.Class(val)
+	// verbatim in the emitted code, to fail at `go build` of the .x.go — NOT
+	// inside gsx generation itself.
+	if !strings.Contains(genSrc, "_gsxrt.Class(val)") {
+		t.Fatalf("generated .x.go missing Class(val); got:\n%s", genSrc)
+	}
+	// Pin that the pre-fix failure mode is truly gone: no diagnostic anywhere
+	// mentions the raw go/types skeleton error this used to surface as.
+	for _, d := range dr.Diags {
+		if strings.Contains(d.Message, "cannot use val") {
+			t.Fatalf("pre-fix raw go/types skeleton error resurfaced: %v", d)
 		}
 	}
 }

@@ -185,6 +185,7 @@ control_flow/value_switch_braced	diag render
 datajson/island_breakout	diag gen render
 datajson/island_multi_hole_rejected	diag(error)
 datajson/island_value	diag gen render
+diagnostics/class_part_undefined_ident	diag(error)
 diagnostics/ctx_in_interp	diag render
 diagnostics/handwritten_func_bad_attr	diag(error)
 diagnostics/noprops_component_with_attrs	diag(error)
@@ -499,10 +500,19 @@ renderers/attr_basic	diag gen render
 renderers/attr_error	diag gen render
 renderers/attr_error_cond	diag gen render
 renderers/attr_url	diag gen render
+renderers/class_bare_cfarm	diag gen render
+renderers/class_bare_cond	diag gen render
+renderers/class_bare_ident	diag gen render
 renderers/class_part	diag gen render
 renderers/class_part_component	diag gen render
 renderers/component_arg_negative	diag gen render
 renderers/css_attr_hole	diag gen render
+renderers/ctx_attr_url	diag gen render
+renderers/ctx_class_part	diag gen render
+renderers/ctx_cond_attr	diag gen render
+renderers/ctx_error	diag gen render
+renderers/ctx_fallthrough_attr	diag gen render
+renderers/ctx_text	diag gen render
 renderers/fallthrough_attr	diag gen render
 renderers/fallthrough_ordered_attr	diag gen render
 renderers/fliteral_attr	diag gen render
@@ -673,4 +683,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 675 cases (render: 552, error: 94, gen-pinned: 356)
+TOTAL: 685 cases (render: 561, error: 95, gen-pinned: 365)
