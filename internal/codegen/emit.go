@@ -1331,21 +1331,36 @@ func foldElementSpreads(b *bytes.Buffer, el *ast.Element, currentPkg *types.Pack
 	// bag value reaches the leaf contextually escaped for JS/CSS, and Spread's
 	// URL-key sanitization would then rewrite it (the inline path emits the
 	// escaped value verbatim). Reject rather than silently diverge from the
-	// inline rendering of the same attribute.
-	for _, a := range el.Attrs {
-		t, ok := a.(*ast.EmbeddedAttr)
-		if !ok || t.Lang == ast.EmbeddedText {
-			continue
+	// inline rendering of the same attribute. Cond-attr branches fold into the
+	// same bag (they inherit bagElementFold through condAttrsExpr), so the
+	// scan descends into them.
+	var rejectURLSinkLiterals func(attrs []ast.Attr) bool
+	rejectURLSinkLiterals = func(attrs []ast.Attr) bool {
+		for _, a := range attrs {
+			switch t := a.(type) {
+			case *ast.CondAttr:
+				if !rejectURLSinkLiterals(t.Then) || !rejectURLSinkLiterals(t.Else) {
+					return false
+				}
+			case *ast.EmbeddedAttr:
+				if t.Lang == ast.EmbeddedText {
+					continue
+				}
+				if _, static := embeddedStaticText(t); static {
+					continue
+				}
+				if cls.Context(t.Name) == attrclass.CtxURL {
+					bag.Errorf(t.Pos(), t.End(), "url-sink-fold",
+						"embedded %s attribute literal %q with @{ } interpolation is a URL attribute on <%s>; on an element carrying multiple spreads the shared bag's URL sanitization would rewrite the %s-escaped value, so it cannot fold — use at most one spread on this element or a non-URL attribute",
+						embeddedLangName(t.Lang), t.Name, el.Tag, embeddedLangName(t.Lang))
+					return false
+				}
+			}
 		}
-		if _, static := embeddedStaticText(t); static {
-			continue
-		}
-		if cls.Context(t.Name) == attrclass.CtxURL {
-			bag.Errorf(t.Pos(), t.End(), "url-sink-fold",
-				"embedded %s attribute literal %q with @{ } interpolation is a URL attribute on <%s>; on an element carrying multiple spreads the shared bag's URL sanitization would rewrite the %s-escaped value, so it cannot fold — use at most one spread on this element or a non-URL attribute",
-				embeddedLangName(t.Lang), t.Name, el.Tag, embeddedLangName(t.Lang))
-			return false
-		}
+		return true
+	}
+	if !rejectURLSinkLiterals(el.Attrs) {
+		return false
 	}
 	expr, used, err := composeBag(b, interpTemp, emitPipeWrap(b, interpTemp), false, el.Attrs, rt.rt(), el.Tag, classMergeExpr(mergeExpr, rt), table, resolved, imports, rt, bag, "return _gsxerr", bagElementFold)
 	if err != nil {
@@ -6156,13 +6171,10 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			// surrounding HTML-attribute escape. Component props remain restricted
 			// to EmbeddedText because contextual literals are element sinks.
 			if t.Lang != ast.EmbeddedText && ctx != bagElementFold {
-				var msg string
-				switch ctx {
-				case bagElementFold:
-					msg = fmt.Sprintf("embedded %s attribute literal %q with @{ } interpolation is not yet supported on an element that merges its attributes (<%s>); each @{ } hole needs %s-context escaping into the shared bag, which is not yet ported", embeddedLangName(t.Lang), t.Name, tag, embeddedLangName(t.Lang))
-				default:
-					msg = fmt.Sprintf("embedded %s attribute literal %q with @{ } interpolation cannot be used as a component prop on <%s> yet; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, tag)
-				}
+				// Only the component-prop context can still reach this reject: the
+				// element fold (including its cond-attr branches, which inherit
+				// bagElementFold through condAttrsExpr) lowers js/css holes above.
+				msg := fmt.Sprintf("embedded %s attribute literal %q with @{ } interpolation cannot be used as a component prop on <%s> yet; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, tag)
 				return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
 			if probeWrap {
