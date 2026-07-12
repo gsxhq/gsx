@@ -385,6 +385,8 @@ multispread/cond_class_part_renderer	diag gen render
 multispread/cond_interposed_static	diag gen render
 multispread/cond_spread_else	diag gen render
 multispread/cond_spread_else_untaken	diag gen render
+multispread/evaluation_order	diag render
+multispread/evaluation_order_error	diag render
 multispread/interposed_bool_scalar	diag gen render
 multispread/interposed_class_style	diag gen render
 multispread/interposed_embedded_hole	diag gen render
@@ -708,4 +710,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 710 cases (render: 593, error: 88, gen-pinned: 397)
+TOTAL: 712 cases (render: 595, error: 88, gen-pinned: 397)
