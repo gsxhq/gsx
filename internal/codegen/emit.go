@@ -1351,7 +1351,8 @@ func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, cur
 }
 
 // foldElementSpreads renders a non-component element carrying ≥2 spreads
-// (counting cond-nested), OR exactly one spread that is cond-nested, by
+// (counting cond-nested), OR exactly one spread that is cond-nested when a
+// root class/style attribute requires aggregation, by
 // folding ALL its attributes into one source-ordered ConcatAttrs(...) bag and
 // rendering that through the single-bag leaf. This is the reference
 // full-fold: last writer wins per key, class/style aggregate. The lone-cond
@@ -1387,11 +1388,9 @@ func foldElementSpreads(b *bytes.Buffer, el *ast.Element, currentPkg *types.Pack
 	return emitManualSpreadElement(b, el, 0, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)
 }
 
-// bagSpreadIndex returns the index of the (single) top-level element spread
-// and whether one is present. Enforcing at-most-one-spread — including
-// spreads nested in cond-attr branches — is done by walkSpreadAttrs before
-// this is consulted; by the time bagSpreadIndex is called, at most one
-// top-level spread can exist.
+// bagSpreadIndex returns the index of the first top-level element spread and
+// whether one is present. The full-fold dispatch handles multiple spreads
+// before this single-bag leaf path is consulted.
 func bagSpreadIndex(attrs []ast.Attr) (idx int, found bool) {
 	for i, a := range attrs {
 		if _, ok := a.(*ast.SpreadAttr); ok {
@@ -1404,10 +1403,8 @@ func bagSpreadIndex(attrs []ast.Attr) (idx int, found bool) {
 // firstTwoSpreadAttrs returns the first two spread attrs on an element in
 // depth-first source order, descending into cond-attr branches, plus the
 // enclosing cond-attr condition of the FIRST spread (empty when it is
-// top-level). It is the fold trigger's probe: an element carries at most one
-// spread total — a second spread anywhere is rejected upstream
-// (walkSpreadAttrs) — so `second` being non-nil means the caller
-// (elementFolds) is looking at that already-rejected ≥2-spread state, while
+// top-level). It is the fold trigger's probe: `second` being non-nil tells the
+// caller (elementFolds) to use the full-fold path, while
 // firstCond lets elementFolds detect a lone cond-NESTED spread (empty firstCond
 // = top-level spread; non-empty = nested in a `{ if … { { x... } } }`).
 //
@@ -5792,13 +5789,37 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			entries = nil
 		}
 	}
+	// Lowering a later conditional or error-returning expression can emit a
+	// statement immediately. Materialize contributors already encountered so
+	// those statements cannot move the later expression ahead of source order.
+	materializePrior := func() {
+		if probeWrap {
+			return
+		}
+		flush()
+		if len(parts) == 0 {
+			return
+		}
+		expr := parts[0]
+		if len(parts) > 1 {
+			expr = fmt.Sprintf("%s.ConcatAttrs(%s)", rtPkg, strings.Join(parts, ", "))
+		}
+		name := fmt.Sprintf("_gsxv%d", *interpTemp)
+		*interpTemp = *interpTemp + 1
+		fmt.Fprintf(b, "\t\t%s := %s\n", name, expr)
+		parts = []string{name}
+	}
+	orderedWrap := func(expr string) string {
+		materializePrior()
+		return wrap(expr)
+	}
 	for _, a := range attrs {
 		switch t := a.(type) {
 		case *ast.SpreadAttr:
 			flush()
 			expr := strings.TrimSpace(t.Expr)
 			if len(t.Stages) > 0 {
-				lowered, used, perr := lowerPipe(t.Expr, t.Stages, table, wrap)
+				lowered, used, perr := lowerPipe(t.Expr, t.Stages, table, orderedWrap)
 				if perr != nil {
 					msg := strings.TrimPrefix(perr.Error(), "codegen: ")
 					return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}
@@ -5808,7 +5829,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			}
 			parts = append(parts, expr)
 		case *ast.CondAttr:
-			flush()
+			materializePrior()
 			condExpr, used, cerr := condAttrsExpr(t, rtPkg, tag, mergeExpr, table, probeWrap, resolved, imports, rt, bag, interpTemp)
 			if cerr != nil {
 				return "", nil, cerr
@@ -5825,7 +5846,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 		case *ast.ExprAttr:
 			val := strings.TrimSpace(t.Expr)
 			if len(t.Stages) > 0 {
-				lowered, used, perr := lowerPipe(t.Expr, t.Stages, table, wrap)
+				lowered, used, perr := lowerPipe(t.Expr, t.Stages, table, orderedWrap)
 				if perr != nil {
 					msg := strings.TrimPrefix(perr.Error(), "codegen: ")
 					return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}
@@ -5836,7 +5857,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 				// unwraps (probe) instead of sitting raw in the bag literal.
 				last := t.Stages[len(t.Stages)-1]
 				if e, ok := table.filters.lookup(last.Name); ok && e.hasErr {
-					lowered = wrap(lowered)
+					lowered = orderedWrap(lowered)
 				}
 				val = lowered
 			} else if probeWrap {
@@ -5854,7 +5875,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 				if _, ok := tupleUnwrapType(tup); !ok {
 					return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "invalid-tuple", msg: fmt.Sprintf("attribute %q value %q returns %s; only (T, error) is supported", t.Name, t.Expr, tup)}
 				}
-				val = wrap(val)
+				val = orderedWrap(val)
 			}
 			if !probeWrap {
 				// Apply a registered [renderers] entry, if the attr's value type is
@@ -5917,7 +5938,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 				}
 				return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
-			entry, used, eerr := classEntryExpr(b, interpTemp, t, rtPkg, mergeExpr, table, resolved, probeWrap, wrap, errReturn)
+			entry, used, eerr := classEntryExpr(b, interpTemp, t, rtPkg, mergeExpr, table, resolved, probeWrap, orderedWrap, errReturn)
 			if eerr != nil {
 				return "", nil, eerr
 			}
