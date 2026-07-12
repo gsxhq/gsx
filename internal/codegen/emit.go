@@ -4998,8 +4998,9 @@ func attrsOnlyBagExpr(el *ast.Element, rtPkg, mergeExpr string, table funcTables
 // contexts that do not support hoisting (e.g. the analyze path passes a local
 // scratch buffer).
 // resolved maps *ClassPart nodes to their harvest type so classEntryExpr can detect
-// and hoist (T, error) tuple-returning unconditional plain parts. Pass nil in the
-// probe path (skeleton does not need resolved; probeWrap wraps call exprs instead).
+// and hoist (T, error) tuple-returning plain parts (conditional or not) and apply a
+// registered renderer. Pass nil in the probe path (skeleton does not need resolved;
+// probeWrap wraps call exprs instead).
 //
 // bagErrReturn enables [renderers] application at the FALLTHROUGH-bag boundary:
 // an unmatched ExprAttr's value renders as an HTML attribute at the leaf, so a

@@ -50,7 +50,7 @@ import (
 	"corpustest/cases/renderers_js_attr_hole/pg"
 
 	_gsxctx "context"
-	_gsxf22 "corpustest/cases/renderers_js_attr_hole/rend"
+	_gsxf26 "corpustest/cases/renderers_js_attr_hole/rend"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
@@ -68,7 +68,7 @@ func Tag(_gsxp TagProps) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxgw.S("<button @click=\"save(")
-		_gsxgw.JSValAttr(_gsxf22.PgJS((val)))
+		_gsxgw.JSValAttr(_gsxf26.PgJS((val)))
 		_gsxgw.S(")\">Save</button>")
 		return _gsxgw.Err()
 	})
