@@ -437,6 +437,7 @@ patterns/render_once	diag render
 pipeerr/attr_mid_stage	diag gen render
 pipeerr/child_prop_mid_stage	diag gen render
 pipeerr/class_cf_arm_mid_stage	diag gen render
+pipeerr/class_part_cond	diag gen render
 pipeerr/class_part_mid_stage	diag gen render
 pipeerr/cond_attr_branch_attr_tuple	diag gen render
 pipeerr/cond_attr_branch_cf_arm	diag gen render
@@ -513,6 +514,10 @@ renderers/ctx_cond_attr	diag gen render
 renderers/ctx_error	diag gen render
 renderers/ctx_fallthrough_attr	diag gen render
 renderers/ctx_text	diag gen render
+renderers/elem_class_cond	diag gen render
+renderers/elem_class_cond_alignment	diag gen render
+renderers/elem_class_cond_error	diag gen render
+renderers/elem_style_cond	diag gen render
 renderers/fallthrough_attr	diag gen render
 renderers/fallthrough_ordered_attr	diag gen render
 renderers/fliteral_attr	diag gen render
@@ -683,4 +688,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 685 cases (render: 561, error: 95, gen-pinned: 365)
+TOTAL: 690 cases (render: 566, error: 95, gen-pinned: 370)

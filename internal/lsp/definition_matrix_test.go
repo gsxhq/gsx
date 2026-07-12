@@ -190,11 +190,11 @@ func TestHoverObjectMatrix(t *testing.T) {
 
 // TestPipedClassPartCondStillCtrl pins the dispatch-order rule: a ClassPart
 // whose EXPR carries a pipeline still resolves its `: cond` guard through the
-// CtrlMap bridge (the pipeline path must not swallow the cond cursor). The
-// GUARDED part's piped seed itself returns no definition — conditional part
-// exprs carry no type harvest, so ExprMap has no entry to walk (a known
-// limitation) — while an UNCONDITIONAL piped part's seed resolves through
-// pipedTarget.
+// CtrlMap bridge (the pipeline path must not swallow the cond cursor). Since
+// #88, a conditional plain part's value expr is harvested exactly like an
+// unconditional one (renderer application + (T, error) unwrap need its
+// type), so ExprMap now has an entry for the GUARDED part's piped seed too —
+// it resolves through pipedTarget just like the unconditional part's seed.
 func TestPipedClassPartCondStillCtrl(t *testing.T) {
 	src := "package page\n\ncomponent Box(user string, cond bool) {\n\t<div class={\n\t\tuser |> trim,\n\t\tuser |> upper: cond,\n\t}>x</div>\n}\n"
 	pkg, path := analyzedLSPPackage(t, src)
@@ -220,10 +220,14 @@ func TestPipedClassPartCondStillCtrl(t *testing.T) {
 		t.Errorf("guard cond definition at line %d, want %d", dp.Line, want)
 	}
 
-	// Guarded piped seed: no ExprMap entry → graceful no-result, never a
-	// misaligned jump.
-	if dp, ok := exprDefinitionAt(pkg, path, strings.Index(src, "user |> upper")); ok {
-		t.Errorf("guarded piped seed unexpectedly resolved to %d:%d", dp.Line, dp.Column)
+	// Guarded piped seed: harvested like an unconditional part (#88), so it
+	// resolves via pipedTarget exactly like the unconditional case below.
+	dp, ok = exprDefinitionAt(pkg, path, strings.Index(src, "user |> upper"))
+	if !ok {
+		t.Fatal("no definition for guarded piped part's seed")
+	}
+	if want := line(strings.Index(src, "user string")); dp.Line != want {
+		t.Errorf("guarded piped seed definition at line %d, want %d", dp.Line, want)
 	}
 
 	// Unconditional piped seed resolves via pipedTarget.
