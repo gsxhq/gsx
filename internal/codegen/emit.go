@@ -3078,6 +3078,56 @@ func embeddedTextValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[as
 	return embeddedValueExpr(b, a.Segments, resolved, table, imports, rt, interpTemp, bag, errReturn, "unsupported-attr", fmt.Sprintf("attribute %q value", a.Name))
 }
 
+// componentEmbeddedTextValueExpr materializes an f-literal as an unescaped Go
+// string expression at a component boundary. Unlike emitEmbeddedTextAttr, this
+// path does not write an element attribute: the returned string is assigned to
+// a declared prop (or wrapped in Text for a Node prop) or stored as the value of
+// an unmatched Attrs entry. A whole-literal pipeline therefore runs before the
+// final supported result is stringified, including renderer dispatch and
+// (T, error) unwrapping.
+func componentEmbeddedTextValueExpr(
+	b *bytes.Buffer,
+	a *ast.EmbeddedAttr,
+	resolved map[ast.Node]types.Type,
+	table funcTables,
+	imports map[string]bool,
+	rt rtImports,
+	interpTemp *int,
+	bag *diag.Bag,
+	errReturn string,
+) (string, bool) {
+	value, ok := embeddedTextValueExpr(b, a, resolved, table, imports, rt, interpTemp, bag, errReturn)
+	if !ok || len(a.Stages) == 0 {
+		return value, ok
+	}
+
+	lowered, usedPkgs, err := lowerPipe(value, a.Stages, table, pipeWrapReturning(b, interpTemp, errReturn))
+	if err != nil {
+		bag.Errorf(a.Pos(), a.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+		return "", false
+	}
+	for _, path := range usedPkgs {
+		imports[path] = true
+	}
+
+	t, ok := resolved[a]
+	if !ok || t == nil {
+		bag.Errorf(a.Pos(), a.End(), "unresolved-interp", "could not resolve type of component attribute %q pipeline", a.Name)
+		return "", false
+	}
+	if _, isTuple := t.(*types.Tuple); isTuple {
+		elemT, ok := tupleUnwrapType(t)
+		if !ok {
+			bag.Errorf(a.Pos(), a.End(), "invalid-tuple", "component attribute %q pipeline returns %s; only (T, error) is supported", a.Name, t)
+			return "", false
+		}
+		lowered = hoistTupleReturning(b, lowered, interpTemp, errReturn)
+		t = elemT
+	}
+	lowered, t = applyRenderer(b, lowered, t, table, imports, interpTemp, errReturn)
+	return stringifyExpr(lowered, t, rt, a, bag, fmt.Sprintf("component attribute %q pipeline result", a.Name))
+}
+
 // embeddedValueExpr is embeddedTextValueExpr generalized over a raw segment
 // list, so a body/child *ast.EmbeddedInterp's Segments can be assembled through
 // the SAME logic (static text -> raw quoted literal, each hole -> holeStringExpr)
@@ -5020,16 +5070,19 @@ func emitSlotClosure(nodes []ast.Markup, currentPkg *types.Package, resolved map
 // propFieldEntry is one field in a child component's props literal. The ea,
 // rawVal, fieldName, and isNodeField fields are populated only for a prop-matched
 // *ExprAttr; they are used by genChildComponent to detect and hoist (T, error)
-// tuple-valued props before the _gsxgw.Node call.
+// tuple-valued props before the _gsxgw.Node call. embedded identifies a matched
+// EmbeddedText field so the ordered component-value pass can preserve its
+// authored evaluation position.
 // For an *OrderedAttrsAttr field, oa is non-nil and oaPairs holds per-pair info
 // (key + raw value expression); genChildComponent uses oa to look up resolved
 // types for each pair and rebuild the gsx.Attrs{…} literal after hoisting.
 type propFieldEntry struct {
-	str         string        // fully-computed field string, e.g. "Title: lookup(t)"
-	ea          *ast.ExprAttr // non-nil iff this entry came from a prop-matched ExprAttr
-	rawVal      string        // lowered expression (no _gsxunwrap wrapping); used for hoisting
-	fieldName   string        // Go field name; used to rebuild the string after hoisting
-	isNodeField bool          // whether the field expects gsx.Node (needs gsx.Val wrapping)
+	str         string            // fully-computed field string, e.g. "Title: lookup(t)"
+	ea          *ast.ExprAttr     // non-nil iff this entry came from a prop-matched ExprAttr
+	embedded    *ast.EmbeddedAttr // non-nil iff this entry came from a prop-matched EmbeddedText attr
+	rawVal      string            // lowered expression (no _gsxunwrap wrapping); used for hoisting
+	fieldName   string            // Go field name; used to rebuild the string after hoisting
+	isNodeField bool              // whether the field expects gsx.Node (needs gsx.Val wrapping)
 	// For OrderedAttrsAttr fields:
 	oa            *ast.OrderedAttrsAttr // non-nil iff this entry came from an ordered-attrs attr
 	oaPairs       []oaPairEntry         // per-pair info when oa != nil
@@ -5575,6 +5628,49 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 		case *ast.CommentAttr:
 			// Source-only comment; not a component prop.
 		case *ast.EmbeddedAttr:
+			if t.Lang == ast.EmbeddedText {
+				fn, isProp := matchField(declared, t.Name, fm)
+				if isProp {
+					if verr := validateMatchedField(fn, t.Name, propsType, declared); verr != nil {
+						return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "bad-field-match", msg: verr.Error()}
+					}
+				}
+
+				var value string
+				if probeWrap {
+					// The component boundary is always a built-in string. Hole and
+					// whole-stage expressions retain their separate harvest probes;
+					// this seed supplies the same string type to field checking and
+					// generic inference without changing those walks.
+					value = embeddedProbeSeed(t.Segments, table, usedPkgs)
+				} else {
+					var ok bool
+					value, ok = componentEmbeddedTextValueExpr(b, t, resolved, table, imports, rt, interpTemp, diagBag, bagErrReturn)
+					if !ok {
+						return nil, "", nil, errBagDiagReported
+					}
+				}
+
+				if isProp {
+					isNF := nodeFields[fn]
+					fieldValue := value
+					if isNF {
+						fieldValue = fmt.Sprintf("%s.Text(%s)", rtPkg, value)
+					}
+					fields = append(fields, propFieldEntry{
+						str:         fmt.Sprintf("%s: %s", fn, fieldValue),
+						embedded:    t,
+						fieldName:   fn,
+						isNodeField: isNF,
+						inferField:  fn,
+						inferArg:    value,
+					})
+				} else {
+					bag = append(bag, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), value))
+				}
+				continue
+			}
+
 			// A hole-free js`…`/css`…`/`…` literal forwards to the Attrs bag as
 			// raw text — identical to a plain string attribute (JSX-style
 			// directive forwarding, e.g. x-model=js`pdcaCategory`). Embedded
