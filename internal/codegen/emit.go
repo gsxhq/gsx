@@ -778,13 +778,15 @@ func emitFragmentValue(b *bytes.Buffer, fr *ast.Fragment, currentPkg *types.Pack
 // FORCED (emitted UNGUARDED so the root always wins) and their names are excluded
 // from the bag spread so a same-named bag entry can never emit (root wins).
 //
-// Cond-attrs follow the same positional rule (spec 2026-07-02 D3): a pre-spread
-// `{ if … }` emits each branch leaf under a `!Has(name)` guard inside its
-// branch; a post-spread one is evaluated exactly ONCE before the spread —
-// branch bodies record the taken branch in a bool temp and append their leaf
-// names to a dynamic drop slice the spread excludes — and its leaves render
-// after the spread under the recorded bool. class/style or a spread inside a
-// branch is rejected (the static merge/guard sites cannot account for them).
+// Cond-attrs follow the same positional rule: a pre-spread `{ if … }` emits
+// each branch leaf under a `!Has(name)` guard inside its branch; a post-spread
+// one is evaluated exactly ONCE before the spread — branch bodies record the
+// taken branch in a bool temp and append their leaf names to a dynamic drop
+// slice the spread excludes — and its leaves render after the spread under
+// the recorded bool. A class/style leaf inside a branch never reaches this
+// function: elementFolds/hasCondClassStyle routes such an element through
+// foldElementSpreads instead, which bakes the conditional contribution into
+// the bag (spec 2026-07-12: the D3 rejection this used to require is lifted).
 //
 // class/style are positional-exempt: wherever they appear they MERGE caller-last
 // (ClassMerged / StyleMerged), emitted once at the spread position. The author's
@@ -871,48 +873,6 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 		}
 		b.WriteString("\t\t}\n")
 		return true
-	}
-
-	// Cond-attr branch leaves must be plain named scalars: the class/style merge
-	// and the caller-wins guard/drop machinery are emitted at static sites and
-	// cannot account for a conditional class contribution or a spread's unknown
-	// keys. Validate every cond-attr on the element (any position) up front.
-	var validateCondBranch func(as []ast.Attr, encCond string) bool
-	validateCondBranch = func(as []ast.Attr, encCond string) bool {
-		for _, a := range as {
-			switch t := a.(type) {
-			case *ast.CondAttr:
-				if !validateCondBranch(t.Then, t.Cond) || !validateCondBranch(t.Else, "!("+t.Cond+")") {
-					return false
-				}
-				continue
-			}
-			name, _ := rootAttrName(a)
-			if c, ok := a.(*ast.ClassAttr); ok {
-				name = c.Name
-			}
-			if name == "class" || name == "style" {
-				hint := "; use the composable form (style={ … }) with conditional declarations instead"
-				if name == "class" {
-					if s, ok := a.(*ast.StaticAttr); ok {
-						hint = fmt.Sprintf("; use the composable form (class={ %q: %s }) instead", s.Value, encCond)
-					} else {
-						hint = "; use the composable form (class={ <expr>: <cond> }) instead"
-					}
-				}
-				bag.Errorf(a.Pos(), a.End(), "attr-fallthrough",
-					"conditional %s inside { if } on an element with attribute forwarding cannot join the %s merge%s", name, name, hint)
-				return false
-			}
-		}
-		return true
-	}
-	for _, a := range attrs {
-		if t, ok := a.(*ast.CondAttr); ok {
-			if !validateCondBranch(t.Then, t.Cond) || !validateCondBranch(t.Else, "!("+t.Cond+")") {
-				return false
-			}
-		}
 	}
 
 	// emitCondGuarded emits a PRE-spread cond-attr with every branch leaf
@@ -1453,7 +1413,50 @@ func firstTwoSpreadAttrs(attrs []ast.Attr) (first, second *ast.SpreadAttr, first
 // scratch buffer, while a non-folded lone-cond element (inline path) may.
 func elementFolds(attrs []ast.Attr) bool {
 	first, second, firstCond := firstTwoSpreadAttrs(attrs)
-	return second != nil || (first != nil && firstCond != "" && hasRootClassStyle(attrs))
+	return second != nil ||
+		(first != nil && firstCond != "" && hasRootClassStyle(attrs)) ||
+		(first != nil && hasCondClassStyle(attrs)) // D3 lift: spread + cond-attr class/style
+}
+
+// hasCondClassStyle reports whether attrs carries a class/style leaf inside a
+// cond-attr branch (any depth, incl. else-if). Such a shape is what D3 used to
+// reject on a forwarding element; routing it through the fold merges it via an
+// AttrsCond bag entry aggregated at the leaf.
+func hasCondClassStyle(attrs []ast.Attr) bool {
+	var walk func(as []ast.Attr) bool
+	walk = func(as []ast.Attr) bool {
+		for _, a := range as {
+			switch t := a.(type) {
+			case *ast.CondAttr:
+				if walk(t.Then) || walk(t.Else) {
+					return true
+				}
+			case *ast.ClassAttr:
+				if t.Name == "class" || t.Name == "style" {
+					return true
+				}
+			case *ast.StaticAttr:
+				if t.Name == "class" || t.Name == "style" {
+					return true
+				}
+			case *ast.EmbeddedAttr:
+				if t.Lang == ast.EmbeddedText && (t.Name == "class" || t.Name == "style") {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	// Only cond-attr-nested class/style counts (a top-level class/style is not a
+	// D3 case); so walk begins one level down, at each top-level CondAttr.
+	for _, a := range attrs {
+		if c, ok := a.(*ast.CondAttr); ok {
+			if walk(c.Then) || walk(c.Else) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // hasRootClassStyle reports whether attrs carries a TOP-LEVEL class or style
