@@ -17,5 +17,5 @@ gsx.Fragment(
 	Box(BoxProps{Active: true, C: "5px", Attrs: gsx.Attrs{{Key: "style", Value: "padding:1px"}}}),
 )
 -- diagnostics.golden --
-4:52: embedded css attribute literal "style" with @{ } interpolation is not yet supported on an element that merges its attributes (<div>); each @{ } hole needs css-context escaping into the shared bag, which is not yet ported
 -- render.golden --
+<div style="color:red; padding:1px; margin:5px">x</div>

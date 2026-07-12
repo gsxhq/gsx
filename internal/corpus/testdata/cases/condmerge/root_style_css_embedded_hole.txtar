@@ -18,5 +18,5 @@ Box(BoxProps{
 	Extra:  gsx.Attrs{{Key: "style", Value: "padding:1px"}},
 })
 -- diagnostics.golden --
-6:7: embedded css attribute literal "style" with @{ } interpolation is not yet supported on an element that merges its attributes (<div>); each @{ } hole needs css-context escaping into the shared bag, which is not yet ported
 -- render.golden --
+<div style="margin:5px; padding:1px">x</div>
