@@ -6116,7 +6116,11 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			}
 			parts = append(parts, condExpr)
 		case *ast.StaticAttr:
-			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), strconv.Quote(t.Value)))
+			value := strconv.Quote(t.Value)
+			if ctx == bagElementFold {
+				value = fmt.Sprintf("%s.RawURL(%s)", rtPkg, value)
+			}
+			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), value))
 		case *ast.ExprAttr:
 			val := strings.TrimSpace(t.Expr)
 			if len(t.Stages) > 0 {

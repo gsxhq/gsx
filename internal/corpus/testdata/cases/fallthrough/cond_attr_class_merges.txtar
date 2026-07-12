@@ -34,11 +34,11 @@ func Box(_gsxp BoxProps) _gsxrt.Node {
 		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
-		_gsxv0 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "base"}}, attrs)
+		_gsxv0 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("base")}}, attrs)
 		_gsxv1, _gsxerr := _gsxrt.AttrsCond(active, func() (_gsxrt.Attrs, error) {
-			return _gsxrt.Attrs{{Key: "class", Value: "on"}}, nil
+			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("on")}}, nil
 		}, func() (_gsxrt.Attrs, error) {
-			return _gsxrt.Attrs{{Key: "class", Value: "off"}}, nil
+			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("off")}}, nil
 		})
 		if _gsxerr != nil {
 			return _gsxerr

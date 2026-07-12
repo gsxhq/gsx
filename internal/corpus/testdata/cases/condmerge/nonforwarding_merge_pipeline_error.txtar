@@ -49,7 +49,7 @@ func Box(_gsxp BoxProps) _gsxrt.Node {
 		gap := _gsxp.Gap
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
-		_gsxv0 := _gsxrt.Attrs{{Key: "style", Value: "color:red"}}
+		_gsxv0 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawURL("color:red")}}
 		_gsxv2, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
 			_gsxv1, _gsxerr := _gsxf0.Decl((gap))
 			if _gsxerr != nil {
