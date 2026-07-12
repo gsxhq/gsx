@@ -1,0 +1,22 @@
+# O1 analog: a top-level style=css"…@{}…" hole + a LONE cond-nested spread.
+# hasRootClassStyle is Lang-agnostic, so the css-lang root style gates the
+# lone-cond fold (without it: silent duplicate style attribute). Folded, the
+# css @{ } hole cannot yet lower into the shared bag (#92) and fail-closes with
+# a POSITIONED, ELEMENT-worded diagnostic — no duplicate, no miscompile.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Box(active bool, c string, extra gsx.Attrs) {
+	<div style=css"margin:@{c}" { if active { { extra... } } }>x</div>
+}
+-- invoke --
+Box(BoxProps{
+	Active: true,
+	C:      "5px",
+	Extra:  gsx.Attrs{{Key: "style", Value: "padding:1px"}},
+})
+-- diagnostics.golden --
+6:7: embedded css attribute literal "style" with @{ } interpolation is not yet supported on an element that merges its attributes (<div>); each @{ } hole needs css-context escaping into the shared bag, which is not yet ported
+-- render.golden --

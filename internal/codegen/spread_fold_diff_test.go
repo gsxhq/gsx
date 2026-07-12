@@ -28,6 +28,8 @@ import (
 //	E5  >=2 spreads + interposed static, COLLIDING key (data-k) to pin position-based last-wins
 //	E6  >=2 spreads, second conditional        (fold: ConcatAttrs(a, AttrsCond(c, ->b)))
 //	E7  >=2 spreads + interposed conditional static
+//	E8  1 spread + root class + Form-2 conditional class (the D3-lift shape:
+//	    { if c { class="on8" } else { class="off8" } } on a forwarding element)
 //
 // E1 and E4 additionally carry a "class"/"href" pair (E1 with a javascript:
 // value) so the differential also exercises class aggregation and leaf URL
@@ -77,6 +79,11 @@ component E7(c bool) {
 	{{ a := gsx.Attrs{{Key: "data-k", Value: "a7"}} }}
 	{{ b := gsx.Attrs{{Key: "data-k", Value: "b7"}} }}
 	<a { a... } { if c { data-mid="m7" } } { b... }>e7</a>
+}
+
+component E8(c bool) {
+	{{ a := gsx.Attrs{{Key: "data-k", Value: "a8"}, {Key: "class", Value: "sp8"}} }}
+	<a class="base8" { a... } { if c { class="on8" } else { class="off8" } }>e8</a>
 }
 `
 
@@ -150,6 +157,8 @@ func main() {
 	render(ctx, "E6false", p.E6(p.E6Props{C: false}))
 	render(ctx, "E7true", p.E7(p.E7Props{C: true}))
 	render(ctx, "E7false", p.E7(p.E7Props{C: false}))
+	render(ctx, "E8true", p.E8(p.E8Props{C: true}))
+	render(ctx, "E8false", p.E8(p.E8Props{C: false}))
 }
 `)
 
@@ -303,10 +312,20 @@ func TestSpreadFoldDiffMatrix(t *testing.T) {
 			nil,
 			gsx.Attrs{{Key: "data-k", Value: "b7"}},
 		), "e7"},
+		{"E8true", gsx.ConcatAttrs(
+			gsx.Attrs{{Key: "class", Value: "base8"}},
+			gsx.Attrs{{Key: "data-k", Value: "a8"}, {Key: "class", Value: "sp8"}},
+			gsx.Attrs{{Key: "class", Value: "on8"}},
+		), "e8"},
+		{"E8false", gsx.ConcatAttrs(
+			gsx.Attrs{{Key: "class", Value: "base8"}},
+			gsx.Attrs{{Key: "data-k", Value: "a8"}, {Key: "class", Value: "sp8"}},
+			gsx.Attrs{{Key: "class", Value: "off8"}},
+		), "e8"},
 	}
 
-	// runSpreadFoldMatrix's harness renders 11 scenarios total (E0 plus the 10
-	// E1-E7 cases here); E0 is checked separately above.
+	// runSpreadFoldMatrix's harness renders 13 scenarios total (E0 plus the 12
+	// E1-E8 cases here); E0 is checked separately above.
 	if len(got) != len(cases)+1 {
 		t.Fatalf("runSpreadFoldMatrix returned %d renders, want %d: %v", len(got), len(cases)+1, got)
 	}
