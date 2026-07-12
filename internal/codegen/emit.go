@@ -5636,10 +5636,12 @@ func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table f
 	return fmt.Sprintf("%s.AttrsCond(%s, %s, %s)", rtPkg, strings.TrimSpace(t.Cond), thenThunk, elseArg), usedPkgs, nil
 }
 
-// condBranchAttrs builds a <rtPkg>.Attrs{…} literal from one conditional-attr
-// branch's attrs. Static/expr/bool attrs become bag entries keyed by raw name; a
-// composable class={…} becomes a ClassJoin entry. A spread or nested
-// conditional inside a branch is unsupported (kept shallow).
+// condBranchAttrs builds a <rtPkg>.Attrs expression from one conditional-attr
+// branch's attrs (delegating to composeBag). Static/expr/bool attrs become bag
+// entries keyed by raw name; a composable class={…} becomes a ClassJoin entry.
+// A spread or nested conditional inside a branch composes into the same
+// expression (its own ConcatAttrs part), recursing through condAttrsExpr for
+// nested conds.
 //
 // wrap is the lowerPipe hook for an error-returning stage in a branch pipeline —
 // always non-nil (probePipeWrap in probe mode, thunkPipeWrap in emit mode): the
@@ -5667,15 +5669,57 @@ func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string,
 }
 
 // composeBag lowers attrs into a single Go expression evaluating to
-// rtPkg.Attrs — currently always a `rtPkg.Attrs{…}` literal. errReturn is
-// threaded through to applyRenderer and classEntryExpr for their error-hoist
-// site; callers pass whatever return-statement shape matches their enclosing
-// function's signature.
+// rtPkg.Attrs: a bare `rtPkg.Attrs{…}` literal when attrs is statics-only (the
+// common case — no needless wrapper), a single bare spread/cond expr when
+// attrs holds exactly one entry and no statics, or rtPkg.ConcatAttrs(…) over
+// each part in source order when mixed. A run of static/expr/bool/class/
+// embedded attrs coalesces into one Attrs{…} part; each SpreadAttr or nested
+// CondAttr becomes its own part. errReturn is threaded through to
+// applyRenderer and classEntryExpr for their error-hoist site; callers pass
+// whatever return-statement shape matches their enclosing function's
+// signature.
 func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, probeWrap bool, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, errReturn string) (string, map[string]string, error) {
 	var entries []string
 	usedPkgs := map[string]string{}
+	var parts []string
+	// flush turns a maximal run of static/expr/bool/class/embedded entries into
+	// one rtPkg.Attrs{…} part, so pure-static branches (the overwhelming
+	// majority) still emit a single literal — no needless ConcatAttrs wrapper —
+	// while a spread or nested cond-attr gets its own part in source order.
+	flush := func() {
+		if len(entries) > 0 {
+			parts = append(parts, fmt.Sprintf("%s.Attrs{%s}", rtPkg, strings.Join(entries, ", ")))
+			entries = nil
+		}
+	}
 	for _, a := range attrs {
 		switch t := a.(type) {
+		case *ast.SpreadAttr:
+			flush()
+			expr := strings.TrimSpace(t.Expr)
+			if len(t.Stages) > 0 {
+				lowered, used, perr := lowerPipe(t.Expr, t.Stages, table, wrap)
+				if perr != nil {
+					msg := strings.TrimPrefix(perr.Error(), "codegen: ")
+					return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}
+				}
+				maps.Copy(usedPkgs, used)
+				expr = lowered
+			}
+			parts = append(parts, expr)
+		case *ast.CondAttr:
+			flush()
+			condExpr, used, cerr := condAttrsExpr(t, rtPkg, tag, mergeExpr, table, probeWrap, resolved, interpTemp)
+			if cerr != nil {
+				return "", nil, cerr
+			}
+			maps.Copy(usedPkgs, used)
+			if probeWrap {
+				condExpr = fmt.Sprintf("_gsxunwrap(%s)", condExpr)
+			} else {
+				condExpr = hoistTuple(b, condExpr, interpTemp)
+			}
+			parts = append(parts, condExpr)
 		case *ast.StaticAttr:
 			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), strconv.Quote(t.Value)))
 		case *ast.ExprAttr:
@@ -5771,5 +5815,13 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}
 		}
 	}
-	return fmt.Sprintf("%s.Attrs{%s}", rtPkg, strings.Join(entries, ", ")), usedPkgs, nil
+	flush()
+	switch len(parts) {
+	case 0:
+		return fmt.Sprintf("%s.Attrs{}", rtPkg), usedPkgs, nil
+	case 1:
+		return parts[0], usedPkgs, nil
+	default:
+		return fmt.Sprintf("%s.ConcatAttrs(%s)", rtPkg, strings.Join(parts, ", ")), usedPkgs, nil
+	}
 }
