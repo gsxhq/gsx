@@ -203,7 +203,9 @@ always *merge* — the component's tokens first, the caller's appended (then
 deduplicated by the configured class merger). A `class` written after the
 spread is still merged, not forced. This holds inside `{ if cond { class=… }
 else { class=… } }` too: a conditional `class`/`style` on an element carrying
-a spread merges with the root and the spread, same as the unconditional form.
+a spread merges with the root and the spread, same as the unconditional form —
+except a `css`/`js`-embedded hole (`style=css"…@{}…"`) inside the branch is not
+yet supported there and reports a positioned error.
 
 Every element spread also sanitizes URL-classified attribute keys at the leaf,
 for any bag, with no exceptions and no unsanitizing spread — see
