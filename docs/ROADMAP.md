@@ -767,6 +767,16 @@ vocabulary remains a design aspiration, not the current API.
    conditional contributions aggregate) instead of erroring toward the
    composable form. Corpus: `condmerge/*`.
 
+   **Uniform non-forwarding class/style composition - SHIPPED** (2026-07-12,
+   #96, `2026-07-12-nonforwarding-class-style-merge-design.md`). Plain HTML
+   elements no longer need an attribute spread to merge repeated `class` or
+   `style` contributors. Multiple same-name contributors anywhere in the
+   source tree, including conditional branches, fold into one attribute;
+   class tokens aggregate in source order and style declarations use
+   source-order last-wins per property. Unrelated class/style pairs and lone
+   conditional contributors retain the direct inline path. Corpus:
+   `condmerge/nonforwarding_*`.
+
 ## Tracked debts / deferrals
 
 - [ ] **Fallthrough forwarding through nested component calls** - the
