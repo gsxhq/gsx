@@ -31,12 +31,16 @@ func PgColor(t pg.Text) string {
 -- input.gsx --
 package views
 
-import "corpustest/cases/renderers_css_attr_hole/pg"
+import (
+	"corpustest/cases/renderers_css_attr_hole/pg"
+	"github.com/gsxhq/gsx"
+)
 
 func mkText(s string, valid bool) pg.Text { return pg.Text{String: s, Valid: valid} }
 
-component Tag(val pg.Text) {
-	<div data-style=css`color:@{ val }`>x</div>
+component Tag(val pg.Text, a gsx.Attrs, b gsx.Attrs) {
+	<div data-style=css`color:@{ val }`>inline</div>
+	<div { a... } data-style=css`color:@{ val }` { b... }>fold</div>
 }
 -- invoke --
 Tag(TagProps{Val: mkText("@import url(evil.css)", true)})
@@ -51,6 +55,7 @@ import (
 
 	_gsxctx "context"
 	_gsxf12 "corpustest/cases/renderers_css_attr_hole/rend"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
@@ -59,19 +64,32 @@ func mkText(s string, valid bool) pg.Text { return pg.Text{String: s, Valid: val
 
 type TagProps struct {
 	Val pg.Text
+	A   gsx.Attrs
+	B   gsx.Attrs
 }
 
-//line input.gsx:7:1
+//line input.gsx:10:1
 func Tag(_gsxp TagProps) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		val := _gsxp.Val
+		a := _gsxp.A
+		b := _gsxp.B
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:8:2
+//line input.gsx:11:2
 		_gsxgw.S("<div data-style=\"color:")
 		_gsxgw.AttrValue(_gsxrt.StyleValue(string(_gsxf12.PgColor((val)))))
-		_gsxgw.S("\">x</div>")
+		_gsxgw.S("\">inline</div>")
+//line input.gsx:12:2
+		_gsxv0 := a
+		_gsxv1 := _gsxrt.FilterCSS(string(_gsxf12.PgColor((val))))
+		_gsxv2 := _gsxrt.ConcatAttrs(_gsxv0, _gsxrt.Attrs{{Key: "data-style", Value: "color:" + _gsxv1}}, b)
+		_gsxgw.S("<div")
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv2.Class())
+		_gsxgw.StyleMerged("", _gsxv2.Style())
+		_gsxgw.Spread(ctx, _gsxv2, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+		_gsxgw.S(">fold</div>")
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-<div data-style="color:ZgotmplZ">x</div>
+<div data-style="color:ZgotmplZ">inline</div><div data-style="color:ZgotmplZ">fold</div>

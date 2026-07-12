@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -144,6 +145,29 @@ func TestAttrAnyEscapes(t *testing.T) {
 	}
 	if got := buf.String(); got != "a&#34;b" {
 		t.Errorf("AttrAny = %q", got)
+	}
+}
+
+func TestAttrString(t *testing.T) {
+	cases := []struct {
+		in   any
+		want string
+	}{
+		{"text", "text"}, {[]byte("bytes"), "bytes"}, {stubStringer{}, "stub"},
+		{true, "true"}, {int(-1), "-1"}, {int8(-2), "-2"}, {int16(-3), "-3"},
+		{int32(-4), "-4"}, {int64(-5), "-5"}, {uint(1), "1"}, {uint8(2), "2"},
+		{uint16(3), "3"}, {uint32(4), "4"}, {uint64(5), "5"}, {uintptr(6), "6"},
+		{float32(1.5), "1.5"}, {float64(2.5), "2.5"},
+	}
+	for _, c := range cases {
+		got, err := AttrString(c.in)
+		if err != nil || got != c.want {
+			t.Errorf("AttrString(%#v) = %q, %v; want %q, nil", c.in, got, err, c.want)
+		}
+	}
+	_, err := AttrString(struct{ X int }{X: 1})
+	if got, want := fmt.Sprint(err), "gsx: AttrString: unsupported dynamic type struct { X int }"; got != want {
+		t.Errorf("unsupported error = %q, want %q", got, want)
 	}
 }
 

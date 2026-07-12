@@ -23,6 +23,18 @@ import (
 	"unicode/utf8"
 )
 
+// EscapeJSVal returns v escaped for a JavaScript value context.
+func EscapeJSVal(v any) string { return jsValEscaper(v) }
+
+// EscapeJSStr returns s escaped for the interior of a JavaScript string literal.
+func EscapeJSStr(s string) string { return jsStrString(s) }
+
+// EscapeJSTmpl returns s escaped for the text portion of a JavaScript template literal.
+func EscapeJSTmpl(s string) string { return jsTmplString(s) }
+
+// EscapeJSRegexp returns s escaped for a JavaScript regular-expression literal.
+func EscapeJSRegexp(s string) string { return jsRegexpString(s) }
+
 // JSVal writes v into a JS value context (e.g. `var x = <here>`), as the
 // stdlib's jsValEscaper does. A gsx.RawJS value is emitted verbatim; everything
 // else is JSON-marshaled with the </script>, */, <!-- and U+2028/U+2029
@@ -31,7 +43,7 @@ func (gw *Writer) JSVal(v any) {
 	if gw.err != nil {
 		return
 	}
-	gw.writeStr(jsValEscaper(v))
+	gw.writeStr(EscapeJSVal(v))
 }
 
 // JSValAttr writes v into a JS value context inside an HTML attribute (e.g.
@@ -42,7 +54,7 @@ func (gw *Writer) JSValAttr(v any) {
 	if gw.err != nil {
 		return
 	}
-	gw.writeStr(htmlReplacer.Replace(jsValEscaper(v)))
+	gw.writeStr(htmlReplacer.Replace(EscapeJSVal(v)))
 }
 
 // jsStrString returns the JS-string-escaped form of s (the same logic used by
@@ -56,7 +68,7 @@ func (gw *Writer) JSStr(s string) {
 	if gw.err != nil {
 		return
 	}
-	gw.writeStr(jsStrString(s))
+	gw.writeStr(EscapeJSStr(s))
 }
 
 // JSStrAttr writes s into a JS string literal inside an HTML attribute. It
@@ -65,7 +77,7 @@ func (gw *Writer) JSStrAttr(s string) {
 	if gw.err != nil {
 		return
 	}
-	gw.writeStr(htmlReplacer.Replace(jsStrString(s)))
+	gw.writeStr(htmlReplacer.Replace(EscapeJSStr(s)))
 }
 
 // jsTmplString returns the JS-template-literal-escaped form of s (the same
@@ -78,7 +90,7 @@ func (gw *Writer) JSTmpl(s string) {
 	if gw.err != nil {
 		return
 	}
-	gw.writeStr(jsTmplString(s))
+	gw.writeStr(EscapeJSTmpl(s))
 }
 
 // JSTmplAttr writes s into a JS template literal inside an HTML attribute. It
@@ -87,7 +99,7 @@ func (gw *Writer) JSTmplAttr(s string) {
 	if gw.err != nil {
 		return
 	}
-	gw.writeStr(htmlReplacer.Replace(jsTmplString(s)))
+	gw.writeStr(htmlReplacer.Replace(EscapeJSTmpl(s)))
 }
 
 // jsRegexpString returns the JS-regexp-escaped form of s (the same logic used
@@ -107,7 +119,7 @@ func (gw *Writer) JSRegexp(s string) {
 	if gw.err != nil {
 		return
 	}
-	gw.writeStr(jsRegexpString(s))
+	gw.writeStr(EscapeJSRegexp(s))
 }
 
 // JSRegexpAttr writes s into a JS regexp literal inside an HTML attribute. It
@@ -116,7 +128,7 @@ func (gw *Writer) JSRegexpAttr(s string) {
 	if gw.err != nil {
 		return
 	}
-	gw.writeStr(htmlReplacer.Replace(jsRegexpString(s)))
+	gw.writeStr(htmlReplacer.Replace(EscapeJSRegexp(s)))
 }
 
 var jsonMarshalType = reflect.TypeFor[json.Marshaler]()

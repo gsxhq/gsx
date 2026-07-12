@@ -3106,6 +3106,13 @@ func holeStringExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.
 		t = elemT
 	}
 	expr, t = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
+	if classify(t) == catAnyMixed {
+		name := fmt.Sprintf("_gsxv%d", *interpTemp)
+		*interpTemp++
+		fmt.Fprintf(b, "\t\t%s, _gsxerr := %s.AttrString(%s)\n", name, rt.rt(), expr)
+		b.WriteString("\t\tif _gsxerr != nil { return _gsxerr }\n")
+		return name, true
+	}
 	switch classify(t) {
 	case catString, catBytes:
 		return "string(" + expr + ")", true
@@ -3296,6 +3303,136 @@ func emitRenderCSSAttr(b *bytes.Buffer, expr string, t types.Type, rt rtImports,
 	}
 	fmt.Fprintf(b, "\t\t_gsxgw.AttrValue(%s.StyleValue(%s))\n", rt.rt(), styleExpr)
 	return true
+}
+
+// embeddedHoleExpr lowers the evaluation shared by contextual embedded holes.
+// Context-specific escaping is deliberately left to the caller.
+func embeddedHoleExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag) (string, types.Type, bool) {
+	expr := strings.TrimSpace(n.Expr)
+	if len(n.Stages) > 0 {
+		lowered, used, err := lowerPipe(n.Expr, n.Stages, table, emitPipeWrap(b, interpTemp))
+		if err != nil {
+			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+			return "", nil, false
+		}
+		for _, p := range used {
+			imports[p] = true
+		}
+		expr = lowered
+	}
+	t := resolved[n]
+	if t == nil {
+		bag.Errorf(n.Pos(), n.End(), "unresolved-interp", "could not resolve type of contextual attribute interpolation %q", n.Expr)
+		return "", nil, false
+	}
+	if _, tuple := t.(*types.Tuple); tuple {
+		elem, ok := tupleUnwrapType(t)
+		if !ok {
+			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "contextual attribute interpolation %q returns %s; only (T, error) is supported", expr, t)
+			return "", nil, false
+		}
+		expr = hoistTuple(b, expr, interpTemp)
+		t = elem
+	}
+	expr, t = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
+	return expr, t, true
+}
+
+func embeddedJSValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) (string, bool) {
+	parts := make([]string, 0, len(a.Segments))
+	for _, seg := range a.Segments {
+		switch s := seg.(type) {
+		case *ast.Text:
+			if s.Value != "" {
+				parts = append(parts, strconv.Quote(s.Value))
+			}
+		case *ast.Interp:
+			expr, typ, ok := embeddedHoleExpr(b, s, resolved, table, imports, interpTemp, bag)
+			if !ok {
+				return "", false
+			}
+			var escaped string
+			switch s.JSCtx {
+			case ast.JSCtxValue:
+				escaped = rt.rt() + ".EscapeJSVal(" + expr + ")"
+			case ast.JSCtxString, ast.JSCtxTemplate, ast.JSCtxRegexp:
+				str, ok := stringifyJSExpr(expr, typ, s, bag)
+				if !ok {
+					return "", false
+				}
+				fn := "EscapeJSStr"
+				if s.JSCtx == ast.JSCtxTemplate {
+					fn = "EscapeJSTmpl"
+				}
+				if s.JSCtx == ast.JSCtxRegexp {
+					fn = "EscapeJSRegexp"
+				}
+				escaped = rt.rt() + "." + fn + "(" + str + ")"
+			default:
+				bag.Errorf(s.Pos(), s.End(), "unsafe-js-context", "JS attribute interpolation %q has no JS context", s.Expr)
+				return "", false
+			}
+			// Evaluate every dynamic hole at its source position. A later hole may
+			// emit tuple/renderer error-handling statements while it is lowered;
+			// retaining this expression inline until final concatenation would move
+			// that later evaluation ahead of this one.
+			name := fmt.Sprintf("_gsxv%d", *interpTemp)
+			*interpTemp++
+			fmt.Fprintf(b, "\t\t%s := %s\n", name, escaped)
+			parts = append(parts, name)
+		}
+	}
+	if len(parts) == 0 {
+		return `""`, true
+	}
+	return strings.Join(parts, " + "), true
+}
+
+func stringifyJSExpr(expr string, t types.Type, n ast.Node, bag *diag.Bag) (string, bool) {
+	switch classify(t) {
+	case catString, catBytes:
+		return "string(" + expr + ")", true
+	case catStringer:
+		return "(" + expr + ").String()", true
+	default:
+		bag.Errorf(n.Pos(), n.End(), "unrenderable-js", "value of type %s not renderable in a JS string/template/regex context (need string or Stringer)", t)
+		return "", false
+	}
+}
+
+func embeddedCSSValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) (string, bool) {
+	parts := make([]string, 0, len(a.Segments))
+	for _, seg := range a.Segments {
+		switch s := seg.(type) {
+		case *ast.Text:
+			if s.Value != "" {
+				parts = append(parts, strconv.Quote(s.Value))
+			}
+		case *ast.Interp:
+			expr, typ, ok := embeddedHoleExpr(b, s, resolved, table, imports, interpTemp, bag)
+			if !ok {
+				return "", false
+			}
+			var value string
+			if isRawCSS(typ) {
+				value = "string(" + expr + ")"
+			} else {
+				str, ok := stringifyExpr(expr, typ, rt, s, bag, fmt.Sprintf("CSS interpolation %q", s.Expr))
+				if !ok {
+					return "", false
+				}
+				value = rt.rt() + ".FilterCSS(" + str + ")"
+			}
+			name := fmt.Sprintf("_gsxv%d", *interpTemp)
+			*interpTemp++
+			fmt.Fprintf(b, "\t\t%s := %s\n", name, value)
+			parts = append(parts, name)
+		}
+	}
+	if len(parts) == 0 {
+		return `""`, true
+	}
+	return strings.Join(parts, " + "), true
 }
 
 // emitJSAttrValue selects the runtime JS *Attr escaper by JS context, mirroring
@@ -6005,14 +6142,12 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 				entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), strconv.Quote(text)))
 				break
 			}
-			// A hole-bearing literal: unlike a component PROP (which cannot yet
-			// receive an interpolated value), a bag ENTRY takes the assembled
-			// string as its Value — the leaf sanitizes by attribute context, so
-			// the value belongs in the bag exactly like a plain-text hole on the
-			// inline path. Only EmbeddedText is lowered here: a js`…@{}…`/css`…@{}…`
-			// literal escapes each hole by its own grammar (a distinct lowering),
-			// so it stays rejected until that path is ported.
-			if t.Lang != ast.EmbeddedText {
+			// A hole-bearing element literal enters the shared bag as an assembled
+			// string. Text holes are stringified directly; JS/CSS holes are first
+			// escaped for their embedded grammar. The leaf then performs the one
+			// surrounding HTML-attribute escape. Component props remain restricted
+			// to EmbeddedText because contextual literals are element sinks.
+			if t.Lang != ast.EmbeddedText && ctx != bagElementFold {
 				var msg string
 				switch ctx {
 				case bagElementFold:
@@ -6033,7 +6168,16 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			// Hole lowering can emit tuple, pipeline, or renderer hoists directly.
 			// Evaluate all earlier bag contributors before those statements.
 			materializePrior()
-			val, ok := embeddedTextValueExpr(b, t, resolved, table, imports, rt, interpTemp, bag)
+			var val string
+			var ok bool
+			switch t.Lang {
+			case ast.EmbeddedText:
+				val, ok = embeddedTextValueExpr(b, t, resolved, table, imports, rt, interpTemp, bag)
+			case ast.EmbeddedJS:
+				val, ok = embeddedJSValueExpr(b, t, resolved, table, imports, rt, interpTemp, bag)
+			case ast.EmbeddedCSS:
+				val, ok = embeddedCSSValueExpr(b, t, resolved, table, imports, rt, interpTemp, bag)
+			}
 			if !ok {
 				// embeddedTextValueExpr has already emitted the positioned
 				// diagnostic (unresolved/unusable hole); abort without a second one.
