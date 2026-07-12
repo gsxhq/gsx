@@ -234,6 +234,16 @@ func anyRenderString(v any) (string, bool) {
 	return "", false
 }
 
+// AttrString converts a dynamically typed renderable value to the same raw
+// string used by AttrAny before HTML attribute escaping.
+func AttrString(v any) (string, error) {
+	s, ok := anyRenderString(v)
+	if !ok {
+		return "", fmt.Errorf("gsx: AttrString: unsupported dynamic type %T", v)
+	}
+	return s, nil
+}
+
 // TextAny writes v as escaped text, dispatching on its dynamic type. Codegen
 // emits it for interpolations whose type is a type parameter with a MIXED
 // non-tilde constraint whose terms are all runtime-dispatchable (e.g. T
@@ -241,8 +251,8 @@ func anyRenderString(v any) (string, bool) {
 // anyRenderString at generate time, so the dispatch is total for generated
 // code. See gsx.Val for the named-types-not-matched contract this mirrors.
 func (gw *Writer) TextAny(v any) {
-	s, ok := anyRenderString(v)
-	if !ok {
+	s, err := AttrString(v)
+	if err != nil {
 		if gw.err == nil {
 			gw.err = fmt.Errorf("gsx: TextAny: unsupported dynamic type %T", v)
 		}
@@ -254,8 +264,8 @@ func (gw *Writer) TextAny(v any) {
 // AttrAny is TextAny for attribute-value position (AttrValue escaping).
 // See gsx.Val for the named-types-not-matched contract this mirrors.
 func (gw *Writer) AttrAny(v any) {
-	s, ok := anyRenderString(v)
-	if !ok {
+	s, err := AttrString(v)
+	if err != nil {
 		if gw.err == nil {
 			gw.err = fmt.Errorf("gsx: AttrAny: unsupported dynamic type %T", v)
 		}

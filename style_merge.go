@@ -79,7 +79,48 @@ func (gw *Writer) StyleMerged(rootStyle, bagStyle string) {
 	if rootStyle == "" && bagStyle == "" {
 		return
 	}
-	decls := append(splitDecls(rootStyle), splitDecls(bagStyle)...)
+	rootDecls := splitDecls(rootStyle)
+	bagDecls := splitDecls(bagStyle)
+	decls := append(rootDecls, bagDecls...)
+	// When every declaration is valid and unique there is nothing to merge or
+	// discard. Preserve the authored bytes within each contributor; rebuilding
+	// with strings.Join would normalize semicolon adjacency even though merging
+	// had made no semantic change. The contributor boundary still uses the same
+	// explicit separator as Attrs.Style.
+	unique := len(decls) > 0
+	for i, d := range decls {
+		p := declProp(d)
+		if p == "" {
+			unique = false
+			break
+		}
+		for j := range i {
+			if declProp(decls[j]) == p {
+				unique = false
+				break
+			}
+		}
+		if !unique {
+			break
+		}
+	}
+	if unique {
+		rootRaw, bagRaw := rootStyle, bagStyle
+		if len(rootDecls) == 0 {
+			rootRaw = ""
+		}
+		if len(bagDecls) == 0 {
+			bagRaw = ""
+		}
+		value := joinAttrStrings("style", rootRaw, bagRaw)
+		if value == "" {
+			return
+		}
+		gw.writeStr(` style="`)
+		gw.AttrValue(value)
+		gw.writeStr(`"`)
+		return
+	}
 	out := decls[:0]
 	for i, d := range decls {
 		p := declProp(d)

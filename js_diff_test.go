@@ -70,6 +70,28 @@ func gsxJSRegexp(s string) string {
 	return b.String()
 }
 
+func TestEscapeJSHelpersMatchWriters(t *testing.T) {
+	hostile := `a\"</script><script>alert(1)</script>` + "\u2028\u2029`${x}.*+?[](){}"
+	valCases := []any{hostile, RawJS(`alert("raw")`), nil, true, false, 42, 1.5}
+	for _, v := range valCases {
+		if got, want := EscapeJSVal(v), gsxJSVal(v); got != want {
+			t.Errorf("EscapeJSVal(%#v) = %q, want writer output %q", v, got, want)
+		}
+	}
+	stringCases := []string{hostile, "\u2028\u2029", "`${x}`", `.*+?[](){}`}
+	for _, s := range stringCases {
+		if got, want := EscapeJSStr(s), gsxJSStr(s); got != want {
+			t.Errorf("EscapeJSStr(%q) = %q, want writer output %q", s, got, want)
+		}
+		if got, want := EscapeJSTmpl(s), gsxJSTmpl(s); got != want {
+			t.Errorf("EscapeJSTmpl(%q) = %q, want writer output %q", s, got, want)
+		}
+		if got, want := EscapeJSRegexp(s), gsxJSRegexp(s); got != want {
+			t.Errorf("EscapeJSRegexp(%q) = %q, want writer output %q", s, got, want)
+		}
+	}
+}
+
 // jsCorpus is the shared input set: boundary bytes, quote/comment-breakout
 // vectors, JS specials, and the U+2028/U+2029 line terminators.
 func jsCorpus() []string {
