@@ -1,0 +1,13 @@
+# { nil... } agrees with Go's f(nil...): nil is a legal Attrs value (the nil
+# slice), and spreading it contributes nothing — no forwarding, no forcing.
+-- input.gsx --
+package views
+
+component Page() {
+	<div class="a" id="x" { nil... }>hi</div>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<div class="a" id="x">hi</div>
