@@ -53,17 +53,18 @@ func Bad(_gsxp BadProps) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv1, _gsxerr := _gsxrt.AttrsCond(d, func() (_gsxrt.Attrs, error) {
+		_gsxv1 := _gsxv0
+		_gsxv2, _gsxerr := _gsxrt.AttrsCond(d, func() (_gsxrt.Attrs, error) {
 			return y, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv2 := _gsxrt.ConcatAttrs(_gsxv0, _gsxv1)
+		_gsxv3 := _gsxrt.ConcatAttrs(_gsxv1, _gsxv2)
 		_gsxgw.S("<a")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv2.Class())
-		_gsxgw.StyleMerged("", _gsxv2.Style())
-		_gsxgw.Spread(ctx, _gsxv2, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv3.Class())
+		_gsxgw.StyleMerged("", _gsxv3.Style())
+		_gsxgw.Spread(ctx, _gsxv3, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
 		_gsxgw.S(">hi</a>")
 		return _gsxgw.Err()
 	})

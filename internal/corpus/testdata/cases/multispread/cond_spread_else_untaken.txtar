@@ -46,7 +46,8 @@ func CondSpreadElse(_gsxp CondSpreadElseProps) _gsxrt.Node {
 		y := _gsxp.Y
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
-		_gsxv0, _gsxerr := _gsxrt.AttrsCond(c, func() (_gsxrt.Attrs, error) {
+		_gsxv0 := base
+		_gsxv1, _gsxerr := _gsxrt.AttrsCond(c, func() (_gsxrt.Attrs, error) {
 			return x, nil
 		}, func() (_gsxrt.Attrs, error) {
 			return y, nil
@@ -54,11 +55,11 @@ func CondSpreadElse(_gsxp CondSpreadElseProps) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxv1 := _gsxrt.ConcatAttrs(base, _gsxv0)
+		_gsxv2 := _gsxrt.ConcatAttrs(_gsxv0, _gsxv1)
 		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv1.Class())
-		_gsxgw.StyleMerged("", _gsxv1.Style())
-		_gsxgw.Spread(ctx, _gsxv1, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv2.Class())
+		_gsxgw.StyleMerged("", _gsxv2.Style())
+		_gsxgw.Spread(ctx, _gsxv2, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
 		_gsxgw.S(">z</div>")
 		return _gsxgw.Err()
 	})

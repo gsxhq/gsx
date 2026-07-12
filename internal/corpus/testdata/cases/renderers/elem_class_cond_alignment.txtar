@@ -54,7 +54,7 @@ import (
 	"corpustest/cases/renderers_elem_class_cond_alignment/pg"
 
 	_gsxctx "context"
-	_gsxf19 "corpustest/cases/renderers_elem_class_cond_alignment/rend"
+	_gsxf20 "corpustest/cases/renderers_elem_class_cond_alignment/rend"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
@@ -83,7 +83,7 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		_gsxgw.S("</span>")
 //line input.gsx:9:2
 		_gsxgw.S("<div class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.ClassIf(_gsxf19.PgText((val)), on))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.ClassIf(_gsxf20.PgText((val)), on))
 		_gsxgw.S("\">x</div>")
 //line input.gsx:10:2
 		_gsxgw.S("<span>")

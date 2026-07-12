@@ -65,7 +65,7 @@ import (
 	"corpustest/cases/renderers_ctx_cond_attr/pg"
 
 	_gsxctx "context"
-	_gsxf14 "corpustest/cases/renderers_ctx_cond_attr/rend"
+	_gsxf15 "corpustest/cases/renderers_ctx_cond_attr/rend"
 	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
@@ -110,7 +110,7 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
 		_gsxv1, _gsxerr := _gsxrt.AttrsCond(hot, func() (_gsxrt.Attrs, error) {
-			_gsxv0, _gsxerr := _gsxf14.PgText(ctx, (val))
+			_gsxv0, _gsxerr := _gsxf15.PgText(ctx, (val))
 			if _gsxerr != nil {
 				return nil, _gsxerr
 			}

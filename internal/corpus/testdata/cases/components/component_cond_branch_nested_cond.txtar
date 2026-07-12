@@ -65,19 +65,20 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		inner := _gsxp.Inner
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxv1, _gsxerr := _gsxrt.AttrsCond(outer, func() (_gsxrt.Attrs, error) {
-			_gsxv0, _gsxerr := _gsxrt.AttrsCond(inner, func() (_gsxrt.Attrs, error) {
+		_gsxv2, _gsxerr := _gsxrt.AttrsCond(outer, func() (_gsxrt.Attrs, error) {
+			_gsxv0 := _gsxrt.Attrs{{Key: "data-o", Value: "1"}}
+			_gsxv1, _gsxerr := _gsxrt.AttrsCond(inner, func() (_gsxrt.Attrs, error) {
 				return _gsxrt.Attrs{{Key: "data-i", Value: "1"}}, nil
 			}, nil)
 			if _gsxerr != nil {
 				return nil, _gsxerr
 			}
-			return _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-o", Value: "1"}}, _gsxv0), nil
+			return _gsxrt.ConcatAttrs(_gsxv0, _gsxv1), nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Card(CardProps{Title: _gsxrt.Text("Hi"), Attrs: _gsxrt.ConcatAttrs(_gsxv1)}))
+		_gsxgw.Node(ctx, Card(CardProps{Title: _gsxrt.Text("Hi"), Attrs: _gsxrt.ConcatAttrs(_gsxv2)}))
 		return _gsxgw.Err()
 	})
 }
