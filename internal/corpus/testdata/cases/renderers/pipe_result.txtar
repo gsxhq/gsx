@@ -4,7 +4,7 @@
 # runs on resolved[n] (the pipeline's result type) after lowerPipe, exactly
 # once, never touching the pipeline's intermediate stages.
 -- gsx.toml --
-filterPackages = ["./wrapf"]
+filter_packages = ["./wrapf"]
 
 [renderers]
 "./pg.Text" = "./rend.PgText"

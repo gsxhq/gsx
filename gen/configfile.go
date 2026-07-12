@@ -33,9 +33,9 @@ const configFileName = "gsx.toml"
 // gen.WithRenderer and codegen.RendererAlias).
 type tomlConfig struct {
 	Filters        map[string]string `toml:"filters"`
-	FilterPackages []string          `toml:"filterPackages"`
+	FilterPackages []string          `toml:"filter_packages"`
 	Renderers      map[string]string `toml:"renderers"`
-	URLAttrs       []tomlRule        `toml:"urlAttrs"`
+	URLAttrs       []tomlRule        `toml:"url_attrs"`
 	URLPresets     []string          `toml:"url_presets"`
 	Formatter      *tomlFormatter    `toml:"formatter"`
 	Minify         *tomlMinify       `toml:"minify"`
@@ -208,7 +208,7 @@ func loadConfig(path string) (config, error) {
 		cfg.classMerger = &codegen.ClassMergerRef{PkgPath: pkgPath, FuncName: funcName}
 	}
 
-	if cfg.urlRules, err = appendTomlRules(path, "urlAttrs", cfg.urlRules, tc.URLAttrs); err != nil {
+	if cfg.urlRules, err = appendTomlRules(path, "url_attrs", cfg.urlRules, tc.URLAttrs); err != nil {
 		return config{}, err
 	}
 	for _, name := range tc.URLPresets {

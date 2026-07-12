@@ -5,7 +5,7 @@
 # BEFORE the bag literal, exactly like a declared prop or a direct element attr.
 # (A MID-stage error already worked via emitPipeWrap; this pins the final stage.)
 -- gsx.toml --
-filterPackages = ["./filters"]
+filter_packages = ["./filters"]
 -- filters/filters.go --
 package filters
 

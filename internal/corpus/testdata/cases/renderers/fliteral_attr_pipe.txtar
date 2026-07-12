@@ -6,7 +6,7 @@
 # covers). Non-URL context (title), so the rendered string routes through
 # the ordinary emitAttrValue escaper.
 -- gsx.toml --
-filterPackages = ["./wrapf"]
+filter_packages = ["./wrapf"]
 
 [renderers]
 "./pg.Text" = "./rend.PgText"

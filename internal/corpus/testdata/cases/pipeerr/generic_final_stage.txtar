@@ -2,7 +2,7 @@
 # existing per-context tuple auto-unwrap handles the instantiated result the
 # same as any concrete-type filter.
 -- gsx.toml --
-filterPackages = ["./filters"]
+filter_packages = ["./filters"]
 -- filters/filters.go --
 package filters
 

@@ -1,9 +1,9 @@
-# Bag hardening Part A: a project [[urlAttrs]] PREFIX rule (data-url-) cannot be
+# Bag hardening Part A: a project [[url_attrs]] PREFIX rule (data-url-) cannot be
 # enumerated into Get blocks, so the leaf walks the bag with SpreadURLPrefixed
 # and writes every prefix-matched key through the strict URL sink. data-url-next
 # is sanitized; an unrelated data-x is untouched and keeps its bag order.
 -- gsx.toml --
-[[urlAttrs]]
+[[url_attrs]]
 prefix = "data-url-"
 -- input.gsx --
 package views

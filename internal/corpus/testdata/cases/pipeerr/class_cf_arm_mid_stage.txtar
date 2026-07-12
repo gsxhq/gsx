@@ -2,7 +2,7 @@
 # composed class={ } (the hoistValueCF/armExpr path): the hoisted temp + guard
 # must land INSIDE the taken if/else block, not before it.
 -- gsx.toml --
-filterPackages = ["./filters"]
+filter_packages = ["./filters"]
 -- filters/filters.go --
 package filters
 

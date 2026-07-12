@@ -1,12 +1,12 @@
 # A GoChunk plain-imports a package that gsx.toml ALSO registers as a filter
-# package (filterPackages), and the component uses NO |> filter from it. The
+# package (filter_packages), and the component uses NO |> filter from it. The
 # reserved _gsxf<i> alias for that package must NOT be emitted — it would be an
 # unused second import of the same path ("imported as _gsxf0 and not used").
 # Regression for one-learning ui/once.gsx, whose GoChunk imports structpages
 # (a configured filter pkg) for OnceScopeMiddleware while <Once> uses no filter.
 # The alias line is only correct when a filter is actually lowered into the body.
 -- gsx.toml --
-filterPackages = ["./filters"]
+filter_packages = ["./filters"]
 -- filters/filters.go --
 package filters
 

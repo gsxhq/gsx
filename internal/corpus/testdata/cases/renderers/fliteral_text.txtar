@@ -8,7 +8,7 @@
 # is the "fliteral_text" render boundary: emitEmbeddedInterp's applyRenderer
 # call, distinct from genInterp's.
 -- gsx.toml --
-filterPackages = ["./wrapf"]
+filter_packages = ["./wrapf"]
 
 [renderers]
 "./pg.Text" = "./rend.PgText"

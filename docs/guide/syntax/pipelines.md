@@ -22,7 +22,7 @@ gsx ships a built-in filter library (the `std` package) that is always available
 
 When assembling a URL in an `f`-literal, encode each query component in its hole: URL attributes sanitize the **assembled whole** (scheme allow-list + attribute escaping) but never rewrite the bytes inside a hole, so `` f`/search?q=@{ q |> urlquery }` `` is what keeps a `q` containing `&`, `=`, `%` or spaces from changing the URL's meaning.
 
-To register your own named filter, add it to the `[filters]` table in `gsx.toml` — see [Configuration → `[filters]`](../config.md#filters-named-pipeline-filters). To register every exported function from a package at once, list the package path in `filterPackages`. In both cases the function must have the seed-first shape: the piped value is the first parameter (after an optional `context.Context`), and extra stage arguments follow.
+To register your own named filter, add it to the `[filters]` table in `gsx.toml` — see [Configuration → `[filters]`](../config.md#filters-named-pipeline-filters). To register every exported function from a package at once, list the package path in `filter_packages`. In both cases the function must have the seed-first shape: the piped value is the first parameter (after an optional `context.Context`), and extra stage arguments follow.
 
 <!--@include: ./_generated/pipelines/010-pipelines-filters.md-->
 

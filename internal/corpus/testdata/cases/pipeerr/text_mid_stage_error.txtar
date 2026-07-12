@@ -3,7 +3,7 @@
 # partial output already written, and the LATER stage (join) never runs. The
 # batch main's render-error capture pins the trailing "[render error] ..." line.
 -- gsx.toml --
-filterPackages = ["./filters"]
+filter_packages = ["./filters"]
 -- filters/filters.go --
 package filters
 

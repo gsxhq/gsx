@@ -1,10 +1,10 @@
 # Proves DirOptions.Classifier plumbing: a case-local gsx.toml declares
-# data-x as a URL-context attribute via [[urlAttrs]]; a PLAIN ELEMENT (not a
+# data-x as a URL-context attribute via [[url_attrs]]; a PLAIN ELEMENT (not a
 # bag-forwarding spread) already routes CtxURL attrs through the sanitizing
 # writer at emit time, so this pins the per-case classifier reaching codegen
 # without needing the bag-forwarding extraction work (a later task).
 -- gsx.toml --
-[[urlAttrs]]
+[[url_attrs]]
 name = "data-x"
 -- input.gsx --
 package views

@@ -1,8 +1,8 @@
-# A custom filter package wired via per-case gsx.toml filterPackages. The final
+# A custom filter package wired via per-case gsx.toml filter_packages. The final
 # stage returns (string, error); the existing tuple auto-unwrap handles it —
 # this case pins the ALREADY-SHIPPED behavior end-to-end for the first time.
 -- gsx.toml --
-filterPackages = ["./filters"]
+filter_packages = ["./filters"]
 -- filters/filters.go --
 package filters
 

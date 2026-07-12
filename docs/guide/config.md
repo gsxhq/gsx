@@ -125,7 +125,7 @@ generated module can import (it is resolved by the Go type-checker against that
 module). A non-exported name, a method value, or a missing function is a clear
 config error.
 
-### `filterPackages` — bulk filter packages
+### `filter_packages` — bulk filter packages
 
 A list of package import paths. **Every** exported function in each listed
 package is registered as a filter, named by its lower-cased function name
@@ -134,7 +134,7 @@ package is registered as a filter, named by its lower-cased function name
 naming each one.
 
 ```toml
-filterPackages = ["example.com/myproject/templatefuncs"]
+filter_packages = ["example.com/myproject/templatefuncs"]
 ```
 
 The gsx built-in `std` filter package is **always available** — you do not list
@@ -142,7 +142,7 @@ it. It ships `upper`, `lower`, `trim`, `truncate`, `join`, `default`, `printf`
 (a `fmt.Sprintf` wrapper with the piped value as the first verb:
 `{ price |> printf("$%.2f") }`), `urlquery` (percent-encodes a URL query
 component, like html/template's `urlquery`), and `dataURL` (assembles a base64
-`data:` URL — see [Pipelines](./syntax/pipelines.md)). List `filterPackages` only for your own
+`data:` URL — see [Pipelines](./syntax/pipelines.md)). List `filter_packages` only for your own
 packages, or to set precedence (later packages win on name collisions).
 
 #### `std` is the lowest-precedence base
@@ -154,7 +154,7 @@ built-in — the rest of `std` stays available. So you can override `dataURL`
 whole standard library. Precedence, low → high:
 
 1. `std` — the built-in base, always present.
-2. `filterPackages` (config) / `WithFilters` (code) — listed in order,
+2. `filter_packages` (config) / `WithFilters` (code) — listed in order,
    **last package wins** on a name collision, and each wins over `std`.
 3. `[filters]` aliases (config) / `WithFilter` (code) — a named single-function
    alias, highest precedence of all.
@@ -210,10 +210,10 @@ key.
 
 ::: warning gsx.toml key ordering
 TOML attaches a bare key to the table header above it — put top-level keys
-like `filterPackages` **before** `[renderers]` (and any other table).
+like `filter_packages` **before** `[renderers]` (and any other table).
 :::
 
-### `[[urlAttrs]]` — URL attribute contexts
+### `[[url_attrs]]` — URL attribute contexts
 
 gsx treats ordinary `attr={expr}` values as attribute-escaped text, except for
 URL attributes. The built-ins cover the standard HTML URL attributes (`href`,
@@ -227,11 +227,11 @@ Each rule matches by **exact name** (`name`, case-insensitive) **or by prefix**
 
 ```toml
 # A specific URL-bearing attribute.
-[[urlAttrs]]
+[[url_attrs]]
 name = "data-href"
 
 # A family of URL-bearing attributes.
-[[urlAttrs]]
+[[url_attrs]]
 prefix = "data-url-"
 ```
 
@@ -260,7 +260,7 @@ covered; `hx-swap` / `hx-target` / `hx-trigger` and other `hx-*` attributes are
 not URLs and are never sanitized.
 :::
 
-Presets compose additively with `[[urlAttrs]]` and with `gen.WithURLPreset`; an
+Presets compose additively with `[[url_attrs]]` and with `gen.WithURLPreset`; an
 unknown preset name is a hard config error.
 
 JavaScript and CSS-valued attributes do not need name configuration. Write them
@@ -455,13 +455,13 @@ set, the option wins. The option route requires a [project
 ```toml
 # gsx.toml
 #
-# Top-level keys (filterPackages, class_merger, …) come BEFORE any [table]
+# Top-level keys (filter_packages, class_merger, …) come BEFORE any [table]
 # header — TOML attaches a bare key to whichever table precedes it, so
 # e.g. class_merger after [minify] would silently become minify.class_merger.
 
 # (optional) packages whose exported funcs are all registered as filters,
 # named by lower-cased func name. std is always available and not listed.
-filterPackages = ["example.com/myproject/templatefuncs"]
+filter_packages = ["example.com/myproject/templatefuncs"]
 
 # Tailwind-aware class merger (omit to use gsx's built-in last-wins dedup).
 class_merger = "myapp/twcfg.Merge"
@@ -478,7 +478,7 @@ target = "github.com/jackielii/structpages.IDTarget"
 "github.com/jackc/pgx/v5/pgtype.Text" = "example.com/app/filters.PgText"
 
 # URL attribute contexts beyond the built-ins.
-[[urlAttrs]]
+[[url_attrs]]
 name = "data-href"
 
 # Formatter settings for gsx fmt and editor formatting.

@@ -1,8 +1,8 @@
-# Bag hardening Part A: a project [[urlAttrs]] exact-name rule (data-href) makes
+# Bag hardening Part A: a project [[url_attrs]] exact-name rule (data-href) makes
 # that name URL-classified, so a value smuggled through a fallthrough bag is
 # extracted and sanitized at the leaf just like a built-in URL attribute.
 -- gsx.toml --
-[[urlAttrs]]
+[[url_attrs]]
 name = "data-href"
 -- input.gsx --
 package views
