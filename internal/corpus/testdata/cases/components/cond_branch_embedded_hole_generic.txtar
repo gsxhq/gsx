@@ -1,0 +1,23 @@
+# A mixed non-tilde generic hole (T string | int -> catAnyMixed) inside an
+# embedded text literal in a conditional attribute branch: the AttrString
+# conversion hoist lands inside the branch's func() (Attrs, error) thunk, so
+# its error return must be `nil, _gsxerr` (thunk shape), not the render
+# closure's bare `return _gsxerr`.
+-- input.gsx --
+package views
+
+component Field(label string) { <input aria-label={label} { attrs... }/> }
+
+component Wrap[T string | int](edit bool, v T) {
+	<Field label="c" { if edit { title=f"Hi @{v}" } } />
+}
+
+component Page() {
+	<Wrap[string] edit={true} v={"a<b"} />
+	<Wrap[int] edit={true} v={7} />
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<input aria-label="c" title="Hi a&lt;b"/><input aria-label="c" title="Hi 7"/>

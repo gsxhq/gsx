@@ -1,0 +1,69 @@
+# An error-returning renderer applied to an embedded-text hole inside a
+# conditional attribute branch: applyRenderer's hoist lands inside the
+# branch's func() (Attrs, error) thunk, so its error return must be
+# `nil, _gsxerr` (thunk shape), not the render closure's bare
+# `return _gsxerr`. A failing renderer propagates as the render error.
+-- gsx.toml --
+[renderers]
+"./pg.Text" = "./rend.PgText"
+-- pg/pg.go --
+package pg
+
+type Text struct {
+	String string
+	Valid  bool
+}
+-- rend/rend.go --
+package rend
+
+import (
+	"errors"
+
+	"corpustest/cases/renderers_cond_branch_embedded_hole_renderer/pg"
+)
+
+var ErrInvalid = errors.New("invalid text")
+
+func PgText(t pg.Text) (string, error) {
+	if !t.Valid {
+		return "", ErrInvalid
+	}
+	return t.String, nil
+}
+-- helpers.go --
+package views
+
+import (
+	"context"
+	"fmt"
+	"io"
+
+	"github.com/gsxhq/gsx"
+)
+
+func checkedErrorPage() gsx.Node {
+	return gsx.Func(func(ctx context.Context, w io.Writer) error {
+		err := Page(PageProps{Edit: true, Val: mkText("x", false)}).Render(ctx, w)
+		if err == nil || err.Error() != "invalid text" {
+			return fmt.Errorf("render error = %v, want invalid text", err)
+		}
+		return nil
+	})
+}
+-- input.gsx --
+package views
+
+import "corpustest/cases/renderers_cond_branch_embedded_hole_renderer/pg"
+
+func mkText(s string, valid bool) pg.Text { return pg.Text{String: s, Valid: valid} }
+
+component Field(label string) { <input aria-label={label} { attrs... }/> }
+
+component Page(edit bool, val pg.Text) {
+	<Field label="c" { if edit { title=f"Hi @{val}" } } />
+}
+-- invoke --
+gsx.Fragment(Page(PageProps{Edit: true, Val: mkText("there", true)}), checkedErrorPage())
+-- diagnostics.golden --
+-- render.golden --
+<input aria-label="c" title="Hi there"/>

@@ -1,0 +1,26 @@
+# A js/css embedded literal on a URL-sink attribute of a multi-spread element
+# is rejected: the fold routes every bag value through Spread, whose URL-key
+# sanitization would rewrite the contextually-escaped literal (inline emits it
+# verbatim after JS escaping — e.g. an author's deliberate javascript: handler
+# would silently become about:invalid#gsx on the fold path). Rejecting keeps
+# inline and folded output byte-identical wherever both are accepted.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component JSPage(u string, a gsx.Attrs, b gsx.Attrs) {
+	<a { a... } href=js"javascript:go(@{u})" { b... }>x</a>
+}
+
+component CSSPage(u string, a gsx.Attrs, b gsx.Attrs) {
+	<form { a... } action=css"color:@{u}" { b... }>x</form>
+}
+
+component CondPage(u string, c bool, a gsx.Attrs, b gsx.Attrs) {
+	<a { a... } { b... } { if c { href=js"javascript:go(@{u})" } }>x</a>
+}
+-- diagnostics.golden --
+6:14: embedded js attribute literal "href" with @{ } interpolation is a URL attribute on <a>; on an element carrying multiple spreads the shared bag's URL sanitization would rewrite the js-escaped value, so it cannot fold — use at most one spread on this element or a non-URL attribute
+10:17: embedded css attribute literal "action" with @{ } interpolation is a URL attribute on <form>; on an element carrying multiple spreads the shared bag's URL sanitization would rewrite the css-escaped value, so it cannot fold — use at most one spread on this element or a non-URL attribute
+14:32: embedded js attribute literal "href" with @{ } interpolation is a URL attribute on <a>; on an element carrying multiple spreads the shared bag's URL sanitization would rewrite the js-escaped value, so it cannot fold — use at most one spread on this element or a non-URL attribute
