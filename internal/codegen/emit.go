@@ -5949,7 +5949,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 				var msg string
 				switch ctx {
 				case bagElementFold:
-					msg = fmt.Sprintf("composable %s={ … } attribute is not yet supported on an element carrying multiple spreads (<%s>)", t.Name, tag)
+					msg = fmt.Sprintf("composable %s={ … } attribute is not yet supported on an element that merges its attributes (<%s>)", t.Name, tag)
 				default:
 					msg = fmt.Sprintf("%s attribute in a conditional branch (<%s>) not supported yet", t.Name, tag)
 				}
@@ -5980,7 +5980,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 				var msg string
 				switch ctx {
 				case bagElementFold:
-					msg = fmt.Sprintf("embedded %s attribute literal %q with @{ } interpolation is not yet supported on an element carrying multiple spreads (<%s>); each @{ } hole needs %s-context escaping into the shared bag, which is not yet ported", embeddedLangName(t.Lang), t.Name, tag, embeddedLangName(t.Lang))
+					msg = fmt.Sprintf("embedded %s attribute literal %q with @{ } interpolation is not yet supported on an element that merges its attributes (<%s>); each @{ } hole needs %s-context escaping into the shared bag, which is not yet ported", embeddedLangName(t.Lang), t.Name, tag, embeddedLangName(t.Lang))
 				default:
 					msg = fmt.Sprintf("embedded %s attribute literal %q with @{ } interpolation cannot be used as a component prop on <%s> yet; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, tag)
 				}
@@ -6008,7 +6008,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			var msg string
 			switch ctx {
 			case bagElementFold:
-				msg = fmt.Sprintf("unsupported attribute %T on an element carrying multiple spreads (<%s>)", a, tag)
+				msg = fmt.Sprintf("unsupported attribute %T on an element that merges its attributes (<%s>)", a, tag)
 			default:
 				msg = fmt.Sprintf("unsupported attribute %T in a conditional branch (<%s>)", a, tag)
 			}
