@@ -1,4 +1,5 @@
-# a literal nil spread is a no-op: it forwards nothing and forces nothing
+# { nil... } agrees with Go's f(nil...): nil is a legal Attrs value (the nil
+# slice), and spreading it contributes nothing — no forwarding, no forcing.
 -- input.gsx --
 package views
 
