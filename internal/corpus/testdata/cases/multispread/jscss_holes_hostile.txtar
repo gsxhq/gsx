@@ -3,14 +3,21 @@ package views
 
 import "github.com/gsxhq/gsx"
 
-component Page(v string, a gsx.Attrs, b gsx.Attrs) {
+func trustedJS() gsx.RawJS { return gsx.RawJS("trusted()") }
+func trustedCSS() gsx.RawCSS { return gsx.RawCSS("color:red") }
+
+component Page(v string, rawJS gsx.RawJS, rawCSS gsx.RawCSS, a gsx.Attrs, b gsx.Attrs) {
 	<div data-x=js`v=@{v};s='@{v}';t=\`@{v}\`;r=/@{v}/`>inline</div>
 	<div { a... } data-x=js`v=@{v};s='@{v}';t=\`@{v}\`;r=/@{v}/` { b... }>fold</div>
 	<div style=css`content:@{v}`>inline</div>
 	<div { a... } style=css`content:@{v}` { b... }>fold</div>
+	<div data-raw=js`v=@{rawJS}`>inline-raw-js</div>
+	<div { a... } data-raw=js`v=@{rawJS}` { b... }>fold-raw-js</div>
+	<div style=css`@{rawCSS}`>inline-raw-css</div>
+	<div { a... } style=css`@{rawCSS}` { b... }>fold-raw-css</div>
 }
 -- invoke --
-Page(PageProps{V: "'\"</script><x>&\u2028\u2029"})
+Page(PageProps{V: "'\"</script><x>&\u2028\u2029", RawJS: trustedJS(), RawCSS: trustedCSS()})
 -- diagnostics.golden --
 -- render.golden --
-<div data-x="v=&#34;&#39;\&#34;\u003c/script\u003e\u003cx\u003e\u0026\u2028\u2029&#34;;s=&#39;\u0027\u0022\u003c\/script\u003e\u003cx\u003e\u0026\u2028\u2029&#39;;t=`\u0027\u0022\u003c\/script\u003e\u003cx\u003e\u0026\u2028\u2029`;r=/\u0027\u0022\u003c\/script\u003e\u003cx\u003e\u0026\u2028\u2029/">inline</div><div data-x="v=&#34;&#39;\&#34;\u003c/script\u003e\u003cx\u003e\u0026\u2028\u2029&#34;;s=&#39;\u0027\u0022\u003c\/script\u003e\u003cx\u003e\u0026\u2028\u2029&#39;;t=`\u0027\u0022\u003c\/script\u003e\u003cx\u003e\u0026\u2028\u2029`;r=/\u0027\u0022\u003c\/script\u003e\u003cx\u003e\u0026\u2028\u2029/">fold</div><div style="content:ZgotmplZ">inline</div><div style="content:ZgotmplZ">fold</div>
+<div data-x="v=&#34;&#39;\&#34;\u003c/script\u003e\u003cx\u003e\u0026\u2028\u2029&#34;;s=&#39;\u0027\u0022\u003c\/script\u003e\u003cx\u003e\u0026\u2028\u2029&#39;;t=`\u0027\u0022\u003c\/script\u003e\u003cx\u003e\u0026\u2028\u2029`;r=/\u0027\u0022\u003c\/script\u003e\u003cx\u003e\u0026\u2028\u2029/">inline</div><div data-x="v=&#34;&#39;\&#34;\u003c/script\u003e\u003cx\u003e\u0026\u2028\u2029&#34;;s=&#39;\u0027\u0022\u003c\/script\u003e\u003cx\u003e\u0026\u2028\u2029&#39;;t=`\u0027\u0022\u003c\/script\u003e\u003cx\u003e\u0026\u2028\u2029`;r=/\u0027\u0022\u003c\/script\u003e\u003cx\u003e\u0026\u2028\u2029/">fold</div><div style="content:ZgotmplZ">inline</div><div style="content:ZgotmplZ">fold</div><div data-raw="v=trusted()">inline-raw-js</div><div data-raw="v=trusted()">fold-raw-js</div><div style="color:red">inline-raw-css</div><div style="color:red">fold-raw-css</div>

@@ -31,12 +31,16 @@ func PgJS(t pg.Text) string {
 -- input.gsx --
 package views
 
-import "corpustest/cases/renderers_js_attr_hole/pg"
+import (
+	"corpustest/cases/renderers_js_attr_hole/pg"
+	"github.com/gsxhq/gsx"
+)
 
 func mkText(s string, valid bool) pg.Text { return pg.Text{String: s, Valid: valid} }
 
-component Tag(val pg.Text) {
-	<button @click=js`save(@{ val })`>Save</button>
+component Tag(val pg.Text, a gsx.Attrs, b gsx.Attrs) {
+	<button @click=js`save(@{ val })`>inline</button>
+	<button { a... } @click=js`save(@{ val })` { b... }>fold</button>
 }
 -- invoke --
 Tag(TagProps{Val: mkText("</script>", true)})
@@ -51,6 +55,7 @@ import (
 
 	_gsxctx "context"
 	_gsxf28 "corpustest/cases/renderers_js_attr_hole/rend"
+	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
@@ -59,19 +64,32 @@ func mkText(s string, valid bool) pg.Text { return pg.Text{String: s, Valid: val
 
 type TagProps struct {
 	Val pg.Text
+	A   gsx.Attrs
+	B   gsx.Attrs
 }
 
-//line input.gsx:7:1
+//line input.gsx:10:1
 func Tag(_gsxp TagProps) _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		val := _gsxp.Val
+		a := _gsxp.A
+		b := _gsxp.B
 		_gsxgw := _gsxrt.W(_gsxw)
-//line input.gsx:8:2
+//line input.gsx:11:2
 		_gsxgw.S("<button @click=\"save(")
 		_gsxgw.JSValAttr(_gsxf28.PgJS((val)))
-		_gsxgw.S(")\">Save</button>")
+		_gsxgw.S(")\">inline</button>")
+//line input.gsx:12:2
+		_gsxv0 := a
+		_gsxv1 := _gsxrt.EscapeJSVal(_gsxf28.PgJS((val)))
+		_gsxv2 := _gsxrt.ConcatAttrs(_gsxv0, _gsxrt.Attrs{{Key: "@click", Value: "save(" + _gsxv1 + ")"}}, b)
+		_gsxgw.S("<button")
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv2.Class())
+		_gsxgw.StyleMerged("", _gsxv2.Style())
+		_gsxgw.Spread(ctx, _gsxv2, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+		_gsxgw.S(">fold</button>")
 		return _gsxgw.Err()
 	})
 }
 -- render.golden --
-<button @click="save(&#34;\u003c/script\u003e&#34;)">Save</button>
+<button @click="save(&#34;\u003c/script\u003e&#34;)">inline</button><button @click="save(&#34;\u003c/script\u003e&#34;)">fold</button>
