@@ -50,21 +50,21 @@ func Forms(_gsxp FormsProps) _gsxrt.Node {
 		gap := _gsxp.Gap
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
-		_gsxv0 := _gsxrt.Attrs{{Key: "style", Value: "color:red"}, {Key: "style", Value: "margin:0"}, {Key: "style", Value: "color:blue"}}
+		_gsxv0 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawURL("color:red")}, {Key: "style", Value: _gsxrt.RawURL("margin:0")}, {Key: "style", Value: _gsxrt.RawURL("color:blue")}}
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())
 		_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
 		_gsxgw.S(">top</div>")
 //line input.gsx:9:2
-		_gsxv1 := _gsxrt.Attrs{{Key: "class", Value: "base"}}
+		_gsxv1 := _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("base")}}
 		_gsxv3, _gsxerr := _gsxrt.AttrsCond(which == 1, func() (_gsxrt.Attrs, error) {
-			return _gsxrt.Attrs{{Key: "class", Value: "one"}}, nil
+			return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("one")}}, nil
 		}, func() (_gsxrt.Attrs, error) {
 			_gsxv2, _gsxerr := _gsxrt.AttrsCond(which == 2, func() (_gsxrt.Attrs, error) {
-				return _gsxrt.Attrs{{Key: "class", Value: "two"}}, nil
+				return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("two")}}, nil
 			}, func() (_gsxrt.Attrs, error) {
-				return _gsxrt.Attrs{{Key: "class", Value: "other"}}, nil
+				return _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("other")}}, nil
 			})
 			if _gsxerr != nil {
 				return nil, _gsxerr
@@ -110,7 +110,7 @@ func Forms(_gsxp FormsProps) _gsxrt.Node {
 		_gsxgw.Spread(ctx, _gsxv11, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
 		_gsxgw.S(">class</div>")
 //line input.gsx:12:2
-		_gsxv12 := _gsxrt.Attrs{{Key: "style", Value: "color:red"}}
+		_gsxv12 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawURL("color:red")}}
 		_gsxv14, _gsxerr := _gsxrt.AttrsCond(which > 0, func() (_gsxrt.Attrs, error) {
 			_gsxv13, _gsxerr := decl("margin:0")
 			if _gsxerr != nil {
@@ -128,7 +128,7 @@ func Forms(_gsxp FormsProps) _gsxrt.Node {
 		_gsxgw.Spread(ctx, _gsxv15, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
 		_gsxgw.S(">tuple</div>")
 //line input.gsx:13:2
-		_gsxv16 := _gsxrt.Attrs{{Key: "style", Value: "color:red"}}
+		_gsxv16 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawURL("color:red")}}
 		_gsxv17, _gsxerr := _gsxrt.AttrsCond(which > 0, func() (_gsxrt.Attrs, error) {
 			return _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.Class(_gsxrt.StyleValue(_gsxstd.Upper(("margin:" + gap)))))}}, nil
 		}, nil)

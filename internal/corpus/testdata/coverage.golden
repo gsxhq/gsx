@@ -194,6 +194,7 @@ condmerge/nonforwarding_merge_order	diag gen render
 condmerge/nonforwarding_merge_pipeline_error	diag gen render
 condmerge/nonforwarding_merge_renderer	diag gen render
 condmerge/nonforwarding_merge_url_literal_reject	diag(error)
+condmerge/nonforwarding_merge_url_override	diag gen render
 condmerge/nonforwarding_merge_url_static	diag gen render
 condmerge/nonforwarding_unchanged	diag gen render
 condmerge/root_style_css_embedded_hole	diag render
@@ -748,4 +749,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 750 cases (render: 631, error: 89, gen-pinned: 415)
+TOTAL: 751 cases (render: 632, error: 89, gen-pinned: 416)

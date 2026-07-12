@@ -52,7 +52,7 @@ func Box(_gsxp BoxProps) _gsxrt.Node {
 		ok := _gsxp.Ok
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:11:2
-		_gsxv0 := _gsxrt.Attrs{{Key: "style", Value: "color:red"}}
+		_gsxv0 := _gsxrt.Attrs{{Key: "style", Value: _gsxrt.RawURL("color:red")}}
 		_gsxv2, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
 			_gsxv1, _gsxerr := maybeDecl(ok)
 			if _gsxerr != nil {
