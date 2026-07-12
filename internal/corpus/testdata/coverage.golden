@@ -385,16 +385,20 @@ multispread/cond_class_part_renderer	diag gen render
 multispread/cond_interposed_static	diag gen render
 multispread/cond_spread_else	diag gen render
 multispread/cond_spread_else_untaken	diag gen render
+multispread/context_hole_error_order	diag render
 multispread/embedded_text_evaluation_order	diag render
 multispread/evaluation_order	diag render
 multispread/evaluation_order_error	diag render
+multispread/generic_hole_fold	diag render
 multispread/interposed_bool_scalar	diag gen render
 multispread/interposed_class_style	diag gen render
 multispread/interposed_embedded_hole	diag gen render
 multispread/interposed_pipe_hole	diag gen render
 multispread/interposed_url	diag gen render
 multispread/jscss_hole_lone_spread_inline	diag gen render
-multispread/jscss_hole_two_spreads_reject	diag(error)
+multispread/jscss_hole_two_spreads_reject	diag
+multispread/jscss_holes_fold	diag render
+multispread/jscss_holes_hostile	diag render
 multispread/nonce_script_two_spreads	diag gen render
 multispread/probe_expr_before_cond	diag render
 multispread/renderer_evaluation_order	diag render
@@ -713,4 +717,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 715 cases (render: 598, error: 88, gen-pinned: 397)
+TOTAL: 719 cases (render: 602, error: 87, gen-pinned: 397)
