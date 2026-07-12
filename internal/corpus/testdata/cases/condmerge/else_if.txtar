@@ -1,0 +1,19 @@
+# else-if chain (`{ if a { … } else if b { … } else { … } }`) exercises the
+# recursive else-if walk in hasCondClassStyle: the class leaf lives inside the
+# innermost else branch's nested CondAttr, two levels deep from the top-level
+# CondAttr. All three arms merge root static class + spread + the taken arm.
+-- input.gsx --
+package views
+
+component Box(a bool, b bool) {
+	<div class="base" { attrs... } { if a { class="x" } else if b { class="y" } else { class="z" } }>x</div>
+}
+-- invoke --
+gsx.Fragment(
+	Box(BoxProps{A: true, B: false, Attrs: gsx.Attrs{{Key: "class", Value: "sp"}}}),
+	Box(BoxProps{A: false, B: true, Attrs: gsx.Attrs{{Key: "class", Value: "sp"}}}),
+	Box(BoxProps{A: false, B: false, Attrs: gsx.Attrs{{Key: "class", Value: "sp"}}}),
+)
+-- diagnostics.golden --
+-- render.golden --
+<div class="base sp x">x</div><div class="base sp y">x</div><div class="base sp z">x</div>

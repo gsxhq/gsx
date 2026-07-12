@@ -171,6 +171,17 @@ components/nullary_func_in_slot	diag render
 components/nullary_func_mixed_kordering	diag render
 components/nullary_no_props	diag gen render
 components/ordered_attrs_target_attrs	diag gen render
+condmerge/all_forms	diag render
+condmerge/cond_class_else	diag gen render
+condmerge/cond_class_plus_forced_attr	diag gen render
+condmerge/cond_style	diag render
+condmerge/cond_style_css_embedded_hole	diag render
+condmerge/cond_style_css_embedded_static	diag render
+condmerge/else_if	diag render
+condmerge/jscss_hole_edge	diag
+condmerge/nonforwarding_unchanged	diag gen render
+condmerge/root_style_css_embedded_hole	diag render
+condmerge/root_style_css_embedded_static	diag render
 control_flow/for	diag render
 control_flow/goblock	diag render
 control_flow/if_init_error_handling	diag gen render
@@ -247,7 +258,7 @@ fallthrough/call_site_non_identifier	diag render
 fallthrough/call_site_not_eligible	diag(error)
 fallthrough/caller_wins	diag render
 fallthrough/composed_class_merge	diag render
-fallthrough/cond_attr_class_rejected	diag(error)
+fallthrough/cond_attr_class_merges	diag gen render
 fallthrough/cond_attr_else_if_override	diag render
 fallthrough/cond_attr_nested_spread_rejected	diag gen render
 fallthrough/cond_attr_post_forced_taken	diag gen render
@@ -717,4 +728,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 719 cases (render: 602, error: 87, gen-pinned: 397)
+TOTAL: 730 cases (render: 613, error: 86, gen-pinned: 401)
