@@ -5975,12 +5975,13 @@ var errBagDiagReported = errors.New("bag diagnostic already reported")
 // whatever return-statement shape matches their enclosing function's
 // signature.
 //
-// imports/rt/bag are consumed only by the hole-bearing embedded-text arm, which
-// lowers `name=f"…@{expr}…"` into the bag via embeddedTextValueExpr (assembling
-// the segments, hoisting into b, recording strconv/etc. into imports, and
-// reporting any positioned diagnostic to bag). In probe mode that arm emits a
-// string placeholder instead (the hole's type is harvested by a separate
-// _gsxuse probe), so imports/rt/bag go unused there.
+// imports/rt/bag are consumed only by the hole-bearing embedded-literal arm,
+// which lowers `name=f"…@{expr}…"` (and, in the element-fold context,
+// js"…@{}…"/css"…@{}…") into the bag via the embedded*ValueExpr assemblers
+// (assembling the segments, hoisting into b, recording strconv/etc. into
+// imports, and reporting any positioned diagnostic to bag). In probe mode that
+// arm emits a string placeholder instead (the hole's type is harvested by a
+// separate _gsxuse probe), so imports/rt/bag go unused there.
 func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, probeWrap bool, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, errReturn string, ctx bagContext) (string, map[string]string, error) {
 	var entries []string
 	usedPkgs := map[string]string{}
