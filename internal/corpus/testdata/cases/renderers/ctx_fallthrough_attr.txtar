@@ -1,17 +1,11 @@
-# An UNMATCHED ExprAttr on a child-component invocation — the fallthrough
-# Attrs-bag boundary (childPropsLiteral's bag splice): `data-x={ val }` on
-# <Card> matches no CardProps field, so its value lands in the fallthrough
-# bag literal `{Key: "data-x", Value: ...}` and renders as an attribute at
-# the leaf via Spread. This is a STATIC render boundary (the value's type is
-# known at codegen), so the renderer applies BEFORE the value enters the bag
-# as `any` — pre-fix the raw pg.Text struct was spliced in and the runtime's
-# fmt.Sprint fallback rendered `data-x="{hi true}"`, and the (R, error)
-# renderer's error branch was unreachable (silently swallowed). The renderer
-# is (R, error) deliberately: the generated golden must pin the hoist
-# `_gsxvN, _gsxerr := rend.PgText((val)); if _gsxerr != nil { return _gsxerr }`
-# — single-value errReturn, since childPropsLiteral's bag hoists into the
-# enclosing render closure (same shape as its final-pipe-stage hoist), NOT a
-# thunk (the thunk case is the cond-attr branch, attr_error_cond.txtar).
+# An UNMATCHED ExprAttr on a child-component invocation whose value's
+# registered renderer wants ctx — the ctx-taking sibling of
+# fallthrough_attr.txtar: `data-x={ val }` lands in the fallthrough Attrs-bag
+# literal (childPropsLiteral's bag splice), a STATIC boundary, so ctx
+# injection + the (R, error) hoist must both apply BEFORE the value enters
+# the bag as `any`. Pins `_gsxvN, _gsxerr := rend.PgText(ctx, (val)); if
+# _gsxerr != nil { return _gsxerr }` — single-value errReturn (the enclosing
+# render closure, not a thunk; the thunk case is ctx_cond_attr.txtar).
 -- gsx.toml --
 [renderers]
 "./pg.Text" = "./rend.PgText"
@@ -26,12 +20,16 @@ type Text struct {
 package rend
 
 import (
+	"context"
 	"errors"
 
-	"corpustest/cases/renderers_fallthrough_attr/pg"
+	"corpustest/cases/renderers_ctx_fallthrough_attr/pg"
 )
 
-func PgText(t pg.Text) (string, error) {
+func PgText(ctx context.Context, t pg.Text) (string, error) {
+	if ctx == nil {
+		return "", errors.New("pgtext: no ctx")
+	}
 	if !t.Valid {
 		return "", errors.New("pgtext: invalid value")
 	}
@@ -43,7 +41,7 @@ package views
 import (
 	"github.com/gsxhq/gsx"
 
-	"corpustest/cases/renderers_fallthrough_attr/pg"
+	"corpustest/cases/renderers_ctx_fallthrough_attr/pg"
 )
 
 func mkText(s string, valid bool) pg.Text { return pg.Text{String: s, Valid: valid} }
@@ -62,10 +60,10 @@ Page(PageProps{Val: mkText("hi", true)})
 package views
 
 import (
-	"corpustest/cases/renderers_fallthrough_attr/pg"
+	"corpustest/cases/renderers_ctx_fallthrough_attr/pg"
 
 	_gsxctx "context"
-	_gsxf17 "corpustest/cases/renderers_fallthrough_attr/rend"
+	_gsxf15 "corpustest/cases/renderers_ctx_fallthrough_attr/rend"
 	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
@@ -107,7 +105,7 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		val := _gsxp.Val
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxv0, _gsxerr := _gsxf17.PgText((val))
+		_gsxv0, _gsxerr := _gsxf15.PgText(ctx, (val))
 		if _gsxerr != nil {
 			return _gsxerr
 		}

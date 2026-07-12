@@ -46,7 +46,7 @@ import (
 	"corpustest/cases/renderers_style_hole/pg"
 
 	_gsxctx "context"
-	_gsxf24 "corpustest/cases/renderers_style_hole/rend"
+	_gsxf30 "corpustest/cases/renderers_style_hole/rend"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
@@ -66,7 +66,7 @@ func Tag(_gsxp TagProps) _gsxrt.Node {
 		_gsxgw.S("<style")
 		_gsxgw.Nonce(ctx)
 		_gsxgw.S(">.a{color:")
-		_gsxgw.CSS(string(_gsxf24.PgColor((val))))
+		_gsxgw.CSS(string(_gsxf30.PgColor((val))))
 		_gsxgw.S("}</style>")
 		return _gsxgw.Err()
 	})
