@@ -1257,8 +1257,9 @@ vocabulary remains a design aspiration, not the current API.
   component-class parts so renderers apply there too. Pinned by
   `renderers/class_bare_{ident,cond,cfarm}.txtar` and
   `diagnostics/class_part_undefined_ident.txtar`. The **element-level**
-  counterpart (renderer not applied to a conditional `class={ v: cond }` /
-  style part on an element) remains open - issue #88.
+  counterpart - FIXED `2026-07-12` (#88): the element-branch harvest now
+  covers conditional plain class/style parts too, pinned by
+  `renderers/elem_class_cond{,_error}.txtar` and `elem_style_cond.txtar`.
 
 ## Documentation backlog
 
