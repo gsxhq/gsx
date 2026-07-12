@@ -192,7 +192,9 @@ text, attribute, and URL holes, style/script holes and interpolated literals,
 fallthrough/ordered-attrs values — and the result is escaped or sanitized for
 its context exactly like a pipe filter's output. It does **not** apply to a
 plain component argument; that's ordinary Go. A renderer may return
-`(R, error)`; the error propagates like a failing pipe stage.
+`(R, error)`; the error propagates like a failing pipe stage. It may also
+take a leading `context.Context` (`func(ctx context.Context, T) R`), which
+receives the render context — like a ctx-taking filter.
 
 - Keys are matched by exact `go/types` identity. `"*pkg.Type"` registers the
   pointer type; pointer and value registrations are separate entries.
