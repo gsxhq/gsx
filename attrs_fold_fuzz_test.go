@@ -3,6 +3,7 @@ package gsx
 import (
 	"bytes"
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -25,6 +26,32 @@ func TestAttrsFoldWhitespaceAndBoolValues(t *testing.T) {
 		if got, want := buf.String(), ` class="a b" disabled`; got != want {
 			t.Errorf("%s render = %q, want %q", name, got, want)
 		}
+	}
+}
+
+func TestAttrsFoldBoolAggregatesMatchReference(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+		want string
+	}{
+		{name: "class true", data: []byte{0x01, 0, 5}, want: ` class="true"`},
+		{name: "style false", data: []byte{0x01, 1, 6}, want: ` style="false"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			contribs := decodeContribs(tt.data)
+			for name, attrs := range map[string]Attrs{
+				"fold":      ConcatAttrs(contribs...),
+				"reference": referenceLastWins(contribs),
+			} {
+				var buf bytes.Buffer
+				W(&buf).Spread(context.Background(), attrs, nil, nil, nil, nil, nil)
+				if got := buf.String(); got != tt.want {
+					t.Errorf("%s render = %q, want %q", name, got, tt.want)
+				}
+			}
+		})
 	}
 }
 
@@ -182,7 +209,7 @@ func refJoinAll(flat Attrs, key, sep string, trim bool) string {
 		if kv.Key != key {
 			continue
 		}
-		piece, ok := kv.Value.(string)
+		piece, ok := refAggregatePiece(kv.Value)
 		if !ok {
 			continue
 		}
@@ -199,4 +226,18 @@ func refJoinAll(flat Attrs, key, sep string, trim bool) string {
 		}
 	}
 	return out
+}
+
+// refAggregatePiece independently models the string and boolean values that
+// class/style aggregation accepts. It intentionally does not call the
+// production conversion helper, so differential fuzzing can detect drift.
+func refAggregatePiece(v any) (string, bool) {
+	switch v := v.(type) {
+	case string:
+		return v, true
+	case bool:
+		return strconv.FormatBool(v), true
+	default:
+		return "", false
+	}
 }
