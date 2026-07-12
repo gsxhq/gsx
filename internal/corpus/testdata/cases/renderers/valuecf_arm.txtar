@@ -49,7 +49,7 @@ import (
 	"corpustest/cases/renderers_valuecf_arm/pg"
 
 	_gsxctx "context"
-	_gsxf41 "corpustest/cases/renderers_valuecf_arm/rend"
+	_gsxf42 "corpustest/cases/renderers_valuecf_arm/rend"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
@@ -71,7 +71,7 @@ func Tag(_gsxp TagProps) _gsxrt.Node {
 		_gsxgw.S("<div")
 		var _gsxv0 string
 		if on {
-			_gsxv0 = _gsxf41.PgText((val))
+			_gsxv0 = _gsxf42.PgText((val))
 		} else {
 			_gsxv0 = "off"
 		}
