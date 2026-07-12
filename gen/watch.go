@@ -26,6 +26,7 @@ type watchConfig struct {
 	verbose     bool
 	filterPkgs  []string
 	aliases     []codegen.FilterAlias
+	renderers   []codegen.RendererAlias
 	cls         *attrclass.Classifier
 	fm          codegen.FieldMatcher
 	cssMin      func(string) (string, error)

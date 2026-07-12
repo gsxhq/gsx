@@ -61,11 +61,11 @@ const pipeCtxIdent = "ctx"
 // tuple flows through the existing per-context machinery unchanged. wrap == nil
 // means the caller does not yet support a failing stage in this position, so a
 // mid-pipeline hasErr stage is rejected with a friendly, caller-positioned error.
-func lowerPipe(seed string, stages []ast.PipeStage, table filterTable, wrap func(call string) string) (expr string, usedPkgs map[string]string, err error) {
+func lowerPipe(seed string, stages []ast.PipeStage, table funcTables, wrap func(call string) string) (expr string, usedPkgs map[string]string, err error) {
 	acc := "(" + strings.TrimSpace(seed) + ")"
 	usedPkgs = map[string]string{}
 	for i, st := range stages {
-		e, ok := table.lookup(st.Name)
+		e, ok := table.filters.lookup(st.Name)
 		if !ok {
 			return "", nil, fmt.Errorf("codegen: unknown filter %q", st.Name)
 		}
@@ -97,11 +97,11 @@ func lowerPipe(seed string, stages []ast.PipeStage, table filterTable, wrap func
 // final stage of an error pipeline is always a two-value filter call, this
 // condition is exactly equivalent to "the lowered expression is a (T, error)
 // call". An unknown final filter (already rejected by lowerPipe) reports false.
-func finalStageErr(stages []ast.PipeStage, table filterTable) bool {
+func finalStageErr(stages []ast.PipeStage, table funcTables) bool {
 	if len(stages) == 0 {
 		return false
 	}
-	e, ok := table.lookup(stages[len(stages)-1].Name)
+	e, ok := table.filters.lookup(stages[len(stages)-1].Name)
 	return ok && e.hasErr
 }
 
@@ -140,15 +140,33 @@ func (t filterTable) lookup(name string) (filterEntry, bool) {
 	return e, ok
 }
 
-// aliasForPath returns the reserved import alias registered for a filter
-// package's import path, if ANY filter entry in this table belongs to that
-// package — e.g. "github.com/gsxhq/gsx/std" -> "_gsxstd", a user filter
+// funcTables carries every configured func table the emit layer consults: pipe
+// filters (by template name, filterTable) and renderers (by canonical type
+// key, rendererTable — see renderers.go). It is threaded BY VALUE through
+// emit.go/analyze.go exactly where a bare filterTable used to be, so a future
+// func-table kind (or a renderer-consuming render boundary) never needs to
+// grow any of those ~20 signatures again — it just adds a field here.
+type funcTables struct {
+	filters   filterTable
+	renderers rendererTable
+}
+
+// aliasForPath returns the reserved import alias registered for a filter OR
+// renderer package's import path, if ANY entry in either table belongs to
+// that package — e.g. "github.com/gsxhq/gsx/std" -> "_gsxstd", a user filter
 // package -> "_gsxf0", etc. Every entry harvested from the same package
-// shares that package's one alias (see filterEntry.alias / filterAliases),
-// so the first match found while ranging over the table is authoritative;
-// there is no need to check every entry once one is found.
-func (t filterTable) aliasForPath(path string) (string, bool) {
-	for _, e := range t {
+// shares that package's one alias (see filterEntry.alias/rendererEntry.alias
+// and filterAliases), so the first match found while ranging over a table is
+// authoritative; there is no need to check every entry once one is found.
+// Filters are checked before renderers; a package registered as both shares
+// one alias either way, so the order does not change the result.
+func (t funcTables) aliasForPath(path string) (string, bool) {
+	for _, e := range t.filters {
+		if e.pkgPath == path {
+			return e.alias, true
+		}
+	}
+	for _, e := range t.renderers {
 		if e.pkgPath == path {
 			return e.alias, true
 		}
@@ -194,7 +212,8 @@ func filterAliases(pkgPaths []string) map[string]string {
 // funcs by contract. It is the single-package entry point retained for callers
 // that only need std; loadFilterTableMulti is the general multi-package form.
 func loadFilterTable(dir string) (filterTable, error) {
-	return loadFilterTableMulti(dir, []string{stdImportPath}, nil)
+	table, _, err := loadFilterTableMulti(dir, []string{stdImportPath}, nil, nil)
+	return table, err
 }
 
 // loadFilterTableMulti type-checks every filter package in pkgPaths (one
@@ -205,13 +224,19 @@ func loadFilterTable(dir string) (filterTable, error) {
 // import path, so lowerPipe qualifies the call and the caller imports the package
 // under the same alias. dir anchors the load against the module's go.mod (incl.
 // any test replace directive).
-func loadFilterTableMulti(dir string, pkgPaths []string, aliases []FilterAlias) (filterTable, error) {
-	if len(pkgPaths) == 0 && len(aliases) == 0 {
-		return filterTable{}, nil
+//
+// renderers rides the SAME packages.Load as pkgPaths/aliases (harvestFilters
+// folds their package paths into the one load list) — packages.Load is
+// expensive, so renderer packages must never trigger a second one. The
+// harvested rendererTable is returned alongside the filterTable; a caller with
+// no renderers yet passes nil and gets back an empty rendererTable.
+func loadFilterTableMulti(dir string, pkgPaths []string, aliases []FilterAlias, renderers []RendererAlias) (filterTable, rendererTable, error) {
+	if len(pkgPaths) == 0 && len(aliases) == 0 && len(renderers) == 0 {
+		return filterTable{}, rendererTable{}, nil
 	}
-	harvested, err := harvestFilters(dir, pkgPaths, aliases)
+	harvested, rt, err := harvestFilters(dir, pkgPaths, aliases, renderers)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	table := filterTable{}
 	for name, entries := range harvested {
@@ -221,7 +246,7 @@ func loadFilterTableMulti(dir string, pkgPaths []string, aliases []FilterAlias) 
 		// in-place table overwrite.
 		table[name] = entries[len(entries)-1]
 	}
-	return table, nil
+	return table, rt, nil
 }
 
 // harvestFilters type-checks every filter package in pkgPaths (one
@@ -236,7 +261,13 @@ func loadFilterTableMulti(dir string, pkgPaths []string, aliases []FilterAlias) 
 // This is the single harvest seam shared by loadFilterTableMulti (winner-only
 // table) and ResolveFilters (full table + shadows), so both see the exact same
 // precedence.
-func harvestFilters(dir string, pkgPaths []string, explicitAliases []FilterAlias) (map[string][]filterEntry, error) {
+//
+// renderers' package paths join aliasPaths, so a renderer package rides this
+// SAME packages.Load (and shares its alias with a same-path filter package,
+// e.g. one-learning's ds/filters serving both roles) instead of paying for a
+// second, dedicated load — packages.Load is expensive enough that a caller
+// must never trigger it twice for one generation.
+func harvestFilters(dir string, pkgPaths []string, explicitAliases []FilterAlias, renderers []RendererAlias) (map[string][]filterEntry, rendererTable, error) {
 	// Each alias's PkgPath also needs an import alias and must be loaded so its
 	// target func's signature can be classified. Fold the alias package paths
 	// into the alias-assignment set (after the whole-package paths, so non-std
@@ -244,6 +275,9 @@ func harvestFilters(dir string, pkgPaths []string, explicitAliases []FilterAlias
 	aliasPaths := pkgPaths
 	for _, a := range explicitAliases {
 		aliasPaths = append(aliasPaths, a.PkgPath)
+	}
+	for _, r := range renderers {
+		aliasPaths = append(aliasPaths, r.PkgPath)
 	}
 	aliases := filterAliases(aliasPaths)
 
@@ -254,7 +288,7 @@ func harvestFilters(dir string, pkgPaths []string, explicitAliases []FilterAlias
 	}
 	pkgs, err := packages.Load(cfg, aliasPaths...)
 	if err != nil {
-		return nil, fmt.Errorf("codegen: load filter packages: %w", err)
+		return nil, nil, fmt.Errorf("codegen: load filter packages: %w", err)
 	}
 	// Index loaded packages by import path so we can harvest in pkgPaths order
 	// (the last-wins precedence depends on order, which packages.Load does not
@@ -272,7 +306,7 @@ func harvestFilters(dir string, pkgPaths []string, explicitAliases []FilterAlias
 	typesByPath := make(map[string]*types.Package, len(byPath))
 	for _, path := range pkgPaths {
 		if err := checkFilterPkg(byPath[path], path, dir, ""); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		typesByPath[path] = byPath[path].Types
 	}
@@ -281,11 +315,30 @@ func harvestFilters(dir string, pkgPaths []string, explicitAliases []FilterAlias
 	// mentions X — only the alias pulled it in.
 	for _, a := range explicitAliases {
 		if err := checkFilterPkg(byPath[a.PkgPath], a.PkgPath, dir, a.Name); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		typesByPath[a.PkgPath] = byPath[a.PkgPath].Types
 	}
-	return harvestFromTypes(typesByPath, pkgPaths, explicitAliases, aliases)
+	// A renderer package gets the SAME load-level validation as a filter
+	// package, framed against the [renderers] registration that pulled it in.
+	// packages.Load returns best-effort non-nil Types even for a package with
+	// compile errors, so skipping this check would silently admit a broken
+	// renderer package and fail later with a misleading "func not found".
+	for _, r := range renderers {
+		if err := checkRendererPkg(byPath[r.PkgPath], r.PkgPath, dir, r.TypeKey); err != nil {
+			return nil, nil, err
+		}
+		typesByPath[r.PkgPath] = byPath[r.PkgPath].Types
+	}
+	harvested, err := harvestFromTypes(typesByPath, pkgPaths, explicitAliases, aliases)
+	if err != nil {
+		return nil, nil, err
+	}
+	rt, err := harvestRenderers(typesByPath, renderers, aliases)
+	if err != nil {
+		return nil, nil, err
+	}
+	return harvested, rt, nil
 }
 
 // checkFilterPkg reports the load-level failures only *packages.Package can see.
@@ -296,6 +349,23 @@ func checkFilterPkg(pkg *packages.Package, path, dir, aliasName string) error {
 	if aliasName != "" {
 		where = fmt.Sprintf("WithFilter %q: package %q", aliasName, path)
 	}
+	return checkLoadedPkg(pkg, where, dir)
+}
+
+// checkRendererPkg is checkFilterPkg's renderer counterpart: it frames the
+// same load-level validation against the [renderers] registration that pulled
+// the package in, since nothing else in the config may mention it.
+func checkRendererPkg(pkg *packages.Package, path, dir, typeKey string) error {
+	where := fmt.Sprintf("renderer for %q: package %q", typeKey, path)
+	return checkLoadedPkg(pkg, where, dir)
+}
+
+// checkLoadedPkg is the shared load-level validation for every package pulled
+// in by the one filter/renderer packages.Load. packages.Load hands back
+// best-effort non-nil Types even when pkg.Errors is populated, so a broken
+// package must be rejected HERE with the caller-supplied framing — admitting
+// its partial types would surface later as a misleading "func not found".
+func checkLoadedPkg(pkg *packages.Package, where, dir string) error {
 	switch {
 	case pkg == nil:
 		return fmt.Errorf("codegen: %s not found in %s", where, dir)
@@ -316,17 +386,33 @@ type FilterInfo struct {
 	Shadows []string // import paths of EARLIER same-named filters this one overrides
 }
 
+// RendererInfo describes one resolved [renderers] registration, for `gsx info`.
+// Unlike FilterInfo there is no Shadows: harvestRenderers keeps only the
+// last-wins entry per TypeKey (see rendererTable), so an earlier registration
+// for the same key leaves no trace to report.
+type RendererInfo struct {
+	TypeKey string // registered type key ("pkgPath.TypeName", optionally *-prefixed)
+	Pkg     string // renderer func's package import path
+	Func    string // exported Go func name
+	HasErr  bool   // true when the renderer returns (R, error)
+}
+
 // ResolveFilters harvests the filter packages (in order, last-wins) plus the
-// explicit WithFilter aliases (appended after, in option order) and returns the
-// resolved table sorted by Name, recording which earlier same-named filters each
-// winner shadows. An empty filterPkgs defaults to [stdImportPath], matching
-// GenerateDirs. dir anchors the go/packages load against the
+// explicit WithFilter aliases (appended after, in option order) and the
+// registered [renderers] (last-wins per TypeKey), all from the ONE
+// packages.Load harvestFilters performs — renderer package paths ride the
+// same load as the filter packages (see harvestFilters's doc comment), so a
+// caller needing both must pass renderers here rather than issue a second,
+// redundant load. Returns the filter table sorted by Name (recording which
+// earlier same-named filters each winner shadows) and the renderer table
+// sorted by TypeKey. An empty filterPkgs defaults to [stdImportPath],
+// matching GenerateDirs. dir anchors the go/packages load against the
 // module's go.mod.
-func ResolveFilters(dir string, filterPkgs []string, aliases []FilterAlias) ([]FilterInfo, error) {
+func ResolveFilters(dir string, filterPkgs []string, aliases []FilterAlias, renderers []RendererAlias) ([]FilterInfo, []RendererInfo, error) {
 	filterPkgs = dedupFilterPkgs(filterPkgs)
-	harvested, err := harvestFilters(dir, filterPkgs, aliases)
+	harvested, rt, err := harvestFilters(dir, filterPkgs, aliases, renderers)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	infos := make([]FilterInfo, 0, len(harvested))
 	for name, entries := range harvested {
@@ -344,7 +430,14 @@ func ResolveFilters(dir string, filterPkgs []string, aliases []FilterAlias) ([]F
 		})
 	}
 	sort.Slice(infos, func(i, j int) bool { return infos[i].Name < infos[j].Name })
-	return infos, nil
+
+	rinfos := make([]RendererInfo, 0, len(rt))
+	for key, e := range rt {
+		rinfos = append(rinfos, RendererInfo{TypeKey: key, Pkg: e.pkgPath, Func: e.funcName, HasErr: e.hasErr})
+	}
+	sort.Slice(rinfos, func(i, j int) bool { return rinfos[i].TypeKey < rinfos[j].TypeKey })
+
+	return infos, rinfos, nil
 }
 
 // classifyFilter inspects a func signature against the seed-first filter

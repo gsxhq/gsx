@@ -19,7 +19,7 @@ import (
 //
 // The go.mod carries a require+replace for github.com/gsxhq/gsx (mirroring
 // unused_imports_test.go's pattern) pointed at this checkout: even a
-// buildPackageSkeletons-only test exercises cachedFilterTable, which always
+// buildPackageSkeletons-only test exercises cachedFuncTables, which always
 // resolves the built-in "github.com/gsxhq/gsx/std" filter package (dedupFilterPkgs
 // defaults to it when Options.FilterPkgs is empty) — without the replace, that
 // packages.Load fails outright since "github.com/gsxhq/gsx" is not a real

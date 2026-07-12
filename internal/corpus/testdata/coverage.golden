@@ -495,6 +495,34 @@ props/byo_splat_mixed_rejected	diag(error)
 props/heuristic_boundaries	diag gen render
 props/interop_splat	diag render
 props/splat_composition	diag render
+renderers/attr_basic	diag gen render
+renderers/attr_error	diag gen render
+renderers/attr_error_cond	diag gen render
+renderers/attr_url	diag gen render
+renderers/class_part	diag gen render
+renderers/class_part_component	diag gen render
+renderers/component_arg_negative	diag gen render
+renderers/css_attr_hole	diag gen render
+renderers/fallthrough_attr	diag gen render
+renderers/fallthrough_ordered_attr	diag gen render
+renderers/fliteral_attr	diag gen render
+renderers/fliteral_attr_pipe	diag gen render
+renderers/fliteral_text	diag gen render
+renderers/js_attr_hole	diag gen render
+renderers/numeric_result	diag gen render
+renderers/pipe_result	diag gen render
+renderers/pointer	diag gen render
+renderers/script_hole	diag gen render
+renderers/srcset_hole	diag gen render
+renderers/style_css_literal_part	diag gen render
+renderers/style_error	diag gen render
+renderers/style_hole	diag gen render
+renderers/style_part	diag gen render
+renderers/text_basic	diag gen render
+renderers/text_error	diag gen render
+renderers/tuple_then_renderer	diag gen render
+renderers/valuecf_arm	diag gen render
+renderers/wins_over_stringer	diag gen render
 script/interp_breakout	diag gen render
 script/interp_comment_literal	diag gen render
 script/interp_identifier_rejected	diag(error)
@@ -645,4 +673,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 647 cases (render: 524, error: 94, gen-pinned: 328)
+TOTAL: 675 cases (render: 552, error: 94, gen-pinned: 356)

@@ -54,9 +54,9 @@ component C(extra gsx.Attrs) {
 // lowering itself (the unit under test) is package-agnostic.
 func TestSplatPipelineComponent(t *testing.T) {
 	t.Parallel()
-	table := filterTable{
+	table := funcTables{filters: filterTable{
 		"loud": {funcName: "Loud", alias: "_gsxf0", pkgPath: "gsxmf/myfilters"},
-	}
+	}}
 	byo := newByoData()
 	byo.structs["cardData"] = byoStruct{} // mark cardData as a byo struct (no fields needed)
 
@@ -67,7 +67,7 @@ func TestSplatPipelineComponent(t *testing.T) {
 		Attrs: []ast.Attr{&ast.SpreadAttr{Expr: "d", Stages: []ast.PipeStage{{Name: "loud"}}}},
 	}
 	_, splatExpr, usedPkgs, err := childPropsLiteral(el, "cardData", "gsx", "gsx.DefaultClassMerge", table, nil, nil, byo, nil,
-		func(nodes []ast.Markup) (string, error) { return "", nil }, false, nil, nil, nil)
+		func(nodes []ast.Markup) (string, error) { return "", nil }, false, nil, nil, nil, "")
 	if err != nil {
 		t.Fatalf("childPropsLiteral: %v", err)
 	}

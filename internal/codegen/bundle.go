@@ -99,25 +99,36 @@ func harvestFromTypes(byPath map[string]*types.Package, pkgPaths []string, expli
 }
 
 // loadFilterTableFromTypes builds the winner-only filter table from pre-loaded
-// packages (no subprocess), mirroring loadFilterTableMulti.
-func loadFilterTableFromTypes(byPath map[string]*types.Package, pkgPaths []string, explicitAliases []FilterAlias) (filterTable, error) {
-	if len(pkgPaths) == 0 && len(explicitAliases) == 0 {
-		return filterTable{}, nil
+// packages (no subprocess), mirroring loadFilterTableMulti. renderers' package
+// paths join aliasPaths (mirroring harvestFilters) so a renderer package
+// shares its alias with a same-path filter package, and harvestRenderers runs
+// after harvestFromTypes to produce the rendererTable returned alongside the
+// filterTable.
+func loadFilterTableFromTypes(byPath map[string]*types.Package, pkgPaths []string, explicitAliases []FilterAlias, renderers []RendererAlias) (filterTable, rendererTable, error) {
+	if len(pkgPaths) == 0 && len(explicitAliases) == 0 && len(renderers) == 0 {
+		return filterTable{}, rendererTable{}, nil
 	}
 	aliasPaths := pkgPaths
 	for _, a := range explicitAliases {
 		aliasPaths = append(aliasPaths, a.PkgPath)
 	}
+	for _, r := range renderers {
+		aliasPaths = append(aliasPaths, r.PkgPath)
+	}
 	aliases := filterAliases(aliasPaths)
 	harvested, err := harvestFromTypes(byPath, pkgPaths, explicitAliases, aliases)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	table := filterTable{}
 	for name, entries := range harvested {
 		table[name] = entries[len(entries)-1] // last-wins
 	}
-	return table, nil
+	rt, err := harvestRenderers(byPath, renderers, aliases)
+	if err != nil {
+		return nil, nil, err
+	}
+	return table, rt, nil
 }
 
 // NewCachedResolverFromTypes builds a Bundle from already-loaded packages
@@ -127,9 +138,9 @@ func loadFilterTableFromTypes(byPath map[string]*types.Package, pkgPaths []strin
 // defaults to the built-in std filter package.
 func NewCachedResolverFromTypes(pkgs map[string]*types.Package, filterPkgs []string, aliases []FilterAlias) (*Bundle, error) {
 	filterPkgs = dedupFilterPkgs(filterPkgs)
-	table, err := loadFilterTableFromTypes(pkgs, filterPkgs, aliases)
+	table, rt, err := loadFilterTableFromTypes(pkgs, filterPkgs, aliases, nil)
 	if err != nil {
 		return nil, err
 	}
-	return &Bundle{imp: mapImporter(pkgs), table: table}, nil
+	return &Bundle{imp: mapImporter(pkgs), table: funcTables{filters: table, renderers: rt}}, nil
 }

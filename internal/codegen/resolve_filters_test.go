@@ -14,7 +14,7 @@ func TestResolveFiltersStd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	infos, err := ResolveFilters(repoRoot, []string{stdImportPath}, nil)
+	infos, _, err := ResolveFilters(repoRoot, []string{stdImportPath}, nil, nil)
 	if err != nil {
 		t.Fatalf("ResolveFilters: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestResolveFiltersEmptyDefaultsToStd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	infos, err := ResolveFilters(repoRoot, nil, nil)
+	infos, _, err := ResolveFilters(repoRoot, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ResolveFilters: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestResolveFiltersShadowing(t *testing.T) {
 	}
 	writeMultiFile(t, mfDir, "myfilters.go", "package myfilters\n\nfunc Upper(s string) string { return \"USER:\" + s }\n")
 
-	infos, err := ResolveFilters(tmp, []string{stdImportPath, "gsxmf/myfilters"}, nil)
+	infos, _, err := ResolveFilters(tmp, []string{stdImportPath, "gsxmf/myfilters"}, nil, nil)
 	if err != nil {
 		t.Fatalf("ResolveFilters: %v", err)
 	}
@@ -149,8 +149,48 @@ func TestResolveFiltersBadPkg(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = ResolveFilters(repoRoot, []string{"github.com/gsxhq/gsx/does-not-exist"}, nil)
+	_, _, err = ResolveFilters(repoRoot, []string{"github.com/gsxhq/gsx/does-not-exist"}, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for non-existent filter package")
+	}
+}
+
+// TestResolveFiltersRenderers proves ResolveFilters also resolves the
+// registered [renderers] (sharing the same packages.Load as the filter
+// packages), sorted by TypeKey, with no Shadows tracked (harvestRenderers'
+// table is last-wins only — see RendererInfo's doc comment).
+func TestResolveFiltersRenderers(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping module-load renderer test in -short mode")
+	}
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp := t.TempDir()
+	writeMultiFile(t, tmp, "go.mod", "module gsxmf\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pgDir := filepath.Join(tmp, "pg")
+	if err := os.MkdirAll(pgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeMultiFile(t, pgDir, "pg.go", "package pg\n\ntype Text struct {\n\tString string\n\tValid  bool\n}\n")
+	rendDir := filepath.Join(tmp, "rend")
+	if err := os.MkdirAll(rendDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeMultiFile(t, rendDir, "rend.go", "package rend\n\nimport \"gsxmf/pg\"\n\nfunc PgText(t pg.Text) string { return t.String }\n")
+
+	renderers := []RendererAlias{{TypeKey: "gsxmf/pg.Text", PkgPath: "gsxmf/rend", FuncName: "PgText"}}
+	_, rinfos, err := ResolveFilters(tmp, []string{stdImportPath}, nil, renderers)
+	if err != nil {
+		t.Fatalf("ResolveFilters: %v", err)
+	}
+	if len(rinfos) != 1 {
+		t.Fatalf("rinfos = %+v, want exactly one entry", rinfos)
+	}
+	ri := rinfos[0]
+	if ri.TypeKey != "gsxmf/pg.Text" || ri.Pkg != "gsxmf/rend" || ri.Func != "PgText" || ri.HasErr {
+		t.Fatalf("unexpected RendererInfo: %+v", ri)
 	}
 }
