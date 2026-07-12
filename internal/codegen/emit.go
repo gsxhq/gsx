@@ -1327,6 +1327,26 @@ func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, cur
 // splitIdx=0 — keeping el's real span/Pos()/Void/Children and node identity for
 // nonce / emitFallthroughAttrs (they compare against el.Attrs[splitIdx]).
 func foldElementSpreads(b *bytes.Buffer, el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+	// A hole-bearing js/css literal on a URL-sink attribute cannot fold: its
+	// bag value reaches the leaf contextually escaped for JS/CSS, and Spread's
+	// URL-key sanitization would then rewrite it (the inline path emits the
+	// escaped value verbatim). Reject rather than silently diverge from the
+	// inline rendering of the same attribute.
+	for _, a := range el.Attrs {
+		t, ok := a.(*ast.EmbeddedAttr)
+		if !ok || t.Lang == ast.EmbeddedText {
+			continue
+		}
+		if _, static := embeddedStaticText(t); static {
+			continue
+		}
+		if cls.Context(t.Name) == attrclass.CtxURL {
+			bag.Errorf(t.Pos(), t.End(), "url-sink-fold",
+				"embedded %s attribute literal %q with @{ } interpolation is a URL attribute on <%s>; on an element carrying multiple spreads the shared bag's URL sanitization would rewrite the %s-escaped value, so it cannot fold — use at most one spread on this element or a non-URL attribute",
+				embeddedLangName(t.Lang), t.Name, el.Tag, embeddedLangName(t.Lang))
+			return false
+		}
+	}
 	expr, used, err := composeBag(b, interpTemp, emitPipeWrap(b, interpTemp), false, el.Attrs, rt.rt(), el.Tag, classMergeExpr(mergeExpr, rt), table, resolved, imports, rt, bag, "return _gsxerr", bagElementFold)
 	if err != nil {
 		if errors.Is(err, errBagDiagReported) {
