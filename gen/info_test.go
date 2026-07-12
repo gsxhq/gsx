@@ -85,7 +85,7 @@ func TestRunInfoShadow(t *testing.T) {
 
 // TestRunInfoRenderers proves gsx info lists a registered [renderers] entry
 // (typeKey → pkgPath.Func), the same "invisible config surface" gap fixed for
-// filters/urlAttrs/minify/class_merger — before this, renderers had no info
+// filters/url_attrs/minify/class_merger — before this, renderers had no info
 // section at all.
 func TestRunInfoRenderers(t *testing.T) {
 	t.Parallel()

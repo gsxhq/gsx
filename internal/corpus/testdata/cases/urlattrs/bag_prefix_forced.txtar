@@ -1,11 +1,11 @@
-# A project [[urlAttrs]] PREFIX rule whose forwarding element ALSO force-owns a
+# A project [[url_attrs]] PREFIX rule whose forwarding element ALSO force-owns a
 # prefix-matched name (a static attr after the bag spread) must let the forced
 # attr win: SpreadURLPrefixed skips the force-owned key so no duplicate renders
 # and the caller cannot smuggle a value past the forced one. data-url-go is
 # forced to /forced (the caller's javascript: copy is dropped, not sanitized-and-
 # duplicated); an unrelated prefix key data-url-keep still writes sanitized.
 -- gsx.toml --
-[[urlAttrs]]
+[[url_attrs]]
 prefix = "data-url-"
 -- input.gsx --
 package views
