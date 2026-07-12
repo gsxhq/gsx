@@ -1430,8 +1430,41 @@ func firstTwoSpreadAttrs(attrs []ast.Attr) (first, second *ast.SpreadAttr, first
 	return first, second, firstCond
 }
 
+// classStyleContributorCounts counts every class/style leaf that can contribute
+// to an element's final composable values. Conditional branches are both
+// counted because either branch may be selected at runtime; this is a shape
+// analysis only and does not evaluate conditions.
+func classStyleContributorCounts(attrs []ast.Attr) (class, style int) {
+	var walk func([]ast.Attr)
+	walk = func(list []ast.Attr) {
+		for _, a := range list {
+			var name string
+			switch t := a.(type) {
+			case *ast.StaticAttr:
+				name = t.Name
+			case *ast.ClassAttr:
+				name = t.Name
+			case *ast.EmbeddedAttr:
+				name = t.Name
+			case *ast.CondAttr:
+				walk(t.Then)
+				walk(t.Else)
+			}
+			switch name {
+			case "class":
+				class++
+			case "style":
+				style++
+			}
+		}
+	}
+	walk(attrs)
+	return class, style
+}
+
 // elementFolds reports whether genNode's *ast.Element case routes attrs
 // through foldElementSpreads. It is true when:
+//   - multiple leaves contribute to the same class or style value; OR
 //   - the element carries ≥2 spreads (counting cond-nested); OR
 //   - exactly one spread that is itself cond-nested AND a top-level class/style
 //     attr (O1: the inline `if cond { Spread(bag, excluded=nil) }` path cannot
@@ -1454,7 +1487,8 @@ func firstTwoSpreadAttrs(attrs []ast.Attr) (first, second *ast.SpreadAttr, first
 // scratch buffer, while a non-folded lone-cond element (inline path) may.
 func elementFolds(attrs []ast.Attr) bool {
 	first, second, firstCond := firstTwoSpreadAttrs(attrs)
-	return second != nil ||
+	class, style := classStyleContributorCounts(attrs)
+	return class > 1 || style > 1 || second != nil ||
 		(first != nil && firstCond != "" && hasRootClassStyle(attrs)) ||
 		(first != nil && hasCondClassStyle(attrs)) // D3 lift: spread + cond-attr class/style
 }

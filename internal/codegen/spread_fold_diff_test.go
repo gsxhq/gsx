@@ -85,6 +85,14 @@ component E8(c bool) {
 	{{ a := gsx.Attrs{{Key: "data-k", Value: "a8"}, {Key: "class", Value: "sp8"}} }}
 	<a class="base8" { a... } { if c { class="on8" } else { class="off8" } }>e8</a>
 }
+
+component E9(c bool) {
+	<a id="e9" style="color:red" { if c { style="margin:0" } }>e9</a>
+}
+
+component E10(c bool) {
+	<a class="base10" { if c { class="on10" } else { class="off10" } }>e10</a>
+}
 `
 
 const spreadFoldMarkerPrefix = "\x00SFCASE "
@@ -159,6 +167,10 @@ func main() {
 	render(ctx, "E7false", p.E7(p.E7Props{C: false}))
 	render(ctx, "E8true", p.E8(p.E8Props{C: true}))
 	render(ctx, "E8false", p.E8(p.E8Props{C: false}))
+	render(ctx, "E9true", p.E9(p.E9Props{C: true}))
+	render(ctx, "E9false", p.E9(p.E9Props{C: false}))
+	render(ctx, "E10true", p.E10(p.E10Props{C: true}))
+	render(ctx, "E10false", p.E10(p.E10Props{C: false}))
 }
 `)
 
@@ -322,9 +334,25 @@ func TestSpreadFoldDiffMatrix(t *testing.T) {
 			gsx.Attrs{{Key: "data-k", Value: "a8"}, {Key: "class", Value: "sp8"}},
 			gsx.Attrs{{Key: "class", Value: "off8"}},
 		), "e8"},
+		{"E9true", gsx.ConcatAttrs(
+			gsx.Attrs{{Key: "id", Value: "e9"}, {Key: "style", Value: "color:red"}},
+			gsx.Attrs{{Key: "style", Value: "margin:0"}},
+		), "e9"},
+		{"E9false", gsx.ConcatAttrs(
+			gsx.Attrs{{Key: "id", Value: "e9"}, {Key: "style", Value: "color:red"}},
+			nil,
+		), "e9"},
+		{"E10true", gsx.ConcatAttrs(
+			gsx.Attrs{{Key: "class", Value: "base10"}},
+			gsx.Attrs{{Key: "class", Value: "on10"}},
+		), "e10"},
+		{"E10false", gsx.ConcatAttrs(
+			gsx.Attrs{{Key: "class", Value: "base10"}},
+			gsx.Attrs{{Key: "class", Value: "off10"}},
+		), "e10"},
 	}
 
-	// runSpreadFoldMatrix's harness renders 13 scenarios total (E0 plus the 12
+	// runSpreadFoldMatrix's harness renders all scenarios (E0 plus the
 	// E1-E8 cases here); E0 is checked separately above.
 	if len(got) != len(cases)+1 {
 		t.Fatalf("runSpreadFoldMatrix returned %d renders, want %d: %v", len(got), len(cases)+1, got)
