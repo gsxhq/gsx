@@ -25,9 +25,8 @@ type rendererEntry struct {
 	pkgPath  string
 	hasErr   bool
 	// wantsCtx is true for func(ctx context.Context, T) R / (R, error); false
-	// for the ctx-less func(T) R / (R, error) shapes. Harvested here but not
-	// yet consumed at emission — applyRenderer threading ctx through the call
-	// site is a follow-up (#87 pt. 2).
+	// for the ctx-less func(T) R / (R, error) shapes. applyRenderer prepends
+	// the ambient render ctx (pipeCtxIdent) to the call when set.
 	wantsCtx bool
 	result   types.Type
 }
