@@ -50,7 +50,7 @@ import (
 	"corpustest/cases/renderers_css_attr_hole/pg"
 
 	_gsxctx "context"
-	_gsxf11 "corpustest/cases/renderers_css_attr_hole/rend"
+	_gsxf12 "corpustest/cases/renderers_css_attr_hole/rend"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
@@ -68,7 +68,7 @@ func Tag(_gsxp TagProps) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxgw.S("<div data-style=\"color:")
-		_gsxgw.AttrValue(_gsxrt.StyleValue(string(_gsxf11.PgColor((val)))))
+		_gsxgw.AttrValue(_gsxrt.StyleValue(string(_gsxf12.PgColor((val)))))
 		_gsxgw.S("\">x</div>")
 		return _gsxgw.Err()
 	})

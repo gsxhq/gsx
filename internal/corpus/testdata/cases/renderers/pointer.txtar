@@ -53,7 +53,7 @@ import (
 	"corpustest/cases/renderers_pointer/pg"
 
 	_gsxctx "context"
-	_gsxf30 "corpustest/cases/renderers_pointer/rend"
+	_gsxf31 "corpustest/cases/renderers_pointer/rend"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
@@ -80,7 +80,7 @@ func Tag(_gsxp TagProps) _gsxrt.Node {
 //line input.gsx:13:3
 		_gsxgw.S("<p>")
 //line input.gsx:13:6
-		_gsxgw.Text(string(_gsxf30.PgTextPtr((ptr))))
+		_gsxgw.Text(string(_gsxf31.PgTextPtr((ptr))))
 		_gsxgw.S("</p>")
 //line input.gsx:14:3
 		_gsxgw.S("<p>")

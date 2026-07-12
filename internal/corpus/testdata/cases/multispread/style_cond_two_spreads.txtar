@@ -48,11 +48,12 @@ func StyleCondTwoSpreads(_gsxp StyleCondTwoSpreadsProps) _gsxrt.Node {
 		q := _gsxp.Q
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
-		_gsxv0 := _gsxrt.ConcatAttrs(p, _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.ClassIf("color:red", on))}}, q)
+		_gsxv0 := p
+		_gsxv1 := _gsxrt.ConcatAttrs(_gsxv0, _gsxrt.Attrs{{Key: "style", Value: _gsxrt.StyleString(_gsxrt.ClassIf("color:red", on))}}, q)
 		_gsxgw.S("<div")
-		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
-		_gsxgw.StyleMerged("", _gsxv0.Style())
-		_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv1.Class())
+		_gsxgw.StyleMerged("", _gsxv1.Style())
+		_gsxgw.Spread(ctx, _gsxv1, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
 		_gsxgw.S(">hi</div>")
 		return _gsxgw.Err()
 	})
