@@ -13,10 +13,12 @@ import (
 var sentinel = errors.New("context sentinel")
 func failHole() (string, error) { calls = append(calls, "error"); return "", sentinel }
 func checkedOrder() gsx.Node { return gsx.Func(func(ctx context.Context, w io.Writer) error {
-	calls = nil
-	err := Page().Render(ctx, w)
-	if !errors.Is(err, sentinel) { return fmt.Errorf("render error = %v", err) }
-	if got := strings.Join(calls, ","); got != "prior,error" { return fmt.Errorf("calls = %s", got) }
+	for _, page := range []gsx.Node{CSSPage(), JSPage()} {
+		calls = nil
+		err := page.Render(ctx, w)
+		if !errors.Is(err, sentinel) { return fmt.Errorf("render error = %v", err) }
+		if got := strings.Join(calls, ","); got != "spread,first,error" { return fmt.Errorf("calls = %s", got) }
+	}
 	return nil
 }) }
 -- input.gsx --
@@ -26,9 +28,13 @@ import "github.com/gsxhq/gsx"
 
 var calls []string
 func bag(mark string) gsx.Attrs { calls = append(calls, mark); return nil }
+func hole(mark string) string { calls = append(calls, mark); return mark }
 
-component Page() {
-	<div { bag("prior")... } style=css"color:@{failHole()}" { bag("late")... }>x</div>
+component CSSPage() {
+	<div { bag("spread")... } style=css"a:@{hole("first")};b:@{failHole()};c:@{hole("late-hole")}" { bag("late-spread")... }>x</div>
+}
+component JSPage() {
+	<div { bag("spread")... } data-x=js"f(@{hole("first")},@{failHole()},@{hole("late-hole")})" { bag("late-spread")... }>x</div>
 }
 -- invoke --
 checkedOrder()

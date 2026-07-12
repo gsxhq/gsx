@@ -3326,7 +3326,14 @@ func embeddedJSValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.
 				bag.Errorf(s.Pos(), s.End(), "unsafe-js-context", "JS attribute interpolation %q has no JS context", s.Expr)
 				return "", false
 			}
-			parts = append(parts, escaped)
+			// Evaluate every dynamic hole at its source position. A later hole may
+			// emit tuple/renderer error-handling statements while it is lowered;
+			// retaining this expression inline until final concatenation would move
+			// that later evaluation ahead of this one.
+			name := fmt.Sprintf("_gsxv%d", *interpTemp)
+			*interpTemp++
+			fmt.Fprintf(b, "\t\t%s := %s\n", name, escaped)
+			parts = append(parts, name)
 		}
 	}
 	if len(parts) == 0 {
@@ -3360,15 +3367,20 @@ func embeddedCSSValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast
 			if !ok {
 				return "", false
 			}
+			var value string
 			if isRawCSS(typ) {
-				parts = append(parts, "string("+expr+")")
-				continue
+				value = "string(" + expr + ")"
+			} else {
+				str, ok := stringifyExpr(expr, typ, rt, s, bag, fmt.Sprintf("CSS interpolation %q", s.Expr))
+				if !ok {
+					return "", false
+				}
+				value = rt.rt() + ".FilterCSS(" + str + ")"
 			}
-			str, ok := stringifyExpr(expr, typ, rt, s, bag, fmt.Sprintf("CSS interpolation %q", s.Expr))
-			if !ok {
-				return "", false
-			}
-			parts = append(parts, rt.rt()+".FilterCSS("+str+")")
+			name := fmt.Sprintf("_gsxv%d", *interpTemp)
+			*interpTemp++
+			fmt.Fprintf(b, "\t\t%s := %s\n", name, value)
+			parts = append(parts, name)
 		}
 	}
 	if len(parts) == 0 {
@@ -6084,13 +6096,11 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 				entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), strconv.Quote(text)))
 				break
 			}
-			// A hole-bearing literal: unlike a component PROP (which cannot yet
-			// receive an interpolated value), a bag ENTRY takes the assembled
-			// string as its Value — the leaf sanitizes by attribute context, so
-			// the value belongs in the bag exactly like a plain-text hole on the
-			// inline path. Only EmbeddedText is lowered here: a js`…@{}…`/css`…@{}…`
-			// literal escapes each hole by its own grammar (a distinct lowering),
-			// so it stays rejected until that path is ported.
+			// A hole-bearing element literal enters the shared bag as an assembled
+			// string. Text holes are stringified directly; JS/CSS holes are first
+			// escaped for their embedded grammar. The leaf then performs the one
+			// surrounding HTML-attribute escape. Component props remain restricted
+			// to EmbeddedText because contextual literals are element sinks.
 			if t.Lang != ast.EmbeddedText && ctx != bagElementFold {
 				var msg string
 				switch ctx {
