@@ -535,7 +535,8 @@ func (*CondAttr) attrNode() {}
 // When Stages is non-empty, Expr is the pipeline seed and Stages are applied
 // left-to-right (`seed |> s0 |> s1 ...`), mirroring Interp.Stages; the guard Cond
 // is NEVER piped. It is a Node (span embedded) so *ClassPart can be keyed in the
-// resolved map for (T, error) auto-unwrap on unconditional plain parts.
+// resolved map for renderer application and (T, error) auto-unwrap on plain
+// parts, conditional or not (#88).
 // When CSSSegments != nil, this is style={ ..., css`...` }; Expr/Cond/Stages/CF
 // are unused. When CF != nil, this is a value-form if/switch; Expr/Cond/Stages
 // and CSSSegments are unused.
