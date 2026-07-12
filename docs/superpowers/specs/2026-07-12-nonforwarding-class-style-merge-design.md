@@ -102,6 +102,12 @@ existing `Spread` leaf remains the single authority for navigational, image,
 srcset, prefix, and custom configured URL sinks and consults the value marker
 only after the winning entry is selected.
 
+This is strictly a fold-path representation detail. A leaf element whose
+attributes do not require merging stays on the existing direct emitter: static
+attribute bytes are written directly into the tag, with no `Attrs` allocation,
+no `RawURL` marker, and no `Spread` call. Generated-code negative controls pin
+that shape for both ordinary and URL attributes.
+
 ## Tests
 
 Canonical corpus cases cover:
@@ -119,6 +125,8 @@ Canonical corpus cases cover:
 - static URL provenance and override order: trusted static vs later dynamic,
   dynamic vs later trusted static, two statics, conditional static branches,
   image/srcset/custom URL sinks, and HTML-special characters.
+- direct-emission negative controls for leaf elements without merging, asserting
+  generated output contains the literal tag write and no `Attrs`/`Spread` path.
 
 Add the no-spread shapes to the codegen fold differential matrix and a focused
 benchmark comparing the unchanged single-style fast path with the new merge
