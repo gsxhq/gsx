@@ -1350,6 +1350,35 @@ func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, cur
 	return true
 }
 
+// foldElementSpreads renders a non-component element carrying ≥2 spreads
+// (counting cond-nested) by folding ALL its attributes into one source-ordered
+// ConcatAttrs(...) bag and rendering that through the single-bag leaf. This is
+// the reference full-fold: last writer wins per key, class/style aggregate.
+//
+// It builds the fold via composeBag (which emits any AttrsCond/pipe hoists into
+// b in order), then temporarily swaps el.Attrs for a single synthetic spread
+// carrying the fold expression and renders through emitManualSpreadElement with
+// splitIdx=0 — keeping el's real span/Pos()/Void/Children and node identity for
+// nonce / emitFallthroughAttrs (they compare against el.Attrs[splitIdx]).
+func foldElementSpreads(b *bytes.Buffer, el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+	expr, used, err := composeBag(b, interpTemp, emitPipeWrap(b, interpTemp), false, el.Attrs, rt.rt(), el.Tag, classMergeExpr(mergeExpr, rt), table, resolved, "return _gsxerr")
+	if err != nil {
+		if ae, ok := errors.AsType[*attrError](err); ok {
+			bag.Errorf(ae.pos, ae.end, ae.code, "%s", ae.msg)
+		} else {
+			bag.Errorf(el.Pos(), el.End(), "spread-fold", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+		}
+		return false
+	}
+	for _, path := range used {
+		imports[path] = true
+	}
+	orig := el.Attrs
+	el.Attrs = []ast.Attr{&ast.SpreadAttr{Expr: expr}}
+	defer func() { el.Attrs = orig }()
+	return emitManualSpreadElement(b, el, 0, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)
+}
+
 // bagSpreadIndex returns the index of the (single) top-level element spread
 // and whether one is present. Enforcing at-most-one-spread — including
 // spreads nested in cond-attr branches — is done by walkSpreadAttrs before
@@ -1657,44 +1686,12 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		// routes through emitManualSpreadElement's URL-sanitizing / class-merge
 		// machinery regardless of the bag's provenance (declared forwarding param,
 		// local `:=` bag, func result, byo field, arbitrary expr). An element
-		// carries at most one spread — top-level OR nested in a cond-attr branch —
-		// so firstTwoSpreadAttrs hands back the offending second spread
-		// (descending into cond-attrs) and the diagnostic is positioned there
-		// (not at the element) with a merge-hint naming both spreads.
-		if first, second, firstCond, secondCond := firstTwoSpreadAttrs(t.Attrs); second != nil {
-			firstExpr := strings.TrimSpace(first.Expr)
-			secondExpr := strings.TrimSpace(second.Expr)
-			if firstCond != "" || secondCond != "" {
-				// At least one spread is inside a { if }: its keys are statically
-				// unknown, so it cannot be a plain .Merge() with the other spread
-				// (that would drop the condition, or drop the other spread's
-				// attributes). Recommend gsx.AttrsCond, naming both spreads and the
-				// merge base so no spread is silently lost.
-				//
-				// Precedence: the recommended fix always makes the conditional spread
-				// the `.Merge(a)` overlay, so it wins over the top-level/base spread —
-				// two spreads was never a valid runtime, so the fix ratifies
-				// "conditional overrides base" explicitly rather than leaving it implicit.
-				switch {
-				case secondCond == "": // first is conditional, second is the top-level merge base
-					bag.Errorf(first.Pos(), first.End(), "attr-fallthrough",
-						"a spread inside { if } ({ %s... }) has statically unknown keys and cannot be a separate spread alongside { %s... }; build it as a bag with gsx.AttrsCond(%s, func() (gsx.Attrs, error) { return %s, nil }, nil) in a {{ }} block, then spread a single { %s.Merge(a)... }",
-						firstExpr, secondExpr, firstCond, firstExpr, secondExpr)
-				case firstCond == "": // second is conditional, first is the top-level merge base
-					bag.Errorf(second.Pos(), second.End(), "attr-fallthrough",
-						"a spread inside { if } ({ %s... }) has statically unknown keys and cannot be a separate spread alongside { %s... }; build it as a bag with gsx.AttrsCond(%s, func() (gsx.Attrs, error) { return %s, nil }, nil) in a {{ }} block, then spread a single { %s.Merge(a)... }",
-						secondExpr, firstExpr, secondCond, secondExpr, firstExpr)
-				default: // both conditional — no unconditional merge base
-					bag.Errorf(second.Pos(), second.End(), "attr-fallthrough",
-						"element carries two conditional spreads ({ %s... } and { %s... }) whose keys are statically unknown; build each as a bag with gsx.AttrsCond(cond, func() (gsx.Attrs, error) { return bag, nil }, nil) in a {{ }} block, then spread a single merged result ({ a.Merge(b)... })",
-						firstExpr, secondExpr)
-				}
-				return false
-			}
-			bag.Errorf(second.Pos(), second.End(), "attr-fallthrough",
-				"element with a spread { %s... } cannot carry another spread { %s... }; merge them into one spread ({ %s.Merge(%s)... } or { %s.Merge(%s)... }) so precedence is explicit",
-				firstExpr, secondExpr, firstExpr, secondExpr, secondExpr, firstExpr)
-			return false
+		// carrying ≥2 spreads (counting cond-nested) folds ALL its attributes into
+		// one source-ordered ConcatAttrs(...) bag (last writer wins per key,
+		// class/style aggregate) and renders that through the single-bag leaf;
+		// exactly one spread routes straight to the leaf.
+		if _, second, _, _ := firstTwoSpreadAttrs(t.Attrs); second != nil {
+			return foldElementSpreads(b, t, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)
 		} else if splitIdx, found := bagSpreadIndex(t.Attrs); found {
 			return emitManualSpreadElement(b, t, splitIdx, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)
 		}
