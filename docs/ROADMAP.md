@@ -750,7 +750,10 @@ vocabulary remains a design aspiration, not the current API.
    `class`/`style` aggregate), same as any two same-named attributes -
    interposed statics and conditional spreads/statics participate, including
    embedded-hole attrs. Docs: `composition.md` §Derived bags. Corpus:
-   `multispread/*`.
+   `multispread/*`. Follow-up issues #92, #93, and #94 are fixed: folded
+   embedded JS/CSS holes retain their contextual escaping, generic `any`
+   holes match inline `AttrAny` rendering, and differential fold fuzzing now
+   covers edge whitespace and boolean scalar values.
 
    **Lift D3 (conditional class/style on a forwarding element) - SHIPPED**
    (2026-07-12, `2026-07-12-lift-d3-conditional-class-merge-design.md`). D3's
