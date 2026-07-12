@@ -18,6 +18,8 @@ func TestStyleMerged(t *testing.T) {
 		{"", "", ""}, // empty -> no attr
 		{"", "color: blue", ` style="color: blue"`},
 		{"", "content:ZgotmplZ;x:color:red", ` style="content:ZgotmplZ;x:color:red"`}, // unique declarations preserve authored separators
+		{"color:red", "margin:0", ` style="color:red; margin:0"`},                     // unique across both contributors: authored bytes + Attrs.Style's "; " boundary
+		{"color:red;", "margin:0", ` style="color:red;; margin:0"`},                   // authored trailing ";" is preserved; the resulting empty declaration is valid CSS
 		// robust splitter: ; and : inside url()/quotes are NOT boundaries
 		{"background: url(data:image/png;base64,AA;BB)", "", ` style="background: url(data:image/png;base64,AA;BB)"`},
 		{`content: "a; b"; color: red`, "color: blue", ` style="content: &#34;a; b&#34;; color: blue"`},

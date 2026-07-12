@@ -1,0 +1,49 @@
+# A (T, error) tuple hole inside a hole-bearing embedded text literal in a
+# conditional attribute branch: the branch lowers through composeBag into a
+# func() (Attrs, error) thunk, so the tuple hoist must return `nil, _gsxerr`
+# (thunk shape), not the render closure's bare `return _gsxerr`. A failing
+# tuple propagates out of the thunk as the render error.
+-- helpers.go --
+package views
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+
+	"github.com/gsxhq/gsx"
+)
+
+var sentinel = errors.New("sentinel")
+
+func fail() (string, error) { return "", sentinel }
+
+func checkedErrorPage() gsx.Node {
+	return gsx.Func(func(ctx context.Context, w io.Writer) error {
+		err := FailPage(FailPageProps{Edit: true}).Render(ctx, w)
+		if !errors.Is(err, sentinel) {
+			return fmt.Errorf("render error = %v, want sentinel", err)
+		}
+		return nil
+	})
+}
+-- input.gsx --
+package views
+
+func hi() (string, error) { return "there", nil }
+
+component Field(label string) { <input aria-label={label} { attrs... }/> }
+
+component Page(edit bool) {
+	<Field label="c" { if edit { title=f"Hi @{hi()}" } } />
+}
+
+component FailPage(edit bool) {
+	<Field label="c" { if edit { title=f"Hi @{fail()}" } } />
+}
+-- invoke --
+gsx.Fragment(Page(PageProps{Edit: true}), checkedErrorPage())
+-- diagnostics.golden --
+-- render.golden --
+<input aria-label="c" title="Hi there"/>

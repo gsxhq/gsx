@@ -286,7 +286,7 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 					if len(p.Stages) > 0 {
 						bag.Errorf(p.Pos(), p.End(), "unsupported-node", "whole-literal pipelines on a Go-expression backtick literal are not supported")
 						partsOK = false
-					} else if val, vok := embeddedValueExpr(&wbuf, p.Segments, resolved, table, imports, rt, &interpTemp, bag, "unsupported-node", "backtick literal value"); !vok {
+					} else if val, vok := embeddedValueExpr(&wbuf, p.Segments, resolved, table, imports, rt, &interpTemp, bag, "return _gsxerr", "unsupported-node", "backtick literal value"); !vok {
 						partsOK = false
 					} else {
 						wbuf.WriteString(val)
@@ -999,7 +999,7 @@ func emitFallthroughAttrs(b *bytes.Buffer, attrs []ast.Attr, splitIdx int, resol
 			// doesn't touch style. The else branch re-emits the literal via its normal
 			// standalone path (emitEmbeddedTextAttr), byte-identical to Task 4's
 			// no-fallthrough rendering.
-			ownStyle, ok := embeddedTextValueExpr(b, embedStyle, resolved, table, imports, rt, interpTemp, bag)
+			ownStyle, ok := embeddedTextValueExpr(b, embedStyle, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr")
 			if !ok {
 				return false
 			}
@@ -1327,6 +1327,41 @@ func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, cur
 // splitIdx=0 — keeping el's real span/Pos()/Void/Children and node identity for
 // nonce / emitFallthroughAttrs (they compare against el.Attrs[splitIdx]).
 func foldElementSpreads(b *bytes.Buffer, el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
+	// A hole-bearing js/css literal on a URL-sink attribute cannot fold: its
+	// bag value reaches the leaf contextually escaped for JS/CSS, and Spread's
+	// URL-key sanitization would then rewrite it (the inline path emits the
+	// escaped value verbatim). Reject rather than silently diverge from the
+	// inline rendering of the same attribute. Cond-attr branches fold into the
+	// same bag (they inherit bagElementFold through condAttrsExpr), so the
+	// scan descends into them.
+	var rejectURLSinkLiterals func(attrs []ast.Attr) bool
+	rejectURLSinkLiterals = func(attrs []ast.Attr) bool {
+		for _, a := range attrs {
+			switch t := a.(type) {
+			case *ast.CondAttr:
+				if !rejectURLSinkLiterals(t.Then) || !rejectURLSinkLiterals(t.Else) {
+					return false
+				}
+			case *ast.EmbeddedAttr:
+				if t.Lang == ast.EmbeddedText {
+					continue
+				}
+				if _, static := embeddedStaticText(t); static {
+					continue
+				}
+				if cls.Context(t.Name) == attrclass.CtxURL {
+					bag.Errorf(t.Pos(), t.End(), "url-sink-fold",
+						"embedded %s attribute literal %q with @{ } interpolation is a URL attribute on <%s>; on an element carrying multiple spreads the shared bag's URL sanitization would rewrite the %s-escaped value, so it cannot fold — use at most one spread on this element or a non-URL attribute",
+						embeddedLangName(t.Lang), t.Name, el.Tag, embeddedLangName(t.Lang))
+					return false
+				}
+			}
+		}
+		return true
+	}
+	if !rejectURLSinkLiterals(el.Attrs) {
+		return false
+	}
 	expr, used, err := composeBag(b, interpTemp, emitPipeWrap(b, interpTemp), false, el.Attrs, rt.rt(), el.Tag, classMergeExpr(mergeExpr, rt), table, resolved, imports, rt, bag, "return _gsxerr", bagElementFold)
 	if err != nil {
 		if errors.Is(err, errBagDiagReported) {
@@ -1538,7 +1573,7 @@ func emitRootStaticClass(b *bytes.Buffer, a *ast.StaticAttr, rt rtImports, merge
 // literal (no bag class) still passes through DefaultClassMerge's
 // len(classes)==1 verbatim shortcut, matching the static-class case exactly.
 func emitRootEmbeddedClass(b *bytes.Buffer, a *ast.EmbeddedAttr, mergeExpr, bagExpr string, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) bool {
-	val, ok := embeddedTextValueExpr(b, a, resolved, table, imports, rt, interpTemp, bag)
+	val, ok := embeddedTextValueExpr(b, a, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr")
 	if !ok {
 		return false
 	}
@@ -1938,7 +1973,7 @@ func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type,
 					bag.Errorf(n.Pos(), n.End(), "unsupported-node", "whole-literal pipelines on a Go-expression backtick literal are not supported")
 					return false
 				}
-				val, vok := embeddedValueExpr(b, p.Segments, resolved, table, imports, rt, interpTemp, bag, "unsupported-node", "backtick literal value")
+				val, vok := embeddedValueExpr(b, p.Segments, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr", "unsupported-node", "backtick literal value")
 				if !vok {
 					return false
 				}
@@ -2043,7 +2078,7 @@ func emitEmbeddedInterp(b *bytes.Buffer, n *ast.EmbeddedInterp, resolved map[ast
 		return true
 	}
 	emitLine(b, fset, n.Pos())
-	concat, ok := embeddedValueExpr(b, n.Segments, resolved, table, imports, rt, interpTemp, bag, "unsupported-node", "body interpolation literal")
+	concat, ok := embeddedValueExpr(b, n.Segments, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr", "unsupported-node", "body interpolation literal")
 	if !ok {
 		return false
 	}
@@ -2106,14 +2141,23 @@ func hoistTuple(b *bytes.Buffer, expr string, interpTemp *int) string {
 // _gsxerr }`), halting the chain at the failing stage. Statements land in b
 // before the statement that consumes the pipeline's final expression.
 func emitPipeWrap(b *bytes.Buffer, interpTemp *int) func(string) string {
-	return func(call string) string { return hoistTuple(b, call, interpTemp) }
+	return pipeWrapReturning(b, interpTemp, "return _gsxerr")
 }
 
 // thunkPipeWrap is emitPipeWrap for statement positions INSIDE an (Attrs, error)
 // cond-attr thunk: same hoist, two-value error return.
 func thunkPipeWrap(b *bytes.Buffer, interpTemp *int) func(string) string {
+	return pipeWrapReturning(b, interpTemp, "return nil, _gsxerr")
+}
+
+// pipeWrapReturning is the shared implementation of emitPipeWrap/thunkPipeWrap,
+// generalized over the enclosing function's error-return statement. Hole
+// lowering shared by the render closure and (Attrs, error) cond-attr thunks
+// (embeddedValueExpr/holeStringExpr/embeddedHoleExpr) builds its wrap from the
+// caller's errReturn so a pipeline hoist always matches the enclosing shape.
+func pipeWrapReturning(b *bytes.Buffer, interpTemp *int, errReturn string) func(string) string {
 	return func(call string) string {
-		return hoistTupleReturning(b, call, interpTemp, "return nil, _gsxerr")
+		return hoistTupleReturning(b, call, interpTemp, errReturn)
 	}
 }
 
@@ -2921,7 +2965,7 @@ func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast
 	}
 	switch {
 	case len(a.Stages) > 0:
-		concat, ok := embeddedTextValueExpr(b, a, resolved, table, imports, rt, interpTemp, bag)
+		concat, ok := embeddedTextValueExpr(b, a, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr")
 		if !ok {
 			return false
 		}
@@ -2964,7 +3008,7 @@ func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast
 			return false
 		}
 	case isURL:
-		concat, ok := embeddedTextValueExpr(b, a, resolved, table, imports, rt, interpTemp, bag)
+		concat, ok := embeddedTextValueExpr(b, a, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr")
 		if !ok {
 			return false
 		}
@@ -3004,17 +3048,20 @@ func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast
 // (URL) or bypass the merge machinery's raw-string contract (class/style,
 // which operates on unescaped tokens/declarations before its one final
 // escape).
-func embeddedTextValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) (string, bool) {
-	return embeddedValueExpr(b, a.Segments, resolved, table, imports, rt, interpTemp, bag, "unsupported-attr", fmt.Sprintf("attribute %q value", a.Name))
+func embeddedTextValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn string) (string, bool) {
+	return embeddedValueExpr(b, a.Segments, resolved, table, imports, rt, interpTemp, bag, errReturn, "unsupported-attr", fmt.Sprintf("attribute %q value", a.Name))
 }
 
 // embeddedValueExpr is embeddedTextValueExpr generalized over a raw segment
 // list, so a body/child *ast.EmbeddedInterp's Segments can be assembled through
 // the SAME logic (static text -> raw quoted literal, each hole -> holeStringExpr)
-// without an *ast.EmbeddedAttr wrapper. errCode/errDesc position and word the
-// "unsupported segment" diagnostic for the caller's context (attribute vs. body
-// literal).
-func embeddedValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errCode, errDesc string) (string, bool) {
+// without an *ast.EmbeddedAttr wrapper. errReturn is the error-return statement
+// matching the enclosing function's signature ("return _gsxerr" in the render
+// closure, "return nil, _gsxerr" in an (Attrs, error) cond-attr thunk) — every
+// hole hoist (pipeline, tuple, renderer, AttrString) uses it. errCode/errDesc
+// position and word the "unsupported segment" diagnostic for the caller's
+// context (attribute vs. body literal).
+func embeddedValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn string, errCode, errDesc string) (string, bool) {
 	parts := make([]string, 0, len(segs))
 	for _, seg := range segs {
 		switch s := seg.(type) {
@@ -3024,7 +3071,7 @@ func embeddedValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node
 			}
 			parts = append(parts, strconv.Quote(s.Value))
 		case *ast.Interp:
-			p, ok := holeStringExpr(b, s, resolved, table, imports, rt, interpTemp, bag)
+			p, ok := holeStringExpr(b, s, resolved, table, imports, rt, interpTemp, bag, errReturn)
 			if !ok {
 				return "", false
 			}
@@ -3050,12 +3097,17 @@ func embeddedValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node
 // returned expression. Type routing mirrors emitAttrValue's classify(t)
 // categories (emit.go ~2670), but produces an expression instead of a writer
 // call: string/[]byte -> string(x), int/uint/float -> strconv.Format*,
-// Stringer -> (x).String(). Any other type (bool, catAnyMixed, unresolved)
+// Stringer -> (x).String(), a MIXED non-tilde type parameter (catAnyMixed) ->
+// a hoisted rt.AttrString conversion. Any other type (bool, unresolved)
 // cannot safely carry a URL fragment and is rejected with a diagnostic.
-func holeStringExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) (string, bool) {
+// errReturn is the error-return statement matching the enclosing function's
+// signature; every hoist emitted here (pipeline, tuple, renderer, AttrString)
+// uses it, so the same lowering serves the render closure ("return _gsxerr")
+// and an (Attrs, error) cond-attr thunk ("return nil, _gsxerr").
+func holeStringExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn string) (string, bool) {
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
-		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, emitPipeWrap(b, interpTemp))
+		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, pipeWrapReturning(b, interpTemp, errReturn))
 		if err != nil {
 			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return "", false
@@ -3076,20 +3128,15 @@ func holeStringExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.
 			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "URL interpolation %q returns %s; only (T, error) is supported", expr, t)
 			return "", false
 		}
-		expr = hoistTuple(b, expr, interpTemp)
+		expr = hoistTupleReturning(b, expr, interpTemp, errReturn)
 		t = elemT
 	}
-	expr, t = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
-	if classify(t) == catAnyMixed {
-		name := fmt.Sprintf("_gsxv%d", *interpTemp)
-		*interpTemp++
-		fmt.Fprintf(b, "\t\t%s, _gsxerr := %s.AttrString(%s)\n", name, rt.rt(), expr)
-		b.WriteString("\t\tif _gsxerr != nil { return _gsxerr }\n")
-		return name, true
-	}
+	expr, t = applyRenderer(b, expr, t, table, imports, interpTemp, errReturn)
 	switch classify(t) {
 	case catString, catBytes:
 		return "string(" + expr + ")", true
+	case catAnyMixed:
+		return hoistTupleReturning(b, rt.rt()+".AttrString("+expr+")", interpTemp, errReturn), true
 	default:
 		return stringifyExpr(expr, t, rt, n, bag, fmt.Sprintf("attribute interpolation %q", n.Expr))
 	}
@@ -3280,11 +3327,13 @@ func emitRenderCSSAttr(b *bytes.Buffer, expr string, t types.Type, rt rtImports,
 }
 
 // embeddedHoleExpr lowers the evaluation shared by contextual embedded holes.
-// Context-specific escaping is deliberately left to the caller.
-func embeddedHoleExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag) (string, types.Type, bool) {
+// Context-specific escaping is deliberately left to the caller. errReturn is
+// the error-return statement matching the enclosing function's signature (see
+// holeStringExpr); every hoist emitted here uses it.
+func embeddedHoleExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag, errReturn string) (string, types.Type, bool) {
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
-		lowered, used, err := lowerPipe(n.Expr, n.Stages, table, emitPipeWrap(b, interpTemp))
+		lowered, used, err := lowerPipe(n.Expr, n.Stages, table, pipeWrapReturning(b, interpTemp, errReturn))
 		if err != nil {
 			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return "", nil, false
@@ -3305,14 +3354,14 @@ func embeddedHoleExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]type
 			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "contextual attribute interpolation %q returns %s; only (T, error) is supported", expr, t)
 			return "", nil, false
 		}
-		expr = hoistTuple(b, expr, interpTemp)
+		expr = hoistTupleReturning(b, expr, interpTemp, errReturn)
 		t = elem
 	}
-	expr, t = applyRenderer(b, expr, t, table, imports, interpTemp, "return _gsxerr")
+	expr, t = applyRenderer(b, expr, t, table, imports, interpTemp, errReturn)
 	return expr, t, true
 }
 
-func embeddedJSValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) (string, bool) {
+func embeddedJSValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn string) (string, bool) {
 	parts := make([]string, 0, len(a.Segments))
 	for _, seg := range a.Segments {
 		switch s := seg.(type) {
@@ -3321,7 +3370,7 @@ func embeddedJSValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.
 				parts = append(parts, strconv.Quote(s.Value))
 			}
 		case *ast.Interp:
-			expr, typ, ok := embeddedHoleExpr(b, s, resolved, table, imports, interpTemp, bag)
+			expr, typ, ok := embeddedHoleExpr(b, s, resolved, table, imports, interpTemp, bag, errReturn)
 			if !ok {
 				return "", false
 			}
@@ -3374,7 +3423,7 @@ func stringifyJSExpr(expr string, t types.Type, n ast.Node, bag *diag.Bag) (stri
 	}
 }
 
-func embeddedCSSValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) (string, bool) {
+func embeddedCSSValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn string) (string, bool) {
 	parts := make([]string, 0, len(a.Segments))
 	for _, seg := range a.Segments {
 		switch s := seg.(type) {
@@ -3383,7 +3432,7 @@ func embeddedCSSValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast
 				parts = append(parts, strconv.Quote(s.Value))
 			}
 		case *ast.Interp:
-			expr, typ, ok := embeddedHoleExpr(b, s, resolved, table, imports, interpTemp, bag)
+			expr, typ, ok := embeddedHoleExpr(b, s, resolved, table, imports, interpTemp, bag, errReturn)
 			if !ok {
 				return "", false
 			}
@@ -5926,12 +5975,13 @@ var errBagDiagReported = errors.New("bag diagnostic already reported")
 // whatever return-statement shape matches their enclosing function's
 // signature.
 //
-// imports/rt/bag are consumed only by the hole-bearing embedded-text arm, which
-// lowers `name=f"…@{expr}…"` into the bag via embeddedTextValueExpr (assembling
-// the segments, hoisting into b, recording strconv/etc. into imports, and
-// reporting any positioned diagnostic to bag). In probe mode that arm emits a
-// string placeholder instead (the hole's type is harvested by a separate
-// _gsxuse probe), so imports/rt/bag go unused there.
+// imports/rt/bag are consumed only by the hole-bearing embedded-literal arm,
+// which lowers `name=f"…@{expr}…"` (and, in the element-fold context,
+// js"…@{}…"/css"…@{}…") into the bag via the embedded*ValueExpr assemblers
+// (assembling the segments, hoisting into b, recording strconv/etc. into
+// imports, and reporting any positioned diagnostic to bag). In probe mode that
+// arm emits a string placeholder instead (the hole's type is harvested by a
+// separate _gsxuse probe), so imports/rt/bag go unused there.
 func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, probeWrap bool, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, errReturn string, ctx bagContext) (string, map[string]string, error) {
 	var entries []string
 	usedPkgs := map[string]string{}
@@ -6122,13 +6172,10 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			// surrounding HTML-attribute escape. Component props remain restricted
 			// to EmbeddedText because contextual literals are element sinks.
 			if t.Lang != ast.EmbeddedText && ctx != bagElementFold {
-				var msg string
-				switch ctx {
-				case bagElementFold:
-					msg = fmt.Sprintf("embedded %s attribute literal %q with @{ } interpolation is not yet supported on an element that merges its attributes (<%s>); each @{ } hole needs %s-context escaping into the shared bag, which is not yet ported", embeddedLangName(t.Lang), t.Name, tag, embeddedLangName(t.Lang))
-				default:
-					msg = fmt.Sprintf("embedded %s attribute literal %q with @{ } interpolation cannot be used as a component prop on <%s> yet; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, tag)
-				}
+				// Only the component-prop context can still reach this reject: the
+				// element fold (including its cond-attr branches, which inherit
+				// bagElementFold through condAttrsExpr) lowers js/css holes above.
+				msg := fmt.Sprintf("embedded %s attribute literal %q with @{ } interpolation cannot be used as a component prop on <%s> yet; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, tag)
 				return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
 			if probeWrap {
@@ -6146,14 +6193,14 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			var ok bool
 			switch t.Lang {
 			case ast.EmbeddedText:
-				val, ok = embeddedTextValueExpr(b, t, resolved, table, imports, rt, interpTemp, bag)
+				val, ok = embeddedTextValueExpr(b, t, resolved, table, imports, rt, interpTemp, bag, errReturn)
 			case ast.EmbeddedJS:
-				val, ok = embeddedJSValueExpr(b, t, resolved, table, imports, rt, interpTemp, bag)
+				val, ok = embeddedJSValueExpr(b, t, resolved, table, imports, rt, interpTemp, bag, errReturn)
 			case ast.EmbeddedCSS:
-				val, ok = embeddedCSSValueExpr(b, t, resolved, table, imports, rt, interpTemp, bag)
+				val, ok = embeddedCSSValueExpr(b, t, resolved, table, imports, rt, interpTemp, bag, errReturn)
 			}
 			if !ok {
-				// embeddedTextValueExpr has already emitted the positioned
+				// The value assembler has already emitted the positioned
 				// diagnostic (unresolved/unusable hole); abort without a second one.
 				return "", nil, errBagDiagReported
 			}
