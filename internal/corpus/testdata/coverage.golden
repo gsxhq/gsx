@@ -507,6 +507,7 @@ renderers/class_part	diag gen render
 renderers/class_part_component	diag gen render
 renderers/component_arg_negative	diag gen render
 renderers/css_attr_hole	diag gen render
+renderers/ctx_text	diag gen render
 renderers/fallthrough_attr	diag gen render
 renderers/fallthrough_ordered_attr	diag gen render
 renderers/fliteral_attr	diag gen render
@@ -677,4 +678,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 679 cases (render: 555, error: 95, gen-pinned: 359)
+TOTAL: 680 cases (render: 556, error: 95, gen-pinned: 360)

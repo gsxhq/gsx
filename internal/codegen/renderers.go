@@ -152,20 +152,29 @@ func effectiveRenderType(t types.Type, table funcTables) types.Type {
 }
 
 // applyRenderer wraps expr in its registered renderer call when t's canonical
-// key is registered, marking the renderer package as imported. An error
-// renderer hoists through hoistTupleReturning with the caller's error-return
-// statement (the same per-context shapes pipe filters use: "return _gsxerr"
-// in a render closure, "return nil, _gsxerr" in an (Attrs, error) thunk).
-// Returns the (possibly hoisted) expr and the type the boundary classifies;
-// a registry miss returns the inputs unchanged. Renderers apply exactly once
-// (harvest rejects chains), so this never recurses.
+// key is registered, marking the renderer package as imported. A wantsCtx
+// renderer receives the ambient render ctx (pipeCtxIdent) as its first
+// argument — every applyRenderer call site sits inside the render closure or
+// an (Attrs, error) thunk nested in it, where pipeCtxIdent is in scope, same
+// as a ctx-taking pipe filter (lowerPipe). An error renderer hoists through
+// hoistTupleReturning with the caller's error-return statement (the same
+// per-context shapes pipe filters use: "return _gsxerr" in a render closure,
+// "return nil, _gsxerr" in an (Attrs, error) thunk). Returns the (possibly
+// hoisted) expr and the type the boundary classifies (effectiveRenderType is
+// this function's type-only shadow — the two must never disagree on the
+// registry lookup); a registry miss returns the inputs unchanged. Renderers
+// apply exactly once (harvest rejects chains), so this never recurses.
 func applyRenderer(b *bytes.Buffer, expr string, t types.Type, table funcTables, imports map[string]bool, interpTemp *int, errReturn string) (string, types.Type) {
 	e, ok := table.renderers[rendererKey(t)]
 	if !ok {
 		return expr, t
 	}
 	imports[e.pkgPath] = true
-	call := e.alias + "." + e.funcName + "((" + expr + "))"
+	args := "(" + expr + ")"
+	if e.wantsCtx {
+		args = pipeCtxIdent + ", " + args
+	}
+	call := e.alias + "." + e.funcName + "(" + args + ")"
 	if e.hasErr {
 		return hoistTupleReturning(b, call, interpTemp, errReturn), e.result
 	}
