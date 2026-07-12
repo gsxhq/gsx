@@ -51,7 +51,7 @@ import (
 	"corpustest/cases/renderers_srcset_hole/pg"
 
 	_gsxctx "context"
-	_gsxf31 "corpustest/cases/renderers_srcset_hole/rend"
+	_gsxf32 "corpustest/cases/renderers_srcset_hole/rend"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
@@ -69,7 +69,7 @@ func Pic(_gsxp PicProps) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxgw.S("<img srcset=\"")
-		_gsxgw.Srcset(string(_gsxf31.PgText((val))))
+		_gsxgw.Srcset(string(_gsxf32.PgText((val))))
 		_gsxgw.S("\"/>")
 		return _gsxgw.Err()
 	})

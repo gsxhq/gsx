@@ -53,7 +53,7 @@ package views
 
 import (
 	_gsxctx "context"
-	_gsxf26 "corpustest/cases/renderers_fliteral_text/rend"
+	_gsxf27 "corpustest/cases/renderers_fliteral_text/rend"
 	_gsxf0 "corpustest/cases/renderers_fliteral_text/wrapf"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
@@ -71,7 +71,7 @@ func Tag(_gsxp TagProps) _gsxrt.Node {
 //line input.gsx:4:2
 		_gsxgw.S("<div>")
 //line input.gsx:4:7
-		_gsxgw.Text(string(_gsxf26.PgText((_gsxf0.WrapText(("hi-" + string(name)))))))
+		_gsxgw.Text(string(_gsxf27.PgText((_gsxf0.WrapText(("hi-" + string(name)))))))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})
