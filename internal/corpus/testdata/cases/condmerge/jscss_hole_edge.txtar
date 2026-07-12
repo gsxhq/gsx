@@ -12,4 +12,4 @@ component JSCssHoleCondClass(u string, active bool) {
 	<button onclick=js"go(@{u})" { attrs... } { if active { class="on" } }>go</button>
 }
 -- diagnostics.golden --
-4:10: embedded js attribute literal "onclick" with @{ } interpolation is not yet supported on an element carrying multiple spreads (<button>); each @{ } hole needs js-context escaping into the shared bag, which is not yet ported
+4:10: embedded js attribute literal "onclick" with @{ } interpolation is not yet supported on an element that merges its attributes (<button>); each @{ } hole needs js-context escaping into the shared bag, which is not yet ported

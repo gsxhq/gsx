@@ -14,4 +14,4 @@ component JSCssHoleTwoSpreads(u string, p gsx.Attrs, q gsx.Attrs) {
 	<button { p... } onclick=js"do(@{u})" { q... }>go</button>
 }
 -- diagnostics.golden --
-6:19: embedded js attribute literal "onclick" with @{ } interpolation is not yet supported on an element carrying multiple spreads (<button>); each @{ } hole needs js-context escaping into the shared bag, which is not yet ported
+6:19: embedded js attribute literal "onclick" with @{ } interpolation is not yet supported on an element that merges its attributes (<button>); each @{ } hole needs js-context escaping into the shared bag, which is not yet ported
