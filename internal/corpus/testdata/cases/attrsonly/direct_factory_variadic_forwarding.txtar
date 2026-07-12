@@ -35,18 +35,18 @@ import (
 func named(name string) func(...gsx.Attr) gsx.Node {
 	return func(attrs ...gsx.Attr) gsx.Node {
 		return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
-			attrs := _gsxrt.Attrs(attrs)
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:7:10
+			_gsxv0 := _gsxrt.Attrs(attrs)
 			_gsxgw.S("<svg")
-			if !attrs.Has("stroke-width") {
+			if !_gsxv0.Has("stroke-width") {
 				_gsxgw.S(" stroke-width=\"2\"")
 			}
 			_gsxgw.S(" class=\"")
-			_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("size-5"), _gsxrt.Class(attrs.Class()))
+			_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class("size-5"), _gsxrt.Class(_gsxv0.Class()))
 			_gsxgw.S("\"")
-			_gsxgw.StyleMerged("", attrs.Style())
-			_gsxgw.Spread(ctx, attrs, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
+			_gsxgw.StyleMerged("", _gsxv0.Style())
+			_gsxgw.Spread(ctx, _gsxv0, []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}, []string{"background"}, []string{"imagesrcset", "srcset"}, nil, []string{"class", "style"})
 			_gsxgw.S(">")
 //line input.gsx:7:60
 			_gsxgw.Text(string(name))
