@@ -4,7 +4,7 @@
 
 **Goal:** Make direct GSX markup returned from `func(attrs ...gsx.Attr) gsx.Node` forward `{ attrs... }` through a generated `gsx.Attrs` binding so the existing `Has`, `Class`, `Style`, and `Spread` lowering compiles and renders correctly.
 
-**Architecture:** Preserve the author's variadic function signature and the shared element-forwarding emitter. At the raw Go element-value closure boundary, when the markup references the exact `attrs` identifier, shadow the captured slice with `attrs := _gsxrt.Attrs(attrs)` before shared node emission; declared components keep their existing synthesized `gsx.Attrs` binding.
+**Architecture:** Preserve the author's variadic function signature, ordinary Go closure capture, and the shared element-forwarding emitter. At the actual element-spread boundary, inspect the analyzer-harvested static type for that `*ast.SpreadAttr`; when an accepted spread subject lacks the `gsx.Attrs` method set, evaluate it once into a generated temp through `gsx.Attrs(expr)`. Already-method-bearing bags retain their existing fast path, and unrelated identifiers named `attrs` are untouched.
 
 **Tech Stack:** Go 1.26.1, GSX code generator, canonical txtar corpus.
 
@@ -22,13 +22,14 @@
 ### Task 1: Normalize captured variadic attrs in element-value closures
 
 **Files:**
+- Create: `internal/corpus/testdata/cases/attrsonly/direct_factory_attrs_identifier.txtar`
 - Create: `internal/corpus/testdata/cases/attrsonly/direct_factory_variadic_forwarding.txtar`
 - Modify: `internal/codegen/emit.go`
 - Generated: `internal/corpus/testdata/coverage.golden`
 
 **Interfaces:**
-- Consumes: `usesAttrs(nodes []ast.Markup) bool`, `rtImports.rt() string`, and `emitNodeFuncBody(...) bool`.
-- Produces: element-value closure scaffolding that emits `attrs := _gsxrt.Attrs(attrs)` exactly when its markup references the exact captured identifier `attrs`.
+- Consumes: the analyzer's `resolved[*ast.SpreadAttr]` type, `lookupMethod`, `spreadAttrExpr`, and `rtImports.rt()`.
+- Produces: forwarding-leaf scaffolding that emits a generated `_gsxvN := _gsxrt.Attrs(expr)` temp only for an accepted spread subject whose static type lacks the `Has`/`Class`/`Style` method set.
 
 - [ ] **Step 1: Add the failing canonical corpus case**
 
@@ -72,30 +73,43 @@ GOCACHE=/tmp/gsx-attrsonly-gocache go test ./internal/corpus -run 'TestCorpus/at
 
 Expected: FAIL while compiling the generated case because `attrs` has type `[]gsx.Attr` and has no `Has`, `Class`, `Style`, or related methods. Retain the generated golden written by `-update`; it demonstrates the broken lowering.
 
-- [ ] **Step 3: Add the minimal element-value binding**
+- [ ] **Step 3: Pin unrelated `attrs` closure capture**
 
-In `emitNodeValue`, after opening the generated `gsx.Func` closure and before calling `emitNodeFuncBody`, add:
+Add `direct_factory_attrs_identifier.txtar` with:
 
 ```go
-if usesAttrs(nodes) {
-	fmt.Fprintf(b, "\t\tattrs := %s.Attrs(attrs)\n", rt.rt())
+func label(attrs string) gsx.Node {
+	return <span>{attrs}</span>
 }
 ```
 
-Document that the inner render closure deliberately shadows the captured raw-Go binding. This converts variadic `[]gsx.Attr`, unnamed slice, named slice, or already-`gsx.Attrs` values to the method-bearing bag without changing the author's outer signature; `usesAttrs` prevents emitting an undefined or unused binding for unrelated element literals.
+Run it against the initial closure-wide fix and confirm RED: converting the unrelated string identifier to `gsx.Attrs` fails compilation.
 
-- [ ] **Step 4: Regenerate the goldens and verify the focused corpus case passes**
+- [ ] **Step 4: Add semantic spread-boundary normalization**
+
+In `emitManualSpreadElement`, use `resolved[spread]` to distinguish a methodless accepted spread subject from an already-method-bearing `gsx.Attrs` value. Hoist and convert only the former:
+
+```go
+if spreadType := resolved[spread]; spreadType != nil && !hasAttrsMethodSet(spreadType) {
+	bagExpr = fmt.Sprintf("%s.Attrs(%s)", rt.rt(), bagExpr)
+	needsHoist = true
+}
+```
+
+The generated temp preserves evaluation-once behavior for bare and derived spreads. Do not bind or shadow `attrs` at the closure level; ordinary interpolation and markup-local declarations must keep normal Go meaning and scope. Missing type information belongs to synthetic folded spreads that already produce `gsx.Attrs`, so they retain the established path.
+
+- [ ] **Step 5: Regenerate the goldens and verify both focused corpus cases pass**
 
 Run:
 
 ```bash
-GOCACHE=/tmp/gsx-attrsonly-gocache go test ./internal/corpus -run 'TestCorpus/attrsonly/direct_factory_variadic_forwarding' -update -count=1
-GOCACHE=/tmp/gsx-attrsonly-gocache go test ./internal/corpus -run 'TestCorpus/attrsonly/direct_factory_variadic_forwarding' -count=1
+GOCACHE=/tmp/gsx-attrsonly-gocache go test ./internal/corpus -run 'TestCorpus/attrsonly/direct_factory_(attrs_identifier|variadic_forwarding)' -update -count=1
+GOCACHE=/tmp/gsx-attrsonly-gocache go test ./internal/corpus -run 'TestCorpus/attrsonly/direct_factory_(attrs_identifier|variadic_forwarding)' -count=1
 ```
 
-Expected: PASS. Inspect the regenerated `generated.x.go.golden` and confirm it contains `attrs := _gsxrt.Attrs(attrs)` before the generated `attrs.Has`, `attrs.Class`, `attrs.Style`, and `Spread` calls. Confirm the render golden contains one caller-overridden `stroke-width` and one merged `class` attribute.
+Expected: PASS. Inspect the positive generated golden and confirm `_gsxvN := _gsxrt.Attrs(attrs)` precedes generated `_gsxvN.Has`, `_gsxvN.Class`, `_gsxvN.Style`, and `Spread` calls. Confirm the negative golden interpolates `string(attrs)` without conversion. Confirm the positive render golden contains one caller-overridden `stroke-width` and one merged `class` attribute.
 
-- [ ] **Step 5: Run codegen checks and the canonical corpus**
+- [ ] **Step 6: Run codegen checks and the canonical corpus**
 
 Run:
 
@@ -106,9 +120,9 @@ gopls check -severity=hint internal/codegen/emit.go
 
 Expected: all tests pass and `gopls check` reports no new diagnostics.
 
-- [ ] **Step 6: Commit the focused fix**
+- [ ] **Step 7: Commit the focused fix**
 
 ```bash
-git add docs/superpowers/plans/2026-07-12-attrsonly-variadic-forwarding-binding.md internal/codegen/emit.go internal/corpus/testdata/cases/attrsonly/direct_factory_variadic_forwarding.txtar internal/corpus/testdata/coverage.golden
-git commit -m "fix(codegen): bind variadic forwarded attrs as Attrs"
+git add docs/superpowers/plans/2026-07-12-attrsonly-variadic-forwarding-binding.md internal/codegen/emit.go internal/corpus/testdata/cases/attrsonly/direct_factory_attrs_identifier.txtar internal/corpus/testdata/cases/attrsonly/direct_factory_variadic_forwarding.txtar internal/corpus/testdata/coverage.golden
+git commit -m "fix(codegen): normalize attrs at spread boundary"
 ```
