@@ -737,11 +737,16 @@ func emitNodeFuncBody(b *bytes.Buffer, nodes []ast.Markup, currentPkg *types.Pac
 // Unlike a component's render closure, this one has NO surrounding component:
 // recvVar/recvTypeName are passed "" (no method-receiver dotted-tag
 // resolution applies here — there is no receiver in scope) and there is no
-// props/attrs/children binding of any kind. Any interpolation inside the
-// nodes (`{u}`, `{label}`) is emitted verbatim by genNode/genInterp exactly
-// as it is for a component body, so it resolves by ordinary Go closure
-// capture against whatever the ENCLOSING Go scope binds — the same as a
-// hand-written `gsx.Func(func(...) error { … u … })` literal would.
+// props/children binding. Any interpolation inside the nodes (`{u}`, `{label}`)
+// is emitted verbatim by genNode/genInterp exactly as it is for a component
+// body, so it resolves by ordinary Go closure capture against whatever the
+// ENCLOSING Go scope binds — the same as a hand-written
+// `gsx.Func(func(...) error { … u … })` literal would. The exception is the
+// exact captured identifier `attrs`: forwarding lowering requires gsx.Attrs'
+// method-bearing bag, so the inner render closure deliberately shadows the
+// raw-Go binding after converting it, without changing the author's outer
+// signature. usesAttrs prevents an undefined or unused binding for unrelated
+// element literals.
 //
 // Reuses genNode (via emitNodeFuncBody) — the SAME element/markup lowering a
 // component body's child elements use — so there is exactly one path from
@@ -749,6 +754,9 @@ func emitNodeFuncBody(b *bytes.Buffer, nodes []ast.Markup, currentPkg *types.Pac
 // scaffolding around it.
 func emitNodeValue(b *bytes.Buffer, nodes []ast.Markup, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
 	fmt.Fprintf(b, "%s.Func(func(ctx %s.Context, _gsxw %s.Writer) error {\n", rt.rt(), rt.ctx(), rt.io())
+	if usesAttrs(nodes) {
+		fmt.Fprintf(b, "\t\tattrs := %s.Attrs(attrs)\n", rt.rt())
+	}
 	if !emitNodeFuncBody(b, nodes, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, "", "", cls, fm, bag, mergeExpr) {
 		return false
 	}
