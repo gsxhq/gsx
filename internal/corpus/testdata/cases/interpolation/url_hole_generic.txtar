@@ -1,0 +1,27 @@
+# A mixed non-tilde generic hole (T string | int -> catAnyMixed) inside a URL
+# f-literal: holeStringExpr converts through AttrString and the assembled
+# value still whole-value sanitizes at the URL sink — a dangerous scheme in
+# the generic value is rewritten, never trusted. Pins that accepting
+# catAnyMixed (added for the fold path) keeps URL holes sanitized on the
+# inline path too.
+-- input.gsx --
+package views
+
+component Path[T string | int](v T) {
+	<a href=f"/items/@{v}">x</a>
+}
+
+component Whole[T string | int](v T) {
+	<a href=f"@{v}">x</a>
+}
+
+component Page() {
+	<Path[string] v={"a b"} />
+	<Path[int] v={7} />
+	<Whole[string] v={"javascript:alert(1)"} />
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<a href="/items/a b">x</a><a href="/items/7">x</a><a href="about:invalid#gsx">x</a>
