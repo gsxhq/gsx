@@ -1,0 +1,12 @@
+# a literal nil spread is a no-op: it forwards nothing and forces nothing
+-- input.gsx --
+package views
+
+component Page() {
+	<div class="a" id="x" { nil... }>hi</div>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<div class="a" id="x">hi</div>
