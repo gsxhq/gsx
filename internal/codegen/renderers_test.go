@@ -369,3 +369,69 @@ func TestRendererPkgLoadError(t *testing.T) {
 		}
 	}
 }
+
+// TestClassPartBareIdentUnregisteredParity pins the #85 fix's probe-parity
+// claim for a class-part value that is a BARE IDENTIFIER of a plain struct
+// type with NO [renderers] registration at all: before the fix, classEntryExpr's
+// probe-mode stub only covered CALL exprs, so a bare non-string identifier
+// flowed straight into the skeleton's _gsxrt.Class(expr) and failed go/types
+// there — surfacing as a raw, unpositioned "cannot use val ... as string
+// value" diagnostic instead of generating successfully. After the fix, the
+// probe stubs the value regardless of shape, so generation SUCCEEDS with no
+// diagnostics (parity with a call expr) and the wrong type is left to surface
+// at `go build` of the emitted .x.go — exactly like a call-shaped part that
+// returns a non-string with no renderer registered.
+func TestClassPartBareIdentUnregisteredParity(t *testing.T) {
+	t.Parallel()
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp := t.TempDir()
+	writeMultiFile(t, tmp, "go.mod", "module gsxcb\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+
+	viewsDir := filepath.Join(tmp, "views")
+	if err := os.MkdirAll(viewsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// box carries no [renderers] registration whatsoever — the probe must not
+	// special-case "is this type registered", only "is this a call expr", so a
+	// plain unregistered struct-typed bare identifier is the strongest witness
+	// that the stub is now unconditional.
+	writeMultiFile(t, viewsDir, "views.gsx", `package views
+
+type box struct{ S string }
+
+component Card(title string) { <div { attrs... }>{title}</div> }
+
+component Page(val box) {
+	<Card title="hi" class={ val }/>
+}
+`)
+
+	genRes, err := GenerateDirs(tmp, []string{viewsDir}, Options{FilterPkgs: []string{stdImportPath}, CSSMinify: true, JSMinify: true}, nil)
+	if err != nil {
+		t.Fatalf("GenerateDirs: %v", err)
+	}
+	dr := genRes[viewsDir]
+	if hasDiagErrors(dr.Diags) {
+		t.Fatalf("GenerateDirs: unexpected diagnostics for a bare non-string, unregistered class part (probe must stub it, #85): %v", dr.Diags)
+	}
+	var genSrc string
+	for _, src := range dr.Files {
+		genSrc += string(src)
+	}
+	// Parity with a call-expr part: the wrong type reaches _gsxrt.Class(val)
+	// verbatim in the emitted code, to fail at `go build` of the .x.go — NOT
+	// inside gsx generation itself.
+	if !strings.Contains(genSrc, "_gsxrt.Class(val)") {
+		t.Fatalf("generated .x.go missing Class(val); got:\n%s", genSrc)
+	}
+	// Pin that the pre-fix failure mode is truly gone: no diagnostic anywhere
+	// mentions the raw go/types skeleton error this used to surface as.
+	for _, d := range dr.Diags {
+		if strings.Contains(d.Message, "cannot use val") {
+			t.Fatalf("pre-fix raw go/types skeleton error resurfaced: %v", d)
+		}
+	}
+}
