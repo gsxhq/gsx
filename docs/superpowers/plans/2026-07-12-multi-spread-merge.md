@@ -474,6 +474,39 @@ Claude-Session: https://claude.ai/code/session_01XVXtvft6e4MvspzvacpUx9"
 
 ---
 
+## Task 5b: Support embedded-hole attrs in `composeBag` (fold + cond-branch bag)
+
+Added after Task 5 review found the fold rejects an interposed/sibling embedded-hole attr (f-literal like `title=f"Hi @{name}"`) because `composeBag`'s `*ast.EmbeddedAttr` arm errors on non-static embedded literals ("cannot be a component prop yet"). That rejection is right for a component *prop* but wrong for a bag entry: an embedded-hole attribute value belongs in the bag as `{Key, Value: <lowered text>}`. This regressed the lone-cond-nested shape (worked via the inline path pre-O1) and is a gap for the ≥2-spread shape. Fix it properly (user decision).
+
+**Files:**
+- Modify: `internal/codegen/emit.go` — `composeBag`'s `*ast.EmbeddedAttr` arm; thread `imports map[string]bool` + `rt rtImports` into `composeBag`, `condBranchAttrs`, `condAttrsExpr`; bridge at `childPropsLiteral` (it has `rtPkg`/returns `usedPkgs`, not `imports`/`rt` — either thread them or pass a local `imports` map and merge its keys into `usedPkgs`).
+- Test: `internal/corpus/testdata/cases/multispread/interposed_embedded_hole.txtar` (element fold), `internal/corpus/testdata/cases/components/cond_branch_embedded_hole.txtar` (component cond-branch).
+
+**Interfaces:**
+- `composeBag(..., resolved, imports map[string]bool, rt rtImports, errReturn string)` — gains `imports`, `rt`. `condBranchAttrs` and `condAttrsExpr` gain the same and pass them down.
+
+- [ ] **Step 1 (RED):** Write `multispread/interposed_embedded_hole.txtar`: `<div title=f"Hi @{who}" { a... } { b... }>x</div>` with an `-- invoke --` setting `who`. Run `go test ./internal/corpus -run 'TestCorpus/multispread/interposed_embedded_hole' -count=1` → expect FAIL with the `unsupported-component-attr` "cannot be a component prop … yet" rejection. Record it.
+
+- [ ] **Step 2:** Thread `imports map[string]bool` + `rt rtImports` through `composeBag` → `condBranchAttrs` → `condAttrsExpr` (and `composeBag`'s own nested-`CondAttr` arm passes them to `condAttrsExpr`). At `foldElementSpreads`, pass genNode's real `imports` and `rt`. At `childPropsLiteral`'s `CondAttr` case, bridge (local `imports := map[string]bool{}`, call, then `for p := range imports { recordPkgs-equivalent }` merging into `usedPkgs`) OR thread `imports`/`rt` in if cleaner.
+
+- [ ] **Step 3:** In `composeBag`'s `*ast.EmbeddedAttr` arm: keep the static-text path as-is (`embeddedStaticText`); for a hole-bearing **text** embedded literal, lower via `val, ok := embeddedTextValueExpr(b, t, resolved, table, imports, rt, interpTemp, bag)` and append `fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), val)` to the pending static entries. Handle `!ok` (return its error). Do NOT change handling for genuinely distinct kinds (`EmbeddedJS`/`EmbeddedCSS`) if they reach here — check what kinds `composeBag` can receive and preserve any correct existing rejection for those; only text holes stop being rejected.
+
+- [ ] **Step 4 (GREEN + probe):** `go test ./internal/corpus -run 'TestCorpus/multispread/interposed_embedded_hole' -update` then verify `-count=1`. The corpus BUILDS generated code, so a passing case proves the generated `.x.go` compiles with the embedded hole (imports present, no unused temp). Add the component case `components/cond_branch_embedded_hole.txtar` (embedded hole inside a component cond-attr branch) and regenerate. Hand-verify both renders interpolate the hole.
+
+- [ ] **Step 5:** Full suite `go test ./internal/corpus ./internal/codegen -count=1` + the Task 4 differential (`go test ./internal/codegen -run TestSpreadFoldDiff -count=1`, `go test . -run FuzzAttrsFoldMatchesReference -count=1`) green; 0/1-top-level-spread goldens unchanged. gofmt clean. Commit:
+```
+feat(codegen): fold path supports interposed embedded-hole attrs
+
+composeBag lowers a hole-bearing embedded text attr into the bag via
+embeddedTextValueExpr instead of rejecting it; closes the lone-cond-nested
+regression and the >=2-spread gap. Threads imports/rt through composeBag,
+condBranchAttrs, condAttrsExpr.
+
+Claude-Session: https://claude.ai/code/session_01XVXtvft6e4MvspzvacpUx9
+```
+
+---
+
 ## Task 6: Docs + ROADMAP + memory
 
 **Files:**
