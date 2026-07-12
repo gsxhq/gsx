@@ -1366,8 +1366,11 @@ func emitManualSpreadElement(b *bytes.Buffer, el *ast.Element, splitIdx int, cur
 // splitIdx=0 — keeping el's real span/Pos()/Void/Children and node identity for
 // nonce / emitFallthroughAttrs (they compare against el.Attrs[splitIdx]).
 func foldElementSpreads(b *bytes.Buffer, el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
-	expr, used, err := composeBag(b, interpTemp, emitPipeWrap(b, interpTemp), false, el.Attrs, rt.rt(), el.Tag, classMergeExpr(mergeExpr, rt), table, resolved, "return _gsxerr")
+	expr, used, err := composeBag(b, interpTemp, emitPipeWrap(b, interpTemp), false, el.Attrs, rt.rt(), el.Tag, classMergeExpr(mergeExpr, rt), table, resolved, imports, rt, bag, "return _gsxerr")
 	if err != nil {
+		if errors.Is(err, errBagDiagReported) {
+			return false // embeddedTextValueExpr already reported it
+		}
 		if ae, ok := errors.AsType[*attrError](err); ok {
 			bag.Errorf(ae.pos, ae.end, ae.code, "%s", ae.msg)
 		} else {
@@ -4010,8 +4013,11 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 						"component values do not support children — declare a Children slot on a named-struct component instead")
 					return false
 				}
-				expr, usedPkgs, err := attrsOnlyBagExpr(el, rt.rt(), classMergeExpr(mergeExpr, rt), table, byo, fm, false, resolved, b, interpTemp)
+				expr, usedPkgs, err := attrsOnlyBagExpr(el, rt.rt(), classMergeExpr(mergeExpr, rt), table, byo, fm, false, resolved, imports, rt, bag, b, interpTemp)
 				if err != nil {
+					if errors.Is(err, errBagDiagReported) {
+						return false // embeddedTextValueExpr already reported it
+					}
 					if ae, ok := errors.AsType[*attrError](err); ok {
 						bag.Errorf(ae.pos, ae.end, ae.code, "%s", ae.msg)
 					} else {
@@ -4102,8 +4108,11 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 			return "", fmt.Errorf("slot closure failed")
 		}
 		return s, nil
-	}, false, resolved, b, interpTemp, "return _gsxerr")
+	}, false, resolved, imports, rt, bag, b, interpTemp, "return _gsxerr")
 	if err != nil {
+		if errors.Is(err, errBagDiagReported) {
+			return false // embeddedTextValueExpr already reported it
+		}
 		// Convert the childPropsLiteral error to a positioned diagnostic.
 		// An attrError carries the specific attr's position; fall back to the element.
 		if ae, ok := errors.AsType[*attrError](err); ok {
@@ -4606,8 +4615,11 @@ func genSkippedTagSink(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 			return "", fmt.Errorf("slot closure failed")
 		}
 		return s, nil
-	}, false, resolved, &hoist, interpTemp, "")
+	}, false, resolved, imports, rt, bag, &hoist, interpTemp, "")
 	if err != nil {
+		if errors.Is(err, errBagDiagReported) {
+			return false // embeddedTextValueExpr already reported it
+		}
 		if ae, ok := errors.AsType[*attrError](err); ok {
 			bag.Errorf(ae.pos, ae.end, ae.code, "%s", ae.msg)
 		} else {
@@ -4815,7 +4827,7 @@ const attrsOnlyPropsKey = "attrsonly.bag"
 // hoist genChildComponent applies to a real props literal, so a pipeline stage
 // (or a matched attrs={ } value) that returns a tuple is handled identically —
 // hoisted before the call in emit mode, or rejected with a positioned *attrError.
-func attrsOnlyBagExpr(el *ast.Element, rtPkg, mergeExpr string, table funcTables, byo *byoData, fm FieldMatcher, probeWrap bool, resolved map[ast.Node]types.Type, b *bytes.Buffer, interpTemp *int) (expr string, usedPkgs map[string]string, err error) {
+func attrsOnlyBagExpr(el *ast.Element, rtPkg, mergeExpr string, table funcTables, byo *byoData, fm FieldMatcher, probeWrap bool, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, diagBag *diag.Bag, b *bytes.Buffer, interpTemp *int) (expr string, usedPkgs map[string]string, err error) {
 	synthetic := map[string]map[string]bool{attrsOnlyPropsKey: {"Attrs": true}}
 	// Attrs-only call sites always emit inside a render closure, so fallthrough
 	// renderer hoists use the single-value error return (probe mode disables
@@ -4826,7 +4838,7 @@ func attrsOnlyBagExpr(el *ast.Element, rtPkg, mergeExpr string, table funcTables
 	}
 	fields, splat, used, err := childPropsLiteral(el, attrsOnlyPropsKey, rtPkg, mergeExpr, table, synthetic, nil, byo, fm,
 		func([]ast.Markup) (string, error) { return "", fmt.Errorf("attrs-only components take no slots") },
-		probeWrap, resolved, b, interpTemp, bagErrReturn)
+		probeWrap, resolved, imports, rt, diagBag, b, interpTemp, bagErrReturn)
 	if err != nil {
 		return "", nil, err
 	}
@@ -5003,7 +5015,7 @@ func attrsOnlyBagExpr(el *ast.Element, rtPkg, mergeExpr string, table funcTables
 // values passed to Go code — pinned by renderers/component_arg_negative);
 // ordered-attrs {{ }} pair values are handled by the callers' literal-rebuild
 // passes, not here (see genChildComponent / attrsOnlyBagExpr).
-func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, table funcTables, propFields map[string]map[string]bool, nodeFields map[string]bool, byo *byoData, fm FieldMatcher, slotValue func(nodes []ast.Markup) (string, error), probeWrap bool, resolved map[ast.Node]types.Type, b *bytes.Buffer, interpTemp *int, bagErrReturn string) (fields []propFieldEntry, splatExpr string, usedPkgs map[string]string, err error) {
+func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, table funcTables, propFields map[string]map[string]bool, nodeFields map[string]bool, byo *byoData, fm FieldMatcher, slotValue func(nodes []ast.Markup) (string, error), probeWrap bool, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, diagBag *diag.Bag, b *bytes.Buffer, interpTemp *int, bagErrReturn string) (fields []propFieldEntry, splatExpr string, usedPkgs map[string]string, err error) {
 	fm = fieldMatcherOrDefault(fm)    // normalize nil → default matcher
 	declared := propFields[propsType] // nil for cross-package / unknown → graceful
 	// pipeWrap is the lowerPipe hook for a mid-stage (R, error) filter in a prop
@@ -5240,7 +5252,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 			// error-returning pipeline stage. In emit mode the call is hoisted here via
 			// hoistTuple (the temp is appended as a `segments` entry); in probe mode it
 			// is wrapped in _gsxunwrap(...) to stay a single expression (emit ≡ probe).
-			condExpr, used, cerr := condAttrsExpr(t, rtPkg, el.Tag, mergeExpr, table, probeWrap, resolved, interpTemp)
+			condExpr, used, cerr := condAttrsExpr(t, rtPkg, el.Tag, mergeExpr, table, probeWrap, resolved, imports, rt, diagBag, interpTemp)
 			if cerr != nil {
 				return nil, "", nil, cerr
 			}
@@ -5627,7 +5639,7 @@ func classEntryExpr(b *bytes.Buffer, interpTemp *int, a *ast.ClassAttr, rtPkg st
 // Either way this returns ONE expression: the *ast.CondAttr call site hoists it
 // with hoistTuple in emit mode, or wraps it in _gsxunwrap(...) in probe mode —
 // emit ≡ probe, differing only by that tolerance wrap, never by structure.
-func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table funcTables, probeWrap bool, resolved map[ast.Node]types.Type, interpTemp *int) (string, map[string]string, error) {
+func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table funcTables, probeWrap bool, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, interpTemp *int) (string, map[string]string, error) {
 	usedPkgs := map[string]string{}
 
 	// branchThunk builds one branch's `func() (rtPkg.Attrs, error) { ...; return
@@ -5639,7 +5651,7 @@ func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table f
 		if !probeWrap {
 			wrap = thunkPipeWrap(&tb, interpTemp)
 		}
-		lit, used, err := condBranchAttrs(&tb, interpTemp, wrap, probeWrap, attrs, rtPkg, tag, mergeExpr, table, resolved)
+		lit, used, err := condBranchAttrs(&tb, interpTemp, wrap, probeWrap, attrs, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag)
 		if err != nil {
 			return "", nil, err
 		}
@@ -5692,9 +5704,16 @@ func condAttrsExpr(t *ast.CondAttr, rtPkg, tag string, mergeExpr string, table f
 // interpTemp/resolved and the same wrap are threaded through, so CF (if/
 // switch), plain-tuple, and ordered class parts inside a branch hoist their
 // errors into the enclosing thunk precisely like the non-branch case.
-func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string, probeWrap bool, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type) (string, map[string]string, error) {
-	return composeBag(b, interpTemp, wrap, probeWrap, attrs, rtPkg, tag, mergeExpr, table, resolved, "return nil, _gsxerr")
+func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string, probeWrap bool, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag) (string, map[string]string, error) {
+	return composeBag(b, interpTemp, wrap, probeWrap, attrs, rtPkg, tag, mergeExpr, table, resolved, imports, rt, bag, "return nil, _gsxerr")
 }
+
+// errBagDiagReported is a sentinel composeBag returns when a hole-bearing
+// embedded attribute's assembly (embeddedTextValueExpr) has already reported a
+// positioned diagnostic to the diag.Bag. Callers that turn a composeBag error
+// into a diagnostic MUST treat this as "already reported" and abort silently,
+// so one malformed hole yields exactly one diagnostic.
+var errBagDiagReported = errors.New("bag diagnostic already reported")
 
 // composeBag lowers attrs into a single Go expression evaluating to
 // rtPkg.Attrs: a bare `rtPkg.Attrs{…}` literal when attrs is statics-only (the
@@ -5706,7 +5725,14 @@ func condBranchAttrs(b *bytes.Buffer, interpTemp *int, wrap func(string) string,
 // applyRenderer and classEntryExpr for their error-hoist site; callers pass
 // whatever return-statement shape matches their enclosing function's
 // signature.
-func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, probeWrap bool, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, errReturn string) (string, map[string]string, error) {
+//
+// imports/rt/bag are consumed only by the hole-bearing embedded-text arm, which
+// lowers `name=f"…@{expr}…"` into the bag via embeddedTextValueExpr (assembling
+// the segments, hoisting into b, recording strconv/etc. into imports, and
+// reporting any positioned diagnostic to bag). In probe mode that arm emits a
+// string placeholder instead (the hole's type is harvested by a separate
+// _gsxuse probe), so imports/rt/bag go unused there.
+func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, probeWrap bool, attrs []ast.Attr, rtPkg, tag, mergeExpr string, table funcTables, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, bag *diag.Bag, errReturn string) (string, map[string]string, error) {
 	var entries []string
 	usedPkgs := map[string]string{}
 	var parts []string
@@ -5737,7 +5763,7 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			parts = append(parts, expr)
 		case *ast.CondAttr:
 			flush()
-			condExpr, used, cerr := condAttrsExpr(t, rtPkg, tag, mergeExpr, table, probeWrap, resolved, interpTemp)
+			condExpr, used, cerr := condAttrsExpr(t, rtPkg, tag, mergeExpr, table, probeWrap, resolved, imports, rt, bag, interpTemp)
 			if cerr != nil {
 				return "", nil, cerr
 			}
@@ -5830,14 +5856,37 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 		case *ast.CommentAttr:
 			// Source-only comment; not a component prop.
 		case *ast.EmbeddedAttr:
-			// A hole-free embedded literal forwards to the conditional Attrs bag
-			// as raw text — same lowering as the component-prop path above.
-			text, static := embeddedStaticText(t)
-			if !static {
+			// A hole-free embedded literal forwards to the bag as raw text.
+			if text, static := embeddedStaticText(t); static {
+				entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), strconv.Quote(text)))
+				break
+			}
+			// A hole-bearing literal: unlike a component PROP (which cannot yet
+			// receive an interpolated value), a bag ENTRY takes the assembled
+			// string as its Value — the leaf sanitizes by attribute context, so
+			// the value belongs in the bag exactly like a plain-text hole on the
+			// inline path. Only EmbeddedText is lowered here: a js`…@{}…`/css`…@{}…`
+			// literal escapes each hole by its own grammar (a distinct lowering),
+			// so it stays rejected until that path is ported.
+			if t.Lang != ast.EmbeddedText {
 				msg := fmt.Sprintf("embedded %s attribute literal %q with @{ } interpolation cannot be used as a component prop on <%s> yet; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, tag)
 				return "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
-			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), strconv.Quote(text)))
+			if probeWrap {
+				// Skeleton: the hole's own type is harvested by a separate _gsxuse
+				// probe (walkMarkupAttrs), and the props/bag literal here is a
+				// compile-only `_ =` statement that never runs, so a string
+				// placeholder type-checks the bag without needing resolved.
+				entries = append(entries, fmt.Sprintf("{Key: %s, Value: \"\"}", strconv.Quote(t.Name)))
+				break
+			}
+			val, ok := embeddedTextValueExpr(b, t, resolved, table, imports, rt, interpTemp, bag)
+			if !ok {
+				// embeddedTextValueExpr has already emitted the positioned
+				// diagnostic (unresolved/unusable hole); abort without a second one.
+				return "", nil, errBagDiagReported
+			}
+			entries = append(entries, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), val))
 		default:
 			msg := fmt.Sprintf("unsupported attribute %T in a conditional branch (<%s>)", a, tag)
 			return "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}
