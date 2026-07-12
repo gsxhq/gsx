@@ -5119,6 +5119,15 @@ func componentValuePlanNeeded(plan []componentValueEntry, resolved map[ast.Node]
 				return true
 			}
 		}
+		if _, ok := value.node.(*ast.ExprAttr); ok && value.bagIndex >= 0 {
+			attrType := valueType
+			if elem, ok := tupleUnwrapType(valueType); ok {
+				attrType = elem
+			}
+			if _, ok := table.renderers[rendererKey(attrType)]; ok {
+				return true
+			}
+		}
 	}
 	return false
 }
@@ -5131,7 +5140,7 @@ func materializeComponentValuePlan(b *bytes.Buffer, fields []propFieldEntry, pla
 	if !componentValuePlanNeeded(plan, resolved, table) {
 		return
 	}
-	for _, value := range plan {
+	for valueIndex, value := range plan {
 		b.Write(value.stmts)
 		valueType := resolved[value.node]
 		_, isTuple := tupleUnwrapType(valueType)
@@ -5142,7 +5151,8 @@ func materializeComponentValuePlan(b *bytes.Buffer, fields []propFieldEntry, pla
 		switch {
 		case isTuple:
 			materialized = hoistTupleReturning(b, materialized, interpTemp, errReturn)
-		case value.embedded != nil || isCallExpr(materialized):
+		case value.embedded != nil && (value.isNodeField || valueIndex+1 < len(plan)),
+			isCallExpr(materialized) && !isCapturedClassValue(value):
 			tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
 			*interpTemp++
 			fmt.Fprintf(b, "\t\t%s := %s\n", tmp, materialized)
@@ -5162,6 +5172,13 @@ func materializeComponentValuePlan(b *bytes.Buffer, fields []propFieldEntry, pla
 			continue
 		}
 		if value.bagIndex >= 0 {
+			if _, ok := value.node.(*ast.ExprAttr); ok {
+				attrType := valueType
+				if elem, ok := tupleUnwrapType(valueType); ok {
+					attrType = elem
+				}
+				materialized, _ = applyRenderer(b, materialized, attrType, table, imports, interpTemp, errReturn)
+			}
 			fields[value.fieldIndex].bagPairs[value.bagIndex].rawVal = materialized
 			continue
 		}
@@ -5193,13 +5210,18 @@ func materializeComponentValuePlan(b *bytes.Buffer, fields []propFieldEntry, pla
 			if fe.oa != nil {
 				fe.oaMergePrefix = prefix
 				fe.str = fmt.Sprintf("Attrs: %s.ConcatAttrs(%s, %s)", rtPkg, prefix, fe.oaLit)
-			} else if len(parts) == 1 {
+			} else if len(parts) == 1 && len(fe.bagSegments) == 0 {
 				fe.str = "Attrs: " + parts[0]
 			} else {
 				fe.str = fmt.Sprintf("Attrs: %s.ConcatAttrs(%s)", rtPkg, prefix)
 			}
 		}
 	}
+}
+
+func isCapturedClassValue(value componentValueEntry) bool {
+	_, ok := value.node.(*ast.ClassAttr)
+	return ok && len(value.stmts) > 0
 }
 
 // isCallExpr reports whether rawVal parses as a Go function-call expression
@@ -5532,38 +5554,14 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 					}
 					recordPkgs(used)
 					val = lowered
-					// lowerPipe leaves a FINAL (R, error) stage unwrapped (it hoists
-					// only non-final error stages). A fallthrough attr's value is
-					// spliced into the Attrs bag literal in single-value position, so
-					// unwrap the final tuple HERE — this is the one attr context that
-					// lacks a downstream tuple-hoist pass. Probe mode keeps the
-					// skeleton a single expression via _gsxunwrap; emit mode hoists
-					// `v, _gsxerr := call; if _gsxerr != nil { return _gsxerr }`,
-					// mirroring the inline CondAttr hoist and the declared-prop /
-					// ordered-attrs unwrap that genChildComponent defers.
+					// lowerPipe leaves a FINAL (R, error) stage unwrapped. Probe mode
+					// keeps the skeleton a single expression; real emission defers the
+					// unwrap to materializeComponentValuePlan so the source-ordered plan
+					// is the sole owner of the tuple expression and its renderer.
 					if finalStageErr(t.Stages, table) {
 						if probeWrap {
 							val = "_gsxunwrap(" + val + ")"
-						} else {
-							val = hoistTuple(entryBuffer, val, interpTemp)
 						}
-					}
-				}
-				if !probeWrap && bagErrReturn != "" {
-					// Apply a registered [renderers] entry BEFORE the value enters
-					// the bag literal as `any` — mirroring condBranchAttrs (the
-					// cond-attr thunk sibling of this boundary). Same usedPkgs
-					// bridge: the caller folds usedPkgs VALUES into imports.
-					attrType := resolved[t]
-					if tup, isTuple := attrType.(*types.Tuple); isTuple {
-						if elemT, ok := tupleUnwrapType(tup); ok {
-							attrType = elemT
-						}
-					}
-					scratch := map[string]bool{}
-					val, _ = applyRenderer(entryBuffer, val, attrType, table, scratch, interpTemp, bagErrReturn)
-					for path := range scratch {
-						usedPkgs[path] = path
 					}
 				}
 				bag = append(bag, oaPairEntry{key: t.Name, rawVal: val})
