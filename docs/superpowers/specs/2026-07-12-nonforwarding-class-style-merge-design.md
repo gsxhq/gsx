@@ -36,16 +36,23 @@ Examples:
 Extend the element fold decision with a real composition predicate. Walk the
 attribute tree in source order and count `class` and `style` contributors
 independently. A contributor is any `StaticAttr`, `ClassAttr`, or
-`EmbeddedAttr` named `class` or `style`; recurse through `CondAttr` branches.
-When either name has more than one possible contributor, route the element
-through the existing `foldElementSpreads`/`composeBag` path even when it has no
-spread.
+`EmbeddedAttr` named `class` or `style`. A `CondAttr`'s branches are mutually
+exclusive, so it contributes the **maximum** of its two branch counts, never
+their sum. When either name can receive more than one contribution in a single
+render, route the element through the existing
+`foldElementSpreads`/`composeBag` path even when it has no spread.
 
 This generalizes #95's spread-gated `hasCondClassStyle` rule without making a
 single conditional class/style fold unnecessarily. A non-forwarding element
-with only `{ if active { class="on" } }` stays on the current inline fast path.
-An element with root class plus conditional style also stays inline because
-there is no same-name collision to merge.
+with only `{ if active { class="on" } }` — or only
+`{ if active { class="on" } else { class="off" } }`, whose branches can never
+co-contribute — stays on the current inline fast path. An element with root
+class plus conditional style also stays inline because there is no same-name
+collision to merge.
+
+A bare bool `class`/`style` is not counted: the bag's `Class()`/`Style()`
+aggregation is string-valued, so a boolean entry cannot merge; the shape stays
+inline (tracked as an open edge in ROADMAP).
 
 `elementFolds` remains the single predicate shared by emission and
 `scopeUsesNumeric`, so folded numeric attributes cannot create unused scratch

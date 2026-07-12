@@ -780,6 +780,22 @@ vocabulary remains a design aspiration, not the current API.
 
 ## Tracked debts / deferrals
 
+- [ ] **Warn when a fold rewrites a static URL-sink literal** - once same-name
+  class/style contributors make a no-spread element fold, all its attributes
+  travel through the shared bag and `gw.Spread` sanitizes URL-classified keys
+  regardless of provenance (#79), so an author-written literal
+  `href="javascript:…"` renders as `about:invalid#gsx` while the identical
+  literal on a non-folding element emits verbatim (pinned in
+  `condmerge/nonforwarding_merge_url_static.txtar`). The static value is known
+  at codegen, so a deterministic positioned warning ("this literal will be
+  rewritten by URL sanitization") is possible; it needs the runtime's URL
+  filter verdict exposed to codegen (faithful check, not a re-derivation).
+- [ ] **Bare bool `class`/`style` beside a same-name contributor** - a bare
+  `class` attribute is not a fold contributor (the bag's `Class()`/`Style()`
+  aggregation is string-valued; a boolean entry would stringify to `"true"`),
+  so `<div class { if a { class="on" } }>` stays inline and still renders two
+  `class` attributes. Pathological authoring shape; the clean resolution is
+  probably a positioned diagnostic rather than a merge semantic.
 - [ ] **Fallthrough forwarding through nested component calls** - the
   attrs-only component values spec (item 18 above, "Alternative considered")
   named this as the competing design for the icon-wrapper use case and

@@ -1430,13 +1430,18 @@ func firstTwoSpreadAttrs(attrs []ast.Attr) (first, second *ast.SpreadAttr, first
 	return first, second, firstCond
 }
 
-// classStyleContributorCounts counts every class/style leaf that can contribute
-// to an element's final composable values. Conditional branches are both
-// counted because either branch may be selected at runtime; this is a shape
-// analysis only and does not evaluate conditions.
+// classStyleContributorCounts counts, per name, the maximum number of
+// class/style leaves that can contribute to an element's final composable value
+// in a single render. A CondAttr's branches are mutually exclusive, so it
+// contributes the larger of its branch counts, not their sum — a lone
+// `{ if c { class="a" } else { class="b" } }` yields at most one class and must
+// not trigger the fold. This is a shape analysis only; conditions are never
+// evaluated. A bare bool `class`/`style` is not a contributor: the bag's
+// Class()/Style() aggregation is string-valued, so it stays on the inline
+// emitter (where it renders as a boolean attribute) rather than folding.
 func classStyleContributorCounts(attrs []ast.Attr) (class, style int) {
-	var walk func([]ast.Attr)
-	walk = func(list []ast.Attr) {
+	var walk func([]ast.Attr) (int, int)
+	walk = func(list []ast.Attr) (class, style int) {
 		for _, a := range list {
 			var name string
 			switch t := a.(type) {
@@ -1447,8 +1452,10 @@ func classStyleContributorCounts(attrs []ast.Attr) (class, style int) {
 			case *ast.EmbeddedAttr:
 				name = t.Name
 			case *ast.CondAttr:
-				walk(t.Then)
-				walk(t.Else)
+				thenClass, thenStyle := walk(t.Then)
+				elseClass, elseStyle := walk(t.Else)
+				class += max(thenClass, elseClass)
+				style += max(thenStyle, elseStyle)
 			}
 			switch name {
 			case "class":
@@ -1457,9 +1464,9 @@ func classStyleContributorCounts(attrs []ast.Attr) (class, style int) {
 				style++
 			}
 		}
+		return class, style
 	}
-	walk(attrs)
-	return class, style
+	return walk(attrs)
 }
 
 // elementFolds reports whether genNode's *ast.Element case routes attrs
@@ -6164,10 +6171,11 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 				// CSS-filtering each dynamic declaration, trusting string literals)
 				// but as the VALUE form (gsx.StyleString, the "; "-join without the
 				// attr-escape gw.Style applies) so the leaf's Attrs.Style() aggregates
-				// it and the single leaf write escapes once. Element-fold is emit-only
-				// (foldElementSpreads passes probeWrap=false, single-value errReturn),
-				// which is exactly what composedParts assumes — the component path,
-				// with its thunk arity and probe pass, still rejects style below.
+				// it and the single leaf write escapes once. orderedWrap/errReturn
+				// carry the enclosing position's shape — inside an AttrsCond
+				// branch thunk that means `return nil, _gsxerr` — so a renderer,
+				// tuple, or mid-pipe (R, error) hoist emits the right arity. The
+				// component path, with its probe pass, still rejects style below.
 				parts, ok := composedParts(b, t, table, imports, rt, interpTemp, bag, resolved, true, orderedWrap, errReturn)
 				if !ok {
 					// composedParts already reported the positioned diagnostic.
