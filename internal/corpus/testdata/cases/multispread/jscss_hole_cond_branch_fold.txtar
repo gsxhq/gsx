@@ -1,0 +1,23 @@
+# js/css embedded holes inside a conditional attribute branch of a multi-
+# spread element fold through the branch's (Attrs, error) thunk: the branch
+# inherits bagElementFold through condAttrsExpr, each hole is contextually
+# escaped into the bag value, and any hoist inside the thunk (the tuple
+# unwrap here) returns the thunk's two-value error shape. Renders identically
+# to the same attribute written unconditionally between the spreads
+# (jscss_holes_fold).
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+func part() (string, error) { return "red", nil }
+
+component Page(u string, c bool, a gsx.Attrs, b gsx.Attrs) {
+	<button { a... } { b... } { if c { onclick=js"do(@{u})" } }>go</button>
+	<div { a... } { b... } { if c { style=css"color:@{part()}" } }>x</div>
+}
+-- invoke --
+Page(PageProps{U: "x", C: true})
+-- diagnostics.golden --
+-- render.golden --
+<button onclick="do(&#34;x&#34;)">go</button><div style="color:red">x</div>

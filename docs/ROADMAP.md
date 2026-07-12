@@ -753,7 +753,12 @@ vocabulary remains a design aspiration, not the current API.
    `multispread/*`. Follow-up issues #92, #93, and #94 are fixed: folded
    embedded JS/CSS holes retain their contextual escaping, generic `any`
    holes match inline `AttrAny` rendering, and differential fold fuzzing now
-   covers edge whitespace and boolean scalar values.
+   covers edge whitespace and boolean scalar values. Two review fixes: hole
+   hoists inside a conditional attribute branch use the thunk's
+   `return nil, _gsxerr` shape (tuple/renderer/AttrString holes in branches
+   miscompiled), and a js/css literal on a URL-sink attribute rejects on the
+   fold path (Spread's URL sanitization would rewrite the escaped value the
+   inline path emits verbatim).
 
    **Lift D3 (conditional class/style on a forwarding element) - SHIPPED**
    (2026-07-12, `2026-07-12-lift-d3-conditional-class-merge-design.md`). D3's
