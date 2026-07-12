@@ -1351,8 +1351,8 @@ func foldElementSpreads(b *bytes.Buffer, el *ast.Element, currentPkg *types.Pack
 				}
 				if cls.Context(t.Name) == attrclass.CtxURL {
 					bag.Errorf(t.Pos(), t.End(), "url-sink-fold",
-						"embedded %s attribute literal %q with @{ } interpolation is a URL attribute on <%s>; on an element carrying multiple spreads the shared bag's URL sanitization would rewrite the %s-escaped value, so it cannot fold — use at most one spread on this element or a non-URL attribute",
-						embeddedLangName(t.Lang), t.Name, el.Tag, embeddedLangName(t.Lang))
+						"embedded %s attribute literal %q with @{ } interpolation is a URL attribute on <%s>; this element's attributes must be merged through a shared bag, whose URL sanitization would rewrite the %s-escaped value, so the contextual literal cannot be used on this URL-sink key — use an ordinary URL expression or string for %q, or avoid the contextual %s literal on that key",
+						embeddedLangName(t.Lang), t.Name, el.Tag, embeddedLangName(t.Lang), t.Name, embeddedLangName(t.Lang))
 					return false
 				}
 			}
