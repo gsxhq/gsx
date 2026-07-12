@@ -638,7 +638,9 @@ git add internal/codegen internal/corpus/testdata
 git commit -m "feat(codegen): renderers at style/script boundaries"
 ```
 
----### Task 7: f-literal and class/style part boundaries
+---
+
+### Task 7: f-literal and class/style part boundaries
 
 **Files:**
 - Modify: `internal/codegen/emit.go` — the interpolated-literal and class/style helpers that classify hole types: @2861, @2893, @2910, @3060, @3372, @3453, @3462, @3483, @3492, and `hoistValueCF` arm handling (@1982-)

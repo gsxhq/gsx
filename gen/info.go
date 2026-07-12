@@ -23,7 +23,7 @@ import (
 //
 // When asJSON is true it emits the manifest JSON form instead of the human table.
 // cmdArgs are the subcommand arguments (used to parse --json).
-func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []string, aliases []codegen.FilterAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, cmdArgs []string, cssMinLevel, jsMinLevel MinifyLevel, printWidth int) int {
+func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []string, aliases []codegen.FilterAlias, renderers []codegen.RendererAlias, cls *attrclass.Classifier, fm codegen.FieldMatcher, cmdArgs []string, cssMinLevel, jsMinLevel MinifyLevel, printWidth int) int {
 	// Parse the info subcommand's own flags.
 	ifs := flag.NewFlagSet("info", flag.ContinueOnError)
 	ifs.SetOutput(stderr)
@@ -34,7 +34,10 @@ func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []stri
 	}
 
 	if asJSON {
-		infos, err := codegen.ResolveFilters(dir, filterPkgs, aliases)
+		// renderers are not yet part of the JSON manifest schema (manifestSchemaVersion
+		// would need a bump) — pass nil here so --json's resolution is unaffected;
+		// only the human-readable path below reports them.
+		infos, _, err := codegen.ResolveFilters(dir, filterPkgs, aliases, nil)
 		if err != nil {
 			fmt.Fprintf(stderr, "gsx: %v\n", err)
 			return 1
@@ -68,8 +71,10 @@ func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []stri
 
 	// Resolve filters AFTER the config line is printed: on error the config line
 	// is already on stdout (the debugging info the user needs), and the resolution
-	// error is surfaced to stderr with a nonzero exit.
-	infos, err := codegen.ResolveFilters(dir, filterPkgs, aliases)
+	// error is surfaced to stderr with a nonzero exit. renderers ride the SAME
+	// packages.Load as the filter packages (see ResolveFilters), so the
+	// Renderers section below never triggers a second load.
+	infos, rinfos, err := codegen.ResolveFilters(dir, filterPkgs, aliases, renderers)
 	if err != nil {
 		fmt.Fprintf(stderr, "gsx: %v\n", err)
 		return 1
@@ -101,6 +106,23 @@ func runInfo(stdout, stderr io.Writer, dir, configPath string, filterPkgs []stri
 		fmt.Fprintln(tw, line)
 	}
 	tw.Flush()
+
+	// Renderers section: [renderers] is opt-in config, so (like Attribute rules
+	// below) it is only printed when at least one is registered — an empty
+	// section for the common no-renderers project would just be noise.
+	if len(rinfos) > 0 {
+		fmt.Fprintf(stdout, "\nRenderers (%d):\n", len(rinfos))
+		rtw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
+		for _, ri := range rinfos {
+			qualified := path.Base(ri.Pkg) + "." + ri.Func
+			line := fmt.Sprintf("  %s\t%s", ri.TypeKey, qualified)
+			if ri.HasErr {
+				line += "\t(R, error)"
+			}
+			fmt.Fprintln(rtw, line)
+		}
+		rtw.Flush()
+	}
 
 	// Attribute rules section: show user-supplied URL rules and field-matcher status.
 	rules := cls.Rules()

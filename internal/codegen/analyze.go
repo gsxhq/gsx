@@ -537,7 +537,7 @@ func splitInterpEmbedded(file *gsxast.File, cls *attrclass.Classifier, fset *tok
 // unused_imports_syntactic.go's buildPackageSkeletons already do. A nil
 // declNames is safe (every lookup misses) for callers with no embedded-tag
 // interpolations to resolve.
-func buildSkeleton(file *gsxast.File, table filterTable, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, importedGenericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, fset *token.FileSet, cls *attrclass.Classifier, bag *diag.Bag, names *inferNameAllocator, declNames map[string]bool) (string, []*gsxast.Component, []importSpec, map[gsxast.Node]int, *inferRegistry, [][]gsxast.Markup, error) {
+func buildSkeleton(file *gsxast.File, table funcTables, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, importedGenericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, fset *token.FileSet, cls *attrclass.Classifier, bag *diag.Bag, names *inferNameAllocator, declNames map[string]bool) (string, []*gsxast.Component, []importSpec, map[gsxast.Node]int, *inferRegistry, [][]gsxast.Markup, error) {
 	if names == nil {
 		names = newInferNameAllocator()
 	}
@@ -1068,7 +1068,7 @@ func sortedFilterAliases(usedFilters map[string]string) []string {
 // func/method signature + probe body) into sb, accumulating into usedFilters
 // (alias→pkgPath) every filter package the component's probes reference — so the
 // caller imports exactly those packages under those aliases.
-func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filterTable, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, registry *inferRegistry, gw *[][]gsxast.Markup, bag *diag.Bag) error {
+func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table funcTables, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, registry *inferRegistry, gw *[][]gsxast.Markup, bag *diag.Bag) error {
 	// Parse the type-param list ONCE here and thread the result into every
 	// emitComponentStub call site below (instead of each stub re-parsing the
 	// same string and swallowing its own error) — see typeParamNames/tpErr use
@@ -1307,7 +1307,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table filte
 // unique and never collide across sibling component tags in the same block
 // (fix #69). A fresh counter is started at each entry point that begins a new
 // skeleton function/buffer; recursive calls thread the received counter through.
-func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, recvVar, recvTypeName string, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, registry *inferRegistry, gw *[][]gsxast.Markup, bag *diag.Bag, cfTemp *int) error {
+func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, recvVar, recvTypeName string, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, registry *inferRegistry, gw *[][]gsxast.Markup, bag *diag.Bag, cfTemp *int) error {
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *gsxast.Interp:
@@ -1541,7 +1541,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table filterTable, p
 					var cfHoistBuf bytes.Buffer
 					fieldEntries, splatExpr, usedPkgs, err := childPropsLiteral(t, propsType, "_gsxrt", "_gsxrt.DefaultClassMerge", table, propFields, nodeProps[propsType], byo, fm, func(nodes []gsxast.Markup) (string, error) {
 						return "_gsxrt.Node(nil)", nil
-					}, true, nil, &cfHoistBuf, cfTemp)
+					}, true, nil, &cfHoistBuf, cfTemp, "")
 					if err != nil {
 						// childPropsLiteral returns an *attrError with the offending attr's
 						// position embedded. Propagate it as-is so the caller can emit
@@ -2167,7 +2167,7 @@ func emitSkeletonLineImport(sb *strings.Builder, fset *token.FileSet, pos token.
 // unknown-filter diagnostic emit reports (the probe's bare error must not pre-empt
 // the positioned bag.Errorf in generateFile). A valid pipeline lowers exactly as
 // emit does, keeping emit ≡ probe.
-func probeExpr(seed string, stages []gsxast.PipeStage, table filterTable, usedFilters map[string]string) (string, error) {
+func probeExpr(seed string, stages []gsxast.PipeStage, table funcTables, usedFilters map[string]string) (string, error) {
 	if len(stages) == 0 {
 		return strings.TrimSpace(seed), nil
 	}
@@ -2202,7 +2202,7 @@ func probeExpr(seed string, stages []gsxast.PipeStage, table filterTable, usedFi
 // hole's real type, which is impossible at skeleton-build time (hole types
 // are only known once THIS SAME skeleton has been type-checked and
 // harvested — a later, one-shot step, not available mid-build).
-func embeddedProbeSeed(segments []gsxast.Markup, table filterTable, usedFilters map[string]string) string {
+func embeddedProbeSeed(segments []gsxast.Markup, table funcTables, usedFilters map[string]string) string {
 	parts := make([]string, 0, len(segments))
 	for _, seg := range segments {
 		switch s := seg.(type) {
@@ -3136,7 +3136,7 @@ func walkClassAttrs(attrs []gsxast.Attr, fn func(*gsxast.ClassAttr)) {
 // referencing the bare seed so type-checking proceeds to the POSITIONED
 // unknown-filter diagnostic generateFile reports (the probe's bare error must not
 // pre-empt it). The guard Cond is never piped, so it is referenced verbatim.
-func walkLivenessAttrExprs(attrs []gsxast.Attr, table filterTable, usedFilters map[string]string, fn func(stmt string), fnCF func(cf *gsxast.ValueCF), fnCond func(node gsxast.Node, cond string, condPos token.Pos)) {
+func walkLivenessAttrExprs(attrs []gsxast.Attr, table funcTables, usedFilters map[string]string, fn func(stmt string), fnCF func(cf *gsxast.ValueCF), fnCond func(node gsxast.Node, cond string, condPos token.Pos)) {
 	ref := func(expr string) {
 		fn("_ = (" + expr + ")")
 	}

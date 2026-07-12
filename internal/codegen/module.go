@@ -55,8 +55,14 @@ type Options struct {
 	// also consulted for dirs reached transitively through imports, so an
 	// imported sibling package resolves its own filter table. Unsupported in
 	// Bundle mode (the Bundle carries exactly one prebuilt table).
-	PerDir       map[string]DirOptions
-	Aliases      []FilterAlias
+	PerDir  map[string]DirOptions
+	Aliases []FilterAlias
+	// Renderers is the module-wide [renderers]/WithRenderer registration list:
+	// each entry is harvested alongside FilterPkgs/Aliases (one packages.Load,
+	// via harvestFilters) into the funcTables.renderers every dir's analyze
+	// consults. Unlike FilterPkgs, Renderers has no PerDir override — a
+	// registered renderer applies module-wide.
+	Renderers    []RendererAlias
 	FieldMatcher FieldMatcher
 	Classifier   *attrclass.Classifier
 	CSSMin       func(string) (string, error) // custom static-CSS minifier (nil = built-in when CSSMinify)
@@ -140,11 +146,11 @@ type Module struct {
 	extPkgs           map[string]*types.Package   // the types behind ext, kept for subprocess-free filter-table harvests
 	extErrs           map[string][]packages.Error // per-package load/type errors from the ext load (filter packages must not be silently partial)
 	extLoads          int                         // count of external packages.Load calls (observability; test hook)
-	filterTbl         filterTable                 // lazily built filter table (see cachedFilterTable)
-	filterTblErr      error                       // error from the filter-table load (cached alongside filterTbl)
-	filterTblDone     bool                        // true once the filter table has been loaded (success or error)
+	funcTbl           funcTables                  // lazily built filter+renderer tables (see cachedFuncTables)
+	funcTblErr        error                       // error from the func-tables load (cached alongside funcTbl)
+	funcTblDone       bool                        // true once the func tables have been loaded (success or error)
 	filterLoads       int                         // count of filter-table loads performed (observability; test hook)
-	dirFilterTbls     map[string]filterTable      // per-dir filter-table memo, keyed by canonical FilterPkgs key
+	dirFuncTbls       map[string]funcTables       // per-dir func-tables memo, keyed by canonical FilterPkgs key
 	perDirMergersErr  error                       // cached result of validatePerDirMergers
 	perDirMergersDone bool                        // true once the PerDir mergers have been validated
 	fset              *token.FileSet              // module-wide shared FileSet (see "FileSet" / "Growth" notes above)
@@ -200,18 +206,19 @@ func Open(opts Options) (*Module, error) {
 		cls = attrclass.Builtin()
 		opts.Classifier = cls
 	}
-	// A Bundle carries exactly one prebuilt importer and one prebuilt filter
-	// table, so per-dir narrowing has nothing to narrow. Silently ignoring PerDir
-	// here would hand a dir the Bundle's whole table — the union leak this design
-	// exists to prevent — so reject the combination outright.
+	// A Bundle carries exactly one prebuilt importer and one prebuilt set of
+	// func tables (filters + renderers), so per-dir narrowing has nothing to
+	// narrow. Silently ignoring PerDir here would hand a dir the Bundle's whole
+	// table — the union leak this design exists to prevent — so reject the
+	// combination outright.
 	if opts.Bundle != nil && (len(opts.PerDir) > 0 || len(opts.LoadPkgs) > 0) {
-		return nil, fmt.Errorf("codegen: Options.Bundle is incompatible with PerDir/LoadPkgs (a Bundle carries one prebuilt filter table)")
+		return nil, fmt.Errorf("codegen: Options.Bundle is incompatible with PerDir/LoadPkgs (a Bundle carries one prebuilt set of func tables — filters and renderers)")
 	}
 	return &Module{
 		opts:             opts,
 		overrides:        map[string][]byte{},
 		fset:             token.NewFileSet(),
-		dirFilterTbls:    map[string]filterTable{},
+		dirFuncTbls:      map[string]funcTables{},
 		pkgResults:       map[string]*PackageResult{},
 		depFacts:         map[string]*depPropFacts{},
 		imports:          map[string][]string{},
@@ -325,6 +332,13 @@ func (m *Module) externalImporter() (types.Importer, error) {
 	for _, a := range m.opts.Aliases {
 		loadPaths = append(loadPaths, a.PkgPath)
 	}
+	// [renderers]/WithRenderer registrations name packages the same way an
+	// explicit alias does: they must be in this ONE load set so
+	// rendererTableFromExt can classify their target func's signature without
+	// a second packages.Load.
+	for _, r := range m.opts.Renderers {
+		loadPaths = append(loadPaths, r.PkgPath)
+	}
 	loadPaths = append(loadPaths, "./...")
 	pkgs, err := packages.Load(cfg, loadPaths...)
 	if err != nil {
@@ -364,32 +378,34 @@ func (m *Module) externalLoads() int {
 	return m.extLoads
 }
 
-// cachedFilterTable memoizes the filter table for the Module's lifetime. The
-// table is the harvest of a packages.Load over the filter packages — an external
-// go-list + type-check that costs ~150ms — and it depends ONLY on inputs that are
-// immutable for a Module: opts.ModuleRoot, opts.FilterPkgs, opts.Aliases. So it is
+// cachedFuncTables memoizes the filter+renderer tables for the Module's
+// lifetime. The tables are the harvest of a packages.Load over the filter and
+// renderer packages — an external go-list + type-check that costs ~150ms —
+// and it depends ONLY on inputs that are immutable for a Module:
+// opts.ModuleRoot, opts.FilterPkgs, opts.Aliases, opts.Renderers. So it is
 // loaded once and reused across every analyze() call, instead of reloading on each
 // warm regen (the pre-cache behaviour, which made every --watch cycle pay the full
 // packages.Load and turned ~10ms warm regens into ~150ms ones).
 //
 // Lifetime/invalidation: cleared by rebuildFset (alongside ext), and a filter
-// package is Go source — any .go/go.mod change drives the watch loop through
-// reopen(), which builds fresh Modules, so a filter-package edit is naturally
-// picked up. Called only from analyze, which runs under analysisMu; the m.mu
+// or renderer package is Go source — any .go/go.mod change drives the watch loop
+// through reopen(), which builds fresh Modules, so an edit is naturally picked
+// up. Called only from analyze, which runs under analysisMu; the m.mu
 // double-check mirrors externalImporter.
-func (m *Module) cachedFilterTable() (filterTable, error) {
+func (m *Module) cachedFuncTables() (funcTables, error) {
 	if m.opts.Bundle != nil {
-		return m.opts.Bundle.filters(), nil
+		return m.opts.Bundle.tables(), nil
 	}
 	m.mu.Lock()
-	if m.filterTblDone {
+	if m.funcTblDone {
 		defer m.mu.Unlock()
-		return m.filterTbl, m.filterTblErr
+		return m.funcTbl, m.funcTblErr
 	}
 	m.mu.Unlock()
-	tbl, err := loadFilterTableMulti(m.opts.ModuleRoot, dedupFilterPkgs(m.opts.FilterPkgs), m.opts.Aliases)
+	filters, renderers, err := loadFilterTableMulti(m.opts.ModuleRoot, dedupFilterPkgs(m.opts.FilterPkgs), m.opts.Aliases, m.opts.Renderers)
+	tbl := funcTables{filters: filters, renderers: renderers}
 	m.mu.Lock()
-	m.filterTbl, m.filterTblErr, m.filterTblDone = tbl, err, true
+	m.funcTbl, m.funcTblErr, m.funcTblDone = tbl, err, true
 	m.filterLoads++
 	m.mu.Unlock()
 	return tbl, err
@@ -479,44 +495,47 @@ func (m *Module) classifierFor(dir string) *attrclass.Classifier {
 	return m.opts.Classifier
 }
 
-// filterTableFor returns the filter table that applies to dir.
+// filterTableFor returns the filter+renderer tables that apply to dir.
 //
 // withExt says whether the caller is on a path that loads the external importer.
 // Every such caller (Generate, Package, typesPackage → analyze) already paid one
-// packages.Load that includes the gsx runtime, FilterPkgs, LoadPkgs, and the
-// Aliases' packages — so the table is HARVESTED from those types rather than
-// re-loaded. That kills a second `go list` per Module: filter-table loads were
-// running 1:1 with importer loads (148 vs 127 across the gen suite alone).
+// packages.Load that includes the gsx runtime, FilterPkgs, LoadPkgs, the
+// Aliases' packages, AND the Renderers' packages — so the tables are HARVESTED
+// from those types rather than re-loaded. That kills a second `go list` per
+// Module: filter-table loads were running 1:1 with importer loads (148 vs 127
+// across the gen suite alone).
 //
 // buildPackageSkeletons passes withExt=false. That path is `gsx fmt`'s syntactic
 // fast lane, which deliberately never loads the importer (it is what took
 // `gsx fmt -l` from ~16s to 0.58s); harvesting from types there would ADD the
 // full "./..." load it exists to avoid. It keeps the standalone
-// loadFilterTableMulti, which loads only the filter packages.
+// loadFilterTableMulti, which loads only the filter (and renderer) packages.
 //
 // A PerDir override always harvests from types, forcing the importer if needed:
-// N dirs with N different filter sets then cost ONE load between them.
+// N dirs with N different filter sets then cost ONE load between them. Renderers
+// have no PerDir override (Options.Renderers is module-wide), so the per-dir
+// memo key below is keyed on the filter package set alone.
 //
 // A dir naming a filter package the importer never loaded is an error. It must
 // never degrade to an empty table — a corpus case that asserts "this filter is
 // rejected because its package is not whitelisted" would then pass while
 // testing nothing.
-func (m *Module) filterTableFor(dir string, withExt bool) (filterTable, error) {
+func (m *Module) filterTableFor(dir string, withExt bool) (funcTables, error) {
 	if m.opts.Bundle != nil {
-		return m.opts.Bundle.filters(), nil
+		return m.opts.Bundle.tables(), nil
 	}
 	pkgs := m.opts.FilterPkgs
 	if d, ok := m.dirOptionsFor(dir); ok && d.FilterPkgs != nil {
 		pkgs, withExt = d.FilterPkgs, true
 	}
 	if !withExt {
-		return m.cachedFilterTable()
+		return m.cachedFuncTables()
 	}
 	pkgs = dedupFilterPkgs(pkgs)
 	key := strings.Join(pkgs, "\x00")
 
 	m.mu.Lock()
-	if tbl, hit := m.dirFilterTbls[key]; hit {
+	if tbl, hit := m.dirFuncTbls[key]; hit {
 		m.mu.Unlock()
 		return tbl, nil
 	}
@@ -525,14 +544,14 @@ func (m *Module) filterTableFor(dir string, withExt bool) (filterTable, error) {
 	// The importer's types are the harvest source, so it must be loaded first.
 	// Generate/Package already did this; the call is a cache hit there.
 	if _, err := m.externalImporter(); err != nil {
-		return nil, err
+		return funcTables{}, err
 	}
-	tbl, err := m.filterTableFromExt(pkgs)
+	tbl, err := m.funcTablesFromExt(pkgs)
 	if err != nil {
-		return nil, fmt.Errorf("codegen: filter table for %s: %w", dir, err)
+		return funcTables{}, fmt.Errorf("codegen: filter table for %s: %w", dir, err)
 	}
 	m.mu.Lock()
-	m.dirFilterTbls[key] = tbl
+	m.dirFuncTbls[key] = tbl
 	m.mu.Unlock()
 	return tbl, nil
 }
@@ -568,7 +587,56 @@ func (m *Module) filterTableFromExt(pkgs []string) (filterTable, error) {
 			return nil, err
 		}
 	}
-	return loadFilterTableFromTypes(extPkgs, pkgs, m.opts.Aliases)
+	table, _, err := loadFilterTableFromTypes(extPkgs, pkgs, m.opts.Aliases, nil)
+	return table, err
+}
+
+// funcTablesFromExt harvests BOTH the filter table (for pkgs) and the
+// module-wide renderer table from the external importer's already-loaded
+// types, giving filterTableFor's withExt path the same funcTables shape
+// cachedFuncTables' go-list path returns.
+func (m *Module) funcTablesFromExt(pkgs []string) (funcTables, error) {
+	filters, err := m.filterTableFromExt(pkgs)
+	if err != nil {
+		return funcTables{}, err
+	}
+	renderers, err := m.rendererTableFromExt(pkgs)
+	if err != nil {
+		return funcTables{}, err
+	}
+	return funcTables{filters: filters, renderers: renderers}, nil
+}
+
+// rendererTableFromExt harvests the module-wide renderer table (Options.Renderers)
+// from the external importer's already-loaded types, mirroring
+// filterTableFromExt's error semantics for renderer packages. pkgs is the
+// filter package set in play for THIS dir (a PerDir override, or
+// Options.FilterPkgs) — it is folded into the same alias assignment
+// harvestFilters would use so a renderer package sharing a path with a filter
+// package agrees on the SAME reserved alias, and its own _gsxf<i> index (when
+// renderer-only) matches what a one-shot go-list harvest over the same inputs
+// would assign.
+func (m *Module) rendererTableFromExt(pkgs []string) (rendererTable, error) {
+	if len(m.opts.Renderers) == 0 {
+		return rendererTable{}, nil
+	}
+	m.mu.Lock()
+	extPkgs, extErrs := m.extPkgs, m.extErrs
+	m.mu.Unlock()
+	for _, r := range m.opts.Renderers {
+		if errs := extErrs[r.PkgPath]; len(errs) > 0 {
+			return nil, fmt.Errorf("codegen: renderer for %q: package %q type resolution failed: %s", r.TypeKey, r.PkgPath, errs[0])
+		}
+	}
+	aliasPaths := append([]string{}, pkgs...)
+	for _, a := range m.opts.Aliases {
+		aliasPaths = append(aliasPaths, a.PkgPath)
+	}
+	for _, r := range m.opts.Renderers {
+		aliasPaths = append(aliasPaths, r.PkgPath)
+	}
+	aliases := filterAliases(aliasPaths)
+	return harvestRenderers(extPkgs, m.opts.Renderers, aliases)
 }
 
 // maybeRebuildFset rebuilds the FileSet (and ext/pkgTypes/pkgResults) when project re-parse
@@ -596,8 +664,8 @@ func (m *Module) rebuildFset() {
 	m.ext = nil
 	m.extPkgs = nil
 	m.extErrs = nil
-	m.filterTbl, m.filterTblErr, m.filterTblDone = filterTable{}, nil, false
-	m.dirFilterTbls = map[string]filterTable{}
+	m.funcTbl, m.funcTblErr, m.funcTblDone = funcTables{}, nil, false
+	m.dirFuncTbls = map[string]funcTables{}
 	m.perDirMergersErr, m.perDirMergersDone = nil, false
 	m.pkgTypes = map[string]*types.Package{}
 	m.pkgResults = map[string]*PackageResult{}

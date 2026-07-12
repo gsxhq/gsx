@@ -20,12 +20,13 @@ const StdImportPath = stdImportPath
 // The zero value is invalid.
 type Bundle struct {
 	imp   types.Importer
-	table filterTable
+	table funcTables
 }
 
-// filters returns the prebuilt filterTable so callers can skip a second
-// loadFilterTableMulti when using this resolver.
-func (b *Bundle) filters() filterTable { return b.table }
+// tables returns the prebuilt funcTables (filters + renderers) so callers can
+// skip a second loadFilterTableMulti/loadFilterTableFromTypes when using this
+// resolver.
+func (b *Bundle) tables() funcTables { return b.table }
 
 // importer returns the prebuilt external importer so the Module can type-check
 // skeletons against it without packages.Load (bundle mode).
@@ -33,8 +34,8 @@ func (b *Bundle) importer() types.Importer { return b.imp }
 
 // newCachedResolver loads filterPkgs (plus "github.com/gsxhq/gsx" and
 // allowImports) once from moduleDir and returns a resolver whose check method
-// runs without any subprocess. The returned resolver's filters() method exposes
-// the prebuilt filterTable so callers can skip a second loadFilterTableMulti.
+// runs without any subprocess. The returned resolver's tables() method exposes
+// the prebuilt funcTables so callers can skip a second loadFilterTableMulti.
 func newCachedResolver(moduleDir string, filterPkgs []string, aliases []FilterAlias, allowImports []string) (*Bundle, error) {
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedTypes | packages.NeedImports | packages.NeedDeps,
@@ -56,11 +57,11 @@ func newCachedResolver(moduleDir string, filterPkgs []string, aliases []FilterAl
 			m[p.PkgPath] = p.Types
 		}
 	})
-	table, err := loadFilterTableMulti(moduleDir, filterPkgs, aliases)
+	table, rt, err := loadFilterTableMulti(moduleDir, filterPkgs, aliases, nil)
 	if err != nil {
 		return nil, err
 	}
-	return &Bundle{imp: mapImporter(m), table: table}, nil
+	return &Bundle{imp: mapImporter(m), table: funcTables{filters: table, renderers: rt}}, nil
 }
 
 // NewCachedResolver is the public constructor for Bundle. It loads

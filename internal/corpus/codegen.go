@@ -69,11 +69,17 @@ func (c *caseDoc) astAndParserDiag() (astDump []byte, parserDiag []byte, single 
 // class merger, harvested from those loaded types with no further packages.Load.
 // The union must not leak into the tables — a case that asserts a non-whitelisted
 // package is rejected as a filter source would otherwise pass while testing nothing.
-func codegenDirs(moduleDir string, dirs []string, loadPkgs []string, perDir map[string]codegen.DirOptions) (map[string]codegen.DirResult, error) {
+// renderers is the corpus-wide union of every candidate case's [renderers]
+// registrations (see caseDoc.renderers). Unlike FilterPkgs/ClassMerger,
+// Options.Renderers has no PerDir override — it is module-wide — so it
+// needs no per-dir loadPkgs union step: Module's externalImporter already
+// folds Options.Renderers' package paths into its own packages.Load.
+func codegenDirs(moduleDir string, dirs []string, loadPkgs []string, perDir map[string]codegen.DirOptions, renderers []codegen.RendererAlias) (map[string]codegen.DirResult, error) {
 	return codegen.GenerateDirs(moduleDir, dirs, codegen.Options{
 		FilterPkgs: []string{codegen.StdImportPath},
 		LoadPkgs:   loadPkgs,
 		PerDir:     perDir,
+		Renderers:  renderers,
 		CSSMinify:  true,
 		JSMinify:   true,
 	}, nil)

@@ -166,6 +166,53 @@ options layer on top of the config the same way — a code-registered filter
 overrides a same-named config filter (see [What is *not* in
 `gsx.toml`](#what-is-not-in-gsx-toml) below).
 
+### `[renderers]` — type-directed value rendering
+
+Third-party wrapper types — `pgtype.Text`, `sql.NullString` — are not
+renderable and cannot be given a `String()` method you don't own. A renderer
+teaches gsx how to display such a type everywhere, once:
+
+```toml
+[renderers]
+"github.com/jackc/pgx/v5/pgtype.Text" = "example.com/app/filters.PgText"
+```
+
+```go
+func PgText(t pgtype.Text) string {
+	if !t.Valid {
+		return ""
+	}
+	return t.String
+}
+```
+
+The registered type renders through `PgText` wherever gsx renders a value —
+text, attribute, and URL holes, style/script holes and interpolated literals,
+`class`/`style` parts, conditional-attribute branches, and component
+fallthrough/ordered-attrs values — and the result is escaped or sanitized for
+its context exactly like a pipe filter's output. It does **not** apply to a
+plain component argument; that's ordinary Go. A renderer may return
+`(R, error)`; the error propagates like a failing pipe stage.
+
+- Keys are matched by exact `go/types` identity. `"*pkg.Type"` registers the
+  pointer type; pointer and value registrations are separate entries.
+- Registration always wins, even if the type also has a `String()` method.
+- Renderers apply once and never chain: the result type must be natively
+  renderable, and a result type with its own renderer (including `func(T) T`)
+  is a generation-time error.
+- Type-parameter holes and values that are `any` at runtime (user-supplied
+  `gsx.Attrs` entries, spreads) never consult the registry.
+
+`gen.WithRenderer("<pkgPath>.<TypeName>", fn)` registers from a custom
+generator binary and overrides a file entry for the same key, like
+`WithFilter` over `[filters]`. Registrations are part of the codegen cache
+key.
+
+::: warning gsx.toml key ordering
+TOML attaches a bare key to the table header above it — put top-level keys
+like `filterPackages` **before** `[renderers]` (and any other table).
+:::
+
 ### `[[urlAttrs]]` — URL attribute contexts
 
 gsx treats ordinary `attr={expr}` values as attribute-escaped text, except for
@@ -407,6 +454,17 @@ set, the option wins. The option route requires a [project
 
 ```toml
 # gsx.toml
+#
+# Top-level keys (filterPackages, class_merger, …) come BEFORE any [table]
+# header — TOML attaches a bare key to whichever table precedes it, so
+# e.g. class_merger after [minify] would silently become minify.class_merger.
+
+# (optional) packages whose exported funcs are all registered as filters,
+# named by lower-cased func name. std is always available and not listed.
+filterPackages = ["example.com/myproject/templatefuncs"]
+
+# Tailwind-aware class merger (omit to use gsx's built-in last-wins dedup).
+class_merger = "myapp/twcfg.Merge"
 
 # Named pipeline filters: { value |> name(args) }
 [filters]
@@ -414,9 +472,10 @@ url    = "github.com/jackielii/structpages.URLFor"
 id     = "github.com/jackielii/structpages.ID"
 target = "github.com/jackielii/structpages.IDTarget"
 
-# (optional) packages whose exported funcs are all registered as filters,
-# named by lower-cased func name. std is always available and not listed.
-filterPackages = ["example.com/myproject/templatefuncs"]
+# Type-directed renderers: a registered type renders through its func
+# wherever gsx renders a value (see [renderers] below).
+[renderers]
+"github.com/jackc/pgx/v5/pgtype.Text" = "example.com/app/filters.PgText"
 
 # URL attribute contexts beyond the built-ins.
 [[urlAttrs]]
@@ -432,9 +491,6 @@ imports     = "goimports"
 [minify]
 css = "full"
 js  = "full"
-
-# Tailwind-aware class merger (omit to use gsx's built-in last-wins dedup).
-class_merger = "myapp/twcfg.Merge"
 ```
 
 ## What is *not* in `gsx.toml`

@@ -2,6 +2,7 @@ package gen
 
 import (
 	"fmt"
+	"go/token"
 	"reflect"
 	"runtime"
 	"slices"
@@ -165,6 +166,71 @@ func isExportedIdent(s string) bool {
 		}
 	}
 	return true
+}
+
+// splitPkgType validates a [renderers] key: "pkgPath.TypeName" with an
+// optional leading * registering the pointer type. The returned key is the
+// canonical form codegen.rendererKey produces ("pkgPath.TypeName", optionally
+// *-prefixed), so config keys and resolved hole types meet on the same
+// string. The type name only needs to be a valid Go identifier — NOT
+// exported: rendererKey imposes no export requirement, and a project may
+// legitimately register one of its own unexported types (e.g.
+// "example.com/app.myType").
+func splitPkgType(s string) (string, error) {
+	t := strings.TrimPrefix(s, "*")
+	// At most ONE pointer level: rendererKey only ever produces zero or one
+	// leading *, so a doubled prefix ("**pkg.T") could never match — it would
+	// be a silently dead registration. Reject it here.
+	i := strings.LastIndex(t, ".")
+	if strings.HasPrefix(t, "*") || i <= 0 || i == len(t)-1 {
+		return "", fmt.Errorf("gsx: renderer type %q must be \"pkgPath.TypeName\" (optionally *-prefixed)", s)
+	}
+	if !token.IsIdentifier(t[i+1:]) {
+		return "", fmt.Errorf("gsx: renderer type %q: %q is not a valid type name", s, t[i+1:])
+	}
+	return s, nil
+}
+
+// WithRenderer registers a renderer for typeKey ("pkgPath.TypeName",
+// optionally *-prefixed): at every render boundary a value of that exact type
+// is passed through fn (func(T) R or func(T) (R, error)) before rendering.
+// fn is reflected exactly like WithFilter's target (resolveFilterFunc): a
+// closure, method value, or unexported target is rejected with a clear error
+// recorded on the config.
+//
+// Option-layer registrations are appended after file-layer ([renderers])
+// ones, so an option can intentionally override a gsx.toml registration for
+// the same TypeKey (last-wins, matching WithFilter's convention). The actual
+// application of renderers at render boundaries is codegen's job; this option
+// only records the registration on the config (folded into the cache key so a
+// changed registration busts cached output).
+func WithRenderer(typeKey string, fn any) Option {
+	return func(cfg *config) {
+		key, err := splitPkgType(typeKey)
+		if err != nil {
+			cfg.errs = append(cfg.errs, fmt.Errorf("WithRenderer %q: %w", typeKey, err))
+			return
+		}
+		if fn == nil {
+			cfg.errs = append(cfg.errs, fmt.Errorf("WithRenderer %q: fn is nil; pass an exported top-level function (e.g. structpages.RenderFoo)", typeKey))
+			return
+		}
+		v := reflect.ValueOf(fn)
+		if v.Kind() != reflect.Func {
+			cfg.errs = append(cfg.errs, fmt.Errorf("WithRenderer %q: fn (%T) is not a function", typeKey, fn))
+			return
+		}
+		pkgPath, funcName, err := resolveFilterFunc(v)
+		if err != nil {
+			cfg.errs = append(cfg.errs, fmt.Errorf("WithRenderer %q: %w", typeKey, err))
+			return
+		}
+		cfg.renderers = append(cfg.renderers, codegen.RendererAlias{
+			TypeKey:  key,
+			PkgPath:  pkgPath,
+			FuncName: funcName,
+		})
+	}
 }
 
 // WithClassMerger installs fn as the project's class-merge strategy. fn MUST be

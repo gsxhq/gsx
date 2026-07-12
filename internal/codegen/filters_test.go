@@ -47,7 +47,7 @@ func harvestFixture(t *testing.T, source string) filterTable {
 	}
 
 	// Load and harvest the filter package
-	table, err := loadFilterTableMulti(tmp, []string{"testfilters/filters"}, nil)
+	table, _, err := loadFilterTableMulti(tmp, []string{"testfilters/filters"}, nil, nil)
 	if err != nil {
 		t.Fatalf("loadFilterTableMulti: %v", err)
 	}
@@ -164,7 +164,7 @@ func harvestFixtureFromTypes(t *testing.T, source string) filterTable {
 		}
 	})
 
-	table, err := loadFilterTableFromTypes(byPath, []string{pkgPath}, nil)
+	table, _, err := loadFilterTableFromTypes(byPath, []string{pkgPath}, nil, nil)
 	if err != nil {
 		t.Fatalf("loadFilterTableFromTypes: %v", err)
 	}
@@ -201,10 +201,10 @@ func CtxFallible(ctx context.Context, s string) (int, error) { return 0, nil }
 }
 
 func TestLowerPipeMidStageErr(t *testing.T) {
-	table := filterTable{
+	table := funcTables{filters: filterTable{
 		"parse": {funcName: "Parse", alias: "_gsxf0", pkgPath: "m/f", hasErr: true},
 		"join":  {funcName: "Join", alias: "_gsxstd", pkgPath: "github.com/gsxhq/gsx/std"},
-	}
+	}}
 	stages := []ast.PipeStage{{Name: "parse"}, {Name: "join", HasArgs: true, Args: `" "`}}
 
 	// probe-style wrap
