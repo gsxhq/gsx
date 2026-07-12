@@ -210,9 +210,11 @@ earlier `color` declaration. Untaken conditional branches are not evaluated.
 
 Because `class` and `style` compose, they are exempt from the scalar position
 rule around a spread: a contribution written after the spread still merges
-rather than becoming forced. An element with only one `class` or `style`
-contributor keeps the direct inline path; composition machinery is used only
-when the source tree contains multiple same-name contributors.
+rather than becoming forced. On a non-forwarding element with no spread, a
+single `class` or `style` contributor keeps the direct inline path; the new
+non-forwarding composition machinery is used only when the source tree
+contains multiple same-name contributors. Spread-bearing elements still use
+their existing fold and merge paths.
 
 Every element spread also sanitizes URL-classified attribute keys at the leaf,
 for any bag, with no exceptions and no unsanitizing spread — see
