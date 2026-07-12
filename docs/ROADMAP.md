@@ -749,7 +749,10 @@ vocabulary remains a design aspiration, not the current API.
    `class`/`style` aggregate), same as any two same-named attributes -
    interposed statics and conditional spreads/statics participate, including
    embedded-hole attrs. Docs: `composition.md` §Derived bags. Corpus:
-   `multispread/*`.
+   `multispread/*`. Follow-up issues #92, #93, and #94 are fixed: folded
+   embedded JS/CSS holes retain their contextual escaping, generic `any`
+   holes match inline `AttrAny` rendering, and differential fold fuzzing now
+   covers edge whitespace and boolean scalar values.
 
 ## Tracked debts / deferrals
 

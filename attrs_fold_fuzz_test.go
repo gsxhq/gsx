@@ -7,6 +7,27 @@ import (
 	"testing"
 )
 
+func TestAttrsFoldWhitespaceAndBoolValues(t *testing.T) {
+	contribs := decodeContribs([]byte{0x03, 0, 4, 0, 2, 5, 5})
+	if got, ok := contribs[0][0].Value.(string); !ok || got != " a " {
+		t.Fatalf("class whitespace value = %#v (%T), want %q (string)", contribs[0][0].Value, contribs[0][0].Value, " a ")
+	}
+	if got, ok := contribs[0][2].Value.(bool); !ok || !got {
+		t.Fatalf("disabled value = %#v (%T), want true (bool)", contribs[0][2].Value, contribs[0][2].Value)
+	}
+
+	for name, attrs := range map[string]Attrs{
+		"fold":      ConcatAttrs(contribs...),
+		"reference": referenceLastWins(contribs),
+	} {
+		var buf bytes.Buffer
+		W(&buf).Spread(context.Background(), attrs, nil, nil, nil, nil, nil)
+		if got, want := buf.String(), ` class="a b" disabled`; got != want {
+			t.Errorf("%s render = %q, want %q", name, got, want)
+		}
+	}
+}
+
 // FuzzAttrsFoldMatchesReference proves the governing principle of the
 // multi-spread merge feature at its runtime leaf: folding N attribute
 // contributors with ConcatAttrs and rendering the result through
@@ -39,6 +60,10 @@ func FuzzAttrsFoldMatchesReference(f *testing.F) {
 	f.Add([]byte{})
 	// a mix: disjoint + colliding + class + untaken conditional in one run
 	f.Add([]byte{0x01, 3, 1, 0x01, 2, 2, 0x01, 0, 1, 0x81, 2, 3, 0x01, 0, 3})
+	// edge-trimmed class token and a true boolean scalar
+	f.Add([]byte{0x03, 0, 4, 0, 2, 5, 5})
+	// false boolean scalar
+	f.Add([]byte{0x01, 5, 6})
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		contribs := decodeContribs(data)
@@ -54,12 +79,12 @@ func FuzzAttrsFoldMatchesReference(f *testing.F) {
 
 // foldKeyAlphabet is the fixed key alphabet decodeContribs draws from: the
 // two aggregating keys (class, style), one URL-sink key (href, routed
-// through the nav sink in the fuzz harness), and two plain scalars.
-var foldKeyAlphabet = []string{"class", "style", "href", "id", "data-x"}
+// through the nav sink in the fuzz harness), and three plain scalars.
+var foldKeyAlphabet = []string{"class", "style", "href", "id", "data-x", "disabled"}
 
-// foldValAlphabet is the fixed value alphabet: empty, two plain tokens, and
-// one containing an internal space (exercises class-token join / trimming).
-var foldValAlphabet = []string{"", "a", "b", "x y"}
+// foldValAlphabet is the fixed value alphabet: empty, plain and whitespace
+// bearing strings, plus both boolean values.
+var foldValAlphabet = []any{"", "a", "b", "x y", " a ", true, false}
 
 // decodeContribs deterministically decodes data into a sequence of
 // contributors (each either a plain bag or, for an untaken conditional, an
@@ -157,7 +182,10 @@ func refJoinAll(flat Attrs, key, sep string, trim bool) string {
 		if kv.Key != key {
 			continue
 		}
-		piece, _ := kv.Value.(string)
+		piece, ok := kv.Value.(string)
+		if !ok {
+			continue
+		}
 		if trim {
 			piece = strings.TrimSpace(piece)
 		}
