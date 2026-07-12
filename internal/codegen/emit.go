@@ -4559,94 +4559,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 	// `any`. childPropsLiteral's inline literal is renderer-free by design —
 	// it cannot know whether this pass will rebuild, and a hoist emitted there
 	// would be orphaned (double-evaluated) by the rebuild.
-	needsOrderedPlan := false
-outer:
-	for _, value := range valuePlan {
-		if len(value.stmts) > 0 {
-			needsOrderedPlan = true
-			break
-		}
-		valueType := resolved[value.node]
-		if value.embedded == nil {
-			if _, ok := tupleUnwrapType(valueType); ok {
-				needsOrderedPlan = true
-				break
-			}
-		}
-		if value.pairIndex >= 0 {
-			if _, ok := table.renderers[rendererKey(valueType)]; ok {
-				needsOrderedPlan = true
-				break outer
-			}
-		}
-	}
-	if needsOrderedPlan {
-		for _, value := range valuePlan {
-			b.Write(value.stmts)
-			valueType := resolved[value.node]
-			_, isTuple := tupleUnwrapType(valueType)
-			if value.embedded != nil {
-				isTuple = false // componentEmbeddedTextValueExpr already unwraps and stringifies
-			}
-			materialized := value.rawExpr
-			switch {
-			case isTuple:
-				materialized = hoistTuple(b, materialized, interpTemp)
-			case value.embedded != nil || isCallExpr(materialized):
-				tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-				*interpTemp++
-				fmt.Fprintf(b, "\t\t%s := %s\n", tmp, materialized)
-				materialized = tmp
-			}
-			if value.segmentIndex >= 0 {
-				fieldEntries[value.fieldIndex].bagSegments[value.segmentIndex] = materialized
-				continue
-			}
-			if value.pairIndex >= 0 {
-				attrType := valueType
-				if elem, ok := tupleUnwrapType(valueType); ok {
-					attrType = elem
-				}
-				materialized, _ = applyRenderer(b, materialized, attrType, table, imports, interpTemp, "return _gsxerr")
-				fieldEntries[value.fieldIndex].oaPairs[value.pairIndex].rawVal = materialized
-				continue
-			}
-			if value.bagIndex >= 0 {
-				fieldEntries[value.fieldIndex].bagPairs[value.bagIndex].rawVal = materialized
-				continue
-			}
-			if value.isNodeField {
-				fieldEntries[value.fieldIndex].str = fmt.Sprintf("%s: %s.Val(%s)", value.fieldName, rt.rt(), materialized)
-			} else {
-				fieldEntries[value.fieldIndex].str = fmt.Sprintf("%s: %s", value.fieldName, materialized)
-			}
-		}
-		for i := range fieldEntries {
-			fe := &fieldEntries[i]
-			if fe.oa != nil {
-				fe.oaLit = attrsPairsLiteral(rt.rt(), fe.oaPairs)
-				if fe.oaMergePrefix == "" {
-					fe.str = fmt.Sprintf("%s: %s", fe.fieldName, fe.oaLit)
-				}
-			}
-			if len(fe.bagPairs) > 0 || len(fe.bagSegments) > 0 {
-				parts := make([]string, 0, 1+len(fe.bagSegments))
-				if len(fe.bagPairs) > 0 {
-					parts = append(parts, attrsPairsLiteral(rt.rt(), fe.bagPairs))
-				}
-				parts = append(parts, fe.bagSegments...)
-				prefix := strings.Join(parts, ", ")
-				if fe.oa != nil {
-					fe.oaMergePrefix = prefix
-					fe.str = fmt.Sprintf("Attrs: %s.ConcatAttrs(%s, %s)", rt.rt(), prefix, fe.oaLit)
-				} else if len(parts) == 1 {
-					fe.str = "Attrs: " + parts[0]
-				} else {
-					fe.str = fmt.Sprintf("Attrs: %s.ConcatAttrs(%s)", rt.rt(), prefix)
-				}
-			}
-		}
-	}
+	materializeComponentValuePlan(b, fieldEntries, valuePlan, resolved, table, imports, rt.rt(), interpTemp, "return _gsxerr")
 	strs := make([]string, len(fieldEntries))
 	for i, fe := range fieldEntries {
 		strs[i] = fe.str
@@ -5190,6 +5103,105 @@ func attrsPairsLiteral(rtPkg string, pairs []oaPairEntry) string {
 	return b.String()
 }
 
+func componentValuePlanNeeded(plan []componentValueEntry, resolved map[ast.Node]types.Type, table funcTables) bool {
+	for _, value := range plan {
+		if len(value.stmts) > 0 {
+			return true
+		}
+		valueType := resolved[value.node]
+		if value.embedded == nil {
+			if _, ok := tupleUnwrapType(valueType); ok {
+				return true
+			}
+		}
+		if value.pairIndex >= 0 {
+			if _, ok := table.renderers[rendererKey(valueType)]; ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// materializeComponentValuePlan evaluates every side-effecting child-component
+// value in authored order, then rebuilds the structured fields/bag from the
+// resulting temps. Named-props and attrs-only component values share this one
+// implementation so tuple pairs cannot bypass earlier fallthrough calls.
+func materializeComponentValuePlan(b *bytes.Buffer, fields []propFieldEntry, plan []componentValueEntry, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rtPkg string, interpTemp *int, errReturn string) {
+	if !componentValuePlanNeeded(plan, resolved, table) {
+		return
+	}
+	for _, value := range plan {
+		b.Write(value.stmts)
+		valueType := resolved[value.node]
+		_, isTuple := tupleUnwrapType(valueType)
+		if value.embedded != nil {
+			isTuple = false // componentEmbeddedTextValueExpr already unwraps and stringifies
+		}
+		materialized := value.rawExpr
+		switch {
+		case isTuple:
+			materialized = hoistTupleReturning(b, materialized, interpTemp, errReturn)
+		case value.embedded != nil || isCallExpr(materialized):
+			tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+			*interpTemp++
+			fmt.Fprintf(b, "\t\t%s := %s\n", tmp, materialized)
+			materialized = tmp
+		}
+		if value.segmentIndex >= 0 {
+			fields[value.fieldIndex].bagSegments[value.segmentIndex] = materialized
+			continue
+		}
+		if value.pairIndex >= 0 {
+			attrType := valueType
+			if elem, ok := tupleUnwrapType(valueType); ok {
+				attrType = elem
+			}
+			materialized, _ = applyRenderer(b, materialized, attrType, table, imports, interpTemp, errReturn)
+			fields[value.fieldIndex].oaPairs[value.pairIndex].rawVal = materialized
+			continue
+		}
+		if value.bagIndex >= 0 {
+			fields[value.fieldIndex].bagPairs[value.bagIndex].rawVal = materialized
+			continue
+		}
+		if value.isNodeField {
+			if value.embedded != nil {
+				fields[value.fieldIndex].str = fmt.Sprintf("%s: %s.Text(%s)", value.fieldName, rtPkg, materialized)
+			} else {
+				fields[value.fieldIndex].str = fmt.Sprintf("%s: %s.Val(%s)", value.fieldName, rtPkg, materialized)
+			}
+		} else {
+			fields[value.fieldIndex].str = fmt.Sprintf("%s: %s", value.fieldName, materialized)
+		}
+	}
+	for i := range fields {
+		fe := &fields[i]
+		if fe.oa != nil {
+			fe.oaLit = attrsPairsLiteral(rtPkg, fe.oaPairs)
+			if fe.oaMergePrefix == "" {
+				fe.str = fmt.Sprintf("%s: %s", fe.fieldName, fe.oaLit)
+			}
+		}
+		if len(fe.bagPairs) > 0 || len(fe.bagSegments) > 0 {
+			parts := make([]string, 0, 1+len(fe.bagSegments))
+			if len(fe.bagPairs) > 0 {
+				parts = append(parts, attrsPairsLiteral(rtPkg, fe.bagPairs))
+			}
+			parts = append(parts, fe.bagSegments...)
+			prefix := strings.Join(parts, ", ")
+			if fe.oa != nil {
+				fe.oaMergePrefix = prefix
+				fe.str = fmt.Sprintf("Attrs: %s.ConcatAttrs(%s, %s)", rtPkg, prefix, fe.oaLit)
+			} else if len(parts) == 1 {
+				fe.str = "Attrs: " + parts[0]
+			} else {
+				fe.str = fmt.Sprintf("Attrs: %s.ConcatAttrs(%s)", rtPkg, prefix)
+			}
+		}
+	}
+}
+
 // isCallExpr reports whether rawVal parses as a Go function-call expression
 // (after unwrapping any surrounding parens). Only a CallExpr can yield a
 // (T, error) tuple when used in single-value position; literals, identifiers,
@@ -5262,58 +5274,15 @@ func attrsOnlyBagExpr(el *ast.Element, rtPkg, mergeExpr string, table funcTables
 	// can carry a tuple-returning value. In probe mode resolved is nil, so both
 	// checks are no-ops (the skeleton uses _gsxunwrap wrapping instead).
 	fe := &fields[0]
-	orderedValues := false
-	for _, value := range valuePlan {
-		if len(value.stmts) > 0 {
-			orderedValues = true
-			break
-		}
-	}
-	if orderedValues {
-		for _, value := range valuePlan {
-			b.Write(value.stmts)
-			materialized := value.rawExpr
-			if value.embedded != nil || isCallExpr(materialized) {
-				tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-				*interpTemp++
-				fmt.Fprintf(b, "\t\t%s := %s\n", tmp, materialized)
-				materialized = tmp
-			}
-			if value.segmentIndex >= 0 {
-				fe.bagSegments[value.segmentIndex] = materialized
-			}
-			if value.bagIndex >= 0 {
-				fe.bagPairs[value.bagIndex].rawVal = materialized
-			}
-		}
-		parts := make([]string, 0, 1+len(fe.bagSegments))
-		if len(fe.bagPairs) > 0 {
-			parts = append(parts, attrsPairsLiteral(rtPkg, fe.bagPairs))
-		}
-		parts = append(parts, fe.bagSegments...)
-		if len(parts) == 1 {
-			fe.str = "Attrs: " + parts[0]
-		} else if len(parts) > 1 {
-			fe.str = fmt.Sprintf("Attrs: %s.ConcatAttrs(%s)", rtPkg, strings.Join(parts, ", "))
-		}
-	}
 	if fe.ea != nil {
 		if t, ok := resolved[fe.ea].(*types.Tuple); ok {
 			if _, unwrappable := tupleUnwrapType(t); !unwrappable {
 				return "", nil, &attrError{pos: fe.ea.Pos(), end: fe.ea.End(), code: "invalid-tuple",
 					msg: fmt.Sprintf("child prop %q value %q returns %s; only (T, error) is supported", fe.ea.Name, fe.ea.Expr, t)}
 			}
-			tmp := hoistTuple(b, fe.rawVal, interpTemp)
-			fe.str = fmt.Sprintf("%s: %s", fe.fieldName, tmp)
 		}
 	}
 	if fe.oa != nil {
-		// A registered-renderer pair also forces the rebuild (same rule and
-		// reasoning as genChildComponent's hoist-all pass): the renderer call
-		// must be spliced into the literal before the value degrades to `any`.
-		// Probe mode never rebuilds — resolved is nil there and the skeleton
-		// does not dispatch renderers.
-		rebuild := false
 		for j := range fe.oaPairs {
 			pairType := resolved[&fe.oa.Pairs[j]]
 			if t, ok := pairType.(*types.Tuple); ok {
@@ -5321,52 +5290,11 @@ func attrsOnlyBagExpr(el *ast.Element, rtPkg, mergeExpr string, table funcTables
 					return "", nil, &attrError{pos: fe.oa.Pairs[j].Pos(), end: fe.oa.Pairs[j].End(), code: "invalid-tuple",
 						msg: fmt.Sprintf("ordered-attrs pair %q value %q returns %s; only (T, error) is supported", fe.oaPairs[j].key, fe.oaPairs[j].rawVal, t)}
 				}
-				rebuild = true
-			}
-			if !probeWrap {
-				if _, ok := table.renderers[rendererKey(pairType)]; ok {
-					rebuild = true
-				}
 			}
 		}
-		if rebuild {
-			var sb strings.Builder
-			fmt.Fprintf(&sb, "%s.Attrs{", rtPkg)
-			for j, pr := range fe.oaPairs {
-				pairType := resolved[&fe.oa.Pairs[j]]
-				_, isTup := tupleUnwrapType(pairType)
-				var valueStr string
-				switch {
-				case isTup:
-					valueStr = hoistTuple(b, pr.rawVal, interpTemp)
-				case isCallExpr(pr.rawVal):
-					tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-					*interpTemp++
-					fmt.Fprintf(b, "\t\t%s := %s\n", tmp, pr.rawVal)
-					valueStr = tmp
-				default:
-					valueStr = pr.rawVal
-				}
-				// Renderer application, identical to genChildComponent's rebuild;
-				// imports bridge through `used` (values-folded by the caller).
-				attrType := pairType
-				if elemT, ok := tupleUnwrapType(pairType); ok {
-					attrType = elemT
-				}
-				scratch := map[string]bool{}
-				valueStr, _ = applyRenderer(b, valueStr, attrType, table, scratch, interpTemp, "return _gsxerr")
-				for path := range scratch {
-					used[path] = path
-				}
-				fmt.Fprintf(&sb, "{Key: %s, Value: %s}, ", strconv.Quote(pr.key), valueStr)
-			}
-			sb.WriteString("}")
-			if fe.oaMergePrefix != "" {
-				fe.str = fmt.Sprintf("Attrs: %s.ConcatAttrs(%s, %s)", rtPkg, fe.oaMergePrefix, sb.String())
-			} else {
-				fe.str = fmt.Sprintf("%s: %s", fe.fieldName, sb.String())
-			}
-		}
+	}
+	if !probeWrap {
+		materializeComponentValuePlan(b, fields, valuePlan, resolved, table, imports, rtPkg, interpTemp, "return _gsxerr")
 	}
 	return strings.TrimPrefix(fe.str, "Attrs: "), used, nil
 }
