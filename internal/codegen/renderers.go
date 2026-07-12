@@ -24,6 +24,10 @@ type rendererEntry struct {
 	alias    string
 	pkgPath  string
 	hasErr   bool
+	// wantsCtx is true for func(ctx context.Context, T) R / (R, error); false
+	// for the ctx-less func(T) R / (R, error) shapes. applyRenderer prepends
+	// the ambient render ctx (pipeCtxIdent) to the call when set.
+	wantsCtx bool
 	result   types.Type
 }
 
@@ -71,13 +75,23 @@ func harvestRenderers(byPath map[string]*types.Package, renderers []RendererAlia
 			return nil, fmt.Errorf("codegen: renderer for %q: %q in package %q is not a function", r.TypeKey, r.FuncName, r.PkgPath)
 		}
 		sig := fn.Type().(*types.Signature)
+		// The subject param is normally the only param (func(T) R); a leading
+		// context.Context is also accepted, in which case the subject is the
+		// param immediately after it (func(ctx context.Context, T) R). A ctx
+		// param with nothing after it (no subject) or in any other position
+		// is a contract violation, same as any other wrong arity/shape.
+		params := sig.Params()
+		firstIsCtx := params.Len() >= 1 && isContextContext(params.At(0).Type())
+		wantsCtx := firstIsCtx && params.Len() == 2
+		subjectOK := wantsCtx || (params.Len() == 1 && !firstIsCtx)
 		if sig.Recv() != nil || sig.Variadic() || sig.TypeParams().Len() != 0 ||
-			sig.Params().Len() != 1 || sig.Results().Len() < 1 || sig.Results().Len() > 2 ||
+			!subjectOK || sig.Results().Len() < 1 || sig.Results().Len() > 2 ||
 			(sig.Results().Len() == 2 && !isErrorType(sig.Results().At(1).Type())) {
-			return nil, fmt.Errorf("codegen: renderer %q for %q does not match the renderer contract func(T) R or func(T) (R, error)", r.FuncName, r.TypeKey)
+			return nil, fmt.Errorf("codegen: renderer %q for %q does not match the renderer contract func(T) R, func(T) (R, error), func(ctx context.Context, T) R, or func(ctx context.Context, T) (R, error)", r.FuncName, r.TypeKey)
 		}
-		if pk := rendererKey(sig.Params().At(0).Type()); pk != r.TypeKey {
-			return nil, fmt.Errorf("codegen: renderer %q takes %s; registered for %q", r.FuncName, sig.Params().At(0).Type(), r.TypeKey)
+		subject := params.At(params.Len() - 1)
+		if pk := rendererKey(subject.Type()); pk != r.TypeKey {
+			return nil, fmt.Errorf("codegen: renderer %q takes %s; registered for %q", r.FuncName, subject.Type(), r.TypeKey)
 		}
 		res := sig.Results().At(0).Type()
 		// The unrenderable-result rejection is deferred to the chain-check
@@ -90,6 +104,7 @@ func harvestRenderers(byPath map[string]*types.Package, renderers []RendererAlia
 			alias:    aliases[r.PkgPath],
 			pkgPath:  r.PkgPath,
 			hasErr:   sig.Results().Len() == 2,
+			wantsCtx: wantsCtx,
 			result:   res,
 		}
 	}
@@ -136,20 +151,29 @@ func effectiveRenderType(t types.Type, table funcTables) types.Type {
 }
 
 // applyRenderer wraps expr in its registered renderer call when t's canonical
-// key is registered, marking the renderer package as imported. An error
-// renderer hoists through hoistTupleReturning with the caller's error-return
-// statement (the same per-context shapes pipe filters use: "return _gsxerr"
-// in a render closure, "return nil, _gsxerr" in an (Attrs, error) thunk).
-// Returns the (possibly hoisted) expr and the type the boundary classifies;
-// a registry miss returns the inputs unchanged. Renderers apply exactly once
-// (harvest rejects chains), so this never recurses.
+// key is registered, marking the renderer package as imported. A wantsCtx
+// renderer receives the ambient render ctx (pipeCtxIdent) as its first
+// argument — every applyRenderer call site sits inside the render closure or
+// an (Attrs, error) thunk nested in it, where pipeCtxIdent is in scope, same
+// as a ctx-taking pipe filter (lowerPipe). An error renderer hoists through
+// hoistTupleReturning with the caller's error-return statement (the same
+// per-context shapes pipe filters use: "return _gsxerr" in a render closure,
+// "return nil, _gsxerr" in an (Attrs, error) thunk). Returns the (possibly
+// hoisted) expr and the type the boundary classifies (effectiveRenderType is
+// this function's type-only shadow — the two must never disagree on the
+// registry lookup); a registry miss returns the inputs unchanged. Renderers
+// apply exactly once (harvest rejects chains), so this never recurses.
 func applyRenderer(b *bytes.Buffer, expr string, t types.Type, table funcTables, imports map[string]bool, interpTemp *int, errReturn string) (string, types.Type) {
 	e, ok := table.renderers[rendererKey(t)]
 	if !ok {
 		return expr, t
 	}
 	imports[e.pkgPath] = true
-	call := e.alias + "." + e.funcName + "((" + expr + "))"
+	args := "(" + expr + ")"
+	if e.wantsCtx {
+		args = pipeCtxIdent + ", " + args
+	}
+	call := e.alias + "." + e.funcName + "(" + args + ")"
 	if e.hasErr {
 		return hoistTupleReturning(b, call, interpTemp, errReturn), e.result
 	}

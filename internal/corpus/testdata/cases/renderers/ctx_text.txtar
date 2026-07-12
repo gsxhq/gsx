@@ -1,8 +1,9 @@
-# A text hole whose type has a registered renderer: {p.Val} of type pg.Text
-# emits _gsxf0.PgText((val)) and renders the renderer's string result — no
-# .String reach, no pipe. mkText keeps the invoke file from needing its own
-# import of the case-local pg package (the entry file is single-package, so
-# only the "gsx." qualifier gets an auto-import — see writeEntry).
+# A text hole whose registered renderer takes the ambient ctx as its first
+# param — the ctx-taking sibling of text_basic.txtar. Pins that applyRenderer
+# prepends pipeCtxIdent ("ctx") before the subject expr: the renderer itself
+# proves ctx is real (non-nil) by returning "NO-CTX" if it weren't threaded
+# through, so render.golden showing the actual value (not "NO-CTX") is the
+# proof that emission passes the render closure's ctx, not a zero value.
 -- gsx.toml --
 [renderers]
 "./pg.Text" = "./rend.PgText"
@@ -16,9 +17,16 @@ type Text struct {
 -- rend/rend.go --
 package rend
 
-import "corpustest/cases/renderers_text_basic/pg"
+import (
+	"context"
 
-func PgText(t pg.Text) string {
+	"corpustest/cases/renderers_ctx_text/pg"
+)
+
+func PgText(ctx context.Context, t pg.Text) string {
+	if ctx == nil {
+		return "NO-CTX"
+	}
 	if !t.Valid {
 		return ""
 	}
@@ -27,7 +35,7 @@ func PgText(t pg.Text) string {
 -- input.gsx --
 package views
 
-import "corpustest/cases/renderers_text_basic/pg"
+import "corpustest/cases/renderers_ctx_text/pg"
 
 func mkText(s string, valid bool) pg.Text { return pg.Text{String: s, Valid: valid} }
 
@@ -43,10 +51,10 @@ Tag(TagProps{Val: mkText("<b>hi</b>", true)})
 package views
 
 import (
-	"corpustest/cases/renderers_text_basic/pg"
+	"corpustest/cases/renderers_ctx_text/pg"
 
 	_gsxctx "context"
-	_gsxf32 "corpustest/cases/renderers_text_basic/rend"
+	_gsxf16 "corpustest/cases/renderers_ctx_text/rend"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
@@ -65,7 +73,7 @@ func Tag(_gsxp TagProps) _gsxrt.Node {
 //line input.gsx:8:2
 		_gsxgw.S("<div>")
 //line input.gsx:8:7
-		_gsxgw.Text(string(_gsxf32.PgText((val))))
+		_gsxgw.Text(string(_gsxf16.PgText(ctx, (val))))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})
