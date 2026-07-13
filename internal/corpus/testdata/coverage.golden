@@ -637,7 +637,15 @@ renderers/text_error	diag gen render
 renderers/tuple_then_renderer	diag gen render
 renderers/valuecf_arm	diag gen render
 renderers/wins_over_stringer	diag gen render
+reserved/attrs_const_rejected	diag(error)
+reserved/attrs_receiver_rejected	diag(error)
+reserved/attrs_shortvar_rejected	diag(error)
+reserved/attrs_tuple_rejected	diag(error)
+reserved/children_shortvar_rejected	diag(error)
+reserved/children_shortvar_unplaced_rejected	diag(error)
+reserved/children_value_unplaced	diag(error)
 reserved/closure_over_attrs	diag gen render
+reserved/ctx_shortvar_rejected	diag(error)
 reserved/funclit_param_shadow_ok	diag gen render
 reserved/goblock_consumes_attrs	diag gen render
 reserved/range_shadow_ok	diag gen render
@@ -793,4 +801,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 795 cases (render: 674, error: 91, gen-pinned: 452)
+TOTAL: 803 cases (render: 674, error: 99, gen-pinned: 452)

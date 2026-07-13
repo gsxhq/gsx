@@ -3745,6 +3745,12 @@ func checkReservedRecvVar(recvVar string) error {
 	if recvVar == "ctx" {
 		return fmt.Errorf("codegen: method-component receiver var %q is reserved (ambient context)", recvVar)
 	}
+	if recvVar == "children" {
+		return fmt.Errorf("codegen: method-component receiver var %q is reserved (implicit children slot)", recvVar)
+	}
+	if recvVar == "attrs" {
+		return fmt.Errorf("codegen: method-component receiver var %q is reserved (explicit attribute forwarding)", recvVar)
+	}
 	if strings.HasPrefix(recvVar, reservedPrefix) {
 		return fmt.Errorf("codegen: method-component receiver var %q uses the reserved _gsx prefix", recvVar)
 	}
