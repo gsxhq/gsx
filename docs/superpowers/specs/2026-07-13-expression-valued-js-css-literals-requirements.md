@@ -153,6 +153,7 @@ Interpolation expressions must:
 1. Evaluate exactly once.
 2. Evaluate from left to right; observable evaluation order must match source order (temporaries are fine as long as order is preserved).
 3. **Reject error-returning pipe stages with a positioned diagnostic** in this slice. A hole like `@{x |> filter}` where a stage returns `(T, error)` has no error-return shape available in an arbitrary Go expression position (`gsx.Attrs{...}` inside a `{{ }}` block cannot propagate). Attribute-local literals keep their existing pipe-error behavior unchanged.
+4. **Reject ctx-taking filters and renderers** the same way: a hole whose filter or registered renderer takes the ambient render `ctx` has no `ctx` at a Go-expression position with no render closure (a top-level value), so it is rejected with the same positioned diagnostic rather than lowered to an undefined-`ctx` call. Positions that DO bind `ctx` (an interpolation, a `{{ }}` block, an attribute) keep threading it unchanged.
 
 ## Interaction With Attributes
 
@@ -194,7 +195,7 @@ GSX must report a positioned compile-time error when:
 - the literal is malformed;
 - an interpolation appears in an unsupported lexical position;
 - contextual escaping cannot be determined safely;
-- a hole contains an error-returning pipe stage (expression positions only);
+- a hole contains an error-returning pipe stage, or a ctx-taking / error-returning filter or renderer (expression positions only — no ambient render context exists there);
 - the literal appears directly in a markup body/text position;
 - generated Go cannot satisfy the required trusted-type expression contract.
 
