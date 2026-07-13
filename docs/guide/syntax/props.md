@@ -95,11 +95,14 @@ bag. See [Attributes — Spread](./attributes.md#spread-x-—-ordered) and
 
 gsx owns three names at the top level of a component body:
 
-| Name | Available when |
+| Name | Available in |
 |---|---|
 | `ctx` | every component render |
-| `children` | the body places [`{children}`](./composition.md#children-children) |
-| `attrs` | the body freely uses the [fallthrough bag](./composition.md#explicit-attribute-forwarding) |
+| `children` | generated and nullary components that place [`{children}`](./composition.md#children-children) |
+| `attrs` | generated and nullary components that freely use the [fallthrough bag](./composition.md#explicit-attribute-forwarding) |
+
+A bring-your-own props component uses its explicit `p.Children` and `p.Attrs`
+fields instead.
 
 Do not declare these names as component parameters or receivers, or with a
 top-level `:=`, `var`, or `const`. Nested scopes may shadow them like ordinary
