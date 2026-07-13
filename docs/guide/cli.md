@@ -23,8 +23,8 @@ gsx [global flags] <command> [arguments]
 
 ## Global flags
 
-`-C` is the only flag that changes every command. It must appear before the
-command name:
+`-C` is the only true global flag. It must appear before the command name and
+sets the base directory for commands that resolve project paths or configuration:
 
 ```bash
 gsx -C ./web generate .
@@ -32,7 +32,7 @@ gsx -C ./web generate .
 
 | Flag | Effect |
 |------|--------|
-| `-C dir` | Resolve paths and project configuration from `dir`. |
+| `-C dir` | Use `dir` as the base for project paths and configuration. |
 
 `-q` and `-v` may also appear before or after `generate`, but they affect that
 command only:
@@ -97,10 +97,11 @@ gsx dev
 
 Pass an optional project directory with `gsx dev [dir]`.
 
-On each save, gsx regenerates, builds, swaps the server, and reloads the
-browser. After the first successful build, later generation or build failures
-leave the last working server running. See the [development loop](./dev-loop.md)
-for file-by-file behavior.
+Relevant source changes regenerate as needed, build, swap the server, and reload
+the browser. After the first successful build, later generation or build
+failures leave the last working server running. A `.env` change only restarts
+the backend with fresh environment values; it does not regenerate or build.
+See the [development loop](./dev-loop.md) for the full file-by-file behavior.
 
 | Flag | Effect |
 |------|--------|
@@ -233,8 +234,8 @@ formatted safely, that body is left unchanged.
 gsx fmt -l .
 ```
 
-Parse, analysis, and write failures also exit `1`. Invalid flags or import-mode
-combinations exit `2`; otherwise formatting exits `0`.
+Parse, analysis, and write failures also exit `1`. Invalid flags, import-mode
+combinations, or paths exit `2`; otherwise formatting exits `0`.
 
 ## `gsx info` {#info}
 
