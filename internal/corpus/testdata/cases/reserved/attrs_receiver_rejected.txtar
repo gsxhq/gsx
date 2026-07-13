@@ -1,0 +1,13 @@
+# Rejection (spec §13): a method-component receiver var named `attrs` is reserved
+# (the fallthrough bag), extending the receiver reservation that already covered
+# `ctx`. Reported via checkReservedRecvVar at the component span.
+-- input.gsx --
+package views
+
+type page struct{}
+
+component (attrs page) C() {
+	<div>hi</div>
+}
+-- diagnostics.golden --
+5:1: method-component receiver var "attrs" is reserved (explicit attribute forwarding)

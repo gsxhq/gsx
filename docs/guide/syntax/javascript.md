@@ -28,8 +28,45 @@ component SaveButton(id string) {
 <SaveButton id={id}/>
 ```
 
-On a component tag, a hole-free contextual literal may fall through as authored
-text; a literal with holes is rejected.
+On a component tag, an unbraced, hole-free contextual literal may fall through
+as authored text. The same unbraced form is rejected when it contains holes.
+
+## Contextual literals as Go values
+
+In a Go expression, a `js` literal has type `gsx.RawJS` and a `css` literal has
+type `gsx.RawCSS`. Store them in a local variable when a contextual value must
+be assembled before it reaches the native element:
+
+::: v-pre
+```gsx
+component Choice(id int, color string) {
+	{{
+		behavior := js`select(@{id})`
+		styles := css`color:@{color}`
+	}}
+	<button @click={behavior} style={styles}>Select</button>
+}
+```
+:::
+
+Each hole is still escaped for its JavaScript or CSS position before the typed
+value is created. Do not render the literal directly as visible body text.
+
+A component may explicitly accept the trusted type. Use braces so the literal
+binds the declared prop as a Go expression:
+
+```gsx
+component Widget(Handler gsx.RawJS, Rule gsx.RawCSS) {
+	<button @click={Handler} style={Rule}>Go</button>
+}
+
+<Widget Handler={js`open(@{id})`} Rule={css`width:@{width}px`}/>
+```
+
+::: v-pre
+Top-level Go and `{{ }}` blocks cannot propagate a hole's `(T, error)`, so an
+error-returning pipeline or renderer is a compile error in those positions.
+:::
 
 ## Alpine and htmx directives
 

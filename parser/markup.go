@@ -597,7 +597,7 @@ func (p *parser) tryParseBodyEmbeddedInterp() (*ast.EmbeddedInterp, bool, error)
 	afterLiteral := p.i
 	if !p.eof() && p.src[p.i] == '}' {
 		p.i++ // past '}'
-		node := &ast.EmbeddedInterp{Segments: segs, DoubleQuoted: dquoted}
+		node := &ast.EmbeddedInterp{Lang: ast.EmbeddedText, Segments: segs, DoubleQuoted: dquoted}
 		ast.SetSpan(node, startPos, p.posAt(p.i))
 		return node, true, nil
 	}
@@ -622,7 +622,7 @@ func (p *parser) tryParseBodyEmbeddedInterp() (*ast.EmbeddedInterp, bool, error)
 		return nil, false, nil
 	}
 	p.i = end + 1 // past '}'
-	node := &ast.EmbeddedInterp{Segments: segs, Stages: stages, DoubleQuoted: dquoted}
+	node := &ast.EmbeddedInterp{Lang: ast.EmbeddedText, Segments: segs, Stages: stages, DoubleQuoted: dquoted}
 	ast.SetSpan(node, startPos, p.posAt(p.i))
 	return node, true, nil
 }

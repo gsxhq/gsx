@@ -54,8 +54,8 @@ func Widget(_gsxp WidgetProps) _gsxrt.Node {
 		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
-		_gsxgw.S("<div style=\"")
-		_gsxgw.Style(_gsxrt.Class("color:" + _gsxrt.StyleValue(strAttr(attrs, "c"))))
+		_gsxgw.S("<div style=\"color:")
+		_gsxgw.AttrValue(_gsxrt.StyleValue(string(strAttr(attrs, "c"))))
 		_gsxgw.S("\">x</div>")
 		return _gsxgw.Err()
 	})

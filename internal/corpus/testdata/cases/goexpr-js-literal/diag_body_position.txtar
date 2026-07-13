@@ -1,0 +1,19 @@
+# A js`…` literal written directly as a body interpolation's ENTIRE content
+# (`{ js`alert(1)` }`) is a positioned "goexpr-literal-text" diagnostic:
+# rendering raw JavaScript source as visible page text is never the intent.
+# Contrast bodyinterp/f_body_is_markup_template.txtar, where the SAME shape
+# with an f` literal is accepted (a markup template, EmbeddedText); and
+# goexpr-f-literal/call-arg.txtar, where a literal used as a CALL ARGUMENT
+# (`{ wrap(js`…`) }`) is a genuine sub-expression, not this sole-literal shape,
+# so it is unaffected.
+-- input.gsx --
+package demo
+
+component Page() {
+	<div>{ js`alert(1)` }</div>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+4:9: a js`/css` literal renders as visible text here; write the JavaScript/CSS in an attribute (e.g. @click=js`…`) or pass the value to something that consumes gsx.RawJS/gsx.RawCSS
+-- render.golden --

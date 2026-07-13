@@ -1,0 +1,15 @@
+# Rejection (spec §10): a body-scope `attrs :=` short-var declaration shadows the
+# implicit fallthrough bag. The reservation pass words it at the binding ident;
+# `attrs` is otherwise freely used (the spread), so this is the plain collision
+# shape.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Page() {
+	{{ attrs := gsx.Attrs{{Key: "id", Value: "x"}} }}
+	<div { attrs... }>hi</div>
+}
+-- diagnostics.golden --
+6:5: identifier "attrs" is reserved (the implicit fallthrough bag) — rename it

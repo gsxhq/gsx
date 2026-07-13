@@ -348,3 +348,146 @@ func TestResolveJSAttrCommentRejected(t *testing.T) {
 		t.Fatalf("error = %q; want JS comment rejection", err)
 	}
 }
+
+// TestResolveEmbedded covers the bare (attribute-name-free) classifier used
+// for expression-position js`...` literals: a single Interp per hole, its
+// JSCtx set to match the surrounding token context, or a fail-closed
+// diagnostic for unsafe positions.
+func TestResolveEmbedded(t *testing.T) {
+	t.Run("value hole", func(t *testing.T) {
+		// save(@{x})
+		segs := jsAttrSegs([]string{"save(", ")"}, []string{"x"})
+		bag := diag.NewBag(nil)
+		if !ResolveEmbedded(segs, bag) {
+			t.Fatalf("unexpected diagnostics: %v", bag.Sorted())
+		}
+		ins := interpSegs(segs)
+		if len(ins) != 1 || ins[0].JSCtx != ast.JSCtxValue {
+			t.Fatalf("got %d interps, ctx %v; want 1 JSCtxValue", len(ins), ins[0].JSCtx)
+		}
+	})
+
+	t.Run("string hole", func(t *testing.T) {
+		// save('@{x}')
+		segs := jsAttrSegs([]string{"save('", "')"}, []string{"x"})
+		bag := diag.NewBag(nil)
+		if !ResolveEmbedded(segs, bag) {
+			t.Fatalf("unexpected diagnostics: %v", bag.Sorted())
+		}
+		ins := interpSegs(segs)
+		if len(ins) != 1 || ins[0].JSCtx != ast.JSCtxString {
+			t.Fatalf("got %d interps, ctx %v; want 1 JSCtxString", len(ins), ins[0].JSCtx)
+		}
+	})
+
+	t.Run("template hole", func(t *testing.T) {
+		// save(`@{x}`)
+		segs := jsAttrSegs([]string{"save(`", "`)"}, []string{"x"})
+		bag := diag.NewBag(nil)
+		if !ResolveEmbedded(segs, bag) {
+			t.Fatalf("unexpected diagnostics: %v", bag.Sorted())
+		}
+		ins := interpSegs(segs)
+		if len(ins) != 1 || ins[0].JSCtx != ast.JSCtxTemplate {
+			t.Fatalf("got %d interps, ctx %v; want 1 JSCtxTemplate", len(ins), ins[0].JSCtx)
+		}
+	})
+
+	t.Run("regexp hole", func(t *testing.T) {
+		// m(/a@{x}b/g)
+		segs := jsAttrSegs([]string{"m(/a", "b/g)"}, []string{"x"})
+		bag := diag.NewBag(nil)
+		if !ResolveEmbedded(segs, bag) {
+			t.Fatalf("unexpected diagnostics: %v", bag.Sorted())
+		}
+		ins := interpSegs(segs)
+		if len(ins) != 1 || ins[0].JSCtx != ast.JSCtxRegexp {
+			t.Fatalf("got %d interps, ctx %v; want 1 JSCtxRegexp", len(ins), ins[0].JSCtx)
+		}
+	})
+
+	t.Run("malformed literal", func(t *testing.T) {
+		// save('@{x} — unterminated string literal; the lexer never emits a
+		// closing StringToken so the hole is never covered by a token and
+		// fails closed as unresolved.
+		segs := jsAttrSegs([]string{"save('"}, []string{"x"})
+		bag := diag.NewBag(nil)
+		if ResolveEmbedded(segs, bag) {
+			t.Fatal("expected diagnostic for malformed literal, got clean")
+		}
+		if len(bag.Sorted()) == 0 {
+			t.Fatal("expected at least one diagnostic")
+		}
+	})
+
+	t.Run("identifier position fails closed", func(t *testing.T) {
+		// @{x}(1) — the hole is its own identifier token at start-of-input,
+		// not an allow-listed value position; matches jsx-identifier-position.
+		segs := jsAttrSegs([]string{"", "(1)"}, []string{"x"})
+		bag := diag.NewBag(nil)
+		if ResolveEmbedded(segs, bag) {
+			t.Fatal("expected fail-closed diagnostic for identifier position, got clean")
+		}
+		diags := bag.Sorted()
+		if len(diags) == 0 {
+			t.Fatal("expected at least one diagnostic")
+		}
+		if diags[0].Code != "jsx-identifier-position" {
+			t.Fatalf("diag code = %q; want jsx-identifier-position", diags[0].Code)
+		}
+	})
+
+	t.Run("sets JSCtx on every Interp segment", func(t *testing.T) {
+		segs := jsAttrSegs([]string{"save(", "); label='", "'"}, []string{"id", "label"})
+		bag := diag.NewBag(nil)
+		if !ResolveEmbedded(segs, bag) {
+			t.Fatalf("unexpected diagnostics: %v", bag.Sorted())
+		}
+		ins := interpSegs(segs)
+		if len(ins) != 2 {
+			t.Fatalf("got %d interps, want 2", len(ins))
+		}
+		if ins[0].JSCtx != ast.JSCtxValue {
+			t.Fatalf("interp[0] JSCtx = %v, want JSCtxValue", ins[0].JSCtx)
+		}
+		if ins[1].JSCtx != ast.JSCtxString {
+			t.Fatalf("interp[1] JSCtx = %v, want JSCtxString", ins[1].JSCtx)
+		}
+	})
+
+	t.Run("neutral wording, not attribute wording", func(t *testing.T) {
+		// The unresolved-hole diagnostic embeds the descriptor directly
+		// ("@{ } in <descriptor> could not be classified…"); ResolveEmbedded
+		// must use the neutral "js literal" label, never "attribute %q".
+		segs := jsAttrSegs([]string{"save('"}, []string{"x"})
+		bag := diag.NewBag(nil)
+		if ResolveEmbedded(segs, bag) {
+			t.Fatal("expected fail-closed diagnostic, got clean")
+		}
+		diags := bag.Sorted()
+		if len(diags) == 0 {
+			t.Fatal("expected at least one diagnostic")
+		}
+		if !strings.Contains(diags[0].Message, "js literal") {
+			t.Fatalf("expected neutral \"js literal\" wording, got: %q", diags[0].Message)
+		}
+		if strings.Contains(diags[0].Message, "attribute") {
+			t.Fatalf("expected neutral wording, got attribute-flavored message: %q", diags[0].Message)
+		}
+	})
+
+	t.Run("idempotent re-classification", func(t *testing.T) {
+		segs := jsAttrSegs([]string{"save(", ")"}, []string{"x"})
+		bag := diag.NewBag(nil)
+		if !ResolveEmbedded(segs, bag) {
+			t.Fatalf("unexpected diagnostics: %v", bag.Sorted())
+		}
+		if !ResolveEmbedded(segs, bag) {
+			t.Fatalf("unexpected diagnostics on re-classify: %v", bag.Sorted())
+		}
+		ins := interpSegs(segs)
+		if len(ins) != 1 || ins[0].JSCtx != ast.JSCtxValue {
+			t.Fatalf("got %d interps, ctx %v; want 1 JSCtxValue", len(ins), ins[0].JSCtx)
+		}
+	})
+}

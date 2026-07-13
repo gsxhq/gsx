@@ -425,17 +425,29 @@ type EmbeddedAttr struct {
 	// Both forms are semantically identical; only the boundary char and which
 	// char is `\`-escaped inside differ.
 	DoubleQuoted bool
+	// Braced records that the literal was written in the braced { … } form
+	// (name={js`…`}) rather than the bare form (name=js`…`). The printer must
+	// preserve this because the two forms differ SEMANTICALLY on a component
+	// tag: a braced js`/css` literal whose name matches a declared prop BINDS
+	// that prop (it is the `{ expr }` prop-binding form — js`/css` literals are
+	// Go expressions), while the bare form always falls through to the Attrs
+	// bag. On an element the two forms are identical (both stream the literal).
+	Braced bool
 }
 
 func (*EmbeddedAttr) attrNode() {}
 
-// EmbeddedInterp is an interpolating f`…` literal used as a body/child
-// expression: {f`…@{expr}…`} or {f`…` |> f}. Segments contain *Text and *Interp
-// only; Stages is the optional whole-literal pipeline applied to the assembled
-// string. Always plain-text (HTML-text-escaped) — no js/css lang in body, and a
-// bare `…` in body position is a plain Go raw string, not an EmbeddedInterp.
+// EmbeddedInterp is an interpolating prefixed literal used as a body/child
+// expression ({f`…@{expr}…`}) or as a Go-expression value (f`…`, js`…`,
+// css`…` in var initializers, call args, {{ }} blocks). Segments contain
+// *Text and *Interp only; Stages is the optional whole-literal pipeline
+// applied to the assembled string (body position only). Lang selects the
+// lowering: EmbeddedText assembles a plain Go string; EmbeddedJS/EmbeddedCSS
+// assemble a gsx.RawJS/gsx.RawCSS with per-hole contextual escaping. Lang is
+// always set by the parser; the zero value is invalid.
 type EmbeddedInterp struct {
 	span
+	Lang     EmbeddedLang
 	Segments []Markup
 	Stages   []PipeStage
 	// DoubleQuoted records the delimiter: false is {f`…`}, true is {f"…"}. See
@@ -455,10 +467,19 @@ func (*EmbeddedInterp) goPartNode() {}
 
 // GoBlock is `{{ stmt }}` — a Go-statement escape hatch in a component body.
 // Code is the trimmed Go source between the `{{` and `}}` delimiters.
+//
+// Embedded is populated by codegen's analyze split (splitInterpEmbedded) when
+// Code contains an embedded f`/js`/css` literal (or a — currently unsupported —
+// `<tag>` element literal); nil otherwise. Code always remains the verbatim
+// round-trip source of truth (the printer prints from Code, never Embedded);
+// Embedded is the same GoText/*EmbeddedInterp/*Element/*Fragment split
+// SplitGoExprElements produces for a GoWithElements or Interp.Embedded, used
+// only by codegen to type-probe and lower the embedded literals.
 type GoBlock struct {
 	span
-	Code    string
-	CodePos token.Pos // first char of Code text in source (NoPos if unavailable)
+	Code     string
+	CodePos  token.Pos // first char of Code text in source (NoPos if unavailable)
+	Embedded []GoPart
 }
 
 func (*GoBlock) markupNode() {}

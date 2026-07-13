@@ -1,0 +1,13 @@
+# Rejection (spec §16): a body-scope `ctx :=` shadows the ambient render context
+# (the closure's `ctx` parameter). Reserved and positioned at the binding ident.
+-- input.gsx --
+package views
+
+component Page() {
+	{{ ctx := "hello" }}
+	<div>ok</div>
+}
+-- diagnostics.golden --
+4:5: identifier "ctx" is reserved (the ambient context) — rename it
+4:9: no new variables on left side of :=
+4:12: cannot use "hello" (constant of type string) as context.Context value in assignment: string does not implement context.Context (missing method Deadline)

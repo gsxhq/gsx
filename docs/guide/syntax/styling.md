@@ -112,3 +112,5 @@ Use a `<style>` block for component CSS. Interpolate Go values with `@{...}`.
 
 Interpolated values are CSS-filtered. See
 [Escaping](./escaping.md#javascript-and-css-contexts) before passing trusted CSS.
+A `css` literal can also be stored as a `gsx.RawCSS` Go value; see
+[Contextual literals as Go values](./javascript.md#contextual-literals-as-go-values).

@@ -1,0 +1,15 @@
+# Backstop (spec §17): `{{ x := children }}` with NO `{children}` placement is a
+# VALUE use of `children`, not a binding of it — the reservation pass has nothing
+# to say (x is the only bound name, and it is not reserved). The documented
+# asymmetry stands: an unplaced value use of `children` stays the RAW
+# `undefined: children` from the Go backstop. This case pins that the backstop
+# still fires exactly when the reservation check is silent.
+-- input.gsx --
+package views
+
+component Page() {
+	{{ x := children }}
+	<div>{x}</div>
+}
+-- diagnostics.golden --
+4:10: undefined: children

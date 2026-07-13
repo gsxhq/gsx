@@ -1,0 +1,21 @@
+# A mixed non-tilde generic hole (T string | int -> catAnyMixed, same shape as
+# interpolation/url_hole_generic.txtar's generic component prop) inside an
+# f`…@{…}…` literal at a top-level func return: holeStringExpr's catAnyMixed
+# case (emit.go ~3502) would normally route the value through a hoisted
+# rt.AttrString(...) conversion, which returns (string, error) — but a
+# Go-expression position has no statement context to hoist that error into, so
+# gsx rejects it with a positioned goexpr-literal-error rather than splicing
+# invalid Go.
+-- input.gsx --
+package demo
+
+func mk[T string | int](v T) string { return f`Hi @{v}` }
+
+component Page(v string) {
+	<div>{ mk(v) }</div>
+}
+-- invoke --
+Page(PageProps{V: "a"})
+-- diagnostics.golden --
+3:52: @{ v } is a mixed type-parameter value (its runtime conversion can fail); a js`/css`/f` literal in Go-expression position has no error channel to propagate it through — handle the error in Go, or move the literal to an attribute position
+-- render.golden --

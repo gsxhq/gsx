@@ -52,7 +52,7 @@ import (
 	"corpustest/cases/renderers_elem_class_cond_error/pg"
 
 	_gsxctx "context"
-	_gsxf23 "corpustest/cases/renderers_elem_class_cond_error/rend"
+	_gsxf28 "corpustest/cases/renderers_elem_class_cond_error/rend"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
@@ -72,7 +72,7 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxgw.S("<div")
-		_gsxv0, _gsxerr := _gsxf23.PgText((val))
+		_gsxv0, _gsxerr := _gsxf28.PgText((val))
 		if _gsxerr != nil {
 			return _gsxerr
 		}
