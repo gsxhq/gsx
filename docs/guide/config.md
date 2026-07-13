@@ -21,11 +21,13 @@ in pipelines such as `{ page |> url }`.
 
 ## Discovery and precedence
 
-`gsx generate`, `gsx dev`, and `gsx info` start at the command's working
-directory (after `-C`, when used), walk upward, and use the first `gsx.toml`
-they find. The walk stops at the nearest ancestor containing `.git`; outside a
-Git repository, it stops at the nearest Go module root. The boundary directory
-is included. With neither `.git` nor `go.mod`, only the starting directory is
+`gsx generate` and `gsx info` start at the command's working directory (after
+`-C`, when used). `gsx dev [dir]` starts at that optional directory, resolved
+against the command working directory; without `dir`, it starts at the working
+directory. Each command walks upward and uses the first `gsx.toml` it finds.
+The walk stops at the nearest ancestor containing `.git`; outside a Git
+repository, it stops at the nearest Go module root. The boundary directory is
+included. With neither `.git` nor `go.mod`, only the starting directory is
 checked.
 
 A nearer file replaces an ancestor file completely. Config files are not
@@ -47,9 +49,9 @@ programmatic option > environment override > gsx.toml > built-in default
 Currently, `GSX_MINIFY` is the environment override. Development commands and
 formatting have their own precedence rules in the sections below.
 
-Unknown keys are errors, including misspelled keys inside a table. TOML keeps
-bare keys in the most recent table, so put every top-level key before the first
-table header:
+When `generate`, `dev`, or `info` loads the file, unknown keys are errors,
+including misspelled keys inside a table. TOML keeps bare keys in the most
+recent table, so put every top-level key before the first table header:
 
 ```toml
 # Correct: class_merger is top-level.
