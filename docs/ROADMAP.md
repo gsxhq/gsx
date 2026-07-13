@@ -235,14 +235,13 @@ render goldens.
     merge-target literal does not currently bind to the js/css embedded-attr
     node - same class of gap, not yet closed); sibling grammars
     (`../tree-sitter-gsx`, `../vscode-gsx`, `gsxhq.github.io` CodeMirror) do not
-    yet parse/highlight the bare backtick-with-`@{}` attribute form. A **hole-free**
-    embedded literal now forwards to a component's `Attrs` bag as raw text
-    (JSX-style directive forwarding, e.g. `` x-model=js`pdcaCategory` ``; corpus
-    `components/embedded_attr_prop.txtar` + `_cond_prop.txtar`); an embedded
-    literal carrying an `@{ }` **hole** as a component prop is still a clear error
-    (`components/embedded_attr_rejected.txtar`) - forwarding a hole into a bag
-    needs JS/CSS-context-correct per-hole escaping (exported string-returning
-    escapers + a value assembler), a separate designed feature.
+    yet parse/highlight the bare backtick-with-`@{}` attribute form. An
+    `f`-prefixed literal on a component materializes as a string value: a name
+    matching a declared prop assigns that string to the prop, while an unmatched
+    name enters the component's explicit `Attrs` bag. Leaf non-URL attributes
+    keep their direct per-segment writes (including numeric scratch-buffer
+    emission). Hole-bearing `js`/`css` component attributes remain unsupported
+    because their contextual escaping belongs to an element sink.
 
 14. [x] **Body interpolation + whole-literal pipe** - `2026-07-05`. Two
     additions that carry the interpolating backtick literal into body/child

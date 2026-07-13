@@ -1,8 +1,8 @@
 # Hole-free js`…`/css`…`/`…` embedded-language literals forward to a component's
 # Attrs bag as raw text — JSX-style directive forwarding (e.g. x-model=js`…`).
 # The lowering is identical to a plain string attribute; the child spreads the
-# bag with { attrs... }. Embedded literals always fall through to the bag; to set
-# a declared prop use a string or { expr }.
+# bag with { attrs... }. js/css literals always fall through to the bag; to set a
+# declared prop use a string, an f-literal, or { expr }.
 -- input.gsx --
 package views
 
