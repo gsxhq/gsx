@@ -4182,20 +4182,47 @@ func usesChildren(body []ast.Markup) bool {
 	return false
 }
 
-// usesAttrs reports whether the markup body references the EXACT identifier
-// `attrs` in any value-position Go fragment — the MANUAL-mode trigger. It mirrors
-// usesChildren's recursion (control flow, fragments, non-component and component
-// element children incl. named-slot values) but detects via valueIdents, which is
-// token-based: it matches the bare ident `attrs` (e.g. `{ attrs... }` SpreadAttr,
-// `{...attrs.Without("id")}`, `{ attrs.Class() }` interp, an `attrs`-referencing
-// control-flow clause), and crucially does NOT match a longer ident like
-// `attrsList` (a different token) nor a selector field after a `.` (e.g.
-// `x.attrs`). Any `attrs` reference in a component's body, in ANY position —
-// including a nested component tag's own attr list (props, spreads, class
-// parts) — synthesizes the fallthrough bag: every attr Go fragment evaluates in
-// THIS component's scope regardless of whether the tag it decorates is a plain
-// element or another component invocation.
+// usesAttrs reports whether the markup body uses the reserved identifier
+// `attrs` FREE anywhere — the MANUAL-mode trigger — via a two-stage answer:
+//
+//  1. attrsTokenScan (below): the token pre-filter, kept as-is. No `attrs`
+//     token anywhere in a body Go fragment ⇒ no trigger, zero added cost —
+//     the common case (~90% of components in the field study behind the
+//     reserved-identifiers design).
+//  2. freeUseAttrs (freeuse.go): the semantic answer, run only on a token
+//     hit. It parses the hit fragments and walks them with a syntactic scope
+//     stack, so a struct-literal key (`opt{attrs: 1}`), a selector field
+//     (`x.attrs`), or a name shadowed by a nested scope (a func-literal
+//     param, a `for`/`range` variable) does NOT trigger — only a genuinely
+//     FREE value-position use of `attrs` does. An unparseable fragment falls
+//     back to the token answer for that fragment (freeuse.go's fallback);
+//     since such a fragment can't compile anyway, the fallback cannot reject
+//     a correct program.
+//
+// usesAttrs is true iff BOTH stages agree there is a hit: the token scan's
+// over-answers (struct keys, shadows) are filtered out by the free-use walk,
+// which itself only runs where there is a token to explain. All five
+// consumers (this file, analyze.go ×3, variantcollide.go) share this single
+// predicate.
 func usesAttrs(body []ast.Markup) bool {
+	return attrsTokenScan(body) && freeUseAttrs(body)
+}
+
+// attrsTokenScan is usesAttrs's stage-1 pre-filter: it reports whether the
+// markup body references the EXACT identifier `attrs` in any value-position Go
+// fragment, by TOKEN — unchanged from usesAttrs' original (sole) implementation.
+// It mirrors usesChildren's recursion (control flow, fragments, non-component and
+// component element children incl. named-slot values) but detects via
+// valueIdents, which is token-based: it matches the bare ident `attrs` (e.g.
+// `{ attrs... }` SpreadAttr, `{...attrs.Without("id")}`, `{ attrs.Class() }`
+// interp, an `attrs`-referencing control-flow clause), and crucially does NOT
+// match a longer ident like `attrsList` (a different token) nor a selector field
+// after a `.` (e.g. `x.attrs`) — but it DOES match a struct-literal key or a
+// name shadowed by a nested Go scope, both of which are not free uses; stage 2
+// (freeUseAttrs) resolves those precisely. Any `attrs` token in a component's
+// body, in ANY position — including a nested component tag's own attr list
+// (props, spreads, class parts) — is a hit worth escalating to stage 2.
+func attrsTokenScan(body []ast.Markup) bool {
 	refsAttrs := func(src string) bool { return valueIdents(src)["attrs"] }
 	for _, n := range body {
 		switch t := n.(type) {
@@ -4212,8 +4239,8 @@ func usesAttrs(body []ast.Markup) bool {
 			// A body backtick literal's @{ } holes render in this scope
 			// (per-segment, or as the whole-literal pipeline's seed), so an
 			// `attrs` reference inside a hole — or inside a node-level `|> f(attrs)`
-			// filter arg — needs the local bound, same as usesAttrs' *ast.Interp case.
-			if usesAttrs(t.Segments) {
+			// filter arg — needs the local bound, same as this scan's *ast.Interp case.
+			if attrsTokenScan(t.Segments) {
 				return true
 			}
 			for _, st := range t.Stages {
@@ -4230,19 +4257,19 @@ func usesAttrs(body []ast.Markup) bool {
 			if attrsRefAttrs(t.Attrs) {
 				return true
 			}
-			if usesAttrs(t.Children) {
+			if attrsTokenScan(t.Children) {
 				return true
 			}
 		case *ast.Fragment:
-			if usesAttrs(t.Children) {
+			if attrsTokenScan(t.Children) {
 				return true
 			}
 		case *ast.ForMarkup:
-			if refsAttrs(t.Clause) || usesAttrs(t.Body) {
+			if refsAttrs(t.Clause) || attrsTokenScan(t.Body) {
 				return true
 			}
 		case *ast.IfMarkup:
-			if refsAttrs(t.Cond) || usesAttrs(t.Then) || usesAttrs(t.Else) {
+			if refsAttrs(t.Cond) || attrsTokenScan(t.Then) || attrsTokenScan(t.Else) {
 				return true
 			}
 		case *ast.SwitchMarkup:
@@ -4250,7 +4277,7 @@ func usesAttrs(body []ast.Markup) bool {
 				return true
 			}
 			for _, cc := range t.Cases {
-				if refsAttrs(cc.List) || usesAttrs(cc.Body) {
+				if refsAttrs(cc.List) || attrsTokenScan(cc.Body) {
 					return true
 				}
 			}
@@ -4269,14 +4296,16 @@ func usesAttrs(body []ast.Markup) bool {
 // parts) all evaluate in the enclosing component's scope just the same. It
 // covers: a `{ attrs... }` SpreadAttr's Expr and pipeline stage args; a
 // composable-class part's Expr/Cond, its pipeline stage args, its CSS-literal
-// segments (EmbeddedLang-style @{ } holes, recursed via usesAttrs), and its
-// value-form if/switch (ValueCF) branches; an ExprAttr's Expr or pipeline
+// segments (EmbeddedLang-style @{ } holes, recursed via attrsTokenScan), and
+// its value-form if/switch (ValueCF) branches; an ExprAttr's Expr or pipeline
 // args; — recursing — a CondAttr's Cond and branches; an EmbeddedAttr's
 // segments and pipeline stage args; a MarkupAttr's value (recursed via
-// usesAttrs, since named-slot values render in this scope); and an
+// attrsTokenScan, since named-slot values render in this scope); and an
 // OrderedAttrsAttr's per-pair values. These are exactly the fragments
-// collectAttrSrc feeds to the ident walks, so a manual `attrs` reference
-// anywhere in them is detected.
+// collectAttrSrc feeds to the ident walks, so a token-level `attrs` reference
+// anywhere in them is detected (attrsTokenScan is the stage-1 pre-filter;
+// freeUseAttrs, freeuse.go's attrsFree, mirrors this exact recursion for the
+// precise stage-2 answer).
 func attrsRefAttrs(attrs []ast.Attr) bool {
 	refsAttrs := func(src string) bool { return valueIdents(src)["attrs"] }
 	refsStages := func(stages []ast.PipeStage) bool {
@@ -4323,7 +4352,7 @@ func attrsRefAttrs(attrs []ast.Attr) bool {
 				if refsAttrs(p.Expr) || (p.Cond != "" && refsAttrs(p.Cond)) || refsStages(p.Stages) {
 					return true
 				}
-				if p.CSSSegments != nil && usesAttrs(p.CSSSegments) {
+				if p.CSSSegments != nil && attrsTokenScan(p.CSSSegments) {
 					return true
 				}
 				if p.CF != nil && (refsValueIf(p.CF.If) || refsValueSwitch(p.CF.Switch)) {
@@ -4339,11 +4368,11 @@ func attrsRefAttrs(attrs []ast.Attr) bool {
 				return true
 			}
 		case *ast.EmbeddedAttr:
-			if usesAttrs(at.Segments) || refsStages(at.Stages) {
+			if attrsTokenScan(at.Segments) || refsStages(at.Stages) {
 				return true
 			}
 		case *ast.MarkupAttr:
-			if usesAttrs(at.Value) {
+			if attrsTokenScan(at.Value) {
 				return true
 			}
 		case *ast.OrderedAttrsAttr:
