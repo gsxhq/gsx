@@ -198,18 +198,26 @@ spread's position decides who wins, JSX-style:
 - a conditional attribute (`{ if cond { … } }`) follows the same rule for
   whichever branch is taken.
 
-**`class` and `style` are exempt from position**: wherever they appear, they
-always *merge* — the component's tokens first, the caller's appended (then
-deduplicated by the configured class merger). A `class` written after the
-spread is still merged, not forced. This holds inside `{ if cond { class=… }
-else { class=… } }` too: a conditional `class`/`style` on an element carrying
-a spread merges with the root and the spread, same as the unconditional form —
-except a `css`/`js`-embedded hole (`style=css"…@{}…"`) inside the branch is not
-yet supported there and reports a positioned error.
+**`class` and `style` compose uniformly**: every same-name contribution on an
+element merges into one attribute, whether it is static, composable, inside a
+conditional branch, or supplied by a spread. This rule also applies when the
+element has no spread. Class tokens retain source order and are deduplicated by
+the configured class merger. Style declarations retain source order, with a
+later declaration for the same CSS property winning. For example,
+`style="color:red"` followed by a taken conditional `style="margin:0"` emits
+one `style="color:red; margin:0"`; a later `style="color:blue"` replaces the
+earlier `color` declaration. Untaken conditional branches are not evaluated.
+
+Because `class` and `style` compose, they are exempt from the scalar position
+rule around a spread: a contribution written after the spread still merges
+rather than becoming forced.
 
 Every element spread also sanitizes URL-classified attribute keys at the leaf,
 for any bag, with no exceptions and no unsanitizing spread — see
 [Attributes — Spread](./attributes.md#spread) for the full contract.
+Attributes you write literally on the element are template text and keep their
+trust when merging routes them through a bag: a static `href` renders the same
+whether or not the element merges.
 `gsx.RawURL` is the only, per-value opt-out. Compose a bag yourself
 (`Merge`/`ConcatAttrs`) before spreading it if you want duplicate keys
 resolved eagerly rather than at render time.

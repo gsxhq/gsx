@@ -39,7 +39,7 @@ func Box(_gsxp BoxProps) _gsxrt.Node {
 		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
-		_gsxv0 := _gsxrt.ConcatAttrs(attrs, _gsxrt.Attrs{{Key: "id", Value: "x"}}, attrs)
+		_gsxv0 := _gsxrt.ConcatAttrs(attrs, _gsxrt.Attrs{{Key: "id", Value: _gsxrt.RawURL("x")}}, attrs)
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())

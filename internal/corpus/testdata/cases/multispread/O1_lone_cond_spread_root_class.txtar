@@ -44,7 +44,7 @@ func O1(_gsxp O1Props) _gsxrt.Node {
 		extra := _gsxp.Extra
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
-		_gsxv0 := _gsxrt.Attrs{{Key: "class", Value: "root"}}
+		_gsxv0 := _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("root")}}
 		_gsxv1, _gsxerr := _gsxrt.AttrsCond(on, func() (_gsxrt.Attrs, error) {
 			return extra, nil
 		}, nil)
