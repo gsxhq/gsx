@@ -13,8 +13,10 @@ matrix, plus one cryptic-error cleanup:
 1. js``/css`` holes reject error-carrying shapes **everywhere**, but inside a
    component's render closure the hoist channel exists — f`` holes use it
    today. The uniform rejection is stricter than the machinery requires.
-2. A literal nested inside another literal's `@{ }` hole dies with a cryptic
-   parse error instead of a positioned diagnostic.
+2. A literal nested inside another literal's `@{ }` hole works in body
+   position (real machinery, probed correct), but poisons the `.x.go` in
+   attribute-local holes and parse-errors in expression-position holes —
+   an inconsistent rule surface.
 3. A whole-literal pipeline on a Go-expression-position literal
    (``var x = f`hi` |> upper``) dies with `expected operand, found '>'`.
 
@@ -55,33 +57,56 @@ The analyze-side probe already harvests these holes' tuple types (f`` proves
 it at the same site); the plan verifies emit ≡ probe holds and whether any
 analyze-side mirror of the rejection must be relaxed in lockstep.
 
-## W3 — Nested literal in a hole: positioned diagnostic
+## W3 — Nested literal in a hole: supported everywhere
 
-A prefixed literal (`f`/`js`/`css`, either delimiter) written inside another
-literal's `@{ }` hole — including inside a pipe stage's arguments — is
-**not supported** and reports a positioned diagnostic:
+**Revised after live probing** (original draft said diagnostic): nested
+literals in **body-position** f`` holes already work correctly through real
+machinery — a hole is an `ast.Interp`, `splitInterpEmbedded` recurses into it,
+and `genInterp` splices the inner literal's lowered value. There are **no
+nested-escaping semantics to define**: the inner literal is an ordinary Go
+expression of type `string`/`gsx.RawJS`/`gsx.RawCSS`, and the outer hole
+escapes the resulting *value* by its own context (probed: an inner js`` in an
+f`` hole lowers to `RawJS("f(" + EscapeJSVal(who) + ")")` and the outer hole
+HTML-escapes it).
 
-> `nested f`/`js`/`css` literals inside @{ } holes are not supported; assign
-> the inner literal to a variable and interpolate that`
+**Rule: a `@{ }` hole is a Go-expression position; nested prefixed literals
+are supported there like any other Go expression, in every hole-bearing
+context.** Two contexts are broken today and get fixed to match:
 
-- One diagnostic code (`nested-embedded-literal`), applied uniformly across
-  every hole-bearing context: attribute-local literals, body f`` literals,
-  expression-position literals (all three container sites), and GoBlock
-  literals.
-- Detection is **tokenize-based** (go/scanner + the existing
-  `langPrefixStart` value-position test over the hole's `Expr` and each
-  stage's `Args`) — never a fragment parse, per the Go-as-blob rule.
-- Detection lives in the **analyzer** (diagnostics never live in the
-  formatter/parser presentation layer; the LSP gets it for free). If the
-  parser's hole scanner itself mis-nests on the inner literal's delimiters
-  (the plan probes both delimiter combinations), the detection point moves to
-  wherever the segments are still reliably formed, but the surfaced
-  diagnostic — position, code, wording — is as specified.
-- Support for nested literals stays out of scope, demand-driven. The cost is
-  not parsing (the recursive split machinery exists) but defining and
-  adversarially proving nested escaping semantics (a RawJS landing in a
-  string/template/regexp-context hole), formatter recursion, and nested
-  grammar injections in the sibling tooling.
+1. **Expression-position literal holes** (parse errors today):
+   `embeddedLiteralEnd` (`parser/boundary.go:160`) is a flat scan to the
+   closing delimiter, so a nested literal's backtick inside a hole terminates
+   the outer literal early. Fix: make the Go-expression split's literal-end
+   scan hole-aware — on `@{`, skip the hole with the same Go-expression
+   scanner the attribute path already uses (`scanGoExpr` /
+   `skipGSXEmbeddedLiteral`), which handles strings, comments, brace balance,
+   and nested prefixed literals. Both delimiters.
+2. **Attribute-local literal holes** (poison today): the hole already *gets*
+   the `Embedded` split (`walkMarkupAttrs` yields `EmbeddedAttr.Segments`
+   into the walk), but `holeStringExpr`/`embeddedHoleExpr` splice the hole's
+   raw `Expr` verbatim. Fix: a shared seed assembler — when `Interp.Embedded`
+   is non-nil, assemble the seed from GoText runs + each inner literal's
+   `emitGoExprEmbeddedInterp` value (mirroring `genInterp`'s loop), and use
+   the assembled expression wherever `n.Expr` was used (including as the
+   `lowerPipe` seed).
+
+Capability flags compose through recursion for free: the inner literal's
+`hasCtx`/`canHoist` derive from the hole's existing `rejectCtx`/`rejectErr`
+(`hasCtx = !rejectCtx`, `canHoist = !rejectErr`), so e.g. an error-carrying
+hole inside a nested literal at top level is still rejected with the same
+positioned diagnostics.
+
+**Bounded scope** (positioned diagnostics, not support):
+- An **element literal** (`<tag>`) in an attr-literal hole: diagnostic
+  (mirrors the GoBlock element rejection; the body-interp path, which does
+  support embedded elements, is unchanged).
+- A prefixed literal inside a **pipe stage's arguments**
+  (``@{x |> printf(f`%s`)}``): diagnostic — `prefixed literals in pipe-stage
+  arguments are not supported; assign the literal to a variable first`.
+  Detection is tokenize-based over `Stages[].Args` (never a fragment parse).
+- Formatter: nested literals round-trip verbatim (the printer prints hole
+  `Expr` text, never `Embedded`); idempotence is pinned, hole-expression
+  reformatting may degrade gracefully to verbatim.
 
 ## W1′ — Whole-literal pipe in Go-expression position: positioned diagnostic
 
@@ -102,7 +127,8 @@ skeleton parse as valid Go, so today's failure is unpositioned noise.
   rejected — the latter stays a ROADMAP item).
 - Top-level error/ctx rejections unchanged (no channel exists; by design).
 - Whole-literal pipe **support** in Go-expression position (W1 dropped).
-- Nested-literal **support** (W3 is diagnostic-only).
+- Element-literal support in attr-literal holes and pipe-stage-argument
+  literals (both are positioned diagnostics; see W3's bounded scope).
 - No runtime API changes; no new syntax; no sibling-grammar changes.
 
 ## Testing
@@ -114,9 +140,12 @@ skeleton parse as valid Go, so today's failure is unpositioned noise.
   literal attribute-local vs in-closure expression form renders
   byte-identical under hostile input. Top-level and GoBlock rejection cases
   re-verified unchanged.
-- **W3 corpus**: the diagnostic in each hole-bearing context (attr-local,
-  body f``, top-level expression, `{ }` interp, GoBlock; backtick and dquote
-  delimiters; literal in a stage's args).
+- **W3 corpus**: nesting pinned per context — body f`` hole (existing
+  behavior, now pinned: plain, depth-2 with inner hole, inner js`` with
+  RawJS provenance), attr-local f``/js`` holes, expression-position holes
+  (top-level, `{ }` interp, GoBlock), both delimiters; render goldens prove
+  escaping. Diagnostics pinned for the bounded scope (element in attr-literal
+  hole, literal in stage args).
 - **W1′ corpus**: the diagnostic at each container site.
 - No fmt-corpus changes (no new accepted syntax). Existing fmt cases
   re-verified.
