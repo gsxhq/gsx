@@ -52,7 +52,7 @@ import (
 	"corpustest/cases/multispread_cond_class_part_renderer/pg"
 
 	_gsxctx "context"
-	_gsxf1 "corpustest/cases/multispread_cond_class_part_renderer/rend"
+	_gsxf6 "corpustest/cases/multispread_cond_class_part_renderer/rend"
 	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
@@ -76,7 +76,7 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		b := _gsxp.B
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:12:2
-		_gsxv0 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.ClassIf(_gsxf1.PgText((val)), on))}}, a, b)
+		_gsxv0 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.ClassIf(_gsxf6.PgText((val)), on))}}, a, b)
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())

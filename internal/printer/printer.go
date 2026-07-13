@@ -29,6 +29,7 @@ import (
 	"github.com/gsxhq/gsx/internal/jsfmt"
 	"github.com/gsxhq/gsx/internal/pretty"
 	"github.com/gsxhq/gsx/internal/rawfmt"
+	"github.com/gsxhq/gsx/parser"
 )
 
 // Fprint writes the canonical gsx rendering of f to w, wrapping lists that
@@ -729,7 +730,7 @@ func (p *printer) interp(i *ast.Interp) pretty.Doc {
 func (p *printer) embeddedInterp(v *ast.EmbeddedInterp) pretty.Doc {
 	var b strings.Builder
 	b.WriteString("{")
-	b.WriteString(embeddedLiteralString(ast.EmbeddedText, v.Segments, embeddedDelim(v.DoubleQuoted)))
+	b.WriteString(embeddedLiteralString(v.Lang, v.Segments, embeddedDelim(v.DoubleQuoted)))
 	for _, s := range v.Stages {
 		b.WriteString(" |> ")
 		b.WriteString(pipeStageStr(s))
@@ -746,7 +747,93 @@ func pipeStageStr(s ast.PipeStage) string {
 }
 
 func (p *printer) goBlock(b *ast.GoBlock) pretty.Doc {
-	return pretty.Concat(pretty.Text("{{ "), multiline(fmtStmts(b.Code)), pretty.Text(" }}"))
+	body := p.goBlockBody(b.Code)
+	return pretty.Concat(pretty.Text("{{ "), body, pretty.Text(" }}"))
+}
+
+// goBlockBody lays out the statements of a `{{ }}` block. A block carrying an
+// embedded f`/js`/css` literal is not, on its own, parseable Go — fmtStmts'
+// go/format call rejects it and relays the raw text verbatim, so the block's
+// indentation is never normalized. goBlockBody restores parseability with the
+// same placeholder round-trip fmtGoExprParts uses (formatGoParts), so gofmt lays
+// the statements out and the literals splice back in, hole expressions
+// reformatted. A block with no embedded literal (fmtGoBlockCode finds no value
+// part, or the literal split fails) falls back to the plain fmtStmts path. Both
+// paths yield a canonical body string fed through multiline, which lays its
+// newlines out at the block's current indent.
+func (p *printer) goBlockBody(code string) pretty.Doc {
+	if s, ok := p.fmtGoBlockCode(code); ok {
+		return multiline(s)
+	}
+	return multiline(fmtStmts(code))
+}
+
+// goBlockWrapperPrefix/Suffix wrap a GoBlock's statements in a synthetic
+// package + func so go/format accepts them — the statement-context analog of
+// goExprWrapper. extractFuncBody peels both back off after formatting.
+const (
+	goBlockWrapperPrefix = goExprWrapper + "func _m() {\n"
+	goBlockWrapperSuffix = "\n}\n"
+)
+
+// fmtGoBlockCode formats a `{{ }}` block whose Code embeds one or more
+// f`/js`/css` literals, returning the gofmt-normalized statements as a canonical
+// string (literals re-rendered with their hole expressions reformatted). It
+// splits Code into GoText/*EmbeddedInterp parts with the SAME splitter codegen
+// uses (parser.SplitGoExprElements — the formatter works from Code, never the
+// codegen-populated GoBlock.Embedded overlay), runs the shared placeholder
+// round-trip under a func-body wrapper, then re-concatenates the formatted
+// GoText and the re-rendered literals. Because gofmt strips the incoming
+// indentation, the result is stable whether Code arrives verbatim from source
+// or with the markup indentation the printer bakes into a re-parsed block — the
+// property the faithfulness normalizer relies on to converge (see corpus_test's
+// canonGo). ok is false — leaving the caller on the plain fmtStmts path — when
+// the block holds no embedded literal, when the split fails, or when go/format
+// rejects the substituted source.
+func (p *printer) fmtGoBlockCode(code string) (string, bool) {
+	parts, ok := splitGoBlockParts(code)
+	if !ok || len(parts) == 0 {
+		return "", false
+	}
+	strip := func(out []byte) (string, bool) { return extractFuncBody(string(out)) }
+	formatted, _, ok := p.formatGoParts(parts, goBlockWrapperPrefix, goBlockWrapperSuffix, strip)
+	if !ok {
+		return "", false
+	}
+	var b strings.Builder
+	for _, part := range formatted {
+		if gt, ok := part.(ast.GoText); ok {
+			b.WriteString(gt.Src)
+			continue
+		}
+		// A literal value: render it exactly as goExprValue does (the same doc
+		// formatGoParts measured for its placeholder width). It is a leaf Text, so
+		// printing it flat reproduces the literal verbatim; any newlines it carries
+		// are literal content that multiline reproduces without re-indenting.
+		doc, ok := p.goExprValue(part)
+		if !ok {
+			return "", false
+		}
+		b.WriteString(pretty.Print(doc, 1<<30, p.tabWidth))
+	}
+	return b.String(), true
+}
+
+// splitGoBlockParts splits a GoBlock's Code into interleaved GoText and embedded
+// literal parts, using a fresh FileSet (the printer holds no shared one, and the
+// split only needs Code-relative positions — the reformatted holes read from the
+// EmbeddedInterp segments, not absolute source positions). It returns (nil,
+// true) when Code holds no embedded literal (the plain-Go fast path) and (nil,
+// false) when the split reports a parse error, so the caller can fall back to
+// the verbatim relay.
+func splitGoBlockParts(code string) ([]ast.GoPart, bool) {
+	fset := gotoken.NewFileSet()
+	f := fset.AddFile("", fset.Base(), len(code))
+	parts, errs := parser.SplitGoExprElements(fset, code, f.Pos(0), nil)
+	if len(errs) > 0 {
+		return nil, false
+	}
+	return parts, true
 }
 
 // ifMarkup renders `{ if cond { … }[ else …] }` as a group: short → one line,
@@ -1031,11 +1118,13 @@ func writeAttrInline(b *strings.Builder, a ast.Attr) {
 	case *ast.EmbeddedAttr:
 		b.WriteString(v.Name)
 		b.WriteString("=")
-		// A whole-literal pipeline only parses in the braced form
-		// (name={`…` |> f}) — parseEmbeddedAttrValue, the direct/unbraced
-		// path, never sets Stages. Wrap in braces whenever Stages is
-		// present so the printed output re-parses.
-		braced := len(v.Stages) > 0
+		// Preserve the braced form (name={js`…`}). It must round-trip because a
+		// braced literal binds a declared component prop while the bare form
+		// falls through to the Attrs bag — stripping the braces would silently
+		// change the meaning. A whole-literal pipeline only parses braced
+		// (name={`…` |> f}), so Stages forces braces too even on the rare node
+		// where Braced was not recorded.
+		braced := v.Braced || len(v.Stages) > 0
 		if braced {
 			b.WriteString("{")
 		}
@@ -1430,7 +1519,7 @@ func (p *printer) goExprValue(part ast.GoPart) (pretty.Doc, bool) {
 		// raw f`…@{expr}…` literal (no braces, no whole-literal pipeline — value-
 		// position literals carry no Stages), so it splices back into the
 		// surrounding Go source exactly as authored.
-		return pretty.Text(embeddedLiteralString(ast.EmbeddedText, pt.Segments, embeddedDelim(pt.DoubleQuoted))), true
+		return pretty.Text(embeddedLiteralString(pt.Lang, pt.Segments, embeddedDelim(pt.DoubleQuoted))), true
 	default:
 		return pretty.Doc{}, false
 	}
@@ -1476,6 +1565,20 @@ func (p *printer) goExprValue(part ast.GoPart) (pretty.Doc, bool) {
 // output. All are degrade-gracefully paths: gsx fmt must never fail on gsx it
 // was able to parse.
 func (p *printer) fmtGoExprParts(parts []ast.GoPart) ([]ast.GoPart, []goexprshape.Result, bool) {
+	return p.formatGoParts(parts, goExprWrapper, "", StripSyntheticPackage)
+}
+
+// formatGoParts is the placeholder round-trip shared by every Go region that
+// carries gsx values: it substitutes one width-matched placeholder identifier
+// per value, wraps the run in a synthetic compilation unit (wrapperPrefix …
+// wrapperSuffix), lays it out with gofmt (breakWideLiterals + blockFormBraces),
+// strips the wrapper via strip, and re-splits the formatted Go at the
+// placeholders. The wrapper is the only difference between the call sites: a
+// GoWithElements decl wraps in a bare package clause (top-level declarations,
+// wrapperSuffix ""), a `{{ }}` GoBlock in a package clause plus a func body
+// (statements, wrapperSuffix "\n}\n"). See fmtGoExprParts's own doc for why
+// placeholders make an incomplete Go fragment whole again.
+func (p *printer) formatGoParts(parts []ast.GoPart, wrapperPrefix, wrapperSuffix string, strip func([]byte) (string, bool)) ([]ast.GoPart, []goexprshape.Result, bool) {
 	var text strings.Builder
 	holeCount := 0
 	for _, part := range parts {
@@ -1520,7 +1623,7 @@ func (p *printer) fmtGoExprParts(parts []ast.GoPart) ([]ast.GoPart, []goexprshap
 		} else {
 			h = multiHole
 		}
-		start := len(goExprWrapper) + src.Len()
+		start := len(wrapperPrefix) + src.Len()
 		shapeHoles = append(shapeHoles, goexprshape.Hole{Start: start, End: start + len(h)})
 		holes = append(holes, h)
 		src.WriteString(h)
@@ -1531,7 +1634,7 @@ func (p *printer) fmtGoExprParts(parts []ast.GoPart) ([]ast.GoPart, []goexprshap
 	// an already-formatted file reaches gofmt instead of falling back to a
 	// verbatim relay. Classify sees the same source, so the paren it reports as
 	// Wrapped is the paren that survives into `formatted` for the caller to strip.
-	sanitized, sanHoles := goexprshape.Sanitize(goExprWrapper+src.String(), shapeHoles)
+	sanitized, sanHoles := goexprshape.Sanitize(wrapperPrefix+src.String()+wrapperSuffix, shapeHoles)
 	shapes := goexprshape.Classify(sanitized, sanHoles)
 
 	// blockFormBraces only ever inserts text before a composite literal's `}`,
@@ -1543,11 +1646,13 @@ func (p *printer) fmtGoExprParts(parts []ast.GoPart) ([]ast.GoPart, []goexprshap
 	if err != nil {
 		return nil, shapes, false
 	}
-	// Drop the synthetic package clause. It is NOT reliably the first line:
-	// go/printer hoists a //go:build comment above the package clause, so a
-	// line-index strip would shear the constraint and splice `package
-	// _gsxfmt` into the user's source. Locate it by parsing instead.
-	formatted, ok := StripSyntheticPackage(out)
+	// Drop the synthetic wrapper. For the package-clause wrapper this is NOT
+	// reliably the first line: go/printer hoists a //go:build comment above the
+	// package clause, so a line-index strip would shear the constraint and splice
+	// `package _gsxfmt` into the user's source. StripSyntheticPackage locates it
+	// by parsing instead; the func-body wrapper (GoBlock) strips via
+	// extractFuncBody.
+	formatted, ok := strip(out)
 	if !ok {
 		return nil, shapes, false
 	}

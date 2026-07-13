@@ -67,12 +67,12 @@ func TestScanGoElementMarks(t *testing.T) {
 	}
 }
 
-// TestScanGoParts locks in the merged element-mark + f`…` literal scan the two
-// Go-region split paths (splitGoElements, SplitGoExprElements) run: a value-
-// position f` literal is reported as a literal item, an element mark as an
-// element item, in source order; and a BARE Go raw string, a js`/css` literal
-// (gated to a verbatim-Go fallthrough), and an operator-position '<' are all
-// NOT items.
+// TestScanGoParts locks in the merged element-mark + prefixed-literal scan the
+// two Go-region split paths (splitGoElements, SplitGoExprElements) run: a
+// value-position f`/js`/css` literal is reported as a literal item, an element
+// mark as an element item, in source order; and a BARE Go raw string and an
+// operator-position '<' are NOT items. (js`/css` are no longer gated — they
+// split like f` and lower to gsx.RawJS/gsx.RawCSS.)
 func TestScanGoParts(t *testing.T) {
 	type item struct {
 		off int
@@ -86,8 +86,8 @@ func TestScanGoParts(t *testing.T) {
 		{"f literal var", "greeting = f`hi @{name}`", []item{{11, true}}},
 		{"f literal call arg", "wrap(f`id-@{n}`)", []item{{5, true}}},
 		{"bare backtick not split", "x = `raw`", nil},
-		{"js literal gated", "x = js`color`", nil},
-		{"css literal gated", "x = css`c`", nil},
+		{"js literal splits", "x = js`color`", []item{{4, true}}},
+		{"css literal splits", "x = css`c`", []item{{4, true}}},
 		{"element only", "x = <Foo/>", []item{{4, false}}},
 		{"element then f literal", "wrap(<Foo/>, f`@{n}`)", []item{{5, false}, {13, true}}},
 		{"f literal then element", "wrap(f`@{n}`, <Foo/>)", []item{{5, true}, {14, false}}},

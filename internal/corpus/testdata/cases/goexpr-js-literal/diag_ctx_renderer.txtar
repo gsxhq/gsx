@@ -1,0 +1,49 @@
+# A hole whose resolved type has a registered [renderers] entry that WANTS the
+# ambient ctx (func(ctx context.Context, T) string — the pure-ctx sibling of
+# renderers/ctx_text.txtar, no error) inside a js`…@{…}…` literal at a
+# Go-EXPRESSION position (a var initializer): the lowered `PgText(ctx, val)`
+# would reference a `ctx` that does not exist there. Pins the ctx-taking
+# RENDERER rejection shape (emit.go's embeddedHoleExpr rejectCtx/e.wantsCtx
+# branch), alongside diag_ctx_filter's ctx-taking FILTER rejection and
+# diag_error_renderer's error-returning renderer rejection.
+-- gsx.toml --
+[renderers]
+"./pg.Text" = "./rend.PgText"
+-- pg/pg.go --
+package pg
+
+type Text struct {
+	String string
+}
+-- rend/rend.go --
+package rend
+
+import (
+	"context"
+
+	"corpustest/cases/goexpr-js-literal_diag_ctx_renderer/pg"
+)
+
+func PgText(ctx context.Context, t pg.Text) string {
+	if ctx == nil {
+		return "NO-CTX"
+	}
+	return t.String
+}
+-- input.gsx --
+package demo
+
+import "corpustest/cases/goexpr-js-literal_diag_ctx_renderer/pg"
+
+var val = pg.Text{String: "x"}
+
+var h = js`f(@{val})`
+
+component Page() {
+	<button @click={h}>x</button>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+7:15: @{ val } is rendered by a ctx-taking renderer; a js`/css`/f` literal in Go-expression position has no ambient render context — drop the ctx-taking filter/renderer, or move the literal to an attribute position
+-- render.golden --

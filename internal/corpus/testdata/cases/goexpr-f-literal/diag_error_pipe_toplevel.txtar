@@ -1,0 +1,32 @@
+# An error-returning filter (`must` returns (string, error)) in an f`…@{…}…` literal
+# at a Go-EXPRESSION position (a top-level func return) has no statement slot to
+# hoist its `if err != nil { return err }` into: splicing the tuple assignment
+# mid-expression previously produced invalid Go (silent poison at `go build`). gsx
+# now rejects it with a source-positioned goexpr-literal-error, matching the js`/css`
+# error-shape rejection.
+-- gsx.toml --
+filter_packages = ["./filters"]
+-- filters/filters.go --
+package filters
+
+import "errors"
+
+func Must(s string) (string, error) {
+	if s == "" {
+		return "", errors.New("empty")
+	}
+	return s, nil
+}
+-- input.gsx --
+package demo
+
+func mk(v string) string { return f`Hi @{v |> must}` }
+
+component Page(v string) {
+	<div>{ mk(v) }</div>
+}
+-- invoke --
+Page(PageProps{V: "a"})
+-- diagnostics.golden --
+3:41: @{ v |> must } uses an error-returning filter (|>); a js`/css`/f` literal in Go-expression position has no error channel to propagate it through — handle the error in Go, or move the literal to an attribute position
+-- render.golden --
