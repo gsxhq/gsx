@@ -1,0 +1,25 @@
+# js`f('@{x}` — an unterminated single-quoted string inside a var-position js
+# literal. This is NOT the brief's originally-suggested `js`f(@{x}` (unbalanced
+# paren): Task 2 probe-proved the tdewolff lexer tracks only the
+# previous-significant-token, never paren balance, so an unbalanced paren
+# classifies the hole cleanly as JSCtxValue (no diagnostic at all). An
+# unterminated string DOES fail: the lexer never emits a closing StringToken,
+# so the hole is never covered by any token and jsx.ResolveEmbedded fails
+# closed with "jsx-unresolved", surfaced here at its position in the .gsx
+# source (see internal/jsx/jsx_test.go's "malformed literal" subtest, which
+# pins the identical shape against the classifier directly).
+-- input.gsx --
+package demo
+
+var x = "y"
+
+var h = js`f('@{x}`
+
+component Page() {
+	<button @click={h}>x</button>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+5:16: jsx: @{ } in js literal could not be classified (lex error or unreachable position); fails closed
+-- render.golden --

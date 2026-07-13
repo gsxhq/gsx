@@ -17,7 +17,7 @@ component AlpineSearch(maxWidth int) {
 				return this.items.filter(i => i.startsWith(this.search))
 			}
 		}`
-		style={ css`max-width:@{maxWidth}px` }
+		style={css`max-width:@{maxWidth}px`}
 	>
 		<input x-model=js`search` placeholder="Search..."/>
 		<ul>

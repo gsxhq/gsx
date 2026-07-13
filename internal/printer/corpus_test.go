@@ -271,7 +271,16 @@ func canonGo(n ast.Node) {
 			}
 		}
 	case *ast.GoBlock:
-		v.Code = fmtStmts(v.Code)
+		// A `{{ }}` block carrying an embedded literal is not parseable Go, so
+		// fmtStmts leaves it verbatim; the printer instead lays it out through the
+		// literal-aware fmtGoBlockCode. The normalizer MUST apply the SAME pass, or
+		// it reads the printer's gofmt reflow as an AST change — the identical
+		// reason the GoWithElements case above mirrors fmtGoExprParts.
+		if s, ok := (&printer{width: 80, tabWidth: pretty.DefaultTabWidth}).fmtGoBlockCode(v.Code); ok {
+			v.Code = s
+		} else {
+			v.Code = fmtStmts(v.Code)
+		}
 	case *ast.IfMarkup:
 		v.Cond = fmtExpr(v.Cond)
 		for _, m := range v.Then {

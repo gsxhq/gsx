@@ -1,0 +1,45 @@
+# The SAME ctx-taking-renderer rejection js`/diag_ctx_renderer pins, on the
+# f`-literal (plain-string) path: a hole whose resolved type has a registered
+# [renderers] entry that wants the ambient ctx (func(ctx context.Context, T)
+# string, no error) sits inside an f`…@{…}…` literal at a top-level func
+# return. holeStringExpr's rejectCtx/e.wantsCtx branch (emit.go ~3488) rejects
+# it with the same positioned goexpr-literal-error the js` path gives.
+-- gsx.toml --
+[renderers]
+"./pg.Text" = "./rend.PgText"
+-- pg/pg.go --
+package pg
+
+type Text struct {
+	String string
+}
+-- rend/rend.go --
+package rend
+
+import (
+	"context"
+
+	"corpustest/cases/goexpr-f-literal_diag_ctx_renderer_toplevel/pg"
+)
+
+func PgText(ctx context.Context, t pg.Text) string {
+	if ctx == nil {
+		return "NO-CTX"
+	}
+	return t.String
+}
+-- input.gsx --
+package demo
+
+import "corpustest/cases/goexpr-f-literal_diag_ctx_renderer_toplevel/pg"
+
+func mk(val pg.Text) string { return f`Hi @{val}` }
+
+component Page() {
+	<div>{ mk(pg.Text{String: "x"}) }</div>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+5:44: @{ val } is rendered by a ctx-taking renderer; a js`/css`/f` literal in Go-expression position has no ambient render context — drop the ctx-taking filter/renderer, or move the literal to an attribute position
+-- render.golden --

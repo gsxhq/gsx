@@ -1,0 +1,18 @@
+# A `<tag>` element literal inside a {{ }} Go block is NOT supported yet: it is
+# a single positioned "unsupported-node" diagnostic, never silently miscompiled.
+# Pins the scope boundary — SplitGoExprElements materializes the element, analyze
+# skips the block's probe (keeping the skeleton valid), and emit surfaces the one
+# diagnostic. Contrast operand-position element literals in an { } interpolation
+# body (e.g. { wrap(<b/>) }), which ARE supported.
+-- input.gsx --
+package demo
+
+component Page() {
+	{{ x := <div/> }}
+	<p>done</p>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+4:10: element literals inside {{ }} blocks are not supported yet
+-- render.golden --

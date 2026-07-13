@@ -354,7 +354,10 @@ component C(id string) {
 	checkFormat(t, src, want)
 }
 
-func TestEmbeddedAttrBracedOptionalBraceLiteral(t *testing.T) {
+func TestEmbeddedAttrBracedLiteralPreservesBraces(t *testing.T) {
+	// The braced form must round-trip: on a component tag a braced js`/css`
+	// literal binds a declared prop while the bare form falls through to the
+	// Attrs bag, so stripping the braces would change the meaning.
 	src := `package p
 component C(id string) {
 	<button @click={js` + "`" + `save(@{ id })` + "`" + `}>Save</button>
@@ -362,7 +365,7 @@ component C(id string) {
 	want := `package p
 
 component C(id string) {
-	<button @click=js` + "`" + `save(@{id})` + "`" + `>Save</button>
+	<button @click={js` + "`" + `save(@{id})` + "`" + `}>Save</button>
 }
 `
 	checkFormat(t, src, want)

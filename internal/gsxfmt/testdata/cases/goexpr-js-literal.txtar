@@ -1,0 +1,28 @@
+Expression-position js`/css` literals: the formatter reformats each @{ } hole
+expression (dropping the author's stray inner spaces) while leaving the literal
+TEXT, the lang prefix, and the delimiter byte verbatim — `js`/`css`, backtick or
+double-quote. A var initializer is a single-part GoWithElements; a multi-line
+composite literal keeps each embedded literal on its field's line, holes
+reformatted, and gofmt aligns the keys. The dquote form (`js"…"`) round-trips as
+a dquote literal.
+
+-- input.gsx --
+package ui
+
+var save = js`save( @{ props.ID  } )`
+
+var handlers = map[string]gsx.RawJS{
+	"click": js`onClick( @{ props.Handler } )`,
+	"hover": js"onHover( @{  props.Alt } )",
+	"paint": css`color: @{ props.Color };`,
+}
+-- fmt.golden --
+package ui
+
+var save = js`save( @{props.ID} )`
+
+var handlers = map[string]gsx.RawJS{
+	"click": js`onClick( @{props.Handler} )`,
+	"hover": js"onHover( @{props.Alt} )",
+	"paint": css`color: @{props.Color};`,
+}

@@ -1,0 +1,48 @@
+# A hole whose resolved type has a registered [renderers] entry that returns
+# (R, error) — same shape as renderers/ctx_error.txtar — but here the hole
+# sits inside a Go-expression js literal (a var initializer), which has no
+# error channel to route the renderer's error through. Pins the third
+# "goexpr-literal-error" rejection shape (Task 3's `table.renderers[...].hasErr`
+# preflight in embeddedHoleExpr), alongside diag_error_pipe (|> filter) and
+# diag_error_tuple ((T, error) seed).
+-- gsx.toml --
+[renderers]
+"./pg.Text" = "./rend.PgText"
+-- pg/pg.go --
+package pg
+
+type Text struct {
+	String string
+}
+-- rend/rend.go --
+package rend
+
+import (
+	"errors"
+
+	"corpustest/cases/goexpr-js-literal_diag_error_renderer/pg"
+)
+
+func PgText(t pg.Text) (string, error) {
+	if t.String == "" {
+		return "", errors.New("pgtext: empty")
+	}
+	return t.String, nil
+}
+-- input.gsx --
+package demo
+
+import "corpustest/cases/goexpr-js-literal_diag_error_renderer/pg"
+
+var val = pg.Text{String: "x"}
+
+var h = js`f(@{val})`
+
+component Page() {
+	<button @click={h}>x</button>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+7:15: @{ val } is rendered by an error-returning renderer; a js`/css`/f` literal in Go-expression position has no error channel to propagate it through — handle the error in Go, or move the literal to an attribute position
+-- render.golden --

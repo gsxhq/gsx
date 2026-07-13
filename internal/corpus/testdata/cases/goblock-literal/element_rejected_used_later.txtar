@@ -1,0 +1,21 @@
+# Same unsupported `<tag>` literal inside a {{ }} Go block as element_rejected,
+# but the declared var is referenced afterward. analyze's skeleton skips the
+# whole block (goBlockHasElement) to stay valid Go, which would otherwise leave
+# `x` undefined at its later use — masking the real "element literals inside
+# {{ }} blocks are not supported yet" diagnostic behind a downstream
+# "undefined: x" skeleton type error. The element diagnostic must fire
+# regardless (surfaced in analyze, not only at emit, which is gated on
+# len(typeErrs)==0 and never runs once the skeleton fails to type-check).
+-- input.gsx --
+package demo
+
+component Page() {
+	{{ x := <div/> }}
+	<p>{x}</p>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+4:10: element literals inside {{ }} blocks are not supported yet
+5:6: undefined: x
+-- render.golden --

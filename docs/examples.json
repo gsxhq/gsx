@@ -320,7 +320,7 @@
   {
     "name": "Complete Alpine search",
     "category": "JavaScript",
-    "source": "package views\n\ncomponent AlpineSearch(maxWidth int) {\n\t<div\n\t\tx-data=js`{\n\t\t\tsearch: '',\n\t\t\titems: ['foo', 'bar', 'baz'],\n\t\t\tget filteredItems() {\n\t\t\t\treturn this.items.filter(i => i.startsWith(this.search))\n\t\t\t}\n\t\t}`\n\t\tstyle={ css`max-width:@{maxWidth}px` }\n\t>\n\t\t<input x-model=js`search` placeholder=\"Search...\"/>\n\t\t<ul>\n\t\t\t<template x-for=js`item in filteredItems` :key=js`item`>\n\t\t\t\t<li x-text=js`item`></li>\n\t\t\t</template>\n\t\t</ul>\n\t</div>\n}\n",
+    "source": "package views\n\ncomponent AlpineSearch(maxWidth int) {\n\t<div\n\t\tx-data=js`{\n\t\t\tsearch: '',\n\t\t\titems: ['foo', 'bar', 'baz'],\n\t\t\tget filteredItems() {\n\t\t\t\treturn this.items.filter(i => i.startsWith(this.search))\n\t\t\t}\n\t\t}`\n\t\tstyle={css`max-width:@{maxWidth}px`}\n\t>\n\t\t<input x-model=js`search` placeholder=\"Search...\"/>\n\t\t<ul>\n\t\t\t<template x-for=js`item in filteredItems` :key=js`item`>\n\t\t\t\t<li x-text=js`item`></li>\n\t\t\t</template>\n\t\t</ul>\n\t</div>\n}\n",
     "invoke": "AlpineSearch(AlpineSearchProps{MaxWidth: 320})"
   },
   {
