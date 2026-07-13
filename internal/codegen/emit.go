@@ -2130,10 +2130,9 @@ func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type,
 				// A prefixed literal embedded in this interp's seed → a Go value.
 				// f`…` assembles a plain Go string concat; js`…`/css`…` wrap the
 				// escaped concat in _gsxrt.RawJS/RawCSS. The value is spliced into
-				// the seed (eb) exactly like an element's gsx.Func value; an f` hole's
-				// tuple-unwrap hoisting lands in b before the consuming stmt, while
-				// js`/css` reject error-carrying holes (no error channel in a Go
-				// expression position).
+				// the seed (eb) exactly like an element's gsx.Func value; a hole's
+				// tuple-unwrap/error hoisting (f` and, since canHoist=true here,
+				// js`/css` too) lands in b before the consuming stmt.
 				if len(p.Stages) > 0 {
 					bag.Errorf(n.Pos(), n.End(), "unsupported-node", "whole-literal pipelines on a Go-expression backtick literal are not supported")
 					return false
@@ -3361,21 +3360,26 @@ func embeddedValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node
 }
 
 // emitGoExprEmbeddedInterp lowers a prefixed literal (f`/js`/css`) in a
-// Go-expression position — a top-level GoWithElements value or an
-// Interp.Embedded part — to one self-contained Go value. f` assembles a plain Go
-// string concat (embeddedValueExpr); js`/css` wrap the JS/CSS-escaped concat in
-// _gsxrt.RawJS/_gsxrt.RawCSS. exprPos=true (passed to the JS/CSS assemblers)
-// forbids per-hole statement hoists, so error-carrying holes are rejected in
-// embeddedHoleExpr and the concat stays source-ordered.
+// Go-expression position — a top-level GoWithElements value, a `{{ }}`
+// GoBlock, or an Interp.Embedded part — to one self-contained Go value. f`
+// assembles a plain Go string concat (embeddedValueExpr); js`/css` wrap the
+// JS/CSS-escaped concat in _gsxrt.RawJS/_gsxrt.RawCSS. exprPos=!canHoist
+// (passed to the JS/CSS assemblers, same as the f` path) forbids per-hole
+// statement hoists where there is no clean hoist channel, so error-carrying
+// holes are rejected in embeddedHoleExpr and the concat stays source-ordered;
+// where canHoist is true, the assemblers instead materialize each dynamic
+// hole to a source-ordered `_gsxvN` temp in hoistBuf, with error shapes
+// hoisting through `return _gsxerr` — the same fold-path lowering an
+// attribute-local literal already uses.
 //
-// Two buffers keep the f` path's routing intact: any statement hoist an f` hole
-// emits goes to hoistBuf (the enclosing render-closure buffer), while the value
-// expression is written to valBuf. At the top-level GoWithElements site the two
-// are the same buffer; at the Interp.Embedded site hoistBuf is the render
-// closure (before the consuming statement) and valBuf is the spliced-seed
-// builder. js`/css` never hoist (exprPos), so hoistBuf is untouched for them.
-// The caller rejects a whole-literal pipeline (p.Stages) first, since the two
-// sites word/position that diagnostic differently.
+// Two buffers keep the f` path's routing intact: any statement hoist an f` or
+// (now) js`/css` hole emits goes to hoistBuf (the enclosing render-closure
+// buffer), while the value expression is written to valBuf. At the top-level
+// GoWithElements site the two are the same buffer; at the Interp.Embedded
+// site hoistBuf is the render closure (before the consuming statement) and
+// valBuf is the spliced-seed builder. The caller rejects a whole-literal
+// pipeline (p.Stages) first, since the two sites word/position that
+// diagnostic differently.
 //
 // hasCtx / canHoist describe the CONTAINER's render context, and gate the
 // no-render-context rejections uniformly across f`/js`/css`:
@@ -3384,21 +3388,21 @@ func embeddedValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node
 //     undefined `ctx`.
 //   - canHoist=false (no clean pre-statement hoist channel — a top-level value,
 //     or a `{{ }}` GoBlock whose reconstruction interleaves GoText into hoistBuf)
-//     rejects error-carrying f` holes (rejectErr). js`/css` reject those anyway
-//     (exprPos), so canHoist only affects the f` path.
+//     rejects error-carrying holes (rejectErr / exprPos) for f`/js`/css` alike.
 //
 // The in-closure Interp.Embedded and component-value sites pass (true, true) and
 // keep hoisting/threading ctx exactly as before.
 func emitGoExprEmbeddedInterp(hoistBuf, valBuf *bytes.Buffer, p *ast.EmbeddedInterp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, hasCtx, canHoist bool) bool {
+	exprPos := !canHoist
 	switch p.Lang {
 	case ast.EmbeddedJS:
-		val, ok := embeddedJSValueExpr(hoistBuf, p.Segments, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr", true, !hasCtx)
+		val, ok := embeddedJSValueExpr(hoistBuf, p.Segments, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr", exprPos, !hasCtx)
 		if !ok {
 			return false
 		}
 		valBuf.WriteString(rt.rt() + ".RawJS(" + val + ")")
 	case ast.EmbeddedCSS:
-		val, ok := embeddedCSSValueExpr(hoistBuf, p.Segments, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr", true, !hasCtx)
+		val, ok := embeddedCSSValueExpr(hoistBuf, p.Segments, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr", exprPos, !hasCtx)
 		if !ok {
 			return false
 		}
@@ -6428,10 +6432,12 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 			//   - BRACED literal whose name matches a declared prop → BIND that
 			//     prop (the { expr } prop-binding form; js`/css` are Go exprs).
 			//     Interpolations are allowed here: the field is a concrete
-			//     Go-EXPRESSION position, so per-hole escaping lands in a typed
-			//     RawJS/RawCSS value (an error-carrying hole is rejected by
-			//     embeddedJSValueExpr/…CSSValueExpr exprPos, mirrored in analyze
-			//     via probeEmbeddedInterpIIFE's seed).
+			//     Go-EXPRESSION position with a hoist channel (this call passes
+			//     canHoist=true), so per-hole escaping lands in a typed
+			//     RawJS/RawCSS value and an error-carrying hole HOISTS (its
+			//     `_gsxvN, _gsxerr := …` lands in valueHoist, replayed via
+			//     componentValueEntry.stmts before the call), the same as an f`
+			//     hole at this site.
 			//   - otherwise (bare form, or braced-but-undeclared) → fall through
 			//     to the Attrs bag. A HOLE-FREE literal becomes an
 			//     _gsxrt.RawJS/_gsxrt.RawCSS of the static text; a hole-bearing
