@@ -796,6 +796,18 @@ vocabulary remains a design aspiration, not the current API.
   so `<div class { if a { class="on" } }>` stays inline and still renders two
   `class` attributes. Pathological authoring shape; the clean resolution is
   probably a positioned diagnostic rather than a merge semantic.
+- [x] **Reserved component-body identifiers `ctx`/`children`/`attrs`** -
+  SHIPPED (2026-07-13, `2026-07-13-reserved-identifiers-design.md`). The
+  "reference `attrs`" trigger is now precisely defined as free syntactic use
+  (a two-stage token-then-scope-walk check), fixing several false rejections
+  (loop-scoped shadows, struct-literal keys, func-literal params) that today
+  reject correct code with a raw `declared and not used` error. A body-scope
+  `:=`/`var`/`const`/param/receiver binding of any of the three names now
+  gets a positioned, worded `reserved-identifier` diagnostic (upgraded from
+  raw Go collision errors), while nested-scope shadows (loop variables,
+  func-literal params, component-children closures) remain legal Go,
+  unflagged. Soundness over completeness: exotic binding shapes the check
+  misses fall through to the Go compiler's own errors, the backstop.
 - [x] **Fallthrough forwarding through nested component calls** - SHIPPED
   (2026-07-13, `2026-07-13-nested-fallthrough-forwarding-design.md`). The
   attrs-only component values spec (item 18 above, "Alternative considered")
