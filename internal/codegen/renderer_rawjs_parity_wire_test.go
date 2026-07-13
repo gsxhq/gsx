@@ -31,12 +31,10 @@ import (
 // ExprAttrs by the time emitExprAttr sees them, so both hit the same
 // applyRenderer call (internal/codegen/emit.go, emitExprAttr) before the
 // attribute is written. This is coherent (neither form is silently
-// exempted), NOT a recommendation: whether gsx.RawJS/RawCSS should be
-// registrable as [renderers] targets at all is an open product question
-// (Task 9 report's "Recommendation" — reject at config-validation time, or
-// document as intended power-user behavior). This test only pins current,
-// verified behavior so a future change to either outcome is a deliberate,
-// visible diff here.
+// exempted). DECIDED 2026-07-13: registrations targeting gsx.RawJS/RawCSS
+// are allowed as intended power-user behavior (documented in the config
+// guide's renderers section); this test pins the parity so any future
+// change to either outcome is a deliberate, visible diff here.
 func TestRawJSRendererRegistrationParity(t *testing.T) {
 	t.Parallel()
 	repoRoot, _ := filepath.Abs("../..")

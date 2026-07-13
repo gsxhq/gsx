@@ -801,13 +801,12 @@ vocabulary remains a design aspiration, not the current API.
   has, plus deciding what a rendered element assigned to a Go local even means
   in statement position. Operand-position element literals inside an `{ }`
   interpolation body (`{ wrap(<b/>) }`) are unaffected and fully supported.
-- [ ] **`[renderers]` targeting `gsx.RawJS`/`gsx.RawCSS`** - open product
-  question (2026-07-13, expression-valued `js`/`css` literals). A registered
-  renderer for `gsx.RawJS`/`gsx.RawCSS` is currently accepted and applies
+- [x] **`[renderers]` targeting `gsx.RawJS`/`gsx.RawCSS`** - DECIDED
+  (2026-07-13): allowed as intended power-user behavior. A registered renderer
+  for `gsx.RawJS`/`gsx.RawCSS` replaces the verbatim passthrough and applies
   uniformly to both the attribute-local and expression-valued forms (pinned by
-  `TestRawJSRendererRegistrationParity`). Decide: reject at config-validation
-  time (the trusted type already carries an explicit escaping decision a
-  renderer could undermine) or document as intended power-user behavior.
+  `TestRawJSRendererRegistrationParity`; documented in the config guide's
+  renderers section).
 - [ ] **`{{ }}` GoBlock `f`` error-holes rejected, no hoist channel** -
   expression-valued literals inside a `{{ }}` GoBlock reject an error-carrying
   `f`` hole (a pipeline `(R, error)` stage, a `(T, error)` seed, an
