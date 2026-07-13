@@ -5140,6 +5140,12 @@ type propFieldEntry struct {
 	inferArg      string
 	bagPairs      []oaPairEntry // source-ordered fallthrough pairs when this is the synthesized Attrs field
 	bagSegments   []string      // source-ordered spread/conditional segments following bagPairs
+	// bagPairSource/bagSegmentSource are bagPairs/bagSegments' parallel el.Attrs
+	// source indices (source-order alignment, 2026-07-13): assembleBagParts uses
+	// them to interleave bare-attr literal runs and spread/cond segments by their
+	// authored position instead of coalescing all bare attrs to the front.
+	bagPairSource    []int
+	bagSegmentSource []int
 }
 
 // componentValueEntry is one potentially side-effecting child-component value
@@ -5182,6 +5188,36 @@ func attrsPairsLiteral(rtPkg string, pairs []oaPairEntry) string {
 	return b.String()
 }
 
+// assembleBagParts interleaves bare-attr literal runs and spread/cond
+// segments by their source position, grouping ADJACENT bare attrs into one
+// gsx.Attrs literal. Source-order alignment (2026-07-13): a bare attr after
+// a spread lands in a LATER ConcatAttrs argument and therefore wins per key
+// at the leaf, matching element multi-spread merge. pairSrc/segSrc are the
+// attrs' indices in el.Attrs, strictly increasing within each slice.
+func assembleBagParts(rtPkg string, pairs []oaPairEntry, pairSrc []int, segments []string, segSrc []int) []string {
+	var parts []string
+	var run []oaPairEntry
+	flush := func() {
+		if len(run) > 0 {
+			parts = append(parts, attrsPairsLiteral(rtPkg, run))
+			run = nil
+		}
+	}
+	pi, si := 0, 0
+	for pi < len(pairs) || si < len(segments) {
+		if si >= len(segments) || (pi < len(pairs) && pairSrc[pi] < segSrc[si]) {
+			run = append(run, pairs[pi])
+			pi++
+			continue
+		}
+		flush()
+		parts = append(parts, segments[si])
+		si++
+	}
+	flush()
+	return parts
+}
+
 func componentValuePlanNeeded(fields []propFieldEntry, plan []componentValueEntry, resolved map[ast.Node]types.Type, table funcTables) bool {
 	for _, value := range plan {
 		if componentValueRequiresMaterialization(value, resolved, table) {
@@ -5202,17 +5238,17 @@ func componentValuePlanNeeded(fields []propFieldEntry, plan []componentValueEntr
 	position := func(value componentValueEntry) finalPosition {
 		pos := finalPosition{field: value.fieldIndex}
 		switch {
-		case value.bagIndex >= 0:
-			pos.index = value.bagIndex
-		case value.segmentIndex >= 0:
-			// Bag pairs precede ConcatAttrs segments in the rebuilt Attrs field.
-			pos.group = 1
-			pos.index = value.segmentIndex
+		case value.bagIndex >= 0, value.segmentIndex >= 0:
+			// Source-order alignment (2026-07-13): assembleBagParts interleaves
+			// bag pairs and ConcatAttrs segments by their authored attribute
+			// position, so the final position tracks sourceIndex directly
+			// rather than a bag-always-before-segment split.
+			pos.index = value.sourceIndex
 		case value.pairIndex >= 0:
 			// When an explicit attrs={{ }} literal shares the Attrs field with
 			// fallthrough contributors, it is the final ConcatAttrs argument.
 			if field := fields[value.fieldIndex]; len(field.bagPairs) > 0 || len(field.bagSegments) > 0 {
-				pos.group = 2
+				pos.group = 1
 			}
 			pos.index = value.pairIndex
 		}
@@ -5354,11 +5390,7 @@ func materializeComponentValuePlan(b *bytes.Buffer, fields []propFieldEntry, pla
 			}
 		}
 		if len(fe.bagPairs) > 0 || len(fe.bagSegments) > 0 {
-			parts := make([]string, 0, 1+len(fe.bagSegments))
-			if len(fe.bagPairs) > 0 {
-				parts = append(parts, attrsPairsLiteral(rtPkg, fe.bagPairs))
-			}
-			parts = append(parts, fe.bagSegments...)
+			parts := assembleBagParts(rtPkg, fe.bagPairs, fe.bagPairSource, fe.bagSegments, fe.bagSegmentSource)
 			prefix := strings.Join(parts, ", ")
 			if fe.oa != nil {
 				fe.oaMergePrefix = prefix
@@ -5650,7 +5682,12 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 	usedPkgs = map[string]string{}
 	var bag []oaPairEntry // fallthrough base-literal entries in source order
 	var segments []string // bare ConcatAttrs segment exprs (<spread> / <rtPkg>.AttrsCond(...)) in source order
-	attrsLitIdx := -1     // index into fields of an Attrs-targeted ordered-attrs literal, or -1
+	// bagSrc/segSrc are bag/segments' parallel el.Attrs source indices (source-order
+	// alignment, 2026-07-13); assembleBagParts uses them to interleave the two by
+	// authored position instead of coalescing all bare attrs to the front.
+	var bagSrc []int
+	var segSrc []int
+	attrsLitIdx := -1 // index into fields of an Attrs-targeted ordered-attrs literal, or -1
 	// recordPkgs merges a lowerPipe usedPkgs result into the shared set.
 	recordPkgs := func(used map[string]string) {
 		maps.Copy(usedPkgs, used)
@@ -5677,6 +5714,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				}
 			} else {
 				bag = append(bag, oaPairEntry{key: t.Name, rawVal: strconv.Quote(t.Value)})
+				bagSrc = append(bagSrc, sourceIndex)
 			}
 		case *ast.ExprAttr:
 			if fn, isProp := matchField(declared, t.Name, fm); isProp {
@@ -5747,6 +5785,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 					}
 				}
 				bag = append(bag, oaPairEntry{key: t.Name, rawVal: val})
+				bagSrc = append(bagSrc, sourceIndex)
 				valuePlan = append(valuePlan, componentValueEntry{sourceIndex: sourceIndex, node: t, rawExpr: val, bagIndex: len(bag) - 1, pairIndex: -1, segmentIndex: -1, fieldIndex: -1, stmts: bytes.Clone(entryHoist.Bytes())})
 			}
 		case *ast.BoolAttr:
@@ -5761,6 +5800,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				}
 			} else {
 				bag = append(bag, oaPairEntry{key: t.Name, rawVal: "true"})
+				bagSrc = append(bagSrc, sourceIndex)
 			}
 		case *ast.MarkupAttr:
 			// A markup attribute (`header={ <h1/> }`) is a NAMED slot bound to a
@@ -5791,6 +5831,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 			}
 			recordPkgs(used)
 			bag = append(bag, oaPairEntry{key: t.Name, rawVal: entry})
+			bagSrc = append(bagSrc, sourceIndex)
 			valuePlan = append(valuePlan, componentValueEntry{sourceIndex: sourceIndex, node: t, rawExpr: entry, bagIndex: len(bag) - 1, pairIndex: -1, segmentIndex: -1, fieldIndex: -1, stmts: bytes.Clone(entryHoist.Bytes())})
 		case *ast.SpreadAttr:
 			spreadExpr := strings.TrimSpace(t.Expr)
@@ -5804,6 +5845,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				spreadExpr = lowered
 			}
 			segments = append(segments, spreadExpr)
+			segSrc = append(segSrc, sourceIndex)
 			valuePlan = append(valuePlan, componentValueEntry{sourceIndex: sourceIndex, node: t, rawExpr: spreadExpr, bagIndex: -1, pairIndex: -1, segmentIndex: len(segments) - 1, fieldIndex: -1, stmts: bytes.Clone(entryHoist.Bytes())})
 		case *ast.CondAttr:
 			// One uniform lowering: condAttrsExpr always emits an AttrsCond(...) call
@@ -5822,6 +5864,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				condExpr = hoistTuple(entryBuffer, condExpr, interpTemp)
 			}
 			segments = append(segments, condExpr)
+			segSrc = append(segSrc, sourceIndex)
 			valuePlan = append(valuePlan, componentValueEntry{sourceIndex: sourceIndex, node: t, rawExpr: condExpr, bagIndex: -1, pairIndex: -1, segmentIndex: len(segments) - 1, fieldIndex: -1, stmts: bytes.Clone(entryHoist.Bytes())})
 		case *ast.OrderedAttrsAttr:
 			fn, ok := matchOrderedAttrsField(declared, t.Name, fm)
@@ -5917,6 +5960,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 					valuePlan = append(valuePlan, componentValueEntry{sourceIndex: sourceIndex, node: t, rawExpr: value, fieldName: fn, isNodeField: isNF, embedded: t, bagIndex: -1, pairIndex: -1, segmentIndex: -1, fieldIndex: len(fields) - 1, stmts: bytes.Clone(valueHoist.Bytes())})
 				} else {
 					bag = append(bag, oaPairEntry{key: t.Name, rawVal: value})
+					bagSrc = append(bagSrc, sourceIndex)
 					valuePlan = append(valuePlan, componentValueEntry{sourceIndex: sourceIndex, node: t, rawExpr: value, embedded: t, bagIndex: len(bag) - 1, pairIndex: -1, segmentIndex: -1, fieldIndex: -1, stmts: bytes.Clone(valueHoist.Bytes())})
 				}
 				continue
@@ -5933,6 +5977,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				return nil, nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
 			bag = append(bag, oaPairEntry{key: t.Name, rawVal: strconv.Quote(text)})
+			bagSrc = append(bagSrc, sourceIndex)
 		default:
 			msg := fmt.Sprintf("unknown attribute %T on component (<%s>)", a, el.Tag)
 			return nil, nil, "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}
@@ -5961,14 +6006,13 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 		}
 		// Call-site bags CONCATENATE — last-wins/aggregation is resolved at the
 		// leaf, so the composition never eagerly merges (a component may iterate
-		// its raw bag). parts = base literal (omitted when the bag is empty) +
-		// each spread/cond segment in source order; an attrs={{ }} ordered literal
-		// is always concatenated LAST (merge-last rule).
-		var parts []string
-		if len(bag) > 0 {
-			parts = append(parts, attrsPairsLiteral(rtPkg, bag))
-		}
-		parts = append(parts, segments...) // parts is non-empty (block guard)
+		// its raw bag). Source-order alignment (2026-07-13): parts interleave bare
+		// fallthrough attrs (grouped by adjacent run) and each spread/cond segment
+		// by authored position, so a bare attr after a spread lands in a later
+		// ConcatAttrs argument and wins per key at the leaf, matching element
+		// multi-spread merge; an attrs={{ }} ordered literal is always
+		// concatenated LAST regardless of position (merge-last rule).
+		parts := assembleBagParts(rtPkg, bag, bagSrc, segments, segSrc) // non-empty (block guard)
 		if attrsLitIdx >= 0 {
 			// An explicit attrs={{ }} literal coexists with other bag
 			// contributors: fold them into ONE Attrs field — the composed bag
@@ -5979,14 +6023,16 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 			prefix := strings.Join(parts, ", ")
 			fields[attrsLitIdx].oaMergePrefix = prefix
 			fields[attrsLitIdx].bagPairs = bag
+			fields[attrsLitIdx].bagPairSource = bagSrc
 			fields[attrsLitIdx].bagSegments = segments
+			fields[attrsLitIdx].bagSegmentSource = segSrc
 			fields[attrsLitIdx].str = fmt.Sprintf("Attrs: %s.ConcatAttrs(%s, %s)", rtPkg, prefix, fields[attrsLitIdx].oaLit)
 		} else if len(segments) == 0 {
 			// base literal only — keep the plain form (no wrapper), zero churn.
-			fields = append(fields, propFieldEntry{str: "Attrs: " + parts[0], fieldName: "Attrs", bagPairs: bag})
+			fields = append(fields, propFieldEntry{str: "Attrs: " + parts[0], fieldName: "Attrs", bagPairs: bag, bagPairSource: bagSrc})
 		} else {
 			attrsExpr := fmt.Sprintf("%s.ConcatAttrs(%s)", rtPkg, strings.Join(parts, ", "))
-			fields = append(fields, propFieldEntry{str: "Attrs: " + attrsExpr, fieldName: "Attrs", bagPairs: bag, bagSegments: segments})
+			fields = append(fields, propFieldEntry{str: "Attrs: " + attrsExpr, fieldName: "Attrs", bagPairs: bag, bagPairSource: bagSrc, bagSegments: segments, bagSegmentSource: segSrc})
 		}
 		bagFieldIndex := attrsLitIdx
 		if bagFieldIndex < 0 {
