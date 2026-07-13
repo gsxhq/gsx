@@ -120,19 +120,27 @@ two spell the same target and render identically).
 
 When `attrs={{ … }}` appears alongside other bag contributors on the same
 call site — bare fallthrough attrs, `{ expr… }` spreads, conditional attrs —
-they compose instead of colliding. Bare/fallthrough attrs form the base bag,
-then spreads and conditional attrs concatenate in source order (`gsx.ConcatAttrs`,
-not an eager `Merge` chain — see [`gsx.ConcatAttrs`'s doc comment](https://pkg.go.dev/github.com/gsxhq/gsx#ConcatAttrs)),
-then the `attrs={{ … }}` literal is concatenated last, regardless of where it
-appears among the other attrs in source. Duplicate keys across the
-concatenated pieces are resolved the same way `Spread` always resolved them —
-last-wins for scalars, aggregating for `class`/`style` — so this reads
-identically to the old eager-merge behavior; `Get`/`Has` stay last-wins as
-always. The one observable difference is that a component iterating its own
-bag directly — `len(attrs)`, a manual range loop — can see duplicate entries
-that an eager `Merge` would have already resolved away. A second
-`attrs={{ … }}` literal on the same element is a clean error
+they compose instead of colliding, matching the same source-order precedence
+element attributes follow (see [Composition — Precedence](./composition.md#precedence)):
+bare fallthrough attrs, `{ expr… }` spreads, and conditional attrs all
+concatenate in strict source order (`gsx.ConcatAttrs`, not an eager `Merge`
+chain — see [`gsx.ConcatAttrs`'s doc comment](https://pkg.go.dev/github.com/gsxhq/gsx#ConcatAttrs)) —
+adjacent bare attrs still coalesce into one literal run, but a bare attr
+written *after* a spread becomes the force position and wins per key, same
+as on an element. The `attrs={{ … }}` literal is still concatenated last,
+regardless of where it appears among the other attrs in source. Duplicate
+keys across the concatenated pieces are resolved the same way `Spread`
+always resolved them — last-wins for scalars, aggregating for `class`/`style`
+— so this reads identically to the old eager-merge behavior; `Get`/`Has` stay
+last-wins as always. The one observable difference is that a component
+iterating its own bag directly — `len(attrs)`, a manual range loop — can see
+duplicate entries that an eager `Merge` would have already resolved away. A
+second `attrs={{ … }}` literal on the same element is a clean error
 (`ordered-attrs-duplicate`) — combine the pairs into one literal instead.
+
+This same source-ordered assembly is what a wrapper's own `{ attrs... }`
+forwards through when it calls another component — see
+[Composition — Forwarding through components](./composition.md#forwarding-through-components).
 
 Imported components from the same module get this treatment automatically:
 gsx discovers their declared props — including the synthesized `Attrs`
