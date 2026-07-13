@@ -5103,33 +5103,95 @@ func attrsPairsLiteral(rtPkg string, pairs []oaPairEntry) string {
 	return b.String()
 }
 
-func componentValuePlanNeeded(plan []componentValueEntry, resolved map[ast.Node]types.Type, table funcTables) bool {
+func componentValuePlanNeeded(fields []propFieldEntry, plan []componentValueEntry, resolved map[ast.Node]types.Type, table funcTables) bool {
 	for _, value := range plan {
-		if len(value.stmts) > 0 {
+		if componentValueRequiresMaterialization(value, resolved, table) {
 			return true
 		}
-		valueType := resolved[value.node]
-		if value.embedded == nil {
-			if _, ok := tupleUnwrapType(valueType); ok {
-				return true
+	}
+
+	// childPropsLiteral records values in authored order, but the final Go
+	// struct literal evaluates them in field order. In particular, fallthrough
+	// values move into the synthesized Attrs field after declared props. Only
+	// activate the ordered pass when that reconstruction inverts two
+	// call-bearing expressions; moving constants or identifiers is unobservable.
+	type finalPosition struct {
+		field int
+		group int
+		index int
+	}
+	position := func(value componentValueEntry) finalPosition {
+		pos := finalPosition{field: value.fieldIndex}
+		switch {
+		case value.bagIndex >= 0:
+			pos.index = value.bagIndex
+		case value.segmentIndex >= 0:
+			// Bag pairs precede ConcatAttrs segments in the rebuilt Attrs field.
+			pos.group = 1
+			pos.index = value.segmentIndex
+		case value.pairIndex >= 0:
+			// When an explicit attrs={{ }} literal shares the Attrs field with
+			// fallthrough contributors, it is the final ConcatAttrs argument.
+			if field := fields[value.fieldIndex]; len(field.bagPairs) > 0 || len(field.bagSegments) > 0 {
+				pos.group = 2
 			}
+			pos.index = value.pairIndex
 		}
-		if value.pairIndex >= 0 {
-			if _, ok := table.renderers[rendererKey(valueType)]; ok {
-				return true
-			}
+		return pos
+	}
+	less := func(a, b finalPosition) bool {
+		if a.field != b.field {
+			return a.field < b.field
 		}
-		if _, ok := value.node.(*ast.ExprAttr); ok && value.bagIndex >= 0 {
-			attrType := valueType
-			if elem, ok := tupleUnwrapType(valueType); ok {
-				attrType = elem
-			}
-			if _, ok := table.renderers[rendererKey(attrType)]; ok {
-				return true
-			}
+		if a.group != b.group {
+			return a.group < b.group
+		}
+		return a.index < b.index
+	}
+	var previous finalPosition
+	havePrevious := false
+	for _, value := range plan {
+		if !exprHasCall(value.rawExpr) {
+			continue
+		}
+		current := position(value)
+		if havePrevious && less(current, previous) {
+			return true
+		}
+		previous = current
+		havePrevious = true
+	}
+	return false
+}
+
+func componentValueRequiresMaterialization(value componentValueEntry, resolved map[ast.Node]types.Type, table funcTables) bool {
+	if len(value.stmts) > 0 {
+		return true
+	}
+	valueType := resolved[value.node]
+	if value.embedded == nil {
+		if _, ok := tupleUnwrapType(valueType); ok {
+			return true
+		}
+	}
+	if value.pairIndex >= 0 {
+		if _, ok := table.renderers[rendererKey(valueType)]; ok {
+			return true
+		}
+	}
+	if _, ok := value.node.(*ast.ExprAttr); ok && value.bagIndex >= 0 {
+		if elem, ok := tupleUnwrapType(valueType); ok {
+			valueType = elem
+		}
+		if _, ok := table.renderers[rendererKey(valueType)]; ok {
+			return true
 		}
 	}
 	return false
+}
+
+func componentValueHasEffect(value componentValueEntry, resolved map[ast.Node]types.Type, table funcTables) bool {
+	return exprHasCall(value.rawExpr) || componentValueRequiresMaterialization(value, resolved, table)
 }
 
 // materializeComponentValuePlan evaluates every side-effecting child-component
@@ -5137,8 +5199,14 @@ func componentValuePlanNeeded(plan []componentValueEntry, resolved map[ast.Node]
 // resulting temps. Named-props and attrs-only component values share this one
 // implementation so tuple pairs cannot bypass earlier fallthrough calls.
 func materializeComponentValuePlan(b *bytes.Buffer, fields []propFieldEntry, plan []componentValueEntry, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rtPkg string, interpTemp *int, errReturn string) {
-	if !componentValuePlanNeeded(plan, resolved, table) {
+	if !componentValuePlanNeeded(fields, plan, resolved, table) {
 		return
+	}
+	effectAfter := make([]bool, len(plan))
+	hasLaterEffect := false
+	for i := len(plan) - 1; i >= 0; i-- {
+		effectAfter[i] = hasLaterEffect
+		hasLaterEffect = hasLaterEffect || componentValueHasEffect(plan[i], resolved, table)
 	}
 	for valueIndex, value := range plan {
 		b.Write(value.stmts)
@@ -5152,7 +5220,7 @@ func materializeComponentValuePlan(b *bytes.Buffer, fields []propFieldEntry, pla
 		case isTuple:
 			materialized = hoistTupleReturning(b, materialized, interpTemp, errReturn)
 		case value.embedded != nil && (value.isNodeField || valueIndex+1 < len(plan)),
-			isCallExpr(materialized) && !isCapturedClassValue(value):
+			exprHasCall(materialized) && !isCapturedClassValue(value):
 			tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
 			*interpTemp++
 			fmt.Fprintf(b, "\t\t%s := %s\n", tmp, materialized)
@@ -5168,6 +5236,9 @@ func materializeComponentValuePlan(b *bytes.Buffer, fields []propFieldEntry, pla
 				attrType = elem
 			}
 			materialized, _ = applyRenderer(b, materialized, attrType, table, imports, interpTemp, errReturn)
+			if effectAfter[valueIndex] {
+				materialized = hoistComponentCall(b, materialized, interpTemp)
+			}
 			fields[value.fieldIndex].oaPairs[value.pairIndex].rawVal = materialized
 			continue
 		}
@@ -5178,6 +5249,9 @@ func materializeComponentValuePlan(b *bytes.Buffer, fields []propFieldEntry, pla
 					attrType = elem
 				}
 				materialized, _ = applyRenderer(b, materialized, attrType, table, imports, interpTemp, errReturn)
+				if effectAfter[valueIndex] {
+					materialized = hoistComponentCall(b, materialized, interpTemp)
+				}
 			}
 			fields[value.fieldIndex].bagPairs[value.bagIndex].rawVal = materialized
 			continue
@@ -5224,6 +5298,16 @@ func isCapturedClassValue(value componentValueEntry) bool {
 	return ok && len(value.stmts) > 0
 }
 
+func hoistComponentCall(b *bytes.Buffer, expr string, interpTemp *int) string {
+	if !exprHasCall(expr) {
+		return expr
+	}
+	tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+	*interpTemp++
+	fmt.Fprintf(b, "\t\t%s := %s\n", tmp, expr)
+	return tmp
+}
+
 // isCallExpr reports whether rawVal parses as a Go function-call expression
 // (after unwrapping any surrounding parens). Only a CallExpr can yield a
 // (T, error) tuple when used in single-value position; literals, identifiers,
@@ -5247,6 +5331,25 @@ func isCallExpr(rawVal string) bool {
 	}
 	_, ok := expr.(*goast.CallExpr)
 	return ok
+}
+
+// exprHasCall reports whether rawVal contains a Go call expression at any AST
+// depth. Component f-literals lower to concatenations, so top-level CallExpr
+// detection alone misses side effects in expressions such as `"x" + mark()`.
+func exprHasCall(rawVal string) bool {
+	expr, err := goparser.ParseExpr(rawVal)
+	if err != nil {
+		return false
+	}
+	found := false
+	goast.Inspect(expr, func(node goast.Node) bool {
+		if _, ok := node.(*goast.CallExpr); ok {
+			found = true
+			return false
+		}
+		return !found
+	})
+	return found
 }
 
 // attrsOnlyPropsKey is a synthetic props-type key for attrsOnlyBagExpr's

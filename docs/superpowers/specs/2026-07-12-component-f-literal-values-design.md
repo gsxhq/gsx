@@ -1,6 +1,6 @@
 # Component `f`-literal string values
 
-**Date:** 2026-07-12  
+**Date:** 2026-07-12
 **Status:** DECIDED
 
 ## Problem
