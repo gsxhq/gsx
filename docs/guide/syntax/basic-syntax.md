@@ -24,7 +24,7 @@ A component has a name, typed parameters, and a markup body. The body is the res
 
 The declaration shape determines how callers pass values. See [Props](./props.md) for the available models.
 
-## Element or component?
+## Element or component? {#element-vs-component}
 
 Lowercase and hyphenated tags normally render HTML elements. Capitalized and dotted tags call components, and a lowercase tag also calls a package-level declaration with the same name.
 

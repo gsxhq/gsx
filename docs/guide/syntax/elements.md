@@ -17,7 +17,7 @@ component Card(title string, body string) {
 
 Static attributes use quoted strings, while dynamic attributes use expressions such as `disabled={disabled}`. See [Attributes](./attributes.md) for boolean attributes, spreads, and composition.
 
-Whether a tag is an element or a component depends on its name and declarations in the package. See [Basic Syntax — Element or component?](./basic-syntax.md#element-or-component).
+Whether a tag is an element or a component depends on its name and declarations in the package. See [Basic Syntax — Element or component?](./basic-syntax.md#element-vs-component).
 
 ## Void elements
 
