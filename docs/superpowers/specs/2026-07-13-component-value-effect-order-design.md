@@ -18,42 +18,48 @@ populate `label`, even though the generated `Attrs` field follows `Label`:
 ```
 
 HTML attribute serialization order is not the concern. The required behavior
-is Go expression evaluation in authored component-attribute order.
+is preserving the lexical ordering guarantees Go applies to operations inside
+authored component-attribute expressions.
 
 ## Requirements
 
-- Preserve authored evaluation order for potentially effectful component
-  values across declared props, fallthrough values, ordered-attrs pairs,
-  spreads, conditionals, composable class values, and attrs-only components.
-- Cover non-call expression forms including receives, indexing, slicing,
-  dereferences, type assertions, and other nontrivial typed expressions.
-- Preserve contextual typing for untyped constants and `nil`; do not hoist them
-  through `:=` and accidentally fix them to a default type.
-- Keep component values that are provably inert inline when no ordered pass is
-  otherwise required, preserving the existing fast generated shape.
+- Preserve the operations Go defines as lexically left-to-right—function and
+  method calls, receive operations, and binary logical operations—when
+  component values move between declared fields and synthesized bags.
+- Apply the same operation detection across declared props, fallthrough values,
+  ordered-attrs pairs, spreads, conditionals, composable class values, and
+  attrs-only components.
+- Do not impose ordering on operand evaluation Go explicitly leaves
+  unspecified, including ordinary variable reads and indexing.
+- Keep values with no Go-ordered operation inline, preserving contextual typing
+  for untyped constants and the existing fast generated shape.
 - Leave leaf-tag direct writes, including numeric buffer appends, unchanged.
 - Add no runtime dependency or exported API.
 
 ## Design
 
-Introduce one component-value evaluation classifier shared by plan activation,
-later-effect tracking, and source-position capture.
+Introduce `exprHasOrderedOperation`, a structural Go AST walk shared by plan
+activation, later-effect tracking, and source-position capture. It reports the
+operations named by Go's evaluation-order rule:
 
-The classifier parses the lowered Go expression structurally. A value is safe
-to leave unordered only when it is provably inert:
+- `CallExpr` for function and method calls;
+- unary `<-` for receive operations; and
+- binary `&&` / `||` for logical operations.
 
-- its resolved type is untyped, which means a successfully type-checked value
-  expression is a constant or `nil`; or
-- after removing parentheses, it is a basic literal or identifier.
+Go's AST also represents conversions and some builtins as `CallExpr`, so call
+detection remains the same conservative syntactic superset used by the existing
+component-ordering implementation. That can retain an unnecessary temp but
+does not change typing or evaluation semantics.
 
-Every other typed expression requires ordered evaluation. Parse failure is
-conservative and also requires ordered evaluation. This is an allow-list of
-provably inert forms rather than a pattern heuristic over source text, so new or
-unhandled Go expression forms cannot become false negatives.
+The walk does not descend into function-literal bodies because evaluating a
+function literal does not execute its body. A call of the literal is still
+detected at the enclosing `CallExpr`. Parse failure reports no ordered
+operation; invalid Go is diagnosed by the existing analysis path rather than
+being rewritten into a different invalid shape.
 
-`componentValuePlanNeeded` uses this classifier when comparing authored and
-final positions. Once the plan is active, `componentValueHasEffect` uses the
-same result to compute whether later work exists, and
+`componentValuePlanNeeded` uses this predicate when comparing authored and
+final positions. Once the plan is active, `componentValueHasOrderedWork` uses
+the same predicate to compute whether later work exists, and
 `materializeComponentValuePlan` captures the expression at its authored
 position. Existing tuple, renderer, embedded-literal, ordered-pair, and bag
 rebuild handling remains authoritative after capture.
@@ -72,18 +78,20 @@ substantially rewrites generated code, bag assembly, generic props handling,
 and attrs-only lowering. The larger performance and compatibility surface is
 not justified for this defect.
 
-### Preserve call order only
+### Broad effect classifier
 
-Document the current limitation. This would leave observable Go evaluation
-semantics dependent on field reconstruction and contradict the existing
-authored-order contract.
+Treat indexing, selectors, dereferences, assertions, composite literals, and
+ordinary reads as ordered effects. This creates extra temps and generated
+shape churn while promising semantics Go itself explicitly leaves unspecified.
+It also reintroduces contextual-typing hazards if untyped expressions are
+captured. The broader model is unnecessary for the receive gap.
 
 ## Validation
 
 - Keep the real render-level failing test where an unmatched component
   `f`-literal receive precedes a matched prop receive.
-- Add focused classifier coverage for inert untyped values and representative
-  non-call effectful forms.
+- Add focused AST coverage for calls, receives, logical operations, nested
+  composite values, skipped function-literal bodies, and parse failure.
 - Run the focused codegen tests first, then `make ci`, `make lint`, and
   `git diff --check`.
 - Inspect any generated-shape or corpus changes rather than updating goldens
