@@ -1,14 +1,11 @@
 # Why gsx
 
-gsx is a Go template compiler with JSX-style markup, `html/template`-style
-pipelines, and generated Go output.
+gsx is for server-rendered Go applications that want HTML-shaped components and
+Go-checked call sites.
 
-It is for teams that want to keep UI templates inside Go, but still want markup
-that scans like HTML and call sites checked by `go build`.
+## HTML-shaped Go components
 
-## Markup That Reads Like HTML
-
-Components use a Go-like header and an HTML-like body:
+Write the markup where you would expect to find it:
 
 ```gsx
 component Card(title string, featured bool) {
@@ -19,72 +16,33 @@ component Card(title string, featured bool) {
 }
 ```
 
-- `<div>` is an HTML element; `<Card>` is a component.
-- `{ name |> trim |> upper }` applies registered Go filter functions left to right.
-- Helpers, types, imports, and branching logic outside markup are ordinary Go.
+Elements look like HTML, components use tags, and expressions are Go. See the
+[Syntax reference](./syntax.md) for the complete language.
 
-## Checked By Go
+## Checked by Go
 
-Components compile to plain Go, and a component's props are a Go struct — either one
-**you define and own** (pass a single struct param and gsx uses your type verbatim)
-or one **gsx generates** from inline params. Either way, attributes map onto *named
-struct fields* that the Go compiler checks. A wrong prop name or type is a **compile
-error with a real source location** — gsx emits `//line` directives back to the
-`.gsx` — not a runtime surprise.
+Inline component parameters generate a props struct. You can also pass one
+struct parameter and [bring your own props type](./syntax/props.md#bring-your-own-struct).
+In both forms, Go checks prop names, values, and component calls.
 
-Interpolation is auto-escaped, and escaping is **context-aware**: text, attribute,
-URL, and CSS contexts each get the right treatment, determined at codegen from where
-the value sits. JS contexts with no safe encoding are compile errors rather than
-silent holes. The opt-outs (`gsx.Raw`, `gsx.RawURL`, `gsx.RawCSS`) are explicit and
-grep-able. See [Principles](./principles.md) for the full model.
+## A build step with a fast dev loop
 
-## Build Step And Dev Loop
+gsx generates `.x.go` files, then `go build` checks and compiles them. During
+development, `gsx dev` watches the project, regenerates templates, rebuilds the
+server, and coordinates browser reloads. See the [Development loop](./dev-loop.md).
 
-gsx compiles: `.gsx` → `.x.go` → `go build`. That build step gives Go type
-checking and generated escaping code.
+## Works with the Go ecosystem
 
-**`gsx dev`** runs that loop in one foreground process: watch `.gsx`, `.go`, and
-`.env` files; regenerate with a warm compiler; rebuild and swap the Go server; and
-supervise Vite. `gsx init` wires the starter project to `npm run dev`.
+Helpers and application code remain ordinary Go. `gsx.Node` also has the same
+`Render(context.Context, io.Writer) error` method set as `templ.Component`, so
+the two component types compose structurally. See [Interop](./syntax/interop.md)
+for runnable examples and [Comparisons](./comparisons.md) for choosing a tool.
 
-## Bounded Symbol Resolution
+## What gsx does not provide
 
-gsx resolves symbols with `go/packages` and type-checks with `go/types` so it can
-handle type-aware interpolation, context-aware escaping, and props checked against
-real Go types. The design keeps that resolution bounded.
+gsx is a template compiler, not a router, HTTP framework, or client-side UI
+runtime. Its runtime uses only the Go standard library. Dynamic values are
+escaped by default; see [Escaping](./syntax/escaping.md) for the trust boundary.
 
-The risk is open-ended *inference*, not resolution itself. Try to map markup
-attributes onto *positional* function parameters, or chase a lowercase tag's
-meaning across package boundaries, and the resolver runs straight into overlay
-module-boundary bugs and performance cliffs. gsx never takes that on.
-
-gsx keeps resolution bounded:
-
-- the **`component` keyword** identifies templates — no inference about what is a
-  template;
-- a tag's **capitalization, dots, and (for lowercase tags) a syntactic match
-  against the package's own declared names** decide component-vs-element —
-  a same-package name lookup, never a type lookup or a cross-package guess;
-- components take a **named props struct** — yours or generated — so attributes bind
-  to struct fields, never to reverse-engineered positional parameters.
-
-## Relationship to templ
-
-gsx shares no code with templ, but it is built to interoperate. `gsx.Node` — the
-universal renderable — has the **identical method set to `templ.Component`**
-(`Render(ctx, w) error`). Because the method sets match, a `gsx.Node` is accepted
-anywhere a `templ.Component` is expected (structpages and other templ-ecosystem
-tools) **without importing templ**.
-
-For a practical side-by-side with templ, `html/template`, JSX, see [Comparisons](./comparisons.md).
-
-## What gsx is not
-
-gsx is templating only: no router, no HTTP handlers, no framework. Everything
-non-template is ordinary Go, and the runtime package imports nothing outside the
-standard library.
-
----
-
-> **Status — alpha.** See [Status](./status.md) for shipped commands, partial
-> features, and known gaps.
+> **Status — alpha.** The language and APIs may change before a stable release.
+> See [Status](./status.md).
