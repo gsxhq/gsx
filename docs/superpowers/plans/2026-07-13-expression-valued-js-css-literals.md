@@ -501,7 +501,9 @@ Page(PageProps{Detail: "d1"})
 - [ ] **Step 5:** Regenerate/verify/`make check`. Also run the LSP tests (`go test ./internal/lsp`) — CtrlMap bridging over GoBlocks now sees spliced skeleton text; if any existing nav test regresses, STOP and flag (do not paper over — the per-part line anchors in Step 3a are the real fix).
 - [ ] **Step 6: Commit** — `git commit -m "feat(codegen): embedded literals inside {{ }} Go blocks (f/js/css); element literals diagnosed"`
 
----### Task 8: Component-attr provenance + declared-prop binding
+---
+
+### Task 8: Component-attr provenance + declared-prop binding
 
 Two spec requirements on components. (1) Provenance: js`/css` attrs on a component fall through to the child's `Attrs` bag (existing behavior, `components/embedded_attr_prop.txtar`) — but today the bag value is a plain `string`; it must become `_gsxrt.RawJS`/`RawCSS` (render-identical through spread — `toStr` prints the content — but provenance now survives re-interpolation). (2) Prop binding: `Handler={ js`open(@{id})` }` on a component whose declared prop is `gsx.RawJS` must bind the prop.
 
