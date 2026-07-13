@@ -1984,8 +1984,11 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		// verbatim, and each *ast.EmbeddedInterp lowers to its Go value via the
 		// SAME emitGoExprEmbeddedInterp the GoWithElements and Interp.Embedded
 		// sites use (one lowering, three container sites — they can never
-		// diverge). js`/css` never hoist (exprPos); an f` hole's statement hoist
-		// goes to b, before the reconstructed statement (the same pre-existing
+		// diverge). At THIS site — unlike the in-closure Interp.Embedded and
+		// component-value sites, which hoist — error-carrying holes are
+		// rejected for f`/js`/css` alike (canHoist=false → rejectErr/exprPos,
+		// see below); any statement hoist a hole does emit goes to b, before
+		// the reconstructed statement (the same pre-existing
 		// unconditional-errReturn caveat the other two sites carry).
 		// A `<tag>` element/fragment literal inside a Go block is unsupported.
 		// analyze's *gsxast.GoBlock case (goBlockElementPart) already diagnosed
@@ -3701,19 +3704,22 @@ func emitRenderCSSAttr(b *bytes.Buffer, expr string, t types.Type, rt rtImports,
 // the error-return statement matching the enclosing function's signature (see
 // holeStringExpr); every hoist emitted here uses it.
 //
-// exprPos is set when the literal sits in a Go-expression position (a var
-// initializer, call arg, {{ }} block) rather than a render-closure attribute:
-// there the whole literal must lower to ONE self-contained Go expression, so
-// there is no statement context to hoist into and no error channel to route a
-// filter/renderer/tuple error through. Every hole that WOULD need a statement
-// hoist — a pipeline stage that returns (R, error), a (T, error) tuple seed, or
-// a renderer that returns (R, error) — is rejected with a positioned
-// "goexpr-literal-error" diagnostic instead (goExprLiteralErrorRemedy names
-// both ways out: handle the error in Go before the literal, or move the
-// literal to an attribute position, where the render closure DOES have an
-// error-returning statement context). Pure pipes (no error stage) and pure
-// renderers lower to nested calls, which are valid expressions, so they
-// remain allowed.
+// exprPos is set where NO statement hoist channel exists — a top-level
+// GoWithElements value or a `{{ }}` GoBlock (whose reconstruction interleaves
+// GoText into the hoist buffer): there the whole literal must lower to ONE
+// self-contained Go expression, so there is no statement context to hoist
+// into and no error channel to route a filter/renderer/tuple error through.
+// Every hole that WOULD need a statement hoist — a pipeline stage that
+// returns (R, error), a (T, error) tuple seed, or a renderer that returns
+// (R, error) — is rejected with a positioned "goexpr-literal-error"
+// diagnostic instead (goExprLiteralErrorRemedy names both ways out: handle
+// the error in Go before the literal, or move the literal to an attribute
+// position, where the render closure DOES have an error-returning statement
+// context). Pure pipes (no error stage) and pure renderers lower to nested
+// calls, which are valid expressions, so they remain allowed. In-closure
+// Go-expression sites (an Interp.Embedded part or a braced component-prop
+// binding, canHoist=true in emitGoExprEmbeddedInterp) pass exprPos=false and
+// hoist error-carrying holes exactly like an f` hole at the same site.
 //
 // rejectCtx is the ctx-availability counterpart: set ONLY where the literal has
 // no ambient render context (a top-level GoWithElements value — no `ctx` binds
