@@ -1,5 +1,7 @@
-# All call-site attr forms merge into ONE bag in source order; the
-# attrs={{ }} ordered literal merges last regardless of position.
+# All call-site attr forms merge in source order (adjacent bare attrs group
+# into one literal run; a bare attr separated by a spread/cond becomes its
+# own later run and wins per key at the leaf); the attrs={{ }} ordered
+# literal merges last regardless of position.
 -- input.gsx --
 package views
 
@@ -75,10 +77,10 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		if _gsxerr != nil {
 			return _gsxerr
 		}
-		_gsxgw.Node(ctx, Box(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-a", Value: "1"}, {Key: "data-b", Value: "2"}}, extra, _gsxv1, _gsxrt.Attrs{{Key: "data-z", Value: "9"}})))
+		_gsxgw.Node(ctx, Box(_gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "data-a", Value: "1"}}, extra, _gsxv1, _gsxrt.Attrs{{Key: "data-b", Value: "2"}}, _gsxrt.Attrs{{Key: "data-z", Value: "9"}})))
 		return _gsxgw.Err()
 	})
 }
 -- diagnostics.golden --
 -- render.golden --
-<div data-a="1" data-b="2" data-x="8" data-c="3" data-z="9">box</div>
+<div data-a="1" data-x="8" data-c="3" data-b="2" data-z="9">box</div>
