@@ -347,6 +347,14 @@ TOML top-level-key-before-table trap as a short warning beside the first
 multi-section example: strict decoding reports a misplaced top-level key as an
 unknown nested key; it is not silently accepted.
 
+Qualify discovery by command. `generate`, `dev`, and `info` start from the
+command working directory and treat unusable config as a hard error. `fmt`
+discovers from each file's directory and falls back when config is missing or
+unusable; editor formatting follows the same best-effort model. The upward walk
+stops at the nearest `.git`, otherwise the module root, and checks only the
+starting directory when neither exists. Preserve nearest-file-wins and no
+merging across files.
+
 - [ ] **Step 3: Rewrite filters and renderers as recipes plus contracts**
 
 Use:
@@ -384,6 +392,13 @@ width/tab option exists. Link Extensions for function-valued custom
 formatters/minifiers. Remove parser choice, internal slice handling, cache
 participation, and algorithm history.
 
+After the `none` / `full` table, retain the user-visible hole exceptions: at
+`full`, hole-bearing CSS uses the built-in hole-aware safe pass, while a
+hole-bearing script remains unminified. For class merging, say that when a
+merger is invoked it receives one raw string per source; the default preserves a
+single source verbatim and deduplicates exact tokens last-wins only when several
+sources contribute.
+
 - [ ] **Step 5: End with one complete file and verification commands**
 
 Use:
@@ -409,7 +424,7 @@ Run:
 rg -n -i 'lowering|go/types|packages\.Load|cache key|internal|implementation|formerly|old behavior|migration|generated alias' docs/guide/config.md
 awk 'BEGIN{p=0} /^$/{if(p>100) print NR ": " p " words"; p=0; next} {p+=NF} END{if(p>100) print "EOF: " p " words"}' docs/guide/config.md
 git diff --check
-go test ./gen -run 'Test.*Config|TestInfo' -count=1
+go test ./gen -run 'Test.*Config|TestInfo|TestFmt|TestFormat|TestMinify|Test.*ClassMerger' -count=1
 ```
 
 Expected: concise public contracts only, no oversized prose paragraph, valid Markdown, and focused config tests pass.

@@ -21,14 +21,22 @@ in pipelines such as `{ page |> url }`.
 
 ## Discovery and precedence
 
-gsx starts at the command's working directory (after `-C`, when used), walks
-upward, and uses the first `gsx.toml` it finds. The walk stops at the nearest
-ancestor containing `.git`; outside a Git repository, it stops at the nearest
-Go module root. The boundary directory is included in the search.
+`gsx generate`, `gsx dev`, and `gsx info` start at the command's working
+directory (after `-C`, when used), walk upward, and use the first `gsx.toml`
+they find. The walk stops at the nearest ancestor containing `.git`; outside a
+Git repository, it stops at the nearest Go module root. The boundary directory
+is included. With neither `.git` nor `go.mod`, only the starting directory is
+checked.
 
 A nearer file replaces an ancestor file completely. Config files are not
 merged, and gsx never continues above the project boundary to find a global
 config.
+
+For those three commands, malformed TOML, unknown keys, and invalid values are
+hard configuration errors. `gsx fmt` instead discovers configuration from each
+file's directory and falls back to `.editorconfig` or built-in formatting when
+a file is missing or unusable. Editor formatting uses the same per-file,
+best-effort behavior.
 
 For settings that affect generated output, precedence is:
 
@@ -292,6 +300,9 @@ js = "full"
 | `none` | No minification. This is the default. |
 | `full` | Run the full CSS or JavaScript minifier. |
 
+At `full`, CSS containing `@{...}` holes uses gsx's built-in hole-aware safe
+pass. A `<script>` body containing holes remains unminified.
+
 CSS and JavaScript are configured independently. `GSX_MINIFY=none` or
 `GSX_MINIFY=full` overrides both file values, and `gen.WithMinifyLevel` in a
 custom binary overrides the environment.
@@ -314,8 +325,9 @@ The named exported package-level symbol must have exactly this type:
 func([]string) string
 ```
 
-It receives one raw class string per contributing source. A Tailwind wrapper
-can pass that slice directly to the configured merger:
+When the merger is invoked, it receives one raw class string per contributing
+source. A Tailwind wrapper can pass that slice directly to the configured
+merger:
 
 ```go
 package twcfg
@@ -327,8 +339,9 @@ var merger = twmerge.CreateTwMerge(twmerge.GetDefaultConfig())
 func Merge(classes []string) string { return merger(classes) }
 ```
 
-The default strategy removes exact duplicate tokens with the later occurrence
-winning. A programmatic `gen.WithClassMerger` overrides `class_merger`.
+With multiple sources, the default strategy removes exact duplicate tokens with
+the later occurrence winning. A single source is preserved verbatim. A
+programmatic `gen.WithClassMerger` overrides `class_merger`.
 
 `class_merger` is top-level, so place it before the first table header. See
 [Styling](./syntax/styling.md#tailwind-aware-class-merging) for where class
@@ -366,7 +379,7 @@ Only function-valued hooks need a project-owned `gen.Main` binary:
 - custom CSS or JavaScript minifiers;
 - a custom props field matcher.
 
-See [Extensions](./extensions.md) for their signatures and setup. Declarative
+See [Extensions](./extensions.md) for setup and option details. Declarative
 filters, renderers, URL rules, minification levels, and class-merger references
 can stay in `gsx.toml`.
 
