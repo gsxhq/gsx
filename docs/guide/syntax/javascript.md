@@ -49,8 +49,10 @@ component Choice(id int, color string) {
 ```
 :::
 
-Each hole is still escaped for its JavaScript or CSS position before the typed
-value is created. Do not render the literal directly as visible body text.
+Each hole follows the JavaScript or CSS rules for its position before the typed
+value is created. Trusted `gsx.RawJS` and `gsx.RawCSS` holes retain their
+documented passthrough; see [Escaping](./escaping.md#trusted-value-helpers). Do
+not render the literal directly as visible body text.
 
 A component may explicitly accept the trusted type. Use braces so the literal
 binds the declared prop as a Go expression:
@@ -64,8 +66,9 @@ component Widget(Handler gsx.RawJS, Rule gsx.RawCSS) {
 ```
 
 ::: v-pre
-Top-level Go and `{{ }}` blocks cannot propagate a hole's `(T, error)`, so an
-error-returning pipeline or renderer is a compile error in those positions.
+Because the literal is a Go value, its holes cannot use an error-returning
+pipeline or renderer. Top-level declarations also cannot use a filter or
+renderer that takes `ctx`; component expressions and `{{ }}` blocks can.
 :::
 
 ## Alpine and htmx directives
