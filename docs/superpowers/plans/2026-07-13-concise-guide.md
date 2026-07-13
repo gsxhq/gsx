@@ -140,10 +140,10 @@ remains active after later failures. State dependency behavior separately:
 `.go`, `go.mod`, and `go.sum` changes refresh affected generation before rebuild;
 `.env` changes restart the existing backend with fresh environment values and do
 not regenerate or rebuild. Delete the stale first-build/backend-down/log-file
-subsection; cold generation and initial build errors reach the overlay. Link
-command flags and `[dev]` configuration rather than documenting warm resolver,
-cache-directory, HTTP endpoint, HMR transport, or process-supervision
-implementation.
+subsection. State only that before the first successful build there is no last
+working server; fix the startup error and save again. Link command flags and
+`[dev]` configuration rather than documenting warm resolver, cache-directory,
+HTTP endpoint, HMR transport, or process-supervision implementation.
 
 - [ ] **Step 5: Check the onboarding slice**
 

@@ -36,9 +36,8 @@ Fix the error and save again to build and reload the new version.
 
 ### The first build
 
-Cold generation and initial build errors also reach the overlay, but there is
-no last working server until the first successful build. Keep `gsx dev` running,
-fix the reported error, and save again.
+Before the first successful build, there is no last working server. Keep
+`gsx dev` running, fix the startup error, and save again.
 
 ## Customize the commands
 
