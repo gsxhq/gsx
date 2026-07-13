@@ -453,11 +453,11 @@ render goldens.
     children, and an undefined identifier). Docs: `syntax/props.md` §Attrs-only
     component values (props model table grows a fourth row), `syntax/
     composition.md` cross-reference, `syntax/attributes.md` cross-reference.
-    **Follow-up (not blocking, tracked in "Tracked debts / deferrals"
-    below):** fallthrough forwarding through nested component calls
-    (`<Inner { attrs... }/>`) is a related but separate gap this spec
-    identified and deliberately left open. Spec
-    `2026-07-07-attrs-only-component-values-design.md`.
+    **Follow-up, SHIPPED (2026-07-13):** fallthrough forwarding through
+    nested component calls (`<Inner { attrs... }/>`) was a related but
+    separate gap this spec identified and deliberately left open - now
+    closed, see "Tracked debts / deferrals" below and spec
+    `2026-07-13-nested-fallthrough-forwarding-design.md`.
 19. [x] **Lowercase tags resolve to package symbols** - `2026-07-10`. A tag
     resolves in exactly one of three ways: capital-first/dotted tags stay
     components unchanged (`go build` resolves the name, including
@@ -781,6 +781,13 @@ vocabulary remains a design aspiration, not the current API.
    later dynamic URL values remain sanitized, and non-folding leaves continue
    to emit their literal tags directly.
 
+   **Component-call bags joined this source-order rule** (2026-07-13,
+   `2026-07-13-nested-fallthrough-forwarding-design.md`): a component
+   invocation's fallthrough bag (bare attrs, `{ expr… }` spreads, conditional
+   attrs) now assembles in strict source order exactly like an element's,
+   instead of coalescing all bare attrs into one leading literal - `attrsonly/
+   merge_order.txtar` regenerated with a corrected comment.
+
 ## Tracked debts / deferrals
 
 - [ ] **Bare bool `class`/`style` beside a same-name contributor** - a bare
@@ -789,7 +796,8 @@ vocabulary remains a design aspiration, not the current API.
   so `<div class { if a { class="on" } }>` stays inline and still renders two
   `class` attributes. Pathological authoring shape; the clean resolution is
   probably a positioned diagnostic rather than a merge semantic.
-- [ ] **Fallthrough forwarding through nested component calls** - the
+- [x] **Fallthrough forwarding through nested component calls** - SHIPPED
+  (2026-07-13, `2026-07-13-nested-fallthrough-forwarding-design.md`). The
   attrs-only component values spec (item 18 above, "Alternative considered")
   named this as the competing design for the icon-wrapper use case and
   deliberately left it open: `{ attrs... }` fallthrough is only recognized
@@ -804,15 +812,24 @@ vocabulary remains a design aspiration, not the current API.
   interleave) and deserves its own spec - complementary to, not blocked by or
   blocking, attrs-only component values. Spec
   `2026-07-07-attrs-only-component-values-design.md` §"Alternative considered".
-- [ ] **Fallthrough onto a component with no `Attrs` field - diagnostic
-  shape** - an unmatched attribute on a generated component whose body never
-  uses `attrs` gets no worded diagnostic. Same-package, the caller sees the
-  raw go/types message (`unknown field Attrs in struct literal of type
-  PlainProps`), positioned at the attribute but not actionable.
-  Cross-package it is worse: generate exits 0 and the failure surfaces only
-  at `go build` of the emitted `.x.go` (found while probing PR #102's skipped
-  generic tags). The byo path already has the worded caller-side check
-  (`byo-missing-attrs`); the generated-props path needs the same validation.
+  One rule, no new syntax: `attrs` now binds in every Go-fragment position of
+  a nested component invocation, exactly as it already does in plain-element
+  and body positions - uniform binding, not spread-only. Component-call bags
+  now merge in strict source order (a bare attr after a spread wins per key,
+  matching the 2026-07-12 element rule; `attrs={{ … }}` still merges last),
+  and forwarding onto a component whose body never references `attrs` is the
+  worded `component-missing-attrs` diagnostic, not a raw `go/types` error.
+- [x] **Fallthrough onto a component with no `Attrs` field - diagnostic
+  shape** - RESOLVED (2026-07-13, `component-missing-attrs`,
+  `2026-07-13-nested-fallthrough-forwarding-design.md`). An unmatched
+  attribute on a generated component whose body never uses `attrs` gets a
+  positioned, worded diagnostic at generate time, same-package and
+  cross-package (previously: same-package saw the raw go/types message;
+  cross-package failed only later, at `go build` of the emitted `.x.go`). The
+  byo path keeps its own worded check (`byo-missing-attrs`); a sole
+  `{ attrs... }` spread onto a byo callee also gets a worded diagnostic
+  instead of a raw splat type error, since a spread on a byo component always
+  passes the whole Props value and never merges into an `Attrs` field.
 - [ ] **Child-prop inference-probe `//line` column points past the expression**
   - a component child-prop expression (`<Show v={ fmt.Sprint(1) } />`) is
   emitted TWICE in the skeleton: once in the generated props literal (its

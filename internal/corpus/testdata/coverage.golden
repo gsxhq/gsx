@@ -81,6 +81,7 @@ class/part_tuple	diag gen render
 class/sibling_cf_class_generated	diag gen render
 class/spread	diag render
 class/style_rejected	diag
+class/value_arm_attrs_ref	diag gen render
 class/value_arm_pipeline	diag gen render
 class/value_arm_tuple_rejected	diag(error)
 class/value_cf_condattr_nested_liveness	diag gen render
@@ -121,7 +122,7 @@ components/child_class_reject_non_error_tuple	diag(error)
 components/child_class_value_arm_tuple	diag gen render
 components/child_hyphen_attr_fallthrough	diag render
 components/child_no_props	diag render
-components/child_prop_attrs_reference	diag(error) gen
+components/child_prop_attrs_reference	diag gen render
 components/child_prop_pipeline	diag render
 components/child_prop_try_error	diag(error)
 components/child_prop_tuple_error	diag gen render
@@ -447,6 +448,32 @@ multispread/two_bags_merge	diag gen render
 multispread/two_bags_source_order	diag gen render
 multispread/variadic_attrs_operand	diag gen render
 multispread/void_and_children	diag gen render
+nestedforward/attrsonly_callee	diag gen render
+nestedforward/bare_after_spread	diag render
+nestedforward/byo_callee	diag gen render
+nestedforward/byo_missing_attrs_rejected	diag render
+nestedforward/byo_with_attrs_spread_rejected	diag render
+nestedforward/case_d_hoist	diag gen render
+nestedforward/chain	diag gen render
+nestedforward/class_prop	diag gen render
+nestedforward/cond_attr	diag gen render
+nestedforward/css_hole	diag gen render
+nestedforward/derived_bag	diag gen render
+nestedforward/generic_callee	diag gen render
+nestedforward/generic_callee_cond	diag gen render
+nestedforward/generic_missing_attrs_rejected	diag render
+nestedforward/method_callee	diag gen render
+nestedforward/missing_attrs_rejected	diag render
+nestedforward/missing_attrs_spread_rejected	diag render
+nestedforward/ordered_literal_value	diag gen render
+nestedforward/prop_value	diag gen render
+nestedforward/shadows_package_var	diag gen render
+nestedforward/spread_basic	diag gen render
+nestedforward/stage_arg	diag gen render
+nestedforward/url_sanitized_at_leaf	diag gen render
+nestedforward/with_children	diag gen render
+nestedforward/xpkg_dotted	diag gen render
+nestedforward/xpkg_missing_attrs_rejected	diag render
 nonce/cond_attr_nonce	diag render
 nonce/div_control	diag render
 nonce/explicit_expr_wins	diag render
@@ -758,4 +785,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 760 cases (render: 640, error: 90, gen-pinned: 424)
+TOTAL: 787 cases (render: 668, error: 89, gen-pinned: 444)

@@ -1,0 +1,18 @@
+# Fallthrough onto a generated component whose body never references
+# `attrs` is a worded, positioned diagnostic (component-missing-attrs) —
+# not the raw go/types `unknown field Attrs in struct literal`.
+-- input.gsx --
+package views
+
+component Plain(title string) {
+	<h1>{title}</h1>
+}
+
+component Page() {
+	<Plain title="t" data-x="1"/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+8:19: attribute on <Plain> matches no declared prop of component Plain, and its body does not reference `attrs` (no fallthrough bag); reference `attrs` in <Plain>'s body to accept forwarded attributes
+-- render.golden --

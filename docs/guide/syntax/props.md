@@ -45,6 +45,8 @@ The byo path activates only for a **single** non-receiver param whose type resol
 
 The generated `<Name>Props` struct gets an `Attrs gsx.Attrs` field when the component body explicitly references `attrs`, and a `Children gsx.Node` field when the body uses `{children}` — not unconditionally. The byo struct has neither unless the author declares them.
 
+That `attrs` reference forwards through nested component calls too — a wrapper can spread its own bag straight into a component it calls; see [Composition — Forwarding through components](./composition.md#forwarding-through-components).
+
 ## Whole-struct splat
 
 When the props value is already assembled — for example, loaded from a database, threaded through a page handler, or constructed with `cardData{Title: x}` — pass it whole with `{ x... }` instead of spelling out every field:

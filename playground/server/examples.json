@@ -156,6 +156,12 @@
     "invoke": "Item(ItemProps{Id: \"a&b\"})"
   },
   {
+    "name": "Forwarding through components",
+    "category": "Components & composition",
+    "source": "package views\n\ncomponent Icon(name string) {\n\t<span class=\"icon\" data-name={name} { attrs... }>i</span>\n}\n\ncomponent SearchIcon() {\n\t<Icon name=\"search\" class=\"w-5 h-5\" { attrs... }/>\n}\n\ncomponent Page() {\n\t<SearchIcon class=\"text-red\" aria-label=\"Search\"/>\n}\n",
+    "invoke": "Page()"
+  },
+  {
     "name": "Interpolation & props",
     "category": "Basics",
     "source": "package views\n\ncomponent Greeting(name string, count int) {\n\t<p>Hello, { name }! You have { count } messages.</p>\n}\n",
