@@ -1,51 +1,47 @@
 # Performance
 
-gsx renders by streaming HTML straight to your `io.Writer` — no intermediate
-document, no per-component buffer pool. Generated code is direct write calls, and
-the escaper writes safe runs in place, so rendering allocates very little.
+gsx streams rendered HTML directly to an `io.Writer`.
 
-## Reproduce
+## Reproduce the snapshot
 
-The benchmark source lives at [github.com/gsxhq/gsx-bench](https://github.com/gsxhq/gsx-bench).
+These results come from
+[`gsx-bench` commit 3b701ca8](https://github.com/gsxhq/gsx-bench/commit/3b701ca8dbfe163502da8eead3ff36c3661c6a11),
+recorded on 2026-07-01. The benchmark uses a sibling gsx checkout:
 
 ```sh
+git clone https://github.com/gsxhq/gsx
 git clone https://github.com/gsxhq/gsx-bench
 cd gsx-bench
-go test -bench . -benchmem
+git checkout 3b701ca8
+go test -bench Pooled -benchmem -run '^$' .
 ```
 
-The numbers below are a snapshot from Apple M3 Ultra with Go 1.26.1. Treat them as directional; use the command above on your hardware for local decisions.
+Snapshot environment: Apple M3 Ultra, Go 1.26.1, and templ v0.3.1020. The
+destination is a warm pooled `bytes.Buffer`, matching a buffered HTTP handler.
 
-## Numbers
+## Small template
 
-Apple M3 Ultra, Go 1.26.1, rendering into a pooled `bytes.Buffer` (as an HTTP
-handler would). Lower is better.
-
-The same small template through all three engines:
-
-| engine | time | allocs |
+| engine | time | allocations |
 | --- | --- | --- |
 | **gsx** | **270 ns** | **2** |
 | [templ](https://templ.guide) | 394 ns | 10 |
 | `html/template` | 1428 ns | 24 |
 
-A realistic, component- and class-heavy page (20 rows, nested components):
+## Component-heavy page
 
-| engine | time | allocs |
+This case renders 20 rows with nested components and utility classes.
+
+| engine | time | allocations |
 | --- | --- | --- |
 | **gsx** | **4.7 µs** | **62** |
 | templ | 6.8 µs | 204 |
 
-Escaping-heavy content (bodies full of `< > & " '`) — gsx's `html/template`-derived
-escaper never allocates:
+## Escaping-heavy content
 
-| engine | time | allocs |
+| engine | time | allocations |
 | --- | --- | --- |
 | **gsx** | **3.6 µs** | **1** |
 | templ | 6.6 µs | 143 |
 
-## Notes
-
-- In this benchmark snapshot, gsx is faster than `html/template` and templ with
-  fewer allocations.
-- Numbers are machine- and version-specific.
+These figures are machine-, version-, and workload-specific. Run the suite on
+your own templates and deployment hardware before making performance decisions.

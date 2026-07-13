@@ -1,37 +1,36 @@
 # Comparisons
 
-gsx sits between Go template engines and JSX-like markup systems: templates stay close to HTML, data stays typed Go, and output compiles to ordinary Go.
+Choose by where templates live, when they load, and where rendering happens.
 
-## gsx and templ
+| tool | best fit | component typing | compile/load model | rendering model |
+| --- | --- | --- | --- | --- |
+| gsx | HTML-shaped Go views | Go props | generate before build | server HTML |
+| templ | Go-first components | Go parameters | generate before build | server HTML |
+| `html/template` | stdlib or dynamic templates | runtime data | parse embedded or runtime text | server HTML |
+| client-side JSX | browser applications | JavaScript or TypeScript props | compile for the browser | browser UI |
 
-Both gsx and templ compile components to Go values with `Render(ctx, w) error`. A `gsx.Node` has the identical method set to `templ.Component`, so it is accepted anywhere a `templ.Component` is expected — gsx interoperates with the templ/HTMX ecosystem without importing templ.
+## Choose gsx
 
-The difference is a deliberate tradeoff. templ keeps a simple, explicit compiler model with syntax close to Go. gsx spends more in the toolchain — it analyzes real Go types with `go/packages` and `go/types` — to make the authoring experience more HTML-like and to push more checks to compile time.
+Choose gsx when you want JSX-like calls and HTML-shaped component bodies while
+keeping expressions, props, and builds in Go. It is especially useful when
+class, attribute, and contextual-escaping rules should be part of the template
+language.
 
-That extra analysis buys ergonomics that are hard to retrofit onto a simpler model:
+## Choose templ
 
-- **HTML-style component calls** — `<Card title="…"/>` reads like markup, and the tag itself (capitalization, dots, or a same-package name match) decides component-vs-element with no separate registration step.
-- **Named props checked by Go** — attributes map to struct fields, so a wrong prop name or type is a compile error with a real source location, not a runtime surprise.
-- **Context-aware escaping** across text, attribute, URL, CSS, and JavaScript positions, decided at codegen.
-- **Class and attribute merging** as structured values rather than string concatenation.
-- **Explicit JavaScript-valued attributes** and automatic JSON interpolation for data islands and attributes like `hx-vals`.
+Choose templ when you prefer its Go-first syntax or need its existing ecosystem.
+Interop is structural: `gsx.Node` and `templ.Component` both expose
+`Render(context.Context, io.Writer) error`, so gsx nodes work where templ
+components are accepted. See the runnable [Interop examples](./syntax/interop.md).
 
-Many of these are long-standing requests on templ itself — HTML-style authoring, inline components, passing Go data to JavaScript, JSON helpers, class ergonomics — which are difficult to add incrementally to a model optimised for simplicity. gsx starts from a design where they compose. For the full reasoning, see [Why I built gsx](https://jackieli.dev/posts/why-i-built-gsx/).
+## Choose `html/template`
 
-Use gsx when you want JSX-like authoring and richer compile-time ergonomics inside Go. Use templ when you prefer its simpler compiler model and established ecosystem.
+Choose `html/template` when the standard library is the priority or templates
+must be parsed or replaced at runtime. Choose gsx when templates can be compiled
+with the application and component calls should be checked by Go.
 
-## gsx and html/template
+## Choose client-side JSX
 
-`html/template` is stable, standard-library, and contextually auto-escaping. gsx preserves contextual escaping while adding typed components, generated props, compiler-checked composition, and a formatter/LSP path.
-
-Use `html/template` when you need runtime-loaded templates or the standard package alone. Use gsx when templates are part of the compiled application.
-
-## gsx and JSX
-
-JSX makes markup part of JavaScript. gsx borrows the readable tag structure, but expressions are Go, components compile to Go, and there is no virtual DOM.
-
-Use client-side JSX for interactive browser applications. Use gsx for server-rendered Go components, optionally with JavaScript islands.
-
-## Interop
-
-See [Interop](./syntax/interop.md) for examples that compose gsx with templ, `html/template`, and client-side islands.
+Choose React or another JSX-based client framework for browser-owned state and
+rich client interaction. Choose gsx for server-rendered HTML, with JavaScript
+islands where needed.
