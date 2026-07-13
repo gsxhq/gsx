@@ -48,6 +48,12 @@ Spread a `gsx.Attrs` bag with `{ bag... }`; entries render in slice order.
   destinations also run scheme sanitization.
 - `gsx.AttrMap.ToAttrs()` sorts map keys.
 
+**Treat keys as trusted code.** Build `gsx.Attr` and `gsx.Attrs` keys only from
+developer-controlled strings; never use user input as a key. Values are still
+escaped or URL-sanitized for their destination. For dynamic JavaScript or CSS,
+use a typed literal on the final native element; see
+[JavaScript and CSS contexts](./escaping.md#javascript-and-css-contexts).
+
 <span id="ordered-attrs-literal-k-v"></span>
 
 ## Ordered-attrs literal <code v-pre>{{ "k": v }}</code> {#ordered-attrs-literal}
