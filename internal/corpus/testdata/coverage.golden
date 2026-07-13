@@ -332,6 +332,7 @@ goblock-literal/element_rejected	diag render
 goblock-literal/element_rejected_used_later	diag render
 goblock-literal/f_literal	diag gen render
 goblock-literal/motivating_attrs	diag gen render
+goblock-literal/nested_literal_hole	diag gen render
 goexpr-css-literal/diag_error_renderer	diag render
 goexpr-css-literal/diag_whole_pipe_interp	diag render
 goexpr-css-literal/err_tuple_in_closure	diag gen render
@@ -348,6 +349,7 @@ goexpr-f-literal/diag_whole_pipe_toplevel	diag render
 goexpr-f-literal/error_pipe_in_closure	diag gen render
 goexpr-f-literal/f_value_is_escaped_string	diag gen render
 goexpr-f-literal/interp	diag gen render
+goexpr-f-literal/nested_js_hole_interp	diag gen render
 goexpr-f-literal/scope-local	diag gen render
 goexpr-f-literal/var	diag gen render
 goexpr-interp-tag/call-arg	diag gen render
@@ -367,6 +369,7 @@ goexpr-js-literal/diag_error_pipe	diag render
 goexpr-js-literal/diag_error_renderer	diag render
 goexpr-js-literal/diag_error_tuple	diag render
 goexpr-js-literal/diag_malformed_js	diag render
+goexpr-js-literal/diag_nested_err_toplevel	diag render
 goexpr-js-literal/differential	diag gen render
 goexpr-js-literal/dquote_form	diag gen render
 goexpr-js-literal/err_and_pure_holes_in_closure	diag gen render
@@ -378,6 +381,7 @@ goexpr-js-literal/eval_order_once	diag gen render
 goexpr-js-literal/func_return	diag gen render
 goexpr-js-literal/hostile	diag gen render
 goexpr-js-literal/indirect_rawjs_text	diag gen render
+goexpr-js-literal/nested_f_hole_toplevel	diag gen render
 goexpr-js-literal/pure_filter_toplevel	diag gen render
 goexpr-js-literal/rawjs_escaped_in_string	diag gen render
 goexpr-js-literal/rawjs_passthrough_value	diag gen render
@@ -412,9 +416,11 @@ imports/shadow_gsx_import	diag gen render
 imports/shadow_io	diag gen render
 imports/shadow_strconv	diag gen render
 imports/unused_gsx_import	diag(error)
+interpolation/diag_element_in_attr_hole	diag render
 interpolation/field_access	diag render
 interpolation/interp_types	diag render
 interpolation/mixed_chunk	diag render
+interpolation/nested_literal_attr_hole	diag gen render
 interpolation/numeric_contexts	diag gen render
 interpolation/probe_multi_value_expr	diag render
 interpolation/url_hole_generic	diag render
@@ -430,6 +436,7 @@ jsattr/jsattr_identifier_rejected	diag
 jsattr/manual_forced	diag gen render
 jsattr/manual_multi_spread_rejected	diag gen render
 jsattr/manual_overridable	diag gen render
+jsattr/nested_f_in_js_hole	diag gen render
 jsattr/quoted_attr_literal_no_interp	diag render
 jsattr/regexp_hostile	diag gen render
 jsattr/string_hostile	diag gen render
@@ -842,6 +849,7 @@ urlattrs/bag_src_image_split	diag gen render
 urlattrs/element_custom_rule	diag gen render
 urlattrs/htmx_preset	diag gen render
 urlattrs/hx_default_plain	diag gen render
+urlattrs/nested_literal_url_hole	diag gen render
 urlattrs/static_plus_case_variant	diag gen render
 xpkg/cross_file_and_component	diag render
 xpkg/cross_package	diag render
@@ -859,4 +867,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 861 cases (render: 732, error: 97, gen-pinned: 493)
+TOTAL: 869 cases (render: 740, error: 97, gen-pinned: 499)

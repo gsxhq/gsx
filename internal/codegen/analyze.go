@@ -475,11 +475,18 @@ func splitInterpEmbedded(file *gsxast.File, cls *attrclass.Classifier, fset *tok
 		gb.Embedded = parts
 		// Classify js holes immediately after splitting, mirroring the
 		// Interp.Embedded path above (emit ≡ probe). ResolveEmbedded is
-		// idempotent, so a re-classification is harmless.
+		// idempotent, so a re-classification is harmless. Also split every @{ }
+		// hole that carries a nested prefixed literal, so emit's assembleHoleSeed
+		// and the probe's embeddedProbeSeed both reassemble it from Embedded.
 		for _, part := range parts {
-			if lit, ok := part.(*gsxast.EmbeddedInterp); ok && lit.Lang == gsxast.EmbeddedJS {
+			lit, ok := part.(*gsxast.EmbeddedInterp)
+			if !ok {
+				continue
+			}
+			if lit.Lang == gsxast.EmbeddedJS {
 				jsx.ResolveEmbedded(lit.Segments, bag)
 			}
+			walk(lit.Segments, "", false)
 		}
 	}
 	walk = func(nodes []gsxast.Markup, exclude string, materialized bool) {
@@ -546,6 +553,11 @@ func splitInterpEmbedded(file *gsxast.File, cls *attrclass.Classifier, fset *tok
 					walk(pt.Children, exclude, false)
 				case *gsxast.Fragment:
 					walk(pt.Children, exclude, false)
+				case *gsxast.EmbeddedInterp:
+					// A top-level f`/js`/css` literal part: split every @{ } hole that
+					// carries a nested prefixed literal, so emit's assembleHoleSeed and
+					// the probe's embeddedProbeSeed both reassemble it from Embedded.
+					walk(pt.Segments, exclude, false)
 				}
 			}
 		}
@@ -2365,14 +2377,53 @@ func embeddedProbeSeed(segments []gsxast.Markup, table funcTables, usedFilters m
 			}
 			parts = append(parts, strconv.Quote(s.Value))
 		case *gsxast.Interp:
-			probe, _ := probeExpr(s.Expr, s.Stages, table, usedFilters)
-			parts = append(parts, "_gsxstr("+probe+")")
+			parts = append(parts, "_gsxstr("+holeProbeSeed(s, table, usedFilters)+")")
 		}
 	}
 	if len(parts) == 0 {
 		return `""`
 	}
 	return strings.Join(parts, " + ")
+}
+
+// holeProbeSeed reconstructs one hole's Go expression at the TYPE level for
+// embeddedProbeSeed, mirroring emit's assembleHoleSeed (emit.go): a plain hole
+// is its Expr (via probeExpr, honoring its own `|>` pipeline); a hole carrying a
+// nested prefixed literal (Interp.Embedded, seated by splitInterpEmbedded)
+// splices GoText verbatim and each nested literal as WRAP(embeddedProbeSeed(
+// parts)) — the SAME WRAP embeddedProbeType gives that literal in emit, so the
+// reconstructed seed has emit's exact static type (emit ≡ probe). A hole's own
+// pipeline then applies over the reassembled seed, matching holeStringExpr /
+// embeddedHoleExpr, which seed lowerPipe with the assembled expr. Element /
+// Fragment parts cannot be a string seed and are rejected by emit's
+// assembleHoleSeed with a positioned diagnostic; here they fall back to the raw
+// Expr so the seed stays a single expression and that emit diagnostic is what
+// surfaces.
+func holeProbeSeed(n *gsxast.Interp, table funcTables, usedFilters map[string]string) string {
+	if n.Embedded == nil {
+		probe, _ := probeExpr(n.Expr, n.Stages, table, usedFilters)
+		return probe
+	}
+	var sb strings.Builder
+	for _, part := range n.Embedded {
+		switch p := part.(type) {
+		case gsxast.GoText:
+			sb.WriteString(p.Src)
+		case *gsxast.EmbeddedInterp:
+			_, wrapOpen, wrapClose := embeddedProbeType(p.Lang)
+			sb.WriteString(wrapOpen)
+			sb.WriteString(embeddedProbeSeed(p.Segments, table, usedFilters))
+			sb.WriteString(wrapClose)
+		default:
+			// *Element/*Fragment: unsupported in a string-seed hole (emit rejects
+			// with a diagnostic). Fall back to the raw Expr; the emit diagnostic is
+			// authoritative.
+			probe, _ := probeExpr(n.Expr, n.Stages, table, usedFilters)
+			return probe
+		}
+	}
+	probe, _ := probeExpr(strings.TrimSpace(sb.String()), n.Stages, table, usedFilters)
+	return probe
 }
 
 // embeddedProbeType returns the probe IIFE's return type and the seed wrapper

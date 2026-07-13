@@ -1,0 +1,36 @@
+# W3 capability recursion: an error-returning pipe INSIDE a nested f`` literal,
+# where the nested literal sits in a TOP-LEVEL js`` literal's hole. The
+# capability flags recurse (hasCtx=!rejectCtx, canHoist=!rejectErr) so the inner
+# hole obeys the same position rules as the top-level container: no statement
+# hoist channel exists, so the error-carrying inner hole is still a positioned
+# "goexpr-literal-error" diagnostic, never a silent hoist. Filter registration
+# mirrors goexpr-js-literal/diag_error_pipe.txtar.
+-- gsx.toml --
+filter_packages = ["./filters"]
+-- filters/filters.go --
+package filters
+
+import "errors"
+
+// Risky fails on empty input.
+func Risky(s string) (string, error) {
+	if s == "" {
+		return "", errors.New("risky: empty input")
+	}
+	return s, nil
+}
+-- input.gsx --
+package demo
+
+var name = "x"
+
+var h = js`f(@{ f`@{name |> risky}` })`
+
+component Page() {
+	<button @click={h}>x</button>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+5:20: @{ name |> risky } uses an error-returning filter (|>); a js`/css`/f` literal in Go-expression position has no error channel to propagate it through — handle the error in Go, or move the literal to an attribute position
+-- render.golden --
