@@ -5682,7 +5682,11 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 					// callee: never a whole-struct splat — the author is forwarding.
 					msg := fmt.Sprintf("cannot forward `{ attrs... }` to <%s>: %s has no fallthrough bag; reference `attrs` in <%s>'s body to accept forwarded attributes", el.Tag, propsType, el.Tag)
 					if isByoChild {
-						msg = fmt.Sprintf("cannot forward `{ attrs... }` to <%s>: its Props type %s has no `Attrs gsx.Attrs` field", el.Tag, propsType)
+						// A spread on a byo tag is ALWAYS the whole-struct splat
+						// (this branch is entered for isByoChild regardless of
+						// hasAttrsBag), so adding an Attrs field would not make
+						// `{ attrs... }` merge — say so instead of implying it.
+						msg = fmt.Sprintf("cannot forward `{ attrs... }` to <%s>: a spread on a byo component passes the whole %s value and never merges into an `Attrs` field; construct the props explicitly ({ %s{Attrs: attrs}... }) or pass individual attributes", el.Tag, propsType, propsType)
 					}
 					return nil, nil, "", nil, &attrError{pos: s.Pos(), end: s.End(), code: "component-missing-attrs", msg: msg}
 				}

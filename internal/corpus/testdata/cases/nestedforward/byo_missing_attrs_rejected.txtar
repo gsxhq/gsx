@@ -1,8 +1,10 @@
-# A sole `{ attrs... }` from a manual-mode wrapper onto a BYO component whose
-# hand-written Props struct has NO Attrs field: guard (a)'s byo variant fires
-# ("its Props type X has no `Attrs gsx.Attrs` field"), not the generic
-# "has no fallthrough bag" wording missing_attrs_spread_rejected.txtar pins
-# for a non-byo callee.
+# A sole `{ attrs... }` from a manual-mode wrapper onto a BYO component
+# (here one whose hand-written Props struct has NO Attrs field): guard (a)'s
+# byo variant fires with the splat-semantics wording — a spread on a byo tag
+# always passes the whole Props value, so the fix is an explicit props
+# construction, never "add an Attrs field". Sibling case
+# byo_with_attrs_spread_rejected.txtar proves the same wording holds when
+# the struct DOES have an Attrs field.
 -- input.gsx --
 package views
 
@@ -24,5 +26,5 @@ component Page() {
 -- invoke --
 Page()
 -- diagnostics.golden --
-12:8: cannot forward `{ attrs... }` to <Card>: its Props type CardProps has no `Attrs gsx.Attrs` field
+12:8: cannot forward `{ attrs... }` to <Card>: a spread on a byo component passes the whole CardProps value and never merges into an `Attrs` field; construct the props explicitly ({ CardProps{Attrs: attrs}... }) or pass individual attributes
 -- render.golden --

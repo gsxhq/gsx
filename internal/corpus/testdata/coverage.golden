@@ -452,6 +452,7 @@ nestedforward/attrsonly_callee	diag gen render
 nestedforward/bare_after_spread	diag render
 nestedforward/byo_callee	diag gen render
 nestedforward/byo_missing_attrs_rejected	diag render
+nestedforward/byo_with_attrs_spread_rejected	diag render
 nestedforward/case_d_hoist	diag gen render
 nestedforward/chain	diag gen render
 nestedforward/class_prop	diag gen render
@@ -781,4 +782,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 783 cases (render: 664, error: 89, gen-pinned: 442)
+TOTAL: 784 cases (render: 665, error: 89, gen-pinned: 442)
