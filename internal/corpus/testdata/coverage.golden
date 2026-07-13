@@ -337,7 +337,13 @@ goexpr-interp-tag/sibling-mixed-type	diag gen render
 goexpr-interp-tag/stages	diag gen render
 goexpr-js-literal/attrs_map_spread	diag gen render
 goexpr-js-literal/call_arg	diag gen render
+goexpr-js-literal/ctx_matrix	diag gen render
+goexpr-js-literal/dquote_form	diag gen render
+goexpr-js-literal/eval_order_once	diag gen render
 goexpr-js-literal/func_return	diag gen render
+goexpr-js-literal/hostile	diag gen render
+goexpr-js-literal/rawjs_escaped_in_string	diag gen render
+goexpr-js-literal/rawjs_passthrough_value	diag gen render
 goexpr-js-literal/rawjs_slice	diag gen render
 goexpr-js-literal/var	diag gen render
 goexpr-valueform-init/value_if_define_init	diag gen render
@@ -767,4 +773,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 769 cases (render: 647, error: 90, gen-pinned: 434)
+TOTAL: 775 cases (render: 653, error: 90, gen-pinned: 440)
