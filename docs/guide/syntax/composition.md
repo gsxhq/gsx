@@ -256,8 +256,8 @@ A component can forward its own fallthrough bag into a component it calls —
 
 The bag concatenates into `Icon`'s bag at the spread's source position;
 duplicates resolve at the final element as usual (later wins per key,
-`class`/`style` aggregate), so the outermost caller's attributes win and
-classes merge once. Forwarding onto a component whose body never references
+`class`/`style` aggregate), so the outermost caller's attributes win unless a
+hop forces an attribute after its spread, and classes merge once. Forwarding onto a component whose body never references
 `attrs` is a generate-time error. A spread onto a **byo** component always
 passes the whole Props value — it never merges into a declared `Attrs`
 field; construct the props explicitly (`{ CardProps{Attrs: attrs}... }`) to

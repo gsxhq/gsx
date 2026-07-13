@@ -459,6 +459,9 @@ nestedforward/class_prop	diag gen render
 nestedforward/cond_attr	diag gen render
 nestedforward/css_hole	diag gen render
 nestedforward/derived_bag	diag gen render
+nestedforward/generic_callee	diag gen render
+nestedforward/generic_callee_cond	diag gen render
+nestedforward/generic_missing_attrs_rejected	diag render
 nestedforward/method_callee	diag gen render
 nestedforward/missing_attrs_rejected	diag render
 nestedforward/missing_attrs_spread_rejected	diag render
@@ -782,4 +785,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 784 cases (render: 665, error: 89, gen-pinned: 442)
+TOTAL: 787 cases (render: 668, error: 89, gen-pinned: 444)

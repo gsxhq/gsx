@@ -1650,7 +1650,37 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 						}
 						switch {
 						case emitted:
-							// probe already written above.
+							// emitInferProbe's call consumes ONLY the inferField
+							// args (the props go/types infers the type params
+							// from). Any NON-inferField entry — most importantly a
+							// synthesized `Attrs: ConcatAttrs(...)` fallthrough bag
+							// forwarding the enclosing component's implicit `attrs`
+							// (spread, conditional, or matched-node-field value) —
+							// is absent from that call, so an `attrs` reference that
+							// lives ONLY there would be "declared and not used" in
+							// the skeleton (a loud false rejection of a legal
+							// program). Sink those value halves into a throwaway
+							// any-typed struct, exactly as the `failed:` path sinks
+							// all entries: a plain statement, NOT a _gsxuse/_gsxuseq,
+							// so the k-th-probe↔k-th-collected alignment is untouched.
+							// inferField entries are excluded — re-sinking them would
+							// double-report a bad prop value's own type error.
+							var sinkTypes, sinkLits []string
+							for _, fe := range fieldEntries {
+								if fe.inferField != "" {
+									continue
+								}
+								val := fe.str
+								if idx := strings.Index(fe.str, ":"); idx >= 0 {
+									val = strings.TrimSpace(fe.str[idx+1:])
+								}
+								name := fmt.Sprintf("F%d", len(sinkTypes))
+								sinkTypes = append(sinkTypes, name+" any")
+								sinkLits = append(sinkLits, name+": "+val)
+							}
+							if len(sinkTypes) > 0 {
+								fmt.Fprintf(sb, "_ = struct{ %s }{%s}\n", strings.Join(sinkTypes, "; "), strings.Join(sinkLits, ", "))
+							}
 						case failed:
 							// Sink every supplied prop's value expression (and any
 							// CF-hoisted var it references — see cfHoistBuf above) into a

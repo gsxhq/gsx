@@ -631,8 +631,10 @@ func genComponent(b *bytes.Buffer, c *ast.Component, currentPkg *types.Package, 
 	// or forwards attrs (references the `attrs` bag).
 	hasChildren := usesChildren(c.Body)
 	// MANUAL mode: a component whose body references the identifier `attrs` (a
-	// `{ attrs... }` element spread, or `attrs.X()` in an interp/expr/clause)
-	// takes over fallthrough placement itself. Explicit forwarding is required:
+	// `{ attrs... }` element spread, `attrs.X()` in an interp/expr/clause, or any
+	// `attrs` reference in a nested component-tag attr position — spread, prop
+	// value, conditional, class part, ordered-literal value) takes over
+	// fallthrough placement itself. Explicit forwarding is required:
 	// we only synthesize an `Attrs gsx.Attrs` field when the author actually
 	// references `attrs`; there is no implicit single-root auto-injection path
 	// (removed by the 2026-06-30 explicit-forwarding decision).
@@ -5674,7 +5676,21 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 	// A component WITH an Attrs bag keeps the spread as an attrs-merge (it may even
 	// mix with field attrs, e.g. `<Card title="Hi" { extra... }/>`), so this branch
 	// is skipped for it. Must be all-or-nothing: the sole attr, no children.
-	if isByoChild || (isKnownPropsType(propFields, propsType) && !hasAttrsBag(propFields, propsType, byoStr)) {
+	//
+	// Pending generic-inference probe (probeWrap && !checkMissingAttrsBag — the
+	// sole caller passing checkBag=false into the analyze skeleton): the tag's
+	// concrete type args are not yet known, so whether `{ f... }` is a whole-struct
+	// splat or a fallthrough-bag merge cannot be decided here, and the splat loop's
+	// all-or-nothing validation (byo-splat-mixed / empty-splat) would falsely
+	// reject a legitimate `<List items={x} data-y="1" { attrs... }/>` before
+	// inference runs. Defer the whole branch: the spread lands in `segments`
+	// (reference-consumed like any fallthrough), inference proceeds, and
+	// genChildComponent's own childPropsLiteral call re-runs this branch — full
+	// validation included — with checkMissingAttrsBag=true once the type args
+	// resolve (the explicit-type-args path is the oracle). Scoped strictly to the
+	// probe so genSkippedTagSink and every real-emit path stay byte-identical.
+	deferSplatToInference := probeWrap && !checkMissingAttrsBag
+	if !deferSplatToInference && (isByoChild || (isKnownPropsType(propFields, propsType) && !hasAttrsBag(propFields, propsType, byoStr))) {
 		for _, a := range el.Attrs {
 			if s, ok := a.(*ast.SpreadAttr); ok {
 				if checkMissingAttrsBag && enclosingAttrsBound && strings.TrimSpace(s.Expr) == "attrs" && len(s.Stages) == 0 {
