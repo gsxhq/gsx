@@ -67,3 +67,44 @@ func BenchmarkCondMergeComposable(b *testing.B) {
 		gw.Spread(ctx, attrs, navNames, imageNames, srcsetNames, nil, []string{"class", "style"})
 	}
 }
+
+// BenchmarkNonForwardingSingleStyleInline pins the unchanged fast path for an
+// element with one style contributor and no spread. The body is the generated
+// attribute write from `<div style="color:red">`; it intentionally avoids the
+// Attrs folding machinery.
+func BenchmarkNonForwardingSingleStyleInline(b *testing.B) {
+	b.ReportAllocs()
+	gw := W(io.Discard)
+	for b.Loop() {
+		gw.S(" style=\"color:red\"")
+	}
+}
+
+// BenchmarkNonForwardingConditionalStyleMerged measures the new no-spread
+// fold for `<div style="color:red" { if active { style="margin:0" } }>`. The
+// body is transcribed from the generated output: both same-name contributors
+// are assembled into one bag, then emitted through the normal merged leaf.
+// Compare it with BenchmarkNonForwardingSingleStyleInline to see the cost of
+// composition; neither benchmark imposes a machine-specific threshold.
+func BenchmarkNonForwardingConditionalStyleMerged(b *testing.B) {
+	b.ReportAllocs()
+	navNames := []string{"action", "cite", "data", "formaction", "href", "manifest", "ping", "poster", "src", "xlink:href"}
+	imageNames := []string{"background"}
+	srcsetNames := []string{"imagesrcset", "srcset"}
+	gw := W(io.Discard)
+	ctx := context.Background()
+	active := true
+	for b.Loop() {
+		v0 := Attrs{{Key: "style", Value: "color:red"}}
+		v1, err := AttrsCond(active, func() (Attrs, error) {
+			return Attrs{{Key: "style", Value: "margin:0"}}, nil
+		}, nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+		v2 := ConcatAttrs(v0, v1)
+		gw.ClassMerged(DefaultClassMerge, v2.Class())
+		gw.StyleMerged("", v2.Style())
+		gw.Spread(ctx, v2, navNames, imageNames, srcsetNames, nil, []string{"class", "style"})
+	}
+}
