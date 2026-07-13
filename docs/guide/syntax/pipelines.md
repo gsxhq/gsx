@@ -14,6 +14,13 @@ Built-in filters include `upper`, `lower`, `trim`, `truncate`, `join`,
 `default`, `printf`, `urlquery`, and `dataURL`. Custom names come from
 [configured filters](../config.md#filters-named-pipeline-filters).
 
+`default` preserves the value's type and returns the first non-zero choice:
+
+```gsx
+{count |> default(1)}
+{label |> default(shortLabel, "Untitled")}
+```
+
 ## Pass filter arguments
 
 Put additional arguments in parentheses. The piped value is always the first
