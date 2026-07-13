@@ -3250,13 +3250,13 @@ func holeStringExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.
 	}
 	t, ok := resolved[n]
 	if !ok || t == nil {
-		bag.Errorf(n.Pos(), n.End(), "unresolved-interp", "could not resolve type of URL interpolation %q", n.Expr)
+		bag.Errorf(n.Pos(), n.End(), "unresolved-interp", "could not resolve type of interpolation %q", n.Expr)
 		return "", false
 	}
 	if _, isTuple := t.(*types.Tuple); isTuple {
 		elemT, ok := tupleUnwrapType(t)
 		if !ok {
-			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "URL interpolation %q returns %s; only (T, error) is supported", expr, t)
+			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "interpolation %q returns %s; only (T, error) is supported", expr, t)
 			return "", false
 		}
 		expr = hoistTupleReturning(b, expr, interpTemp, errReturn)
