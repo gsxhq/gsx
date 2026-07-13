@@ -1,12 +1,14 @@
 # «.Name»
 
-A gsx + Vite starter (server-rendered HTML, live reload in dev, hashed assets in prod).
+A server-rendered gsx app with Vite assets and live reload.
 
 ## Prerequisites
+
 - Go 1.24+
-- Node 18+ (npm)
+- Node.js 18+ with npm
 
 ## Setup
+
 ```sh
 go get -tool github.com/gsxhq/gsx/cmd/gsx@latest
 go mod tidy
@@ -14,23 +16,23 @@ npm install
 ```
 
 ## Develop
+
 ```sh
-npm run dev   # = go tool gsx dev
+npm run dev
 ```
-Open the URL printed by `npm run dev`. Edit `app.gsx` or any `.go` file and save — gsx dev
-regenerates, rebuilds the server, and live-reloads the browser.
+
+Open the URL printed in the terminal. Edit `app.gsx` and save to rebuild the Go
+server and reload the browser.
+
+Generated `*.x.go` files are ignored. Do not edit or commit them.
 
 ## Production build
+
 ```sh
-npm run build   # vite build → dist/ (hashed assets + manifest)
-go build -o app # embeds dist/, serves /static/, reads the manifest
-./app           # serves on :7777 with no Vite process
+npm run build
+go tool gsx generate
+go build -o app
+./app
 ```
 
-## How it works
-- `gsx dev` owns the loop: it watches `.gsx`/`.go`/`.env`, regenerates with the
-  warm compiler, rebuilds + restarts the Go server, and drives Vite's browser
-  reload + error overlay. It chooses an available Vite front-door port, then Vite
-  serves the proxy + HMR for JS/CSS assets.
-- `main.go` builds a `*vite.Vite` from `VITE_DEV_URL` and injects it into each
-  request via `v.Middleware`; `app.gsx` reads the asset bundle from the context.
+The server listens on `:7777`, embeds the built assets, and runs without Vite.
