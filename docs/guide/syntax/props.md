@@ -45,6 +45,8 @@ The byo path activates only for a **single** non-receiver param whose type resol
 
 The generated `<Name>Props` struct gets an `Attrs gsx.Attrs` field when the component body explicitly references `attrs`, and a `Children gsx.Node` field when the body uses `{children}` — not unconditionally. The byo struct has neither unless the author declares them.
 
+That `attrs` reference forwards through nested component calls too — a wrapper can spread its own bag straight into a component it calls; see [Composition — Forwarding through components](./composition.md#forwarding-through-components).
+
 ## Whole-struct splat
 
 When the props value is already assembled — for example, loaded from a database, threaded through a page handler, or constructed with `cardData{Title: x}` — pass it whole with `{ x... }` instead of spelling out every field:
@@ -112,3 +114,21 @@ var HomeIcon = namedIcon("house")
 ```
 
 `<HomeIcon class="h-3 w-3"/>` renders `<svg class="w-5 h-5 h-3 w-3">house</svg>` — the default class declared inside `renderIcon` and the caller's override both land in the one bag `Attrs.Merge` composes. `<HomeIcon/>` (no attrs) renders `<svg class="w-5 h-5">house</svg>`. Sixty near-identical wrapper components collapse to sixty one-line `var` declarations plus the one shared `renderIcon`/`iconProps` pair.
+
+## Reserved variables
+
+Inside a component body, three identifiers are reserved — gsx binds them, you never declare them:
+
+::: v-pre
+| Name | What it is | Brought into scope by |
+|---|---|---|
+| `ctx` | the render [`context.Context`](./context.md) | always, in every component body |
+| `children` | the caller's child markup | placing [`{children}`](./composition.md#children-children) |
+| `attrs` | the fallthrough attribute bag | any [free use](./composition.md#explicit-attribute-forwarding) of `attrs` |
+:::
+
+Declaring one at the body's top level — `:=`, `var`, `const`, a param, or a receiver — is a `reserved-identifier` diagnostic. Nested scopes (a `for`/`range` variable, a function-literal parameter) shadow the name like ordinary Go, and synthesize nothing for the shadow:
+
+```text
+6:5: identifier "attrs" is reserved (the implicit fallthrough bag) — rename the variable
+```

@@ -1,0 +1,12 @@
+# Rejection (spec §12): a body-scope `const attrs = …` declaration is reserved
+# just like `:=` and `var`; the pass positions the diagnostic at the const's
+# name.
+-- input.gsx --
+package views
+
+component Page() {
+	{{ const attrs = "x" }}
+	<div>{attrs}</div>
+}
+-- diagnostics.golden --
+4:11: identifier "attrs" is reserved (the implicit fallthrough bag) — rename it

@@ -81,6 +81,7 @@ class/part_tuple	diag gen render
 class/sibling_cf_class_generated	diag gen render
 class/spread	diag render
 class/style_rejected	diag
+class/value_arm_attrs_ref	diag gen render
 class/value_arm_pipeline	diag gen render
 class/value_arm_tuple_rejected	diag(error)
 class/value_cf_condattr_nested_liveness	diag gen render
@@ -121,7 +122,7 @@ components/child_class_reject_non_error_tuple	diag(error)
 components/child_class_value_arm_tuple	diag gen render
 components/child_hyphen_attr_fallthrough	diag render
 components/child_no_props	diag render
-components/child_prop_attrs_reference	diag(error) gen
+components/child_prop_attrs_reference	diag gen render
 components/child_prop_pipeline	diag render
 components/child_prop_try_error	diag(error)
 components/child_prop_tuple_error	diag gen render
@@ -144,6 +145,7 @@ components/component_conditional_attr_else	diag gen render
 components/component_conditional_attr_lazy	diag gen render
 components/component_f_literal_hole_order	diag gen render
 components/component_f_literal_node_order	diag gen render
+components/component_f_literal_noncall_order	diag gen render
 components/component_f_literal_order	diag gen render
 components/component_f_literal_pipeline	diag gen render
 components/component_f_literal_pipeline_invalid_tuple	diag(error)
@@ -478,6 +480,32 @@ multispread/two_bags_merge	diag gen render
 multispread/two_bags_source_order	diag gen render
 multispread/variadic_attrs_operand	diag gen render
 multispread/void_and_children	diag gen render
+nestedforward/attrsonly_callee	diag gen render
+nestedforward/bare_after_spread	diag render
+nestedforward/byo_callee	diag gen render
+nestedforward/byo_missing_attrs_rejected	diag render
+nestedforward/byo_with_attrs_spread_rejected	diag render
+nestedforward/case_d_hoist	diag gen render
+nestedforward/chain	diag gen render
+nestedforward/class_prop	diag gen render
+nestedforward/cond_attr	diag gen render
+nestedforward/css_hole	diag gen render
+nestedforward/derived_bag	diag gen render
+nestedforward/generic_callee	diag gen render
+nestedforward/generic_callee_cond	diag gen render
+nestedforward/generic_missing_attrs_rejected	diag render
+nestedforward/method_callee	diag gen render
+nestedforward/missing_attrs_rejected	diag render
+nestedforward/missing_attrs_spread_rejected	diag render
+nestedforward/ordered_literal_value	diag gen render
+nestedforward/prop_value	diag gen render
+nestedforward/shadows_package_var	diag gen render
+nestedforward/spread_basic	diag gen render
+nestedforward/stage_arg	diag gen render
+nestedforward/url_sanitized_at_leaf	diag gen render
+nestedforward/with_children	diag gen render
+nestedforward/xpkg_dotted	diag gen render
+nestedforward/xpkg_missing_attrs_rejected	diag render
 nonce/cond_attr_nonce	diag render
 nonce/div_control	diag render
 nonce/explicit_expr_wins	diag render
@@ -639,6 +667,27 @@ renderers/text_error	diag gen render
 renderers/tuple_then_renderer	diag gen render
 renderers/valuecf_arm	diag gen render
 renderers/wins_over_stringer	diag gen render
+reserved/attrs_const_rejected	diag(error)
+reserved/attrs_reassign	diag gen render
+reserved/attrs_receiver_rejected	diag(error)
+reserved/attrs_shortvar_rejected	diag(error)
+reserved/attrs_tuple_rejected	diag(error)
+reserved/children_shortvar_rejected	diag(error)
+reserved/children_shortvar_unplaced_rejected	diag(error)
+reserved/children_value_after_placement	diag gen render
+reserved/children_value_unplaced	diag(error)
+reserved/closure_over_attrs	diag gen render
+reserved/component_child_shadow_ok	diag gen render
+reserved/component_child_shadow_with_outer_free	diag gen render
+reserved/ctx_shortvar_rejected	diag(error)
+reserved/funclit_param_shadow_ok	diag gen render
+reserved/goblock_consumes_attrs	diag gen render
+reserved/if_else_branch_shadow	diag gen render
+reserved/plain_func_attrs_param_ok	diag gen render
+reserved/range_shadow_ok	diag gen render
+reserved/shadow_and_free_mixed	diag gen render
+reserved/struct_key_not_trigger	diag gen render
+reserved/switch_case_shadow	diag gen render
 script/interp_breakout	diag gen render
 script/interp_comment_literal	diag gen render
 script/interp_identifier_rejected	diag(error)
@@ -789,4 +838,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 791 cases (render: 669, error: 90, gen-pinned: 448)
+TOTAL: 840 cases (render: 711, error: 97, gen-pinned: 482)

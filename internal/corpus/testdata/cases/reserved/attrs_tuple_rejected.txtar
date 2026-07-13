@@ -1,0 +1,19 @@
+# Rejection (spec §11): the SILENT-API-CHANGE trap. `{{ attrs, ok := lookup() }}`
+# COMPILES today — the tuple `:=` grows the component an `Attrs` prop and the
+# "local" assigns straight into the injectable fallthrough bag, so a caller can
+# inject state the author never meant to expose. This case exists to KILL that:
+# the reservation pass must turn the tuple form into a positioned error, not a
+# silent, injectable API surface.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+func lookup() (gsx.Attrs, bool) { return nil, false }
+
+component Page() {
+	{{ attrs, ok := lookup() }}
+	<div { attrs... } data-ok={ok}>hi</div>
+}
+-- diagnostics.golden --
+8:5: identifier "attrs" is reserved (the implicit fallthrough bag) — rename it

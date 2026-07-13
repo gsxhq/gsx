@@ -12,6 +12,8 @@ A tag that starts with an **uppercase letter** (or a dotted package path like `<
 
 The `Page` component itself has params `t string` and `n int`, so `Page(PageProps{T: "Hi", N: 3})` is valid Go at the call site. Component names are just Go identifiers; cross-package calls look like `<ui.Button label="X"/>` where `ui` is an imported package alias.
 
+A composable `class={ … }` attribute on a component invocation always routes into the fallthrough `attrs` bag — it never binds a declared `class` field, even when the props struct happens to have one.
+
 ## Generic components
 
 Components can declare Go type parameters after the component name. The
@@ -111,6 +113,8 @@ When a component wraps nested markup, it accesses that markup through the specia
 `Card` renders `{children}` inside `<div class="card__body">`. The caller `<Card title="Hello"><em>composed</em></Card>` supplies `<em>composed</em>` as the children node. `{children}` is an explicit placement point in the markup: the codegen adds a `Children gsx.Node` field to the generated props struct whenever it appears in the body, and the caller's content is bound to that field — not passed through a templ-style context.
 
 Content appears exactly where `{children}` sits inside the component, and only there. A component that does not write `{children}` silently drops the caller's content.
+
+`children` — like `attrs` below and `ctx` — is a reserved component-body identifier; see [Props — Reserved variables](./props.md#reserved-variables).
 
 ## Named slots
 
@@ -244,6 +248,22 @@ An element may carry multiple attribute spreads. They merge by source
 order — later spreads win per key, `class`/`style` aggregate — the same rule
 as any two attributes of the same name. `{ a... } { b... }` is `b` overriding
 `a`.
+
+## Forwarding through components
+
+A component can forward its own fallthrough bag into a component it calls —
+`attrs` works on a nested invocation exactly as it does on an element:
+
+<!--@include: ./_generated/composition/090-forwarding-through-components.md-->
+
+The bag concatenates into `Icon`'s bag at the spread's source position;
+duplicates resolve at the final element as usual (later wins per key,
+`class`/`style` aggregate), so the outermost caller's attributes win unless a
+hop forces an attribute after its spread, and classes merge once. Forwarding onto a component whose body never references
+`attrs` is a generate-time error. A spread onto a **byo** component always
+passes the whole Props value — it never merges into a declared `Attrs`
+field; construct the props explicitly (`{ CardProps{Attrs: attrs}... }`) to
+forward a bag there.
 
 ## Method components
 
