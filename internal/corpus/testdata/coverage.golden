@@ -121,7 +121,7 @@ components/child_class_reject_non_error_tuple	diag(error)
 components/child_class_value_arm_tuple	diag gen render
 components/child_hyphen_attr_fallthrough	diag render
 components/child_no_props	diag render
-components/child_prop_attrs_reference	diag(error) gen
+components/child_prop_attrs_reference	diag gen render
 components/child_prop_pipeline	diag render
 components/child_prop_try_error	diag(error)
 components/child_prop_tuple_error	diag gen render
@@ -447,6 +447,7 @@ multispread/two_bags_merge	diag gen render
 multispread/two_bags_source_order	diag gen render
 multispread/variadic_attrs_operand	diag gen render
 multispread/void_and_children	diag gen render
+nestedforward/spread_basic	diag gen render
 nonce/cond_attr_nonce	diag render
 nonce/div_control	diag render
 nonce/explicit_expr_wins	diag render
@@ -758,4 +759,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 760 cases (render: 640, error: 90, gen-pinned: 424)
+TOTAL: 761 cases (render: 642, error: 89, gen-pinned: 425)

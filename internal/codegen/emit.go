@@ -4175,10 +4175,11 @@ func usesChildren(body []ast.Markup) bool {
 // `{...attrs.Without("id")}`, `{ attrs.Class() }` interp, an `attrs`-referencing
 // control-flow clause), and crucially does NOT match a longer ident like
 // `attrsList` (a different token) nor a selector field after a `.` (e.g.
-// `x.attrs`). A component's SIMPLE attrs (props) are NOT walked — those are the
-// caller's prop exprs, not this component's body — but its named-slot values and
-// slot children render in THIS scope and CAN reference this component's `attrs`,
-// so they are recursed.
+// `x.attrs`). Any `attrs` reference in a component's body, in ANY position —
+// including a nested component tag's own attr list (props, spreads, class
+// parts) — synthesizes the fallthrough bag: every attr Go fragment evaluates in
+// THIS component's scope regardless of whether the tag it decorates is a plain
+// element or another component invocation.
 func usesAttrs(body []ast.Markup) bool {
 	refsAttrs := func(src string) bool { return valueIdents(src)["attrs"] }
 	for _, n := range body {
@@ -4206,24 +4207,13 @@ func usesAttrs(body []ast.Markup) bool {
 				}
 			}
 		case *ast.Element:
-			// A non-component element: walk its attrs (spread/expr/class/cond) for an
-			// `attrs` reference. A component element: skip its SIMPLE attrs (props) but
-			// recurse named-slot values, which render in this scope. Both recurse
-			// children.
-			if !t.IsComponent {
-				if attrsRefAttrs(t.Attrs) {
-					return true
-				}
-			} else {
-				found := false
-				walkMarkupAttrs(t.Attrs, func(value []ast.Markup) {
-					if usesAttrs(value) {
-						found = true
-					}
-				})
-				if found {
-					return true
-				}
+			// Every attr Go fragment — on a plain element AND on a nested
+			// component invocation — evaluates in THIS component's scope, so an
+			// `attrs` reference anywhere in the attr list binds the implicit
+			// bag. Named-slot markup values and children render in this scope
+			// too (attrsRefAttrs recurses MarkupAttr values; children below).
+			if attrsRefAttrs(t.Attrs) {
+				return true
 			}
 			if usesAttrs(t.Children) {
 				return true
@@ -4258,44 +4248,94 @@ func usesAttrs(body []ast.Markup) bool {
 	return false
 }
 
-// attrsRefAttrs reports whether any verbatim-emitted Go fragment in a (non-
-// component) element's attr list references the identifier `attrs`: a
-// `{ attrs... }` SpreadAttr's Expr, a composable-class part Expr/Cond, an ExprAttr
-// Expr or its pipeline args, or — recursing — a CondAttr's Cond and branches.
-// These are exactly the fragments collectAttrSrc feeds to the ident walks, so a
-// manual `attrs` reference anywhere in them is detected.
+// attrsRefAttrs reports whether any verbatim-emitted Go fragment in an
+// element's attr list references the identifier `attrs` — on a plain element
+// OR a nested component tag, whose attr fragments (props, spreads, class
+// parts) all evaluate in the enclosing component's scope just the same. It
+// covers: a `{ attrs... }` SpreadAttr's Expr and pipeline stage args; a
+// composable-class part's Expr/Cond, its pipeline stage args, its CSS-literal
+// segments (EmbeddedLang-style @{ } holes, recursed via usesAttrs), and its
+// value-form if/switch (ValueCF) branches; an ExprAttr's Expr or pipeline
+// args; — recursing — a CondAttr's Cond and branches; an EmbeddedAttr's
+// segments and pipeline stage args; a MarkupAttr's value (recursed via
+// usesAttrs, since named-slot values render in this scope); and an
+// OrderedAttrsAttr's per-pair values. These are exactly the fragments
+// collectAttrSrc feeds to the ident walks, so a manual `attrs` reference
+// anywhere in them is detected.
 func attrsRefAttrs(attrs []ast.Attr) bool {
 	refsAttrs := func(src string) bool { return valueIdents(src)["attrs"] }
+	refsStages := func(stages []ast.PipeStage) bool {
+		for _, st := range stages {
+			if st.Args != "" && refsAttrs(st.Args) {
+				return true
+			}
+		}
+		return false
+	}
+	refsValueArm := func(arm *ast.ValueArm) bool {
+		return arm != nil && (refsAttrs(arm.Expr) || refsStages(arm.Stages))
+	}
+	var refsValueIf func(vi *ast.ValueIf) bool
+	refsValueIf = func(vi *ast.ValueIf) bool {
+		if vi == nil {
+			return false
+		}
+		return refsAttrs(vi.Cond) || refsValueArm(vi.Then) || refsValueIf(vi.ElseIf) || refsValueArm(vi.Else)
+	}
+	refsValueSwitch := func(vs *ast.ValueSwitch) bool {
+		if vs == nil {
+			return false
+		}
+		if vs.Tag != "" && refsAttrs(vs.Tag) {
+			return true
+		}
+		for _, c := range vs.Cases {
+			if (c.List != "" && refsAttrs(c.List)) || refsValueArm(c.Value) {
+				return true
+			}
+		}
+		return false
+	}
 	for _, a := range attrs {
 		switch at := a.(type) {
 		case *ast.SpreadAttr:
-			if refsAttrs(at.Expr) {
+			if refsAttrs(at.Expr) || refsStages(at.Stages) {
 				return true
 			}
 		case *ast.ClassAttr:
-			for _, p := range at.Parts {
-				if refsAttrs(p.Expr) || (p.Cond != "" && refsAttrs(p.Cond)) {
+			for i := range at.Parts {
+				p := &at.Parts[i]
+				if refsAttrs(p.Expr) || (p.Cond != "" && refsAttrs(p.Cond)) || refsStages(p.Stages) {
+					return true
+				}
+				if p.CSSSegments != nil && usesAttrs(p.CSSSegments) {
+					return true
+				}
+				if p.CF != nil && (refsValueIf(p.CF.If) || refsValueSwitch(p.CF.Switch)) {
 					return true
 				}
 			}
 		case *ast.ExprAttr:
-			if refsAttrs(at.Expr) {
+			if refsAttrs(at.Expr) || refsStages(at.Stages) {
 				return true
-			}
-			for _, st := range at.Stages {
-				if st.Args != "" && refsAttrs(st.Args) {
-					return true
-				}
 			}
 		case *ast.CondAttr:
 			if refsAttrs(at.Cond) || attrsRefAttrs(at.Then) || attrsRefAttrs(at.Else) {
 				return true
 			}
 		case *ast.EmbeddedAttr:
-			// An embedded attribute value's @{ } interps render in this scope, so an
-			// `attrs` reference there needs the local bound.
-			if usesAttrs(at.Segments) {
+			if usesAttrs(at.Segments) || refsStages(at.Stages) {
 				return true
+			}
+		case *ast.MarkupAttr:
+			if usesAttrs(at.Value) {
+				return true
+			}
+		case *ast.OrderedAttrsAttr:
+			for i := range at.Pairs {
+				if refsAttrs(at.Pairs[i].Value) {
+					return true
+				}
 			}
 		}
 	}
