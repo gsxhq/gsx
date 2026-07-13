@@ -1,0 +1,22 @@
+# W1': a `|>` chain directly after a value-position js` literal NESTED inside
+# a larger Go expression in a `{ }` interpolation (`wrap(js`…` |> minify)`).
+# Contrast a pipe at the INTERP'S OWN top-level seed (`{ js`…` |> minify }`),
+# which parsePipe already strips into a normal pipe Stage and is unaffected —
+# this case only fires once the literal is buried inside a call argument, past
+# parsePipe's own top-level split. Caught here, at parse time (a pre-check
+# mirroring scanGoParts's PipeOff, run before analyze.go's deferred
+# SplitGoExprElements split even exists), so the diagnostic wins over the
+# later, generic skeleton parse failure the same broken text would otherwise
+# hit. No filter package or `wrap` definition is needed: the rejection is
+# purely syntactic, before any name resolves.
+-- input.gsx --
+package demo
+
+component Page() {
+	<div>{ wrap(js`f()` |> minify) }</div>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+4:22: whole-literal pipelines are not supported in Go-expression position; wrap the literal in a function call instead
+-- render.golden --

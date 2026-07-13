@@ -1,6 +1,10 @@
 package parser
 
-import "testing"
+import (
+	"go/token"
+	"strings"
+	"testing"
+)
 
 func TestScanGoElementMarks(t *testing.T) {
 	cases := []struct {
@@ -108,6 +112,78 @@ func TestScanGoParts(t *testing.T) {
 			for i := range got {
 				if got[i] != c.want[i] {
 					t.Fatalf("scanGoParts(%q) = %v, want %v", c.src, got, c.want)
+				}
+			}
+		})
+	}
+}
+
+// TestScanGoPartsWholeLiteralPipeDiagnostic pins W1': a `|>` chain directly
+// after a value-position literal (f`/js`/css`, either delimiter) is gsx pipe
+// syntax with no meaning there (the whole literal, not one of its @{ } holes,
+// would be the pipe's input) — SplitGoExprElements must report it, positioned
+// at the `|>`, rather than silently leaving it as verbatim GoText that only
+// fails much later as an unpositioned "expected operand, found '>'" when the
+// assembled skeleton is parsed as Go. Covers both delimiters and a non-f lang
+// prefix (js`), matching the brief's self-review checklist.
+func TestScanGoPartsWholeLiteralPipeDiagnostic(t *testing.T) {
+	const wantMsg = "whole-literal pipelines are not supported in Go-expression position; wrap the literal in a function call instead"
+	cases := []struct {
+		name string
+		src  string
+	}{
+		{"backtick f literal", "var x = f`hi` |> upper"},
+		{"backtick js literal", "var x = js`f()` |> minify"},
+		{"dquote f literal", `var x = f"hi" |> upper`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fset := token.NewFileSet()
+			file := fset.AddFile("", fset.Base(), len(c.src))
+			base := file.Pos(0)
+			_, errs := SplitGoExprElements(fset, c.src, base, nil)
+
+			var found *Error
+			for i := range errs {
+				if errs[i].Msg == wantMsg {
+					found = &errs[i]
+				}
+			}
+			if found == nil {
+				t.Fatalf("SplitGoExprElements(%q): want whole-literal-pipe diagnostic, got %+v", c.src, errs)
+			}
+			wantOff := strings.Index(c.src, "|>")
+			if wantOff < 0 {
+				t.Fatalf("test bug: %q has no |>", c.src)
+			}
+			if gotOff := fset.Position(found.Pos).Offset; gotOff != wantOff {
+				t.Errorf("SplitGoExprElements(%q): diagnostic at offset %d, want %d (the `|>`)", c.src, gotOff, wantOff)
+			}
+		})
+	}
+}
+
+// TestScanGoPartsNoWholeLiteralPipeFalsePositive is the negative companion to
+// TestScanGoPartsWholeLiteralPipeDiagnostic: legitimate Go following a literal
+// (including a bitwise-or NOT immediately followed by '>') must not trip the
+// diagnostic, and the literal item itself must still be reported normally
+// (detection-only — the split stays well-formed).
+func TestScanGoPartsNoWholeLiteralPipeFalsePositive(t *testing.T) {
+	const wantMsg = "whole-literal pipelines are not supported in Go-expression position"
+	cases := []string{
+		"var x = f`hi` + x",
+		"var x = f`hi` | mask",     // bitwise-or, not followed by '>'
+		"var x = f`hi` |  > upper", // '|' and '>' not adjacent: not a pipe token
+		"var x = f`hi`",
+	}
+	for _, src := range cases {
+		t.Run(src, func(t *testing.T) {
+			fset := token.NewFileSet()
+			file := fset.AddFile("", fset.Base(), len(src))
+			_, errs := SplitGoExprElements(fset, src, file.Pos(0), nil)
+			for _, e := range errs {
+				if strings.Contains(e.Msg, wantMsg) {
+					t.Fatalf("SplitGoExprElements(%q): unexpected whole-literal-pipe diagnostic: %+v", src, e)
 				}
 			}
 		})

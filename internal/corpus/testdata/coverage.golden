@@ -327,6 +327,7 @@ fragment-literals/return	diag gen render
 fragment-literals/struct-field	diag gen render
 fragment-literals/var	diag gen render
 goblock-literal/css_literal	diag gen render
+goblock-literal/diag_whole_pipe_goblock	diag render
 goblock-literal/element_rejected	diag render
 goblock-literal/element_rejected_used_later	diag render
 goblock-literal/f_literal	diag gen render
@@ -342,6 +343,7 @@ goexpr-f-literal/diag_ctx_filter_toplevel	diag render
 goexpr-f-literal/diag_ctx_renderer_toplevel	diag render
 goexpr-f-literal/diag_error_pipe_goblock	diag render
 goexpr-f-literal/diag_error_pipe_toplevel	diag render
+goexpr-f-literal/diag_whole_pipe_toplevel	diag render
 goexpr-f-literal/error_pipe_in_closure	diag gen render
 goexpr-f-literal/f_value_is_escaped_string	diag gen render
 goexpr-f-literal/interp	diag gen render
@@ -364,6 +366,7 @@ goexpr-js-literal/diag_error_pipe	diag render
 goexpr-js-literal/diag_error_renderer	diag render
 goexpr-js-literal/diag_error_tuple	diag render
 goexpr-js-literal/diag_malformed_js	diag render
+goexpr-js-literal/diag_whole_pipe_interp	diag render
 goexpr-js-literal/differential	diag gen render
 goexpr-js-literal/dquote_form	diag gen render
 goexpr-js-literal/err_and_pure_holes_in_closure	diag gen render
@@ -856,4 +859,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 858 cases (render: 729, error: 97, gen-pinned: 493)
+TOTAL: 861 cases (render: 732, error: 97, gen-pinned: 493)
