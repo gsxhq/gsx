@@ -1,175 +1,137 @@
 # Extending gsx
 
-Most projects configure gsx declaratively in a [`gsx.toml`](./config.md) file
-read by the stock binary — pipeline filters and URL-attribute rules
-need no code. This page covers the **code escape hatch**: a project-owned
-`cmd/gsx/main.go` that calls `gen.Main`, needed only for options whose value is
-a Go *function* and therefore cannot live in TOML:
+Use `gsx.toml` for declarative settings. Build a project-owned gsx binary only
+when configuration needs to call Go code directly.
 
-- a custom CSS/JS minifier (`gen.WithCSSMinifier` / `gen.WithJSMinifier`),
-- a custom CSS/JS **formatter** (`gen.WithCSSFormatter` / `gen.WithJSFormatter`),
-- a field matcher (`gen.WithFieldMatcher`).
+## When you need a custom binary
 
-The **minify level** (`none`/`full`) is configured declaratively in
-[`gsx.toml`](./config.md#minify-asset-minification-level) (or the `GSX_MINIFY`
-env var); the code equivalent is `gen.WithMinifyLevel(css, js)`, which overrides
-both.
+| Need | Put it in |
+|---|---|
+| Filters and filter packages | [`gsx.toml`](./config.md#pipeline-filters) |
+| URL rules and presets | [`gsx.toml`](./config.md#url-attributes) |
+| Type renderers | [`gsx.toml`](./config.md#renderers-type-directed-value-rendering) |
+| Minify levels | [`gsx.toml`](./config.md#minify-asset-minification-level) |
+| Class merger | [`gsx.toml`](./config.md#class_merger-tailwind-aware-class-merge-strategy) |
+| CSS or JavaScript formatter function | Project binary with `gen.Main` |
+| CSS or JavaScript minifier function | Project binary with `gen.Main` |
+| Props field-matcher function | Project binary with `gen.Main` |
 
-`gen.Main` loads `gsx.toml` as the base configuration and applies these
-programmatic options on top, so a code-configured project still keeps its
-filters and declarative URL rules in `gsx.toml` and writes Go only for the
-function-valued options.
+`gen.Main` still loads `gsx.toml`. Programmatic options take precedence over an
+environment override and the config file when they set the same behavior.
 
-> URL attribute rules and filter registration are equivalently expressible in
-> [`gsx.toml`](./config.md); prefer the config file unless you need a
-> function-valued option.
+## Create `cmd/gsx/main.go`
 
-## URL attribute rules
-
-Ordinary `attr={expr}` values are attribute-escaped text unless the attribute is
-URL-context by name. The built-in set covers the 11 standard HTML URL
-attributes only (`href`, `src`, `action`, `formaction`, `poster`, `cite`,
-`ping`, `data`, `background`, `manifest`, `xlink:href`); the five htmx method
-attributes (`hx-get`, `hx-post`, `hx-put`, `hx-delete`, `hx-patch`) are opt-in
-via the `htmx` [URL preset](./config.md#url_presets-named-opt-in-rulesets)
-(`url_presets = ["htmx"]` in `gsx.toml`, or `gen.WithURLPreset("htmx")` here).
-If your project uses a framework with its own URL-bearing attributes, register
-additional rules so those values get the URL scheme check before attribute
-escaping.
-
-Prefer `[[url_attrs]]` in `gsx.toml`; use `gen.WithURLAttrs` only when you already
-maintain a project `cmd/gsx/main.go`. It takes one or more `gen.Rule` values. A
-rule matches either by **exact name** (`Name` field, case-insensitive) or by
-**prefix** (`Prefix` field) — set exactly one field.
+This complete example gives a project explicit attribute-to-prop mappings:
 
 ```go
-// cmd/gsx/main.go
 package main
 
 import (
+	"slices"
+
 	"github.com/gsxhq/gsx/gen"
 )
 
+var propFields = map[string]string{
+	"variant":      "Variant",
+	"full-width":   "FullWidth",
+	"data-test-id": "TestID",
+}
+
 func main() {
-	gen.Main(
-		// Vue v-bind:href carries a URL.
-		gen.WithURLAttrs(
-			gen.Rule{Name: "v-bind:href"},
-		),
-		// Project-specific URL-bearing data attributes.
-		gen.WithURLAttrs(
-			gen.Rule{Prefix: "data-url-"},
-		),
-	)
+	gen.Main(gen.WithFieldMatcher(matchField))
+}
+
+func matchField(attr string, fields []string) (string, bool) {
+	field, ok := propFields[attr]
+	return field, ok && slices.Contains(fields, field)
 }
 ```
 
-Rules are **additive** — they extend the built-in set, never replace or downgrade
-it. The built-ins are checked first; your rules are consulted only for names that
-the built-ins did not classify.
+The custom command has the same subcommands and flags as the standard command.
 
-JavaScript and CSS-valued attributes are explicit at the template site with
-`` js`...` `` and `` css`...` `` literals, so they do not have classifier
-configuration.
+## Custom CSS and JavaScript formatters {#custom-cssjs-formatter}
 
-## Custom CSS/JS formatter
-
-`gsx fmt` re-indents the CSS inside `<style>` and the JavaScript inside
-`<script>` with a small built-in formatter (it fixes indentation to consistent
-tabs; it does not reflow or restyle your code). When you want fuller fidelity —
-Prettier, Biome, or a house style — replace the built-in with your own via
-`gen.WithCSSFormatter` / `gen.WithJSFormatter`:
+Use a custom formatter when `gsx fmt` should delegate embedded code to a tool
+such as Prettier or Biome:
 
 ```go
-// cmd/gsx/main.go
 gen.Main(
-	gen.WithCSSFormatter(func(src []byte) ([]byte, error) {
-		// Shell out to prettier (or any tool). Return the formatted bytes,
-		// or an error to fall back to verbatim rendering of this body.
-		return runPrettier(src, "--parser", "css")
-	}),
+	gen.WithCSSFormatter(formatCSS),
+	gen.WithJSFormatter(formatJavaScript),
 )
 ```
 
-A formatter is a `func(src []byte) ([]byte, error)`. It receives the embedded
-language's source as a **self-contained document** (formatted from column 0; gsx
-re-indents the result to the tag's depth afterward) and returns the formatted
-bytes. Two contracts make it safe:
-
-- **Holes are pre-substituted.** Each `@{ … }` interpolation in the body is
-  replaced with a collision-free placeholder token (a valid CSS/JS identifier)
-  *before* your formatter runs; gsx restores the real holes afterward. Leave
-  those tokens untouched — don't parse or rewrite them.
-- **Errors are not fatal.** Returning an error (or panicking) makes gsx render
-  *that* body verbatim instead, so a formatter that chokes on one file never
-  breaks `gsx fmt`. This is the same correct-or-verbatim rule the built-in uses.
-
-Like the minifiers, this is a **function-valued, code-only** option: `nil` means
-the built-in default applies, `gsx.toml` cannot set it, and it bypasses the
-codegen cache (run `gsx clean --cache` after changing formatter logic). Shelling
-out to an external tool is a user-written wrapper — gsx ships only the in-process
-plug point and a minimal built-in, not a subprocess adapter.
-
-The built-in re-indenter is intentionally minimal: it normalizes leading
-indentation (block scope drives the depth) and leaves everything else — line
-breaks, blank lines, and intra-line spacing — exactly as you wrote it. Reach for
-`WithCSSFormatter` / `WithJSFormatter` when you want true reflow.
-
-## Minify level
-
-Minification runs at a **level** set declaratively — see [`[minify]` in the
-config guide](./config.md#minify-asset-minification-level) for `none` / `full`,
-the `GSX_MINIFY` env switch, and precedence. The code equivalent, which overrides
-both the config file and the env var, is:
+Both callbacks have this signature:
 
 ```go
-// cmd/gsx/main.go — force full minification regardless of gsx.toml.
+func(src []byte) ([]byte, error)
+```
+
+They receive a self-contained `<style>` or executable `<script>` body and
+return formatted bytes. If a callback returns an error or panics, gsx keeps that
+body unchanged and continues formatting the file.
+
+Without an override, gsx uses token-aware CSS and JavaScript formatters. They
+keep strings and comments intact, preserve meaningful line breaks and
+intra-line spacing, and normalize structural indentation.
+
+## Custom minifiers and minify level {#minify-level}
+
+Custom minifiers replace the built-in full minifier:
+
+```go
 gen.Main(
-	gen.WithMinifyLevel(gen.MinifyFull, gen.MinifyFull), // (css, js)
+	gen.WithCSSMinifier(minifyCSS),
+	gen.WithJSMinifier(minifyJavaScript),
+	gen.WithMinifyLevel(gen.MinifyFull, gen.MinifyFull), // CSS, JavaScript
 )
 ```
 
-`WithMinifyLevel` **gates** the pass: at `none` (the default) the asset is
-emitted verbatim and a custom minifier is not called; at `full` gsx applies its
-maximal, non-obfuscating minifier — or your `WithCSSMinifier` / `WithJSMinifier`
-if installed (a custom minifier **replaces** the built-in full pass).
+The signatures are:
 
-## Registration pattern
-
-The intended pattern is to maintain a `cmd/gsx/main.go` inside your own
-module's repository that depends on `github.com/gsxhq/gsx/gen` and wires
-options there. Public option types such as `gen.Rule` are exported from the
-`gen` package — your code never needs to import internal packages directly:
-
-```
-myapp/
-  cmd/gsx/
-    main.go    ← gen.Main(gen.WithURLAttrs(...), gen.WithFilters(...))
-  pages/
-    home.gsx
+```go
+func minifyCSS(css string) (string, error)
+func minifyJavaScript(js string) (string, error)
 ```
 
-Build and run this binary in place of the stock `gsx` command, or point
-`//go:generate` at it. This is the same pattern as `gen.WithFilters`.
+The minify level gates each callback. `gen.MinifyNone` skips minification;
+`gen.MinifyFull` uses the custom callback when one is present, otherwise the
+built-in full minifier. You can set the levels in `[minify]` instead of calling
+`WithMinifyLevel`; the option overrides both `GSX_MINIFY` and `gsx.toml`.
 
-## Resolved-config manifest and `gsx info`
+A custom CSS minifier receives only fully static `<style>` blocks. CSS with
+`@{...}` holes always uses gsx's built-in hole-aware path. JavaScript minifiers
+receive complete, holeless executable `<script>` bodies. A callback error stops
+generation and reports which minifier failed.
 
-On each successful `gsx generate`, the resolved configuration is written as a
-JSON manifest into the build cache (`~/.cache/gsx`, or `$GSXCACHE`). The manifest
-records `schemaVersion`, `module`, URL attribute rules, and `filters` — enough
-for offline tools to ground themselves on the last successful build without
-re-running the project binary.
+## Custom field matching
 
-```sh
-gsx info          # human-readable summary (includes URL attribute rules)
-gsx info --json   # machine-readable JSON (same data)
-gsx clean --cache # wipe the cache
+`gen.WithFieldMatcher` replaces the default attribute-to-field matcher for
+bring-your-own props:
+
+```go
+gen.WithFieldMatcher(func(attr string, fields []string) (field string, ok bool) {
+	// Return a name from fields, or false to place the attribute in Props.Attrs.
+	return matchProjectField(attr, fields)
+})
 ```
 
-The manifest is a **derived cache**, not a hand-edited config file — always
-regenerated from the authoritative source (your `cmd/gsx/main.go`).
+The callback receives the raw attribute name and the target struct's exported
+field names. A successful match must return one of those field names. Returning
+`false` sends the attribute to the attrs bag.
 
-> **Note:** the manifest is refreshed only when gsx's incremental build cache is
-> active. Projects that bypass the cache (e.g. by supplying a custom
-> `WithCSSMinifier` or `WithJSMinifier`) should use `gsx info --json` to read the
-> current resolved config instead of relying on the persisted manifest.
+## Run the project binary
+
+Invoke the project command explicitly so its options are used:
+
+```bash
+go run ./cmd/gsx generate ./...
+```
+
+Use the same prefix for other affected commands, for example
+`go run ./cmd/gsx fmt -w .`.
+
+To inspect the resolved setup, run `go run ./cmd/gsx info` for the readable view
+or add `--json` for the JSON view. These are related inspection views, not
+identical representations of every project hook.
