@@ -434,6 +434,28 @@ func skipHSpace(src string, i int) int {
 	return i
 }
 
+// containsEmbeddedLiteralPrefix reports whether s contains a literal
+// delimiter (backtick or `"`) immediately preceded by an f/js/css lang
+// prefix at an ident boundary (langPrefixStart) — a cheap, NECESSARY (not
+// sufficient) condition for scanGoParts to yield any literal item. It is the
+// gate parseInterp/parseGoBlock use before paying for a full go/scanner
+// tokenization on the parse hot path: a plain-Go interp (including one
+// holding an ordinary `"…"` string — about a third of real interp bodies)
+// costs one byte scan and nothing more. Necessary because a literal item
+// requires exactly this byte shape (a delimiter whose langPrefixStart >= 0)
+// at the item's own offset, and this scans EVERY offset — a superset. Not
+// sufficient (the shape may sit inside a string's CONTENT, where go/scanner
+// would never token-start a literal there); precision stays in scanGoParts,
+// which the caller runs only when this returns true.
+func containsEmbeddedLiteralPrefix(s string) bool {
+	for i := range len(s) {
+		if (s[i] == '`' || s[i] == '"') && langPrefixStart(s, i) >= 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // reportWholeLiteralPipes reports wholeLiteralPipeMsg via p.errorf for every
 // item in items whose PipeOff is set (an IsLiteral item immediately followed
 // by `|>` — see goSplitItem's doc), positioned at base+PipeOff. base is the

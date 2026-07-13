@@ -35,7 +35,10 @@ func (p *parser) parseInterp() (*ast.Interp, error) {
 	// it there competes with (and today loses to) the skeleton's own Go
 	// parse of the same broken text, which fires first and aborts with a
 	// generic, unpositioned-feeling error instead of this one.
-	if strings.ContainsAny(seed, "`\"") {
+	// containsEmbeddedLiteralPrefix (not a bare delimiter check) gates the
+	// scan: parseInterp is the parse hot path, and an ordinary Go string in
+	// the seed must not pay for a go/scanner tokenization.
+	if containsEmbeddedLiteralPrefix(seed) {
 		reportWholeLiteralPipes(p, scanGoParts(seed), exprPos)
 	}
 	p.i = end + 1
@@ -203,7 +206,9 @@ func (p *parser) parseGoBlock() (*ast.GoBlock, error) {
 	// top-level pipe grammar of its own (code is plain Go statement text, so
 	// there is no parsePipe stage-stripping step to exclude first), so this
 	// fires on ANY literal directly followed by `|>` in code, nested or not.
-	if strings.ContainsAny(code, "`\"") {
+	// Same containsEmbeddedLiteralPrefix gate as parseInterp: an ordinary Go
+	// string in the block must not pay for a go/scanner tokenization.
+	if containsEmbeddedLiteralPrefix(code) {
 		reportWholeLiteralPipes(p, scanGoParts(code), codePos)
 	}
 	p.i = outerEnd + 1
