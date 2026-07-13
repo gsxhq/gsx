@@ -10,7 +10,7 @@ GSX supports `js`` and `css`` literals in attribute positions, but rejects them 
 ```gsx
 {{
     containerAttrs := gsx.Attrs{
-        "@suggest-datetime.window": gsx.RawJS("suggest($event.detail)"),
+        {Key: "@suggest-datetime.window", Value: gsx.RawJS("suggest($event.detail)")},
     }
 }}
 ```
@@ -20,7 +20,7 @@ The literal should be usable directly as a typed Go expression:
 ```gsx
 {{
     containerAttrs := gsx.Attrs{
-        "@suggest-datetime.window": js`suggest($event.detail)`,
+        {Key: "@suggest-datetime.window", Value: js`suggest($event.detail)`},
     }
 }}
 ```
@@ -81,8 +81,8 @@ It must work in all Go-expression positions supported by GSX, including:
     local := js`selectItem(@{props.Item.ID})`
 
     attrs := gsx.Attrs{
-        "@click": local,
-        "style":  css`width:@{props.Width}px`,
+        {Key: "@click", Value: local},
+        {Key: "style", Value: css`width:@{props.Width}px`},
     }
 
     values := []gsx.RawJS{
@@ -162,9 +162,9 @@ An expression-valued literal stored in an attribute map must retain its trusted 
 ```gsx
 {{
     attrs := gsx.Attrs{
-        "x-data": js`dialog(@{props.InitialOpen})`,
-        "@click": js`select(@{props.ID})`,
-        "style":  css`color:@{props.Color}`,
+        {Key: "x-data", Value: js`dialog(@{props.InitialOpen})`},
+        {Key: "@click", Value: js`select(@{props.ID})`},
+        {Key: "style", Value: css`color:@{props.Color}`},
     }
 }}
 
