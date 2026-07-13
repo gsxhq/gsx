@@ -7,7 +7,7 @@ or configuration are needed.
 
 | Model | Declaration | Use it when |
 |---|---|---|
-| Bring your own | `component Button(p Props)` | An existing named struct should define the full contract. |
+| Bring your own | `component Button(p Props)` | A bare, same-package named struct should define the full contract. |
 | Generated | `component Card(title string, count int)` | Inline params are the clearest API. |
 | Nullary | `component Divider()` | The component needs no call-site data. |
 | Attrs-only value | `func(gsx.Attrs) gsx.Node` or a related accepted shape | A factory-produced value, such as an icon, only needs an attribute bag. |
@@ -17,8 +17,9 @@ Method receivers do not count as props. A nullary component can still opt into
 
 ## Bring your own struct
 
-When a component has one named-struct param, call-site attributes map directly
-to that struct's fields.
+When a component's sole non-receiver param is a bare name for a same-package
+struct, call-site attributes map directly to that struct's fields. Qualified
+types such as `ui.Props` and pointer types such as `*Props` use generated props.
 
 <!--@include: ./_generated/props/010-bring-your-own-props.md-->
 
