@@ -12,4 +12,4 @@ component Page() {
 	<Header text=f`item-@{bad()}`/>
 }
 -- diagnostics.golden --
-8:23: URL interpolation "bad()" returns (int, string); only (T, error) is supported
+8:23: interpolation "bad()" returns (int, string); only (T, error) is supported
