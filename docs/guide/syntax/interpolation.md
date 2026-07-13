@@ -88,6 +88,7 @@ non-nil error stops rendering.
 | Task | Form |
 |---|---|
 | Write a Go value | `{ expr }` |
+| Write text with per-hole values ([body literals](#interpolating-body-literals)) | `` {f`...@{ expr }...`} `` |
 | Render an element or fragment | `<tag>...</tag>` or `<>...</>` |
 | Run a Go statement without output | `{{ stmt }}` |
 :::
