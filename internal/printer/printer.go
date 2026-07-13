@@ -1031,11 +1031,13 @@ func writeAttrInline(b *strings.Builder, a ast.Attr) {
 	case *ast.EmbeddedAttr:
 		b.WriteString(v.Name)
 		b.WriteString("=")
-		// A whole-literal pipeline only parses in the braced form
-		// (name={`…` |> f}) — parseEmbeddedAttrValue, the direct/unbraced
-		// path, never sets Stages. Wrap in braces whenever Stages is
-		// present so the printed output re-parses.
-		braced := len(v.Stages) > 0
+		// Preserve the braced form (name={js`…`}). It must round-trip because a
+		// braced literal binds a declared component prop while the bare form
+		// falls through to the Attrs bag — stripping the braces would silently
+		// change the meaning. A whole-literal pipeline only parses braced
+		// (name={`…` |> f}), so Stages forces braces too even on the rare node
+		// where Braced was not recorded.
+		braced := v.Braced || len(v.Stages) > 0
 		if braced {
 			b.WriteString("{")
 		}

@@ -6093,17 +6093,63 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				continue
 			}
 
-			// A hole-free js`…`/css`…`/`…` literal forwards to the Attrs bag as
-			// raw text — identical to a plain string attribute (JSX-style
-			// directive forwarding, e.g. x-model=js`pdcaCategory`). Embedded
-			// literals always fall through to the bag; to set a declared prop
-			// use a string or { expr }.
+			// A js`…`/css`…` embedded literal lowers to a trusted
+			// _gsxrt.RawJS/_gsxrt.RawCSS value so its provenance survives the
+			// child's re-interpolation on spread. Routing:
+			//   - BRACED literal whose name matches a declared prop → BIND that
+			//     prop (the { expr } prop-binding form; js`/css` are Go exprs).
+			//     Interpolations are allowed here: the field is a concrete
+			//     Go-EXPRESSION position, so per-hole escaping lands in a typed
+			//     RawJS/RawCSS value (an error-carrying hole is rejected by
+			//     embeddedJSValueExpr/…CSSValueExpr exprPos, mirrored in analyze
+			//     via probeEmbeddedInterpIIFE's seed).
+			//   - otherwise (bare form, or braced-but-undeclared) → fall through
+			//     to the Attrs bag. A HOLE-FREE literal becomes an
+			//     _gsxrt.RawJS/_gsxrt.RawCSS of the static text; a hole-bearing
+			//     one is still rejected — forwarding a per-hole-escaped literal
+			//     into the `any` bag is a separate feature (embedded_attr_rejected).
+			fn, isProp := matchField(declared, t.Name, fm)
+			if t.Braced && isProp {
+				if verr := validateMatchedField(fn, t.Name, propsType, declared); verr != nil {
+					return nil, nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "bad-field-match", msg: verr.Error()}
+				}
+				var value string
+				var valueHoist bytes.Buffer
+				if probeWrap {
+					// Skeleton: only the value's STATIC TYPE matters for field
+					// checking. Wrap the string probe seed in the RawJS/RawCSS
+					// conversion, exactly as embeddedProbeType/embeddedProbeSeed do
+					// for a Go-expression-position literal (emit ≡ probe).
+					_, wrapOpen, wrapClose := embeddedProbeType(t.Lang)
+					value = wrapOpen + embeddedProbeSeed(t.Segments, table, usedPkgs) + wrapClose
+				} else {
+					var vb bytes.Buffer
+					lit := &ast.EmbeddedInterp{Lang: t.Lang, Segments: t.Segments}
+					if !emitGoExprEmbeddedInterp(&valueHoist, &vb, lit, resolved, table, imports, rt, interpTemp, diagBag) {
+						return nil, nil, "", nil, errBagDiagReported
+					}
+					value = vb.String()
+				}
+				fields = append(fields, propFieldEntry{
+					str:        fmt.Sprintf("%s: %s", fn, value),
+					embedded:   t,
+					fieldName:  fn,
+					inferField: fn,
+					inferArg:   value,
+				})
+				valuePlan = append(valuePlan, componentValueEntry{sourceIndex: sourceIndex, node: t, rawExpr: value, fieldName: fn, embedded: t, bagIndex: -1, pairIndex: -1, segmentIndex: -1, fieldIndex: len(fields) - 1, stmts: bytes.Clone(valueHoist.Bytes())})
+				continue
+			}
 			text, static := embeddedStaticText(t)
 			if !static {
 				msg := fmt.Sprintf("embedded %s attribute literal %q with @{ } interpolation cannot be used as a component prop on <%s> yet; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, el.Tag)
 				return nil, nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
-			bag = append(bag, oaPairEntry{key: t.Name, rawVal: strconv.Quote(text)})
+			rawWrapOpen := rtPkg + ".RawJS("
+			if t.Lang == ast.EmbeddedCSS {
+				rawWrapOpen = rtPkg + ".RawCSS("
+			}
+			bag = append(bag, oaPairEntry{key: t.Name, rawVal: rawWrapOpen + strconv.Quote(text) + ")"})
 		default:
 			msg := fmt.Sprintf("unknown attribute %T on component (<%s>)", a, el.Tag)
 			return nil, nil, "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}

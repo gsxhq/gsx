@@ -305,12 +305,18 @@ func (p *parser) parseSingleAttr() (ast.Attr, error) {
 		ast.SetSpan(sa, attrStartPos, p.posAt(p.i))
 		return sa, nil
 	case !p.eof() && p.src[p.i] == '{':
-		if strings.HasPrefix(p.src[p.i+1:], "f`") ||
-			strings.HasPrefix(p.src[p.i+1:], "js`") ||
-			strings.HasPrefix(p.src[p.i+1:], "css`") ||
-			strings.HasPrefix(p.src[p.i+1:], `f"`) ||
-			strings.HasPrefix(p.src[p.i+1:], `js"`) ||
-			strings.HasPrefix(p.src[p.i+1:], `css"`) {
+		// Skip whitespace after '{' before sniffing for an f`/js`/css` prefix:
+		// the braced literal form is normally written with spaces (name={ js`…` }),
+		// matching Go brace style. parseBracedEmbeddedAttrValue skips the same
+		// whitespace and rewinds cleanly if the braces turn out to hold an
+		// ordinary Go expression, so a false positive here is harmless.
+		afterBrace := strings.TrimLeft(p.src[p.i+1:], " \t\r\n")
+		if strings.HasPrefix(afterBrace, "f`") ||
+			strings.HasPrefix(afterBrace, "js`") ||
+			strings.HasPrefix(afterBrace, "css`") ||
+			strings.HasPrefix(afterBrace, `f"`) ||
+			strings.HasPrefix(afterBrace, `js"`) ||
+			strings.HasPrefix(afterBrace, `css"`) {
 			return p.parseBracedEmbeddedAttrValue(name, attrStartPos)
 		}
 		if p.i+1 < len(p.src) && p.src[p.i+1] == '{' {
@@ -365,6 +371,7 @@ func (p *parser) parseBracedEmbeddedAttrValue(name string, attrStartPos token.Po
 		return p.parseAttrBraceValue(name, attrStartPos)
 	}
 	p.i++ // past '{'
+	p.skipSpace()
 	// parseEmbeddedAttrLiteral consumes the literal INCLUDING any gsx
 	// backslash-backtick escapes and leaves the cursor right after the closing
 	// backtick. Only the region AFTER the literal (pipe stages, or nothing but
@@ -380,7 +387,7 @@ func (p *parser) parseBracedEmbeddedAttrValue(name string, attrStartPos token.Po
 	afterLiteral := p.i
 	if !p.eof() && p.src[p.i] == '}' {
 		p.i++ // past '}'
-		ea := &ast.EmbeddedAttr{Name: name, Lang: lang, Segments: segments, DoubleQuoted: dquoted}
+		ea := &ast.EmbeddedAttr{Name: name, Lang: lang, Segments: segments, DoubleQuoted: dquoted, Braced: true}
 		ast.SetSpan(ea, attrStartPos, p.posAt(p.i))
 		return ea, nil
 	}
@@ -402,7 +409,7 @@ func (p *parser) parseBracedEmbeddedAttrValue(name string, attrStartPos token.Po
 			if perr != nil {
 				return fallback()
 			}
-			ea := &ast.EmbeddedAttr{Name: name, Lang: lang, Segments: segments, Stages: stages, DoubleQuoted: dquoted}
+			ea := &ast.EmbeddedAttr{Name: name, Lang: lang, Segments: segments, Stages: stages, DoubleQuoted: dquoted, Braced: true}
 			p.i = end + 1 // past '}'
 			ast.SetSpan(ea, attrStartPos, p.posAt(p.i))
 			return ea, nil

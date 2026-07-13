@@ -158,7 +158,9 @@ components/cond_branch_embedded_hole_generic	diag render
 components/cond_branch_embedded_hole_tuple	diag render
 components/embedded_attr_cond_prop	diag gen render
 components/embedded_attr_prop	diag gen render
+components/embedded_attr_rawjs_bag	diag gen render
 components/embedded_attr_rejected	diag(error)
+components/embedded_prop_binding	diag gen render
 components/generic_attr_typeparam	diag gen render
 components/generic_children	diag gen render
 components/generic_function_component	diag gen render
@@ -784,4 +786,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 786 cases (render: 664, error: 90, gen-pinned: 444)
+TOTAL: 788 cases (render: 666, error: 90, gen-pinned: 446)

@@ -1,0 +1,18 @@
+The braced { js`…` } embedded-literal attribute form round-trips its braces
+(canonicalized tight). Braces are preserved because on a component tag a braced
+literal binds a declared prop while the bare form falls through to the Attrs
+bag — stripping them would change the meaning. The bare form stays bare.
+Interpolation-hole whitespace is normalized either way.
+
+-- input.gsx --
+package p
+
+component C(id string) {
+	<Widget Handler={ js`open(@{ id })` } data-x=js`bare(@{id})`/>
+}
+-- fmt.golden --
+package p
+
+component C(id string) {
+	<Widget Handler={js`open(@{id})`} data-x=js`bare(@{id})`/>
+}

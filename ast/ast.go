@@ -425,6 +425,14 @@ type EmbeddedAttr struct {
 	// Both forms are semantically identical; only the boundary char and which
 	// char is `\`-escaped inside differ.
 	DoubleQuoted bool
+	// Braced records that the literal was written in the braced { … } form
+	// (name={js`…`}) rather than the bare form (name=js`…`). The printer must
+	// preserve this because the two forms differ SEMANTICALLY on a component
+	// tag: a braced js`/css` literal whose name matches a declared prop BINDS
+	// that prop (it is the `{ expr }` prop-binding form — js`/css` literals are
+	// Go expressions), while the bare form always falls through to the Attrs
+	// bag. On an element the two forms are identical (both stream the literal).
+	Braced bool
 }
 
 func (*EmbeddedAttr) attrNode() {}
