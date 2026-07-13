@@ -1,60 +1,70 @@
-# Runtime helpers reference
+# Runtime helpers
 
-This page is the index of every user-facing type and function exported by the `gsx` runtime package (`github.com/gsxhq/gsx`). Each entry gives the exact Go signature or type declaration, a one-line description, and a link to the page that shows it in context.
+These are the `github.com/gsxhq/gsx` types and functions commonly called from
+application code. See [Attributes](./attributes.md), [Styling](./styling.md),
+and [Escaping](./escaping.md) for their syntax and safety rules.
 
-The runtime is **standard-library only** — no external dependencies. Generated code calls these helpers directly; you call them when you need to box a trusted value, construct an attribute bag in Go code, or implement the `Node` interface yourself.
+## Core
 
-## Core interface
+| Name | Declaration | Use |
+|---|---|---|
+| `Node` | `type Node interface { Render(ctx context.Context, w io.Writer) error }` | Renderable value returned by every component. |
+| `Func` | `type Func func(ctx context.Context, w io.Writer) error` | Adapt a render function to `Node`; its `Render` method calls the function. |
 
-| Name | Kind | Signature | Description |
-|------|------|-----------|-------------|
-| `gsx.Node` | interface | `Render(ctx context.Context, w io.Writer) error` | The rendering interface every gsx component satisfies. Any value implementing this method is renderable in a `gsx.Node` prop or `{children}`. See [Composition](./composition.md). |
-| `gsx.Func` | type | `type Func func(ctx context.Context, w io.Writer) error` | Adapts a plain function to `gsx.Node`; implements `Render` by calling itself. Useful when writing a one-off Node in Go without declaring a struct. See [Raw HTML](./raw-html.md). |
+## Trusted values
 
-`gsx.Node`'s method set is identical to `templ.Component`'s (as of templ ≥ v0.3), so a `gsx.Node` satisfies `templ.Component` structurally and vice-versa — no adapter or import needed.
+| Name | Declaration | Use |
+|---|---|---|
+| `Raw` | `func Raw(html string) Node` | Render trusted HTML verbatim. |
+| `RawURL` | `type RawURL string` | Trust a URL scheme while retaining attribute escaping. |
+| `RawJS` | `type RawJS string` | Trust JavaScript and bypass JavaScript encoding. |
+| `RawCSS` | `type RawCSS string` | Trust CSS and bypass CSS value filtering. |
 
-## Trusted-value helpers
+Each entry crosses a trust boundary. Pass only content you control or have
+validated for that context; see [Escaping](./escaping.md#trusted-value-helpers).
 
-These are the explicit opt-outs from gsx's context-aware auto-escaping. Each one vouches that the value is safe for its target context. **Do not use them on untrusted input.**
+## Node values
 
-| Name | Kind | Signature / type | Description |
-|------|------|-----------------|-------------|
-| `gsx.Raw` | func | `func Raw(html string) Node` | Emits `html` verbatim — no entity encoding, no escaping. Use only for already-safe HTML (e.g. pre-sanitised Markdown). See [Raw HTML](./raw-html.md). |
-| `gsx.RawURL` | type | `type RawURL string` | A URL whose scheme is trusted. In a URL attribute (`href`, `src`, etc.) a `gsx.RawURL` value skips the scheme allow-list check; the string is still attribute-escaped (it cannot break out of quotes). Use as a conversion: `gsx.RawURL("app://…")`. See [Escaping](./escaping.md). |
-| `gsx.RawJS` | type | `type RawJS string` | A JavaScript string the author vouches for. In a `<script>` body or `` js`...` `` interpolation hole, a `gsx.RawJS` value is emitted verbatim, bypassing JSON-encoding. Use as a conversion around trusted JavaScript only. See [JavaScript](./javascript.md). |
-| `gsx.RawCSS` | type | `type RawCSS string` | A CSS value the author vouches for. In a `<style>` body or `style=` attribute a `gsx.RawCSS` value is emitted verbatim, bypassing the CSS value-filter. Use as a conversion: `gsx.RawCSS("rgb(0,128,0)")`. See [Styling](./styling.md). |
+| Name | Signature | Use |
+|---|---|---|
+| `Val` | `func Val(v any) Node` | Box a supported Go value as a `Node`. |
+| `Text` | `func Text(s string) Node` | Create an HTML-escaped text node. |
+| `Fragment` | `func Fragment(nodes ...Node) Node` | Render several nodes in order without a wrapper element. |
 
-`RawURL`, `RawJS`, and `RawCSS` are named **string types**, not functions. Use them as type conversions — `gsx.RawJS(expr)` — not as function calls.
+`Val` accepts `nil`, `Node`, `[]Node`, `string`, `[]byte`, `fmt.Stringer`,
+`bool`, `int`, `int8`, `int16`, `int32`, `int64`, `uint`, `uint8`, `uint16`,
+`uint32`, `uint64`, `float32`, and `float64`. Other values return an error from
+`Render`. A named scalar without a supported interface must be converted to its
+built-in type before boxing it.
 
 ## Attribute bags
 
-::: v-pre
-| Name | Kind | Signature / type | Description |
-|------|------|-----------------|-------------|
-| `gsx.Attrs` | type | `type Attrs []Attr` | Ordered attribute bag — the default bag type. Pairs render in slice order (source order). Used for `{ bag… }` spread and every declared `Attrs gsx.Attrs` prop. The `{{ "k": v }}` literal lowers to this type. See [Attributes](./attributes.md). |
-| `gsx.Attr` | type | `type Attr struct{ Key string; Value any }` | A single key-value attribute pair. The element type of `gsx.Attrs`. |
-| `gsx.AttrMap` | type | `type AttrMap map[string]any` | Optional map-backed construction helper. Templates accept `gsx.Attrs`, so call `ToAttrs` before passing map-shaped data to a bag prop or spread. See [Attributes](./attributes.md). |
-| `gsx.AttrMap.ToAttrs` | method | `func (m AttrMap) ToAttrs() Attrs` | Converts the map to an ordered `Attrs` slice with keys sorted ascending for deterministic output. Construct `Attrs` directly when insertion order matters. |
-:::
+### Bag types
 
-## Node boxing
+| Name | Declaration or signature | Use |
+|---|---|---|
+| `Attr` | `type Attr struct { Key string; Value any }` | One ordered attribute pair. |
+| `Attrs` | `type Attrs []Attr` | Ordered attribute bag. |
+| `AttrMap.ToAttrs` | `func (m AttrMap) ToAttrs() Attrs` | Convert a map, sorted by key. |
 
-These helpers box ordinary Go values into `gsx.Node` so they can be passed to a `gsx.Node`-typed prop.
+### `Attrs` methods
 
-| Name | Kind | Signature | Description |
-|------|------|-----------|-------------|
-| `gsx.Val` | func | `func Val(v any) Node` | Boxes any renderable value as a Node. Accepts `Node`, `string`, `[]byte`, `fmt.Stringer`, numeric types, and `bool`; returns a render-time error (propagated out of `Render`) for other types. See [Props](./props.md). |
-| `gsx.Text` | func | `func Text(s string) Node` | Boxes a plain string as an HTML-escaped text Node. Equivalent to `{ s }` inline but usable as a value in Go code. |
-| `gsx.Fragment` | func | `func Fragment(nodes ...Node) Node` | Groups multiple Nodes into a single Node that renders them in order with no wrapper element. The value-level equivalent of `<> … </>`. See [Fragments](./fragments.md). |
+#### Read values
 
-## Class and style helpers (generated; rarely called directly)
+| Name | Signature | Use |
+|---|---|---|
+| `Class` | `func (a Attrs) Class() string` | Join `class` values. |
+| `Style` | `func (a Attrs) Style() string` | Join `style` values. |
+| `Get` | `func (a Attrs) Get(key string) (any, bool)` | Get the last value. |
+| `Has` | `func (a Attrs) Has(key string) bool` | Test for a key. |
 
-The following helpers are what `class={ … }` and `style={ … }` sugar compiles to. You rarely call them by name — the code generator emits them for you. They are documented here for completeness and for authors implementing custom Node types that must participate in the class/style machinery.
+#### Transform bags
 
-| Name | Kind | Signature | Description |
-|------|------|-----------|-------------|
-| `gsx.Class` | func | `func Class(s string) ClassPart` | Returns an always-on class contribution. |
-| `gsx.ClassIf` | func | `func ClassIf(s string, on bool) ClassPart` | Returns a conditional class contribution included only when `on` is true. |
-| `gsx.StyleValue` | func | `func StyleValue(v any) string` | Returns a CSS-safe string: a `gsx.RawCSS` value passes through verbatim; any other value is run through the CSS value-filter. |
+| Name | Signature | Use |
+|---|---|---|
+| `Without` | `func (a Attrs) Without(keys ...string) Attrs` | Copy without keys. |
+| `Take` | `func (a Attrs) Take(key string) (any, Attrs)` | Get and remove a key. |
+| `Merge` | `func (a Attrs) Merge(other Attrs) Attrs` | Merge bags; class and style compose. |
 
-See [Styling](./styling.md) for the full composable `class`/`style` reference.
+See [Attributes](./attributes.md#spread-x-—-ordered) for spread order and
+[Styling](./styling.md#class-style-merging) for class and style precedence.

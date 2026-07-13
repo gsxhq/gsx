@@ -1,27 +1,30 @@
 # Status
 
-gsx is alpha software. It is usable end to end, but the language and APIs may still change before a stable release.
+gsx is alpha software. It works end to end, but the language and APIs may change
+before a stable release.
 
-## Shipped
+## Ready to use
 
-- `gsx init`, `gsx dev`, `gsx generate`, `gsx fmt`, `gsx info`, `gsx clean`, `gsx lsp`, `gsx version`, and `gsx help`.
-- Component declarations, method components, generated props, bring-your-own props, `{children}`, named slots, and explicit attribute forwarding.
-- Interpolation, control flow, attributes, contextual escaping, pipelines, `(T, error)` auto-unwrap, fragments, raw Go blocks, raw-text elements, composable `class`, element-level composable `style`, class/style merge, ordered attrs, and value-form `if`/`switch` in class/style lists.
-- Vite-backed development loop with warm generation, server rebuild, browser reload, and browser error overlay.
-- Language server diagnostics, go-to-definition, hover, references, formatting, and editor integration paths.
+- Start a project, generate and format templates, inspect configuration, and run
+  the Vite-backed development loop through the [CLI](./cli.md).
+- Build typed components with generated or user-owned props, children, slots,
+  control flow, pipelines, and attribute forwarding.
+- Render escaped HTML, URLs, CSS, and JavaScript values, with explicit trust
+  boundaries where automatic encoding is not enough.
+- Use diagnostics, go-to-definition, hover, references, symbols, and formatting
+  through the [language server](./editor.md).
 
-## Partial
+## Current limits
 
-- LSP completion is deferred.
-- References cover project components discovered during module analysis; external/non-project references are deferred.
-- CLI `vet`, `render`, `explain`, and stable numeric diagnostic codes are deferred.
-- Component-invocation `style={...}` composition and `[]string` class parts are deferred.
+- LSP completion is not implemented.
+- Find-references covers project components, not external or non-project
+  references.
+- Composable `style={...}` works on elements, but not on component invocations;
+  pass a static style or compose it inside the component instead.
+- Class composition accepts individual string contributions, but not a
+  `[]string` as one class part.
 
-## Known Gaps
+## Roadmap
 
-- None currently tracked here; see the roadmap below.
-
-## Detailed Roadmap
-
-The detailed engineering roadmap lives in
-[Roadmap & Status](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md).
+See [Roadmap & Status](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md)
+for planned work and detailed engineering progress.
