@@ -65,7 +65,7 @@ import (
 	"corpustest/cases/renderers_fallthrough_attr/pg"
 
 	_gsxctx "context"
-	_gsxf26 "corpustest/cases/renderers_fallthrough_attr/rend"
+	_gsxf28 "corpustest/cases/renderers_fallthrough_attr/rend"
 	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
@@ -107,7 +107,7 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		val := _gsxp.Val
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:14:2
-		_gsxv0, _gsxerr := _gsxf26.PgText((val))
+		_gsxv0, _gsxerr := _gsxf28.PgText((val))
 		if _gsxerr != nil {
 			return _gsxerr
 		}

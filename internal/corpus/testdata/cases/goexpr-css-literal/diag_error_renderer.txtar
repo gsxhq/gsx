@@ -1,0 +1,52 @@
+# CSS analog of goexpr-js-literal/diag_error_renderer.txtar: a hole whose
+# resolved type has a registered [renderers] entry returning (R, error) inside
+# a Go-expression css`…` literal (a var initializer) — no error channel to
+# route the renderer's error through. Pins the CSS side of the third
+# "goexpr-literal-error" rejection shape (embeddedHoleExpr's
+# `table.renderers[...].hasErr` preflight, Task 3); the JS side is pinned by
+# goexpr-js-literal/diag_error_renderer.txtar. Closes a gap left by
+# renderer_hole.txtar, which only demonstrates the SUCCESSFUL (non-error)
+# renderer-in-expression-position path for both js` and css` (a diagnostic
+# aborts the whole package's codegen, so it cannot share that renderable
+# case).
+-- gsx.toml --
+[renderers]
+"./pg.Text" = "./rend.PgText"
+-- pg/pg.go --
+package pg
+
+type Text struct {
+	String string
+}
+-- rend/rend.go --
+package rend
+
+import (
+	"errors"
+
+	"corpustest/cases/goexpr-css-literal_diag_error_renderer/pg"
+)
+
+func PgText(t pg.Text) (string, error) {
+	if t.String == "" {
+		return "", errors.New("pgtext: empty")
+	}
+	return t.String, nil
+}
+-- input.gsx --
+package demo
+
+import "corpustest/cases/goexpr-css-literal_diag_error_renderer/pg"
+
+var val = pg.Text{String: "red"}
+
+var h = css`color:@{val}`
+
+component Page() {
+	<div style={h}>x</div>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+7:20: @{ val } is rendered by an error-returning renderer; a js`/css` literal in Go-expression position has no error channel to propagate it through — handle the error in Go, or move the literal to an attribute position
+-- render.golden --

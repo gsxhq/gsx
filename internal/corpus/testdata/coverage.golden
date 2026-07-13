@@ -329,6 +329,7 @@ goblock-literal/element_rejected	diag render
 goblock-literal/element_rejected_used_later	diag render
 goblock-literal/f_literal	diag gen render
 goblock-literal/motivating_attrs	diag gen render
+goexpr-css-literal/diag_error_renderer	diag render
 goexpr-css-literal/hostile_zgotmplz	diag gen render
 goexpr-css-literal/rawcss_passthrough	diag gen render
 goexpr-css-literal/var_style_spread	diag gen render
@@ -350,6 +351,7 @@ goexpr-js-literal/diag_error_pipe	diag render
 goexpr-js-literal/diag_error_renderer	diag render
 goexpr-js-literal/diag_error_tuple	diag render
 goexpr-js-literal/diag_malformed_js	diag render
+goexpr-js-literal/differential	diag gen render
 goexpr-js-literal/dquote_form	diag gen render
 goexpr-js-literal/eval_order_once	diag gen render
 goexpr-js-literal/func_return	diag gen render
@@ -358,6 +360,7 @@ goexpr-js-literal/indirect_rawjs_text	diag gen render
 goexpr-js-literal/rawjs_escaped_in_string	diag gen render
 goexpr-js-literal/rawjs_passthrough_value	diag gen render
 goexpr-js-literal/rawjs_slice	diag gen render
+goexpr-js-literal/renderer_hole	diag gen render
 goexpr-js-literal/var	diag gen render
 goexpr-valueform-init/value_if_define_init	diag gen render
 imports/alias_gsx_import	diag gen render
@@ -786,4 +789,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 788 cases (render: 666, error: 90, gen-pinned: 446)
+TOTAL: 791 cases (render: 669, error: 90, gen-pinned: 448)
