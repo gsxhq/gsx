@@ -35,7 +35,7 @@ Relative URLs and the `http`, `https`, `mailto`, and `tel` schemes pass through.
 Other schemes, including `javascript:` and `vbscript:`, become
 `about:invalid#gsx`.
 
-### Resource and navigation URLs
+### Resource and navigation URLs {#resource-vs-navigational-url-sinks}
 
 `data:` URLs are blocked except in these image-rendering positions:
 

@@ -56,7 +56,7 @@ all-or-nothing: do not mix it with field attributes or children on the same
 call. A `gsx.Attrs` expression uses the same surface syntax for an attribute
 [spread](./attributes.md#spread-x-—-ordered); its type makes the intent clear.
 
-## Advanced case: attrs-only component values
+## Advanced case: attrs-only component values {#attrs-only-component-values}
 
 A package-level function or value can be called as a component tag when it has
 one of these public shapes:

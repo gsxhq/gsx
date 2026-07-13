@@ -71,7 +71,8 @@ call site must declare the bag in source order.
 <Panel id="profile" { defaults... } attrs={{ "role": "region" }}/>
 ```
 
-- Ordinary attributes and spreads compose in source order.
+- Ordinary attributes, conditional attributes, and spreads compose in source
+  order.
 - `attrs={{...}}` is applied last.
 - A call site may contain only one ordered literal.
 :::
@@ -109,7 +110,8 @@ Use `f` literals to combine static text with typed `@{expr}` holes.
 <PageHeader title="Tickets" subtitle=f`@{count} tickets`/>
 ```
 
-A matching name receives a string prop. An unmatched name falls through to the
+A matching `string` prop receives the assembled string. A matching `gsx.Node`
+prop receives an escaped text node. An unmatched name falls through to the
 component's attrs bag.
 
 ### URL attributes sanitize the whole value

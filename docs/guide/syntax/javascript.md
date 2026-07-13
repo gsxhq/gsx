@@ -4,7 +4,7 @@ gsx supports JavaScript-valued attributes, script interpolation, and JSON data
 islands. Use explicit JavaScript literals in attributes so code is distinguishable
 from ordinary text.
 
-## JavaScript-valued attributes
+## JavaScript-valued attributes {#attribute-local-javascript}
 
 Use a `` js`...` `` literal for a handler or JavaScript expression:
 

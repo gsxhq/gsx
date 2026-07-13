@@ -41,10 +41,15 @@ trusted-value boundary.
 
 ## Merge forwarded class and style {#class-style-merging}
 
-When `{ attrs... }` forwards a caller's `class` or `style`, it merges with values
-already written on the element at that position. The default class merger keeps
-the last occurrence of an exact duplicate token. For style, the later value for
-the same property wins.
+Scalar attributes from a spread keep the spread's source position. Forwarded
+`class` and `style` are the exception: the component root's local parts merge
+first and the caller's parts merge last, even when `{ attrs... }` appears before
+the local `class` or `style`. The default class merger keeps the last occurrence
+of an exact duplicate token. For style, the later value for the same property
+wins.
+
+For example, `<div { attrs... } class="card">` still puts `card` before the
+caller's class tokens.
 
 <!--@include: ./_generated/styling/030-class-style-merging.md-->
 
