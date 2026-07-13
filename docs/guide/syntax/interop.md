@@ -1,120 +1,110 @@
 # Interop
 
-gsx components are plain Go values that implement a single interface. That design makes them composable with the wider Go templating ecosystem without any bridging layer.
+`gsx.Node` and `templ.Component` share the same `Render(context.Context,
+io.Writer) error` method, so they work together without an adapter. For help
+choosing a template system, see [Comparisons](../comparisons.md).
 
-For a higher-level choice guide, see [Comparisons](../comparisons.md).
+## templ
 
-## Working with templ
+### Render gsx from templ
 
-`gsx.Node` is declared in `node.go` as:
+Call a gsx component directly from a `.templ` file:
 
-```go
-type Node interface {
-    Render(ctx context.Context, w io.Writer) error
+```templ
+templ Page() {
+	@views.Card(views.CardProps{Title: "Welcome"})
 }
 ```
 
-This method set is **identical** to `templ.Component` (templ ≥ v0.3). The two interfaces are structurally compatible in Go: a value that satisfies one automatically satisfies the other. No adapter, no cast, and no `templ` import is needed on the gsx side.
+`views.Card` returns a `gsx.Node`, which also satisfies `templ.Component`.
 
-### A gsx component inside a templ template
+### Render templ from gsx
 
-templ's `@` call syntax invokes `.Render(ctx, w)` on the target. Because a gsx component returns a `gsx.Node`, it fits the `@` call directly:
+Accept a `gsx.Node`, then pass a templ component to it:
 
-```go
-// inside a .templ file — illustrative
-@LLInformation(LLInformationProps{Item: item})
+```gsx
+component Shell(body gsx.Node) {
+	<main>{body}</main>
+}
 ```
 
-`LLInformation` is a gsx component (returns `gsx.Node`). templ's codegen calls `.Render(ctx, w)` on the return value — the same method gsx implements — so no wrapper is needed.
-
-### A templ component inside gsx
-
-The reverse works too. `templ.Component` satisfies `gsx.Node` structurally, so any `templ.Component` value slots straight into a `gsx.Node`-typed prop:
-
 ```go
-// illustrative — passing templ.Raw as a Children prop
-card.Card(card.CardProps{
-    Title:    "My card",
-    Children: templ.Raw("<p>body paragraph</p>"),
+page := views.Shell(views.ShellProps{
+	Body: templComponent, // templComponent is a templ.Component
 })
 ```
 
-`templ.Raw(...)` returns a `templ.Component`; `Children` is typed `gsx.Node`. No conversion needed.
+The templ component satisfies `gsx.Node` structurally and renders in place.
 
-The same applies to a `templ.Component` field in any struct. If an existing library types a slot as `templ.Component`, a gsx node can be assigned to it directly:
+### Children stay explicit
 
-```go
-// illustrative
-tab.Content = myGSXComponent(props)  // Content is templ.Component; myGSXComponent returns gsx.Node
-```
+templ passes block children through `context.Context`; gsx receives children
+through an explicit `Children gsx.Node` prop. Pass the child value directly:
 
-### Children don't cross by calling convention
+```templ
+templ Child() {
+	<p>Child</p>
+}
 
-This is the one real gotcha. templ passes children through Go's `context` value — the `@comp { … }` syntax calls `templ.WithChildren` and the receiving component calls `templ.GetChildren`. gsx uses an **explicit `Children gsx.Node` prop** instead; it never reads children from context.
-
-This means:
-
-```
-// inside a .templ file — this does NOT work as expected
-@gsxCard(gsxCard.Props{Title: "T"}) {
-    <p>This child is passed via templ context — gsx will not see it.</p>
+templ Page() {
+	@views.Card(views.CardProps{Children: Child()})
 }
 ```
 
-The `<p>` block is stored in context by templ's runtime but `gsxCard` reads `Children` from its props struct, not from context. The child is silently dropped.
+Do not use templ's `@views.Card(...) { ... }` block form for a gsx component:
+gsx does not read `templ.GetChildren` from the context.
 
-**Fix:** pass the child as an explicit prop value, not via the `{ … }` block:
+## `html/template`
 
-```go
-// illustrative — correct way to pass children from templ to a gsx component
-@gsxCard(gsxCard.Props{Title: "T", Children: templ.Raw("<p>child</p>")})
-```
+### Render gsx into a template
 
-### Framework composition
-
-Any framework that renders a `Render(ctx context.Context, w io.Writer) error`
-value — including [structpages](https://github.com/jackielii/structpages) — can
-render gsx and templ components through the same method shape.
-
-## Working with html/template
-
-gsx has **no built-in bridge** to `html/template`. There is no `gsx.FromGoHTML` or `gsx.ToGoHTML` helper — this is a deliberate non-goal; the runtime is standard-library only and intentionally small. The two systems are bridged at the call site, not by the library.
-
-### gsx output into an html/template
-
-Render the gsx node to a `bytes.Buffer`, then wrap the result as `template.HTML` to tell `html/template` to trust it:
+Render the node, then pass the complete result as `template.HTML`:
 
 ```go
-// illustrative
-var buf bytes.Buffer
-if err := myComponent(props).Render(ctx, &buf); err != nil {
-    return err
+var body bytes.Buffer
+if err := views.Page(props).Render(ctx, &body); err != nil {
+	return err
 }
-data := struct{ Body template.HTML }{
-    Body: template.HTML(buf.String()),
-}
-goTmpl.Execute(w, data)  // {{ .Body }} in the Go template emits the raw HTML
+
+return tmpl.Execute(w, struct{ Body template.HTML }{
+	Body: template.HTML(body.String()),
+})
 ```
 
-The trust boundary here is intentional: gsx has already escaped its output, so wrapping it as `template.HTML` is safe. Only wrap gsx's own rendered output this way — never a raw user-supplied string.
+Bind the Go template's `Body` field where the rendered node should appear. This
+conversion crosses a trust boundary: wrap only rendered output you trust, never
+an unvalidated string.
 
-### html/template output into gsx
+### Render a template into gsx
 
-Render the Go template to a buffer, then embed the result with `gsx.Raw`:
+Render the template, then pass the complete result through `gsx.Raw`:
 
 ```go
-// illustrative
-var buf bytes.Buffer
-if err := goTmpl.Execute(&buf, data); err != nil {
-    return err
+var body bytes.Buffer
+if err := tmpl.Execute(&body, data); err != nil {
+	return err
 }
-rendered := buf.String()
-// in gsx markup:
-//   { gsx.Raw(rendered) }
+
+return views.Shell(views.ShellProps{
+	Body: gsx.Raw(body.String()),
+}).Render(ctx, w)
 ```
 
-`gsx.Raw` writes the string verbatim, bypassing gsx's auto-escaping. The same trust boundary applies: `html/template` has already escaped the output, so treating it as trusted HTML is correct. Never pass unvalidated user input to `gsx.Raw`.
+`gsx.Raw` bypasses HTML escaping. Use it only for output produced by a trusted
+`html/template`, never for unvalidated input.
 
-### React and other client-side islands
+## Client-side islands
 
-Client-side hydration is an HTTP-layer concern, not a gsx language feature. The typical pattern is: gsx renders the SSR shell (a `<div id="root">` or equivalent), and a bundled script hydrates the island on the client. gsx makes no assumptions about the client framework.
+Render the server-owned shell and serialized data with gsx, then load the
+client bundle that mounts or hydrates the island:
+
+```gsx
+component ChartIsland(data ChartData) {
+	<div id="chart"></div>
+	<script type="application/json" id="chart-data">@{data}</script>
+	<script type="module" src="/assets/chart.js"></script>
+}
+```
+
+See [JavaScript](./javascript.md#json-data-islands) for JSON data islands and
+script interpolation.

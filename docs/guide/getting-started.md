@@ -1,20 +1,16 @@
 # Getting started
 
-This guide creates a small server-rendered gsx application, starts its development
-loop, and makes the first live change.
+Create a gsx app, start live reload, and make your first change.
 
 ## Prerequisites
 
 - Go 1.24 or newer
 - Node.js 18 or newer
-- npm, or another Node package manager such as pnpm or Yarn
-
-The starter uses npm in the commands below. Vite needs Node.js and a package
-manager, but npm itself is not required.
+- npm (the scaffold command below runs `npm install`)
 
 ## Create a project
 
-Install the gsx CLI and scaffold the starter:
+Install gsx and scaffold the starter:
 
 ```sh
 go install github.com/gsxhq/gsx/cmd/gsx@latest
@@ -22,11 +18,11 @@ gsx init hello-gsx --yes
 cd hello-gsx
 ```
 
-If another program named `gsx` is installed on your system, run `gsx version` to
-verify the binary before scaffolding.
+If another program named `gsx` is installed, run `gsx version` before
+scaffolding to check which binary your shell found.
 
-The `--yes` flag runs the starter's setup commands without prompting: it adds gsx
-as a Go tool, tidies the Go module, and installs the Vite dependencies.
+`--yes` also adds gsx as a Go tool, tidies the module, and installs the Vite
+dependencies.
 
 ## Start the development server
 
@@ -34,66 +30,42 @@ as a Go tool, tidies the Go module, and installs the Vite dependencies.
 npm run dev
 ```
 
-Open `http://localhost:5173`.
+Open the URL printed in the terminal. The starter runs `go tool gsx dev`, so
+you do not need a separate code generator or file watcher.
 
-The package script runs the project-local tool:
-
-```sh
-go tool gsx dev
-```
-
-`gsx dev` watches `.gsx`, `.go`, and `.env` files. On each relevant change it
-regenerates Go with a warm compiler, builds and safely swaps the Go server, and
-asks Vite to reload the browser. If generation or compilation fails, the browser
-shows the error while the last working server keeps running.
-
-For the full sequence — what `gsx dev` watches, regenerates, rebuilds, and reloads
-on each save — see [How the dev loop works](./dev-loop.md).
+After scaffolding, you can switch to pnpm, Yarn, or another package manager.
+Run its equivalent of `npm run dev`; use the
+[`[dev]` configuration](./config.md#dev-development-loop) if you also want to
+replace the default `npx vite` command.
 
 ## Make the first change
 
-Open `app.gsx`, change some visible text, and save. The browser reloads with the
-new output.
+Open `app.gsx`, change the text inside `<h1>`, and save. The server rebuilds
+and the browser reloads with the new text.
 
-The generated `app.x.go` beside it is ordinary Go consumed by `go build`. Keep it
-in source control, but edit `app.gsx` rather than the generated file.
+Generated `*.x.go` files are ignored by the starter. Do not edit or commit
+them; gsx recreates them from the `.gsx` source.
 
-Try introducing an invalid expression in `app.gsx`. The browser error overlay
-shows the diagnostic. Fix it and save again; the overlay clears and the new
-server replaces the last working one.
-
-## Use another package manager
-
-You can replace the npm install and script commands with the equivalents from
-pnpm, Yarn, or another compatible package manager. By default, `gsx dev` starts
-Vite with `npx vite`. Configure a different front-door command in `gsx.toml`:
-
-```toml
-[dev]
-web = ["pnpm", "vite"]
-```
-
-Then run `go tool gsx dev` directly, or update the `dev` script in `package.json`
-to use your preferred setup.
+For save behavior and build failures, see the [development loop](./dev-loop.md).
 
 ## Build for production
 
-Build the Vite assets, then compile and run the Go server:
+From a clean checkout with dependencies installed, build the assets, generate
+Go, and compile the server:
 
 ```sh
 npm run build
+go tool gsx generate
 go build -o app
 ./app
 ```
 
-The production binary embeds the generated `dist/` assets and does not run Vite.
+The resulting server embeds the built Vite assets and does not run Vite.
 
-## Where to go next
+## Next steps
 
-- Follow [Learn gsx](./learn.md) for the first component, props, children, attrs, and styling.
+- Follow [Learn gsx](./learn.md) for the normal component patterns.
 - Keep the [syntax reference](./syntax.md) open while writing `.gsx`.
 - Use the [playground](/playground) for quick experiments.
-- See the [`gsx dev` CLI reference](./cli.md#gsx-dev) for custom build, run, log,
-  and front-door commands.
-- Configure filters, asset processing, and the dev loop in
-  [`gsx.toml`](./config.md).
+- See the [CLI reference](./cli.md#gsx-dev) and
+  [`gsx.toml` reference](./config.md) when you need customization.

@@ -1,105 +1,113 @@
 # JavaScript
 
-gsx integrates with JavaScript through attribute-local JavaScript literals,
-`<script>` body interpolation, and JSON data islands. Dynamic values are escaped
-for the JavaScript position they occupy, and `gsx.RawJS` remains the explicit
-opt-in for trusted JavaScript inside interpolation holes.
+gsx supports JavaScript-valued attributes, script interpolation, and JSON data
+islands. Use explicit JavaScript literals in attributes so code is distinguishable
+from ordinary text.
 
-## Attribute-local JavaScript
+## JavaScript-valued attributes {#attribute-local-javascript}
 
-Use a `` js`...` `` literal when an attribute value is JavaScript:
-
-````gsx
-<button @click=js`open = !open`>Toggle</button>
-<div x-data=js`{ open: false, initial: @{initial} }`>...</div>
-````
-
-`@{expr}` inside a `` js`...` `` literal inserts a Go value escaped for the
-JavaScript position where the hole appears. A string becomes a quoted JavaScript
-string literal, a number stays numeric, a struct or map becomes a JavaScript
-object literal, and `gsx.RawJS` bypasses that encoding only for trusted values.
-
-Quoted attributes remain literal strings. gsx does not scan quoted attributes for
-`@{}` interpolation:
-
-````gsx
-<div x-data="{ open: false }">...</div>
-````
-
-For ordinary expression attributes, `attr={expr}` uses normal attribute escaping
-unless the attribute is URL-context by name. Use `` js`...` `` when the value is
-code or a JavaScript expression, and an `f`-prefixed literal — `` name=f`…@{ x }…` `` —
-when the value is ordinary text with holes rather than code; see
-[Attributes — Interpolating attribute literals](./attributes.md#interpolating-attribute-literals).
-
-`` js`...` `` also accepts a `"`-delimited form, `js"..."`, semantically
-identical — pick whichever quote your JavaScript doesn't contain. It is the
-natural choice when the code itself is a JS template literal, which is
-already backtick-delimited: `` js"const t = `hi @{x}`" `` writes the
-backtick clean instead of escaping every inner one.
-
-````gsx
-<button @click=js`toggle()`>Toggle</button>
-````
+Use a `` js`...` `` literal for a handler or JavaScript expression:
 
 <!--@include: ./_generated/javascript/030-attribute-local-js-handler.md-->
 
-Alpine's directive values are JavaScript expressions. The explicit marker keeps
-the intent local to the attribute instead of relying on names like `x-data`,
-`@click`, or `:key`:
+Inside the literal, `@{ expr }` inserts a Go value at a JavaScript value,
+string, or regular-expression position. Use `js"..."` when the JavaScript itself
+contains backticks. See [Attributes](./attributes.md#contextual-escaping)
+for literal syntax and [Escaping](./escaping.md#javascript-and-css-contexts) for
+the trust boundary.
 
-<!--@include: ./_generated/javascript/040-alpine-dropdown.md-->
+Keep a `js` or `css` literal with `@{}` holes on the native element that
+consumes it. A wrapper should accept ordinary props and build the contextual
+literal at that destination:
 
-For larger Alpine state objects, keep the JavaScript in a multiline `` js`...` ``
-literal. Other embedded-language attributes can sit beside it, including
-`` css`...` `` contributions inside composed `style={...}`:
+```gsx
+component SaveButton(id string) {
+	<button @click=js`save(@{id})`>Save</button>
+}
+
+<SaveButton id={id}/>
+```
+
+On a component tag, an unbraced, hole-free contextual literal may fall through
+as authored text. The same unbraced form is rejected when it contains holes.
+
+## Contextual literals as Go values
+
+In a Go expression, a `js` literal has type `gsx.RawJS` and a `css` literal has
+type `gsx.RawCSS`. Store them in a local variable when a contextual value must
+be assembled before it reaches the native element:
+
+::: v-pre
+```gsx
+component Choice(id int, color string) {
+	{{
+		behavior := js`select(@{id})`
+		styles := css`color:@{color}`
+	}}
+	<button @click={behavior} style={styles}>Select</button>
+}
+```
+:::
+
+Each hole follows the JavaScript or CSS rules for its position before the typed
+value is created. Trusted `gsx.RawJS` and `gsx.RawCSS` holes retain their
+documented passthrough; see [Escaping](./escaping.md#trusted-value-helpers). Do
+not render the literal directly as visible body text.
+
+A component may explicitly accept the trusted type. Use braces so the literal
+binds the declared prop as a Go expression:
+
+```gsx
+component Widget(Handler gsx.RawJS, Rule gsx.RawCSS) {
+	<button @click={Handler} style={Rule}>Go</button>
+}
+
+<Widget Handler={js`open(@{id})`} Rule={css`width:@{width}px`}/>
+```
+
+::: v-pre
+Because the literal is a Go value, its holes cannot use an error-returning
+pipeline or renderer. Top-level declarations also cannot use a filter or
+renderer that takes `ctx`; component expressions and `{{ }}` blocks can.
+:::
+
+## Alpine and htmx directives
+
+Alpine directive values are JavaScript expressions, so mark `x-data`, `x-model`,
+`x-for`, `x-text`, `@click`, and `:key` values with `js`. The same form works for
+htmx attributes that contain JavaScript.
 
 <!--@include: ./_generated/javascript/050-complete-alpine-search.md-->
 
 ## JSON attribute values
 
-Attributes like htmx's `hx-vals` expect a JSON object. Write them with the same
-`` js`...` `` literal — JSON is a subset of JavaScript, and each `@{ }` hole is
-encoded for the value position it occupies:
+JSON is a subset of JavaScript, so attributes such as htmx's `hx-vals` use the
+same literal:
 
 <!--@include: ./_generated/javascript/055-json-attribute-values.md-->
 
-A Go value in a hole serializes to its JSON notation by default: a string
-becomes a quoted JSON string, a number stays numeric, and a struct, map, or
-slice is marshaled the way `encoding/json` would — so there is no need for a
-manual "to JSON" helper on the Go side. The rendered attribute is HTML-escaped
-as usual; once the browser un-escapes it, the consumer (htmx here) receives
-valid JSON: `{"entity_type": "opportunity", "opts": {"page":"1"}}`.
-
-Name the top-level JSON keys in the literal and put holes in value position.
-A bare `` js`@{payload}` `` is rejected with `jsx-identifier-position` — the
-escaper cannot prove a lone hole is a safe JavaScript value position — but a
-whole map or struct works fine as the *value* of a named key, like `opts` in
-the example above.
+Go strings, numbers, structs, maps, and slices in value-position holes are
+encoded as JSON values. The rendered attribute is then HTML-escaped; the browser
+restores the JSON text before the consumer reads it. Name keys in the literal
+and place dynamic holes in value positions.
 
 ## `<script>` interpolation
 
-Inside a `<script>` element, `@{ expr }` interpolates a Go value into the JavaScript body. The value is passed through the same JSON-encoding path as `jsValEscaper` from `html/template`: the result is a JSON literal that is also safe to embed inside an HTML `<script>` block — `</script>`, `<!--`, `-->`, and the Unicode line/paragraph separators U+2028/U+2029 are escaped so hostile input cannot terminate the script block or break JSON parsing.
-
-A struct, map, slice, number, or boolean is marshaled to its JSON representation. A `gsx.RawJS` value bypasses marshaling and is emitted verbatim — useful when you have a pre-rendered JS expression you trust.
+Inside `<script>`, `@{ expr }` inserts a Go value in the surrounding JavaScript
+context:
 
 <!--@include: ./_generated/javascript/020-script-interpolation.md-->
 
-`@{ state }` in the script body serializes the `AppState` struct as a JSON object. The resulting `const app = {"Tab":"settings","Open":true};` is valid JavaScript: the Go struct becomes a JS object literal that the script can read immediately without a separate JSON parse step.
+Value-position interpolation produces JSON notation. String and
+regular-expression positions receive their matching escapes, including escapes
+that prevent input from ending the `<script>` element. `gsx.RawJS` bypasses
+those protections and is only for JavaScript you trust; see
+[Escaping](./escaping.md#trusted-value-helpers).
 
 ## JSON data islands
 
-A common pattern for passing server-side data to client-side JavaScript is a `<script type="application/json">` element. Because the MIME type is not `text/javascript`, browsers do not execute the content; client code reads it with `JSON.parse(document.getElementById("…").textContent)`. In gsx, `@{ expr }` inside such a block serializes the Go value as JSON, making the data island easy to write and safe to embed:
-
-```gsx
-<script type="application/json" id="cfg">@{ cfg }</script>
-```
-
-The full rendering — including combining an attribute-local JavaScript handler
-and a data island in the same component — is shown below.
+Use `<script type="application/json">` to expose server data without executing
+it. Interpolation encodes the Go value as JSON, and client code can read the
+element's text content and pass it to `JSON.parse`.
 
 <!--@include: ./_generated/javascript/010-js-attributes-data-islands.md-->
-
-The data island is inert HTML — browsers parse it as text, not script — and the
-`id="cfg"` attribute lets client JavaScript retrieve it with
-`document.getElementById`.

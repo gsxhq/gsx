@@ -1,98 +1,46 @@
 # Dev loop
 
-`gsx dev` runs the whole development loop in a single warm Go process. It watches
-your source, regenerates Go, rebuilds and safely swaps the server, and drives the
-browser reload — so a server-rendered gsx app gets live reload from one command.
+`gsx dev` watches the project, keeps the Go server current, and reloads the
+browser. The generated starter runs it with `npm run dev`.
 
-The generated starter runs it through `npm run dev`, which calls `go tool gsx dev`.
-Because the HTML is rendered server-side, a reload is not a JavaScript hot-swap: it
-inherently requires **regenerate → build → restart the server → reload the browser**.
-`gsx dev` owns every step of that chain.
+## Run it
 
-## The loop
-
-```mermaid
-sequenceDiagram
-    actor Dev as Editor
-    participant GD as gsx dev
-    participant GS as Go server
-    participant V as Vite (+ plugin)
-    participant B as Browser
-
-    Dev->>GD: save app.gsx
-    Note over GD: fsnotify detects the change
-    GD->>GD: regenerate app.x.go (warm, incremental)
-    GD->>GD: go build server binary (to cache dir)
-
-    alt generate & build succeed
-        GD->>GS: swap in the new binary
-        GD->>V: POST /__gsx/event (ok)
-        GD->>V: POST /__reload
-        V->>B: full page reload (HMR WebSocket)
-        B->>V: GET /
-        V->>GS: proxy request
-        GS-->>B: streamed HTML
-    else gsx generate OR go build fails
-        GD->>V: POST /__gsx/event (gsx diagnostics)
-        GD->>V: POST /__gsx/event (go build error)
-        V->>B: error overlay
-        Note over GS: last working server keeps running
-    end
+```sh
+npm run dev
 ```
 
-## Step by step
+Open the URL printed in the terminal and leave the command running while you
+edit the project.
 
-1. **You save a file.** `gsx dev` watches `.gsx`, `.go`, and `.env` files. A change
-   to any of them starts a cycle.
-2. **Regenerate.** On a `.gsx` change, a warm `codegen.Module` regenerates the
-   neighbouring `.x.go` in-process and incrementally. A change to a `.go` or `.env`
-   file skips generation and goes straight to the rebuild.
-3. **Rebuild.** `gsx dev` runs `go build` for the server binary into an
-   operating-system cache directory — not your working tree, which keeps only the
-   generated `.x.go` files beside their `.gsx` sources.
-4. **Swap, don't stop.** Only if the build succeeds does `gsx dev` swap in the new
-   binary. This *build-then-swap* order means a broken build never takes the running
-   app down: the last working server keeps serving.
-5. **Reload.** Once the new server is ready, `gsx dev` notifies the Vite plugin. It
-   POSTs the codegen result (which drives the error overlay), then POSTs a reload
-   event. Vite broadcasts a full page reload over its HMR WebSocket — posting *after*
-   the server is ready is what keeps the reload from racing a stale binary.
-6. **Render.** The browser re-requests the page. Vite proxies non-asset routes to the
-   Go server, which streams the HTML rendered from the freshly generated `.x.go`.
+## What happens on save
 
-## When something fails
+On a normal `.gsx` save, gsx runs this sequence:
 
-The error overlay is event-driven: **both** kinds of failure stream to the same
-`/__gsx/event` endpoint as error text in the POST payload.
+1. Generate the affected Go code.
+2. Build a new server binary.
+3. Replace the running server after the build succeeds.
+4. Reload the browser.
 
-- A **gsx generation error** (a parse or type error in a `.gsx` file) is posted as a
-  diagnostic — the overlay points at the exact source location.
-- A **Go build error** (the regenerated code, or your own `.go` files, don't compile)
-  is posted too — `go build` never replaces the running binary on failure, so the last
-  working server stays up and the overlay shows the compiler error.
+Other project files have slightly different behavior:
 
-Either way the app keeps responding while you read the error. Fix it and save again:
-the overlay clears and the rebuilt server replaces the last one.
+- A `.go`, `go.mod`, or `go.sum` change refreshes affected generation, then
+  rebuilds and reloads.
+- A `.env` change restarts the existing backend with fresh environment values,
+  then reloads. It does not regenerate or rebuild.
 
-### The initial build
+## When a build fails
 
-The last-good-server guarantee only holds once a server has built at least once. If
-the server fails to build on the **first** start, there is no previous binary to fall
-back to, so the browser shows a generic "backend down" page rather than a source-level
-overlay. `gsx dev` mirrors the server's build and run output to a log file
-(`tmp/dev.log` in the starter, enabled with [`--log`](./cli.md#gsx-dev)), and the "backend
-down" page tails it — so that first-build compiler error is visible there. If the log
-file is absent, the page still shows, but with no log to display; enable the log to see
-why the server did not build.
+After the server has built successfully once, generation and build errors from
+later save cycles appear in the browser overlay, and the last working server
+remains active. Fix the error and save again to build and reload the new version.
 
-## Why one warm process
+### The first build
 
-A cold `gsx generate` reloads the Go type environment on every run. `gsx dev` keeps
-that environment warm, so an incremental regenerate drops from ~140 ms to ~1–2 ms on
-a small package. Running generate, build, swap, and reload in one supervised process
-also replaces the classic multi-tool setup — a generic file watcher, a separate
-codegen watcher, and a log multiplexer — with a single command that tears down
-cleanly.
+Before the first successful build, there is no last working server. Keep
+`gsx dev` running, fix the startup error, and save again.
 
-See the [CLI reference](./cli.md#gsx-dev) for `gsx dev`'s flags, and
-[Getting started](./getting-started.md) to scaffold a project and run the loop.
+## Customize the commands
+
+Use the [`gsx dev` flags](./cli.md#gsx-dev) for one-off changes to the front
+door, build, run, or logging commands. Put persistent settings in the
+[`[dev]` section of `gsx.toml`](./config.md#dev-development-loop).
