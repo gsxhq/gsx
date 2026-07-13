@@ -204,6 +204,9 @@ receives the render context — like a ctx-taking filter.
   is a generation-time error.
 - Type-parameter holes and values that are `any` at runtime (user-supplied
   `gsx.Attrs` entries, spreads) never consult the registry.
+- Advanced: gsx's own trusted types (`gsx.RawJS`, `gsx.RawCSS`) can be
+  registered too — the renderer replaces their verbatim passthrough and
+  applies uniformly wherever the value renders.
 
 `gen.WithRenderer("<pkgPath>.<TypeName>", fn)` registers from a custom
 generator binary and overrides a file entry for the same key, like
