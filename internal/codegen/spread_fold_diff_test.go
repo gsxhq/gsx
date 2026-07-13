@@ -234,6 +234,13 @@ func urlSinkArgsForTag(tag string) (nav, img, srcset, prefixes []string) {
 // renders through the leaf" reference the governing principle demands, used
 // for EVERY scenario including the ones whose shipped codegen takes a
 // different (optimized) path.
+//
+// Provenance caveat: shipped codegen wraps author-written StaticAttr values in
+// gsx.RawURL inside an element-fold bag (template text stays trusted through a
+// merge), so a scenario whose WINNING value on a URL-classified key is a
+// static must build its reference bag with gsx.RawURL("…") for that entry — a
+// plain string here would sanitize where shipped output trusts. Non-URL keys
+// render identically either way.
 func refTagHTML(bag gsx.Attrs, body string) string {
 	nav, img, srcset, prefixes := urlSinkArgsForTag("a")
 	var buf bytes.Buffer

@@ -215,6 +215,9 @@ rather than becoming forced.
 Every element spread also sanitizes URL-classified attribute keys at the leaf,
 for any bag, with no exceptions and no unsanitizing spread — see
 [Attributes — Spread](./attributes.md#spread) for the full contract.
+Attributes you write literally on the element are template text and keep their
+trust when merging routes them through a bag: a static `href` renders the same
+whether or not the element merges.
 `gsx.RawURL` is the only, per-value opt-out. Compose a bag yourself
 (`Merge`/`ConcatAttrs`) before spreading it if you want duplicate keys
 resolved eagerly rather than at render time.
