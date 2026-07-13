@@ -12,6 +12,7 @@
 package std
 
 import (
+	"cmp"
 	"encoding/base64"
 	"fmt"
 	"net/url"
@@ -71,13 +72,17 @@ func Join(s []string, sep string) string {
 	return strings.Join(s, sep)
 }
 
-// Default yields fallback when s is the empty string, and otherwise returns s
-// unchanged.
-func Default(s, fallback string) string {
-	if s == "" {
+// Default returns the first non-zero value, preserving its concrete type.
+// It exposes cmp.Or semantics under the template-oriented default filter name.
+func Default[T comparable](value, fallback T, rest ...T) T {
+	var zero T
+	if value != zero {
+		return value
+	}
+	if fallback != zero {
 		return fallback
 	}
-	return s
+	return cmp.Or(rest...)
 }
 
 // Urlquery percent-encodes s so it can be safely placed inside a URL query
