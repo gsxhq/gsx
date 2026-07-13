@@ -1,17 +1,24 @@
 # Forms
 
-HTML forms are plain gsx — `<form>`, `<input>`, `<button>`, `<label>` are ordinary elements. The patterns here cover one language feature that makes reusable form fields clean: forwarding undeclared attributes with `{ attrs... }`.
+Forms use ordinary HTML elements. A small field component can own its label and
+layout while forwarding input-specific attributes from each call site.
 
 ## A reusable form field
 
-A `Field` component can wrap a `<label>` + `<input>` pair without needing to redeclare every HTML attribute the input might need. Pass `{ attrs... }` on the inner `<input>` and any attribute the caller supplies that is not a named param gets forwarded there directly.
+Place `{ attrs... }` on the inner `<input>` so undeclared caller attributes such
+as `type`, `name`, and `required` reach that element.
 
 <!--@include: ./_generated/forms/010-forms.md-->
 
-`Field` declares only one param, `label string`. The `<input>` element carries a static `class="control"` and then `{ attrs... }`, which spreads the remaining caller-supplied attributes onto it at render time. The call `<Field label="Email" type="email" name="email" required/>` maps `label` to the named param; `type`, `name`, and `required` are undeclared so they go into `attrs` and are forwarded to `<input>`. The rendered output shows `<input class="control" name="email" required type="email"/>` — both the component's own `class` and the caller's attributes coexist on the element.
+`label` binds to the component param; the remaining attributes form the bag that
+`Field` forwards. Its own `class="control"` stays in place, and a caller-supplied
+class would merge at the spread position. See [Attributes](./attributes.md) for
+spread ordering and [Styling](./styling.md#class-style-merging) for class merging.
 
 ## Server-side validation is ordinary Go
 
-gsx renders the form; reading and validating the submitted data is plain `net/http`. Use `r.FormValue`, `r.ParseMultipartForm`, or any form-decoding library in your handler. If validation fails, pass error state as params to a component and render the form again with inline error messages — that is standard Go, not a gsx language feature.
-
-See the Go standard library documentation for [`net/http.Request`](https://pkg.go.dev/net/http#Request) for request parsing, and search for form validation libraries on [pkg.go.dev](https://pkg.go.dev/search?q=form+validation).
+Parse and validate the request in the HTTP handler, then pass submitted values
+and field errors back to the form component as typed params. With `net/http`, use
+[`Request.ParseForm`](https://pkg.go.dev/net/http#Request.ParseForm); with a web
+framework, use its normal binding and validation support. gsx only renders the
+resulting form state.
