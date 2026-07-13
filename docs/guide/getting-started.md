@@ -6,7 +6,7 @@ Create a gsx app, start live reload, and make your first change.
 
 - Go 1.24 or newer
 - Node.js 18 or newer
-- npm, or another Node package manager such as pnpm or Yarn
+- npm (the scaffold command below runs `npm install`)
 
 ## Create a project
 
@@ -33,9 +33,10 @@ npm run dev
 Open the URL printed in the terminal. The starter runs `go tool gsx dev`, so
 you do not need a separate code generator or file watcher.
 
-Using pnpm, Yarn, or another package manager? Run its equivalent of
-`npm run dev`; use the [`[dev]` configuration](./config.md#dev-development-loop)
-if you also want to replace the default `npx vite` command.
+After scaffolding, you can switch to pnpm, Yarn, or another package manager.
+Run its equivalent of `npm run dev`; use the
+[`[dev]` configuration](./config.md#dev-development-loop) if you also want to
+replace the default `npx vite` command.
 
 ## Make the first change
 
