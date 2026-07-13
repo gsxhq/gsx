@@ -95,11 +95,7 @@ Run the development loop from the project directory:
 gsx dev
 ```
 
-You can also pass the directory:
-
-```bash
-gsx dev ./cmd/site
-```
+Pass an optional project directory with `gsx dev [dir]`.
 
 On each save, gsx regenerates, builds, swaps the server, and reloads the
 browser. After the first successful build, later generation or build failures
