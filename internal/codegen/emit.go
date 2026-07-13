@@ -4668,7 +4668,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 
 	// Unified component-value plan: if ANY authored value needs statements
 	// (tuple unwrap, pipeline/renderer error handling, conditional bag lowering,
-	// or embedded materialization), emit every side-effecting value by sourceIndex
+	// or embedded materialization), emit every order-sensitive value by sourceIndex
 	// before the Node call. This preserves left-to-right evaluation across declared
 	// props, ordered pairs, fallthrough bag entries, spreads/conditionals, class,
 	// and formatted values.
@@ -5192,7 +5192,7 @@ type propFieldEntry struct {
 	bagSegmentSource []int
 }
 
-// componentValueEntry is one potentially side-effecting child-component value
+// componentValueEntry is one potentially order-sensitive child-component value
 // in authored attribute order. childPropsLiteral records these entries without
 // committing statement-producing lowering to the parent buffer;
 // genChildComponent emits the plan only after it knows whether any entry needs
@@ -5272,8 +5272,9 @@ func componentValuePlanNeeded(fields []propFieldEntry, plan []componentValueEntr
 	// childPropsLiteral records values in authored order, but the final Go
 	// struct literal evaluates them in field order. In particular, fallthrough
 	// values move into the synthesized Attrs field after declared props. Only
-	// activate the ordered pass when that reconstruction inverts two
-	// call-bearing expressions; moving constants or identifiers is unobservable.
+	// activate the ordered pass when that reconstruction inverts two operations
+	// whose order Go defines lexically; moving other operands is unspecified by
+	// Go's own evaluation-order rules.
 	type finalPosition struct {
 		field int
 		group int
@@ -5310,7 +5311,7 @@ func componentValuePlanNeeded(fields []propFieldEntry, plan []componentValueEntr
 	var previous finalPosition
 	havePrevious := false
 	for _, value := range plan {
-		if !exprHasCall(value.rawExpr) {
+		if !exprHasOrderedOperation(value.rawExpr) {
 			continue
 		}
 		current := position(value)
@@ -5349,11 +5350,11 @@ func componentValueRequiresMaterialization(value componentValueEntry, resolved m
 	return false
 }
 
-func componentValueHasEffect(value componentValueEntry, resolved map[ast.Node]types.Type, table funcTables) bool {
-	return exprHasCall(value.rawExpr) || componentValueRequiresMaterialization(value, resolved, table)
+func componentValueHasOrderedWork(value componentValueEntry, resolved map[ast.Node]types.Type, table funcTables) bool {
+	return exprHasOrderedOperation(value.rawExpr) || componentValueRequiresMaterialization(value, resolved, table)
 }
 
-// materializeComponentValuePlan evaluates every side-effecting child-component
+// materializeComponentValuePlan evaluates every order-sensitive child-component
 // value in authored order, then rebuilds the structured fields/bag from the
 // resulting temps. Named-props and attrs-only component values share this one
 // implementation so tuple pairs cannot bypass earlier fallthrough calls.
@@ -5365,7 +5366,7 @@ func materializeComponentValuePlan(b *bytes.Buffer, fields []propFieldEntry, pla
 	hasLaterEffect := false
 	for i := len(plan) - 1; i >= 0; i-- {
 		effectAfter[i] = hasLaterEffect
-		hasLaterEffect = hasLaterEffect || componentValueHasEffect(plan[i], resolved, table)
+		hasLaterEffect = hasLaterEffect || componentValueHasOrderedWork(plan[i], resolved, table)
 	}
 	for valueIndex, value := range plan {
 		b.Write(value.stmts)
@@ -5379,7 +5380,7 @@ func materializeComponentValuePlan(b *bytes.Buffer, fields []propFieldEntry, pla
 		case isTuple:
 			materialized = hoistTupleReturning(b, materialized, interpTemp, errReturn)
 		case value.embedded != nil && (value.isNodeField || valueIndex+1 < len(plan)),
-			exprHasCall(materialized) && !isCapturedClassValue(value):
+			exprHasOrderedOperation(materialized) && !isCapturedClassValue(value):
 			tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
 			*interpTemp++
 			fmt.Fprintf(b, "\t\t%s := %s\n", tmp, materialized)
@@ -5503,6 +5504,49 @@ func exprHasCall(rawVal string) bool {
 			return false
 		}
 		return !found
+	})
+	return found
+}
+
+// exprHasOrderedOperation reports whether evaluating rawVal executes an
+// operation whose relative order Go defines lexically: a function or method
+// call, a receive operation, or a binary logical operation. CallExpr also
+// conservatively includes conversions and some builtins, matching exprHasCall.
+// The component value plan must preserve these operations when rebuilding
+// authored attrs in props-field order. Other operand evaluation (for example
+// identifiers and indexing) is explicitly unspecified by Go and does not
+// justify a temp.
+// Function-literal bodies are skipped because evaluating the literal does not
+// execute its body; a call of that literal is still a CallExpr at the outer
+// expression and is detected before the walk reaches the body.
+func exprHasOrderedOperation(rawVal string) bool {
+	expr, err := goparser.ParseExpr(rawVal)
+	if err != nil {
+		return false
+	}
+	found := false
+	goast.Inspect(expr, func(node goast.Node) bool {
+		if found {
+			return false
+		}
+		switch n := node.(type) {
+		case *goast.FuncLit:
+			return false
+		case *goast.CallExpr:
+			found = true
+			return false
+		case *goast.UnaryExpr:
+			if n.Op == token.ARROW {
+				found = true
+				return false
+			}
+		case *goast.BinaryExpr:
+			if n.Op == token.LAND || n.Op == token.LOR {
+				found = true
+				return false
+			}
+		}
+		return true
 	})
 	return found
 }

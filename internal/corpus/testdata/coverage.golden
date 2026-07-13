@@ -145,6 +145,7 @@ components/component_conditional_attr_else	diag gen render
 components/component_conditional_attr_lazy	diag gen render
 components/component_f_literal_hole_order	diag gen render
 components/component_f_literal_node_order	diag gen render
+components/component_f_literal_noncall_order	diag gen render
 components/component_f_literal_order	diag gen render
 components/component_f_literal_pipeline	diag gen render
 components/component_f_literal_pipeline_invalid_tuple	diag(error)
@@ -808,4 +809,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 810 cases (render: 681, error: 99, gen-pinned: 459)
+TOTAL: 811 cases (render: 682, error: 99, gen-pinned: 460)
