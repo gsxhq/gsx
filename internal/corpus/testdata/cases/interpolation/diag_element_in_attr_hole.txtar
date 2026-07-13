@@ -1,0 +1,15 @@
+# W3: an element literal inside an attribute f`` literal's @{ } hole. An
+# attribute-literal hole must lower to a string, but an element value is a
+# gsx.Node closure that cannot render there — so this is a positioned
+# "unsupported-node" diagnostic, never a silent miscompile.
+-- input.gsx --
+package demo
+
+component Page() {
+	<p title=f`x @{ <b>y</b> }`>z</p>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+4:16: element literals are not supported inside this interpolation position; bind the element to a variable in a {{ }} block or use a { } child position
+-- render.golden --

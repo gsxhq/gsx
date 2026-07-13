@@ -2877,7 +2877,7 @@ func emitAttr(b *bytes.Buffer, attrs []ast.Attr, a ast.Attr, resolved map[ast.No
 	case *ast.EmbeddedAttr:
 		switch t.Lang {
 		case ast.EmbeddedJS:
-			if !emitEmbeddedJSAttr(b, t, resolved, table, imports, interpTemp, bag) {
+			if !emitEmbeddedJSAttr(b, t, resolved, table, imports, rt, interpTemp, bag) {
 				return false
 			}
 		case ast.EmbeddedCSS:
@@ -3001,14 +3001,14 @@ func embeddedStaticText(a *ast.EmbeddedAttr) (string, bool) {
 	return sb.String(), true
 }
 
-func emitEmbeddedJSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
+func emitEmbeddedJSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) bool {
 	fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(" "+a.Name+`="`))
 	for _, seg := range a.Segments {
 		switch s := seg.(type) {
 		case *ast.Text:
 			fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(htmlAttrEscape(s.Value)))
 		case *ast.Interp:
-			if !emitJSAttrInterp(b, s, resolved, table, imports, interpTemp, bag) {
+			if !emitJSAttrInterp(b, s, resolved, table, imports, rt, interpTemp, bag) {
 				return false
 			}
 		default:
@@ -3186,7 +3186,7 @@ func emitEmbeddedTextAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast
 			case *ast.Text:
 				fmt.Fprintf(b, "\t\t_gsxgw.S(%s)\n", strconv.Quote(htmlAttrEscape(s.Value)))
 			case *ast.Interp:
-				if !emitTextAttrInterp(b, s, resolved, table, imports, interpTemp, bag) {
+				if !emitTextAttrInterp(b, s, resolved, table, imports, rt, interpTemp, bag) {
 					return false
 				}
 			default:
@@ -3420,6 +3420,47 @@ func emitGoExprEmbeddedInterp(hoistBuf, valBuf *bytes.Buffer, p *ast.EmbeddedInt
 	return true
 }
 
+// assembleHoleSeed returns the Go expression for a hole's seed. A plain hole is
+// its Expr verbatim. A hole whose Expr carries embedded prefixed literals
+// (Interp.Embedded, seated by splitInterpEmbedded when a nested f`/js`/css`
+// literal appears in the hole) is reassembled from its parts: GoText runs
+// verbatim, each nested literal lowered to its Go value by
+// emitGoExprEmbeddedInterp — the same splice genInterp performs for a body
+// interp's seed (emit.go ~2120). Capability flags derive from the containing
+// hole's own rejection flags (hasCtx = !rejectCtx, canHoist = !rejectErr) so a
+// nested literal's holes obey the same position rules as the hole that contains
+// them: an error-carrying hole inside a nested literal at a top-level value
+// position still fails with the goexpr-literal-error diagnostic. A whole-literal
+// pipeline on a nested literal (p.Stages) and an embedded *Element/*Fragment part
+// are both rejected — element values are gsx.Node closures, which no
+// attribute-literal hole can render. Any hoist emitted by a nested hole lands in
+// hoistBuf BEFORE this returns, so it precedes the statement that consumes the
+// assembled expression, exactly as holeStringExpr's own hoists do.
+func assembleHoleSeed(hoistBuf *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, rejectErr, rejectCtx bool) (string, bool) {
+	if n.Embedded == nil {
+		return strings.TrimSpace(n.Expr), true
+	}
+	var eb bytes.Buffer
+	for _, part := range n.Embedded {
+		switch p := part.(type) {
+		case ast.GoText:
+			eb.WriteString(p.Src)
+		case *ast.EmbeddedInterp:
+			if len(p.Stages) > 0 {
+				bag.Errorf(p.Pos(), p.End(), "unsupported-node", "whole-literal pipelines on a Go-expression backtick literal are not supported")
+				return "", false
+			}
+			if !emitGoExprEmbeddedInterp(hoistBuf, &eb, p, resolved, table, imports, rt, interpTemp, bag, !rejectCtx, !rejectErr) {
+				return "", false
+			}
+		default:
+			bag.Errorf(n.Pos(), n.End(), "unsupported-node", "element literals are not supported inside this interpolation position; bind the element to a variable in a {{ }} block or use a { } child position")
+			return "", false
+		}
+	}
+	return strings.TrimSpace(eb.String()), true
+}
+
 // holeStringExpr lowers one @{ } hole inside a backtick attribute literal to a
 // Go STRING expression, for whole-value assembly by embeddedTextValueExpr
 // (used for both a URL-context literal's CtxURL branch and a class/style
@@ -3449,7 +3490,13 @@ func emitGoExprEmbeddedInterp(hoistBuf, valBuf *bytes.Buffer, p *ast.EmbeddedInt
 // Both default to false for the URL/class/style merge callers, whose hoists land
 // in a real render-closure statement context.
 func holeStringExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn string, rejectErr, rejectCtx bool) (string, bool) {
-	expr := strings.TrimSpace(n.Expr)
+	// A hole carrying a nested prefixed literal (n.Embedded != nil) is
+	// reassembled from its parts; a plain hole is its Expr verbatim. Nested-hole
+	// hoists land in b before this returns, ahead of the consuming stmt.
+	expr, sok := assembleHoleSeed(b, n, resolved, table, imports, rt, interpTemp, bag, rejectErr, rejectCtx)
+	if !sok {
+		return "", false
+	}
 	if rejectErr && pipelineHasErr(n.Stages, table) {
 		bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "@{ %s } uses an error-returning filter (|>); "+goExprLiteralErrorRemedy, pipeSourceText(n.Expr, n.Stages))
 		return "", false
@@ -3459,7 +3506,9 @@ func holeStringExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.
 		return "", false
 	}
 	if len(n.Stages) > 0 {
-		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, pipeWrapReturning(b, interpTemp, errReturn))
+		// Seed the pipeline with the assembled expr (a nested literal is already
+		// lowered to its Go value), not raw n.Expr — matching genInterp.
+		lowered, usedPkgs, err := lowerPipe(expr, n.Stages, table, pipeWrapReturning(b, interpTemp, errReturn))
 		if err != nil {
 			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return "", false
@@ -3568,10 +3617,15 @@ func emitEmbeddedCSSAttr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.
 // through the runtime *Attr escaper chosen by its JSCtx. It mirrors emitJSInterp's
 // pipeline-stage handling and (T, error) tuple auto-unwrap, but routes to the
 // JS*Attr methods (which additionally HTML-attr-escape).
-func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
-	expr := strings.TrimSpace(n.Expr)
+func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) bool {
+	// An attribute literal is inside the render closure (ctx binds, b is a clean
+	// hoist channel), so a nested literal's holes may hoist and take ctx.
+	expr, sok := assembleHoleSeed(b, n, resolved, table, imports, rt, interpTemp, bag, false, false)
+	if !sok {
+		return false
+	}
 	if len(n.Stages) > 0 {
-		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, emitPipeWrap(b, interpTemp))
+		lowered, usedPkgs, err := lowerPipe(expr, n.Stages, table, emitPipeWrap(b, interpTemp))
 		if err != nil {
 			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false
@@ -3604,10 +3658,15 @@ func emitJSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]type
 // (the else branch of emitEmbeddedTextAttr). Mirrors emitJSAttrInterp's
 // pipeline + (T,error) auto-unwrap, then routes through the type-aware
 // emitAttrValue (string→AttrValue, numbers→strconv, Stringer→.String()).
-func emitTextAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag) bool {
-	expr := strings.TrimSpace(n.Expr)
+func emitTextAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) bool {
+	// An attribute literal is inside the render closure (ctx binds, b is a clean
+	// hoist channel), so a nested literal's holes may hoist and take ctx.
+	expr, sok := assembleHoleSeed(b, n, resolved, table, imports, rt, interpTemp, bag, false, false)
+	if !sok {
+		return false
+	}
 	if len(n.Stages) > 0 {
-		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, emitPipeWrap(b, interpTemp))
+		lowered, usedPkgs, err := lowerPipe(expr, n.Stages, table, emitPipeWrap(b, interpTemp))
 		if err != nil {
 			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false
@@ -3640,9 +3699,14 @@ func emitTextAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]ty
 // auto-unwrap, but routes through gsx.StyleValue followed by AttrValue because
 // the result is inside a quoted HTML attribute.
 func emitCSSAttrInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) bool {
-	expr := strings.TrimSpace(n.Expr)
+	// An attribute literal is inside the render closure (ctx binds, b is a clean
+	// hoist channel), so a nested literal's holes may hoist and take ctx.
+	expr, sok := assembleHoleSeed(b, n, resolved, table, imports, rt, interpTemp, bag, false, false)
+	if !sok {
+		return false
+	}
 	if len(n.Stages) > 0 {
-		lowered, usedPkgs, err := lowerPipe(n.Expr, n.Stages, table, emitPipeWrap(b, interpTemp))
+		lowered, usedPkgs, err := lowerPipe(expr, n.Stages, table, emitPipeWrap(b, interpTemp))
 		if err != nil {
 			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return false
@@ -3728,8 +3792,15 @@ func emitRenderCSSAttr(b *bytes.Buffer, expr string, t types.Type, rt rtImports,
 // (goExprCtxRemedy). Positions that DO bind `ctx` (Interp.Embedded, a `{{ }}`
 // GoBlock, a component-value slot) pass false and keep such holes, since
 // `<pkg>.<Fn>(ctx, …)` is a valid expression there.
-func embeddedHoleExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag, errReturn string, exprPos, rejectCtx bool) (string, types.Type, bool) {
-	expr := strings.TrimSpace(n.Expr)
+func embeddedHoleExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn string, exprPos, rejectCtx bool) (string, types.Type, bool) {
+	// A hole carrying a nested prefixed literal (n.Embedded != nil) is
+	// reassembled from its parts; a plain hole is its Expr verbatim. Nested-hole
+	// hoists land in b before this returns, ahead of the consuming stmt. exprPos
+	// is the error-rejection flag (rejectErr) at this Go-expression site.
+	expr, sok := assembleHoleSeed(b, n, resolved, table, imports, rt, interpTemp, bag, exprPos, rejectCtx)
+	if !sok {
+		return "", nil, false
+	}
 	if len(n.Stages) > 0 {
 		if exprPos && pipelineHasErr(n.Stages, table) {
 			bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "@{ %s } uses an error-returning filter (|>); "+goExprLiteralErrorRemedy, pipeSourceText(n.Expr, n.Stages))
@@ -3739,7 +3810,9 @@ func embeddedHoleExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]type
 			bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "@{ %s } uses a ctx-taking filter (|>); "+goExprCtxRemedy, pipeSourceText(n.Expr, n.Stages))
 			return "", nil, false
 		}
-		lowered, used, err := lowerPipe(n.Expr, n.Stages, table, pipeWrapReturning(b, interpTemp, errReturn))
+		// Seed the pipeline with the assembled expr (a nested literal is already
+		// lowered to its Go value), not raw n.Expr — matching genInterp.
+		lowered, used, err := lowerPipe(expr, n.Stages, table, pipeWrapReturning(b, interpTemp, errReturn))
 		if err != nil {
 			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
 			return "", nil, false
@@ -3866,7 +3939,7 @@ func embeddedJSValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.No
 				parts = append(parts, strconv.Quote(s.Value))
 			}
 		case *ast.Interp:
-			expr, typ, ok := embeddedHoleExpr(b, s, resolved, table, imports, interpTemp, bag, errReturn, exprPos, rejectCtx)
+			expr, typ, ok := embeddedHoleExpr(b, s, resolved, table, imports, rt, interpTemp, bag, errReturn, exprPos, rejectCtx)
 			if !ok {
 				return "", false
 			}
@@ -3940,7 +4013,7 @@ func embeddedCSSValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.N
 				parts = append(parts, strconv.Quote(s.Value))
 			}
 		case *ast.Interp:
-			expr, typ, ok := embeddedHoleExpr(b, s, resolved, table, imports, interpTemp, bag, errReturn, exprPos, rejectCtx)
+			expr, typ, ok := embeddedHoleExpr(b, s, resolved, table, imports, rt, interpTemp, bag, errReturn, exprPos, rejectCtx)
 			if !ok {
 				return "", false
 			}
