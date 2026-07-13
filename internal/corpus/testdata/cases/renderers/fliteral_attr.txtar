@@ -50,7 +50,7 @@ import (
 	"corpustest/cases/renderers_fliteral_attr/pg"
 
 	_gsxctx "context"
-	_gsxf26 "corpustest/cases/renderers_fliteral_attr/rend"
+	_gsxf27 "corpustest/cases/renderers_fliteral_attr/rend"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
@@ -68,7 +68,7 @@ func Tag(_gsxp TagProps) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxgw.S("<a href=\"")
-		_gsxgw.URL("/x/" + string(_gsxf26.PgText((val))))
+		_gsxgw.URL("/x/" + string(_gsxf27.PgText((val))))
 		_gsxgw.S("\">ok</a>")
 		return _gsxgw.Err()
 	})

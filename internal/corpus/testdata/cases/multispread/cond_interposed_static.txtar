@@ -47,7 +47,7 @@ func CondInterposedStatic(_gsxp CondInterposedStaticProps) _gsxrt.Node {
 //line input.gsx:6:2
 		_gsxv0 := p
 		_gsxv1, _gsxerr := _gsxrt.AttrsCond(c, func() (_gsxrt.Attrs, error) {
-			return _gsxrt.Attrs{{Key: "title", Value: "t"}}, nil
+			return _gsxrt.Attrs{{Key: "title", Value: _gsxrt.RawURL("t")}}, nil
 		}, nil)
 		if _gsxerr != nil {
 			return _gsxerr

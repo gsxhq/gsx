@@ -766,8 +766,29 @@ vocabulary remains a design aspiration, not the current API.
    conditional contributions aggregate) instead of erroring toward the
    composable form. Corpus: `condmerge/*`.
 
+   **Uniform non-forwarding class/style composition - SHIPPED** (2026-07-12,
+   #96, `2026-07-12-nonforwarding-class-style-merge-design.md`). Plain HTML
+   elements no longer need an attribute spread to merge repeated `class` or
+   `style` contributors. Multiple same-name contributors anywhere in the
+   source tree, including conditional branches, fold into one attribute;
+   class tokens aggregate in source order and style declarations use
+   source-order last-wins per property. On elements with no spread, unrelated
+   class/style pairs and lone conditional contributors retain the direct
+   inline path. Corpus:
+   `condmerge/nonforwarding_*`.
+   Codegen-authored static attributes retain their trusted provenance when this
+   fold is required: source-order last-wins still selects the contribution,
+   later dynamic URL values remain sanitized, and non-folding leaves continue
+   to emit their literal tags directly.
+
 ## Tracked debts / deferrals
 
+- [ ] **Bare bool `class`/`style` beside a same-name contributor** - a bare
+  `class` attribute is not a fold contributor (the bag's `Class()`/`Style()`
+  aggregation is string-valued; a boolean entry would stringify to `"true"`),
+  so `<div class { if a { class="on" } }>` stays inline and still renders two
+  `class` attributes. Pathological authoring shape; the clean resolution is
+  probably a positioned diagnostic rather than a merge semantic.
 - [ ] **Fallthrough forwarding through nested component calls** - the
   attrs-only component values spec (item 18 above, "Alternative considered")
   named this as the competing design for the icon-wrapper use case and

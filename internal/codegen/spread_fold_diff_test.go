@@ -30,6 +30,11 @@ import (
 //	E7  >=2 spreads + interposed conditional static
 //	E8  1 spread + root class + Form-2 conditional class (the D3-lift shape:
 //	    { if c { class="on8" } else { class="off8" } } on a forwarding element)
+//	E9  0 spreads, root style + conditional style   (no-spread same-name fold)
+//	E10 0 spreads, root class + if/else class       (no-spread same-name fold)
+//	E11 0 spreads, LONE if/else class — branches are mutually exclusive, so the
+//	    contributor count max-combines to 1 and the element stays on the inline
+//	    per-branch path; the matrix proves that path matches the fold reference
 //
 // E1 and E4 additionally carry a "class"/"href" pair (E1 with a javascript:
 // value) so the differential also exercises class aggregation and leaf URL
@@ -84,6 +89,18 @@ component E7(c bool) {
 component E8(c bool) {
 	{{ a := gsx.Attrs{{Key: "data-k", Value: "a8"}, {Key: "class", Value: "sp8"}} }}
 	<a class="base8" { a... } { if c { class="on8" } else { class="off8" } }>e8</a>
+}
+
+component E9(c bool) {
+	<a id="e9" style="color:red" { if c { style="margin:0" } }>e9</a>
+}
+
+component E10(c bool) {
+	<a class="base10" { if c { class="on10" } else { class="off10" } }>e10</a>
+}
+
+component E11(c bool) {
+	<a { if c { class="on11" } else { class="off11" } }>e11</a>
 }
 `
 
@@ -159,6 +176,12 @@ func main() {
 	render(ctx, "E7false", p.E7(p.E7Props{C: false}))
 	render(ctx, "E8true", p.E8(p.E8Props{C: true}))
 	render(ctx, "E8false", p.E8(p.E8Props{C: false}))
+	render(ctx, "E9true", p.E9(p.E9Props{C: true}))
+	render(ctx, "E9false", p.E9(p.E9Props{C: false}))
+	render(ctx, "E10true", p.E10(p.E10Props{C: true}))
+	render(ctx, "E10false", p.E10(p.E10Props{C: false}))
+	render(ctx, "E11true", p.E11(p.E11Props{C: true}))
+	render(ctx, "E11false", p.E11(p.E11Props{C: false}))
 }
 `)
 
@@ -211,6 +234,13 @@ func urlSinkArgsForTag(tag string) (nav, img, srcset, prefixes []string) {
 // renders through the leaf" reference the governing principle demands, used
 // for EVERY scenario including the ones whose shipped codegen takes a
 // different (optimized) path.
+//
+// Provenance caveat: shipped codegen wraps author-written StaticAttr values in
+// gsx.RawURL inside an element-fold bag (template text stays trusted through a
+// merge), so a scenario whose WINNING value on a URL-classified key is a
+// static must build its reference bag with gsx.RawURL("…") for that entry — a
+// plain string here would sanitize where shipped output trusts. Non-URL keys
+// render identically either way.
 func refTagHTML(bag gsx.Attrs, body string) string {
 	nav, img, srcset, prefixes := urlSinkArgsForTag("a")
 	var buf bytes.Buffer
@@ -322,9 +352,27 @@ func TestSpreadFoldDiffMatrix(t *testing.T) {
 			gsx.Attrs{{Key: "data-k", Value: "a8"}, {Key: "class", Value: "sp8"}},
 			gsx.Attrs{{Key: "class", Value: "off8"}},
 		), "e8"},
+		{"E9true", gsx.ConcatAttrs(
+			gsx.Attrs{{Key: "id", Value: "e9"}, {Key: "style", Value: "color:red"}},
+			gsx.Attrs{{Key: "style", Value: "margin:0"}},
+		), "e9"},
+		{"E9false", gsx.ConcatAttrs(
+			gsx.Attrs{{Key: "id", Value: "e9"}, {Key: "style", Value: "color:red"}},
+			nil,
+		), "e9"},
+		{"E10true", gsx.ConcatAttrs(
+			gsx.Attrs{{Key: "class", Value: "base10"}},
+			gsx.Attrs{{Key: "class", Value: "on10"}},
+		), "e10"},
+		{"E10false", gsx.ConcatAttrs(
+			gsx.Attrs{{Key: "class", Value: "base10"}},
+			gsx.Attrs{{Key: "class", Value: "off10"}},
+		), "e10"},
+		{"E11true", gsx.Attrs{{Key: "class", Value: "on11"}}, "e11"},
+		{"E11false", gsx.Attrs{{Key: "class", Value: "off11"}}, "e11"},
 	}
 
-	// runSpreadFoldMatrix's harness renders 13 scenarios total (E0 plus the 12
+	// runSpreadFoldMatrix's harness renders all scenarios (E0 plus the
 	// E1-E8 cases here); E0 is checked separately above.
 	if len(got) != len(cases)+1 {
 		t.Fatalf("runSpreadFoldMatrix returned %d renders, want %d: %v", len(got), len(cases)+1, got)

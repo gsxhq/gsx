@@ -1,0 +1,12 @@
+# A zero-spread element can still require the shared attribute bag because its
+# duplicate style contributors merge. A contextual JS/CSS literal on a URL-sink
+# key is rejected to preserve universal URL sanitization; the diagnostic must
+# explain the shared-bag constraint without claiming spreads caused the fold.
+-- input.gsx --
+package views
+
+component Link(target string) {
+	<a style="color:red" style="margin:0" href=js"javascript:go(@{target})">x</a>
+}
+-- diagnostics.golden --
+4:40: embedded js attribute literal "href" with @{ } interpolation is a URL attribute on <a>; this element's attributes must be merged through a shared bag, whose URL sanitization would rewrite the js-escaped value, so the contextual literal cannot be used on this URL-sink key — use an ordinary URL expression or string for "href", or avoid the contextual js literal on that key

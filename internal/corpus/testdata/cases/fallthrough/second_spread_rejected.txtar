@@ -38,7 +38,7 @@ func Link(_gsxp LinkProps) _gsxrt.Node {
 		attrs := _gsxp.Attrs
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
-		_gsxv0 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "href", Value: "/base"}}, attrs, extra)
+		_gsxv0 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "href", Value: _gsxrt.RawURL("/base")}}, attrs, extra)
 		_gsxgw.S("<a")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())

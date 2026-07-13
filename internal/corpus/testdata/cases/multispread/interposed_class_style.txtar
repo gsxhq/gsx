@@ -45,7 +45,7 @@ func InterposedClassStyle(_gsxp InterposedClassStyleProps) _gsxrt.Node {
 		q := _gsxp.Q
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
-		_gsxv0 := _gsxrt.ConcatAttrs(p, _gsxrt.Attrs{{Key: "class", Value: "x"}, {Key: "style", Value: "color:red"}}, q)
+		_gsxv0 := _gsxrt.ConcatAttrs(p, _gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("x")}, {Key: "style", Value: _gsxrt.RawURL("color:red")}}, q)
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())
