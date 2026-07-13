@@ -748,6 +748,29 @@ func TestEmbeddedLiteralEndHoleAware(t *testing.T) {
 			want: `f"a @{ string(js` + "`f()`" + `) }"`,
 		},
 		{
+			// The mirror of the case above: a DQUOTE-prefixed inner literal
+			// nested inside a BACKTICK outer's hole. The inner's own `"`
+			// delimiters are ordinary bytes to the outer's backtick scan,
+			// but the hole must still be skipped as one opaque Go expression
+			// so the outer's scan resumes at ` end`` and finds ITS closing
+			// backtick.
+			name: "backtick outer with dquote inner",
+			src:  "f`a @{ string(js\"f()\") } end` + x",
+			want: "f`a @{ string(js\"f()\") } end`",
+		},
+		{
+			// Adversarial version: the dquote inner's BODY contains a
+			// literal backtick (free content inside a `"`-delimited gsx
+			// literal). That backtick byte must NOT be mistaken for the
+			// backtick OUTER's closing delimiter — the hole scan has to
+			// recognize js"x`y" as one opaque gsx literal span
+			// (skipGSXEmbeddedLiteral's new dquote prefixes) so its interior
+			// backtick never reaches the outer's delimiter check.
+			name: "backtick outer, dquote inner whose body contains a backtick",
+			src:  "f`a @{ string(js\"x`y\") } end` + x",
+			want: "f`a @{ string(js\"x`y\") } end`",
+		},
+		{
 			// Three levels deep: f` holds a hole whose Go expression is
 			// itself an f` literal, whose own hole is a js` literal, whose
 			// own hole is a plain identifier. Every level's delimiter must
