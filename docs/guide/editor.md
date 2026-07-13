@@ -121,7 +121,8 @@ banner, find the Go binary directories:
 go env GOBIN GOPATH
 ```
 
-Use the first line when `GOBIN` is non-empty. Otherwise use the second line with
-`/bin` appended. Enter the resulting concrete `gsx` executable path in your
-editor setting. The VS Code extension performs the compiler check itself and
-skips unrelated binaries; generic LSP clients do not.
+Both outputs are directories. When `GOBIN` is non-empty, use `<GOBIN>/gsx`.
+Otherwise use `<GOPATH>/bin/gsx`. Replace the bracketed value with the command's
+output and enter that concrete executable path in your editor setting. The VS
+Code extension performs the compiler check itself and skips unrelated binaries;
+generic LSP clients do not.
