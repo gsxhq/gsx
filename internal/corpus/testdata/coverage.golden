@@ -448,7 +448,10 @@ multispread/two_bags_source_order	diag gen render
 multispread/variadic_attrs_operand	diag gen render
 multispread/void_and_children	diag gen render
 nestedforward/bare_after_spread	diag render
+nestedforward/missing_attrs_rejected	diag render
+nestedforward/missing_attrs_spread_rejected	diag render
 nestedforward/spread_basic	diag gen render
+nestedforward/xpkg_missing_attrs_rejected	diag render
 nonce/cond_attr_nonce	diag render
 nonce/div_control	diag render
 nonce/explicit_expr_wins	diag render
@@ -760,4 +763,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 762 cases (render: 643, error: 89, gen-pinned: 425)
+TOTAL: 765 cases (render: 646, error: 89, gen-pinned: 425)

@@ -17,6 +17,6 @@ component Page(variant int) {
 -- invoke --
 Page(PageProps{Variant: 1})
 -- diagnostics.golden --
-15:46: unknown field Attrs in struct literal of type CardProps
+8:19: attribute on <Card> matches no declared prop of component Card, and its body does not reference `attrs` (no fallthrough bag); reference `attrs` in <Card>'s body to accept forwarded attributes
 -- generated.x.go.golden --
 -- render.golden --

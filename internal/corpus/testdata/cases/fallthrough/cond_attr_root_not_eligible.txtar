@@ -9,4 +9,4 @@ component Page() {
 	<Box active={true} id="caller"/>
 }
 -- diagnostics.golden --
-8:33: unknown field Attrs in struct literal of type BoxProps
+8:21: attribute on <Box> matches no declared prop of component Box, and its body does not reference `attrs` (no fallthrough bag); reference `attrs` in <Box>'s body to accept forwarded attributes
