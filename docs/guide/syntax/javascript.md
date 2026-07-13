@@ -16,6 +16,21 @@ contains backticks. See [Attributes](./attributes.md#contextual-escaping)
 for literal syntax and [Escaping](./escaping.md#javascript-and-css-contexts) for
 the trust boundary.
 
+Keep a `js` or `css` literal with `@{}` holes on the native element that
+consumes it. A wrapper should accept ordinary props and build the contextual
+literal at that destination:
+
+```gsx
+component SaveButton(id string) {
+	<button @click=js`save(@{id})`>Save</button>
+}
+
+<SaveButton id={id}/>
+```
+
+On a component tag, a hole-free contextual literal may fall through as authored
+text; a literal with holes is rejected.
+
 ## Alpine and htmx directives
 
 Alpine directive values are JavaScript expressions, so mark `x-data`, `x-model`,

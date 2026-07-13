@@ -44,8 +44,11 @@ Spread a `gsx.Attrs` bag with `{ bag... }`; entries render in slice order.
 
 - Source order is kept.
 - Boolean `true` renders a bare attribute; `false` omits it.
-- Spread values use the same escaping as written attributes.
+- Spread values are escaped for the destination attribute; URL and `srcset`
+  destinations also run scheme sanitization.
 - `gsx.AttrMap.ToAttrs()` sorts map keys.
+
+<span id="ordered-attrs-literal-k-v"></span>
 
 ## Ordered-attrs literal <code v-pre>{{ "k": v }}</code> {#ordered-attrs-literal}
 
@@ -79,8 +82,10 @@ call site must declare the bag in source order.
 
 ## Contextual escaping
 
-Ordinary values are attribute-escaped. URL attributes also reject dangerous
-schemes.
+Ordinary values are attribute-escaped. Dynamic URL expressions, interpolated
+URL literals, and forwarded URL values also reject dangerous schemes. A quoted
+URL authored directly on a native element is trusted author text and is emitted
+without scheme validation.
 
 <!--@include: ./_generated/attributes/060-attribute-contexts.md-->
 
@@ -116,7 +121,8 @@ component's attrs bag.
 
 ### URL attributes sanitize the whole value
 
-Static text and holes are assembled before the URL scheme check.
+Static text and holes in an interpolated URL literal are assembled before the
+URL scheme check.
 
 <!--@include: ./_generated/attributes/080-url-attribute-literals-are-sanitized-whole.md-->
 

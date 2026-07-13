@@ -23,6 +23,9 @@ from the props supplied at each call site.
 Both `Badge` calls infer `T` from `value`, so string and integer instances can
 appear together in the same component body.
 
+Directly interpolating `T` requires a renderable constraint; with `T any`,
+convert or format it to a supported type, such as `{ value |> printf("%v") }`.
+
 ### Explicit type arguments
 
 Use Go-style brackets when inference is ambiguous or when the call should state
@@ -77,6 +80,10 @@ The component can forward the bag, split selected values across elements, or
 omit it entirely. See [Attributes — Spread](./attributes.md#spread-x-—-ordered)
 for bag syntax and [Escaping](./escaping.md) for the trust rules applied at the
 destination.
+
+For JavaScript or CSS attributes with dynamic holes, accept ordinary wrapper
+props and build the contextual literal on the final native element; see
+[JavaScript](./javascript.md#attribute-local-javascript).
 
 ### Precedence
 
