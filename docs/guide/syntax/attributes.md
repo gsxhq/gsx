@@ -47,7 +47,7 @@ Spread a `gsx.Attrs` bag with `{ bag... }`; entries render in slice order.
 - Spread values use the same escaping as written attributes.
 - `gsx.AttrMap.ToAttrs()` sorts map keys.
 
-## Ordered-attrs literal <code v-pre>{{ "k": v }}</code>
+## Ordered-attrs literal <code v-pre>{{ "k": v }}</code> {#ordered-attrs-literal}
 
 ::: v-pre
 Use `{{ "k": v }}` as the value of a component's `gsx.Attrs` prop when the
