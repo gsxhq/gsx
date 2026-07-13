@@ -1838,12 +1838,25 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 				}
 				// Probe slot content in the SAME canonical order collectExprs walks:
 				// each markup-attr value (attr order) then the children.
+				//
+				// A named markup slot's value and the tag's children both lower into
+				// a NESTED gsx.Func slot closure (emitSlotClosure). The skeleton is
+				// flat, so a reserved-name shadow inside slot content (`{{ attrs :=
+				// … }}`) probed at the closure's top scope would collide with the
+				// enclosing component's own `attrs := _gsxp.Attrs` binding (`no new
+				// variables on left side of :=`) — a skeleton-only false rejection of
+				// code the emitter compiles fine. Wrap each slot's probes in a plain
+				// Go block so the shadow lands in a nested scope, restoring emit ≡
+				// probe. Braces open no _gsxuse/_gsxuseq probe and carry no //line, so
+				// the k-th-probe→k-th-node harvest alignment is undisturbed.
 				var probeErr error
 				walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) {
 					if probeErr != nil {
 						return
 					}
+					sb.WriteString("{\n")
 					probeErr = emitProbes(sb, value, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound)
+					sb.WriteString("}\n")
 				})
 				if probeErr != nil {
 					return probeErr
@@ -1867,8 +1880,14 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 				if probeErr != nil {
 					return probeErr
 				}
-				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
-					return err
+				// Children lower into a nested slot closure (emitSlotClosure), same
+				// as a named slot value above — wrap in a Go block so a reserved-name
+				// shadow does not collide with the enclosing `attrs := _gsxp.Attrs`.
+				sb.WriteString("{\n")
+				childErr := emitProbes(sb, t.Children, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound)
+				sb.WriteString("}\n")
+				if childErr != nil {
+					return childErr
 				}
 			} else {
 				// Probe each attr-expr (top-level and CondAttr-nested) FLAT, in the

@@ -878,7 +878,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 			}
 			for _, rb := range checkReservedBodyBindings(comp) {
 				bag.Errorf(rb.pos, rb.pos+token.Pos(len(rb.name)), "reserved-identifier",
-					"identifier %q is reserved (%s) — rename the variable", rb.name, reservedBodyMeaning(rb.name))
+					"identifier %q is reserved (%s) — rename it", rb.name, reservedBodyMeaning(rb.name))
 			}
 		}
 		ff := m.fileScopedFacts(dir, f, propFields, nodeProps, attrsProps, byo, bag, fset)

@@ -12,4 +12,4 @@ component Page() {
 	<div { attrs... }>hi</div>
 }
 -- diagnostics.golden --
-6:5: identifier "attrs" is reserved (the implicit fallthrough bag) — rename the variable
+6:5: identifier "attrs" is reserved (the implicit fallthrough bag) — rename it

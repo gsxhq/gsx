@@ -161,7 +161,7 @@ func freeInBody(body []ast.Markup, env map[string]bool) bool {
 			// trigger. Descend with a COPY (extendEnv, no binds), like CF subtrees.
 			childEnv := env
 			if t.IsComponent {
-				childEnv = extendEnv(env, nil)
+				childEnv = copyEnv(env)
 			}
 			if freeInBody(t.Children, childEnv) {
 				return true
@@ -181,16 +181,26 @@ func freeInBody(body []ast.Markup, env map[string]bool) bool {
 			if clauseFree("if", t.Cond, env) {
 				return true
 			}
-			sub := extendEnv(env, clauseBindings("if", t.Cond))
-			if freeInBody(t.Then, sub) || freeInBody(t.Else, sub) {
+			// Then and Else are INDEPENDENT scopes. A GoBlock shadow in one
+			// branch must not mark the name bound for the other — freeInBody
+			// extends env in place across a branch's GoBlock siblings, so a
+			// SHARED env would leak an earlier branch's shadow into a later
+			// branch whose genuinely free use would then be missed (a false
+			// rejection: `undefined: attrs`). Each branch gets its own copy.
+			binds := clauseBindings("if", t.Cond)
+			if freeInBody(t.Then, extendEnv(env, binds)) || freeInBody(t.Else, extendEnv(env, binds)) {
 				return true
 			}
 		case *ast.SwitchMarkup:
 			if t.Tag != "" && clauseFree("switch", t.Tag, env) {
 				return true
 			}
-			sub := extendEnv(env, clauseBindings("switch", t.Tag))
+			// Each case is an independent scope (see IfMarkup): a shadow in one
+			// case must not leak into a later case. Fresh copy of the clause env
+			// per case.
+			binds := clauseBindings("switch", t.Tag)
 			for _, cc := range t.Cases {
+				sub := extendEnv(env, binds)
 				if cc.List != "" && exprFragFree(cc.List, sub) {
 					return true
 				}
@@ -245,8 +255,12 @@ func attrsFree(attrs []ast.Attr, env map[string]bool) bool {
 			if clauseFree("if", at.Cond, env) {
 				return true
 			}
-			sub := extendEnv(env, clauseBindings("if", at.Cond))
-			if attrsFree(at.Then, sub) || attrsFree(at.Else, sub) {
+			// Then and Else are independent scopes (see freeInBody's IfMarkup):
+			// each gets its own copy so a nested GoBlock shadow in one branch
+			// (reached via a ClassAttr's CSS segments or an EmbeddedAttr) cannot
+			// leak into the other.
+			binds := clauseBindings("if", at.Cond)
+			if attrsFree(at.Then, extendEnv(env, binds)) || attrsFree(at.Else, extendEnv(env, binds)) {
 				return true
 			}
 		case *ast.EmbeddedAttr:
@@ -257,7 +271,7 @@ func attrsFree(attrs []ast.Attr, env map[string]bool) bool {
 			// A named markup slot's value lowers into the SAME gsx.Func slot
 			// closure shape as component children (emitSlotClosure is shared by
 			// both) — bindings inside must not leak into the enclosing env.
-			if freeInBody(at.Value, extendEnv(env, nil)) {
+			if freeInBody(at.Value, copyEnv(env)) {
 				return true
 			}
 		case *ast.OrderedAttrsAttr:
@@ -360,6 +374,13 @@ func clauseBindings(keyword, clause string) []boundIdent {
 		return nil
 	}
 	return fragmentBindings(keyword+" "+clause, fragClause)
+}
+
+// copyEnv returns a shallow copy of env — used when descending into a scoped
+// subtree that introduces no bindings of its own but whose in-place env
+// mutations (later-sibling GoBlock declarations) must not escape to the caller.
+func copyEnv(env map[string]bool) map[string]bool {
+	return extendEnv(env, nil)
 }
 
 // extendEnv returns a copy of env with binds added — used when descending into a

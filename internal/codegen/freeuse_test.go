@@ -84,6 +84,15 @@ var freeUseCases = []struct {
 	// a named markup slot's value is the SAME slot-closure shape as component
 	// children — a binding there must not leak either.
 	{"markup_slot_bind_then_sibling_free", `<Wrap header={<b>{{ attrs := bags() }}h</b>}>x</Wrap><div { attrs... }>y</div>`, true},
+	// per-branch env independence (a GoBlock shadow in one if/switch branch must
+	// NOT mark `attrs` bound for a SIBLING branch whose free use is the implicit
+	// bag). Pre-fix a single shared branch env leaked the shadow forward, missing
+	// the later branch's free use → false → false rejection. Shadow-FIRST orders
+	// (the failing case) plus their mirrors as regression pins.
+	{"if_then_shadow_else_free", `{ if true { {{ attrs := bags() }}<span>t</span> } else { <div { attrs... }>e</div> } }`, true},
+	{"if_then_free_else_shadow", `{ if true { <div { attrs... }>t</div> } else { {{ attrs := bags() }}<span>e</span> } }`, true},
+	{"switch_case1_shadow_case2_free", `{ switch len(bags()) { case 0: {{ attrs := bags() }}<span>a</span> case 1: <div { attrs... }>b</div> } }`, true},
+	{"switch_case1_free_case2_shadow", `{ switch len(bags()) { case 0: <div { attrs... }>a</div> case 1: {{ attrs := bags() }}<span>b</span> } }`, true},
 	// fallback
 	{"unparseable_fragment_falls_back_to_token", `{{ attrs ++!garbage }}<div>x</div>`, true},
 }

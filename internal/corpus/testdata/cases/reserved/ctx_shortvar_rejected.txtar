@@ -8,6 +8,6 @@ component Page() {
 	<div>ok</div>
 }
 -- diagnostics.golden --
-4:5: identifier "ctx" is reserved (the ambient context) — rename the variable
+4:5: identifier "ctx" is reserved (the ambient context) — rename it
 4:9: no new variables on left side of :=
 4:12: cannot use "hello" (constant of type string) as context.Context value in assignment: string does not implement context.Context (missing method Deadline)

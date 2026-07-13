@@ -9,6 +9,6 @@ component Page() {
 	<div>{children}</div>
 }
 -- diagnostics.golden --
-4:5: identifier "children" is reserved (the implicit children slot) — rename the variable
+4:5: identifier "children" is reserved (the implicit children slot) — rename it
 4:14: no new variables on left side of :=
 4:17: cannot use "hi" (constant of type string) as gsx.Node value in assignment: string does not implement gsx.Node (missing method Render)
