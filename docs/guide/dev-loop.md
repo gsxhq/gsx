@@ -30,9 +30,9 @@ Other project files have slightly different behavior:
 
 ## When a build fails
 
-Generation and build errors appear in the browser overlay. After the server has
-built successfully once, a later failure leaves that last working server active.
-Fix the error and save again to build and reload the new version.
+After the server has built successfully once, generation and build errors from
+later save cycles appear in the browser overlay, and the last working server
+remains active. Fix the error and save again to build and reload the new version.
 
 ### The first build
 
