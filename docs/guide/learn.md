@@ -1,13 +1,10 @@
 # Learn gsx
 
-This path starts after `gsx init`, when you have a working app and a `.gsx`
-file open. Keep the examples small at first: write a component, save, and let
-`gsx dev` regenerate the Go code.
+These six patterns cover the normal authoring model.
 
 ## 1. A component is Go plus markup
 
-A `.gsx` file begins like any Go file, then adds `component` declarations. The
-component body is markup, so there is no return type and no `return`.
+Declare a component in a `.gsx` file, then write its HTML directly in the body.
 
 ```gsx
 package views
@@ -17,76 +14,66 @@ component Greeting(name string) {
 }
 ```
 
-Expressions inside `{ ... }` are Go expressions. gsx writes context-aware HTML
-escaping into the generated `.x.go` file.
+Code inside `{ ... }` is an ordinary Go expression. Its output is escaped for
+the surrounding HTML context; see [Escaping](./syntax/escaping.md).
 
 ## 2. Props are typed
 
-Component parameters are Go parameters. Use ordinary Go types, imports, and
-expressions.
+Declare props as Go parameters and pass them as component attributes.
 
 ```gsx
-package views
+component Meter(value int) {
+	<meter min={0} max={100} value={value}>{value}%</meter>
+}
 
-component Meter(value int, color string) {
-	<div
-		class={ "meter", "meter-full": value >= 100 }
-		style={ value |> printf("width: %d%%"), "color: " + color }
-	/>
+component Dashboard() {
+	<Meter value={72} />
 }
 ```
 
-[▶ Open in Playground](/playground#try=eyJzIjoicGFja2FnZSB2aWV3c1xuXG5jb21wb25lbnQgTWV0ZXIodmFsdWUgaW50LCBjb2xvciBzdHJpbmcpIHtcblx0PGRpdlxuXHRcdGNsYXNzPXsgXCJtZXRlclwiLCBcIm1ldGVyLWZ1bGxcIjogdmFsdWUgPj0gMTAwIH1cblx0XHRzdHlsZT17IHZhbHVlIHw+IGZvcm1hdChcIndpZHRoOiAlZCUlXCIpLCBcImNvbG9yOiBcIiArIGNvbG9yIH1cblx0Lz5cbn1cbiIsImkiOiJNZXRlcihNZXRlclByb3Bze1ZhbHVlOiA3MiwgQ29sb3I6IFwicmViZWNjYXB1cnBsZVwifSkifQ==)
-
-Callers pass values with Go syntax:
-
-```gsx
-<Meter value={72} color={"rebeccapurple"} />
-```
+Go reports invalid prop names or values at build time.
 
 ## 3. Components compose with children
 
-Components receive children explicitly. Place `{children}` where nested content
-should render.
+Use `{children}` where a component should render its nested content.
 
 ```gsx
 component Panel(title string) {
 	<section class="panel">
 		<h2>{title}</h2>
-		<div class="panel-body">{children}</div>
+		<div>{children}</div>
 	</section>
 }
 
 component Home() {
 	<Panel title="Dashboard">
-		<p>Server-rendered content can be composed like HTML.</p>
+		<p>Welcome back.</p>
 	</Panel>
 }
 ```
 
+See [Composition](./syntax/composition.md) for slots, generics, and forwarding.
+
 ## 4. Attributes are explicit
 
-Static attributes look like HTML. Dynamic attributes use Go expressions. Boolean
-attributes are controlled by their value.
+Write static values like HTML and dynamic values as Go expressions.
 
 ```gsx
-component SaveButton(disabled bool, label string) {
-	<button type="submit" disabled={disabled}>
-		{label}
-	</button>
+component SaveButton(label string, disabled bool) {
+	<button type="submit" disabled={disabled}>{label}</button>
 }
 ```
 
-Use `class={ ... }` and `style={ ... }` lists when values need to compose.
+Boolean attributes are omitted when their value is false. See
+[Attributes](./syntax/attributes.md) for conditionals, spreads, and merge order.
 
 ## 5. Style and script stay close to HTML
 
-`<style>` and `<script>` stay in the component tree. Use the syntax reference for
-the exact interpolation rules in each context.
+Put component-specific CSS and JavaScript beside the markup that uses them.
 
 ```gsx
-component InlineExample(message string) {
-	<div class="notice">{message}</div>
+component Notice(message string) {
+	<p class="notice">{message}</p>
 	<style>
 		.notice { padding: 0.75rem; border: 1px solid #ccc; }
 	</style>
@@ -96,21 +83,23 @@ component InlineExample(message string) {
 }
 ```
 
-## 6. The development loop is one command
+See [Styling](./syntax/styling.md) and
+[JavaScript](./syntax/javascript.md) for their interpolation rules.
 
-The starter runs the full development loop with:
+## 6. Save and reload
+
+Run the starter's development server once:
 
 ```sh
 npm run dev
 ```
 
-That script runs `go tool gsx dev`. It watches `.gsx`, `.go`, and `.env` files,
-regenerates `.x.go`, rebuilds the Go server, and asks Vite to reload the
-browser.
+Save a `.gsx` file and gsx regenerates it, rebuilds the server, and reloads the
+browser. Errors appear in the browser while you fix them.
 
-## Next
+## Next steps
 
-- Keep the [syntax reference](./syntax.md) open while writing `.gsx`.
+- Browse the [syntax reference](./syntax.md) by task.
 - Use the [playground](/playground) to try small components.
+- Read the [development loop](./dev-loop.md) when you need failure or file-change behavior.
 - Configure the dev loop, filters, minification, and class merging in [`gsx.toml`](./config.md).
-- Check [Status](./status.md) before relying on alpha or deferred features.
