@@ -58,13 +58,26 @@ is markup, and markup positions of nested tags are already walked.
 
 - **Forwarding.** `<Inner { attrs... }/>` concatenates the wrapper's bag into
   `Inner`'s synthesized bag **at the spread's source position**, alongside
-  bare fallthrough attrs, other spreads, and conditional attrs — the existing
-  source-ordered `ConcatAttrs` assembly; an `attrs={{ }}` ordered literal
-  still concatenates last. Nothing merges at the call boundary: duplicates
-  resolve at the callee's **leaf** as today (last-wins scalars, aggregating
-  `class`/`style`, leaf URL sanitization, the module's `class_merger`). This
-  answers the merge-order questions the attrs-only spec left open — by
-  construction, not by new machinery.
+  bare fallthrough attrs, other spreads, and conditional attrs; an
+  `attrs={{ }}` ordered literal still concatenates last. Nothing merges at
+  the call boundary: duplicates resolve at the callee's **leaf** as today
+  (last-wins scalars, aggregating `class`/`style`, leaf URL sanitization,
+  the module's `class_merger`). This answers the merge-order questions the
+  attrs-only spec left open — by construction, not by new machinery.
+- **Source-order alignment (decided 2026-07-13, jackie).** Today's call-site
+  bag assembly coalesces ALL bare fallthrough attrs into one *leading*
+  literal regardless of position relative to spreads (pinned by
+  `attrsonly/merge_order.txtar`, whose own comment says "source order" —
+  the golden contradicts it), while elements got strict source-order
+  semantics in the 2026-07-12 multi-spread merge ("interposed statics
+  participate; later wins per key"). This feature aligns component calls to
+  the element rule: bare fallthrough attrs participate at their source
+  position (adjacent bare attrs still coalesce into one literal *segment*),
+  so a post-spread bare attr becomes the force position, exactly as on an
+  element. The `attrs={{ }}` literal keeps its merge-last rule. This is a
+  behavior change to pinned goldens (only where a bare attr follows a
+  spread/cond carrying the same key — accepted pre-adoption); affected
+  goldens regenerate and `merge_order.txtar`'s comment is corrected.
 - **Chains** compose transitively (A→B→C is one concat per hop; each hop's
   bag is that component's own synthesized field).
 - **Derived bags** work unchanged: `<Inner { attrs.Without("id")... }/>` —
@@ -124,13 +137,33 @@ target a **generated** component whose prop map has no synthesized `Attrs`
 
 positioned at the **first fallthrough attr** (keeping PR #103's observation
 that the raw error at least anchored at the attribute — not `el.Pos()`).
-Cross-package callees are covered: import-alias-scoped prop discovery already
-records whether the synthesized bag exists. A dependency on the
-`imported-props-unavailable` fallback keeps current behavior (we cannot
-validate what we cannot analyze). Implementation-time verification point:
-confirm the guard can distinguish "generated component without bag" from the
-prop-name map `childPropsLiteral` already holds; if not, thread one bit from
-prop discovery.
+The discriminators already exist: `isKnownPropsType` + `hasAttrsBag`
+(`internal/codegen/byo.go:179/191`) are exactly the pair the whole-struct
+splat branch uses. Cross-package callees are covered: import-alias-scoped
+prop discovery already records whether the synthesized bag exists. A
+dependency on the `imported-props-unavailable` fallback keeps current
+behavior (we cannot validate what we cannot analyze).
+
+**Whole-struct splat interaction.** A *sole* spread on a known bag-less
+component is today a deliberate whole-struct splat (`<Card { d... }/>` →
+`Card(d)`, templ-interop; mixed spread+attrs already errors
+`byo-splat-mixed`). Forwarding collides with that: sole `{ attrs... }` onto
+a bag-less callee would splat the `gsx.Attrs` value as the props struct — a
+raw type error. When the enclosing component's implicit bag is bound
+(manual mode) and the sole spread's expression is exactly the token
+`attrs`, the splat interpretation is suppressed in favor of the worded
+diagnostic (`component-missing-attrs`, or the existing `byo-missing-attrs`
+advice for a byo callee). Requires threading one
+`enclosingAttrsBound bool` into `childPropsLiteral` from its four call
+sites (genChildComponent, the skipped-tag sink, attrsOnlyBagExpr, and the
+probe). Element literals outside component bodies pass `false`, so a
+genuine `attrs`-named local there keeps today's splat.
+
+**Reserved-by-usage note.** `attrs` in a component body already shadows any
+same-named package-level symbol wherever the binding triggers (plain-element
+positions today). The newly-walked positions join that existing rule; a
+package-level `var attrs` referenced from a nested component tag resolves
+to the implicit bag, not the package var. Corpus-pinned.
 
 **Perf.** The `usesAttrs` extension is a pure AST walk — no `packages.Load`,
 no additional probes, no cache-key change.
@@ -157,8 +190,20 @@ pins `input.gsx` + `generated.x.go.golden` + `render.golden`:
 - **Security:** a forwarded bag carrying `href`/`src` sanitized at the
   callee's leaf (spread-sanitize-style render golden) — no sanitization gap
   opens at the call boundary.
+- **Source-order alignment:** a bare fallthrough attr *after* a spread wins
+  per key on a component call (new force position), for both a generated
+  callee and an attrs-only callee; `merge_order.txtar` regenerated with a
+  corrected comment.
 - **Rejections:** `component-missing-attrs` same-package and cross-package;
-  nullary-callee and `imported-props-unavailable` behavior unchanged.
+  sole `{ attrs... }` onto a bag-less callee gets the worded diagnostic, not
+  a splat type error; nullary-callee and `imported-props-unavailable`
+  behavior unchanged; whole-struct splat of a non-`attrs` expression
+  unchanged.
+- **Latent element-side gaps closed by the same scan:** `attrs` referenced
+  only from a value-form class arm, a class-part pipeline stage arg, or a
+  `css`-literal hole inside `style={...}` on a plain element (today:
+  `undefined: attrs`); plus the reserved-by-usage shadowing pin
+  (package-level `var attrs` + nested-tag reference → implicit bag wins).
 
 Plus unit tests for the `usesAttrs`/`attrsRefAttrs` extension, and a
 `coverage.golden` manifest bump. No fmt-corpus case (no layout change) and no
