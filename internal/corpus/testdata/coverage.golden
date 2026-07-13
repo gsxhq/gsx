@@ -322,6 +322,9 @@ fragment-literals/loop-list	diag gen render
 fragment-literals/return	diag gen render
 fragment-literals/struct-field	diag gen render
 fragment-literals/var	diag gen render
+goexpr-css-literal/hostile_zgotmplz	diag gen render
+goexpr-css-literal/rawcss_passthrough	diag gen render
+goexpr-css-literal/var_style_spread	diag gen render
 goexpr-f-literal/call-arg	diag gen render
 goexpr-f-literal/f_value_is_escaped_string	diag gen render
 goexpr-f-literal/interp	diag gen render
@@ -764,4 +767,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 766 cases (render: 644, error: 90, gen-pinned: 431)
+TOTAL: 769 cases (render: 647, error: 90, gen-pinned: 434)
