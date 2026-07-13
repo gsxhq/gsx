@@ -66,7 +66,7 @@ func TestSplatPipelineComponent(t *testing.T) {
 		Void:  true,
 		Attrs: []ast.Attr{&ast.SpreadAttr{Expr: "d", Stages: []ast.PipeStage{{Name: "loud"}}}},
 	}
-	_, splatExpr, usedPkgs, err := childPropsLiteral(el, "cardData", "gsx", "gsx.DefaultClassMerge", table, nil, nil, byo, nil,
+	_, _, splatExpr, usedPkgs, err := childPropsLiteral(el, "cardData", "gsx", "gsx.DefaultClassMerge", table, nil, nil, byo, nil,
 		func(nodes []ast.Markup) (string, error) { return "", nil }, false, nil, nil, nil, nil, nil, nil, "")
 	if err != nil {
 		t.Fatalf("childPropsLiteral: %v", err)

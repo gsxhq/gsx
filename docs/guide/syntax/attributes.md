@@ -243,6 +243,25 @@ the braced form; the direct (unbraced) `` class=f`…` `` literal does not take
 a trailing `|>`.
 :::
 
+### On a component tag
+
+On a component, an `f` literal materializes as one Go `string` — the same
+ordered concatenation of static text and stringified holes. Attribute matching
+only decides where that string goes: a name matching a declared prop assigns
+it to that prop (a `gsx.Node` prop receives it as escaped text), and an
+unmatched name falls through to the component's `Attrs` bag.
+
+```gsx
+component PageHeader(title string, subtitle string) { … }
+
+<PageHeader title="Tickets" subtitle=f`@{count} tickets` />
+```
+
+Holes keep their per-hole pipelines and `(T, error)` unwrapping, and all
+attribute values evaluate in authored order. Hole-bearing `` js`…` `` /
+`` css`…` `` values remain element-only: their contextual escaping belongs to
+an element sink.
+
 ### URL attributes sanitize the whole value
 
 When the attribute is a URL context (`href`, `src`, `action`, and the rest of
