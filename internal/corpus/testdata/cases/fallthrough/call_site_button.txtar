@@ -9,4 +9,4 @@ component Page() {
 	<Button variant="primary" class="w-full" data-test="x" hx-post="/go">Save</Button>
 }
 -- diagnostics.golden --
-8:73: unknown field Attrs in struct literal of type ButtonProps
+8:28: attribute on <Button> matches no declared prop of component Button, and its body does not reference `attrs` (no fallthrough bag); reference `attrs` in <Button>'s body to accept forwarded attributes

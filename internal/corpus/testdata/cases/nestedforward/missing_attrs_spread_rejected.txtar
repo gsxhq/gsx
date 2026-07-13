@@ -1,0 +1,22 @@
+# A sole `{ attrs... }` onto a bag-less callee from inside a forwarding
+# wrapper is the splat special-case: the enclosing component's implicit bag
+# is being forwarded, never a whole-struct splat.
+-- input.gsx --
+package views
+
+component Plain(title string) {
+	<h1>{title}</h1>
+}
+
+component Wrapper() {
+	<Plain { attrs... }/>
+}
+
+component Page() {
+	<Wrapper data-x="1"/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+8:9: cannot forward `{ attrs... }` to <Plain>: PlainProps has no fallthrough bag; reference `attrs` in <Plain>'s body to accept forwarded attributes
+-- render.golden --

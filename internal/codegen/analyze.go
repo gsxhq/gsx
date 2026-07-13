@@ -759,7 +759,7 @@ func buildSkeleton(file *gsxast.File, table funcTables, propFields, nodeProps, a
 				fmt.Fprintf(&compBuf, "_gsxelem(%d)\n", idx)
 				compBuf.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
 				elemCFTemp := 0
-				if err := emitProbes(&compBuf, markup, table, propFields, nodeProps, attrsProps, combinedSigs, byo, fm, "", "", usedFilters, fset, ctrlOff, registry, &gwMarkups, bag, &elemCFTemp); err != nil {
+				if err := emitProbes(&compBuf, markup, table, propFields, nodeProps, attrsProps, combinedSigs, byo, fm, "", "", usedFilters, fset, ctrlOff, registry, &gwMarkups, bag, &elemCFTemp, false); err != nil {
 					return "", nil, nil, nil, nil, nil, err
 				}
 				compBuf.WriteString("return nil\n}()")
@@ -772,7 +772,7 @@ func buildSkeleton(file *gsxast.File, table funcTables, propFields, nodeProps, a
 				fmt.Fprintf(&compBuf, "_gsxelem(%d)\n", idx)
 				compBuf.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
 				fragCFTemp := 0
-				if err := emitProbes(&compBuf, p.Children, table, propFields, nodeProps, attrsProps, combinedSigs, byo, fm, "", "", usedFilters, fset, ctrlOff, registry, &gwMarkups, bag, &fragCFTemp); err != nil {
+				if err := emitProbes(&compBuf, p.Children, table, propFields, nodeProps, attrsProps, combinedSigs, byo, fm, "", "", usedFilters, fset, ctrlOff, registry, &gwMarkups, bag, &fragCFTemp, false); err != nil {
 					return "", nil, nil, nil, nil, nil, err
 				}
 				compBuf.WriteString("return nil\n}()")
@@ -796,7 +796,7 @@ func buildSkeleton(file *gsxast.File, table funcTables, propFields, nodeProps, a
 				fmt.Fprintf(&compBuf, "_gsxelem(%d)\n", idx)
 				compBuf.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
 				segCFTemp := 0
-				if err := emitProbes(&compBuf, p.Segments, table, propFields, nodeProps, attrsProps, combinedSigs, byo, fm, "", "", usedFilters, fset, ctrlOff, registry, &gwMarkups, bag, &segCFTemp); err != nil {
+				if err := emitProbes(&compBuf, p.Segments, table, propFields, nodeProps, attrsProps, combinedSigs, byo, fm, "", "", usedFilters, fset, ctrlOff, registry, &gwMarkups, bag, &segCFTemp, false); err != nil {
 					return "", nil, nil, nil, nil, nil, err
 				}
 				fmt.Fprintf(&compBuf, "return %s\n}()", embeddedProbeSeed(p.Segments, table, usedFilters))
@@ -1199,7 +1199,10 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table funcT
 		// param binding's mapping.
 		emitSkeletonLine(sb, fset, c.Pos())
 		cfTemp := 0
-		if err := emitProbes(sb, c.Body, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, &cfTemp); err != nil {
+		// BYO components never synthesize an `attrs` local (mirrors genComponent's
+		// identical byo-branch call to emitNodeFuncBody) — enclosingAttrsBound is
+		// false regardless of what the byo author's own struct declares.
+		if err := emitProbes(sb, c.Body, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, &cfTemp, false); err != nil {
 			return err
 		}
 		sb.WriteString("\treturn nil\n}\n")
@@ -1281,7 +1284,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table funcT
 		sb.WriteString("\tattrs := _gsxp.Attrs\n")
 	}
 	cfTemp := 0
-	if err := emitProbes(sb, c.Body, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, &cfTemp); err != nil {
+	if err := emitProbes(sb, c.Body, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, &cfTemp, manual); err != nil {
 		return err
 	}
 	sb.WriteString("\treturn nil\n}\n")
@@ -1307,7 +1310,7 @@ func emitComponentSkeleton(sb *strings.Builder, c *gsxast.Component, table funcT
 // unique and never collide across sibling component tags in the same block
 // (fix #69). A fresh counter is started at each entry point that begins a new
 // skeleton function/buffer; recursive calls thread the received counter through.
-func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, recvVar, recvTypeName string, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, registry *inferRegistry, gw *[][]gsxast.Markup, bag *diag.Bag, cfTemp *int) error {
+func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, recvVar, recvTypeName string, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, registry *inferRegistry, gw *[][]gsxast.Markup, bag *diag.Bag, cfTemp *int, enclosingAttrsBound bool) error {
 	for _, n := range nodes {
 		switch t := n.(type) {
 		case *gsxast.Interp:
@@ -1337,7 +1340,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 						eb.WriteString("func() _gsxrt.Node {\n")
 						fmt.Fprintf(&eb, "_gsxelem(%d)\n", idx)
 						eb.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
-						if err := emitProbes(&eb, markup, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp); err != nil {
+						if err := emitProbes(&eb, markup, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 							return err
 						}
 						eb.WriteString("return nil\n}()")
@@ -1347,7 +1350,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 						eb.WriteString("func() _gsxrt.Node {\n")
 						fmt.Fprintf(&eb, "_gsxelem(%d)\n", idx)
 						eb.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
-						if err := emitProbes(&eb, p.Children, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp); err != nil {
+						if err := emitProbes(&eb, p.Children, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 							return err
 						}
 						eb.WriteString("return nil\n}()")
@@ -1368,7 +1371,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 						eb.WriteString("func() string {\n")
 						fmt.Fprintf(&eb, "_gsxelem(%d)\n", idx)
 						eb.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
-						if err := emitProbes(&eb, p.Segments, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp); err != nil {
+						if err := emitProbes(&eb, p.Segments, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 							return err
 						}
 						fmt.Fprintf(&eb, "return %s\n}()", embeddedProbeSeed(p.Segments, table, usedFilters))
@@ -1427,7 +1430,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 			// call codegen's emitEmbeddedInterp will build (via
 			// embeddedTextValueExpr + lowerPipe), so resolved[t] ends up the
 			// exact type codegen emits (emit ≡ probe).
-			if err := emitProbes(sb, t.Segments, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp); err != nil {
+			if err := emitProbes(sb, t.Segments, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 				return err
 			}
 			if len(t.Stages) > 0 {
@@ -1497,7 +1500,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 					// reference stays valid; usedPkgs feeds usedFilters exactly as the
 					// props-literal branch does, so a bag pipeline's filter is imported.
 					var cfHoistBuf bytes.Buffer
-					if expr, usedPkgs, berr := attrsOnlyBagExpr(t, "_gsxrt", "_gsxrt.DefaultClassMerge", table, byo, fm, true, nil, map[string]bool{}, rtImports{}, bag, &cfHoistBuf, cfTemp); berr == nil && expr != "" {
+					if expr, usedPkgs, berr := attrsOnlyBagExpr(t, "_gsxrt", "_gsxrt.DefaultClassMerge", table, byo, fm, true, nil, map[string]bool{}, rtImports{}, bag, &cfHoistBuf, cfTemp, enclosingAttrsBound); berr == nil && expr != "" {
 						maps.Copy(usedFilters, usedPkgs)
 						emitSkeletonLine(sb, fset, t.Pos())
 						sb.WriteString(cfHoistBuf.String())
@@ -1539,9 +1542,23 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 					// stay unique across every sibling component tag in this block — not
 					// just within one tag (fix #69).
 					var cfHoistBuf bytes.Buffer
+					// A generic tag with omitted type args (genericSigs[propsType] != nil,
+					// mirroring the SAME predicate the emitInferProbe branch below tests)
+					// has NOT yet decided whether fieldEntries becomes a real props
+					// literal (inference succeeds → emitInferProbe's call-form probe) or
+					// a discarded reference-sink (inference fails → the `case failed:`
+					// throwaway struct below, which — like genSkippedTagSink's discard —
+					// never builds the real Attrs field). The missing-attrs-bag hazard
+					// only exists in the first outcome, which is unknowable until AFTER
+					// this call returns, so it is deferred entirely to emit time (once a
+					// concrete type arg is resolved, genChildComponent's own
+					// childPropsLiteral call re-checks it for real): disable it here for
+					// any pending generic-inference candidate to avoid a false positive
+					// on the (perfectly legal, silently-discarded) inference-failure path.
+					checkBag := t.TypeArgs != "" || genericSigs[propsType] == nil
 					fieldEntries, _, splatExpr, usedPkgs, err := childPropsLiteral(t, propsType, "_gsxrt", "_gsxrt.DefaultClassMerge", table, propFields, nodeProps[propsType], byo, fm, func(nodes []gsxast.Markup) (string, error) {
 						return "_gsxrt.Node(nil)", nil
-					}, true, nil, map[string]bool{}, rtImports{}, bag, &cfHoistBuf, cfTemp, "")
+					}, true, nil, map[string]bool{}, rtImports{}, bag, &cfHoistBuf, cfTemp, "", enclosingAttrsBound, checkBag)
 					if err != nil {
 						// childPropsLiteral returns an *attrError with the offending attr's
 						// position embedded. Propagate it as-is so the caller can emit
@@ -1633,7 +1650,37 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 						}
 						switch {
 						case emitted:
-							// probe already written above.
+							// emitInferProbe's call consumes ONLY the inferField
+							// args (the props go/types infers the type params
+							// from). Any NON-inferField entry — most importantly a
+							// synthesized `Attrs: ConcatAttrs(...)` fallthrough bag
+							// forwarding the enclosing component's implicit `attrs`
+							// (spread, conditional, or matched-node-field value) —
+							// is absent from that call, so an `attrs` reference that
+							// lives ONLY there would be "declared and not used" in
+							// the skeleton (a loud false rejection of a legal
+							// program). Sink those value halves into a throwaway
+							// any-typed struct, exactly as the `failed:` path sinks
+							// all entries: a plain statement, NOT a _gsxuse/_gsxuseq,
+							// so the k-th-probe↔k-th-collected alignment is untouched.
+							// inferField entries are excluded — re-sinking them would
+							// double-report a bad prop value's own type error.
+							var sinkTypes, sinkLits []string
+							for _, fe := range fieldEntries {
+								if fe.inferField != "" {
+									continue
+								}
+								val := fe.str
+								if idx := strings.Index(fe.str, ":"); idx >= 0 {
+									val = strings.TrimSpace(fe.str[idx+1:])
+								}
+								name := fmt.Sprintf("F%d", len(sinkTypes))
+								sinkTypes = append(sinkTypes, name+" any")
+								sinkLits = append(sinkLits, name+": "+val)
+							}
+							if len(sinkTypes) > 0 {
+								fmt.Fprintf(sb, "_ = struct{ %s }{%s}\n", strings.Join(sinkTypes, "; "), strings.Join(sinkLits, ", "))
+							}
 						case failed:
 							// Sink every supplied prop's value expression (and any
 							// CF-hoisted var it references — see cfHoistBuf above) into a
@@ -1796,7 +1843,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 					if probeErr != nil {
 						return
 					}
-					probeErr = emitProbes(sb, value, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp)
+					probeErr = emitProbes(sb, value, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound)
 				})
 				if probeErr != nil {
 					return probeErr
@@ -1820,7 +1867,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 				if probeErr != nil {
 					return probeErr
 				}
-				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp); err != nil {
+				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 					return err
 				}
 			} else {
@@ -1940,7 +1987,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 					if probeErr != nil {
 						return
 					}
-					probeErr = emitProbes(sb, value, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp)
+					probeErr = emitProbes(sb, value, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound)
 				})
 				if probeErr != nil {
 					return probeErr
@@ -1964,19 +2011,19 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 				if probeErr != nil {
 					return probeErr
 				}
-				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp); err != nil {
+				if err := emitProbes(sb, t.Children, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 					return err
 				}
 			}
 		case *gsxast.Fragment:
-			if err := emitProbes(sb, t.Children, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp); err != nil {
+			if err := emitProbes(sb, t.Children, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 				return err
 			}
 		case *gsxast.ForMarkup:
 			emitSkeletonClauseLine(sb, fset, t.ClausePos, len("for ")) // 4
 			ctrlOff[t] = sb.Len() + len("for ")
 			fmt.Fprintf(sb, "for %s {\n", t.Clause)
-			if err := emitProbes(sb, t.Body, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp); err != nil {
+			if err := emitProbes(sb, t.Body, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 				return err
 			}
 			sb.WriteString("}\n")
@@ -1984,13 +2031,13 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 			emitSkeletonClauseLine(sb, fset, t.CondPos, len("if ")) // 3
 			ctrlOff[t] = sb.Len() + len("if ")
 			fmt.Fprintf(sb, "if %s {\n", t.Cond)
-			if err := emitProbes(sb, t.Then, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp); err != nil {
+			if err := emitProbes(sb, t.Then, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 				return err
 			}
 			sb.WriteString("}")
 			if t.Else != nil {
 				sb.WriteString(" else {\n")
-				if err := emitProbes(sb, t.Else, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp); err != nil {
+				if err := emitProbes(sb, t.Else, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 					return err
 				}
 				sb.WriteString("}")
@@ -2010,7 +2057,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 					ctrlOff[cc] = sb.Len() + len("case ")
 					fmt.Fprintf(sb, "case %s:\n", cc.List)
 				}
-				if err := emitProbes(sb, cc.Body, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp); err != nil {
+				if err := emitProbes(sb, cc.Body, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, enclosingAttrsBound); err != nil {
 					return err
 				}
 			}
