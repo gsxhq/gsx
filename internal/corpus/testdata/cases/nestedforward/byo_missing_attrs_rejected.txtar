@@ -1,0 +1,28 @@
+# A sole `{ attrs... }` from a manual-mode wrapper onto a BYO component whose
+# hand-written Props struct has NO Attrs field: guard (a)'s byo variant fires
+# ("its Props type X has no `Attrs gsx.Attrs` field"), not the generic
+# "has no fallthrough bag" wording missing_attrs_spread_rejected.txtar pins
+# for a non-byo callee.
+-- input.gsx --
+package views
+
+type CardProps struct {
+	Title string
+}
+
+component Card(p CardProps) {
+	<div>{p.Title}</div>
+}
+
+component Wrapper() {
+	<Card { attrs... }/>
+}
+
+component Page() {
+	<Wrapper data-x="1"/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+12:8: cannot forward `{ attrs... }` to <Card>: its Props type CardProps has no `Attrs gsx.Attrs` field
+-- render.golden --
