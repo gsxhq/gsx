@@ -9,11 +9,9 @@ Begin with a package declaration and import any packages used by your Go code. Y
 ```gsx
 package views
 
-import "time"
+import "github.com/gsxhq/gsx"
 
-func formatDate(t time.Time) string {
-	return t.Format("2006-01-02")
-}
+func wrap(n gsx.Node) gsx.Node { return n }
 ```
 
 ## Declare a component
