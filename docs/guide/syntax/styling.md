@@ -1,157 +1,109 @@
 # Styling
 
-gsx supports composable `class` and `style` attributes. Both use a `{ }` list
-whose entries are always-on strings or `"value": cond` toggles. When a component
-places `{ attrs... }`, caller-supplied class and style merge at that position.
+Use composable `class` and `style` values when an element has a fixed base plus
+optional or caller-supplied parts.
 
-## Composable class
+## Compose classes
 
-The `class` attribute accepts a composable list instead of a plain string. Each entry is either an always-on class string or a `"name": cond` pair that is included only when `cond` is true.
-
-```gsx
-class={ "base", "modifier": condition }
-```
-
-Entries are evaluated at render time. On-entries are collected into the final
-`class` value. When multiple class sources are merged, the default merge strategy
-(`DefaultClassMerge`) deduplicates tokens and keeps the last occurrence.
+Write a `class={...}` list with always-on strings and `"name": condition`
+entries. Included parts keep source order.
 
 <!--@include: ./_generated/styling/010-composable-class.md-->
 
-Multiple always-on strings and any number of conditional pairs can appear in the same list. The list renders to a single `class="…"` attribute containing only the tokens whose conditions were true.
-
-## Inline style composition
-
-The `style` attribute has a parallel composable form. Each entry is a complete
-CSS declaration string — optionally conditional. Static declarations, dynamic
-declarations, and independent guards can be mixed:
+Expressions can contribute classes too:
 
 ```gsx
-style={
+<button class={ "btn", sizeClass, "btn-disabled": disabled }>Save</button>
+```
+
+## Compose inline styles
+
+Each entry in a `style={...}` list is a complete CSS declaration. A condition
+after `:` includes that declaration only when it is true.
+
+```gsx
+<div style={
 	"display: block",
 	"color: " + accent,
 	"opacity: 0": hidden,
-}
+}>...</div>
 ```
 
-Parts evaluate strictly from left to right. On-parts are joined with `"; "` into
-a single `style="…"` attribute value. String literal entries are trusted as-is;
-entries containing Go expressions are CSS-sanitized at render time: values that
-carry risky tokens (such as `(` or `/`) collapse to the `ZgotmplZ` placeholder
-rather than being injected into the page. To opt out of sanitization for a value
-you control, cast it to `gsx.RawCSS`:
-
-```gsx
-style={ "color: " + gsx.RawCSS(trustedColor) }
-```
-
-A `` css`...` `` literal can be one contribution in the same list when a
-declaration is easier to author as CSS text:
+Use a CSS literal when a dynamic declaration is clearer as CSS text:
 
 ````gsx
-style={
-	"display: none": hidden,
-	css`color:@{accent};width:@{width}px`,
-}
+<div style={ "display: none": hidden, css`width:@{width}px` }>...</div>
 ````
 
-`@{...}` holes inside that contribution are CSS-value filtered, then the whole
-style attribute is still merged and attribute-escaped like any other composed
-style. The braces are required here because the literal is part of a larger
-`style={...}` composition.
+Dynamic CSS values are filtered for their CSS context. See
+[Escaping](./escaping.md#javascript-and-css-contexts) for the safety rules and
+trusted-value boundary.
 
-When a caller also supplies a `style` attribute, the component's composed style and the caller's style are merged per CSS property — the full story is in the [Class & style merging](#class-style-merging) section below.
+## Merge forwarded class and style {#class-style-merging}
 
-## Class & style merging {#class-style-merging}
-
-A component receives an `Attrs` bag only when its body references `attrs`. When
-`{ attrs... }` places a bag containing `class` or `style`, gsx merges them with
-the element's own attributes.
-
-- **Class:** component classes and caller classes are collected in source order.
-  Caller classes come last. Duplicate tokens keep the last occurrence.
-- **Style:** component declarations and caller declarations are collected in the
-  same order. Property names compare case-insensitively. Duplicate properties
-  keep the caller declaration.
-- **Parsing:** style splitting is property-aware and does not split on `;`
-  inside `url(...)` or quoted strings.
+When `{ attrs... }` forwards a caller's `class` or `style`, it merges with values
+already written on the element at that position. The default class merger keeps
+the last occurrence of an exact duplicate token. For style, the later value for
+the same property wins.
 
 <!--@include: ./_generated/styling/030-class-style-merging.md-->
 
-In the example above the component declares `class="card"` and `style="color: red"`. The caller adds `class="featured"` and `style="color: blue; margin: 0"`. The merged result is `class="card featured"` (no common tokens, so both survive) and `style="color: blue; margin: 0"` (the caller's `color` wins, the component's `color: red` is dropped, and the caller's `margin` is new so it is added).
+The example keeps both class tokens, replaces `color: red` with the caller's
+`color: blue`, and adds the caller's `margin`. See [Attributes](./attributes.md)
+for general spread ordering and precedence.
+
+An interpolated class literal is another mergeable class value:
+
+<!--@include: ./_generated/styling/040-interpolated-class-literal-merges-with-a-spread-bag.md-->
+
+See [Attributes](./attributes.md#interpolating-attribute-literals) for `f`
+literal syntax.
 
 ### Tailwind-aware class merging
 
-The default merge strategy (`DefaultClassMerge`) deduplicates exact tokens.
-Tailwind needs conflict-aware merging, where utility pairs like `px-4 px-8`
-collapse to `px-8`. Configure `class_merger` for that case.
-
-Set `class_merger` in `gsx.toml` to the fully-qualified name of an exported `func([]string) string` that implements Tailwind-aware merging:
+Exact-token deduplication does not resolve conflicting Tailwind utilities such
+as `px-4 px-8`. Configure a Tailwind-aware merger when your project needs those
+semantics:
 
 ```toml
-# gsx.toml
 class_merger = "myapp/twcfg.Merge"
 ```
 
-A working example that wires `tailwind-merge-go` lives in [`examples/tailwind-merge/`](https://github.com/gsxhq/gsx/tree/main/examples/tailwind-merge). Full configuration reference — including the signature contract and the option-based route (`gen.WithClassMerger`) — is in [Configuration](../config.md).
+The configured symbol has the signature `func([]string) string`. See
+[Configuration](../config.md#class_merger-tailwind-aware-class-merge-strategy)
+for the contract and a `tailwind-merge-go` wrapper.
 
-## Exclusive selection — value-form `if` / `switch`
+## Choose one value with `if` or `switch`
 
-The composable `class={...}` / `style={...}` list is additive: every true guard
-contributes. Use value-form `if` or `switch` when exactly one string should be
-selected.
-
-Use a value-form `if` for a binary toggle:
+Conditional entries are additive. Use a value-form `if` when one of two values
+should contribute:
 
 ```gsx
-class={ "btn", if open { "btn-open" } else { "btn-closed" } }
+<button class={ "btn", if open { "btn-open" } else { "btn-closed" } }>...</button>
 ```
 
-For styles, each selected arm still produces one complete declaration:
+Use `switch` for several choices:
 
 ```gsx
-style={
-	"display: block",
-	if active {
-		"color: green"
-	} else {
-		"color: gray"
+<span class={
+	"badge",
+	switch tone {
+	case "success": "badge-success"
+	case "warning": "badge-warning"
+	default: "badge-neutral"
 	},
-}
+}>...</span>
 ```
 
-Use a value-form `switch` to select among several alternatives:
-
-```gsx
-class={
-	"inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset",
-	switch variant {
-	case Green:
-		"bg-green-50 text-green-700 ring-green-600/20"
-	case Yellow:
-		"bg-yellow-50 text-yellow-700 ring-yellow-600/20"
-	case Red:
-		"bg-red-50 text-red-700 ring-red-600/20"
-	default:
-		"bg-gray-50 text-gray-700 ring-gray-600/20"
-	},
-}
-```
-
-Rules:
-
-- Exactly one matched arm contributes a string.
-- If no arm matches and there is no `default` or `else`, nothing is added.
-- All arms must be strings.
-- This form only works inside composed `class={...}` and `style={...}` lists.
-- A pipe stage on the value-form result is not supported.
+The selected arm contributes one string. With no matching arm and no `else` or
+`default`, it contributes nothing. The same forms work in `style={...}` lists,
+where each arm returns a complete declaration.
 
 ## `<style>` blocks
 
-A `<style>` element in gsx source is a raw-text element: its content is written verbatim to the output without HTML escaping, and nested tags are not parsed. Dynamic values are interpolated with `@{ expr }` inside the block; each interpolated value is CSS-sanitized by the same `cssValueFilter` that guards the `style=` attribute — risky tokens produce the `ZgotmplZ` placeholder.
+Use a `<style>` block for component CSS. Interpolate Go values with `@{...}`.
 
 <!--@include: ./_generated/styling/040-style-blocks.md-->
 
-The component writes a scoped `<style>` block whose declaration values are filled from Go variables at render time. `@{ w }` (an `int`) and `@{ userColor }` (a `string`) are both CSS-safe values so they pass through the filter unchanged and appear in the output directly.
-
-For values you have already validated and want to bypass CSS sanitization, cast to `gsx.RawCSS` before interpolating: `@{ gsx.RawCSS(trustedValue) }`.
+Interpolated values are CSS-filtered. See
+[Escaping](./escaping.md#javascript-and-css-contexts) before passing trusted CSS.
