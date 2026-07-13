@@ -71,7 +71,7 @@ Generation processes both files; `go build` selects the matching variant.
 | `{{ stmt }}` | [GoBlock](./syntax/raw-go.md#goblock) |
 | `<>…</>` | [Fragment](./syntax/fragments.md#multiple-roots) |
 | `{/* … */}` | [Content comment](./syntax/comments.md) |
-| `{ value |> filter }` | [Pipeline](./syntax/pipelines.md#chain-filters) |
+| `{ value \|> filter }` | [Pipeline](./syntax/pipelines.md#chain-filters) |
 :::
 
 ### Attribute forms
