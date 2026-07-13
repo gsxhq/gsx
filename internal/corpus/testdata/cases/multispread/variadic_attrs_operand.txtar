@@ -39,7 +39,7 @@ func named(name string) func(...gsx.Attr) gsx.Node {
 		return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 			_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:7:10
-			_gsxv0 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: "size-5"}}, gsx.Attrs{{Key: "data-x", Value: "1"}}, attrs)
+			_gsxv0 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "class", Value: _gsxrt.RawURL("size-5")}}, gsx.Attrs{{Key: "data-x", Value: "1"}}, attrs)
 			_gsxgw.S("<svg")
 			_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 			_gsxgw.StyleMerged("", _gsxv0.Style())

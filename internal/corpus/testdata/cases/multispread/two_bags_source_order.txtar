@@ -40,7 +40,7 @@ func Field(_gsxp FieldProps) _gsxrt.Node {
 		extra := _gsxp.Extra
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
-		_gsxv0 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "type", Value: "hidden"}, {Key: "name", Value: "n"}, {Key: "class", Value: "base"}}, sync, extra)
+		_gsxv0 := _gsxrt.ConcatAttrs(_gsxrt.Attrs{{Key: "type", Value: _gsxrt.RawURL("hidden")}, {Key: "name", Value: _gsxrt.RawURL("n")}, {Key: "class", Value: _gsxrt.RawURL("base")}}, sync, extra)
 		_gsxgw.S("<input")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
 		_gsxgw.StyleMerged("", _gsxv0.Style())
