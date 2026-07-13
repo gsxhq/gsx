@@ -278,18 +278,18 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 						partsOK = false
 					}
 				case *ast.EmbeddedInterp:
-					// A prefixed backtick literal in Go-expression position lowers to
-					// a Go string value: embeddedValueExpr assembles its statics +
-					// @{…} holes into ONE string concat (`"hi " + string(name)`), the
-					// SAME assembly the body/attr embedded forms use. Any contextual
-					// escaping is applied where this string is consumed, not here.
+					// A prefixed literal in Go-expression position. f`…` lowers to a
+					// plain Go string concat; js`…`/css`…` lower to _gsxrt.RawJS/RawCSS
+					// wrapping the same concat with per-hole contextual escaping
+					// (JSCtx-selected escaper / StyleValue-FilterCSS semantics).
+					// Expression positions have no statement context: exprPos forbids
+					// hoists, so error-carrying holes are rejected (see embeddedHoleExpr)
+					// and concat order is source order.
 					if len(p.Stages) > 0 {
 						bag.Errorf(p.Pos(), p.End(), "unsupported-node", "whole-literal pipelines on a Go-expression backtick literal are not supported")
 						partsOK = false
-					} else if val, vok := embeddedValueExpr(&wbuf, p.Segments, resolved, table, imports, rt, &interpTemp, bag, "return _gsxerr", "unsupported-node", "backtick literal value"); !vok {
+					} else if !emitGoExprEmbeddedInterp(&wbuf, &wbuf, p, resolved, table, imports, rt, &interpTemp, bag) {
 						partsOK = false
-					} else {
-						wbuf.WriteString(val)
 					}
 				default:
 					bag.Errorf(part.Pos(), part.End(), "unsupported-node", "unsupported Go-expression part %T", part)
@@ -2032,19 +2032,20 @@ func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type,
 					return false
 				}
 			case *ast.EmbeddedInterp:
-				// A prefixed backtick literal embedded in this interp's seed → a Go
-				// string value. embeddedValueExpr assembles it to one string concat,
-				// spliced into the seed exactly like an element's gsx.Func value; any
-				// hole tuple-unwrap hoisting lands in b before the consuming stmt.
+				// A prefixed literal embedded in this interp's seed → a Go value.
+				// f`…` assembles a plain Go string concat; js`…`/css`…` wrap the
+				// escaped concat in _gsxrt.RawJS/RawCSS. The value is spliced into
+				// the seed (eb) exactly like an element's gsx.Func value; an f` hole's
+				// tuple-unwrap hoisting lands in b before the consuming stmt, while
+				// js`/css` reject error-carrying holes (no error channel in a Go
+				// expression position).
 				if len(p.Stages) > 0 {
 					bag.Errorf(n.Pos(), n.End(), "unsupported-node", "whole-literal pipelines on a Go-expression backtick literal are not supported")
 					return false
 				}
-				val, vok := embeddedValueExpr(b, p.Segments, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr", "unsupported-node", "backtick literal value")
-				if !vok {
+				if !emitGoExprEmbeddedInterp(b, &eb, p, resolved, table, imports, rt, interpTemp, bag) {
 					return false
 				}
-				eb.WriteString(val)
 			default:
 				bag.Errorf(n.Pos(), n.End(), "unsupported-node", "unsupported embedded interpolation part %T", part)
 				return false
@@ -3259,6 +3260,46 @@ func embeddedValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node
 	return strings.Join(parts, " + "), true
 }
 
+// emitGoExprEmbeddedInterp lowers a prefixed literal (f`/js`/css`) in a
+// Go-expression position — a top-level GoWithElements value or an
+// Interp.Embedded part — to one self-contained Go value. f` assembles a plain Go
+// string concat (embeddedValueExpr); js`/css` wrap the JS/CSS-escaped concat in
+// _gsxrt.RawJS/_gsxrt.RawCSS. exprPos=true (passed to the JS/CSS assemblers)
+// forbids per-hole statement hoists, so error-carrying holes are rejected in
+// embeddedHoleExpr and the concat stays source-ordered.
+//
+// Two buffers keep the f` path's routing intact: any statement hoist an f` hole
+// emits goes to hoistBuf (the enclosing render-closure buffer), while the value
+// expression is written to valBuf. At the top-level GoWithElements site the two
+// are the same buffer; at the Interp.Embedded site hoistBuf is the render
+// closure (before the consuming statement) and valBuf is the spliced-seed
+// builder. js`/css` never hoist (exprPos), so hoistBuf is untouched for them.
+// The caller rejects a whole-literal pipeline (p.Stages) first, since the two
+// sites word/position that diagnostic differently.
+func emitGoExprEmbeddedInterp(hoistBuf, valBuf *bytes.Buffer, p *ast.EmbeddedInterp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag) bool {
+	switch p.Lang {
+	case ast.EmbeddedJS:
+		val, ok := embeddedJSValueExpr(hoistBuf, p.Segments, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr", true)
+		if !ok {
+			return false
+		}
+		valBuf.WriteString(rt.rt() + ".RawJS(" + val + ")")
+	case ast.EmbeddedCSS:
+		val, ok := embeddedCSSValueExpr(hoistBuf, p.Segments, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr", true)
+		if !ok {
+			return false
+		}
+		valBuf.WriteString(rt.rt() + ".RawCSS(" + val + ")")
+	default:
+		val, ok := embeddedValueExpr(hoistBuf, p.Segments, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr", "unsupported-node", "backtick literal value")
+		if !ok {
+			return false
+		}
+		valBuf.WriteString(val)
+	}
+	return true
+}
+
 // holeStringExpr lowers one @{ } hole inside a backtick attribute literal to a
 // Go STRING expression, for whole-value assembly by embeddedTextValueExpr
 // (used for both a URL-context literal's CtxURL branch and a class/style
@@ -3502,9 +3543,24 @@ func emitRenderCSSAttr(b *bytes.Buffer, expr string, t types.Type, rt rtImports,
 // Context-specific escaping is deliberately left to the caller. errReturn is
 // the error-return statement matching the enclosing function's signature (see
 // holeStringExpr); every hoist emitted here uses it.
-func embeddedHoleExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag, errReturn string) (string, types.Type, bool) {
+//
+// exprPos is set when the literal sits in a Go-expression position (a var
+// initializer, call arg, {{ }} block) rather than a render-closure attribute:
+// there the whole literal must lower to ONE self-contained Go expression, so
+// there is no statement context to hoist into and no error channel to route a
+// filter/renderer/tuple error through. Every hole that WOULD need a statement
+// hoist — a pipeline stage that returns (R, error), a (T, error) tuple seed, or
+// a renderer that returns (R, error) — is rejected with a positioned diagnostic
+// instead. Pure pipes (no error stage) and pure renderers lower to nested calls,
+// which are valid expressions, so they remain allowed. (Task 6 finalizes the
+// diagnostic wording and pins these rejection cases.)
+func embeddedHoleExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag, errReturn string, exprPos bool) (string, types.Type, bool) {
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
+		if exprPos && pipelineHasErr(n.Stages, table) {
+			bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "a @{ } hole in a Go-expression js/css literal cannot use an error-returning (|>) filter here; there is no error channel in an expression position")
+			return "", nil, false
+		}
 		lowered, used, err := lowerPipe(n.Expr, n.Stages, table, pipeWrapReturning(b, interpTemp, errReturn))
 		if err != nil {
 			bag.Errorf(n.Pos(), n.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
@@ -3526,23 +3582,56 @@ func embeddedHoleExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]type
 			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "contextual attribute interpolation %q returns %s; only (T, error) is supported", expr, t)
 			return "", nil, false
 		}
+		if exprPos {
+			bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "a @{ } hole in a Go-expression js/css literal cannot return (T, error) here; there is no error channel in an expression position")
+			return "", nil, false
+		}
 		expr = hoistTupleReturning(b, expr, interpTemp, errReturn)
 		t = elem
+	}
+	if exprPos {
+		if e, ok := table.renderers[rendererKey(t)]; ok && e.hasErr {
+			bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "a @{ } hole in a Go-expression js/css literal cannot use an error-returning renderer here; there is no error channel in an expression position")
+			return "", nil, false
+		}
 	}
 	expr, t = applyRenderer(b, expr, t, table, imports, interpTemp, errReturn)
 	return expr, t, true
 }
 
-func embeddedJSValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn string) (string, bool) {
-	parts := make([]string, 0, len(a.Segments))
-	for _, seg := range a.Segments {
+// pipelineHasErr reports whether any stage of a hole's `|>` pipeline resolves to
+// a filter that returns (R, error) — i.e. a stage that would force a statement
+// hoist (mid-pipeline via pipeWrapReturning, or a final stage producing a
+// (T, error) tuple). Used to reject such holes in an expression position, where
+// there is no statement context to hoist into.
+func pipelineHasErr(stages []ast.PipeStage, table funcTables) bool {
+	for _, s := range stages {
+		if e, ok := table.filters.lookup(s.Name); ok && e.hasErr {
+			return true
+		}
+	}
+	return false
+}
+
+// embeddedJSValueExpr assembles a js`…` literal's segments (static text + @{ }
+// holes) into one Go string-concat expression, each hole JS-escaped by its
+// JSCtx. segs is the raw segment list (an EmbeddedAttr's or a Go-expression
+// EmbeddedInterp's Segments). exprPos selects the Go-expression lowering: when
+// true, no per-hole `_gsxvN :=` temp is materialized (the concat is inlined,
+// which is naturally source-ordered because nothing hoists) and error-carrying
+// holes are rejected in embeddedHoleExpr; when false (the attribute/bag fold
+// path) each dynamic hole is materialized to a temp at its source position, so a
+// later hole's tuple/renderer/pipeline hoist cannot reorder its evaluation.
+func embeddedJSValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn string, exprPos bool) (string, bool) {
+	parts := make([]string, 0, len(segs))
+	for _, seg := range segs {
 		switch s := seg.(type) {
 		case *ast.Text:
 			if s.Value != "" {
 				parts = append(parts, strconv.Quote(s.Value))
 			}
 		case *ast.Interp:
-			expr, typ, ok := embeddedHoleExpr(b, s, resolved, table, imports, interpTemp, bag, errReturn)
+			expr, typ, ok := embeddedHoleExpr(b, s, resolved, table, imports, interpTemp, bag, errReturn, exprPos)
 			if !ok {
 				return "", false
 			}
@@ -3566,6 +3655,13 @@ func embeddedJSValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.
 			default:
 				bag.Errorf(s.Pos(), s.End(), "unsafe-js-context", "JS attribute interpolation %q has no JS context", s.Expr)
 				return "", false
+			}
+			if exprPos {
+				// Expression position: nothing can hoist (error-carrying holes are
+				// rejected above), so append the escaped expression inline — the
+				// concat is already source-ordered.
+				parts = append(parts, escaped)
+				break
 			}
 			// Evaluate every dynamic hole at its source position. A later hole may
 			// emit tuple/renderer error-handling statements while it is lowered;
@@ -3595,16 +3691,21 @@ func stringifyJSExpr(expr string, t types.Type, n ast.Node, bag *diag.Bag) (stri
 	}
 }
 
-func embeddedCSSValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn string) (string, bool) {
-	parts := make([]string, 0, len(a.Segments))
-	for _, seg := range a.Segments {
+// embeddedCSSValueExpr assembles a css`…` literal's segments into one Go
+// string-concat expression, each hole reduced to a CSS-safe string (gsx.RawCSS
+// passthrough, otherwise gsx.FilterCSS). segs / exprPos mirror
+// embeddedJSValueExpr: exprPos inlines the concat (no per-hole temp) and rejects
+// error-carrying holes; the fold path materializes each dynamic hole to a temp.
+func embeddedCSSValueExpr(b *bytes.Buffer, segs []ast.Markup, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rt rtImports, interpTemp *int, bag *diag.Bag, errReturn string, exprPos bool) (string, bool) {
+	parts := make([]string, 0, len(segs))
+	for _, seg := range segs {
 		switch s := seg.(type) {
 		case *ast.Text:
 			if s.Value != "" {
 				parts = append(parts, strconv.Quote(s.Value))
 			}
 		case *ast.Interp:
-			expr, typ, ok := embeddedHoleExpr(b, s, resolved, table, imports, interpTemp, bag, errReturn)
+			expr, typ, ok := embeddedHoleExpr(b, s, resolved, table, imports, interpTemp, bag, errReturn, exprPos)
 			if !ok {
 				return "", false
 			}
@@ -3617,6 +3718,10 @@ func embeddedCSSValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[ast
 					return "", false
 				}
 				value = rt.rt() + ".FilterCSS(" + str + ")"
+			}
+			if exprPos {
+				parts = append(parts, value)
+				break
 			}
 			name := fmt.Sprintf("_gsxv%d", *interpTemp)
 			*interpTemp++
@@ -6553,9 +6658,9 @@ func composeBag(b *bytes.Buffer, interpTemp *int, wrap func(string) string, prob
 			case ast.EmbeddedText:
 				val, ok = embeddedTextValueExpr(b, t, resolved, table, imports, rt, interpTemp, bag, errReturn)
 			case ast.EmbeddedJS:
-				val, ok = embeddedJSValueExpr(b, t, resolved, table, imports, rt, interpTemp, bag, errReturn)
+				val, ok = embeddedJSValueExpr(b, t.Segments, resolved, table, imports, rt, interpTemp, bag, errReturn, false)
 			case ast.EmbeddedCSS:
-				val, ok = embeddedCSSValueExpr(b, t, resolved, table, imports, rt, interpTemp, bag, errReturn)
+				val, ok = embeddedCSSValueExpr(b, t.Segments, resolved, table, imports, rt, interpTemp, bag, errReturn, false)
 			}
 			if !ok {
 				// The value assembler has already emitted the positioned

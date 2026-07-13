@@ -35,8 +35,45 @@ const holePrefix = "_GSXJSHOLE_"
 func ResolveScripts(f *ast.File, bag *diag.Bag) bool {
 	ok := true
 	for _, d := range f.Decls {
-		if comp, ok2 := d.(*ast.Component); ok2 {
-			if !resolveMarkup(comp.Body, bag) {
+		switch v := d.(type) {
+		case *ast.Component:
+			if !resolveMarkup(v.Body, bag) {
+				ok = false
+			}
+		case *ast.GoWithElements:
+			// A top-level Go region carrying embedded elements/literals in
+			// expression position (e.g. `var h = js`save(@{id})``). Classify the
+			// @{ } holes of every js`…` literal part so codegen can escape each by
+			// its JS context, exactly as an explicit JS attribute literal does.
+			if !resolveGoParts(v.Parts, bag) {
+				ok = false
+			}
+		}
+	}
+	return ok
+}
+
+// resolveGoParts classifies the @{ } holes of every js`…` EmbeddedInterp part in
+// a Go-expression region (a GoWithElements). Element/Fragment parts recurse into
+// their markup so a js`…` literal embedded deeper (e.g. inside an element in the
+// region) is also reached. css`…` needs no classification (single context).
+// Returns true if clean, false if any diagnostic was added to bag.
+func resolveGoParts(parts []ast.GoPart, bag *diag.Bag) bool {
+	ok := true
+	for _, p := range parts {
+		switch v := p.(type) {
+		case *ast.EmbeddedInterp:
+			if v.Lang == ast.EmbeddedJS {
+				if !ResolveEmbedded(v.Segments, bag) {
+					ok = false
+				}
+			}
+		case *ast.Element:
+			if !resolveMarkup([]ast.Markup{v}, bag) {
+				ok = false
+			}
+		case *ast.Fragment:
+			if !resolveMarkup([]ast.Markup{v}, bag) {
 				ok = false
 			}
 		}
