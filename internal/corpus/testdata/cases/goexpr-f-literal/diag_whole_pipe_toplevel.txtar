@@ -1,0 +1,21 @@
+# W1': a `|>` chain directly after a value-position f` literal (the WHOLE
+# literal, not one of its @{ } holes) at a top-level func return. gsx's pipe
+# syntax has no meaning applied to a whole literal there — the split scanner
+# catches it at parse time (scanGoParts's PipeOff), positioned at the `|>`,
+# instead of letting it fall through as verbatim GoText that only fails much
+# later as an unpositioned, generic "expected operand, found '>'" once the
+# assembled skeleton is parsed as Go. No filter package is needed: the
+# rejection is purely syntactic, before any filter resolves.
+-- input.gsx --
+package demo
+
+func mk() string { return f`hi` |> upper }
+
+component Page() {
+	<div>{ mk() }</div>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+3:33: whole-literal pipelines are not supported in Go-expression position; wrap the literal in a function call instead
+-- render.golden --
