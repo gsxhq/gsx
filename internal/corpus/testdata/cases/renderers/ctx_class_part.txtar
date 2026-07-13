@@ -58,7 +58,7 @@ import (
 	"corpustest/cases/renderers_ctx_class_part/pg"
 
 	_gsxctx "context"
-	_gsxf16 "corpustest/cases/renderers_ctx_class_part/rend"
+	_gsxf17 "corpustest/cases/renderers_ctx_class_part/rend"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
@@ -99,7 +99,7 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		name := _gsxp.Name
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Card(CardProps{Title: "hi", Attrs: _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class(_gsxf16.PgText(ctx, (name))))}}}))
+		_gsxgw.Node(ctx, Card(CardProps{Title: "hi", Attrs: _gsxrt.Attrs{{Key: "class", Value: _gsxrt.ClassJoin(_gsxrt.Class(_gsxf17.PgText(ctx, (name))))}}}))
 		return _gsxgw.Err()
 	})
 }

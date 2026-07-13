@@ -1999,6 +1999,39 @@ type interpEmitCtx struct {
 	mergeExpr      string
 }
 
+// soleGoExprLiteral reports whether parts — an Interp.Embedded split — is
+// EXACTLY one *ast.EmbeddedInterp (optionally surrounded by whitespace-only
+// ast.GoText runs) with nothing else: i.e. the `{ }` body's entire content is
+// a single f`/js`/css` backtick literal and no other Go code
+// (`{ js`alert(1)` }`, not `{ consume(js`alert(1)`) }`, which has a non-empty
+// GoText "consume(" run and so is a genuine sub-expression). Used to detect a
+// js`/css` literal written directly as body text, which is never sensible
+// (JS/CSS source is not the intended visible content) — contrast the f`
+// case, which IS a markup template in this exact position and is deliberately
+// excluded (Lang == EmbeddedText) from the rejection this feeds.
+func soleGoExprLiteral(parts []ast.GoPart) (*ast.EmbeddedInterp, bool) {
+	var lit *ast.EmbeddedInterp
+	for _, part := range parts {
+		switch p := part.(type) {
+		case ast.GoText:
+			if strings.TrimSpace(p.Src) != "" {
+				return nil, false
+			}
+		case *ast.EmbeddedInterp:
+			if lit != nil {
+				return nil, false
+			}
+			lit = p
+		default:
+			return nil, false
+		}
+	}
+	if lit == nil {
+		return nil, false
+	}
+	return lit, true
+}
+
 // genInterp emits the type-aware writer call for an interpolation. The type comes
 // from the go/types resolution pass; the expression is emitted verbatim (params
 // are in scope as locals).
@@ -2018,6 +2051,10 @@ func genInterp(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type,
 	emitLine(b, fset, n.Pos())
 	var expr string
 	if n.Embedded != nil {
+		if lit, ok := soleGoExprLiteral(n.Embedded); ok && lit.Lang != ast.EmbeddedText {
+			bag.Errorf(lit.Pos(), lit.End(), "goexpr-literal-text", "a js`/css` literal renders as visible text here; write the JavaScript/CSS in an attribute (e.g. @click=js`…`) or pass the value to something that consumes gsx.RawJS/gsx.RawCSS")
+			return false
+		}
 		var eb bytes.Buffer
 		for _, part := range n.Embedded {
 			switch p := part.(type) {
@@ -3550,15 +3587,18 @@ func emitRenderCSSAttr(b *bytes.Buffer, expr string, t types.Type, rt rtImports,
 // there is no statement context to hoist into and no error channel to route a
 // filter/renderer/tuple error through. Every hole that WOULD need a statement
 // hoist — a pipeline stage that returns (R, error), a (T, error) tuple seed, or
-// a renderer that returns (R, error) — is rejected with a positioned diagnostic
-// instead. Pure pipes (no error stage) and pure renderers lower to nested calls,
-// which are valid expressions, so they remain allowed. (Task 6 finalizes the
-// diagnostic wording and pins these rejection cases.)
+// a renderer that returns (R, error) — is rejected with a positioned
+// "goexpr-literal-error" diagnostic instead (goExprLiteralErrorRemedy names
+// both ways out: handle the error in Go before the literal, or move the
+// literal to an attribute position, where the render closure DOES have an
+// error-returning statement context). Pure pipes (no error stage) and pure
+// renderers lower to nested calls, which are valid expressions, so they
+// remain allowed.
 func embeddedHoleExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, interpTemp *int, bag *diag.Bag, errReturn string, exprPos bool) (string, types.Type, bool) {
 	expr := strings.TrimSpace(n.Expr)
 	if len(n.Stages) > 0 {
 		if exprPos && pipelineHasErr(n.Stages, table) {
-			bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "a @{ } hole in a Go-expression js/css literal cannot use an error-returning (|>) filter here; there is no error channel in an expression position")
+			bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "@{ %s } uses an error-returning filter (|>); "+goExprLiteralErrorRemedy, pipeSourceText(n.Expr, n.Stages))
 			return "", nil, false
 		}
 		lowered, used, err := lowerPipe(n.Expr, n.Stages, table, pipeWrapReturning(b, interpTemp, errReturn))
@@ -3583,7 +3623,7 @@ func embeddedHoleExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]type
 			return "", nil, false
 		}
 		if exprPos {
-			bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "a @{ } hole in a Go-expression js/css literal cannot return (T, error) here; there is no error channel in an expression position")
+			bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "@{ %s } returns %s; "+goExprLiteralErrorRemedy, expr, t)
 			return "", nil, false
 		}
 		expr = hoistTupleReturning(b, expr, interpTemp, errReturn)
@@ -3591,12 +3631,40 @@ func embeddedHoleExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]type
 	}
 	if exprPos {
 		if e, ok := table.renderers[rendererKey(t)]; ok && e.hasErr {
-			bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "a @{ } hole in a Go-expression js/css literal cannot use an error-returning renderer here; there is no error channel in an expression position")
+			bag.Errorf(n.Pos(), n.End(), "goexpr-literal-error", "@{ %s } is rendered by an error-returning renderer; "+goExprLiteralErrorRemedy, n.Expr)
 			return "", nil, false
 		}
 	}
 	expr, t = applyRenderer(b, expr, t, table, imports, interpTemp, errReturn)
 	return expr, t, true
+}
+
+// goExprLiteralErrorRemedy is the shared second half of every
+// "goexpr-literal-error" diagnostic (embeddedHoleExpr's three exprPos
+// rejections): it names the reason (no error channel exists in an arbitrary
+// Go-expression position — a var initializer, call argument, or {{ }} block
+// is one expression, not a statement sequence to hoist an early-return into)
+// and both remedies (handle the error in Go before the value ever reaches the
+// literal, or move the literal into an attribute position, where the render
+// closure IS a statement sequence with an error return).
+const goExprLiteralErrorRemedy = "a js`/css` literal in Go-expression position has no error channel to propagate it through — handle the error in Go, or move the literal to an attribute position"
+
+// pipeSourceText reconstructs a hole's `seed |> stage1 |> stage2(args) …`
+// source text for diagnostic messages, so a rejection names the actual
+// pipeline rather than just its seed expression.
+func pipeSourceText(seed string, stages []ast.PipeStage) string {
+	var sb strings.Builder
+	sb.WriteString(seed)
+	for _, s := range stages {
+		sb.WriteString(" |> ")
+		sb.WriteString(s.Name)
+		if s.HasArgs {
+			sb.WriteString("(")
+			sb.WriteString(s.Args)
+			sb.WriteString(")")
+		}
+	}
+	return sb.String()
 }
 
 // pipelineHasErr reports whether any stage of a hole's `|>` pipeline resolves to

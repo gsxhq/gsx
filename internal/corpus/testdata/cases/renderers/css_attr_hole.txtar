@@ -54,7 +54,7 @@ import (
 	"corpustest/cases/renderers_css_attr_hole/pg"
 
 	_gsxctx "context"
-	_gsxf14 "corpustest/cases/renderers_css_attr_hole/rend"
+	_gsxf15 "corpustest/cases/renderers_css_attr_hole/rend"
 	"github.com/gsxhq/gsx"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
@@ -77,11 +77,11 @@ func Tag(_gsxp TagProps) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:11:2
 		_gsxgw.S("<div data-style=\"color:")
-		_gsxgw.AttrValue(_gsxrt.StyleValue(string(_gsxf14.PgColor((val)))))
+		_gsxgw.AttrValue(_gsxrt.StyleValue(string(_gsxf15.PgColor((val)))))
 		_gsxgw.S("\">inline</div>")
 //line input.gsx:12:2
 		_gsxv0 := a
-		_gsxv1 := _gsxrt.FilterCSS(string(_gsxf14.PgColor((val))))
+		_gsxv1 := _gsxrt.FilterCSS(string(_gsxf15.PgColor((val))))
 		_gsxv2 := _gsxrt.ConcatAttrs(_gsxv0, _gsxrt.Attrs{{Key: "data-style", Value: "color:" + _gsxv1}}, b)
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv2.Class())

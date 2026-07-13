@@ -1,0 +1,36 @@
+# A hole whose pipeline stage returns (R, error) inside a Go-expression js
+# literal (a var initializer, not a render-closure attribute): there is no
+# statement context to hoist the error-check into, so this is a positioned
+# "goexpr-literal-error" diagnostic, never a silent hoist or miscompile.
+# Filter registration mirrors pipeerr/js_attr_error_stage.txtar (gsx.toml
+# filter_packages + a sibling filters package), not an unregistered bare
+# function — that is how the corpus harness actually resolves `|> risky`.
+-- gsx.toml --
+filter_packages = ["./filters"]
+-- filters/filters.go --
+package filters
+
+import "errors"
+
+// Risky fails on empty input.
+func Risky(s string) (string, error) {
+	if s == "" {
+		return "", errors.New("risky: empty input")
+	}
+	return s, nil
+}
+-- input.gsx --
+package demo
+
+var name = "x"
+
+var h = js`f(@{name |> risky})`
+
+component Page() {
+	<button @click={h}>x</button>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+5:15: @{ name |> risky } uses an error-returning filter (|>); a js`/css` literal in Go-expression position has no error channel to propagate it through — handle the error in Go, or move the literal to an attribute position
+-- render.golden --
