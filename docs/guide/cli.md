@@ -81,8 +81,9 @@ Use `--yes` when a script should scaffold and run every setup command:
 gsx init myapp --module example.com/acme/myapp --yes
 ```
 
-With redirected input and no `--yes`, `init` scaffolds the files but only
-prints the setup commands for you to run.
+When standard input is a pipe or regular file (not a character device) and
+`--yes` is omitted, `init` scaffolds the files, then prints the setup commands
+instead of running them.
 
 `init` exits `0` on success, `2` for invalid usage or an existing protected
 project file, and `1` when scaffolding or a setup command fails.
