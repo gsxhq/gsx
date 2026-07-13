@@ -3,16 +3,20 @@
 # GoBlock.Embedded is split, probed, and emitted like Interp.Embedded. The
 # js` value lowers to _gsxrt.RawJS(...) inside the ordered []gsx.Attr slice
 # literal; the element spread emits it as JS source through the ONE surrounding
-# HTML-attribute escape (never JSON-quoting the whole value). Kept single-line
-# so the (not-yet-literal-aware) formatter round-trips it — multi-line {{ }}
-# gofmt of embedded literals is a separate formatter task.
+# HTML-attribute escape (never JSON-quoting the whole value). Written multi-line
+# now that the formatter is literal-aware ({{ }} gofmt round-trips embedded
+# literals idempotently — see internal/gsxfmt/testdata/cases/goblock-literal).
 -- input.gsx --
 package demo
 
 import "github.com/gsxhq/gsx"
 
 component Page(detail string) {
-	{{ containerAttrs := gsx.Attrs{{Key: "@suggest-datetime.window", Value: js`suggest(@{detail})`}} }}
+	{{
+		containerAttrs := gsx.Attrs{
+			{Key: "@suggest-datetime.window", Value: js`suggest(@{detail})`},
+		}
+	}}
 	<div {containerAttrs...}>x</div>
 }
 -- invoke --
@@ -42,8 +46,10 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		detail := _gsxp.Detail
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
-		containerAttrs := gsx.Attrs{{Key: "@suggest-datetime.window", Value: _gsxrt.RawJS("suggest(" + _gsxrt.EscapeJSVal(detail) + ")")}}
-//line input.gsx:7:2
+		containerAttrs := gsx.Attrs{
+			{Key: "@suggest-datetime.window", Value: _gsxrt.RawJS("suggest(" + _gsxrt.EscapeJSVal(detail) + ")")},
+		}
+//line input.gsx:11:2
 		_gsxv0 := containerAttrs
 		_gsxgw.S("<div")
 		_gsxgw.ClassMerged(_gsxrt.DefaultClassMerge, _gsxv0.Class())
