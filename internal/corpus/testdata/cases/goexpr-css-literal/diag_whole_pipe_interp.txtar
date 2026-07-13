@@ -1,0 +1,24 @@
+# W1': a `|>` chain directly after a value-position css"…" literal (the
+# DQUOTE escape-hatch delimiter — this case deliberately pins the dquote+css
+# corner of the lang x delimiter matrix; the parser unit matrix covers all
+# six) NESTED inside a larger Go expression in a `{ }` interpolation
+# (`wrap(css"…" |> minify)`). Contrast a pipe at the INTERP'S OWN top-level
+# seed (`{ css"…" |> minify }`), which parsePipe already strips into a normal
+# pipe Stage and is unaffected — this only fires once the literal is buried
+# inside a call argument, past parsePipe's own top-level split. Caught at
+# parse time (parseInterp's pre-check over the seed, run before analyze.go's
+# deferred SplitGoExprElements split even exists), so the diagnostic wins
+# over the later, generic skeleton parse failure the same broken text would
+# otherwise hit. No filter package or `wrap` definition is needed: the
+# rejection is purely syntactic, before any name resolves.
+-- input.gsx --
+package demo
+
+component Page() {
+	<div>{ wrap(css"c{x:1}" |> minify) }</div>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+4:26: whole-literal pipelines are not supported in Go-expression position; wrap the literal in a function call instead
+-- render.golden --
