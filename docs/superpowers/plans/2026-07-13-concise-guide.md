@@ -469,8 +469,11 @@ Expected: one commit containing only `config.md`.
 - Read: `gen/main.go`
 - Read: `gen/info.go`
 - Read: `gen/manifest.go`
+- Read: `internal/gsxfmt/gsxfmt.go`
 - Read: `internal/rawfmt/rawfmt.go`
 - Read: `internal/printer/printer.go`
+- Read: `internal/cssmin/file.go`
+- Read: `internal/jsmin/file.go`
 - Read: `/Users/jackieli/personal/gsxhq/vscode-gsx/package.json`
 - Read: `/Users/jackieli/personal/gsxhq/vscode-gsx/src/extension.ts`
 - Read: `/Users/jackieli/personal/gsxhq/vscode-gsx/src/gsxBinary.ts`
@@ -514,8 +517,9 @@ Use:
 ```
 
 Lead with the bundled VS Code extension as the shortest path. Give Neovim one
-LSP snippet and link the tree-sitter repository for installation rather than
-embedding a self-updating plugin recipe. Describe Go as native to the unified
+LSP snippet. State the native tree-sitter requirements directly and link the
+grammar/source repository without relying on sibling README installation prose
+or embedding a self-updating plugin recipe. Describe Go as native to the unified
 GSX grammar; only JavaScript and CSS regions are injected. Give generic editors
 the command, language ID, selector, and root markers. Replace the
 LSP-method/transport table with a user-feature table that includes document and
@@ -523,7 +527,10 @@ workspace symbols. Keep only practical organize-imports behavior: automatic
 unambiguous imports, quick-fix choice when ambiguous, and `go get` for packages
 outside the module. Delete module-cache timing, internal visibility examples,
 analysis pipeline, JSON-RPC, and deferred-feature narration; link Status for
-completion and external-reference limits.
+completion and external-reference limits. For a binary-name collision, tell the
+reader to inspect `go env GOBIN GOPATH`, choose non-empty `GOBIN` or else
+`GOPATH/bin`, and enter the concrete executable path rather than a shell
+substitution.
 
 - [ ] **Step 3: Rewrite `extensions.md` around the decision to build a custom binary**
 
@@ -545,12 +552,18 @@ require `gen.Main`. Show one complete project-owned `cmd/gsx/main.go`, then shor
 variants for each option. Run it explicitly as `go run ./cmd/gsx generate ...`.
 State callable signatures, formatter error/panic fallback, option-over-config
 precedence, and the custom CSS-minifier exception: interpolated `<style>` blocks
-stay on the built-in hole-aware path. Describe the default CSS/JS formatters as
-real formatters, not indentation-only. Remove the long programmatic URL-rule
+stay on the built-in hole-aware path. State that executable scripts containing
+holes remain wholly unminified. Document the formatter-pair boundary: with no
+custom formatters both built-ins run, but after either custom formatter is set a
+nil callback for the other language leaves that body verbatim; supply both to
+format both. Keep the formatter error/panic fallback. State that a field-matcher
+miss requires an `Attrs gsx.Attrs` field to receive the fallthrough attribute.
+Describe the default CSS/JS formatters as real formatters, not indentation-only.
+Remove the long programmatic URL-rule
 recipe, resolved-manifest/cache claims, placeholder-token implementation,
 built-in formatter internals, formatter-cache claims, and registration history.
-Link `gsx info` for inspection without claiming human and JSON views are
-identical.
+Describe `gsx info` as inspection of resolved declarative settings: function
+hooks are not enumerated, and a field matcher is reported only as present.
 
 - [ ] **Step 4: Verify editor and extension accuracy**
 
