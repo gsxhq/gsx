@@ -739,6 +739,7 @@ xpkg/generic_inference_unavailable_warning	diag render
 xpkg/generic_inferred_import	diag render
 xpkg/generic_inferred_two_files	diag gen render
 xpkg/generic_sibling_file	diag gen render
+xpkg/generic_skipped_sink_values	diag gen render
 xpkg/go_component_attrs_literal	diag gen render
 xpkg/go_component_attrs_literal_missing	diag render
 xpkg/imported_alias_collision	diag gen render
@@ -748,4 +749,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 750 cases (render: 631, error: 89, gen-pinned: 415)
+TOTAL: 751 cases (render: 632, error: 89, gen-pinned: 416)

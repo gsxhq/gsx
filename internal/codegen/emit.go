@@ -4868,11 +4868,12 @@ func unspeakableTypeArg(t types.Type, currentPkg *types.Package, visited map[typ
 //
 // Values come from the same childPropsLiteral walk the real call path uses
 // (slot closures included, so children references are consumed too, built by
-// the same emitSlotClosure). A (T, error)-tuple-valued prop or ordered-attrs
-// pair cannot sit in a single-value struct field, so it is blank-assigned at
-// its own arity instead; the tag renders nothing either way, so the
-// invalid-tuple diagnostic the normal path raises for non-(T, error) tuples
-// is deliberately not repeated here (the tag already carries its positioned
+// the same emitSlotClosure). Any tuple-valued value — a prop, an ordered-attrs
+// pair, or a fallthrough bag entry with a final (T, error) pipeline stage —
+// cannot sit in a single-value struct field, so it is blank-assigned at its
+// own arity instead; the tag renders nothing either way, so the invalid-tuple
+// diagnostic the normal path raises for non-(T, error) tuples is deliberately
+// not repeated here (the tag already carries its positioned
 // inference-unavailable warning).
 func genSkippedTagSink(b *bytes.Buffer, el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
 	_, propsType, _ := childInvocation(el, byo, recvVar, recvTypeName)
@@ -4880,10 +4881,11 @@ func genSkippedTagSink(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 	// INSIDE the discarded func literal (never executed) instead of inline
 	// in the render body (where they would run — and where their temps would
 	// be unused, since the consuming class entry lives in the sink).
-	// bagErrReturn is "" — a skipped tag renders nothing, so fallthrough
-	// values are sunk RAW (reference consumption only, no renderer): the
-	// discarded literal is a nullary func and cannot host a renderer's
-	// `return _gsxerr` hoist.
+	// bagErrReturn is "return _gsxerr" — the discarded literal is a
+	// `func() error`, so embedded/pipeline hoists keep the same error-return
+	// shape as the real emission path. Values are still sunk RAW (reference
+	// consumption only, no renderer): the sink never runs
+	// materializeComponentValuePlan, which owns renderer application.
 	var hoist bytes.Buffer
 	fieldEntries, valuePlan, splatExpr, usedPkgs, err := childPropsLiteral(el, propsType, rt.rt(), classMergeExpr(mergeExpr, rt), table, structFields, nodeProps[propsType], byo, fm, func(nodes []ast.Markup) (string, error) {
 		s, ok := emitSlotClosure(nodes, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)
@@ -4891,7 +4893,7 @@ func genSkippedTagSink(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 			return "", fmt.Errorf("slot closure failed")
 		}
 		return s, nil
-	}, false, resolved, imports, rt, bag, &hoist, interpTemp, "")
+	}, false, resolved, imports, rt, bag, &hoist, interpTemp, "return _gsxerr")
 	if err != nil {
 		if errors.Is(err, errBagDiagReported) {
 			return false // embeddedTextValueExpr already reported it
@@ -4925,44 +4927,40 @@ func genSkippedTagSink(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 	}
 
 	var stmts bytes.Buffer
+	// Every reference-bearing attr value — a prop expression, a fallthrough
+	// bag entry, a class entry, a spread/cond segment, an ordered-attrs pair,
+	// an f-literal materialization — is a source-ordered plan entry: emit its
+	// hoist statements, then consume the value itself. A tuple-valued
+	// expression (a (T, error) prop/pair, or a fallthrough value whose FINAL
+	// pipeline stage returns (T, error) — the plan pass that would unwrap it
+	// never runs here) is blank-assigned at its own arity. An f-literal entry
+	// is exempt: its stmts already unwrapped any (T, error) hole or stage, so
+	// its rawExpr is a plain string even when resolved[node] is a tuple.
 	for _, value := range valuePlan {
 		stmts.Write(value.stmts)
+		if value.embedded == nil {
+			if t, ok := resolved[value.node].(*types.Tuple); ok && t.Len() > 1 {
+				blankAssign(&stmts, t.Len(), value.rawExpr)
+				continue
+			}
+		}
+		sinkValue(value.rawExpr)
 	}
 	if splatExpr != "" {
 		sinkValue(splatExpr)
 	}
 	for _, fe := range fieldEntries {
-		switch {
-		case fe.ea != nil:
-			if t, ok := resolved[fe.ea].(*types.Tuple); ok && t.Len() > 1 {
-				blankAssign(&stmts, t.Len(), fe.rawVal)
-				continue
-			}
-			if _, val, ok := strings.Cut(fe.str, ":"); ok {
-				sinkValue(strings.TrimSpace(val))
-			}
-		case fe.oa != nil:
-			// Sink each ordered-attrs pair VALUE individually (the keys are
-			// string constants), tuple-aware; the concat-prefix bag args
-			// (composed from fallthrough attr values) are sunk too so their
-			// references stay used. oaMergePrefix is the comma-separated arg
-			// list, so wrap it back into a single ConcatAttrs call expression.
-			if fe.oaMergePrefix != "" {
-				sinkValue(fmt.Sprintf("%s.ConcatAttrs(%s)", rt.rt(), fe.oaMergePrefix))
-			}
-			for j, pr := range fe.oaPairs {
-				if t, ok := resolved[&fe.oa.Pairs[j]].(*types.Tuple); ok && t.Len() > 1 {
-					blankAssign(&stmts, t.Len(), pr.rawVal)
-					continue
-				}
-				sinkValue(pr.rawVal)
-			}
-		default:
-			// Slot/Children closures, class entries, boolean props, Attrs
-			// bags — every entry childPropsLiteral produces is "Field: value".
-			if _, val, ok := strings.Cut(fe.str, ":"); ok {
-				sinkValue(strings.TrimSpace(val))
-			}
+		// The plan entries above already consumed every dynamic value inside
+		// expr/embedded prop fields, ordered-attrs literals, and the
+		// synthesized Attrs composition; what remains of those fields is
+		// static text (keys, quoted values) referencing nothing.
+		if fe.ea != nil || fe.embedded != nil || fe.oa != nil || len(fe.bagPairs) > 0 || len(fe.bagSegments) > 0 {
+			continue
+		}
+		// Slot/Children closures, static/boolean props — every entry
+		// childPropsLiteral produces is "Field: value".
+		if _, val, ok := strings.Cut(fe.str, ":"); ok {
+			sinkValue(strings.TrimSpace(val))
 		}
 	}
 
