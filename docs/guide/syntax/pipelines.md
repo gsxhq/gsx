@@ -23,7 +23,7 @@ argument, followed by the values you write.
 
 Stages with and without arguments can be mixed in the same chain.
 
-## Pipe a whole interpolated literal
+## Pipe a whole interpolated literal {#whole-literal-pipelines}
 
 Put `|>` after an `f` literal to filter the complete interpolated string.
 

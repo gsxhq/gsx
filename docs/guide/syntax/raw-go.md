@@ -5,7 +5,7 @@ Use raw Go when a component needs to run a statement, create a local value, or p
 ## GoBlock
 
 ::: v-pre
-A `{{ statement }}` GoBlock runs one Go statement without rendering output. Values it declares are available to the following children in the same scope.
+A `{{ statements }}` GoBlock runs a Go statement list without rendering output. Values it declares are available to the following children in the same scope.
 :::
 
 <!--@include: ./_generated/raw-go/010-go-code-block.md-->
@@ -19,7 +19,7 @@ The position of `{{ … }}` determines its meaning:
 
 | Position | Example | Meaning |
 |---|---|---|
-| Between child nodes | `{{ full := first + last }}` | run a Go statement; render nothing |
+| Between child nodes | `{{ full := first + last }}` | run a Go statement list; render nothing |
 | After an attribute `=` | `attrs={{ "id": id }}` | create an ordered attribute list |
 :::
 

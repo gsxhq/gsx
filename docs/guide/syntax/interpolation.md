@@ -60,7 +60,7 @@ written.
 
 <!--@include: ./_generated/interpolation/020-field-access.md-->
 
-## Functions returning `(T, error)`
+## Functions returning `(T, error)` {#functions-t-error-auto-unwrap}
 
 A call returning `(T, error)` needs no special marker. gsx writes the `T` value
 when the error is nil; otherwise the component's `Render` returns that error.

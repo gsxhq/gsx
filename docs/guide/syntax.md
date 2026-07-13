@@ -87,7 +87,7 @@ Generation processes both files; `go build` selects the matching variant.
 | `attrs={{ "name": value }}` | [Ordered attribute literal](./syntax/attributes.md#ordered-attrs-literal) |
 | `` name=f`prefix-@{value}` `` | [Interpolated literal](./syntax/attributes.md#interpolating-attribute-literals) |
 | `class={ … }`, `style={ … }` | [Composable styling](./syntax/styling.md) |
-| `` @click=js`save(@{id})` `` | [JavaScript attribute](./syntax/javascript.md#javascript-valued-attributes) |
+| `` @click=js`save(@{id})` `` | [JavaScript attribute](./syntax/javascript.md#attribute-local-javascript) |
 :::
 
 ### Component forms
