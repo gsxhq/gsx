@@ -1,124 +1,108 @@
 # Syntax reference
 
-> **Syntax is alpha.** This page is the compact reference and
-> topic hub. If you are new to gsx, start with [Learn gsx](./learn.md), then use this
-> page while writing templates.
+Use this page to look up `.gsx` syntax. If you are new to gsx, follow
+[Learn gsx](./learn.md) first for a guided path.
 
-A `.gsx` file is ordinary Go (package, imports, types, funcs) plus `component`
-declarations. A component has a templ-style header and a JSX-style body — the
-markup *is* the result, so there is no return type and no `return`:
+## Start here
 
-```gsx
-component Card(title string, featured bool) {
-	<section class={ "card", "card-featured": featured }>
-		<h2>{title}</h2>
-		{ if featured { <span class="badge">Featured</span> } }
-		<div class="body">{children}</div>
-	</section>
-}
-```
+1. [Basic syntax](./syntax/basic-syntax.md) — files, imports, and component declarations
+2. [Elements](./syntax/elements.md) — tags, nesting, void elements, and documents
+3. [Interpolation](./syntax/interpolation.md) — Go expressions and interpolated literals
+4. [Attributes](./syntax/attributes.md) — static, dynamic, conditional, and spread attributes
+5. [Control flow](./syntax/control-flow.md) — `if`, `for`/`range`, and `switch`
+6. [Composition](./syntax/composition.md) — component calls, children, slots, and forwarding
+7. [Props](./syntax/props.md) — bring-your-own structs and generated props
 
-## Topics
+## More topics
 
-Each per-topic page goes deeper with runnable examples sourced from
-golden-tested `examples/*.txtar` fixtures.
-
-::: v-pre
-| Page | What it covers |
-|------|----------------|
-| [Basic syntax](./syntax/basic-syntax.md) | Component declarations, elements vs components, method components |
-| [Raw Go](./syntax/raw-go.md) | `{{ stmt }}` Go statement blocks |
-| [Elements](./syntax/elements.md) | Tags, void elements, raw-text (`<script>`/`<style>`), DOCTYPE, elements as values in Go expression position |
-| [Comments](./syntax/comments.md) | Content comments `{/* … */}` and HTML comments |
-| [Fragments](./syntax/fragments.md) | `<>…</>` wrapper-free grouping |
-| [Interpolation](./syntax/interpolation.md) | `{ expr }` value embedding and `(T, error)` auto-unwrap |
-| [Attributes](./syntax/attributes.md) | Expression, boolean, conditional, spread, and ordered attributes |
-| [Control flow](./syntax/control-flow.md) | `{ if }`, `{ for }`, `{ switch }` |
-| [Components & composition](./syntax/composition.md) | Invoking components, `{children}`, named slots, explicit attribute forwarding |
-| [Props model](./syntax/props.md) | Bring-your-own struct, generated props, whole-struct splat |
-| [Styling](./syntax/styling.md) | Composable `class`/`style`, style blocks, class merger |
-| [JavaScript](./syntax/javascript.md) | `@{ expr }` in `<script>`, `` js`...` `` attribute literals, data islands |
-| [Pipelines](./syntax/pipelines.md) | `\|>` filter pipelines and `std` filters |
-| [Rendering raw HTML](./syntax/raw-html.md) | `gsx.Raw` — bypass escaping for trusted HTML strings |
-| [Escaping](./syntax/escaping.md) | Context-aware auto-escaping and opt-out helpers |
-| [Context](./syntax/context.md) | `context.Context` threading through render |
-| [Standard functions](./syntax/std-functions.md) | Built-in filter functions |
-| [Interop](./syntax/interop.md) | Using gsx components from plain Go |
-| [Forms](./syntax/forms.md) | Form elements and helpers |
-:::
+- **Styling and scripts:** [Styling](./syntax/styling.md), [JavaScript](./syntax/javascript.md), and [Forms](./syntax/forms.md)
+- **Security and raw output:** [Escaping](./syntax/escaping.md) and [Raw HTML](./syntax/raw-html.md)
+- **Go, context, interop, and runtime helpers:** [Raw Go](./syntax/raw-go.md), [Comments](./syntax/comments.md), [Fragments](./syntax/fragments.md), [Pipelines](./syntax/pipelines.md), [Context](./syntax/context.md), [Interop](./syntax/interop.md), and [Runtime helpers](./syntax/std-functions.md)
 
 ## Build constraints and `//go:` directives
 
-Comment lines the Go toolchain acts on — `//go:build`, `//go:generate`,
-`//go:debug`, and legacy `// +build` — written before the `package` clause of
-a `.gsx` file are copied verbatim into the generated `.x.go`, so build
-constraints work exactly as they do for hand-written Go:
+File-level Go directives before the `package` clause apply to the generated Go
+file. The Go toolchain, not gsx, evaluates build constraints; see the Go
+documentation for [build constraints](https://pkg.go.dev/cmd/go#hdr-Build_constraints).
+
+Build-tag variants may declare the same component when their constraints are
+mutually exclusive and their signatures match:
 
 ```gsx
+// platform_linux.gsx
 //go:build linux
 
 package views
 
-component LinuxOnly() {
-	<p>linux</p>
+component PlatformName() {
+	<span>Linux</span>
+}
+
+// platform_other.gsx
+//go:build !linux
+
+package views
+
+component PlatformName() {
+	<span>Other</span>
 }
 ```
 
-`gsx generate` always generates every `.gsx` file regardless of the host
-platform — constraints take effect at `go build`, so one generate pass serves
-cross-compilation. Prose comments (license headers, docs) stay in the `.gsx`
-only. Note the explicit constraint comment is the only mechanism: generated
-file names never acquire Go's implicit `_GOOS` filename constraints.
-
-### Build-tag component variants
-
-Two `.gsx` files under mutually exclusive `//go:build` constraints may declare a
-component with the **same name**, as long as they share the **same signature**
-(same props, same generic parameters, same receiver). gsx generates a `.x.go`
-for every file regardless of tags; `go build` then compiles exactly the variant
-whose constraint matches the build, exactly as it does for Go's own
-`foo_linux.go` / `foo_windows.go` files.
-
-gsx does not evaluate build tags itself. If two same-named components have
-**different** signatures, gsx reports a `duplicate-component` error — build-tag
-variants must be drop-in replacements. A genuinely duplicated component with no
-tags is reported by `go build` (the generated files collide), which remains the
-authority on same-configuration duplicates.
-
-Editor go-to-definition and find-references on such a component show **all**
-variants, so you can jump to the platform you care about.
+Generation processes both files; `go build` selects the matching variant.
 
 ## Quick reference
 
+### Declarations
+
+| Form | Meaning |
+|---|---|
+| `component Card(title string) { … }` | [Component declaration](./syntax/basic-syntax.md#declare-a-component) |
+| `component List[T any](items []T) { … }` | [Generic component](./syntax/composition.md#generic-components) |
+| `component (p Page) Header() { … }` | [Method component](./syntax/composition.md#method-components) |
+
+### Body forms
+
 ::: v-pre
 | Form | Meaning |
-|------|---------|
-| `component X(params) { … }` | component declaration (emission body — no return) |
-| `component X[T constraint](params) { … }` | generic component declaration |
-| `component (p T) Name(params) { … }` | method component (receiver) |
-| `component (p T) Name[U constraint](params) { … }` | generic method component; requires a go1.27+ toolchain — older toolchains report `error[unsupported-toolchain]` for the component and generation continues |
-| `<div>`, `<el-dialog>` | HTML element — lowercase / hyphenated with no matching package declaration |
-| `<Card>`, `<ui.Button>` | component (Capitalized / dotted) |
-| `<card>` | component, if the package declares `card` — see [Basic syntax](./syntax/basic-syntax.md#element-vs-component) |
-| `<Card[T]>`, `<ui.Button[T]>`, `<p.Row[T]>` | explicit type arguments for a generic component call; omitted type arguments are inferred from supplied props when Go can infer them |
-| `{ expr }` | interpolation in body (auto HTML-escaped) |
-| any expression returning `(T, error)` | auto-unwraps to `T`; error propagates from the enclosing `Render` — no marker needed, applies in all expression positions (text, attrs, child-prop values, `{{ }}` pair values, pipelines) |
-| `name="lit"` | static string attribute |
-| `name={ expr }` | dynamic attribute (Go expression) |
-| `name` (bare) | boolean attribute = `true` |
-| `disabled={ cond }` | type-driven boolean attr (bool → bare/omitted) |
-| `{ expr... }` | spread/splat — on an **element**: spreads `gsx.Attrs` as HTML attrs; on a **component**: whole-struct splat (passes the prebuilt struct as props) |
-| `name={{ "k": v, "k2": v2 }}` | ordered-attrs literal — binds to a `gsx.Attrs` prop; renders in source order. `attrs={{ }}` (lowercase canonical) targets a component's synthesized fallthrough bag and merges last among bag contributors — see [Attributes](./syntax/attributes.md) |
-| `{ if … }` / `{ for … }` inside a tag | conditional attributes |
-| `{ if/for/switch … { <markup> } }` | control flow contributing children |
-| `{{ stmt }}` | Go statement escape hatch (no output) |
-| `<>…</>` | fragment |
-| `class={ a, "cls": cond }` | composable `class`/`style` (comma list; conditional sugar) |
-| `class={ a, switch x { case A: "b" default: "c" } }` | value-form `if`/`switch` inside `class`/`style` — exclusive selection |
-| `{children}` | explicit children placement |
-| `gsx.Raw(s)` | unescaped HTML |
+|---|---|
+| `<div>…</div>` | [Element](./syntax/elements.md#tags-and-nesting) |
+| `{ expr }` | [Escaped Go expression](./syntax/interpolation.md#go-expressions) |
+| `{ if … }`, `{ for … }`, `{ switch … }` | [Control flow](./syntax/control-flow.md) |
+| `{{ stmt }}` | [GoBlock](./syntax/raw-go.md#goblock) |
+| `<>…</>` | [Fragment](./syntax/fragments.md#multiple-roots) |
+| `{/* … */}` | [Content comment](./syntax/comments.md) |
+| `{ value |> filter }` | [Pipeline](./syntax/pipelines.md#chain-filters) |
 :::
 
-> **Status — alpha.** Follow [Status](./status.md) and the
+### Attribute forms
+
+::: v-pre
+| Form | Meaning |
+|---|---|
+| `name="value"` | [Static attribute](./syntax/attributes.md) |
+| `name={expr}` | [Expression attribute](./syntax/attributes.md#expression-attributes) |
+| `disabled`, `disabled={cond}` | [Boolean attribute](./syntax/attributes.md#boolean-attributes) |
+| `{ if cond { name="value" } }` | [Conditional attributes](./syntax/attributes.md#conditional-attributes) |
+| `{ attrs... }` | [Attribute spread](./syntax/attributes.md#spread-x-—-ordered) |
+| `attrs={{ "name": value }}` | [Ordered attribute literal](./syntax/attributes.md#ordered-attrs-literal) |
+| `` name=f`prefix-@{value}` `` | [Interpolated literal](./syntax/attributes.md#interpolating-attribute-literals) |
+| `class={ … }`, `style={ … }` | [Composable styling](./syntax/styling.md) |
+| `` @click=js`save(@{id})` `` | [JavaScript attribute](./syntax/javascript.md#javascript-valued-attributes) |
+:::
+
+### Component forms
+
+| Form | Meaning |
+|---|---|
+| `<Card title="Hi"/>` | [Component call](./syntax/composition.md#calling-components) |
+| `<ui.Button/>` | [Cross-package call](./syntax/composition.md#cross-file-and-cross-package-calls) |
+| `<List[string] items={items}/>` | [Explicit type arguments](./syntax/composition.md#explicit-type-arguments) |
+| `<Card>…</Card>` | [Nested children](./syntax/composition.md#children-children) |
+| `header={ <h2>Title</h2> }` | [Named slot](./syntax/composition.md#named-slots) |
+| `{children}` | [Children placement](./syntax/composition.md#children-children) |
+| `<Inner { attrs... }/>` | [Attribute forwarding](./syntax/composition.md#forwarding-through-components) |
+| `<Card { props... }/>` | [Whole-struct splat](./syntax/props.md#whole-struct-splat) |
+
+> **Status — alpha.** Check [Status](./status.md) and the
 > [roadmap](https://github.com/gsxhq/gsx/blob/main/docs/ROADMAP.md) before relying
 > on deferred features.
