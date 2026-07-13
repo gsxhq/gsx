@@ -1,0 +1,30 @@
+# The Go-expression ctx-filter rejection is not js`/css`-only: an f`…@{…}…` literal
+# (plain-string value) at a top-level func return has the same missing-ctx hazard,
+# since a ctx-taking filter lowers to `up(ctx, v)`. gsx rejects it with the same
+# positioned goexpr-literal-error the js` path gives (goexpr-js-literal/diag_ctx_filter).
+-- gsx.toml --
+filter_packages = ["./filters"]
+-- filters/filters.go --
+package filters
+
+import "context"
+
+func Up(ctx context.Context, s string) string {
+	if ctx == nil {
+		return "NOCTX"
+	}
+	return s + "!"
+}
+-- input.gsx --
+package demo
+
+func mk(v string) string { return f`Hi @{v |> up}` }
+
+component Page(v string) {
+	<div>{ mk(v) }</div>
+}
+-- invoke --
+Page(PageProps{V: "a"})
+-- diagnostics.golden --
+3:41: @{ v |> up } uses a ctx-taking filter (|>); a js`/css`/f` literal in Go-expression position has no ambient render context — drop the ctx-taking filter/renderer, or move the literal to an attribute position
+-- render.golden --

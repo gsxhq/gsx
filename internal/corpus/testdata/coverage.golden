@@ -336,6 +336,10 @@ goexpr-css-literal/hostile_zgotmplz	diag gen render
 goexpr-css-literal/rawcss_passthrough	diag gen render
 goexpr-css-literal/var_style_spread	diag gen render
 goexpr-f-literal/call-arg	diag gen render
+goexpr-f-literal/diag_ctx_filter_toplevel	diag render
+goexpr-f-literal/diag_error_pipe_goblock	diag render
+goexpr-f-literal/diag_error_pipe_toplevel	diag render
+goexpr-f-literal/error_pipe_in_closure	diag gen render
 goexpr-f-literal/f_value_is_escaped_string	diag gen render
 goexpr-f-literal/interp	diag gen render
 goexpr-f-literal/scope-local	diag gen render
@@ -347,8 +351,11 @@ goexpr-interp-tag/sibling-mixed-type	diag gen render
 goexpr-interp-tag/stages	diag gen render
 goexpr-js-literal/attrs_map_spread	diag gen render
 goexpr-js-literal/call_arg	diag gen render
+goexpr-js-literal/ctx_filter_in_closure	diag gen render
+goexpr-js-literal/ctx_filter_in_goblock	diag gen render
 goexpr-js-literal/ctx_matrix	diag gen render
 goexpr-js-literal/diag_body_position	diag render
+goexpr-js-literal/diag_ctx_filter	diag render
 goexpr-js-literal/diag_error_pipe	diag render
 goexpr-js-literal/diag_error_renderer	diag render
 goexpr-js-literal/diag_error_tuple	diag render
@@ -838,4 +845,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 840 cases (render: 711, error: 97, gen-pinned: 482)
+TOTAL: 847 cases (render: 718, error: 97, gen-pinned: 485)

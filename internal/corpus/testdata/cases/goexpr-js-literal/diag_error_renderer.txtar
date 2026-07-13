@@ -44,5 +44,5 @@ component Page() {
 -- invoke --
 Page()
 -- diagnostics.golden --
-7:15: @{ val } is rendered by an error-returning renderer; a js`/css` literal in Go-expression position has no error channel to propagate it through — handle the error in Go, or move the literal to an attribute position
+7:15: @{ val } is rendered by an error-returning renderer; a js`/css`/f` literal in Go-expression position has no error channel to propagate it through — handle the error in Go, or move the literal to an attribute position
 -- render.golden --

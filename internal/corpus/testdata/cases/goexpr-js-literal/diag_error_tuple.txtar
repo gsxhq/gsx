@@ -15,5 +15,5 @@ component Page() {
 -- invoke --
 Page()
 -- diagnostics.golden --
-5:15: @{ risky() } returns (string, error); a js`/css` literal in Go-expression position has no error channel to propagate it through — handle the error in Go, or move the literal to an attribute position
+5:15: @{ risky() } returns (string, error); a js`/css`/f` literal in Go-expression position has no error channel to propagate it through — handle the error in Go, or move the literal to an attribute position
 -- render.golden --

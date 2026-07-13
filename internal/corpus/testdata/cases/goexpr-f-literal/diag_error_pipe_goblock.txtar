@@ -1,0 +1,33 @@
+# A `{{ }}` GoBlock reconstructs its statements with GoText runs written straight
+# to the render-closure buffer, so an f` hole's error hoist would land
+# mid-statement — there is no clean hoist channel (unlike an Interp.Embedded hole,
+# whose GoText goes to a separate seed buffer). An error-returning f` hole in a
+# GoBlock is therefore rejected with a positioned goexpr-literal-error, rather than
+# splicing invalid Go that surfaced only as a cryptic "format generated source"
+# failure. (A ctx filter in a GoBlock still WORKS — see
+# goexpr-js-literal/ctx_filter_in_goblock — because a GoBlock DOES bind ctx.)
+-- gsx.toml --
+filter_packages = ["./filters"]
+-- filters/filters.go --
+package filters
+
+import "errors"
+
+func Must(s string) (string, error) {
+	if s == "" {
+		return "", errors.New("empty")
+	}
+	return s, nil
+}
+-- input.gsx --
+package demo
+
+component Page(v string) {
+	{{ x := f`Hi @{v |> must}` }}
+	<div>{ x }</div>
+}
+-- invoke --
+Page(PageProps{V: "a"})
+-- diagnostics.golden --
+4:16: @{ v |> must } uses an error-returning filter (|>); a js`/css`/f` literal in Go-expression position has no error channel to propagate it through — handle the error in Go, or move the literal to an attribute position
+-- render.golden --
