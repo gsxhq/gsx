@@ -2058,12 +2058,24 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 				ctrlOff[t] = sb.Len()
 				sb.WriteString(t.Code)
 				sb.WriteString("\n")
-			case goBlockHasElement(t.Embedded):
-				// Unsupported `<tag>` literal inside {{ }}: emit NO probe (the
-				// single positioned diagnostic is surfaced at emit, genNode's
-				// *ast.GoBlock case). Skipping the whole block keeps the skeleton
-				// valid Go — see goBlockHasElement's doc — so the emit-time
-				// diagnostic is what the user sees, not a skeleton parse/type error.
+			case goBlockElementPart(t.Embedded) != nil:
+				// Unsupported `<tag>` literal inside {{ }}: diagnose it HERE, not
+				// only at emit. Skipping the whole block's probe (below) keeps the
+				// skeleton valid Go — see goBlockElementPart's doc — but that also
+				// means a later reference to a var this block would have declared
+				// (e.g. `{{ x := <div/> }}` … `{x}`) goes undefined in the
+				// skeleton, which fails type-checking and gates emit off entirely
+				// (module.go's len(typeErrs)==0 check). Left solely at emit, the
+				// user would see only "undefined: x", never the real message.
+				// Position it at the first offending part, matching what emit used
+				// to report. emit's own *ast.Element/*ast.Fragment case in the
+				// GoBlock arm of genNode is now unreachable-for-diagnostics (this
+				// analyze pass always runs first and covers the identical AST with
+				// the identical test) but keeps its `return false` — without a
+				// case there, the switch would silently drop the element part and
+				// splice truncated, invalid Go.
+				part := goBlockElementPart(t.Embedded)
+				bag.Errorf(part.Pos(), part.End(), "unsupported-node", "element literals inside {{ }} blocks are not supported yet")
 			default:
 				// The block carries one or more f`/js`/css` literals: reconstruct it
 				// from its split parts. Each GoText run gets a fresh block-form
@@ -2348,20 +2360,21 @@ func probeEmbeddedInterpIIFE(sb *strings.Builder, segs []gsxast.Markup, lang gsx
 	return nil
 }
 
-// goBlockHasElement reports whether a split `{{ }}` block carries a `<tag>`
-// element or fragment literal — unsupported inside a Go block, diagnosed once at
-// emit (genNode's *ast.GoBlock case). The skeleton uses it to SKIP such a block
-// entirely rather than build a probe: an element part's following GoText would
-// dangle without a value, and a placeholder value would raise a spurious
-// "declared and not used" that buries the real diagnostic.
-func goBlockHasElement(parts []gsxast.GoPart) bool {
+// goBlockElementPart returns the first `<tag>` element or fragment literal in
+// a split `{{ }}` block's parts, or nil if it carries none. Such a literal is
+// unsupported inside a Go block — diagnosed once, in analyze (the GoBlock case
+// above), positioned at the returned part. The skeleton uses this to SKIP such
+// a block entirely rather than build a probe: an element part's following
+// GoText would dangle without a value, and a placeholder value would raise a
+// spurious "declared and not used" that buries the real diagnostic.
+func goBlockElementPart(parts []gsxast.GoPart) gsxast.GoPart {
 	for _, p := range parts {
 		switch p.(type) {
 		case *gsxast.Element, *gsxast.Fragment:
-			return true
+			return p
 		}
 	}
-	return false
+	return nil
 }
 
 // harvest reads each interpolation's resolved type from a type-checked skeleton

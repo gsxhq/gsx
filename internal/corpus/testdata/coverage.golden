@@ -324,6 +324,7 @@ fragment-literals/struct-field	diag gen render
 fragment-literals/var	diag gen render
 goblock-literal/css_literal	diag gen render
 goblock-literal/element_rejected	diag render
+goblock-literal/element_rejected_used_later	diag render
 goblock-literal/f_literal	diag gen render
 goblock-literal/motivating_attrs	diag gen render
 goexpr-css-literal/hostile_zgotmplz	diag gen render
@@ -783,4 +784,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 785 cases (render: 663, error: 90, gen-pinned: 444)
+TOTAL: 786 cases (render: 664, error: 90, gen-pinned: 444)

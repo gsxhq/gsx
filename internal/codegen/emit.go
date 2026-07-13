@@ -1979,9 +1979,14 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		// diverge). js`/css` never hoist (exprPos); an f` hole's statement hoist
 		// goes to b, before the reconstructed statement (the same pre-existing
 		// unconditional-errReturn caveat the other two sites carry).
-		// A `<tag>` element/fragment literal inside a Go block is unsupported —
-		// the single positioned diagnostic (analyze already skipped this block's
-		// probe; see its *gsxast.GoBlock case).
+		// A `<tag>` element/fragment literal inside a Go block is unsupported.
+		// analyze's *gsxast.GoBlock case (goBlockElementPart) already diagnosed
+		// this and skipped the block's probe entirely, so this case can never
+		// be the FIRST reporter of the problem — analyze runs, over the same
+		// AST, before emit is ever invoked (module.go's Generate/pkgResult). No
+		// bag.Errorf here (it would duplicate that diagnostic); still `return
+		// false` so an unhandled element part doesn't silently splice a
+		// truncated, invalid Go statement.
 		for _, part := range t.Embedded {
 			switch p := part.(type) {
 			case ast.GoText:
@@ -1997,7 +2002,6 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 				}
 				b.WriteString(vb.String())
 			case *ast.Element, *ast.Fragment:
-				bag.Errorf(part.Pos(), part.End(), "unsupported-node", "element literals inside {{ }} blocks are not supported yet")
 				return false
 			}
 		}
