@@ -41,12 +41,12 @@ trusted-value boundary.
 
 ## Merge forwarded class and style {#class-style-merging}
 
-Scalar attributes from a spread keep the spread's source position. Forwarded
-`class` and `style` are the exception: the component root's local parts merge
-first and the caller's parts merge last, even when `{ attrs... }` appears before
-the local `class` or `style`. The default class merger keeps the last occurrence
-of an exact duplicate token. For style, the later value for the same property
-wins.
+Scalar attributes from a spread keep the spread's source position. One case is
+different: a direct local `class` or `style` on the component root merges before
+the forwarded `{ attrs... }` fallthrough bag, even when that spread appears
+first. Conditional attribute blocks and multiple explicit spreads remain source
+ordered. The default class merger keeps the last occurrence of an exact
+duplicate token. For style, the later value for the same property wins.
 
 For example, `<div { attrs... } class="card">` still puts `card` before the
 caller's class tokens.

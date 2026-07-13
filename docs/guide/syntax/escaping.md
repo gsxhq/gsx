@@ -35,6 +35,10 @@ Relative URLs and the `http`, `https`, `mailto`, and `tel` schemes pass through.
 Other schemes, including `javascript:` and `vbscript:`, become
 `about:invalid#gsx`.
 
+Scheme checks apply to dynamic expressions, interpolated literals, and values
+that arrive through a spread. A quoted URL authored directly on a native
+element is trusted author text and is emitted without scheme validation.
+
 ### Resource and navigation URLs {#resource-vs-navigational-url-sinks}
 
 `data:` URLs are blocked except in these image-rendering positions:
@@ -59,6 +63,18 @@ checks every candidate as an image URL. A disallowed candidate becomes
 `about:invalid#gsx` without discarding the safe candidates; base64 image data
 URLs and descriptors such as `1.5x` remain intact. `gsx.RawURL` vouches for the
 entire candidate list.
+
+### Meta refresh
+
+Keep `http-equiv="refresh"` literal, or use a compile-time constant expression,
+when `content` contains a dynamic refresh URL:
+
+```gsx
+<meta http-equiv="refresh" content={"0;url=" + next}/>
+```
+
+A runtime-dynamic or spread `http-equiv` value is not classified as refresh, so
+do not combine it with an untrusted URL in `content`.
 
 ## JavaScript and CSS contexts
 
