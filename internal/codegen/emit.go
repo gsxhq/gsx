@@ -1966,7 +1966,41 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		b.WriteString("}\n")
 	case *ast.GoBlock:
 		emitLine(b, fset, t.Pos())
-		b.WriteString(t.Code)
+		if t.Embedded == nil {
+			b.WriteString(t.Code)
+			b.WriteString("\n")
+			break
+		}
+		// The block carries embedded f`/js`/css` literals (analyze's split; see
+		// splitInterpEmbedded). Reconstruct it from its parts: GoText runs are
+		// verbatim, and each *ast.EmbeddedInterp lowers to its Go value via the
+		// SAME emitGoExprEmbeddedInterp the GoWithElements and Interp.Embedded
+		// sites use (one lowering, three container sites — they can never
+		// diverge). js`/css` never hoist (exprPos); an f` hole's statement hoist
+		// goes to b, before the reconstructed statement (the same pre-existing
+		// unconditional-errReturn caveat the other two sites carry).
+		// A `<tag>` element/fragment literal inside a Go block is unsupported —
+		// the single positioned diagnostic (analyze already skipped this block's
+		// probe; see its *gsxast.GoBlock case).
+		for _, part := range t.Embedded {
+			switch p := part.(type) {
+			case ast.GoText:
+				b.WriteString(p.Src)
+			case *ast.EmbeddedInterp:
+				if len(p.Stages) > 0 {
+					bag.Errorf(p.Pos(), p.End(), "unsupported-node", "whole-literal pipelines on a Go-expression backtick literal are not supported")
+					return false
+				}
+				var vb bytes.Buffer
+				if !emitGoExprEmbeddedInterp(b, &vb, p, resolved, table, imports, rt, interpTemp, bag) {
+					return false
+				}
+				b.WriteString(vb.String())
+			case *ast.Element, *ast.Fragment:
+				bag.Errorf(part.Pos(), part.End(), "unsupported-node", "element literals inside {{ }} blocks are not supported yet")
+				return false
+			}
+		}
 		b.WriteString("\n")
 	case *ast.Comment:
 		// Source-only content comment ({/* */} / {// }); never rendered.

@@ -459,10 +459,19 @@ func (*EmbeddedInterp) goPartNode() {}
 
 // GoBlock is `{{ stmt }}` — a Go-statement escape hatch in a component body.
 // Code is the trimmed Go source between the `{{` and `}}` delimiters.
+//
+// Embedded is populated by codegen's analyze split (splitInterpEmbedded) when
+// Code contains an embedded f`/js`/css` literal (or a — currently unsupported —
+// `<tag>` element literal); nil otherwise. Code always remains the verbatim
+// round-trip source of truth (the printer prints from Code, never Embedded);
+// Embedded is the same GoText/*EmbeddedInterp/*Element/*Fragment split
+// SplitGoExprElements produces for a GoWithElements or Interp.Embedded, used
+// only by codegen to type-probe and lower the embedded literals.
 type GoBlock struct {
 	span
-	Code    string
-	CodePos token.Pos // first char of Code text in source (NoPos if unavailable)
+	Code     string
+	CodePos  token.Pos // first char of Code text in source (NoPos if unavailable)
+	Embedded []GoPart
 }
 
 func (*GoBlock) markupNode() {}

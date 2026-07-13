@@ -452,6 +452,36 @@ func splitInterpEmbedded(file *gsxast.File, cls *attrclass.Classifier, fset *tok
 			}
 		}
 	}
+	// splitGoBlockOne gives a `{{ … }}` Go block the SAME split+classify
+	// treatment splitOne gives an interpolation: when Code holds an embedded
+	// f`/js`/css` literal it is split into GoText/*EmbeddedInterp parts (stored
+	// on GoBlock.Embedded) so codegen can type-probe and lower each literal;
+	// Code stays the verbatim round-trip source. Unlike splitOne this does NOT
+	// stamp element literals (a `<tag>` inside a Go block is unsupported and
+	// diagnosed at emit — see genNode's *ast.GoBlock case), so no exclude/
+	// materialized threading is needed.
+	splitGoBlockOne := func(gb *gsxast.GoBlock) {
+		// Cheap pre-check (mirrors splitOne): only a Code containing a prefixed
+		// backtick literal ('`') or an operand-position tag ('<') can split, and
+		// a split needs a valid base position to seat the sub-parser. A block
+		// with neither keeps Embedded nil and flows verbatim, exactly as today.
+		if (!strings.ContainsRune(gb.Code, '<') && !strings.ContainsRune(gb.Code, '`')) || !gb.CodePos.IsValid() {
+			return
+		}
+		parts, _ := gsxparser.SplitGoExprElements(fset, gb.Code, gb.CodePos, cls)
+		if len(parts) == 0 {
+			return
+		}
+		gb.Embedded = parts
+		// Classify js holes immediately after splitting, mirroring the
+		// Interp.Embedded path above (emit ≡ probe). ResolveEmbedded is
+		// idempotent, so a re-classification is harmless.
+		for _, part := range parts {
+			if lit, ok := part.(*gsxast.EmbeddedInterp); ok && lit.Lang == gsxast.EmbeddedJS {
+				jsx.ResolveEmbedded(lit.Segments, bag)
+			}
+		}
+	}
 	walk = func(nodes []gsxast.Markup, exclude string, materialized bool) {
 		for _, n := range nodes {
 			switch t := n.(type) {
@@ -497,6 +527,8 @@ func splitInterpEmbedded(file *gsxast.File, cls *attrclass.Classifier, fset *tok
 				for _, cc := range t.Cases {
 					walk(cc.Body, exclude, materialized)
 				}
+			case *gsxast.GoBlock:
+				splitGoBlockOne(t)
 			}
 		}
 	}
@@ -803,17 +835,10 @@ func buildSkeleton(file *gsxast.File, table funcTables, propFields, nodeProps, a
 				if len(p.Stages) > 0 {
 					return "", nil, nil, nil, nil, nil, fmt.Errorf("codegen: whole-literal pipelines on a Go-expression backtick literal are not supported")
 				}
-				idx := len(gwMarkups)
-				gwMarkups = append(gwMarkups, p.Segments)
-				retType, wrapOpen, wrapClose := embeddedProbeType(p.Lang)
-				fmt.Fprintf(&compBuf, "func() %s {\n", retType)
-				fmt.Fprintf(&compBuf, "_gsxelem(%d)\n", idx)
-				compBuf.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
 				segCFTemp := 0
-				if err := emitProbes(&compBuf, p.Segments, table, propFields, nodeProps, attrsProps, combinedSigs, byo, fm, "", "", usedFilters, fset, ctrlOff, registry, &gwMarkups, bag, &segCFTemp); err != nil {
+				if err := probeEmbeddedInterpIIFE(&compBuf, p.Segments, p.Lang, table, propFields, nodeProps, attrsProps, combinedSigs, byo, fm, "", "", usedFilters, fset, ctrlOff, registry, &gwMarkups, bag, &segCFTemp); err != nil {
 					return "", nil, nil, nil, nil, nil, err
 				}
-				fmt.Fprintf(&compBuf, "return %s%s%s\n}()", wrapOpen, embeddedProbeSeed(p.Segments, table, usedFilters), wrapClose)
 			default:
 				return "", nil, nil, nil, nil, nil, fmt.Errorf("codegen: unsupported Go-expression part %T", part)
 			}
@@ -1379,16 +1404,9 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 						if len(p.Stages) > 0 {
 							return fmt.Errorf("codegen: whole-literal pipelines on a Go-expression backtick literal are not supported")
 						}
-						idx := len(*gw)
-						*gw = append(*gw, p.Segments)
-						retType, wrapOpen, wrapClose := embeddedProbeType(p.Lang)
-						fmt.Fprintf(&eb, "func() %s {\n", retType)
-						fmt.Fprintf(&eb, "_gsxelem(%d)\n", idx)
-						eb.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
-						if err := emitProbes(&eb, p.Segments, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp); err != nil {
+						if err := probeEmbeddedInterpIIFE(&eb, p.Segments, p.Lang, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp); err != nil {
 							return err
 						}
-						fmt.Fprintf(&eb, "return %s%s%s\n}()", wrapOpen, embeddedProbeSeed(p.Segments, table, usedFilters), wrapClose)
 					default:
 						return fmt.Errorf("codegen: unsupported embedded interpolation part %T", part)
 					}
@@ -2033,10 +2051,43 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 			}
 			sb.WriteString("}\n")
 		case *gsxast.GoBlock:
-			emitSkeletonClauseLine(sb, fset, t.CodePos, 0)
-			ctrlOff[t] = sb.Len()
-			sb.WriteString(t.Code)
-			sb.WriteString("\n")
+			switch {
+			case t.Embedded == nil:
+				// No embedded literal: the whole block is verbatim Go (unchanged).
+				emitSkeletonClauseLine(sb, fset, t.CodePos, 0)
+				ctrlOff[t] = sb.Len()
+				sb.WriteString(t.Code)
+				sb.WriteString("\n")
+			case goBlockHasElement(t.Embedded):
+				// Unsupported `<tag>` literal inside {{ }}: emit NO probe (the
+				// single positioned diagnostic is surfaced at emit, genNode's
+				// *ast.GoBlock case). Skipping the whole block keeps the skeleton
+				// valid Go — see goBlockHasElement's doc — so the emit-time
+				// diagnostic is what the user sees, not a skeleton parse/type error.
+			default:
+				// The block carries one or more f`/js`/css` literals: reconstruct it
+				// from its split parts. Each GoText run gets a fresh block-form
+				// //line anchor (positions must keep mapping to .gsx source once an
+				// IIFE splice shifts byte offsets), and each *EmbeddedInterp becomes
+				// the SAME Lang-typed probe IIFE the GoWithElements/Interp.Embedded
+				// sites splice (probeEmbeddedInterpIIFE — one lowering, three sites).
+				ctrlOff[t] = sb.Len()
+				for _, part := range t.Embedded {
+					switch p := part.(type) {
+					case gsxast.GoText:
+						emitSkeletonBlockLine(sb, fset, p.Pos())
+						sb.WriteString(p.Src)
+					case *gsxast.EmbeddedInterp:
+						if len(p.Stages) > 0 {
+							return fmt.Errorf("codegen: whole-literal pipelines on a Go-expression backtick literal are not supported")
+						}
+						if err := probeEmbeddedInterpIIFE(sb, p.Segments, p.Lang, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp); err != nil {
+							return err
+						}
+					}
+				}
+				sb.WriteString("\n")
+			}
 		}
 	}
 	return nil
@@ -2268,6 +2319,49 @@ func embeddedProbeType(lang gsxast.EmbeddedLang) (retType, wrapOpen, wrapClose s
 	default:
 		return "string", "", ""
 	}
+}
+
+// probeEmbeddedInterpIIFE splices the analyze-side probe IIFE for a prefixed
+// backtick literal (f`/js`/css`) sitting in a Go-expression position — the ONE
+// lowering shared by all three container kinds that carry such literals:
+// top-level GoWithElements parts (buildSkeleton's region loop), an
+// interpolation's Interp.Embedded split (emitProbes), and a `{{ }}` Go block's
+// GoBlock.Embedded split (emitProbes). It registers the literal's segments at
+// index N in gw, emits `func() T { _gsxelem(N); …probes…; return WRAP(seed) }()`
+// where T/WRAP come from embeddedProbeType(lang) (so the IIFE — hence the
+// surrounding Go expression — gets the exact static type emit produces, keeping
+// emit ≡ probe), and probes each @{…} hole against the enclosing scope
+// (recvVar/recvTypeName). Its parameter list mirrors emitProbes so any of the
+// three sites can call it with its own scope. The whole-literal-pipeline guard
+// (p.Stages) stays at each call site, which words that diagnostic per-context.
+func probeEmbeddedInterpIIFE(sb *strings.Builder, segs []gsxast.Markup, lang gsxast.EmbeddedLang, table funcTables, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, recvVar, recvTypeName string, usedFilters map[string]string, fset *token.FileSet, ctrlOff map[gsxast.Node]int, registry *inferRegistry, gw *[][]gsxast.Markup, bag *diag.Bag, cfTemp *int) error {
+	idx := len(*gw)
+	*gw = append(*gw, segs)
+	retType, wrapOpen, wrapClose := embeddedProbeType(lang)
+	fmt.Fprintf(sb, "func() %s {\n", retType)
+	fmt.Fprintf(sb, "_gsxelem(%d)\n", idx)
+	sb.WriteString("var ctx _gsxctx.Context\n_ = ctx\n")
+	if err := emitProbes(sb, segs, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp); err != nil {
+		return err
+	}
+	fmt.Fprintf(sb, "return %s%s%s\n}()", wrapOpen, embeddedProbeSeed(segs, table, usedFilters), wrapClose)
+	return nil
+}
+
+// goBlockHasElement reports whether a split `{{ }}` block carries a `<tag>`
+// element or fragment literal — unsupported inside a Go block, diagnosed once at
+// emit (genNode's *ast.GoBlock case). The skeleton uses it to SKIP such a block
+// entirely rather than build a probe: an element part's following GoText would
+// dangle without a value, and a placeholder value would raise a spurious
+// "declared and not used" that buries the real diagnostic.
+func goBlockHasElement(parts []gsxast.GoPart) bool {
+	for _, p := range parts {
+		switch p.(type) {
+		case *gsxast.Element, *gsxast.Fragment:
+			return true
+		}
+	}
+	return false
 }
 
 // harvest reads each interpolation's resolved type from a type-checked skeleton
@@ -3388,6 +3482,29 @@ func collectClauseSrc(nodes []gsxast.Markup, add func(string)) {
 			}
 		case *gsxast.GoBlock:
 			add(t.Code)
+			// The verbatim Code fed above hides each embedded literal's @{…} holes
+			// inside a raw string, so valueIdents can't see an ident referenced
+			// ONLY there (`{{ x := js`f(@{param})` }}`). Feed each hole's expr (and
+			// its filter args) explicitly, mirroring usedParams' Interp.Embedded
+			// handling, so such a param/local is still bound in the render closure.
+			for _, part := range t.Embedded {
+				lit, ok := part.(*gsxast.EmbeddedInterp)
+				if !ok {
+					continue
+				}
+				for _, seg := range lit.Segments {
+					hole, ok := seg.(*gsxast.Interp)
+					if !ok {
+						continue
+					}
+					add(hole.Expr)
+					for _, st := range hole.Stages {
+						if st.Args != "" {
+							add(st.Args)
+						}
+					}
+				}
+			}
 		}
 	}
 }

@@ -783,6 +783,17 @@ vocabulary remains a design aspiration, not the current API.
 
 ## Tracked debts / deferrals
 
+- [ ] **Element literals inside `{{ }}` Go blocks** - a `<tag>`/`<>` element
+  literal written in a body `{{ }}` Go block (`{{ x := <div/> }}`) is a
+  positioned `unsupported-node` diagnostic ("element literals inside {{ }}
+  blocks are not supported yet"), not lowered. `{{ }}` blocks DO support
+  embedded `` f`/js`/css` `` literals (split → typed probe → per-hole escaped
+  lowering, same as an `{ }` interpolation body); only element literals remain
+  out. Closing it means giving the skeleton GoBlock split the same
+  element-materialization + `emitElementValue` splice `Interp.Embedded` already
+  has, plus deciding what a rendered element assigned to a Go local even means
+  in statement position. Operand-position element literals inside an `{ }`
+  interpolation body (`{ wrap(<b/>) }`) are unaffected and fully supported.
 - [ ] **Bare bool `class`/`style` beside a same-name contributor** - a bare
   `class` attribute is not a fold contributor (the bag's `Class()`/`Style()`
   aggregation is string-valued; a boolean entry would stringify to `"true"`),
