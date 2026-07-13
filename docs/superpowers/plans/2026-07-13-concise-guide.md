@@ -306,10 +306,25 @@ Expected: one commit containing only `cli.md`.
 - Read: `gen/configfile.go`
 - Read: `gen/devconfig.go`
 - Read: `gen/envconfig.go`
-- Read: `gen/configfile_test.go`
-- Read: `gen/devconfig_test.go`
+- Read: `gen/fmt.go`
+- Read: `gen/editorconfig.go`
+- Read: `gen/minify.go`
 - Read: `gen/info.go`
+- Read: `internal/codegen/emit.go`
 - Read: `internal/attrclass/attrclass.go`
+- Read: `class.go`
+- Read: `gen/configfile_test.go`
+- Read: `gen/configfile_e2e_test.go`
+- Read: `gen/devconfig_test.go`
+- Read: `gen/formatsettings_test.go`
+- Read: `gen/editorconfig_test.go`
+- Read: `gen/fmt_test.go`
+- Read: `gen/minify_test.go`
+- Read: `gen/classmerger_test.go`
+- Read: `internal/codegen/minify_gate_test.go`
+- Read: `internal/codegen/minify_thread_test.go`
+- Read: `internal/codegen/classmerger_test.go`
+- Read: `class_test.go`
 
 **Interfaces:**
 - Consumes: the CLI page's command and environment ownership.
@@ -347,8 +362,10 @@ TOML top-level-key-before-table trap as a short warning beside the first
 multi-section example: strict decoding reports a misplaced top-level key as an
 unknown nested key; it is not silently accepted.
 
-Qualify discovery by command. `generate`, `dev`, and `info` start from the
-command working directory and treat unusable config as a hard error. `fmt`
+Qualify discovery by command. `generate` and `info` start from the command
+working directory. `dev [dir]` starts from its optional directory resolved
+against the command working directory, or from the command working directory
+when omitted. These commands treat unusable config as a hard error. `fmt`
 discovers from each file's directory and falls back when config is missing or
 unusable; editor formatting follows the same best-effort model. The upward walk
 stops at the nearest `.git`, otherwise the module root, and checks only the
@@ -425,6 +442,8 @@ rg -n -i 'lowering|go/types|packages\.Load|cache key|internal|implementation|for
 awk 'BEGIN{p=0} /^$/{if(p>100) print NR ": " p " words"; p=0; next} {p+=NF} END{if(p>100) print "EOF: " p " words"}' docs/guide/config.md
 git diff --check
 go test ./gen -run 'Test.*Config|TestInfo|TestFmt|TestFormat|TestMinify|Test.*ClassMerger' -count=1
+go test ./internal/codegen -run 'Test.*ClassMerger|TestGeneratedClass|TestMinify' -count=1
+go test . -run 'Test(Class|DefaultClassMerge|AttrsClass)' -count=1
 ```
 
 Expected: concise public contracts only, no oversized prose paragraph, valid Markdown, and focused config tests pass.
