@@ -303,6 +303,7 @@ Expected: one commit containing only `cli.md`.
 
 **Files:**
 - Modify: `docs/guide/config.md`
+- Read: `gen/main.go`
 - Read: `gen/configfile.go`
 - Read: `gen/devconfig.go`
 - Read: `gen/envconfig.go`
