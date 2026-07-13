@@ -6,13 +6,16 @@ gsx streams rendered HTML directly to an `io.Writer`.
 
 These results come from
 [`gsx-bench` commit 3b701ca8](https://github.com/gsxhq/gsx-bench/commit/3b701ca8dbfe163502da8eead3ff36c3661c6a11),
-recorded on 2026-07-01. The benchmark uses a sibling gsx checkout:
+paired with
+[`gsx` commit c66db91b](https://github.com/gsxhq/gsx/commit/c66db91bf5c8e686973375e99d8aec6838da4bfb)
+and recorded on 2026-07-01. Keep the checkouts side by side:
 
 ```sh
 git clone https://github.com/gsxhq/gsx
 git clone https://github.com/gsxhq/gsx-bench
+git -C gsx checkout c66db91b
+git -C gsx-bench checkout 3b701ca8
 cd gsx-bench
-git checkout 3b701ca8
 go test -bench Pooled -benchmem -run '^$' .
 ```
 
