@@ -52,6 +52,10 @@ is handled separately. As a Go value, the literal produces one string; if that
 string is later interpolated, the whole value follows the rules of its new
 context.
 
+`js` and `css` literals also work as Go expressions, but retain the trusted
+types `gsx.RawJS` and `gsx.RawCSS` instead of becoming strings. See
+[Contextual literals as Go values](./javascript.md#contextual-literals-as-go-values).
+
 ## Fields and typed values
 
 Field access uses ordinary Go syntax. Strings, booleans, numeric primitives,

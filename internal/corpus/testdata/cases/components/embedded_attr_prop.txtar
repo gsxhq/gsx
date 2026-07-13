@@ -1,8 +1,12 @@
-# Hole-free js`…`/css`…`/`…` embedded-language literals forward to a component's
-# Attrs bag as raw text — JSX-style directive forwarding (e.g. x-model=js`…`).
-# The lowering is identical to a plain string attribute; the child spreads the
-# bag with { attrs... }. js/css literals always fall through to the bag; to set a
-# declared prop use a string, an f-literal, or { expr }.
+# BARE (unbraced) js`…`/css`…` embedded-language literals forward to a
+# component's Attrs bag — JSX-style directive forwarding (e.g. x-model=js`…`).
+# The bag value is a trusted _gsxrt.RawJS/_gsxrt.RawCSS (not a plain string), so
+# provenance survives the child's re-interpolation on { attrs... } spread; the
+# rendered output is unchanged because toStr prints RawJS/RawCSS as source. A
+# bare `…` value stays a plain Go raw string (data-tip here). Bare literals
+# ALWAYS fall through to the bag regardless of name; to bind a declared prop use
+# the braced { js`…` }/{ css`…` } form (embedded_prop_binding.txtar), a string,
+# or an f-literal.
 -- input.gsx --
 package views
 
@@ -63,7 +67,7 @@ func Page() _gsxrt.Node {
 	return _gsxrt.Func(func(ctx _gsxctx.Context, _gsxw _gsxio.Writer) error {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:6:2
-		_gsxgw.Node(ctx, Field(FieldProps{Label: "Category", Attrs: _gsxrt.Attrs{{Key: "x-model", Value: "pdcaCategory"}, {Key: "data-tip", Value: `plain text`}, {Key: "x-init", Value: "color:red"}}}))
+		_gsxgw.Node(ctx, Field(FieldProps{Label: "Category", Attrs: _gsxrt.Attrs{{Key: "x-model", Value: _gsxrt.RawJS("pdcaCategory")}, {Key: "data-tip", Value: `plain text`}, {Key: "x-init", Value: _gsxrt.RawCSS("color:red")}}}))
 		return _gsxgw.Err()
 	})
 }

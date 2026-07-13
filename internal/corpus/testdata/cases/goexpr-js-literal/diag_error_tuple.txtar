@@ -1,0 +1,19 @@
+# A hole whose seed is a (T, error)-returning call directly (no |> pipeline
+# stage involved) inside a Go-expression js literal: same "no error channel in
+# an expression position" rejection as diag_error_pipe.txtar, exercised via
+# the tuple-unwrap path in embeddedHoleExpr instead of pipelineHasErr.
+-- input.gsx --
+package demo
+
+func risky() (string, error) { return "x", nil }
+
+var h = js`f(@{risky()})`
+
+component Page() {
+	<button @click={h}>x</button>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+5:15: @{ risky() } returns (string, error); a js`/css`/f` literal in Go-expression position has no error channel to propagate it through — handle the error in Go, or move the literal to an attribute position
+-- render.golden --

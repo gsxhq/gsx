@@ -90,3 +90,17 @@ component Toolbar() {
 The element spread follows the same ordering and escaping rules as every other
 bag. See [Attributes — Spread](./attributes.md#spread-x-—-ordered) and
 [Escaping](./escaping.md).
+
+## Reserved component variables {#reserved-variables}
+
+gsx owns three names at the top level of a component body:
+
+| Name | Available when |
+|---|---|
+| `ctx` | every component render |
+| `children` | the body places [`{children}`](./composition.md#children-children) |
+| `attrs` | the body freely uses the [fallthrough bag](./composition.md#explicit-attribute-forwarding) |
+
+Do not declare these names as component parameters or receivers, or with a
+top-level `:=`, `var`, or `const`. Nested scopes may shadow them like ordinary
+Go—for example, a range variable or function-literal parameter.

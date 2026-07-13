@@ -322,17 +322,15 @@ func scanGoParts(src string) []goSplitItem {
 			}
 			off := base + fset.Position(pos).Offset
 
-			// Prefixed backtick literal at a Go-expression value position: ONLY the
-			// f`…` (plain-text) form is admitted here — a value renders as a plain
-			// Go string (embeddedValueExpr), with contextual escaping applied where
-			// the string is consumed, so the js`/css` langs (which carry a distinct
-			// escaping context an EmbeddedInterp value cannot represent) are left
-			// UNSPLIT: they remain in verbatim GoText, round-trip faithfully through
-			// the printer, and surface as invalid Go at compile — a clean gate, not
-			// a silent miscompile. A bare backtick (langPrefixStart < 0) is a
-			// plain Go raw string and likewise flows through untouched.
+			// Prefixed backtick literal at a Go-expression value position. All three
+			// prefixes split here (langPrefixStart already validates the prefix set):
+			// f`…` lowers to a plain Go string concat (embeddedValueExpr), while
+			// js`…`/css`…` lower to gsx.RawJS/gsx.RawCSS wrapping the same concat with
+			// per-hole contextual escaping (see docs/superpowers/specs on
+			// expression-valued js/css literals). A bare backtick (langPrefixStart
+			// < 0) is a plain Go raw string and flows through untouched.
 			if tok == token.STRING && off < len(src) && src[off] == '`' {
-				if p := langPrefixStart(src, off); p >= 0 && off-p == len("f") {
+				if p := langPrefixStart(src, off); p >= 0 {
 					end, _ := embeddedLiteralEnd(src, off+1, '`')
 					items = append(items, goSplitItem{Off: p, IsLiteral: true})
 					base = end
@@ -342,13 +340,13 @@ func scanGoParts(src string) []goSplitItem {
 				}
 			}
 
-			// The `"`-delimited counterpart (f"…") at a Go-expression value
-			// position. Same gate as the backtick form above: ONLY f" is split
-			// (js"/css" carry an escaping context an EmbeddedInterp value cannot
-			// represent, so they are left unsplit — verbatim GoText that surfaces
-			// as invalid Go at compile). A bare "…" is a plain Go string.
+			// The `"`-delimited counterpart (f"…"/js"…"/css"…") at a Go-expression
+			// value position — the escape-hatch for content containing a backtick.
+			// Same split as the backtick form above: all three prefixes split; f"
+			// lowers to a Go string, js"/css" to gsx.RawJS/gsx.RawCSS. A bare "…" is
+			// a plain Go string.
 			if tok == token.STRING && off < len(src) && src[off] == '"' {
-				if p := langPrefixStart(src, off); p >= 0 && off-p == len("f") {
+				if p := langPrefixStart(src, off); p >= 0 {
 					end, _ := embeddedLiteralEnd(src, off+1, '"')
 					items = append(items, goSplitItem{Off: p, IsLiteral: true})
 					base = end

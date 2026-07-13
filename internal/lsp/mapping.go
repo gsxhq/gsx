@@ -8,28 +8,35 @@ import (
 )
 
 // inspectWithEmbedded walks node exactly like gsxast.Inspect but ALSO descends
-// into every *Interp's Embedded parts — the interleaved
+// into every *Interp's and *GoBlock's Embedded parts — the interleaved
 // GoText/*Element/*Fragment/*EmbeddedInterp split codegen's analysis pass seats
 // on an interpolation whose Go expression carries an operand-position <tag>/<>
 // or prefixed-backtick (f`/js`/css`) literal (e.g. `{ wrap(<Badge/>) }`,
-// `{ emphasize(f`hi @{name}`) }`). gsxast.Inspect treats *Interp as a leaf and
-// never walks Embedded — correct for the parser/printer/fmt, which re-parse and
-// never populate it — but the LSP navigates a codegen-analyzed AST where those
-// embedded elements, their child interps/props, and each backtick literal's
-// @{ } holes are real nodes with resolved types. Each embedded part is handed to
-// gsxast.Inspect, so an embedded element's children, a fragment's children, and
-// an EmbeddedInterp's segments recurse normally: nav reaches them as the SAME
-// node types (and thus the SAME resolution) a body child would have. Nested
-// embedding (an embedded interp that itself carries Embedded) is handled because
-// the shared visit closure re-descends on every *Interp it meets.
+// `{ emphasize(f`hi @{name}`) }`), or a `{{ }}` Go block whose Code carries the
+// same kind of literal (e.g. `{{ h := js`suggest(@{detail})` }}`). gsxast.Inspect
+// treats both *Interp and *GoBlock as leaves and never walks Embedded — correct
+// for the parser/printer/fmt, which re-parse and never populate it — but the
+// LSP navigates a codegen-analyzed AST where those embedded elements, their
+// child interps/props, and each backtick literal's @{ } holes are real nodes
+// with resolved types. Each embedded part is handed to gsxast.Inspect, so an
+// embedded element's children, a fragment's children, and an EmbeddedInterp's
+// segments recurse normally: nav reaches them as the SAME node types (and thus
+// the SAME resolution) a body child would have. Nested embedding (an embedded
+// interp that itself carries Embedded) is handled because the shared visit
+// closure re-descends on every *Interp/*GoBlock it meets.
 func inspectWithEmbedded(node gsxast.Node, f func(gsxast.Node) bool) {
 	var visit func(gsxast.Node) bool
 	visit = func(n gsxast.Node) bool {
 		if !f(n) {
 			return false
 		}
-		if interp, ok := n.(*gsxast.Interp); ok {
-			for _, part := range interp.Embedded {
+		switch t := n.(type) {
+		case *gsxast.Interp:
+			for _, part := range t.Embedded {
+				gsxast.Inspect(part, visit)
+			}
+		case *gsxast.GoBlock:
+			for _, part := range t.Embedded {
 				gsxast.Inspect(part, visit)
 			}
 		}

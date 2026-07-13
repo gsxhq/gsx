@@ -10,6 +10,12 @@ A `{{ statements }}` GoBlock runs a Go statement list without rendering output. 
 
 <!--@include: ./_generated/raw-go/010-go-code-block.md-->
 
+::: v-pre
+A GoBlock can assign `f`, `js`, and `css` literals. Element and fragment
+literals are not supported inside `{{ }}`; create those in an ordinary Go
+expression position instead.
+:::
+
 Use `{ expression }` when a value should render instead. See [Interpolation](./interpolation.md) for expressions and escaping.
 
 ## GoBlock or ordered attributes?

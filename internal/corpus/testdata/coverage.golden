@@ -145,6 +145,7 @@ components/component_conditional_attr_else	diag gen render
 components/component_conditional_attr_lazy	diag gen render
 components/component_f_literal_hole_order	diag gen render
 components/component_f_literal_node_order	diag gen render
+components/component_f_literal_noncall_order	diag gen render
 components/component_f_literal_order	diag gen render
 components/component_f_literal_pipeline	diag gen render
 components/component_f_literal_pipeline_invalid_tuple	diag(error)
@@ -159,7 +160,9 @@ components/cond_branch_embedded_hole_generic	diag render
 components/cond_branch_embedded_hole_tuple	diag render
 components/embedded_attr_cond_prop	diag gen render
 components/embedded_attr_prop	diag gen render
+components/embedded_attr_rawjs_bag	diag gen render
 components/embedded_attr_rejected	diag(error)
+components/embedded_prop_binding	diag gen render
 components/generic_attr_typeparam	diag gen render
 components/generic_children	diag gen render
 components/generic_function_component	diag gen render
@@ -323,10 +326,24 @@ fragment-literals/loop-list	diag gen render
 fragment-literals/return	diag gen render
 fragment-literals/struct-field	diag gen render
 fragment-literals/var	diag gen render
+goblock-literal/css_literal	diag gen render
+goblock-literal/element_rejected	diag render
+goblock-literal/element_rejected_used_later	diag render
+goblock-literal/f_literal	diag gen render
+goblock-literal/motivating_attrs	diag gen render
+goexpr-css-literal/diag_error_renderer	diag render
+goexpr-css-literal/hostile_zgotmplz	diag gen render
+goexpr-css-literal/rawcss_passthrough	diag gen render
+goexpr-css-literal/var_style_spread	diag gen render
 goexpr-f-literal/call-arg	diag gen render
+goexpr-f-literal/diag_catanymixed_toplevel	diag render
+goexpr-f-literal/diag_ctx_filter_toplevel	diag render
+goexpr-f-literal/diag_ctx_renderer_toplevel	diag render
+goexpr-f-literal/diag_error_pipe_goblock	diag render
+goexpr-f-literal/diag_error_pipe_toplevel	diag render
+goexpr-f-literal/error_pipe_in_closure	diag gen render
 goexpr-f-literal/f_value_is_escaped_string	diag gen render
 goexpr-f-literal/interp	diag gen render
-goexpr-f-literal/js_value_unsupported	diag render
 goexpr-f-literal/scope-local	diag gen render
 goexpr-f-literal/var	diag gen render
 goexpr-interp-tag/call-arg	diag gen render
@@ -334,17 +351,41 @@ goexpr-interp-tag/component-tag	diag gen render
 goexpr-interp-tag/scope-local	diag gen render
 goexpr-interp-tag/sibling-mixed-type	diag gen render
 goexpr-interp-tag/stages	diag gen render
+goexpr-js-literal/attrs_map_spread	diag gen render
+goexpr-js-literal/call_arg	diag gen render
+goexpr-js-literal/ctx_filter_in_closure	diag gen render
+goexpr-js-literal/ctx_filter_in_goblock	diag gen render
+goexpr-js-literal/ctx_matrix	diag gen render
+goexpr-js-literal/diag_body_position	diag render
+goexpr-js-literal/diag_ctx_filter	diag render
+goexpr-js-literal/diag_ctx_renderer	diag render
+goexpr-js-literal/diag_error_pipe	diag render
+goexpr-js-literal/diag_error_renderer	diag render
+goexpr-js-literal/diag_error_tuple	diag render
+goexpr-js-literal/diag_malformed_js	diag render
+goexpr-js-literal/differential	diag gen render
+goexpr-js-literal/dquote_form	diag gen render
+goexpr-js-literal/eval_order_once	diag gen render
+goexpr-js-literal/func_return	diag gen render
+goexpr-js-literal/hostile	diag gen render
+goexpr-js-literal/indirect_rawjs_text	diag gen render
+goexpr-js-literal/pure_filter_toplevel	diag gen render
+goexpr-js-literal/rawjs_escaped_in_string	diag gen render
+goexpr-js-literal/rawjs_passthrough_value	diag gen render
+goexpr-js-literal/rawjs_slice	diag gen render
+goexpr-js-literal/renderer_hole	diag gen render
+goexpr-js-literal/var	diag gen render
 goexpr-valueform-init/value_if_define_init	diag gen render
 imports/alias_gsx_import	diag gen render
 imports/blank_gsx_import	diag gen render
 imports/component_and_user_gsx	diag gen render
 imports/component_no_invoke	diag gen
-imports/css_literal_only	diag(error) gen
+imports/css_literal_only	diag gen
 imports/dot_gsx_import	diag gen render
 imports/element_literal_var	diag gen
 imports/f_literal_only	diag gen
 imports/gsx_node_no_component	diag gen
-imports/js_literal_only	diag(error) gen
+imports/js_literal_only	diag gen
 imports/no_gsx_parts	diag gen
 imports/param_named_gsx	diag gen render
 imports/plain_go_only	diag gen
@@ -637,6 +678,27 @@ renderers/text_error	diag gen render
 renderers/tuple_then_renderer	diag gen render
 renderers/valuecf_arm	diag gen render
 renderers/wins_over_stringer	diag gen render
+reserved/attrs_const_rejected	diag(error)
+reserved/attrs_reassign	diag gen render
+reserved/attrs_receiver_rejected	diag(error)
+reserved/attrs_shortvar_rejected	diag(error)
+reserved/attrs_tuple_rejected	diag(error)
+reserved/children_shortvar_rejected	diag(error)
+reserved/children_shortvar_unplaced_rejected	diag(error)
+reserved/children_value_after_placement	diag gen render
+reserved/children_value_unplaced	diag(error)
+reserved/closure_over_attrs	diag gen render
+reserved/component_child_shadow_ok	diag gen render
+reserved/component_child_shadow_with_outer_free	diag gen render
+reserved/ctx_shortvar_rejected	diag(error)
+reserved/funclit_param_shadow_ok	diag gen render
+reserved/goblock_consumes_attrs	diag gen render
+reserved/if_else_branch_shadow	diag gen render
+reserved/plain_func_attrs_param_ok	diag gen render
+reserved/range_shadow_ok	diag gen render
+reserved/shadow_and_free_mixed	diag gen render
+reserved/struct_key_not_trigger	diag gen render
+reserved/switch_case_shadow	diag gen render
 script/interp_breakout	diag gen render
 script/interp_comment_literal	diag gen render
 script/interp_identifier_rejected	diag(error)
@@ -787,4 +849,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 789 cases (render: 668, error: 91, gen-pinned: 446)
+TOTAL: 851 cases (render: 722, error: 97, gen-pinned: 486)

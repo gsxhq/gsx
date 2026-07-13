@@ -72,6 +72,7 @@ Generation processes both files; `go build` selects the matching variant.
 | `<>…</>` | [Fragment](./syntax/fragments.md#multiple-roots) |
 | `{/* … */}` | [Content comment](./syntax/comments.md) |
 | `{ value \|> filter }` | [Pipeline](./syntax/pipelines.md#chain-filters) |
+| `` js`...` ``, `` css`...` `` in Go | [Contextual Go value](./syntax/javascript.md#contextual-literals-as-go-values) |
 :::
 
 ### Attribute forms

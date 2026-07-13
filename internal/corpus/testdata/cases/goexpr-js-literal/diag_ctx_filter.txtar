@@ -1,0 +1,34 @@
+# A ctx-taking filter (`up` takes the ambient render ctx) in a js`…@{…}…` literal
+# at a Go-EXPRESSION position (a top-level func returning gsx.RawJS) has NO render
+# context: the lowered `up(ctx, v)` would reference a `ctx` that does not exist
+# there, silently poisoning the .x.go at `go build`. gsx rejects it with a
+# positioned goexpr-literal-error naming the ctx dependency and both remedies.
+-- gsx.toml --
+filter_packages = ["./filters"]
+-- filters/filters.go --
+package filters
+
+import "context"
+
+// Up takes the ambient render ctx and appends "!"; a ctx-taking filter.
+func Up(ctx context.Context, s string) string {
+	if ctx == nil {
+		return "NOCTX"
+	}
+	return s + "!"
+}
+-- input.gsx --
+package demo
+
+import "github.com/gsxhq/gsx"
+
+func mk(v string) gsx.RawJS { return js`f(@{v |> up})` }
+
+component Page(v string) {
+	<button @click={mk(v)}>x</button>
+}
+-- invoke --
+Page(PageProps{V: "a"})
+-- diagnostics.golden --
+5:44: @{ v |> up } uses a ctx-taking filter (|>); a js`/css`/f` literal in Go-expression position has no ambient render context — drop the ctx-taking filter/renderer, or move the literal to an attribute position
+-- render.golden --

@@ -48,6 +48,9 @@ caller's `<em>composed</em>` node. A bring-your-own props struct opts into neste
 content with an explicit `Children gsx.Node` field; see
 [Props](./props.md#bring-your-own-struct).
 
+`children` — like `attrs` below and `ctx` — is reserved at the top level of a
+component body. See [Reserved component variables](./props.md#reserved-variables).
+
 ## Named slots
 
 Use `gsx.Node` props for additional content positions such as a header or
@@ -83,7 +86,10 @@ destination.
 
 For JavaScript or CSS attributes with dynamic holes, accept ordinary wrapper
 props and build the contextual literal on the final native element; see
-[JavaScript](./javascript.md#attribute-local-javascript).
+[JavaScript](./javascript.md#attribute-local-javascript). A component that
+intentionally accepts trusted code may instead declare a `gsx.RawJS` or
+`gsx.RawCSS` prop and receive a
+[braced contextual value](./javascript.md#contextual-literals-as-go-values).
 
 ### Precedence
 

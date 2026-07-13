@@ -190,6 +190,9 @@ The renderer applies when the type is written in text, attributes, and other
 rendering positions. It does not change ordinary Go component arguments. See
 [Interpolation](./syntax/interpolation.md) for the normal typed-value rules.
 
+`gsx.RawJS` and `gsx.RawCSS` may be registered too. The renderer replaces their
+normal trusted passthrough everywhere that value renders.
+
 A programmatic `gen.WithRenderer` for the same type overrides the file entry.
 
 ## URL attributes
