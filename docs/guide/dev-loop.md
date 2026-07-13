@@ -16,10 +16,34 @@ edit the project.
 
 On a normal `.gsx` save, gsx runs this sequence:
 
-1. Generate the affected Go code.
-2. Build a new server binary.
-3. Replace the running server after the build succeeds.
-4. Reload the browser.
+```mermaid
+sequenceDiagram
+    actor Dev as Editor
+    participant GD as gsx dev
+    participant GS as Go server
+    participant V as Vite (+ plugin)
+    participant B as Browser
+
+    Dev->>GD: save app.gsx
+    Note over GD: fsnotify detects the change
+    GD->>GD: regenerate app.x.go (warm, incremental)
+    GD->>GD: go build server binary (to cache dir)
+
+    alt generate & build succeed
+        GD->>GS: swap in the new binary
+        GD->>V: POST /__gsx/event (ok)
+        GD->>V: POST /__reload
+        V->>B: full page reload (HMR WebSocket)
+        B->>V: GET /
+        V->>GS: proxy request
+        GS-->>B: streamed HTML
+    else gsx generate OR go build fails
+        GD->>V: POST /__gsx/event (gsx diagnostics)
+        GD->>V: POST /__gsx/event (go build error)
+        V->>B: error overlay
+        Note over GS: last working server keeps running
+    end
+```
 
 Other project files have slightly different behavior:
 
