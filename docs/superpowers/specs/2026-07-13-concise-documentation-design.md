@@ -46,9 +46,10 @@ Use this default shape:
 
 Use `{ if ... }` inside an opening tag to add attributes conditionally.
 
-<runnable example>
+<!--@include: ./_generated/attributes/030-conditional-attributes.md-->
 
-An `else` branch works too: `<short variant>`.
+An `else` branch works too:
+`{ if active { class="active" } else { class="idle" } }`.
 ```
 
 Headings should name a user task or concept. Do not add a heading merely to
