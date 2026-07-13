@@ -861,6 +861,26 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 			delete(gsxFiles, path)
 			continue
 		}
+		// Body-scope reservation (ctx/children/attrs): a POSITIONED, worded
+		// diagnostic upgrading the raw Go collision error. Unlike checkReservedDecls
+		// above (and the attrError skip below), this does NOT delete the file: a
+		// reserved body binding does not double-report at a single position the way a
+		// `_gsx` alias collision does, and the rest of the file's real diagnostics
+		// should still surface. The diagnostic is error-severity, so generate still
+		// fails (exit 1); the emit/build path is never reached for the offending
+		// package (an error diagnostic gates buildability), so no crash and no
+		// suppression of sibling diagnostics — the least-suppressive wiring that
+		// still fails the build.
+		for _, decl := range f.Decls {
+			comp, ok := decl.(*gsxast.Component)
+			if !ok {
+				continue
+			}
+			for _, rb := range checkReservedBodyBindings(comp) {
+				bag.Errorf(rb.pos, rb.pos+token.Pos(len(rb.name)), "reserved-identifier",
+					"identifier %q is reserved (%s) — rename it", rb.name, reservedBodyMeaning(rb.name))
+			}
+		}
 		ff := m.fileScopedFacts(dir, f, propFields, nodeProps, attrsProps, byo, bag, fset)
 		factsByFile[path] = ff
 		skel, comps, imps, ctrlOff, infReg, gwMarkups, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, m.opts.Classifier, bag, inferNames, declNames)

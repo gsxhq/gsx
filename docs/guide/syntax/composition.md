@@ -114,6 +114,8 @@ When a component wraps nested markup, it accesses that markup through the specia
 
 Content appears exactly where `{children}` sits inside the component, and only there. A component that does not write `{children}` silently drops the caller's content.
 
+`children` — like `attrs` below and `ctx` — is a reserved component-body identifier; see [Props — Reserved variables](./props.md#reserved-variables).
+
 ## Named slots
 
 When a component needs more than one content hole — a header, a body, a footer — declare additional params of type `gsx.Node`. These typed params work like named slots: the caller passes markup inline as an attribute value.

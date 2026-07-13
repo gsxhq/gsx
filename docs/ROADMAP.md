@@ -796,6 +796,32 @@ vocabulary remains a design aspiration, not the current API.
   so `<div class { if a { class="on" } }>` stays inline and still renders two
   `class` attributes. Pathological authoring shape; the clean resolution is
   probably a positioned diagnostic rather than a merge semantic.
+- [x] **Reserved component-body identifiers `ctx`/`children`/`attrs`** -
+  SHIPPED (2026-07-13, `2026-07-13-reserved-identifiers-design.md`). The
+  "reference `attrs`" trigger is now precisely defined as free syntactic use
+  (a two-stage token-then-scope-walk check), fixing several false rejections
+  (loop-scoped shadows, struct-literal keys, func-literal params) that today
+  reject correct code with a raw `declared and not used` error. A body-scope
+  `:=`/`var`/`const`/param/receiver binding of any of the three names now
+  gets a positioned, worded `reserved-identifier` diagnostic (upgraded from
+  raw Go collision errors), while nested-scope shadows (loop variables,
+  func-literal params, component-children closures) remain legal Go,
+  unflagged. Soundness over completeness: exotic binding shapes the check
+  misses fall through to the Go compiler's own errors, the backstop.
+- [ ] **Reserved-identifier diagnostic polish** - DEFERRED (found by the final
+  reserved-identifiers review, 2026-07-13). Two cosmetic inconsistencies in the
+  `reserved-identifier` diagnostics, neither of which gates a correct program
+  (they only shape the wording/position of an error that already fires): (1) a
+  method-component **receiver** reservation (`component (attrs page) C()`) is
+  reported at a slightly different position/code and with the legacy param
+  wording ("explicit attribute forwarding") than a body-scope binding's
+  `reserved-identifier` diagnostic — the receiver arm never migrated to the
+  shared body-binding wording; (2) for a `ctx`/`children` body-scope collision
+  the worded gsx diagnostic and the raw Go secondary note ("no new variables on
+  left side of :=" / "cannot use … as …") are emitted in an order that reads
+  awkwardly (the secondary note can precede the primary). Both are wording/
+  ordering only; align the receiver arm onto the body-binding message and sort
+  the secondary note after the primary when the two coincide.
 - [x] **Fallthrough forwarding through nested component calls** - SHIPPED
   (2026-07-13, `2026-07-13-nested-fallthrough-forwarding-design.md`). The
   attrs-only component values spec (item 18 above, "Alternative considered")
