@@ -1,0 +1,13 @@
+# Context: `css"…"` is a gsx feature that lowers to a call to gsx.RawCSS() with
+# interpolated values passed through gsx.FilterCSS(). Unlike f"…" which needs
+# no import, css"…" literals require the _gsxrt import for RawCSS and FilterCSS.
+# Pins that css-literal lowering creates import need-tracking for the runtime.
+-- input.gsx --
+package demo
+
+var c = "red"
+
+var S = css`color:@{c}`
+-- diagnostics.golden --
+invalid Go in pass-through block: 6:12: expected ';', found `color:@{c}`
+-- generated.x.go.golden --

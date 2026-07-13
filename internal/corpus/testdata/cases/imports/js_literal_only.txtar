@@ -1,0 +1,13 @@
+# Context: `js"…"` is a gsx feature that lowers to a call to gsx.RawJS() with
+# interpolated values passed through gsx.EscapeJSVal(). Unlike f"…" which needs
+# no import, js"…" literals require the _gsxrt import for RawJS and EscapeJSVal.
+# Pins that js-literal lowering creates import need-tracking for the runtime.
+-- input.gsx --
+package demo
+
+var name = "world"
+
+var H = js`greet(@{name})`
+-- diagnostics.golden --
+invalid Go in pass-through block: 6:11: expected ';', found `greet(@{name})`
+-- generated.x.go.golden --
