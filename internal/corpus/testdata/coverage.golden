@@ -342,10 +342,12 @@ imports/alias_gsx_import	diag gen render
 imports/blank_gsx_import	diag gen render
 imports/component_and_user_gsx	diag gen render
 imports/component_no_invoke	diag gen
+imports/css_literal_only	diag gen
 imports/dot_gsx_import	diag gen render
 imports/element_literal_var	diag gen
 imports/f_literal_only	diag gen
 imports/gsx_node_no_component	diag gen
+imports/js_literal_only	diag gen
 imports/no_gsx_parts	diag gen
 imports/param_named_gsx	diag gen render
 imports/plain_go_only	diag gen
@@ -762,4 +764,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 764 cases (render: 644, error: 90, gen-pinned: 429)
+TOTAL: 766 cases (render: 644, error: 90, gen-pinned: 431)
