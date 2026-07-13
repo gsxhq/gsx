@@ -1,0 +1,24 @@
+-- doc --
+name: Forwarding through components
+summary: A component forwards its own fallthrough bag into a component it calls — attrs binds on a nested invocation exactly as it does on an element.
+category: Components & composition
+page: composition
+pageOrder: 90
+-- input.gsx --
+package views
+
+component Icon(name string) {
+	<span class="icon" data-name={name} { attrs... }>i</span>
+}
+
+component SearchIcon() {
+	<Icon name="search" class="w-5 h-5" { attrs... }/>
+}
+
+component Page() {
+	<SearchIcon class="text-red" aria-label="Search"/>
+}
+-- invoke --
+Page()
+-- render.golden --
+<span class="icon w-5 h-5 text-red" data-name="search" aria-label="Search">i</span>

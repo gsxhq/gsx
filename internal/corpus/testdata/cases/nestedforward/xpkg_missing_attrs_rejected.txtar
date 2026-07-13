@@ -1,0 +1,29 @@
+# Same rejection as missing_attrs_rejected.txtar, but the bag-less callee
+# lives in a sibling package: componentPropFieldsFor re-parses the
+# dependency's .gsx source (module_importer.go), so the cross-package
+# component's field set is enumerated exactly like a same-package one — the
+# component-missing-attrs diagnostic fires at GENERATE time, not a
+# `go build` failure downstream.
+-- go.mod --
+module example.com/app
+
+go 1.26.1
+-- ui/plain.gsx --
+package ui
+
+component Plain(title string) {
+	<h1>{title}</h1>
+}
+-- pages/home.gsx --
+package pages
+
+import "example.com/app/ui"
+
+component Home() {
+	<ui.Plain title="t" data-x="1"/>
+}
+-- invoke --
+pages.Home()
+-- diagnostics.golden --
+6:22: attribute on <ui.Plain> matches no declared prop of component ui.Plain, and its body does not reference `attrs` (no fallthrough bag); reference `attrs` in <ui.Plain>'s body to accept forwarded attributes
+-- render.golden --

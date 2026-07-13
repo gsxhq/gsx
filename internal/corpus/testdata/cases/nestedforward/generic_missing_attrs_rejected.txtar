@@ -1,0 +1,28 @@
+# Forwarding onto a bag-less GENERIC callee (Bare never references `attrs`)
+# with inferable args and a mixed `data-x="1" { attrs... }`. Inference resolves
+# T from `items`, then emit re-checks with the missing-attrs guard and reports
+# the worded component-missing-attrs diagnostic — NOT the raw byo-splat-mixed
+# the pending-inference probe would have raised prematurely.
+-- input.gsx --
+package views
+
+component Bare[T any](items []T) {
+	<ul>
+		{ for _, it := range items {
+			<li>{ it |> printf("%v") }</li>
+		} }
+	</ul>
+}
+
+component Wrap() {
+	<Bare items={[]string{"a"}} data-x="1" { attrs... }/>
+}
+
+component Page() {
+	<Wrap/>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+12:41: cannot forward `{ attrs... }` to <Bare>: BareProps has no fallthrough bag; reference `attrs` in <Bare>'s body to accept forwarded attributes
+-- render.golden --

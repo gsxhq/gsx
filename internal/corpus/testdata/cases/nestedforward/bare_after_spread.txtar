@@ -1,0 +1,22 @@
+# Component-call bags follow element source-order merge (2026-07-13
+# alignment): a bare fallthrough attr AFTER a spread wins per key — the
+# force position, exactly as on an element. data-v="root" is written after
+# the spread carrying data-v="bag", so root wins; data-pre is before the
+# spread, so the bag's value wins.
+-- input.gsx --
+package views
+
+import "github.com/gsxhq/gsx"
+
+component Panel() {
+	<section { attrs... }>p</section>
+}
+
+component Page(extra gsx.Attrs) {
+	<Panel data-pre="root" { extra... } data-v="root"/>
+}
+-- invoke --
+Page(PageProps{Extra: gsx.Attrs{{Key: "data-pre", Value: "bag"}, {Key: "data-v", Value: "bag"}}})
+-- diagnostics.golden --
+-- render.golden --
+<section data-pre="bag" data-v="root">p</section>
