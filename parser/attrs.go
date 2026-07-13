@@ -477,11 +477,11 @@ func (p *parser) parseBareBacktickAttrValue(name string, attrStartPos token.Pos)
 func (p *parser) parseEmbeddedInterpPart(off int) (*ast.EmbeddedInterp, error) {
 	p.i = off
 	startPos := p.posAt(off)
-	_, dquoted, segs, err := p.parseEmbeddedAttrLiteral()
+	lang, dquoted, segs, err := p.parseEmbeddedAttrLiteral()
 	if err != nil {
 		return nil, err
 	}
-	node := &ast.EmbeddedInterp{Segments: segs, DoubleQuoted: dquoted}
+	node := &ast.EmbeddedInterp{Lang: lang, Segments: segs, DoubleQuoted: dquoted}
 	ast.SetSpan(node, startPos, p.posAt(p.i))
 	return node, nil
 }

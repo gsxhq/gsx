@@ -429,13 +429,17 @@ type EmbeddedAttr struct {
 
 func (*EmbeddedAttr) attrNode() {}
 
-// EmbeddedInterp is an interpolating f`…` literal used as a body/child
-// expression: {f`…@{expr}…`} or {f`…` |> f}. Segments contain *Text and *Interp
-// only; Stages is the optional whole-literal pipeline applied to the assembled
-// string. Always plain-text (HTML-text-escaped) — no js/css lang in body, and a
-// bare `…` in body position is a plain Go raw string, not an EmbeddedInterp.
+// EmbeddedInterp is an interpolating prefixed literal used as a body/child
+// expression ({f`…@{expr}…`}) or as a Go-expression value (f`…`, js`…`,
+// css`…` in var initializers, call args, {{ }} blocks). Segments contain
+// *Text and *Interp only; Stages is the optional whole-literal pipeline
+// applied to the assembled string (body position only). Lang selects the
+// lowering: EmbeddedText assembles a plain Go string; EmbeddedJS/EmbeddedCSS
+// assemble a gsx.RawJS/gsx.RawCSS with per-hole contextual escaping. Lang is
+// always set by the parser; the zero value is invalid.
 type EmbeddedInterp struct {
 	span
+	Lang     EmbeddedLang
 	Segments []Markup
 	Stages   []PipeStage
 	// DoubleQuoted records the delimiter: false is {f`…`}, true is {f"…"}. See

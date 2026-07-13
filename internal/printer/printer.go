@@ -729,7 +729,7 @@ func (p *printer) interp(i *ast.Interp) pretty.Doc {
 func (p *printer) embeddedInterp(v *ast.EmbeddedInterp) pretty.Doc {
 	var b strings.Builder
 	b.WriteString("{")
-	b.WriteString(embeddedLiteralString(ast.EmbeddedText, v.Segments, embeddedDelim(v.DoubleQuoted)))
+	b.WriteString(embeddedLiteralString(v.Lang, v.Segments, embeddedDelim(v.DoubleQuoted)))
 	for _, s := range v.Stages {
 		b.WriteString(" |> ")
 		b.WriteString(pipeStageStr(s))
@@ -1430,7 +1430,7 @@ func (p *printer) goExprValue(part ast.GoPart) (pretty.Doc, bool) {
 		// raw f`…@{expr}…` literal (no braces, no whole-literal pipeline — value-
 		// position literals carry no Stages), so it splices back into the
 		// surrounding Go source exactly as authored.
-		return pretty.Text(embeddedLiteralString(ast.EmbeddedText, pt.Segments, embeddedDelim(pt.DoubleQuoted))), true
+		return pretty.Text(embeddedLiteralString(pt.Lang, pt.Segments, embeddedDelim(pt.DoubleQuoted))), true
 	default:
 		return pretty.Doc{}, false
 	}
