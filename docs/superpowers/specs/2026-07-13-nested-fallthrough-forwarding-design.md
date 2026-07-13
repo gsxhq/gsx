@@ -48,6 +48,14 @@ identifier binds in every Go-fragment position of a nested component
 invocation**, exactly as it already does in plain-element and body positions.
 Any such reference makes the enclosing component manual mode.
 
+This is not a new rule — it restores the existing one. Usage synthesizes the
+prop: *any* `attrs` reference in a component's body means the component has a
+fallthrough bag in its props (`{children}` placement ⇒ `Children gsx.Node`,
+same model). Today's detection walk simply skips Go fragments in nested
+component-tag attr positions, so references there error instead of
+synthesizing; `children` has no equivalent gap because `{children}` placement
+is markup, and markup positions of nested tags are already walked.
+
 - **Forwarding.** `<Inner { attrs... }/>` concatenates the wrapper's bag into
   `Inner`'s synthesized bag **at the spread's source position**, alongside
   bare fallthrough attrs, other spreads, and conditional attrs — the existing
