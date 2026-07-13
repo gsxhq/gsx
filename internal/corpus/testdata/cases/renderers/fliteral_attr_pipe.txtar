@@ -51,7 +51,7 @@ package views
 
 import (
 	_gsxctx "context"
-	_gsxf32 "corpustest/cases/renderers_fliteral_attr_pipe/rend"
+	_gsxf34 "corpustest/cases/renderers_fliteral_attr_pipe/rend"
 	_gsxf0 "corpustest/cases/renderers_fliteral_attr_pipe/wrapf"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
@@ -68,7 +68,7 @@ func Tag(_gsxp TagProps) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:4:2
 		_gsxgw.S("<div title=\"")
-		_gsxgw.AttrValue(string(_gsxf32.PgText((_gsxf0.WrapText(("hi-" + string(name)))))))
+		_gsxgw.AttrValue(string(_gsxf34.PgText((_gsxf0.WrapText(("hi-" + string(name)))))))
 		_gsxgw.S("\">ok</div>")
 		return _gsxgw.Err()
 	})

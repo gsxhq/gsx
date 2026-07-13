@@ -195,7 +195,8 @@ GSX must report a positioned compile-time error when:
 - the literal is malformed;
 - an interpolation appears in an unsupported lexical position;
 - contextual escaping cannot be determined safely;
-- a hole contains an error-returning pipe stage, or a ctx-taking / error-returning filter or renderer (expression positions only — no ambient render context exists there);
+- a hole's filter or renderer is ctx-taking, where no ambient render context exists (top-level Go-expression positions);
+- a hole's filter, renderer, or tuple seed is error-returning, or its value is a mixed type-parameter conversion, where no statement hoist channel exists (top-level Go-expression positions and `{{ }}` GoBlocks);
 - the literal appears directly in a markup body/text position;
 - generated Go cannot satisfy the required trusted-type expression contract.
 
