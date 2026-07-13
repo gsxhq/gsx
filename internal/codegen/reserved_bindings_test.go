@@ -5,11 +5,15 @@ import (
 	"testing"
 
 	gsxast "github.com/gsxhq/gsx/ast"
+	"github.com/gsxhq/gsx/internal/diag"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
-// componentFromSrc parses a .gsx source and returns its first component plus the
-// FileSet the parse used (for offset→ident verification).
+// componentFromSrc parses a .gsx source, stamps Element.IsComponent via
+// resolveComponentTags (as module_importer does BEFORE the reservation pass runs
+// — the walker reads the stamp to treat component-element children as closure
+// scope), and returns the FIRST component plus the FileSet (for offset→ident
+// verification).
 func componentFromSrc(t *testing.T, src string) (*gsxast.Component, *token.FileSet) {
 	t.Helper()
 	fset := token.NewFileSet()
@@ -17,13 +21,21 @@ func componentFromSrc(t *testing.T, src string) (*gsxast.Component, *token.FileS
 	if err != nil {
 		t.Fatalf("parse %q: %v", src, err)
 	}
+	declNames := map[string]bool{}
+	var first *gsxast.Component
 	for _, d := range f.Decls {
 		if c, ok := d.(*gsxast.Component); ok {
-			return c, fset
+			declNames[c.Name] = true
+			if first == nil {
+				first = c
+			}
 		}
 	}
-	t.Fatalf("no component parsed from %q", src)
-	return nil, nil
+	if first == nil {
+		t.Fatalf("no component parsed from %q", src)
+	}
+	resolveComponentTags(f, declNames, diag.NewBag(fset))
+	return first, fset
 }
 
 func flaggedNames(decls []reservedDecl) []string {
@@ -83,6 +95,13 @@ func TestCheckReservedBodyBindings(t *testing.T) {
 		// The range-var shadow idiom: the clause binds `attrs`, not a GoBlock —
 		// clause bindings are nested by construction and are not reported.
 		{"clause_range_var", `{ for _, attrs := range xs { <span/> } }`, nil},
+		// A COMPONENT element's children lower into a nested gsx.Func slot
+		// closure (emitSlotClosure) — a new Go scope; a binding there is a legal
+		// shadow of the captured parent local, never flagged.
+		{"nested_under_component", `<Wrap>{{ attrs := 1 }}</Wrap>`, nil},
+		// Transitive: a plain element INSIDE component children is still inside
+		// the slot closure — nested all the way down.
+		{"nested_under_component_transitive", `<Wrap><div>{{ attrs := 1 }}</div></Wrap>`, nil},
 		// A func-literal parameter named `attrs` is nested; `f` (the only body-scope
 		// bind) is not reserved.
 		{"funclit_param", `{{ f := func(attrs int) int { return attrs } }}`, nil},
@@ -97,7 +116,8 @@ func TestCheckReservedBodyBindings(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			src := "package p\n\ncomponent C() {\n" + tc.body + "\n}\n"
+			// Wrap is a real component declaration so <Wrap> stamps IsComponent.
+			src := "package p\n\ncomponent C() {\n" + tc.body + "\n}\n\ncomponent Wrap() {\n<div>{children}</div>\n}\n"
 			c, _ := componentFromSrc(t, src)
 			got := flaggedNames(checkReservedBodyBindings(c))
 			if !eqStrings(got, tc.want) {

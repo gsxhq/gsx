@@ -131,9 +131,11 @@ func freeUseAttrs(body []ast.Markup) bool {
 // freeInBody walks a sibling markup list threading env — the set of names bound
 // by enclosing clauses and by preceding GoBlock top-level declarations. env is
 // COPIED when descending into a scoped subtree (a for/if/switch body, whose
-// clause bindings shadow only there) and EXTENDED in place across GoBlock
-// siblings (a body-scope declaration is visible to later siblings), matching Go
-// scope semantics at the markup level.
+// clause bindings shadow only there; a component element's children or a named
+// markup slot's value, which lower into a nested gsx.Func slot closure) and
+// EXTENDED in place across GoBlock siblings and through PLAIN-element children
+// (a body-scope declaration is visible to later siblings, plain elements emit
+// their children inline), matching what the emitter produces scope-for-scope.
 func freeInBody(body []ast.Markup, env map[string]bool) bool {
 	for _, n := range body {
 		switch t := n.(type) {
@@ -146,7 +148,22 @@ func freeInBody(body []ast.Markup, env map[string]bool) bool {
 				return true
 			}
 		case *ast.Element:
-			if attrsFree(t.Attrs, env) || freeInBody(t.Children, env) {
+			if attrsFree(t.Attrs, env) {
+				return true
+			}
+			// A PLAIN element's children emit inline in the enclosing closure
+			// (emit.go genNode's Element case): a GoBlock binding there extends env
+			// IN PLACE and stays visible to later siblings even after the element
+			// closes, exactly like the emitted statements. A COMPONENT element's
+			// children lower into a nested gsx.Func slot closure (emitSlotClosure):
+			// bindings there are closure-scoped and must NOT leak outward — a later
+			// SIBLING's free use of `attrs` is the implicit bag and must still
+			// trigger. Descend with a COPY (extendEnv, no binds), like CF subtrees.
+			childEnv := env
+			if t.IsComponent {
+				childEnv = extendEnv(env, nil)
+			}
+			if freeInBody(t.Children, childEnv) {
 				return true
 			}
 		case *ast.Fragment:
@@ -237,7 +254,10 @@ func attrsFree(attrs []ast.Attr, env map[string]bool) bool {
 				return true
 			}
 		case *ast.MarkupAttr:
-			if freeInBody(at.Value, env) {
+			// A named markup slot's value lowers into the SAME gsx.Func slot
+			// closure shape as component children (emitSlotClosure is shared by
+			// both) — bindings inside must not leak into the enclosing env.
+			if freeInBody(at.Value, extendEnv(env, nil)) {
 				return true
 			}
 		case *ast.OrderedAttrsAttr:

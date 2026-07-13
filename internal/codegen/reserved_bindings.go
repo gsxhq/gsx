@@ -18,29 +18,39 @@ import (
 // Scope is the whole game. A reserved name declared in the render closure's TOP
 // scope collides with what the generator binds there (`ctx` closure param,
 // `children := _gsxp.Children`, `attrs := _gsxp.Attrs`); a reserved name bound in
-// a NESTED scope (a `for`/`if`/`switch` body, a func literal, an inner block) is
-// an ordinary Go shadow and must NOT be flagged — flagging it would reject
-// correct code, the exact bug class this feature eliminates.
+// a NESTED scope (a `for`/`if`/`switch` body, a func literal, an inner block, a
+// component element's children) is an ordinary Go shadow and must NOT be flagged
+// — flagging it would reject correct code, the exact bug class this feature
+// eliminates.
 //
 // The emitter is the scope oracle (verified against emit.go's genNode):
 //   - GoBlock            → emits `t.Code` verbatim (emit.go:1975-1977), no block.
 //   - Fragment (`<>…</>`) → emits its children inline (emit.go:1925-1930), no block.
-//   - Element (`<div>…`)  → writes the open tag, then emits its children inline
-//     (emit.go:1911-1917), no block — an element does NOT open a Go scope.
+//   - PLAIN Element (`<div>…`) → writes the open tag, then emits its children
+//     inline (emit.go:1911-1917), no block — a plain element does NOT open a Go
+//     scope.
+//   - COMPONENT Element (`<Wrap>…`) → its children become the Children slot
+//     VALUE, a nested gsx.Func render closure (emitSlotClosure, emit.go:5147;
+//     wired via childPropsLiteral, emit.go:4587-4602) — a NEW Go scope. A
+//     reserved-name binding there is a legal shadow of the captured parent local
+//     (`attrs`/`children`); `ctx` re-binds as the slot closure's own param, so a
+//     `ctx :=` there is broken code the Go backstop reports, never gsx.
 //   - ForMarkup           → emits `for … {` … `}` (emit.go:1931-1939): a real block.
 //   - IfMarkup            → emits `if … {` … `}` (+ `else {`) (emit.go:1940-1958): real blocks.
 //   - SwitchMarkup        → emits `switch … { case …: … }` (emit.go:1959-1974): case
 //     clauses are their own implicit Go blocks.
 //
-// Consequence: a GoBlock reached WITHOUT crossing a for/if/switch boundary emits
-// into the closure's top scope (body-scope — flag it); a GoBlock nested under one
-// of those emits inside that block (nested-scope — legal shadow, do not flag).
+// Consequence: a GoBlock reached WITHOUT crossing a for/if/switch or
+// component-element boundary emits into the closure's top scope (body-scope —
+// flag it); a GoBlock nested under one of those emits inside that block/closure
+// (nested-scope — legal shadow, do not flag). Element.IsComponent is stamped by
+// resolveComponentTags (module_importer.go:770) before this pass runs (:~874).
 // `<script>`/`<style>` children route through genScriptChild/genStyleChild, not
 // genNode, so they cannot carry a body GoBlock and are not descended.  Attribute
-// markup (MarkupAttr child props, CondAttr branches) and embedded-interp segments
-// lower through nested closures/expressions, never the top scope; they are not
-// descended either (a false negative there is a nested shadow we would not flag
-// anyway — sound).
+// markup (MarkupAttr child props — themselves slot closures — and CondAttr
+// branches) and embedded-interp segments lower through nested closures/
+// expressions, never the top scope; they are not descended either (a false
+// negative there is a nested shadow we would not flag anyway — sound).
 
 // checkReservedBodyBindings reports every body-scope binding of a reserved
 // component-body identifier (`ctx`/`children`/`attrs`) in c, positioned at the
@@ -69,11 +79,14 @@ func checkReservedBodyBindings(c *ast.Component) []reservedDecl {
 			case *ast.Fragment:
 				walk(t.Children, topScope)
 			case *ast.Element:
-				// An element opens no Go scope; its children emit inline at the same
-				// scope — EXCEPT <script>/<style>, whose children do not route through
-				// genNode and cannot carry a body GoBlock.
+				// A PLAIN element opens no Go scope; its children emit inline at the
+				// same scope — EXCEPT <script>/<style>, whose children do not route
+				// through genNode and cannot carry a body GoBlock. A COMPONENT
+				// element's children lower into a nested gsx.Func slot closure
+				// (emitSlotClosure) — a new Go scope, so bindings there are legal
+				// shadows, never body-scope.
 				if !strings.EqualFold(t.Tag, "script") && !strings.EqualFold(t.Tag, "style") {
-					walk(t.Children, topScope)
+					walk(t.Children, topScope && !t.IsComponent)
 				}
 			case *ast.ForMarkup:
 				walk(t.Body, false)
