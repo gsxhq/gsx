@@ -15,7 +15,7 @@ gsx ships a built-in filter library (the `std` package) that is always available
 | `trim` | removes leading and trailing whitespace |
 | `truncate(n)` | cuts to at most `n` runes |
 | `join(sep)` | joins a `[]string` with `sep` |
-| `default(fallback)` | returns `fallback` when the value is the empty string |
+| `default(fallback, rest…)` | returns the first non-zero comparable value, preserving its concrete type (`cmp.Or` semantics) |
 | `printf(spec, rest…)` | like `fmt.Sprintf` with the piped value as the first verb |
 | `urlquery` | percent-encodes the value for a URL query component (`url.QueryEscape`) — html/template's `urlquery` |
 | `dataURL(mime)` | assembles a `data:` URL from `[]byte` bytes and a MIME string: `data:<mime>;base64,<base64(bytes)>` |

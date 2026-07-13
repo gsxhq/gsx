@@ -192,6 +192,29 @@ func TestDefault(t *testing.T) {
 	}
 }
 
+func TestDefaultGenericZeroValues(t *testing.T) {
+	if got := Default(0, 42); got != 42 {
+		t.Fatalf("Default(0, 42) = %d, want 42", got)
+	}
+	if got := Default(7, 42); got != 7 {
+		t.Fatalf("Default(7, 42) = %d, want 7", got)
+	}
+	if got := Default(false, true); !got {
+		t.Fatal("Default(false, true) = false, want true")
+	}
+
+	fallback := "fallback"
+	if got := Default((*string)(nil), &fallback); got != &fallback {
+		t.Fatalf("Default(nil, &fallback) = %p, want %p", got, &fallback)
+	}
+}
+
+func TestDefaultUsesFirstNonZeroFallback(t *testing.T) {
+	if got := Default(0, 0, 7, 9); got != 7 {
+		t.Fatalf("Default(0, 0, 7, 9) = %d, want 7", got)
+	}
+}
+
 func TestDataURL(t *testing.T) {
 	got := DataURL([]byte("PNGDATA"), "image/png")
 	want := "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("PNGDATA"))
