@@ -1539,7 +1539,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 					// stay unique across every sibling component tag in this block — not
 					// just within one tag (fix #69).
 					var cfHoistBuf bytes.Buffer
-					fieldEntries, splatExpr, usedPkgs, err := childPropsLiteral(t, propsType, "_gsxrt", "_gsxrt.DefaultClassMerge", table, propFields, nodeProps[propsType], byo, fm, func(nodes []gsxast.Markup) (string, error) {
+					fieldEntries, _, splatExpr, usedPkgs, err := childPropsLiteral(t, propsType, "_gsxrt", "_gsxrt.DefaultClassMerge", table, propFields, nodeProps[propsType], byo, fm, func(nodes []gsxast.Markup) (string, error) {
 						return "_gsxrt.Node(nil)", nil
 					}, true, nil, map[string]bool{}, rtImports{}, bag, &cfHoistBuf, cfTemp, "")
 					if err != nil {

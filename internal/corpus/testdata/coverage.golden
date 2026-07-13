@@ -29,6 +29,7 @@ attrsonly/direct_factory_pipelined_forwarding	diag gen render
 attrsonly/direct_factory_variadic_forwarding	diag gen render
 attrsonly/element_literal_interp	diag render
 attrsonly/empty_children_ok	diag render
+attrsonly/f_literal_ordered_pair_order	diag gen render
 attrsonly/factory_var	diag render
 attrsonly/func_named_attrs	diag gen render
 attrsonly/func_variadic	diag render
@@ -141,6 +142,13 @@ components/component_cond_branch_spread	diag gen render
 components/component_conditional_attr	diag gen render
 components/component_conditional_attr_else	diag gen render
 components/component_conditional_attr_lazy	diag gen render
+components/component_f_literal_hole_order	diag gen render
+components/component_f_literal_node_order	diag gen render
+components/component_f_literal_order	diag gen render
+components/component_f_literal_pipeline	diag gen render
+components/component_f_literal_pipeline_invalid_tuple	diag(error)
+components/component_f_literal_plain_order	diag gen render
+components/component_f_literal_values	diag gen render
 components/component_fallthrough_pipeline	diag gen render
 components/component_prop_pipeline	diag gen render
 components/component_spread	diag gen render
@@ -740,6 +748,7 @@ xpkg/generic_inference_unavailable_warning	diag render
 xpkg/generic_inferred_import	diag render
 xpkg/generic_inferred_two_files	diag gen render
 xpkg/generic_sibling_file	diag gen render
+xpkg/generic_skipped_sink_values	diag gen render
 xpkg/go_component_attrs_literal	diag gen render
 xpkg/go_component_attrs_literal_missing	diag render
 xpkg/imported_alias_collision	diag gen render
@@ -749,4 +758,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 751 cases (render: 632, error: 89, gen-pinned: 416)
+TOTAL: 760 cases (render: 640, error: 90, gen-pinned: 424)

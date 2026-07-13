@@ -1,0 +1,15 @@
+# A component f-literal hole returning a non-error tuple retains the established
+# invalid-tuple diagnostic instead of being stringified or emitted into a
+# single-value props field.
+-- input.gsx --
+package views
+
+component Header(text string) { <h1>{text}</h1> }
+
+func bad() (int, string) { return 0, "not an error" }
+
+component Page() {
+	<Header text=f`item-@{bad()}`/>
+}
+-- diagnostics.golden --
+8:23: interpolation "bad()" returns (int, string); only (T, error) is supported

@@ -3119,6 +3119,111 @@ func embeddedTextValueExpr(b *bytes.Buffer, a *ast.EmbeddedAttr, resolved map[as
 	return embeddedValueExpr(b, a.Segments, resolved, table, imports, rt, interpTemp, bag, errReturn, "unsupported-attr", fmt.Sprintf("attribute %q value", a.Name))
 }
 
+// componentEmbeddedTextValueExpr materializes an f-literal as an unescaped Go
+// string expression at a component boundary. Unlike emitEmbeddedTextAttr, this
+// path does not write an element attribute: the returned string is assigned to
+// a declared prop (or wrapped in Text for a Node prop) or stored as the value of
+// an unmatched Attrs entry. A whole-literal pipeline therefore runs before the
+// final supported result is stringified, including renderer dispatch and
+// (T, error) unwrapping.
+func componentEmbeddedTextValueExpr(
+	b *bytes.Buffer,
+	a *ast.EmbeddedAttr,
+	resolved map[ast.Node]types.Type,
+	table funcTables,
+	imports map[string]bool,
+	rt rtImports,
+	interpTemp *int,
+	bag *diag.Bag,
+	errReturn string,
+) (string, bool) {
+	// Lower each hole into its own buffer first. holeStringExpr may need to emit
+	// statements for a tuple/error pipeline, renderer, or AttrString conversion.
+	// If those statements were written directly to b, a later hole's hoist would
+	// run before an earlier ordinary call left inline in the final concat.
+	type part struct {
+		expr  string
+		hole  bool
+		hoist bytes.Buffer
+	}
+	parts := make([]part, 0, len(a.Segments))
+	ordered := false
+	for _, seg := range a.Segments {
+		switch s := seg.(type) {
+		case *ast.Text:
+			if s.Value != "" {
+				parts = append(parts, part{expr: strconv.Quote(s.Value)})
+			}
+		case *ast.Interp:
+			var hoist bytes.Buffer
+			expr, ok := holeStringExpr(&hoist, s, resolved, table, imports, rt, interpTemp, bag, errReturn)
+			if !ok {
+				return "", false
+			}
+			if hoist.Len() > 0 {
+				ordered = true
+			}
+			parts = append(parts, part{expr: expr, hole: true, hoist: hoist})
+		default:
+			bag.Errorf(seg.Pos(), seg.End(), "unsupported-attr", "attribute %q value may contain only text and @{ } interpolations, got %T", a.Name, seg)
+			return "", false
+		}
+	}
+
+	valueParts := make([]string, 0, len(parts))
+	for i := range parts {
+		p := &parts[i]
+		if ordered && p.hole {
+			// Emit every hole's own hoists at its authored segment position. Pin
+			// call-shaped string expressions too, so an earlier ordinary call is
+			// complete before a later fallible hole and a failure prevents only
+			// subsequent holes. isCallExpr parses Go AST; this is not a source-text
+			// pattern heuristic.
+			b.Write(p.hoist.Bytes())
+			if isCallExpr(p.expr) {
+				tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+				*interpTemp++
+				fmt.Fprintf(b, "\t\t%s := %s\n", tmp, p.expr)
+				p.expr = tmp
+			}
+		}
+		valueParts = append(valueParts, p.expr)
+	}
+	value := `""`
+	if len(valueParts) > 0 {
+		value = strings.Join(valueParts, " + ")
+	}
+	if len(a.Stages) == 0 {
+		return value, true
+	}
+
+	lowered, usedPkgs, err := lowerPipe(value, a.Stages, table, pipeWrapReturning(b, interpTemp, errReturn))
+	if err != nil {
+		bag.Errorf(a.Pos(), a.End(), "unresolved-pipeline", "%s", strings.TrimPrefix(err.Error(), "codegen: "))
+		return "", false
+	}
+	for _, path := range usedPkgs {
+		imports[path] = true
+	}
+
+	t, ok := resolved[a]
+	if !ok || t == nil {
+		bag.Errorf(a.Pos(), a.End(), "unresolved-interp", "could not resolve type of component attribute %q pipeline", a.Name)
+		return "", false
+	}
+	if _, isTuple := t.(*types.Tuple); isTuple {
+		elemT, ok := tupleUnwrapType(t)
+		if !ok {
+			bag.Errorf(a.Pos(), a.End(), "invalid-tuple", "component attribute %q pipeline returns %s; only (T, error) is supported", a.Name, t)
+			return "", false
+		}
+		lowered = hoistTupleReturning(b, lowered, interpTemp, errReturn)
+		t = elemT
+	}
+	lowered, t = applyRenderer(b, lowered, t, table, imports, interpTemp, errReturn)
+	return stringifyExpr(lowered, t, rt, a, bag, fmt.Sprintf("component attribute %q pipeline result", a.Name))
+}
+
 // embeddedValueExpr is embeddedTextValueExpr generalized over a raw segment
 // list, so a body/child *ast.EmbeddedInterp's Segments can be assembled through
 // the SAME logic (static text -> raw quoted literal, each hole -> holeStringExpr)
@@ -3186,13 +3291,13 @@ func holeStringExpr(b *bytes.Buffer, n *ast.Interp, resolved map[ast.Node]types.
 	}
 	t, ok := resolved[n]
 	if !ok || t == nil {
-		bag.Errorf(n.Pos(), n.End(), "unresolved-interp", "could not resolve type of URL interpolation %q", n.Expr)
+		bag.Errorf(n.Pos(), n.End(), "unresolved-interp", "could not resolve type of interpolation %q", n.Expr)
 		return "", false
 	}
 	if _, isTuple := t.(*types.Tuple); isTuple {
 		elemT, ok := tupleUnwrapType(t)
 		if !ok {
-			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "URL interpolation %q returns %s; only (T, error) is supported", expr, t)
+			bag.Errorf(n.Pos(), n.End(), "invalid-tuple", "interpolation %q returns %s; only (T, error) is supported", expr, t)
 			return "", false
 		}
 		expr = hoistTupleReturning(b, expr, interpTemp, errReturn)
@@ -4404,7 +4509,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 	// differs, and they cannot drift.
 	// When splatExpr is non-empty, the call is a whole-struct splat: emit
 	// callTarget(splatExpr) directly, bypassing the Props{…} literal.
-	fieldEntries, splatExpr, usedPkgs, err := childPropsLiteral(el, propsType, rt.rt(), classMergeExpr(mergeExpr, rt), table, structFields, nodeProps[propsType], byo, fm, func(nodes []ast.Markup) (string, error) {
+	fieldEntries, valuePlan, splatExpr, usedPkgs, err := childPropsLiteral(el, propsType, rt.rt(), classMergeExpr(mergeExpr, rt), table, structFields, nodeProps[propsType], byo, fm, func(nodes []ast.Markup) (string, error) {
 		s, ok := emitSlotClosure(nodes, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)
 		if !ok {
 			return "", fmt.Errorf("slot closure failed")
@@ -4477,11 +4582,12 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 		}
 	}
 
-	// Unified hoist-all-when-any: if ANY value across ALL props (ExprAttr slots OR
-	// OrderedAttrsAttr pair values) is a (T, error) tuple, hoist every CALL value in
-	// source order before the Node call. This single pass over fieldEntries
-	// preserves left-to-right evaluation order even when ExprAttr and
-	// OrderedAttrsAttr slots are interleaved (e.g. a={f()} bag={{"k":g()}} b={h()}).
+	// Unified component-value plan: if ANY authored value needs statements
+	// (tuple unwrap, pipeline/renderer error handling, conditional bag lowering,
+	// or embedded materialization), emit every side-effecting value by sourceIndex
+	// before the Node call. This preserves left-to-right evaluation across declared
+	// props, ordered pairs, fallthrough bag entries, spreads/conditionals, class,
+	// and formatted values.
 	// Non-tuple CALL values get a plain `tmp := expr`; tuple CALL values get
 	// `tmp, _gsxerr := expr; if _gsxerr != nil { return _gsxerr }`. Non-call values
 	// (literals/idents) have no side effects and stay INLINE, preserving their
@@ -4494,98 +4600,7 @@ func genChildComponent(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 	// `any`. childPropsLiteral's inline literal is renderer-free by design —
 	// it cannot know whether this pass will rebuild, and a hoist emitted there
 	// would be orphaned (double-evaluated) by the rebuild.
-	anyTuple := false
-outer:
-	for _, fe := range fieldEntries {
-		if fe.ea != nil {
-			if _, ok := tupleUnwrapType(resolved[fe.ea]); ok {
-				anyTuple = true
-				break outer
-			}
-		}
-		if fe.oa != nil {
-			for j := range fe.oaPairs {
-				pt := resolved[&fe.oa.Pairs[j]]
-				if _, ok := tupleUnwrapType(pt); ok {
-					anyTuple = true
-					break outer
-				}
-				if _, ok := table.renderers[rendererKey(pt)]; ok {
-					anyTuple = true
-					break outer
-				}
-			}
-		}
-	}
-	if anyTuple {
-		for i, fe := range fieldEntries {
-			switch {
-			case fe.ea != nil:
-				// Only hoist CALL expressions: a tuple call via hoistTuple, a
-				// non-tuple call via `_gsxv := call` (preserving its left-to-right
-				// side-effect order relative to the tuple calls). A NON-call value
-				// (untyped constant, ident, selector) has no side effects, so its
-				// source order is immaterial AND hoisting it as `_gsxv := 100`
-				// would fix its untyped type and break assignment to a
-				// non-default-typed field — leave it INLINE in the literal.
-				_, isTup := tupleUnwrapType(resolved[fe.ea])
-				if !isTup && !isCallExpr(fe.rawVal) {
-					continue // keep the inline str built by childPropsLiteral
-				}
-				var tmp string
-				if isTup {
-					tmp = hoistTuple(b, fe.rawVal, interpTemp)
-				} else {
-					tmp = fmt.Sprintf("_gsxv%d", *interpTemp)
-					*interpTemp++
-					fmt.Fprintf(b, "\t\t%s := %s\n", tmp, fe.rawVal)
-				}
-				if fe.isNodeField {
-					fieldEntries[i].str = fmt.Sprintf("%s: %s.Val(%s)", fe.fieldName, rt.rt(), tmp)
-				} else {
-					fieldEntries[i].str = fmt.Sprintf("%s: %s", fe.fieldName, tmp)
-				}
-			case fe.oa != nil:
-				// Hoist tuple/call pairs and rebuild the gsx.Attrs{…}
-				// literal; non-call pairs stay inline (see the ExprAttr note).
-				var sb strings.Builder
-				fmt.Fprintf(&sb, "%s.Attrs{", rt.rt())
-				for j, pr := range fe.oaPairs {
-					pairType := resolved[&fe.oa.Pairs[j]]
-					_, isTup := tupleUnwrapType(pairType)
-					var valueStr string
-					switch {
-					case isTup:
-						valueStr = hoistTuple(b, pr.rawVal, interpTemp)
-					case isCallExpr(pr.rawVal):
-						tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-						*interpTemp++
-						fmt.Fprintf(b, "\t\t%s := %s\n", tmp, pr.rawVal)
-						valueStr = tmp
-					default:
-						valueStr = pr.rawVal // inline non-call value
-					}
-					// Apply a registered [renderers] entry before the pair value
-					// enters the literal as `any` — the pair renders as an HTML
-					// attribute at the leaf. Tuple-unwrap for the key lookup (a
-					// hoisted tuple pair's valueStr already has type T); a
-					// registry miss leaves valueStr unchanged.
-					attrType := pairType
-					if elemT, ok := tupleUnwrapType(pairType); ok {
-						attrType = elemT
-					}
-					valueStr, _ = applyRenderer(b, valueStr, attrType, table, imports, interpTemp, "return _gsxerr")
-					fmt.Fprintf(&sb, "{Key: %s, Value: %s}, ", strconv.Quote(pr.key), valueStr)
-				}
-				sb.WriteString("}")
-				if fe.oaMergePrefix != "" {
-					fieldEntries[i].str = fmt.Sprintf("Attrs: %s.ConcatAttrs(%s, %s)", rt.rt(), fe.oaMergePrefix, sb.String())
-				} else {
-					fieldEntries[i].str = fmt.Sprintf("%s: %s", fe.fieldName, sb.String())
-				}
-			}
-		}
-	}
+	materializeComponentValuePlan(b, fieldEntries, valuePlan, resolved, table, imports, rt.rt(), interpTemp, "return _gsxerr")
 	strs := make([]string, len(fieldEntries))
 	for i, fe := range fieldEntries {
 		strs[i] = fe.str
@@ -4894,11 +4909,12 @@ func unspeakableTypeArg(t types.Type, currentPkg *types.Package, visited map[typ
 //
 // Values come from the same childPropsLiteral walk the real call path uses
 // (slot closures included, so children references are consumed too, built by
-// the same emitSlotClosure). A (T, error)-tuple-valued prop or ordered-attrs
-// pair cannot sit in a single-value struct field, so it is blank-assigned at
-// its own arity instead; the tag renders nothing either way, so the
-// invalid-tuple diagnostic the normal path raises for non-(T, error) tuples
-// is deliberately not repeated here (the tag already carries its positioned
+// the same emitSlotClosure). Any tuple-valued value — a prop, an ordered-attrs
+// pair, or a fallthrough bag entry with a final (T, error) pipeline stage —
+// cannot sit in a single-value struct field, so it is blank-assigned at its
+// own arity instead; the tag renders nothing either way, so the invalid-tuple
+// diagnostic the normal path raises for non-(T, error) tuples is deliberately
+// not repeated here (the tag already carries its positioned
 // inference-unavailable warning).
 func genSkippedTagSink(b *bytes.Buffer, el *ast.Element, currentPkg *types.Package, resolved map[ast.Node]types.Type, table funcTables, structFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, imports map[string]bool, rt rtImports, importAliases map[string]string, boundNames map[string]string, typeArgAliases map[string]string, interpTemp *int, fset *token.FileSet, recvVar, recvTypeName string, cls *attrclass.Classifier, fm FieldMatcher, bag *diag.Bag, mergeExpr string) bool {
 	_, propsType, _ := childInvocation(el, byo, recvVar, recvTypeName)
@@ -4906,18 +4922,19 @@ func genSkippedTagSink(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 	// INSIDE the discarded func literal (never executed) instead of inline
 	// in the render body (where they would run — and where their temps would
 	// be unused, since the consuming class entry lives in the sink).
-	// bagErrReturn is "" — a skipped tag renders nothing, so fallthrough
-	// values are sunk RAW (reference consumption only, no renderer): the
-	// discarded literal is a nullary func and cannot host a renderer's
-	// `return _gsxerr` hoist.
+	// bagErrReturn is "return _gsxerr" — the discarded literal is a
+	// `func() error`, so embedded/pipeline hoists keep the same error-return
+	// shape as the real emission path. Values are still sunk RAW (reference
+	// consumption only, no renderer): the sink never runs
+	// materializeComponentValuePlan, which owns renderer application.
 	var hoist bytes.Buffer
-	fieldEntries, splatExpr, usedPkgs, err := childPropsLiteral(el, propsType, rt.rt(), classMergeExpr(mergeExpr, rt), table, structFields, nodeProps[propsType], byo, fm, func(nodes []ast.Markup) (string, error) {
+	fieldEntries, valuePlan, splatExpr, usedPkgs, err := childPropsLiteral(el, propsType, rt.rt(), classMergeExpr(mergeExpr, rt), table, structFields, nodeProps[propsType], byo, fm, func(nodes []ast.Markup) (string, error) {
 		s, ok := emitSlotClosure(nodes, currentPkg, resolved, table, structFields, nodeProps, attrsProps, byo, imports, rt, importAliases, boundNames, typeArgAliases, interpTemp, fset, recvVar, recvTypeName, cls, fm, bag, mergeExpr)
 		if !ok {
 			return "", fmt.Errorf("slot closure failed")
 		}
 		return s, nil
-	}, false, resolved, imports, rt, bag, &hoist, interpTemp, "")
+	}, false, resolved, imports, rt, bag, &hoist, interpTemp, "return _gsxerr")
 	if err != nil {
 		if errors.Is(err, errBagDiagReported) {
 			return false // embeddedTextValueExpr already reported it
@@ -4951,53 +4968,53 @@ func genSkippedTagSink(b *bytes.Buffer, el *ast.Element, currentPkg *types.Packa
 	}
 
 	var stmts bytes.Buffer
+	// Every reference-bearing attr value — a prop expression, a fallthrough
+	// bag entry, a class entry, a spread/cond segment, an ordered-attrs pair,
+	// an f-literal materialization — is a source-ordered plan entry: emit its
+	// hoist statements, then consume the value itself. A tuple-valued
+	// expression (a (T, error) prop/pair, or a fallthrough value whose FINAL
+	// pipeline stage returns (T, error) — the plan pass that would unwrap it
+	// never runs here) is blank-assigned at its own arity. An f-literal entry
+	// is exempt: its stmts already unwrapped any (T, error) hole or stage, so
+	// its rawExpr is a plain string even when resolved[node] is a tuple.
+	for _, value := range valuePlan {
+		stmts.Write(value.stmts)
+		if value.embedded == nil {
+			if t, ok := resolved[value.node].(*types.Tuple); ok && t.Len() > 1 {
+				blankAssign(&stmts, t.Len(), value.rawExpr)
+				continue
+			}
+		}
+		sinkValue(value.rawExpr)
+	}
 	if splatExpr != "" {
 		sinkValue(splatExpr)
 	}
 	for _, fe := range fieldEntries {
-		switch {
-		case fe.ea != nil:
-			if t, ok := resolved[fe.ea].(*types.Tuple); ok && t.Len() > 1 {
-				blankAssign(&stmts, t.Len(), fe.rawVal)
-				continue
-			}
-			if _, val, ok := strings.Cut(fe.str, ":"); ok {
-				sinkValue(strings.TrimSpace(val))
-			}
-		case fe.oa != nil:
-			// Sink each ordered-attrs pair VALUE individually (the keys are
-			// string constants), tuple-aware; the concat-prefix bag args
-			// (composed from fallthrough attr values) are sunk too so their
-			// references stay used. oaMergePrefix is the comma-separated arg
-			// list, so wrap it back into a single ConcatAttrs call expression.
-			if fe.oaMergePrefix != "" {
-				sinkValue(fmt.Sprintf("%s.ConcatAttrs(%s)", rt.rt(), fe.oaMergePrefix))
-			}
-			for j, pr := range fe.oaPairs {
-				if t, ok := resolved[&fe.oa.Pairs[j]].(*types.Tuple); ok && t.Len() > 1 {
-					blankAssign(&stmts, t.Len(), pr.rawVal)
-					continue
-				}
-				sinkValue(pr.rawVal)
-			}
-		default:
-			// Slot/Children closures, class entries, boolean props, Attrs
-			// bags — every entry childPropsLiteral produces is "Field: value".
-			if _, val, ok := strings.Cut(fe.str, ":"); ok {
-				sinkValue(strings.TrimSpace(val))
-			}
+		// The plan entries above already consumed every dynamic value inside
+		// expr/embedded prop fields, ordered-attrs literals, and the
+		// synthesized Attrs composition; what remains of those fields is
+		// static text (keys, quoted values) referencing nothing.
+		if fe.ea != nil || fe.embedded != nil || fe.oa != nil || len(fe.bagPairs) > 0 || len(fe.bagSegments) > 0 {
+			continue
+		}
+		// Slot/Children closures, static/boolean props — every entry
+		// childPropsLiteral produces is "Field: value".
+		if _, val, ok := strings.Cut(fe.str, ":"); ok {
+			sinkValue(strings.TrimSpace(val))
 		}
 	}
 
 	if hoist.Len() == 0 && stmts.Len() == 0 && len(litParts) == 0 {
 		return true // nothing to consume; the element simply renders nothing
 	}
-	b.WriteString("\t\t_ = func() {\n")
+	b.WriteString("\t\t_ = func() error {\n")
 	b.Write(hoist.Bytes())
 	b.Write(stmts.Bytes())
 	if len(litParts) > 0 {
 		fmt.Fprintf(b, "\t\t\t_ = struct{ %s }{%s}\n", strings.Join(typeParts, "; "), strings.Join(litParts, ", "))
 	}
+	b.WriteString("\t\t\treturn nil\n")
 	b.WriteString("\t\t}\n")
 	return true
 }
@@ -5061,16 +5078,19 @@ func emitSlotClosure(nodes []ast.Markup, currentPkg *types.Package, resolved map
 // propFieldEntry is one field in a child component's props literal. The ea,
 // rawVal, fieldName, and isNodeField fields are populated only for a prop-matched
 // *ExprAttr; they are used by genChildComponent to detect and hoist (T, error)
-// tuple-valued props before the _gsxgw.Node call.
+// tuple-valued props before the _gsxgw.Node call. embedded identifies a matched
+// EmbeddedText field so the ordered component-value pass can preserve its
+// authored evaluation position.
 // For an *OrderedAttrsAttr field, oa is non-nil and oaPairs holds per-pair info
 // (key + raw value expression); genChildComponent uses oa to look up resolved
 // types for each pair and rebuild the gsx.Attrs{…} literal after hoisting.
 type propFieldEntry struct {
-	str         string        // fully-computed field string, e.g. "Title: lookup(t)"
-	ea          *ast.ExprAttr // non-nil iff this entry came from a prop-matched ExprAttr
-	rawVal      string        // lowered expression (no _gsxunwrap wrapping); used for hoisting
-	fieldName   string        // Go field name; used to rebuild the string after hoisting
-	isNodeField bool          // whether the field expects gsx.Node (needs gsx.Val wrapping)
+	str         string            // fully-computed field string, e.g. "Title: lookup(t)"
+	ea          *ast.ExprAttr     // non-nil iff this entry came from a prop-matched ExprAttr
+	embedded    *ast.EmbeddedAttr // non-nil iff this entry came from a prop-matched EmbeddedText attr
+	rawVal      string            // lowered expression (no _gsxunwrap wrapping); used for hoisting
+	fieldName   string            // Go field name; used to rebuild the string after hoisting
+	isNodeField bool              // whether the field expects gsx.Node (needs gsx.Val wrapping)
 	// For OrderedAttrsAttr fields:
 	oa            *ast.OrderedAttrsAttr // non-nil iff this entry came from an ordered-attrs attr
 	oaPairs       []oaPairEntry         // per-pair info when oa != nil
@@ -5078,6 +5098,27 @@ type propFieldEntry struct {
 	oaMergePrefix string                // comma-separated ConcatAttrs prefix args (base literal + spread/cond segments) the literal concatenates after; "" when the literal stands alone. The full field is `<rtPkg>.ConcatAttrs(<oaMergePrefix>, <oaLit>)`.
 	inferField    string
 	inferArg      string
+	bagPairs      []oaPairEntry // source-ordered fallthrough pairs when this is the synthesized Attrs field
+	bagSegments   []string      // source-ordered spread/conditional segments following bagPairs
+}
+
+// componentValueEntry is one potentially side-effecting child-component value
+// in authored attribute order. childPropsLiteral records these entries without
+// committing statement-producing lowering to the parent buffer;
+// genChildComponent emits the plan only after it knows whether any entry needs
+// ordered materialization.
+type componentValueEntry struct {
+	sourceIndex  int
+	node         ast.Node
+	rawExpr      string
+	fieldName    string
+	isNodeField  bool
+	embedded     *ast.EmbeddedAttr
+	bagIndex     int
+	pairIndex    int
+	segmentIndex int
+	fieldIndex   int
+	stmts        []byte
 }
 
 // oaPairEntry holds the key and raw value expression for one pair inside an
@@ -5086,6 +5127,224 @@ type propFieldEntry struct {
 type oaPairEntry struct {
 	key    string // unquoted attribute key (for {Key: …} literal)
 	rawVal string // raw Go expression (no _gsxunwrap wrapping)
+}
+
+func attrsPairsLiteral(rtPkg string, pairs []oaPairEntry) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s.Attrs{", rtPkg)
+	for i, pair := range pairs {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		fmt.Fprintf(&b, "{Key: %s, Value: %s}", strconv.Quote(pair.key), pair.rawVal)
+	}
+	b.WriteString("}")
+	return b.String()
+}
+
+func componentValuePlanNeeded(fields []propFieldEntry, plan []componentValueEntry, resolved map[ast.Node]types.Type, table funcTables) bool {
+	for _, value := range plan {
+		if componentValueRequiresMaterialization(value, resolved, table) {
+			return true
+		}
+	}
+
+	// childPropsLiteral records values in authored order, but the final Go
+	// struct literal evaluates them in field order. In particular, fallthrough
+	// values move into the synthesized Attrs field after declared props. Only
+	// activate the ordered pass when that reconstruction inverts two
+	// call-bearing expressions; moving constants or identifiers is unobservable.
+	type finalPosition struct {
+		field int
+		group int
+		index int
+	}
+	position := func(value componentValueEntry) finalPosition {
+		pos := finalPosition{field: value.fieldIndex}
+		switch {
+		case value.bagIndex >= 0:
+			pos.index = value.bagIndex
+		case value.segmentIndex >= 0:
+			// Bag pairs precede ConcatAttrs segments in the rebuilt Attrs field.
+			pos.group = 1
+			pos.index = value.segmentIndex
+		case value.pairIndex >= 0:
+			// When an explicit attrs={{ }} literal shares the Attrs field with
+			// fallthrough contributors, it is the final ConcatAttrs argument.
+			if field := fields[value.fieldIndex]; len(field.bagPairs) > 0 || len(field.bagSegments) > 0 {
+				pos.group = 2
+			}
+			pos.index = value.pairIndex
+		}
+		return pos
+	}
+	less := func(a, b finalPosition) bool {
+		if a.field != b.field {
+			return a.field < b.field
+		}
+		if a.group != b.group {
+			return a.group < b.group
+		}
+		return a.index < b.index
+	}
+	var previous finalPosition
+	havePrevious := false
+	for _, value := range plan {
+		if !exprHasCall(value.rawExpr) {
+			continue
+		}
+		current := position(value)
+		if havePrevious && less(current, previous) {
+			return true
+		}
+		previous = current
+		havePrevious = true
+	}
+	return false
+}
+
+func componentValueRequiresMaterialization(value componentValueEntry, resolved map[ast.Node]types.Type, table funcTables) bool {
+	if len(value.stmts) > 0 {
+		return true
+	}
+	valueType := resolved[value.node]
+	if value.embedded == nil {
+		if _, ok := tupleUnwrapType(valueType); ok {
+			return true
+		}
+	}
+	if value.pairIndex >= 0 {
+		if _, ok := table.renderers[rendererKey(valueType)]; ok {
+			return true
+		}
+	}
+	if _, ok := value.node.(*ast.ExprAttr); ok && value.bagIndex >= 0 {
+		if elem, ok := tupleUnwrapType(valueType); ok {
+			valueType = elem
+		}
+		if _, ok := table.renderers[rendererKey(valueType)]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func componentValueHasEffect(value componentValueEntry, resolved map[ast.Node]types.Type, table funcTables) bool {
+	return exprHasCall(value.rawExpr) || componentValueRequiresMaterialization(value, resolved, table)
+}
+
+// materializeComponentValuePlan evaluates every side-effecting child-component
+// value in authored order, then rebuilds the structured fields/bag from the
+// resulting temps. Named-props and attrs-only component values share this one
+// implementation so tuple pairs cannot bypass earlier fallthrough calls.
+func materializeComponentValuePlan(b *bytes.Buffer, fields []propFieldEntry, plan []componentValueEntry, resolved map[ast.Node]types.Type, table funcTables, imports map[string]bool, rtPkg string, interpTemp *int, errReturn string) {
+	if !componentValuePlanNeeded(fields, plan, resolved, table) {
+		return
+	}
+	effectAfter := make([]bool, len(plan))
+	hasLaterEffect := false
+	for i := len(plan) - 1; i >= 0; i-- {
+		effectAfter[i] = hasLaterEffect
+		hasLaterEffect = hasLaterEffect || componentValueHasEffect(plan[i], resolved, table)
+	}
+	for valueIndex, value := range plan {
+		b.Write(value.stmts)
+		valueType := resolved[value.node]
+		_, isTuple := tupleUnwrapType(valueType)
+		if value.embedded != nil {
+			isTuple = false // componentEmbeddedTextValueExpr already unwraps and stringifies
+		}
+		materialized := value.rawExpr
+		switch {
+		case isTuple:
+			materialized = hoistTupleReturning(b, materialized, interpTemp, errReturn)
+		case value.embedded != nil && (value.isNodeField || valueIndex+1 < len(plan)),
+			exprHasCall(materialized) && !isCapturedClassValue(value):
+			tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+			*interpTemp++
+			fmt.Fprintf(b, "\t\t%s := %s\n", tmp, materialized)
+			materialized = tmp
+		}
+		if value.segmentIndex >= 0 {
+			fields[value.fieldIndex].bagSegments[value.segmentIndex] = materialized
+			continue
+		}
+		if value.pairIndex >= 0 {
+			attrType := valueType
+			if elem, ok := tupleUnwrapType(valueType); ok {
+				attrType = elem
+			}
+			materialized, _ = applyRenderer(b, materialized, attrType, table, imports, interpTemp, errReturn)
+			if effectAfter[valueIndex] {
+				materialized = hoistComponentCall(b, materialized, interpTemp)
+			}
+			fields[value.fieldIndex].oaPairs[value.pairIndex].rawVal = materialized
+			continue
+		}
+		if value.bagIndex >= 0 {
+			if _, ok := value.node.(*ast.ExprAttr); ok {
+				attrType := valueType
+				if elem, ok := tupleUnwrapType(valueType); ok {
+					attrType = elem
+				}
+				materialized, _ = applyRenderer(b, materialized, attrType, table, imports, interpTemp, errReturn)
+				if effectAfter[valueIndex] {
+					materialized = hoistComponentCall(b, materialized, interpTemp)
+				}
+			}
+			fields[value.fieldIndex].bagPairs[value.bagIndex].rawVal = materialized
+			continue
+		}
+		if value.isNodeField {
+			if value.embedded != nil {
+				fields[value.fieldIndex].str = fmt.Sprintf("%s: %s.Text(%s)", value.fieldName, rtPkg, materialized)
+			} else {
+				fields[value.fieldIndex].str = fmt.Sprintf("%s: %s.Val(%s)", value.fieldName, rtPkg, materialized)
+			}
+		} else {
+			fields[value.fieldIndex].str = fmt.Sprintf("%s: %s", value.fieldName, materialized)
+		}
+	}
+	for i := range fields {
+		fe := &fields[i]
+		if fe.oa != nil {
+			fe.oaLit = attrsPairsLiteral(rtPkg, fe.oaPairs)
+			if fe.oaMergePrefix == "" {
+				fe.str = fmt.Sprintf("%s: %s", fe.fieldName, fe.oaLit)
+			}
+		}
+		if len(fe.bagPairs) > 0 || len(fe.bagSegments) > 0 {
+			parts := make([]string, 0, 1+len(fe.bagSegments))
+			if len(fe.bagPairs) > 0 {
+				parts = append(parts, attrsPairsLiteral(rtPkg, fe.bagPairs))
+			}
+			parts = append(parts, fe.bagSegments...)
+			prefix := strings.Join(parts, ", ")
+			if fe.oa != nil {
+				fe.oaMergePrefix = prefix
+				fe.str = fmt.Sprintf("Attrs: %s.ConcatAttrs(%s, %s)", rtPkg, prefix, fe.oaLit)
+			} else if len(parts) == 1 && len(fe.bagSegments) == 0 {
+				fe.str = "Attrs: " + parts[0]
+			} else {
+				fe.str = fmt.Sprintf("Attrs: %s.ConcatAttrs(%s)", rtPkg, prefix)
+			}
+		}
+	}
+}
+
+func isCapturedClassValue(value componentValueEntry) bool {
+	_, ok := value.node.(*ast.ClassAttr)
+	return ok && len(value.stmts) > 0
+}
+
+func hoistComponentCall(b *bytes.Buffer, expr string, interpTemp *int) string {
+	if !exprHasCall(expr) {
+		return expr
+	}
+	tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
+	*interpTemp++
+	fmt.Fprintf(b, "\t\t%s := %s\n", tmp, expr)
+	return tmp
 }
 
 // isCallExpr reports whether rawVal parses as a Go function-call expression
@@ -5113,6 +5372,25 @@ func isCallExpr(rawVal string) bool {
 	return ok
 }
 
+// exprHasCall reports whether rawVal contains a Go call expression at any AST
+// depth. Component f-literals lower to concatenations, so top-level CallExpr
+// detection alone misses side effects in expressions such as `"x" + mark()`.
+func exprHasCall(rawVal string) bool {
+	expr, err := goparser.ParseExpr(rawVal)
+	if err != nil {
+		return false
+	}
+	found := false
+	goast.Inspect(expr, func(node goast.Node) bool {
+		if _, ok := node.(*goast.CallExpr); ok {
+			found = true
+			return false
+		}
+		return !found
+	})
+	return found
+}
+
 // attrsOnlyPropsKey is a synthetic props-type key for attrsOnlyBagExpr's
 // childPropsLiteral call. It contains a '.' so it can never collide with a real
 // same-package <Name>Props key, and never escapes into emitted code.
@@ -5138,7 +5416,7 @@ func attrsOnlyBagExpr(el *ast.Element, rtPkg, mergeExpr string, table funcTables
 	if !probeWrap {
 		bagErrReturn = "return _gsxerr"
 	}
-	fields, splat, used, err := childPropsLiteral(el, attrsOnlyPropsKey, rtPkg, mergeExpr, table, synthetic, nil, byo, fm,
+	fields, valuePlan, splat, used, err := childPropsLiteral(el, attrsOnlyPropsKey, rtPkg, mergeExpr, table, synthetic, nil, byo, fm,
 		func([]ast.Markup) (string, error) { return "", fmt.Errorf("attrs-only components take no slots") },
 		probeWrap, resolved, imports, rt, diagBag, b, interpTemp, bagErrReturn)
 	if err != nil {
@@ -5166,17 +5444,9 @@ func attrsOnlyBagExpr(el *ast.Element, rtPkg, mergeExpr string, table funcTables
 				return "", nil, &attrError{pos: fe.ea.Pos(), end: fe.ea.End(), code: "invalid-tuple",
 					msg: fmt.Sprintf("child prop %q value %q returns %s; only (T, error) is supported", fe.ea.Name, fe.ea.Expr, t)}
 			}
-			tmp := hoistTuple(b, fe.rawVal, interpTemp)
-			fe.str = fmt.Sprintf("%s: %s", fe.fieldName, tmp)
 		}
 	}
 	if fe.oa != nil {
-		// A registered-renderer pair also forces the rebuild (same rule and
-		// reasoning as genChildComponent's hoist-all pass): the renderer call
-		// must be spliced into the literal before the value degrades to `any`.
-		// Probe mode never rebuilds — resolved is nil there and the skeleton
-		// does not dispatch renderers.
-		rebuild := false
 		for j := range fe.oaPairs {
 			pairType := resolved[&fe.oa.Pairs[j]]
 			if t, ok := pairType.(*types.Tuple); ok {
@@ -5184,52 +5454,11 @@ func attrsOnlyBagExpr(el *ast.Element, rtPkg, mergeExpr string, table funcTables
 					return "", nil, &attrError{pos: fe.oa.Pairs[j].Pos(), end: fe.oa.Pairs[j].End(), code: "invalid-tuple",
 						msg: fmt.Sprintf("ordered-attrs pair %q value %q returns %s; only (T, error) is supported", fe.oaPairs[j].key, fe.oaPairs[j].rawVal, t)}
 				}
-				rebuild = true
-			}
-			if !probeWrap {
-				if _, ok := table.renderers[rendererKey(pairType)]; ok {
-					rebuild = true
-				}
 			}
 		}
-		if rebuild {
-			var sb strings.Builder
-			fmt.Fprintf(&sb, "%s.Attrs{", rtPkg)
-			for j, pr := range fe.oaPairs {
-				pairType := resolved[&fe.oa.Pairs[j]]
-				_, isTup := tupleUnwrapType(pairType)
-				var valueStr string
-				switch {
-				case isTup:
-					valueStr = hoistTuple(b, pr.rawVal, interpTemp)
-				case isCallExpr(pr.rawVal):
-					tmp := fmt.Sprintf("_gsxv%d", *interpTemp)
-					*interpTemp++
-					fmt.Fprintf(b, "\t\t%s := %s\n", tmp, pr.rawVal)
-					valueStr = tmp
-				default:
-					valueStr = pr.rawVal
-				}
-				// Renderer application, identical to genChildComponent's rebuild;
-				// imports bridge through `used` (values-folded by the caller).
-				attrType := pairType
-				if elemT, ok := tupleUnwrapType(pairType); ok {
-					attrType = elemT
-				}
-				scratch := map[string]bool{}
-				valueStr, _ = applyRenderer(b, valueStr, attrType, table, scratch, interpTemp, "return _gsxerr")
-				for path := range scratch {
-					used[path] = path
-				}
-				fmt.Fprintf(&sb, "{Key: %s, Value: %s}, ", strconv.Quote(pr.key), valueStr)
-			}
-			sb.WriteString("}")
-			if fe.oaMergePrefix != "" {
-				fe.str = fmt.Sprintf("Attrs: %s.ConcatAttrs(%s, %s)", rtPkg, fe.oaMergePrefix, sb.String())
-			} else {
-				fe.str = fmt.Sprintf("%s: %s", fe.fieldName, sb.String())
-			}
-		}
+	}
+	if !probeWrap {
+		materializeComponentValuePlan(b, fields, valuePlan, resolved, table, imports, rtPkg, interpTemp, "return _gsxerr")
 	}
 	return strings.TrimPrefix(fe.str, "Attrs: "), used, nil
 }
@@ -5318,7 +5547,7 @@ func attrsOnlyBagExpr(el *ast.Element, rtPkg, mergeExpr string, table funcTables
 // values passed to Go code — pinned by renderers/component_arg_negative);
 // ordered-attrs {{ }} pair values are handled by the callers' literal-rebuild
 // passes, not here (see genChildComponent / attrsOnlyBagExpr).
-func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, table funcTables, propFields map[string]map[string]bool, nodeFields map[string]bool, byo *byoData, fm FieldMatcher, slotValue func(nodes []ast.Markup) (string, error), probeWrap bool, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, diagBag *diag.Bag, b *bytes.Buffer, interpTemp *int, bagErrReturn string) (fields []propFieldEntry, splatExpr string, usedPkgs map[string]string, err error) {
+func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, table funcTables, propFields map[string]map[string]bool, nodeFields map[string]bool, byo *byoData, fm FieldMatcher, slotValue func(nodes []ast.Markup) (string, error), probeWrap bool, resolved map[ast.Node]types.Type, imports map[string]bool, rt rtImports, diagBag *diag.Bag, b *bytes.Buffer, interpTemp *int, bagErrReturn string) (fields []propFieldEntry, valuePlan []componentValueEntry, splatExpr string, usedPkgs map[string]string, err error) {
 	fm = fieldMatcherOrDefault(fm)    // normalize nil → default matcher
 	declared := propFields[propsType] // nil for cross-package / unknown → graceful
 	// pipeWrap is the lowerPipe hook for a mid-stage (R, error) filter in a prop
@@ -5356,42 +5585,49 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				// Found a splat on a bag-less component. Validate all-or-nothing.
 				if len(el.Attrs) != 1 || len(el.Children) > 0 {
 					msg := fmt.Sprintf("{ x... } splat on <%s> passes the whole prop value; remove the other attrs or children", el.Tag)
-					return nil, "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "byo-splat-mixed", msg: msg}
+					return nil, nil, "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "byo-splat-mixed", msg: msg}
 				}
 				expr := strings.TrimSpace(s.Expr)
 				if expr == "" {
 					msg := fmt.Sprintf("empty { x... } splat on <%s>; provide the struct expression to splat", el.Tag)
-					return nil, "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "empty-splat", msg: msg}
+					return nil, nil, "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "empty-splat", msg: msg}
 				}
 				splatPkgs := map[string]string{}
 				if len(s.Stages) > 0 {
 					lowered, used, perr := lowerPipe(s.Expr, s.Stages, table, pipeWrap)
 					if perr != nil {
 						msg := strings.TrimPrefix(perr.Error(), "codegen: ")
-						return nil, "", nil, &attrError{pos: s.Pos(), end: s.End(), code: "unresolved-pipeline", msg: msg}
+						return nil, nil, "", nil, &attrError{pos: s.Pos(), end: s.End(), code: "unresolved-pipeline", msg: msg}
 					}
 					splatPkgs = used
 					expr = lowered
 				}
-				return nil, expr, splatPkgs, nil
+				return nil, nil, expr, splatPkgs, nil
 			}
 		}
 	}
 
 	usedPkgs = map[string]string{}
-	var bag []string      // fallthrough base-literal entries: `"<rawName>": <value>`
+	var bag []oaPairEntry // fallthrough base-literal entries in source order
 	var segments []string // bare ConcatAttrs segment exprs (<spread> / <rtPkg>.AttrsCond(...)) in source order
 	attrsLitIdx := -1     // index into fields of an Attrs-targeted ordered-attrs literal, or -1
 	// recordPkgs merges a lowerPipe usedPkgs result into the shared set.
 	recordPkgs := func(used map[string]string) {
 		maps.Copy(usedPkgs, used)
 	}
-	for _, a := range el.Attrs {
+	for sourceIndex, a := range el.Attrs {
+		var entryHoist bytes.Buffer
+		entryBuffer := b
+		entryPipeWrap := pipeWrap
+		if !probeWrap {
+			entryBuffer = &entryHoist
+			entryPipeWrap = emitPipeWrap(entryBuffer, interpTemp)
+		}
 		switch t := a.(type) {
 		case *ast.StaticAttr:
 			if fn, isProp := matchField(declared, t.Name, fm); isProp {
 				if verr := validateMatchedField(fn, t.Name, propsType, declared); verr != nil {
-					return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "bad-field-match", msg: verr.Error()}
+					return nil, nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "bad-field-match", msg: verr.Error()}
 				}
 				if nodeFields[fn] {
 					fields = append(fields, propFieldEntry{str: fmt.Sprintf("%s: %s.Text(%s)", fn, rtPkg, strconv.Quote(t.Value))})
@@ -5400,20 +5636,20 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 					fields = append(fields, propFieldEntry{str: fmt.Sprintf("%s: %s", fn, q), inferField: fn, inferArg: q})
 				}
 			} else {
-				bag = append(bag, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), strconv.Quote(t.Value)))
+				bag = append(bag, oaPairEntry{key: t.Name, rawVal: strconv.Quote(t.Value)})
 			}
 		case *ast.ExprAttr:
 			if fn, isProp := matchField(declared, t.Name, fm); isProp {
 				if verr := validateMatchedField(fn, t.Name, propsType, declared); verr != nil {
-					return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "bad-field-match", msg: verr.Error()}
+					return nil, nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "bad-field-match", msg: verr.Error()}
 				}
 				// Compute the lowered expression (pipeline → final expr string).
 				rawVal := strings.TrimSpace(t.Expr)
 				if len(t.Stages) > 0 {
-					lowered, used, perr := lowerPipe(t.Expr, t.Stages, table, pipeWrap)
+					lowered, used, perr := lowerPipe(t.Expr, t.Stages, table, entryPipeWrap)
 					if perr != nil {
 						msg := strings.TrimPrefix(perr.Error(), "codegen: ")
-						return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}
+						return nil, nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}
 					}
 					recordPkgs(used)
 					rawVal = lowered
@@ -5449,56 +5685,34 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 					inferField:  fn,
 					inferArg:    fieldVal,
 				})
+				valuePlan = append(valuePlan, componentValueEntry{sourceIndex: sourceIndex, node: t, rawExpr: rawVal, fieldName: fn, isNodeField: isNF, bagIndex: -1, pairIndex: -1, segmentIndex: -1, fieldIndex: len(fields) - 1, stmts: bytes.Clone(entryHoist.Bytes())})
 			} else {
 				val := strings.TrimSpace(t.Expr)
 				if len(t.Stages) > 0 {
-					lowered, used, perr := lowerPipe(t.Expr, t.Stages, table, pipeWrap)
+					lowered, used, perr := lowerPipe(t.Expr, t.Stages, table, entryPipeWrap)
 					if perr != nil {
 						msg := strings.TrimPrefix(perr.Error(), "codegen: ")
-						return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}
+						return nil, nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}
 					}
 					recordPkgs(used)
 					val = lowered
-					// lowerPipe leaves a FINAL (R, error) stage unwrapped (it hoists
-					// only non-final error stages). A fallthrough attr's value is
-					// spliced into the Attrs bag literal in single-value position, so
-					// unwrap the final tuple HERE — this is the one attr context that
-					// lacks a downstream tuple-hoist pass. Probe mode keeps the
-					// skeleton a single expression via _gsxunwrap; emit mode hoists
-					// `v, _gsxerr := call; if _gsxerr != nil { return _gsxerr }`,
-					// mirroring the inline CondAttr hoist and the declared-prop /
-					// ordered-attrs unwrap that genChildComponent defers.
+					// lowerPipe leaves a FINAL (R, error) stage unwrapped. Probe mode
+					// keeps the skeleton a single expression; real emission defers the
+					// unwrap to materializeComponentValuePlan so the source-ordered plan
+					// is the sole owner of the tuple expression and its renderer.
 					if finalStageErr(t.Stages, table) {
 						if probeWrap {
 							val = "_gsxunwrap(" + val + ")"
-						} else {
-							val = hoistTuple(b, val, interpTemp)
 						}
 					}
 				}
-				if !probeWrap && bagErrReturn != "" {
-					// Apply a registered [renderers] entry BEFORE the value enters
-					// the bag literal as `any` — mirroring condBranchAttrs (the
-					// cond-attr thunk sibling of this boundary). Same usedPkgs
-					// bridge: the caller folds usedPkgs VALUES into imports.
-					attrType := resolved[t]
-					if tup, isTuple := attrType.(*types.Tuple); isTuple {
-						if elemT, ok := tupleUnwrapType(tup); ok {
-							attrType = elemT
-						}
-					}
-					scratch := map[string]bool{}
-					val, _ = applyRenderer(b, val, attrType, table, scratch, interpTemp, bagErrReturn)
-					for path := range scratch {
-						usedPkgs[path] = path
-					}
-				}
-				bag = append(bag, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), val))
+				bag = append(bag, oaPairEntry{key: t.Name, rawVal: val})
+				valuePlan = append(valuePlan, componentValueEntry{sourceIndex: sourceIndex, node: t, rawExpr: val, bagIndex: len(bag) - 1, pairIndex: -1, segmentIndex: -1, fieldIndex: -1, stmts: bytes.Clone(entryHoist.Bytes())})
 			}
 		case *ast.BoolAttr:
 			if fn, isProp := matchField(declared, t.Name, fm); isProp {
 				if verr := validateMatchedField(fn, t.Name, propsType, declared); verr != nil {
-					return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "bad-field-match", msg: verr.Error()}
+					return nil, nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "bad-field-match", msg: verr.Error()}
 				}
 				if nodeFields[fn] {
 					fields = append(fields, propFieldEntry{str: fmt.Sprintf("%s: %s.Val(true)", fn, rtPkg)})
@@ -5506,7 +5720,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 					fields = append(fields, propFieldEntry{str: fmt.Sprintf("%s: true", fn), inferField: fn, inferArg: "true"})
 				}
 			} else {
-				bag = append(bag, fmt.Sprintf("{Key: %s, Value: true}", strconv.Quote(t.Name)))
+				bag = append(bag, oaPairEntry{key: t.Name, rawVal: "true"})
 			}
 		case *ast.MarkupAttr:
 			// A markup attribute (`header={ <h1/> }`) is a NAMED slot bound to a
@@ -5517,11 +5731,11 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 			// can map kebab names to CamelCase fields.
 			if !token.IsIdentifier(t.Name) {
 				msg := fmt.Sprintf("non-identifier attribute %q on component <%s> (slot names must be valid Go identifiers)", t.Name, el.Tag)
-				return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "non-identifier-slot", msg: msg}
+				return nil, nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "non-identifier-slot", msg: msg}
 			}
 			val, verr := slotValue(t.Value)
 			if verr != nil {
-				return nil, "", nil, verr
+				return nil, nil, "", nil, verr
 			}
 			fields = append(fields, propFieldEntry{str: fmt.Sprintf("%s: %s", fieldName(t.Name), val)})
 		case *ast.ClassAttr:
@@ -5529,26 +5743,28 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 			// unsupported.
 			if t.Name != "class" {
 				msg := fmt.Sprintf("%s attribute on a component (<%s>) not supported yet", t.Name, el.Tag)
-				return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
+				return nil, nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
-			entry, used, eerr := classEntryExpr(b, interpTemp, t, rtPkg, mergeExpr, table, resolved, probeWrap, pipeWrap, bagErrReturn)
+			entry, used, eerr := classEntryExpr(entryBuffer, interpTemp, t, rtPkg, mergeExpr, table, resolved, probeWrap, entryPipeWrap, bagErrReturn)
 			if eerr != nil {
-				return nil, "", nil, eerr
+				return nil, nil, "", nil, eerr
 			}
 			recordPkgs(used)
-			bag = append(bag, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), entry))
+			bag = append(bag, oaPairEntry{key: t.Name, rawVal: entry})
+			valuePlan = append(valuePlan, componentValueEntry{sourceIndex: sourceIndex, node: t, rawExpr: entry, bagIndex: len(bag) - 1, pairIndex: -1, segmentIndex: -1, fieldIndex: -1, stmts: bytes.Clone(entryHoist.Bytes())})
 		case *ast.SpreadAttr:
 			spreadExpr := strings.TrimSpace(t.Expr)
 			if len(t.Stages) > 0 {
-				lowered, used, perr := lowerPipe(t.Expr, t.Stages, table, pipeWrap)
+				lowered, used, perr := lowerPipe(t.Expr, t.Stages, table, entryPipeWrap)
 				if perr != nil {
 					msg := strings.TrimPrefix(perr.Error(), "codegen: ")
-					return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}
+					return nil, nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unresolved-pipeline", msg: msg}
 				}
 				recordPkgs(used)
 				spreadExpr = lowered
 			}
 			segments = append(segments, spreadExpr)
+			valuePlan = append(valuePlan, componentValueEntry{sourceIndex: sourceIndex, node: t, rawExpr: spreadExpr, bagIndex: -1, pairIndex: -1, segmentIndex: len(segments) - 1, fieldIndex: -1, stmts: bytes.Clone(entryHoist.Bytes())})
 		case *ast.CondAttr:
 			// One uniform lowering: condAttrsExpr always emits an AttrsCond(...) call
 			// whose branches are (Attrs, error) thunks with thunk-local hoists for any
@@ -5557,27 +5773,28 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 			// is wrapped in _gsxunwrap(...) to stay a single expression (emit ≡ probe).
 			condExpr, used, cerr := condAttrsExpr(t, rtPkg, el.Tag, mergeExpr, table, probeWrap, resolved, imports, rt, diagBag, interpTemp, bagComponentCond)
 			if cerr != nil {
-				return nil, "", nil, cerr
+				return nil, nil, "", nil, cerr
 			}
 			recordPkgs(used)
 			if probeWrap {
 				condExpr = "_gsxunwrap(" + condExpr + ")"
 			} else {
-				condExpr = hoistTuple(b, condExpr, interpTemp)
+				condExpr = hoistTuple(entryBuffer, condExpr, interpTemp)
 			}
 			segments = append(segments, condExpr)
+			valuePlan = append(valuePlan, componentValueEntry{sourceIndex: sourceIndex, node: t, rawExpr: condExpr, bagIndex: -1, pairIndex: -1, segmentIndex: len(segments) - 1, fieldIndex: -1, stmts: bytes.Clone(entryHoist.Bytes())})
 		case *ast.OrderedAttrsAttr:
 			fn, ok := matchOrderedAttrsField(declared, t.Name, fm)
 			if !ok {
 				msg := fmt.Sprintf("ordered-attrs literal {{ }} on <%s> attribute %q matches no field of %s and cannot fall through to the Attrs bag; declare a gsx.Attrs field to receive it", el.Tag, t.Name, propsType)
-				return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "ordered-attrs-no-field", msg: msg}
+				return nil, nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "ordered-attrs-no-field", msg: msg}
 			}
 			if verr := validateMatchedField(fn, t.Name, propsType, declared); verr != nil {
-				return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "bad-field-match", msg: verr.Error()}
+				return nil, nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "bad-field-match", msg: verr.Error()}
 			}
 			if fn == "Attrs" && attrsLitIdx >= 0 {
 				msg := fmt.Sprintf("duplicate ordered-attrs literal targeting the Attrs bag on <%s>; combine the pairs into one {{ }} literal", el.Tag)
-				return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "ordered-attrs-duplicate", msg: msg}
+				return nil, nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "ordered-attrs-duplicate", msg: msg}
 			}
 			// Collect per-pair info for genChildComponent's tuple-hoist pass.
 			pairEntries := make([]oaPairEntry, len(t.Pairs))
@@ -5613,9 +5830,58 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 				oaPairs:   pairEntries,
 				oaLit:     lit,
 			})
+			for i, pr := range pairEntries {
+				valuePlan = append(valuePlan, componentValueEntry{sourceIndex: sourceIndex, node: &t.Pairs[i], rawExpr: pr.rawVal, fieldName: fn, bagIndex: -1, pairIndex: i, segmentIndex: -1, fieldIndex: len(fields) - 1})
+			}
 		case *ast.CommentAttr:
 			// Source-only comment; not a component prop.
 		case *ast.EmbeddedAttr:
+			if t.Lang == ast.EmbeddedText {
+				fn, isProp := matchField(declared, t.Name, fm)
+				if isProp {
+					if verr := validateMatchedField(fn, t.Name, propsType, declared); verr != nil {
+						return nil, nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "bad-field-match", msg: verr.Error()}
+					}
+				}
+
+				var value string
+				var valueHoist bytes.Buffer
+				if probeWrap {
+					// The component boundary is always a built-in string. Hole and
+					// whole-stage expressions retain their separate harvest probes;
+					// this seed supplies the same string type to field checking and
+					// generic inference without changing those walks.
+					value = embeddedProbeSeed(t.Segments, table, usedPkgs)
+				} else {
+					var ok bool
+					value, ok = componentEmbeddedTextValueExpr(&valueHoist, t, resolved, table, imports, rt, interpTemp, diagBag, bagErrReturn)
+					if !ok {
+						return nil, nil, "", nil, errBagDiagReported
+					}
+				}
+
+				if isProp {
+					isNF := nodeFields[fn]
+					fieldValue := value
+					if isNF {
+						fieldValue = fmt.Sprintf("%s.Text(%s)", rtPkg, value)
+					}
+					fields = append(fields, propFieldEntry{
+						str:         fmt.Sprintf("%s: %s", fn, fieldValue),
+						embedded:    t,
+						fieldName:   fn,
+						isNodeField: isNF,
+						inferField:  fn,
+						inferArg:    value,
+					})
+					valuePlan = append(valuePlan, componentValueEntry{sourceIndex: sourceIndex, node: t, rawExpr: value, fieldName: fn, isNodeField: isNF, embedded: t, bagIndex: -1, pairIndex: -1, segmentIndex: -1, fieldIndex: len(fields) - 1, stmts: bytes.Clone(valueHoist.Bytes())})
+				} else {
+					bag = append(bag, oaPairEntry{key: t.Name, rawVal: value})
+					valuePlan = append(valuePlan, componentValueEntry{sourceIndex: sourceIndex, node: t, rawExpr: value, embedded: t, bagIndex: len(bag) - 1, pairIndex: -1, segmentIndex: -1, fieldIndex: -1, stmts: bytes.Clone(valueHoist.Bytes())})
+				}
+				continue
+			}
+
 			// A hole-free js`…`/css`…`/`…` literal forwards to the Attrs bag as
 			// raw text — identical to a plain string attribute (JSX-style
 			// directive forwarding, e.g. x-model=js`pdcaCategory`). Embedded
@@ -5624,12 +5890,12 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 			text, static := embeddedStaticText(t)
 			if !static {
 				msg := fmt.Sprintf("embedded %s attribute literal %q with @{ } interpolation cannot be used as a component prop on <%s> yet; pass an ordinary prop value or move the literal to an element inside the component", embeddedLangName(t.Lang), t.Name, el.Tag)
-				return nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
+				return nil, nil, "", nil, &attrError{pos: t.Pos(), end: t.End(), code: "unsupported-component-attr", msg: msg}
 			}
-			bag = append(bag, fmt.Sprintf("{Key: %s, Value: %s}", strconv.Quote(t.Name), strconv.Quote(text)))
+			bag = append(bag, oaPairEntry{key: t.Name, rawVal: strconv.Quote(text)})
 		default:
 			msg := fmt.Sprintf("unknown attribute %T on component (<%s>)", a, el.Tag)
-			return nil, "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}
+			return nil, nil, "", nil, &attrError{pos: a.Pos(), end: a.End(), code: "unsupported-component-attr", msg: msg}
 		}
 	}
 	if len(el.Children) > 0 {
@@ -5638,11 +5904,11 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 		// struct, which fieldsFromGsxStruct already reported via hasChildren).
 		if isByoChild && !byoStr.hasChildren {
 			msg := fmt.Sprintf("component <%s> is passed children but its Props type %s has no `Children gsx.Node` field", el.Tag, propsType)
-			return nil, "", nil, &attrError{pos: el.Pos(), end: el.End(), code: "byo-missing-children", msg: msg}
+			return nil, nil, "", nil, &attrError{pos: el.Pos(), end: el.End(), code: "byo-missing-children", msg: msg}
 		}
 		val, verr := slotValue(el.Children)
 		if verr != nil {
-			return nil, "", nil, verr
+			return nil, nil, "", nil, verr
 		}
 		fields = append(fields, propFieldEntry{str: "Children: " + val})
 	}
@@ -5651,7 +5917,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 		// → a clear error (the author adds it and spreads it in the markup).
 		if isByoChild && !byoStr.hasAttrs {
 			msg := fmt.Sprintf("attribute on <%s> matches no field of its Props type %s and %s has no `Attrs gsx.Attrs` field", el.Tag, propsType, propsType)
-			return nil, "", nil, &attrError{pos: el.Pos(), end: el.End(), code: "byo-missing-attrs", msg: msg}
+			return nil, nil, "", nil, &attrError{pos: el.Pos(), end: el.End(), code: "byo-missing-attrs", msg: msg}
 		}
 		// Call-site bags CONCATENATE — last-wins/aggregation is resolved at the
 		// leaf, so the composition never eagerly merges (a component may iterate
@@ -5660,7 +5926,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 		// is always concatenated LAST (merge-last rule).
 		var parts []string
 		if len(bag) > 0 {
-			parts = append(parts, fmt.Sprintf("%s.Attrs{%s}", rtPkg, strings.Join(bag, ", ")))
+			parts = append(parts, attrsPairsLiteral(rtPkg, bag))
 		}
 		parts = append(parts, segments...) // parts is non-empty (block guard)
 		if attrsLitIdx >= 0 {
@@ -5672,16 +5938,36 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 			// comma-separated prefix args before the literal).
 			prefix := strings.Join(parts, ", ")
 			fields[attrsLitIdx].oaMergePrefix = prefix
+			fields[attrsLitIdx].bagPairs = bag
+			fields[attrsLitIdx].bagSegments = segments
 			fields[attrsLitIdx].str = fmt.Sprintf("Attrs: %s.ConcatAttrs(%s, %s)", rtPkg, prefix, fields[attrsLitIdx].oaLit)
 		} else if len(segments) == 0 {
 			// base literal only — keep the plain form (no wrapper), zero churn.
-			fields = append(fields, propFieldEntry{str: "Attrs: " + parts[0]})
+			fields = append(fields, propFieldEntry{str: "Attrs: " + parts[0], fieldName: "Attrs", bagPairs: bag})
 		} else {
 			attrsExpr := fmt.Sprintf("%s.ConcatAttrs(%s)", rtPkg, strings.Join(parts, ", "))
-			fields = append(fields, propFieldEntry{str: "Attrs: " + attrsExpr})
+			fields = append(fields, propFieldEntry{str: "Attrs: " + attrsExpr, fieldName: "Attrs", bagPairs: bag, bagSegments: segments})
+		}
+		bagFieldIndex := attrsLitIdx
+		if bagFieldIndex < 0 {
+			bagFieldIndex = len(fields) - 1
+		}
+		for i := range valuePlan {
+			if valuePlan[i].bagIndex >= 0 || valuePlan[i].segmentIndex >= 0 {
+				valuePlan[i].fieldIndex = bagFieldIndex
+			}
 		}
 	}
-	return fields, "", usedPkgs, nil
+	slices.SortStableFunc(valuePlan, func(a, b componentValueEntry) int {
+		if a.sourceIndex < b.sourceIndex {
+			return -1
+		}
+		if a.sourceIndex > b.sourceIndex {
+			return 1
+		}
+		return a.pairIndex - b.pairIndex
+	})
+	return fields, valuePlan, "", usedPkgs, nil
 }
 
 // classEntryExpr lowers a composable class={…} ClassAttr to a runtime
