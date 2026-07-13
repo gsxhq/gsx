@@ -50,6 +50,9 @@ func TestRunWatch_RegeneratesOnGsxChange(t *testing.T) {
 	// Wait for the watcher to announce it is ready (start event appears first,
 	// then the cold-generate startup cycle is emitted).
 	waitFor(t, 60*time.Second, func() bool { return strings.Contains(out.String(), `"event":"start"`) })
+	// Do not let the startup cycle satisfy the post-edit wait below. Under load,
+	// the test goroutine can observe start before runWatch emits generated.
+	waitFor(t, 60*time.Second, func() bool { return countGenerated(out.String(), true) >= 1 })
 	// Capture the generated count after startup so we can detect the regen.
 	priorCount := countGenerated(out.String(), true)
 
