@@ -318,6 +318,32 @@ func ResolveJSAttr(name string, segments []ast.Markup) error {
 // binding / unclassifiable positions fail closed exactly as in <script>.
 // Returns true if clean, false if any diagnostic was added to bag.
 func resolveJSAttr(name string, segments []ast.Markup, bag *diag.Bag) bool {
+	return resolveEmbeddedJS(fmt.Sprintf("attribute %q", name), segments, bag)
+}
+
+// ResolveEmbedded classifies every @{ … } hole in a bare segment list for a
+// js`...` literal found in Go-expression position (no attribute name to hang
+// diagnostics on — e.g. a future `f(js\`...\`)` call). It shares the exact
+// skeleton-builder + classify/classifyHole machinery resolveJSAttr uses,
+// including its fail-closed behavior for JS-comment holes (this is a single JS
+// expression, not a program, so comment holes are never un-split) and for
+// identifier/binding positions. Diagnostic wording uses a neutral "js literal"
+// label instead of an attribute name.
+// Sets Interp.JSCtx on every *ast.Interp segment; safe to call again on an
+// already-classified segment list (re-classification just overwrites the same
+// values). Returns true if clean, false if any diagnostic was added to bag.
+func ResolveEmbedded(segments []ast.Markup, bag *diag.Bag) bool {
+	return resolveEmbeddedJS("js literal", segments, bag)
+}
+
+// resolveEmbeddedJS is the shared segment-walking core behind resolveJSAttr and
+// ResolveEmbedded: it builds the _GSXJSHOLE_ skeleton, runs classify, and
+// applies the result (setting Interp.JSCtx, or failing closed on comment /
+// unresolved holes). descriptor names the value being classified for
+// diagnostic wording only (e.g. `attribute "x-data"` or the neutral
+// "js literal") and never affects classification logic.
+// Returns true if clean, false if any diagnostic was added to bag.
+func resolveEmbeddedJS(descriptor string, segments []ast.Markup, bag *diag.Bag) bool {
 	// Bail early if there are no holes (a hole-free JS attr stays StaticAttr and
 	// never reaches here, but be defensive).
 	hasInterp := false
@@ -345,8 +371,8 @@ func resolveJSAttr(name string, segments []ast.Markup, bag *diag.Bag) bool {
 			}
 			if firstInterp != nil {
 				bag.Report(firstInterp.Pos(), firstInterp.End(), diag.Error, "jsx-sentinel-collision", "jsx",
-					"jsx: attribute %q: value contains the reserved sentinel %q; cannot classify @{ } holes safely",
-					name, holePrefix)
+					"jsx: %s: value contains the reserved sentinel %q; cannot classify @{ } holes safely",
+					descriptor, holePrefix)
 			}
 			return false
 		}
@@ -379,7 +405,7 @@ func resolveJSAttr(name string, segments []ast.Markup, bag *diag.Bag) bool {
 			}
 			if firstInterp != nil {
 				bag.Report(firstInterp.Pos(), firstInterp.End(), diag.Error, "jsx-unexpected-node", "jsx",
-					"jsx: attribute %q: value may contain only text and @{ } interpolations, got %T", name, c)
+					"jsx: %s: value may contain only text and @{ } interpolations, got %T", descriptor, c)
 			}
 			return false
 		}
@@ -393,13 +419,13 @@ func resolveJSAttr(name string, segments []ast.Markup, bag *diag.Bag) bool {
 	for _, h := range holes {
 		if !h.resolved {
 			bag.Report(h.interp.Pos(), h.interp.End(), diag.Error, "jsx-unresolved", "jsx",
-				"jsx: @{ } in attribute %q could not be classified (lex error or unreachable position); fails closed", name)
+				"jsx: @{ } in %s could not be classified (lex error or unreachable position); fails closed", descriptor)
 			ok = false
 			continue
 		}
 		if h.comment {
 			bag.Report(h.interp.Pos(), h.interp.End(), diag.Error, "jsx-attr-comment", "jsx",
-				"jsx: @{ } inside a JS comment in attribute %q is not supported; move it out of the comment", name)
+				"jsx: @{ } inside a JS comment in %s is not supported; move it out of the comment", descriptor)
 			ok = false
 			continue
 		}
