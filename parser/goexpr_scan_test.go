@@ -70,8 +70,14 @@ func composedGuardPasses(s string) bool {
 // NEVER be changed to delegate to scanGoExpr — its entire purpose is to stay
 // an independent reference implementation so the differential tests below can
 // prove scanGoExpr agrees with something other than itself. It reuses the
-// unchanged lexical helpers (skipGSXEmbeddedLiteral, skipQuotedOrComment,
-// etc.) from boundary.go, none of which were touched by Task 2's reroute.
+// LIVE lexical helpers (skipGSXEmbeddedLiteral, skipQuotedOrComment, etc.)
+// from boundary.go — none of which were touched by Task 2's reroute, but
+// skipGSXEmbeddedLiteral itself was made hole-aware (and dquote-prefix-aware)
+// by Task 3. That's deliberate, not a leak: those lexical primitives are
+// shared, not frozen, so oldGoDepth1End and production scanGoExpr both pick
+// up Task 3's fix identically, and the differential stays meaningful — only
+// the STRUCTURAL decision (byte loop vs. delegate-to-scanGoExpr) is frozen
+// here, not the escape/hole-scanning rules underneath it.
 //
 // It is exact only on "guard-passing" input (no '<', no '`' anywhere in
 // src[from:], mirroring goDepth1End's real guard) — see
@@ -706,4 +712,159 @@ func TestScanGoExprCorpusDifferential(t *testing.T) {
 func snippet(src string, from int) string {
 	end := min(from+40, len(src))
 	return fmt.Sprintf("%q", src[from:end])
+}
+
+// TestEmbeddedLiteralEndHoleAware pins skipGSXEmbeddedLiteral's (and, via it,
+// embeddedLiteralEndHoleAware's) hole-aware behavior: a nested prefixed
+// literal, or a plain Go raw string, or a further nested hole inside a `@{ }`
+// hole must not be mistaken for the OUTER literal's own closing delimiter.
+// This is the Task 3 fix — pre-fix, skipGSXEmbeddedLiteral scanned flat to
+// the next unescaped delim byte, so a nested literal's opening backtick
+// inside a hole terminated the outer literal early.
+func TestEmbeddedLiteralEndHoleAware(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string // scan starts at the literal's own opening prefix (offset 0)
+		want string // the full literal span the scan should cover, from src start
+	}{
+		{
+			name: "nested backtick literal inside a hole must not terminate the outer",
+			src:  "f`a @{ string(js`f(@{who})`) }` + x",
+			want: "f`a @{ string(js`f(@{who})`) }`",
+		},
+		{
+			name: "depth 2 with an inner hole",
+			src:  "f`a @{ f`b @{who}` } c`",
+			want: "f`a @{ f`b @{who}` } c`",
+		},
+		{
+			name: "plain Go raw string inside a hole",
+			src:  "f`a @{ len(`raw`) }`",
+			want: "f`a @{ len(`raw`) }`",
+		},
+		{
+			name: "dquote outer with backtick inner",
+			src:  `f"a @{ string(js` + "`f()`" + `) }" + x`,
+			want: `f"a @{ string(js` + "`f()`" + `) }"`,
+		},
+		{
+			// Three levels deep: f` holds a hole whose Go expression is
+			// itself an f` literal, whose own hole is a js` literal, whose
+			// own hole is a plain identifier. Every level's delimiter must
+			// resolve to its OWN matching close, not an inner sibling's.
+			name: "depth 3 nesting",
+			src:  "f`a@{f`b@{js`c@{d}`}`}` + x",
+			want: "f`a@{f`b@{js`c@{d}`}`}`",
+		},
+		{
+			// `\@{` is gsx's escaped-hole convention (see
+			// embeddedAtBraceEscaped/parseEmbeddedSegments): a backslash
+			// immediately before '@{' makes it literal text, not a hole
+			// open. Diverges from a naive (non-escape-aware) hole scan: the
+			// text after the escaped `@{` has no closing '}' before the
+			// real closing backtick, so a scan that (wrongly) tried to
+			// treat it as a hole would fail to find a matching '}' and fall
+			// back to consuming the whole rest of src — this case proves
+			// the escape check is load-bearing, not just cosmetic.
+			name: "escaped @{ is literal text, not a hole",
+			src:  "f`a \\@{ not a hole` + x",
+			want: "f`a \\@{ not a hole`",
+		},
+		{
+			// Unterminated nested literal (EOF reached mid-literal, inside
+			// an unterminated hole): must gracefully consume to EOF rather
+			// than hang or panic. Matches the pre-existing convention (see
+			// the old flat embeddedLiteralEnd) that "no closing delim
+			// found" still reports ok=true with end=len(src).
+			name: "unterminated inner literal inside an unterminated hole",
+			src:  "f`a @{ js`no close",
+			want: "f`a @{ js`no close",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			end, ok := skipGSXEmbeddedLiteral(c.src, 0)
+			if !ok {
+				t.Fatalf("skipGSXEmbeddedLiteral(%q) ok = false, want true", c.src)
+			}
+			got := c.src[:min(end, len(c.src))]
+			if got != c.want {
+				t.Errorf("skipGSXEmbeddedLiteral(%q) = %q, want %q", c.src, got, c.want)
+			}
+		})
+	}
+}
+
+// TestSkipGSXEmbeddedLiteralDquotePrefixes pins the second half of the Task 3
+// fix: skipGSXEmbeddedLiteral previously only recognized the three backtick
+// prefixes (js`/css`/f`) and returned (0, false) — "not a gsx literal here" —
+// for the `"`-delimited escape-hatch forms (js"/css"/f"), even though they are
+// parsed identically by parseEmbeddedAttrLiteral. Every caller of
+// skipGSXEmbeddedLiteral must now treat a dquote-prefixed literal as an
+// opaque gsx span too.
+func TestSkipGSXEmbeddedLiteralDquotePrefixes(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"f dquote", `f"a @{b}" + x`, `f"a @{b}"`},
+		{"js dquote", `js"a @{b}" + x`, `js"a @{b}"`},
+		{"css dquote", `css"a @{b}" + x`, `css"a @{b}"`},
+		// A bare identifier ending in "js"/"css"/"f" immediately before a
+		// '"' must NOT be mistaken for the prefix (hasIdentBoundary), same
+		// rule as the backtick forms.
+		{"not a prefix (ident boundary)", `xjs"plain go string"`, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			end, ok := skipGSXEmbeddedLiteral(c.src, 0)
+			if c.want == "" {
+				if ok {
+					t.Fatalf("skipGSXEmbeddedLiteral(%q) = %d, true; want ok=false (not a gsx literal)", c.src, end)
+				}
+				return
+			}
+			if !ok {
+				t.Fatalf("skipGSXEmbeddedLiteral(%q) ok = false, want true", c.src)
+			}
+			got := c.src[:min(end, len(c.src))]
+			if got != c.want {
+				t.Errorf("skipGSXEmbeddedLiteral(%q) = %q, want %q", c.src, got, c.want)
+			}
+		})
+	}
+}
+
+// TestEmbeddedLiteralEndHoleAwareTermination is a fuzz-ish termination proof:
+// a set of maximally-malformed inputs (unterminated holes, unterminated
+// nested literals, holes nested at EOF) that could plausibly desync the
+// mutual recursion between embeddedLiteralEndHoleAware and skipGSXEmbeddedLiteral
+// if it were unsound. Every case must return promptly (the test's own
+// execution completing is the proof — a real non-termination bug would hang
+// the whole `go test` run) with end always in [0, len(src)].
+func TestEmbeddedLiteralEndHoleAwareTermination(t *testing.T) {
+	cases := []string{
+		"f`",
+		"f`@{",
+		"f`@{js`",
+		"f`@{js`@{",
+		"f`@{js`@{css`",
+		"f`@{js`@{css`@{f`@{js`@{css`@{f`",
+		"f`a@{f`b@{f`c@{f`d@{f`e@{",
+		"f`\\@{\\@{\\@{",
+		`f"@{`,
+		`f"@{js"@{css"@{`,
+		"f`@{ ( ( ( ( (",
+		"f`@{ } } } } }`",
+	}
+	for _, src := range cases {
+		end, ok := skipGSXEmbeddedLiteral(src, 0)
+		if !ok {
+			continue // not recognized as a gsx literal at all; fine
+		}
+		if end < 0 || end > len(src) {
+			t.Errorf("skipGSXEmbeddedLiteral(%q) = %d, out of range [0,%d]", src, end, len(src))
+		}
+	}
 }
