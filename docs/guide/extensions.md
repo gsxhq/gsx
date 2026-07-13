@@ -72,9 +72,14 @@ They receive a self-contained `<style>` or executable `<script>` body and
 return formatted bytes. If a callback returns an error or panics, gsx keeps that
 body unchanged and continues formatting the file.
 
-Without an override, gsx uses token-aware CSS and JavaScript formatters. They
-keep strings and comments intact, preserve meaningful line breaks and
-intra-line spacing, and normalize structural indentation.
+With no programmatic formatter, gsx uses token-aware CSS and JavaScript
+formatters. Once either custom formatter is installed, the two callbacks become
+an explicit pair: a `nil` callback leaves that language's body unchanged instead
+of selecting its built-in formatter. Supply both callbacks to keep formatting
+both languages.
+
+The built-in formatters keep strings and comments intact, preserve meaningful
+line breaks and intra-line spacing, and normalize structural indentation.
 
 ## Custom minifiers and minify level {#minify-level}
 
@@ -105,6 +110,10 @@ A custom CSS minifier receives only fully static `<style>` blocks. CSS with
 receive complete, holeless executable `<script>` bodies. A callback error stops
 generation and reports which minifier failed.
 
+An executable `<script>` containing any `@{...}` hole remains wholly
+unminified. Neither the built-in nor a custom JavaScript minifier changes the
+text around its holes.
+
 ## Custom field matching
 
 `gen.WithFieldMatcher` replaces the default attribute-to-field matcher for
@@ -119,7 +128,8 @@ gen.WithFieldMatcher(func(attr string, fields []string) (field string, ok bool) 
 
 The callback receives the raw attribute name and the target struct's exported
 field names. A successful match must return one of those field names. Returning
-`false` sends the attribute to the attrs bag.
+`false` sends the attribute to the attrs bag. The target props struct must
+declare an `Attrs gsx.Attrs` field to receive it; otherwise generation fails.
 
 ## Run the project binary
 
@@ -132,6 +142,7 @@ go run ./cmd/gsx generate ./...
 Use the same prefix for other affected commands, for example
 `go run ./cmd/gsx fmt -w .`.
 
-To inspect the resolved setup, run `go run ./cmd/gsx info` for the readable view
-or add `--json` for the JSON view. These are related inspection views, not
-identical representations of every project hook.
+To inspect resolved declarative settings, run `go run ./cmd/gsx info` for the
+readable view or add `--json` for the JSON view. Function hooks are not
+enumerated. A custom field matcher is reported only as present (`custom` in the
+readable view or `hasFieldMatcher` in JSON).

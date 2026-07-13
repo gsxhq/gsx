@@ -43,11 +43,14 @@ vim.api.nvim_create_autocmd("FileType", {
 
 ### Syntax highlighting
 
-Install [tree-sitter-gsx](https://github.com/gsxhq/tree-sitter-gsx) using its
-Neovim instructions. It is a unified Go and GSX grammar, so Go syntax is native
-to the parser. Only JavaScript and CSS regions are injected; install those two
-tree-sitter parsers to highlight `<script>`, `<style>`, `js` literals, and `css`
-literals.
+Use the [tree-sitter-gsx grammar and source](https://github.com/gsxhq/tree-sitter-gsx).
+Neovim needs a compiled parser registered as `gsx` on `runtimepath`, plus the
+grammar's highlight and injection queries under `queries/gsx/`. Building the
+parser from source requires a C compiler and the tree-sitter CLI.
+
+The grammar includes Go directly. Only JavaScript and CSS regions are injected,
+so install those two parsers to highlight `<script>`, `<style>`, `js` literals,
+and `css` literals.
 
 ## Other editors
 
@@ -112,6 +115,13 @@ gsx version
 ```
 
 The compiler prints a line beginning with `gsx `. If you see a Ghostscript
-banner, configure the compiler's absolute path, such as
-`$(go env GOPATH)/bin/gsx`. The VS Code extension performs this check itself and
+banner, find the Go binary directories:
+
+```bash
+go env GOBIN GOPATH
+```
+
+Use the first line when `GOBIN` is non-empty. Otherwise use the second line with
+`/bin` appended. Enter the resulting concrete `gsx` executable path in your
+editor setting. The VS Code extension performs the compiler check itself and
 skips unrelated binaries; generic LSP clients do not.
