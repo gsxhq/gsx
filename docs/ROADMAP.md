@@ -804,6 +804,15 @@ vocabulary remains a design aspiration, not the current API.
   interleave) and deserves its own spec - complementary to, not blocked by or
   blocking, attrs-only component values. Spec
   `2026-07-07-attrs-only-component-values-design.md` §"Alternative considered".
+- [ ] **Fallthrough onto a component with no `Attrs` field - diagnostic
+  shape** - an unmatched attribute on a generated component whose body never
+  uses `attrs` gets no worded diagnostic. Same-package, the caller sees the
+  raw go/types message (`unknown field Attrs in struct literal of type
+  PlainProps`), positioned at the attribute but not actionable.
+  Cross-package it is worse: generate exits 0 and the failure surfaces only
+  at `go build` of the emitted `.x.go` (found while probing PR #102's skipped
+  generic tags). The byo path already has the worded caller-side check
+  (`byo-missing-attrs`); the generated-props path needs the same validation.
 - [ ] **Child-prop inference-probe `//line` column points past the expression**
   - a component child-prop expression (`<Show v={ fmt.Sprint(1) } />`) is
   emitted TWICE in the skeleton: once in the generated props literal (its
