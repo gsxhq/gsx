@@ -26,7 +26,7 @@ import (
 //
 // What is pinned: a renderer registered for "github.com/gsxhq/gsx.RawJS"
 // fires IDENTICALLY for (a) a whole-value ExprAttr directly constructing
-// gsx.RawJS (`@click={ gsx.RawJS(...) }`) and (b) the expression-form js``
+// gsx.RawJS (`@click={ gsx.RawJS(...) }`) and (b) the expression-form js“
 // literal path (`{{ h := js`...` }}` then `@click={h}`) — both are ordinary
 // ExprAttrs by the time emitExprAttr sees them, so both hit the same
 // applyRenderer call (internal/codegen/emit.go, emitExprAttr) before the
