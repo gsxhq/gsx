@@ -1,6 +1,6 @@
 # Expression-Valued `js``/`css`` Literals Requirements
 
-**Status:** Proposed
+**Status:** Implemented — see `docs/superpowers/plans/2026-07-13-expression-valued-js-css-literals.md`.
 **Date:** 2026-07-13
 
 ## Problem
