@@ -194,3 +194,70 @@ func TestResolveFiltersRenderers(t *testing.T) {
 		t.Fatalf("unexpected RendererInfo: %+v", ri)
 	}
 }
+
+// TestResolveFunctionsLocalRenderer proves the module-aware info resolver uses
+// the Module's one external importer plus local declaration resolver. Repeated
+// resolution on the same Module must reuse both and never fall back to the
+// standalone filter packages.Load path.
+func TestResolveFunctionsLocalRenderer(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping module-load renderer test in -short mode")
+	}
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	writeMultiFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+	pgDir := filepath.Join(root, "pg")
+	if err := os.MkdirAll(pgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeMultiFile(t, pgDir, "pg.go", "package pg\n\ntype Text struct { Value string }\n")
+	rendererDir := filepath.Join(root, "renderers")
+	if err := os.MkdirAll(rendererDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeMultiFile(t, rendererDir, "package.go", "package renderers\n")
+	writeMultiFile(t, rendererDir, "renderers.gsx", `package renderers
+
+import "example.com/app/pg"
+
+func RenderText(v pg.Text) (string, error) {
+	return v.Value, nil
+}
+`)
+	renderers := []RendererAlias{{TypeKey: "example.com/app/pg.Text", PkgPath: "example.com/app/renderers", FuncName: "RenderText"}}
+	m, err := Open(Options{
+		ModuleRoot: root,
+		ModulePath: "example.com/app",
+		FilterPkgs: []string{stdImportPath},
+		Renderers:  renderers,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 2 {
+		infos, rinfos, err := m.resolveFunctions()
+		if err != nil {
+			t.Fatalf("resolveFunctions call %d: %v", i+1, err)
+		}
+		if len(infos) == 0 {
+			t.Fatal("expected std filter info")
+		}
+		if len(rinfos) != 1 {
+			t.Fatalf("rinfos = %+v, want one renderer", rinfos)
+		}
+		want := RendererInfo{TypeKey: "example.com/app/pg.Text", Pkg: "example.com/app/renderers", Func: "RenderText", HasErr: true}
+		if rinfos[0] != want {
+			t.Fatalf("rinfos[0] = %+v, want %+v", rinfos[0], want)
+		}
+	}
+	if got := m.externalLoads(); got != 1 {
+		t.Fatalf("externalLoads = %d, want 1 after repeated resolution", got)
+	}
+	if got := m.filterTableLoads(); got != 0 {
+		t.Fatalf("filterTableLoads = %d, want 0 (reuse external importer types)", got)
+	}
+}
