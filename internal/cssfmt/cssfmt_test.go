@@ -14,8 +14,10 @@ func fmtCSS(t *testing.T, in string) string {
 	return string(out)
 }
 
-func TestReindentFixesIndentation(t *testing.T) {
-	in := ".a {\n      color: red;\n  background: blue;\n}"
+func TestRebasesPreservingRelative(t *testing.T) {
+	// A rule indented at a base dedents to zero, keeping the author's relative
+	// structure exactly.
+	in := "\t.a {\n\t\tcolor: red;\n\t\tbackground: blue;\n\t}"
 	want := ".a {\n\tcolor: red;\n\tbackground: blue;\n}"
 	if got := fmtCSS(t, in); got != want {
 		t.Fatalf("got %q want %q", got, want)
@@ -45,11 +47,11 @@ func TestExistingBlankLinesPreserved(t *testing.T) {
 	}
 }
 
-func TestNestedAtRuleIndents(t *testing.T) {
-	in := "@media (min-width: 600px) {\n.a {\ncolor: red;\n}\n}"
-	want := "@media (min-width: 600px) {\n\t.a {\n\t\tcolor: red;\n\t}\n}"
-	if got := fmtCSS(t, in); got != want {
-		t.Fatalf("got %q want %q", got, want)
+func TestNestedAtRulePreserved(t *testing.T) {
+	// Well-nested @media (zero-based) is preserved as written.
+	in := "@media (min-width: 600px) {\n\t.a {\n\t\tcolor: red;\n\t}\n}"
+	if got := fmtCSS(t, in); got != in {
+		t.Fatalf("nested @media not preserved:\ngot  %q\nwant %q", got, in)
 	}
 }
 

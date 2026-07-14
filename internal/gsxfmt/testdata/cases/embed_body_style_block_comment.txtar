@@ -19,10 +19,10 @@ package p
 component C() {
 	<style>
 		.a {
-			/* multi
+		/* multi
    line
    comment */
-			color: red;
+		color: red;
 		}
 	</style>
 }

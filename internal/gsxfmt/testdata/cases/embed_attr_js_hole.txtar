@@ -16,8 +16,8 @@ package p
 component C(id string) {
 	<form
 		x-data=js"{
-			url: '@{id}',
-			k: 1,
+		url: '@{id}',
+		k: 1,
 		}"
 	/>
 }

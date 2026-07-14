@@ -20,12 +20,12 @@ package p
 component C() {
 	<form
 		x-data=js"{
-			render() {
-				return `<div>
+		render() {
+		return `<div>
   hi
 </div>`;
-			},
-			k: 1,
+		},
+		k: 1,
 		}"
 	/>
 }
