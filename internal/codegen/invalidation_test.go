@@ -620,8 +620,8 @@ func Timestamptz(v pg.Timestamptz) string { return v.Label }
 		if err != nil {
 			t.Fatal(err)
 		}
-		if hasDiagErrors(result.Diags) {
-			t.Fatalf("Package diags = %v", result.Diags)
+		if len(result.Diags) != 0 {
+			t.Fatalf("module-local Go-only renderer fixture produced diagnostics: %v", result.Diags)
 		}
 		fwd, _ := m.importGraphSnapshot()
 		if got := fwd[viewsDir]; len(got) != 0 {
@@ -679,8 +679,8 @@ component Show(sample model.Moment) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if hasDiagErrors(result.Diags) {
-			t.Fatalf("Package diags = %v", result.Diags)
+		if len(result.Diags) != 0 {
+			t.Fatalf("external renderer fixture produced diagnostics: %v", result.Diags)
 		}
 		fwd, _ := m.importGraphSnapshot()
 		if got := fwd[viewsDir]; len(got) != 0 {
@@ -720,8 +720,8 @@ func Timestamptz(v pg.Timestamptz) string { return v.Label }
 		if err != nil {
 			t.Fatal(err)
 		}
-		if hasDiagErrors(result.Diags) {
-			t.Fatalf("Package diags = %v", result.Diags)
+		if len(result.Diags) != 0 {
+			t.Fatalf("shadowed/winning renderer fixture produced diagnostics: %v", result.Diags)
 		}
 		fwd, _ := m.importGraphSnapshot()
 		if got := fwd[viewsDir]; len(got) != 1 || got[0] != winnerDir {
