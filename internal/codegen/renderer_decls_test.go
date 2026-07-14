@@ -112,6 +112,64 @@ func Handwritten(v pg.Timestamptz) gsx.Node { return nil }
 	}
 }
 
+func TestRendererDeclResolverRejectsMalformedActiveGoCompanion(t *testing.T) {
+	root := rendererDeclTestModule(t)
+	dir := filepath.Join(root, "renderers")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeMultiFile(t, dir, "view.gsx", `package renderers
+
+component Badge(label string) {
+	<span>{label}</span>
+}
+`)
+	writeMultiFile(t, dir, "renderers.go", `package renderers
+
+func Broken( {
+`)
+	m, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ext, err := m.externalImporter()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = newRendererDeclResolver(m, ext).packageForDir(dir)
+	if err == nil || !strings.Contains(err.Error(), "renderers.go") {
+		t.Fatalf("packageForDir error = %v, want malformed active companion error", err)
+	}
+}
+
+func TestRendererDeclResolverRejectsImportDirErrors(t *testing.T) {
+	root := rendererDeclTestModule(t)
+	dir := filepath.Join(root, "renderers")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeMultiFile(t, dir, "view.gsx", `package renderers
+
+component Badge(label string) {
+	<span>{label}</span>
+}
+`)
+	writeMultiFile(t, dir, "first.go", "package first\n")
+	writeMultiFile(t, dir, "second.go", "package second\n")
+	m, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ext, err := m.externalImporter()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = newRendererDeclResolver(m, ext).packageForDir(dir)
+	if err == nil || !strings.Contains(err.Error(), "found packages") {
+		t.Fatalf("packageForDir error = %v, want ImportDir package mismatch", err)
+	}
+}
+
 func TestRendererDeclResolverRecursivelyImportsLocalGsxDeclarations(t *testing.T) {
 	root := rendererDeclTestModule(t)
 	modelDir := filepath.Join(root, "model")

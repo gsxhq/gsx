@@ -90,7 +90,13 @@ func (r *rendererDeclResolver) packageForDir(dir string) (*types.Package, error)
 		skeletonPaths[xgoPath] = true
 	}
 
-	if bp, buildErr := build.ImportDir(dir, 0); buildErr == nil {
+	bp, buildErr := build.ImportDir(dir, 0)
+	if buildErr != nil {
+		var noGoErr *build.NoGoError
+		if !errors.As(buildErr, &noGoErr) {
+			return nil, buildErr
+		}
+	} else {
 		for _, name := range bp.GoFiles {
 			path := filepath.Join(dir, name)
 			if skeletonPaths[path] {
@@ -98,11 +104,11 @@ func (r *rendererDeclResolver) packageForDir(dir string) (*types.Package, error)
 			}
 			src, readErr := os.ReadFile(path)
 			if readErr != nil {
-				continue
+				return nil, fmt.Errorf("read active Go companion %s: %w", path, readErr)
 			}
 			file, parseErr := goparser.ParseFile(fset, path, src, goparser.SkipObjectResolution)
 			if parseErr != nil {
-				continue
+				return nil, fmt.Errorf("parse active Go companion %s: %w", path, parseErr)
 			}
 			goFiles = append(goFiles, file)
 		}
