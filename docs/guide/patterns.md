@@ -10,6 +10,9 @@ rediscover them.
 
 ## Available patterns
 
+- **[Package renderers](./patterns/package-renderers.md)** — keep third-party
+  value policy in an application-owned `.gsx` package, using pgx
+  `Timestamptz` as a complete `NULL`/infinity/finite-time recipe.
 - **[Render once](./patterns/render-once.md)** — emit a per-request singleton (a dialog
   container, a dev-mode asset preamble, a one-time inline `<style>`/`<script>`)
   exactly once even when its component is invoked from many call sites. A userland

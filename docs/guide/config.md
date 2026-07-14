@@ -186,6 +186,11 @@ func PgText(t pgtype.Text) string {
 }
 ```
 
+For a renderer implemented in `.gsx` and returning semantic markup, see the
+[Package renderers pattern](./patterns/package-renderers.md). It includes a
+complete application-owned pgx `Timestamptz` recipe and the clean-checkout
+generation boundary.
+
 The registered type renders through `PgText` wherever gsx renders a value —
 text, attribute, and URL holes, style/script holes and interpolated literals,
 `class`/`style` parts, conditional-attribute branches, and component
