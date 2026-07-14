@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go/scanner"
 	"go/token"
+	"strings"
 
 	"github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/attrclass"
@@ -74,9 +75,9 @@ var composedRegionObserver func(src string)
 // literal is Go — a lone apostrophe/URL in tag text, or a gsx-escaped backtick
 // (`js`a\`b“ — go/scanner ends the raw string at the escaped backtick), would
 // desync a continuous scan. So on each element (elementSpanEnd) or backtick
-// literal (embeddedLiteralEnd) we record the span, then RE-INIT go/scanner just
-// past it. A span skipped this way is opaque: its interior contributes nothing
-// to depth or to any delimiter.
+// literal (embeddedLiteralEndHoleAware) we record the span, then RE-INIT
+// go/scanner just past it. A span skipped this way is opaque: its interior
+// contributes nothing to depth or to any delimiter.
 //
 // Depth is tracked from the paren/bracket/brace token stream, starting at 1;
 // Close is the RBRACE that returns it to 0. Top-level delimiters are those at
@@ -111,10 +112,11 @@ func scanGoExpr(src string, from int) goExprScan {
 			off := base + fset.Position(pos).Offset
 
 			// Backtick literal. go/scanner reports it as a STRING beginning with
-			// '`'. A PREFIXED gsx literal (f`/js`/css`) uses
-			// gsx's escape-aware end (embeddedLiteralEnd, which honours the `\``
-			// escape) that differs from go/scanner's raw-string end, so we take
-			// over its span and resume past it. A BARE backtick is a plain Go raw
+			// '`'. A PREFIXED gsx literal (f`/js`/css`) uses gsx's escape-aware,
+			// hole-aware end (embeddedLiteralEndHoleAware, which honours the `\``
+			// escape and skips `@{ }` holes with full Go-expression awareness)
+			// that differs from go/scanner's raw-string end, so we take over its
+			// span and resume past it. A BARE backtick is a plain Go raw
 			// string — go/scanner already tokenized it correctly (Go raw strings
 			// have no escapes and cannot contain a backtick), so we leave it alone
 			// and let it flow through as an ordinary STRING operand. This is why
@@ -122,7 +124,7 @@ func scanGoExpr(src string, from int) goExprScan {
 			// behind a prefix.
 			if tok == token.STRING && off < len(src) && src[off] == '`' {
 				if p := langPrefixStart(src, off); p >= 0 {
-					end, _ := embeddedLiteralEnd(src, off+1, '`')
+					end, _ := embeddedLiteralEndHoleAware(src, off+1, '`')
 					res.Backticks = append(res.Backticks, [2]int{p, end})
 					base = end
 					expectOperand = false // a literal is a completed operand
@@ -141,13 +143,13 @@ func scanGoExpr(src string, from int) goExprScan {
 			// `\@{` is an invalid Go escape, and a `"` inside a hole would
 			// prematurely end go/scanner's string. So, exactly as for the
 			// prefixed backtick form, we take over the span with gsx's
-			// escape-aware `"`-end (embeddedLiteralEnd with delim '"') and resume
-			// past it. A BARE `"…"` (langPrefixStart < 0) is a plain Go string —
-			// interpolation is opt-in behind the prefix — so it flows through as
-			// an ordinary operand.
+			// escape-aware, hole-aware `"`-end (embeddedLiteralEndHoleAware with
+			// delim '"') and resume past it. A BARE `"…"` (langPrefixStart < 0)
+			// is a plain Go string — interpolation is opt-in behind the prefix —
+			// so it flows through as an ordinary operand.
 			if tok == token.STRING && off < len(src) && src[off] == '"' {
 				if p := langPrefixStart(src, off); p >= 0 {
-					end, _ := embeddedLiteralEnd(src, off+1, '"')
+					end, _ := embeddedLiteralEndHoleAware(src, off+1, '"')
 					res.Backticks = append(res.Backticks, [2]int{p, end})
 					base = end
 					expectOperand = false
@@ -289,9 +291,24 @@ func scanGoElementMarks(src string) []goElemMark {
 // *EmbeddedInterp literals exactly as they appear. The literal's end is
 // recovered by the split path itself (the sub-parser's cursor), so it is not
 // carried here.
+//
+// PipeOff is only meaningful when IsLiteral is true: the byte offset of a
+// `|>` gsx pipe operator immediately following the literal (past only
+// horizontal whitespace), or -1 when none follows. gsx's `|>` pipe syntax has
+// no meaning applied to a WHOLE literal value at a Go-expression position —
+// only inside one of its @{ } holes, or at an interpolation's own top-level
+// seed (`{ f`hi` |> upper }`, split before scanGoParts ever sees it — see
+// parsePipe) — so a literal item with PipeOff >= 0 is reported as W1's
+// whole-literal-pipe diagnostic (wholeLiteralPipeMsg) by every caller that
+// turns items into positioned errors (splitGoElements, SplitGoExprElements,
+// and parseInterp/parseGoBlock's own pre-check). Detection only: the literal
+// item itself is still recorded and consumed exactly as if PipeOff were -1,
+// so the split stays well-formed for downstream fallbacks (the formatter's
+// error -> verbatim-relay).
 type goSplitItem struct {
 	Off       int
 	IsLiteral bool
+	PipeOff   int
 }
 
 // scanGoParts tokenizes src with go/scanner and returns, in source order, every
@@ -331,8 +348,8 @@ func scanGoParts(src string) []goSplitItem {
 			// < 0) is a plain Go raw string and flows through untouched.
 			if tok == token.STRING && off < len(src) && src[off] == '`' {
 				if p := langPrefixStart(src, off); p >= 0 {
-					end, _ := embeddedLiteralEnd(src, off+1, '`')
-					items = append(items, goSplitItem{Off: p, IsLiteral: true})
+					end, _ := embeddedLiteralEndHoleAware(src, off+1, '`')
+					items = append(items, goSplitItem{Off: p, IsLiteral: true, PipeOff: wholeLiteralPipeOff(src, end)})
 					base = end
 					expectOperand = false
 					advanced = true
@@ -347,8 +364,8 @@ func scanGoParts(src string) []goSplitItem {
 			// a plain Go string.
 			if tok == token.STRING && off < len(src) && src[off] == '"' {
 				if p := langPrefixStart(src, off); p >= 0 {
-					end, _ := embeddedLiteralEnd(src, off+1, '"')
-					items = append(items, goSplitItem{Off: p, IsLiteral: true})
+					end, _ := embeddedLiteralEndHoleAware(src, off+1, '"')
+					items = append(items, goSplitItem{Off: p, IsLiteral: true, PipeOff: wholeLiteralPipeOff(src, end)})
 					base = end
 					expectOperand = false
 					advanced = true
@@ -358,7 +375,7 @@ func scanGoParts(src string) []goSplitItem {
 
 			// Operand-position element literal.
 			if expectOperand && tok == token.LSS && byteBeginsTag(src, off+1) {
-				items = append(items, goSplitItem{Off: off})
+				items = append(items, goSplitItem{Off: off, PipeOff: -1})
 				base = elementSpanEnd(src, off)
 				expectOperand = false
 				advanced = true
@@ -372,6 +389,139 @@ func scanGoParts(src string) []goSplitItem {
 		}
 	}
 	return items
+}
+
+// wholeLiteralPipeMsg is W1's diagnostic for a `|>` gsx pipe chain found
+// directly after a value-position literal (f`/js`/css`, either delimiter).
+// gsx's pipe syntax has no meaning applied to a WHOLE literal there — only
+// inside one of its @{ } holes, or at an interpolation's own top-level seed
+// (stripped by parsePipe before scanGoParts ever runs) — and unlike those,
+// piping the whole literal is not supported at all (a function call does the
+// same job: `upper(f`hi`)`). Left unreported, the `|>` never reaches a
+// skeleton parse as valid Go, so today's failure would surface as an
+// unpositioned, generic "expected operand, found '>'" once assembly and
+// type-checking finally choke on it — this diagnostic catches it here, at
+// the scan, instead.
+const wholeLiteralPipeMsg = "whole-literal pipelines are not supported in Go-expression position; wrap the literal in a function call instead"
+
+// wholeLiteralPipeOff returns the byte offset of a `|>` gsx pipe operator
+// starting at or after end (skipping only horizontal whitespace — a newline
+// ends the Go statement via auto-semicolon-insertion before a `|>` on the
+// following line could ever bind to the literal), or -1 when none follows.
+// end is a literal item's end offset (embeddedLiteralEndHoleAware's return),
+// so the two bytes at the returned offset are always "|>" verbatim — go/scanner
+// would otherwise tokenize them as a bitwise-OR followed by a stray '>'
+// (scanGoExpr's own Pipes detection requires the same byte-adjacency for the
+// same reason). Called from both literal branches of scanGoParts, so it sees
+// every literal exactly once regardless of delimiter.
+func wholeLiteralPipeOff(src string, end int) int {
+	j := skipHSpace(src, end)
+	if strings.HasPrefix(src[j:], "|>") {
+		return j
+	}
+	return -1
+}
+
+// skipHSpace returns the offset of the first byte at or after i in src that
+// is not a horizontal-whitespace byte (space or tab). Deliberately narrower
+// than p.skipSpace (a *parser method operating on the live cursor, and which
+// also consumes '\r'/'\n'): this is a free function over an arbitrary byte
+// range for wholeLiteralPipeOff's peek, and a newline must NOT be skipped —
+// see wholeLiteralPipeOff's doc.
+func skipHSpace(src string, i int) int {
+	for i < len(src) && (src[i] == ' ' || src[i] == '\t') {
+		i++
+	}
+	return i
+}
+
+// containsEmbeddedLiteralPrefix reports whether s contains a literal
+// delimiter (backtick or `"`) immediately preceded by an f/js/css lang
+// prefix at an ident boundary (langPrefixStart) — a cheap, NECESSARY (not
+// sufficient) condition for scanGoParts to yield any literal item. It is the
+// gate parseInterp/parseGoBlock use before paying for a full go/scanner
+// tokenization on the parse hot path: a plain-Go interp (including one
+// holding an ordinary `"…"` string — about a third of real interp bodies)
+// costs one byte scan and nothing more. Necessary because a literal item
+// requires exactly this byte shape (a delimiter whose langPrefixStart >= 0)
+// at the item's own offset, and this scans EVERY offset — a superset. Not
+// sufficient (the shape may sit inside a string's CONTENT, where go/scanner
+// would never token-start a literal there); precision stays in scanGoParts,
+// which the caller runs only when this returns true.
+func containsEmbeddedLiteralPrefix(s string) bool {
+	for i := range len(s) {
+		if (s[i] == '`' || s[i] == '"') && langPrefixStart(s, i) >= 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// ContainsEmbeddedLiteral reports whether src — an arbitrary Go-expression
+// fragment, such as a pipe stage's argument list — contains a prefixed
+// embedded literal (f`/js`/css`, either delimiter) at a genuine Go token
+// position, and if so the byte offset of its langPrefixStart. Unlike
+// containsEmbeddedLiteralPrefix's byte-level pre-filter (a cheap necessary-
+// but-not-sufficient scan meant to be followed by a real parse when it fires),
+// this is precise on its own: it walks go/scanner tokens exactly as
+// scanGoParts's two STRING-token checks do, so a delimiter byte buried inside
+// an unrelated string's content never false-positives.
+//
+// It never parses the literal — no embeddedLiteralEndHoleAware, no
+// parseEmbeddedInterpPart — only the "is there a value-position prefixed
+// delimiter here" detection, because that is all a caller like the
+// stage-args diagnostic needs: a NO from here means src is safe to splice
+// verbatim into the skeleton as a pipe stage's args, a YES means it is not
+// (only a real literal lowering, which stage args do not support, could make
+// it safe). A single top-to-bottom go/scanner pass suffices with no
+// resume-past-span bookkeeping: a BARE (unprefixed) backtick or `"` string is
+// always correctly delimited by go/scanner itself (a raw string cannot
+// contain an unescaped backtick; an interpreted string honours Go's own
+// backslash escapes), so scanning never desyncs before reaching the first
+// PREFIXED literal — and once one is found, this returns immediately without
+// needing to know where it ends.
+func ContainsEmbeddedLiteral(src string) (int, bool) {
+	fset := token.NewFileSet()
+	file := fset.AddFile("", fset.Base(), len(src))
+	var s scanner.Scanner
+	s.Init(file, []byte(src), nil, 0)
+	for {
+		pos, tok, _ := s.Scan()
+		if tok == token.EOF {
+			return 0, false
+		}
+		if tok != token.STRING {
+			continue
+		}
+		off := fset.Position(pos).Offset
+		if off >= len(src) {
+			continue
+		}
+		if src[off] != '`' && src[off] != '"' {
+			continue
+		}
+		if p := langPrefixStart(src, off); p >= 0 {
+			return p, true
+		}
+	}
+}
+
+// reportWholeLiteralPipes reports wholeLiteralPipeMsg via p.errorf for every
+// item in items whose PipeOff is set (an IsLiteral item immediately followed
+// by `|>` — see goSplitItem's doc), positioned at base+PipeOff. base is the
+// absolute file position of the scanned src's byte 0, matching every other
+// Off -> token.Pos translation in this file (e.g. splitGoElements's own).
+// Shared by splitGoElements (the file-level split, over a full Go region) and
+// parseInterp/parseGoBlock (a lightweight pre-check over just the seed/code
+// text, run before SplitGoExprElements's own deferred, analyze-time split so
+// the diagnostic surfaces at the same, pre-codegen parse stage as every other
+// gsx-region scan error — see docs/superpowers/specs's W1' rationale).
+func reportWholeLiteralPipes(p *parser, items []goSplitItem, base token.Pos) {
+	for _, m := range items {
+		if m.IsLiteral && m.PipeOff >= 0 {
+			p.errorf(base+token.Pos(m.PipeOff), "%s", wholeLiteralPipeMsg)
+		}
+	}
 }
 
 // byteBeginsTag reports whether the byte at i can start a tag name, a
@@ -544,6 +694,13 @@ func skipAttrQuoted(src string, i int) int {
 // including the error paths below.
 func (p *parser) splitGoElements(src string, base token.Pos) []ast.Decl {
 	items := scanGoParts(src)
+	// W1: a literal immediately followed by `|>` is reported here, alongside
+	// (not instead of) the normal split below — the literal item itself is
+	// still carved out and consumed exactly as if PipeOff were -1 (see
+	// goSplitItem's doc). This runs before the len(items)==0 fast path is even
+	// reachable (a literal always yields an item), so it never needs its own
+	// guard.
+	reportWholeLiteralPipes(p, items, base)
 	if len(items) == 0 {
 		gc := &ast.GoChunk{Src: src}
 		ast.SetSpan(gc, base, base+token.Pos(len(src)))
@@ -705,6 +862,19 @@ func SplitGoExprElements(fset *token.FileSet, src string, base token.Pos, cls *a
 			}
 			parts = append(parts, lit)
 			cursor = sub.i
+			// W1: report a `|>` found immediately after this literal — detection
+			// only, so the literal above is still added to parts and cursor still
+			// advances normally (see goSplitItem's PipeOff doc). Checked after a
+			// successful literal parse (not merged into the err path above) so a
+			// genuinely malformed literal keeps reporting ITS OWN error, not this
+			// one.
+			if m.PipeOff >= 0 {
+				errs = append(errs, Error{
+					Pos: base + token.Pos(m.PipeOff),
+					End: base + token.Pos(m.PipeOff+len("|>")),
+					Msg: wholeLiteralPipeMsg,
+				})
+			}
 			continue
 		}
 		sub.i = m.Off

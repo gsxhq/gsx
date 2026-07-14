@@ -1,0 +1,33 @@
+# W3 + hole pipe: a nested f`` literal inside a TOP-LEVEL js`` literal's @{ }
+# hole, where the hole ALSO carries its own `|> upper` pipeline. The `|>` binds
+# to the HOLE (parsePipe strips it into Interp.Stages), NOT to the inner f`
+# literal — so this is a supported hole pipe, not a whole-literal pipe (contrast
+# diag_nested_whole_pipe.txtar, where `|>` applies to a whole value-position
+# literal and is rejected). The inner f` lowers to a plain string seed, the
+# hole pipes that seed through the pure `upper` filter, and the JS-value hole
+# escapes the result. `upper` is pure (no error/ctx), which a top-level position
+# requires. This pins emit ≡ probe for the hole-pipe-over-nested-literal path:
+# assembleHoleSeed reassembles the seed and lowers n.Stages over it, and
+# holeProbeSeed mirrors that reassembly at the type level.
+-- gsx.toml --
+filter_packages = ["./filters"]
+-- filters/filters.go --
+package filters
+
+import "strings"
+
+// Upper uppercases s.
+func Upper(s string) string { return strings.ToUpper(s) }
+-- input.gsx --
+package demo
+
+var h = js`f(@{ f`x` |> upper })`
+
+component Page() {
+	<button @click={h}>x</button>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+-- render.golden --
+<button @click="f(&#34;X&#34;)">x</button>
