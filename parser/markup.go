@@ -24,6 +24,23 @@ func (p *parser) parseInterp() (*ast.Interp, error) {
 	if perr != nil {
 		return nil, p.pipeErrorf(startPos, perr)
 	}
+	// W1: catch a `|>` directly after a value-position literal NESTED inside
+	// seed (e.g. `wrap(f`hi` |> upper)`) here, at parse time, rather than
+	// leaving it to analyze.go's deferred SplitGoExprElements split. seed's
+	// OWN top-level `|>` chain was already peeled into stages by parsePipe
+	// above, so this only ever fires on a literal-pipe buried inside a larger
+	// Go expression — see reportWholeLiteralPipes's doc for why this can't
+	// just wait for that later split: by the time it runs, the malformed
+	// `|>` text has already been folded into the analyzed AST, and reporting
+	// it there competes with (and today loses to) the skeleton's own Go
+	// parse of the same broken text, which fires first and aborts with a
+	// generic, unpositioned-feeling error instead of this one.
+	// containsEmbeddedLiteralPrefix (not a bare delimiter check) gates the
+	// scan: parseInterp is the parse hot path, and an ordinary Go string in
+	// the seed must not pay for a go/scanner tokenization.
+	if containsEmbeddedLiteralPrefix(seed) {
+		reportWholeLiteralPipes(p, scanGoParts(seed), exprPos)
+	}
 	p.i = end + 1
 	n := &ast.Interp{Expr: seed, Stages: stages, ExprPos: exprPos}
 	ast.SetSpan(n, startPos, p.posAt(p.i))
@@ -185,6 +202,15 @@ func (p *parser) parseGoBlock() (*ast.GoBlock, error) {
 	lead := len(rawCode) - len(strings.TrimLeft(rawCode, " \t\r\n"))
 	codePos := p.posAt(p.i + 2 + lead)
 	code := strings.TrimSpace(rawCode)
+	// W1: same parse-time pre-check as parseInterp — a GoBlock has no
+	// top-level pipe grammar of its own (code is plain Go statement text, so
+	// there is no parsePipe stage-stripping step to exclude first), so this
+	// fires on ANY literal directly followed by `|>` in code, nested or not.
+	// Same containsEmbeddedLiteralPrefix gate as parseInterp: an ordinary Go
+	// string in the block must not pay for a go/scanner tokenization.
+	if containsEmbeddedLiteralPrefix(code) {
+		reportWholeLiteralPipes(p, scanGoParts(code), codePos)
+	}
 	p.i = outerEnd + 1
 	n := &ast.GoBlock{Code: code, CodePos: codePos}
 	ast.SetSpan(n, startPos, p.posAt(p.i))

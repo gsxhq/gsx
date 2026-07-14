@@ -74,7 +74,11 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 		w := _gsxp.W
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:10:2
-		_gsxgw.Node(ctx, Widget(WidgetProps{Handler: _gsxrt.RawJS("open(" + _gsxrt.EscapeJSVal(id) + ")"), Rule: _gsxrt.RawCSS("width:" + _gsxrt.FilterCSS(string(w)) + "px")}))
+		_gsxv0 := _gsxrt.EscapeJSVal(id)
+		_gsxv2 := _gsxrt.RawJS("open(" + _gsxv0 + ")")
+		_gsxv1 := _gsxrt.FilterCSS(string(w))
+		_gsxv3 := _gsxrt.RawCSS("width:" + _gsxv1 + "px")
+		_gsxgw.Node(ctx, Widget(WidgetProps{Handler: _gsxv2, Rule: _gsxv3}))
 		return _gsxgw.Err()
 	})
 }
