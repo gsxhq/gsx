@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/gsxhq/gsx/internal/codegen"
+	"github.com/gsxhq/gsx/internal/modpath"
 )
 
 // moduleGroup is a set of package directories that share one enclosing module,
@@ -67,4 +68,22 @@ func moduleRoot(dir string) (string, string, error) {
 		}
 		d = parent
 	}
+}
+
+// moduleDirForImportPath maps an exact module import path to an existing
+// directory contained by moduleRoot. It validates the raw slash-separated path
+// before converting it to a filesystem path so filepath.Clean cannot turn dot
+// segments into traversal. Both the lexical candidate and its resolved symlink
+// target must remain under the corresponding module root; an in-root symlink is
+// allowed, while a symlink escape is not.
+func moduleDirForImportPath(moduleRoot, modulePath, importPath string) (string, bool) {
+	candidate, ok := modpath.DirForImportPath(moduleRoot, modulePath, importPath)
+	if !ok {
+		return "", false
+	}
+	info, err := os.Stat(candidate)
+	if err != nil || !info.IsDir() {
+		return "", false
+	}
+	return candidate, true
 }

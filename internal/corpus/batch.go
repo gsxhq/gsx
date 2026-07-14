@@ -23,11 +23,20 @@ type genFile struct {
 	data []byte
 }
 
+// caseGenFile is one successful generated file staged for the outer execution
+// module. dir is relative to the case root; path is the original .gsx path.
+type caseGenFile struct {
+	dir  string
+	path string
+	data []byte
+}
+
 type caseCodegen struct {
-	gen    []byte // concatenated generated .x.go (sorted by gsx path), for the generated.x.go.golden facet
-	diag   []byte // normalized codegen diagnostics (empty if clean; non-empty for warnings too, not just errors)
-	hasErr bool   // true iff any diagnostic was error-severity; gates buildability (diag being non-empty does not, since warnings don't block a build)
-	html   string // rendered HTML (renderable cases only; empty otherwise)
+	gen    []byte        // concatenated generated .x.go (sorted by gsx path), for the generated.x.go.golden facet
+	files  []caseGenFile // successful generated files for the one shared execution module
+	diag   []byte        // normalized codegen diagnostics (empty if clean; non-empty for warnings too, not just errors)
+	hasErr bool          // true iff any diagnostic was error-severity; gates buildability (diag being non-empty does not, since warnings don't block a build)
+	html   string        // rendered HTML (renderable cases only; empty otherwise)
 }
 
 const caseMarkerPrefix = "\x00CASE "
@@ -56,10 +65,110 @@ func writeCaseSources(moduleDir string, c *caseDoc) error {
 	return nil
 }
 
-// batchCodegen writes ALL candidate cases' sources into ONE shared temp module,
-// runs codegenDirs ONCE for all dirs, then builds+runs the renderable
-// cases in a single `go run`. Returns per-case results keyed by case name.
+// batchCodegen partitions code generation by exact ordered module-wide renderer
+// registry, then stages every partition's successful output in one shared
+// execution module and performs one go run. A renderer registration is
+// module-wide, so putting differing case registries in the same codegen Module
+// would make one case's generated aliases and validation depend on which other
+// corpus subtests happened to run.
+//
+// The empty registry is one partition, preserving the single large batch for
+// the no-renderer majority. Cases with identical registries also continue to
+// share a codegen batch. Build and render are never repeated per partition.
 func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodegen, error) {
+	return batchCodegenWithWorkers(repoRoot, candidates, batchCodegenPartition, executeBatch)
+}
+
+// batchCodegenWithWorkers exposes the codegen/execution boundary to focused
+// harness tests without mutable package globals. partition runs once per exact
+// renderer registry; execute runs once after every result passes integrity
+// checks.
+func batchCodegenWithWorkers(
+	repoRoot string,
+	candidates []*caseDoc,
+	partition func(string, []*caseDoc) (map[string]*caseCodegen, error),
+	execute func(string, []*caseDoc, map[string]*caseCodegen) error,
+) (map[string]*caseCodegen, error) {
+	seenCandidates := make(map[string]bool, len(candidates))
+	byDirName := make(map[string]string, len(candidates))
+	for _, c := range candidates {
+		if seenCandidates[c.name] {
+			return nil, fmt.Errorf("batchCodegen: duplicate candidate %q", c.name)
+		}
+		seenCandidates[c.name] = true
+		if prev, dup := byDirName[c.dir]; dup {
+			return nil, fmt.Errorf("case dir collision: %q and %q both map to %q; rename one", prev, c.name, c.dir)
+		}
+		byDirName[c.dir] = c.name
+	}
+
+	results := make(map[string]*caseCodegen, len(candidates))
+	for i, group := range partitionCodegenCandidatesByRendererRegistry(candidates) {
+		part, err := partition(repoRoot, group)
+		if err != nil {
+			return nil, fmt.Errorf("batchCodegen: renderer-registry partition %d: %w", i, err)
+		}
+		expected := make(map[string]bool, len(group))
+		for _, c := range group {
+			expected[c.name] = true
+			r, ok := part[c.name]
+			if !ok {
+				return nil, fmt.Errorf("batchCodegen: renderer-registry partition %d produced no result for %q", i, c.name)
+			}
+			if r == nil {
+				return nil, fmt.Errorf("batchCodegen: renderer-registry partition %d produced nil result for %q", i, c.name)
+			}
+		}
+		for name := range part {
+			if _, dup := results[name]; dup {
+				return nil, fmt.Errorf("batchCodegen: duplicate result for %q", name)
+			}
+			if !expected[name] {
+				return nil, fmt.Errorf("batchCodegen: renderer-registry partition %d produced unexpected result for %q", i, name)
+			}
+		}
+		for _, c := range group {
+			results[c.name] = part[c.name]
+		}
+	}
+	if len(candidates) > 0 {
+		if err := execute(repoRoot, candidates, results); err != nil {
+			return nil, fmt.Errorf("batchCodegen: execute: %w", err)
+		}
+	}
+	return results, nil
+}
+
+// partitionCodegenCandidatesByRendererRegistry groups candidates by typed,
+// exact slice comparison of their complete ordered RendererAlias registries.
+// First-seen group and candidate order are retained, making partition execution
+// deterministic without an ambiguous string serialization.
+func partitionCodegenCandidatesByRendererRegistry(candidates []*caseDoc) [][]*caseDoc {
+	var groups [][]*caseDoc
+	var registries [][]codegen.RendererAlias
+	for _, c := range candidates {
+		group := -1
+		for i, registry := range registries {
+			if slices.Equal(registry, c.renderers) {
+				group = i
+				break
+			}
+		}
+		if group < 0 {
+			registries = append(registries, slices.Clone(c.renderers))
+			groups = append(groups, nil)
+			group = len(groups) - 1
+		}
+		groups[group] = append(groups[group], c)
+	}
+	return groups
+}
+
+// batchCodegenPartition writes one renderer-registry partition's authored
+// sources into a small temp module and runs codegenDirs once for all its dirs.
+// It returns generated/diagnostic data only; build and render belong to the one
+// outer execution module shared by every partition.
+func batchCodegenPartition(repoRoot string, candidates []*caseDoc) (map[string]*caseCodegen, error) {
 	if len(candidates) == 0 {
 		return map[string]*caseCodegen{}, nil
 	}
@@ -160,6 +269,7 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 		c := cs.c
 		cg := &caseCodegen{}
 		root := caseImportRoot(c)
+		caseRoot := caseModuleDir(tmp, c)
 
 		// Collect package results for this case.
 		// Check if any package has an error.
@@ -227,31 +337,60 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 
 			var genBuf bytes.Buffer
 			for _, dir := range orderedDirs {
+				relDir, err := filepath.Rel(caseRoot, dir)
+				if err != nil {
+					return nil, fmt.Errorf("case %s: generated package dir: %w", c.name, err)
+				}
+				relDir = filepath.ToSlash(relDir)
 				for _, f := range byDir[dir] {
 					genBuf.Write(f.data)
+					cg.files = append(cg.files, caseGenFile{dir: relDir, path: f.path, data: f.data})
 				}
 			}
 			gen := genBuf.Bytes()
 			if len(gen) > 0 {
 				cg.gen = gen
 			}
-
-			// Write .x.go files to disk for renderable cases (needed by go run).
-			for dir, files := range byDir {
-				for _, f := range files {
-					base := strings.TrimSuffix(filepath.Base(f.path), ".gsx")
-					xgoPath := filepath.Join(dir, base+".x.go")
-					if err := os.WriteFile(xgoPath, f.data, 0o644); err != nil {
-						return nil, fmt.Errorf("case %s: write .x.go: %w", c.name, err)
-					}
-				}
-			}
 		}
 
 		results[c.name] = cg
 	}
 
-	// Step 5: build and run all renderable cases with a single `go run`.
+	return results, nil
+}
+
+// executeBatch stages every case's authored sources and successful generated
+// files into one canonical shared temp module, then builds and runs all cases in
+// one go run. Non-renderable generated cases are blank-imported so they compile.
+func executeBatch(repoRoot string, candidates []*caseDoc, results map[string]*caseCodegen) error {
+	tmp := mustTempModule(repoRoot)
+	defer os.RemoveAll(tmp)
+
+	for _, c := range candidates {
+		if err := writeCaseSources(tmp, c); err != nil {
+			return fmt.Errorf("case %s: stage authored sources: %w", c.name, err)
+		}
+		cg := results[c.name]
+		if cg == nil {
+			return fmt.Errorf("case %s: stage generated files: missing result", c.name)
+		}
+		if cg.hasErr {
+			continue
+		}
+		caseRoot := caseModuleDir(tmp, c)
+		for _, f := range cg.files {
+			base := strings.TrimSuffix(filepath.Base(f.path), ".gsx")
+			xgoPath := filepath.Join(caseRoot, filepath.FromSlash(f.dir), base+".x.go")
+			if err := os.MkdirAll(filepath.Dir(xgoPath), 0o755); err != nil {
+				return fmt.Errorf("case %s: stage generated dir: %w", c.name, err)
+			}
+			if err := os.WriteFile(xgoPath, f.data, 0o644); err != nil {
+				return fmt.Errorf("case %s: stage generated file: %w", c.name, err)
+			}
+		}
+	}
+
+	// Build and run all renderable cases with a single `go run`.
 	// Non-renderable cases that produced generated output are blank-imported into
 	// the same main.go so they COMPILE too. A .gsx with no component has nothing
 	// to invoke, so before this its .x.go was golden-pinned but never built — the
@@ -273,7 +412,7 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 		root := caseImportRoot(c)
 		entryPkg, err := c.writeEntry(moduleDir, root)
 		if err != nil {
-			return nil, fmt.Errorf("case %s: %w", c.name, err)
+			return fmt.Errorf("case %s: %w", c.name, err)
 		}
 		alias := fmt.Sprintf("case%d", built)
 		built++
@@ -314,7 +453,7 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 			main = "package main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"os\"\n" + imports.String() + ")\n\nfunc main() {\n\tctx := context.Background()\n" + dispatch.String() + "}\n"
 		}
 		if err := os.WriteFile(filepath.Join(tmp, "main.go"), []byte(main), 0o644); err != nil {
-			return nil, err
+			return err
 		}
 
 		cmd := exec.Command("go", "run", ".")
@@ -323,7 +462,7 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
 		if err := cmd.Run(); err != nil {
-			return nil, fmt.Errorf("batch go run: %w\n%s", err, stderr.String())
+			return fmt.Errorf("batch go run: %w\n%s", err, stderr.String())
 		}
 		for name, html := range splitBatchOutput(stdout.String()) {
 			if cg := results[name]; cg != nil {
@@ -332,7 +471,7 @@ func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodeg
 		}
 	}
 
-	return results, nil
+	return nil
 }
 
 // writeEntry writes the GsxEntryRender wrapper (codegen already ran in batchCodegen)

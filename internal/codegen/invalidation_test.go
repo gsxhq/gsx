@@ -1,9 +1,12 @@
 package codegen
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -417,4 +420,319 @@ func TestDependentsReverseClosure(t *testing.T) {
 	if d := m.Dependents(filepath.Join(root, "solo")); len(d) != 1 || d[0] != filepath.Join(root, "solo") {
 		t.Errorf("Dependents(solo) = %v, want [solo]", d)
 	}
+}
+
+func rendererTableIdentities(t *testing.T, m *Module, dir string) (base, localized uintptr) {
+	t.Helper()
+	pkgPath, ok := importPathForDir(m.opts.ModuleRoot, m.opts.ModulePath, dir)
+	if !ok {
+		t.Fatalf("package dir %s is outside module root %s", dir, m.opts.ModuleRoot)
+	}
+	filterPkgs := m.opts.FilterPkgs
+	if d, ok := m.dirOptionsFor(dir); ok && d.FilterPkgs != nil {
+		filterPkgs = d.FilterPkgs
+	}
+	key := pkgPath + "\x00" + strings.Join(dedupFilterPkgs(filterPkgs), "\x00")
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	base = reflect.ValueOf(m.rendererTbl).Pointer()
+	table, ok := m.dirFuncTbls[key]
+	if !ok {
+		t.Fatalf("localized func table for %s not cached; keys=%v", dir, slices.Sorted(maps.Keys(m.dirFuncTbls)))
+	}
+	localized = reflect.ValueOf(table.renderers).Pointer()
+	if base == 0 || localized == 0 {
+		t.Fatalf("renderer table identities for %s = base:%#x localized:%#x, want both non-zero", dir, base, localized)
+	}
+	return base, localized
+}
+
+func TestModuleRendererOverrideInvalidatesClassification(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	root, rendererDir, viewsDir := localRendererModule(t)
+	rendererPath := filepath.Join(rendererDir, "renderers.gsx")
+	stringRenderer := `package renderers
+
+import "example.com/app/pg"
+
+func Timestamptz(v pg.Timestamptz) string {
+	return v.Label
+}
+`
+	nodeRenderer := `package renderers
+
+import (
+	"example.com/app/pg"
+	"github.com/gsxhq/gsx"
+)
+
+func Timestamptz(v pg.Timestamptz) gsx.Node {
+	return <time>{v.Label}</time>
+}
+`
+	writeFile(t, rendererDir, "renderers.gsx", stringRenderer)
+
+	opts := localRendererOptions()
+	m, err := Open(Options{
+		ModuleRoot: root,
+		ModulePath: "example.com/app",
+		FilterPkgs: opts.FilterPkgs,
+		Renderers:  opts.Renderers,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeResult, err := m.Package(viewsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasDiagErrors(beforeResult.Diags) {
+		t.Fatalf("initial Package diags = %v", beforeResult.Diags)
+	}
+	m.mu.Lock()
+	beforeDecl := m.rendererPkgs["example.com/app/renderers"]
+	declDone := m.rendererPkgsDone && m.rendererTblDone
+	m.mu.Unlock()
+	if beforeDecl == nil || !declDone {
+		t.Fatal("initial Package did not populate renderer declaration/table caches")
+	}
+	if got := m.externalLoads(); got != 1 {
+		t.Fatalf("externalLoads after initial Package = %d, want 1", got)
+	}
+	if _, err := m.Package(rendererDir); err != nil {
+		t.Fatal(err)
+	}
+	fwd, _ := m.importGraphSnapshot()
+	if got := fwd[viewsDir]; len(got) != 1 || got[0] != rendererDir {
+		t.Fatalf("consumer implicit dependencies = %v, want only local GSX renderer %s", got, rendererDir)
+	}
+	if got := fwd[rendererDir]; slices.Contains(got, rendererDir) {
+		t.Fatalf("renderer package has a self dependency: %v", got)
+	}
+	beforeBaseTable, beforeLocalizedTable := rendererTableIdentities(t, m, viewsDir)
+
+	// An unrelated consumer edit must refresh only the ordinary package result;
+	// renderer declarations and the external importer stay warm.
+	viewsPath := filepath.Join(viewsDir, "views.gsx")
+	m.SetOverride(viewsPath, []byte(`package views
+
+import "example.com/app/pg"
+
+component Show(sample pg.Timestamptz) {
+	<section>{sample}</section>
+}
+`))
+	unrelatedResult, err := m.Package(viewsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unrelatedResult == beforeResult {
+		t.Fatal("unrelated override retained the stale consumer PackageResult")
+	}
+	m.mu.Lock()
+	afterUnrelatedDecl := m.rendererPkgs["example.com/app/renderers"]
+	declStillDone := m.rendererPkgsDone && m.rendererTblDone
+	m.mu.Unlock()
+	if afterUnrelatedDecl != beforeDecl || !declStillDone {
+		t.Fatal("unrelated override cleared the renderer declaration/table cache")
+	}
+	if got := m.externalLoads(); got != 1 {
+		t.Fatalf("externalLoads after unrelated override = %d, want 1", got)
+	}
+	afterBaseTable, afterLocalizedTable := rendererTableIdentities(t, m, viewsDir)
+	if afterBaseTable != beforeBaseTable {
+		t.Fatalf("unrelated override replaced completed base renderer table: before=%#x after=%#x", beforeBaseTable, afterBaseTable)
+	}
+	if afterLocalizedTable != beforeLocalizedTable {
+		t.Fatalf("unrelated override replaced localized renderer table: before=%#x after=%#x", beforeLocalizedTable, afterLocalizedTable)
+	}
+
+	// Changing only the renderer declaration changes its result classification
+	// from string to gsx.Node. Both the retained LSP PackageResult and generated
+	// lowering must be rebuilt from the new declaration without another external
+	// packages.Load.
+	m.SetOverride(rendererPath, []byte(nodeRenderer))
+	afterRendererResult, err := m.Package(viewsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterRendererResult == unrelatedResult {
+		t.Fatal("renderer override retained the stale consumer PackageResult")
+	}
+	m.mu.Lock()
+	afterRendererDecl := m.rendererPkgs["example.com/app/renderers"]
+	m.mu.Unlock()
+	if afterRendererDecl == nil || afterRendererDecl == beforeDecl {
+		t.Fatal("renderer override did not rebuild the renderer declaration package")
+	}
+	if got := m.externalLoads(); got != 1 {
+		t.Fatalf("externalLoads after renderer override = %d, want 1", got)
+	}
+
+	out, diags, err := m.Generate(viewsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasDiagErrors(diags) {
+		t.Fatalf("Generate diags = %v", diags)
+	}
+	src := string(out[viewsPath])
+	if !strings.Contains(src, `_gsxgw.Node(ctx, _gsxf0.Timestamptz((sample)))`) {
+		t.Fatalf("consumer retained string lowering after renderer override:\n%s", src)
+	}
+	if strings.Contains(src, `_gsxgw.Text(string(_gsxf0.Timestamptz((sample))))`) {
+		t.Fatalf("consumer still contains stale string lowering after renderer override:\n%s", src)
+	}
+}
+
+func TestRendererImplicitDependenciesUseOnlyFinalLocalGsxOwners(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+
+	t.Run("module-local Go-only owner", func(t *testing.T) {
+		root, _, viewsDir := localRendererModule(t)
+		goRendererDir := filepath.Join(root, "gorender")
+		writeFile(t, goRendererDir, "renderer.go", `package gorender
+
+import "example.com/app/pg"
+
+func Timestamptz(v pg.Timestamptz) string { return v.Label }
+`)
+		m, err := Open(Options{
+			ModuleRoot: root,
+			ModulePath: "example.com/app",
+			Renderers: []RendererAlias{{
+				TypeKey:  "example.com/app/pg.Timestamptz",
+				PkgPath:  "example.com/app/gorender",
+				FuncName: "Timestamptz",
+			}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !m.rendererDirs[goRendererDir] {
+			t.Fatalf("module-local Go-only renderer dir missing from rendererDirs: %v", m.rendererDirs)
+		}
+		result, err := m.Package(viewsDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Diags) != 0 {
+			t.Fatalf("module-local Go-only renderer fixture produced diagnostics: %v", result.Diags)
+		}
+		fwd, _ := m.importGraphSnapshot()
+		if got := fwd[viewsDir]; len(got) != 0 {
+			t.Fatalf("module-local Go-only renderer created implicit dependencies: %v", got)
+		}
+		m.mu.Lock()
+		local := m.rendererLocal["example.com/app/gorender"]
+		m.mu.Unlock()
+		if local {
+			t.Fatal("module-local Go-only renderer classified as local GSX")
+		}
+	})
+
+	t.Run("external owner", func(t *testing.T) {
+		repoRoot, err := filepath.Abs("../..")
+		if err != nil {
+			t.Fatal(err)
+		}
+		root := t.TempDir()
+		extRoot := filepath.Join(root, "external")
+		writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire (\n\tgithub.com/gsxhq/gsx v0.0.0\n\texample.com/renderext v0.0.0\n)\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\nreplace example.com/renderext => ./external\n")
+		writeFile(t, extRoot, "go.mod", "module example.com/renderext\n\ngo 1.26.1\n")
+		writeFile(t, extRoot, "model/model.go", "package model\n\ntype Moment struct { Label string }\n")
+		writeFile(t, extRoot, "renderers/renderers.go", `package renderers
+
+import "example.com/renderext/model"
+
+func Moment(v model.Moment) string { return v.Label }
+`)
+		viewsDir := filepath.Join(root, "views")
+		writeFile(t, viewsDir, "views.gsx", `package views
+
+import "example.com/renderext/model"
+
+component Show(sample model.Moment) {
+	<div>{sample}</div>
+}
+`)
+		m, err := Open(Options{
+			ModuleRoot: root,
+			ModulePath: "example.com/app",
+			Renderers: []RendererAlias{{
+				TypeKey:  "example.com/renderext/model.Moment",
+				PkgPath:  "example.com/renderext/renderers",
+				FuncName: "Moment",
+			}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(m.rendererDirs) != 0 {
+			t.Fatalf("external renderer populated rendererDirs: %v", m.rendererDirs)
+		}
+		result, err := m.Package(viewsDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Diags) != 0 {
+			t.Fatalf("external renderer fixture produced diagnostics: %v", result.Diags)
+		}
+		fwd, _ := m.importGraphSnapshot()
+		if got := fwd[viewsDir]; len(got) != 0 {
+			t.Fatalf("external renderer created implicit dependencies: %v", got)
+		}
+	})
+
+	t.Run("shadowed local owner", func(t *testing.T) {
+		root, winnerDir, viewsDir := localRendererModule(t)
+		shadowedDir := filepath.Join(root, "shadowed")
+		writeFile(t, shadowedDir, "package.go", "package shadowed\n")
+		writeFile(t, shadowedDir, "renderers.gsx", `package shadowed
+
+import "example.com/app/pg"
+
+func Timestamptz(v pg.Timestamptz) string { return v.Label }
+`)
+		opts := localRendererOptions()
+		opts.Renderers = append([]RendererAlias{{
+			TypeKey:  "example.com/app/pg.Timestamptz",
+			PkgPath:  "example.com/app/shadowed",
+			FuncName: "Timestamptz",
+		}}, opts.Renderers...)
+		m, err := Open(Options{
+			ModuleRoot: root,
+			ModulePath: "example.com/app",
+			FilterPkgs: opts.FilterPkgs,
+			Renderers:  opts.Renderers,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m.rendererDirs[shadowedDir] || !m.rendererDirs[winnerDir] || len(m.rendererDirs) != 1 {
+			t.Fatalf("rendererDirs = %v, want only winning owner %s", m.rendererDirs, winnerDir)
+		}
+		result, err := m.Package(viewsDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Diags) != 0 {
+			t.Fatalf("shadowed/winning renderer fixture produced diagnostics: %v", result.Diags)
+		}
+		fwd, _ := m.importGraphSnapshot()
+		if got := fwd[viewsDir]; len(got) != 1 || got[0] != winnerDir {
+			t.Fatalf("consumer implicit dependencies = %v, want only winning renderer %s", got, winnerDir)
+		}
+		m.mu.Lock()
+		_, shadowedResolved := m.rendererLocal["example.com/app/shadowed"]
+		winnerResolved := m.rendererLocal["example.com/app/renderers"]
+		m.mu.Unlock()
+		if shadowedResolved || !winnerResolved {
+			t.Fatalf("rendererLocal shadowed=%t winner=%t, want false,true", shadowedResolved, winnerResolved)
+		}
+	})
 }

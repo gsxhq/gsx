@@ -15,26 +15,120 @@ import (
 
 func TestImportPathDirRoundTrip(t *testing.T) {
 	t.Parallel()
-	root := "/m"
+	root := t.TempDir()
 	mod := "example.com/app"
+	nested := filepath.Join(root, "ui", "admin")
 	// dir under root → import path
-	if got, ok := importPathForDir(root, mod, "/m/ui/admin"); !ok || got != "example.com/app/ui/admin" {
+	if got, ok := importPathForDir(root, mod, nested); !ok || got != "example.com/app/ui/admin" {
 		t.Fatalf("importPathForDir = %q,%v; want example.com/app/ui/admin,true", got, ok)
 	}
 	// module root dir → bare module path
-	if got, ok := importPathForDir(root, mod, "/m"); !ok || got != "example.com/app" {
+	if got, ok := importPathForDir(root, mod, root); !ok || got != "example.com/app" {
 		t.Fatalf("root dir: got %q,%v", got, ok)
 	}
 	// dir outside the module → not ok
-	if _, ok := importPathForDir(root, mod, "/other/x"); ok {
+	if _, ok := importPathForDir(root, mod, t.TempDir()); ok {
 		t.Fatalf("outside dir should be !ok")
 	}
 	// inverse
-	if got, ok := dirForImportPath(root, mod, "example.com/app/ui/admin"); !ok || got != "/m/ui/admin" {
-		t.Fatalf("dirForImportPath = %q,%v; want /m/ui/admin,true", got, ok)
+	if got, ok := dirForImportPath(root, mod, "example.com/app/ui/admin"); !ok || got != nested {
+		t.Fatalf("dirForImportPath = %q,%v; want %s,true", got, ok, nested)
 	}
 	if _, ok := dirForImportPath(root, mod, "fmt"); ok {
 		t.Fatalf("stdlib path should be !ok")
+	}
+}
+
+func TestDirForImportPathCanonicalMapping(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	nested := filepath.Join(root, "ui", "admin")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(root, "future", "renderers")
+	file := filepath.Join(root, "not-a-directory")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name       string
+		modulePath string
+		importPath string
+		want       string
+		wantOK     bool
+	}{
+		{name: "module root", modulePath: "example.com/app", importPath: "example.com/app", want: root, wantOK: true},
+		{name: "nested", modulePath: "example.com/app", importPath: "example.com/app/ui/admin", want: nested, wantOK: true},
+		{name: "missing canonical nested path", modulePath: "example.com/app", importPath: "example.com/app/future/renderers", want: missing, wantOK: true},
+		{name: "external", modulePath: "example.com/app", importPath: "example.net/renderers"},
+		{name: "invalid module path", modulePath: "example.com/bad module", importPath: "example.com/bad module"},
+		{name: "invalid import path", modulePath: "example.com/app", importPath: "example.com/app/bad name"},
+		{name: "dotdot import segment", modulePath: "example.com/app", importPath: "example.com/app/../renderers"},
+		{name: "existing file", modulePath: "example.com/app", importPath: "example.com/app/not-a-directory"},
+		{name: "child below file", modulePath: "example.com/app", importPath: "example.com/app/not-a-directory/child"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := dirForImportPath(root, tt.modulePath, tt.importPath)
+			if got != tt.want || ok != tt.wantOK {
+				t.Fatalf("dirForImportPath(%q, %q, %q) = (%q, %v), want (%q, %v)", root, tt.modulePath, tt.importPath, got, ok, tt.want, tt.wantOK)
+			}
+		})
+	}
+}
+
+func TestDirForImportPathResolvedContainment(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	inside := filepath.Join(root, "actual-renderers")
+	insideFile := filepath.Join(root, "renderer-file")
+	outside := t.TempDir()
+	if err := os.MkdirAll(inside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(insideFile, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	insideAlias := filepath.Join(root, "inside-alias")
+	outsideAlias := filepath.Join(root, "outside-alias")
+	fileAlias := filepath.Join(root, "file-alias")
+	brokenAlias := filepath.Join(root, "broken-alias")
+	if err := os.Symlink(inside, insideAlias); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if err := os.Symlink(outside, outsideAlias); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if err := os.Symlink(insideFile, fileAlias); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(root, "missing-target"), brokenAlias); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	if got, ok := dirForImportPath(root, "example.com/app", "example.com/app/inside-alias"); !ok || got != insideAlias {
+		t.Fatalf("in-module alias = (%q, %v), want (%q, true)", got, ok, insideAlias)
+	}
+	insideMissing := filepath.Join(insideAlias, "future", "nested", "renderers")
+	if got, ok := dirForImportPath(root, "example.com/app", "example.com/app/inside-alias/future/nested/renderers"); !ok || got != insideMissing {
+		t.Fatalf("missing path under in-module alias = (%q, %v), want (%q, true)", got, ok, insideMissing)
+	}
+	if got, ok := dirForImportPath(root, "example.com/app", "example.com/app/outside-alias"); ok || got != "" {
+		t.Fatalf("outside alias = (%q, %v), want (\"\", false)", got, ok)
+	}
+	if got, ok := dirForImportPath(root, "example.com/app", "example.com/app/outside-alias/future"); ok || got != "" {
+		t.Fatalf("missing path under outside alias = (%q, %v), want (\"\", false)", got, ok)
+	}
+	if got, ok := dirForImportPath(root, "example.com/app", "example.com/app/file-alias"); ok || got != "" {
+		t.Fatalf("file alias = (%q, %v), want (\"\", false)", got, ok)
+	}
+	if got, ok := dirForImportPath(root, "example.com/app", "example.com/app/file-alias/child"); ok || got != "" {
+		t.Fatalf("child below file alias = (%q, %v), want (\"\", false)", got, ok)
+	}
+	if got, ok := dirForImportPath(root, "example.com/app", "example.com/app/broken-alias"); ok || got != "" {
+		t.Fatalf("broken alias = (%q, %v), want (\"\", false)", got, ok)
 	}
 }
 
