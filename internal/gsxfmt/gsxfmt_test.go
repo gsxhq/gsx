@@ -74,9 +74,11 @@ func TestFormatReindentsMultilineEmbeddedAttrBody(t *testing.T) {
 		"component C(open bool) {\n" +
 		"\t<div\n" +
 		"\t\tx-data=js`\n" +
-		"\t\t{ open: @{open} }`\n" +
+		"\t\t\t{ open: @{open} }\n" +
+		"\t\t`\n" +
 		"\t\tstyle=css`\n" +
-		"\t\tcolor : @{color}`\n" +
+		"\t\t\tcolor : @{color}\n" +
+		"\t\t`\n" +
 		"\t>\n" +
 		"\t\tx\n" +
 		"\t</div>\n" +

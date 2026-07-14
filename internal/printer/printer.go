@@ -1264,21 +1264,41 @@ func embeddedHoleString(v *ast.Interp) string {
 }
 
 // embeddedAttrValueDoc builds the Doc for a multi-line embedded-literal attribute
-// value. opener is the text up to and including the opening delimiter (e.g.
-// `x-data=js"` or `x-data={js"`); formatted is the re-indented body (leading and
-// trailing blank lines already trimmed); closer is the closing delimiter plus any
-// `|> stage` / `}` (e.g. `"` or `" |> f}`). The first body line attaches to the
-// opener, intermediate lines break at the attribute's own indent level (the
-// formatter's per-line leading tabs supply the brace-depth nesting), and the
-// closer attaches to the last line. Blank lines emit as bare "\n" so they never
-// carry trailing tabs (idempotence).
+// value. opener is the text up to and including the opening delimiter; formatted
+// is the re-indented body from the formatter; closer is the closing delimiter
+// plus any `|> stage` / `}`.
+//
+// Two layouts, chosen by the body's own structure (which the formatter preserves):
+//   - Inline (content-adjacent, e.g. js"{ … }" whose `{`/`}` hug the delimiters):
+//     the opening delimiter attaches to the first body line and the closer to the
+//     last; body nesting comes from the formatter's own brace-depth tabs.
+//   - Block (body on its own lines, signalled by a leading newline, e.g.
+//     css`\n…\n`): the delimiters stand alone and the body is indented one level
+//     under the attribute — the same shape as a <script>/<style> element body.
+//
+// Blank lines emit as bare "\n" so they never carry trailing tabs (idempotence).
 func embeddedAttrValueDoc(opener, formatted, closer string) pretty.Doc {
-	lines := strings.Split(formatted, "\n")
+	block := strings.HasPrefix(formatted, "\n")
+	lines := strings.Split(strings.Trim(formatted, "\n"), "\n")
+	if block {
+		inner := make([]pretty.Doc, 0, len(lines)*2)
+		for _, ln := range lines {
+			if ln = strings.TrimRight(ln, " \t"); ln == "" {
+				inner = append(inner, pretty.Text("\n"))
+				continue
+			}
+			inner = append(inner, pretty.HardLine, pretty.Text(ln))
+		}
+		return pretty.Concat(
+			pretty.Text(opener),
+			pretty.Indent(pretty.Concat(inner...)),
+			pretty.HardLine, pretty.Text(closer),
+		)
+	}
 	parts := make([]pretty.Doc, 0, len(lines)*2+2)
 	parts = append(parts, pretty.Text(opener+lines[0]))
 	for _, ln := range lines[1:] {
-		ln = strings.TrimRight(ln, " \t")
-		if ln == "" {
+		if ln = strings.TrimRight(ln, " \t"); ln == "" {
 			parts = append(parts, pretty.Text("\n"))
 			continue
 		}
@@ -1316,14 +1336,11 @@ func (p *printer) embeddedAttrDoc(v *ast.EmbeddedAttr) (pretty.Doc, bool) {
 	if !ok {
 		return pretty.Doc{}, false
 	}
-	// Trim only a trailing newline artifact from the formatter. A LEADING
-	// newline is preserved deliberately: CSS/JS formatters emit one when the
-	// body's first line has no meaningful content to attach to the opening
-	// delimiter (e.g. a bare CSS declaration list, vs. a JS body that opens
-	// with a user-written `{`), and strings.Split below turns that leading
-	// "\n" into an empty lines[0] — which embeddedAttrValueDoc then leaves
-	// attached to the opener, forcing the first real line onto its own break.
-	formatted = strings.TrimRight(formatted, "\n")
+	// formatted is passed to embeddedAttrValueDoc UNTRIMMED: a leading newline
+	// is the signal it uses to pick the block layout (CSS/declaration-list
+	// bodies) over the inline layout (JS bodies whose `{` hugs the opening
+	// delimiter); embeddedAttrValueDoc trims both ends internally once that
+	// choice is made.
 	if !strings.Contains(formatted, "\n") {
 		// Formatter collapsed the body to one line — keep the inline form.
 		return pretty.Doc{}, false
