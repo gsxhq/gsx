@@ -56,10 +56,80 @@ func writeCaseSources(moduleDir string, c *caseDoc) error {
 	return nil
 }
 
-// batchCodegen writes ALL candidate cases' sources into ONE shared temp module,
-// runs codegenDirs ONCE for all dirs, then builds+runs the renderable
-// cases in a single `go run`. Returns per-case results keyed by case name.
+// batchCodegen partitions cases by their exact ordered module-wide renderer
+// registry, then runs each partition through one shared temp module and one
+// go-run batch. A renderer registration is module-wide, so putting differing
+// case registries in the same Module would make one case's generated aliases
+// and validation depend on which other corpus subtests happened to run.
+//
+// The empty registry is one partition, preserving the single large batch for
+// the no-renderer majority. Cases with identical registries also continue to
+// share a batch.
 func batchCodegen(repoRoot string, candidates []*caseDoc) (map[string]*caseCodegen, error) {
+	seenCandidates := make(map[string]bool, len(candidates))
+	for _, c := range candidates {
+		if seenCandidates[c.name] {
+			return nil, fmt.Errorf("batchCodegen: duplicate candidate %q", c.name)
+		}
+		seenCandidates[c.name] = true
+	}
+
+	results := make(map[string]*caseCodegen, len(candidates))
+	for i, group := range partitionCodegenCandidatesByRendererRegistry(candidates) {
+		part, err := batchCodegenPartition(repoRoot, group)
+		if err != nil {
+			return nil, fmt.Errorf("batchCodegen: renderer-registry partition %d: %w", i, err)
+		}
+		expected := make(map[string]bool, len(group))
+		for _, c := range group {
+			expected[c.name] = true
+			r, ok := part[c.name]
+			if !ok || r == nil {
+				return nil, fmt.Errorf("batchCodegen: renderer-registry partition %d produced no result for %q", i, c.name)
+			}
+			if _, dup := results[c.name]; dup {
+				return nil, fmt.Errorf("batchCodegen: duplicate result for %q", c.name)
+			}
+			results[c.name] = r
+		}
+		for name := range part {
+			if !expected[name] {
+				return nil, fmt.Errorf("batchCodegen: renderer-registry partition %d produced unexpected result for %q", i, name)
+			}
+		}
+	}
+	return results, nil
+}
+
+// partitionCodegenCandidatesByRendererRegistry groups candidates by typed,
+// exact slice comparison of their complete ordered RendererAlias registries.
+// First-seen group and candidate order are retained, making partition execution
+// deterministic without an ambiguous string serialization.
+func partitionCodegenCandidatesByRendererRegistry(candidates []*caseDoc) [][]*caseDoc {
+	var groups [][]*caseDoc
+	var registries [][]codegen.RendererAlias
+	for _, c := range candidates {
+		group := -1
+		for i, registry := range registries {
+			if slices.Equal(registry, c.renderers) {
+				group = i
+				break
+			}
+		}
+		if group < 0 {
+			registries = append(registries, slices.Clone(c.renderers))
+			groups = append(groups, nil)
+			group = len(groups) - 1
+		}
+		groups[group] = append(groups[group], c)
+	}
+	return groups
+}
+
+// batchCodegenPartition writes one renderer-registry partition's sources into
+// one shared temp module, runs codegenDirs once for all dirs, then builds and
+// runs the renderable cases in a single go run.
+func batchCodegenPartition(repoRoot string, candidates []*caseDoc) (map[string]*caseCodegen, error) {
 	if len(candidates) == 0 {
 		return map[string]*caseCodegen{}, nil
 	}
