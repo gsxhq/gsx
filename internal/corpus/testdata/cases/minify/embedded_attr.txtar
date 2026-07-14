@@ -1,0 +1,28 @@
+Codegen safe-minifies js`…`/css`…` attribute values (indentation stripped, safe
+minifier keeps newlines / ASI). Holey js is left unminified. The corpus runs the
+built-in safe pass (JSMinify/CSSMinify on, no fullmin ext).
+
+-- input.gsx --
+package views
+
+component Widget() {
+	<div
+		x-data=js"{
+			open: false,
+			active: -1,
+		}"
+		style=css`
+			color: red;
+			margin: 0;
+		`
+	></div>
+}
+
+-- invoke --
+Widget()
+-- diagnostics.golden --
+-- render.golden --
+<div x-data="{
+open: false,
+active: -1,
+}" style="color: red;margin: 0;"></div>
