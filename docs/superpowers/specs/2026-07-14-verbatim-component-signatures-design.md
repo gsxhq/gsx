@@ -489,6 +489,12 @@ tag eligibility is defined by **resolvability to a concrete `go/types.Signature`
   positional calls (a guessed field set cannot produce a correct positional call)
   and must be replaced by fail-closed resolution here.
 
+A signature containing `types.Invalid` anywhere in a parameter or result type
+graph, or an incomplete alias that unaliases to no type, is unresolved for this
+purpose and therefore tag-ineligible. Validation walks semantic types with cycle
+detection; it does not infer validity from printed type text or only inspect the
+outermost type.
+
 A signature alone is not enough; the discovery pass records provenance. Allowed
 origins are a package-scope `types.Func`, a package-scope function-valued
 `types.Var` (bare or through a package selector), or a concrete
