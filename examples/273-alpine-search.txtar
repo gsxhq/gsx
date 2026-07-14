@@ -31,9 +31,9 @@ component AlpineSearch(maxWidth int) {
 AlpineSearch(AlpineSearchProps{MaxWidth: 320})
 -- render.golden --
 <div x-data="{
-			search: &#39;&#39;,
-			items: [&#39;foo&#39;, &#39;bar&#39;, &#39;baz&#39;],
-			get filteredItems() {
-				return this.items.filter(i =&gt; i.startsWith(this.search))
-			}
-		}" style="max-width:320px"><input x-model="search" placeholder="Search..."/><ul><template x-for="item in filteredItems" :key="item"><li x-text="item"></li></template></ul></div>
+search: &#39;&#39;,
+items: [&#39;foo&#39;, &#39;bar&#39;, &#39;baz&#39;],
+get filteredItems() {
+return this.items.filter(i =&gt; i.startsWith(this.search))
+}
+}" style="max-width:320px"><input x-model="search" placeholder="Search..."/><ul><template x-for="item in filteredItems" :key="item"><li x-text="item"></li></template></ul></div>
