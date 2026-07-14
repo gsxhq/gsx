@@ -15,6 +15,7 @@
 - Local temporaries are allowed only to preserve Go evaluation semantics or lower an inline zero; every authored expression evaluates exactly once.
 - This is one atomic source/generated/manual-caller migration. Do not ship a dual-mode compatibility path.
 - Delete obsolete APIs and subsystems outright. Do not add deprecation aliases, compatibility adapters, temporary production helpers, or behavior flags.
+- Keep implementation types, fields, and methods unexported unless a concrete serialization or cross-package API requires export.
 - Do not implement component struct splat. `{bag...}` remains only an attrs-bag contributor.
 - Matching is exact parameter identifier matching. Do not add a heuristic or retain `FieldMatcher` behavior.
 - `children` accepts exactly `gsx.Node` or `...gsx.Node`; `attrs` accepts the exact attrs-bag family in the spec.
@@ -229,8 +230,8 @@ git commit -m "refactor(codegen): preserve ordered component declaration contrac
 - Reference then later delete: `internal/codegen/attrsonly.go`, `byo.go`
 
 **Interfaces:**
-- Consumes: a concrete `*types.Signature` plus `runtimeContract{Node, Attr types.Type}`.
-- Produces: `analyzeComponentSignature(*types.Signature, runtimeContract) (componentSignatureModel, error)`, ordered `componentParam{Var, Origin, Name, Type, Index, Role, AttrsMode}`, and exact tag-eligibility diagnostics.
+- Consumes: a concrete `*types.Signature` plus `runtimeContract{node, attr types.Type}`.
+- Produces: `analyzeComponentSignature(*types.Signature, runtimeContract) (componentSignatureModel, error)`, ordered `componentParam{variable, origin, name, typ, index, role, attrsMode}`, and exact tag-eligibility diagnostics.
 
 - [ ] **Step 1: Write table tests for every role and rejection**
 
@@ -252,17 +253,17 @@ const (roleProp paramRole = iota; roleChildren; roleAttrs; roleGoOnlyVariadic)
 type attrsParamMode uint8
 const (attrsDirect attrsParamMode = iota; attrsDefinedSlice; attrsVariadic)
 type componentParam struct {
-	Var, Origin *types.Var
-	Name string
-	Type types.Type
-	Index int
-	Role paramRole
-	AttrsMode attrsParamMode
+	variable, origin *types.Var
+	name string
+	typ types.Type
+	index int
+	role paramRole
+	attrsMode attrsParamMode
 }
 type componentSignatureModel struct {
-	Go *types.Signature
-	Params []componentParam
-	Result types.Type
+	goSig *types.Signature
+	params []componentParam
+	result types.Type
 }
 ```
 
@@ -415,16 +416,16 @@ git commit -m "feat(codegen): discover callable targets by stable call-site iden
 ```go
 type componentInputKind uint8 // prop, body, attrs pair/segment/contributor, omitted
 type componentInputValue struct {
-	Kind componentInputKind
-	SourceIndex, ParamIndex, ContributorIndex int
-	Node gsxast.Node
+	kind componentInputKind
+	sourceIndex, paramIndex, contributorIndex int
+	node gsxast.Node
 }
-type componentArgSlot struct { Param componentParam; ValueIndexes []int; Omitted bool }
+type componentArgSlot struct { param componentParam; valueIndexes []int; omitted bool }
 type componentCallPlan struct {
-	Site callSiteID
-	Target componentSignatureModel
-	Args []componentArgSlot       // signature order
-	Values []componentInputValue  // authored order
+	site callSiteID
+	target componentSignatureModel
+	args []componentArgSlot       // signature order
+	values []componentInputValue  // authored order
 }
 func planComponentInputs(site callSiteID, el *gsxast.Element, target componentSignatureModel) (componentCallPlan, []diag.Diagnostic)
 ```
@@ -472,8 +473,8 @@ git commit -m "feat(codegen): plan exact-name component inputs"
 - Produces semantic analysis records, not emitted helpers:
 
 ```go
-type suppliedOperand struct { ParamIndex int; Expr goast.Expr; TV types.TypeAndValue }
-type inferenceContext struct { Pkg *types.Package; Fset *token.FileSet; Scope *types.Scope }
+type suppliedOperand struct { paramIndex int; expr goast.Expr; tv types.TypeAndValue }
+type inferenceContext struct { pkg *types.Package; fset *token.FileSet; scope *types.Scope }
 
 type generatedImportAllocator struct {
 	prefix string
@@ -506,10 +507,10 @@ type zeroCandidate struct {
 }
 
 type expressionFact struct {
-	TV types.TypeAndValue
-	IsNil bool
-	HasOrderedOperation bool
-	Tuple *types.Tuple
+	tv types.TypeAndValue
+	isNil bool
+	hasOrderedOperation bool
+	tuple *types.Tuple
 }
 func inferAuthoredInstance(inferenceContext, componentTargetFact, []suppliedOperand) (types.Instance, []diag.Diagnostic)
 func validateComponentOperands(componentCallPlan, map[gsxast.Node]expressionFact, runtimeContract) (componentCallPlan, []diag.Diagnostic)
