@@ -131,6 +131,9 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 		boundNames[e.alias] = e.pkgPath
 	}
 	for _, e := range table.renderers {
+		if e.local {
+			continue
+		}
 		filterAlias[e.pkgPath] = e.alias
 		boundNames[e.alias] = e.pkgPath
 	}
