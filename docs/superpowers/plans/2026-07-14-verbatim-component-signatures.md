@@ -355,12 +355,12 @@ type componentTargetFact struct {
 	site callSiteID
 	expr goast.Expr // exact target expression in the discovery skeleton
 
-	object types.Object
-	origin types.Object // (*types.Func).Origin or (*types.Var).Origin
+	object types.Object // nil when target lookup/provenance failed
+	origin types.Object // nil on failure; otherwise (*types.Func).Origin or (*types.Var).Origin
 
 	// Pre-explicit-arguments call shape. For a bound method this is
 	// Selection.Type(): receiver removed and receiver arguments substituted.
-	raw *types.Signature
+	raw *types.Signature // nil when no static callable signature was established
 
 	// The exact authored prefix, including partial F[A] for F[A, B].
 	authoredTypeArgs []authoredTypeArgFact
@@ -383,6 +383,8 @@ func (f componentTargetFact) effectiveSignature() *types.Signature
 ```
 
 `effectiveSignature` returns `f.explicitInstance.Type.(*types.Signature)` only when target-only checking completed the entire instantiation, otherwise `f.raw`. A partial authored prefix is retained even without an instance. Inferred instances belong to Task 5's result, not this immutable discovery fact. Marker identifiers map directly to `callSiteID`; tag text is never a key.
+
+The target-fact map is total over every `callSitePlanned` record. Lookup, provenance, callability, and type-argument failures still produce a fact with nullable semantic fields plus deferred `targetDiags`; provenance rejection is site-local and follows the same deferred path. Only `callSitePreserveUnsupportedGoBlock` records have no target fact. Task 5 must not need a second synthetic “missing target” path to recover diagnostic precedence.
 
 - [ ] **Step 1: Add failing tests for identity and provenance**
 
