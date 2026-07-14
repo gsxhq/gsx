@@ -1,0 +1,28 @@
+A multi-line /* … */ comment inside a <style> body keeps its interior verbatim.
+
+-- input.gsx --
+package p
+
+component C() {
+	<style>
+.a {
+/* multi
+   line
+   comment */
+color: red;
+}
+</style>
+}
+-- fmt.golden --
+package p
+
+component C() {
+	<style>
+		.a {
+			/* multi
+   line
+   comment */
+			color: red;
+		}
+	</style>
+}
