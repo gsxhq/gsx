@@ -1,6 +1,7 @@
 package gen
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -444,6 +445,86 @@ func TestComputeKeyRenderers(t *testing.T) {
 		after := key()
 		if before == after {
 			t.Fatal("editing a valid nested module-local renderer package must change the cache key")
+		}
+	})
+
+	t.Run("invalid import grammar adds no local hash", func(t *testing.T) {
+		root := t.TempDir()
+		write := func(rel, src string) {
+			t.Helper()
+			file := filepath.Join(root, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		write("go.mod", "module ex/rnddeps\n\ngo 1.26.1\n")
+		write("views/views.go", "package views\n")
+		invalid := []string{"bad name", "trailing.", "CON", "bad~1"}
+		renderers := make([]codegen.RendererAlias, 0, len(invalid))
+		for i, rel := range invalid {
+			write(rel+"/renderers.gsx", "package renderers\n\nfunc RenderA(v string) string { return v }\n")
+			renderers = append(renderers, codegen.RendererAlias{
+				TypeKey:  fmt.Sprintf("example.com/p.T%d", i),
+				PkgPath:  "ex/rnddeps/" + rel,
+				FuncName: "RenderA",
+			})
+		}
+
+		viewsDir := filepath.Join(root, "views")
+		graph := loadGraphMust(t, root)
+		key := func() string {
+			t.Helper()
+			got, err := computeKey(viewsDir, graph, "ex/rnddeps", "", "", "bctx", "gen-test", nil, nil, renderers, "", false, false, false, nil, root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return got
+		}
+		before := key()
+		for _, rel := range invalid {
+			write(rel+"/renderers.gsx", "package renderers\n\nfunc RenderA(v string) string { return \"changed: \" + v }\n")
+		}
+		after := key()
+		if before != after {
+			t.Fatal("editing existing directories named by invalid renderer import paths must not change the cache key")
+		}
+	})
+
+	t.Run("xmod-valid consecutive dots remain local", func(t *testing.T) {
+		root := t.TempDir()
+		write := func(rel, src string) {
+			t.Helper()
+			file := filepath.Join(root, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		write("go.mod", "module ex/rnddeps\n\ngo 1.26.1\n")
+		write("views/views.go", "package views\n")
+		write("a..b/renderers.gsx", "package renderers\n\nfunc RenderA(v string) string { return v }\n")
+
+		viewsDir := filepath.Join(root, "views")
+		graph := loadGraphMust(t, root)
+		renderers := []codegen.RendererAlias{{TypeKey: "example.com/p.A", PkgPath: "ex/rnddeps/a..b", FuncName: "RenderA"}}
+		key := func() string {
+			t.Helper()
+			got, err := computeKey(viewsDir, graph, "ex/rnddeps", "", "", "bctx", "gen-test", nil, nil, renderers, "", false, false, false, nil, root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return got
+		}
+		before := key()
+		write("a..b/renderers.gsx", "package renderers\n\nfunc RenderA(v string) string { return \"changed: \" + v }\n")
+		after := key()
+		if before == after {
+			t.Fatal("editing a renderer package accepted by module.CheckImportPath must change the cache key")
 		}
 	})
 }
