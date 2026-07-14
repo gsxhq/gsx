@@ -3,10 +3,87 @@ package parser
 
 import (
 	"go/token"
+	"strings"
 	"testing"
 
 	"github.com/gsxhq/gsx/ast"
 )
+
+// TestElementTargetPositionsByteFaithful pins the authored source boundaries
+// needed to reconstruct a component target expression without deriving offsets
+// from the trimmed Tag or TypeArgs strings. In particular, the closing bracket
+// must remain exact when the type-argument list has trailing whitespace.
+func TestElementTargetPositionsByteFaithful(t *testing.T) {
+	src := "package p\n\ncomponent C() {\n\t<ui.Card[  map[string]pkg.Item   ] />\n\t<Local   />\n}\n"
+
+	fset := token.NewFileSet()
+	f, err := ParseFile(fset, "target-pos.gsx", src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	byTag := map[string]*ast.Element{}
+	ast.Inspect(f, func(n ast.Node) bool {
+		if el, ok := n.(*ast.Element); ok {
+			byTag[el.Tag] = el
+		}
+		return true
+	})
+
+	offset := func(what string, pos token.Pos) int {
+		t.Helper()
+		if !pos.IsValid() {
+			t.Fatalf("%s is not recorded", what)
+		}
+		return fset.Position(pos).Offset
+	}
+
+	card := byTag["ui.Card"]
+	if card == nil {
+		t.Fatal("ui.Card element not found")
+	}
+	tagOff := strings.Index(src, "ui.Card")
+	openOff := strings.Index(src[tagOff:], "[") + tagOff
+	typeArgsOff := strings.Index(src, "map[string]pkg.Item")
+	closeOff := strings.Index(src[openOff:], "] /") + openOff
+	if closeOff < openOff {
+		t.Fatal("test source does not contain the outer type-argument close")
+	}
+
+	checks := []struct {
+		name string
+		pos  token.Pos
+		want int
+	}{
+		{"TagPos", card.TagPos, tagOff},
+		{"TypeArgsOpenPos", card.TypeArgsOpenPos, openOff},
+		{"TypeArgsPos", card.TypeArgsPos, typeArgsOff},
+		{"TypeArgsClosePos", card.TypeArgsClosePos, closeOff},
+	}
+	for _, check := range checks {
+		if got := offset(check.name, check.pos); got != check.want {
+			t.Errorf("%s offset = %d, want %d", check.name, got, check.want)
+		}
+	}
+	if card.TypeArgs != "map[string]pkg.Item" {
+		t.Fatalf("TypeArgs = %q, want trimmed authored expression", card.TypeArgs)
+	}
+	if got := src[offset("TypeArgsClosePos", card.TypeArgsClosePos)]; got != ']' {
+		t.Errorf("TypeArgsClosePos points at %q, want ']'", got)
+	}
+
+	local := byTag["Local"]
+	if local == nil {
+		t.Fatal("Local element not found")
+	}
+	localOff := strings.Index(src, "Local")
+	if got := offset("Local.TagPos", local.TagPos); got != localOff {
+		t.Errorf("Local.TagPos offset = %d, want %d", got, localOff)
+	}
+	if local.TypeArgsOpenPos.IsValid() || local.TypeArgsPos.IsValid() || local.TypeArgsClosePos.IsValid() {
+		t.Errorf("tag without type arguments recorded bracket positions: open=%v args=%v close=%v", local.TypeArgsOpenPos, local.TypeArgsPos, local.TypeArgsClosePos)
+	}
+}
 
 // TestPositionCorrectness verifies that a nested element inside a component body
 // (which uses a newSub parser with a non-zero base offset) reports the correct

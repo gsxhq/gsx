@@ -199,12 +199,15 @@ func (*Component) declNode() {}
 // Element is an HTML element or a component tag (Tag may be dotted, e.g. "ui.Button").
 type Element struct {
 	span
-	Tag         string
-	TypeArgs    string    // raw type-arg-list source, e.g. "int, string"; "" if none
-	TypeArgsPos token.Pos // position of the first char of TypeArgs in source (after `[` + ws); NoPos if none
-	Void        bool      // self-closing <tag/> or HTML void element
-	Attrs       []Attr
-	Children    []Markup
+	Tag              string
+	TagPos           token.Pos // position of the first char of Tag in the opening tag
+	TypeArgs         string    // raw type-arg-list source, e.g. "int, string"; "" if none
+	TypeArgsOpenPos  token.Pos // position of `[`; NoPos if no type arguments
+	TypeArgsPos      token.Pos // position of the first char of TypeArgs in source (after `[` + ws); NoPos if none
+	TypeArgsClosePos token.Pos // position of `]`; NoPos if no type arguments
+	Void             bool      // self-closing <tag/> or HTML void element
+	Attrs            []Attr
+	Children         []Markup
 	// CloseNamePos is the position of the first char of the name in the closing
 	// tag (the "Card" in "</Card>"); token.NoPos for void/self-closing elements
 	// (which have no closing tag). Tooling (LSP go-to-definition) uses it so a

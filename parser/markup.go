@@ -761,13 +761,18 @@ func (p *parser) parseElement() (ast.Markup, error) {
 	if tag == "" {
 		return nil, p.errorf(startPos, "expected tag name")
 	}
+	tagPos := p.posAt(tagStart)
 	var typeArgs string
+	var typeArgsOpenPos token.Pos
 	var typeArgsPos token.Pos
+	var typeArgsClosePos token.Pos
 	if p.peek() == '[' {
+		typeArgsOpenPos = p.pos()
 		end, ok := bracketEnd(p.src, p.i)
 		if !ok {
 			return nil, p.errorf(p.pos(), "unterminated type args")
 		}
+		typeArgsClosePos = p.posAt(end)
 		raw := p.src[p.i+1 : end]
 		lead := len(raw) - len(strings.TrimLeft(raw, " \t\r\n"))
 		typeArgsPos = p.posAt(p.i + 1 + lead)
@@ -785,7 +790,7 @@ func (p *parser) parseElement() (ast.Markup, error) {
 
 	if p.at("/>") {
 		p.i += 2
-		el := &ast.Element{Tag: tag, TypeArgs: typeArgs, TypeArgsPos: typeArgsPos, Void: true, Attrs: attrs, AttrsMultiline: attrsMultiline}
+		el := &ast.Element{Tag: tag, TagPos: tagPos, TypeArgs: typeArgs, TypeArgsOpenPos: typeArgsOpenPos, TypeArgsPos: typeArgsPos, TypeArgsClosePos: typeArgsClosePos, Void: true, Attrs: attrs, AttrsMultiline: attrsMultiline}
 		ast.SetSpan(el, startPos, p.posAt(p.i))
 		return el, nil
 	}
@@ -802,7 +807,7 @@ func (p *parser) parseElement() (ast.Markup, error) {
 		if err != nil {
 			return nil, err
 		}
-		el := &ast.Element{Tag: tag, TypeArgs: typeArgs, TypeArgsPos: typeArgsPos, Attrs: attrs, Children: children, AttrsMultiline: attrsMultiline}
+		el := &ast.Element{Tag: tag, TagPos: tagPos, TypeArgs: typeArgs, TypeArgsOpenPos: typeArgsOpenPos, TypeArgsPos: typeArgsPos, TypeArgsClosePos: typeArgsClosePos, Attrs: attrs, Children: children, AttrsMultiline: attrsMultiline}
 		ast.SetSpan(el, startPos, p.posAt(p.i))
 		return el, nil
 	}
@@ -811,7 +816,7 @@ func (p *parser) parseElement() (ast.Markup, error) {
 	if err != nil {
 		return nil, err
 	}
-	el := &ast.Element{Tag: tag, TypeArgs: typeArgs, TypeArgsPos: typeArgsPos, Attrs: attrs, Children: children, CloseNamePos: closeNamePos, ChildrenMultiline: childrenMultiline, AttrsMultiline: attrsMultiline}
+	el := &ast.Element{Tag: tag, TagPos: tagPos, TypeArgs: typeArgs, TypeArgsOpenPos: typeArgsOpenPos, TypeArgsPos: typeArgsPos, TypeArgsClosePos: typeArgsClosePos, Attrs: attrs, Children: children, CloseNamePos: closeNamePos, ChildrenMultiline: childrenMultiline, AttrsMultiline: attrsMultiline}
 	ast.SetSpan(el, startPos, p.posAt(p.i))
 	return el, nil
 }
