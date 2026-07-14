@@ -20,10 +20,10 @@ package p
 component C() {
 	<form
 		x-data=js"{
-			open: false,
-			items() {
-				return 1;
-			}
+		open: false,
+		items() {
+		return 1;
+		}
 		}"
 		class="c"
 	/>
