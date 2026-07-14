@@ -56,6 +56,35 @@ func buildPlaceholdered(segments, holes []string) (text, prefix string) {
 // minifier options so wrappers (e.g. a prettier shell-out) drop in directly.
 type Formatter func(src []byte) ([]byte, error)
 
+// FormatString runs the placeholder → format → (escape) → restore pipeline and
+// returns the formatted source with holes restored, WITHOUT re-indenting into a
+// Doc (the caller shapes it). escape, if non-nil, is applied to the formatted
+// text BEFORE hole restoration — used to re-escape an embedded literal's
+// delimiter. Escaping the whole placeholdered string is safe: the hole sentinels
+// are collision-free identifiers containing no escapable character, so escaping
+// never corrupts one, and the restored holes are inserted afterward and stay
+// unescaped. ok=false on arity mismatch, formatter error/panic, or a hole-restore
+// mismatch (the caller falls back to verbatim).
+func FormatString(segments, holes []string, f Formatter, escape func(string) string) (string, bool) {
+	if len(segments) != len(holes)+1 {
+		return "", false
+	}
+	placeholdered, prefix := buildPlaceholdered(segments, holes)
+	formatted, err := safeFormat(f, placeholdered)
+	if err != nil {
+		return "", false
+	}
+	out := string(formatted)
+	if escape != nil {
+		out = escape(out)
+	}
+	restored, ok := restore(out, prefix, holes)
+	if !ok {
+		return "", false
+	}
+	return restored, true
+}
+
 // Format renders a raw-text element body. segments and holes interleave with
 // len(segments) == len(holes)+1; each holes[i] is the already-rendered gsx
 // source of an interpolation (e.g. "@{ fg }"). It returns (doc, true) on
@@ -67,15 +96,7 @@ type Formatter func(src []byte) ([]byte, error)
 // arity mismatch, Formatter error, recovered panic, or hole-restoration
 // mismatch. Format never itself fails fmt on parseable gsx.
 func Format(segments, holes []string, f Formatter) (pretty.Doc, bool) {
-	if len(segments) != len(holes)+1 {
-		return pretty.Doc{}, false
-	}
-	placeholdered, prefix := buildPlaceholdered(segments, holes)
-	formatted, err := safeFormat(f, placeholdered)
-	if err != nil {
-		return pretty.Doc{}, false
-	}
-	restored, ok := restore(string(formatted), prefix, holes)
+	restored, ok := FormatString(segments, holes, f, nil)
 	if !ok {
 		return pretty.Doc{}, false
 	}

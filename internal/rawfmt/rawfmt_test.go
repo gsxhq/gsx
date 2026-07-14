@@ -89,3 +89,39 @@ func TestBuildPlaceholderedAvoidsCollisionInHole(t *testing.T) {
 		t.Fatalf("hole not restored intact:\n%s", got)
 	}
 }
+
+func TestFormatStringEscapeBeforeRestore(t *testing.T) {
+	// identity formatter: returns input unchanged.
+	id := func(src []byte) ([]byte, error) { return src, nil }
+	// One hole between two segments; the segment text contains a `"` that the
+	// escaper must backslash — but the restored hole must NOT be escaped.
+	segments := []string{`say "hi" `, ` end`}
+	holes := []string{`@{name}`}
+	escape := func(s string) string { return strings.ReplaceAll(s, `"`, `\"`) }
+	got, ok := FormatString(segments, holes, id, escape)
+	if !ok {
+		t.Fatal("FormatString returned ok=false")
+	}
+	want := `say \"hi\" @{name} end`
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if strings.Contains(got, "__gsxhole") {
+		t.Fatalf("sentinel leaked: %q", got)
+	}
+}
+
+func TestFormatStringNilEscapeMatchesRaw(t *testing.T) {
+	id := func(src []byte) ([]byte, error) { return src, nil }
+	got, ok := FormatString([]string{"a ", " b"}, []string{"@{x}"}, id, nil)
+	if !ok || got != "a @{x} b" {
+		t.Fatalf("got %q ok=%v", got, ok)
+	}
+}
+
+func TestFormatStringArityMismatch(t *testing.T) {
+	id := func(src []byte) ([]byte, error) { return src, nil }
+	if _, ok := FormatString([]string{"a"}, []string{"@{x}"}, id, nil); ok {
+		t.Fatal("expected ok=false on arity mismatch")
+	}
+}
