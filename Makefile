@@ -1,5 +1,5 @@
 # gsx developer tasks. Use tabs for recipe indentation.
-.PHONY: test check lint cover cover-html examples ci ci-gomod ci-playground ci-examples ci-format ci-tailwind-example ci-tailwind-example-drift reload-probe test-gotip
+.PHONY: test check lint cover cover-html examples ci ci-gomod ci-playground ci-examples ci-format ci-tailwind-example ci-tailwind-example-drift reload-probe test-go127rc1
 
 # COUNT is the go-test cache control. -count=1 disables the test cache so every
 # run re-executes — the authoritative behaviour `ci` uses to mirror GitHub CI.
@@ -102,13 +102,13 @@ cover-html: cover
 examples:
 	go run ./cmd/gsx-examples
 
-# Runs the go1.27-gated generic-methods tests under the gotip toolchain, with
+# Runs the go1.27-gated generic-methods tests under the Go 1.27 RC1 toolchain, with
 # skip promoted to FAILURE (GSX_REQUIRE_GENERIC_METHODS=1) so the lane can
-# never green-light while silently testing nothing. Requires gotip:
-#   go install golang.org/dl/gotip@latest && gotip download
-test-gotip:
-	@command -v gotip >/dev/null 2>&1 || { \
-		echo "gotip not found — install with:"; \
-		echo "  go install golang.org/dl/gotip@latest && gotip download"; \
+# never green-light while silently testing nothing. Requires go1.27rc1:
+#   go install golang.org/dl/go1.27rc1@latest && go1.27rc1 download
+test-go127rc1:
+	@command -v go1.27rc1 >/dev/null 2>&1 || { \
+		echo "go1.27rc1 not found — install with:"; \
+		echo "  go install golang.org/dl/go1.27rc1@latest && go1.27rc1 download"; \
 		exit 1; }
-	GSX_REQUIRE_GENERIC_METHODS=1 gotip test ./internal/codegen -run 'Go127|GenericMethod' -count=1 -v
+	GOTOOLCHAIN=local GSX_REQUIRE_GENERIC_METHODS=1 go1.27rc1 test ./internal/codegen -run 'Go127|GenericMethod' -count=1 -v

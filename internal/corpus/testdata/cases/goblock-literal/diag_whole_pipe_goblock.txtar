@@ -1,0 +1,25 @@
+# W1': a `|>` chain directly after a value-position js"…" literal (the DQUOTE
+# escape-hatch delimiter — this case deliberately pins the dquote+js corner
+# of the lang x delimiter matrix; the parser unit matrix covers all six) in a
+# `{{ }}` Go block. Unlike an `{ }` interpolation, a GoBlock has no top-level
+# pipe grammar of its own (Code is plain Go statement text, never run through
+# parsePipe's stage-stripping), so this fires on ANY literal directly
+# followed by `|>` in a block, not just one nested inside a larger
+# expression. Caught at parse time, positioned at the `|>`, instead of the
+# generic, unpositioned "expected operand, found '>'" the same broken
+# statement text would otherwise hit once the assembled skeleton is parsed as
+# Go (contrast element_rejected.txtar in this same dir, whose rejection is a
+# later, analyze-time diagnostic — this one is a parse error, so the render
+# facet never runs).
+-- input.gsx --
+package demo
+
+component Page() {
+	{{ h := js"f()" |> minify }}
+	<p>done</p>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+4:18: whole-literal pipelines are not supported in Go-expression position; wrap the literal in a function call instead
+-- render.golden --

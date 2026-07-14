@@ -1,13 +1,11 @@
 # Fragments
 
-**Fragments** group multiple sibling elements without adding a wrapper element.
+Fragments group multiple sibling nodes without adding an HTML wrapper.
 
 ## Multiple roots
 
-The fragment syntax is `<> … </>` — an open angle-bracket pair with no tag name, and a matching close. The children of a fragment are rendered as a flat sequence with nothing wrapping them.
+Write a fragment as `<>…</>`. Its children render in order with no surrounding tag.
 
 <!--@include: ./_generated/fragments/010-fragments.md-->
 
-Fragments are useful when a nested expression needs one syntactic child but the
-rendered output should stay flat — for example, a pair of `<dt>`/`<dd>` rows for
-a description list or a run of table cells.
+Use a fragment whenever one markup value needs multiple roots. Fragments do not accept attributes because they have no element of their own.

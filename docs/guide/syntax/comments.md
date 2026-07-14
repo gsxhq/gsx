@@ -1,83 +1,39 @@
 # Comments
 
-gsx has several comment forms. Which delimiters mean "comment" depends on
-**where** they appear — inside a tag, in text content, or in surrounding Go
-code. All comment forms are preserved by `gsx fmt`.
-
-## The three positions
+Comment syntax depends on where the comment appears.
 
 ::: v-pre
 
-| Position | `//` and `/* */` (bare) | `{// }` and `{/* */}` (braced) | `<!-- -->` |
-|---|---|---|---|
-| **Inside a tag** `<… >` (attribute list, and `{ if … { } }` attr blocks) | source-only comment | source-only comment (printed bare) | n/a |
-| **Text / child content** | **literal text — rendered** | source-only comment | rendered verbatim |
-| **Outside markup** (Go code, `{{ }}`) | Go comment (stripped by the Go compiler) | n/a | n/a |
+| Position | Source-only | Rendered |
+|---|---|---|
+| Inside a tag | `// …`, `/* … */`, `{/* … */}`, `{// … }` | — |
+| Between child nodes | `{/* … */}`, `{// … }` | `<!-- … -->` |
+| Outside markup | `// …`, `/* … */` | — |
 
 :::
 
-"Source-only" means the comment is kept in your `.gsx` source and survives
-formatting, but never reaches the rendered HTML. The one comment that *is*
-rendered is the HTML comment `<!-- -->`.
+Bare `//` or `/* */` between child nodes is text, not a comment, and is rendered.
 
-The key rule: a bare `//` means "comment" **only inside a tag**. Between child
-nodes it is ordinary text and renders literally — so `<p>a // b</p>` outputs
-`a // b`. This is what keeps the syntax unambiguous: a tag's attribute list is a
-structured region, whereas child content is free text.
+## HTML comments
 
-## HTML comments `<!-- -->` (rendered)
-
-An `<!-- … -->` HTML comment inside a component body is a markup node. It is
-parsed, kept in the AST, and written verbatim to the rendered HTML. The comment
-text is literal — no escaping, no interpolation — so characters like `<` and `&`
-inside an HTML comment are preserved exactly as written.
+An HTML comment is rendered verbatim, including `<` and `&` in its text.
 
 <!--@include: ./_generated/comments/010-html-comments.md-->
 
-In the example above, `<!-- header -->` and `<!-- a < b -->` both appear in the
-rendered output. The `<` inside the second comment is not HTML-escaped — it is
-part of the comment text and passes through literally.
+## Comments inside a tag
 
-## Attribute comments (source-only)
-
-Inside a tag you can annotate the attribute list with `//` and `/* */` comments.
-They are recognised by the gsx parser, kept through `gsx fmt`, and dropped from
-the output — nothing reaches the browser.
+Use Go-style line or block comments to annotate an element's attributes. Braced comment forms are also accepted there. These comments remain in the `.gsx` source but do not render.
 
 <!--@include: ./_generated/comments/020-attribute-comments.md-->
 
-A `//` line comment sits on its own line (or trailing an attribute); the
-formatter keeps a trailing comment on the attribute's line and gives an own-line
-comment its own line. A `/* */` block comment may stay inline when the tag fits.
-The braced forms `{/* … */}` and `{// … }` are also legal in the attribute list —
-a comment-only `{ }` is unambiguous — and the formatter canonicalises them to the
-bare spelling. The same comments are allowed inside a `{ if COND { … } }`
-conditional-attribute block.
+## Comments between children
 
-::: tip Line comments break the tag (and its children)
-A `//` line comment can't share a flat line with the closing `>`, so it forces
-the opening tag to wrap — and because a tag and its body break together, the
-element's children reflow onto their own lines too (a `{ if … }` conditional
-attribute does the same). Use a `/* … */` block comment to annotate a tag while
-keeping everything inline.
-:::
-
-## Content comments `{/* … */}` (source-only)
-
-Between child nodes, a `{/* … */}` block is a **content comment** — the parser
-recognises it as comment-only and drops it from the rendered output. Unlike
-`<!-- -->`, nothing reaches the browser; unlike a bare `//` in text, it *is*
-treated as a comment because it is wrapped in braces.
+Use a braced comment between child nodes when the note should stay in source without appearing in the HTML.
 
 <!--@include: ./_generated/comments/030-content-comments.md-->
 
-The line form `{// … }` works identically. Both are preserved by `gsx fmt` and
-stripped from the generated Go code and the final HTML.
+Both `{/* … */}` and `{// … }` are source-only in child content.
 
 ## Go comments outside markup
 
-A `//` or `/* */` comment outside the markup body — above a component
-declaration, in an import block, inside a `{{ }}` GoBlock, or in a top-level
-helper function — is ordinary Go source. It is stripped by the Go compiler before
-the generated code runs, exactly as in any `.go` file. The package doc comment
-(the block before `package`) is likewise preserved in your source.
+Outside markup, `//` and `/* */` are ordinary Go comments. This includes package and import comments, helper functions, and comments inside a [GoBlock](./raw-go.md#goblock).

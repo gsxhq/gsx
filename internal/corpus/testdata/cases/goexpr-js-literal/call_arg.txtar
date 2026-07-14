@@ -47,7 +47,8 @@ func Host(_gsxp HostProps) _gsxrt.Node {
 //line input.gsx:4:2
 		_gsxgw.S("<div>")
 //line input.gsx:4:7
-		_gsxgw.Node(ctx, consume(_gsxrt.RawJS("submit("+_gsxrt.EscapeJSVal(formID)+")")))
+		_gsxv0 := _gsxrt.EscapeJSVal(formID)
+		_gsxgw.Node(ctx, consume(_gsxrt.RawJS("submit("+_gsxv0+")")))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})
