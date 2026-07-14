@@ -6472,7 +6472,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 					// whole-stage expressions retain their separate harvest probes;
 					// this seed supplies the same string type to field checking and
 					// generic inference without changing those walks.
-					value = embeddedProbeSeed(t.Segments, table, usedPkgs)
+					value = embeddedProbeSeed(t.Segments, table, usedPkgs, diagBag)
 				} else {
 					var ok bool
 					value, ok = componentEmbeddedTextValueExpr(&valueHoist, t, resolved, table, imports, rt, interpTemp, diagBag, bagErrReturn)
@@ -6535,7 +6535,7 @@ func childPropsLiteral(el *ast.Element, propsType, rtPkg, mergeExpr string, tabl
 					// conversion, exactly as embeddedProbeType/embeddedProbeSeed do
 					// for a Go-expression-position literal (emit ≡ probe).
 					_, wrapOpen, wrapClose := embeddedProbeType(t.Lang)
-					value = wrapOpen + embeddedProbeSeed(t.Segments, table, usedPkgs) + wrapClose
+					value = wrapOpen + embeddedProbeSeed(t.Segments, table, usedPkgs, diagBag) + wrapClose
 				} else {
 					var vb bytes.Buffer
 					lit := &ast.EmbeddedInterp{Lang: t.Lang, Segments: t.Segments}

@@ -1431,7 +1431,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 				// POST-pipe type — matching genInterp, which lowers the pipeline over
 				// the spliced seed too (emit ≡ probe). A Stages-less embedded interp
 				// yields the seed unchanged, preserving prior behavior.
-				probe, err := probeExpr(eb.String(), t.Stages, table, usedFilters)
+				probe, err := probeExpr(eb.String(), t.Stages, table, usedFilters, t, bag)
 				if err != nil {
 					return err
 				}
@@ -1439,7 +1439,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 				fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 				continue
 			}
-			probe, err := probeExpr(t.Expr, t.Stages, table, usedFilters)
+			probe, err := probeExpr(t.Expr, t.Stages, table, usedFilters, t, bag)
 			if err != nil {
 				return err
 			}
@@ -1481,8 +1481,8 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 				return err
 			}
 			if len(t.Stages) > 0 {
-				seed := embeddedProbeSeed(t.Segments, table, usedFilters)
-				probe, err := probeExpr(seed, t.Stages, table, usedFilters)
+				seed := embeddedProbeSeed(t.Segments, table, usedFilters, bag)
+				probe, err := probeExpr(seed, t.Stages, table, usedFilters, t, bag)
 				if err != nil {
 					return err
 				}
@@ -1789,7 +1789,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 					if !ok {
 						continue
 					}
-					probe, perr := probeExpr(ea.Expr, ea.Stages, table, usedFilters)
+					probe, perr := probeExpr(ea.Expr, ea.Stages, table, usedFilters, ea, bag)
 					if perr != nil {
 						return perr
 					}
@@ -1836,7 +1836,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 							// Value-form CF part: probe each arm so harvest populates
 							// resolved[arm] for classEntryExpr's (T, error) unwrap.
 							for _, arm := range valueFormArms(ca.Parts[i].CF) {
-								probe, perr := probeExpr(arm.Expr, arm.Stages, table, usedFilters)
+								probe, perr := probeExpr(arm.Expr, arm.Stages, table, usedFilters, arm, bag)
 								if perr != nil {
 									probe = strings.TrimSpace(arm.Expr)
 								}
@@ -1844,7 +1844,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 								fmt.Fprintf(sb, "_gsxuse(%s)\n", probe)
 							}
 						} else if ca.Parts[i].CSSSegments == nil {
-							probe, perr := probeExpr(ca.Parts[i].Expr, ca.Parts[i].Stages, table, usedFilters)
+							probe, perr := probeExpr(ca.Parts[i].Expr, ca.Parts[i].Stages, table, usedFilters, &ca.Parts[i], bag)
 							if perr != nil {
 								probe = strings.TrimSpace(ca.Parts[i].Expr)
 							}
@@ -1872,7 +1872,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 					if branchProbeErr != nil {
 						return
 					}
-					probe, perr := probeExpr(ea.Expr, ea.Stages, table, usedFilters)
+					probe, perr := probeExpr(ea.Expr, ea.Stages, table, usedFilters, ea, bag)
 					if perr != nil {
 						branchProbeErr = perr
 						return
@@ -1915,8 +1915,8 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 					if probeErr != nil {
 						return
 					}
-					seed := embeddedProbeSeed(ea.Segments, table, usedFilters)
-					probe, err := probeExpr(seed, ea.Stages, table, usedFilters)
+					seed := embeddedProbeSeed(ea.Segments, table, usedFilters, bag)
+					probe, err := probeExpr(seed, ea.Stages, table, usedFilters, ea, bag)
 					if err != nil {
 						probeErr = err
 						return
@@ -1946,7 +1946,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 					if probeErr != nil {
 						return
 					}
-					probe, err := probeExpr(ea.Expr, ea.Stages, table, usedFilters)
+					probe, err := probeExpr(ea.Expr, ea.Stages, table, usedFilters, ea, bag)
 					if err != nil {
 						probeErr = err
 						return
@@ -1966,7 +1966,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 					if probeErr != nil {
 						return
 					}
-					probe, err := probeExpr(sa.Expr, sa.Stages, table, usedFilters)
+					probe, err := probeExpr(sa.Expr, sa.Stages, table, usedFilters, sa, bag)
 					if err != nil {
 						probeErr = err
 						return
@@ -2001,7 +2001,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 					for i := range ca.Parts {
 						if ca.Parts[i].CF != nil {
 							for _, arm := range valueFormArms(ca.Parts[i].CF) {
-								probe, perr := probeExpr(arm.Expr, arm.Stages, table, usedFilters)
+								probe, perr := probeExpr(arm.Expr, arm.Stages, table, usedFilters, arm, bag)
 								if perr != nil {
 									// Unknown filter: fall back to the bare seed so the skeleton
 									// type-checks (and identifiers stay live); the positioned
@@ -2017,7 +2017,7 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 							// also serves as a liveness reference (replaces `_ =
 							// (expr)`); the cond guard itself (if any) still needs its
 							// own liveness reference — see walkLivenessAttrExprs.
-							probe, perr := probeExpr(ca.Parts[i].Expr, ca.Parts[i].Stages, table, usedFilters)
+							probe, perr := probeExpr(ca.Parts[i].Expr, ca.Parts[i].Stages, table, usedFilters, &ca.Parts[i], bag)
 							if perr != nil {
 								probe = strings.TrimSpace(ca.Parts[i].Expr)
 							}
@@ -2065,8 +2065,8 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 					if probeErr != nil {
 						return
 					}
-					seed := embeddedProbeSeed(ea.Segments, table, usedFilters)
-					probe, err := probeExpr(seed, ea.Stages, table, usedFilters)
+					seed := embeddedProbeSeed(ea.Segments, table, usedFilters, bag)
+					probe, err := probeExpr(seed, ea.Stages, table, usedFilters, ea, bag)
 					if err != nil {
 						probeErr = err
 						return
@@ -2332,9 +2332,39 @@ func emitSkeletonLineImport(sb *strings.Builder, fset *token.FileSet, pos token.
 // unknown-filter diagnostic emit reports (the probe's bare error must not pre-empt
 // the positioned bag.Errorf in generateFile). A valid pipeline lowers exactly as
 // emit does, keeping emit ≡ probe.
-func probeExpr(seed string, stages []gsxast.PipeStage, table funcTables, usedFilters map[string]string) (string, error) {
+//
+// probeExpr is the SINGLE choke point every pipe stage's Args passes through
+// before skeleton assembly, across every context (top-level interp/expr-attr
+// pipelines, a literal's own whole-pipe, a hole's own pipe via holeProbeSeed,
+// class-part/CF-arm pipelines, spread pipelines) — every caller hands it its
+// own `.Stages`. A prefixed embedded literal (f`/js`/css`) inside a stage's
+// Args (`x |> printf(f`%s!`)`) is NOT lowerable: st.Args is spliced VERBATIM
+// as Go source by lowerPipe, and a literal's gsx-only syntax (the @{ } hole,
+// the bare backtick-as-string-delimiter reinterpretation) is not valid Go —
+// splicing it would hand the skeleton parser invalid syntax and abort with a
+// cryptic, unpositioned cascade. Caught HERE, before lowerPipe ever sees it:
+// bag.Errorf reports the positioned "literal-in-stage-args" diagnostic
+// (Error severity — module.go's two generateFile gates additionally check
+// !bag.HasErrors(), so this alone stops real emission from independently
+// calling THIS SAME lowerPipe over the SAME bad st.Args and either splicing
+// invalid Go or crashing gofmt's format.Source; in production gen/poison.go
+// also poisons the .gsx's .x.go on any such diagnostic), and — exactly like
+// the unknown-filter path above — the probe falls back to the bare seed so
+// the skeleton still type-checks and no OTHER, unrelated "undefined" cascade
+// drowns out this diagnostic.
+func probeExpr(seed string, stages []gsxast.PipeStage, table funcTables, usedFilters map[string]string, owner gsxast.Node, bag *diag.Bag) (string, error) {
 	if len(stages) == 0 {
 		return strings.TrimSpace(seed), nil
+	}
+	for _, st := range stages {
+		if strings.TrimSpace(st.Args) == "" {
+			continue
+		}
+		if _, ok := gsxparser.ContainsEmbeddedLiteral(st.Args); ok {
+			bag.Errorf(owner.Pos(), owner.End(), "literal-in-stage-args",
+				"prefixed literals in pipe-stage arguments are not supported; assign the literal to a variable first")
+			return strings.TrimSpace(seed), nil
+		}
 	}
 	lowered, used, err := lowerPipe(seed, stages, table, probePipeWrap)
 	if err != nil {
@@ -2367,7 +2397,7 @@ func probeExpr(seed string, stages []gsxast.PipeStage, table funcTables, usedFil
 // hole's real type, which is impossible at skeleton-build time (hole types
 // are only known once THIS SAME skeleton has been type-checked and
 // harvested — a later, one-shot step, not available mid-build).
-func embeddedProbeSeed(segments []gsxast.Markup, table funcTables, usedFilters map[string]string) string {
+func embeddedProbeSeed(segments []gsxast.Markup, table funcTables, usedFilters map[string]string, bag *diag.Bag) string {
 	parts := make([]string, 0, len(segments))
 	for _, seg := range segments {
 		switch s := seg.(type) {
@@ -2377,7 +2407,7 @@ func embeddedProbeSeed(segments []gsxast.Markup, table funcTables, usedFilters m
 			}
 			parts = append(parts, strconv.Quote(s.Value))
 		case *gsxast.Interp:
-			parts = append(parts, "_gsxstr("+holeProbeSeed(s, table, usedFilters)+")")
+			parts = append(parts, "_gsxstr("+holeProbeSeed(s, table, usedFilters, bag)+")")
 		}
 	}
 	if len(parts) == 0 {
@@ -2406,9 +2436,9 @@ func embeddedProbeSeed(segments []gsxast.Markup, table funcTables, usedFilters m
 // already probed via the enclosing literal's emitProbes Element/Fragment case
 // (the `_gsxuse` path), and emit rejects the hole regardless, so its harvested
 // type is never read.
-func holeProbeSeed(n *gsxast.Interp, table funcTables, usedFilters map[string]string) string {
+func holeProbeSeed(n *gsxast.Interp, table funcTables, usedFilters map[string]string, bag *diag.Bag) string {
 	if n.Embedded == nil {
-		probe, _ := probeExpr(n.Expr, n.Stages, table, usedFilters)
+		probe, _ := probeExpr(n.Expr, n.Stages, table, usedFilters, n, bag)
 		return probe
 	}
 	var sb strings.Builder
@@ -2419,7 +2449,7 @@ func holeProbeSeed(n *gsxast.Interp, table funcTables, usedFilters map[string]st
 		case *gsxast.EmbeddedInterp:
 			_, wrapOpen, wrapClose := embeddedProbeType(p.Lang)
 			sb.WriteString(wrapOpen)
-			sb.WriteString(embeddedProbeSeed(p.Segments, table, usedFilters))
+			sb.WriteString(embeddedProbeSeed(p.Segments, table, usedFilters, bag))
 			sb.WriteString(wrapClose)
 		default:
 			// *Element/*Fragment: unsupported in a string-seed hole. Emit's
@@ -2429,7 +2459,7 @@ func holeProbeSeed(n *gsxast.Interp, table funcTables, usedFilters map[string]st
 			return "func() _gsxrt.Node { return nil }()"
 		}
 	}
-	probe, _ := probeExpr(strings.TrimSpace(sb.String()), n.Stages, table, usedFilters)
+	probe, _ := probeExpr(strings.TrimSpace(sb.String()), n.Stages, table, usedFilters, n, bag)
 	return probe
 }
 
@@ -2483,7 +2513,7 @@ func probeEmbeddedInterpIIFE(sb *strings.Builder, segs []gsxast.Markup, lang gsx
 	if err := emitProbes(sb, segs, table, propFields, nodeProps, attrsProps, genericSigs, byo, fm, recvVar, recvTypeName, usedFilters, fset, ctrlOff, registry, gw, bag, cfTemp, false); err != nil {
 		return err
 	}
-	fmt.Fprintf(sb, "return %s%s%s\n}()", wrapOpen, embeddedProbeSeed(segs, table, usedFilters), wrapClose)
+	fmt.Fprintf(sb, "return %s%s%s\n}()", wrapOpen, embeddedProbeSeed(segs, table, usedFilters, bag), wrapClose)
 	return nil
 }
 

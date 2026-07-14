@@ -457,6 +457,55 @@ func containsEmbeddedLiteralPrefix(s string) bool {
 	return false
 }
 
+// ContainsEmbeddedLiteral reports whether src — an arbitrary Go-expression
+// fragment, such as a pipe stage's argument list — contains a prefixed
+// embedded literal (f`/js`/css`, either delimiter) at a genuine Go token
+// position, and if so the byte offset of its langPrefixStart. Unlike
+// containsEmbeddedLiteralPrefix's byte-level pre-filter (a cheap necessary-
+// but-not-sufficient scan meant to be followed by a real parse when it fires),
+// this is precise on its own: it walks go/scanner tokens exactly as
+// scanGoParts's two STRING-token checks do, so a delimiter byte buried inside
+// an unrelated string's content never false-positives.
+//
+// It never parses the literal — no embeddedLiteralEndHoleAware, no
+// parseEmbeddedInterpPart — only the "is there a value-position prefixed
+// delimiter here" detection, because that is all a caller like the
+// stage-args diagnostic needs: a NO from here means src is safe to splice
+// verbatim into the skeleton as a pipe stage's args, a YES means it is not
+// (only a real literal lowering, which stage args do not support, could make
+// it safe). A single top-to-bottom go/scanner pass suffices with no
+// resume-past-span bookkeeping: a BARE (unprefixed) backtick or `"` string is
+// always correctly delimited by go/scanner itself (a raw string cannot
+// contain an unescaped backtick; an interpreted string honours Go's own
+// backslash escapes), so scanning never desyncs before reaching the first
+// PREFIXED literal — and once one is found, this returns immediately without
+// needing to know where it ends.
+func ContainsEmbeddedLiteral(src string) (int, bool) {
+	fset := token.NewFileSet()
+	file := fset.AddFile("", fset.Base(), len(src))
+	var s scanner.Scanner
+	s.Init(file, []byte(src), nil, 0)
+	for {
+		pos, tok, _ := s.Scan()
+		if tok == token.EOF {
+			return 0, false
+		}
+		if tok != token.STRING {
+			continue
+		}
+		off := fset.Position(pos).Offset
+		if off >= len(src) {
+			continue
+		}
+		if src[off] != '`' && src[off] != '"' {
+			continue
+		}
+		if p := langPrefixStart(src, off); p >= 0 {
+			return p, true
+		}
+	}
+}
+
 // reportWholeLiteralPipes reports wholeLiteralPipeMsg via p.errorf for every
 // item in items whose PipeOff is set (an IsLiteral item immediately followed
 // by `|>` — see goSplitItem's doc), positioned at base+PipeOff. base is the
