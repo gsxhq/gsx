@@ -1,0 +1,22 @@
+A multi-line css`…` attribute value is re-indented under its attribute, the same
+way a <style> body is.
+
+-- input.gsx --
+package p
+
+component C() {
+	<div style=css`
+color: red;
+margin: 0;
+`/>
+}
+-- fmt.golden --
+package p
+
+component C() {
+	<div
+		style=css`
+		color: red;
+		margin: 0;`
+	/>
+}

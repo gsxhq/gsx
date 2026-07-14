@@ -1,0 +1,15 @@
+A single-line js"…" attribute value stays inline, byte-for-byte — fmt never
+force-wraps an embedded literal.
+
+-- input.gsx --
+package p
+
+component C() {
+	<form x-data=js"{open:false}"/>
+}
+-- fmt.golden --
+package p
+
+component C() {
+	<form x-data=js"{open:false}"/>
+}
