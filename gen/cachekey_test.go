@@ -324,6 +324,128 @@ func TestComputeKeyRenderers(t *testing.T) {
 			t.Fatal("editing a module-local renderer shadowed by the final external registration must not change the cache key")
 		}
 	})
+
+	t.Run("traversal path adds no sibling hash", func(t *testing.T) {
+		root := t.TempDir()
+		write := func(base, rel, src string) {
+			t.Helper()
+			file := filepath.Join(base, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		write(root, "go.mod", "module ex/rnddeps\n\ngo 1.26.1\n")
+		write(root, "views/views.go", "package views\n")
+		sibling := filepath.Join(filepath.Dir(root), "sibling")
+		write(sibling, "renderers.gsx", "package sibling\n\nfunc RenderA(v string) string { return v }\n")
+
+		viewsDir := filepath.Join(root, "views")
+		graph := loadGraphMust(t, root)
+		renderers := []codegen.RendererAlias{{
+			TypeKey:  "example.com/p.A",
+			PkgPath:  "ex/rnddeps/../sibling",
+			FuncName: "RenderA",
+		}}
+		key := func() string {
+			t.Helper()
+			got, err := computeKey(viewsDir, graph, "ex/rnddeps", "", "", "bctx", "gen-test", nil, nil, renderers, "", false, false, false, nil, root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return got
+		}
+		before := key()
+		write(sibling, "renderers.gsx", "package sibling\n\nfunc RenderA(v string) string { return \"changed: \" + v }\n")
+		after := key()
+		if before != after {
+			t.Fatal("editing an existing sibling named through renderer import-path traversal must not change the cache key")
+		}
+	})
+
+	t.Run("symlink escape adds no outside hash", func(t *testing.T) {
+		root := t.TempDir()
+		write := func(base, rel, src string) {
+			t.Helper()
+			file := filepath.Join(base, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		write(root, "go.mod", "module ex/rnddeps\n\ngo 1.26.1\n")
+		write(root, "views/views.go", "package views\n")
+		outside := filepath.Join(filepath.Dir(root), "outside-renderers")
+		write(outside, "renderers.gsx", "package renderers\n\nfunc RenderA(v string) string { return v }\n")
+		if err := os.Symlink(outside, filepath.Join(root, "linked-renderers")); err != nil {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+
+		viewsDir := filepath.Join(root, "views")
+		graph := loadGraphMust(t, root)
+		renderers := []codegen.RendererAlias{{
+			TypeKey:  "example.com/p.A",
+			PkgPath:  "ex/rnddeps/linked-renderers",
+			FuncName: "RenderA",
+		}}
+		key := func() string {
+			t.Helper()
+			got, err := computeKey(viewsDir, graph, "ex/rnddeps", "", "", "bctx", "gen-test", nil, nil, renderers, "", false, false, false, nil, root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return got
+		}
+		before := key()
+		write(outside, "renderers.gsx", "package renderers\n\nfunc RenderA(v string) string { return \"changed: \" + v }\n")
+		after := key()
+		if before != after {
+			t.Fatal("editing source outside the module through a renderer directory symlink must not change the cache key")
+		}
+	})
+
+	t.Run("valid nested module-local source", func(t *testing.T) {
+		root := t.TempDir()
+		write := func(rel, src string) {
+			t.Helper()
+			file := filepath.Join(root, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		write("go.mod", "module ex/rnddeps\n\ngo 1.26.1\n")
+		write("views/views.go", "package views\n")
+		write("ui/renderers/renderers.gsx", "package renderers\n\nfunc RenderA(v string) string { return v }\n")
+
+		viewsDir := filepath.Join(root, "views")
+		graph := loadGraphMust(t, root)
+		renderers := []codegen.RendererAlias{{
+			TypeKey:  "example.com/p.A",
+			PkgPath:  "ex/rnddeps/ui/renderers",
+			FuncName: "RenderA",
+		}}
+		key := func() string {
+			t.Helper()
+			got, err := computeKey(viewsDir, graph, "ex/rnddeps", "", "", "bctx", "gen-test", nil, nil, renderers, "", false, false, false, nil, root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return got
+		}
+		before := key()
+		write("ui/renderers/renderers.gsx", "package renderers\n\nfunc RenderA(v string) string { return \"changed: \" + v }\n")
+		after := key()
+		if before == after {
+			t.Fatal("editing a valid nested module-local renderer package must change the cache key")
+		}
+	})
 }
 
 func loadGraphMust(t *testing.T, root string) map[string]pkgInfo {

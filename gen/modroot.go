@@ -3,8 +3,10 @@ package gen
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/gsxhq/gsx/internal/codegen"
 )
@@ -67,4 +69,69 @@ func moduleRoot(dir string) (string, string, error) {
 		}
 		d = parent
 	}
+}
+
+// moduleDirForImportPath maps an exact module import path to an existing
+// directory contained by moduleRoot. It validates the raw slash-separated path
+// before converting it to a filesystem path so filepath.Clean cannot turn dot
+// segments into traversal. Both the lexical candidate and its resolved symlink
+// target must remain under the corresponding module root; an in-root symlink is
+// allowed, while a symlink escape is not.
+func moduleDirForImportPath(moduleRoot, modulePath, importPath string) (string, bool) {
+	if moduleRoot == "" || !validModuleImportPath(modulePath) || !validModuleImportPath(importPath) {
+		return "", false
+	}
+	var rel string
+	switch {
+	case importPath == modulePath:
+	case strings.HasPrefix(importPath, modulePath+"/"):
+		rel = strings.TrimPrefix(importPath, modulePath+"/")
+	default:
+		return "", false
+	}
+	root, err := filepath.Abs(moduleRoot)
+	if err != nil {
+		return "", false
+	}
+	root = filepath.Clean(root)
+	candidate := root
+	if rel != "" {
+		candidate = filepath.Join(root, filepath.FromSlash(rel))
+	}
+	if !dirContainedBy(root, candidate) {
+		return "", false
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", false
+	}
+	resolvedCandidate, err := filepath.EvalSymlinks(candidate)
+	if err != nil || !dirContainedBy(resolvedRoot, resolvedCandidate) {
+		return "", false
+	}
+	info, err := os.Stat(candidate)
+	if err != nil || !info.IsDir() {
+		return "", false
+	}
+	return candidate, true
+}
+
+func validModuleImportPath(p string) bool {
+	if p == "" || path.IsAbs(p) || filepath.IsAbs(filepath.FromSlash(p)) || strings.ContainsRune(p, '\\') {
+		return false
+	}
+	for elem := range strings.SplitSeq(p, "/") {
+		if elem == "" || elem == "." || elem == ".." {
+			return false
+		}
+	}
+	return true
+}
+
+func dirContainedBy(root, candidate string) bool {
+	rel, err := filepath.Rel(root, candidate)
+	if err != nil || filepath.IsAbs(rel) {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }

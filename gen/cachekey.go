@@ -184,31 +184,17 @@ func gsxDepDirs(dir string, graph map[string]pkgInfo, moduleRoot, modPath string
 // nothing: ownership is exact module-path identity, never a sibling-directory
 // or package-name guess.
 func rendererDepDirs(renderers []codegen.RendererAlias, moduleRoot, modPath string) []string {
-	if modPath == "" {
-		return nil
-	}
 	final := make(map[string]codegen.RendererAlias, len(renderers))
 	for _, r := range renderers {
 		final[r.TypeKey] = r
 	}
-	root := filepath.Clean(moduleRoot)
 	dirs := make(map[string]bool, len(final))
 	for _, r := range final {
-		var dir string
-		switch {
-		case r.PkgPath == modPath:
-			dir = root
-		case strings.HasPrefix(r.PkgPath, modPath+"/"):
-			rel := strings.TrimPrefix(r.PkgPath, modPath+"/")
-			dir = filepath.Join(root, filepath.FromSlash(rel))
-		default:
+		dir, ok := moduleDirForImportPath(moduleRoot, modPath, r.PkgPath)
+		if !ok {
 			continue
 		}
-		info, err := os.Stat(dir)
-		if err != nil || !info.IsDir() {
-			continue
-		}
-		dirs[filepath.Clean(dir)] = true
+		dirs[dir] = true
 	}
 	out := make([]string, 0, len(dirs))
 	for dir := range dirs {
