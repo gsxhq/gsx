@@ -331,6 +331,11 @@ const (
 	JSCtxString
 	JSCtxTemplate
 	JSCtxRegexp
+	// JSCtxBinding: the hole is its own token in a non-value (binding/lvalue)
+	// position — assignment target, declaration or member name. Legal only when
+	// the hole's Go type is gsx.RawJS (decided at emit, where the type is known);
+	// spliced verbatim.
+	JSCtxBinding
 )
 
 // PipeStage is one `|> name` / `|> name(args)` filter in a pipeline. It is a

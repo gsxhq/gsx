@@ -1,10 +1,15 @@
+A @{ } hole in a JS binding/lvalue position (here a declaration name) is
+rejected unless its Go type is gsx.RawJS. The classifier defers the position to
+JSCtxBinding; the rejection is now an emit-time diagnostic (jsx-binding-position)
+gated on the type. `name` is a plain string, not gsx.RawJS, so it is rejected.
+
 -- input.gsx --
 package views
 
-component Page() {
+component Page(name string) {
 	<script>
 		let @{ name } = 1;
 	</script>
 }
 -- diagnostics.golden --
-5:8: jsx: @{ } here is not a safe JavaScript value position (it looks like an identifier/binding); wrap the value where it is used as a value, or use a data attribute
+5:8: @{ } here is a JavaScript binding/lvalue position (assignment target, declaration or member name); only a gsx.RawJS value may be spliced here — wrap it as gsx.RawJS(...) if the bytes are trusted, or use it where a value is expected
