@@ -29,11 +29,11 @@ func mustParseComponent(t *testing.T, src string) *gsxast.Component {
 }
 
 func TestComponentSignature(t *testing.T) {
-	// Same props, different body → SAME signature (drop-in variant).
+	// Same declaration, different body → SAME signature (drop-in variant).
 	a := mustParseComponent(t, "package v\ncomponent Icon(name string) {\n\t<span>{ name }</span>\n}\n")
 	b := mustParseComponent(t, "package v\ncomponent Icon(name string) {\n\t<b>{ name }</b>\n}\n")
 	if componentSignature(a) != componentSignature(b) {
-		t.Fatalf("same-props variants must share a signature:\n a=%q\n b=%q", componentSignature(a), componentSignature(b))
+		t.Fatalf("same-declaration variants must share a signature:\n a=%q\n b=%q", componentSignature(a), componentSignature(b))
 	}
 
 	// Different prop type → DIFFERENT signature.
@@ -42,18 +42,63 @@ func TestComponentSignature(t *testing.T) {
 		t.Fatalf("different prop type must differ: %q", componentSignature(a))
 	}
 
-	// Param order does not matter (props map by name).
+	// Verbatim parameter order is part of the Go contract.
 	d := mustParseComponent(t, "package v\ncomponent Icon(x string, y string) { <i/> }\n")
 	e := mustParseComponent(t, "package v\ncomponent Icon(y string, x string) { <i/> }\n")
-	if componentSignature(d) != componentSignature(e) {
-		t.Fatalf("param order must not affect signature")
+	if componentSignature(d) == componentSignature(e) {
+		t.Fatal("parameter order must affect the verbatim component contract")
 	}
 
-	// Children presence is part of the signature.
-	f := mustParseComponent(t, "package v\ncomponent Box() { <div>{ children }</div> }\n")
-	g := mustParseComponent(t, "package v\ncomponent Box() { <div/> }\n")
-	if componentSignature(f) == componentSignature(g) {
-		t.Fatalf("children presence must differ")
+	// Grouping is not part of the logical parameter declaration.
+	f := mustParseComponent(t, "package v\ncomponent Icon(x, y string) { <i/> }\n")
+	if componentSignature(d) != componentSignature(f) {
+		t.Fatal("grouped and ungrouped logical parameters must match")
+	}
+
+	// Name, variadic position, receiver type, and constraint spelling are all
+	// component-contract identity.
+	rename := mustParseComponent(t, "package v\ncomponent Icon(label string) { <i/> }\n")
+	if componentSignature(a) == componentSignature(rename) {
+		t.Fatal("parameter rename must change the contract")
+	}
+	slice := mustParseComponent(t, "package v\ncomponent Icon(values []string) { <i/> }\n")
+	variadic := mustParseComponent(t, "package v\ncomponent Icon(values ...string) { <i/> }\n")
+	if componentSignature(slice) == componentSignature(variadic) {
+		t.Fatal("slice and variadic parameters must differ")
+	}
+	recvA := mustParseComponent(t, "package v\ncomponent (a A) Icon(name string) { <i/> }\n")
+	recvB := mustParseComponent(t, "package v\ncomponent (b B) Icon(name string) { <i/> }\n")
+	if componentSignature(recvA) == componentSignature(recvB) {
+		t.Fatal("receiver type must change the contract")
+	}
+	recvRename := mustParseComponent(t, "package v\ncomponent (other A) Icon(name string) { <i/> }\n")
+	if componentSignature(recvA) != componentSignature(recvRename) {
+		t.Fatal("receiver variable name must not change the contract")
+	}
+	constraintA := mustParseComponent(t, "package v\ncomponent Icon[T ~int](value T) { <i/> }\n")
+	constraintB := mustParseComponent(t, "package v\ncomponent Icon[T int](value T) { <i/> }\n")
+	if componentSignature(constraintA) == componentSignature(constraintB) {
+		t.Fatal("constraint spelling must change the contract")
+	}
+	typeParamsGrouped := mustParseComponent(t, "package v\ncomponent Icon[T, U any](left T, right U) { <i/> }\n")
+	typeParamsUngrouped := mustParseComponent(t, "package v\ncomponent Icon[T any, U any](left T, right U) { <i/> }\n")
+	if componentSignature(typeParamsGrouped) != componentSignature(typeParamsUngrouped) {
+		t.Fatal("grouped and ungrouped logical type parameters must match")
+	}
+
+	// Reserved roles come only from the declaration, never body free-use.
+	bodyChildren := mustParseComponent(t, "package v\ncomponent Box() { <div>{ children }</div> }\n")
+	bodyPlain := mustParseComponent(t, "package v\ncomponent Box() { <div/> }\n")
+	if componentSignature(bodyChildren) != componentSignature(bodyPlain) {
+		t.Fatal("body-only changes must not affect declaration identity")
+	}
+}
+
+func TestComponentSignatureMalformedFallbackIsCollisionSafe(t *testing.T) {
+	a := &gsxast.Component{Recv: "a", TypeParams: "bc", Params: ""}
+	b := &gsxast.Component{Recv: "ab", TypeParams: "c", Params: ""}
+	if componentSignature(a) == componentSignature(b) {
+		t.Fatal("raw fallback fields must be length-prefixed")
 	}
 }
 

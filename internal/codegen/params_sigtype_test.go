@@ -46,3 +46,30 @@ func TestParseParamsTypeSpans(t *testing.T) {
 		}
 	}
 }
+
+// The final declaration parser retains unnamed parameters, but the shipping
+// Props path remains named-only until the atomic cutover. Sharing the Go parse
+// must not silently change that old model.
+func TestParseParamsKeepsNamedOnlyShape(t *testing.T) {
+	got, err := parseParams("a, b string, _ bool, rest ...byte")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantNames := []string{"a", "b", "_", "rest"}
+	if len(got) != len(wantNames) {
+		t.Fatalf("parseParams returned %d params, want %d", len(got), len(wantNames))
+	}
+	for i, p := range got {
+		if p.name != wantNames[i] {
+			t.Errorf("param %d name=%q, want %q", i, p.name, wantNames[i])
+		}
+	}
+
+	unnamed, err := parseParams("string, bool, ...byte")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unnamed) != 0 {
+		t.Fatalf("legacy parseParams returned %d unnamed params, want 0", len(unnamed))
+	}
+}
