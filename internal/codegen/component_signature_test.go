@@ -236,6 +236,19 @@ func TestAnalyzeComponentSignatureRoles(t *testing.T) {
 	}
 }
 
+func TestAnalyzeComponentSignatureAllowsNullaryFuncProp(t *testing.T) {
+	fx := newSignatureRuntimeFixture(t)
+	callback := types.NewSignatureType(nil, nil, nil, nil, nil, false)
+	param := testParam(fx.pkg, "callback", callback)
+	got, err := analyzeComponentSignature(testSignature(fx.pkg, nil, []*types.Var{param}, []types.Type{fx.runtime.node}, false), fx.runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.params[0].role != roleProp {
+		t.Fatalf("nullary callback role = %d, want roleProp", got.params[0].role)
+	}
+}
+
 func TestAnalyzeComponentSignatureChildren(t *testing.T) {
 	fx := newSignatureRuntimeFixture(t)
 
@@ -404,6 +417,7 @@ func TestAnalyzeComponentSignatureRejectsInvalidParams(t *testing.T) {
 	attrTerm := types.NewTerm(true, types.NewSlice(fx.runtime.attr))
 	attrConstraint := types.NewInterfaceType(nil, []types.Type{types.NewUnion([]*types.Term{attrTerm})}).Complete()
 	attrTP := types.NewTypeParam(types.NewTypeName(token.NoPos, user, "A", nil), attrConstraint)
+	incompleteAlias := types.NewAlias(types.NewTypeName(token.NoPos, user, "Incomplete", nil), nil)
 
 	cases := []struct {
 		name       string
@@ -414,6 +428,10 @@ func TestAnalyzeComponentSignatureRejectsInvalidParams(t *testing.T) {
 	}{
 		{name: "blank fixed", paramName: "_", paramType: types.Typ[types.String]},
 		{name: "unnamed fixed", paramType: types.Typ[types.String]},
+		{name: "ordinary invalid", paramName: "value", paramType: types.Typ[types.Invalid]},
+		{name: "ordinary nested invalid", paramName: "value", paramType: types.NewSlice(types.Typ[types.Invalid])},
+		{name: "ordinary incomplete alias", paramName: "value", paramType: incompleteAlias},
+		{name: "ordinary variadic invalid", paramName: "values", paramType: types.NewSlice(types.Typ[types.Invalid]), variadic: true},
 		{name: "ctx", paramName: "ctx", paramType: types.Typ[types.String]},
 		{name: "generated namespace", paramName: "_gsxtmp", paramType: types.Typ[types.String]},
 		{name: "children scalar", paramName: "children", paramType: types.Typ[types.String]},
