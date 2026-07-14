@@ -46,9 +46,27 @@ type Adapter interface {
 //
 // Blank lines (no content) emit just the newline — no tabs, no trailing space.
 func Reindent(src []byte, a Adapter) (string, bool) {
-	toks, ok := a.Tokenize(src)
+	lines, ok := ReindentLines(src, a)
 	if !ok {
 		return "", false
+	}
+	return strings.Join(lines, "\n"), true
+}
+
+// ReindentLines is Reindent returning the re-indented LOGICAL lines instead of a
+// joined string. An Opaque token's internal newlines stay WITHIN a line (they are
+// content, not line boundaries), so a returned element may itself contain '\n'.
+// A blank logical line is an empty string. Reindent(src, a) equals
+// strings.Join(ReindentLines(src, a), "\n").
+//
+// This split lets the outer Doc-building layer (rawfmt) place each logical line
+// at its depth WITHOUT re-indenting the interior physical lines of a multi-line
+// Opaque token (a template literal or block comment), which would corrupt the
+// token's value and break idempotence.
+func ReindentLines(src []byte, a Adapter) ([]string, bool) {
+	toks, ok := a.Tokenize(src)
+	if !ok {
+		return nil, false
 	}
 
 	// Split into logical lines on Newline tokens. Opaque tokens keep their
@@ -65,12 +83,9 @@ func Reindent(src []byte, a Adapter) (string, bool) {
 	}
 	lines = append(lines, cur)
 
-	var b strings.Builder
+	out := make([]string, 0, len(lines))
 	depth := 0
-	for li, line := range lines {
-		if li > 0 {
-			b.WriteByte('\n')
-		}
+	for _, line := range lines {
 		// Trim leading and trailing Space tokens.
 		start, end := 0, len(line)
 		for start < end && line[start].Class == Space {
@@ -81,12 +96,14 @@ func Reindent(src []byte, a Adapter) (string, bool) {
 		}
 		content := line[start:end]
 		if len(content) == 0 {
-			continue // blank line: newline only, no indent
+			out = append(out, "") // blank line: no indent
+			continue
 		}
 		indent := depth
 		if content[0].Class == Close && indent > 0 {
 			indent--
 		}
+		var b strings.Builder
 		for i := 0; i < indent; i++ {
 			b.WriteByte('\t')
 		}
@@ -104,6 +121,7 @@ func Reindent(src []byte, a Adapter) (string, bool) {
 		if depth < 0 {
 			depth = 0
 		}
+		out = append(out, b.String())
 	}
-	return b.String(), true
+	return out, true
 }
