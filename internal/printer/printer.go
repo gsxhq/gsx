@@ -770,25 +770,48 @@ func pipeStageStr(s ast.PipeStage) string {
 }
 
 func (p *printer) goBlock(b *ast.GoBlock) pretty.Doc {
-	body := p.goBlockBody(b.Code)
-	return pretty.Concat(pretty.Text("{{ "), body, pretty.Text(" }}"))
+	s := p.goBlockCode(b.Code)
+	// A single-statement block stays inline: `{{ stmt }}`.
+	if !strings.Contains(s, "\n") {
+		return pretty.Concat(pretty.Text("{{ "), pretty.Text(s), pretty.Text(" }}"))
+	}
+	// A multi-statement block breaks like a Go block body: `{{` alone on its line,
+	// the statements indented one level deeper, `}}` alone on its own line at the
+	// block's column. Raw-string interior newlines stay embedded in their segment.
+	segs := splitOutsideRawStrings(s)
+	inner := make([]pretty.Doc, 0, len(segs)*2)
+	for _, seg := range segs {
+		if strings.TrimSpace(seg) == "" {
+			// A blank line between statements: a bare newline, no managed indent
+			// (so it never carries trailing tabs — idempotence).
+			inner = append(inner, pretty.Text("\n"))
+			continue
+		}
+		inner = append(inner, pretty.HardLine, pretty.Text(strings.TrimRight(seg, " \t")))
+	}
+	return pretty.Concat(
+		pretty.Text("{{"),
+		pretty.Indent(pretty.Concat(inner...)),
+		pretty.BreakParent,
+		pretty.HardLine, pretty.Text("}}"),
+	)
 }
 
-// goBlockBody lays out the statements of a `{{ }}` block. A block carrying an
-// embedded f`/js`/css` literal is not, on its own, parseable Go — fmtStmts'
-// go/format call rejects it and relays the raw text verbatim, so the block's
-// indentation is never normalized. goBlockBody restores parseability with the
-// same placeholder round-trip fmtGoExprParts uses (formatGoParts), so gofmt lays
-// the statements out and the literals splice back in, hole expressions
+// goBlockCode returns the canonical statement text of a `{{ }}` block. A block
+// carrying an embedded f`/js`/css` literal is not, on its own, parseable Go —
+// fmtStmts' go/format call rejects it and relays the raw text verbatim, so the
+// block's indentation is never normalized. goBlockCode restores parseability with
+// the same placeholder round-trip fmtGoExprParts uses (formatGoParts), so gofmt
+// lays the statements out and the literals splice back in, hole expressions
 // reformatted. A block with no embedded literal (fmtGoBlockCode finds no value
 // part, or the literal split fails) falls back to the plain fmtStmts path. Both
-// paths yield a canonical body string fed through multiline, which lays its
-// newlines out at the block's current indent.
-func (p *printer) goBlockBody(code string) pretty.Doc {
+// paths yield a canonical body string that goBlock lays out at the block's
+// indent (inline for a single statement, one level deeper for several).
+func (p *printer) goBlockCode(code string) string {
 	if s, ok := p.fmtGoBlockCode(code); ok {
-		return multiline(s)
+		return s
 	}
-	return multiline(fmtStmts(code))
+	return fmtStmts(code)
 }
 
 // goBlockWrapperPrefix/Suffix wrap a GoBlock's statements in a synthetic

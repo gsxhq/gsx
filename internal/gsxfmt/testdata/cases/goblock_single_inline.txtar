@@ -1,0 +1,16 @@
+A single-statement `{{ }}` block stays inline: `{{ stmt }}`.
+
+-- input.gsx --
+package p
+
+component C() {
+	{{ x := 1 }}
+	<div>{ x }</div>
+}
+-- fmt.golden --
+package p
+
+component C() {
+	{{ x := 1 }}
+	<div>{ x }</div>
+}

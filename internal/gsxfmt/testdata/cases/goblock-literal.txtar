@@ -1,11 +1,12 @@
-A multi-line `{{ }}` block whose statements embed a js` literal. The block is
+A multi-statement `{{ }}` block whose statements embed a js` literal. The block is
 not, on its own, parseable Go (a js` literal is not a Go token), so the plain
 statement path relays it verbatim and never normalizes the author's ragged
 indent. The literal-aware path splits the block, formats it through gofmt behind
 one placeholder per literal, and splices the literals back — hole expression
-reformatted (`@{detail}`), literal text/prefix/delimiter intact. gofmt owns the
-statement layout: the composite fields land one tab in, the trailing `}` and the
-following assignment return to the block's base column.
+reformatted (`@{detail}`), literal text/prefix/delimiter intact. A multi-statement
+block breaks: `{{` alone on its line, the statements one level deeper (gofmt owns
+their internal layout — the composite fields another tab in), `}}` alone at the
+block's column.
 
 -- input.gsx --
 package ui
@@ -23,9 +24,11 @@ component Page(detail string) {
 package ui
 
 component Page(detail string) {
-	{{ containerAttrs := gsx.Attrs{
-		{Key: "@suggest-datetime.window", Value: js`suggest(@{detail})`},
-	}
-	_ = containerAttrs }}
+	{{
+		containerAttrs := gsx.Attrs{
+			{Key: "@suggest-datetime.window", Value: js`suggest(@{detail})`},
+		}
+		_ = containerAttrs
+	}}
 	<div { containerAttrs... }>x</div>
 }
