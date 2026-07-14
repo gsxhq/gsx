@@ -64,7 +64,8 @@ func TestGeneratePathDoesNoFilterTableLoad(t *testing.T) {
 // never loads the external importer (that is what took `gsx fmt -l` from ~16s to
 // 0.58s). Harvesting its table from types would force the full "./..." load it
 // exists to avoid, so it keeps the standalone loadFilterTableMulti — which loads
-// ONLY the filter packages — and caches it for the Module's lifetime.
+// ONLY the filter packages — and caches it for the Module's lifetime. Renderer
+// declaration resolution is intentionally excluded from this path.
 func TestFmtPathKeepsStandaloneFilterLoad(t *testing.T) {
 	if testing.Short() {
 		t.Skip()
@@ -82,5 +83,38 @@ func TestFmtPathKeepsStandaloneFilterLoad(t *testing.T) {
 	}
 	if got := m.filterTableLoads(); got != 1 {
 		t.Fatalf("filterTableLoads = %d; want 1 (loaded once, then cached)", got)
+	}
+}
+
+func TestFmtPathDoesNotResolveLocalRenderer(t *testing.T) {
+	if testing.Short() {
+		t.Skip()
+	}
+	root, _, viewsDir := localRendererModule(t)
+	m, err := Open(Options{
+		ModuleRoot: root,
+		ModulePath: "example.com/app",
+		FilterPkgs: localRendererOptions().FilterPkgs,
+		Renderers:  localRendererOptions().Renderers,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 2 {
+		if _, err := m.buildPackageSkeletons(viewsDir); err != nil {
+			t.Fatalf("buildPackageSkeletons #%d: %v", i, err)
+		}
+	}
+	if got := m.externalLoads(); got != 0 {
+		t.Fatalf("externalLoads = %d; want 0 (fmt must not resolve local renderers)", got)
+	}
+	if got := m.filterTableLoads(); got != 1 {
+		t.Fatalf("filterTableLoads = %d; want one cached filter-only load", got)
+	}
+	m.mu.Lock()
+	resolved := m.rendererPkgsDone || m.rendererTblDone
+	m.mu.Unlock()
+	if resolved {
+		t.Fatal("fmt path resolved the module renderer registry")
 	}
 }
