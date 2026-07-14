@@ -90,15 +90,19 @@ func TestEmbeddedAttrSingleLineStaysInline(t *testing.T) {
 	}
 }
 
-// CSS literal, backtick delimiter, multi-line.
+// CSS literal, backtick delimiter, multi-line. Brace-less CSS gets the block
+// layout: opening backtick alone on the attribute line, body indented one
+// level under the attribute, closing backtick alone at the attribute's own
+// indent (never glued to the last declaration).
 func TestEmbeddedAttrCSSReindented(t *testing.T) {
 	src := "package p\n\ncomponent C() {\n\t<div style=css`\ncolor: red;\nmargin: 0;\n`/>\n}\n"
+	want := "package p\n\ncomponent C() {\n\t<div\n\t\tstyle=css`\n\t\t\tcolor: red;\n\t\t\tmargin: 0;\n\t\t`\n\t/>\n}\n"
 	out, err := normPrint(t, src)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "\t\tcolor: red;") {
-		t.Fatalf("css body not re-indented under attribute:\n%s", out)
+	if out != want {
+		t.Fatalf("css block layout mismatch:\ngot:\n%s\nwant:\n%s", out, want)
 	}
 }
 
