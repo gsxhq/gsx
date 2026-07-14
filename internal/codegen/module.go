@@ -524,7 +524,8 @@ func (m *Module) classifierFor(dir string) *attrclass.Classifier {
 // A PerDir override always harvests from types, forcing the importer if needed:
 // N dirs with N different filter sets then cost ONE load between them. Renderers
 // have no PerDir override (Options.Renderers is module-wide), so the per-dir
-// memo key below is keyed on the filter package set alone.
+// memo key below combines the consuming package import path (renderer locality)
+// with its canonical filter package set (reserved alias allocation).
 //
 // A dir naming a filter package the importer never loaded is an error. It must
 // never degrade to an empty table — a corpus case that asserts "this filter is
