@@ -183,3 +183,25 @@ func TestCRLFNormalizedToLF(t *testing.T) {
 		t.Fatalf("CRLF not normalized to a single LF: %q", got)
 	}
 }
+
+func TestFormatLinesTemplateLiteralOneLine(t *testing.T) {
+	// A multi-line template literal must be a SINGLE logical line (its internal
+	// newlines are content), while ordinary statements are separate lines.
+	src := "var f = () => {\nreturn `<div>\nhi\n</div>`;\n}"
+	lines, ok := FormatLines([]byte(src), 80)
+	if !ok {
+		t.Fatal("ok=false")
+	}
+	found := false
+	for _, ln := range lines {
+		if strings.Contains(ln, "`<div>") {
+			if !strings.Contains(ln, "hi") || !strings.Contains(ln, "</div>`") {
+				t.Fatalf("template literal split across lines: %q", ln)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("template literal line not found in %q", lines)
+	}
+}

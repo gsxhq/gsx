@@ -227,6 +227,9 @@ present in the `.gsx` file. A CLI import mode overrides the
 bodies. Interpolation holes are preserved. If an embedded body cannot be
 formatted safely, that body is left unchanged.
 
+`` js` ``/`` css` `` **attribute** values are re-indented the same way as
+`<script>`/`<style>` bodies. Plain `"…"` string attributes are left verbatim.
+
 ### Check formatting in CI
 
 `-l` and `-d` exit `1` when any file differs, so either works as a CI check:

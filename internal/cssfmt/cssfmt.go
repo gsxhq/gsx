@@ -60,6 +60,14 @@ func Format(src []byte, width int) ([]byte, error) {
 	return []byte(out), nil
 }
 
+// FormatLines is Format returning the re-indented LOGICAL lines. A multi-line
+// token (template literal, block comment) stays within ONE line, so the caller
+// can place each logical line at its depth without re-indenting the token's
+// interior. ok=false on a lex error → caller renders verbatim.
+func FormatLines(src []byte, width int) ([]string, bool) {
+	return reindent.ReindentLines(src, cssAdapter{})
+}
+
 var errUnterminated = stringError("cssfmt: unterminated string or comment")
 
 type stringError string

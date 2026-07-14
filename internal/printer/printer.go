@@ -36,19 +36,32 @@ import (
 // exceed width columns. width <= 0 uses pretty.DefaultPrintWidth; tabWidth <= 0
 // uses pretty.DefaultTabWidth.
 func Fprint(w io.Writer, f *ast.File, width, tabWidth int) error {
-	return FprintWith(w, f, width, tabWidth, defaultCSSFormatter(width), defaultJSFormatter(width))
+	// The built-in path uses LINE formatters (jsfmt/cssfmt FormatLines), which
+	// carry logical-line structure so a multi-line Opaque token (template literal
+	// / block comment) interior survives re-indentation verbatim.
+	return fprint(w, f, width, tabWidth, printer{
+		cssLineFmt: defaultCSSLineFormatter(width),
+		jsLineFmt:  defaultJSLineFormatter(width),
+	})
 }
 
-// FprintWith is Fprint with explicit CSS and JS formatters for <style>/<script>
-// bodies. A nil formatter leaves that body verbatim.
+// FprintWith is Fprint with explicit external CSS and JS formatters for
+// <style>/<script> bodies. A nil formatter leaves that body verbatim. External
+// flat formatters carry no token structure, so a multi-line-token interior in
+// their output is re-indented (the same limitation as before line formatters).
 func FprintWith(w io.Writer, f *ast.File, width, tabWidth int, cssFmt, jsFmt rawfmt.Formatter) error {
+	return fprint(w, f, width, tabWidth, printer{cssFmt: cssFmt, jsFmt: jsFmt})
+}
+
+func fprint(w io.Writer, f *ast.File, width, tabWidth int, p printer) error {
 	if width <= 0 {
 		width = pretty.DefaultPrintWidth
 	}
 	if tabWidth <= 0 {
 		tabWidth = pretty.DefaultTabWidth
 	}
-	p := printer{cssFmt: cssFmt, jsFmt: jsFmt, width: width, tabWidth: tabWidth}
+	p.width = width
+	p.tabWidth = tabWidth
 	doc := p.file(f)
 	if p.err != nil {
 		return p.err
@@ -57,23 +70,30 @@ func FprintWith(w io.Writer, f *ast.File, width, tabWidth int, cssFmt, jsFmt raw
 	return err
 }
 
-// defaultCSSFormatter binds the built-in cssfmt to the print width.
-func defaultCSSFormatter(width int) rawfmt.Formatter {
-	return func(src []byte) ([]byte, error) { return cssfmt.Format(src, width) }
+// defaultCSSLineFormatter / defaultJSLineFormatter bind the built-in
+// line-returning re-indenters to the print width.
+func defaultCSSLineFormatter(width int) rawfmt.LineFormatter {
+	return func(src []byte) ([]string, bool) { return cssfmt.FormatLines(src, width) }
 }
 
-func defaultJSFormatter(width int) rawfmt.Formatter {
-	return func(src []byte) ([]byte, error) { return jsfmt.Format(src, width) }
+func defaultJSLineFormatter(width int) rawfmt.LineFormatter {
+	return func(src []byte) ([]string, bool) { return jsfmt.FormatLines(src, width) }
 }
 
 // printer accumulates the first I/O-independent error encountered while
 // building the document.
 type printer struct {
-	err      error
-	cssFmt   rawfmt.Formatter // nil → no CSS formatting (style stays verbatim)
-	jsFmt    rawfmt.Formatter
-	width    int // print width fmtGoChunk/fmtGoExprParts measure Go fragments against
-	tabWidth int
+	err error
+	// External flat formatters (via FprintWith). A nil formatter leaves the body
+	// verbatim; they cannot preserve multi-line-token interiors.
+	cssFmt rawfmt.Formatter
+	jsFmt  rawfmt.Formatter
+	// Built-in line formatters (via Fprint), preferred when set: they carry
+	// logical-line structure so template-literal / block-comment interiors survive.
+	cssLineFmt rawfmt.LineFormatter
+	jsLineFmt  rawfmt.LineFormatter
+	width      int // print width fmtGoChunk/fmtGoExprParts measure Go fragments against
+	tabWidth   int
 }
 
 func (p *printer) fail(format string, args ...any) pretty.Doc {
@@ -457,20 +477,18 @@ func (p *printer) element(e *ast.Element) pretty.Doc {
 	close := pretty.Concat(pretty.Text("</"), pretty.Text(e.Tag), pretty.Text(">"))
 
 	if strings.EqualFold(e.Tag, "script") {
-		if p.jsFmt != nil && isExecutableScript(e) {
+		if isExecutableScript(e) {
 			segments, holes := nodesToBody(e.Children)
-			if doc, ok := rawfmt.Format(segments, holes, p.jsFmt); ok {
+			if doc, ok := p.jsBodyDoc(segments, holes); ok {
 				return pretty.Concat(openTag, doc, close)
 			}
 		}
 		return pretty.Concat(openTag, p.rawHoleChildren(e.Children), close)
 	}
 	if strings.EqualFold(e.Tag, "style") {
-		if p.cssFmt != nil {
-			segments, holes := nodesToBody(e.Children)
-			if doc, ok := rawfmt.Format(segments, holes, p.cssFmt); ok {
-				return pretty.Concat(openTag, doc, close)
-			}
+		segments, holes := nodesToBody(e.Children)
+		if doc, ok := p.cssBodyDoc(segments, holes); ok {
+			return pretty.Concat(openTag, doc, close)
 		}
 		return pretty.Concat(openTag, p.rawHoleChildren(e.Children), close)
 	}
@@ -527,6 +545,11 @@ func (p *printer) attrDoc(a ast.Attr) pretty.Doc {
 			parts = append(parts, p.classPartDoc(part))
 		}
 		return wrapAttrValue(v.Name, pretty.Line, pretty.Group(pretty.Concat(parts...)))
+	case *ast.EmbeddedAttr:
+		if doc, ok := p.embeddedAttrDoc(v); ok {
+			return doc
+		}
+		return pretty.Text(attrInline(a))
 	default:
 		return pretty.Text(attrInline(a))
 	}
@@ -1208,6 +1231,212 @@ func embeddedLiteralString(lang ast.EmbeddedLang, nodes []ast.Markup, delim byte
 	writeEmbeddedAttrSegments(&b, nodes, delim)
 	b.WriteByte(delim)
 	return b.String()
+}
+
+// embeddedSegmentsMultiline reports whether an embedded literal's body spans
+// more than one source line (only then does fmt re-indent it; single-line values
+// stay inline, unchanged).
+func embeddedSegmentsMultiline(segs []ast.Markup) bool {
+	for _, n := range segs {
+		if t, ok := n.(*ast.Text); ok && strings.Contains(t.Value, "\n") {
+			return true
+		}
+	}
+	return false
+}
+
+// embeddedAttrBody splits an embedded-attribute literal's Segments into raw text
+// segments and rendered holes for rawfmt, mirroring nodesToBody but emitting the
+// TIGHT `@{expr}` hole form used inside attribute literals (not the spaced body
+// form). segments and holes interleave with len(segments) == len(holes)+1.
+func embeddedAttrBody(segs []ast.Markup) (segments, holes []string) {
+	var cur strings.Builder
+	for _, n := range segs {
+		switch v := n.(type) {
+		case *ast.Text:
+			cur.WriteString(v.Value)
+		case *ast.Interp:
+			segments = append(segments, cur.String())
+			cur.Reset()
+			holes = append(holes, embeddedHoleString(v))
+		default:
+			cur.WriteString(markupInlineString(n))
+		}
+	}
+	segments = append(segments, cur.String())
+	return segments, holes
+}
+
+// embeddedHoleString renders one `@{ expr |> stage }` hole tight (`@{expr}`),
+// matching writeEmbeddedAttrSegments.
+func embeddedHoleString(v *ast.Interp) string {
+	var b strings.Builder
+	b.WriteString("@{")
+	b.WriteString(fmtExpr(v.Expr))
+	for _, s := range v.Stages {
+		b.WriteString(" |> ")
+		b.WriteString(pipeStageStr(s))
+	}
+	b.WriteString("}")
+	return b.String()
+}
+
+// embeddedAttrValueDoc builds the Doc for a multi-line embedded-literal attribute
+// value. opener is the text up to and including the opening delimiter; formatted
+// is the re-indented body from the formatter; closer is the closing delimiter
+// plus any `|> stage` / `}`.
+//
+// Two layouts, chosen by the body's own structure (which the formatter preserves):
+//   - Inline (content-adjacent, e.g. js"{ … }" whose `{`/`}` hug the delimiters):
+//     the opening delimiter attaches to the first body line and the closer to the
+//     last; body nesting comes from the formatter's own brace-depth tabs.
+//   - Block (body on its own lines, signalled by a leading newline, e.g.
+//     css`\n…\n`): the delimiters stand alone and the body is indented one level
+//     under the attribute — the same shape as a <script>/<style> element body.
+//
+// Blank lines emit as bare "\n" so they never carry trailing tabs (idempotence).
+func embeddedAttrValueDoc(opener string, lines []string, closer string) pretty.Doc {
+	// A leading blank logical line means the body opened on its own line → block
+	// layout (delimiters alone, body one level under). Then drop leading/trailing
+	// blank logical lines. Each logical line may carry internal newlines (an
+	// Opaque token — template literal / block comment); emitted as one Text they
+	// are verbatim (the pretty engine adds no managed indent inside a Text).
+	block := len(lines) > 0 && lines[0] == ""
+	for len(lines) > 0 && lines[0] == "" {
+		lines = lines[1:]
+	}
+	for len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) == 0 {
+		return pretty.Text(opener + closer)
+	}
+	if block {
+		inner := make([]pretty.Doc, 0, len(lines)*2)
+		for _, ln := range lines {
+			if ln = strings.TrimRight(ln, " \t"); ln == "" {
+				inner = append(inner, pretty.Text("\n"))
+				continue
+			}
+			inner = append(inner, pretty.HardLine, pretty.Text(ln))
+		}
+		return pretty.Concat(
+			pretty.Text(opener),
+			pretty.Indent(pretty.Concat(inner...)),
+			pretty.HardLine, pretty.Text(closer),
+		)
+	}
+	parts := make([]pretty.Doc, 0, len(lines)*2+2)
+	parts = append(parts, pretty.Text(opener+lines[0]))
+	for _, ln := range lines[1:] {
+		if ln = strings.TrimRight(ln, " \t"); ln == "" {
+			parts = append(parts, pretty.Text("\n"))
+			continue
+		}
+		parts = append(parts, pretty.HardLine, pretty.Text(ln))
+	}
+	parts = append(parts, pretty.Text(closer))
+	return pretty.Concat(parts...)
+}
+
+// embeddedAttrDoc re-indents a multi-line js`/css` attribute value's body with
+// the configured JS/CSS formatter. ok=false (caller falls back to verbatim
+// inline) for a non-JS/CSS literal, a nil formatter, a single-line body, or any
+// formatter failure.
+func (p *printer) embeddedAttrDoc(v *ast.EmbeddedAttr) (pretty.Doc, bool) {
+	if v.Lang != ast.EmbeddedJS && v.Lang != ast.EmbeddedCSS {
+		return pretty.Doc{}, false // ast.EmbeddedText — f`…`: no sublanguage.
+	}
+	if !embeddedSegmentsMultiline(v.Segments) {
+		return pretty.Doc{}, false
+	}
+	segments, holes := embeddedAttrBody(v.Segments)
+	delim := embeddedDelim(v.DoubleQuoted)
+	escape := func(s string) string {
+		var b strings.Builder
+		writeEmbeddedLiteralText(&b, s, delim)
+		return b.String()
+	}
+	lines, ok := p.embeddedAttrLines(v.Lang, segments, holes, escape)
+	if !ok {
+		return pretty.Doc{}, false
+	}
+	// Keep the inline form if the formatter collapsed the body to a single
+	// physical line (one logical line with no internal newline). A leading blank
+	// logical line (block signal) still counts as multi-line.
+	if len(lines) <= 1 && (len(lines) == 0 || !strings.Contains(lines[0], "\n")) {
+		return pretty.Doc{}, false
+	}
+	braced := v.Braced || len(v.Stages) > 0
+	var opener strings.Builder
+	opener.WriteString(v.Name)
+	opener.WriteString("=")
+	if braced {
+		opener.WriteString("{")
+	}
+	opener.WriteString(embeddedLangName(v.Lang))
+	opener.WriteByte(delim)
+	var closer strings.Builder
+	closer.WriteByte(delim)
+	for _, s := range v.Stages {
+		closer.WriteString(" |> ")
+		closer.WriteString(pipeStageStr(s))
+	}
+	if braced {
+		closer.WriteString("}")
+	}
+	return embeddedAttrValueDoc(opener.String(), lines, closer.String()), true
+}
+
+// embeddedAttrLines formats an embedded-attribute body into re-indented LOGICAL
+// lines (a multi-line Opaque token stays within one line). It prefers the
+// built-in LineFormatter (set by Fprint); an external flat Formatter (via
+// FprintWith) falls back to the naive physical-line split, which cannot preserve
+// multi-line-token interiors — external custom formatters carry no token info.
+func (p *printer) embeddedAttrLines(lang ast.EmbeddedLang, segments, holes []string, escape func(string) string) ([]string, bool) {
+	var lf rawfmt.LineFormatter
+	var f rawfmt.Formatter
+	switch lang {
+	case ast.EmbeddedJS:
+		lf, f = p.jsLineFmt, p.jsFmt
+	case ast.EmbeddedCSS:
+		lf, f = p.cssLineFmt, p.cssFmt
+	}
+	if lf != nil {
+		return rawfmt.FormatStringLines(segments, holes, lf, escape)
+	}
+	if f != nil {
+		s, ok := rawfmt.FormatString(segments, holes, f, escape)
+		if !ok {
+			return nil, false
+		}
+		return strings.Split(s, "\n"), true
+	}
+	return nil, false
+}
+
+// jsBodyDoc / cssBodyDoc format a <script>/<style> body, preferring the built-in
+// LineFormatter (preserves multi-line-token interiors) over an external flat
+// Formatter. ok=false (no formatter or a formatter failure) → caller renders the
+// body verbatim.
+func (p *printer) jsBodyDoc(segments, holes []string) (pretty.Doc, bool) {
+	if p.jsLineFmt != nil {
+		return rawfmt.FormatLines(segments, holes, p.jsLineFmt)
+	}
+	if p.jsFmt != nil {
+		return rawfmt.Format(segments, holes, p.jsFmt)
+	}
+	return pretty.Doc{}, false
+}
+
+func (p *printer) cssBodyDoc(segments, holes []string) (pretty.Doc, bool) {
+	if p.cssLineFmt != nil {
+		return rawfmt.FormatLines(segments, holes, p.cssLineFmt)
+	}
+	if p.cssFmt != nil {
+		return rawfmt.Format(segments, holes, p.cssFmt)
+	}
+	return pretty.Doc{}, false
 }
 
 // writeEmbeddedLiteralText writes the literal text of an embedded (js/css/text)
