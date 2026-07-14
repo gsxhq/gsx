@@ -44,7 +44,7 @@ import (
 // component-element boundary emits into the closure's top scope (body-scope —
 // flag it); a GoBlock nested under one of those emits inside that block/closure
 // (nested-scope — legal shadow, do not flag). Element.IsComponent is stamped by
-// resolveComponentTags (module_importer.go:770) before this pass runs (:~874).
+// preprocessComponentCallSites before this pass runs.
 // `<script>`/`<style>` children route through genScriptChild/genStyleChild, not
 // genNode, so they cannot carry a body GoBlock and are not descended.  Attribute
 // markup (MarkupAttr child props — themselves slot closures — and CondAttr
@@ -70,7 +70,7 @@ func checkReservedBodyBindings(c *ast.Component) []reservedDecl {
 		for _, n := range nodes {
 			switch t := n.(type) {
 			case *ast.GoBlock:
-				if !topScope || !t.CodePos.IsValid() {
+				if t.UnsupportedMarkup != nil || !topScope || !t.CodePos.IsValid() {
 					continue
 				}
 				for _, b := range fragmentBindings(t.Code, fragStmts) {

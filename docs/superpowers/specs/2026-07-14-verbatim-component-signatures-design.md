@@ -561,6 +561,16 @@ node-valued or attrs-bag-valued parameters remain ordinary exact-name props.
   file (or a dedicated `ctx` binding file), reduce it to `ctx`, and retain its
   focused scope tests; only the implicit-role branch/environment machinery is
   obsolete.
+
+  Foundation commits before the atomic cutover do not widen these legacy
+  syntax-only scanners over newly materialized expression parts. That cannot be
+  made exact without semantic identity: `S{attrs: 1}` names a field while
+  `map[any]int{attrs: 1}` evaluates the identifier, and lexical bindings live at
+  the exact materialized marker position. A transitional typed body analyzer
+  would duplicate the new analysis pipeline only to be deleted here. Keep the
+  legacy behavior frozen (apart from excluding a preprocessor-annotated
+  unsupported Go block), then prove materialized values, lexical shadowing, and
+  map-key uses against real authored parameters in the cutover corpus.
 - **`WithFieldMatcher`** (`gen/options.go:355`) and fuzzy attr→field matching —
   obsolete under **exact-name** matching. Remove it outright across config,
   cache keys, manifest/info JSON, watch/LSP wiring, tests, docs, and the roadmap;
@@ -630,17 +640,57 @@ ABI. No emitted compatibility wrapper is introduced.
 1. **Stable call-site preprocessing and two-phase callable analysis.** Positional probe construction needs the
    callable signature, but today's single skeleton pass learns an arbitrary
    callable signature only after `_gsxcompsig` harvest. Before either phase,
-   materialize every element embedded in an interpolation or Go block and stamp
-   component classification exactly once. Assign call-site IDs to that shared,
+   materialize every element embedded in an interpolation or Go block, validate
+   every top-level `GoWithElements` exclusion mapping from the canonical GSX
+   source-mapped expression reconstruction: apply the shared
+   decorative-parenthesis rules and `goexprshape.Sanitize`; represent every
+   non-text GSX part with a unique non-call value marker; and map every sanitizer
+   and parser byte offset back to the authored `token.Pos`. Element/fragment
+   emission is a `gsx.Func(...)` conversion value, not an invocation, so this
+   preserves the final `go`/`defer` rejection for every GSX value. Reject any `go/parser`
+   error or recovery AST, and reject any non-text part without one exact
+   enclosing declaration. Parser failures retain `parse-error`/`parser` while
+   structural declaration-mapping failures use
+   `invalid-go-declaration`/`codegen`. Only then run the JavaScript safety
+   resolver over that complete expanded tree and stamp component
+   classification exactly once. Assign call-site IDs to that shared,
    mutated AST and reuse the same tree for target discovery, positional
    validation, LSP facts, and final emission; neither phase may re-split or clone
    embedded markup. This does not add element literals inside `{{ }}` Go blocks:
-   those nodes remain materialized only long enough to receive the existing
-   single positioned `unsupported-node` diagnostic, and are excluded from target
-   planning/emission. Supported interpolation and top-level `GoWithElements`
+   the first direct element/fragment is recorded once on the expanded
+   `GoBlock`, and every consumer uses that annotation. Those nodes remain
+   materialized only long enough to be stamped and receive the existing single
+   positioned `unsupported-node` diagnostic; their entire blocks are excluded
+   from further expression materialization, secondary JSX/tag validation,
+   target planning, and emission. A syntax
+   or JavaScript failure produces no registry, so partial package facts cannot
+   escape. Each fresh parse is owned by a private codegen package-lifecycle
+   object; an atomic one-shot package transition is claimed before mutation,
+   and any concurrent or repeated pass is rejected before it can duplicate
+   diagnostics or consume partial state. Lifecycle state never lives on the
+   public `ast.File`, where it would affect AST equality and remain bypassable by
+   shallow copies. Every
+   separately parsed production AST (including imported facts,
+   renderer declaration resolution, and importer-free unused-import analysis)
+   runs the same preprocessor before body-derived facts are read. Supported
+   interpolation and top-level `GoWithElements`
    sites retain their IDs through emission.
 
-   Then use two in-memory `go/types` phases: a target-discovery skeleton records
+   Package declaration-name discovery is part of this syntax boundary:
+   `GoWithElements` names come from the same canonical reconstruction and a
+   complete parser result, never an independent `nil` substitution or recovery
+   AST. The pre-cutover legacy implicit-role/liveness scanners consume the
+   unsupported-block annotation but otherwise remain frozen until their atomic
+   deletion above; they are not a second interpretation of expanded markup.
+
+   Then use two in-memory `go/types` phases. Target discovery has distinct
+   exact-signature declaration and lexical-discovery skeleton modes; it never
+   reads or alters the shipping pre-cutover Props skeleton. Before inserting a
+   target expression, syntax-check that site alone and map it through exact
+   parser-recorded tag/open-bracket/close-bracket positions. A malformed target
+   emits a parse-safe inert binding plus one total fact carrying its deferred
+   positioned diagnostic, rather than making the package skeleton unparseable.
+   The target-discovery skeleton records
    each site's origin generic signature/object provenance and
    `types.Selection.Kind`, tolerating only the registered expected diagnostic for
    an uninstantiated generic target. After authored operands are bound, the
@@ -648,16 +698,24 @@ ABI. No emitted compatibility wrapper is introduced.
    skeleton validates the zero-filled call. Facts are keyed by call-site ID/AST
    identity, never tag text, so shadowed selectors, repeated tags, bound method
    values, and true method expressions cannot alias. Both phases reuse the
-   existing importer; neither may call `packages.Load`. Benchmark the added pass
-   and cache declaration facts at the existing package invalidation boundary.
+   existing external importer; neither may call `packages.Load`. Imported project
+   GSX targets resolve through a separate exact-declaration source graph/cache,
+   not the current `pkgTypes` graph whose functions still expose the Props ABI.
+   That phase-specific graph recursively uses current `.gsx` source, ignores
+   paired disk `.x.go`, has its own cycle guard, and is cleared at the existing
+   package/FileSet invalidation boundaries. Go/types may populate
+   `Info.Instances` even when a constraint fails, so an explicit instance is
+   successful only when that site has no target-check errors. Benchmark the added
+   pass and cache declaration facts at the existing package invalidation boundary.
 2. **Cross-package invocation resolution.** `<pkg.Foo …/>` needs Foo's ordered
    signature — param names, types, and reserved-role classification — resolved at
-   the call site. Today's cross-package facts are field-name sets; this is a
-   different shape and leans on type resolution. `packages.Load` cost must be
-   respected (see the packages.Load perf memory); prefer the existing
-   skeleton/probe-based enumeration over new heavyweight loads. (Cutting
+   the call site. Today's cross-package facts and `pkgTypes` are Props-shaped, so
+   neither is authoritative for target discovery. Use the phase-specific
+   exact-declaration graph above; do not read stale generated output, add a second
+   cold load, or derive parameter names from export-data guesses. `packages.Load`
+   cost must be respected (see the packages.Load perf memory). Cutting
    struct-splat removed the need to also resolve a splat *source's* field set,
-   which was the heavier half of this.)
+   which was the heavier half of this.
 3. **Codegen rewrite scope.** `emit.go` (`genComponent`), `analyze.go`
    (`componentPropFieldsFor`, skeleton/probe, `emitComponentSkeleton`), call-site
    lowering (`genChildComponent`), and the imported-props / attrs-only subsystems

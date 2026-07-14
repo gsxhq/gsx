@@ -4,7 +4,7 @@ package codegen
 // (https://html.spec.whatwg.org/multipage/indices.html#elements-3) plus the
 // svg and math foreign-content roots: all ~115 current elements, a..wbr.
 //
-// Used ONLY by the self-reference diagnostic in resolveComponentTags — never
+// Used ONLY by the self-reference diagnostic in the component-call preprocessor — never
 // by resolution itself (see the 2026-07-10 spec: no reserved table in
 // resolution). Resolution treats every lowercase identifier tag uniformly
 // (declared name → component, self-name → leaf, else → leaf); this table

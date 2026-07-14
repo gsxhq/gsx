@@ -224,6 +224,100 @@ func TestBuildPackageSkeletonsDottedComponentKeepsImport(t *testing.T) {
 	}
 }
 
+func TestBuildPackageSkeletonsEmbeddedComponentKeepsImport(t *testing.T) {
+	dir, m := openTestModule(t, map[string]string{
+		"page.gsx": `package testmod
+
+import (
+	gsx "github.com/gsxhq/gsx"
+	uix "testmod/ui"
+)
+
+func wrap(node gsx.Node) gsx.Node { return node }
+
+component Page() {
+	{ wrap(<uix.Button/>) }
+}
+`,
+	})
+	ps, err := m.buildPackageSkeletons(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs, ok := ps.byGsx[filepath.Join(dir, "page.gsx")]
+	if !ok {
+		t.Fatalf("no skeleton for page.gsx; got %v", ps.byGsx)
+	}
+	used := skeletonUsedNames(fs.skel)
+	if !used["uix"] {
+		t.Fatalf("embedded <uix.Button/> lost from syntactic skeleton; used=%v", used)
+	}
+	if n := m.externalLoads(); n != 0 {
+		t.Fatalf("buildPackageSkeletons did %d external loads, want 0", n)
+	}
+}
+
+func TestUnusedImportsPreservesAffectedFileOnPreprocessError(t *testing.T) {
+	dir, m := openTestModule(t, map[string]string{
+		"bad.gsx": `package testmod
+
+import uix "example.com/app/ui"
+
+component Bad() {
+	{{ _ = <uix.Button/> }}
+}
+`,
+		"good.gsx": `package testmod
+
+import "bytes"
+
+component Good() { <p>ok</p> }
+`,
+	})
+
+	got, _, err := m.UnusedImports(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unused := got[filepath.Join(dir, "bad.gsx")]; len(unused) != 0 {
+		t.Fatalf("unsupported preserved region lost its authored import use: unused=%+v", unused)
+	}
+	unused := got[filepath.Join(dir, "good.gsx")]
+	if len(unused) != 1 || unused[0].Path != "bytes" {
+		t.Fatalf("unaffected sibling unused imports=%+v, want bytes", unused)
+	}
+}
+
+func TestUnusedImportsPreservesFileWhenDependencyFactsFail(t *testing.T) {
+	dir, m := openTestModule(t, map[string]string{
+		"ui/broken.gsx": `package ui
+
+func wrap(v any) any { return v }
+
+component Broken() {
+	{ wrap(<Broken></Other>) }
+}
+`,
+		"page.gsx": `package testmod
+
+import (
+	ui "testmod/ui"
+	"bytes"
+)
+
+component Page() { <p>ok</p> }
+`,
+	})
+
+	got, _, err := m.UnusedImports(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unused := got[filepath.Join(dir, "page.gsx")]; len(unused) != 0 {
+		t.Fatalf("partial dependency facts must not authorize import removal: unused=%+v", unused)
+	}
+}
+
 // anyErrorDiagCodegen reports whether diags contains an error-severity
 // diagnostic that is NOT a clean "imported and not used" error.
 //

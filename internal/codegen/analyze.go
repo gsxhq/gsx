@@ -21,7 +21,6 @@ import (
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/goexprshape"
-	"github.com/gsxhq/gsx/internal/jsx"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
@@ -371,197 +370,127 @@ func isGsxQualifiedType(typ string, quals map[string]bool, sel string) bool {
 	return typ[dot+1:] == sel && quals[typ[:dot]]
 }
 
-// splitInterpEmbedded walks every interpolation in the file and, for any whose
-// seed expression carries an operand-position <tag>/<> literal or a prefixed
-// backtick literal (f`/js`/css`), splits it into interleaved
-// GoText/*Element/*Fragment/*EmbeddedInterp parts stored on Interp.Embedded — ONCE,
-// so the analysis pass (emitProbes) and the emit pass (genInterp) share the same
-// parsed element nodes and resolved types key on one set of pointers. An interp
-// with no embedded element (the common case) keeps Embedded nil and takes the
-// existing verbatim-Expr path. Parse errors from the split are ignored here; the
-// generation pass re-parses the same source and surfaces them positionally.
+// materializeEmbeddedMarkup expands every operand-position element/fragment
+// and prefixed literal carried inside an interpolation or Go block. It is the
+// mutation primitive used only by preprocessComponentCallSites: classification
+// and call-site allocation deliberately happen in later package-wide stages.
+// Existing Embedded slices are never replaced, so all later phases retain the
+// exact same node pointers. A seed with no embedded construct keeps Embedded
+// nil and follows the existing verbatim path. A failed split records positioned
+// parser diagnostics, leaves that Embedded field nil, and makes preprocessing
+// fail closed before later analysis stages.
 //
-// Every *Element materialized by a split is stamped with Element.IsComponent
-// (resolveTag, tagresolve.go) using declNames and the SAME enclosing top-level
-// declaration's exclusion name resolveComponentTags already used for the REST
-// of the file — these nodes did not exist when that earlier pass ran (see
-// tagresolve.go's forEachElement doc: Interp.Embedded is nil on the freshly
-// parsed AST), so the resolve rule is (re-)applied here, at the moment they
-// are materialized, reusing resolveTag rather than duplicating its logic.
-// Type-args-on-leaf is a codegen error just like resolveComponentTags reports
-// for the rest of the file (tagresolve.go, reportLeafTypeArgs): SplitGoExprElements
-// parses an embedded `<tag[T]>` literal with the SAME parser.parseElement used
-// everywhere else, so a leaf tag with type args CAN occur inside a `{ }`
-// hole, and must be reported here too — bag is threaded in for exactly that.
-// The error is only emitted for elements a split just MATERIALIZED (tracked
-// via walk's materialized flag, propagated to every node reached through a
-// materialized part): the top-level walk also revisits every ORIGINAL-tree
-// element to find further splittable interps, and resolveComponentTags
-// already reported (or didn't need to) for those — re-emitting here as well
-// would double the diagnostic for the exact same element. The
-// self-reference-leaf warning (isSelfExcluded/reportSelfRefWarning,
-// tagresolve.go) follows the identical materialized-only rule and for the
-// identical reason: a materialized element CAN be self-excluded (an embedded
-// `<tag>` literal naming its own enclosing declaration), and only that case
-// is new information this pass needs to surface.
-//
-// A materialized element/fragment can itself contain further `{ }`
-// interpolations whose seed carries ANOTHER operand-position tag (arbitrary
-// nesting depth), so this walks into every materialized subtree looking for
-// more splittable interps, mirroring forEachElement's traversal completeness
-// (Element attrs+children, Fragment children, EmbeddedInterp segments) plus
-// the two markup shapes forEachElement doesn't need but this does — bare
-// *Interp and *EmbeddedInterp nodes themselves, since those (not *Element)
-// are what carry a splittable seed/segments.
-func splitInterpEmbedded(file *gsxast.File, cls *attrclass.Classifier, fset *token.FileSet, declNames map[string]bool, bag *diag.Bag) {
-	var walk func(nodes []gsxast.Markup, exclude string, materialized bool)
-	splitOne := func(interp *gsxast.Interp, exclude string) {
-		// Fast path: no '<' (operand-position tag mark) AND no '`' (prefixed
-		// backtick literal) means nothing to split; and a split needs a valid base
-		// position to seat the sub-parser. A bare Go raw string still contains a
-		// backtick but yields no split item (langPrefixStart < 0), so it falls
-		// straight back through with Embedded nil.
-		if (!strings.ContainsRune(interp.Expr, '<') && !strings.ContainsRune(interp.Expr, '`')) || !interp.ExprPos.IsValid() {
+// Materialized markup can recursively contain another splittable expression,
+// so the walk covers every []Markup-bearing field plus Interp.Embedded and
+// GoBlock.Embedded. The following preprocessing stage runs JSX classification
+// over this complete expanded tree.
+func materializeEmbeddedMarkup(file *gsxast.File, cls *attrclass.Classifier, fset *token.FileSet, bag *diag.Bag) bool {
+	var walk func([]gsxast.Markup)
+	var walkParts func([]gsxast.GoPart)
+	syntaxOK := true
+	maySplit := func(src string) bool {
+		if strings.ContainsRune(src, '<') {
+			return true
+		}
+		if !strings.ContainsAny(src, "`\"") {
+			return false
+		}
+		_, ok := gsxparser.ContainsEmbeddedLiteral(src)
+		return ok
+	}
+
+	splitInterp := func(interp *gsxast.Interp) {
+		if interp.Embedded != nil || !maySplit(interp.Expr) || !interp.ExprPos.IsValid() {
 			return
 		}
-		parts, _ := gsxparser.SplitGoExprElements(fset, interp.Expr, interp.ExprPos, cls)
+		parts, errs := gsxparser.SplitGoExprElements(fset, interp.Expr, interp.ExprPos, cls)
+		if len(errs) > 0 {
+			syntaxOK = false
+			for _, err := range errs {
+				bag.Report(err.Pos, err.End, diag.Error, "parse-error", "parser", "%s", err.Msg)
+			}
+			return
+		}
 		if len(parts) == 0 {
 			return
 		}
 		interp.Embedded = parts
-		// Classify the @{ } holes of every freshly-split js`…` literal part so
-		// emit can escape each by its JS context (css`…` needs none — single
-		// context). ResolveScripts already classified literals in <script>/attr
-		// positions and in top-level GoWithElements regions, but these parts were
-		// carved out of an Interp.Expr string only just now, so they were invisible
-		// to it. ResolveEmbedded is idempotent, so a re-classification is harmless.
-		for _, part := range parts {
-			if lit, ok := part.(*gsxast.EmbeddedInterp); ok && lit.Lang == gsxast.EmbeddedJS {
-				jsx.ResolveEmbedded(lit.Segments, bag)
-			}
-		}
-		// Hand every markup part (Element/Fragment/EmbeddedInterp — GoText
-		// carries no markup and fails the assertion) to walk, so the SINGLE
-		// stamping/recursion path below covers materialized nodes at every
-		// depth. Stamping must not live here as well: a second, partial copy
-		// of the recursion is exactly how nested elements inside a
-		// materialized literal previously escaped the stamp.
-		for _, part := range parts {
-			if m, ok := part.(gsxast.Markup); ok {
-				walk([]gsxast.Markup{m}, exclude, true)
-			}
-		}
 	}
-	// splitGoBlockOne gives a `{{ … }}` Go block the SAME split+classify
-	// treatment splitOne gives an interpolation: when Code holds an embedded
-	// f`/js`/css` literal it is split into GoText/*EmbeddedInterp parts (stored
-	// on GoBlock.Embedded) so codegen can type-probe and lower each literal;
-	// Code stays the verbatim round-trip source. Unlike splitOne this does NOT
-	// stamp element literals (a `<tag>` inside a Go block is unsupported and
-	// diagnosed at emit — see genNode's *ast.GoBlock case), so no exclude/
-	// materialized threading is needed.
-	splitGoBlockOne := func(gb *gsxast.GoBlock) {
-		// Cheap pre-check (mirrors splitOne): only a Code containing a prefixed
-		// backtick literal ('`') or an operand-position tag ('<') can split, and
-		// a split needs a valid base position to seat the sub-parser. A block
-		// with neither keeps Embedded nil and flows verbatim, exactly as today.
-		if (!strings.ContainsRune(gb.Code, '<') && !strings.ContainsRune(gb.Code, '`')) || !gb.CodePos.IsValid() {
+	splitGoBlock := func(block *gsxast.GoBlock) {
+		if block.Embedded != nil {
+			if block.UnsupportedMarkup == nil {
+				block.UnsupportedMarkup = firstDirectGoBlockMarkup(block.Embedded)
+			}
 			return
 		}
-		parts, _ := gsxparser.SplitGoExprElements(fset, gb.Code, gb.CodePos, cls)
+		if !maySplit(block.Code) || !block.CodePos.IsValid() {
+			return
+		}
+		parts, errs := gsxparser.SplitGoExprElements(fset, block.Code, block.CodePos, cls)
+		if unsupported := firstDirectGoBlockMarkup(parts); unsupported != nil {
+			block.Embedded = parts
+			block.UnsupportedMarkup = unsupported
+			return
+		}
+		if len(errs) > 0 {
+			syntaxOK = false
+			for _, err := range errs {
+				bag.Report(err.Pos, err.End, diag.Error, "parse-error", "parser", "%s", err.Msg)
+			}
+			return
+		}
 		if len(parts) == 0 {
 			return
 		}
-		gb.Embedded = parts
-		// Classify js holes immediately after splitting, mirroring the
-		// Interp.Embedded path above (emit ≡ probe). ResolveEmbedded is
-		// idempotent, so a re-classification is harmless. Also split every @{ }
-		// hole that carries a nested prefixed literal, so emit's assembleHoleSeed
-		// and the probe's embeddedProbeSeed both reassemble it from Embedded.
+		block.Embedded = parts
+	}
+	walkParts = func(parts []gsxast.GoPart) {
 		for _, part := range parts {
-			lit, ok := part.(*gsxast.EmbeddedInterp)
-			if !ok {
-				continue
+			if markup, ok := part.(gsxast.Markup); ok {
+				walk([]gsxast.Markup{markup})
 			}
-			if lit.Lang == gsxast.EmbeddedJS {
-				jsx.ResolveEmbedded(lit.Segments, bag)
-			}
-			walk(lit.Segments, "", false)
 		}
 	}
-	walk = func(nodes []gsxast.Markup, exclude string, materialized bool) {
-		for _, n := range nodes {
-			switch t := n.(type) {
+	walk = func(nodes []gsxast.Markup) {
+		for _, node := range nodes {
+			switch node := node.(type) {
 			case *gsxast.Interp:
-				splitOne(t, exclude)
+				splitInterp(node)
+				walkParts(node.Embedded)
 			case *gsxast.EmbeddedInterp:
-				walk(t.Segments, exclude, materialized)
+				walk(node.Segments)
 			case *gsxast.Element:
-				// Stamp BEFORE recursing: this element may be a node splitOne
-				// just materialized (the literal itself, or any element nested
-				// inside one at arbitrary depth) that the file-level
-				// resolveComponentTags pass never saw. For original-tree
-				// elements the re-stamp is idempotent — same resolveTag, same
-				// declNames, same exclude as that pass.
-				excluded := isSelfExcluded(t.Tag, declNames, exclude)
-				t.IsComponent = resolveTag(t.Tag, declNames, exclude)
-				// Same double-fire guard as the type-args-on-element check
-				// below: only a MATERIALIZED element is new to this pass. An
-				// original-tree element hitting self-exclusion was already
-				// warned about by resolveComponentTags; re-warning here would
-				// double the diagnostic for the exact same element. A
-				// materialized element CAN be self-excluded — e.g. a
-				// recursive `{ <item></item> }` embedded literal inside
-				// component item's own body — exclude threads through
-				// splitOne unchanged, so it reaches the same tag==exclude
-				// check resolveComponentTags applies to the rest of the file.
-				if materialized && excluded {
-					reportSelfRefWarning(bag, t, exclude)
-				}
-				if materialized && !t.IsComponent && t.TypeArgs != "" {
-					reportLeafTypeArgs(bag, t)
-				}
-				walkMarkupAttrs(t.Attrs, func(value []gsxast.Markup) { walk(value, exclude, materialized) })
-				walk(t.Children, exclude, materialized)
+				walkMarkupAttrs(node.Attrs, walk)
+				walk(node.Children)
 			case *gsxast.Fragment:
-				walk(t.Children, exclude, materialized)
+				walk(node.Children)
 			case *gsxast.ForMarkup:
-				walk(t.Body, exclude, materialized)
+				walk(node.Body)
 			case *gsxast.IfMarkup:
-				walk(t.Then, exclude, materialized)
-				walk(t.Else, exclude, materialized)
+				walk(node.Then)
+				walk(node.Else)
 			case *gsxast.SwitchMarkup:
-				for _, cc := range t.Cases {
-					walk(cc.Body, exclude, materialized)
+				for _, clause := range node.Cases {
+					walk(clause.Body)
 				}
 			case *gsxast.GoBlock:
-				splitGoBlockOne(t)
-			}
-		}
-	}
-	for _, d := range file.Decls {
-		switch t := d.(type) {
-		case *gsxast.Component:
-			walk(t.Body, t.Name, false)
-		case *gsxast.GoWithElements:
-			excludes := goWithElementsExcludes(t)
-			for i, p := range t.Parts {
-				exclude := excludes[i]
-				switch pt := p.(type) {
-				case *gsxast.Element:
-					walkMarkupAttrs(pt.Attrs, func(value []gsxast.Markup) { walk(value, exclude, false) })
-					walk(pt.Children, exclude, false)
-				case *gsxast.Fragment:
-					walk(pt.Children, exclude, false)
-				case *gsxast.EmbeddedInterp:
-					// A top-level f`/js`/css` literal part: split every @{ } hole that
-					// carries a nested prefixed literal, so emit's assembleHoleSeed and
-					// the probe's embeddedProbeSeed both reassemble it from Embedded.
-					walk(pt.Segments, exclude, false)
+				splitGoBlock(node)
+				if node.UnsupportedMarkup == nil {
+					walkParts(node.Embedded)
 				}
 			}
 		}
 	}
+
+	for _, decl := range file.Decls {
+		switch decl := decl.(type) {
+		case *gsxast.Component:
+			walk(decl.Body)
+		case *gsxast.GoWithElements:
+			walkParts(decl.Parts)
+		}
+	}
+	return syntaxOK
 }
 
 // buildSkeleton synthesizes a Go file standing in for the gsx file during type
@@ -582,17 +511,10 @@ func splitInterpEmbedded(file *gsxast.File, cls *attrclass.Classifier, fset *tok
 // "_gsxinfer1" and never collide with anything, since nothing else shares
 // that private allocator.
 //
-// declNames is the package-level declared-name set (packageDeclNames) used
-// ONLY to resolve/stamp Element.IsComponent on elements splitInterpEmbedded
-// materializes from an interpolation's embedded `<tag>` literal — those
-// nodes don't exist yet when the caller's own resolveComponentTags pass
-// stamps the REST of the file (see tagresolve.go), so buildSkeleton finishes
-// the job at the moment they're created. It does NOT re-stamp the original
-// tree: the caller remains responsible for calling resolveComponentTags on
-// file before buildSkeleton, exactly as module_importer.go's analyze and
-// unused_imports_syntactic.go's buildPackageSkeletons already do. A nil
-// declNames is safe (every lookup misses) for callers with no embedded-tag
-// interpolations to resolve.
+// buildSkeleton is read-only with respect to the gsx AST. Every production
+// caller that requests skeletonFull must first run
+// preprocessComponentCallSites for its parsed package; that single pass owns
+// embedded-markup materialization and component classification.
 type skeletonMode uint8
 
 const (
@@ -600,7 +522,7 @@ const (
 	skeletonDeclarations
 )
 
-func buildSkeleton(file *gsxast.File, table funcTables, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, importedGenericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, fset *token.FileSet, cls *attrclass.Classifier, bag *diag.Bag, names *inferNameAllocator, declNames map[string]bool, mode skeletonMode) (string, []*gsxast.Component, []importSpec, map[gsxast.Node]int, *inferRegistry, [][]gsxast.Markup, error) {
+func buildSkeleton(file *gsxast.File, table funcTables, propFields, nodeProps, attrsProps map[string]map[string]bool, genericSigs map[string]*genericSig, importedGenericSigs map[string]*genericSig, byo *byoData, fm FieldMatcher, fset *token.FileSet, bag *diag.Bag, names *inferNameAllocator, mode skeletonMode) (string, []*gsxast.Component, []importSpec, map[gsxast.Node]int, *inferRegistry, [][]gsxast.Markup, error) {
 	if names == nil {
 		names = newInferNameAllocator()
 	}
@@ -682,14 +604,6 @@ func buildSkeleton(file *gsxast.File, table funcTables, propFields, nodeProps, a
 	// `_gsxelem(N)` marker where N is its index, which harvestEmbeddedElements uses
 	// to resolve the probe back onto the markup's nodes (order-independent).
 	var gwMarkups [][]gsxast.Markup
-	// Pre-pass: split every interpolation seed carrying an operand-position
-	// <tag>/<> literal into its GoText/element parts (ast.Interp.Embedded), ONCE,
-	// using the same classifier the file was parsed with — so the analysis pass
-	// (emitProbes, below) and the emit pass (genInterp) share the SAME parsed
-	// element nodes and resolved types key on one set of pointers.
-	if mode == skeletonFull {
-		splitInterpEmbedded(file, cls, fset, declNames, bag)
-	}
 	// Keep only the components whose skeletons succeed. A validation error
 	// (errSkipComponent — reserved param/recv, parse failure) means the component
 	// is invalid for codegen; skip its skeleton so the overall file stays valid Go.
@@ -2166,30 +2080,16 @@ func emitProbes(sb *strings.Builder, nodes []gsxast.Markup, table funcTables, pr
 			sb.WriteString("}\n")
 		case *gsxast.GoBlock:
 			switch {
+			case t.UnsupportedMarkup != nil:
+				// preprocessComponentCallSites owns the single positioned
+				// unsupported-node diagnostic. Skip this whole block so its
+				// incomplete Go cannot produce misleading probe errors.
 			case t.Embedded == nil:
 				// No embedded literal: the whole block is verbatim Go (unchanged).
 				emitSkeletonClauseLine(sb, fset, t.CodePos, 0)
 				ctrlOff[t] = sb.Len()
 				sb.WriteString(t.Code)
 				sb.WriteString("\n")
-			case goBlockElementPart(t.Embedded) != nil:
-				// Unsupported `<tag>` literal inside {{ }}: diagnose it HERE, not
-				// only at emit. Skipping the whole block's probe (below) keeps the
-				// skeleton valid Go — see goBlockElementPart's doc — but that also
-				// means a later reference to a var this block would have declared
-				// (e.g. `{{ x := <div/> }}` … `{x}`) goes undefined in the
-				// skeleton, which fails type-checking and gates emit off entirely
-				// (module.go's len(typeErrs)==0 check). Left solely at emit, the
-				// user would see only "undefined: x", never the real message.
-				// Position it at the first offending part, matching what emit used
-				// to report. emit's own *ast.Element/*ast.Fragment case in the
-				// GoBlock arm of genNode is now unreachable-for-diagnostics (this
-				// analyze pass always runs first and covers the identical AST with
-				// the identical test) but keeps its `return false` — without a
-				// case there, the switch would silently drop the element part and
-				// splice truncated, invalid Go.
-				part := goBlockElementPart(t.Embedded)
-				bag.Errorf(part.Pos(), part.End(), "unsupported-node", "element literals inside {{ }} blocks are not supported yet")
 			default:
 				// The block carries one or more f`/js`/css` literals: reconstruct it
 				// from its split parts. Each GoText run gets a fresh block-form
@@ -2455,7 +2355,7 @@ func embeddedProbeSeed(segments []gsxast.Markup, table funcTables, usedFilters m
 // holeProbeSeed reconstructs one hole's Go expression at the TYPE level for
 // embeddedProbeSeed, mirroring emit's assembleHoleSeed (emit.go): a plain hole
 // is its Expr (via probeExpr, honoring its own `|>` pipeline); a hole carrying a
-// nested prefixed literal (Interp.Embedded, seated by splitInterpEmbedded)
+// nested prefixed literal (Interp.Embedded, seated by preprocessComponentCallSites)
 // splices GoText verbatim and each nested literal as WRAP(embeddedProbeSeed(
 // parts)) — the SAME WRAP embeddedProbeType gives that literal in emit, so the
 // reconstructed seed has emit's exact static type (emit ≡ probe). A hole's own
@@ -2553,14 +2453,11 @@ func probeEmbeddedInterpIIFE(sb *strings.Builder, segs []gsxast.Markup, lang gsx
 	return nil
 }
 
-// goBlockElementPart returns the first `<tag>` element or fragment literal in
-// a split `{{ }}` block's parts, or nil if it carries none. Such a literal is
-// unsupported inside a Go block — diagnosed once, in analyze (the GoBlock case
-// above), positioned at the returned part. The skeleton uses this to SKIP such
-// a block entirely rather than build a probe: an element part's following
-// GoText would dangle without a value, and a placeholder value would raise a
-// spurious "declared and not used" that buries the real diagnostic.
-func goBlockElementPart(parts []gsxast.GoPart) gsxast.GoPart {
+// firstDirectGoBlockMarkup returns the first direct `<tag>` element or fragment
+// literal in a split `{{ }}` block. materializeEmbeddedMarkup calls it once and
+// stores the result on GoBlock.UnsupportedMarkup; every later consumer reads
+// that annotation instead of independently reimplementing this policy.
+func firstDirectGoBlockMarkup(parts []gsxast.GoPart) gsxast.GoPart {
 	for _, p := range parts {
 		switch p.(type) {
 		case *gsxast.Element, *gsxast.Fragment:
@@ -3687,6 +3584,11 @@ func collectClauseSrc(nodes []gsxast.Markup, add func(string)) {
 				collectClauseSrc(cc.Body, add)
 			}
 		case *gsxast.GoBlock:
+			if t.UnsupportedMarkup != nil {
+				// The package preprocessor rejects and excludes this whole block.
+				// It must not contribute hidden parameter-use facts.
+				continue
+			}
 			add(t.Code)
 			// The verbatim Code fed above hides each embedded literal's @{…} holes
 			// inside a raw string, so valueIdents can't see an ident referenced

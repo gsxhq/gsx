@@ -15,8 +15,9 @@ import (
 // declared so the whole file parses; freeUseAttrs is purely syntactic, so the
 // helpers need not type-check. A `Wrap` component (with a `header` slot-capable
 // child) is declared so rows can exercise the component-children closure
-// boundary; Element.IsComponent is stamped via resolveComponentTags, exactly as
-// module_importer does before any freeUseAttrs consumer runs.
+// boundary; Element.IsComponent is stamped by the canonical package
+// preprocessor, exactly as production does before any freeUseAttrs consumer
+// runs.
 func parseComponentBody(t *testing.T, body string) []gsxast.Markup {
 	t.Helper()
 	src := "package v\n\n" +
@@ -43,7 +44,7 @@ func parseComponentBody(t *testing.T, body string) []gsxast.Markup {
 	if !found {
 		t.Fatalf("no component decl parsed from body %q", body)
 	}
-	resolveComponentTags(file, declNames, diag.NewBag(fset))
+	preprocessTagsForTest(t, fset, file, declNames, diag.NewBag(fset))
 	return body0
 }
 

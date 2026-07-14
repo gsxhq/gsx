@@ -253,7 +253,7 @@ func TestChildPropPipelineSkeletonImportsStd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadFilterTable: %v", err)
 	}
-	skel, _, _, _, _, _, err := buildSkeleton(file, funcTables{filters: table}, propFields, nodeProps, attrsProps, nil, nil, byo, nil, fset, nil, nil, nil, nil, skeletonFull)
+	skel, _, _, _, _, _, err := buildSkeleton(file, funcTables{filters: table}, propFields, nodeProps, attrsProps, nil, nil, byo, nil, fset, nil, nil, skeletonFull)
 	if err != nil {
 		t.Fatalf("buildSkeleton: %v", err)
 	}
@@ -318,7 +318,7 @@ func Parse(s string) ([]string, error) {
 	if err != nil {
 		t.Fatalf("loadFilterTableMulti: %v", err)
 	}
-	skel, _, _, _, _, _, err := buildSkeleton(file, funcTables{filters: table}, propFields, nodeProps, attrsProps, nil, nil, byo, nil, fset, nil, nil, nil, nil, skeletonFull)
+	skel, _, _, _, _, _, err := buildSkeleton(file, funcTables{filters: table}, propFields, nodeProps, attrsProps, nil, nil, byo, nil, fset, nil, nil, skeletonFull)
 	if err != nil {
 		t.Fatalf("buildSkeleton: %v", err)
 	}

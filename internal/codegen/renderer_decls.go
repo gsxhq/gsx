@@ -41,8 +41,18 @@ func (r *rendererDeclResolver) packageForDir(dir string) (*types.Package, error)
 	defer delete(r.loading, dir)
 
 	fset := r.m.fset
-	gsxFiles, pkgName, err := r.m.parsePackageWithFset(dir, fset)
+	parsed, err := r.m.parsePackageWithFset(dir, fset)
 	if err != nil {
+		return nil, err
+	}
+	gsxFiles, pkgName := parsed.files, parsed.name
+	bag := diag.NewBag(fset)
+	declNames := packageDeclNames(dir, gsxFiles)
+	preprocessed, err := parsed.preprocessComponentCallSites(declNames, fset, r.m.classifierFor(dir), bag)
+	if err != nil {
+		return nil, err
+	}
+	if err := componentPreprocessFailure(dir, preprocessed, bag); err != nil {
 		return nil, err
 	}
 	propFields, nodeProps, attrsProps, byo, err := componentPropFieldsFor(dir, gsxFiles)
@@ -54,8 +64,6 @@ func (r *rendererDeclResolver) packageForDir(dir string) (*types.Package, error)
 		return nil, err
 	}
 	genericSigs := genericSigsFor(gsxFiles, byo)
-	declNames := packageDeclNames(dir, gsxFiles)
-	bag := diag.NewBag(fset)
 	inferNames := newInferNameAllocator()
 	goFiles := make([]*goast.File, 0, len(gsxFiles))
 	skeletonPaths := make(map[string]bool, len(gsxFiles))
@@ -71,10 +79,8 @@ func (r *rendererDeclResolver) packageForDir(dir string) (*types.Package, error)
 			byo,
 			r.m.opts.FieldMatcher,
 			fset,
-			r.m.opts.Classifier,
 			bag,
 			inferNames,
-			declNames,
 			skeletonDeclarations,
 		)
 		if buildErr != nil {

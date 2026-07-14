@@ -1977,13 +1977,19 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		b.WriteString("}\n")
 	case *ast.GoBlock:
 		emitLine(b, fset, t.Pos())
+		if t.UnsupportedMarkup != nil {
+			// The package preprocessor records and diagnoses this unsupported
+			// region once. Refuse to emit it; reconstructing only a prefix would
+			// silently produce invalid or incomplete Go.
+			return false
+		}
 		if t.Embedded == nil {
 			b.WriteString(t.Code)
 			b.WriteString("\n")
 			break
 		}
 		// The block carries embedded f`/js`/css` literals (analyze's split; see
-		// splitInterpEmbedded). Reconstruct it from its parts: GoText runs are
+		// preprocessComponentCallSites). Reconstruct it from its parts: GoText runs are
 		// verbatim, and each *ast.EmbeddedInterp lowers to its Go value via the
 		// SAME emitGoExprEmbeddedInterp the GoWithElements and Interp.Embedded
 		// sites use (one lowering, three container sites — they can never
@@ -1993,14 +1999,6 @@ func genNode(b *bytes.Buffer, n ast.Markup, currentPkg *types.Package, resolved 
 		// see below); any statement hoist a hole does emit goes to b, before
 		// the reconstructed statement (the same pre-existing
 		// unconditional-errReturn caveat the other two sites carry).
-		// A `<tag>` element/fragment literal inside a Go block is unsupported.
-		// analyze's *gsxast.GoBlock case (goBlockElementPart) already diagnosed
-		// this and skipped the block's probe entirely, so this case can never
-		// be the FIRST reporter of the problem — analyze runs, over the same
-		// AST, before emit is ever invoked (module.go's Generate/pkgResult). No
-		// bag.Errorf here (it would duplicate that diagnostic); still `return
-		// false` so an unhandled element part doesn't silently splice a
-		// truncated, invalid Go statement.
 		for _, part := range t.Embedded {
 			switch p := part.(type) {
 			case ast.GoText:
@@ -3406,13 +3404,19 @@ func emitGoExprEmbeddedInterp(hoistBuf, valBuf *bytes.Buffer, p *ast.EmbeddedInt
 		if !ok {
 			return false
 		}
-		valBuf.WriteString(rt.rt() + ".RawJS(" + val + ")")
+		valBuf.WriteString(rt.rt())
+		valBuf.WriteString(".RawJS(")
+		valBuf.WriteString(val)
+		valBuf.WriteByte(')')
 	case ast.EmbeddedCSS:
 		val, ok := embeddedCSSValueExpr(hoistBuf, p.Segments, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr", exprPos, !hasCtx)
 		if !ok {
 			return false
 		}
-		valBuf.WriteString(rt.rt() + ".RawCSS(" + val + ")")
+		valBuf.WriteString(rt.rt())
+		valBuf.WriteString(".RawCSS(")
+		valBuf.WriteString(val)
+		valBuf.WriteByte(')')
 	default:
 		val, ok := embeddedValueExpr(hoistBuf, p.Segments, resolved, table, imports, rt, interpTemp, bag, "return _gsxerr", !canHoist, !hasCtx, "unsupported-node", "backtick literal value")
 		if !ok {
@@ -3425,7 +3429,7 @@ func emitGoExprEmbeddedInterp(hoistBuf, valBuf *bytes.Buffer, p *ast.EmbeddedInt
 
 // assembleHoleSeed returns the Go expression for a hole's seed. A plain hole is
 // its Expr verbatim. A hole whose Expr carries embedded prefixed literals
-// (Interp.Embedded, seated by splitInterpEmbedded when a nested f`/js`/css`
+// (Interp.Embedded, seated by preprocessComponentCallSites when a nested f`/js`/css`
 // literal appears in the hole) is reassembled from its parts: GoText runs
 // verbatim, each nested literal lowered to its Go value by
 // emitGoExprEmbeddedInterp — the same splice genInterp performs for a body
@@ -4683,6 +4687,9 @@ func attrsTokenScan(body []ast.Markup) bool {
 				}
 			}
 		case *ast.GoBlock:
+			if t.UnsupportedMarkup != nil {
+				continue
+			}
 			if refsAttrs(t.Code) {
 				return true
 			}
