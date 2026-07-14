@@ -244,7 +244,8 @@ func analyzeComponentSignature(sig *types.Signature, runtime runtimeContract) (c
 	if sig == nil {
 		return componentSignatureModel{}, fmt.Errorf("component-signature: nil callable signature")
 	}
-	if invalidSemanticType(runtime.node) || invalidSemanticType(runtime.attr) || invalidSemanticType(runtime.attrs) {
+	checkedTypes := make(map[types.Type]bool)
+	if invalidSemanticTypeSeen(runtime.node, checkedTypes) || invalidSemanticTypeSeen(runtime.attr, checkedTypes) || invalidSemanticTypeSeen(runtime.attrs, checkedTypes) {
 		return componentSignatureModel{}, fmt.Errorf("component-signature-runtime: incomplete runtime type contract")
 	}
 	if !attrsSliceHasExactElement(runtime.attrs, runtime.attr) {
@@ -256,7 +257,7 @@ func analyzeComponentSignature(sig *types.Signature, runtime runtimeContract) (c
 		return componentSignatureModel{}, fmt.Errorf("component-result-count: callable has %d results; want exactly one", results.Len())
 	}
 	result := results.At(0).Type()
-	if invalidSemanticType(result) || !types.AssignableTo(result, runtime.node) {
+	if invalidSemanticTypeSeen(result, checkedTypes) || !types.AssignableTo(result, runtime.node) {
 		return componentSignatureModel{}, fmt.Errorf("component-result-type: result %s is not assignable to %s", result, runtime.node)
 	}
 
@@ -267,6 +268,9 @@ func analyzeComponentSignature(sig *types.Signature, runtime runtimeContract) (c
 	}
 	for i := range sig.Params().Len() {
 		variable := sig.Params().At(i)
+		if invalidSemanticTypeSeen(variable.Type(), checkedTypes) {
+			return componentSignatureModel{}, fmt.Errorf("component-param-type: parameter %d %q contains an invalid semantic type", i, variable.Name())
+		}
 		param := componentParam{
 			variable: variable,
 			origin:   variable.Origin(),
@@ -303,12 +307,95 @@ func analyzeComponentSignature(sig *types.Signature, runtime runtimeContract) (c
 	return model, nil
 }
 
-func invalidSemanticType(t types.Type) bool {
+func invalidSemanticTypeSeen(t types.Type, seen map[types.Type]bool) bool {
 	if t == nil {
 		return true
 	}
-	basic, ok := types.Unalias(t).(*types.Basic)
-	return ok && basic.Kind() == types.Invalid
+	t = types.Unalias(t)
+	if t == nil {
+		return true
+	}
+	if seen[t] {
+		return false
+	}
+	seen[t] = true
+
+	switch t := t.(type) {
+	case *types.Basic:
+		return t.Kind() == types.Invalid
+	case *types.Array:
+		return invalidSemanticTypeSeen(t.Elem(), seen)
+	case *types.Slice:
+		return invalidSemanticTypeSeen(t.Elem(), seen)
+	case *types.Struct:
+		for field := range t.Fields() {
+			if invalidSemanticTypeSeen(field.Type(), seen) {
+				return true
+			}
+		}
+	case *types.Pointer:
+		return invalidSemanticTypeSeen(t.Elem(), seen)
+	case *types.Tuple:
+		for variable := range t.Variables() {
+			if invalidSemanticTypeSeen(variable.Type(), seen) {
+				return true
+			}
+		}
+	case *types.Signature:
+		if t.Recv() != nil && invalidSemanticTypeSeen(t.Recv().Type(), seen) {
+			return true
+		}
+		if invalidTypeParamList(t.RecvTypeParams(), seen) || invalidTypeParamList(t.TypeParams(), seen) {
+			return true
+		}
+		if t.Params() != nil && invalidSemanticTypeSeen(t.Params(), seen) {
+			return true
+		}
+		return t.Results() != nil && invalidSemanticTypeSeen(t.Results(), seen)
+	case *types.Interface:
+		for method := range t.Methods() {
+			if invalidSemanticTypeSeen(method.Type(), seen) {
+				return true
+			}
+		}
+		for embedded := range t.EmbeddedTypes() {
+			if invalidSemanticTypeSeen(embedded, seen) {
+				return true
+			}
+		}
+	case *types.Map:
+		return invalidSemanticTypeSeen(t.Key(), seen) || invalidSemanticTypeSeen(t.Elem(), seen)
+	case *types.Chan:
+		return invalidSemanticTypeSeen(t.Elem(), seen)
+	case *types.Named:
+		for typeArg := range t.TypeArgs().Types() {
+			if invalidSemanticTypeSeen(typeArg, seen) {
+				return true
+			}
+		}
+		return invalidSemanticTypeSeen(t.Underlying(), seen)
+	case *types.TypeParam:
+		return invalidSemanticTypeSeen(t.Constraint(), seen)
+	case *types.Union:
+		for term := range t.Terms() {
+			if invalidSemanticTypeSeen(term.Type(), seen) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func invalidTypeParamList(list *types.TypeParamList, seen map[types.Type]bool) bool {
+	if list == nil {
+		return false
+	}
+	for typeParam := range list.TypeParams() {
+		if invalidSemanticTypeSeen(typeParam, seen) {
+			return true
+		}
+	}
+	return false
 }
 
 func validChildrenParam(t types.Type, variadic bool, node types.Type) bool {
