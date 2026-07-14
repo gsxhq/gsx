@@ -20,7 +20,6 @@ import (
 	gsxast "github.com/gsxhq/gsx/ast"
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/diag"
-	"github.com/gsxhq/gsx/internal/jsx"
 	"github.com/gsxhq/gsx/internal/modpath"
 	"github.com/gsxhq/gsx/internal/wsnorm"
 	gsxparser "github.com/gsxhq/gsx/parser"
@@ -89,27 +88,53 @@ type moduleImporter struct {
 	cycleErr error
 }
 
-type parseDiagnosticsError struct {
+type sourceDiagnosticsError struct {
 	diags []diag.Diagnostic
 }
 
-func (e parseDiagnosticsError) Error() string {
+func (e sourceDiagnosticsError) Error() string {
 	if len(e.diags) == 0 {
-		return "parse error"
+		return "source error"
 	}
 	d := e.diags[0]
-	if d.Start.IsValid() {
-		return fmt.Sprintf("parse error in %s:%d:%d: %s", d.Start.Filename, d.Start.Line, d.Start.Column, d.Message)
+	kind := d.Source + " error"
+	if d.Code == "parse-error" {
+		kind = "parse error"
+	} else if d.Source == "" {
+		kind = "source error"
 	}
-	return "parse error: " + d.Message
+	if d.Start.IsValid() {
+		return fmt.Sprintf("%s in %s:%d:%d: %s", kind, d.Start.Filename, d.Start.Line, d.Start.Column, d.Message)
+	}
+	return kind + ": " + d.Message
 }
 
-func diagnosticsFromParseError(err error) ([]diag.Diagnostic, bool) {
-	var perr parseDiagnosticsError
+func diagnosticsFromSourceError(err error) ([]diag.Diagnostic, bool) {
+	var perr sourceDiagnosticsError
 	if !errors.As(err, &perr) {
 		return nil, false
 	}
 	return append([]diag.Diagnostic(nil), perr.diags...), true
+}
+
+// componentPreprocessFailure converts a fresh parse's preprocessing diagnostics
+// into the same structured error channel used by parser and skeleton failures.
+// A result that is not analysis-ready without a diagnostic is an internal hard
+// error: callers must never continue with a partially materialized AST.
+func componentPreprocessFailure(dir string, result callSitePreprocessResult, bag *diag.Bag) error {
+	if bag.HasErrors() {
+		var errorsOnly []diag.Diagnostic
+		for _, d := range bag.Sorted() {
+			if d.Severity == diag.Error {
+				errorsOnly = append(errorsOnly, d)
+			}
+		}
+		return sourceDiagnosticsError{diags: errorsOnly}
+	}
+	if !result.analysisReady() {
+		return fmt.Errorf("codegen: component-call preprocessing for %s failed without a diagnostic", dir)
+	}
+	return nil
 }
 
 // skeletonParseError wraps a go/parser failure on an assembled .x.go skeleton as
@@ -117,7 +142,7 @@ func diagnosticsFromParseError(err error) ([]diag.Diagnostic, bool) {
 // that is invalid only in context — e.g. an `import` after a declaration, which
 // gsx copies through verbatim — surfaces here, at the skeleton parse. The
 // skeleton carries //line directives, so scanner.Error positions are already
-// resolved back to the .gsx origin; converting them to parseDiagnosticsError
+// resolved back to the .gsx origin; converting them to sourceDiagnosticsError
 // routes the failure through the normal diagnostic path (framed overlay, --json)
 // instead of escaping as a bare, frame-less hard error. A non-ErrorList failure
 // (should not occur for a parse error, but be safe) is returned unchanged so a
@@ -139,7 +164,7 @@ func skeletonParseError(err error) error {
 			Source:   "parser",
 		})
 	}
-	return parseDiagnosticsError{diags: diags}
+	return sourceDiagnosticsError{diags: diags}
 }
 
 func (mi *moduleImporter) Import(path string) (*types.Package, error) {
@@ -379,8 +404,18 @@ func (m *Module) importedPropFacts(depDir string) (*depPropFacts, error) {
 		return f, nil
 	}
 	m.mu.Unlock()
-	files, pkgName, err := m.parsePackageWithFset(depDir, m.fset)
+	parsed, err := m.parsePackageWithFset(depDir, m.fset)
 	if err != nil {
+		return nil, err
+	}
+	files, pkgName := parsed.files, parsed.name
+	bag := diag.NewBag(m.fset)
+	declNames := packageDeclNames(depDir, files)
+	preprocessed, err := parsed.preprocessComponentCallSites(declNames, m.fset, m.classifierFor(depDir), bag)
+	if err != nil {
+		return nil, err
+	}
+	if err := componentPreprocessFailure(depDir, preprocessed, bag); err != nil {
 		return nil, err
 	}
 	propFields, nodeProps, attrsProps, byo, err := componentPropFieldsFor(depDir, files)
@@ -480,6 +515,7 @@ type fileFacts struct {
 	attrsProps  map[string]map[string]bool
 	genericSigs map[string]*genericSig
 	byo         *byoData
+	failed      bool
 
 	// depAliasSpecs maps each gsx-dep import's EFFECTIVE alias in this file
 	// (the explicit spec name, or the dep's real declared package name for a
@@ -540,9 +576,10 @@ func fileImportSpecs(f *gsxast.File, fset *token.FileSet) []importSpec {
 // fileScopedFacts builds the per-file fact view for one parsed .gsx file.
 // base facts are shared (not copied) when the file imports no gsx packages;
 // otherwise shallow clones are extended with alias-qualified dep entries.
-// A dep whose facts cannot be derived (parse/analysis error) is skipped with
-// a positioned Warning: its components fall back to the assume-prop regime
-// (declared == nil) instead of silently flip-flopping between regimes.
+// A dep whose facts cannot be derived fails closed. Structured source
+// diagnostics retain their original dependency positions; infrastructure
+// failures are anchored at the importing spec. The caller never guesses a
+// positional component contract from an incomplete dependency analysis.
 func (m *Module) fileScopedFacts(dir string, f *gsxast.File, propFields, nodeProps, attrsProps map[string]map[string]bool, byo *byoData, bag *diag.Bag, fset *token.FileSet) *fileFacts {
 	out := &fileFacts{propFields: propFields, nodeProps: nodeProps, attrsProps: attrsProps, genericSigs: nil, byo: byo}
 	cloned := false
@@ -557,11 +594,18 @@ func (m *Module) fileScopedFacts(dir string, f *gsxast.File, propFields, nodePro
 		}
 		facts, err := m.importedPropFacts(depDir)
 		if err != nil {
-			pos := fset.Position(spec.pos)
-			bag.Add(diag.Diagnostic{
-				Start: pos, End: pos, Severity: diag.Warning, Code: "imported-props-unavailable", Source: "codegen",
-				Message: fmt.Sprintf("cannot analyze imported gsx package %q: %v; its component props are not discovered (identifier attrs on its components are treated as prop fields)", spec.path, err),
-			})
+			out.failed = true
+			if diags, ok := diagnosticsFromSourceError(err); ok {
+				for _, d := range diags {
+					bag.Add(d)
+				}
+			} else {
+				pos := fset.Position(spec.pos)
+				bag.Add(diag.Diagnostic{
+					Start: pos, End: pos, Severity: diag.Error, Code: "imported-props-unavailable", Source: "codegen",
+					Message: fmt.Sprintf("cannot analyze imported gsx package %q: %v", spec.path, err),
+				})
+			}
 			continue
 		}
 		alias := spec.name
@@ -670,19 +714,24 @@ func (m *Module) typesPackageWith(dir string, mi *moduleImporter) (*types.Packag
 // component cross-index inputs. typesPackage consumes only a.pkg; Module.Package
 // (retained analysis) and Module.Generate (codegen) consume the rest.
 type analyzed struct {
-	pkgName            string
-	gsxFiles           map[string]*gsxast.File        // gsx path -> parsed file
-	gsxFset            *token.FileSet                 // gsx positions
-	skelFset           *token.FileSet                 // skeleton positions (same fset as gsxFset for Module)
-	goFiles            []*goast.File                  // parsed skeletons + shared helper
-	compsByXGo         map[string][]*gsxast.Component // skeleton abs path -> components
-	table              funcTables                     // filters + renderers this dir's pipes/render boundaries consult (see filters.go's funcTables)
-	merger             *ClassMergerRef                // the class merger for this dir (Options.ClassMerger, or its PerDir override)
-	classifier         *attrclass.Classifier          // the attrclass.Classifier for this dir (Options.Classifier, or its PerDir override)
-	propFields         map[string]map[string]bool
-	nodeProps          map[string]map[string]bool
-	attrsProps         map[string]map[string]bool
-	byo                *byoData
+	pkgName    string
+	gsxFiles   map[string]*gsxast.File        // gsx path -> parsed file
+	gsxFset    *token.FileSet                 // gsx positions
+	skelFset   *token.FileSet                 // skeleton positions (same fset as gsxFset for Module)
+	goFiles    []*goast.File                  // parsed skeletons + shared helper
+	compsByXGo map[string][]*gsxast.Component // skeleton abs path -> components
+	table      funcTables                     // filters + renderers this dir's pipes/render boundaries consult (see filters.go's funcTables)
+	merger     *ClassMergerRef                // the class merger for this dir (Options.ClassMerger, or its PerDir override)
+	classifier *attrclass.Classifier          // the attrclass.Classifier for this dir (Options.Classifier, or its PerDir override)
+	propFields map[string]map[string]bool
+	nodeProps  map[string]map[string]bool
+	attrsProps map[string]map[string]bool
+	byo        *byoData
+	// callSites is nil when preprocessing failed or a later validation step
+	// removed any file before skeleton construction. Target discovery therefore
+	// consumes either the complete package registry or no registry, never a
+	// partially active set with missing skeleton markers.
+	callSites          *callSiteRegistry
 	factsByFile        map[string]*fileFacts // per-file fact views; propFields/nodeProps/attrsProps/byo keep the package-local base facts
 	resolved           map[gsxast.Node]types.Type
 	exprMap            map[gsxast.Node]goast.Expr
@@ -781,31 +830,37 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	// script-resolution diagnostics recorded below share the same fset as the
 	// parsed .gsx files. Generate returns a.bag.Sorted() so errors surface.
 	bag := diag.NewBag(fset)
-	gsxFiles, pkgName, err := m.parsePackageWithFset(dir, fset)
+	parsed, err := m.parsePackageWithFset(dir, fset)
 	if err != nil {
 		return nil, err
 	}
-	// Classify <script> @{ } JS contexts (after wsnorm.Normalize).
-	// If ANY file fails resolution, skip the ENTIRE package (no generated output),
-	// matching Module's package-level-skip semantics:
-	//   hasErr=true; break  →  if hasErr { continue }  (no .x.go for any file).
-	// Diagnostics are recorded in bag and surfaced by Generate via bag.Sorted().
-	scriptErr := false
-	for _, f := range gsxFiles {
-		if !jsx.ResolveScripts(f, bag) {
-			scriptErr = true
+	gsxFiles, pkgName := parsed.files, parsed.name
+	// Materialize embedded markup, resolve every component-vs-leaf decision,
+	// classify the now-complete JavaScript tree, and assign stable call-site IDs
+	// BEFORE any skeleton/probe/emit walk. This is the package AST's only
+	// preprocessing mutation; later phases retain the same element pointers.
+	declNames := packageDeclNames(dir, gsxFiles)
+	preprocessed, err := parsed.preprocessComponentCallSites(declNames, fset, m.classifierFor(dir), bag)
+	if err != nil {
+		return nil, err
+	}
+	callSites := preprocessed.registry
+	// Reserved-prefix validation is lexical and deliberately survives invalid Go
+	// expression structure. Run it after preprocessing has annotated excluded
+	// GoBlocks, but before a not-ready package is discarded, so an independent
+	// later `_gsx` violation is not hidden by an earlier reconstruction error.
+	reservedFiles := make(map[string]bool)
+	for path, f := range gsxFiles {
+		if rds := checkReservedDecls(f); len(rds) > 0 {
+			reservedFiles[path] = true
+			for _, rd := range rds {
+				bag.Errorf(rd.pos, rd.pos+token.Pos(len(rd.name)), "", "identifier %q uses the reserved _gsx prefix (reserved for generated code)", rd.name)
+			}
 		}
 	}
-	if scriptErr {
+	if !preprocessed.analysisReady() {
 		gsxFiles = nil // package-level skip: Generate's loop emits nothing
-	}
-	// Resolve component-vs-leaf for every tag BEFORE any skeleton/probe/emit
-	// walk consults it (analyze.go's emitProbes reads the stamp). Lowercase
-	// tags resolve against the package's declared names; see tagresolve.go
-	// and docs/superpowers/specs/2026-07-10-lowercase-tag-symbol-resolution-design.md.
-	declNames := packageDeclNames(dir, gsxFiles)
-	for _, f := range gsxFiles {
-		resolveComponentTags(f, declNames, bag)
+		callSites = nil
 	}
 	// Mutual wrapper cycles (A unconditionally renders <B>, B unconditionally
 	// renders <A>) compile clean — self-exclusion only breaks a DIRECT
@@ -892,11 +947,9 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		// accepted for the same reason the attrError one is: the correctly
 		// positioned diagnostic on the actual mistake is worth an extra,
 		// obviously-downstream error on a file that did nothing wrong.
-		if rds := checkReservedDecls(f); len(rds) > 0 {
-			for _, rd := range rds {
-				bag.Errorf(rd.pos, rd.pos+token.Pos(len(rd.name)), "", "identifier %q uses the reserved _gsx prefix (reserved for generated code)", rd.name)
-			}
+		if reservedFiles[path] {
 			delete(gsxFiles, path)
+			callSites = nil
 			continue
 		}
 		// Body-scope reservation (ctx/children/attrs): a POSITIONED, worded
@@ -921,7 +974,11 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		}
 		ff := m.fileScopedFacts(dir, f, propFields, nodeProps, attrsProps, byo, bag, fset)
 		factsByFile[path] = ff
-		skel, comps, imps, ctrlOff, infReg, gwMarkups, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, m.opts.Classifier, bag, inferNames, declNames, skeletonFull)
+		if ff.failed {
+			skelErr = true
+			break
+		}
+		skel, comps, imps, ctrlOff, infReg, gwMarkups, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps, genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, bag, inferNames, skeletonFull)
 		if berr != nil {
 			// buildSkeleton error handling: a positioned attrError becomes a
 			// diagnostic and skips this file; any other error is also recorded as a
@@ -931,6 +988,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 			if ae, ok := errors.AsType[*attrError](berr); ok {
 				bag.Errorf(ae.pos, ae.end, ae.code, "%s", ae.msg)
 				delete(gsxFiles, path)
+				callSites = nil
 				continue
 			}
 			bag.Add(diag.Diagnostic{Severity: diag.Error, Message: strings.TrimPrefix(berr.Error(), "codegen: "), Source: "codegen"})
@@ -974,6 +1032,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 	}
 	if skelErr {
 		gsxFiles = map[string]*gsxast.File{} // package-level skip: Generate's loop emits nothing
+		callSites = nil
 	}
 	// Shared _gsxuse/_gsxcompsig helpers, added to every package's overlay.
 	//
@@ -1349,6 +1408,7 @@ func (m *Module) analyze(dir string, mi *moduleImporter) (*analyzed, error) {
 		nodeProps:          nodeProps,
 		attrsProps:         attrsProps,
 		byo:                byo,
+		callSites:          callSites,
 		factsByFile:        factsByFile,
 		resolved:           resolved,
 		exprMap:            exprMap,
@@ -1557,9 +1617,10 @@ var probeArgLeakRE = regexp.MustCompile(` in argument to (_gsxinfer[0-9]+|_gsxco
 // internal name, each reference is replaced with the tag.
 var probeNameRefRE = regexp.MustCompile(`_gsxinfer[0-9]+|_gsxcompsig`)
 
-// parsePackageWithFset parses every .gsx in dir into the provided fset so the
-// caller can share it with buildSkeleton (required for valid //line directives).
-func (m *Module) parsePackageWithFset(dir string, fset *token.FileSet) (map[string]*gsxast.File, string, error) {
+// parsePackageWithFset parses every .gsx in dir into the provided fset and
+// returns the private package owner for the one preprocessing transition. The
+// shared FileSet remains required for valid skeleton //line directives.
+func (m *Module) parsePackageWithFset(dir string, fset *token.FileSet) (*parsedGSXPackage, error) {
 	paths := map[string]struct{}{}
 	matches, _ := filepath.Glob(filepath.Join(dir, "*.gsx"))
 	for _, p := range matches {
@@ -1574,12 +1635,13 @@ func (m *Module) parsePackageWithFset(dir string, fset *token.FileSet) (map[stri
 	m.mu.Unlock()
 	files := map[string]*gsxast.File{}
 	pkgName := ""
+	classifier := m.classifierFor(dir)
 	for p := range paths {
 		src, ok := m.source(p)
 		if !ok {
 			continue
 		}
-		f, perrs := gsxparser.ParseFileWithClassifier(fset, p, src, 0, m.opts.Classifier)
+		f, perrs := gsxparser.ParseFileWithClassifier(fset, p, src, 0, classifier)
 		if len(perrs) > 0 {
 			diags := make([]diag.Diagnostic, 0, len(perrs))
 			for _, perr := range perrs {
@@ -1597,13 +1659,13 @@ func (m *Module) parsePackageWithFset(dir string, fset *token.FileSet) (map[stri
 					Source:   "parser",
 				})
 			}
-			return nil, "", parseDiagnosticsError{diags: diags}
+			return nil, sourceDiagnosticsError{diags: diags}
 		}
 		wsnorm.Normalize(f)
 		files[p] = f
 		pkgName = f.Package
 	}
-	return files, pkgName, nil
+	return newParsedGSXPackage(pkgName, files), nil
 }
 
 // stripGsxunwrap removes all occurrences of _gsxunwrap(...) in s, replacing each

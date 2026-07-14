@@ -12,11 +12,18 @@ import (
 
 func parseGSXForTest(t *testing.T, src string) *gsxast.File {
 	t.Helper()
-	f, err := gsxparser.ParseFile(token.NewFileSet(), "test.gsx", []byte(src), 0)
+	f, _ := parseGSXForTestWithFset(t, src)
+	return f
+}
+
+func parseGSXForTestWithFset(t *testing.T, src string) (*gsxast.File, *token.FileSet) {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := gsxparser.ParseFile(fset, "test.gsx", []byte(src), 0)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	return f
+	return f, fset
 }
 
 func TestPackageDeclNames(t *testing.T) {
@@ -71,5 +78,18 @@ func card2() any { return <div>x</div> }
 		if got[absent] {
 			t.Errorf("must not contain %q", absent)
 		}
+	}
+}
+
+func TestPackageDeclNamesRejectsRecoveredGoWithElements(t *testing.T) {
+	gsx := parseGSXForTest(t, `package views
+
+var recovered = <div/>
+var broken =
+`)
+
+	got := packageDeclNames("", map[string]*gsxast.File{"a.gsx": gsx})
+	if got["recovered"] || got["broken"] {
+		t.Fatalf("recovered declaration names escaped malformed GoWithElements: %v", got)
 	}
 }

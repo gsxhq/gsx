@@ -1,7 +1,6 @@
 package codegen
 
 import (
-	"go/token"
 	"strings"
 	"testing"
 
@@ -10,7 +9,7 @@ import (
 )
 
 func TestWrapperCycleWarning(t *testing.T) {
-	f := parseGSXForTest(t, `package views
+	f, fset := parseGSXForTestWithFset(t, `package views
 
 component div() {
 	<div><span>{children}</span></div>
@@ -20,9 +19,9 @@ component span() {
 	<span><div>{children}</div></span>
 }
 `)
-	bag := diag.NewBag(token.NewFileSet())
+	bag := diag.NewBag(fset)
 	declNames := map[string]bool{"div": true, "span": true}
-	resolveComponentTags(f, declNames, bag)
+	preprocessTagsForTest(t, fset, f, declNames, bag)
 	reportWrapperCycles(map[string]*gsxast.File{"a.gsx": f}, bag)
 	var warns []diag.Diagnostic
 	for _, d := range bag.Sorted() {
@@ -39,7 +38,7 @@ component span() {
 }
 
 func TestWrapperCycleConditionalEdgeExempt(t *testing.T) {
-	f := parseGSXForTest(t, `package views
+	f, fset := parseGSXForTestWithFset(t, `package views
 
 component div(deep bool) {
 	if deep {
@@ -52,9 +51,9 @@ component span() {
 	<span><div>{children}</div></span>
 }
 `)
-	bag := diag.NewBag(token.NewFileSet())
+	bag := diag.NewBag(fset)
 	declNames := map[string]bool{"div": true, "span": true}
-	resolveComponentTags(f, declNames, bag)
+	preprocessTagsForTest(t, fset, f, declNames, bag)
 	reportWrapperCycles(map[string]*gsxast.File{"a.gsx": f}, bag)
 	for _, d := range bag.Sorted() {
 		if d.Code == "wrapper-cycle" {
@@ -98,9 +97,9 @@ component e() {
 	declNames := map[string]bool{"a": true, "b": true, "c": true, "e": true}
 	want := []string{"wrapper cycle a → b → c → e → a will recurse infinitely at render"}
 	for i := range 20 {
-		f := parseGSXForTest(t, src)
-		bag := diag.NewBag(token.NewFileSet())
-		resolveComponentTags(f, declNames, bag)
+		f, fset := parseGSXForTestWithFset(t, src)
+		bag := diag.NewBag(fset)
+		preprocessTagsForTest(t, fset, f, declNames, bag)
 		reportWrapperCycles(map[string]*gsxast.File{"a.gsx": f}, bag)
 		var got []string
 		for _, d := range bag.Sorted() {
@@ -133,10 +132,10 @@ component span() {
 `
 	var first string
 	for i := range 50 {
-		f := parseGSXForTest(t, src)
-		bag := diag.NewBag(token.NewFileSet())
+		f, fset := parseGSXForTestWithFset(t, src)
+		bag := diag.NewBag(fset)
 		declNames := map[string]bool{"div": true, "span": true}
-		resolveComponentTags(f, declNames, bag)
+		preprocessTagsForTest(t, fset, f, declNames, bag)
 		reportWrapperCycles(map[string]*gsxast.File{"a.gsx": f}, bag)
 		var got string
 		for _, d := range bag.Sorted() {

@@ -169,13 +169,15 @@ component Page() {
 		t.Fatalf("loadFilterTable: %v", err)
 	}
 	genericSigs := genericSigsFor(files, byo)
-	// Stamp Element.IsComponent before buildSkeleton — mirrors the production
-	// wiring (module_importer.go's analyze): without it, <Box .../> would be
-	// misclassified as a plain HTML element and never reach the inference-probe
-	// path this test is pinning.
+	// Run the same one-pass preprocessing as production: without the component
+	// stamp, <Box .../> would be misclassified as a plain HTML element and never
+	// reach the inference-probe path this test is pinning.
 	declNames := packageDeclNames(dir, files)
-	resolveComponentTags(file, declNames, diag.NewBag(fset))
-	skel, _, _, _, registry, _, err := buildSkeleton(file, funcTables{filters: table}, propFields, nodeProps, attrsProps, genericSigs, nil, byo, nil, fset, nil, nil, nil, declNames, skeletonFull)
+	bag := diag.NewBag(fset)
+	if _, err := preprocessComponentCallSites(files, declNames, fset, nil, bag); err != nil {
+		t.Fatalf("preprocess: %v", err)
+	}
+	skel, _, _, _, registry, _, err := buildSkeleton(file, funcTables{filters: table}, propFields, nodeProps, attrsProps, genericSigs, nil, byo, nil, fset, bag, nil, skeletonFull)
 	if err != nil {
 		t.Fatalf("buildSkeleton: %v", err)
 	}

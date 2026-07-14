@@ -9,8 +9,8 @@ import (
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
 
-// componentFromSrc parses a .gsx source, stamps Element.IsComponent via
-// resolveComponentTags (as module_importer does BEFORE the reservation pass runs
+// componentFromSrc parses a .gsx source, stamps Element.IsComponent via the
+// canonical package preprocessor (as module_importer does before the reservation pass runs
 // — the walker reads the stamp to treat component-element children as closure
 // scope), and returns the FIRST component plus the FileSet (for offset→ident
 // verification).
@@ -34,7 +34,7 @@ func componentFromSrc(t *testing.T, src string) (*gsxast.Component, *token.FileS
 	if first == nil {
 		t.Fatalf("no component parsed from %q", src)
 	}
-	resolveComponentTags(f, declNames, diag.NewBag(fset))
+	preprocessTagsForTest(t, fset, f, declNames, diag.NewBag(fset))
 	return first, fset
 }
 

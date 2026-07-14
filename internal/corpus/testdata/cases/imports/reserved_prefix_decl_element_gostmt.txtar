@@ -20,4 +20,5 @@ component Uses() {
 	<b>hi</b>
 }
 -- diagnostics.golden --
+4:9: expression in go must be function call
 7:5: identifier "_gsxrt" uses the reserved _gsx prefix (reserved for generated code)

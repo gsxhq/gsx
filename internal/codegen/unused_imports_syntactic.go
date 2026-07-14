@@ -10,7 +10,6 @@ import (
 	"sync/atomic"
 
 	"github.com/gsxhq/gsx/internal/diag"
-	"github.com/gsxhq/gsx/internal/jsx"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -108,16 +107,10 @@ type packageSkeletons struct {
 // the parsed skeleton, its hoisted import specs, and its sunk-import set. It
 // mirrors analyze's per-file loop (module_importer.go:769-819) using the same
 // buildSkeleton lowering, but keeps only what unused-import detection needs. A
-// file whose skeleton fails to build (parse/attr error) is simply omitted, so
-// the caller keeps all of that file's imports.
-//
-// Two deliberate divergences from analyze, both safe because unused-import
-// detection is strictly per-file: (1) the ResolveScripts return is ignored
-// (analyze skips the whole package on a script-resolution error) — a resolution
-// failure only preserves references, so it can never cause a false removal; and
-// (2) any buildSkeleton error skips only that file (analyze distinguishes a
-// per-file attrError from a package-aborting error), because skipping one file
-// and still scanning its siblings can only remove genuinely-unused imports.
+// file whose preprocessing or skeleton build fails is omitted, so the caller
+// keeps all of that file's imports. Unaffected siblings remain independently
+// classifiable. Package-wide syntax or JavaScript preprocessing failure omits
+// the whole package because no complete registry exists.
 func (m *Module) buildPackageSkeletons(dir string) (*packageSkeletons, error) {
 	m.analysisMu.Lock()
 	defer m.analysisMu.Unlock()
@@ -125,23 +118,53 @@ func (m *Module) buildPackageSkeletons(dir string) (*packageSkeletons, error) {
 	m.applyDirty()
 	fset := m.fset
 	bag := diag.NewBag(fset)
-	gsxFiles, _, err := m.parsePackageWithFset(dir, fset)
+	parsed, err := m.parsePackageWithFset(dir, fset)
 	if err != nil {
 		return nil, err
 	}
-	for _, f := range gsxFiles {
-		jsx.ResolveScripts(f, bag) // best-effort; failure just means we may skip that file below
-	}
-	// Stamp Element.IsComponent BEFORE buildSkeleton (emitProbes/collectExprs/etc.
-	// all read the stamp) — mirrors analyze's identical wiring
-	// (module_importer.go). Without this, every element in this importer-free
-	// path would see IsComponent's zero value (false), lowering EVERY tag —
-	// including dotted/capitalized component tags — as an HTML leaf here, so a
-	// dotted component tag's package qualifier would look unreferenced and its
-	// USED import would be misclassified as unused.
+	gsxFiles := parsed.files
+	// This importer-free lane owns a separate parse, so it must route that AST
+	// through the same materialize/JS-resolution/stamp/ID preprocessor as
+	// retained analysis. This lane discards the registry after preprocessing,
+	// but still requires the complete syntax and JavaScript gates before it may
+	// derive body facts from this independently parsed AST.
 	declNames := packageDeclNames(dir, gsxFiles)
-	for _, f := range gsxFiles {
-		resolveComponentTags(f, declNames, bag)
+	preprocessed, err := parsed.preprocessComponentCallSites(declNames, fset, m.classifierFor(dir), bag)
+	if err != nil {
+		return nil, err
+	}
+	if !preprocessed.analysisReady() {
+		out := &packageSkeletons{gsxFset: fset, byGsx: map[string]fileSkeleton{}}
+		if !preprocessed.syntaxOK {
+			out.goParseDiags = bag.Sorted()
+		}
+		return out, nil
+	}
+	// Some diagnosed regions, notably direct element literals inside {{ }}, are
+	// deliberately preserved in the registry while the rest of the package can
+	// still be inspected. Their skeletons omit the whole invalid region, so using
+	// those skeletons for import removal could delete an import whose only authored
+	// reference is inside the preserved region. Block exactly the files carrying
+	// preprocessing errors; an unpositioned error blocks the whole package because
+	// it cannot be attributed safely. A positioned filename outside this parse's
+	// exact file set is equally unattributable and therefore also blocks the
+	// package rather than silently failing to protect any file.
+	blockedFiles := make(map[string]bool)
+	knownFiles := make(map[string]bool, len(gsxFiles))
+	for path := range gsxFiles {
+		knownFiles[filepath.Clean(path)] = true
+	}
+	blockPackage := false
+	for _, d := range bag.Sorted() {
+		if d.Severity != diag.Error {
+			continue
+		}
+		path := filepath.Clean(d.Start.Filename)
+		if d.Start.Filename == "" || !knownFiles[path] {
+			blockPackage = true
+			continue
+		}
+		blockedFiles[path] = true
 	}
 	table, err := m.filterTableFor(dir, false)
 	if err != nil {
@@ -155,9 +178,19 @@ func (m *Module) buildPackageSkeletons(dir string) (*packageSkeletons, error) {
 	inferNames := newInferNameAllocator()
 	out := &packageSkeletons{gsxFset: fset, byGsx: map[string]fileSkeleton{}}
 	for path, f := range gsxFiles {
+		if blockPackage || blockedFiles[filepath.Clean(path)] {
+			continue
+		}
 		ff := m.fileScopedFacts(dir, f, propFields, nodeProps, attrsProps, byo, bag, fset)
+		if ff.failed {
+			// The dependency contract is intentionally unavailable. Building with
+			// whatever sibling facts happened to succeed would create a partial
+			// skeleton and could turn a dropped qualified component reference into
+			// a false unused-import removal for this file.
+			continue
+		}
 		skel, _, imps, _, infReg, _, berr := buildSkeleton(f, table, ff.propFields, ff.nodeProps, ff.attrsProps,
-			genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, m.opts.Classifier, bag, inferNames, declNames, skeletonFull)
+			genericSigs, ff.genericSigs, ff.byo, m.opts.FieldMatcher, fset, bag, inferNames, skeletonFull)
 		if berr != nil {
 			continue // unbuildable → keep all imports (no entry)
 		}
@@ -170,7 +203,7 @@ func (m *Module) buildPackageSkeletons(dir string) (*packageSkeletons, error) {
 			// the fmt path can see them, and `gsx fmt` must not silently succeed on
 			// Go it could not format. A non-ErrorList fault yields no diagnostics
 			// and is dropped, exactly as before.
-			if ds, ok := diagnosticsFromParseError(skeletonParseError(perr)); ok {
+			if ds, ok := diagnosticsFromSourceError(skeletonParseError(perr)); ok {
 				out.goParseDiags = append(out.goParseDiags, ds...)
 			}
 			continue

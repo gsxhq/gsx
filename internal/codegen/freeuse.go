@@ -209,6 +209,12 @@ func freeInBody(body []ast.Markup, env map[string]bool) bool {
 				}
 			}
 		case *ast.GoBlock:
+			// The package preprocessor excludes the whole block when direct
+			// element/fragment literals are present. Do not derive implicit body
+			// facts or sibling bindings from a region that will not emit.
+			if t.UnsupportedMarkup != nil {
+				continue
+			}
 			if stmtsFree(t.Code, env) {
 				return true
 			}

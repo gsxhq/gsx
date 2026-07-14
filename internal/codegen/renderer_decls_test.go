@@ -112,6 +112,67 @@ func Handwritten(v pg.Timestamptz) gsx.Node { return nil }
 	}
 }
 
+func TestRendererDeclResolverRunsCanonicalPreprocessor(t *testing.T) {
+	cases := []struct {
+		name       string
+		body       string
+		wantCode   string
+		wantSource string
+	}{
+		{
+			name:       "malformed embedded markup",
+			body:       `{ wrap(<Broken></Other>) }`,
+			wantCode:   "parse-error",
+			wantSource: "parser",
+		},
+		{
+			name:       "JavaScript failure after expansion",
+			body:       `{ wrap(<script>let @{ value } = 1</script>) }`,
+			wantCode:   "jsx-identifier-position",
+			wantSource: "jsx",
+		},
+		{
+			name:       "unsupported Go block element",
+			body:       `{{ value := <div/> }}`,
+			wantCode:   "unsupported-node",
+			wantSource: "codegen",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := rendererDeclTestModule(t)
+			dir := filepath.Join(root, "renderers")
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			writeMultiFile(t, dir, "broken.gsx", "package renderers\n\ncomponent Broken(value string) {\n\t"+tc.body+"\n}\n")
+
+			m, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ext, err := m.externalImporter()
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = newRendererDeclResolver(m, ext).packageForDir(dir)
+			if err == nil {
+				t.Fatal("packageForDir succeeded; want canonical preprocessing failure")
+			}
+			diags, ok := diagnosticsFromSourceError(err)
+			if !ok {
+				t.Fatalf("packageForDir error = %T %v; want structured diagnostics", err, err)
+			}
+			if len(diags) != 1 || diags[0].Code != tc.wantCode || diags[0].Source != tc.wantSource {
+				t.Fatalf("diagnostics = %+v; want one %s/%s diagnostic", diags, tc.wantSource, tc.wantCode)
+			}
+			if diags[0].Start.Filename != filepath.Join(dir, "broken.gsx") || diags[0].Start.Line == 0 {
+				t.Fatalf("diagnostic is not positioned in renderer source: %+v", diags[0])
+			}
+		})
+	}
+}
+
 func TestRendererDeclResolverRejectsMalformedActiveGoCompanion(t *testing.T) {
 	root := rendererDeclTestModule(t)
 	dir := filepath.Join(root, "renderers")

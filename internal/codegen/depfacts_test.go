@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -78,6 +79,90 @@ component Card(title string, variant string) {
 	}
 	if !f3.propFields["CardProps"]["Variant"] {
 		t.Fatalf("recomputed CardProps fields = %v; want Variant", f3.propFields["CardProps"])
+	}
+}
+
+func TestImportedPropFactsRunsCanonicalPreprocessor(t *testing.T) {
+	cases := []struct {
+		name       string
+		body       string
+		wantCode   string
+		wantSource string
+	}{
+		{
+			name:       "malformed embedded markup",
+			body:       `{ wrap(<Broken></Other>) }`,
+			wantCode:   "parse-error",
+			wantSource: "parser",
+		},
+		{
+			name:       "JavaScript failure after expansion",
+			body:       `{ wrap(<script>let @{ value } = 1</script>) }`,
+			wantCode:   "jsx-identifier-position",
+			wantSource: "jsx",
+		},
+		{
+			name:       "unsupported Go block element",
+			body:       `{{ value := <div/> }}`,
+			wantCode:   "unsupported-node",
+			wantSource: "codegen",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			uiDir := filepath.Join(root, "ui")
+			if err := os.MkdirAll(uiDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			repoRoot, _ := filepath.Abs("../..")
+			writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26.1\n\nrequire github.com/gsxhq/gsx v0.0.0\n\nreplace github.com/gsxhq/gsx => "+repoRoot+"\n")
+			writeFile(t, uiDir, "broken.gsx", "package ui\n\ncomponent Broken(value string) {\n\t"+tc.body+"\n}\n")
+
+			m, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = m.importedPropFacts(uiDir)
+			if err == nil {
+				t.Fatal("importedPropFacts succeeded; want canonical preprocessing failure")
+			}
+			diags, ok := diagnosticsFromSourceError(err)
+			if !ok {
+				t.Fatalf("importedPropFacts error = %T %v; want structured diagnostics", err, err)
+			}
+			if len(diags) != 1 || diags[0].Code != tc.wantCode || diags[0].Source != tc.wantSource {
+				t.Fatalf("diagnostics = %+v; want one %s/%s diagnostic", diags, tc.wantSource, tc.wantCode)
+			}
+			if diags[0].Start.Filename != filepath.Join(uiDir, "broken.gsx") || diags[0].Start.Line == 0 {
+				t.Fatalf("diagnostic is not positioned in dependency source: %+v", diags[0])
+			}
+		})
+	}
+}
+
+func TestComponentPreprocessFailurePreservesOnlyErrors(t *testing.T) {
+	bag := diag.NewBag(token.NewFileSet())
+	bag.Add(diag.Diagnostic{
+		Severity: diag.Warning,
+		Code:     "unrelated-warning",
+		Source:   "codegen",
+		Message:  "warning",
+	})
+	bag.Add(diag.Diagnostic{
+		Severity: diag.Error,
+		Code:     "preprocess-error",
+		Source:   "codegen",
+		Message:  "error",
+	})
+
+	err := componentPreprocessFailure("test", callSitePreprocessResult{syntaxOK: true, scriptsOK: true}, bag)
+	diags, ok := diagnosticsFromSourceError(err)
+	if !ok {
+		t.Fatalf("componentPreprocessFailure error = %T %v; want structured diagnostics", err, err)
+	}
+	if len(diags) != 1 || diags[0].Severity != diag.Error || diags[0].Code != "preprocess-error" {
+		t.Fatalf("diagnostics = %+v; want only the preprocessing error", diags)
 	}
 }
 
@@ -166,29 +251,35 @@ component B() {
 	}
 }
 
-// A dep with a transient parse error must degrade VISIBLY: the importer still
-// generates (assume-prop regime) and carries a positioned warning naming the dep.
-func TestImportedPropFactsFailureWarns(t *testing.T) {
+// A dependency analysis failure is a source error, not permission to guess its
+// component contract. Preserve the dependency diagnostic and emit nothing.
+func TestImportedPropFactsFailureFailsClosed(t *testing.T) {
 	root, uiDir, pagesDir := writeDepFactsModule(t)
 	m, err := Open(Options{ModuleRoot: root, ModulePath: "example.com/app"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	m.SetOverride(filepath.Join(uiDir, "card.gsx"), []byte("package ui\n\ncomponent Card( {\n"))
-	_, diags, err := m.Generate(pagesDir)
+	out, diags, err := m.Generate(pagesDir)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(out) != 0 {
+		t.Fatalf("Generate emitted %d files after dependency analysis failed", len(out))
+	}
 	found := false
 	for _, d := range diags {
-		if d.Code == "imported-props-unavailable" && d.Severity == diag.Warning {
+		if d.Code == "parse-error" && d.Severity == diag.Error {
 			found = true
-			if d.Start.Line == 0 {
-				t.Errorf("warning should be positioned at the import spec; got %+v", d)
+			if d.Start.Filename != filepath.Join(uiDir, "card.gsx") || d.Start.Line == 0 {
+				t.Errorf("dependency diagnostic should retain its source position; got %+v", d)
 			}
+		}
+		if d.Code == "imported-props-unavailable" {
+			t.Errorf("dependency failure was downgraded to compatibility warning: %+v", d)
 		}
 	}
 	if !found {
-		t.Fatalf("expected imported-props-unavailable warning; diags = %+v", diags)
+		t.Fatalf("expected dependency parse diagnostic; diags = %+v", diags)
 	}
 }
