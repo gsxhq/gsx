@@ -2396,9 +2396,16 @@ func embeddedProbeSeed(segments []gsxast.Markup, table funcTables, usedFilters m
 // pipeline then applies over the reassembled seed, matching holeStringExpr /
 // embeddedHoleExpr, which seed lowerPipe with the assembled expr. Element /
 // Fragment parts cannot be a string seed and are rejected by emit's
-// assembleHoleSeed with a positioned diagnostic; here they fall back to the raw
-// Expr so the seed stays a single expression and that emit diagnostic is what
-// surfaces.
+// assembleHoleSeed with a positioned diagnostic; here they lower to a valid Go
+// value placeholder (a nil-returning `_gsxrt.Node` IIFE) rather than the raw
+// markup Expr — splicing the raw `<tag>` would produce invalid Go and abort the
+// skeleton parse with a cryptic cascade BEFORE emit's positioned diagnostic can
+// surface. The placeholder keeps the skeleton valid so exactly emit's one
+// "element literals are not supported…" diagnostic reaches the user. It consumes
+// no `_gsxelem` index and needs no probing: the element's own interps are
+// already probed via the enclosing literal's emitProbes Element/Fragment case
+// (the `_gsxuse` path), and emit rejects the hole regardless, so its harvested
+// type is never read.
 func holeProbeSeed(n *gsxast.Interp, table funcTables, usedFilters map[string]string) string {
 	if n.Embedded == nil {
 		probe, _ := probeExpr(n.Expr, n.Stages, table, usedFilters)
@@ -2415,11 +2422,11 @@ func holeProbeSeed(n *gsxast.Interp, table funcTables, usedFilters map[string]st
 			sb.WriteString(embeddedProbeSeed(p.Segments, table, usedFilters))
 			sb.WriteString(wrapClose)
 		default:
-			// *Element/*Fragment: unsupported in a string-seed hole (emit rejects
-			// with a diagnostic). Fall back to the raw Expr; the emit diagnostic is
-			// authoritative.
-			probe, _ := probeExpr(n.Expr, n.Stages, table, usedFilters)
-			return probe
+			// *Element/*Fragment: unsupported in a string-seed hole. Emit's
+			// assembleHoleSeed rejects the whole hole on the first such part with a
+			// positioned diagnostic, so return a type-valid placeholder for the
+			// entire hole and let that single emit diagnostic surface.
+			return "func() _gsxrt.Node { return nil }()"
 		}
 	}
 	probe, _ := probeExpr(strings.TrimSpace(sb.String()), n.Stages, table, usedFilters)
