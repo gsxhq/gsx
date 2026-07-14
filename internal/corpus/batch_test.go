@@ -106,6 +106,157 @@ func TestPartitionCodegenCandidatesByOrderedRendererRegistry(t *testing.T) {
 	}
 }
 
+func TestBatchCodegenExecutesOnceAcrossRendererPartitions(t *testing.T) {
+	a := codegen.RendererAlias{TypeKey: "example.com/model.A", PkgPath: "example.com/render/a", FuncName: "A"}
+	b := codegen.RendererAlias{TypeKey: "example.com/model.B", PkgPath: "example.com/render/b", FuncName: "B"}
+	candidates := []*caseDoc{
+		{name: "a", dir: "a", renderers: []codegen.RendererAlias{a}},
+		{name: "b", dir: "b", renderers: []codegen.RendererAlias{b}},
+	}
+	partitionCalls := 0
+	executionCalls := 0
+	results, err := batchCodegenWithWorkers("repo", candidates,
+		func(_ string, group []*caseDoc) (map[string]*caseCodegen, error) {
+			partitionCalls++
+			out := make(map[string]*caseCodegen, len(group))
+			for _, c := range group {
+				out[c.name] = &caseCodegen{}
+			}
+			return out, nil
+		},
+		func(repoRoot string, gotCandidates []*caseDoc, gotResults map[string]*caseCodegen) error {
+			executionCalls++
+			if repoRoot != "repo" {
+				t.Errorf("execution repo root = %q, want repo", repoRoot)
+			}
+			if len(gotCandidates) != 2 || len(gotResults) != 2 {
+				t.Errorf("execution received %d candidates and %d results, want 2 and 2", len(gotCandidates), len(gotResults))
+			}
+			return nil
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("result count = %d, want 2", len(results))
+	}
+	if partitionCalls != 2 {
+		t.Errorf("partition calls = %d, want 2", partitionCalls)
+	}
+	if executionCalls != 1 {
+		t.Errorf("execution calls = %d, want 1", executionCalls)
+	}
+}
+
+func TestBatchCodegenRejectsDuplicateCandidates(t *testing.T) {
+	_, err := batchCodegen("", []*caseDoc{{name: "duplicate"}, {name: "duplicate"}})
+	if err == nil || !strings.Contains(err.Error(), `duplicate candidate "duplicate"`) {
+		t.Fatalf("duplicate candidates error = %v", err)
+	}
+}
+
+func TestBatchCodegenRejectsCaseDirCollisionAcrossRendererPartitions(t *testing.T) {
+	a := codegen.RendererAlias{TypeKey: "example.com/model.A", PkgPath: "example.com/render/a", FuncName: "A"}
+	b := codegen.RendererAlias{TypeKey: "example.com/model.B", PkgPath: "example.com/render/b", FuncName: "B"}
+	candidates := []*caseDoc{
+		{name: "a/b_c", dir: "a_b_c", renderers: []codegen.RendererAlias{a}},
+		{name: "a_b/c", dir: "a_b_c", renderers: []codegen.RendererAlias{b}},
+	}
+	partitionCalls := 0
+	executionCalls := 0
+	_, err := batchCodegenWithWorkers("", candidates,
+		func(_ string, group []*caseDoc) (map[string]*caseCodegen, error) {
+			partitionCalls++
+			out := make(map[string]*caseCodegen, len(group))
+			for _, c := range group {
+				out[c.name] = &caseCodegen{}
+			}
+			return out, nil
+		},
+		func(string, []*caseDoc, map[string]*caseCodegen) error {
+			executionCalls++
+			return nil
+		})
+	if err == nil || !strings.Contains(err.Error(), `case dir collision: "a/b_c" and "a_b/c" both map to "a_b_c"`) {
+		t.Fatalf("case dir collision error = %v", err)
+	}
+	if partitionCalls != 0 || executionCalls != 0 {
+		t.Fatalf("workers called after case dir collision: partition=%d execution=%d", partitionCalls, executionCalls)
+	}
+}
+
+func TestBatchCodegenRejectsInvalidPartitionResults(t *testing.T) {
+	a := codegen.RendererAlias{TypeKey: "example.com/model.A", PkgPath: "example.com/render/a", FuncName: "A"}
+	b := codegen.RendererAlias{TypeKey: "example.com/model.B", PkgPath: "example.com/render/b", FuncName: "B"}
+	one := []*caseDoc{{name: "a", dir: "a", renderers: []codegen.RendererAlias{a}}}
+	two := []*caseDoc{
+		{name: "a", dir: "a", renderers: []codegen.RendererAlias{a}},
+		{name: "b", dir: "b", renderers: []codegen.RendererAlias{b}},
+	}
+	tests := []struct {
+		name       string
+		candidates []*caseDoc
+		worker     func(string, []*caseDoc) (map[string]*caseCodegen, error)
+		want       string
+	}{
+		{
+			name:       "missing",
+			candidates: one,
+			worker: func(string, []*caseDoc) (map[string]*caseCodegen, error) {
+				return map[string]*caseCodegen{}, nil
+			},
+			want: `produced no result for "a"`,
+		},
+		{
+			name:       "nil",
+			candidates: one,
+			worker: func(string, []*caseDoc) (map[string]*caseCodegen, error) {
+				return map[string]*caseCodegen{"a": nil}, nil
+			},
+			want: `produced nil result for "a"`,
+		},
+		{
+			name:       "unexpected",
+			candidates: one,
+			worker: func(string, []*caseDoc) (map[string]*caseCodegen, error) {
+				return map[string]*caseCodegen{"a": {}, "extra": {}}, nil
+			},
+			want: `produced unexpected result for "extra"`,
+		},
+		{
+			name:       "duplicate",
+			candidates: two,
+			worker: func() func(string, []*caseDoc) (map[string]*caseCodegen, error) {
+				calls := 0
+				return func(string, []*caseDoc) (map[string]*caseCodegen, error) {
+					calls++
+					if calls == 1 {
+						return map[string]*caseCodegen{"a": {}}, nil
+					}
+					return map[string]*caseCodegen{"a": {}, "b": {}}, nil
+				}
+			}(),
+			want: `duplicate result for "a"`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			executionCalls := 0
+			_, err := batchCodegenWithWorkers("", tc.candidates, tc.worker,
+				func(string, []*caseDoc, map[string]*caseCodegen) error {
+					executionCalls++
+					return nil
+				})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want substring %q", err, tc.want)
+			}
+			if executionCalls != 0 {
+				t.Errorf("execution calls = %d after invalid partition results, want 0", executionCalls)
+			}
+		})
+	}
+}
+
 // TestFormatDiagLine pins the three diagBuf line shapes formatDiagLine
 // produces: a positioned error (no severity prefix, so existing
 // diagnostics.golden files pinned before severity prefixes were added stay

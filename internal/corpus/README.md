@@ -4,9 +4,13 @@
 
 `internal/corpus` is the txtar-fixture test spine for gsx.
 Every test case lives at `testdata/cases/<area>/<scenario>.txtar`.
-Running `TestCorpus` loads **all** cases in a single batched `go/packages`
-call (one `go run` invocation renders all renderable cases), then compares
-each golden facet.
+Running `TestCorpus` batches code generation by each case's exact module-wide
+renderer registry. The no-renderer majority stays in one large batch; cases
+with identical renderer registries share a batch; differing registries use
+separate small codegen modules so aliases and validation cannot leak between
+cases. The harness then stages every successful generated file in one shared
+execution module and uses **one `go run` invocation** to compile and render all
+buildable cases before comparing each golden facet.
 
 ## Anatomy of a case file
 
