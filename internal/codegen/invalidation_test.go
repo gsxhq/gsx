@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -416,5 +417,137 @@ func TestDependentsReverseClosure(t *testing.T) {
 	// A leaf nothing imports: just itself.
 	if d := m.Dependents(filepath.Join(root, "solo")); len(d) != 1 || d[0] != filepath.Join(root, "solo") {
 		t.Errorf("Dependents(solo) = %v, want [solo]", d)
+	}
+}
+
+func TestModuleRendererOverrideInvalidatesClassification(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	root, rendererDir, viewsDir := localRendererModule(t)
+	rendererPath := filepath.Join(rendererDir, "renderers.gsx")
+	stringRenderer := `package renderers
+
+import "example.com/app/pg"
+
+func Timestamptz(v pg.Timestamptz) string {
+	return v.Label
+}
+`
+	nodeRenderer := `package renderers
+
+import (
+	"example.com/app/pg"
+	"github.com/gsxhq/gsx"
+)
+
+func Timestamptz(v pg.Timestamptz) gsx.Node {
+	return <time>{v.Label}</time>
+}
+`
+	writeFile(t, rendererDir, "renderers.gsx", stringRenderer)
+
+	opts := localRendererOptions()
+	m, err := Open(Options{
+		ModuleRoot: root,
+		ModulePath: "example.com/app",
+		FilterPkgs: opts.FilterPkgs,
+		Renderers:  opts.Renderers,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeResult, err := m.Package(viewsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasDiagErrors(beforeResult.Diags) {
+		t.Fatalf("initial Package diags = %v", beforeResult.Diags)
+	}
+	m.mu.Lock()
+	beforeDecl := m.rendererPkgs["example.com/app/renderers"]
+	declDone := m.rendererPkgsDone && m.rendererTblDone
+	m.mu.Unlock()
+	if beforeDecl == nil || !declDone {
+		t.Fatal("initial Package did not populate renderer declaration/table caches")
+	}
+	if got := m.externalLoads(); got != 1 {
+		t.Fatalf("externalLoads after initial Package = %d, want 1", got)
+	}
+	if _, err := m.Package(rendererDir); err != nil {
+		t.Fatal(err)
+	}
+	fwd, _ := m.importGraphSnapshot()
+	if got := fwd[viewsDir]; len(got) != 1 || got[0] != rendererDir {
+		t.Fatalf("consumer implicit dependencies = %v, want only local GSX renderer %s", got, rendererDir)
+	}
+	if got := fwd[rendererDir]; slices.Contains(got, rendererDir) {
+		t.Fatalf("renderer package has a self dependency: %v", got)
+	}
+
+	// An unrelated consumer edit must refresh only the ordinary package result;
+	// renderer declarations and the external importer stay warm.
+	viewsPath := filepath.Join(viewsDir, "views.gsx")
+	m.SetOverride(viewsPath, []byte(`package views
+
+import "example.com/app/pg"
+
+component Show(sample pg.Timestamptz) {
+	<section>{sample}</section>
+}
+`))
+	unrelatedResult, err := m.Package(viewsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unrelatedResult == beforeResult {
+		t.Fatal("unrelated override retained the stale consumer PackageResult")
+	}
+	m.mu.Lock()
+	afterUnrelatedDecl := m.rendererPkgs["example.com/app/renderers"]
+	declStillDone := m.rendererPkgsDone && m.rendererTblDone
+	m.mu.Unlock()
+	if afterUnrelatedDecl != beforeDecl || !declStillDone {
+		t.Fatal("unrelated override cleared the renderer declaration/table cache")
+	}
+	if got := m.externalLoads(); got != 1 {
+		t.Fatalf("externalLoads after unrelated override = %d, want 1", got)
+	}
+
+	// Changing only the renderer declaration changes its result classification
+	// from string to gsx.Node. Both the retained LSP PackageResult and generated
+	// lowering must be rebuilt from the new declaration without another external
+	// packages.Load.
+	m.SetOverride(rendererPath, []byte(nodeRenderer))
+	afterRendererResult, err := m.Package(viewsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterRendererResult == unrelatedResult {
+		t.Fatal("renderer override retained the stale consumer PackageResult")
+	}
+	m.mu.Lock()
+	afterRendererDecl := m.rendererPkgs["example.com/app/renderers"]
+	m.mu.Unlock()
+	if afterRendererDecl == nil || afterRendererDecl == beforeDecl {
+		t.Fatal("renderer override did not rebuild the renderer declaration package")
+	}
+	if got := m.externalLoads(); got != 1 {
+		t.Fatalf("externalLoads after renderer override = %d, want 1", got)
+	}
+
+	out, diags, err := m.Generate(viewsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasDiagErrors(diags) {
+		t.Fatalf("Generate diags = %v", diags)
+	}
+	src := string(out[viewsPath])
+	if !strings.Contains(src, `_gsxgw.Node(ctx, _gsxf0.Timestamptz((sample)))`) {
+		t.Fatalf("consumer retained string lowering after renderer override:\n%s", src)
+	}
+	if strings.Contains(src, `_gsxgw.Text(string(_gsxf0.Timestamptz((sample))))`) {
+		t.Fatalf("consumer still contains stale string lowering after renderer override:\n%s", src)
 	}
 }

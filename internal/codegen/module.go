@@ -112,7 +112,10 @@ type Options struct {
 // each run: it drops the reverse-reflexive-transitive closure of dirty dirs from
 // pkgTypes (the changed dir plus every project gsx package that transitively
 // imports it), then clears dirty. This means only the affected subgraph is
-// re-type-checked; unchanged packages and the warm ext importer stay cached.
+// re-type-checked; unchanged packages and the warm ext importer stay cached. A
+// configured module-local renderer dir is the intentional exception: its result
+// classification is module-wide, so its declaration/table caches and every
+// retained package analysis are dropped while the ext importer stays warm.
 // Invalidate is the public entry point for callers that need to drop a dir without
 // calling Package/Generate.
 //
@@ -156,6 +159,7 @@ type Module struct {
 	rendererTbl       rendererTable               // unlocalized, alias-free completed renderer table
 	rendererTblErr    error                       // cached renderer harvest/global-validation error
 	rendererTblDone   bool                        // true once the completed renderer table has been built (success or error)
+	rendererDirs      map[string]bool             // configured module-owned renderer dirs; source kind is resolved lazily
 	filterLoads       int                         // count of filter-table loads performed (observability; test hook)
 	dirFuncTbls       map[string]funcTables       // per-dir func-tables memo, keyed by consuming package + canonical FilterPkgs key
 	perDirMergersErr  error                       // cached result of validatePerDirMergers
@@ -221,11 +225,18 @@ func Open(opts Options) (*Module, error) {
 	if opts.Bundle != nil && (len(opts.PerDir) > 0 || len(opts.LoadPkgs) > 0) {
 		return nil, fmt.Errorf("codegen: Options.Bundle is incompatible with PerDir/LoadPkgs (a Bundle carries one prebuilt set of func tables — filters and renderers)")
 	}
+	rendererDirs := map[string]bool{}
+	for _, r := range finalRendererAliases(opts.Renderers) {
+		if dir, ok := dirForImportPath(opts.ModuleRoot, opts.ModulePath, r.PkgPath); ok {
+			rendererDirs[dir] = true
+		}
+	}
 	return &Module{
 		opts:             opts,
 		overrides:        map[string][]byte{},
 		fset:             token.NewFileSet(),
 		dirFuncTbls:      map[string]funcTables{},
+		rendererDirs:     rendererDirs,
 		pkgResults:       map[string]*PackageResult{},
 		depFacts:         map[string]*depPropFacts{},
 		imports:          map[string][]string{},

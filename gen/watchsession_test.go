@@ -146,6 +146,100 @@ func TestWatchSession_WarmRegen(t *testing.T) {
 	}
 }
 
+func TestWatchSession_RendererEditInvalidatesConsumer(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping module-resolution test in -short mode")
+	}
+	root := t.TempDir()
+	writeMod(t, root)
+	writeFileT(t, filepath.Join(root, "pg", "pg.go"), `package pg
+
+type Timestamptz struct { Label string }
+`)
+	rendererDir := filepath.Join(root, "renderers")
+	rendererPath := filepath.Join(rendererDir, "renderers.gsx")
+	writeFileT(t, filepath.Join(rendererDir, "package.go"), "package renderers\n")
+	writeFileT(t, rendererPath, `package renderers
+
+import "example.com/m/pg"
+
+func Timestamptz(v pg.Timestamptz) string {
+	return v.Label
+}
+`)
+	viewsDir := filepath.Join(root, "views")
+	viewsPath := filepath.Join(viewsDir, "views.gsx")
+	viewsXGo := filepath.Join(viewsDir, "views.x.go")
+	writeFileT(t, viewsPath, `package views
+
+import "example.com/m/pg"
+
+component Show(sample pg.Timestamptz) {
+	<div>{sample}</div>
+}
+`)
+
+	s, startup, err := newWatchSession(watchConfig{
+		paths: []string{rendererDir, viewsDir},
+		renderers: []codegen.RendererAlias{{
+			TypeKey:  "example.com/m/pg.Timestamptz",
+			PkgPath:  "example.com/m/renderers",
+			FuncName: "Timestamptz",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("newWatchSession: %v", err)
+	}
+	for _, r := range startup {
+		if !r.OK {
+			t.Fatalf("startup regen %s: err=%v diags=%v", r.Dir, r.Err, r.Diags)
+		}
+	}
+	initial, err := os.ReadFile(viewsXGo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(initial), `_gsxgw.Text(string(_gsxf0.Timestamptz((sample))))`) {
+		t.Fatalf("initial consumer did not use string renderer lowering:\n%s", initial)
+	}
+
+	// Edit only renderers.gsx on disk. The renderer dir is not a source import
+	// of views, but its resolved local GSX declaration is an implicit dependency:
+	// this cycle must regenerate both dirs and reclassify the consumer lowering.
+	writeFileT(t, rendererPath, `package renderers
+
+import (
+	"example.com/m/pg"
+	"github.com/gsxhq/gsx"
+)
+
+func Timestamptz(v pg.Timestamptz) gsx.Node {
+	return <time>{v.Label}</time>
+}
+`)
+	results, err := s.regenPending(map[string]bool{rendererDir: true}, false)
+	if err != nil {
+		t.Fatalf("regenPending: %v", err)
+	}
+	dirs := map[string]bool{}
+	for _, r := range results {
+		dirs[r.Dir] = true
+		if !r.OK {
+			t.Fatalf("regen %s: err=%v diags=%v", r.Dir, r.Err, r.Diags)
+		}
+	}
+	if !dirs[rendererDir] || !dirs[viewsDir] {
+		t.Fatalf("renderer edit regenerated dirs %v, want renderer and consumer", dirs)
+	}
+	updated, err := os.ReadFile(viewsXGo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(updated), `_gsxgw.Node(ctx, _gsxf0.Timestamptz((sample)))`) {
+		t.Fatalf("consumer did not update to Node renderer lowering:\n%s", updated)
+	}
+}
+
 // TestWatchSession_RegenError proves that a broken .gsx yields OK=false with
 // diagnostics.
 func TestWatchSession_RegenError(t *testing.T) {
