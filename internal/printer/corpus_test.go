@@ -128,7 +128,10 @@ func zeroSpans(n ast.Node) {
 				v.TypeParamsPos = 0
 			case *ast.Element:
 				v.CloseNamePos = 0
+				v.TagPos = 0
+				v.TypeArgsOpenPos = 0
 				v.TypeArgsPos = 0
+				v.TypeArgsClosePos = 0
 				v.ChildrenMultiline = false
 				v.AttrsMultiline = false
 			case *ast.Fragment:
