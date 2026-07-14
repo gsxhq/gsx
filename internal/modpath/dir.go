@@ -64,6 +64,10 @@ func resolveExistingAncestor(candidate string) (string, bool) {
 			if err != nil {
 				return "", false
 			}
+			info, err := os.Stat(resolved)
+			if err != nil || !info.IsDir() {
+				return "", false
+			}
 			suffix, err := filepath.Rel(ancestor, candidate)
 			if err != nil || filepath.IsAbs(suffix) {
 				return "", false
