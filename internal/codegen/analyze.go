@@ -4089,28 +4089,21 @@ type param struct {
 	typeSrc   string
 }
 
-// paramSynthPrefix is the synthetic source prepended in parseParams; the param
-// list begins immediately after it, so a name's offset within the param source
-// is its offset in the synthetic file minus this length.
-const paramSynthPrefix = "package p\nfunc _("
-
 // parseParams parses an inline param list ("name string, user User") into
 // (name, Go-type, name-offset) tuples by reusing go/parser on a synthesized
 // function.
 func parseParams(src string) ([]param, error) {
-	src = strings.TrimSpace(src)
-	if src == "" {
+	parsed, err := parseParamFieldList(src)
+	if err != nil {
+		return nil, err
+	}
+	if parsed.list == nil {
 		return nil, nil
 	}
-	fset := token.NewFileSet()
-	synth := paramSynthPrefix + src + ") {}"
-	f, err := parser.ParseFile(fset, "", synth, 0)
-	if err != nil {
-		return nil, fmt.Errorf("codegen: parse params %q: %w", src, err)
-	}
-	fn := f.Decls[0].(*goast.FuncDecl)
+	fset := parsed.fset
+	synth := parsed.synth
 	var out []param
-	for _, field := range fn.Type.Params.List {
+	for _, field := range parsed.list.List {
 		var tb strings.Builder
 		if err := printer.Fprint(&tb, fset, field.Type); err != nil {
 			return nil, err
