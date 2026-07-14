@@ -1,0 +1,31 @@
+Method-chain and operator continuations inside a js` value keep their hanging
+indent (there is no brace/case to hang off — preserve-relative keeps them).
+
+-- input.gsx --
+package p
+
+component C() {
+	<div data-x=js`(() => {
+		const m = [...xs]
+			.filter(el => ok(el))
+			.map(el => el.v);
+		var input = (a && b('x'))
+			|| c('x');
+		return [m, input];
+	})()`/>
+}
+-- fmt.golden --
+package p
+
+component C() {
+	<div
+		data-x=js`(() => {
+			const m = [...xs]
+				.filter(el => ok(el))
+				.map(el => el.v);
+			var input = (a && b('x'))
+				|| c('x');
+			return [m, input];
+		})()`
+	/>
+}

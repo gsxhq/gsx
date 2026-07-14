@@ -63,6 +63,10 @@ func generateFile(file *ast.File, currentPkg *types.Package, resolved map[ast.No
 			return nil, false
 		}
 	}
+	// For a language that is NOT minified, re-base its embedded bodies so they do
+	// not ship indented to their source markup depth: strip the common leading
+	// indentation, keep the author's relative structure.
+	rebaseEmbedded(file, !jsMinify, !cssMinify)
 	// imports holds the USER's Go-chunk imports plus the filter / type-arg /
 	// class-merger packages. It starts empty: nothing is needed until something
 	// is emitted. The generator's own imports live in `rt` and are recorded at

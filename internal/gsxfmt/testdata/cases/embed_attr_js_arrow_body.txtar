@@ -1,0 +1,28 @@
+An arrow-function js` attribute value: its header attaches to the delimiter and
+its body is re-based ONE level under the attribute (the author's relative
+indentation preserved, the source base stripped — not double-indented).
+
+-- input.gsx --
+package p
+
+component C() {
+	<div x-sort.ghost=js`(item, pos) => {
+		const a = f(item);
+		if (a) {
+			g(a);
+		}
+	}`/>
+}
+-- fmt.golden --
+package p
+
+component C() {
+	<div
+		x-sort.ghost=js`(item, pos) => {
+			const a = f(item);
+			if (a) {
+				g(a);
+			}
+		}`
+	/>
+}
