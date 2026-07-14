@@ -485,6 +485,7 @@ methods/render_method_pointer_receiver	diag render
 methods/render_method_same_name_different_receivers_a	diag render
 methods/render_method_same_name_different_receivers_b	diag render
 methods/render_method_with_param	diag render
+minify/embedded_attr	diag
 multispread/O1_lone_cond_spread_root_class	diag gen render
 multispread/cond_class_part_renderer	diag gen render
 multispread/cond_interposed_static	diag gen render
@@ -878,4 +879,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 880 cases (render: 750, error: 98, gen-pinned: 505)
+TOTAL: 881 cases (render: 750, error: 98, gen-pinned: 505)
