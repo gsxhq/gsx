@@ -54,7 +54,14 @@ func TestFormatParseErrorReturnsError(t *testing.T) {
 	}
 }
 
-func TestFormatPreservesMultilineEmbeddedAttrBody(t *testing.T) {
+// A multi-line embedded-attribute body is now re-indented by the configured
+// JS/CSS formatter (printer: format multi-line js`/css` attribute values),
+// superseding the verbatim-preservation behavior this test used to pin.
+// jsfmt/cssfmt treat these bodies as flat top-level content (no outer
+// nesting), so they get zero extra indent beyond the attribute's own depth;
+// the opening tag and children break in symmetry once an attribute value
+// forces a hard break.
+func TestFormatReindentsMultilineEmbeddedAttrBody(t *testing.T) {
 	src := "package p\n\n" +
 		"component C(open bool) {\n" +
 		"\t<div x-data=js`" + "\n" +
@@ -65,11 +72,12 @@ func TestFormatPreservesMultilineEmbeddedAttrBody(t *testing.T) {
 		"}\n"
 	want := "package p\n\n" +
 		"component C(open bool) {\n" +
-		"\t<div x-data=js`" + "\n" +
-		"\t\t{ open: @{open} }\n" +
-		"\t` style=css`" + "\n" +
-		"\t\tcolor : @{color}\n" +
-		"\t`>\n" +
+		"\t<div\n" +
+		"\t\tx-data=js`\n" +
+		"\t\t{ open: @{open} }`\n" +
+		"\t\tstyle=css`\n" +
+		"\t\tcolor : @{color}`\n" +
+		"\t>\n" +
 		"\t\tx\n" +
 		"\t</div>\n" +
 		"}\n"
