@@ -1,18 +1,19 @@
-A multi-line JS template literal inside a js"…" attribute value keeps its
-interior verbatim while the surrounding object is re-indented under the attribute.
+A multi-line JS template literal inside a js"…" attribute value keeps its interior
+VERBATIM (it is a string value) while the surrounding object is re-based under the
+attribute.
 
 -- input.gsx --
 package p
 
 component C() {
 	<form x-data=js"{
-render() {
-return `<div>
+		render() {
+			return `<div>
   hi
 </div>`;
-},
-k: 1,
-}"/>
+		},
+		k: 1,
+	}"/>
 }
 -- fmt.golden --
 package p
@@ -20,12 +21,12 @@ package p
 component C() {
 	<form
 		x-data=js"{
-		render() {
-		return `<div>
+			render() {
+				return `<div>
   hi
 </div>`;
-		},
-		k: 1,
+			},
+			k: 1,
 		}"
 	/>
 }

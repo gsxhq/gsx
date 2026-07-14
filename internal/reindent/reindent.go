@@ -163,6 +163,37 @@ func ReindentLines(src []byte, a Adapter) ([]string, bool) {
 	return out, true
 }
 
+// SplitComment tokenizes a (possibly multi-line) comment so its interior lines
+// RE-BASE with the surrounding code. A block comment's whitespace is
+// insignificant, so — unlike a string / template / regex literal, which stays a
+// single verbatim Opaque token — its continuation lines should align to the
+// re-based code: the first line is one Opaque token; each subsequent line becomes
+// Newline + Space(leading) + Opaque(rest), so its leading indentation is
+// dedented and re-based like any logical line while its content stays verbatim.
+// A single-line comment returns one Opaque token unchanged.
+func SplitComment(text string) []Token {
+	if !strings.Contains(text, "\n") {
+		return []Token{{Class: Opaque, Text: text}}
+	}
+	var toks []Token
+	for i, ln := range strings.Split(text, "\n") {
+		if i == 0 {
+			toks = append(toks, Token{Class: Opaque, Text: ln})
+			continue
+		}
+		toks = append(toks, Token{Class: Newline, Text: "\n"})
+		j := 0
+		for j < len(ln) && (ln[j] == ' ' || ln[j] == '\t') {
+			j++
+		}
+		if j > 0 {
+			toks = append(toks, Token{Class: Space, Text: ln[:j]})
+		}
+		toks = append(toks, Token{Class: Opaque, Text: ln[j:]})
+	}
+	return toks
+}
+
 // commonPrefix returns the longest common byte prefix of a and b.
 func commonPrefix(a, b string) string {
 	n := min(len(a), len(b))

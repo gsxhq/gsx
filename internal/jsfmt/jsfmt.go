@@ -108,8 +108,9 @@ func lexClassified(src []byte) ([]reindent.Token, bool) {
 				toks = append(toks, reindent.Token{Class: reindent.Newline, Text: "\n"})
 			}
 		case js.CommentToken, js.CommentLineTerminatorToken:
-			// // and /* */ (the latter may span lines) — opaque, verbatim.
-			toks = append(toks, reindent.Token{Class: reindent.Opaque, Text: string(data)})
+			// // and /* */ — content verbatim, but a multi-line /* */ re-bases its
+			// interior lines with the code (comment whitespace is insignificant).
+			toks = append(toks, reindent.SplitComment(string(data))...)
 		case js.DivToken, js.DivEqToken:
 			// The lexer returns DivToken when it cannot determine from internal state
 			// alone whether `/` is division or the start of a regex. We use prevTT to

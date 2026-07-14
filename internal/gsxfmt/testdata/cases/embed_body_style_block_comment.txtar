@@ -1,4 +1,6 @@
-A multi-line /* … */ comment inside a <style> body keeps its interior verbatim.
+A multi-line /* … */ comment inside a <style> body re-bases with the code: its
+interior lines line up under the opener (comment whitespace is insignificant),
+unlike a string/template literal whose interior stays verbatim.
 
 -- input.gsx --
 package p
@@ -6,10 +8,10 @@ package p
 component C() {
 	<style>
 .a {
-/* multi
-   line
-   comment */
-color: red;
+	/* multi
+	   line
+	   comment */
+	color: red;
 }
 </style>
 }
@@ -19,10 +21,10 @@ package p
 component C() {
 	<style>
 		.a {
-		/* multi
-   line
-   comment */
-		color: red;
+			/* multi
+			   line
+			   comment */
+			color: red;
 		}
 	</style>
 }

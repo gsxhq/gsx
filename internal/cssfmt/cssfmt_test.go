@@ -124,23 +124,17 @@ func TestCSSLoneCRIsLineBreakNotFusion(t *testing.T) {
 	}
 }
 
-func TestFormatLinesBlockCommentOneLine(t *testing.T) {
-	// A multi-line /* … */ comment must be a SINGLE logical line.
-	src := ".a {\n/* multi\nline\ncomment */\ncolor: red;\n}"
-	lines, ok := FormatLines([]byte(src), 80)
-	if !ok {
-		t.Fatal("ok=false")
+func TestBlockCommentReBasesAndAligns(t *testing.T) {
+	// A multi-line /* … */ comment re-bases with the code (the common indent is
+	// stripped) and its interior aligns under the opener — comment whitespace is
+	// insignificant, unlike a string literal's.
+	src := "\t.a {\n\t\t/* multi\n\t\t   line\n\t\t   comment */\n\t\tcolor: red;\n\t}"
+	out, err := Format([]byte(src), 80)
+	if err != nil {
+		t.Fatal(err)
 	}
-	found := false
-	for _, ln := range lines {
-		if strings.Contains(ln, "/* multi") {
-			if !strings.Contains(ln, "line") || !strings.Contains(ln, "comment */") {
-				t.Fatalf("comment split across lines: %q", ln)
-			}
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("comment line not found in %q", lines)
+	want := ".a {\n\t/* multi\n\t   line\n\t   comment */\n\tcolor: red;\n}"
+	if string(out) != want {
+		t.Fatalf("got  %q\nwant %q", out, want)
 	}
 }
