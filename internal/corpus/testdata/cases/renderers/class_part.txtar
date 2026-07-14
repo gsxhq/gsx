@@ -49,7 +49,7 @@ import (
 	"corpustest/cases/renderers_class_part/pg"
 
 	_gsxctx "context"
-	_gsxf15 "corpustest/cases/renderers_class_part/rend"
+	_gsxf0 "corpustest/cases/renderers_class_part/rend"
 	_gsxrt "github.com/gsxhq/gsx"
 	_gsxio "io"
 )
@@ -67,7 +67,7 @@ func Tag(_gsxp TagProps) _gsxrt.Node {
 		_gsxgw := _gsxrt.W(_gsxw)
 //line input.gsx:8:2
 		_gsxgw.S("<div class=\"")
-		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxf15.PgText((val))))
+		_gsxgw.Class(_gsxrt.DefaultClassMerge, _gsxrt.Class(_gsxf0.PgText((val))))
 		_gsxgw.S("\">x</div>")
 		return _gsxgw.Err()
 	})
