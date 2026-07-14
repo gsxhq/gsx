@@ -23,6 +23,7 @@ type rendererEntry struct {
 	funcName string
 	alias    string
 	pkgPath  string
+	local    bool
 	hasErr   bool
 	// wantsCtx is true for func(ctx context.Context, T) R / (R, error); false
 	// for the ctx-less func(T) R / (R, error) shapes. applyRenderer prepends
@@ -33,6 +34,15 @@ type rendererEntry struct {
 
 // rendererTable maps a canonical type key (rendererKey) to its renderer.
 type rendererTable map[string]rendererEntry
+
+func (t rendererTable) forPackage(pkgPath string) rendererTable {
+	out := make(rendererTable, len(t))
+	for key, entry := range t {
+		entry.local = entry.pkgPath == pkgPath
+		out[key] = entry
+	}
+	return out
+}
 
 // rendererKey returns the canonical registry key for t: "pkgPath.TypeName" for
 // a named type, "*pkgPath.TypeName" for a pointer to one, "" for anything that
@@ -57,6 +67,17 @@ func rendererKey(t types.Type) string {
 // harvestFromTypes, so every resolver path (go list, warm Module, WASM
 // bundle) agrees. Duplicate TypeKeys are last-wins (registration order).
 func harvestRenderers(byPath map[string]*types.Package, renderers []RendererAlias, aliases map[string]string) (rendererTable, error) {
+	table, err := harvestRendererEntries(byPath, renderers, aliases)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateRendererTable(table); err != nil {
+		return nil, err
+	}
+	return table, nil
+}
+
+func harvestRendererEntries(byPath map[string]*types.Package, renderers []RendererAlias, aliases map[string]string) (rendererTable, error) {
 	if len(renderers) == 0 {
 		return rendererTable{}, nil
 	}
@@ -108,6 +129,10 @@ func harvestRenderers(byPath map[string]*types.Package, renderers []RendererAlia
 			result:   res,
 		}
 	}
+	return table, nil
+}
+
+func validateRendererTable(table rendererTable) error {
 	// Renderers apply exactly once: a result type that is itself registered
 	// (including the renderer's own param type) would silently chain or loop,
 	// so it is rejected here where all registrations are visible — BEFORE the
@@ -121,16 +146,16 @@ func harvestRenderers(byPath map[string]*types.Package, renderers []RendererAlia
 		if rk := rendererKey(e.result); rk != "" {
 			if _, chained := table[rk]; chained {
 				if rk == key {
-					return nil, fmt.Errorf("codegen: renderer %q for %q returns its own registered type; renderers apply once and never chain", e.funcName, key)
+					return fmt.Errorf("codegen: renderer %q for %q returns its own registered type; renderers apply once and never chain", e.funcName, key)
 				}
-				return nil, fmt.Errorf("codegen: renderer %q for %q returns %q, which has its own renderer; renderers apply once and never chain — return a natively renderable type", e.funcName, key, rk)
+				return fmt.Errorf("codegen: renderer %q for %q returns %q, which has its own renderer; renderers apply once and never chain — return a natively renderable type", e.funcName, key, rk)
 			}
 		}
 		if classify(e.result) == catUnsupported {
-			return nil, fmt.Errorf("codegen: renderer %q for %q returns %s, which is not a renderable type", e.funcName, key, e.result)
+			return fmt.Errorf("codegen: renderer %q for %q returns %s, which is not a renderable type", e.funcName, key, e.result)
 		}
 	}
-	return table, nil
+	return nil
 }
 
 // effectiveRenderType returns the type a render boundary actually classifies
@@ -168,12 +193,16 @@ func applyRenderer(b *bytes.Buffer, expr string, t types.Type, table funcTables,
 	if !ok {
 		return expr, t
 	}
-	imports[e.pkgPath] = true
+	target := e.funcName
+	if !e.local {
+		imports[e.pkgPath] = true
+		target = e.alias + "." + e.funcName
+	}
 	args := "(" + expr + ")"
 	if e.wantsCtx {
 		args = pipeCtxIdent + ", " + args
 	}
-	call := e.alias + "." + e.funcName + "(" + args + ")"
+	call := target + "(" + args + ")"
 	if e.hasErr {
 		return hoistTupleReturning(b, call, interpTemp, errReturn), e.result
 	}
