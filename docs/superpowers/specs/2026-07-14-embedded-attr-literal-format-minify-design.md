@@ -109,20 +109,27 @@ and mirrors `<script>`/`<style>` body behavior.
    character, so escaping the whole placeholdered string cannot corrupt a
    sentinel. Restored holes (`@{expr}`) are inserted *after* escaping, so they stay
    unescaped real holes.
-4. **Attr-anchored re-indent (NEW variant of `rawfmt.reindent`)**: unlike the
-   body variant (which leads and trails with `HardLine` so `<script>`/`</script>`
-   sit on their own lines), the attribute variant:
-   - attaches the opening delimiter + first body line to the `name=js"` line (no
-     leading `HardLine`),
-   - indents body lines one level under the attribute (honoring the formatter's
-     brace-depth indentation),
-   - attaches the closing delimiter to the last body line (no trailing `HardLine`
-     before the delimiter).
+4. **Attr-anchored re-indent (NEW variant of `rawfmt.reindent`)** — TWO layouts,
+   chosen by the body's own structure (which the formatter preserves; the signal
+   is whether the formatted body starts with a newline):
+   - **Inline (content-adjacent)** — the body begins with content, e.g.
+     `js"{ … }"` whose `{`/`}` hug the delimiters. The opening delimiter + first
+     body line attach to the `name=js"` line (no leading `HardLine`), body lines
+     indent one level under the attribute via the formatter's own brace-depth
+     tabs (NO extra base `Indent`), and the closing delimiter attaches to the last
+     body line.
+   - **Block (body on its own lines)** — the body begins with a newline, e.g.
+     `css`\n…\n``, and (for flat declaration lists) the formatter emits no
+     brace-depth nesting. The delimiters stand alone on their own lines and the
+     body is wrapped in one base `Indent` (body one level under the attribute) —
+     the same shape as a `<script>`/`<style>` element body. Without this, a
+     brace-less CSS body would sit flush with the attribute and the closing
+     delimiter would glue to the last declaration.
 
-   Target layout (approved):
+   Target layouts (approved):
    ```
    	<form
-   		x-data=js"{
+   		x-data=js"{          ← inline: `{` attaches, body nested via braces
    			open: false,
    			active: -1,
    			items() {
@@ -131,6 +138,12 @@ and mirrors `<script>`/`<style>` body behavior.
    		}"
    		class="c"
    	>
+   	<div
+   		style=css`           ← block: delimiters alone, body +1 (like <style>)
+   			color: red;
+   			margin: 0;
+   		`
+   	/>
    ```
 5. **Whole-literal pipeline**: any `Stages` (`|> f`) append after the closing
    delimiter, as today.
