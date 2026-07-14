@@ -371,7 +371,15 @@ component C(id string) {
 	checkFormat(t, src, want)
 }
 
-func TestEmbeddedAttrMultilinePreservesBody(t *testing.T) {
+// A multi-line embedded-attribute body is now re-indented by the configured
+// JS formatter (Task 2: printer — format multi-line js`/css` attribute
+// values), superseding the pre-Task-2 verbatim-preservation behavior this
+// test used to pin. jsfmt treats `{ open: @{open} }` as a single flat
+// top-level block (no outer nesting), so it gets zero extra indent beyond
+// the attribute's own depth; the opening tag and children break in symmetry
+// per the existing ChildrenMultiline convention once the attribute value
+// forces a hard break.
+func TestEmbeddedAttrMultilineReindented(t *testing.T) {
 	src := `package p
 component C(open bool) {
 	<div x-data=js` + "`" + `
@@ -381,9 +389,12 @@ component C(open bool) {
 	want := `package p
 
 component C(open bool) {
-	<div x-data=js` + "`" + `
-		{ open: @{open} }
-	` + "`" + `>x</div>
+	<div
+		x-data=js` + "`" + `
+		{ open: @{open} }` + "`" + `
+	>
+		x
+	</div>
 }
 `
 	checkFormat(t, src, want)

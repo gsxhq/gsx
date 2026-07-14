@@ -527,6 +527,11 @@ func (p *printer) attrDoc(a ast.Attr) pretty.Doc {
 			parts = append(parts, p.classPartDoc(part))
 		}
 		return wrapAttrValue(v.Name, pretty.Line, pretty.Group(pretty.Concat(parts...)))
+	case *ast.EmbeddedAttr:
+		if doc, ok := p.embeddedAttrDoc(v); ok {
+			return doc
+		}
+		return pretty.Text(attrInline(a))
 	default:
 		return pretty.Text(attrInline(a))
 	}
@@ -1208,6 +1213,140 @@ func embeddedLiteralString(lang ast.EmbeddedLang, nodes []ast.Markup, delim byte
 	writeEmbeddedAttrSegments(&b, nodes, delim)
 	b.WriteByte(delim)
 	return b.String()
+}
+
+// embeddedSegmentsMultiline reports whether an embedded literal's body spans
+// more than one source line (only then does fmt re-indent it; single-line values
+// stay inline, unchanged).
+func embeddedSegmentsMultiline(segs []ast.Markup) bool {
+	for _, n := range segs {
+		if t, ok := n.(*ast.Text); ok && strings.Contains(t.Value, "\n") {
+			return true
+		}
+	}
+	return false
+}
+
+// embeddedAttrBody splits an embedded-attribute literal's Segments into raw text
+// segments and rendered holes for rawfmt, mirroring nodesToBody but emitting the
+// TIGHT `@{expr}` hole form used inside attribute literals (not the spaced body
+// form). segments and holes interleave with len(segments) == len(holes)+1.
+func embeddedAttrBody(segs []ast.Markup) (segments, holes []string) {
+	var cur strings.Builder
+	for _, n := range segs {
+		switch v := n.(type) {
+		case *ast.Text:
+			cur.WriteString(v.Value)
+		case *ast.Interp:
+			segments = append(segments, cur.String())
+			cur.Reset()
+			holes = append(holes, embeddedHoleString(v))
+		default:
+			cur.WriteString(markupInlineString(n))
+		}
+	}
+	segments = append(segments, cur.String())
+	return segments, holes
+}
+
+// embeddedHoleString renders one `@{ expr |> stage }` hole tight (`@{expr}`),
+// matching writeEmbeddedAttrSegments.
+func embeddedHoleString(v *ast.Interp) string {
+	var b strings.Builder
+	b.WriteString("@{")
+	b.WriteString(fmtExpr(v.Expr))
+	for _, s := range v.Stages {
+		b.WriteString(" |> ")
+		b.WriteString(pipeStageStr(s))
+	}
+	b.WriteString("}")
+	return b.String()
+}
+
+// embeddedAttrValueDoc builds the Doc for a multi-line embedded-literal attribute
+// value. opener is the text up to and including the opening delimiter (e.g.
+// `x-data=js"` or `x-data={js"`); formatted is the re-indented body (leading and
+// trailing blank lines already trimmed); closer is the closing delimiter plus any
+// `|> stage` / `}` (e.g. `"` or `" |> f}`). The first body line attaches to the
+// opener, intermediate lines break at the attribute's own indent level (the
+// formatter's per-line leading tabs supply the brace-depth nesting), and the
+// closer attaches to the last line. Blank lines emit as bare "\n" so they never
+// carry trailing tabs (idempotence).
+func embeddedAttrValueDoc(opener, formatted, closer string) pretty.Doc {
+	lines := strings.Split(formatted, "\n")
+	parts := make([]pretty.Doc, 0, len(lines)*2+2)
+	parts = append(parts, pretty.Text(opener+lines[0]))
+	for _, ln := range lines[1:] {
+		ln = strings.TrimRight(ln, " \t")
+		if ln == "" {
+			parts = append(parts, pretty.Text("\n"))
+			continue
+		}
+		parts = append(parts, pretty.HardLine, pretty.Text(ln))
+	}
+	parts = append(parts, pretty.Text(closer))
+	return pretty.Concat(parts...)
+}
+
+// embeddedAttrDoc re-indents a multi-line js`/css` attribute value's body with
+// the configured JS/CSS formatter. ok=false (caller falls back to verbatim
+// inline) for a non-JS/CSS literal, a nil formatter, a single-line body, or any
+// formatter failure.
+func (p *printer) embeddedAttrDoc(v *ast.EmbeddedAttr) (pretty.Doc, bool) {
+	var f rawfmt.Formatter
+	switch v.Lang {
+	case ast.EmbeddedJS:
+		f = p.jsFmt
+	case ast.EmbeddedCSS:
+		f = p.cssFmt
+	default: // ast.EmbeddedText — f`…`: no sublanguage, nothing to format.
+		return pretty.Doc{}, false
+	}
+	if f == nil || !embeddedSegmentsMultiline(v.Segments) {
+		return pretty.Doc{}, false
+	}
+	segments, holes := embeddedAttrBody(v.Segments)
+	delim := embeddedDelim(v.DoubleQuoted)
+	escape := func(s string) string {
+		var b strings.Builder
+		writeEmbeddedLiteralText(&b, s, delim)
+		return b.String()
+	}
+	formatted, ok := rawfmt.FormatString(segments, holes, f, escape)
+	if !ok {
+		return pretty.Doc{}, false
+	}
+	// Trim only a trailing newline artifact from the formatter. A LEADING
+	// newline is preserved deliberately: CSS/JS formatters emit one when the
+	// body's first line has no meaningful content to attach to the opening
+	// delimiter (e.g. a bare CSS declaration list, vs. a JS body that opens
+	// with a user-written `{`), and strings.Split below turns that leading
+	// "\n" into an empty lines[0] — which embeddedAttrValueDoc then leaves
+	// attached to the opener, forcing the first real line onto its own break.
+	formatted = strings.TrimRight(formatted, "\n")
+	if !strings.Contains(formatted, "\n") {
+		// Formatter collapsed the body to one line — keep the inline form.
+		return pretty.Doc{}, false
+	}
+	braced := v.Braced || len(v.Stages) > 0
+	var opener strings.Builder
+	opener.WriteString(v.Name)
+	opener.WriteString("=")
+	if braced {
+		opener.WriteString("{")
+	}
+	opener.WriteString(embeddedLangName(v.Lang))
+	opener.WriteByte(delim)
+	var closer strings.Builder
+	closer.WriteByte(delim)
+	for _, s := range v.Stages {
+		closer.WriteString(" |> ")
+		closer.WriteString(pipeStageStr(s))
+	}
+	if braced {
+		closer.WriteString("}")
+	}
+	return embeddedAttrValueDoc(opener.String(), formatted, closer.String()), true
 }
 
 // writeEmbeddedLiteralText writes the literal text of an embedded (js/css/text)
