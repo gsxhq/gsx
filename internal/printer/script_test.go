@@ -88,3 +88,20 @@ func TestScriptIdempotent(t *testing.T) {
 		t.Fatalf("script fmt not idempotent:\n--- once ---\n%s\n--- twice ---\n%s", once, twice)
 	}
 }
+
+// A multi-line template literal inside a <script> body must be emitted verbatim
+// (interior not re-indented) and be idempotent.
+func TestScriptTemplateLiteralVerbatim(t *testing.T) {
+	src := "package p\n\ncomponent C() {\n\t<script>\nconst t = `<div>\nhi\n</div>`;\n</script>\n}\n"
+	out, err := normPrint(t, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "`<div>\nhi\n</div>`") {
+		t.Fatalf("script template-literal interior re-indented:\n%s", out)
+	}
+	twice, _ := normPrint(t, out)
+	if out != twice {
+		t.Fatalf("script not idempotent:\n--- once ---\n%s\n--- twice ---\n%s", out, twice)
+	}
+}
