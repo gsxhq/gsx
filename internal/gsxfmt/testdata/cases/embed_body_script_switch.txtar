@@ -1,0 +1,26 @@
+A switch/case in a <script> body keeps case bodies one level under their label.
+
+-- input.gsx --
+package p
+
+component C() {
+	<script>
+switch (t) {
+case 'a':
+	f();
+	break;
+}
+</script>
+}
+-- fmt.golden --
+package p
+
+component C() {
+	<script>
+		switch (t) {
+		case 'a':
+			f();
+			break;
+		}
+	</script>
+}

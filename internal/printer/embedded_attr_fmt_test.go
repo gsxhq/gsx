@@ -8,7 +8,7 @@ import (
 // A multi-line js"…" attribute value: body one level under the attribute,
 // brace-nested deeper, closing delimiter attached to the last line.
 func TestEmbeddedAttrJSReindented(t *testing.T) {
-	src := "package p\n\ncomponent C() {\n\t<form x-data=js\"{\nopen: false,\nitems() {\nreturn 1;\n}\n}\" class=\"c\"/>\n}\n"
+	src := "package p\n\ncomponent C() {\n\t<form x-data=js\"{\n\topen: false,\n\titems() {\n\t\treturn 1;\n\t}\n}\" class=\"c\"/>\n}\n"
 	out, err := normPrint(t, src)
 	if err != nil {
 		t.Fatal(err)
@@ -108,7 +108,7 @@ func TestEmbeddedAttrCSSReindented(t *testing.T) {
 
 // End-to-end: the motivating Alpine x-data blob converted to js"…".
 func TestEmbeddedAttrXDataEndToEnd(t *testing.T) {
-	src := "package p\n\ncomponent C() {\n\t<form x-data=js\"{\nopen: false,\nactive: -1,\nmoveActive(d) {\nif (!this.open) return;\n},\n}\"/>\n}\n"
+	src := "package p\n\ncomponent C() {\n\t<form x-data=js\"{\n\topen: false,\n\tactive: -1,\n\tmoveActive(d) {\n\t\tif (!this.open) return;\n\t},\n}\"/>\n}\n"
 	out, err := normPrint(t, src)
 	if err != nil {
 		t.Fatal(err)

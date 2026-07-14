@@ -58,26 +58,39 @@ func reindent(t *testing.T, in string) string {
 	return out
 }
 
-func TestReindentFixesDepth(t *testing.T) {
-	// Messy leading whitespace, correct structure.
-	in := "a {\n      b\n   c\n}"
+func TestReindentRebasesPreservingRelative(t *testing.T) {
+	// A block indented at some base dedents to zero, keeping its relative
+	// structure exactly (the caller re-adds the target base).
+	in := "\t\ta {\n\t\t\tb\n\t\t\tc\n\t\t}"
 	want := "a {\n\tb\n\tc\n}"
 	if got := reindent(t, in); got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
 
-func TestReindentCloseDedents(t *testing.T) {
-	in := "a {\nb {\nc\n}\n}"
-	want := "a {\n\tb {\n\t\tc\n\t}\n}"
+func TestReindentPreservesAuthorRelativeIndent(t *testing.T) {
+	// The author's relative indentation is preserved, NOT recomputed from
+	// structure — a continuation / hanging indent survives (this is the whole
+	// point: no brace-depth normalization, so nothing gets flattened). The
+	// continuation is not the first line, so the base is 0 (foo/bar recur it).
+	in := "foo();\nx = a\n\t|| b;\nbar();"
+	want := "foo();\nx = a\n\t|| b;\nbar();"
 	if got := reindent(t, in); got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
 
+func TestReindentDoesNotNormalizeFlatInput(t *testing.T) {
+	// Flat (unindented) input stays flat — re-basing never ADDS structure.
+	in := "a {\nb\nc\n}"
+	if got := reindent(t, in); got != in {
+		t.Fatalf("got %q want %q (flat input must stay flat)", got, in)
+	}
+}
+
 func TestReindentPreservesBlankLines(t *testing.T) {
-	in := "a {\nb\n\nc\n}"
-	want := "a {\n\tb\n\n\tc\n}"
+	in := "\ta {\n\tb\n\n\tc\n\t}"
+	want := "a {\nb\n\nc\n}"
 	got := reindent(t, in)
 	if got != want {
 		t.Fatalf("got %q want %q", got, want)
@@ -87,6 +100,17 @@ func TestReindentPreservesBlankLines(t *testing.T) {
 		if ln != strings.TrimRight(ln, " \t") {
 			t.Fatalf("line %q has trailing whitespace", ln)
 		}
+	}
+}
+
+func TestReindentExcludesAttachedFirstLine(t *testing.T) {
+	// An inline attribute value's `{` sits at column 0 (attached to the delimiter)
+	// while the body carries the source base indentation. The first line is
+	// excluded from the base so the body dedents correctly and `{` stays attached.
+	in := "{\n\t\t\topen: false,\n\t\t}"
+	want := "{\n\topen: false,\n}"
+	if got := reindent(t, in); got != want {
+		t.Fatalf("got %q want %q", got, want)
 	}
 }
 
@@ -167,9 +191,10 @@ func TestReindentLinesOpaqueInteriorStaysOneLine(t *testing.T) {
 	if !ok {
 		t.Fatal("ok=false")
 	}
-	// Logical lines: "{", "\tx `a\nb\nc`", "}", "" — the opaque token keeps its
-	// internal newlines within ONE logical line (indented only at its start).
-	want := []string{"{", "\tx `a\nb\nc`", "}", ""}
+	// Logical lines: "{", "x `a\nb\nc`", "}", "" — the opaque token keeps its
+	// internal newlines within ONE logical line. Indentation is preserved as
+	// written (the author put these at column 0), not recomputed from braces.
+	want := []string{"{", "x `a\nb\nc`", "}", ""}
 	if len(lines) != len(want) {
 		t.Fatalf("got %d lines %q, want %d %q", len(lines), lines, len(want), want)
 	}
@@ -190,5 +215,29 @@ func TestReindentLinesJoinEqualsReindent(t *testing.T) {
 		if strings.Join(lines, "\n") != flat {
 			t.Fatalf("%q: join(lines)=%q != Reindent=%q", in, strings.Join(lines, "\n"), flat)
 		}
+	}
+}
+
+func TestReindentCommentInteriorRebasesStringStaysVerbatim(t *testing.T) {
+	// opaqueFake treats backticks as verbatim strings; extend it isn't needed —
+	// use SplitComment directly for the comment half.
+	// A multi-line comment's interior re-bases (aligns); a backtick string does not.
+	toks := SplitComment("/* a\n\t   b\n\t   c */")
+	// first line is Opaque; interiors are Newline + Space + Opaque (re-basable).
+	if toks[0].Class != Opaque || toks[0].Text != "/* a" {
+		t.Fatalf("first line: %+v", toks[0])
+	}
+	sawSpace := false
+	for _, tk := range toks {
+		if tk.Class == Space {
+			sawSpace = true
+		}
+	}
+	if !sawSpace {
+		t.Fatalf("comment interior leading not a Space token (won't re-base): %+v", toks)
+	}
+	// single-line comment stays one Opaque token.
+	if s := SplitComment("// x"); len(s) != 1 || s[0].Class != Opaque {
+		t.Fatalf("single-line comment must be one Opaque token: %+v", s)
 	}
 }

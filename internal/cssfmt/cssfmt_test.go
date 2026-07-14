@@ -14,8 +14,10 @@ func fmtCSS(t *testing.T, in string) string {
 	return string(out)
 }
 
-func TestReindentFixesIndentation(t *testing.T) {
-	in := ".a {\n      color: red;\n  background: blue;\n}"
+func TestRebasesPreservingRelative(t *testing.T) {
+	// A rule indented at a base dedents to zero, keeping the author's relative
+	// structure exactly.
+	in := "\t.a {\n\t\tcolor: red;\n\t\tbackground: blue;\n\t}"
 	want := ".a {\n\tcolor: red;\n\tbackground: blue;\n}"
 	if got := fmtCSS(t, in); got != want {
 		t.Fatalf("got %q want %q", got, want)
@@ -45,11 +47,11 @@ func TestExistingBlankLinesPreserved(t *testing.T) {
 	}
 }
 
-func TestNestedAtRuleIndents(t *testing.T) {
-	in := "@media (min-width: 600px) {\n.a {\ncolor: red;\n}\n}"
-	want := "@media (min-width: 600px) {\n\t.a {\n\t\tcolor: red;\n\t}\n}"
-	if got := fmtCSS(t, in); got != want {
-		t.Fatalf("got %q want %q", got, want)
+func TestNestedAtRulePreserved(t *testing.T) {
+	// Well-nested @media (zero-based) is preserved as written.
+	in := "@media (min-width: 600px) {\n\t.a {\n\t\tcolor: red;\n\t}\n}"
+	if got := fmtCSS(t, in); got != in {
+		t.Fatalf("nested @media not preserved:\ngot  %q\nwant %q", got, in)
 	}
 }
 
@@ -122,23 +124,17 @@ func TestCSSLoneCRIsLineBreakNotFusion(t *testing.T) {
 	}
 }
 
-func TestFormatLinesBlockCommentOneLine(t *testing.T) {
-	// A multi-line /* … */ comment must be a SINGLE logical line.
-	src := ".a {\n/* multi\nline\ncomment */\ncolor: red;\n}"
-	lines, ok := FormatLines([]byte(src), 80)
-	if !ok {
-		t.Fatal("ok=false")
+func TestBlockCommentReBasesAndAligns(t *testing.T) {
+	// A multi-line /* … */ comment re-bases with the code (the common indent is
+	// stripped) and its interior aligns under the opener — comment whitespace is
+	// insignificant, unlike a string literal's.
+	src := "\t.a {\n\t\t/* multi\n\t\t   line\n\t\t   comment */\n\t\tcolor: red;\n\t}"
+	out, err := Format([]byte(src), 80)
+	if err != nil {
+		t.Fatal(err)
 	}
-	found := false
-	for _, ln := range lines {
-		if strings.Contains(ln, "/* multi") {
-			if !strings.Contains(ln, "line") || !strings.Contains(ln, "comment */") {
-				t.Fatalf("comment split across lines: %q", ln)
-			}
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("comment line not found in %q", lines)
+	want := ".a {\n\t/* multi\n\t   line\n\t   comment */\n\tcolor: red;\n}"
+	if string(out) != want {
+		t.Fatalf("got  %q\nwant %q", out, want)
 	}
 }
