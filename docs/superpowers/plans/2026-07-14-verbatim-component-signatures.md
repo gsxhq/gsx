@@ -294,6 +294,7 @@ git commit -m "feat(codegen): model component signatures by ordered Go parameter
 - Create: `internal/codegen/component_target.go`
 - Create: `internal/codegen/component_target_test.go`
 - Modify: `internal/codegen/analyze.go` (`buildSkeleton`, embedded markup handling)
+- Modify: `internal/codegen/tagresolve.go`, `unused_imports_syntactic.go`
 - Modify: `internal/codegen/module_importer.go` (`analyze`, retained facts)
 - Modify: `internal/codegen/results.go`
 
@@ -395,7 +396,7 @@ Expected: FAIL because the registry and fact types do not exist.
 
 Move embedded element splitting/materialization ahead of both skeleton phases. Resolve/stamp `Element.IsComponent` once, then build `callSiteRegistry`; later phases must consume those nodes and may not call the embedded splitter or clone markup. Mark direct `{{ }}` element literals `preserveUnsupportedGoBlock`, emit the existing single diagnostic, and exclude them from discovery, validation, and emission.
 
-This package-level prepass **replaces** the existing `resolveComponentTags` loop and the `buildSkeleton(skeletonFull)` call to `splitInterpEmbedded`; it must not run alongside either. Split functions are idempotent on an already-populated `Embedded` field and never replace those pointers. For an unsupported GoBlock element, register each direct offending element as preserved, retain the current first-offender diagnostic behavior, and skip that entire unsupported block when collecting planned descendants or emitting target probes.
+This package-level prepass **replaces** the existing `resolveComponentTags` loop and the `buildSkeleton(skeletonFull)` call to `splitInterpEmbedded`; it must not run alongside either. Split functions are idempotent on an already-populated `Embedded` field and never replace those pointers. The importer-free unused-import/formatter lane owns a separate parsed AST, so route that parse through the same `preprocessComponentCallSites` function before its skeleton build and discard only the resulting registry; never preserve a second materializer hidden in `buildSkeleton`. For an unsupported GoBlock element, register each direct offending element as preserved, retain the current first-offender diagnostic behavior, and skip that entire unsupported block when collecting planned descendants or emitting target probes.
 
 - [ ] **Step 3: Add a target-discovery skeleton mode and harvest exact origins**
 
@@ -412,7 +413,7 @@ Run: `go test ./internal/codegen -run 'TestAssignCallSites|TestHarvestComponentT
 Expected: PASS, including embedded sites and repeated/shadowed tags.
 
 ```bash
-git add internal/codegen/component_target.go internal/codegen/component_target_test.go internal/codegen/analyze.go internal/codegen/module_importer.go internal/codegen/results.go
+git add internal/codegen/component_target.go internal/codegen/component_target_test.go internal/codegen/analyze.go internal/codegen/tagresolve.go internal/codegen/unused_imports_syntactic.go internal/codegen/module_importer.go internal/codegen/results.go
 git commit -m "feat(codegen): discover callable targets by stable call-site identity"
 ```
 
