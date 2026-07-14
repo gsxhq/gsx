@@ -118,3 +118,50 @@ func TestMinifyFileSkipsDataIslandScript(t *testing.T) {
 		t.Fatalf("data-island <script> was modified: %q (want %q)", got, body)
 	}
 }
+
+func divAttr(a ast.Attr) *ast.Element { return &ast.Element{Tag: "div", Attrs: []ast.Attr{a}} }
+func attrSegs(f *ast.File) []ast.Markup {
+	return f.Decls[0].(*ast.Component).Body[0].(*ast.Element).Attrs[0].(*ast.EmbeddedAttr).Segments
+}
+
+func TestMinifyJSAttrHolelessFull(t *testing.T) {
+	f := fileWith(divAttr(&ast.EmbeddedAttr{Name: "x-data", Lang: ast.EmbeddedJS, DoubleQuoted: true,
+		Segments: []ast.Markup{&ast.Text{Value: "{\n  open: false,\n  active: -1,\n}"}}}))
+	if err := jsminFileMinify(f, fullminJS); err != nil {
+		t.Fatal(err)
+	}
+	segs := attrSegs(f)
+	if len(segs) != 1 {
+		t.Fatalf("want 1 seg, got %d: %#v", len(segs), segs)
+	}
+	got := segs[0].(*ast.Text).Value
+	if containsNL(got) {
+		t.Fatalf("newlines not removed: %q", got)
+	}
+	if !has(got, "open") || !has(got, "active") {
+		t.Fatalf("object keys lost: %q", got)
+	}
+}
+
+func TestMinifyJSAttrSafeKeepsContent(t *testing.T) {
+	f := fileWith(divAttr(&ast.EmbeddedAttr{Name: "x-data", Lang: ast.EmbeddedJS, DoubleQuoted: true,
+		Segments: []ast.Markup{&ast.Text{Value: "{\n  open: false,\n}"}}}))
+	if err := jsminFileMinify(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !has(attrSegs(f)[0].(*ast.Text).Value, "open") {
+		t.Fatalf("lost content")
+	}
+}
+
+func TestMinifyJSAttrIgnoresCSSLang(t *testing.T) {
+	orig := "color: red;\n"
+	f := fileWith(divAttr(&ast.EmbeddedAttr{Name: "style", Lang: ast.EmbeddedCSS,
+		Segments: []ast.Markup{&ast.Text{Value: orig}}}))
+	if err := jsminFileMinify(f, fullminJS); err != nil {
+		t.Fatal(err)
+	}
+	if attrSegs(f)[0].(*ast.Text).Value != orig {
+		t.Fatalf("css attr touched by JS pass")
+	}
+}
