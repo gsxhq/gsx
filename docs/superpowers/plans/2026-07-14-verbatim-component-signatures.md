@@ -233,19 +233,19 @@ git commit -m "refactor(codegen): preserve ordered component declaration contrac
 - Consumes: a concrete `*types.Signature` plus `runtimeContract{node, attr, attrs types.Type}`. The canonical `attrs` identity is explicit because `gsx.Attrs` is passed directly while another defined `[]gsx.Attr` type requires conversion; never recover this distinction from package-path/name strings.
 - Produces: `analyzeComponentSignature(*types.Signature, runtimeContract) (componentSignatureModel, error)`, ordered `componentParam{variable, origin, name, typ, index, role, attrsMode}`, and exact tag-eligibility diagnostics.
 
-- [ ] **Step 1: Write table tests for every role and rejection**
+- [x] **Step 1: Write table tests for every role and rejection**
 
 Construct signatures with `types.NewSignatureType`; cover ordinary fixed params, `children gsx.Node`, `children ...gsx.Node`, all four attrs forms, aliases, defined and instantiated-defined `[]gsx.Attr`, rejected `[]MyAttr`, rejected `children []gsx.Node`, blank/unnamed fixed params, named and unnamed ordinary variadics (Go-only and omittable), and result assignable-to-Node versus zero/multiple results. Use a non-empty synthetic Node interface so unrelated values are not accidentally assignable. Pin that only the final parameter is variadic, that `ctx`/`_gsx...` fixed parameters remain reserved, and that `types.Invalid` is rejected explicitly.
 
 Instantiate `func[T any](attrs Bag[T]) Node` at `T=gsx.Attr`: the model must retain the instantiated current `*types.Var` and `Bag[gsx.Attr]` type while separately recording `Var.Origin()`; the raw `Bag[T]` and an instantiation at `string` are not admitted as attrs bags. Include a same-path-but-distinct-`types.Package` Attr to prove classification uses semantic identity rather than path/name matching.
 
-- [ ] **Step 2: Run the unit test and verify the classifier is undefined**
+- [x] **Step 2: Run the unit test and verify the classifier is undefined**
 
 Run: `go test ./internal/codegen -run TestAnalyzeComponentSignature -count=1`
 
 Expected: FAIL to compile with `undefined: analyzeComponentSignature`.
 
-- [ ] **Step 3: Implement the model without source-name heuristics**
+- [x] **Step 3: Implement the model without source-name heuristics**
 
 Use these stable types:
 
@@ -277,7 +277,7 @@ type componentSignatureModel struct {
 
 Record instantiated parameter identity through `types.Var.Origin()` without replacing the current variable or its substituted type. Use `types.Identical` for `gsx.Node`, `gsx.Attr`, and canonical `gsx.Attrs`; use `types.AssignableTo` only for the valid, non-`types.Invalid` result contract; and use the exact underlying-slice rule for other defined attrs types. Variadic status comes only from `sig.Variadic()` on the final parameter, never from seeing a slice type. Ordinary non-reserved variadics are `roleGoOnlyVariadic` and cannot bind markup.
 
-- [ ] **Step 4: Run and commit**
+- [x] **Step 4: Run and commit**
 
 Run: `go test ./internal/codegen -run 'TestAnalyzeComponentSignature|TestAttrs' -count=1`
 
