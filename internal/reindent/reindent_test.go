@@ -111,3 +111,84 @@ func TestReindentLexFailureReportsFalse(t *testing.T) {
 		t.Fatal("expected ok=false on adapter lex failure")
 	}
 }
+
+// opaqueFake tokenizes like fake but treats a backtick-delimited run (which may
+// span newlines) as a single Opaque token whose internal newlines are content.
+type opaqueFake struct{}
+
+func (opaqueFake) Tokenize(src []byte) ([]Token, bool) {
+	s := string(src)
+	var toks []Token
+	i := 0
+	for i < len(s) {
+		switch c := s[i]; c {
+		case '`':
+			j := i + 1
+			for j < len(s) && s[j] != '`' {
+				j++
+			}
+			if j < len(s) {
+				j++ // include closing backtick
+			}
+			toks = append(toks, Token{Opaque, s[i:j]})
+			i = j
+		case '\n':
+			toks = append(toks, Token{Newline, "\n"})
+			i++
+		case ' ', '\t':
+			j := i
+			for j < len(s) && (s[j] == ' ' || s[j] == '\t') {
+				j++
+			}
+			toks = append(toks, Token{Space, s[i:j]})
+			i = j
+		case '{':
+			toks = append(toks, Token{Open, "{"})
+			i++
+		case '}':
+			toks = append(toks, Token{Close, "}"})
+			i++
+		default:
+			j := i
+			for j < len(s) && s[j] != '\n' && s[j] != ' ' && s[j] != '\t' && s[j] != '{' && s[j] != '}' && s[j] != '`' {
+				j++
+			}
+			toks = append(toks, Token{Other, s[i:j]})
+			i = j
+		}
+	}
+	return toks, true
+}
+
+func TestReindentLinesOpaqueInteriorStaysOneLine(t *testing.T) {
+	// A backtick literal spanning 3 physical lines inside a braced block.
+	in := "{\nx `a\nb\nc`\n}\n"
+	lines, ok := ReindentLines([]byte(in), opaqueFake{})
+	if !ok {
+		t.Fatal("ok=false")
+	}
+	// Logical lines: "{", "\tx `a\nb\nc`", "}", "" — the opaque token keeps its
+	// internal newlines within ONE logical line (indented only at its start).
+	want := []string{"{", "\tx `a\nb\nc`", "}", ""}
+	if len(lines) != len(want) {
+		t.Fatalf("got %d lines %q, want %d %q", len(lines), lines, len(want), want)
+	}
+	for i := range want {
+		if lines[i] != want[i] {
+			t.Fatalf("line %d: got %q want %q (all: %q)", i, lines[i], want[i], lines)
+		}
+	}
+}
+
+func TestReindentLinesJoinEqualsReindent(t *testing.T) {
+	for _, in := range []string{"{\nx `a\nb`\n}\n", "a\n{\nb\n}\n", "{\n}\n"} {
+		lines, ok := ReindentLines([]byte(in), opaqueFake{})
+		if !ok {
+			t.Fatalf("%q: ok=false", in)
+		}
+		flat, _ := Reindent([]byte(in), opaqueFake{})
+		if strings.Join(lines, "\n") != flat {
+			t.Fatalf("%q: join(lines)=%q != Reindent=%q", in, strings.Join(lines, "\n"), flat)
+		}
+	}
+}

@@ -1,0 +1,27 @@
+A multi-line /* … */ comment inside a css`…` attribute value keeps its interior
+verbatim while declarations are re-indented under the attribute (block layout).
+
+-- input.gsx --
+package p
+
+component C() {
+	<div style=css`
+/* multi
+   line */
+color: red;
+margin: 0;
+`/>
+}
+-- fmt.golden --
+package p
+
+component C() {
+	<div
+		style=css`
+			/* multi
+   line */
+			color: red;
+			margin: 0;
+		`
+	/>
+}

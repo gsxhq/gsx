@@ -121,3 +121,24 @@ func TestCSSLoneCRIsLineBreakNotFusion(t *testing.T) {
 		t.Fatalf("lone CR mishandled in CSS: %q", got)
 	}
 }
+
+func TestFormatLinesBlockCommentOneLine(t *testing.T) {
+	// A multi-line /* … */ comment must be a SINGLE logical line.
+	src := ".a {\n/* multi\nline\ncomment */\ncolor: red;\n}"
+	lines, ok := FormatLines([]byte(src), 80)
+	if !ok {
+		t.Fatal("ok=false")
+	}
+	found := false
+	for _, ln := range lines {
+		if strings.Contains(ln, "/* multi") {
+			if !strings.Contains(ln, "line") || !strings.Contains(ln, "comment */") {
+				t.Fatalf("comment split across lines: %q", ln)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("comment line not found in %q", lines)
+	}
+}
