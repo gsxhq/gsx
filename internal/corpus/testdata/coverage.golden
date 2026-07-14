@@ -666,6 +666,8 @@ renderers/fliteral_attr_pipe	diag gen render
 renderers/fliteral_text	diag gen render
 renderers/js_attr_hole	diag gen render
 renderers/numeric_result	diag gen render
+renderers/package_cross	diag gen render
+renderers/package_local	diag gen render
 renderers/pipe_result	diag gen render
 renderers/pointer	diag gen render
 renderers/script_hole	diag gen render
@@ -850,4 +852,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 852 cases (render: 723, error: 97, gen-pinned: 487)
+TOTAL: 854 cases (render: 725, error: 97, gen-pinned: 489)
