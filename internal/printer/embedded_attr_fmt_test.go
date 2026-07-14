@@ -126,3 +126,23 @@ func TestEmbeddedAttrXDataEndToEnd(t *testing.T) {
 		}
 	}
 }
+
+// A multi-line template literal inside a js"…" attribute value must have its
+// interior emitted VERBATIM (no injected indent) and be idempotent.
+func TestEmbeddedAttrTemplateLiteralVerbatim(t *testing.T) {
+	src := "package p\n\ncomponent C() {\n\t<form x-data=js\"{\nhtml: `<div>\nhi\n</div>`,\nk: 1,\n}\"/>\n}\n"
+	out, err := normPrint(t, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "`<div>\nhi\n</div>`") {
+		t.Fatalf("template-literal interior re-indented (should be verbatim):\n%s", out)
+	}
+	twice, err := normPrint(t, out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != twice {
+		t.Fatalf("not idempotent:\n--- once ---\n%s\n--- twice ---\n%s", out, twice)
+	}
+}
