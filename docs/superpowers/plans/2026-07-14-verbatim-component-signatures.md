@@ -235,7 +235,7 @@ git commit -m "refactor(codegen): preserve ordered component declaration contrac
 
 - [x] **Step 1: Write table tests for every role and rejection**
 
-Construct signatures with `types.NewSignatureType`; cover ordinary fixed params, `children gsx.Node`, `children ...gsx.Node`, all four attrs forms, aliases, defined and instantiated-defined `[]gsx.Attr`, rejected `[]MyAttr`, rejected `children []gsx.Node`, blank/unnamed fixed params, named and unnamed ordinary variadics (Go-only and omittable), and result assignable-to-Node versus zero/multiple results. Use a non-empty synthetic Node interface so unrelated values are not accidentally assignable. Pin that only the final parameter is variadic, that `ctx`/`_gsx...` fixed parameters remain reserved, and that `types.Invalid` is rejected explicitly.
+Construct signatures with `types.NewSignatureType`; cover ordinary fixed params, `children gsx.Node`, `children ...gsx.Node`, all four attrs forms, aliases, defined and instantiated-defined `[]gsx.Attr`, rejected `[]MyAttr`, rejected `children []gsx.Node`, blank/unnamed fixed params, named and unnamed ordinary variadics (Go-only and omittable), and result assignable-to-Node versus zero/multiple results. Use a non-empty synthetic Node interface so unrelated values are not accidentally assignable. Pin that only the final parameter is variadic, that `ctx`/`_gsx...` fixed parameters remain reserved, and that direct, nested, variadic, and incomplete-alias `types.Invalid` shapes fail closed while a valid nullary function prop remains eligible.
 
 Instantiate `func[T any](attrs Bag[T]) Node` at `T=gsx.Attr`: the model must retain the instantiated current `*types.Var` and `Bag[gsx.Attr]` type while separately recording `Var.Origin()`; the raw `Bag[T]` and an instantiation at `string` are not admitted as attrs bags. Include a same-path-but-distinct-`types.Package` Attr to prove classification uses semantic identity rather than path/name matching.
 
@@ -275,7 +275,7 @@ type componentSignatureModel struct {
 }
 ```
 
-Record instantiated parameter identity through `types.Var.Origin()` without replacing the current variable or its substituted type. Use `types.Identical` for `gsx.Node`, `gsx.Attr`, and canonical `gsx.Attrs`; use `types.AssignableTo` only for the valid, non-`types.Invalid` result contract; and use the exact underlying-slice rule for other defined attrs types. Variadic status comes only from `sig.Variadic()` on the final parameter, never from seeing a slice type. Ordinary non-reserved variadics are `roleGoOnlyVariadic` and cannot bind markup.
+Record instantiated parameter identity through `types.Var.Origin()` without replacing the current variable or its substituted type. Walk each parameter/result semantic type graph with cycle detection and reject any nested `types.Invalid` or incomplete alias; never use printed text or a top-level-only check. Use `types.Identical` for `gsx.Node`, `gsx.Attr`, and canonical `gsx.Attrs`; use `types.AssignableTo` only for the valid result contract; and use the exact underlying-slice rule for other defined attrs types. Variadic status comes only from `sig.Variadic()` on the final parameter, never from seeing a slice type. Ordinary non-reserved variadics are `roleGoOnlyVariadic` and cannot bind markup.
 
 - [x] **Step 4: Run and commit**
 
