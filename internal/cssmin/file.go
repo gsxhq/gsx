@@ -138,6 +138,18 @@ func minifyStyleChildren(children []ast.Markup, ext func(string) (string, error)
 func minifyAttrs(attrs []ast.Attr, ext func(string) (string, error)) error {
 	for _, a := range attrs {
 		switch v := a.(type) {
+		case *ast.EmbeddedAttr:
+			// A css`…` attribute value (style=css`…`) is a declaration list;
+			// minify it with the same holeless/holey machinery as a <style> body.
+			if v.Lang == ast.EmbeddedCSS {
+				mc, err := minifyStyleChildren(v.Segments, ext)
+				if err != nil {
+					return err
+				}
+				if mc != nil {
+					v.Segments = mc
+				}
+			}
 		case *ast.MarkupAttr:
 			if err := minifyMarkup(v.Value, ext); err != nil {
 				return err
