@@ -1,10 +1,12 @@
 // Package jsx is gsx's codegen-time JavaScript context engine for <script>
 // interpolation (Slice C1). ResolveScripts walks the AST and, for every @{ … }
 // hole inside a <script> element, classifies the JavaScript context it sits in
-// (value / string / template / regex / comment) so codegen can later escape each
-// hole correctly. Misclassification is an XSS, so it fails closed: any
-// identifier/binding position, unclassifiable hole, lex error, or sentinel
-// collision returns an error rather than a guess.
+// (value / string / template / regex / comment / binding) so codegen can later
+// escape each hole correctly. Misclassification is an XSS, so it fails closed:
+// an unclassifiable hole, lex error, or sentinel collision returns an error
+// rather than a guess. A binding/lvalue position is classified JSCtxBinding and
+// deferred to emit, which admits it only for a gsx.RawJS-typed hole (the type
+// isn't known here); everything else there errors at emit.
 //
 // It is a codegen-time package and MAY import tdewolff; it MUST NOT be imported
 // by the root gsx runtime package.
@@ -363,9 +365,9 @@ func resolveJSAttr(name string, segments []ast.Markup, bag *diag.Bag) bool {
 // diagnostics on — e.g. a future `f(js\`...\`)` call). It shares the exact
 // skeleton-builder + classify/classifyHole machinery resolveJSAttr uses,
 // including its fail-closed behavior for JS-comment holes (this is a single JS
-// expression, not a program, so comment holes are never un-split) and for
-// identifier/binding positions. Diagnostic wording uses a neutral "js literal"
-// label instead of an attribute name.
+// expression, not a program, so comment holes are never un-split) and its
+// deferral of binding/lvalue positions to JSCtxBinding. Diagnostic wording uses
+// a neutral "js literal" label instead of an attribute name.
 // Sets Interp.JSCtx on every *ast.Interp segment; safe to call again on an
 // already-classified segment list (re-classification just overwrites the same
 // values). Returns true if clean, false if any diagnostic was added to bag.
@@ -550,10 +552,12 @@ func classifyHole(h *hole, tt js.TokenType, tokStart, tokEnd int, prevSig js.Tok
 		h.resolved = true
 		return true
 	}
-	bag.Report(h.interp.Pos(), h.interp.End(), diag.Error, "jsx-identifier-position", "jsx",
-		"jsx: @{ } here is not a safe JavaScript value position "+
-			"(it looks like an identifier/binding); wrap the value where it is used as a value, or use a data attribute")
-	return false
+	// Non-value (binding/lvalue) position: whether this is legal depends on the
+	// hole's Go type (only gsx.RawJS may splice here), which is unknown at
+	// classify time. Defer to emit; mark the context so codegen can adjudicate.
+	h.ctx = ast.JSCtxBinding
+	h.resolved = true
+	return true
 }
 
 // interpLiteral reconstructs the @{ … } source of an Interp, mirroring the
