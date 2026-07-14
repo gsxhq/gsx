@@ -29,23 +29,22 @@ func minifyMarkup(nodes []ast.Markup, ext func(string) (string, error)) error {
 	for _, n := range nodes {
 		switch v := n.(type) {
 		case *ast.Element:
-			if strings.EqualFold(v.Tag, "script") {
-				// A data-block <script> (e.g. type="application/json") is not
-				// JavaScript; running the JS minifier on its body is wrong. Leave
-				// it unchanged. (Holey data islands are also covered by the
-				// holey-skip in minifyScriptChildren, but a HOLELESS static JSON
-				// block would otherwise be JS-minified — this skip prevents that.)
-				if isDataIslandScript(v) {
-					continue
-				}
+			// A data-block <script> (e.g. type="application/json") is not
+			// JavaScript; running the JS minifier on its body is wrong. Leave the
+			// body unchanged (a HOLELESS static JSON block would otherwise be
+			// JS-minified). Its attributes are still walked below.
+			if strings.EqualFold(v.Tag, "script") && !isDataIslandScript(v) {
 				mc, err := minifyScriptChildren(v.Children, ext)
 				if err != nil {
 					return err
 				}
 				v.Children = mc
-				continue
+			} else if err := minifyMarkup(v.Children, ext); err != nil {
+				return err
 			}
-			if err := minifyMarkup(v.Children, ext); err != nil {
+			// Minify js`…` attribute values (x-data, @click, hx-on::…) and recurse
+			// into markup-slot / conditional attributes.
+			if err := minifyJSAttrs(v.Attrs, ext); err != nil {
 				return err
 			}
 		case *ast.Fragment:
@@ -125,3 +124,74 @@ func minifyScriptChildren(children []ast.Markup, ext func(string) (string, error
 	}
 	return []ast.Markup{&ast.Text{Value: min}}, nil
 }
+
+// minifyJSAttrs minifies js`…` attribute VALUES on an element and recurses into
+// attributes that carry nested markup. Unlike a <script> body (a program), a
+// js`…` attribute value is a FRAGMENT — an object literal (x-data), a handler
+// statement, or a call expression — so it goes through cascadeJS (see below).
+func minifyJSAttrs(attrs []ast.Attr, ext func(string) (string, error)) error {
+	for _, a := range attrs {
+		switch v := a.(type) {
+		case *ast.EmbeddedAttr:
+			if v.Lang == ast.EmbeddedJS {
+				minifyJSEmbedded(v, ext)
+			}
+		case *ast.MarkupAttr:
+			if err := minifyMarkup(v.Value, ext); err != nil {
+				return err
+			}
+		case *ast.CondAttr:
+			if err := minifyJSAttrs(v.Then, ext); err != nil {
+				return err
+			}
+			if err := minifyJSAttrs(v.Else, ext); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// minifyJSEmbedded minifies one js`…` attribute value in place. A HOLELESS body
+// is cascade-minified. A holey body (Task 2) uses a sentinel round-trip under the
+// full minifier and is left unchanged under the safe level.
+func minifyJSEmbedded(v *ast.EmbeddedAttr, ext func(string) (string, error)) {
+	for _, s := range v.Segments {
+		if _, ok := s.(*ast.Interp); ok {
+			minifyJSEmbeddedHoley(v, ext)
+			return
+		}
+	}
+	var sb strings.Builder
+	for _, s := range v.Segments {
+		if t, ok := s.(*ast.Text); ok {
+			sb.WriteString(t.Value)
+		}
+	}
+	min := cascadeJS(sb.String(), ext)
+	if min == "" {
+		return
+	}
+	v.Segments = []ast.Markup{&ast.Text{Value: min}}
+}
+
+// cascadeJS minifies a JS FRAGMENT. tdewolff (ext) parses its input as a program,
+// so a bare object literal (`{…}`) errors; wrapping it as `(…)` makes it a valid
+// expression that fully minifies (the `(…)` is kept — a parenthesized expression
+// is an equivalent value). Order: ext(raw) → ext("("+raw+")") → the safe,
+// never-erroring built-in (also the whole safe level, where ext is nil).
+func cascadeJS(text string, ext func(string) (string, error)) string {
+	if ext != nil {
+		if o, err := ext(text); err == nil {
+			return o
+		}
+		if o, err := ext("(" + text + ")"); err == nil {
+			return o
+		}
+	}
+	return minifyJS(text)
+}
+
+// minifyJSEmbeddedHoley is implemented in Task 2; for now a holey js attribute is
+// left unchanged (matches the holey <script> policy).
+func minifyJSEmbeddedHoley(v *ast.EmbeddedAttr, ext func(string) (string, error)) {}
