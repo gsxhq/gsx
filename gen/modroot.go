@@ -3,12 +3,12 @@ package gen
 import (
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/gsxhq/gsx/internal/codegen"
+	"golang.org/x/mod/module"
 )
 
 // moduleGroup is a set of package directories that share one enclosing module,
@@ -78,7 +78,7 @@ func moduleRoot(dir string) (string, string, error) {
 // target must remain under the corresponding module root; an in-root symlink is
 // allowed, while a symlink escape is not.
 func moduleDirForImportPath(moduleRoot, modulePath, importPath string) (string, bool) {
-	if moduleRoot == "" || !validModuleImportPath(modulePath) || !validModuleImportPath(importPath) {
+	if moduleRoot == "" || module.CheckImportPath(modulePath) != nil || module.CheckImportPath(importPath) != nil {
 		return "", false
 	}
 	var rel string
@@ -114,18 +114,6 @@ func moduleDirForImportPath(moduleRoot, modulePath, importPath string) (string, 
 		return "", false
 	}
 	return candidate, true
-}
-
-func validModuleImportPath(p string) bool {
-	if p == "" || path.IsAbs(p) || filepath.IsAbs(filepath.FromSlash(p)) || strings.ContainsRune(p, '\\') {
-		return false
-	}
-	for elem := range strings.SplitSeq(p, "/") {
-		if elem == "" || elem == "." || elem == ".." {
-			return false
-		}
-	}
-	return true
 }
 
 func dirContainedBy(root, candidate string) bool {

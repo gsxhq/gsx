@@ -31,6 +31,11 @@ func TestModuleDirForImportPath(t *testing.T) {
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	for _, rel := range []string{"bad name", "trailing.", "a..b", "CON", "bad~1"} {
+		if err := os.Mkdir(filepath.Join(root, rel), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	file := filepath.Join(root, "not-a-dir")
 	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
@@ -53,6 +58,12 @@ func TestModuleDirForImportPath(t *testing.T) {
 		{name: "dotdot segment", modulePath: "example.com/app", importPath: "example.com/app/../sibling"},
 		{name: "empty segment", modulePath: "example.com/app", importPath: "example.com/app//renderers"},
 		{name: "backslash traversal", modulePath: "example.com/app", importPath: `example.com/app/..\sibling`},
+		{name: "invalid module grammar", modulePath: "example.com/bad module", importPath: "example.com/bad module"},
+		{name: "space", modulePath: "example.com/app", importPath: "example.com/app/bad name"},
+		{name: "trailing dot", modulePath: "example.com/app", importPath: "example.com/app/trailing."},
+		{name: "windows reserved", modulePath: "example.com/app", importPath: "example.com/app/CON"},
+		{name: "windows short name", modulePath: "example.com/app", importPath: "example.com/app/bad~1"},
+		{name: "consecutive dots accepted by xmod", modulePath: "example.com/app", importPath: "example.com/app/a..b", want: filepath.Join(root, "a..b"), wantOK: true},
 		{name: "missing directory", modulePath: "example.com/app", importPath: "example.com/app/missing"},
 		{name: "file", modulePath: "example.com/app", importPath: "example.com/app/not-a-dir"},
 	}
