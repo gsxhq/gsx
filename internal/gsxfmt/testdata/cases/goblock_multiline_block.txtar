@@ -1,0 +1,26 @@
+A multi-statement `{{ }}` block breaks: `{{` alone on its line, every statement
+indented one level deeper, `}}` alone on its own line at the block's column.
+Applies regardless of how the author wrote it (ragged / one-line-with-semicolons).
+
+-- input.gsx --
+package p
+
+component C() {
+	{{
+	x := 1
+	y := x + 2
+	_ = y
+	}}
+	<div>{ x }</div>
+}
+-- fmt.golden --
+package p
+
+component C() {
+	{{
+		x := 1
+		y := x + 2
+		_ = y
+	}}
+	<div>{ x }</div>
+}
