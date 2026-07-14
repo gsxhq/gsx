@@ -1,0 +1,22 @@
+# W1': a `|>` chain applied to a WHOLE value-position js` literal that itself
+# carries a nested @{ } hole (Task 4's split target) — `wrap(js`f(@{x})` |>
+# upper)`. The whole-literal pipe is NOT one of the literal's holes: it is a
+# gsx pipe over the entire literal, which has no meaning in Go-expression
+# position. The split scanner catches it purely syntactically (scanGoParts's
+# PipeOff), positioned at the `|>`, BEFORE analyze.go's hole split or emit's
+# assembleHoleSeed ever runs — so exactly one clean diagnostic surfaces, never
+# a skeleton cascade. Contrast a pipe at a HOLE's own top level
+# (`js`f(@{ f`x` |> upper })``, see nested_hole_pipe.txtar) which parsePipe
+# strips into a normal hole Stage and is fully supported. No `wrap` definition
+# is needed: the rejection is syntactic, before any name resolves.
+-- input.gsx --
+package demo
+
+component Page() {
+	<div>{ wrap(js`f(@{x})` |> upper) }</div>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+4:26: whole-literal pipelines are not supported in Go-expression position; wrap the literal in a function call instead
+-- render.golden --

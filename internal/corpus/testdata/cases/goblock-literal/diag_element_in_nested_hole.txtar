@@ -1,0 +1,21 @@
+# W3: an element literal inside a nested @{ } hole of a js`` literal seated in a
+# {{ }} Go block (`{{ h := js`f(@{ <b>y</b> })` }}`). Like the top-level form,
+# the hole must reassemble to a string seed, but an element value is a gsx.Node
+# closure — a single positioned "unsupported-node" diagnostic. The fix keeps the
+# GoBlock probe skeleton VALID (holeProbeSeed lowers the element part to a
+# nil-returning _gsxrt.Node placeholder) so emit's assembleHoleSeed rejection is
+# the one message, not a parser cascade from raw `<b>y</b>` in the skeleton.
+# Contrast a `<tag>` written DIRECTLY in a {{ }} block (element_rejected.txtar),
+# which analyze diagnoses itself via goBlockElementPart.
+-- input.gsx --
+package demo
+
+component Page() {
+	{{ h := js`f(@{ <b>y</b> })` }}
+	<button @click={h}>x</button>
+}
+-- invoke --
+Page()
+-- diagnostics.golden --
+4:16: element literals are not supported inside this interpolation position; bind the element to a variable in a {{ }} block or use a { } child position
+-- render.golden --

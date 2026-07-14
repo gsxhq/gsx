@@ -327,6 +327,7 @@ fragment-literals/return	diag gen render
 fragment-literals/struct-field	diag gen render
 fragment-literals/var	diag gen render
 goblock-literal/css_literal	diag gen render
+goblock-literal/diag_element_in_nested_hole	diag render
 goblock-literal/diag_whole_pipe_goblock	diag render
 goblock-literal/element_rejected	diag render
 goblock-literal/element_rejected_used_later	diag render
@@ -365,11 +366,13 @@ goexpr-js-literal/ctx_matrix	diag gen render
 goexpr-js-literal/diag_body_position	diag render
 goexpr-js-literal/diag_ctx_filter	diag render
 goexpr-js-literal/diag_ctx_renderer	diag render
+goexpr-js-literal/diag_element_in_nested_hole_toplevel	diag render
 goexpr-js-literal/diag_error_pipe	diag render
 goexpr-js-literal/diag_error_renderer	diag render
 goexpr-js-literal/diag_error_tuple	diag render
 goexpr-js-literal/diag_malformed_js	diag render
 goexpr-js-literal/diag_nested_err_toplevel	diag render
+goexpr-js-literal/diag_nested_whole_pipe	diag render
 goexpr-js-literal/differential	diag gen render
 goexpr-js-literal/dquote_form	diag gen render
 goexpr-js-literal/err_and_pure_holes_in_closure	diag gen render
@@ -382,6 +385,7 @@ goexpr-js-literal/func_return	diag gen render
 goexpr-js-literal/hostile	diag gen render
 goexpr-js-literal/indirect_rawjs_text	diag gen render
 goexpr-js-literal/nested_f_hole_toplevel	diag gen render
+goexpr-js-literal/nested_hole_pipe	diag render
 goexpr-js-literal/pure_filter_toplevel	diag gen render
 goexpr-js-literal/rawjs_escaped_in_string	diag gen render
 goexpr-js-literal/rawjs_passthrough_value	diag gen render
@@ -867,4 +871,4 @@ xpkg/imported_byo	diag gen render
 xpkg/interleaved_imports_error	diag(error)
 xpkg/multi_gsx_package	diag render
 xpkg/real_gsxshared_file	diag render
-TOTAL: 869 cases (render: 740, error: 97, gen-pinned: 499)
+TOTAL: 873 cases (render: 744, error: 97, gen-pinned: 499)
