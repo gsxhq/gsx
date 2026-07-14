@@ -802,6 +802,19 @@ vocabulary remains a design aspiration, not the current API.
 
 ## Tracked debts / deferrals
 
+- [ ] **External flat formatters miss the multi-line-token-interior fix** - the
+  built-in `gsx fmt` path re-indents `<script>`/`<style>` bodies and `` js`/css` ``
+  attribute values via LINE formatters, so a multi-line token (template literal,
+  block comment) interior is preserved verbatim. An external formatter supplied
+  via `gen.WithCSSFormatter`/`WithJSFormatter` is a flat `rawfmt.Formatter` (bytes,
+  no logical-line structure), so `printer.embeddedAttrLines`/`jsBodyDoc` fall back
+  to the physical-line split and re-indent token interiors (non-idempotent). Only
+  reachable through those options; the CLI passes nil and takes the fixed path.
+  Closing it means a line-returning external-formatter interface.
+- [ ] **Dead `Stages` branch in `embeddedAttrDoc`** - `internal/printer/printer.go`
+  keeps `braced := v.Braced || len(v.Stages) > 0` and a closer `|> stage` loop,
+  but the parser rejects whole-literal pipelines on `` js`/css` `` literals, so
+  `v.Stages` is always empty on that path. Harmless; remove or comment for clarity.
 - [ ] **Element literals inside `{{ }}` Go blocks** - a `<tag>`/`<>` element
   literal written in a body `{{ }}` Go block (`{{ x := <div/> }}`) is a
   positioned `unsupported-node` diagnostic ("element literals inside {{ }}
