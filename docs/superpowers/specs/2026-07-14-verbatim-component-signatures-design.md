@@ -199,18 +199,23 @@ using only explicit type arguments and authored operands that survive into the
 actual call lowering. Omitted zeros are never inference evidence. Discovery may
 recover the origin generic object/signature even though using an uninstantiated
 generic function as a value produces an expected probe diagnostic. Once authored
-bindings are known, a transient in-memory generic inference carrier copies the
-target's type parameters and constraints but accepts only the supplied parameter
-types. Its instance supplies the inferred type arguments for the original
-signature. Only then does lowering instantiate that signature, synthesize zeros,
-and validate the complete call. The carrier is analysis scaffolding, never an
-emitted declaration.
+bindings are known, analysis installs a transient semantic `types.Func` in the
+checker scope. Its `types.Signature` reuses the target's semantic type parameters,
+constraints, and supplied parameter types, but omits every unsupplied parameter.
+Because this carrier is assembled from `go/types` objects rather than copied Go
+source, imported unexported constraints remain usable without being named. Its
+instance supplies the inferred type arguments for the original signature. Only
+then does lowering instantiate that signature, synthesize zeros, and validate the
+complete call. The carrier is analysis scaffolding, never an emitted declaration.
 
-If authored-operands-only inference does not produce a complete valid
-instantiation, require explicit type arguments (`<Box[string]/>`) with a
-positioned diagnostic. Do not decide inference by syntactic type-parameter
-occurrence: `Infer[T](*T)` cannot infer `T` from `nil`, while constraints may
-infer a parameter not textually present in a supplied parameter type.
+Inference diagnostics follow Go's failure class, in this order: authored operand
+parse/type errors retain their native positioned diagnostics; an incomplete
+inference alone gets the explicit-type-argument hint (`<Box[string]/>`); an
+inferred or explicit argument that violates a constraint gets the native
+constraint diagnostic without claiming explicit arguments will fix it. Do not
+decide inference by syntactic type-parameter occurrence: `Infer[T](*T)` cannot
+infer `T` from `nil`, while constraints may infer a parameter not textually
+present in a supplied parameter type.
 
 A legitimate but uncommon non-nameable case is an **opaque package value**:
 
@@ -576,13 +581,24 @@ its source `.gsx` no longer exists, including directories with no remaining
 The existing `gsx -> Go-only project package -> gsx` importer path is also part
 of the cutover. It currently obtains the transitive gsx package from the external
 importer's on-disk `.x.go`, so ignoring only directly paired output is
-insufficient. Project-local Go-only packages reachable during analysis must be
+insufficient. In normal module mode, the existing single cold `packages.Load`
+adds `NeedCompiledGoFiles` and `NeedSyntax` and retains each project-local Go-only
+package's `CompiledGoFiles`/`Syntax` inventory in that load's exact build context.
+When such a package is reachable during analysis, those compiled files are
 source-type-checked through the same module importer, so any gsx package they
 import resolves from the authoritative in-memory skeleton. Cache and reverse-
-dependency edges include those intermediaries. Do not solve this by generation
-ordering, writing dependencies early, reloading `packages.Load`, or emitting an
-ABI sentinel: a single analysis run must not observe a mixture of old disk ABI
-and new skeleton ABI. No emitted compatibility wrapper is introduced.
+dependency edges include those intermediaries; a warm gsx-signature edit
+rechecks the retained syntax without another load.
+
+Bundle mode deliberately carries prebuilt types but no authoritative project
+source/build inventory. It continues to support its existing single-gsx-package
+plus external-dependencies contract. If analysis finds a project-local
+`gsx -> Go-only -> gsx` path in Bundle mode, it fails closed with a diagnostic
+directing the caller to the normal resolver; it never accepts the bundled stale
+transitive ABI. Do not solve either mode by generation ordering, writing
+dependencies early, reloading `packages.Load`, or emitting an ABI sentinel: a
+single analysis run must not observe a mixture of old disk ABI and new skeleton
+ABI. No emitted compatibility wrapper is introduced.
 
 ## Open implementation risks (design is settled; these are execution concerns)
 
@@ -593,7 +609,11 @@ and new skeleton ABI. No emitted compatibility wrapper is introduced.
    component classification exactly once. Assign call-site IDs to that shared,
    mutated AST and reuse the same tree for target discovery, positional
    validation, LSP facts, and final emission; neither phase may re-split or clone
-   embedded markup.
+   embedded markup. This does not add element literals inside `{{ }}` Go blocks:
+   those nodes remain materialized only long enough to receive the existing
+   single positioned `unsupported-node` diagnostic, and are excluded from target
+   planning/emission. Supported interpolation and top-level `GoWithElements`
+   sites retain their IDs through emission.
 
    Then use two in-memory `go/types` phases: a target-discovery skeleton records
    each site's origin generic signature/object provenance and
@@ -632,14 +652,20 @@ and new skeleton ABI. No emitted compatibility wrapper is introduced.
    matching and must adopt codegen's **exact-name** rule. **Parameter-rename**
    support becomes much more valuable (gopls does not understand markup
    attributes, so a Go rename silently breaks every `<Tag attr=…>` call site).
-   Rename follows semantic object identity, normalizing instantiated generic
-   parameters through `types.Var.Origin()`, and updates exact call-site attrs.
+   Rename is offered for parameters declared by gsx components. It follows
+   semantic object identity, normalizing instantiated generic parameters through
+   `types.Var.Origin()`, and updates exact call-site attrs.
    Renaming reserved `children` or `attrs` is rejected because it would change
    the parameter's language role rather than merely rename the markup contract;
    an ordinary parameter likewise cannot be renamed to `children`, `attrs`,
-   `ctx`, or `_gsx...`. For a build-tag variant set, rename updates the same
-   parameter ordinal in every already-equivalent declaration and all of their
-   call sites atomically; if equivalence cannot be proven, rename is rejected.
+   `ctx`, `_`, or `_gsx...`; ordinary Go identifier/collision validation also
+   applies. For a gsx build-tag variant set, rename updates the same parameter
+   ordinal in every already-equivalent declaration and all of their call sites
+   atomically; if equivalence cannot be proven, rename is rejected. Plain-Go
+   callable parameters still participate in definition/hover and exact binding,
+   but gsx does not offer rename for them: inactive Go build variants are owned by
+   the Go tool/gopls and cannot be safely fan-out edited from gsx's all-source
+   variant model.
 6. **Build-tag variant collision.** `variantcollide.go:componentSignature`
    currently sorts props and treats reordered declarations as equivalent. It must
    compare **ordered** parameter names, types, variadic position, and reserved
@@ -696,10 +722,12 @@ and new skeleton ABI. No emitted compatibility wrapper is introduced.
     ABI on the first run even when the disk `.x.go` contains the old Props ABI;
     warm invalidation follows the Go-only intermediary without another
     `packages.Load`;
-  - embedded component tags in interpolation and Go-block positions retain one
-    call-site identity across discovery, validation, and emission;
-  - build-tag parameter rename updates all equivalent variants by ordinal and
-    rejects reserved-name or unprovable-variant moves;
+  - supported embedded component tags retain one call-site identity across
+    discovery, validation, and emission; a direct element literal in a `{{ }}`
+    Go block retains its existing single rejection and never reaches planning;
+  - gsx build-tag parameter rename updates all equivalent variants by ordinal,
+    rejects `_`/reserved-name/unprovable-variant moves, and plain-Go callable
+    parameter rename is not offered;
   - a **direct-Go compile fixture** asserting the generated signature is exact
     and emitted `.x.go` contains no analysis helper/type declaration.
 - **structpages interop**: a differential test mounting a route tree and driving
