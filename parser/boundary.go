@@ -133,14 +133,27 @@ func composedDelims(src string) (commas, colons []int) {
 	return res.Commas, res.Colons
 }
 
+// skipGSXEmbeddedLiteral recognizes a prefixed gsx embedded literal (either
+// delimiter form: js`/css`/f` or their `"`-delimited escape-hatch
+// counterparts js"/css"/f") starting at src[i] and, if found, skips past it
+// with full hole awareness (embeddedLiteralEndHoleAware) — a nested prefixed
+// literal or a plain Go raw string inside one of its `@{ }` holes cannot
+// terminate this literal early. Returns (0, false) when src[i] does not begin
+// one of the six prefixed forms (at an identifier boundary).
 func skipGSXEmbeddedLiteral(src string, i int) (int, bool) {
 	switch {
 	case hasIdentBoundary(src, i) && strings.HasPrefix(src[i:], "js`"):
-		return embeddedLiteralEnd(src, i+len("js`"), '`')
+		return embeddedLiteralEndHoleAware(src, i+len("js`"), '`')
 	case hasIdentBoundary(src, i) && strings.HasPrefix(src[i:], "css`"):
-		return embeddedLiteralEnd(src, i+len("css`"), '`')
+		return embeddedLiteralEndHoleAware(src, i+len("css`"), '`')
 	case hasIdentBoundary(src, i) && strings.HasPrefix(src[i:], "f`"):
-		return embeddedLiteralEnd(src, i+len("f`"), '`')
+		return embeddedLiteralEndHoleAware(src, i+len("f`"), '`')
+	case hasIdentBoundary(src, i) && strings.HasPrefix(src[i:], `js"`):
+		return embeddedLiteralEndHoleAware(src, i+len(`js"`), '"')
+	case hasIdentBoundary(src, i) && strings.HasPrefix(src[i:], `css"`):
+		return embeddedLiteralEndHoleAware(src, i+len(`css"`), '"')
+	case hasIdentBoundary(src, i) && strings.HasPrefix(src[i:], `f"`):
+		return embeddedLiteralEndHoleAware(src, i+len(`f"`), '"')
 	default:
 		return 0, false
 	}
@@ -150,17 +163,48 @@ func hasIdentBoundary(src string, i int) bool {
 	return i == 0 || !isIdentByte(src[i-1])
 }
 
-// embeddedLiteralEnd returns the offset just past the closing delim of a gsx
-// embedded literal whose body starts at src[i] (i.e. just after the opening
-// delimiter). It honours gsx's backslash escape convention — a delim preceded
-// by an odd number of backslashes (a backslash-escaped backtick in a backtick
-// literal, `\"` in a '"'-delimited one) is a literal char, not the terminator.
-// delim is a backtick for the f/js/css backtick forms and '"' for the
-// '"'-delimited escape-hatch forms.
-func embeddedLiteralEnd(src string, i int, delim byte) (int, bool) {
+// embeddedLiteralEndHoleAware returns the offset just past the closing delim
+// of a gsx embedded literal whose body starts at src[i] (i.e. just after the
+// opening delimiter), scanning with full `@{ }` hole awareness. It honours
+// gsx's backslash escape convention — a delim preceded by an odd number of
+// backslashes (a backslash-escaped backtick in a backtick literal, `\"` in a
+// '"'-delimited one) is a literal char, not the terminator; an `@{` preceded
+// by an odd number of backslashes is likewise a literal `\@{`, not a hole
+// open (mirrors parseEmbeddedSegments's embeddedAtBraceEscaped). delim is a
+// backtick for the f/js/css backtick forms and '"' for the '"'-delimited
+// escape-hatch forms.
+//
+// On an unescaped `@{`, the hole's body is skipped with goExprEnd — the same
+// Go-expression-aware brace/string/comment scanner the attribute-literal
+// path uses to find a hole's end (parseInterp calls it directly;
+// parseEmbeddedSegments reaches it via parseInterp) — so a delimiter INSIDE
+// the hole's Go expression (a nested prefixed literal via
+// skipGSXEmbeddedLiteral, a plain Go raw string, a further nested hole)
+// cannot be mistaken for THIS literal's own closing delim. goExprEnd's own
+// nested-literal handling calls back into skipGSXEmbeddedLiteral, which
+// calls this function again — mutual recursion that gives arbitrary nesting
+// depth. Termination: every recursive step strictly advances the scanned
+// offset (a hole's close is always found, if at all, at some position > the
+// hole's open), bounded above by len(src), so the recursion cannot cycle.
+//
+// A hole that fails to close (goExprEnd's ok is false) or a literal that
+// never finds its own closing delim both fall back to consuming to len(src)
+// — the same graceful "unterminated" convention the flat scan this replaces
+// used, matching every existing caller's treatment of the returned bool
+// (always true; ok=false is reserved for "not a gsx literal here" in
+// skipGSXEmbeddedLiteral, one layer up).
+func embeddedLiteralEndHoleAware(src string, i int, delim byte) (int, bool) {
 	for i < len(src) {
 		if src[i] == delim && !backtickEscapedIn(src, i) {
 			return i + 1, true
+		}
+		if src[i] == '@' && i+1 < len(src) && src[i+1] == '{' && !backtickEscapedIn(src, i) {
+			close, ok := goExprEnd(src, i+1)
+			if !ok {
+				return len(src), true
+			}
+			i = close + 1
+			continue
 		}
 		i++
 	}

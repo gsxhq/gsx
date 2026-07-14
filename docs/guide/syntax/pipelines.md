@@ -1,137 +1,72 @@
 # Pipelines
 
-Pipelines transform a value through a chain of named filters using the `|>` operator. Each stage takes the value from the previous stage as its first argument, applies the named function, and passes the result on. The final value is then rendered with the same context-aware escaping that applies to any other interpolation.
+Use `|>` to pass a value through named filters from left to right. The final
+value is written with the same context-aware rules as any other expression.
 
-## Filters & chaining
+## Chain filters
 
-The pipeline syntax is `{ value |> filter }` for a single stage, or `{ value |> f1 |> f2 }` for a chain. Each filter is a registered Go function applied in left-to-right order. A stage can also take additional arguments: `{ value |> truncate(10) }` or `{ count |> printf("%d items") }`.
-
-gsx ships a built-in filter library (the `std` package) that is always available without any configuration:
-
-| filter | description |
-|---|---|
-| `upper` | maps all Unicode letters to upper case |
-| `lower` | maps all Unicode letters to lower case |
-| `trim` | removes leading and trailing whitespace |
-| `truncate(n)` | cuts to at most `n` runes |
-| `join(sep)` | joins a `[]string` with `sep` |
-| `default(fallback, rest…)` | returns the first non-zero comparable value, preserving its concrete type (`cmp.Or` semantics) |
-| `printf(spec, rest…)` | like `fmt.Sprintf` with the piped value as the first verb |
-| `urlquery` | percent-encodes the value for a URL query component (`url.QueryEscape`) — html/template's `urlquery` |
-| `dataURL(mime)` | assembles a `data:` URL from `[]byte` bytes and a MIME string: `data:<mime>;base64,<base64(bytes)>` |
-
-When assembling a URL in an `f`-literal, encode each query component in its hole: URL attributes sanitize the **assembled whole** (scheme allow-list + attribute escaping) but never rewrite the bytes inside a hole, so `` f`/search?q=@{ q |> urlquery }` `` is what keeps a `q` containing `&`, `=`, `%` or spaces from changing the URL's meaning.
-
-To register your own named filter, add it to the `[filters]` table in `gsx.toml` — see [Configuration → `[filters]`](../config.md#filters-named-pipeline-filters). To register every exported function from a package at once, list the package path in `filter_packages`. In both cases the function must have the seed-first shape: the piped value is the first parameter (after an optional `context.Context`), and extra stage arguments follow.
+Add one or more stages after an expression.
 
 <!--@include: ./_generated/pipelines/010-pipelines-filters.md-->
 
-`name |> trim` strips the surrounding whitespace; `|> upper` then maps every letter to upper case. The two stages are lowered to nested calls — `_gsxstd.Upper(_gsxstd.Trim(name))` — and the result is HTML-escaped as it is written to output.
+`name |> trim |> upper` trims `name`, then passes that result to `upper`.
+Built-in filters include `upper`, `lower`, `trim`, `truncate`, `join`,
+`default`, `printf`, `urlquery`, and `dataURL`. Custom names come from
+[configured filters](../config.md#filters-named-pipeline-filters).
 
-## Filter arguments
+`default` preserves the value's type and returns the first non-zero choice:
 
-A filter stage can take extra arguments by appending them in parentheses after the filter name: `{ value |> truncate(10) }` or `{ count |> printf("%d comments") }`. The piped value is always the first argument; the parenthesised values are appended after it. Stages with and without arguments can be freely mixed in a chain.
+```gsx
+{count |> default(1)}
+{label |> default(shortLabel, "Untitled")}
+```
+
+## Pass filter arguments
+
+Put additional arguments in parentheses. The piped value is always the first
+argument, followed by the values you write.
 
 <!--@include: ./_generated/pipelines/020-filter-arguments.md-->
 
-`s |> trim |> truncate(5)` strips surrounding whitespace first, then cuts to five runes — lowered to `_gsxstd.Truncate(_gsxstd.Trim(s), 5)`. `count |> printf("%d comments")` passes `count` as the first `Sprintf` verb and the string literal as the format spec.
+Stages with and without arguments can be mixed in the same chain.
 
-## Whole-literal pipelines
+## Pipe a whole interpolated literal {#whole-literal-pipelines}
 
-An `f`-prefixed literal followed by `|>` pipes the **entire assembled string** as
-a unit. The literal's static text and `@{ }` holes are interpolated into one Go
-string first, and that whole value flows into the pipeline — not each hole
-separately. It works in body braces (`` {f`…` |> f} ``) and in a braced attribute
-value (`` attr={f`…` |> f} ``).
+Put `|>` after an `f` literal to filter the complete interpolated string.
 
 <!--@include: ./_generated/pipelines/040-whole-literal-pipelines.md-->
 
-`` f`item-@{id}` |> upper `` assembles `item-` + `id` into one string, then applies
-`upper` to the result. This is the ergonomic alternative to a `fmt.Sprintf` +
-pipe: `` {f`item-@{id}` |> upper} `` reads far more directly than
-`` { fmt.Sprintf("item-%s", id) |> upper } `` while lowering to the same single
-call chain.
-
-Contrast with a **per-hole** pipeline, where `|>` sits *inside* a hole and
-transforms only that one value: `` f`item-@{ id |> upper }` `` upper-cases just
-`id`, leaving the `item-` prefix untouched. The whole-literal form places the
-`|>` *after* the closing backtick, so the filter sees the finished string.
-
-::: v-pre
-The whole-literal pipe is available in body braces and the **braced** attribute
-form (`attr={f`…` |> f}`), but not on the direct (unbraced) attribute literal
-(`` attr=f`…` ``) — wrap it in braces to add a pipeline. It is also rejected on
-`js` and `css` embedded-language literals, whose holes carry their own
-per-context escaping.
-:::
-
-### URL attributes sanitize after the pipe
-
-When the piped literal sits in a URL-context attribute (`href`, `src`, `action`,
-and the rest of the 11 built-in names, plus the htmx method attrs if
-`url_presets = ["htmx"]` is opted in), the scheme check runs on the **pipe's
-output** — after the filter, never before. A filter that produces a dangerous
-scheme is still blocked to `about:invalid#gsx`; the sanitizer always has the
-final say.
+Compare the placement:
 
 ```gsx
-<a href={f`@{u}` |> upper}>go</a>
+{f`item-@{ id |> upper }`} // filters only id
+{f`item-@{id}` |> upper}   // filters "item-" and id together
 ```
 
-With `u = "javascript:alert(1)"`, `upper` yields `JAVASCRIPT:ALERT(1)`, and the
-URL sanitizer — case-insensitive on the scheme — still rejects it, rendering
-`href="about:invalid#gsx"`. There is no ordering of filter and holes that lets a
-dangerous scheme reach the browser.
+The whole-literal form also works in a braced attribute value:
+`` title={f`item-@{id}` |> upper} ``. Braces are required there; in the direct
+`` title=f`item-@{id}` `` form, pipelines stay inside `@{}` holes. See
+[Interpolating attribute literals](./attributes.md#interpolating-attribute-literals).
 
-### `dataURL` grants no privilege
+## Errors
 
-`dataURL(mime)` (in `std`) is a plain assembly helper, not a trust boundary:
-`{ imageBytes |> dataURL("image/png") }` produces
-`data:image/png;base64,<base64(imageBytes)>`, but that output is still
-re-validated by the sink's sanitizer like any other pipeline result. On an
-[image sink](./escaping.md#resource-vs-navigational-url-sinks) (`<img src>`,
-`<video poster>`, `background`, …), the sanitizer accepts only the image-MIME
-allow-list — `{ pdfBytes |> dataURL("application/pdf") }` on `<img src>` still
-renders `about:invalid#gsx`. On a strict sink (`href`, `action`, …), any
-`dataURL(...)` output is blocked outright; `dataURL` cannot make a `data:` URL
-safe there. See [Escaping — resource vs navigational URL sinks](./escaping.md#resource-vs-navigational-url-sinks).
+Any pipeline stage may return `(T, error)`. A nil error passes the `T` value to
+the next stage; a non-nil error returns from `Render` immediately, so later
+stages do not run.
 
-## `(T, error)` auto-unwrap
+Do not add a try marker: `value |> parse?` is an error because propagation is
+automatic. To handle a failure locally, use an explicit Go `if` statement
+instead of that stage; see [Control flow](./control-flow.md#init-statements).
 
-A filter that returns `(T, error)` — or any bare function call `{ f(x) }` with that return shape — is automatically unwrapped. There is no special syntax needed: the generated code assigns the result, checks the error, and if it is non-nil, returns it from `Render`. The caller receives the error and can handle it (log, serve a 500, etc.). See [Interpolation → `(T, error)` unwrap](./interpolation.md) for a worked example.
+## Context-aware output
 
-To handle an error inline, use a raw-Go init statement: `{ if v, err := f(); err != nil { … } else { … } }`.
-
-The `?` try-marker syntax (e.g., `|> upper?`) is not supported — gsx reports an error — auto-unwrap makes it unnecessary.
-
-## Filters that can fail at any stage
-
-The `(T, error)` unwrap above is not limited to the final stage of a pipeline. Any stage — first, middle, or last — can be a filter matching the contract documented on `std`: `func([ctx context.Context,] subject T, args...) (R, error)`.
-
-```gsx
-<p>{ csv |> parse |> join(" ") }</p>
-```
-
-If `parse` has that shape, its stage lowers to a hoisted temporary with an error check, and the next stage consumes the unwrapped value — equivalent to:
-
-```go
-v, err := parse(csv)
-if err != nil {
-    return err
-}
-// join(v, " ") continues the chain — its result is what gets rendered
-```
-
-When a stage's error is non-nil, the chain **halts right there**: later stages are never invoked, and the error returns from the component's render — the same semantics as the single-expression `(T, error)` unwrap (see [Interpolation → `(T, error)` unwrap](./interpolation.md)). This holds in every context a pipeline can appear: text, attributes, composable `class`/`style` parts, spread values, child-component props, and conditional-attribute branches — including a composable `class` part nested inside a component's conditional-attribute branch.
-
-To handle the error instead of propagating it, skip the pipeline for that stage and fall back to the same explicit form: `{ if v, err := parse(csv); err != nil { … } else { … } }`. The `?` try-marker stays rejected at every stage, not just the last.
-
-## Pipelines per context
-
-A pipeline can appear anywhere a `{ expr }` interpolation is valid — text content, plain attributes, URL attributes, and so on. Importantly, pipelines do **not** bypass context-aware escaping: the value produced by the final stage is still sanitized for the context it sits in.
-
-In particular, a URL-context attribute (`href`, `src`, `action`, and the rest of the 11 built-in URL attribute names; the htmx method attributes join this set only with `url_presets = ["htmx"]` opted in) always scheme-sanitizes its value. A dangerous scheme like `javascript:` is replaced with `about:invalid#gsx` even when the value was first passed through a pipeline. Trimming whitespace does not make a dangerous URL safe.
+Pipelines transform values; they do not change the safety rules of the place
+where the result is written.
 
 <!--@include: ./_generated/pipelines/030-pipelines-in-attribute-context.md-->
 
-`u |> trim` removes the surrounding whitespace, but `href` is a URL-context attribute — the scheme check runs on the trimmed value and rejects `javascript:`, writing `about:invalid#gsx` instead. This also means a safe, clean URL is correctly passed through: `"  /p?q=a&b  " |> trim` produces `/p?q=a&amp;b` (the `&` is attribute-escaped, the path itself is fine).
+Here `trim` runs first, then the URL sink rejects the dangerous scheme.
+`urlquery` is useful for encoding one query component, while `dataURL` builds a
+base64 `data:` URL. Neither grants trust: the final URL is still checked for
+its sink. See [Escaping](./escaping.md#url-attributes) for the URL rules and
+trusted-value helpers.

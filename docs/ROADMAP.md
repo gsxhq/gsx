@@ -407,6 +407,18 @@ render goldens.
     (`../tree-sitter-gsx`, `../vscode-gsx`, `gsxhq.github.io` CodeMirror) do
     not yet recognize tags/fragments inside interpolations or the `"…"`
     literal delimiter form - follow-up, out of scope for this repo.
+    **Follow-up, SHIPPED (2026-07-14):** PR #106 (expression-valued
+    `js`/`css`` literals) left three gaps in this item's position/capability
+    matrix, now closed. A literal nested inside another literal's `@{ }` hole
+    - previously body-position only - now works in every hole-bearing context
+    (attribute, expression, GoBlock), assembled from `Interp.Embedded` instead
+    of splicing raw text (an element/fragment literal in a nested hole, or a
+    literal used as a pipe-stage argument, is a positioned diagnostic). A
+    `js`/`css`` hole now hoists error-carrying shapes at the same in-closure
+    sites an `f`` hole already could. A `|>` after a Go-expression-position
+    literal (`` var x = f`hi` |> upper ``) is a positioned "wrap it in a
+    function call" diagnostic instead of a raw `expected operand, found '>'`
+    parse error. Spec `2026-07-13-literal-position-gap-closing-design.md`.
 
 18. [x] **Attrs-only component values** - `2026-07-10`. Un-defers the
     "component values" item parked in 15 above: a package-level `var`/`func`

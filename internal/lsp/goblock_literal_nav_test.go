@@ -76,6 +76,48 @@ func TestExprPositionCSSLiteralHoleDefinition(t *testing.T) {
 	}
 }
 
+// TestNestedLiteralHoleDefinition asserts go-to-definition from an @{ } hole
+// belonging to a NESTED f-literal — one written inside another literal's own
+// @{ } hole, e.g. f`a @{ f`b @{who}` }` — resolves to the enclosing
+// component's parameter. inspectWithEmbedded re-descends every *Interp
+// (including one seated inside a Interp.Embedded segment), so the nested
+// hole's own Interp.Embedded should resolve exactly like a top-level one; this
+// pins that W3c body-position nesting (Task 5) without requiring any
+// production code change.
+func TestNestedLiteralHoleDefinition(t *testing.T) {
+	src := "package page\n\ncomponent P(who string) {\n\t<p>{f`a @{ f`b @{who}` }`}</p>\n}\n"
+	pkg, path := analyzedLSPPackage(t, src)
+
+	lineCol := func(off int) (int, int) {
+		return strings.Count(src[:off], "\n") + 1, off - strings.LastIndexByte(src[:off], '\n')
+	}
+	paramWho := strings.Index(src, "who string")
+
+	off := strings.Index(src, "@{who}") + len("@{")
+	dp, ok := exprDefinitionAt(pkg, path, off)
+	if !ok {
+		t.Fatal("nested literal hole did not resolve")
+	}
+	wantLine, wantCol := lineCol(paramWho)
+	if dp.Line != wantLine || dp.Column != wantCol {
+		t.Errorf("nested hole who resolved to %d:%d, want %d:%d", dp.Line, dp.Column, wantLine, wantCol)
+	}
+}
+
+// TestNestedLiteralHoleHover is TestNestedLiteralHoleDefinition's hover
+// counterpart: the same nested @{who} hole resolves to who's go/types Object
+// via the ExprMap bridge.
+func TestNestedLiteralHoleHover(t *testing.T) {
+	src := "package page\n\ncomponent P(who string) {\n\t<p>{f`a @{ f`b @{who}` }`}</p>\n}\n"
+	pkg, path := analyzedLSPPackage(t, src)
+
+	off := strings.Index(src, "@{who}") + len("@{")
+	obj := hoverObjectAt(t, pkg, path, off)
+	if obj == nil || obj.Name() != "who" {
+		t.Fatalf("nested literal hole hover obj = %v, want who", obj)
+	}
+}
+
 // TestComponentPropJSLiteralHoleDefinition is the BONUS row: go-to-definition
 // from an @{ } hole inside a js`…` literal supplied as a braced component-prop
 // value (`Handler={ js`open(@{id})` }`) resolves to the enclosing component's

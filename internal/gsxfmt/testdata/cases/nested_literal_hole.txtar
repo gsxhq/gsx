@@ -1,0 +1,28 @@
+A nested f`` literal inside another f`` literal's @{ } hole, in BOTH an attr
+hole and a body hole, deliberately mis-indented. The formatter reflows the
+surrounding markup/Go indentation to canonical (tabs, one level per nesting)
+and trims the stray spaces immediately inside the OUTER hole's own `@{ }`
+boundary (the space right after `@{` and right before the matching `}`) — but
+a hole whose value is itself a nested literal is not a plain Go expression the
+hole-expression printer knows how to reformat, so it degrades to verbatim: the
+nested literal's own text, INCLUDING its own inner `@{  who  }` hole's stray
+spacing, round-trips byte-for-byte unchanged. This is the documented
+"degrade-to-verbatim" behavior, not corruption — the inner hole's odd spacing
+is preserved exactly, never mangled.
+
+-- input.gsx --
+package p
+
+component Row(who string) {
+        <div title={f`a @{ f`b @{ who } ` } c`}>
+              {f`x @{ f`y @{  who  }` } z`}
+        </div>
+}
+-- fmt.golden --
+package p
+
+component Row(who string) {
+	<div title={f`a @{f`b @{ who } `} c`}>
+		{f`x @{f`y @{  who  }`} z`}
+	</div>
+}

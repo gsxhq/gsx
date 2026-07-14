@@ -1,17 +1,72 @@
-# Configuration — `gsx.toml`
+# Configuration
 
-A project configures gsx declaratively in a `gsx.toml` file that the **stock
-`gsx` binary** reads. This covers the common cases — registering pipeline
-filters and URL-attribute rules — with no per-project generator
-program. The few options that are Go *functions* (a custom minifier, an
-attribute formatter, a field matcher) still require a code-based setup; see
-[Extensions](./extensions.md).
+Use `gsx.toml` for project-wide commands, filters, formatting, URL rules,
+minification, and class merging.
 
-## `[dev]` — development loop
+## Start with `gsx.toml`
 
-`gsx dev` works without configuration: it runs `npx vite`, builds the current
-package to a per-project operating-system cache directory, and runs that binary.
-The `[dev]` table customizes those commands:
+Most projects need only a few settings:
+
+```toml
+# gsx.toml
+[dev]
+web = ["pnpm", "vite"]
+
+[filters]
+url = "github.com/jackielii/structpages.URLFor"
+```
+
+This changes the front-end command used by `gsx dev` and makes `url` available
+in pipelines such as `{ page |> url }`.
+
+## Discovery and precedence
+
+`gsx generate` and `gsx info` start at the command's working directory (after
+`-C`, when used). `gsx dev [dir]` starts at that optional directory, resolved
+against the command working directory; without `dir`, it starts at the working
+directory. Each command walks upward and uses the first `gsx.toml` it finds.
+The walk stops at the nearest ancestor containing `.git`; outside a Git
+repository, it stops at the nearest Go module root. The boundary directory is
+included. With neither `.git` nor `go.mod`, only the starting directory is
+checked.
+
+A nearer file replaces an ancestor file completely. Config files are not
+merged, and gsx never continues above the project boundary to find a global
+config.
+
+For those three commands, malformed TOML, unknown keys, and invalid values are
+hard configuration errors. `gsx fmt` instead discovers configuration from each
+file's directory and falls back to `.editorconfig` or built-in formatting when
+a file is missing or unusable. Editor formatting uses the same per-file,
+best-effort behavior.
+
+For settings that affect generated output, precedence is:
+
+```text
+programmatic option > environment override > gsx.toml > built-in default
+```
+
+Currently, `GSX_MINIFY` is the environment override. Development commands and
+formatting have their own precedence rules in the sections below.
+
+When `generate`, `dev`, or `info` loads the file, unknown keys are errors,
+including misspelled keys inside a table. TOML keeps bare keys in the most
+recent table, so put every top-level key before the first table header:
+
+```toml
+# Correct: class_merger is top-level.
+class_merger = "example.com/app/twcfg.Merge"
+
+[minify]
+css = "full"
+```
+
+Putting `class_merger` after `[minify]` makes it `minify.class_merger`; strict
+decoding reports that nested key as unknown instead of silently accepting it.
+
+## Development commands `[dev]` {#dev-development-loop}
+
+Use `[dev]` when the default `gsx dev` commands do not fit your project:
 
 ```toml
 [dev]
@@ -21,528 +76,336 @@ run = ["tmp/app"]
 log = "tmp/dev.log"
 ```
 
-`web`, `build`, and `run` are argument arrays executed directly, without a
-shell. If `build` changes the output path, update `run` to match it. `log` is
-optional and off by default; a configured path may write into the working tree.
+Command arrays run directly without a shell, so each array item is one exact
+argument. Keep `build` and `run` pointed at the same binary.
 
-`host` sets the hostname in the generated `VITE_DEV_URL` (default `localhost`),
-for when the dev server must be reachable under a specific name:
+| Key | Default | Effect |
+|---|---|---|
+| `web` | `["npx", "vite"]` | Front-end command. |
+| `build` | `go build` to a per-project binary | Backend build command. |
+| `run` | the default built binary | Backend command. |
+| `log` | off | File that also receives backend output. |
+| `no_web` | `false` | Disable the front-end command. |
+| `host` | from `VITE_DEV_URL`, otherwise `localhost` | Hostname used in `VITE_DEV_URL`. |
 
-```toml
-[dev]
-host = "mstudio"   # → VITE_DEV_URL=http://mstudio:<port>
+An existing `VITE_DEV_URL` can supply the hostname when `host` is unset. The
+port still comes from `VITE_PORT` or automatic selection.
+
+Command-line flags override `[dev]`; `[dev]` overrides the defaults. See
+[`gsx dev`](./cli.md#gsx-dev) for one-off overrides.
+
+## Pipeline filters
+
+Filters are exported Go functions that receive the piped value as their first
+subject argument. A leading `context.Context` is optional, and the function may
+return either `R` or `(R, error)`:
+
+```go
+func Slug(value string) string
+func Lookup(ctx context.Context, value string, locale string) (string, error)
 ```
 
-When `host` is unset, `gsx dev` takes the hostname from an existing
-`VITE_DEV_URL` in the environment (typically a gitignored `.env`), so a
-per-machine dev hostname needs no committed config. Only the host is taken —
-the port still comes from `VITE_PORT` or the auto-picker.
+An error stops rendering and is returned by the component. See
+[Pipelines](./syntax/pipelines.md) for call syntax and the built-in filter list.
 
-Set `no_web = true` when another process manages Vite:
+### Named filters `[filters]` {#filters-named-pipeline-filters}
 
-```toml
-[dev]
-no_web = true
-```
-
-CLI flags override this table. See the [`gsx dev` reference](./cli.md#gsx-dev).
-
-## Example: pipeline filters
-
-```toml
-# gsx.toml — typically at the repo root
-[filters]
-url    = "github.com/jackielii/structpages.URLFor"
-id     = "github.com/jackielii/structpages.ID"
-target = "github.com/jackielii/structpages.IDTarget"
-```
-
-With that config, `gsx generate` makes `url`/`id`/`target` available as
-pipeline filters in any `.gsx` file:
-
-```gsx
-<a href={ aboutPage{} |> url }>About</a>
-<div id={ MyPage.UserList |> id } hx-target={ MyPage.UserList |> target }>…</div>
-```
-
-## Location & discovery
-
-gsx finds `gsx.toml` by walking **up** from the directory it generates in and
-using the **first one it finds**:
-
-- The walk is **bounded by the git repo root** (the nearest ancestor containing
-  `.git`). A `gsx.toml` above the repo is never read.
-- If the directory is not in a git repo, the bound falls back to the **module
-  root** (the nearest `go.mod`).
-- There is **no global / `$HOME` config** — every key is a Go import path, which
-  is project-specific by nature, so the walk never escapes the project.
-
-Because the walk crosses module boundaries (it stops at the repo, not at each
-`go.mod`), **one `gsx.toml` at the repo root serves every module in the repo**:
-
-```
-myrepo/
-  .git/
-  gsx.toml          ← discovered by both modules below
-  service/  go.mod  pages.gsx
-  admin/    go.mod  pages.gsx
-```
-
-A nearer `gsx.toml` wins wholesale over an ancestor one (there is no merging
-across files), so a single module can override the shared config by dropping its
-own `gsx.toml`.
-
-> A config beside `go.mod` is also a stable project-root anchor for editor
-> tooling.
-
-## Options
-
-### `[filters]` — named pipeline filters
-
-A table of `name = "<pkgPath>.<Func>"`. Each entry registers one Go function as
-a pipeline filter named `name`, usable as `{ value |> name(args…) }`.
+Use `[filters]` when template code should use a short, stable name:
 
 ```toml
 [filters]
-url    = "github.com/jackielii/structpages.URLFor"
-upper  = "example.com/text.ToUpper"
+url = "github.com/jackielii/structpages.URLFor"
+slug = "example.com/app/textutil.Slug"
 ```
 
-The lowering follows the standard [pipeline rules](./syntax.md): the piped value
-becomes the first non-`ctx` argument, `ctx` is injected automatically when the
-function's first parameter is `context.Context`, the stage's own arguments
-follow, and a `(T, error)` return is auto-unwrapped. So:
+Each value names an exported top-level function as
+`"<package-import-path>.<Function>"`. Closures, methods, and unexported
+functions cannot be registered.
 
 ```gsx
-{ toggle{} |> url("id", todo.ID) }
+<a href={ page |> url }>Open</a>
+<span>{ title |> slug }</span>
 ```
 
-lowers to `structpages.URLFor(ctx, toggle{}, "id", todo.ID)` with the error
-propagated out of `Render`.
+Named filters have higher precedence than package filters with the same name.
+A programmatic `gen.WithFilter` registration has higher precedence than the
+file entry.
 
-The function must be an **exported top-level function** in a package the
-generated module can import (it is resolved by the Go type-checker against that
-module). A non-exported name, a method value, or a missing function is a clear
-config error.
+### Filter packages `filter_packages`
 
-### `filter_packages` — bulk filter packages
-
-A list of package import paths. **Every** exported function in each listed
-package is registered as a filter, named by its lower-cased function name
-(`Upper` → `upper`, `Truncate` → `truncate`). This is the bulk form of
-`[filters]`; use it when you want a whole package of helpers available without
-naming each one.
+Use `filter_packages` to register every compatible exported function in a
+helper package:
 
 ```toml
-filter_packages = ["example.com/myproject/templatefuncs"]
+filter_packages = [
+  "example.com/app/templatefuncs",
+  "example.com/app/productfilters",
+]
 ```
 
-The gsx built-in `std` filter package is **always available** — you do not list
-it. It ships `upper`, `lower`, `trim`, `truncate`, `join`, `default`, `printf`
-(a `fmt.Sprintf` wrapper with the piped value as the first verb:
-`{ price |> printf("$%.2f") }`), `urlquery` (percent-encodes a URL query
-component, like html/template's `urlquery`), and `dataURL` (assembles a base64
-`data:` URL — see [Pipelines](./syntax/pipelines.md)). List `filter_packages` only for your own
-packages, or to set precedence (later packages win on name collisions).
+`ProductName` becomes `productName`; only the first rune is lowercased.
+Packages are applied in order, and a later package wins a name collision.
 
-#### `std` is the lowest-precedence base
+The built-in `std` package is always present at the lowest precedence. Your
+packages can replace one built-in name without removing the other built-ins.
+Named `[filters]` entries are applied after package filters and therefore win
+the same name.
 
-`std` sits at the **bottom** of the filter-precedence stack: it is always
-present, but any later registration with the same name shadows just that one
-built-in — the rest of `std` stays available. So you can override `dataURL`
-(or `truncate`, `printf`, …) with your own function without re-declaring the
-whole standard library. Precedence, low → high:
+## Type renderers `[renderers]` {#renderers-type-directed-value-rendering}
 
-1. `std` — the built-in base, always present.
-2. `filter_packages` (config) / `WithFilters` (code) — listed in order,
-   **last package wins** on a name collision, and each wins over `std`.
-3. `[filters]` aliases (config) / `WithFilter` (code) — a named single-function
-   alias, highest precedence of all.
-
-For example, `[filters] dataURL = "example.com/img.DataURL"` (or
-`gen.WithFilter("dataURL", img.DataURL)`) replaces the built-in `dataURL`
-while `upper`, `trim`, and the rest of `std` keep working. The programmatic
-options layer on top of the config the same way — a code-registered filter
-overrides a same-named config filter (see [What is *not* in
-`gsx.toml`](#what-is-not-in-gsx-toml) below).
-
-### `[renderers]` — type-directed value rendering
-
-Third-party wrapper types — `pgtype.Text`, `sql.NullString` — are not
-renderable and cannot be given a `String()` method you don't own. A renderer
-teaches gsx how to display such a type everywhere, once:
+Use a renderer when a named Go type cannot be displayed directly, such as a
+database wrapper type:
 
 ```toml
 [renderers]
-"github.com/jackc/pgx/v5/pgtype.Text" = "example.com/app/filters.PgText"
+"github.com/jackc/pgx/v5/pgtype.Text" = "example.com/app/viewfmt.PgText"
 ```
 
 ```go
-func PgText(t pgtype.Text) string {
-	if !t.Valid {
+func PgText(value pgtype.Text) string {
+	if !value.Valid {
 		return ""
 	}
-	return t.String
+	return value.String
 }
 ```
 
+The key is the exact named type, written as `"<package-path>.<Type>"`. Prefix
+it with `*` to register the pointer type; value and pointer registrations are
+separate.
+
 For a renderer implemented in `.gsx` and returning semantic markup, see the
-[Package renderers pattern](./patterns/package-renderers.md). It includes a
-complete application-owned pgx `Timestamptz` recipe and the clean-checkout
-generation boundary.
+[Package renderers pattern](./patterns/package-renderers.md).
 
-The registered type renders through `PgText` wherever gsx renders a value —
-text, attribute, and URL holes, style/script holes and interpolated literals,
-`class`/`style` parts, conditional-attribute branches, and component
-fallthrough/ordered-attrs values — and the result is escaped or sanitized for
-its context exactly like a pipe filter's output. It does **not** apply to a
-plain component argument; that's ordinary Go. A renderer may return
-`(R, error)`; the error propagates like a failing pipe stage. It may also
-take a leading `context.Context` (`func(ctx context.Context, T) R`), which
-receives the render context — like a ctx-taking filter.
+A renderer must be an exported top-level function with one of these shapes:
 
-- Keys are matched by exact `go/types` identity. `"*pkg.Type"` registers the
-  pointer type; pointer and value registrations are separate entries.
-- Registration always wins, even if the type also has a `String()` method.
-- Renderers apply once and never chain: the result type must be natively
-  renderable, and a result type with its own renderer (including `func(T) T`)
-  is a generation-time error.
-- Type-parameter holes and values that are `any` at runtime (user-supplied
-  `gsx.Attrs` entries, spreads) never consult the registry.
-- Advanced: gsx's own trusted types (`gsx.RawJS`, `gsx.RawCSS`) can be
-  registered too — the renderer replaces their verbatim passthrough and
-  applies uniformly wherever the value renders.
+```go
+func(T) R
+func(T) (R, error)
+func(context.Context, T) R
+func(context.Context, T) (R, error)
+```
 
-`gen.WithRenderer("<pkgPath>.<TypeName>", fn)` registers from a custom
-generator binary and overrides a file entry for the same key, like
-`WithFilter` over `[filters]`. Registrations are part of the codegen cache
-key.
+`T` must exactly match the registered key. `R` must be directly renderable;
+renderers run once and do not chain. A returned error stops rendering.
 
-::: warning gsx.toml key ordering
-TOML attaches a bare key to the table header above it — put top-level keys
-like `filter_packages` **before** `[renderers]` (and any other table).
-:::
+The renderer applies when the type is written in text, attributes, and other
+rendering positions. It does not change ordinary Go component arguments. See
+[Interpolation](./syntax/interpolation.md) for the normal typed-value rules.
 
-### `[[url_attrs]]` — URL attribute contexts
+`gsx.RawJS` and `gsx.RawCSS` may be registered too. The renderer replaces their
+normal trusted passthrough everywhere that value renders.
 
-gsx treats ordinary `attr={expr}` values as attribute-escaped text, except for
-URL attributes. The built-ins cover the standard HTML URL attributes (`href`,
-`src`, `action`, `formaction`, `poster`, `cite`, `ping`, `data`, `background`,
-`manifest`, `xlink:href`). If your project uses a framework with its own
-URL-bearing attributes, register additional rules so those values get URL scheme
-sanitization before attribute escaping.
+A programmatic `gen.WithRenderer` for the same type overrides the file entry.
 
-Each rule matches by **exact name** (`name`, case-insensitive) **or by prefix**
-(`prefix`) — set exactly one:
+## URL attributes
+
+Dynamic, interpolated, and forwarded values on classified URL attributes
+receive scheme checks before normal attribute escaping. Quoted URL literals on
+native elements are trusted author text. The built-in names are:
+
+`href`, `src`, `action`, `formaction`, `poster`, `cite`, `ping`, `data`,
+`background`, `manifest`, `xlink:href`, `srcset`, and `imagesrcset`.
+
+Project rules extend this set; they cannot downgrade a built-in URL attribute.
+See [Escaping](./syntax/escaping.md#url-attributes) for the allowed schemes and
+the different navigation, image, and source-set sinks.
+
+### Exact and prefix rules `[[url_attrs]]`
+
+Register a framework or project attribute that carries a URL:
 
 ```toml
-# A specific URL-bearing attribute.
 [[url_attrs]]
-name = "data-href"
+name = "v-bind:href"
 
-# A family of URL-bearing attributes.
 [[url_attrs]]
 prefix = "data-url-"
 ```
 
-Rules are **additive** — they extend the built-ins, never downgrade them. The
-built-ins are checked first; your rules apply only to names they did not already
-classify.
+Each rule sets exactly one field:
 
-#### `url_presets` — named opt-in rulesets
+| Field | Match |
+|---|---|
+| `name` | Exact attribute name, case-insensitive. |
+| `prefix` | Attribute names beginning with the prefix, case-insensitive. |
 
-Presets bundle a family of URL rules under a name. The only preset today is
-`htmx`, which classifies the five htmx method attributes — `hx-get`, `hx-post`,
-`hx-put`, `hx-delete`, `hx-patch` — as URL sinks so their values are
-scheme-sanitized just like `href`:
+### Presets `url_presets` {#url_presets-named-opt-in-rulesets}
+
+Use the `htmx` preset when htmx method attributes carry application URLs:
 
 ```toml
 url_presets = ["htmx"]
 ```
 
-::: warning Default change
-The htmx method attributes are **off by default** — the safety floor is pure
-HTML. A project that renders htmx URLs from untrusted data must opt in with
-`url_presets = ["htmx"]` (or `gen.WithURLPreset("htmx")` in a custom generator
-binary). Without the preset, `hx-get={expr}` is written as plain
-attribute-escaped text, not URL-sanitized. Only the five method attributes are
-covered; `hx-swap` / `hx-target` / `hx-trigger` and other `hx-*` attributes are
-not URLs and are never sanitized.
-:::
+It classifies `hx-get`, `hx-post`, `hx-put`, `hx-delete`, and `hx-patch` as URL
+attributes. Other htmx attributes such as `hx-target`, `hx-swap`, and
+`hx-trigger` stay plain. Unknown preset names are configuration errors.
 
-Presets compose additively with `[[url_attrs]]` and with `gen.WithURLPreset`; an
-unknown preset name is a hard config error.
+`url_presets` is top-level, so place it before `[filters]`, `[formatter]`, or
+any other table.
 
-JavaScript and CSS-valued attributes do not need name configuration. Write them
-explicitly with `` js`...` `` or `` css`...` `` at the call site:
+## Formatter `[formatter]` {#formatter--gsx-fmt--editor-formatting}
 
-````gsx
-<button @click=js`save(@{id})`>Save</button>
-<div data-style=css`color:@{color}`>...</div>
-````
-
-### `[formatter]` — `gsx fmt` / editor formatting
-
-The `[formatter]` table configures the gsx formatter — both the `gsx fmt`
-command and editor format-on-save via the language server read it.
+Use `[formatter]` to keep `gsx fmt` and editor format-on-save consistent:
 
 ```toml
 [formatter]
-print_width = 100   # line width the formatter wraps at (default 120)
-tab_width   = 4     # columns one tab counts as, for measuring line width (default 2)
-imports     = "goimports"   # "goimports" (default) or "gofmt"
+print_width = 100
+tab_width = 4
+imports = "goimports"
 ```
 
-`print_width` is the column budget for a line. An opening tag whose attribute
-list fits stays on one line; one that exceeds the width wraps with one
-attribute per line (and its children break onto their own indented lines).
-The default is `120`. gsx markup nests, and each level of nesting spends part of the budget on indentation before a single character of content is printed; at `80` an element six levels deep has almost nothing left.
+| Key | Default | Values |
+|---|---|---|
+| `print_width` | `120` | Positive target line width. |
+| `tab_width` | `2` | Columns used when measuring a tab. Output indentation remains tabs. |
+| `imports` | `"goimports"` | `"goimports"` or `"gofmt"`. |
 
-`tab_width` does **not** change how indentation is emitted — `gsx fmt` always
-indents with tabs, never spaces. It only changes how wide a tab **counts** as
-when the formatter measures a line against `print_width`. The default is `2`.
+Width and tab precedence is:
 
-#### `.editorconfig`
-
-`gsx fmt` also reads [`.editorconfig`](https://editorconfig.org/), honoring
-exactly two keys:
-
-| Key | Effect |
-|-----|--------|
-| `tab_width` | how many columns one tab counts as when measuring a line (falls back to `indent_size`, per the EditorConfig spec) |
-| `max_line_length` | feeds `print_width`; `off` means "use gsx's default", since gsx has no unbounded width |
-
-`indent_style` is **not** honored. gofmt always emits tabs for Go, and gsx
-does not re-indent gofmt's output.
-
-Resolution order, highest first:
-
-```
-option (programmatic) > gsx.toml [formatter] > .editorconfig > built-in (print_width 120, tab_width 2)
+```text
+[formatter] > .editorconfig > built-in default
 ```
 
-There is no CLI flag or environment variable for either setting — same as
-`print_width`, which has never had one. An explicit `gsx.toml` setting wins
-even when an `.editorconfig` sits closer to the file being formatted:
-`.editorconfig` is a cross-tool baseline shared with other editors and
-formatters, while `gsx.toml [formatter]` is gsx's own, more specific answer. A
-key left **unset** in `gsx.toml` falls through to `.editorconfig` rather than
-clobbering it with the built-in default. A missing or malformed
-`.editorconfig` is ignored, never an error.
+There is no CLI, environment, or programmatic width/tab option. An unset key in
+`[formatter]` can still come from `.editorconfig`.
 
-The language server resolves the same precedence per document, so
-format-on-save always agrees with `gsx fmt`.
+Import mode uses a separate order:
 
-`imports` selects how `gsx fmt` and the language server treat the import
-declarations in a file's pass-through Go, mirroring the two modes gopls offers:
+```text
+gsx fmt -imports / -no-imports > [formatter].imports > goimports
+```
 
-- **`goimports`** (default) — remove unused imports, then merge every import
-  declaration into one block, dedup identical specs, and sort within each group.
-  A block with no blank lines is split into a standard-library group and an
-  everything-else group.
-- **`gofmt`** — format only: sort within an existing parenthesized group, but
-  never remove, merge, dedup, or regroup imports.
+`goimports` removes unused imports and normalizes declarations. `gofmt` formats
+the imports already present without removing, merging, or regrouping them.
 
-`goimports` mode calls the real `goimports` formatter, so it inherits its
-grouping rule: **blank lines you wrote are group boundaries, and they are never
-merged away.** If you hand-split a block into groups, those groups survive — a
-standard-library import in one and another in a second stay separated, exactly
-as the `goimports` command leaves them. Delete the blank lines to get the plain
-std / everything-else split.
+### `.editorconfig`
 
-Unlike real `goimports`, `gsx` cannot **add** a missing import: a gsx Go
-chunk's body never references the surrounding template's imports, so there is
-no symbol for the formatter to resolve to a package.
+For `.gsx` files, gsx reads two EditorConfig settings:
 
-`print_width`, `tab_width`, and `imports` are all resolved **per directory**
-from the nearest `gsx.toml` (same [discovery walk](#location--discovery) as
-everything else), so files in different modules of a monorepo can format with
-different settings.
+| Setting | Formatter setting |
+|---|---|
+| `max_line_length` | `print_width`; `off` falls back to gsx's default. |
+| `tab_width` | `tab_width`; falls back to `indent_size` when needed. |
 
-Like `[dev]`, this table only affects formatting — it never changes generated
-output, so it does not participate in the incremental codegen cache.
+`indent_style` does not change gsx output: indentation remains tabs.
 
-### `[minify]` — asset minification level
+<a id="minify--asset-minification-level"></a>
 
-gsx can minify the CSS inside `<style>` and the JavaScript inside `<script>` at
-codegen time. The `[minify]` table sets the level **per asset** — `css` and `js`
-are independent — each either `"none"` or `"full"`. The default is `"none"`:
-minification is **off by default** (fast, readable dev output); you opt into
-`"full"` for production builds.
+## Asset minification `[minify]` {#minify-asset-minification-level}
+
+Use `[minify]` to minify authored `<style>` CSS and `<script>` JavaScript:
 
 ```toml
 [minify]
-css = "full"   # "none" (default) | "full"
-js  = "full"
+css = "full"
+js = "full"
 ```
 
-| Level | What it does |
-|-------|--------------|
-| `none` *(default)* | Emit the asset **verbatim** — no minification. Keeps generated output readable and the incremental cache warm; best for the dev loop. A custom minifier (below) is not called. |
-| `full` | Maximal **safe** compression via a full parse (tdewolff): collapses whitespace *and* newlines (ASI-safe — explicit semicolons are emitted) for the smallest output. It **never renames identifiers and never obfuscates** — variable names are preserved. Best for production builds; note it **bypasses the incremental codegen cache**, so reserve it for prod rather than the dev loop. |
+| Value | Result |
+|---|---|
+| `none` | No minification. This is the default. |
+| `full` | Run the full CSS or JavaScript minifier. |
 
-A [custom minifier](./extensions.md#minify-level)
-(`gen.WithCSSMinifier` / `gen.WithJSMinifier`), if installed, **replaces** the
-built-in `full` minifier. At `none` no minifier runs.
+At `full`, CSS containing `@{...}` holes uses gsx's built-in hole-aware safe
+pass. A `<script>` body containing holes remains unminified.
 
-**Overrides & precedence — `option > env > config-file`:**
+CSS and JavaScript are configured independently. `GSX_MINIFY=none` or
+`GSX_MINIFY=full` overrides both file values, and `gen.WithMinifyLevel` in a
+custom binary overrides the environment.
 
-- The `[minify]` table is the **file default**.
-- The `GSX_MINIFY` environment variable is the **dev↔prod switch** that overrides
-  the file: `none` or `full`, applied to **both** assets — `GSX_MINIFY=full` for
-  a production build, `GSX_MINIFY=none` for the dev loop.
-- `gen.WithMinifyLevel(css, js)` in a `cmd/gsx` binary wins over **both** (code
-  is the most deliberate layer).
+Custom CSS or JavaScript minifier functions remain a Go extension; see
+[Extensions](./extensions.md#minify-level).
 
-`gsx info` reports the resolved level for each asset and which environment
-overrides are in effect (see below).
+## Class merging `class_merger` {#class_merger-tailwind-aware-class-merge-strategy}
 
-### `class_merger` — Tailwind-aware class merge strategy
-
-gsx composes `class` attributes from static parts, `clsx`-style toggles, and
-explicitly forwarded attrs, then passes the raw per-source class strings through a *merge
-strategy* that produces the final value. The default (`gsx.DefaultClassMerge`)
-returns a single source verbatim and dedupes multiple sources last-wins — correct
-for vanilla CSS but not for Tailwind, where conflicting utilities like `px-4 px-8`
-must collapse to `px-8`.
-
-Set `class_merger` to replace the default with a Tailwind-aware implementation:
+Use `class_merger` when exact-token deduplication is not enough, such as when
+Tailwind utilities `px-4` and `px-8` should collapse to `px-8`:
 
 ```toml
-class_merger = "myapp/twcfg.Merge"   # an exported func([]string) string (func or var)
+class_merger = "example.com/app/twcfg.Merge"
 ```
 
-**Signature contract.** The named identifier must be an **exported package-level
-identifier** (a func declaration *or* a package-level var of a func type) with the
-signature **exactly `func([]string) string`**. gsx emits a **direct reference** to
-the symbol — no generated adapter. Any other signature — variadic, wrong arity,
-non-string return — is a **generate-time error** that names the bad signature and
-points at the wrapper idiom below. For example, naming `tailwind-merge-go.Merge`
-directly fails because its type is `func(...ClassNameValue) string`, not
-`func([]string) string`.
-
-**What the merger receives.** Each element is the **raw, un-split class string of
-one source** — a component with `class="px-4 py-2"` and an explicitly forwarded
-`class="px-8"` pass `["px-4 py-2", "px-8"]`. gsx does not pre-split or pre-join:
-a real Tailwind merger splits and resolves conflicts itself.
-`tailwind-merge-go`'s merge function accepts a `[]string` directly (each element is
-split internally), so a wrapper passes the slice straight through — **no join**.
-
-**The wrapper idiom for custom-configured mergers.** `tailwind-merge-go` mergers
-are runtime-constructed values, not named top-level functions, so they cannot be
-named directly in `gsx.toml`. Put a thin exported wrapper in your own utilities
-package and name that instead:
+The named exported package-level symbol must have exactly this type:
 
 ```go
-// package myapp/twcfg
+func([]string) string
+```
+
+When the merger is invoked, it receives one raw class string per contributing
+source. A Tailwind wrapper can pass that slice directly to the configured
+merger:
+
+```go
+package twcfg
+
 import "github.com/jackielii/tailwind-merge-go/pkg/twmerge"
 
 var merger = twmerge.CreateTwMerge(twmerge.GetDefaultConfig())
-// or: twmerge.ExtendTailwindMerge(&twmerge.ConfigExtension{...})
 
-// Merge is what gsx.toml names. Already func([]string) string — no join.
 func Merge(classes []string) string { return merger(classes) }
 ```
 
-```toml
-class_merger = "myapp/twcfg.Merge"
-```
+With multiple sources, the default strategy removes exact duplicate tokens with
+the later occurrence winning. A single source is preserved verbatim. A
+programmatic `gen.WithClassMerger` overrides `class_merger`.
 
-The wrapper already has the canonical signature, so gsx emits a direct reference
-with no adapter. The merger library, its custom configuration, its cache, and its
-version all live in `myapp/twcfg` and your project's `go.mod` — gsx's runtime
-never imports the library, so upgrading or swapping `tailwind-merge-go` is a
-`go.mod` bump and a `gsx generate`, not a gsx release.
+`class_merger` is top-level, so place it before the first table header. See
+[Styling](./syntax/styling.md#tailwind-aware-class-merging) for where class
+sources merge.
 
-**Option route (custom binary).** `gen.WithClassMerger(fn)` in a project
-`cmd/gsx/main.go` accepts a Go function value (e.g. a top-level
-`func Merge([]string) string`). Precedence is **option > config**: when both are
-set, the option wins. The option route requires a [project
-`cmd/gsx`](./extensions.md); prefer `gsx.toml` unless you already maintain one.
+## Complete example
 
-## Full example
+This is a typical multi-section file. Top-level keys come first:
 
 ```toml
-# gsx.toml
-#
-# Top-level keys (filter_packages, class_merger, …) come BEFORE any [table]
-# header — TOML attaches a bare key to whichever table precedes it, so
-# e.g. class_merger after [minify] would silently become minify.class_merger.
+filter_packages = ["example.com/app/templatefuncs"]
+url_presets = ["htmx"]
+class_merger = "example.com/app/twcfg.Merge"
 
-# (optional) packages whose exported funcs are all registered as filters,
-# named by lower-cased func name. std is always available and not listed.
-filter_packages = ["example.com/myproject/templatefuncs"]
+[dev]
+web = ["pnpm", "vite"]
 
-# Tailwind-aware class merger (omit to use gsx's built-in last-wins dedup).
-class_merger = "myapp/twcfg.Merge"
-
-# Named pipeline filters: { value |> name(args) }
 [filters]
-url    = "github.com/jackielii/structpages.URLFor"
-id     = "github.com/jackielii/structpages.ID"
-target = "github.com/jackielii/structpages.IDTarget"
+url = "github.com/jackielii/structpages.URLFor"
 
-# Type-directed renderers: a registered type renders through its func
-# wherever gsx renders a value (see [renderers] below).
-[renderers]
-"github.com/jackc/pgx/v5/pgtype.Text" = "example.com/app/filters.PgText"
-
-# URL attribute contexts beyond the built-ins.
-[[url_attrs]]
-name = "data-href"
-
-# Formatter settings for gsx fmt and editor formatting.
 [formatter]
 print_width = 100
-tab_width   = 2
-imports     = "goimports"
+imports = "goimports"
 
-# Asset minification level (per asset; "none" default, "full" for prod).
 [minify]
 css = "full"
-js  = "full"
+js = "full"
 ```
 
-## What is *not* in `gsx.toml`
+## What stays in Go
 
-Options whose value is a Go **function** cannot be expressed in TOML and stay
-code-only, configured through a project `cmd/gsx/main.go` that calls `gen.Main`
-(see [Extensions](./extensions.md)):
+Only function-valued hooks need a project-owned `gen.Main` binary:
 
-- a custom CSS/JS minifier (`gen.WithCSSMinifier` / `gen.WithJSMinifier`),
-- a custom CSS/JS formatter (`gen.WithCSSFormatter` / `gen.WithJSFormatter`),
-- a field matcher (`gen.WithFieldMatcher`).
+- custom CSS or JavaScript formatters;
+- custom CSS or JavaScript minifiers;
+- a custom props field matcher.
 
-When a project does use a `cmd/gsx` binary, `gen.Main` loads `gsx.toml` as the
-**base** configuration and applies the programmatic options **on top** (filters
-and URL rules from code are appended; a code-registered filter overrides a
-same-named config filter). So even a code-configured project keeps its simple
-filters/rules in `gsx.toml` and writes Go only for the function-valued options.
+See [Extensions](./extensions.md) for setup and option details. Declarative
+filters, renderers, URL rules, minification levels, and class-merger references
+can stay in `gsx.toml`.
 
-> **Unknown keys are rejected.** A typo (e.g. `filterz`, or a misspelled nested
-> key) fails generation with an error naming the offending key — gsx does not
-> silently ignore unrecognized configuration.
+## Inspect the resolved configuration
 
-## Verifying with `gsx info`
+Use the human view while diagnosing a project:
 
-`gsx info` is the single source of truth for the configuration in effect. It
-prints the discovered `gsx.toml` path (or `config: none`), the fully-resolved
-filters and URL attribute rules, the resolved **minify level** per asset, and an
-**Environment** section listing every `GSX_*` override and whether it is
-currently set — the answer to "which config is active, and is my `GSX_MINIFY`
-actually taking effect":
-
-```sh
-gsx info          # human-readable: config path + filters + URL attrs + minify + env
-gsx info --json   # machine-readable (same data)
+```bash
+gsx info
 ```
 
-## Generating
+It shows the active config path and selected resolved settings. For scripts,
+use the JSON view:
 
-The stock binary reads the config — no per-project generator needed:
-
-```sh
-go install github.com/gsxhq/gsx/cmd/gsx@latest
-gsx generate .            # one package
-gsx generate ./a ./b      # several packages (e.g. a multi-package app)
+```bash
+gsx info --json
 ```
+
+The human and JSON commands expose different, incomplete inspection views;
+neither is an exhaustive dump of every setting. Do not parse the human output
+in automation.

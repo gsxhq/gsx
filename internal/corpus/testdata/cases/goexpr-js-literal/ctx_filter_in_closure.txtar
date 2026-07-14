@@ -57,7 +57,8 @@ func Page(_gsxp PageProps) _gsxrt.Node {
 //line input.gsx:8:2
 		_gsxgw.S("<div>")
 //line input.gsx:8:7
-		_gsxgw.Node(ctx, take(_gsxrt.RawJS("f("+_gsxrt.EscapeJSVal(_gsxf0.Up(ctx, (v)))+")")))
+		_gsxv0 := _gsxrt.EscapeJSVal(_gsxf0.Up(ctx, (v)))
+		_gsxgw.Node(ctx, take(_gsxrt.RawJS("f("+_gsxv0+")")))
 		_gsxgw.S("</div>")
 		return _gsxgw.Err()
 	})

@@ -1,0 +1,12 @@
+# W3c: a prefixed literal used as a pipe stage's ARGUMENT (not its seed) is not
+# supported — st.Args is spliced verbatim as Go source by lowerPipe, and a
+# literal's gsx-only syntax (the @{ } hole, the backtick delimiter) is not
+# valid Go there. Caught in probeExpr, the single choke point every stage's
+# Args passes through before skeleton assembly, so the cryptic downstream
+# invalid-Go skeleton failure never surfaces — just this positioned diagnostic.
+-- input.gsx --
+package views
+
+component Hi(who string) { <p>{ who |> printf(f`%s!`) }</p> }
+-- diagnostics.golden --
+3:31: prefixed literals in pipe-stage arguments are not supported; assign the literal to a variable first
