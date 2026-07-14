@@ -1357,15 +1357,19 @@ vocabulary remains a design aspiration, not the current API.
   `go/types` identity, so a pointer and its value type are distinct
   registrations. `(R, error)` renderers ride the existing pipe-error-any-stage
   machinery (hoist + halt on error), same for both harvest paths. Folded into
-  `computeKey` (a registration change busts the codegen cache). **Deferred:**
+  `computeKey` (a registration change busts the codegen cache). A renderer
+  target inside the active module bootstraps directly from local `.gsx` source,
+  with no pre-existing `.x.go` or Go companion required; a renderer target
+  outside that module must already be a buildable Go/generated package.
+  **Deferred:**
   type-parameter holes do not consult the registry; values that only exist as
   runtime `any` (attr-map entries, spreads) never see a renderer. Spec
   `2026-07-11-renderers-registry-design.md`. Docs:
-  `docs/guide/config.md#renderers-type-directed-value-rendering`.
+  `docs/guide/config.md#renderers-type-directed-value-rendering` and
+  `docs/guide/patterns/package-renderers.md`.
   **Follow-ups (tracked below):** LSP hover on a hole showing the applied
   renderer; type-param holes consulting the registry when the type set is a
-  single registered named type; a documented pgx/`pgtype` converter recipe
-  (or `preset = "pgx"` à la the htmx URL preset).
+  single registered named type.
 - [ ] **LSP hover: show the applied renderer** - a hole whose value is
   rendered through a `[renderers]` registration currently hovers the same as
   any other typed expression; hover should additionally surface `rendered via
@@ -1379,12 +1383,13 @@ vocabulary remains a design aspiration, not the current API.
   classification rules) is deferred - it needs its own matching-rule design
   (single-type-set vs. union) rather than piggybacking on the concrete-type
   matcher. Spec `2026-07-11-renderers-registry-design.md`, "Follow-ups".
-- [ ] **A documented pgx/`pgtype` converter recipe or `preset = "pgx"`** - the
-  renderers registry makes `pgtype.Text`/`pgtype.Timestamp`/etc. renderable,
-  but each project still hand-writes its own `PgText`/`PgDateTime`-style
-  converters and NULL/format policy. A recipe page (or a bundled preset
-  mirroring the `url_presets = ["htmx"]` shape) would ship sane defaults
-  instead of every project rediscovering them. Spec
+- [x] **Application-owned pgx/`pgtype` renderer pattern - SHIPPED
+  `2026-07-14`.** `docs/guide/patterns/package-renderers.md` documents a
+  complete `pgtype.Timestamptz` renderer for `NULL`, both infinity values, and
+  finite RFC 3339 `<time datetime>` output with a `time.DateTime` display label.
+  It uses a module-local `.gsx` renderer package, the exact TOML registration
+  and generate command, and direct consumer interpolation. The choices remain
+  explicit application policy rather than a bundled pgx preset. Spec
   `2026-07-11-renderers-registry-design.md`, "Follow-ups".
 - [x] **`classEntryExpr` bare-identifier probe gap - FIXED `2026-07-12`
   (#85).** A component `class={ expr }` prop's probe/skeleton pass stubbed
