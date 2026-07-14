@@ -214,3 +214,43 @@ func TestMinifyJSAttrHoleySafeUnchanged(t *testing.T) {
 		t.Fatalf("holey js under safe level must be unchanged, got %#v", attrSegs(f))
 	}
 }
+
+// A SINGLE-property object literal is a valid *program* (labeled block), so a
+// raw-first cascade would strip its braces and break it. It must stay an object.
+func TestMinifyJSAttrSinglePropObject(t *testing.T) {
+	for _, in := range []string{"{ open: false }", "{ count: 0 }", "{ items: ['a', 'b'] }"} {
+		f := fileWith(divAttr(&ast.EmbeddedAttr{Name: "x-data", Lang: ast.EmbeddedJS, DoubleQuoted: true,
+			Segments: []ast.Markup{&ast.Text{Value: in}}}))
+		if err := jsminFileMinify(f, fullminJS); err != nil {
+			t.Fatal(err)
+		}
+		got := attrSegs(f)[0].(*ast.Text).Value
+		// must still be an object expression: start with `(` or `{`, contain `{`, and NOT be a bare `key:val` label statement.
+		if !has(got, "{") || (got[0] != '(' && got[0] != '{') {
+			t.Fatalf("%q → %q: object braces stripped (became a label statement)", in, got)
+		}
+	}
+}
+
+// A SINGLE-property HOLEY object must also keep its braces (sentinel text starts
+// with `{` → wrap-first), else the hole ends up in a stripped label statement.
+func TestMinifyJSAttrSinglePropHoley(t *testing.T) {
+	f := fileWith(divAttr(&ast.EmbeddedAttr{Name: "x-data", Lang: ast.EmbeddedJS, DoubleQuoted: true,
+		Segments: []ast.Markup{&ast.Text{Value: "{ id: "}, &ast.Interp{Expr: "id"}, &ast.Text{Value: " }"}}}))
+	if err := jsminFileMinify(f, fullminJS); err != nil {
+		t.Fatal(err)
+	}
+	segs := attrSegs(f)
+	text, hasHole := "", false
+	for _, s := range segs {
+		switch x := s.(type) {
+		case *ast.Text:
+			text += x.Value
+		case *ast.Interp:
+			hasHole = true
+		}
+	}
+	if !hasHole || !has(text, "{") || (text[0] != '(' && text[0] != '{') {
+		t.Fatalf("single-prop holey object broke: %q (hole=%v)", text, hasHole)
+	}
+}

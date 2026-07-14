@@ -177,16 +177,28 @@ func minifyJSEmbedded(v *ast.EmbeddedAttr, ext func(string) (string, error)) {
 }
 
 // cascadeJS minifies a JS FRAGMENT. tdewolff (ext) parses its input as a program,
-// so a bare object literal (`{…}`) errors; wrapping it as `(…)` makes it a valid
-// expression that fully minifies (the `(…)` is kept — a parenthesized expression
-// is an equivalent value). Order: ext(raw) → ext("("+raw+")") → the safe,
-// never-erroring built-in (also the whole safe level, where ext is nil).
+// so an object literal must be minified as an EXPRESSION via a `(…)` wrap (kept in
+// output — a parenthesized expression is an equivalent value).
+//
+// Order matters. A value that starts with `{` is an object literal (x-data,
+// Alpine `:class`/`:style` object bindings) OR a `{ … }` statement block. Parsing
+// it raw is WRONG for a single-property object: `{ open: false }` is a valid
+// program (a labeled block — `open:` label + `false`), so ext(raw) would strip
+// the braces to `open:!1` and break it. So for `{`-leading values we wrap FIRST
+// (object expression) and fall back to raw (a real statement block, where the
+// wrap fails). Non-`{` values (handler statements, call expressions) parse raw
+// first. Either way, the safe never-erroring built-in is the final fallback (and
+// the whole safe level, where ext is nil).
 func cascadeJS(text string, ext func(string) (string, error)) string {
 	if ext != nil {
-		if o, err := ext(text); err == nil {
+		first, second := text, "("+text+")"
+		if strings.HasPrefix(strings.TrimLeft(text, " \t\r\n"), "{") {
+			first, second = second, first
+		}
+		if o, err := ext(first); err == nil {
 			return o
 		}
-		if o, err := ext("(" + text + ")"); err == nil {
+		if o, err := ext(second); err == nil {
 			return o
 		}
 	}
