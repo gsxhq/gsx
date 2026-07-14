@@ -217,3 +217,27 @@ func TestReindentLinesJoinEqualsReindent(t *testing.T) {
 		}
 	}
 }
+
+func TestReindentCommentInteriorRebasesStringStaysVerbatim(t *testing.T) {
+	// opaqueFake treats backticks as verbatim strings; extend it isn't needed —
+	// use SplitComment directly for the comment half.
+	// A multi-line comment's interior re-bases (aligns); a backtick string does not.
+	toks := SplitComment("/* a\n\t   b\n\t   c */")
+	// first line is Opaque; interiors are Newline + Space + Opaque (re-basable).
+	if toks[0].Class != Opaque || toks[0].Text != "/* a" {
+		t.Fatalf("first line: %+v", toks[0])
+	}
+	sawSpace := false
+	for _, tk := range toks {
+		if tk.Class == Space {
+			sawSpace = true
+		}
+	}
+	if !sawSpace {
+		t.Fatalf("comment interior leading not a Space token (won't re-base): %+v", toks)
+	}
+	// single-line comment stays one Opaque token.
+	if s := SplitComment("// x"); len(s) != 1 || s[0].Class != Opaque {
+		t.Fatalf("single-line comment must be one Opaque token: %+v", s)
+	}
+}

@@ -1,18 +1,17 @@
-A multi-line js"…" attribute value is re-indented under its attribute: the
-opening delimiter+brace attach to the js" line, the body sits one level deeper
-(brace-nested deeper still), and the closing brace+delimiter dedent back to the
-attribute's indent. Re-indent only — no reflow.
+A multi-line js"…" attribute value re-bases the body under its attribute: the
+common (source) indentation is stripped and the author's relative structure kept
+(items() body one level deeper). Re-base only — no reflow.
 
 -- input.gsx --
 package p
 
 component C() {
 	<form x-data=js"{
-open: false,
-items() {
-return 1;
-}
-}" class="c"/>
+		open: false,
+		items() {
+			return 1;
+		}
+	}" class="c"/>
 }
 -- fmt.golden --
 package p
@@ -20,10 +19,10 @@ package p
 component C() {
 	<form
 		x-data=js"{
-		open: false,
-		items() {
-		return 1;
-		}
+			open: false,
+			items() {
+				return 1;
+			}
 		}"
 		class="c"
 	/>
