@@ -165,3 +165,52 @@ func TestMinifyJSAttrIgnoresCSSLang(t *testing.T) {
 		t.Fatalf("css attr touched by JS pass")
 	}
 }
+
+func TestMinifyJSAttrHoleyFull(t *testing.T) {
+	f := fileWith(divAttr(&ast.EmbeddedAttr{Name: "x-data", Lang: ast.EmbeddedJS, DoubleQuoted: true,
+		Segments: []ast.Markup{
+			&ast.Text{Value: "{\n  id: "},
+			&ast.Interp{Expr: "id"},
+			&ast.Text{Value: ",\n  k: 1,\n}"},
+		}}))
+	if err := jsminFileMinify(f, fullminJS); err != nil {
+		t.Fatal(err)
+	}
+	segs := attrSegs(f)
+	hasInterp := false
+	text := ""
+	for _, s := range segs {
+		switch x := s.(type) {
+		case *ast.Interp:
+			hasInterp = true
+			if x.Expr != "id" {
+				t.Fatalf("hole expr changed: %q", x.Expr)
+			}
+		case *ast.Text:
+			text += x.Value
+		}
+	}
+	if !hasInterp {
+		t.Fatalf("hole lost: %#v", segs)
+	}
+	if has(text, "gsxHole") {
+		t.Fatalf("sentinel leaked: %q", text)
+	}
+	if containsNL(text) {
+		t.Fatalf("not minified (newlines remain): %q", text)
+	}
+	if !has(text, "id") || !has(text, "k") {
+		t.Fatalf("keys lost: %q", text)
+	}
+}
+
+func TestMinifyJSAttrHoleySafeUnchanged(t *testing.T) {
+	f := fileWith(divAttr(&ast.EmbeddedAttr{Name: "x-data", Lang: ast.EmbeddedJS,
+		Segments: []ast.Markup{&ast.Text{Value: "{ id: "}, &ast.Interp{Expr: "id"}, &ast.Text{Value: " }"}}}))
+	if err := jsminFileMinify(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(attrSegs(f)) != 3 {
+		t.Fatalf("holey js under safe level must be unchanged, got %#v", attrSegs(f))
+	}
+}

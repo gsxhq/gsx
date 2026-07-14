@@ -2,6 +2,7 @@ package jsmin
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/gsxhq/gsx/ast"
@@ -192,6 +193,93 @@ func cascadeJS(text string, ext func(string) (string, error)) string {
 	return minifyJS(text)
 }
 
-// minifyJSEmbeddedHoley is implemented in Task 2; for now a holey js attribute is
-// left unchanged (matches the holey <script> policy).
-func minifyJSEmbeddedHoley(v *ast.EmbeddedAttr, ext func(string) (string, error)) {}
+// minifyJSEmbeddedHoley minifies a holey js`…` attribute value under the FULL
+// minifier via a sentinel round-trip: each @{ } hole becomes a collision-free
+// FREE IDENTIFIER (which tdewolff never mangles), the whole is cascade-minified,
+// then the sentinels are split back into the original *ast.Interp holes. Safe
+// because attribute holes sit in expression value positions (object property
+// values, call args, spreads). Under the safe level (ext == nil) a holey value is
+// left unchanged, matching the holey <script> policy.
+func minifyJSEmbeddedHoley(v *ast.EmbeddedAttr, ext func(string) (string, error)) {
+	if ext == nil {
+		return
+	}
+	// A collision-free identifier prefix absent from every Text segment. The
+	// sentinel is `<prefix><index>z` — prefix and digits are identifier chars and
+	// the `z` terminates the digit run so `<prefix>1z` and `<prefix>12z` never
+	// alias.
+	var scan strings.Builder
+	for _, s := range v.Segments {
+		if t, ok := s.(*ast.Text); ok {
+			scan.WriteString(t.Value)
+		}
+	}
+	prefix := "gsxHole"
+	for strings.Contains(scan.String(), prefix) {
+		prefix += "q"
+	}
+
+	var sb strings.Builder
+	var interps []*ast.Interp
+	for _, s := range v.Segments {
+		switch t := s.(type) {
+		case *ast.Text:
+			sb.WriteString(t.Value)
+		case *ast.Interp:
+			sb.WriteString(prefix)
+			sb.WriteString(strconv.Itoa(len(interps)))
+			sb.WriteByte('z')
+			interps = append(interps, t)
+		}
+	}
+	min := cascadeJS(sb.String(), ext)
+	if out, ok := splitJSSentinels(min, prefix, interps); ok {
+		v.Segments = out
+	}
+	// On any sentinel mismatch, leave v.Segments unchanged (safe).
+}
+
+// splitJSSentinels reassembles a minified sentinel string into Text + Interp
+// nodes. Each `<prefix><digits>z` run is replaced by interps[<digits>]; the spans
+// between become Text nodes. ok=false if any sentinel index is out of range,
+// duplicated, or missing (every hole must survive exactly once).
+func splitJSSentinels(s, prefix string, interps []*ast.Interp) ([]ast.Markup, bool) {
+	var out []ast.Markup
+	var text strings.Builder
+	seen := make([]bool, len(interps))
+	flush := func() {
+		if text.Len() > 0 {
+			out = append(out, &ast.Text{Value: text.String()})
+			text.Reset()
+		}
+	}
+	for i := 0; i < len(s); {
+		if strings.HasPrefix(s[i:], prefix) {
+			j := i + len(prefix)
+			k := j
+			for k < len(s) && s[k] >= '0' && s[k] <= '9' {
+				k++
+			}
+			if k > j && k < len(s) && s[k] == 'z' {
+				idx, _ := strconv.Atoi(s[j:k])
+				if idx < 0 || idx >= len(interps) || seen[idx] {
+					return nil, false
+				}
+				seen[idx] = true
+				flush()
+				out = append(out, interps[idx])
+				i = k + 1
+				continue
+			}
+		}
+		text.WriteByte(s[i])
+		i++
+	}
+	flush()
+	for _, ok := range seen {
+		if !ok {
+			return nil, false
+		}
+	}
+	return out, true
+}
