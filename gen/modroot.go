@@ -5,10 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/gsxhq/gsx/internal/codegen"
-	"golang.org/x/mod/module"
+	"github.com/gsxhq/gsx/internal/modpath"
 )
 
 // moduleGroup is a set of package directories that share one enclosing module,
@@ -78,35 +77,8 @@ func moduleRoot(dir string) (string, string, error) {
 // target must remain under the corresponding module root; an in-root symlink is
 // allowed, while a symlink escape is not.
 func moduleDirForImportPath(moduleRoot, modulePath, importPath string) (string, bool) {
-	if moduleRoot == "" || module.CheckImportPath(modulePath) != nil || module.CheckImportPath(importPath) != nil {
-		return "", false
-	}
-	var rel string
-	switch {
-	case importPath == modulePath:
-	case strings.HasPrefix(importPath, modulePath+"/"):
-		rel = strings.TrimPrefix(importPath, modulePath+"/")
-	default:
-		return "", false
-	}
-	root, err := filepath.Abs(moduleRoot)
-	if err != nil {
-		return "", false
-	}
-	root = filepath.Clean(root)
-	candidate := root
-	if rel != "" {
-		candidate = filepath.Join(root, filepath.FromSlash(rel))
-	}
-	if !dirContainedBy(root, candidate) {
-		return "", false
-	}
-	resolvedRoot, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		return "", false
-	}
-	resolvedCandidate, err := filepath.EvalSymlinks(candidate)
-	if err != nil || !dirContainedBy(resolvedRoot, resolvedCandidate) {
+	candidate, ok := modpath.DirForImportPath(moduleRoot, modulePath, importPath)
+	if !ok {
 		return "", false
 	}
 	info, err := os.Stat(candidate)
@@ -114,12 +86,4 @@ func moduleDirForImportPath(moduleRoot, modulePath, importPath string) (string, 
 		return "", false
 	}
 	return candidate, true
-}
-
-func dirContainedBy(root, candidate string) bool {
-	rel, err := filepath.Rel(root, candidate)
-	if err != nil || filepath.IsAbs(rel) {
-		return false
-	}
-	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }

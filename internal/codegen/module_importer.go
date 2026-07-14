@@ -21,6 +21,7 @@ import (
 	"github.com/gsxhq/gsx/internal/attrclass"
 	"github.com/gsxhq/gsx/internal/diag"
 	"github.com/gsxhq/gsx/internal/jsx"
+	"github.com/gsxhq/gsx/internal/modpath"
 	"github.com/gsxhq/gsx/internal/wsnorm"
 	gsxparser "github.com/gsxhq/gsx/parser"
 )
@@ -41,15 +42,7 @@ func importPathForDir(moduleRoot, modulePath, dir string) (string, bool) {
 // dirForImportPath is the inverse of importPathForDir. ok is false when
 // importPath is not under modulePath (e.g. stdlib or third-party).
 func dirForImportPath(moduleRoot, modulePath, importPath string) (string, bool) {
-	if importPath == modulePath {
-		return moduleRoot, true
-	}
-	prefix := modulePath + "/"
-	if !strings.HasPrefix(importPath, prefix) {
-		return "", false
-	}
-	rel := strings.TrimPrefix(importPath, prefix)
-	return filepath.Join(moduleRoot, filepath.FromSlash(rel)), true
+	return modpath.DirForImportPath(moduleRoot, modulePath, importPath)
 }
 
 // checkSkeletonPackage type-checks already-parsed package files against imp and
